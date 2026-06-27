@@ -190,7 +190,7 @@ impl<'a> FunctionEmitter<'a> {
         let mut locals = HashMap::new();
         let mut next_slot = 1;
         for param in &function.params {
-            locals.insert(param.clone(), -8 * next_slot);
+            locals.insert(param.name.clone(), -8 * next_slot);
             next_slot += 1;
         }
         collect_block_bindings(&function.body, &mut locals, &mut next_slot);
@@ -243,7 +243,7 @@ impl<'a> FunctionEmitter<'a> {
                     "native backend supports at most 8 function parameters",
                 ));
             }
-            let offset = self.local_offset(param)?;
+            let offset = self.local_offset(&param.name)?;
             match self.target {
                 Target::Aarch64AppleDarwin => {
                     out.push_str(&format!("    str x{index}, [x29, #{offset}]\n"));
@@ -295,7 +295,7 @@ impl<'a> FunctionEmitter<'a> {
         let mut last_was_expr = false;
         for item in &block.items {
             match item {
-                BlockItem::Binding { name, expr } => {
+                BlockItem::Binding { name, expr, .. } => {
                     self.emit_expr(expr, out)?;
                     let offset = self.local_offset(name)?;
                     self.store_result(offset, out);
@@ -327,6 +327,11 @@ impl<'a> FunctionEmitter<'a> {
                 if let Some(tag) = self.find_variant_tag(name) {
                     self.emit_i32(tag as u32, out);
                     return Ok(());
+                }
+                if self.find_program_function(name) || self.find_external_function(name).is_some() {
+                    return Err(Error::new(format!(
+                        "native backend does not support function value `{name}` yet"
+                    )));
                 }
                 let offset = self.local_offset(name)?;
                 match self.target {
@@ -418,6 +423,12 @@ impl<'a> FunctionEmitter<'a> {
                 function.name,
                 format_external_path(function),
                 self.target
+            )));
+        }
+
+        if !self.find_program_function(name) {
+            return Err(Error::new(format!(
+                "native backend does not support calling function value `{name}` yet"
             )));
         }
 
@@ -756,12 +767,19 @@ impl<'a> FunctionEmitter<'a> {
             }
         })
     }
+
+    fn find_program_function(&self, name: &str) -> bool {
+        self.program
+            .functions()
+            .iter()
+            .any(|function| function.name == name)
+    }
 }
 
 fn collect_block_bindings(block: &Block, locals: &mut HashMap<String, i32>, next_slot: &mut i32) {
     for item in &block.items {
         match item {
-            BlockItem::Binding { name, expr } => {
+            BlockItem::Binding { name, expr, .. } => {
                 locals.entry(name.clone()).or_insert_with(|| {
                     let offset = -8 * *next_slot;
                     *next_slot += 1;

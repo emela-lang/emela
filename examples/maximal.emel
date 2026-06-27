@@ -6,39 +6,39 @@ fn tick!() -> Unit {
   ()
 }
 
-fn add(x, y) -> I32 {
+fn add(x: I32, y: I32) -> I32 {
   x + y
 }
 
-fn sub(x, y) -> I32 {
+fn sub(x: I32, y: I32) -> I32 {
   x - y
 }
 
-fn mul(x, y) -> I32 {
+fn mul(x: I32, y: I32) -> I32 {
   x * y
 }
 
-fn is_answer(value) -> Bool {
+fn is_answer(value: I32) -> Bool {
   value == 42
 }
 
-fn below_limit(value) -> Bool {
+fn below_limit(value: I32) -> Bool {
   value < 50
 }
 
-fn choose(flag, yes, no) -> I32 {
+fn choose(flag: Bool, yes: I32, no: I32) -> I32 {
   match flag {
     true -> yes
     false -> no
   }
 }
 
-fn scoped(base) -> I32 {
-  doubled = {
-    tmp = mul(base, 2)
+fn scoped(base: I32) -> I32 {
+  doubled: I32 = {
+    tmp: I32 = mul(base, 2)
     tmp
   }
-  adjusted = match below_limit(doubled) {
+  adjusted: I32 = match below_limit(doubled) {
     true -> add(doubled, 2)
     false -> sub(doubled, 2)
   }
@@ -47,13 +47,13 @@ fn scoped(base) -> I32 {
 
 fn main!() -> I32 {
   tick!()
-  product = mul(6, 7)
-  matches = is_answer(product)
-  nested = {
-    inner = scoped(20)
+  product: I32 = mul(6, 7)
+  matches: Bool = is_answer(product)
+  nested: I32 = {
+    inner: I32 = scoped(20)
     inner
   }
-  result = choose(matches, nested, 1)
+  result: I32 = choose(matches, nested, 1)
   match result == 42 {
     true -> result
     false -> 2
