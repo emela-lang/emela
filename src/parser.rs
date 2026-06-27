@@ -1,5 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Capability, Expr, Function, MatchArm, Pattern, PrimType, Program,
+    BinaryOp, Block, BlockItem, Capability, EnumDecl, EnumVariant, Expr, Function, MatchArm,
+    Pattern, PrimType, Program, StructDecl, StructField, TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
 use crate::lexer::{Token, TokenKind};
@@ -15,14 +16,67 @@ impl Parser {
     }
 
     pub(crate) fn parse_program(&mut self) -> Result<Program> {
-        let mut functions = Vec::new();
+        let mut items = Vec::new();
         self.skip_newlines();
         while !self.at(&TokenKind::Eof) {
-            let attributes = self.parse_attributes()?;
-            functions.push(self.parse_function(attributes)?);
+            if self.at(&TokenKind::Struct) {
+                items.push(TopLevelItem::Struct(self.parse_struct_decl()?));
+            } else if self.at(&TokenKind::Enum) {
+                items.push(TopLevelItem::Enum(self.parse_enum_decl()?));
+            } else {
+                let attributes = self.parse_attributes()?;
+                items.push(TopLevelItem::Function(self.parse_function(attributes)?));
+            }
             self.skip_newlines();
         }
-        Ok(Program { functions })
+        Ok(Program { items })
+    }
+
+    fn parse_struct_decl(&mut self) -> Result<StructDecl> {
+        self.expect(&TokenKind::Struct)?;
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+        self.skip_newlines();
+        let field_name = self.expect_ident()?;
+        self.expect(&TokenKind::Colon)?;
+        let ty = self.parse_type()?;
+        self.skip_newlines();
+        self.expect(&TokenKind::RBrace)?;
+        Ok(StructDecl {
+            name,
+            field: StructField {
+                name: field_name,
+                ty,
+            },
+        })
+    }
+
+    fn parse_enum_decl(&mut self) -> Result<EnumDecl> {
+        self.expect(&TokenKind::Enum)?;
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+        self.skip_newlines();
+        let mut variants = Vec::new();
+        while !self.at(&TokenKind::RBrace) {
+            if self.at(&TokenKind::Eof) {
+                return Err(Error::new("unterminated enum declaration"));
+            }
+            let variant_name = self.expect_ident()?;
+            let payload = if self.eat(&TokenKind::LParen) {
+                let ty = self.parse_type()?;
+                self.expect(&TokenKind::RParen)?;
+                Some(ty)
+            } else {
+                None
+            };
+            variants.push(EnumVariant {
+                name: variant_name,
+                payload,
+            });
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        Ok(EnumDecl { name, variants })
     }
 
     fn parse_attributes(&mut self) -> Result<FunctionAttributes> {
@@ -188,14 +242,20 @@ impl Parser {
         loop {
             if self.eat(&TokenKind::Dot) {
                 let name = self.expect_ident()?;
-                self.expect(&TokenKind::LParen)?;
-                let args = self.parse_argument_list()?;
-                self.expect(&TokenKind::RParen)?;
-                expr = Expr::MethodCall {
-                    receiver: Box::new(expr),
-                    name,
-                    args,
-                };
+                if self.eat(&TokenKind::LParen) {
+                    let args = self.parse_argument_list()?;
+                    self.expect(&TokenKind::RParen)?;
+                    expr = Expr::MethodCall {
+                        receiver: Box::new(expr),
+                        name,
+                        args,
+                    };
+                } else {
+                    expr = Expr::FieldAccess {
+                        receiver: Box::new(expr),
+                        field: name,
+                    };
+                }
             } else {
                 break;
             }
@@ -219,6 +279,17 @@ impl Parser {
             }
             TokenKind::Ident(_) => {
                 let name = self.parse_function_name()?;
+                if self.eat(&TokenKind::LBrace) {
+                    let field = self.expect_ident()?;
+                    self.expect(&TokenKind::Colon)?;
+                    let value = self.parse_expr()?;
+                    self.expect(&TokenKind::RBrace)?;
+                    return Ok(Expr::StructLiteral {
+                        name,
+                        field,
+                        value: Box::new(value),
+                    });
+                }
                 if self.eat(&TokenKind::LParen) {
                     let args = self.parse_argument_list()?;
                     self.expect(&TokenKind::RParen)?;
@@ -281,13 +352,13 @@ impl Parser {
         Ok(args)
     }
 
-    fn parse_type(&mut self) -> Result<PrimType> {
+    fn parse_type(&mut self) -> Result<Type> {
         let name = self.expect_ident()?;
         match name.as_str() {
-            "I32" | "i32" => Ok(PrimType::I32),
-            "Bool" | "bool" => Ok(PrimType::Bool),
-            "Unit" | "unit" => Ok(PrimType::Unit),
-            _ => Err(Error::new(format!("unknown type `{name}`"))),
+            "I32" | "i32" => Ok(Type::Prim(PrimType::I32)),
+            "Bool" | "bool" => Ok(Type::Prim(PrimType::Bool)),
+            "Unit" | "unit" => Ok(Type::Prim(PrimType::Unit)),
+            _ => Ok(Type::Named(name)),
         }
     }
 
@@ -313,6 +384,28 @@ impl Parser {
             TokenKind::Ident(name) if name == "_" => {
                 self.bump();
                 Ok(Pattern::Wildcard)
+            }
+            TokenKind::Ident(_) => {
+                let name = self.expect_ident()?;
+                if self.eat(&TokenKind::LParen) {
+                    let payload = self.parse_pattern()?;
+                    self.expect(&TokenKind::RParen)?;
+                    Ok(Pattern::Variant {
+                        name,
+                        payload: Some(Box::new(payload)),
+                    })
+                } else if name
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_uppercase())
+                {
+                    Ok(Pattern::Variant {
+                        name,
+                        payload: None,
+                    })
+                } else {
+                    Ok(Pattern::Var(name))
+                }
             }
             _ => Err(Error::new(format!(
                 "expected pattern at byte {}",

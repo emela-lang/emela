@@ -9,6 +9,9 @@ The current compiler supports:
 - `main` and `main!` executable entry points
 - block expressions and immutable local bindings
 - `I32`, `Bool`, and `Unit`
+- single-field `struct` declarations and field access
+- `enum` declarations with zero or one payload value per variant
+- `Result`-style enums with `match` over variant patterns
 - function calls
 - primitive method calls such as `x.add(y)`
 - operators backed by primitive trait-style methods: `+`, `-`, `*`, `==`, `<`
@@ -151,3 +154,4 @@ fn main!() -> I32 {
 - Runtime implementations for real I/O capabilities are not connected yet.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
+- Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.

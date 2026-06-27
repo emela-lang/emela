@@ -1,13 +1,56 @@
 #[derive(Debug, Clone)]
 pub(crate) struct Program {
-    pub(crate) functions: Vec<Function>,
+    pub(crate) items: Vec<TopLevelItem>,
+}
+
+impl Program {
+    pub(crate) fn functions(&self) -> Vec<&Function> {
+        self.items
+            .iter()
+            .filter_map(|item| match item {
+                TopLevelItem::Function(function) => Some(function),
+                TopLevelItem::Struct(_) | TopLevelItem::Enum(_) => None,
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum TopLevelItem {
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    Function(Function),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StructDecl {
+    pub(crate) name: String,
+    pub(crate) field: StructField,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StructField {
+    pub(crate) name: String,
+    pub(crate) ty: Type,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EnumDecl {
+    pub(crate) name: String,
+    pub(crate) variants: Vec<EnumVariant>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EnumVariant {
+    pub(crate) name: String,
+    pub(crate) payload: Option<Type>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Function {
     pub(crate) name: String,
     pub(crate) params: Vec<String>,
-    pub(crate) return_annotation: Option<PrimType>,
+    pub(crate) return_annotation: Option<Type>,
     pub(crate) requires: Option<Vec<Capability>>,
     pub(crate) body: Block,
 }
@@ -38,6 +81,15 @@ pub(crate) enum Expr {
         name: String,
         args: Vec<Expr>,
     },
+    FieldAccess {
+        receiver: Box<Expr>,
+        field: String,
+    },
+    StructLiteral {
+        name: String,
+        field: String,
+        value: Box<Expr>,
+    },
     Binary {
         op: BinaryOp,
         left: Box<Expr>,
@@ -61,6 +113,11 @@ pub(crate) enum Pattern {
     Int(i32),
     Bool(bool),
     Unit,
+    Var(String),
+    Variant {
+        name: String,
+        payload: Option<Box<Pattern>>,
+    },
     Wildcard,
 }
 
@@ -78,6 +135,12 @@ pub(crate) enum PrimType {
     I32,
     Bool,
     Unit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Type {
+    Prim(PrimType),
+    Named(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

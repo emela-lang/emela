@@ -3,6 +3,8 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
     Fn,
+    Struct,
+    Enum,
     Match,
     True,
     False,
@@ -16,6 +18,7 @@ pub(crate) enum TokenKind {
     RBracket,
     Comma,
     Dot,
+    Colon,
     Hash,
     Bang,
     Eq,
@@ -72,6 +75,7 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
             b']' => push_one(&mut tokens, TokenKind::RBracket, pos, &mut i),
             b',' => push_one(&mut tokens, TokenKind::Comma, pos, &mut i),
             b'.' => push_one(&mut tokens, TokenKind::Dot, pos, &mut i),
+            b':' => push_one(&mut tokens, TokenKind::Colon, pos, &mut i),
             b'#' => push_one(&mut tokens, TokenKind::Hash, pos, &mut i),
             b'!' => push_one(&mut tokens, TokenKind::Bang, pos, &mut i),
             b'<' => push_one(&mut tokens, TokenKind::Lt, pos, &mut i),
@@ -109,6 +113,8 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                 let text = &source[start..i];
                 let kind = match text {
                     "fn" => TokenKind::Fn,
+                    "struct" => TokenKind::Struct,
+                    "enum" => TokenKind::Enum,
                     "match" => TokenKind::Match,
                     "true" => TokenKind::True,
                     "false" => TokenKind::False,
