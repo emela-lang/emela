@@ -21,8 +21,10 @@ The current compiler supports:
 - effect markers with `!`
 - top-level `import` declarations for compiler-known external functions
 - platform capability declarations with `#[requires(...)]`
-- target capability checking
+- platform capability checking from either built-in target defaults or `--platform` manifests
 - native assembly generation for `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`
+- JavaScript generation for the current core subset with manifest-provided external bindings
+- library checking mode for compilation units without `main` / `main!`
 
 The language specification lives in the separate `emela-lang/specification` repository.
 
@@ -60,6 +62,30 @@ Target capability sets currently follow SPEC-0003:
 
 If `--target` is omitted, the compiler uses the host target. At the moment, automatic host target detection accepts Apple arm64 macOS and x86_64 Linux.
 
+`--platform PATH` selects a platform manifest instead of the built-in target-default platform capability and external function registry. The manifest file is JSON:
+
+```json
+{
+  "name": "node",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "js": {
+          "callee": "console.log"
+        }
+      }
+    }
+  ]
+}
+```
+
 ## Common Commands
 
 Format the code:
@@ -79,6 +105,12 @@ Check an Emela source file without building:
 
 ```sh
 cargo run -- --check examples/maximal.emel
+```
+
+Check a library source file without requiring `main` / `main!`:
+
+```sh
+cargo run -- --library --check ../stdlib/std/io.emel --platform ../stdlib/platform/native-libc.json
 ```
 
 Check against a specific platform target:
@@ -103,6 +135,12 @@ Emit x86_64 Linux assembly from any supported development host:
 
 ```sh
 cargo run -- --target x86_64-unknown-linux-gnu --emit-asm /tmp/emela-maximal-x86_64.s --check examples/maximal.emel
+```
+
+Emit JavaScript using a platform manifest:
+
+```sh
+cargo run -- --platform /path/to/emela-platform.json --emit-js /tmp/emela.js --check examples/maximal.emel
 ```
 
 Run it and inspect the process exit code:
@@ -156,7 +194,9 @@ fn main!() -> I32 {
 - The native backend supports the current core language subset only.
 - Function values are type-checked, but native lowering is not implemented yet.
 - Runtime implementations for real I/O capabilities are not connected yet.
-- Imported external functions are type-checked and capability-checked, but native lowering is not implemented yet.
+- Imported external functions are type-checked and capability-checked. Native lowering uses manifest-provided runtime symbols.
+- JavaScript external lowering requires a `bindings.js.callee` entry for each imported external function.
+- Library mode does not yet include package/module resolution; source files must still be checked individually.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
 - Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.

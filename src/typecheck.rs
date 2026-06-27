@@ -5,8 +5,7 @@ use crate::ast::{
     MatchArm, Pattern, PrimType, Program, StructDecl, TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
-use crate::external;
-use crate::platform::Target;
+use crate::platform::PlatformSpec;
 
 #[derive(Debug, Clone)]
 struct TypeSlot {
@@ -37,7 +36,8 @@ struct ExprInfo {
 
 pub(crate) struct TypeChecker<'a> {
     program: &'a Program,
-    target: Target,
+    platform: &'a PlatformSpec,
+    mode: CheckMode,
     types: Vec<TypeSlot>,
     structs: HashMap<String, &'a StructDecl>,
     enums: HashMap<String, &'a EnumDecl>,
@@ -45,11 +45,26 @@ pub(crate) struct TypeChecker<'a> {
     functions: HashMap<String, FunctionType>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckMode {
+    Executable,
+    Library,
+}
+
 impl<'a> TypeChecker<'a> {
-    pub(crate) fn new(program: &'a Program, target: Target) -> Self {
+    pub(crate) fn new(program: &'a Program, platform: &'a PlatformSpec) -> Self {
+        Self::new_with_mode(program, platform, CheckMode::Executable)
+    }
+
+    pub(crate) fn new_with_mode(
+        program: &'a Program,
+        platform: &'a PlatformSpec,
+        mode: CheckMode,
+    ) -> Self {
         Self {
             program,
-            target,
+            platform,
+            mode,
             types: Vec::new(),
             structs: HashMap::new(),
             enums: HashMap::new(),
@@ -62,7 +77,9 @@ impl<'a> TypeChecker<'a> {
         self.register_types()?;
         self.register_imports()?;
         self.register_functions()?;
-        self.check_main()?;
+        if self.mode == CheckMode::Executable {
+            self.check_main()?;
+        }
 
         let functions = self.program.functions();
         let mut function_capabilities = HashMap::new();
@@ -114,7 +131,9 @@ impl<'a> TypeChecker<'a> {
             function_capabilities.insert(function.name.clone(), function_caps);
         }
 
-        self.check_runtime_boundary(&function_capabilities)?;
+        if self.mode == CheckMode::Executable {
+            self.check_runtime_boundary(&function_capabilities)?;
+        }
 
         let mut typed_functions = Vec::new();
         for function in &functions {
@@ -221,8 +240,11 @@ impl<'a> TypeChecker<'a> {
                     import.name
                 )));
             }
-            let function =
-                external::resolve_import(&import.path, &import.name).ok_or_else(|| {
+            let function = self
+                .platform
+                .externs
+                .resolve_import(&import.path, &import.name)
+                .ok_or_else(|| {
                     Error::new(format!(
                         "unknown external import `{}`",
                         format_import_path(&import.path, &import.name)
@@ -239,7 +261,7 @@ impl<'a> TypeChecker<'a> {
                 FunctionType {
                     params,
                     ret,
-                    effectful: import.name.ends_with('!') || !function.capabilities.is_empty(),
+                    effectful: function.effectful,
                     declared_capabilities: Some(function.capabilities.iter().copied().collect()),
                 },
             );
@@ -344,16 +366,16 @@ impl<'a> TypeChecker<'a> {
             .get(&entry.name)
             .cloned()
             .unwrap_or_default();
-        let provided = self.target.provided_capabilities();
-        if !required.is_subset(&provided) {
+        let provided = &self.platform.provided_capabilities;
+        if !required.is_subset(provided) {
             let missing = required
-                .difference(&provided)
+                .difference(provided)
                 .map(|capability| format!("{capability:?}"))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Error::new(format!(
-                "target `{}` does not provide required capability: {missing}",
-                self.target
+                "platform `{}` does not provide required capability: {missing}",
+                self.platform
             )));
         }
         Ok(())
