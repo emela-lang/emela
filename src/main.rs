@@ -4,6 +4,7 @@ mod driver;
 mod error;
 mod lexer;
 mod parser;
+mod platform;
 mod typecheck;
 
 fn main() {
@@ -16,8 +17,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use crate::ast::PrimType;
-    use crate::codegen::emit_rust;
-    use crate::driver::compile_source;
+    use crate::codegen::emit_assembly;
+    use crate::driver::{compile_source, compile_source_for_target};
+    use crate::platform::Target;
 
     #[test]
     fn accepts_empty_main() {
@@ -68,21 +70,148 @@ fn main() {
             .unwrap();
         assert_eq!(main.ret, PrimType::I32);
 
-        let rust_source = emit_rust(&program, &typed);
-        assert!(rust_source.contains("std::process::exit(_emela_result);"));
+        let assembly = emit_assembly(Target::host().unwrap(), &program, &typed).unwrap();
+        assert!(assembly.contains(".globl _main"));
     }
 
     #[test]
-    fn emits_rust_match_expression() {
+    fn emits_assembly_match_expression() {
         let (program, typed) =
             compile_source("fn main() -> I32 { match true { true -> 1 false -> 0 } }").unwrap();
-        let rust_source = emit_rust(&program, &typed);
-        assert!(rust_source.contains("match true { true => 1i32, false => 0i32, }"));
+        let assembly = emit_assembly(Target::host().unwrap(), &program, &typed).unwrap();
+        assert!(assembly.contains("cmp w9, #1"));
+        assert!(assembly.contains("cmp w9, #0"));
     }
 
     #[test]
     fn rejects_match_pattern_type_mismatch() {
         let error = compile_source("fn main() { match 1 { true -> 2 false -> 3 } }").unwrap_err();
         assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn rejects_effectful_call_from_pure_function() {
+        let error = compile_source(
+            r#"
+fn tick!() {
+  ()
+}
+
+fn main() {
+  tick!()
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("pure function"));
+    }
+
+    #[test]
+    fn allows_main_effect_boundary_with_capability() {
+        let (program, typed) = compile_source(
+            r#"
+#[requires(Stdout)]
+fn print_i32!(value) -> Unit {
+  ()
+}
+
+fn main!() -> I32 {
+  print_i32!(42)
+  0
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main!")
+            .unwrap();
+        assert!(main.effectful);
+        assert_eq!(main.capabilities.len(), 1);
+
+        let assembly = emit_assembly(Target::host().unwrap(), &program, &typed).unwrap();
+        assert!(assembly.contains(".globl _main"));
+        assert!(assembly.contains("requires Stdout"));
+    }
+
+    #[test]
+    fn rejects_requires_outside_declared_capabilities() {
+        let error = compile_source(
+            r#"
+#[requires(Stdout)]
+fn print_i32!(value) -> Unit {
+  ()
+}
+
+#[requires()]
+fn main!() {
+  print_i32!(42)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("outside #[requires"));
+    }
+
+    #[test]
+    fn lowers_primitive_method_calls() {
+        let (program, typed) = compile_source(
+            r#"
+fn main() -> I32 {
+  20.add(22)
+}
+"#,
+        )
+        .unwrap();
+        let assembly = emit_assembly(Target::host().unwrap(), &program, &typed).unwrap();
+        assert!(assembly.contains("add w0, w9, w0"));
+    }
+
+    #[test]
+    fn rejects_capability_missing_from_native_target() {
+        let error = compile_source(
+            r#"
+#[requires(HostImport)]
+fn host_call!() -> Unit {
+  ()
+}
+
+fn main!() {
+  host_call!()
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("does not provide"));
+    }
+
+    #[test]
+    fn target_capability_set_is_checked() {
+        let source = r#"
+#[requires(Stdout)]
+fn print_i32!(value) -> Unit {
+  ()
+}
+
+fn main!() {
+  print_i32!(42)
+}
+"#;
+        compile_source_for_target(source, Target::Wasm32Wasi).unwrap();
+        let error = compile_source_for_target(source, Target::Wasm32UnknownUnknown).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("target `wasm32-unknown-unknown` does not provide"));
+    }
+
+    #[test]
+    fn non_native_target_does_not_emit_assembly() {
+        let (program, typed) =
+            compile_source_for_target("fn main() {}", Target::Wasm32UnknownUnknown).unwrap();
+        let error = emit_assembly(Target::Wasm32UnknownUnknown, &program, &typed).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not have a native assembly backend"));
     }
 }

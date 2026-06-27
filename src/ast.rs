@@ -8,6 +8,7 @@ pub(crate) struct Function {
     pub(crate) name: String,
     pub(crate) params: Vec<String>,
     pub(crate) return_annotation: Option<PrimType>,
+    pub(crate) requires: Option<Vec<Capability>>,
     pub(crate) body: Block,
 }
 
@@ -77,4 +78,38 @@ pub(crate) enum PrimType {
     I32,
     Bool,
     Unit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum Capability {
+    Stdout,
+    Stdin,
+    Stderr,
+    FileRead,
+    FileWrite,
+    Clock,
+    Random,
+    Env,
+    Process,
+    Network,
+    HostImport,
+}
+
+impl Capability {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        match name {
+            "Stdout" => Some(Self::Stdout),
+            "Stdin" => Some(Self::Stdin),
+            "Stderr" => Some(Self::Stderr),
+            "FileRead" => Some(Self::FileRead),
+            "FileWrite" => Some(Self::FileWrite),
+            "Clock" => Some(Self::Clock),
+            "Random" => Some(Self::Random),
+            "Env" => Some(Self::Env),
+            "Process" => Some(Self::Process),
+            "Network" => Some(Self::Network),
+            "HostImport" => Some(Self::HostImport),
+            _ => None,
+        }
+    }
 }

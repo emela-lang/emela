@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Expr, Function, MatchArm, Pattern, PrimType, Program,
+    BinaryOp, Block, BlockItem, Capability, Expr, Function, MatchArm, Pattern, PrimType, Program,
 };
 use crate::error::{Error, Result};
 use crate::lexer::{Token, TokenKind};
@@ -18,36 +18,50 @@ impl Parser {
         let mut functions = Vec::new();
         self.skip_newlines();
         while !self.at(&TokenKind::Eof) {
-            self.parse_attributes()?;
-            functions.push(self.parse_function()?);
+            let attributes = self.parse_attributes()?;
+            functions.push(self.parse_function(attributes)?);
             self.skip_newlines();
         }
         Ok(Program { functions })
     }
 
-    fn parse_attributes(&mut self) -> Result<()> {
+    fn parse_attributes(&mut self) -> Result<FunctionAttributes> {
+        let mut attributes = FunctionAttributes::default();
         loop {
             self.skip_newlines();
             if !self.at(&TokenKind::Hash) {
-                return Ok(());
+                return Ok(attributes);
             }
             self.bump();
             self.expect(&TokenKind::LBracket)?;
-            self.expect_ident()?;
-            if self.eat(&TokenKind::LParen) {
-                if !self.at(&TokenKind::RParen) {
-                    self.expect_ident()?;
-                    while self.eat(&TokenKind::Comma) {
-                        self.expect_ident()?;
+            let attribute_name = self.expect_ident()?;
+            match attribute_name.as_str() {
+                "requires" => {
+                    if attributes.requires.is_some() {
+                        return Err(Error::new("duplicate #[requires(...)] attribute"));
                     }
+                    self.expect(&TokenKind::LParen)?;
+                    let mut capabilities = Vec::new();
+                    if !self.at(&TokenKind::RParen) {
+                        capabilities.push(self.expect_capability()?);
+                        while self.eat(&TokenKind::Comma) {
+                            capabilities.push(self.expect_capability()?);
+                        }
+                    }
+                    self.expect(&TokenKind::RParen)?;
+                    attributes.requires = Some(capabilities);
                 }
-                self.expect(&TokenKind::RParen)?;
+                _ => {
+                    return Err(Error::new(format!(
+                        "unsupported attribute `#[{attribute_name}]`"
+                    )));
+                }
             }
             self.expect(&TokenKind::RBracket)?;
         }
     }
 
-    fn parse_function(&mut self) -> Result<Function> {
+    fn parse_function(&mut self, attributes: FunctionAttributes) -> Result<Function> {
         self.expect(&TokenKind::Fn)?;
         let name = self.parse_function_name()?;
         self.expect(&TokenKind::LParen)?;
@@ -69,6 +83,7 @@ impl Parser {
             name,
             params,
             return_annotation,
+            requires: attributes.requires,
             body,
         })
     }
@@ -319,6 +334,11 @@ impl Parser {
         }
     }
 
+    fn expect_capability(&mut self) -> Result<Capability> {
+        let name = self.expect_ident()?;
+        Capability::parse(&name).ok_or_else(|| Error::new(format!("unknown capability `{name}`")))
+    }
+
     fn skip_newlines(&mut self) {
         while self.at(&TokenKind::Newline) {
             self.bump();
@@ -361,4 +381,9 @@ impl Parser {
     fn peek_n(&self, n: usize) -> Option<&Token> {
         self.tokens.get(self.current + n)
     }
+}
+
+#[derive(Default)]
+struct FunctionAttributes {
+    requires: Option<Vec<Capability>>,
 }
