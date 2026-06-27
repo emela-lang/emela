@@ -1,5 +1,5 @@
 mod ast;
-mod codegen;
+mod backend;
 mod driver;
 mod error;
 mod external;
@@ -17,15 +17,21 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{FunctionType, PrimType, Type};
-    use crate::codegen::{
-        emit_assembly, emit_assembly_for_platform, emit_js, emit_js_library, native_link_args,
+    use std::env;
+    use std::fs;
+
+    use serde::Deserialize;
+
+    use crate::ast::{Capability, FunctionType, PrimType, Type};
+    use crate::backend::{
+        emit_js_artifact, emit_js_library_artifact, emit_native_assembly,
+        emit_native_assembly_for_platform, native_link_args, Backend, EmitOptions, ExternalBackend,
     };
     use crate::driver::{
-        compile_source, compile_source_for_platform, compile_source_for_platform_with_mode,
-        compile_source_for_target,
+        compile_internal_source_for_platform, compile_source, compile_source_for_platform,
+        compile_source_for_platform_with_mode, compile_source_for_target,
     };
-    use crate::external::ExternalRegistry;
+    use crate::external::{ExternalBindings, ExternalFunction, ExternalRegistry};
     use crate::platform::PlatformSpec;
     use crate::platform::Target;
     use crate::typecheck::CheckMode;
@@ -92,6 +98,22 @@ fn main() -> I32 {
     }
 
     #[test]
+    fn pipeline_example_compiles() {
+        for backend_name in [
+            "js-node",
+            "native-aarch64-apple-darwin",
+            "native-x86_64-unknown-linux-gnu",
+        ] {
+            let backend = Backend::parse(backend_name).unwrap();
+            compile_source_for_platform(
+                include_str!("../examples/pipeline.emel"),
+                &backend.platform(),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
     fn rejects_pipeline_stage_without_call() {
         let error = compile_source(
             r#"
@@ -130,7 +152,7 @@ fn main() -> I32 {
             .unwrap();
         assert_eq!(main.ret, Type::Prim(PrimType::I32));
 
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains(".globl _main"));
     }
 
@@ -382,7 +404,7 @@ fn main() -> I32 {
 "#,
         )
         .unwrap();
-        let error = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
+        let error = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
         assert!(error
             .to_string()
             .contains("does not support function value"));
@@ -395,7 +417,7 @@ fn main() -> I32 {
             Target::Aarch64AppleDarwin,
         )
         .unwrap();
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains("mov w10, #1"));
         assert!(assembly.contains("mov w10, #0"));
         assert!(assembly.contains("cmp w9, w10"));
@@ -416,7 +438,8 @@ fn main() -> I32 {
             Target::X86_64UnknownLinuxGnu,
         )
         .unwrap();
-        let assembly = emit_assembly(Target::X86_64UnknownLinuxGnu, &program, &typed).unwrap();
+        let assembly =
+            emit_native_assembly(Target::X86_64UnknownLinuxGnu, &program, &typed).unwrap();
         assert!(assembly.contains(".globl main"));
         assert!(assembly.contains("add:"));
         assert!(assembly.contains("movq %rdi, -8(%rbp)"));
@@ -472,7 +495,7 @@ fn main!() -> I32 {
         assert!(main.effectful);
         assert_eq!(main.capabilities.len(), 1);
 
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains(".globl _main"));
         assert!(assembly.contains("requires Stdout"));
     }
@@ -506,7 +529,7 @@ fn main() -> I32 {
 "#,
         )
         .unwrap();
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains("add w0, w9, w0"));
     }
 
@@ -518,22 +541,22 @@ struct Error {
   code: I32
 }
 
-enum Result {
-  Ok(I32)
-  Err(Error)
+enum Checked {
+  Good(I32)
+  Bad(Error)
 }
 
-fn checked(value: I32) -> Result {
+fn checked(value: I32) -> Checked {
   match value == 0 {
-    true -> Err(Error { code: 7 })
-    false -> Ok(value)
+    true -> Bad(Error { code: 7 })
+    false -> Good(value)
   }
 }
 
 fn main() -> I32 {
   match checked(0) {
-    Ok(value) -> value
-    Err(error) -> error.code
+    Good(value) -> value
+    Bad(error) -> error.code
   }
 }
 "#,
@@ -544,9 +567,9 @@ fn main() -> I32 {
             .iter()
             .find(|function| function.name == "checked")
             .unwrap();
-        assert_eq!(checked.ret, Type::Named("Result".to_string()));
+        assert_eq!(checked.ret, Type::Named("Checked".to_string()));
 
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains("orr x0, x0, #0"));
         assert!(assembly.contains("orr x0, x0, #1"));
         assert!(assembly.contains("lsr x9, x9, #32"));
@@ -592,10 +615,11 @@ fn main!() -> Unit {
     #[test]
     fn imported_external_capability_set_is_checked() {
         let source = r#"
-import platform.io.print_i32!
+import std.io.write_stdout_utf8!
 
 fn main!() -> Unit {
-  print_i32!(42)
+  write_stdout_utf8!("hello")
+  ()
 }
 "#;
         compile_source_for_target(source, Target::Wasm32Wasi).unwrap();
@@ -609,10 +633,10 @@ fn main!() -> Unit {
     fn rejects_imported_effectful_call_from_pure_function() {
         let error = compile_source_for_target(
             r#"
-import platform.io.print_i32!
+import std.io.write_stdout_utf8!
 
-fn main() -> Unit {
-  print_i32!(42)
+fn main() -> Result<Unit, PlatformError> {
+  write_stdout_utf8!("hello")
 }
 "#,
             Target::Aarch64AppleDarwin,
@@ -623,43 +647,53 @@ fn main() -> Unit {
 
     #[test]
     fn imported_external_function_lowers_to_native_binding() {
-        let platform = platform_from_manifest(NATIVE_MANIFEST);
-        let (program, typed) = compile_source_for_platform(
+        let platform = PlatformSpec {
+            name: "native-runtime".to_string(),
+            provided_capabilities: [Capability::Stdout].into_iter().collect(),
+            externs: ExternalRegistry::builtin_native(),
+        };
+        let (program, typed) = compile_internal_source_for_platform(
             r#"
-import platform.io.print_i32!
+import platform.io._write_stdout_utf8!
 
-fn main!() -> Unit {
-  42 |> print_i32!()
+fn main!() -> Result<Unit, PlatformError> {
+  "hello" |> _write_stdout_utf8!()
 }
 "#,
             &platform,
         )
         .unwrap();
-        let darwin =
-            emit_assembly_for_platform(Target::Aarch64AppleDarwin, &platform, &program, &typed)
-                .unwrap();
-        assert!(darwin.contains("    mov w0, #42\n"));
+        let darwin = emit_native_assembly_for_platform(
+            Target::Aarch64AppleDarwin,
+            &platform,
+            &program,
+            &typed,
+        )
+        .unwrap();
         assert!(darwin.contains("    str x0, [sp, #0]\n"));
         assert!(darwin.contains("    ldr x0, [sp, #0]\n"));
-        assert!(darwin.contains("    bl _emela_print_i32\n"));
+        assert!(darwin.contains("    bl _emela_write_stdout_utf8\n"));
 
-        let linux =
-            emit_assembly_for_platform(Target::X86_64UnknownLinuxGnu, &platform, &program, &typed)
-                .unwrap();
-        assert!(linux.contains("    movl $42, %eax\n"));
+        let linux = emit_native_assembly_for_platform(
+            Target::X86_64UnknownLinuxGnu,
+            &platform,
+            &program,
+            &typed,
+        )
+        .unwrap();
         assert!(linux.contains("    movq %rax, 0(%rsp)\n"));
         assert!(linux.contains("    movq 0(%rsp), %rdi\n"));
-        assert!(linux.contains("    call emela_print_i32\n"));
+        assert!(linux.contains("    call emela_write_stdout_utf8\n"));
     }
 
     #[test]
     fn imports_stdlib_wrapper_for_native_codegen() {
         let (program, typed) = compile_source_for_target(
             r#"
-import std.io.print_i32!
+import std.io.write_stdout_utf8!
 
-fn main!() -> Unit {
-  42 |> print_i32!()
+fn main!() -> Result<Unit, PlatformError> {
+  "hello" |> write_stdout_utf8!()
 }
 "#,
             Target::Aarch64AppleDarwin,
@@ -668,98 +702,164 @@ fn main!() -> Unit {
         assert!(program
             .functions()
             .iter()
-            .any(|function| function.name == "print_i32!"));
-        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
-        assert!(assembly.contains("    bl _print_i32_effect\n"));
-        assert!(assembly.contains("    bl _emela_print_i32\n"));
+            .any(|function| function.name == "write_stdout_utf8!"));
+        let assembly = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        assert!(assembly.contains("    bl _write_stdout_utf8_effect\n"));
+        assert!(assembly.contains("    bl _emela_write_stdout_utf8\n"));
     }
 
     #[test]
     fn native_codegen_rejects_missing_binding() {
-        let platform = platform_from_manifest(MISSING_JS_BINDING_MANIFEST);
-        let (program, typed) = compile_source_for_platform(
+        let platform = platform_with_externs(
+            "missing-native",
+            [Capability::Stdout],
+            vec![platform_extern(
+                "_write_stdout_utf8!",
+                ExternalBindings::default(),
+            )],
+        );
+        let (program, typed) = compile_internal_source_for_platform(
             r#"
-import platform.io.print_i32!
+import platform.io._write_stdout_utf8!
 
-fn main!() -> Unit {
-  print_i32!(42)
+fn main!() -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!("hello")
 }
 "#,
             &platform,
         )
         .unwrap();
-        let error =
-            emit_assembly_for_platform(Target::Aarch64AppleDarwin, &platform, &program, &typed)
-                .unwrap_err();
+        let error = emit_native_assembly_for_platform(
+            Target::Aarch64AppleDarwin,
+            &platform,
+            &program,
+            &typed,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("does not have a native binding"));
     }
 
     #[test]
-    fn non_native_target_does_not_emit_assembly() {
+    fn non_native_target_does_not_emit_native_assembly() {
         let (program, typed) =
             compile_source_for_target("fn main() -> Unit {}", Target::Wasm32UnknownUnknown)
                 .unwrap();
-        let error = emit_assembly(Target::Wasm32UnknownUnknown, &program, &typed).unwrap_err();
+        let error =
+            emit_native_assembly(Target::Wasm32UnknownUnknown, &program, &typed).unwrap_err();
         assert!(error
             .to_string()
             .contains("does not have a native assembly backend"));
     }
 
     #[test]
-    fn parses_platform_manifest_external_registry() {
-        let (name, capabilities, registry) =
-            ExternalRegistry::from_manifest_json(NODE_MANIFEST).unwrap();
-        assert_eq!(name, "node");
-        assert_eq!(capabilities, vec![crate::ast::Capability::Stdout]);
-        let function = registry
-            .resolve_import(&["platform".to_string(), "io".to_string()], "print_i32!")
+    fn builtin_js_backend_exposes_platform_externs() {
+        let platform = PlatformSpec::js_runtime("node");
+        let function = platform
+            .externs
+            .resolve_import(
+                &["platform".to_string(), "io".to_string()],
+                "_write_stdout_utf8!",
+            )
             .unwrap();
-        assert_eq!(function.params, vec![Type::Prim(PrimType::I32)]);
-        assert_eq!(function.ret, Type::Prim(PrimType::Unit));
-        assert_eq!(function.bindings.js_callee.as_deref(), Some("console.log"));
+        assert_eq!(function.params, vec![Type::Prim(PrimType::String)]);
+        assert_eq!(
+            function.ret,
+            Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::Prim(PrimType::Unit),
+                    Type::Named("PlatformError".to_string())
+                ]
+            }
+        );
+        assert_eq!(
+            function.bindings.js_symbol.as_deref(),
+            Some("__emela_write_stdout_utf8")
+        );
     }
 
     #[test]
-    fn parses_platform_manifest_native_binding() {
-        let (_, _, registry) = ExternalRegistry::from_manifest_json(NATIVE_MANIFEST).unwrap();
+    fn builtin_backend_descriptors_match_registry_surface() {
+        let native = builtin_descriptor(include_str!(
+            "../backends/native-aarch64-apple-darwin/backend.json"
+        ));
+        assert_eq!(native.name, "native-aarch64-apple-darwin");
+        assert_eq!(native.backend, "native");
+        assert_eq!(native.builtin.as_deref(), Some("native"));
+        assert_eq!(native.abi_version, crate::backend::BACKEND_ABI_VERSION);
+        assert_eq!(native.target.as_deref(), Some("aarch64-apple-darwin"));
+        assert!(native.capabilities.contains(&Capability::Stdout));
+        assert!(native
+            .externs
+            .iter()
+            .any(|external| external.name == "_write_stdout_utf8!"));
+
+        let js = builtin_descriptor(include_str!("../backends/js-node/backend.json"));
+        assert_eq!(js.name, "js-node");
+        assert_eq!(js.backend, "js");
+        assert_eq!(js.builtin.as_deref(), Some("js"));
+        assert_eq!(js.abi_version, crate::backend::BACKEND_ABI_VERSION);
+        assert_eq!(js.runtime.as_deref(), Some("node"));
+        assert_eq!(
+            js.capabilities,
+            vec![Capability::Stdout, Capability::Stdin, Capability::Clock]
+        );
+        assert!(js
+            .externs
+            .iter()
+            .any(|external| external.name == "_now_i32!"));
+    }
+
+    #[test]
+    fn builtin_native_backend_exposes_link_args() {
+        let registry = ExternalRegistry::builtin_native();
         let function = registry
-            .resolve_import(&["platform".to_string(), "io".to_string()], "print_i32!")
+            .resolve_import(
+                &["platform".to_string(), "io".to_string()],
+                "_write_stdout_utf8!",
+            )
             .unwrap();
         let native = function.bindings.native.as_ref().unwrap();
-        assert_eq!(native.symbol, "emela_print_i32");
+        assert_eq!(native.symbol, "emela_write_stdout_utf8");
         assert_eq!(native.links, vec!["emela_runtime"]);
         assert_eq!(registry.native_links(), vec!["emela_runtime"]);
-        let platform = platform_from_manifest(NATIVE_MANIFEST);
-        let (program, _) = compile_source_for_platform(
+        let platform = PlatformSpec {
+            name: "native-runtime".to_string(),
+            provided_capabilities: [Capability::Stdout].into_iter().collect(),
+            externs: registry,
+        };
+        let (program, _) = compile_internal_source_for_platform(
             r#"
-import platform.io.print_i32!
+import platform.io._write_stdout_utf8!
 
-fn main!() -> Unit {
-  print_i32!(42)
+fn main!() -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!("hello")
 }
 "#,
             &platform,
         )
         .unwrap();
-        assert_eq!(
-            native_link_args(&platform, &program),
-            vec!["-lemela_runtime"]
-        );
+        let link_args = native_link_args(&platform, &program);
+        assert_eq!(link_args.len(), 1);
+        assert!(link_args[0].ends_with("backends/native-runtime/emela_runtime.c"));
     }
 
     #[test]
-    fn rejects_invalid_manifest_native_binding() {
-        let error = ExternalRegistry::from_manifest_json(
+    fn backend_manifest_rejects_invalid_native_binding() {
+        let error = ExternalBackend::from_manifest_json(
             r#"
 {
-  "name": "bad",
+	  "name": "bad",
+  "backend": "native",
+  "abi_version": 1,
+  "command": ["backend"],
   "capabilities": ["Stdout"],
   "externs": [
     {
       "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
+      "name": "_write_stdout_utf8!",
+      "params": ["String"],
+      "return": "Result<Unit, PlatformError>",
       "effectful": true,
       "capabilities": ["Stdout"],
       "bindings": {
@@ -773,23 +873,24 @@ fn main!() -> Unit {
 "#,
         )
         .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("native binding missing `symbol`"));
+        assert!(error.to_string().contains("missing field `symbol`"));
     }
 
     #[test]
-    fn rejects_manifest_unknown_type() {
-        let error = ExternalRegistry::from_manifest_json(
+    fn backend_manifest_rejects_unknown_type() {
+        let error = ExternalBackend::from_manifest_json(
             r#"
 {
-  "name": "bad",
+	  "name": "bad",
+  "backend": "js",
+  "abi_version": 1,
+  "command": ["backend"],
   "capabilities": [],
   "externs": [
     {
       "path": ["platform", "io"],
       "name": "print!",
-      "params": ["String"],
+      "params": ["Bytes"],
       "return": "Unit",
       "effectful": true,
       "capabilities": [],
@@ -804,27 +905,30 @@ fn main!() -> Unit {
     }
 
     #[test]
-    fn rejects_manifest_duplicate_import() {
-        let error = ExternalRegistry::from_manifest_json(
+    fn backend_manifest_rejects_duplicate_import() {
+        let error = ExternalBackend::from_manifest_json(
             r#"
 {
-  "name": "bad",
+	  "name": "bad",
+  "backend": "js",
+  "abi_version": 1,
+  "command": ["backend"],
   "capabilities": ["Stdout"],
   "externs": [
     {
       "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
+      "name": "_write_stdout_utf8!",
+      "params": ["String"],
+      "return": "Result<Unit, PlatformError>",
       "effectful": true,
       "capabilities": ["Stdout"],
       "bindings": {}
     },
     {
       "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
+      "name": "_write_stdout_utf8!",
+      "params": ["String"],
+      "return": "Result<Unit, PlatformError>",
       "effectful": true,
       "capabilities": ["Stdout"],
       "bindings": {}
@@ -838,18 +942,23 @@ fn main!() -> Unit {
     }
 
     #[test]
-    fn manifest_platform_capability_set_is_checked() {
+    fn backend_platform_capability_set_is_checked() {
         let source = r#"
-import platform.io.print_i32!
+import std.io.write_stdout_utf8!
 
 fn main!() -> Unit {
-  print_i32!(42)
+  write_stdout_utf8!("hello")
+  ()
 }
 "#;
-        let node = platform_from_manifest(NODE_MANIFEST);
+        let node = js_platform_with_stdout("_write_stdout_utf8!", true);
         compile_source_for_platform(source, &node).unwrap();
 
-        let no_stdout = platform_from_manifest(NO_STDOUT_MANIFEST);
+        let no_stdout = platform_with_externs(
+            "no-stdout",
+            [],
+            vec![js_stdout_extern("_write_stdout_utf8!")],
+        );
         let error = compile_source_for_platform(source, &no_stdout).unwrap_err();
         assert!(error
             .to_string()
@@ -858,21 +967,22 @@ fn main!() -> Unit {
 
     #[test]
     fn emits_js_main_and_external_binding() {
-        let platform = platform_from_manifest(NODE_MANIFEST);
-        let (program, typed) = compile_source_for_platform(
+        let platform = js_platform_with_stdout("_write_stdout_utf8!", true);
+        let (program, typed) = compile_internal_source_for_platform(
             r#"
-import platform.io.print_i32!
+import platform.io._write_stdout_utf8!
 
-fn main!() -> Unit {
-  print_i32!(42)
+fn main!() -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!("hello")
 }
 "#,
             &platform,
         )
         .unwrap();
-        let js = emit_js(&platform, &program, &typed).unwrap();
+        let js = emit_js_artifact(&platform, &program, &typed).unwrap();
         assert!(js.contains("function main_effect()"));
-        assert!(js.contains("console.log(42);"));
+        assert!(js.contains("__emela_write_stdout_utf8(\"hello\");"));
+        assert!(js.contains("function __emela_write_stdout_utf8(value)"));
         assert!(js.contains("const __emela_result = main_effect();"));
     }
 
@@ -889,140 +999,309 @@ fn add(x: I32, y: I32) -> I32 {
             CheckMode::Library,
         )
         .unwrap();
-        let js = emit_js_library(&platform, &program, &typed).unwrap();
+        let js = emit_js_library_artifact(&platform, &program, &typed).unwrap();
         assert!(js.contains("function add(x, y)"));
         assert!(!js.contains("__emela_result"));
     }
 
     #[test]
     fn imports_stdlib_wrapper_for_js_codegen() {
-        let platform = platform_from_manifest(include_str!("../../stdlib/platform/node.json"));
+        let platform = PlatformSpec::js_runtime("node");
         let (program, typed) = compile_source_for_platform(
             r#"
-import std.io.print_i32!
+import std.io.write_stdout_utf8!
 
-fn main!() -> Unit {
-  print_i32!(42)
+fn main!() -> Result<Unit, PlatformError> {
+  write_stdout_utf8!("hello")
 }
 "#,
             &platform,
         )
         .unwrap();
-        let js = emit_js(&platform, &program, &typed).unwrap();
-        assert!(js.contains("function print_i32_effect(value)"));
-        assert!(js.contains("console.log(value);"));
-        assert!(js.contains("print_i32_effect(42);"));
+        let js = emit_js_artifact(&platform, &program, &typed).unwrap();
+        assert!(js.contains("function write_stdout_utf8_effect(value)"));
+        assert!(js.contains("__emela_write_stdout_utf8(value);"));
+        assert!(js.contains("function __emela_write_stdout_utf8(value)"));
+        assert!(js.contains("write_stdout_utf8_effect(\"hello\");"));
+    }
+
+    #[test]
+    fn stdlib_import_only_requires_used_platform_externs() {
+        let platform = js_platform_with_stdout("_write_stdout_utf8!", true);
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import std.io.write_stdout_utf8!
+
+fn main!() -> Result<Unit, PlatformError> {
+  write_stdout_utf8!("hello")
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        assert!(program.items.iter().any(|item| matches!(
+            item,
+            crate::ast::TopLevelItem::Import(import) if import.name == "_write_stdout_utf8!"
+        )));
+        assert!(!program.items.iter().any(|item| matches!(
+            item,
+            crate::ast::TopLevelItem::Import(import) if import.name == "_read_stdin_utf8!"
+        )));
+        emit_js_artifact(&platform, &program, &typed).unwrap();
+    }
+
+    #[test]
+    fn user_source_cannot_import_platform_package() {
+        let error = compile_source_for_target(
+            r#"
+import platform.io._write_stdout_utf8!
+
+fn main!() -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!("hello")
+}
+"#,
+            Target::Aarch64AppleDarwin,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("only available to stdlib"));
+    }
+
+    #[test]
+    fn supports_result_based_platform_stdin_wrapper() {
+        let platform = PlatformSpec::js_runtime("node");
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import std.io.read_stdin_utf8!
+
+fn main!() -> Result<String, PlatformError> {
+  read_stdin_utf8!()
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main!")
+            .unwrap();
+        assert_eq!(
+            main.ret,
+            Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::Prim(PrimType::String),
+                    Type::Named("PlatformError".to_string()),
+                ],
+            }
+        );
+        assert!(main.capabilities.contains(&Capability::Stdin));
+        assert!(program.items.iter().any(|item| matches!(
+            item,
+            crate::ast::TopLevelItem::Import(import) if import.name == "_read_stdin_utf8!"
+        )));
+    }
+
+    #[test]
+    fn matches_generic_result_from_platform_call() {
+        let platform = PlatformSpec::js_runtime("node");
+        let (_, typed) = compile_source_for_platform(
+            r#"
+import std.io.write_stdout_utf8!
+
+fn main!() -> I32 {
+  match write_stdout_utf8!("hello") {
+    Ok(_) -> 0
+    Err(_) -> 1
+  }
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main!")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::I32));
+        assert!(main.capabilities.contains(&Capability::Stdout));
+    }
+
+    #[test]
+    fn stdlib_import_rejects_missing_used_platform_extern() {
+        let platform = js_platform_with_stdout("_write_stdout_utf8!", true);
+        let error = compile_source_for_platform(
+            r#"
+import std.io.read_stdin_utf8!
+
+fn main!() -> Result<String, PlatformError> {
+  read_stdin_utf8!()
+}
+"#,
+            &platform,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unknown external import `platform.io._read_stdin_utf8!`"));
+    }
+
+    #[test]
+    fn external_backend_process_emits_artifact() {
+        let backend = Backend::External(
+            ExternalBackend::from_manifest_json(
+                r#"
+{
+	  "name": "fake",
+  "backend": "js",
+  "abi_version": 1,
+  "command": ["/bin/sh", "-c", "cat >/dev/null; printf '{\"artifact\":\"plugin-ok\"}'"],
+  "capabilities": [],
+  "externs": []
+}
+"#,
+            )
+            .unwrap(),
+        );
+        let platform = backend.platform();
+        let (program, typed) = compile_source_for_platform(
+            r#"
+fn main() -> Unit {
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let output = env::temp_dir().join(format!("emela-plugin-test-{}.txt", std::process::id()));
+        backend
+            .emit(
+                &platform,
+                &program,
+                &typed,
+                EmitOptions {
+                    mode: CheckMode::Executable,
+                    input: std::path::Path::new("test.emel"),
+                    output: None,
+                    artifact: Some(&output),
+                    target: Some(Target::Wasm32UnknownUnknown),
+                },
+            )
+            .unwrap();
+        assert_eq!(fs::read_to_string(&output).unwrap(), "plugin-ok");
+        let _ = fs::remove_file(output);
+    }
+
+    #[test]
+    fn external_backend_rejects_abi_mismatch() {
+        let error = ExternalBackend::from_manifest_json(
+            r#"
+{
+	  "name": "bad",
+  "backend": "js",
+  "abi_version": 2,
+  "command": ["backend"],
+  "capabilities": [],
+  "externs": []
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("ABI version 2"));
     }
 
     #[test]
     fn js_codegen_rejects_missing_binding() {
-        let platform = platform_from_manifest(MISSING_JS_BINDING_MANIFEST);
-        let (program, typed) = compile_source_for_platform(
+        let platform = platform_with_externs(
+            "missing-js",
+            [Capability::Stdout],
+            vec![platform_extern(
+                "_write_stdout_utf8!",
+                ExternalBindings::default(),
+            )],
+        );
+        let (program, typed) = compile_internal_source_for_platform(
             r#"
-import platform.io.print_i32!
+import platform.io._write_stdout_utf8!
 
-fn main!() -> Unit {
-  print_i32!(42)
+fn main!() -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!("hello")
 }
 "#,
             &platform,
         )
         .unwrap();
-        let error = emit_js(&platform, &program, &typed).unwrap_err();
+        let error = emit_js_artifact(&platform, &program, &typed).unwrap_err();
         assert!(error.to_string().contains("does not have a js binding"));
     }
 
-    fn platform_from_manifest(source: &str) -> PlatformSpec {
-        let (name, capabilities, externs) = ExternalRegistry::from_manifest_json(source).unwrap();
+    fn js_platform_with_stdout(name: &str, provides_stdout: bool) -> PlatformSpec {
+        let capabilities = if provides_stdout {
+            vec![Capability::Stdout]
+        } else {
+            Vec::new()
+        };
+        platform_with_externs("js-test", capabilities, vec![js_stdout_extern(name)])
+    }
+
+    fn platform_with_externs(
+        name: &str,
+        capabilities: impl IntoIterator<Item = Capability>,
+        functions: Vec<ExternalFunction>,
+    ) -> PlatformSpec {
         PlatformSpec {
-            name,
+            name: name.to_string(),
             provided_capabilities: capabilities.into_iter().collect(),
-            externs,
+            externs: ExternalRegistry::from_functions(functions).unwrap(),
         }
     }
 
-    const NODE_MANIFEST: &str = r#"
-{
-  "name": "node",
-  "capabilities": ["Stdout"],
-  "externs": [
-    {
-      "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
-      "effectful": true,
-      "capabilities": ["Stdout"],
-      "bindings": {
-        "js": {
-          "callee": "console.log"
-        }
-      }
+    fn js_stdout_extern(name: &str) -> ExternalFunction {
+        platform_extern(
+            name,
+            ExternalBindings {
+                js_symbol: Some("__emela_write_stdout_utf8".to_string()),
+                ..ExternalBindings::default()
+            },
+        )
     }
-  ]
-}
-"#;
 
-    const NO_STDOUT_MANIFEST: &str = r#"
-{
-  "name": "no-stdout",
-  "capabilities": [],
-  "externs": [
-    {
-      "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
-      "effectful": true,
-      "capabilities": ["Stdout"],
-      "bindings": {
-        "js": {
-          "callee": "console.log"
+    fn platform_extern(name: &str, bindings: ExternalBindings) -> ExternalFunction {
+        ExternalFunction {
+            path: vec!["platform".to_string(), "io".to_string()],
+            name: name.to_string(),
+            params: vec![Type::Prim(PrimType::String)],
+            ret: Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::Prim(PrimType::Unit),
+                    Type::Named("PlatformError".to_string()),
+                ],
+            },
+            effectful: true,
+            capabilities: vec![Capability::Stdout],
+            bindings,
         }
-      }
     }
-  ]
-}
-"#;
 
-    const NATIVE_MANIFEST: &str = r#"
-{
-  "name": "native-runtime",
-  "capabilities": ["Stdout"],
-  "externs": [
-    {
-      "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
-      "effectful": true,
-      "capabilities": ["Stdout"],
-      "bindings": {
-        "native": {
-          "symbol": "emela_print_i32",
-          "link": ["emela_runtime"]
-        }
-      }
+    fn builtin_descriptor(source: &str) -> BuiltinDescriptor {
+        serde_json::from_str(source).unwrap()
     }
-  ]
-}
-"#;
 
-    const MISSING_JS_BINDING_MANIFEST: &str = r#"
-{
-  "name": "missing-js",
-  "capabilities": ["Stdout"],
-  "externs": [
-    {
-      "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
-      "effectful": true,
-      "capabilities": ["Stdout"],
-      "bindings": {}
+    #[derive(Debug, Deserialize)]
+    struct BuiltinDescriptor {
+        name: String,
+        backend: String,
+        abi_version: u32,
+        builtin: Option<String>,
+        target: Option<String>,
+        runtime: Option<String>,
+        capabilities: Vec<Capability>,
+        externs: Vec<BuiltinExternal>,
     }
-  ]
-}
-"#;
+
+    #[derive(Debug, Deserialize)]
+    struct BuiltinExternal {
+        name: String,
+    }
 }
