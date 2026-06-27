@@ -22,9 +22,10 @@ The current compiler supports:
 - effect markers with `!`
 - top-level `import` declarations for compiler-known external functions
 - platform capability declarations with `#[requires(...)]`
-- platform capability checking from either built-in target defaults or `--platform` manifests
+- platform capability checking from the selected backend
 - native assembly generation for `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`
-- JavaScript generation for the current core subset with manifest-provided external bindings
+- JavaScript generation for the current core subset
+- external process backend plugins using versioned JSON IR
 - library checking mode for compilation units without `main` / `main!`
 
 The language specification lives in the separate `emela-lang/specification` repository.
@@ -38,10 +39,10 @@ Development requires:
 - Apple arm64 macOS or x86_64 Linux for native executable builds
 - A system C compiler available as `cc` for assembling and linking generated native assembly when building executables
 
-The native backend can emit assembly with `--emit-asm` without invoking `cc`.
+The native backend can emit assembly with a native backend profile and `--artifact PATH` without invoking `cc`.
 Building an executable invokes the host `cc`, so native executable builds require a matching host for the selected target.
 
-The compiler currently has no third-party Rust crate dependencies.
+The compiler uses `serde` and `serde_json` for backend manifests and plugin IR.
 
 ## Supported Targets
 
@@ -61,25 +62,38 @@ Target capability sets currently follow SPEC-0003:
 - `wasm32-unknown-unknown`: no platform capabilities
 - `wasm32-wasi`: `Stdout`, `Stdin`, `Stderr`, `FileRead`, `FileWrite`, `Clock`, `Random`, `Env`
 
-If `--target` is omitted, the compiler uses the host target. At the moment, automatic host target detection accepts Apple arm64 macOS and x86_64 Linux.
+`--backend PROFILE|PATH` selects a backend profile. Built-in profiles include
+`native-aarch64-apple-darwin`, `native-x86_64-unknown-linux-gnu`, `js-node`, and
+`js-bun`. `PATH` points to an external backend manifest. `--backend` is required;
+short aliases such as `native` and `js` are not supported.
 
-`--platform PATH` selects a platform manifest instead of the built-in target-default platform capability and external function registry. The manifest file is JSON:
+Built-in backend descriptors live under `backends/`.
+They document the same platform extern and capability surface used by the
+in-process implementations. Each descriptor is a backend profile that combines
+a backend kind with a runtime or target, such as `js-node`, `js-bun`, or
+`native-aarch64-apple-darwin`.
+
+External backend manifests are JSON:
 
 ```json
 {
-  "name": "node",
-  "capabilities": ["Stdout"],
+  "name": "example-backend",
+  "backend": "js",
+  "abi_version": 1,
+  "command": ["example-emela-backend"],
+  "runtime": "node",
+  "capabilities": ["Stdout", "Stdin"],
   "externs": [
     {
       "path": ["platform", "io"],
-      "name": "print_i32!",
-      "params": ["I32"],
-      "return": "Unit",
+      "name": "_write_stdout_utf8!",
+      "params": ["String"],
+      "return": "Result<Unit, PlatformError>",
       "effectful": true,
       "capabilities": ["Stdout"],
       "bindings": {
         "js": {
-          "callee": "console.log"
+          "symbol": "__emela_write_stdout_utf8"
         }
       }
     }
@@ -87,10 +101,44 @@ If `--target` is omitted, the compiler uses the host target. At the moment, auto
 }
 ```
 
-`--stdlib DIR` selects the standard library root. If omitted, the compiler uses
-`../stdlib` relative to the Cargo manifest directory. Imports such as
-`import std.io.print_i32!` load Emela source from `DIR/std/io.emel`; stdlib
-wrappers then call `platform.*` imports supplied by the selected platform.
+The compiler sends a versioned JSON request to the backend process on stdin. The
+request contains the checked program IR, typed function signatures, target,
+runtime, compilation mode, and resolved imports. Profiles that do not define a
+target send `null` for target. The backend returns JSON on stdout:
+
+```json
+{
+  "artifact": "backend output"
+}
+```
+
+or diagnostics:
+
+```json
+{
+  "diagnostics": ["message"]
+}
+```
+
+`--package DIR` adds a source package root. `DIR` must contain
+`emela-package.json`:
+
+```json
+{
+  "name": "math",
+  "source": "src"
+}
+```
+
+`import math.ops.add_one` loads `DIR/src/ops.emel` and imports `add_one`.
+
+Package `std` is special only because the compiler has a bundled fallback. If a
+package named `std` is supplied with `--package ../stdlib`, that package is used
+instead of the bundled stdlib. Imports such as `import std.io.write_stdout_utf8!`
+load Emela source from the selected `std` package or the bundled stdlib. stdlib
+wrappers then call `platform.*` imports supplied by the selected backend.
+Only the requested stdlib API and its dependencies are expanded, so a backend
+does not need to implement unused stdlib platform imports.
 
 ## Common Commands
 
@@ -110,57 +158,63 @@ cargo test
 Check an Emela source file without building:
 
 ```sh
-cargo run -- --check examples/maximal.emel
+cargo run -- --backend js-node --check examples/maximal.emel
+```
+
+Check with an external source package:
+
+```sh
+cargo run -- --backend js-node --package ../stdlib --check examples/std-print.emel
 ```
 
 Check a library source file without requiring `main` / `main!`:
 
 ```sh
-cargo run -- --library --check ../stdlib/std/io.emel --platform ../stdlib/platform/native-libc.json
+cargo run -- --backend js-node --library --check ../stdlib/std/io.emel
 ```
 
-Check against a specific platform target:
+Check against a native backend profile:
 
 ```sh
-cargo run -- --target wasm32-wasi --check examples/maximal.emel
+cargo run -- --backend native-aarch64-apple-darwin --check examples/maximal.emel
 ```
 
 Emit native assembly:
 
 ```sh
-cargo run -- --emit-asm /tmp/emela-maximal.s --check examples/maximal.emel
+cargo run -- --backend native-aarch64-apple-darwin --artifact /tmp/emela-maximal.s examples/maximal.emel
 ```
 
 Build a native executable on a matching host:
 
 ```sh
-cargo run -- --target aarch64-apple-darwin examples/maximal.emel -o /tmp/emela-maximal
+cargo run -- --backend native-aarch64-apple-darwin --output /tmp/emela-maximal examples/maximal.emel
 ```
 
 Emit x86_64 Linux assembly from any supported development host:
 
 ```sh
-cargo run -- --target x86_64-unknown-linux-gnu --emit-asm /tmp/emela-maximal-x86_64.s --check examples/maximal.emel
+cargo run -- --backend native-x86_64-unknown-linux-gnu --artifact /tmp/emela-maximal-x86_64.s examples/maximal.emel
 ```
 
-Emit JavaScript using a platform manifest:
+Emit JavaScript:
 
 ```sh
-cargo run -- --platform /path/to/emela-platform.json --emit-js /tmp/emela.js --check examples/maximal.emel
+cargo run -- --backend js-node --artifact /tmp/emela.js examples/maximal.emel
 ```
 
 Use the stdlib from user code:
 
 ```emela
-import std.io.print_i32!
+import std.io.write_stdout_utf8!
 
-fn main!() -> Unit {
-  42 |> print_i32!()
+fn main!() -> Result<Unit, PlatformError> {
+  "hello\n" |> write_stdout_utf8!()
 }
 ```
 
 ```sh
-cargo run -- --platform ../stdlib/platform/node.json --emit-js /tmp/emela.js --check examples/std-print.emel
+cargo run -- --backend js-node --artifact /tmp/emela.js examples/std-print.emel
 ```
 
 Run it and inspect the process exit code:
@@ -214,9 +268,9 @@ fn main!() -> I32 {
 - The native backend supports the current core language subset only.
 - Function values are type-checked, but native lowering is not implemented yet.
 - Runtime implementations for real I/O capabilities are not connected yet.
-- Imported external functions are type-checked and capability-checked. Native lowering uses manifest-provided runtime symbols.
-- JavaScript external lowering requires a `bindings.js.callee` entry for each imported external function.
-- Library mode can check stdlib source files, and user programs can import `std.*` modules from the configured stdlib root.
+- Imported external functions are type-checked and capability-checked against the selected backend.
+- JavaScript external lowering requires a `bindings.js.symbol` entry for each imported external function.
+- Library mode can check stdlib source files, and user programs can import `std.*` modules from the bundled stdlib or an explicit `std` package.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
 - Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.

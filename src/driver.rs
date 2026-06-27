@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use crate::ast::{ImportDecl, Program, TopLevelItem};
-use crate::codegen::{build, emit_assembly_for_platform, emit_js, emit_js_library};
+use serde::Deserialize;
+
+use crate::ast::{Block, BlockItem, Expr, ImportDecl, ImportOrigin, Program, TopLevelItem};
+use crate::backend::{Backend, EmitOptions};
 use crate::error::{Error, Result};
 use crate::lexer::lex;
 use crate::parser::Parser;
@@ -14,14 +16,25 @@ use crate::typecheck::{CheckMode, TypeChecker, TypedProgram};
 #[derive(Debug)]
 struct Args {
     input: PathBuf,
-    output: PathBuf,
+    output: Option<PathBuf>,
+    artifact: Option<PathBuf>,
     check_only: bool,
     library: bool,
-    emit_asm: Option<PathBuf>,
-    emit_js: Option<PathBuf>,
-    target: Target,
-    platform: Option<PathBuf>,
-    stdlib: PathBuf,
+    target: Option<Target>,
+    backend: Option<String>,
+    packages: Vec<PathBuf>,
+}
+
+#[derive(Clone)]
+struct PackageSource {
+    name: String,
+    source_root: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct PackageManifest {
+    name: String,
+    source: String,
 }
 
 #[cfg(test)]
@@ -44,7 +57,18 @@ pub(crate) fn compile_source_for_platform(
     platform: &PlatformSpec,
 ) -> Result<(Program, TypedProgram)> {
     let mut program = parse_program(source)?;
-    expand_stdlib_imports(&mut program, &default_stdlib_path())?;
+    expand_package_imports(&mut program, &[])?;
+    let typed = TypeChecker::new(&program, platform).check()?;
+    Ok((program, typed))
+}
+
+#[cfg(test)]
+pub(crate) fn compile_internal_source_for_platform(
+    source: &str,
+    platform: &PlatformSpec,
+) -> Result<(Program, TypedProgram)> {
+    let mut program = parse_program(source)?;
+    mark_stdlib_origin(&mut program);
     let typed = TypeChecker::new(&program, platform).check()?;
     Ok((program, typed))
 }
@@ -55,17 +79,17 @@ pub(crate) fn compile_source_for_platform_with_mode(
     platform: &PlatformSpec,
     mode: CheckMode,
 ) -> Result<(Program, TypedProgram)> {
-    compile_source_for_platform_with_stdlib(source, platform, mode, &default_stdlib_path())
+    compile_source_for_platform_with_packages(source, platform, mode, &[])
 }
 
-pub(crate) fn compile_source_for_platform_with_stdlib(
+fn compile_source_for_platform_with_packages(
     source: &str,
     platform: &PlatformSpec,
     mode: CheckMode,
-    stdlib: &Path,
+    packages: &[PackageSource],
 ) -> Result<(Program, TypedProgram)> {
     let mut program = parse_program(source)?;
-    expand_stdlib_imports(&mut program, stdlib)?;
+    expand_package_imports(&mut program, packages)?;
     let typed = TypeChecker::new_with_mode(&program, platform, mode).check()?;
     Ok((program, typed))
 }
@@ -85,63 +109,43 @@ pub(crate) fn run() -> Result<()> {
         ))
     })?;
 
-    let platform = match &args.platform {
-        Some(path) => PlatformSpec::from_manifest_path(path)?,
-        None => PlatformSpec::native_for_target(args.target),
-    };
+    let backend_name = args
+        .backend
+        .as_deref()
+        .ok_or_else(|| Error::new("--backend is required"))?;
+    let backend = Backend::parse(backend_name)?;
+    let backend_target = backend.target();
+    if let (Some(explicit), Some(profile)) = (args.target, backend_target) {
+        if explicit != profile {
+            return Err(Error::new(format!(
+                "backend profile `{backend_name}` requires target `{profile}`, got `{explicit}`"
+            )));
+        }
+    }
+    let target = backend_target.or(args.target);
+    let platform = backend.platform();
 
     let mode = if args.library {
         CheckMode::Library
     } else {
         CheckMode::Executable
     };
+    let packages = load_package_sources(&args.packages)?;
     let (program, typed) =
-        compile_source_for_platform_with_stdlib(&source, &platform, mode, &args.stdlib)?;
-    let assembly = if args.emit_js.is_none() && (!args.check_only || args.emit_asm.is_some()) {
-        Some(emit_assembly_for_platform(
-            args.target,
+        compile_source_for_platform_with_packages(&source, &platform, mode, &packages)?;
+    if !args.check_only {
+        backend.emit(
             &platform,
             &program,
             &typed,
-        )?)
-    } else {
-        None
-    };
-
-    if let Some(path) = &args.emit_asm {
-        let assembly = assembly
-            .as_ref()
-            .expect("assembly is generated when --emit-asm is provided");
-        fs::write(path, &assembly).map_err(|err| {
-            Error::new(format!(
-                "failed to write assembly output `{}`: {err}",
-                path.display()
-            ))
-        })?;
-    }
-
-    if let Some(path) = &args.emit_js {
-        let js = if args.library {
-            emit_js_library(&platform, &program, &typed)?
-        } else {
-            emit_js(&platform, &program, &typed)?
-        };
-        write_output(path, &js, "js output")?;
-    }
-
-    if !args.library && !args.check_only && args.emit_js.is_none() {
-        let assembly = assembly
-            .as_ref()
-            .expect("assembly is generated when building");
-        build(
-            args.target,
-            &platform,
-            &program,
-            &args.input,
-            &args.output,
-            assembly,
+            EmitOptions {
+                target,
+                mode,
+                input: &args.input,
+                output: args.output.as_deref(),
+                artifact: args.artifact.as_deref(),
+            },
         )?;
-        eprintln!("built {}", args.output.display());
     }
 
     Ok(())
@@ -153,27 +157,20 @@ fn parse_args() -> Result<Args> {
     let mut output = None;
     let mut check_only = false;
     let mut library = false;
-    let mut emit_asm_path = None;
-    let mut emit_js_path = None;
+    let mut artifact = None;
     let mut target = None;
-    let mut platform = None;
-    let mut stdlib = None;
+    let mut backend = None;
+    let mut packages = Vec::new();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => check_only = true,
             "--library" => library = true,
-            "--emit-asm" => {
+            "--artifact" => {
                 let path = args
                     .next()
-                    .ok_or_else(|| Error::new("--emit-asm requires a path"))?;
-                emit_asm_path = Some(PathBuf::from(path));
-            }
-            "--emit-js" => {
-                let path = args
-                    .next()
-                    .ok_or_else(|| Error::new("--emit-js requires a path"))?;
-                emit_js_path = Some(PathBuf::from(path));
+                    .ok_or_else(|| Error::new("--artifact requires a path"))?;
+                artifact = Some(PathBuf::from(path));
             }
             "--target" => {
                 let value = args
@@ -181,19 +178,19 @@ fn parse_args() -> Result<Args> {
                     .ok_or_else(|| Error::new("--target requires a target triple"))?;
                 target = Some(Target::parse(&value)?);
             }
-            "--platform" => {
+            "--backend" => {
+                let value = args.next().ok_or_else(|| {
+                    Error::new("--backend requires a backend profile name or manifest path")
+                })?;
+                backend = Some(value);
+            }
+            "--package" => {
                 let path = args
                     .next()
-                    .ok_or_else(|| Error::new("--platform requires a manifest path"))?;
-                platform = Some(PathBuf::from(path));
+                    .ok_or_else(|| Error::new("--package requires a package directory path"))?;
+                packages.push(PathBuf::from(path));
             }
-            "--stdlib" => {
-                let path = args
-                    .next()
-                    .ok_or_else(|| Error::new("--stdlib requires a directory path"))?;
-                stdlib = Some(PathBuf::from(path));
-            }
-            "-o" | "--output" => {
+            "--output" => {
                 let path = args
                     .next()
                     .ok_or_else(|| Error::new("--output requires a path"))?;
@@ -218,90 +215,106 @@ fn parse_args() -> Result<Args> {
     if input.extension().and_then(|ext| ext.to_str()) != Some("emel") {
         return Err(Error::new("input file extension must be .emel"));
     }
-    if emit_asm_path.is_some() && emit_js_path.is_some() {
+    if check_only && (artifact.is_some() || output.is_some()) {
         return Err(Error::new(
-            "--emit-asm and --emit-js cannot be used together",
+            "--check cannot be combined with --artifact or --output",
         ));
     }
-    if library && !check_only && emit_asm_path.is_none() && emit_js_path.is_none() {
-        return Err(Error::new(
-            "--library requires --check, --emit-asm, or --emit-js",
-        ));
+    if artifact.is_some() && output.is_some() {
+        return Err(Error::new("--artifact and --output are mutually exclusive"));
     }
-    let output = output.unwrap_or_else(|| input.with_extension(""));
-    let target = match target {
-        Some(target) => target,
-        None => Target::host()?,
-    };
-    let stdlib = stdlib.unwrap_or_else(default_stdlib_path);
-
+    if library && !check_only && artifact.is_none() {
+        return Err(Error::new("--library requires --check or --artifact"));
+    }
     Ok(Args {
         input,
         output,
+        artifact,
         check_only,
         library,
-        emit_asm: emit_asm_path,
-        emit_js: emit_js_path,
         target,
-        platform,
-        stdlib,
+        backend,
+        packages,
     })
 }
 
 fn print_help() {
     eprintln!(
-        "Usage: compiler [--target TARGET] [--platform PATH] [--stdlib DIR] [--check] [--library] [--emit-asm PATH] [--emit-js PATH] [-o OUTPUT] INPUT.emel"
+        "Usage: compiler --backend PROFILE|PATH [--target TARGET] [--package DIR]... [--check] [--library] [--artifact PATH] [--output PATH] INPUT.emel"
     );
 }
 
-fn write_output(path: &Path, contents: &str, label: &str) -> Result<()> {
-    fs::write(path, contents).map_err(|err| {
-        Error::new(format!(
-            "failed to write {label} `{}`: {err}",
-            path.display()
-        ))
-    })
+fn load_package_sources(paths: &[PathBuf]) -> Result<Vec<PackageSource>> {
+    let mut packages = Vec::new();
+    for path in paths {
+        let manifest_path = path.join("emela-package.json");
+        let manifest_source = fs::read_to_string(&manifest_path).map_err(|err| {
+            Error::new(format!(
+                "failed to read package manifest `{}`: {err}",
+                manifest_path.display()
+            ))
+        })?;
+        let manifest: PackageManifest = serde_json::from_str(&manifest_source).map_err(|err| {
+            Error::new(format!(
+                "failed to parse package manifest `{}`: {err}",
+                manifest_path.display()
+            ))
+        })?;
+        if packages
+            .iter()
+            .any(|package: &PackageSource| package.name == manifest.name)
+        {
+            return Err(Error::new(format!("duplicate package `{}`", manifest.name)));
+        }
+        packages.push(PackageSource {
+            name: manifest.name,
+            source_root: path.join(manifest.source),
+        });
+    }
+    Ok(packages)
 }
 
-fn default_stdlib_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../stdlib")
-}
-
-fn expand_stdlib_imports(program: &mut Program, stdlib: &Path) -> Result<()> {
+fn expand_package_imports(program: &mut Program, packages: &[PackageSource]) -> Result<()> {
     let mut loaded_modules = BTreeSet::new();
-    expand_stdlib_imports_with_loaded(program, stdlib, &mut loaded_modules)
+    expand_package_imports_with_loaded(program, packages, &mut loaded_modules)
 }
 
-fn expand_stdlib_imports_with_loaded(
+fn expand_package_imports_with_loaded(
     program: &mut Program,
-    stdlib: &Path,
+    packages: &[PackageSource],
     loaded_modules: &mut BTreeSet<String>,
 ) -> Result<()> {
-    let mut std_imports = Vec::new();
+    let mut source_imports = Vec::new();
     program.items.retain(|item| {
         let TopLevelItem::Import(import) = item else {
             return true;
         };
-        if is_std_import(import) {
-            std_imports.push(import.clone());
+        if is_source_package_import(import, packages) {
+            source_imports.push(import.clone());
             false
         } else {
             true
         }
     });
 
-    for import in std_imports {
+    for import in source_imports {
+        let package_name = import.path.first().expect("import path is not empty");
         let module_path = std_module_path(&import)?;
         let module_key = module_path.join(".");
-        let mut module = load_stdlib_module(stdlib, &module_path)?;
+        let import_key = format!("{package_name}.{module_key}.{}", import.name);
+        let mut module = load_source_package_module(package_name, packages, &module_path)?;
         if !module_exports(&module, &import.name) {
             return Err(Error::new(format!(
-                "stdlib module `std.{}` does not export `{}`",
+                "package module `{package_name}.{}` does not export `{}`",
                 module_key, import.name
             )));
         }
-        if loaded_modules.insert(module_key) {
-            expand_stdlib_imports_with_loaded(&mut module, stdlib, loaded_modules)?;
+        retain_stdlib_item_dependencies(&mut module, &import.name);
+        if loaded_modules.insert(import_key) {
+            expand_package_imports_with_loaded(&mut module, packages, loaded_modules)?;
+            if package_name == "std" {
+                mark_stdlib_origin(&mut module);
+            }
             program.items.extend(module.items);
         }
     }
@@ -309,33 +322,84 @@ fn expand_stdlib_imports_with_loaded(
     Ok(())
 }
 
-fn is_std_import(import: &ImportDecl) -> bool {
-    import.path.first().is_some_and(|package| package == "std")
+fn mark_stdlib_origin(program: &mut Program) {
+    for item in &mut program.items {
+        if let TopLevelItem::Import(import) = item {
+            import.origin = ImportOrigin::Stdlib;
+        }
+    }
+}
+
+fn is_source_package_import(import: &ImportDecl, packages: &[PackageSource]) -> bool {
+    let Some(package) = import.path.first() else {
+        return false;
+    };
+    package == "std" || packages.iter().any(|source| source.name == *package)
 }
 
 fn std_module_path(import: &ImportDecl) -> Result<Vec<String>> {
     if import.path.len() < 2 {
         return Err(Error::new(format!(
-            "stdlib import `{}` must include a module path",
+            "source package import `{}` must include a module path",
             format_import_path(&import.path, &import.name)
         )));
     }
     Ok(import.path[1..].to_vec())
 }
 
-fn load_stdlib_module(stdlib: &Path, module_path: &[String]) -> Result<Program> {
-    let mut path = stdlib.join("std");
-    for part in module_path {
-        path.push(part);
-    }
-    path.set_extension("emel");
-    let source = fs::read_to_string(&path).map_err(|err| {
-        Error::new(format!(
-            "failed to read stdlib module `{}`: {err}",
-            path.display()
-        ))
-    })?;
+fn load_source_package_module(
+    package_name: &str,
+    packages: &[PackageSource],
+    module_path: &[String],
+) -> Result<Program> {
+    let source = if package_name == "std" {
+        if let Some(package) = packages.iter().find(|package| package.name == "std") {
+            load_package_module(package, module_path)?
+        } else {
+            load_embedded_stdlib_module(module_path)?
+        }
+    } else {
+        let package = packages
+            .iter()
+            .find(|package| package.name == package_name)
+            .ok_or_else(|| Error::new(format!("unknown package `{package_name}`")))?;
+        load_package_module(package, module_path)?
+    };
     parse_program(&source)
+}
+
+fn load_package_module(package: &PackageSource, module_path: &[String]) -> Result<String> {
+    load_module_file(
+        package.source_root.clone(),
+        module_path,
+        &format!("package `{}`", package.name),
+    )
+}
+
+fn load_module_file(mut root: PathBuf, module_path: &[String], label: &str) -> Result<String> {
+    for part in module_path {
+        root.push(part);
+    }
+    root.set_extension("emel");
+    fs::read_to_string(&root).map_err(|err| {
+        Error::new(format!(
+            "failed to read {label} module `{}`: {err}",
+            root.display()
+        ))
+    })
+}
+
+fn load_embedded_stdlib_module(module_path: &[String]) -> Result<String> {
+    match module_path {
+        [module] if module == "io" => Ok(include_str!("../../stdlib/std/io.emel").to_string()),
+        [module] if module == "clock" => {
+            Ok(include_str!("../../stdlib/std/clock.emel").to_string())
+        }
+        _ => Err(Error::new(format!(
+            "embedded stdlib module `std.{}` is not bundled",
+            module_path.join(".")
+        ))),
+    }
 }
 
 fn module_exports(module: &Program, name: &str) -> bool {
@@ -345,6 +409,72 @@ fn module_exports(module: &Program, name: &str) -> bool {
         TopLevelItem::Struct(decl) => decl.name == name,
         TopLevelItem::Enum(decl) => decl.name == name,
     })
+}
+
+fn retain_stdlib_item_dependencies(module: &mut Program, export_name: &str) {
+    let mut needed = BTreeSet::from([export_name.to_string()]);
+    loop {
+        let before = needed.len();
+        for function in module.functions() {
+            if needed.contains(&function.name) {
+                collect_block_dependencies(&function.body, &mut needed);
+            }
+        }
+        if needed.len() == before {
+            break;
+        }
+    }
+
+    module.items.retain(|item| match item {
+        TopLevelItem::Function(function) => needed.contains(&function.name),
+        TopLevelItem::Import(import) => needed.contains(&import.name),
+        TopLevelItem::Struct(_) | TopLevelItem::Enum(_) => true,
+    });
+}
+
+fn collect_block_dependencies(block: &Block, needed: &mut BTreeSet<String>) {
+    for item in &block.items {
+        match item {
+            BlockItem::Binding { expr, .. } | BlockItem::Expr(expr) => {
+                collect_expr_dependencies(expr, needed);
+            }
+        }
+    }
+}
+
+fn collect_expr_dependencies(expr: &Expr, needed: &mut BTreeSet<String>) {
+    match expr {
+        Expr::Var(name) => {
+            needed.insert(name.clone());
+        }
+        Expr::String(_) => {}
+        Expr::Call { name, args } => {
+            needed.insert(name.clone());
+            for arg in args {
+                collect_expr_dependencies(arg, needed);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_expr_dependencies(receiver, needed);
+            for arg in args {
+                collect_expr_dependencies(arg, needed);
+            }
+        }
+        Expr::FieldAccess { receiver, .. } => collect_expr_dependencies(receiver, needed),
+        Expr::StructLiteral { value, .. } => collect_expr_dependencies(value, needed),
+        Expr::Binary { left, right, .. } => {
+            collect_expr_dependencies(left, needed);
+            collect_expr_dependencies(right, needed);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_expr_dependencies(scrutinee, needed);
+            for arm in arms {
+                collect_expr_dependencies(&arm.expr, needed);
+            }
+        }
+        Expr::Block(block) => collect_block_dependencies(block, needed),
+        Expr::Int(_) | Expr::Bool(_) | Expr::Unit => {}
+    }
 }
 
 fn format_import_path(path: &[String], name: &str) -> String {
