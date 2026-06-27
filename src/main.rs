@@ -18,9 +18,17 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use crate::ast::{FunctionType, PrimType, Type};
-    use crate::codegen::emit_assembly;
-    use crate::driver::{compile_source, compile_source_for_target};
+    use crate::codegen::{
+        emit_assembly, emit_assembly_for_platform, emit_js, emit_js_library, native_link_args,
+    };
+    use crate::driver::{
+        compile_source, compile_source_for_platform, compile_source_for_platform_with_mode,
+        compile_source_for_target,
+    };
+    use crate::external::ExternalRegistry;
+    use crate::platform::PlatformSpec;
     use crate::platform::Target;
+    use crate::typecheck::CheckMode;
 
     #[test]
     fn accepts_empty_main() {
@@ -77,6 +85,21 @@ fn main() -> I32 {
 
         let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains(".globl _main"));
+    }
+
+    #[test]
+    fn library_mode_allows_sources_without_main() {
+        let source = r#"
+fn add(x: I32, y: I32) -> I32 {
+  x + y
+}
+"#;
+        compile_source(source).unwrap_err();
+        let platform = PlatformSpec::native_for_target(Target::Aarch64AppleDarwin);
+        let (_, typed) =
+            compile_source_for_platform_with_mode(source, &platform, CheckMode::Library).unwrap();
+        assert_eq!(typed.functions.len(), 1);
+        assert_eq!(typed.functions[0].name, "add");
     }
 
     #[test]
@@ -516,7 +539,7 @@ fn main!() -> Unit {
         let error = compile_source_for_target(source, Target::Wasm32UnknownUnknown).unwrap_err();
         assert!(error
             .to_string()
-            .contains("target `wasm32-unknown-unknown` does not provide"));
+            .contains("platform `wasm32-unknown-unknown` does not provide"));
     }
 
     #[test]
@@ -532,7 +555,7 @@ fn main!() -> Unit {
         let error = compile_source_for_target(source, Target::Wasm32UnknownUnknown).unwrap_err();
         assert!(error
             .to_string()
-            .contains("target `wasm32-unknown-unknown` does not provide"));
+            .contains("platform `wasm32-unknown-unknown` does not provide"));
     }
 
     #[test]
@@ -552,8 +575,9 @@ fn main() -> Unit {
     }
 
     #[test]
-    fn imported_external_function_requires_backend_lowering() {
-        let (program, typed) = compile_source_for_target(
+    fn imported_external_function_lowers_to_native_binding() {
+        let platform = platform_from_manifest(NATIVE_MANIFEST);
+        let (program, typed) = compile_source_for_platform(
             r#"
 import platform.io.print_i32!
 
@@ -561,11 +585,44 @@ fn main!() -> Unit {
   print_i32!(42)
 }
 "#,
-            Target::Aarch64AppleDarwin,
+            &platform,
         )
         .unwrap();
-        let error = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
-        assert!(error.to_string().contains("does not have native lowering"));
+        let darwin =
+            emit_assembly_for_platform(Target::Aarch64AppleDarwin, &platform, &program, &typed)
+                .unwrap();
+        assert!(darwin.contains("    mov w0, #42\n"));
+        assert!(darwin.contains("    str x0, [sp, #0]\n"));
+        assert!(darwin.contains("    ldr x0, [sp, #0]\n"));
+        assert!(darwin.contains("    bl _emela_print_i32\n"));
+
+        let linux =
+            emit_assembly_for_platform(Target::X86_64UnknownLinuxGnu, &platform, &program, &typed)
+                .unwrap();
+        assert!(linux.contains("    movl $42, %eax\n"));
+        assert!(linux.contains("    movq %rax, 0(%rsp)\n"));
+        assert!(linux.contains("    movq 0(%rsp), %rdi\n"));
+        assert!(linux.contains("    call emela_print_i32\n"));
+    }
+
+    #[test]
+    fn native_codegen_rejects_missing_binding() {
+        let platform = platform_from_manifest(MISSING_JS_BINDING_MANIFEST);
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import platform.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let error =
+            emit_assembly_for_platform(Target::Aarch64AppleDarwin, &platform, &program, &typed)
+                .unwrap_err();
+        assert!(error.to_string().contains("does not have a native binding"));
     }
 
     #[test]
@@ -578,4 +635,305 @@ fn main!() -> Unit {
             .to_string()
             .contains("does not have a native assembly backend"));
     }
+
+    #[test]
+    fn parses_platform_manifest_external_registry() {
+        let (name, capabilities, registry) =
+            ExternalRegistry::from_manifest_json(NODE_MANIFEST).unwrap();
+        assert_eq!(name, "node");
+        assert_eq!(capabilities, vec![crate::ast::Capability::Stdout]);
+        let function = registry
+            .resolve_import(&["platform".to_string(), "io".to_string()], "print_i32!")
+            .unwrap();
+        assert_eq!(function.params, vec![Type::Prim(PrimType::I32)]);
+        assert_eq!(function.ret, Type::Prim(PrimType::Unit));
+        assert_eq!(function.bindings.js_callee.as_deref(), Some("console.log"));
+    }
+
+    #[test]
+    fn parses_platform_manifest_native_binding() {
+        let (_, _, registry) = ExternalRegistry::from_manifest_json(NATIVE_MANIFEST).unwrap();
+        let function = registry
+            .resolve_import(&["platform".to_string(), "io".to_string()], "print_i32!")
+            .unwrap();
+        let native = function.bindings.native.as_ref().unwrap();
+        assert_eq!(native.symbol, "emela_print_i32");
+        assert_eq!(native.links, vec!["emela_runtime"]);
+        assert_eq!(registry.native_links(), vec!["emela_runtime"]);
+        let platform = platform_from_manifest(NATIVE_MANIFEST);
+        let (program, _) = compile_source_for_platform(
+            r#"
+import platform.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        assert_eq!(
+            native_link_args(&platform, &program),
+            vec!["-lemela_runtime"]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_manifest_native_binding() {
+        let error = ExternalRegistry::from_manifest_json(
+            r#"
+{
+  "name": "bad",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "native": {
+          "link": ["emela_runtime"]
+        }
+      }
+    }
+  ]
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("native binding missing `symbol`"));
+    }
+
+    #[test]
+    fn rejects_manifest_unknown_type() {
+        let error = ExternalRegistry::from_manifest_json(
+            r#"
+{
+  "name": "bad",
+  "capabilities": [],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print!",
+      "params": ["String"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": [],
+      "bindings": {}
+    }
+  ]
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("unknown external manifest type"));
+    }
+
+    #[test]
+    fn rejects_manifest_duplicate_import() {
+        let error = ExternalRegistry::from_manifest_json(
+            r#"
+{
+  "name": "bad",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {}
+    },
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {}
+    }
+  ]
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate external import"));
+    }
+
+    #[test]
+    fn manifest_platform_capability_set_is_checked() {
+        let source = r#"
+import platform.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#;
+        let node = platform_from_manifest(NODE_MANIFEST);
+        compile_source_for_platform(source, &node).unwrap();
+
+        let no_stdout = platform_from_manifest(NO_STDOUT_MANIFEST);
+        let error = compile_source_for_platform(source, &no_stdout).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("platform `no-stdout` does not provide"));
+    }
+
+    #[test]
+    fn emits_js_main_and_external_binding() {
+        let platform = platform_from_manifest(NODE_MANIFEST);
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import platform.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let js = emit_js(&platform, &program, &typed).unwrap();
+        assert!(js.contains("function main_effect()"));
+        assert!(js.contains("console.log(42);"));
+        assert!(js.contains("const __emela_result = main_effect();"));
+    }
+
+    #[test]
+    fn emits_js_library_without_entrypoint() {
+        let platform = PlatformSpec::native_for_target(Target::Aarch64AppleDarwin);
+        let (program, typed) = compile_source_for_platform_with_mode(
+            r#"
+fn add(x: I32, y: I32) -> I32 {
+  x + y
+}
+"#,
+            &platform,
+            CheckMode::Library,
+        )
+        .unwrap();
+        let js = emit_js_library(&platform, &program, &typed).unwrap();
+        assert!(js.contains("function add(x, y)"));
+        assert!(!js.contains("__emela_result"));
+    }
+
+    #[test]
+    fn js_codegen_rejects_missing_binding() {
+        let platform = platform_from_manifest(MISSING_JS_BINDING_MANIFEST);
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import platform.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let error = emit_js(&platform, &program, &typed).unwrap_err();
+        assert!(error.to_string().contains("does not have a js binding"));
+    }
+
+    fn platform_from_manifest(source: &str) -> PlatformSpec {
+        let (name, capabilities, externs) = ExternalRegistry::from_manifest_json(source).unwrap();
+        PlatformSpec {
+            name,
+            provided_capabilities: capabilities.into_iter().collect(),
+            externs,
+        }
+    }
+
+    const NODE_MANIFEST: &str = r#"
+{
+  "name": "node",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "js": {
+          "callee": "console.log"
+        }
+      }
+    }
+  ]
+}
+"#;
+
+    const NO_STDOUT_MANIFEST: &str = r#"
+{
+  "name": "no-stdout",
+  "capabilities": [],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "js": {
+          "callee": "console.log"
+        }
+      }
+    }
+  ]
+}
+"#;
+
+    const NATIVE_MANIFEST: &str = r#"
+{
+  "name": "native-runtime",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "native": {
+          "symbol": "emela_print_i32",
+          "link": ["emela_runtime"]
+        }
+      }
+    }
+  ]
+}
+"#;
+
+    const MISSING_JS_BINDING_MANIFEST: &str = r#"
+{
+  "name": "missing-js",
+  "capabilities": ["Stdout"],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "print_i32!",
+      "params": ["I32"],
+      "return": "Unit",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {}
+    }
+  ]
+}
+"#;
 }

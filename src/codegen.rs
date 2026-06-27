@@ -4,16 +4,19 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::ast::{BinaryOp, Block, BlockItem, Expr, Function, Pattern, Program, TopLevelItem};
+use crate::ast::{
+    BinaryOp, Block, BlockItem, Expr, Function, MatchArm, Pattern, Program, TopLevelItem,
+};
 use crate::error::{Error, Result};
-use crate::external::{self, ExternalFunction, ExternalImplementation};
-use crate::platform::{BackendKind, LinkerKind, Target};
+use crate::external::{format_external_path, ExternalFunction};
+use crate::platform::{BackendKind, LinkerKind, PlatformSpec, Target};
 use crate::typecheck::TypedProgram;
 
 trait NativeBackend {
     fn comment_marker(&self) -> &'static str;
     fn main_symbol(&self) -> &'static str;
     fn symbol_name(&self, name: &str) -> String;
+    fn external_symbol_name(&self, name: &str) -> String;
     fn stack_note(&self) -> Option<&'static str> {
         None
     }
@@ -34,6 +37,10 @@ impl NativeBackend for Aarch64DarwinBackend {
     fn symbol_name(&self, name: &str) -> String {
         format!("_{}", base_symbol_name(name))
     }
+
+    fn external_symbol_name(&self, name: &str) -> String {
+        format!("_{name}")
+    }
 }
 
 impl NativeBackend for X86_64LinuxGnuBackend {
@@ -49,6 +56,10 @@ impl NativeBackend for X86_64LinuxGnuBackend {
         base_symbol_name(name)
     }
 
+    fn external_symbol_name(&self, name: &str) -> String {
+        name.to_string()
+    }
+
     fn stack_note(&self) -> Option<&'static str> {
         Some(".section .note.GNU-stack,\"\",@progbits\n")
     }
@@ -57,8 +68,19 @@ impl NativeBackend for X86_64LinuxGnuBackend {
 static AARCH64_DARWIN_BACKEND: Aarch64DarwinBackend = Aarch64DarwinBackend;
 static X86_64_LINUX_GNU_BACKEND: X86_64LinuxGnuBackend = X86_64LinuxGnuBackend;
 
+#[cfg(test)]
 pub(crate) fn emit_assembly(
     target: Target,
+    program: &Program,
+    typed: &TypedProgram,
+) -> Result<String> {
+    let platform = PlatformSpec::native_for_target(target);
+    emit_assembly_for_platform(target, &platform, program, typed)
+}
+
+pub(crate) fn emit_assembly_for_platform(
+    target: Target,
+    platform: &PlatformSpec,
     program: &Program,
     typed: &TypedProgram,
 ) -> Result<String> {
@@ -112,7 +134,7 @@ pub(crate) fn emit_assembly(
             typed_function.ret
         ));
 
-        let mut emitter = FunctionEmitter::new(target, backend, function, program);
+        let mut emitter = FunctionEmitter::new(target, backend, platform, function, program);
         emitter.emit_function(&mut out)?;
     }
 
@@ -123,7 +145,32 @@ pub(crate) fn emit_assembly(
     Ok(out)
 }
 
-pub(crate) fn build(target: Target, input: &Path, output: &Path, assembly: &str) -> Result<()> {
+pub(crate) fn emit_js(
+    platform: &PlatformSpec,
+    program: &Program,
+    _typed: &TypedProgram,
+) -> Result<String> {
+    let mut emitter = JsEmitter::new(platform, program, true);
+    emitter.emit_program()
+}
+
+pub(crate) fn emit_js_library(
+    platform: &PlatformSpec,
+    program: &Program,
+    _typed: &TypedProgram,
+) -> Result<String> {
+    let mut emitter = JsEmitter::new(platform, program, false);
+    emitter.emit_program()
+}
+
+pub(crate) fn build(
+    target: Target,
+    platform: &PlatformSpec,
+    program: &Program,
+    input: &Path,
+    output: &Path,
+    assembly: &str,
+) -> Result<()> {
     if !target.supports_native_backend() {
         return Err(Error::new(format!(
             "target `{target}` does not have a native assembly backend yet"
@@ -152,10 +199,12 @@ pub(crate) fn build(target: Target, input: &Path, output: &Path, assembly: &str)
         ))
     })?;
 
-    let status = Command::new("cc")
-        .arg(&temp)
-        .arg("-o")
-        .arg(output)
+    let mut command = Command::new("cc");
+    command.arg(&temp).arg("-o").arg(output);
+    for link_arg in native_link_args(platform, program) {
+        command.arg(link_arg);
+    }
+    let status = command
         .status()
         .map_err(|err| Error::new(format!("failed to execute cc: {err}")))?;
 
@@ -170,9 +219,47 @@ pub(crate) fn build(target: Target, input: &Path, output: &Path, assembly: &str)
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn native_link_args(platform: &PlatformSpec, program: &Program) -> Vec<String> {
+    native_link_names(platform, program)
+        .into_iter()
+        .map(|link| format!("-l{link}"))
+        .collect()
+}
+
+#[cfg(not(test))]
+fn native_link_args(platform: &PlatformSpec, program: &Program) -> Vec<String> {
+    native_link_names(platform, program)
+        .into_iter()
+        .map(|link| format!("-l{link}"))
+        .collect()
+}
+
+fn native_link_names<'a>(platform: &'a PlatformSpec, program: &Program) -> Vec<&'a str> {
+    let mut links = Vec::new();
+    for item in &program.items {
+        let TopLevelItem::Import(import) = item else {
+            continue;
+        };
+        let Some(function) = platform.externs.resolve_import(&import.path, &import.name) else {
+            continue;
+        };
+        let Some(binding) = &function.bindings.native else {
+            continue;
+        };
+        for link in &binding.links {
+            if !links.contains(&link.as_str()) {
+                links.push(link.as_str());
+            }
+        }
+    }
+    links
+}
+
 struct FunctionEmitter<'a> {
     target: Target,
     backend: &'static dyn NativeBackend,
+    platform: &'a PlatformSpec,
     function: &'a Function,
     program: &'a Program,
     label_prefix: String,
@@ -184,6 +271,7 @@ impl<'a> FunctionEmitter<'a> {
     fn new(
         target: Target,
         backend: &'static dyn NativeBackend,
+        platform: &'a PlatformSpec,
         function: &'a Function,
         program: &'a Program,
     ) -> Self {
@@ -197,6 +285,7 @@ impl<'a> FunctionEmitter<'a> {
         Self {
             target,
             backend,
+            platform,
             function,
             program,
             label_prefix: sanitize_label(&backend.symbol_name(&function.name)),
@@ -415,15 +504,16 @@ impl<'a> FunctionEmitter<'a> {
         }
 
         if let Some(function) = self.find_external_function(name) {
-            let implementation = match function.implementation {
-                ExternalImplementation::Runtime => "runtime",
-            };
-            return Err(Error::new(format!(
-                "external {implementation} function `{}` from `{}` does not have native lowering for target `{}` yet",
-                function.name,
-                format_external_path(function),
-                self.target
-            )));
+            let binding = function.bindings.native.as_ref().ok_or_else(|| {
+                Error::new(format!(
+                    "external function `{}` from `{}` does not have a native binding for target `{}`",
+                    function.name,
+                    format_external_path(function),
+                    self.target
+                ))
+            })?;
+            let callee = self.backend.external_symbol_name(&binding.symbol);
+            return self.emit_native_call_to_symbol(&callee, args, out);
         }
 
         if !self.find_program_function(name) {
@@ -432,6 +522,16 @@ impl<'a> FunctionEmitter<'a> {
             )));
         }
 
+        let callee = self.backend.symbol_name(name);
+        self.emit_native_call_to_symbol(&callee, args, out)
+    }
+
+    fn emit_native_call_to_symbol(
+        &mut self,
+        callee: &str,
+        args: &[Expr],
+        out: &mut String,
+    ) -> Result<()> {
         if args.len() > 8 {
             return Err(Error::new(
                 "native backend supports at most 8 call arguments",
@@ -454,7 +554,7 @@ impl<'a> FunctionEmitter<'a> {
                 if stack_size > 0 {
                     out.push_str(&format!("    add sp, sp, #{stack_size}\n"));
                 }
-                out.push_str(&format!("    bl {}\n", self.backend.symbol_name(name)));
+                out.push_str(&format!("    bl {callee}\n"));
             }
             Target::X86_64UnknownLinuxGnu => {
                 const ARG_REGS: [&str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
@@ -488,7 +588,7 @@ impl<'a> FunctionEmitter<'a> {
                         (index - ARG_REGS.len()) * 8
                     ));
                 }
-                out.push_str(&format!("    call {}\n", self.backend.symbol_name(name)));
+                out.push_str(&format!("    call {callee}\n"));
                 if stack_size > 0 {
                     out.push_str(&format!("    addq ${stack_size}, %rsp\n"));
                 }
@@ -755,13 +855,15 @@ impl<'a> FunctionEmitter<'a> {
         })
     }
 
-    fn find_external_function(&self, name: &str) -> Option<&'static ExternalFunction> {
+    fn find_external_function(&self, name: &str) -> Option<&ExternalFunction> {
         self.program.items.iter().find_map(|item| {
             let TopLevelItem::Import(import) = item else {
                 return None;
             };
             if import.name == name {
-                external::resolve_import(&import.path, &import.name)
+                self.platform
+                    .externs
+                    .resolve_import(&import.path, &import.name)
             } else {
                 None
             }
@@ -882,10 +984,305 @@ fn align_to(value: i32, align: i32) -> i32 {
     }
 }
 
-fn format_external_path(function: &ExternalFunction) -> String {
-    let mut parts = function.path.to_vec();
-    parts.push(function.name);
-    parts.join(".")
+struct JsEmitter<'a> {
+    platform: &'a PlatformSpec,
+    program: &'a Program,
+    emit_entrypoint: bool,
+}
+
+impl<'a> JsEmitter<'a> {
+    fn new(platform: &'a PlatformSpec, program: &'a Program, emit_entrypoint: bool) -> Self {
+        Self {
+            platform,
+            program,
+            emit_entrypoint,
+        }
+    }
+
+    fn emit_program(&mut self) -> Result<String> {
+        let mut out = String::new();
+        out.push_str("// Generated by the Emela compiler.\n");
+        out.push_str("\"use strict\";\n\n");
+        for function in self.program.functions() {
+            self.emit_function(function, &mut out)?;
+            out.push('\n');
+        }
+        if !self.emit_entrypoint {
+            return Ok(out);
+        }
+        let entry = self
+            .program
+            .functions()
+            .into_iter()
+            .find(|function| function.name == "main" || function.name == "main!")
+            .ok_or_else(|| Error::new("internal js codegen error: missing main"))?;
+        out.push_str(&format!(
+            "const __emela_result = {}();\n",
+            js_name(&entry.name)
+        ));
+        out.push_str("if (typeof process !== \"undefined\" && process.exitCode === undefined) {\n");
+        out.push_str(
+            "  process.exitCode = Number.isInteger(__emela_result) ? __emela_result : 0;\n",
+        );
+        out.push_str("}\n");
+        Ok(out)
+    }
+
+    fn emit_function(&mut self, function: &Function, out: &mut String) -> Result<()> {
+        let params = function
+            .params
+            .iter()
+            .map(|param| js_name(&param.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("function {}({params}) ", js_name(&function.name)));
+        self.emit_block_body(&function.body, out, 0)
+    }
+
+    fn emit_block_body(&mut self, block: &Block, out: &mut String, indent: usize) -> Result<()> {
+        out.push_str("{\n");
+        if block.items.is_empty() {
+            self.line(out, indent + 1, "return undefined;");
+            self.line(out, indent, "}");
+            return Ok(());
+        }
+        for (index, item) in block.items.iter().enumerate() {
+            let is_last = index + 1 == block.items.len();
+            match item {
+                BlockItem::Binding { name, expr, .. } => {
+                    let expr = self.emit_expr(expr)?;
+                    self.line(out, indent + 1, &format!("let {} = {expr};", js_name(name)));
+                }
+                BlockItem::Expr(expr) if is_last => {
+                    let expr = self.emit_expr(expr)?;
+                    self.line(out, indent + 1, &format!("return {expr};"));
+                }
+                BlockItem::Expr(expr) => {
+                    let expr = self.emit_expr(expr)?;
+                    self.line(out, indent + 1, &format!("{expr};"));
+                }
+            }
+        }
+        if !matches!(block.items.last(), Some(BlockItem::Expr(_))) {
+            self.line(out, indent + 1, "return undefined;");
+        }
+        self.line(out, indent, "}");
+        Ok(())
+    }
+
+    fn emit_expr(&mut self, expr: &Expr) -> Result<String> {
+        match expr {
+            Expr::Int(value) => Ok(value.to_string()),
+            Expr::Bool(value) => Ok(value.to_string()),
+            Expr::Unit => Ok("undefined".to_string()),
+            Expr::Var(name) => {
+                if let Some(tag) = self.find_variant_tag(name) {
+                    return Ok(format!("{{ tag: {tag}, value: undefined }}"));
+                }
+                if self.find_program_function(name) {
+                    return Ok(js_name(name));
+                }
+                if let Some(function) = self.find_external_function(name) {
+                    let callee = function.bindings.js_callee.as_ref().ok_or_else(|| {
+                        Error::new(format!(
+                            "external function `{}` from `{}` does not have a js binding",
+                            function.name,
+                            format_external_path(function)
+                        ))
+                    })?;
+                    return Ok(callee.clone());
+                }
+                Ok(js_name(name))
+            }
+            Expr::Call { name, args } => self.emit_call(name, args),
+            Expr::MethodCall {
+                receiver,
+                name,
+                args,
+            } => self.emit_method_call(receiver, name, args),
+            Expr::FieldAccess { receiver, field } => Ok(format!(
+                "({}).{}",
+                self.emit_expr(receiver)?,
+                js_name(field)
+            )),
+            Expr::StructLiteral { field, value, .. } => Ok(format!(
+                "{{ {}: {} }}",
+                js_name(field),
+                self.emit_expr(value)?
+            )),
+            Expr::Binary { op, left, right } => self.emit_binary(*op, left, right),
+            Expr::Match { scrutinee, arms } => self.emit_match(scrutinee, arms),
+            Expr::Block(block) => {
+                let mut out = String::new();
+                out.push_str("(() => ");
+                self.emit_block_body(block, &mut out, 0)?;
+                out.push_str(")()");
+                Ok(out)
+            }
+        }
+    }
+
+    fn emit_call(&mut self, name: &str, args: &[Expr]) -> Result<String> {
+        let args = args
+            .iter()
+            .map(|arg| self.emit_expr(arg))
+            .collect::<Result<Vec<_>>>()?
+            .join(", ");
+        if let Some(tag) = self.find_variant_tag(name) {
+            return Ok(format!("{{ tag: {tag}, value: {args} }}"));
+        }
+        if let Some(function) = self.find_external_function(name) {
+            let callee = function.bindings.js_callee.as_ref().ok_or_else(|| {
+                Error::new(format!(
+                    "external function `{}` from `{}` does not have a js binding",
+                    function.name,
+                    format_external_path(function)
+                ))
+            })?;
+            return Ok(format!("{callee}({args})"));
+        }
+        Ok(format!("{}({args})", js_name(name)))
+    }
+
+    fn emit_method_call(&mut self, receiver: &Expr, name: &str, args: &[Expr]) -> Result<String> {
+        if args.len() != 1 {
+            return Err(Error::new(format!(
+                "js backend only supports unary primitive method `{name}`"
+            )));
+        }
+        self.emit_binary(method_op(name)?, receiver, &args[0])
+    }
+
+    fn emit_binary(&mut self, op: BinaryOp, left: &Expr, right: &Expr) -> Result<String> {
+        let left = self.emit_expr(left)?;
+        let right = self.emit_expr(right)?;
+        let op = match op {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Eq => "===",
+            BinaryOp::Lt => "<",
+        };
+        Ok(format!("({left} {op} {right})"))
+    }
+
+    fn emit_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Result<String> {
+        let mut out = String::new();
+        out.push_str("(() => {\n");
+        out.push_str(&format!(
+            "  const __match = {};\n",
+            self.emit_expr(scrutinee)?
+        ));
+        for arm in arms {
+            let condition = self.pattern_condition(&arm.pattern, "__match")?;
+            out.push_str(&format!("  if ({condition}) {{\n"));
+            self.emit_pattern_bindings(&arm.pattern, "__match", &mut out, 2)?;
+            out.push_str(&format!("    return {};\n", self.emit_expr(&arm.expr)?));
+            out.push_str("  }\n");
+        }
+        out.push_str("  throw new Error(\"non-exhaustive match\");\n");
+        out.push_str("})()");
+        Ok(out)
+    }
+
+    fn pattern_condition(&self, pattern: &Pattern, value: &str) -> Result<String> {
+        match pattern {
+            Pattern::Int(value_i32) => Ok(format!("{value} === {value_i32}")),
+            Pattern::Bool(value_bool) => Ok(format!("{value} === {value_bool}")),
+            Pattern::Unit => Ok(format!("{value} === undefined")),
+            Pattern::Var(_) | Pattern::Wildcard => Ok("true".to_string()),
+            Pattern::Variant { name, .. } => {
+                let tag = self.variant_tag(name)?;
+                Ok(format!("{value}.tag === {tag}"))
+            }
+        }
+    }
+
+    fn emit_pattern_bindings(
+        &self,
+        pattern: &Pattern,
+        value: &str,
+        out: &mut String,
+        indent: usize,
+    ) -> Result<()> {
+        match pattern {
+            Pattern::Var(name) => {
+                self.line(out, indent, &format!("const {} = {value};", js_name(name)));
+            }
+            Pattern::Variant {
+                payload: Some(payload),
+                ..
+            } => self.emit_pattern_bindings(payload, &format!("{value}.value"), out, indent)?,
+            Pattern::Int(_)
+            | Pattern::Bool(_)
+            | Pattern::Unit
+            | Pattern::Wildcard
+            | Pattern::Variant { payload: None, .. } => {}
+        }
+        Ok(())
+    }
+
+    fn line(&self, out: &mut String, indent: usize, value: &str) {
+        out.push_str(&"  ".repeat(indent));
+        out.push_str(value);
+        out.push('\n');
+    }
+
+    fn variant_tag(&self, name: &str) -> Result<usize> {
+        self.find_variant_tag(name).ok_or_else(|| {
+            Error::new(format!(
+                "internal js codegen error: unknown variant `{name}`"
+            ))
+        })
+    }
+
+    fn find_variant_tag(&self, name: &str) -> Option<usize> {
+        self.program.items.iter().find_map(|item| {
+            let TopLevelItem::Enum(decl) = item else {
+                return None;
+            };
+            decl.variants
+                .iter()
+                .position(|variant| variant.name == name)
+        })
+    }
+
+    fn find_external_function(&self, name: &str) -> Option<&ExternalFunction> {
+        self.program.items.iter().find_map(|item| {
+            let TopLevelItem::Import(import) = item else {
+                return None;
+            };
+            if import.name == name {
+                self.platform
+                    .externs
+                    .resolve_import(&import.path, &import.name)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn find_program_function(&self, name: &str) -> bool {
+        self.program
+            .functions()
+            .iter()
+            .any(|function| function.name == name)
+    }
+}
+
+fn js_name(name: &str) -> String {
+    let mut out = String::new();
+    for (index, ch) in name.chars().enumerate() {
+        let valid = ch == '_' || ch == '$' || ch.is_ascii_alphanumeric();
+        if valid && !(index == 0 && ch.is_ascii_digit()) {
+            out.push(ch);
+        } else if ch == '!' {
+            out.push_str("_effect");
+        } else {
+            out.push('_');
+        }
+    }
+    out
 }
 
 fn native_backend(target: Target) -> Result<&'static dyn NativeBackend> {

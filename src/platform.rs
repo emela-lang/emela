@@ -1,8 +1,11 @@
 use std::collections::BTreeSet;
 use std::fmt;
+use std::fs;
+use std::path::Path;
 
 use crate::ast::Capability;
 use crate::error::{Error, Result};
+use crate::external::ExternalRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -32,6 +35,13 @@ pub(crate) struct TargetSpec {
     pub(crate) backend: BackendKind,
     pub(crate) linker: LinkerKind,
     capabilities: &'static [Capability],
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PlatformSpec {
+    pub(crate) name: String,
+    pub(crate) provided_capabilities: BTreeSet<Capability>,
+    pub(crate) externs: ExternalRegistry,
 }
 
 const FULL_NATIVE_CAPABILITIES: &[Capability] = &[
@@ -126,6 +136,37 @@ impl Target {
             self.spec().backend,
             BackendKind::NativeAarch64Darwin | BackendKind::NativeX86_64LinuxGnu
         )
+    }
+}
+
+impl PlatformSpec {
+    pub(crate) fn native_for_target(target: Target) -> Self {
+        Self {
+            name: target.to_string(),
+            provided_capabilities: target.provided_capabilities(),
+            externs: ExternalRegistry::builtin_native(),
+        }
+    }
+
+    pub(crate) fn from_manifest_path(path: &Path) -> Result<Self> {
+        let source = fs::read_to_string(path).map_err(|err| {
+            Error::new(format!(
+                "failed to read platform manifest `{}`: {err}",
+                path.display()
+            ))
+        })?;
+        let (name, capabilities, externs) = ExternalRegistry::from_manifest_json(&source)?;
+        Ok(Self {
+            name,
+            provided_capabilities: capabilities.into_iter().collect(),
+            externs,
+        })
+    }
+}
+
+impl fmt::Display for PlatformSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.name)
     }
 }
 
