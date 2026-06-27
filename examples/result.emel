@@ -7,7 +7,7 @@ enum Result {
   Err(Error)
 }
 
-fn checked(value) -> Result {
+fn checked(value: I32) -> Result {
   match value == 0 {
     true -> Err(Error { code: 7 })
     false -> Ok(value)

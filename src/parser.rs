@@ -1,6 +1,7 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Capability, EnumDecl, EnumVariant, Expr, Function, ImportDecl,
-    MatchArm, Pattern, PrimType, Program, StructDecl, StructField, TopLevelItem, Type,
+    BinaryOp, Block, BlockItem, Capability, EnumDecl, EnumVariant, Expr, Function, FunctionParam,
+    FunctionType, ImportDecl, MatchArm, Pattern, PrimType, Program, StructDecl, StructField,
+    TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
 use crate::lexer::{Token, TokenKind};
@@ -144,9 +145,9 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let mut params = Vec::new();
         if !self.at(&TokenKind::RParen) {
-            params.push(self.expect_ident()?);
+            params.push(self.parse_function_param()?);
             while self.eat(&TokenKind::Comma) {
-                params.push(self.expect_ident()?);
+                params.push(self.parse_function_param()?);
             }
         }
         self.expect(&TokenKind::RParen)?;
@@ -163,6 +164,16 @@ impl Parser {
             requires: attributes.requires,
             body,
         })
+    }
+
+    fn parse_function_param(&mut self) -> Result<FunctionParam> {
+        let name = self.expect_ident()?;
+        let ty = if self.eat(&TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        Ok(FunctionParam { name, ty })
     }
 
     fn parse_function_name(&mut self) -> Result<String> {
@@ -182,18 +193,16 @@ impl Parser {
                 return Err(Error::new("unterminated block"));
             }
 
-            if let TokenKind::Ident(name) = self.peek().kind.clone() {
-                if self
-                    .peek_n(1)
-                    .is_some_and(|token| token.kind == TokenKind::Eq)
-                {
-                    self.bump();
-                    self.bump();
-                    let expr = self.parse_expr()?;
-                    items.push(BlockItem::Binding { name, expr });
+            if self.starts_binding() {
+                let name = self.expect_ident()?;
+                let ty = if self.eat(&TokenKind::Colon) {
+                    Some(self.parse_type()?)
                 } else {
-                    items.push(BlockItem::Expr(self.parse_expr()?));
-                }
+                    None
+                };
+                self.expect(&TokenKind::Eq)?;
+                let expr = self.parse_expr()?;
+                items.push(BlockItem::Binding { name, ty, expr });
             } else {
                 items.push(BlockItem::Expr(self.parse_expr()?));
             }
@@ -201,6 +210,16 @@ impl Parser {
         }
         self.expect(&TokenKind::RBrace)?;
         Ok(Block { items })
+    }
+
+    fn starts_binding(&self) -> bool {
+        if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+            return false;
+        }
+        matches!(
+            self.peek_n(1).map(|token| &token.kind),
+            Some(TokenKind::Eq | TokenKind::Colon)
+        )
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
@@ -302,7 +321,8 @@ impl Parser {
             }
             TokenKind::Ident(_) => {
                 let name = self.parse_function_name()?;
-                if self.eat(&TokenKind::LBrace) {
+                if self.at(&TokenKind::LBrace) && starts_with_uppercase(&name) {
+                    self.bump();
                     let field = self.expect_ident()?;
                     self.expect(&TokenKind::Colon)?;
                     let value = self.parse_expr()?;
@@ -318,9 +338,6 @@ impl Parser {
                     self.expect(&TokenKind::RParen)?;
                     Ok(Expr::Call { name, args })
                 } else {
-                    if name.ends_with('!') {
-                        return Err(Error::new("local variable names cannot end with !"));
-                    }
                     Ok(Expr::Var(name))
                 }
             }
@@ -376,6 +393,9 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<Type> {
+        if self.at(&TokenKind::Fn) {
+            return self.parse_function_type();
+        }
         let name = self.expect_ident()?;
         match name.as_str() {
             "I32" | "i32" => Ok(Type::Prim(PrimType::I32)),
@@ -383,6 +403,27 @@ impl Parser {
             "Unit" | "unit" => Ok(Type::Prim(PrimType::Unit)),
             _ => Ok(Type::Named(name)),
         }
+    }
+
+    fn parse_function_type(&mut self) -> Result<Type> {
+        self.expect(&TokenKind::Fn)?;
+        let effectful = self.eat(&TokenKind::Bang);
+        self.expect(&TokenKind::LParen)?;
+        let mut params = Vec::new();
+        if !self.at(&TokenKind::RParen) {
+            params.push(self.parse_type()?);
+            while self.eat(&TokenKind::Comma) {
+                params.push(self.parse_type()?);
+            }
+        }
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let ret = self.parse_type()?;
+        Ok(Type::Function(FunctionType {
+            params,
+            ret: Box::new(ret),
+            effectful,
+        }))
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern> {
@@ -502,4 +543,10 @@ impl Parser {
 #[derive(Default)]
 struct FunctionAttributes {
     requires: Option<Vec<Capability>>,
+}
+
+fn starts_with_uppercase(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
 }

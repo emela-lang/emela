@@ -9,10 +9,12 @@ The current compiler supports:
 - `main` and `main!` executable entry points
 - block expressions and immutable local bindings
 - `I32`, `Bool`, and `Unit`
+- required type annotations on function parameters, function returns, and local bindings
 - single-field `struct` declarations and field access
 - `enum` declarations with zero or one payload value per variant
 - `Result`-style enums with `match` over variant patterns
 - function calls
+- function type annotations and function values for type-checking
 - primitive method calls such as `x.add(y)`
 - operators backed by primitive trait-style methods: `+`, `-`, `*`, `==`, `<`
 - `match` expressions over integer, boolean, unit, and wildcard patterns
@@ -117,14 +119,14 @@ echo $?
 Minimal program:
 
 ```emela
-fn main() {
+fn main() -> Unit {
 }
 ```
 
 Integer computation:
 
 ```emela
-fn add(x, y) -> I32 {
+fn add(x: I32, y: I32) -> I32 {
   x + y
 }
 
@@ -152,6 +154,7 @@ fn main!() -> I32 {
 - Native executable building uses the host `cc`; cross-target native builds are not implemented.
 - WebAssembly targets are capability-checked only; WASM code generation is not implemented.
 - The native backend supports the current core language subset only.
+- Function values are type-checked, but native lowering is not implemented yet.
 - Runtime implementations for real I/O capabilities are not connected yet.
 - Imported external functions are type-checked and capability-checked, but native lowering is not implemented yet.
 - User-defined traits, trait declarations, and impl declarations are not implemented.

@@ -56,10 +56,16 @@ pub(crate) struct EnumVariant {
 #[derive(Debug, Clone)]
 pub(crate) struct Function {
     pub(crate) name: String,
-    pub(crate) params: Vec<String>,
+    pub(crate) params: Vec<FunctionParam>,
     pub(crate) return_annotation: Option<Type>,
     pub(crate) requires: Option<Vec<Capability>>,
     pub(crate) body: Block,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FunctionParam {
+    pub(crate) name: String,
+    pub(crate) ty: Option<Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,7 +75,11 @@ pub(crate) struct Block {
 
 #[derive(Debug, Clone)]
 pub(crate) enum BlockItem {
-    Binding { name: String, expr: Expr },
+    Binding {
+        name: String,
+        ty: Option<Type>,
+        expr: Expr,
+    },
     Expr(Expr),
 }
 
@@ -148,6 +158,14 @@ pub(crate) enum PrimType {
 pub(crate) enum Type {
     Prim(PrimType),
     Named(String),
+    Function(FunctionType),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FunctionType {
+    pub(crate) params: Vec<Type>,
+    pub(crate) ret: Box<Type>,
+    pub(crate) effectful: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

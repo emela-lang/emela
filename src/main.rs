@@ -17,14 +17,14 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{PrimType, Type};
+    use crate::ast::{FunctionType, PrimType, Type};
     use crate::codegen::emit_assembly;
     use crate::driver::{compile_source, compile_source_for_target};
     use crate::platform::Target;
 
     #[test]
     fn accepts_empty_main() {
-        let (_, typed) = compile_source("fn main() {\n}\n").unwrap();
+        let (_, typed) = compile_source("fn main() -> Unit {\n}\n").unwrap();
         assert_eq!(typed.functions[0].name, "main");
         assert_eq!(typed.functions[0].ret, Type::Prim(PrimType::Unit));
     }
@@ -33,11 +33,11 @@ mod tests {
     fn infers_i32_function() {
         let (_, typed) = compile_source(
             r#"
-fn add(x, y) {
+fn add(x: I32, y: I32) -> I32 {
   x + y
 }
 
-fn main() {
+fn main() -> I32 {
   add(20, 22)
 }
 "#,
@@ -58,11 +58,11 @@ fn main() {
     #[test]
     fn accepts_return_annotation_and_exits_with_main_i32() {
         let source = r#"
-fn add(x, y) -> i32 {
+fn add(x: i32, y: i32) -> i32 {
   x + y
 }
 
-fn main() {
+fn main() -> I32 {
   add(20, 22)
 }
 "#;
@@ -77,6 +77,245 @@ fn main() {
 
         let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains(".globl _main"));
+    }
+
+    #[test]
+    fn supports_parameter_and_local_type_annotations() {
+        let (_, typed) = compile_source(
+            r#"
+fn add(x: I32, y: I32) -> I32 {
+  sum: I32 = x + y
+  sum
+}
+
+fn main() -> I32 {
+  add(20, 22)
+}
+"#,
+        )
+        .unwrap();
+        let add = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "add")
+            .unwrap();
+        assert_eq!(
+            add.params,
+            vec![Type::Prim(PrimType::I32), Type::Prim(PrimType::I32)]
+        );
+        assert_eq!(add.ret, Type::Prim(PrimType::I32));
+    }
+
+    #[test]
+    fn rejects_mismatched_parameter_type_annotation() {
+        let error = compile_source(
+            r#"
+fn negate(value: Bool) -> Bool {
+  value == 0
+}
+
+fn main() -> Bool {
+  negate(true)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn rejects_mismatched_local_type_annotation() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  value: Bool = 42
+  0
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn rejects_missing_parameter_type_annotation() {
+        let error = compile_source(
+            r#"
+fn add(x, y: I32) -> I32 {
+  x + y
+}
+
+fn main() -> I32 {
+  add(1, 2)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must have a type annotation"));
+    }
+
+    #[test]
+    fn rejects_missing_return_type_annotation() {
+        let error = compile_source(
+            r#"
+fn main() {
+  ()
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("must have a return type annotation"));
+    }
+
+    #[test]
+    fn rejects_missing_local_type_annotation() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  value = 42
+  value
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must have a type annotation"));
+    }
+
+    #[test]
+    fn supports_function_values_in_bindings_and_parameters() {
+        let (_, typed) = compile_source(
+            r#"
+fn add_one(value: I32) -> I32 {
+  value + 1
+}
+
+fn apply(value: I32, f: fn(I32) -> I32) -> I32 {
+  f(value)
+}
+
+fn main() -> I32 {
+  op: fn(I32) -> I32 = add_one
+  apply(41, op)
+}
+"#,
+        )
+        .unwrap();
+        let apply = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "apply")
+            .unwrap();
+        assert_eq!(
+            apply.params[1],
+            Type::Function(FunctionType {
+                params: vec![Type::Prim(PrimType::I32)],
+                ret: Box::new(Type::Prim(PrimType::I32)),
+                effectful: false,
+            })
+        );
+    }
+
+    #[test]
+    fn supports_functions_returning_functions() {
+        let (_, typed) = compile_source(
+            r#"
+fn double(value: I32) -> I32 {
+  value * 2
+}
+
+fn identity(value: I32) -> I32 {
+  value
+}
+
+fn choose_transform(flag: Bool) -> fn(I32) -> I32 {
+  match flag {
+    true -> double
+    false -> identity
+  }
+}
+
+fn main() -> I32 {
+  transform: fn(I32) -> I32 = choose_transform(true)
+  transform(21)
+}
+"#,
+        )
+        .unwrap();
+        let choose_transform = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "choose_transform")
+            .unwrap();
+        assert_eq!(
+            choose_transform.ret,
+            Type::Function(FunctionType {
+                params: vec![Type::Prim(PrimType::I32)],
+                ret: Box::new(Type::Prim(PrimType::I32)),
+                effectful: false,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_function_value_type_mismatch() {
+        let error = compile_source(
+            r#"
+fn is_zero(value: I32) -> Bool {
+  value == 0
+}
+
+fn main() -> I32 {
+  op: fn(I32) -> I32 = is_zero
+  op(41)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn rejects_effectful_function_value_call_from_pure_function() {
+        let error = compile_source(
+            r#"
+fn tick!() -> Unit {
+  ()
+}
+
+fn call(callback: fn!() -> Unit) -> Unit {
+  callback()
+}
+
+fn main() -> Unit {
+  call(tick!)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("pure function"));
+    }
+
+    #[test]
+    fn native_backend_rejects_function_values() {
+        let (program, typed) = compile_source(
+            r#"
+fn add_one(value: I32) -> I32 {
+  value + 1
+}
+
+fn main() -> I32 {
+  op: fn(I32) -> I32 = add_one
+  op(41)
+}
+"#,
+        )
+        .unwrap();
+        let error = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not support function value"));
     }
 
     #[test]
@@ -96,7 +335,7 @@ fn main() {
     fn emits_x86_64_linux_assembly() {
         let (program, typed) = compile_source_for_target(
             r#"
-fn add(x, y) -> I32 {
+fn add(x: I32, y: I32) -> I32 {
   x + y
 }
 
@@ -117,7 +356,8 @@ fn main() -> I32 {
 
     #[test]
     fn rejects_match_pattern_type_mismatch() {
-        let error = compile_source("fn main() { match 1 { true -> 2 false -> 3 } }").unwrap_err();
+        let error =
+            compile_source("fn main() -> I32 { match 1 { true -> 2 false -> 3 } }").unwrap_err();
         assert!(error.to_string().contains("type mismatch"));
     }
 
@@ -125,11 +365,11 @@ fn main() -> I32 {
     fn rejects_effectful_call_from_pure_function() {
         let error = compile_source(
             r#"
-fn tick!() {
+fn tick!() -> Unit {
   ()
 }
 
-fn main() {
+fn main() -> Unit {
   tick!()
 }
 "#,
@@ -143,7 +383,7 @@ fn main() {
         let (program, typed) = compile_source(
             r#"
 #[requires(Stdout)]
-fn print_i32!(value) -> Unit {
+fn print_i32!(value: I32) -> Unit {
   ()
 }
 
@@ -172,12 +412,12 @@ fn main!() -> I32 {
         let error = compile_source(
             r#"
 #[requires(Stdout)]
-fn print_i32!(value) -> Unit {
+fn print_i32!(value: I32) -> Unit {
   ()
 }
 
 #[requires()]
-fn main!() {
+fn main!() -> Unit {
   print_i32!(42)
 }
 "#,
@@ -213,7 +453,7 @@ enum Result {
   Err(Error)
 }
 
-fn checked(value) -> Result {
+fn checked(value: I32) -> Result {
   match value == 0 {
     true -> Err(Error { code: 7 })
     false -> Ok(value)
@@ -251,7 +491,7 @@ fn host_call!() -> Unit {
   ()
 }
 
-fn main!() {
+fn main!() -> Unit {
   host_call!()
 }
 "#,
@@ -264,11 +504,11 @@ fn main!() {
     fn target_capability_set_is_checked() {
         let source = r#"
 #[requires(Stdout)]
-fn print_i32!(value) -> Unit {
+fn print_i32!(value: I32) -> Unit {
   ()
 }
 
-fn main!() {
+fn main!() -> Unit {
   print_i32!(42)
 }
 "#;
@@ -284,7 +524,7 @@ fn main!() {
         let source = r#"
 import platform.io.print_i32!
 
-fn main!() {
+fn main!() -> Unit {
   print_i32!(42)
 }
 "#;
@@ -301,7 +541,7 @@ fn main!() {
             r#"
 import platform.io.print_i32!
 
-fn main() {
+fn main() -> Unit {
   print_i32!(42)
 }
 "#,
@@ -317,7 +557,7 @@ fn main() {
             r#"
 import platform.io.print_i32!
 
-fn main!() {
+fn main!() -> Unit {
   print_i32!(42)
 }
 "#,
@@ -331,7 +571,8 @@ fn main!() {
     #[test]
     fn non_native_target_does_not_emit_assembly() {
         let (program, typed) =
-            compile_source_for_target("fn main() {}", Target::Wasm32UnknownUnknown).unwrap();
+            compile_source_for_target("fn main() -> Unit {}", Target::Wasm32UnknownUnknown)
+                .unwrap();
         let error = emit_assembly(Target::Wasm32UnknownUnknown, &program, &typed).unwrap_err();
         assert!(error
             .to_string()

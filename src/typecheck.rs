@@ -1,8 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Capability, EnumDecl, Expr, MatchArm, Pattern, PrimType, Program,
-    StructDecl, TopLevelItem, Type,
+    BinaryOp, Block, BlockItem, Capability, EnumDecl, Expr, FunctionType as AstFunctionType,
+    MatchArm, Pattern, PrimType, Program, StructDecl, TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
 use crate::external;
@@ -74,10 +74,10 @@ impl<'a> TypeChecker<'a> {
                 .ok_or_else(|| Error::new("internal type checker error"))?;
             let mut scope = HashMap::new();
             for (param, ty) in function.params.iter().zip(signature.params.iter()) {
-                if scope.insert(param.clone(), *ty).is_some() {
+                if scope.insert(param.name.clone(), *ty).is_some() {
                     return Err(Error::new(format!(
-                        "duplicate parameter `{param}` in function `{}`",
-                        function.name
+                        "duplicate parameter `{}` in function `{}`",
+                        param.name, function.name
                     )));
                 }
             }
@@ -271,13 +271,31 @@ impl<'a> TypeChecker<'a> {
                 )));
             }
 
-            let params = function.params.iter().map(|_| self.fresh()).collect();
+            let params = function
+                .params
+                .iter()
+                .map(|param| match &param.ty {
+                    Some(ty) => {
+                        self.validate_type(ty)?;
+                        Ok(self.known(ty.clone()))
+                    }
+                    None => Err(Error::new(format!(
+                        "parameter `{}` in function `{}` must have a type annotation",
+                        param.name, function.name
+                    ))),
+                })
+                .collect::<Result<Vec<_>>>()?;
             let ret = match &function.return_annotation {
                 Some(ty) => {
                     self.validate_type(ty)?;
                     self.known(ty.clone())
                 }
-                None => self.fresh(),
+                None => {
+                    return Err(Error::new(format!(
+                        "function `{}` must have a return type annotation",
+                        function.name
+                    )));
+                }
             };
             self.functions.insert(
                 function.name.clone(),
@@ -352,13 +370,21 @@ impl<'a> TypeChecker<'a> {
         let mut capabilities = BTreeSet::new();
         for item in &block.items {
             match item {
-                BlockItem::Binding { name, expr } => {
+                BlockItem::Binding { name, ty, expr } => {
                     if scope.contains_key(name) {
                         return Err(Error::new(format!(
                             "duplicate binding `{name}` in the same block"
                         )));
                     }
                     let info = self.check_expr(expr, &mut scope)?;
+                    let Some(annotation) = ty else {
+                        return Err(Error::new(format!(
+                            "binding `{name}` must have a type annotation"
+                        )));
+                    };
+                    self.validate_type(annotation)?;
+                    let annotated_ty = self.known(annotation.clone());
+                    self.unify(info.ty, annotated_ty)?;
                     effectful |= info.effectful;
                     capabilities.extend(info.capabilities);
                     scope.insert(name.clone(), info.ty);
@@ -396,6 +422,9 @@ impl<'a> TypeChecker<'a> {
                 Ok(self.info(ty))
             }
             Expr::Var(name) => {
+                if let Some(ty) = scope.get(name).copied() {
+                    return Ok(self.info(ty));
+                }
                 if let Some(variant) = self.variants.get(name).cloned() {
                     if variant.payload.is_some() {
                         return Err(Error::new(format!(
@@ -405,15 +434,19 @@ impl<'a> TypeChecker<'a> {
                     let ty = self.known(Type::Named(variant.enum_name));
                     return Ok(self.info(ty));
                 }
-                scope
-                    .get(name)
-                    .copied()
-                    .map(|ty| self.info(ty))
-                    .ok_or_else(|| Error::new(format!("unknown local binding `{name}`")))
+                if let Some(function_ty) = self.function_value_type(name) {
+                    let ty = self.known(function_ty);
+                    return Ok(self.info(ty));
+                }
+                Err(Error::new(format!("unknown local binding `{name}`")))
             }
             Expr::Call { name, args } => {
                 if let Some(variant) = self.variants.get(name).cloned() {
                     return self.check_variant_constructor(name, &variant, args, scope);
+                }
+
+                if let Some(callee_ty) = scope.get(name).copied() {
+                    return self.check_function_value_call(name, callee_ty, args, scope);
                 }
 
                 let signature = self
@@ -524,6 +557,42 @@ impl<'a> TypeChecker<'a> {
             ty: self.known(Type::Named(variant.enum_name.clone())),
             effectful: arg.effectful,
             capabilities: arg.capabilities,
+        })
+    }
+
+    fn check_function_value_call(
+        &mut self,
+        name: &str,
+        callee_ty: usize,
+        args: &[Expr],
+        scope: &mut HashMap<String, usize>,
+    ) -> Result<ExprInfo> {
+        let callee_ty = self.resolve_known(callee_ty, "function value callee type")?;
+        let Type::Function(function_ty) = callee_ty else {
+            return Err(Error::new(format!("`{name}` is not callable")));
+        };
+        if args.len() != function_ty.params.len() {
+            return Err(Error::new(format!(
+                "function value `{name}` expects {} argument(s), got {}",
+                function_ty.params.len(),
+                args.len()
+            )));
+        }
+
+        let mut effectful = function_ty.effectful;
+        let mut capabilities = BTreeSet::new();
+        for (arg, param_ty) in args.iter().zip(function_ty.params.iter()) {
+            let arg = self.check_expr(arg, scope)?;
+            let param_ty = self.known(param_ty.clone());
+            self.unify(arg.ty, param_ty)?;
+            effectful |= arg.effectful;
+            capabilities.extend(arg.capabilities);
+        }
+
+        Ok(ExprInfo {
+            ty: self.known(*function_ty.ret),
+            effectful,
+            capabilities,
         })
     }
 
@@ -753,6 +822,7 @@ impl<'a> TypeChecker<'a> {
                 arms.iter().any(|arm| matches!(arm.pattern, Pattern::Unit))
             }
             Type::Prim(PrimType::I32) => false,
+            Type::Function(_) => false,
             Type::Named(name) => {
                 let Some(decl) = self.enums.get(name) else {
                     return false;
@@ -777,7 +847,31 @@ impl<'a> TypeChecker<'a> {
                     Err(Error::new(format!("unknown type `{name}`")))
                 }
             }
+            Type::Function(function) => {
+                for param in &function.params {
+                    self.validate_type(param)?;
+                }
+                self.validate_type(&function.ret)
+            }
         }
+    }
+
+    fn function_value_type(&mut self, name: &str) -> Option<Type> {
+        let signature = self.functions.get(name)?.clone();
+        let params = signature
+            .params
+            .iter()
+            .map(|param| self.resolve_known(*param, &format!("parameter in `{name}`")))
+            .collect::<Result<Vec<_>>>()
+            .ok()?;
+        let ret = self
+            .resolve_known(signature.ret, &format!("return type of `{name}`"))
+            .ok()?;
+        Some(Type::Function(AstFunctionType {
+            params,
+            ret: Box::new(ret),
+            effectful: signature.effectful,
+        }))
     }
 
     fn info(&self, ty: usize) -> ExprInfo {
