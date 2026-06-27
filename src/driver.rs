@@ -3,10 +3,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::ast::Program;
-use crate::codegen::{build, emit_rust};
+use crate::codegen::{build, emit_assembly};
 use crate::error::{Error, Result};
 use crate::lexer::lex;
 use crate::parser::Parser;
+use crate::platform::Target;
 use crate::typecheck::{TypeChecker, TypedProgram};
 
 #[derive(Debug)]
@@ -14,14 +15,23 @@ struct Args {
     input: PathBuf,
     output: PathBuf,
     check_only: bool,
-    emit_rust: Option<PathBuf>,
+    emit_asm: Option<PathBuf>,
+    target: Target,
 }
 
+#[cfg(test)]
 pub(crate) fn compile_source(source: &str) -> Result<(Program, TypedProgram)> {
+    compile_source_for_target(source, Target::host()?)
+}
+
+pub(crate) fn compile_source_for_target(
+    source: &str,
+    target: Target,
+) -> Result<(Program, TypedProgram)> {
     let tokens = lex(source)?;
     let mut parser = Parser::new(tokens);
     let program = parser.parse_program()?;
-    let typed = TypeChecker::new(&program).check()?;
+    let typed = TypeChecker::new(&program, target).check()?;
     Ok((program, typed))
 }
 
@@ -34,20 +44,30 @@ pub(crate) fn run() -> Result<()> {
         ))
     })?;
 
-    let (program, typed) = compile_source(&source)?;
-    let rust_source = emit_rust(&program, &typed);
+    let (program, typed) = compile_source_for_target(&source, args.target)?;
+    let assembly = if !args.check_only || args.emit_asm.is_some() {
+        Some(emit_assembly(args.target, &program, &typed)?)
+    } else {
+        None
+    };
 
-    if let Some(path) = &args.emit_rust {
-        fs::write(path, &rust_source).map_err(|err| {
+    if let Some(path) = &args.emit_asm {
+        let assembly = assembly
+            .as_ref()
+            .expect("assembly is generated when --emit-asm is provided");
+        fs::write(path, &assembly).map_err(|err| {
             Error::new(format!(
-                "failed to write Rust output `{}`: {err}",
+                "failed to write assembly output `{}`: {err}",
                 path.display()
             ))
         })?;
     }
 
     if !args.check_only {
-        build(&args.input, &args.output, &rust_source)?;
+        let assembly = assembly
+            .as_ref()
+            .expect("assembly is generated when building");
+        build(args.target, &args.input, &args.output, assembly)?;
         eprintln!("built {}", args.output.display());
     }
 
@@ -59,16 +79,23 @@ fn parse_args() -> Result<Args> {
     let mut input = None;
     let mut output = None;
     let mut check_only = false;
-    let mut emit_rust_path = None;
+    let mut emit_asm_path = None;
+    let mut target = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => check_only = true,
-            "--emit-rust" => {
+            "--emit-asm" => {
                 let path = args
                     .next()
-                    .ok_or_else(|| Error::new("--emit-rust requires a path"))?;
-                emit_rust_path = Some(PathBuf::from(path));
+                    .ok_or_else(|| Error::new("--emit-asm requires a path"))?;
+                emit_asm_path = Some(PathBuf::from(path));
+            }
+            "--target" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| Error::new("--target requires a target triple"))?;
+                target = Some(Target::parse(&value)?);
             }
             "-o" | "--output" => {
                 let path = args
@@ -96,15 +123,22 @@ fn parse_args() -> Result<Args> {
         return Err(Error::new("input file extension must be .emel"));
     }
     let output = output.unwrap_or_else(|| input.with_extension(""));
+    let target = match target {
+        Some(target) => target,
+        None => Target::host()?,
+    };
 
     Ok(Args {
         input,
         output,
         check_only,
-        emit_rust: emit_rust_path,
+        emit_asm: emit_asm_path,
+        target,
     })
 }
 
 fn print_help() {
-    eprintln!("Usage: compiler [--check] [--emit-rust PATH] [-o OUTPUT] INPUT.emel");
+    eprintln!(
+        "Usage: compiler [--target TARGET] [--check] [--emit-asm PATH] [-o OUTPUT] INPUT.emel"
+    );
 }
