@@ -4,13 +4,14 @@ mod driver;
 mod error;
 mod external;
 mod lexer;
+mod package;
 mod parser;
 mod platform;
 mod typecheck;
 
 fn main() {
     if let Err(error) = driver::run() {
-        eprintln!("error: {error}");
+        eprintln!("{}", error.render());
         std::process::exit(1);
     }
 }
@@ -133,6 +134,23 @@ fn main() -> I32 {
     }
 
     #[test]
+    fn parser_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  add(1,
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Expected an expression"));
+        assert!(rendered.contains("--> <test>:3:9"));
+        assert!(rendered.contains("3 |   add(1,"));
+        assert!(rendered.contains("Hint: Add a value"));
+    }
+
+    #[test]
     fn accepts_return_annotation_and_exits_with_main_i32() {
         let source = r#"
 fn add(x: i32, y: i32) -> i32 {
@@ -227,6 +245,106 @@ fn main() -> I32 {
         )
         .unwrap_err();
         assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn type_mismatch_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  true
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Type mismatch"));
+        assert!(rendered.contains("--> <test>:3:3"));
+        assert!(rendered.contains("3 |   true"));
+        assert!(rendered.contains("Expected `I32`, but found `Bool`"));
+    }
+
+    #[test]
+    fn unknown_type_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> Missing {
+  ()
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Unknown type"));
+        assert!(rendered.contains("--> <test>:2:14"));
+        assert!(rendered.contains("I cannot find a type named `Missing`"));
+    }
+
+    #[test]
+    fn generic_type_arity_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> Result<I32> {
+  Ok(1)
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Wrong number of type arguments"));
+        assert!(rendered.contains("`Result` expects 2 type argument(s), but got 1"));
+    }
+
+    #[test]
+    fn unknown_function_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  nope(1)
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Unknown function"));
+        assert!(rendered.contains("I cannot find a function named `nope`"));
+        assert!(rendered.contains("3 |   nope(1)"));
+    }
+
+    #[test]
+    fn call_arity_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn add(x: I32, y: I32) -> I32 {
+  x + y
+}
+
+fn main() -> I32 {
+  add(1)
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Wrong number of arguments"));
+        assert!(rendered.contains("function `add` expects 2 argument(s), got 1"));
+    }
+
+    #[test]
+    fn non_exhaustive_match_diagnostic_includes_source_excerpt() {
+        let error = compile_source(
+            r#"
+fn main() -> I32 {
+  match true {
+    true -> 1
+  }
+}
+"#,
+        )
+        .unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("error: Match is not exhaustive"));
+        assert!(rendered.contains("This match does not cover every possible value"));
     }
 
     #[test]
@@ -1233,6 +1351,289 @@ fn main!() -> Result<Unit, PlatformError> {
         .unwrap();
         let error = emit_js_artifact(&platform, &program, &typed).unwrap_err();
         assert!(error.to_string().contains("does not have a js binding"));
+    }
+
+    #[test]
+    fn generic_function_instantiates_per_call() {
+        let (_, typed) = compile_source(
+            r#"
+fn id<T>(value: T) -> T {
+  value
+}
+
+fn main() -> Bool {
+  first: I32 = id(42)
+  id(true)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::Bool));
+    }
+
+    #[test]
+    fn generic_function_reuses_repeated_type_parameter() {
+        let (_, typed) = compile_source(
+            r#"
+fn choose<T>(left: T, right: T) -> T {
+  left
+}
+
+fn main() -> I32 {
+  choose(1, 2)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::I32));
+    }
+
+    #[test]
+    fn generic_function_rejects_conflicting_repeated_type_parameter() {
+        let error = compile_source(
+            r#"
+fn choose<T>(left: T, right: T) -> T {
+  left
+}
+
+fn main() -> I32 {
+  choose(1, true)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("conflicting type argument for `T`"));
+    }
+
+    #[test]
+    fn generic_function_body_cannot_assume_concrete_type_without_bounds() {
+        let error = compile_source(
+            r#"
+fn add_one<T>(value: T) -> T {
+  value + 1
+}
+
+fn main() -> I32 {
+  add_one(41)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn generic_function_return_context_infers_nested_type_argument() {
+        let (_, typed) = compile_source(
+            r#"
+fn ok<T, E>(value: T) -> Result<T, E> {
+  Ok(value)
+}
+
+fn main() -> Result<I32, PlatformError> {
+  ok(42)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(
+            main.ret,
+            Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::Prim(PrimType::I32),
+                    Type::Named("PlatformError".to_string())
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn generic_function_accepts_explicit_multiple_type_arguments() {
+        let (_, typed) = compile_source(
+            r#"
+fn ok<T, E>(value: T) -> Result<T, E> {
+  Ok(value)
+}
+
+fn main() -> Result<I32, PlatformError> {
+  ok<I32, PlatformError>(42)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(
+            main.ret,
+            Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::Prim(PrimType::I32),
+                    Type::Named("PlatformError".to_string())
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn generic_function_rejects_explicit_type_argument_arity_mismatch() {
+        let error = compile_source(
+            r#"
+fn ok<T, E>(value: T) -> Result<T, E> {
+  Ok(value)
+}
+
+fn main() -> Result<I32, PlatformError> {
+  ok<I32>(42)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("expects 2 type argument(s), got 1"));
+    }
+
+    #[test]
+    fn generic_function_rejects_explicit_type_argument_conflict() {
+        let error = compile_source(
+            r#"
+fn id<T>(value: T) -> T {
+  value
+}
+
+fn main() -> I32 {
+  id<Bool>(42)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("conflicting type argument for `T`"));
+    }
+
+    #[test]
+    fn stdlib_option_source_checks_as_library() {
+        let platform = PlatformSpec::native_for_target(Target::Aarch64AppleDarwin);
+        compile_source_for_platform_with_mode(
+            include_str!("../../stdlib/std/option.emel"),
+            &platform,
+            CheckMode::Library,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn option_apply_wrong_function_return_points_at_function_parameter() {
+        let platform = PlatformSpec::native_for_target(Target::Aarch64AppleDarwin);
+        let source = r#"
+enum Option<T> {
+  Some(T)
+  None
+}
+
+fn map<T, U>(opt: Option<T>, f: fn(T) -> U) -> Option<U> {
+  match opt {
+    Some(value) -> Some(f(value))
+    None -> None
+  }
+}
+
+fn unwrap_or<T>(opt: Option<T>, default: T) -> T {
+  match opt {
+    Some(value) -> value
+    None -> default
+  }
+}
+
+fn flat<T>(opt: Option<Option<T>>) -> Option<T> {
+  unwrap_or(opt, None)
+}
+
+fn apply<T, U>(opt: Option<T>, f: fn(T) -> Option<T>) -> Option<U> {
+  map(opt, f) |> flat()
+}
+"#;
+        let error = compile_source_for_platform_with_mode(source, &platform, CheckMode::Library)
+            .unwrap_err();
+        let rendered = error.to_string();
+        assert!(
+            rendered.contains("fn apply<T, U>(opt: Option<T>, f: fn(T) -> Option<T>) -> Option<U>")
+        );
+        assert!(rendered.contains("This is returned from `apply`"));
+    }
+
+    #[test]
+    fn explicit_type_argument_parser_keeps_less_than_expression() {
+        let (_, typed) = compile_source(
+            r#"
+fn main() -> Bool {
+  1 < 2
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::Bool));
+    }
+
+    #[test]
+    fn generic_function_return_context_rejects_wrong_outer_type() {
+        let error = compile_source(
+            r#"
+struct Box<T> {
+  value: T
+}
+
+fn ok<T, E>(value: T) -> Result<T, E> {
+  Ok(value)
+}
+
+fn main() -> Box<I32> {
+  ok(42)
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn main_function_must_not_be_generic() {
+        let error = compile_source(
+            r#"
+fn main<T>() -> Unit {
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must not be generic"));
     }
 
     fn js_platform_with_stdout(name: &str, provides_stdout: bool) -> PlatformSpec {

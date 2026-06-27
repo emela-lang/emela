@@ -302,15 +302,15 @@ impl<'a> FunctionEmitter<'a> {
 
     fn emit_expr(&mut self, expr: &Expr, out: &mut String) -> Result<()> {
         match expr {
-            Expr::Int(value) => {
+            Expr::Int(value, _) => {
                 self.emit_i32(*value as u32, out);
             }
-            Expr::Bool(value) => {
+            Expr::Bool(value, _) => {
                 self.emit_i32(if *value { 1 } else { 0 }, out);
             }
-            Expr::String(value) => self.emit_string(value, out),
-            Expr::Unit => self.emit_i32(0, out),
-            Expr::Var(name) => {
+            Expr::String(value, _) => self.emit_string(value, out),
+            Expr::Unit(_) => self.emit_i32(0, out),
+            Expr::Var(name, _) => {
                 if let Some(tag) = self.find_variant_tag(name) {
                     self.emit_i32(tag as u32, out);
                     return Ok(());
@@ -331,16 +331,21 @@ impl<'a> FunctionEmitter<'a> {
                     Target::Wasm32UnknownUnknown | Target::Wasm32Wasi => unreachable!(),
                 }
             }
-            Expr::Call { name, args } => self.emit_call(name, args, out)?,
+            Expr::Call { name, args, .. } => self.emit_call(name, args, out)?,
             Expr::MethodCall {
                 receiver,
                 name,
                 args,
+                ..
             } => self.emit_method_call(receiver, name, args, out)?,
             Expr::FieldAccess { receiver, .. } => self.emit_expr(receiver, out)?,
             Expr::StructLiteral { value, .. } => self.emit_expr(value, out)?,
-            Expr::Binary { op, left, right } => self.emit_binary(*op, left, right, out)?,
-            Expr::Match { scrutinee, arms } => {
+            Expr::Binary {
+                op, left, right, ..
+            } => self.emit_binary(*op, left, right, out)?,
+            Expr::Match {
+                scrutinee, arms, ..
+            } => {
                 let end_label = self.label("match_end");
                 let mut arm_labels = Vec::new();
                 let mut wildcard_label = None;
@@ -384,7 +389,7 @@ impl<'a> FunctionEmitter<'a> {
 
                 out.push_str(&format!("{end_label}:\n"));
             }
-            Expr::Block(block) => self.emit_block(block, out)?,
+            Expr::Block(block, _) => self.emit_block(block, out)?,
         }
         Ok(())
     }
@@ -833,15 +838,21 @@ fn collect_expr_bindings(expr: &Expr, locals: &mut HashMap<String, i32>, next_sl
             collect_expr_bindings(left, locals, next_slot);
             collect_expr_bindings(right, locals, next_slot);
         }
-        Expr::Match { scrutinee, arms } => {
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
             collect_expr_bindings(scrutinee, locals, next_slot);
             for arm in arms {
                 collect_pattern_bindings(&arm.pattern, locals, next_slot);
                 collect_expr_bindings(&arm.expr, locals, next_slot);
             }
         }
-        Expr::Block(block) => collect_block_bindings(block, locals, next_slot),
-        Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Unit | Expr::Var(_) => {}
+        Expr::Block(block, _) => collect_block_bindings(block, locals, next_slot),
+        Expr::Int(_, _)
+        | Expr::Bool(_, _)
+        | Expr::String(_, _)
+        | Expr::Unit(_)
+        | Expr::Var(_, _) => {}
     }
 }
 
@@ -1042,12 +1053,12 @@ impl<'a> JsEmitter<'a> {
 
     fn emit_expr(&mut self, expr: &Expr) -> Result<String> {
         match expr {
-            Expr::Int(value) => Ok(value.to_string()),
-            Expr::Bool(value) => Ok(value.to_string()),
-            Expr::String(value) => serde_json::to_string(value)
+            Expr::Int(value, _) => Ok(value.to_string()),
+            Expr::Bool(value, _) => Ok(value.to_string()),
+            Expr::String(value, _) => serde_json::to_string(value)
                 .map_err(|err| Error::new(format!("failed to encode string literal: {err}"))),
-            Expr::Unit => Ok("undefined".to_string()),
-            Expr::Var(name) => {
+            Expr::Unit(_) => Ok("undefined".to_string()),
+            Expr::Var(name, _) => {
                 if let Some(tag) = self.find_variant_tag(name) {
                     return Ok(format!("{{ tag: {tag}, value: undefined }}"));
                 }
@@ -1066,13 +1077,16 @@ impl<'a> JsEmitter<'a> {
                 }
                 Ok(js_name(name))
             }
-            Expr::Call { name, args } => self.emit_call(name, args),
+            Expr::Call { name, args, .. } => self.emit_call(name, args),
             Expr::MethodCall {
                 receiver,
                 name,
                 args,
+                ..
             } => self.emit_method_call(receiver, name, args),
-            Expr::FieldAccess { receiver, field } => Ok(format!(
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => Ok(format!(
                 "({}).{}",
                 self.emit_expr(receiver)?,
                 js_name(field)
@@ -1082,9 +1096,13 @@ impl<'a> JsEmitter<'a> {
                 js_name(field),
                 self.emit_expr(value)?
             )),
-            Expr::Binary { op, left, right } => self.emit_binary(*op, left, right),
-            Expr::Match { scrutinee, arms } => self.emit_match(scrutinee, arms),
-            Expr::Block(block) => {
+            Expr::Binary {
+                op, left, right, ..
+            } => self.emit_binary(*op, left, right),
+            Expr::Match {
+                scrutinee, arms, ..
+            } => self.emit_match(scrutinee, arms),
+            Expr::Block(block, _) => {
                 let mut out = String::new();
                 out.push_str("(() => ");
                 self.emit_block_body(block, &mut out, 0)?;

@@ -14,6 +14,7 @@ The current compiler supports:
 - `enum` declarations with zero or one payload value per variant
 - `Result`-style enums with `match` over variant patterns
 - function calls
+- generic function declarations and inferred generic calls
 - function type annotations and function values for type-checking
 - forward pipeline calls with `|>`
 - primitive method calls such as `x.add(y)`
@@ -64,8 +65,9 @@ Target capability sets currently follow SPEC-0003:
 
 `--backend PROFILE|PATH` selects a backend profile. Built-in profiles include
 `native-aarch64-apple-darwin`, `native-x86_64-unknown-linux-gnu`, `js-node`, and
-`js-bun`. `PATH` points to an external backend manifest. `--backend` is required;
-short aliases such as `native` and `js` are not supported.
+`js-bun`. `PATH` points to an external backend manifest. `--backend` is required
+for `emela build` and optional for `emela check`; short aliases such as `native`
+and `js` are not supported.
 
 Built-in backend descriptors live under `backends/`.
 They document the same platform extern and capability surface used by the
@@ -120,7 +122,7 @@ or diagnostics:
 }
 ```
 
-`--package DIR` adds a source package root. `DIR` must contain
+`--package DIR` on `emela check` or `emela build` adds a source package root. `DIR` must contain
 `emela-package.json`:
 
 ```json
@@ -158,49 +160,49 @@ cargo test
 Check an Emela source file without building:
 
 ```sh
-cargo run -- --backend js-node --check examples/maximal.emel
+cargo run --bin emela -- check --backend js-node examples/maximal.emel
 ```
 
 Check with an external source package:
 
 ```sh
-cargo run -- --backend js-node --package ../stdlib --check examples/std-print.emel
+cargo run --bin emela -- check --backend js-node --package ../stdlib examples/std-print.emel
 ```
 
 Check a library source file without requiring `main` / `main!`:
 
 ```sh
-cargo run -- --backend js-node --library --check ../stdlib/std/io.emel
+cargo run --bin emela -- check --backend js-node --library ../stdlib/std/io.emel
 ```
 
 Check against a native backend profile:
 
 ```sh
-cargo run -- --backend native-aarch64-apple-darwin --check examples/maximal.emel
+cargo run --bin emela -- check --backend native-aarch64-apple-darwin examples/maximal.emel
 ```
 
 Emit native assembly:
 
 ```sh
-cargo run -- --backend native-aarch64-apple-darwin --artifact /tmp/emela-maximal.s examples/maximal.emel
+cargo run --bin emela -- build --backend native-aarch64-apple-darwin --artifact /tmp/emela-maximal.s examples/maximal.emel
 ```
 
 Build a native executable on a matching host:
 
 ```sh
-cargo run -- --backend native-aarch64-apple-darwin --output /tmp/emela-maximal examples/maximal.emel
+cargo run --bin emela -- build --backend native-aarch64-apple-darwin --output /tmp/emela-maximal examples/maximal.emel
 ```
 
 Emit x86_64 Linux assembly from any supported development host:
 
 ```sh
-cargo run -- --backend native-x86_64-unknown-linux-gnu --artifact /tmp/emela-maximal-x86_64.s examples/maximal.emel
+cargo run --bin emela -- build --backend native-x86_64-unknown-linux-gnu --artifact /tmp/emela-maximal-x86_64.s examples/maximal.emel
 ```
 
 Emit JavaScript:
 
 ```sh
-cargo run -- --backend js-node --artifact /tmp/emela.js examples/maximal.emel
+cargo run --bin emela -- build --backend js-node --artifact /tmp/emela.js examples/maximal.emel
 ```
 
 Use the stdlib from user code:
@@ -214,7 +216,7 @@ fn main!() -> Result<Unit, PlatformError> {
 ```
 
 ```sh
-cargo run -- --backend js-node --artifact /tmp/emela.js examples/std-print.emel
+cargo run --bin emela -- build --backend js-node --artifact /tmp/emela.js examples/std-print.emel
 ```
 
 Run it and inspect the process exit code:

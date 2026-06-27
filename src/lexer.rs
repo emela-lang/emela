@@ -1,4 +1,6 @@
-use crate::error::{Error, Result};
+use std::sync::Arc;
+
+use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
@@ -39,10 +41,10 @@ pub(crate) enum TokenKind {
 #[derive(Debug, Clone)]
 pub(crate) struct Token {
     pub(crate) kind: TokenKind,
-    pub(crate) pos: usize,
+    pub(crate) span: Span,
 }
 
-pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
+pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -54,7 +56,7 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
             b'\n' => {
                 tokens.push(Token {
                     kind: TokenKind::Newline,
-                    pos,
+                    span: Span::new(file.clone(), pos, pos + 1),
                 });
                 i += 1;
             }
@@ -67,41 +69,41 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
                 tokens.push(Token {
                     kind: TokenKind::Arrow,
-                    pos,
+                    span: Span::new(file.clone(), pos, pos + 2),
                 });
                 i += 2;
             }
             b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
                 tokens.push(Token {
                     kind: TokenKind::Pipe,
-                    pos,
+                    span: Span::new(file.clone(), pos, pos + 2),
                 });
                 i += 2;
             }
-            b'(' => push_one(&mut tokens, TokenKind::LParen, pos, &mut i),
-            b')' => push_one(&mut tokens, TokenKind::RParen, pos, &mut i),
-            b'{' => push_one(&mut tokens, TokenKind::LBrace, pos, &mut i),
-            b'}' => push_one(&mut tokens, TokenKind::RBrace, pos, &mut i),
-            b'[' => push_one(&mut tokens, TokenKind::LBracket, pos, &mut i),
-            b']' => push_one(&mut tokens, TokenKind::RBracket, pos, &mut i),
-            b',' => push_one(&mut tokens, TokenKind::Comma, pos, &mut i),
-            b'.' => push_one(&mut tokens, TokenKind::Dot, pos, &mut i),
-            b':' => push_one(&mut tokens, TokenKind::Colon, pos, &mut i),
-            b'#' => push_one(&mut tokens, TokenKind::Hash, pos, &mut i),
-            b'!' => push_one(&mut tokens, TokenKind::Bang, pos, &mut i),
-            b'<' => push_one(&mut tokens, TokenKind::Lt, pos, &mut i),
-            b'>' => push_one(&mut tokens, TokenKind::Gt, pos, &mut i),
-            b'+' => push_one(&mut tokens, TokenKind::Plus, pos, &mut i),
-            b'*' => push_one(&mut tokens, TokenKind::Star, pos, &mut i),
-            b'-' => push_one(&mut tokens, TokenKind::Minus, pos, &mut i),
+            b'(' => push_one(&mut tokens, TokenKind::LParen, file.clone(), pos, &mut i),
+            b')' => push_one(&mut tokens, TokenKind::RParen, file.clone(), pos, &mut i),
+            b'{' => push_one(&mut tokens, TokenKind::LBrace, file.clone(), pos, &mut i),
+            b'}' => push_one(&mut tokens, TokenKind::RBrace, file.clone(), pos, &mut i),
+            b'[' => push_one(&mut tokens, TokenKind::LBracket, file.clone(), pos, &mut i),
+            b']' => push_one(&mut tokens, TokenKind::RBracket, file.clone(), pos, &mut i),
+            b',' => push_one(&mut tokens, TokenKind::Comma, file.clone(), pos, &mut i),
+            b'.' => push_one(&mut tokens, TokenKind::Dot, file.clone(), pos, &mut i),
+            b':' => push_one(&mut tokens, TokenKind::Colon, file.clone(), pos, &mut i),
+            b'#' => push_one(&mut tokens, TokenKind::Hash, file.clone(), pos, &mut i),
+            b'!' => push_one(&mut tokens, TokenKind::Bang, file.clone(), pos, &mut i),
+            b'<' => push_one(&mut tokens, TokenKind::Lt, file.clone(), pos, &mut i),
+            b'>' => push_one(&mut tokens, TokenKind::Gt, file.clone(), pos, &mut i),
+            b'+' => push_one(&mut tokens, TokenKind::Plus, file.clone(), pos, &mut i),
+            b'*' => push_one(&mut tokens, TokenKind::Star, file.clone(), pos, &mut i),
+            b'-' => push_one(&mut tokens, TokenKind::Minus, file.clone(), pos, &mut i),
             b'=' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
                 tokens.push(Token {
                     kind: TokenKind::EqEq,
-                    pos,
+                    span: Span::new(file.clone(), pos, pos + 2),
                 });
                 i += 2;
             }
-            b'=' => push_one(&mut tokens, TokenKind::Eq, pos, &mut i),
+            b'=' => push_one(&mut tokens, TokenKind::Eq, file.clone(), pos, &mut i),
             b'0'..=b'9' => {
                 let start = i;
                 while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -109,11 +111,18 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                 }
                 let text = &source[start..i];
                 let value = text.parse::<i32>().map_err(|_| {
-                    Error::new(format!("integer literal out of I32 range at byte {start}"))
+                    Error::diagnostic(
+                        Diagnostic::new("Integer literal is too large")
+                            .label(
+                                Span::new(file.clone(), start, i),
+                                "This number does not fit in I32.",
+                            )
+                            .help("Use a value between -2147483648 and 2147483647."),
+                    )
                 })?;
                 tokens.push(Token {
                     kind: TokenKind::Int(value),
-                    pos: start,
+                    span: Span::new(file.clone(), start, i),
                 });
             }
             b'"' => {
@@ -128,9 +137,7 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                         b'\\' => {
                             i += 1;
                             if i >= bytes.len() {
-                                return Err(Error::new(format!(
-                                    "unterminated string literal at byte {pos}"
-                                )));
+                                return Err(unterminated_string(file.clone(), pos));
                             }
                             let escaped = match bytes[i] {
                                 b'"' => '"',
@@ -138,19 +145,26 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                                 b'n' => '\n',
                                 b't' => '\t',
                                 other => {
-                                    return Err(Error::new(format!(
-                                        "unsupported string escape {:?} at byte {i}",
-                                        other as char
-                                    )));
+                                    return Err(Error::diagnostic(
+                                        Diagnostic::new("Unsupported string escape")
+                                            .label(
+                                                Span::new(file.clone(), i.saturating_sub(1), i + 1),
+                                                format!(
+                                                    "`\\{}` is not a supported escape sequence.",
+                                                    other as char
+                                                ),
+                                            )
+                                            .help(
+                                                "Supported escapes are \\n, \\t, \\\", and \\\\.",
+                                            ),
+                                    ));
                                 }
                             };
                             value.push(escaped);
                             i += 1;
                         }
                         b'\n' => {
-                            return Err(Error::new(format!(
-                                "unterminated string literal at byte {pos}"
-                            )));
+                            return Err(unterminated_string(file.clone(), pos));
                         }
                         _ => {
                             let ch = source[i..].chars().next().expect("valid char boundary");
@@ -160,13 +174,11 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                     }
                 }
                 if i > bytes.len() || bytes.get(i.saturating_sub(1)) != Some(&b'"') {
-                    return Err(Error::new(format!(
-                        "unterminated string literal at byte {pos}"
-                    )));
+                    return Err(unterminated_string(file.clone(), pos));
                 }
                 tokens.push(Token {
                     kind: TokenKind::String(value),
-                    pos,
+                    span: Span::new(file.clone(), pos, i),
                 });
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
@@ -186,25 +198,52 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                     "false" => TokenKind::False,
                     _ => TokenKind::Ident(text.to_string()),
                 };
-                tokens.push(Token { kind, pos: start });
+                tokens.push(Token {
+                    kind,
+                    span: Span::new(file.clone(), start, i),
+                });
             }
             other => {
-                return Err(Error::new(format!(
-                    "unexpected byte {:?} at byte {pos}",
-                    other as char
-                )));
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Unexpected character")
+                        .label(
+                            Span::new(file.clone(), pos, pos + 1),
+                            format!("I do not know how to read `{}` here.", other as char),
+                        )
+                        .help("Remove this character, or replace it with valid Emela syntax."),
+                ));
             }
         }
     }
 
     tokens.push(Token {
         kind: TokenKind::Eof,
-        pos: source.len(),
+        span: Span::point(file.clone(), source.len()),
     });
     Ok(tokens)
 }
 
-fn push_one(tokens: &mut Vec<Token>, kind: TokenKind, pos: usize, i: &mut usize) {
-    tokens.push(Token { kind, pos });
+fn push_one(
+    tokens: &mut Vec<Token>,
+    kind: TokenKind,
+    file: Arc<SourceFile>,
+    pos: usize,
+    i: &mut usize,
+) {
+    tokens.push(Token {
+        kind,
+        span: Span::new(file, pos, pos + 1),
+    });
     *i += 1;
+}
+
+fn unterminated_string(file: Arc<SourceFile>, pos: usize) -> Error {
+    Error::diagnostic(
+        Diagnostic::new("Unterminated string")
+            .label(
+                Span::new(file, pos, pos + 1),
+                "This string starts here but never closes.",
+            )
+            .help("Add a closing double quote before the end of the line."),
+    )
 }
