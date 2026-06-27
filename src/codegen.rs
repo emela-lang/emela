@@ -5,7 +5,8 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Expr, Function, MatchArm, Pattern, Program, TopLevelItem,
+    BinaryOp, Block, BlockItem, Expr, Function, MatchArm, Pattern, PrimType, Program, TopLevelItem,
+    Type,
 };
 use crate::error::{Error, Result};
 use crate::external::{format_external_path, ExternalFunction};
@@ -353,9 +354,12 @@ impl<'a> FunctionEmitter<'a> {
 
         self.emit_block(&self.function.body, out)?;
 
-        if self.function.name == "main" || self.function.name == "main!" {
-            // main returns the process exit code in the target ABI result register.
-            // Unit is represented as zero.
+        if matches!(
+            self.function.return_annotation,
+            Some(Type::Prim(PrimType::Unit))
+        ) {
+            // Unit is represented as zero at native ABI boundaries.
+            self.emit_i32(0, out);
         }
 
         match self.target {

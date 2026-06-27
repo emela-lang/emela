@@ -1,8 +1,9 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::ast::Program;
+use crate::ast::{ImportDecl, Program, TopLevelItem};
 use crate::codegen::{build, emit_assembly_for_platform, emit_js, emit_js_library};
 use crate::error::{Error, Result};
 use crate::lexer::lex;
@@ -20,6 +21,7 @@ struct Args {
     emit_js: Option<PathBuf>,
     target: Target,
     platform: Option<PathBuf>,
+    stdlib: PathBuf,
 }
 
 #[cfg(test)]
@@ -36,27 +38,42 @@ pub(crate) fn compile_source_for_target(
     compile_source_for_platform(source, &platform)
 }
 
+#[cfg(test)]
 pub(crate) fn compile_source_for_platform(
     source: &str,
     platform: &PlatformSpec,
 ) -> Result<(Program, TypedProgram)> {
-    let tokens = lex(source)?;
-    let mut parser = Parser::new(tokens);
-    let program = parser.parse_program()?;
+    let mut program = parse_program(source)?;
+    expand_stdlib_imports(&mut program, &default_stdlib_path())?;
     let typed = TypeChecker::new(&program, platform).check()?;
     Ok((program, typed))
 }
 
+#[cfg(test)]
 pub(crate) fn compile_source_for_platform_with_mode(
     source: &str,
     platform: &PlatformSpec,
     mode: CheckMode,
 ) -> Result<(Program, TypedProgram)> {
-    let tokens = lex(source)?;
-    let mut parser = Parser::new(tokens);
-    let program = parser.parse_program()?;
+    compile_source_for_platform_with_stdlib(source, platform, mode, &default_stdlib_path())
+}
+
+pub(crate) fn compile_source_for_platform_with_stdlib(
+    source: &str,
+    platform: &PlatformSpec,
+    mode: CheckMode,
+    stdlib: &Path,
+) -> Result<(Program, TypedProgram)> {
+    let mut program = parse_program(source)?;
+    expand_stdlib_imports(&mut program, stdlib)?;
     let typed = TypeChecker::new_with_mode(&program, platform, mode).check()?;
     Ok((program, typed))
+}
+
+fn parse_program(source: &str) -> Result<Program> {
+    let tokens = lex(source)?;
+    let mut parser = Parser::new(tokens);
+    parser.parse_program()
 }
 
 pub(crate) fn run() -> Result<()> {
@@ -78,7 +95,8 @@ pub(crate) fn run() -> Result<()> {
     } else {
         CheckMode::Executable
     };
-    let (program, typed) = compile_source_for_platform_with_mode(&source, &platform, mode)?;
+    let (program, typed) =
+        compile_source_for_platform_with_stdlib(&source, &platform, mode, &args.stdlib)?;
     let assembly = if args.emit_js.is_none() && (!args.check_only || args.emit_asm.is_some()) {
         Some(emit_assembly_for_platform(
             args.target,
@@ -139,6 +157,7 @@ fn parse_args() -> Result<Args> {
     let mut emit_js_path = None;
     let mut target = None;
     let mut platform = None;
+    let mut stdlib = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -167,6 +186,12 @@ fn parse_args() -> Result<Args> {
                     .next()
                     .ok_or_else(|| Error::new("--platform requires a manifest path"))?;
                 platform = Some(PathBuf::from(path));
+            }
+            "--stdlib" => {
+                let path = args
+                    .next()
+                    .ok_or_else(|| Error::new("--stdlib requires a directory path"))?;
+                stdlib = Some(PathBuf::from(path));
             }
             "-o" | "--output" => {
                 let path = args
@@ -208,6 +233,7 @@ fn parse_args() -> Result<Args> {
         Some(target) => target,
         None => Target::host()?,
     };
+    let stdlib = stdlib.unwrap_or_else(default_stdlib_path);
 
     Ok(Args {
         input,
@@ -218,12 +244,13 @@ fn parse_args() -> Result<Args> {
         emit_js: emit_js_path,
         target,
         platform,
+        stdlib,
     })
 }
 
 fn print_help() {
     eprintln!(
-        "Usage: compiler [--target TARGET] [--platform PATH] [--check] [--library] [--emit-asm PATH] [--emit-js PATH] [-o OUTPUT] INPUT.emel"
+        "Usage: compiler [--target TARGET] [--platform PATH] [--stdlib DIR] [--check] [--library] [--emit-asm PATH] [--emit-js PATH] [-o OUTPUT] INPUT.emel"
     );
 }
 
@@ -234,4 +261,94 @@ fn write_output(path: &Path, contents: &str, label: &str) -> Result<()> {
             path.display()
         ))
     })
+}
+
+fn default_stdlib_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../stdlib")
+}
+
+fn expand_stdlib_imports(program: &mut Program, stdlib: &Path) -> Result<()> {
+    let mut loaded_modules = BTreeSet::new();
+    expand_stdlib_imports_with_loaded(program, stdlib, &mut loaded_modules)
+}
+
+fn expand_stdlib_imports_with_loaded(
+    program: &mut Program,
+    stdlib: &Path,
+    loaded_modules: &mut BTreeSet<String>,
+) -> Result<()> {
+    let mut std_imports = Vec::new();
+    program.items.retain(|item| {
+        let TopLevelItem::Import(import) = item else {
+            return true;
+        };
+        if is_std_import(import) {
+            std_imports.push(import.clone());
+            false
+        } else {
+            true
+        }
+    });
+
+    for import in std_imports {
+        let module_path = std_module_path(&import)?;
+        let module_key = module_path.join(".");
+        let mut module = load_stdlib_module(stdlib, &module_path)?;
+        if !module_exports(&module, &import.name) {
+            return Err(Error::new(format!(
+                "stdlib module `std.{}` does not export `{}`",
+                module_key, import.name
+            )));
+        }
+        if loaded_modules.insert(module_key) {
+            expand_stdlib_imports_with_loaded(&mut module, stdlib, loaded_modules)?;
+            program.items.extend(module.items);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_std_import(import: &ImportDecl) -> bool {
+    import.path.first().is_some_and(|package| package == "std")
+}
+
+fn std_module_path(import: &ImportDecl) -> Result<Vec<String>> {
+    if import.path.len() < 2 {
+        return Err(Error::new(format!(
+            "stdlib import `{}` must include a module path",
+            format_import_path(&import.path, &import.name)
+        )));
+    }
+    Ok(import.path[1..].to_vec())
+}
+
+fn load_stdlib_module(stdlib: &Path, module_path: &[String]) -> Result<Program> {
+    let mut path = stdlib.join("std");
+    for part in module_path {
+        path.push(part);
+    }
+    path.set_extension("emel");
+    let source = fs::read_to_string(&path).map_err(|err| {
+        Error::new(format!(
+            "failed to read stdlib module `{}`: {err}",
+            path.display()
+        ))
+    })?;
+    parse_program(&source)
+}
+
+fn module_exports(module: &Program, name: &str) -> bool {
+    module.items.iter().any(|item| match item {
+        TopLevelItem::Function(function) => function.name == name,
+        TopLevelItem::Import(_) => false,
+        TopLevelItem::Struct(decl) => decl.name == name,
+        TopLevelItem::Enum(decl) => decl.name == name,
+    })
+}
+
+fn format_import_path(path: &[String], name: &str) -> String {
+    let mut parts = path.to_vec();
+    parts.push(name.to_string());
+    parts.join(".")
 }

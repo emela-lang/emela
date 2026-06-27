@@ -223,7 +223,31 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_equality()
+        self.parse_pipeline()
+    }
+
+    fn parse_pipeline(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_equality()?;
+        loop {
+            let checkpoint = self.current;
+            self.skip_newlines();
+            if !self.eat(&TokenKind::Pipe) {
+                self.current = checkpoint;
+                break;
+            }
+
+            let name = self.parse_function_name()?;
+            if !self.eat(&TokenKind::LParen) {
+                return Err(Error::new(
+                    "pipeline stage must be an explicit function call",
+                ));
+            }
+            let mut args = vec![expr];
+            args.extend(self.parse_argument_list()?);
+            self.expect(&TokenKind::RParen)?;
+            expr = Expr::Call { name, args };
+        }
+        Ok(expr)
     }
 
     fn parse_equality(&mut self) -> Result<Expr> {

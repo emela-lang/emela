@@ -1,0 +1,5 @@
+import std.io.print_i32!
+
+fn main!() -> Unit {
+  42 |> print_i32!()
+}

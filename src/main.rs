@@ -64,6 +64,53 @@ fn main() -> I32 {
     }
 
     #[test]
+    fn supports_pipeline_function_calls() {
+        let (_, typed) = compile_source(
+            r#"
+fn add(value: I32, by: I32) -> I32 {
+  value + by
+}
+
+fn double(value: I32) -> I32 {
+  value * 2
+}
+
+fn main() -> I32 {
+  20
+    |> add(1)
+    |> double()
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::I32));
+    }
+
+    #[test]
+    fn rejects_pipeline_stage_without_call() {
+        let error = compile_source(
+            r#"
+fn add_one(value: I32) -> I32 {
+  value + 1
+}
+
+fn main() -> I32 {
+  41 |> add_one
+}
+"#,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("pipeline stage must be an explicit function call"));
+    }
+
+    #[test]
     fn accepts_return_annotation_and_exits_with_main_i32() {
         let source = r#"
 fn add(x: i32, y: i32) -> i32 {
@@ -582,7 +629,7 @@ fn main() -> Unit {
 import platform.io.print_i32!
 
 fn main!() -> Unit {
-  print_i32!(42)
+  42 |> print_i32!()
 }
 "#,
             &platform,
@@ -603,6 +650,28 @@ fn main!() -> Unit {
         assert!(linux.contains("    movq %rax, 0(%rsp)\n"));
         assert!(linux.contains("    movq 0(%rsp), %rdi\n"));
         assert!(linux.contains("    call emela_print_i32\n"));
+    }
+
+    #[test]
+    fn imports_stdlib_wrapper_for_native_codegen() {
+        let (program, typed) = compile_source_for_target(
+            r#"
+import std.io.print_i32!
+
+fn main!() -> Unit {
+  42 |> print_i32!()
+}
+"#,
+            Target::Aarch64AppleDarwin,
+        )
+        .unwrap();
+        assert!(program
+            .functions()
+            .iter()
+            .any(|function| function.name == "print_i32!"));
+        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        assert!(assembly.contains("    bl _print_i32_effect\n"));
+        assert!(assembly.contains("    bl _emela_print_i32\n"));
     }
 
     #[test]
@@ -823,6 +892,26 @@ fn add(x: I32, y: I32) -> I32 {
         let js = emit_js_library(&platform, &program, &typed).unwrap();
         assert!(js.contains("function add(x, y)"));
         assert!(!js.contains("__emela_result"));
+    }
+
+    #[test]
+    fn imports_stdlib_wrapper_for_js_codegen() {
+        let platform = platform_from_manifest(include_str!("../../stdlib/platform/node.json"));
+        let (program, typed) = compile_source_for_platform(
+            r#"
+import std.io.print_i32!
+
+fn main!() -> Unit {
+  print_i32!(42)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let js = emit_js(&platform, &program, &typed).unwrap();
+        assert!(js.contains("function print_i32_effect(value)"));
+        assert!(js.contains("console.log(value);"));
+        assert!(js.contains("print_i32_effect(42);"));
     }
 
     #[test]
