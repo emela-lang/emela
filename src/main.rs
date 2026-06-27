@@ -16,7 +16,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::PrimType;
+    use crate::ast::{PrimType, Type};
     use crate::codegen::emit_assembly;
     use crate::driver::{compile_source, compile_source_for_target};
     use crate::platform::Target;
@@ -25,7 +25,7 @@ mod tests {
     fn accepts_empty_main() {
         let (_, typed) = compile_source("fn main() {\n}\n").unwrap();
         assert_eq!(typed.functions[0].name, "main");
-        assert_eq!(typed.functions[0].ret, PrimType::Unit);
+        assert_eq!(typed.functions[0].ret, Type::Prim(PrimType::Unit));
     }
 
     #[test]
@@ -47,8 +47,11 @@ fn main() {
             .iter()
             .find(|function| function.name == "add")
             .unwrap();
-        assert_eq!(add.params, vec![PrimType::I32, PrimType::I32]);
-        assert_eq!(add.ret, PrimType::I32);
+        assert_eq!(
+            add.params,
+            vec![Type::Prim(PrimType::I32), Type::Prim(PrimType::I32)]
+        );
+        assert_eq!(add.ret, Type::Prim(PrimType::I32));
     }
 
     #[test]
@@ -69,7 +72,7 @@ fn main() {
             .iter()
             .find(|function| function.name == "main")
             .unwrap();
-        assert_eq!(main.ret, PrimType::I32);
+        assert_eq!(main.ret, Type::Prim(PrimType::I32));
 
         let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains(".globl _main"));
@@ -106,7 +109,7 @@ fn main() -> I32 {
         let assembly = emit_assembly(Target::X86_64UnknownLinuxGnu, &program, &typed).unwrap();
         assert!(assembly.contains(".globl main"));
         assert!(assembly.contains("add:"));
-        assert!(assembly.contains("movl %edi, -4(%rbp)"));
+        assert!(assembly.contains("movq %rdi, -8(%rbp)"));
         assert!(assembly.contains("call add"));
         assert!(assembly.contains("addl %r9d, %eax"));
     }
@@ -194,6 +197,48 @@ fn main() -> I32 {
         .unwrap();
         let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
         assert!(assembly.contains("add w0, w9, w0"));
+    }
+
+    #[test]
+    fn supports_struct_enum_and_result_pattern_matching() {
+        let (program, typed) = compile_source(
+            r#"
+struct Error {
+  code: I32
+}
+
+enum Result {
+  Ok(I32)
+  Err(Error)
+}
+
+fn checked(value) -> Result {
+  match value == 0 {
+    true -> Err(Error { code: 7 })
+    false -> Ok(value)
+  }
+}
+
+fn main() -> I32 {
+  match checked(0) {
+    Ok(value) -> value
+    Err(error) -> error.code
+  }
+}
+"#,
+        )
+        .unwrap();
+        let checked = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "checked")
+            .unwrap();
+        assert_eq!(checked.ret, Type::Named("Result".to_string()));
+
+        let assembly = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap();
+        assert!(assembly.contains("orr x0, x0, #0"));
+        assert!(assembly.contains("orr x0, x0, #1"));
+        assert!(assembly.contains("lsr x9, x9, #32"));
     }
 
     #[test]
