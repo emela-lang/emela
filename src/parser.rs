@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Capability, EnumDecl, EnumVariant, Expr, Function, MatchArm,
-    Pattern, PrimType, Program, StructDecl, StructField, TopLevelItem, Type,
+    BinaryOp, Block, BlockItem, Capability, EnumDecl, EnumVariant, Expr, Function, ImportDecl,
+    MatchArm, Pattern, PrimType, Program, StructDecl, StructField, TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
 use crate::lexer::{Token, TokenKind};
@@ -19,7 +19,9 @@ impl Parser {
         let mut items = Vec::new();
         self.skip_newlines();
         while !self.at(&TokenKind::Eof) {
-            if self.at(&TokenKind::Struct) {
+            if self.at(&TokenKind::Import) {
+                items.push(TopLevelItem::Import(self.parse_import_decl()?));
+            } else if self.at(&TokenKind::Struct) {
                 items.push(TopLevelItem::Struct(self.parse_struct_decl()?));
             } else if self.at(&TokenKind::Enum) {
                 items.push(TopLevelItem::Enum(self.parse_enum_decl()?));
@@ -30,6 +32,27 @@ impl Parser {
             self.skip_newlines();
         }
         Ok(Program { items })
+    }
+
+    fn parse_import_decl(&mut self) -> Result<ImportDecl> {
+        self.expect(&TokenKind::Import)?;
+        let mut path = Vec::new();
+        path.push(self.expect_ident()?);
+        while self.eat(&TokenKind::Dot) {
+            path.push(self.expect_ident()?);
+        }
+        let name = path
+            .pop()
+            .ok_or_else(|| Error::new("import path must not be empty"))?;
+        let name = if self.eat(&TokenKind::Bang) {
+            format!("{name}!")
+        } else {
+            name
+        };
+        if path.is_empty() {
+            return Err(Error::new("import path must include a package and item"));
+        }
+        Ok(ImportDecl { path, name })
     }
 
     fn parse_struct_decl(&mut self) -> Result<StructDecl> {

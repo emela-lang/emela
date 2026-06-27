@@ -5,6 +5,7 @@ use crate::ast::{
     StructDecl, TopLevelItem, Type,
 };
 use crate::error::{Error, Result};
+use crate::external;
 use crate::platform::Target;
 
 #[derive(Debug, Clone)]
@@ -59,6 +60,7 @@ impl<'a> TypeChecker<'a> {
 
     pub(crate) fn check(mut self) -> Result<TypedProgram> {
         self.register_types()?;
+        self.register_imports()?;
         self.register_functions()?;
         self.check_main()?;
 
@@ -187,6 +189,7 @@ impl<'a> TypeChecker<'a> {
                     self.enums.insert(decl.name.clone(), decl);
                 }
                 TopLevelItem::Function(_) => {}
+                TopLevelItem::Import(_) => {}
             }
         }
 
@@ -203,6 +206,43 @@ impl<'a> TypeChecker<'a> {
         }
         for ty in referenced {
             self.validate_type(ty)?;
+        }
+        Ok(())
+    }
+
+    fn register_imports(&mut self) -> Result<()> {
+        for item in &self.program.items {
+            let TopLevelItem::Import(import) = item else {
+                continue;
+            };
+            if self.functions.contains_key(&import.name) {
+                return Err(Error::new(format!(
+                    "duplicate imported function `{}`",
+                    import.name
+                )));
+            }
+            let function =
+                external::resolve_import(&import.path, &import.name).ok_or_else(|| {
+                    Error::new(format!(
+                        "unknown external import `{}`",
+                        format_import_path(&import.path, &import.name)
+                    ))
+                })?;
+            let params = function
+                .params
+                .iter()
+                .map(|ty| self.known(ty.clone()))
+                .collect();
+            let ret = self.known(function.ret.clone());
+            self.functions.insert(
+                import.name.clone(),
+                FunctionType {
+                    params,
+                    ret,
+                    effectful: import.name.ends_with('!') || !function.capabilities.is_empty(),
+                    declared_capabilities: Some(function.capabilities.iter().copied().collect()),
+                },
+            );
         }
         Ok(())
     }
@@ -824,4 +864,10 @@ pub(crate) struct TypedFunction {
     pub(crate) ret: Type,
     pub(crate) effectful: bool,
     pub(crate) capabilities: Vec<Capability>,
+}
+
+fn format_import_path(path: &[String], name: &str) -> String {
+    let mut parts = path.to_vec();
+    parts.push(name.to_string());
+    parts.join(".")
 }

@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
     Fn,
+    Import,
     Struct,
     Enum,
     Match,
@@ -113,6 +114,7 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
                 let text = &source[start..i];
                 let kind = match text {
                     "fn" => TokenKind::Fn,
+                    "import" => TokenKind::Import,
                     "struct" => TokenKind::Struct,
                     "enum" => TokenKind::Enum,
                     "match" => TokenKind::Match,

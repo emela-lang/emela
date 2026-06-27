@@ -17,6 +17,7 @@ The current compiler supports:
 - operators backed by primitive trait-style methods: `+`, `-`, `*`, `==`, `<`
 - `match` expressions over integer, boolean, unit, and wildcard patterns
 - effect markers with `!`
+- top-level `import` declarations for compiler-known external functions
 - platform capability declarations with `#[requires(...)]`
 - target capability checking
 - native assembly generation for `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`
@@ -152,6 +153,7 @@ fn main!() -> I32 {
 - WebAssembly targets are capability-checked only; WASM code generation is not implemented.
 - The native backend supports the current core language subset only.
 - Runtime implementations for real I/O capabilities are not connected yet.
+- Imported external functions are type-checked and capability-checked, but native lowering is not implemented yet.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
 - Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.
