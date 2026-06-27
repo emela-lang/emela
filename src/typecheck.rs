@@ -52,6 +52,7 @@ pub(crate) enum CheckMode {
 }
 
 impl<'a> TypeChecker<'a> {
+    #[cfg(test)]
     pub(crate) fn new(program: &'a Program, platform: &'a PlatformSpec) -> Self {
         Self::new_with_mode(program, platform, CheckMode::Executable)
     }

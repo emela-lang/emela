@@ -25,6 +25,7 @@ pub(crate) enum TokenKind {
     Eq,
     EqEq,
     Arrow,
+    Pipe,
     Lt,
     Plus,
     Minus,
@@ -64,6 +65,13 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>> {
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
                 tokens.push(Token {
                     kind: TokenKind::Arrow,
+                    pos,
+                });
+                i += 2;
+            }
+            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                tokens.push(Token {
+                    kind: TokenKind::Pipe,
                     pos,
                 });
                 i += 2;

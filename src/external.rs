@@ -52,7 +52,37 @@ impl ExternalRegistry {
                 },
                 ExternalFunction {
                     path: vec!["platform".to_string(), "io".to_string()],
+                    name: "_print_i32!".to_string(),
+                    params: vec![Type::Prim(PrimType::I32)],
+                    ret: Type::Prim(PrimType::Unit),
+                    effectful: true,
+                    capabilities: vec![Capability::Stdout],
+                    bindings: ExternalBindings {
+                        native: Some(NativeBinding {
+                            symbol: "emela_print_i32".to_string(),
+                            links: vec!["emela_runtime".to_string()],
+                        }),
+                        ..ExternalBindings::default()
+                    },
+                },
+                ExternalFunction {
+                    path: vec!["platform".to_string(), "io".to_string()],
                     name: "print_bool!".to_string(),
+                    params: vec![Type::Prim(PrimType::Bool)],
+                    ret: Type::Prim(PrimType::Unit),
+                    effectful: true,
+                    capabilities: vec![Capability::Stdout],
+                    bindings: ExternalBindings {
+                        native: Some(NativeBinding {
+                            symbol: "emela_print_bool".to_string(),
+                            links: vec!["emela_runtime".to_string()],
+                        }),
+                        ..ExternalBindings::default()
+                    },
+                },
+                ExternalFunction {
+                    path: vec!["platform".to_string(), "io".to_string()],
+                    name: "_print_bool!".to_string(),
                     params: vec![Type::Prim(PrimType::Bool)],
                     ret: Type::Prim(PrimType::Unit),
                     effectful: true,
@@ -68,6 +98,21 @@ impl ExternalRegistry {
                 ExternalFunction {
                     path: vec!["platform".to_string(), "clock".to_string()],
                     name: "now_i32!".to_string(),
+                    params: Vec::new(),
+                    ret: Type::Prim(PrimType::I32),
+                    effectful: true,
+                    capabilities: vec![Capability::Clock],
+                    bindings: ExternalBindings {
+                        native: Some(NativeBinding {
+                            symbol: "emela_now_i32".to_string(),
+                            links: vec!["emela_runtime".to_string()],
+                        }),
+                        ..ExternalBindings::default()
+                    },
+                },
+                ExternalFunction {
+                    path: vec!["platform".to_string(), "clock".to_string()],
+                    name: "_now_i32!".to_string(),
                     params: Vec::new(),
                     ret: Type::Prim(PrimType::I32),
                     effectful: true,

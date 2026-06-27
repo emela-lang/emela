@@ -15,6 +15,7 @@ The current compiler supports:
 - `Result`-style enums with `match` over variant patterns
 - function calls
 - function type annotations and function values for type-checking
+- forward pipeline calls with `|>`
 - primitive method calls such as `x.add(y)`
 - operators backed by primitive trait-style methods: `+`, `-`, `*`, `==`, `<`
 - `match` expressions over integer, boolean, unit, and wildcard patterns
@@ -86,6 +87,11 @@ If `--target` is omitted, the compiler uses the host target. At the moment, auto
 }
 ```
 
+`--stdlib DIR` selects the standard library root. If omitted, the compiler uses
+`../stdlib` relative to the Cargo manifest directory. Imports such as
+`import std.io.print_i32!` load Emela source from `DIR/std/io.emel`; stdlib
+wrappers then call `platform.*` imports supplied by the selected platform.
+
 ## Common Commands
 
 Format the code:
@@ -143,6 +149,20 @@ Emit JavaScript using a platform manifest:
 cargo run -- --platform /path/to/emela-platform.json --emit-js /tmp/emela.js --check examples/maximal.emel
 ```
 
+Use the stdlib from user code:
+
+```emela
+import std.io.print_i32!
+
+fn main!() -> Unit {
+  42 |> print_i32!()
+}
+```
+
+```sh
+cargo run -- --platform ../stdlib/platform/node.json --emit-js /tmp/emela.js --check examples/std-print.emel
+```
+
 Run it and inspect the process exit code:
 
 ```sh
@@ -196,7 +216,7 @@ fn main!() -> I32 {
 - Runtime implementations for real I/O capabilities are not connected yet.
 - Imported external functions are type-checked and capability-checked. Native lowering uses manifest-provided runtime symbols.
 - JavaScript external lowering requires a `bindings.js.callee` entry for each imported external function.
-- Library mode does not yet include package/module resolution; source files must still be checked individually.
+- Library mode can check stdlib source files, and user programs can import `std.*` modules from the configured stdlib root.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
 - Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.
