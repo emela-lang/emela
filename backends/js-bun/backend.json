@@ -1,0 +1,53 @@
+{
+  "name": "js-bun",
+  "backend": "js",
+  "abi_version": 1,
+  "builtin": "js",
+  "runtime": "bun",
+  "capabilities": [
+    "Stdout",
+    "Stdin",
+    "Clock"
+  ],
+  "externs": [
+    {
+      "path": ["platform", "io"],
+      "name": "_write_stdout_utf8!",
+      "params": ["String"],
+      "return": "Result<Unit, PlatformError>",
+      "effectful": true,
+      "capabilities": ["Stdout"],
+      "bindings": {
+        "js": {
+          "symbol": "__emela_write_stdout_utf8"
+        }
+      }
+    },
+    {
+      "path": ["platform", "io"],
+      "name": "_read_stdin_utf8!",
+      "params": [],
+      "return": "Result<String, PlatformError>",
+      "effectful": true,
+      "capabilities": ["Stdin"],
+      "bindings": {
+        "js": {
+          "symbol": "__emela_read_stdin_utf8"
+        }
+      }
+    },
+    {
+      "path": ["platform", "clock"],
+      "name": "_now_i32!",
+      "params": [],
+      "return": "I32",
+      "effectful": true,
+      "capabilities": ["Clock"],
+      "bindings": {
+        "js": {
+          "symbol": "__emela_now_i32"
+        }
+      }
+    }
+  ]
+}

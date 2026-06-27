@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 use std::fmt;
-use std::fs;
-use std::path::Path;
 
 use crate::ast::Capability;
 use crate::error::{Error, Result};
@@ -148,19 +146,14 @@ impl PlatformSpec {
         }
     }
 
-    pub(crate) fn from_manifest_path(path: &Path) -> Result<Self> {
-        let source = fs::read_to_string(path).map_err(|err| {
-            Error::new(format!(
-                "failed to read platform manifest `{}`: {err}",
-                path.display()
-            ))
-        })?;
-        let (name, capabilities, externs) = ExternalRegistry::from_manifest_json(&source)?;
-        Ok(Self {
-            name,
-            provided_capabilities: capabilities.into_iter().collect(),
-            externs,
-        })
+    pub(crate) fn js_runtime(runtime: &str) -> Self {
+        Self {
+            name: format!("js-{runtime}"),
+            provided_capabilities: [Capability::Stdout, Capability::Stdin, Capability::Clock]
+                .into_iter()
+                .collect(),
+            externs: ExternalRegistry::builtin_js(),
+        }
     }
 }
 

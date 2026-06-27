@@ -1,8 +1,4 @@
 use std::collections::HashMap;
-use std::env;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
 
 use crate::ast::{
     BinaryOp, Block, BlockItem, Expr, Function, MatchArm, Pattern, PrimType, Program, TopLevelItem,
@@ -10,7 +6,7 @@ use crate::ast::{
 };
 use crate::error::{Error, Result};
 use crate::external::{format_external_path, ExternalFunction};
-use crate::platform::{BackendKind, LinkerKind, PlatformSpec, Target};
+use crate::platform::{BackendKind, PlatformSpec, Target};
 use crate::typecheck::TypedProgram;
 
 trait NativeBackend {
@@ -68,16 +64,6 @@ impl NativeBackend for X86_64LinuxGnuBackend {
 
 static AARCH64_DARWIN_BACKEND: Aarch64DarwinBackend = Aarch64DarwinBackend;
 static X86_64_LINUX_GNU_BACKEND: X86_64LinuxGnuBackend = X86_64LinuxGnuBackend;
-
-#[cfg(test)]
-pub(crate) fn emit_assembly(
-    target: Target,
-    program: &Program,
-    typed: &TypedProgram,
-) -> Result<String> {
-    let platform = PlatformSpec::native_for_target(target);
-    emit_assembly_for_platform(target, &platform, program, typed)
-}
 
 pub(crate) fn emit_assembly_for_platform(
     target: Target,
@@ -162,99 +148,6 @@ pub(crate) fn emit_js_library(
 ) -> Result<String> {
     let mut emitter = JsEmitter::new(platform, program, false);
     emitter.emit_program()
-}
-
-pub(crate) fn build(
-    target: Target,
-    platform: &PlatformSpec,
-    program: &Program,
-    input: &Path,
-    output: &Path,
-    assembly: &str,
-) -> Result<()> {
-    if !target.supports_native_backend() {
-        return Err(Error::new(format!(
-            "target `{target}` does not have a native assembly backend yet"
-        )));
-    }
-    if target.spec().linker != LinkerKind::HostCc {
-        return Err(Error::new(format!(
-            "target `{target}` does not have a host cc linker configuration"
-        )));
-    }
-    if Target::host()? != target {
-        return Err(Error::new(format!(
-            "building target `{target}` requires running on a matching host; use --emit-asm for cross-target assembly output"
-        )));
-    }
-
-    let temp = env::temp_dir().join(format!(
-        "emela-{}-{}.s",
-        std::process::id(),
-        input.file_stem().and_then(|s| s.to_str()).unwrap_or("out")
-    ));
-    fs::write(&temp, assembly).map_err(|err| {
-        Error::new(format!(
-            "failed to write temporary assembly `{}`: {err}",
-            temp.display()
-        ))
-    })?;
-
-    let mut command = Command::new("cc");
-    command.arg(&temp).arg("-o").arg(output);
-    for link_arg in native_link_args(platform, program) {
-        command.arg(link_arg);
-    }
-    let status = command
-        .status()
-        .map_err(|err| Error::new(format!("failed to execute cc: {err}")))?;
-
-    let _ = fs::remove_file(&temp);
-
-    if !status.success() {
-        return Err(Error::new(format!(
-            "cc failed while building `{}`",
-            output.display()
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn native_link_args(platform: &PlatformSpec, program: &Program) -> Vec<String> {
-    native_link_names(platform, program)
-        .into_iter()
-        .map(|link| format!("-l{link}"))
-        .collect()
-}
-
-#[cfg(not(test))]
-fn native_link_args(platform: &PlatformSpec, program: &Program) -> Vec<String> {
-    native_link_names(platform, program)
-        .into_iter()
-        .map(|link| format!("-l{link}"))
-        .collect()
-}
-
-fn native_link_names<'a>(platform: &'a PlatformSpec, program: &Program) -> Vec<&'a str> {
-    let mut links = Vec::new();
-    for item in &program.items {
-        let TopLevelItem::Import(import) = item else {
-            continue;
-        };
-        let Some(function) = platform.externs.resolve_import(&import.path, &import.name) else {
-            continue;
-        };
-        let Some(binding) = &function.bindings.native else {
-            continue;
-        };
-        for link in &binding.links {
-            if !links.contains(&link.as_str()) {
-                links.push(link.as_str());
-            }
-        }
-    }
-    links
 }
 
 struct FunctionEmitter<'a> {
@@ -415,6 +308,7 @@ impl<'a> FunctionEmitter<'a> {
             Expr::Bool(value) => {
                 self.emit_i32(if *value { 1 } else { 0 }, out);
             }
+            Expr::String(value) => self.emit_string(value, out),
             Expr::Unit => self.emit_i32(0, out),
             Expr::Var(name) => {
                 if let Some(tag) = self.find_variant_tag(name) {
@@ -679,6 +573,28 @@ impl<'a> FunctionEmitter<'a> {
         }
     }
 
+    fn emit_string(&mut self, value: &str, out: &mut String) {
+        let label = self.label("string");
+        match self.target {
+            Target::Aarch64AppleDarwin => {
+                out.push_str(".section __TEXT,__cstring,cstring_literals\n");
+                out.push_str(&format!("{label}:\n"));
+                out.push_str(&format!("    .asciz \"{}\"\n", escape_asm_string(value)));
+                out.push_str(".text\n");
+                out.push_str(&format!("    adrp x0, {label}@PAGE\n"));
+                out.push_str(&format!("    add x0, x0, {label}@PAGEOFF\n"));
+            }
+            Target::X86_64UnknownLinuxGnu => {
+                out.push_str(".section .rodata\n");
+                out.push_str(&format!("{label}:\n"));
+                out.push_str(&format!("    .asciz \"{}\"\n", escape_asm_string(value)));
+                out.push_str(".text\n");
+                out.push_str(&format!("    leaq {label}(%rip), %rax\n"));
+            }
+            Target::Wasm32UnknownUnknown | Target::Wasm32Wasi => unreachable!(),
+        }
+    }
+
     fn pack_enum(&self, tag: u32, out: &mut String) {
         match self.target {
             Target::Aarch64AppleDarwin => {
@@ -770,7 +686,7 @@ impl<'a> FunctionEmitter<'a> {
         self.locals
             .get(name)
             .copied()
-            .ok_or_else(|| Error::new(format!("internal codegen error: unknown local `{name}`")))
+            .ok_or_else(|| Error::new(format!("internal lowering error: unknown local `{name}`")))
     }
 
     fn bind_pattern_payload(&self, pattern: &Pattern, out: &mut String) -> Result<()> {
@@ -845,7 +761,7 @@ impl<'a> FunctionEmitter<'a> {
 
     fn variant_tag(&self, name: &str) -> Result<usize> {
         self.find_variant_tag(name)
-            .ok_or_else(|| Error::new(format!("internal codegen error: unknown variant `{name}`")))
+            .ok_or_else(|| Error::new(format!("internal lowering error: unknown variant `{name}`")))
     }
 
     fn find_variant_tag(&self, name: &str) -> Option<usize> {
@@ -925,7 +841,7 @@ fn collect_expr_bindings(expr: &Expr, locals: &mut HashMap<String, i32>, next_sl
             }
         }
         Expr::Block(block) => collect_block_bindings(block, locals, next_slot),
-        Expr::Int(_) | Expr::Bool(_) | Expr::Unit | Expr::Var(_) => {}
+        Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Unit | Expr::Var(_) => {}
     }
 }
 
@@ -980,6 +896,21 @@ fn sanitize_label(value: &str) -> String {
         .collect()
 }
 
+fn escape_asm_string(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_ascii_graphic() || ch == ' ' => out.push(ch),
+            ch => out.push_str(&format!("\\{:03o}", ch as u32)),
+        }
+    }
+    out
+}
+
 fn align_to(value: i32, align: i32) -> i32 {
     if value == 0 {
         0
@@ -1007,6 +938,7 @@ impl<'a> JsEmitter<'a> {
         let mut out = String::new();
         out.push_str("// Generated by the Emela compiler.\n");
         out.push_str("\"use strict\";\n\n");
+        self.emit_runtime_prelude(&mut out)?;
         for function in self.program.functions() {
             self.emit_function(function, &mut out)?;
             out.push('\n');
@@ -1019,7 +951,7 @@ impl<'a> JsEmitter<'a> {
             .functions()
             .into_iter()
             .find(|function| function.name == "main" || function.name == "main!")
-            .ok_or_else(|| Error::new("internal js codegen error: missing main"))?;
+            .ok_or_else(|| Error::new("internal js lowering error: missing main"))?;
         out.push_str(&format!(
             "const __emela_result = {}();\n",
             js_name(&entry.name)
@@ -1030,6 +962,40 @@ impl<'a> JsEmitter<'a> {
         );
         out.push_str("}\n");
         Ok(out)
+    }
+
+    fn emit_runtime_prelude(&self, out: &mut String) -> Result<()> {
+        for item in &self.program.items {
+            let TopLevelItem::Import(import) = item else {
+                continue;
+            };
+            let Some(function) = self
+                .platform
+                .externs
+                .resolve_import(&import.path, &import.name)
+            else {
+                continue;
+            };
+            let Some(symbol) = function.bindings.js_symbol.as_deref() else {
+                continue;
+            };
+            match symbol {
+                "__emela_write_stdout_utf8" | "__emela_read_stdin_utf8" | "__emela_now_i32" => {
+                    let runtime =
+                        super::bundled::js_runtime(&self.platform.name).ok_or_else(|| {
+                            Error::new(format!(
+                                "platform `{}` does not have a bundled js runtime",
+                                self.platform.name
+                            ))
+                        })?;
+                    out.push_str(runtime);
+                    out.push_str("\n\n");
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn emit_function(&mut self, function: &Function, out: &mut String) -> Result<()> {
@@ -1078,6 +1044,8 @@ impl<'a> JsEmitter<'a> {
         match expr {
             Expr::Int(value) => Ok(value.to_string()),
             Expr::Bool(value) => Ok(value.to_string()),
+            Expr::String(value) => serde_json::to_string(value)
+                .map_err(|err| Error::new(format!("failed to encode string literal: {err}"))),
             Expr::Unit => Ok("undefined".to_string()),
             Expr::Var(name) => {
                 if let Some(tag) = self.find_variant_tag(name) {
@@ -1087,7 +1055,7 @@ impl<'a> JsEmitter<'a> {
                     return Ok(js_name(name));
                 }
                 if let Some(function) = self.find_external_function(name) {
-                    let callee = function.bindings.js_callee.as_ref().ok_or_else(|| {
+                    let callee = function.bindings.js_symbol.as_ref().ok_or_else(|| {
                         Error::new(format!(
                             "external function `{}` from `{}` does not have a js binding",
                             function.name,
@@ -1136,7 +1104,7 @@ impl<'a> JsEmitter<'a> {
             return Ok(format!("{{ tag: {tag}, value: {args} }}"));
         }
         if let Some(function) = self.find_external_function(name) {
-            let callee = function.bindings.js_callee.as_ref().ok_or_else(|| {
+            let callee = function.bindings.js_symbol.as_ref().ok_or_else(|| {
                 Error::new(format!(
                     "external function `{}` from `{}` does not have a js binding",
                     function.name,
@@ -1235,7 +1203,7 @@ impl<'a> JsEmitter<'a> {
     fn variant_tag(&self, name: &str) -> Result<usize> {
         self.find_variant_tag(name).ok_or_else(|| {
             Error::new(format!(
-                "internal js codegen error: unknown variant `{name}`"
+                "internal js lowering error: unknown variant `{name}`"
             ))
         })
     }
