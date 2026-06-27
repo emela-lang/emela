@@ -9,7 +9,7 @@ impl Program {
             .iter()
             .filter_map(|item| match item {
                 TopLevelItem::Function(function) => Some(function),
-                TopLevelItem::Struct(_) | TopLevelItem::Enum(_) => None,
+                TopLevelItem::Import(_) | TopLevelItem::Struct(_) | TopLevelItem::Enum(_) => None,
             })
             .collect()
     }
@@ -17,9 +17,16 @@ impl Program {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TopLevelItem {
+    Import(ImportDecl),
     Struct(StructDecl),
     Enum(EnumDecl),
     Function(Function),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImportDecl {
+    pub(crate) path: Vec<String>,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Clone)]

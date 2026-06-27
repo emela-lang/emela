@@ -2,6 +2,7 @@ mod ast;
 mod codegen;
 mod driver;
 mod error;
+mod external;
 mod lexer;
 mod parser;
 mod platform;
@@ -276,6 +277,55 @@ fn main!() {
         assert!(error
             .to_string()
             .contains("target `wasm32-unknown-unknown` does not provide"));
+    }
+
+    #[test]
+    fn imported_external_capability_set_is_checked() {
+        let source = r#"
+import platform.io.print_i32!
+
+fn main!() {
+  print_i32!(42)
+}
+"#;
+        compile_source_for_target(source, Target::Wasm32Wasi).unwrap();
+        let error = compile_source_for_target(source, Target::Wasm32UnknownUnknown).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("target `wasm32-unknown-unknown` does not provide"));
+    }
+
+    #[test]
+    fn rejects_imported_effectful_call_from_pure_function() {
+        let error = compile_source_for_target(
+            r#"
+import platform.io.print_i32!
+
+fn main() {
+  print_i32!(42)
+}
+"#,
+            Target::Aarch64AppleDarwin,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("pure function"));
+    }
+
+    #[test]
+    fn imported_external_function_requires_backend_lowering() {
+        let (program, typed) = compile_source_for_target(
+            r#"
+import platform.io.print_i32!
+
+fn main!() {
+  print_i32!(42)
+}
+"#,
+            Target::Aarch64AppleDarwin,
+        )
+        .unwrap();
+        let error = emit_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
+        assert!(error.to_string().contains("does not have native lowering"));
     }
 
     #[test]
