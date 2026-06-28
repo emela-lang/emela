@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use crate::ast::Program;
@@ -10,6 +10,7 @@ use crate::package::imports::expand_package_imports;
 #[cfg(test)]
 use crate::package::imports::mark_stdlib_origin;
 use crate::package::manifest::GitDependency;
+use crate::package::manifest::{ProjectIdentity, ProjectManifest};
 use crate::package::resolve::{
     add_project_dependency_from_current_dir, fetch_project_dependencies_from_current_dir,
     resolve_package_sources,
@@ -29,6 +30,7 @@ static TEST_STDLIB_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 
 #[derive(Debug)]
 enum Command {
+    Init,
     Check(CompileArgs),
     Build(CompileArgs),
     PackageFetch,
@@ -170,6 +172,7 @@ fn now_i32!() -> I32 {
 pub(crate) fn run() -> Result<()> {
     let args = parse_args()?;
     match args.command {
+        Command::Init => run_init(),
         Command::Check(compile_args) => run_check(compile_args),
         Command::Build(compile_args) => run_build(compile_args),
         Command::PackageFetch => run_package_fetch(),
@@ -247,6 +250,14 @@ fn parse_args() -> Result<Args> {
         return Err(Error::new("missing command"));
     };
     let command = match command.as_str() {
+        "init" => {
+            if let Some(extra) = args.next() {
+                return Err(Error::new(format!(
+                    "init does not accept argument `{extra}`"
+                )));
+            }
+            Command::Init
+        }
         "check" => Command::Check(parse_compile_args(args, true)?),
         "build" => Command::Build(parse_compile_args(args, false)?),
         "package" => parse_package_command(args)?,
@@ -419,8 +430,40 @@ where
 
 fn print_help() {
     eprintln!(
-        "Usage:\n  emela check [--backend PROFILE|PATH] [--target TARGET] [--package DIR]... [--library] INPUT.emel\n  emela build --backend PROFILE|PATH [--target TARGET] [--package DIR]... [--library] [--artifact PATH | --output PATH] INPUT.emel\n  emela package fetch\n  emela package add NAME --git URL --rev REV\n  emela --version"
+        "Usage:\n  emela init\n  emela check [--backend PROFILE|PATH] [--target TARGET] [--package DIR]... [--library] INPUT.emel\n  emela build --backend PROFILE|PATH [--target TARGET] [--package DIR]... [--library] [--artifact PATH | --output PATH] INPUT.emel\n  emela package fetch\n  emela package add NAME --git URL --rev REV\n  emela --version"
     );
+}
+
+fn run_init() -> Result<()> {
+    let cwd = env::current_dir()
+        .map_err(|err| Error::new(format!("failed to get current directory: {err}")))?;
+    let manifest_path = cwd.join("emela.json");
+    if manifest_path.exists() {
+        return Err(Error::new(format!(
+            "project manifest `{}` already exists",
+            manifest_path.display()
+        )));
+    }
+
+    let package_name = package_name_from_dir(&cwd);
+    let manifest = ProjectManifest {
+        package: ProjectIdentity {
+            name: package_name,
+            version: "0.1.0".to_string(),
+        },
+        dependencies: Default::default(),
+    };
+    manifest.write_to(&manifest_path)?;
+    println!("created {}", manifest_path.display());
+    Ok(())
+}
+
+fn package_name_from_dir(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("app")
+        .to_string()
 }
 
 fn run_package_fetch() -> Result<()> {

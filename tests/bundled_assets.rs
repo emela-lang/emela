@@ -320,6 +320,50 @@ fn main() -> I32 {
 }
 
 #[test]
+fn init_creates_project_manifest_in_current_directory() {
+    let temp = std::env::temp_dir().join(format!("emela-init-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
+    let project = temp.join("project");
+    fs::create_dir_all(&project).unwrap();
+
+    let status = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .current_dir(&project)
+        .arg("init")
+        .status()
+        .unwrap();
+
+    let manifest = fs::read_to_string(project.join("emela.json")).unwrap();
+    let _ = fs::remove_dir_all(&temp);
+
+    assert!(status.success());
+    assert!(manifest.contains(r#""name": "project""#));
+    assert!(manifest.contains(r#""version": "0.1.0""#));
+    assert!(manifest.contains(r#""dependencies": {}"#));
+}
+
+#[test]
+fn init_refuses_to_overwrite_existing_manifest() {
+    let temp =
+        std::env::temp_dir().join(format!("emela-init-existing-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
+    fs::create_dir_all(&temp).unwrap();
+    fs::write(
+        temp.join("emela.json"),
+        r#"{"package":{"name":"app","version":"0.1.0"},"dependencies":{}}"#,
+    )
+    .unwrap();
+
+    let status = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .current_dir(&temp)
+        .arg("init")
+        .status()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(&temp);
+    assert!(!status.success());
+}
+
+#[test]
 fn package_add_rejects_duplicate_dependency() {
     let temp = std::env::temp_dir().join(format!(
         "emela-package-add-duplicate-test-{}",
