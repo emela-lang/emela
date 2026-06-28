@@ -174,6 +174,7 @@ Project dependencies in `emela.json` are git revisions. `emela package fetch`
 downloads them into the package cache. `emela check` and `emela build` read the
 cached package directories but do not fetch missing dependencies; run
 `emela package fetch` first when a project manifest declares dependencies.
+`emela init` creates a new `emela.json` in the current directory.
 `emela package add NAME --git URL --rev REV` adds a dependency to `emela.json`
 and fetches it.
 
@@ -202,6 +203,12 @@ Check with an external source package:
 
 ```sh
 cargo run --bin emela -- check --backend js-node --package ../stdlib examples/std-print.emel
+```
+
+Create a project manifest:
+
+```sh
+cargo run --bin emela -- init
 ```
 
 Fetch project dependencies declared in `emela.json`:
