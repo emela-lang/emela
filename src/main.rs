@@ -1538,7 +1538,19 @@ fn main() -> I32 {
     fn stdlib_option_source_checks_as_library() {
         let platform = PlatformSpec::native_for_target(Target::Aarch64AppleDarwin);
         compile_source_for_platform_with_mode(
-            include_str!("../../stdlib/std/option.emel"),
+            r#"
+enum Option<T> {
+  Some(T)
+  None
+}
+
+fn map<T, U>(opt: Option<T>, f: fn(T) -> U) -> Option<U> {
+  match opt {
+    Some(value) -> Some(f(value))
+    None -> None
+  }
+}
+"#,
             &platform,
             CheckMode::Library,
         )

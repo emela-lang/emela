@@ -18,6 +18,9 @@ use crate::platform::Target;
 use crate::typecheck::TypedProgram;
 use crate::typecheck::{CheckMode, TypeChecker};
 
+#[cfg(test)]
+static TEST_STDLIB_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 #[derive(Debug)]
 enum Command {
     Check(CompileArgs),
@@ -67,7 +70,8 @@ pub(crate) fn compile_source_for_platform(
     platform: &PlatformSpec,
 ) -> Result<(Program, TypedProgram)> {
     let mut program = parse_program("<test>", source)?;
-    expand_package_imports(&mut program, &[])?;
+    let packages = test_default_packages();
+    expand_package_imports(&mut program, &packages)?;
     let typed = TypeChecker::new(&program, platform).check()?;
     Ok((program, typed))
 }
@@ -100,9 +104,59 @@ fn compile_source_for_platform_with_packages(
     packages: &[PackageSource],
 ) -> Result<(Program, TypedProgram)> {
     let mut program = parse_program("<test>", source)?;
-    expand_package_imports(&mut program, packages)?;
+    let mut resolved_packages = test_default_packages();
+    for package in packages {
+        if !resolved_packages
+            .iter()
+            .any(|source| source.name == package.name)
+        {
+            resolved_packages.push(package.clone());
+        }
+    }
+    expand_package_imports(&mut program, &resolved_packages)?;
     let typed = TypeChecker::new_with_mode(&program, platform, mode).check()?;
     Ok((program, typed))
+}
+
+#[cfg(test)]
+fn test_default_packages() -> Vec<PackageSource> {
+    let id = TEST_STDLIB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let source_root = env::temp_dir()
+        .join(format!("emela-test-stdlib-{}-{id}", std::process::id()))
+        .join("std");
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(
+        source_root.join("io.emel"),
+        r#"import platform.io._write_stdout_utf8!
+import platform.io._read_stdin_utf8!
+
+#[requires(Stdout)]
+fn write_stdout_utf8!(value: String) -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!(value)
+}
+
+#[requires(Stdin)]
+fn read_stdin_utf8!() -> Result<String, PlatformError> {
+  _read_stdin_utf8!()
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        source_root.join("clock.emel"),
+        r#"import platform.clock._now_i32!
+
+#[requires(Clock)]
+fn now_i32!() -> I32 {
+  _now_i32!()
+}
+"#,
+    )
+    .unwrap();
+    vec![PackageSource {
+        name: "std".to_string(),
+        source_root,
+    }]
 }
 
 fn parse_program(label: &str, source: &str) -> Result<Program> {
@@ -497,7 +551,9 @@ fn load_source_package_module(
         if let Some(package) = packages.iter().find(|package| package.name == "std") {
             load_package_module(package, module_path)?
         } else {
-            load_embedded_stdlib_module(module_path)?
+            return Err(Error::new(
+                "package `std` is not available; add it with `emela package add std --git URL --rev REV` or pass `--package DIR`",
+            ));
         }
     } else {
         let package = packages
@@ -536,23 +592,6 @@ fn load_module_file(
         ))
     })?;
     Ok((source, root.display().to_string()))
-}
-
-fn load_embedded_stdlib_module(module_path: &[String]) -> Result<(String, String)> {
-    match module_path {
-        [module] if module == "io" => Ok((
-            include_str!("../../stdlib/std/io.emel").to_string(),
-            "<embedded std.io>".to_string(),
-        )),
-        [module] if module == "clock" => Ok((
-            include_str!("../../stdlib/std/clock.emel").to_string(),
-            "<embedded std.clock>".to_string(),
-        )),
-        _ => Err(Error::new(format!(
-            "embedded stdlib module `std.{}` is not bundled",
-            module_path.join(".")
-        ))),
-    }
 }
 
 fn module_exports(module: &Program, name: &str) -> bool {
