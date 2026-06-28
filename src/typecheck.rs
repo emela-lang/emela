@@ -1220,10 +1220,9 @@ impl<'a> TypeChecker<'a> {
             .enum_type_params
             .iter()
             .map(|param| {
-                substitutions
-                    .get(param)
-                    .cloned()
-                    .unwrap_or_else(|| Type::GenericParam(param.clone()))
+                substitutions.get(param).cloned().unwrap_or_else(|| {
+                    Type::GenericParam(format!("{}.{}", variant.enum_name, param))
+                })
             })
             .collect::<Vec<_>>();
         let expected_ty = substitute_type(payload_ty, &substitutions);
