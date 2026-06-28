@@ -39,8 +39,8 @@ mod tests {
     #[test]
     fn sanitizes_git_url_for_cache_path() {
         assert_eq!(
-            sanitize_git_url("https://github.com/emela-lang/std.git"),
-            "https___github.com_emela-lang_std.git"
+            sanitize_git_url("https://github.com/emela-lang/stdlib.git"),
+            "https___github.com_emela-lang_stdlib.git"
         );
     }
 }

@@ -2,24 +2,24 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct ProjectManifest {
     pub(crate) package: ProjectIdentity,
     #[serde(default)]
     pub(crate) dependencies: BTreeMap<String, GitDependency>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct ProjectIdentity {
     pub(crate) name: String,
     pub(crate) version: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct GitDependency {
     pub(crate) git: String,
     pub(crate) rev: String,
@@ -69,6 +69,21 @@ impl ProjectManifest {
             }
         }
         Ok(manifest)
+    }
+
+    pub(crate) fn write_to(&self, path: &Path) -> Result<()> {
+        let source = serde_json::to_string_pretty(self).map_err(|err| {
+            Error::new(format!(
+                "failed to serialize project manifest `{}`: {err}",
+                path.display()
+            ))
+        })?;
+        fs::write(path, format!("{source}\n")).map_err(|err| {
+            Error::new(format!(
+                "failed to write project manifest `{}`: {err}",
+                path.display()
+            ))
+        })
     }
 }
 
@@ -123,7 +138,7 @@ mod tests {
             r#"{
   "package": {"name":"app","version":"0.1.0"},
   "dependencies": {
-    "std": {"git":"https://github.com/emela-lang/std.git","rev":"0123456789abcdef"}
+    "std": {"git":"https://github.com/emela-lang/stdlib.git","rev":"0123456789abcdef"}
   }
 }"#,
         )
@@ -134,7 +149,7 @@ mod tests {
         assert_eq!(manifest.package.name, "app");
         assert_eq!(
             manifest.dependencies["std"].git,
-            "https://github.com/emela-lang/std.git"
+            "https://github.com/emela-lang/stdlib.git"
         );
     }
 

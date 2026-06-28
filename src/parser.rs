@@ -3,8 +3,15 @@ use crate::ast::{
     FunctionType, ImportDecl, ImportOrigin, MatchArm, Pattern, PrimType, Program, StructDecl,
     StructField, TopLevelItem, Type,
 };
-use crate::error::{Diagnostic, Error, Result, Span};
-use crate::lexer::{Token, TokenKind};
+use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
+use crate::lexer::{lex_with_file, Token, TokenKind};
+
+pub(crate) fn parse_program(label: &str, source: &str) -> Result<Program> {
+    let file = SourceFile::new(label, source.to_string());
+    let tokens = lex_with_file(source, file)?;
+    let mut parser = Parser::new(tokens);
+    parser.parse_program()
+}
 
 pub(crate) struct Parser {
     tokens: Vec<Token>,
@@ -451,6 +458,7 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Bool(false, span))
             }
+            TokenKind::Fn => self.parse_lambda_expr(),
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.parse_function_name()?;
@@ -555,6 +563,28 @@ impl Parser {
                     .help("Add a value, a function call, a block, or `()` for Unit."),
             )),
         }
+    }
+
+    fn parse_lambda_expr(&mut self) -> Result<Expr> {
+        let start = self.peek().span.clone();
+        self.expect(&TokenKind::Fn)?;
+        self.expect(&TokenKind::LParen)?;
+        let mut params = Vec::new();
+        if !self.at(&TokenKind::RParen) {
+            params.push(self.parse_function_param()?);
+            while self.eat(&TokenKind::Comma) {
+                params.push(self.parse_function_param()?);
+            }
+        }
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let body = self.parse_expr()?;
+        let span = start.merge(body.span());
+        Ok(Expr::Lambda {
+            params,
+            body: Box::new(body),
+            span,
+        })
     }
 
     fn parse_argument_list(&mut self) -> Result<Vec<Expr>> {
