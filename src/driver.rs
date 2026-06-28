@@ -121,6 +121,10 @@ pub(crate) fn run() -> Result<()> {
     }
 }
 
+fn version() -> &'static str {
+    option_env!("EMELA_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
 fn run_check(args: CompileArgs) -> Result<()> {
     run_compile(args, true)
 }
@@ -190,6 +194,10 @@ fn parse_args() -> Result<Args> {
         "check" => Command::Check(parse_compile_args(args, true)?),
         "build" => Command::Build(parse_compile_args(args, false)?),
         "package" => parse_package_command(args)?,
+        "-V" | "--version" => {
+            println!("emela {}", version());
+            std::process::exit(0);
+        }
         "-h" | "--help" => {
             print_help();
             std::process::exit(0);
