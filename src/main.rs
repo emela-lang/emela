@@ -428,6 +428,105 @@ fn main() -> I32 {
     }
 
     #[test]
+    fn supports_anonymous_function_arguments_with_capture() {
+        let (_, typed) = compile_source(
+            r#"
+fn apply(value: I32, f: fn(I32) -> I32) -> I32 {
+  f(value)
+}
+
+fn main() -> I32 {
+  offset: I32 = 1
+  apply(41, fn(value: I32) -> value + offset)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(main.ret, Type::Prim(PrimType::I32));
+    }
+
+    #[test]
+    fn anonymous_function_can_use_generic_outer_type_parameter() {
+        let (_, typed) = compile_source(
+            r#"
+enum Option<T> {
+  Some(T)
+  None
+}
+
+fn fold<T, U>(opt: Option<T>, default: U, f: fn(T) -> U) -> U {
+  match opt {
+    Some(value) -> f(value)
+    None -> default
+  }
+}
+
+fn map<T, U>(opt: Option<T>, f: fn(T) -> U) -> Option<U> {
+  fold(opt, None, fn(value: T) -> Some(f(value)))
+}
+
+fn main() -> Option<I32> {
+  map(Some(41), fn(value: I32) -> value + 1)
+}
+"#,
+        )
+        .unwrap();
+        let main = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap();
+        assert_eq!(
+            main.ret,
+            Type::Apply {
+                name: "Option".to_string(),
+                args: vec![Type::Prim(PrimType::I32)],
+            }
+        );
+    }
+
+    #[test]
+    fn js_backend_emits_anonymous_function() {
+        let platform = PlatformSpec::js_runtime("node");
+        let (program, typed) = compile_source_for_platform(
+            r#"
+fn apply(value: I32, f: fn(I32) -> I32) -> I32 {
+  f(value)
+}
+
+fn main() -> I32 {
+  offset: I32 = 1
+  apply(41, fn(value: I32) -> value + offset)
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let js = emit_js_artifact(&platform, &program, &typed).unwrap();
+        assert!(js.contains("((value) => (value + offset))"));
+    }
+
+    #[test]
+    fn native_backend_rejects_anonymous_functions() {
+        let (program, typed) = compile_source(
+            r#"
+fn main() -> I32 {
+  f: fn(I32) -> I32 = fn(value: I32) -> value + 1
+  0
+}
+"#,
+        )
+        .unwrap();
+        let error = emit_native_assembly(Target::Aarch64AppleDarwin, &program, &typed).unwrap_err();
+        assert!(error.to_string().contains("anonymous functions"));
+    }
+
+    #[test]
     fn supports_functions_returning_functions() {
         let (_, typed) = compile_source(
             r#"

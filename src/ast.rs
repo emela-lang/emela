@@ -168,6 +168,12 @@ pub(crate) enum Expr {
         #[serde(skip_serializing)]
         span: Span,
     },
+    Lambda {
+        params: Vec<FunctionParam>,
+        body: Box<Expr>,
+        #[serde(skip_serializing)]
+        span: Span,
+    },
     Block(Block, #[serde(skip_serializing)] Span),
 }
 
@@ -185,7 +191,8 @@ impl Expr {
             | Expr::FieldAccess { span, .. }
             | Expr::StructLiteral { span, .. }
             | Expr::Binary { span, .. }
-            | Expr::Match { span, .. } => span,
+            | Expr::Match { span, .. }
+            | Expr::Lambda { span, .. } => span,
         }
     }
 }

@@ -162,13 +162,20 @@ or diagnostics:
 
 `import math.ops.add_one` loads `DIR/src/ops.emel` and imports `add_one`.
 
-Package `std` is special only because the compiler has a bundled fallback. If a
-package named `std` is supplied with `--package ../stdlib`, that package is used
-instead of the bundled stdlib. Imports such as `import std.io.write_stdout_utf8!`
-load Emela source from the selected `std` package or the bundled stdlib. stdlib
+Package `std` is a normal source package dependency. A package named `std` can
+be supplied with `--package ../stdlib` or declared in `emela.json`. Imports such
+as `import std.io.write_stdout_utf8!` load Emela source from the selected `std`
+package. stdlib
 wrappers then call `platform.*` imports supplied by the selected backend.
 Only the requested stdlib API and its dependencies are expanded, so a backend
 does not need to implement unused stdlib platform imports.
+
+Project dependencies in `emela.json` are git revisions. `emela package fetch`
+downloads them into the package cache. `emela check` and `emela build` read the
+cached package directories but do not fetch missing dependencies; run
+`emela package fetch` first when a project manifest declares dependencies.
+`emela package add NAME --git URL --rev REV` adds a dependency to `emela.json`
+and fetches it.
 
 ## Common Commands
 
@@ -195,6 +202,18 @@ Check with an external source package:
 
 ```sh
 cargo run --bin emela -- check --backend js-node --package ../stdlib examples/std-print.emel
+```
+
+Fetch project dependencies declared in `emela.json`:
+
+```sh
+cargo run --bin emela -- package fetch
+```
+
+Add and fetch a project dependency:
+
+```sh
+cargo run --bin emela -- package add std --git https://github.com/emela-lang/stdlib.git --rev 0123456789abcdef
 ```
 
 Check a library source file without requiring `main` / `main!`:
@@ -244,7 +263,7 @@ fn main!() -> Result<Unit, PlatformError> {
 ```
 
 ```sh
-cargo run --bin emela -- build --backend js-node --artifact /tmp/emela.js examples/std-print.emel
+cargo run --bin emela -- build --backend js-node --package ../stdlib --artifact /tmp/emela.js examples/std-print.emel
 ```
 
 Run it and inspect the process exit code:
@@ -300,7 +319,7 @@ fn main!() -> I32 {
 - Runtime implementations for real I/O capabilities are not connected yet.
 - Imported external functions are type-checked and capability-checked against the selected backend.
 - JavaScript external lowering requires a `bindings.js.symbol` entry for each imported external function.
-- Library mode can check stdlib source files, and user programs can import `std.*` modules from the bundled stdlib or an explicit `std` package.
+- Library mode can check stdlib source files, and user programs can import `std.*` modules from an explicit `std` package.
 - User-defined traits, trait declarations, and impl declarations are not implemented.
 - Effect handlers and error values are not implemented.
 - Structs and enums are currently limited to the first draft subset: one field per struct, at most one payload per variant, and no generics.

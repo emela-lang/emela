@@ -389,6 +389,11 @@ impl<'a> FunctionEmitter<'a> {
 
                 out.push_str(&format!("{end_label}:\n"));
             }
+            Expr::Lambda { .. } => {
+                return Err(Error::new(
+                    "native backend does not support anonymous functions yet",
+                ));
+            }
             Expr::Block(block, _) => self.emit_block(block, out)?,
         }
         Ok(())
@@ -847,6 +852,7 @@ fn collect_expr_bindings(expr: &Expr, locals: &mut HashMap<String, i32>, next_sl
                 collect_expr_bindings(&arm.expr, locals, next_slot);
             }
         }
+        Expr::Lambda { body, .. } => collect_expr_bindings(body, locals, next_slot),
         Expr::Block(block, _) => collect_block_bindings(block, locals, next_slot),
         Expr::Int(_, _)
         | Expr::Bool(_, _)
@@ -1102,6 +1108,15 @@ impl<'a> JsEmitter<'a> {
             Expr::Match {
                 scrutinee, arms, ..
             } => self.emit_match(scrutinee, arms),
+            Expr::Lambda { params, body, .. } => {
+                let params = params
+                    .iter()
+                    .map(|param| js_name(&param.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let body = self.emit_expr(body)?;
+                Ok(format!("(({params}) => {body})"))
+            }
             Expr::Block(block, _) => {
                 let mut out = String::new();
                 out.push_str("(() => ");

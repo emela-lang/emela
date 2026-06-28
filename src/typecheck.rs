@@ -1014,8 +1014,78 @@ impl<'a> TypeChecker<'a> {
             Expr::Match {
                 scrutinee, arms, ..
             } => self.check_match(scrutinee, arms, scope),
+            Expr::Lambda { params, body, span } => self.check_lambda(params, body, span, scope),
             Expr::Block(block, _) => self.check_block(block, scope),
         }
+    }
+
+    fn check_lambda(
+        &mut self,
+        params: &[crate::ast::FunctionParam],
+        body: &Expr,
+        span: &Span,
+        scope: &mut HashMap<String, usize>,
+    ) -> Result<ExprInfo> {
+        let type_param_scope = self.rigid_type_params.iter().cloned().collect::<Vec<_>>();
+        let mut local_scope = scope.clone();
+        let mut seen_params = BTreeSet::new();
+        let mut param_types = Vec::new();
+
+        for param in params {
+            if !seen_params.insert(param.name.clone()) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Duplicate parameter")
+                        .label(
+                            param.name_span.clone(),
+                            format!(
+                                "parameter `{}` is already defined in this anonymous function.",
+                                param.name
+                            ),
+                        )
+                        .help("Rename one of the parameters so each name is unique."),
+                ));
+            }
+
+            let Some(annotation) = &param.ty else {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Missing type annotation")
+                        .label(
+                            param.name_span.clone(),
+                            format!(
+                                "parameter `{}` in this anonymous function must have a type annotation.",
+                                param.name
+                            ),
+                        )
+                        .help(format!(
+                            "Add a type after the parameter name, for example `{}: I32`.",
+                            param.name
+                        )),
+                ));
+            };
+            if let Some(ty_span) = &param.ty_span {
+                self.validate_type_in_scope_at(annotation, &type_param_scope, ty_span)?;
+            } else {
+                self.validate_type_in_scope(annotation, &type_param_scope)?;
+            }
+            let normalized = normalize_type_params(annotation, &type_param_scope);
+            let id = self.known(normalized.clone());
+            local_scope.insert(param.name.clone(), id);
+            param_types.push(normalized);
+        }
+
+        let body = self.check_expr(body, &mut local_scope)?;
+        let ret = self.resolve_known(body.ty, "anonymous function return type")?;
+        let ty = self.known(Type::Function(AstFunctionType {
+            params: param_types,
+            ret: Box::new(ret),
+            effectful: body.effectful,
+        }));
+        Ok(ExprInfo {
+            ty,
+            effectful: false,
+            capabilities: BTreeSet::new(),
+            span: Some(span.clone()),
+        })
     }
 
     fn check_generic_function_call(
