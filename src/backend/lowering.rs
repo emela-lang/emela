@@ -775,14 +775,18 @@ impl<'a> FunctionEmitter<'a> {
     }
 
     fn find_variant_tag(&self, name: &str) -> Option<usize> {
-        self.program.items.iter().find_map(|item| {
-            let TopLevelItem::Enum(decl) = item else {
-                return None;
-            };
-            decl.variants
-                .iter()
-                .position(|variant| variant.name == name)
-        })
+        self.program
+            .items
+            .iter()
+            .find_map(|item| {
+                let TopLevelItem::Enum(decl) = item else {
+                    return None;
+                };
+                decl.variants
+                    .iter()
+                    .position(|variant| variant.name == name)
+            })
+            .or_else(|| builtin_variant_tag(name))
     }
 
     fn find_external_function(&self, name: &str) -> Option<&ExternalFunction> {
@@ -897,6 +901,17 @@ fn method_op(name: &str) -> Result<BinaryOp> {
         _ => Err(Error::new(format!(
             "native backend does not support method `{name}`"
         ))),
+    }
+}
+
+fn builtin_variant_tag(name: &str) -> Option<usize> {
+    match name {
+        "Ok" | "Unsupported" => Some(0),
+        "Err" | "Unavailable" => Some(1),
+        "Interrupted" => Some(2),
+        "InvalidUtf8" => Some(3),
+        "Unknown" => Some(4),
+        _ => None,
     }
 }
 
@@ -1242,14 +1257,18 @@ impl<'a> JsEmitter<'a> {
     }
 
     fn find_variant_tag(&self, name: &str) -> Option<usize> {
-        self.program.items.iter().find_map(|item| {
-            let TopLevelItem::Enum(decl) = item else {
-                return None;
-            };
-            decl.variants
-                .iter()
-                .position(|variant| variant.name == name)
-        })
+        self.program
+            .items
+            .iter()
+            .find_map(|item| {
+                let TopLevelItem::Enum(decl) = item else {
+                    return None;
+                };
+                decl.variants
+                    .iter()
+                    .position(|variant| variant.name == name)
+            })
+            .or_else(|| builtin_variant_tag(name))
     }
 
     fn find_external_function(&self, name: &str) -> Option<&ExternalFunction> {

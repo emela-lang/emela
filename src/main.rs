@@ -1222,6 +1222,28 @@ fn add(x: I32, y: I32) -> I32 {
     }
 
     #[test]
+    fn js_backend_lowers_builtin_result_variants() {
+        let platform = PlatformSpec::js_runtime("node");
+        let (program, typed) = compile_source_for_platform(
+            r#"
+fn main() -> I32 {
+  match Ok(41) {
+    Ok(value) -> value + 1
+    Err(_) -> 0
+  }
+}
+"#,
+            &platform,
+        )
+        .unwrap();
+        let js = emit_js_artifact(&platform, &program, &typed).unwrap();
+        assert!(js.contains("{ tag: 0, value: 41 }"));
+        assert!(js.contains("__match.tag === 0"));
+        assert!(js.contains("__match.tag === 1"));
+        assert!(!js.contains("Ok(41)"));
+    }
+
+    #[test]
     fn imports_stdlib_wrapper_for_js_codegen() {
         let platform = PlatformSpec::js_runtime("node");
         let (program, typed) = compile_source_for_platform(
@@ -1559,6 +1581,38 @@ fn main() -> Result<I32, PlatformError> {
                 args: vec![
                     Type::Prim(PrimType::I32),
                     Type::Named("PlatformError".to_string())
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn result_map_infers_constructor_types_from_match_arms() {
+        let (_, typed) = compile_source_for_platform_with_mode(
+            r#"
+fn map<T, E, U>(result: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
+  match result {
+    Ok(value) -> Ok(f(value))
+    Err(err) -> Err(err)
+  }
+}
+"#,
+            &PlatformSpec::js_runtime("node"),
+            CheckMode::Library,
+        )
+        .unwrap();
+        let map = typed
+            .functions
+            .iter()
+            .find(|function| function.name == "map")
+            .unwrap();
+        assert_eq!(
+            map.ret,
+            Type::Apply {
+                name: "Result".to_string(),
+                args: vec![
+                    Type::GenericParam("U".to_string()),
+                    Type::GenericParam("E".to_string())
                 ],
             }
         );
