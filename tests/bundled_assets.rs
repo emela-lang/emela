@@ -85,7 +85,10 @@ fn main() -> I32 {
 #[test]
 fn compiler_binary_can_use_std_as_external_package() {
     let temp = std::env::temp_dir().join(format!("emela-std-package-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
     fs::create_dir_all(&temp).unwrap();
+    let stdlib = temp.join("stdlib");
+    write_test_stdlib_package(&stdlib);
     let source = temp.join("main.emel");
     fs::write(
         &source,
@@ -98,9 +101,8 @@ fn main!() -> Result<Unit, PlatformError> {
 "##,
     )
     .unwrap();
-    let stdlib = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../stdlib");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_emela"))
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
         .current_dir(&temp)
         .arg("check")
         .arg("--backend")
@@ -108,12 +110,15 @@ fn main!() -> Result<Unit, PlatformError> {
         .arg("--package")
         .arg(stdlib)
         .arg(&source)
-        .status()
+        .output()
         .unwrap();
 
-    let _ = fs::remove_file(&source);
-    let _ = fs::remove_dir(&temp);
-    assert!(status.success());
+    let _ = fs::remove_dir_all(&temp);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -414,4 +419,31 @@ fn git_stdout(current_dir: &std::path::Path, args: &[&str]) -> String {
         .unwrap();
     assert!(output.status.success());
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn write_test_stdlib_package(root: &std::path::Path) {
+    fs::create_dir_all(root.join("std")).unwrap();
+    fs::write(
+        root.join("emela-package.json"),
+        r#"{"name":"std","source":"std"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("std/io.emel"),
+        r#"
+import platform.io._write_stdout_utf8!
+import platform.io._read_stdin_utf8!
+
+#[requires(Stdout)]
+fn write_stdout_utf8!(value: String) -> Result<Unit, PlatformError> {
+  _write_stdout_utf8!(value)
+}
+
+#[requires(Stdin)]
+fn read_stdin_utf8!() -> Result<String, PlatformError> {
+  _read_stdin_utf8!()
+}
+"#,
+    )
+    .unwrap();
 }
