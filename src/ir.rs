@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryOp, EffectRow, Expr, Program, Type};
+use crate::ast::{BinaryOp, EffectRow, Expr, FunctionType, Program, Type};
 use crate::typecheck::TypedProgram;
 
 #[derive(Debug, Clone)]
@@ -26,14 +26,19 @@ pub(crate) enum IrExpr {
     Array(Vec<IrExpr>),
     Unit,
     Var(String),
+    FunctionRef(String),
     Let {
         name: String,
         value: Box<IrExpr>,
         next: Box<IrExpr>,
     },
     Call {
-        name: String,
+        callee: Box<IrExpr>,
         args: Vec<IrExpr>,
+    },
+    Fn {
+        params: Vec<String>,
+        body: Box<IrExpr>,
     },
     Binary {
         op: BinaryOp,
@@ -44,10 +49,19 @@ pub(crate) enum IrExpr {
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
-    let signatures: HashMap<_, _> = typed
+    let function_types: HashMap<_, _> = typed
         .functions
         .iter()
-        .map(|function| (function.name.clone(), function.ret.clone()))
+        .map(|function| {
+            (
+                function.name.clone(),
+                Type::Function(FunctionType {
+                    params: function.params.clone(),
+                    ret: Box::new(function.ret.clone()),
+                    effects: function.effects.clone(),
+                }),
+            )
+        })
         .collect();
     let functions = program
         .functions
@@ -62,7 +76,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .collect(),
             ret: typed.ret.clone(),
             effects: typed.effects.clone(),
-            body: lower_function_body(function, &signatures),
+            body: lower_function_body(function, &function_types),
         })
         .collect();
     IrProgram { functions }
@@ -123,17 +137,21 @@ fn inline_expr(expr: &IrExpr) -> String {
         ),
         IrExpr::Unit => "()".to_string(),
         IrExpr::Var(name) => format!("%{name}"),
+        IrExpr::FunctionRef(name) => format!("@{name}"),
         IrExpr::Let { .. } => {
             let mut out = String::from("{\n");
             emit_expr_text(expr, 1, &mut out);
             out.push('}');
             out
         }
-        IrExpr::Call { name, args } => format!(
-            "call @{}({})",
-            name,
+        IrExpr::Call { callee, args } => format!(
+            "call {}({})",
+            inline_callee(callee),
             args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
         ),
+        IrExpr::Fn { params, body } => {
+            format!("fn ({}) {{ {} }}", params.join(", "), inline_expr(body))
+        }
         IrExpr::Binary {
             op,
             ty,
@@ -176,40 +194,58 @@ fn type_name(ty: &Type) -> String {
         Type::Array(element) => format!("Array<{}>", type_name(element)),
         Type::Record => "Record".to_string(),
         Type::Enum => "Enum".to_string(),
-        Type::Function => "Function".to_string(),
+        Type::Function(function) => format!(
+            "({}) -> {} uses {{{}}}",
+            function
+                .params
+                .iter()
+                .map(type_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            type_name(&function.ret),
+            function.effects.effects.join(", ")
+        ),
+        Type::OpaqueFunction => "Function".to_string(),
+    }
+}
+
+fn inline_callee(expr: &IrExpr) -> String {
+    match expr {
+        IrExpr::FunctionRef(name) => format!("@{name}"),
+        other => inline_expr(other),
     }
 }
 
 fn lower_function_body(
     function: &crate::ast::Function,
-    signatures: &HashMap<String, Type>,
+    function_types: &HashMap<String, Type>,
 ) -> IrExpr {
     let mut scope = function
         .params
         .iter()
         .map(|param| (param.name.clone(), param.ty.clone()))
         .collect();
-    lower_block(&function.body.items, &mut scope, signatures).0
+    lower_block(&function.body.items, &mut scope, function_types).0
 }
 
 fn lower_block(
     items: &[crate::ast::BlockItem],
     scope: &mut HashMap<String, Type>,
-    signatures: &HashMap<String, Type>,
+    function_types: &HashMap<String, Type>,
 ) -> (IrExpr, Type) {
     match items.split_first() {
         None => (IrExpr::Unit, Type::Unit),
-        Some((crate::ast::BlockItem::Expr(expr), [])) => lower_expr(expr, scope, signatures),
-        Some((crate::ast::BlockItem::Expr(_), rest)) => lower_block(rest, scope, signatures),
+        Some((crate::ast::BlockItem::Expr(expr), [])) => lower_expr(expr, scope, function_types),
+        Some((crate::ast::BlockItem::Expr(_), rest)) => lower_block(rest, scope, function_types),
         Some((
             crate::ast::BlockItem::Let {
                 name, ty, value, ..
             },
             rest,
         )) => {
-            let (value, value_ty) = lower_expr(value, scope, signatures);
+            let (value, value_ty) = lower_expr(value, scope, function_types);
             scope.insert(name.clone(), ty.clone().unwrap_or(value_ty));
-            let (next, next_ty) = lower_block(rest, scope, signatures);
+            let (next, next_ty) = lower_block(rest, scope, function_types);
             (
                 IrExpr::Let {
                     name: name.clone(),
@@ -225,7 +261,7 @@ fn lower_block(
 fn lower_expr(
     expr: &Expr,
     scope: &mut HashMap<String, Type>,
-    signatures: &HashMap<String, Type>,
+    function_types: &HashMap<String, Type>,
 ) -> (IrExpr, Type) {
     match expr {
         Expr::Int(value, _) => (IrExpr::Int(*value), Type::Int),
@@ -235,7 +271,7 @@ fn lower_expr(
         Expr::Array(values, _) => {
             let lowered = values
                 .iter()
-                .map(|value| lower_expr(value, scope, signatures))
+                .map(|value| lower_expr(value, scope, function_types))
                 .collect::<Vec<_>>();
             let ty = lowered
                 .first()
@@ -247,25 +283,61 @@ fn lower_expr(
             )
         }
         Expr::Unit(_) => (IrExpr::Unit, Type::Unit),
-        Expr::Var(name, _) => (
-            IrExpr::Var(name.clone()),
-            scope.get(name).cloned().unwrap_or(Type::Unit),
-        ),
-        Expr::Call { name, args, .. } => (
-            IrExpr::Call {
-                name: name.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| lower_expr(arg, scope, signatures).0)
-                    .collect(),
-            },
-            signatures.get(name).cloned().unwrap_or(Type::Unit),
-        ),
+        Expr::Var(name, _) => {
+            if let Some(ty) = scope.get(name) {
+                (IrExpr::Var(name.clone()), ty.clone())
+            } else if let Some(ty) = function_types.get(name) {
+                (IrExpr::FunctionRef(name.clone()), ty.clone())
+            } else {
+                (IrExpr::Var(name.clone()), Type::Unit)
+            }
+        }
+        Expr::Call { callee, args, .. } => {
+            let (callee, callee_ty) = lower_expr(callee, scope, function_types);
+            let ret = match callee_ty {
+                Type::Function(function) => (*function.ret).clone(),
+                _ => Type::Unit,
+            };
+            (
+                IrExpr::Call {
+                    callee: Box::new(callee),
+                    args: args
+                        .iter()
+                        .map(|arg| lower_expr(arg, scope, function_types).0)
+                        .collect(),
+                },
+                ret,
+            )
+        }
+        Expr::Fn {
+            params,
+            ret,
+            effects,
+            body,
+            ..
+        } => {
+            let mut fn_scope = scope.clone();
+            for param in params {
+                fn_scope.insert(param.name.clone(), param.ty.clone());
+            }
+            let (body, _) = lower_block(&body.items, &mut fn_scope, function_types);
+            (
+                IrExpr::Fn {
+                    params: params.iter().map(|param| param.name.clone()).collect(),
+                    body: Box::new(body),
+                },
+                Type::Function(FunctionType {
+                    params: params.iter().map(|param| param.ty.clone()).collect(),
+                    ret: Box::new(ret.clone()),
+                    effects: effects.clone(),
+                }),
+            )
+        }
         Expr::Binary {
             op, left, right, ..
         } => {
-            let (left, left_ty) = lower_expr(left, scope, signatures);
-            let (right, _) = lower_expr(right, scope, signatures);
+            let (left, left_ty) = lower_expr(left, scope, function_types);
+            let (right, _) = lower_expr(right, scope, function_types);
             let result_ty = match op {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul => left_ty.clone(),
                 BinaryOp::Eq | BinaryOp::Lt => Type::Bool,
@@ -280,6 +352,6 @@ fn lower_expr(
                 result_ty,
             )
         }
-        Expr::Block(block) => lower_block(&block.items, &mut scope.clone(), signatures),
+        Expr::Block(block) => lower_block(&block.items, &mut scope.clone(), function_types),
     }
 }

@@ -188,3 +188,111 @@ fn main() -> Array<Float> {
     assert!(stdout.contains("let first = add.f64 1.5, 2.25"));
     assert!(stdout.contains("return [%first, 4]"));
 }
+
+#[test]
+fn check_accepts_spec_0003_function_values() {
+    let source = write_source(
+        "main.emel",
+        r#"
+fn apply(x: Int, f: (Int) -> Int uses {}) -> Int uses {} {
+  f(x)
+}
+
+fn add1(x: Int) -> Int uses {} {
+  x + 1
+}
+
+fn makeAdder(n: Int) -> ((Int) -> Int uses {}) uses {} {
+  fn (x: Int) -> Int uses {} {
+    x + n
+  }
+}
+
+fn main() -> Int uses {} {
+  let inc = add1
+  let add10 = makeAdder(10)
+  apply(41, inc) + add10(5)
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_rejects_effectful_function_where_pure_is_expected() {
+    let source = write_source(
+        "main.emel",
+        r#"
+fn applyPure(x: Int, f: (Int) -> Int uses {}) -> Int uses {} {
+  f(x)
+}
+
+fn readThenAdd(x: Int) -> Int uses { fs } {
+  x + 1
+}
+
+fn main() -> Int uses {} {
+  applyPure(1, readThenAdd)
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Type mismatch"));
+}
+
+#[test]
+fn ir_emits_function_value_calls() {
+    let source = write_source(
+        "main.emel",
+        r#"
+fn add1(x: Int) -> Int {
+  x + 1
+}
+
+fn main() -> Int {
+  let inc = add1
+  inc(41)
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("ir")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("let inc = @add1"));
+    assert!(stdout.contains("return call %inc(41)"));
+}

@@ -1,4 +1,6 @@
-use crate::ast::{BinaryOp, Block, BlockItem, EffectRow, Expr, Function, Param, Program, Type};
+use crate::ast::{
+    BinaryOp, Block, BlockItem, EffectRow, Expr, Function, FunctionType, Param, Program, Type,
+};
 use crate::error::{Diagnostic, Error, Result, Span};
 use crate::lexer::{lex, Token, TokenKind};
 
@@ -68,6 +70,32 @@ impl Parser {
 
     fn parse_type(&mut self) -> Result<Type> {
         let span = self.peek().span.clone();
+        if self.eat(&TokenKind::LParen) {
+            let mut params = Vec::new();
+            if !self.at(&TokenKind::RParen) {
+                params.push(self.parse_type()?);
+                while self.eat(&TokenKind::Comma) {
+                    params.push(self.parse_type()?);
+                }
+            }
+            self.expect(&TokenKind::RParen)?;
+            if self.eat(&TokenKind::Arrow) {
+                let ret = self.parse_type()?;
+                let effects = self.parse_effect_row()?;
+                return Ok(Type::Function(FunctionType {
+                    params,
+                    ret: Box::new(ret),
+                    effects,
+                }));
+            }
+            return match params.len() {
+                1 => Ok(params.remove(0)),
+                _ => Err(Error::diagnostic(
+                    Diagnostic::new("Expected function type")
+                        .label(span, "parenthesized type lists need `-> ReturnType`"),
+                )),
+            };
+        }
         let name = self.expect_ident()?;
         match name.as_str() {
             "Unit" => Ok(Type::Unit),
@@ -83,7 +111,7 @@ impl Parser {
             }
             "Record" => Ok(Type::Record),
             "Enum" => Ok(Type::Enum),
-            "Function" => Ok(Type::Function),
+            "Function" => Ok(Type::OpaqueFunction),
             _ => Err(Error::diagnostic(
                 Diagnostic::new("Unknown type")
                     .label(span, format!("unknown type `{name}`"))
@@ -198,14 +226,35 @@ impl Parser {
     }
 
     fn parse_product(&mut self) -> Result<Expr> {
-        let mut expr = self.parse_primary()?;
+        let mut expr = self.parse_call()?;
         while self.eat(&TokenKind::Star) {
-            let right = self.parse_primary()?;
+            let right = self.parse_call()?;
             let span = expr.span().merge(&right.span());
             expr = Expr::Binary {
                 op: BinaryOp::Mul,
                 left: Box::new(expr),
                 right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_call(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_primary()?;
+        while self.eat(&TokenKind::LParen) {
+            let mut args = Vec::new();
+            if !self.at(&TokenKind::RParen) {
+                args.push(self.parse_expr()?);
+                while self.eat(&TokenKind::Comma) {
+                    args.push(self.parse_expr()?);
+                }
+            }
+            let end = self.expect(&TokenKind::RParen)?.span;
+            let span = expr.span().merge(&end);
+            expr = Expr::Call {
+                callee: Box::new(expr),
+                args,
                 span,
             };
         }
@@ -237,24 +286,9 @@ impl Parser {
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
-                if self.eat(&TokenKind::LParen) {
-                    let mut args = Vec::new();
-                    if !self.at(&TokenKind::RParen) {
-                        args.push(self.parse_expr()?);
-                        while self.eat(&TokenKind::Comma) {
-                            args.push(self.parse_expr()?);
-                        }
-                    }
-                    let end = self.expect(&TokenKind::RParen)?.span;
-                    Ok(Expr::Call {
-                        name,
-                        args,
-                        span: span.merge(&end),
-                    })
-                } else {
-                    Ok(Expr::Var(name, span))
-                }
+                Ok(Expr::Var(name, span))
             }
+            TokenKind::Fn => self.parse_fn_expr(),
             TokenKind::LBracket => {
                 let start = self.bump().span;
                 let mut values = Vec::new();
@@ -283,6 +317,25 @@ impl Parser {
                     .label(self.peek().span.clone(), "expected an expression here"),
             )),
         }
+    }
+
+    fn parse_fn_expr(&mut self) -> Result<Expr> {
+        let start = self.expect(&TokenKind::Fn)?.span;
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let ret = self.parse_type()?;
+        let effects = self.parse_effect_row()?;
+        let body = self.parse_block()?;
+        let span = start.merge(&body.span);
+        Ok(Expr::Fn {
+            params,
+            ret,
+            effects,
+            body,
+            span,
+        })
     }
 
     fn skip_newlines(&mut self) {
