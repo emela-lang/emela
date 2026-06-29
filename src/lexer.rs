@@ -5,10 +5,8 @@ use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
     Fn,
-    Import,
-    Struct,
-    Enum,
-    Match,
+    Let,
+    Uses,
     True,
     False,
     Ident(String),
@@ -18,17 +16,11 @@ pub(crate) enum TokenKind {
     RParen,
     LBrace,
     RBrace,
-    LBracket,
-    RBracket,
     Comma,
-    Dot,
     Colon,
-    Hash,
-    Bang,
     Eq,
     EqEq,
     Arrow,
-    Pipe,
     Lt,
     Gt,
     Plus,
@@ -44,22 +36,20 @@ pub(crate) struct Token {
     pub(crate) span: Span,
 }
 
-pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
+pub(crate) fn lex(label: &str, source: &str) -> Result<Vec<Token>> {
+    let file = SourceFile::new(label, source.to_string());
+    lex_with_file(source, file)
+}
+
+fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;
-
     while i < bytes.len() {
-        let pos = i;
+        let start = i;
         match bytes[i] {
             b' ' | b'\t' | b'\r' => i += 1,
-            b'\n' => {
-                tokens.push(Token {
-                    kind: TokenKind::Newline,
-                    span: Span::new(file.clone(), pos, pos + 1),
-                });
-                i += 1;
-            }
+            b'\n' => push(&mut tokens, TokenKind::Newline, file.clone(), start, &mut i),
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
                 i += 2;
                 while i < bytes.len() && bytes[i] != b'\n' {
@@ -69,43 +59,31 @@ pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<T
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
                 tokens.push(Token {
                     kind: TokenKind::Arrow,
-                    span: Span::new(file.clone(), pos, pos + 2),
+                    span: Span::new(file.clone(), start, start + 2),
                 });
                 i += 2;
             }
-            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
-                tokens.push(Token {
-                    kind: TokenKind::Pipe,
-                    span: Span::new(file.clone(), pos, pos + 2),
-                });
-                i += 2;
-            }
-            b'(' => push_one(&mut tokens, TokenKind::LParen, file.clone(), pos, &mut i),
-            b')' => push_one(&mut tokens, TokenKind::RParen, file.clone(), pos, &mut i),
-            b'{' => push_one(&mut tokens, TokenKind::LBrace, file.clone(), pos, &mut i),
-            b'}' => push_one(&mut tokens, TokenKind::RBrace, file.clone(), pos, &mut i),
-            b'[' => push_one(&mut tokens, TokenKind::LBracket, file.clone(), pos, &mut i),
-            b']' => push_one(&mut tokens, TokenKind::RBracket, file.clone(), pos, &mut i),
-            b',' => push_one(&mut tokens, TokenKind::Comma, file.clone(), pos, &mut i),
-            b'.' => push_one(&mut tokens, TokenKind::Dot, file.clone(), pos, &mut i),
-            b':' => push_one(&mut tokens, TokenKind::Colon, file.clone(), pos, &mut i),
-            b'#' => push_one(&mut tokens, TokenKind::Hash, file.clone(), pos, &mut i),
-            b'!' => push_one(&mut tokens, TokenKind::Bang, file.clone(), pos, &mut i),
-            b'<' => push_one(&mut tokens, TokenKind::Lt, file.clone(), pos, &mut i),
-            b'>' => push_one(&mut tokens, TokenKind::Gt, file.clone(), pos, &mut i),
-            b'+' => push_one(&mut tokens, TokenKind::Plus, file.clone(), pos, &mut i),
-            b'*' => push_one(&mut tokens, TokenKind::Star, file.clone(), pos, &mut i),
-            b'-' => push_one(&mut tokens, TokenKind::Minus, file.clone(), pos, &mut i),
             b'=' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
                 tokens.push(Token {
                     kind: TokenKind::EqEq,
-                    span: Span::new(file.clone(), pos, pos + 2),
+                    span: Span::new(file.clone(), start, start + 2),
                 });
                 i += 2;
             }
-            b'=' => push_one(&mut tokens, TokenKind::Eq, file.clone(), pos, &mut i),
+            b'(' => push(&mut tokens, TokenKind::LParen, file.clone(), start, &mut i),
+            b')' => push(&mut tokens, TokenKind::RParen, file.clone(), start, &mut i),
+            b'{' => push(&mut tokens, TokenKind::LBrace, file.clone(), start, &mut i),
+            b'}' => push(&mut tokens, TokenKind::RBrace, file.clone(), start, &mut i),
+            b',' => push(&mut tokens, TokenKind::Comma, file.clone(), start, &mut i),
+            b':' => push(&mut tokens, TokenKind::Colon, file.clone(), start, &mut i),
+            b'=' => push(&mut tokens, TokenKind::Eq, file.clone(), start, &mut i),
+            b'<' => push(&mut tokens, TokenKind::Lt, file.clone(), start, &mut i),
+            b'>' => push(&mut tokens, TokenKind::Gt, file.clone(), start, &mut i),
+            b'+' => push(&mut tokens, TokenKind::Plus, file.clone(), start, &mut i),
+            b'-' => push(&mut tokens, TokenKind::Minus, file.clone(), start, &mut i),
+            b'*' => push(&mut tokens, TokenKind::Star, file.clone(), start, &mut i),
             b'0'..=b'9' => {
-                let start = i;
+                i += 1;
                 while i < bytes.len() && bytes[i].is_ascii_digit() {
                     i += 1;
                 }
@@ -113,11 +91,7 @@ pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<T
                 let value = text.parse::<i32>().map_err(|_| {
                     Error::diagnostic(
                         Diagnostic::new("Integer literal is too large")
-                            .label(
-                                Span::new(file.clone(), start, i),
-                                "This number does not fit in I32.",
-                            )
-                            .help("Use a value between -2147483648 and 2147483647."),
+                            .label(Span::new(file.clone(), start, i), "does not fit in Int"),
                     )
                 })?;
                 tokens.push(Token {
@@ -137,52 +111,42 @@ pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<T
                         b'\\' => {
                             i += 1;
                             if i >= bytes.len() {
-                                return Err(unterminated_string(file.clone(), pos));
+                                return Err(unterminated_string(file.clone(), start));
                             }
                             let escaped = match bytes[i] {
-                                b'"' => '"',
-                                b'\\' => '\\',
                                 b'n' => '\n',
                                 b't' => '\t',
+                                b'"' => '"',
+                                b'\\' => '\\',
                                 other => {
                                     return Err(Error::diagnostic(
-                                        Diagnostic::new("Unsupported string escape")
-                                            .label(
-                                                Span::new(file.clone(), i.saturating_sub(1), i + 1),
-                                                format!(
-                                                    "`\\{}` is not a supported escape sequence.",
-                                                    other as char
-                                                ),
-                                            )
-                                            .help(
-                                                "Supported escapes are \\n, \\t, \\\", and \\\\.",
-                                            ),
+                                        Diagnostic::new("Unsupported string escape").label(
+                                            Span::new(file.clone(), i - 1, i + 1),
+                                            format!("unsupported escape `\\{}`", other as char),
+                                        ),
                                     ));
                                 }
                             };
                             value.push(escaped);
                             i += 1;
                         }
-                        b'\n' => {
-                            return Err(unterminated_string(file.clone(), pos));
-                        }
+                        b'\n' => return Err(unterminated_string(file.clone(), start)),
                         _ => {
-                            let ch = source[i..].chars().next().expect("valid char boundary");
+                            let ch = source[i..].chars().next().expect("char boundary");
                             value.push(ch);
                             i += ch.len_utf8();
                         }
                     }
                 }
-                if i > bytes.len() || bytes.get(i.saturating_sub(1)) != Some(&b'"') {
-                    return Err(unterminated_string(file.clone(), pos));
+                if bytes.get(i.saturating_sub(1)) != Some(&b'"') {
+                    return Err(unterminated_string(file.clone(), start));
                 }
                 tokens.push(Token {
                     kind: TokenKind::String(value),
-                    span: Span::new(file.clone(), pos, i),
+                    span: Span::new(file.clone(), start, i),
                 });
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
-                let start = i;
                 i += 1;
                 while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                     i += 1;
@@ -190,10 +154,8 @@ pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<T
                 let text = &source[start..i];
                 let kind = match text {
                     "fn" => TokenKind::Fn,
-                    "import" => TokenKind::Import,
-                    "struct" => TokenKind::Struct,
-                    "enum" => TokenKind::Enum,
-                    "match" => TokenKind::Match,
+                    "let" => TokenKind::Let,
+                    "uses" => TokenKind::Uses,
                     "true" => TokenKind::True,
                     "false" => TokenKind::False,
                     _ => TokenKind::Ident(text.to_string()),
@@ -205,45 +167,39 @@ pub(crate) fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<T
             }
             other => {
                 return Err(Error::diagnostic(
-                    Diagnostic::new("Unexpected character")
-                        .label(
-                            Span::new(file.clone(), pos, pos + 1),
-                            format!("I do not know how to read `{}` here.", other as char),
-                        )
-                        .help("Remove this character, or replace it with valid Emela syntax."),
+                    Diagnostic::new("Unexpected character").label(
+                        Span::new(file.clone(), start, start + 1),
+                        format!("unexpected character `{}`", other as char),
+                    ),
                 ));
             }
         }
     }
-
     tokens.push(Token {
         kind: TokenKind::Eof,
-        span: Span::point(file.clone(), source.len()),
+        span: Span::point(file, source.len()),
     });
     Ok(tokens)
 }
 
-fn push_one(
+fn push(
     tokens: &mut Vec<Token>,
     kind: TokenKind,
     file: Arc<SourceFile>,
-    pos: usize,
+    start: usize,
     i: &mut usize,
 ) {
     tokens.push(Token {
         kind,
-        span: Span::new(file, pos, pos + 1),
+        span: Span::new(file, start, start + 1),
     });
     *i += 1;
 }
 
-fn unterminated_string(file: Arc<SourceFile>, pos: usize) -> Error {
+fn unterminated_string(file: Arc<SourceFile>, start: usize) -> Error {
     Error::diagnostic(
         Diagnostic::new("Unterminated string")
-            .label(
-                Span::new(file, pos, pos + 1),
-                "This string starts here but never closes.",
-            )
+            .label(Span::new(file, start, start + 1), "string starts here")
             .help("Add a closing double quote before the end of the line."),
     )
 }

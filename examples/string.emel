@@ -1,0 +1,9 @@
+fn text() -> String {
+  let str: String = "Hello, World!"
+  str
+}
+
+fn main() -> Unit {
+  let x = text()
+  ()
+}

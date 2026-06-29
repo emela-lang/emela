@@ -25,11 +25,10 @@ impl Error {
     }
 
     pub(crate) fn render(&self) -> String {
-        if let Some(diagnostic) = &self.diagnostic {
-            diagnostic.render()
-        } else {
-            self.message.clone()
-        }
+        self.diagnostic
+            .as_ref()
+            .map(Diagnostic::render)
+            .unwrap_or_else(|| self.message.clone())
     }
 }
 
@@ -84,7 +83,6 @@ impl Span {
 #[derive(Debug, Clone)]
 pub(crate) struct Diagnostic {
     title: String,
-    message: Option<String>,
     primary: Option<Label>,
     help: Option<String>,
 }
@@ -99,15 +97,9 @@ impl Diagnostic {
     pub(crate) fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            message: None,
             primary: None,
             help: None,
         }
-    }
-
-    pub(crate) fn message(mut self, message: impl Into<String>) -> Self {
-        self.message = Some(message.into());
-        self
     }
 
     pub(crate) fn label(mut self, span: Span, message: impl Into<String>) -> Self {
@@ -124,15 +116,7 @@ impl Diagnostic {
     }
 
     fn render(&self) -> String {
-        let mut out = String::new();
-        out.push_str("error: ");
-        out.push_str(&self.title);
-        out.push('\n');
-        if let Some(message) = &self.message {
-            out.push('\n');
-            out.push_str(message);
-            out.push('\n');
-        }
+        let mut out = format!("error: {}\n", self.title);
         if let Some(label) = &self.primary {
             out.push('\n');
             out.push_str(&render_label(label));
@@ -149,7 +133,7 @@ impl Diagnostic {
 
 fn render_label(label: &Label) -> String {
     let location = line_location(&label.span);
-    let line_number_width = location.line.to_string().len();
+    let width = location.line.to_string().len();
     let underline_len = label.span.end.saturating_sub(label.span.start).max(1).min(
         location
             .line_text
@@ -157,27 +141,20 @@ fn render_label(label: &Label) -> String {
             .saturating_sub(location.column0)
             .max(1),
     );
-    let mut out = String::new();
-    out.push_str(&format!(
-        "  --> {}:{}:{}\n",
-        label.span.file.label, location.line, location.column
-    ));
-    out.push_str(&format!("{:>width$} |\n", "", width = line_number_width));
-    out.push_str(&format!(
-        "{:>width$} | {}\n",
+    format!(
+        "  --> {}:{}:{}\n{:>width$} |\n{:>width$} | {}\n{:>width$} | {}{} {}\n",
+        label.span.file.label,
+        location.line,
+        location.column,
+        "",
         location.line,
         location.line_text,
-        width = line_number_width
-    ));
-    out.push_str(&format!(
-        "{:>width$} | {}{} {}\n",
         "",
         " ".repeat(location.column0),
         "^".repeat(underline_len),
         label.message,
-        width = line_number_width
-    ));
-    out
+        width = width,
+    )
 }
 
 struct LineLocation {
