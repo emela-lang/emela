@@ -5,7 +5,10 @@ use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
     Fn,
+    Import,
     Let,
+    Module,
+    Pub,
     Uses,
     True,
     False,
@@ -21,6 +24,7 @@ pub(crate) enum TokenKind {
     RBracket,
     Comma,
     Colon,
+    Dot,
     Eq,
     EqEq,
     Arrow,
@@ -93,6 +97,7 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
             ),
             b',' => push(&mut tokens, TokenKind::Comma, file.clone(), start, &mut i),
             b':' => push(&mut tokens, TokenKind::Colon, file.clone(), start, &mut i),
+            b'.' => push(&mut tokens, TokenKind::Dot, file.clone(), start, &mut i),
             b'=' => push(&mut tokens, TokenKind::Eq, file.clone(), start, &mut i),
             b'<' => push(&mut tokens, TokenKind::Lt, file.clone(), start, &mut i),
             b'>' => push(&mut tokens, TokenKind::Gt, file.clone(), start, &mut i),
@@ -189,7 +194,10 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 let text = &source[start..i];
                 let kind = match text {
                     "fn" => TokenKind::Fn,
+                    "import" => TokenKind::Import,
                     "let" => TokenKind::Let,
+                    "module" => TokenKind::Module,
+                    "pub" => TokenKind::Pub,
                     "uses" => TokenKind::Uses,
                     "true" => TokenKind::True,
                     "false" => TokenKind::False,
