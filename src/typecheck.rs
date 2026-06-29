@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{BinaryOp, Block, BlockItem, EffectRow, Expr, Function, Program, Type};
+use crate::ast::{
+    BinaryOp, Block, BlockItem, EffectRow, Expr, Function, FunctionType, Program, Type,
+};
 use crate::error::{Diagnostic, Error, Result, Span};
 
 #[derive(Debug, Clone)]
@@ -21,6 +23,16 @@ struct FunctionSig {
     params: Vec<Type>,
     ret: Type,
     effects: EffectRow,
+}
+
+impl FunctionSig {
+    fn ty(&self) -> Type {
+        Type::Function(FunctionType {
+            params: self.params.clone(),
+            ret: Box::new(self.ret.clone()),
+            effects: self.effects.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +252,7 @@ impl Checker {
             Expr::Var(name, span) => scope
                 .get(name)
                 .cloned()
+                .or_else(|| self.functions.get(name).map(FunctionSig::ty))
                 .map(|ty| info(ty, span.clone()))
                 .ok_or_else(|| {
                     Error::diagnostic(Diagnostic::new("Unknown name").label(
@@ -247,34 +260,83 @@ impl Checker {
                         format!("`{name}` is not defined in this scope"),
                     ))
                 }),
-            Expr::Call { name, args, span } => {
-                let sig = self.functions.get(name).ok_or_else(|| {
-                    Error::diagnostic(
-                        Diagnostic::new("Unknown function")
-                            .label(span.clone(), format!("function `{name}` is not defined")),
-                    )
-                })?;
+            Expr::Call { callee, args, span } => {
+                let callee = self.check_expr(callee, scope)?;
+                let Type::Function(sig) = &callee.ty else {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Cannot call value").label(
+                            callee.span.clone(),
+                            format!("expected a function value, but found `{:?}`", callee.ty),
+                        ),
+                    ));
+                };
                 if args.len() != sig.params.len() {
                     return Err(Error::diagnostic(
                         Diagnostic::new("Wrong number of arguments").label(
                             span.clone(),
                             format!(
-                                "`{name}` expects {} argument(s), got {}",
+                                "function expects {} argument(s), got {}",
                                 sig.params.len(),
                                 args.len()
                             ),
                         ),
                     ));
                 }
-                let mut effects = sig.effects.clone();
+                let mut effects = callee.effects.clone();
+                effects.union(&sig.effects);
                 for (arg, expected) in args.iter().zip(sig.params.iter()) {
                     let actual = self.check_expr(arg, scope)?;
                     expect_type(&actual.ty, expected, actual.span.clone())?;
                     effects.union(&actual.effects);
                 }
                 Ok(ExprInfo {
-                    ty: sig.ret.clone(),
+                    ty: (*sig.ret).clone(),
                     effects,
+                    span: span.clone(),
+                })
+            }
+            Expr::Fn {
+                params,
+                ret,
+                effects,
+                body,
+                span,
+            } => {
+                let mut names = HashSet::new();
+                let mut fn_scope = scope.clone();
+                for param in params {
+                    if !names.insert(param.name.clone()) {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("Duplicate parameter").label(
+                                param.name_span.clone(),
+                                format!("parameter `{}` is already defined", param.name),
+                            ),
+                        ));
+                    }
+                    fn_scope.insert(param.name.clone(), param.ty.clone());
+                }
+                let body_info = self.check_block(body, &mut fn_scope)?;
+                expect_type(&body_info.ty, ret, body_info.span.clone())?;
+                if !body_info.effects.is_subset_of(effects) {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Unhandled effects")
+                            .label(
+                                body_info.span,
+                                format!(
+                                    "function literal declares uses {:?}, but body uses {:?}",
+                                    effects.effects, body_info.effects.effects
+                                ),
+                            )
+                            .help("Add the missing effect names to `uses { ... }`."),
+                    ));
+                }
+                Ok(ExprInfo {
+                    ty: Type::Function(FunctionType {
+                        params: params.iter().map(|param| param.ty.clone()).collect(),
+                        ret: Box::new(ret.clone()),
+                        effects: effects.clone(),
+                    }),
+                    effects: EffectRow::default(),
                     span: span.clone(),
                 })
             }

@@ -49,8 +49,15 @@ pub(crate) enum Expr {
     Unit(Span),
     Var(String, Span),
     Call {
-        name: String,
+        callee: Box<Expr>,
         args: Vec<Expr>,
+        span: Span,
+    },
+    Fn {
+        params: Vec<Param>,
+        ret: Type,
+        effects: EffectRow,
+        body: Block,
         span: Span,
     },
     Binary {
@@ -72,7 +79,9 @@ impl Expr {
             | Expr::Array(_, span)
             | Expr::Unit(span)
             | Expr::Var(_, span) => span.clone(),
-            Expr::Call { span, .. } | Expr::Binary { span, .. } => span.clone(),
+            Expr::Call { span, .. } | Expr::Fn { span, .. } | Expr::Binary { span, .. } => {
+                span.clone()
+            }
             Expr::Block(block) => block.span.clone(),
         }
     }
@@ -97,7 +106,15 @@ pub(crate) enum Type {
     Array(Box<Type>),
     Record,
     Enum,
-    Function,
+    Function(FunctionType),
+    OpaqueFunction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FunctionType {
+    pub(crate) params: Vec<Type>,
+    pub(crate) ret: Box<Type>,
+    pub(crate) effects: EffectRow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -49,16 +49,26 @@ fn emit_expr(expr: &IrExpr) -> String {
         ),
         IrExpr::Unit => "undefined".to_string(),
         IrExpr::Var(name) => js_name(name),
+        IrExpr::FunctionRef(name) => js_name(name),
         IrExpr::Let { name, value, next } => format!(
             "(() => {{ const {} = {}; return {}; }})()",
             js_name(name),
             emit_expr(value),
             emit_expr(next)
         ),
-        IrExpr::Call { name, args } => format!(
+        IrExpr::Call { callee, args } => format!(
             "{}({})",
-            js_name(name),
+            emit_expr(callee),
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
+        IrExpr::Fn { params, body } => format!(
+            "function({}) {{ return {}; }}",
+            params
+                .iter()
+                .map(|name| js_name(name))
+                .collect::<Vec<_>>()
+                .join(", "),
+            emit_expr(body)
         ),
         IrExpr::Binary {
             op, left, right, ..
