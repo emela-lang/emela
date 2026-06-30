@@ -27,7 +27,8 @@ use std::fmt::Write as _;
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
-    FunctionType, IrCapture, IrExpr, IrFunction, IrParam, IrProgram, Result, Tier, Type,
+    FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
+    QuestionMode, Result, Tier, Type,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -135,13 +136,31 @@ impl WasmSig {
         }
     }
 
-    fn of_fn(params: &[IrParam], ret: &Type) -> WasmSig {
-        WasmSig::from_parts(params.iter().map(|p| WasmTy::of(&p.ty)), WasmTy::of(ret))
+    fn of_fn(params: &[IrParam], ret: &Type, throws: &Option<Type>) -> WasmSig {
+        let result = result_wasm_ty(ret, throws.is_some());
+        WasmSig::from_parts(params.iter().map(|p| WasmTy::of(&p.ty)), result)
     }
 
     fn of_type(ty: &FunctionType) -> WasmSig {
-        WasmSig::from_parts(ty.params.iter().map(WasmTy::of), WasmTy::of(&ty.ret))
+        let result = result_wasm_ty(&ty.ret, ty.throws.is_some());
+        WasmSig::from_parts(ty.params.iter().map(WasmTy::of), result)
     }
+}
+
+/// The wasm result type of a function: a throwing function returns a Result
+/// pointer (`i32`, `[ok:i32][value]`); otherwise its plain value type.
+fn result_wasm_ty(ret: &Type, throwing: bool) -> WasmTy {
+    if throwing {
+        WasmTy::I32
+    } else {
+        WasmTy::of(ret)
+    }
+}
+
+/// Whether a call's callee is a throwing function, so its result is a Result
+/// pointer that the caller must unwrap (spec 0011).
+fn is_throwing(callee: &IrExpr) -> bool {
+    matches!(callee.ty(), Type::Function(ft) if ft.throws.is_some())
 }
 
 const STRING_BASE: u32 = 16;
@@ -220,7 +239,29 @@ fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
             walk(left, visit);
             walk(right, visit);
         }
+        IrExpr::EnumValue { payload, .. } => payload.iter().for_each(|e| walk(e, visit)),
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => {
+            walk(scrutinee, visit);
+            walk_arms(arms, visit);
+        }
+        IrExpr::Try { body, arms, .. } => {
+            walk(body, visit);
+            walk_arms(arms, visit);
+        }
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } => walk(value, visit),
+        IrExpr::Panic { message } => walk(message, visit),
         _ => {}
+    }
+}
+
+fn walk_arms<'a>(arms: &'a [IrArm], visit: &mut impl FnMut(&'a IrExpr)) {
+    for arm in arms {
+        if let Some(guard) = &arm.guard {
+            walk(guard, visit);
+        }
+        walk(&arm.body, visit);
     }
 }
 
@@ -299,11 +340,21 @@ fn build_sigs(ir: &IrProgram, table: &FnTable) -> SigTable {
     let mut sigs = SigTable::default();
     // Every table entry can be the target of an indirect call.
     for function in &ir.functions {
-        sigs.add(WasmSig::of_fn(&function.params, &function.ret));
+        sigs.add(WasmSig::of_fn(
+            &function.params,
+            &function.ret,
+            &function.throws,
+        ));
     }
     for lambda in &table.lambdas {
-        if let IrExpr::Fn { params, ret, .. } = lambda {
-            sigs.add(WasmSig::of_fn(params, ret));
+        if let IrExpr::Fn {
+            params,
+            ret,
+            throws,
+            ..
+        } = lambda
+        {
+            sigs.add(WasmSig::of_fn(params, ret, throws));
         }
     }
     // And every indirect call site needs its signature declared.
@@ -507,6 +558,7 @@ fn emit_function(function: &IrFunction, ctx: &Ctx) -> Result<String> {
         &format!("$f_{}", function.name),
         &function.params,
         &function.ret,
+        &function.throws,
         &[],
         &function.body,
         ctx,
@@ -519,6 +571,7 @@ fn emit_lambda(lambda: &IrExpr, ctx: &Ctx) -> Result<String> {
     let IrExpr::Fn {
         params,
         ret,
+        throws,
         captures,
         body,
         ..
@@ -526,13 +579,14 @@ fn emit_lambda(lambda: &IrExpr, ctx: &Ctx) -> Result<String> {
     else {
         unreachable!("lambda table only holds Fn nodes");
     };
-    emit_fn_like(&name, params, ret, captures, body, ctx)
+    emit_fn_like(&name, params, ret, throws, captures, body, ctx)
 }
 
 fn emit_fn_like(
     wasm_name: &str,
     params: &[IrParam],
     ret: &Type,
+    throws: &Option<Type>,
     captures: &[IrCapture],
     body: &IrExpr,
     ctx: &Ctx,
@@ -546,6 +600,10 @@ fn emit_fn_like(
         emitter.bind(name, Slot::Capture(offset, ty));
     }
     emitter.emit(body)?;
+    if throws.is_some() {
+        // The body left its success value on the stack; wrap it as `Ok`.
+        emitter.wrap_ok(ret);
+    }
 
     let mut signature = format!("  (func {wasm_name} (param $p0 i32)");
     for (index, param) in params.iter().enumerate() {
@@ -556,7 +614,11 @@ fn emit_fn_like(
             WasmTy::of(&param.ty).keyword()
         );
     }
-    let _ = writeln!(signature, " (result {})", WasmTy::of(ret).keyword());
+    let _ = writeln!(
+        signature,
+        " (result {})",
+        result_wasm_ty(ret, throws.is_some()).keyword()
+    );
 
     let mut out = signature;
     for (id, ty) in &emitter.locals {
@@ -590,6 +652,9 @@ struct FnEmitter<'a> {
     locals: Vec<(String, WasmTy)>,
     scope: Vec<(String, Slot)>,
     counter: usize,
+    /// Labels of the enclosing `try` blocks' catch handlers. A `throw` or
+    /// throwing call branches to the innermost one, or returns `Err` if empty.
+    catch_stack: Vec<String>,
     ctx: &'a Ctx<'a>,
 }
 
@@ -600,6 +665,7 @@ impl<'a> FnEmitter<'a> {
             locals: Vec::new(),
             scope: Vec::new(),
             counter: 0,
+            catch_stack: Vec::new(),
             ctx,
         }
     }
@@ -659,7 +725,13 @@ impl<'a> FnEmitter<'a> {
                 self.bind(name.clone(), Slot::Local(id));
                 self.emit(next)?;
             }
-            IrExpr::Call { callee, args, .. } => self.emit_call(callee, args)?,
+            IrExpr::Call { callee, args, ret } => {
+                self.emit_call(callee, args)?;
+                if is_throwing(callee) {
+                    // A throwing call yields a Result pointer; unwrap it.
+                    self.unwrap_result(ret)?;
+                }
+            }
             IrExpr::Platform { name, args, .. } => {
                 for arg in args {
                     self.emit(arg)?;
@@ -675,7 +747,248 @@ impl<'a> FnEmitter<'a> {
             IrExpr::Array { elem_ty, elems } => self.emit_array(elem_ty, elems)?,
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
+            IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
+            IrExpr::Match {
+                scrutinee,
+                arms,
+                ty,
+            } => self.emit_match(scrutinee, arms, ty)?,
+            IrExpr::Panic { .. } => self.line("unreachable"),
+            IrExpr::Throw { value } => {
+                self.emit(value)?;
+                self.raise_error();
+            }
+            IrExpr::Try { body, arms, ty } => self.emit_try(body, arms, ty)?,
+            IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
         }
+        Ok(())
+    }
+
+    /// Allocates `[tag:i32][field*8bytes]` and leaves the pointer. Each payload
+    /// field gets a fixed 8-byte slot so binding offsets need no type info.
+    fn emit_enum_value(&mut self, tag: u32, payload: &[IrExpr]) -> Result<()> {
+        let size = 8 + payload.len() as u32 * 8;
+        let ptr = self.fresh_local(WasmTy::I32);
+        self.line(&format!("i32.const {size}"));
+        self.line("call $alloc");
+        self.line(&format!("local.set {ptr}"));
+        self.line(&format!("local.get {ptr}"));
+        self.line(&format!("i32.const {tag}"));
+        self.line("i32.store");
+        for (index, field) in payload.iter().enumerate() {
+            let slot = WasmTy::of(&field.ty());
+            let offset = 8 + index as u32 * 8;
+            self.line(&format!("local.get {ptr}"));
+            self.line(&format!("i32.const {offset}"));
+            self.line("i32.add");
+            self.emit(field)?;
+            self.line(slot.store());
+        }
+        self.line(&format!("local.get {ptr}"));
+        Ok(())
+    }
+
+    /// Lowers a `match` to a tag dispatch that yields the matched arm's value.
+    fn emit_match(&mut self, scrutinee: &IrExpr, arms: &[IrArm], result_ty: &Type) -> Result<()> {
+        let subject = self.fresh_local(WasmTy::I32);
+        self.emit(scrutinee)?;
+        self.line(&format!("local.set {subject}"));
+        let label = format!("$match_{}", self.counter);
+        self.counter += 1;
+        self.line(&format!(
+            "(block {label} (result {})",
+            WasmTy::of(result_ty).keyword()
+        ));
+        for arm in arms {
+            self.emit_arm(&subject, arm, &label)?;
+        }
+        self.line("unreachable");
+        self.line(")");
+        Ok(())
+    }
+
+    fn emit_arm(&mut self, subject: &str, arm: &IrArm, done: &str) -> Result<()> {
+        let mark = self.scope.len();
+        match &arm.pattern {
+            IrPattern::Variant { tag, bindings, .. } => {
+                self.line(&format!("local.get {subject}"));
+                self.line("i32.load");
+                self.line(&format!("i32.const {tag}"));
+                self.line("i32.eq");
+                self.line("(if");
+                self.line("(then");
+                self.bind_payload(subject, bindings);
+                self.emit_arm_body(arm, done)?;
+                self.line("))");
+            }
+            IrPattern::Wildcard { binding } => {
+                if let Some((name, ty)) = binding {
+                    let local = self.fresh_local(WasmTy::of(ty));
+                    self.line(&format!("local.get {subject}"));
+                    self.line(&format!("local.set {local}"));
+                    self.bind(name.clone(), Slot::Local(local));
+                }
+                self.emit_arm_body(arm, done)?;
+            }
+        }
+        self.scope.truncate(mark);
+        Ok(())
+    }
+
+    fn bind_payload(&mut self, subject: &str, bindings: &[Option<(String, Type)>]) {
+        for (index, binding) in bindings.iter().enumerate() {
+            if let Some((name, ty)) = binding {
+                let slot = WasmTy::of(ty);
+                let local = self.fresh_local(slot);
+                let offset = 8 + index as u32 * 8;
+                self.line(&format!("local.get {subject}"));
+                self.line(&format!("i32.const {offset}"));
+                self.line("i32.add");
+                self.line(slot.load());
+                self.line(&format!("local.set {local}"));
+                self.bind(name.clone(), Slot::Local(local));
+            }
+        }
+    }
+
+    fn emit_arm_body(&mut self, arm: &IrArm, done: &str) -> Result<()> {
+        match &arm.guard {
+            Some(guard) => {
+                self.emit(guard)?;
+                self.line("(if");
+                self.line("(then");
+                self.emit(&arm.body)?;
+                self.line(&format!("br {done}"));
+                self.line("))");
+            }
+            None => {
+                self.emit(&arm.body)?;
+                self.line(&format!("br {done}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Wraps the success value on the stack into a `[ok:1][value]` Result
+    /// pointer (spec 0011's IR lowering note).
+    fn wrap_ok(&mut self, ret: &Type) {
+        let value = self.fresh_local(WasmTy::of(ret));
+        self.line(&format!("local.set {value}"));
+        let res = self.fresh_local(WasmTy::I32);
+        self.line("i32.const 16");
+        self.line("call $alloc");
+        self.line(&format!("local.set {res}"));
+        self.line(&format!("local.get {res}"));
+        self.line("i32.const 1");
+        self.line("i32.store");
+        self.line(&format!("local.get {res}"));
+        self.line("i32.const 8");
+        self.line("i32.add");
+        self.line(&format!("local.get {value}"));
+        self.line(WasmTy::of(ret).store());
+        self.line(&format!("local.get {res}"));
+    }
+
+    /// Raises the error value on the stack: branch to the nearest enclosing
+    /// `catch`, or build and return an `Err` Result from a throwing function.
+    fn raise_error(&mut self) {
+        if let Some(label) = self.catch_stack.last() {
+            let label = label.clone();
+            self.line(&format!("br {label}"));
+        } else {
+            let err = self.fresh_local(WasmTy::I32);
+            self.line(&format!("local.set {err}"));
+            let res = self.fresh_local(WasmTy::I32);
+            self.line("i32.const 16");
+            self.line("call $alloc");
+            self.line(&format!("local.set {res}"));
+            self.line(&format!("local.get {res}"));
+            self.line("i32.const 0");
+            self.line("i32.store");
+            self.line(&format!("local.get {res}"));
+            self.line("i32.const 8");
+            self.line("i32.add");
+            self.line(&format!("local.get {err}"));
+            self.line("i32.store");
+            self.line(&format!("local.get {res}"));
+            self.line("return");
+        }
+    }
+
+    /// Unwraps a Result pointer on the stack: on `Err`, raise the error; on
+    /// `Ok`, leave the success value of type `success_ty`.
+    fn unwrap_result(&mut self, success_ty: &Type) -> Result<()> {
+        let r = self.fresh_local(WasmTy::I32);
+        self.line(&format!("local.set {r}"));
+        self.line(&format!("local.get {r}"));
+        self.line("i32.load");
+        self.line("i32.eqz");
+        self.line("(if");
+        self.line("(then");
+        self.line(&format!("local.get {r}"));
+        self.line("i32.const 8");
+        self.line("i32.add");
+        self.line("i32.load");
+        self.raise_error();
+        self.line("))");
+        self.line(&format!("local.get {r}"));
+        self.line("i32.const 8");
+        self.line("i32.add");
+        self.line(WasmTy::of(success_ty).load());
+        Ok(())
+    }
+
+    fn emit_question(&mut self, value: &IrExpr, mode: QuestionMode, ty: &Type) -> Result<()> {
+        match mode {
+            // The inner throwing call already unwraps, so `?` yields its value.
+            QuestionMode::Throws => self.emit(value)?,
+            QuestionMode::Option => {
+                self.emit(value)?;
+                let opt = self.fresh_local(WasmTy::I32);
+                self.line(&format!("local.set {opt}"));
+                self.line(&format!("local.get {opt}"));
+                self.line("i32.load");
+                self.line("i32.const 1");
+                self.line("i32.eq");
+                self.line("(if");
+                self.line("(then");
+                // Propagate `None`: return `Option::None` from this function.
+                self.emit_enum_value(1, &[])?;
+                self.line("return");
+                self.line("))");
+                self.line(&format!("local.get {opt}"));
+                self.line("i32.const 8");
+                self.line("i32.add");
+                self.line(WasmTy::of(ty).load());
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_try(&mut self, body: &IrExpr, arms: &[IrArm], ty: &Type) -> Result<()> {
+        let id = self.counter;
+        self.counter += 1;
+        let try_label = format!("$try_{id}");
+        let catch_label = format!("$catch_{id}");
+        self.line(&format!(
+            "(block {try_label} (result {})",
+            WasmTy::of(ty).keyword()
+        ));
+        // The catch block yields the error pointer that a throwing call/`throw`
+        // branches to it with.
+        self.line(&format!("(block {catch_label} (result i32)"));
+        self.catch_stack.push(catch_label);
+        self.emit(body)?;
+        self.catch_stack.pop();
+        self.line(&format!("br {try_label}"));
+        self.line(")");
+        let err = self.fresh_local(WasmTy::I32);
+        self.line(&format!("local.set {err}"));
+        for arm in arms {
+            self.emit_arm(&err, arm, &try_label)?;
+        }
+        self.line("unreachable");
+        self.line(")");
         Ok(())
     }
 
@@ -829,6 +1142,7 @@ mod tests {
         FunctionType {
             params,
             ret: Box::new(Type::Int),
+            throws: None,
             effects: EffectRow::default(),
         }
     }
@@ -839,6 +1153,7 @@ mod tests {
                 name: "main".into(),
                 params: vec![],
                 ret,
+                throws: None,
                 effects: EffectRow::default(),
                 body,
             }],
@@ -880,6 +1195,7 @@ mod tests {
                 },
             ],
             ret: Type::Int,
+            throws: None,
             effects: EffectRow::default(),
             body: IrExpr::Binary {
                 op: BinaryOp::Add,
@@ -898,6 +1214,7 @@ mod tests {
             name: "main".into(),
             params: vec![],
             ret: Type::Int,
+            throws: None,
             effects: EffectRow::default(),
             body: IrExpr::Call {
                 callee: Box::new(IrExpr::FunctionRef {
@@ -973,6 +1290,7 @@ mod tests {
                 ty: Type::Int,
             }],
             ret: Type::Int,
+            throws: None,
             effects: EffectRow::default(),
             captures: vec![IrCapture {
                 name: "n".into(),
@@ -998,6 +1316,7 @@ mod tests {
                 ty: Type::Int,
             }],
             ret: Type::Function(int_fn(vec![Type::Int])),
+            throws: None,
             effects: EffectRow::default(),
             body: lambda,
         };
@@ -1005,6 +1324,7 @@ mod tests {
             name: "main".into(),
             params: vec![],
             ret: Type::Int,
+            throws: None,
             effects: EffectRow::default(),
             body: IrExpr::Let {
                 name: "add10".into(),
@@ -1015,6 +1335,7 @@ mod tests {
                         sig: FunctionType {
                             params: vec![Type::Int],
                             ret: Box::new(Type::Function(int_fn(vec![Type::Int]))),
+                            throws: None,
                             effects: EffectRow::default(),
                         },
                     }),
@@ -1060,6 +1381,7 @@ mod platform_tests {
                 name: "main".into(),
                 params: vec![],
                 ret: Type::Unit,
+                throws: None,
                 effects: EffectRow::sorted(vec!["io".into()]),
                 body: IrExpr::Platform {
                     name: name.into(),

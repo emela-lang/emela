@@ -68,3 +68,43 @@ fn builds_higher_order_functions() {
         "fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }\nfn inc(x: Int) -> Int { x + 1 }\nfn main() -> Int { apply(inc, 41) }\n",
     );
 }
+
+#[test]
+fn builds_enums_and_match() {
+    build_wasm(
+        "enum Color {\n  Red\n  Green\n  Blue\n}\nfn code(c: Color) -> Int {\n  match c {\n    Red -> 1\n    Green -> 2\n    Blue -> 3\n  }\n}\nfn main() -> Int { code(Color.Blue) }\n",
+    );
+}
+
+#[test]
+fn builds_option_match() {
+    build_wasm(
+        "fn unwrap(o: Option<Int>, fb: Int) -> Int {\n  match o {\n    Some(v) -> v\n    None -> fb\n  }\n}\nfn main() -> Int { unwrap(Some(7), 0) }\n",
+    );
+}
+
+#[test]
+fn builds_panic() {
+    build_wasm("fn boom() -> Int { panic(\"x\") }\nfn main() -> Int { boom() }\n");
+}
+
+#[test]
+fn builds_throws_and_try_catch() {
+    build_wasm(
+        "enum E {\n  Bad\n}\nfn risky() -> Int throws E { throw E.Bad }\nfn safe() -> Int {\n  try {\n    risky()\n  } catch {\n    Bad -> 9\n  }\n}\nfn main() -> Int { safe() }\n",
+    );
+}
+
+#[test]
+fn builds_question_propagation() {
+    build_wasm(
+        "enum E {\n  Bad\n}\nfn risky() -> Int throws E { throw E.Bad }\nfn chain() -> Int throws E {\n  let x = risky()?\n  x\n}\nfn run() -> Int {\n  try {\n    chain()\n  } catch {\n    e -> 1\n  }\n}\nfn main() -> Int { run() }\n",
+    );
+}
+
+#[test]
+fn builds_option_question() {
+    build_wasm(
+        "fn first() -> Option<Int> { Some(5) }\nfn chain() -> Option<Int> {\n  let x = first()?\n  Some(x)\n}\nfn main() -> Int {\n  match chain() {\n    Some(v) -> v\n    None -> 0\n  }\n}\n",
+    );
+}

@@ -14,7 +14,13 @@ pub enum Type {
     String,
     Array(Box<Type>),
     Record,
-    Enum,
+    /// A named enum type (spec 0005), identified by its declared name.
+    Enum(String),
+    /// An optional value (spec 0001): `Option<T>`.
+    Option(Box<Type>),
+    /// The empty type of `throw` and `panic` (spec 0011). It is assignable to
+    /// any expected type; no value ever has this type.
+    Never,
     Function(FunctionType),
     OpaqueFunction,
 }
@@ -23,6 +29,11 @@ pub enum Type {
 pub struct FunctionType {
     pub params: Vec<Type>,
     pub ret: Box<Type>,
+    /// The error type the function may throw (spec 0008/0011), if any. `None`
+    /// is a non-throwing function. It is part of the type: two functions that
+    /// differ only in `throws` are different types.
+    #[serde(default)]
+    pub throws: Option<Box<Type>>,
     pub effects: EffectRow,
 }
 

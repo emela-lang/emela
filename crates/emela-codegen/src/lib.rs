@@ -18,7 +18,7 @@ mod types;
 
 pub use backend::{Artifact, ArtifactKind, Backend, BackendOptions, EmitMode, Tier};
 pub use error::{BackendError, Result};
-pub use ir::{IrCapture, IrExpr, IrFunction, IrParam, IrProgram};
+pub use ir::{IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram, QuestionMode};
 pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
 pub use registry::BackendRegistry;

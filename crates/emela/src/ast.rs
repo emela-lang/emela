@@ -10,6 +10,23 @@ pub(crate) struct Program {
     pub(crate) imports: Vec<Import>,
     pub(crate) functions: Vec<Function>,
     pub(crate) externs: Vec<Extern>,
+    pub(crate) enums: Vec<EnumDecl>,
+}
+
+/// An `enum` declaration (spec 0005).
+#[derive(Debug, Clone)]
+pub(crate) struct EnumDecl {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) variants: Vec<EnumVariant>,
+}
+
+/// One variant of an enum, with its payload field types (possibly empty).
+#[derive(Debug, Clone)]
+pub(crate) struct EnumVariant {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) fields: Vec<Type>,
 }
 
 /// A platform-function declaration (`extern fn`, spec 0013). It has no body; the
@@ -22,6 +39,7 @@ pub(crate) struct Extern {
     pub(crate) module: Option<String>,
     pub(crate) params: Vec<Param>,
     pub(crate) ret: Type,
+    pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
 }
 
@@ -54,6 +72,7 @@ pub(crate) struct Function {
     pub(crate) is_public: bool,
     pub(crate) params: Vec<Param>,
     pub(crate) ret: Type,
+    pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
     pub(crate) body: Block,
 }
@@ -99,6 +118,7 @@ pub(crate) enum Expr {
     Fn {
         params: Vec<Param>,
         ret: Type,
+        throws: Option<Type>,
         effects: EffectRow,
         body: Block,
         span: Span,
@@ -110,6 +130,40 @@ pub(crate) enum Expr {
         span: Span,
     },
     Block(Block),
+    /// `throw e` (spec 0011).
+    Throw {
+        value: Box<Expr>,
+        span: Span,
+    },
+    /// `panic(msg)` (spec 0011).
+    Panic {
+        message: Box<Expr>,
+        span: Span,
+    },
+    /// `expr?` (spec 0011): error / `None` propagation.
+    Question {
+        value: Box<Expr>,
+        span: Span,
+    },
+    /// `match scrutinee { arms }` (spec 0005).
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+    /// `try { body } catch { arms }` (spec 0011).
+    Try {
+        body: Block,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+    /// An enum/`Option` variant: `Some(x)`, `None`, `Color.Red`.
+    Variant {
+        enum_name: Option<String>,
+        variant: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -122,10 +176,49 @@ impl Expr {
             | Expr::Array(_, span)
             | Expr::Unit(span)
             | Expr::Var(_, span) => span.clone(),
-            Expr::Call { span, .. } | Expr::Fn { span, .. } | Expr::Binary { span, .. } => {
-                span.clone()
-            }
+            Expr::Call { span, .. }
+            | Expr::Fn { span, .. }
+            | Expr::Binary { span, .. }
+            | Expr::Throw { span, .. }
+            | Expr::Panic { span, .. }
+            | Expr::Question { span, .. }
+            | Expr::Match { span, .. }
+            | Expr::Try { span, .. }
+            | Expr::Variant { span, .. } => span.clone(),
             Expr::Block(block) => block.span.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MatchArm {
+    pub(crate) pattern: Pattern,
+    pub(crate) guard: Option<Expr>,
+    pub(crate) body: Expr,
+    #[allow(dead_code)]
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Pattern {
+    /// A variant pattern, optionally qualified by enum name: `Some(v)`, `None`,
+    /// `Color.Red`.
+    Variant {
+        enum_name: Option<String>,
+        variant: String,
+        fields: Vec<FieldBinding>,
+        span: Span,
+    },
+    /// `_`: ignore the scrutinee.
+    Wildcard(Span),
+    /// Bind the whole scrutinee to a name (catch-all).
+    Binding { name: String, span: Span },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum FieldBinding {
+    /// Bind the payload field to a name.
+    Name(String),
+    /// `_`: ignore the payload field.
+    Ignore,
 }

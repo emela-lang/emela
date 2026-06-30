@@ -131,7 +131,12 @@ fn keep_record(value: Record) -> Record {
   value
 }
 
-fn keep_enum(value: Enum) -> Enum {
+enum Choice {
+  Yes
+  No
+}
+
+fn keep_enum(value: Choice) -> Choice {
   value
 }
 
@@ -483,4 +488,147 @@ fn main() -> Int {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn build_lowers_error_handling_to_js() {
+    let source = write_source(
+        "main.emel",
+        r#"
+enum E {
+  A
+  B
+}
+
+fn f() -> Int throws E uses {} {
+  throw E.A
+}
+
+fn g() -> Int uses {} {
+  try {
+    f()
+  } catch {
+    e -> 7
+  }
+}
+
+fn pick(o: Option<Int>) -> Int uses {} {
+  match o {
+    Some(v) -> v
+    None -> 0
+  }
+}
+
+fn main() -> Int uses {} {
+  g() + pick(Some(3))
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("build")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let js = String::from_utf8_lossy(&output.stdout);
+    assert!(js.contains("EmelaError"), "missing error runtime: {js}");
+    assert!(js.contains("tag:"), "missing enum tag: {js}");
+}
+
+#[test]
+fn check_rejects_non_exhaustive_match() {
+    let source = write_source(
+        "main.emel",
+        r#"
+enum C {
+  A
+  B
+}
+
+fn f(c: C) -> Int uses {} {
+  match c {
+    A -> 1
+  }
+}
+
+fn main() -> Int uses {} {
+  f(C.A)
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        !output.status.success(),
+        "a non-exhaustive match should be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("exhaustive") || stderr.contains("missing"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn check_accepts_main_throws_never() {
+    let source = write_source(
+        "main.emel",
+        "fn main() -> Int throws Never uses {} {\n  0\n}\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_rejects_main_declaring_throws() {
+    let source = write_source(
+        "main.emel",
+        "enum E {\n  A\n}\nfn main() -> Int throws E uses {} {\n  0\n}\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        !output.status.success(),
+        "`main` declaring a non-Never throws should be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Never"), "{stderr}");
 }

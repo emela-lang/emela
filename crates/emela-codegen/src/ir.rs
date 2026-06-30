@@ -36,6 +36,10 @@ pub struct IrFunction {
     pub name: String,
     pub params: Vec<IrParam>,
     pub ret: Type,
+    /// The error type this function may throw (spec 0011), if any. When set, the
+    /// function reports on the error channel in addition to its value channel.
+    #[serde(default)]
+    pub throws: Option<Type>,
     pub effects: EffectRow,
     pub body: IrExpr,
 }
@@ -80,6 +84,8 @@ pub enum IrExpr {
     Fn {
         params: Vec<IrParam>,
         ret: Type,
+        #[serde(default)]
+        throws: Option<Type>,
         effects: EffectRow,
         captures: Vec<IrCapture>,
         body: Box<IrExpr>,
@@ -89,6 +95,42 @@ pub enum IrExpr {
         ty: Type,
         left: Box<IrExpr>,
         right: Box<IrExpr>,
+    },
+    /// An enum or `Option` value (spec 0005/0001). `tag` selects the variant in
+    /// declaration order; `payload` carries its fields.
+    EnumValue {
+        ty: Type,
+        variant: String,
+        tag: u32,
+        payload: Vec<IrExpr>,
+    },
+    /// A `match` over an enum/`Option` (spec 0005). Arms are tried top to bottom.
+    Match {
+        scrutinee: Box<IrExpr>,
+        arms: Vec<IrArm>,
+        ty: Type,
+    },
+    /// `throw e` (spec 0011): raise `e` on the error channel. Type `Never`.
+    Throw {
+        value: Box<IrExpr>,
+    },
+    /// `try { body } catch { arms }` (spec 0011): evaluate `body`, routing any
+    /// thrown error to `arms`.
+    Try {
+        body: Box<IrExpr>,
+        arms: Vec<IrArm>,
+        ty: Type,
+    },
+    /// `expr?` (spec 0011): take the success value, short-circuiting the
+    /// enclosing function on error (`Throws`) or `None` (`Option`).
+    Question {
+        value: Box<IrExpr>,
+        mode: QuestionMode,
+        ty: Type,
+    },
+    /// `panic(msg)` (spec 0011): unrecoverable abort. Type `Never`.
+    Panic {
+        message: Box<IrExpr>,
     },
 }
 
@@ -111,19 +153,57 @@ impl IrExpr {
             IrExpr::Fn {
                 params,
                 ret,
+                throws,
                 effects,
                 ..
             } => Type::Function(FunctionType {
                 params: params.iter().map(|param| param.ty.clone()).collect(),
                 ret: Box::new(ret.clone()),
+                throws: throws.clone().map(Box::new),
                 effects: effects.clone(),
             }),
             IrExpr::Binary { op, ty, .. } => match op {
                 BinaryOp::Eq | BinaryOp::Lt => Type::Bool,
                 _ => ty.clone(),
             },
+            IrExpr::EnumValue { ty, .. }
+            | IrExpr::Match { ty, .. }
+            | IrExpr::Try { ty, .. }
+            | IrExpr::Question { ty, .. } => ty.clone(),
+            IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
         }
     }
+}
+
+/// One arm of a `match` or `try`/`catch` (spec 0005/0011).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrArm {
+    pub pattern: IrPattern,
+    pub guard: Option<IrExpr>,
+    pub body: IrExpr,
+}
+
+/// A pattern matched against an enum/`Option` scrutinee.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IrPattern {
+    /// A specific variant, selected by `tag`. Each payload field is bound by
+    /// `Some((name, ty))` or ignored with `None`.
+    Variant {
+        variant: String,
+        tag: u32,
+        bindings: Vec<Option<(String, Type)>>,
+    },
+    /// A wildcard (`_`) or catch-all binding, which binds the whole scrutinee.
+    Wildcard { binding: Option<(String, Type)> },
+}
+
+/// What `?` propagates (spec 0011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QuestionMode {
+    /// Propagate a thrown error to the enclosing `throws` channel.
+    Throws,
+    /// Propagate `None` to the enclosing `Option` return.
+    Option,
 }
 
 #[cfg(test)]
@@ -134,6 +214,7 @@ mod tests {
         FunctionType {
             params,
             ret: Box::new(ret),
+            throws: None,
             effects: EffectRow::default(),
         }
     }
