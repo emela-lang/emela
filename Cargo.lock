@@ -6,6 +6,23 @@ version = 4
 name = "emela"
 version = "0.1.0"
 dependencies = [
+ "emela-backend-js",
+ "emela-codegen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "emela-backend-js"
+version = "0.1.0"
+dependencies = [
+ "emela-codegen",
+]
+
+[[package]]
+name = "emela-codegen"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

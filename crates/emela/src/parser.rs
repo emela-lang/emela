@@ -3,7 +3,7 @@ use crate::ast::{
     Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
-use crate::lexer::{lex, Token, TokenKind};
+use crate::lexer::{Token, TokenKind, lex};
 
 pub(crate) fn parse_program(label: &str, source: &str) -> Result<Program> {
     let tokens = lex(label, source)?;
