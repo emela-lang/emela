@@ -1,6 +1,6 @@
 //! A textual dump of the IR, used by `emela ir`.
 
-use crate::ir::{IrExpr, IrParam, IrProgram};
+use crate::ir::{IrArm, IrExpr, IrParam, IrPattern, IrProgram};
 use crate::types::{BinaryOp, Type};
 
 pub fn emit_text(program: &IrProgram) -> String {
@@ -96,7 +96,65 @@ fn inline_expr(expr: &IrExpr) -> String {
             inline_expr(left),
             inline_expr(right)
         ),
+        IrExpr::EnumValue {
+            variant, payload, ..
+        } => {
+            if payload.is_empty() {
+                variant.clone()
+            } else {
+                format!(
+                    "{variant}({})",
+                    payload
+                        .iter()
+                        .map(inline_expr)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        }
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => format!(
+            "match {} {{ {} }}",
+            inline_expr(scrutinee),
+            arms.iter().map(inline_arm).collect::<Vec<_>>().join(" ")
+        ),
+        IrExpr::Throw { value } => format!("throw {}", inline_expr(value)),
+        IrExpr::Try { body, arms, .. } => format!(
+            "try {{ {} }} catch {{ {} }}",
+            inline_expr(body),
+            arms.iter().map(inline_arm).collect::<Vec<_>>().join(" ")
+        ),
+        IrExpr::Question { value, .. } => format!("{}?", inline_expr(value)),
+        IrExpr::Panic { message } => format!("panic {}", inline_expr(message)),
     }
+}
+
+fn inline_arm(arm: &IrArm) -> String {
+    let pattern = match &arm.pattern {
+        IrPattern::Variant {
+            variant, bindings, ..
+        } => {
+            if bindings.is_empty() {
+                variant.clone()
+            } else {
+                let names = bindings
+                    .iter()
+                    .map(|binding| binding.as_ref().map_or("_", |(name, _)| name.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{variant}({names})")
+            }
+        }
+        IrPattern::Wildcard { binding } => binding
+            .as_ref()
+            .map_or_else(|| "_".to_string(), |(name, _)| name.clone()),
+    };
+    let guard = arm
+        .guard
+        .as_ref()
+        .map_or_else(String::new, |guard| format!(" if {}", inline_expr(guard)));
+    format!("{pattern}{guard} -> {}", inline_expr(&arm.body))
 }
 
 fn ir_op(op: BinaryOp) -> &'static str {
@@ -125,7 +183,9 @@ fn type_name(ty: &Type) -> String {
         Type::String => "String".to_string(),
         Type::Array(element) => format!("Array<{}>", type_name(element)),
         Type::Record => "Record".to_string(),
-        Type::Enum => "Enum".to_string(),
+        Type::Enum(name) => name.clone(),
+        Type::Option(inner) => format!("Option<{}>", type_name(inner)),
+        Type::Never => "Never".to_string(),
         Type::Function(function) => format!(
             "({}) -> {} uses {{{}}}",
             function

@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, EffectRow, Expr, Extern, Function, FunctionType, Import, Param,
-    Program, Type,
+    BinaryOp, Block, BlockItem, EffectRow, EnumDecl, EnumVariant, Expr, Extern, FieldBinding,
+    Function, FunctionType, Import, MatchArm, Param, Pattern, Program, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
 use crate::lexer::{Token, TokenKind, lex};
@@ -21,6 +21,7 @@ impl Parser {
         let mut imports = Vec::new();
         let mut functions = Vec::new();
         let mut externs = Vec::new();
+        let mut enums = Vec::new();
         self.skip_newlines();
         if self.eat(&TokenKind::Module) {
             module = Some(self.parse_path_name()?);
@@ -31,9 +32,15 @@ impl Parser {
                 imports.push(self.parse_import()?);
             } else if self.at(&TokenKind::Extern) {
                 externs.push(self.parse_extern()?);
+            } else if self.at(&TokenKind::Enum) {
+                enums.push(self.parse_enum()?);
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
-                functions.push(self.parse_function(is_public)?);
+                if self.at(&TokenKind::Enum) {
+                    enums.push(self.parse_enum()?);
+                } else {
+                    functions.push(self.parse_function(is_public)?);
+                }
             }
             self.skip_newlines();
         }
@@ -46,7 +53,60 @@ impl Parser {
             imports,
             functions,
             externs,
+            enums,
         })
+    }
+
+    fn parse_enum(&mut self) -> Result<EnumDecl> {
+        self.expect(&TokenKind::Enum)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+        let mut variants = Vec::new();
+        self.skip_newlines();
+        while !self.at(&TokenKind::RBrace) {
+            let variant_span = self.peek().span.clone();
+            let variant_name = self.expect_ident()?;
+            let mut fields = Vec::new();
+            if self.eat(&TokenKind::LParen) {
+                if !self.at(&TokenKind::RParen) {
+                    fields.push(self.parse_type()?);
+                    while self.eat(&TokenKind::Comma) {
+                        fields.push(self.parse_type()?);
+                    }
+                }
+                self.expect(&TokenKind::RParen)?;
+            }
+            variants.push(EnumVariant {
+                name: variant_name,
+                name_span: variant_span,
+                fields,
+            });
+            // Variants are separated by newlines and/or commas.
+            self.eat(&TokenKind::Comma);
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        Ok(EnumDecl {
+            name,
+            name_span,
+            variants,
+        })
+    }
+
+    /// Parses an optional `throws E` clause (spec 0008/0011). `throws Never` is
+    /// non-throwing, equivalent to omitting the clause.
+    fn parse_throws_clause(&mut self) -> Result<Option<Type>> {
+        if self.eat(&TokenKind::Throws) {
+            let ty = self.parse_type()?;
+            if matches!(ty, Type::Never) {
+                Ok(None)
+            } else {
+                Ok(Some(ty))
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_extern(&mut self) -> Result<Extern> {
@@ -59,6 +119,7 @@ impl Parser {
         self.expect(&TokenKind::RParen)?;
         self.expect(&TokenKind::Arrow)?;
         let ret = self.parse_type()?;
+        let throws = self.parse_throws_clause()?;
         let effects = self.parse_effect_row()?;
         Ok(Extern {
             name,
@@ -66,6 +127,7 @@ impl Parser {
             module: None,
             params,
             ret,
+            throws,
             effects,
         })
     }
@@ -98,6 +160,7 @@ impl Parser {
         self.expect(&TokenKind::RParen)?;
         self.expect(&TokenKind::Arrow)?;
         let ret = self.parse_type()?;
+        let throws = self.parse_throws_clause()?;
         let effects = self.parse_effect_row()?;
         let body = self.parse_block()?;
         Ok(Function {
@@ -106,6 +169,7 @@ impl Parser {
             is_public,
             params,
             ret,
+            throws,
             effects,
             body,
         })
@@ -146,10 +210,12 @@ impl Parser {
             self.expect(&TokenKind::RParen)?;
             if self.eat(&TokenKind::Arrow) {
                 let ret = self.parse_type()?;
+                let throws = self.parse_throws_clause()?;
                 let effects = self.parse_effect_row()?;
                 return Ok(Type::Function(FunctionType {
                     params,
                     ret: Box::new(ret),
+                    throws: throws.map(Box::new),
                     effects,
                 }));
             }
@@ -175,15 +241,17 @@ impl Parser {
                 Ok(Type::Array(Box::new(element)))
             }
             "Record" => Ok(Type::Record),
-            "Enum" => Ok(Type::Enum),
+            "Never" => Ok(Type::Never),
+            "Option" => {
+                self.expect(&TokenKind::Lt)?;
+                let inner = self.parse_type()?;
+                self.expect(&TokenKind::Gt)?;
+                Ok(Type::Option(Box::new(inner)))
+            }
             "Function" => Ok(Type::OpaqueFunction),
-            _ => Err(Error::diagnostic(
-                Diagnostic::new("Unknown type")
-                    .label(span, format!("unknown type `{name}`"))
-                    .help(
-                        "The minimal compiler currently supports Unit, Bool, Int, Float, String, Array<T>, Record, Enum, and Function.",
-                    ),
-            )),
+            // Any other capitalized name refers to a declared enum type; it is
+            // resolved and validated during type checking (spec 0005).
+            _ => Ok(Type::Enum(name)),
         }
     }
 
@@ -307,21 +375,33 @@ impl Parser {
 
     fn parse_call(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
-        while self.eat(&TokenKind::LParen) {
-            let mut args = Vec::new();
-            if !self.at(&TokenKind::RParen) {
-                args.push(self.parse_expr()?);
-                while self.eat(&TokenKind::Comma) {
+        loop {
+            if self.eat(&TokenKind::LParen) {
+                let mut args = Vec::new();
+                if !self.at(&TokenKind::RParen) {
                     args.push(self.parse_expr()?);
+                    while self.eat(&TokenKind::Comma) {
+                        args.push(self.parse_expr()?);
+                    }
                 }
+                let end = self.expect(&TokenKind::RParen)?.span;
+                let span = expr.span().merge(&end);
+                expr = Expr::Call {
+                    callee: Box::new(expr),
+                    args,
+                    span,
+                };
+            } else if self.at(&TokenKind::Question) {
+                // Postfix `?` propagates errors / `None` (spec 0011).
+                let end = self.bump().span;
+                let span = expr.span().merge(&end);
+                expr = Expr::Question {
+                    value: Box::new(expr),
+                    span,
+                };
+            } else {
+                break;
             }
-            let end = self.expect(&TokenKind::RParen)?.span;
-            let span = expr.span().merge(&end);
-            expr = Expr::Call {
-                callee: Box::new(expr),
-                args,
-                span,
-            };
         }
         Ok(expr)
     }
@@ -351,8 +431,53 @@ impl Parser {
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
-                Ok(Expr::Var(name, span))
+                if self.at(&TokenKind::Dot) {
+                    // `Enum.Variant` or `Enum.Variant(args)`.
+                    self.bump();
+                    let variant_span = self.peek().span.clone();
+                    let variant = self.expect_ident()?;
+                    let mut args = Vec::new();
+                    let mut end = variant_span.clone();
+                    if self.eat(&TokenKind::LParen) {
+                        if !self.at(&TokenKind::RParen) {
+                            args.push(self.parse_expr()?);
+                            while self.eat(&TokenKind::Comma) {
+                                args.push(self.parse_expr()?);
+                            }
+                        }
+                        end = self.expect(&TokenKind::RParen)?.span;
+                    }
+                    Ok(Expr::Variant {
+                        enum_name: Some(name),
+                        variant,
+                        args,
+                        span: span.merge(&end),
+                    })
+                } else {
+                    Ok(Expr::Var(name, span))
+                }
             }
+            TokenKind::Throw => {
+                let start = self.bump().span;
+                let value = self.parse_expr()?;
+                let span = start.merge(&value.span());
+                Ok(Expr::Throw {
+                    value: Box::new(value),
+                    span,
+                })
+            }
+            TokenKind::Panic => {
+                let start = self.bump().span;
+                self.expect(&TokenKind::LParen)?;
+                let message = self.parse_expr()?;
+                let end = self.expect(&TokenKind::RParen)?.span;
+                Ok(Expr::Panic {
+                    message: Box::new(message),
+                    span: start.merge(&end),
+                })
+            }
+            TokenKind::Match => self.parse_match(),
+            TokenKind::Try => self.parse_try(),
             TokenKind::Fn => self.parse_fn_expr(),
             TokenKind::LBracket => {
                 let start = self.bump().span;
@@ -391,16 +516,115 @@ impl Parser {
         self.expect(&TokenKind::RParen)?;
         self.expect(&TokenKind::Arrow)?;
         let ret = self.parse_type()?;
+        let throws = self.parse_throws_clause()?;
         let effects = self.parse_effect_row()?;
         let body = self.parse_block()?;
         let span = start.merge(&body.span);
         Ok(Expr::Fn {
             params,
             ret,
+            throws,
             effects,
             body,
             span,
         })
+    }
+
+    fn parse_match(&mut self) -> Result<Expr> {
+        let start = self.expect(&TokenKind::Match)?.span;
+        let scrutinee = self.parse_expr()?;
+        self.expect(&TokenKind::LBrace)?;
+        let arms = self.parse_match_arms()?;
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Ok(Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: start.merge(&end),
+        })
+    }
+
+    fn parse_try(&mut self) -> Result<Expr> {
+        let start = self.expect(&TokenKind::Try)?.span;
+        let body = self.parse_block()?;
+        self.expect(&TokenKind::Catch)?;
+        self.expect(&TokenKind::LBrace)?;
+        let arms = self.parse_match_arms()?;
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Ok(Expr::Try {
+            body,
+            arms,
+            span: start.merge(&end),
+        })
+    }
+
+    fn parse_match_arms(&mut self) -> Result<Vec<MatchArm>> {
+        let mut arms = Vec::new();
+        self.skip_newlines();
+        while !self.at(&TokenKind::RBrace) {
+            let pattern = self.parse_pattern()?;
+            let guard = if matches!(&self.peek().kind, TokenKind::Ident(name) if name == "if") {
+                self.bump();
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+            self.expect(&TokenKind::Arrow)?;
+            let body = self.parse_expr()?;
+            let span = pattern_span(&pattern).merge(&body.span());
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+                span,
+            });
+            self.eat(&TokenKind::Comma);
+            self.skip_newlines();
+        }
+        Ok(arms)
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern> {
+        let span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        if name == "_" {
+            return Ok(Pattern::Wildcard(span));
+        }
+        // A lowercase-leading name binds the whole scrutinee (catch-all).
+        if name.chars().next().is_some_and(char::is_lowercase) {
+            return Ok(Pattern::Binding { name, span });
+        }
+        // An uppercase-leading name is a variant, optionally `Enum.Variant`.
+        let (enum_name, variant) = if self.eat(&TokenKind::Dot) {
+            (Some(name), self.expect_ident()?)
+        } else {
+            (None, name)
+        };
+        let mut fields = Vec::new();
+        if self.eat(&TokenKind::LParen) {
+            if !self.at(&TokenKind::RParen) {
+                fields.push(self.parse_field_binding()?);
+                while self.eat(&TokenKind::Comma) {
+                    fields.push(self.parse_field_binding()?);
+                }
+            }
+            self.expect(&TokenKind::RParen)?;
+        }
+        let end = self.previous_span();
+        Ok(Pattern::Variant {
+            enum_name,
+            variant,
+            fields,
+            span: span.merge(&end),
+        })
+    }
+
+    fn parse_field_binding(&mut self) -> Result<FieldBinding> {
+        let name = self.expect_ident()?;
+        if name == "_" {
+            Ok(FieldBinding::Ignore)
+        } else {
+            Ok(FieldBinding::Name(name))
+        }
     }
 
     fn skip_newlines(&mut self) {
@@ -466,6 +690,13 @@ impl Parser {
 
     fn previous_span(&self) -> Span {
         self.tokens[self.current.saturating_sub(1)].span.clone()
+    }
+}
+
+fn pattern_span(pattern: &Pattern) -> Span {
+    match pattern {
+        Pattern::Variant { span, .. } | Pattern::Binding { span, .. } => span.clone(),
+        Pattern::Wildcard(span) => span.clone(),
     }
 }
 

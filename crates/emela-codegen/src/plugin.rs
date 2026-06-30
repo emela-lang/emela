@@ -83,6 +83,7 @@ mod tests {
                 name: "main".into(),
                 params: vec![],
                 ret: Type::Int,
+                throws: None,
                 effects: Default::default(),
                 body: IrExpr::Int(1),
             }],

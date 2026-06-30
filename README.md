@@ -46,23 +46,28 @@ the JSON IR protocol (see [Backends](#backends)).
 - `module`, `pub`, and `import` for splitting code across files and source
   packages
 - line comments starting with `--`
+- `enum` declarations and exhaustive `match` expressions, with pattern guards
+- error handling with the `throws E` clause, `throw`, the `?` propagation
+  operator, `try` / `catch`, and `panic`; `Option<T>` represents an absent value.
+  Recoverable failure uses the throws channel — there is no built-in `Result`
 - WebAssembly and JavaScript code generation, plus a textual IR dump
 - in-process and external-process pluggable backends
 
-The type names `Record`, `Enum`, and `Function` are accepted in signatures, but
-there is no literal or constructor syntax for their values yet, so they cannot be
-used in runnable code.
+A user-declared `enum` name is a usable type, with variant constructors such as
+`Color.Red` and exhaustive `match`. The type names `Record` and `Function` are
+accepted in signatures, but have no literal or constructor syntax yet, so they
+cannot appear in runnable code.
 
 ## Not yet implemented
 
 To set expectations, the following are **not** part of this build:
 
-- no `if`, `match`, or other control flow beyond function calls and blocks
-- no `struct`, `enum`, `trait`, or `impl` declarations
+- no `if` expression; branch with `match` instead
+- no `struct`, `trait`, or `impl` declarations
 - no string concatenation or boolean operators
 - no native (machine-code) backend
-- no error values yet (`Result` / `Option`), so platform functions cannot report
-  failure; the platform interface is the minimal `Unit`-returning set
+- platform functions are still the minimal `Unit`-returning set and do not yet
+  declare `throws`
 - no dead-code elimination: importing a module pulls in all of its functions, so
   a backend must provide every platform function any imported wrapper references
 - no project manifest or dependency fetching

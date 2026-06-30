@@ -9,8 +9,8 @@
 use std::collections::HashSet;
 
 use emela_codegen::{
-    Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrExpr, IrProgram,
-    Result, Tier, Type,
+    Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
+    IrPattern, IrProgram, QuestionMode, Result, Tier, Type,
 };
 
 /// The Node.js-flavored JavaScript backend.
@@ -79,13 +79,47 @@ fn collect_platform(expr: &IrExpr, order: &mut Vec<String>, seen: &mut HashSet<S
             collect_platform(left, order, seen);
             collect_platform(right, order, seen);
         }
+        IrExpr::EnumValue { payload, .. } => {
+            payload
+                .iter()
+                .for_each(|e| collect_platform(e, order, seen));
+        }
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => {
+            collect_platform(scrutinee, order, seen);
+            collect_arms(arms, order, seen);
+        }
+        IrExpr::Try { body, arms, .. } => {
+            collect_platform(body, order, seen);
+            collect_arms(arms, order, seen);
+        }
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } => {
+            collect_platform(value, order, seen);
+        }
+        IrExpr::Panic { message } => collect_platform(message, order, seen),
         _ => {}
+    }
+}
+
+fn collect_arms(arms: &[IrArm], order: &mut Vec<String>, seen: &mut HashSet<String>) {
+    for arm in arms {
+        if let Some(guard) = &arm.guard {
+            collect_platform(guard, order, seen);
+        }
+        collect_platform(&arm.body, order, seen);
     }
 }
 
 fn emit(program: &IrProgram, used_platform: &[String]) -> String {
     let mut out = String::new();
     out.push_str("\"use strict\";\n\n");
+    // Error-handling runtime (spec 0011): a thrown error carries its value, a
+    // propagated `None` is its own signal, and a panic is distinct so `catch`
+    // never swallows it.
+    out.push_str("class EmelaError { constructor(value) { this.value = value; } }\n");
+    out.push_str("class EmelaNone {}\n");
+    out.push_str("class EmelaPanic { constructor(message) { this.message = message; } }\n\n");
     if !used_platform.is_empty() {
         // Bundled default runtime: the backend supplies the platform bodies.
         out.push_str("const __rt = {\n");
@@ -113,19 +147,33 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
-        out.push_str("  return ");
-        out.push_str(&emit_expr(&function.body));
-        out.push_str(";\n}\n\n");
+        if matches!(function.ret, Type::Option(_)) {
+            // A function returning Option catches a propagated `None` (`?`).
+            out.push_str("  try { return ");
+            out.push_str(&emit_expr(&function.body));
+            out.push_str("; } catch (__e) { if (__e instanceof EmelaNone) return { tag: 1, values: [] }; throw __e; }\n}\n\n");
+        } else {
+            out.push_str("  return ");
+            out.push_str(&emit_expr(&function.body));
+            out.push_str(";\n}\n\n");
+        }
     }
     let main_ret = program
         .functions
         .iter()
         .find(|function| function.name == "main")
         .map(|function| &function.ret);
-    out.push_str("const __emela_result = main();\n");
+    out.push_str("try {\n");
+    out.push_str("  const __emela_result = main();\n");
     if !matches!(main_ret, Some(Type::Unit)) {
-        out.push_str("if (__emela_result !== undefined) console.log(__emela_result);\n");
+        out.push_str("  if (__emela_result !== undefined) console.log(__emela_result);\n");
     }
+    out.push_str("} catch (__e) {\n");
+    out.push_str(
+        "  if (__e instanceof EmelaPanic) { console.error(\"panic: \" + __e.message); process.exit(1); }\n",
+    );
+    out.push_str("  throw __e;\n");
+    out.push_str("}\n");
     out
 }
 
@@ -159,15 +207,23 @@ fn emit_expr(expr: &IrExpr) -> String {
             "__rt[{name:?}]({})",
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
-        IrExpr::Fn { params, body, .. } => format!(
-            "function({}) {{ return {}; }}",
-            params
+        IrExpr::Fn {
+            params, body, ret, ..
+        } => {
+            let params = params
                 .iter()
                 .map(|param| js_name(&param.name))
                 .collect::<Vec<_>>()
-                .join(", "),
-            emit_expr(body)
-        ),
+                .join(", ");
+            if matches!(ret, Type::Option(_)) {
+                format!(
+                    "function({params}) {{ try {{ return {}; }} catch (__e) {{ if (__e instanceof EmelaNone) return {{ tag: 1, values: [] }}; throw __e; }} }}",
+                    emit_expr(body)
+                )
+            } else {
+                format!("function({params}) {{ return {}; }}", emit_expr(body))
+            }
+        }
         IrExpr::Binary {
             op, left, right, ..
         } => {
@@ -179,6 +235,90 @@ fn emit_expr(expr: &IrExpr) -> String {
                 BinaryOp::Lt => "<",
             };
             format!("({} {} {})", emit_expr(left), op, emit_expr(right))
+        }
+        IrExpr::EnumValue { tag, payload, .. } => format!(
+            "{{ tag: {tag}, values: [{}] }}",
+            payload.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => emit_match(scrutinee, arms),
+        IrExpr::Throw { value } => {
+            format!(
+                "(() => {{ throw new EmelaError({}); }})()",
+                emit_expr(value)
+            )
+        }
+        IrExpr::Try { body, arms, .. } => emit_try(body, arms),
+        IrExpr::Question { value, mode, .. } => match mode {
+            // A thrown error propagates as a native exception, so `?` is a
+            // no-op on the value channel.
+            QuestionMode::Throws => emit_expr(value),
+            QuestionMode::Option => format!(
+                "(() => {{ const __o = {}; if (__o.tag === 1) throw new EmelaNone(); return __o.values[0]; }})()",
+                emit_expr(value)
+            ),
+        },
+        IrExpr::Panic { message } => {
+            format!(
+                "(() => {{ throw new EmelaPanic({}); }})()",
+                emit_expr(message)
+            )
+        }
+    }
+}
+
+/// Lowers a `match` to an IIFE that dispatches on the enum/Option tag.
+fn emit_match(scrutinee: &IrExpr, arms: &[IrArm]) -> String {
+    let mut out = format!("(() => {{ const __m = {}; ", emit_expr(scrutinee));
+    for arm in arms {
+        out.push_str(&emit_arm("__m", arm));
+    }
+    out.push_str("throw new Error(\"non-exhaustive match\"); })()");
+    out
+}
+
+/// Lowers a `try`/`catch` to an IIFE; thrown `EmelaError`s route to the arms
+/// while panics (and other exceptions) propagate.
+fn emit_try(body: &IrExpr, arms: &[IrArm]) -> String {
+    let mut out = format!(
+        "(() => {{ try {{ return {}; }} catch (__e) {{ if (!(__e instanceof EmelaError)) throw __e; const __err = __e.value; ",
+        emit_expr(body)
+    );
+    for arm in arms {
+        out.push_str(&emit_arm("__err", arm));
+    }
+    out.push_str("throw __e; } })()");
+    out
+}
+
+/// Emits one `match`/`catch` arm testing `subject`.
+fn emit_arm(subject: &str, arm: &IrArm) -> String {
+    let body = emit_expr(&arm.body);
+    let guard = arm
+        .guard
+        .as_ref()
+        .map(|guard| format!("if ({}) ", emit_expr(guard)))
+        .unwrap_or_default();
+    match &arm.pattern {
+        IrPattern::Variant { tag, bindings, .. } => {
+            let mut binds = String::new();
+            for (index, binding) in bindings.iter().enumerate() {
+                if let Some((name, _)) = binding {
+                    binds.push_str(&format!(
+                        "const {} = {subject}.values[{index}]; ",
+                        js_name(name)
+                    ));
+                }
+            }
+            format!("if ({subject}.tag === {tag}) {{ {binds}{guard}return {body}; }} ")
+        }
+        IrPattern::Wildcard { binding } => {
+            let bind = binding
+                .as_ref()
+                .map(|(name, _)| format!("const {} = {subject}; ", js_name(name)))
+                .unwrap_or_default();
+            format!("{{ {bind}{guard}return {body}; }} ")
         }
     }
 }
@@ -209,6 +349,7 @@ mod tests {
                 name: "main".into(),
                 params: vec![],
                 ret: Type::Unit,
+                throws: None,
                 effects: EffectRow::sorted(vec!["io".into()]),
                 body,
             }],
