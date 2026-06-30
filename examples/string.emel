@@ -1,9 +1,10 @@
-fn text() -> String {
-  let str: String = "Hello, World!"
-  str
+-- String literals and local `let` bindings.
+
+fn greeting() -> String {
+  let message: String = "Hello, Emela!"
+  message
 }
 
-fn main() -> Unit {
-  let x = text()
-  ()
+fn main() -> String {
+  greeting()
 }
