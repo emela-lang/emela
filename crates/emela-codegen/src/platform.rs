@@ -56,7 +56,7 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             params: vec![],
             ret: Type::Int,
             capability: "clock".to_string(),
-        }
+        },
     ]
 }
 
