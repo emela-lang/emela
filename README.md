@@ -37,6 +37,9 @@ the JSON IR protocol (see [Backends](#backends)).
 - function types such as `(Int) -> Int` and `(Int, Int) -> Int uses { ... }`
 - first-class functions: function values, `fn` lambda expressions, closures, and
   higher-order functions
+- generic functions with type parameters such as `fn identity<T>(x: T) -> T`;
+  type arguments are inferred from the call and each instantiation is
+  monomorphized to a concrete specialization (spec 0014)
 - numeric arithmetic `+`, `-`, `*` on matching `Int` or `Float` operands
 - comparisons `==` and `<` on matching numeric operands, producing `Bool`
 - `extern fn` platform functions whose side effects are resolved by the
@@ -64,6 +67,9 @@ To set expectations, the following are **not** part of this build:
 
 - no `if` expression; branch with `match` instead
 - no `struct`, `trait`, or `impl` declarations
+- generics are limited to functions: no explicit type arguments (they are always
+  inferred), no generic data-type declarations, no generic function values, and
+  no effect-row or error-row polymorphism (spec 0014)
 - no string concatenation or boolean operators
 - no native (machine-code) backend
 - platform functions are still the minimal `Unit`-returning set and do not yet
@@ -148,6 +154,7 @@ cargo run --bin emela -- build --backend js-node examples/<file>.emel | node
 | `add.emel` | functions, typed parameters, calls | `42` |
 | `string.emel` | `String` values and `let` bindings | `Hello, Emela!` |
 | `function_values.emel` | function values, higher-order functions, closures | `63` |
+| `generics.emel` | generic functions, inferred type arguments, monomorphization | `42` |
 | `effects.emel` | `uses { ... }` effect rows and propagation | _(none; returns `Unit`)_ |
 | `maximal.emel` | the largest subset that compiles, combined | `44` |
 | `imports/main.emel` | `module` / `pub` / `import` across files | `37` |
@@ -219,6 +226,23 @@ fn make_adder(n: Int) -> (Int) -> Int {
 fn main() -> Int {
   let add10 = make_adder(10)
   apply(add10, 32)
+}
+```
+
+Generic functions (type arguments are inferred from the call):
+
+```emela
+fn identity<T>(x: T) -> T {
+  x
+}
+
+fn apply_to<A, B>(f: (A) -> B, x: A) -> B {
+  f(x)
+}
+
+fn main() -> Int {
+  let start: Int = identity(41)
+  apply_to(fn (n: Int) -> Int { n + 1 }, start)
 }
 ```
 

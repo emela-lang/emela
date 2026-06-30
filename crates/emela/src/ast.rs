@@ -70,6 +70,10 @@ pub(crate) struct Function {
     pub(crate) name: String,
     pub(crate) name_span: Span,
     pub(crate) is_public: bool,
+    /// Declared type parameters (spec 0014), e.g. `["T", "U"]`. Empty for a
+    /// non-generic function. Their names appear as `Type::Var` in this
+    /// function's signature and body.
+    pub(crate) type_params: Vec<String>,
     pub(crate) params: Vec<Param>,
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,

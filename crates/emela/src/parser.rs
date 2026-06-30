@@ -7,12 +7,22 @@ use crate::lexer::{Token, TokenKind, lex};
 
 pub(crate) fn parse_program(label: &str, source: &str) -> Result<Program> {
     let tokens = lex(label, source)?;
-    Parser { tokens, current: 0 }.parse_program()
+    Parser {
+        tokens,
+        current: 0,
+        type_params: Vec::new(),
+    }
+    .parse_program()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     current: usize,
+    /// The type parameters declared by the function currently being parsed
+    /// (spec 0014). While non-empty, `parse_type` resolves a bare name in this
+    /// set to `Type::Var` instead of a named enum. Functions never nest, so a
+    /// single set (cleared per function) is enough.
+    type_params: Vec<String>,
 }
 
 impl Parser {
@@ -155,6 +165,12 @@ impl Parser {
         self.expect(&TokenKind::Fn)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
+        // Type parameters (spec 0014) are in scope for the whole definition, so
+        // `parse_type` resolves them to `Type::Var` throughout the signature and
+        // body. Functions never nest, and a parse error aborts the whole parse,
+        // so resetting on the success path is enough.
+        let type_params = self.parse_type_params()?;
+        self.type_params = type_params.clone();
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
         self.expect(&TokenKind::RParen)?;
@@ -163,16 +179,46 @@ impl Parser {
         let throws = self.parse_throws_clause()?;
         let effects = self.parse_effect_row()?;
         let body = self.parse_block()?;
+        self.type_params = Vec::new();
         Ok(Function {
             name,
             name_span,
             is_public,
+            type_params,
             params,
             ret,
             throws,
             effects,
             body,
         })
+    }
+
+    /// Parses an optional `<T, U, ...>` type-parameter list (spec 0014). Returns
+    /// an empty vec when there is no list. An empty `<>` is rejected.
+    fn parse_type_params(&mut self) -> Result<Vec<String>> {
+        if !self.eat(&TokenKind::Lt) {
+            return Ok(Vec::new());
+        }
+        let mut params = Vec::new();
+        let first_span = self.peek().span.clone();
+        params.push(self.expect_ident()?);
+        while self.eat(&TokenKind::Comma) {
+            params.push(self.expect_ident()?);
+        }
+        self.expect(&TokenKind::Gt)?;
+        // Guard against duplicate names like `<T, T>`.
+        let mut seen = std::collections::HashSet::new();
+        for name in &params {
+            if !seen.insert(name.clone()) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Duplicate type parameter").label(
+                        first_span.clone(),
+                        format!("type parameter `{name}` is declared more than once"),
+                    ),
+                ));
+            }
+        }
+        Ok(params)
     }
 
     fn parse_params(&mut self) -> Result<Vec<Param>> {
@@ -249,6 +295,9 @@ impl Parser {
                 Ok(Type::Option(Box::new(inner)))
             }
             "Function" => Ok(Type::OpaqueFunction),
+            // A name declared as a type parameter of the enclosing function
+            // resolves to a type variable (spec 0014).
+            _ if self.type_params.contains(&name) => Ok(Type::Var(name)),
             // Any other capitalized name refers to a declared enum type; it is
             // resolved and validated during type checking (spec 0005).
             _ => Ok(Type::Enum(name)),

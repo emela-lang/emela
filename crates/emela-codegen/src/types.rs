@@ -23,6 +23,11 @@ pub enum Type {
     Never,
     Function(FunctionType),
     OpaqueFunction,
+    /// A generic function's type parameter (spec 0014), e.g. `T`. It only ever
+    /// appears in the frontend (function signatures and the AST while checking a
+    /// generic body); monomorphization substitutes it for a concrete type before
+    /// lowering, so it never reaches the typed IR or a backend.
+    Var(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

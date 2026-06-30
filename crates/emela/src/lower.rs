@@ -7,6 +7,7 @@
 //! `match`, and the error-handling forms (spec 0005/0011) lower to the IR's
 //! `EnumValue`/`Match`/`Throw`/`Try`/`Question`/`Panic` nodes.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use emela_codegen::{
@@ -14,10 +15,28 @@ use emela_codegen::{
     QuestionMode, Type,
 };
 
-use crate::ast::{Block, BlockItem, Expr, FieldBinding, MatchArm, Pattern, Program};
-use crate::typecheck::TypedProgram;
+use crate::ast::{Block, BlockItem, Expr, FieldBinding, Function, MatchArm, Pattern, Program};
+use crate::typecheck::{TypedProgram, subst_type};
 
 type Scope = HashMap<String, Type>;
+
+/// A pending monomorphization (spec 0014): a generic function specialized at a
+/// concrete set of type arguments, identified by its mangled name.
+struct MonoRequest {
+    /// The mangled name of the specialized function, e.g. `identity__Int`.
+    mangled: String,
+    /// The generic function being specialized.
+    generic_name: String,
+    /// The concrete binding for each of the generic function's type parameters.
+    subst: HashMap<String, Type>,
+}
+
+#[derive(Default)]
+struct MonoState {
+    queue: Vec<MonoRequest>,
+    /// Mangled names already requested, so each specialization is emitted once.
+    requested: HashSet<String>,
+}
 
 /// A platform function in scope: its canonical name and return type.
 struct ExternInfo {
@@ -32,21 +51,41 @@ struct VariantDef {
     fields: Vec<Type>,
 }
 
-struct Lowerer {
+struct Lowerer<'a> {
     function_types: HashMap<String, FunctionType>,
     externs: HashMap<String, ExternInfo>,
     enums: HashMap<String, Vec<VariantDef>>,
+    /// Generic function templates (spec 0014), by name. They are not emitted
+    /// directly; each call site specializes them.
+    generics: HashMap<String, &'a Function>,
+    /// Monomorphization worklist, filled while lowering call sites.
+    mono: RefCell<MonoState>,
+    /// The type-parameter substitution for the specialization currently being
+    /// lowered. Empty while lowering an ordinary (non-generic) function, where
+    /// `apply` is the identity.
+    subst: RefCell<HashMap<String, Type>>,
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
-    let function_types: HashMap<String, FunctionType> = typed
+    // Generic functions (spec 0014) are templates, kept aside and specialized at
+    // each call site; they are never emitted with their type variables intact.
+    let generics: HashMap<String, &Function> = program
         .functions
         .iter()
+        .filter(|function| !function.type_params.is_empty())
+        .map(|function| (function.name.clone(), function))
+        .collect();
+    // Only non-generic functions get a directly-callable signature; the AST
+    // signature equals the type checker's (it is built verbatim from it).
+    let function_types: HashMap<String, FunctionType> = program
+        .functions
+        .iter()
+        .filter(|function| function.type_params.is_empty())
         .map(|function| {
             (
                 function.name.clone(),
                 FunctionType {
-                    params: function.params.clone(),
+                    params: function.params.iter().map(|p| p.ty.clone()).collect(),
                     ret: Box::new(function.ret.clone()),
                     throws: function.throws.clone().map(Box::new),
                     effects: function.effects.clone(),
@@ -88,26 +127,35 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         function_types,
         externs,
         enums,
+        generics,
+        mono: RefCell::new(MonoState::default()),
+        subst: RefCell::new(HashMap::new()),
     };
 
-    let functions = program
+    // Lower the ordinary functions (no substitution); calls to generics enqueue
+    // specializations into the worklist. The type checker's signatures equal the
+    // AST's, so the ret/throws/effects come straight from it.
+    let mut functions: Vec<IrFunction> = program
         .functions
         .iter()
         .zip(typed.functions.iter())
+        .filter(|(function, _)| function.type_params.is_empty())
         .map(|(function, typed)| {
             let mut scope: Scope = function
                 .params
                 .iter()
-                .map(|param| (param.name.clone(), param.ty.clone()))
+                .zip(typed.params.iter())
+                .map(|(param, ty)| (param.name.clone(), ty.clone()))
                 .collect();
             IrFunction {
-                name: function.name.clone(),
+                name: typed.name.clone(),
                 params: function
                     .params
                     .iter()
-                    .map(|param| IrParam {
+                    .zip(typed.params.iter())
+                    .map(|(param, ty)| IrParam {
                         name: param.name.clone(),
-                        ty: param.ty.clone(),
+                        ty: ty.clone(),
                     })
                     .collect(),
                 ret: typed.ret.clone(),
@@ -117,10 +165,79 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             }
         })
         .collect();
+
+    // Drain the monomorphization worklist. Each specialization may itself call
+    // other generics, enqueueing more, so loop until the queue is empty.
+    while let Some(request) = lowerer.next_request() {
+        let template = lowerer.generics[&request.generic_name];
+        *lowerer.subst.borrow_mut() = request.subst;
+        let specialized = lowerer.lower_named_function(template, request.mangled);
+        lowerer.subst.borrow_mut().clear();
+        functions.push(specialized);
+    }
+
     IrProgram { functions }
 }
 
-impl Lowerer {
+impl<'a> Lowerer<'a> {
+    /// Lowers a function body to an `IrFunction` under the current substitution
+    /// (`apply`). For an ordinary function the substitution is empty; for a
+    /// specialization it maps the type parameters to concrete types.
+    fn lower_named_function(&self, function: &Function, name: String) -> IrFunction {
+        let mut scope: Scope = function
+            .params
+            .iter()
+            .map(|param| (param.name.clone(), self.apply(&param.ty)))
+            .collect();
+        IrFunction {
+            name,
+            params: function
+                .params
+                .iter()
+                .map(|param| IrParam {
+                    name: param.name.clone(),
+                    ty: self.apply(&param.ty),
+                })
+                .collect(),
+            ret: self.apply(&function.ret),
+            throws: function.throws.as_ref().map(|throws| self.apply(throws)),
+            effects: function.effects.clone(),
+            body: self.lower_block(&function.body.items, &mut scope).0,
+        }
+    }
+
+    /// Applies the current specialization substitution to a type. Identity when
+    /// no specialization is in progress (the common, non-generic case).
+    fn apply(&self, ty: &Type) -> Type {
+        let subst = self.subst.borrow();
+        if subst.is_empty() {
+            ty.clone()
+        } else {
+            subst_type(ty, &subst)
+        }
+    }
+
+    /// Records a specialization to emit, deduplicating by mangled name.
+    fn request_specialization(
+        &self,
+        mangled: &str,
+        generic_name: &str,
+        subst: HashMap<String, Type>,
+    ) {
+        let mut mono = self.mono.borrow_mut();
+        if mono.requested.insert(mangled.to_string()) {
+            mono.queue.push(MonoRequest {
+                mangled: mangled.to_string(),
+                generic_name: generic_name.to_string(),
+                subst,
+            });
+        }
+    }
+
+    fn next_request(&self) -> Option<MonoRequest> {
+        self.mono.borrow_mut().queue.pop()
+    }
+
     fn lower_block(&self, items: &[BlockItem], scope: &mut Scope) -> (IrExpr, Type) {
         match items.split_first() {
             None => (IrExpr::Unit, Type::Unit),
@@ -132,7 +249,10 @@ impl Lowerer {
                 },
                 rest,
             )) => {
-                let expected_elem = match (value, ty) {
+                // The annotation may mention this function's type parameters in
+                // a specialization, so resolve it under the substitution.
+                let annotated = ty.as_ref().map(|ty| self.apply(ty));
+                let expected_elem = match (value, &annotated) {
                     (Expr::Array(_, _), Some(Type::Array(element))) => Some(element.as_ref()),
                     _ => None,
                 };
@@ -140,7 +260,7 @@ impl Lowerer {
                     Expr::Array(elements, _) => self.lower_array(elements, scope, expected_elem),
                     _ => self.lower_expr(value, scope),
                 };
-                let value_ty = ty.clone().unwrap_or(inferred);
+                let value_ty = annotated.unwrap_or(inferred);
                 scope.insert(name.clone(), value_ty.clone());
                 let (next, next_ty) = self.lower_block(rest, scope);
                 (
@@ -435,6 +555,41 @@ impl Lowerer {
                     IrExpr::Platform {
                         name: info.canonical.clone(),
                         args,
+                        ret: ret.clone(),
+                    },
+                    ret,
+                );
+            }
+            // A call to a generic function (spec 0014): infer its type arguments
+            // from the (now concrete) argument types, request the matching
+            // specialization, and call it by its mangled name.
+            if let Some(template) = self.generics.get(name).copied() {
+                let lowered: Vec<(IrExpr, Type)> =
+                    args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
+                let mut subst = HashMap::new();
+                for (param, (_, actual)) in template.params.iter().zip(lowered.iter()) {
+                    infer_subst(&param.ty, actual, &mut subst);
+                }
+                let mangled = mangle(name, &template.type_params, &subst);
+                let sig = FunctionType {
+                    params: template
+                        .params
+                        .iter()
+                        .map(|param| subst_type(&param.ty, &subst))
+                        .collect(),
+                    ret: Box::new(subst_type(&template.ret, &subst)),
+                    throws: template
+                        .throws
+                        .as_ref()
+                        .map(|throws| Box::new(subst_type(throws, &subst))),
+                    effects: template.effects.clone(),
+                };
+                self.request_specialization(&mangled, name, subst);
+                let ret = (*sig.ret).clone();
+                return (
+                    IrExpr::Call {
+                        callee: Box::new(IrExpr::FunctionRef { name: mangled, sig }),
+                        args: lowered.into_iter().map(|(expr, _)| expr).collect(),
                         ret: ret.clone(),
                     },
                     ret,
@@ -738,6 +893,73 @@ fn pattern_bindings(pattern: &Pattern, bound: &mut HashSet<String>) {
     }
 }
 
+/// Binds a generic function's type parameters by matching a declared parameter
+/// type (which may contain type variables) against the concrete `actual` type of
+/// the argument (spec 0014). The type checker has already validated the call, so
+/// this is total: structural mismatches cannot occur here.
+fn infer_subst(declared: &Type, actual: &Type, subst: &mut HashMap<String, Type>) {
+    match (declared, actual) {
+        (Type::Var(name), _) => {
+            // Prefer a concrete binding over `Never` (from `throw`/`None`).
+            match subst.get(name) {
+                Some(bound) if *bound != Type::Never => {}
+                _ => {
+                    subst.insert(name.clone(), actual.clone());
+                }
+            }
+        }
+        (Type::Array(d), Type::Array(a)) => infer_subst(d, a, subst),
+        (Type::Option(d), Type::Option(a)) => infer_subst(d, a, subst),
+        (Type::Function(d), Type::Function(a)) if d.params.len() == a.params.len() => {
+            for (dp, ap) in d.params.iter().zip(a.params.iter()) {
+                infer_subst(dp, ap, subst);
+            }
+            infer_subst(&d.ret, &a.ret, subst);
+        }
+        _ => {}
+    }
+}
+
+/// The mangled name of a specialization, e.g. `identity` at `T = Int` becomes
+/// `identity__Int`. Deterministic and identifier-safe so backends can use it
+/// verbatim. Type parameters are appended in declaration order.
+fn mangle(name: &str, type_params: &[String], subst: &HashMap<String, Type>) -> String {
+    let mut mangled = name.to_string();
+    for type_param in type_params {
+        mangled.push_str("__");
+        mangled.push_str(&mangle_type(subst.get(type_param).unwrap_or(&Type::Unit)));
+    }
+    mangled
+}
+
+/// An identifier-safe encoding of a concrete type for name mangling.
+fn mangle_type(ty: &Type) -> String {
+    match ty {
+        Type::Unit => "Unit".to_string(),
+        Type::Bool => "Bool".to_string(),
+        Type::Int => "Int".to_string(),
+        Type::Float => "Float".to_string(),
+        Type::String => "String".to_string(),
+        Type::Array(element) => format!("Array_{}_", mangle_type(element)),
+        Type::Record => "Record".to_string(),
+        Type::Enum(name) => name.clone(),
+        Type::Option(inner) => format!("Option_{}_", mangle_type(inner)),
+        Type::Never => "Never".to_string(),
+        Type::Function(function) => {
+            let params = function
+                .params
+                .iter()
+                .map(mangle_type)
+                .collect::<Vec<_>>()
+                .join("_");
+            format!("Fn_{params}_to_{}_", mangle_type(&function.ret))
+        }
+        Type::OpaqueFunction => "Fn".to_string(),
+        // A type variable cannot survive substitution at a concrete call site.
+        Type::Var(name) => name.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,6 +1013,24 @@ mod tests {
         assert_eq!(captures.len(), 1);
         assert_eq!(captures[0].name, "n");
         assert_eq!(captures[0].ty, Type::Int);
+    }
+
+    #[test]
+    fn monomorphizes_generic_call() {
+        let ir =
+            lower_source("fn identity<T>(x: T) -> T { x }\nfn main() -> Int { identity(42) }\n");
+        let names: Vec<&str> = ir.functions.iter().map(|f| f.name.as_str()).collect();
+        // The call is specialized and the generic template is not emitted.
+        assert!(names.contains(&"identity__Int"), "names: {names:?}");
+        assert!(!names.contains(&"identity"), "names: {names:?}");
+        // The specialization is fully concrete.
+        let spec = ir
+            .functions
+            .iter()
+            .find(|function| function.name == "identity__Int")
+            .expect("identity__Int");
+        assert_eq!(spec.ret, Type::Int);
+        assert_eq!(spec.params[0].ty, Type::Int);
     }
 
     #[test]

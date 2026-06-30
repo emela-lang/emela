@@ -22,10 +22,18 @@ pub(crate) struct TypedFunction {
 
 #[derive(Debug, Clone)]
 struct FunctionSig {
+    /// Declared type parameters (spec 0014); empty for a non-generic function.
+    type_params: Vec<String>,
     params: Vec<Type>,
     ret: Type,
     throws: Option<Type>,
     effects: EffectRow,
+}
+
+impl FunctionSig {
+    fn is_generic(&self) -> bool {
+        !self.type_params.is_empty()
+    }
 }
 
 impl FunctionSig {
@@ -191,9 +199,34 @@ impl Checker {
             if let Some(throws) = &function.throws {
                 self.validate_type(throws, &function.name_span)?;
             }
+            // Every type parameter must occur in at least one parameter type
+            // (possibly nested), so a call can infer it from its arguments
+            // (spec 0014). Type arguments are not given explicitly.
+            let mut mentioned = HashSet::new();
+            for param in &function.params {
+                collect_type_vars(&param.ty, &mut mentioned);
+            }
+            for type_param in &function.type_params {
+                if !mentioned.contains(type_param) {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Uninferable type parameter")
+                            .label(
+                                function.name_span.clone(),
+                                format!(
+                                    "type parameter `{type_param}` does not appear in any parameter type"
+                                ),
+                            )
+                            .help(
+                                "Each type parameter must be inferable from an argument; \
+                                 use it in a parameter type.",
+                            ),
+                    ));
+                }
+            }
             self.functions.insert(
                 function.name.clone(),
                 FunctionSig {
+                    type_params: function.type_params.clone(),
                     params: function
                         .params
                         .iter()
@@ -259,6 +292,8 @@ impl Checker {
             self.functions.insert(
                 declaration.name.clone(),
                 FunctionSig {
+                    // Platform functions are never generic (spec 0013).
+                    type_params: Vec::new(),
                     params,
                     ret: declaration.ret.clone(),
                     throws: declaration.throws.clone(),
@@ -456,6 +491,19 @@ impl Checker {
                 } else if name == "None" {
                     Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
                 } else if let Some(sig) = self.functions.get(name) {
+                    // A generic function cannot be used as a first-class value:
+                    // its type arguments are only fixed at a direct call site
+                    // (spec 0014).
+                    if sig.is_generic() {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("Generic function used as a value")
+                                .label(
+                                    span.clone(),
+                                    format!("`{name}` is generic and must be called directly"),
+                                )
+                                .help("Call it as `{name}(...)`; generic function values are not supported."),
+                        ));
+                    }
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
                     Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
@@ -668,6 +716,28 @@ impl Checker {
                     throws: arg.throws,
                     span: span.clone(),
                 });
+            }
+        }
+        // Generic function call (spec 0014): a direct call to a generic function
+        // infers its type arguments from the argument types. This is handled
+        // before the general path because a generic function has no first-class
+        // function type to flow through `check_expr`.
+        if let Expr::Var(name, _) = callee {
+            if !scope.contains_key(name) {
+                if let Some(sig) = self.functions.get(name) {
+                    if sig.is_generic() {
+                        let sig = sig.clone();
+                        return self.check_generic_call(
+                            name,
+                            &sig,
+                            args,
+                            span,
+                            scope,
+                            ctx,
+                            allow_throw,
+                        );
+                    }
+                }
             }
         }
         let callee_info = self.check_expr(callee, scope, ctx, allow_throw)?;
@@ -1058,6 +1128,73 @@ impl Checker {
             span,
         }
     }
+
+    /// Type-checks a direct call to a generic function (spec 0014). Type
+    /// arguments are inferred by matching each declared parameter type (which
+    /// may contain `Type::Var`) against the actual argument type, then the
+    /// resulting substitution instantiates the return and `throws` types.
+    fn check_generic_call(
+        &self,
+        name: &str,
+        sig: &FunctionSig,
+        args: &[Expr],
+        span: &Span,
+        scope: &mut HashMap<String, Type>,
+        ctx: &FnCtx,
+        allow_throw: bool,
+    ) -> Result<ExprInfo> {
+        if args.len() != sig.params.len() {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Wrong number of arguments").label(
+                    span.clone(),
+                    format!(
+                        "function expects {} argument(s), got {}",
+                        sig.params.len(),
+                        args.len()
+                    ),
+                ),
+            ));
+        }
+        let mut effects = sig.effects.clone();
+        let mut throws = None;
+        let mut subst: HashMap<String, Type> = HashMap::new();
+        for (arg, declared) in args.iter().zip(sig.params.iter()) {
+            let actual = self.check_expr(arg, scope, ctx, allow_throw)?;
+            match_type(declared, &actual.ty, &mut subst, &actual.span)?;
+            effects.union(&actual.effects);
+            throws = merge_throws(throws, actual.throws, actual.span)?;
+        }
+        // Every type parameter must be pinned down by the arguments.
+        for type_param in &sig.type_params {
+            if !subst.contains_key(type_param) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Cannot infer type parameter").label(
+                        span.clone(),
+                        format!("could not infer type parameter `{type_param}` of `{name}`"),
+                    ),
+                ));
+            }
+        }
+        // A throwing call must use `?` or sit inside a `try` block (spec 0011);
+        // the error type is the instantiated `throws` clause.
+        if let Some(call_error) = &sig.throws {
+            if !allow_throw {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Unhandled throwing call")
+                        .label(span.clone(), "this call may throw")
+                        .help("Use `?` to propagate the error, or wrap it in `try`/`catch`."),
+                ));
+            }
+            let concrete = subst_type(call_error, &subst);
+            throws = merge_throws(throws, Some(concrete), span.clone())?;
+        }
+        Ok(ExprInfo {
+            ty: subst_type(&sig.ret, &subst),
+            effects,
+            throws,
+            span: span.clone(),
+        })
+    }
 }
 
 /// Combines the error a subexpression may throw with that of its siblings. The
@@ -1149,5 +1286,102 @@ fn types_compatible(actual: &Type, expected: &Type) -> bool {
         (Type::Option(a), Type::Option(e)) => types_compatible(a, e),
         (Type::Array(a), Type::Array(e)) => types_compatible(a, e),
         _ => false,
+    }
+}
+
+/// Collects the names of the type variables (spec 0014) mentioned anywhere in a
+/// type, including nested positions.
+fn collect_type_vars(ty: &Type, out: &mut HashSet<String>) {
+    match ty {
+        Type::Var(name) => {
+            out.insert(name.clone());
+        }
+        Type::Array(inner) | Type::Option(inner) => collect_type_vars(inner, out),
+        Type::Function(function) => {
+            for param in &function.params {
+                collect_type_vars(param, out);
+            }
+            collect_type_vars(&function.ret, out);
+            if let Some(throws) = &function.throws {
+                collect_type_vars(throws, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Matches a declared type (which may contain type variables) against a concrete
+/// `actual` type, recording each type variable's binding in `subst` (spec 0014).
+/// Reports a type error on a structural mismatch or an inconsistent binding.
+fn match_type(
+    declared: &Type,
+    actual: &Type,
+    subst: &mut HashMap<String, Type>,
+    span: &Span,
+) -> Result<()> {
+    match (declared, actual) {
+        (Type::Var(name), _) => {
+            match subst.get(name) {
+                Some(bound) if bound == actual => {}
+                // `Never` (from `throw`/`None`) is too weak to pin a parameter:
+                // let a later concrete argument refine the binding, and accept a
+                // `Never` argument against an already-concrete binding.
+                Some(bound) if *bound == Type::Never => {
+                    subst.insert(name.clone(), actual.clone());
+                }
+                Some(_) if *actual == Type::Never => {}
+                Some(bound) => {
+                    return Err(Error::diagnostic(Diagnostic::new("Conflicting type argument").label(
+                        span.clone(),
+                        format!(
+                            "type parameter `{name}` is used as both `{bound:?}` and `{actual:?}`"
+                        ),
+                    )));
+                }
+                None => {
+                    subst.insert(name.clone(), actual.clone());
+                }
+            }
+            Ok(())
+        }
+        (Type::Array(d), Type::Array(a)) => match_type(d, a, subst, span),
+        (Type::Option(d), Type::Option(a)) => match_type(d, a, subst, span),
+        (Type::Function(d), Type::Function(a)) if d.params.len() == a.params.len() => {
+            for (dp, ap) in d.params.iter().zip(a.params.iter()) {
+                match_type(dp, ap, subst, span)?;
+            }
+            match_type(&d.ret, &a.ret, subst, span)
+        }
+        // No type variable here: fall back to ordinary assignability.
+        _ if types_compatible(actual, declared) => Ok(()),
+        _ => Err(Error::diagnostic(Diagnostic::new("Type mismatch").label(
+            span.clone(),
+            format!("expected `{declared:?}`, but found `{actual:?}`"),
+        ))),
+    }
+}
+
+/// Replaces every type variable in `ty` with its concrete binding from `subst`
+/// (spec 0014). A variable with no binding is left as-is. Shared with lowering's
+/// monomorphization.
+pub(crate) fn subst_type(ty: &Type, subst: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Var(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::Array(inner) => Type::Array(Box::new(subst_type(inner, subst))),
+        Type::Option(inner) => Type::Option(Box::new(subst_type(inner, subst))),
+        Type::Function(function) => Type::Function(FunctionType {
+            params: function
+                .params
+                .iter()
+                .map(|param| subst_type(param, subst))
+                .collect(),
+            ret: Box::new(subst_type(&function.ret, subst)),
+            throws: function
+                .throws
+                .as_ref()
+                .map(|throws| Box::new(subst_type(throws, subst))),
+            effects: function.effects.clone(),
+        }),
+        _ => ty.clone(),
     }
 }
