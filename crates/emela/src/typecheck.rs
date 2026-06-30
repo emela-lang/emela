@@ -5,6 +5,7 @@ use crate::ast::{
     Pattern, Program, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
+use crate::resolve::{FnEntry, FnTable, Resolved, display_path};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypedProgram {
@@ -13,7 +14,6 @@ pub(crate) struct TypedProgram {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypedFunction {
-    pub(crate) name: String,
     pub(crate) params: Vec<Type>,
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
@@ -77,7 +77,9 @@ struct FnCtx<'a> {
 
 pub(crate) fn check(program: &Program) -> Result<TypedProgram> {
     let mut checker = Checker {
-        functions: HashMap::new(),
+        table: FnTable::build(program),
+        sigs: Vec::new(),
+        externs: HashMap::new(),
         enums: HashMap::new(),
     };
     checker.register_enums(program)?;
@@ -92,7 +94,6 @@ pub(crate) fn check(program: &Program) -> Result<TypedProgram> {
             .functions
             .iter()
             .map(|function| TypedFunction {
-                name: function.name.clone(),
                 params: function
                     .params
                     .iter()
@@ -107,7 +108,15 @@ pub(crate) fn check(program: &Program) -> Result<TypedProgram> {
 }
 
 struct Checker {
-    functions: HashMap<String, FunctionSig>,
+    /// Suffix-resolution table over all top-level functions (spec 0018), shared
+    /// in structure with lowering.
+    table: FnTable,
+    /// Each top-level function's signature, indexed in parallel with
+    /// `Program::functions` (so `FnEntry::index` indexes it).
+    sigs: Vec<FunctionSig>,
+    /// Platform functions (`extern fn`, spec 0013), keyed by bare name. They are
+    /// always called unqualified and never collide with module imports.
+    externs: HashMap<String, FunctionSig>,
     enums: HashMap<String, EnumInfo>,
 }
 
@@ -174,8 +183,14 @@ impl Checker {
     }
 
     fn register_functions(&mut self, program: &Program) -> Result<()> {
+        // Imported public functions carry a qualifier (spec 0018) and may share a
+        // bare name with one another (resolved by qualifying at the call site).
+        // Only unqualified functions — the compilation root's own functions and
+        // module-private helpers — still need a unique bare name, since they
+        // share a backend emit name.
+        let mut seen_local = HashSet::new();
         for function in &program.functions {
-            if self.functions.contains_key(&function.name) {
+            if function.module_path.is_empty() && !seen_local.insert(function.name.clone()) {
                 return Err(Error::diagnostic(
                     Diagnostic::new("Duplicate function").label(
                         function.name_span.clone(),
@@ -223,20 +238,17 @@ impl Checker {
                     ));
                 }
             }
-            self.functions.insert(
-                function.name.clone(),
-                FunctionSig {
-                    type_params: function.type_params.clone(),
-                    params: function
-                        .params
-                        .iter()
-                        .map(|param| param.ty.clone())
-                        .collect(),
-                    ret: function.ret.clone(),
-                    throws: function.throws.clone(),
-                    effects: function.effects.clone(),
-                },
-            );
+            self.sigs.push(FunctionSig {
+                type_params: function.type_params.clone(),
+                params: function
+                    .params
+                    .iter()
+                    .map(|param| param.ty.clone())
+                    .collect(),
+                ret: function.ret.clone(),
+                throws: function.throws.clone(),
+                effects: function.effects.clone(),
+            });
         }
         Ok(())
     }
@@ -245,7 +257,11 @@ impl Checker {
     /// registers it as a callable signature so wrappers can call it.
     fn register_externs(&mut self, program: &Program) -> Result<()> {
         for declaration in &program.externs {
-            if self.functions.contains_key(&declaration.name) {
+            let clashes_function = !matches!(
+                self.table.resolve(std::slice::from_ref(&declaration.name)),
+                Resolved::None
+            );
+            if self.externs.contains_key(&declaration.name) || clashes_function {
                 return Err(Error::diagnostic(
                     Diagnostic::new("Duplicate function").label(
                         declaration.name_span.clone(),
@@ -289,7 +305,7 @@ impl Checker {
                     ),
                 ));
             }
-            self.functions.insert(
+            self.externs.insert(
                 declaration.name.clone(),
                 FunctionSig {
                     // Platform functions are never generic (spec 0013).
@@ -491,26 +507,30 @@ impl Checker {
                     Ok(self.info(ty.clone(), span.clone()))
                 } else if name == "None" {
                     Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
-                } else if let Some(sig) = self.functions.get(name) {
-                    // A generic function cannot be used as a first-class value:
-                    // its type arguments are only fixed at a direct call site
-                    // (spec 0014).
-                    if sig.is_generic() {
-                        return Err(Error::diagnostic(
-                            Diagnostic::new("Generic function used as a value")
-                                .label(
-                                    span.clone(),
-                                    format!("`{name}` is generic and must be called directly"),
-                                )
-                                .help("Call it as `{name}(...)`; generic function values are not supported."),
-                        ));
-                    }
+                } else if let Some(sig) = self.externs.get(name) {
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
-                    Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
-                        span.clone(),
-                        format!("`{name}` is not defined in this scope"),
-                    )))
+                    match self.table.resolve(std::slice::from_ref(name)) {
+                        Resolved::One(entry) => {
+                            let sig = &self.sigs[entry.index];
+                            // A generic function cannot be used as a first-class
+                            // value: its type arguments are only fixed at a direct
+                            // call site (spec 0014).
+                            if sig.is_generic() {
+                                return Err(generic_value_error(name, span));
+                            }
+                            Ok(self.info(sig.ty(), span.clone()))
+                        }
+                        Resolved::Ambiguous(candidates) => {
+                            Err(ambiguous_error(name, &candidates, span))
+                        }
+                        Resolved::None => {
+                            Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
+                                span.clone(),
+                                format!("`{name}` is not defined in this scope"),
+                            )))
+                        }
+                    }
                 }
             }
             Expr::Call { callee, args, span } => {
@@ -692,26 +712,31 @@ impl Checker {
                     )))
                 }
             }
-            Expr::Variant {
-                enum_name,
-                variant,
-                args,
-                span,
-            } => {
-                // Built-in pure conversions (spec 0017), spelled `Char.from_code`
-                // and `String.from_char`.
-                if let Some(builtin) = self.check_char_builtin(
-                    enum_name,
-                    variant,
-                    args,
-                    span,
-                    scope,
-                    ctx,
-                    allow_throw,
-                )? {
-                    return Ok(builtin);
+            Expr::Path { segments, span } => {
+                // A bare path used as a value (no `(...)`). An enum variant with
+                // no payload takes precedence over a qualified function of the
+                // same path (spec 0018 R6).
+                if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
+                    return self.check_variant(segments, &[], span, scope, ctx, allow_throw);
                 }
-                self.check_variant(enum_name, variant, args, span, scope, ctx, allow_throw)
+                match self.table.resolve(segments) {
+                    Resolved::One(entry) => {
+                        let sig = &self.sigs[entry.index];
+                        if sig.is_generic() {
+                            return Err(generic_value_error(&segments.join("."), span));
+                        }
+                        Ok(self.info(sig.ty(), span.clone()))
+                    }
+                    Resolved::Ambiguous(candidates) => {
+                        Err(ambiguous_error(&segments.join("."), &candidates, span))
+                    }
+                    Resolved::None => {
+                        Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
+                            span.clone(),
+                            format!("`{}` is not defined", segments.join(".")),
+                        )))
+                    }
+                }
             }
             Expr::Match {
                 scrutinee,
@@ -755,45 +780,74 @@ impl Checker {
         allow_throw: bool,
     ) -> Result<ExprInfo> {
         // Built-in Option constructor `Some(x)`.
-        if let Expr::Var(name, _) = callee {
-            if name == "Some" && !scope.contains_key(name) && !self.functions.contains_key(name) {
-                if args.len() != 1 {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Wrong number of arguments").label(
-                            span.clone(),
-                            format!("`Some` takes 1 argument, got {}", args.len()),
-                        ),
-                    ));
-                }
-                let arg = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-                return Ok(ExprInfo {
-                    ty: Type::Option(Box::new(arg.ty)),
-                    effects: arg.effects,
-                    throws: arg.throws,
-                    span: span.clone(),
-                });
+        if let Expr::Var(name, _) = callee
+            && name == "Some"
+            && !scope.contains_key(name)
+            && !self.externs.contains_key(name)
+            && matches!(
+                self.table.resolve(std::slice::from_ref(name)),
+                Resolved::None
+            )
+        {
+            if args.len() != 1 {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Wrong number of arguments").label(
+                        span.clone(),
+                        format!("`Some` takes 1 argument, got {}", args.len()),
+                    ),
+                ));
             }
+            let arg = self.check_expr(&args[0], scope, ctx, allow_throw)?;
+            return Ok(ExprInfo {
+                ty: Type::Option(Box::new(arg.ty)),
+                effects: arg.effects,
+                throws: arg.throws,
+                span: span.clone(),
+            });
         }
         // Generic function call (spec 0014): a direct call to a generic function
         // infers its type arguments from the argument types. This is handled
         // before the general path because a generic function has no first-class
         // function type to flow through `check_expr`.
-        if let Expr::Var(name, _) = callee {
-            if !scope.contains_key(name) {
-                if let Some(sig) = self.functions.get(name) {
-                    if sig.is_generic() {
-                        let sig = sig.clone();
-                        return self.check_generic_call(
-                            name,
-                            &sig,
-                            args,
-                            span,
-                            scope,
-                            ctx,
-                            allow_throw,
-                        );
-                    }
+        if let Expr::Var(name, _) = callee
+            && !scope.contains_key(name)
+            && !self.externs.contains_key(name)
+            && let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
+            && self.sigs[entry.index].is_generic()
+        {
+            let sig = self.sigs[entry.index].clone();
+            return self.check_generic_call(name, &sig, args, span, scope, ctx, allow_throw);
+        }
+        // A qualified call target (spec 0018): a built-in conversion, an enum
+        // variant, or a (possibly generic) qualified function. A non-generic
+        // qualified function falls through to the general path below, where
+        // `check_expr` on the path yields its function type.
+        if let Expr::Path { segments, .. } = callee {
+            if let Some(builtin) =
+                self.check_char_builtin(segments, args, span, scope, ctx, allow_throw)?
+            {
+                return Ok(builtin);
+            }
+            if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
+                return self.check_variant(segments, args, span, scope, ctx, allow_throw);
+            }
+            match self.table.resolve(segments) {
+                Resolved::One(entry) if self.sigs[entry.index].is_generic() => {
+                    let sig = self.sigs[entry.index].clone();
+                    return self.check_generic_call(
+                        &entry.name,
+                        &sig,
+                        args,
+                        span,
+                        scope,
+                        ctx,
+                        allow_throw,
+                    );
                 }
+                Resolved::Ambiguous(candidates) => {
+                    return Err(ambiguous_error(&segments.join("."), &candidates, span));
+                }
+                _ => {}
             }
         }
         let callee_info = self.check_expr(callee, scope, ctx, allow_throw)?;
@@ -854,18 +908,17 @@ impl Checker {
     #[allow(clippy::too_many_arguments)]
     fn check_char_builtin(
         &self,
-        enum_name: &Option<String>,
-        variant: &str,
+        segments: &[String],
         args: &[Expr],
         span: &Span,
         scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
     ) -> Result<Option<ExprInfo>> {
-        let Some(name) = enum_name else {
+        let [name, variant] = segments else {
             return Ok(None);
         };
-        let (arg_ty, ret_ty) = match (name.as_str(), variant) {
+        let (arg_ty, ret_ty) = match (name.as_str(), variant.as_str()) {
             ("Char", "from_code") => (Type::Int, Type::Char),
             ("String", "from_char") => (Type::Char, Type::String),
             _ => return Ok(None),
@@ -890,15 +943,14 @@ impl Checker {
 
     fn check_variant(
         &self,
-        enum_name: &Option<String>,
-        variant: &str,
+        segments: &[String],
         args: &[Expr],
         span: &Span,
         scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
     ) -> Result<ExprInfo> {
-        let Some(name) = enum_name else {
+        let [name, variant] = segments else {
             return Err(Error::diagnostic(
                 Diagnostic::new("Ambiguous variant").label(
                     span.clone(),
@@ -912,7 +964,7 @@ impl Checker {
                     .label(span.clone(), format!("`{name}` is not a declared enum")),
             ));
         };
-        let Some(vinfo) = info.variants.iter().find(|v| v.name == variant) else {
+        let Some(vinfo) = info.variants.iter().find(|v| v.name == *variant) else {
             return Err(Error::diagnostic(Diagnostic::new("Unknown variant").label(
                 span.clone(),
                 format!("`{name}` has no variant `{variant}`"),
@@ -1291,6 +1343,38 @@ impl Checker {
             span: span.clone(),
         })
     }
+}
+
+/// A generic function may not be used as a first-class value; its type arguments
+/// are only fixed at a direct call site (spec 0014).
+fn generic_value_error(name: &str, span: &Span) -> Error {
+    Error::diagnostic(
+        Diagnostic::new("Generic function used as a value")
+            .label(
+                span.clone(),
+                format!("`{name}` is generic and must be called directly"),
+            )
+            .help("Call it as `name(...)`; generic function values are not supported."),
+    )
+}
+
+/// A path that matches more than one imported function is ambiguous (spec 0018
+/// R5); the diagnostic lists each candidate's full path so the user can qualify
+/// the call further.
+fn ambiguous_error(path: &str, candidates: &[&FnEntry], span: &Span) -> Error {
+    let listed = candidates
+        .iter()
+        .map(|entry| display_path(&entry.full_path))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Error::diagnostic(
+        Diagnostic::new("Ambiguous reference")
+            .label(
+                span.clone(),
+                format!("`{path}` is ambiguous between: {listed}"),
+            )
+            .help("Qualify the call with its module path, e.g. `module.name(...)`."),
+    )
 }
 
 /// Combines the error a subexpression may throw with that of its siblings. The

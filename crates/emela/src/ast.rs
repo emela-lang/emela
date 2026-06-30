@@ -70,6 +70,12 @@ pub(crate) struct Function {
     pub(crate) name: String,
     pub(crate) name_span: Span,
     pub(crate) is_public: bool,
+    /// The import qualifier this function was brought in under, e.g.
+    /// `["std", "int"]` for a function imported via `import std.int.to_string`
+    /// (spec 0018). Empty for the compilation root's own functions and for
+    /// module-private helpers. The full qualified path is `module_path + [name]`,
+    /// and the function is callable by any suffix of that path ending at `name`.
+    pub(crate) module_path: Vec<String>,
     /// Declared type parameters (spec 0014), e.g. `["T", "U"]`. Empty for a
     /// non-generic function. Their names appear as `Type::Var` in this
     /// function's signature and body.
@@ -169,11 +175,14 @@ pub(crate) enum Expr {
         arms: Vec<MatchArm>,
         span: Span,
     },
-    /// An enum/`Option` variant: `Some(x)`, `None`, `Color.Red`.
-    Variant {
-        enum_name: Option<String>,
-        variant: String,
-        args: Vec<Expr>,
+    /// A dotted path used as a value or call target (spec 0018): `Color.Red`,
+    /// `Char.from_code`, `int.to_string`, `std.int.to_string`. Has at least two
+    /// segments (a single identifier is `Var`). Its meaning — enum variant,
+    /// built-in conversion, or a (possibly qualified) function — is resolved in
+    /// the type checker / lowering. When followed by `(...)` it is the callee of
+    /// a `Call`; on its own it is a value (e.g. a no-payload variant).
+    Path {
+        segments: Vec<String>,
         span: Span,
     },
 }
@@ -198,7 +207,7 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::Try { span, .. }
             | Expr::If { span, .. }
-            | Expr::Variant { span, .. } => span.clone(),
+            | Expr::Path { span, .. } => span.clone(),
             Expr::Block(block) => block.span.clone(),
         }
     }

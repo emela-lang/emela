@@ -125,7 +125,21 @@ impl ImportResolver<'_> {
                     ))
                 })?;
                 if self.emitted.insert(canonical) {
-                    Ok((module.functions.clone(), module.externs.clone()))
+                    // Stamp each of this module's own public functions with the
+                    // qualifier the user wrote (everything before the item name),
+                    // e.g. `["std", "int"]` for `import std.int.to_string`. They
+                    // then become callable as `int.to_string` / `std.int.to_string`
+                    // as well as the bare name (spec 0018). Private helpers and
+                    // already-stamped transitively-imported functions are left
+                    // unqualified, so they keep only their bare-name behavior.
+                    let qualifier = import.path[..import.path.len() - 1].to_vec();
+                    let mut functions = module.functions.clone();
+                    for function in &mut functions {
+                        if function.is_public && function.module_path.is_empty() {
+                            function.module_path = qualifier.clone();
+                        }
+                    }
+                    Ok((functions, module.externs.clone()))
                 } else {
                     Ok((Vec::new(), Vec::new()))
                 }
