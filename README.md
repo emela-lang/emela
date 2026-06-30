@@ -3,11 +3,29 @@
 Emela is an experimental functional language intended to compile to native code
 and WebAssembly. This repository contains the early Emela CLI and compiler for
 the minimal core language. The current build type-checks the core language and
-generates JavaScript.
+lowers it to a typed IR, which pluggable backends turn into **WebAssembly**
+(Tier 1) or **JavaScript** (Tier 2).
 
 The language specification lives in the separate `emela-lang/specification`
 repository. This README documents what the compiler in this repository actually
 implements today, which is a small subset of the full language.
+
+## Workspace layout
+
+The compiler is a Cargo workspace. The IR-to-target boundary is published as a
+small core crate so backends can be added without depending on the whole
+compiler:
+
+| Crate | Role |
+| --- | --- |
+| `emela-codegen` | Public core API: the IR, the type-system types it uses, the `Backend` trait, `Tier`, `Artifact`, the registry, and the external-plugin protocol. |
+| `emela-backend-wasm` | WebAssembly (WASI / WAMR) backend — Tier 1. |
+| `emela-backend-js` | JavaScript backend — Tier 2. |
+| `emela` | Frontend (lexer, parser, type checker, imports, lowering) and the CLI. |
+
+A backend is anything implementing `emela_codegen::Backend`. It can be in-process
+(a Rust crate depending only on `emela-codegen`) or an external process driven by
+the JSON IR protocol (see [Backends](#backends)).
 
 ## What the compiler supports
 
@@ -26,7 +44,8 @@ implements today, which is a small subset of the full language.
 - `module`, `pub`, and `import` for splitting code across files and source
   packages
 - line comments starting with `--`
-- JavaScript code generation, plus a textual IR dump for inspection
+- WebAssembly and JavaScript code generation, plus a textual IR dump
+- in-process and external-process pluggable backends
 
 The type names `Record`, `Enum`, and `Function` are accepted in signatures, but
 there is no literal or constructor syntax for their values yet, so they cannot be
@@ -39,17 +58,20 @@ To set expectations, the following are **not** part of this build:
 - no `if`, `match`, or other control flow beyond function calls and blocks
 - no `struct`, `enum`, `trait`, or `impl` declarations
 - no string concatenation or boolean operators
-- no native or WebAssembly code generation; the only backend is JavaScript
+- no native (machine-code) backend
 - no platform capability checking; effect names are opaque labels
-- no project manifest, dependency fetching, or external backend processes
+- no project manifest or dependency fetching
 
 ## Requirements
 
-- Rust toolchain with Cargo, edition 2021 compatible (tested with `rustc 1.84.1`)
+- Rust toolchain with Cargo, edition 2024 (Rust 1.85 or newer; tested with `rustc 1.96.0`)
 - `rustfmt`, normally installed with the Rust toolchain
-- Node.js to run the generated JavaScript
+- Node.js to run generated JavaScript
+- A WASI runtime such as WAMR (`iwasm`) or `wasmtime` to run generated wasm
 
-The compiler depends on `serde` and `serde_json` for reading package manifests.
+The compiler assembles WAT to wasm with the pure-Rust `wat` crate and validates
+it with `wasmparser`, so no external wasm tools are needed to *build*; a runtime
+is only needed to *run* the output.
 
 ## Build and test
 
@@ -65,37 +87,41 @@ installed `emela` binary directly.
 ## CLI usage
 
 ```text
-emela check [--backend js-node] [--package DIR] FILE
-emela build [--backend js-node] [--package DIR] [-o FILE] FILE
+emela check [--backend NAME] [--package DIR] FILE
+emela build [--backend NAME|PATH] [--emit default|text] [--package DIR] [-o FILE] FILE
 emela ir            [--package DIR] [-o FILE] FILE
+emela backends
 emela --version
 ```
 
 - `check` type-checks a program without producing output.
-- `build` emits JavaScript. Without `-o`/`--output` it prints to stdout; with it,
-  the JavaScript is written to the given file.
+- `build` lowers to IR and runs the selected backend. Without `-o`/`--output` it
+  prints text artifacts to stdout; a binary artifact (wasm) requires `-o`.
 - `ir` prints the lowered intermediate representation as text.
-- `--backend` is optional and only accepts `js-node` (alias `js`).
+- `backends` lists the built-in backends and their tiers.
+- `--backend NAME` selects a built-in backend (default `js-node`). `NAME` may
+  also be a path to a `backend.json` descriptor that declares an external
+  `command` (see [Backends](#backends)).
+- `--emit text` asks a backend for a textual artifact when it has one (WAT for
+  the wasm backend); the default is the binary/source artifact.
 - `--package DIR` adds a source package root (see [Packages](#packages)).
 
-Type-check an example:
-
-```sh
-cargo run --bin emela -- check --backend js-node examples/maximal.emel
-```
-
-Build and run an example with Node.js:
+Build and run an example as JavaScript (Tier 2):
 
 ```sh
 cargo run --bin emela -- build --backend js-node examples/add.emel | node
 # prints 42
 ```
 
-Inspect the lowered IR:
+Build and run an example as WebAssembly (Tier 1):
 
 ```sh
-cargo run --bin emela -- ir examples/add.emel
+cargo run --bin emela -- build --backend wasm-wasi -o /tmp/add.wasm examples/add.emel
+wasmtime /tmp/add.wasm; echo $?    # exit code 42  (iwasm works too)
 ```
+
+`main`'s `Int` result becomes the process exit code; any other result type exits
+`0`. Inspect the generated WAT with `--emit text`, or the IR with `emela ir`.
 
 ## Examples
 
@@ -119,6 +145,10 @@ cargo run --bin emela -- build --backend js-node examples/<file>.emel | node
 `imports/main.emel` imports from the sibling module `imports/geometry.emel`. The
 module file has no `main`, so it is consumed via `import` rather than checked on
 its own.
+
+The same examples build to WebAssembly; the numeric ones produce the same value
+as their exit code (`add`→42, `function_values`→63, `maximal`→44,
+`imports/main`→37), and the others exit `0`.
 
 ## Language tour
 
@@ -186,6 +216,58 @@ fn main() -> Unit uses { Stdout } {
   ()
 }
 ```
+
+## Backends
+
+`emela backends` lists what is available:
+
+```text
+wasm-wasi   Tier 1
+js-node     Tier 2
+```
+
+Tiers mirror Rust's target tiers and are metadata, not a gate: Tier 1 is built
+and run in CI, Tier 2 is built and smoke-tested. Building with a non-Tier-1
+backend prints a one-line note. Built-in backends are feature-gated on the
+`emela` crate (`backend-wasm` and `backend-js`, both on by default). Name aliases
+`wasm`, `js`, and `js-bun` resolve to the canonical names above.
+
+### Adding a backend (in-process)
+
+Depend on `emela-codegen` and implement the trait:
+
+```rust
+use emela_codegen::{Artifact, ArtifactKind, Backend, BackendOptions, IrProgram, Result, Tier};
+
+struct MyBackend;
+impl Backend for MyBackend {
+    fn name(&self) -> &str { "my-backend" }
+    fn tier(&self) -> Tier { Tier::Tier3 }
+    fn compile(&self, ir: &IrProgram, _opts: &BackendOptions) -> Result<Artifact> {
+        Ok(Artifact { kind: ArtifactKind::Other("custom".into()), bytes: render(ir) })
+    }
+}
+```
+
+### Adding a backend (external process)
+
+Point `--backend` at a `backend.json` that declares a `command`:
+
+```json
+{ "name": "my-backend", "backend": "custom", "abi_version": 1,
+  "command": ["my-emela-backend"], "tier": "Tier3" }
+```
+
+The compiler writes a JSON `PluginRequest` (the IR plus `target`/`runtime`/`mode`)
+to the process's stdin and reads a `PluginResponse` from stdout:
+
+```json
+{ "status": "ok", "kind": "WasmBinary", "bytes": [0, 97, 115, 109] }
+```
+
+or, on failure, `{ "status": "error", "diagnostics": ["message"] }`. The request
+and response types live in `emela-codegen` so Rust plugins can reuse them, and
+the JSON shape is the contract for plugins written in any language.
 
 ## Packages
 
