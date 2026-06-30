@@ -16,6 +16,7 @@ use emela_codegen::{
 };
 
 use crate::ast::{Block, BlockItem, Expr, FieldBinding, Function, MatchArm, Pattern, Program};
+use crate::resolve::{FnTable, Resolved};
 use crate::typecheck::{TypedProgram, subst_type};
 
 type Scope = HashMap<String, Type>;
@@ -25,8 +26,8 @@ type Scope = HashMap<String, Type>;
 struct MonoRequest {
     /// The mangled name of the specialized function, e.g. `identity__Int`.
     mangled: String,
-    /// The generic function being specialized.
-    generic_name: String,
+    /// Index (in `Program::functions`) of the generic function being specialized.
+    template_index: usize,
     /// The concrete binding for each of the generic function's type parameters.
     subst: HashMap<String, Type>,
 }
@@ -52,12 +53,15 @@ struct VariantDef {
 }
 
 struct Lowerer<'a> {
-    function_types: HashMap<String, FunctionType>,
+    /// Suffix-resolution table over all top-level functions (spec 0018), built
+    /// identically to the type checker's so the two passes resolve a path to the
+    /// same function — and to the same backend emit name.
+    table: FnTable,
+    /// All top-level functions, indexed by `FnEntry::index`. Used to build a
+    /// resolved call's signature and to fetch generic templates to specialize.
+    functions: &'a [Function],
     externs: HashMap<String, ExternInfo>,
     enums: HashMap<String, Vec<VariantDef>>,
-    /// Generic function templates (spec 0014), by name. They are not emitted
-    /// directly; each call site specializes them.
-    generics: HashMap<String, &'a Function>,
     /// Monomorphization worklist, filled while lowering call sites.
     mono: RefCell<MonoState>,
     /// The type-parameter substitution for the specialization currently being
@@ -67,32 +71,6 @@ struct Lowerer<'a> {
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
-    // Generic functions (spec 0014) are templates, kept aside and specialized at
-    // each call site; they are never emitted with their type variables intact.
-    let generics: HashMap<String, &Function> = program
-        .functions
-        .iter()
-        .filter(|function| !function.type_params.is_empty())
-        .map(|function| (function.name.clone(), function))
-        .collect();
-    // Only non-generic functions get a directly-callable signature; the AST
-    // signature equals the type checker's (it is built verbatim from it).
-    let function_types: HashMap<String, FunctionType> = program
-        .functions
-        .iter()
-        .filter(|function| function.type_params.is_empty())
-        .map(|function| {
-            (
-                function.name.clone(),
-                FunctionType {
-                    params: function.params.iter().map(|p| p.ty.clone()).collect(),
-                    ret: Box::new(function.ret.clone()),
-                    throws: function.throws.clone().map(Box::new),
-                    effects: function.effects.clone(),
-                },
-            )
-        })
-        .collect();
     let externs: HashMap<String, ExternInfo> = program
         .externs
         .iter()
@@ -124,10 +102,10 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         })
         .collect();
     let lowerer = Lowerer {
-        function_types,
+        table: FnTable::build(program),
+        functions: &program.functions,
         externs,
         enums,
-        generics,
         mono: RefCell::new(MonoState::default()),
         subst: RefCell::new(HashMap::new()),
     };
@@ -139,8 +117,9 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         .functions
         .iter()
         .zip(typed.functions.iter())
-        .filter(|(function, _)| function.type_params.is_empty())
-        .map(|(function, typed)| {
+        .enumerate()
+        .filter(|(_, (function, _))| function.type_params.is_empty())
+        .map(|(index, (function, typed))| {
             let mut scope: Scope = function
                 .params
                 .iter()
@@ -148,7 +127,9 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .map(|(param, ty)| (param.name.clone(), ty.clone()))
                 .collect();
             IrFunction {
-                name: typed.name.clone(),
+                // Unique bare names are kept; colliding imports use a mangled
+                // full path so same-named functions coexist (spec 0018).
+                name: lowerer.table.emit_name(index).to_string(),
                 params: function
                     .params
                     .iter()
@@ -169,7 +150,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
     // Drain the monomorphization worklist. Each specialization may itself call
     // other generics, enqueueing more, so loop until the queue is empty.
     while let Some(request) = lowerer.next_request() {
-        let template = lowerer.generics[&request.generic_name];
+        let template = &lowerer.functions[request.template_index];
         *lowerer.subst.borrow_mut() = request.subst;
         let specialized = lowerer.lower_named_function(template, request.mangled);
         lowerer.subst.borrow_mut().clear();
@@ -221,16 +202,28 @@ impl<'a> Lowerer<'a> {
     fn request_specialization(
         &self,
         mangled: &str,
-        generic_name: &str,
+        template_index: usize,
         subst: HashMap<String, Type>,
     ) {
         let mut mono = self.mono.borrow_mut();
         if mono.requested.insert(mangled.to_string()) {
             mono.queue.push(MonoRequest {
                 mangled: mangled.to_string(),
-                generic_name: generic_name.to_string(),
+                template_index,
                 subst,
             });
+        }
+    }
+
+    /// The signature of a non-generic top-level function, by its index in
+    /// `Program::functions`. Used to build a `FunctionRef` for a resolved call.
+    fn fn_type(&self, index: usize) -> FunctionType {
+        let function = &self.functions[index];
+        FunctionType {
+            params: function.params.iter().map(|p| p.ty.clone()).collect(),
+            ret: Box::new(function.ret.clone()),
+            throws: function.throws.clone().map(Box::new),
+            effects: function.effects.clone(),
         }
     }
 
@@ -329,13 +322,16 @@ impl<'a> Lowerer<'a> {
                         },
                         ty,
                     )
-                } else if let Some(sig) = self.function_types.get(name) {
+                } else if let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
+                    && !entry.is_generic
+                {
+                    let sig = self.fn_type(entry.index);
                     (
                         IrExpr::FunctionRef {
-                            name: name.clone(),
+                            name: entry.emit_name.clone(),
                             sig: sig.clone(),
                         },
-                        Type::Function(sig.clone()),
+                        Type::Function(sig),
                     )
                 } else {
                     (
@@ -488,41 +484,38 @@ impl<'a> Lowerer<'a> {
                     )
                 }
             }
-            Expr::Variant {
-                enum_name,
-                variant,
-                args,
-                ..
-            } => {
-                // Built-in pure conversions (spec 0017).
-                if enum_name.as_deref() == Some("Char") && variant == "from_code" {
-                    let (arg, _) = self.lower_expr(&args[0], scope);
-                    return (IrExpr::CharFromCode(Box::new(arg)), Type::Char);
+            Expr::Path { segments, .. } => {
+                // A bare path with no `(...)`: a no-payload enum variant, or a
+                // (qualified) function used as a value (spec 0018). Built-in
+                // conversions always carry args and are handled in `lower_call`.
+                if let [enum_name, variant] = segments.as_slice()
+                    && let Some(variants) = self.enums.get(enum_name)
+                    && let Some(def) = variants.iter().find(|v| v.name == *variant)
+                {
+                    let ty = Type::Enum(enum_name.clone());
+                    return (
+                        IrExpr::EnumValue {
+                            ty: ty.clone(),
+                            variant: variant.clone(),
+                            tag: def.tag,
+                            payload: Vec::new(),
+                        },
+                        ty,
+                    );
                 }
-                if enum_name.as_deref() == Some("String") && variant == "from_char" {
-                    let (arg, _) = self.lower_expr(&args[0], scope);
-                    return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
+                if let Resolved::One(entry) = self.table.resolve(segments)
+                    && !entry.is_generic
+                {
+                    let sig = self.fn_type(entry.index);
+                    return (
+                        IrExpr::FunctionRef {
+                            name: entry.emit_name.clone(),
+                            sig: sig.clone(),
+                        },
+                        Type::Function(sig),
+                    );
                 }
-                let name = enum_name.clone().unwrap_or_default();
-                let tag = self
-                    .enums
-                    .get(&name)
-                    .and_then(|variants| variants.iter().find(|v| v.name == *variant))
-                    .map_or(0, |v| v.tag);
-                let payload = args
-                    .iter()
-                    .map(|arg| self.lower_expr(arg, scope).0)
-                    .collect();
-                let ty = Type::Enum(name);
-                (
-                    IrExpr::EnumValue {
-                        ty: ty.clone(),
-                        variant: variant.clone(),
-                        tag,
-                        payload,
-                    },
-                    ty,
-                )
+                (IrExpr::Unit, Type::Unit)
             }
             Expr::Match {
                 scrutinee, arms, ..
@@ -571,7 +564,11 @@ impl<'a> Lowerer<'a> {
             // Built-in Option constructor `Some(x)`.
             if name == "Some"
                 && !scope.contains_key(name)
-                && !self.function_types.contains_key(name)
+                && !self.externs.contains_key(name)
+                && matches!(
+                    self.table.resolve(std::slice::from_ref(name)),
+                    Resolved::None
+                )
             {
                 let (arg_ir, arg_ty) = self.lower_expr(&args[0], scope);
                 let ty = Type::Option(Box::new(arg_ty));
@@ -601,40 +598,53 @@ impl<'a> Lowerer<'a> {
                     ret,
                 );
             }
-            // A call to a generic function (spec 0014): infer its type arguments
-            // from the (now concrete) argument types, request the matching
-            // specialization, and call it by its mangled name.
-            if let Some(template) = self.generics.get(name).copied() {
-                let lowered: Vec<(IrExpr, Type)> =
-                    args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
-                let mut subst = HashMap::new();
-                for (param, (_, actual)) in template.params.iter().zip(lowered.iter()) {
-                    infer_subst(&param.ty, actual, &mut subst);
+            // A call to a generic function (spec 0014).
+            if !scope.contains_key(name)
+                && let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
+                && entry.is_generic
+            {
+                return self.lower_generic_call(entry.index, args, scope);
+            }
+        }
+        // A qualified call target (spec 0018): a built-in conversion, an enum
+        // variant, or a (possibly generic) qualified function. A non-generic
+        // qualified function falls through to the general path, where
+        // `lower_expr` on the path yields its `FunctionRef`.
+        if let Expr::Path { segments, .. } = callee {
+            if let [head, tail] = segments.as_slice() {
+                // Built-in pure conversions (spec 0017).
+                if head.as_str() == "Char" && tail.as_str() == "from_code" {
+                    let (arg, _) = self.lower_expr(&args[0], scope);
+                    return (IrExpr::CharFromCode(Box::new(arg)), Type::Char);
                 }
-                let mangled = mangle(name, &template.type_params, &subst);
-                let sig = FunctionType {
-                    params: template
-                        .params
+                if head.as_str() == "String" && tail.as_str() == "from_char" {
+                    let (arg, _) = self.lower_expr(&args[0], scope);
+                    return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
+                }
+                // An enum variant constructor with a payload, e.g. `Color.Red(x)`.
+                if let Some(variants) = self.enums.get(head)
+                    && let Some(def) = variants.iter().find(|v| v.name == *tail)
+                {
+                    let payload = args
                         .iter()
-                        .map(|param| subst_type(&param.ty, &subst))
-                        .collect(),
-                    ret: Box::new(subst_type(&template.ret, &subst)),
-                    throws: template
-                        .throws
-                        .as_ref()
-                        .map(|throws| Box::new(subst_type(throws, &subst))),
-                    effects: template.effects.clone(),
-                };
-                self.request_specialization(&mangled, name, subst);
-                let ret = (*sig.ret).clone();
-                return (
-                    IrExpr::Call {
-                        callee: Box::new(IrExpr::FunctionRef { name: mangled, sig }),
-                        args: lowered.into_iter().map(|(expr, _)| expr).collect(),
-                        ret: ret.clone(),
-                    },
-                    ret,
-                );
+                        .map(|arg| self.lower_expr(arg, scope).0)
+                        .collect();
+                    let ty = Type::Enum(head.clone());
+                    return (
+                        IrExpr::EnumValue {
+                            ty: ty.clone(),
+                            variant: tail.clone(),
+                            tag: def.tag,
+                            payload,
+                        },
+                        ty,
+                    );
+                }
+            }
+            if let Resolved::One(entry) = self.table.resolve(segments)
+                && entry.is_generic
+            {
+                return self.lower_generic_call(entry.index, args, scope);
             }
         }
         let (callee, callee_ty) = self.lower_expr(callee, scope);
@@ -649,6 +659,49 @@ impl<'a> Lowerer<'a> {
                     .iter()
                     .map(|arg| self.lower_expr(arg, scope).0)
                     .collect(),
+                ret: ret.clone(),
+            },
+            ret,
+        )
+    }
+
+    /// Lowers a call to a generic function (spec 0014): infer its type arguments
+    /// from the (now concrete) argument types, request the matching
+    /// specialization, and call it by its mangled name. `template_index` is the
+    /// generic function's index in `Program::functions`.
+    fn lower_generic_call(
+        &self,
+        template_index: usize,
+        args: &[Expr],
+        scope: &mut Scope,
+    ) -> (IrExpr, Type) {
+        let template = &self.functions[template_index];
+        let lowered: Vec<(IrExpr, Type)> =
+            args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
+        let mut subst = HashMap::new();
+        for (param, (_, actual)) in template.params.iter().zip(lowered.iter()) {
+            infer_subst(&param.ty, actual, &mut subst);
+        }
+        let mangled = mangle(&template.name, &template.type_params, &subst);
+        let sig = FunctionType {
+            params: template
+                .params
+                .iter()
+                .map(|param| subst_type(&param.ty, &subst))
+                .collect(),
+            ret: Box::new(subst_type(&template.ret, &subst)),
+            throws: template
+                .throws
+                .as_ref()
+                .map(|throws| Box::new(subst_type(throws, &subst))),
+            effects: template.effects.clone(),
+        };
+        self.request_specialization(&mangled, template_index, subst);
+        let ret = (*sig.ret).clone();
+        (
+            IrExpr::Call {
+                callee: Box::new(IrExpr::FunctionRef { name: mangled, sig }),
+                args: lowered.into_iter().map(|(expr, _)| expr).collect(),
                 ret: ret.clone(),
             },
             ret,
@@ -889,11 +942,9 @@ fn free_vars_expr(expr: &Expr, bound: &HashSet<String>, out: &mut Vec<String>) {
             free_vars_expr(value, bound, out)
         }
         Expr::Panic { message, .. } => free_vars_expr(message, bound, out),
-        Expr::Variant { args, .. } => {
-            for arg in args {
-                free_vars_expr(arg, bound, out);
-            }
-        }
+        // A path has no subexpressions; when it is a call target its arguments
+        // live in the wrapping `Call`, which is handled above.
+        Expr::Path { .. } => {}
         Expr::Match {
             scrutinee, arms, ..
         } => {

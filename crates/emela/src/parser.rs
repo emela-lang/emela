@@ -184,6 +184,10 @@ impl Parser {
             name,
             name_span,
             is_public,
+            // The compilation root's own functions carry no import qualifier;
+            // `imports.rs` stamps `module_path` on functions pulled in by an
+            // `import` (spec 0018).
+            module_path: Vec::new(),
             type_params,
             params,
             ret,
@@ -497,25 +501,19 @@ impl Parser {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
                 if self.at(&TokenKind::Dot) {
-                    // `Enum.Variant` or `Enum.Variant(args)`.
-                    self.bump();
-                    let variant_span = self.peek().span.clone();
-                    let variant = self.expect_ident()?;
-                    let mut args = Vec::new();
-                    let mut end = variant_span.clone();
-                    if self.eat(&TokenKind::LParen) {
-                        if !self.at(&TokenKind::RParen) {
-                            args.push(self.parse_expr()?);
-                            while self.eat(&TokenKind::Comma) {
-                                args.push(self.parse_expr()?);
-                            }
-                        }
-                        end = self.expect(&TokenKind::RParen)?.span;
+                    // A dotted path: `Enum.Variant`, `Char.from_code`,
+                    // `int.to_string`, `std.int.to_string` (spec 0018). The path
+                    // is parsed uniformly here; any trailing `(args)` is attached
+                    // by `parse_call`, and the meaning is resolved later. Whether
+                    // it is a variant, a built-in conversion, or a (qualified)
+                    // function call cannot be decided syntactically.
+                    let mut segments = vec![name];
+                    while self.eat(&TokenKind::Dot) {
+                        segments.push(self.expect_ident()?);
                     }
-                    Ok(Expr::Variant {
-                        enum_name: Some(name),
-                        variant,
-                        args,
+                    let end = self.previous_span();
+                    Ok(Expr::Path {
+                        segments,
                         span: span.merge(&end),
                     })
                 } else {

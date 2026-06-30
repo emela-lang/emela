@@ -13,6 +13,7 @@ mod imports;
 mod lexer;
 mod lower;
 mod parser;
+mod resolve;
 mod typecheck;
 
 pub use api::{check_source, compile_source, ir_source};

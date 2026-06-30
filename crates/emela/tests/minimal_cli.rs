@@ -632,3 +632,138 @@ fn check_rejects_main_declaring_throws() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Never"), "{stderr}");
 }
+
+/// Two modules export `id`. Both imports are accepted (spec 0018 R4), and the
+/// qualified forms `math.id` / `phys.id` resolve to distinct, mangled symbols so
+/// the same bare name can coexist.
+#[test]
+fn ir_resolves_qualified_calls_and_disambiguates_collisions() {
+    let dir = temp_dir();
+    fs::write(
+        dir.join("math.emel"),
+        "module math\npub fn id(x: Int) -> Int {\n  x\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("phys.emel"),
+        "module phys\npub fn id(x: Int) -> Int {\n  x + 100\n}\n",
+    )
+    .unwrap();
+    let source = dir.join("main.emel");
+    fs::write(
+        &source,
+        r#"
+import math.id
+import phys.id
+
+fn main() -> Int {
+  math.id(1) + phys.id(2)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("ir")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(&dir);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("fn math__id(x) -> Int"), "{stdout}");
+    assert!(stdout.contains("fn phys__id(x) -> Int"), "{stdout}");
+    assert!(stdout.contains("call @math__id(1)"), "{stdout}");
+    assert!(stdout.contains("call @phys__id(2)"), "{stdout}");
+}
+
+/// When two imports bind the same bare name, an unqualified call is ambiguous
+/// and must be qualified (spec 0018 R5).
+#[test]
+fn check_rejects_ambiguous_bare_call() {
+    let dir = temp_dir();
+    fs::write(
+        dir.join("math.emel"),
+        "module math\npub fn id(x: Int) -> Int {\n  x\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("phys.emel"),
+        "module phys\npub fn id(x: Int) -> Int {\n  x + 100\n}\n",
+    )
+    .unwrap();
+    let source = dir.join("main.emel");
+    fs::write(
+        &source,
+        "import math.id\nimport phys.id\nfn main() -> Int {\n  id(1)\n}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(&dir);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Ambiguous reference"), "{stderr}");
+    assert!(stderr.contains("math.id"), "{stderr}");
+    assert!(stderr.contains("phys.id"), "{stderr}");
+}
+
+/// A package import is callable bare, by its leaf module, and by its full path
+/// (spec 0018 R2): `add_one`, `ops.add_one`, `math.ops.add_one`.
+#[test]
+fn check_resolves_qualified_package_import() {
+    let dir = temp_dir();
+    let package = dir.join("math-pkg");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::write(
+        package.join("emela-package.json"),
+        r#"{"name":"math","source":"src"}"#,
+    )
+    .unwrap();
+    fs::write(
+        package.join("src").join("ops.emel"),
+        "module ops\npub fn add_one(x: Int) -> Int {\n  x + 1\n}\n",
+    )
+    .unwrap();
+    let source = dir.join("main.emel");
+    fs::write(
+        &source,
+        r#"
+import math.ops.add_one
+
+fn main() -> Int {
+  add_one(0) + ops.add_one(1) + math.ops.add_one(2)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg("--package")
+        .arg(&package)
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(&dir);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
