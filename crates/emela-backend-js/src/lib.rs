@@ -1,7 +1,31 @@
-use crate::ast::{BinaryOp, Type};
-use crate::ir::{IrExpr, IrProgram};
+//! JavaScript backend (Tier 2).
+//!
+//! Emits a `"use strict"` module of plain functions, relying on JavaScript's
+//! lexical scoping for closures, and logs `main()`'s result unless it is Unit.
 
-pub(crate) fn emit(program: &IrProgram) -> String {
+use emela_codegen::{
+    Artifact, ArtifactKind, Backend, BackendOptions, BinaryOp, IrExpr, IrProgram, Result, Tier,
+    Type,
+};
+
+/// The Node.js-flavored JavaScript backend.
+pub struct JsBackend;
+
+impl Backend for JsBackend {
+    fn name(&self) -> &str {
+        "js-node"
+    }
+
+    fn tier(&self) -> Tier {
+        Tier::Tier2
+    }
+
+    fn compile(&self, ir: &IrProgram, _options: &BackendOptions) -> Result<Artifact> {
+        Ok(Artifact::text(ArtifactKind::JsSource, emit(ir)))
+    }
+}
+
+fn emit(program: &IrProgram) -> String {
     let mut out = String::new();
     out.push_str("\"use strict\";\n\n");
     for function in &program.functions {
@@ -17,7 +41,7 @@ pub(crate) fn emit(program: &IrProgram) -> String {
             function
                 .params
                 .iter()
-                .map(|name| js_name(name))
+                .map(|param| js_name(&param.name))
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
@@ -43,29 +67,31 @@ fn emit_expr(expr: &IrExpr) -> String {
         IrExpr::Float(value) => value.to_string(),
         IrExpr::Bool(value) => value.to_string(),
         IrExpr::String(value) => format!("{value:?}"),
-        IrExpr::Array(values) => format!(
+        IrExpr::Array { elems, .. } => format!(
             "[{}]",
-            values.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+            elems.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
         IrExpr::Unit => "undefined".to_string(),
-        IrExpr::Var(name) => js_name(name),
-        IrExpr::FunctionRef(name) => js_name(name),
-        IrExpr::Let { name, value, next } => format!(
+        IrExpr::Var { name, .. } => js_name(name),
+        IrExpr::FunctionRef { name, .. } => js_name(name),
+        IrExpr::Let {
+            name, value, next, ..
+        } => format!(
             "(() => {{ const {} = {}; return {}; }})()",
             js_name(name),
             emit_expr(value),
             emit_expr(next)
         ),
-        IrExpr::Call { callee, args } => format!(
+        IrExpr::Call { callee, args, .. } => format!(
             "{}({})",
             emit_expr(callee),
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
-        IrExpr::Fn { params, body } => format!(
+        IrExpr::Fn { params, body, .. } => format!(
             "function({}) {{ return {}; }}",
             params
                 .iter()
-                .map(|name| js_name(name))
+                .map(|param| js_name(&param.name))
                 .collect::<Vec<_>>()
                 .join(", "),
             emit_expr(body)

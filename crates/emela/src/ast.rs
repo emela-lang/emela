@@ -1,5 +1,9 @@
 use crate::error::Span;
 
+// The type-system types are part of the IR contract and live in
+// `emela-codegen`; the frontend AST re-uses them.
+pub(crate) use emela_codegen::{BinaryOp, EffectRow, FunctionType, Type};
+
 #[derive(Debug, Clone)]
 pub(crate) struct Program {
     pub(crate) module: Option<String>,
@@ -99,60 +103,5 @@ impl Expr {
             }
             Expr::Block(block) => block.span.clone(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BinaryOp {
-    Add,
-    Sub,
-    Mul,
-    Eq,
-    Lt,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Type {
-    Unit,
-    Bool,
-    Int,
-    Float,
-    String,
-    Array(Box<Type>),
-    Record,
-    Enum,
-    Function(FunctionType),
-    OpaqueFunction,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FunctionType {
-    pub(crate) params: Vec<Type>,
-    pub(crate) ret: Box<Type>,
-    pub(crate) effects: EffectRow,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct EffectRow {
-    pub(crate) effects: Vec<String>,
-}
-
-impl EffectRow {
-    pub(crate) fn sorted(mut effects: Vec<String>) -> Self {
-        effects.sort();
-        effects.dedup();
-        Self { effects }
-    }
-
-    pub(crate) fn union(&mut self, other: &EffectRow) {
-        self.effects.extend(other.effects.iter().cloned());
-        self.effects.sort();
-        self.effects.dedup();
-    }
-
-    pub(crate) fn is_subset_of(&self, other: &EffectRow) -> bool {
-        self.effects
-            .iter()
-            .all(|effect| other.effects.contains(effect))
     }
 }

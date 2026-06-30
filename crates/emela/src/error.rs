@@ -1,10 +1,10 @@
 use std::fmt;
 use std::sync::Arc;
 
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Error {
+pub struct Error {
     message: String,
     diagnostic: Option<Diagnostic>,
 }

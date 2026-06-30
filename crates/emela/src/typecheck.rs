@@ -69,32 +69,6 @@ pub(crate) fn check(program: &Program) -> Result<TypedProgram> {
     })
 }
 
-impl TypedProgram {
-    pub(crate) fn function_count(&self) -> usize {
-        self.functions.len()
-    }
-
-    pub(crate) fn signature_summary(&self) -> String {
-        self.functions
-            .iter()
-            .map(|function| {
-                format!(
-                    "{}({}) -> {:?}",
-                    function.name,
-                    function
-                        .params
-                        .iter()
-                        .map(|param| format!("{param:?}"))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    function.ret
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
 struct Checker {
     functions: HashMap<String, FunctionSig>,
 }
