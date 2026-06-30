@@ -39,6 +39,8 @@ the JSON IR protocol (see [Backends](#backends)).
   higher-order functions
 - numeric arithmetic `+`, `-`, `*` on matching `Int` or `Float` operands
 - comparisons `==` and `<` on matching numeric operands, producing `Bool`
+- `extern fn` platform functions whose side effects are resolved by the
+  selected backend's runtime (see [Standard library and platform functions](#standard-library-and-platform-functions))
 - effect rows declared with `uses { ... }`, checked so a body's effects are a
   subset of the function's declared effects
 - `module`, `pub`, and `import` for splitting code across files and source
@@ -59,7 +61,10 @@ To set expectations, the following are **not** part of this build:
 - no `struct`, `enum`, `trait`, or `impl` declarations
 - no string concatenation or boolean operators
 - no native (machine-code) backend
-- no platform capability checking; effect names are opaque labels
+- no error values yet (`Result` / `Option`), so platform functions cannot report
+  failure; the platform interface is the minimal `Unit`-returning set
+- no dead-code elimination: importing a module pulls in all of its functions, so
+  a backend must provide every platform function any imported wrapper references
 - no project manifest or dependency fetching
 
 ## Requirements
@@ -145,6 +150,14 @@ cargo run --bin emela -- build --backend js-node examples/<file>.emel | node
 `imports/main.emel` imports from the sibling module `imports/geometry.emel`. The
 module file has no `main`, so it is consumed via `import` rather than checked on
 its own.
+
+`examples/hello.emel` performs real I/O through the bundled `examples/stdlib`
+package, so it is built with a package root:
+
+```sh
+cargo run --bin emela -- build --backend js-node --package examples/stdlib examples/hello.emel | node
+# prints: Hello, Emela!
+```
 
 The same examples build to WebAssembly; the numeric ones produce the same value
 as their exit code (`add`→42, `function_values`→63, `maximal`→44,
@@ -268,6 +281,40 @@ to the process's stdin and reads a `PluginResponse` from stdout:
 or, on failure, `{ "status": "error", "diagnostics": ["message"] }`. The request
 and response types live in `emela-codegen` so Rust plugins can reuse them, and
 the JSON shape is the contract for plugins written in any language.
+
+## Standard library and platform functions
+
+Side effects are not implemented by the compiler. Every capability effect (such
+as `io`) originates from a **platform function**, a language-defined operation
+declared with `extern fn` and resolved at run time by the selected backend. This
+is specified in `emela-lang/specification` spec 0013.
+
+A standard-library module wraps the platform functions; application code never
+names a backend, so the same source runs on any backend that provides the
+platform functions it uses. `examples/stdlib/src/io.emel`:
+
+```emela
+module io
+
+extern fn write_stdout(s: String) -> Unit uses { io }
+
+pub fn print(s: String) -> Unit uses { io } {
+  write_stdout(s)
+}
+```
+
+- `extern fn` has no body; its signature must match an entry of the platform
+  interface (or compilation fails). It declares the capability it produces.
+- Each backend implements the subset of platform functions it supports — the JS
+  backend bundles a default runtime object (`__rt`), the wasm backend emits
+  WASI-backed glue. Building a program that uses a platform function the selected
+  backend does not provide is a compile error.
+- Because effects only enter through platform functions and the compiler emits no
+  bodies for them, the runtime is guaranteed to be what resolves every effect.
+
+This repository ships a small `examples/stdlib` for trying things out; the real
+standard library is developed in the separate `emela-lang/stdlib` repository and
+consumed with `--package path/to/stdlib`.
 
 ## Packages
 

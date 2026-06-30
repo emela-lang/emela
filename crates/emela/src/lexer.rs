@@ -5,6 +5,7 @@ use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
     Fn,
+    Extern,
     Import,
     Let,
     Module,
@@ -194,6 +195,7 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 let text = &source[start..i];
                 let kind = match text {
                     "fn" => TokenKind::Fn,
+                    "extern" => TokenKind::Extern,
                     "import" => TokenKind::Import,
                     "let" => TokenKind::Let,
                     "module" => TokenKind::Module,

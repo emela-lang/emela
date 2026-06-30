@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, EffectRow, Expr, Function, FunctionType, Import, Param, Program,
-    Type,
+    BinaryOp, Block, BlockItem, EffectRow, Expr, Extern, Function, FunctionType, Import, Param,
+    Program, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
 use crate::lexer::{Token, TokenKind, lex};
@@ -20,6 +20,7 @@ impl Parser {
         let mut module = None;
         let mut imports = Vec::new();
         let mut functions = Vec::new();
+        let mut externs = Vec::new();
         self.skip_newlines();
         if self.eat(&TokenKind::Module) {
             module = Some(self.parse_path_name()?);
@@ -28,16 +29,44 @@ impl Parser {
         while !self.at(&TokenKind::Eof) {
             if self.at(&TokenKind::Import) {
                 imports.push(self.parse_import()?);
+            } else if self.at(&TokenKind::Extern) {
+                externs.push(self.parse_extern()?);
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 functions.push(self.parse_function(is_public)?);
             }
             self.skip_newlines();
         }
+        // The declaring module qualifies each extern's canonical platform name.
+        for declaration in &mut externs {
+            declaration.module = module.clone();
+        }
         Ok(Program {
             module,
             imports,
             functions,
+            externs,
+        })
+    }
+
+    fn parse_extern(&mut self) -> Result<Extern> {
+        self.expect(&TokenKind::Extern)?;
+        self.expect(&TokenKind::Fn)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let ret = self.parse_type()?;
+        let effects = self.parse_effect_row()?;
+        Ok(Extern {
+            name,
+            name_span,
+            module: None,
+            params,
+            ret,
+            effects,
         })
     }
 

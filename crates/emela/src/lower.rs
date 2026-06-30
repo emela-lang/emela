@@ -2,7 +2,8 @@
 //!
 //! The IR is fully typed, so every node records the type that the type checker
 //! already computed. Lambdas additionally record their captured variables, in
-//! a stable order, for closure-converting backends.
+//! a stable order, for closure-converting backends. Calls to `extern fn`
+//! platform functions (spec 0013) become `IrExpr::Platform` nodes.
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,6 +17,13 @@ use crate::typecheck::TypedProgram;
 type FunctionTypes = HashMap<String, FunctionType>;
 type Scope = HashMap<String, Type>;
 
+/// A platform function in scope: its canonical name and return type.
+struct ExternInfo {
+    canonical: String,
+    ret: Type,
+}
+type Externs = HashMap<String, ExternInfo>;
+
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
     let function_types: FunctionTypes = typed
         .functions
@@ -27,6 +35,19 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                     params: function.params.clone(),
                     ret: Box::new(function.ret.clone()),
                     effects: function.effects.clone(),
+                },
+            )
+        })
+        .collect();
+    let externs: Externs = program
+        .externs
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.name.clone(),
+                ExternInfo {
+                    canonical: declaration.canonical(),
+                    ret: declaration.ret.clone(),
                 },
             )
         })
@@ -47,51 +68,54 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .collect(),
             ret: typed.ret.clone(),
             effects: typed.effects.clone(),
-            body: lower_function_body(function, &function_types),
+            body: lower_function_body(function, &function_types, &externs),
         })
         .collect();
     IrProgram { functions }
 }
 
-fn lower_function_body(function: &crate::ast::Function, function_types: &FunctionTypes) -> IrExpr {
+fn lower_function_body(
+    function: &crate::ast::Function,
+    function_types: &FunctionTypes,
+    externs: &Externs,
+) -> IrExpr {
     let mut scope = function
         .params
         .iter()
         .map(|param| (param.name.clone(), param.ty.clone()))
         .collect();
-    lower_block(&function.body.items, &mut scope, function_types).0
+    lower_block(&function.body.items, &mut scope, function_types, externs).0
 }
 
 fn lower_block(
     items: &[BlockItem],
     scope: &mut Scope,
     function_types: &FunctionTypes,
+    externs: &Externs,
 ) -> (IrExpr, Type) {
     match items.split_first() {
         None => (IrExpr::Unit, Type::Unit),
-        Some((BlockItem::Expr(expr), [])) => lower_expr(expr, scope, function_types),
-        Some((BlockItem::Expr(_), rest)) => lower_block(rest, scope, function_types),
+        Some((BlockItem::Expr(expr), [])) => lower_expr(expr, scope, function_types, externs),
+        Some((BlockItem::Expr(_), rest)) => lower_block(rest, scope, function_types, externs),
         Some((
             BlockItem::Let {
                 name, ty, value, ..
             },
             rest,
         )) => {
-            // For an empty array literal, the binding annotation supplies the
-            // element type the literal cannot infer on its own.
             let expected_elem = match (value, ty) {
                 (Expr::Array(_, _), Some(Type::Array(element))) => Some(element.as_ref()),
                 _ => None,
             };
             let (value, inferred) = match value {
                 Expr::Array(elements, _) => {
-                    lower_array(elements, scope, function_types, expected_elem)
+                    lower_array(elements, scope, function_types, externs, expected_elem)
                 }
-                _ => lower_expr(value, scope, function_types),
+                _ => lower_expr(value, scope, function_types, externs),
             };
             let value_ty = ty.clone().unwrap_or(inferred);
             scope.insert(name.clone(), value_ty.clone());
-            let (next, next_ty) = lower_block(rest, scope, function_types);
+            let (next, next_ty) = lower_block(rest, scope, function_types, externs);
             (
                 IrExpr::Let {
                     name: name.clone(),
@@ -109,11 +133,12 @@ fn lower_array(
     elements: &[Expr],
     scope: &mut Scope,
     function_types: &FunctionTypes,
+    externs: &Externs,
     expected_elem: Option<&Type>,
 ) -> (IrExpr, Type) {
     let lowered = elements
         .iter()
-        .map(|element| lower_expr(element, scope, function_types))
+        .map(|element| lower_expr(element, scope, function_types, externs))
         .collect::<Vec<_>>();
     let elem_ty = lowered
         .first()
@@ -129,13 +154,18 @@ fn lower_array(
     )
 }
 
-fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) -> (IrExpr, Type) {
+fn lower_expr(
+    expr: &Expr,
+    scope: &mut Scope,
+    function_types: &FunctionTypes,
+    externs: &Externs,
+) -> (IrExpr, Type) {
     match expr {
         Expr::Int(value, _) => (IrExpr::Int(*value), Type::Int),
         Expr::Float(value, _) => (IrExpr::Float(*value), Type::Float),
         Expr::Bool(value, _) => (IrExpr::Bool(*value), Type::Bool),
         Expr::String(value, _) => (IrExpr::String(value.clone()), Type::String),
-        Expr::Array(elements, _) => lower_array(elements, scope, function_types, None),
+        Expr::Array(elements, _) => lower_array(elements, scope, function_types, externs, None),
         Expr::Unit(_) => (IrExpr::Unit, Type::Unit),
         Expr::Var(name, _) => {
             if let Some(ty) = scope.get(name) {
@@ -165,7 +195,25 @@ fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) ->
             }
         }
         Expr::Call { callee, args, .. } => {
-            let (callee, callee_ty) = lower_expr(callee, scope, function_types);
+            // A call to a platform function (extern) lowers to a Platform node.
+            if let Expr::Var(name, _) = callee.as_ref() {
+                if let Some(info) = externs.get(name) {
+                    let ret = info.ret.clone();
+                    let args = args
+                        .iter()
+                        .map(|arg| lower_expr(arg, scope, function_types, externs).0)
+                        .collect();
+                    return (
+                        IrExpr::Platform {
+                            name: info.canonical.clone(),
+                            args,
+                            ret: ret.clone(),
+                        },
+                        ret,
+                    );
+                }
+            }
+            let (callee, callee_ty) = lower_expr(callee, scope, function_types, externs);
             let ret = match callee_ty {
                 Type::Function(function) => (*function.ret).clone(),
                 _ => Type::Unit,
@@ -175,7 +223,7 @@ fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) ->
                     callee: Box::new(callee),
                     args: args
                         .iter()
-                        .map(|arg| lower_expr(arg, scope, function_types).0)
+                        .map(|arg| lower_expr(arg, scope, function_types, externs).0)
                         .collect(),
                     ret: ret.clone(),
                 },
@@ -194,7 +242,7 @@ fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) ->
             for param in params {
                 fn_scope.insert(param.name.clone(), param.ty.clone());
             }
-            let (body, _) = lower_block(&body.items, &mut fn_scope, function_types);
+            let (body, _) = lower_block(&body.items, &mut fn_scope, function_types, externs);
             let ir_params: Vec<IrParam> = params
                 .iter()
                 .map(|param| IrParam {
@@ -221,8 +269,8 @@ fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) ->
         Expr::Binary {
             op, left, right, ..
         } => {
-            let (left, left_ty) = lower_expr(left, scope, function_types);
-            let (right, _) = lower_expr(right, scope, function_types);
+            let (left, left_ty) = lower_expr(left, scope, function_types, externs);
+            let (right, _) = lower_expr(right, scope, function_types, externs);
             let result_ty = match op {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul => left_ty.clone(),
                 BinaryOp::Eq | BinaryOp::Lt => Type::Bool,
@@ -237,13 +285,15 @@ fn lower_expr(expr: &Expr, scope: &mut Scope, function_types: &FunctionTypes) ->
                 result_ty,
             )
         }
-        Expr::Block(block) => lower_block(&block.items, &mut scope.clone(), function_types),
+        Expr::Block(block) => {
+            lower_block(&block.items, &mut scope.clone(), function_types, externs)
+        }
     }
 }
 
 /// The variables a lambda captures from its enclosing runtime scope, in
-/// first-occurrence order. Top-level functions are not in `scope` (they resolve
-/// to `FunctionRef`), so they are never captured.
+/// first-occurrence order. Top-level functions and platform functions are not
+/// in `scope`, so they are never captured.
 fn lambda_captures(
     params: &[crate::ast::Param],
     body: &crate::ast::Block,
@@ -351,7 +401,6 @@ mod tests {
 
     #[test]
     fn lambda_captures_enclosing_binding() {
-        // `make_adder` returns a closure capturing its parameter `n`.
         let ir = lower_source(
             "fn make_adder(n: Int) -> (Int) -> Int {\n  fn (x: Int) -> Int { x + n }\n}\nfn main() -> Int { let a = make_adder(1) a(41) }\n",
         );
@@ -371,7 +420,6 @@ mod tests {
 
     #[test]
     fn top_level_functions_are_not_captured() {
-        // The lambda references `helper` (a top-level fn) and `k` (a local).
         let ir = lower_source(
             "fn helper(x: Int) -> Int { x }\nfn main() -> Int {\n  let k = 2\n  let f = fn (x: Int) -> Int { helper(x) + k }\n  f(40)\n}\n",
         );

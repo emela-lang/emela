@@ -70,6 +70,13 @@ pub enum IrExpr {
         args: Vec<IrExpr>,
         ret: Type,
     },
+    /// A call to a platform function (spec 0013), resolved by the backend's
+    /// runtime. `name` is the canonical platform name, e.g. `io.write_stdout`.
+    Platform {
+        name: String,
+        args: Vec<IrExpr>,
+        ret: Type,
+    },
     Fn {
         params: Vec<IrParam>,
         ret: Type,
@@ -100,6 +107,7 @@ impl IrExpr {
             IrExpr::FunctionRef { sig, .. } => Type::Function(sig.clone()),
             IrExpr::Let { next, .. } => next.ty(),
             IrExpr::Call { ret, .. } => ret.clone(),
+            IrExpr::Platform { ret, .. } => ret.clone(),
             IrExpr::Fn {
                 params,
                 ret,

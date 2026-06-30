@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::ast::{Function, Import, Program};
+use crate::ast::{Extern, Function, Import, Program};
 use crate::error::{Diagnostic, Error, Result};
 use crate::parser::parse_program;
 
@@ -76,15 +76,24 @@ impl ImportResolver<'_> {
     fn expand_program(&mut self, source_path: &Path, mut program: Program) -> Result<Program> {
         let imports = std::mem::take(&mut program.imports);
         let mut imported_functions = Vec::new();
+        let mut imported_externs = Vec::new();
         for import in imports {
-            imported_functions.extend(self.resolve_import(source_path, &import)?);
+            let (functions, externs) = self.resolve_import(source_path, &import)?;
+            imported_functions.extend(functions);
+            imported_externs.extend(externs);
         }
         imported_functions.extend(program.functions);
         program.functions = imported_functions;
+        imported_externs.extend(program.externs);
+        program.externs = imported_externs;
         Ok(program)
     }
 
-    fn resolve_import(&mut self, source_path: &Path, import: &Import) -> Result<Vec<Function>> {
+    fn resolve_import(
+        &mut self,
+        source_path: &Path,
+        import: &Import,
+    ) -> Result<(Vec<Function>, Vec<Extern>)> {
         let Some((module_file, module_name, item_name)) =
             self.resolve_module_file(source_path, import)?
         else {
@@ -116,9 +125,9 @@ impl ImportResolver<'_> {
                     ))
                 })?;
                 if self.emitted.insert(canonical) {
-                    Ok(module.functions.clone())
+                    Ok((module.functions.clone(), module.externs.clone()))
                 } else {
-                    Ok(Vec::new())
+                    Ok((Vec::new(), Vec::new()))
                 }
             }
             Some(function) => Err(Error::diagnostic(Diagnostic::new("Private import").label(

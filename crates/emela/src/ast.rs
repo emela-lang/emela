@@ -9,6 +9,30 @@ pub(crate) struct Program {
     pub(crate) module: Option<String>,
     pub(crate) imports: Vec<Import>,
     pub(crate) functions: Vec<Function>,
+    pub(crate) externs: Vec<Extern>,
+}
+
+/// A platform-function declaration (`extern fn`, spec 0013). It has no body; the
+/// backend supplies the implementation. `module` is the declaring file's module
+/// path, used with `name` to form the canonical platform name.
+#[derive(Debug, Clone)]
+pub(crate) struct Extern {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) module: Option<String>,
+    pub(crate) params: Vec<Param>,
+    pub(crate) ret: Type,
+    pub(crate) effects: EffectRow,
+}
+
+impl Extern {
+    /// The canonical platform name, e.g. `io.write_stdout`.
+    pub(crate) fn canonical(&self) -> String {
+        match &self.module {
+            Some(module) if !module.is_empty() => format!("{module}.{}", self.name),
+            _ => self.name.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -76,6 +76,11 @@ fn inline_expr(expr: &IrExpr) -> String {
             inline_callee(callee),
             args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
         ),
+        IrExpr::Platform { name, args, .. } => format!(
+            "platform {}({})",
+            name,
+            args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
+        ),
         IrExpr::Fn { params, body, .. } => {
             format!("fn ({}) {{ {} }}", param_names(params), inline_expr(body))
         }
