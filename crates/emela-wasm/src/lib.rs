@@ -90,7 +90,9 @@ fn run(source: &str, target: &str) -> CompileResult {
 
 fn emit(backend: &str, kind: &'static str, source: &str, mode: EmitMode) -> CompileResult {
     match emela::compile_source(LABEL, source, backend, mode) {
-        Ok(artifact) => CompileResult::ok(kind, String::from_utf8_lossy(&artifact.bytes).into_owned()),
+        Ok(artifact) => {
+            CompileResult::ok(kind, String::from_utf8_lossy(&artifact.bytes).into_owned())
+        }
         Err(err) => CompileResult::err(err.to_string()),
     }
 }
