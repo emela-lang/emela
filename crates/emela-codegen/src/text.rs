@@ -216,6 +216,9 @@ fn type_name(ty: &Type) -> String {
             function.effects.effects.join(", ")
         ),
         Type::OpaqueFunction => "Function".to_string(),
+        // A type parameter (spec 0014). Monomorphization removes it before
+        // lowering, so seeing one in the IR dump would be a bug; render the name.
+        Type::Var(name) => name.clone(),
     }
 }
 
