@@ -47,6 +47,7 @@ pub(crate) fn check(program: &Program) -> Result<TypedProgram> {
         functions: HashMap::new(),
     };
     checker.register_functions(program)?;
+    checker.register_externs(program)?;
     checker.check_main(program)?;
     for function in &program.functions {
         checker.check_function(function)?;
@@ -105,6 +106,66 @@ impl Checker {
                         .collect(),
                     ret: function.ret.clone(),
                     effects: function.effects.clone(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Validates each `extern fn` against the platform interface (spec 0013) and
+    /// registers it as a callable signature so wrappers can call it.
+    fn register_externs(&mut self, program: &Program) -> Result<()> {
+        for declaration in &program.externs {
+            if self.functions.contains_key(&declaration.name) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Duplicate function").label(
+                        declaration.name_span.clone(),
+                        format!("`{}` is already defined", declaration.name),
+                    ),
+                ));
+            }
+            let canonical = declaration.canonical();
+            let Some(entry) = emela_codegen::platform_lookup(&canonical) else {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Unknown platform function")
+                        .label(
+                            declaration.name_span.clone(),
+                            format!("`{canonical}` is not a platform function"),
+                        )
+                        .help("Platform functions are defined by spec 0013."),
+                ));
+            };
+            let params: Vec<Type> = declaration
+                .params
+                .iter()
+                .map(|param| param.ty.clone())
+                .collect();
+            if params != entry.params || declaration.ret != entry.ret {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Platform signature mismatch").label(
+                        declaration.name_span.clone(),
+                        format!("`{canonical}` does not match the platform interface"),
+                    ),
+                ));
+            }
+            let expected = EffectRow::sorted(vec![entry.capability.clone()]);
+            if declaration.effects != expected {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Platform effect mismatch").label(
+                        declaration.name_span.clone(),
+                        format!(
+                            "`{canonical}` must declare `uses {{ {} }}`",
+                            entry.capability
+                        ),
+                    ),
+                ));
+            }
+            self.functions.insert(
+                declaration.name.clone(),
+                FunctionSig {
+                    params,
+                    ret: declaration.ret.clone(),
+                    effects: declaration.effects.clone(),
                 },
             );
         }

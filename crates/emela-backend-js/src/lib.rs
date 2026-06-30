@@ -2,10 +2,15 @@
 //!
 //! Emits a `"use strict"` module of plain functions, relying on JavaScript's
 //! lexical scoping for closures, and logs `main()`'s result unless it is Unit.
+//!
+//! Platform functions (spec 0013) are resolved by a bundled default runtime
+//! object `__rt`; only the platform functions the program uses are emitted.
+
+use std::collections::HashSet;
 
 use emela_codegen::{
-    Artifact, ArtifactKind, Backend, BackendOptions, BinaryOp, IrExpr, IrProgram, Result, Tier,
-    Type,
+    Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrExpr, IrProgram,
+    Result, Tier, Type,
 };
 
 /// The Node.js-flavored JavaScript backend.
@@ -21,13 +26,76 @@ impl Backend for JsBackend {
     }
 
     fn compile(&self, ir: &IrProgram, _options: &BackendOptions) -> Result<Artifact> {
-        Ok(Artifact::text(ArtifactKind::JsSource, emit(ir)))
+        let used = used_platform_fns(ir);
+        for name in &used {
+            if runtime_impl(name).is_none() {
+                return Err(BackendError::new(format!(
+                    "backend `js-node` does not provide platform function `{name}`"
+                )));
+            }
+        }
+        Ok(Artifact::text(ArtifactKind::JsSource, emit(ir, &used)))
     }
 }
 
-fn emit(program: &IrProgram) -> String {
+/// The platform functions this backend provides, with their JS implementations.
+fn runtime_impl(name: &str) -> Option<&'static str> {
+    match name {
+        "io.write_stdout" => Some("(s) => process.stdout.write(s)"),
+        "io.write_stderr" => Some("(s) => process.stderr.write(s)"),
+        _ => None,
+    }
+}
+
+/// The platform functions the program references, in first-occurrence order.
+fn used_platform_fns(program: &IrProgram) -> Vec<String> {
+    let mut order = Vec::new();
+    let mut seen = HashSet::new();
+    for function in &program.functions {
+        collect_platform(&function.body, &mut order, &mut seen);
+    }
+    order
+}
+
+fn collect_platform(expr: &IrExpr, order: &mut Vec<String>, seen: &mut HashSet<String>) {
+    match expr {
+        IrExpr::Platform { name, args, .. } => {
+            if seen.insert(name.clone()) {
+                order.push(name.clone());
+            }
+            args.iter().for_each(|a| collect_platform(a, order, seen));
+        }
+        IrExpr::Array { elems, .. } => elems.iter().for_each(|e| collect_platform(e, order, seen)),
+        IrExpr::Let { value, next, .. } => {
+            collect_platform(value, order, seen);
+            collect_platform(next, order, seen);
+        }
+        IrExpr::Call { callee, args, .. } => {
+            collect_platform(callee, order, seen);
+            args.iter().for_each(|a| collect_platform(a, order, seen));
+        }
+        IrExpr::Fn { body, .. } => collect_platform(body, order, seen),
+        IrExpr::Binary { left, right, .. } => {
+            collect_platform(left, order, seen);
+            collect_platform(right, order, seen);
+        }
+        _ => {}
+    }
+}
+
+fn emit(program: &IrProgram, used_platform: &[String]) -> String {
     let mut out = String::new();
     out.push_str("\"use strict\";\n\n");
+    if !used_platform.is_empty() {
+        // Bundled default runtime: the backend supplies the platform bodies.
+        out.push_str("const __rt = {\n");
+        for name in used_platform {
+            if let Some(body) = runtime_impl(name) {
+                out.push_str(&format!("  {name:?}: {body},\n"));
+            }
+        }
+        out.push_str("};\n\n");
+    }
     for function in &program.functions {
         if !function.effects.effects.is_empty() {
             out.push_str(&format!(
@@ -87,6 +155,10 @@ fn emit_expr(expr: &IrExpr) -> String {
             emit_expr(callee),
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
+        IrExpr::Platform { name, args, .. } => format!(
+            "__rt[{name:?}]({})",
+            args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
         IrExpr::Fn { params, body, .. } => format!(
             "function({}) {{ return {}; }}",
             params
@@ -124,4 +196,61 @@ fn js_name(name: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emela_codegen::{EffectRow, IrFunction};
+
+    fn main_with(body: IrExpr) -> IrProgram {
+        IrProgram {
+            functions: vec![IrFunction {
+                name: "main".into(),
+                params: vec![],
+                ret: Type::Unit,
+                effects: EffectRow::sorted(vec!["io".into()]),
+                body,
+            }],
+        }
+    }
+
+    fn platform_call(name: &str) -> IrExpr {
+        IrExpr::Platform {
+            name: name.into(),
+            args: vec![IrExpr::String("hi".into())],
+            ret: Type::Unit,
+        }
+    }
+
+    #[test]
+    fn bundles_runtime_for_used_platform_fns() {
+        let artifact = JsBackend
+            .compile(
+                &main_with(platform_call("io.write_stdout")),
+                &BackendOptions::default(),
+            )
+            .expect("compile");
+        let js = String::from_utf8(artifact.bytes).unwrap();
+        assert!(js.contains("const __rt = {"), "{js}");
+        assert!(
+            js.contains("\"io.write_stdout\": (s) => process.stdout.write(s)"),
+            "{js}"
+        );
+        assert!(js.contains("__rt[\"io.write_stdout\"](\"hi\")"), "{js}");
+        // An unused platform function is not bundled.
+        assert!(!js.contains("write_stderr"), "{js}");
+    }
+
+    #[test]
+    fn rejects_unprovided_platform_fn() {
+        let err = JsBackend
+            .compile(
+                &main_with(platform_call("fs.read")),
+                &BackendOptions::default(),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("does not provide"), "{err}");
+        assert!(err.to_string().contains("fs.read"), "{err}");
+    }
 }

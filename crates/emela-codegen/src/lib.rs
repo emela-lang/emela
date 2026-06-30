@@ -10,6 +10,7 @@
 mod backend;
 mod error;
 mod ir;
+mod platform;
 mod plugin;
 mod registry;
 mod text;
@@ -18,6 +19,7 @@ mod types;
 pub use backend::{Artifact, ArtifactKind, Backend, BackendOptions, EmitMode, Tier};
 pub use error::{BackendError, Result};
 pub use ir::{IrCapture, IrExpr, IrFunction, IrParam, IrProgram};
+pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
 pub use registry::BackendRegistry;
 pub use text::emit_text;

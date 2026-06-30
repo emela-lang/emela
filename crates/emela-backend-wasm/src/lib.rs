@@ -214,6 +214,7 @@ fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
             walk(callee, visit);
             args.iter().for_each(|a| walk(a, visit));
         }
+        IrExpr::Platform { args, .. } => args.iter().for_each(|a| walk(a, visit)),
         IrExpr::Fn { body, .. } => walk(body, visit),
         IrExpr::Binary { left, right, .. } => {
             walk(left, visit);
@@ -349,6 +350,15 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
         .find(|function| function.name == "main")
         .ok_or_else(|| BackendError::new("wasm backend requires a `main` function"))?;
 
+    let used_platform = used_platform_fns(ir);
+    for name in &used_platform {
+        if platform_glue(name).is_none() {
+            return Err(BackendError::new(format!(
+                "backend `wasm-wasi` does not provide platform function `{name}`"
+            )));
+        }
+    }
+
     let strings = collect_strings(ir);
     let table = FnTable::build(ir);
     let sigs = build_sigs(ir, &table);
@@ -372,6 +382,11 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(
         "  (import \"wasi_snapshot_preview1\" \"proc_exit\" (func $proc_exit (param i32)))\n",
     );
+    if !used_platform.is_empty() {
+        module.push_str(
+            "  (import \"wasi_snapshot_preview1\" \"fd_write\" (func $wasi_fd_write (param i32 i32 i32 i32) (result i32)))\n",
+        );
+    }
     let _ = writeln!(
         module,
         "  (memory (export \"memory\") {MEMORY_PAGES})\n  (global $heap (mut i32) (i32.const {}))",
@@ -387,6 +402,9 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(&emit_types(&sigs));
     module.push_str(&emit_table(&table));
     module.push_str(ALLOC);
+    for name in &used_platform {
+        module.push_str(platform_glue(name).expect("checked above"));
+    }
     module.push_str(&functions);
     module.push_str(&emit_start(main));
     module.push_str("  (export \"main\" (func $f_main))\n");
@@ -394,6 +412,47 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(")\n");
     Ok(module)
 }
+
+/// The wasm function id for a platform function's runtime glue.
+fn platform_wasm_name(canonical: &str) -> String {
+    let mut out = String::from("$plat_");
+    for ch in canonical.chars() {
+        out.push(if ch.is_ascii_alphanumeric() { ch } else { '_' });
+    }
+    out
+}
+
+/// The platform functions the program references, in first-occurrence order.
+fn used_platform_fns(ir: &IrProgram) -> Vec<String> {
+    let mut order = Vec::new();
+    let mut seen = HashSet::new();
+    for function in &ir.functions {
+        walk(&function.body, &mut |expr| {
+            if let IrExpr::Platform { name, .. } = expr {
+                if seen.insert(name.clone()) {
+                    order.push(name.clone());
+                }
+            }
+        });
+    }
+    order
+}
+
+/// WASI-backed glue for a platform function, or `None` if not provided.
+///
+/// `write_*` take a string pointer to `[len: i32][utf8]`. The iovec/nwritten
+/// scratch lives in the null-guard region `[0, 16)`.
+fn platform_glue(canonical: &str) -> Option<&'static str> {
+    match canonical {
+        "io.write_stdout" => Some(WRITE_STDOUT_GLUE),
+        "io.write_stderr" => Some(WRITE_STDERR_GLUE),
+        _ => None,
+    }
+}
+
+const WRITE_STDOUT_GLUE: &str = "  (func $plat_io_write_stdout (param $s i32) (result i32)\n    i32.const 0\n    local.get $s\n    i32.const 4\n    i32.add\n    i32.store\n    i32.const 4\n    local.get $s\n    i32.load\n    i32.store\n    i32.const 1\n    i32.const 0\n    i32.const 1\n    i32.const 8\n    call $wasi_fd_write\n    drop\n    i32.const 0)\n";
+
+const WRITE_STDERR_GLUE: &str = "  (func $plat_io_write_stderr (param $s i32) (result i32)\n    i32.const 0\n    local.get $s\n    i32.const 4\n    i32.add\n    i32.store\n    i32.const 4\n    local.get $s\n    i32.load\n    i32.store\n    i32.const 2\n    i32.const 0\n    i32.const 1\n    i32.const 8\n    call $wasi_fd_write\n    drop\n    i32.const 0)\n";
 
 fn emit_types(sigs: &SigTable) -> String {
     let mut out = String::new();
@@ -601,6 +660,12 @@ impl<'a> FnEmitter<'a> {
                 self.emit(next)?;
             }
             IrExpr::Call { callee, args, .. } => self.emit_call(callee, args)?,
+            IrExpr::Platform { name, args, .. } => {
+                for arg in args {
+                    self.emit(arg)?;
+                }
+                self.line(&format!("call {}", platform_wasm_name(name)));
+            }
             IrExpr::String(value) => {
                 let offset = *self.ctx.strings.offsets.get(value).ok_or_else(|| {
                     BackendError::new("internal error: string literal was not interned")
@@ -981,5 +1046,65 @@ mod tests {
         // The captured `n` is loaded from the environment pointer.
         assert!(wat.contains("local.get $p0"), "{wat}");
         let _ = compile_binary(&closure_program());
+    }
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+    use emela_codegen::{EffectRow, IrFunction};
+
+    fn main_platform(name: &str) -> IrProgram {
+        IrProgram {
+            functions: vec![IrFunction {
+                name: "main".into(),
+                params: vec![],
+                ret: Type::Unit,
+                effects: EffectRow::sorted(vec!["io".into()]),
+                body: IrExpr::Platform {
+                    name: name.into(),
+                    args: vec![IrExpr::String("hi".into())],
+                    ret: Type::Unit,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn emits_wasi_glue_and_validates() {
+        let program = main_platform("io.write_stdout");
+        let wat = String::from_utf8(
+            WasmBackend
+                .compile(
+                    &program,
+                    &BackendOptions {
+                        mode: EmitMode::Text,
+                        ..Default::default()
+                    },
+                )
+                .expect("compile")
+                .bytes,
+        )
+        .unwrap();
+        assert!(
+            wat.contains("(import \"wasi_snapshot_preview1\" \"fd_write\""),
+            "{wat}"
+        );
+        assert!(wat.contains("(func $plat_io_write_stdout"), "{wat}");
+        assert!(wat.contains("call $plat_io_write_stdout"), "{wat}");
+        // Default mode assembles and validates the binary.
+        let bytes = WasmBackend
+            .compile(&program, &BackendOptions::default())
+            .expect("compile")
+            .bytes;
+        assert_eq!(&bytes[0..4], b"\0asm");
+    }
+
+    #[test]
+    fn rejects_unprovided_platform_fn() {
+        let err = WasmBackend
+            .compile(&main_platform("fs.read"), &BackendOptions::default())
+            .unwrap_err();
+        assert!(err.to_string().contains("does not provide"), "{err}");
     }
 }
