@@ -1,0 +1,44 @@
+name: Nightly
+
+# Every push to `dev` publishes a dogfooding prerelease, versioned
+# `<crate-version>-dev.<timestamp>` (e.g. 0.1.0-dev.20260115T120000Z). This is
+# the channel `install.sh` picks up by default. Stable releases come from tags
+# on `main` (see release.yml).
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute dev version
+        id: v
+        run: |
+          base=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name=="emela").version')
+          version="${base}-dev.$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: version
+    uses: ./.github/workflows/build-release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      tag: ${{ needs.version.outputs.tag }}
+      prerelease: true
+      latest: false
