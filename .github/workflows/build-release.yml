@@ -1,0 +1,94 @@
+name: Build and Release
+
+# Reusable workflow: builds the `emela` binary for every release target, packages
+# each as `emela-<tag>-<target>.tar.gz` (the name `install.sh` looks for), and
+# publishes a single GitHub Release. Called by `nightly.yml` (dev) and
+# `release.yml` (tags), which decide the version and whether it is a prerelease.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version string baked into the binary (emela --version).
+        required: true
+        type: string
+      tag:
+        description: Git tag / release name, e.g. v0.1.0.
+        required: true
+        type: string
+      prerelease:
+        description: Publish as a prerelease (nightly) rather than a stable release.
+        required: true
+        type: boolean
+      latest:
+        description: Mark this release as "latest" on GitHub.
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    env:
+      EMELA_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      # Re-verify on the release commit even though CI already ran on the PR.
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build release binary
+        run: cargo build --locked --release --bin emela --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          package="emela-${{ inputs.tag }}-${{ matrix.target }}"
+          mkdir -p "dist/$package"
+          cp "target/${{ matrix.target }}/release/emela" "dist/$package/emela"
+          tar -C dist -czf "dist/$package.tar.gz" "$package"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emela-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          LATEST: ${{ inputs.latest }}
+        run: |
+          flags=""
+          if [ "$PRERELEASE" = "true" ]; then flags="--prerelease"; fi
+          gh release create "$TAG" dist/*.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            $flags \
+            --latest="$LATEST"
