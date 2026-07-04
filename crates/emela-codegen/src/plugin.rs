@@ -3,7 +3,7 @@
 //! A backend can live in another process (or another language). The compiler
 //! serializes a [`PluginRequest`] (containing the IR) to the process's stdin as
 //! JSON and reads a [`PluginResponse`] from its stdout. [`BackendDescriptor`]
-//! mirrors the `backend.json` files under `backends/`; the host crate turns a
+//! is the parsed form of a `backend.json` descriptor; the host crate turns a
 //! descriptor with a `command` into a [`crate::Backend`].
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::backend::{ArtifactKind, EmitMode, Tier};
 use crate::ir::IrProgram;
 
-/// A backend descriptor, as found in `backends/<name>/backend.json`.
+/// A backend descriptor, as declared in a `backend.json` file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendDescriptor {
     pub name: String,
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn descriptor_parses_builtin_form() {
-        // Mirrors backends/js-node/backend.json.
+        // A built-in `js-node` descriptor in `backend.json` form.
         let json = r#"{
             "name": "js-node",
             "backend": "js",
