@@ -1,0 +1,178 @@
+-- The Core Prelude (spec 0021): the operator traits (spec 0020) and their
+-- built-in instances for `Int` / `Float` / `String`. The compiler implicitly
+-- imports this module into every compilation unit, so `1 + 2` and friends keep
+-- working with no explicit import (backward compatibility).
+--
+-- Each impl body calls an `intrinsic fn` directly (never the operator), so it
+-- does not recurse; the backend inlines the intrinsic to a native instruction.
+-- This instance set matches the operator typing of spec 0016/0017 exactly.
+
+module core
+
+trait Add {
+    fn add(a: Self, b: Self) -> Self uses {}
+}
+
+trait Sub {
+    fn sub(a: Self, b: Self) -> Self uses {}
+}
+
+trait Mul {
+    fn mul(a: Self, b: Self) -> Self uses {}
+}
+
+trait Div {
+    fn div(a: Self, b: Self) -> Self uses {}
+}
+
+trait Rem {
+    fn rem(a: Self, b: Self) -> Self uses {}
+}
+
+trait Concat {
+    fn concat(a: Self, b: Self) -> Self uses {}
+}
+
+trait Eq {
+    fn eq(a: Self, b: Self) -> Bool uses {}
+}
+
+trait Ord {
+    fn lt(a: Self, b: Self) -> Bool uses {}
+}
+
+trait Show {
+    fn to_string(value: Self) -> String uses {}
+}
+
+intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_sub(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_mul(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_div_s(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_rem_s(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_eq(a: Int, b: Int) -> Bool uses {}
+intrinsic fn i32_lt_s(a: Int, b: Int) -> Bool uses {}
+intrinsic fn f64_add(a: Float, b: Float) -> Float uses {}
+intrinsic fn f64_sub(a: Float, b: Float) -> Float uses {}
+intrinsic fn f64_mul(a: Float, b: Float) -> Float uses {}
+intrinsic fn f64_div(a: Float, b: Float) -> Float uses {}
+intrinsic fn f64_eq(a: Float, b: Float) -> Bool uses {}
+intrinsic fn f64_lt(a: Float, b: Float) -> Bool uses {}
+intrinsic fn string_concat(a: String, b: String) -> String uses {}
+intrinsic fn string_eq(a: String, b: String) -> Bool uses {}
+intrinsic fn string_lt(a: String, b: String) -> Bool uses {}
+
+impl Add for Int {
+    fn add(a: Int, b: Int) -> Int uses {} { i32_add(a, b) }
+}
+
+impl Sub for Int {
+    fn sub(a: Int, b: Int) -> Int uses {} { i32_sub(a, b) }
+}
+
+impl Mul for Int {
+    fn mul(a: Int, b: Int) -> Int uses {} { i32_mul(a, b) }
+}
+
+impl Div for Int {
+    fn div(a: Int, b: Int) -> Int uses {} { i32_div_s(a, b) }
+}
+
+impl Rem for Int {
+    fn rem(a: Int, b: Int) -> Int uses {} { i32_rem_s(a, b) }
+}
+
+impl Eq for Int {
+    fn eq(a: Int, b: Int) -> Bool uses {} { i32_eq(a, b) }
+}
+
+impl Ord for Int {
+    fn lt(a: Int, b: Int) -> Bool uses {} { i32_lt_s(a, b) }
+}
+
+-- `to_string` for `Int` (spec 0021, migrated from `std.int`). Written with the
+-- operator traits and the pure `Char`/`String` conversions (spec 0017). It is
+-- self-recursive rather than using a top-level digit helper so that a program
+-- that never converts an `Int` pays for none of it (the impl method is lowered
+-- only on demand). For `n >= 10`, `n % 10` is a single digit and `n / 10` is the
+-- rest, so `to_string(n / 10) ++ to_string(n % 10)` builds the decimal form.
+impl Show for Int {
+    fn to_string(n: Int) -> String uses {} {
+        if n == 0 {
+            "0"
+        } else {
+            if n < 0 {
+                "-" ++ to_string(0 - n)
+            } else {
+                if n < 10 {
+                    String::from_char(Char::from_code(48 + n))
+                } else {
+                    to_string(n / 10) ++ to_string(n % 10)
+                }
+            }
+        }
+    }
+}
+
+impl Add for Float {
+    fn add(a: Float, b: Float) -> Float uses {} { f64_add(a, b) }
+}
+
+impl Sub for Float {
+    fn sub(a: Float, b: Float) -> Float uses {} { f64_sub(a, b) }
+}
+
+impl Mul for Float {
+    fn mul(a: Float, b: Float) -> Float uses {} { f64_mul(a, b) }
+}
+
+impl Div for Float {
+    fn div(a: Float, b: Float) -> Float uses {} { f64_div(a, b) }
+}
+
+impl Eq for Float {
+    fn eq(a: Float, b: Float) -> Bool uses {} { f64_eq(a, b) }
+}
+
+impl Ord for Float {
+    fn lt(a: Float, b: Float) -> Bool uses {} { f64_lt(a, b) }
+}
+
+impl Concat for String {
+    fn concat(a: String, b: String) -> String uses {} { string_concat(a, b) }
+}
+
+-- `Eq`/`Ord for String` (spec 0027), each bottoming out in a string comparison
+-- intrinsic (spec 0021) the backend provides (JS `===`/`<`, wasm a byte-walk).
+impl Eq for String {
+    fn eq(a: String, b: String) -> Bool uses {} { string_eq(a, b) }
+}
+
+impl Ord for String {
+    fn lt(a: String, b: String) -> Bool uses {} { string_lt(a, b) }
+}
+
+-- `Show for String` is the identity, so generic `Show`-bounded code (e.g. a
+-- `print<T: Show>`) works uniformly for `String` as well as `Int`.
+impl Show for String {
+    fn to_string(s: String) -> String uses {} { s }
+}
+
+-- `Eq for Bool` (spec 0027). There is no `bool_eq` intrinsic: `i32_eq` takes
+-- `Int`, and `Bool` has no conversion to it. Instead `a == b` is expressed
+-- purely, `if a { b } else { !b }` — when `a` is true the answer is `b`, and
+-- when `a` is false it is `!b`. This gives `!=` on `Bool` as well (spec 0027
+-- desugars `a != b` to `!(a == b)`).
+impl Eq for Bool {
+    fn eq(a: Bool, b: Bool) -> Bool uses {} { if a { b } else { !b } }
+}
+
+impl Show for Bool {
+  fn to_string(b: Bool) -> String uses {} {
+    if b {
+      "true"
+    } else {
+      "false"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+-- `std.ord`: ordering helpers generic over any `Ord` type (spec 0020). Pure
+-- Emela built on the comparison operators (spec 0027), so they work for `Int`,
+-- `Float`, and any user type with an `Ord` instance.
+module ord
+
+pub fn min<T: Ord>(a: T, b: T) -> T {
+  if a < b {
+    a
+  } else {
+    b
+  }
+}
+
+pub fn max<T: Ord>(a: T, b: T) -> T {
+  if a > b {
+    a
+  } else {
+    b
+  }
+}
+
+pub fn clamp<T: Ord>(value: T, low: T, high: T) -> T {
+  -- Written with a nested `if` because `else if` is not supported yet.
+  if value < low {
+    low
+  } else {
+    if value > high {
+      high
+    } else {
+      value
+    }
+  }
+}
