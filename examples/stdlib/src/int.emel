@@ -1,0 +1,53 @@
+-- `std.int`: integer helpers. Pure Emela over the operator traits (spec 0020),
+-- comparisons (spec 0027), and integer division/remainder (spec 0016). There is
+-- no unary minus yet, so negation is written `0 - n`. `to_string` for `Int`
+-- lives in the Core Prelude (spec 0021), not here.
+module int
+
+pub fn abs(n: Int) -> Int {
+  if n < 0 {
+    0 - n
+  } else {
+    n
+  }
+}
+
+pub fn signum(n: Int) -> Int {
+  -- Nested `if` because `else if` is not supported yet.
+  if n < 0 {
+    0 - 1
+  } else {
+    if n > 0 {
+      1
+    } else {
+      0
+    }
+  }
+}
+
+pub fn is_even(n: Int) -> Bool {
+  n % 2 == 0
+}
+
+pub fn is_odd(n: Int) -> Bool {
+  n % 2 != 0
+}
+
+-- Integer exponentiation with a non-negative exponent; a non-positive exponent
+-- yields 1. (No `Float` power yet — that needs a float intrinsic.)
+pub fn pow(base: Int, exp: Int) -> Int {
+  if exp <= 0 {
+    1
+  } else {
+    base * pow(base, exp - 1)
+  }
+}
+
+-- Greatest common divisor by the Euclidean algorithm (for non-negative inputs).
+pub fn gcd(a: Int, b: Int) -> Int {
+  if b == 0 {
+    a
+  } else {
+    gcd(b, a % b)
+  }
+}

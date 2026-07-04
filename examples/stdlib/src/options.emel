@@ -1,0 +1,38 @@
+-- Utilities over the built-in `Option<T>` (spec 0001). `Option` is a compiler
+-- type, so this module only adds functions; it does not declare the type.
+module options
+
+pub fn is_some<T>(o: Option<T>) -> Bool {
+  match o {
+    Some(x) -> true
+    None -> false
+  }
+}
+
+pub fn is_none<T>(o: Option<T>) -> Bool {
+  match o {
+    Some(x) -> false
+    None -> true
+  }
+}
+
+pub fn unwrap_or<T>(o: Option<T>, default: T) -> T {
+  match o {
+    Some(x) -> x
+    None -> default
+  }
+}
+
+pub fn get_or_panic<T>(o: Option<T>) -> T {
+  match o {
+    Some(x) -> x
+    None -> panic("called get_or_panic on None")
+  }
+}
+
+pub fn map<A, B>(o: Option<A>, f: (A) -> B) -> Option<B> {
+  match o {
+    Some(x) -> Some(f(x))
+    None -> None
+  }
+}

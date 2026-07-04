@@ -1,0 +1,27 @@
+fn not(b: Bool) -> Bool {
+  match b {
+    true -> false
+    false -> true
+  }
+}
+
+fn or(a: Bool, b: Bool) -> Bool {
+  match a {
+    true -> true
+    false -> b
+  }
+}
+
+fn and(a: Bool, b: Bool) -> Bool {
+  match a {
+    true -> b
+    false -> false
+  }
+}
+
+fn xor(a: Bool, b: Bool) -> Bool {
+  match a {
+    true -> not(b)
+    false -> b
+  }
+}

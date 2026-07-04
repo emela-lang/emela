@@ -1,0 +1,71 @@
+module option
+
+fn is_some<T>(opt: Option<T>) -> Bool {
+  match opt {
+    Some(_) -> true
+    None -> false
+  }
+}
+
+fn is_none<T>(opt: Option<T>) -> Bool {
+  match opt {
+    Some(_) -> false
+    None -> true
+  }
+}
+
+fn unwrap_or<T>(opt: Option<T>, default: T) -> T {
+  match opt {
+    Some(value) -> value
+    None -> default
+  }
+}
+
+fn unwrap_or_else<T>(opt: Option<T>, f: () -> T) -> T {
+  match opt {
+    Some(value) -> value
+    None -> f()
+  }
+}
+
+fn get_or_panic<T>(opt: Option<T>, msg: String) -> T {
+  match opt {
+    Some(value) -> value
+    None -> panic(msg)
+  }
+}
+
+fn map<T, U>(opt: Option<T>, f: (T) -> U) -> Option<U> {
+  match opt {
+    Some(value) -> Some(f(value))
+    None -> None
+  }
+}
+
+fn and_then<T, U>(opt: Option<T>, f: (T) -> Option<U>) -> Option<U> {
+  match opt {
+    Some(value) -> f(value)
+    None -> None
+  }
+}
+
+fn or_else<T>(opt: Option<T>, f: () -> Option<T>) -> Option<T> {
+  match opt {
+    Some(_) -> opt
+    None -> f()
+  }
+}
+
+fn filter<T>(opt: Option<T>, predicate: (T) -> Bool) -> Option<T> {
+  match opt {
+    Some(value) if predicate(value) -> Some(value)
+    _ -> None
+  }
+}
+
+fn flatten<T>(opt: Option<Option<T>>) -> Option<T> {
+  match opt {
+    Some(inner) -> inner
+    None -> None
+  }
+}
