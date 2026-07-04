@@ -38,29 +38,48 @@ case "$(uname -m)" in
 esac
 
 target="$arch-$os"
+channel="${EMELA_CHANNEL:-stable}"
 api_base="https://api.github.com/repos/$repo/releases"
 
+# Resolve which release to install:
+#   EMELA_VERSION=x.y.z    -> that exact tag (either channel)
+#   EMELA_CHANNEL=stable   -> the latest stable release (default)
+#   EMELA_CHANNEL=nightly  -> the latest dev prerelease (published from `dev`)
 if [ -n "$version" ]; then
   case "$version" in
     v*) tag="$version" ;;
     *) tag="v$version" ;;
   esac
   release_json="$(curl -fsSL "$api_base/tags/$tag")"
-else
+  accept_any=1
+elif [ "$channel" = "nightly" ]; then
   release_json="$(curl -fsSL "$api_base?per_page=30")"
+  accept_any=0
+elif [ "$channel" = "stable" ]; then
+  # GitHub's "latest" excludes prereleases, so this is the newest stable tag.
+  release_json="$(curl -fsSL "$api_base/latest" 2>/dev/null || true)"
+  accept_any=1
+  if ! printf '%s' "$release_json" | grep -q '"tag_name"'; then
+    echo "no stable emela release found in $repo yet" >&2
+    echo "try a dev build with EMELA_CHANNEL=nightly, or pin one with EMELA_VERSION=x.y.z" >&2
+    exit 1
+  fi
+else
+  echo "unknown EMELA_CHANNEL '$channel' (expected 'stable' or 'nightly')" >&2
+  exit 1
 fi
 
 asset_url="$(printf '%s\n' "$release_json" \
-  | awk -v target="$target" '
+  | awk -v target="$target" -v accept_any="$accept_any" '
       /"prerelease": true/ { prerelease = 1 }
       /"prerelease": false/ { prerelease = 0 }
-      /"browser_download_url":/ && (prerelease || explicit_tag) && $0 ~ "emela-.*-" target "\\.tar\\.gz" {
+      /"browser_download_url":/ && (prerelease || accept_any) && $0 ~ "emela-.*-" target "\\.tar\\.gz" {
         sub(/^.*"browser_download_url": *"/, "")
         sub(/".*$/, "")
         print
         exit
       }
-    ' explicit_tag="$([ -n "$version" ] && echo 1 || echo 0)")"
+    ')"
 
 if [ -z "$asset_url" ]; then
   echo "could not find an emela release asset for $target in $repo" >&2
