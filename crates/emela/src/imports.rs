@@ -4,9 +4,22 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::ast::{Extern, Function, Import, Program};
+use crate::ast::{EnumDecl, Extern, Function, ImplDecl, Import, Program, TraitDecl};
 use crate::error::{Diagnostic, Error, Result};
 use crate::parser::parse_program;
+
+/// The declarations pulled in from an imported module. A module's public
+/// functions are what an `import` names, but its type declarations (enums, spec
+/// 0028) and their impls (spec 0020) come along too, since the imported
+/// functions' signatures refer to them. Emitted once per module (see `emitted`).
+#[derive(Default)]
+struct Imported {
+    functions: Vec<Function>,
+    externs: Vec<Extern>,
+    enums: Vec<EnumDecl>,
+    traits: Vec<TraitDecl>,
+    impls: Vec<ImplDecl>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct PackageSource {
@@ -75,25 +88,31 @@ struct ImportResolver<'a> {
 impl ImportResolver<'_> {
     fn expand_program(&mut self, source_path: &Path, mut program: Program) -> Result<Program> {
         let imports = std::mem::take(&mut program.imports);
-        let mut imported_functions = Vec::new();
-        let mut imported_externs = Vec::new();
+        let mut acc = Imported::default();
         for import in imports {
-            let (functions, externs) = self.resolve_import(source_path, &import)?;
-            imported_functions.extend(functions);
-            imported_externs.extend(externs);
+            let items = self.resolve_import(source_path, &import)?;
+            acc.functions.extend(items.functions);
+            acc.externs.extend(items.externs);
+            acc.enums.extend(items.enums);
+            acc.traits.extend(items.traits);
+            acc.impls.extend(items.impls);
         }
-        imported_functions.extend(program.functions);
-        program.functions = imported_functions;
-        imported_externs.extend(program.externs);
-        program.externs = imported_externs;
+        // Imported declarations come first so this file's own definitions can
+        // shadow / extend them, matching the existing function ordering.
+        acc.functions.extend(program.functions);
+        program.functions = acc.functions;
+        acc.externs.extend(program.externs);
+        program.externs = acc.externs;
+        acc.enums.extend(program.enums);
+        program.enums = acc.enums;
+        acc.traits.extend(program.traits);
+        program.traits = acc.traits;
+        acc.impls.extend(program.impls);
+        program.impls = acc.impls;
         Ok(program)
     }
 
-    fn resolve_import(
-        &mut self,
-        source_path: &Path,
-        import: &Import,
-    ) -> Result<(Vec<Function>, Vec<Extern>)> {
+    fn resolve_import(&mut self, source_path: &Path, import: &Import) -> Result<Imported> {
         let Some((module_file, module_name, item_name)) =
             self.resolve_module_file(source_path, import)?
         else {
@@ -139,9 +158,19 @@ impl ImportResolver<'_> {
                             function.module_path = qualifier.clone();
                         }
                     }
-                    Ok((functions, module.externs.clone()))
+                    // The module's type declarations (spec 0028) and their impls
+                    // (spec 0020) travel with its functions; the imported
+                    // functions' signatures need them. A loaded module is not
+                    // merged with the prelude, so these are only its own.
+                    Ok(Imported {
+                        functions,
+                        externs: module.externs.clone(),
+                        enums: module.enums.clone(),
+                        traits: module.traits.clone(),
+                        impls: module.impls.clone(),
+                    })
                 } else {
-                    Ok((Vec::new(), Vec::new()))
+                    Ok(Imported::default())
                 }
             }
             Some(function) => Err(Error::diagnostic(Diagnostic::new("Private import").label(

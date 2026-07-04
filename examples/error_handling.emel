@@ -12,23 +12,23 @@ enum ParseError {
 }
 
 -- A throwing function declares its error type after the return type.
-fn parseDigit(s: String) -> Int throws ParseError uses {} {
-    throw ParseError.BadDigit
+fn parse_digit(s: String) -> Int throws ParseError uses {} {
+    throw ParseError::BadDigit
 }
 
 -- `try` / `catch` handles the error, resolving the throws channel so this
 -- function itself is non-throwing.
-fn parseOr(s: String, fallback: Int) -> Int uses {} {
+fn parse_or(s: String, fallback: Int) -> Int uses {} {
     try {
-        parseDigit(s)
+        parse_digit(s)
     } catch {
-        ParseError.Empty -> 0
-        ParseError.BadDigit -> fallback
+        ParseError::Empty -> 0
+        ParseError::BadDigit -> fallback
     }
 }
 
 -- `match` over an enum must be exhaustive.
-fn errorName(e: ParseError) -> String uses {} {
+fn error_name(e: ParseError) -> String uses {} {
     match e {
         Empty -> "empty"
         BadDigit -> "bad digit"
@@ -36,7 +36,7 @@ fn errorName(e: ParseError) -> String uses {} {
 }
 
 -- The absence of a value is `Option<T>`, not an error.
-fn unwrapOr(opt: Option<Int>, fallback: Int) -> Int uses {} {
+fn unwrap_or(opt: Option<Int>, fallback: Int) -> Int uses {} {
     match opt {
         Some(value) -> value
         None -> fallback
@@ -44,8 +44,8 @@ fn unwrapOr(opt: Option<Int>, fallback: Int) -> Int uses {} {
 }
 
 fn main() -> Int uses {} {
-    let parsed = parseOr("x", 42)
-    let present = unwrapOr(Some(8), 0)
-    let absent = unwrapOr(None, 1)
+    let parsed = parse_or("x", 42)
+    let present = unwrap_or(Some(8), 0)
+    let absent = unwrap_or(None, 1)
     parsed + present + absent
 }

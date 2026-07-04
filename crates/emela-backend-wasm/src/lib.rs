@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type,
+    QuestionMode, Result, Tier, Type, used_intrinsics, used_platform_fns, walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -186,10 +186,10 @@ fn collect_strings(ir: &IrProgram) -> StringTable {
     let mut seen = HashSet::new();
     for function in &ir.functions {
         walk(&function.body, &mut |expr| {
-            if let IrExpr::String(value) = expr {
-                if seen.insert(value.clone()) {
-                    order.push(value.clone());
-                }
+            if let IrExpr::String(value) = expr
+                && seen.insert(value.clone())
+            {
+                order.push(value.clone());
             }
         });
     }
@@ -218,63 +218,6 @@ fn wat_bytes(bytes: &[u8]) -> String {
         let _ = write!(out, "\\{byte:02x}");
     }
     out
-}
-
-/// Visits every sub-expression, parents before children.
-fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
-    visit(expr);
-    match expr {
-        IrExpr::Array { elems, .. } => elems.iter().for_each(|e| walk(e, visit)),
-        IrExpr::Let { value, next, .. } => {
-            walk(value, visit);
-            walk(next, visit);
-        }
-        IrExpr::Call { callee, args, .. } => {
-            walk(callee, visit);
-            args.iter().for_each(|a| walk(a, visit));
-        }
-        IrExpr::Platform { args, .. } => args.iter().for_each(|a| walk(a, visit)),
-        IrExpr::If {
-            cond, then, els, ..
-        } => {
-            walk(cond, visit);
-            walk(then, visit);
-            walk(els, visit);
-        }
-        IrExpr::Fn { body, .. } => walk(body, visit),
-        IrExpr::Binary { left, right, .. } => {
-            walk(left, visit);
-            walk(right, visit);
-        }
-        IrExpr::EnumValue { payload, .. } => payload.iter().for_each(|e| walk(e, visit)),
-        IrExpr::Match {
-            scrutinee, arms, ..
-        } => {
-            walk(scrutinee, visit);
-            walk_arms(arms, visit);
-        }
-        IrExpr::Try { body, arms, .. } => {
-            walk(body, visit);
-            walk_arms(arms, visit);
-        }
-        IrExpr::Throw { value } | IrExpr::Question { value, .. } => walk(value, visit),
-        IrExpr::Panic { message } => walk(message, visit),
-        IrExpr::CharFromCode(value) | IrExpr::StringFromChar(value) => walk(value, visit),
-        IrExpr::Concat { left, right } => {
-            walk(left, visit);
-            walk(right, visit);
-        }
-        _ => {}
-    }
-}
-
-fn walk_arms<'a>(arms: &'a [IrArm], visit: &mut impl FnMut(&'a IrExpr)) {
-    for arm in arms {
-        if let Some(guard) = &arm.guard {
-            walk(guard, visit);
-        }
-        walk(&arm.body, visit);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -372,12 +315,11 @@ fn build_sigs(ir: &IrProgram, table: &FnTable) -> SigTable {
     // And every indirect call site needs its signature declared.
     for function in &ir.functions {
         walk(&function.body, &mut |expr| {
-            if let IrExpr::Call { callee, .. } = expr {
-                if table.is_direct(callee).is_none() {
-                    if let Type::Function(ft) = callee.ty() {
-                        sigs.add(WasmSig::of_type(&ft));
-                    }
-                }
+            if let IrExpr::Call { callee, .. } = expr
+                && table.is_direct(callee).is_none()
+                && let Type::Function(ft) = callee.ty()
+            {
+                sigs.add(WasmSig::of_type(&ft));
             }
         });
     }
@@ -418,6 +360,15 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
         if platform_glue(name).is_none() {
             return Err(BackendError::new(format!(
                 "backend `wasm-wasi` does not provide platform function `{name}`"
+            )));
+        }
+    }
+    // Intrinsic coverage (spec 0021): reject a program that uses an intrinsic
+    // this backend does not inline.
+    for name in used_intrinsics(ir) {
+        if !wasm_provides_intrinsic(&name) {
+            return Err(BackendError::new(format!(
+                "backend `wasm-wasi` does not provide intrinsic `{name}`"
             )));
         }
     }
@@ -465,6 +416,7 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(&emit_types(&sigs));
     module.push_str(&emit_table(&table));
     module.push_str(ALLOC);
+    module.push_str(STRING_CMP);
     for name in &used_platform {
         module.push_str(platform_glue(name).expect("checked above"));
     }
@@ -485,20 +437,33 @@ fn platform_wasm_name(canonical: &str) -> String {
     out
 }
 
-/// The platform functions the program references, in first-occurrence order.
-fn used_platform_fns(ir: &IrProgram) -> Vec<String> {
-    let mut order = Vec::new();
-    let mut seen = HashSet::new();
-    for function in &ir.functions {
-        walk(&function.body, &mut |expr| {
-            if let IrExpr::Platform { name, .. } = expr {
-                if seen.insert(name.clone()) {
-                    order.push(name.clone());
-                }
-            }
-        });
-    }
-    order
+/// The native instruction an intrinsic (spec 0021) inlines to, or `None` if this
+/// backend does not provide it.
+/// Whether the wasm backend can inline `name`: either a single-instruction
+/// intrinsic or a structural one emitted by a dedicated helper (spec 0021).
+fn wasm_provides_intrinsic(name: &str) -> bool {
+    // A single-instruction intrinsic, or a structural one emitted by a helper
+    // (`string_concat`) or a shared runtime function (`string_eq`/`string_lt`).
+    intrinsic_wasm(name).is_some() || matches!(name, "string_concat" | "string_eq" | "string_lt")
+}
+
+fn intrinsic_wasm(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "i32_add" => "i32.add",
+        "i32_sub" => "i32.sub",
+        "i32_mul" => "i32.mul",
+        "i32_div_s" => "i32.div_s",
+        "i32_rem_s" => "i32.rem_s",
+        "i32_eq" => "i32.eq",
+        "i32_lt_s" => "i32.lt_s",
+        "f64_add" => "f64.add",
+        "f64_sub" => "f64.sub",
+        "f64_mul" => "f64.mul",
+        "f64_div" => "f64.div",
+        "f64_eq" => "f64.eq",
+        "f64_lt" => "f64.lt",
+        _ => return None,
+    })
 }
 
 /// WASI-backed glue for a platform function, or `None` if not provided.
@@ -549,6 +514,54 @@ fn emit_table(table: &FnTable) -> String {
 
 /// A bump allocator over linear memory. No free; 8-byte aligned.
 const ALLOC: &str = "  (func $alloc (param $n i32) (result i32)\n    (local $p i32)\n    global.get $heap\n    i32.const 7\n    i32.add\n    i32.const -8\n    i32.and\n    local.set $p\n    local.get $p\n    local.get $n\n    i32.add\n    global.set $heap\n    local.get $p)\n";
+
+/// Runtime helpers for `Eq`/`Ord for String` (spec 0027). A string is
+/// `[len: i32][utf8 bytes]`, so `$string_eq` compares lengths then bytes, and
+/// `$string_lt` walks the shared prefix and orders by the first differing byte
+/// (then by length) — lexicographic over bytes, i.e. code-point order. Both
+/// return an `i32` boolean. They are always emitted; an unused function is fine.
+const STRING_CMP: &str = r#"  (func $string_eq (param $a i32) (param $b i32) (result i32)
+    (local $la i32) (local $lb i32) (local $i i32)
+    local.get $a i32.load local.set $la
+    local.get $b i32.load local.set $lb
+    local.get $la local.get $lb i32.ne
+    if i32.const 0 return end
+    i32.const 0 local.set $i
+    block $done
+      loop $loop
+        local.get $i local.get $la i32.ge_s br_if $done
+        local.get $a i32.const 4 i32.add local.get $i i32.add i32.load8_u
+        local.get $b i32.const 4 i32.add local.get $i i32.add i32.load8_u
+        i32.ne
+        if i32.const 0 return end
+        local.get $i i32.const 1 i32.add local.set $i
+        br $loop
+      end
+    end
+    i32.const 1)
+  (func $string_lt (param $a i32) (param $b i32) (result i32)
+    (local $la i32) (local $lb i32) (local $i i32) (local $n i32) (local $ca i32) (local $cb i32)
+    local.get $a i32.load local.set $la
+    local.get $b i32.load local.set $lb
+    local.get $la local.get $lb i32.lt_s
+    if (result i32) local.get $la else local.get $lb end
+    local.set $n
+    i32.const 0 local.set $i
+    block $done
+      loop $loop
+        local.get $i local.get $n i32.ge_s br_if $done
+        local.get $a i32.const 4 i32.add local.get $i i32.add i32.load8_u local.set $ca
+        local.get $b i32.const 4 i32.add local.get $i i32.add i32.load8_u local.set $cb
+        local.get $ca local.get $cb i32.lt_u
+        if i32.const 1 return end
+        local.get $ca local.get $cb i32.gt_u
+        if i32.const 0 return end
+        local.get $i i32.const 1 i32.add local.set $i
+        br $loop
+      end
+    end
+    local.get $la local.get $lb i32.lt_s)
+"#;
 
 fn emit_start(main: &IrFunction) -> String {
     let mut out = String::new();
@@ -750,6 +763,29 @@ impl<'a> FnEmitter<'a> {
                 }
                 self.line(&format!("call {}", platform_wasm_name(name)));
             }
+            // An intrinsic (spec 0021) inlines to a native instruction, or, for a
+            // structural one like `string_concat`, to a dedicated helper.
+            IrExpr::Intrinsic { name, args, .. } => match name.as_str() {
+                "string_concat" => self.emit_concat(&args[0], &args[1])?,
+                // String comparison calls the shared runtime helper, which walks
+                // the `[len][utf8]` bytes (see `STRING_CMP`).
+                "string_eq" | "string_lt" => {
+                    self.emit(&args[0])?;
+                    self.emit(&args[1])?;
+                    self.line(&format!("call ${name}"));
+                }
+                _ => {
+                    for arg in args {
+                        self.emit(arg)?;
+                    }
+                    let instruction = intrinsic_wasm(name).ok_or_else(|| {
+                        BackendError::new(format!(
+                            "backend `wasm-wasi` does not provide intrinsic `{name}`"
+                        ))
+                    })?;
+                    self.line(instruction);
+                }
+            },
             IrExpr::String(value) => {
                 let offset = *self.ctx.strings.offsets.get(value).ok_or_else(|| {
                     BackendError::new("internal error: string literal was not interned")
@@ -795,7 +831,7 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    /// `String.from_char` (spec 0017): a one-byte (ASCII) `[len=1][byte]` string.
+    /// `String::from_char` (spec 0017): a one-byte (ASCII) `[len=1][byte]` string.
     /// Multi-byte UTF-8 encoding is a follow-up.
     fn emit_string_from_char(&mut self, value: &IrExpr) -> Result<()> {
         let code = self.fresh_local(WasmTy::I32);
@@ -1245,6 +1281,10 @@ fn binary_op(op: BinaryOp, operand_ty: &Type) -> &'static str {
         (WasmTy::F64, BinaryOp::Rem) => unreachable!("Float % rejected by type checker"),
         // `++` lowers to `IrExpr::Concat`, never to a Binary (spec 0017).
         (_, BinaryOp::Concat) => unreachable!("concat lowers to IrExpr::Concat"),
+        // `!= > <= >=` desugar to `eq`/`lt` calls in lowering (spec 0027).
+        (_, BinaryOp::Ne | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge) => {
+            unreachable!("derived comparison desugared before lowering")
+        }
     }
 }
 

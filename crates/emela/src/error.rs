@@ -192,3 +192,9 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+impl From<emela_codegen::BackendError> for Error {
+    fn from(err: emela_codegen::BackendError) -> Self {
+        Error::new(err.to_string())
+    }
+}

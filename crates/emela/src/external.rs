@@ -84,17 +84,21 @@ impl Backend for ExternalBackend {
                 ))
             })?;
 
-        child
-            .stdin
-            .take()
-            .expect("stdin is piped")
-            .write_all(&payload)
-            .map_err(|err| {
-                BackendError::new(format!(
-                    "failed to send IR to backend `{}`: {err}",
-                    self.name
-                ))
-            })?;
+        let mut stdin = child.stdin.take().ok_or_else(|| {
+            BackendError::new(format!(
+                "backend `{}` stdin was not available for writing",
+                self.name
+            ))
+        })?;
+        stdin.write_all(&payload).map_err(|err| {
+            BackendError::new(format!(
+                "failed to send IR to backend `{}`: {err}",
+                self.name
+            ))
+        })?;
+        // Close stdin so the child sees EOF and can produce its output; otherwise
+        // it blocks reading while we block on `wait_with_output` below.
+        drop(stdin);
 
         let output = child.wait_with_output().map_err(|err| {
             BackendError::new(format!("backend `{}` did not complete: {err}", self.name))

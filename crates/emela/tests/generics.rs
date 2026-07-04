@@ -179,8 +179,17 @@ fn emits_specialized_javascript() {
 
 #[test]
 fn rejects_operation_on_opaque_parameter() {
+    // `+` on an unbounded type parameter is rejected: with no `T: Add` bound the
+    // operator's trait cannot be discharged (spec 0020). The exact wording is
+    // "Unknown trait" when no `Add` is in scope and "does not satisfy" once
+    // Core Prelude provides it (spec 0021).
     let diagnostics = check_err("fn bad<T>(x: T) -> T { x + x }\nfn main() -> Int { 0 }\n");
-    assert!(diagnostics.contains("Type mismatch"), "{diagnostics}");
+    assert!(
+        diagnostics.contains("Type mismatch")
+            || diagnostics.contains("does not satisfy")
+            || diagnostics.contains("Unknown trait"),
+        "{diagnostics}"
+    );
 }
 
 #[test]

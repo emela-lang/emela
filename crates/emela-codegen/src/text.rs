@@ -87,6 +87,11 @@ fn inline_expr(expr: &IrExpr) -> String {
             name,
             args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
         ),
+        IrExpr::Intrinsic { name, args, .. } => format!(
+            "intrinsic {}({})",
+            name,
+            args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
+        ),
         IrExpr::Fn { params, body, .. } => {
             format!("fn ({}) {{ {} }}", param_names(params), inline_expr(body))
         }
@@ -181,6 +186,12 @@ fn ir_op(op: BinaryOp) -> &'static str {
         BinaryOp::Concat => "concat",
         BinaryOp::Eq => "eq",
         BinaryOp::Lt => "lt",
+        // Derived comparisons (spec 0027); desugared before lowering, so these
+        // only surface if an IR dump is built from a hand-written Binary node.
+        BinaryOp::Ne => "ne",
+        BinaryOp::Gt => "gt",
+        BinaryOp::Le => "le",
+        BinaryOp::Ge => "ge",
     }
 }
 
@@ -201,7 +212,11 @@ fn type_name(ty: &Type) -> String {
         Type::Char => "Char".to_string(),
         Type::Array(element) => format!("Array<{}>", type_name(element)),
         Type::Record => "Record".to_string(),
-        Type::Enum(name) => name.clone(),
+        Type::Enum(name, args) if args.is_empty() => name.clone(),
+        Type::Enum(name, args) => format!(
+            "{name}<{}>",
+            args.iter().map(type_name).collect::<Vec<_>>().join(", ")
+        ),
         Type::Option(inner) => format!("Option<{}>", type_name(inner)),
         Type::Never => "Never".to_string(),
         Type::Function(function) => format!(

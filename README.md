@@ -1,202 +1,101 @@
 # Emela
 
-Emela is an experimental functional language intended to compile to native code
-and WebAssembly. This repository contains the early Emela CLI and compiler for
-the minimal core language. The current build type-checks the core language and
-lowers it to a typed IR, which pluggable backends turn into **WebAssembly**
-(Tier 1) or **JavaScript** (Tier 2).
+Emela is an experimental functional language that compiles to **WebAssembly**
+(Tier 1) and **JavaScript** (Tier 2). This repository is the CLI and compiler for
+the current core subset; the full spec lives in `emela-lang/specification`.
 
-The language specification lives in the separate `emela-lang/specification`
-repository. This README documents what the compiler in this repository actually
-implements today, which is a small subset of the full language.
+## Install
 
-## Workspace layout
+Timestamped dogfooding builds are published from `main` for trying the current
+compiler — not for production:
 
-The compiler is a Cargo workspace. The IR-to-target boundary is published as a
-small core crate so backends can be added without depending on the whole
-compiler:
+```sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
+emela --version
+```
 
-| Crate | Role |
-| --- | --- |
-| `emela-codegen` | Public core API: the IR, the type-system types it uses, the `Backend` trait, `Tier`, `Artifact`, the registry, and the external-plugin protocol. |
-| `emela-backend-wasm` | WebAssembly (WASI / WAMR) backend — Tier 1. |
-| `emela-backend-js` | JavaScript backend — Tier 2. |
-| `emela` | Frontend (lexer, parser, type checker, imports, lowering) and the CLI. |
-
-A backend is anything implementing `emela_codegen::Backend`. It can be in-process
-(a Rust crate depending only on `emela-codegen`) or an external process driven by
-the JSON IR protocol (see [Backends](#backends)).
-
-## What the compiler supports
-
-- top-level `fn` definitions
-- a `main` entry point (no parameters)
-- block expressions and immutable `let` bindings, with optional type annotations
-- primitive types `Unit`, `Bool`, `Int`, `Float`, and `String`
-- `Array<T>` literals, including nested arrays
-- function types such as `(Int) -> Int` and `(Int, Int) -> Int uses { ... }`
-- first-class functions: function values, `fn` lambda expressions, closures, and
-  higher-order functions
-- generic functions with type parameters such as `fn identity<T>(x: T) -> T`;
-  type arguments are inferred from the call and each instantiation is
-  monomorphized to a concrete specialization (spec 0014)
-- numeric arithmetic `+`, `-`, `*`, `/` on matching `Int` or `Float` operands,
-  and `%` on `Int` (integer division truncates toward zero; division by zero traps)
-- comparisons `==` and `<` on matching numeric operands, producing `Bool`
-- `if cond { ... } else { ... }` as an expression (the `else` branch is required)
-- a `Char` type with `'x'` literals, `String` concatenation `++`, and the pure
-  conversions `Char.from_code(Int)` / `String.from_char(Char)`
-- `extern fn` platform functions whose side effects are resolved by the
-  selected backend's runtime (see [Standard library and platform functions](#standard-library-and-platform-functions))
-- effect rows declared with `uses { ... }`, checked so a body's effects are a
-  subset of the function's declared effects
-- `module`, `pub`, and `import` for splitting code across files and source
-  packages
-- line comments starting with `--`
-- `enum` declarations and exhaustive `match` expressions, with pattern guards
-- error handling with the `throws E` clause, `throw`, the `?` propagation
-  operator, `try` / `catch`, and `panic`; `Option<T>` represents an absent value.
-  Recoverable failure uses the throws channel — there is no built-in `Result`
-- WebAssembly and JavaScript code generation, plus a textual IR dump
-- in-process and external-process pluggable backends
-
-A user-declared `enum` name is a usable type, with variant constructors such as
-`Color.Red` and exhaustive `match`. The type names `Record` and `Function` are
-accepted in signatures, but have no literal or constructor syntax yet, so they
-cannot appear in runnable code.
-
-## Not yet implemented
-
-To set expectations, the following are **not** part of this build:
-
-- no `struct`, `trait`, or `impl` declarations
-- generics are limited to functions: no explicit type arguments (they are always
-  inferred), no generic data-type declarations, no generic function values, and
-  no effect-row or error-row polymorphism (spec 0014)
-- no boolean operators (`&&` / `||`); branch with `if` or `match`
-- WebAssembly `String.from_char` currently encodes ASCII (1-byte) only
-- no native (machine-code) backend
-- platform functions are still the minimal `Unit`-returning set and do not yet
-  declare `throws`
-- no dead-code elimination: importing a module pulls in all of its functions, so
-  a backend must provide every platform function any imported wrapper references
-- no project manifest or dependency fetching
+By default this installs into `$HOME/.emela/bin`. Set `EMELA_INSTALL_DIR` to
+change the location and `EMELA_VERSION` to pin a release tag. To build from
+source instead, see [Build and test](#build-and-test).
 
 ## Requirements
 
-- Rust toolchain with Cargo, edition 2024 (Rust 1.85 or newer; tested with `rustc 1.96.0`)
-- `rustfmt`, normally installed with the Rust toolchain
-- Node.js to run generated JavaScript
-- A WASI runtime such as WAMR (`iwasm`) or `wasmtime` to run generated wasm
+- Rust toolchain with Cargo, edition 2024 (Rust 1.85+)
+- Node.js — to run generated JavaScript
+- A WASI runtime (`wasmtime` or WAMR's `iwasm`) — to run generated wasm
 
-The compiler assembles WAT to wasm with the pure-Rust `wat` crate and validates
-it with `wasmparser`, so no external wasm tools are needed to *build*; a runtime
-is only needed to *run* the output.
+Building needs no external wasm tools; a runtime is only needed to *run* output.
 
 ## Build and test
 
 ```sh
 cargo build
-cargo fmt
 cargo test
+cargo fmt        # format
 ```
 
-Run the compiler through Cargo with `cargo run --bin emela -- <args>`, or use the
-installed `emela` binary directly.
+## Running programs
 
-## CLI usage
+Invoke the compiler with `cargo run --bin emela -- <args>` (or the installed
+`emela` binary):
 
 ```text
-emela check [--backend NAME] [--package DIR] FILE
-emela build [--backend NAME|PATH] [--emit default|text] [--package DIR] [-o FILE] FILE
-emela ir            [--package DIR] [-o FILE] FILE
-emela backends
-emela --version
+emela check [--library] FILE          # type-check only
+emela ir    FILE                       # print the typed IR
+emela build [--backend NAME] [-o OUT] FILE
+emela backends                         # list backends (wasm-wasi, js-node)
 ```
 
-- `check` type-checks a program without producing output.
-- `build` lowers to IR and runs the selected backend. Without `-o`/`--output` it
-  prints text artifacts to stdout; a binary artifact (wasm) requires `-o`.
-- `ir` prints the lowered intermediate representation as text.
-- `backends` lists the built-in backends and their tiers.
-- `--backend NAME` selects a built-in backend (default `js-node`). `NAME` may
-  also be a path to a `backend.json` descriptor that declares an external
-  `command` (see [Backends](#backends)).
-- `--emit text` asks a backend for a textual artifact when it has one (WAT for
-  the wasm backend); the default is the binary/source artifact.
-- `--package DIR` adds a source package root (see [Packages](#packages)).
-
-Build and run an example as JavaScript (Tier 2):
+Build and run as JavaScript (Tier 2):
 
 ```sh
 cargo run --bin emela -- build --backend js-node examples/add.emel | node
-# prints 42
+# 42
 ```
 
-Build and run an example as WebAssembly (Tier 1):
+Build and run as WebAssembly (Tier 1) — `main`'s `Int` result is the exit code:
 
 ```sh
 cargo run --bin emela -- build --backend wasm-wasi -o /tmp/add.wasm examples/add.emel
-wasmtime /tmp/add.wasm; echo $?    # exit code 42  (iwasm works too)
+wasmtime /tmp/add.wasm; echo $?    # 42
 ```
 
-`main`'s `Int` result becomes the process exit code; any other result type exits
-`0`. Inspect the generated WAT with `--emit text`, or the IR with `emela ir`.
-
-## Examples
-
-All files under `examples/` type-check and build with this compiler. Each
-standalone example below is run with:
-
-```sh
-cargo run --bin emela -- build --backend js-node examples/<file>.emel | node
-```
-
-| File | Demonstrates | Output |
-| --- | --- | --- |
-| `minimal.emel` | the smallest valid program | _(none; returns `Unit`)_ |
-| `add.emel` | functions, typed parameters, calls | `42` |
-| `string.emel` | `String` values and `let` bindings | `Hello, Emela!` |
-| `function_values.emel` | function values, higher-order functions, closures | `63` |
-| `generics.emel` | generic functions, inferred type arguments, monomorphization | `42` |
-| `effects.emel` | `uses { ... }` effect rows and propagation | _(none; returns `Unit`)_ |
-| `maximal.emel` | the largest subset that compiles, combined | `44` |
-| `imports/main.emel` | `module` / `pub` / `import` across files | `37` |
-
-`imports/main.emel` imports from the sibling module `imports/geometry.emel`. The
-module file has no `main`, so it is consumed via `import` rather than checked on
-its own.
-
-`examples/hello.emel` performs real I/O through the bundled `examples/stdlib`
-package, so it is built with a package root:
+Programs that do real I/O use the bundled stdlib package via `--package`:
 
 ```sh
 cargo run --bin emela -- build --backend js-node --package examples/stdlib examples/hello.emel | node
-# prints: Hello, Emela!
+# Hello, Emela!
 ```
 
-`examples/print_int.emel` converts an integer to text with the pure
-`std.int.to_string` (built on `if`, `/`/`%`, and `Char`/`++`) and prints it:
+Every file under `examples/` type-checks and builds. `--emit text` prints WAT for
+the wasm backend; `emela ir` prints the IR.
 
-```sh
-cargo run --bin emela -- build --backend js-node --package examples/stdlib examples/print_int.emel | node
-# prints: 42
-```
+## What it supports
 
-The same examples build to WebAssembly; the numeric ones produce the same value
-as their exit code (`add`→42, `function_values`→63, `maximal`→44,
-`imports/main`→37), and the others exit `0`.
+- top-level `fn`, a `main` entry point, block expressions, immutable `let`
+- primitives `Unit`, `Bool`, `Int`, `Float`, `String`, `Char`, and `Array<T>`
+- arithmetic `+ - * /` (and `%` on `Int`), comparisons `== != < > <= >=`,
+  short-circuiting `&& || !`, `String` concatenation `++`
+- `if / else` as an expression
+- first-class functions: function values, `fn` lambdas, closures, higher-order
+- generic functions `fn f<T>(...)` — type arguments inferred, then monomorphized
+- `enum` + exhaustive `match` with pattern guards, including generic and
+  recursive enums (`enum List<T> { Nil, Cons(T, List<T>) }`)
+- error handling: `throws E`, `throw`, the `?` propagation operator, `try` /
+  `catch`, `panic`; `Option<T>` for absent values (there is no built-in `Result`)
+- effect rows `uses { ... }`, checked against each function body
+- `module` / `pub` / `import` across files and source packages
+- WebAssembly and JavaScript backends (in-process or external plugin)
 
-## Language tour
+Enum variants and the built-in conversions are **type paths written with `::`**
+(`List::Nil`, `Color::Red`, `Char::from_code`); `.` is reserved for module and
+receiver access. Identifiers use `snake_case`; types and enum variants use
+`PascalCase`. Not yet implemented: `struct`/`record`, explicit type arguments,
+generic function values, effect/error-row polymorphism, a native backend.
 
-Minimal program:
+## Syntax by example
 
-```emela
-fn main() -> Unit {
-}
-```
-
-Functions and calls:
+Functions, `let`, and blocks (a block is an expression; its last line is the value):
 
 ```emela
 fn add(x: Int, y: Int) -> Int {
@@ -204,66 +103,118 @@ fn add(x: Int, y: Int) -> Int {
 }
 
 fn main() -> Int {
-  add(20, 22)
-}
-```
-
-`let` bindings and blocks (blocks are expressions; the last expression is the
-value):
-
-```emela
-fn main() -> Int {
   let base: Int = 20
-  let computed = {
+  let doubled = {
     let stepped = base + 1
     stepped * 2
   }
-  computed
+  add(doubled, 0)
 }
 ```
 
-Function values and closures:
+`if` expression, operators, and `Char` / `String`:
 
 ```emela
-fn apply(f: (Int) -> Int, x: Int) -> Int {
-  f(x)
+fn label(n: Int) -> String {
+  if n < 10 && n >= 0 {
+    "digit " ++ String::from_char(Char::from_code(48 + n))
+  } else {
+    "other"
+  }
+}
+```
+
+Function values, closures, and generics (type arguments are inferred):
+
+```emela
+fn make_adder(n: Int) -> (Int) -> Int {
+  fn (x: Int) -> Int { x + n }
 }
 
-fn make_adder(n: Int) -> (Int) -> Int {
-  fn (x: Int) -> Int {
-    x + n
+fn identity<T>(x: T) -> T { x }
+
+fn main() -> Int {
+  let add10 = make_adder(10)
+  identity(add10(32))
+}
+```
+
+Enums and exhaustive `match` (variants are constructed with `::`):
+
+```emela
+enum Color {
+  Red
+  Green
+  Blue
+}
+
+fn code(c: Color) -> Int {
+  match c {
+    Red -> 1
+    Green -> 2
+    Blue -> 3
   }
 }
 
 fn main() -> Int {
-  let add10 = make_adder(10)
-  apply(add10, 32)
+  code(Color::Red)
 }
 ```
 
-Generic functions (type arguments are inferred from the call):
+Generic, recursive enums:
 
 ```emela
-fn identity<T>(x: T) -> T {
-  x
+enum List<T> {
+  Nil
+  Cons(T, List<T>)
 }
 
-fn apply_to<A, B>(f: (A) -> B, x: A) -> B {
-  f(x)
+fn length<T>(xs: List<T>) -> Int {
+  match xs {
+    Nil -> 0
+    Cons(h, t) -> 1 + length(t)
+  }
 }
 
 fn main() -> Int {
-  let start: Int = identity(41)
-  apply_to(fn (n: Int) -> Int { n + 1 }, start)
+  let xs: List<Int> = List::Cons(1, List::Cons(2, List::Nil))
+  length(xs)
 }
 ```
 
-Effects:
+Error handling with `throws` / `throw` / `try` / `catch`, plus `Option`:
 
 ```emela
-fn log_line() -> Unit uses { Stdout } {
-  ()
+enum ParseError {
+  Empty
+  BadDigit
 }
+
+fn parse_digit(s: String) -> Int throws ParseError uses {} {
+  throw ParseError::BadDigit
+}
+
+fn parse_or(s: String, fallback: Int) -> Int uses {} {
+  try {
+    parse_digit(s)
+  } catch {
+    ParseError::Empty -> 0
+    ParseError::BadDigit -> fallback
+  }
+}
+
+fn unwrap_or(opt: Option<Int>, fallback: Int) -> Int uses {} {
+  match opt {
+    Some(value) -> value
+    None -> fallback
+  }
+}
+```
+
+Effects are declared with `uses { ... }` and checked to be a subset of the body's:
+
+```emela
+fn log_line() -> Unit uses { Stdout } { () }
 
 fn main() -> Unit uses { Stdout } {
   let printed: Unit = log_line()
@@ -271,68 +222,9 @@ fn main() -> Unit uses { Stdout } {
 }
 ```
 
-## Backends
-
-`emela backends` lists what is available:
-
-```text
-wasm-wasi   Tier 1
-js-node     Tier 2
-```
-
-Tiers mirror Rust's target tiers and are metadata, not a gate: Tier 1 is built
-and run in CI, Tier 2 is built and smoke-tested. Building with a non-Tier-1
-backend prints a one-line note. Built-in backends are feature-gated on the
-`emela` crate (`backend-wasm` and `backend-js`, both on by default). Name aliases
-`wasm`, `js`, and `js-bun` resolve to the canonical names above.
-
-### Adding a backend (in-process)
-
-Depend on `emela-codegen` and implement the trait:
-
-```rust
-use emela_codegen::{Artifact, ArtifactKind, Backend, BackendOptions, IrProgram, Result, Tier};
-
-struct MyBackend;
-impl Backend for MyBackend {
-    fn name(&self) -> &str { "my-backend" }
-    fn tier(&self) -> Tier { Tier::Tier3 }
-    fn compile(&self, ir: &IrProgram, _opts: &BackendOptions) -> Result<Artifact> {
-        Ok(Artifact { kind: ArtifactKind::Other("custom".into()), bytes: render(ir) })
-    }
-}
-```
-
-### Adding a backend (external process)
-
-Point `--backend` at a `backend.json` that declares a `command`:
-
-```json
-{ "name": "my-backend", "backend": "custom", "abi_version": 1,
-  "command": ["my-emela-backend"], "tier": "Tier3" }
-```
-
-The compiler writes a JSON `PluginRequest` (the IR plus `target`/`runtime`/`mode`)
-to the process's stdin and reads a `PluginResponse` from stdout:
-
-```json
-{ "status": "ok", "kind": "WasmBinary", "bytes": [0, 97, 115, 109] }
-```
-
-or, on failure, `{ "status": "error", "diagnostics": ["message"] }`. The request
-and response types live in `emela-codegen` so Rust plugins can reuse them, and
-the JSON shape is the contract for plugins written in any language.
-
-## Standard library and platform functions
-
-Side effects are not implemented by the compiler. Every capability effect (such
-as `io`) originates from a **platform function**, a language-defined operation
-declared with `extern fn` and resolved at run time by the selected backend. This
-is specified in `emela-lang/specification` spec 0013.
-
-A standard-library module wraps the platform functions; application code never
-names a backend, so the same source runs on any backend that provides the
-platform functions it uses. `examples/stdlib/src/io.emel`:
+Side effects enter only through **platform functions** (`extern fn`), resolved by
+the selected backend's runtime. A stdlib module wraps them so app code never
+names a backend:
 
 ```emela
 module io
@@ -344,57 +236,14 @@ pub fn print(s: String) -> Unit uses { io } {
 }
 ```
 
-- `extern fn` has no body; its signature must match an entry of the platform
-  interface (or compilation fails). It declares the capability it produces.
-- Each backend implements the subset of platform functions it supports — the JS
-  backend bundles a default runtime object (`__rt`), the wasm backend emits
-  WASI-backed glue. Building a program that uses a platform function the selected
-  backend does not provide is a compile error.
-- Because effects only enter through platform functions and the compiler emits no
-  bodies for them, the runtime is guaranteed to be what resolves every effect.
-
-This repository ships a small `examples/stdlib` for trying things out; the real
-standard library is developed in the separate `emela-lang/stdlib` repository and
-consumed with `--package path/to/stdlib`.
-
 ## Packages
 
-`--package DIR` adds a source package root. `DIR` must contain
-`emela-package.json`:
+`--package DIR` adds a source root; `DIR` needs an `emela-package.json`:
 
 ```json
-{
-  "name": "math",
-  "source": "src"
-}
+{ "name": "math", "source": "src" }
 ```
 
-With that package, `import math.ops.add_one` loads `DIR/src/ops.emel` and imports
-the public function `add_one`. The module file must declare a matching
-`module ops`, and only `pub` functions can be imported.
-
-Imports that do not name a package are resolved relative to the importing file.
-For example, `import geometry.square` loads `geometry.emel` from the same
-directory, which must declare `module geometry`.
-
-## Install
-
-Dogfooding builds are published from `main` as timestamped prereleases. They are
-intended for quickly trying the current compiler state, not for stable production
-use.
-
-Install the latest dogfooding build:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
-```
-
-By default this installs `emela` into `$HOME/.emela/bin`. Set `EMELA_INSTALL_DIR`
-to choose another directory, and `EMELA_VERSION` to install a specific release
-tag.
-
-Check the installed version:
-
-```sh
-emela --version
-```
+Then `import math.ops.add_one` loads `DIR/src/ops.emel` (which must declare
+`module ops`) and imports the `pub` function `add_one`. Imports without a package
+name resolve relative to the importing file.

@@ -15,20 +15,30 @@ use emela_codegen::{
     QuestionMode, Type,
 };
 
-use crate::ast::{Block, BlockItem, Expr, FieldBinding, Function, MatchArm, Pattern, Program};
+use crate::ast::{
+    Block, BlockItem, Expr, FieldBinding, Function, ImplDecl, MatchArm, Pattern, Program,
+};
 use crate::resolve::{FnTable, Resolved};
-use crate::typecheck::{TypedProgram, subst_type};
+use crate::typecheck::{TypedProgram, operator_trait, subst_type, type_head_key};
 
 type Scope = HashMap<String, Type>;
 
-/// A pending monomorphization (spec 0014): a generic function specialized at a
-/// concrete set of type arguments, identified by its mangled name.
+/// What a monomorphization request specializes: either a top-level generic
+/// function (spec 0014) or an impl method (spec 0020).
+enum TemplateRef {
+    Function(usize),
+    ImplMethod { impl_ix: usize, method_ix: usize },
+}
+
+/// A pending monomorphization: a template specialized at a concrete set of type
+/// arguments, identified by its mangled name.
 struct MonoRequest {
-    /// The mangled name of the specialized function, e.g. `identity__Int`.
+    /// The mangled name of the specialization, e.g. `identity__Int` or
+    /// `Add__Int__add`.
     mangled: String,
-    /// Index (in `Program::functions`) of the generic function being specialized.
-    template_index: usize,
-    /// The concrete binding for each of the generic function's type parameters.
+    /// The template to specialize.
+    template: TemplateRef,
+    /// The concrete binding for each type parameter (and `Self` for impls).
     subst: HashMap<String, Type>,
 }
 
@@ -39,10 +49,14 @@ struct MonoState {
     requested: HashSet<String>,
 }
 
-/// A platform function in scope: its canonical name and return type.
+/// A no-body function in scope: its canonical name, return type, and whether it
+/// is an `intrinsic fn` (spec 0021) as opposed to an `extern fn` platform
+/// function (spec 0013). Intrinsic calls lower to `IrExpr::Intrinsic`, platform
+/// calls to `IrExpr::Platform`.
 struct ExternInfo {
     canonical: String,
     ret: Type,
+    is_intrinsic: bool,
 }
 
 /// One variant of a declared enum, with its tag (declaration order) and fields.
@@ -60,14 +74,31 @@ struct Lowerer<'a> {
     /// All top-level functions, indexed by `FnEntry::index`. Used to build a
     /// resolved call's signature and to fetch generic templates to specialize.
     functions: &'a [Function],
+    /// All `impl` blocks, indexed by `TemplateRef::ImplMethod::impl_ix`. Impl
+    /// methods are lowered only on demand, when a trait call requests them.
+    impls: &'a [ImplDecl],
     externs: HashMap<String, ExternInfo>,
     enums: HashMap<String, Vec<VariantDef>>,
+    /// Type parameters of each generic enum (spec 0028), used to substitute the
+    /// concrete type arguments into variant field types at construction and
+    /// `match`. Empty vec for a non-generic enum.
+    enum_type_params: HashMap<String, Vec<String>>,
+    /// Method name -> the traits declaring it (spec 0020), for bare dispatch.
+    method_owners: HashMap<String, Vec<String>>,
+    /// (trait, method) -> the trait method's parameter types, which contain
+    /// `Var("Self")`; used to infer `Self` from the argument types.
+    trait_methods: HashMap<(String, String), Vec<Type>>,
+    /// (trait, type head) -> the unique impl's index in `impls` (spec 0020).
+    impls_by: HashMap<(String, String), usize>,
     /// Monomorphization worklist, filled while lowering call sites.
     mono: RefCell<MonoState>,
     /// The type-parameter substitution for the specialization currently being
     /// lowered. Empty while lowering an ordinary (non-generic) function, where
     /// `apply` is the identity.
     subst: RefCell<HashMap<String, Type>>,
+    /// Counter for fresh temporary names used when desugaring the swapped
+    /// comparisons `>` / `<=` (spec 0027), so each site's temporaries are unique.
+    cmp_counter: RefCell<usize>,
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
@@ -80,6 +111,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 ExternInfo {
                     canonical: declaration.canonical(),
                     ret: declaration.ret.clone(),
+                    is_intrinsic: declaration.is_intrinsic,
                 },
             )
         })
@@ -101,13 +133,47 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             (decl.name.clone(), variants)
         })
         .collect();
+    let enum_type_params: HashMap<String, Vec<String>> = program
+        .enums
+        .iter()
+        .map(|decl| (decl.name.clone(), decl.type_params.clone()))
+        .collect();
+    // Trait/impl indexes (spec 0020), mirroring the type checker so a call
+    // resolves to the same impl. The type checker already validated everything,
+    // so lowering just picks the impl from the (now concrete) argument types.
+    let mut method_owners: HashMap<String, Vec<String>> = HashMap::new();
+    let mut trait_methods: HashMap<(String, String), Vec<Type>> = HashMap::new();
+    for decl in &program.traits {
+        for method in &decl.methods {
+            method_owners
+                .entry(method.name.clone())
+                .or_default()
+                .push(decl.name.clone());
+            trait_methods.insert(
+                (decl.name.clone(), method.name.clone()),
+                method.params.iter().map(|param| param.ty.clone()).collect(),
+            );
+        }
+    }
+    let mut impls_by: HashMap<(String, String), usize> = HashMap::new();
+    for (index, decl) in program.impls.iter().enumerate() {
+        if let Some(key) = type_head_key(&decl.target) {
+            impls_by.insert((decl.trait_name.clone(), key), index);
+        }
+    }
     let lowerer = Lowerer {
         table: FnTable::build(program),
         functions: &program.functions,
+        impls: &program.impls,
         externs,
         enums,
+        enum_type_params,
+        method_owners,
+        trait_methods,
+        impls_by,
         mono: RefCell::new(MonoState::default()),
         subst: RefCell::new(HashMap::new()),
+        cmp_counter: RefCell::new(0),
     };
 
     // Lower the ordinary functions (no substitution); calls to generics enqueue
@@ -148,9 +214,14 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         .collect();
 
     // Drain the monomorphization worklist. Each specialization may itself call
-    // other generics, enqueueing more, so loop until the queue is empty.
+    // other generics or trait methods, enqueueing more, so loop until empty.
     while let Some(request) = lowerer.next_request() {
-        let template = &lowerer.functions[request.template_index];
+        let template = match request.template {
+            TemplateRef::Function(index) => &lowerer.functions[index],
+            TemplateRef::ImplMethod { impl_ix, method_ix } => {
+                &lowerer.impls[impl_ix].methods[method_ix]
+            }
+        };
         *lowerer.subst.borrow_mut() = request.subst;
         let specialized = lowerer.lower_named_function(template, request.mangled);
         lowerer.subst.borrow_mut().clear();
@@ -198,21 +269,223 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Records a specialization to emit, deduplicating by mangled name.
+    /// Records a generic-function specialization to emit, deduped by mangled name.
     fn request_specialization(
         &self,
         mangled: &str,
         template_index: usize,
         subst: HashMap<String, Type>,
     ) {
+        self.enqueue(mangled, TemplateRef::Function(template_index), subst);
+    }
+
+    fn enqueue(&self, mangled: &str, template: TemplateRef, subst: HashMap<String, Type>) {
         let mut mono = self.mono.borrow_mut();
         if mono.requested.insert(mangled.to_string()) {
             mono.queue.push(MonoRequest {
                 mangled: mangled.to_string(),
-                template_index,
+                template,
                 subst,
             });
         }
+    }
+
+    /// Lowers a trait method call (spec 0020) to a direct call of the specialized
+    /// impl method. `candidates` are the traits that might own the method (one
+    /// for a qualified call, possibly several for a bare name — the one with a
+    /// matching impl wins; the type checker has guaranteed exactly one applies).
+    fn lower_trait_call(
+        &self,
+        candidates: &[String],
+        method_name: &str,
+        args: &[Expr],
+        scope: &mut Scope,
+    ) -> (IrExpr, Type) {
+        let lowered: Vec<(IrExpr, Type)> =
+            args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
+        self.resolve_impl_call(candidates, method_name, lowered)
+    }
+
+    /// Resolves already-lowered operands to a concrete impl method and emits the
+    /// call. Shared by trait method calls and desugared operators.
+    fn resolve_impl_call(
+        &self,
+        candidates: &[String],
+        method_name: &str,
+        lowered: Vec<(IrExpr, Type)>,
+    ) -> (IrExpr, Type) {
+        // Argument types are concrete here: a specialization substitutes every
+        // type variable before its body is lowered (spec 0014/0020 erasure).
+        let arg_tys: Vec<Type> = lowered.iter().map(|(_, ty)| self.apply(ty)).collect();
+        for trait_name in candidates {
+            let Some(params) = self
+                .trait_methods
+                .get(&(trait_name.clone(), method_name.to_string()))
+            else {
+                continue;
+            };
+            let mut subst = HashMap::new();
+            for (declared, actual) in params.iter().zip(arg_tys.iter()) {
+                infer_subst(declared, actual, &mut subst);
+            }
+            let Some(self_ty) = subst.get("Self").cloned() else {
+                continue;
+            };
+            let Some(key) = type_head_key(&self_ty) else {
+                continue;
+            };
+            let Some(&impl_ix) = self.impls_by.get(&(trait_name.clone(), key)) else {
+                continue;
+            };
+            return self.emit_impl_call(trait_name, method_name, &self_ty, impl_ix, lowered);
+        }
+        // Unreachable after a successful type check.
+        (IrExpr::Unit, Type::Unit)
+    }
+
+    /// Lowers a binary operator on already-lowered operands. Arithmetic, `==`,
+    /// `<`, and `++` dispatch straight to their trait method (spec 0020). The
+    /// derived comparisons `!= > <= >=` desugar to `Eq.eq` / `Ord.lt` per spec
+    /// 0027 while preserving left-to-right operand evaluation.
+    fn lower_binary(
+        &self,
+        op: BinaryOp,
+        left: (IrExpr, Type),
+        right: (IrExpr, Type),
+    ) -> (IrExpr, Type) {
+        match op {
+            // `a != b` == `!(a == b)`, `a >= b` == `!(a < b)`: no operand swap, so
+            // dispatching `(left, right)` already evaluates `a` before `b`.
+            BinaryOp::Ne => {
+                let (cmp, _) = self.resolve_impl_call(&["Eq".to_string()], "eq", vec![left, right]);
+                (bool_not(cmp), Type::Bool)
+            }
+            BinaryOp::Ge => {
+                let (cmp, _) =
+                    self.resolve_impl_call(&["Ord".to_string()], "lt", vec![left, right]);
+                (bool_not(cmp), Type::Bool)
+            }
+            // `a > b` == `b < a`, `a <= b` == `!(b < a)`: the swap would reorder
+            // evaluation, so bind both operands to temporaries in source order.
+            BinaryOp::Gt => self.lower_swapped_lt(left, right, false),
+            BinaryOp::Le => self.lower_swapped_lt(left, right, true),
+            _ => {
+                let (trait_name, method) = operator_trait(op);
+                self.resolve_impl_call(&[trait_name.to_string()], method, vec![left, right])
+            }
+        }
+    }
+
+    /// Emits `b < a` (negated for `<=`) while keeping `a` evaluated before `b`
+    /// (spec 0027): binds the operands to fresh temporaries in source order, then
+    /// compares them swapped.
+    fn lower_swapped_lt(
+        &self,
+        left: (IrExpr, Type),
+        right: (IrExpr, Type),
+        negate: bool,
+    ) -> (IrExpr, Type) {
+        let (left_ir, left_ty) = left;
+        let (right_ir, right_ty) = right;
+        let left_ty = self.apply(&left_ty);
+        let right_ty = self.apply(&right_ty);
+        let name_a = self.fresh_cmp_temp();
+        let name_b = self.fresh_cmp_temp();
+        let (cmp, _) = self.resolve_impl_call(
+            &["Ord".to_string()],
+            "lt",
+            vec![
+                (
+                    IrExpr::Var {
+                        name: name_b.clone(),
+                        ty: right_ty.clone(),
+                    },
+                    right_ty.clone(),
+                ),
+                (
+                    IrExpr::Var {
+                        name: name_a.clone(),
+                        ty: left_ty.clone(),
+                    },
+                    left_ty.clone(),
+                ),
+            ],
+        );
+        let body = if negate { bool_not(cmp) } else { cmp };
+        // let name_a = <a> in let name_b = <b> in (b < a): evaluates a then b.
+        let inner = IrExpr::Let {
+            name: name_b,
+            value_ty: right_ty,
+            value: Box::new(right_ir),
+            next: Box::new(body),
+        };
+        let outer = IrExpr::Let {
+            name: name_a,
+            value_ty: left_ty,
+            value: Box::new(left_ir),
+            next: Box::new(inner),
+        };
+        (outer, Type::Bool)
+    }
+
+    /// A fresh, collision-proof temporary name for comparison desugaring.
+    fn fresh_cmp_temp(&self) -> String {
+        let mut counter = self.cmp_counter.borrow_mut();
+        let name = format!("__cmp{}", *counter);
+        *counter += 1;
+        name
+    }
+
+    /// Requests the specialization of an impl method for `self_ty` and emits a
+    /// direct call to its mangled name, e.g. `Add__Int__add` (spec 0020).
+    fn emit_impl_call(
+        &self,
+        trait_name: &str,
+        method_name: &str,
+        self_ty: &Type,
+        impl_ix: usize,
+        lowered: Vec<(IrExpr, Type)>,
+    ) -> (IrExpr, Type) {
+        let decl = &self.impls[impl_ix];
+        let method_ix = decl
+            .methods
+            .iter()
+            .position(|m| m.name == method_name)
+            .expect("impl provides the method (checked)");
+        let method = &decl.methods[method_ix];
+        // The impl's own type parameters (for a parameterized instance) are
+        // inferred from the target against the concrete `Self` type.
+        let mut subst = HashMap::new();
+        subst.insert("Self".to_string(), self_ty.clone());
+        infer_subst(&decl.target, self_ty, &mut subst);
+        let mangled = mangle_impl_method(trait_name, self_ty, method_name);
+        let sig = FunctionType {
+            params: method
+                .params
+                .iter()
+                .map(|param| subst_type(&param.ty, &subst))
+                .collect(),
+            ret: Box::new(subst_type(&method.ret, &subst)),
+            throws: method
+                .throws
+                .as_ref()
+                .map(|throws| Box::new(subst_type(throws, &subst))),
+            effects: method.effects.clone(),
+        };
+        self.enqueue(
+            &mangled,
+            TemplateRef::ImplMethod { impl_ix, method_ix },
+            subst,
+        );
+        let ret = (*sig.ret).clone();
+        (
+            IrExpr::Call {
+                callee: Box::new(IrExpr::FunctionRef { name: mangled, sig }),
+                args: lowered.into_iter().map(|(expr, _)| expr).collect(),
+                ret: ret.clone(),
+            },
+            ret,
+        )
     }
 
     /// The signature of a non-generic top-level function, by its index in
@@ -386,35 +659,9 @@ impl<'a> Lowerer<'a> {
             Expr::Binary {
                 op, left, right, ..
             } => {
-                let (left, left_ty) = self.lower_expr(left, scope);
-                let (right, _) = self.lower_expr(right, scope);
-                if matches!(op, BinaryOp::Concat) {
-                    return (
-                        IrExpr::Concat {
-                            left: Box::new(left),
-                            right: Box::new(right),
-                        },
-                        Type::String,
-                    );
-                }
-                let result_ty = match op {
-                    BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Rem => left_ty.clone(),
-                    BinaryOp::Concat => Type::String,
-                    BinaryOp::Eq | BinaryOp::Lt => Type::Bool,
-                };
-                (
-                    IrExpr::Binary {
-                        op: *op,
-                        ty: left_ty,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    result_ty,
-                )
+                let left = self.lower_expr(left, scope);
+                let right = self.lower_expr(right, scope);
+                self.lower_binary(*op, left, right)
             }
             Expr::Block(block) => self.lower_block(&block.items, &mut scope.clone()),
             Expr::If {
@@ -484,15 +731,18 @@ impl<'a> Lowerer<'a> {
                     )
                 }
             }
-            Expr::Path { segments, .. } => {
-                // A bare path with no `(...)`: a no-payload enum variant, or a
-                // (qualified) function used as a value (spec 0018). Built-in
-                // conversions always carry args and are handled in `lower_call`.
+            Expr::TypePath { segments, .. } => {
+                // A `::` type path with no `(...)`: a no-payload enum variant
+                // (specs 0005/0018 R7). Built-in conversions always carry args
+                // and are handled in `lower_call`.
                 if let [enum_name, variant] = segments.as_slice()
                     && let Some(variants) = self.enums.get(enum_name)
                     && let Some(def) = variants.iter().find(|v| v.name == *variant)
                 {
-                    let ty = Type::Enum(enum_name.clone());
+                    // A payload-less variant pins no type parameters, so every
+                    // argument is `Never` (spec 0028), e.g. `List::Nil : List<Never>`.
+                    let args = self.enum_type_args(enum_name, def, &[]);
+                    let ty = Type::Enum(enum_name.clone(), args);
                     return (
                         IrExpr::EnumValue {
                             ty: ty.clone(),
@@ -503,6 +753,12 @@ impl<'a> Lowerer<'a> {
                         ty,
                     );
                 }
+                (IrExpr::Unit, Type::Unit)
+            }
+            Expr::Path { segments, .. } => {
+                // A dotted path with no `(...)`: a (qualified) function used as a
+                // value (spec 0018). Enum variants are `::` type paths, handled
+                // above.
                 if let Resolved::One(entry) = self.table.resolve(segments)
                     && !entry.is_generic
                 {
@@ -560,6 +816,19 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_call(&self, callee: &Expr, args: &[Expr], scope: &mut Scope) -> (IrExpr, Type) {
+        // Method-call (receiver) syntax (spec 0020): `recv.method(args)` on a
+        // local value desugars to `method(recv, args)`, mirroring the checker.
+        if let Expr::Path { segments, span } = callee
+            && segments.len() == 2
+            && scope.contains_key(&segments[0])
+        {
+            let receiver = Expr::Var(segments[0].clone(), span.clone());
+            let method = Expr::Var(segments[1].clone(), span.clone());
+            let mut method_args = Vec::with_capacity(args.len() + 1);
+            method_args.push(receiver);
+            method_args.extend(args.iter().cloned());
+            return self.lower_call(&method, &method_args, scope);
+        }
         if let Expr::Var(name, _) = callee {
             // Built-in Option constructor `Some(x)`.
             if name == "Some"
@@ -582,21 +851,30 @@ impl<'a> Lowerer<'a> {
                     ty,
                 );
             }
-            // A call to a platform function (extern) lowers to a Platform node.
+            // A call to an `extern`/`intrinsic` declaration. A platform function
+            // (spec 0013) lowers to a Platform node (a runtime call); an
+            // intrinsic (spec 0021) lowers to an Intrinsic node (a native
+            // instruction the backend inlines).
             if let Some(info) = self.externs.get(name) {
                 let ret = info.ret.clone();
                 let args = args
                     .iter()
                     .map(|arg| self.lower_expr(arg, scope).0)
                     .collect();
-                return (
+                let node = if info.is_intrinsic {
+                    IrExpr::Intrinsic {
+                        name: name.clone(),
+                        args,
+                        ret: ret.clone(),
+                    }
+                } else {
                     IrExpr::Platform {
                         name: info.canonical.clone(),
                         args,
                         ret: ret.clone(),
-                    },
-                    ret,
-                );
+                    }
+                };
+                return (node, ret);
             }
             // A call to a generic function (spec 0014).
             if !scope.contains_key(name)
@@ -605,40 +883,67 @@ impl<'a> Lowerer<'a> {
             {
                 return self.lower_generic_call(entry.index, args, scope);
             }
+            // A bare trait method call (spec 0020), resolved after `FnTable` so a
+            // same-named function still shadows it, mirroring the type checker.
+            if !scope.contains_key(name)
+                && matches!(
+                    self.table.resolve(std::slice::from_ref(name)),
+                    Resolved::None
+                )
+                && let Some(candidates) = self.method_owners.get(name)
+            {
+                return self.lower_trait_call(candidates, name, args, scope);
+            }
         }
-        // A qualified call target (spec 0018): a built-in conversion, an enum
-        // variant, or a (possibly generic) qualified function. A non-generic
-        // qualified function falls through to the general path, where
-        // `lower_expr` on the path yields its `FunctionRef`.
+        // A `::` type-path call target (specs 0005/0017/0018 R7): a built-in
+        // conversion or an enum variant constructor. Resolved through a type,
+        // never the import table.
+        if let Expr::TypePath { segments, .. } = callee
+            && let [head, tail] = segments.as_slice()
+        {
+            // Built-in pure conversions (spec 0017).
+            if head.as_str() == "Char" && tail.as_str() == "from_code" {
+                let (arg, _) = self.lower_expr(&args[0], scope);
+                return (IrExpr::CharFromCode(Box::new(arg)), Type::Char);
+            }
+            if head.as_str() == "String" && tail.as_str() == "from_char" {
+                let (arg, _) = self.lower_expr(&args[0], scope);
+                return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
+            }
+            // An enum variant constructor with a payload, e.g. `Color::Red(x)`.
+            if let Some(variants) = self.enums.get(head)
+                && let Some(def) = variants.iter().find(|v| v.name == *tail)
+            {
+                let lowered: Vec<(IrExpr, Type)> =
+                    args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
+                // Infer the concrete type arguments from the payload (spec 0028).
+                let payload_tys: Vec<Type> = lowered.iter().map(|(_, ty)| self.apply(ty)).collect();
+                let args_ty = self.enum_type_args(head, def, &payload_tys);
+                let payload = lowered.into_iter().map(|(expr, _)| expr).collect();
+                let ty = Type::Enum(head.clone(), args_ty);
+                return (
+                    IrExpr::EnumValue {
+                        ty: ty.clone(),
+                        variant: tail.clone(),
+                        tag: def.tag,
+                        payload,
+                    },
+                    ty,
+                );
+            }
+        }
+        // A qualified `.` call target (spec 0018): a qualified trait method or a
+        // (possibly generic) qualified function. A non-generic qualified function
+        // falls through to the general path, where `lower_expr` on the path
+        // yields its `FunctionRef`.
         if let Expr::Path { segments, .. } = callee {
             if let [head, tail] = segments.as_slice() {
-                // Built-in pure conversions (spec 0017).
-                if head.as_str() == "Char" && tail.as_str() == "from_code" {
-                    let (arg, _) = self.lower_expr(&args[0], scope);
-                    return (IrExpr::CharFromCode(Box::new(arg)), Type::Char);
-                }
-                if head.as_str() == "String" && tail.as_str() == "from_char" {
-                    let (arg, _) = self.lower_expr(&args[0], scope);
-                    return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
-                }
-                // An enum variant constructor with a payload, e.g. `Color.Red(x)`.
-                if let Some(variants) = self.enums.get(head)
-                    && let Some(def) = variants.iter().find(|v| v.name == *tail)
+                // A qualified trait method call `Trait.method(...)` (spec 0020).
+                if self
+                    .trait_methods
+                    .contains_key(&(head.clone(), tail.clone()))
                 {
-                    let payload = args
-                        .iter()
-                        .map(|arg| self.lower_expr(arg, scope).0)
-                        .collect();
-                    let ty = Type::Enum(head.clone());
-                    return (
-                        IrExpr::EnumValue {
-                            ty: ty.clone(),
-                            variant: tail.clone(),
-                            tag: def.tag,
-                            payload,
-                        },
-                        ty,
-                    );
+                    return self.lower_trait_call(std::slice::from_ref(head), tail, args, scope);
                 }
             }
             if let Resolved::One(entry) = self.table.resolve(segments)
@@ -755,7 +1060,14 @@ impl<'a> Lowerer<'a> {
                 let owned;
                 let resolved: &[VariantDef] = match enum_name {
                     Some(name) => {
-                        owned = self.variants_of(&Type::Enum(name.clone()));
+                        // Reuse the scrutinee's type arguments when the qualified
+                        // enum is the scrutinee's own type (spec 0028), so bindings
+                        // stay concrete.
+                        let args = match scrutinee_ty {
+                            Type::Enum(sname, sargs) if sname == name => sargs.clone(),
+                            _ => Vec::new(),
+                        };
+                        owned = self.variants_of(&Type::Enum(name.clone(), args));
                         &owned
                     }
                     None => variants,
@@ -786,22 +1098,52 @@ impl<'a> Lowerer<'a> {
 
     /// The variants a matched value of `ty` can take (spec 0005). `Option<T>`
     /// is the built-in `Some(T)`/`None` enum with tags 0 and 1.
+    /// The concrete type arguments of a constructed enum value (spec 0028),
+    /// inferred from the payload types like the type checker does. Parameters the
+    /// payload does not pin (including every one of a payload-less variant such
+    /// as `Nil`) are `Never`, mirroring `None : Option<Never>`.
+    fn enum_type_args(
+        &self,
+        enum_name: &str,
+        variant: &VariantDef,
+        payload_tys: &[Type],
+    ) -> Vec<Type> {
+        let Some(params) = self.enum_type_params.get(enum_name) else {
+            return Vec::new();
+        };
+        if params.is_empty() {
+            return Vec::new();
+        }
+        let mut subst = HashMap::new();
+        for (field, actual) in variant.fields.iter().zip(payload_tys) {
+            infer_subst(field, actual, &mut subst);
+        }
+        params
+            .iter()
+            .map(|param| subst.get(param).cloned().unwrap_or(Type::Never))
+            .collect()
+    }
+
     fn variants_of(&self, ty: &Type) -> Vec<VariantDef> {
         match ty {
-            Type::Enum(name) => self
-                .enums
-                .get(name)
-                .map(|variants| {
-                    variants
-                        .iter()
-                        .map(|v| VariantDef {
-                            name: v.name.clone(),
-                            tag: v.tag,
-                            fields: v.fields.clone(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            Type::Enum(name, args) => {
+                let Some(variants) = self.enums.get(name) else {
+                    return Vec::new();
+                };
+                // Substitute the concrete type arguments into each variant's
+                // field types (spec 0028) so pattern bindings get concrete types.
+                let params = self.enum_type_params.get(name).cloned().unwrap_or_default();
+                let subst: HashMap<String, Type> =
+                    params.into_iter().zip(args.iter().cloned()).collect();
+                variants
+                    .iter()
+                    .map(|v| VariantDef {
+                        name: v.name.clone(),
+                        tag: v.tag,
+                        fields: v.fields.iter().map(|f| subst_type(f, &subst)).collect(),
+                    })
+                    .collect()
+            }
             Type::Option(inner) => vec![
                 VariantDef {
                     name: "Some".to_string(),
@@ -888,6 +1230,17 @@ fn pick_ty(types: impl Iterator<Item = Type>) -> Type {
     result
 }
 
+/// Boolean negation of a `Bool` expression. There is no `!` node in the IR, so
+/// `!cond` becomes `if cond { false } else { true }` (spec 0027).
+fn bool_not(cond: IrExpr) -> IrExpr {
+    IrExpr::If {
+        cond: Box::new(cond),
+        then: Box::new(IrExpr::Bool(false)),
+        els: Box::new(IrExpr::Bool(true)),
+        ty: Type::Bool,
+    }
+}
+
 fn free_vars_block(items: &[BlockItem], bound: &HashSet<String>, out: &mut Vec<String>) {
     let mut bound = bound.clone();
     for item in items {
@@ -944,7 +1297,7 @@ fn free_vars_expr(expr: &Expr, bound: &HashSet<String>, out: &mut Vec<String>) {
         Expr::Panic { message, .. } => free_vars_expr(message, bound, out),
         // A path has no subexpressions; when it is a call target its arguments
         // live in the wrapping `Call`, which is handled above.
-        Expr::Path { .. } => {}
+        Expr::Path { .. } | Expr::TypePath { .. } => {}
         Expr::Match {
             scrutinee, arms, ..
         } => {
@@ -1010,6 +1363,13 @@ fn infer_subst(declared: &Type, actual: &Type, subst: &mut HashMap<String, Type>
         }
         (Type::Array(d), Type::Array(a)) => infer_subst(d, a, subst),
         (Type::Option(d), Type::Option(a)) => infer_subst(d, a, subst),
+        (Type::Enum(dn, dargs), Type::Enum(an, aargs))
+            if dn == an && dargs.len() == aargs.len() =>
+        {
+            for (d, a) in dargs.iter().zip(aargs.iter()) {
+                infer_subst(d, a, subst);
+            }
+        }
         (Type::Function(d), Type::Function(a)) if d.params.len() == a.params.len() => {
             for (dp, ap) in d.params.iter().zip(a.params.iter()) {
                 infer_subst(dp, ap, subst);
@@ -1032,6 +1392,14 @@ fn mangle(name: &str, type_params: &[String], subst: &HashMap<String, Type>) -> 
     mangled
 }
 
+/// The mangled name of a specialized impl method (spec 0020), e.g. `Add.add` for
+/// `Int` becomes `Add__Int__add`. Distinct from the generic mangle
+/// (`identity__Int`) and the path mangle (`std__int__to_string`), so the three
+/// naming schemes never collide.
+fn mangle_impl_method(trait_name: &str, self_ty: &Type, method: &str) -> String {
+    format!("{trait_name}__{}__{method}", mangle_type(self_ty))
+}
+
 /// An identifier-safe encoding of a concrete type for name mangling.
 fn mangle_type(ty: &Type) -> String {
     match ty {
@@ -1043,7 +1411,13 @@ fn mangle_type(ty: &Type) -> String {
         Type::Char => "Char".to_string(),
         Type::Array(element) => format!("Array_{}_", mangle_type(element)),
         Type::Record => "Record".to_string(),
-        Type::Enum(name) => name.clone(),
+        Type::Enum(name, args) if args.is_empty() => name.clone(),
+        // A generic enum instance mangles like `Array`/`Option`, so distinct
+        // instantiations get distinct specialization names (spec 0028/0014).
+        Type::Enum(name, args) => format!(
+            "{name}_{}_",
+            args.iter().map(mangle_type).collect::<Vec<_>>().join("_")
+        ),
         Type::Option(inner) => format!("Option_{}_", mangle_type(inner)),
         Type::Never => "Never".to_string(),
         Type::Function(function) => {
@@ -1068,8 +1442,12 @@ mod tests {
     use crate::typecheck;
 
     fn lower_source(source: &str) -> IrProgram {
-        let program = parse_program("test", source).expect("parse");
-        let typed = typecheck::check(&program).expect("typecheck");
+        let mut program = parse_program("test", source).expect("parse");
+        // Mirror the driver: operators resolve through the embedded Core Prelude
+        // (spec 0021), and defaulted trait methods are filled in (spec 0020).
+        crate::driver::merge_prelude(&mut program).expect("prelude");
+        typecheck::expand_trait_defaults(&mut program);
+        let typed = typecheck::check(&program, true).expect("typecheck");
         lower(&program, &typed)
     }
 

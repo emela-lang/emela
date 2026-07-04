@@ -1,6 +1,7 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, EffectRow, EnumDecl, EnumVariant, Expr, Extern, FieldBinding,
-    Function, FunctionType, Import, MatchArm, Param, Pattern, Program, Type,
+    BinaryOp, Block, BlockItem, Bound, EffectRow, EnumDecl, EnumVariant, Expr, Extern,
+    FieldBinding, Function, FunctionType, ImplDecl, Import, MatchArm, Param, Pattern, Program,
+    TraitDecl, TraitMethodSig, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
 use crate::lexer::{Token, TokenKind, lex};
@@ -32,6 +33,8 @@ impl Parser {
         let mut functions = Vec::new();
         let mut externs = Vec::new();
         let mut enums = Vec::new();
+        let mut traits = Vec::new();
+        let mut impls = Vec::new();
         self.skip_newlines();
         if self.eat(&TokenKind::Module) {
             module = Some(self.parse_path_name()?);
@@ -42,8 +45,14 @@ impl Parser {
                 imports.push(self.parse_import()?);
             } else if self.at(&TokenKind::Extern) {
                 externs.push(self.parse_extern()?);
+            } else if self.at(&TokenKind::Intrinsic) {
+                externs.push(self.parse_intrinsic()?);
             } else if self.at(&TokenKind::Enum) {
                 enums.push(self.parse_enum()?);
+            } else if self.at(&TokenKind::Trait) {
+                traits.push(self.parse_trait()?);
+            } else if self.at(&TokenKind::Impl) {
+                impls.push(self.parse_impl()?);
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 if self.at(&TokenKind::Enum) {
@@ -54,9 +63,20 @@ impl Parser {
             }
             self.skip_newlines();
         }
-        // The declaring module qualifies each extern's canonical platform name.
+        // The declaring module qualifies each extern's canonical platform name,
+        // and is the "owning module" for the orphan rule (spec 0020): a trait may
+        // be implemented for a type only in the type's or the trait's module.
         for declaration in &mut externs {
             declaration.module = module.clone();
+        }
+        for decl in &mut enums {
+            decl.module = module.clone();
+        }
+        for decl in &mut traits {
+            decl.module = module.clone();
+        }
+        for decl in &mut impls {
+            decl.module = module.clone();
         }
         Ok(Program {
             module,
@@ -64,6 +84,8 @@ impl Parser {
             functions,
             externs,
             enums,
+            traits,
+            impls,
         })
     }
 
@@ -71,6 +93,17 @@ impl Parser {
         self.expect(&TokenKind::Enum)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
+        // Type parameters (spec 0028); no bounds are allowed on a data type.
+        let (type_params, bounds) = self.parse_type_params()?;
+        if let Some(bound) = bounds.first() {
+            return Err(Error::diagnostic(Diagnostic::new("Bound on a data type").label(
+                bound.span.clone(),
+                "enum type parameters cannot have trait bounds; the requirement belongs on the functions or impls that use the type",
+            )));
+        }
+        // The type parameters are in scope while parsing the variant payloads, so
+        // a payload type `T` resolves to `Type::Var("T")` rather than an enum name.
+        self.type_params = type_params.clone();
         self.expect(&TokenKind::LBrace)?;
         let mut variants = Vec::new();
         self.skip_newlines();
@@ -97,9 +130,13 @@ impl Parser {
             self.skip_newlines();
         }
         self.expect(&TokenKind::RBrace)?;
+        self.type_params = Vec::new();
         Ok(EnumDecl {
             name,
             name_span,
+            type_params,
+            // Stamped with the declaring module in `parse_program`.
+            module: None,
             variants,
         })
     }
@@ -121,6 +158,20 @@ impl Parser {
 
     fn parse_extern(&mut self) -> Result<Extern> {
         self.expect(&TokenKind::Extern)?;
+        self.parse_extern_like(false)
+    }
+
+    /// Parses an `intrinsic fn` declaration (spec 0021): a pure, no-body
+    /// primitive the backend inlines to a native instruction. Same shape as
+    /// `extern fn` but tagged `is_intrinsic`.
+    fn parse_intrinsic(&mut self) -> Result<Extern> {
+        self.expect(&TokenKind::Intrinsic)?;
+        self.parse_extern_like(true)
+    }
+
+    /// Parses the shared body of `extern fn` and `intrinsic fn` after the
+    /// leading keyword: `fn name(params) -> ret [throws] [uses]`.
+    fn parse_extern_like(&mut self, is_intrinsic: bool) -> Result<Extern> {
         self.expect(&TokenKind::Fn)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
@@ -139,6 +190,7 @@ impl Parser {
             ret,
             throws,
             effects,
+            is_intrinsic,
         })
     }
 
@@ -169,7 +221,7 @@ impl Parser {
         // `parse_type` resolves them to `Type::Var` throughout the signature and
         // body. Functions never nest, and a parse error aborts the whole parse,
         // so resetting on the success path is enough.
-        let type_params = self.parse_type_params()?;
+        let (type_params, bounds) = self.parse_type_params()?;
         self.type_params = type_params.clone();
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
@@ -189,6 +241,7 @@ impl Parser {
             // `import` (spec 0018).
             module_path: Vec::new(),
             type_params,
+            bounds,
             params,
             ret,
             throws,
@@ -197,17 +250,36 @@ impl Parser {
         })
     }
 
-    /// Parses an optional `<T, U, ...>` type-parameter list (spec 0014). Returns
-    /// an empty vec when there is no list. An empty `<>` is rejected.
-    fn parse_type_params(&mut self) -> Result<Vec<String>> {
+    /// Parses an optional `<T, U: Bound + Bound2, ...>` type-parameter list
+    /// (spec 0014; bounds are spec 0020). Returns the parameter names and their
+    /// bounds. An empty vec when there is no list. An empty `<>` is rejected.
+    /// The `+` between bounds is unambiguous with the arithmetic `+` because it
+    /// only appears inside `< >`.
+    fn parse_type_params(&mut self) -> Result<(Vec<String>, Vec<Bound>)> {
         if !self.eat(&TokenKind::Lt) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         let mut params = Vec::new();
+        let mut bounds = Vec::new();
         let first_span = self.peek().span.clone();
-        params.push(self.expect_ident()?);
-        while self.eat(&TokenKind::Comma) {
-            params.push(self.expect_ident()?);
+        loop {
+            let param_span = self.peek().span.clone();
+            let name = self.expect_ident()?;
+            if self.eat(&TokenKind::Colon) {
+                let mut traits = vec![self.expect_ident()?];
+                while self.eat(&TokenKind::Plus) {
+                    traits.push(self.expect_ident()?);
+                }
+                bounds.push(Bound {
+                    param: name.clone(),
+                    traits,
+                    span: param_span,
+                });
+            }
+            params.push(name);
+            if !self.eat(&TokenKind::Comma) {
+                break;
+            }
         }
         self.expect(&TokenKind::Gt)?;
         // Guard against duplicate names like `<T, T>`.
@@ -222,7 +294,128 @@ impl Parser {
                 ));
             }
         }
-        Ok(params)
+        Ok((params, bounds))
+    }
+
+    /// Parses a `trait Name { method signatures }` block (spec 0020). Each method
+    /// is a signature with an optional default body. `Self` is in scope
+    /// throughout, resolving to `Type::Var("Self")`.
+    fn parse_trait(&mut self) -> Result<TraitDecl> {
+        self.expect(&TokenKind::Trait)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+        self.type_params = vec!["Self".to_string()];
+        let mut methods = Vec::new();
+        self.skip_newlines();
+        while !self.at(&TokenKind::RBrace) {
+            methods.push(self.parse_method_sig()?);
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        self.type_params = Vec::new();
+        Ok(TraitDecl {
+            name,
+            name_span,
+            // Stamped with the declaring module in `parse_program`.
+            module: None,
+            methods,
+        })
+    }
+
+    /// Parses one trait method signature: `fn name(params) -> ret [throws] [uses]`
+    /// followed by an optional `{ block }` default body.
+    fn parse_method_sig(&mut self) -> Result<TraitMethodSig> {
+        self.expect(&TokenKind::Fn)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let ret = self.parse_type()?;
+        let throws = self.parse_throws_clause()?;
+        let effects = self.parse_effect_row()?;
+        let default_body = if self.at(&TokenKind::LBrace) {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        Ok(TraitMethodSig {
+            name,
+            name_span,
+            params,
+            ret,
+            throws,
+            effects,
+            default_body,
+        })
+    }
+
+    /// Parses an `impl [<params>] Trait for Type { methods }` block (spec 0020).
+    /// The impl's own parameters and `Self` are in scope for the target type and
+    /// every method.
+    fn parse_impl(&mut self) -> Result<ImplDecl> {
+        self.expect(&TokenKind::Impl)?;
+        let (type_params, bounds) = self.parse_type_params()?;
+        let trait_span = self.peek().span.clone();
+        let trait_name = self.expect_ident()?;
+        self.expect(&TokenKind::For)?;
+        self.type_params = type_params.clone();
+        self.type_params.push("Self".to_string());
+        let target_start = self.peek().span.clone();
+        let target = self.parse_type()?;
+        let target_span = target_start.merge(&self.previous_span());
+        self.expect(&TokenKind::LBrace)?;
+        let mut methods = Vec::new();
+        self.skip_newlines();
+        while !self.at(&TokenKind::RBrace) {
+            methods.push(self.parse_impl_method()?);
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        self.type_params = Vec::new();
+        Ok(ImplDecl {
+            trait_name,
+            trait_span,
+            target,
+            target_span,
+            type_params,
+            bounds,
+            // Stamped with the declaring module in `parse_program`.
+            module: None,
+            methods,
+        })
+    }
+
+    /// Parses a method definition inside an `impl` block: like a function but
+    /// with no type-parameter list of its own — it inherits `Self` and the
+    /// impl's parameters, already installed in `self.type_params`.
+    fn parse_impl_method(&mut self) -> Result<Function> {
+        self.expect(&TokenKind::Fn)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::Arrow)?;
+        let ret = self.parse_type()?;
+        let throws = self.parse_throws_clause()?;
+        let effects = self.parse_effect_row()?;
+        let body = self.parse_block()?;
+        Ok(Function {
+            name,
+            name_span,
+            is_public: false,
+            module_path: Vec::new(),
+            type_params: Vec::new(),
+            bounds: Vec::new(),
+            params,
+            ret,
+            throws,
+            effects,
+            body,
+        })
     }
 
     fn parse_params(&mut self) -> Result<Vec<Param>> {
@@ -303,9 +496,20 @@ impl Parser {
             // A name declared as a type parameter of the enclosing function
             // resolves to a type variable (spec 0014).
             _ if self.type_params.contains(&name) => Ok(Type::Var(name)),
-            // Any other capitalized name refers to a declared enum type; it is
-            // resolved and validated during type checking (spec 0005).
-            _ => Ok(Type::Enum(name)),
+            // Any other capitalized name refers to a declared enum type (spec
+            // 0005), optionally with type arguments (spec 0028): `List<Int>`.
+            // The name and arity are resolved and validated during type checking.
+            _ => {
+                let mut args = Vec::new();
+                if self.eat(&TokenKind::Lt) {
+                    args.push(self.parse_type()?);
+                    while self.eat(&TokenKind::Comma) {
+                        args.push(self.parse_type()?);
+                    }
+                    self.expect(&TokenKind::Gt)?;
+                }
+                Ok(Type::Enum(name, args))
+            }
         }
     }
 
@@ -365,16 +569,51 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_equality()
+        self.parse_or()
+    }
+
+    /// `||`, the weakest binary operator (spec 0027). `a || b` desugars to
+    /// `if a { true } else { b }`, which short-circuits `b`.
+    fn parse_or(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_and()?;
+        while self.eat(&TokenKind::PipePipe) {
+            let right = self.parse_and()?;
+            let span = expr.span().merge(&right.span());
+            let then = Expr::Bool(true, span.clone());
+            expr = if_desugar(expr, then, right, span);
+        }
+        Ok(expr)
+    }
+
+    /// `&&`, binding tighter than `||` (spec 0027). `a && b` desugars to
+    /// `if a { b } else { false }`, which short-circuits `b`.
+    fn parse_and(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_equality()?;
+        while self.eat(&TokenKind::AmpAmp) {
+            let right = self.parse_equality()?;
+            let span = expr.span().merge(&right.span());
+            let els = Expr::Bool(false, span.clone());
+            expr = if_desugar(expr, right, els, span);
+        }
+        Ok(expr)
     }
 
     fn parse_equality(&mut self) -> Result<Expr> {
         let mut expr = self.parse_sum()?;
         loop {
+            // Comparisons share one precedence level, left-associative (spec 0027).
             let op = if self.eat(&TokenKind::EqEq) {
                 BinaryOp::Eq
+            } else if self.eat(&TokenKind::Ne) {
+                BinaryOp::Ne
             } else if self.eat(&TokenKind::Lt) {
                 BinaryOp::Lt
+            } else if self.eat(&TokenKind::Gt) {
+                BinaryOp::Gt
+            } else if self.eat(&TokenKind::Le) {
+                BinaryOp::Le
+            } else if self.eat(&TokenKind::Ge) {
+                BinaryOp::Ge
             } else {
                 break;
             };
@@ -415,7 +654,7 @@ impl Parser {
     }
 
     fn parse_product(&mut self) -> Result<Expr> {
-        let mut expr = self.parse_call()?;
+        let mut expr = self.parse_unary()?;
         loop {
             let op = if self.eat(&TokenKind::Star) {
                 BinaryOp::Mul
@@ -426,7 +665,7 @@ impl Parser {
             } else {
                 break;
             };
-            let right = self.parse_call()?;
+            let right = self.parse_unary()?;
             let span = expr.span().merge(&right.span());
             expr = Expr::Binary {
                 op,
@@ -436,6 +675,21 @@ impl Parser {
             };
         }
         Ok(expr)
+    }
+
+    /// Prefix `!` (spec 0027), the tightest-binding operator. `!e` desugars to
+    /// `if e { false } else { true }`; there is no operator trait for it. Applies
+    /// recursively so `!!e` parses.
+    fn parse_unary(&mut self) -> Result<Expr> {
+        if self.at(&TokenKind::Bang) {
+            let bang = self.bump();
+            let operand = self.parse_unary()?;
+            let span = bang.span.merge(&operand.span());
+            let then = Expr::Bool(false, span.clone());
+            let els = Expr::Bool(true, span.clone());
+            return Ok(if_desugar(operand, then, els, span));
+        }
+        self.parse_call()
     }
 
     fn parse_call(&mut self) -> Result<Expr> {
@@ -500,13 +754,25 @@ impl Parser {
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
-                if self.at(&TokenKind::Dot) {
-                    // A dotted path: `Enum.Variant`, `Char.from_code`,
-                    // `int.to_string`, `std.int.to_string` (spec 0018). The path
-                    // is parsed uniformly here; any trailing `(args)` is attached
-                    // by `parse_call`, and the meaning is resolved later. Whether
-                    // it is a variant, a built-in conversion, or a (qualified)
-                    // function call cannot be decided syntactically.
+                if self.at(&TokenKind::ColonColon) {
+                    // A `::` type path: `Enum::Variant`, `Char::from_code`
+                    // (specs 0005/0017/0018 R7). Its meaning — enum variant or
+                    // built-in conversion — is resolved later; a trailing
+                    // `(args)` is attached by `parse_call`.
+                    let mut segments = vec![name];
+                    while self.eat(&TokenKind::ColonColon) {
+                        segments.push(self.expect_ident()?);
+                    }
+                    let end = self.previous_span();
+                    Ok(Expr::TypePath {
+                        segments,
+                        span: span.merge(&end),
+                    })
+                } else if self.at(&TokenKind::Dot) {
+                    // A dotted path: `int.to_string`, `std.int.to_string`, a
+                    // receiver call `recv.method`, or `Trait.method` (spec 0018).
+                    // The path is parsed uniformly here; any trailing `(args)` is
+                    // attached by `parse_call`, and the meaning is resolved later.
                     let mut segments = vec![name];
                     while self.eat(&TokenKind::Dot) {
                         segments.push(self.expect_ident()?);
@@ -671,8 +937,8 @@ impl Parser {
         if name.chars().next().is_some_and(char::is_lowercase) {
             return Ok(Pattern::Binding { name, span });
         }
-        // An uppercase-leading name is a variant, optionally `Enum.Variant`.
-        let (enum_name, variant) = if self.eat(&TokenKind::Dot) {
+        // An uppercase-leading name is a variant, optionally `Enum::Variant`.
+        let (enum_name, variant) = if self.eat(&TokenKind::ColonColon) {
             (Some(name), self.expect_ident()?)
         } else {
             (None, name)
@@ -775,6 +1041,27 @@ fn pattern_span(pattern: &Pattern) -> Span {
     match pattern {
         Pattern::Variant { span, .. } | Pattern::Binding { span, .. } => span.clone(),
         Pattern::Wildcard(span) => span.clone(),
+    }
+}
+
+/// Wraps a bare expression as a single-item block, for a desugared `if` branch.
+fn block_of(expr: Expr) -> Block {
+    let span = expr.span();
+    Block {
+        items: vec![BlockItem::Expr(expr)],
+        span,
+    }
+}
+
+/// Builds `if cond { then } else { els }` from bare branch expressions. The
+/// logical operators `&& || !` (spec 0027) are Bool-only control constructs, so
+/// they desugar to `if` rather than to a trait method.
+fn if_desugar(cond: Expr, then: Expr, els: Expr, span: Span) -> Expr {
+    Expr::If {
+        cond: Box::new(cond),
+        then: block_of(then),
+        els: block_of(els),
+        span,
     }
 }
 

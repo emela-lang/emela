@@ -50,6 +50,86 @@ fn main() -> Int uses {} {
     );
 }
 
+// A library module (spec 0003): declares `module`, has `pub` functions, and no
+// `main`. `check --library` type-checks it; plain `check` requires an entrypoint.
+const LIBRARY_MODULE: &str = "\
+module strings
+
+pub fn shout(s: String) -> String {
+  s ++ \"!\"
+}
+";
+
+#[test]
+fn check_library_accepts_module_without_main() {
+    let source = write_source("strings.emel", LIBRARY_MODULE);
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--library")
+        .arg(&source)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        output.status.success(),
+        "check --library should accept a module without main:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_without_library_requires_main() {
+    let source = write_source("strings.emel", LIBRARY_MODULE);
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(&source)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        !output.status.success(),
+        "plain check should require a main"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("entrypoint"), "{stderr}");
+}
+
+#[test]
+fn check_library_still_reports_type_errors() {
+    // `--library` skips only the entrypoint requirement; every body is still
+    // type-checked.
+    let source = write_source(
+        "bad.emel",
+        "module bad\n\npub fn oops() -> Int {\n  \"not an int\"\n}\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--library")
+        .arg(&source)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        !output.status.success(),
+        "check --library should still catch type errors in the module"
+    );
+}
+
+#[test]
+fn build_rejects_library_flag() {
+    let source = write_source("strings.emel", LIBRARY_MODULE);
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("build")
+        .arg("--library")
+        .arg(&source)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(!output.status.success(), "build should reject --library");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("only valid for `check`"), "{stderr}");
+}
+
 #[test]
 fn build_emits_javascript() {
     let source = write_source(
@@ -110,7 +190,9 @@ fn main() -> Int {
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("fn add(x, y) -> Int uses {}"));
-    assert!(stdout.contains("return add.i32 %x, %y"));
+    // `+` desugars to the Core Prelude's `Add` impl (spec 0020/0021), so it
+    // lowers to a call to `Add__Int__add` rather than a built-in instruction.
+    assert!(stdout.contains("return call @Add__Int__add(%x, %y)"));
     assert!(stdout.contains("let value = call @add(40, 2)"));
 }
 
@@ -195,7 +277,8 @@ fn main() -> Array<Float> {
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("fn main() -> Array<Float> uses {}"));
-    assert!(stdout.contains("let first = add.f64 1.5, 2.25"));
+    // `+` on Float desugars to the prelude's `Add for Float` (spec 0020/0021).
+    assert!(stdout.contains("let first = call @Add__Float__add(1.5, 2.25)"));
     assert!(stdout.contains("return [%first, 4]"));
 }
 
@@ -501,7 +584,7 @@ enum E {
 }
 
 fn f() -> Int throws E uses {} {
-  throw E.A
+  throw E::A
 }
 
 fn g() -> Int uses {} {
@@ -561,7 +644,7 @@ fn f(c: C) -> Int uses {} {
 }
 
 fn main() -> Int uses {} {
-  f(C.A)
+  f(C::A)
 }
 "#,
     );

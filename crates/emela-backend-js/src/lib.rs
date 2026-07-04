@@ -6,11 +6,10 @@
 //! Platform functions (spec 0013) are resolved by a bundled default runtime
 //! object `__rt`; only the platform functions the program uses are emitted.
 
-use std::collections::HashSet;
-
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
-    IrPattern, IrProgram, QuestionMode, Result, Tier, Type,
+    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, is_intrinsic, used_intrinsics,
+    used_platform_fns,
 };
 
 /// The Node.js-flavored JavaScript backend.
@@ -34,7 +33,44 @@ impl Backend for JsBackend {
                 )));
             }
         }
+        // Intrinsic coverage (spec 0021): reject a program that uses an intrinsic
+        // this backend does not inline. The js backend inlines every intrinsic in
+        // the normative interface, so coverage is exactly `is_intrinsic`.
+        for name in used_intrinsics(ir) {
+            if !is_intrinsic(&name) {
+                return Err(BackendError::new(format!(
+                    "backend `js-node` does not provide intrinsic `{name}`"
+                )));
+            }
+        }
         Ok(Artifact::text(ArtifactKind::JsSource, emit(ir, &used)))
+    }
+}
+
+/// The JS expression an intrinsic (spec 0021) inlines to. Assumes the intrinsic
+/// is provided (checked in `compile`).
+fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
+    let a = emit_expr(&args[0]);
+    let b = args.get(1).map(emit_expr).unwrap_or_default();
+    match name {
+        "i32_add" | "f64_add" => format!("({a} + {b})"),
+        "i32_sub" | "f64_sub" => format!("({a} - {b})"),
+        "i32_mul" | "f64_mul" => format!("({a} * {b})"),
+        // Integer division truncates toward zero (spec 0016).
+        "i32_div_s" => format!("(({a} / {b}) | 0)"),
+        "f64_div" => format!("({a} / {b})"),
+        "i32_rem_s" => format!("({a} % {b})"),
+        "i32_eq" | "f64_eq" => format!("({a} === {b})"),
+        "i32_lt_s" | "f64_lt" => format!("({a} < {b})"),
+        // String concatenation (spec 0017): the same `+` the old `Concat` node
+        // emitted, now reached through the `Concat` trait's impl (spec 0020/0021).
+        "string_concat" => format!("({a} + {b})"),
+        // `Eq`/`Ord for String`. `===` is exact; `<` is JavaScript's UTF-16
+        // lexicographic order, which agrees with the wasm backend's byte order
+        // for ASCII/BMP text (they can differ only for supplementary characters).
+        "string_eq" => format!("({a} === {b})"),
+        "string_lt" => format!("({a} < {b})"),
+        _ => unreachable!("intrinsic `{name}` not provided by js-node backend"),
     }
 }
 
@@ -45,84 +81,6 @@ fn runtime_impl(name: &str) -> Option<&'static str> {
         "io.write_stderr" => Some("(s) => process.stderr.write(s)"),
         "clock.monotonic_seconds" => Some("() => Math.floor(Date.now() / 1000)"),
         _ => None,
-    }
-}
-
-/// The platform functions the program references, in first-occurrence order.
-fn used_platform_fns(program: &IrProgram) -> Vec<String> {
-    let mut order = Vec::new();
-    let mut seen = HashSet::new();
-    for function in &program.functions {
-        collect_platform(&function.body, &mut order, &mut seen);
-    }
-    order
-}
-
-fn collect_platform(expr: &IrExpr, order: &mut Vec<String>, seen: &mut HashSet<String>) {
-    match expr {
-        IrExpr::Platform { name, args, .. } => {
-            if seen.insert(name.clone()) {
-                order.push(name.clone());
-            }
-            args.iter().for_each(|a| collect_platform(a, order, seen));
-        }
-        IrExpr::Array { elems, .. } => elems.iter().for_each(|e| collect_platform(e, order, seen)),
-        IrExpr::Let { value, next, .. } => {
-            collect_platform(value, order, seen);
-            collect_platform(next, order, seen);
-        }
-        IrExpr::Call { callee, args, .. } => {
-            collect_platform(callee, order, seen);
-            args.iter().for_each(|a| collect_platform(a, order, seen));
-        }
-        IrExpr::Fn { body, .. } => collect_platform(body, order, seen),
-        IrExpr::Binary { left, right, .. } => {
-            collect_platform(left, order, seen);
-            collect_platform(right, order, seen);
-        }
-        IrExpr::EnumValue { payload, .. } => {
-            payload
-                .iter()
-                .for_each(|e| collect_platform(e, order, seen));
-        }
-        IrExpr::Match {
-            scrutinee, arms, ..
-        } => {
-            collect_platform(scrutinee, order, seen);
-            collect_arms(arms, order, seen);
-        }
-        IrExpr::Try { body, arms, .. } => {
-            collect_platform(body, order, seen);
-            collect_arms(arms, order, seen);
-        }
-        IrExpr::Throw { value } | IrExpr::Question { value, .. } => {
-            collect_platform(value, order, seen);
-        }
-        IrExpr::Panic { message } => collect_platform(message, order, seen),
-        IrExpr::If {
-            cond, then, els, ..
-        } => {
-            collect_platform(cond, order, seen);
-            collect_platform(then, order, seen);
-            collect_platform(els, order, seen);
-        }
-        IrExpr::CharFromCode(value) | IrExpr::StringFromChar(value) => {
-            collect_platform(value, order, seen);
-        }
-        IrExpr::Concat { left, right } => {
-            collect_platform(left, order, seen);
-            collect_platform(right, order, seen);
-        }
-        _ => {}
-    }
-}
-
-fn collect_arms(arms: &[IrArm], order: &mut Vec<String>, seen: &mut HashSet<String>) {
-    for arm in arms {
-        if let Some(guard) = &arm.guard {
-            collect_platform(guard, order, seen);
-        }
-        collect_platform(&arm.body, order, seen);
     }
 }
 
@@ -227,6 +185,8 @@ fn emit_expr(expr: &IrExpr) -> String {
             "__rt[{name:?}]({})",
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
+        // An intrinsic (spec 0021) inlines to a native JS expression.
+        IrExpr::Intrinsic { name, args, .. } => intrinsic_js(name, args),
         IrExpr::Fn {
             params, body, ret, ..
         } => {
@@ -264,6 +224,10 @@ fn emit_expr(expr: &IrExpr) -> String {
                 BinaryOp::Concat => unreachable!("concat lowers to IrExpr::Concat"),
                 BinaryOp::Eq => format!("({a} === {b})"),
                 BinaryOp::Lt => format!("({a} < {b})"),
+                // `!= > <= >=` desugar to `eq`/`lt` calls in lowering (spec 0027).
+                BinaryOp::Ne | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
+                    unreachable!("derived comparison desugared before lowering")
+                }
             }
         }
         IrExpr::EnumValue { tag, payload, .. } => format!(

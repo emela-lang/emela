@@ -6,6 +6,10 @@ use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
 pub(crate) enum TokenKind {
     Fn,
     Extern,
+    Intrinsic,
+    Trait,
+    Impl,
+    For,
     Import,
     Let,
     Module,
@@ -35,18 +39,27 @@ pub(crate) enum TokenKind {
     RBracket,
     Comma,
     Colon,
+    /// `::` — the type-path separator for enum variants and built-in
+    /// conversions (`Enum::Variant`, `Char::from_code`; specs 0005/0017/0018).
+    ColonColon,
     Dot,
     Eq,
     EqEq,
+    Ne,
     Arrow,
     Lt,
     Gt,
+    Le,
+    Ge,
     Plus,
     PlusPlus,
     Minus,
     Star,
     Slash,
     Percent,
+    Bang,
+    AmpAmp,
+    PipePipe,
     Question,
     Newline,
     Eof,
@@ -92,6 +105,29 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 });
                 i += 2;
             }
+            // Two-character comparison operators (spec 0027); matched before the
+            // single-character `<` / `>` arms below.
+            b'!' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
+                tokens.push(Token {
+                    kind: TokenKind::Ne,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
+            b'<' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
+                tokens.push(Token {
+                    kind: TokenKind::Le,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
+            b'>' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
+                tokens.push(Token {
+                    kind: TokenKind::Ge,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
             b'(' => push(&mut tokens, TokenKind::LParen, file.clone(), start, &mut i),
             b')' => push(&mut tokens, TokenKind::RParen, file.clone(), start, &mut i),
             b'{' => push(&mut tokens, TokenKind::LBrace, file.clone(), start, &mut i),
@@ -111,6 +147,13 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 &mut i,
             ),
             b',' => push(&mut tokens, TokenKind::Comma, file.clone(), start, &mut i),
+            b':' if i + 1 < bytes.len() && bytes[i + 1] == b':' => {
+                tokens.push(Token {
+                    kind: TokenKind::ColonColon,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
             b':' => push(&mut tokens, TokenKind::Colon, file.clone(), start, &mut i),
             b'.' => push(&mut tokens, TokenKind::Dot, file.clone(), start, &mut i),
             b'=' => push(&mut tokens, TokenKind::Eq, file.clone(), start, &mut i),
@@ -123,11 +166,29 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 });
                 i += 2;
             }
+            // Short-circuiting logical operators (spec 0027). Only the doubled
+            // forms are tokens; a lone `&` / `|` is not used by the language yet.
+            b'&' if i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
+                tokens.push(Token {
+                    kind: TokenKind::AmpAmp,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
+            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
+                tokens.push(Token {
+                    kind: TokenKind::PipePipe,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
             b'+' => push(&mut tokens, TokenKind::Plus, file.clone(), start, &mut i),
             b'-' => push(&mut tokens, TokenKind::Minus, file.clone(), start, &mut i),
             b'*' => push(&mut tokens, TokenKind::Star, file.clone(), start, &mut i),
             b'/' => push(&mut tokens, TokenKind::Slash, file.clone(), start, &mut i),
             b'%' => push(&mut tokens, TokenKind::Percent, file.clone(), start, &mut i),
+            // A lone `!`; `!=` is matched earlier (spec 0027).
+            b'!' => push(&mut tokens, TokenKind::Bang, file.clone(), start, &mut i),
             b'?' => push(
                 &mut tokens,
                 TokenKind::Question,
@@ -273,6 +334,10 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 let kind = match text {
                     "fn" => TokenKind::Fn,
                     "extern" => TokenKind::Extern,
+                    "intrinsic" => TokenKind::Intrinsic,
+                    "trait" => TokenKind::Trait,
+                    "impl" => TokenKind::Impl,
+                    "for" => TokenKind::For,
                     "import" => TokenKind::Import,
                     "let" => TokenKind::Let,
                     "module" => TokenKind::Module,

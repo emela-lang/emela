@@ -16,8 +16,11 @@ pub enum Type {
     Char,
     Array(Box<Type>),
     Record,
-    /// A named enum type (spec 0005), identified by its declared name.
-    Enum(String),
+    /// A named enum type (spec 0005), identified by its declared name and its
+    /// type arguments (spec 0028). The argument list is empty for a
+    /// non-generic enum such as `Color`, and holds one type per declared type
+    /// parameter for a generic one such as `List<Int>` or `Either<Int, String>`.
+    Enum(String, Vec<Type>),
     /// An optional value (spec 0001): `Option<T>`.
     Option(Box<Type>),
     /// The empty type of `throw` and `panic` (spec 0011). It is assignable to
@@ -55,6 +58,13 @@ pub enum BinaryOp {
     Concat,
     Eq,
     Lt,
+    /// Derived comparisons (spec 0027). The frontend desugars these to `Eq.eq` /
+    /// `Ord.lt`, so a lowered IR never carries them; they exist so the surface
+    /// operator survives type checking with a faithful error message.
+    Ne,
+    Gt,
+    Le,
+    Ge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]

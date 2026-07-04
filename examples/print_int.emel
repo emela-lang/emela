@@ -1,11 +1,11 @@
--- Prints an integer by converting it to a String with the (pure) standard
--- library and writing it through the `io` platform.
+-- Prints an integer by converting it to a String and writing it through the
+-- `io` platform. `to_string` comes from the Core Prelude (spec 0021), so it
+-- needs no import; only `print` (a platform function) is imported.
 --
 --   emela build --backend js-node   --package examples/stdlib examples/print_int.emel | node
 --   emela build --backend wasm-wasi --package examples/stdlib -o out.wasm examples/print_int.emel
 
 import std.io.print
-import std.int.to_string
 
 fn main() -> Unit uses { io } {
   print(to_string(42) ++ "\n")

@@ -11,6 +11,10 @@ pub(crate) struct Program {
     pub(crate) functions: Vec<Function>,
     pub(crate) externs: Vec<Extern>,
     pub(crate) enums: Vec<EnumDecl>,
+    /// `trait` declarations (spec 0020).
+    pub(crate) traits: Vec<TraitDecl>,
+    /// `impl Trait for Type` blocks (spec 0020).
+    pub(crate) impls: Vec<ImplDecl>,
 }
 
 /// An `enum` declaration (spec 0005).
@@ -18,7 +22,65 @@ pub(crate) struct Program {
 pub(crate) struct EnumDecl {
     pub(crate) name: String,
     pub(crate) name_span: Span,
+    /// The type parameters of a generic enum (spec 0028), e.g. `T` in
+    /// `enum List<T>`. Empty for a non-generic enum. They are in scope as types
+    /// (`Type::Var`) within the variant payload types.
+    pub(crate) type_params: Vec<String>,
+    /// The declaring file's module path (spec 0020 orphan rule): a `trait` may be
+    /// implemented for this type only in this module or the trait's module.
+    pub(crate) module: Option<String>,
     pub(crate) variants: Vec<EnumVariant>,
+}
+
+/// A `trait` declaration (spec 0020): a named set of method signatures a type
+/// may implement. `Self` inside the trait is `Type::Var("Self")`.
+#[derive(Debug, Clone)]
+pub(crate) struct TraitDecl {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    /// The declaring file's module path (orphan rule).
+    pub(crate) module: Option<String>,
+    pub(crate) methods: Vec<TraitMethodSig>,
+}
+
+/// One method signature of a trait (spec 0020). `default_body` is `Some` for a
+/// method with a default implementation, which an `impl` may omit.
+#[derive(Debug, Clone)]
+pub(crate) struct TraitMethodSig {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) params: Vec<Param>,
+    pub(crate) ret: Type,
+    pub(crate) throws: Option<Type>,
+    pub(crate) effects: EffectRow,
+    pub(crate) default_body: Option<Block>,
+}
+
+/// An `impl Trait for Type { ... }` block (spec 0020). It asserts that `target`
+/// satisfies `trait_name` and supplies the method bodies. `type_params`/`bounds`
+/// are the impl's own parameters for a parameterized instance
+/// (`impl<T: Show> Show for Array<T>`). Inside, `Self` and the impl's parameters
+/// appear as `Type::Var`.
+#[derive(Debug, Clone)]
+pub(crate) struct ImplDecl {
+    pub(crate) trait_name: String,
+    pub(crate) trait_span: Span,
+    pub(crate) target: Type,
+    pub(crate) target_span: Span,
+    pub(crate) type_params: Vec<String>,
+    pub(crate) bounds: Vec<Bound>,
+    /// The declaring file's module path (orphan rule).
+    pub(crate) module: Option<String>,
+    pub(crate) methods: Vec<Function>,
+}
+
+/// A bound on a type parameter (spec 0020): `T: Add + Show` becomes
+/// `Bound { param: "T", traits: ["Add", "Show"] }`.
+#[derive(Debug, Clone)]
+pub(crate) struct Bound {
+    pub(crate) param: String,
+    pub(crate) traits: Vec<String>,
+    pub(crate) span: Span,
 }
 
 /// One variant of an enum, with its payload field types (possibly empty).
@@ -29,9 +91,13 @@ pub(crate) struct EnumVariant {
     pub(crate) fields: Vec<Type>,
 }
 
-/// A platform-function declaration (`extern fn`, spec 0013). It has no body; the
-/// backend supplies the implementation. `module` is the declaring file's module
-/// path, used with `name` to form the canonical platform name.
+/// A no-body function declaration whose implementation the compiler does not
+/// hold. Two kinds share this shape. An `extern fn` (spec 0013) is a platform
+/// function: the Runtime supplies the implementation and the call lowers to a
+/// Platform node. An `intrinsic fn` (spec 0021) is a pure primitive: the backend
+/// inlines it to a native instruction and the call lowers to an Intrinsic node.
+/// `module` is the declaring file's module path, used with `name` to form the
+/// canonical platform name (externs only).
 #[derive(Debug, Clone)]
 pub(crate) struct Extern {
     pub(crate) name: String,
@@ -41,6 +107,8 @@ pub(crate) struct Extern {
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
+    /// `true` for `intrinsic fn` (spec 0021), `false` for `extern fn` (spec 0013).
+    pub(crate) is_intrinsic: bool,
 }
 
 impl Extern {
@@ -80,6 +148,11 @@ pub(crate) struct Function {
     /// non-generic function. Their names appear as `Type::Var` in this
     /// function's signature and body.
     pub(crate) type_params: Vec<String>,
+    /// Trait bounds on the type parameters (spec 0020), e.g. `<T: Add>`. Empty
+    /// when no parameter is bounded. Consulted only when resolving bare trait
+    /// method calls in the body; the monomorphization machinery needs only the
+    /// parameter names in `type_params`.
+    pub(crate) bounds: Vec<Bound>,
     pub(crate) params: Vec<Param>,
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
@@ -175,13 +248,24 @@ pub(crate) enum Expr {
         arms: Vec<MatchArm>,
         span: Span,
     },
-    /// A dotted path used as a value or call target (spec 0018): `Color.Red`,
-    /// `Char.from_code`, `int.to_string`, `std.int.to_string`. Has at least two
-    /// segments (a single identifier is `Var`). Its meaning — enum variant,
-    /// built-in conversion, or a (possibly qualified) function — is resolved in
-    /// the type checker / lowering. When followed by `(...)` it is the callee of
-    /// a `Call`; on its own it is a value (e.g. a no-payload variant).
+    /// A dotted (`.`) path used as a value or call target (spec 0018):
+    /// `int.to_string`, `std.int.to_string`, a receiver call `recv.method`, or a
+    /// qualified trait method `Show.to_string`. Has at least two segments (a
+    /// single identifier is `Var`). Its meaning — receiver call, qualified trait
+    /// method, or a (possibly qualified) function — is resolved in the type
+    /// checker / lowering. Enum variants and built-in conversions are `::` type
+    /// paths (`TypePath`), never `.` paths.
     Path {
+        segments: Vec<String>,
+        span: Span,
+    },
+    /// A `::` type path (specs 0005/0017/0018 R7): a name resolved through a type
+    /// — an enum variant (`Color::Red`, `Either::Left`) or a built-in conversion
+    /// (`Char::from_code`, `String::from_char`). The head is a type name. Has at
+    /// least two segments. When followed by `(...)` it is the callee of a `Call`;
+    /// on its own it is a value (a no-payload variant). Kept distinct from `Path`
+    /// so `.` never resolves to a variant (`Color.Red` is an error).
+    TypePath {
         segments: Vec<String>,
         span: Span,
     },
@@ -207,7 +291,8 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::Try { span, .. }
             | Expr::If { span, .. }
-            | Expr::Path { span, .. } => span.clone(),
+            | Expr::Path { span, .. }
+            | Expr::TypePath { span, .. } => span.clone(),
             Expr::Block(block) => block.span.clone(),
         }
     }
@@ -224,8 +309,9 @@ pub(crate) struct MatchArm {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Pattern {
-    /// A variant pattern, optionally qualified by enum name: `Some(v)`, `None`,
-    /// `Color.Red`.
+    /// A variant pattern, optionally qualified by enum name via `::`: `Some(v)`,
+    /// `None`, `Color::Red`. The `::` qualifier is optional; bare `Red` also
+    /// matches. `Color.Red` (dotted) is not a variant pattern.
     Variant {
         enum_name: Option<String>,
         variant: String,

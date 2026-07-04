@@ -9,7 +9,9 @@
 
 mod backend;
 mod error;
+mod intrinsic;
 mod ir;
+mod ir_walk;
 mod platform;
 mod plugin;
 mod registry;
@@ -18,7 +20,9 @@ mod types;
 
 pub use backend::{Artifact, ArtifactKind, Backend, BackendOptions, EmitMode, Tier};
 pub use error::{BackendError, Result};
+pub use intrinsic::{IntrinsicFn, intrinsic_interface, is_intrinsic, lookup as intrinsic_lookup};
 pub use ir::{IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram, QuestionMode};
+pub use ir_walk::{used_intrinsics, used_platform_fns, walk};
 pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
 pub use registry::BackendRegistry;

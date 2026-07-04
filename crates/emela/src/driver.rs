@@ -36,8 +36,13 @@ fn canonical_backend(name: &str) -> &str {
 
 pub fn run() -> Result<()> {
     match parse_args()? {
-        Command::Check { input, packages } => {
-            let _ = compile_frontend(&input, &packages)?;
+        Command::Check {
+            input,
+            packages,
+            library,
+        } => {
+            // `--library` compile-checks a module that has no `main` (spec 0003).
+            let _ = compile_frontend(&input, &packages, !library)?;
             Ok(())
         }
         Command::Build {
@@ -100,9 +105,7 @@ fn build(
     if external::is_descriptor_path(requested) {
         let backend = external::load_backend(Path::new(requested))?;
         note_tier(&backend);
-        return backend
-            .compile(&ir, &options)
-            .map_err(|err| Error::new(err.to_string()));
+        return backend.compile(&ir, &options).map_err(Error::from);
     }
 
     let registry = registry();
@@ -119,9 +122,7 @@ fn build(
         ))
     })?;
     note_tier(backend);
-    backend
-        .compile(&ir, &options)
-        .map_err(|err| Error::new(err.to_string()))
+    backend.compile(&ir, &options).map_err(Error::from)
 }
 
 /// Warns when building with a backend that is not fully supported (Tier 1).
@@ -153,17 +154,20 @@ fn write_artifact(artifact: Artifact, output: Option<PathBuf>) -> Result<()> {
 }
 
 fn compile_to_ir(input: &PathBuf, package_paths: &[PathBuf]) -> Result<IrProgram> {
-    let (program, typed) = compile_frontend(input, package_paths)?;
+    // Lowering and the backends need a `main` (the `_start` entrypoint), so IR and
+    // build always require it — only `check --library` relaxes this.
+    let (program, typed) = compile_frontend(input, package_paths, true)?;
     Ok(lower::lower(&program, &typed))
 }
 
 fn compile_frontend(
     input: &PathBuf,
     package_paths: &[PathBuf],
+    require_main: bool,
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
     let source = fs::read_to_string(input)
         .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
-    compile_frontend_source(input, &source, package_paths)
+    compile_frontend_source(input, &source, package_paths, require_main)
 }
 
 /// Runs the frontend over an in-memory source string, without reading the entry
@@ -173,25 +177,45 @@ fn compile_frontend_source(
     input: &Path,
     source: &str,
     package_paths: &[PathBuf],
+    require_main: bool,
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
     let label = input.display().to_string();
     let program = parse_program(&label, source)?;
     let packages = imports::load_packages(package_paths)?;
-    let program = imports::resolve_imports(input, program, &packages)?;
-    let typed = typecheck::check(&program)?;
+    let mut program = imports::resolve_imports(input, program, &packages)?;
+    // Merge the embedded Core Prelude (spec 0021): the operator traits and their
+    // built-in instances, so `1 + 2` and friends resolve with no explicit import.
+    merge_prelude(&mut program)?;
+    // Fill in defaulted trait methods (spec 0020) so type-checking and lowering
+    // see fully populated impls.
+    typecheck::expand_trait_defaults(&mut program);
+    let typed = typecheck::check(&program, require_main)?;
     Ok((program, typed))
+}
+
+/// Parses the embedded Core Prelude (spec 0021) and merges its declarations into
+/// `program`. Because the prelude is embedded, this works with no `--package`:
+/// a single-file program still sees the operator traits and their instances.
+pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
+    let prelude = parse_program("<core-prelude>", crate::prelude::CORE_SRC)?;
+    program.functions.extend(prelude.functions);
+    program.externs.extend(prelude.externs);
+    program.enums.extend(prelude.enums);
+    program.traits.extend(prelude.traits);
+    program.impls.extend(prelude.impls);
+    Ok(())
 }
 
 /// Type-checks an in-memory source string. Filesystem-free entry point used by
 /// embedders such as the WebAssembly playground.
 pub(crate) fn check_source(label: &str, source: &str) -> Result<()> {
-    compile_frontend_source(Path::new(label), source, &[])?;
+    compile_frontend_source(Path::new(label), source, &[], true)?;
     Ok(())
 }
 
 /// Lowers an in-memory source string to IR and renders it as text.
 pub(crate) fn ir_source(label: &str, source: &str) -> Result<String> {
-    let (program, typed) = compile_frontend_source(Path::new(label), source, &[])?;
+    let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
     let ir = lower::lower(&program, &typed);
     Ok(emit_text(&ir))
 }
@@ -204,7 +228,7 @@ pub(crate) fn compile_source(
     backend: &str,
     mode: EmitMode,
 ) -> Result<Artifact> {
-    let (program, typed) = compile_frontend_source(Path::new(label), source, &[])?;
+    let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
     let ir = lower::lower(&program, &typed);
     let options = BackendOptions {
         mode,
@@ -223,15 +247,14 @@ pub(crate) fn compile_source(
             "unknown backend `{name}`; available backends: {available}"
         ))
     })?;
-    backend
-        .compile(&ir, &options)
-        .map_err(|err| Error::new(err.to_string()))
+    backend.compile(&ir, &options).map_err(Error::from)
 }
 
 enum Command {
     Check {
         input: PathBuf,
         packages: Vec<PathBuf>,
+        library: bool,
     },
     Build {
         input: PathBuf,
@@ -262,10 +285,12 @@ fn parse_args() -> Result<Command> {
             Ok(Command::Check {
                 input: parsed.input,
                 packages: parsed.packages,
+                library: parsed.library,
             })
         }
         "build" => {
             let parsed = parse_compile_args(args)?;
+            reject_library(&parsed, "build")?;
             Ok(Command::Build {
                 input: parsed.input,
                 output: parsed.output,
@@ -276,6 +301,7 @@ fn parse_args() -> Result<Command> {
         }
         "ir" => {
             let parsed = parse_compile_args(args)?;
+            reject_library(&parsed, "ir")?;
             Ok(Command::Ir {
                 input: parsed.input,
                 output: parsed.output,
@@ -292,6 +318,18 @@ struct CompileArgs {
     packages: Vec<PathBuf>,
     backend: Option<String>,
     mode: EmitMode,
+    library: bool,
+}
+
+/// `--library` only makes sense for `check`: `build`/`ir` need a `main` to lower
+/// and run, so reject the flag there rather than silently ignoring it.
+fn reject_library(parsed: &CompileArgs, command: &str) -> Result<()> {
+    if parsed.library {
+        return Err(Error::new(format!(
+            "`--library` is only valid for `check`, not `{command}`"
+        )));
+    }
+    Ok(())
 }
 
 fn parse_compile_args(args: impl Iterator<Item = String>) -> Result<CompileArgs> {
@@ -300,9 +338,13 @@ fn parse_compile_args(args: impl Iterator<Item = String>) -> Result<CompileArgs>
     let mut packages = Vec::new();
     let mut backend = None;
     let mut mode = EmitMode::Default;
+    let mut library = false;
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--library" | "--lib" => {
+                library = true;
+            }
             "-o" | "--output" => {
                 let Some(path) = args.next() else {
                     return Err(Error::new("missing value for --output"));
@@ -352,12 +394,13 @@ fn parse_compile_args(args: impl Iterator<Item = String>) -> Result<CompileArgs>
         packages,
         backend,
         mode,
+        library,
     })
 }
 
 fn usage() -> Error {
     Error::new(
-        "usage: emela check [--backend NAME] [--package DIR] FILE \
+        "usage: emela check [--library] [--backend NAME] [--package DIR] FILE \
          | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
          | emela backends | emela --version",

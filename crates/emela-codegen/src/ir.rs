@@ -83,6 +83,13 @@ pub enum IrExpr {
         args: Vec<IrExpr>,
         ret: Type,
     },
+    /// A call to an intrinsic (spec 0021), inlined by the backend to a native
+    /// instruction. `name` is the intrinsic's bare name, e.g. `i32_add`. Pure.
+    Intrinsic {
+        name: String,
+        args: Vec<IrExpr>,
+        ret: Type,
+    },
     Fn {
         params: Vec<IrParam>,
         ret: Type,
@@ -105,9 +112,9 @@ pub enum IrExpr {
         els: Box<IrExpr>,
         ty: Type,
     },
-    /// `Char.from_code(n)` (spec 0017): codepoint Int -> Char.
+    /// `Char::from_code(n)` (spec 0017): codepoint Int -> Char.
     CharFromCode(Box<IrExpr>),
-    /// `String.from_char(c)` (spec 0017): a one-character String.
+    /// `String::from_char(c)` (spec 0017): a one-character String.
     StringFromChar(Box<IrExpr>),
     /// `a ++ b` (spec 0017): String concatenation.
     Concat {
@@ -170,6 +177,7 @@ impl IrExpr {
             IrExpr::Let { next, .. } => next.ty(),
             IrExpr::Call { ret, .. } => ret.clone(),
             IrExpr::Platform { ret, .. } => ret.clone(),
+            IrExpr::Intrinsic { ret, .. } => ret.clone(),
             IrExpr::Fn {
                 params,
                 ret,
@@ -183,7 +191,12 @@ impl IrExpr {
                 effects: effects.clone(),
             }),
             IrExpr::Binary { op, ty, .. } => match op {
-                BinaryOp::Eq | BinaryOp::Lt => Type::Bool,
+                BinaryOp::Eq
+                | BinaryOp::Lt
+                | BinaryOp::Ne
+                | BinaryOp::Gt
+                | BinaryOp::Le
+                | BinaryOp::Ge => Type::Bool,
                 _ => ty.clone(),
             },
             IrExpr::EnumValue { ty, .. }

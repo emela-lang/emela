@@ -13,6 +13,7 @@ mod imports;
 mod lexer;
 mod lower;
 mod parser;
+mod prelude;
 mod resolve;
 mod typecheck;
 

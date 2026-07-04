@@ -1,0 +1,121 @@
+-- `std.list` (spec 0029): a variable-length sequence as an immutable cons list.
+-- `List<T>` is a stdlib-declared recursive generic enum (spec 0028), not a
+-- compiler built-in, and every function here is pure Emela — no intrinsic
+-- (spec 0021) or platform function (spec 0013), so `List` works on every backend.
+--
+-- Deviations from spec 0029, pending other language features:
+--   * The higher-order functions (`map` / `filter` / `fold`) are specified to be
+--     effect-row polymorphic (`f: (T) -> U uses 'e`, spec 0022). Effect-row
+--     polymorphism is not implemented yet, so the callbacks here are pure; an
+--     effectful callback cannot be passed until spec 0022 lands.
+--   * `from_array` / `to_array` (spec 0029) are omitted: `Array<T>` has no length
+--     or indexing operation yet, so a list cannot be built from / turned into one.
+module list
+
+pub enum List<T> {
+  Nil
+  Cons(T, List<T>)
+}
+
+-- `xs + ys` concatenates two lists, via the `Concat`-like `Add` instance. The
+-- orphan rule (spec 0020) allows this because `List` is declared in this module.
+impl<T> Add for List<T> {
+  fn add(a: List<T>, b: List<T>) -> List<T> uses {} {
+    append(a, b)
+  }
+}
+
+pub fn length<T>(list: List<T>) -> Int {
+  match list {
+    Nil -> 0
+    Cons(h, t) -> 1 + length(t)
+  }
+}
+
+pub fn is_empty<T>(list: List<T>) -> Bool {
+  match list {
+    Nil -> true
+    Cons(h, t) -> false
+  }
+}
+
+-- The first element, or `None` for the empty list (spec 0029: absence is
+-- `Option`, spec 0011 — no panicking variant).
+pub fn head<T>(list: List<T>) -> Option<T> {
+  match list {
+    Nil -> None
+    Cons(h, t) -> Some(h)
+  }
+}
+
+-- Everything after the first element, or `None` for the empty list.
+pub fn tail<T>(list: List<T>) -> Option<List<T>> {
+  match list {
+    Nil -> None
+    Cons(h, t) -> Some(t)
+  }
+}
+
+pub fn prepend<T>(x: T, list: List<T>) -> List<T> {
+  List::Cons(x, list)
+}
+
+fn reverse_helper<T>(list: List<T>, acc: List<T>) -> List<T> {
+  match list {
+    Nil -> acc
+    Cons(h, t) -> reverse_helper(t, List::Cons(h, acc))
+  }
+}
+
+-- Reverses the list. Tail-recursive via an accumulator, so it stays stack-safe
+-- on long lists (spec 0029 Compilation Notes).
+pub fn reverse<T>(list: List<T>) -> List<T> {
+  reverse_helper(list, List::Nil)
+}
+
+pub fn append<T>(xs: List<T>, ys: List<T>) -> List<T> {
+  match xs {
+    Nil -> ys
+    Cons(h, t) -> List::Cons(h, append(t, ys))
+  }
+}
+
+-- Applies `f` to each element, preserving order (spec 0029 §Examples reference).
+pub fn map<T, U>(list: List<T>, f: (T) -> U) -> List<U> {
+  match list {
+    Nil -> List::Nil
+    Cons(h, t) -> List::Cons(f(h), map(t, f))
+  }
+}
+
+-- Keeps the elements satisfying `pred`, preserving order (spec 0029).
+pub fn filter<T>(list: List<T>, pred: (T) -> Bool) -> List<T> {
+  match list {
+    Nil -> List::Nil
+    Cons(h, t) -> if pred(h) {
+      List::Cons(h, filter(t, pred))
+    } else {
+      filter(t, pred)
+    }
+  }
+}
+
+-- Left fold (spec 0029, MUST be a left fold): `f(... f(f(init, x0), x1) ..., xn)`.
+-- Tail-recursive, so it is stack-safe and folds in list order.
+pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A) -> A {
+  match list {
+    Nil -> init
+    Cons(h, t) -> fold(t, f(init, h), f)
+  }
+}
+
+pub fn contains<T: Eq>(list: List<T>, x: T) -> Bool {
+  match list {
+    Nil -> false
+    Cons(h, t) -> if h == x {
+      true
+    } else {
+      contains(t, x)
+    }
+  }
+}
