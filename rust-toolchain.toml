@@ -1,0 +1,7 @@
+# Pins the toolchain used by CI, releases, and local builds so results are
+# reproducible. `stable` tracks the latest stable Rust (edition 2024 needs
+# 1.85+); pin an exact version here if a new stable's clippy lints start failing
+# the `-D warnings` gate.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
