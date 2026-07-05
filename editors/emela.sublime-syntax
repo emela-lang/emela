@@ -1,0 +1,72 @@
+%YAML 1.2
+---
+# Emela language syntax definition.
+#
+# This is a Sublime Text `.sublime-syntax` file, which is also the format the
+# `bat` pager (via the syntect library) reads. See docs/syntax-highlight.md for
+# install instructions.
+name: Emela
+file_extensions:
+  - emel
+scope: source.emela
+
+variables:
+  ident: '[A-Za-z_][A-Za-z0-9_]*'
+  type_name: '[A-Z][A-Za-z0-9_]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: types
+    - include: functions
+    - include: operators
+
+  comments:
+    # Line comments run from `--` to end of line (there are no block comments).
+    - match: '--.*$'
+      scope: comment.line.double-dash.emela
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.emela
+      push:
+        - meta_scope: string.quoted.double.emela
+        - match: '\\[nt"\\]'
+          scope: constant.character.escape.emela
+        - match: '"'
+          scope: punctuation.definition.string.end.emela
+          pop: true
+
+  numbers:
+    - match: '\b[0-9]+\.[0-9]+\b'
+      scope: constant.numeric.float.emela
+    - match: '\b[0-9]+\b'
+      scope: constant.numeric.integer.emela
+
+  keywords:
+    - match: '\b(if|else|match|for|try|catch|throw|throws|panic|uses)\b'
+      scope: keyword.control.emela
+    - match: '\b(fn|let|enum|trait|impl|import|module|extern|intrinsic|pub)\b'
+      scope: keyword.declaration.emela
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.emela
+
+  types:
+    # Built-in primitive and standard generic types.
+    - match: '\b(Int|Float|Bool|String|Char|Unit|Array|Option)\b'
+      scope: support.type.builtin.emela
+    # Any other capitalised identifier is a user type, enum, or variant.
+    - match: '\b{{type_name}}\b'
+      scope: entity.name.type.emela
+
+  functions:
+    # A lowercase identifier immediately followed by `(` is a call/definition.
+    - match: '\b({{ident}})\s*(?=\()'
+      scope: variable.function.emela
+
+  operators:
+    - match: '->|::|\?|\+\+|&&|\|\||[+\-*/%<>=!]=?'
+      scope: keyword.operator.emela

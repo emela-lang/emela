@@ -4,6 +4,8 @@ Emela is an experimental functional language that compiles to **WebAssembly**
 (Tier 1) and **JavaScript** (Tier 2). This repository is the CLI and compiler for
 the current core subset; the full spec lives in `emela-lang/specification`.
 
+Editor syntax highlighting: see [docs/syntax-highlight.md](docs/syntax-highlight.md).
+
 ## Install
 
 Timestamped dogfooding builds are published from `main` for trying the current
