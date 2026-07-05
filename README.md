@@ -24,9 +24,11 @@ source instead, see [Build and test](#build-and-test).
 
 - Rust toolchain with Cargo, edition 2024 (Rust 1.85+)
 - Node.js — to run generated JavaScript
-- A WASI runtime (`wasmtime` or WAMR's `iwasm`) — to run generated wasm
+- Optional: a WASI runtime (`wasmtime` or WAMR's `iwasm`) — only to run a built
+  `.wasm` artifact directly; `emela run` embeds its own runtime
 
-Building needs no external wasm tools; a runtime is only needed to *run* output.
+Building needs no external wasm tools, and `emela run` bundles a WASI runtime,
+so an external runtime is only needed to *run* a `.wasm` file yourself.
 
 ## Build and test
 
@@ -45,10 +47,26 @@ Invoke the compiler with `cargo run --bin emela -- <args>` (or the installed
 emela check [--library] FILE          # type-check only
 emela ir    FILE                       # print the typed IR
 emela build [--backend NAME] [-o OUT] FILE
+emela run   [--package DIR] FILE       # build to wasm and run it in-process
 emela backends                         # list backends (wasm-wasi, js-node)
 emela new <name>                       # scaffold a new Pome
 emela pome <add|remove|list|update|install|search> ...   # dependency management
 ```
+
+`emela run` builds with the `wasm-wasi` backend and executes the module
+in-process with an embedded, pure-Rust WASI runtime ([`wasmi`]), so it needs no
+external runtime — `main`'s `Int` result is the process exit code:
+
+```sh
+cargo run --bin emela -- run examples/add.emel; echo $?    # 42
+cargo run --bin emela -- run --package examples/stdlib examples/hello.emel
+# Hello, Emela!
+```
+
+The generated `.wasm` is a plain WASI preview1 module, so you can still run the
+built artifact under `wasmtime` or WAMR's `iwasm` (see below).
+
+[`wasmi`]: https://github.com/wasmi-labs/wasmi
 
 Build and run as JavaScript (Tier 2):
 

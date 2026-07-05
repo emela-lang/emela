@@ -26,6 +26,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wat = "1"
 wasmparser = "0.252"
+# In-process WASI runtime for `emela run` (pure Rust, keeps the "no external
+# wasm tools" build and cross-compiles with the release matrix).
+wasmi = "1"
 emela-codegen = { path = "crates/emela-codegen", version = "0.1.0" }
 emela-backend-js = { path = "crates/emela-backend-js", version = "0.1.0" }
 emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.1.0" }
