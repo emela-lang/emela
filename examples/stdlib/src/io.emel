@@ -10,9 +10,9 @@ extern fn write_stderr(s: String) -> Unit uses { io }
 -- sugar for `to_string(s)`; dispatch is by the receiver's type. `Show` and
 -- `to_string` come from the Core Prelude (spec 0021), so no import is needed.
 pub fn print<T: Show>(s: T) -> Unit uses { io } {
-  write_stdout(s.to_string())
+    write_stdout(s.to_string())
 }
 
 pub fn eprint<T: Show>(s: T) -> Unit uses { io } {
-  write_stderr(s.to_string())
+    write_stderr(s.to_string())
 }

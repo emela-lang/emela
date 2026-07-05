@@ -1,27 +1,15 @@
 fn not(b: Bool) -> Bool {
-  match b {
-    true -> false
-    false -> true
-  }
+    if b { false } else { true }
 }
 
 fn or(a: Bool, b: Bool) -> Bool {
-  match a {
-    true -> true
-    false -> b
-  }
+    if a { true } else { b }
 }
 
 fn and(a: Bool, b: Bool) -> Bool {
-  match a {
-    true -> b
-    false -> false
-  }
+    if a { b } else { false }
 }
 
 fn xor(a: Bool, b: Bool) -> Bool {
-  match a {
-    true -> not(b)
-    false -> b
-  }
+    if a { not(b) } else { b }
 }

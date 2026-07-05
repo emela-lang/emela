@@ -2,24 +2,24 @@
 -- arguments, return them, and build closures with `fn` expressions.
 
 fn add1(x: Int) -> Int {
-  x + 1
+    x + 1
 }
 
 -- Takes a function value and applies it.
 fn apply(f: (Int) -> Int, x: Int) -> Int {
-  f(x)
+    f(x)
 }
 
 -- Returns a closure that captures `n`.
 fn make_adder(n: Int) -> (Int) -> Int {
-  fn (x: Int) -> Int {
-    x + n
-  }
+    fn (x: Int) -> Int {
+        x + n
+    }
 }
 
 fn main() -> Int {
-  let inc = add1
-  let add10 = make_adder(10)
-  let doubled = fn (x: Int) -> Int { x * 2 }
-  apply(inc, 41) + add10(5) + doubled(3)
+    let inc = add1
+    let add10 = make_adder(10)
+    let doubled = fn (x: Int) -> Int { x * 2 }
+    apply(inc, 41) + add10(5) + doubled(3)
 }
