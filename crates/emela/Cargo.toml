@@ -19,8 +19,12 @@ serde.workspace = true
 serde_json.workspace = true
 emela-backend-js = { workspace = true, optional = true }
 emela-backend-wasm = { workspace = true, optional = true }
+wasmi = { workspace = true, optional = true }
 
 [features]
-default = ["backend-js", "backend-wasm"]
+default = ["backend-js", "backend-wasm", "run"]
 backend-js = ["dep:emela-backend-js"]
 backend-wasm = ["dep:emela-backend-wasm"]
+# `emela run` executes the wasm-wasi output in-process via wasmi; it needs the
+# wasm backend to produce the module.
+run = ["dep:wasmi", "backend-wasm"]
