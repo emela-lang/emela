@@ -5,9 +5,9 @@
 module geometry
 
 pub fn square(n: Int) -> Int {
-  n * n
+    n * n
 }
 
 pub fn area(width: Int, height: Int) -> Int {
-  width * height
+    width * height
 }

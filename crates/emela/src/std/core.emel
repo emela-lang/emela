@@ -168,11 +168,11 @@ impl Eq for Bool {
 }
 
 impl Show for Bool {
-  fn to_string(b: Bool) -> String uses {} {
-    if b {
-      "true"
-    } else {
-      "false"
+    fn to_string(b: Bool) -> String uses {} {
+        if b {
+            "true"
+        } else {
+            "false"
+        }
     }
-  }
 }
