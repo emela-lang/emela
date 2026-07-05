@@ -64,9 +64,7 @@ fn multiline_params_with_trailing_comma() {
 
 #[test]
 fn multiline_array_with_trailing_comma() {
-    check_ok(
-        "fn main() -> Unit uses {} {\n  let xs = [\n    1,\n    2,\n    3,\n  ]\n  ()\n}\n",
-    );
+    check_ok("fn main() -> Unit uses {} {\n  let xs = [\n    1,\n    2,\n    3,\n  ]\n  ()\n}\n");
 }
 
 #[test]
