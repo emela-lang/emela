@@ -18,6 +18,10 @@ pub(crate) struct TypedFunction {
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
+    /// The effect row the body actually requires — a subset of the declared
+    /// `effects`. The lint for over-declared effects (specs 0023/0035)
+    /// compares the two.
+    pub(crate) body_effects: EffectRow,
 }
 
 #[derive(Debug, Clone)]
@@ -118,7 +122,13 @@ struct FnCtx<'a> {
 /// a library — every function, impl method, and declaration is still checked, but
 /// the `main` entrypoint (spec 0003) is not required. This is what `check
 /// --library` uses to compile-check a module that has no `main`.
-pub(crate) fn check(program: &Program, require_main: bool) -> Result<TypedProgram> {
+///
+/// Errors are collected per declaration (spec 0033): each registration item and
+/// each function/method body is checked independently, so one broken function
+/// doesn't hide errors in another. Within one body the first error wins. An
+/// empty error list means the program is well-typed.
+pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec<Error>) {
+    let mut errors = Vec::new();
     let mut checker = Checker {
         table: FnTable::build(program),
         sigs: Vec::new(),
@@ -129,29 +139,43 @@ pub(crate) fn check(program: &Program, require_main: bool) -> Result<TypedProgra
         impls_by: HashMap::new(),
         method_owners: HashMap::new(),
     };
-    checker.register_enums(program)?;
-    checker.register_traits(program)?;
-    checker.register_impls(program)?;
-    checker.register_functions(program)?;
-    checker.register_externs(program)?;
-    if require_main {
-        checker.check_main(program)?;
+    checker.register_enums(program, &mut errors);
+    checker.register_traits(program, &mut errors);
+    checker.register_impls(program, &mut errors);
+    checker.register_functions(program, &mut errors);
+    checker.register_externs(program, &mut errors);
+    if require_main && let Err(error) = checker.check_main(program) {
+        errors.push(error);
     }
+    let mut body_effects = Vec::new();
     for function in &program.functions {
-        checker.check_function(function)?;
+        // Collect every error (spec 0033) while keeping `body_effects` aligned
+        // with `program.functions` for the zip below; a failed body has no
+        // inferred effects, so a default row stands in (unused once errors are
+        // reported and lowering is skipped).
+        match checker.check_function(function) {
+            Ok(effects) => body_effects.push(effects),
+            Err(error) => {
+                errors.push(error);
+                body_effects.push(EffectRow::default());
+            }
+        }
     }
     // Method bodies (spec 0020), including defaults filled in by
     // `expand_trait_defaults`, are checked with `Self` bound to the target type.
     for decl in &program.impls {
         for method in &decl.methods {
-            checker.check_impl_method(decl, method)?;
+            if let Err(error) = checker.check_impl_method(decl, method) {
+                errors.push(error);
+            }
         }
     }
-    Ok(TypedProgram {
+    let typed = TypedProgram {
         functions: program
             .functions
             .iter()
-            .map(|function| TypedFunction {
+            .zip(body_effects)
+            .map(|(function, body_effects)| TypedFunction {
                 params: function
                     .params
                     .iter()
@@ -160,9 +184,11 @@ pub(crate) fn check(program: &Program, require_main: bool) -> Result<TypedProgra
                 ret: function.ret.clone(),
                 throws: function.throws.clone(),
                 effects: function.effects.clone(),
+                body_effects,
             })
             .collect(),
-    })
+    };
+    (typed, errors)
 }
 
 struct Checker {
@@ -189,24 +215,26 @@ struct Checker {
 }
 
 impl Checker {
-    fn register_enums(&mut self, program: &Program) -> Result<()> {
+    fn register_enums(&mut self, program: &Program, errors: &mut Vec<Error>) {
         for decl in &program.enums {
             if self.enums.contains_key(&decl.name) {
-                return Err(Error::diagnostic(Diagnostic::new("Duplicate enum").label(
+                errors.push(Error::diagnostic(Diagnostic::new("Duplicate enum").label(
                     decl.name_span.clone(),
                     format!("enum `{}` is already defined", decl.name),
                 )));
+                continue;
             }
             let mut variants = Vec::new();
             let mut seen = HashSet::new();
             for variant in &decl.variants {
                 if !seen.insert(variant.name.clone()) {
-                    return Err(Error::diagnostic(
+                    errors.push(Error::diagnostic(
                         Diagnostic::new("Duplicate variant").label(
                             variant.name_span.clone(),
                             format!("variant `{}` is already defined", variant.name),
                         ),
                     ));
+                    continue;
                 }
                 variants.push(VariantInfo {
                     name: variant.name.clone(),
@@ -228,11 +256,12 @@ impl Checker {
         for decl in &program.enums {
             for variant in &decl.variants {
                 for field in &variant.fields {
-                    self.validate_type(field, &variant.name_span)?;
+                    if let Err(error) = self.validate_type(field, &variant.name_span) {
+                        errors.push(error);
+                    }
                 }
             }
         }
-        Ok(())
     }
 
     /// Rejects a type that names an enum that was never declared, or applies a
@@ -279,25 +308,29 @@ impl Checker {
     }
 
     /// Registers each `trait` (spec 0020): validates method dispatchability and
-    /// records the signatures and which trait owns each method name.
-    fn register_traits(&mut self, program: &Program) -> Result<()> {
+    /// records the signatures and which trait owns each method name. Errors are
+    /// collected per method (spec 0033); the valid methods still register so
+    /// impls and calls against them keep checking.
+    fn register_traits(&mut self, program: &Program, errors: &mut Vec<Error>) {
         for decl in &program.traits {
             if self.traits.contains_key(&decl.name) {
-                return Err(Error::diagnostic(Diagnostic::new("Duplicate trait").label(
+                errors.push(Error::diagnostic(Diagnostic::new("Duplicate trait").label(
                     decl.name_span.clone(),
                     format!("trait `{}` is already defined", decl.name),
                 )));
+                continue;
             }
             let mut methods = Vec::new();
             let mut seen = HashSet::new();
             for m in &decl.methods {
                 if !seen.insert(m.name.clone()) {
-                    return Err(Error::diagnostic(
+                    errors.push(Error::diagnostic(
                         Diagnostic::new("Duplicate method").label(
                             m.name_span.clone(),
                             format!("`{}` is declared more than once in `{}`", m.name, decl.name),
                         ),
                     ));
+                    continue;
                 }
                 // Dispatchability (spec 0020): `Self` must appear in a parameter
                 // type so the impl is inferable from arguments; a method with
@@ -307,7 +340,7 @@ impl Checker {
                     collect_type_vars(&param.ty, &mut vars);
                 }
                 if !vars.contains("Self") {
-                    return Err(Error::diagnostic(
+                    errors.push(Error::diagnostic(
                         Diagnostic::new("Undispatchable trait method")
                             .label(
                                 m.name_span.clone(),
@@ -315,11 +348,16 @@ impl Checker {
                             )
                             .help("A trait method selects its impl from an argument's type."),
                     ));
+                    continue;
                 }
                 for param in &m.params {
-                    self.validate_type(&param.ty, &m.name_span)?;
+                    if let Err(error) = self.validate_type(&param.ty, &m.name_span) {
+                        errors.push(error);
+                    }
                 }
-                self.validate_type(&m.ret, &m.name_span)?;
+                if let Err(error) = self.validate_type(&m.ret, &m.name_span) {
+                    errors.push(error);
+                }
                 self.method_owners
                     .entry(m.name.clone())
                     .or_default()
@@ -341,118 +379,124 @@ impl Checker {
                 },
             );
         }
-        Ok(())
     }
 
     /// Registers each `impl Trait for Type` (spec 0020): the orphan rule, global
     /// uniqueness (coherence), signature match, and exhaustiveness. Method bodies
-    /// are checked later, once every impl is known.
-    fn register_impls(&mut self, program: &Program) -> Result<()> {
+    /// are checked later, once every impl is known. Each impl is checked
+    /// independently (spec 0033): a broken one is reported and skipped.
+    fn register_impls(&mut self, program: &Program, errors: &mut Vec<Error>) {
         for decl in &program.impls {
-            let Some(trait_info) = self.traits.get(&decl.trait_name).cloned() else {
-                return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
-                    decl.trait_span.clone(),
-                    format!("`{}` is not a declared trait", decl.trait_name),
-                )));
-            };
-            // The impl's own bounds must name its type parameters and real traits.
-            for bound in &decl.bounds {
-                if !decl.type_params.contains(&bound.param) {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Unknown type parameter").label(
-                            bound.span.clone(),
-                            format!("`{}` is not a parameter of this impl", bound.param),
-                        ),
-                    ));
-                }
-                for tr in &bound.traits {
-                    if !self.traits.contains_key(tr) {
-                        return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
-                            bound.span.clone(),
-                            format!("`{tr}` is not a declared trait"),
-                        )));
-                    }
-                }
+            if let Err(error) = self.register_impl(decl) {
+                errors.push(error);
             }
-            let Some(target_key) = type_head_key(&decl.target) else {
+        }
+    }
+
+    fn register_impl(&mut self, decl: &ImplDecl) -> Result<()> {
+        let Some(trait_info) = self.traits.get(&decl.trait_name).cloned() else {
+            return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
+                decl.trait_span.clone(),
+                format!("`{}` is not a declared trait", decl.trait_name),
+            )));
+        };
+        // The impl's own bounds must name its type parameters and real traits.
+        for bound in &decl.bounds {
+            if !decl.type_params.contains(&bound.param) {
                 return Err(Error::diagnostic(
-                    Diagnostic::new("Invalid impl target").label(
-                        decl.target_span.clone(),
-                        "an impl target must be a named or built-in type",
-                    ),
-                ));
-            };
-            self.validate_type(&decl.target, &decl.target_span)?;
-            // Orphan rule (spec 0020): the impl must live in the trait's module or
-            // the target type's owning module.
-            let target_owner = self.type_owning_module(&decl.target);
-            let coherent =
-                decl.module == trait_info.module || target_owner.as_ref() == Some(&decl.module);
-            if !coherent {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Orphan impl")
-                        .label(
-                            decl.trait_span.clone(),
-                            format!(
-                                "`impl {} for {:?}` is not in the trait's or the type's module",
-                                decl.trait_name, decl.target
-                            ),
-                        )
-                        .help("Place the impl in the module defining the trait or the type."),
-                ));
-            }
-            // Global uniqueness: at most one impl per (trait, type head).
-            let key = (decl.trait_name.clone(), target_key);
-            if self.impls_by.contains_key(&key) {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Conflicting implementations").label(
-                        decl.trait_span.clone(),
-                        format!("`{}` is already implemented for this type", decl.trait_name),
+                    Diagnostic::new("Unknown type parameter").label(
+                        bound.span.clone(),
+                        format!("`{}` is not a parameter of this impl", bound.param),
                     ),
                 ));
             }
-            // Signature match (strict) plus no unknown/duplicate methods.
-            let mut subst = HashMap::new();
-            subst.insert("Self".to_string(), decl.target.clone());
-            let mut method_seen = HashSet::new();
-            for m in &decl.methods {
-                let Some(tmethod) = trait_info.methods.iter().find(|tm| tm.name == m.name) else {
-                    return Err(Error::diagnostic(Diagnostic::new("Unknown method").label(
-                        m.name_span.clone(),
-                        format!("`{}` is not a method of `{}`", m.name, decl.trait_name),
+            for tr in &bound.traits {
+                if !self.traits.contains_key(tr) {
+                    return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
+                        bound.span.clone(),
+                        format!("`{tr}` is not a declared trait"),
                     )));
-                };
-                if !method_seen.insert(m.name.clone()) {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Duplicate method").label(
-                            m.name_span.clone(),
-                            format!("`{}` is implemented more than once", m.name),
-                        ),
-                    ));
                 }
-                self.check_impl_sig(tmethod, m, &subst)?;
             }
-            // Exhaustiveness: every method without a default must be provided.
-            // Defaults are already synthesized into `decl.methods` by
-            // `expand_trait_defaults`, so they count as provided.
-            for tmethod in &trait_info.methods {
-                if !tmethod.has_default && !decl.methods.iter().any(|m| m.name == tmethod.name) {
-                    return Err(Error::diagnostic(Diagnostic::new("Incomplete impl").label(
+        }
+        let Some(target_key) = type_head_key(&decl.target) else {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Invalid impl target").label(
+                    decl.target_span.clone(),
+                    "an impl target must be a named or built-in type",
+                ),
+            ));
+        };
+        self.validate_type(&decl.target, &decl.target_span)?;
+        // Orphan rule (spec 0020): the impl must live in the trait's module or
+        // the target type's owning module.
+        let target_owner = self.type_owning_module(&decl.target);
+        let coherent =
+            decl.module == trait_info.module || target_owner.as_ref() == Some(&decl.module);
+        if !coherent {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Orphan impl")
+                    .label(
                         decl.trait_span.clone(),
                         format!(
-                            "missing method `{}` required by `{}`",
-                            tmethod.name, decl.trait_name
+                            "`impl {} for {:?}` is not in the trait's or the type's module",
+                            decl.trait_name, decl.target
                         ),
-                    )));
-                }
-            }
-            let idx = self.impls.len();
-            self.impls.push(ImplInfo {
-                target: decl.target.clone(),
-                bounds: decl.bounds.clone(),
-            });
-            self.impls_by.insert(key, idx);
+                    )
+                    .help("Place the impl in the module defining the trait or the type."),
+            ));
         }
+        // Global uniqueness: at most one impl per (trait, type head).
+        let key = (decl.trait_name.clone(), target_key);
+        if self.impls_by.contains_key(&key) {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Conflicting implementations").label(
+                    decl.trait_span.clone(),
+                    format!("`{}` is already implemented for this type", decl.trait_name),
+                ),
+            ));
+        }
+        // Signature match (strict) plus no unknown/duplicate methods.
+        let mut subst = HashMap::new();
+        subst.insert("Self".to_string(), decl.target.clone());
+        let mut method_seen = HashSet::new();
+        for m in &decl.methods {
+            let Some(tmethod) = trait_info.methods.iter().find(|tm| tm.name == m.name) else {
+                return Err(Error::diagnostic(Diagnostic::new("Unknown method").label(
+                    m.name_span.clone(),
+                    format!("`{}` is not a method of `{}`", m.name, decl.trait_name),
+                )));
+            };
+            if !method_seen.insert(m.name.clone()) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Duplicate method").label(
+                        m.name_span.clone(),
+                        format!("`{}` is implemented more than once", m.name),
+                    ),
+                ));
+            }
+            self.check_impl_sig(tmethod, m, &subst)?;
+        }
+        // Exhaustiveness: every method without a default must be provided.
+        // Defaults are already synthesized into `decl.methods` by
+        // `expand_trait_defaults`, so they count as provided.
+        for tmethod in &trait_info.methods {
+            if !tmethod.has_default && !decl.methods.iter().any(|m| m.name == tmethod.name) {
+                return Err(Error::diagnostic(Diagnostic::new("Incomplete impl").label(
+                    decl.trait_span.clone(),
+                    format!(
+                        "missing method `{}` required by `{}`",
+                        tmethod.name, decl.trait_name
+                    ),
+                )));
+            }
+        }
+        let idx = self.impls.len();
+        self.impls.push(ImplInfo {
+            target: decl.target.clone(),
+            bounds: decl.bounds.clone(),
+        });
+        self.impls_by.insert(key, idx);
         Ok(())
     }
 
@@ -668,7 +712,7 @@ impl Checker {
         Ok(())
     }
 
-    fn register_functions(&mut self, program: &Program) -> Result<()> {
+    fn register_functions(&mut self, program: &Program, errors: &mut Vec<Error>) {
         // Imported public functions carry a qualifier (spec 0018) and may share a
         // bare name with one another (resolved by qualifying at the call site).
         // Only unqualified functions — the compilation root's own functions and
@@ -676,77 +720,12 @@ impl Checker {
         // share a backend emit name.
         let mut seen_local = HashSet::new();
         for function in &program.functions {
-            if function.module_path.is_empty() && !seen_local.insert(function.name.clone()) {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Duplicate function").label(
-                        function.name_span.clone(),
-                        format!("function `{}` is already defined", function.name),
-                    ),
-                ));
+            if let Err(error) = self.validate_function_decl(function, &mut seen_local) {
+                errors.push(error);
             }
-            let mut names = HashSet::new();
-            for param in &function.params {
-                self.validate_type(&param.ty, &param.name_span)?;
-                if !names.insert(param.name.clone()) {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Duplicate parameter").label(
-                            param.name_span.clone(),
-                            format!("parameter `{}` is already defined", param.name),
-                        ),
-                    ));
-                }
-            }
-            self.validate_type(&function.ret, &function.name_span)?;
-            if let Some(throws) = &function.throws {
-                self.validate_type(throws, &function.name_span)?;
-            }
-            // Every type parameter must occur in at least one parameter type
-            // (possibly nested), so a call can infer it from its arguments
-            // (spec 0014). Type arguments are not given explicitly.
-            let mut mentioned = HashSet::new();
-            for param in &function.params {
-                collect_type_vars(&param.ty, &mut mentioned);
-            }
-            for type_param in &function.type_params {
-                if !mentioned.contains(type_param) {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Uninferable type parameter")
-                            .label(
-                                function.name_span.clone(),
-                                format!(
-                                    "type parameter `{type_param}` does not appear in any parameter type"
-                                ),
-                            )
-                            .help(
-                                "Each type parameter must be inferable from an argument; \
-                                 use it in a parameter type.",
-                            ),
-                    ));
-                }
-            }
-            // Every bound (spec 0020) must name one of this function's type
-            // parameters and a declared trait.
-            for bound in &function.bounds {
-                if !function.type_params.contains(&bound.param) {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Unknown type parameter").label(
-                            bound.span.clone(),
-                            format!(
-                                "`{}` is not a type parameter of `{}`",
-                                bound.param, function.name
-                            ),
-                        ),
-                    ));
-                }
-                for tr in &bound.traits {
-                    if !self.traits.contains_key(tr) {
-                        return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
-                            bound.span.clone(),
-                            format!("`{tr}` is not a declared trait"),
-                        )));
-                    }
-                }
-            }
+            // The signature is recorded even when validation failed: `sigs`
+            // must stay index-parallel with `Program::functions` so `FnTable`
+            // entries keep resolving (spec 0033).
             self.sigs.push(FunctionSig {
                 type_params: function.type_params.clone(),
                 bounds: function.bounds.clone(),
@@ -760,129 +739,217 @@ impl Checker {
                 effects: function.effects.clone(),
             });
         }
+    }
+
+    /// The per-declaration validations of `register_functions`, split out so a
+    /// failure is reported without losing the function's table slot.
+    fn validate_function_decl(
+        &self,
+        function: &Function,
+        seen_local: &mut HashSet<String>,
+    ) -> Result<()> {
+        if function.module_path.is_empty() && !seen_local.insert(function.name.clone()) {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Duplicate function").label(
+                    function.name_span.clone(),
+                    format!("function `{}` is already defined", function.name),
+                ),
+            ));
+        }
+        let mut names = HashSet::new();
+        for param in &function.params {
+            self.validate_type(&param.ty, &param.name_span)?;
+            if !names.insert(param.name.clone()) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Duplicate parameter").label(
+                        param.name_span.clone(),
+                        format!("parameter `{}` is already defined", param.name),
+                    ),
+                ));
+            }
+        }
+        self.validate_type(&function.ret, &function.name_span)?;
+        if let Some(throws) = &function.throws {
+            self.validate_type(throws, &function.name_span)?;
+        }
+        // Every type parameter must occur in at least one parameter type
+        // (possibly nested), so a call can infer it from its arguments
+        // (spec 0014). Type arguments are not given explicitly.
+        let mut mentioned = HashSet::new();
+        for param in &function.params {
+            collect_type_vars(&param.ty, &mut mentioned);
+        }
+        for type_param in &function.type_params {
+            if !mentioned.contains(type_param) {
+                return Err(Error::diagnostic(
+                        Diagnostic::new("Uninferable type parameter")
+                            .label(
+                                function.name_span.clone(),
+                                format!(
+                                    "type parameter `{type_param}` does not appear in any parameter type"
+                                ),
+                            )
+                            .help(
+                                "Each type parameter must be inferable from an argument; \
+                                 use it in a parameter type.",
+                            ),
+                    ));
+            }
+        }
+        // Every bound (spec 0020) must name one of this function's type
+        // parameters and a declared trait.
+        for bound in &function.bounds {
+            if !function.type_params.contains(&bound.param) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Unknown type parameter").label(
+                        bound.span.clone(),
+                        format!(
+                            "`{}` is not a type parameter of `{}`",
+                            bound.param, function.name
+                        ),
+                    ),
+                ));
+            }
+            for tr in &bound.traits {
+                if !self.traits.contains_key(tr) {
+                    return Err(Error::diagnostic(Diagnostic::new("Unknown trait").label(
+                        bound.span.clone(),
+                        format!("`{tr}` is not a declared trait"),
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 
     /// Validates each `extern fn` against the platform interface (spec 0013) and
-    /// registers it as a callable signature so wrappers can call it.
-    fn register_externs(&mut self, program: &Program) -> Result<()> {
+    /// registers it as a callable signature so wrappers can call it. Each
+    /// declaration is checked independently (spec 0033): a broken one is
+    /// reported and skipped.
+    fn register_externs(&mut self, program: &Program, errors: &mut Vec<Error>) {
         for declaration in &program.externs {
-            let clashes_function = !matches!(
-                self.table.resolve(std::slice::from_ref(&declaration.name)),
-                Resolved::None
-            );
-            let params: Vec<Type> = declaration
-                .params
-                .iter()
-                .map(|param| param.ty.clone())
-                .collect();
-            // An `intrinsic fn` (spec 0021) validates against the intrinsic
-            // interface, must be pure, and registers like a callable so wrappers
-            // can call it. Lowering turns the call into an Intrinsic node.
-            if declaration.is_intrinsic {
-                let Some(entry) = emela_codegen::intrinsic_lookup(&declaration.name) else {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Unknown intrinsic")
-                            .label(
-                                declaration.name_span.clone(),
-                                format!("`{}` is not an intrinsic", declaration.name),
-                            )
-                            .help("Intrinsics are defined by spec 0021."),
-                    ));
-                };
-                if params != entry.params || declaration.ret != entry.ret {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Intrinsic signature mismatch").label(
-                            declaration.name_span.clone(),
-                            format!(
-                                "`{}` does not match the intrinsic interface",
-                                declaration.name
-                            ),
-                        ),
-                    ));
-                }
-                if !declaration.effects.effects.is_empty() || declaration.throws.is_some() {
-                    return Err(Error::diagnostic(
-                        Diagnostic::new("Intrinsic must be pure").label(
-                            declaration.name_span.clone(),
-                            format!(
-                                "`{}` must declare `uses {{}}` and no `throws`",
-                                declaration.name
-                            ),
-                        ),
-                    ));
-                }
-                // Intrinsics are identified by their bare name (spec 0021), so the
-                // embedded Core Prelude and an imported stdlib module may both
-                // declare the same one. Having validated it, a second identical
-                // declaration is a harmless no-op rather than a duplicate.
-                if self.externs.contains_key(&declaration.name) {
-                    continue;
-                }
-                if clashes_function {
-                    return Err(duplicate_function_error(declaration));
-                }
-                self.externs.insert(
-                    declaration.name.clone(),
-                    FunctionSig {
-                        type_params: Vec::new(),
-                        bounds: Vec::new(),
-                        params,
-                        ret: declaration.ret.clone(),
-                        throws: None,
-                        effects: declaration.effects.clone(),
-                    },
-                );
-                continue;
+            if let Err(error) = self.register_extern(declaration) {
+                errors.push(error);
             }
-            // A platform function must not collide with anything already defined.
-            if self.externs.contains_key(&declaration.name) || clashes_function {
-                return Err(duplicate_function_error(declaration));
-            }
-            let canonical = declaration.canonical();
-            let Some(entry) = emela_codegen::platform_lookup(&canonical) else {
+        }
+    }
+
+    fn register_extern(&mut self, declaration: &Extern) -> Result<()> {
+        let clashes_function = !matches!(
+            self.table.resolve(std::slice::from_ref(&declaration.name)),
+            Resolved::None
+        );
+        let params: Vec<Type> = declaration
+            .params
+            .iter()
+            .map(|param| param.ty.clone())
+            .collect();
+        // An `intrinsic fn` (spec 0021) validates against the intrinsic
+        // interface, must be pure, and registers like a callable so wrappers
+        // can call it. Lowering turns the call into an Intrinsic node.
+        if declaration.is_intrinsic {
+            let Some(entry) = emela_codegen::intrinsic_lookup(&declaration.name) else {
                 return Err(Error::diagnostic(
-                    Diagnostic::new("Unknown platform function")
+                    Diagnostic::new("Unknown intrinsic")
                         .label(
                             declaration.name_span.clone(),
-                            format!("`{canonical}` is not a platform function"),
+                            format!("`{}` is not an intrinsic", declaration.name),
                         )
-                        .help("Platform functions are defined by spec 0013."),
+                        .help("Intrinsics are defined by spec 0021."),
                 ));
             };
             if params != entry.params || declaration.ret != entry.ret {
                 return Err(Error::diagnostic(
-                    Diagnostic::new("Platform signature mismatch").label(
-                        declaration.name_span.clone(),
-                        format!("`{canonical}` does not match the platform interface"),
-                    ),
-                ));
-            }
-            let expected = EffectRow::sorted(vec![entry.capability.clone()]);
-            if declaration.effects != expected {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Platform effect mismatch").label(
+                    Diagnostic::new("Intrinsic signature mismatch").label(
                         declaration.name_span.clone(),
                         format!(
-                            "`{canonical}` must declare `uses {{ {} }}`",
-                            entry.capability
+                            "`{}` does not match the intrinsic interface",
+                            declaration.name
                         ),
                     ),
                 ));
             }
+            if !declaration.effects.effects.is_empty() || declaration.throws.is_some() {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Intrinsic must be pure").label(
+                        declaration.name_span.clone(),
+                        format!(
+                            "`{}` must declare `uses {{}}` and no `throws`",
+                            declaration.name
+                        ),
+                    ),
+                ));
+            }
+            // Intrinsics are identified by their bare name (spec 0021), so the
+            // embedded Core Prelude and an imported stdlib module may both
+            // declare the same one. Having validated it, a second identical
+            // declaration is a harmless no-op rather than a duplicate.
+            if self.externs.contains_key(&declaration.name) {
+                return Ok(());
+            }
+            if clashes_function {
+                return Err(duplicate_function_error(declaration));
+            }
             self.externs.insert(
                 declaration.name.clone(),
                 FunctionSig {
-                    // Platform functions are never generic (spec 0013).
                     type_params: Vec::new(),
                     bounds: Vec::new(),
                     params,
                     ret: declaration.ret.clone(),
-                    throws: declaration.throws.clone(),
+                    throws: None,
                     effects: declaration.effects.clone(),
                 },
             );
+            return Ok(());
         }
+        // A platform function must not collide with anything already defined.
+        if self.externs.contains_key(&declaration.name) || clashes_function {
+            return Err(duplicate_function_error(declaration));
+        }
+        let canonical = declaration.canonical();
+        let Some(entry) = emela_codegen::platform_lookup(&canonical) else {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Unknown platform function")
+                    .label(
+                        declaration.name_span.clone(),
+                        format!("`{canonical}` is not a platform function"),
+                    )
+                    .help("Platform functions are defined by spec 0013."),
+            ));
+        };
+        if params != entry.params || declaration.ret != entry.ret {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Platform signature mismatch").label(
+                    declaration.name_span.clone(),
+                    format!("`{canonical}` does not match the platform interface"),
+                ),
+            ));
+        }
+        let expected = EffectRow::sorted(vec![entry.capability.clone()]);
+        if declaration.effects != expected {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Platform effect mismatch").label(
+                    declaration.name_span.clone(),
+                    format!(
+                        "`{canonical}` must declare `uses {{ {} }}`",
+                        entry.capability
+                    ),
+                ),
+            ));
+        }
+        self.externs.insert(
+            declaration.name.clone(),
+            FunctionSig {
+                // Platform functions are never generic (spec 0013).
+                type_params: Vec::new(),
+                bounds: Vec::new(),
+                params,
+                ret: declaration.ret.clone(),
+                throws: declaration.throws.clone(),
+                effects: declaration.effects.clone(),
+            },
+        );
         Ok(())
     }
 
@@ -923,7 +990,10 @@ impl Checker {
         Ok(())
     }
 
-    fn check_function(&self, function: &Function) -> Result<()> {
+    /// Checks one top-level function and returns the effect row its body
+    /// actually requires (always a subset of the declared row); the caller
+    /// records it on the `TypedFunction` for the over-declared-effects lint.
+    fn check_function(&self, function: &Function) -> Result<EffectRow> {
         let mut scope = HashMap::new();
         for param in &function.params {
             scope.insert(param.name.clone(), param.ty.clone());
@@ -950,7 +1020,7 @@ impl Checker {
             ));
         }
         self.check_throws_subset(&body.throws, &function.throws, &function.name, body.span)?;
-        Ok(())
+        Ok(body.effects)
     }
 
     /// The body may only put on the throws channel what the function declares.

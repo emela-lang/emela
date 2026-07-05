@@ -9,5 +9,5 @@ import geometry.square
 import geometry.area
 
 fn main() -> Int {
-  square(5) + area(3, 4)
+    square(5) + area(3, 4)
 }

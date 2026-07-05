@@ -4,6 +4,9 @@ Emela is an experimental functional language that compiles to **WebAssembly**
 (Tier 1) and **JavaScript** (Tier 2). This repository is the CLI and compiler for
 the current core subset; the full spec lives in `emela-lang/specification`.
 
+Editor support: [docs/lsp.md](docs/lsp.md) (diagnostics and completion via
+`emela lsp`) and [docs/syntax-highlight.md](docs/syntax-highlight.md) (highlighting).
+
 ## Install
 
 Timestamped dogfooding builds are published from `main` for trying the current
@@ -22,9 +25,11 @@ source instead, see [Build and test](#build-and-test).
 
 - Rust toolchain with Cargo, edition 2024 (Rust 1.85+)
 - Node.js — to run generated JavaScript
-- A WASI runtime (`wasmtime` or WAMR's `iwasm`) — to run generated wasm
+- Optional: a WASI runtime (`wasmtime` or WAMR's `iwasm`) — only to run a built
+  `.wasm` artifact directly; `emela run` embeds its own runtime
 
-Building needs no external wasm tools; a runtime is only needed to *run* output.
+Building needs no external wasm tools, and `emela run` bundles a WASI runtime,
+so an external runtime is only needed to *run* a `.wasm` file yourself.
 
 ## Build and test
 
@@ -43,8 +48,27 @@ Invoke the compiler with `cargo run --bin emela -- <args>` (or the installed
 emela check [--library] FILE          # type-check only
 emela ir    FILE                       # print the typed IR
 emela build [--backend NAME] [-o OUT] FILE
+emela run   [--package DIR] FILE       # build to wasm and run it in-process
 emela backends                         # list backends (wasm-wasi, js-node)
+emela new <name>                       # scaffold a new Pome
+emela pome <add|remove|list|update|install|search> ...   # dependency management
+emela lsp   [--package DIR]            # LSP server over stdio (docs/lsp.md)
 ```
+
+`emela run` builds with the `wasm-wasi` backend and executes the module
+in-process with an embedded, pure-Rust WASI runtime ([`wasmi`]), so it needs no
+external runtime — `main`'s `Int` result is the process exit code:
+
+```sh
+cargo run --bin emela -- run examples/add.emel; echo $?    # 42
+cargo run --bin emela -- run --package examples/stdlib examples/hello.emel
+# Hello, Emela!
+```
+
+The generated `.wasm` is a plain WASI preview1 module, so you can still run the
+built artifact under `wasmtime` or WAMR's `iwasm` (see below).
+
+[`wasmi`]: https://github.com/wasmi-labs/wasmi
 
 Build and run as JavaScript (Tier 2):
 
@@ -247,3 +271,51 @@ pub fn print(s: String) -> Unit uses { io } {
 Then `import math.ops.add_one` loads `DIR/src/ops.emel` (which must declare
 `module ops`) and imports the `pub` function `add_one`. Imports without a package
 name resolve relative to the importing file.
+
+## Pomes: distribution and dependencies
+
+A **Pome** is Emela's unit of distribution — one or more modules supplied as a
+Git repository (spec 0032). There is no central registry: a Pome is identified by
+its source path `host/path` and fetched straight from that repository, versioned
+by `v`-prefixed semver git tags.
+
+```sh
+emela new hello                        # scaffold hello/ with a Pome.toml
+cd hello
+emela pome add github:emela-lang/stdlib   # fetch, pin in Pome.lock, audit capabilities
+emela pome list                            # print the resolved dependency tree
+emela build src/main.emel                  # deps are on the import path automatically
+```
+
+Once a Pome is a dependency, building any file inside your Pome puts its modules
+on the import path — no `--package` needed. The import root is the dependency's
+source-path leaf by default (a Pome may override it with `[pome].module`, spec
+0032 M2) and its modules live under `src/`, so `github.com/emela-lang/stdlib`
+declaring `module = "std"` and exposing `src/io.emel` (`module io`) is used as:
+
+```
+import std.io.print         -- callable as print, io.print, or std.io.print
+```
+
+`emela pome add` records the dependency in `Pome.toml` under its canonical source
+path, pins the resolved tag + commit + content hash in `Pome.lock`, and — since a
+Pome's required capabilities are computable from source (spec 0025) — prints the
+capability set the added Pome and its transitive dependencies require *before*
+committing, so `net`/`fs`/`clock` growth is auditable at add time.
+
+```toml
+# Pome.toml
+[pome]
+name = "github.com/emela-lang/json"
+version = "1.2.0"
+emela = "0.1"
+
+[dependencies]
+"github.com/emela-lang/parser" = "^2.0"
+```
+
+Publishing is just tagging: `git tag v0.1.0 && git push origin v0.1.0`. Several
+Pomes developed together can share a workspace via `Bushel.toml`. To resolve
+against a local checkout or mirror (offline development, CI), set
+`EMELA_POME_REPLACE="host/path=/local/or/url"`; `EMELA_POME_CACHE` redirects the
+fetch cache.

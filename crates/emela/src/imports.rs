@@ -27,6 +27,25 @@ pub(crate) struct PackageSource {
     source_root: PathBuf,
 }
 
+impl PackageSource {
+    /// Builds a package source directly from a resolved name and source root.
+    /// Used to expose a dependency Pome's modules under its import-root name,
+    /// without an `emela-package.json` (spec 0032 M1).
+    pub(crate) fn new(name: String, source_root: PathBuf) -> Self {
+        PackageSource { name, source_root }
+    }
+
+    /// The import-root name this package is addressed by.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The directory the package's modules live under.
+    pub(crate) fn source_root(&self) -> &Path {
+        &self.source_root
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PackageManifest {
     name: String,
@@ -64,33 +83,51 @@ pub(crate) fn load_packages(paths: &[PathBuf]) -> Result<Vec<PackageSource>> {
     Ok(packages)
 }
 
-pub(crate) fn resolve_imports(
+/// Expands every `import` in `program`, collecting errors per import statement
+/// (spec 0033) so one broken import doesn't hide the others. An empty error
+/// list means every import resolved. `overlay` (canonicalized path → source
+/// text) is consulted before the filesystem, so an LSP client's unsaved
+/// buffers (spec 0033) take precedence over what is on disk; pass an empty map
+/// otherwise.
+pub(crate) fn resolve_imports_with_overlay(
     input: &Path,
     program: Program,
     packages: &[PackageSource],
-) -> Result<Program> {
+    overlay: &HashMap<PathBuf, String>,
+) -> (Program, Vec<Error>) {
     let mut resolver = ImportResolver {
         packages,
+        overlay,
         loaded: HashMap::new(),
         resolving: HashSet::new(),
         emitted: HashSet::new(),
+        errors: Vec::new(),
     };
-    resolver.expand_program(input, program)
+    let program = resolver.expand_program(input, program);
+    (program, resolver.errors)
 }
 
 struct ImportResolver<'a> {
     packages: &'a [PackageSource],
+    overlay: &'a HashMap<PathBuf, String>,
     loaded: HashMap<PathBuf, Program>,
     resolving: HashSet<PathBuf>,
     emitted: HashSet<PathBuf>,
+    errors: Vec<Error>,
 }
 
 impl ImportResolver<'_> {
-    fn expand_program(&mut self, source_path: &Path, mut program: Program) -> Result<Program> {
+    fn expand_program(&mut self, source_path: &Path, mut program: Program) -> Program {
         let imports = std::mem::take(&mut program.imports);
         let mut acc = Imported::default();
         for import in imports {
-            let items = self.resolve_import(source_path, &import)?;
+            let items = match self.resolve_import(source_path, &import) {
+                Ok(items) => items,
+                Err(error) => {
+                    self.errors.push(error);
+                    continue;
+                }
+            };
             acc.functions.extend(items.functions);
             acc.externs.extend(items.externs);
             acc.enums.extend(items.enums);
@@ -109,7 +146,7 @@ impl ImportResolver<'_> {
         program.traits = acc.traits;
         acc.impls.extend(program.impls);
         program.impls = acc.impls;
-        Ok(program)
+        program
     }
 
     fn resolve_import(&mut self, source_path: &Path, import: &Import) -> Result<Imported> {
@@ -230,15 +267,23 @@ impl ImportResolver<'_> {
                 canonical.display()
             )));
         }
-        let source = fs::read_to_string(&canonical).map_err(|err| {
-            Error::new(format!(
-                "failed to read module `{}`: {err}",
-                canonical.display()
-            ))
-        })?;
+        // An open editor buffer (spec 0033) takes precedence over the file on
+        // disk, so unsaved edits are seen by whoever imports the module.
+        let source = match self.overlay.get(&canonical) {
+            Some(text) => text.clone(),
+            None => fs::read_to_string(&canonical).map_err(|err| {
+                Error::new(format!(
+                    "failed to read module `{}`: {err}",
+                    canonical.display()
+                ))
+            })?,
+        };
         let label = canonical.display().to_string();
-        let program = parse_program(&label, &source)?;
-        let program = self.expand_program(&canonical, program)?;
+        // Parse errors in the module are collected, and its declarations that
+        // did parse still flow to the importer, keeping diagnostics complete.
+        let (program, errors) = parse_program(&label, &source);
+        self.errors.extend(errors);
+        let program = self.expand_program(&canonical, program);
         self.resolving.remove(&canonical);
         self.loaded.insert(canonical.clone(), program.clone());
         Ok(program)

@@ -13,59 +13,59 @@
 
 -- Plain functions over the primitive numeric types.
 fn add(x: Int, y: Int) -> Int {
-  x + y
+    x + y
 }
 
 fn scale(value: Float, factor: Float) -> Float {
-  value * factor
+    value * factor
 }
 
 -- Comparisons produce Bool.
 fn below_limit(value: Int) -> Bool {
-  value < 50
+    value < 50
 }
 
 -- Higher-order function: takes and calls a function value.
 fn apply(f: (Int) -> Int, x: Int) -> Int {
-  f(x)
+    f(x)
 }
 
 -- Returns a closure that captures `n`.
 fn make_adder(n: Int) -> (Int) -> Int {
-  fn (x: Int) -> Int {
-    x + n
-  }
+    fn (x: Int) -> Int {
+        x + n
+    }
 }
 
 -- This function is permitted to use the `Stdout` effect.
 fn log_line() -> Unit uses { Stdout } {
-  ()
+    ()
 }
 
 -- Effects propagate to callers through `uses { ... }`.
 fn main() -> Int uses { Stdout } {
-  -- Local bindings, with and without type annotations.
-  let base: Int = add(20, 1)
-  let inc = make_adder(1)
-  let doubled = fn (x: Int) -> Int { x * 2 }
+    -- Local bindings, with and without type annotations.
+    let base: Int = add(20, 1)
+    let inc = make_adder(1)
+    let doubled = fn (x: Int) -> Int { x * 2 }
 
-  -- Blocks are expressions and can nest their own bindings.
-  let computed: Int = {
-    let stepped = apply(inc, base)
-    doubled(stepped)
-  }
+    -- Blocks are expressions and can nest their own bindings.
+    let computed: Int = {
+        let stepped = apply(inc, base)
+        doubled(stepped)
+    }
 
-  -- Float arithmetic and a Bool comparison.
-  let ratio: Float = scale(2.5, 4.0)
-  let small: Bool = below_limit(computed)
+    -- Float arithmetic and a Bool comparison.
+    let ratio: Float = scale(2.5, 4.0)
+    let small: Bool = below_limit(computed)
 
-  -- Arrays, including arrays of arrays.
-  let numbers: Array<Int> = [base, computed, 7]
-  let measurements: Array<Float> = [ratio, 1.5]
-  let grid: Array<Array<Int>> = [[1, 2], [3, 4]]
+    -- Arrays, including arrays of arrays.
+    let numbers: Array<Int> = [base, computed, 7]
+    let measurements: Array<Float> = [ratio, 1.5]
+    let grid: Array<Array<Int>> = [[1, 2], [3, 4]]
 
-  -- An effectful call; its `Stdout` effect flows up into `main`.
-  let printed: Unit = log_line()
+    -- An effectful call; its `Stdout` effect flows up into `main`.
+    let printed: Unit = log_line()
 
-  computed
+    computed
 }

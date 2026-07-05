@@ -9,12 +9,18 @@ mod ast;
 mod driver;
 mod error;
 mod external;
+mod fmt;
 mod imports;
 mod lexer;
+mod lint;
 mod lower;
+mod lsp;
 mod parser;
+mod pome;
 mod prelude;
 mod resolve;
+#[cfg(feature = "run")]
+mod run;
 mod typecheck;
 
 pub use api::{check_source, compile_source, ir_source};
