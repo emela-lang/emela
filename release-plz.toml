@@ -1,0 +1,29 @@
+# release-plz configuration. See docs/release.md for the end-to-end flow.
+#
+# The workspace ships as a single product: the `emela` binary. Every crate
+# shares one inherited version (`version.workspace = true` in Cargo.toml), so a
+# release bumps them together and cuts a single `vX.Y.Z` tag. That tag is what
+# `release.yml` waits for to build and publish the tarball GitHub Release — so
+# release-plz only bumps the version, appends to the changelog, and pushes the
+# tag. It never publishes to crates.io nor creates the GitHub Release itself.
+
+[workspace]
+# Distribution is the `emela` binary tarball, not crates.io packages.
+publish = false
+# `release.yml` creates the GitHub Release (with tarballs) when the tag lands.
+git_release_enable = false
+# Only the `emela` package is tagged (see [[package]] below). Suppressing the
+# default per-crate tags (`emela-codegen-v…`, `emela-backend-js-v…`, …) keeps
+# exactly one `vX.Y.Z` tag per release, which is what `release.yml` triggers on.
+git_tag_enable = false
+# Keep a single changelog at the repo root instead of one per library crate.
+changelog_update = false
+
+[[package]]
+name = "emela"
+# The binary crate cuts the one release tag `release.yml` listens for.
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+# Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
+changelog_update = true
+changelog_path = "CHANGELOG.md"
