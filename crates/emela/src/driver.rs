@@ -78,6 +78,8 @@ pub fn run() -> Result<()> {
             }
             Ok(())
         }
+        Command::New { name } => crate::pome::scaffold(&name),
+        Command::Pome { args } => crate::pome::run(&args),
         Command::Version => {
             println!(
                 "{}",
@@ -167,22 +169,35 @@ fn compile_frontend(
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
     let source = fs::read_to_string(input)
         .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
-    compile_frontend_source(input, &source, package_paths, require_main)
+    // Explicit `--package` roots, plus the dependency Pomes resolved for the
+    // project that encloses `input` (spec 0032 M1): each dependency Pome's
+    // modules become importable under its source-path leaf as the import root.
+    let mut packages = imports::load_packages(package_paths)?;
+    for (name, source_root) in crate::pome::dependency_packages(input)? {
+        if packages.iter().any(|package| package.name() == name) {
+            return Err(Error::new(format!(
+                "import-root name `{name}` from a dependency Pome collides with another package; \
+                 rename the `--package` or the Pome"
+            )));
+        }
+        packages.push(imports::PackageSource::new(name, source_root));
+    }
+    compile_frontend_source(input, &source, &packages, require_main)
 }
 
 /// Runs the frontend over an in-memory source string, without reading the entry
 /// point from disk. `input` is used only as a diagnostic label and as the base
-/// directory for resolving relative imports.
+/// directory for resolving relative imports. `packages` are the already-loaded
+/// import roots (`--package` plus dependency Pomes).
 fn compile_frontend_source(
     input: &Path,
     source: &str,
-    package_paths: &[PathBuf],
+    packages: &[imports::PackageSource],
     require_main: bool,
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
     let label = input.display().to_string();
     let program = parse_program(&label, source)?;
-    let packages = imports::load_packages(package_paths)?;
-    let mut program = imports::resolve_imports(input, program, &packages)?;
+    let mut program = imports::resolve_imports(input, program, packages)?;
     // Merge the embedded Core Prelude (spec 0021): the operator traits and their
     // built-in instances, so `1 + 2` and friends resolve with no explicit import.
     merge_prelude(&mut program)?;
@@ -270,6 +285,14 @@ enum Command {
     },
     Backends,
     Version,
+    /// `emela new <name>` — scaffold a new Pome (spec 0032 C2).
+    New {
+        name: String,
+    },
+    /// `emela pome <verb> ...` — package management (spec 0032 C1).
+    Pome {
+        args: Vec<String>,
+    },
 }
 
 fn parse_args() -> Result<Command> {
@@ -280,6 +303,18 @@ fn parse_args() -> Result<Command> {
     match command.as_str() {
         "--version" | "-V" => Ok(Command::Version),
         "backends" => Ok(Command::Backends),
+        "new" => {
+            let name = args
+                .next()
+                .ok_or_else(|| Error::new("usage: emela new <name>"))?;
+            if args.next().is_some() {
+                return Err(Error::new("usage: emela new <name>"));
+            }
+            Ok(Command::New { name })
+        }
+        "pome" => Ok(Command::Pome {
+            args: args.collect(),
+        }),
         "check" => {
             let parsed = parse_compile_args(args)?;
             Ok(Command::Check {
@@ -403,6 +438,8 @@ fn usage() -> Error {
         "usage: emela check [--library] [--backend NAME] [--package DIR] FILE \
          | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
+         | emela new <name> \
+         | emela pome <add|remove|list|update|install|search> ... \
          | emela backends | emela --version",
     )
 }

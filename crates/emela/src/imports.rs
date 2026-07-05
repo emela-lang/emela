@@ -27,6 +27,20 @@ pub(crate) struct PackageSource {
     source_root: PathBuf,
 }
 
+impl PackageSource {
+    /// Builds a package source directly from a resolved name and source root.
+    /// Used to expose a dependency Pome's modules under its import-root name,
+    /// without an `emela-package.json` (spec 0032 M1).
+    pub(crate) fn new(name: String, source_root: PathBuf) -> Self {
+        PackageSource { name, source_root }
+    }
+
+    /// The import-root name this package is addressed by.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PackageManifest {
     name: String,
