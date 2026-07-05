@@ -4,7 +4,8 @@ Emela is an experimental functional language that compiles to **WebAssembly**
 (Tier 1) and **JavaScript** (Tier 2). This repository is the CLI and compiler for
 the current core subset; the full spec lives in `emela-lang/specification`.
 
-Editor syntax highlighting: see [docs/syntax-highlight.md](docs/syntax-highlight.md).
+Editor support: [docs/lsp.md](docs/lsp.md) (diagnostics and completion via
+`emela lsp`) and [docs/syntax-highlight.md](docs/syntax-highlight.md) (highlighting).
 
 ## Install
 
@@ -51,6 +52,7 @@ emela run   [--package DIR] FILE       # build to wasm and run it in-process
 emela backends                         # list backends (wasm-wasi, js-node)
 emela new <name>                       # scaffold a new Pome
 emela pome <add|remove|list|update|install|search> ...   # dependency management
+emela lsp   [--package DIR]            # LSP server over stdio (docs/lsp.md)
 ```
 
 `emela run` builds with the `wasm-wasi` backend and executes the module

@@ -56,8 +56,12 @@ fn lint_file(input: &Path, packages: &[PathBuf]) -> Result<Vec<Diagnostic>> {
     let source = fs::read_to_string(input)
         .map_err(|error| Error::new(format!("failed to read `{}`: {error}", input.display())))?;
     // The root file's own AST, before imports and the prelude are merged in:
-    // the syntax rules must only see the user's declarations (L2).
-    let root = parse_program(&label, &source)?;
+    // the syntax rules must only see the user's declarations (L2). Linting
+    // requires a clean parse; the first collected error (spec 0033) is surfaced.
+    let (root, errors) = parse_program(&label, &source);
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
     // The full frontend must succeed before lints are reported; `main` is not
     // required — libraries are lintable (L1).
     let (merged, typed) = crate::driver::compile_frontend(&input.to_path_buf(), packages, false)?;

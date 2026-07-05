@@ -131,7 +131,13 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// output is verified to parse to the identical program before it is
 /// returned (F10); on a mismatch the source is left untouched.
 pub(crate) fn format_source(label: &str, source: &str) -> Result<String> {
-    let program = parse_program(label, source)?;
+    // Formatting requires a clean parse (spec 0035 C3); with multi-error
+    // collection (spec 0033) the first error is surfaced and the file is left
+    // untouched.
+    let (program, errors) = parse_program(label, source);
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
     let (tokens, comments) = lex_with_comments(label, source)?;
     let comparisons = comparison_offsets(&program, &tokens);
     let lines = Builder::new(source, tokens, comments).build_top();
@@ -140,12 +146,14 @@ pub(crate) fn format_source(label: &str, source: &str) -> Result<String> {
         comparisons,
     };
     let output = printer.render_program(&lines);
-    let reparsed = parse_program(label, &output).map_err(|error| {
-        Error::new(format!(
+    let (reparsed, reparse_errors) = parse_program(label, &output);
+    if let Some(error) = reparse_errors.into_iter().next() {
+        return Err(Error::new(format!(
             "internal: emela fmt produced unparsable output for {label}; \
-             the file was left unchanged\n\n{error}"
-        ))
-    })?;
+             the file was left unchanged\n\n{}",
+            error.render()
+        )));
+    }
     if ast_dump(&reparsed) != ast_dump(&program) {
         return Err(Error::new(format!(
             "internal: emela fmt would change the meaning of {label}; \

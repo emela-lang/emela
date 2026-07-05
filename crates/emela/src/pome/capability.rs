@@ -31,9 +31,12 @@ pub(crate) fn required_capabilities(roots: &[std::path::PathBuf]) -> Result<BTre
                 continue;
             };
             let label = file.display().to_string();
-            let Ok(program) = parse_program(&label, &source) else {
+            // A file that doesn't fully parse is skipped, as before multi-error
+            // collection (spec 0033): CAP is a SHOULD, the sandbox is the gate.
+            let (program, errors) = parse_program(&label, &source);
+            if !errors.is_empty() {
                 continue;
-            };
+            }
             for function in &program.functions {
                 capabilities.extend(function.effects.effects.iter().cloned());
             }

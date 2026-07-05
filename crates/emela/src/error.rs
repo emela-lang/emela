@@ -32,6 +32,38 @@ impl Error {
             .map(|diagnostic| diagnostic.render())
             .unwrap_or_else(|| self.message.clone())
     }
+
+    /// The one-line message: the diagnostic title when there is one.
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) fn diagnostic_ref(&self) -> Option<&Diagnostic> {
+        self.diagnostic.as_deref()
+    }
+}
+
+/// Sorts collected diagnostics by source position and drops duplicates:
+/// with multi-error collection (spec 0033), parser recovery and partial
+/// registration can surface the same error through more than one path.
+pub(crate) fn normalize_errors(errors: &mut Vec<Error>) {
+    fn key(error: &Error) -> (String, String, usize, usize, String) {
+        match error.diagnostic.as_ref().and_then(|d| d.primary.as_ref()) {
+            Some(label) => (
+                label.span.file.label.clone(),
+                error.message.clone(),
+                label.span.start,
+                label.span.end,
+                label.message.clone(),
+            ),
+            None => (String::new(), error.message.clone(), 0, 0, String::new()),
+        }
+    }
+    errors.sort_by(|a, b| {
+        let (a, b) = (key(a), key(b));
+        (&a.0, a.2, a.3, &a.1).cmp(&(&b.0, b.2, b.3, &b.1))
+    });
+    errors.dedup_by(|a, b| key(a) == key(b));
 }
 
 #[derive(Debug, Clone)]
@@ -102,9 +134,19 @@ pub(crate) struct Diagnostic {
 }
 
 #[derive(Debug, Clone)]
-struct Label {
+pub(crate) struct Label {
     span: Span,
     message: String,
+}
+
+impl Label {
+    pub(crate) fn span(&self) -> &Span {
+        &self.span
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
 }
 
 impl Diagnostic {
@@ -146,6 +188,18 @@ impl Diagnostic {
     pub(crate) fn help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self
+    }
+
+    pub(crate) fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub(crate) fn primary_label(&self) -> Option<&Label> {
+        self.primary.as_ref()
+    }
+
+    pub(crate) fn help_text(&self) -> Option<&str> {
+        self.help.as_deref()
     }
 
     pub(crate) fn render(&self) -> String {

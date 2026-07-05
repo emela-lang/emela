@@ -14,6 +14,7 @@ mod imports;
 mod lexer;
 mod lint;
 mod lower;
+mod lsp;
 mod parser;
 mod pome;
 mod prelude;

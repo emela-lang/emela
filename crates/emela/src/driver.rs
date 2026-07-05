@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -83,6 +84,8 @@ pub fn run() -> Result<()> {
             packages,
             backend,
         } => run_program(&input, &packages, backend.as_deref()),
+        // `emela lsp` (spec 0033): the language server over stdio.
+        Command::Lsp { packages } => crate::lsp::run(packages),
         Command::Fmt { paths, check } => crate::fmt::run(&paths, check),
         Command::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
         Command::New { name } => crate::pome::scaffold(&name),
@@ -195,16 +198,14 @@ fn compile_to_ir(input: &PathBuf, package_paths: &[PathBuf]) -> Result<IrProgram
     Ok(lower::lower(&program, &typed))
 }
 
-pub(crate) fn compile_frontend(
-    input: &PathBuf,
+/// Builds the import roots for `input`: the explicit `--package` roots, plus
+/// the dependency Pomes resolved for the project that encloses `input` (spec
+/// 0032 M1) — each dependency Pome's modules become importable under its
+/// source-path leaf as the import root.
+pub(crate) fn load_import_roots(
+    input: &Path,
     package_paths: &[PathBuf],
-    require_main: bool,
-) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
-    let source = fs::read_to_string(input)
-        .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
-    // Explicit `--package` roots, plus the dependency Pomes resolved for the
-    // project that encloses `input` (spec 0032 M1): each dependency Pome's
-    // modules become importable under its source-path leaf as the import root.
+) -> Result<Vec<imports::PackageSource>> {
     let mut packages = imports::load_packages(package_paths)?;
     for (name, source_root) in crate::pome::dependency_packages(input)? {
         if packages.iter().any(|package| package.name() == name) {
@@ -215,37 +216,104 @@ pub(crate) fn compile_frontend(
         }
         packages.push(imports::PackageSource::new(name, source_root));
     }
-    compile_frontend_source(input, &source, &packages, require_main)
+    Ok(packages)
 }
 
-/// Runs the frontend over an in-memory source string, without reading the entry
-/// point from disk. `input` is used only as a diagnostic label and as the base
-/// directory for resolving relative imports. `packages` are the already-loaded
-/// import roots (`--package` plus dependency Pomes).
+pub(crate) fn compile_frontend(
+    input: &PathBuf,
+    package_paths: &[PathBuf],
+    require_main: bool,
+) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
+    let source = fs::read_to_string(input)
+        .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
+    let packages = load_import_roots(input, package_paths)?;
+    let (program, typed, errors) =
+        compile_frontend_source_all(input, &source, &packages, require_main, &HashMap::new());
+    if errors.is_empty() {
+        Ok((program, typed))
+    } else {
+        // The CLI reports every collected diagnostic (spec 0033), joined into
+        // one error whose rendered form separates them with blank lines.
+        Err(aggregate_errors(&errors))
+    }
+}
+
+/// Joins collected diagnostics into a single `Error` for the CLI paths, so
+/// `check`/`build`/`ir` print all of them, not just the first.
+fn aggregate_errors(errors: &[Error]) -> Error {
+    Error::new(
+        errors
+            .iter()
+            .map(Error::render)
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    )
+}
+
+/// Runs the whole frontend over an in-memory source string, collecting every
+/// error (spec 0033) instead of stopping at the first. `input` is used only as
+/// a diagnostic label and as the base directory for resolving relative imports.
+/// `overlay` maps canonicalized module paths to in-memory contents that shadow
+/// the filesystem (the LSP's open buffers); pass an empty map otherwise.
+///
+/// The returned `Program`/`TypedProgram` are partial when errors are present —
+/// they hold everything that did parse and register — so callers like the LSP
+/// can still extract scope information. They must not be lowered unless the
+/// error list is empty.
+pub(crate) fn compile_frontend_source_all(
+    input: &Path,
+    source: &str,
+    packages: &[imports::PackageSource],
+    require_main: bool,
+    overlay: &HashMap<PathBuf, String>,
+) -> (crate::ast::Program, typecheck::TypedProgram, Vec<Error>) {
+    let label = input.display().to_string();
+    let (program, mut errors) = parse_program(&label, source);
+    let (mut program, import_errors) =
+        imports::resolve_imports_with_overlay(input, program, packages, overlay);
+    errors.extend(import_errors);
+    // Merge the embedded Core Prelude (spec 0021): the operator traits and their
+    // built-in instances, so `1 + 2` and friends resolve with no explicit import.
+    if let Err(error) = merge_prelude(&mut program) {
+        errors.push(error);
+    }
+    // Fill in defaulted trait methods (spec 0020) so type-checking and lowering
+    // see fully populated impls.
+    typecheck::expand_trait_defaults(&mut program);
+    // When recovery already dropped declarations, `main` may be among them;
+    // requiring it would only add noise next to the real errors.
+    let require_main = require_main && errors.is_empty();
+    let (typed, check_errors) = typecheck::check(&program, require_main);
+    errors.extend(check_errors);
+    crate::error::normalize_errors(&mut errors);
+    (program, typed, errors)
+}
+
+/// Single-error variant of [`compile_frontend_source_all`], kept for the
+/// embedder API (`api.rs`): the playground shows one diagnostic at a time.
 fn compile_frontend_source(
     input: &Path,
     source: &str,
     packages: &[imports::PackageSource],
     require_main: bool,
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
-    let label = input.display().to_string();
-    let program = parse_program(&label, source)?;
-    let mut program = imports::resolve_imports(input, program, packages)?;
-    // Merge the embedded Core Prelude (spec 0021): the operator traits and their
-    // built-in instances, so `1 + 2` and friends resolve with no explicit import.
-    merge_prelude(&mut program)?;
-    // Fill in defaulted trait methods (spec 0020) so type-checking and lowering
-    // see fully populated impls.
-    typecheck::expand_trait_defaults(&mut program);
-    let typed = typecheck::check(&program, require_main)?;
-    Ok((program, typed))
+    let (program, typed, mut errors) =
+        compile_frontend_source_all(input, source, packages, require_main, &HashMap::new());
+    if errors.is_empty() {
+        Ok((program, typed))
+    } else {
+        Err(errors.remove(0))
+    }
 }
 
 /// Parses the embedded Core Prelude (spec 0021) and merges its declarations into
 /// `program`. Because the prelude is embedded, this works with no `--package`:
 /// a single-file program still sees the operator traits and their instances.
 pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
-    let prelude = parse_program("<core-prelude>", crate::prelude::CORE_SRC)?;
+    let (prelude, errors) = parse_program("<core-prelude>", crate::prelude::CORE_SRC);
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
     program.functions.extend(prelude.functions);
     program.externs.extend(prelude.externs);
     program.enums.extend(prelude.enums);
@@ -325,6 +393,10 @@ enum Command {
     },
     Backends,
     Version,
+    /// `emela lsp` — the language server over stdio (spec 0033).
+    Lsp {
+        packages: Vec<PathBuf>,
+    },
     /// `emela fmt [--check] [PATH ...]` — canonical formatting (spec 0035).
     Fmt {
         paths: Vec<PathBuf>,
@@ -365,6 +437,27 @@ fn parse_args() -> Result<Command> {
         "pome" => Ok(Command::Pome {
             args: args.collect(),
         }),
+        "lsp" => {
+            // The server takes only `--package` roots; everything else comes
+            // in over the protocol (spec 0033).
+            let mut packages = Vec::new();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--package" => {
+                        let Some(path) = args.next() else {
+                            return Err(Error::new("missing value for --package"));
+                        };
+                        packages.push(PathBuf::from(path));
+                    }
+                    other => {
+                        return Err(Error::new(format!(
+                            "unsupported option `{other}` for `lsp` (expected `--package DIR`)"
+                        )));
+                    }
+                }
+            }
+            Ok(Command::Lsp { packages })
+        }
         "fmt" => {
             let mut check = false;
             let mut paths = Vec::new();
@@ -553,10 +646,106 @@ fn usage() -> Error {
          | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
          | emela run [--package DIR] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
+         | emela lsp [--package DIR] \
          | emela fmt [--check] [PATH ...] \
          | emela lint [--package DIR] FILE \
          | emela new <name> \
          | emela pome <add|remove|list|update|install|search> ... \
          | emela backends | emela --version",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frontend_errors(source: &str) -> (crate::ast::Program, Vec<String>) {
+        let (program, _, errors) =
+            compile_frontend_source_all(Path::new("test.emel"), source, &[], true, &HashMap::new());
+        let messages = errors
+            .iter()
+            .map(|error| error.message().to_string())
+            .collect();
+        (program, messages)
+    }
+
+    // Two independently broken bodies both report (spec 0033), instead of the
+    // second hiding behind the first.
+    #[test]
+    fn collects_type_errors_across_functions() {
+        let (_, errors) = frontend_errors(
+            r#"
+fn f() -> Int uses {} {
+  "text"
+}
+
+fn g() -> Int uses {} {
+  unknown_name
+}
+
+fn main() -> Int uses {} {
+  f() + g()
+}
+"#,
+        );
+        assert!(errors.contains(&"Type mismatch".to_string()), "{errors:?}");
+        assert!(errors.contains(&"Unknown name".to_string()), "{errors:?}");
+    }
+
+    // A failed top-level declaration is skipped and parsing resumes at the
+    // next one, so both parse errors surface and the valid declarations
+    // (the enum and `main`) still reach the type checker.
+    #[test]
+    fn parser_recovers_at_top_level_declarations() {
+        let (program, errors) = frontend_errors(
+            r#"
+fn broken( -> Int uses {} {
+  1
+}
+
+enum Color {
+  Red
+  Green
+}
+
+fn also_broken() -> {
+  2
+}
+
+fn main() -> Int uses {} {
+  match Color::Red {
+    Red -> 1
+    Green -> 2
+  }
+}
+"#,
+        );
+        assert_eq!(
+            errors,
+            vec!["Expected a name".to_string(), "Expected a name".to_string()],
+            "{errors:?}"
+        );
+        assert!(program.enums.iter().any(|decl| decl.name == "Color"));
+        assert!(program.functions.iter().any(|f| f.name == "main"));
+    }
+
+    // Each import statement reports its own failure.
+    #[test]
+    fn collects_import_errors_per_statement() {
+        let (_, errors) = frontend_errors(
+            r#"
+import nowhere.thing
+import missing.item
+
+fn main() -> Int uses {} {
+  0
+}
+"#,
+        );
+        let import_errors = errors
+            .iter()
+            .filter(|message| message.starts_with("failed to resolve module"))
+            .count();
+        assert_eq!(import_errors, 2, "{errors:?}");
+    }
 }
