@@ -12,6 +12,7 @@ mod external;
 mod imports;
 mod lexer;
 mod lower;
+mod lsp;
 mod parser;
 mod pome;
 mod prelude;

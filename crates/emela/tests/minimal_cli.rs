@@ -850,3 +850,37 @@ fn main() -> Int {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+// Multi-error collection (spec 0033): `check` reports every diagnostic, not
+// just the first one.
+#[test]
+fn check_reports_multiple_errors() {
+    let source = write_source(
+        "multi_error.emel",
+        r#"
+fn f() -> Int uses {} {
+  "text"
+}
+
+fn g() -> Int uses {} {
+  unknown_name
+}
+
+fn main() -> Int uses {} {
+  f() + g()
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(!output.status.success(), "check should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Type mismatch"), "{stderr}");
+    assert!(stderr.contains("Unknown name"), "{stderr}");
+}

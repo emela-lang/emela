@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::error::{Diagnostic, Error, Result, SourceFile, Span};
+use crate::error::{Diagnostic, Error, SourceFile, Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TokenKind {
@@ -71,14 +71,18 @@ pub(crate) struct Token {
     pub(crate) span: Span,
 }
 
-pub(crate) fn lex(label: &str, source: &str) -> Result<Vec<Token>> {
+/// Lexes `source`, collecting every error instead of stopping at the first
+/// (spec 0033). A malformed literal still produces a placeholder token and an
+/// unknown character is skipped, so the parser always gets a full token stream.
+pub(crate) fn lex(label: &str, source: &str) -> (Vec<Token>, Vec<Error>) {
     let file = SourceFile::new(label, source.to_string());
     lex_with_file(source, file)
 }
 
-fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
+fn lex_with_file(source: &str, file: Arc<SourceFile>) -> (Vec<Token>, Vec<Error>) {
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
+    let mut errors = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         let start = i;
@@ -208,24 +212,28 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                         i += 1;
                     }
                     let text = &source[start..i];
-                    let value = text.parse::<f64>().map_err(|_| {
-                        Error::diagnostic(
+                    // A malformed literal is reported but still yields a
+                    // placeholder token, so lexing and parsing continue.
+                    let value = text.parse::<f64>().unwrap_or_else(|_| {
+                        errors.push(Error::diagnostic(
                             Diagnostic::new("Float literal is invalid")
                                 .label(Span::new(file.clone(), start, i), "invalid Float literal"),
-                        )
-                    })?;
+                        ));
+                        0.0
+                    });
                     tokens.push(Token {
                         kind: TokenKind::Float(value),
                         span: Span::new(file.clone(), start, i),
                     });
                     continue;
                 }
-                let value = text.parse::<i32>().map_err(|_| {
-                    Error::diagnostic(
+                let value = text.parse::<i32>().unwrap_or_else(|_| {
+                    errors.push(Error::diagnostic(
                         Diagnostic::new("Integer literal is too large")
                             .label(Span::new(file.clone(), start, i), "does not fit in Int"),
-                    )
-                })?;
+                    ));
+                    0
+                });
                 tokens.push(Token {
                     kind: TokenKind::Int(value),
                     span: Span::new(file.clone(), start, i),
@@ -234,35 +242,36 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
             b'"' => {
                 i += 1;
                 let mut value = String::new();
+                let mut terminated = false;
                 while i < bytes.len() {
                     match bytes[i] {
                         b'"' => {
                             i += 1;
+                            terminated = true;
                             break;
                         }
                         b'\\' => {
                             i += 1;
                             if i >= bytes.len() {
-                                return Err(unterminated_string(file.clone(), start));
+                                break;
                             }
-                            let escaped = match bytes[i] {
-                                b'n' => '\n',
-                                b't' => '\t',
-                                b'"' => '"',
-                                b'\\' => '\\',
+                            match bytes[i] {
+                                b'n' => value.push('\n'),
+                                b't' => value.push('\t'),
+                                b'"' => value.push('"'),
+                                b'\\' => value.push('\\'),
                                 other => {
-                                    return Err(Error::diagnostic(
+                                    errors.push(Error::diagnostic(
                                         Diagnostic::new("Unsupported string escape").label(
                                             Span::new(file.clone(), i - 1, i + 1),
                                             format!("unsupported escape `\\{}`", other as char),
                                         ),
                                     ));
                                 }
-                            };
-                            value.push(escaped);
+                            }
                             i += 1;
                         }
-                        b'\n' => return Err(unterminated_string(file.clone(), start)),
+                        b'\n' => break,
                         _ => {
                             let ch = source[i..].chars().next().expect("char boundary");
                             value.push(ch);
@@ -270,8 +279,8 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                         }
                     }
                 }
-                if bytes.get(i.saturating_sub(1)) != Some(&b'"') {
-                    return Err(unterminated_string(file.clone(), start));
+                if !terminated {
+                    errors.push(unterminated_string(file.clone(), start));
                 }
                 tokens.push(Token {
                     kind: TokenKind::String(value),
@@ -279,49 +288,53 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 });
             }
             b'\'' => {
-                let bad_char = |from: usize, to: usize| {
-                    Error::diagnostic(Diagnostic::new("Invalid character literal").label(
-                        Span::new(file.clone(), from, to),
-                        "a character literal holds exactly one character, e.g. `'a'`",
-                    ))
-                };
+                // On any malformed literal, report it and still emit a
+                // placeholder `Char` token so the parser continues past it.
                 i += 1;
-                if i >= bytes.len() {
-                    return Err(bad_char(start, i));
-                }
-                let ch = if bytes[i] == b'\\' {
-                    i += 1;
-                    if i >= bytes.len() {
-                        return Err(bad_char(start, i));
-                    }
-                    let escaped = match bytes[i] {
-                        b'n' => '\n',
-                        b't' => '\t',
-                        b'\'' => '\'',
-                        b'"' => '"',
-                        b'\\' => '\\',
-                        other => {
-                            return Err(Error::diagnostic(
-                                Diagnostic::new("Unsupported character escape").label(
-                                    Span::new(file.clone(), i - 1, i + 1),
-                                    format!("unsupported escape `\\{}`", other as char),
-                                ),
-                            ));
+                let mut value = None;
+                let mut reported = false;
+                if i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                        if i < bytes.len() {
+                            match bytes[i] {
+                                b'n' => value = Some('\n'),
+                                b't' => value = Some('\t'),
+                                b'\'' => value = Some('\''),
+                                b'"' => value = Some('"'),
+                                b'\\' => value = Some('\\'),
+                                other => {
+                                    errors.push(Error::diagnostic(
+                                        Diagnostic::new("Unsupported character escape").label(
+                                            Span::new(file.clone(), i - 1, i + 1),
+                                            format!("unsupported escape `\\{}`", other as char),
+                                        ),
+                                    ));
+                                    reported = true;
+                                }
+                            }
+                            i += 1;
                         }
-                    };
-                    i += 1;
-                    escaped
-                } else {
-                    let ch = source[i..].chars().next().expect("char boundary");
-                    i += ch.len_utf8();
-                    ch
-                };
-                if i >= bytes.len() || bytes[i] != b'\'' {
-                    return Err(bad_char(start, i));
+                    } else {
+                        let ch = source[i..].chars().next().expect("char boundary");
+                        value = Some(ch);
+                        i += ch.len_utf8();
+                    }
                 }
-                i += 1;
+                let closed = i < bytes.len() && bytes[i] == b'\'';
+                if closed {
+                    i += 1;
+                }
+                if (value.is_none() || !closed) && !reported {
+                    errors.push(Error::diagnostic(
+                        Diagnostic::new("Invalid character literal").label(
+                            Span::new(file.clone(), start, i.max(start + 1)),
+                            "a character literal holds exactly one character, e.g. `'a'`",
+                        ),
+                    ));
+                }
                 tokens.push(Token {
-                    kind: TokenKind::Char(ch),
+                    kind: TokenKind::Char(value.unwrap_or('\0')),
                     span: Span::new(file.clone(), start, i),
                 });
             }
@@ -361,13 +374,18 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                     span: Span::new(file.clone(), start, i),
                 });
             }
-            other => {
-                return Err(Error::diagnostic(
+            _ => {
+                // Report and skip the whole character (which may be multi-byte)
+                // so lexing resumes at the next boundary.
+                let ch = source[i..].chars().next().expect("char boundary");
+                let end = start + ch.len_utf8();
+                errors.push(Error::diagnostic(
                     Diagnostic::new("Unexpected character").label(
-                        Span::new(file.clone(), start, start + 1),
-                        format!("unexpected character `{}`", other as char),
+                        Span::new(file.clone(), start, end),
+                        format!("unexpected character `{ch}`"),
                     ),
                 ));
+                i = end;
             }
         }
     }
@@ -375,7 +393,7 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
         kind: TokenKind::Eof,
         span: Span::point(file, source.len()),
     });
-    Ok(tokens)
+    (tokens, errors)
 }
 
 fn push(
