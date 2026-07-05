@@ -1,13 +1,22 @@
 name: Nightly
 
-# Every push to `dev` publishes a dogfooding prerelease, versioned
-# `<crate-version>-dev.<timestamp>` (e.g. 0.1.0-dev.20260115T120000Z). This is
-# the channel `install.sh` picks up by default. Stable releases come from tags
-# on `main` (see release.yml).
+# A push to `dev` that touches the built binary publishes a dogfooding
+# prerelease, versioned `<crate-version>-dev.<timestamp>`
+# (e.g. 0.1.0-dev.20260115T120000Z). This is the channel `install.sh` picks up
+# by default. Stable releases come from tags on `main` (see release.yml).
+#
+# The `paths` filter keeps docs-, example-, and editor-tooling-only pushes from
+# cutting a nightly, since they can't change the compiled binary. Use the manual
+# `workflow_dispatch` trigger to force a nightly regardless.
 
 on:
   push:
     branches: [dev]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
   workflow_dispatch:
 
 permissions:
