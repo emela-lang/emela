@@ -46,6 +46,8 @@ emela check [--library] FILE          # type-check only
 emela ir    FILE                       # print the typed IR
 emela build [--backend NAME] [-o OUT] FILE
 emela backends                         # list backends (wasm-wasi, js-node)
+emela new <name>                       # scaffold a new Pome
+emela pome <add|remove|list|update|install|search> ...   # dependency management
 ```
 
 Build and run as JavaScript (Tier 2):
@@ -249,3 +251,50 @@ pub fn print(s: String) -> Unit uses { io } {
 Then `import math.ops.add_one` loads `DIR/src/ops.emel` (which must declare
 `module ops`) and imports the `pub` function `add_one`. Imports without a package
 name resolve relative to the importing file.
+
+## Pomes: distribution and dependencies
+
+A **Pome** is Emela's unit of distribution — one or more modules supplied as a
+Git repository (spec 0032). There is no central registry: a Pome is identified by
+its source path `host/path` and fetched straight from that repository, versioned
+by `v`-prefixed semver git tags.
+
+```sh
+emela new hello                        # scaffold hello/ with a Pome.toml
+cd hello
+emela pome add github:emela-lang/stdlib   # fetch, pin in Pome.lock, audit capabilities
+emela pome list                            # print the resolved dependency tree
+emela build src/main.emel                  # deps are on the import path automatically
+```
+
+Once a Pome is a dependency, building any file inside your Pome puts its modules
+on the import path — no `--package` needed. The import root is the dependency's
+source-path leaf and its modules live under `src/`, so
+`github.com/emela-lang/stdlib` exposing `src/io.emel` (`module io`) is used as:
+
+```
+import stdlib.io.print         -- callable as print, io.print, or stdlib.io.print
+```
+
+`emela pome add` records the dependency in `Pome.toml` under its canonical source
+path, pins the resolved tag + commit + content hash in `Pome.lock`, and — since a
+Pome's required capabilities are computable from source (spec 0025) — prints the
+capability set the added Pome and its transitive dependencies require *before*
+committing, so `net`/`fs`/`clock` growth is auditable at add time.
+
+```toml
+# Pome.toml
+[pome]
+name = "github.com/emela-lang/json"
+version = "1.2.0"
+emela = "0.1"
+
+[dependencies]
+"github.com/emela-lang/parser" = "^2.0"
+```
+
+Publishing is just tagging: `git tag v0.1.0 && git push origin v0.1.0`. Several
+Pomes developed together can share a workspace via `Bushel.toml`. To resolve
+against a local checkout or mirror (offline development, CI), set
+`EMELA_POME_REPLACE="host/path=/local/or/url"`; `EMELA_POME_CACHE` redirects the
+fetch cache.

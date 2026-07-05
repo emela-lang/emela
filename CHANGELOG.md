@@ -20,6 +20,19 @@ bump may include breaking language changes while the language stabilizes).
   (the latter backed by new `string_eq` / `string_lt` intrinsics).
 - Example standard library modules: `std.list`, `std.ord`, `std.int`, and a
   `std.option` starter.
+- Packaging: **Pomes** and decentralized dependency management (spec 0032).
+  `emela new <name>` scaffolds an entry Pome; `emela pome add|remove|list|update|
+  install|search` manages dependencies. A Pome is any Git repository identified
+  by its `host/path` source path (`github:acme/util` shorthands normalize to it),
+  versioned by `v`-prefixed semver git tags and pinned to a commit + content hash
+  in `Pome.lock`. There is no central registry — resolution fetches straight from
+  the source-path repository. `emela pome add` computes and shows the capability
+  set the added Pome and its transitive dependencies require, from source (0025),
+  before writing. Workspaces (`Bushel.toml`) share a single lock. Building inside
+  a Pome puts each locked dependency on the import search path:
+  `import <leaf>.<module>.<item>` resolves against the fetched source, where
+  `<leaf>` is the dependency's source-path leaf (`github.com/acme/mathlib` →
+  `mathlib`) and its modules live under `src/`.
 
 ### Changed
 - Shared IR traversal and intrinsic coverage checks moved into `emela-codegen`
