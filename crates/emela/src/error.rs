@@ -80,9 +80,21 @@ impl Span {
     }
 }
 
+/// Diagnostic severity (spec 0035 D1): compiler errors are `Error`; lint
+/// findings are `Warning`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Severity {
+    Error,
+    Warning,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Diagnostic {
     title: String,
+    severity: Severity,
+    /// The lint rule id, e.g. `naming/snake-case` (spec 0035 L4). Rendered
+    /// after the title; `None` for compiler errors.
+    code: Option<&'static str>,
     primary: Option<Label>,
     help: Option<String>,
 }
@@ -97,9 +109,28 @@ impl Diagnostic {
     pub(crate) fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
+            severity: Severity::Error,
+            code: None,
             primary: None,
             help: None,
         }
+    }
+
+    /// A `warning:` diagnostic (spec 0035): a lint finding, not an error.
+    pub(crate) fn warning(title: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            ..Self::new(title)
+        }
+    }
+
+    pub(crate) fn code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
+    }
+
+    pub(crate) fn span(&self) -> Option<&Span> {
+        self.primary.as_ref().map(|label| &label.span)
     }
 
     pub(crate) fn label(mut self, span: Span, message: impl Into<String>) -> Self {
@@ -115,8 +146,15 @@ impl Diagnostic {
         self
     }
 
-    fn render(&self) -> String {
-        let mut out = format!("error: {}\n", self.title);
+    pub(crate) fn render(&self) -> String {
+        let severity = match self.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        };
+        let mut out = match self.code {
+            Some(code) => format!("{severity}: {} [{code}]\n", self.title),
+            None => format!("{severity}: {}\n", self.title),
+        };
         if let Some(label) = &self.primary {
             out.push('\n');
             out.push_str(&render_label(label));
