@@ -83,6 +83,7 @@ pub fn run() -> Result<()> {
             packages,
             backend,
         } => run_program(&input, &packages, backend.as_deref()),
+        Command::Fmt { paths, check } => crate::fmt::run(&paths, check),
         Command::New { name } => crate::pome::scaffold(&name),
         Command::Pome { args } => crate::pome::run(&args),
         Command::Version => {
@@ -323,6 +324,11 @@ enum Command {
     },
     Backends,
     Version,
+    /// `emela fmt [--check] [PATH ...]` — canonical formatting (spec 0035).
+    Fmt {
+        paths: Vec<PathBuf>,
+        check: bool,
+    },
     /// `emela new <name>` — scaffold a new Pome (spec 0032 C2).
     New {
         name: String,
@@ -353,6 +359,24 @@ fn parse_args() -> Result<Command> {
         "pome" => Ok(Command::Pome {
             args: args.collect(),
         }),
+        "fmt" => {
+            let mut check = false;
+            let mut paths = Vec::new();
+            for arg in args {
+                match arg.as_str() {
+                    "--check" => check = true,
+                    flag if flag.starts_with('-') => {
+                        return Err(Error::new(format!("unsupported option `{flag}` for `fmt`")));
+                    }
+                    path => paths.push(PathBuf::from(path)),
+                }
+            }
+            // No paths means the current directory (spec 0035 C1).
+            if paths.is_empty() {
+                paths.push(PathBuf::from("."));
+            }
+            Ok(Command::Fmt { paths, check })
+        }
         "check" => {
             let parsed = parse_compile_args(args)?;
             Ok(Command::Check {
@@ -499,6 +523,7 @@ fn usage() -> Error {
          | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
          | emela run [--package DIR] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
+         | emela fmt [--check] [PATH ...] \
          | emela new <name> \
          | emela pome <add|remove|list|update|install|search> ... \
          | emela backends | emela --version",

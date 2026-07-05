@@ -79,7 +79,9 @@ pub(crate) fn run(paths: &[PathBuf], check: bool) -> Result<()> {
         }
     }
     if failed > 0 {
-        return Err(Error::new(format!("{failed} file(s) could not be formatted")));
+        return Err(Error::new(format!(
+            "{failed} file(s) could not be formatted"
+        )));
     }
     if check && changed > 0 {
         return Err(Error::new(format!("{changed} file(s) need formatting")));
@@ -115,7 +117,10 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         files.push(path.to_path_buf());
         Ok(())
     } else {
-        Err(Error::new(format!("no such file or directory: {}", path.display())))
+        Err(Error::new(format!(
+            "no such file or directory: {}",
+            path.display()
+        )))
     }
 }
 
@@ -806,7 +811,10 @@ fn fits(text: &str) -> bool {
 fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: bool) -> bool {
     use TokenKind::*;
     // Separators and postfix operators attach tightly to the left.
-    if matches!(next, Comma | RParen | RBracket | Question | Dot | ColonColon | Colon) {
+    if matches!(
+        next,
+        Comma | RParen | RBracket | Question | Dot | ColonColon | Colon
+    ) {
         return false;
     }
     // Openers and prefix operators attach tightly to the right.
@@ -828,7 +836,10 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
     // Call position: `f(x)`, `f(x)(y)`, `panic(...)`, `match x { ... }(y)`.
     // Everything else (keywords, operators, `,`) is followed by a space.
     if matches!(next, LParen) {
-        return !matches!(prev, Ident(_) | RParen | RBracket | RBrace | Question | Panic);
+        return !matches!(
+            prev,
+            Ident(_) | RParen | RBracket | RBrace | Question | Panic
+        );
     }
     true
 }
@@ -991,7 +1002,11 @@ fn ast_dump(program: &ast::Program) -> String {
         }
     }
     for declaration in &program.traits {
-        let _ = writeln!(w, "trait {} module={:?}", declaration.name, declaration.module);
+        let _ = writeln!(
+            w,
+            "trait {} module={:?}",
+            declaration.name, declaration.module
+        );
         for method in &declaration.methods {
             let _ = writeln!(
                 w,
@@ -1061,7 +1076,9 @@ fn dump_block(w: &mut String, depth: usize, block: &ast::Block) {
     let _ = writeln!(w, "{indent}block");
     for item in &block.items {
         match item {
-            ast::BlockItem::Let { name, ty, value, .. } => {
+            ast::BlockItem::Let {
+                name, ty, value, ..
+            } => {
                 let _ = writeln!(w, "{indent}  let {name} ty={ty:?}");
                 dump_expr(w, depth + 2, value);
             }
@@ -1218,7 +1235,10 @@ mod tests {
     #[test]
     fn normalizes_spacing_and_indentation() {
         let source = "fn add (x:Int,y:Int)->Int uses {} {\n  x+y\n}\n";
-        assert_eq!(fmt(source), "fn add(x: Int, y: Int) -> Int uses {} {\n    x + y\n}\n");
+        assert_eq!(
+            fmt(source),
+            "fn add(x: Int, y: Int) -> Int uses {} {\n    x + y\n}\n"
+        );
     }
 
     #[test]
@@ -1258,7 +1278,8 @@ mod tests {
 
     #[test]
     fn joins_short_multiline_call() {
-        let source = "fn add(x: Int, y: Int) -> Int {\n    add(\n        1,\n        2,\n    )\n}\n";
+        let source =
+            "fn add(x: Int, y: Int) -> Int {\n    add(\n        1,\n        2,\n    )\n}\n";
         let expected = "fn add(x: Int, y: Int) -> Int {\n    add(1, 2)\n}\n";
         assert_eq!(fmt(source), expected);
     }
