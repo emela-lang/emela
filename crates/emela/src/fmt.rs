@@ -61,11 +61,9 @@ pub(crate) fn run(paths: &[PathBuf], check: bool) -> Result<()> {
                 if formatted != source {
                     changed += 1;
                     println!("{}", file.display());
-                    if !check {
-                        if let Err(error) = fs::write(file, formatted) {
-                            eprintln!("error: failed to write {}: {error}", file.display());
-                            failed += 1;
-                        }
+                    if !check && let Err(error) = fs::write(file, formatted) {
+                        eprintln!("error: failed to write {}: {error}", file.display());
+                        failed += 1;
                     }
                 }
             }
@@ -382,10 +380,10 @@ impl<'a> Builder<'a> {
     fn build_block(&mut self) -> BlockNode {
         let (lines, saw_newline) = self.build_lines();
         // Consume the closing `}` (parse succeeded, so brackets balance).
-        if let Some(Item::Tok(token)) = self.peek() {
-            if token.kind == TokenKind::RBrace {
-                self.pos += 1;
-            }
+        if let Some(Item::Tok(token)) = self.peek()
+            && token.kind == TokenKind::RBrace
+        {
+            self.pos += 1;
         }
         BlockNode {
             lines,
@@ -410,10 +408,10 @@ impl<'a> Builder<'a> {
                 Some(Item::Com(_)) => false,
             };
             if done {
-                if let Some(Item::Tok(token)) = self.peek() {
-                    if token.kind == closer {
-                        self.pos += 1;
-                    }
+                if let Some(Item::Tok(token)) = self.peek()
+                    && token.kind == closer
+                {
+                    self.pos += 1;
                 }
                 if !current.is_empty() {
                     current.leading.splice(0..0, pending_leading.drain(..));
@@ -642,10 +640,10 @@ impl Printer<'_> {
                 },
             };
             let lead = self.lead_kind(atom);
-            if let Some(prev) = &previous {
-                if space_between(&prev.0, prev.1, &lead.0, lead.1) {
-                    out.push(' ');
-                }
+            if let Some(prev) = &previous
+                && space_between(&prev.0, prev.1, &lead.0, lead.1)
+            {
+                out.push(' ');
             }
             out.push_str(&text);
             previous = Some(self.tail_kind(atom));
@@ -752,10 +750,10 @@ impl Printer<'_> {
                 Atom::Block(block) => self.flat_block(block)?,
             };
             let lead = self.lead_kind(atom);
-            if let Some(prev) = &previous {
-                if space_between(&prev.0, prev.1, &lead.0, lead.1) {
-                    out.push(' ');
-                }
+            if let Some(prev) = &previous
+                && space_between(&prev.0, prev.1, &lead.0, lead.1)
+            {
+                out.push(' ');
             }
             out.push_str(&text);
             previous = Some(self.tail_kind(atom));

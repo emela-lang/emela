@@ -6,7 +6,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone)]
 pub struct Error {
     message: String,
-    diagnostic: Option<Diagnostic>,
+    // Boxed to keep `Result<T>`'s Err variant small (clippy result_large_err):
+    // errors are the cold path everywhere in the compiler.
+    diagnostic: Option<Box<Diagnostic>>,
 }
 
 impl Error {
@@ -20,14 +22,14 @@ impl Error {
     pub(crate) fn diagnostic(diagnostic: Diagnostic) -> Self {
         Self {
             message: diagnostic.title.clone(),
-            diagnostic: Some(diagnostic),
+            diagnostic: Some(Box::new(diagnostic)),
         }
     }
 
     pub(crate) fn render(&self) -> String {
         self.diagnostic
             .as_ref()
-            .map(Diagnostic::render)
+            .map(|diagnostic| diagnostic.render())
             .unwrap_or_else(|| self.message.clone())
     }
 }

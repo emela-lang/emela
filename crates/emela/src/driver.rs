@@ -84,6 +84,7 @@ pub fn run() -> Result<()> {
             backend,
         } => run_program(&input, &packages, backend.as_deref()),
         Command::Fmt { paths, check } => crate::fmt::run(&paths, check),
+        Command::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
         Command::New { name } => crate::pome::scaffold(&name),
         Command::Pome { args } => crate::pome::run(&args),
         Command::Version => {
@@ -194,7 +195,7 @@ fn compile_to_ir(input: &PathBuf, package_paths: &[PathBuf]) -> Result<IrProgram
     Ok(lower::lower(&program, &typed))
 }
 
-fn compile_frontend(
+pub(crate) fn compile_frontend(
     input: &PathBuf,
     package_paths: &[PathBuf],
     require_main: bool,
@@ -329,6 +330,11 @@ enum Command {
         paths: Vec<PathBuf>,
         check: bool,
     },
+    /// `emela lint [--package DIR] FILE ...` — lint warnings (spec 0035).
+    Lint {
+        inputs: Vec<PathBuf>,
+        packages: Vec<PathBuf>,
+    },
     /// `emela new <name>` — scaffold a new Pome (spec 0032 C2).
     New {
         name: String,
@@ -376,6 +382,30 @@ fn parse_args() -> Result<Command> {
                 paths.push(PathBuf::from("."));
             }
             Ok(Command::Fmt { paths, check })
+        }
+        "lint" => {
+            let mut packages = Vec::new();
+            let mut inputs = Vec::new();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--package" => {
+                        let Some(path) = args.next() else {
+                            return Err(Error::new("missing value for --package"));
+                        };
+                        packages.push(PathBuf::from(path));
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(Error::new(format!(
+                            "unsupported option `{flag}` for `lint`"
+                        )));
+                    }
+                    path => inputs.push(PathBuf::from(path)),
+                }
+            }
+            if inputs.is_empty() {
+                return Err(Error::new("usage: emela lint [--package DIR] FILE ..."));
+            }
+            Ok(Command::Lint { inputs, packages })
         }
         "check" => {
             let parsed = parse_compile_args(args)?;
@@ -524,6 +554,7 @@ fn usage() -> Error {
          | emela run [--package DIR] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
          | emela fmt [--check] [PATH ...] \
+         | emela lint [--package DIR] FILE \
          | emela new <name> \
          | emela pome <add|remove|list|update|install|search> ... \
          | emela backends | emela --version",
