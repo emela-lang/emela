@@ -28,6 +28,11 @@ pub(crate) struct Manifest {
     /// The language spec version this Pome targets (`[pome].emela`, F2). Kept as
     /// a raw string; the compatibility rule is an Open Question in 0032.
     pub(crate) emela: String,
+    /// Optional import-root override (`[pome].module`, spec 0032 M2). The name
+    /// under which this Pome's modules are addressed when it is a dependency.
+    /// Defaults to the source-path leaf when absent, so a repo published at
+    /// `github.com/emela-lang/stdlib` can expose its modules under `std`.
+    pub(crate) module: Option<String>,
     /// Dependencies keyed by canonical source path (F3), ordered for
     /// deterministic output.
     pub(crate) dependencies: BTreeMap<String, Requirement>,
@@ -45,6 +50,7 @@ impl Manifest {
                 pre: Vec::new(),
             },
             emela,
+            module: None,
             dependencies: BTreeMap::new(),
         }
     }
@@ -79,6 +85,9 @@ impl Manifest {
             origin,
         )?)?;
         let emela = required(pome.get_string("emela"), "pome.emela", origin)?.to_string();
+        // Optional: the import-root name this Pome's modules are addressed by
+        // when depended on (M2). Absent means "use the source-path leaf".
+        let module = pome.get_string("module").map(str::to_string);
 
         let mut dependencies = BTreeMap::new();
         if let Some(deps) = doc.table("dependencies") {
@@ -102,6 +111,7 @@ impl Manifest {
             name,
             version,
             emela,
+            module,
             dependencies,
         })
     }
@@ -117,6 +127,9 @@ impl Manifest {
             toml_lite::quote(self.version.to_string().trim_start_matches('v'))
         ));
         out.push_str(&format!("emela = {}\n", toml_lite::quote(&self.emela)));
+        if let Some(module) = &self.module {
+            out.push_str(&format!("module = {}\n", toml_lite::quote(module)));
+        }
 
         if !self.dependencies.is_empty() {
             out.push_str("\n[dependencies]\n");
@@ -219,6 +232,36 @@ emela = "0.1"
                 .dependencies
                 .contains_key("github.com/emela-lang/stdlib")
         );
+    }
+
+    #[test]
+    fn parses_and_round_trips_the_module_override() {
+        // A Pome may address its modules under a root that differs from its
+        // source-path leaf (M2): here the repo is `.../stdlib` but imports use
+        // `std`.
+        let source = r#"
+[pome]
+name = "github.com/emela-lang/stdlib"
+version = "0.1.0"
+emela = "0.1"
+module = "std"
+"#;
+        let manifest = Manifest::parse(source, Path::new("Pome.toml")).unwrap();
+        assert_eq!(manifest.module.as_deref(), Some("std"));
+        let reparsed = Manifest::parse(&manifest.to_toml(), Path::new("Pome.toml")).unwrap();
+        assert_eq!(reparsed.module.as_deref(), Some("std"));
+    }
+
+    #[test]
+    fn module_override_defaults_to_absent() {
+        let source = r#"
+[pome]
+name = "hello"
+version = "0.1.0"
+emela = "0.1"
+"#;
+        let manifest = Manifest::parse(source, Path::new("Pome.toml")).unwrap();
+        assert_eq!(manifest.module, None);
     }
 
     #[test]

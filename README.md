@@ -269,11 +269,12 @@ emela build src/main.emel                  # deps are on the import path automat
 
 Once a Pome is a dependency, building any file inside your Pome puts its modules
 on the import path — no `--package` needed. The import root is the dependency's
-source-path leaf and its modules live under `src/`, so
-`github.com/emela-lang/stdlib` exposing `src/io.emel` (`module io`) is used as:
+source-path leaf by default (a Pome may override it with `[pome].module`, spec
+0032 M2) and its modules live under `src/`, so `github.com/emela-lang/stdlib`
+declaring `module = "std"` and exposing `src/io.emel` (`module io`) is used as:
 
 ```
-import stdlib.io.print         -- callable as print, io.print, or stdlib.io.print
+import std.io.print         -- callable as print, io.print, or std.io.print
 ```
 
 `emela pome add` records the dependency in `Pome.toml` under its canonical source

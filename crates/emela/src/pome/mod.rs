@@ -433,9 +433,11 @@ fn find_project_dir(start: &Path) -> Option<PathBuf> {
 
 /// The dependency Pomes to place on the import search path when building the
 /// file at `input` (spec 0032 M1). Each locked dependency of the Pome enclosing
-/// `input` contributes an import root: its source-path leaf (M2) mapping to the
-/// Pome's module directory in the cache. Returns `(import_root, source_root)`
-/// pairs.
+/// `input` contributes an import root mapping to the Pome's module directory in
+/// the cache. The import root is the source-path leaf by default, but a Pome may
+/// override it with `[pome].module` in its own manifest (M2) — so a repo at
+/// `github.com/emela-lang/stdlib` can expose its modules under `std`. Returns
+/// `(import_root, source_root)` pairs.
 ///
 /// A single file that is not inside any Pome yields nothing, so plain
 /// `emela build file.emel` keeps working. A locked dependency that has not been
@@ -460,13 +462,31 @@ pub(crate) fn dependency_packages(input: &Path) -> Result<Vec<(String, PathBuf)>
                 package.source, package.version
             )));
         }
+        // The import root comes from the dependency's own manifest (M2), read
+        // from the checkout root before `checkout` is consumed below.
+        let import_root = import_root_for(&package.source, &checkout);
         // A Pome's modules live under `src/` by convention (the `emela new`
         // layout); fall back to the checkout root for a flat Pome.
         let src = checkout.join("src");
         let source_root = if src.is_dir() { src } else { checkout };
-        roots.push((source_path::leaf(&package.source).to_string(), source_root));
+        roots.push((import_root, source_root));
     }
     Ok(roots)
+}
+
+/// The import-root name a dependency Pome is addressed by (spec 0032 M2). It is
+/// the source-path leaf by default, but the Pome may override it with
+/// `[pome].module` in its own manifest — so `github.com/emela-lang/stdlib` can
+/// publish its modules under the root `std`. A dependency whose manifest is
+/// missing or omits the field keeps the leaf.
+fn import_root_for(source: &str, checkout: &Path) -> String {
+    if manifest::manifest_path(checkout).exists()
+        && let Ok(manifest) = Manifest::load(checkout)
+        && let Some(module) = manifest.module
+    {
+        return module;
+    }
+    source_path::leaf(source).to_string()
 }
 
 fn single_source(args: &[String], verb: &str) -> Result<String> {

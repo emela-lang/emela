@@ -30,9 +30,11 @@ bump may include breaking language changes while the language stabilizes).
   set the added Pome and its transitive dependencies require, from source (0025),
   before writing. Workspaces (`Bushel.toml`) share a single lock. Building inside
   a Pome puts each locked dependency on the import search path:
-  `import <leaf>.<module>.<item>` resolves against the fetched source, where
-  `<leaf>` is the dependency's source-path leaf (`github.com/acme/mathlib` →
-  `mathlib`) and its modules live under `src/`.
+  `import <root>.<module>.<item>` resolves against the fetched source, where
+  `<root>` is the dependency's source-path leaf (`github.com/acme/mathlib` →
+  `mathlib`) unless the Pome overrides it with `[pome].module` (spec 0032 M2) —
+  so `github.com/emela-lang/stdlib` declaring `module = "std"` is imported as
+  `std.io.print` — and its modules live under `src/`.
 
 ### Changed
 - Shared IR traversal and intrinsic coverage checks moved into `emela-codegen`
