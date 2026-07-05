@@ -6,13 +6,26 @@
 
 ## セットアップ（初回のみ）
 
-1. `RELEASE_PLZ_TOKEN` を Secret 登録する。
-   デフォルトの `GITHUB_TOKEN` では release-plz が打ったタグが `release.yml` を
-   起動できないため、GitHub App トークンか PAT を使う。
-   - 権限: `contents: write` と `pull-requests: write`
-   - 登録先: Settings → Secrets and variables → Actions → New repository secret
-2. `release-plz.toml` をリポジトリルートに置く。
-3. `.github/workflows/release-plz.yml` を置く。
+デフォルトの `GITHUB_TOKEN` では release-plz が打ったタグが `release.yml` を
+起動できない（GITHUB_TOKEN 由来のイベントは他ワークフローを起こさない）。
+そのため GitHub App で認証し、実行ごとに一時トークンを発行する。
+
+1. GitHub App を作る（Settings → Developer settings → GitHub Apps → New）。
+   - Repository permissions で **Contents: Read and write** と
+     **Pull requests: Read and write** を付与（タグ保護を使う場合のみ
+     Administration: Read and write も）。
+   - Webhook は無効でよい。
+2. App の設定画面で **Private key** を生成し（Generate a private key）、
+   ダウンロードした `.pem` を控える。**App ID** もメモする。
+3. App を **このリポジトリに Install** する（Install App）。
+4. リポジトリに Secret を2つ登録する
+   （Settings → Secrets and variables → Actions → New repository secret）。
+   - `APP_ID`: App ID
+   - `APP_PRIVATE_KEY`: `.pem` の中身を `-----BEGIN` から `-----END` まで
+     そのまま貼る。
+   ワークフローは各実行で `actions/create-github-app-token` を使い、この2つから
+   一時トークンを発行して release-plz に渡す。
+5. `release-plz.toml` と `.github/workflows/release-plz.yml` をリポジトリに置く。
 
 ## リリース手順（毎回）
 
