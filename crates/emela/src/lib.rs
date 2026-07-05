@@ -9,6 +9,7 @@ mod ast;
 mod driver;
 mod error;
 mod external;
+mod fmt;
 mod imports;
 mod lexer;
 mod lower;

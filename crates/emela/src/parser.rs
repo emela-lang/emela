@@ -532,15 +532,23 @@ impl Parser {
             return Ok(EffectRow::default());
         }
         self.expect(&TokenKind::LBrace)?;
+        // The effect row's braces are list braces, not a block: newlines inside
+        // are insignificant (spec 0034 G2). The lexer cannot tell them apart
+        // from block braces, so the newlines are skipped here. Commas remain
+        // the only separator.
+        self.skip_newlines();
         let mut effects = Vec::new();
         if !self.at(&TokenKind::RBrace) {
             effects.push(self.expect_ident()?);
+            self.skip_newlines();
             // A trailing comma before the closer is allowed (spec 0034).
             while self.eat(&TokenKind::Comma) {
+                self.skip_newlines();
                 if self.at(&TokenKind::RBrace) {
                     break;
                 }
                 effects.push(self.expect_ident()?);
+                self.skip_newlines();
             }
         }
         self.expect(&TokenKind::RBrace)?;

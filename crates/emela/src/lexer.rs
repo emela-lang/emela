@@ -71,12 +71,33 @@ pub(crate) struct Token {
     pub(crate) span: Span,
 }
 
-pub(crate) fn lex(label: &str, source: &str) -> Result<Vec<Token>> {
-    let file = SourceFile::new(label, source.to_string());
-    lex_with_file(source, file)
+/// A `--` comment, discarded by `lex` but collected by `lex_with_comments`
+/// for the formatter. The span covers `--` through the end of the comment
+/// text (excluding the newline); the text itself is sliced from the source.
+#[derive(Debug, Clone)]
+pub(crate) struct Comment {
+    pub(crate) span: Span,
 }
 
-fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
+pub(crate) fn lex(label: &str, source: &str) -> Result<Vec<Token>> {
+    let file = SourceFile::new(label, source.to_string());
+    lex_with_file(source, file, None)
+}
+
+/// Like `lex`, but additionally collects every comment (spec 0035 F7). The
+/// token stream is identical to `lex`'s.
+pub(crate) fn lex_with_comments(label: &str, source: &str) -> Result<(Vec<Token>, Vec<Comment>)> {
+    let file = SourceFile::new(label, source.to_string());
+    let mut comments = Vec::new();
+    let tokens = lex_with_file(source, file, Some(&mut comments))?;
+    Ok((tokens, comments))
+}
+
+fn lex_with_file(
+    source: &str,
+    file: Arc<SourceFile>,
+    mut comments: Option<&mut Vec<Comment>>,
+) -> Result<Vec<Token>> {
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
     // Open-bracket stack for newline significance (spec 0034): inside `(...)`
@@ -94,6 +115,11 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 i += 2;
                 while i < bytes.len() && bytes[i] != b'\n' {
                     i += 1;
+                }
+                if let Some(comments) = comments.as_deref_mut() {
+                    comments.push(Comment {
+                        span: Span::new(file.clone(), start, i),
+                    });
                 }
             }
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
