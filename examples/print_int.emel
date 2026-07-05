@@ -8,5 +8,5 @@
 import std.io.print
 
 fn main() -> Unit uses { io } {
-  print(to_string(42) ++ "\n")
+    print(to_string(42) ++ "\n")
 }

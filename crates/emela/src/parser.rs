@@ -117,21 +117,21 @@ impl Parser {
     /// The first inspected token never stops the skip, so at least one token is
     /// always consumed and the parse loop makes progress.
     fn recover_to_top_level(&mut self) {
+        // Resync to the next top-level declaration after a parse error (spec
+        // 0033). A declaration keyword at brace depth 0 marks the boundary.
+        // Newlines are deliberately not used as boundaries: an unterminated
+        // `(`/`[` makes the lexer treat the newlines between declarations as
+        // insignificant (spec 0034), so they may be absent from the stream. At
+        // brace depth 0 a declaration keyword is never a lambda or a type, so
+        // it is an unambiguous resync point.
         let mut depth = 0usize;
-        let mut at_line_start = false;
         while !self.at(&TokenKind::Eof) {
             match &self.peek().kind {
-                TokenKind::Newline => {
-                    at_line_start = true;
-                    self.bump();
-                    continue;
-                }
                 TokenKind::LBrace => depth += 1,
                 TokenKind::RBrace => depth = depth.saturating_sub(1),
-                kind if depth == 0 && at_line_start && is_decl_start(kind) => return,
+                kind if depth == 0 && is_decl_start(kind) => return,
                 _ => {}
             }
-            at_line_start = false;
             self.bump();
         }
     }
@@ -161,7 +161,11 @@ impl Parser {
             if self.eat(&TokenKind::LParen) {
                 if !self.at(&TokenKind::RParen) {
                     fields.push(self.parse_type()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RParen) {
+                            break;
+                        }
                         fields.push(self.parse_type()?);
                     }
                 }
@@ -324,7 +328,8 @@ impl Parser {
                 });
             }
             params.push(name);
-            if !self.eat(&TokenKind::Comma) {
+            // A trailing comma before the closer is allowed (spec 0034).
+            if !self.eat(&TokenKind::Comma) || self.at(&TokenKind::Gt) {
                 break;
             }
         }
@@ -480,7 +485,8 @@ impl Parser {
                 name_span,
                 ty,
             });
-            if !self.eat(&TokenKind::Comma) {
+            // A trailing comma before the closer is allowed (spec 0034).
+            if !self.eat(&TokenKind::Comma) || self.at(&TokenKind::RParen) {
                 break;
             }
         }
@@ -493,7 +499,11 @@ impl Parser {
             let mut params = Vec::new();
             if !self.at(&TokenKind::RParen) {
                 params.push(self.parse_type()?);
+                // A trailing comma before the closer is allowed (spec 0034).
                 while self.eat(&TokenKind::Comma) {
+                    if self.at(&TokenKind::RParen) {
+                        break;
+                    }
                     params.push(self.parse_type()?);
                 }
             }
@@ -550,7 +560,11 @@ impl Parser {
                 let mut args = Vec::new();
                 if self.eat(&TokenKind::Lt) {
                     args.push(self.parse_type()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::Gt) {
+                            break;
+                        }
                         args.push(self.parse_type()?);
                     }
                     self.expect(&TokenKind::Gt)?;
@@ -565,11 +579,23 @@ impl Parser {
             return Ok(EffectRow::default());
         }
         self.expect(&TokenKind::LBrace)?;
+        // The effect row's braces are list braces, not a block: newlines inside
+        // are insignificant (spec 0034 G2). The lexer cannot tell them apart
+        // from block braces, so the newlines are skipped here. Commas remain
+        // the only separator.
+        self.skip_newlines();
         let mut effects = Vec::new();
         if !self.at(&TokenKind::RBrace) {
             effects.push(self.expect_ident()?);
+            self.skip_newlines();
+            // A trailing comma before the closer is allowed (spec 0034).
             while self.eat(&TokenKind::Comma) {
+                self.skip_newlines();
+                if self.at(&TokenKind::RBrace) {
+                    break;
+                }
                 effects.push(self.expect_ident()?);
+                self.skip_newlines();
             }
         }
         self.expect(&TokenKind::RBrace)?;
@@ -746,7 +772,11 @@ impl Parser {
                 let mut args = Vec::new();
                 if !self.at(&TokenKind::RParen) {
                     args.push(self.parse_expr()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RParen) {
+                            break;
+                        }
                         args.push(self.parse_expr()?);
                     }
                 }
@@ -861,7 +891,11 @@ impl Parser {
                 let mut values = Vec::new();
                 if !self.at(&TokenKind::RBracket) {
                     values.push(self.parse_expr()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RBracket) {
+                            break;
+                        }
                         values.push(self.parse_expr()?);
                     }
                 }
@@ -994,7 +1028,11 @@ impl Parser {
         if self.eat(&TokenKind::LParen) {
             if !self.at(&TokenKind::RParen) {
                 fields.push(self.parse_field_binding()?);
+                // A trailing comma before the closer is allowed (spec 0034).
                 while self.eat(&TokenKind::Comma) {
+                    if self.at(&TokenKind::RParen) {
+                        break;
+                    }
                     fields.push(self.parse_field_binding()?);
                 }
             }

@@ -18,6 +18,10 @@ pub(crate) struct TypedFunction {
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
+    /// The effect row the body actually requires — a subset of the declared
+    /// `effects`. The lint for over-declared effects (specs 0023/0035)
+    /// compares the two.
+    pub(crate) body_effects: EffectRow,
 }
 
 #[derive(Debug, Clone)]
@@ -143,9 +147,18 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
     if require_main && let Err(error) = checker.check_main(program) {
         errors.push(error);
     }
+    let mut body_effects = Vec::new();
     for function in &program.functions {
-        if let Err(error) = checker.check_function(function) {
-            errors.push(error);
+        // Collect every error (spec 0033) while keeping `body_effects` aligned
+        // with `program.functions` for the zip below; a failed body has no
+        // inferred effects, so a default row stands in (unused once errors are
+        // reported and lowering is skipped).
+        match checker.check_function(function) {
+            Ok(effects) => body_effects.push(effects),
+            Err(error) => {
+                errors.push(error);
+                body_effects.push(EffectRow::default());
+            }
         }
     }
     // Method bodies (spec 0020), including defaults filled in by
@@ -161,7 +174,8 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
         functions: program
             .functions
             .iter()
-            .map(|function| TypedFunction {
+            .zip(body_effects)
+            .map(|(function, body_effects)| TypedFunction {
                 params: function
                     .params
                     .iter()
@@ -170,6 +184,7 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
                 ret: function.ret.clone(),
                 throws: function.throws.clone(),
                 effects: function.effects.clone(),
+                body_effects,
             })
             .collect(),
     };
@@ -975,7 +990,10 @@ impl Checker {
         Ok(())
     }
 
-    fn check_function(&self, function: &Function) -> Result<()> {
+    /// Checks one top-level function and returns the effect row its body
+    /// actually requires (always a subset of the declared row); the caller
+    /// records it on the `TypedFunction` for the over-declared-effects lint.
+    fn check_function(&self, function: &Function) -> Result<EffectRow> {
         let mut scope = HashMap::new();
         for param in &function.params {
             scope.insert(param.name.clone(), param.ty.clone());
@@ -1002,7 +1020,7 @@ impl Checker {
             ));
         }
         self.check_throws_subset(&body.throws, &function.throws, &function.name, body.span)?;
-        Ok(())
+        Ok(body.effects)
     }
 
     /// The body may only put on the throws channel what the function declares.

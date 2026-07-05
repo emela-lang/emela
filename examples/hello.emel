@@ -7,5 +7,5 @@
 import std.io.print
 
 fn main() -> Unit uses { io } {
-  print("Hello, Emela!\n")
+    print("Hello, Emela!\n")
 }
