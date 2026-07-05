@@ -78,6 +78,11 @@ pub fn run() -> Result<()> {
             }
             Ok(())
         }
+        Command::Run {
+            input,
+            packages,
+            backend,
+        } => run_program(&input, &packages, backend.as_deref()),
         Command::New { name } => crate::pome::scaffold(&name),
         Command::Pome { args } => crate::pome::run(&args),
         Command::Version => {
@@ -125,6 +130,32 @@ fn build(
     })?;
     note_tier(backend);
     backend.compile(&ir, &options).map_err(Error::from)
+}
+
+/// Builds `input` to a `wasm-wasi` module and executes it in-process, exiting
+/// the process with the program's exit code. `run` runs WebAssembly, so only the
+/// wasm backend is accepted.
+#[cfg(feature = "run")]
+fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> Result<()> {
+    if let Some(name) = backend
+        && canonical_backend(name) != "wasm-wasi"
+    {
+        return Err(Error::new(format!(
+            "`run` executes WebAssembly; backend `{name}` is not supported (use `wasm-wasi`)"
+        )));
+    }
+    let artifact = build(input, packages, Some("wasm-wasi"), EmitMode::Default)?;
+    let code = crate::run::execute(&artifact.bytes)?;
+    std::process::exit(code)
+}
+
+/// Fallback when the `run` feature is disabled: report it clearly instead of
+/// silently failing to build the module.
+#[cfg(not(feature = "run"))]
+fn run_program(_input: &PathBuf, _packages: &[PathBuf], _backend: Option<&str>) -> Result<()> {
+    Err(Error::new(
+        "this `emela` was built without the `run` feature; rebuild with `--features run`",
+    ))
 }
 
 /// Warns when building with a backend that is not fully supported (Tier 1).
@@ -283,6 +314,13 @@ enum Command {
         output: Option<PathBuf>,
         packages: Vec<PathBuf>,
     },
+    /// `emela run FILE` — build to `wasm-wasi` and execute it in-process
+    /// (requires the `run` feature).
+    Run {
+        input: PathBuf,
+        packages: Vec<PathBuf>,
+        backend: Option<String>,
+    },
     Backends,
     Version,
     /// `emela new <name>` — scaffold a new Pome (spec 0032 C2).
@@ -343,6 +381,16 @@ fn parse_args() -> Result<Command> {
                 packages: parsed.packages,
             })
         }
+        "run" => {
+            let parsed = parse_compile_args(args)?;
+            reject_library(&parsed, "run")?;
+            reject_run_flags(&parsed)?;
+            Ok(Command::Run {
+                input: parsed.input,
+                packages: parsed.packages,
+                backend: parsed.backend,
+            })
+        }
         _ => Err(usage()),
     }
 }
@@ -363,6 +411,18 @@ fn reject_library(parsed: &CompileArgs, command: &str) -> Result<()> {
         return Err(Error::new(format!(
             "`--library` is only valid for `check`, not `{command}`"
         )));
+    }
+    Ok(())
+}
+
+/// `run` executes the module in-process rather than emitting a file, so `-o` and
+/// `--emit` have no meaning there.
+fn reject_run_flags(parsed: &CompileArgs) -> Result<()> {
+    if parsed.output.is_some() {
+        return Err(Error::new("`-o`/`--output` is not valid for `run`"));
+    }
+    if !matches!(parsed.mode, EmitMode::Default) {
+        return Err(Error::new("`--emit` is not valid for `run`"));
     }
     Ok(())
 }
@@ -437,6 +497,7 @@ fn usage() -> Error {
     Error::new(
         "usage: emela check [--library] [--backend NAME] [--package DIR] FILE \
          | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
+         | emela run [--package DIR] FILE \
          | emela ir [--package DIR] [-o FILE] FILE \
          | emela new <name> \
          | emela pome <add|remove|list|update|install|search> ... \
