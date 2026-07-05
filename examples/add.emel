@@ -4,9 +4,9 @@
 --   emela build --backend js-node examples/add.emel
 
 fn add(x: Int, y: Int) -> Int {
-  x + y
+    x + y
 }
 
 fn main() -> Int {
-  add(20, 22)
+    add(20, 22)
 }

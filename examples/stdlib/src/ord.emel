@@ -4,30 +4,30 @@
 module ord
 
 pub fn min<T: Ord>(a: T, b: T) -> T {
-  if a < b {
-    a
-  } else {
-    b
-  }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 pub fn max<T: Ord>(a: T, b: T) -> T {
-  if a > b {
-    a
-  } else {
-    b
-  }
+    if a > b {
+        a
+    } else {
+        b
+    }
 }
 
 pub fn clamp<T: Ord>(value: T, low: T, high: T) -> T {
-  -- Written with a nested `if` because `else if` is not supported yet.
-  if value < low {
-    low
-  } else {
-    if value > high {
-      high
+    -- Written with a nested `if` because `else if` is not supported yet.
+    if value < low {
+        low
     } else {
-      value
+        if value > high {
+            high
+        } else {
+            value
+        }
     }
-  }
 }

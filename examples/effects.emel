@@ -2,16 +2,16 @@
 -- effectful function must declare at least the same effects.
 
 fn log_line() -> Unit uses { Stdout } {
-  ()
+    ()
 }
 
 -- The `Stdout` effect propagates upward through the call chain.
 fn announce() -> Unit uses { Stdout } {
-  let printed: Unit = log_line()
-  ()
+    let printed: Unit = log_line()
+    ()
 }
 
 fn main() -> Unit uses { Stdout } {
-  let done: Unit = announce()
-  ()
+    let done: Unit = announce()
+    ()
 }
