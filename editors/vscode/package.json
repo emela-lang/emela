@@ -1,0 +1,68 @@
+{
+  "name": "emela",
+  "displayName": "Emela",
+  "description": "Emela language support: diagnostics and completion via `emela lsp` (spec 0033), plus syntax highlighting.",
+  "version": "0.1.0",
+  "publisher": "emela-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "emela",
+        "aliases": [
+          "Emela"
+        ],
+        "extensions": [
+          ".emel"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "emela",
+        "scopeName": "source.emela",
+        "path": "./syntaxes/emela.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Emela",
+      "properties": {
+        "emela.serverPath": {
+          "type": "string",
+          "default": "emela",
+          "description": "Path to the `emela` binary that provides the language server (`emela lsp`)."
+        },
+        "emela.packageRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Directories passed to the server as `--package` import roots (each must contain an emela-package.json)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

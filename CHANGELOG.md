@@ -8,6 +8,15 @@ bump may include breaking language changes while the language stabilizes).
 ## [Unreleased]
 
 ### Added
+- Language server: `emela lsp` (spec 0033) speaks LSP over stdio — diagnostics
+  on open/change/save covering every compiler error, and context-aware
+  completion (import paths, `match`/`catch` enum variants, `uses` effect names,
+  `::` type paths, keywords, in-scope functions and locals). Editor setup lives
+  in `docs/lsp.md`, with a VSCode client under `editors/vscode/`.
+- Multi-error reporting (spec 0033): the frontend collects errors across
+  declarations instead of stopping at the first — the lexer skips bad
+  characters, the parser recovers at top-level declarations, imports and the
+  type checker report per item — and `emela check` prints them all.
 - Comparison operators `!=`, `>`, `<=`, `>=`, desugaring to `Eq`/`Ord` (spec 0027).
 - Short-circuiting logical operators `&&`, `||`, and prefix `!` (spec 0027).
 - Generic `enum` declarations with type parameters, including recursive types

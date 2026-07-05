@@ -1442,12 +1442,14 @@ mod tests {
     use crate::typecheck;
 
     fn lower_source(source: &str) -> IrProgram {
-        let mut program = parse_program("test", source).expect("parse");
+        let (mut program, errors) = parse_program("test", source);
+        assert!(errors.is_empty(), "parse: {errors:?}");
         // Mirror the driver: operators resolve through the embedded Core Prelude
         // (spec 0021), and defaulted trait methods are filled in (spec 0020).
         crate::driver::merge_prelude(&mut program).expect("prelude");
         typecheck::expand_trait_defaults(&mut program);
-        let typed = typecheck::check(&program, true).expect("typecheck");
+        let (typed, errors) = typecheck::check(&program, true);
+        assert!(errors.is_empty(), "typecheck: {errors:?}");
         lower(&program, &typed)
     }
 

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Emela",
+  "scopeName": "source.emela",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "--.*$",
+      "name": "comment.line.double-dash.emela"
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.emela",
+      "patterns": [
+        {
+          "match": "\\\\[nt\"\\\\]",
+          "name": "constant.character.escape.emela"
+        }
+      ]
+    },
+    "chars": {
+      "match": "'(\\\\[nt'\"\\\\]|[^'\\\\])'",
+      "name": "string.quoted.single.emela"
+    },
+    "numbers": {
+      "match": "\\b\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.emela"
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(if|else|match|try|catch)\\b",
+          "name": "keyword.control.emela"
+        },
+        {
+          "match": "\\b(throw|throws|panic)\\b",
+          "name": "keyword.control.exception.emela"
+        },
+        {
+          "match": "\\b(fn|extern|intrinsic|trait|impl|for|import|let|module|pub|uses|enum)\\b",
+          "name": "keyword.other.emela"
+        },
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.emela"
+        }
+      ]
+    },
+    "types": {
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "name": "entity.name.type.emela"
+    },
+    "functions": {
+      "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()",
+      "name": "entity.name.function.emela"
+    }
+  }
+}
