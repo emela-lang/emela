@@ -1,13 +1,15 @@
 # Syntax highlighting
 
-Emela source files use the `.emel` extension. This repository ships a
-[Sublime Text syntax definition](../editors/emela.sublime-syntax) at
-`editors/emela.sublime-syntax`, which covers comments, strings, numbers,
-keywords, built-in types, and operators.
+Emela source files use the `.emel` extension. Editors don't share one
+highlighting format, so this repository ships two definitions under `editors/`,
+each covering comments, strings, numbers, keywords, built-in types, and
+operators:
 
-The same `.sublime-syntax` file works with any tool built on the
-[syntect](https://github.com/trishume/syntect) library — most notably the
-[`bat`](https://github.com/sharkdp/bat) pager — as well as Sublime Text itself.
+- [`editors/emela.sublime-syntax`](../editors/emela.sublime-syntax) — a Sublime
+  Text definition, also read by any [syntect](https://github.com/trishume/syntect)-based
+  tool such as the [`bat`](https://github.com/sharkdp/bat) pager.
+- [`editors/nvim/`](../editors/nvim) — a Vim/Neovim syntax plugin
+  (`syntax/emela.vim` plus `ftdetect/emela.vim` for `.emel` filetype detection).
 
 ## `bat`
 
@@ -36,6 +38,39 @@ cat examples/hello.emel | bat --language=Emela
 To pick up later changes to the definition, edit
 `editors/emela.sublime-syntax`, copy it over again, and re-run `bat cache
 --build`.
+
+## Neovim / Vim
+
+The `editors/nvim/` directory is a runtimepath plugin. With a plugin manager,
+point it at that directory — for example with
+[lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{ dir = "/path/to/emela/editors/nvim", ft = "emela" }
+```
+
+Or install the two files by hand into your config directory (`~/.config/nvim`
+on Neovim, `~/.vim` on Vim):
+
+```sh
+mkdir -p ~/.config/nvim/syntax ~/.config/nvim/ftdetect
+cp editors/nvim/syntax/emela.vim   ~/.config/nvim/syntax/
+cp editors/nvim/ftdetect/emela.vim ~/.config/nvim/ftdetect/
+```
+
+Open any `.emel` file and confirm the filetype and highlighting are active:
+
+```vim
+:set filetype?
+" filetype=emela
+
+:echo synIDattr(synIDtrans(synID(line('.'), col('.'), 1)), 'name')
+" e.g. Keyword / Type / String under the cursor
+```
+
+For a full Tree-sitter grammar (incremental parsing, more precise highlights)
+you would need a separate `tree-sitter-emela` parser; this repository does not
+ship one yet, and the Vim syntax file above is the lightweight equivalent.
 
 ## Sublime Text
 
