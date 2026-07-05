@@ -39,47 +39,65 @@ esac
 
 target="$arch-$os"
 channel="${EMELA_CHANNEL:-stable}"
-api_base="https://api.github.com/repos/$repo/releases"
 
-# Resolve which release to install:
+# curl for the GitHub REST API, sending GITHUB_TOKEN when set to lift the
+# unauthenticated 60-requests/hour-per-IP rate limit. No -f: we want the JSON
+# body even on HTTP errors so a 403 rate-limit message can be reported.
+gh_api() {
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl -sSL -H "Authorization: Bearer $GITHUB_TOKEN" "$@"
+  else
+    curl -sSL "$@"
+  fi
+}
+
+# Resolve the download URL for the release to install:
 #   EMELA_VERSION=x.y.z    -> that exact tag (either channel)
 #   EMELA_CHANNEL=stable   -> the latest stable release (default)
 #   EMELA_CHANNEL=nightly  -> the latest dev prerelease (published from `dev`)
+#
+# Pinned and stable installs build the URL from the tag alone, so they never
+# touch the rate-limited api.github.com; only nightly needs to list releases.
 if [ -n "$version" ]; then
   case "$version" in
     v*) tag="$version" ;;
     *) tag="v$version" ;;
   esac
-  release_json="$(curl -fsSL "$api_base/tags/$tag")"
-  accept_any=1
-elif [ "$channel" = "nightly" ]; then
-  release_json="$(curl -fsSL "$api_base?per_page=30")"
-  accept_any=0
+  asset_url="https://github.com/$repo/releases/download/$tag/emela-$tag-$target.tar.gz"
 elif [ "$channel" = "stable" ]; then
-  # GitHub's "latest" excludes prereleases, so this is the newest stable tag.
-  release_json="$(curl -fsSL "$api_base/latest" 2>/dev/null || true)"
-  accept_any=1
-  if ! printf '%s' "$release_json" | grep -q '"tag_name"'; then
+  # github.com/.../releases/latest 302-redirects to /releases/tag/<tag>; reading
+  # the redirect target costs no API quota, unlike api.github.com/.../latest.
+  tag="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/$repo/releases/latest" | sed -n 's#.*/releases/tag/##p')"
+  if [ -z "$tag" ]; then
     echo "no stable emela release found in $repo yet" >&2
     echo "try a dev build with EMELA_CHANNEL=nightly, or pin one with EMELA_VERSION=x.y.z" >&2
     exit 1
   fi
+  asset_url="https://github.com/$repo/releases/download/$tag/emela-$tag-$target.tar.gz"
+elif [ "$channel" = "nightly" ]; then
+  api_base="https://api.github.com/repos/$repo/releases"
+  release_json="$(gh_api "$api_base?per_page=30" 2>/dev/null || true)"
+  if printf '%s' "$release_json" | grep -q 'API rate limit exceeded'; then
+    echo "GitHub API rate limit exceeded while looking up nightly builds for $repo" >&2
+    echo "set GITHUB_TOKEN=<token> to raise the limit, or install a stable build (unset EMELA_CHANNEL)" >&2
+    exit 1
+  fi
+  asset_url="$(printf '%s\n' "$release_json" \
+    | awk -v target="$target" '
+        /"prerelease": true/ { prerelease = 1 }
+        /"prerelease": false/ { prerelease = 0 }
+        /"browser_download_url":/ && prerelease && $0 ~ "emela-.*-" target "\\.tar\\.gz" {
+          sub(/^.*"browser_download_url": *"/, "")
+          sub(/".*$/, "")
+          print
+          exit
+        }
+      ')"
 else
   echo "unknown EMELA_CHANNEL '$channel' (expected 'stable' or 'nightly')" >&2
   exit 1
 fi
-
-asset_url="$(printf '%s\n' "$release_json" \
-  | awk -v target="$target" -v accept_any="$accept_any" '
-      /"prerelease": true/ { prerelease = 1 }
-      /"prerelease": false/ { prerelease = 0 }
-      /"browser_download_url":/ && (prerelease || accept_any) && $0 ~ "emela-.*-" target "\\.tar\\.gz" {
-        sub(/^.*"browser_download_url": *"/, "")
-        sub(/".*$/, "")
-        print
-        exit
-      }
-    ')"
 
 if [ -z "$asset_url" ]; then
   echo "could not find an emela release asset for $target in $repo" >&2
