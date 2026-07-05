@@ -114,7 +114,11 @@ impl Parser {
             if self.eat(&TokenKind::LParen) {
                 if !self.at(&TokenKind::RParen) {
                     fields.push(self.parse_type()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RParen) {
+                            break;
+                        }
                         fields.push(self.parse_type()?);
                     }
                 }
@@ -277,7 +281,8 @@ impl Parser {
                 });
             }
             params.push(name);
-            if !self.eat(&TokenKind::Comma) {
+            // A trailing comma before the closer is allowed (spec 0034).
+            if !self.eat(&TokenKind::Comma) || self.at(&TokenKind::Gt) {
                 break;
             }
         }
@@ -433,7 +438,8 @@ impl Parser {
                 name_span,
                 ty,
             });
-            if !self.eat(&TokenKind::Comma) {
+            // A trailing comma before the closer is allowed (spec 0034).
+            if !self.eat(&TokenKind::Comma) || self.at(&TokenKind::RParen) {
                 break;
             }
         }
@@ -446,7 +452,11 @@ impl Parser {
             let mut params = Vec::new();
             if !self.at(&TokenKind::RParen) {
                 params.push(self.parse_type()?);
+                // A trailing comma before the closer is allowed (spec 0034).
                 while self.eat(&TokenKind::Comma) {
+                    if self.at(&TokenKind::RParen) {
+                        break;
+                    }
                     params.push(self.parse_type()?);
                 }
             }
@@ -503,7 +513,11 @@ impl Parser {
                 let mut args = Vec::new();
                 if self.eat(&TokenKind::Lt) {
                     args.push(self.parse_type()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::Gt) {
+                            break;
+                        }
                         args.push(self.parse_type()?);
                     }
                     self.expect(&TokenKind::Gt)?;
@@ -521,7 +535,11 @@ impl Parser {
         let mut effects = Vec::new();
         if !self.at(&TokenKind::RBrace) {
             effects.push(self.expect_ident()?);
+            // A trailing comma before the closer is allowed (spec 0034).
             while self.eat(&TokenKind::Comma) {
+                if self.at(&TokenKind::RBrace) {
+                    break;
+                }
                 effects.push(self.expect_ident()?);
             }
         }
@@ -699,7 +717,11 @@ impl Parser {
                 let mut args = Vec::new();
                 if !self.at(&TokenKind::RParen) {
                     args.push(self.parse_expr()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RParen) {
+                            break;
+                        }
                         args.push(self.parse_expr()?);
                     }
                 }
@@ -814,7 +836,11 @@ impl Parser {
                 let mut values = Vec::new();
                 if !self.at(&TokenKind::RBracket) {
                     values.push(self.parse_expr()?);
+                    // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
+                        if self.at(&TokenKind::RBracket) {
+                            break;
+                        }
                         values.push(self.parse_expr()?);
                     }
                 }
@@ -947,7 +973,11 @@ impl Parser {
         if self.eat(&TokenKind::LParen) {
             if !self.at(&TokenKind::RParen) {
                 fields.push(self.parse_field_binding()?);
+                // A trailing comma before the closer is allowed (spec 0034).
                 while self.eat(&TokenKind::Comma) {
+                    if self.at(&TokenKind::RParen) {
+                        break;
+                    }
                     fields.push(self.parse_field_binding()?);
                 }
             }

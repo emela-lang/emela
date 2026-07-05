@@ -79,11 +79,16 @@ pub(crate) fn lex(label: &str, source: &str) -> Result<Vec<Token>> {
 fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
+    // Open-bracket stack for newline significance (spec 0034): inside `(...)`
+    // and `[...]` a newline is whitespace; a `{` frame restores significance,
+    // so statements inside `foo(match x { ... })` are still newline-separated.
+    let mut brackets: Vec<u8> = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         let start = i;
         match bytes[i] {
             b' ' | b'\t' | b'\r' => i += 1,
+            b'\n' if matches!(brackets.last(), Some(b'(' | b'[')) => i += 1,
             b'\n' => push(&mut tokens, TokenKind::Newline, file.clone(), start, &mut i),
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
                 i += 2;
@@ -128,24 +133,42 @@ fn lex_with_file(source: &str, file: Arc<SourceFile>) -> Result<Vec<Token>> {
                 });
                 i += 2;
             }
-            b'(' => push(&mut tokens, TokenKind::LParen, file.clone(), start, &mut i),
-            b')' => push(&mut tokens, TokenKind::RParen, file.clone(), start, &mut i),
-            b'{' => push(&mut tokens, TokenKind::LBrace, file.clone(), start, &mut i),
-            b'}' => push(&mut tokens, TokenKind::RBrace, file.clone(), start, &mut i),
-            b'[' => push(
-                &mut tokens,
-                TokenKind::LBracket,
-                file.clone(),
-                start,
-                &mut i,
-            ),
-            b']' => push(
-                &mut tokens,
-                TokenKind::RBracket,
-                file.clone(),
-                start,
-                &mut i,
-            ),
+            b'(' => {
+                brackets.push(b'(');
+                push(&mut tokens, TokenKind::LParen, file.clone(), start, &mut i)
+            }
+            b')' => {
+                brackets.pop();
+                push(&mut tokens, TokenKind::RParen, file.clone(), start, &mut i)
+            }
+            b'{' => {
+                brackets.push(b'{');
+                push(&mut tokens, TokenKind::LBrace, file.clone(), start, &mut i)
+            }
+            b'}' => {
+                brackets.pop();
+                push(&mut tokens, TokenKind::RBrace, file.clone(), start, &mut i)
+            }
+            b'[' => {
+                brackets.push(b'[');
+                push(
+                    &mut tokens,
+                    TokenKind::LBracket,
+                    file.clone(),
+                    start,
+                    &mut i,
+                )
+            }
+            b']' => {
+                brackets.pop();
+                push(
+                    &mut tokens,
+                    TokenKind::RBracket,
+                    file.clone(),
+                    start,
+                    &mut i,
+                )
+            }
             b',' => push(&mut tokens, TokenKind::Comma, file.clone(), start, &mut i),
             b':' if i + 1 < bytes.len() && bytes[i + 1] == b':' => {
                 tokens.push(Token {
