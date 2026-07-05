@@ -95,7 +95,7 @@ mod tests {
             "module clock\npub fn now() -> Int uses { clock } {\n  0\n}\n",
         )
         .unwrap();
-        let caps = required_capabilities(&[dir.clone()]).unwrap();
+        let caps = required_capabilities(std::slice::from_ref(&dir)).unwrap();
         assert!(caps.contains("net"));
         assert!(caps.contains("clock"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -111,7 +111,7 @@ mod tests {
             "module h\npub fn f() -> Int uses { fs } {\n  0\n}\n",
         )
         .unwrap();
-        let caps = required_capabilities(&[dir.clone()]).unwrap();
+        let caps = required_capabilities(std::slice::from_ref(&dir)).unwrap();
         assert!(!caps.contains("fs"));
         let _ = std::fs::remove_dir_all(&dir);
     }
