@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/emela-lang/emela/releases/tag/v0.2.1) - 2026-07-12
+
+### Fixed
+
+- preserve non-tail block expressions during lowering ([#38](https://github.com/emela-lang/emela/pull/38))
+
 ## [0.2.0](https://github.com/emela-lang/emela/releases/tag/v0.2.0) - 2026-07-05
 
 ### Added
