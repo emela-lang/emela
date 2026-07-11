@@ -1,0 +1,129 @@
+name: Bug report
+description: Report incorrect behavior in the Emela compiler, CLI, or LSP
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+
+        Before opening, please search existing issues to avoid duplicates. If
+        this is a language-design or specification question rather than a
+        compiler bug, please raise it in `emela-lang/specification` instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Emela is affected?
+      options:
+        - "check (type-checking)"
+        - "build (code generation)"
+        - "run (embedded WASI runtime)"
+        - "ir (typed IR output)"
+        - "lsp (editor support)"
+        - "pome (dependencies / packaging)"
+        - "new (scaffolding)"
+        - "CLI / other"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      description: If relevant, which backend were you targeting?
+      options:
+        - "wasm-wasi (Tier 1)"
+        - "js-node (Tier 2)"
+        - "Not applicable"
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro-source
+    attributes:
+      label: Minimal reproducing source
+      description: >
+        The smallest `.emel` program (and package/Pome layout, if relevant)
+        that triggers the bug. This will be rendered as Emela, so no backticks
+        are needed.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      description: The exact command you ran.
+      placeholder: emela run examples/add.emel
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: >
+        What actually happened? Include the full output, error messages, or
+        diagnostics (with `RUST_BACKTRACE=1` if it panicked).
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Emela version
+      description: Output of `emela --version` (or the commit hash if built from source).
+      placeholder: emela 0.2.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install Emela?
+      options:
+        - "install.sh (dogfooding build)"
+        - "Built from source (cargo build)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, plus Rust toolchain (`rustc --version`) if built from source.
+      placeholder: "macOS 14.6 (arm64), rustc 1.85.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — workarounds tried, when it started, related issues.
+    validations:
+      required: false
