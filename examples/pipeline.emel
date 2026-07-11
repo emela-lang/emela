@@ -1,0 +1,25 @@
+-- The pipeline operator `|>` (spec 0019): the left value is fed in as the
+-- first argument of the right-hand call, so a chain of transforms reads top to
+-- bottom instead of inside-out. `x |> f` is `f(x)`, and `x |> g(a)` is
+-- `g(x, a)`. It is pure sugar: the type, effects, and result match the call it
+-- desugars to. `|>` binds looser than every other operator and is left-
+-- associative, so `21 |> add1 |> double` is `double(add1(21))`.
+--
+--   emela run examples/pipeline.emel     # exits 44
+
+fn add1(x: Int) -> Int {
+    x + 1
+}
+
+fn double(x: Int) -> Int {
+    x * 2
+}
+
+fn scale(x: Int, factor: Int) -> Int {
+    x * factor
+}
+
+fn main() -> Int {
+    -- scale(double(add1(21)), 1) == 44
+    21 |> add1 |> double |> scale(1)
+}

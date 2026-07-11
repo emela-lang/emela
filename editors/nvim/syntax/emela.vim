@@ -32,6 +32,7 @@ syntax match emelaFunction "\<[a-z_]\w*\>\ze\s*("
 " Operators. Define single-char forms first so multi-char forms win on overlap.
 syntax match emelaOperator "[+\-*/%<>=!]=\?"
 syntax match emelaOperator "||"
+syntax match emelaOperator "|>"
 syntax match emelaOperator "->\|::\|++\|&&\|?"
 
 " Comments run from `--` to end of line (there are no block comments). Defined

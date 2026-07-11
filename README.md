@@ -100,6 +100,7 @@ the wasm backend; `emela ir` prints the IR.
 - primitives `Unit`, `Bool`, `Int`, `Float`, `String`, `Char`, and `Array<T>`
 - arithmetic `+ - * /` (and `%` on `Int`), comparisons `== != < > <= >=`,
   short-circuiting `&& || !`, `String` concatenation `++`
+- the pipeline operator `|>`: `x |> f |> g(a)` is `g(f(x), a)` (spec 0019)
 - `if / else` as an expression
 - first-class functions: function values, `fn` lambdas, closures, higher-order
 - generic functions `fn f<T>(...)` — type arguments inferred, then monomorphized
