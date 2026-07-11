@@ -121,11 +121,11 @@ fn greater_than_swaps_operands_preserving_evaluation_order() {
     let dump = ir(&main_returning("a > b"));
     // a is bound first, b second, then `lt(b_tmp, a_tmp)` — the swapped call.
     assert!(
-        dump.contains("let __cmp0 = %a") && dump.contains("let __cmp1 = %b"),
+        dump.contains("let $cmp0 = %a") && dump.contains("let $cmp1 = %b"),
         "operands should bind to temporaries in source order:\n{dump}"
     );
     assert!(
-        dump.contains("Ord__Int__lt(%__cmp1, %__cmp0)"),
+        dump.contains("Ord__Int__lt(%$cmp1, %$cmp0)"),
         "`>` should compare the temporaries swapped:\n{dump}"
     );
 }
@@ -135,7 +135,7 @@ fn less_equal_swaps_and_negates() {
     // `a <= b` == `!(b < a)`: swapped like `>`, then negated.
     let dump = ir(&main_returning("a <= b"));
     assert!(
-        dump.contains("Ord__Int__lt(%__cmp1, %__cmp0)"),
+        dump.contains("Ord__Int__lt(%$cmp1, %$cmp0)"),
         "`<=` should compare the temporaries swapped:\n{dump}"
     );
     assert!(
@@ -155,6 +155,25 @@ fn all_comparisons_build_to_js() {
     assert!(
         code.contains("Ord__Int__lt") && code.contains("Eq__Int__eq"),
         "comparisons should lower to prelude calls in JS:\n{code}"
+    );
+}
+
+#[test]
+fn generated_comparison_temps_do_not_alias_source_bindings_in_js() {
+    let source = "fn cmp(_cmp0: Int, b: Int) -> Int {\n  _cmp0 > b\n  _cmp0\n}\n\
+         fn main() -> Int uses {} { 0 }\n";
+    let code = js(source);
+    assert!(
+        code.contains("function cmp(_cmp0, b)"),
+        "source binding should remain named _cmp0 in JS:\n{code}"
+    );
+    assert!(
+        code.contains("const $stmt0 =") && code.contains("$cmp0"),
+        "generated temporaries should remain in their collision-free namespace:\n{code}"
+    );
+    assert!(
+        !code.contains("const _cmp0 = _cmp0"),
+        "generated comparison temporaries must not be normalized to _cmp0:\n{code}"
     );
 }
 
