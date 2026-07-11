@@ -7,6 +7,25 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/emela-lang/emela/releases/tag/v0.2.0) - 2026-07-05
+
+### Added
+
+- qualify enum variants and conversions with `::` (spec 0018 R7)
+- qualified imports and calls (spec 0018)
+- language primitives for pure to_string (if, /, %, Char, ++)
+- implement throws-based error handling (spec 0011)
+- platform functions resolved by the backend runtime (spec 0013)
+- *(backend-wasm)* compile the full IR to WebAssembly (Tier 1)
+- *(codegen)* add external-process backend plugins
+
+### Other
+
+- v0.2.0 ([#31](https://github.com/emela-lang/emela/pull/31))
+- Merge generic functions (spec 0014) into feat/new-spec
+- clock platform function (JS) and browser playground scaffolding
+- split into a Cargo workspace with a published codegen core
+
 ### Added
 - Language server: `emela lsp` (spec 0033) speaks LSP over stdio — diagnostics
   on open/change/save covering every compiler error, and context-aware
