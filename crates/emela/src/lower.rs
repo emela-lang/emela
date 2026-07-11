@@ -99,6 +99,9 @@ struct Lowerer<'a> {
     /// Counter for fresh temporary names used when desugaring the swapped
     /// comparisons `>` / `<=` (spec 0027), so each site's temporaries are unique.
     cmp_counter: RefCell<usize>,
+    /// Counter for fresh temporary names used to sequence non-tail statement
+    /// expressions inside blocks.
+    stmt_counter: RefCell<usize>,
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
@@ -174,6 +177,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         mono: RefCell::new(MonoState::default()),
         subst: RefCell::new(HashMap::new()),
         cmp_counter: RefCell::new(0),
+        stmt_counter: RefCell::new(0),
     };
 
     // Lower the ordinary functions (no substitution); calls to generics enqueue
@@ -431,7 +435,16 @@ impl<'a> Lowerer<'a> {
     /// A fresh, collision-proof temporary name for comparison desugaring.
     fn fresh_cmp_temp(&self) -> String {
         let mut counter = self.cmp_counter.borrow_mut();
-        let name = format!("__cmp{}", *counter);
+        let name = format!("$cmp{}", *counter);
+        *counter += 1;
+        name
+    }
+
+    /// A fresh, collision-proof temporary name for sequencing non-tail block
+    /// expressions while preserving source order.
+    fn fresh_stmt_temp(&self) -> String {
+        let mut counter = self.stmt_counter.borrow_mut();
+        let name = format!("$stmt{}", *counter);
         *counter += 1;
         name
     }
@@ -508,7 +521,19 @@ impl<'a> Lowerer<'a> {
         match items.split_first() {
             None => (IrExpr::Unit, Type::Unit),
             Some((BlockItem::Expr(expr), [])) => self.lower_expr(expr, scope),
-            Some((BlockItem::Expr(_), rest)) => self.lower_block(rest, scope),
+            Some((BlockItem::Expr(expr), rest)) => {
+                let (value, value_ty) = self.lower_expr(expr, scope);
+                let (next, next_ty) = self.lower_block(rest, scope);
+                (
+                    IrExpr::Let {
+                        name: self.fresh_stmt_temp(),
+                        value_ty,
+                        value: Box::new(value),
+                        next: Box::new(next),
+                    },
+                    next_ty,
+                )
+            }
             Some((
                 BlockItem::Let {
                     name, ty, value, ..
@@ -1525,5 +1550,106 @@ mod tests {
         };
         let names: Vec<&str> = captures.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["k"]);
+    }
+
+    #[test]
+    fn preserves_non_tail_block_expressions_in_source_order() {
+        let ir = lower_source(
+            "fn mark(n: Int) -> Int { n }\nfn main() -> Int {\n  mark(1)\n  let a = 2\n  mark(2)\n  a\n}\n",
+        );
+        let IrExpr::Let {
+            name: stmt0,
+            value: first,
+            next,
+            ..
+        } = main_body(&ir)
+        else {
+            panic!("expected leading statement let");
+        };
+        assert!(stmt0.starts_with("$stmt"));
+        let IrExpr::Call { callee, args, ret } = first.as_ref() else {
+            panic!("expected first call");
+        };
+        let IrExpr::FunctionRef { name, .. } = callee.as_ref() else {
+            panic!("expected first direct call");
+        };
+        assert_eq!(name, "mark");
+        assert_eq!(ret, &Type::Int);
+        assert!(matches!(args.as_slice(), [IrExpr::Int(1)]));
+
+        let IrExpr::Let {
+            name, value, next, ..
+        } = next.as_ref()
+        else {
+            panic!("expected user let binding");
+        };
+        assert_eq!(name, "a");
+        assert!(matches!(value.as_ref(), IrExpr::Int(2)));
+
+        let IrExpr::Let {
+            name: stmt1,
+            value: second,
+            next,
+            ..
+        } = next.as_ref()
+        else {
+            panic!("expected second statement let");
+        };
+        assert!(stmt1.starts_with("$stmt"));
+        let IrExpr::Call { callee, args, ret } = second.as_ref() else {
+            panic!("expected second call");
+        };
+        let IrExpr::FunctionRef { name, .. } = callee.as_ref() else {
+            panic!("expected second direct call");
+        };
+        assert_eq!(name, "mark");
+        assert_eq!(ret, &Type::Int);
+        assert!(matches!(args.as_slice(), [IrExpr::Int(2)]));
+
+        let IrExpr::Var { name, ty } = next.as_ref() else {
+            panic!("expected tail expression");
+        };
+        assert_eq!(name, "a");
+        assert_eq!(ty, &Type::Int);
+    }
+
+    #[test]
+    fn preserves_non_tail_never_expressions() {
+        let ir = lower_source("fn main() -> Unit {\n  panic(\"boom\")\n  ()\n}\n");
+        let IrExpr::Let { value, next, .. } = main_body(&ir) else {
+            panic!("expected statement let");
+        };
+        let IrExpr::Panic { message } = value.as_ref() else {
+            panic!("expected panic statement");
+        };
+        assert!(matches!(message.as_ref(), IrExpr::String(value) if value == "boom"));
+        assert!(matches!(next.as_ref(), IrExpr::Unit));
+    }
+
+    #[test]
+    fn comparison_temp_names_do_not_shadow_user_bindings() {
+        let ir = lower_source("fn main() -> Int {\n  let cmp0 = 41\n  cmp0 > 0\n  cmp0\n}\n");
+        let IrExpr::Let {
+            name, value, next, ..
+        } = main_body(&ir)
+        else {
+            panic!("expected user let binding");
+        };
+        assert_eq!(name, "cmp0");
+        assert!(matches!(value.as_ref(), IrExpr::Int(41)));
+
+        let IrExpr::Let {
+            name: stmt, next, ..
+        } = next.as_ref()
+        else {
+            panic!("expected comparison statement temp");
+        };
+        assert!(stmt.starts_with("$stmt"));
+
+        let IrExpr::Var { name, ty } = next.as_ref() else {
+            panic!("expected tail variable");
+        };
+        assert_eq!(name, "cmp0");
+        assert_eq!(ty, &Type::Int);
     }
 }

@@ -331,7 +331,7 @@ fn js_name(name: &str) -> String {
     }
     name.chars()
         .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
                 ch
             } else {
                 '_'
@@ -395,5 +395,12 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("does not provide"), "{err}");
         assert!(err.to_string().contains("fs.read"), "{err}");
+    }
+
+    #[test]
+    fn preserves_generated_dollar_names() {
+        assert_eq!(js_name("$cmp0"), "$cmp0");
+        assert_eq!(js_name("$stmt0"), "$stmt0");
+        assert_eq!(js_name("a-b"), "a_b");
     }
 }
