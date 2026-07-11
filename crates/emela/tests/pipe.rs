@@ -187,9 +187,7 @@ fn inserts_left_side_as_first_argument() {
 /// side: `x |> h` is `h(x)`.
 #[test]
 fn bare_function_value_is_applied() {
-    let source = format!(
-        "{HELPERS}fn main() -> Int {{\n  let h = double\n  10 |> h\n}}\n"
-    );
+    let source = format!("{HELPERS}fn main() -> Int {{\n  let h = double\n  10 |> h\n}}\n");
     // double(10) == 20.
     assert_eq!(run_exit_code(&source), 20);
 }

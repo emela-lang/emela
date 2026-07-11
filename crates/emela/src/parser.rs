@@ -1204,11 +1204,7 @@ fn pipe_desugar(lhs: Expr, rhs: Expr) -> Expr {
                 span,
             }
         }
-        Expr::Call {
-            callee,
-            args,
-            span,
-        } => {
+        Expr::Call { callee, args, span } => {
             let span = lhs.span().merge(&span);
             let mut new_args = Vec::with_capacity(args.len() + 1);
             new_args.push(lhs);
