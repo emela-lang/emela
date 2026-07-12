@@ -25,5 +25,7 @@ name = "emela"
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 # Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
+git_release_enable = true
+git_release_draft = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
