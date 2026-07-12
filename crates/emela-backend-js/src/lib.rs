@@ -52,6 +52,7 @@ impl Backend for JsBackend {
 fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
     let a = emit_expr(&args[0]);
     let b = args.get(1).map(emit_expr).unwrap_or_default();
+    let c = args.get(2).map(emit_expr).unwrap_or_default();
     match name {
         "i32_add" | "f64_add" => format!("({a} + {b})"),
         "i32_sub" | "f64_sub" => format!("({a} - {b})"),
@@ -62,6 +63,7 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         "i32_rem_s" => format!("({a} % {b})"),
         "i32_eq" | "f64_eq" => format!("({a} === {b})"),
         "i32_lt_s" | "f64_lt" => format!("({a} < {b})"),
+        "f64_sqrt" => format!("Math.sqrt({a})"),
         // String concatenation (spec 0017): the same `+` the old `Concat` node
         // emitted, now reached through the `Concat` trait's impl (spec 0020/0021).
         "string_concat" => format!("({a} + {b})"),
@@ -70,6 +72,15 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         // for ASCII/BMP text (they can differ only for supplementary characters).
         "string_eq" => format!("({a} === {b})"),
         "string_lt" => format!("({a} < {b})"),
+        // Scalar string operations (spec 0030). JS strings are UTF-16, so use
+        // `[...s]` (iterates by code point) and `codePointAt` for scalar units,
+        // never `s.length` / `s[i]` which are UTF-16 code-unit based. A `Char`
+        // is its code point as a number here (see `IrExpr::Char`).
+        "string_length" => format!("([...{a}].length)"),
+        "string_char_at" => format!("([...{a}][{b}].codePointAt(0))"),
+        "string_slice" => format!("([...{a}].slice({b}, {c}).join(\"\"))"),
+        // A `Char` is already its code point number, so `char_code` is identity.
+        "char_code" => format!("({a})"),
         _ => unreachable!("intrinsic `{name}` not provided by js-node backend"),
     }
 }
@@ -165,6 +176,15 @@ fn emit_expr(expr: &IrExpr) -> String {
             "[{}]",
             elems.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
+        // Arrays are native JS arrays (spec 0007 companion).
+        IrExpr::ArrayLength(array) => format!("({}.length)", emit_expr(array)),
+        IrExpr::ArrayGet { array, index, .. } => {
+            format!("{}[{}]", emit_expr(array), emit_expr(index))
+        }
+        // `push` returns a fresh array (pure copy), so spread rather than mutate.
+        IrExpr::ArrayPush { array, value, .. } => {
+            format!("[...{}, {}]", emit_expr(array), emit_expr(value))
+        }
         IrExpr::Unit => "undefined".to_string(),
         IrExpr::Var { name, .. } => js_name(name),
         IrExpr::FunctionRef { name, .. } => js_name(name),
@@ -329,7 +349,8 @@ fn js_name(name: &str) -> String {
     if name == "main" {
         return "main".to_string();
     }
-    name.chars()
+    let sanitized: String = name
+        .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
                 ch
@@ -337,7 +358,69 @@ fn js_name(name: &str) -> String {
                 '_'
             }
         })
-        .collect()
+        .collect();
+    // An Emela identifier that happens to be a JavaScript reserved word (e.g. a
+    // parameter named `default`) is not a valid JS binding, so prefix it with
+    // `$`. Deterministic, so declarations and uses stay in agreement.
+    if is_js_reserved(&sanitized) {
+        format!("${sanitized}")
+    } else {
+        sanitized
+    }
+}
+
+/// JavaScript reserved words (and a few contextually-reserved / literal names)
+/// that cannot be used as a plain binding name.
+fn is_js_reserved(name: &str) -> bool {
+    matches!(
+        name,
+        "await"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "implements"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "interface"
+            | "let"
+            | "new"
+            | "null"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "return"
+            | "static"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+    )
 }
 
 #[cfg(test)]

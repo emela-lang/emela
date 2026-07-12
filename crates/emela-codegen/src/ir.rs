@@ -121,6 +121,22 @@ pub enum IrExpr {
         left: Box<IrExpr>,
         right: Box<IrExpr>,
     },
+    /// `Array::length(a)` (spec 0007 companion): the element count. -> Int.
+    ArrayLength(Box<IrExpr>),
+    /// `Array::get(a, i)`: the element at index `i`. `elem_ty` is carried so a
+    /// backend picks the load width. Precondition: `0 <= i < length(a)`.
+    ArrayGet {
+        array: Box<IrExpr>,
+        index: Box<IrExpr>,
+        elem_ty: Type,
+    },
+    /// `Array::push(a, x)`: a fresh array with `x` appended (pure copy, so `a`
+    /// is unchanged). `elem_ty` is the element type of both arrays.
+    ArrayPush {
+        array: Box<IrExpr>,
+        value: Box<IrExpr>,
+        elem_ty: Type,
+    },
     /// An enum or `Option` value (spec 0005/0001). `tag` selects the variant in
     /// declaration order; `payload` carries its fields.
     EnumValue {
@@ -171,7 +187,11 @@ impl IrExpr {
             IrExpr::Char(_) | IrExpr::CharFromCode(_) => Type::Char,
             IrExpr::StringFromChar(_) | IrExpr::Concat { .. } => Type::String,
             IrExpr::Unit => Type::Unit,
-            IrExpr::Array { elem_ty, .. } => Type::Array(Box::new(elem_ty.clone())),
+            IrExpr::Array { elem_ty, .. } | IrExpr::ArrayPush { elem_ty, .. } => {
+                Type::Array(Box::new(elem_ty.clone()))
+            }
+            IrExpr::ArrayLength(_) => Type::Int,
+            IrExpr::ArrayGet { elem_ty, .. } => elem_ty.clone(),
             IrExpr::Var { ty, .. } => ty.clone(),
             IrExpr::FunctionRef { sig, .. } => Type::Function(sig.clone()),
             IrExpr::Let { next, .. } => next.ty(),

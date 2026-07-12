@@ -61,6 +61,11 @@ intrinsic fn f64_lt(a: Float, b: Float) -> Bool uses {}
 intrinsic fn string_concat(a: String, b: String) -> String uses {}
 intrinsic fn string_eq(a: String, b: String) -> Bool uses {}
 intrinsic fn string_lt(a: String, b: String) -> Bool uses {}
+-- `char_code` (spec 0030) backs `impl Eq for Char` below, so it lives in the
+-- prelude. The other scalar-string intrinsics (`string_length` /
+-- `string_char_at` / `string_slice`) and `f64_sqrt` are declared where they are
+-- wrapped, in `std.string` / `std.float`, to keep the prelude minimal.
+intrinsic fn char_code(c: Char) -> Int uses {}
 
 impl Add for Int {
     fn add(a: Int, b: Int) -> Int uses {} { i32_add(a, b) }
@@ -156,6 +161,14 @@ impl Ord for String {
 -- `print<T: Show>`) works uniformly for `String` as well as `Int`.
 impl Show for String {
     fn to_string(s: String) -> String uses {} { s }
+}
+
+-- `Eq for Char` (spec 0030). There is no `char_eq` intrinsic: a `Char` compares
+-- equal to another exactly when their code points do, so this bottoms out in
+-- `char_code` (spec 0017/0030) and `i32_eq`. This gives `!=` on `Char` too
+-- (spec 0027 desugars `a != b` to `!(a == b)`).
+impl Eq for Char {
+    fn eq(a: Char, b: Char) -> Bool uses {} { i32_eq(char_code(a), char_code(b)) }
 }
 
 -- `Eq for Bool` (spec 0027). There is no `bool_eq` intrinsic: `i32_eq` takes

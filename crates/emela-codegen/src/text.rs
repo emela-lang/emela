@@ -68,6 +68,13 @@ fn inline_expr(expr: &IrExpr) -> String {
             "[{}]",
             elems.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
         ),
+        IrExpr::ArrayLength(array) => format!("array_length {}", inline_expr(array)),
+        IrExpr::ArrayGet { array, index, .. } => {
+            format!("array_get {}, {}", inline_expr(array), inline_expr(index))
+        }
+        IrExpr::ArrayPush { array, value, .. } => {
+            format!("array_push {}, {}", inline_expr(array), inline_expr(value))
+        }
         IrExpr::Unit => "()".to_string(),
         IrExpr::Var { name, .. } => format!("%{name}"),
         IrExpr::FunctionRef { name, .. } => format!("@{name}"),

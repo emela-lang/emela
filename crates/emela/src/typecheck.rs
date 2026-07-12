@@ -116,6 +116,10 @@ struct FnCtx<'a> {
     /// parameter name -> the trait names it is bounded by. Used to allow trait
     /// method calls on a still-abstract type parameter.
     bounds: &'a HashMap<String, Vec<String>>,
+    /// The module path of the enclosing function (spec 0018), so a bare-name
+    /// call resolves to the referring module's own function before imports.
+    /// Empty for a compilation-root function or an impl method.
+    module: &'a [String],
 }
 
 /// Type-checks `program`. When `require_main` is false the program is treated as
@@ -551,6 +555,9 @@ impl Checker {
             throws: &throws,
             ret: &ret,
             bounds: &bounds,
+            // Impl methods resolve bare names from the compilation root (their
+            // bodies only call unique names — intrinsics and free functions).
+            module: &[],
         };
         let body = self.check_block(&method.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &ret, body.span.clone())?;
@@ -1003,6 +1010,7 @@ impl Checker {
             throws: &function.throws,
             ret: &function.ret,
             bounds: &bounds,
+            module: &function.module_path,
         };
         let body = self.check_block(&function.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &function.ret, body.span.clone())?;
@@ -1148,7 +1156,10 @@ impl Checker {
                 } else if let Some(sig) = self.externs.get(name) {
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
-                    match self.table.resolve(std::slice::from_ref(name)) {
+                    match self
+                        .table
+                        .resolve_in(std::slice::from_ref(name), ctx.module)
+                    {
                         Resolved::One(entry) => {
                             let sig = &self.sigs[entry.index];
                             // A generic function cannot be used as a first-class
@@ -1203,6 +1214,7 @@ impl Checker {
                     throws,
                     ret,
                     bounds: ctx.bounds,
+                    module: ctx.module,
                 };
                 let body_info = self.check_block(body, &mut fn_scope, &inner_ctx, false)?;
                 expect_assignable(&body_info.ty, ret, body_info.span.clone())?;
@@ -1453,7 +1465,8 @@ impl Checker {
             && !scope.contains_key(name)
             && !self.externs.contains_key(name)
             && matches!(
-                self.table.resolve(std::slice::from_ref(name)),
+                self.table
+                    .resolve_in(std::slice::from_ref(name), ctx.module),
                 Resolved::None
             )
         {
@@ -1480,7 +1493,9 @@ impl Checker {
         if let Expr::Var(name, _) = callee
             && !scope.contains_key(name)
             && !self.externs.contains_key(name)
-            && let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
+            && let Resolved::One(entry) = self
+                .table
+                .resolve_in(std::slice::from_ref(name), ctx.module)
             && self.sigs[entry.index].is_generic()
         {
             let sig = self.sigs[entry.index].clone();
@@ -1494,7 +1509,8 @@ impl Checker {
             && !scope.contains_key(name)
             && !self.externs.contains_key(name)
             && matches!(
-                self.table.resolve(std::slice::from_ref(name)),
+                self.table
+                    .resolve_in(std::slice::from_ref(name), ctx.module),
                 Resolved::None
             )
             && let Some(candidates) = self.method_owners.get(name)
@@ -1537,6 +1553,11 @@ impl Checker {
         {
             if let Some(builtin) =
                 self.check_char_builtin(segments, args, span, scope, ctx, allow_throw)?
+            {
+                return Ok(builtin);
+            }
+            if let Some(builtin) =
+                self.check_array_builtin(segments, args, span, scope, ctx, allow_throw)?
             {
                 return Ok(builtin);
             }
@@ -1663,6 +1684,85 @@ impl Checker {
             ty: ret_ty,
             effects: arg.effects,
             throws: arg.throws,
+            span: span.clone(),
+        }))
+    }
+
+    /// Type-checks the built-in array operations `Array::length(a) -> Int`,
+    /// `Array::get(a, i) -> T` and `Array::push(a, x) -> Array<T>` (spec 0007
+    /// companion). Unlike the `Char`/`String` conversions these are polymorphic:
+    /// the element type is read from the array argument. Returns `None` when the
+    /// call is not one of them.
+    #[allow(clippy::too_many_arguments)]
+    fn check_array_builtin(
+        &self,
+        segments: &[String],
+        args: &[Expr],
+        span: &Span,
+        scope: &mut HashMap<String, Type>,
+        ctx: &FnCtx,
+        allow_throw: bool,
+    ) -> Result<Option<ExprInfo>> {
+        let [name, op] = segments else {
+            return Ok(None);
+        };
+        if name != "Array" {
+            return Ok(None);
+        }
+        let arity = match op.as_str() {
+            "length" => 1,
+            "get" | "push" => 2,
+            _ => return Ok(None),
+        };
+        if args.len() != arity {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Wrong number of arguments").label(
+                    span.clone(),
+                    format!(
+                        "`Array::{op}` takes {arity} argument(s), got {}",
+                        args.len()
+                    ),
+                ),
+            ));
+        }
+        let array = self.check_expr(&args[0], scope, ctx, allow_throw)?;
+        let Type::Array(elem) = array.ty.clone() else {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Expected an array").label(
+                    array.span.clone(),
+                    format!(
+                        "`Array::{op}` expects an `Array<_>`, but found `{:?}`",
+                        array.ty
+                    ),
+                ),
+            ));
+        };
+        let elem = *elem;
+        let mut effects = array.effects;
+        let mut throws = array.throws;
+        let ret = match op.as_str() {
+            "length" => Type::Int,
+            "get" => {
+                let index = self.check_expr(&args[1], scope, ctx, allow_throw)?;
+                expect_assignable(&index.ty, &Type::Int, index.span.clone())?;
+                effects.union(&index.effects);
+                throws = merge_throws(throws, index.throws, index.span)?;
+                elem
+            }
+            // `push` returns a fresh array, so `x` must have the element type.
+            "push" => {
+                let value = self.check_expr(&args[1], scope, ctx, allow_throw)?;
+                expect_assignable(&value.ty, &elem, value.span.clone())?;
+                effects.union(&value.effects);
+                throws = merge_throws(throws, value.throws, value.span)?;
+                Type::Array(Box::new(elem))
+            }
+            _ => unreachable!("arity table covers all ops"),
+        };
+        Ok(Some(ExprInfo {
+            ty: ret,
+            effects,
+            throws,
             span: span.clone(),
         }))
     }
@@ -2190,24 +2290,43 @@ fn merge_throws(current: Option<Type>, next: Option<Type>, span: Span) -> Result
     }
 }
 
+/// The least type both `a` and `b` are assignable to, or `None` if there is
+/// none. `Never` (from `throw`/`panic`/`Nil`) joins with anything, taking the
+/// other side; two generic types with the same shape join argument-by-argument.
+/// This lets `match` arms that each pin a *different* type parameter to `Never`
+/// (e.g. `Ok(u) : Result<U, Never>` and `Err(e) : Result<Never, E>`) unify to
+/// the fully-applied type (`Result<U, E>`).
+fn join_types(a: &Type, b: &Type) -> Option<Type> {
+    if a == b {
+        return Some(a.clone());
+    }
+    match (a, b) {
+        (Type::Never, other) | (other, Type::Never) => Some(other.clone()),
+        (Type::Option(x), Type::Option(y)) => Some(Type::Option(Box::new(join_types(x, y)?))),
+        (Type::Array(x), Type::Array(y)) => Some(Type::Array(Box::new(join_types(x, y)?))),
+        (Type::Enum(an, aargs), Type::Enum(bn, bargs))
+            if an == bn && aargs.len() == bargs.len() =>
+        {
+            let mut out = Vec::with_capacity(aargs.len());
+            for (x, y) in aargs.iter().zip(bargs.iter()) {
+                out.push(join_types(x, y)?);
+            }
+            Some(Type::Enum(an.clone(), out))
+        }
+        _ => None,
+    }
+}
+
 /// Unifies one `match`/`catch` arm body type with the running result type.
 fn unify_arm(current: Option<Type>, ty: Type, span: Span) -> Result<Type> {
     match current {
         None => Ok(ty),
-        Some(existing) => {
-            if types_compatible(&ty, &existing) {
-                Ok(existing)
-            } else if types_compatible(&existing, &ty) {
-                Ok(ty)
-            } else {
-                Err(Error::diagnostic(
-                    Diagnostic::new("Arm type mismatch").label(
-                        span,
-                        format!("this arm yields `{ty:?}`, but earlier arms yield `{existing:?}`"),
-                    ),
-                ))
-            }
-        }
+        Some(existing) => join_types(&existing, &ty).ok_or_else(|| {
+            Error::diagnostic(Diagnostic::new("Arm type mismatch").label(
+                span,
+                format!("this arm yields `{ty:?}`, but earlier arms yield `{existing:?}`"),
+            ))
+        }),
     }
 }
 

@@ -53,6 +53,12 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
         float2("f64_div", Type::Float),
         float2("f64_eq", Type::Bool),
         float2("f64_lt", Type::Bool),
+        // Square root (spec 0030 companion), the intrinsic behind `std.float.sqrt`.
+        IntrinsicFn {
+            name: "f64_sqrt".to_string(),
+            params: vec![Type::Float],
+            ret: Type::Float,
+        },
         // String concatenation (spec 0017/0021), the intrinsic behind `++`.
         IntrinsicFn {
             name: "string_concat".to_string(),
@@ -71,6 +77,29 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
             name: "string_lt".to_string(),
             params: vec![Type::String, Type::String],
             ret: Type::Bool,
+        },
+        // String scalar operations (spec 0030). Indices, lengths and slice
+        // bounds are all in Unicode scalar (code point) units, never bytes.
+        // `char_code` is the inverse of `Char::from_code` (spec 0017).
+        IntrinsicFn {
+            name: "string_length".to_string(),
+            params: vec![Type::String],
+            ret: Type::Int,
+        },
+        IntrinsicFn {
+            name: "string_char_at".to_string(),
+            params: vec![Type::String, Type::Int],
+            ret: Type::Char,
+        },
+        IntrinsicFn {
+            name: "string_slice".to_string(),
+            params: vec![Type::String, Type::Int, Type::Int],
+            ret: Type::String,
+        },
+        IntrinsicFn {
+            name: "char_code".to_string(),
+            params: vec![Type::Char],
+            ret: Type::Int,
         },
     ]
 }
