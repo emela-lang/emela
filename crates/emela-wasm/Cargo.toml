@@ -1,5 +1,8 @@
 [package]
 name = "emela-wasm"
+# Browser-playground cdylib: not a distributed artifact and it only depends on
+# `emela`. Keep it off crates.io so `cargo package`/release-plz skip it.
+publish = false
 version.workspace = true
 edition.workspace = true
 license = "Apache-2.0"
