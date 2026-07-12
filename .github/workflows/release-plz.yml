@@ -1,77 +1,52 @@
 name: Release-plz
 
-# release-plz drives stable releases (see docs/release.md). On every push to
-# `main` it runs two independent jobs:
-#
-#   - release-plz-pr:      opens or updates the "release" PR that bumps the
-#                          workspace version and appends to CHANGELOG.md.
-#   - release-plz-release: once that PR is merged, pushes the `vX.Y.Z` tag,
-#                          which triggers `release.yml` to build and publish the
-#                          tarball GitHub Release.
-#
-# Both jobs authenticate as a GitHub App: each run mints a short-lived
-# installation token with actions/create-github-app-token from the APP_ID /
-# APP_PRIVATE_KEY secrets, instead of the default GITHUB_TOKEN. A tag or PR
-# created with GITHUB_TOKEN cannot trigger further workflows, so `release.yml`
-# and the release PR's CI checks would silently never run. The App needs
-# `contents: write` + `pull-requests: write` and must be installed on this repo.
-# See the setup section of docs/release.md for registering the secrets.
-#
-# crates.io publishing is disabled (release-plz.toml `publish = false`), so no
-# CARGO_REGISTRY_TOKEN is needed.
-
 on:
   push:
-    branches: [main]
-
-permissions:
-  contents: write
-  pull-requests: write
+    branches:
+      - main
 
 jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'emela-lang' }}
+    permissions:
+      contents: write
     steps:
-      - name: Generate GitHub App token
-        uses: actions/create-github-app-token@v2
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v4
+      - &checkout
+        name: Checkout repository
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
+      - &install-rust
+        name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
-    # Serialize PR runs so overlapping pushes don't race on the release branch,
-    # but never cancel one in flight (that could skip a release).
+    if: ${{ github.repository_owner == 'emela-lang' }}
+    permissions:
+      pull-requests: write
+      contents: write
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - name: Generate GitHub App token
-        uses: actions/create-github-app-token@v2
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      - *checkout
+      - *install-rust
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
