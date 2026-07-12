@@ -68,5 +68,5 @@ contexts:
       scope: variable.function.emela
 
   operators:
-    - match: '->|::|\?|\+\+|&&|\|\||[+\-*/%<>=!]=?'
+    - match: '->|::|\?|\+\+|&&|\|>|\|\||[+\-*/%<>=!]=?'
       scope: keyword.operator.emela

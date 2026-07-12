@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/emela-lang/emela/releases/tag/v0.3.0) - 2026-07-12
+
+### Added
+
+- implement pipeline operator `|>` (spec 0019) ([#43](https://github.com/emela-lang/emela/pull/43))
+
 ## [0.2.1](https://github.com/emela-lang/emela/releases/tag/v0.2.1) - 2026-07-12
 
 ### Fixed

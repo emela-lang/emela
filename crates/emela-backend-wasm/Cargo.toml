@@ -2,6 +2,7 @@
 name = "emela-backend-wasm"
 version.workspace = true
 edition.workspace = true
+license = "Apache-2.0"
 description = "WebAssembly (WASI / WAMR) code-generation backend for Emela (Tier 1)."
 
 [dependencies]
