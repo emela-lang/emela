@@ -1,7 +1,11 @@
-module clock
+-- The `std.clock` effect exposes the platform monotonic clock (specs 0013/0036).
+-- Import it with `import std.clock` and call `clock.now()` inside a function
+-- that declares `uses { clock }`.
 
-extern fn monotonic_seconds() -> Int uses { clock }
+effect clock {
+    extern fn monotonic_seconds() -> Int
 
-pub fn now() -> Int uses { clock } {
-    monotonic_seconds()
+    pub fn now() -> Int {
+        monotonic_seconds()
+    }
 }

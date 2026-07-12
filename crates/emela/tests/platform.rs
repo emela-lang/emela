@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
-/// Lays out a `std` source package wrapping `io.write_stdout`, plus an app that
-/// imports `std.io.print`. Returns (package dir, app file).
+/// Lays out a `std` source package with an `effect io` wrapping
+/// `io.write_stdout`, plus an app that imports `std.io` and calls `io.print`.
+/// Returns (package dir, app file).
 fn hello_project() -> (std::path::PathBuf, std::path::PathBuf) {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("emela-platform-test-{}-{id}", std::process::id()));
@@ -18,13 +19,13 @@ fn hello_project() -> (std::path::PathBuf, std::path::PathBuf) {
     .unwrap();
     fs::write(
         package.join("src").join("io.emel"),
-        "module io\nextern fn write_stdout(s: String) -> Unit uses { io }\npub fn print(s: String) -> Unit uses { io } { write_stdout(s) }\n",
+        "effect io {\nextern fn write_stdout(s: String) -> Unit\npub fn print(s: String) -> Unit { write_stdout(s) }\n}\n",
     )
     .unwrap();
     let app = dir.join("main.emel");
     fs::write(
         &app,
-        "import std.io.print\nfn main() -> Unit uses { io } { print(\"Hello, Emela!\\n\") }\n",
+        "import std.io\nfn main() -> Unit uses { io } { io.print(\"Hello, Emela!\\n\") }\n",
     )
     .unwrap();
     (package, app)
@@ -92,7 +93,8 @@ fn wasm_backend_builds_a_valid_module() {
 }
 
 /// Builds a program that uses the pure `std.int.to_string` (if + `/`/`%` +
-/// `Char`/`++`) together with `std.io.print`, end to end to a wasm module.
+/// `Char`/`++`) together with the `std.io` effect's `print`, end to end to a
+/// wasm module.
 #[test]
 fn pure_to_string_builds_on_wasm() {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
@@ -106,7 +108,7 @@ fn pure_to_string_builds_on_wasm() {
     .unwrap();
     fs::write(
         package.join("src").join("io.emel"),
-        "module io\nextern fn write_stdout(s: String) -> Unit uses { io }\npub fn print(s: String) -> Unit uses { io } { write_stdout(s) }\n",
+        "effect io {\nextern fn write_stdout(s: String) -> Unit\npub fn print(s: String) -> Unit { write_stdout(s) }\n}\n",
     )
     .unwrap();
     fs::write(
@@ -117,7 +119,7 @@ fn pure_to_string_builds_on_wasm() {
     let app = dir.join("main.emel");
     fs::write(
         &app,
-        "import std.io.print\nimport std.int.to_string\nfn main() -> Unit uses { io } { print(to_string(42) ++ \"\\n\") }\n",
+        "import std.io\nimport std.int.to_string\nfn main() -> Unit uses { io } { io.print(to_string(42) ++ \"\\n\") }\n",
     )
     .unwrap();
 

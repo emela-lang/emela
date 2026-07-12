@@ -66,6 +66,31 @@ impl Parser {
                 self.parse_trait().map(|decl| traits.push(decl))
             } else if self.at(&TokenKind::Impl) {
                 self.parse_impl().map(|decl| impls.push(decl))
+            } else if self.at(&TokenKind::Effect) {
+                // An `effect` block desugars into ordinary functions/externs
+                // (spec 0036) and names the file's module (effect name == module
+                // name). Its operations join the top-level collections; the
+                // extern-canonicalization loop below stamps them with `module`.
+                self.parse_effect_decl().and_then(
+                    |(effect_name, effect_span, effect_fns, effect_externs)| {
+                        if let Some(existing) = &module
+                            && existing != &effect_name
+                        {
+                            return Err(Error::diagnostic(
+                                Diagnostic::new("Effect/module mismatch").label(
+                                    effect_span,
+                                    format!(
+                                        "`effect {effect_name}` must be the file's module, but module `{existing}` is declared"
+                                    ),
+                                ),
+                            ));
+                        }
+                        module = Some(effect_name);
+                        functions.extend(effect_fns);
+                        externs.extend(effect_externs);
+                        Ok(())
+                    },
+                )
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 if self.at(&TokenKind::Enum) {
@@ -242,7 +267,61 @@ impl Parser {
             throws,
             effects,
             is_intrinsic,
+            is_effect_op: false,
         })
+    }
+
+    /// Parses an `effect` declaration (spec 0036): a named effect that owns a set
+    /// of operations. Each operation is desugared into an ordinary `fn`/`extern
+    /// fn` that carries the effect implicitly in `uses { <name> }` and is marked
+    /// `is_effect_op`, so it is callable only in qualified form (`io.print`),
+    /// never by bare name. The effect name also becomes the file's module name
+    /// (returned to `parse_program`), so externs canonicalize as `io.write_stdout`
+    /// and the orphan rule sees the module exactly as with a `module` header.
+    /// Returns `(name, name_span, functions, externs)`.
+    fn parse_effect_decl(&mut self) -> Result<(String, Span, Vec<Function>, Vec<Extern>)> {
+        self.expect(&TokenKind::Effect)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        // Every operation implicitly `uses { <name> }` (spec 0036); authors must
+        // not repeat it, and no operation may declare any other effect in v1.
+        let effect_row = EffectRow::sorted(vec![name.clone()]);
+        self.expect(&TokenKind::LBrace)?;
+        self.skip_newlines();
+        let mut functions = Vec::new();
+        let mut externs = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at(&TokenKind::Eof) {
+            if self.at(&TokenKind::Intrinsic) {
+                // An `intrinsic fn` must be pure (spec 0021), which contradicts an
+                // effect operation. Effects are backed by `extern fn` (spec 0013).
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Intrinsic inside effect").label(
+                        self.peek().span.clone(),
+                        "an `effect` operation cannot be `intrinsic`; use `extern fn` or `fn`",
+                    ),
+                ));
+            } else if self.at(&TokenKind::Extern) {
+                let mut declaration = self.parse_extern()?;
+                if !declaration.effects.effects.is_empty() {
+                    return Err(explicit_uses_in_effect(&declaration.name_span, &name));
+                }
+                declaration.effects = effect_row.clone();
+                declaration.is_effect_op = true;
+                externs.push(declaration);
+            } else {
+                let is_public = self.eat(&TokenKind::Pub);
+                let mut function = self.parse_function(is_public)?;
+                if !function.effects.effects.is_empty() {
+                    return Err(explicit_uses_in_effect(&function.name_span, &name));
+                }
+                function.effects = effect_row.clone();
+                function.is_effect_op = true;
+                functions.push(function);
+            }
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        Ok((name, name_span, functions, externs))
     }
 
     fn parse_import(&mut self) -> Result<Import> {
@@ -297,6 +376,7 @@ impl Parser {
             ret,
             throws,
             effects,
+            is_effect_op: false,
             body,
         })
     }
@@ -466,6 +546,7 @@ impl Parser {
             ret,
             throws,
             effects,
+            is_effect_op: false,
             body,
         })
     }
@@ -1132,11 +1213,21 @@ fn is_decl_start(kind: &TokenKind) -> bool {
             | TokenKind::Enum
             | TokenKind::Trait
             | TokenKind::Impl
+            | TokenKind::Effect
             | TokenKind::Extern
             | TokenKind::Intrinsic
             | TokenKind::Import
             | TokenKind::Module
     )
+}
+
+/// The error for an explicit `uses { ... }` on an operation inside an `effect`
+/// block (spec 0036): the effect is implicit, so writing it is redundant.
+fn explicit_uses_in_effect(name_span: &Span, effect: &str) -> Error {
+    Error::diagnostic(Diagnostic::new("Redundant effect on operation").label(
+        name_span.clone(),
+        format!("an operation of `effect {effect}` already uses `{{ {effect} }}`; remove the `uses` clause"),
+    ))
 }
 
 fn pattern_span(pattern: &Pattern) -> Span {
