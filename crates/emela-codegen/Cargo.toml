@@ -2,6 +2,7 @@
 name = "emela-codegen"
 version.workspace = true
 edition.workspace = true
+license = "Apache-2.0"
 description = "Emela IR, the codegen Backend trait, tiers, artifacts, the backend registry, and the external-plugin protocol."
 
 [dependencies]
