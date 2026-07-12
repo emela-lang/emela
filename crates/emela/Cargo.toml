@@ -3,6 +3,7 @@ name = "emela"
 version.workspace = true
 edition.workspace = true
 build = "build.rs"
+license = "Apache-2.0"
 description = "The Emela compiler frontend and CLI."
 
 [lib]
