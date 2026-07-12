@@ -29,6 +29,10 @@ pub(crate) struct FnEntry {
     pub(crate) full_path: Vec<String>,
     /// Whether the function is generic (spec 0014).
     pub(crate) is_generic: bool,
+    /// Whether the function is an operation of an `effect` block (spec 0036).
+    /// An *imported* effect operation is callable only in qualified form
+    /// (`io.print`); a bare name never resolves to one (see [`FnTable::resolve`]).
+    pub(crate) is_effect_op: bool,
     /// The backend symbol name: the bare name when it is unique across all
     /// top-level functions, otherwise the mangled full path so that same-named
     /// functions from different modules coexist (spec 0018 Compilation Notes).
@@ -44,6 +48,11 @@ pub(crate) enum Resolved<'a> {
     /// Several functions match — the call site must qualify further (spec 0018
     /// R5). Carries the candidates so the diagnostic can list them.
     Ambiguous(Vec<&'a FnEntry>),
+    /// A bare name matched only an imported effect operation (spec 0036), which
+    /// is callable only in qualified form. Carries the operation so the caller
+    /// can point at the qualified spelling (`io.print`). Only returned for a
+    /// single-segment (bare) path.
+    EffectOpUnqualified(&'a FnEntry),
 }
 
 pub(crate) struct FnTable {
@@ -81,6 +90,7 @@ impl FnTable {
                 name: function.name.clone(),
                 full_path,
                 is_generic: !function.type_params.is_empty(),
+                is_effect_op: function.is_effect_op,
                 emit_name,
             });
         }
@@ -136,6 +146,28 @@ impl FnTable {
                 [only] => return Resolved::One(only),
                 [_, _, ..] => return Resolved::Ambiguous(same_module),
                 [] => {}
+            }
+            // No local shadow. An *imported* effect operation (spec 0036) is
+            // qualified-only: a bare name must not resolve to one. Exclude effect
+            // operations; if that leaves nothing but one existed, report it
+            // distinctly so the caller can suggest the `io.op` spelling.
+            let visible: Vec<&FnEntry> = indices
+                .iter()
+                .map(|&i| &self.entries[i])
+                .filter(|entry| !entry.is_effect_op)
+                .collect();
+            match visible.as_slice() {
+                [] => {
+                    return match indices
+                        .iter()
+                        .find_map(|&i| self.entries[i].is_effect_op.then_some(&self.entries[i]))
+                    {
+                        Some(entry) => Resolved::EffectOpUnqualified(entry),
+                        None => Resolved::None,
+                    };
+                }
+                [only] => return Resolved::One(only),
+                [_, _, ..] => return Resolved::Ambiguous(visible),
             }
         }
         match indices.as_slice() {

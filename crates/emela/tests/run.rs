@@ -93,13 +93,13 @@ fn writes_to_stdout() {
     .unwrap();
     fs::write(
         package.join("src").join("io.emel"),
-        "module io\nextern fn write_stdout(s: String) -> Unit uses { io }\npub fn print(s: String) -> Unit uses { io } { write_stdout(s) }\n",
+        "effect io {\nextern fn write_stdout(s: String) -> Unit\npub fn print(s: String) -> Unit { write_stdout(s) }\n}\n",
     )
     .unwrap();
     let app = dir.join("main.emel");
     fs::write(
         &app,
-        "import std.io.print\nfn main() -> Unit uses { io } { print(\"Hello, Emela!\\n\") }\n",
+        "import std.io\nfn main() -> Unit uses { io } { io.print(\"Hello, Emela!\\n\") }\n",
     )
     .unwrap();
 
