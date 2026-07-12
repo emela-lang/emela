@@ -7,6 +7,13 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/emela-lang/emela/compare/v0.3.0...v0.4.0) - 2026-07-12
+
+### Added
+
+- string/array/sqrt primitives and multi-module fixes for stdlib ([#52](https://github.com/emela-lang/emela/pull/52))
+- add effect declarations (spec 0036) ([#50](https://github.com/emela-lang/emela/pull/50))
+
 ## [0.3.0](https://github.com/emela-lang/emela/releases/tag/v0.3.0) - 2026-07-12
 
 ### Added
