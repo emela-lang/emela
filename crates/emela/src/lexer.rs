@@ -61,6 +61,9 @@ pub(crate) enum TokenKind {
     Bang,
     AmpAmp,
     PipePipe,
+    /// `|>` — the pipeline operator (spec 0019). Desugared in the parser to a
+    /// first-argument-insertion `Call`, so no later stage sees this token.
+    PipeGt,
     Question,
     Newline,
     Eof,
@@ -237,6 +240,14 @@ fn lex_with_file(
             b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
                 tokens.push(Token {
                     kind: TokenKind::PipePipe,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
+            // The pipeline operator `|>` (spec 0019). A lone `|` remains unused.
+            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                tokens.push(Token {
+                    kind: TokenKind::PipeGt,
                     span: Span::new(file.clone(), start, start + 2),
                 });
                 i += 2;

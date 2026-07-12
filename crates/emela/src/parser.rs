@@ -723,7 +723,22 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_or()
+        self.parse_pipe()
+    }
+
+    /// `|>`, the pipeline operator (spec 0019): the weakest binary operator,
+    /// left-associative. `lhs |> rhs` is a pure syntactic desugaring to a `Call`
+    /// (see [`pipe_desugar`]), so no later stage sees a pipe node. Both sides are
+    /// parsed at the next-higher precedence (`parse_or`), which makes every other
+    /// operator bind tighter: `a + b |> f` is `f(a + b)`, and the left-fold of the
+    /// `while` yields `a |> f |> g` == `g(f(a))`.
+    fn parse_pipe(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_or()?;
+        while self.eat(&TokenKind::PipeGt) {
+            let right = self.parse_or()?;
+            expr = pipe_desugar(expr, right);
+        }
+        Ok(expr)
     }
 
     /// `||`, the weakest binary operator (spec 0027). `a || b` desugars to
@@ -1255,6 +1270,50 @@ fn if_desugar(cond: Expr, then: Expr, els: Expr, span: Span) -> Expr {
         then: block_of(then),
         els: block_of(els),
         span,
+    }
+}
+
+/// Desugars a single `lhs |> rhs` pipe (spec 0019) into an ordinary `Call`.
+/// The shape of `rhs` decides the insertion:
+///
+/// - `Question { value }` (a trailing `?`, spec 0011): the `?` applies *after*
+///   insertion (P4), so recurse into `value` and re-wrap — `lhs |> g?` becomes
+///   `(lhs |> g)?`.
+/// - `Call { callee, args }`: first-argument insertion (P2) — `lhs |> f(a, b)`
+///   becomes `f(lhs, a, b)`.
+/// - anything else `e`: a bare function value (P3) — `lhs |> e` becomes `e(lhs)`.
+///
+/// `lhs` is only moved into argument position, never cloned, so it is evaluated
+/// exactly once (P5).
+fn pipe_desugar(lhs: Expr, rhs: Expr) -> Expr {
+    match rhs {
+        Expr::Question { value, span } => {
+            let span = lhs.span().merge(&span);
+            let inner = pipe_desugar(lhs, *value);
+            Expr::Question {
+                value: Box::new(inner),
+                span,
+            }
+        }
+        Expr::Call { callee, args, span } => {
+            let span = lhs.span().merge(&span);
+            let mut new_args = Vec::with_capacity(args.len() + 1);
+            new_args.push(lhs);
+            new_args.extend(args);
+            Expr::Call {
+                callee,
+                args: new_args,
+                span,
+            }
+        }
+        callee => {
+            let span = lhs.span().merge(&callee.span());
+            Expr::Call {
+                callee: Box::new(callee),
+                args: vec![lhs],
+                span,
+            }
+        }
     }
 }
 

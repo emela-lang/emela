@@ -8,6 +8,14 @@
 # tag. It never publishes to crates.io nor creates the GitHub Release itself.
 
 [workspace]
+# Every crate is `publish = false`, so nothing lands on crates.io. Without this,
+# release-plz reads the "last released version" from the registry, finds nothing,
+# treats each crate as a first release, and never bumps. `git_only` makes it
+# derive versions from the git tags instead, which is what we actually release on.
+git_only = true
+# In the 0.y.z range a `feat:` commit should bump the minor (0.2.1 -> 0.3.0).
+# release-plz's default for 0.x bumps the patch; flip it to match our convention.
+features_always_increment_minor = true
 # Distribution is the `emela` binary tarball, not crates.io packages.
 publish = false
 # `release.yml` creates the GitHub Release (with tarballs) when the tag lands.
@@ -25,5 +33,16 @@ name = "emela"
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 # Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
+git_release_enable = true
+git_release_draft = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
+
+[[package]]
+name = "emela-wasm"
+# Playground cdylib that only wraps `emela`; it is never released. Turning off
+# git_only keeps it out of release-plz's git-only package set (paired with
+# `publish = false` in its Cargo.toml), so its un-packageable path dep never
+# breaks the run.
+git_only = false
+release = false
