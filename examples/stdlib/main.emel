@@ -1,10 +1,10 @@
-import std.io.print
-import std.clock.now
+import std.io
+import std.clock
 
 fn main() -> Int uses { io, clock } {
-    let start = now()
+    let start = clock.now()
     -- `print` is generic over `Show` (Core Prelude, spec 0020/0021), so the Int
     -- is converted and printed directly; no `to_string` import is needed.
-    print(start)
+    io.print(start)
     start
 }

@@ -109,6 +109,10 @@ pub(crate) struct Extern {
     pub(crate) effects: EffectRow,
     /// `true` for `intrinsic fn` (spec 0021), `false` for `extern fn` (spec 0013).
     pub(crate) is_intrinsic: bool,
+    /// `true` when this extern is an operation of an `effect` block (spec 0036),
+    /// e.g. `write_stdout` inside `effect io { ... }`. Effect operations are
+    /// callable only in qualified form (`io.write_stdout`), never by bare name.
+    pub(crate) is_effect_op: bool,
 }
 
 impl Extern {
@@ -157,6 +161,11 @@ pub(crate) struct Function {
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
+    /// `true` when this function is an operation of an `effect` block (spec 0036),
+    /// e.g. `print` inside `effect io { ... }`. Effect operations carry the
+    /// effect implicitly in `effects` and are callable only in qualified form
+    /// (`io.print`), never by bare name.
+    pub(crate) is_effect_op: bool,
     pub(crate) body: Block,
 }
 
