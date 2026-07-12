@@ -168,79 +168,107 @@ impl ImportResolver<'_> {
                 ),
             )));
         }
-        let imported = module
-            .functions
-            .iter()
-            .find(|function| function.name == item_name);
-        match imported {
-            Some(function) if function.is_public => {
-                let canonical = module_file.canonicalize().map_err(|err| {
-                    Error::new(format!(
-                        "failed to resolve module `{}`: {err}",
-                        module_file.display()
-                    ))
-                })?;
-                if self.emitted.insert(canonical) {
-                    // Stamp each of this module's own public functions with the
-                    // qualifier the user wrote (everything before the item name),
-                    // e.g. `["std", "int"]` for `import std.int.to_string`. They
-                    // then become callable as `int.to_string` / `std.int.to_string`
-                    // as well as the bare name (spec 0018). Private helpers and
-                    // already-stamped transitively-imported functions are left
-                    // unqualified, so they keep only their bare-name behavior.
-                    let qualifier = import.path[..import.path.len() - 1].to_vec();
-                    let mut functions = module.functions.clone();
-                    for function in &mut functions {
-                        if function.is_public && function.module_path.is_empty() {
-                            function.module_path = qualifier.clone();
-                        }
-                    }
-                    // The module's type declarations (spec 0028) and their impls
-                    // (spec 0020) travel with its functions; the imported
-                    // functions' signatures need them. A loaded module is not
-                    // merged with the prelude, so these are only its own.
-                    Ok(Imported {
-                        functions,
-                        externs: module.externs.clone(),
-                        enums: module.enums.clone(),
-                        traits: module.traits.clone(),
-                        impls: module.impls.clone(),
-                    })
-                } else {
-                    Ok(Imported::default())
+        // A per-item import must name a public item; a whole-module import
+        // (`item_name == None`, e.g. an effect) brings in every public item.
+        if let Some(item_name) = &item_name {
+            match module.functions.iter().find(|f| &f.name == item_name) {
+                // Effect operations are imported as a whole and called qualified
+                // (spec 0036), never pulled in one at a time.
+                Some(function) if function.is_effect_op => {
+                    let effect_import = import.path[..import.path.len() - 1].join(".");
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Effect operation import").label(
+                            import.span.clone(),
+                            format!(
+                                "`{item_name}` is an operation of effect `{module_name}`; import the effect with `import {effect_import}` and call it as `{module_name}.{item_name}`"
+                            ),
+                        ),
+                    ));
+                }
+                Some(function) if function.is_public => {}
+                Some(function) => {
+                    return Err(Error::diagnostic(Diagnostic::new("Private import").label(
+                        function.name_span.clone(),
+                        format!("`{item_name}` is not public"),
+                    )));
+                }
+                None => {
+                    return Err(Error::diagnostic(Diagnostic::new("Unknown import").label(
+                        import.span.clone(),
+                        format!("`{item_name}` is not defined"),
+                    )));
                 }
             }
-            Some(function) => Err(Error::diagnostic(Diagnostic::new("Private import").label(
-                function.name_span.clone(),
-                format!("`{item_name}` is not public"),
-            ))),
-            None => Err(Error::diagnostic(Diagnostic::new("Unknown import").label(
-                import.span.clone(),
-                format!("`{item_name}` is not defined"),
-            ))),
+        }
+        let canonical = module_file.canonicalize().map_err(|err| {
+            Error::new(format!(
+                "failed to resolve module `{}`: {err}",
+                module_file.display()
+            ))
+        })?;
+        if self.emitted.insert(canonical) {
+            // Stamp each of this module's own public functions with the qualifier
+            // the user wrote: everything before the item name for a per-item
+            // import (`["std", "int"]` for `import std.int.to_string`), or the
+            // whole path for a whole-module import (`["std", "io"]` for
+            // `import std.io`). They then become callable as `io.print` /
+            // `std.io.print` (spec 0018); effect operations are qualified-only
+            // (spec 0036). Private helpers and already-stamped transitively
+            // imported functions are left unqualified.
+            let qualifier = if item_name.is_some() {
+                import.path[..import.path.len() - 1].to_vec()
+            } else {
+                import.path.clone()
+            };
+            let mut functions = module.functions.clone();
+            for function in &mut functions {
+                if function.is_public && function.module_path.is_empty() {
+                    function.module_path = qualifier.clone();
+                }
+            }
+            // The module's type declarations (spec 0028) and their impls
+            // (spec 0020) travel with its functions; the imported functions'
+            // signatures need them. A loaded module is not merged with the
+            // prelude, so these are only its own.
+            Ok(Imported {
+                functions,
+                externs: module.externs.clone(),
+                enums: module.enums.clone(),
+                traits: module.traits.clone(),
+                impls: module.impls.clone(),
+            })
+        } else {
+            Ok(Imported::default())
         }
     }
 
+    /// Locates the module file an import refers to, its declared module name, and
+    /// the imported item — `None` for a whole-module import. `import pkg.module`
+    /// (two segments into a package) imports the whole module: this is how an
+    /// `effect` is imported (spec 0036), and its operations are then callable only
+    /// as `module.op`. `import pkg.module.item` (or deeper) imports a single item.
+    /// Relative imports (not into a package) always name a single item, as before.
     fn resolve_module_file(
         &self,
         source_path: &Path,
         import: &Import,
-    ) -> Result<Option<(PathBuf, String, String)>> {
-        let item_name = import.item_name().to_string();
+    ) -> Result<Option<(PathBuf, String, Option<String>)>> {
         if let Some(package) = self
             .packages
             .iter()
             .find(|package| package.name == import.path[0])
         {
-            if import.path.len() < 3 {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Invalid package import").label(
-                        import.span.clone(),
-                        "package imports must name a module and item",
-                    ),
-                ));
-            }
-            let module_parts = &import.path[1..import.path.len() - 1];
+            let remaining = &import.path[1..];
+            let (module_parts, item_name): (&[String], Option<String>) = if remaining.len() == 1 {
+                // `import std.io` — the whole module (e.g. an effect).
+                (remaining, None)
+            } else {
+                // `import std.list.map` — a single item from a module.
+                (
+                    &remaining[..remaining.len() - 1],
+                    Some(import.path[import.path.len() - 1].clone()),
+                )
+            };
             let module_path = join_module_path(&package.source_root, module_parts);
             return Ok(Some((module_path, module_parts.join("."), item_name)));
         }
@@ -248,7 +276,11 @@ impl ImportResolver<'_> {
         let base_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
         let module_parts = &import.path[..import.path.len() - 1];
         let module_path = join_module_path(base_dir, module_parts);
-        Ok(Some((module_path, module_parts.join("."), item_name)))
+        Ok(Some((
+            module_path,
+            module_parts.join("."),
+            Some(import.item_name().to_string()),
+        )))
     }
 
     fn load_module(&mut self, path: &Path) -> Result<Program> {

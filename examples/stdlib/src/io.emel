@@ -1,18 +1,21 @@
--- The `std.io` module wraps the platform I/O functions (spec 0013).
+-- The `std.io` effect wraps the platform I/O functions (specs 0013/0036).
 -- `extern fn` declares a platform function; the backend supplies its body.
+-- Every operation of an `effect` implicitly `uses { io }`, so it is written
+-- once here. Callers import the effect (`import std.io`) and invoke operations
+-- in qualified form (`io.print(...)`) inside a function declaring `uses { io }`.
 
-module io
+effect io {
+    extern fn write_stdout(s: String) -> Unit
+    extern fn write_stderr(s: String) -> Unit
 
-extern fn write_stdout(s: String) -> Unit uses { io }
-extern fn write_stderr(s: String) -> Unit uses { io }
+    -- Generic over any `Show` type (spec 0020). `s.to_string()` is receiver-call
+    -- sugar for `to_string(s)`; dispatch is by the receiver's type. `Show` and
+    -- `to_string` come from the Core Prelude (spec 0021), so no import is needed.
+    pub fn print<T: Show>(s: T) -> Unit {
+        write_stdout(s.to_string())
+    }
 
--- Generic over any `Show` type (spec 0020). `s.to_string()` is receiver-call
--- sugar for `to_string(s)`; dispatch is by the receiver's type. `Show` and
--- `to_string` come from the Core Prelude (spec 0021), so no import is needed.
-pub fn print<T: Show>(s: T) -> Unit uses { io } {
-    write_stdout(s.to_string())
-}
-
-pub fn eprint<T: Show>(s: T) -> Unit uses { io } {
-    write_stderr(s.to_string())
+    pub fn eprint<T: Show>(s: T) -> Unit {
+        write_stderr(s.to_string())
+    }
 }

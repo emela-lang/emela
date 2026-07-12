@@ -1162,6 +1162,9 @@ impl Checker {
                         Resolved::Ambiguous(candidates) => {
                             Err(ambiguous_error(name, &candidates, span))
                         }
+                        Resolved::EffectOpUnqualified(entry) => {
+                            Err(effect_op_unqualified_error(name, entry, span))
+                        }
                         Resolved::None => {
                             Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
                                 span.clone(),
@@ -1356,6 +1359,13 @@ impl Checker {
                     Resolved::Ambiguous(candidates) => {
                         Err(ambiguous_error(&segments.join("."), &candidates, span))
                     }
+                    // Unreachable for a qualified (multi-segment) path — only a
+                    // bare name yields this — but handled for totality (spec 0036).
+                    Resolved::EffectOpUnqualified(entry) => Err(effect_op_unqualified_error(
+                        &segments.join("."),
+                        entry,
+                        span,
+                    )),
                     Resolved::None => {
                         // A dotted path whose head is a declared enum is almost
                         // certainly a variant written with the old `.` spelling;
@@ -2132,6 +2142,35 @@ fn ambiguous_error(path: &str, candidates: &[&FnEntry], span: &Span) -> Error {
     )
 }
 
+/// A bare name that resolves only to an imported effect operation (spec 0036),
+/// which must be called in qualified form; points at the `effect.op` spelling.
+fn effect_op_unqualified_error(name: &str, entry: &FnEntry, span: &Span) -> Error {
+    let full = &entry.full_path;
+    // `full_path` is `module_path + [name]`; the effect name is the segment just
+    // before the operation, e.g. `io` in `std.io.print`.
+    let qualified = if full.len() >= 2 {
+        display_path(&full[full.len() - 2..])
+    } else {
+        name.to_string()
+    };
+    let effect = full
+        .get(full.len().wrapping_sub(2))
+        .map(String::as_str)
+        .unwrap_or(name);
+    Error::diagnostic(
+        Diagnostic::new("Effect operation called by bare name")
+            .label(
+                span.clone(),
+                format!(
+                    "`{name}` is an operation of effect `{effect}`; call it as `{qualified}(...)`"
+                ),
+            )
+            .help(
+                "Effect operations are qualified-only (spec 0036); write `effect.operation(...)`.",
+            ),
+    )
+}
+
 /// Combines the error a subexpression may throw with that of its siblings. The
 /// throws channel carries a single error type (spec 0011), so two different
 /// error types in the same expression are a type error.
@@ -2299,6 +2338,7 @@ pub(crate) fn expand_trait_defaults(program: &mut Program) {
                 ret: tmethod.ret.clone(),
                 throws: tmethod.throws.clone(),
                 effects: tmethod.effects.clone(),
+                is_effect_op: false,
                 body: default_body.clone(),
             });
         }
