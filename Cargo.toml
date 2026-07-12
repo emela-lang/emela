@@ -19,7 +19,7 @@ default-members = [
 
 [workspace.package]
 edition = "2024"
-version = "0.2.1"
+version = "0.3.0"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -29,7 +29,7 @@ wasmparser = "0.252"
 # In-process WASI runtime for `emela run` (pure Rust, keeps the "no external
 # wasm tools" build and cross-compiles with the release matrix).
 wasmi = "1"
-emela-codegen = { path = "crates/emela-codegen", version = "0.2.1" }
-emela-backend-js = { path = "crates/emela-backend-js", version = "0.2.1" }
-emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.2.1" }
-emela = { path = "crates/emela", version = "0.2.1" }
+emela-codegen = { path = "crates/emela-codegen", version = "0.3.0" }
+emela-backend-js = { path = "crates/emela-backend-js", version = "0.3.0" }
+emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.3.0" }
+emela = { path = "crates/emela", version = "0.3.0" }

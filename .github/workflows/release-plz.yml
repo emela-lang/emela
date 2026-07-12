@@ -1,10 +1,8 @@
 name: Release-plz
-
 on:
   push:
     branches:
       - main
-
 jobs:
   release-plz-release:
     name: Release-plz release
@@ -12,6 +10,9 @@ jobs:
     if: ${{ github.repository_owner == 'emela-lang' }}
     permissions:
       contents: write
+    outputs:
+      releases_created: ${{ steps.release-plz.outputs.releases_created }}
+      tag: ${{ steps.release-plz.outputs.tag }}
     steps:
       - &checkout
         name: Checkout repository
@@ -23,12 +24,64 @@ jobs:
         name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
+        id: release-plz
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: release-plz-release
+    if: needs.release-plz-release.outputs.releases_created == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-plz-release.outputs.tag }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --bin emela
+
+      - name: Package tarball
+        run: |
+          tar czf emela-${{ needs.release-plz-release.outputs.tag }}-${{ matrix.target }}.tar.gz \
+            -C target/${{ matrix.target }}/release emela
+
+      - name: Upload asset
+        run: gh release upload ${{ needs.release-plz-release.outputs.tag }} ./emela-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [release-plz-release, build]
+    if: needs.release-plz-release.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Undraft release
+        run: gh release edit ${{ needs.release-plz-release.outputs.tag }} --draft=false --repo ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR
