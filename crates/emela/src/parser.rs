@@ -961,7 +961,14 @@ impl Parser {
         let cond = self.parse_expr()?;
         let then = self.parse_block()?;
         self.expect(&TokenKind::Else)?;
-        let els = self.parse_block()?;
+        // `else if …` (spec 0015): parse the trailing `if` as a nested `if`
+        // expression wrapped in a single-item block, so a chain of `else if`
+        // desugars to right-nested `if`s. `else { … }` stays a plain block.
+        let els = if self.at(&TokenKind::If) {
+            block_of(self.parse_if()?)
+        } else {
+            self.parse_block()?
+        };
         let span = start.merge(&els.span);
         Ok(Expr::If {
             cond: Box::new(cond),

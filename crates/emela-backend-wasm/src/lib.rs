@@ -417,6 +417,7 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(&emit_table(&table));
     module.push_str(ALLOC);
     module.push_str(STRING_CMP);
+    module.push_str(STRING_INDEX);
     for name in &used_platform {
         module.push_str(platform_glue(name).expect("checked above"));
     }
@@ -443,8 +444,20 @@ fn platform_wasm_name(canonical: &str) -> String {
 /// intrinsic or a structural one emitted by a dedicated helper (spec 0021).
 fn wasm_provides_intrinsic(name: &str) -> bool {
     // A single-instruction intrinsic, or a structural one emitted by a helper
-    // (`string_concat`) or a shared runtime function (`string_eq`/`string_lt`).
-    intrinsic_wasm(name).is_some() || matches!(name, "string_concat" | "string_eq" | "string_lt")
+    // (`string_concat`) or a shared runtime function (`string_eq`/`string_lt`,
+    // `string_length`/`string_char_at`/`string_slice`). `char_code` is the
+    // identity on the `Char` representation (its i32 code point).
+    intrinsic_wasm(name).is_some()
+        || matches!(
+            name,
+            "string_concat"
+                | "string_eq"
+                | "string_lt"
+                | "string_length"
+                | "string_char_at"
+                | "string_slice"
+                | "char_code"
+        )
 }
 
 fn intrinsic_wasm(name: &str) -> Option<&'static str> {
@@ -462,6 +475,7 @@ fn intrinsic_wasm(name: &str) -> Option<&'static str> {
         "f64_div" => "f64.div",
         "f64_eq" => "f64.eq",
         "f64_lt" => "f64.lt",
+        "f64_sqrt" => "f64.sqrt",
         _ => return None,
     })
 }
@@ -561,6 +575,134 @@ const STRING_CMP: &str = r#"  (func $string_eq (param $a i32) (param $b i32) (re
       end
     end
     local.get $la local.get $lb i32.lt_s)
+"#;
+
+/// Runtime helpers for the scalar string operations (spec 0030). A string is
+/// `[len: i32 (byte length)][utf8 bytes]`; these count/index/slice in Unicode
+/// scalar (code point) units, never bytes. `$utf8_seqlen` maps a lead byte to
+/// its sequence length. They are always emitted; an unused function is fine.
+const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
+    local.get $b i32.const 240 i32.ge_u if i32.const 4 return end
+    local.get $b i32.const 224 i32.ge_u if i32.const 3 return end
+    local.get $b i32.const 192 i32.ge_u if i32.const 2 return end
+    i32.const 1)
+  (func $string_length (param $s i32) (result i32)
+    (local $len i32) (local $i i32) (local $count i32)
+    local.get $s i32.load local.set $len
+    i32.const 0 local.set $i
+    i32.const 0 local.set $count
+    block $done
+      loop $loop
+        local.get $i local.get $len i32.ge_s br_if $done
+        local.get $s i32.const 4 i32.add local.get $i i32.add i32.load8_u
+        i32.const 192 i32.and i32.const 128 i32.ne
+        if local.get $count i32.const 1 i32.add local.set $count end
+        local.get $i i32.const 1 i32.add local.set $i
+        br $loop
+      end
+    end
+    local.get $count)
+  (func $string_byte_offset (param $s i32) (param $k i32) (result i32)
+    (local $base i32) (local $p i32)
+    local.get $s i32.const 4 i32.add local.set $base
+    i32.const 0 local.set $p
+    block $done
+      loop $loop
+        local.get $k i32.const 0 i32.le_s br_if $done
+        local.get $base local.get $p i32.add i32.load8_u call $utf8_seqlen
+        local.get $p i32.add local.set $p
+        local.get $k i32.const 1 i32.sub local.set $k
+        br $loop
+      end
+    end
+    local.get $p)
+  (func $string_char_at (param $s i32) (param $idx i32) (result i32)
+    (local $base i32) (local $p i32) (local $b i32) (local $n i32) (local $cp i32) (local $j i32)
+    local.get $s i32.const 4 i32.add local.set $base
+    local.get $s local.get $idx call $string_byte_offset local.set $p
+    local.get $base local.get $p i32.add i32.load8_u local.set $b
+    local.get $b call $utf8_seqlen local.set $n
+    local.get $n i32.const 1 i32.eq
+    if local.get $b return end
+    local.get $b i32.const 127 local.get $n i32.shr_u i32.and local.set $cp
+    i32.const 1 local.set $j
+    block $done
+      loop $loop
+        local.get $j local.get $n i32.ge_s br_if $done
+        local.get $cp i32.const 6 i32.shl
+        local.get $base local.get $p i32.add local.get $j i32.add i32.load8_u i32.const 63 i32.and
+        i32.or
+        local.set $cp
+        local.get $j i32.const 1 i32.add local.set $j
+        br $loop
+      end
+    end
+    local.get $cp)
+  (func $string_slice (param $s i32) (param $start i32) (param $end i32) (result i32)
+    (local $len i32) (local $sb i32) (local $eb i32) (local $n i32) (local $out i32)
+    local.get $s call $string_length local.set $len
+    local.get $start i32.const 0 i32.lt_s if i32.const 0 local.set $start end
+    local.get $start local.get $len i32.gt_s if local.get $len local.set $start end
+    local.get $end i32.const 0 i32.lt_s if i32.const 0 local.set $end end
+    local.get $end local.get $len i32.gt_s if local.get $len local.set $end end
+    local.get $start local.get $end i32.ge_s
+    if
+      i32.const 4 call $alloc local.set $out
+      local.get $out i32.const 0 i32.store
+      local.get $out return
+    end
+    local.get $s local.get $start call $string_byte_offset local.set $sb
+    local.get $s local.get $end call $string_byte_offset local.set $eb
+    local.get $eb local.get $sb i32.sub local.set $n
+    i32.const 4 local.get $n i32.add call $alloc local.set $out
+    local.get $out local.get $n i32.store
+    local.get $out i32.const 4 i32.add
+    local.get $s i32.const 4 i32.add local.get $sb i32.add
+    local.get $n
+    memory.copy
+    local.get $out)
+  (func $string_from_char (param $code i32) (result i32)
+    (local $out i32)
+    local.get $code i32.const 128 i32.lt_u
+    if
+      i32.const 5 call $alloc local.set $out
+      local.get $out i32.const 1 i32.store
+      local.get $out i32.const 4 i32.add local.get $code i32.store8
+      local.get $out return
+    end
+    local.get $code i32.const 2048 i32.lt_u
+    if
+      i32.const 6 call $alloc local.set $out
+      local.get $out i32.const 2 i32.store
+      local.get $out i32.const 4 i32.add
+        local.get $code i32.const 6 i32.shr_u i32.const 192 i32.or i32.store8
+      local.get $out i32.const 5 i32.add
+        local.get $code i32.const 63 i32.and i32.const 128 i32.or i32.store8
+      local.get $out return
+    end
+    local.get $code i32.const 65536 i32.lt_u
+    if
+      i32.const 7 call $alloc local.set $out
+      local.get $out i32.const 3 i32.store
+      local.get $out i32.const 4 i32.add
+        local.get $code i32.const 12 i32.shr_u i32.const 224 i32.or i32.store8
+      local.get $out i32.const 5 i32.add
+        local.get $code i32.const 6 i32.shr_u i32.const 63 i32.and i32.const 128 i32.or i32.store8
+      local.get $out i32.const 6 i32.add
+        local.get $code i32.const 63 i32.and i32.const 128 i32.or i32.store8
+      local.get $out return
+    end
+    i32.const 8 call $alloc local.set $out
+    local.get $out i32.const 4 i32.store
+    local.get $out i32.const 4 i32.add
+      local.get $code i32.const 18 i32.shr_u i32.const 240 i32.or i32.store8
+    local.get $out i32.const 5 i32.add
+      local.get $code i32.const 12 i32.shr_u i32.const 63 i32.and i32.const 128 i32.or i32.store8
+    local.get $out i32.const 6 i32.add
+      local.get $code i32.const 6 i32.shr_u i32.const 63 i32.and i32.const 128 i32.or i32.store8
+    local.get $out i32.const 7 i32.add
+      local.get $code i32.const 63 i32.and i32.const 128 i32.or i32.store8
+    local.get $out)
 "#;
 
 fn emit_start(main: &IrFunction) -> String {
@@ -774,6 +916,18 @@ impl<'a> FnEmitter<'a> {
                     self.emit(&args[1])?;
                     self.line(&format!("call ${name}"));
                 }
+                // Scalar string operations (spec 0030) call the shared runtime
+                // helpers that walk the UTF-8 bytes in code-point units (see
+                // `STRING_INDEX`).
+                "string_length" | "string_char_at" | "string_slice" => {
+                    for arg in args {
+                        self.emit(arg)?;
+                    }
+                    self.line(&format!("call ${name}"));
+                }
+                // A `Char` is already its i32 code point (spec 0017), so
+                // `char_code` is the identity on that representation.
+                "char_code" => self.emit(&args[0])?,
                 _ => {
                     for arg in args {
                         self.emit(arg)?;
@@ -799,6 +953,20 @@ impl<'a> FnEmitter<'a> {
             IrExpr::StringFromChar(value) => self.emit_string_from_char(value)?,
             IrExpr::Concat { left, right } => self.emit_concat(left, right)?,
             IrExpr::Array { elem_ty, elems } => self.emit_array(elem_ty, elems)?,
+            IrExpr::ArrayLength(array) => {
+                self.emit(array)?;
+                self.line("i32.load");
+            }
+            IrExpr::ArrayGet {
+                array,
+                index,
+                elem_ty,
+            } => self.emit_array_get(array, index, elem_ty)?,
+            IrExpr::ArrayPush {
+                array,
+                value,
+                elem_ty,
+            } => self.emit_array_push(array, value, elem_ty)?,
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
             IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
@@ -831,25 +999,11 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    /// `String::from_char` (spec 0017): a one-byte (ASCII) `[len=1][byte]` string.
-    /// Multi-byte UTF-8 encoding is a follow-up.
+    /// `String::from_char` (spec 0017): the `[len][utf8]` string of one scalar.
+    /// The shared `$string_from_char` helper encodes the 1-4 byte UTF-8 form.
     fn emit_string_from_char(&mut self, value: &IrExpr) -> Result<()> {
-        let code = self.fresh_local(WasmTy::I32);
-        let out = self.fresh_local(WasmTy::I32);
         self.emit(value)?;
-        self.line(&format!("local.set {code}"));
-        self.line("i32.const 5");
-        self.line("call $alloc");
-        self.line(&format!("local.set {out}"));
-        self.line(&format!("local.get {out}"));
-        self.line("i32.const 1");
-        self.line("i32.store");
-        self.line(&format!("local.get {out}"));
-        self.line("i32.const 4");
-        self.line("i32.add");
-        self.line(&format!("local.get {code}"));
-        self.line("i32.store8");
-        self.line(&format!("local.get {out}"));
+        self.line("call $string_from_char");
         Ok(())
     }
 
@@ -1178,6 +1332,75 @@ impl<'a> FnEmitter<'a> {
             self.line(elem.store());
         }
         self.line(&format!("local.get {arr}"));
+        Ok(())
+    }
+
+    /// `Array::get(a, i)`: load the `i`-th element from `[len][elem...]`. The
+    /// element address is `a + 4 + i * size`.
+    fn emit_array_get(&mut self, array: &IrExpr, index: &IrExpr, elem_ty: &Type) -> Result<()> {
+        let elem = WasmTy::of(elem_ty);
+        self.emit(array)?;
+        self.line("i32.const 4");
+        self.line("i32.add");
+        self.emit(index)?;
+        self.line(&format!("i32.const {}", elem.size()));
+        self.line("i32.mul");
+        self.line("i32.add");
+        self.line(elem.load());
+        Ok(())
+    }
+
+    /// `Array::push(a, x)`: allocate a fresh `[len+1][elem...]`, copy `a`'s
+    /// elements, then append `x`. `a` is left unchanged (pure copy).
+    fn emit_array_push(&mut self, array: &IrExpr, value: &IrExpr, elem_ty: &Type) -> Result<()> {
+        let elem = WasmTy::of(elem_ty);
+        let size = elem.size();
+        let a = self.fresh_local(WasmTy::I32);
+        let len = self.fresh_local(WasmTy::I32);
+        let out = self.fresh_local(WasmTy::I32);
+        self.emit(array)?;
+        self.line(&format!("local.set {a}"));
+        self.line(&format!("local.get {a}"));
+        self.line("i32.load");
+        self.line(&format!("local.set {len}"));
+        // out = alloc(4 + (len + 1) * size)
+        self.line("i32.const 4");
+        self.line(&format!("local.get {len}"));
+        self.line("i32.const 1");
+        self.line("i32.add");
+        self.line(&format!("i32.const {size}"));
+        self.line("i32.mul");
+        self.line("i32.add");
+        self.line("call $alloc");
+        self.line(&format!("local.set {out}"));
+        // store the new length (len + 1)
+        self.line(&format!("local.get {out}"));
+        self.line(&format!("local.get {len}"));
+        self.line("i32.const 1");
+        self.line("i32.add");
+        self.line("i32.store");
+        // memory.copy(dest = out+4, src = a+4, n = len * size)
+        self.line(&format!("local.get {out}"));
+        self.line("i32.const 4");
+        self.line("i32.add");
+        self.line(&format!("local.get {a}"));
+        self.line("i32.const 4");
+        self.line("i32.add");
+        self.line(&format!("local.get {len}"));
+        self.line(&format!("i32.const {size}"));
+        self.line("i32.mul");
+        self.line("memory.copy");
+        // store x at out + 4 + len * size
+        self.line(&format!("local.get {out}"));
+        self.line("i32.const 4");
+        self.line("i32.add");
+        self.line(&format!("local.get {len}"));
+        self.line(&format!("i32.const {size}"));
+        self.line("i32.mul");
+        self.line("i32.add");
+        self.emit(value)?;
+        self.line(elem.store());
+        self.line(&format!("local.get {out}"));
         Ok(())
     }
 

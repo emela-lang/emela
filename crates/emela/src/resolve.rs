@@ -23,12 +23,10 @@ pub(crate) struct FnEntry {
     /// The bare function name (the last path segment).
     pub(crate) name: String,
     /// The full qualified path: `module_path + [name]`. For a compilation-root
-    /// function or a module-private helper this is just `[name]`.
+    /// function or a module-private helper this is just `[name]`. The module a
+    /// reference resolves against compares against `full_path` minus the name
+    /// (see [`FnTable::resolve_in`]).
     pub(crate) full_path: Vec<String>,
-    /// Whether the function is local to the compilation root (no import
-    /// qualifier). Local functions keep their bare emit name and shadow imports
-    /// when a bare name is resolved (spec 0018 R6).
-    pub(crate) is_local: bool,
     /// Whether the function is generic (spec 0014).
     pub(crate) is_generic: bool,
     /// The backend symbol name: the bare name when it is unique across all
@@ -82,7 +80,6 @@ impl FnTable {
                 index,
                 name: function.name.clone(),
                 full_path,
-                is_local,
                 is_generic: !function.type_params.is_empty(),
                 emit_name,
             });
@@ -104,26 +101,40 @@ impl FnTable {
         &self.entries[index].emit_name
     }
 
-    /// Resolves a (possibly qualified) call/reference path to a function
-    /// (spec 0018). For a bare name, a local function shadows imported
-    /// candidates (R6); otherwise a single suffix match resolves and several
-    /// matches are ambiguous.
+    /// Resolves a bare/qualified path from the compilation root (spec 0018): a
+    /// root-local function shadows imports of the same bare name. This is the
+    /// module-agnostic form used where there is no enclosing module (e.g. extern
+    /// registration).
     pub(crate) fn resolve(&self, path: &[String]) -> Resolved<'_> {
+        self.resolve_in(path, &[])
+    }
+
+    /// Resolves a (possibly qualified) call/reference path to a function
+    /// (spec 0018), as seen from `current_module` (the module path of the
+    /// function containing the reference). For a bare name, a function in the
+    /// *referring* module shadows imported candidates of the same name (R6);
+    /// otherwise a single suffix match resolves and several matches are
+    /// ambiguous. Passing `&[]` scopes to the compilation root, so
+    /// [`resolve`](Self::resolve) is the `current_module = root` case and keeps
+    /// the original root-local shadowing exactly.
+    pub(crate) fn resolve_in(&self, path: &[String], current_module: &[String]) -> Resolved<'_> {
         let Some(indices) = self.by_suffix.get(path) else {
             return Resolved::None;
         };
         if path.len() == 1 {
-            // Bare name: an entry-local function shadows any imports of the same
+            // Bare name: a function defined in the referring module shadows any
+            // imports of the same name, so a module's internal calls resolve to
+            // itself even when another imported module exports the same bare
             // name. Only a multi-segment full path can match a longer path, so
             // this special case only applies to bare names.
-            let locals: Vec<&FnEntry> = indices
+            let same_module: Vec<&FnEntry> = indices
                 .iter()
                 .map(|&i| &self.entries[i])
-                .filter(|entry| entry.is_local)
+                .filter(|entry| module_of(&entry.full_path) == current_module)
                 .collect();
-            match locals.as_slice() {
+            match same_module.as_slice() {
                 [only] => return Resolved::One(only),
-                [_, _, ..] => return Resolved::Ambiguous(locals),
+                [_, _, ..] => return Resolved::Ambiguous(same_module),
                 [] => {}
             }
         }
@@ -133,6 +144,12 @@ impl FnTable {
             many => Resolved::Ambiguous(many.iter().map(|&i| &self.entries[i]).collect()),
         }
     }
+}
+
+/// The module path a function's full path sits in: everything but the final
+/// name segment. Empty for a compilation-root or module-private function.
+fn module_of(full_path: &[String]) -> &[String] {
+    &full_path[..full_path.len() - 1]
 }
 
 /// Renders a candidate's full path for an ambiguity diagnostic, e.g.

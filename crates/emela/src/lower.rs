@@ -96,6 +96,10 @@ struct Lowerer<'a> {
     /// lowered. Empty while lowering an ordinary (non-generic) function, where
     /// `apply` is the identity.
     subst: RefCell<HashMap<String, Type>>,
+    /// The module path of the function currently being lowered (spec 0018), so a
+    /// bare-name call resolves to the referring module's own function before
+    /// imports — matching the type checker's `FnCtx::module`.
+    current_module: RefCell<Vec<String>>,
     /// Counter for fresh temporary names used when desugaring the swapped
     /// comparisons `>` / `<=` (spec 0027), so each site's temporaries are unique.
     cmp_counter: RefCell<usize>,
@@ -176,6 +180,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         impls_by,
         mono: RefCell::new(MonoState::default()),
         subst: RefCell::new(HashMap::new()),
+        current_module: RefCell::new(Vec::new()),
         cmp_counter: RefCell::new(0),
         stmt_counter: RefCell::new(0),
     };
@@ -196,6 +201,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .zip(typed.params.iter())
                 .map(|(param, ty)| (param.name.clone(), ty.clone()))
                 .collect();
+            *lowerer.current_module.borrow_mut() = function.module_path.clone();
             IrFunction {
                 // Unique bare names are kept; colliding imports use a mangled
                 // full path so same-named functions coexist (spec 0018).
@@ -227,6 +233,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             }
         };
         *lowerer.subst.borrow_mut() = request.subst;
+        *lowerer.current_module.borrow_mut() = template.module_path.clone();
         let specialized = lowerer.lower_named_function(template, request.mangled);
         lowerer.subst.borrow_mut().clear();
         functions.push(specialized);
@@ -620,8 +627,10 @@ impl<'a> Lowerer<'a> {
                         },
                         ty,
                     )
-                } else if let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
-                    && !entry.is_generic
+                } else if let Resolved::One(entry) = self.table.resolve_in(
+                    std::slice::from_ref(name),
+                    self.current_module.borrow().as_slice(),
+                ) && !entry.is_generic
                 {
                     let sig = self.fn_type(entry.index);
                     (
@@ -860,7 +869,10 @@ impl<'a> Lowerer<'a> {
                 && !scope.contains_key(name)
                 && !self.externs.contains_key(name)
                 && matches!(
-                    self.table.resolve(std::slice::from_ref(name)),
+                    self.table.resolve_in(
+                        std::slice::from_ref(name),
+                        self.current_module.borrow().as_slice()
+                    ),
                     Resolved::None
                 )
             {
@@ -903,7 +915,10 @@ impl<'a> Lowerer<'a> {
             }
             // A call to a generic function (spec 0014).
             if !scope.contains_key(name)
-                && let Resolved::One(entry) = self.table.resolve(std::slice::from_ref(name))
+                && let Resolved::One(entry) = self.table.resolve_in(
+                    std::slice::from_ref(name),
+                    self.current_module.borrow().as_slice(),
+                )
                 && entry.is_generic
             {
                 return self.lower_generic_call(entry.index, args, scope);
@@ -912,7 +927,10 @@ impl<'a> Lowerer<'a> {
             // same-named function still shadows it, mirroring the type checker.
             if !scope.contains_key(name)
                 && matches!(
-                    self.table.resolve(std::slice::from_ref(name)),
+                    self.table.resolve_in(
+                        std::slice::from_ref(name),
+                        self.current_module.borrow().as_slice()
+                    ),
                     Resolved::None
                 )
                 && let Some(candidates) = self.method_owners.get(name)
@@ -934,6 +952,43 @@ impl<'a> Lowerer<'a> {
             if head.as_str() == "String" && tail.as_str() == "from_char" {
                 let (arg, _) = self.lower_expr(&args[0], scope);
                 return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
+            }
+            // Built-in array operations (spec 0007 companion). The element type
+            // comes from the (monomorphized) array argument.
+            if head.as_str() == "Array" && matches!(tail.as_str(), "length" | "get" | "push") {
+                let (arr, arr_ty) = self.lower_expr(&args[0], scope);
+                let elem_ty = match self.apply(&arr_ty) {
+                    Type::Array(elem) => *elem,
+                    other => other,
+                };
+                match tail.as_str() {
+                    "length" => return (IrExpr::ArrayLength(Box::new(arr)), Type::Int),
+                    "get" => {
+                        let (index, _) = self.lower_expr(&args[1], scope);
+                        let ret = elem_ty.clone();
+                        return (
+                            IrExpr::ArrayGet {
+                                array: Box::new(arr),
+                                index: Box::new(index),
+                                elem_ty,
+                            },
+                            ret,
+                        );
+                    }
+                    "push" => {
+                        let (value, _) = self.lower_expr(&args[1], scope);
+                        let ret = Type::Array(Box::new(elem_ty.clone()));
+                        return (
+                            IrExpr::ArrayPush {
+                                array: Box::new(arr),
+                                value: Box::new(value),
+                                elem_ty,
+                            },
+                            ret,
+                        );
+                    }
+                    _ => unreachable!("guarded by matches! above"),
+                }
             }
             // An enum variant constructor with a payload, e.g. `Color::Red(x)`.
             if let Some(variants) = self.enums.get(head)
@@ -1012,7 +1067,12 @@ impl<'a> Lowerer<'a> {
         for (param, (_, actual)) in template.params.iter().zip(lowered.iter()) {
             infer_subst(&param.ty, actual, &mut subst);
         }
-        let mangled = mangle(&template.name, &template.type_params, &subst);
+        let mangled = mangle(
+            &template.module_path,
+            &template.name,
+            &template.type_params,
+            &subst,
+        );
         let sig = FunctionType {
             params: template
                 .params
@@ -1405,11 +1465,25 @@ fn infer_subst(declared: &Type, actual: &Type, subst: &mut HashMap<String, Type>
     }
 }
 
-/// The mangled name of a specialization, e.g. `identity` at `T = Int` becomes
-/// `identity__Int`. Deterministic and identifier-safe so backends can use it
-/// verbatim. Type parameters are appended in declaration order.
-fn mangle(name: &str, type_params: &[String], subst: &HashMap<String, Type>) -> String {
-    let mut mangled = name.to_string();
+/// The mangled name of a specialization, e.g. root `identity` at `T = Int`
+/// becomes `identity__Int`, and imported `std.list.map` at `T = U = Int` becomes
+/// `std__list__map__Int__Int`. The module path is included so same-named generic
+/// functions from different modules (e.g. `list.map` and `option.map`) get
+/// distinct specializations instead of colliding on one emit name. Deterministic
+/// and identifier-safe so backends can use it verbatim; type parameters are
+/// appended in declaration order.
+fn mangle(
+    module_path: &[String],
+    name: &str,
+    type_params: &[String],
+    subst: &HashMap<String, Type>,
+) -> String {
+    let mut mangled = String::new();
+    for segment in module_path {
+        mangled.push_str(segment);
+        mangled.push_str("__");
+    }
+    mangled.push_str(name);
     for type_param in type_params {
         mangled.push_str("__");
         mangled.push_str(&mangle_type(subst.get(type_param).unwrap_or(&Type::Unit)));
