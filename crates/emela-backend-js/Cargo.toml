@@ -2,6 +2,7 @@
 name = "emela-backend-js"
 version.workspace = true
 edition.workspace = true
+license = "Apache-2.0"
 description = "JavaScript code-generation backend for Emela (Tier 2)."
 
 [dependencies]

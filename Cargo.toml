@@ -32,3 +32,4 @@ wasmi = "1"
 emela-codegen = { path = "crates/emela-codegen", version = "0.2.1" }
 emela-backend-js = { path = "crates/emela-backend-js", version = "0.2.1" }
 emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.2.1" }
+emela = { path = "crates/emela", version = "0.2.1" }
