@@ -45,7 +45,11 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     needs: release-plz-release
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    # Gate on the resolved `emela` tag, not `releases_created`: the untagged
+    # library crates (git_tag_enable = false) are re-"released" on every run, so
+    # `releases_created` is true even when `emela` itself wasn't, leaving `tag`
+    # empty. Only build the binary tarball when `emela` cut a new tag.
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -83,7 +87,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: [release-plz-release, build]
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
