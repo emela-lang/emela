@@ -1,0 +1,12 @@
+effect io {
+    extern fn write_stdout(s: String) -> Unit
+    extern fn write_stderr(s: String) -> Unit
+
+    pub fn print<T: Show>(s: T) -> Unit {
+        write_stdout(s.to_string())
+    }
+
+    pub fn eprint<T: Show>(s: T) -> Unit {
+        write_stderr(s.to_string())
+    }
+}

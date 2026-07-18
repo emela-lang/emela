@@ -61,7 +61,7 @@ external runtime — `main`'s `Int` result is the process exit code:
 
 ```sh
 cargo run --bin emela -- run examples/add.emel; echo $?    # 42
-cargo run --bin emela -- run --package examples/stdlib examples/hello.emel
+cargo run --bin emela -- run examples/hello.emel
 # Hello, Emela!
 ```
 
@@ -84,10 +84,11 @@ cargo run --bin emela -- build --backend wasm-wasi -o /tmp/add.wasm examples/add
 wasmtime /tmp/add.wasm; echo $?    # 42
 ```
 
-Programs that do real I/O use the bundled stdlib package via `--package`:
+Programs that do real I/O import the embedded std modules (spec 0038) — the
+`io` effect ships inside the compiler, so no `--package` is needed:
 
 ```sh
-cargo run --bin emela -- build --backend js-node --package examples/stdlib examples/hello.emel | node
+cargo run --bin emela -- build --backend js-node examples/hello.emel | node
 # Hello, Emela!
 ```
 
