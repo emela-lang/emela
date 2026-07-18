@@ -1,5 +1,7 @@
-//! End-to-end tests for `intrinsic fn` (spec 0021): stdlib declares a pure
-//! primitive, wraps it, and the backend inlines it to a native instruction.
+//! End-to-end tests for `intrinsic fn` (spec 0021) under the embedded-std
+//! boundary (spec 0038): the embedded std declares every intrinsic and wraps
+//! it, backends inline calls to native instructions, and user sources may not
+//! declare intrinsics of their own.
 
 use std::fs;
 use std::path::PathBuf;
@@ -8,78 +10,81 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
-/// Lays out a `std` package whose `core` module declares the given intrinsic
-/// source, plus an app. Returns (temp dir, package dir, app file).
-fn project(core_src: &str, app_src: &str) -> (PathBuf, PathBuf, PathBuf) {
+fn temp_dir() -> PathBuf {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let dir =
         std::env::temp_dir().join(format!("emela-intrinsic-test-{}-{id}", std::process::id()));
-    let package = dir.join("std");
-    fs::create_dir_all(package.join("src")).unwrap();
-    fs::write(
-        package.join("emela-package.json"),
-        r#"{"name":"std","source":"src"}"#,
-    )
-    .unwrap();
-    fs::write(package.join("src").join("core.emel"), core_src).unwrap();
-    let app = dir.join("main.emel");
-    fs::write(&app, app_src).unwrap();
-    (dir.clone(), package, app)
+    fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 fn emela() -> Command {
     Command::new(env!("CARGO_BIN_EXE_emela"))
 }
 
-/// A `core` module wrapping the `i32_add` intrinsic in an `add` function.
-const CORE_ADD: &str = "module core\nintrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\npub fn add(a: Int, b: Int) -> Int uses {} { i32_add(a, b) }\n";
-
-#[test]
-fn js_backend_inlines_intrinsic() {
-    let (dir, package, app) = project(
-        CORE_ADD,
-        "import std.core.add\nfn main() -> Int uses {} { add(2, 3) }\n",
-    );
-    let output = emela()
-        .arg("build")
-        .arg("--backend")
-        .arg("js-node")
-        .arg("--package")
-        .arg(&package)
-        .arg(&app)
-        .output()
-        .unwrap();
+/// Writes `source` to a temp `main.emel` and builds it with `backend` (no
+/// package). Returns the process output.
+fn build_single(source: &str, backend: &str, out: Option<&PathBuf>) -> std::process::Output {
+    let dir = temp_dir();
+    let input = dir.join("main.emel");
+    fs::write(&input, source).unwrap();
+    let mut cmd = emela();
+    cmd.arg("build").arg("--backend").arg(backend);
+    if let Some(out) = out {
+        cmd.arg("-o").arg(out);
+    }
+    let output = cmd.arg(&input).output().unwrap();
     let _ = fs::remove_dir_all(&dir);
+    output
+}
+
+/// An operator bottoms out in a Core Prelude intrinsic (spec 0021), which the
+/// JS backend inlines to a native `+`: the intrinsic's name does not survive
+/// into the artifact. No package is involved anywhere.
+#[test]
+fn js_backend_inlines_operator_intrinsic() {
+    let output = build_single("fn main() -> Int uses {} { 2 + 3 }\n", "js-node", None);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
     let js = String::from_utf8(output.stdout).unwrap();
-    // The intrinsic is inlined to a native `+`, not emitted as a call: its name
-    // does not survive into the artifact.
     assert!(!js.contains("i32_add"), "intrinsic was not inlined:\n{js}");
     assert!(js.contains(" + "), "expected an inlined `+`:\n{js}");
 }
 
+/// The embedded `std.string` / `std.float` wrappers (spec 0038) resolve with
+/// no `--package` and their intrinsics inline: `f64_sqrt` becomes `Math.sqrt`
+/// on the JS backend.
 #[test]
-fn wasm_backend_builds_with_intrinsic() {
-    let (dir, package, app) = project(
-        CORE_ADD,
-        "import std.core.add\nfn main() -> Int uses {} { add(2, 3) }\n",
+fn embedded_std_intrinsics_build_on_js() {
+    let output = build_single(
+        "import std.string.length\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        length(\"hello\")\n    } else {\n        0\n    }\n}\n",
+        "js-node",
+        None,
     );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let js = String::from_utf8(output.stdout).unwrap();
+    assert!(js.contains("Math.sqrt"), "expected inlined sqrt:\n{js}");
+    assert!(!js.contains("f64_sqrt"), "intrinsic was not inlined:\n{js}");
+}
+
+/// The same program builds to a well-formed wasm module: the wasm backend
+/// supplies `f64_sqrt` and the structural string intrinsics.
+#[test]
+fn embedded_std_intrinsics_build_on_wasm() {
+    let dir = temp_dir();
     let out = dir.join("out.wasm");
-    let output = emela()
-        .arg("build")
-        .arg("--backend")
-        .arg("wasm-wasi")
-        .arg("--package")
-        .arg(&package)
-        .arg("-o")
-        .arg(&out)
-        .arg(&app)
-        .output()
-        .unwrap();
+    let output = build_single(
+        "import std.string.length\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        length(\"hello\")\n    } else {\n        0\n    }\n}\n",
+        "wasm-wasi",
+        Some(&out),
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -90,43 +95,52 @@ fn wasm_backend_builds_with_intrinsic() {
     assert_eq!(&bytes[0..4], b"\0asm");
 }
 
+/// An `intrinsic fn` in the compilation root is rejected (spec 0038): only
+/// the embedded std declares intrinsics.
 #[test]
-fn unknown_intrinsic_is_rejected() {
-    // `bogus_op` is not in the intrinsic interface (spec 0021), so declaring it
-    // as an `intrinsic fn` is a compile error.
-    let (dir, package, app) = project(
-        "module core\nintrinsic fn bogus_op(a: Int, b: Int) -> Int uses {}\npub fn go(a: Int, b: Int) -> Int uses {} { bogus_op(a, b) }\n",
-        "import std.core.go\nfn main() -> Int uses {} { go(2, 3) }\n",
-    );
-    let output = emela()
-        .arg("build")
-        .arg("--backend")
-        .arg("js-node")
-        .arg("--package")
-        .arg(&package)
-        .arg(&app)
-        .output()
-        .unwrap();
+fn intrinsic_in_root_source_is_rejected() {
+    let dir = temp_dir();
+    let input = dir.join("main.emel");
+    fs::write(
+        &input,
+        "intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\n\nfn main() -> Int uses {} {\n    0\n}\n",
+    )
+    .unwrap();
+    let output = emela().arg("check").arg(&input).output().unwrap();
     let _ = fs::remove_dir_all(&dir);
     assert!(!output.status.success(), "expected a compile error");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("intrinsic"),
-        "expected an intrinsic error, got:\n{stderr}"
+        stderr.contains("Intrinsic outside the embedded std"),
+        "unexpected diagnostic:\n{stderr}"
     );
 }
 
+/// An `intrinsic fn` in a package module is rejected the same way — even when
+/// it names a real intrinsic and the package is not called `std`.
 #[test]
-fn impure_intrinsic_is_rejected() {
-    // Intrinsics must be pure (`uses {}`); an effectful declaration is rejected.
-    let (dir, package, app) = project(
-        "module core\nintrinsic fn i32_add(a: Int, b: Int) -> Int uses { io }\npub fn add(a: Int, b: Int) -> Int uses { io } { i32_add(a, b) }\n",
-        "import std.core.add\nfn main() -> Int uses { io } { add(2, 3) }\n",
-    );
+fn intrinsic_in_package_module_is_rejected() {
+    let dir = temp_dir();
+    let package = dir.join("mathx");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::write(
+        package.join("emela-package.json"),
+        r#"{"name":"mathx","source":"src"}"#,
+    )
+    .unwrap();
+    fs::write(
+        package.join("src").join("num.emel"),
+        "module num\n\nintrinsic fn f64_sqrt(x: Float) -> Float uses {}\n\npub fn root(x: Float) -> Float uses {} {\n    f64_sqrt(x)\n}\n",
+    )
+    .unwrap();
+    let app = dir.join("main.emel");
+    fs::write(
+        &app,
+        "import mathx.num.root\n\nfn main() -> Int uses {} {\n    if root(4.0) < 3.0 {\n        1\n    } else {\n        0\n    }\n}\n",
+    )
+    .unwrap();
     let output = emela()
-        .arg("build")
-        .arg("--backend")
-        .arg("js-node")
+        .arg("check")
         .arg("--package")
         .arg(&package)
         .arg(&app)
@@ -136,7 +150,7 @@ fn impure_intrinsic_is_rejected() {
     assert!(!output.status.success(), "expected a compile error");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("pure") || stderr.contains("Intrinsic"),
-        "expected a purity error, got:\n{stderr}"
+        stderr.contains("Intrinsic outside the embedded std"),
+        "unexpected diagnostic:\n{stderr}"
     );
 }

@@ -887,14 +887,11 @@ impl Checker {
                     ),
                 ));
             }
-            // Intrinsics are identified by their bare name (spec 0021), so the
-            // embedded Core Prelude and an imported stdlib module may both
-            // declare the same one. Having validated it, a second identical
-            // declaration is a harmless no-op rather than a duplicate.
-            if self.externs.contains_key(&declaration.name) {
-                return Ok(());
-            }
-            if clashes_function {
+            // Every intrinsic is declared exactly once, in the embedded std
+            // (spec 0038); user-source declarations are rejected and dropped
+            // before registration (`reject_user_intrinsics`), so a repeat
+            // here is a genuine duplicate.
+            if self.externs.contains_key(&declaration.name) || clashes_function {
                 return Err(duplicate_function_error(declaration));
             }
             self.externs.insert(

@@ -25,6 +25,31 @@ fn embedded_source_for(path: &Path) -> Option<&'static str> {
     prelude::embedded_std_source(name)
 }
 
+/// Rejects `intrinsic fn` declarations in user-authored sources: every
+/// intrinsic is declared exactly once, in the compiler's embedded std (spec
+/// 0038), where its name is what backends key their instruction tables on.
+/// Offending declarations are reported and dropped (spec 0033's report-and-
+/// skip recovery), so the rest of the program still checks.
+pub(crate) fn reject_user_intrinsics(program: &mut Program, errors: &mut Vec<Error>) {
+    program.externs.retain(|declaration| {
+        if !declaration.is_intrinsic {
+            return true;
+        }
+        errors.push(Error::diagnostic(
+            Diagnostic::new("Intrinsic outside the embedded std")
+                .label(
+                    declaration.name_span.clone(),
+                    format!(
+                        "`intrinsic fn {}` may only be declared by the compiler's embedded std",
+                        declaration.name
+                    ),
+                )
+                .help("Intrinsics are declared once, in the embedded std (spec 0038); call the `std` wrapper that provides the operation instead."),
+        ));
+        false
+    });
+}
+
 /// The declarations pulled in from an imported module. A module's public
 /// functions are what an `import` names, but its type declarations (enums, spec
 /// 0028) and their impls (spec 0020) come along too, since the imported
@@ -378,8 +403,11 @@ impl ImportResolver<'_> {
         let label = canonical.display().to_string();
         // Parse errors in the module are collected, and its declarations that
         // did parse still flow to the importer, keeping diagnostics complete.
-        let (program, errors) = parse_program(&label, &source);
+        let (mut program, errors) = parse_program(&label, &source);
         self.errors.extend(errors);
+        // A filesystem module is user-authored: its intrinsics are rejected
+        // (spec 0038). The embedded branch above is exempt.
+        reject_user_intrinsics(&mut program, &mut self.errors);
         let program = self.expand_program(&canonical, program);
         self.resolving.remove(&canonical);
         self.loaded.insert(canonical.clone(), program.clone());
