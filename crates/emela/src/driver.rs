@@ -268,7 +268,11 @@ pub(crate) fn compile_frontend_source_all(
     overlay: &HashMap<PathBuf, String>,
 ) -> (crate::ast::Program, typecheck::TypedProgram, Vec<Error>) {
     let label = input.display().to_string();
-    let (program, mut errors) = parse_program(&label, source);
+    let (mut program, mut errors) = parse_program(&label, source);
+    // The compilation root is user-authored: its `intrinsic fn` declarations
+    // are rejected and dropped (spec 0038) before imports merge in the
+    // embedded std's — the only place intrinsics may be declared.
+    imports::reject_user_intrinsics(&mut program, &mut errors);
     let (mut program, import_errors) =
         imports::resolve_imports_with_overlay(input, program, packages, overlay);
     errors.extend(import_errors);
@@ -678,6 +682,60 @@ mod tests {
             "import std.io\n\nfn main() -> Unit uses { io } {\n    io.print(\"hi\\n\")\n}\n",
         );
         assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    // An `intrinsic fn` in a user source is rejected and dropped (spec 0038):
+    // only the embedded std declares intrinsics.
+    #[test]
+    fn user_intrinsic_is_rejected_and_dropped() {
+        let (_, errors) = frontend_errors(
+            "intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\n\nfn main() -> Int uses {} {\n    0\n}\n",
+        );
+        assert!(
+            errors.contains(&"Intrinsic outside the embedded std".to_string()),
+            "{errors:?}"
+        );
+    }
+
+    // `typecheck::check` no longer tolerates a repeated intrinsic declaration
+    // (spec 0038): the embedded std declares each exactly once, and user
+    // sources never reach registration. Calling the checker directly (below
+    // the driver's reject-and-drop) exercises the duplicate arm.
+    #[test]
+    fn duplicate_intrinsic_declaration_is_an_error() {
+        let (program, _) = parse_program(
+            "test.emel",
+            "intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\nintrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\nfn main() -> Int uses {} {\n    i32_add(1, 2)\n}\n",
+        );
+        let (_, errors) = typecheck::check(&program, true);
+        let messages: Vec<String> = errors
+            .iter()
+            .map(|error| error.message().to_string())
+            .collect();
+        assert!(
+            messages.contains(&"Duplicate function".to_string()),
+            "{messages:?}"
+        );
+    }
+
+    // The intrinsic validation arms (unknown name, signature, purity; spec
+    // 0021) still guard the embedded std's own declarations; they are
+    // reachable only below the driver's reject-and-drop.
+    #[test]
+    fn unknown_intrinsic_is_still_validated() {
+        let (program, _) = parse_program(
+            "test.emel",
+            "intrinsic fn bogus_op(a: Int, b: Int) -> Int uses {}\nfn main() -> Int uses {} {\n    bogus_op(1, 2)\n}\n",
+        );
+        let (_, errors) = typecheck::check(&program, true);
+        let messages: Vec<String> = errors
+            .iter()
+            .map(|error| error.message().to_string())
+            .collect();
+        assert!(
+            messages.contains(&"Unknown intrinsic".to_string()),
+            "{messages:?}"
+        );
     }
 
     // Two independently broken bodies both report (spec 0033), instead of the
