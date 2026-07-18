@@ -91,14 +91,11 @@ fn check_app(app_source: &str) {
 fn uses_ord_and_int_helpers_across_modules() {
     check_app(
         "\
-import std.ord.max
-import std.ord.clamp
-import std.int.abs
-import std.int.pow
-import std.int.gcd
+import std.ord
+import std.int
 
 fn main() -> Int {
-    max(3, 7) + clamp(15, 0, 10) + abs(0 - 8) + pow(2, 5) + gcd(48, 36)
+    ord.max(3, 7) + ord.clamp(15, 0, 10) + int.abs(0 - 8) + int.pow(2, 5) + int.gcd(48, 36)
 }
 ",
     );
@@ -109,10 +106,10 @@ fn ord_is_generic_over_any_ord_type() {
     // `max` works on `Float` too, not just `Int` (bounded generic over `Ord`).
     check_app(
         "\
-import std.ord.max
+import std.ord
 
 fn main() -> Float uses {} {
-    max(1.5, 2.5)
+    ord.max(1.5, 2.5)
 }
 ",
     );
@@ -122,11 +119,10 @@ fn main() -> Float uses {} {
 fn int_predicates_return_bool() {
     check_app(
         "\
-import std.int.is_even
-import std.int.is_odd
+import std.int
 
 fn main() -> Bool uses {} {
-    if is_even(4) { is_odd(3) } else { false }
+    if int.is_even(4) { int.is_odd(3) } else { false }
 }
 ",
     );
@@ -136,11 +132,11 @@ fn main() -> Bool uses {} {
 fn util_modules_build_to_wasm() {
     let (package, app) = util_project(
         "\
-import std.ord.max
-import std.int.abs
+import std.ord
+import std.int
 
 fn main() -> Int {
-    max(abs(0 - 5), 3)
+    ord.max(int.abs(0 - 5), 3)
 }
 ",
     );

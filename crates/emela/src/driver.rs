@@ -319,6 +319,7 @@ pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
     program.enums.extend(prelude.enums);
     program.traits.extend(prelude.traits);
     program.impls.extend(prelude.impls);
+    program.effects.extend(prelude.effects);
     Ok(())
 }
 
@@ -525,7 +526,7 @@ mod tests {
     #[test]
     fn embedded_std_resolves_without_packages() {
         let (_, errors) = frontend_errors(
-            "import std.io\n\nfn main() -> Unit uses { io } {\n    io.print(\"hi\\n\")\n}\n",
+            "import std.io\n\nfn main() -> Unit uses { Io } {\n    Io.print(\"hi\\n\")\n}\n",
         );
         assert!(errors.is_empty(), "{errors:?}");
     }
@@ -659,7 +660,7 @@ fn main() -> Int uses {} {
         );
         let import_errors = errors
             .iter()
-            .filter(|message| message.starts_with("failed to resolve module"))
+            .filter(|message| message.starts_with("Unknown module"))
             .count();
         assert_eq!(import_errors, 2, "{errors:?}");
     }

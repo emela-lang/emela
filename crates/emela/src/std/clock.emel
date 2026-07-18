@@ -1,4 +1,10 @@
-effect clock {
+-- The `std.clock` module owns the `Clock` effect (specs 0013/0037), wrapping
+-- the platform clock. Callers import the module (`import std.clock`) and call
+-- `Clock.now()` inside a function declaring `uses { Clock }`.
+
+module clock
+
+effect Clock {
     extern fn monotonic_seconds() -> Int
 
     pub fn now() -> Int {

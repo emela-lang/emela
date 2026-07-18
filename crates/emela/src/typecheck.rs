@@ -54,6 +54,18 @@ impl FunctionSig {
     }
 }
 
+/// A registered `extern fn` / `intrinsic fn` and its visibility domain (spec
+/// 0037): an effect backing operation is visible only to sibling operations of
+/// its effect; any other extern only within its declaring module.
+#[derive(Debug, Clone)]
+struct ExternSig {
+    sig: FunctionSig,
+    /// The declaring file's `module` header (`Extern::module`).
+    module: Option<String>,
+    /// The owning effect for an effect backing operation.
+    effect_name: Option<String>,
+}
+
 /// A declared enum's variants, in declaration order (spec 0005).
 #[derive(Debug, Clone)]
 struct EnumInfo {
@@ -116,10 +128,19 @@ struct FnCtx<'a> {
     /// parameter name -> the trait names it is bounded by. Used to allow trait
     /// method calls on a still-abstract type parameter.
     bounds: &'a HashMap<String, Vec<String>>,
-    /// The module path of the enclosing function (spec 0018), so a bare-name
-    /// call resolves to the referring module's own function before imports.
-    /// Empty for a compilation-root function or an impl method.
+    /// The qualifier of the enclosing function (spec 0037): its `module_path`
+    /// (`[EffectName]` inside an effect operation), against which bare names
+    /// resolve. Empty for a compilation-root function.
     module: &'a [String],
+    /// The enclosing function/literal's declared `uses` row (spec 0037): the
+    /// gate an effect-operation reference must pass (`check_effect_gate`).
+    effects: &'a EffectRow,
+    /// The declaring file's `module` header, if any: the visibility domain for
+    /// bare `extern`/`intrinsic` references (spec 0037).
+    declared_module: Option<&'a str>,
+    /// The owning effect when the enclosing function is itself an effect
+    /// operation: what lets it call sibling backing externs by bare name.
+    effect_name: Option<&'a str>,
 }
 
 /// Type-checks `program`. When `require_main` is false the program is treated as
@@ -142,6 +163,14 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
         impls: Vec::new(),
         impls_by: HashMap::new(),
         method_owners: HashMap::new(),
+        // Effects in scope (spec 0037): declared in this file or brought in by
+        // an import; what `uses { ... }` rows and `Effect.op` heads must
+        // resolve to.
+        effects_in_scope: program
+            .effects
+            .iter()
+            .map(|decl| decl.name.clone())
+            .collect(),
     };
     checker.register_enums(program, &mut errors);
     checker.register_traits(program, &mut errors);
@@ -202,9 +231,11 @@ struct Checker {
     /// Each top-level function's signature, indexed in parallel with
     /// `Program::functions` (so `FnEntry::index` indexes it).
     sigs: Vec<FunctionSig>,
-    /// Platform functions (`extern fn`, spec 0013), keyed by bare name. They are
-    /// always called unqualified and never collide with module imports.
-    externs: HashMap<String, FunctionSig>,
+    /// Platform functions and intrinsics (`extern fn` / `intrinsic fn`, specs
+    /// 0013/0021), keyed by bare name, each carrying its visibility domain
+    /// (spec 0037): bare references resolve only within the declaring module,
+    /// or — for an effect backing operation — from sibling operations.
+    externs: HashMap<String, ExternSig>,
     enums: HashMap<String, EnumInfo>,
     /// Declared traits (spec 0020), keyed by name.
     traits: HashMap<String, TraitInfo>,
@@ -216,6 +247,8 @@ struct Checker {
     /// Method name -> the traits declaring it, for bare-name dispatch and
     /// collision detection (spec 0020).
     method_owners: HashMap<String, Vec<String>>,
+    /// The effect names in scope (spec 0037), from `Program::effects`.
+    effects_in_scope: HashSet<String>,
 }
 
 impl Checker {
@@ -550,14 +583,19 @@ impl Checker {
         }
         let ret = subst_type(&method.ret, &subst);
         let throws = method.throws.as_ref().map(|t| subst_type(t, &subst));
+        self.check_effect_row(&method.effects, &method.name_span)?;
         let bounds = bounds_map(&decl.bounds);
         let ctx = FnCtx {
             throws: &throws,
             ret: &ret,
             bounds: &bounds,
-            // Impl methods resolve bare names from the compilation root (their
-            // bodies only call unique names — intrinsics and free functions).
-            module: &[],
+            // Impl methods resolve bare names from their own module's scope
+            // (spec 0037): the qualifier their module's functions carry, or the
+            // compilation root for a root-file impl.
+            module: &method.module_path,
+            effects: &method.effects,
+            declared_module: method.declared_module.as_deref(),
+            effect_name: None,
         };
         let body = self.check_block(&method.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &ret, body.span.clone())?;
@@ -896,13 +934,17 @@ impl Checker {
             }
             self.externs.insert(
                 declaration.name.clone(),
-                FunctionSig {
-                    type_params: Vec::new(),
-                    bounds: Vec::new(),
-                    params,
-                    ret: declaration.ret.clone(),
-                    throws: None,
-                    effects: declaration.effects.clone(),
+                ExternSig {
+                    sig: FunctionSig {
+                        type_params: Vec::new(),
+                        bounds: Vec::new(),
+                        params,
+                        ret: declaration.ret.clone(),
+                        throws: None,
+                        effects: declaration.effects.clone(),
+                    },
+                    module: declaration.module.clone(),
+                    effect_name: declaration.effect_name.clone(),
                 },
             );
             return Ok(());
@@ -944,17 +986,136 @@ impl Checker {
         }
         self.externs.insert(
             declaration.name.clone(),
-            FunctionSig {
-                // Platform functions are never generic (spec 0013).
-                type_params: Vec::new(),
-                bounds: Vec::new(),
-                params,
-                ret: declaration.ret.clone(),
-                throws: declaration.throws.clone(),
-                effects: declaration.effects.clone(),
+            ExternSig {
+                sig: FunctionSig {
+                    // Platform functions are never generic (spec 0013).
+                    type_params: Vec::new(),
+                    bounds: Vec::new(),
+                    params,
+                    ret: declaration.ret.clone(),
+                    throws: declaration.throws.clone(),
+                    effects: declaration.effects.clone(),
+                },
+                module: declaration.module.clone(),
+                effect_name: declaration.effect_name.clone(),
             },
         );
         Ok(())
+    }
+
+    /// The extern/intrinsic signature `name` resolves to from the current
+    /// context (spec 0037): an effect backing operation is visible only to
+    /// sibling operations of its effect; any other extern only within its
+    /// declaring module. Everywhere else the name does not exist — externs
+    /// never cross a module boundary by bare name.
+    fn visible_extern(&self, name: &str, ctx: &FnCtx) -> Option<&FunctionSig> {
+        let entry = self.externs.get(name)?;
+        let visible = match &entry.effect_name {
+            Some(effect) => ctx.effect_name == Some(effect.as_str()),
+            None => ctx.declared_module == entry.module.as_deref(),
+        };
+        visible.then_some(&entry.sig)
+    }
+
+    /// The `uses` gate (spec 0037): an effect-operation reference resolves only
+    /// when the lexically enclosing function/literal declares the effect in its
+    /// `uses` row. The row-subset check (spec 0023) still runs as the semantic
+    /// backstop; this gate exists to fail at the reference, naming the effect.
+    fn check_effect_gate(&self, entry: &FnEntry, ctx: &FnCtx, span: &Span) -> Result<()> {
+        let Some(effect) = &entry.effect_name else {
+            return Ok(());
+        };
+        if ctx
+            .effects
+            .effects
+            .iter()
+            .any(|declared| declared == effect)
+        {
+            return Ok(());
+        }
+        Err(Error::diagnostic(
+            Diagnostic::new("Effect not declared in `uses`")
+                .label(
+                    span.clone(),
+                    format!(
+                        "effect `{effect}` is not declared in the enclosing function's `uses` clause"
+                    ),
+                )
+                .help(format!(
+                    "Operations of `{effect}` are usable only inside a `uses {{ {effect} }}` scope (spec 0037)."
+                )),
+        ))
+    }
+
+    /// Every name in a declared `uses {{ ... }}` row must resolve to an effect
+    /// in scope (spec 0037): declared in this file or brought in by an import.
+    fn check_effect_row(&self, row: &EffectRow, span: &Span) -> Result<()> {
+        for name in &row.effects {
+            if self.effects_in_scope.contains(name) {
+                continue;
+            }
+            let mut diagnostic = Diagnostic::new("Unknown effect")
+                .label(span.clone(), format!("`{name}` is not an effect in scope"));
+            if let Some(hint) = effect_scope_hint(name, &self.effects_in_scope) {
+                diagnostic = diagnostic.help(hint);
+            }
+            return Err(Error::diagnostic(diagnostic));
+        }
+        Ok(())
+    }
+
+    /// The diagnostic for a dotted path that resolved to nothing, layered by
+    /// cause (spec 0037): an enum head means the old `.` variant spelling, a
+    /// known effect head means a missing/private operation, an unknown
+    /// capitalized head is probably an effect that was never imported.
+    fn unknown_path_error(&self, segments: &[String], span: &Span) -> Error {
+        let path = segments.join(".");
+        if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
+            // A dotted path whose head is a declared enum is almost certainly a
+            // variant written with the old `.` spelling; point the user at the
+            // `::` type path (spec 0018 R7).
+            return Error::diagnostic(Diagnostic::new("Unknown name").label(
+                span.clone(),
+                format!(
+                    "enum variants use `::`: write `{0}::{1}`, not `{0}.{1}`",
+                    segments[0], segments[1]
+                ),
+            ));
+        }
+        if segments.len() == 2 && self.effects_in_scope.contains(&segments[0]) {
+            let (effect, op) = (&segments[0], &segments[1]);
+            // A backing extern is a private operation of its effect (spec 0037).
+            if let Some(entry) = self.externs.get(op)
+                && entry.effect_name.as_deref() == Some(effect.as_str())
+            {
+                return Error::diagnostic(Diagnostic::new("Private effect operation").label(
+                    span.clone(),
+                    format!("`{op}` is a private operation of effect `{effect}`"),
+                ));
+            }
+            return Error::diagnostic(Diagnostic::new("Unknown name").label(
+                span.clone(),
+                format!("effect `{effect}` has no public operation `{op}`"),
+            ));
+        }
+        // A capitalized head that is not a trait, enum, or in-scope effect is
+        // probably an effect whose module was never imported (spec 0037).
+        if segments.len() == 2
+            && segments[0].chars().next().is_some_and(char::is_uppercase)
+            && !self.traits.contains_key(&segments[0])
+        {
+            let mut diagnostic = Diagnostic::new("Unknown effect").label(
+                span.clone(),
+                format!("`{}` is not an effect in scope", segments[0]),
+            );
+            if let Some(hint) = effect_scope_hint(&segments[0], &self.effects_in_scope) {
+                diagnostic = diagnostic.help(hint);
+            }
+            return Error::diagnostic(diagnostic);
+        }
+        Error::diagnostic(
+            Diagnostic::new("Unknown name").label(span.clone(), format!("`{path}` is not defined")),
+        )
     }
 
     fn check_main(&self, program: &Program) -> Result<()> {
@@ -998,6 +1159,8 @@ impl Checker {
     /// actually requires (always a subset of the declared row); the caller
     /// records it on the `TypedFunction` for the over-declared-effects lint.
     fn check_function(&self, function: &Function) -> Result<EffectRow> {
+        // The declared `uses` row must name effects that exist (spec 0037).
+        self.check_effect_row(&function.effects, &function.name_span)?;
         let mut scope = HashMap::new();
         for param in &function.params {
             scope.insert(param.name.clone(), param.ty.clone());
@@ -1008,6 +1171,9 @@ impl Checker {
             ret: &function.ret,
             bounds: &bounds,
             module: &function.module_path,
+            effects: &function.effects,
+            declared_module: function.declared_module.as_deref(),
+            effect_name: function.effect_name.as_deref(),
         };
         let body = self.check_block(&function.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &function.ret, body.span.clone())?;
@@ -1150,7 +1316,7 @@ impl Checker {
                     Ok(self.info(ty.clone(), span.clone()))
                 } else if name == "None" {
                     Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
-                } else if let Some(sig) = self.externs.get(name) {
+                } else if let Some(sig) = self.visible_extern(name, ctx) {
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
                     match self
@@ -1158,6 +1324,7 @@ impl Checker {
                         .resolve_in(std::slice::from_ref(name), ctx.module)
                     {
                         Resolved::One(entry) => {
+                            self.check_effect_gate(entry, ctx, span)?;
                             let sig = &self.sigs[entry.index];
                             // A generic function cannot be used as a first-class
                             // value: its type arguments are only fixed at a direct
@@ -1172,6 +1339,12 @@ impl Checker {
                         }
                         Resolved::EffectOpUnqualified(entry) => {
                             Err(effect_op_unqualified_error(name, entry, span))
+                        }
+                        Resolved::BareImported(candidates) => {
+                            Err(bare_imported_error(name, &candidates, span))
+                        }
+                        Resolved::Private(candidates) => {
+                            Err(private_reference_error(name, &candidates, span))
                         }
                         Resolved::None => {
                             Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
@@ -1207,11 +1380,17 @@ impl Checker {
                     }
                     fn_scope.insert(param.name.clone(), param.ty.clone());
                 }
+                // The literal's own declared row is the `uses` gate inside its
+                // body (spec 0037); everything else is inherited lexically.
+                self.check_effect_row(effects, span)?;
                 let inner_ctx = FnCtx {
                     throws,
                     ret,
                     bounds: ctx.bounds,
                     module: ctx.module,
+                    effects,
+                    declared_module: ctx.declared_module,
+                    effect_name: ctx.effect_name,
                 };
                 let body_info = self.check_block(body, &mut fn_scope, &inner_ctx, false)?;
                 expect_assignable(&body_info.ty, ret, body_info.span.clone())?;
@@ -1354,11 +1533,13 @@ impl Checker {
                 ))
             }
             Expr::Path { segments, span } => {
-                // A dotted path used as a value (no `(...)`): a (qualified)
-                // function reference (spec 0018). Enum variants are `::` type
+                // A dotted path used as a value (no `(...)`): an effect
+                // operation (`Io.print`, spec 0037) or a module-qualified
+                // function reference (`list.map`). Enum variants are `::` type
                 // paths (`TypePath`), resolved separately.
-                match self.table.resolve(segments) {
+                match self.table.resolve_in(segments, ctx.module) {
                     Resolved::One(entry) => {
+                        self.check_effect_gate(entry, ctx, span)?;
                         let sig = &self.sigs[entry.index];
                         if sig.is_generic() {
                             return Err(generic_value_error(&segments.join("."), span));
@@ -1369,30 +1550,21 @@ impl Checker {
                         Err(ambiguous_error(&segments.join("."), &candidates, span))
                     }
                     // Unreachable for a qualified (multi-segment) path — only a
-                    // bare name yields this — but handled for totality (spec 0036).
+                    // bare name yields these — but handled for totality.
                     Resolved::EffectOpUnqualified(entry) => Err(effect_op_unqualified_error(
                         &segments.join("."),
                         entry,
                         span,
                     )),
-                    Resolved::None => {
-                        // A dotted path whose head is a declared enum is almost
-                        // certainly a variant written with the old `.` spelling;
-                        // point the user at the `::` type path (spec 0018 R7).
-                        if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
-                            return Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
-                                span.clone(),
-                                format!(
-                                    "enum variants use `::`: write `{0}::{1}`, not `{0}.{1}`",
-                                    segments[0], segments[1]
-                                ),
-                            )));
-                        }
-                        Err(Error::diagnostic(Diagnostic::new("Unknown name").label(
-                            span.clone(),
-                            format!("`{}` is not defined", segments.join(".")),
-                        )))
+                    Resolved::BareImported(candidates) => {
+                        Err(bare_imported_error(&segments.join("."), &candidates, span))
                     }
+                    Resolved::Private(candidates) => Err(private_reference_error(
+                        &segments.join("."),
+                        &candidates,
+                        span,
+                    )),
+                    Resolved::None => Err(self.unknown_path_error(segments, span)),
                 }
             }
             Expr::Match {
@@ -1460,11 +1632,11 @@ impl Checker {
         if let Expr::Var(name, _) = callee
             && name == "Some"
             && !scope.contains_key(name)
-            && !self.externs.contains_key(name)
+            && self.visible_extern(name, ctx).is_none()
             && matches!(
                 self.table
                     .resolve_in(std::slice::from_ref(name), ctx.module),
-                Resolved::None
+                Resolved::None | Resolved::BareImported(_)
             )
         {
             if args.len() != 1 {
@@ -1489,26 +1661,28 @@ impl Checker {
         // function type to flow through `check_expr`.
         if let Expr::Var(name, _) = callee
             && !scope.contains_key(name)
-            && !self.externs.contains_key(name)
+            && self.visible_extern(name, ctx).is_none()
             && let Resolved::One(entry) = self
                 .table
                 .resolve_in(std::slice::from_ref(name), ctx.module)
             && self.sigs[entry.index].is_generic()
         {
+            self.check_effect_gate(entry, ctx, span)?;
             let sig = self.sigs[entry.index].clone();
             return self.check_generic_call(name, &sig, args, span, scope, ctx, allow_throw);
         }
         // A bare trait method call (spec 0020): a name that names a trait method
-        // and is not shadowed by a binding, extern, or ordinary function. It is
-        // resolved after `FnTable`, so a same-named function still shadows it
-        // (spec 0018 R6). The implementation is chosen from the argument types.
+        // and is not shadowed by a binding, a visible extern, or a function of
+        // the referring module. Imported functions never bind bare names (spec
+        // 0037 R3), so a trait method wins over a same-named import — the Core
+        // Prelude's bare names stay import-proof.
         if let Expr::Var(name, _) = callee
             && !scope.contains_key(name)
-            && !self.externs.contains_key(name)
+            && self.visible_extern(name, ctx).is_none()
             && matches!(
                 self.table
                     .resolve_in(std::slice::from_ref(name), ctx.module),
-                Resolved::None
+                Resolved::None | Resolved::BareImported(_)
             )
             && let Some(candidates) = self.method_owners.get(name)
         {
@@ -1571,12 +1745,15 @@ impl Checker {
                 ),
             ));
         }
-        // A qualified `.` call target (spec 0018): a (possibly generic) qualified
-        // function. A non-generic qualified function falls through to the general
-        // path below, where `check_expr` on the path yields its function type.
+        // A qualified `.` call target: an effect operation (`Io.print`, spec
+        // 0037) or a module-qualified function (`list.map`), possibly generic.
+        // A non-generic match falls through to the general path below, where
+        // `check_expr` on the path yields its function type (and applies the
+        // same `uses` gate).
         if let Expr::Path { segments, .. } = callee {
-            match self.table.resolve(segments) {
+            match self.table.resolve_in(segments, ctx.module) {
                 Resolved::One(entry) if self.sigs[entry.index].is_generic() => {
+                    self.check_effect_gate(entry, ctx, span)?;
                     let sig = self.sigs[entry.index].clone();
                     return self.check_generic_call(
                         &entry.name,
@@ -2239,33 +2416,86 @@ fn ambiguous_error(path: &str, candidates: &[&FnEntry], span: &Span) -> Error {
     )
 }
 
-/// A bare name that resolves only to an imported effect operation (spec 0036),
-/// which must be called in qualified form; points at the `effect.op` spelling.
+/// A bare name that resolves only to an effect operation (spec 0037), which
+/// must be called in qualified form; points at the `Effect.op` spelling.
 fn effect_op_unqualified_error(name: &str, entry: &FnEntry, span: &Span) -> Error {
-    let full = &entry.full_path;
-    // `full_path` is `module_path + [name]`; the effect name is the segment just
-    // before the operation, e.g. `io` in `std.io.print`.
-    let qualified = if full.len() >= 2 {
-        display_path(&full[full.len() - 2..])
-    } else {
-        name.to_string()
-    };
-    let effect = full
-        .get(full.len().wrapping_sub(2))
-        .map(String::as_str)
-        .unwrap_or(name);
+    let effect = entry.effect_name.as_deref().unwrap_or_default();
     Error::diagnostic(
         Diagnostic::new("Effect operation called by bare name")
             .label(
                 span.clone(),
                 format!(
-                    "`{name}` is an operation of effect `{effect}`; call it as `{qualified}(...)`"
+                    "`{name}` is an operation of effect `{effect}`; call it as `{effect}.{name}(...)`"
                 ),
             )
             .help(
-                "Effect operations are qualified-only (spec 0036); write `effect.operation(...)`.",
+                "Effect operations are qualified-only (spec 0037); write `Effect.operation(...)` inside a `uses { Effect }` scope.",
             ),
     )
+}
+
+/// A bare name that matched only imported public functions (spec 0037 R3):
+/// imported functions are called with their module qualifier.
+fn bare_imported_error(name: &str, candidates: &[&FnEntry], span: &Span) -> Error {
+    let qualified = candidates
+        .iter()
+        .map(|entry| format!("`{}`", display_path(&entry.full_path)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Error::diagnostic(
+        Diagnostic::new("Imported function called by bare name")
+            .label(
+                span.clone(),
+                format!("`{name}` is imported and must be qualified: {qualified}"),
+            )
+            .help(
+                "Imported functions are called with their module qualifier (spec 0037), e.g. `list.map(...)`.",
+            ),
+    )
+}
+
+/// A qualified path that matched only functions private to another module
+/// (spec 0037 R5).
+fn private_reference_error(path: &str, candidates: &[&FnEntry], span: &Span) -> Error {
+    let label = match candidates
+        .first()
+        .and_then(|entry| entry.effect_name.as_ref())
+    {
+        Some(effect) => format!("`{path}` is a private operation of effect `{effect}`"),
+        None => format!("`{path}` is private to its module"),
+    };
+    Error::diagnostic(Diagnostic::new("Private reference").label(span.clone(), label))
+}
+
+/// A hint for an effect name that is not in scope (spec 0037): a capitalization
+/// near-miss against an in-scope effect, or a known embedded-std effect whose
+/// import is missing.
+fn effect_scope_hint(name: &str, in_scope: &HashSet<String>) -> Option<String> {
+    if let Some(known) = in_scope
+        .iter()
+        .find(|known| known.eq_ignore_ascii_case(name))
+    {
+        return Some(format!(
+            "Effect names are capitalized (spec 0037); did you mean `{known}`?"
+        ));
+    }
+    match () {
+        _ if name == "Io" => {
+            Some("Add `import std.io` to bring effect `Io` into scope.".to_string())
+        }
+        _ if name == "Clock" => {
+            Some("Add `import std.clock` to bring effect `Clock` into scope.".to_string())
+        }
+        _ if name.eq_ignore_ascii_case("io") => Some(
+            "The I/O effect is `Io` (spec 0037): add `import std.io` and write `uses { Io }`."
+                .to_string(),
+        ),
+        _ if name.eq_ignore_ascii_case("clock") => Some(
+            "The clock effect is `Clock` (spec 0037): add `import std.clock` and write `uses { Clock }`."
+                .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 /// Combines the error a subexpression may throw with that of its siblings. The
@@ -2448,13 +2678,14 @@ pub(crate) fn expand_trait_defaults(program: &mut Program) {
                 name_span: tmethod.name_span.clone(),
                 is_public: false,
                 module_path: Vec::new(),
+                declared_module: decl.module.clone(),
+                effect_name: None,
                 type_params: Vec::new(),
                 bounds: Vec::new(),
                 params: tmethod.params.clone(),
                 ret: tmethod.ret.clone(),
                 throws: tmethod.throws.clone(),
                 effects: tmethod.effects.clone(),
-                is_effect_op: false,
                 body: default_body.clone(),
             });
         }

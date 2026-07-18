@@ -330,11 +330,17 @@ fn check_rejects_effectful_function_where_pure_is_expected() {
     let source = write_source(
         "main.emel",
         r#"
+effect Fs {
+  pub fn touch() -> Unit {
+    ()
+  }
+}
+
 fn applyPure(x: Int, f: (Int) -> Int uses {}) -> Int uses {} {
   f(x)
 }
 
-fn readThenAdd(x: Int) -> Int uses { fs } {
+fn readThenAdd(x: Int) -> Int uses { Fs } {
   x + 1
 }
 
@@ -408,10 +414,10 @@ pub fn add_one(x: Int) -> Int {
     fs::write(
         &source,
         r#"
-import math.add_one
+import math
 
 fn main() -> Int {
-  add_one(41)
+  math.add_one(41)
 }
 "#,
     )
@@ -451,10 +457,10 @@ fn hidden(x: Int) -> Int {
     fs::write(
         &source,
         r#"
-import math.hidden
+import math
 
 fn main() -> Int {
-  hidden(41)
+  math.hidden(41)
 }
 "#,
     )
@@ -470,7 +476,7 @@ fn main() -> Int {
 
     let _ = fs::remove_dir_all(&dir);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Private import"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Private reference"));
 }
 
 #[test]
@@ -498,10 +504,10 @@ pub fn add_one(x: Int) -> Int {
     fs::write(
         &source,
         r#"
-import math.ops.add_one
+import math.ops
 
 fn main() -> Int {
-  add_one(41)
+  ops.add_one(41)
 }
 "#,
     )
@@ -547,11 +553,11 @@ pub fn add_two(x: Int) -> Int {
     fs::write(
         &source,
         r#"
-import math.add_one
-import math.add_two
+import math
+import math
 
 fn main() -> Int {
-  add_two(add_one(39))
+  math.add_two(math.add_one(39))
 }
 "#,
     )
@@ -716,7 +722,7 @@ fn check_rejects_main_declaring_throws() {
     assert!(stderr.contains("Never"), "{stderr}");
 }
 
-/// Two modules export `id`. Both imports are accepted (spec 0018 R4), and the
+/// Two modules export `id`. Both imports are accepted (spec 0037 R4), and the
 /// qualified forms `math.id` / `phys.id` resolve to distinct, mangled symbols so
 /// the same bare name can coexist.
 #[test]
@@ -736,8 +742,8 @@ fn ir_resolves_qualified_calls_and_disambiguates_collisions() {
     fs::write(
         &source,
         r#"
-import math.id
-import phys.id
+import math
+import phys
 
 fn main() -> Int {
   math.id(1) + phys.id(2)
@@ -765,10 +771,10 @@ fn main() -> Int {
     assert!(stdout.contains("call @phys__id(2)"), "{stdout}");
 }
 
-/// When two imports bind the same bare name, an unqualified call is ambiguous
-/// and must be qualified (spec 0018 R5).
+/// Imported functions never bind bare names (spec 0037 R3): an unqualified
+/// call is rejected with the qualified spelling.
 #[test]
-fn check_rejects_ambiguous_bare_call() {
+fn check_rejects_bare_call_to_imported() {
     let dir = temp_dir();
     fs::write(
         dir.join("math.emel"),
@@ -783,7 +789,7 @@ fn check_rejects_ambiguous_bare_call() {
     let source = dir.join("main.emel");
     fs::write(
         &source,
-        "import math.id\nimport phys.id\nfn main() -> Int {\n  id(1)\n}\n",
+        "import math\nimport phys\nfn main() -> Int {\n  id(1)\n}\n",
     )
     .unwrap();
 
@@ -798,13 +804,16 @@ fn check_rejects_ambiguous_bare_call() {
     let _ = fs::remove_dir_all(&dir);
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Ambiguous reference"), "{stderr}");
+    assert!(
+        stderr.contains("Imported function called by bare name"),
+        "{stderr}"
+    );
     assert!(stderr.contains("math.id"), "{stderr}");
     assert!(stderr.contains("phys.id"), "{stderr}");
 }
 
-/// A package import is callable bare, by its leaf module, and by its full path
-/// (spec 0018 R2): `add_one`, `ops.add_one`, `math.ops.add_one`.
+/// A package module import is callable by its leaf module and by its full path
+/// (spec 0037 R2): `ops.add_one`, `math.ops.add_one`.
 #[test]
 fn check_resolves_qualified_package_import() {
     let dir = temp_dir();
@@ -824,10 +833,10 @@ fn check_resolves_qualified_package_import() {
     fs::write(
         &source,
         r#"
-import math.ops.add_one
+import math.ops
 
 fn main() -> Int {
-  add_one(0) + ops.add_one(1) + math.ops.add_one(2)
+  ops.add_one(1) + math.ops.add_one(2)
 }
 "#,
     )

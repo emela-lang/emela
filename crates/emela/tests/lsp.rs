@@ -280,7 +280,7 @@ fn covers_every_error_category() {
         ),
         (
             "Unhandled effects",
-            "fn a() -> Unit uses { io } {\n  ()\n}\n\nfn b() -> Unit uses {} {\n  a()\n}\n",
+            "effect Log {\n  pub fn info() -> Unit {\n    ()\n  }\n}\n\nfn a() -> Unit uses { Log } {\n  ()\n}\n\nfn b() -> Unit uses {} {\n  a()\n}\n",
         ),
         (
             "Unhandled throwing call",
@@ -326,7 +326,7 @@ fn routes_imported_module_errors() {
     )
     .unwrap();
     let main_path = dir.join("main.emel");
-    let main_source = "import geometry.square\n\nfn main() -> Int uses {} {\n  square(5)\n}\n";
+    let main_source = "import geometry\n\nfn main() -> Int uses {} {\n  geometry.square(5)\n}\n";
     fs::write(&main_path, main_source).unwrap();
     let main_uri = uri_of(&main_path);
     let geometry_uri = uri_of(&dir.join("geometry.emel"));
@@ -427,13 +427,13 @@ fn completes_effects_in_uses_row() {
     let path = dir.join("main.emel");
     let uri = uri_of(&path);
     fs::write(&path, "").unwrap();
-    let source = "fn log() -> Unit uses { io } {\n  ()\n}\n\nfn tick() -> Unit uses { clock } {\n  ()\n}\n\nfn main() -> Unit uses {  } {\n  ()\n}\n";
+    let source = "fn log() -> Unit uses { Io } {\n  ()\n}\n\nfn tick() -> Unit uses { Clock } {\n  ()\n}\n\nfn main() -> Unit uses {  } {\n  ()\n}\n";
     let mut lsp = Lsp::start();
     open_and_settle(&mut lsp, &uri, source);
     // Cursor inside `uses {  }` of main (line 8, between the braces).
     let labels = lsp.completion_labels(&uri, 8, 24);
-    assert!(labels.iter().any(|l| l == "io"), "{labels:?}");
-    assert!(labels.iter().any(|l| l == "clock"), "{labels:?}");
+    assert!(labels.iter().any(|l| l == "Io"), "{labels:?}");
+    assert!(labels.iter().any(|l| l == "Clock"), "{labels:?}");
     assert!(!labels.iter().any(|l| l == "let"), "{labels:?}");
     let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();

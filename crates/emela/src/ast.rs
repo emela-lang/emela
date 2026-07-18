@@ -15,6 +15,19 @@ pub(crate) struct Program {
     pub(crate) traits: Vec<TraitDecl>,
     /// `impl Trait for Type` blocks (spec 0020).
     pub(crate) impls: Vec<ImplDecl>,
+    /// `effect` declarations (spec 0037). The operations themselves are
+    /// desugared into `functions`/`externs`; this records the effect names in
+    /// scope, for validating `uses { ... }` rows and `Name.op(...)` heads.
+    pub(crate) effects: Vec<EffectDecl>,
+}
+
+/// An `effect Name { ... }` declaration (spec 0037): a capitalized, first-class
+/// effect that owns a set of operations. An item within a module, like an enum.
+#[derive(Debug, Clone)]
+pub(crate) struct EffectDecl {
+    pub(crate) name: String,
+    #[allow(dead_code)]
+    pub(crate) name_span: Span,
 }
 
 /// An `enum` declaration (spec 0005).
@@ -109,10 +122,11 @@ pub(crate) struct Extern {
     pub(crate) effects: EffectRow,
     /// `true` for `intrinsic fn` (spec 0021), `false` for `extern fn` (spec 0013).
     pub(crate) is_intrinsic: bool,
-    /// `true` when this extern is an operation of an `effect` block (spec 0036),
-    /// e.g. `write_stdout` inside `effect io { ... }`. Effect operations are
-    /// callable only in qualified form (`io.write_stdout`), never by bare name.
-    pub(crate) is_effect_op: bool,
+    /// `Some(effect)` when this extern is a backing operation of an `effect`
+    /// block (spec 0037), e.g. `write_stdout` inside `effect Io { ... }`. A
+    /// backing operation is private to its effect: only sibling operations may
+    /// call it, by bare name.
+    pub(crate) effect_name: Option<String>,
 }
 
 impl Extern {
@@ -142,12 +156,26 @@ pub(crate) struct Function {
     pub(crate) name: String,
     pub(crate) name_span: Span,
     pub(crate) is_public: bool,
-    /// The import qualifier this function was brought in under, e.g.
-    /// `["std", "int"]` for a function imported via `import std.int.to_string`
-    /// (spec 0018). Empty for the compilation root's own functions and for
-    /// module-private helpers. The full qualified path is `module_path + [name]`,
-    /// and the function is callable by any suffix of that path ending at `name`.
+    /// The qualifier this function is addressed by (spec 0037). For a function
+    /// of an imported module this is the written import path (`["std", "list"]`
+    /// for `import std.list`), stamped by `imports.rs` on every function of the
+    /// module (public or not) so bare names never cross module boundaries. For
+    /// an effect operation it is `[EffectName]`, stamped at parse time, so the
+    /// operation is addressed as `Io.print` wherever the effect is declared.
+    /// Empty only for the compilation root's own functions. The full qualified
+    /// path is `module_path + [name]`; public functions are callable by any
+    /// suffix of that path ending at `name`.
     pub(crate) module_path: Vec<String>,
+    /// The declaring file's `module` header, if any (spec 0037): the visibility
+    /// domain for bare `extern`/`intrinsic` references, matching
+    /// `Extern::module`. `None` for a headerless compilation root.
+    pub(crate) declared_module: Option<String>,
+    /// `Some(effect)` when this function is an operation of an `effect` block
+    /// (spec 0037), e.g. `print` inside `effect Io { ... }`. Operations carry
+    /// the effect implicitly in `effects` and are callable only as
+    /// `Io.print(...)` from inside a `uses { Io }` scope; sibling operations of
+    /// the same effect may also call each other by bare name.
+    pub(crate) effect_name: Option<String>,
     /// Declared type parameters (spec 0014), e.g. `["T", "U"]`. Empty for a
     /// non-generic function. Their names appear as `Type::Var` in this
     /// function's signature and body.
@@ -161,11 +189,6 @@ pub(crate) struct Function {
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
-    /// `true` when this function is an operation of an `effect` block (spec 0036),
-    /// e.g. `print` inside `effect io { ... }`. Effect operations carry the
-    /// effect implicitly in `effects` and are callable only in qualified form
-    /// (`io.print`), never by bare name.
-    pub(crate) is_effect_op: bool,
     pub(crate) body: Block,
 }
 

@@ -41,21 +41,21 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             name: "write_stdout".to_string(),
             params: vec![Type::String],
             ret: Type::Unit,
-            capability: "io".to_string(),
+            capability: "Io".to_string(),
         },
         PlatformFn {
             path: vec!["io".to_string()],
             name: "write_stderr".to_string(),
             params: vec![Type::String],
             ret: Type::Unit,
-            capability: "io".to_string(),
+            capability: "Io".to_string(),
         },
         PlatformFn {
             path: vec!["clock".to_string()],
             name: "monotonic_seconds".to_string(),
             params: vec![],
             ret: Type::Int,
-            capability: "clock".to_string(),
+            capability: "Clock".to_string(),
         },
     ]
 }

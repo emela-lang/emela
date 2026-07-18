@@ -622,6 +622,11 @@ fn over_declared_effects(
         if function.name_span.file.label != label {
             continue;
         }
+        // An effect operation's `uses { Effect }` row is implicit (spec 0037),
+        // not author-written, so there is nothing to remove: never report it.
+        if function.effect_name.is_some() {
+            continue;
+        }
         let unused: Vec<&String> = typed
             .effects
             .effects
