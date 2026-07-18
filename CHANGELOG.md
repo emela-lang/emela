@@ -7,6 +7,14 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/emela-lang/emela/compare/v0.4.0...v0.5.0) - 2026-07-18
+
+### Added
+
+- reserve embedded std module names (spec 0038) ([#56](https://github.com/emela-lang/emela/pull/56))
+- intrinsic single-declaration rule (spec 0038) ([#54](https://github.com/emela-lang/emela/pull/54))
+- embed std.io/clock/string/float as compiler-resolved modules (spec 0038) ([#53](https://github.com/emela-lang/emela/pull/53))
+
 ## [0.4.0](https://github.com/emela-lang/emela/compare/v0.3.0...v0.4.0) - 2026-07-12
 
 ### Added
