@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,34 +35,27 @@ fn canonical_backend(name: &str) -> &str {
 }
 
 pub fn run() -> Result<()> {
-    match parse_args()? {
-        Command::Check {
-            input,
-            packages,
-            library,
-        } => {
+    use clap::Parser;
+    // clap owns `--help`/`-h`, `--version`/`-V`, and argument errors (it prints
+    // to the right stream and exits on its own). Everything below is the domain
+    // path, whose errors flow through `main` to stderr with exit code 1.
+    match Cli::parse().command {
+        Commands::Check { args } => {
             // `--library` compile-checks a module that has no `main` (spec 0003).
-            let _ = compile_frontend(&input, &packages, !library)?;
+            let _ = compile_frontend(&args.input, &args.packages, !args.library)?;
             Ok(())
         }
-        Command::Build {
-            input,
-            output,
-            packages,
-            backend,
-            mode,
-        } => {
-            let artifact = build(&input, &packages, backend.as_deref(), mode)?;
-            write_artifact(artifact, output)
+        Commands::Build { args } => {
+            reject_library(&args, "build")?;
+            let mode = args.emit_mode()?;
+            let artifact = build(&args.input, &args.packages, args.backend.as_deref(), mode)?;
+            write_artifact(artifact, args.output)
         }
-        Command::Ir {
-            input,
-            output,
-            packages,
-        } => {
-            let ir = compile_to_ir(&input, &packages)?;
+        Commands::Ir { args } => {
+            reject_library(&args, "ir")?;
+            let ir = compile_to_ir(&args.input, &args.packages)?;
             let text = emit_text(&ir);
-            match output {
+            match args.output {
                 Some(output) => fs::write(&output, text).map_err(|err| {
                     Error::new(format!("failed to write `{}`: {err}", output.display()))
                 }),
@@ -73,30 +65,29 @@ pub fn run() -> Result<()> {
                 }
             }
         }
-        Command::Backends => {
+        Commands::Run { args } => {
+            reject_library(&args, "run")?;
+            reject_run_flags(&args)?;
+            run_program(&args.input, &args.packages, args.backend.as_deref())
+        }
+        Commands::Backends => {
             for (name, tier) in registry().list() {
                 println!("{name}\t{}", tier.label());
             }
             Ok(())
         }
-        Command::Run {
-            input,
-            packages,
-            backend,
-        } => run_program(&input, &packages, backend.as_deref()),
         // `emela lsp` (spec 0033): the language server over stdio.
-        Command::Lsp { packages } => crate::lsp::run(packages),
-        Command::Fmt { paths, check } => crate::fmt::run(&paths, check),
-        Command::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
-        Command::New { name } => crate::pome::scaffold(&name),
-        Command::Pome { args } => crate::pome::run(&args),
-        Command::Version => {
-            println!(
-                "{}",
-                option_env!("EMELA_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
-            );
-            Ok(())
+        Commands::Lsp { packages } => crate::lsp::run(packages),
+        Commands::Fmt { check, mut paths } => {
+            // No paths means the current directory (spec 0035 C1).
+            if paths.is_empty() {
+                paths.push(PathBuf::from("."));
+            }
+            crate::fmt::run(&paths, check)
         }
+        Commands::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
+        Commands::New { name } => crate::pome::scaffold(&name),
+        Commands::Pome { args } => crate::pome::run(&args),
     }
 }
 
@@ -376,195 +367,126 @@ pub(crate) fn compile_source(
     backend.compile(&ir, &options).map_err(Error::from)
 }
 
-enum Command {
+#[derive(clap::Parser)]
+#[command(
+    name = "emela",
+    about = "The Emela compiler and toolchain",
+    version = option_env!("EMELA_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+    arg_required_else_help = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Type-check a module without producing output
     Check {
-        input: PathBuf,
-        packages: Vec<PathBuf>,
-        library: bool,
+        #[command(flatten)]
+        args: CompileArgs,
     },
+    /// Compile a module to an artifact
     Build {
-        input: PathBuf,
-        output: Option<PathBuf>,
-        packages: Vec<PathBuf>,
-        backend: Option<String>,
-        mode: EmitMode,
+        #[command(flatten)]
+        args: CompileArgs,
     },
+    /// Lower a module to typed IR text
     Ir {
-        input: PathBuf,
-        output: Option<PathBuf>,
-        packages: Vec<PathBuf>,
+        #[command(flatten)]
+        args: CompileArgs,
     },
-    /// `emela run FILE` — build to `wasm-wasi` and execute it in-process
-    /// (requires the `run` feature).
+    /// Compile a module and run it in-process
     Run {
-        input: PathBuf,
-        packages: Vec<PathBuf>,
-        backend: Option<String>,
+        #[command(flatten)]
+        args: CompileArgs,
     },
+    /// List the available compiler backends
     Backends,
-    Version,
-    /// `emela lsp` — the language server over stdio (spec 0033).
+    /// Start the language server over stdio (spec 0033)
     Lsp {
+        /// Package root to resolve imports against (repeatable)
+        #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
     },
-    /// `emela fmt [--check] [PATH ...]` — canonical formatting (spec 0035).
+    /// Format Emela source files (spec 0035)
     Fmt {
-        paths: Vec<PathBuf>,
+        /// Check formatting and exit non-zero instead of rewriting files
+        #[arg(long)]
         check: bool,
+        /// Files or directories to format (defaults to the current directory)
+        #[arg(value_name = "PATH")]
+        paths: Vec<PathBuf>,
     },
-    /// `emela lint [--package DIR] FILE ...` — lint warnings (spec 0035).
+    /// Report lint warnings (spec 0035)
     Lint {
-        inputs: Vec<PathBuf>,
+        /// Package root to resolve imports against (repeatable)
+        #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
+        /// Source files to lint
+        #[arg(value_name = "FILE", required = true)]
+        inputs: Vec<PathBuf>,
     },
-    /// `emela new <name>` — scaffold a new Pome (spec 0032 C2).
+    /// Scaffold a new Pome package (spec 0032)
     New {
+        #[arg(value_name = "NAME")]
         name: String,
     },
-    /// `emela pome <verb> ...` — package management (spec 0032 C1).
+    /// Manage packages: add, remove, list, update, install, search (spec 0032)
     Pome {
+        /// The pome verb and its arguments
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARGS"
+        )]
         args: Vec<String>,
     },
 }
 
-fn parse_args() -> Result<Command> {
-    let mut args = env::args().skip(1);
-    let Some(command) = args.next() else {
-        return Err(usage());
-    };
-    match command.as_str() {
-        "--version" | "-V" => Ok(Command::Version),
-        "backends" => Ok(Command::Backends),
-        "new" => {
-            let name = args
-                .next()
-                .ok_or_else(|| Error::new("usage: emela new <name>"))?;
-            if args.next().is_some() {
-                return Err(Error::new("usage: emela new <name>"));
-            }
-            Ok(Command::New { name })
+/// Flags shared by the compile-style subcommands (`check`/`build`/`ir`/`run`).
+/// They present the same surface at the parse layer; per-command rules that
+/// reject a flag live in [`reject_library`]/[`reject_run_flags`] so their
+/// error messages stay stable across the clap migration.
+#[derive(clap::Args)]
+struct CompileArgs {
+    /// The Emela source file to compile
+    #[arg(value_name = "FILE")]
+    input: PathBuf,
+    /// Check a module that has no `main` (valid for `check` only)
+    #[arg(long = "library", visible_alias = "lib")]
+    library: bool,
+    /// Write output to FILE instead of stdout
+    #[arg(short = 'o', long = "output", value_name = "FILE")]
+    output: Option<PathBuf>,
+    /// Select the compiler backend (e.g. `js-node`, `wasm-wasi`)
+    #[arg(long, value_name = "NAME")]
+    backend: Option<String>,
+    /// Output form: `default` or `text`
+    #[arg(long, value_name = "MODE")]
+    emit: Option<String>,
+    /// Add a package root to resolve imports against (repeatable)
+    #[arg(long = "package", value_name = "DIR")]
+    packages: Vec<PathBuf>,
+}
+
+impl CompileArgs {
+    /// Resolve `--emit` to an [`EmitMode`], preserving the pre-clap error text.
+    fn emit_mode(&self) -> Result<EmitMode> {
+        match self.emit.as_deref() {
+            None | Some("default") => Ok(EmitMode::Default),
+            Some("text") => Ok(EmitMode::Text),
+            Some(other) => Err(Error::new(format!(
+                "unknown --emit value `{other}` (expected `default` or `text`)"
+            ))),
         }
-        "pome" => Ok(Command::Pome {
-            args: args.collect(),
-        }),
-        "lsp" => {
-            // The server takes only `--package` roots; everything else comes
-            // in over the protocol (spec 0033).
-            let mut packages = Vec::new();
-            while let Some(arg) = args.next() {
-                match arg.as_str() {
-                    "--package" => {
-                        let Some(path) = args.next() else {
-                            return Err(Error::new("missing value for --package"));
-                        };
-                        packages.push(PathBuf::from(path));
-                    }
-                    other => {
-                        return Err(Error::new(format!(
-                            "unsupported option `{other}` for `lsp` (expected `--package DIR`)"
-                        )));
-                    }
-                }
-            }
-            Ok(Command::Lsp { packages })
-        }
-        "fmt" => {
-            let mut check = false;
-            let mut paths = Vec::new();
-            for arg in args {
-                match arg.as_str() {
-                    "--check" => check = true,
-                    flag if flag.starts_with('-') => {
-                        return Err(Error::new(format!("unsupported option `{flag}` for `fmt`")));
-                    }
-                    path => paths.push(PathBuf::from(path)),
-                }
-            }
-            // No paths means the current directory (spec 0035 C1).
-            if paths.is_empty() {
-                paths.push(PathBuf::from("."));
-            }
-            Ok(Command::Fmt { paths, check })
-        }
-        "lint" => {
-            let mut packages = Vec::new();
-            let mut inputs = Vec::new();
-            while let Some(arg) = args.next() {
-                match arg.as_str() {
-                    "--package" => {
-                        let Some(path) = args.next() else {
-                            return Err(Error::new("missing value for --package"));
-                        };
-                        packages.push(PathBuf::from(path));
-                    }
-                    flag if flag.starts_with('-') => {
-                        return Err(Error::new(format!(
-                            "unsupported option `{flag}` for `lint`"
-                        )));
-                    }
-                    path => inputs.push(PathBuf::from(path)),
-                }
-            }
-            if inputs.is_empty() {
-                return Err(Error::new("usage: emela lint [--package DIR] FILE ..."));
-            }
-            Ok(Command::Lint { inputs, packages })
-        }
-        "check" => {
-            let parsed = parse_compile_args(args)?;
-            Ok(Command::Check {
-                input: parsed.input,
-                packages: parsed.packages,
-                library: parsed.library,
-            })
-        }
-        "build" => {
-            let parsed = parse_compile_args(args)?;
-            reject_library(&parsed, "build")?;
-            Ok(Command::Build {
-                input: parsed.input,
-                output: parsed.output,
-                packages: parsed.packages,
-                backend: parsed.backend,
-                mode: parsed.mode,
-            })
-        }
-        "ir" => {
-            let parsed = parse_compile_args(args)?;
-            reject_library(&parsed, "ir")?;
-            Ok(Command::Ir {
-                input: parsed.input,
-                output: parsed.output,
-                packages: parsed.packages,
-            })
-        }
-        "run" => {
-            let parsed = parse_compile_args(args)?;
-            reject_library(&parsed, "run")?;
-            reject_run_flags(&parsed)?;
-            Ok(Command::Run {
-                input: parsed.input,
-                packages: parsed.packages,
-                backend: parsed.backend,
-            })
-        }
-        _ => Err(usage()),
     }
 }
 
-struct CompileArgs {
-    input: PathBuf,
-    output: Option<PathBuf>,
-    packages: Vec<PathBuf>,
-    backend: Option<String>,
-    mode: EmitMode,
-    library: bool,
-}
-
-/// `--library` only makes sense for `check`: `build`/`ir` need a `main` to lower
-/// and run, so reject the flag there rather than silently ignoring it.
-fn reject_library(parsed: &CompileArgs, command: &str) -> Result<()> {
-    if parsed.library {
+/// `--library` only makes sense for `check`: `build`/`ir`/`run` need a `main` to
+/// lower and run, so reject the flag there rather than silently ignoring it.
+fn reject_library(args: &CompileArgs, command: &str) -> Result<()> {
+    if args.library {
         return Err(Error::new(format!(
             "`--library` is only valid for `check`, not `{command}`"
         )));
@@ -574,95 +496,14 @@ fn reject_library(parsed: &CompileArgs, command: &str) -> Result<()> {
 
 /// `run` executes the module in-process rather than emitting a file, so `-o` and
 /// `--emit` have no meaning there.
-fn reject_run_flags(parsed: &CompileArgs) -> Result<()> {
-    if parsed.output.is_some() {
+fn reject_run_flags(args: &CompileArgs) -> Result<()> {
+    if args.output.is_some() {
         return Err(Error::new("`-o`/`--output` is not valid for `run`"));
     }
-    if !matches!(parsed.mode, EmitMode::Default) {
+    if args.emit.is_some() {
         return Err(Error::new("`--emit` is not valid for `run`"));
     }
     Ok(())
-}
-
-fn parse_compile_args(args: impl Iterator<Item = String>) -> Result<CompileArgs> {
-    let mut input = None;
-    let mut output = None;
-    let mut packages = Vec::new();
-    let mut backend = None;
-    let mut mode = EmitMode::Default;
-    let mut library = false;
-    let mut args = args.peekable();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--library" | "--lib" => {
-                library = true;
-            }
-            "-o" | "--output" => {
-                let Some(path) = args.next() else {
-                    return Err(Error::new("missing value for --output"));
-                };
-                output = Some(PathBuf::from(path));
-            }
-            "--backend" => {
-                let Some(value) = args.next() else {
-                    return Err(Error::new("missing value for --backend"));
-                };
-                backend = Some(value);
-            }
-            "--emit" => {
-                let Some(value) = args.next() else {
-                    return Err(Error::new("missing value for --emit"));
-                };
-                mode = match value.as_str() {
-                    "default" => EmitMode::Default,
-                    "text" => EmitMode::Text,
-                    other => {
-                        return Err(Error::new(format!(
-                            "unknown --emit value `{other}` (expected `default` or `text`)"
-                        )));
-                    }
-                };
-            }
-            "--package" => {
-                let Some(path) = args.next() else {
-                    return Err(Error::new("missing value for --package"));
-                };
-                packages.push(PathBuf::from(path));
-            }
-            flag if flag.starts_with('-') => {
-                return Err(Error::new(format!("unsupported option `{flag}`")));
-            }
-            path => {
-                if input.replace(PathBuf::from(path)).is_some() {
-                    return Err(Error::new("multiple input files are not supported"));
-                }
-            }
-        }
-    }
-    let input = input.ok_or_else(usage)?;
-    Ok(CompileArgs {
-        input,
-        output,
-        packages,
-        backend,
-        mode,
-        library,
-    })
-}
-
-fn usage() -> Error {
-    Error::new(
-        "usage: emela check [--library] [--backend NAME] [--package DIR] FILE \
-         | emela build [--backend NAME] [--emit default|text] [--package DIR] [-o FILE] FILE \
-         | emela run [--package DIR] FILE \
-         | emela ir [--package DIR] [-o FILE] FILE \
-         | emela lsp [--package DIR] \
-         | emela fmt [--check] [PATH ...] \
-         | emela lint [--package DIR] FILE \
-         | emela new <name> \
-         | emela pome <add|remove|list|update|install|search> ... \
-         | emela backends | emela --version",
-    )
 }
 
 #[cfg(test)]
