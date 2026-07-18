@@ -37,3 +37,10 @@ pub(crate) fn embedded_std_source(name: &str) -> Option<&'static str> {
         .find(|(module, _)| *module == name)
         .map(|(_, source)| *source)
 }
+
+/// The `std.*` module names reserved by the embedded core (spec 0038): the
+/// Core Prelude's module plus every embedded std module. A package addressed
+/// as `std` may not provide any of them.
+pub(crate) fn reserved_std_modules() -> impl Iterator<Item = &'static str> {
+    std::iter::once(CORE_MODULE).chain(EMBEDDED_STD.iter().map(|(name, _)| *name))
+}

@@ -442,6 +442,62 @@ fn build_resolves_imports_from_a_dependency_pome() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// A dependency Pome whose manifest claims import root `std` (`module =
+/// "std"`) may not provide a module reserved by the embedded core (spec
+/// 0038); the same eager check as for `--package` fires at build time.
+#[test]
+fn build_rejects_a_std_pome_shadowing_an_embedded_module() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    let root = scratch("std-reserved");
+    let source = "github.com/acme/stdfork";
+    let dir = root.join("upstream").join("stdfork");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(
+        dir.join("Pome.toml"),
+        format!(
+            "[pome]\nname = \"{source}\"\nversion = \"1.0.0\"\nemela = \"0.1\"\nmodule = \"std\"\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("src").join("io.emel"),
+        "module io\n\npub fn shadow(s: String) -> String {\n  s\n}\n",
+    )
+    .unwrap();
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "release"]);
+    git(&dir, &["tag", "-a", "v1.0.0", "-m", "v1.0.0"]);
+
+    let replace = format!("{source}={}", dir.display());
+    let cache = root.join("cache");
+    let project = root.join("app");
+    assert_ok(&emela(&root, &replace, &cache, &["new", "app"]));
+    assert_ok(&emela(
+        &project,
+        &replace,
+        &cache,
+        &["pome", "add", "github:acme/stdfork"],
+    ));
+
+    let build = emela(
+        &project,
+        &replace,
+        &cache,
+        &["build", "--backend", "js-node", "src/main.emel"],
+    );
+    assert!(!build.status.success(), "expected the build to fail");
+    let err = String::from_utf8_lossy(&build.stderr);
+    assert!(
+        err.contains("embedded in the compiler") && err.contains("io.emel"),
+        "unexpected diagnostic:\n{err}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn build_errors_when_a_locked_dependency_is_not_fetched() {
     if !git_available() {

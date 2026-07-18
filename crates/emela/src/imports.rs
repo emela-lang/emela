@@ -50,6 +50,33 @@ pub(crate) fn reject_user_intrinsics(program: &mut Program, errors: &mut Vec<Err
     });
 }
 
+/// Rejects a package addressed as `std` that provides a module whose name is
+/// reserved by the embedded core (spec 0038). The check is eager — it fires
+/// whether or not the module is imported — because embedded modules always
+/// win resolution, so a conflicting file could only ever be silently
+/// shadowed, never an override. Non-`std` packages may use the names freely.
+pub(crate) fn check_reserved_std_modules(packages: &[PackageSource]) -> Result<()> {
+    let mut conflicts = Vec::new();
+    for package in packages.iter().filter(|package| package.name == "std") {
+        for name in prelude::reserved_std_modules() {
+            let module_file = join_module_path(&package.source_root, &[name.to_string()]);
+            if module_file.exists() {
+                conflicts.push(format!(
+                    "package `std` at `{}` provides `{name}.emel`, but module `std.{name}` \
+                     is embedded in the compiler (spec 0038); remove the module or rename \
+                     the package",
+                    package.source_root.display()
+                ));
+            }
+        }
+    }
+    if conflicts.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::new(conflicts.join("\n")))
+    }
+}
+
 /// The declarations pulled in from an imported module. A module's public
 /// functions are what an `import` names, but its type declarations (enums, spec
 /// 0028) and their impls (spec 0020) come along too, since the imported
