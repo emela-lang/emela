@@ -109,7 +109,7 @@ fn over_declared_effects_rule() {
     // `quiet` declares Stdout but needs nothing; `main` inherits Stdout from
     // the call (a callee's declared row propagates), so only `quiet` warns.
     let stderr = lint_warns(
-        "fn quiet() -> Int uses { Stdout } {\n    3\n}\n\nfn main() -> Unit uses { Stdout } {\n    let _x = quiet()\n    ()\n}\n",
+        "effect Stdout {\n    pub fn emit() -> Unit {\n        ()\n    }\n}\n\nfn quiet() -> Int uses { Stdout } {\n    3\n}\n\nfn main() -> Unit uses { Stdout } {\n    let _x = quiet()\n    ()\n}\n",
         "effects/over-declared",
     );
     assert!(stderr.contains("`Stdout`"), "{stderr}");
@@ -121,7 +121,7 @@ fn declared_and_used_effects_are_clean() {
     // Calling through an effectful function value (spec 0008) makes the body
     // genuinely require Stdout, so the declared row is not over-declared.
     lint_clean(
-        "fn call_it(f: () -> Unit uses { Stdout }) -> Unit uses { Stdout } {\n    f()\n}\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
+        "effect Stdout {\n    pub fn emit() -> Unit {\n        ()\n    }\n}\n\nfn call_it(f: () -> Unit uses { Stdout }) -> Unit uses { Stdout } {\n    f()\n}\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
     );
 }
 
@@ -133,13 +133,13 @@ fn unused_import_rule_and_root_only_reporting() {
     // over-declared effect; neither may be reported for the root file (L2).
     fs::write(
         dir.join("util/math.emel"),
-        "module util.math\n\npub fn double(x: Int) -> Int {\n    x * 2\n}\n\npub fn Helper() -> Int uses { Stdout } {\n    3\n}\n",
+        "module util.math\n\neffect Stdout {\n    pub fn emit() -> Unit {\n        ()\n    }\n}\n\npub fn double(x: Int) -> Int {\n    x * 2\n}\n\npub fn Helper() -> Int uses { Stdout } {\n    3\n}\n",
     )
     .unwrap();
     let input = dir.join("main.emel");
     fs::write(
         &input,
-        "import util.math.double\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
+        "import util.math\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_emela"))
@@ -151,7 +151,7 @@ fn unused_import_rule_and_root_only_reporting() {
     assert!(!output.status.success());
     assert!(stderr.contains("[imports/unused]"), "{stderr}");
     assert!(
-        stderr.contains("`double` is imported but never used"),
+        stderr.contains("`math` is imported but never used"),
         "{stderr}"
     );
     assert!(
@@ -173,7 +173,7 @@ fn used_import_is_clean() {
     let input = dir.join("main.emel");
     fs::write(
         &input,
-        "import util.math.double\n\nfn main() -> Unit uses {} {\n    let _x = double(4)\n    ()\n}\n",
+        "import util.math\n\nfn main() -> Unit uses {} {\n    let _x = math.double(4)\n    ()\n}\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_emela"))

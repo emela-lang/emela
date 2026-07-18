@@ -52,11 +52,15 @@ struct MonoState {
 /// A no-body function in scope: its canonical name, return type, and whether it
 /// is an `intrinsic fn` (spec 0021) as opposed to an `extern fn` platform
 /// function (spec 0013). Intrinsic calls lower to `IrExpr::Intrinsic`, platform
-/// calls to `IrExpr::Platform`.
+/// calls to `IrExpr::Platform`. `module`/`effect_name` are the visibility
+/// domain (spec 0037), mirroring the type checker's `ExternSig` so both passes
+/// resolve a bare name identically.
 struct ExternInfo {
     canonical: String,
     ret: Type,
     is_intrinsic: bool,
+    module: Option<String>,
+    effect_name: Option<String>,
 }
 
 /// One variant of a declared enum, with its tag (declaration order) and fields.
@@ -96,10 +100,17 @@ struct Lowerer<'a> {
     /// lowered. Empty while lowering an ordinary (non-generic) function, where
     /// `apply` is the identity.
     subst: RefCell<HashMap<String, Type>>,
-    /// The module path of the function currently being lowered (spec 0018), so a
-    /// bare-name call resolves to the referring module's own function before
-    /// imports — matching the type checker's `FnCtx::module`.
+    /// The module path of the function currently being lowered, so a bare-name
+    /// call resolves within the referring module (spec 0037) — matching the
+    /// type checker's `FnCtx::module`.
     current_module: RefCell<Vec<String>>,
+    /// The declaring `module` header of the function currently being lowered
+    /// (spec 0037): the extern-visibility domain, matching
+    /// `FnCtx::declared_module`.
+    current_declared_module: RefCell<Option<String>>,
+    /// The owning effect of the operation currently being lowered (spec 0037),
+    /// matching `FnCtx::effect_name`.
+    current_effect: RefCell<Option<String>>,
     /// Counter for fresh temporary names used when desugaring the swapped
     /// comparisons `>` / `<=` (spec 0027), so each site's temporaries are unique.
     cmp_counter: RefCell<usize>,
@@ -119,6 +130,8 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                     canonical: declaration.canonical(),
                     ret: declaration.ret.clone(),
                     is_intrinsic: declaration.is_intrinsic,
+                    module: declaration.module.clone(),
+                    effect_name: declaration.effect_name.clone(),
                 },
             )
         })
@@ -181,6 +194,8 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         mono: RefCell::new(MonoState::default()),
         subst: RefCell::new(HashMap::new()),
         current_module: RefCell::new(Vec::new()),
+        current_declared_module: RefCell::new(None),
+        current_effect: RefCell::new(None),
         cmp_counter: RefCell::new(0),
         stmt_counter: RefCell::new(0),
     };
@@ -202,6 +217,8 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .map(|(param, ty)| (param.name.clone(), ty.clone()))
                 .collect();
             *lowerer.current_module.borrow_mut() = function.module_path.clone();
+            *lowerer.current_declared_module.borrow_mut() = function.declared_module.clone();
+            *lowerer.current_effect.borrow_mut() = function.effect_name.clone();
             IrFunction {
                 // Unique bare names are kept; colliding imports use a mangled
                 // full path so same-named functions coexist (spec 0018).
@@ -234,6 +251,8 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         };
         *lowerer.subst.borrow_mut() = request.subst;
         *lowerer.current_module.borrow_mut() = template.module_path.clone();
+        *lowerer.current_declared_module.borrow_mut() = template.declared_module.clone();
+        *lowerer.current_effect.borrow_mut() = template.effect_name.clone();
         let specialized = lowerer.lower_named_function(template, request.mangled);
         lowerer.subst.borrow_mut().clear();
         functions.push(specialized);
@@ -790,10 +809,12 @@ impl<'a> Lowerer<'a> {
                 (IrExpr::Unit, Type::Unit)
             }
             Expr::Path { segments, .. } => {
-                // A dotted path with no `(...)`: a (qualified) function used as a
-                // value (spec 0018). Enum variants are `::` type paths, handled
-                // above.
-                if let Resolved::One(entry) = self.table.resolve(segments)
+                // A dotted path with no `(...)`: an effect operation or a
+                // module-qualified function used as a value (spec 0037). Enum
+                // variants are `::` type paths, handled above.
+                if let Resolved::One(entry) = self
+                    .table
+                    .resolve_in(segments, self.current_module.borrow().as_slice())
                     && !entry.is_generic
                 {
                     let sig = self.fn_type(entry.index);
@@ -849,6 +870,19 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    /// The extern/intrinsic `name` resolves to from the current context (spec
+    /// 0037), mirroring the type checker's `visible_extern` so both passes
+    /// agree: an effect backing operation is visible only to sibling operations
+    /// of its effect, any other extern only within its declaring module.
+    fn visible_extern(&self, name: &str) -> Option<&ExternInfo> {
+        let info = self.externs.get(name)?;
+        let visible = match &info.effect_name {
+            Some(effect) => self.current_effect.borrow().as_deref() == Some(effect.as_str()),
+            None => self.current_declared_module.borrow().as_deref() == info.module.as_deref(),
+        };
+        visible.then_some(info)
+    }
+
     fn lower_call(&self, callee: &Expr, args: &[Expr], scope: &mut Scope) -> (IrExpr, Type) {
         // Method-call (receiver) syntax (spec 0020): `recv.method(args)` on a
         // local value desugars to `method(recv, args)`, mirroring the checker.
@@ -867,13 +901,13 @@ impl<'a> Lowerer<'a> {
             // Built-in Option constructor `Some(x)`.
             if name == "Some"
                 && !scope.contains_key(name)
-                && !self.externs.contains_key(name)
+                && self.visible_extern(name).is_none()
                 && matches!(
                     self.table.resolve_in(
                         std::slice::from_ref(name),
                         self.current_module.borrow().as_slice()
                     ),
-                    Resolved::None
+                    Resolved::None | Resolved::BareImported(_)
                 )
             {
                 let (arg_ir, arg_ty) = self.lower_expr(&args[0], scope);
@@ -888,11 +922,12 @@ impl<'a> Lowerer<'a> {
                     ty,
                 );
             }
-            // A call to an `extern`/`intrinsic` declaration. A platform function
-            // (spec 0013) lowers to a Platform node (a runtime call); an
-            // intrinsic (spec 0021) lowers to an Intrinsic node (a native
-            // instruction the backend inlines).
-            if let Some(info) = self.externs.get(name) {
+            // A call to an `extern`/`intrinsic` declaration visible from the
+            // current module/effect (spec 0037). A platform function (spec
+            // 0013) lowers to a Platform node (a runtime call); an intrinsic
+            // (spec 0021) lowers to an Intrinsic node (a native instruction
+            // the backend inlines).
+            if let Some(info) = self.visible_extern(name) {
                 let ret = info.ret.clone();
                 let args = args
                     .iter()
@@ -923,15 +958,17 @@ impl<'a> Lowerer<'a> {
             {
                 return self.lower_generic_call(entry.index, args, scope);
             }
-            // A bare trait method call (spec 0020), resolved after `FnTable` so a
-            // same-named function still shadows it, mirroring the type checker.
+            // A bare trait method call (spec 0020), resolved after `FnTable` so
+            // a same-module function still shadows it, mirroring the type
+            // checker. Imported functions never bind bare names (spec 0037), so
+            // a trait method also wins over a same-named import.
             if !scope.contains_key(name)
                 && matches!(
                     self.table.resolve_in(
                         std::slice::from_ref(name),
                         self.current_module.borrow().as_slice()
                     ),
-                    Resolved::None
+                    Resolved::None | Resolved::BareImported(_)
                 )
                 && let Some(candidates) = self.method_owners.get(name)
             {
@@ -1026,7 +1063,9 @@ impl<'a> Lowerer<'a> {
                     return self.lower_trait_call(std::slice::from_ref(head), tail, args, scope);
                 }
             }
-            if let Resolved::One(entry) = self.table.resolve(segments)
+            if let Resolved::One(entry) = self
+                .table
+                .resolve_in(segments, self.current_module.borrow().as_slice())
                 && entry.is_generic
             {
                 return self.lower_generic_call(entry.index, args, scope);

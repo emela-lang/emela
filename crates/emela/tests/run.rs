@@ -87,7 +87,7 @@ fn panic_is_reported_as_a_trap() {
 fn writes_to_stdout() {
     let output = run_source(
         "stdout",
-        "import std.io\nfn main() -> Unit uses { io } { io.print(\"Hello, Emela!\\n\") }\n",
+        "import std.io\nfn main() -> Unit uses { Io } { Io.print(\"Hello, Emela!\\n\") }\n",
     );
     assert!(
         output.status.success(),

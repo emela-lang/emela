@@ -1,7 +1,19 @@
-effect io {
+-- The `std.io` module owns the `Io` effect (specs 0013/0036/0037), which wraps
+-- the platform I/O functions. `extern fn` declares a platform function; the
+-- backend supplies its body, keyed by the module-qualified canonical name
+-- (`io.write_stdout`). Every operation of an `effect` implicitly `uses { Io }`,
+-- so it is written once here. Callers import the module (`import std.io`) and
+-- invoke operations as `Io.print(...)` inside a function declaring `uses { Io }`.
+
+module io
+
+effect Io {
     extern fn write_stdout(s: String) -> Unit
     extern fn write_stderr(s: String) -> Unit
 
+    -- Generic over any `Show` type (spec 0020). `s.to_string()` is receiver-call
+    -- sugar for `to_string(s)`; dispatch is by the receiver's type. `Show` and
+    -- `to_string` come from the Core Prelude (spec 0021), so no import is needed.
     pub fn print<T: Show>(s: T) -> Unit {
         write_stdout(s.to_string())
     }

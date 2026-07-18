@@ -37,9 +37,12 @@ fn make_adder(n: Int) -> (Int) -> Int {
     }
 }
 
--- This function is permitted to use the `Stdout` effect.
-fn log_line() -> Unit uses { Stdout } {
-    ()
+-- An effect declaration (spec 0037): `Stdout` owns its operations, and only
+-- `uses { Stdout }` functions may call them, as `Stdout.log_line()`.
+effect Stdout {
+    pub fn log_line() -> Unit {
+        ()
+    }
 }
 
 -- Effects propagate to callers through `uses { ... }`.
@@ -65,7 +68,7 @@ fn main() -> Int uses { Stdout } {
     let grid: Array<Array<Int>> = [[1, 2], [3, 4]]
 
     -- An effectful call; its `Stdout` effect flows up into `main`.
-    let printed: Unit = log_line()
+    let printed: Unit = Stdout.log_line()
 
     computed
 }

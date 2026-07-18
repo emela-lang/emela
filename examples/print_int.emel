@@ -1,13 +1,13 @@
 -- Prints an integer by converting it to a String and writing it through the
--- `io` effect. `to_string` comes from the Core Prelude (spec 0021), so it needs
--- no import; the `io` effect is imported and its `print` operation is called in
--- qualified form (spec 0036).
+-- `Io` effect. `to_string` comes from the Core Prelude (spec 0021), so it needs
+-- no import; the module owning the effect is imported and the operation is
+-- called as `Io.print(...)` (spec 0037).
 --
 --   emela build --backend js-node   examples/print_int.emel | node
 --   emela build --backend wasm-wasi -o out.wasm examples/print_int.emel
 
 import std.io
 
-fn main() -> Unit uses { io } {
-    io.print(to_string(42) ++ "\n")
+fn main() -> Unit uses { Io } {
+    Io.print(to_string(42) ++ "\n")
 }

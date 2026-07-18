@@ -145,7 +145,7 @@ fn add_resolves_pins_and_lists() {
         "v1.4.0",
         &[],
         "io",
-        "module io\n\npub fn log(s: String) -> Unit uses { io } {\n  s\n}\n",
+        "module io\n\neffect Io {\n  extern fn write_stdout(s: String) -> Unit\n}\n\npub fn log(s: String) -> Unit uses { Io } {\n  ()\n}\n",
     );
     // A second, older tag proves the resolver selects the greatest match (V3).
     git(&stdlib_dir, &["tag", "-a", "v1.2.0", "-m", "v1.2.0"]);
@@ -165,7 +165,7 @@ fn add_resolves_pins_and_lists() {
     let out = stdout(&add);
     assert!(out.contains("Resolved v1.4.0"), "{out}");
     // Capability audit computed from source (CAP1).
-    assert!(out.contains("io"), "{out}");
+    assert!(out.contains("Io"), "{out}");
 
     // Pome.toml records the canonical source path (S3), not the shorthand.
     let manifest = fs::read_to_string(project.join("Pome.toml")).unwrap();
@@ -204,7 +204,7 @@ fn add_audits_transitive_capabilities() {
         "v0.3.1",
         &[],
         "util",
-        "module util\n\npub fn tick() -> Int uses { clock } {\n  0\n}\n",
+        "module util\n\npub fn tick() -> Int uses { Clock } {\n  0\n}\n",
     );
     let (http, http_dir) = upstream(
         &root,
@@ -212,7 +212,7 @@ fn add_audits_transitive_capabilities() {
         "v0.4.0",
         &[("gitlab.com/acme/util", "^0.3")],
         "http",
-        "module http\n\npub fn get(u: String) -> String uses { net } {\n  u\n}\n",
+        "module http\n\npub fn get(u: String) -> String uses { Net } {\n  u\n}\n",
     );
     let replace = format!(
         "{http}={};{util}={}",
@@ -233,8 +233,8 @@ fn add_audits_transitive_capabilities() {
     let out = stdout(&add);
     // The union of the added Pome's and its transitive dependency's effects,
     // computed from source (CAP1/CAP2).
-    assert!(out.contains("net"), "{out}");
-    assert!(out.contains("clock"), "{out}");
+    assert!(out.contains("Net"), "{out}");
+    assert!(out.contains("Clock"), "{out}");
 
     // The lock records the transitive dependency and the edge to it.
     let lock = fs::read_to_string(project.join("Pome.lock")).unwrap();
@@ -418,12 +418,12 @@ fn build_resolves_imports_from_a_dependency_pome() {
         &["pome", "add", "github:acme/mathlib"],
     ));
 
-    // Import the dependency's module by its leaf root, and by the bare, leaf, and
-    // fully-qualified names (spec 0018).
+    // Import the dependency's module (module-unit, spec 0037) and call by the
+    // leaf and fully-qualified names.
     fs::write(
         project.join("src").join("main.emel"),
-        "import mathlib.math.add_one\n\n\
-         fn main() -> Int {\n  add_one(0) + math.add_one(1) + mathlib.math.add_one(40)\n}\n",
+        "import mathlib.math\n\n\
+         fn main() -> Int {\n  math.add_one(1) + mathlib.math.add_one(40)\n}\n",
     )
     .unwrap();
 

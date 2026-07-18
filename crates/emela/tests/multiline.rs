@@ -70,7 +70,7 @@ fn multiline_array_with_trailing_comma() {
 #[test]
 fn trailing_comma_in_effect_row_and_type_args() {
     check_ok(
-        "enum Pair<A, B,> {\n  Both(A, B,)\n}\n\nfn quiet() -> Unit uses { Stdout, } {\n  ()\n}\n\nfn main() -> Unit uses {} {\n  let p = Pair::Both(1, 2)\n  let q: Pair<Int, Int,> = p\n  ()\n}\n",
+        "effect Stdout {\n  pub fn emit() -> Unit {\n    ()\n  }\n}\n\nenum Pair<A, B,> {\n  Both(A, B,)\n}\n\nfn quiet() -> Unit uses { Stdout, } {\n  ()\n}\n\nfn main() -> Unit uses {} {\n  let p = Pair::Both(1, 2)\n  let q: Pair<Int, Int,> = p\n  ()\n}\n",
     );
 }
 

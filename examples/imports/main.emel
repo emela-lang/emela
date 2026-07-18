@@ -1,13 +1,13 @@
--- Importing public functions from a sibling module file.
--- The module path is resolved relative to this file, so
--- `geometry.square` loads `geometry.emel` (which declares `module geometry`).
+-- Importing a sibling module file (spec 0037): imports are module-unit, and
+-- the module's public functions are called in qualified form. The module path
+-- is resolved relative to this file, so `import geometry` loads
+-- `geometry.emel` (which declares `module geometry`).
 --
 --   emela check --backend js-node examples/imports/main.emel
 --   emela build --backend js-node examples/imports/main.emel
 
-import geometry.square
-import geometry.area
+import geometry
 
 fn main() -> Int {
-    square(5) + area(3, 4)
+    geometry.square(5) + geometry.area(3, 4)
 }
