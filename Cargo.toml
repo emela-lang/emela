@@ -29,6 +29,10 @@ wasmparser = "0.252"
 # In-process WASI runtime for `emela run` (pure Rust, keeps the "no external
 # wasm tools" build and cross-compiles with the release matrix).
 wasmi = "1"
+# Argument parsing for the `emela` CLI: derive-based subcommands with generated
+# `--help`/`--version`. Pulled in only behind emela's default `cli` feature, so
+# the wasm playground (which never enters the CLI) does not compile it.
+clap = { version = "4", features = ["derive"] }
 emela-codegen = { path = "crates/emela-codegen", version = "0.5.0" }
 emela-backend-js = { path = "crates/emela-backend-js", version = "0.5.0" }
 emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.5.0" }
