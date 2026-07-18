@@ -7,6 +7,23 @@ use serde::Deserialize;
 use crate::ast::{EnumDecl, Extern, Function, ImplDecl, Import, Program, TraitDecl};
 use crate::error::{Diagnostic, Error, Result};
 use crate::parser::parse_program;
+use crate::prelude;
+
+/// The virtual path an embedded std module (spec 0038) resolves to. Angle
+/// brackets cannot appear in a canonicalized filesystem path, so these keys
+/// never collide with real modules in the resolver's caches; the same
+/// convention names the merged prelude's label (`<core-prelude>`).
+fn embedded_module_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("<std.{name}>"))
+}
+
+/// The embedded source behind a virtual module path, or `None` for a real
+/// filesystem path.
+fn embedded_source_for(path: &Path) -> Option<&'static str> {
+    let label = path.to_str()?;
+    let name = label.strip_prefix("<std.")?.strip_suffix('>')?;
+    prelude::embedded_std_source(name)
+}
 
 /// The declarations pulled in from an imported module. A module's public
 /// functions are what an `import` names, but its type declarations (enums, spec
@@ -200,12 +217,18 @@ impl ImportResolver<'_> {
                 }
             }
         }
-        let canonical = module_file.canonicalize().map_err(|err| {
-            Error::new(format!(
-                "failed to resolve module `{}`: {err}",
-                module_file.display()
-            ))
-        })?;
+        // A virtual embedded-module path (spec 0038) has no file behind it to
+        // canonicalize; it is already its own canonical key.
+        let canonical = if embedded_source_for(&module_file).is_some() {
+            module_file.clone()
+        } else {
+            module_file.canonicalize().map_err(|err| {
+                Error::new(format!(
+                    "failed to resolve module `{}`: {err}",
+                    module_file.display()
+                ))
+            })?
+        };
         if self.emitted.insert(canonical) {
             // Stamp each of this module's own public functions with the qualifier
             // the user wrote: everything before the item name for a per-item
@@ -253,6 +276,24 @@ impl ImportResolver<'_> {
         source_path: &Path,
         import: &Import,
     ) -> Result<Option<(PathBuf, String, Option<String>)>> {
+        // Embedded std modules (spec 0038) resolve first: their `std.<name>`
+        // paths are reserved, needing no `--package` (and shadowing any
+        // relative `std/` directory). The whole-module / per-item split
+        // mirrors the package branch below: `import std.io` is the whole
+        // module (e.g. an effect), `import std.string.length` a single item.
+        // A deeper path names a nested module, which is never embedded.
+        if import.path[0] == "std" && (import.path.len() == 2 || import.path.len() == 3) {
+            let module_name = &import.path[1];
+            if prelude::embedded_std_source(module_name).is_some() {
+                let item_name = (import.path.len() == 3).then(|| import.path[2].clone());
+                return Ok(Some((
+                    embedded_module_path(module_name),
+                    module_name.clone(),
+                    item_name,
+                )));
+            }
+        }
+
         if let Some(package) = self
             .packages
             .iter()
@@ -284,6 +325,30 @@ impl ImportResolver<'_> {
     }
 
     fn load_module(&mut self, path: &Path) -> Result<Program> {
+        // An embedded std module (spec 0038) is parsed from its compiled-in
+        // source under its virtual label (`<std.io>`), skipping the
+        // canonicalization, overlay, and filesystem reads below — which also
+        // keeps it available where there is no filesystem (the playground).
+        if let Some(source) = embedded_source_for(path) {
+            if let Some(program) = self.loaded.get(path) {
+                return Ok(program.clone());
+            }
+            if !self.resolving.insert(path.to_path_buf()) {
+                return Err(Error::new(format!(
+                    "cyclic import involving `{}`",
+                    path.display()
+                )));
+            }
+            let label = path.display().to_string();
+            // Parse errors here mean the compiler shipped a broken module;
+            // they are still reported through the normal channel (spec 0033).
+            let (program, errors) = parse_program(&label, source);
+            self.errors.extend(errors);
+            let program = self.expand_program(path, program);
+            self.resolving.remove(path);
+            self.loaded.insert(path.to_path_buf(), program.clone());
+            return Ok(program);
+        }
         let canonical = path.canonicalize().map_err(|err| {
             Error::new(format!(
                 "failed to resolve module `{}`: {err}",

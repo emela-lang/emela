@@ -3,8 +3,8 @@
 -- no import; the `io` effect is imported and its `print` operation is called in
 -- qualified form (spec 0036).
 --
---   emela build --backend js-node   --package examples/stdlib examples/print_int.emel | node
---   emela build --backend wasm-wasi --package examples/stdlib -o out.wasm examples/print_int.emel
+--   emela build --backend js-node   examples/print_int.emel | node
+--   emela build --backend wasm-wasi -o out.wasm examples/print_int.emel
 
 import std.io
 

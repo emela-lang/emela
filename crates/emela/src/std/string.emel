@@ -1,0 +1,51 @@
+module string
+
+-- Scalar string operations (spec 0030). Indices, lengths and slice bounds are
+-- all in Unicode scalar (code point) units, never bytes. The intrinsics are
+-- provided by the backend (spec 0021); the `pub fn` wrappers add the safe,
+-- bounds-checked API (spec 0011: absence is `Option`, no panicking variant).
+intrinsic fn string_length(s: String) -> Int uses {}
+intrinsic fn string_char_at(s: String, i: Int) -> Char uses {}
+intrinsic fn string_slice(s: String, start: Int, end: Int) -> String uses {}
+
+pub fn length(s: String) -> Int {
+    string_length(s)
+}
+
+pub fn is_empty(s: String) -> Bool {
+    string_length(s) == 0
+}
+
+-- The scalar at index `i`, or `None` when out of range (spec 0030). No
+-- panicking variant (spec 0011).
+pub fn char_at(s: String, i: Int) -> Option<Char> {
+    if i < 0 {
+        None
+    } else if i < string_length(s) {
+        Some(string_char_at(s, i))
+    } else {
+        None
+    }
+}
+
+-- The substring of scalar indices `[start, end)`. Out-of-range bounds are
+-- clamped by the intrinsic; it never panics (spec 0030).
+pub fn slice(s: String, start: Int, end: Int) -> String {
+    string_slice(s, start, end)
+}
+
+fn chars_helper(s: String, i: Int, n: Int, acc: Array<Char>) -> Array<Char> {
+    if i >= n {
+        acc
+    } else {
+        chars_helper(s, i + 1, n, Array::push(acc, string_char_at(s, i)))
+    }
+}
+
+-- All scalars of `s` as an `Array<Char>`, in order (spec 0030). Built from
+-- `length` + `char_at` via the built-in `Array::push`.
+pub fn chars(s: String) -> Array<Char> {
+    -- A typed empty array to seed the accumulator (`[]` alone is not inferrable).
+    let empty: Array<Char> = []
+    chars_helper(s, 0, string_length(s), empty)
+}

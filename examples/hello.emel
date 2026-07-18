@@ -1,8 +1,9 @@
 -- Uses the standard library to perform real I/O. The `io` effect is resolved
--- by the selected backend's runtime (specs 0013/0036).
+-- by the selected backend's runtime (specs 0013/0036); `std.io` is embedded in
+-- the compiler (spec 0038), so no `--package` is needed.
 --
---   emela build --backend js-node   --package examples/stdlib examples/hello.emel | node
---   emela build --backend wasm-wasi --package examples/stdlib -o hello.wasm examples/hello.emel
+--   emela build --backend js-node   examples/hello.emel | node
+--   emela build --backend wasm-wasi -o hello.wasm examples/hello.emel
 
 import std.io
 

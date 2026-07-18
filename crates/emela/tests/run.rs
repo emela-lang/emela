@@ -81,37 +81,14 @@ fn panic_is_reported_as_a_trap() {
 }
 
 /// A program that does I/O prints to stdout through the WASI `fd_write` shim.
+/// `std.io` is embedded in the compiler (spec 0038), so no `--package` is
+/// passed: this exercises the embedded generic `print<T: Show>` end to end.
 #[test]
 fn writes_to_stdout() {
-    let dir = temp_dir("stdout");
-    let package = dir.join("std");
-    fs::create_dir_all(package.join("src")).unwrap();
-    fs::write(
-        package.join("emela-package.json"),
-        r#"{"name":"std","source":"src"}"#,
-    )
-    .unwrap();
-    fs::write(
-        package.join("src").join("io.emel"),
-        "effect io {\nextern fn write_stdout(s: String) -> Unit\npub fn print(s: String) -> Unit { write_stdout(s) }\n}\n",
-    )
-    .unwrap();
-    let app = dir.join("main.emel");
-    fs::write(
-        &app,
+    let output = run_source(
+        "stdout",
         "import std.io\nfn main() -> Unit uses { io } { io.print(\"Hello, Emela!\\n\") }\n",
-    )
-    .unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
-        .arg("run")
-        .arg("--package")
-        .arg(&package)
-        .arg(&app)
-        .output()
-        .unwrap();
-    let _ = fs::remove_dir_all(&dir);
-
+    );
     assert!(
         output.status.success(),
         "{}",

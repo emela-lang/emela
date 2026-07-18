@@ -669,6 +669,17 @@ mod tests {
         (program, messages)
     }
 
+    // The embedded std modules (spec 0038) resolve with no packages and no
+    // filesystem behind them — the playground entry points (`api.rs`) rely on
+    // exactly this path.
+    #[test]
+    fn embedded_std_resolves_without_packages() {
+        let (_, errors) = frontend_errors(
+            "import std.io\n\nfn main() -> Unit uses { io } {\n    io.print(\"hi\\n\")\n}\n",
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
     // Two independently broken bodies both report (spec 0033), instead of the
     // second hiding behind the first.
     #[test]
