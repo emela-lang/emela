@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Bound, EffectRow, EnumDecl, EnumVariant, Expr, Extern,
+    BinaryOp, Block, BlockItem, Bound, EffectDecl, EffectRow, EnumDecl, EnumVariant, Expr, Extern,
     FieldBinding, Function, FunctionType, ImplDecl, Import, MatchArm, Param, Pattern, Program,
     TraitDecl, TraitMethodSig, Type,
 };
@@ -40,6 +40,7 @@ impl Parser {
         let mut enums = Vec::new();
         let mut traits = Vec::new();
         let mut impls = Vec::new();
+        let mut effects = Vec::new();
         self.skip_newlines();
         if self.eat(&TokenKind::Module) {
             match self.parse_path_name() {
@@ -67,30 +68,18 @@ impl Parser {
             } else if self.at(&TokenKind::Impl) {
                 self.parse_impl().map(|decl| impls.push(decl))
             } else if self.at(&TokenKind::Effect) {
-                // An `effect` block desugars into ordinary functions/externs
-                // (spec 0036) and names the file's module (effect name == module
-                // name). Its operations join the top-level collections; the
-                // extern-canonicalization loop below stamps them with `module`.
-                self.parse_effect_decl().and_then(
-                    |(effect_name, effect_span, effect_fns, effect_externs)| {
-                        if let Some(existing) = &module
-                            && existing != &effect_name
-                        {
-                            return Err(Error::diagnostic(
-                                Diagnostic::new("Effect/module mismatch").label(
-                                    effect_span,
-                                    format!(
-                                        "`effect {effect_name}` must be the file's module, but module `{existing}` is declared"
-                                    ),
-                                ),
-                            ));
-                        }
-                        module = Some(effect_name);
+                // An `effect` block is a module item (spec 0037): it declares a
+                // capitalized effect and desugars its operations into ordinary
+                // functions/externs, which join the top-level collections. The
+                // extern-canonicalization loop below stamps the externs with the
+                // file's `module` (the canonical platform name stays
+                // module-qualified, e.g. `io.write_stdout`).
+                self.parse_effect_decl()
+                    .map(|(decl, effect_fns, effect_externs)| {
+                        effects.push(decl);
                         functions.extend(effect_fns);
                         externs.extend(effect_externs);
-                        Ok(())
-                    },
-                )
+                    })
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 if self.at(&TokenKind::Enum) {
@@ -112,8 +101,14 @@ impl Parser {
         // The declaring module qualifies each extern's canonical platform name,
         // and is the "owning module" for the orphan rule (spec 0020): a trait may
         // be implemented for a type only in the type's or the trait's module.
+        // Functions record it as their extern-visibility domain (spec 0037): a
+        // bare `extern`/`intrinsic` reference resolves only from the module that
+        // declares it.
         for declaration in &mut externs {
             declaration.module = module.clone();
+        }
+        for function in &mut functions {
+            function.declared_module = module.clone();
         }
         for decl in &mut enums {
             decl.module = module.clone();
@@ -123,6 +118,9 @@ impl Parser {
         }
         for decl in &mut impls {
             decl.module = module.clone();
+            for method in &mut decl.methods {
+                method.declared_module = module.clone();
+            }
         }
         Program {
             module,
@@ -132,6 +130,7 @@ impl Parser {
             enums,
             traits,
             impls,
+            effects,
         }
     }
 
@@ -267,23 +266,39 @@ impl Parser {
             throws,
             effects,
             is_intrinsic,
-            is_effect_op: false,
+            effect_name: None,
         })
     }
 
-    /// Parses an `effect` declaration (spec 0036): a named effect that owns a set
-    /// of operations. Each operation is desugared into an ordinary `fn`/`extern
-    /// fn` that carries the effect implicitly in `uses { <name> }` and is marked
-    /// `is_effect_op`, so it is callable only in qualified form (`io.print`),
-    /// never by bare name. The effect name also becomes the file's module name
-    /// (returned to `parse_program`), so externs canonicalize as `io.write_stdout`
-    /// and the orphan rule sees the module exactly as with a `module` header.
-    /// Returns `(name, name_span, functions, externs)`.
-    fn parse_effect_decl(&mut self) -> Result<(String, Span, Vec<Function>, Vec<Extern>)> {
+    /// Parses an `effect` declaration (spec 0037): a capitalized, first-class
+    /// effect that owns a set of operations, declared as a module item (like an
+    /// enum). Each operation is desugared into an ordinary `fn`/`extern fn` that
+    /// carries the effect implicitly in `uses { <Name> }`. Operations are
+    /// stamped with `module_path = [Name]` and `effect_name = Some(Name)`, so
+    /// `fn` operations are addressed as `Io.print(...)` (local or imported
+    /// alike) while sibling operations of the same effect still reach each
+    /// other by bare name. Returns the effect declaration and its operations.
+    fn parse_effect_decl(&mut self) -> Result<(EffectDecl, Vec<Function>, Vec<Extern>)> {
         self.expect(&TokenKind::Effect)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
-        // Every operation implicitly `uses { <name> }` (spec 0036); authors must
+        // An effect is a capitalized entity like a type (spec 0037), which is
+        // also what keeps `Io.print(...)` distinguishable from a module-
+        // qualified call at a glance.
+        if !name.chars().next().is_some_and(char::is_uppercase) {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Invalid effect name")
+                    .label(
+                        name_span.clone(),
+                        "effect names start with an uppercase letter (spec 0037)",
+                    )
+                    .help(format!(
+                        "Rename the effect, e.g. `effect {}`.",
+                        capitalize(&name)
+                    )),
+            ));
+        }
+        // Every operation implicitly `uses { <Name> }` (spec 0037); authors must
         // not repeat it, and no operation may declare any other effect in v1.
         let effect_row = EffectRow::sorted(vec![name.clone()]);
         self.expect(&TokenKind::LBrace)?;
@@ -306,7 +321,7 @@ impl Parser {
                     return Err(explicit_uses_in_effect(&declaration.name_span, &name));
                 }
                 declaration.effects = effect_row.clone();
-                declaration.is_effect_op = true;
+                declaration.effect_name = Some(name.clone());
                 externs.push(declaration);
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
@@ -315,26 +330,24 @@ impl Parser {
                     return Err(explicit_uses_in_effect(&function.name_span, &name));
                 }
                 function.effects = effect_row.clone();
-                function.is_effect_op = true;
+                function.effect_name = Some(name.clone());
+                function.module_path = vec![name.clone()];
                 functions.push(function);
             }
             self.skip_newlines();
         }
         self.expect(&TokenKind::RBrace)?;
-        Ok((name, name_span, functions, externs))
+        Ok((EffectDecl { name, name_span }, functions, externs))
     }
 
     fn parse_import(&mut self) -> Result<Import> {
         let start = self.expect(&TokenKind::Import)?.span;
+        // An import names a module (spec 0037): one segment for a sibling file
+        // (`import geometry`), more for a package or nested path
+        // (`import std.list`).
         let mut path = vec![self.expect_ident()?];
         while self.eat(&TokenKind::Dot) {
             path.push(self.expect_ident()?);
-        }
-        if path.len() < 2 {
-            return Err(Error::diagnostic(Diagnostic::new("Invalid import").label(
-                start.clone(),
-                "import path must contain at least two names",
-            )));
         }
         let end = self.previous_span();
         Ok(Import {
@@ -366,17 +379,20 @@ impl Parser {
             name,
             name_span,
             is_public,
-            // The compilation root's own functions carry no import qualifier;
+            // The compilation root's own functions carry no qualifier;
             // `imports.rs` stamps `module_path` on functions pulled in by an
-            // `import` (spec 0018).
+            // `import`, and `parse_effect_decl` stamps `[EffectName]` on effect
+            // operations (spec 0037). `declared_module` is stamped by
+            // `parse_program` once the file's `module` header is known.
             module_path: Vec::new(),
+            declared_module: None,
+            effect_name: None,
             type_params,
             bounds,
             params,
             ret,
             throws,
             effects,
-            is_effect_op: false,
             body,
         })
     }
@@ -540,13 +556,14 @@ impl Parser {
             name_span,
             is_public: false,
             module_path: Vec::new(),
+            declared_module: None,
+            effect_name: None,
             type_params: Vec::new(),
             bounds: Vec::new(),
             params,
             ret,
             throws,
             effects,
-            is_effect_op: false,
             body,
         })
     }
@@ -1241,6 +1258,15 @@ fn is_decl_start(kind: &TokenKind) -> bool {
             | TokenKind::Import
             | TokenKind::Module
     )
+}
+
+/// Uppercases the first letter, for the effect-name rename suggestion.
+fn capitalize(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 /// The error for an explicit `uses { ... }` on an operation inside an `effect`
