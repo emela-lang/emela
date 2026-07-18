@@ -96,6 +96,44 @@ fn calling_operation_without_uses_is_rejected() {
     );
 }
 
+/// A `--package` addressed as `std` may not provide a module reserved by the
+/// embedded core (spec 0038): the embedded `std.io` always wins resolution,
+/// so a conflicting file is a hard, eager error — even if never imported.
+#[test]
+fn std_package_shadowing_an_embedded_module_is_rejected() {
+    let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("emela-std-shadow-{}-{id}", std::process::id()));
+    let package = dir.join("std");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::write(
+        package.join("emela-package.json"),
+        r#"{"name":"std","source":"src"}"#,
+    )
+    .unwrap();
+    fs::write(
+        package.join("src").join("io.emel"),
+        "effect io {\nextern fn write_stdout(s: String) -> Unit\npub fn print(s: String) -> Unit { write_stdout(s) }\n}\n",
+    )
+    .unwrap();
+    let app = dir.join("main.emel");
+    // The app never imports std.io: the conflict is still rejected.
+    fs::write(&app, "fn main() -> Int uses {} { 0 }\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(!output.status.success(), "expected check to fail");
+    let err = stderr(&output);
+    assert!(
+        err.contains("embedded in the compiler") && err.contains("io.emel"),
+        "unexpected diagnostic:\n{err}"
+    );
+}
+
 /// An `effect` block parses standalone and its operations carry the effect
 /// implicitly: a `uses { log }` function may use them (bare, since a same-file
 /// effect has no import qualifier). This exercises the parser desugar path.
