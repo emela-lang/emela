@@ -216,6 +216,11 @@ pub(crate) fn load_import_roots(
         }
         packages.push(imports::PackageSource::new(name, source_root));
     }
+    // With every root assembled — explicit `--package` and dependency Pomes
+    // alike — reject a `std` package that shadows an embedded module (spec
+    // 0038). This single choke point covers the CLI, lint, and both LSP call
+    // sites.
+    imports::check_reserved_std_modules(&packages)?;
     Ok(packages)
 }
 
