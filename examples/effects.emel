@@ -1,13 +1,17 @@
--- Effects are tracked in `uses { ... }` rows. A function that calls an
--- effectful function must declare at least the same effects.
+-- Effects are first-class, capitalized entities (spec 0037): `effect Name`
+-- declares one, `uses { Name }` grants a function access to it, and its
+-- operations are called as `Name.op(...)`. A function that calls an effectful
+-- function must declare at least the same effects.
 
-fn log_line() -> Unit uses { Stdout } {
-    ()
+effect Stdout {
+    pub fn log_line() -> Unit {
+        ()
+    }
 }
 
 -- The `Stdout` effect propagates upward through the call chain.
 fn announce() -> Unit uses { Stdout } {
-    let printed: Unit = log_line()
+    let printed: Unit = Stdout.log_line()
     ()
 }
 

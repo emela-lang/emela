@@ -81,9 +81,7 @@ fn emela() -> Command {
 }
 
 const MAP_FILTER_FOLD_APP: &str = "\
-import std.list.map
-import std.list.filter
-import std.list.fold
+import std.list
 
 fn double(n: Int) -> Int { n * 2 }
 fn gt2(n: Int) -> Bool { n > 2 }
@@ -91,7 +89,7 @@ fn add(acc: Int, x: Int) -> Int { acc + x }
 
 fn main() -> Int {
     let xs: List<Int> = List::Cons(1, List::Cons(2, List::Cons(3, List::Nil)))
-    fold(filter(map(xs, double), gt2), 0, add)
+    list.fold(list.filter(list.map(xs, double), gt2), 0, add)
 }
 ";
 
@@ -118,8 +116,8 @@ fn list_module_checks_as_a_library() {
 
 #[test]
 fn imports_generic_list_type_and_functions_across_modules() {
-    // `import std.list.map` must also bring the `List` enum into scope, so the
-    // app can name `List<Int>` and construct `List::Cons` (spec 0028 + imports).
+    // `import std.list` must also bring the `List` enum into scope, so the
+    // app can name `List<Int>` and construct `List::Cons` (spec 0028 + 0037).
     let (package, app) = list_project(MAP_FILTER_FOLD_APP);
     let output = emela()
         .arg("build")
@@ -171,12 +169,12 @@ fn imported_list_add_impl_concatenates() {
     // The imported `impl<T> Add for List<T>` makes `+` concatenate lists — an
     // imported parameterized impl over a generic enum (spec 0020 + 0028).
     let app = "\
-import std.list.length
+import std.list
 
 fn main() -> Int {
     let a: List<Int> = List::Cons(1, List::Cons(2, List::Nil))
     let b: List<Int> = List::Cons(3, List::Nil)
-    length(a + b)
+    list.length(a + b)
 }
 ";
     let (package, app_file) = list_project(app);

@@ -1,5 +1,5 @@
--- Uses the standard library to perform real I/O. The `io` effect is resolved
--- by the selected backend's runtime (specs 0013/0036); `std.io` is embedded in
+-- Uses the standard library to perform real I/O. The `Io` effect is resolved
+-- by the selected backend's runtime (specs 0013/0037); `std.io` is embedded in
 -- the compiler (spec 0038), so no `--package` is needed.
 --
 --   emela build --backend js-node   examples/hello.emel | node
@@ -7,6 +7,6 @@
 
 import std.io
 
-fn main() -> Unit uses { io } {
-    io.print("Hello, Emela!\n")
+fn main() -> Unit uses { Io } {
+    Io.print("Hello, Emela!\n")
 }

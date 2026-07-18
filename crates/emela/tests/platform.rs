@@ -13,7 +13,7 @@ fn hello_app() -> std::path::PathBuf {
     let app = dir.join("main.emel");
     fs::write(
         &app,
-        "import std.io\nfn main() -> Unit uses { io } { io.print(\"Hello, Emela!\\n\") }\n",
+        "import std.io\nfn main() -> Unit uses { Io } { Io.print(\"Hello, Emela!\\n\") }\n",
     )
     .unwrap();
     app
@@ -81,11 +81,10 @@ fn wasm_backend_builds_a_valid_module() {
 /// Builds a program that uses a pure `std.int.to_text` (if + `/`/`%` +
 /// `Char`/`++`) from a `std` package together with the embedded `std.io`
 /// effect's `print` (spec 0038), end to end to a wasm module. The package
-/// supplies only non-embedded modules; the embedded `io` resolves alongside it.
-/// (The package function is deliberately not named `to_string`: a per-item
-/// import of that bare name captures the `Show` method call inside the
-/// embedded `print<T: Show>` under the flat import merge — the pre-existing
-/// name-capture bug that spec 0037 is slated to fix.)
+/// supplies only non-embedded modules; the embedded `io` resolves alongside
+/// it. Imported functions no longer bind bare names (spec 0037), so the
+/// import cannot capture the `Show` method call inside the embedded
+/// `print<T: Show>` — the pre-0037 name-capture bug.
 #[test]
 fn pure_to_string_builds_on_wasm() {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
@@ -105,7 +104,7 @@ fn pure_to_string_builds_on_wasm() {
     let app = dir.join("main.emel");
     fs::write(
         &app,
-        "import std.io\nimport std.int.to_text\nfn main() -> Unit uses { io } { io.print(to_text(42) ++ \"\\n\") }\n",
+        "import std.io\nimport std.int\nfn main() -> Unit uses { Io } { Io.print(int.to_text(42) ++ \"\\n\") }\n",
     )
     .unwrap();
 

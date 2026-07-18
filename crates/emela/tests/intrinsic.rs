@@ -60,7 +60,7 @@ fn js_backend_inlines_operator_intrinsic() {
 #[test]
 fn embedded_std_intrinsics_build_on_js() {
     let output = build_single(
-        "import std.string.length\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        length(\"hello\")\n    } else {\n        0\n    }\n}\n",
+        "import std.string\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        string.length(\"hello\")\n    } else {\n        0\n    }\n}\n",
         "js-node",
         None,
     );
@@ -81,7 +81,7 @@ fn embedded_std_intrinsics_build_on_wasm() {
     let dir = temp_dir();
     let out = dir.join("out.wasm");
     let output = build_single(
-        "import std.string.length\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        length(\"hello\")\n    } else {\n        0\n    }\n}\n",
+        "import std.string\nimport std.float\n\nfn main() -> Int uses {} {\n    if float.sqrt(4.0) < 3.0 {\n        string.length(\"hello\")\n    } else {\n        0\n    }\n}\n",
         "wasm-wasi",
         Some(&out),
     );
