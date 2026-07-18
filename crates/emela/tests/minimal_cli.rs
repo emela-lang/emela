@@ -884,3 +884,67 @@ fn main() -> Int uses {} {
     assert!(stderr.contains("Type mismatch"), "{stderr}");
     assert!(stderr.contains("Unknown name"), "{stderr}");
 }
+
+// `emela --help` prints a structured help screen to stdout and exits 0
+// (issue #17): the old CLI treated `--help` as an unknown command and dumped a
+// single-line usage string to stderr with exit code 1.
+#[test]
+fn help_flag_prints_usage_to_stdout() {
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("--help")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "--help should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage"), "{stdout}");
+    assert!(stdout.contains("Commands"), "{stdout}");
+    // A few representative subcommands must be listed.
+    for command in ["check", "build", "run", "fmt", "lint", "pome"] {
+        assert!(
+            stdout.contains(command),
+            "missing `{command}` in help:\n{stdout}"
+        );
+    }
+}
+
+// `emela --version` prints the version to stdout and exits 0.
+#[test]
+fn version_flag_prints_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("--version")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "--version should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // No `EMELA_VERSION` override during tests, so the crate version shows.
+    assert!(stdout.contains(env!("CARGO_PKG_VERSION")), "{stdout}");
+}
+
+// `emela` with no subcommand shows the help screen (rather than the old
+// one-line usage error) and exits non-zero.
+#[test]
+fn no_arguments_shows_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_emela")).output().unwrap();
+
+    assert!(
+        !output.status.success(),
+        "bare `emela` should exit non-zero"
+    );
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(shown.contains("Usage"), "{shown}");
+    assert!(shown.contains("Commands"), "{shown}");
+}
