@@ -1,0 +1,35 @@
+module float
+
+-- Numeric helpers over the primitive `Float` (spec 0001). `Float` has `Eq`/`Ord`
+-- in the Core Prelude (spec 0020), so comparisons work directly; `sqrt` wraps a
+-- backend intrinsic (spec 0021). `abs` / `min` / `max` are pure Emela.
+
+intrinsic fn f64_sqrt(x: Float) -> Float uses {}
+
+pub fn abs(x: Float) -> Float {
+    if x < 0.0 {
+        0.0 - x
+    } else {
+        x
+    }
+}
+
+pub fn min(a: Float, b: Float) -> Float {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+
+pub fn max(a: Float, b: Float) -> Float {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+pub fn sqrt(x: Float) -> Float {
+    f64_sqrt(x)
+}

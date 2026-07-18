@@ -3,9 +3,10 @@
 //! compiler in the browser.
 //!
 //! These mirror the `check`, `ir`, and `build` CLI commands but take the source
-//! as a string and never touch the filesystem. Imports are not resolved (there
-//! is no package search path), so a source that uses `import` will fail to
-//! resolve; everything else compiles exactly as the CLI would.
+//! as a string and never touch the filesystem. The embedded std modules (spec
+//! 0038) resolve as usual — `import std.io` works with no filesystem — but
+//! there is no package search path, so any other `import` fails to resolve;
+//! everything else compiles exactly as the CLI would.
 
 use emela_codegen::{Artifact, EmitMode};
 

@@ -1,55 +1,14 @@
 //! End-to-end tests for `effect` declarations and effect-qualified operations
 //! (spec 0036): importing an effect as a whole, qualified-only operation calls,
 //! effect gating via `uses`, and the rejection diagnostics. Effects are backed
-//! by platform functions (spec 0013), so the positive cases lay out a `std`
-//! package whose `effect io` wraps `io.write_stdout`/`io.write_stderr`.
+//! by platform functions (spec 0013); the positive cases import the embedded
+//! `std.io` (spec 0038), which resolves with no `--package`.
 
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
-
-/// Lays out a `std` package containing `effect io { ... }` and writes `app` as
-/// the compilation-root source. Returns (package dir, app file).
-fn io_project(app: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("emela-effects-test-{}-{id}", std::process::id()));
-    let package = dir.join("std");
-    fs::create_dir_all(package.join("src")).unwrap();
-    fs::write(
-        package.join("emela-package.json"),
-        r#"{"name":"std","source":"src"}"#,
-    )
-    .unwrap();
-    fs::write(
-        package.join("src").join("io.emel"),
-        "effect io {\n\
-         extern fn write_stdout(s: String) -> Unit\n\
-         extern fn write_stderr(s: String) -> Unit\n\
-         pub fn print(s: String) -> Unit { write_stdout(s) }\n\
-         pub fn eprint(s: String) -> Unit { write_stderr(s) }\n\
-         }\n",
-    )
-    .unwrap();
-    let app_file = dir.join("main.emel");
-    fs::write(&app_file, app).unwrap();
-    (package, app_file)
-}
-
-/// Runs `emela check` against a `std`-package program and returns the output.
-fn check_with_io(app: &str) -> std::process::Output {
-    let (package, app_file) = io_project(app);
-    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
-        .arg("check")
-        .arg("--package")
-        .arg(&package)
-        .arg(&app_file)
-        .output()
-        .unwrap();
-    let _ = fs::remove_dir_all(app_file.parent().unwrap());
-    output
-}
 
 /// Runs `emela check` against a single self-contained file (no package).
 fn check_single(source: &str) -> std::process::Output {
@@ -75,7 +34,7 @@ fn stderr(output: &std::process::Output) -> String {
 /// in qualified form inside a `uses { io }` function (spec 0036).
 #[test]
 fn imports_effect_and_calls_operations_qualified() {
-    let output = check_with_io(
+    let output = check_single(
         "import std.io\n\
          fn main() -> Unit uses { io } {\n\
              let a = io.print(\"hi\\n\")\n\
@@ -93,7 +52,7 @@ fn imports_effect_and_calls_operations_qualified() {
 /// operation; the diagnostic points at the qualified spelling.
 #[test]
 fn bare_effect_operation_is_rejected() {
-    let output = check_with_io(
+    let output = check_single(
         "import std.io\n\
          fn main() -> Unit uses { io } { print(\"hi\\n\") }\n",
     );
@@ -109,7 +68,7 @@ fn bare_effect_operation_is_rejected() {
 /// tells the user to import the effect instead (spec 0036).
 #[test]
 fn per_operation_effect_import_is_rejected() {
-    let output = check_with_io(
+    let output = check_single(
         "import std.io.print\n\
          fn main() -> Unit uses { io } { io.print(\"hi\\n\") }\n",
     );
@@ -125,7 +84,7 @@ fn per_operation_effect_import_is_rejected() {
 /// subset check (spec 0023) gates it.
 #[test]
 fn calling_operation_without_uses_is_rejected() {
-    let output = check_with_io(
+    let output = check_single(
         "import std.io\n\
          fn main() -> Unit { io.print(\"hi\\n\") }\n",
     );

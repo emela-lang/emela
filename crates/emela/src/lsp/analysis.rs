@@ -89,6 +89,20 @@ fn group_diagnostics(
                 };
                 if file.label == entry_label {
                     push(doc.uri.clone(), diagnostic);
+                } else if file.label.starts_with('<') {
+                    // A virtual module (`<core-prelude>`, `<std.io>`; spec
+                    // 0038) has no file to publish at, so the error surfaces
+                    // only as an entry-file summary.
+                    if summarized.insert(file.label.clone()) {
+                        push(
+                            doc.uri.clone(),
+                            top_of_file_diagnostic(format!(
+                                "imported module `{}` has errors: {}",
+                                file.label,
+                                error.message()
+                            )),
+                        );
+                    }
                 } else {
                     push(path_to_uri(Path::new(&file.label)), diagnostic);
                     if summarized.insert(file.label.clone()) {
