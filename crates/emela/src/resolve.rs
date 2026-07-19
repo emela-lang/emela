@@ -47,6 +47,10 @@ pub(crate) struct FnEntry {
     /// otherwise the mangled full path (`std__list__map`), so same-named
     /// functions from different modules coexist (spec 0037 Compilation Notes).
     pub(crate) emit_name: String,
+    /// Whether the function is `@test` (spec 0040). A test function keeps its
+    /// entry (index alignment, emit name for the harness) but is excluded from
+    /// path resolution entirely (T5): no source code can reference it.
+    pub(crate) is_test: bool,
 }
 
 /// The outcome of resolving a path against the table.
@@ -101,11 +105,17 @@ impl FnTable {
                 is_public: function.is_public,
                 effect_name: function.effect_name.clone(),
                 emit_name,
+                is_test: function.is_test,
             });
         }
 
         let mut by_suffix: HashMap<Vec<String>, Vec<usize>> = HashMap::new();
         for (i, entry) in entries.iter().enumerate() {
+            // A `@test` function is not referenceable by any path (spec 0040
+            // T5); only the harness (spec 0040 C3) reaches it, by entry index.
+            if entry.is_test {
+                continue;
+            }
             let path = &entry.full_path;
             for start in 0..path.len() {
                 by_suffix.entry(path[start..].to_vec()).or_default().push(i);

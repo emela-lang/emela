@@ -36,6 +36,11 @@ pub(crate) struct Manifest {
     /// Dependencies keyed by canonical source path (F3), ordered for
     /// deterministic output.
     pub(crate) dependencies: BTreeMap<String, Requirement>,
+    /// Development-time dependencies (`[dev-dependencies]`, spec 0040 D1):
+    /// same shape as `dependencies`. They resolve for the current Pome's own
+    /// frontends (D3) but must not be reachable from build artifacts (D4), and
+    /// are ignored when this Pome is consumed as a dependency (D5).
+    pub(crate) dev_dependencies: BTreeMap<String, Requirement>,
 }
 
 impl Manifest {
@@ -52,6 +57,7 @@ impl Manifest {
             emela,
             module: None,
             dependencies: BTreeMap::new(),
+            dev_dependencies: BTreeMap::new(),
         }
     }
 
@@ -89,22 +95,19 @@ impl Manifest {
         // when depended on (M2). Absent means "use the source-path leaf".
         let module = pome.get_string("module").map(str::to_string);
 
-        let mut dependencies = BTreeMap::new();
-        if let Some(deps) = doc.table("dependencies") {
-            for (path, req) in deps.string_entries() {
-                let canonical = source_path::normalize(path)?;
-                let requirement = Requirement::parse(req)
-                    .map_err(|err| Error::new(format!("dependency `{path}`: {err}")))?;
-                if dependencies
-                    .insert(canonical.clone(), requirement)
-                    .is_some()
-                {
-                    return Err(Error::new(format!(
-                        "duplicate dependency `{canonical}` in `{}`",
-                        origin.display()
-                    )));
-                }
-            }
+        let dependencies = parse_dependency_table(&doc, "dependencies", origin)?;
+        let dev_dependencies = parse_dependency_table(&doc, "dev-dependencies", origin)?;
+        // One source, one requirement: a Pome that already depends on a source
+        // at runtime gains nothing from re-listing it for development, and two
+        // requirements for one source would need a precedence rule (D1).
+        if let Some(both) = dev_dependencies
+            .keys()
+            .find(|source| dependencies.contains_key(*source))
+        {
+            return Err(Error::new(format!(
+                "`{both}` is listed in both [dependencies] and [dev-dependencies] in `{}`",
+                origin.display()
+            )));
         }
 
         Ok(Manifest {
@@ -113,6 +116,7 @@ impl Manifest {
             emela,
             module,
             dependencies,
+            dev_dependencies,
         })
     }
 
@@ -131,9 +135,15 @@ impl Manifest {
             out.push_str(&format!("module = {}\n", toml_lite::quote(module)));
         }
 
-        if !self.dependencies.is_empty() {
-            out.push_str("\n[dependencies]\n");
-            for (path, req) in &self.dependencies {
+        for (table, entries) in [
+            ("dependencies", &self.dependencies),
+            ("dev-dependencies", &self.dev_dependencies),
+        ] {
+            if entries.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("\n[{table}]\n"));
+            for (path, req) in entries {
                 out.push_str(&format!(
                     "{} = {}\n",
                     toml_lite::quote(path),
@@ -155,6 +165,30 @@ impl Manifest {
 /// The path of the `Pome.toml` that governs `dir`, if one exists there.
 pub(crate) fn manifest_path(dir: &Path) -> PathBuf {
     dir.join(FILE_NAME)
+}
+
+/// Parses one dependency table (`[dependencies]` F3, or `[dev-dependencies]`
+/// spec 0040 D1): source path → version requirement, keys canonicalized (S3).
+fn parse_dependency_table(
+    doc: &toml_lite::Document,
+    table: &str,
+    origin: &Path,
+) -> Result<BTreeMap<String, Requirement>> {
+    let mut entries = BTreeMap::new();
+    if let Some(deps) = doc.table(table) {
+        for (path, req) in deps.string_entries() {
+            let canonical = source_path::normalize(path)?;
+            let requirement = Requirement::parse(req)
+                .map_err(|err| Error::new(format!("dependency `{path}`: {err}")))?;
+            if entries.insert(canonical.clone(), requirement).is_some() {
+                return Err(Error::new(format!(
+                    "duplicate dependency `{canonical}` in `{}`",
+                    origin.display()
+                )));
+            }
+        }
+    }
+    Ok(entries)
 }
 
 fn required<'a>(value: Option<&'a str>, key: &str, origin: &Path) -> Result<&'a str> {

@@ -50,8 +50,15 @@ struct Resolved {
 /// are downloaded (always true for `add`/`update`; `install` also fetches).
 pub(crate) fn resolve(manifest: &Manifest) -> Result<Lock> {
     // Every requirement seen for a source, gathered as the graph is walked.
+    // The root's dev-dependencies (spec 0040 D2) resolve in the same graph;
+    // dependencies' own dev-dependencies are never read (D5) —
+    // `read_dependencies` only returns a fetched Pome's `[dependencies]`.
     let mut requirements: BTreeMap<String, Vec<Requirement>> = BTreeMap::new();
-    for (source, req) in &manifest.dependencies {
+    for (source, req) in manifest
+        .dependencies
+        .iter()
+        .chain(manifest.dev_dependencies.iter())
+    {
         requirements
             .entry(source.clone())
             .or_default()
@@ -108,9 +115,23 @@ pub(crate) fn resolve(manifest: &Manifest) -> Result<Lock> {
         }
     }
 
+    // A package is dev-only (spec 0040 D2) when the runtime graph — the walk
+    // from `[dependencies]` alone — never reaches it.
+    let mut runtime: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut queue: Vec<String> = manifest.dependencies.keys().cloned().collect();
+    while let Some(source) = queue.pop() {
+        if !runtime.insert(source.clone()) {
+            continue;
+        }
+        if let Some(node) = resolved.get(&source) {
+            queue.extend(node.dependencies.iter().cloned());
+        }
+    }
+
     let packages = resolved
         .into_iter()
         .map(|(source, r)| LockedPackage {
+            dev: !runtime.contains(&source),
             source,
             version: r.version,
             commit: r.commit,

@@ -141,6 +141,12 @@ struct FnCtx<'a> {
     /// The owning effect when the enclosing function is itself an effect
     /// operation: what lets it call sibling backing externs by bare name.
     effect_name: Option<&'a str>,
+    /// `true` inside a `@test` function's body (spec 0040 T3): a throwing call
+    /// or `throw` at a position where 0011 would demand `?`/`try` instead
+    /// propagates to the test harness, leaving the ordinary throws channel.
+    /// Nested function literals reset this to `false` (their bodies follow the
+    /// normal rules).
+    implicit_try: bool,
 }
 
 /// Type-checks `program`. When `require_main` is false the program is treated as
@@ -182,6 +188,11 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
     }
     let mut body_effects = Vec::new();
     for function in &program.functions {
+        // A `@test` function's signature rules (spec 0040 T2/T5) are checked
+        // alongside the body so every violation is reported (spec 0033).
+        if function.is_test {
+            check_test_signature(function, &mut errors);
+        }
         // Collect every error (spec 0033) while keeping `body_effects` aligned
         // with `program.functions` for the zip below; a failed body has no
         // inferred effects, so a default row stands in (unused once errors are
@@ -596,6 +607,7 @@ impl Checker {
             effects: &method.effects,
             declared_module: method.declared_module.as_deref(),
             effect_name: None,
+            implicit_try: false,
         };
         let body = self.check_block(&method.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &ret, body.span.clone())?;
@@ -692,14 +704,11 @@ impl Checker {
             throws = merge_throws(throws, arg.throws.clone(), arg.span.clone())?;
         }
         if let Some(err) = &tmethod.throws {
-            if !allow_throw {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Unhandled throwing call")
-                        .label(span.clone(), "this call may throw")
-                        .help("Use `?` to propagate the error, or wrap it in `try`/`catch`."),
-                ));
+            if allow_throw {
+                throws = merge_throws(throws, Some(subst_type(err, &subst)), span.clone())?;
+            } else if !ctx.implicit_try {
+                return Err(unhandled_throwing_call(span));
             }
-            throws = merge_throws(throws, Some(subst_type(err, &subst)), span.clone())?;
         }
         Ok(ExprInfo {
             ty: subst_type(&tmethod.ret, &subst),
@@ -1174,6 +1183,7 @@ impl Checker {
             effects: &function.effects,
             declared_module: function.declared_module.as_deref(),
             effect_name: function.effect_name.as_deref(),
+            implicit_try: function.is_test,
         };
         let body = self.check_block(&function.body, &mut scope, &ctx, false)?;
         expect_assignable(&body.ty, &function.ret, body.span.clone())?;
@@ -1391,6 +1401,9 @@ impl Checker {
                     effects,
                     declared_module: ctx.declared_module,
                     effect_name: ctx.effect_name,
+                    // A nested literal's body follows the ordinary rules even
+                    // inside a `@test` body (spec 0040 T3).
+                    implicit_try: false,
                 };
                 let body_info = self.check_block(body, &mut fn_scope, &inner_ctx, false)?;
                 expect_assignable(&body_info.ty, ret, body_info.span.clone())?;
@@ -1444,10 +1457,17 @@ impl Checker {
             Expr::Block(block) => self.check_block(block, scope, ctx, allow_throw),
             Expr::Throw { value, span } => {
                 let val = self.check_expr(value, scope, ctx, allow_throw)?;
+                // In a `@test` body a `throw` outside `try` fails the test at
+                // this site (spec 0040 T3) instead of using the throws channel.
+                let throws = if ctx.implicit_try && !allow_throw {
+                    None
+                } else {
+                    Some(val.ty)
+                };
                 Ok(ExprInfo {
                     ty: Type::Never,
                     effects: val.effects,
-                    throws: Some(val.ty),
+                    throws,
                     span: span.clone(),
                 })
             }
@@ -1475,6 +1495,16 @@ impl Checker {
                                     format!(
                                         "`?` propagates `{error:?}`, but the function declares `throws {declared:?}`"
                                     ),
+                                ),
+                            ));
+                        }
+                        None if ctx.implicit_try => {
+                            // Spec 0040 T3: a test declares no `throws`, so `?`
+                            // has nothing to propagate to — and needs nothing.
+                            return Err(Error::diagnostic(
+                                Diagnostic::new("Redundant `?` in a test").label(
+                                    span.clone(),
+                                    "a bare throwing call in a `@test` body already propagates as a test failure; remove the `?` (spec 0040)",
                                 ),
                             ));
                         }
@@ -1805,15 +1835,14 @@ impl Checker {
             throws = merge_throws(throws, actual.throws, actual.span)?;
         }
         // A throwing call must use `?` or sit inside a `try` block (spec 0011).
+        // In a `@test` body the bare call instead propagates to the harness at
+        // this site (spec 0040 T3) and leaves the throws channel.
         if let Some(call_error) = &sig.throws {
-            if !allow_throw {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Unhandled throwing call")
-                        .label(span.clone(), "this call may throw")
-                        .help("Use `?` to propagate the error, or wrap it in `try`/`catch`."),
-                ));
+            if allow_throw {
+                throws = merge_throws(throws, Some((**call_error).clone()), span.clone())?;
+            } else if !ctx.implicit_try {
+                return Err(unhandled_throwing_call(span));
             }
-            throws = merge_throws(throws, Some((**call_error).clone()), span.clone())?;
         }
         Ok(ExprInfo {
             ty: (*sig.ret).clone(),
@@ -2363,17 +2392,15 @@ impl Checker {
             }
         }
         // A throwing call must use `?` or sit inside a `try` block (spec 0011);
-        // the error type is the instantiated `throws` clause.
+        // the error type is the instantiated `throws` clause. In a `@test`
+        // body the bare call instead propagates to the harness (spec 0040 T3).
         if let Some(call_error) = &sig.throws {
-            if !allow_throw {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Unhandled throwing call")
-                        .label(span.clone(), "this call may throw")
-                        .help("Use `?` to propagate the error, or wrap it in `try`/`catch`."),
-                ));
+            if allow_throw {
+                let concrete = subst_type(call_error, &subst);
+                throws = merge_throws(throws, Some(concrete), span.clone())?;
+            } else if !ctx.implicit_try {
+                return Err(unhandled_throwing_call(span));
             }
-            let concrete = subst_type(call_error, &subst);
-            throws = merge_throws(throws, Some(concrete), span.clone())?;
         }
         Ok(ExprInfo {
             ty: subst_type(&sig.ret, &subst),
@@ -2638,6 +2665,45 @@ fn duplicate_function_error(declaration: &Extern) -> Error {
     ))
 }
 
+/// A throwing call outside `?`/`try` (spec 0011).
+fn unhandled_throwing_call(span: &Span) -> Error {
+    Error::diagnostic(
+        Diagnostic::new("Unhandled throwing call")
+            .label(span.clone(), "this call may throw")
+            .help("Use `?` to propagate the error, or wrap it in `try`/`catch`."),
+    )
+}
+
+/// Validates a `@test` function's signature (spec 0040 T2/T5): no parameters,
+/// `Unit` return, no `throws` (the implicit try, T3, makes it meaningless), no
+/// type parameters (a test has no call sites to fix them), and no `pub` (a test
+/// is excluded from normal builds, so nothing may reference it).
+fn check_test_signature(function: &Function, errors: &mut Vec<Error>) {
+    let mut push = |message: &str| {
+        errors.push(Error::diagnostic(
+            Diagnostic::new("Invalid test function")
+                .label(function.name_span.clone(), message.to_string()),
+        ));
+    };
+    if function.is_public {
+        push("a `@test` fn must not be `pub` (spec 0040)");
+    }
+    if !function.params.is_empty() {
+        push("a `@test` fn takes no parameters (spec 0040)");
+    }
+    if !matches!(function.ret, Type::Unit) {
+        push("a `@test` fn must return `Unit` (spec 0040)");
+    }
+    if function.throws.is_some() {
+        push(
+            "a `@test` fn must not declare `throws`: a bare throwing call already propagates as a test failure (spec 0040)",
+        );
+    }
+    if !function.type_params.is_empty() {
+        push("a `@test` fn cannot be generic (spec 0040)");
+    }
+}
+
 /// A method name declared by more than one in-scope trait is ambiguous when
 /// called bare (spec 0020, same shape as spec 0018 R5).
 fn ambiguous_method_error(method: &str, traits: &[String], span: &Span) -> Error {
@@ -2687,6 +2753,7 @@ pub(crate) fn expand_trait_defaults(program: &mut Program) {
                 throws: tmethod.throws.clone(),
                 effects: tmethod.effects.clone(),
                 body: default_body.clone(),
+                is_test: false,
             });
         }
     }

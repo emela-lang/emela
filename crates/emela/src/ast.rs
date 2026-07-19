@@ -190,6 +190,11 @@ pub(crate) struct Function {
     pub(crate) throws: Option<Type>,
     pub(crate) effects: EffectRow,
     pub(crate) body: Block,
+    /// `true` when the function is declared `@test` (specs 0039/0040). A test
+    /// function is excluded from normal build artifacts (T8), may not be
+    /// referenced by any source code (T5), and its body is an implicit-try
+    /// scope (T3): bare throwing calls propagate to the test harness.
+    pub(crate) is_test: bool,
 }
 
 #[derive(Debug, Clone)]

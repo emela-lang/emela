@@ -21,6 +21,8 @@ mod prelude;
 mod resolve;
 #[cfg(feature = "run")]
 mod run;
+#[cfg(feature = "run")]
+mod test_runner;
 mod typecheck;
 
 pub use api::{check_source, compile_source, ir_source};

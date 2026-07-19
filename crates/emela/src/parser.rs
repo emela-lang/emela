@@ -53,20 +53,40 @@ impl Parser {
             self.skip_newlines();
         }
         while !self.at(&TokenKind::Eof) {
+            // Attributes (spec 0039) precede the declaration they modify; they
+            // are collected first and validated once the declaration's kind is
+            // known (`apply_attributes`).
+            let attrs = self.parse_attributes(errors);
             let result = if self.at(&TokenKind::Import) {
-                self.parse_import().map(|import| imports.push(import))
+                self.parse_import().map(|import| {
+                    imports.push(import);
+                    DeclKind::Import
+                })
             } else if self.at(&TokenKind::Extern) {
-                self.parse_extern()
-                    .map(|declaration| externs.push(declaration))
+                self.parse_extern().map(|declaration| {
+                    externs.push(declaration);
+                    DeclKind::Extern
+                })
             } else if self.at(&TokenKind::Intrinsic) {
-                self.parse_intrinsic()
-                    .map(|declaration| externs.push(declaration))
+                self.parse_intrinsic().map(|declaration| {
+                    externs.push(declaration);
+                    DeclKind::Extern
+                })
             } else if self.at(&TokenKind::Enum) {
-                self.parse_enum().map(|decl| enums.push(decl))
+                self.parse_enum().map(|decl| {
+                    enums.push(decl);
+                    DeclKind::Enum
+                })
             } else if self.at(&TokenKind::Trait) {
-                self.parse_trait().map(|decl| traits.push(decl))
+                self.parse_trait().map(|decl| {
+                    traits.push(decl);
+                    DeclKind::Trait
+                })
             } else if self.at(&TokenKind::Impl) {
-                self.parse_impl().map(|decl| impls.push(decl))
+                self.parse_impl().map(|decl| {
+                    impls.push(decl);
+                    DeclKind::Impl
+                })
             } else if self.at(&TokenKind::Effect) {
                 // An `effect` block is a module item (spec 0037): it declares a
                 // capitalized effect and desugars its operations into ordinary
@@ -79,22 +99,38 @@ impl Parser {
                         effects.push(decl);
                         functions.extend(effect_fns);
                         externs.extend(effect_externs);
+                        DeclKind::Effect
                     })
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
-                if self.at(&TokenKind::Enum) {
-                    self.parse_enum().map(|decl| enums.push(decl))
+                if is_public && matches!(self.peek().kind, TokenKind::At(_)) {
+                    Err(Error::diagnostic(
+                        Diagnostic::new("Attribute after `pub`").label(
+                            self.peek().span.clone(),
+                            "attributes are placed before `pub` (spec 0039 R2)",
+                        ),
+                    ))
+                } else if self.at(&TokenKind::Enum) {
+                    self.parse_enum().map(|decl| {
+                        enums.push(decl);
+                        DeclKind::Enum
+                    })
                 } else {
-                    self.parse_function(is_public)
-                        .map(|function| functions.push(function))
+                    self.parse_function(is_public).map(|function| {
+                        functions.push(function);
+                        DeclKind::Fn
+                    })
                 }
             };
-            if let Err(error) = result {
-                errors.push(error);
-                // The failed declaration may leave its type parameters
-                // installed; clear them so they don't leak into the next one.
-                self.type_params = Vec::new();
-                self.recover_to_top_level();
+            match result {
+                Ok(kind) => apply_attributes(attrs, kind, &mut functions, errors),
+                Err(error) => {
+                    errors.push(error);
+                    // The failed declaration may leave its type parameters
+                    // installed; clear them so they don't leak into the next one.
+                    self.type_params = Vec::new();
+                    self.recover_to_top_level();
+                }
             }
             self.skip_newlines();
         }
@@ -158,6 +194,68 @@ impl Parser {
             }
             self.bump();
         }
+    }
+
+    /// Parses a run of leading attributes (spec 0039): `@name` tokens, each on
+    /// its own line (or inline) before a declaration. The reserved argument
+    /// form `@name(...)` (R7) is reported and its group skipped, so parsing
+    /// continues at the declaration.
+    fn parse_attributes(&mut self, errors: &mut Vec<Error>) -> Vec<Attribute> {
+        let mut attrs = Vec::new();
+        while let TokenKind::At(name) = &self.peek().kind {
+            let name = name.clone();
+            let token = self.bump();
+            if self.at(&TokenKind::LParen) {
+                errors.push(Error::diagnostic(
+                    Diagnostic::new("Attribute arguments are reserved").label(
+                        token.span.clone(),
+                        format!(
+                            "`@{name}(...)` is reserved for future use; attributes take no arguments (spec 0039)"
+                        ),
+                    ),
+                ));
+                self.skip_group();
+            }
+            attrs.push(Attribute {
+                name,
+                span: token.span,
+            });
+            self.skip_newlines();
+        }
+        attrs
+    }
+
+    /// Consumes a balanced `( ... )` group, for attribute-argument recovery
+    /// (spec 0039 R7). Called with the cursor on the opening `(`.
+    fn skip_group(&mut self) {
+        let mut depth = 0usize;
+        while !self.at(&TokenKind::Eof) {
+            match self.bump().kind {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Rejects an attribute in a nested position (spec 0039 R2): attributes may
+    /// only precede top-level declarations, never trait / impl methods or
+    /// effect operations.
+    fn reject_nested_attribute(&self) -> Result<()> {
+        if matches!(self.peek().kind, TokenKind::At(_)) {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Attribute in a nested position").label(
+                    self.peek().span.clone(),
+                    "attributes may only precede top-level declarations (spec 0039)",
+                ),
+            ));
+        }
+        Ok(())
     }
 
     fn parse_enum(&mut self) -> Result<EnumDecl> {
@@ -306,6 +404,7 @@ impl Parser {
         let mut functions = Vec::new();
         let mut externs = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at(&TokenKind::Eof) {
+            self.reject_nested_attribute()?;
             if self.at(&TokenKind::Intrinsic) {
                 // An `intrinsic fn` must be pure (spec 0021), which contradicts an
                 // effect operation. Effects are backed by `extern fn` (spec 0013).
@@ -394,6 +493,8 @@ impl Parser {
             throws,
             effects,
             body,
+            // Set by `apply_attributes` when the declaration carries `@test`.
+            is_test: false,
         })
     }
 
@@ -457,6 +558,7 @@ impl Parser {
         let mut methods = Vec::new();
         self.skip_newlines();
         while !self.at(&TokenKind::RBrace) {
+            self.reject_nested_attribute()?;
             methods.push(self.parse_method_sig()?);
             self.skip_newlines();
         }
@@ -518,6 +620,7 @@ impl Parser {
         let mut methods = Vec::new();
         self.skip_newlines();
         while !self.at(&TokenKind::RBrace) {
+            self.reject_nested_attribute()?;
             methods.push(self.parse_impl_method()?);
             self.skip_newlines();
         }
@@ -565,6 +668,7 @@ impl Parser {
             throws,
             effects,
             body,
+            is_test: false,
         })
     }
 
@@ -1257,7 +1361,104 @@ fn is_decl_start(kind: &TokenKind) -> bool {
             | TokenKind::Intrinsic
             | TokenKind::Import
             | TokenKind::Module
+            | TokenKind::At(_)
     )
+}
+
+/// A parsed `@name` attribute (spec 0039), validated against the declaration it
+/// precedes by `apply_attributes`.
+struct Attribute {
+    name: String,
+    span: Span,
+}
+
+/// The kind of top-level declaration just parsed, for attribute applicability
+/// checks (spec 0039 R4–R6).
+#[derive(Clone, Copy)]
+enum DeclKind {
+    Import,
+    Extern,
+    Enum,
+    Trait,
+    Impl,
+    Effect,
+    Fn,
+}
+
+impl DeclKind {
+    fn describe(self) -> &'static str {
+        match self {
+            DeclKind::Import => "an `import`",
+            DeclKind::Extern => "an `extern` declaration",
+            DeclKind::Enum => "an `enum`",
+            DeclKind::Trait => "a `trait`",
+            DeclKind::Impl => "an `impl` block",
+            DeclKind::Effect => "an `effect` declaration",
+            DeclKind::Fn => "a function",
+        }
+    }
+}
+
+/// Validates the attributes collected before a declaration (spec 0039): the
+/// recognized set is closed (R4), an unknown name is an error (R5), a duplicate
+/// is an error (R3), and each recognized attribute checks the declaration kind
+/// it applies to (R6). `@test` (spec 0040 T1) marks a top-level `fn` as a test.
+fn apply_attributes(
+    attrs: Vec<Attribute>,
+    kind: DeclKind,
+    functions: &mut [Function],
+    errors: &mut Vec<Error>,
+) {
+    let mut seen = std::collections::HashSet::new();
+    for attr in attrs {
+        if !seen.insert(attr.name.clone()) {
+            errors.push(Error::diagnostic(
+                Diagnostic::new("Duplicate attribute").label(
+                    attr.span.clone(),
+                    format!(
+                        "attribute `@{}` is applied more than once (spec 0039)",
+                        attr.name
+                    ),
+                ),
+            ));
+            continue;
+        }
+        if matches!(kind, DeclKind::Import) {
+            errors.push(Error::diagnostic(
+                Diagnostic::new("Attribute on an import").label(
+                    attr.span.clone(),
+                    "attributes cannot be applied to an `import` (spec 0039)",
+                ),
+            ));
+            continue;
+        }
+        match attr.name.as_str() {
+            "test" => match kind {
+                DeclKind::Fn => {
+                    if let Some(function) = functions.last_mut() {
+                        function.is_test = true;
+                    }
+                }
+                _ => errors.push(Error::diagnostic(
+                    Diagnostic::new("Attribute does not apply here").label(
+                        attr.span.clone(),
+                        format!(
+                            "`@test` may only be applied to a top-level `fn`, not {} (spec 0040)",
+                            kind.describe()
+                        ),
+                    ),
+                )),
+            },
+            other => errors.push(Error::diagnostic(
+                Diagnostic::new("Unknown attribute").label(
+                    attr.span.clone(),
+                    format!(
+                        "unknown attribute `@{other}`; recognized attributes: `@test` (spec 0040)"
+                    ),
+                ),
+            )),
+        }
+    }
 }
 
 /// Uppercases the first letter, for the effect-name rename suggestion.

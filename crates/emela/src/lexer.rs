@@ -65,6 +65,9 @@ pub(crate) enum TokenKind {
     /// first-argument-insertion `Call`, so no later stage sees this token.
     PipeGt,
     Question,
+    /// `@name` — an attribute (spec 0039). The `@` and the name are one token,
+    /// which is what makes them inseparable (R1: no whitespace between them).
+    At(String),
     Newline,
     Eof,
 }
@@ -266,6 +269,28 @@ fn lex_with_file(
                 start,
                 &mut i,
             ),
+            b'@' => {
+                // An attribute (spec 0039 R1): the name must immediately follow
+                // the `@`. Lexed as a single token so no whitespace can slip in.
+                i += 1;
+                let name_start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                if i == name_start {
+                    errors.push(Error::diagnostic(
+                        Diagnostic::new("Attribute name is missing").label(
+                            Span::new(file.clone(), start, start + 1),
+                            "`@` must be immediately followed by an attribute name, e.g. `@test`",
+                        ),
+                    ));
+                    continue;
+                }
+                tokens.push(Token {
+                    kind: TokenKind::At(source[name_start..i].to_string()),
+                    span: Span::new(file.clone(), start, i),
+                });
+            }
             b'0'..=b'9' => {
                 i += 1;
                 while i < bytes.len() && bytes[i].is_ascii_digit() {
