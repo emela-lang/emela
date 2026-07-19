@@ -991,6 +991,17 @@ impl<'a> FnEmitter<'a> {
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
             IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
+            IrExpr::RecordValue { fields, .. } => self.emit_record_value(fields)?,
+            IrExpr::FieldAccess {
+                target,
+                index,
+                field_ty,
+            } => {
+                self.emit(target)?;
+                self.line(&format!("i32.const {}", index * 8));
+                self.line("i32.add");
+                self.line(WasmTy::of(field_ty).load());
+            }
             IrExpr::Match {
                 scrutinee,
                 arms,
@@ -1105,6 +1116,27 @@ impl<'a> FnEmitter<'a> {
 
     /// Allocates `[tag:i32][field*8bytes]` and leaves the pointer. Each payload
     /// field gets a fixed 8-byte slot so binding offsets need no type info.
+    /// A record value (spec 0006): the enum payload layout without a tag —
+    /// one 8-byte slot per field, in declaration order.
+    fn emit_record_value(&mut self, fields: &[IrExpr]) -> Result<()> {
+        let size = (fields.len() as u32 * 8).max(8);
+        let ptr = self.fresh_local(WasmTy::I32);
+        self.line(&format!("i32.const {size}"));
+        self.line("call $alloc");
+        self.line(&format!("local.set {ptr}"));
+        for (index, field) in fields.iter().enumerate() {
+            let slot = WasmTy::of(&field.ty());
+            let offset = index as u32 * 8;
+            self.line(&format!("local.get {ptr}"));
+            self.line(&format!("i32.const {offset}"));
+            self.line("i32.add");
+            self.emit(field)?;
+            self.line(slot.store());
+        }
+        self.line(&format!("local.get {ptr}"));
+        Ok(())
+    }
+
     fn emit_enum_value(&mut self, tag: u32, payload: &[IrExpr]) -> Result<()> {
         let size = 8 + payload.len() as u32 * 8;
         let ptr = self.fresh_local(WasmTy::I32);

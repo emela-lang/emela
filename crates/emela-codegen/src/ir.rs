@@ -142,6 +142,20 @@ pub enum IrExpr {
         value: Box<IrExpr>,
         elem_ty: Type,
     },
+    /// A record value (spec 0006). `fields` are in declaration order. The
+    /// layout is the enum payload layout without a tag: one 8-byte slot per
+    /// field.
+    RecordValue {
+        ty: Type,
+        fields: Vec<IrExpr>,
+    },
+    /// A record field access `value.field` (spec 0006): reads the field at
+    /// `index` (declaration order). `field_ty` picks the load width.
+    FieldAccess {
+        target: Box<IrExpr>,
+        index: u32,
+        field_ty: Type,
+    },
     /// An enum or `Option` value (spec 0005/0001). `tag` selects the variant in
     /// declaration order; `payload` carries its fields.
     EnumValue {
@@ -233,11 +247,13 @@ impl IrExpr {
                 _ => ty.clone(),
             },
             IrExpr::EnumValue { ty, .. }
+            | IrExpr::RecordValue { ty, .. }
             | IrExpr::Match { ty, .. }
             | IrExpr::Try { ty, .. }
             | IrExpr::If { ty, .. }
             | IrExpr::Question { ty, .. }
             | IrExpr::TailSelfCall { ty, .. } => ty.clone(),
+            IrExpr::FieldAccess { field_ty, .. } => field_ty.clone(),
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
         }
     }

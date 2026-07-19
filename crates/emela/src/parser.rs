@@ -1,7 +1,7 @@
 use crate::ast::{
     BinaryOp, Block, BlockItem, Bound, EffectDecl, EffectRow, EnumDecl, EnumVariant, Expr, Extern,
     FieldBinding, Function, FunctionType, ImplDecl, Import, MatchArm, Param, Pattern, Program,
-    TraitDecl, TraitMethodSig, Type,
+    RecordDecl, RecordFieldDef, TraitDecl, TraitMethodSig, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
 use crate::lexer::{Token, TokenKind, lex};
@@ -38,6 +38,7 @@ impl Parser {
         let mut functions = Vec::new();
         let mut externs = Vec::new();
         let mut enums = Vec::new();
+        let mut records = Vec::new();
         let mut traits = Vec::new();
         let mut impls = Vec::new();
         let mut effects = Vec::new();
@@ -77,6 +78,11 @@ impl Parser {
                     enums.push(decl);
                     DeclKind::Enum
                 })
+            } else if self.at(&TokenKind::Record) {
+                self.parse_record().map(|decl| {
+                    records.push(decl);
+                    DeclKind::Record
+                })
             } else if self.at(&TokenKind::Trait) {
                 self.parse_trait().map(|decl| {
                     traits.push(decl);
@@ -115,6 +121,11 @@ impl Parser {
                         enums.push(decl);
                         DeclKind::Enum
                     })
+                } else if self.at(&TokenKind::Record) {
+                    self.parse_record().map(|decl| {
+                        records.push(decl);
+                        DeclKind::Record
+                    })
                 } else {
                     self.parse_function(is_public).map(|function| {
                         functions.push(function);
@@ -149,6 +160,9 @@ impl Parser {
         for decl in &mut enums {
             decl.module = module.clone();
         }
+        for decl in &mut records {
+            decl.module = module.clone();
+        }
         for decl in &mut traits {
             decl.module = module.clone();
         }
@@ -164,6 +178,7 @@ impl Parser {
             functions,
             externs,
             enums,
+            records,
             traits,
             impls,
             effects,
@@ -311,6 +326,38 @@ impl Parser {
             // Stamped with the declaring module in `parse_program`.
             module: None,
             variants,
+        })
+    }
+
+    /// Parses a `record` declaration (spec 0006): named, typed fields separated
+    /// by newlines and/or commas. Records are non-generic in this first cut.
+    fn parse_record(&mut self) -> Result<RecordDecl> {
+        self.expect(&TokenKind::Record)?;
+        let name_span = self.peek().span.clone();
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        self.skip_newlines();
+        while !self.at(&TokenKind::RBrace) {
+            let field_span = self.peek().span.clone();
+            let field_name = self.expect_ident()?;
+            self.expect(&TokenKind::Colon)?;
+            let ty = self.parse_type()?;
+            fields.push(RecordFieldDef {
+                name: field_name,
+                name_span: field_span,
+                ty,
+            });
+            self.eat(&TokenKind::Comma);
+            self.skip_newlines();
+        }
+        self.expect(&TokenKind::RBrace)?;
+        Ok(RecordDecl {
+            name,
+            name_span,
+            // Stamped with the declaring module in `parse_program`.
+            module: None,
+            fields,
         })
     }
 
@@ -1012,11 +1059,50 @@ impl Parser {
                     value: Box::new(expr),
                     span,
                 };
+            } else if self.at(&TokenKind::Dot) {
+                // Postfix field access on a non-path expression (spec 0006),
+                // e.g. `Http.get(url).body`. Identifier chains never reach
+                // here: the primary consumed their dots into a `Path`.
+                self.bump();
+                let name_span = self.peek().span.clone();
+                let name = self.expect_ident()?;
+                let span = expr.span().merge(&name_span);
+                expr = Expr::Field {
+                    target: Box::new(expr),
+                    name,
+                    name_span,
+                    span,
+                };
             } else {
                 break;
             }
         }
         Ok(expr)
+    }
+
+    /// Parses a record literal `Name { field: expr ... }` (spec 0006) after the
+    /// leading capitalized name. Fields are separated by newlines and/or commas.
+    fn parse_record_literal(&mut self, name: String, name_span: Span) -> Result<Expr> {
+        self.expect(&TokenKind::LBrace)?;
+        self.skip_newlines();
+        let mut fields = Vec::new();
+        while !self.at(&TokenKind::RBrace) {
+            let field_span = self.peek().span.clone();
+            let field_name = self.expect_ident()?;
+            self.expect(&TokenKind::Colon)?;
+            let value = self.parse_expr()?;
+            fields.push((field_name, field_span, value));
+            self.eat(&TokenKind::Comma);
+            self.skip_newlines();
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        let span = name_span.merge(&end);
+        Ok(Expr::RecordLiteral {
+            name,
+            name_span,
+            fields,
+            span,
+        })
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
@@ -1048,6 +1134,12 @@ impl Parser {
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
+                if name.chars().next().is_some_and(char::is_uppercase) && self.at(&TokenKind::LBrace)
+                {
+                    // A capitalized name directly followed by `{` is a record
+                    // literal (spec 0006): `User { id: 1 ... }`.
+                    return self.parse_record_literal(name, span);
+                }
                 if self.at(&TokenKind::ColonColon) {
                     // A `::` type path: `Enum::Variant`, `Char::from_code`
                     // (specs 0005/0017/0018 R7). Its meaning — enum variant or
@@ -1379,6 +1471,7 @@ enum DeclKind {
     Import,
     Extern,
     Enum,
+    Record,
     Trait,
     Impl,
     Effect,
@@ -1391,6 +1484,7 @@ impl DeclKind {
             DeclKind::Import => "an `import`",
             DeclKind::Extern => "an `extern` declaration",
             DeclKind::Enum => "an `enum`",
+            DeclKind::Record => "a `record`",
             DeclKind::Trait => "a `trait`",
             DeclKind::Impl => "an `impl` block",
             DeclKind::Effect => "an `effect` declaration",

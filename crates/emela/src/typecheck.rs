@@ -165,6 +165,7 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
         sigs: Vec::new(),
         externs: HashMap::new(),
         enums: HashMap::new(),
+        records: HashMap::new(),
         traits: HashMap::new(),
         impls: Vec::new(),
         impls_by: HashMap::new(),
@@ -179,6 +180,8 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
             .collect(),
     };
     checker.register_enums(program, &mut errors);
+    checker.register_records(program, &mut errors);
+    checker.validate_data_decls(program, &mut errors);
     checker.register_traits(program, &mut errors);
     checker.register_impls(program, &mut errors);
     checker.register_functions(program, &mut errors);
@@ -248,6 +251,9 @@ struct Checker {
     /// or — for an effect backing operation — from sibling operations.
     externs: HashMap<String, ExternSig>,
     enums: HashMap<String, EnumInfo>,
+    /// Declared records (spec 0006), keyed by name: the fields in declaration
+    /// order. Records are non-generic in this first cut.
+    records: HashMap<String, Vec<(String, Type)>>,
     /// Declared traits (spec 0020), keyed by name.
     traits: HashMap<String, TraitInfo>,
     /// Registered impls, referenced by index from `impls_by`.
@@ -298,15 +304,52 @@ impl Checker {
                 },
             );
         }
-        // Payload types may reference other enums (and their own type parameters,
-        // which parse to `Type::Var`); validate now that every named type exists
-        // and is applied at the right arity (spec 0028).
+    }
+
+    /// Registers each `record` (spec 0006): its fields in declaration order.
+    /// Runs after `register_enums` so a record/enum name collision is caught.
+    fn register_records(&mut self, program: &Program, errors: &mut Vec<Error>) {
+        for decl in &program.records {
+            if self.records.contains_key(&decl.name) || self.enums.contains_key(&decl.name) {
+                errors.push(Error::diagnostic(Diagnostic::new("Duplicate type").label(
+                    decl.name_span.clone(),
+                    format!("`{}` is already defined", decl.name),
+                )));
+                continue;
+            }
+            let mut fields = Vec::new();
+            let mut seen = HashSet::new();
+            for field in &decl.fields {
+                if !seen.insert(field.name.clone()) {
+                    errors.push(Error::diagnostic(Diagnostic::new("Duplicate field").label(
+                        field.name_span.clone(),
+                        format!("field `{}` is already defined", field.name),
+                    )));
+                    continue;
+                }
+                fields.push((field.name.clone(), field.ty.clone()));
+            }
+            self.records.insert(decl.name.clone(), fields);
+        }
+    }
+
+    /// Validates every named type mentioned by data declarations, once both
+    /// enums and records are registered: enum payloads (spec 0028) and record
+    /// fields (spec 0006) may reference each other in either order.
+    fn validate_data_decls(&self, program: &Program, errors: &mut Vec<Error>) {
         for decl in &program.enums {
             for variant in &decl.variants {
                 for field in &variant.fields {
                     if let Err(error) = self.validate_type(field, &variant.name_span) {
                         errors.push(error);
                     }
+                }
+            }
+        }
+        for decl in &program.records {
+            for field in &decl.fields {
+                if let Err(error) = self.validate_type(&field.ty, &field.name_span) {
+                    errors.push(error);
                 }
             }
         }
@@ -317,10 +360,23 @@ impl Checker {
     fn validate_type(&self, ty: &Type, span: &Span) -> Result<()> {
         match ty {
             Type::Enum(name, args) => {
+                // A capitalized name in type position parses as `Type::Enum`;
+                // it may also resolve to a record (spec 0006).
+                if self.records.contains_key(name) {
+                    if !args.is_empty() {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("Wrong number of type arguments").label(
+                                span.clone(),
+                                format!("record `{name}` takes no type arguments"),
+                            ),
+                        ));
+                    }
+                    return Ok(());
+                }
                 let Some(info) = self.enums.get(name) else {
                     return Err(Error::diagnostic(Diagnostic::new("Unknown type").label(
                         span.clone(),
-                        format!("`{name}` is not a declared enum or built-in type"),
+                        format!("`{name}` is not a declared enum, record, or built-in type"),
                     )));
                 };
                 if args.len() != info.type_params.len() {
@@ -1322,6 +1378,27 @@ impl Checker {
             Expr::Array(elements, span) => {
                 self.check_array(elements, span, scope, ctx, None, allow_throw)
             }
+            Expr::RecordLiteral {
+                name,
+                name_span,
+                fields,
+                span,
+            } => self.check_record_literal(name, name_span, fields, span, scope, ctx, allow_throw),
+            Expr::Field {
+                target,
+                name,
+                name_span,
+                span,
+            } => {
+                let info = self.check_expr(target, scope, ctx, allow_throw)?;
+                let ty = self.field_type(&info.ty, name, name_span)?;
+                Ok(ExprInfo {
+                    ty,
+                    effects: info.effects,
+                    throws: info.throws,
+                    span: span.clone(),
+                })
+            }
             Expr::Unit(span) => Ok(self.info(Type::Unit, span.clone())),
             Expr::Var(name, span) => {
                 if let Some(ty) = scope.get(name) {
@@ -1565,6 +1642,15 @@ impl Checker {
                 ))
             }
             Expr::Path { segments, span } => {
+                // A dotted head that is a local value is record field access
+                // (spec 0006): `user.name`, `incoming.request.url`.
+                if let Some(head_ty) = scope.get(&segments[0]).cloned() {
+                    let mut ty = head_ty;
+                    for segment in &segments[1..] {
+                        ty = self.field_type(&ty, segment, span)?;
+                    }
+                    return Ok(self.info(ty, span.clone()));
+                }
                 // A dotted path used as a value (no `(...)`): an effect
                 // operation (`Io.print`, spec 0037) or a module-qualified
                 // function reference (`list.map`). Enum variants are `::` type
@@ -2334,6 +2420,92 @@ impl Checker {
             throws: None,
             span,
         }
+    }
+
+    /// Type-checks a record literal (spec 0006): the name must be a declared
+    /// record and the written fields must be exactly its declared fields.
+    #[allow(clippy::too_many_arguments)]
+    fn check_record_literal(
+        &self,
+        name: &str,
+        name_span: &Span,
+        fields: &[(String, Span, Expr)],
+        span: &Span,
+        scope: &mut HashMap<String, Type>,
+        ctx: &FnCtx,
+        allow_throw: bool,
+    ) -> Result<ExprInfo> {
+        let Some(declared) = self.records.get(name).cloned() else {
+            let message = if self.enums.contains_key(name) {
+                format!("`{name}` is an enum; construct it as `{name}::Variant(...)`")
+            } else {
+                format!("`{name}` is not a declared record")
+            };
+            return Err(Error::diagnostic(
+                Diagnostic::new("Unknown record").label(name_span.clone(), message),
+            ));
+        };
+        let mut effects = EffectRow::default();
+        let mut throws = None;
+        let mut seen = HashSet::new();
+        for (field_name, field_span, value) in fields {
+            let Some((_, field_ty)) = declared.iter().find(|(n, _)| n == field_name) else {
+                return Err(Error::diagnostic(Diagnostic::new("Unknown field").label(
+                    field_span.clone(),
+                    format!("record `{name}` has no field `{field_name}`"),
+                )));
+            };
+            if !seen.insert(field_name.clone()) {
+                return Err(Error::diagnostic(Diagnostic::new("Duplicate field").label(
+                    field_span.clone(),
+                    format!("field `{field_name}` is written twice"),
+                )));
+            }
+            let info = self.check_expr(value, scope, ctx, allow_throw)?;
+            effects.union(&info.effects);
+            throws = merge_throws(throws, info.throws, info.span.clone())?;
+            expect_assignable(&info.ty, field_ty, info.span.clone())?;
+        }
+        let missing: Vec<&str> = declared
+            .iter()
+            .filter(|(n, _)| !seen.contains(n))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        if !missing.is_empty() {
+            return Err(Error::diagnostic(Diagnostic::new("Missing fields").label(
+                span.clone(),
+                format!("record `{name}` needs `{}`", missing.join("`, `")),
+            )));
+        }
+        Ok(ExprInfo {
+            ty: Type::Enum(name.to_string(), Vec::new()),
+            effects,
+            throws,
+            span: span.clone(),
+        })
+    }
+
+    /// The type of field `name` on a record value (spec 0006).
+    fn field_type(&self, target_ty: &Type, name: &str, span: &Span) -> Result<Type> {
+        if let Type::Enum(type_name, _) = target_ty
+            && let Some(fields) = self.records.get(type_name)
+        {
+            if let Some((_, ty)) = fields.iter().find(|(n, _)| n == name) {
+                return Ok(ty.clone());
+            }
+            return Err(Error::diagnostic(
+                Diagnostic::new("Unknown field")
+                    .label(
+                        span.clone(),
+                        format!("record `{type_name}` has no field `{name}`"),
+                    )
+                    .help("A method call needs parentheses: `.method(...)`."),
+            ));
+        }
+        Err(Error::diagnostic(Diagnostic::new("Not a record").label(
+            span.clone(),
+            format!("field access needs a record value, got `{target_ty:?}`"),
+        )))
     }
 
     /// Type-checks a direct call to a generic function (spec 0014). Type

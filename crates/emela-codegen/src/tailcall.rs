@@ -113,6 +113,12 @@ fn rewrite(expr: &mut IrExpr, self_name: &str, tail: bool) {
                 rewrite(field, self_name, false);
             }
         }
+        IrExpr::RecordValue { fields, .. } => {
+            for field in fields {
+                rewrite(field, self_name, false);
+            }
+        }
+        IrExpr::FieldAccess { target, .. } => rewrite(target, self_name, false),
         IrExpr::Throw { value } => rewrite(value, self_name, false),
         // `expr?` has post-processing on the error path, so its operand is
         // never a tail position (spec 0045 T1).

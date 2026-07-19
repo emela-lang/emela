@@ -17,6 +17,8 @@ pub(crate) enum TokenKind {
     Pub,
     Uses,
     Enum,
+    /// `record` (spec 0006).
+    Record,
     Match,
     If,
     Else,
@@ -449,6 +451,7 @@ fn lex_with_file(
                     "pub" => TokenKind::Pub,
                     "uses" => TokenKind::Uses,
                     "enum" => TokenKind::Enum,
+                    "record" => TokenKind::Record,
                     "match" => TokenKind::Match,
                     "if" => TokenKind::If,
                     "else" => TokenKind::Else,

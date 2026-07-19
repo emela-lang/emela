@@ -284,6 +284,15 @@ fn emit_expr(expr: &IrExpr) -> String {
             "{{ tag: {tag}, values: [{}] }}",
             payload.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
+        // A record (spec 0006) is a positional array of its fields in
+        // declaration order; access indexes it.
+        IrExpr::RecordValue { fields, .. } => format!(
+            "[{}]",
+            fields.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
+        IrExpr::FieldAccess { target, index, .. } => {
+            format!("{}[{index}]", emit_expr(target))
+        }
         IrExpr::Match {
             scrutinee, arms, ..
         } => emit_match(scrutinee, arms),
