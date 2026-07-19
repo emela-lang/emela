@@ -166,6 +166,9 @@ fn is_throwing(callee: &IrExpr) -> bool {
 
 const STRING_BASE: u32 = 16;
 const MEMORY_PAGES: u32 = 16;
+/// Upper bound the linear memory may grow to (spec 0048 A3): 256 pages = 16 MiB.
+/// Reaching it makes the next allocation trap (OOM panic).
+const MEMORY_MAX_PAGES: u32 = 256;
 
 fn align(value: u32, to: u32) -> u32 {
     (value + to - 1) & !(to - 1)
@@ -409,7 +412,7 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     }
     let _ = writeln!(
         module,
-        "  (memory (export \"memory\") {MEMORY_PAGES})\n  (global $heap (mut i32) (i32.const {}))",
+        "  (memory (export \"memory\") {MEMORY_PAGES} {MEMORY_MAX_PAGES})\n  (global $heap (export \"heap_top\") (mut i32) (i32.const {}))\n  (global $free_list (mut i32) (i32.const 0))\n  (global $live (export \"live_bytes\") (mut i32) (i32.const 0))",
         strings.heap_start
     );
     for (offset, bytes) in &strings.segments {
@@ -421,7 +424,7 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     }
     module.push_str(&emit_types(&sigs));
     module.push_str(&emit_table(&table));
-    module.push_str(ALLOC);
+    module.push_str(&runtime_wat(strings.heap_start));
     module.push_str(STRING_CMP);
     module.push_str(STRING_INDEX);
     for name in &used_platform {
@@ -433,9 +436,10 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str("  (export \"_start\" (func $_start))\n");
     if used_platform.iter().any(|name| name.starts_with("http.")) {
         // The HTTP host functions (specs 0043/0044) allocate their structured
-        // results (Response / HttpError / the Result cell) into guest memory
-        // through the bump allocator, so it is exported alongside `memory`.
-        module.push_str("  (export \"alloc\" (func $alloc))\n");
+        // results (Response / HttpError / the Result cell) into guest memory,
+        // so an allocator is exported alongside `memory`. `$alloc_host` keeps
+        // the historical one-parameter shape the host binds against.
+        module.push_str("  (export \"alloc\" (func $alloc_host))\n");
     }
     module.push_str(")\n");
     Ok(module)
@@ -569,6 +573,8 @@ fn emit_types(sigs: &SigTable) -> String {
         }
         let _ = writeln!(out, " (result {})))", sig.result.keyword());
     }
+    // The drop functions `$rc_release` dispatches through the table.
+    out.push_str("  (type $drop_t (func (param i32)))\n");
     out
 }
 
@@ -590,8 +596,116 @@ fn emit_table(table: &FnTable) -> String {
     out
 }
 
-/// A bump allocator over linear memory. No free; 8-byte aligned.
-const ALLOC: &str = "  (func $alloc (param $n i32) (result i32)\n    (local $p i32)\n    global.get $heap\n    i32.const 7\n    i32.add\n    i32.const -8\n    i32.and\n    local.set $p\n    local.get $p\n    local.get $n\n    i32.add\n    global.set $heap\n    local.get $p)\n";
+/// The memory-management runtime (spec 0048 Compilation Notes).
+///
+/// Every heap block is `[drop_idx: i32][refcount: i32][payload...]` and object
+/// pointers address the *payload*, so all payload layouts keep their historical
+/// offsets (the header lives at negative offsets). Blocks are 8-aligned and
+/// their total size (header included) is a multiple of 8; `$free` takes that
+/// total. A free block reuses its first two words as `[size][next]` on a
+/// single first-fit, splitting free list.
+///
+/// `$rc_retain` / `$rc_release` ignore pointers below `heap_base` (static
+/// string literals, spec 0048 A6). At refcount zero, `$rc_release` dispatches
+/// the block's drop function through the function table (`drop_idx`), which
+/// releases the children and calls `$free` with the computed total size.
+///
+/// `$alloc_host` keeps the one-parameter allocator shape the HTTP host binds
+/// against; PR3 wires real drop indices for host-built values.
+fn runtime_wat(heap_base: u32) -> String {
+    format!(
+        r#"  (func $alloc (param $n i32) (param $drop i32) (result i32)
+    (local $total i32) (local $prev i32) (local $cur i32) (local $sz i32) (local $rest i32) (local $p i32) (local $end i32)
+    local.get $n i32.const 15 i32.add i32.const -8 i32.and local.set $total
+    i32.const 0 local.set $prev
+    global.get $free_list local.set $cur
+    block $miss
+      loop $scan
+        local.get $cur i32.eqz br_if $miss
+        local.get $cur i32.load local.set $sz
+        local.get $sz local.get $total i32.ge_u
+        if
+          local.get $sz local.get $total i32.sub local.set $rest
+          local.get $rest i32.const 8 i32.ge_u
+          if
+            local.get $cur local.get $total i32.add local.set $p
+            local.get $p local.get $rest i32.store
+            local.get $p local.get $cur i32.load offset=4 i32.store offset=4
+            local.get $prev
+            if
+              local.get $prev local.get $p i32.store offset=4
+            else
+              local.get $p global.set $free_list
+            end
+          else
+            local.get $prev
+            if
+              local.get $prev local.get $cur i32.load offset=4 i32.store offset=4
+            else
+              local.get $cur i32.load offset=4 global.set $free_list
+            end
+          end
+          local.get $cur local.get $drop i32.store
+          local.get $cur i32.const 1 i32.store offset=4
+          global.get $live local.get $total i32.add global.set $live
+          local.get $cur i32.const 8 i32.add
+          return
+        end
+        local.get $cur local.set $prev
+        local.get $cur i32.load offset=4 local.set $cur
+        br $scan
+      end
+    end
+    global.get $heap i32.const 7 i32.add i32.const -8 i32.and local.set $p
+    local.get $p local.get $total i32.add local.set $end
+    local.get $end memory.size i32.const 16 i32.shl i32.gt_u
+    if
+      local.get $end memory.size i32.const 16 i32.shl i32.sub
+      i32.const 65535 i32.add i32.const 16 i32.shr_u
+      memory.grow
+      i32.const -1 i32.eq
+      if unreachable end
+    end
+    local.get $end global.set $heap
+    local.get $p local.get $drop i32.store
+    local.get $p i32.const 1 i32.store offset=4
+    global.get $live local.get $total i32.add global.set $live
+    local.get $p i32.const 8 i32.add)
+  (func $alloc_host (param $n i32) (result i32)
+    local.get $n
+    i32.const 0
+    call $alloc)
+  (func $free (param $p i32) (param $size i32)
+    (local $blk i32)
+    local.get $p i32.const 8 i32.sub local.set $blk
+    local.get $blk local.get $size i32.store
+    local.get $blk global.get $free_list i32.store offset=4
+    local.get $blk global.set $free_list
+    global.get $live local.get $size i32.sub global.set $live)
+  (func $rc_retain (param $p i32) (result i32)
+    local.get $p i32.const {heap_base} i32.lt_u
+    if local.get $p return end
+    local.get $p i32.const 4 i32.sub
+    local.get $p i32.const 4 i32.sub i32.load
+    i32.const 1 i32.add
+    i32.store
+    local.get $p)
+  (func $rc_release (param $p i32)
+    (local $rc i32)
+    local.get $p i32.const {heap_base} i32.lt_u
+    if return end
+    local.get $p i32.const 4 i32.sub i32.load i32.const 1 i32.sub local.set $rc
+    local.get $rc
+    if
+      local.get $p i32.const 4 i32.sub local.get $rc i32.store
+      return
+    end
+    local.get $p
+    local.get $p i32.const 8 i32.sub i32.load
+    call_indirect (type $drop_t))
+"#
+    )
+}
 
 /// Runtime helpers for `Eq`/`Ord for String` (spec 0027). A string is
 /// `[len: i32][utf8 bytes]`, so `$string_eq` compares lengths then bytes, and
@@ -711,14 +825,14 @@ const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
     local.get $end local.get $len i32.gt_s if local.get $len local.set $end end
     local.get $start local.get $end i32.ge_s
     if
-      i32.const 4 call $alloc local.set $out
+      i32.const 4 i32.const 0 call $alloc local.set $out
       local.get $out i32.const 0 i32.store
       local.get $out return
     end
     local.get $s local.get $start call $string_byte_offset local.set $sb
     local.get $s local.get $end call $string_byte_offset local.set $eb
     local.get $eb local.get $sb i32.sub local.set $n
-    i32.const 4 local.get $n i32.add call $alloc local.set $out
+    i32.const 4 local.get $n i32.add i32.const 0 call $alloc local.set $out
     local.get $out local.get $n i32.store
     local.get $out i32.const 4 i32.add
     local.get $s i32.const 4 i32.add local.get $sb i32.add
@@ -729,14 +843,14 @@ const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
     (local $out i32)
     local.get $code i32.const 128 i32.lt_u
     if
-      i32.const 5 call $alloc local.set $out
+      i32.const 5 i32.const 0 call $alloc local.set $out
       local.get $out i32.const 1 i32.store
       local.get $out i32.const 4 i32.add local.get $code i32.store8
       local.get $out return
     end
     local.get $code i32.const 2048 i32.lt_u
     if
-      i32.const 6 call $alloc local.set $out
+      i32.const 6 i32.const 0 call $alloc local.set $out
       local.get $out i32.const 2 i32.store
       local.get $out i32.const 4 i32.add
         local.get $code i32.const 6 i32.shr_u i32.const 192 i32.or i32.store8
@@ -746,7 +860,7 @@ const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
     end
     local.get $code i32.const 65536 i32.lt_u
     if
-      i32.const 7 call $alloc local.set $out
+      i32.const 7 i32.const 0 call $alloc local.set $out
       local.get $out i32.const 3 i32.store
       local.get $out i32.const 4 i32.add
         local.get $code i32.const 12 i32.shr_u i32.const 224 i32.or i32.store8
@@ -756,7 +870,7 @@ const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
         local.get $code i32.const 63 i32.and i32.const 128 i32.or i32.store8
       local.get $out return
     end
-    i32.const 8 call $alloc local.set $out
+    i32.const 8 i32.const 0 call $alloc local.set $out
     local.get $out i32.const 4 i32.store
     local.get $out i32.const 4 i32.add
       local.get $code i32.const 18 i32.shr_u i32.const 240 i32.or i32.store8
@@ -937,6 +1051,13 @@ impl<'a> FnEmitter<'a> {
         self.code.push_str("    ");
         self.code.push_str(instruction);
         self.code.push('\n');
+    }
+
+    /// Calls `$alloc` for the block size on the stack. The drop index is a
+    /// placeholder until drop-glue generation lands: nothing releases yet.
+    fn call_alloc(&mut self) {
+        self.line("i32.const 0");
+        self.line("call $alloc");
     }
 
     fn emit(&mut self, expr: &IrExpr) -> Result<()> {
@@ -1150,7 +1271,7 @@ impl<'a> FnEmitter<'a> {
         self.line("i32.add");
         self.line(&format!("local.get {len_b}"));
         self.line("i32.add");
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {out}"));
         // store the combined length
         self.line(&format!("local.get {out}"));
@@ -1190,7 +1311,7 @@ impl<'a> FnEmitter<'a> {
         let size = (fields.len() as u32 * 8).max(8);
         let ptr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {size}"));
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {ptr}"));
         for (index, field) in fields.iter().enumerate() {
             let slot = WasmTy::of(&field.ty());
@@ -1209,7 +1330,7 @@ impl<'a> FnEmitter<'a> {
         let size = 8 + payload.len() as u32 * 8;
         let ptr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {size}"));
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {ptr}"));
         self.line(&format!("local.get {ptr}"));
         self.line(&format!("i32.const {tag}"));
@@ -1315,7 +1436,7 @@ impl<'a> FnEmitter<'a> {
         self.line(&format!("local.set {value}"));
         let res = self.fresh_local(WasmTy::I32);
         self.line("i32.const 16");
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {res}"));
         self.line(&format!("local.get {res}"));
         self.line("i32.const 1");
@@ -1339,7 +1460,7 @@ impl<'a> FnEmitter<'a> {
             self.line(&format!("local.set {err}"));
             let res = self.fresh_local(WasmTy::I32);
             self.line("i32.const 16");
-            self.line("call $alloc");
+            self.call_alloc();
             self.line(&format!("local.set {res}"));
             self.line(&format!("local.get {res}"));
             self.line("i32.const 0");
@@ -1355,7 +1476,9 @@ impl<'a> FnEmitter<'a> {
     }
 
     /// Unwraps a Result pointer on the stack: on `Err`, raise the error; on
-    /// `Ok`, leave the success value of type `success_ty`.
+    /// `Ok`, leave the success value of type `success_ty`. The box is
+    /// single-owner scratch (spec 0011's encoding, never IR-visible), so it is
+    /// freed here on both paths once its payload is extracted.
     fn unwrap_result(&mut self, success_ty: &Type) -> Result<()> {
         let r = self.fresh_local(WasmTy::I32);
         self.line(&format!("local.set {r}"));
@@ -1364,17 +1487,33 @@ impl<'a> FnEmitter<'a> {
         self.line("i32.eqz");
         self.line("(if");
         self.line("(then");
+        let err = self.fresh_local(WasmTy::I32);
         self.line(&format!("local.get {r}"));
         self.line("i32.const 8");
         self.line("i32.add");
         self.line("i32.load");
+        self.line(&format!("local.set {err}"));
+        self.free_result_box(&r);
+        self.line(&format!("local.get {err}"));
         self.raise_error();
         self.line("))");
+        let value = self.fresh_local(WasmTy::of(success_ty));
         self.line(&format!("local.get {r}"));
         self.line("i32.const 8");
         self.line("i32.add");
         self.line(WasmTy::of(success_ty).load());
+        self.line(&format!("local.set {value}"));
+        self.free_result_box(&r);
+        self.line(&format!("local.get {value}"));
         Ok(())
+    }
+
+    /// Frees a Result box: `alloc(16)` rounds to a 24-byte block with its
+    /// header, and `$free` takes that total.
+    fn free_result_box(&mut self, r: &str) {
+        self.line(&format!("local.get {r}"));
+        self.line("i32.const 24");
+        self.line("call $free");
     }
 
     fn emit_question(&mut self, value: &IrExpr, mode: QuestionMode, ty: &Type) -> Result<()> {
@@ -1459,7 +1598,7 @@ impl<'a> FnEmitter<'a> {
         let total = 4 + elem.size() * elems.len() as u32;
         let arr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {total}"));
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {arr}"));
         self.line(&format!("local.get {arr}"));
         self.line(&format!("i32.const {}", elems.len()));
@@ -1512,7 +1651,7 @@ impl<'a> FnEmitter<'a> {
         self.line(&format!("i32.const {size}"));
         self.line("i32.mul");
         self.line("i32.add");
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {out}"));
         // store the new length (len + 1)
         self.line(&format!("local.get {out}"));
@@ -1552,7 +1691,7 @@ impl<'a> FnEmitter<'a> {
         })?;
         let closure = self.fresh_local(WasmTy::I32);
         self.line("i32.const 4");
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {closure}"));
         self.line(&format!("local.get {closure}"));
         self.line(&format!("i32.const {index}"));
@@ -1572,7 +1711,7 @@ impl<'a> FnEmitter<'a> {
         let total = closure_size(captures);
         let closure = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {total}"));
-        self.line("call $alloc");
+        self.call_alloc();
         self.line(&format!("local.set {closure}"));
         self.line(&format!("local.get {closure}"));
         self.line(&format!("i32.const {index}"));
@@ -1762,6 +1901,31 @@ mod tests {
         assert!(wat.contains("call $f_add"), "{wat}");
         assert!(wat.contains("(export \"_start\" (func $_start))"), "{wat}");
         assert!(wat.contains("call $proc_exit"), "{wat}");
+    }
+
+    #[test]
+    fn emits_the_rc_runtime() {
+        let wat = compile_wat(&add_program());
+        assert!(
+            wat.contains("(func $alloc (param $n i32) (param $drop i32) (result i32)"),
+            "{wat}"
+        );
+        assert!(
+            wat.contains("(func $free (param $p i32) (param $size i32)"),
+            "{wat}"
+        );
+        assert!(wat.contains("(func $rc_retain (param $p i32)"), "{wat}");
+        assert!(wat.contains("(func $rc_release (param $p i32)"), "{wat}");
+        assert!(wat.contains("(type $drop_t (func (param i32)))"), "{wat}");
+        assert!(
+            wat.contains(&format!(
+                "(memory (export \"memory\") {MEMORY_PAGES} {MEMORY_MAX_PAGES})"
+            )),
+            "{wat}"
+        );
+        assert!(wat.contains("(export \"live_bytes\")"), "{wat}");
+        assert!(wat.contains("(export \"heap_top\")"), "{wat}");
+        let _ = compile_binary(&add_program());
     }
 
     #[test]
