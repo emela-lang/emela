@@ -23,6 +23,25 @@ impl<T> Add for List<T> {
     fn add(a: List<T>, b: List<T>) -> List<T> uses {} { append(a, b) }
 }
 
+impl<T> Monoid for List<T> {
+    fn combine(a: List<T>, b: List<T>) -> List<T> uses {} { append(a, b) }
+    fn empty() -> List<T> uses {} { List::Nil }
+}
+
+pub fn concat<M: Monoid>(xs: List<M>) -> M {
+    match xs {
+        Nil -> empty()
+        Cons(h, t) -> combine(h, concat(t))
+    }
+}
+
+pub fn fold_map<T, M: Monoid>(xs: List<T>, f: (T) -> M) -> M {
+    match xs {
+        Nil -> empty()
+        Cons(h, t) -> combine(f(h), fold_map(t, f))
+    }
+}
+
 pub fn length<T>(xs: List<T>) -> Int {
     match xs {
         Nil -> 0
@@ -190,5 +209,69 @@ fn main() -> Int {
         output.status.success(),
         "`+` on imported lists should type-check:\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn concat_flattens_via_list_monoid() {
+    // `concat` over `List<List<Int>>` (M = List<Int>) flattens through the List
+    // monoid: `combine` is `append` and `empty()` — return-dispatched from the
+    // result type (spec 0047) — supplies `Nil` for the empty tail.
+    let app = "\
+import std.list
+
+fn main() -> Int uses {} {
+    let nested: List<List<Int>> = List::Cons(List::Cons(1, List::Cons(2, List::Nil)), List::Cons(List::Cons(3, List::Nil), List::Nil))
+    list.length(list.concat(nested))
+}
+";
+    let (package, app_file) = list_project(app);
+    let output = emela()
+        .arg("run")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = fs::remove_dir_all(app_file.parent().unwrap());
+    // `main`'s `Int` return is the process exit code (spec 0013): [1, 2] ++ [3]
+    // ++ empty() == [1, 2, 3], so length 3.
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "concat app stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn fold_map_maps_then_combines() {
+    // `fold_map` maps each element to a monoid and combines the results (spec
+    // 0047 foldMap). Each `n` becomes `[n, n]`, so [1, 2, 3] flattens to length 6.
+    let app = "\
+import std.list
+
+fn dup(n: Int) -> List<Int> { List::Cons(n, List::Cons(n, List::Nil)) }
+
+fn main() -> Int uses {} {
+    let xs: List<Int> = List::Cons(1, List::Cons(2, List::Cons(3, List::Nil)))
+    list.length(list.fold_map(xs, dup))
+}
+";
+    let (package, app_file) = list_project(app);
+    let output = emela()
+        .arg("run")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = fs::remove_dir_all(app_file.parent().unwrap());
+    // [1,1] ++ [2,2] ++ [3,3] ++ empty() == [1,1,2,2,3,3], so length 6.
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "fold_map app stderr:\n{stderr}"
     );
 }

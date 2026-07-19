@@ -93,9 +93,11 @@ struct Lowerer<'a> {
     enum_type_params: HashMap<String, Vec<String>>,
     /// Method name -> the traits declaring it (spec 0020), for bare dispatch.
     method_owners: HashMap<String, Vec<String>>,
-    /// (trait, method) -> the trait method's parameter types, which contain
-    /// `Var("Self")`; used to infer `Self` from the argument types.
-    trait_methods: HashMap<(String, String), Vec<Type>>,
+    /// (trait, method) -> the trait method's parameter types and return type.
+    /// The parameters contain `Var("Self")` for an argument-dispatched method;
+    /// for a return-dispatched method (spec 0047, `empty`) `Self` is in the
+    /// return type and is resolved from the call's expected type instead.
+    trait_methods: HashMap<(String, String), (Vec<Type>, Type)>,
     /// (trait, type head) -> the unique impl's index in `impls` (spec 0020).
     impls_by: HashMap<(String, String), usize>,
     /// Monomorphization worklist, filled while lowering call sites.
@@ -173,7 +175,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
     // resolves to the same impl. The type checker already validated everything,
     // so lowering just picks the impl from the (now concrete) argument types.
     let mut method_owners: HashMap<String, Vec<String>> = HashMap::new();
-    let mut trait_methods: HashMap<(String, String), Vec<Type>> = HashMap::new();
+    let mut trait_methods: HashMap<(String, String), (Vec<Type>, Type)> = HashMap::new();
     for decl in &program.traits {
         for method in &decl.methods {
             method_owners
@@ -182,7 +184,10 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 .push(decl.name.clone());
             trait_methods.insert(
                 (decl.name.clone(), method.name.clone()),
-                method.params.iter().map(|param| param.ty.clone()).collect(),
+                (
+                    method.params.iter().map(|param| param.ty.clone()).collect(),
+                    method.ret.clone(),
+                ),
             );
         }
     }
@@ -248,7 +253,9 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 ret: typed.ret.clone(),
                 throws: typed.throws.clone(),
                 effects: typed.effects.clone(),
-                body: lowerer.lower_block(&function.body.items, &mut scope).0,
+                body: lowerer
+                    .lower_block(&function.body.items, &mut scope, Some(&typed.ret))
+                    .0,
             }
         })
         .collect();
@@ -299,7 +306,13 @@ impl<'a> Lowerer<'a> {
             ret: self.apply(&function.ret),
             throws: function.throws.as_ref().map(|throws| self.apply(throws)),
             effects: function.effects.clone(),
-            body: self.lower_block(&function.body.items, &mut scope).0,
+            body: self
+                .lower_block(
+                    &function.body.items,
+                    &mut scope,
+                    Some(&self.apply(&function.ret)),
+                )
+                .0,
         }
     }
 
@@ -345,25 +358,29 @@ impl<'a> Lowerer<'a> {
         method_name: &str,
         args: &[Expr],
         scope: &mut Scope,
+        expected: Option<&Type>,
     ) -> (IrExpr, Type) {
         let lowered: Vec<(IrExpr, Type)> =
             args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
-        self.resolve_impl_call(candidates, method_name, lowered)
+        self.resolve_impl_call(candidates, method_name, lowered, expected)
     }
 
     /// Resolves already-lowered operands to a concrete impl method and emits the
-    /// call. Shared by trait method calls and desugared operators.
+    /// call. Shared by trait method calls and desugared operators. `expected` is
+    /// the call's (already concrete) expected type, used to resolve a
+    /// return-dispatched method like `empty()` (spec 0047).
     fn resolve_impl_call(
         &self,
         candidates: &[String],
         method_name: &str,
         lowered: Vec<(IrExpr, Type)>,
+        expected: Option<&Type>,
     ) -> (IrExpr, Type) {
         // Argument types are concrete here: a specialization substitutes every
         // type variable before its body is lowered (spec 0014/0020 erasure).
         let arg_tys: Vec<Type> = lowered.iter().map(|(_, ty)| self.apply(ty)).collect();
         for trait_name in candidates {
-            let Some(params) = self
+            let Some((params, ret)) = self
                 .trait_methods
                 .get(&(trait_name.clone(), method_name.to_string()))
             else {
@@ -372,6 +389,12 @@ impl<'a> Lowerer<'a> {
             let mut subst = HashMap::new();
             for (declared, actual) in params.iter().zip(arg_tys.iter()) {
                 infer_subst(declared, actual, &mut subst);
+            }
+            // Return dispatch (spec 0047): resolve `Self` from the expected type.
+            if !subst.contains_key("Self")
+                && let Some(exp) = expected
+            {
+                infer_subst(ret, &self.apply(exp), &mut subst);
             }
             let Some(self_ty) = subst.get("Self").cloned() else {
                 continue;
@@ -402,12 +425,13 @@ impl<'a> Lowerer<'a> {
             // `a != b` == `!(a == b)`, `a >= b` == `!(a < b)`: no operand swap, so
             // dispatching `(left, right)` already evaluates `a` before `b`.
             BinaryOp::Ne => {
-                let (cmp, _) = self.resolve_impl_call(&["Eq".to_string()], "eq", vec![left, right]);
+                let (cmp, _) =
+                    self.resolve_impl_call(&["Eq".to_string()], "eq", vec![left, right], None);
                 (bool_not(cmp), Type::Bool)
             }
             BinaryOp::Ge => {
                 let (cmp, _) =
-                    self.resolve_impl_call(&["Ord".to_string()], "lt", vec![left, right]);
+                    self.resolve_impl_call(&["Ord".to_string()], "lt", vec![left, right], None);
                 (bool_not(cmp), Type::Bool)
             }
             // `a > b` == `b < a`, `a <= b` == `!(b < a)`: the swap would reorder
@@ -416,7 +440,7 @@ impl<'a> Lowerer<'a> {
             BinaryOp::Le => self.lower_swapped_lt(left, right, true),
             _ => {
                 let (trait_name, method) = operator_trait(op);
-                self.resolve_impl_call(&[trait_name.to_string()], method, vec![left, right])
+                self.resolve_impl_call(&[trait_name.to_string()], method, vec![left, right], None)
             }
         }
     }
@@ -455,6 +479,7 @@ impl<'a> Lowerer<'a> {
                     left_ty.clone(),
                 ),
             ],
+            None,
         );
         let body = if negate { bool_not(cmp) } else { cmp };
         // let name_a = <a> in let name_b = <b> in (b < a): evaluates a then b.
@@ -558,13 +583,20 @@ impl<'a> Lowerer<'a> {
         self.mono.borrow_mut().queue.pop()
     }
 
-    fn lower_block(&self, items: &[BlockItem], scope: &mut Scope) -> (IrExpr, Type) {
+    fn lower_block(
+        &self,
+        items: &[BlockItem],
+        scope: &mut Scope,
+        expected: Option<&Type>,
+    ) -> (IrExpr, Type) {
         match items.split_first() {
             None => (IrExpr::Unit, Type::Unit),
-            Some((BlockItem::Expr(expr), [])) => self.lower_expr(expr, scope),
+            // The tail expression is the block's value, so it inherits the
+            // block's expected type (spec 0047).
+            Some((BlockItem::Expr(expr), [])) => self.lower_expr_expected(expr, scope, expected),
             Some((BlockItem::Expr(expr), rest)) => {
                 let (value, value_ty) = self.lower_expr(expr, scope);
-                let (next, next_ty) = self.lower_block(rest, scope);
+                let (next, next_ty) = self.lower_block(rest, scope, expected);
                 (
                     IrExpr::Let {
                         name: self.fresh_stmt_temp(),
@@ -590,11 +622,13 @@ impl<'a> Lowerer<'a> {
                 };
                 let (value, inferred) = match value {
                     Expr::Array(elements, _) => self.lower_array(elements, scope, expected_elem),
-                    _ => self.lower_expr(value, scope),
+                    // An annotated `let` gives its value an expected type, so a
+                    // return-dispatched `empty()` resolves here (spec 0047).
+                    _ => self.lower_expr_expected(value, scope, annotated.as_ref()),
                 };
                 let value_ty = annotated.unwrap_or(inferred);
                 scope.insert(name.clone(), value_ty.clone());
-                let (next, next_ty) = self.lower_block(rest, scope);
+                let (next, next_ty) = self.lower_block(rest, scope, expected);
                 (
                     IrExpr::Let {
                         name: name.clone(),
@@ -633,6 +667,18 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_expr(&self, expr: &Expr, scope: &mut Scope) -> (IrExpr, Type) {
+        self.lower_expr_expected(expr, scope, None)
+    }
+
+    /// Like `lower_expr` but with the (already concrete) expected type from the
+    /// surrounding context, used to resolve a return-dispatched `empty()` to its
+    /// impl (spec 0047). Threaded through the same positions as the checker.
+    fn lower_expr_expected(
+        &self,
+        expr: &Expr,
+        scope: &mut Scope,
+        expected: Option<&Type>,
+    ) -> (IrExpr, Type) {
         match expr {
             Expr::Int(value, _) => (IrExpr::Int(*value), Type::Int),
             Expr::Float(value, _) => (IrExpr::Float(*value), Type::Float),
@@ -685,7 +731,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             Expr::Call { callee, args, .. } => {
-                let (ir, ty) = self.lower_call(callee, args, scope);
+                let (ir, ty) = self.lower_call(callee, args, scope, expected);
                 self.maybe_wrap_test_site(ir, ty)
             }
             Expr::Fn {
@@ -704,7 +750,7 @@ impl<'a> Lowerer<'a> {
                 // A literal's body follows the ordinary throwing rules even
                 // inside a `@test` body (spec 0040 T3).
                 let saved = self.in_test_body.replace(false);
-                let (body, _) = self.lower_block(&body.items, &mut fn_scope);
+                let (body, _) = self.lower_block(&body.items, &mut fn_scope, Some(ret));
                 self.in_test_body.replace(saved);
                 let ir_params: Vec<IrParam> = params
                     .iter()
@@ -739,13 +785,14 @@ impl<'a> Lowerer<'a> {
                 let (ir, ty) = self.lower_binary(*op, left, right);
                 self.maybe_wrap_test_site(ir, ty)
             }
-            Expr::Block(block) => self.lower_block(&block.items, &mut scope.clone()),
+            Expr::Block(block) => self.lower_block(&block.items, &mut scope.clone(), expected),
             Expr::If {
                 cond, then, els, ..
             } => {
                 let (cond_ir, _) = self.lower_expr(cond, scope);
-                let (then_ir, then_ty) = self.lower_block(&then.items, &mut scope.clone());
-                let (els_ir, els_ty) = self.lower_block(&els.items, &mut scope.clone());
+                let (then_ir, then_ty) =
+                    self.lower_block(&then.items, &mut scope.clone(), expected);
+                let (els_ir, els_ty) = self.lower_block(&els.items, &mut scope.clone(), expected);
                 let ty = pick_ty([then_ty, els_ty].into_iter());
                 (
                     IrExpr::If {
@@ -856,7 +903,7 @@ impl<'a> Lowerer<'a> {
                 let variants = self.variants_of(&scrutinee_ty);
                 let ir_arms: Vec<IrArm> = arms
                     .iter()
-                    .map(|arm| self.lower_arm(arm, &scrutinee_ty, &variants, scope))
+                    .map(|arm| self.lower_arm(arm, &scrutinee_ty, &variants, scope, expected))
                     .collect();
                 let ty = pick_ty(ir_arms.iter().map(|arm| arm.body.ty()));
                 (
@@ -873,13 +920,13 @@ impl<'a> Lowerer<'a> {
                 // the test harness (spec 0040 T3); the arms are back at an
                 // implicit-try position (an uncaught re-`throw` fails the test).
                 let saved = self.in_test_body.replace(false);
-                let (body_ir, body_ty) = self.lower_block(&body.items, &mut scope.clone());
+                let (body_ir, body_ty) = self.lower_block(&body.items, &mut scope.clone(), None);
                 self.in_test_body.replace(saved);
                 let error_ty = body_error_ty(&body_ir).unwrap_or(Type::Never);
                 let variants = self.variants_of(&error_ty);
                 let ir_arms: Vec<IrArm> = arms
                     .iter()
-                    .map(|arm| self.lower_arm(arm, &error_ty, &variants, scope))
+                    .map(|arm| self.lower_arm(arm, &error_ty, &variants, scope, None))
                     .collect();
                 let ty = pick_ty(
                     std::iter::once(body_ty).chain(ir_arms.iter().map(|arm| arm.body.ty())),
@@ -927,6 +974,7 @@ impl<'a> Lowerer<'a> {
                         },
                         error_ty.clone(),
                     )],
+                    None,
                 );
                 IrExpr::Concat {
                     left: Box::new(IrExpr::String(format!("threw {label}: "))),
@@ -984,7 +1032,13 @@ impl<'a> Lowerer<'a> {
         visible.then_some(info)
     }
 
-    fn lower_call(&self, callee: &Expr, args: &[Expr], scope: &mut Scope) -> (IrExpr, Type) {
+    fn lower_call(
+        &self,
+        callee: &Expr,
+        args: &[Expr],
+        scope: &mut Scope,
+        expected: Option<&Type>,
+    ) -> (IrExpr, Type) {
         // Method-call (receiver) syntax (spec 0020): `recv.method(args)` on a
         // local value desugars to `method(recv, args)`, mirroring the checker.
         if let Expr::Path { segments, span } = callee
@@ -996,7 +1050,7 @@ impl<'a> Lowerer<'a> {
             let mut method_args = Vec::with_capacity(args.len() + 1);
             method_args.push(receiver);
             method_args.extend(args.iter().cloned());
-            return self.lower_call(&method, &method_args, scope);
+            return self.lower_call(&method, &method_args, scope, expected);
         }
         if let Expr::Var(name, _) = callee {
             // Built-in Option constructor `Some(x)`.
@@ -1083,7 +1137,7 @@ impl<'a> Lowerer<'a> {
                 )
                 && let Some(candidates) = self.method_owners.get(name)
             {
-                return self.lower_trait_call(candidates, name, args, scope);
+                return self.lower_trait_call(candidates, name, args, scope, expected);
             }
         }
         // A `::` type-path call target (specs 0005/0018 R7): an enum variant
@@ -1126,7 +1180,13 @@ impl<'a> Lowerer<'a> {
                     .trait_methods
                     .contains_key(&(head.clone(), tail.clone()))
                 {
-                    return self.lower_trait_call(std::slice::from_ref(head), tail, args, scope);
+                    return self.lower_trait_call(
+                        std::slice::from_ref(head),
+                        tail,
+                        args,
+                        scope,
+                        expected,
+                    );
                 }
             }
             if let Resolved::One(entry) = self
@@ -1138,17 +1198,22 @@ impl<'a> Lowerer<'a> {
             }
         }
         let (callee, callee_ty) = self.lower_expr(callee, scope);
-        let ret = match callee_ty {
-            Type::Function(function) => (*function.ret).clone(),
-            _ => Type::Unit,
+        let (ret, param_tys) = match callee_ty {
+            Type::Function(function) => ((*function.ret).clone(), function.params.clone()),
+            _ => (Type::Unit, Vec::new()),
         };
+        // Each argument's expected type is the corresponding parameter type
+        // (spec 0047), so a return-dispatched `empty()` in argument position
+        // resolves here too.
+        let ir_args = args
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| self.lower_expr_expected(arg, scope, param_tys.get(i)).0)
+            .collect();
         (
             IrExpr::Call {
                 callee: Box::new(callee),
-                args: args
-                    .iter()
-                    .map(|arg| self.lower_expr(arg, scope).0)
-                    .collect(),
+                args: ir_args,
                 ret: ret.clone(),
             },
             ret,
@@ -1209,6 +1274,7 @@ impl<'a> Lowerer<'a> {
         scrutinee_ty: &Type,
         variants: &[VariantDef],
         scope: &Scope,
+        expected: Option<&Type>,
     ) -> IrArm {
         let mut arm_scope = scope.clone();
         let pattern = self.lower_pattern(&arm.pattern, scrutinee_ty, variants, &mut arm_scope);
@@ -1216,7 +1282,11 @@ impl<'a> Lowerer<'a> {
             .guard
             .as_ref()
             .map(|guard| self.lower_expr(guard, &mut arm_scope).0);
-        let body = self.lower_expr(&arm.body, &mut arm_scope).0;
+        // The arm produces the match's value, so it inherits the expected type
+        // (spec 0047): `Nil -> empty()` resolves here.
+        let body = self
+            .lower_expr_expected(&arm.body, &mut arm_scope, expected)
+            .0;
         IrArm {
             pattern,
             guard,
