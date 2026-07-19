@@ -16,6 +16,10 @@ pub struct PlatformFn {
     pub name: String,
     pub params: Vec<Type>,
     pub ret: Type,
+    /// The error type the host may report (spec 0043). A fallible platform
+    /// function delivers host failure through the ordinary `throws` channel
+    /// (spec 0011); `None` means the entry cannot fail.
+    pub throws: Option<Type>,
     pub capability: String,
 }
 
@@ -31,9 +35,9 @@ impl PlatformFn {
     }
 }
 
-/// The normative platform interface. The MVP set returns `Unit` and reports no
-/// failure (spec 0013); failing operations are added once `Result`/`Option`
-/// land.
+/// The normative platform interface. Entries may declare `throws E`
+/// (spec 0043) to report host failure on the error channel; the original
+/// `io`/`clock` set stays infallible.
 pub fn platform_interface() -> Vec<PlatformFn> {
     vec![
         PlatformFn {
@@ -41,6 +45,7 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             name: "write_stdout".to_string(),
             params: vec![Type::String],
             ret: Type::Unit,
+            throws: None,
             capability: "Io".to_string(),
         },
         PlatformFn {
@@ -48,6 +53,7 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             name: "write_stderr".to_string(),
             params: vec![Type::String],
             ret: Type::Unit,
+            throws: None,
             capability: "Io".to_string(),
         },
         PlatformFn {
@@ -55,7 +61,56 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             name: "monotonic_seconds".to_string(),
             params: vec![],
             ret: Type::Int,
+            throws: None,
             capability: "Clock".to_string(),
+        },
+        // One synchronous HTTP exchange (spec 0044); the first fallible entry
+        // (spec 0043). `Request`/`Response`/`HttpError` are the named types
+        // declared by the embedded `std.http`.
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "request".to_string(),
+            params: vec![Type::Enum("Request".to_string(), Vec::new())],
+            ret: Type::Enum("Response".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "Http".to_string(),
+        },
+        // The HttpServer capability (spec 0046): a separate capability from the
+        // client so a serve-only program's manifest shows no outbound access.
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_bind".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Enum("Server".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_accept".to_string(),
+            params: vec![Type::Enum("Server".to_string(), Vec::new())],
+            ret: Type::Enum("Incoming".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_respond".to_string(),
+            params: vec![
+                Type::Enum("Incoming".to_string(), Vec::new()),
+                Type::Enum("Response".to_string(), Vec::new()),
+            ],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_close".to_string(),
+            params: vec![Type::Enum("Server".to_string(), Vec::new())],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
         },
     ]
 }

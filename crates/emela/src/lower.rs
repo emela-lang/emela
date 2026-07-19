@@ -18,6 +18,7 @@ use emela_codegen::{
 use crate::ast::{
     Block, BlockItem, Expr, FieldBinding, Function, ImplDecl, MatchArm, Pattern, Program,
 };
+use crate::error::Span;
 use crate::resolve::{FnTable, Resolved};
 use crate::typecheck::{TypedProgram, operator_trait, subst_type, type_head_key};
 
@@ -62,6 +63,8 @@ struct ExternInfo {
     /// to monomorphize `ret` before building the `Intrinsic` node.
     params: Vec<Type>,
     ret: Type,
+    /// The error type a fallible platform function throws (spec 0043).
+    throws: Option<Type>,
     is_intrinsic: bool,
     module: Option<String>,
     effect_name: Option<String>,
@@ -87,6 +90,8 @@ struct Lowerer<'a> {
     impls: &'a [ImplDecl],
     externs: HashMap<String, ExternInfo>,
     enums: HashMap<String, Vec<VariantDef>>,
+    /// Declared records (spec 0006): name -> fields in declaration order.
+    records: HashMap<String, Vec<(String, Type)>>,
     /// Type parameters of each generic enum (spec 0028), used to substitute the
     /// concrete type arguments into variant field types at construction and
     /// `match`. Empty vec for a non-generic enum.
@@ -142,6 +147,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                     canonical: declaration.canonical(),
                     params: declaration.params.iter().map(|p| p.ty.clone()).collect(),
                     ret: declaration.ret.clone(),
+                    throws: declaration.throws.clone(),
                     is_intrinsic: declaration.is_intrinsic,
                     module: declaration.module.clone(),
                     effect_name: declaration.effect_name.clone(),
@@ -170,6 +176,19 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         .enums
         .iter()
         .map(|decl| (decl.name.clone(), decl.type_params.clone()))
+        .collect();
+    let records: HashMap<String, Vec<(String, Type)>> = program
+        .records
+        .iter()
+        .map(|decl| {
+            (
+                decl.name.clone(),
+                decl.fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.ty.clone()))
+                    .collect(),
+            )
+        })
         .collect();
     // Trait/impl indexes (spec 0020), mirroring the type checker so a call
     // resolves to the same impl. The type checker already validated everything,
@@ -203,6 +222,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         impls: &program.impls,
         externs,
         enums,
+        records,
         enum_type_params,
         method_owners,
         trait_methods,
@@ -280,7 +300,71 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         functions.push(specialized);
     }
 
-    IrProgram { functions }
+    // The entry set for import pruning: every function the compilation root
+    // itself declares (empty module path) — `main`, `@test`s, and the user's
+    // own helpers, which are always emitted. Emit names are bare for the root.
+    let root_names: std::collections::HashSet<String> = program
+        .functions
+        .iter()
+        .enumerate()
+        .filter(|(_, function)| function.module_path.is_empty())
+        .map(|(index, _)| lowerer.table.emit_name(index).to_string())
+        .collect();
+
+    let mut program = IrProgram { functions };
+    // Drop imported functions unreachable from the root so a library's unused
+    // wrappers do not pull their platform imports into the artifact — e.g. a
+    // serve-only program must not import the client `http.request` merely
+    // because `import std.http` also brings in `Http.get` (spec 0046 S1). The
+    // root's own functions are always kept, matching the "all top-level
+    // functions are emitted" behavior the rest of the toolchain relies on.
+    prune_unreachable_imports(&mut program, &root_names);
+    // Direct self-recursive calls in tail position become jumps (spec 0045)
+    // before the IR reaches any backend.
+    emela_codegen::rewrite_self_tail_calls(&mut program);
+    program
+}
+
+/// Removes imported IR functions unreachable from the root functions, following
+/// the `FunctionRef` names each reachable function mentions (as a call target
+/// or a first-class value). Root functions (`root_names`) are always retained;
+/// trait dispatch and generics are already resolved to concrete `FunctionRef`s,
+/// so an imported function reached through them is kept.
+fn prune_unreachable_imports(
+    program: &mut IrProgram,
+    root_names: &std::collections::HashSet<String>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let by_name: HashMap<&str, &IrFunction> = program
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect();
+    let mut reachable: HashSet<String> = HashSet::new();
+    let mut queue: Vec<String> = root_names
+        .iter()
+        .filter(|name| by_name.contains_key(name.as_str()))
+        .cloned()
+        .collect();
+    while let Some(name) = queue.pop() {
+        if !reachable.insert(name.clone()) {
+            continue;
+        }
+        if let Some(function) = by_name.get(name.as_str()) {
+            emela_codegen::walk(&function.body, &mut |expr| {
+                if let IrExpr::FunctionRef { name, .. } = expr
+                    && !reachable.contains(name)
+                {
+                    queue.push(name.clone());
+                }
+            });
+        }
+    }
+    // Keep every root function unconditionally, plus imported functions the
+    // reachability walk marked.
+    program.functions.retain(|function| {
+        root_names.contains(&function.name) || reachable.contains(&function.name)
+    });
 }
 
 impl<'a> Lowerer<'a> {
@@ -666,6 +750,103 @@ impl<'a> Lowerer<'a> {
         )
     }
 
+    /// Lowers a record-literal field value, passing the declared field type as
+    /// the expected element type so an empty `[]` array is typed from the field
+    /// (mirroring the checker).
+    fn lower_field_value(&self, value: &Expr, field_ty: &Type, scope: &mut Scope) -> IrExpr {
+        if let (Expr::Array(elements, _), Type::Array(element)) = (value, field_ty) {
+            return self.lower_array(elements, scope, Some(element)).0;
+        }
+        self.lower_expr(value, scope).0
+    }
+
+    /// The declaration-order index and type of `field` on a record-typed value
+    /// (spec 0006). The type checker has already validated the access.
+    fn record_field(&self, ty: &Type, field: &str) -> (u32, Type) {
+        let Type::Enum(name, _) = ty else {
+            unreachable!("field access on a non-record was rejected by the checker");
+        };
+        let fields = &self.records[name];
+        let index = fields
+            .iter()
+            .position(|(n, _)| n == field)
+            .expect("field validated by the checker");
+        (index as u32, fields[index].1.clone())
+    }
+
+    /// Lowers a record literal (spec 0006). Fields are evaluated in written
+    /// order (spec 0003's left-to-right); when that differs from declaration
+    /// order they go through temporaries so the stored order is declaration
+    /// order either way.
+    fn lower_record_literal(
+        &self,
+        name: &str,
+        fields: &[(String, Span, Expr)],
+        scope: &mut Scope,
+    ) -> (IrExpr, Type) {
+        let declared = self.records[name].clone();
+        let ty = Type::Enum(name.to_string(), Vec::new());
+        let written_in_decl_order = fields.len() == declared.len()
+            && fields
+                .iter()
+                .zip(&declared)
+                .all(|((written, _, _), (decl, _))| written == decl);
+        if written_in_decl_order {
+            let lowered = fields
+                .iter()
+                .zip(&declared)
+                .map(|((_, _, value), (_, field_ty))| {
+                    self.lower_field_value(value, field_ty, scope)
+                })
+                .collect();
+            return (
+                IrExpr::RecordValue {
+                    ty: ty.clone(),
+                    fields: lowered,
+                },
+                ty,
+            );
+        }
+        let mut temps: HashMap<String, String> = HashMap::new();
+        let mut lets: Vec<(String, Type, IrExpr)> = Vec::new();
+        for (field_name, _, value) in fields {
+            let (_, field_ty) = declared
+                .iter()
+                .find(|(n, _)| n == field_name)
+                .expect("field validated by the checker");
+            let ir = self.lower_field_value(value, field_ty, scope);
+            let value_ty = field_ty.clone();
+            let temp = {
+                let mut counter = self.stmt_counter.borrow_mut();
+                let temp = format!("$fld{}", *counter);
+                *counter += 1;
+                temp
+            };
+            temps.insert(field_name.clone(), temp.clone());
+            lets.push((temp, value_ty, ir));
+        }
+        let record = IrExpr::RecordValue {
+            ty: ty.clone(),
+            fields: declared
+                .iter()
+                .map(|(field_name, field_ty)| IrExpr::Var {
+                    name: temps[field_name].clone(),
+                    ty: field_ty.clone(),
+                })
+                .collect(),
+        };
+        let ir = lets
+            .into_iter()
+            .rev()
+            .fold(record, |next, (temp, value_ty, value)| IrExpr::Let {
+                name: temp,
+                value_ty,
+                value: Box::new(value),
+                next: Box::new(next),
+            });
+        (ir, ty)
+    }
+
     fn lower_expr(&self, expr: &Expr, scope: &mut Scope) -> (IrExpr, Type) {
         self.lower_expr_expected(expr, scope, None)
     }
@@ -686,6 +867,21 @@ impl<'a> Lowerer<'a> {
             Expr::String(value, _) => (IrExpr::String(value.clone()), Type::String),
             Expr::Char(value, _) => (IrExpr::Char(*value as u32), Type::Char),
             Expr::Array(elements, _) => self.lower_array(elements, scope, None),
+            Expr::RecordLiteral { name, fields, .. } => {
+                self.lower_record_literal(name, fields, scope)
+            }
+            Expr::Field { target, name, .. } => {
+                let (target_ir, target_ty) = self.lower_expr(target, scope);
+                let (index, field_ty) = self.record_field(&target_ty, name);
+                (
+                    IrExpr::FieldAccess {
+                        target: Box::new(target_ir),
+                        index,
+                        field_ty: field_ty.clone(),
+                    },
+                    field_ty,
+                )
+            }
             Expr::Unit(_) => (IrExpr::Unit, Type::Unit),
             Expr::Var(name, _) => {
                 if let Some(ty) = scope.get(name) {
@@ -877,6 +1073,25 @@ impl<'a> Lowerer<'a> {
                 (IrExpr::Unit, Type::Unit)
             }
             Expr::Path { segments, .. } => {
+                // A dotted head that is a local value is record field access
+                // (spec 0006), mirroring the checker.
+                if let Some(head_ty) = scope.get(&segments[0]).cloned() {
+                    let mut ir = IrExpr::Var {
+                        name: segments[0].clone(),
+                        ty: head_ty.clone(),
+                    };
+                    let mut ty = head_ty;
+                    for segment in &segments[1..] {
+                        let (index, field_ty) = self.record_field(&ty, segment);
+                        ir = IrExpr::FieldAccess {
+                            target: Box::new(ir),
+                            index,
+                            field_ty: field_ty.clone(),
+                        };
+                        ty = field_ty;
+                    }
+                    return (ir, ty);
+                }
                 // A dotted path with no `(...)`: an effect operation or a
                 // module-qualified function used as a value (spec 0037). Enum
                 // variants are `::` type paths, handled above.
@@ -994,6 +1209,7 @@ impl<'a> Lowerer<'a> {
                 name: "io.write_stderr".to_string(),
                 args: vec![message],
                 ret: Type::Unit,
+                throws: None,
             }),
             next: Box::new(IrExpr::Panic {
                 message: Box::new(IrExpr::String("test failed".to_string())),
@@ -1085,6 +1301,7 @@ impl<'a> Lowerer<'a> {
             if let Some(info) = self.visible_extern(name) {
                 let is_intrinsic = info.is_intrinsic;
                 let canonical = info.canonical.clone();
+                let throws = info.throws.clone();
                 let declared_params = info.params.clone();
                 let declared_ret = info.ret.clone();
                 let lowered: Vec<(IrExpr, Type)> =
@@ -1109,6 +1326,7 @@ impl<'a> Lowerer<'a> {
                         name: canonical,
                         args,
                         ret: ret.clone(),
+                        throws,
                     }
                 };
                 return (node, ret);
@@ -1579,9 +1797,24 @@ fn free_vars_expr(expr: &Expr, bound: &HashSet<String>, out: &mut Vec<String>) {
             free_vars_expr(value, bound, out)
         }
         Expr::Panic { message, .. } => free_vars_expr(message, bound, out),
-        // A path has no subexpressions; when it is a call target its arguments
-        // live in the wrapping `Call`, which is handled above.
-        Expr::Path { .. } | Expr::TypePath { .. } => {}
+        // A path's head may be a local value (a receiver call or record field
+        // access, specs 0020/0006); the later segments never are. When it is a
+        // call target its arguments live in the wrapping `Call`, handled above.
+        Expr::Path { segments, .. } => {
+            if let Some(head) = segments.first()
+                && !bound.contains(head)
+                && !out.contains(head)
+            {
+                out.push(head.clone());
+            }
+        }
+        Expr::TypePath { .. } => {}
+        Expr::RecordLiteral { fields, .. } => {
+            for (_, _, value) in fields {
+                free_vars_expr(value, bound, out);
+            }
+        }
+        Expr::Field { target, .. } => free_vars_expr(target, bound, out),
         Expr::Match {
             scrutinee, arms, ..
         } => {

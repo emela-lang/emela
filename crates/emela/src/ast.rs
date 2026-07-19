@@ -11,6 +11,8 @@ pub(crate) struct Program {
     pub(crate) functions: Vec<Function>,
     pub(crate) externs: Vec<Extern>,
     pub(crate) enums: Vec<EnumDecl>,
+    /// `record` declarations (spec 0006).
+    pub(crate) records: Vec<RecordDecl>,
     /// `trait` declarations (spec 0020).
     pub(crate) traits: Vec<TraitDecl>,
     /// `impl Trait for Type` blocks (spec 0020).
@@ -28,6 +30,27 @@ pub(crate) struct EffectDecl {
     pub(crate) name: String,
     #[allow(dead_code)]
     pub(crate) name_span: Span,
+}
+
+/// A `record` declaration (spec 0006): named fields, no variants. Records are
+/// non-generic in this first cut (0006 defines declaration, literal
+/// construction, and field access only).
+#[derive(Debug, Clone)]
+pub(crate) struct RecordDecl {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    /// The declaring file's module path, mirroring `EnumDecl::module`.
+    #[allow(dead_code)]
+    pub(crate) module: Option<String>,
+    pub(crate) fields: Vec<RecordFieldDef>,
+}
+
+/// One field of a `record` declaration (spec 0006).
+#[derive(Debug, Clone)]
+pub(crate) struct RecordFieldDef {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) ty: Type,
 }
 
 /// An `enum` declaration (spec 0005).
@@ -306,6 +329,23 @@ pub(crate) enum Expr {
         segments: Vec<String>,
         span: Span,
     },
+    /// A record literal `Name { field: expr ... }` (spec 0006). Field order is
+    /// as written; the type checker validates the set against the declaration.
+    RecordLiteral {
+        name: String,
+        name_span: Span,
+        fields: Vec<(String, Span, Expr)>,
+        span: Span,
+    },
+    /// A postfix field access on a non-path expression (spec 0006), e.g.
+    /// `get(url).body`. Field access on a dotted identifier chain
+    /// (`user.name`) parses as `Path` and is resolved in the checker.
+    Field {
+        target: Box<Expr>,
+        name: String,
+        name_span: Span,
+        span: Span,
+    },
     /// A `::` type path (specs 0005/0018 R7): a name resolved through an enum
     /// type — an enum variant (`Color::Red`, `Either::Left`). The head is a type
     /// name. Has at least two segments. When followed by `(...)` it is the callee
@@ -340,6 +380,8 @@ impl Expr {
             | Expr::Try { span, .. }
             | Expr::If { span, .. }
             | Expr::Path { span, .. }
+            | Expr::RecordLiteral { span, .. }
+            | Expr::Field { span, .. }
             | Expr::TypePath { span, .. } => span.clone(),
             Expr::Block(block) => block.span.clone(),
         }

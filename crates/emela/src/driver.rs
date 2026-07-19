@@ -335,6 +335,12 @@ fn walk_expr_refs(
                 walk_expr_refs(element, module, table, visit);
             }
         }
+        Expr::RecordLiteral { fields, .. } => {
+            for (_, _, value) in fields {
+                walk_expr_refs(value, module, table, visit);
+            }
+        }
+        Expr::Field { target, .. } => walk_expr_refs(target, module, table, visit),
         Expr::Int(..)
         | Expr::Float(..)
         | Expr::Bool(..)
@@ -490,6 +496,7 @@ pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
     program.functions.extend(prelude.functions);
     program.externs.extend(prelude.externs);
     program.enums.extend(prelude.enums);
+    program.records.extend(prelude.records);
     program.traits.extend(prelude.traits);
     program.impls.extend(prelude.impls);
     program.effects.extend(prelude.effects);

@@ -10,6 +10,8 @@ mod driver;
 mod error;
 mod external;
 mod fmt;
+#[cfg(feature = "run")]
+mod http_host;
 mod imports;
 mod lexer;
 mod lint;

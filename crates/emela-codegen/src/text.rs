@@ -144,6 +144,22 @@ fn inline_expr(expr: &IrExpr) -> String {
         ),
         IrExpr::Question { value, .. } => format!("{}?", inline_expr(value)),
         IrExpr::Panic { message } => format!("panic {}", inline_expr(message)),
+        IrExpr::TailSelfCall { args, .. } => format!(
+            "tail_self_call({})",
+            args.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
+        ),
+        IrExpr::RecordValue { ty, fields } => format!(
+            "record {}({})",
+            ir_type_suffix(ty),
+            fields
+                .iter()
+                .map(inline_expr)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        IrExpr::FieldAccess { target, index, .. } => {
+            format!("field {}, {index}", inline_expr(target))
+        }
     }
 }
 

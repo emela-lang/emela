@@ -78,10 +78,15 @@ pub enum IrExpr {
     },
     /// A call to a platform function (spec 0013), resolved by the backend's
     /// runtime. `name` is the canonical platform name, e.g. `io.write_stdout`.
+    /// A fallible entry (spec 0043) carries its error type in `throws`: the
+    /// host reports failure through the ordinary Result representation and the
+    /// backend unwraps it at the call site like any throwing call.
     Platform {
         name: String,
         args: Vec<IrExpr>,
         ret: Type,
+        #[serde(default)]
+        throws: Option<Type>,
     },
     /// A call to an intrinsic (spec 0021), inlined by the backend to a native
     /// instruction. `name` is the intrinsic's bare name, e.g. `i32_add`. Pure.
@@ -120,6 +125,20 @@ pub enum IrExpr {
         left: Box<IrExpr>,
         right: Box<IrExpr>,
     },
+    /// A record value (spec 0006). `fields` are in declaration order. The
+    /// layout is the enum payload layout without a tag: one 8-byte slot per
+    /// field.
+    RecordValue {
+        ty: Type,
+        fields: Vec<IrExpr>,
+    },
+    /// A record field access `value.field` (spec 0006): reads the field at
+    /// `index` (declaration order). `field_ty` picks the load width.
+    FieldAccess {
+        target: Box<IrExpr>,
+        index: u32,
+        field_ty: Type,
+    },
     /// An enum or `Option` value (spec 0005/0001). `tag` selects the variant in
     /// declaration order; `payload` carries its fields.
     EnumValue {
@@ -155,6 +174,14 @@ pub enum IrExpr {
     /// `panic(msg)` (spec 0011): unrecoverable abort. Type `Never`.
     Panic {
         message: Box<IrExpr>,
+    },
+    /// A direct self-recursive call in tail position (spec 0045). Backends emit
+    /// it as a jump back to the function head (no stack growth) instead of a
+    /// call. Produced by [`crate::tailcall::rewrite_self_tail_calls`]; never
+    /// built by the frontend directly.
+    TailSelfCall {
+        args: Vec<IrExpr>,
+        ty: Type,
     },
 }
 
@@ -199,10 +226,13 @@ impl IrExpr {
                 _ => ty.clone(),
             },
             IrExpr::EnumValue { ty, .. }
+            | IrExpr::RecordValue { ty, .. }
             | IrExpr::Match { ty, .. }
             | IrExpr::Try { ty, .. }
             | IrExpr::If { ty, .. }
-            | IrExpr::Question { ty, .. } => ty.clone(),
+            | IrExpr::Question { ty, .. }
+            | IrExpr::TailSelfCall { ty, .. } => ty.clone(),
+            IrExpr::FieldAccess { field_ty, .. } => field_ty.clone(),
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
         }
     }
