@@ -55,16 +55,6 @@ pub fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
         }
         IrExpr::Throw { value } | IrExpr::Question { value, .. } => walk(value, visit),
         IrExpr::Panic { message } => walk(message, visit),
-        IrExpr::CharFromCode(value) | IrExpr::StringFromChar(value) => walk(value, visit),
-        IrExpr::ArrayLength(array) => walk(array, visit),
-        IrExpr::ArrayGet { array, index, .. } => {
-            walk(array, visit);
-            walk(index, visit);
-        }
-        IrExpr::ArrayPush { array, value, .. } => {
-            walk(array, visit);
-            walk(value, visit);
-        }
         _ => {}
     }
 }

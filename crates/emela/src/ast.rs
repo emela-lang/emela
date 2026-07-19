@@ -139,6 +139,16 @@ pub(crate) struct Extern {
     pub(crate) name: String,
     pub(crate) name_span: Span,
     pub(crate) module: Option<String>,
+    /// Type parameters of a generic `intrinsic fn` (spec 0021), e.g. `T` in
+    /// `array_get<T>(a: Array<T>, i: Int) -> T`. Their names appear as
+    /// `Type::Var` in the signature and are monomorphized at each call site,
+    /// like a generic function (spec 0014). Empty for a non-generic
+    /// intrinsic/extern; `extern fn` (platform functions) are never generic.
+    pub(crate) type_params: Vec<String>,
+    /// Trait bounds on the type parameters (spec 0020). Always empty in v1: an
+    /// intrinsic is pure and its backend lowering is uniform in the element
+    /// type, so it needs no bounds. Carried for shape parity with `Function`.
+    pub(crate) bounds: Vec<Bound>,
     pub(crate) params: Vec<Param>,
     pub(crate) ret: Type,
     pub(crate) throws: Option<Type>,
@@ -336,12 +346,13 @@ pub(crate) enum Expr {
         name_span: Span,
         span: Span,
     },
-    /// A `::` type path (specs 0005/0017/0018 R7): a name resolved through a type
-    /// — an enum variant (`Color::Red`, `Either::Left`) or a built-in conversion
-    /// (`Char::from_code`, `String::from_char`). The head is a type name. Has at
-    /// least two segments. When followed by `(...)` it is the callee of a `Call`;
-    /// on its own it is a value (a no-payload variant). Kept distinct from `Path`
-    /// so `.` never resolves to a variant (`Color.Red` is an error).
+    /// A `::` type path (specs 0005/0018 R7): a name resolved through an enum
+    /// type — an enum variant (`Color::Red`, `Either::Left`). The head is a type
+    /// name. Has at least two segments. When followed by `(...)` it is the callee
+    /// of a `Call`; on its own it is a value (a no-payload variant). Kept
+    /// distinct from `Path` so `.` never resolves to a variant (`Color.Red` is an
+    /// error). The former `Char::from_code` / `String::from_char` conversions are
+    /// now bare intrinsics (spec 0021), not type paths.
     TypePath {
         segments: Vec<String>,
         span: Span,

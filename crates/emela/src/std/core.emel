@@ -45,6 +45,14 @@ trait Show {
     fn to_string(value: Self) -> String uses {}
 }
 
+-- A monoid (spec 0047): an associative `combine` with an identity `empty`.
+-- `empty` mentions `Self` only in its return type, so it is return-dispatched:
+-- its impl is chosen from the call's expected type, not from an argument.
+trait Monoid {
+    fn combine(a: Self, b: Self) -> Self uses {}
+    fn empty() -> Self uses {}
+}
+
 intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_sub(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_mul(a: Int, b: Int) -> Int uses {}
@@ -66,6 +74,35 @@ intrinsic fn string_lt(a: String, b: String) -> Bool uses {}
 -- `string_char_at` / `string_slice`) and `f64_sqrt` are declared where they are
 -- wrapped, in `std.string` / `std.float`, to keep the prelude minimal.
 intrinsic fn char_code(c: Char) -> Int uses {}
+
+-- Char/String conversions (spec 0017), formerly the `Char::from_code` /
+-- `String::from_char` builtins. Now bare Core Prelude intrinsics, so they are
+-- usable with no import from any module (like the operator intrinsics above).
+intrinsic fn char_from_code(n: Int) -> Char uses {}
+intrinsic fn string_from_char(c: Char) -> String uses {}
+
+-- Array operations (spec 0007), formerly the `Array::length` / `Array::get` /
+-- `Array::push` builtins. Generic intrinsics (spec 0021): the element type `T`
+-- is inferred and monomorphized at each call site. `array_get_unchecked` is the
+-- raw accessor and requires `0 <= i < array_length(a)`; the safe `array_get`
+-- below wraps it.
+intrinsic fn array_length<T>(a: Array<T>) -> Int uses {}
+intrinsic fn array_get_unchecked<T>(a: Array<T>, i: Int) -> T uses {}
+intrinsic fn array_push<T>(a: Array<T>, x: T) -> Array<T> uses {}
+
+-- The element at index `i`, or `None` when out of range (spec 0011: absence is
+-- `Option`, no panicking variant). This is the safe array accessor; it wraps the
+-- raw `array_get_unchecked` intrinsic with a bounds check, mirroring how
+-- `std.string.char_at` wraps `string_char_at`.
+pub fn array_get<T>(a: Array<T>, i: Int) -> Option<T> {
+    if i < 0 {
+        None
+    } else if i < array_length(a) {
+        Some(array_get_unchecked(a, i))
+    } else {
+        None
+    }
+}
 
 impl Add for Int {
     fn add(a: Int, b: Int) -> Int uses {} { i32_add(a, b) }
@@ -110,7 +147,7 @@ impl Show for Int {
                 "-" ++ to_string(0 - n)
             } else {
                 if n < 10 {
-                    String::from_char(Char::from_code(48 + n))
+                    string_from_char(char_from_code(48 + n))
                 } else {
                     to_string(n / 10) ++ to_string(n % 10)
                 }
@@ -161,6 +198,15 @@ impl Ord for String {
 -- `print<T: Show>`) works uniformly for `String` as well as `Int`.
 impl Show for String {
     fn to_string(s: String) -> String uses {} { s }
+}
+
+-- `Monoid for String` (spec 0047): concatenation with the empty string as its
+-- identity. The only numeric-free built-in monoid; `Int`/`Float` are omitted
+-- because their additive (`0`) and multiplicative (`1`) identities are both
+-- valid, so no canonical instance exists (spec 0047 Open Questions).
+impl Monoid for String {
+    fn combine(a: String, b: String) -> String uses {} { string_concat(a, b) }
+    fn empty() -> String uses {} { "" }
 }
 
 -- `Eq for Char` (spec 0030). There is no `char_eq` intrinsic: a `Char` compares

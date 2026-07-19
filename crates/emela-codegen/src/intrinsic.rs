@@ -13,9 +13,16 @@
 use crate::types::Type;
 
 /// One entry of the intrinsic interface: a bare name and a signature.
+///
+/// `type_params` is non-empty for a generic intrinsic (spec 0021), whose
+/// signature is written over type variables (`Type::Var`), e.g.
+/// `array_get<T>(a: Array<T>, i: Int) -> T`. A call is monomorphized like a
+/// generic function (spec 0014) before it reaches the IR, so `Type::Var` never
+/// survives into `IrExpr::Intrinsic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrinsicFn {
     pub name: String,
+    pub type_params: Vec<String>,
     pub params: Vec<Type>,
     pub ret: Type,
 }
@@ -28,6 +35,7 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
     fn int2(name: &str, ret: Type) -> IntrinsicFn {
         IntrinsicFn {
             name: name.to_string(),
+            type_params: Vec::new(),
             params: vec![Type::Int, Type::Int],
             ret,
         }
@@ -35,10 +43,22 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
     fn float2(name: &str, ret: Type) -> IntrinsicFn {
         IntrinsicFn {
             name: name.to_string(),
+            type_params: Vec::new(),
             params: vec![Type::Float, Type::Float],
             ret,
         }
     }
+    // A generic intrinsic over one type parameter `T` (spec 0021), used for the
+    // `Array` operations. `params`/`ret` are written over `Type::Var("T")`.
+    fn generic1(name: &str, params: Vec<Type>, ret: Type) -> IntrinsicFn {
+        IntrinsicFn {
+            name: name.to_string(),
+            type_params: vec!["T".to_string()],
+            params,
+            ret,
+        }
+    }
+    let array_t = || Type::Array(Box::new(Type::Var("T".to_string())));
     vec![
         int2("i32_add", Type::Int),
         int2("i32_sub", Type::Int),
@@ -56,12 +76,14 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
         // Square root (spec 0030 companion), the intrinsic behind `std.float.sqrt`.
         IntrinsicFn {
             name: "f64_sqrt".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::Float],
             ret: Type::Float,
         },
         // String concatenation (spec 0017/0021), the intrinsic behind `++`.
         IntrinsicFn {
             name: "string_concat".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String, Type::String],
             ret: Type::String,
         },
@@ -70,37 +92,75 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
         // point order.
         IntrinsicFn {
             name: "string_eq".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String, Type::String],
             ret: Type::Bool,
         },
         IntrinsicFn {
             name: "string_lt".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String, Type::String],
             ret: Type::Bool,
         },
         // String scalar operations (spec 0030). Indices, lengths and slice
         // bounds are all in Unicode scalar (code point) units, never bytes.
-        // `char_code` is the inverse of `Char::from_code` (spec 0017).
+        // `char_code` is the inverse of `char_from_code` (spec 0017).
         IntrinsicFn {
             name: "string_length".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String],
             ret: Type::Int,
         },
         IntrinsicFn {
             name: "string_char_at".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String, Type::Int],
             ret: Type::Char,
         },
         IntrinsicFn {
             name: "string_slice".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::String, Type::Int, Type::Int],
             ret: Type::String,
         },
         IntrinsicFn {
             name: "char_code".to_string(),
+            type_params: Vec::new(),
             params: vec![Type::Char],
             ret: Type::Int,
         },
+        // Char/String conversions (spec 0017), formerly the `Char::from_code` /
+        // `String::from_char` builtins, now bare Core Prelude intrinsics.
+        // `char_from_code` is the inverse of `char_code`.
+        IntrinsicFn {
+            name: "char_from_code".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Int],
+            ret: Type::Char,
+        },
+        IntrinsicFn {
+            name: "string_from_char".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Char],
+            ret: Type::String,
+        },
+        // Array operations (spec 0007), formerly the `Array::length` /
+        // `Array::get` / `Array::push` builtins, now bare generic Core Prelude
+        // intrinsics. The element type is a type variable `T` monomorphized at
+        // each call site (spec 0021 generic intrinsics). `array_get_unchecked`
+        // is the raw accessor requiring `0 <= i < array_length(a)`; the safe
+        // `array_get` returning `Option<T>` is a stdlib `pub fn` wrapper over it.
+        generic1("array_length", vec![array_t()], Type::Int),
+        generic1(
+            "array_get_unchecked",
+            vec![array_t(), Type::Int],
+            Type::Var("T".to_string()),
+        ),
+        generic1(
+            "array_push",
+            vec![array_t(), Type::Var("T".to_string())],
+            array_t(),
+        ),
     ]
 }
 

@@ -390,11 +390,27 @@ impl Parser {
     }
 
     /// Parses the shared body of `extern fn` and `intrinsic fn` after the
-    /// leading keyword: `fn name(params) -> ret [throws] [uses]`.
+    /// leading keyword: `fn name[<T, ...>](params) -> ret [throws] [uses]`. Type
+    /// parameters are accepted only for a generic `intrinsic fn` (spec 0021);
+    /// `parse_type_params` sets `self.type_params` so `T` parses as a
+    /// `Type::Var` in the signature, mirroring `parse_function`.
     fn parse_extern_like(&mut self, is_intrinsic: bool) -> Result<Extern> {
         self.expect(&TokenKind::Fn)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
+        let (type_params, bounds) = self.parse_type_params()?;
+        // Only a pure `intrinsic fn` may be generic (spec 0021). A platform
+        // `extern fn` (spec 0013) is a concrete runtime call and is never
+        // parameterized.
+        if !is_intrinsic && !type_params.is_empty() {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Generic extern function").label(
+                    name_span.clone(),
+                    "`extern fn` cannot be generic; only `intrinsic fn` may declare type parameters",
+                ),
+            ));
+        }
+        self.type_params = type_params.clone();
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
         self.expect(&TokenKind::RParen)?;
@@ -402,10 +418,13 @@ impl Parser {
         let ret = self.parse_type()?;
         let throws = self.parse_throws_clause()?;
         let effects = self.parse_effect_row()?;
+        self.type_params = Vec::new();
         Ok(Extern {
             name,
             name_span,
             module: None,
+            type_params,
+            bounds,
             params,
             ret,
             throws,
@@ -1142,10 +1161,11 @@ impl Parser {
                     return self.parse_record_literal(name, span);
                 }
                 if self.at(&TokenKind::ColonColon) {
-                    // A `::` type path: `Enum::Variant`, `Char::from_code`
-                    // (specs 0005/0017/0018 R7). Its meaning — enum variant or
-                    // built-in conversion — is resolved later; a trailing
-                    // `(args)` is attached by `parse_call`.
+                    // A `::` type path: `Enum::Variant` (specs 0005/0018 R7).
+                    // Resolved to an enum variant later; a trailing `(args)` is
+                    // attached by `parse_call`. (The former `Char::from_code` /
+                    // `String::from_char` conversions are now bare intrinsics,
+                    // spec 0021.)
                     let mut segments = vec![name];
                     while self.eat(&TokenKind::ColonColon) {
                         segments.push(self.expect_ident()?);

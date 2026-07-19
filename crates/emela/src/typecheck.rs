@@ -64,6 +64,10 @@ struct ExternSig {
     module: Option<String>,
     /// The owning effect for an effect backing operation.
     effect_name: Option<String>,
+    /// `true` for an `intrinsic fn` (spec 0021). A Core Prelude intrinsic is
+    /// visible by bare name from every module (the prelude is imported
+    /// everywhere); other intrinsics/platform functions stay module-private.
+    is_intrinsic: bool,
 }
 
 /// A declared enum's variants, in declaration order (spec 0005).
@@ -87,12 +91,17 @@ struct TraitInfo {
 #[derive(Debug, Clone)]
 struct TraitMethodInfo {
     name: String,
-    /// Parameter types, which contain `Type::Var("Self")` in some position.
+    /// Parameter types. For an argument-dispatched method these contain
+    /// `Type::Var("Self")` in some position; for a return-dispatched method
+    /// (spec 0047, e.g. `empty`) `Self` appears only in `ret`.
     params: Vec<Type>,
     ret: Type,
     throws: Option<Type>,
     effects: EffectRow,
     has_default: bool,
+    /// `Self` appears only in the return type (spec 0047): the impl is chosen
+    /// from the call's expected type, not from an argument.
+    return_dispatch: bool,
 }
 
 /// A registered `impl Trait for Type` (spec 0020). `target` may contain the
@@ -436,24 +445,37 @@ impl Checker {
                     ));
                     continue;
                 }
-                // Dispatchability (spec 0020): `Self` must appear in a parameter
-                // type so the impl is inferable from arguments; a method with
-                // `Self` only in the return type cannot be declared.
-                let mut vars = HashSet::new();
+                // Dispatchability (spec 0020, relaxed by 0047): `Self` must
+                // appear in a parameter type (argument dispatch) or, failing
+                // that, in the return type (return dispatch, e.g. `empty`).
+                // A method that mentions `Self` nowhere cannot be declared.
+                let mut param_vars = HashSet::new();
                 for param in &m.params {
-                    collect_type_vars(&param.ty, &mut vars);
+                    collect_type_vars(&param.ty, &mut param_vars);
                 }
-                if !vars.contains("Self") {
+                let mut ret_vars = HashSet::new();
+                collect_type_vars(&m.ret, &mut ret_vars);
+                let self_in_params = param_vars.contains("Self");
+                let self_in_ret = ret_vars.contains("Self");
+                if !self_in_params && !self_in_ret {
                     errors.push(Error::diagnostic(
                         Diagnostic::new("Undispatchable trait method")
                             .label(
                                 m.name_span.clone(),
-                                format!("`{}` must mention `Self` in a parameter type", m.name),
+                                format!(
+                                    "`{}` must mention `Self` in a parameter or return type",
+                                    m.name
+                                ),
                             )
-                            .help("A trait method selects its impl from an argument's type."),
+                            .help(
+                                "A trait method selects its impl from an argument's type, \
+                                 or (spec 0047) from the call's expected type.",
+                            ),
                     ));
                     continue;
                 }
+                // Return dispatch when `Self` is only in the return type.
+                let return_dispatch = !self_in_params;
                 for param in &m.params {
                     if let Err(error) = self.validate_type(&param.ty, &m.name_span) {
                         errors.push(error);
@@ -473,6 +495,7 @@ impl Checker {
                     throws: m.throws.clone(),
                     effects: m.effects.clone(),
                     has_default: m.default_body.is_some(),
+                    return_dispatch,
                 });
             }
             self.traits.insert(
@@ -665,7 +688,7 @@ impl Checker {
             effect_name: None,
             implicit_try: false,
         };
-        let body = self.check_block(&method.body, &mut scope, &ctx, false)?;
+        let body = self.check_block(&method.body, &mut scope, &ctx, false, Some(&ret))?;
         expect_assignable(&body.ty, &ret, body.span.clone())?;
         if !body.effects.is_subset_of(&method.effects) {
             return Err(Error::diagnostic(
@@ -703,6 +726,7 @@ impl Checker {
     /// Resolves a trait method call from the argument types (spec 0020): infers
     /// `Self`, discharges the bound (bounded type parameter or concrete impl),
     /// and returns the result type/effects/throws.
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_method(
         &self,
         candidates: &[String],
@@ -711,6 +735,7 @@ impl Checker {
         span: &Span,
         ctx: &FnCtx,
         allow_throw: bool,
+        expected: Option<&Type>,
     ) -> Result<ExprInfo> {
         if candidates.len() > 1 {
             return Err(ambiguous_method_error(method_name, candidates, span));
@@ -744,12 +769,30 @@ impl Checker {
         for (declared, arg) in tmethod.params.iter().zip(args.iter()) {
             match_type(declared, &arg.ty, &mut subst, &arg.span)?;
         }
+        // Return dispatch (spec 0047): when `Self` is not pinned by an argument
+        // (e.g. `empty()`), resolve it from the call's expected type by unifying
+        // the declared return type against it. `Never` (an unresolved hole, spec
+        // 0028) carries no information, so it does not resolve `Self`.
+        if !subst.contains_key("Self")
+            && tmethod.return_dispatch
+            && let Some(exp) = expected
+            && !matches!(exp, Type::Never)
+        {
+            let _ = match_type(&tmethod.ret, exp, &mut subst, span);
+        }
         let Some(self_ty) = subst.get("Self").cloned() else {
             return Err(Error::diagnostic(
-                Diagnostic::new("Cannot infer Self").label(
-                    span.clone(),
-                    format!("could not determine the `Self` type of `{trait_name}.{method_name}`"),
-                ),
+                Diagnostic::new("Cannot infer Self")
+                    .label(
+                        span.clone(),
+                        format!(
+                            "could not determine the `Self` type of `{trait_name}.{method_name}`"
+                        ),
+                    )
+                    .help(
+                        "Add a type annotation so the expected type is known, \
+                         e.g. `let x: T = ...` (spec 0047).",
+                    ),
             ));
         };
         self.check_bound_satisfied(trait_name, &self_ty, ctx, span)?;
@@ -968,7 +1011,15 @@ impl Checker {
                         .help("Intrinsics are defined by spec 0021."),
                 ));
             };
-            if params != entry.params || declaration.ret != entry.ret {
+            // The signature must match the interface exactly, type parameters
+            // included. A generic intrinsic (spec 0021) is written over the same
+            // type-variable names as the interface entry (`T`), so the `params`/
+            // `ret` comparison — which contains `Type::Var("T")` on both sides —
+            // and the `type_params` comparison together pin the shape.
+            if params != entry.params
+                || declaration.ret != entry.ret
+                || declaration.type_params != entry.type_params
+            {
                 return Err(Error::diagnostic(
                     Diagnostic::new("Intrinsic signature mismatch").label(
                         declaration.name_span.clone(),
@@ -1001,8 +1052,11 @@ impl Checker {
                 declaration.name.clone(),
                 ExternSig {
                     sig: FunctionSig {
-                        type_params: Vec::new(),
-                        bounds: Vec::new(),
+                        // A generic intrinsic (spec 0021) carries its type
+                        // parameters so a call is monomorphized like a generic
+                        // function (spec 0014). Empty for a non-generic one.
+                        type_params: declaration.type_params.clone(),
+                        bounds: declaration.bounds.clone(),
                         params,
                         ret: declaration.ret.clone(),
                         throws: None,
@@ -1010,6 +1064,7 @@ impl Checker {
                     },
                     module: declaration.module.clone(),
                     effect_name: declaration.effect_name.clone(),
+                    is_intrinsic: true,
                 },
             );
             return Ok(());
@@ -1067,6 +1122,7 @@ impl Checker {
                 },
                 module: declaration.module.clone(),
                 effect_name: declaration.effect_name.clone(),
+                is_intrinsic: false,
             },
         );
         Ok(())
@@ -1079,6 +1135,13 @@ impl Checker {
     /// never cross a module boundary by bare name.
     fn visible_extern(&self, name: &str, ctx: &FnCtx) -> Option<&FunctionSig> {
         let entry = self.externs.get(name)?;
+        // A Core Prelude intrinsic (spec 0021) is bare-visible from every module:
+        // the prelude is implicitly imported everywhere, so its pure primitives
+        // (e.g. `char_from_code`, `array_push`) cross module boundaries by bare
+        // name — unlike a module-private extern or a prelude-external intrinsic.
+        if entry.is_intrinsic && entry.module.as_deref() == Some(crate::prelude::CORE_MODULE) {
+            return Some(&entry.sig);
+        }
         let visible = match &entry.effect_name {
             Some(effect) => ctx.effect_name == Some(effect.as_str()),
             None => ctx.declared_module == entry.module.as_deref(),
@@ -1245,7 +1308,8 @@ impl Checker {
             effect_name: function.effect_name.as_deref(),
             implicit_try: function.is_test,
         };
-        let body = self.check_block(&function.body, &mut scope, &ctx, false)?;
+        let body =
+            self.check_block(&function.body, &mut scope, &ctx, false, Some(&function.ret))?;
         expect_assignable(&body.ty, &function.ret, body.span.clone())?;
         if !body.effects.is_subset_of(&function.effects) {
             return Err(Error::diagnostic(
@@ -1300,17 +1364,21 @@ impl Checker {
         outer_scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
+        expected: Option<&Type>,
     ) -> Result<ExprInfo> {
         let mut scope = outer_scope.clone();
         let mut effects = EffectRow::default();
         let mut throws: Option<Type> = None;
+        // The block's value is its tail expression, so only the tail inherits the
+        // block's expected type (spec 0047); earlier statements do not.
+        let last_ix = block.items.len().saturating_sub(1);
         let mut last = ExprInfo {
             ty: Type::Unit,
             effects: EffectRow::default(),
             throws: None,
             span: block.span.clone(),
         };
-        for item in &block.items {
+        for (ix, item) in block.items.iter().enumerate() {
             match item {
                 BlockItem::Let {
                     name,
@@ -1334,6 +1402,15 @@ impl Checker {
                                 Some(element),
                                 allow_throw,
                             )?,
+                        // An annotated `let` gives its value an expected type, so
+                        // a return-dispatched `empty()` resolves here (spec 0047).
+                        (_, Some(annotation)) => self.check_expr_expected(
+                            value,
+                            &mut scope,
+                            ctx,
+                            allow_throw,
+                            Some(annotation),
+                        )?,
                         _ => self.check_expr(value, &mut scope, ctx, allow_throw)?,
                     };
                     let binding_ty = if let Some(annotation) = ty {
@@ -1353,7 +1430,14 @@ impl Checker {
                     };
                 }
                 BlockItem::Expr(expr) => {
-                    last = self.check_expr(expr, &mut scope, ctx, allow_throw)?;
+                    let item_expected = if ix == last_ix { expected } else { None };
+                    last = self.check_expr_expected(
+                        expr,
+                        &mut scope,
+                        ctx,
+                        allow_throw,
+                        item_expected,
+                    )?;
                     effects.union(&last.effects);
                     throws = merge_throws(throws, last.throws.clone(), last.span.clone())?;
                 }
@@ -1370,6 +1454,22 @@ impl Checker {
         scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
+    ) -> Result<ExprInfo> {
+        self.check_expr_expected(expr, scope, ctx, allow_throw, None)
+    }
+
+    /// Like `check_expr` but in checking mode (spec 0047): `expected` is the type
+    /// the surrounding context wants here, used to resolve return-dispatched
+    /// trait methods (`empty()`). It is threaded only through positions that
+    /// propagate an expected type (block tail, `let` annotation, call argument,
+    /// `if`/`match` branches); elsewhere it is `None`.
+    fn check_expr_expected(
+        &self,
+        expr: &Expr,
+        scope: &mut HashMap<String, Type>,
+        ctx: &FnCtx,
+        allow_throw: bool,
+        expected: Option<&Type>,
     ) -> Result<ExprInfo> {
         match expr {
             Expr::Int(_, span) => Ok(self.info(Type::Int, span.clone())),
@@ -1408,6 +1508,12 @@ impl Checker {
                 } else if name == "None" {
                     Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
                 } else if let Some(sig) = self.visible_extern(name, ctx) {
+                    // A generic intrinsic (spec 0021), like a generic function,
+                    // fixes its type arguments only at a call site; it has no
+                    // first-class function type to flow through here.
+                    if sig.is_generic() {
+                        return Err(generic_value_error(name, span));
+                    }
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
                     match self
@@ -1447,7 +1553,7 @@ impl Checker {
                 }
             }
             Expr::Call { callee, args, span } => {
-                self.check_call(callee, args, span, scope, ctx, allow_throw)
+                self.check_call(callee, args, span, scope, ctx, allow_throw, expected)
             }
             Expr::Fn {
                 params,
@@ -1486,7 +1592,8 @@ impl Checker {
                     // inside a `@test` body (spec 0040 T3).
                     implicit_try: false,
                 };
-                let body_info = self.check_block(body, &mut fn_scope, &inner_ctx, false)?;
+                let body_info =
+                    self.check_block(body, &mut fn_scope, &inner_ctx, false, Some(ret))?;
                 expect_assignable(&body_info.ty, ret, body_info.span.clone())?;
                 if !body_info.effects.is_subset_of(effects) {
                     return Err(Error::diagnostic(
@@ -1533,9 +1640,17 @@ impl Checker {
                 // compiler holds no operator-specific type rules.
                 let (trait_name, method) = operator_trait(*op);
                 let candidates = [trait_name.to_string()];
-                self.dispatch_method(&candidates, method, &[left, right], span, ctx, allow_throw)
+                self.dispatch_method(
+                    &candidates,
+                    method,
+                    &[left, right],
+                    span,
+                    ctx,
+                    allow_throw,
+                    None,
+                )
             }
-            Expr::Block(block) => self.check_block(block, scope, ctx, allow_throw),
+            Expr::Block(block) => self.check_block(block, scope, ctx, allow_throw, expected),
             Expr::Throw { value, span } => {
                 let val = self.check_expr(value, scope, ctx, allow_throw)?;
                 // In a `@test` body a `throw` outside `try` fails the test at
@@ -1630,9 +1745,8 @@ impl Checker {
             }
             Expr::TypePath { segments, span } => {
                 // A `::` type path used as a value (no `(...)`): a no-payload
-                // enum variant (specs 0005/0018 R7). Built-in conversions
-                // (`Char::from_code`) always take an argument, so a bare one is
-                // handled as a call, not a value.
+                // enum variant (specs 0005/0018 R7). `::` is enum-variant-only
+                // now (the former conversions are bare intrinsics, spec 0021).
                 if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
                     return self.check_variant(segments, &[], span, scope, ctx, allow_throw);
                 }
@@ -1691,7 +1805,7 @@ impl Checker {
                 scrutinee,
                 arms,
                 span,
-            } => self.check_match(scrutinee, arms, span, scope, ctx, allow_throw),
+            } => self.check_match(scrutinee, arms, span, scope, ctx, allow_throw, expected),
             Expr::Try { body, arms, span } => self.check_try(body, arms, span, scope, ctx),
             Expr::If {
                 cond,
@@ -1701,8 +1815,8 @@ impl Checker {
             } => {
                 let cond_info = self.check_expr(cond, scope, ctx, allow_throw)?;
                 expect_assignable(&cond_info.ty, &Type::Bool, cond_info.span.clone())?;
-                let then_info = self.check_block(then, scope, ctx, allow_throw)?;
-                let els_info = self.check_block(els, scope, ctx, allow_throw)?;
+                let then_info = self.check_block(then, scope, ctx, allow_throw, expected)?;
+                let els_info = self.check_block(els, scope, ctx, allow_throw, expected)?;
                 let ty = unify_arm(Some(then_info.ty), els_info.ty, els_info.span.clone())?;
                 let mut effects = cond_info.effects;
                 effects.union(&then_info.effects);
@@ -1719,6 +1833,7 @@ impl Checker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_call(
         &self,
         callee: &Expr,
@@ -1727,6 +1842,7 @@ impl Checker {
         scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
+        expected: Option<&Type>,
     ) -> Result<ExprInfo> {
         // Method-call (receiver) syntax (spec 0020): `recv.method(args)` where
         // `recv` is a value in scope desugars to `method(recv, args)`, with the
@@ -1746,7 +1862,15 @@ impl Checker {
             let mut method_args = Vec::with_capacity(args.len() + 1);
             method_args.push(receiver);
             method_args.extend(args.iter().cloned());
-            return self.check_call(&method, &method_args, span, scope, ctx, allow_throw);
+            return self.check_call(
+                &method,
+                &method_args,
+                span,
+                scope,
+                ctx,
+                allow_throw,
+                expected,
+            );
         }
         // Built-in Option constructor `Some(x)`.
         if let Expr::Var(name, _) = callee
@@ -1774,6 +1898,19 @@ impl Checker {
                 throws: arg.throws,
                 span: span.clone(),
             });
+        }
+        // Generic intrinsic call (spec 0021): a bare call to a generic
+        // `intrinsic fn` (e.g. `array_get<T>`) infers its type argument from the
+        // argument types, like a generic function. Handled before the general
+        // path because a generic signature has no first-class function type to
+        // flow through `check_expr` (its params contain `Type::Var`).
+        if let Expr::Var(name, _) = callee
+            && !scope.contains_key(name)
+            && let Some(sig) = self.visible_extern(name, ctx)
+            && sig.is_generic()
+        {
+            let sig = sig.clone();
+            return self.check_generic_call(name, &sig, args, span, scope, ctx, allow_throw);
         }
         // Generic function call (spec 0014): a direct call to a generic function
         // infers its type arguments from the argument types. This is handled
@@ -1810,7 +1947,15 @@ impl Checker {
                 .iter()
                 .map(|arg| self.check_expr(arg, scope, ctx, allow_throw))
                 .collect::<Result<Vec<_>>>()?;
-            return self.dispatch_method(candidates, name, &arg_infos, span, ctx, allow_throw);
+            return self.dispatch_method(
+                candidates,
+                name,
+                &arg_infos,
+                span,
+                ctx,
+                allow_throw,
+                expected,
+            );
         }
         // A qualified trait method call `Trait.method(...)` (spec 0020), used to
         // disambiguate a method name shared by several in-scope traits.
@@ -1831,37 +1976,26 @@ impl Checker {
                 span,
                 ctx,
                 allow_throw,
+                expected,
             );
         }
-        // A `::` type-path call target (specs 0005/0017/0018 R7): a built-in
-        // conversion (`Char::from_code(n)`) or an enum variant constructor
-        // (`Either::Left(x)`). These are resolved through a type, never through
-        // the import table.
+        // A `::` type-path call target (specs 0005/0018 R7): an enum variant
+        // constructor (`Either::Left(x)`), resolved through the enum type, never
+        // through the import table. The former `Char::from_code` /
+        // `String::from_char` / `Array::*` builtins are now bare intrinsics
+        // (spec 0021), so `::` is enum-variant-only.
         if let Expr::TypePath {
             segments,
             span: path_span,
         } = callee
         {
-            if let Some(builtin) =
-                self.check_char_builtin(segments, args, span, scope, ctx, allow_throw)?
-            {
-                return Ok(builtin);
-            }
-            if let Some(builtin) =
-                self.check_array_builtin(segments, args, span, scope, ctx, allow_throw)?
-            {
-                return Ok(builtin);
-            }
             if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
                 return self.check_variant(segments, args, span, scope, ctx, allow_throw);
             }
             return Err(Error::diagnostic(
                 Diagnostic::new("Unknown type path").label(
                     path_span.clone(),
-                    format!(
-                        "`{}` is not an enum variant or built-in conversion",
-                        segments.join("::")
-                    ),
+                    format!("`{}` is not an enum variant", segments.join("::")),
                 ),
             ));
         }
@@ -1918,9 +2052,11 @@ impl Checker {
         let mut effects = callee_info.effects.clone();
         effects.union(&sig.effects);
         let mut throws = callee_info.throws.clone();
-        for (arg, expected) in args.iter().zip(sig.params.iter()) {
-            let actual = self.check_expr(arg, scope, ctx, allow_throw)?;
-            expect_assignable(&actual.ty, expected, actual.span.clone())?;
+        for (arg, param) in args.iter().zip(sig.params.iter()) {
+            // The parameter type is the argument's expected type (spec 0047), so
+            // a return-dispatched `empty()` in argument position resolves here.
+            let actual = self.check_expr_expected(arg, scope, ctx, allow_throw, Some(param))?;
+            expect_assignable(&actual.ty, param, actual.span.clone())?;
             effects.union(&actual.effects);
             throws = merge_throws(throws, actual.throws, actual.span)?;
         }
@@ -1940,124 +2076,6 @@ impl Checker {
             throws,
             span: span.clone(),
         })
-    }
-
-    /// Type-checks the built-in pure conversions `Char::from_code(Int) -> Char`
-    /// and `String::from_char(Char) -> String` (spec 0017). Returns `None` when
-    /// the call is not one of them.
-    #[allow(clippy::too_many_arguments)]
-    fn check_char_builtin(
-        &self,
-        segments: &[String],
-        args: &[Expr],
-        span: &Span,
-        scope: &mut HashMap<String, Type>,
-        ctx: &FnCtx,
-        allow_throw: bool,
-    ) -> Result<Option<ExprInfo>> {
-        let [name, variant] = segments else {
-            return Ok(None);
-        };
-        let (arg_ty, ret_ty) = match (name.as_str(), variant.as_str()) {
-            ("Char", "from_code") => (Type::Int, Type::Char),
-            ("String", "from_char") => (Type::Char, Type::String),
-            _ => return Ok(None),
-        };
-        if args.len() != 1 {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Wrong number of arguments").label(
-                    span.clone(),
-                    format!("`{name}::{variant}` takes 1 argument, got {}", args.len()),
-                ),
-            ));
-        }
-        let arg = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-        expect_assignable(&arg.ty, &arg_ty, arg.span.clone())?;
-        Ok(Some(ExprInfo {
-            ty: ret_ty,
-            effects: arg.effects,
-            throws: arg.throws,
-            span: span.clone(),
-        }))
-    }
-
-    /// Type-checks the built-in array operations `Array::length(a) -> Int`,
-    /// `Array::get(a, i) -> T` and `Array::push(a, x) -> Array<T>` (spec 0007
-    /// companion). Unlike the `Char`/`String` conversions these are polymorphic:
-    /// the element type is read from the array argument. Returns `None` when the
-    /// call is not one of them.
-    #[allow(clippy::too_many_arguments)]
-    fn check_array_builtin(
-        &self,
-        segments: &[String],
-        args: &[Expr],
-        span: &Span,
-        scope: &mut HashMap<String, Type>,
-        ctx: &FnCtx,
-        allow_throw: bool,
-    ) -> Result<Option<ExprInfo>> {
-        let [name, op] = segments else {
-            return Ok(None);
-        };
-        if name != "Array" {
-            return Ok(None);
-        }
-        let arity = match op.as_str() {
-            "length" => 1,
-            "get" | "push" => 2,
-            _ => return Ok(None),
-        };
-        if args.len() != arity {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Wrong number of arguments").label(
-                    span.clone(),
-                    format!(
-                        "`Array::{op}` takes {arity} argument(s), got {}",
-                        args.len()
-                    ),
-                ),
-            ));
-        }
-        let array = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-        let Type::Array(elem) = array.ty.clone() else {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Expected an array").label(
-                    array.span.clone(),
-                    format!(
-                        "`Array::{op}` expects an `Array<_>`, but found `{:?}`",
-                        array.ty
-                    ),
-                ),
-            ));
-        };
-        let elem = *elem;
-        let mut effects = array.effects;
-        let mut throws = array.throws;
-        let ret = match op.as_str() {
-            "length" => Type::Int,
-            "get" => {
-                let index = self.check_expr(&args[1], scope, ctx, allow_throw)?;
-                expect_assignable(&index.ty, &Type::Int, index.span.clone())?;
-                effects.union(&index.effects);
-                throws = merge_throws(throws, index.throws, index.span)?;
-                elem
-            }
-            // `push` returns a fresh array, so `x` must have the element type.
-            "push" => {
-                let value = self.check_expr(&args[1], scope, ctx, allow_throw)?;
-                expect_assignable(&value.ty, &elem, value.span.clone())?;
-                effects.union(&value.effects);
-                throws = merge_throws(throws, value.throws, value.span)?;
-                Type::Array(Box::new(elem))
-            }
-            _ => unreachable!("arity table covers all ops"),
-        };
-        Ok(Some(ExprInfo {
-            ty: ret,
-            effects,
-            throws,
-            span: span.clone(),
-        }))
     }
 
     fn check_variant(
@@ -2130,6 +2148,7 @@ impl Checker {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_match(
         &self,
         scrutinee: &Expr,
@@ -2138,6 +2157,7 @@ impl Checker {
         scope: &mut HashMap<String, Type>,
         ctx: &FnCtx,
         allow_throw: bool,
+        expected: Option<&Type>,
     ) -> Result<ExprInfo> {
         let scrut = self.check_expr(scrutinee, scope, ctx, allow_throw)?;
         let variants = self.scrutinee_variants(&scrut.ty, scrutinee.span())?;
@@ -2153,6 +2173,7 @@ impl Checker {
             allow_throw,
             &mut effects,
             &mut throws,
+            expected,
         )?;
         Ok(ExprInfo {
             ty: result,
@@ -2171,7 +2192,7 @@ impl Checker {
         ctx: &FnCtx,
     ) -> Result<ExprInfo> {
         // The body runs with throwing calls allowed; thrown errors go to catch.
-        let body_info = self.check_block(body, &mut scope.clone(), ctx, true)?;
+        let body_info = self.check_block(body, &mut scope.clone(), ctx, true, None)?;
         let caught = body_info.throws.clone();
         let error_ty = caught.clone().unwrap_or(Type::Never);
         let variants = match &caught {
@@ -2219,6 +2240,7 @@ impl Checker {
         allow_throw: bool,
         effects: &mut EffectRow,
         throws: &mut Option<Type>,
+        expected: Option<&Type>,
     ) -> Result<Type> {
         let mut result: Option<Type> = None;
         for arm in arms {
@@ -2230,7 +2252,10 @@ impl Checker {
                 effects.union(&g.effects);
                 *throws = merge_throws(throws.clone(), g.throws, g.span)?;
             }
-            let arm_body = self.check_expr(&arm.body, &mut arm_scope, ctx, allow_throw)?;
+            // Each arm produces the match's value, so it inherits the match's
+            // expected type (spec 0047): `Nil -> empty()` resolves `Self` here.
+            let arm_body =
+                self.check_expr_expected(&arm.body, &mut arm_scope, ctx, allow_throw, expected)?;
             result = Some(unify_arm(result, arm_body.ty, arm_body.span.clone())?);
             effects.union(&arm_body.effects);
             *throws = merge_throws(throws.clone(), arm_body.throws, arm_body.span)?;

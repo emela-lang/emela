@@ -481,9 +481,10 @@ fn platform_wasm_name(canonical: &str) -> String {
 /// intrinsic or a structural one emitted by a dedicated helper (spec 0021).
 fn wasm_provides_intrinsic(name: &str) -> bool {
     // A single-instruction intrinsic, or a structural one emitted by a helper
-    // (`string_concat`) or a shared runtime function (`string_eq`/`string_lt`,
-    // `string_length`/`string_char_at`/`string_slice`). `char_code` is the
-    // identity on the `Char` representation (its i32 code point).
+    // (`string_concat`, `string_from_char`, `array_*`) or a shared runtime
+    // function (`string_eq`/`string_lt`, `string_length`/`string_char_at`/
+    // `string_slice`). `char_code` / `char_from_code` are the identity on the
+    // `Char` representation (its i32 code point).
     intrinsic_wasm(name).is_some()
         || matches!(
             name,
@@ -494,6 +495,11 @@ fn wasm_provides_intrinsic(name: &str) -> bool {
                 | "string_char_at"
                 | "string_slice"
                 | "char_code"
+                | "char_from_code"
+                | "string_from_char"
+                | "array_length"
+                | "array_get_unchecked"
+                | "array_push"
         )
 }
 
@@ -988,7 +994,7 @@ impl<'a> FnEmitter<'a> {
             }
             // An intrinsic (spec 0021) inlines to a native instruction, or, for a
             // structural one like `string_concat`, to a dedicated helper.
-            IrExpr::Intrinsic { name, args, .. } => match name.as_str() {
+            IrExpr::Intrinsic { name, args, ret } => match name.as_str() {
                 "string_concat" => self.emit_concat(&args[0], &args[1])?,
                 // String comparison calls the shared runtime helper, which walks
                 // the `[len][utf8]` bytes (see `STRING_CMP`).
@@ -1007,8 +1013,27 @@ impl<'a> FnEmitter<'a> {
                     self.line(&format!("call ${name}"));
                 }
                 // A `Char` is already its i32 code point (spec 0017), so
-                // `char_code` is the identity on that representation.
-                "char_code" => self.emit(&args[0])?,
+                // `char_code` and `char_from_code` are the identity on that
+                // representation. `string_from_char` builds the `[len][utf8]`.
+                "char_code" | "char_from_code" => self.emit(&args[0])?,
+                "string_from_char" => self.emit_string_from_char(&args[0])?,
+                // Array operations (spec 0007), formerly the `ArrayLength` /
+                // `ArrayGet` / `ArrayPush` nodes. The element type is recovered
+                // from the monomorphized intrinsic's types: `array_get_unchecked`'s
+                // is the return type `ret`, `array_push`'s is the element of `ret`.
+                "array_length" => {
+                    self.emit(&args[0])?;
+                    self.line("i32.load");
+                }
+                "array_get_unchecked" => self.emit_array_get(&args[0], &args[1], ret)?,
+                "array_push" => {
+                    let Type::Array(elem_ty) = ret else {
+                        return Err(BackendError::new(
+                            "internal error: `array_push` return type is not an array",
+                        ));
+                    };
+                    self.emit_array_push(&args[0], &args[1], elem_ty)?;
+                }
                 _ => {
                     for arg in args {
                         self.emit(arg)?;
@@ -1027,27 +1052,10 @@ impl<'a> FnEmitter<'a> {
                 })?;
                 self.line(&format!("i32.const {offset}"));
             }
-            // A `Char` is its codepoint as i32 (spec 0017); `from_code` is the
-            // identity on that representation.
+            // A `Char` is its codepoint as i32 (spec 0017).
             IrExpr::Char(code) => self.line(&format!("i32.const {code}")),
-            IrExpr::CharFromCode(value) => self.emit(value)?,
-            IrExpr::StringFromChar(value) => self.emit_string_from_char(value)?,
             IrExpr::Concat { left, right } => self.emit_concat(left, right)?,
             IrExpr::Array { elem_ty, elems } => self.emit_array(elem_ty, elems)?,
-            IrExpr::ArrayLength(array) => {
-                self.emit(array)?;
-                self.line("i32.load");
-            }
-            IrExpr::ArrayGet {
-                array,
-                index,
-                elem_ty,
-            } => self.emit_array_get(array, index, elem_ty)?,
-            IrExpr::ArrayPush {
-                array,
-                value,
-                elem_ty,
-            } => self.emit_array_push(array, value, elem_ty)?,
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
             IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
@@ -1111,7 +1119,7 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    /// `String::from_char` (spec 0017): the `[len][utf8]` string of one scalar.
+    /// `string_from_char` (spec 0017): the `[len][utf8]` string of one scalar.
     /// The shared `$string_from_char` helper encodes the 1-4 byte UTF-8 form.
     fn emit_string_from_char(&mut self, value: &IrExpr) -> Result<()> {
         self.emit(value)?;
@@ -1468,8 +1476,8 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    /// `Array::get(a, i)`: load the `i`-th element from `[len][elem...]`. The
-    /// element address is `a + 4 + i * size`.
+    /// `array_get_unchecked(a, i)`: load the `i`-th element from `[len][elem...]`.
+    /// The element address is `a + 4 + i * size`.
     fn emit_array_get(&mut self, array: &IrExpr, index: &IrExpr, elem_ty: &Type) -> Result<()> {
         let elem = WasmTy::of(elem_ty);
         self.emit(array)?;
@@ -1483,7 +1491,7 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    /// `Array::push(a, x)`: allocate a fresh `[len+1][elem...]`, copy `a`'s
+    /// `array_push(a, x)`: allocate a fresh `[len+1][elem...]`, copy `a`'s
     /// elements, then append `x`. `a` is left unchanged (pure copy).
     fn emit_array_push(&mut self, array: &IrExpr, value: &IrExpr, elem_ty: &Type) -> Result<()> {
         let elem = WasmTy::of(elem_ty);
