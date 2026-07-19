@@ -64,6 +64,17 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: None,
             capability: "Clock".to_string(),
         },
+        // One synchronous HTTP exchange (spec 0044); the first fallible entry
+        // (spec 0043). `Request`/`Response`/`HttpError` are the named types
+        // declared by the embedded `std.http`.
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "request".to_string(),
+            params: vec![Type::Enum("Request".to_string(), Vec::new())],
+            ret: Type::Enum("Response".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "Http".to_string(),
+        },
     ]
 }
 

@@ -2461,7 +2461,20 @@ impl Checker {
                     format!("field `{field_name}` is written twice"),
                 )));
             }
-            let info = self.check_expr(value, scope, ctx, allow_throw)?;
+            // An array literal takes its element type from the field so an
+            // empty `[]` needs no annotation (mirrors the `let x: Array<T>`
+            // path).
+            let info = match (value, field_ty) {
+                (Expr::Array(elements, array_span), Type::Array(element)) => self.check_array(
+                    elements,
+                    array_span,
+                    scope,
+                    ctx,
+                    Some(element),
+                    allow_throw,
+                )?,
+                _ => self.check_expr(value, scope, ctx, allow_throw)?,
+            };
             effects.union(&info.effects);
             throws = merge_throws(throws, info.throws, info.span.clone())?;
             expect_assignable(&info.ty, field_ty, info.span.clone())?;

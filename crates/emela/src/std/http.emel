@@ -1,0 +1,70 @@
+-- The embedded std.http module (spec 0044): the Http capability and its
+-- message types. The platform function `http.request` performs one
+-- synchronous HTTP exchange; transport failure arrives on the throws
+-- channel as HttpError (spec 0043). HTTP status codes are data, not errors.
+module http
+
+pub enum Method {
+    Get
+    Head
+    Post
+    Put
+    Delete
+    Patch
+    Options
+}
+
+pub record Header {
+    name: String
+    value: String
+}
+
+pub record Request {
+    method: Method
+    url: String
+    headers: Array<Header>
+    body: String
+}
+
+pub record Response {
+    status: Int
+    headers: Array<Header>
+    body: String
+}
+
+pub enum HttpError {
+    InvalidUrl(String)
+    ConnectFailed(String)
+    Timeout
+    TooLarge
+    NonUtf8Body
+    Protocol(String)
+    BindFailed(String)
+    ConnectionClosed
+}
+
+effect Http {
+    extern fn request(req: Request) -> Response throws HttpError
+
+    pub fn send(req: Request) -> Response throws HttpError {
+        request(req)?
+    }
+
+    pub fn get(url: String) -> Response throws HttpError {
+        request(Request {
+            method: Method::Get
+            url: url
+            headers: []
+            body: ""
+        })?
+    }
+
+    pub fn post(url: String, body: String) -> Response throws HttpError {
+        request(Request {
+            method: Method::Post
+            url: url
+            headers: []
+            body: body
+        })?
+    }
+}

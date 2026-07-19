@@ -37,7 +37,7 @@ impl HostError for Exit {}
 /// A host-side failure while servicing a WASI call (e.g. an out-of-bounds memory
 /// access from a malformed module). Surfaces as a wasm trap.
 #[derive(Debug)]
-struct HostFail(String);
+pub(crate) struct HostFail(pub(crate) String);
 
 impl std::fmt::Display for HostFail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -91,6 +91,8 @@ pub fn execute(wasm: &[u8]) -> Result<i32> {
             },
         )
         .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
+
+    link_http(&mut linker)?;
 
     let instance = linker
         .instantiate_and_start(&mut store, &module)
@@ -240,6 +242,8 @@ pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
         )
         .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
 
+    link_http(&mut linker)?;
+
     let instance = match linker.instantiate_and_start(&mut store, &module) {
         Ok(instance) => instance,
         Err(err) => return Ok((RunOutcome::Trap(format!("{err}")), store.into_data())),
@@ -264,6 +268,23 @@ fn write_out(mut sink: impl Write, bytes: &[u8]) -> std::result::Result<(), wasm
     sink.write_all(bytes)
         .and_then(|()| sink.flush())
         .map_err(|err| host_fail(format!("failed to write program output: {err}")))
+}
+
+/// Links the `Http` capability's host function (specs 0043/0044). The
+/// `emela_http.request` import is defined for every run; a module that does not
+/// use `Http` simply never imports it. `T` is the store data (`()` for `run`,
+/// `Captured` for `test`), so the same host code serves both.
+fn link_http<T>(linker: &mut Linker<T>) -> Result<()> {
+    linker
+        .func_wrap(
+            "emela_http",
+            "request",
+            |mut caller: Caller<'_, T>, req: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::http_host::request(&mut caller, req)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_http.request`: {err}")))?;
+    Ok(())
 }
 
 /// Renders a wasm trap (panic via `unreachable`, unresolved import, etc.) as a

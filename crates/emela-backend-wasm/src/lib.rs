@@ -402,6 +402,11 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
             "  (import \"wasi_snapshot_preview1\" \"fd_write\" (func $wasi_fd_write (param i32 i32 i32 i32) (result i32)))\n",
         );
     }
+    for name in &used_platform {
+        if let Some(import) = platform_import(name) {
+            module.push_str(import);
+        }
+    }
     let _ = writeln!(
         module,
         "  (memory (export \"memory\") {MEMORY_PAGES})\n  (global $heap (mut i32) (i32.const {}))",
@@ -426,8 +431,27 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(&emit_start(main));
     module.push_str("  (export \"main\" (func $f_main))\n");
     module.push_str("  (export \"_start\" (func $_start))\n");
+    if used_platform.iter().any(|name| name.starts_with("http.")) {
+        // The HTTP host functions (specs 0043/0044) allocate their structured
+        // results (Response / HttpError / the Result cell) into guest memory
+        // through the bump allocator, so it is exported alongside `memory`.
+        module.push_str("  (export \"alloc\" (func $alloc))\n");
+    }
     module.push_str(")\n");
     Ok(module)
+}
+
+/// The host import a platform function's glue calls through, if it is backed
+/// by a dedicated host function rather than WASI. The `emela_http` module is
+/// supplied by the `emela run` wasmi host (and any embedder providing the
+/// `Http` capability).
+fn platform_import(canonical: &str) -> Option<&'static str> {
+    match canonical {
+        "http.request" => Some(
+            "  (import \"emela_http\" \"request\" (func $host_http_request (param i32) (result i32)))\n",
+        ),
+        _ => None,
+    }
 }
 
 /// The wasm function id for a platform function's runtime glue.
@@ -489,9 +513,16 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
     match canonical {
         "io.write_stdout" => Some(WRITE_STDOUT_GLUE),
         "io.write_stderr" => Some(WRITE_STDERR_GLUE),
+        "http.request" => Some(HTTP_REQUEST_GLUE),
         _ => None,
     }
 }
+
+/// `http.request` (spec 0044) passes the guest `Request` pointer to the host,
+/// which reads it from linear memory, performs the exchange, and returns a
+/// spec-0043 Result cell (`[ok][pad][Response | HttpError]`) it allocated in
+/// guest memory via the exported `alloc`.
+const HTTP_REQUEST_GLUE: &str = "  (func $plat_http_request (param $req i32) (result i32)\n    local.get $req\n    call $host_http_request)\n";
 
 const WRITE_STDOUT_GLUE: &str = "  (func $plat_io_write_stdout (param $s i32) (result i32)\n    i32.const 0\n    local.get $s\n    i32.const 4\n    i32.add\n    i32.store\n    i32.const 4\n    local.get $s\n    i32.load\n    i32.store\n    i32.const 1\n    i32.const 0\n    i32.const 1\n    i32.const 8\n    call $wasi_fd_write\n    drop\n    i32.const 0)\n";
 

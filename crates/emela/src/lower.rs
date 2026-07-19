@@ -651,6 +651,16 @@ impl<'a> Lowerer<'a> {
         )
     }
 
+    /// Lowers a record-literal field value, passing the declared field type as
+    /// the expected element type so an empty `[]` array is typed from the field
+    /// (mirroring the checker).
+    fn lower_field_value(&self, value: &Expr, field_ty: &Type, scope: &mut Scope) -> IrExpr {
+        if let (Expr::Array(elements, _), Type::Array(element)) = (value, field_ty) {
+            return self.lower_array(elements, scope, Some(element)).0;
+        }
+        self.lower_expr(value, scope).0
+    }
+
     /// The declaration-order index and type of `field` on a record-typed value
     /// (spec 0006). The type checker has already validated the access.
     fn record_field(&self, ty: &Type, field: &str) -> (u32, Type) {
@@ -685,7 +695,8 @@ impl<'a> Lowerer<'a> {
         if written_in_decl_order {
             let lowered = fields
                 .iter()
-                .map(|(_, _, value)| self.lower_expr(value, scope).0)
+                .zip(&declared)
+                .map(|((_, _, value), (_, field_ty))| self.lower_field_value(value, field_ty, scope))
                 .collect();
             return (
                 IrExpr::RecordValue {
@@ -698,7 +709,12 @@ impl<'a> Lowerer<'a> {
         let mut temps: HashMap<String, String> = HashMap::new();
         let mut lets: Vec<(String, Type, IrExpr)> = Vec::new();
         for (field_name, _, value) in fields {
-            let (ir, value_ty) = self.lower_expr(value, scope);
+            let (_, field_ty) = declared
+                .iter()
+                .find(|(n, _)| n == field_name)
+                .expect("field validated by the checker");
+            let ir = self.lower_field_value(value, field_ty, scope);
+            let value_ty = field_ty.clone();
             let temp = {
                 let mut counter = self.stmt_counter.borrow_mut();
                 let temp = format!("$fld{}", *counter);
