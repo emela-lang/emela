@@ -57,7 +57,8 @@ pub fn is_heap(ty: &Type) -> bool {
     )
 }
 
-/// Inserts retain/release across the program (spec 0048 A8).
+/// Inserts retain/release across the program (spec 0048 A8), then elides
+/// last-use retain/release pairs (moves, A10).
 pub fn insert_rc_ops(program: &mut IrProgram) {
     let mut renamer = Renamer::default();
     for function in &mut program.functions {
@@ -66,7 +67,7 @@ pub fn insert_rc_ops(program: &mut IrProgram) {
     let mut cx = Cx::default();
     for function in &mut program.functions {
         let body = std::mem::replace(&mut function.body, IrExpr::Unit);
-        function.body = cx.fn_body(&function.params, body);
+        function.body = elide_moves_fn(&function.params, cx.fn_body(&function.params, body));
     }
 }
 
@@ -1037,6 +1038,493 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Move elision (spec 0048 A10)
+//
+// A `retain %x` whose occurrence is the *last* use of `x` on its path can
+// transfer `x`'s own +1 instead: drop the retain and the path's `release x`.
+// This runs per binding region: at a heap `let` (over its continuation), at
+// function/lambda entry (heap parameters over the body), and at a `try`'s
+// caught-error binding (over each catch arm).
+//
+// The move fires only when (a) the continuation after the binding's `let` has
+// no further use of `x`, (b) the right-hand side uses `x` exactly once, as a
+// `retain` in unconditional position, and (c) neither the right-hand side nor
+// the continuation can unwind. Condition (c) keeps the unwind cleanup sound
+// without extra bookkeeping: after a move the binding's local still holds the
+// stale pointer (moves are not zeroed), so no cleanup may run past the move
+// point. Lifting (c) with per-occurrence zeroing is future work.
+// ---------------------------------------------------------------------------
+
+fn elide_moves_fn(params: &[IrParam], body: IrExpr) -> IrExpr {
+    let mut body = elide(body);
+    for param in params {
+        if is_heap(&param.ty) {
+            body = opt_last_use(body, &param.name);
+        }
+    }
+    body
+}
+
+/// Structural recursion applying the per-binding optimization bottom-up.
+fn elide(e: IrExpr) -> IrExpr {
+    match e {
+        IrExpr::Let {
+            name,
+            value_ty,
+            value,
+            next,
+        } => {
+            let value = elide(*value);
+            let mut next = elide(*next);
+            if is_heap(&value_ty) {
+                next = opt_last_use(next, &name);
+            }
+            IrExpr::Let {
+                name,
+                value_ty,
+                value: Box::new(value),
+                next: Box::new(next),
+            }
+        }
+        IrExpr::Fn {
+            params,
+            ret,
+            throws,
+            effects,
+            captures,
+            body,
+        } => {
+            let body = elide_moves_fn(&params, *body);
+            IrExpr::Fn {
+                params,
+                ret,
+                throws,
+                effects,
+                captures,
+                body: Box::new(body),
+            }
+        }
+        IrExpr::Try {
+            body,
+            arms,
+            ty,
+            err_name,
+        } => {
+            let arms = arms
+                .into_iter()
+                .map(|arm| {
+                    let mut body = elide(arm.body);
+                    if let Some(err) = &err_name {
+                        body = opt_last_use(body, err);
+                    }
+                    IrArm {
+                        pattern: arm.pattern,
+                        guard: arm.guard.map(elide),
+                        body,
+                    }
+                })
+                .collect();
+            IrExpr::Try {
+                body: Box::new(elide(*body)),
+                arms,
+                ty,
+                err_name,
+            }
+        }
+        IrExpr::Release { name, ty, next } => IrExpr::Release {
+            name,
+            ty,
+            next: Box::new(elide(*next)),
+        },
+        IrExpr::Retain { value } => IrExpr::Retain {
+            value: Box::new(elide(*value)),
+        },
+        IrExpr::If {
+            cond,
+            then,
+            els,
+            ty,
+        } => IrExpr::If {
+            cond: Box::new(elide(*cond)),
+            then: Box::new(elide(*then)),
+            els: Box::new(elide(*els)),
+            ty,
+        },
+        IrExpr::Match {
+            scrutinee,
+            arms,
+            ty,
+        } => IrExpr::Match {
+            scrutinee: Box::new(elide(*scrutinee)),
+            arms: arms
+                .into_iter()
+                .map(|arm| IrArm {
+                    pattern: arm.pattern,
+                    guard: arm.guard.map(elide),
+                    body: elide(arm.body),
+                })
+                .collect(),
+            ty,
+        },
+        IrExpr::Call { callee, args, ret } => IrExpr::Call {
+            callee: Box::new(elide(*callee)),
+            args: args.into_iter().map(elide).collect(),
+            ret,
+        },
+        IrExpr::Platform {
+            name,
+            args,
+            ret,
+            throws,
+        } => IrExpr::Platform {
+            name,
+            args: args.into_iter().map(elide).collect(),
+            ret,
+            throws,
+        },
+        IrExpr::Intrinsic { name, args, ret } => IrExpr::Intrinsic {
+            name,
+            args: args.into_iter().map(elide).collect(),
+            ret,
+        },
+        IrExpr::TailSelfCall { args, ty } => IrExpr::TailSelfCall {
+            args: args.into_iter().map(elide).collect(),
+            ty,
+        },
+        IrExpr::Array { elem_ty, elems } => IrExpr::Array {
+            elem_ty,
+            elems: elems.into_iter().map(elide).collect(),
+        },
+        IrExpr::EnumValue {
+            ty,
+            variant,
+            tag,
+            payload,
+        } => IrExpr::EnumValue {
+            ty,
+            variant,
+            tag,
+            payload: payload.into_iter().map(elide).collect(),
+        },
+        IrExpr::RecordValue { ty, fields } => IrExpr::RecordValue {
+            ty,
+            fields: fields.into_iter().map(elide).collect(),
+        },
+        IrExpr::FieldAccess {
+            target,
+            index,
+            field_ty,
+        } => IrExpr::FieldAccess {
+            target: Box::new(elide(*target)),
+            index,
+            field_ty,
+        },
+        IrExpr::Binary {
+            op,
+            ty,
+            left,
+            right,
+        } => IrExpr::Binary {
+            op,
+            ty,
+            left: Box::new(elide(*left)),
+            right: Box::new(elide(*right)),
+        },
+        IrExpr::Concat { left, right } => IrExpr::Concat {
+            left: Box::new(elide(*left)),
+            right: Box::new(elide(*right)),
+        },
+        IrExpr::Throw { value } => IrExpr::Throw {
+            value: Box::new(elide(*value)),
+        },
+        IrExpr::Question { value, mode, ty } => IrExpr::Question {
+            value: Box::new(elide(*value)),
+            mode,
+            ty,
+        },
+        IrExpr::Panic { message } => IrExpr::Panic {
+            message: Box::new(elide(*message)),
+        },
+        leaf => leaf,
+    }
+}
+
+/// Walks the release spine of `x`'s scope region, converting the last use
+/// into a move where the conditions in the module comment hold.
+fn opt_last_use(e: IrExpr, x: &str) -> IrExpr {
+    match e {
+        IrExpr::Release { name, ty, next } => {
+            if name == x {
+                // Reached the release with no use since: the binding dies
+                // unused on this path. Keep it.
+                IrExpr::Release { name, ty, next }
+            } else {
+                IrExpr::Release {
+                    name,
+                    ty,
+                    next: Box::new(opt_last_use(*next, x)),
+                }
+            }
+        }
+        IrExpr::Let {
+            name,
+            value_ty,
+            mut value,
+            next,
+        } => {
+            if count_uses(&next, x) > 0 {
+                IrExpr::Let {
+                    name,
+                    value_ty,
+                    value,
+                    next: Box::new(opt_last_use(*next, x)),
+                }
+            } else if count_uses(&value, x) == 1
+                && !may_throw(&value)
+                && !may_throw(&next)
+                && try_move_retain(&mut value, x)
+            {
+                IrExpr::Let {
+                    name,
+                    value_ty,
+                    value,
+                    next: Box::new(strip_release(*next, x)),
+                }
+            } else {
+                IrExpr::Let {
+                    name,
+                    value_ty,
+                    value,
+                    next,
+                }
+            }
+        }
+        IrExpr::If {
+            cond,
+            then,
+            els,
+            ty,
+        } => IrExpr::If {
+            cond,
+            then: Box::new(opt_last_use(*then, x)),
+            els: Box::new(opt_last_use(*els, x)),
+            ty,
+        },
+        IrExpr::Match {
+            scrutinee,
+            arms,
+            ty,
+        } => IrExpr::Match {
+            scrutinee,
+            arms: arms
+                .into_iter()
+                .map(|arm| IrArm {
+                    pattern: arm.pattern,
+                    guard: arm.guard,
+                    body: opt_last_use(arm.body, x),
+                })
+                .collect(),
+            ty,
+        },
+        other => other,
+    }
+}
+
+/// Occurrences of `x` in `e`: `Var` reads, plus one per closure that captures
+/// it (the capture is read at allocation; the lambda body reads its own
+/// binding, not this one).
+fn count_uses(e: &IrExpr, x: &str) -> usize {
+    let mut count = 0;
+    fn go(e: &IrExpr, x: &str, count: &mut usize) {
+        match e {
+            IrExpr::Var { name, .. } => {
+                if name == x {
+                    *count += 1;
+                }
+            }
+            IrExpr::Fn { captures, .. } => {
+                *count += captures.iter().filter(|c| c.name == x).count();
+            }
+            IrExpr::Let { value, next, .. } => {
+                go(value, x, count);
+                go(next, x, count);
+            }
+            IrExpr::Release { next, .. } => go(next, x, count),
+            IrExpr::Retain { value } | IrExpr::Throw { value } | IrExpr::Question { value, .. } => {
+                go(value, x, count)
+            }
+            IrExpr::Call { callee, args, .. } => {
+                go(callee, x, count);
+                args.iter().for_each(|a| go(a, x, count));
+            }
+            IrExpr::Platform { args, .. }
+            | IrExpr::Intrinsic { args, .. }
+            | IrExpr::TailSelfCall { args, .. } => {
+                args.iter().for_each(|a| go(a, x, count));
+            }
+            IrExpr::Array { elems, .. } => elems.iter().for_each(|a| go(a, x, count)),
+            IrExpr::EnumValue { payload, .. } => payload.iter().for_each(|a| go(a, x, count)),
+            IrExpr::RecordValue { fields, .. } => fields.iter().for_each(|a| go(a, x, count)),
+            IrExpr::FieldAccess { target, .. } => go(target, x, count),
+            IrExpr::Binary { left, right, .. } | IrExpr::Concat { left, right } => {
+                go(left, x, count);
+                go(right, x, count);
+            }
+            IrExpr::If {
+                cond, then, els, ..
+            } => {
+                go(cond, x, count);
+                go(then, x, count);
+                go(els, x, count);
+            }
+            IrExpr::Match {
+                scrutinee, arms, ..
+            } => {
+                go(scrutinee, x, count);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        go(guard, x, count);
+                    }
+                    go(&arm.body, x, count);
+                }
+            }
+            IrExpr::Try { body, arms, .. } => {
+                go(body, x, count);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        go(guard, x, count);
+                    }
+                    go(&arm.body, x, count);
+                }
+            }
+            IrExpr::Panic { message } => go(message, x, count),
+            _ => {}
+        }
+    }
+    go(e, x, &mut count);
+    count
+}
+
+/// Replaces the one `retain %x` in unconditional position with a bare read
+/// (the move). Returns false — and leaves `e` unchanged — when the single
+/// use sits under a branch, a guard, or a lambda, where per-path ownership
+/// cannot be decided locally.
+fn try_move_retain(e: &mut IrExpr, x: &str) -> bool {
+    match e {
+        IrExpr::Retain { value } => {
+            if matches!(value.as_ref(), IrExpr::Var { name, .. } if name == x) {
+                *e = std::mem::replace(value.as_mut(), IrExpr::Unit);
+                true
+            } else {
+                try_move_retain(value, x)
+            }
+        }
+        IrExpr::Let { value, next, .. } => try_move_retain(value, x) || try_move_retain(next, x),
+        IrExpr::Release { next, .. } => try_move_retain(next, x),
+        IrExpr::Call { callee, args, .. } => {
+            try_move_retain(callee, x) || args.iter_mut().any(|a| try_move_retain(a, x))
+        }
+        IrExpr::Platform { args, .. }
+        | IrExpr::Intrinsic { args, .. }
+        | IrExpr::TailSelfCall { args, .. } => args.iter_mut().any(|a| try_move_retain(a, x)),
+        IrExpr::Array { elems, .. } => elems.iter_mut().any(|a| try_move_retain(a, x)),
+        IrExpr::EnumValue { payload, .. } => payload.iter_mut().any(|a| try_move_retain(a, x)),
+        IrExpr::RecordValue { fields, .. } => fields.iter_mut().any(|a| try_move_retain(a, x)),
+        IrExpr::FieldAccess { target, .. } => try_move_retain(target, x),
+        IrExpr::Binary { left, right, .. } | IrExpr::Concat { left, right } => {
+            try_move_retain(left, x) || try_move_retain(right, x)
+        }
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } => try_move_retain(value, x),
+        IrExpr::Panic { message } => try_move_retain(message, x),
+        // Conditional or foreign territory: no local move.
+        IrExpr::If { .. } | IrExpr::Match { .. } | IrExpr::Try { .. } | IrExpr::Fn { .. } => false,
+        _ => false,
+    }
+}
+
+/// Removes `release x` at every tail of the region — the mirror of where
+/// [`Cx::release_at_tails`] placed them (including the jump releases inside a
+/// leaf-wrapped `try`'s catch arms). Paths without one are left as-is.
+fn strip_release(e: IrExpr, x: &str) -> IrExpr {
+    match e {
+        IrExpr::Release { name, ty, next } => {
+            if name == x {
+                *next
+            } else {
+                IrExpr::Release {
+                    name,
+                    ty,
+                    next: Box::new(strip_release(*next, x)),
+                }
+            }
+        }
+        IrExpr::Let {
+            name,
+            value_ty,
+            value,
+            next,
+        } => {
+            // A leaf-wrapped `try` keeps x's jump releases inside its arms.
+            let value = match *value {
+                IrExpr::Try {
+                    body,
+                    arms,
+                    ty,
+                    err_name,
+                } => IrExpr::Try {
+                    body,
+                    arms: arms
+                        .into_iter()
+                        .map(|arm| IrArm {
+                            pattern: arm.pattern,
+                            guard: arm.guard,
+                            body: strip_release(arm.body, x),
+                        })
+                        .collect(),
+                    ty,
+                    err_name,
+                },
+                other => other,
+            };
+            IrExpr::Let {
+                name,
+                value_ty,
+                value: Box::new(value),
+                next: Box::new(strip_release(*next, x)),
+            }
+        }
+        IrExpr::If {
+            cond,
+            then,
+            els,
+            ty,
+        } => IrExpr::If {
+            cond,
+            then: Box::new(strip_release(*then, x)),
+            els: Box::new(strip_release(*els, x)),
+            ty,
+        },
+        IrExpr::Match {
+            scrutinee,
+            arms,
+            ty,
+        } => IrExpr::Match {
+            scrutinee,
+            arms: arms
+                .into_iter()
+                .map(|arm| IrArm {
+                    pattern: arm.pattern,
+                    guard: arm.guard,
+                    body: strip_release(arm.body, x),
+                })
+                .collect(),
+            ty,
+        },
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1100,8 +1588,9 @@ mod tests {
     }
 
     #[test]
-    fn call_args_are_retained_and_params_released() {
-        // fn f(s: String) -> String { g(s) }
+    fn last_use_call_arg_moves_without_rc_ops() {
+        // fn f(s: String) -> String { g(s) } — the argument is s's last use
+        // and g cannot throw: the retain/release pair is elided (A10).
         let body = IrExpr::Call {
             callee: Box::new(IrExpr::FunctionRef {
                 name: "g".into(),
@@ -1113,14 +1602,37 @@ mod tests {
         let mut p = program(vec![("s", Type::String)], Type::String, body);
         insert_rc_ops(&mut p);
         let body = &p.functions[0].body;
-        assert_eq!(count_retains(body), 1, "the call argument is retained");
-        assert_eq!(releases(body), vec!["s"], "the param releases at the tail");
-        // The tail value is preserved through a transfer temp.
-        let IrExpr::Let { value, next, .. } = body else {
+        assert_eq!(count_retains(body), 0, "the last use moves: {body:?}");
+        assert!(releases(body).is_empty(), "the pair is elided: {body:?}");
+        // The bare read transfers ownership into the call.
+        let IrExpr::Let { value, .. } = body else {
             panic!("expected a transfer let, got {body:?}");
         };
-        assert!(matches!(value.as_ref(), IrExpr::Call { .. }));
-        assert!(matches!(next.as_ref(), IrExpr::Release { .. }));
+        let IrExpr::Call { args, .. } = value.as_ref() else {
+            panic!("expected the call, got {value:?}");
+        };
+        assert!(matches!(&args[0], IrExpr::Var { name, .. } if name == "s"));
+    }
+
+    #[test]
+    fn no_move_when_the_callee_can_throw() {
+        // fn f(s: String) -> String { g(s) } with g throwing: an unwind after
+        // the move point would double-free, so the pair stays.
+        let mut sig = string_fn(vec![Type::String]);
+        sig.throws = Some(Box::new(Type::Enum("E".into(), vec![])));
+        let body = IrExpr::Call {
+            callee: Box::new(IrExpr::FunctionRef {
+                name: "g".into(),
+                sig,
+            }),
+            args: vec![var("s", Type::String)],
+            ret: Type::String,
+        };
+        let mut p = program(vec![("s", Type::String)], Type::String, body);
+        insert_rc_ops(&mut p);
+        let body = &p.functions[0].body;
+        assert_eq!(count_retains(body), 1, "{body:?}");
+        assert_eq!(releases(body), vec!["s"], "{body:?}");
     }
 
     #[test]
@@ -1154,10 +1666,10 @@ mod tests {
         );
         insert_rc_ops(&mut p);
         let body = &p.functions[0].body;
-        assert_eq!(count_retains(body), 1, "only the element arg is retained");
-        let mut rel = releases(body);
-        rel.sort();
-        assert_eq!(rel, vec!["a", "s"]);
+        // The element arg was the owned position; as s's last use it moves.
+        // `a`'s last use is a borrow, so its release stays.
+        assert_eq!(count_retains(body), 0, "{body:?}");
+        assert_eq!(releases(body), vec!["a"], "{body:?}");
     }
 
     #[test]
@@ -1207,12 +1719,14 @@ mod tests {
         );
         insert_rc_ops(&mut p);
         let body = &p.functions[0].body;
+        // The then-branch's return is s's last use there and moves; the
+        // else-branch never uses s and keeps its release.
         assert_eq!(
             releases(body),
-            vec!["s", "s"],
-            "each branch releases the param once"
+            vec!["s"],
+            "one release remains, in the else branch: {body:?}"
         );
-        assert_eq!(count_retains(body), 1, "only the then-branch returns s");
+        assert_eq!(count_retains(body), 0, "{body:?}");
     }
 
     #[test]
@@ -1297,43 +1811,37 @@ mod tests {
         );
         insert_rc_ops(&mut p);
         let body = &p.functions[0].body;
-        assert_eq!(releases(body), vec!["s"]);
-        // Structure: let $rc0 = call; let $rc1 = n - 1; release s; jump.
-        fn find_jump_context(e: &IrExpr) -> bool {
-            match e {
-                IrExpr::Let { next, .. } => find_jump_context(next),
-                IrExpr::Release { next, .. } => {
-                    matches!(next.as_ref(), IrExpr::TailSelfCall { .. })
-                }
-                _ => false,
-            }
-        }
-        assert!(
-            find_jump_context(body),
-            "release sits directly above the jump: {body:?}"
-        );
-        // All tail-call args are vars after atomization.
+        // s's last use is g's argument (g cannot throw) and moves, so no
+        // release remains above the jump; the args stay atomized.
+        assert!(releases(body).is_empty(), "{body:?}");
+        assert_eq!(count_retains(body), 0, "{body:?}");
         let mut ok = true;
+        let mut jumps = 0;
         walk(body, &mut |e| {
             if let IrExpr::TailSelfCall { args, .. } = e {
+                jumps += 1;
                 ok &= args
                     .iter()
                     .all(|a| matches!(a, IrExpr::Var { .. } | IrExpr::Int(_)));
             }
         });
+        assert_eq!(jumps, 1);
         assert!(ok, "tail-call args are atomized");
     }
 
     #[test]
     fn shadowed_bindings_are_renamed_apart() {
-        // fn f(s: String) -> String { let s = g(s); s }
+        // fn f(s: String) -> String { let s = g(s); s } — g throws, so no
+        // move fires and both bindings keep their distinct releases.
+        let mut sig = string_fn(vec![Type::String]);
+        sig.throws = Some(Box::new(Type::Enum("E".into(), vec![])));
         let body = IrExpr::Let {
             name: "s".into(),
             value_ty: Type::String,
             value: Box::new(IrExpr::Call {
                 callee: Box::new(IrExpr::FunctionRef {
                     name: "g".into(),
-                    sig: string_fn(vec![Type::String]),
+                    sig,
                 }),
                 args: vec![var("s", Type::String)],
                 ret: Type::String,
@@ -1343,13 +1851,16 @@ mod tests {
         let mut p = program(vec![("s", Type::String)], Type::String, body);
         insert_rc_ops(&mut p);
         let body = &p.functions[0].body;
-        let mut rel = releases(body);
-        rel.sort();
+        // The outer `s` cannot move (its last use feeds the throwing call) and
+        // keeps its release under its own name; the shadowing `s#1` is a
+        // distinct binding, whose tail return moves (the move point is after
+        // the only unwind risk).
         assert_eq!(
-            rel,
-            vec!["s", "s#1"],
-            "outer param and shadowing let release separately"
+            releases(body),
+            vec!["s"],
+            "the outer param's release survives under its own name: {body:?}"
         );
+        assert_eq!(count_retains(body), 1, "only the call argument: {body:?}");
     }
 
     #[test]
@@ -1413,7 +1924,22 @@ mod tests {
         let IrExpr::Fn { body: inner, .. } = body else {
             panic!("expected the lambda at the tail");
         };
-        assert_eq!(releases(inner), vec!["s"]);
-        assert_eq!(count_retains(inner), 1, "the returned param is retained");
+        // The returned param is its last use: the pair is elided (A10).
+        assert!(releases(inner).is_empty(), "{inner:?}");
+        assert_eq!(count_retains(inner), 0, "{inner:?}");
+        assert!(matches!(
+            strip_transfer(inner),
+            IrExpr::Var { name, .. } if name == "s"
+        ));
+    }
+
+    /// Unwraps the `let $rc = v; %$rc` transfer shell if present.
+    fn strip_transfer(e: &IrExpr) -> &IrExpr {
+        if let IrExpr::Let { value, next, .. } = e
+            && matches!(next.as_ref(), IrExpr::Var { name, .. } if name.starts_with("$rc"))
+        {
+            return value;
+        }
+        e
     }
 }
