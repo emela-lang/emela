@@ -975,6 +975,12 @@ fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>) {
             collect_ranges_block(body, out);
             collect_ranges_arms(arms, out);
         }
+        Expr::RecordLiteral { fields, .. } => {
+            for (_, _, value) in fields {
+                collect_ranges_expr(value, out);
+            }
+        }
+        Expr::Field { target, .. } => collect_ranges_expr(target, out),
         Expr::Int(..)
         | Expr::Float(..)
         | Expr::Bool(..)
@@ -1035,6 +1041,16 @@ fn ast_dump(program: &ast::Program) -> String {
         );
         for variant in &declaration.variants {
             let _ = writeln!(w, "  variant {} {:?}", variant.name, variant.fields);
+        }
+    }
+    for declaration in &program.records {
+        let _ = writeln!(
+            w,
+            "record {} module={:?}",
+            declaration.name, declaration.module
+        );
+        for field in &declaration.fields {
+            let _ = writeln!(w, "  field {} {:?}", field.name, field.ty);
         }
     }
     for declaration in &program.traits {
@@ -1203,6 +1219,17 @@ fn dump_expr(w: &mut String, depth: usize, expr: &ast::Expr) {
         Expr::Question { value, .. } => {
             let _ = writeln!(w, "{indent}question");
             dump_expr(w, depth + 1, value);
+        }
+        Expr::RecordLiteral { name, fields, .. } => {
+            let _ = writeln!(w, "{indent}record_literal {name}");
+            for (field_name, _, value) in fields {
+                let _ = writeln!(w, "{indent}  field {field_name}");
+                dump_expr(w, depth + 2, value);
+            }
+        }
+        Expr::Field { target, name, .. } => {
+            let _ = writeln!(w, "{indent}field_access {name}");
+            dump_expr(w, depth + 1, target);
         }
         Expr::Match {
             scrutinee, arms, ..

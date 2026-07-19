@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::ast::{EffectDecl, EnumDecl, Extern, Function, ImplDecl, Import, Program, TraitDecl};
+use crate::ast::{
+    EffectDecl, EnumDecl, Extern, Function, ImplDecl, Import, Program, RecordDecl, TraitDecl,
+};
 use crate::error::{Diagnostic, Error, Result};
 use crate::parser::parse_program;
 use crate::prelude;
@@ -87,6 +89,7 @@ struct Imported {
     functions: Vec<Function>,
     externs: Vec<Extern>,
     enums: Vec<EnumDecl>,
+    records: Vec<RecordDecl>,
     traits: Vec<TraitDecl>,
     impls: Vec<ImplDecl>,
     effects: Vec<EffectDecl>,
@@ -202,6 +205,7 @@ impl ImportResolver<'_> {
             acc.functions.extend(items.functions);
             acc.externs.extend(items.externs);
             acc.enums.extend(items.enums);
+            acc.records.extend(items.records);
             acc.traits.extend(items.traits);
             acc.impls.extend(items.impls);
             acc.effects.extend(items.effects);
@@ -214,6 +218,8 @@ impl ImportResolver<'_> {
         program.externs = acc.externs;
         acc.enums.extend(program.enums);
         program.enums = acc.enums;
+        acc.records.extend(program.records);
+        program.records = acc.records;
         acc.traits.extend(program.traits);
         program.traits = acc.traits;
         acc.impls.extend(program.impls);
@@ -309,6 +315,7 @@ impl ImportResolver<'_> {
                 functions,
                 externs: module.externs.clone(),
                 enums: module.enums.clone(),
+                records: module.records.clone(),
                 traits: module.traits.clone(),
                 impls,
                 effects: module.effects.clone(),

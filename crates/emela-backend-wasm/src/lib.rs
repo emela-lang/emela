@@ -28,7 +28,8 @@ use std::fmt::Write as _;
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type, used_intrinsics, used_platform_fns, walk,
+    QuestionMode, Result, Tier, Type, contains_tail_self_call, used_intrinsics, used_platform_fns,
+    walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -401,6 +402,11 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
             "  (import \"wasi_snapshot_preview1\" \"fd_write\" (func $wasi_fd_write (param i32 i32 i32 i32) (result i32)))\n",
         );
     }
+    for name in &used_platform {
+        if let Some(import) = platform_import(name) {
+            module.push_str(import);
+        }
+    }
     let _ = writeln!(
         module,
         "  (memory (export \"memory\") {MEMORY_PAGES})\n  (global $heap (mut i32) (i32.const {}))",
@@ -425,8 +431,39 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     module.push_str(&emit_start(main));
     module.push_str("  (export \"main\" (func $f_main))\n");
     module.push_str("  (export \"_start\" (func $_start))\n");
+    if used_platform.iter().any(|name| name.starts_with("http.")) {
+        // The HTTP host functions (specs 0043/0044) allocate their structured
+        // results (Response / HttpError / the Result cell) into guest memory
+        // through the bump allocator, so it is exported alongside `memory`.
+        module.push_str("  (export \"alloc\" (func $alloc))\n");
+    }
     module.push_str(")\n");
     Ok(module)
+}
+
+/// The host import a platform function's glue calls through, if it is backed
+/// by a dedicated host function rather than WASI. The `emela_http` module is
+/// supplied by the `emela run` wasmi host (and any embedder providing the
+/// `Http` capability).
+fn platform_import(canonical: &str) -> Option<&'static str> {
+    match canonical {
+        "http.request" => Some(
+            "  (import \"emela_http\" \"request\" (func $host_http_request (param i32) (result i32)))\n",
+        ),
+        "http.server_bind" => Some(
+            "  (import \"emela_http\" \"server_bind\" (func $host_http_server_bind (param i32) (result i32)))\n",
+        ),
+        "http.server_accept" => Some(
+            "  (import \"emela_http\" \"server_accept\" (func $host_http_server_accept (param i32) (result i32)))\n",
+        ),
+        "http.server_respond" => Some(
+            "  (import \"emela_http\" \"server_respond\" (func $host_http_server_respond (param i32 i32) (result i32)))\n",
+        ),
+        "http.server_close" => Some(
+            "  (import \"emela_http\" \"server_close\" (func $host_http_server_close (param i32) (result i32)))\n",
+        ),
+        _ => None,
+    }
 }
 
 /// The wasm function id for a platform function's runtime glue.
@@ -494,9 +531,30 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
     match canonical {
         "io.write_stdout" => Some(WRITE_STDOUT_GLUE),
         "io.write_stderr" => Some(WRITE_STDERR_GLUE),
+        "http.request" => Some(HTTP_REQUEST_GLUE),
+        "http.server_bind" => Some(HTTP_SERVER_BIND_GLUE),
+        "http.server_accept" => Some(HTTP_SERVER_ACCEPT_GLUE),
+        "http.server_respond" => Some(HTTP_SERVER_RESPOND_GLUE),
+        "http.server_close" => Some(HTTP_SERVER_CLOSE_GLUE),
         _ => None,
     }
 }
+
+/// `http.request` (spec 0044) passes the guest `Request` pointer to the host,
+/// which reads it from linear memory, performs the exchange, and returns a
+/// spec-0043 Result cell (`[ok][pad][Response | HttpError]`) it allocated in
+/// guest memory via the exported `alloc`.
+const HTTP_REQUEST_GLUE: &str = "  (func $plat_http_request (param $req i32) (result i32)\n    local.get $req\n    call $host_http_request)\n";
+
+// The HttpServer operations (spec 0046) forward their pointer arguments to the
+// host, which returns a spec-0043 Result cell.
+const HTTP_SERVER_BIND_GLUE: &str = "  (func $plat_http_server_bind (param $port i32) (result i32)\n    local.get $port\n    call $host_http_server_bind)\n";
+
+const HTTP_SERVER_ACCEPT_GLUE: &str = "  (func $plat_http_server_accept (param $server i32) (result i32)\n    local.get $server\n    call $host_http_server_accept)\n";
+
+const HTTP_SERVER_RESPOND_GLUE: &str = "  (func $plat_http_server_respond (param $incoming i32) (param $response i32) (result i32)\n    local.get $incoming\n    local.get $response\n    call $host_http_server_respond)\n";
+
+const HTTP_SERVER_CLOSE_GLUE: &str = "  (func $plat_http_server_close (param $server i32) (result i32)\n    local.get $server\n    call $host_http_server_close)\n";
 
 const WRITE_STDOUT_GLUE: &str = "  (func $plat_io_write_stdout (param $s i32) (result i32)\n    i32.const 0\n    local.get $s\n    i32.const 4\n    i32.add\n    i32.store\n    i32.const 4\n    local.get $s\n    i32.load\n    i32.store\n    i32.const 1\n    i32.const 0\n    i32.const 1\n    i32.const 8\n    call $wasi_fd_write\n    drop\n    i32.const 0)\n";
 
@@ -772,7 +830,20 @@ fn emit_fn_like(
     for (name, offset, ty) in capture_layout(captures) {
         emitter.bind(name, Slot::Capture(offset, ty));
     }
+    // A body with self-tail-calls (spec 0045) runs inside a `loop`: the call
+    // reassigns `$p1..$pN` and branches back; normal completion falls out of
+    // the loop with the body's value.
+    let tail_loop = contains_tail_self_call(body);
+    if tail_loop {
+        emitter.line(&format!(
+            "(loop $tail (result {})",
+            WasmTy::of(ret).keyword()
+        ));
+    }
     emitter.emit(body)?;
+    if tail_loop {
+        emitter.line(")");
+    }
     if throws.is_some() {
         // The body left its success value on the stack; wrap it as `Ok`.
         emitter.wrap_ok(ret);
@@ -905,11 +976,21 @@ impl<'a> FnEmitter<'a> {
                     self.unwrap_result(ret)?;
                 }
             }
-            IrExpr::Platform { name, args, .. } => {
+            IrExpr::Platform {
+                name,
+                args,
+                ret,
+                throws,
+            } => {
                 for arg in args {
                     self.emit(arg)?;
                 }
                 self.line(&format!("call {}", platform_wasm_name(name)));
+                if throws.is_some() {
+                    // A fallible platform function (spec 0043) returns the same
+                    // Result representation as a throwing Emela function.
+                    self.unwrap_result(ret)?;
+                }
             }
             // An intrinsic (spec 0021) inlines to a native instruction, or, for a
             // structural one like `string_concat`, to a dedicated helper.
@@ -978,6 +1059,17 @@ impl<'a> FnEmitter<'a> {
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
             IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
+            IrExpr::RecordValue { fields, .. } => self.emit_record_value(fields)?,
+            IrExpr::FieldAccess {
+                target,
+                index,
+                field_ty,
+            } => {
+                self.emit(target)?;
+                self.line(&format!("i32.const {}", index * 8));
+                self.line("i32.add");
+                self.line(WasmTy::of(field_ty).load());
+            }
             IrExpr::Match {
                 scrutinee,
                 arms,
@@ -1003,7 +1095,27 @@ impl<'a> FnEmitter<'a> {
             }
             IrExpr::Try { body, arms, ty } => self.emit_try(body, arms, ty)?,
             IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
+            IrExpr::TailSelfCall { args, .. } => self.emit_tail_self_call(args)?,
         }
+        Ok(())
+    }
+
+    /// A direct self-recursive call in tail position (spec 0045): evaluate the
+    /// arguments left to right into temporaries, reassign the parameter locals,
+    /// and jump back to the function-head `loop` — no stack growth.
+    fn emit_tail_self_call(&mut self, args: &[IrExpr]) -> Result<()> {
+        let mut temps = Vec::with_capacity(args.len());
+        for arg in args {
+            self.emit(arg)?;
+            let temp = self.fresh_local(WasmTy::of(&arg.ty()));
+            self.line(&format!("local.set {temp}"));
+            temps.push(temp);
+        }
+        for (index, temp) in temps.iter().enumerate() {
+            self.line(&format!("local.get {temp}"));
+            self.line(&format!("local.set $p{}", index + 1));
+        }
+        self.line("br $tail");
         Ok(())
     }
 
@@ -1072,6 +1184,27 @@ impl<'a> FnEmitter<'a> {
 
     /// Allocates `[tag:i32][field*8bytes]` and leaves the pointer. Each payload
     /// field gets a fixed 8-byte slot so binding offsets need no type info.
+    /// A record value (spec 0006): the enum payload layout without a tag —
+    /// one 8-byte slot per field, in declaration order.
+    fn emit_record_value(&mut self, fields: &[IrExpr]) -> Result<()> {
+        let size = (fields.len() as u32 * 8).max(8);
+        let ptr = self.fresh_local(WasmTy::I32);
+        self.line(&format!("i32.const {size}"));
+        self.line("call $alloc");
+        self.line(&format!("local.set {ptr}"));
+        for (index, field) in fields.iter().enumerate() {
+            let slot = WasmTy::of(&field.ty());
+            let offset = index as u32 * 8;
+            self.line(&format!("local.get {ptr}"));
+            self.line(&format!("i32.const {offset}"));
+            self.line("i32.add");
+            self.emit(field)?;
+            self.line(slot.store());
+        }
+        self.line(&format!("local.get {ptr}"));
+        Ok(())
+    }
+
     fn emit_enum_value(&mut self, tag: u32, payload: &[IrExpr]) -> Result<()> {
         let size = 8 + payload.len() as u32 * 8;
         let ptr = self.fresh_local(WasmTy::I32);
@@ -1754,6 +1887,71 @@ mod tests {
         assert!(wat.contains("local.get $p0"), "{wat}");
         let _ = compile_binary(&closure_program());
     }
+
+    /// A rewritten self-tail-call (spec 0045) compiles to a function-head
+    /// `loop` and a `br` back to it — no `call` — and still validates.
+    #[test]
+    fn self_tail_call_emits_a_loop() {
+        let spin = IrFunction {
+            name: "spin".into(),
+            params: vec![IrParam {
+                name: "n".into(),
+                ty: Type::Int,
+            }],
+            ret: Type::Int,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::If {
+                cond: Box::new(IrExpr::Binary {
+                    op: BinaryOp::Eq,
+                    ty: Type::Int,
+                    left: Box::new(IrExpr::Var {
+                        name: "n".into(),
+                        ty: Type::Int,
+                    }),
+                    right: Box::new(IrExpr::Int(0)),
+                }),
+                then: Box::new(IrExpr::Int(42)),
+                els: Box::new(IrExpr::TailSelfCall {
+                    args: vec![IrExpr::Binary {
+                        op: BinaryOp::Sub,
+                        ty: Type::Int,
+                        left: Box::new(IrExpr::Var {
+                            name: "n".into(),
+                            ty: Type::Int,
+                        }),
+                        right: Box::new(IrExpr::Int(1)),
+                    }],
+                    ty: Type::Int,
+                }),
+                ty: Type::Int,
+            },
+        };
+        let main = IrFunction {
+            name: "main".into(),
+            params: vec![],
+            ret: Type::Int,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::Call {
+                callee: Box::new(IrExpr::FunctionRef {
+                    name: "spin".into(),
+                    sig: int_fn(vec![Type::Int]),
+                }),
+                args: vec![IrExpr::Int(3)],
+                ret: Type::Int,
+            },
+        };
+        let program = IrProgram {
+            functions: vec![spin, main],
+        };
+        let wat = compile_wat(&program);
+        assert!(wat.contains("(loop $tail (result i32)"), "{wat}");
+        assert!(wat.contains("br $tail"), "{wat}");
+        // The tail call reassigns the parameter local before branching.
+        assert!(wat.contains("local.set $p1"), "{wat}");
+        let _ = compile_binary(&program);
+    }
 }
 
 #[cfg(test)]
@@ -1773,6 +1971,7 @@ mod platform_tests {
                     name: name.into(),
                     args: vec![IrExpr::String("hi".into())],
                     ret: Type::Unit,
+                    throws: None,
                 },
             }],
         }

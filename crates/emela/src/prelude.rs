@@ -25,6 +25,7 @@ pub(crate) const CORE_SRC: &str = include_str!("std/core.emel");
 pub(crate) const EMBEDDED_STD: &[(&str, &str)] = &[
     ("clock", include_str!("std/clock.emel")),
     ("float", include_str!("std/float.emel")),
+    ("http", include_str!("std/http.emel")),
     ("io", include_str!("std/io.emel")),
     ("string", include_str!("std/string.emel")),
 ];
