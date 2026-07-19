@@ -17,6 +17,23 @@ use wasmi::errors::HostError;
 use wasmi::{Caller, Engine, Extern, Linker, Memory, Module, Store};
 
 use crate::error::{Error, Result};
+use crate::http_host::ServerTable;
+
+/// The wasmi store data shared by both run paths: the host-side state the
+/// platform functions need. `captured` is `Some` for `emela test` (spec 0040),
+/// where stdout/stderr are buffered instead of written to the process streams;
+/// `servers` holds the live `HttpServer` listeners and connections (spec 0046).
+#[derive(Default)]
+pub(crate) struct Host {
+    captured: Option<Captured>,
+    servers: ServerTable,
+}
+
+impl Host {
+    pub(crate) fn servers_mut(&mut self) -> &mut ServerTable {
+        &mut self.servers
+    }
+}
 
 /// WASI `errno` for a bad file descriptor; returned when a program writes to a
 /// descriptor other than stdout (1) or stderr (2).
@@ -61,37 +78,9 @@ pub fn execute(wasm: &[u8]) -> Result<i32> {
     let engine = Engine::default();
     let module = Module::new(&engine, wasm)
         .map_err(|err| Error::new(format!("failed to load wasm module: {err}")))?;
-    let mut store = Store::new(&engine, ());
-    let mut linker = Linker::new(&engine);
-
-    // `proc_exit(code)`: record the code and trap out of `_start`.
-    linker
-        .func_wrap(
-            "wasi_snapshot_preview1",
-            "proc_exit",
-            |_caller: Caller<'_, ()>, code: i32| -> std::result::Result<(), wasmi::Error> {
-                Err(wasmi::Error::host(Exit(code)))
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `proc_exit`: {err}")))?;
-
-    // `fd_write(fd, iovs, iovs_len, nwritten)`: write the gathered bytes to
-    // stdout/stderr and report the count. Signature matches the backend glue.
-    linker
-        .func_wrap(
-            "wasi_snapshot_preview1",
-            "fd_write",
-            |mut caller: Caller<'_, ()>,
-             fd: i32,
-             iovs: i32,
-             iovs_len: i32,
-             nwritten: i32|
-             -> std::result::Result<i32, wasmi::Error> {
-                fd_write(&mut caller, fd, iovs, iovs_len, nwritten)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
-
+    let mut store = Store::new(&engine, Host::default());
+    let mut linker: Linker<Host> = Linker::new(&engine);
+    link_wasi(&mut linker)?;
     link_http(&mut linker)?;
 
     let instance = linker
@@ -112,10 +101,43 @@ pub fn execute(wasm: &[u8]) -> Result<i32> {
     }
 }
 
+/// Links `proc_exit` and `fd_write` (the WASI surface) into `linker`. When the
+/// store captures output (`emela test`), `fd_write` buffers into it; otherwise
+/// it writes to the process streams.
+fn link_wasi(linker: &mut Linker<Host>) -> Result<()> {
+    linker
+        .func_wrap(
+            "wasi_snapshot_preview1",
+            "proc_exit",
+            |_caller: Caller<'_, Host>, code: i32| -> std::result::Result<(), wasmi::Error> {
+                Err(wasmi::Error::host(Exit(code)))
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `proc_exit`: {err}")))?;
+
+    // `fd_write(fd, iovs, iovs_len, nwritten)`: write the gathered bytes to
+    // stdout/stderr and report the count. Signature matches the backend glue.
+    linker
+        .func_wrap(
+            "wasi_snapshot_preview1",
+            "fd_write",
+            |mut caller: Caller<'_, Host>,
+             fd: i32,
+             iovs: i32,
+             iovs_len: i32,
+             nwritten: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                fd_write(&mut caller, fd, iovs, iovs_len, nwritten)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
+    Ok(())
+}
+
 /// Services a `fd_write` call: gather the iovec-described bytes and write them
-/// to the target descriptor.
+/// to the target descriptor (or the captured buffers, for `emela test`).
 fn fd_write(
-    caller: &mut Caller<'_, ()>,
+    caller: &mut Caller<'_, Host>,
     fd: i32,
     iovs: i32,
     iovs_len: i32,
@@ -124,10 +146,18 @@ fn fd_write(
     let (memory, bytes) = gather_iovs(caller, iovs, iovs_len)?;
 
     // fd 1 = stdout, fd 2 = stderr; the backend never emits any other fd.
-    match fd {
-        1 => write_out(std::io::stdout(), &bytes)?,
-        2 => write_out(std::io::stderr(), &bytes)?,
-        _ => return Ok(WASI_EBADF),
+    if caller.data().captured.is_some() {
+        match fd {
+            1 => caller.data_mut().captured.as_mut().unwrap().stdout.extend_from_slice(&bytes),
+            2 => caller.data_mut().captured.as_mut().unwrap().stderr.extend_from_slice(&bytes),
+            _ => return Ok(WASI_EBADF),
+        }
+    } else {
+        match fd {
+            1 => write_out(std::io::stdout(), &bytes)?,
+            2 => write_out(std::io::stderr(), &bytes)?,
+            _ => return Ok(WASI_EBADF),
+        }
     }
 
     store_nwritten(&memory, caller, nwritten, bytes.len() as u32)?;
@@ -207,46 +237,25 @@ pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
     let engine = Engine::default();
     let module = Module::new(&engine, wasm)
         .map_err(|err| Error::new(format!("failed to load wasm module: {err}")))?;
-    let mut store = Store::new(&engine, Captured::default());
-    let mut linker: Linker<Captured> = Linker::new(&engine);
-
-    linker
-        .func_wrap(
-            "wasi_snapshot_preview1",
-            "proc_exit",
-            |_caller: Caller<'_, Captured>, code: i32| -> std::result::Result<(), wasmi::Error> {
-                Err(wasmi::Error::host(Exit(code)))
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `proc_exit`: {err}")))?;
-
-    linker
-        .func_wrap(
-            "wasi_snapshot_preview1",
-            "fd_write",
-            |mut caller: Caller<'_, Captured>,
-             fd: i32,
-             iovs: i32,
-             iovs_len: i32,
-             nwritten: i32|
-             -> std::result::Result<i32, wasmi::Error> {
-                let (memory, bytes) = gather_iovs(&mut caller, iovs, iovs_len)?;
-                match fd {
-                    1 => caller.data_mut().stdout.extend_from_slice(&bytes),
-                    2 => caller.data_mut().stderr.extend_from_slice(&bytes),
-                    _ => return Ok(WASI_EBADF),
-                }
-                store_nwritten(&memory, &mut caller, nwritten, bytes.len() as u32)?;
-                Ok(0)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
-
+    let mut store = Store::new(
+        &engine,
+        Host {
+            captured: Some(Captured::default()),
+            ..Default::default()
+        },
+    );
+    let mut linker: Linker<Host> = Linker::new(&engine);
+    link_wasi(&mut linker)?;
     link_http(&mut linker)?;
 
     let instance = match linker.instantiate_and_start(&mut store, &module) {
         Ok(instance) => instance,
-        Err(err) => return Ok((RunOutcome::Trap(format!("{err}")), store.into_data())),
+        Err(err) => {
+            return Ok((
+                RunOutcome::Trap(format!("{err}")),
+                store.into_data().captured.unwrap_or_default(),
+            ));
+        }
     };
     let start = instance
         .get_typed_func::<(), ()>(&store, "_start")
@@ -259,7 +268,7 @@ pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
             None => RunOutcome::Trap(format!("{err}")),
         },
     };
-    Ok((outcome, store.into_data()))
+    Ok((outcome, store.into_data().captured.unwrap_or_default()))
 }
 
 fn write_out(mut sink: impl Write, bytes: &[u8]) -> std::result::Result<(), wasmi::Error> {
@@ -270,20 +279,58 @@ fn write_out(mut sink: impl Write, bytes: &[u8]) -> std::result::Result<(), wasm
         .map_err(|err| host_fail(format!("failed to write program output: {err}")))
 }
 
-/// Links the `Http` capability's host function (specs 0043/0044). The
-/// `emela_http.request` import is defined for every run; a module that does not
-/// use `Http` simply never imports it. `T` is the store data (`()` for `run`,
-/// `Captured` for `test`), so the same host code serves both.
-fn link_http<T>(linker: &mut Linker<T>) -> Result<()> {
+/// Links the `Http` client (specs 0043/0044) and `HttpServer` (spec 0046) host
+/// functions. Every import is defined for every run; a module that does not use
+/// a capability simply never imports it.
+fn link_http(linker: &mut Linker<Host>) -> Result<()> {
     linker
         .func_wrap(
             "emela_http",
             "request",
-            |mut caller: Caller<'_, T>, req: i32| -> std::result::Result<i32, wasmi::Error> {
+            |mut caller: Caller<'_, Host>, req: i32| -> std::result::Result<i32, wasmi::Error> {
                 crate::http_host::request(&mut caller, req)
             },
         )
         .map_err(|err| Error::new(format!("failed to link `emela_http.request`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_http",
+            "server_bind",
+            |mut caller: Caller<'_, Host>, port: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::http_host::server_bind(&mut caller, port)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_http.server_bind`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_http",
+            "server_accept",
+            |mut caller: Caller<'_, Host>, server: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::http_host::server_accept(&mut caller, server)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_http.server_accept`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_http",
+            "server_respond",
+            |mut caller: Caller<'_, Host>,
+             incoming: i32,
+             response: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::http_host::server_respond(&mut caller, incoming, response)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_http.server_respond`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_http",
+            "server_close",
+            |mut caller: Caller<'_, Host>, server: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::http_host::server_close(&mut caller, server)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_http.server_close`: {err}")))?;
     Ok(())
 }
 

@@ -15,11 +15,14 @@
 //! no-payload enum is `[tag: i32]`, and a payload variant follows the tag with
 //! one 8-byte slot per field.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use wasmi::{AsContextMut, Caller, Extern, Memory, TypedFunc};
+
+use crate::run::Host;
 
 /// The default per-request timeout (spec 0044 H7). Implementation-defined.
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -31,6 +34,8 @@ const ERR_TIMEOUT: u32 = 2;
 const ERR_TOO_LARGE: u32 = 3;
 const ERR_NON_UTF8_BODY: u32 = 4;
 const ERR_PROTOCOL: u32 = 5;
+const ERR_BIND_FAILED: u32 = 6;
+const ERR_CONNECTION_CLOSED: u32 = 7;
 
 /// An implementation-defined cap on a response body (spec 0044: `TooLarge`).
 const MAX_BODY: usize = 32 * 1024 * 1024;
@@ -51,6 +56,8 @@ enum ReqError {
     TooLarge,
     NonUtf8Body,
     Protocol(String),
+    BindFailed(String),
+    ConnectionClosed,
 }
 
 /// A parsed response before it is written back into guest memory.
@@ -60,11 +67,21 @@ struct HostResponse {
     body: String,
 }
 
+/// The live `HttpServer` state (spec 0046): listeners bound by `bind`, keyed by
+/// their index, and accepted connections awaiting a `respond`, keyed by a fresh
+/// id. Held in the wasmi store data so it persists across host calls.
+#[derive(Default)]
+pub(crate) struct ServerTable {
+    listeners: Vec<Option<TcpListener>>,
+    connections: HashMap<u32, TcpStream>,
+    next_connection: u32,
+}
+
 /// Services one `emela_http.request` call. `req_ptr` is the guest `Request`
 /// pointer; the return value is the guest pointer to a spec-0011 Result cell
 /// (`[ok][pad][Response | HttpError]`).
-pub(crate) fn request<T>(
-    caller: &mut Caller<'_, T>,
+pub(crate) fn request(
+    caller: &mut Caller<'_, Host>,
     req_ptr: i32,
 ) -> std::result::Result<i32, wasmi::Error> {
     let memory = memory(caller)?;
@@ -406,9 +423,13 @@ fn write_error<T>(
             alloc_error_string(memory, alloc, caller, ERR_CONNECT_FAILED, msg)
         }
         ReqError::Protocol(msg) => alloc_error_string(memory, alloc, caller, ERR_PROTOCOL, msg),
+        ReqError::BindFailed(msg) => alloc_error_string(memory, alloc, caller, ERR_BIND_FAILED, msg),
         ReqError::Timeout => alloc_error_tag(memory, alloc, caller, ERR_TIMEOUT),
         ReqError::TooLarge => alloc_error_tag(memory, alloc, caller, ERR_TOO_LARGE),
         ReqError::NonUtf8Body => alloc_error_tag(memory, alloc, caller, ERR_NON_UTF8_BODY),
+        ReqError::ConnectionClosed => {
+            alloc_error_tag(memory, alloc, caller, ERR_CONNECTION_CLOSED)
+        }
     }
 }
 
@@ -504,4 +525,334 @@ fn alloc_func<T>(caller: &mut Caller<'_, T>) -> std::result::Result<TypedFunc<i3
 
 fn host_fail(message: impl Into<String>) -> wasmi::Error {
     wasmi::Error::host(super::run::HostFail(message.into()))
+}
+
+// ---------------------------------------------------------------------------
+// The HttpServer capability (spec 0046)
+// ---------------------------------------------------------------------------
+
+/// A request parsed from an accepted connection, ready to become a guest
+/// `Request` record.
+struct ParsedRequest {
+    method_tag: u32,
+    target: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// Why an incoming request is not delivered to `accept` (spec 0046 S3): the
+/// host answers it directly and moves on.
+enum IncomingError {
+    /// A method outside `Method`; the host answers 501.
+    UnknownMethod,
+    /// A malformed request or a non-UTF-8 body; the host answers 400.
+    BadRequest,
+    /// A transport failure reading the request.
+    Io(String),
+}
+
+/// `HttpServer.bind(port)` (spec 0046 S2): start listening on the loopback
+/// interface and return a `Server` handle.
+pub(crate) fn server_bind(
+    caller: &mut Caller<'_, Host>,
+    port: i32,
+) -> std::result::Result<i32, wasmi::Error> {
+    let memory = memory(caller)?;
+    let alloc = alloc_func(caller)?;
+    match do_bind(caller.data_mut().servers_mut(), port) {
+        Ok(id) => {
+            // Server { id: Int } — one field.
+            let record = guest_alloc(&alloc, caller, 8)?;
+            write_u32(&memory, caller, record as usize, id)?;
+            write_result(&memory, &alloc, caller, true, record)
+        }
+        Err(err) => {
+            let value = write_error(&memory, &alloc, caller, &err)?;
+            write_result(&memory, &alloc, caller, false, value)
+        }
+    }
+}
+
+/// `HttpServer.accept(server)` (spec 0046 S3): block until a well-formed
+/// request arrives and return an `Incoming { id, request }`. Requests the host
+/// rejects (unknown method, non-UTF-8 body) are answered directly and skipped.
+pub(crate) fn server_accept(
+    caller: &mut Caller<'_, Host>,
+    server_ptr: i32,
+) -> std::result::Result<i32, wasmi::Error> {
+    let memory = memory(caller)?;
+    let alloc = alloc_func(caller)?;
+    let server_id = read_u32(&memory, caller, server_ptr as usize)?;
+    match do_accept(caller.data_mut().servers_mut(), server_id) {
+        Ok((conn_id, parsed)) => {
+            let request = build_guest_request(&memory, &alloc, caller, &parsed)?;
+            // Incoming { id: Int, request: Request } — two slots.
+            let incoming = guest_alloc(&alloc, caller, 16)?;
+            write_u32(&memory, caller, incoming as usize, conn_id)?;
+            write_u32(&memory, caller, incoming as usize + 8, request as u32)?;
+            write_result(&memory, &alloc, caller, true, incoming)
+        }
+        Err(err) => {
+            let value = write_error(&memory, &alloc, caller, &err)?;
+            write_result(&memory, &alloc, caller, false, value)
+        }
+    }
+}
+
+/// `HttpServer.respond(incoming, response)` (spec 0046 S4): send the response
+/// on the accepted connection and close it.
+pub(crate) fn server_respond(
+    caller: &mut Caller<'_, Host>,
+    incoming_ptr: i32,
+    response_ptr: i32,
+) -> std::result::Result<i32, wasmi::Error> {
+    let memory = memory(caller)?;
+    let alloc = alloc_func(caller)?;
+    let conn_id = read_u32(&memory, caller, incoming_ptr as usize)?;
+    let response = read_response(&memory, caller, response_ptr)?;
+    match do_respond(caller.data_mut().servers_mut(), conn_id, &response) {
+        Ok(()) => write_result(&memory, &alloc, caller, true, 0),
+        Err(err) => {
+            let value = write_error(&memory, &alloc, caller, &err)?;
+            write_result(&memory, &alloc, caller, false, value)
+        }
+    }
+}
+
+/// `HttpServer.close(server)` (spec 0046 S5): stop listening.
+pub(crate) fn server_close(
+    caller: &mut Caller<'_, Host>,
+    server_ptr: i32,
+) -> std::result::Result<i32, wasmi::Error> {
+    let memory = memory(caller)?;
+    let alloc = alloc_func(caller)?;
+    let server_id = read_u32(&memory, caller, server_ptr as usize)?;
+    if let Some(slot) = caller
+        .data_mut()
+        .servers_mut()
+        .listeners
+        .get_mut(server_id as usize)
+    {
+        *slot = None;
+    }
+    write_result(&memory, &alloc, caller, true, 0)
+}
+
+fn do_bind(servers: &mut ServerTable, port: i32) -> std::result::Result<u32, ReqError> {
+    let listener = TcpListener::bind(("127.0.0.1", port as u16))
+        .map_err(|err| ReqError::BindFailed(err.to_string()))?;
+    let id = servers.listeners.len() as u32;
+    servers.listeners.push(Some(listener));
+    Ok(id)
+}
+
+fn do_accept(
+    servers: &mut ServerTable,
+    server_id: u32,
+) -> std::result::Result<(u32, ParsedRequest), ReqError> {
+    loop {
+        let mut stream = {
+            let listener = servers
+                .listeners
+                .get(server_id as usize)
+                .and_then(|slot| slot.as_ref())
+                .ok_or(ReqError::ConnectionClosed)?;
+            let (stream, _) = listener
+                .accept()
+                .map_err(|err| ReqError::ConnectFailed(err.to_string()))?;
+            stream
+        };
+        let _ = stream.set_read_timeout(Some(TIMEOUT));
+        match parse_incoming(&mut stream) {
+            Ok(parsed) => {
+                let id = servers.next_connection;
+                servers.next_connection += 1;
+                servers.connections.insert(id, stream);
+                return Ok((id, parsed));
+            }
+            // The host answers directly and does not deliver (spec 0046 S3).
+            Err(IncomingError::UnknownMethod) => {
+                let _ = write_status_only(&mut stream, 501);
+            }
+            Err(IncomingError::BadRequest) => {
+                let _ = write_status_only(&mut stream, 400);
+            }
+            Err(IncomingError::Io(err)) => return Err(ReqError::Protocol(err)),
+        }
+        // Dropping `stream` closes the connection; loop for the next request.
+    }
+}
+
+fn do_respond(
+    servers: &mut ServerTable,
+    conn_id: u32,
+    response: &HostResponse,
+) -> std::result::Result<(), ReqError> {
+    let mut stream = servers
+        .connections
+        .remove(&conn_id)
+        .ok_or(ReqError::ConnectionClosed)?;
+    let mut out = format!(
+        "HTTP/1.1 {} {}\r\n",
+        response.status,
+        reason_phrase(response.status)
+    );
+    for (name, value) in &response.headers {
+        let lower = name.to_ascii_lowercase();
+        if lower == "content-length" || lower == "connection" {
+            continue;
+        }
+        out.push_str(&format!("{lower}: {value}\r\n"));
+    }
+    out.push_str(&format!("content-length: {}\r\n", response.body.len()));
+    out.push_str("connection: close\r\n\r\n");
+    stream
+        .write_all(out.as_bytes())
+        .and_then(|()| stream.write_all(response.body.as_bytes()))
+        .and_then(|()| stream.flush())
+        .map_err(|_| ReqError::ConnectionClosed)
+}
+
+fn parse_incoming(stream: &mut TcpStream) -> std::result::Result<ParsedRequest, IncomingError> {
+    let mut received = Vec::new();
+    let mut buf = [0u8; 8192];
+    // Read the head, then the declared body.
+    loop {
+        if let Some(head_end) = received.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&received[..head_end]).to_ascii_lowercase();
+            let content_length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if content_length > MAX_BODY {
+                return Err(IncomingError::BadRequest);
+            }
+            if received.len() >= head_end + 4 + content_length {
+                return finish_incoming(&received, head_end, content_length);
+            }
+        }
+        let n = stream
+            .read(&mut buf)
+            .map_err(|err| IncomingError::Io(err.to_string()))?;
+        if n == 0 {
+            // Peer closed before a full request; treat as malformed.
+            return Err(IncomingError::BadRequest);
+        }
+        if received.len() + n > MAX_BODY {
+            return Err(IncomingError::BadRequest);
+        }
+        received.extend_from_slice(&buf[..n]);
+    }
+}
+
+fn finish_incoming(
+    received: &[u8],
+    head_end: usize,
+    content_length: usize,
+) -> std::result::Result<ParsedRequest, IncomingError> {
+    let head =
+        std::str::from_utf8(&received[..head_end]).map_err(|_| IncomingError::BadRequest)?;
+    let mut lines = head.split("\r\n");
+    let request_line = lines.next().ok_or(IncomingError::BadRequest)?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().ok_or(IncomingError::BadRequest)?;
+    let target = parts.next().ok_or(IncomingError::BadRequest)?;
+    let method_tag = method_tag(method).ok_or(IncomingError::UnknownMethod)?;
+
+    let mut headers = Vec::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
+        }
+    }
+
+    let body_bytes = &received[head_end + 4..head_end + 4 + content_length];
+    let body = String::from_utf8(body_bytes.to_vec()).map_err(|_| IncomingError::BadRequest)?;
+
+    Ok(ParsedRequest {
+        method_tag,
+        target: target.to_string(),
+        headers,
+        body,
+    })
+}
+
+fn method_tag(method: &str) -> Option<u32> {
+    Some(match method {
+        "GET" => 0,
+        "HEAD" => 1,
+        "POST" => 2,
+        "PUT" => 3,
+        "DELETE" => 4,
+        "PATCH" => 5,
+        "OPTIONS" => 6,
+        _ => return None,
+    })
+}
+
+fn write_status_only(stream: &mut TcpStream, status: u16) -> std::io::Result<()> {
+    let out = format!(
+        "HTTP/1.1 {status} {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        reason_phrase(status as i32)
+    );
+    stream.write_all(out.as_bytes())?;
+    stream.flush()
+}
+
+fn reason_phrase(status: i32) -> &'static str {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        501 => "Not Implemented",
+        502 => "Bad Gateway",
+        _ => "Status",
+    }
+}
+
+/// Builds a guest `Request` record from a parsed incoming request.
+fn build_guest_request(
+    memory: &Memory,
+    alloc: &TypedFunc<i32, i32>,
+    caller: &mut Caller<'_, Host>,
+    parsed: &ParsedRequest,
+) -> std::result::Result<i32, wasmi::Error> {
+    // Method is a no-payload enum value: [tag].
+    let method = guest_alloc(alloc, caller, 8)?;
+    write_u32(memory, caller, method as usize, parsed.method_tag)?;
+    let url = alloc_string(memory, alloc, caller, parsed.target.as_bytes())?;
+    let headers = write_headers(memory, alloc, caller, &parsed.headers)?;
+    let body = alloc_string(memory, alloc, caller, parsed.body.as_bytes())?;
+    // Request { method, url, headers, body } — four slots.
+    let record = guest_alloc(alloc, caller, 32)?;
+    write_u32(memory, caller, record as usize, method as u32)?;
+    write_u32(memory, caller, record as usize + 8, url as u32)?;
+    write_u32(memory, caller, record as usize + 16, headers as u32)?;
+    write_u32(memory, caller, record as usize + 24, body as u32)?;
+    Ok(record)
+}
+
+/// Reads a guest `Response` record into host data (for `respond`).
+fn read_response(
+    memory: &Memory,
+    caller: &mut Caller<'_, Host>,
+    ptr: i32,
+) -> std::result::Result<HostResponse, wasmi::Error> {
+    let status = read_u32(memory, caller, ptr as usize)? as i32;
+    let headers_ptr = read_u32(memory, caller, ptr as usize + 8)? as usize;
+    let body_ptr = read_u32(memory, caller, ptr as usize + 16)? as usize;
+    let headers = read_headers(memory, caller, headers_ptr)?;
+    let body = read_string_bytes(memory, caller, body_ptr)?;
+    Ok(HostResponse {
+        status,
+        headers,
+        body: String::from_utf8_lossy(&body).into_owned(),
+    })
 }

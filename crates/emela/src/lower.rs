@@ -288,11 +288,71 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         functions.push(specialized);
     }
 
+    // The entry set for import pruning: every function the compilation root
+    // itself declares (empty module path) — `main`, `@test`s, and the user's
+    // own helpers, which are always emitted. Emit names are bare for the root.
+    let root_names: std::collections::HashSet<String> = program
+        .functions
+        .iter()
+        .enumerate()
+        .filter(|(_, function)| function.module_path.is_empty())
+        .map(|(index, _)| lowerer.table.emit_name(index).to_string())
+        .collect();
+
     let mut program = IrProgram { functions };
+    // Drop imported functions unreachable from the root so a library's unused
+    // wrappers do not pull their platform imports into the artifact — e.g. a
+    // serve-only program must not import the client `http.request` merely
+    // because `import std.http` also brings in `Http.get` (spec 0046 S1). The
+    // root's own functions are always kept, matching the "all top-level
+    // functions are emitted" behavior the rest of the toolchain relies on.
+    prune_unreachable_imports(&mut program, &root_names);
     // Direct self-recursive calls in tail position become jumps (spec 0045)
     // before the IR reaches any backend.
     emela_codegen::rewrite_self_tail_calls(&mut program);
     program
+}
+
+/// Removes imported IR functions unreachable from the root functions, following
+/// the `FunctionRef` names each reachable function mentions (as a call target
+/// or a first-class value). Root functions (`root_names`) are always retained;
+/// trait dispatch and generics are already resolved to concrete `FunctionRef`s,
+/// so an imported function reached through them is kept.
+fn prune_unreachable_imports(
+    program: &mut IrProgram,
+    root_names: &std::collections::HashSet<String>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let by_name: HashMap<&str, &IrFunction> = program
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect();
+    let mut reachable: HashSet<String> = HashSet::new();
+    let mut queue: Vec<String> = root_names
+        .iter()
+        .filter(|name| by_name.contains_key(name.as_str()))
+        .cloned()
+        .collect();
+    while let Some(name) = queue.pop() {
+        if !reachable.insert(name.clone()) {
+            continue;
+        }
+        if let Some(function) = by_name.get(name.as_str()) {
+            emela_codegen::walk(&function.body, &mut |expr| {
+                if let IrExpr::FunctionRef { name, .. } = expr
+                    && !reachable.contains(name)
+                {
+                    queue.push(name.clone());
+                }
+            });
+        }
+    }
+    // Keep every root function unconditionally, plus imported functions the
+    // reachability walk marked.
+    program
+        .functions
+        .retain(|function| root_names.contains(&function.name) || reachable.contains(&function.name));
 }
 
 impl<'a> Lowerer<'a> {

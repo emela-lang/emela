@@ -68,3 +68,38 @@ effect Http {
         })?
     }
 }
+
+-- The HttpServer capability (spec 0046). A separate capability from the client
+-- Http, so a serve-only program's manifest carries no outbound-network
+-- permission. `Server` and `Incoming` wrap host-issued identifiers.
+pub record Server {
+    id: Int
+}
+
+pub record Incoming {
+    id: Int
+    request: Request
+}
+
+effect HttpServer {
+    extern fn server_bind(port: Int) -> Server throws HttpError
+    extern fn server_accept(server: Server) -> Incoming throws HttpError
+    extern fn server_respond(incoming: Incoming, response: Response) -> Unit throws HttpError
+    extern fn server_close(server: Server) -> Unit throws HttpError
+
+    pub fn bind(port: Int) -> Server throws HttpError {
+        server_bind(port)?
+    }
+
+    pub fn accept(server: Server) -> Incoming throws HttpError {
+        server_accept(server)?
+    }
+
+    pub fn respond(incoming: Incoming, response: Response) -> Unit throws HttpError {
+        server_respond(incoming, response)?
+    }
+
+    pub fn close(server: Server) -> Unit throws HttpError {
+        server_close(server)?
+    }
+}

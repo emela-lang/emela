@@ -75,6 +75,43 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
             capability: "Http".to_string(),
         },
+        // The HttpServer capability (spec 0046): a separate capability from the
+        // client so a serve-only program's manifest shows no outbound access.
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_bind".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Enum("Server".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_accept".to_string(),
+            params: vec![Type::Enum("Server".to_string(), Vec::new())],
+            ret: Type::Enum("Incoming".to_string(), Vec::new()),
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_respond".to_string(),
+            params: vec![
+                Type::Enum("Incoming".to_string(), Vec::new()),
+                Type::Enum("Response".to_string(), Vec::new()),
+            ],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
+        PlatformFn {
+            path: vec!["http".to_string()],
+            name: "server_close".to_string(),
+            params: vec![Type::Enum("Server".to_string(), Vec::new())],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
+            capability: "HttpServer".to_string(),
+        },
     ]
 }
 
