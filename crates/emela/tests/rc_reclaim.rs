@@ -146,3 +146,44 @@ fn heap_main_result_is_released_by_start() {
     let (_code, live) = run_and_measure(&wasm);
     assert_eq!(live, 0, "the result released in _start");
 }
+
+/// Unwinding through a throwing call releases what the frame still owned, and
+/// the caught error (with its heap payload) dies at the catch arm's tail
+/// (spec 0048 A7).
+#[test]
+fn error_unwind_reclaims_to_zero() {
+    assert_reclaims(
+        "unwind",
+        "enum E {\n  Boom(String)\n}\nfn risky() -> Int throws E { throw E::Boom(\"bad \" ++ \"input\") }\nfn attempt() -> Int throws E {\n  let _s = \"keep \" ++ \"me\"\n  risky()?\n}\nfn main() -> Int {\n  let r = try {\n    attempt()\n  } catch {\n    Boom(_m) -> 7\n  }\n  r - 7\n}\n",
+    );
+}
+
+/// A catch arm that keeps looping (the 0046 serve-loop shape) frees the
+/// caught error every iteration: constant memory across repeated errors.
+#[test]
+fn repeated_caught_errors_reclaim_to_zero() {
+    assert_reclaims(
+        "retry",
+        "enum E {\n  Boom(String)\n}\nfn risky() -> Int throws E { throw E::Boom(\"kab\" ++ \"oom\") }\nfn spin(n: Int) -> Int {\n  if n == 0 {\n    0\n  } else {\n    let _r = try {\n      risky()\n    } catch {\n      Boom(_m) -> 0\n    }\n    spin(n - 1)\n  }\n}\nfn main() -> Int { spin(500) }\n",
+    );
+}
+
+/// `?` on `None` early-returns; the frame's live bindings are still released.
+#[test]
+fn question_none_exit_reclaims_to_zero() {
+    assert_reclaims(
+        "question-none",
+        "fn pick(flag: Bool) -> Option<String> {\n  if flag {\n    Some(\"yes\" ++ \"!\")\n  } else {\n    None\n  }\n}\nfn extract(flag: Bool) -> Option<String> {\n  let keep = \"held \" ++ \"value\"\n  let v = pick(flag)?\n  Some(v ++ keep)\n}\nfn main() -> Int {\n  let _a = extract(true)\n  let _b = extract(false)\n  0\n}\n",
+    );
+}
+
+/// An uncaught error still cleans the whole call chain before `main` fails.
+#[test]
+fn partial_construction_across_throws_reclaims() {
+    // The record's first field is owned and in flight when the second
+    // field's evaluation throws: A-normalization keeps it releasable.
+    assert_reclaims(
+        "partial",
+        "enum E {\n  Nope\n}\nrecord Pair {\n  a: String,\n  b: String\n}\nfn boom() -> String throws E { throw E::Nope }\nfn build() -> Pair throws E {\n  Pair { a: \"left\" ++ \"!\", b: boom()? }\n}\nfn main() -> Int {\n  let _p = try {\n    build()\n  } catch {\n    Nope -> Pair { a: \"x\" ++ \"y\", b: \"z\" ++ \"w\" }\n  }\n  0\n}\n",
+    );
+}

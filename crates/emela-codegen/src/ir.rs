@@ -163,6 +163,12 @@ pub enum IrExpr {
         body: Box<IrExpr>,
         arms: Vec<IrArm>,
         ty: Type,
+        /// The name the caught error value is bound under for the catch arms
+        /// (spec 0048): the RC pass sets it and releases it at each arm tail;
+        /// backends that emit RC ops bind the error local under this name.
+        /// `None` before the pass runs (and for host-GC backends).
+        #[serde(default)]
+        err_name: Option<String>,
     },
     /// `expr?` (spec 0011): take the success value, short-circuiting the
     /// enclosing function on error (`Throws`) or `None` (`Option`).

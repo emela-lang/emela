@@ -279,6 +279,29 @@ fn literal(expr: &IrExpr) -> bool {
     )
 }
 
+/// Whether evaluating `expr` can unwind — raise on the error channel (0011)
+/// or early-return `None` — skipping downstream releases. Conservative: a
+/// contained `try` that catches everything, or a lambda *literal* whose body
+/// throws, still count. Used to decide A-normalization (spec 0048 A7): while
+/// a sibling that may unwind evaluates, no owned heap value may sit on the
+/// operand stack.
+fn may_throw(expr: &IrExpr) -> bool {
+    let mut found = false;
+    crate::ir_walk::walk(expr, &mut |e| match e {
+        IrExpr::Throw { .. } | IrExpr::Question { .. } => found = true,
+        IrExpr::Call { callee, .. } => {
+            if matches!(callee.ty(), Type::Function(ft) if ft.throws.is_some()) {
+                found = true;
+            }
+        }
+        IrExpr::Platform {
+            throws: Some(_), ..
+        } => found = true,
+        _ => {}
+    });
+    found
+}
+
 impl Cx {
     fn fresh(&mut self) -> String {
         let n = self.counter;
@@ -344,16 +367,18 @@ impl Cx {
 
             IrExpr::Call { callee, args, ret } => {
                 let (hoisted, args) = self.operands(args, |_| Mode::Owned);
-                debug_assert!(hoisted.is_empty(), "owned operands are never hoisted");
                 match *callee {
                     // A direct target or a borrowed closure binding.
-                    callee @ (IrExpr::FunctionRef { .. } | IrExpr::Var { .. }) => IrExpr::Call {
-                        callee: Box::new(callee),
-                        args,
-                        ret,
-                    },
+                    callee @ (IrExpr::FunctionRef { .. } | IrExpr::Var { .. }) => {
+                        let node = IrExpr::Call {
+                            callee: Box::new(callee),
+                            args,
+                            ret,
+                        };
+                        self.wrap(hoisted, node)
+                    }
                     // Any other callee expression: own it for the call, then
-                    // release it.
+                    // release it. It evaluates before the arguments.
                     other => {
                         let ty = other.ty();
                         let value = self.owned(other);
@@ -366,15 +391,14 @@ impl Cx {
                             args,
                             ret,
                         };
-                        self.wrap(
-                            vec![Hoisted {
-                                name,
-                                ty,
-                                value,
-                                release: true,
-                            }],
-                            node,
-                        )
+                        let mut all = vec![Hoisted {
+                            name,
+                            ty,
+                            value,
+                            release: true,
+                        }];
+                        all.extend(hoisted);
+                        self.wrap(all, node)
                     }
                 }
             }
@@ -478,8 +502,8 @@ impl Cx {
 
             IrExpr::Array { elem_ty, elems } => {
                 let (hoisted, elems) = self.operands(elems, |_| Mode::Owned);
-                debug_assert!(hoisted.is_empty(), "owned operands are never hoisted");
-                IrExpr::Array { elem_ty, elems }
+                let node = IrExpr::Array { elem_ty, elems };
+                self.wrap(hoisted, node)
             }
 
             IrExpr::EnumValue {
@@ -489,19 +513,19 @@ impl Cx {
                 payload,
             } => {
                 let (hoisted, payload) = self.operands(payload, |_| Mode::Owned);
-                debug_assert!(hoisted.is_empty(), "owned operands are never hoisted");
-                IrExpr::EnumValue {
+                let node = IrExpr::EnumValue {
                     ty,
                     variant,
                     tag,
                     payload,
-                }
+                };
+                self.wrap(hoisted, node)
             }
 
             IrExpr::RecordValue { ty, fields } => {
                 let (hoisted, fields) = self.operands(fields, |_| Mode::Owned);
-                debug_assert!(hoisted.is_empty(), "owned operands are never hoisted");
-                IrExpr::RecordValue { ty, fields }
+                let node = IrExpr::RecordValue { ty, fields };
+                self.wrap(hoisted, node)
             }
 
             IrExpr::FieldAccess {
@@ -580,18 +604,32 @@ impl Cx {
                 }
             }
 
-            IrExpr::Try { body, arms, ty } => IrExpr::Try {
-                body: Box::new(self.owned(*body)),
-                arms: arms
+            IrExpr::Try { body, arms, ty, .. } => {
+                // The caught error value arrives owned (+1, transferred from
+                // the raise). Bind it under a fresh conventional name and
+                // release it on every path out of whichever arm runs (spec
+                // 0048 A7). The type is informational only; runtime dispatch
+                // goes through the value's own header.
+                let err_name = self.fresh();
+                let err_ty = Type::Enum("$caught".to_string(), Vec::new());
+                let arms = arms
                     .into_iter()
-                    .map(|arm| IrArm {
-                        pattern: arm.pattern,
-                        guard: arm.guard.map(|g| self.owned(g)),
-                        body: self.owned(arm.body),
+                    .map(|arm| {
+                        let body = self.owned(arm.body);
+                        IrArm {
+                            pattern: arm.pattern,
+                            guard: arm.guard.map(|g| self.owned(g)),
+                            body: self.release_at_tails(body, &err_name, &err_ty),
+                        }
                     })
-                    .collect(),
-                ty,
-            },
+                    .collect();
+                IrExpr::Try {
+                    body: Box::new(self.owned(*body)),
+                    arms,
+                    ty,
+                    err_name: Some(err_name),
+                }
+            }
 
             IrExpr::Question { value, mode, ty } => match mode {
                 // The throwing call already yields its unwrapped, owned value.
@@ -680,11 +718,19 @@ impl Cx {
     /// 0003). Borrowed heap non-atoms are hoisted (and released after the
     /// consumer); anything effectful that would otherwise evaluate after a
     /// hoisted operand is hoisted too, without a release.
+    ///
+    /// If any operand may unwind (spec 0048 A7), the whole list is
+    /// A-normalized: everything but literals and variable reads goes through
+    /// a temporary, so when an unwind happens, every owned value in flight
+    /// sits in a local the backend's cleanup can release — never on the
+    /// operand stack. The remaining inline reads (and `retain`s of reads)
+    /// cannot themselves unwind.
     fn operands(
         &mut self,
         args: Vec<IrExpr>,
         mode: impl Fn(usize) -> Mode,
     ) -> (Vec<Hoisted>, Vec<IrExpr>) {
+        let throwy = args.iter().any(may_throw);
         let needs_rc_hoist: Vec<bool> = args
             .iter()
             .enumerate()
@@ -711,9 +757,12 @@ impl Cx {
                         release: true,
                     });
                     IrExpr::Var { name, ty }
-                } else if last_hoist.is_some_and(|l| i < l) && !reorder_safe(&arg) {
-                    // A later operand is hoisted above the consumer; hoist
-                    // this one too so it still evaluates first.
+                } else if (throwy && !reorder_safe(&arg))
+                    || (last_hoist.is_some_and(|l| i < l) && !reorder_safe(&arg))
+                {
+                    // Either the list has an unwind risk, or a later operand
+                    // is hoisted above the consumer; evaluate this one into a
+                    // temporary too, in written order.
                     let value = self.inline_operand(arg, mode(i));
                     let name = self.fresh();
                     hoisted.push(Hoisted {
@@ -845,6 +894,7 @@ impl Cx {
                 body,
                 arms,
                 ty: node_ty,
+                err_name,
             } => {
                 // A catch arm is a tail position (spec 0045 T1): a jump out of
                 // it must carry the release. The value paths (the body's value
@@ -863,6 +913,7 @@ impl Cx {
                         body,
                         arms,
                         ty: node_ty,
+                        err_name,
                     },
                     name,
                     ty,
@@ -963,6 +1014,7 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
             body,
             arms,
             ty: node_ty,
+            err_name,
         } => IrExpr::Try {
             body,
             arms: arms
@@ -974,6 +1026,7 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
                 })
                 .collect(),
             ty: node_ty,
+            err_name,
         },
         jump @ (IrExpr::TailSelfCall { .. } | IrExpr::Throw { .. }) => IrExpr::Release {
             name: name.to_string(),

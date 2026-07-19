@@ -230,6 +230,7 @@ mod tests {
             body: Box::new(self_call("loop_fn", vec![IrExpr::Int(1)])),
             arms: vec![],
             ty: Type::Unit,
+            err_name: None,
         };
         let mut program = program_with_body(body);
         rewrite_self_tail_calls(&mut program);

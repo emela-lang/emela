@@ -1239,9 +1239,20 @@ fn emit_fn_like(
     ctx: &Ctx,
 ) -> Result<String> {
     let mut emitter = FnEmitter::new(ctx);
+    // Which bindings the RC pass releases (nested lambdas' names are globally
+    // unique after alpha-renaming, so the over-collection is harmless).
+    walk(body, &mut |expr| {
+        if let IrExpr::Release { name, .. } = expr {
+            emitter.released.insert(name.clone());
+        }
+    });
     for (index, param) in params.iter().enumerate() {
         // Param 0 is the closure environment; user params follow.
-        emitter.bind(param.name.clone(), Slot::Local(format!("$p{}", index + 1)));
+        let local = format!("$p{}", index + 1);
+        if is_heap(&param.ty) {
+            emitter.managed.push((param.name.clone(), local.clone()));
+        }
+        emitter.bind(param.name.clone(), Slot::Local(local));
     }
     for (name, offset, ty) in capture_layout(captures) {
         emitter.bind(name, Slot::Capture(offset, ty));
@@ -1316,6 +1327,16 @@ struct FnEmitter<'a> {
     /// Labels of the enclosing `try` blocks' catch handlers. A `throw` or
     /// throwing call branches to the innermost one, or returns `Err` if empty.
     catch_stack: Vec<String>,
+    /// Binding names the RC pass releases somewhere (`Release` nodes).
+    released: HashSet<String>,
+    /// `$rc` transfer temporaries: heap-typed, not release-named, consumed by
+    /// their single read. Reading one zeroes its local (spec 0048 A7).
+    transfer_heap: HashSet<String>,
+    /// Every heap-holding local in binding order (heap params, heap `let`s,
+    /// caught errors), for unwind cleanup: a release obligation not yet met is
+    /// exactly a non-zero entry, because every release/consumption zeroes its
+    /// local. `rc_release(0)` is a no-op, so cleanup needs no branches.
+    managed: Vec<(String, String)>,
     ctx: &'a Ctx<'a>,
 }
 
@@ -1327,7 +1348,26 @@ impl<'a> FnEmitter<'a> {
             scope: Vec::new(),
             counter: 0,
             catch_stack: Vec::new(),
+            released: HashSet::new(),
+            transfer_heap: HashSet::new(),
+            managed: Vec::new(),
             ctx,
+        }
+    }
+
+    /// Releases (and zeroes) the managed locals from `from` on: the unwind
+    /// cleanup at a catch entry (`from` = the mark before the try body) or a
+    /// function-boundary exit (`from` = 0). Zeroed entries no-op.
+    fn release_live_managed(&mut self, from: usize) {
+        let locals: Vec<String> = self.managed[from..]
+            .iter()
+            .map(|(_, local)| local.clone())
+            .collect();
+        for local in locals {
+            self.line(&format!("local.get {local}"));
+            self.line("call $rc_release");
+            self.line("i32.const 0");
+            self.line(&format!("local.set {local}"));
         }
     }
 
@@ -1390,6 +1430,12 @@ impl<'a> FnEmitter<'a> {
                 self.emit(value)?;
                 let id = self.fresh_local(WasmTy::of(value_ty));
                 self.line(&format!("local.set {id}"));
+                if is_heap(value_ty) {
+                    self.managed.push((name.clone(), id.clone()));
+                    if name.starts_with("$rc") && !self.released.contains(name) {
+                        self.transfer_heap.insert(name.clone());
+                    }
+                }
                 self.bind(name.clone(), Slot::Local(id));
                 self.emit(next)?;
             }
@@ -1527,7 +1573,12 @@ impl<'a> FnEmitter<'a> {
                 self.emit(value)?;
                 self.raise_error();
             }
-            IrExpr::Try { body, arms, ty } => self.emit_try(body, arms, ty)?,
+            IrExpr::Try {
+                body,
+                arms,
+                ty,
+                err_name,
+            } => self.emit_try(body, arms, ty, err_name.as_deref())?,
             IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
             IrExpr::TailSelfCall { args, .. } => self.emit_tail_self_call(args)?,
             // RC ops (spec 0048), inserted by `emela_codegen::rc::insert_rc_ops`.
@@ -1537,9 +1588,18 @@ impl<'a> FnEmitter<'a> {
                 self.line("call $rc_retain");
             }
             IrExpr::Release { name, next, .. } => {
-                let name = name.clone();
-                self.emit_var(&name)?;
+                // Meet the obligation and zero the local, so an unwind
+                // cleanup that runs later cannot double-release it.
+                let Some(Slot::Local(id)) = self.slot(name) else {
+                    return Err(BackendError::new(format!(
+                        "release of a non-local binding `{name}` in wasm"
+                    )));
+                };
+                let id = id.clone();
+                self.line(&format!("local.get {id}"));
                 self.line("call $rc_release");
+                self.line("i32.const 0");
+                self.line(&format!("local.set {id}"));
                 self.emit(next)?;
             }
         }
@@ -1781,6 +1841,8 @@ impl<'a> FnEmitter<'a> {
 
     /// Raises the error value on the stack: branch to the nearest enclosing
     /// `catch`, or build and return an `Err` Result from a throwing function.
+    /// The function-boundary path first releases what the frame still owns
+    /// (0048 A7); an enclosing catch does its own cleanup at entry.
     fn raise_error(&mut self) {
         if let Some(label) = self.catch_stack.last() {
             let label = label.clone();
@@ -1788,6 +1850,7 @@ impl<'a> FnEmitter<'a> {
         } else {
             let err = self.fresh_local(WasmTy::I32);
             self.line(&format!("local.set {err}"));
+            self.release_live_managed(0);
             let res = self.fresh_local(WasmTy::I32);
             self.line("i32.const 16");
             let leak = self.ctx.drops.of(&DropKey::Leak);
@@ -1861,7 +1924,9 @@ impl<'a> FnEmitter<'a> {
                 self.line("i32.eq");
                 self.line("(if");
                 self.line("(then");
-                // Propagate `None`: return `Option::None` from this function.
+                // Propagate `None`: return `Option::None` from this function,
+                // after releasing what the frame still owns (0048 A7).
+                self.release_live_managed(0);
                 let none_drop = self.ctx.drops.of(&DropKey::Plain { total: 16 });
                 self.emit_enum_value(none_drop, 1, &[])?;
                 self.line("return");
@@ -1879,7 +1944,13 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    fn emit_try(&mut self, body: &IrExpr, arms: &[IrArm], ty: &Type) -> Result<()> {
+    fn emit_try(
+        &mut self,
+        body: &IrExpr,
+        arms: &[IrArm],
+        ty: &Type,
+        err_name: Option<&str>,
+    ) -> Result<()> {
         let id = self.counter;
         self.counter += 1;
         let try_label = format!("$try_{id}");
@@ -1891,6 +1962,7 @@ impl<'a> FnEmitter<'a> {
         // The catch block yields the error pointer that a throwing call/`throw`
         // branches to it with.
         self.line(&format!("(block {catch_label} (result i32)"));
+        let cleanup_mark = self.managed.len();
         self.catch_stack.push(catch_label);
         self.emit(body)?;
         self.catch_stack.pop();
@@ -1898,6 +1970,15 @@ impl<'a> FnEmitter<'a> {
         self.line(")");
         let err = self.fresh_local(WasmTy::I32);
         self.line(&format!("local.set {err}"));
+        // Unwinding skipped the body's releases: everything the body still
+        // owns is a non-zero managed local from the mark on (0048 A7).
+        self.release_live_managed(cleanup_mark);
+        // The caught error itself is owned; the RC pass releases it at each
+        // arm's tails through this binding.
+        if let Some(err_name) = err_name {
+            self.managed.push((err_name.to_string(), err.clone()));
+            self.bind(err_name.to_string(), Slot::Local(err.clone()));
+        }
         for arm in arms {
             self.emit_arm(&err, arm, &try_label)?;
         }
@@ -1911,6 +1992,12 @@ impl<'a> FnEmitter<'a> {
             Some(Slot::Local(id)) => {
                 let id = id.clone();
                 self.line(&format!("local.get {id}"));
+                // A transfer temporary's single read consumes it: zero the
+                // local so unwind cleanup cannot release it again (0048 A7).
+                if self.transfer_heap.contains(name) {
+                    self.line("i32.const 0");
+                    self.line(&format!("local.set {id}"));
+                }
             }
             Some(Slot::Capture(offset, ty)) => {
                 let (offset, load) = (*offset, ty.load());
