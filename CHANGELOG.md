@@ -7,6 +7,14 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/emela-lang/emela/compare/v0.5.0...v0.6.0) - 2026-07-19
+
+### Added
+
+- attributes and unit testing (specs 0039/0040) ([#60](https://github.com/emela-lang/emela/pull/60))
+- [**breaking**] module-unit imports and first-class effects (spec 0037) ([#57](https://github.com/emela-lang/emela/pull/57))
+- adopt clap for a friendly `emela --help` (closes #17) ([#58](https://github.com/emela-lang/emela/pull/58))
+
 ## [0.5.0](https://github.com/emela-lang/emela/compare/v0.4.0...v0.5.0) - 2026-07-18
 
 ### Added
