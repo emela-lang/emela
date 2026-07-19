@@ -78,10 +78,15 @@ pub enum IrExpr {
     },
     /// A call to a platform function (spec 0013), resolved by the backend's
     /// runtime. `name` is the canonical platform name, e.g. `io.write_stdout`.
+    /// A fallible entry (spec 0043) carries its error type in `throws`: the
+    /// host reports failure through the ordinary Result representation and the
+    /// backend unwraps it at the call site like any throwing call.
     Platform {
         name: String,
         args: Vec<IrExpr>,
         ret: Type,
+        #[serde(default)]
+        throws: Option<Type>,
     },
     /// A call to an intrinsic (spec 0021), inlined by the backend to a native
     /// instruction. `name` is the intrinsic's bare name, e.g. `i32_add`. Pure.

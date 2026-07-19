@@ -973,7 +973,9 @@ impl Checker {
                     .help("Platform functions are defined by spec 0013."),
             ));
         };
-        if params != entry.params || declaration.ret != entry.ret {
+        if params != entry.params || declaration.ret != entry.ret || declaration.throws != entry.throws
+        {
+            // The `throws` clause is part of the registry signature (spec 0043).
             return Err(Error::diagnostic(
                 Diagnostic::new("Platform signature mismatch").label(
                     declaration.name_span.clone(),

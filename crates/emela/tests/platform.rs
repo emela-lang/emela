@@ -78,6 +78,27 @@ fn wasm_backend_builds_a_valid_module() {
     assert_eq!(&bytes[0..4], b"\0asm");
 }
 
+/// The `throws` clause is part of the registry signature (spec 0043):
+/// declaring `throws` on an infallible platform function is a signature
+/// mismatch, not a silently-accepted extension.
+#[test]
+fn throws_on_an_infallible_platform_fn_is_rejected() {
+    let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("emela-throws-test-{}-{id}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let app = dir.join("main.emel");
+    fs::write(
+        &app,
+        "module io\n\npub enum Bad {\n  Oops\n}\n\neffect Io {\n    extern fn write_stdout(s: String) -> Unit throws Bad\n}\n\nfn main() -> Unit { () }\n",
+    )
+    .unwrap();
+    let output = emela().arg("check").arg(&app).output().unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Platform signature mismatch"), "{stderr}");
+}
+
 /// Builds a program that uses a pure `std.int.to_text` (if + `/`/`%` +
 /// `Char`/`++`) from a `std` package together with the embedded `std.io`
 /// effect's `print` (spec 0038), end to end to a wasm module. The package

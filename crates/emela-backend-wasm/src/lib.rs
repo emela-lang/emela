@@ -910,11 +910,21 @@ impl<'a> FnEmitter<'a> {
                     self.unwrap_result(ret)?;
                 }
             }
-            IrExpr::Platform { name, args, .. } => {
+            IrExpr::Platform {
+                name,
+                args,
+                ret,
+                throws,
+            } => {
                 for arg in args {
                     self.emit(arg)?;
                 }
                 self.line(&format!("call {}", platform_wasm_name(name)));
+                if throws.is_some() {
+                    // A fallible platform function (spec 0043) returns the same
+                    // Result representation as a throwing Emela function.
+                    self.unwrap_result(ret)?;
+                }
             }
             // An intrinsic (spec 0021) inlines to a native instruction, or, for a
             // structural one like `string_concat`, to a dedicated helper.
@@ -1861,6 +1871,7 @@ mod platform_tests {
                     name: name.into(),
                     args: vec![IrExpr::String("hi".into())],
                     ret: Type::Unit,
+                    throws: None,
                 },
             }],
         }

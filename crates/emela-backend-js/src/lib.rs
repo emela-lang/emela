@@ -482,6 +482,7 @@ mod tests {
             name: name.into(),
             args: vec![IrExpr::String("hi".into())],
             ret: Type::Unit,
+            throws: None,
         }
     }
 

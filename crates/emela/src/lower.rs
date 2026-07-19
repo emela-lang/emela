@@ -58,6 +58,8 @@ struct MonoState {
 struct ExternInfo {
     canonical: String,
     ret: Type,
+    /// The error type a fallible platform function throws (spec 0043).
+    throws: Option<Type>,
     is_intrinsic: bool,
     module: Option<String>,
     effect_name: Option<String>,
@@ -135,6 +137,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 ExternInfo {
                     canonical: declaration.canonical(),
                     ret: declaration.ret.clone(),
+                    throws: declaration.throws.clone(),
                     is_intrinsic: declaration.is_intrinsic,
                     module: declaration.module.clone(),
                     effect_name: declaration.effect_name.clone(),
@@ -945,6 +948,7 @@ impl<'a> Lowerer<'a> {
                 name: "io.write_stderr".to_string(),
                 args: vec![message],
                 ret: Type::Unit,
+                throws: None,
             }),
             next: Box::new(IrExpr::Panic {
                 message: Box::new(IrExpr::String("test failed".to_string())),
@@ -1023,11 +1027,14 @@ impl<'a> Lowerer<'a> {
             // the backend inlines).
             if let Some(info) = self.visible_extern(name) {
                 let ret = info.ret.clone();
+                let throws = info.throws.clone();
+                let canonical = info.canonical.clone();
+                let is_intrinsic = info.is_intrinsic;
                 let args = args
                     .iter()
                     .map(|arg| self.lower_expr(arg, scope).0)
                     .collect();
-                let node = if info.is_intrinsic {
+                let node = if is_intrinsic {
                     IrExpr::Intrinsic {
                         name: name.clone(),
                         args,
@@ -1035,9 +1042,10 @@ impl<'a> Lowerer<'a> {
                     }
                 } else {
                     IrExpr::Platform {
-                        name: info.canonical.clone(),
+                        name: canonical,
                         args,
                         ret: ret.clone(),
+                        throws,
                     }
                 };
                 return (node, ret);
