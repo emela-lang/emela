@@ -124,18 +124,6 @@ fn rewrite(expr: &mut IrExpr, self_name: &str, tail: bool) {
         // never a tail position (spec 0045 T1).
         IrExpr::Question { value, .. } => rewrite(value, self_name, false),
         IrExpr::Panic { message } => rewrite(message, self_name, false),
-        IrExpr::CharFromCode(value) | IrExpr::StringFromChar(value) => {
-            rewrite(value, self_name, false);
-        }
-        IrExpr::ArrayLength(array) => rewrite(array, self_name, false),
-        IrExpr::ArrayGet { array, index, .. } => {
-            rewrite(array, self_name, false);
-            rewrite(index, self_name, false);
-        }
-        IrExpr::ArrayPush { array, value, .. } => {
-            rewrite(array, self_name, false);
-            rewrite(value, self_name, false);
-        }
         IrExpr::Int(_)
         | IrExpr::Float(_)
         | IrExpr::Bool(_)
