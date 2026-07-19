@@ -51,21 +51,25 @@ effect Http {
     }
 
     pub fn get(url: String) -> Response throws HttpError {
-        request(Request {
-            method: Method::Get
-            url: url
-            headers: []
-            body: ""
-        })?
+        request(
+            Request {
+                method: Method::Get
+                url: url
+                headers: []
+                body: ""
+            },
+        )?
     }
 
     pub fn post(url: String, body: String) -> Response throws HttpError {
-        request(Request {
-            method: Method::Post
-            url: url
-            headers: []
-            body: body
-        })?
+        request(
+            Request {
+                method: Method::Post
+                url: url
+                headers: []
+                body: body
+            },
+        )?
     }
 }
 
