@@ -124,6 +124,6 @@ fn builds_integer_division_and_remainder() {
 #[test]
 fn builds_char_and_concat() {
     build_wasm(
-        "fn digit(d: Int) -> String { String::from_char(Char::from_code(48 + d)) }\nfn main() -> String { \"x\" ++ digit(7) ++ String::from_char('Z') }\n",
+        "fn digit(d: Int) -> String { string_from_char(char_from_code(48 + d)) }\nfn main() -> String { \"x\" ++ digit(7) ++ string_from_char('Z') }\n",
     );
 }

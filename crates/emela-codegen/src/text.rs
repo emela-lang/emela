@@ -59,8 +59,6 @@ fn inline_expr(expr: &IrExpr) -> String {
         IrExpr::Bool(value) => value.to_string(),
         IrExpr::String(value) => format!("{value:?}"),
         IrExpr::Char(value) => format!("char {value}"),
-        IrExpr::CharFromCode(value) => format!("char_from_code {}", inline_expr(value)),
-        IrExpr::StringFromChar(value) => format!("string_from_char {}", inline_expr(value)),
         IrExpr::Concat { left, right } => {
             format!("concat {}, {}", inline_expr(left), inline_expr(right))
         }
@@ -68,13 +66,6 @@ fn inline_expr(expr: &IrExpr) -> String {
             "[{}]",
             elems.iter().map(inline_expr).collect::<Vec<_>>().join(", ")
         ),
-        IrExpr::ArrayLength(array) => format!("array_length {}", inline_expr(array)),
-        IrExpr::ArrayGet { array, index, .. } => {
-            format!("array_get {}, {}", inline_expr(array), inline_expr(index))
-        }
-        IrExpr::ArrayPush { array, value, .. } => {
-            format!("array_push {}, {}", inline_expr(array), inline_expr(value))
-        }
         IrExpr::Unit => "()".to_string(),
         IrExpr::Var { name, .. } => format!("%{name}"),
         IrExpr::FunctionRef { name, .. } => format!("@{name}"),

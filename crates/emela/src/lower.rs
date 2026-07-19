@@ -57,6 +57,10 @@ struct MonoState {
 /// resolve a bare name identically.
 struct ExternInfo {
     canonical: String,
+    /// The declared parameter types. For a generic intrinsic (spec 0021) these
+    /// contain `Type::Var`, and are matched against the lowered argument types
+    /// to monomorphize `ret` before building the `Intrinsic` node.
+    params: Vec<Type>,
     ret: Type,
     is_intrinsic: bool,
     module: Option<String>,
@@ -134,6 +138,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                 declaration.name.clone(),
                 ExternInfo {
                     canonical: declaration.canonical(),
+                    params: declaration.params.iter().map(|p| p.ty.clone()).collect(),
                     ret: declaration.ret.clone(),
                     is_intrinsic: declaration.is_intrinsic,
                     module: declaration.module.clone(),
@@ -966,6 +971,12 @@ impl<'a> Lowerer<'a> {
     /// of its effect, any other extern only within its declaring module.
     fn visible_extern(&self, name: &str) -> Option<&ExternInfo> {
         let info = self.externs.get(name)?;
+        // A Core Prelude intrinsic (spec 0021) is bare-visible from every module,
+        // matching the type checker: the prelude is imported everywhere, so its
+        // pure primitives cross module boundaries by bare name.
+        if info.is_intrinsic && info.module.as_deref() == Some(crate::prelude::CORE_MODULE) {
+            return Some(info);
+        }
         let visible = match &info.effect_name {
             Some(effect) => self.current_effect.borrow().as_deref() == Some(effect.as_str()),
             None => self.current_declared_module.borrow().as_deref() == info.module.as_deref(),
@@ -1018,12 +1029,22 @@ impl<'a> Lowerer<'a> {
             // (spec 0021) lowers to an Intrinsic node (a native instruction
             // the backend inlines).
             if let Some(info) = self.visible_extern(name) {
-                let ret = info.ret.clone();
-                let args = args
-                    .iter()
-                    .map(|arg| self.lower_expr(arg, scope).0)
-                    .collect();
-                let node = if info.is_intrinsic {
+                let is_intrinsic = info.is_intrinsic;
+                let canonical = info.canonical.clone();
+                let declared_params = info.params.clone();
+                let declared_ret = info.ret.clone();
+                let lowered: Vec<(IrExpr, Type)> =
+                    args.iter().map(|arg| self.lower_expr(arg, scope)).collect();
+                // Monomorphize a generic intrinsic's return type (spec 0021) from
+                // the actual argument types, so `Type::Var` never reaches the IR.
+                // A no-op for a concrete signature (empty subst).
+                let mut subst = HashMap::new();
+                for (declared, (_, actual)) in declared_params.iter().zip(lowered.iter()) {
+                    infer_subst(declared, actual, &mut subst);
+                }
+                let ret = subst_type(&declared_ret, &subst);
+                let args = lowered.into_iter().map(|(expr, _)| expr).collect();
+                let node = if is_intrinsic {
                     IrExpr::Intrinsic {
                         name: name.clone(),
                         args,
@@ -1031,7 +1052,7 @@ impl<'a> Lowerer<'a> {
                     }
                 } else {
                     IrExpr::Platform {
-                        name: info.canonical.clone(),
+                        name: canonical,
                         args,
                         ret: ret.clone(),
                     }
@@ -1065,58 +1086,13 @@ impl<'a> Lowerer<'a> {
                 return self.lower_trait_call(candidates, name, args, scope);
             }
         }
-        // A `::` type-path call target (specs 0005/0017/0018 R7): a built-in
-        // conversion or an enum variant constructor. Resolved through a type,
-        // never the import table.
+        // A `::` type-path call target (specs 0005/0018 R7): an enum variant
+        // constructor, resolved through the enum type. The former
+        // `Char::from_code` / `String::from_char` / `Array::*` builtins are now
+        // bare intrinsics (spec 0021), lowered by the extern/intrinsic path above.
         if let Expr::TypePath { segments, .. } = callee
             && let [head, tail] = segments.as_slice()
         {
-            // Built-in pure conversions (spec 0017).
-            if head.as_str() == "Char" && tail.as_str() == "from_code" {
-                let (arg, _) = self.lower_expr(&args[0], scope);
-                return (IrExpr::CharFromCode(Box::new(arg)), Type::Char);
-            }
-            if head.as_str() == "String" && tail.as_str() == "from_char" {
-                let (arg, _) = self.lower_expr(&args[0], scope);
-                return (IrExpr::StringFromChar(Box::new(arg)), Type::String);
-            }
-            // Built-in array operations (spec 0007 companion). The element type
-            // comes from the (monomorphized) array argument.
-            if head.as_str() == "Array" && matches!(tail.as_str(), "length" | "get" | "push") {
-                let (arr, arr_ty) = self.lower_expr(&args[0], scope);
-                let elem_ty = match self.apply(&arr_ty) {
-                    Type::Array(elem) => *elem,
-                    other => other,
-                };
-                match tail.as_str() {
-                    "length" => return (IrExpr::ArrayLength(Box::new(arr)), Type::Int),
-                    "get" => {
-                        let (index, _) = self.lower_expr(&args[1], scope);
-                        let ret = elem_ty.clone();
-                        return (
-                            IrExpr::ArrayGet {
-                                array: Box::new(arr),
-                                index: Box::new(index),
-                                elem_ty,
-                            },
-                            ret,
-                        );
-                    }
-                    "push" => {
-                        let (value, _) = self.lower_expr(&args[1], scope);
-                        let ret = Type::Array(Box::new(elem_ty.clone()));
-                        return (
-                            IrExpr::ArrayPush {
-                                array: Box::new(arr),
-                                value: Box::new(value),
-                                elem_ty,
-                            },
-                            ret,
-                        );
-                    }
-                    _ => unreachable!("guarded by matches! above"),
-                }
-            }
             // An enum variant constructor with a payload, e.g. `Color::Red(x)`.
             if let Some(variants) = self.enums.get(head)
                 && let Some(def) = variants.iter().find(|v| v.name == *tail)

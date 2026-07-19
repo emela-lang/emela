@@ -98,7 +98,7 @@ fn pure_to_string_builds_on_wasm() {
     .unwrap();
     fs::write(
         package.join("src").join("int.emel"),
-        "module int\nfn digits(n: Int) -> String { if n == 0 { \"\" } else { digits(n / 10) ++ String::from_char(Char::from_code(48 + n % 10)) } }\npub fn to_text(n: Int) -> String { if n == 0 { \"0\" } else { if n < 0 { \"-\" ++ digits(0 - n) } else { digits(n) } } }\n",
+        "module int\nfn digits(n: Int) -> String { if n == 0 { \"\" } else { digits(n / 10) ++ string_from_char(char_from_code(48 + n % 10)) } }\npub fn to_text(n: Int) -> String { if n == 0 { \"0\" } else { if n < 0 { \"-\" ++ digits(0 - n) } else { digits(n) } } }\n",
     )
     .unwrap();
     let app = dir.join("main.emel");

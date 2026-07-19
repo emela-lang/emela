@@ -40,8 +40,8 @@ pub(crate) enum TokenKind {
     RBracket,
     Comma,
     Colon,
-    /// `::` — the type-path separator for enum variants and built-in
-    /// conversions (`Enum::Variant`, `Char::from_code`; specs 0005/0017/0018).
+    /// `::` — the type-path separator for enum variants (`Enum::Variant`; specs
+    /// 0005/0018).
     ColonColon,
     Dot,
     Eq,
