@@ -51,9 +51,12 @@ pub fn run() -> Result<()> {
             let artifact = build(&args.input, &args.packages, args.backend.as_deref(), mode)?;
             write_artifact(artifact, args.output)
         }
-        Commands::Ir { args } => {
+        Commands::Ir { args, rc } => {
             reject_library(&args, "ir")?;
-            let ir = compile_to_ir(&args.input, &args.packages)?;
+            let mut ir = compile_to_ir(&args.input, &args.packages)?;
+            if rc {
+                emela_codegen::insert_rc_ops(&mut ir);
+            }
             let text = emit_text(&ir);
             match args.output {
                 Some(output) => fs::write(&output, text).map_err(|err| {
@@ -577,6 +580,10 @@ enum Commands {
     Ir {
         #[command(flatten)]
         args: CompileArgs,
+        /// Show the IR after ARC retain/release insertion (spec 0048), as the
+        /// wasm backend consumes it
+        #[arg(long)]
+        rc: bool,
     },
     /// Compile a module and run it in-process
     Run {

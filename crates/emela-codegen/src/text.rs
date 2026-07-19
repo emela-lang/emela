@@ -35,6 +35,13 @@ fn emit_expr_text(expr: &IrExpr, indent: usize, out: &mut String) {
             out.push('\n');
             emit_expr_text(next, indent, out);
         }
+        IrExpr::Release { name, next, .. } => {
+            out.push_str(&pad);
+            out.push_str("release %");
+            out.push_str(name);
+            out.push('\n');
+            emit_expr_text(next, indent, out);
+        }
         other => {
             out.push_str(&pad);
             out.push_str("return ");
@@ -159,6 +166,13 @@ fn inline_expr(expr: &IrExpr) -> String {
         ),
         IrExpr::FieldAccess { target, index, .. } => {
             format!("field {}, {index}", inline_expr(target))
+        }
+        IrExpr::Retain { value } => format!("retain {}", inline_expr(value)),
+        IrExpr::Release { .. } => {
+            let mut out = String::from("{\n");
+            emit_expr_text(expr, 1, &mut out);
+            out.push('}');
+            out
         }
     }
 }

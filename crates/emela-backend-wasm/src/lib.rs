@@ -1217,6 +1217,18 @@ impl<'a> FnEmitter<'a> {
             IrExpr::Try { body, arms, ty } => self.emit_try(body, arms, ty)?,
             IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
             IrExpr::TailSelfCall { args, .. } => self.emit_tail_self_call(args)?,
+            // RC ops (spec 0048), inserted by `emela_codegen::rc::insert_rc_ops`.
+            // The pass only produces them for heap-typed (i32 pointer) values.
+            IrExpr::Retain { value } => {
+                self.emit(value)?;
+                self.line("call $rc_retain");
+            }
+            IrExpr::Release { name, next, .. } => {
+                let name = name.clone();
+                self.emit_var(&name)?;
+                self.line("call $rc_release");
+                self.emit(next)?;
+            }
         }
         Ok(())
     }

@@ -183,6 +183,24 @@ pub enum IrExpr {
         args: Vec<IrExpr>,
         ty: Type,
     },
+    /// `retain e` (spec 0048 A8): +1 the heap value `e` evaluates to, then
+    /// yield that value. Produced by [`crate::rc::insert_rc_ops`] in owned
+    /// positions (after the pass `e` is always a `Var`); never built by the
+    /// frontend. Backends that reclaim by other means (host GC) treat it as
+    /// `e` itself (spec 0048 A9).
+    Retain {
+        value: Box<IrExpr>,
+    },
+    /// `release x in e` (spec 0048 A8): -1 the binding `name` of type `ty`
+    /// (reclaiming its value at zero), then evaluate `next`. Produced by
+    /// [`crate::rc::insert_rc_ops`] at scope exits; never built by the
+    /// frontend. Backends that reclaim by other means treat it as `next`
+    /// (spec 0048 A9).
+    Release {
+        name: String,
+        ty: Type,
+        next: Box<IrExpr>,
+    },
 }
 
 impl IrExpr {
@@ -234,6 +252,8 @@ impl IrExpr {
             | IrExpr::TailSelfCall { ty, .. } => ty.clone(),
             IrExpr::FieldAccess { field_ty, .. } => field_ty.clone(),
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
+            IrExpr::Retain { value } => value.ty(),
+            IrExpr::Release { next, .. } => next.ty(),
         }
     }
 }
