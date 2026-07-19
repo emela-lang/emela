@@ -113,11 +113,13 @@ the wasm backend; `emela ir` prints the IR.
 - `module` / `pub` / `import` across files and source packages
 - WebAssembly and JavaScript backends (in-process or external plugin)
 
-Enum variants and the built-in conversions are **type paths written with `::`**
-(`List::Nil`, `Color::Red`, `Char::from_code`); `.` is reserved for module and
-receiver access. Identifiers use `snake_case`; types and enum variants use
-`PascalCase`. Not yet implemented: `struct`/`record`, explicit type arguments,
-generic function values, effect/error-row polymorphism, a native backend.
+Enum variants are **type paths written with `::`** (`List::Nil`, `Color::Red`);
+`.` is reserved for module and receiver access. The primitive conversions and
+array operations are bare intrinsic functions (`char_from_code`,
+`string_from_char`, `array_get`, …). Identifiers use `snake_case`; types and
+enum variants use `PascalCase`. Not yet implemented: `struct`/`record`, explicit
+type arguments, generic function values, effect/error-row polymorphism, a native
+backend.
 
 ## Syntax by example
 
@@ -143,7 +145,7 @@ fn main() -> Int {
 ```emela
 fn label(n: Int) -> String {
   if n < 10 && n >= 0 {
-    "digit " ++ String::from_char(Char::from_code(48 + n))
+    "digit " ++ string_from_char(char_from_code(48 + n))
   } else {
     "other"
   }

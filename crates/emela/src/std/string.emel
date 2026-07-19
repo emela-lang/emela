@@ -38,12 +38,12 @@ fn chars_helper(s: String, i: Int, n: Int, acc: Array<Char>) -> Array<Char> {
     if i >= n {
         acc
     } else {
-        chars_helper(s, i + 1, n, Array::push(acc, string_char_at(s, i)))
+        chars_helper(s, i + 1, n, array_push(acc, string_char_at(s, i)))
     }
 }
 
 -- All scalars of `s` as an `Array<Char>`, in order (spec 0030). Built from
--- `length` + `char_at` via the built-in `Array::push`.
+-- `length` + `char_at` via the Core Prelude `array_push` intrinsic (spec 0021).
 pub fn chars(s: String) -> Array<Char> {
     -- A typed empty array to seed the accumulator (`[]` alone is not inferrable).
     let empty: Array<Char> = []

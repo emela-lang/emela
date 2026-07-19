@@ -112,30 +112,13 @@ pub enum IrExpr {
         els: Box<IrExpr>,
         ty: Type,
     },
-    /// `Char::from_code(n)` (spec 0017): codepoint Int -> Char.
-    CharFromCode(Box<IrExpr>),
-    /// `String::from_char(c)` (spec 0017): a one-character String.
-    StringFromChar(Box<IrExpr>),
-    /// `a ++ b` (spec 0017): String concatenation.
+    /// `a ++ b` (spec 0017): String concatenation. The user-level `++` operator
+    /// lowers through the `Concat` trait to the `string_concat` intrinsic (spec
+    /// 0020/0021); this node remains for compiler-internal concatenation, e.g.
+    /// building a `@test` failure message (spec 0040).
     Concat {
         left: Box<IrExpr>,
         right: Box<IrExpr>,
-    },
-    /// `Array::length(a)` (spec 0007 companion): the element count. -> Int.
-    ArrayLength(Box<IrExpr>),
-    /// `Array::get(a, i)`: the element at index `i`. `elem_ty` is carried so a
-    /// backend picks the load width. Precondition: `0 <= i < length(a)`.
-    ArrayGet {
-        array: Box<IrExpr>,
-        index: Box<IrExpr>,
-        elem_ty: Type,
-    },
-    /// `Array::push(a, x)`: a fresh array with `x` appended (pure copy, so `a`
-    /// is unchanged). `elem_ty` is the element type of both arrays.
-    ArrayPush {
-        array: Box<IrExpr>,
-        value: Box<IrExpr>,
-        elem_ty: Type,
     },
     /// An enum or `Option` value (spec 0005/0001). `tag` selects the variant in
     /// declaration order; `payload` carries its fields.
@@ -184,14 +167,10 @@ impl IrExpr {
             IrExpr::Float(_) => Type::Float,
             IrExpr::Bool(_) => Type::Bool,
             IrExpr::String(_) => Type::String,
-            IrExpr::Char(_) | IrExpr::CharFromCode(_) => Type::Char,
-            IrExpr::StringFromChar(_) | IrExpr::Concat { .. } => Type::String,
+            IrExpr::Char(_) => Type::Char,
+            IrExpr::Concat { .. } => Type::String,
             IrExpr::Unit => Type::Unit,
-            IrExpr::Array { elem_ty, .. } | IrExpr::ArrayPush { elem_ty, .. } => {
-                Type::Array(Box::new(elem_ty.clone()))
-            }
-            IrExpr::ArrayLength(_) => Type::Int,
-            IrExpr::ArrayGet { elem_ty, .. } => elem_ty.clone(),
+            IrExpr::Array { elem_ty, .. } => Type::Array(Box::new(elem_ty.clone())),
             IrExpr::Var { ty, .. } => ty.clone(),
             IrExpr::FunctionRef { sig, .. } => Type::Function(sig.clone()),
             IrExpr::Let { next, .. } => next.ty(),

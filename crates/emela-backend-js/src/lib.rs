@@ -81,6 +81,18 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         "string_slice" => format!("([...{a}].slice({b}, {c}).join(\"\"))"),
         // A `Char` is already its code point number, so `char_code` is identity.
         "char_code" => format!("({a})"),
+        // Char/String conversions (spec 0017), formerly the `CharFromCode` /
+        // `StringFromChar` nodes. A `Char` is already its code point number, so
+        // `char_from_code` is identity; `string_from_char` builds the string.
+        "char_from_code" => format!("({a})"),
+        "string_from_char" => format!("String.fromCodePoint({a})"),
+        // Array operations (spec 0007), formerly the `ArrayLength` / `ArrayGet` /
+        // `ArrayPush` nodes. Arrays are native JS arrays. `array_get_unchecked`
+        // is the raw accessor (the safe `array_get` is a stdlib wrapper).
+        // `array_push` returns a fresh array (pure copy), so spread not mutate.
+        "array_length" => format!("({a}.length)"),
+        "array_get_unchecked" => format!("{a}[{b}]"),
+        "array_push" => format!("[...{a}, {b}]"),
         _ => unreachable!("intrinsic `{name}` not provided by js-node backend"),
     }
 }
@@ -169,22 +181,11 @@ fn emit_expr(expr: &IrExpr) -> String {
         IrExpr::String(value) => format!("{value:?}"),
         // A `Char` is its Unicode scalar value as a number (spec 0017).
         IrExpr::Char(value) => value.to_string(),
-        IrExpr::CharFromCode(value) => emit_expr(value),
-        IrExpr::StringFromChar(value) => format!("String.fromCodePoint({})", emit_expr(value)),
         IrExpr::Concat { left, right } => format!("({} + {})", emit_expr(left), emit_expr(right)),
         IrExpr::Array { elems, .. } => format!(
             "[{}]",
             elems.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
-        // Arrays are native JS arrays (spec 0007 companion).
-        IrExpr::ArrayLength(array) => format!("({}.length)", emit_expr(array)),
-        IrExpr::ArrayGet { array, index, .. } => {
-            format!("{}[{}]", emit_expr(array), emit_expr(index))
-        }
-        // `push` returns a fresh array (pure copy), so spread rather than mutate.
-        IrExpr::ArrayPush { array, value, .. } => {
-            format!("[...{}, {}]", emit_expr(array), emit_expr(value))
-        }
         IrExpr::Unit => "undefined".to_string(),
         IrExpr::Var { name, .. } => js_name(name),
         IrExpr::FunctionRef { name, .. } => js_name(name),

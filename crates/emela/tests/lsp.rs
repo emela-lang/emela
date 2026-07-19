@@ -441,8 +441,9 @@ fn completes_effects_in_uses_row() {
     lsp.shutdown_and_exit();
 }
 
-// Completion context 2: `Enum::` lists its variants; `Char::`/`String::` the
-// built-in conversions (spec 0017).
+// Completion context 2: `Enum::` lists its variants. The former
+// `Char::`/`String::` conversions are now bare intrinsics (spec 0021), so `::`
+// offers no completions on a non-enum type name.
 #[test]
 fn completes_type_paths() {
     let dir = temp_dir();
@@ -455,8 +456,9 @@ fn completes_type_paths() {
     // Cursor right after `ParseError::` (line 6).
     let labels = lsp.completion_labels(&uri, 6, 20);
     assert_eq!(labels, vec!["Empty", "BadDigit"], "{labels:?}");
+    // `Char::` is no longer a type path with built-in members.
     let char_labels = lsp.completion_labels_at_extra(&uri, "  Char::");
-    assert_eq!(char_labels, vec!["from_code"]);
+    assert!(char_labels.is_empty(), "{char_labels:?}");
     let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();
 }

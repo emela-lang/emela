@@ -203,23 +203,10 @@ fn enclosing_match_scrutinee(before: &[Token], open: usize) -> Option<Vec<TokenK
     None
 }
 
-/// Variants (and built-in conversions, spec 0017) offered right after `Name::`.
+/// Enum variants offered right after `Name::`. The former `Char::from_code` /
+/// `String::from_char` conversions are now bare intrinsics (spec 0021), so `::`
+/// completes enum variants only.
 fn complete_type_path(name: &str, snapshot: &Snapshot) -> Vec<CompletionItem> {
-    match name {
-        "Char" => {
-            return vec![
-                CompletionItem::new("from_code", completion_kind::FUNCTION)
-                    .detail("Char::from_code(Int) -> Char"),
-            ];
-        }
-        "String" => {
-            return vec![
-                CompletionItem::new("from_char", completion_kind::FUNCTION)
-                    .detail("String::from_char(Char) -> String"),
-            ];
-        }
-        _ => {}
-    }
     let Some(sym) = snapshot.enums.iter().find(|sym| sym.name == name) else {
         return Vec::new();
     };

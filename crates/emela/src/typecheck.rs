@@ -64,6 +64,10 @@ struct ExternSig {
     module: Option<String>,
     /// The owning effect for an effect backing operation.
     effect_name: Option<String>,
+    /// `true` for an `intrinsic fn` (spec 0021). A Core Prelude intrinsic is
+    /// visible by bare name from every module (the prelude is imported
+    /// everywhere); other intrinsics/platform functions stay module-private.
+    is_intrinsic: bool,
 }
 
 /// A declared enum's variants, in declaration order (spec 0005).
@@ -912,7 +916,15 @@ impl Checker {
                         .help("Intrinsics are defined by spec 0021."),
                 ));
             };
-            if params != entry.params || declaration.ret != entry.ret {
+            // The signature must match the interface exactly, type parameters
+            // included. A generic intrinsic (spec 0021) is written over the same
+            // type-variable names as the interface entry (`T`), so the `params`/
+            // `ret` comparison — which contains `Type::Var("T")` on both sides —
+            // and the `type_params` comparison together pin the shape.
+            if params != entry.params
+                || declaration.ret != entry.ret
+                || declaration.type_params != entry.type_params
+            {
                 return Err(Error::diagnostic(
                     Diagnostic::new("Intrinsic signature mismatch").label(
                         declaration.name_span.clone(),
@@ -945,8 +957,11 @@ impl Checker {
                 declaration.name.clone(),
                 ExternSig {
                     sig: FunctionSig {
-                        type_params: Vec::new(),
-                        bounds: Vec::new(),
+                        // A generic intrinsic (spec 0021) carries its type
+                        // parameters so a call is monomorphized like a generic
+                        // function (spec 0014). Empty for a non-generic one.
+                        type_params: declaration.type_params.clone(),
+                        bounds: declaration.bounds.clone(),
                         params,
                         ret: declaration.ret.clone(),
                         throws: None,
@@ -954,6 +969,7 @@ impl Checker {
                     },
                     module: declaration.module.clone(),
                     effect_name: declaration.effect_name.clone(),
+                    is_intrinsic: true,
                 },
             );
             return Ok(());
@@ -1007,6 +1023,7 @@ impl Checker {
                 },
                 module: declaration.module.clone(),
                 effect_name: declaration.effect_name.clone(),
+                is_intrinsic: false,
             },
         );
         Ok(())
@@ -1019,6 +1036,13 @@ impl Checker {
     /// never cross a module boundary by bare name.
     fn visible_extern(&self, name: &str, ctx: &FnCtx) -> Option<&FunctionSig> {
         let entry = self.externs.get(name)?;
+        // A Core Prelude intrinsic (spec 0021) is bare-visible from every module:
+        // the prelude is implicitly imported everywhere, so its pure primitives
+        // (e.g. `char_from_code`, `array_push`) cross module boundaries by bare
+        // name — unlike a module-private extern or a prelude-external intrinsic.
+        if entry.is_intrinsic && entry.module.as_deref() == Some(crate::prelude::CORE_MODULE) {
+            return Some(&entry.sig);
+        }
         let visible = match &entry.effect_name {
             Some(effect) => ctx.effect_name == Some(effect.as_str()),
             None => ctx.declared_module == entry.module.as_deref(),
@@ -1327,6 +1351,12 @@ impl Checker {
                 } else if name == "None" {
                     Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
                 } else if let Some(sig) = self.visible_extern(name, ctx) {
+                    // A generic intrinsic (spec 0021), like a generic function,
+                    // fixes its type arguments only at a call site; it has no
+                    // first-class function type to flow through here.
+                    if sig.is_generic() {
+                        return Err(generic_value_error(name, span));
+                    }
                     Ok(self.info(sig.ty(), span.clone()))
                 } else {
                     match self
@@ -1549,9 +1579,8 @@ impl Checker {
             }
             Expr::TypePath { segments, span } => {
                 // A `::` type path used as a value (no `(...)`): a no-payload
-                // enum variant (specs 0005/0018 R7). Built-in conversions
-                // (`Char::from_code`) always take an argument, so a bare one is
-                // handled as a call, not a value.
+                // enum variant (specs 0005/0018 R7). `::` is enum-variant-only
+                // now (the former conversions are bare intrinsics, spec 0021).
                 if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
                     return self.check_variant(segments, &[], span, scope, ctx, allow_throw);
                 }
@@ -1685,6 +1714,19 @@ impl Checker {
                 span: span.clone(),
             });
         }
+        // Generic intrinsic call (spec 0021): a bare call to a generic
+        // `intrinsic fn` (e.g. `array_get<T>`) infers its type argument from the
+        // argument types, like a generic function. Handled before the general
+        // path because a generic signature has no first-class function type to
+        // flow through `check_expr` (its params contain `Type::Var`).
+        if let Expr::Var(name, _) = callee
+            && !scope.contains_key(name)
+            && let Some(sig) = self.visible_extern(name, ctx)
+            && sig.is_generic()
+        {
+            let sig = sig.clone();
+            return self.check_generic_call(name, &sig, args, span, scope, ctx, allow_throw);
+        }
         // Generic function call (spec 0014): a direct call to a generic function
         // infers its type arguments from the argument types. This is handled
         // before the general path because a generic function has no first-class
@@ -1743,35 +1785,23 @@ impl Checker {
                 allow_throw,
             );
         }
-        // A `::` type-path call target (specs 0005/0017/0018 R7): a built-in
-        // conversion (`Char::from_code(n)`) or an enum variant constructor
-        // (`Either::Left(x)`). These are resolved through a type, never through
-        // the import table.
+        // A `::` type-path call target (specs 0005/0018 R7): an enum variant
+        // constructor (`Either::Left(x)`), resolved through the enum type, never
+        // through the import table. The former `Char::from_code` /
+        // `String::from_char` / `Array::*` builtins are now bare intrinsics
+        // (spec 0021), so `::` is enum-variant-only.
         if let Expr::TypePath {
             segments,
             span: path_span,
         } = callee
         {
-            if let Some(builtin) =
-                self.check_char_builtin(segments, args, span, scope, ctx, allow_throw)?
-            {
-                return Ok(builtin);
-            }
-            if let Some(builtin) =
-                self.check_array_builtin(segments, args, span, scope, ctx, allow_throw)?
-            {
-                return Ok(builtin);
-            }
             if segments.len() == 2 && self.enums.contains_key(&segments[0]) {
                 return self.check_variant(segments, args, span, scope, ctx, allow_throw);
             }
             return Err(Error::diagnostic(
                 Diagnostic::new("Unknown type path").label(
                     path_span.clone(),
-                    format!(
-                        "`{}` is not an enum variant or built-in conversion",
-                        segments.join("::")
-                    ),
+                    format!("`{}` is not an enum variant", segments.join("::")),
                 ),
             ));
         }
@@ -1850,124 +1880,6 @@ impl Checker {
             throws,
             span: span.clone(),
         })
-    }
-
-    /// Type-checks the built-in pure conversions `Char::from_code(Int) -> Char`
-    /// and `String::from_char(Char) -> String` (spec 0017). Returns `None` when
-    /// the call is not one of them.
-    #[allow(clippy::too_many_arguments)]
-    fn check_char_builtin(
-        &self,
-        segments: &[String],
-        args: &[Expr],
-        span: &Span,
-        scope: &mut HashMap<String, Type>,
-        ctx: &FnCtx,
-        allow_throw: bool,
-    ) -> Result<Option<ExprInfo>> {
-        let [name, variant] = segments else {
-            return Ok(None);
-        };
-        let (arg_ty, ret_ty) = match (name.as_str(), variant.as_str()) {
-            ("Char", "from_code") => (Type::Int, Type::Char),
-            ("String", "from_char") => (Type::Char, Type::String),
-            _ => return Ok(None),
-        };
-        if args.len() != 1 {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Wrong number of arguments").label(
-                    span.clone(),
-                    format!("`{name}::{variant}` takes 1 argument, got {}", args.len()),
-                ),
-            ));
-        }
-        let arg = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-        expect_assignable(&arg.ty, &arg_ty, arg.span.clone())?;
-        Ok(Some(ExprInfo {
-            ty: ret_ty,
-            effects: arg.effects,
-            throws: arg.throws,
-            span: span.clone(),
-        }))
-    }
-
-    /// Type-checks the built-in array operations `Array::length(a) -> Int`,
-    /// `Array::get(a, i) -> T` and `Array::push(a, x) -> Array<T>` (spec 0007
-    /// companion). Unlike the `Char`/`String` conversions these are polymorphic:
-    /// the element type is read from the array argument. Returns `None` when the
-    /// call is not one of them.
-    #[allow(clippy::too_many_arguments)]
-    fn check_array_builtin(
-        &self,
-        segments: &[String],
-        args: &[Expr],
-        span: &Span,
-        scope: &mut HashMap<String, Type>,
-        ctx: &FnCtx,
-        allow_throw: bool,
-    ) -> Result<Option<ExprInfo>> {
-        let [name, op] = segments else {
-            return Ok(None);
-        };
-        if name != "Array" {
-            return Ok(None);
-        }
-        let arity = match op.as_str() {
-            "length" => 1,
-            "get" | "push" => 2,
-            _ => return Ok(None),
-        };
-        if args.len() != arity {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Wrong number of arguments").label(
-                    span.clone(),
-                    format!(
-                        "`Array::{op}` takes {arity} argument(s), got {}",
-                        args.len()
-                    ),
-                ),
-            ));
-        }
-        let array = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-        let Type::Array(elem) = array.ty.clone() else {
-            return Err(Error::diagnostic(
-                Diagnostic::new("Expected an array").label(
-                    array.span.clone(),
-                    format!(
-                        "`Array::{op}` expects an `Array<_>`, but found `{:?}`",
-                        array.ty
-                    ),
-                ),
-            ));
-        };
-        let elem = *elem;
-        let mut effects = array.effects;
-        let mut throws = array.throws;
-        let ret = match op.as_str() {
-            "length" => Type::Int,
-            "get" => {
-                let index = self.check_expr(&args[1], scope, ctx, allow_throw)?;
-                expect_assignable(&index.ty, &Type::Int, index.span.clone())?;
-                effects.union(&index.effects);
-                throws = merge_throws(throws, index.throws, index.span)?;
-                elem
-            }
-            // `push` returns a fresh array, so `x` must have the element type.
-            "push" => {
-                let value = self.check_expr(&args[1], scope, ctx, allow_throw)?;
-                expect_assignable(&value.ty, &elem, value.span.clone())?;
-                effects.union(&value.effects);
-                throws = merge_throws(throws, value.throws, value.span)?;
-                Type::Array(Box::new(elem))
-            }
-            _ => unreachable!("arity table covers all ops"),
-        };
-        Ok(Some(ExprInfo {
-            ty: ret,
-            effects,
-            throws,
-            span: span.clone(),
-        }))
     }
 
     fn check_variant(

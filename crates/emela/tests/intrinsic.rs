@@ -54,6 +54,81 @@ fn js_backend_inlines_operator_intrinsic() {
     assert!(js.contains(" + "), "expected an inlined `+`:\n{js}");
 }
 
+/// The `Char`/`String` conversions are bare Core Prelude intrinsics (spec 0021,
+/// formerly the `Char::from_code` / `String::from_char` builtins): usable with
+/// no import, and inlined so their names never reach the artifact.
+#[test]
+fn js_backend_inlines_char_string_conversions() {
+    let output = build_single(
+        "fn main() -> String uses {} { string_from_char(char_from_code(65)) }\n",
+        "js-node",
+        None,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let js = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !js.contains("char_from_code") && !js.contains("string_from_char"),
+        "conversion intrinsics were not inlined:\n{js}"
+    );
+    assert!(
+        js.contains("String.fromCodePoint"),
+        "expected inlined `fromCodePoint`:\n{js}"
+    );
+}
+
+/// The generic `Array` intrinsics (spec 0021) monomorphize and inline: the bare
+/// `array_length` / `array_push` and the raw `array_get_unchecked` leave no
+/// intrinsic name in the artifact. `array_get` is a safe `pub fn` wrapper that
+/// returns `Option<T>`, so its name survives (it is not an intrinsic).
+#[test]
+fn js_backend_inlines_generic_array_intrinsics() {
+    let output = build_single(
+        "fn main() -> Int uses {} {\n    let xs: Array<Int> = [1, 2, 3]\n    let ys = array_push(xs, 4)\n    array_length(ys)\n}\n",
+        "js-node",
+        None,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let js = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !js.contains("array_length") && !js.contains("array_push"),
+        "array intrinsics were not inlined:\n{js}"
+    );
+    assert!(js.contains(".length"), "expected inlined `.length`:\n{js}");
+}
+
+/// The safe `array_get` wrapper (spec 0011) returns `Option<T>`, resolvable by
+/// bare name with no import (it is a Core Prelude `pub fn`). It bottoms out in
+/// the raw `array_get_unchecked` intrinsic, which inlines away, and builds an
+/// `Option` value at the call site.
+#[test]
+fn js_backend_safe_array_get_wraps_raw_intrinsic() {
+    let source = "fn at(xs: Array<Int>, i: Int) -> Int uses {} {\n    match array_get(xs, i) {\n        Some(v) -> v\n        None -> 0 - 1\n    }\n}\nfn main() -> Int uses {} {\n    let xs: Array<Int> = [10, 20, 30]\n    at(xs, 1) + at(xs, 9)\n}\n";
+    let output = build_single(source, "js-node", None);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let js = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !js.contains("array_get_unchecked"),
+        "raw accessor was not inlined:\n{js}"
+    );
+    // The safe wrapper is a real (monomorphized) function, not an intrinsic.
+    assert!(
+        js.contains("function array_get"),
+        "expected the `array_get` wrapper to survive as a function:\n{js}"
+    );
+}
+
 /// The embedded `std.string` / `std.float` wrappers (spec 0038) resolve with
 /// no `--package` and their intrinsics inline: `f64_sqrt` becomes `Math.sqrt`
 /// on the JS backend.
