@@ -261,9 +261,11 @@ fn main() -> Int uses {} {
 #[test]
 fn covers_every_error_category() {
     let cases: &[(&str, &str)] = &[
+        // `@` is an attribute prefix now (spec 0039), so `#` is the
+        // representative unknown character.
         (
             "Unexpected character",
-            "fn main() -> Int uses {} {\n  1 @ 2\n}\n",
+            "fn main() -> Int uses {} {\n  1 # 2\n}\n",
         ),
         (
             "Expected an expression",

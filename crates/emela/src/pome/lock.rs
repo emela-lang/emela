@@ -35,6 +35,10 @@ pub(crate) struct LockedPackage {
     /// This package's own direct dependencies, by source path. Lets `list`
     /// render the resolved tree without re-reading every manifest.
     pub(crate) dependencies: Vec<String>,
+    /// `true` when this package is reachable only through the root Pome's
+    /// `[dev-dependencies]` (spec 0040 D2): it participates in the Pome's own
+    /// frontends (D3) but must not be reachable from build artifacts (D4).
+    pub(crate) dev: bool,
 }
 
 /// A parsed / resolved `Pome.lock`.
@@ -116,12 +120,15 @@ impl Lock {
                 .get_array("dependencies")
                 .map(|deps| deps.to_vec())
                 .unwrap_or_default();
+            // Absent means a runtime dependency; older locks predate the flag.
+            let dev = table.get_string("dev") == Some("true");
             packages.push(LockedPackage {
                 source: source_path.to_string(),
                 version,
                 commit,
                 hash,
                 dependencies,
+                dev,
             });
         }
         Ok(Lock::from_packages(packages))
@@ -141,6 +148,9 @@ impl Lock {
             ));
             out.push_str(&format!("commit = {}\n", toml_lite::quote(&package.commit)));
             out.push_str(&format!("hash = {}\n", toml_lite::quote(&package.hash)));
+            if package.dev {
+                out.push_str("dev = true\n");
+            }
             if !package.dependencies.is_empty() {
                 let mut deps = package.dependencies.clone();
                 deps.sort();
@@ -188,6 +198,7 @@ mod tests {
                 commit: "deadbeef".to_string(),
                 hash: "tree:1111".to_string(),
                 dependencies: vec![],
+                dev: true,
             },
             LockedPackage {
                 source: "github.com/emela-lang/stdlib".to_string(),
@@ -195,6 +206,7 @@ mod tests {
                 commit: "a1b2c3d".to_string(),
                 hash: "tree:2222".to_string(),
                 dependencies: vec!["gitlab.com/acme/util".to_string()],
+                dev: false,
             },
         ])
     }

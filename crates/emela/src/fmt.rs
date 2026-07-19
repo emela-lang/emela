@@ -140,7 +140,7 @@ pub(crate) fn format_source(label: &str, source: &str) -> Result<String> {
     }
     let (tokens, comments) = lex_with_comments(label, source)?;
     let comparisons = comparison_offsets(&program, &tokens);
-    let lines = Builder::new(source, tokens, comments).build_top();
+    let lines = normalize_attributes(Builder::new(source, tokens, comments).build_top());
     let printer = Printer {
         src: source,
         comparisons,
@@ -517,6 +517,36 @@ fn finalize_line(
         atoms: std::mem::take(atoms),
         trailing: std::mem::take(trailing),
     });
+}
+
+/// Canonicalizes attribute placement at the top level (spec 0039 R8): each
+/// attribute goes on its own line directly above its declaration — an inline
+/// `@test fn ...` is split, and a blank line between an attribute and the
+/// declaration (or the next attribute) is removed. Attributes only parse at the
+/// top level, so nested lines need no treatment.
+fn normalize_attributes(lines: Vec<Line>) -> Vec<Line> {
+    let is_attr =
+        |atom: &Atom| matches!(atom, Atom::Tok(token) if matches!(token.kind, TokenKind::At(_)));
+    let attr_line = |line: &Line| line.atoms.len() == 1 && is_attr(&line.atoms[0]);
+    let mut out: Vec<Line> = Vec::new();
+    for mut line in lines {
+        // Split leading attributes onto their own lines. The blank (if any)
+        // stays above the first attribute, between the previous item and this
+        // attributed declaration.
+        while line.atoms.len() > 1 && is_attr(&line.atoms[0]) {
+            let attr = line.atoms.remove(0);
+            out.push(Line {
+                blank_before: std::mem::take(&mut line.blank_before),
+                atoms: vec![attr],
+                trailing: Vec::new(),
+            });
+        }
+        if out.last().is_some_and(attr_line) {
+            line.blank_before = false;
+        }
+        out.push(line);
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

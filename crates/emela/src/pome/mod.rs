@@ -86,13 +86,16 @@ pub(crate) fn scaffold(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// `emela pome add <src>[@<req>]` (spec 0032 C1/C3, CAP1).
+/// `emela pome add [--dev] <src>[@<req>]` (spec 0032 C1/C3, CAP1; `--dev` files
+/// the dependency under `[dev-dependencies]`, spec 0040 D1).
 fn add(args: &[String]) -> Result<()> {
     let mut spec = None;
     let mut assume_yes = false;
+    let mut dev = false;
     for arg in args {
         match arg.as_str() {
             "--yes" | "-y" => assume_yes = true,
+            "--dev" => dev = true,
             other if other.starts_with('-') => {
                 return Err(Error::new(format!(
                     "unsupported option `{other}` for `pome add`"
@@ -105,11 +108,25 @@ fn add(args: &[String]) -> Result<()> {
             }
         }
     }
-    let spec = spec.ok_or_else(|| Error::new("usage: emela pome add <src>[@<req>]"))?;
+    let spec = spec.ok_or_else(|| Error::new("usage: emela pome add [--dev] <src>[@<req>]"))?;
     let (source, requirement) = parse_add_spec(&spec)?;
 
     let dir = project_dir()?;
     let mut manifest = Manifest::load(&dir)?;
+
+    // One source, one table (spec 0040 D1): moving a dependency between
+    // `[dependencies]` and `[dev-dependencies]` is remove-then-add, never a
+    // silent overwrite.
+    if dev && manifest.dependencies.contains_key(&source) {
+        return Err(Error::new(format!(
+            "`{source}` is already a runtime dependency; `emela pome remove {source}` first"
+        )));
+    }
+    if !dev && manifest.dev_dependencies.contains_key(&source) {
+        return Err(Error::new(format!(
+            "`{source}` is already a dev-dependency; `emela pome remove {source}` first"
+        )));
+    }
 
     // Resolve the requirement, defaulting to a caret on the latest tag when the
     // user gave none (V2/V3).
@@ -119,9 +136,12 @@ fn add(args: &[String]) -> Result<()> {
     };
 
     println!("  Fetched {source}");
-    manifest
-        .dependencies
-        .insert(source.clone(), requirement.clone());
+    let table = if dev {
+        &mut manifest.dev_dependencies
+    } else {
+        &mut manifest.dependencies
+    };
+    table.insert(source.clone(), requirement.clone());
 
     // Resolve the whole graph (fetches into the cache) so the new dependency and
     // its transitive dependencies are pinned together (V3).
@@ -169,7 +189,10 @@ fn remove(args: &[String]) -> Result<()> {
     let source = source_path::normalize(&spec)?;
     let dir = project_dir()?;
     let mut manifest = Manifest::load(&dir)?;
-    if manifest.dependencies.remove(&source).is_none() {
+    // Either table (spec 0040 D1); the two never hold the same source.
+    let removed = manifest.dependencies.remove(&source).is_some()
+        || manifest.dev_dependencies.remove(&source).is_some();
+    if !removed {
         return Err(Error::new(format!(
             "`{source}` is not a dependency of this Pome"
         )));
@@ -177,7 +200,7 @@ fn remove(args: &[String]) -> Result<()> {
     manifest.save(&dir)?;
     // Re-pin the remaining graph so the lock never keeps an orphaned entry (C3).
     let lock_dir = lock_dir(&dir)?;
-    if manifest.dependencies.is_empty() {
+    if manifest.dependencies.is_empty() && manifest.dev_dependencies.is_empty() {
         Lock::remove_file(&lock_dir)?;
     } else {
         let resolved = resolve::resolve(&manifest)?;
@@ -201,12 +224,31 @@ fn list(args: &[String]) -> Result<()> {
         manifest.name,
         manifest.version.to_string().trim_start_matches('v')
     );
-    let mut roots: Vec<&String> = manifest.dependencies.keys().collect();
+    // Runtime roots first, then dev roots (spec 0040 D1), each sorted.
+    let mut roots: Vec<(&String, bool)> = manifest
+        .dependencies
+        .keys()
+        .map(|source| (source, false))
+        .collect();
+    let mut dev_roots: Vec<(&String, bool)> = manifest
+        .dev_dependencies
+        .keys()
+        .map(|source| (source, true))
+        .collect();
     roots.sort();
+    dev_roots.sort();
+    roots.extend(dev_roots);
     let mut visited = std::collections::BTreeSet::new();
-    for (index, source) in roots.iter().enumerate() {
+    for (index, (source, dev)) in roots.iter().enumerate() {
         let last = index + 1 == roots.len();
-        print_tree(source, &lock, "", last, &mut visited);
+        print_tree(
+            source,
+            &lock,
+            "",
+            last,
+            if *dev { " (dev)" } else { "" },
+            &mut visited,
+        );
     }
     Ok(())
 }
@@ -226,6 +268,7 @@ fn update(args: &[String]) -> Result<()> {
     let manifest = Manifest::load(&dir)?;
     if let Some(source) = &target
         && !manifest.dependencies.contains_key(source)
+        && !manifest.dev_dependencies.contains_key(source)
     {
         return Err(Error::new(format!(
             "`{source}` is not a dependency of this Pome"
@@ -251,7 +294,7 @@ fn install(args: &[String]) -> Result<()> {
         // No lock (or an empty one): resolve from the manifest so `install` on a
         // fresh clone still produces a lock, matching the usual expectation.
         let manifest = Manifest::load(&dir)?;
-        if manifest.dependencies.is_empty() {
+        if manifest.dependencies.is_empty() && manifest.dev_dependencies.is_empty() {
             println!("  No dependencies to install");
             return Ok(());
         }
@@ -327,18 +370,20 @@ fn checkout_dirs(lock: &Lock) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Renders one dependency subtree of `emela pome list`.
+/// Renders one dependency subtree of `emela pome list`. `note` annotates the
+/// top-level line (` (dev)` for a dev root, spec 0040 D1); children carry none.
 fn print_tree(
     source: &str,
     lock: &Lock,
     prefix: &str,
     last: bool,
+    note: &str,
     visited: &mut std::collections::BTreeSet<String>,
 ) {
     let connector = if last { "└── " } else { "├── " };
     match lock.find(source) {
         Some(package) => {
-            println!("{prefix}{connector}{source} {}", package.version);
+            println!("{prefix}{connector}{source} {}{note}", package.version);
             if !visited.insert(source.to_string()) {
                 // Already expanded elsewhere in the tree; don't recurse again.
                 return;
@@ -348,12 +393,12 @@ fn print_tree(
             deps.sort();
             for (index, dep) in deps.iter().enumerate() {
                 let child_last = index + 1 == deps.len();
-                print_tree(dep, lock, &child_prefix, child_last, visited);
+                print_tree(dep, lock, &child_prefix, child_last, "", visited);
             }
         }
         None => {
             // A declared dependency with no lock entry: resolution hasn't run.
-            println!("{prefix}{connector}{source} (unresolved — run `emela pome install`)");
+            println!("{prefix}{connector}{source}{note} (unresolved — run `emela pome install`)");
         }
     }
 }
@@ -406,8 +451,9 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// Finds the current Pome: the nearest ancestor of the working directory that
-/// holds a `Pome.toml`.
-fn project_dir() -> Result<PathBuf> {
+/// holds a `Pome.toml`. Also the target-selection rule of `emela test` (spec
+/// 0040 C1).
+pub(crate) fn project_dir() -> Result<PathBuf> {
     let cwd = std::env::current_dir()
         .map_err(|err| Error::new(format!("failed to read the working directory: {err}")))?;
     find_project_dir(&cwd).ok_or_else(|| {
@@ -474,6 +520,27 @@ pub(crate) fn dependency_packages(input: &Path) -> Result<Vec<(String, PathBuf)>
     Ok(roots)
 }
 
+/// The import-root names of the enclosing Pome's dev-only dependencies (spec
+/// 0040 D2): the roots a build artifact must not reach (D4). Empty when
+/// `input` is not inside a Pome or nothing is dev-only.
+pub(crate) fn dev_import_roots(input: &Path) -> Result<Vec<String>> {
+    let base = input.parent().unwrap_or_else(|| Path::new("."));
+    let start = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+    let Some(project) = find_project_dir(&start) else {
+        return Ok(Vec::new());
+    };
+    let lock = Lock::load(&lock_dir(&project)?)?;
+    Ok(lock
+        .packages
+        .iter()
+        .filter(|package| package.dev)
+        .map(|package| {
+            let checkout = resolve::checkout_dir(&package.source, &package.version);
+            import_root_for(&package.source, &checkout)
+        })
+        .collect())
+}
+
 /// The import-root name a dependency Pome is addressed by (spec 0032 M2). It is
 /// the source-path leaf by default, but the Pome may override it with
 /// `[pome].module` in its own manifest — so `github.com/emela-lang/stdlib` can
@@ -508,7 +575,7 @@ fn no_args(args: &[String], verb: &str) -> Result<()> {
 
 fn pome_usage() -> Error {
     Error::new(
-        "usage: emela pome add <src>[@<req>] [--yes] \
+        "usage: emela pome add [--dev] <src>[@<req>] [--yes] \
          | emela pome remove <src> \
          | emela pome list \
          | emela pome update [<src>] \

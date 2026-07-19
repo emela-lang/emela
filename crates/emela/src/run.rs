@@ -119,6 +119,26 @@ fn fd_write(
     iovs_len: i32,
     nwritten: i32,
 ) -> std::result::Result<i32, wasmi::Error> {
+    let (memory, bytes) = gather_iovs(caller, iovs, iovs_len)?;
+
+    // fd 1 = stdout, fd 2 = stderr; the backend never emits any other fd.
+    match fd {
+        1 => write_out(std::io::stdout(), &bytes)?,
+        2 => write_out(std::io::stderr(), &bytes)?,
+        _ => return Ok(WASI_EBADF),
+    }
+
+    store_nwritten(&memory, caller, nwritten, bytes.len() as u32)?;
+    Ok(0)
+}
+
+/// Reads the iovec-described bytes of an `fd_write` call into one buffer,
+/// returning the module's memory for the follow-up `nwritten` store.
+fn gather_iovs<T>(
+    caller: &mut Caller<'_, T>,
+    iovs: i32,
+    iovs_len: i32,
+) -> std::result::Result<(Memory, Vec<u8>), wasmi::Error> {
     let memory = match caller.get_export("memory") {
         Some(Extern::Memory(memory)) => memory,
         _ => return Err(host_fail("module does not export `memory`")),
@@ -137,30 +157,105 @@ fn fd_write(
         read_mem(&memory, caller, ptr, &mut chunk)?;
         bytes.extend_from_slice(&chunk);
     }
-
-    // fd 1 = stdout, fd 2 = stderr; the backend never emits any other fd.
-    match fd {
-        1 => write_out(std::io::stdout(), &bytes)?,
-        2 => write_out(std::io::stderr(), &bytes)?,
-        _ => return Ok(WASI_EBADF),
-    }
-
-    let written = bytes.len() as u32;
-    memory
-        .write(&mut *caller, nwritten as usize, &written.to_le_bytes())
-        .map_err(|err| host_fail(format!("failed to store nwritten: {err}")))?;
-    Ok(0)
+    Ok((memory, bytes))
 }
 
-fn read_mem(
+fn store_nwritten<T>(
     memory: &Memory,
-    caller: &Caller<'_, ()>,
+    caller: &mut Caller<'_, T>,
+    nwritten: i32,
+    written: u32,
+) -> std::result::Result<(), wasmi::Error> {
+    memory
+        .write(&mut *caller, nwritten as usize, &written.to_le_bytes())
+        .map_err(|err| host_fail(format!("failed to store nwritten: {err}")))
+}
+
+fn read_mem<T>(
+    memory: &Memory,
+    caller: &Caller<'_, T>,
     offset: usize,
     buffer: &mut [u8],
 ) -> std::result::Result<(), wasmi::Error> {
     memory
         .read(caller, offset, buffer)
         .map_err(|err| host_fail(format!("out-of-bounds wasm memory access: {err}")))
+}
+
+/// The stdout/stderr a captured execution produced (spec 0040 C6/C9).
+#[derive(Default)]
+pub(crate) struct Captured {
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+}
+
+/// How a captured execution ended: a clean `proc_exit` or a runtime trap
+/// (`panic`/`unreachable`, spec 0040 C4).
+pub(crate) enum RunOutcome {
+    Exit(i32),
+    Trap(String),
+}
+
+/// Runs a `wasm-wasi` module in-process like [`execute`], but captures its
+/// stdout/stderr into buffers instead of the process streams, and reports a
+/// trap as an outcome instead of an error. Backs `emela test` (spec 0040 C5:
+/// each test runs in a fresh instance; C6: failure details come from the
+/// captured stderr).
+pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
+    let engine = Engine::default();
+    let module = Module::new(&engine, wasm)
+        .map_err(|err| Error::new(format!("failed to load wasm module: {err}")))?;
+    let mut store = Store::new(&engine, Captured::default());
+    let mut linker: Linker<Captured> = Linker::new(&engine);
+
+    linker
+        .func_wrap(
+            "wasi_snapshot_preview1",
+            "proc_exit",
+            |_caller: Caller<'_, Captured>, code: i32| -> std::result::Result<(), wasmi::Error> {
+                Err(wasmi::Error::host(Exit(code)))
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `proc_exit`: {err}")))?;
+
+    linker
+        .func_wrap(
+            "wasi_snapshot_preview1",
+            "fd_write",
+            |mut caller: Caller<'_, Captured>,
+             fd: i32,
+             iovs: i32,
+             iovs_len: i32,
+             nwritten: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                let (memory, bytes) = gather_iovs(&mut caller, iovs, iovs_len)?;
+                match fd {
+                    1 => caller.data_mut().stdout.extend_from_slice(&bytes),
+                    2 => caller.data_mut().stderr.extend_from_slice(&bytes),
+                    _ => return Ok(WASI_EBADF),
+                }
+                store_nwritten(&memory, &mut caller, nwritten, bytes.len() as u32)?;
+                Ok(0)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `fd_write`: {err}")))?;
+
+    let instance = match linker.instantiate_and_start(&mut store, &module) {
+        Ok(instance) => instance,
+        Err(err) => return Ok((RunOutcome::Trap(format!("{err}")), store.into_data())),
+    };
+    let start = instance
+        .get_typed_func::<(), ()>(&store, "_start")
+        .map_err(|err| Error::new(format!("wasm module has no runnable `_start`: {err}")))?;
+
+    let outcome = match start.call(&mut store, ()) {
+        Ok(()) => RunOutcome::Exit(0),
+        Err(err) => match err.downcast_ref::<Exit>() {
+            Some(Exit(code)) => RunOutcome::Exit(*code),
+            None => RunOutcome::Trap(format!("{err}")),
+        },
+    };
+    Ok((outcome, store.into_data()))
 }
 
 fn write_out(mut sink: impl Write, bytes: &[u8]) -> std::result::Result<(), wasmi::Error> {

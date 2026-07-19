@@ -16,7 +16,7 @@ use crate::typecheck;
 const DEFAULT_BACKEND: &str = "js-node";
 
 /// The set of built-in backends, in display order.
-fn registry() -> BackendRegistry {
+pub(crate) fn registry() -> BackendRegistry {
     let mut registry = BackendRegistry::new();
     #[cfg(feature = "backend-wasm")]
     registry.register(Box::new(emela_backend_wasm::WasmBackend));
@@ -76,6 +76,8 @@ pub fn run() -> Result<()> {
             }
             Ok(())
         }
+        // `emela test` (spec 0040): run the current Pome's `@test` functions.
+        Commands::Test => run_tests(),
         // `emela lsp` (spec 0033): the language server over stdio.
         Commands::Lsp { packages } => crate::lsp::run(packages),
         Commands::Fmt { check, mut paths } => {
@@ -154,6 +156,20 @@ fn run_program(_input: &PathBuf, _packages: &[PathBuf], _backend: Option<&str>) 
     ))
 }
 
+/// `emela test` executes tests in-process like `run`, so it needs the same
+/// feature.
+#[cfg(feature = "run")]
+fn run_tests() -> Result<()> {
+    crate::test_runner::run()
+}
+
+#[cfg(not(feature = "run"))]
+fn run_tests() -> Result<()> {
+    Err(Error::new(
+        "this `emela` was built without the `run` feature; rebuild with `--features run`",
+    ))
+}
+
 /// Warns when building with a backend that is not fully supported (Tier 1).
 fn note_tier(backend: &dyn Backend) {
     if backend.tier() != Tier::Tier1 {
@@ -186,7 +202,164 @@ fn compile_to_ir(input: &PathBuf, package_paths: &[PathBuf]) -> Result<IrProgram
     // Lowering and the backends need a `main` (the `_start` entrypoint), so IR and
     // build always require it — only `check --library` relaxes this.
     let (program, typed) = compile_frontend(input, package_paths, true)?;
+    let (program, typed) = strip_tests(program, typed);
+    check_dev_reachability(input, &program)?;
     Ok(lower::lower(&program, &typed))
+}
+
+/// Rejects a build whose artifact would reach a dev-dependency's code (spec
+/// 0040 D4). With `@test` functions stripped (T8), everything reachable from
+/// `main` is artifact code, and none of it may resolve into a dev-only import
+/// root. A private helper that only tests call may keep using a dev dependency:
+/// it is simply unreachable here. (Reachability follows function references;
+/// a dev dependency's trait impls and types travel with its functions.)
+fn check_dev_reachability(input: &Path, program: &crate::ast::Program) -> Result<()> {
+    let dev_roots = crate::pome::dev_import_roots(input)?;
+    if dev_roots.is_empty() {
+        return Ok(());
+    }
+    let table = crate::resolve::FnTable::build(program);
+    let mut queue: Vec<usize> = program
+        .functions
+        .iter()
+        .enumerate()
+        .filter(|(_, function)| function.module_path.is_empty() && function.name == "main")
+        .map(|(index, _)| index)
+        .collect();
+    let mut seen: std::collections::HashSet<usize> = queue.iter().copied().collect();
+    while let Some(index) = queue.pop() {
+        let function = &program.functions[index];
+        if let Some(root) = function.module_path.first()
+            && dev_roots.iter().any(|dev| dev == root)
+        {
+            return Err(Error::new(format!(
+                "`{}.{}` is provided by dev-dependency import root `{root}` and must not be \
+                 reachable from build artifacts (spec 0040); call it from a `@test` fn only, \
+                 or move the dependency to `[dependencies]`",
+                function.module_path.join("."),
+                function.name
+            )));
+        }
+        walk_block_refs(
+            &function.body,
+            &function.module_path,
+            &table,
+            &mut |target| {
+                if seen.insert(target) {
+                    queue.push(target);
+                }
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Walks a block for function references, resolving each the way the lowerer
+/// does, and reports the referenced function indices.
+fn walk_block_refs(
+    block: &crate::ast::Block,
+    module: &[String],
+    table: &crate::resolve::FnTable,
+    visit: &mut impl FnMut(usize),
+) {
+    use crate::ast::BlockItem;
+    for item in &block.items {
+        match item {
+            BlockItem::Let { value, .. } => walk_expr_refs(value, module, table, visit),
+            BlockItem::Expr(expr) => walk_expr_refs(expr, module, table, visit),
+        }
+    }
+}
+
+fn walk_expr_refs(
+    expr: &crate::ast::Expr,
+    module: &[String],
+    table: &crate::resolve::FnTable,
+    visit: &mut impl FnMut(usize),
+) {
+    use crate::ast::Expr;
+    use crate::resolve::Resolved;
+    let resolve_ref = |segments: &[String], visit: &mut dyn FnMut(usize)| {
+        if let Resolved::One(entry) = table.resolve_in(segments, module) {
+            visit(entry.index);
+        }
+    };
+    match expr {
+        Expr::Var(name, _) => resolve_ref(std::slice::from_ref(name), visit),
+        Expr::Path { segments, .. } => resolve_ref(segments, visit),
+        Expr::Call { callee, args, .. } => {
+            walk_expr_refs(callee, module, table, visit);
+            for arg in args {
+                walk_expr_refs(arg, module, table, visit);
+            }
+        }
+        Expr::Fn { body, .. } => walk_block_refs(body, module, table, visit),
+        Expr::Binary { left, right, .. } => {
+            walk_expr_refs(left, module, table, visit);
+            walk_expr_refs(right, module, table, visit);
+        }
+        Expr::Block(block) => walk_block_refs(block, module, table, visit),
+        Expr::If {
+            cond, then, els, ..
+        } => {
+            walk_expr_refs(cond, module, table, visit);
+            walk_block_refs(then, module, table, visit);
+            walk_block_refs(els, module, table, visit);
+        }
+        Expr::Throw { value, .. } | Expr::Question { value, .. } => {
+            walk_expr_refs(value, module, table, visit);
+        }
+        Expr::Panic { message, .. } => walk_expr_refs(message, module, table, visit),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            walk_expr_refs(scrutinee, module, table, visit);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    walk_expr_refs(guard, module, table, visit);
+                }
+                walk_expr_refs(&arm.body, module, table, visit);
+            }
+        }
+        Expr::Try { body, arms, .. } => {
+            walk_block_refs(body, module, table, visit);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    walk_expr_refs(guard, module, table, visit);
+                }
+                walk_expr_refs(&arm.body, module, table, visit);
+            }
+        }
+        Expr::Array(elements, _) => {
+            for element in elements {
+                walk_expr_refs(element, module, table, visit);
+            }
+        }
+        Expr::Int(..)
+        | Expr::Float(..)
+        | Expr::Bool(..)
+        | Expr::String(..)
+        | Expr::Char(..)
+        | Expr::Unit(..)
+        | Expr::TypePath { .. } => {}
+    }
+}
+
+/// Excludes `@test` functions from normal artifacts (spec 0040 T8): they are
+/// type-checked by `check`/lint/LSP but never lowered or emitted by
+/// `build`/`run`/`ir`, and contribute nothing to the capability manifest (spec
+/// 0025). `TypedProgram::functions` is index-aligned with
+/// `Program::functions`, so both are filtered together.
+pub(crate) fn strip_tests(
+    mut program: crate::ast::Program,
+    mut typed: typecheck::TypedProgram,
+) -> (crate::ast::Program, typecheck::TypedProgram) {
+    let keep: Vec<bool> = program.functions.iter().map(|f| !f.is_test).collect();
+    let mut kept = keep.iter();
+    program.functions.retain(|_| *kept.next().unwrap());
+    let mut kept = keep.iter();
+    typed.functions.retain(|_| *kept.next().unwrap());
+    (program, typed)
 }
 
 /// Builds the import roots for `input`: the explicit `--package` roots, plus
@@ -333,6 +506,7 @@ pub(crate) fn check_source(label: &str, source: &str) -> Result<()> {
 /// Lowers an in-memory source string to IR and renders it as text.
 pub(crate) fn ir_source(label: &str, source: &str) -> Result<String> {
     let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
+    let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
     Ok(emit_text(&ir))
 }
@@ -346,6 +520,7 @@ pub(crate) fn compile_source(
     mode: EmitMode,
 ) -> Result<Artifact> {
     let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
+    let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
     let options = BackendOptions {
         mode,
@@ -401,6 +576,8 @@ enum Commands {
         #[command(flatten)]
         args: CompileArgs,
     },
+    /// Discover and run the current Pome's tests (spec 0040)
+    Test,
     /// List the available compiler backends
     Backends,
     /// Start the language server over stdio (spec 0033)

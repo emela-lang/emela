@@ -117,6 +117,12 @@ struct Lowerer<'a> {
     /// Counter for fresh temporary names used to sequence non-tail statement
     /// expressions inside blocks.
     stmt_counter: RefCell<usize>,
+    /// `true` while lowering a `@test` function's body at an implicit-try
+    /// position (spec 0040 T3): a bare throwing call or `throw` here is wrapped
+    /// so its error is reported (`io.write_stderr`) and the test trapped,
+    /// instead of leaking an unrouted error into the backend. Reset inside
+    /// nested function literals and `try` bodies, mirroring the type checker.
+    in_test_body: RefCell<bool>,
 }
 
 pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
@@ -198,6 +204,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         current_effect: RefCell::new(None),
         cmp_counter: RefCell::new(0),
         stmt_counter: RefCell::new(0),
+        in_test_body: RefCell::new(false),
     };
 
     // Lower the ordinary functions (no substitution); calls to generics enqueue
@@ -219,6 +226,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             *lowerer.current_module.borrow_mut() = function.module_path.clone();
             *lowerer.current_declared_module.borrow_mut() = function.declared_module.clone();
             *lowerer.current_effect.borrow_mut() = function.effect_name.clone();
+            *lowerer.in_test_body.borrow_mut() = function.is_test;
             IrFunction {
                 // Unique bare names are kept; colliding imports use a mangled
                 // full path so same-named functions coexist (spec 0018).
@@ -253,6 +261,8 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         *lowerer.current_module.borrow_mut() = template.module_path.clone();
         *lowerer.current_declared_module.borrow_mut() = template.declared_module.clone();
         *lowerer.current_effect.borrow_mut() = template.effect_name.clone();
+        // Specializations are never tests (a `@test` fn cannot be generic).
+        *lowerer.in_test_body.borrow_mut() = false;
         let specialized = lowerer.lower_named_function(template, request.mangled);
         lowerer.subst.borrow_mut().clear();
         functions.push(specialized);
@@ -669,7 +679,10 @@ impl<'a> Lowerer<'a> {
                     )
                 }
             }
-            Expr::Call { callee, args, .. } => self.lower_call(callee, args, scope),
+            Expr::Call { callee, args, .. } => {
+                let (ir, ty) = self.lower_call(callee, args, scope);
+                self.maybe_wrap_test_site(ir, ty)
+            }
             Expr::Fn {
                 params,
                 ret,
@@ -683,7 +696,11 @@ impl<'a> Lowerer<'a> {
                 for param in params {
                     fn_scope.insert(param.name.clone(), param.ty.clone());
                 }
+                // A literal's body follows the ordinary throwing rules even
+                // inside a `@test` body (spec 0040 T3).
+                let saved = self.in_test_body.replace(false);
                 let (body, _) = self.lower_block(&body.items, &mut fn_scope);
+                self.in_test_body.replace(saved);
                 let ir_params: Vec<IrParam> = params
                     .iter()
                     .map(|param| IrParam {
@@ -714,7 +731,8 @@ impl<'a> Lowerer<'a> {
             } => {
                 let left = self.lower_expr(left, scope);
                 let right = self.lower_expr(right, scope);
-                self.lower_binary(*op, left, right)
+                let (ir, ty) = self.lower_binary(*op, left, right);
+                self.maybe_wrap_test_site(ir, ty)
             }
             Expr::Block(block) => self.lower_block(&block.items, &mut scope.clone()),
             Expr::If {
@@ -736,12 +754,10 @@ impl<'a> Lowerer<'a> {
             }
             Expr::Throw { value, .. } => {
                 let (value, _) = self.lower_expr(value, scope);
-                (
-                    IrExpr::Throw {
-                        value: Box::new(value),
-                    },
-                    Type::Never,
-                )
+                let ir = IrExpr::Throw {
+                    value: Box::new(value),
+                };
+                self.maybe_wrap_test_site(ir, Type::Never)
             }
             Expr::Panic { message, .. } => {
                 let (message, _) = self.lower_expr(message, scope);
@@ -848,7 +864,12 @@ impl<'a> Lowerer<'a> {
                 )
             }
             Expr::Try { body, arms, .. } => {
+                // Inside a `try` body a thrown error routes to `catch`, not to
+                // the test harness (spec 0040 T3); the arms are back at an
+                // implicit-try position (an uncaught re-`throw` fails the test).
+                let saved = self.in_test_body.replace(false);
                 let (body_ir, body_ty) = self.lower_block(&body.items, &mut scope.clone());
+                self.in_test_body.replace(saved);
                 let error_ty = body_error_ty(&body_ir).unwrap_or(Type::Never);
                 let variants = self.variants_of(&error_ty);
                 let ir_arms: Vec<IrArm> = arms
@@ -868,6 +889,75 @@ impl<'a> Lowerer<'a> {
                 )
             }
         }
+    }
+
+    /// Wraps a lowered expression when it is a bare throwing site in a `@test`
+    /// body (spec 0040 T3): `try { <site> } catch { e -> report(e); trap }`.
+    /// The report renders the error with its `Show` impl when one is in scope
+    /// (spec 0040 C7) and writes it to stderr; the trap (an IR `Panic`) is what
+    /// the runner observes as the test's failure (spec 0040 C4). Identity for
+    /// non-throwing sites and outside test bodies.
+    fn maybe_wrap_test_site(&self, ir: IrExpr, ty: Type) -> (IrExpr, Type) {
+        if !*self.in_test_body.borrow() {
+            return (ir, ty);
+        }
+        let Some(error_ty) = site_error_ty(&ir) else {
+            return (ir, ty);
+        };
+        let error_var = "__test_error".to_string();
+        let label = error_type_label(&error_ty);
+        // `threw <Type>` — plus `: <Show rendering>` when an impl is in scope.
+        let message = match type_head_key(&error_ty).filter(|key| {
+            self.impls_by
+                .contains_key(&("Show".to_string(), key.clone()))
+        }) {
+            Some(_) => {
+                let (rendered, _) = self.resolve_impl_call(
+                    &["Show".to_string()],
+                    "to_string",
+                    vec![(
+                        IrExpr::Var {
+                            name: error_var.clone(),
+                            ty: error_ty.clone(),
+                        },
+                        error_ty.clone(),
+                    )],
+                );
+                IrExpr::Concat {
+                    left: Box::new(IrExpr::String(format!("threw {label}: "))),
+                    right: Box::new(rendered),
+                }
+            }
+            None => IrExpr::String(format!("threw {label}")),
+        };
+        let message = IrExpr::Concat {
+            left: Box::new(message),
+            right: Box::new(IrExpr::String("\n".to_string())),
+        };
+        let arm_body = IrExpr::Let {
+            name: "__test_reported".to_string(),
+            value_ty: Type::Unit,
+            value: Box::new(IrExpr::Platform {
+                name: "io.write_stderr".to_string(),
+                args: vec![message],
+                ret: Type::Unit,
+            }),
+            next: Box::new(IrExpr::Panic {
+                message: Box::new(IrExpr::String("test failed".to_string())),
+            }),
+        };
+        let wrapped = IrExpr::Try {
+            body: Box::new(ir),
+            arms: vec![IrArm {
+                pattern: IrPattern::Wildcard {
+                    binding: Some((error_var, error_ty)),
+                },
+                guard: None,
+                body: arm_body,
+            }],
+            ty: ty.clone(),
+        };
+        (wrapped, ty)
     }
 
     /// The extern/intrinsic `name` resolves to from the current context (spec
@@ -1315,6 +1405,30 @@ fn is_throwing(ir: &IrExpr) -> bool {
             matches!(callee.ty(), Type::Function(function) if function.throws.is_some())
         }
         _ => false,
+    }
+}
+
+/// The error type a single lowered site can raise: a `throw`'s value type or a
+/// throwing call's declared error. Unlike [`body_error_ty`] this does not walk
+/// into subexpressions — nested sites in a `@test` body wrap themselves (spec
+/// 0040 T3), so only the node itself is inspected.
+fn site_error_ty(ir: &IrExpr) -> Option<Type> {
+    match ir {
+        IrExpr::Throw { value } => Some(value.ty()),
+        IrExpr::Call { callee, .. } => match callee.ty() {
+            Type::Function(function) => function.throws.map(|throws| *throws),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A short display label for a thrown error's type in the test-failure report
+/// (spec 0040 C7), e.g. `AssertError`.
+fn error_type_label(ty: &Type) -> String {
+    match ty {
+        Type::Enum(name, _) => name.clone(),
+        other => format!("{other:?}"),
     }
 }
 
