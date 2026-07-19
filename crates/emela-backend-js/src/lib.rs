@@ -8,8 +8,8 @@
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
-    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, contains_tail_self_call,
-    is_intrinsic, used_intrinsics, used_platform_fns,
+    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, contains_tail_self_call, is_intrinsic,
+    used_intrinsics, used_platform_fns,
 };
 
 /// The Node.js-flavored JavaScript backend.

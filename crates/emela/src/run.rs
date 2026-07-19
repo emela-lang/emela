@@ -148,8 +148,20 @@ fn fd_write(
     // fd 1 = stdout, fd 2 = stderr; the backend never emits any other fd.
     if caller.data().captured.is_some() {
         match fd {
-            1 => caller.data_mut().captured.as_mut().unwrap().stdout.extend_from_slice(&bytes),
-            2 => caller.data_mut().captured.as_mut().unwrap().stderr.extend_from_slice(&bytes),
+            1 => caller
+                .data_mut()
+                .captured
+                .as_mut()
+                .unwrap()
+                .stdout
+                .extend_from_slice(&bytes),
+            2 => caller
+                .data_mut()
+                .captured
+                .as_mut()
+                .unwrap()
+                .stderr
+                .extend_from_slice(&bytes),
             _ => return Ok(WASI_EBADF),
         }
     } else {

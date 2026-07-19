@@ -28,8 +28,8 @@ use std::fmt::Write as _;
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type, contains_tail_self_call, used_intrinsics,
-    used_platform_fns, walk,
+    QuestionMode, Result, Tier, Type, contains_tail_self_call, used_intrinsics, used_platform_fns,
+    walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -829,7 +829,10 @@ fn emit_fn_like(
     // the loop with the body's value.
     let tail_loop = contains_tail_self_call(body);
     if tail_loop {
-        emitter.line(&format!("(loop $tail (result {})", WasmTy::of(ret).keyword()));
+        emitter.line(&format!(
+            "(loop $tail (result {})",
+            WasmTy::of(ret).keyword()
+        ));
     }
     emitter.emit(body)?;
     if tail_loop {

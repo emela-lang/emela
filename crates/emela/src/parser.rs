@@ -1134,7 +1134,8 @@ impl Parser {
             TokenKind::Ident(_) => {
                 let span = self.peek().span.clone();
                 let name = self.expect_ident()?;
-                if name.chars().next().is_some_and(char::is_uppercase) && self.at(&TokenKind::LBrace)
+                if name.chars().next().is_some_and(char::is_uppercase)
+                    && self.at(&TokenKind::LBrace)
                 {
                     // A capitalized name directly followed by `{` is a record
                     // literal (spec 0006): `User { id: 1 ... }`.

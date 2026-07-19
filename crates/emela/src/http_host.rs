@@ -319,7 +319,11 @@ fn read_headers<T>(
     for index in 0..count {
         // 4-byte pointer elements follow the length word.
         let header_ptr = read_u32(memory, caller, ptr + 4 + index * 4)? as usize;
-        let name = read_string(memory, caller, read_u32(memory, caller, header_ptr)? as usize)?;
+        let name = read_string(
+            memory,
+            caller,
+            read_u32(memory, caller, header_ptr)? as usize,
+        )?;
         let value = read_string(
             memory,
             caller,
@@ -406,7 +410,12 @@ fn write_headers<T>(
     let array = guest_alloc(alloc, caller, 4 + element_ptrs.len() as i32 * 4)?;
     write_u32(memory, caller, array as usize, element_ptrs.len() as u32)?;
     for (index, element) in element_ptrs.iter().enumerate() {
-        write_u32(memory, caller, array as usize + 4 + index * 4, *element as u32)?;
+        write_u32(
+            memory,
+            caller,
+            array as usize + 4 + index * 4,
+            *element as u32,
+        )?;
     }
     Ok(array)
 }
@@ -418,18 +427,20 @@ fn write_error<T>(
     err: &ReqError,
 ) -> std::result::Result<i32, wasmi::Error> {
     match err {
-        ReqError::InvalidUrl(msg) => alloc_error_string(memory, alloc, caller, ERR_INVALID_URL, msg),
+        ReqError::InvalidUrl(msg) => {
+            alloc_error_string(memory, alloc, caller, ERR_INVALID_URL, msg)
+        }
         ReqError::ConnectFailed(msg) => {
             alloc_error_string(memory, alloc, caller, ERR_CONNECT_FAILED, msg)
         }
         ReqError::Protocol(msg) => alloc_error_string(memory, alloc, caller, ERR_PROTOCOL, msg),
-        ReqError::BindFailed(msg) => alloc_error_string(memory, alloc, caller, ERR_BIND_FAILED, msg),
+        ReqError::BindFailed(msg) => {
+            alloc_error_string(memory, alloc, caller, ERR_BIND_FAILED, msg)
+        }
         ReqError::Timeout => alloc_error_tag(memory, alloc, caller, ERR_TIMEOUT),
         ReqError::TooLarge => alloc_error_tag(memory, alloc, caller, ERR_TOO_LARGE),
         ReqError::NonUtf8Body => alloc_error_tag(memory, alloc, caller, ERR_NON_UTF8_BODY),
-        ReqError::ConnectionClosed => {
-            alloc_error_tag(memory, alloc, caller, ERR_CONNECTION_CLOSED)
-        }
+        ReqError::ConnectionClosed => alloc_error_tag(memory, alloc, caller, ERR_CONNECTION_CLOSED),
     }
 }
 
@@ -514,7 +525,9 @@ fn memory<T>(caller: &mut Caller<'_, T>) -> std::result::Result<Memory, wasmi::E
     }
 }
 
-fn alloc_func<T>(caller: &mut Caller<'_, T>) -> std::result::Result<TypedFunc<i32, i32>, wasmi::Error> {
+fn alloc_func<T>(
+    caller: &mut Caller<'_, T>,
+) -> std::result::Result<TypedFunc<i32, i32>, wasmi::Error> {
     match caller.get_export("alloc") {
         Some(Extern::Func(func)) => func
             .typed::<i32, i32>(&*caller)
@@ -751,8 +764,7 @@ fn finish_incoming(
     head_end: usize,
     content_length: usize,
 ) -> std::result::Result<ParsedRequest, IncomingError> {
-    let head =
-        std::str::from_utf8(&received[..head_end]).map_err(|_| IncomingError::BadRequest)?;
+    let head = std::str::from_utf8(&received[..head_end]).map_err(|_| IncomingError::BadRequest)?;
     let mut lines = head.split("\r\n");
     let request_line = lines.next().ok_or(IncomingError::BadRequest)?;
     let mut parts = request_line.split_whitespace();

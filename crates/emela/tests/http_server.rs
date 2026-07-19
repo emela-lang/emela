@@ -62,6 +62,11 @@ fn start_server(label: &str, port: u16, source: &str) -> Server {
         }
         thread::sleep(Duration::from_millis(50));
     }
+    // Reap the child before failing so no process is left running.
+    let mut child = child;
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(&dir);
     panic!("server did not start listening on port {port}");
 }
 
@@ -69,7 +74,9 @@ fn start_server(label: &str, port: u16, source: &str) -> Server {
 /// connection, so read to EOF).
 fn round_trip(port: u16, request: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
     stream.write_all(request.as_bytes()).unwrap();
     stream.flush().unwrap();
     let mut response = Vec::new();

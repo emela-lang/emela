@@ -1029,7 +1029,9 @@ impl Checker {
                     .help("Platform functions are defined by spec 0013."),
             ));
         };
-        if params != entry.params || declaration.ret != entry.ret || declaration.throws != entry.throws
+        if params != entry.params
+            || declaration.ret != entry.ret
+            || declaration.throws != entry.throws
         {
             // The `throws` clause is part of the registry signature (spec 0043).
             return Err(Error::diagnostic(
@@ -2465,14 +2467,9 @@ impl Checker {
             // empty `[]` needs no annotation (mirrors the `let x: Array<T>`
             // path).
             let info = match (value, field_ty) {
-                (Expr::Array(elements, array_span), Type::Array(element)) => self.check_array(
-                    elements,
-                    array_span,
-                    scope,
-                    ctx,
-                    Some(element),
-                    allow_throw,
-                )?,
+                (Expr::Array(elements, array_span), Type::Array(element)) => {
+                    self.check_array(elements, array_span, scope, ctx, Some(element), allow_throw)?
+                }
                 _ => self.check_expr(value, scope, ctx, allow_throw)?,
             };
             effects.union(&info.effects);

@@ -11,10 +11,8 @@ static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_dir(label: &str) -> PathBuf {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "emela-records-{label}-{}-{id}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("emela-records-{label}-{}-{id}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

@@ -350,9 +350,9 @@ fn prune_unreachable_imports(
     }
     // Keep every root function unconditionally, plus imported functions the
     // reachability walk marked.
-    program
-        .functions
-        .retain(|function| root_names.contains(&function.name) || reachable.contains(&function.name));
+    program.functions.retain(|function| {
+        root_names.contains(&function.name) || reachable.contains(&function.name)
+    });
 }
 
 impl<'a> Lowerer<'a> {
@@ -756,7 +756,9 @@ impl<'a> Lowerer<'a> {
             let lowered = fields
                 .iter()
                 .zip(&declared)
-                .map(|((_, _, value), (_, field_ty))| self.lower_field_value(value, field_ty, scope))
+                .map(|((_, _, value), (_, field_ty))| {
+                    self.lower_field_value(value, field_ty, scope)
+                })
                 .collect();
             return (
                 IrExpr::RecordValue {
