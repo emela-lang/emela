@@ -25,6 +25,19 @@ impl<T> Add for List<T> {
     }
 }
 
+-- `List<T>` is a monoid under concatenation (spec 0047): `append` is its
+-- associative operation and `Nil` its identity. This is what makes `concat`
+-- (below) total on the empty list. `empty` is return-dispatched — its `Self`
+-- (`List<T>`) is resolved from the call's expected type, not from an argument.
+impl<T> Monoid for List<T> {
+    fn combine(a: List<T>, b: List<T>) -> List<T> uses {} {
+        append(a, b)
+    }
+    fn empty() -> List<T> uses {} {
+        List::Nil
+    }
+}
+
 pub fn length<T>(list: List<T>) -> Int {
     match list {
         Nil -> 0
@@ -106,6 +119,26 @@ pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A) -> A {
     match list {
         Nil -> init
         Cons(h, t) -> fold(t, f(init, h), f)
+    }
+}
+
+-- Combines a list of monoid values into one (spec 0047, Haskell `mconcat`).
+-- Total on the empty list: `empty()` supplies the identity, resolved from the
+-- return type `M`. With `M = List<U>` this is the classic flatten
+-- `List<List<U>> -> List<U>` (0029 Open Questions: `flat_map == concat ∘ map`).
+pub fn concat<M: Monoid>(list: List<M>) -> M {
+    match list {
+        Nil -> empty()
+        Cons(h, t) -> combine(h, concat(t))
+    }
+}
+
+-- Maps each element to a monoid and combines the results (spec 0047, `foldMap`).
+-- `fold_map(xs, f)` equals `concat(map(xs, f))`.
+pub fn fold_map<T, M: Monoid>(list: List<T>, f: (T) -> M) -> M {
+    match list {
+        Nil -> empty()
+        Cons(h, t) -> combine(f(h), fold_map(t, f))
     }
 }
 

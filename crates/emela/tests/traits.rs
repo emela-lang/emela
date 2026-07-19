@@ -332,9 +332,64 @@ fn rejects_extra_impl_method() {
 }
 
 #[test]
-fn rejects_self_only_in_return() {
+fn allows_self_only_in_return() {
+    // Return dispatch (spec 0047): a method whose `Self` is only in the return
+    // type (like `empty`) is now allowed; its impl comes from the expected type.
+    check_ok("trait Zeroish { fn make() -> Self uses {} }\nfn main() -> Int uses {} { 0 }\n");
+}
+
+#[test]
+fn monoid_empty_resolves_from_return_type() {
+    // Return dispatch (spec 0047): `empty()` in the `Nil` arm resolves its impl
+    // from the function's return type `String`, and `combine` dispatches on its
+    // argument. This is the `concat`-over-a-list shape the stdlib uses.
+    let dump = ir("enum L { Nil\n Cons(String, L) }\n\
+         fn cat(xs: L) -> String uses {} {\n\
+             match xs {\n\
+                 Nil -> empty()\n\
+                 Cons(h, t) -> combine(h, cat(t))\n\
+             }\n\
+         }\n\
+         fn main() -> String uses {} { cat(L::Cons(\"a\", L::Cons(\"b\", L::Nil))) }\n");
+    assert!(
+        dump.contains("Monoid__String__empty"),
+        "expected `empty()` to resolve to the String impl:\n{dump}"
+    );
+    assert!(
+        dump.contains("string_concat"),
+        "expected `combine` to reach string_concat:\n{dump}"
+    );
+}
+
+#[test]
+fn monoid_empty_resolves_from_annotation() {
+    // With no argument to dispatch on, an annotation supplies the expected type
+    // (spec 0047): `let e: String = empty()` picks the String impl.
+    check_ok(
+        "fn main() -> String uses {} {\n\
+             let e: String = empty()\n\
+             combine(e, \"hi\")\n\
+         }\n",
+    );
+}
+
+#[test]
+fn rejects_empty_without_expected_type() {
+    // No argument and no expected type: `Self` cannot be resolved (spec 0047).
+    let diagnostics = check_err(
+        "fn main() -> Int uses {} {\n\
+             let e = empty()\n\
+             0\n\
+         }\n",
+    );
+    assert!(diagnostics.contains("Self"), "{diagnostics}");
+}
+
+#[test]
+fn rejects_self_nowhere() {
+    // A method that mentions `Self` nowhere is still undispatchable (spec 0047).
     let diagnostics =
-        check_err("trait Bad { fn make() -> Self uses {} }\nfn main() -> Int uses {} { 0 }\n");
+        check_err("trait Bad { fn make() -> Int uses {} }\nfn main() -> Int uses {} { 0 }\n");
     assert!(
         diagnostics.contains("Undispatchable") || diagnostics.contains("Self"),
         "{diagnostics}"

@@ -45,6 +45,14 @@ trait Show {
     fn to_string(value: Self) -> String uses {}
 }
 
+-- A monoid (spec 0047): an associative `combine` with an identity `empty`.
+-- `empty` mentions `Self` only in its return type, so it is return-dispatched:
+-- its impl is chosen from the call's expected type, not from an argument.
+trait Monoid {
+    fn combine(a: Self, b: Self) -> Self uses {}
+    fn empty() -> Self uses {}
+}
+
 intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_sub(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_mul(a: Int, b: Int) -> Int uses {}
@@ -190,6 +198,15 @@ impl Ord for String {
 -- `print<T: Show>`) works uniformly for `String` as well as `Int`.
 impl Show for String {
     fn to_string(s: String) -> String uses {} { s }
+}
+
+-- `Monoid for String` (spec 0047): concatenation with the empty string as its
+-- identity. The only numeric-free built-in monoid; `Int`/`Float` are omitted
+-- because their additive (`0`) and multiplicative (`1`) identities are both
+-- valid, so no canonical instance exists (spec 0047 Open Questions).
+impl Monoid for String {
+    fn combine(a: String, b: String) -> String uses {} { string_concat(a, b) }
+    fn empty() -> String uses {} { "" }
 }
 
 -- `Eq for Char` (spec 0030). There is no `char_eq` intrinsic: a `Char` compares
