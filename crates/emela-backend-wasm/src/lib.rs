@@ -22,14 +22,14 @@
 //! `_start` calls `main`. If `main` returns `Int`, that value is the process
 //! exit code; otherwise the result is dropped and the exit code is `0`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type, contains_tail_self_call, used_intrinsics, used_platform_fns,
-    walk,
+    QuestionMode, Result, Tier, Type, contains_tail_self_call, insert_rc_ops, is_heap,
+    used_intrinsics, used_platform_fns, walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -45,7 +45,12 @@ impl Backend for WasmBackend {
     }
 
     fn compile(&self, ir: &IrProgram, options: &BackendOptions) -> Result<Artifact> {
-        let wat = emit_module(ir)?;
+        // ARC (spec 0048): insert retain/release on a private copy, after
+        // lowering already ran the tail-call rewrite (0045). Other backends'
+        // IR stream stays untouched.
+        let mut ir = ir.clone();
+        insert_rc_ops(&mut ir);
+        let wat = emit_module(&ir)?;
         match options.mode {
             EmitMode::Text => Ok(Artifact::text(ArtifactKind::WasmText, wat)),
             EmitMode::Default => {
@@ -349,6 +354,285 @@ fn closure_size(captures: &[IrCapture]) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// Drop glue (spec 0048)
+//
+// `$rc_release` dispatches a zero-count block to the drop function whose
+// funcref-table index sits in the block's header. One function is generated
+// per distinct heap *shape*; every allocation site knows its shape statically
+// and stamps the index at `$alloc` time. A drop function releases the shape's
+// child pointers (each child dispatches through its own header — no
+// transitive type analysis needed) and frees the block with its computed
+// total size (payload + 8-byte header, 8-aligned).
+// ---------------------------------------------------------------------------
+
+/// A heap shape with its own drop function.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum DropKey {
+    /// Never dropped meaningfully: Result boxes (freed manually at unwrap)
+    /// and host-built platform values, whose shape only the host knows — a
+    /// released one stays allocated. Follow-up: a host shape protocol.
+    Leak,
+    /// `[len][utf8]`: free only.
+    String,
+    /// `[len][elem × stride]`: release elements if they are pointers, free.
+    Array { stride: u32, heap_elems: bool },
+    /// A tagged enum value, keyed by its mangled type name; the per-tag
+    /// payload shapes live in [`DropTable::enum_tags`].
+    Enum(String),
+    /// A record / fixed block of 8-byte slots; `mask` marks pointer slots.
+    Record { mask: Vec<bool> },
+    /// A closure environment: `[table_index][captures...]` with pointer
+    /// captures at the masked offsets.
+    Closure { slots: Vec<(u32, bool)>, size: u32 },
+    /// A fixed-size block with no children (a payloadless enum value built by
+    /// the backend, a captureless `FunctionRef` closure). `total` includes
+    /// the header.
+    Plain { total: u32 },
+}
+
+struct DropTable {
+    /// Table index of the first drop function (after top-level fns + lambdas).
+    base: u32,
+    keys: Vec<DropKey>,
+    names: Vec<String>,
+    index: HashMap<DropKey, u32>,
+    /// Mangled enum type name -> tag -> which payload slots are pointers.
+    enum_tags: HashMap<String, BTreeMap<u32, Vec<bool>>>,
+}
+
+/// A stable symbol fragment for a type: alphanumerics kept, the rest `_`.
+fn mangle(ty: &Type) -> String {
+    let mut out = String::new();
+    let mut render = String::new();
+    let _ = write!(render, "{ty:?}");
+    for ch in render.chars() {
+        out.push(if ch.is_ascii_alphanumeric() { ch } else { '_' });
+    }
+    out
+}
+
+impl DropTable {
+    fn build(ir: &IrProgram, base: u32) -> DropTable {
+        let mut table = DropTable {
+            base,
+            keys: Vec::new(),
+            names: Vec::new(),
+            index: HashMap::new(),
+            enum_tags: HashMap::new(),
+        };
+        // Always present: the placeholder for untracked blocks, and strings
+        // (concat/slice results exist in almost every program; both are tiny).
+        table.add(DropKey::Leak);
+        table.add(DropKey::String);
+        for function in &ir.functions {
+            walk(&function.body, &mut |expr| match expr {
+                IrExpr::Array { elem_ty, .. } => {
+                    table.add(Self::array_key(elem_ty));
+                }
+                IrExpr::Intrinsic {
+                    name,
+                    ret: Type::Array(elem_ty),
+                    ..
+                } if name == "array_push" => {
+                    table.add(Self::array_key(elem_ty));
+                }
+                IrExpr::EnumValue {
+                    ty, tag, payload, ..
+                } => {
+                    table.register_enum_tag(
+                        ty,
+                        *tag,
+                        payload.iter().map(|field| is_heap(&field.ty())).collect(),
+                    );
+                }
+                IrExpr::Question {
+                    mode: QuestionMode::Option,
+                    ..
+                } => {
+                    // `?` synthesizes the propagated `None` (tag 1, no
+                    // payload) in the backend: a plain 16-byte block.
+                    table.add(DropKey::Plain { total: 16 });
+                }
+                IrExpr::RecordValue { fields, .. } => {
+                    table.add(DropKey::Record {
+                        mask: fields.iter().map(|field| is_heap(&field.ty())).collect(),
+                    });
+                }
+                IrExpr::Fn { captures, .. } => {
+                    table.add(Self::closure_key(captures));
+                }
+                IrExpr::FunctionRef { .. } => {
+                    // As a value it becomes a captureless closure; in callee
+                    // position no closure is built and the entry goes unused.
+                    table.add(DropKey::Plain { total: 16 });
+                }
+                _ => {}
+            });
+        }
+        table
+    }
+
+    fn array_key(elem_ty: &Type) -> DropKey {
+        DropKey::Array {
+            stride: WasmTy::of(elem_ty).size(),
+            heap_elems: is_heap(elem_ty),
+        }
+    }
+
+    fn closure_key(captures: &[IrCapture]) -> DropKey {
+        let slots = capture_layout(captures)
+            .into_iter()
+            .zip(captures)
+            .map(|((_, offset, _), capture)| (offset, is_heap(&capture.ty)))
+            .collect();
+        DropKey::Closure {
+            slots,
+            size: closure_size(captures),
+        }
+    }
+
+    fn register_enum_tag(&mut self, ty: &Type, tag: u32, mask: Vec<bool>) {
+        let name = mangle(ty);
+        self.add(DropKey::Enum(name.clone()));
+        self.enum_tags.entry(name).or_default().insert(tag, mask);
+    }
+
+    fn add(&mut self, key: DropKey) -> u32 {
+        if let Some(&index) = self.index.get(&key) {
+            return index;
+        }
+        let index = self.base + self.keys.len() as u32;
+        let name = match &key {
+            DropKey::Leak => "$drop_leak".to_string(),
+            DropKey::String => "$drop_string".to_string(),
+            DropKey::Array { stride, heap_elems } => {
+                format!(
+                    "$drop_array_{stride}{}",
+                    if *heap_elems { "p" } else { "v" }
+                )
+            }
+            DropKey::Enum(name) => format!("$drop_enum_{name}"),
+            DropKey::Record { mask } => format!(
+                "$drop_record_{}",
+                mask.iter()
+                    .map(|&m| if m { '1' } else { '0' })
+                    .collect::<String>()
+            ),
+            DropKey::Closure { .. } => format!("$drop_closure_{}", self.keys.len()),
+            DropKey::Plain { total } => format!("$drop_plain_{total}"),
+        };
+        self.index.insert(key.clone(), index);
+        self.keys.push(key);
+        self.names.push(name);
+        index
+    }
+
+    /// The header index for an allocation of this shape. Every shape was
+    /// registered during [`DropTable::build`]'s walk of the same IR, so a
+    /// miss is a compiler bug.
+    fn of(&self, key: &DropKey) -> u32 {
+        *self
+            .index
+            .get(key)
+            .expect("drop shape registered during collection")
+    }
+}
+
+/// `align8(payload + 8)`: the total block size `$free` takes.
+fn block_total(payload: u32) -> u32 {
+    (payload + 8 + 7) & !7
+}
+
+fn emit_drop_glue(drops: &DropTable) -> String {
+    let mut out = String::new();
+    for (key, name) in drops.keys.iter().zip(&drops.names) {
+        match key {
+            DropKey::Leak => {
+                let _ = writeln!(out, "  (func {name} (param $p i32))");
+            }
+            DropKey::String => {
+                // total = align8(4 + len + 8) = (len + 19) & -8
+                let _ = writeln!(
+                    out,
+                    "  (func {name} (param $p i32)\n    local.get $p\n    local.get $p i32.load i32.const 19 i32.add i32.const -8 i32.and\n    call $free)"
+                );
+            }
+            DropKey::Array { stride, heap_elems } => {
+                let _ = writeln!(out, "  (func {name} (param $p i32)");
+                if *heap_elems {
+                    let _ = writeln!(
+                        out,
+                        "    (local $i i32) (local $n i32)\n    local.get $p i32.load local.set $n\n    i32.const 0 local.set $i\n    block $done\n      loop $each\n        local.get $i local.get $n i32.ge_s br_if $done\n        local.get $p i32.const 4 i32.add local.get $i i32.const {stride} i32.mul i32.add i32.load\n        call $rc_release\n        local.get $i i32.const 1 i32.add local.set $i\n        br $each\n      end\n    end"
+                    );
+                }
+                // total = align8(4 + n*stride + 8) = (n*stride + 19) & -8
+                let _ = writeln!(
+                    out,
+                    "    local.get $p\n    local.get $p i32.load i32.const {stride} i32.mul i32.const 19 i32.add i32.const -8 i32.and\n    call $free)"
+                );
+            }
+            DropKey::Enum(type_name) => {
+                let _ = writeln!(out, "  (func {name} (param $p i32) (local $t i32)");
+                let _ = writeln!(out, "    local.get $p i32.load local.set $t");
+                for (tag, mask) in &drops.enum_tags[type_name] {
+                    let _ = writeln!(out, "    local.get $t i32.const {tag} i32.eq\n    if");
+                    for (slot, is_ptr) in mask.iter().enumerate() {
+                        if *is_ptr {
+                            let offset = 8 + slot as u32 * 8;
+                            let _ = writeln!(
+                                out,
+                                "      local.get $p i32.const {offset} i32.add i32.load call $rc_release"
+                            );
+                        }
+                    }
+                    let total = block_total(8 + mask.len() as u32 * 8);
+                    let _ = writeln!(
+                        out,
+                        "      local.get $p i32.const {total} call $free\n      return\n    end"
+                    );
+                }
+                // A tag never constructed by the program cannot reach zero.
+                let _ = writeln!(out, "    unreachable)");
+            }
+            DropKey::Record { mask } => {
+                let _ = writeln!(out, "  (func {name} (param $p i32)");
+                for (slot, is_ptr) in mask.iter().enumerate() {
+                    if *is_ptr {
+                        let offset = slot as u32 * 8;
+                        let _ = writeln!(
+                            out,
+                            "    local.get $p i32.const {offset} i32.add i32.load call $rc_release"
+                        );
+                    }
+                }
+                let total = block_total((mask.len() as u32 * 8).max(8));
+                let _ = writeln!(out, "    local.get $p i32.const {total} call $free)");
+            }
+            DropKey::Closure { slots, size } => {
+                let _ = writeln!(out, "  (func {name} (param $p i32)");
+                for (offset, is_ptr) in slots {
+                    if *is_ptr {
+                        let _ = writeln!(
+                            out,
+                            "    local.get $p i32.const {offset} i32.add i32.load call $rc_release"
+                        );
+                    }
+                }
+                let total = block_total(*size);
+                let _ = writeln!(out, "    local.get $p i32.const {total} call $free)");
+            }
+            DropKey::Plain { total } => {
+                let _ = writeln!(
+                    out,
+                    "  (func {name} (param $p i32)\n    local.get $p i32.const {total} call $free)"
+                );
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Module assembly
 // ---------------------------------------------------------------------------
 
@@ -380,10 +664,12 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
     let strings = collect_strings(ir);
     let table = FnTable::build(ir);
     let sigs = build_sigs(ir, &table);
+    let drops = DropTable::build(ir, table.n_top + table.lambdas.len() as u32);
     let ctx = Ctx {
         table: &table,
         sigs: &sigs,
         strings: &strings,
+        drops: &drops,
     };
 
     let mut functions = String::new();
@@ -423,14 +709,15 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
         );
     }
     module.push_str(&emit_types(&sigs));
-    module.push_str(&emit_table(&table));
-    module.push_str(&runtime_wat(strings.heap_start));
+    module.push_str(&emit_table(&table, &drops));
+    module.push_str(&runtime_wat(strings.heap_start, drops.of(&DropKey::Leak)));
     module.push_str(STRING_CMP);
-    module.push_str(STRING_INDEX);
+    module.push_str(&string_index_wat(drops.of(&DropKey::String)));
     for name in &used_platform {
         module.push_str(platform_glue(name).expect("checked above"));
     }
     module.push_str(&functions);
+    module.push_str(&emit_drop_glue(&drops));
     module.push_str(&emit_start(main));
     module.push_str("  (export \"main\" (func $f_main))\n");
     module.push_str("  (export \"_start\" (func $_start))\n");
@@ -578,17 +865,17 @@ fn emit_types(sigs: &SigTable) -> String {
     out
 }
 
-fn emit_table(table: &FnTable) -> String {
-    let total = table.n_top + table.lambdas.len() as u32;
-    if total == 0 {
-        return String::new();
-    }
+fn emit_table(table: &FnTable, drops: &DropTable) -> String {
+    let total = table.n_top + table.lambdas.len() as u32 + drops.names.len() as u32;
     let mut entries: Vec<String> = vec![String::new(); total as usize];
     for (name, index) in &table.toplevel {
         entries[*index as usize] = format!("$f_{name}");
     }
     for (offset, _) in table.lambdas.iter().enumerate() {
         entries[table.n_top as usize + offset] = format!("$lambda_{offset}");
+    }
+    for (offset, name) in drops.names.iter().enumerate() {
+        entries[drops.base as usize + offset] = name.clone();
     }
     let mut out = String::new();
     let _ = writeln!(out, "  (table {total} funcref)");
@@ -611,8 +898,10 @@ fn emit_table(table: &FnTable) -> String {
 /// releases the children and calls `$free` with the computed total size.
 ///
 /// `$alloc_host` keeps the one-parameter allocator shape the HTTP host binds
-/// against; PR3 wires real drop indices for host-built values.
-fn runtime_wat(heap_base: u32) -> String {
+/// against. Host-built values get the `leak_idx` drop entry: only the host
+/// knows their shape, so a released one stays allocated (a follow-up will add
+/// a host shape protocol; before ARC, *everything* leaked).
+fn runtime_wat(heap_base: u32, leak_idx: u32) -> String {
     format!(
         r#"  (func $alloc (param $n i32) (param $drop i32) (result i32)
     (local $total i32) (local $prev i32) (local $cur i32) (local $sz i32) (local $rest i32) (local $p i32) (local $end i32)
@@ -673,7 +962,7 @@ fn runtime_wat(heap_base: u32) -> String {
     local.get $p i32.const 8 i32.add)
   (func $alloc_host (param $n i32) (result i32)
     local.get $n
-    i32.const 0
+    i32.const {leak_idx}
     call $alloc)
   (func $free (param $p i32) (param $size i32)
     (local $blk i32)
@@ -883,6 +1172,15 @@ const STRING_INDEX: &str = r#"  (func $utf8_seqlen (param $b i32) (result i32)
     local.get $out)
 "#;
 
+/// [`STRING_INDEX`] with the string shape's drop index stamped into its
+/// allocation sites (spec 0048).
+fn string_index_wat(string_drop: u32) -> String {
+    STRING_INDEX.replace(
+        "i32.const 0 call $alloc",
+        &format!("i32.const {string_drop} call $alloc"),
+    )
+}
+
 fn emit_start(main: &IrFunction) -> String {
     let mut out = String::new();
     out.push_str("  (func $_start\n");
@@ -891,6 +1189,10 @@ fn emit_start(main: &IrFunction) -> String {
     if main.ret == Type::Int {
         // The Int result is the exit code.
         out.push_str("    call $proc_exit)\n");
+    } else if is_heap(&main.ret) {
+        // `main` hands over an owned heap result (spec 0048): release it so a
+        // clean run ends with `live_bytes` at exactly zero, then exit 0.
+        out.push_str("    call $rc_release\n    i32.const 0\n    call $proc_exit)\n");
     } else {
         // Drop any other result and exit 0.
         out.push_str("    drop\n    i32.const 0\n    call $proc_exit)\n");
@@ -995,6 +1297,7 @@ struct Ctx<'a> {
     table: &'a FnTable<'a>,
     sigs: &'a SigTable,
     strings: &'a StringTable,
+    drops: &'a DropTable,
 }
 
 /// Where a bound name lives at run time.
@@ -1053,10 +1356,10 @@ impl<'a> FnEmitter<'a> {
         self.code.push('\n');
     }
 
-    /// Calls `$alloc` for the block size on the stack. The drop index is a
-    /// placeholder until drop-glue generation lands: nothing releases yet.
-    fn call_alloc(&mut self) {
-        self.line("i32.const 0");
+    /// Calls `$alloc` for the block size on the stack, stamping the shape's
+    /// drop index (spec 0048) into the block header.
+    fn call_alloc(&mut self, drop_idx: u32) {
+        self.line(&format!("i32.const {drop_idx}"));
         self.line("call $alloc");
     }
 
@@ -1179,7 +1482,12 @@ impl<'a> FnEmitter<'a> {
             IrExpr::Array { elem_ty, elems } => self.emit_array(elem_ty, elems)?,
             IrExpr::FunctionRef { name, .. } => self.emit_function_ref(name)?,
             IrExpr::Fn { captures, .. } => self.emit_closure(expr, captures)?,
-            IrExpr::EnumValue { tag, payload, .. } => self.emit_enum_value(*tag, payload)?,
+            IrExpr::EnumValue {
+                ty, tag, payload, ..
+            } => {
+                let drop_idx = self.ctx.drops.of(&DropKey::Enum(mangle(ty)));
+                self.emit_enum_value(drop_idx, *tag, payload)?;
+            }
             IrExpr::RecordValue { fields, .. } => self.emit_record_value(fields)?,
             IrExpr::FieldAccess {
                 target,
@@ -1190,6 +1498,11 @@ impl<'a> FnEmitter<'a> {
                 self.line(&format!("i32.const {}", index * 8));
                 self.line("i32.add");
                 self.line(WasmTy::of(field_ty).load());
+                // A loaded heap field leaves the borrowed record as an owned
+                // value (spec 0048).
+                if is_heap(field_ty) {
+                    self.line("call $rc_retain");
+                }
             }
             IrExpr::Match {
                 scrutinee,
@@ -1283,7 +1596,8 @@ impl<'a> FnEmitter<'a> {
         self.line("i32.add");
         self.line(&format!("local.get {len_b}"));
         self.line("i32.add");
-        self.call_alloc();
+        let string_drop = self.ctx.drops.of(&DropKey::String);
+        self.call_alloc(string_drop);
         self.line(&format!("local.set {out}"));
         // store the combined length
         self.line(&format!("local.get {out}"));
@@ -1323,7 +1637,10 @@ impl<'a> FnEmitter<'a> {
         let size = (fields.len() as u32 * 8).max(8);
         let ptr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {size}"));
-        self.call_alloc();
+        let drop_idx = self.ctx.drops.of(&DropKey::Record {
+            mask: fields.iter().map(|field| is_heap(&field.ty())).collect(),
+        });
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {ptr}"));
         for (index, field) in fields.iter().enumerate() {
             let slot = WasmTy::of(&field.ty());
@@ -1338,11 +1655,11 @@ impl<'a> FnEmitter<'a> {
         Ok(())
     }
 
-    fn emit_enum_value(&mut self, tag: u32, payload: &[IrExpr]) -> Result<()> {
+    fn emit_enum_value(&mut self, drop_idx: u32, tag: u32, payload: &[IrExpr]) -> Result<()> {
         let size = 8 + payload.len() as u32 * 8;
         let ptr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {size}"));
-        self.call_alloc();
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {ptr}"));
         self.line(&format!("local.get {ptr}"));
         self.line(&format!("i32.const {tag}"));
@@ -1448,7 +1765,8 @@ impl<'a> FnEmitter<'a> {
         self.line(&format!("local.set {value}"));
         let res = self.fresh_local(WasmTy::I32);
         self.line("i32.const 16");
-        self.call_alloc();
+        let leak = self.ctx.drops.of(&DropKey::Leak);
+        self.call_alloc(leak);
         self.line(&format!("local.set {res}"));
         self.line(&format!("local.get {res}"));
         self.line("i32.const 1");
@@ -1472,7 +1790,8 @@ impl<'a> FnEmitter<'a> {
             self.line(&format!("local.set {err}"));
             let res = self.fresh_local(WasmTy::I32);
             self.line("i32.const 16");
-            self.call_alloc();
+            let leak = self.ctx.drops.of(&DropKey::Leak);
+            self.call_alloc(leak);
             self.line(&format!("local.set {res}"));
             self.line(&format!("local.get {res}"));
             self.line("i32.const 0");
@@ -1543,13 +1862,18 @@ impl<'a> FnEmitter<'a> {
                 self.line("(if");
                 self.line("(then");
                 // Propagate `None`: return `Option::None` from this function.
-                self.emit_enum_value(1, &[])?;
+                let none_drop = self.ctx.drops.of(&DropKey::Plain { total: 16 });
+                self.emit_enum_value(none_drop, 1, &[])?;
                 self.line("return");
                 self.line("))");
                 self.line(&format!("local.get {opt}"));
                 self.line("i32.const 8");
                 self.line("i32.add");
                 self.line(WasmTy::of(ty).load());
+                // The payload leaves the borrowed option as an owned value.
+                if is_heap(ty) {
+                    self.line("call $rc_retain");
+                }
             }
         }
         Ok(())
@@ -1610,7 +1934,8 @@ impl<'a> FnEmitter<'a> {
         let total = 4 + elem.size() * elems.len() as u32;
         let arr = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {total}"));
-        self.call_alloc();
+        let drop_idx = self.ctx.drops.of(&DropTable::array_key(elem_ty));
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {arr}"));
         self.line(&format!("local.get {arr}"));
         self.line(&format!("i32.const {}", elems.len()));
@@ -1628,7 +1953,8 @@ impl<'a> FnEmitter<'a> {
     }
 
     /// `array_get_unchecked(a, i)`: load the `i`-th element from `[len][elem...]`.
-    /// The element address is `a + 4 + i * size`.
+    /// The element address is `a + 4 + i * size`. A heap element is retained:
+    /// the caller receives an owned reference (spec 0048).
     fn emit_array_get(&mut self, array: &IrExpr, index: &IrExpr, elem_ty: &Type) -> Result<()> {
         let elem = WasmTy::of(elem_ty);
         self.emit(array)?;
@@ -1639,6 +1965,9 @@ impl<'a> FnEmitter<'a> {
         self.line("i32.mul");
         self.line("i32.add");
         self.line(elem.load());
+        if is_heap(elem_ty) {
+            self.line("call $rc_retain");
+        }
         Ok(())
     }
 
@@ -1663,7 +1992,8 @@ impl<'a> FnEmitter<'a> {
         self.line(&format!("i32.const {size}"));
         self.line("i32.mul");
         self.line("i32.add");
-        self.call_alloc();
+        let drop_idx = self.ctx.drops.of(&DropTable::array_key(elem_ty));
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {out}"));
         // store the new length (len + 1)
         self.line(&format!("local.get {out}"));
@@ -1682,6 +2012,38 @@ impl<'a> FnEmitter<'a> {
         self.line(&format!("i32.const {size}"));
         self.line("i32.mul");
         self.line("memory.copy");
+        // The copied elements are now shared with `a`: retain each (spec 0048).
+        if is_heap(elem_ty) {
+            let i = self.fresh_local(WasmTy::I32);
+            let done = format!("$push_done_{}", self.counter);
+            let each = format!("$push_each_{}", self.counter);
+            self.counter += 1;
+            self.line("i32.const 0");
+            self.line(&format!("local.set {i}"));
+            self.line(&format!("block {done}"));
+            self.line(&format!("loop {each}"));
+            self.line(&format!("local.get {i}"));
+            self.line(&format!("local.get {len}"));
+            self.line("i32.ge_s");
+            self.line(&format!("br_if {done}"));
+            self.line(&format!("local.get {out}"));
+            self.line("i32.const 4");
+            self.line("i32.add");
+            self.line(&format!("local.get {i}"));
+            self.line(&format!("i32.const {size}"));
+            self.line("i32.mul");
+            self.line("i32.add");
+            self.line("i32.load");
+            self.line("call $rc_retain");
+            self.line("drop");
+            self.line(&format!("local.get {i}"));
+            self.line("i32.const 1");
+            self.line("i32.add");
+            self.line(&format!("local.set {i}"));
+            self.line(&format!("br {each}"));
+            self.line("end");
+            self.line("end");
+        }
         // store x at out + 4 + len * size
         self.line(&format!("local.get {out}"));
         self.line("i32.const 4");
@@ -1703,7 +2065,8 @@ impl<'a> FnEmitter<'a> {
         })?;
         let closure = self.fresh_local(WasmTy::I32);
         self.line("i32.const 4");
-        self.call_alloc();
+        let drop_idx = self.ctx.drops.of(&DropKey::Plain { total: 16 });
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {closure}"));
         self.line(&format!("local.get {closure}"));
         self.line(&format!("i32.const {index}"));
@@ -1723,17 +2086,23 @@ impl<'a> FnEmitter<'a> {
         let total = closure_size(captures);
         let closure = self.fresh_local(WasmTy::I32);
         self.line(&format!("i32.const {total}"));
-        self.call_alloc();
+        let drop_idx = self.ctx.drops.of(&DropTable::closure_key(captures));
+        self.call_alloc(drop_idx);
         self.line(&format!("local.set {closure}"));
         self.line(&format!("local.get {closure}"));
         self.line(&format!("i32.const {index}"));
         self.line("i32.store");
-        for (name, offset, ty) in capture_layout(captures) {
+        for ((name, offset, ty), capture) in capture_layout(captures).into_iter().zip(captures) {
             self.line(&format!("local.get {closure}"));
             self.line(&format!("i32.const {offset}"));
             self.line("i32.add");
-            // The capture's value comes from the *enclosing* scope.
+            // The capture's value comes from the *enclosing* scope. The
+            // environment owns its heap captures (spec 0048): retain on store,
+            // released by the closure's drop glue.
             self.emit_var(&name)?;
+            if is_heap(&capture.ty) {
+                self.line("call $rc_retain");
+            }
             self.line(ty.store());
         }
         self.line(&format!("local.get {closure}"));
@@ -1960,6 +2329,23 @@ mod tests {
         let wat = compile_wat(&program);
         assert!(wat.contains("call $alloc"), "{wat}");
         assert!(wat.contains("i32.store"), "{wat}");
+        let _ = compile_binary(&program);
+    }
+
+    #[test]
+    fn emits_drop_glue_for_heap_shapes() {
+        let program = main_returning(
+            Type::Array(Box::new(Type::Int)),
+            IrExpr::Array {
+                elem_ty: Type::Int,
+                elems: vec![IrExpr::Int(1)],
+            },
+        );
+        let wat = compile_wat(&program);
+        assert!(wat.contains("(func $drop_leak"), "{wat}");
+        assert!(wat.contains("(func $drop_string"), "{wat}");
+        assert!(wat.contains("(func $drop_array_4v"), "{wat}");
+        assert!(wat.contains("call $rc_release"), "{wat}");
         let _ = compile_binary(&program);
     }
 

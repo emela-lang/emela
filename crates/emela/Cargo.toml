@@ -26,6 +26,11 @@ wasmi = { workspace = true, optional = true }
 # clap is dead-stripped from the final module.
 clap = { workspace = true }
 
+[dev-dependencies]
+# `tests/rc_reclaim.rs` instantiates built modules directly to read the
+# `live_bytes` export (spec 0048 reclamation checks).
+wasmi = { workspace = true }
+
 [features]
 default = ["backend-js", "backend-wasm", "run"]
 backend-js = ["dep:emela-backend-js"]
