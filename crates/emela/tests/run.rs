@@ -98,6 +98,37 @@ fn writes_to_stdout() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, Emela!\n");
 }
 
+/// A direct self-recursive call in tail position runs in constant stack
+/// (spec 0045): a million iterations would exhaust the call stack without the
+/// loop rewrite.
+#[test]
+fn self_tail_recursion_runs_in_constant_stack() {
+    let output = run_source(
+        "tail-call",
+        "fn count_down(n: Int) -> Int {\n  if n == 0 {\n    42\n  } else {\n    count_down(n - 1)\n  }\n}\nfn main() -> Int { count_down(1000000) }\n",
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(42));
+}
+
+/// A non-tail self-call is NOT rewritten (spec 0045 T4): deep enough recursion
+/// still exhausts the stack, surfacing as a runtime error rather than a wrong
+/// answer.
+#[test]
+fn non_tail_recursion_still_consumes_stack() {
+    let output = run_source(
+        "non-tail",
+        "fn sum(n: Int) -> Int {\n  if n == 0 {\n    0\n  } else {\n    n + sum(n - 1)\n  }\n}\nfn main() -> Int { sum(1000000) }\n",
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("wasm runtime error"), "{stderr}");
+}
+
 /// `run` executes WebAssembly; asking for a non-wasm backend is rejected.
 #[test]
 fn rejects_non_wasm_backend() {

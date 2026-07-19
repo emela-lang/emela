@@ -173,6 +173,14 @@ pub enum IrExpr {
     Panic {
         message: Box<IrExpr>,
     },
+    /// A direct self-recursive call in tail position (spec 0045). Backends emit
+    /// it as a jump back to the function head (no stack growth) instead of a
+    /// call. Produced by [`crate::tailcall::rewrite_self_tail_calls`]; never
+    /// built by the frontend directly.
+    TailSelfCall {
+        args: Vec<IrExpr>,
+        ty: Type,
+    },
 }
 
 impl IrExpr {
@@ -223,7 +231,8 @@ impl IrExpr {
             | IrExpr::Match { ty, .. }
             | IrExpr::Try { ty, .. }
             | IrExpr::If { ty, .. }
-            | IrExpr::Question { ty, .. } => ty.clone(),
+            | IrExpr::Question { ty, .. }
+            | IrExpr::TailSelfCall { ty, .. } => ty.clone(),
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
         }
     }

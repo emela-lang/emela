@@ -15,6 +15,7 @@ mod ir_walk;
 mod platform;
 mod plugin;
 mod registry;
+mod tailcall;
 mod text;
 mod types;
 
@@ -26,5 +27,6 @@ pub use ir_walk::{used_intrinsics, used_platform_fns, walk};
 pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
 pub use registry::BackendRegistry;
+pub use tailcall::{contains_tail_self_call, rewrite_self_tail_calls};
 pub use text::emit_text;
 pub use types::{BinaryOp, EffectRow, FunctionType, Type};

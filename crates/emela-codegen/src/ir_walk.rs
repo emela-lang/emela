@@ -23,7 +23,9 @@ pub fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
             walk(callee, visit);
             args.iter().for_each(|a| walk(a, visit));
         }
-        IrExpr::Platform { args, .. } | IrExpr::Intrinsic { args, .. } => {
+        IrExpr::Platform { args, .. }
+        | IrExpr::Intrinsic { args, .. }
+        | IrExpr::TailSelfCall { args, .. } => {
             args.iter().for_each(|a| walk(a, visit));
         }
         IrExpr::If {

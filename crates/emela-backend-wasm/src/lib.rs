@@ -28,7 +28,8 @@ use std::fmt::Write as _;
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type, used_intrinsics, used_platform_fns, walk,
+    QuestionMode, Result, Tier, Type, contains_tail_self_call, used_intrinsics,
+    used_platform_fns, walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -766,7 +767,17 @@ fn emit_fn_like(
     for (name, offset, ty) in capture_layout(captures) {
         emitter.bind(name, Slot::Capture(offset, ty));
     }
+    // A body with self-tail-calls (spec 0045) runs inside a `loop`: the call
+    // reassigns `$p1..$pN` and branches back; normal completion falls out of
+    // the loop with the body's value.
+    let tail_loop = contains_tail_self_call(body);
+    if tail_loop {
+        emitter.line(&format!("(loop $tail (result {})", WasmTy::of(ret).keyword()));
+    }
     emitter.emit(body)?;
+    if tail_loop {
+        emitter.line(")");
+    }
     if throws.is_some() {
         // The body left its success value on the stack; wrap it as `Ok`.
         emitter.wrap_ok(ret);
@@ -995,7 +1006,27 @@ impl<'a> FnEmitter<'a> {
             }
             IrExpr::Try { body, arms, ty } => self.emit_try(body, arms, ty)?,
             IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
+            IrExpr::TailSelfCall { args, .. } => self.emit_tail_self_call(args)?,
         }
+        Ok(())
+    }
+
+    /// A direct self-recursive call in tail position (spec 0045): evaluate the
+    /// arguments left to right into temporaries, reassign the parameter locals,
+    /// and jump back to the function-head `loop` — no stack growth.
+    fn emit_tail_self_call(&mut self, args: &[IrExpr]) -> Result<()> {
+        let mut temps = Vec::with_capacity(args.len());
+        for arg in args {
+            self.emit(arg)?;
+            let temp = self.fresh_local(WasmTy::of(&arg.ty()));
+            self.line(&format!("local.set {temp}"));
+            temps.push(temp);
+        }
+        for (index, temp) in temps.iter().enumerate() {
+            self.line(&format!("local.get {temp}"));
+            self.line(&format!("local.set $p{}", index + 1));
+        }
+        self.line("br $tail");
         Ok(())
     }
 
@@ -1745,6 +1776,71 @@ mod tests {
         // The captured `n` is loaded from the environment pointer.
         assert!(wat.contains("local.get $p0"), "{wat}");
         let _ = compile_binary(&closure_program());
+    }
+
+    /// A rewritten self-tail-call (spec 0045) compiles to a function-head
+    /// `loop` and a `br` back to it — no `call` — and still validates.
+    #[test]
+    fn self_tail_call_emits_a_loop() {
+        let spin = IrFunction {
+            name: "spin".into(),
+            params: vec![IrParam {
+                name: "n".into(),
+                ty: Type::Int,
+            }],
+            ret: Type::Int,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::If {
+                cond: Box::new(IrExpr::Binary {
+                    op: BinaryOp::Eq,
+                    ty: Type::Int,
+                    left: Box::new(IrExpr::Var {
+                        name: "n".into(),
+                        ty: Type::Int,
+                    }),
+                    right: Box::new(IrExpr::Int(0)),
+                }),
+                then: Box::new(IrExpr::Int(42)),
+                els: Box::new(IrExpr::TailSelfCall {
+                    args: vec![IrExpr::Binary {
+                        op: BinaryOp::Sub,
+                        ty: Type::Int,
+                        left: Box::new(IrExpr::Var {
+                            name: "n".into(),
+                            ty: Type::Int,
+                        }),
+                        right: Box::new(IrExpr::Int(1)),
+                    }],
+                    ty: Type::Int,
+                }),
+                ty: Type::Int,
+            },
+        };
+        let main = IrFunction {
+            name: "main".into(),
+            params: vec![],
+            ret: Type::Int,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::Call {
+                callee: Box::new(IrExpr::FunctionRef {
+                    name: "spin".into(),
+                    sig: int_fn(vec![Type::Int]),
+                }),
+                args: vec![IrExpr::Int(3)],
+                ret: Type::Int,
+            },
+        };
+        let program = IrProgram {
+            functions: vec![spin, main],
+        };
+        let wat = compile_wat(&program);
+        assert!(wat.contains("(loop $tail (result i32)"), "{wat}");
+        assert!(wat.contains("br $tail"), "{wat}");
+        // The tail call reassigns the parameter local before branching.
+        assert!(wat.contains("local.set $p1"), "{wat}");
+        let _ = compile_binary(&program);
     }
 }
 

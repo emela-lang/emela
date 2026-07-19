@@ -268,7 +268,11 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         functions.push(specialized);
     }
 
-    IrProgram { functions }
+    let mut program = IrProgram { functions };
+    // Direct self-recursive calls in tail position become jumps (spec 0045)
+    // before the IR reaches any backend.
+    emela_codegen::rewrite_self_tail_calls(&mut program);
+    program
 }
 
 impl<'a> Lowerer<'a> {

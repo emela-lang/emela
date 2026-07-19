@@ -8,8 +8,8 @@
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
-    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, is_intrinsic, used_intrinsics,
-    used_platform_fns,
+    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, contains_tail_self_call,
+    is_intrinsic, used_intrinsics, used_platform_fns,
 };
 
 /// The Node.js-flavored JavaScript backend.
@@ -103,7 +103,10 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
     // never swallows it.
     out.push_str("class EmelaError { constructor(value) { this.value = value; } }\n");
     out.push_str("class EmelaNone {}\n");
-    out.push_str("class EmelaPanic { constructor(message) { this.message = message; } }\n\n");
+    out.push_str("class EmelaPanic { constructor(message) { this.message = message; } }\n");
+    // Trampoline marker for self-tail-calls (spec 0045): a tail-recursive
+    // function returns it to its own driver loop instead of calling itself.
+    out.push_str("class EmelaTail { constructor(args) { this.args = args; } }\n\n");
     if !used_platform.is_empty() {
         // Bundled default runtime: the backend supplies the platform bodies.
         out.push_str("const __rt = {\n");
@@ -131,7 +134,34 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
-        if matches!(function.ret, Type::Option(_)) {
+        let none_guard = matches!(function.ret, Type::Option(_));
+        if contains_tail_self_call(&function.body) {
+            // Self-tail-calls (spec 0045) trampoline through `EmelaTail`: the
+            // body returns the marker, and this driver loop reassigns the
+            // parameters and continues — constant stack depth.
+            out.push_str("  while (true) {\n");
+            out.push_str("    let __r;\n");
+            if none_guard {
+                out.push_str("    try { __r = ");
+                out.push_str(&emit_expr(&function.body));
+                out.push_str("; } catch (__e) { if (__e instanceof EmelaNone) return { tag: 1, values: [] }; throw __e; }\n");
+            } else {
+                out.push_str("    __r = ");
+                out.push_str(&emit_expr(&function.body));
+                out.push_str(";\n");
+            }
+            out.push_str("    if (__r instanceof EmelaTail) {\n");
+            for (index, param) in function.params.iter().enumerate() {
+                out.push_str(&format!(
+                    "      {} = __r.args[{index}];\n",
+                    js_name(&param.name)
+                ));
+            }
+            out.push_str("      continue;\n");
+            out.push_str("    }\n");
+            out.push_str("    return __r;\n");
+            out.push_str("  }\n}\n\n");
+        } else if none_guard {
             // A function returning Option catches a propagated `None` (`?`).
             out.push_str("  try { return ");
             out.push_str(&emit_expr(&function.body));
@@ -287,6 +317,12 @@ fn emit_expr(expr: &IrExpr) -> String {
                 emit_expr(message)
             )
         }
+        // The marker propagates out through the nested IIFEs to the function's
+        // trampoline loop (spec 0045), unwinding the stack before it re-enters.
+        IrExpr::TailSelfCall { args, .. } => format!(
+            "new EmelaTail([{}])",
+            args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
     }
 }
 
@@ -485,5 +521,49 @@ mod tests {
         assert_eq!(js_name("$cmp0"), "$cmp0");
         assert_eq!(js_name("$stmt0"), "$stmt0");
         assert_eq!(js_name("a-b"), "a_b");
+    }
+
+    /// A rewritten self-tail-call (spec 0045) trampolines through `EmelaTail`
+    /// in a `while (true)` driver loop instead of recursing.
+    #[test]
+    fn self_tail_call_trampolines() {
+        use emela_codegen::IrParam;
+        let spin = IrFunction {
+            name: "spin".into(),
+            params: vec![IrParam {
+                name: "n".into(),
+                ty: Type::Int,
+            }],
+            ret: Type::Int,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::TailSelfCall {
+                args: vec![IrExpr::Var {
+                    name: "n".into(),
+                    ty: Type::Int,
+                }],
+                ty: Type::Int,
+            },
+        };
+        let main = IrFunction {
+            name: "main".into(),
+            params: vec![],
+            ret: Type::Unit,
+            throws: None,
+            effects: EffectRow::default(),
+            body: IrExpr::Unit,
+        };
+        let artifact = JsBackend
+            .compile(
+                &IrProgram {
+                    functions: vec![spin, main],
+                },
+                &BackendOptions::default(),
+            )
+            .expect("compile");
+        let js = String::from_utf8(artifact.bytes).unwrap();
+        assert!(js.contains("while (true)"), "{js}");
+        assert!(js.contains("new EmelaTail([n])"), "{js}");
+        assert!(js.contains("n = __r.args[0];"), "{js}");
     }
 }
