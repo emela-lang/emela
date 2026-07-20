@@ -7,6 +7,15 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/emela-lang/emela/compare/v0.6.0...v0.7.0) - 2026-07-20
+
+### Added
+
+- ARC — deterministic reference counting for the wasm backend (spec 0048) ([#67](https://github.com/emela-lang/emela/pull/67))
+- HTTP client and server (specs 0043–0046) ([#61](https://github.com/emela-lang/emela/pull/61))
+- Monoid trait with return-position Self dispatch (spec 0047) ([#65](https://github.com/emela-lang/emela/pull/65))
+- [**breaking**] move Char/String/Array builtins to intrinsics (spec 0021) ([#64](https://github.com/emela-lang/emela/pull/64))
+
 ## [0.6.0](https://github.com/emela-lang/emela/compare/v0.5.0...v0.6.0) - 2026-07-19
 
 ### Added
