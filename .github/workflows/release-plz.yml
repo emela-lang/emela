@@ -97,6 +97,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  notify-nix:
+    name: Notify emela.nix
+    # Runs only once the release is public (assets uploaded, undrafted), so the
+    # overlay's `nix run .#update` can fetch the tarballs and pin their hashes.
+    needs: [release-plz-release, publish-release]
+    if: needs.release-plz-release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    # No GITHUB_TOKEN scopes needed: the cross-repo call uses the App token.
+    permissions: {}
+    steps:
+      - name: "Mint token for emela.nix (GitHub App: emela-release)"
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: emela-lang
+          repositories: emela.nix
+
+      - name: Dispatch emela-release event
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: emela-lang/emela.nix
+          event-type: emela-release
+          client-payload: '{"version": "${{ needs.release-plz-release.outputs.tag }}"}'
+
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
