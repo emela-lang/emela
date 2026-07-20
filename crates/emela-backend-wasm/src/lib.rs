@@ -280,6 +280,122 @@ impl<'a> FnTable<'a> {
     }
 }
 
+/// Whether a `host.*` platform function (spec 0026) is registered and thus
+/// provided by this backend. The host runtime supplies the actual
+/// implementation at instantiation time.
+fn host_platform_provided(
+    canonical: &str,
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> bool {
+    canonical.starts_with("host.")
+        && emela_codegen::platform_lookup_in(platform_registry, canonical).is_some()
+}
+
+/// The WASM import a `host.*` platform function lowers to, or `None` if the
+/// function is not a host platform function. The import module name follows
+/// the `host_<name>` convention (spec 0026 Compilation Notes).
+fn host_platform_import(
+    canonical: &str,
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> Option<String> {
+    if !canonical.starts_with("host.") {
+        return None;
+    }
+    let entry = emela_codegen::platform_lookup_in(platform_registry, canonical)?;
+    let (module_part, func) = split_host_canonical(canonical)?;
+    let host_module = format!("host_{module_part}");
+    let wasm_import_name = platform_wasm_name(canonical).replace('$', "$host_");
+    let param_str = wasm_params(&entry.params);
+    let result_str = wasm_result(&entry.ret);
+    Some(format!(
+        "  (import \"{host_module}\" \"{func}\" (func {wasm_import_name} {param_str}{result_str}))\n"
+    ))
+}
+
+/// The runtime glue for a `host.*` platform function: a wrapper that
+/// forwards its parameters to the host import.
+fn host_platform_glue(
+    canonical: &str,
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> Option<String> {
+    if !canonical.starts_with("host.") {
+        return None;
+    }
+    let entry = emela_codegen::platform_lookup_in(platform_registry, canonical)?;
+    let wasm_name = platform_wasm_name(canonical);
+    let host_name = platform_wasm_name(canonical).replace('$', "$host_");
+    let n_params = entry.params.len();
+    let result_type = if entry.ret == emela_codegen::Type::Unit {
+        " (result i32)".to_string()
+    } else {
+        format!(" (result {})", wasm_type_for(&entry.ret))
+    };
+    let mut glue = format!(
+        "  (func {wasm_name} {}{result_type}\n",
+        wasm_param_decls(n_params),
+    );
+    // Forward the parameters.
+    for i in 0..n_params {
+        glue.push_str(&format!("    local.get {i}\n"));
+    }
+    // Call the host import.
+    glue.push_str(&format!("    call {host_name}\n"));
+    // Push a dummy i32 for Unit-returning functions (all WASM glue
+    // functions produce an i32 to satisfy the backend's calling convention).
+    if entry.ret == emela_codegen::Type::Unit {
+        glue.push_str("    i32.const 0\n");
+    }
+    glue.push_str("  )\n");
+    Some(glue)
+}
+
+/// Splits a `host.<name>.<func>` canonical into `("name", "func")`.
+fn split_host_canonical(canonical: &str) -> Option<(&str, &str)> {
+    let rest = canonical.strip_prefix("host.")?;
+    let dot = rest.find('.')?;
+    Some((&rest[..dot], &rest[dot + 1..]))
+}
+
+/// WAT parameter declarations for a host platform function.
+fn wasm_param_decls(count: usize) -> String {
+    (0..count)
+        .map(|i| format!("(param $p{i} i32)"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// WAT parameter types (without names) for an import signature.
+fn wasm_params(params: &[emela_codegen::Type]) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let params_str = params
+        .iter()
+        .map(|_| "i32")
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("(param {params_str}) ")
+}
+
+/// WAT result type for an import signature.
+fn wasm_result(ret: &emela_codegen::Type) -> String {
+    if *ret == emela_codegen::Type::Unit {
+        String::new()
+    } else {
+        format!("(result {})", wasm_type_for(ret))
+    }
+}
+
+/// Maps an Emela type to its WAT representation (simplified: all host
+/// functions use i32 for scalar values and pointers).
+fn wasm_type_for(ty: &emela_codegen::Type) -> &'static str {
+    match ty {
+        emela_codegen::Type::Float => "f64",
+        emela_codegen::Type::Unit => "",
+        _ => "i32",
+    }
+}
+
 /// Interns the distinct wasm signatures used as `call_indirect` types.
 #[derive(Default)]
 struct SigTable {
@@ -645,7 +761,7 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
 
     let used_platform = used_platform_fns(ir);
     for name in &used_platform {
-        if platform_glue(name).is_none() {
+        if platform_glue(name).is_none() && !host_platform_provided(name, platform_registry) {
             return Err(BackendError::new(format!(
                 "backend `wasm-wasi` does not provide platform function `{name}`"
             )));
@@ -694,6 +810,8 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
     for name in &used_platform {
         if let Some(import) = platform_import(name) {
             module.push_str(import);
+        } else if let Some(import) = host_platform_import(name, platform_registry) {
+            module.push_str(&import);
         }
     }
     let _ = writeln!(
@@ -714,7 +832,11 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
     module.push_str(STRING_CMP);
     module.push_str(&string_index_wat(drops.of(&DropKey::String)));
     for name in &used_platform {
-        module.push_str(platform_glue(name).expect("checked above"));
+        if let Some(glue) = platform_glue(name) {
+            module.push_str(glue);
+        } else if let Some(glue) = host_platform_glue(name, platform_registry) {
+            module.push_str(&glue);
+        }
     }
     module.push_str(&functions);
     module.push_str(&emit_drop_glue(&drops));

@@ -126,6 +126,11 @@ impl Parser {
                         records.push(decl);
                         DeclKind::Record
                     })
+                } else if self.at(&TokenKind::Extern) {
+                    self.parse_extern().map(|declaration| {
+                        externs.push(declaration);
+                        DeclKind::Extern
+                    })
                 } else {
                     self.parse_function(is_public).map(|function| {
                         functions.push(function);
@@ -854,7 +859,7 @@ impl Parser {
         self.skip_newlines();
         let mut effects = Vec::new();
         if !self.at(&TokenKind::RBrace) {
-            effects.push(self.expect_ident()?);
+            effects.push(self.parse_effect_name()?);
             self.skip_newlines();
             // A trailing comma before the closer is allowed (spec 0034).
             while self.eat(&TokenKind::Comma) {
@@ -862,12 +867,27 @@ impl Parser {
                 if self.at(&TokenKind::RBrace) {
                     break;
                 }
-                effects.push(self.expect_ident()?);
+                effects.push(self.parse_effect_name()?);
                 self.skip_newlines();
             }
         }
         self.expect(&TokenKind::RBrace)?;
         Ok(EffectRow::sorted(effects))
+    }
+
+    /// Parses an effect name in a `uses { ... }` row: a single identifier or
+    /// a dotted `host.<name>` path (spec 0026).
+    fn parse_effect_name(&mut self) -> Result<String> {
+        let first = self.expect_ident()?;
+        // Dotted paths are only valid for `host.<name>` capabilities.
+        if first == "host" && self.at(&TokenKind::Dot) {
+            let mut parts = vec![first];
+            while self.eat(&TokenKind::Dot) {
+                parts.push(self.expect_ident()?);
+            }
+            return Ok(parts.join("."));
+        }
+        Ok(first)
     }
 
     fn parse_block(&mut self) -> Result<Block> {
@@ -1473,7 +1493,6 @@ fn is_decl_start(kind: &TokenKind) -> bool {
             | TokenKind::Extern
             | TokenKind::Intrinsic
             | TokenKind::Import
-            | TokenKind::Module
             | TokenKind::At(_)
     )
 }

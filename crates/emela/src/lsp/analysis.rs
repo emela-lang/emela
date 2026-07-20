@@ -47,7 +47,7 @@ pub(crate) fn check_document(
     let (own, _) = parse_program(&label, &doc.text);
     let require_main = own.functions.iter().any(|function| function.name == "main");
     let (program, _, mut errors) =
-        driver::compile_frontend_source_all(&path, &doc.text, &packages, require_main, &overlay);
+        driver::compile_frontend_source_all(&path, &doc.text, &packages, require_main, &overlay, &emela_codegen::platform_interface());
     errors.extend(extra_errors);
     CheckOutcome {
         diagnostics: group_diagnostics(doc, &label, &errors),
