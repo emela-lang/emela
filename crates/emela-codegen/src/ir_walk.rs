@@ -53,7 +53,10 @@ pub fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
             walk(body, visit);
             walk_arms(arms, visit);
         }
-        IrExpr::Throw { value } | IrExpr::Question { value, .. } => walk(value, visit),
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } | IrExpr::Retain { value } => {
+            walk(value, visit)
+        }
+        IrExpr::Release { next, .. } => walk(next, visit),
         IrExpr::Panic { message } => walk(message, visit),
         _ => {}
     }

@@ -1151,6 +1151,7 @@ impl<'a> Lowerer<'a> {
                         body: Box::new(body_ir),
                         arms: ir_arms,
                         ty: ty.clone(),
+                        err_name: None,
                     },
                     ty,
                 )
@@ -1225,6 +1226,7 @@ impl<'a> Lowerer<'a> {
                 body: arm_body,
             }],
             ty: ty.clone(),
+            err_name: None,
         };
         (wrapped, ty)
     }

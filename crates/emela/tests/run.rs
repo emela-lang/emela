@@ -57,6 +57,23 @@ fn closures_execute() {
     assert_eq!(output.status.code(), Some(42));
 }
 
+/// ARC keeps a self-tail-call loop at constant memory (spec 0048 A5): each
+/// iteration churns ~2 KiB of string temporaries, ~40 MiB in total, under the
+/// 16 MiB linear-memory cap. Without reclamation this program traps OOM.
+#[test]
+fn tail_loop_string_churn_stays_within_memory() {
+    let output = run_source(
+        "rc-oom",
+        "fn churn(n: Int) -> Int {\n  if n == 0 {\n    0\n  } else {\n    let a = \"0123456789abcdef\" ++ \"0123456789abcdef\"\n    let b = a ++ a\n    let c = b ++ b\n    let d = c ++ c\n    let e = d ++ d\n    let _f = e ++ e\n    churn(n - 1)\n  }\n}\nfn main() -> Int { churn(20000) }\n",
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
 /// `try` / `catch` resolves a thrown error to a value at run time.
 #[test]
 fn try_catch_executes() {
