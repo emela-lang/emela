@@ -80,7 +80,19 @@ fn round_trip(port: u16, request: &str) -> String {
     stream.write_all(request.as_bytes()).unwrap();
     stream.flush().unwrap();
     let mut response = Vec::new();
-    stream.read_to_end(&mut response).unwrap();
+    let mut buf = [0u8; 8192];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => response.extend_from_slice(&buf[..n]),
+            // A `connection: close` server may reset the socket while tearing
+            // the connection down; the response is already buffered, so treat a
+            // reset like a clean EOF, as a real HTTP client would. The content
+            // assertions still verify the response is complete and correct.
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Err(e) => panic!("read failed: {e}"),
+        }
+    }
     String::from_utf8_lossy(&response).into_owned()
 }
 
