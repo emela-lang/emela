@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use wasmi::{AsContextMut, Caller, Extern, Memory, TypedFunc};
@@ -26,6 +26,11 @@ use crate::run::Host;
 
 /// The default per-request timeout (spec 0044 H7). Implementation-defined.
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long a graceful close lingers draining inbound data before giving up
+/// (see `graceful_close`). Short so a client that reads its response but leaves
+/// the socket open cannot stall the single-threaded accept loop.
+const LINGER: Duration = Duration::from_secs(1);
 
 /// `HttpError` variant tags, in declaration order (see `std/http.emel`).
 const ERR_INVALID_URL: u32 = 0;
@@ -686,13 +691,15 @@ fn do_accept(
             // The host answers directly and does not deliver (spec 0046 S3).
             Err(IncomingError::UnknownMethod) => {
                 let _ = write_status_only(&mut stream, 501);
+                graceful_close(stream);
             }
             Err(IncomingError::BadRequest) => {
                 let _ = write_status_only(&mut stream, 400);
+                graceful_close(stream);
             }
             Err(IncomingError::Io(err)) => return Err(ReqError::Protocol(err)),
         }
-        // Dropping `stream` closes the connection; loop for the next request.
+        // The rejected connection is closed gracefully; loop for the next.
     }
 }
 
@@ -723,7 +730,9 @@ fn do_respond(
         .write_all(out.as_bytes())
         .and_then(|()| stream.write_all(response.body.as_bytes()))
         .and_then(|()| stream.flush())
-        .map_err(|_| ReqError::ConnectionClosed)
+        .map_err(|_| ReqError::ConnectionClosed)?;
+    graceful_close(stream);
+    Ok(())
 }
 
 fn parse_incoming(stream: &mut TcpStream) -> std::result::Result<ParsedRequest, IncomingError> {
@@ -804,6 +813,37 @@ fn method_tag(method: &str) -> Option<u32> {
         "OPTIONS" => 6,
         _ => return None,
     })
+}
+
+/// Closes `stream` gracefully so the client sees a FIN, never an RST.
+///
+/// The connection uses `connection: close`, so the host tears it down after
+/// each response (spec 0046 S4: the teardown is the host's responsibility and
+/// unobservable). A plain `close` — dropping the `TcpStream` — is abortive on
+/// macOS/BSD when the socket's receive buffer still holds unread data: the
+/// kernel emits an RST, and that RST can discard a response the client has
+/// buffered but not yet read, surfacing as `ConnectionReset` on the client.
+///
+/// Instead, half-close the write side first (`shutdown(Write)` sends the FIN
+/// that lets the client read the whole response and reach EOF), then drain
+/// inbound data until the client closes too or a short linger elapses. The
+/// final drop then finds an empty receive buffer and closes cleanly.
+fn graceful_close(mut stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(LINGER));
+    let mut sink = [0u8; 8192];
+    let mut drained = 0usize;
+    while let Ok(n) = stream.read(&mut sink) {
+        // `Ok(0)` is the peer's own close; stop before a timeout or error.
+        if n == 0 {
+            break;
+        }
+        drained += n;
+        if drained > MAX_BODY {
+            break;
+        }
+    }
+    // `stream` drops here, closing the (now fully drained) connection.
 }
 
 fn write_status_only(stream: &mut TcpStream, status: u16) -> std::io::Result<()> {
