@@ -163,6 +163,12 @@ pub enum IrExpr {
         body: Box<IrExpr>,
         arms: Vec<IrArm>,
         ty: Type,
+        /// The name the caught error value is bound under for the catch arms
+        /// (spec 0048): the RC pass sets it and releases it at each arm tail;
+        /// backends that emit RC ops bind the error local under this name.
+        /// `None` before the pass runs (and for host-GC backends).
+        #[serde(default)]
+        err_name: Option<String>,
     },
     /// `expr?` (spec 0011): take the success value, short-circuiting the
     /// enclosing function on error (`Throws`) or `None` (`Option`).
@@ -182,6 +188,24 @@ pub enum IrExpr {
     TailSelfCall {
         args: Vec<IrExpr>,
         ty: Type,
+    },
+    /// `retain e` (spec 0048 A8): +1 the heap value `e` evaluates to, then
+    /// yield that value. Produced by [`crate::rc::insert_rc_ops`] in owned
+    /// positions (after the pass `e` is always a `Var`); never built by the
+    /// frontend. Backends that reclaim by other means (host GC) treat it as
+    /// `e` itself (spec 0048 A9).
+    Retain {
+        value: Box<IrExpr>,
+    },
+    /// `release x in e` (spec 0048 A8): -1 the binding `name` of type `ty`
+    /// (reclaiming its value at zero), then evaluate `next`. Produced by
+    /// [`crate::rc::insert_rc_ops`] at scope exits; never built by the
+    /// frontend. Backends that reclaim by other means treat it as `next`
+    /// (spec 0048 A9).
+    Release {
+        name: String,
+        ty: Type,
+        next: Box<IrExpr>,
     },
 }
 
@@ -234,6 +258,8 @@ impl IrExpr {
             | IrExpr::TailSelfCall { ty, .. } => ty.clone(),
             IrExpr::FieldAccess { field_ty, .. } => field_ty.clone(),
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
+            IrExpr::Retain { value } => value.ty(),
+            IrExpr::Release { next, .. } => next.ty(),
         }
     }
 }

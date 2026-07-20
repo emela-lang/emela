@@ -217,6 +217,10 @@ fn emit_expr(expr: &IrExpr) -> String {
             elems.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
         IrExpr::Unit => "undefined".to_string(),
+        // RC ops (spec 0048) are transparent under the host GC (A9). The wasm
+        // backend inserts them for itself only, but hand-built IR may carry them.
+        IrExpr::Retain { value } => emit_expr(value),
+        IrExpr::Release { next, .. } => emit_expr(next),
         IrExpr::Var { name, .. } => js_name(name),
         IrExpr::FunctionRef { name, .. } => js_name(name),
         IrExpr::Let {

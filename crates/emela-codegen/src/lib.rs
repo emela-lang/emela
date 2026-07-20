@@ -14,6 +14,7 @@ mod ir;
 mod ir_walk;
 mod platform;
 mod plugin;
+mod rc;
 mod registry;
 mod tailcall;
 mod text;
@@ -26,6 +27,7 @@ pub use ir::{IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram
 pub use ir_walk::{used_intrinsics, used_platform_fns, walk};
 pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
+pub use rc::{insert_rc_ops, is_heap};
 pub use registry::BackendRegistry;
 pub use tailcall::{contains_tail_self_call, rewrite_self_tail_calls};
 pub use text::emit_text;

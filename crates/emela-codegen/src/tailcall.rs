@@ -120,6 +120,10 @@ fn rewrite(expr: &mut IrExpr, self_name: &str, tail: bool) {
         }
         IrExpr::FieldAccess { target, .. } => rewrite(target, self_name, false),
         IrExpr::Throw { value } => rewrite(value, self_name, false),
+        // RC nodes (spec 0048) are inserted after this rewrite runs; handled
+        // for completeness. A release is transparent to tail position.
+        IrExpr::Retain { value } => rewrite(value, self_name, false),
+        IrExpr::Release { next, .. } => rewrite(next, self_name, tail),
         // `expr?` has post-processing on the error path, so its operand is
         // never a tail position (spec 0045 T1).
         IrExpr::Question { value, .. } => rewrite(value, self_name, false),
@@ -226,6 +230,7 @@ mod tests {
             body: Box::new(self_call("loop_fn", vec![IrExpr::Int(1)])),
             arms: vec![],
             ty: Type::Unit,
+            err_name: None,
         };
         let mut program = program_with_body(body);
         rewrite_self_tail_calls(&mut program);
