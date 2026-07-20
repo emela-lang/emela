@@ -152,27 +152,28 @@ fn main() -> Unit uses { Io } {
     assert_eq!(capabilities, vec!["io"], "unexpected capabilities");
 }
 
-/// The `--host-interface` flag is recognized even though no interfaces exist yet.
+/// An unknown `--host-interface` name is rejected (spec 0026).
 #[test]
-fn host_interface_flag_is_accepted() {
+fn host_interface_flag_rejects_unknown_name() {
     let dir = temp_dir("host-flag");
     let input = dir.join("main.emel");
     fs::write(&input, "fn main() -> Int { 42 }\n").unwrap();
     let output = emela()
-        .arg("check")
+        .arg("build")
         .arg("--host-interface")
         .arg("nonexistent")
         .arg(&input)
         .output()
         .unwrap();
     let _ = fs::remove_dir_all(&dir);
-    // For now the flag is accepted silently (host interfaces are not
-    // implemented yet, spec 0026). In the future an unknown interface name
-    // will be an error.
     assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
+        !output.status.success(),
+        "expected failure for unknown host interface"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("host interface `nonexistent` not found"),
+        "stderr: {stderr}"
     );
 }
 
