@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/emela-lang/emela/compare/v0.7.0...v0.7.1) - 2026-07-20
+
+### Fixed
+
+- close HTTP server connections gracefully to avoid client resets ([#68](https://github.com/emela-lang/emela/pull/68))
+
 ## [0.7.0](https://github.com/emela-lang/emela/compare/v0.6.0...v0.7.0) - 2026-07-20
 
 ### Added
