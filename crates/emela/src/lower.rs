@@ -1252,8 +1252,8 @@ impl<'a> Lowerer<'a> {
                     || info
                         .module
                         .as_deref()
-                        .map_or(false, |m| m.starts_with("host."))
-                        && info.is_intrinsic == false
+                        .is_some_and(|m| m.starts_with("host."))
+                        && !info.is_intrinsic
             }
         };
         visible.then_some(info)
@@ -1990,7 +1990,8 @@ mod tests {
         // (spec 0021), and defaulted trait methods are filled in (spec 0020).
         crate::driver::merge_prelude(&mut program).expect("prelude");
         typecheck::expand_trait_defaults(&mut program);
-        let (typed, errors) = typecheck::check(&program, true, &emela_codegen::platform_interface());
+        let (typed, errors) =
+            typecheck::check(&program, true, &emela_codegen::platform_interface());
         assert!(errors.is_empty(), "typecheck: {errors:?}");
         lower(&program, &typed)
     }

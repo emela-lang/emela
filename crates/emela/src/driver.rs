@@ -42,19 +42,27 @@ pub fn run() -> Result<()> {
     match Cli::parse().command {
         Commands::Check { args } => {
             // `--library` compile-checks a module that has no `main` (spec 0003).
-            let registry = build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let registry =
+                build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
             let _ = compile_frontend(&args.input, &args.packages, !args.library, &registry)?;
             Ok(())
         }
         Commands::Build { args } => {
             reject_library(&args, "build")?;
             let mode = args.emit_mode()?;
-            let artifact = build(&args.input, &args.packages, &args.host_interfaces, args.backend.as_deref(), mode)?;
+            let artifact = build(
+                &args.input,
+                &args.packages,
+                &args.host_interfaces,
+                args.backend.as_deref(),
+                mode,
+            )?;
             write_artifact(artifact, args.output)
         }
         Commands::Ir { args, rc } => {
             reject_library(&args, "ir")?;
-            let registry = build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let registry =
+                build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
             let mut ir = compile_to_ir(&args.input, &args.packages, &registry)?;
             if rc {
                 emela_codegen::insert_rc_ops(&mut ir);
@@ -73,7 +81,12 @@ pub fn run() -> Result<()> {
         Commands::Run { args } => {
             reject_library(&args, "run")?;
             reject_run_flags(&args)?;
-            run_program(&args.input, &args.packages, &args.host_interfaces, args.backend.as_deref())
+            run_program(
+                &args.input,
+                &args.packages,
+                &args.host_interfaces,
+                args.backend.as_deref(),
+            )
         }
         Commands::Backends => {
             for (name, tier) in registry().list() {
@@ -147,8 +160,7 @@ fn build_platform_registry(
     input: &Path,
 ) -> Result<Vec<emela_codegen::PlatformFn>> {
     let mut registry = emela_codegen::platform_interface();
-    let host_entries =
-        load_host_interface_externs(host_interfaces, package_paths, input)?;
+    let host_entries = load_host_interface_externs(host_interfaces, package_paths, input)?;
     registry.extend(host_entries);
     Ok(registry)
 }
@@ -263,7 +275,12 @@ fn package_source_root(package_path: &Path) -> Option<PathBuf> {
 /// the process with the program's exit code. `run` runs WebAssembly, so only the
 /// wasm backend is accepted.
 #[cfg(feature = "run")]
-fn run_program(input: &PathBuf, packages: &[PathBuf], host_interfaces: &[String], backend: Option<&str>) -> Result<()> {
+fn run_program(
+    input: &PathBuf,
+    packages: &[PathBuf],
+    host_interfaces: &[String],
+    backend: Option<&str>,
+) -> Result<()> {
     if let Some(name) = backend
         && canonical_backend(name) != "wasm-wasi"
     {
@@ -271,7 +288,13 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], host_interfaces: &[String]
             "`run` executes WebAssembly; backend `{name}` is not supported (use `wasm-wasi`)"
         )));
     }
-    let artifact = build(input, packages, host_interfaces, Some("wasm-wasi"), EmitMode::Default)?;
+    let artifact = build(
+        input,
+        packages,
+        host_interfaces,
+        Some("wasm-wasi"),
+        EmitMode::Default,
+    )?;
     let code = crate::run::execute(&artifact.bytes)?;
     std::process::exit(code)
 }
@@ -279,7 +302,12 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], host_interfaces: &[String]
 /// Fallback when the `run` feature is disabled: report it clearly instead of
 /// silently failing to build the module.
 #[cfg(not(feature = "run"))]
-fn run_program(_input: &PathBuf, _packages: &[PathBuf], _host_interfaces: &[String], _backend: Option<&str>) -> Result<()> {
+fn run_program(
+    _input: &PathBuf,
+    _packages: &[PathBuf],
+    _host_interfaces: &[String],
+    _backend: Option<&str>,
+) -> Result<()> {
     Err(Error::new(
         "this `emela` was built without the `run` feature; rebuild with `--features run`",
     ))
@@ -536,8 +564,14 @@ pub(crate) fn compile_frontend(
     let source = fs::read_to_string(input)
         .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
     let packages = load_import_roots(input, package_paths)?;
-    let (program, typed, errors) =
-        compile_frontend_source_all(input, &source, &packages, require_main, &HashMap::new(), platform_registry);
+    let (program, typed, errors) = compile_frontend_source_all(
+        input,
+        &source,
+        &packages,
+        require_main,
+        &HashMap::new(),
+        platform_registry,
+    );
     if errors.is_empty() {
         Ok((program, typed))
     } else {
@@ -612,8 +646,14 @@ fn compile_frontend_source(
     require_main: bool,
     platform_registry: &[emela_codegen::PlatformFn],
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
-    let (program, typed, mut errors) =
-        compile_frontend_source_all(input, source, packages, require_main, &HashMap::new(), platform_registry);
+    let (program, typed, mut errors) = compile_frontend_source_all(
+        input,
+        source,
+        packages,
+        require_main,
+        &HashMap::new(),
+        platform_registry,
+    );
     if errors.is_empty() {
         Ok((program, typed))
     } else {
@@ -642,13 +682,25 @@ pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
 /// Type-checks an in-memory source string. Filesystem-free entry point used by
 /// embedders such as the WebAssembly playground.
 pub(crate) fn check_source(label: &str, source: &str) -> Result<()> {
-    compile_frontend_source(Path::new(label), source, &[], true, &emela_codegen::platform_interface())?;
+    compile_frontend_source(
+        Path::new(label),
+        source,
+        &[],
+        true,
+        &emela_codegen::platform_interface(),
+    )?;
     Ok(())
 }
 
 /// Lowers an in-memory source string to IR and renders it as text.
 pub(crate) fn ir_source(label: &str, source: &str) -> Result<String> {
-    let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true, &emela_codegen::platform_interface())?;
+    let (program, typed) = compile_frontend_source(
+        Path::new(label),
+        source,
+        &[],
+        true,
+        &emela_codegen::platform_interface(),
+    )?;
     let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
     Ok(emit_text(&ir))
@@ -842,8 +894,14 @@ mod tests {
     use super::*;
 
     fn frontend_errors(source: &str) -> (crate::ast::Program, Vec<String>) {
-        let (program, _, errors) =
-            compile_frontend_source_all(Path::new("test.emel"), source, &[], true, &HashMap::new(), &emela_codegen::platform_interface());
+        let (program, _, errors) = compile_frontend_source_all(
+            Path::new("test.emel"),
+            source,
+            &[],
+            true,
+            &HashMap::new(),
+            &emela_codegen::platform_interface(),
+        );
         let messages = errors
             .iter()
             .map(|error| error.message().to_string())

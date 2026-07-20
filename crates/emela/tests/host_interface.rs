@@ -5,7 +5,7 @@
 //! capability manifest, and rejects invalid usage.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -13,8 +13,10 @@ static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_dir(label: &str) -> PathBuf {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("emela-host-iface-{label}-{}-{id}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "emela-host-iface-{label}-{}-{id}",
+        std::process::id()
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -24,7 +26,7 @@ fn emela() -> Command {
 }
 
 /// Writes a host interface source file (`host/<name>.emel`) into `dir`.
-fn write_host_interface(dir: &PathBuf, name: &str, body: &str) {
+fn write_host_interface(dir: &Path, name: &str, body: &str) {
     let host_dir = dir.join("host");
     fs::create_dir_all(&host_dir).unwrap();
     let path = host_dir.join(format!("{name}.emel"));
@@ -195,7 +197,10 @@ fn host_interface_appears_in_manifest() {
         String::from_utf8_lossy(&result.stderr)
     );
     let wat = fs::read_to_string(&output).unwrap();
-    assert!(wat.contains("emela:capabilities"), "missing manifest section");
+    assert!(
+        wat.contains("emela:capabilities"),
+        "missing manifest section"
+    );
     // The manifest is hex-encoded in the custom section (WAT format).
     // "\2e\67\70\69\6f" decodes to ".gpio", "\2e\77\72\69\74\65" to ".write".
     assert!(
@@ -264,17 +269,9 @@ fn host_interface_import_emitted_in_wat() {
 fn rejects_bare_host_effect() {
     let dir = temp_dir("barehost");
     let main = dir.join("main.emel");
-    fs::write(
-        &main,
-        "fn main() -> Unit uses { host } {\n    ()\n}\n",
-    )
-    .unwrap();
+    fs::write(&main, "fn main() -> Unit uses { host } {\n    ()\n}\n").unwrap();
 
-    let result = emela()
-        .arg("check")
-        .arg(&main)
-        .output()
-        .unwrap();
+    let result = emela().arg("check").arg(&main).output().unwrap();
 
     let _ = fs::remove_dir_all(&dir);
     let stderr = String::from_utf8_lossy(&result.stderr);
@@ -409,11 +406,23 @@ fn multiple_host_interfaces_work() {
         String::from_utf8_lossy(&result.stderr)
     );
     let wat = fs::read_to_string(&output).unwrap();
-    assert!(wat.contains("(import \"host_gpio\" \"write\""), "missing gpio import");
-    assert!(wat.contains("(import \"host_db\" \"query\""), "missing db import");
+    assert!(
+        wat.contains("(import \"host_gpio\" \"write\""),
+        "missing gpio import"
+    );
+    assert!(
+        wat.contains("(import \"host_db\" \"query\""),
+        "missing db import"
+    );
     // Manifest entries are hex-encoded in the WAT custom section.
-    assert!(wat.contains("\\2e\\67\\70\\69\\6f\\2e\\77\\72\\69\\74\\65"), "manifest missing gpio");
-    assert!(wat.contains("\\2e\\64\\62\\2e\\71\\75\\65\\72\\79"), "manifest missing db");
+    assert!(
+        wat.contains("\\2e\\67\\70\\69\\6f\\2e\\77\\72\\69\\74\\65"),
+        "manifest missing gpio"
+    );
+    assert!(
+        wat.contains("\\2e\\64\\62\\2e\\71\\75\\65\\72\\79"),
+        "manifest missing db"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 

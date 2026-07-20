@@ -1164,8 +1164,8 @@ impl<'a> Checker<'a> {
                     || entry
                         .module
                         .as_deref()
-                        .map_or(false, |m| m.starts_with("host."))
-                        && entry.is_intrinsic == false
+                        .is_some_and(|m| m.starts_with("host."))
+                        && !entry.is_intrinsic
             }
         };
         visible.then_some(&entry.sig)
@@ -1210,8 +1210,7 @@ impl<'a> Checker<'a> {
                     Diagnostic::new("Bare host capability")
                         .label(
                             span.clone(),
-                            "`host` is not a standalone capability (spec 0026)"
-                                .to_string(),
+                            "`host` is not a standalone capability (spec 0026)".to_string(),
                         )
                         .help("Use `host.<name>` instead, e.g. `host.gpio`."),
                 ));

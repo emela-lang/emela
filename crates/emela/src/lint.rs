@@ -64,7 +64,12 @@ fn lint_file(input: &Path, packages: &[PathBuf]) -> Result<Vec<Diagnostic>> {
     }
     // The full frontend must succeed before lints are reported; `main` is not
     // required — libraries are lintable (L1).
-    let (merged, typed) = crate::driver::compile_frontend(&input.to_path_buf(), packages, false, &emela_codegen::platform_interface())?;
+    let (merged, typed) = crate::driver::compile_frontend(
+        &input.to_path_buf(),
+        packages,
+        false,
+        &emela_codegen::platform_interface(),
+    )?;
     let mut diagnostics = Vec::new();
     naming(&root, &mut diagnostics);
     unused_imports(&root, &mut diagnostics);

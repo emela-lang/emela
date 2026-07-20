@@ -27,7 +27,10 @@ pub struct CapabilityManifest {
 }
 
 /// Computes the capability manifest for a program.
-pub fn compute_manifest(program: &IrProgram, platform_registry: &[PlatformFn]) -> CapabilityManifest {
+pub fn compute_manifest(
+    program: &IrProgram,
+    platform_registry: &[PlatformFn],
+) -> CapabilityManifest {
     let used_platform = used_platform_fns(program);
     let used_intrinsics = used_intrinsics(program);
     let has_main = program.functions.iter().any(|f| f.name == "main");

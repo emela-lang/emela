@@ -13,7 +13,10 @@ static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_dir(label: &str) -> PathBuf {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("emela-manifest-{label}-{}-{id}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "emela-manifest-{label}-{}-{id}",
+        std::process::id()
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -64,9 +67,8 @@ fn manifest_custom_section_is_present() {
 /// function.
 #[test]
 fn manifest_reflects_io_program() {
-    let bytes = build_wasm(
-        "import std.io\nfn main() -> Unit uses { Io } { Io.print(\"Hello\\n\") }\n",
-    );
+    let bytes =
+        build_wasm("import std.io\nfn main() -> Unit uses { Io } { Io.print(\"Hello\\n\") }\n");
     // Parse the custom section payload.
     let manifest = extract_manifest(&bytes).expect("manifest should be parseable");
     assert_eq!(manifest["format"], serde_json::Value::Number(1.into()));
@@ -109,13 +111,13 @@ fn pure_program_has_empty_requires() {
     let bytes = build_wasm("fn main() -> Int { 1 + 2 }\n");
     let manifest = extract_manifest(&bytes).expect("manifest should be parseable");
     let requires = manifest["requires"].as_array().unwrap();
-    assert!(requires.is_empty(), "expected empty requires, got {requires:?}");
+    assert!(
+        requires.is_empty(),
+        "expected empty requires, got {requires:?}"
+    );
     let intrinsics = manifest["intrinsics"].as_array().unwrap();
     // i32_add is used by the addition.
-    let intrinsic_names: Vec<&str> = intrinsics
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect();
+    let intrinsic_names: Vec<&str> = intrinsics.iter().map(|v| v.as_str().unwrap()).collect();
     assert!(
         intrinsic_names.contains(&"i32_add"),
         "expected i32_add intrinsic, got {intrinsic_names:?}"
@@ -141,8 +143,14 @@ fn main() -> Unit uses { Io } {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    assert!(requires.contains(&"io.write_stdout"), "missing write_stdout");
-    assert!(requires.contains(&"io.write_stderr"), "missing write_stderr");
+    assert!(
+        requires.contains(&"io.write_stdout"),
+        "missing write_stdout"
+    );
+    assert!(
+        requires.contains(&"io.write_stderr"),
+        "missing write_stderr"
+    );
     let capabilities: Vec<&str> = manifest["capabilities"]
         .as_array()
         .unwrap()
@@ -201,7 +209,8 @@ fn find_custom_section(wasm: &[u8], name: &str) -> Option<Vec<u8>> {
             let name_len_start = offset;
             let (name_len, advance) = read_leb128_u32(&wasm[offset..]);
             offset += advance;
-            let section_name = std::str::from_utf8(&wasm[offset..offset + name_len as usize]).ok()?;
+            let section_name =
+                std::str::from_utf8(&wasm[offset..offset + name_len as usize]).ok()?;
             let data_start = name_len_start + advance + name_len as usize;
             let data_len = size as usize - (data_start - name_len_start);
             if section_name == name {

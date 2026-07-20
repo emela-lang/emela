@@ -53,7 +53,12 @@ pub(crate) fn run() -> Result<()> {
     let mut compile_errors: Vec<Error> = Vec::new();
     let mut modules: Vec<ModuleTests> = Vec::new();
     for file in &files {
-        let (program, typed) = match crate::driver::compile_frontend(file, &[], false, &emela_codegen::platform_interface()) {
+        let (program, typed) = match crate::driver::compile_frontend(
+            file,
+            &[],
+            false,
+            &emela_codegen::platform_interface(),
+        ) {
             Ok(compiled) => compiled,
             Err(error) => {
                 compile_errors.push(error);

@@ -369,11 +369,7 @@ fn wasm_params(params: &[emela_codegen::Type]) -> String {
     if params.is_empty() {
         return String::new();
     }
-    let params_str = params
-        .iter()
-        .map(|_| "i32")
-        .collect::<Vec<_>>()
-        .join(" ");
+    let params_str = params.iter().map(|_| "i32").collect::<Vec<_>>().join(" ");
     format!("(param {params_str}) ")
 }
 
@@ -855,7 +851,10 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
     let manifest = emela_codegen::compute_manifest(ir, platform_registry);
     let manifest_json = emela_codegen::serialize_manifest(&manifest);
     let manifest_bytes = wat_bytes(manifest_json.as_bytes());
-    let _ = writeln!(module, "  (@custom \"emela:capabilities\" (after last) \"{manifest_bytes}\")");
+    let _ = writeln!(
+        module,
+        "  (@custom \"emela:capabilities\" (after last) \"{manifest_bytes}\")"
+    );
     module.push_str(")\n");
     Ok(module)
 }
