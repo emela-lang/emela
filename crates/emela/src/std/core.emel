@@ -9,6 +9,17 @@
 
 module core
 
+-- `Option<T>` (spec 0042): the optional-value type, a Core-Prelude generic enum
+-- (spec 0028) rather than a compiler built-in. `@lang("option")` (spec 0041)
+-- binds it as the `option` lang item, so `Some`/`None` are constructed and
+-- matched bare and the compiler recognizes it without a magic name. Declare
+-- `Some` before `None` so the tags (0/1) match the backends' enum encoding.
+@lang("option")
+enum Option<T> {
+    Some(T)
+    None
+}
+
 trait Add {
     fn add(a: Self, b: Self) -> Self uses {}
 }

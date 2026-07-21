@@ -320,7 +320,6 @@ pub(crate) fn render_type(ty: &Type) -> String {
         Type::Record => "Record".to_string(),
         Type::Never => "Never".to_string(),
         Type::Array(inner) => format!("Array<{}>", render_type(inner)),
-        Type::Option(inner) => format!("Option<{}>", render_type(inner)),
         Type::Enum(name, args) => {
             if args.is_empty() {
                 name.clone()

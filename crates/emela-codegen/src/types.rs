@@ -20,9 +20,9 @@ pub enum Type {
     /// type arguments (spec 0028). The argument list is empty for a
     /// non-generic enum such as `Color`, and holds one type per declared type
     /// parameter for a generic one such as `List<Int>` or `Either<Int, String>`.
+    /// `Option<T>` (spec 0042) is one of these — an ordinary Core-Prelude enum,
+    /// not a dedicated variant.
     Enum(String, Vec<Type>),
-    /// An optional value (spec 0001): `Option<T>`.
-    Option(Box<Type>),
     /// The empty type of `throw` and `panic` (spec 0011). It is assignable to
     /// any expected type; no value ever has this type.
     Never,

@@ -245,7 +245,6 @@ fn type_name(ty: &Type) -> String {
             "{name}<{}>",
             args.iter().map(type_name).collect::<Vec<_>>().join(", ")
         ),
-        Type::Option(inner) => format!("Option<{}>", type_name(inner)),
         Type::Never => "Never".to_string(),
         Type::Function(function) => format!(
             "({}) -> {} uses {{{}}}",

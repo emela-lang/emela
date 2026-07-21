@@ -115,19 +115,22 @@ fn fmt_normalizes_attribute_placement() {
 // Spec 0041: the `@lang` attribute (lang-item binding)
 // ---------------------------------------------------------------------------
 
-// R7: `@lang("<role>")` takes a string-literal argument and binds a top-level
-// `enum` to a recognized role. The bare mechanism accepts a well-formed use.
+// The Core Prelude binds `@lang("option")` to its `Option` (spec 0042), and a
+// role is bound at most once (spec 0041 L2), so a user binding of the same role
+// is rejected against the user's code, not the prelude's.
 #[test]
-fn lang_attribute_binds_an_enum() {
+fn lang_option_role_is_reserved_by_the_prelude() {
     let output = on_source(
-        "lang-ok",
+        "lang-dup",
         &["check"],
         concat!(
             "@lang(\"option\")\nenum Maybe<T> {\n    Just(T)\n    Nothing\n}\n\n",
             "fn main() -> Int uses {} { 0 }\n"
         ),
     );
-    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(text.contains("already bound"), "{text}");
 }
 
 // `@lang` applies to an `enum` only (R6), its role name is closed (spec 0042),

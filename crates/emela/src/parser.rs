@@ -830,12 +830,6 @@ impl Parser {
             }
             "Record" => Ok(Type::Record),
             "Never" => Ok(Type::Never),
-            "Option" => {
-                self.expect(&TokenKind::Lt)?;
-                let inner = self.parse_type()?;
-                self.expect(&TokenKind::Gt)?;
-                Ok(Type::Option(Box::new(inner)))
-            }
             "Function" => Ok(Type::OpaqueFunction),
             // A name declared as a type parameter of the enclosing function
             // resolves to a type variable (spec 0014).

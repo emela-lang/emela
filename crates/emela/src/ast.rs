@@ -70,9 +70,6 @@ pub(crate) struct EnumDecl {
     /// 0039/0041), e.g. `Some("option")` for the `Option` type. `None` for an
     /// ordinary enum. Set by `apply_attributes`; consumed where the compiler
     /// resolves lang-item roles (spec 0042 builds the `option` table).
-    // Populated here but not yet read: the Option-demotion change (spec 0042)
-    // consumes it to build the lang-item table. Remove this `allow` there.
-    #[allow(dead_code)]
     pub(crate) lang_item: Option<String>,
 }
 

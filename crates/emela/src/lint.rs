@@ -315,7 +315,7 @@ fn used_type(ty: &Type, used: &mut HashSet<String>) {
             used.insert(name.clone());
             args.iter().for_each(|arg| used_type(arg, used));
         }
-        Type::Array(inner) | Type::Option(inner) => used_type(inner, used),
+        Type::Array(inner) => used_type(inner, used),
         Type::Function(function) => {
             function
                 .params

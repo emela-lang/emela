@@ -77,6 +77,15 @@ struct VariantDef {
     fields: Vec<Type>,
 }
 
+/// The `Option` lang item on the lowering side (spec 0042): the enum name and
+/// its present/absent variant names, so bare `Some`/`None` lower exactly like
+/// the qualified `Option::Some` / `Option::None`.
+struct OptionLangItem {
+    enum_name: String,
+    some: String,
+    none: String,
+}
+
 struct Lowerer<'a> {
     /// Suffix-resolution table over all top-level functions (spec 0018), built
     /// identically to the type checker's so the two passes resolve a path to the
@@ -92,6 +101,8 @@ struct Lowerer<'a> {
     enums: HashMap<String, Vec<VariantDef>>,
     /// Declared records (spec 0006): name -> fields in declaration order.
     records: HashMap<String, Vec<(String, Type)>>,
+    /// The `Option` lang item (spec 0042), if the Core Prelude bound one.
+    option_lang_item: Option<OptionLangItem>,
     /// Type parameters of each generic enum (spec 0028), used to substitute the
     /// concrete type arguments into variant field types at construction and
     /// `match`. Empty vec for a non-generic enum.
@@ -190,6 +201,28 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             )
         })
         .collect();
+    // The `Option` lang item (spec 0042): the enum the Core Prelude tagged with
+    // `@lang("option")`. Its shape is validated in type checking, so identify
+    // the present (one field) and absent (no fields) variants by arity here.
+    let option_lang_item = program
+        .enums
+        .iter()
+        .find(|decl| decl.lang_item.as_deref() == Some("option"))
+        .map(|decl| OptionLangItem {
+            enum_name: decl.name.clone(),
+            some: decl
+                .variants
+                .iter()
+                .find(|v| v.fields.len() == 1)
+                .map(|v| v.name.clone())
+                .unwrap_or_default(),
+            none: decl
+                .variants
+                .iter()
+                .find(|v| v.fields.is_empty())
+                .map(|v| v.name.clone())
+                .unwrap_or_default(),
+        });
     // Trait/impl indexes (spec 0020), mirroring the type checker so a call
     // resolves to the same impl. The type checker already validated everything,
     // so lowering just picks the impl from the (now concrete) argument types.
@@ -223,6 +256,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         externs,
         enums,
         records,
+        option_lang_item,
         enum_type_params,
         method_owners,
         trait_methods,
@@ -892,13 +926,23 @@ impl<'a> Lowerer<'a> {
                         },
                         ty.clone(),
                     )
-                } else if name == "None" {
-                    let ty = Type::Option(Box::new(Type::Never));
+                } else if let Some(li) = &self.option_lang_item
+                    && *name == li.none
+                {
+                    // Bare `None` (spec 0042 O3): the absent variant of the
+                    // `option` lang item, lowered like `Option::None`.
+                    let enum_name = li.enum_name.clone();
+                    let def = self.enums[&enum_name]
+                        .iter()
+                        .find(|v| v.name == *name)
+                        .expect("option lang item validated in type checking");
+                    let args = self.enum_type_args(&enum_name, def, &[]);
+                    let ty = Type::Enum(enum_name.clone(), args);
                     (
                         IrExpr::EnumValue {
                             ty: ty.clone(),
-                            variant: "None".to_string(),
-                            tag: 1,
+                            variant: name.clone(),
+                            tag: def.tag,
                             payload: Vec::new(),
                         },
                         ty,
@@ -1261,8 +1305,10 @@ impl<'a> Lowerer<'a> {
             return self.lower_call(&method, &method_args, scope, expected);
         }
         if let Expr::Var(name, _) = callee {
-            // Built-in Option constructor `Some(x)`.
-            if name == "Some"
+            // Bare `Some(x)` (spec 0042 O3): the present variant of the `option`
+            // lang item, lowered like `Option::Some(x)`.
+            if let Some(li) = &self.option_lang_item
+                && *name == li.some
                 && !scope.contains_key(name)
                 && self.visible_extern(name).is_none()
                 && matches!(
@@ -1273,13 +1319,20 @@ impl<'a> Lowerer<'a> {
                     Resolved::None | Resolved::BareImported(_)
                 )
             {
+                let enum_name = li.enum_name.clone();
                 let (arg_ir, arg_ty) = self.lower_expr(&args[0], scope);
-                let ty = Type::Option(Box::new(arg_ty));
+                let payload_tys = [self.apply(&arg_ty)];
+                let def = self.enums[&enum_name]
+                    .iter()
+                    .find(|v| v.name == *name)
+                    .expect("option lang item validated in type checking");
+                let type_args = self.enum_type_args(&enum_name, def, &payload_tys);
+                let ty = Type::Enum(enum_name.clone(), type_args);
                 return (
                     IrExpr::EnumValue {
                         ty: ty.clone(),
-                        variant: "Some".to_string(),
-                        tag: 0,
+                        variant: name.clone(),
+                        tag: def.tag,
                         payload: vec![arg_ir],
                     },
                     ty,
@@ -1614,18 +1667,6 @@ impl<'a> Lowerer<'a> {
                     })
                     .collect()
             }
-            Type::Option(inner) => vec![
-                VariantDef {
-                    name: "Some".to_string(),
-                    tag: 0,
-                    fields: vec![(**inner).clone()],
-                },
-                VariantDef {
-                    name: "None".to_string(),
-                    tag: 1,
-                    fields: vec![],
-                },
-            ],
             _ => Vec::new(),
         }
     }
@@ -1860,7 +1901,6 @@ fn infer_subst(declared: &Type, actual: &Type, subst: &mut HashMap<String, Type>
             }
         }
         (Type::Array(d), Type::Array(a)) => infer_subst(d, a, subst),
-        (Type::Option(d), Type::Option(a)) => infer_subst(d, a, subst),
         (Type::Enum(dn, dargs), Type::Enum(an, aargs))
             if dn == an && dargs.len() == aargs.len() =>
         {
@@ -1924,13 +1964,13 @@ fn mangle_type(ty: &Type) -> String {
         Type::Array(element) => format!("Array_{}_", mangle_type(element)),
         Type::Record => "Record".to_string(),
         Type::Enum(name, args) if args.is_empty() => name.clone(),
-        // A generic enum instance mangles like `Array`/`Option`, so distinct
+        // A generic enum instance mangles by name and arguments, so distinct
         // instantiations get distinct specialization names (spec 0028/0014).
+        // `Option<Int>` mangles `Option_Int_`, as the built-in once did.
         Type::Enum(name, args) => format!(
             "{name}_{}_",
             args.iter().map(mangle_type).collect::<Vec<_>>().join("_")
         ),
-        Type::Option(inner) => format!("Option_{}_", mangle_type(inner)),
         Type::Never => "Never".to_string(),
         Type::Function(function) => {
             let params = function
