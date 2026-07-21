@@ -153,7 +153,9 @@ fn leading_comparison_and_logical_operators_continue() {
 #[test]
 fn adjacent_statements_are_not_merged() {
     assert_eq!(
-        run_exit_code("fn id(x: Int) -> Int {\n  x\n}\n\nfn main() -> Int {\n  id(1)\n  id(2)\n}\n"),
+        run_exit_code(
+            "fn id(x: Int) -> Int {\n  x\n}\n\nfn main() -> Int {\n  id(1)\n  id(2)\n}\n"
+        ),
         2,
     );
 }
