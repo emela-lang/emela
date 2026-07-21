@@ -7,6 +7,20 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/emela-lang/emela/compare/v0.7.1...v0.8.0) - 2026-07-21
+
+### Added
+
+- 関数値の effect subsumption (spec 0023) ([#79](https://github.com/emela-lang/emela/pull/79))
+- demote Option to a Core-Prelude enum (spec 0041/0042) ([#78](https://github.com/emela-lang/emela/pull/78))
+- add the lang-item attribute for role binding (spec 0039/0041) ([#77](https://github.com/emela-lang/emela/pull/77))
+- capability manifest & embedder-defined capabilities (spec 0025/0026) ([#73](https://github.com/emela-lang/emela/pull/73))
+
+### Fixed
+
+- remove non-conformant `?`-on-Option (spec 0011/0042) ([#76](https://github.com/emela-lang/emela/pull/76))
+- 改行後の行頭二項演算子を式の継続としてパース ([#62](https://github.com/emela-lang/emela/pull/62)) ([#75](https://github.com/emela-lang/emela/pull/75))
+
 ## [0.7.1](https://github.com/emela-lang/emela/compare/v0.7.0...v0.7.1) - 2026-07-20
 
 ### Fixed
