@@ -939,7 +939,7 @@ impl Parser {
     /// `while` yields `a |> f |> g` == `g(f(a))`.
     fn parse_pipe(&mut self) -> Result<Expr> {
         let mut expr = self.parse_or()?;
-        while self.eat(&TokenKind::PipeGt) {
+        while self.eat_across_newlines(&TokenKind::PipeGt) {
             let right = self.parse_or()?;
             expr = pipe_desugar(expr, right);
         }
@@ -950,7 +950,7 @@ impl Parser {
     /// `if a { true } else { b }`, which short-circuits `b`.
     fn parse_or(&mut self) -> Result<Expr> {
         let mut expr = self.parse_and()?;
-        while self.eat(&TokenKind::PipePipe) {
+        while self.eat_across_newlines(&TokenKind::PipePipe) {
             let right = self.parse_and()?;
             let span = expr.span().merge(&right.span());
             let then = Expr::Bool(true, span.clone());
@@ -963,7 +963,7 @@ impl Parser {
     /// `if a { b } else { false }`, which short-circuits `b`.
     fn parse_and(&mut self) -> Result<Expr> {
         let mut expr = self.parse_equality()?;
-        while self.eat(&TokenKind::AmpAmp) {
+        while self.eat_across_newlines(&TokenKind::AmpAmp) {
             let right = self.parse_equality()?;
             let span = expr.span().merge(&right.span());
             let els = Expr::Bool(false, span.clone());
@@ -976,17 +976,17 @@ impl Parser {
         let mut expr = self.parse_sum()?;
         loop {
             // Comparisons share one precedence level, left-associative (spec 0027).
-            let op = if self.eat(&TokenKind::EqEq) {
+            let op = if self.eat_across_newlines(&TokenKind::EqEq) {
                 BinaryOp::Eq
-            } else if self.eat(&TokenKind::Ne) {
+            } else if self.eat_across_newlines(&TokenKind::Ne) {
                 BinaryOp::Ne
-            } else if self.eat(&TokenKind::Lt) {
+            } else if self.eat_across_newlines(&TokenKind::Lt) {
                 BinaryOp::Lt
-            } else if self.eat(&TokenKind::Gt) {
+            } else if self.eat_across_newlines(&TokenKind::Gt) {
                 BinaryOp::Gt
-            } else if self.eat(&TokenKind::Le) {
+            } else if self.eat_across_newlines(&TokenKind::Le) {
                 BinaryOp::Le
-            } else if self.eat(&TokenKind::Ge) {
+            } else if self.eat_across_newlines(&TokenKind::Ge) {
                 BinaryOp::Ge
             } else {
                 break;
@@ -1006,11 +1006,11 @@ impl Parser {
     fn parse_sum(&mut self) -> Result<Expr> {
         let mut expr = self.parse_product()?;
         loop {
-            let op = if self.eat(&TokenKind::Plus) {
+            let op = if self.eat_across_newlines(&TokenKind::Plus) {
                 BinaryOp::Add
-            } else if self.eat(&TokenKind::PlusPlus) {
+            } else if self.eat_across_newlines(&TokenKind::PlusPlus) {
                 BinaryOp::Concat
-            } else if self.eat(&TokenKind::Minus) {
+            } else if self.eat_across_newlines(&TokenKind::Minus) {
                 BinaryOp::Sub
             } else {
                 break;
@@ -1030,11 +1030,11 @@ impl Parser {
     fn parse_product(&mut self) -> Result<Expr> {
         let mut expr = self.parse_unary()?;
         loop {
-            let op = if self.eat(&TokenKind::Star) {
+            let op = if self.eat_across_newlines(&TokenKind::Star) {
                 BinaryOp::Mul
-            } else if self.eat(&TokenKind::Slash) {
+            } else if self.eat_across_newlines(&TokenKind::Slash) {
                 BinaryOp::Div
-            } else if self.eat(&TokenKind::Percent) {
+            } else if self.eat_across_newlines(&TokenKind::Percent) {
                 BinaryOp::Rem
             } else {
                 break;
@@ -1454,6 +1454,25 @@ impl Parser {
             self.bump();
             true
         } else {
+            false
+        }
+    }
+
+    /// Like [`eat`], but tolerates newlines before the operator: a binary
+    /// operator written at the start of the next line continues the current
+    /// expression (spec 0034 G7, issue #62), so a pipeline `xs\n  |> f\n  |> g`
+    /// parses as one expression. No binary operator can begin a statement — the
+    /// language has no prefix `+`/`-`/`|>` (only `!`) — so consuming across a
+    /// newline never merges two independent statements. On no match the position
+    /// (including any skipped newlines) is fully restored, leaving the newline
+    /// available as a statement separator.
+    fn eat_across_newlines(&mut self, kind: &TokenKind) -> bool {
+        let saved = self.current;
+        self.skip_newlines();
+        if self.eat(kind) {
+            true
+        } else {
+            self.current = saved;
             false
         }
     }

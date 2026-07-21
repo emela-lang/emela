@@ -227,6 +227,36 @@ fn transform(x: Int) -> Int throws E { x + 100 }\n";
     assert_eq!(run_exit_code(&failing), 7);
 }
 
+/// A pipeline may place `|>` at the start of each continuation line (spec 0034,
+/// issue #62): a newline before a binary operator continues the expression. The
+/// multi-line form desugars to the very same IR as the single-line chain.
+#[test]
+fn leading_operator_spans_newlines() {
+    let multiline = format!(
+        "{HELPERS}\
+        fn piped(n: Int) -> Int {{\n  n\n  |> add1\n  |> double\n  |> scale(1)\n}}\n\
+        fn inline(n: Int) -> Int {{ n |> add1 |> double |> scale(1) }}\n\
+        fn main() -> Int uses {{}} {{ 0 }}\n"
+    );
+    let dump = ir(&multiline);
+    let body_of = |name: &str| -> String {
+        dump.split(&format!("fn {name}("))
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        body_of("piped"),
+        body_of("inline"),
+        "a `|>` on the next line must parse as one pipeline:\n{dump}"
+    );
+    // double(add1(21)) |> scale(1) == scale(44, 1) == 44.
+    let program =
+        format!("{HELPERS}fn main() -> Int {{\n  21\n  |> add1\n  |> double\n  |> scale(1)\n}}\n");
+    assert_eq!(run_exit_code(&program), 44);
+}
+
 /// A pipe on a generic function infers its type argument exactly as the call
 /// would (spec 0019: type/effect/throws match the desugared call).
 #[test]

@@ -30,6 +30,18 @@ fn run(args: &[&str], source: &str) -> std::process::Output {
     output
 }
 
+/// `main`'s `Int` result is the process exit code, so an expression's runtime
+/// value can be asserted directly.
+fn run_exit_code(source: &str) -> i32 {
+    let output = run(&["run"], source);
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.status.code().unwrap()
+}
+
 fn check_ok(source: &str) {
     let output = run(&["check"], source);
     assert!(
@@ -111,4 +123,37 @@ fn lone_comma_is_rejected() {
 #[test]
 fn newline_outside_brackets_still_significant() {
     check_err("fn f()\n -> Int {\n  1\n}\n\nfn main() -> Unit uses {} {\n  ()\n}\n");
+}
+
+// A binary operator at the start of the next line continues the current
+// expression (issue #62): no operator can begin a statement (the language has
+// no prefix `+`/`-`), so a leading operator is unambiguously a continuation.
+// `1 + 2 + 3 * 4` == `1 + 2 + (3 * 4)` == 15 confirms precedence is preserved
+// across the newlines.
+#[test]
+fn leading_binary_operator_continues_expression() {
+    assert_eq!(
+        run_exit_code("fn main() -> Int {\n  1 + 2\n  + 3\n  * 4\n}\n"),
+        15,
+    );
+}
+
+// Comparison and short-circuiting operators continue across newlines too:
+// `(1 < 2) && (3 > 2) || false` is `true`.
+#[test]
+fn leading_comparison_and_logical_operators_continue() {
+    let source = "fn main() -> Int {\n  let ok = 1 < 2\n    && 3 > 2\n    || false\n  if ok { 7 } else { 0 }\n}\n";
+    assert_eq!(run_exit_code(source), 7);
+}
+
+// The continuation must not swallow a genuine statement boundary: two
+// expression statements on separate lines stay separate, so the block's value
+// is the *last* one. If the newline were wrongly absorbed, `id(1)` would be
+// applied to `id(2)` and fail to type-check.
+#[test]
+fn adjacent_statements_are_not_merged() {
+    assert_eq!(
+        run_exit_code("fn id(x: Int) -> Int {\n  x\n}\n\nfn main() -> Int {\n  id(1)\n  id(2)\n}\n"),
+        2,
+    );
 }
