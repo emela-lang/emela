@@ -139,7 +139,7 @@ impl Parser {
                 }
             };
             match result {
-                Ok(kind) => apply_attributes(attrs, kind, &mut functions, errors),
+                Ok(kind) => apply_attributes(attrs, kind, &mut functions, &mut enums, errors),
                 Err(error) => {
                     errors.push(error);
                     // The failed declaration may leave its type parameters
@@ -225,19 +225,14 @@ impl Parser {
         while let TokenKind::At(name) = &self.peek().kind {
             let name = name.clone();
             let token = self.bump();
-            if self.at(&TokenKind::LParen) {
-                errors.push(Error::diagnostic(
-                    Diagnostic::new("Attribute arguments are reserved").label(
-                        token.span.clone(),
-                        format!(
-                            "`@{name}(...)` is reserved for future use; attributes take no arguments (spec 0039)"
-                        ),
-                    ),
-                ));
-                self.skip_group();
-            }
+            let arg = if self.at(&TokenKind::LParen) {
+                self.parse_attribute_arg(errors)
+            } else {
+                None
+            };
             attrs.push(Attribute {
                 name,
+                arg,
                 span: token.span,
             });
             self.skip_newlines();
@@ -245,22 +240,39 @@ impl Parser {
         attrs
     }
 
-    /// Consumes a balanced `( ... )` group, for attribute-argument recovery
-    /// (spec 0039 R7). Called with the cursor on the opening `(`.
-    fn skip_group(&mut self) {
-        let mut depth = 0usize;
-        while !self.at(&TokenKind::Eof) {
+    /// Parses a parenthesized attribute argument (spec 0039 R7): a single string
+    /// literal, as in `@lang("option")`. Called with the cursor on the opening
+    /// `(`. Returns the string, or `None` (with an error pushed and the group
+    /// skipped) when the group is not exactly one string literal.
+    fn parse_attribute_arg(&mut self, errors: &mut Vec<Error>) -> Option<String> {
+        let span = self.peek().span.clone();
+        self.bump(); // `(`
+        let value = if let TokenKind::String(text) = self.peek().kind.clone() {
+            self.bump();
+            Some(text)
+        } else {
+            None
+        };
+        if value.is_some() && self.at(&TokenKind::RParen) {
+            self.bump(); // `)`
+            return value;
+        }
+        errors.push(Error::diagnostic(
+            Diagnostic::new("Invalid attribute argument").label(
+                span,
+                "an attribute argument must be a single string literal (spec 0039)",
+            ),
+        ));
+        // Recover past the malformed group (the opening `(` is already consumed).
+        let mut depth = 1usize;
+        while depth > 0 && !self.at(&TokenKind::Eof) {
             match self.bump().kind {
                 TokenKind::LParen => depth += 1,
-                TokenKind::RParen => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        return;
-                    }
-                }
+                TokenKind::RParen => depth -= 1,
                 _ => {}
             }
         }
+        None
     }
 
     /// Rejects an attribute in a nested position (spec 0039 R2): attributes may
@@ -331,6 +343,8 @@ impl Parser {
             // Stamped with the declaring module in `parse_program`.
             module: None,
             variants,
+            // Set from `@lang("<role>")` by `apply_attributes` (spec 0039/0041).
+            lang_item: None,
         })
     }
 
@@ -1514,10 +1528,14 @@ fn is_decl_start(kind: &TokenKind) -> bool {
     )
 }
 
-/// A parsed `@name` attribute (spec 0039), validated against the declaration it
-/// precedes by `apply_attributes`.
+/// A parsed `@name` or `@name("arg")` attribute (spec 0039), validated against
+/// the declaration it precedes by `apply_attributes`.
 struct Attribute {
     name: String,
+    /// The string-literal argument of `@name("arg")` (spec 0039 R7), or `None`
+    /// for the bare `@name` form. Which attributes may/must take an argument is
+    /// enforced in `apply_attributes` (only `@lang` does, spec 0041).
+    arg: Option<String>,
     span: Span,
 }
 
@@ -1552,12 +1570,15 @@ impl DeclKind {
 
 /// Validates the attributes collected before a declaration (spec 0039): the
 /// recognized set is closed (R4), an unknown name is an error (R5), a duplicate
-/// is an error (R3), and each recognized attribute checks the declaration kind
-/// it applies to (R6). `@test` (spec 0040 T1) marks a top-level `fn` as a test.
+/// is an error (R3), each recognized attribute checks the declaration kind it
+/// applies to (R6), and only argument-taking attributes may carry an argument
+/// (R7). `@test` (spec 0040 T1) marks a top-level `fn` as a test; `@lang`
+/// (spec 0041) binds a top-level `enum` to a lang-item role.
 fn apply_attributes(
     attrs: Vec<Attribute>,
     kind: DeclKind,
     functions: &mut [Function],
+    enums: &mut [EnumDecl],
     errors: &mut Vec<Error>,
 ) {
     let mut seen = std::collections::HashSet::new();
@@ -1584,17 +1605,65 @@ fn apply_attributes(
             continue;
         }
         match attr.name.as_str() {
-            "test" => match kind {
-                DeclKind::Fn => {
-                    if let Some(function) = functions.last_mut() {
-                        function.is_test = true;
-                    }
+            "test" => {
+                // `@test` takes no arguments (spec 0039 R7 / 0040).
+                if attr.arg.is_some() {
+                    errors.push(Error::diagnostic(
+                        Diagnostic::new("Attribute takes no arguments").label(
+                            attr.span.clone(),
+                            "`@test` takes no arguments (spec 0040)",
+                        ),
+                    ));
+                    continue;
                 }
+                match kind {
+                    DeclKind::Fn => {
+                        if let Some(function) = functions.last_mut() {
+                            function.is_test = true;
+                        }
+                    }
+                    _ => errors.push(Error::diagnostic(
+                        Diagnostic::new("Attribute does not apply here").label(
+                            attr.span.clone(),
+                            format!(
+                                "`@test` may only be applied to a top-level `fn`, not {} (spec 0040)",
+                                kind.describe()
+                            ),
+                        ),
+                    )),
+                }
+            }
+            "lang" => match kind {
+                // `@lang("<role>")` binds this enum to a lang-item role. The role
+                // set is closed (spec 0041 L1); only `option` is recognized so
+                // far (spec 0042). The role is stored on the enum and consumed
+                // where the compiler builds the lang-item table.
+                DeclKind::Enum => match attr.arg.as_deref() {
+                    Some("option") => {
+                        if let Some(decl) = enums.last_mut() {
+                            decl.lang_item = Some("option".to_string());
+                        }
+                    }
+                    Some(role) => errors.push(Error::diagnostic(
+                        Diagnostic::new("Unknown lang-item role").label(
+                            attr.span.clone(),
+                            format!(
+                                "unknown lang-item role `\"{role}\"`; recognized roles: `\"option\"` (spec 0042)"
+                            ),
+                        ),
+                    )),
+                    None => errors.push(Error::diagnostic(
+                        Diagnostic::new("Missing lang-item role").label(
+                            attr.span.clone(),
+                            "`@lang` requires a role name, e.g. `@lang(\"option\")` (spec 0041)",
+                        ),
+                    )),
+                },
                 _ => errors.push(Error::diagnostic(
                     Diagnostic::new("Attribute does not apply here").label(
                         attr.span.clone(),
                         format!(
-                            "`@test` may only be applied to a top-level `fn`, not {} (spec 0040)",
+                            "`@lang` may only be applied to a top-level `enum`, not {} (spec 0041)",
                             kind.describe()
                         ),
                     ),
@@ -1604,7 +1673,7 @@ fn apply_attributes(
                 Diagnostic::new("Unknown attribute").label(
                     attr.span.clone(),
                     format!(
-                        "unknown attribute `@{other}`; recognized attributes: `@test` (spec 0040)"
+                        "unknown attribute `@{other}`; recognized attributes: `@test` (spec 0040), `@lang` (spec 0041)"
                     ),
                 ),
             )),

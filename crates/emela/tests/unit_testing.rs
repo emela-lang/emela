@@ -64,7 +64,7 @@ fn unknown_attribute_is_an_error() {
     assert!(text.contains("`@test`"), "{text}");
 }
 
-// R3: a duplicated attribute is an error; R7: the argument form is reserved;
+// R3: a duplicated attribute is an error; R7: `@test` takes no argument;
 // R6: `@test` applies to `fn` only; R2: attributes precede `pub`. All four
 // report in one pass (spec 0033 multi-error collection).
 #[test]
@@ -83,7 +83,7 @@ fn attribute_shape_violations_all_report() {
     assert!(!output.status.success());
     let text = stderr(&output);
     assert!(text.contains("Duplicate attribute"), "{text}");
-    assert!(text.contains("Attribute arguments are reserved"), "{text}");
+    assert!(text.contains("takes no arguments"), "{text}");
     assert!(text.contains("Attribute does not apply here"), "{text}");
     assert!(text.contains("Attribute after `pub`"), "{text}");
 }
@@ -109,6 +109,49 @@ fn fmt_normalizes_attribute_placement() {
     let check = emela_in(&dir, &["fmt", "--check", input.to_str().unwrap()]);
     assert!(check.status.success(), "{}", stderr(&check));
     let _ = fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// Spec 0041: the `@lang` attribute (lang-item binding)
+// ---------------------------------------------------------------------------
+
+// R7: `@lang("<role>")` takes a string-literal argument and binds a top-level
+// `enum` to a recognized role. The bare mechanism accepts a well-formed use.
+#[test]
+fn lang_attribute_binds_an_enum() {
+    let output = on_source(
+        "lang-ok",
+        &["check"],
+        concat!(
+            "@lang(\"option\")\nenum Maybe<T> {\n    Just(T)\n    Nothing\n}\n\n",
+            "fn main() -> Int uses {} { 0 }\n"
+        ),
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+// `@lang` applies to an `enum` only (R6), its role name is closed (spec 0042),
+// and it requires an argument (R7). All three report in one pass.
+#[test]
+fn lang_attribute_violations_all_report() {
+    let output = on_source(
+        "lang-bad",
+        &["check"],
+        concat!(
+            "@lang(\"option\")\nfn not_an_enum() -> Unit uses {} { () }\n\n",
+            "@lang(\"maybe\")\nenum Bad<T> {\n    Just(T)\n    Nothing\n}\n\n",
+            "@lang\nenum NoArg<T> {\n    A(T)\n    B\n}\n\n",
+            "fn main() -> Int uses {} { 0 }\n"
+        ),
+    );
+    assert!(!output.status.success());
+    let text = stderr(&output);
+    assert!(
+        text.contains("may only be applied to a top-level `enum`"),
+        "{text}"
+    );
+    assert!(text.contains("unknown lang-item role"), "{text}");
+    assert!(text.contains("requires a role name"), "{text}");
 }
 
 // ---------------------------------------------------------------------------
