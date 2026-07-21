@@ -170,11 +170,11 @@ pub enum IrExpr {
         #[serde(default)]
         err_name: Option<String>,
     },
-    /// `expr?` (spec 0011): take the success value, short-circuiting the
-    /// enclosing function on error (`Throws`) or `None` (`Option`).
+    /// `expr?` (spec 0011): take the success value of a throwing call,
+    /// short-circuiting the enclosing function on a thrown error. `?` applies
+    /// only to throwing calls (spec 0011/0042: it is not defined for `Option`).
     Question {
         value: Box<IrExpr>,
-        mode: QuestionMode,
         ty: Type,
     },
     /// `panic(msg)` (spec 0011): unrecoverable abort. Type `Never`.
@@ -284,15 +284,6 @@ pub enum IrPattern {
     },
     /// A wildcard (`_`) or catch-all binding, which binds the whole scrutinee.
     Wildcard { binding: Option<(String, Type)> },
-}
-
-/// What `?` propagates (spec 0011).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum QuestionMode {
-    /// Propagate a thrown error to the enclosing `throws` channel.
-    Throws,
-    /// Propagate `None` to the enclosing `Option` return.
-    Option,
 }
 
 #[cfg(test)]

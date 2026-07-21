@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    BinaryOp, Block, BlockItem, Bound, EffectRow, Expr, Extern, FieldBinding, Function,
+    BinaryOp, Block, BlockItem, Bound, EffectRow, EnumDecl, Expr, Extern, FieldBinding, Function,
     FunctionType, ImplDecl, MatchArm, Pattern, Program, TraitDecl, Type,
 };
 use crate::error::{Diagnostic, Error, Result, Span};
@@ -81,6 +81,56 @@ struct EnumInfo {
     variants: Vec<VariantInfo>,
 }
 
+/// The `Option` lang item (spec 0042): the enum bound by `@lang("option")`
+/// (spec 0041) and its present/absent variant names. Lets bare `Some`/`None`
+/// resolve without the compiler hard-coding those names or a dedicated `Option`
+/// type — the variants are identified by arity, not by name (spec 0041 L3).
+#[derive(Debug, Clone)]
+struct OptionLangItem {
+    /// The bound enum's name (e.g. `Option`).
+    enum_name: String,
+    /// The present variant: one field, the type parameter (e.g. `Some`).
+    some: String,
+    /// The absent variant: no fields (e.g. `None`).
+    none: String,
+}
+
+/// Validates an `@lang("option")` enum's shape (spec 0042 O1) and extracts its
+/// present/absent variant names. The role requires exactly one type parameter
+/// and exactly two variants: one carrying that parameter (present) and one with
+/// no fields (absent). Roles are identified by arity, not by variant name.
+fn option_lang_item_from(decl: &EnumDecl) -> Result<OptionLangItem> {
+    let shape_error = || {
+        Error::diagnostic(Diagnostic::new("Invalid `option` lang item").label(
+            decl.name_span.clone(),
+            "`@lang(\"option\")` requires `enum E<T> { Present(T), Absent }` (spec 0042 O1)",
+        ))
+    };
+    if decl.type_params.len() != 1 || decl.variants.len() != 2 {
+        return Err(shape_error());
+    }
+    let param = &decl.type_params[0];
+    let mut some = None;
+    let mut none = None;
+    for variant in &decl.variants {
+        match variant.fields.as_slice() {
+            [Type::Var(field)] if field == param && some.is_none() => {
+                some = Some(variant.name.clone());
+            }
+            [] if none.is_none() => none = Some(variant.name.clone()),
+            _ => return Err(shape_error()),
+        }
+    }
+    match (some, none) {
+        (Some(some), Some(none)) => Ok(OptionLangItem {
+            enum_name: decl.name.clone(),
+            some,
+            none,
+        }),
+        _ => Err(shape_error()),
+    }
+}
+
 /// A declared trait (spec 0020): the set of method signatures a type may satisfy.
 #[derive(Debug, Clone)]
 struct TraitInfo {
@@ -132,7 +182,6 @@ struct ExprInfo {
 /// The enclosing function's error/return contract, threaded into `?`/`throw`.
 struct FnCtx<'a> {
     throws: &'a Option<Type>,
-    ret: &'a Type,
     /// Trait bounds on the enclosing definition's type parameters (spec 0020):
     /// parameter name -> the trait names it is bounded by. Used to allow trait
     /// method calls on a still-abstract type parameter.
@@ -191,6 +240,7 @@ pub(crate) fn check(
         externs: HashMap::new(),
         enums: HashMap::new(),
         records: HashMap::new(),
+        option_lang_item: None,
         traits: HashMap::new(),
         impls: Vec::new(),
         impls_by: HashMap::new(),
@@ -273,6 +323,9 @@ struct Checker<'a> {
     /// Declared records (spec 0006), keyed by name: the fields in declaration
     /// order. Records are non-generic in this first cut.
     records: HashMap<String, Vec<(String, Type)>>,
+    /// The `Option` lang item (spec 0042), if the Core Prelude bound one with
+    /// `@lang("option")`. Drives bare `Some`/`None` resolution.
+    option_lang_item: Option<OptionLangItem>,
     /// Declared traits (spec 0020), keyed by name.
     traits: HashMap<String, TraitInfo>,
     /// Registered impls, referenced by index from `impls_by`.
@@ -324,6 +377,34 @@ impl<'a> Checker<'a> {
                     variants,
                 },
             );
+        }
+        // Bind lang items (specs 0041/0042): the enum tagged `@lang("option")`
+        // becomes the `Option` type. The Core Prelude's binding is authoritative,
+        // so bind it first (pass 1); a user binding of the same role (pass 2) is
+        // the duplicate, reported against the user's code (spec 0041 L2). The
+        // shape (O1) is validated in `option_lang_item_from`.
+        for core_pass in [true, false] {
+            for decl in &program.enums {
+                if decl.lang_item.as_deref() != Some("option") {
+                    continue;
+                }
+                let is_core = decl.module.as_deref() == Some(crate::prelude::CORE_MODULE);
+                if is_core != core_pass {
+                    continue;
+                }
+                match option_lang_item_from(decl) {
+                    Ok(item) if self.option_lang_item.is_none() => {
+                        self.option_lang_item = Some(item);
+                    }
+                    Ok(_) => errors.push(Error::diagnostic(
+                        Diagnostic::new("Duplicate lang item").label(
+                            decl.name_span.clone(),
+                            "lang-item role `\"option\"` is already bound by the Core Prelude (spec 0041 L2)",
+                        ),
+                    )),
+                    Err(error) => errors.push(error),
+                }
+            }
         }
     }
 
@@ -417,7 +498,7 @@ impl<'a> Checker<'a> {
                 }
                 Ok(())
             }
-            Type::Array(inner) | Type::Option(inner) => self.validate_type(inner, span),
+            Type::Array(inner) => self.validate_type(inner, span),
             Type::Function(function) => {
                 for param in &function.params {
                     self.validate_type(param, span)?;
@@ -689,7 +770,6 @@ impl<'a> Checker<'a> {
         let bounds = bounds_map(&decl.bounds);
         let ctx = FnCtx {
             throws: &throws,
-            ret: &ret,
             bounds: &bounds,
             // Impl methods resolve bare names from their own module's scope
             // (spec 0037): the qualifier their module's functions carry, or the
@@ -729,8 +809,7 @@ impl<'a> Checker<'a> {
             | Type::Char
             | Type::Bool
             | Type::Unit
-            | Type::Array(_)
-            | Type::Option(_) => Some(Some(crate::prelude::CORE_MODULE.to_string())),
+            | Type::Array(_) => Some(Some(crate::prelude::CORE_MODULE.to_string())),
             _ => None,
         }
     }
@@ -1332,7 +1411,6 @@ impl<'a> Checker<'a> {
         let bounds = bounds_map(&function.bounds);
         let ctx = FnCtx {
             throws: &function.throws,
-            ret: &function.ret,
             bounds: &bounds,
             module: &function.module_path,
             effects: &function.effects,
@@ -1537,8 +1615,15 @@ impl<'a> Checker<'a> {
             Expr::Var(name, span) => {
                 if let Some(ty) = scope.get(name) {
                     Ok(self.info(ty.clone(), span.clone()))
-                } else if name == "None" {
-                    Ok(self.info(Type::Option(Box::new(Type::Never)), span.clone()))
+                } else if let Some(li) = &self.option_lang_item
+                    && *name == li.none
+                {
+                    // Bare `None` (spec 0042 O3): the absent variant of the
+                    // `option` lang item, constructed like `Option::None`. Its
+                    // type parameter is unpinned, so `check_variant` leaves it
+                    // `Never` (`None : Option<Never>`).
+                    let segments = [li.enum_name.clone(), name.clone()];
+                    self.check_variant(&segments, &[], span, scope, ctx, allow_throw)
                 } else if let Some(sig) = self.visible_extern(name, ctx) {
                     // A generic intrinsic (spec 0021), like a generic function,
                     // fixes its type arguments only at a call site; it has no
@@ -1614,7 +1699,6 @@ impl<'a> Checker<'a> {
                 self.check_effect_row(effects, span)?;
                 let inner_ctx = FnCtx {
                     throws,
-                    ret,
                     bounds: ctx.bounds,
                     module: ctx.module,
                     effects,
@@ -1751,27 +1835,13 @@ impl<'a> Checker<'a> {
                         throws: Some(error),
                         span: span.clone(),
                     })
-                } else if let Type::Option(inner_ty) = &inner.ty {
-                    // Option propagation: `?` forwards `None` to the function's
-                    // `Option<_>` return (spec 0011).
-                    if !matches!(ctx.ret, Type::Option(_)) {
-                        return Err(Error::diagnostic(
-                            Diagnostic::new("Cannot propagate None").label(
-                                span.clone(),
-                                "`?` on an Option requires the function to return `Option<_>`",
-                            ),
-                        ));
-                    }
-                    Ok(ExprInfo {
-                        ty: (**inner_ty).clone(),
-                        effects: inner.effects,
-                        throws: None,
-                        span: span.clone(),
-                    })
                 } else {
+                    // `?` applies only to throwing calls (spec 0011/0042). It is
+                    // not defined for `Option`, which is handled with `match` or
+                    // the `std.option` combinators.
                     Err(Error::diagnostic(Diagnostic::new("Invalid `?`").label(
                         span.clone(),
-                        "`?` applies to a throwing call or an `Option` value",
+                        "`?` applies only to a throwing call; `Option` is handled with `match` or `std.option` (spec 0011/0042)",
                     )))
                 }
             }
@@ -1904,9 +1974,12 @@ impl<'a> Checker<'a> {
                 expected,
             );
         }
-        // Built-in Option constructor `Some(x)`.
+        // Bare `Some(x)` (spec 0042 O3): the present variant of the `option`
+        // lang item, constructed like `Option::Some(x)`. `check_variant` checks
+        // the single payload and infers the type argument.
         if let Expr::Var(name, _) = callee
-            && name == "Some"
+            && let Some(li) = &self.option_lang_item
+            && *name == li.some
             && !scope.contains_key(name)
             && self.visible_extern(name, ctx).is_none()
             && matches!(
@@ -1915,21 +1988,8 @@ impl<'a> Checker<'a> {
                 Resolved::None | Resolved::BareImported(_)
             )
         {
-            if args.len() != 1 {
-                return Err(Error::diagnostic(
-                    Diagnostic::new("Wrong number of arguments").label(
-                        span.clone(),
-                        format!("`Some` takes 1 argument, got {}", args.len()),
-                    ),
-                ));
-            }
-            let arg = self.check_expr(&args[0], scope, ctx, allow_throw)?;
-            return Ok(ExprInfo {
-                ty: Type::Option(Box::new(arg.ty)),
-                effects: arg.effects,
-                throws: arg.throws,
-                span: span.clone(),
-            });
+            let segments = [li.enum_name.clone(), name.clone()];
+            return self.check_variant(&segments, args, span, scope, ctx, allow_throw);
         }
         // Generic intrinsic call (spec 0021): a bare call to a generic
         // `intrinsic fn` (e.g. `array_get<T>`) infers its type argument from the
@@ -2324,19 +2384,9 @@ impl<'a> Checker<'a> {
                     })
                     .collect())
             }
-            Type::Option(inner) => Ok(vec![
-                VariantInfo {
-                    name: "Some".to_string(),
-                    fields: vec![(**inner).clone()],
-                },
-                VariantInfo {
-                    name: "None".to_string(),
-                    fields: vec![],
-                },
-            ]),
             _ => Err(Error::diagnostic(Diagnostic::new("Cannot match").label(
                 span,
-                format!("`match` needs an enum or `Option`, but found `{ty:?}`"),
+                format!("`match` needs an enum, but found `{ty:?}`"),
             ))),
         }
     }
@@ -2797,7 +2847,6 @@ fn join_types(a: &Type, b: &Type) -> Option<Type> {
     }
     match (a, b) {
         (Type::Never, other) | (other, Type::Never) => Some(other.clone()),
-        (Type::Option(x), Type::Option(y)) => Some(Type::Option(Box::new(join_types(x, y)?))),
         (Type::Array(x), Type::Array(y)) => Some(Type::Array(Box::new(join_types(x, y)?))),
         (Type::Enum(an, aargs), Type::Enum(bn, bargs))
             if an == bn && aargs.len() == bargs.len() =>
@@ -2857,7 +2906,6 @@ pub(crate) fn type_head_key(ty: &Type) -> Option<String> {
         Type::Record => "Record",
         Type::Enum(name, _) => return Some(name.clone()),
         Type::Array(_) => "Array",
-        Type::Option(_) => "Option",
         Type::Function(_) | Type::OpaqueFunction => "Function",
         Type::Never | Type::Var(_) => return None,
     };
@@ -3019,7 +3067,6 @@ fn types_compatible(actual: &Type, expected: &Type) -> bool {
     }
     match (actual, expected) {
         (Type::Never, _) => true,
-        (Type::Option(a), Type::Option(e)) => types_compatible(a, e),
         (Type::Array(a), Type::Array(e)) => types_compatible(a, e),
         // A generic enum is compatible argument-by-argument (spec 0028), so an
         // unconstrained argument (`Never`, e.g. from `Nil`) unifies with the
@@ -3057,7 +3104,7 @@ fn collect_type_vars(ty: &Type, out: &mut HashSet<String>) {
         Type::Var(name) => {
             out.insert(name.clone());
         }
-        Type::Array(inner) | Type::Option(inner) => collect_type_vars(inner, out),
+        Type::Array(inner) => collect_type_vars(inner, out),
         Type::Enum(_, args) => {
             for arg in args {
                 collect_type_vars(arg, out);
@@ -3111,7 +3158,6 @@ fn match_type(
             Ok(())
         }
         (Type::Array(d), Type::Array(a)) => match_type(d, a, subst, span),
-        (Type::Option(d), Type::Option(a)) => match_type(d, a, subst, span),
         // Same user-defined generic type on both sides (spec 0028): match the
         // type arguments pairwise, e.g. `List<T>` against `List<Int>` binds `T`.
         (Type::Enum(dn, dargs), Type::Enum(an, aargs))
@@ -3144,7 +3190,6 @@ pub(crate) fn subst_type(ty: &Type, subst: &HashMap<String, Type>) -> Type {
     match ty {
         Type::Var(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Type::Array(inner) => Type::Array(Box::new(subst_type(inner, subst))),
-        Type::Option(inner) => Type::Option(Box::new(subst_type(inner, subst))),
         Type::Enum(name, args) => Type::Enum(
             name.clone(),
             args.iter().map(|arg| subst_type(arg, subst)).collect(),

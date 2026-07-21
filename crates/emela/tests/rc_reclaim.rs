@@ -168,15 +168,6 @@ fn repeated_caught_errors_reclaim_to_zero() {
     );
 }
 
-/// `?` on `None` early-returns; the frame's live bindings are still released.
-#[test]
-fn question_none_exit_reclaims_to_zero() {
-    assert_reclaims(
-        "question-none",
-        "fn pick(flag: Bool) -> Option<String> {\n  if flag {\n    Some(\"yes\" ++ \"!\")\n  } else {\n    None\n  }\n}\nfn extract(flag: Bool) -> Option<String> {\n  let keep = \"held \" ++ \"value\"\n  let v = pick(flag)?\n  Some(v ++ keep)\n}\nfn main() -> Int {\n  let _a = extract(true)\n  let _b = extract(false)\n  0\n}\n",
-    );
-}
-
 /// An uncaught error still cleans the whole call chain before `main` fails.
 #[test]
 fn partial_construction_across_throws_reclaims() {

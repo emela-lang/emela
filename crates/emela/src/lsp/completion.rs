@@ -44,8 +44,8 @@ const KEYWORDS: &[&str] = &[
 
 /// The built-in type names `parse_type` recognizes.
 const TYPE_NAMES: &[&str] = &[
-    "Unit", "Bool", "Int", "Float", "String", "Char", "Array", "Option", "Never", "Record",
-    "Function", "Self",
+    "Unit", "Bool", "Int", "Float", "String", "Char", "Array", "Never", "Record", "Function",
+    "Self",
 ];
 
 pub(crate) fn complete(
@@ -264,17 +264,8 @@ fn complete_match_arms(
         [TokenKind::Ident(name)] => scrutinee_type(name, offset, snapshot),
         _ => None,
     };
-    if let Some(Type::Option(inner)) = &scrutinee_enum {
-        // `Option` is matched with the built-in `Some`/`None` (spec 0031).
-        return vec![
-            CompletionItem::new("Some", completion_kind::ENUM_MEMBER)
-                .detail(format!("Option<{}>", render_type(inner)))
-                .snippet("Some(${1:value})"),
-            CompletionItem::new("None", completion_kind::ENUM_MEMBER)
-                .detail(format!("Option<{}>", render_type(inner))),
-            wildcard_item(),
-        ];
-    }
+    // `Option` is an ordinary Core-Prelude enum (spec 0042), so its `Some`/`None`
+    // arms come from `snapshot.enums` through the general path below.
     let scrutinee_enum = match &scrutinee_enum {
         Some(Type::Enum(name, _)) => Some(name.clone()),
         _ => None,

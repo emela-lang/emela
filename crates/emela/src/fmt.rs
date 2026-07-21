@@ -524,24 +524,46 @@ fn finalize_line(
 /// `@test fn ...` is split, and a blank line between an attribute and the
 /// declaration (or the next attribute) is removed. Attributes only parse at the
 /// top level, so nested lines need no treatment.
+fn is_attr_atom(atom: &Atom) -> bool {
+    matches!(atom, Atom::Tok(token) if matches!(token.kind, TokenKind::At(_)))
+}
+
+fn is_paren_atom(atom: &Atom) -> bool {
+    matches!(atom, Atom::Group(group) if group.kind == GroupKind::Paren)
+}
+
+fn starts_with_attr(line: &Line) -> bool {
+    line.atoms.first().is_some_and(is_attr_atom)
+}
+
 fn normalize_attributes(lines: Vec<Line>) -> Vec<Line> {
-    let is_attr =
-        |atom: &Atom| matches!(atom, Atom::Tok(token) if matches!(token.kind, TokenKind::At(_)));
-    let attr_line = |line: &Line| line.atoms.len() == 1 && is_attr(&line.atoms[0]);
     let mut out: Vec<Line> = Vec::new();
     for mut line in lines {
-        // Split leading attributes onto their own lines. The blank (if any)
-        // stays above the first attribute, between the previous item and this
-        // attributed declaration.
-        while line.atoms.len() > 1 && is_attr(&line.atoms[0]) {
-            let attr = line.atoms.remove(0);
+        // Split leading attributes onto their own lines, keeping each `@name`
+        // with its optional `("...")` argument group (spec 0039 R7). The blank
+        // (if any) stays above the first attribute; the declaration ends on the
+        // final line.
+        loop {
+            if !starts_with_attr(&line) {
+                break;
+            }
+            let len = if line.atoms.get(1).is_some_and(is_paren_atom) {
+                2
+            } else {
+                1
+            };
+            // Nothing follows the attribute: it is already on its own line.
+            if line.atoms.len() <= len {
+                break;
+            }
+            let atoms: Vec<Atom> = line.atoms.drain(0..len).collect();
             out.push(Line {
                 blank_before: std::mem::take(&mut line.blank_before),
-                atoms: vec![attr],
+                atoms,
                 trailing: Vec::new(),
             });
         }
-        if out.last().is_some_and(attr_line) {
+        if out.last().is_some_and(starts_with_attr) {
             line.blank_before = false;
         }
         out.push(line);
@@ -869,12 +891,13 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
         // `<T>(x)` — a parameter list attaches tightly to a generic closer.
         return !matches!(next, LParen);
     }
-    // Call position: `f(x)`, `f(x)(y)`, `panic(...)`, `match x { ... }(y)`.
-    // Everything else (keywords, operators, `,`) is followed by a space.
+    // Call position: `f(x)`, `f(x)(y)`, `panic(...)`, `match x { ... }(y)`, and
+    // an attribute argument `@lang("option")` (spec 0039 R7). Everything else
+    // (keywords, operators, `,`) is followed by a space.
     if matches!(next, LParen) {
         return !matches!(
             prev,
-            Ident(_) | RParen | RBracket | RBrace | Question | Panic
+            Ident(_) | RParen | RBracket | RBrace | Question | Panic | At(_)
         );
     }
     true
