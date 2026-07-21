@@ -27,9 +27,9 @@ use std::fmt::Write as _;
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
-    FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Result, Tier, Type, contains_tail_self_call, insert_rc_ops, is_heap,
-    used_intrinsics, used_platform_fns, walk,
+    FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram, Result,
+    Tier, Type, contains_tail_self_call, insert_rc_ops, is_heap, used_intrinsics,
+    used_platform_fns, walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -556,14 +556,6 @@ impl DropTable {
                         *tag,
                         payload.iter().map(|field| is_heap(&field.ty())).collect(),
                     );
-                }
-                IrExpr::Question {
-                    mode: QuestionMode::Option,
-                    ..
-                } => {
-                    // `?` synthesizes the propagated `None` (tag 1, no
-                    // payload) in the backend: a plain 16-byte block.
-                    table.add(DropKey::Plain { total: 16 });
                 }
                 IrExpr::RecordValue { fields, .. } => {
                     table.add(DropKey::Record {
@@ -1706,7 +1698,7 @@ impl<'a> FnEmitter<'a> {
                 ty,
                 err_name,
             } => self.emit_try(body, arms, ty, err_name.as_deref())?,
-            IrExpr::Question { value, mode, ty } => self.emit_question(value, *mode, ty)?,
+            IrExpr::Question { value, .. } => self.emit_question(value)?,
             IrExpr::TailSelfCall { args, .. } => self.emit_tail_self_call(args)?,
             // RC ops (spec 0048), inserted by `emela_codegen::rc::insert_rc_ops`.
             // The pass only produces them for heap-typed (i32 pointer) values.
@@ -2037,38 +2029,11 @@ impl<'a> FnEmitter<'a> {
         self.line("call $free");
     }
 
-    fn emit_question(&mut self, value: &IrExpr, mode: QuestionMode, ty: &Type) -> Result<()> {
-        match mode {
-            // The inner throwing call already unwraps, so `?` yields its value.
-            QuestionMode::Throws => self.emit(value)?,
-            QuestionMode::Option => {
-                self.emit(value)?;
-                let opt = self.fresh_local(WasmTy::I32);
-                self.line(&format!("local.set {opt}"));
-                self.line(&format!("local.get {opt}"));
-                self.line("i32.load");
-                self.line("i32.const 1");
-                self.line("i32.eq");
-                self.line("(if");
-                self.line("(then");
-                // Propagate `None`: return `Option::None` from this function,
-                // after releasing what the frame still owns (0048 A7).
-                self.release_live_managed(0);
-                let none_drop = self.ctx.drops.of(&DropKey::Plain { total: 16 });
-                self.emit_enum_value(none_drop, 1, &[])?;
-                self.line("return");
-                self.line("))");
-                self.line(&format!("local.get {opt}"));
-                self.line("i32.const 8");
-                self.line("i32.add");
-                self.line(WasmTy::of(ty).load());
-                // The payload leaves the borrowed option as an owned value.
-                if is_heap(ty) {
-                    self.line("call $rc_retain");
-                }
-            }
-        }
-        Ok(())
+    fn emit_question(&mut self, value: &IrExpr) -> Result<()> {
+        // `?` applies only to throwing calls (spec 0011/0042). The inner
+        // throwing call already unwraps and branches to the catch on error, so
+        // `?` just yields its success value.
+        self.emit(value)
     }
 
     fn emit_try(

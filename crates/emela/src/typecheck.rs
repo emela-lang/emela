@@ -132,7 +132,6 @@ struct ExprInfo {
 /// The enclosing function's error/return contract, threaded into `?`/`throw`.
 struct FnCtx<'a> {
     throws: &'a Option<Type>,
-    ret: &'a Type,
     /// Trait bounds on the enclosing definition's type parameters (spec 0020):
     /// parameter name -> the trait names it is bounded by. Used to allow trait
     /// method calls on a still-abstract type parameter.
@@ -689,7 +688,6 @@ impl<'a> Checker<'a> {
         let bounds = bounds_map(&decl.bounds);
         let ctx = FnCtx {
             throws: &throws,
-            ret: &ret,
             bounds: &bounds,
             // Impl methods resolve bare names from their own module's scope
             // (spec 0037): the qualifier their module's functions carry, or the
@@ -1332,7 +1330,6 @@ impl<'a> Checker<'a> {
         let bounds = bounds_map(&function.bounds);
         let ctx = FnCtx {
             throws: &function.throws,
-            ret: &function.ret,
             bounds: &bounds,
             module: &function.module_path,
             effects: &function.effects,
@@ -1614,7 +1611,6 @@ impl<'a> Checker<'a> {
                 self.check_effect_row(effects, span)?;
                 let inner_ctx = FnCtx {
                     throws,
-                    ret,
                     bounds: ctx.bounds,
                     module: ctx.module,
                     effects,
@@ -1751,27 +1747,13 @@ impl<'a> Checker<'a> {
                         throws: Some(error),
                         span: span.clone(),
                     })
-                } else if let Type::Option(inner_ty) = &inner.ty {
-                    // Option propagation: `?` forwards `None` to the function's
-                    // `Option<_>` return (spec 0011).
-                    if !matches!(ctx.ret, Type::Option(_)) {
-                        return Err(Error::diagnostic(
-                            Diagnostic::new("Cannot propagate None").label(
-                                span.clone(),
-                                "`?` on an Option requires the function to return `Option<_>`",
-                            ),
-                        ));
-                    }
-                    Ok(ExprInfo {
-                        ty: (**inner_ty).clone(),
-                        effects: inner.effects,
-                        throws: None,
-                        span: span.clone(),
-                    })
                 } else {
+                    // `?` applies only to throwing calls (spec 0011/0042). It is
+                    // not defined for `Option`, which is handled with `match` or
+                    // the `std.option` combinators.
                     Err(Error::diagnostic(Diagnostic::new("Invalid `?`").label(
                         span.clone(),
-                        "`?` applies to a throwing call or an `Option` value",
+                        "`?` applies only to a throwing call; `Option` is handled with `match` or `std.option` (spec 0011/0042)",
                     )))
                 }
             }

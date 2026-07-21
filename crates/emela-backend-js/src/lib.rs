@@ -8,7 +8,7 @@
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
-    IrPattern, IrProgram, QuestionMode, Result, Tier, Type, contains_tail_self_call, is_intrinsic,
+    IrPattern, IrProgram, Result, Tier, Type, contains_tail_self_call, is_intrinsic,
     used_intrinsics, used_platform_fns,
 };
 
@@ -110,11 +110,9 @@ fn runtime_impl(name: &str) -> Option<&'static str> {
 fn emit(program: &IrProgram, used_platform: &[String]) -> String {
     let mut out = String::new();
     out.push_str("\"use strict\";\n\n");
-    // Error-handling runtime (spec 0011): a thrown error carries its value, a
-    // propagated `None` is its own signal, and a panic is distinct so `catch`
-    // never swallows it.
+    // Error-handling runtime (spec 0011): a thrown error carries its value, and
+    // a panic is distinct so `catch` never swallows it.
     out.push_str("class EmelaError { constructor(value) { this.value = value; } }\n");
-    out.push_str("class EmelaNone {}\n");
     out.push_str("class EmelaPanic { constructor(message) { this.message = message; } }\n");
     // Trampoline marker for self-tail-calls (spec 0045): a tail-recursive
     // function returns it to its own driver loop instead of calling itself.
@@ -146,22 +144,15 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
-        let none_guard = matches!(function.ret, Type::Option(_));
         if contains_tail_self_call(&function.body) {
             // Self-tail-calls (spec 0045) trampoline through `EmelaTail`: the
             // body returns the marker, and this driver loop reassigns the
             // parameters and continues — constant stack depth.
             out.push_str("  while (true) {\n");
             out.push_str("    let __r;\n");
-            if none_guard {
-                out.push_str("    try { __r = ");
-                out.push_str(&emit_expr(&function.body));
-                out.push_str("; } catch (__e) { if (__e instanceof EmelaNone) return { tag: 1, values: [] }; throw __e; }\n");
-            } else {
-                out.push_str("    __r = ");
-                out.push_str(&emit_expr(&function.body));
-                out.push_str(";\n");
-            }
+            out.push_str("    __r = ");
+            out.push_str(&emit_expr(&function.body));
+            out.push_str(";\n");
             out.push_str("    if (__r instanceof EmelaTail) {\n");
             for (index, param) in function.params.iter().enumerate() {
                 out.push_str(&format!(
@@ -173,11 +164,6 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
             out.push_str("    }\n");
             out.push_str("    return __r;\n");
             out.push_str("  }\n}\n\n");
-        } else if none_guard {
-            // A function returning Option catches a propagated `None` (`?`).
-            out.push_str("  try { return ");
-            out.push_str(&emit_expr(&function.body));
-            out.push_str("; } catch (__e) { if (__e instanceof EmelaNone) return { tag: 1, values: [] }; throw __e; }\n}\n\n");
         } else {
             out.push_str("  return ");
             out.push_str(&emit_expr(&function.body));
@@ -242,22 +228,13 @@ fn emit_expr(expr: &IrExpr) -> String {
         ),
         // An intrinsic (spec 0021) inlines to a native JS expression.
         IrExpr::Intrinsic { name, args, .. } => intrinsic_js(name, args),
-        IrExpr::Fn {
-            params, body, ret, ..
-        } => {
+        IrExpr::Fn { params, body, .. } => {
             let params = params
                 .iter()
                 .map(|param| js_name(&param.name))
                 .collect::<Vec<_>>()
                 .join(", ");
-            if matches!(ret, Type::Option(_)) {
-                format!(
-                    "function({params}) {{ try {{ return {}; }} catch (__e) {{ if (__e instanceof EmelaNone) return {{ tag: 1, values: [] }}; throw __e; }} }}",
-                    emit_expr(body)
-                )
-            } else {
-                format!("function({params}) {{ return {}; }}", emit_expr(body))
-            }
+            format!("function({params}) {{ return {}; }}", emit_expr(body))
         }
         IrExpr::Binary {
             op,
@@ -316,15 +293,9 @@ fn emit_expr(expr: &IrExpr) -> String {
             )
         }
         IrExpr::Try { body, arms, .. } => emit_try(body, arms),
-        IrExpr::Question { value, mode, .. } => match mode {
-            // A thrown error propagates as a native exception, so `?` is a
-            // no-op on the value channel.
-            QuestionMode::Throws => emit_expr(value),
-            QuestionMode::Option => format!(
-                "(() => {{ const __o = {}; if (__o.tag === 1) throw new EmelaNone(); return __o.values[0]; }})()",
-                emit_expr(value)
-            ),
-        },
+        // A thrown error propagates as a native exception, so `?` is a no-op on
+        // the value channel (the throwing call already unwrapped it).
+        IrExpr::Question { value, .. } => emit_expr(value),
         IrExpr::Panic { message } => {
             format!(
                 "(() => {{ throw new EmelaPanic({}); }})()",
