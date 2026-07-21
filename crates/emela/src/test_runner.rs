@@ -35,7 +35,7 @@ struct ModuleTests {
     ir: IrProgram,
 }
 
-pub(crate) fn run() -> Result<()> {
+pub(crate) fn run(platform_registry: &[emela_codegen::PlatformFn]) -> Result<()> {
     let project = crate::pome::project_dir()?;
     let src = project.join("src");
     if !src.is_dir() {
@@ -53,13 +53,14 @@ pub(crate) fn run() -> Result<()> {
     let mut compile_errors: Vec<Error> = Vec::new();
     let mut modules: Vec<ModuleTests> = Vec::new();
     for file in &files {
-        let (program, typed) = match crate::driver::compile_frontend(file, &[], false) {
-            Ok(compiled) => compiled,
-            Err(error) => {
-                compile_errors.push(error);
-                continue;
-            }
-        };
+        let (program, typed) =
+            match crate::driver::compile_frontend(file, &[], false, platform_registry) {
+                Ok(compiled) => compiled,
+                Err(error) => {
+                    compile_errors.push(error);
+                    continue;
+                }
+            };
         let module_id = module_id_of(&src, file);
         // Only the module's own tests run (C2): imported modules' tests carry a
         // non-empty `module_path` and are discovered when their file is the

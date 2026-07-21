@@ -12,6 +12,7 @@ mod error;
 mod intrinsic;
 mod ir;
 mod ir_walk;
+mod manifest;
 mod platform;
 mod plugin;
 mod rc;
@@ -25,7 +26,10 @@ pub use error::{BackendError, Result};
 pub use intrinsic::{IntrinsicFn, intrinsic_interface, is_intrinsic, lookup as intrinsic_lookup};
 pub use ir::{IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram, QuestionMode};
 pub use ir_walk::{used_intrinsics, used_platform_fns, walk};
-pub use platform::{PlatformFn, lookup as platform_lookup, platform_interface};
+pub use manifest::{CapabilityManifest, compute_manifest, serialize_manifest};
+pub use platform::{
+    PlatformFn, lookup as platform_lookup, lookup_in as platform_lookup_in, platform_interface,
+};
 pub use plugin::{BackendDescriptor, ExternDescriptor, PluginRequest, PluginResponse};
 pub use rc::{insert_rc_ops, is_heap};
 pub use registry::BackendRegistry;

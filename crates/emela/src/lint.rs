@@ -20,11 +20,15 @@ use crate::typecheck::TypedProgram;
 
 /// Lints every input file (spec 0035 L1-L5). Exit code 0 with no output when
 /// clean; 1 with all findings on stderr otherwise.
-pub(crate) fn run(inputs: &[PathBuf], packages: &[PathBuf]) -> Result<()> {
+pub(crate) fn run(
+    inputs: &[PathBuf],
+    packages: &[PathBuf],
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> Result<()> {
     let mut findings = 0usize;
     let mut failed = 0usize;
     for input in inputs {
-        match lint_file(input, packages) {
+        match lint_file(input, packages, platform_registry) {
             Ok(diagnostics) => {
                 for diagnostic in &diagnostics {
                     eprintln!("{}", diagnostic.render());
@@ -51,7 +55,11 @@ pub(crate) fn run(inputs: &[PathBuf], packages: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn lint_file(input: &Path, packages: &[PathBuf]) -> Result<Vec<Diagnostic>> {
+fn lint_file(
+    input: &Path,
+    packages: &[PathBuf],
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> Result<Vec<Diagnostic>> {
     let label = input.display().to_string();
     let source = fs::read_to_string(input)
         .map_err(|error| Error::new(format!("failed to read `{}`: {error}", input.display())))?;
@@ -64,7 +72,8 @@ fn lint_file(input: &Path, packages: &[PathBuf]) -> Result<Vec<Diagnostic>> {
     }
     // The full frontend must succeed before lints are reported; `main` is not
     // required — libraries are lintable (L1).
-    let (merged, typed) = crate::driver::compile_frontend(&input.to_path_buf(), packages, false)?;
+    let (merged, typed) =
+        crate::driver::compile_frontend(&input.to_path_buf(), packages, false, platform_registry)?;
     let mut diagnostics = Vec::new();
     naming(&root, &mut diagnostics);
     unused_imports(&root, &mut diagnostics);
