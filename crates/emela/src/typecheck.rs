@@ -3079,6 +3079,20 @@ fn types_compatible(actual: &Type, expected: &Type) -> bool {
                 .zip(eargs.iter())
                 .all(|(a, e)| types_compatible(a, e))
         }
+        // Effect subsumption for function values (spec 0023): a function value is
+        // acceptable where a wider one is wanted. Parameters are contravariant,
+        // the result is covariant, and the actual effect row must be a subset of
+        // the expected one. `throws` is compared exactly for now (spec 0023
+        // relaxes only the `uses` row, not the error type).
+        (Type::Function(a), Type::Function(e)) if a.params.len() == e.params.len() => {
+            a.params
+                .iter()
+                .zip(e.params.iter())
+                .all(|(ap, ep)| types_compatible(ep, ap))
+                && types_compatible(&a.ret, &e.ret)
+                && a.throws == e.throws
+                && a.effects.is_subset_of(&e.effects)
+        }
         _ => false,
     }
 }
