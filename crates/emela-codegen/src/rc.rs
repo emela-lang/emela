@@ -51,7 +51,6 @@ pub fn is_heap(ty: &Type) -> bool {
             | Type::Array(_)
             | Type::Record
             | Type::Enum(_, _)
-            | Type::Option(_)
             | Type::Function(_)
             | Type::OpaqueFunction
     )
@@ -1717,7 +1716,7 @@ mod tests {
     #[test]
     fn match_scrutinee_temp_released_in_each_arm_and_bindings_borrow() {
         // fn f() -> String { match g() { Some(x) -> x, None -> "d" } }
-        let opt = Type::Option(Box::new(Type::String));
+        let opt = Type::Enum("Option".into(), vec![Type::String]);
         let body = IrExpr::Match {
             scrutinee: Box::new(IrExpr::Call {
                 callee: Box::new(IrExpr::FunctionRef {
