@@ -167,8 +167,24 @@ struct FnCtx<'a> {
 /// each function/method body is checked independently, so one broken function
 /// doesn't hide errors in another. Within one body the first error wins. An
 /// empty error list means the program is well-typed.
-pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec<Error>) {
+pub(crate) fn check(
+    program: &Program,
+    require_main: bool,
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> (TypedProgram, Vec<Error>) {
     let mut errors = Vec::new();
+    let mut effects_in_scope: HashSet<String> = program
+        .effects
+        .iter()
+        .map(|decl| decl.name.clone())
+        .collect();
+    // Host interface capabilities (spec 0026) are valid effects even when
+    // the host interface source does not declare an `effect` block.
+    for entry in platform_registry {
+        if entry.capability.starts_with("host.") {
+            effects_in_scope.insert(entry.capability.clone());
+        }
+    }
     let mut checker = Checker {
         table: FnTable::build(program),
         sigs: Vec::new(),
@@ -179,14 +195,8 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
         impls: Vec::new(),
         impls_by: HashMap::new(),
         method_owners: HashMap::new(),
-        // Effects in scope (spec 0037): declared in this file or brought in by
-        // an import; what `uses { ... }` rows and `Effect.op` heads must
-        // resolve to.
-        effects_in_scope: program
-            .effects
-            .iter()
-            .map(|decl| decl.name.clone())
-            .collect(),
+        effects_in_scope,
+        platform_registry,
     };
     checker.register_enums(program, &mut errors);
     checker.register_records(program, &mut errors);
@@ -247,7 +257,7 @@ pub(crate) fn check(program: &Program, require_main: bool) -> (TypedProgram, Vec
     (typed, errors)
 }
 
-struct Checker {
+struct Checker<'a> {
     /// Suffix-resolution table over all top-level functions (spec 0018), shared
     /// in structure with lowering.
     table: FnTable,
@@ -275,9 +285,11 @@ struct Checker {
     method_owners: HashMap<String, Vec<String>>,
     /// The effect names in scope (spec 0037), from `Program::effects`.
     effects_in_scope: HashSet<String>,
+    /// The platform registry (standard + host-interface entries, spec 0026).
+    platform_registry: &'a [emela_codegen::PlatformFn],
 }
 
-impl Checker {
+impl<'a> Checker<'a> {
     fn register_enums(&mut self, program: &Program, errors: &mut Vec<Error>) {
         for decl in &program.enums {
             if self.enums.contains_key(&decl.name) {
@@ -1074,7 +1086,8 @@ impl Checker {
             return Err(duplicate_function_error(declaration));
         }
         let canonical = declaration.canonical();
-        let Some(entry) = emela_codegen::platform_lookup(&canonical) else {
+        let Some(entry) = emela_codegen::platform_lookup_in(self.platform_registry, &canonical)
+        else {
             return Err(Error::diagnostic(
                 Diagnostic::new("Unknown platform function")
                     .label(
@@ -1144,7 +1157,16 @@ impl Checker {
         }
         let visible = match &entry.effect_name {
             Some(effect) => ctx.effect_name == Some(effect.as_str()),
-            None => ctx.declared_module == entry.module.as_deref(),
+            None => {
+                ctx.declared_module == entry.module.as_deref()
+                    // Host interface externs (spec 0026) are callable from any
+                    // module that imports their host interface package.
+                    || entry
+                        .module
+                        .as_deref()
+                        .is_some_and(|m| m.starts_with("host."))
+                        && !entry.is_intrinsic
+            }
         };
         visible.then_some(&entry.sig)
     }
@@ -1183,6 +1205,16 @@ impl Checker {
     /// in scope (spec 0037): declared in this file or brought in by an import.
     fn check_effect_row(&self, row: &EffectRow, span: &Span) -> Result<()> {
         for name in &row.effects {
+            if name == "host" {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Bare host capability")
+                        .label(
+                            span.clone(),
+                            "`host` is not a standalone capability (spec 0026)".to_string(),
+                        )
+                        .help("Use `host.<name>` instead, e.g. `host.gpio`."),
+                ));
+            }
             if self.effects_in_scope.contains(name) {
                 continue;
             }

@@ -42,18 +42,28 @@ pub fn run() -> Result<()> {
     match Cli::parse().command {
         Commands::Check { args } => {
             // `--library` compile-checks a module that has no `main` (spec 0003).
-            let _ = compile_frontend(&args.input, &args.packages, !args.library)?;
+            let registry =
+                build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let _ = compile_frontend(&args.input, &args.packages, !args.library, &registry)?;
             Ok(())
         }
         Commands::Build { args } => {
             reject_library(&args, "build")?;
             let mode = args.emit_mode()?;
-            let artifact = build(&args.input, &args.packages, args.backend.as_deref(), mode)?;
+            let artifact = build(
+                &args.input,
+                &args.packages,
+                &args.host_interfaces,
+                args.backend.as_deref(),
+                mode,
+            )?;
             write_artifact(artifact, args.output)
         }
         Commands::Ir { args, rc } => {
             reject_library(&args, "ir")?;
-            let mut ir = compile_to_ir(&args.input, &args.packages)?;
+            let registry =
+                build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let mut ir = compile_to_ir(&args.input, &args.packages, &registry)?;
             if rc {
                 emela_codegen::insert_rc_ops(&mut ir);
             }
@@ -71,7 +81,12 @@ pub fn run() -> Result<()> {
         Commands::Run { args } => {
             reject_library(&args, "run")?;
             reject_run_flags(&args)?;
-            run_program(&args.input, &args.packages, args.backend.as_deref())
+            run_program(
+                &args.input,
+                &args.packages,
+                &args.host_interfaces,
+                args.backend.as_deref(),
+            )
         }
         Commands::Backends => {
             for (name, tier) in registry().list() {
@@ -80,9 +95,24 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         // `emela test` (spec 0040): run the current Pome's `@test` functions.
-        Commands::Test => run_tests(),
+        Commands::Test { host_interfaces } => {
+            let project = crate::pome::project_dir()?;
+            let input = project.join("src").join("main.emel");
+            let registry = build_platform_registry(&host_interfaces, &[], &input)?;
+            run_tests(&registry)
+        }
         // `emela lsp` (spec 0033): the language server over stdio.
-        Commands::Lsp { packages } => crate::lsp::run(packages),
+        Commands::Lsp {
+            packages,
+            host_interfaces,
+        } => {
+            let input = match crate::pome::project_dir() {
+                Ok(project) => project.join("src").join("main.emel"),
+                Err(_) => PathBuf::from(".").join("dummy.emel"),
+            };
+            let registry = build_platform_registry(&host_interfaces, &packages, &input)?;
+            crate::lsp::run(packages, registry)
+        }
         Commands::Fmt { check, mut paths } => {
             // No paths means the current directory (spec 0035 C1).
             if paths.is_empty() {
@@ -90,7 +120,15 @@ pub fn run() -> Result<()> {
             }
             crate::fmt::run(&paths, check)
         }
-        Commands::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
+        Commands::Lint {
+            inputs,
+            packages,
+            host_interfaces,
+        } => {
+            let input = inputs.first().cloned().unwrap_or_default();
+            let registry = build_platform_registry(&host_interfaces, &packages, &input)?;
+            crate::lint::run(&inputs, &packages, &registry)
+        }
         Commands::New { name } => crate::pome::scaffold(&name),
         Commands::Pome { args } => crate::pome::run(&args),
     }
@@ -99,12 +137,15 @@ pub fn run() -> Result<()> {
 fn build(
     input: &PathBuf,
     package_paths: &[PathBuf],
+    host_interfaces: &[String],
     backend: Option<&str>,
     mode: EmitMode,
 ) -> Result<Artifact> {
-    let ir = compile_to_ir(input, package_paths)?;
+    let platform_registry = build_platform_registry(host_interfaces, package_paths, input)?;
+    let ir = compile_to_ir(input, package_paths, &platform_registry)?;
     let options = BackendOptions {
         mode,
+        platform_registry,
         ..Default::default()
     };
     let requested = backend.unwrap_or(DEFAULT_BACKEND);
@@ -133,11 +174,136 @@ fn build(
     backend.compile(&ir, &options).map_err(Error::from)
 }
 
+/// Builds the platform registry for capability manifest generation (spec 0025)
+/// and backend coverage checking. Host interface externs (spec 0026) are
+/// appended when activated via `--host-interface`.
+fn build_platform_registry(
+    host_interfaces: &[String],
+    package_paths: &[PathBuf],
+    input: &Path,
+) -> Result<Vec<emela_codegen::PlatformFn>> {
+    let mut registry = emela_codegen::platform_interface();
+    let host_entries = load_host_interface_externs(host_interfaces, package_paths, input)?;
+    registry.extend(host_entries);
+    Ok(registry)
+}
+
+/// Parses host interface package source files (spec 0026) and extracts
+/// `PlatformFn` entries for each `extern fn` declaration found in `host.*`
+/// modules.
+fn load_host_interface_externs(
+    host_interfaces: &[String],
+    package_paths: &[PathBuf],
+    input: &Path,
+) -> Result<Vec<emela_codegen::PlatformFn>> {
+    let mut entries = Vec::new();
+    if host_interfaces.is_empty() {
+        return Ok(entries);
+    }
+    let input_dir = input.parent().unwrap_or_else(|| Path::new("."));
+
+    for name in host_interfaces {
+        if name.contains('.') {
+            return Err(Error::new(format!(
+                "invalid host interface name `{name}`: dots are not allowed (use e.g. `gpio`, not `host.gpio`)"
+            )));
+        }
+        let relative_path = format!("host/{name}.emel");
+        let host_capability = format!("host.{name}");
+
+        // Try relative to the input file first, then each --package directory.
+        let mut found = None;
+        let candidate = input_dir.join(&relative_path);
+        if candidate.is_file() {
+            found = Some(candidate);
+        }
+        if found.is_none() {
+            for package_path in package_paths {
+                if let Some(root) = package_source_root(package_path) {
+                    let candidate = root.join(&relative_path);
+                    if candidate.is_file() {
+                        found = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        let path = found.ok_or_else(|| {
+            Error::new(format!(
+                "host interface `{name}` not found: expected a file at `{relative_path}` relative to the input file or a package directory"
+            ))
+        })?;
+
+        let source = fs::read_to_string(&path).map_err(|err| {
+            Error::new(format!(
+                "failed to read host interface `{}`: {err}",
+                path.display()
+            ))
+        })?;
+        let (program, parse_errors) = parse_program(&path.display().to_string(), &source);
+        if !parse_errors.is_empty() {
+            return Err(aggregate_errors(&parse_errors));
+        }
+
+        let module_path = format!("host.{name}");
+        for declaration in &program.externs {
+            if declaration.is_intrinsic {
+                continue;
+            }
+            let canonical = declaration.canonical();
+            // Validate the extern lives in the expected host module.
+            match &declaration.module {
+                Some(m) if m == &module_path => {}
+                Some(m) => {
+                    return Err(Error::new(format!(
+                        "host interface `{name}`: `extern fn {canonical}` is declared in module `{m}`, expected `{module_path}`"
+                    )));
+                }
+                None => {
+                    return Err(Error::new(format!(
+                        "host interface `{name}`: `extern fn {}` is not inside `module {module_path}`",
+                        declaration.name
+                    )));
+                }
+            }
+            // Validate the uses clause references the host capability.
+            if !declaration.effects.effects.contains(&host_capability) {
+                return Err(Error::new(format!(
+                    "host interface `{name}`: `extern fn {canonical}` must declare `uses {{ {host_capability} }}`"
+                )));
+            }
+            entries.push(emela_codegen::PlatformFn {
+                path: vec!["host".to_string(), name.clone()],
+                name: declaration.name.clone(),
+                params: declaration.params.iter().map(|p| p.ty.clone()).collect(),
+                ret: declaration.ret.clone(),
+                throws: declaration.throws.clone(),
+                capability: host_capability.clone(),
+            });
+        }
+    }
+    Ok(entries)
+}
+
+/// Reads a package's `emela-package.json` to discover its `source_root`.
+fn package_source_root(package_path: &Path) -> Option<PathBuf> {
+    let manifest_path = package_path.join("emela-package.json");
+    let manifest_source = fs::read_to_string(&manifest_path).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_source).ok()?;
+    let source = manifest.get("source")?.as_str()?;
+    Some(package_path.join(source))
+}
+
 /// Builds `input` to a `wasm-wasi` module and executes it in-process, exiting
 /// the process with the program's exit code. `run` runs WebAssembly, so only the
 /// wasm backend is accepted.
 #[cfg(feature = "run")]
-fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> Result<()> {
+fn run_program(
+    input: &PathBuf,
+    packages: &[PathBuf],
+    host_interfaces: &[String],
+    backend: Option<&str>,
+) -> Result<()> {
     if let Some(name) = backend
         && canonical_backend(name) != "wasm-wasi"
     {
@@ -145,7 +311,13 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> 
             "`run` executes WebAssembly; backend `{name}` is not supported (use `wasm-wasi`)"
         )));
     }
-    let artifact = build(input, packages, Some("wasm-wasi"), EmitMode::Default)?;
+    let artifact = build(
+        input,
+        packages,
+        host_interfaces,
+        Some("wasm-wasi"),
+        EmitMode::Default,
+    )?;
     let code = crate::run::execute(&artifact.bytes)?;
     std::process::exit(code)
 }
@@ -153,7 +325,12 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> 
 /// Fallback when the `run` feature is disabled: report it clearly instead of
 /// silently failing to build the module.
 #[cfg(not(feature = "run"))]
-fn run_program(_input: &PathBuf, _packages: &[PathBuf], _backend: Option<&str>) -> Result<()> {
+fn run_program(
+    _input: &PathBuf,
+    _packages: &[PathBuf],
+    _host_interfaces: &[String],
+    _backend: Option<&str>,
+) -> Result<()> {
     Err(Error::new(
         "this `emela` was built without the `run` feature; rebuild with `--features run`",
     ))
@@ -162,12 +339,12 @@ fn run_program(_input: &PathBuf, _packages: &[PathBuf], _backend: Option<&str>) 
 /// `emela test` executes tests in-process like `run`, so it needs the same
 /// feature.
 #[cfg(feature = "run")]
-fn run_tests() -> Result<()> {
-    crate::test_runner::run()
+fn run_tests(platform_registry: &[emela_codegen::PlatformFn]) -> Result<()> {
+    crate::test_runner::run(platform_registry)
 }
 
 #[cfg(not(feature = "run"))]
-fn run_tests() -> Result<()> {
+fn run_tests(_platform_registry: &[emela_codegen::PlatformFn]) -> Result<()> {
     Err(Error::new(
         "this `emela` was built without the `run` feature; rebuild with `--features run`",
     ))
@@ -201,10 +378,14 @@ fn write_artifact(artifact: Artifact, output: Option<PathBuf>) -> Result<()> {
     }
 }
 
-fn compile_to_ir(input: &PathBuf, package_paths: &[PathBuf]) -> Result<IrProgram> {
+fn compile_to_ir(
+    input: &PathBuf,
+    package_paths: &[PathBuf],
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> Result<IrProgram> {
     // Lowering and the backends need a `main` (the `_start` entrypoint), so IR and
     // build always require it — only `check --library` relaxes this.
-    let (program, typed) = compile_frontend(input, package_paths, true)?;
+    let (program, typed) = compile_frontend(input, package_paths, true, platform_registry)?;
     let (program, typed) = strip_tests(program, typed);
     check_dev_reachability(input, &program)?;
     Ok(lower::lower(&program, &typed))
@@ -401,12 +582,19 @@ pub(crate) fn compile_frontend(
     input: &PathBuf,
     package_paths: &[PathBuf],
     require_main: bool,
+    platform_registry: &[emela_codegen::PlatformFn],
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
     let source = fs::read_to_string(input)
         .map_err(|err| Error::new(format!("failed to read `{}`: {err}", input.display())))?;
     let packages = load_import_roots(input, package_paths)?;
-    let (program, typed, errors) =
-        compile_frontend_source_all(input, &source, &packages, require_main, &HashMap::new());
+    let (program, typed, errors) = compile_frontend_source_all(
+        input,
+        &source,
+        &packages,
+        require_main,
+        &HashMap::new(),
+        platform_registry,
+    );
     if errors.is_empty() {
         Ok((program, typed))
     } else {
@@ -444,6 +632,7 @@ pub(crate) fn compile_frontend_source_all(
     packages: &[imports::PackageSource],
     require_main: bool,
     overlay: &HashMap<PathBuf, String>,
+    platform_registry: &[emela_codegen::PlatformFn],
 ) -> (crate::ast::Program, typecheck::TypedProgram, Vec<Error>) {
     let label = input.display().to_string();
     let (mut program, mut errors) = parse_program(&label, source);
@@ -465,7 +654,7 @@ pub(crate) fn compile_frontend_source_all(
     // When recovery already dropped declarations, `main` may be among them;
     // requiring it would only add noise next to the real errors.
     let require_main = require_main && errors.is_empty();
-    let (typed, check_errors) = typecheck::check(&program, require_main);
+    let (typed, check_errors) = typecheck::check(&program, require_main, platform_registry);
     errors.extend(check_errors);
     crate::error::normalize_errors(&mut errors);
     (program, typed, errors)
@@ -478,9 +667,16 @@ fn compile_frontend_source(
     source: &str,
     packages: &[imports::PackageSource],
     require_main: bool,
+    platform_registry: &[emela_codegen::PlatformFn],
 ) -> Result<(crate::ast::Program, typecheck::TypedProgram)> {
-    let (program, typed, mut errors) =
-        compile_frontend_source_all(input, source, packages, require_main, &HashMap::new());
+    let (program, typed, mut errors) = compile_frontend_source_all(
+        input,
+        source,
+        packages,
+        require_main,
+        &HashMap::new(),
+        platform_registry,
+    );
     if errors.is_empty() {
         Ok((program, typed))
     } else {
@@ -509,13 +705,25 @@ pub(crate) fn merge_prelude(program: &mut crate::ast::Program) -> Result<()> {
 /// Type-checks an in-memory source string. Filesystem-free entry point used by
 /// embedders such as the WebAssembly playground.
 pub(crate) fn check_source(label: &str, source: &str) -> Result<()> {
-    compile_frontend_source(Path::new(label), source, &[], true)?;
+    compile_frontend_source(
+        Path::new(label),
+        source,
+        &[],
+        true,
+        &emela_codegen::platform_interface(),
+    )?;
     Ok(())
 }
 
 /// Lowers an in-memory source string to IR and renders it as text.
 pub(crate) fn ir_source(label: &str, source: &str) -> Result<String> {
-    let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
+    let (program, typed) = compile_frontend_source(
+        Path::new(label),
+        source,
+        &[],
+        true,
+        &emela_codegen::platform_interface(),
+    )?;
     let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
     Ok(emit_text(&ir))
@@ -529,11 +737,14 @@ pub(crate) fn compile_source(
     backend: &str,
     mode: EmitMode,
 ) -> Result<Artifact> {
-    let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
+    let platform_registry = emela_codegen::platform_interface();
+    let (program, typed) =
+        compile_frontend_source(Path::new(label), source, &[], true, &platform_registry)?;
     let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
     let options = BackendOptions {
         mode,
+        platform_registry,
         ..Default::default()
     };
     let registry = registry();
@@ -591,7 +802,11 @@ enum Commands {
         args: CompileArgs,
     },
     /// Discover and run the current Pome's tests (spec 0040)
-    Test,
+    Test {
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
+    },
     /// List the available compiler backends
     Backends,
     /// Start the language server over stdio (spec 0033)
@@ -599,6 +814,9 @@ enum Commands {
         /// Package root to resolve imports against (repeatable)
         #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
     },
     /// Format Emela source files (spec 0035)
     Fmt {
@@ -614,6 +832,9 @@ enum Commands {
         /// Package root to resolve imports against (repeatable)
         #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
         /// Source files to lint
         #[arg(value_name = "FILE", required = true)]
         inputs: Vec<PathBuf>,
@@ -659,6 +880,10 @@ struct CompileArgs {
     /// Add a package root to resolve imports against (repeatable)
     #[arg(long = "package", value_name = "DIR")]
     packages: Vec<PathBuf>,
+    /// Activate an embedded host interface package (spec 0026). Repeatable.
+    /// Example: `--host-interface db` makes `import host.db` available.
+    #[arg(long = "host-interface", value_name = "NAME")]
+    host_interfaces: Vec<String>,
 }
 
 impl CompileArgs {
@@ -702,8 +927,14 @@ mod tests {
     use super::*;
 
     fn frontend_errors(source: &str) -> (crate::ast::Program, Vec<String>) {
-        let (program, _, errors) =
-            compile_frontend_source_all(Path::new("test.emel"), source, &[], true, &HashMap::new());
+        let (program, _, errors) = compile_frontend_source_all(
+            Path::new("test.emel"),
+            source,
+            &[],
+            true,
+            &HashMap::new(),
+            &emela_codegen::platform_interface(),
+        );
         let messages = errors
             .iter()
             .map(|error| error.message().to_string())
@@ -745,7 +976,7 @@ mod tests {
             "test.emel",
             "intrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\nintrinsic fn i32_add(a: Int, b: Int) -> Int uses {}\nfn main() -> Int uses {} {\n    i32_add(1, 2)\n}\n",
         );
-        let (_, errors) = typecheck::check(&program, true);
+        let (_, errors) = typecheck::check(&program, true, &emela_codegen::platform_interface());
         let messages: Vec<String> = errors
             .iter()
             .map(|error| error.message().to_string())
@@ -765,7 +996,7 @@ mod tests {
             "test.emel",
             "intrinsic fn bogus_op(a: Int, b: Int) -> Int uses {}\nfn main() -> Int uses {} {\n    bogus_op(1, 2)\n}\n",
         );
-        let (_, errors) = typecheck::check(&program, true);
+        let (_, errors) = typecheck::check(&program, true, &emela_codegen::platform_interface());
         let messages: Vec<String> = errors
             .iter()
             .map(|error| error.message().to_string())

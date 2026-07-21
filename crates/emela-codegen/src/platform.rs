@@ -121,3 +121,12 @@ pub fn lookup(canonical: &str) -> Option<PlatformFn> {
         .into_iter()
         .find(|entry| entry.canonical() == canonical)
 }
+
+/// Looks a platform function up in a given slice of entries (e.g. an extended
+/// registry that includes host-interface entries — spec 0026).
+pub fn lookup_in(entries: &[PlatformFn], canonical: &str) -> Option<PlatformFn> {
+    entries
+        .iter()
+        .find(|entry| entry.canonical() == canonical)
+        .cloned()
+}

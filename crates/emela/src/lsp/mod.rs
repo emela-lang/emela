@@ -20,8 +20,11 @@ use crate::error::Result;
 
 /// Runs the server over stdio until the client sends `exit`. The process
 /// exits 0 after an orderly `shutdown`, 1 otherwise (spec 0033).
-pub(crate) fn run(package_paths: Vec<PathBuf>) -> Result<()> {
-    let code = server::run(package_paths)?;
+pub(crate) fn run(
+    package_paths: Vec<PathBuf>,
+    platform_registry: Vec<emela_codegen::PlatformFn>,
+) -> Result<()> {
+    let code = server::run(package_paths, platform_registry)?;
     if code != 0 {
         std::process::exit(code);
     }

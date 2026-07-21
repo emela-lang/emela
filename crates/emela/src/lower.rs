@@ -1245,7 +1245,16 @@ impl<'a> Lowerer<'a> {
         }
         let visible = match &info.effect_name {
             Some(effect) => self.current_effect.borrow().as_deref() == Some(effect.as_str()),
-            None => self.current_declared_module.borrow().as_deref() == info.module.as_deref(),
+            None => {
+                self.current_declared_module.borrow().as_deref() == info.module.as_deref()
+                    // Host interface externs (spec 0026) are callable from any
+                    // module that imports their host interface package.
+                    || info
+                        .module
+                        .as_deref()
+                        .is_some_and(|m| m.starts_with("host."))
+                        && !info.is_intrinsic
+            }
         };
         visible.then_some(info)
     }
@@ -1981,7 +1990,8 @@ mod tests {
         // (spec 0021), and defaulted trait methods are filled in (spec 0020).
         crate::driver::merge_prelude(&mut program).expect("prelude");
         typecheck::expand_trait_defaults(&mut program);
-        let (typed, errors) = typecheck::check(&program, true);
+        let (typed, errors) =
+            typecheck::check(&program, true, &emela_codegen::platform_interface());
         assert!(errors.is_empty(), "typecheck: {errors:?}");
         lower(&program, &typed)
     }

@@ -22,6 +22,7 @@ const INVALID_PARAMS: i64 = -32602;
 
 struct Server {
     package_paths: Vec<PathBuf>,
+    platform_registry: Vec<emela_codegen::PlatformFn>,
     documents: DocumentStore,
     /// The last usable completion scope per document (spec 0033).
     snapshots: HashMap<String, Snapshot>,
@@ -35,9 +36,13 @@ struct Server {
 /// Runs until the client sends `exit`; the return value is the process exit
 /// code (0 after an orderly `shutdown`, 1 otherwise — also when the client
 /// hangs up without one).
-pub(crate) fn run(package_paths: Vec<PathBuf>) -> Result<i32> {
+pub(crate) fn run(
+    package_paths: Vec<PathBuf>,
+    platform_registry: Vec<emela_codegen::PlatformFn>,
+) -> Result<i32> {
     let mut server = Server {
         package_paths,
+        platform_registry,
         documents: DocumentStore::default(),
         snapshots: HashMap::new(),
         published: HashMap::new(),
@@ -169,7 +174,12 @@ impl Server {
             let Some(doc) = self.documents.get(&uri) else {
                 continue;
             };
-            let outcome = analysis::check_document(doc, &self.documents, &self.package_paths);
+            let outcome = analysis::check_document(
+                doc,
+                &self.documents,
+                &self.package_paths,
+                &self.platform_registry,
+            );
             if !outcome.snapshot.is_empty() || !self.snapshots.contains_key(&uri) {
                 self.snapshots.insert(uri.clone(), outcome.snapshot);
             }
