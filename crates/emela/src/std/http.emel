@@ -57,13 +57,13 @@ fn method_to_string(method: Method) -> String {
 
 impl Eq for Method {
     fn eq(self: Method, other: Method) -> Bool {
-      method_to_string(self) == method_to_string(other)
+        method_to_string(self) == method_to_string(other)
     }
 }
 
 impl Show for Method {
     fn to_string(self: Method) -> String {
-      method_to_string(self)
+        method_to_string(self)
     }
 }
 
