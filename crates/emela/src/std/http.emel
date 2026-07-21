@@ -43,6 +43,30 @@ pub enum HttpError {
     ConnectionClosed
 }
 
+fn method_to_string(method: Method) -> String {
+    match method {
+        Method::Get -> "GET"
+        Method::Head -> "HEAD"
+        Method::Post -> "POST"
+        Method::Put -> "PUT"
+        Method::Delete -> "DELETE"
+        Method::Patch -> "PATCH"
+        Method::Options -> "OPTIONS"
+    }
+}
+
+impl Eq for Method {
+  fn eq(self: Method, other: Method) -> Bool {
+    method_to_string(self) == method_to_string(other)
+  }
+}
+
+impl Show for Method {
+  fn to_string(self: Method) -> String {
+    method_to_string(self)
+  }
+}
+
 effect Http {
     extern fn request(req: Request) -> Response throws HttpError
 
