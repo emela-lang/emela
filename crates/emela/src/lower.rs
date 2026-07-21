@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use emela_codegen::{
     BinaryOp, FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram,
-    QuestionMode, Type,
+    Type,
 };
 
 use crate::ast::{
@@ -1017,36 +1017,17 @@ impl<'a> Lowerer<'a> {
                 )
             }
             Expr::Question { value, .. } => {
+                // `?` applies only to throwing calls (spec 0011/0042); the type
+                // checker rejects it on any non-throwing value, so lowering just
+                // forwards the (already-unwrapped) success value.
                 let (value, value_ty) = self.lower_expr(value, scope);
-                if is_throwing(&value) {
-                    (
-                        IrExpr::Question {
-                            value: Box::new(value),
-                            mode: QuestionMode::Throws,
-                            ty: value_ty.clone(),
-                        },
-                        value_ty,
-                    )
-                } else if let Type::Option(inner) = &value_ty {
-                    let ty = (**inner).clone();
-                    (
-                        IrExpr::Question {
-                            value: Box::new(value),
-                            mode: QuestionMode::Option,
-                            ty: ty.clone(),
-                        },
-                        ty,
-                    )
-                } else {
-                    (
-                        IrExpr::Question {
-                            value: Box::new(value),
-                            mode: QuestionMode::Throws,
-                            ty: value_ty.clone(),
-                        },
-                        value_ty,
-                    )
-                }
+                (
+                    IrExpr::Question {
+                        value: Box::new(value),
+                        ty: value_ty.clone(),
+                    },
+                    value_ty,
+                )
             }
             Expr::TypePath { segments, .. } => {
                 // A `::` type path with no `(...)`: a no-payload enum variant
@@ -1669,17 +1650,6 @@ impl<'a> Lowerer<'a> {
                 })
             })
             .collect()
-    }
-}
-
-/// Whether the lowered expression is a call to a throwing function — the cue
-/// that `?` propagates an error rather than a `None` (spec 0011).
-fn is_throwing(ir: &IrExpr) -> bool {
-    match ir {
-        IrExpr::Call { callee, .. } => {
-            matches!(callee.ty(), Type::Function(function) if function.throws.is_some())
-        }
-        _ => false,
     }
 }
 

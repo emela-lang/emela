@@ -957,3 +957,43 @@ fn no_arguments_shows_help() {
     assert!(shown.contains("Usage"), "{shown}");
     assert!(shown.contains("Commands"), "{shown}");
 }
+
+// `?` applies only to a throwing call (spec 0011/0042); it is not defined for
+// `Option`, which is handled with `match` or `std.option`.
+#[test]
+fn check_rejects_question_on_option() {
+    let source = write_source(
+        "main.emel",
+        r#"
+fn first() -> Option<Int> uses {} { Some(5) }
+
+fn chain() -> Option<Int> uses {} {
+  let x = first()?
+  Some(x)
+}
+
+fn main() -> Int uses {} {
+  match chain() {
+    Some(v) -> v
+    None -> 0
+  }
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg("--backend")
+        .arg("js-node")
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let _ = fs::remove_dir_all(source.parent().unwrap());
+    assert!(
+        !output.status.success(),
+        "`?` on an Option should be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Invalid `?`"), "{stderr}");
+}

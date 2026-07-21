@@ -40,7 +40,7 @@
 //! live bindings when a throwing call or `?` unwinds through the backend's
 //! error channel, and the caught error value's own count.
 
-use crate::ir::{IrArm, IrExpr, IrParam, IrPattern, IrProgram, QuestionMode};
+use crate::ir::{IrArm, IrExpr, IrParam, IrPattern, IrProgram};
 use crate::types::Type;
 
 /// Whether values of `ty` are heap pointers managed by RC (spec 0048).
@@ -632,25 +632,11 @@ impl Cx {
                 }
             }
 
-            IrExpr::Question { value, mode, ty } => match mode {
-                // The throwing call already yields its unwrapped, owned value.
-                QuestionMode::Throws => IrExpr::Question {
-                    value: Box::new(self.owned(*value)),
-                    mode,
-                    ty,
-                },
-                // The option is inspected (borrowed); the backend retains the
-                // payload on the `Some` path, making the result owned.
-                QuestionMode::Option => {
-                    let (hoisted, mut values) = self.operands(vec![*value], |_| Mode::Borrowed);
-                    let value = values.pop().expect("one operand");
-                    let node = IrExpr::Question {
-                        value: Box::new(value),
-                        mode,
-                        ty,
-                    };
-                    self.wrap(hoisted, node)
-                }
+            // `?` applies only to throwing calls (spec 0011/0042); the throwing
+            // call already yields its unwrapped, owned value.
+            IrExpr::Question { value, ty } => IrExpr::Question {
+                value: Box::new(self.owned(*value)),
+                ty,
             },
 
             IrExpr::Throw { value } => {
@@ -1238,9 +1224,8 @@ fn elide(e: IrExpr) -> IrExpr {
         IrExpr::Throw { value } => IrExpr::Throw {
             value: Box::new(elide(*value)),
         },
-        IrExpr::Question { value, mode, ty } => IrExpr::Question {
+        IrExpr::Question { value, ty } => IrExpr::Question {
             value: Box::new(elide(*value)),
-            mode,
             ty,
         },
         IrExpr::Panic { message } => IrExpr::Panic {
