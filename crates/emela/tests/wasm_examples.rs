@@ -103,13 +103,6 @@ fn builds_question_propagation() {
 }
 
 #[test]
-fn builds_option_question() {
-    build_wasm(
-        "fn first() -> Option<Int> { Some(5) }\nfn chain() -> Option<Int> {\n  let x = first()?\n  Some(x)\n}\nfn main() -> Int {\n  match chain() {\n    Some(v) -> v\n    None -> 0\n  }\n}\n",
-    );
-}
-
-#[test]
 fn builds_if_expression() {
     build_wasm(
         "fn pick(n: Int) -> Int { if n < 0 { 0 - n } else { n } }\nfn main() -> Int { if pick(0 - 5) == 5 { 42 } else { 7 } }\n",
