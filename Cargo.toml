@@ -4,6 +4,7 @@ members = [
     "crates/emela-codegen",
     "crates/emela-backend-js",
     "crates/emela-backend-wasm",
+    "crates/emela-backend-wasm-wasip2",
     "crates/emela",
     "crates/emela-wasm",
 ]
@@ -14,6 +15,7 @@ default-members = [
     "crates/emela-codegen",
     "crates/emela-backend-js",
     "crates/emela-backend-wasm",
+    "crates/emela-backend-wasm-wasip2",
     "crates/emela",
 ]
 
@@ -26,6 +28,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wat = "1"
 wasmparser = "0.252"
+# Component-model encoding for the `wasm-wasip2` backend (spec 0052): wraps a
+# core module into a WASI 0.2 component. Pure Rust (Bytecode Alliance), so it
+# keeps the "no external wasm tools / cross-compiles" build property; `wasmtime`
+# (native) is NOT bundled — generated components run under an external runtime.
+wit-component = "0.252"
+wit-parser = "0.252"
 # In-process WASI runtime for `emela run` (pure Rust, keeps the "no external
 # wasm tools" build and cross-compiles with the release matrix).
 wasmi = "1"
@@ -36,4 +44,5 @@ clap = { version = "4", features = ["derive"] }
 emela-codegen = { path = "crates/emela-codegen", version = "0.8.1" }
 emela-backend-js = { path = "crates/emela-backend-js", version = "0.8.1" }
 emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.8.1" }
+emela-backend-wasm-wasip2 = { path = "crates/emela-backend-wasm-wasip2", version = "0.8.1" }
 emela = { path = "crates/emela", version = "0.8.1" }
