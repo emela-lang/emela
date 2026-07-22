@@ -1,0 +1,30 @@
+-- The embedded std.random module (spec 0054): the `Random` capability.
+--
+-- `Random` is a primitive effect (spec 0049) over `wasi:random/random` (the
+-- component backend) / an OS entropy source (`emela run`). It is the
+-- cryptographically-secure, non-reproducible source; the platform functions
+-- `random.raw_*` are infallible (spec 0043). Callers import the module and call
+-- `Random.int()` / `Random.bytes(n)` inside a function declaring `uses { Random }`.
+--
+-- The seedable, deterministic PRNG (spec 0054 Part B) is added on top of this
+-- module separately.
+module random
+
+-- Random: the cryptographically-secure entropy capability (spec 0054 Part A). The
+-- `raw_*` operations are the backing platform functions (private to the effect,
+-- spec 0037); the `pub fn` wrappers add the public `Random.op(...)` API. Both are
+-- infallible (spec 0054 P2).
+effect Random {
+    extern fn raw_int() -> Int
+    extern fn raw_bytes(len: Int) -> Bytes
+
+    -- A uniformly-distributed Int over the full range (spec 0054 P3).
+    pub fn int() -> Int {
+        raw_int()
+    }
+
+    -- `len` cryptographically-secure random bytes (spec 0054 P4).
+    pub fn bytes(len: Int) -> Bytes {
+        raw_bytes(len)
+    }
+}

@@ -787,6 +787,7 @@ pub fn emit_module(
             WasmTarget::Wasip2 => {
                 matches!(name.as_str(), "io.write_stdout" | "io.write_stderr")
                     || name.starts_with("socket.")
+                    || name.starts_with("random.")
             }
         };
         if !provided {
@@ -916,15 +917,16 @@ pub fn emit_module(
         }
     }
     if target == WasmTarget::Wasi
-        && used_platform
-            .iter()
-            .any(|name| name.starts_with("http.") || name.starts_with("socket."))
+        && used_platform.iter().any(|name| {
+            name.starts_with("http.") || name.starts_with("socket.") || name == "random.raw_bytes"
+        })
     {
-        // The HTTP and Socket host functions (specs 0043/0044/0050) allocate
-        // their structured results (records / errors / the Result cell) into
-        // guest memory, so an allocator is exported alongside `memory` for the
-        // wasmi host to bind against. `$alloc_host` keeps the historical
-        // one-parameter shape. (The component backend uses the canonical realloc.)
+        // The HTTP, Socket, and Random host functions (specs 0043/0044/0050/0054)
+        // allocate their structured results (records / errors / the Result cell /
+        // a `Bytes`) into guest memory, so an allocator is exported alongside
+        // `memory` for the wasmi host to bind against. `$alloc_host` keeps the
+        // historical one-parameter shape. (The component backend uses the
+        // canonical realloc.)
         module.push_str("  (export \"alloc\" (func $alloc_host))\n");
     }
     // Capability manifest (spec 0025): embed the program's requirements as a
@@ -966,6 +968,15 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         ),
         "socket.raw_close" => Some(
             "  (import \"emela_socket\" \"raw_close\" (func $host_socket_raw_close (param i32) (result i32)))\n",
+        ),
+        // The Random capability (spec 0054): OS entropy supplied by the `emela run`
+        // host through the `emela_random` module (the component backend lowers
+        // these to `wasi:random` instead).
+        "random.raw_int" => Some(
+            "  (import \"emela_random\" \"raw_int\" (func $host_random_raw_int (result i32)))\n",
+        ),
+        "random.raw_bytes" => Some(
+            "  (import \"emela_random\" \"raw_bytes\" (func $host_random_raw_bytes (param i32) (result i32)))\n",
         ),
         _ => None,
     }
@@ -1057,9 +1068,19 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
         "socket.raw_read" => Some(SOCKET_RAW_READ_GLUE),
         "socket.raw_write" => Some(SOCKET_RAW_WRITE_GLUE),
         "socket.raw_close" => Some(SOCKET_RAW_CLOSE_GLUE),
+        "random.raw_int" => Some(RANDOM_RAW_INT_GLUE),
+        "random.raw_bytes" => Some(RANDOM_RAW_BYTES_GLUE),
         _ => None,
     }
 }
+
+// The Random operations (spec 0054) forward to the host, which supplies OS
+// entropy. `raw_int` takes no arguments and yields the value directly; `raw_bytes`
+// forwards `len` and the host allocates the `Bytes` in guest memory (via `alloc`).
+const RANDOM_RAW_INT_GLUE: &str =
+    "  (func $plat_random_raw_int (result i32)\n    call $host_random_raw_int)\n";
+
+const RANDOM_RAW_BYTES_GLUE: &str = "  (func $plat_random_raw_bytes (param $len i32) (result i32)\n    local.get $len\n    call $host_random_raw_bytes)\n";
 
 /// `http.request` (spec 0044) passes the guest `Request` pointer to the host,
 /// which reads it from linear memory, performs the exchange, and returns a
@@ -1093,6 +1114,8 @@ fn wasip2_imports(used: &[String]) -> String {
     let uses_stdout = used.iter().any(|n| n == "io.write_stdout");
     let uses_stderr = used.iter().any(|n| n == "io.write_stderr");
     let uses_socket = used.iter().any(|n| n.starts_with("socket."));
+    let uses_rand_int = used.iter().any(|n| n == "random.raw_int");
+    let uses_rand_bytes = used.iter().any(|n| n == "random.raw_bytes");
     let mut out = String::new();
     // The output-stream write + drop are shared by stdout/stderr (io) and by
     // `socket.write`/`close`, so they are imported once.
@@ -1116,6 +1139,19 @@ fn wasip2_imports(used: &[String]) -> String {
     }
     if uses_socket {
         out.push_str(WASIP2_SOCKET_IMPORTS);
+    }
+    // The Random capability (spec 0054) over `wasi:random/random`. `get-random-u64`
+    // returns its `u64` directly; `get-random-bytes` writes the `list<u8>` (a
+    // `[ptr][len]` pair) into a return area passed as its trailing pointer.
+    if uses_rand_int {
+        out.push_str(
+            "  (import \"wasi:random/random@0.2.0\" \"get-random-u64\" (func $wsi_rand_u64 (result i64)))\n",
+        );
+    }
+    if uses_rand_bytes {
+        out.push_str(
+            "  (import \"wasi:random/random@0.2.0\" \"get-random-bytes\" (func $wsi_rand_bytes (param i64 i32)))\n",
+        );
     }
     out
 }
@@ -1146,9 +1182,33 @@ fn wasip2_platform_glue(canonical: &str) -> Option<&'static str> {
     match canonical {
         "io.write_stdout" => Some(WASIP2_WRITE_STDOUT_GLUE),
         "io.write_stderr" => Some(WASIP2_WRITE_STDERR_GLUE),
+        "random.raw_int" => Some(WASIP2_RANDOM_INT_GLUE),
+        "random.raw_bytes" => Some(WASIP2_RANDOM_BYTES_GLUE),
         _ => None,
     }
 }
+
+// `random.raw_int` on `wasm-wasip2` (spec 0054): take a fresh `u64` from
+// `wasi:random` and narrow it to the `Int` (i32) width (spec 0053/0001).
+const WASIP2_RANDOM_INT_GLUE: &str =
+    "  (func $plat_random_raw_int (result i32)\n    call $wsi_rand_u64\n    i32.wrap_i64)\n";
+
+// `random.raw_bytes` on `wasm-wasip2` (spec 0054): `get-random-bytes` writes its
+// `list<u8>` as `[ptr][len]` into the 16-byte return area at offset 0, then the
+// bytes are copied into a fresh `Bytes` block `[len][bytes...]` (the same shape
+// `socket.raw_read` builds, minus the `result` wrapper since this is infallible).
+const WASIP2_RANDOM_BYTES_GLUE: &str = r#"  (func $plat_random_raw_bytes (param $len i32) (result i32)
+    (local $lptr i32) (local $llen i32) (local $b i32)
+    local.get $len i64.extend_i32_u
+    i32.const 0
+    call $wsi_rand_bytes
+    i32.const 0 i32.load local.set $lptr
+    i32.const 4 i32.load local.set $llen
+    i32.const 4 local.get $llen i32.add call $alloc_host local.set $b
+    local.get $b local.get $llen i32.store
+    local.get $b i32.const 4 i32.add local.get $lptr local.get $llen memory.copy
+    local.get $b)
+"#;
 
 // `io.write_*` on `wasm-wasip2`: get the (owned) stdout/stderr `output-stream`,
 // `blocking-write-and-flush` the String's `[len][utf8]` bytes as a `list<u8>`,

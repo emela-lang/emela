@@ -123,6 +123,27 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: None,
             capability: "Socket".to_string(),
         },
+        // The Random capability (spec 0054): a cryptographically-secure OS
+        // entropy source backing the embedded `std.random`. A primitive effect
+        // (spec 0049) over `wasi:random/random`. Both operations are infallible
+        // (spec 0043): `raw_int` yields a uniform `Int`, `raw_bytes` a `Bytes` of
+        // the requested length.
+        PlatformFn {
+            path: vec!["random".to_string()],
+            name: "raw_int".to_string(),
+            params: vec![],
+            ret: Type::Int,
+            throws: None,
+            capability: "Random".to_string(),
+        },
+        PlatformFn {
+            path: vec!["random".to_string()],
+            name: "raw_bytes".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Bytes,
+            throws: None,
+            capability: "Random".to_string(),
+        },
     ]
 }
 
@@ -185,5 +206,22 @@ mod tests {
         assert_eq!(close.params, vec![Type::Int]);
         assert_eq!(close.ret, Type::Unit);
         assert_eq!(close.throws, None);
+    }
+
+    /// The Random capability (spec 0054) registers `raw_int` (no args → `Int`)
+    /// and `raw_bytes` (`Int` → `Bytes`) under `random.*`, both infallible.
+    #[test]
+    fn random_registry_entries() {
+        let raw_int = lookup("random.raw_int").expect("random.raw_int registered");
+        assert_eq!(raw_int.capability, "Random");
+        assert_eq!(raw_int.params, Vec::<Type>::new());
+        assert_eq!(raw_int.ret, Type::Int);
+        assert_eq!(raw_int.throws, None);
+
+        let raw_bytes = lookup("random.raw_bytes").expect("random.raw_bytes registered");
+        assert_eq!(raw_bytes.capability, "Random");
+        assert_eq!(raw_bytes.params, vec![Type::Int]);
+        assert_eq!(raw_bytes.ret, Type::Bytes);
+        assert_eq!(raw_bytes.throws, None);
     }
 }

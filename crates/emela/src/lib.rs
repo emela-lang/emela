@@ -22,6 +22,8 @@ mod lsp;
 mod parser;
 mod pome;
 mod prelude;
+#[cfg(feature = "run")]
+mod random_host;
 mod resolve;
 #[cfg(feature = "run")]
 mod run;

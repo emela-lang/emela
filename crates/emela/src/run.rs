@@ -84,6 +84,7 @@ pub fn execute(wasm: &[u8]) -> Result<i32> {
     link_wasi(&mut linker)?;
     link_http(&mut linker)?;
     link_socket(&mut linker)?;
+    link_random(&mut linker)?;
 
     let instance = linker
         .instantiate_and_start(&mut store, &module)
@@ -262,6 +263,7 @@ pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
     link_wasi(&mut linker)?;
     link_http(&mut linker)?;
     link_socket(&mut linker)?;
+    link_random(&mut linker)?;
 
     let instance = match linker.instantiate_and_start(&mut store, &module) {
         Ok(instance) => instance,
@@ -369,6 +371,32 @@ fn link_socket(linker: &mut Linker<Host>) -> Result<()> {
             },
         )
         .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_close`: {err}")))?;
+    Ok(())
+}
+
+/// Links the `Random` capability's host functions (spec 0054) into `linker`,
+/// backed by the OS entropy source (`getrandom`). `Random` is stateless, so no
+/// per-run table is needed. Every import is defined for every run; a module that
+/// does not use `Random` simply never imports them.
+fn link_random(linker: &mut Linker<Host>) -> Result<()> {
+    linker
+        .func_wrap(
+            "emela_random",
+            "raw_int",
+            |mut caller: Caller<'_, Host>| -> std::result::Result<i32, wasmi::Error> {
+                crate::random_host::raw_int(&mut caller)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_random.raw_int`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_random",
+            "raw_bytes",
+            |mut caller: Caller<'_, Host>, len: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::random_host::raw_bytes(&mut caller, len)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_random.raw_bytes`: {err}")))?;
     Ok(())
 }
 
