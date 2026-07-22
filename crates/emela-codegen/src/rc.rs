@@ -440,11 +440,20 @@ impl Cx {
 
             IrExpr::Intrinsic { name, args, ret } => {
                 // Intrinsic arguments are borrows (the backend reads bytes or
-                // copies), with one exception: `array_push` stores its element
-                // into the fresh array, consuming it (spec 0007/0021).
+                // copies) — its result is a fresh allocation — with two
+                // exceptions that transfer ownership of an argument:
+                //   * `array_push` stores its element into the fresh array,
+                //     consuming it (arg 1, spec 0007/0021);
+                //   * the identity `Bytes`<->`String` reinterprets
+                //     (`bytes_from_string` / `bytes_as_string_unchecked`, spec
+                //     0051) *return* their argument, so the result aliases it.
+                //     Borrowing arg 0 would release the shared allocation twice
+                //     (double free); owning it transfers the `+1` to the alias.
                 let owned_elem = name == "array_push";
+                let identity_cast =
+                    name == "bytes_from_string" || name == "bytes_as_string_unchecked";
                 let (hoisted, args) = self.operands(args, |i| {
-                    if owned_elem && i == 1 {
+                    if (owned_elem && i == 1) || (identity_cast && i == 0) {
                         Mode::Owned
                     } else {
                         Mode::Borrowed

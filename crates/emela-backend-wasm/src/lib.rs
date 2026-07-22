@@ -1689,17 +1689,11 @@ impl<'a> FnEmitter<'a> {
                     self.line("call $string_eq");
                 }
                 // `bytes_from_string` (spec 0051 B6) / `bytes_as_string_unchecked`
-                // (spec 0051 B7) *copy* rather than aliasing their argument. The
-                // representation is shared, so an identity would return the arg
-                // pointer — but the RC pass (spec 0048) treats an intrinsic result
-                // as a fresh allocation and its argument as a borrow (rc.rs), so an
-                // alias to a heap argument is released twice (double free, seen as a
-                // drop-dispatch `indirect call type mismatch`). `$blob_dup` gives the
-                // result its own `[len][bytes]` block.
-                "bytes_from_string" | "bytes_as_string_unchecked" => {
-                    self.emit(&args[0])?;
-                    self.line("call $blob_dup");
-                }
+                // (spec 0051 B7) are the identity on the shared `[len][bytes]`
+                // representation. The result aliases the argument; the RC pass
+                // transfers ownership of that argument to it (see `rc.rs`'s
+                // `identity_cast`), so no copy is needed.
+                "bytes_from_string" | "bytes_as_string_unchecked" => self.emit(&args[0])?,
                 "bytes_length" => {
                     self.emit(&args[0])?;
                     self.line("i32.load");
