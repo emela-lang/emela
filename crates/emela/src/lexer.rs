@@ -350,6 +350,7 @@ fn lex_with_file(
                             }
                             match bytes[i] {
                                 b'n' => value.push('\n'),
+                                b'r' => value.push('\r'),
                                 b't' => value.push('\t'),
                                 b'"' => value.push('"'),
                                 b'\\' => value.push('\\'),
@@ -392,6 +393,7 @@ fn lex_with_file(
                         if i < bytes.len() {
                             match bytes[i] {
                                 b'n' => value = Some('\n'),
+                                b'r' => value = Some('\r'),
                                 b't' => value = Some('\t'),
                                 b'\'' => value = Some('\''),
                                 b'"' => value = Some('"'),

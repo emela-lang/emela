@@ -75,42 +75,53 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
             capability: "Http".to_string(),
         },
-        // The HttpServer capability (spec 0046): a separate capability from the
-        // client so a serve-only program's manifest shows no outbound access.
+        // The Socket capability (spec 0050): the raw TCP byte boundary that
+        // backs the embedded `std.socket`. A primitive effect (spec 0049) over
+        // wasi:sockets; HttpServer (spec 0046) is a derived effect on top.
+        // `Listener`/`Connection`/`SocketError` are the named types declared by
+        // `std.socket`. All but `close` are fallible (spec 0043).
         PlatformFn {
-            path: vec!["http".to_string()],
-            name: "server_bind".to_string(),
+            path: vec!["socket".to_string()],
+            name: "raw_listen".to_string(),
             params: vec![Type::Int],
-            ret: Type::Enum("Server".to_string(), Vec::new()),
-            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
-            capability: "HttpServer".to_string(),
+            ret: Type::Enum("Listener".to_string(), Vec::new()),
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
         },
         PlatformFn {
-            path: vec!["http".to_string()],
-            name: "server_accept".to_string(),
-            params: vec![Type::Enum("Server".to_string(), Vec::new())],
-            ret: Type::Enum("Incoming".to_string(), Vec::new()),
-            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
-            capability: "HttpServer".to_string(),
+            path: vec!["socket".to_string()],
+            name: "raw_accept".to_string(),
+            params: vec![Type::Enum("Listener".to_string(), Vec::new())],
+            ret: Type::Enum("Connection".to_string(), Vec::new()),
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
         },
         PlatformFn {
-            path: vec!["http".to_string()],
-            name: "server_respond".to_string(),
+            path: vec!["socket".to_string()],
+            name: "raw_read".to_string(),
+            params: vec![Type::Enum("Connection".to_string(), Vec::new()), Type::Int],
+            ret: Type::Bytes,
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
+        },
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_write".to_string(),
             params: vec![
-                Type::Enum("Incoming".to_string(), Vec::new()),
-                Type::Enum("Response".to_string(), Vec::new()),
+                Type::Enum("Connection".to_string(), Vec::new()),
+                Type::Bytes,
             ],
             ret: Type::Unit,
-            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
-            capability: "HttpServer".to_string(),
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
         },
         PlatformFn {
-            path: vec!["http".to_string()],
-            name: "server_close".to_string(),
-            params: vec![Type::Enum("Server".to_string(), Vec::new())],
+            path: vec!["socket".to_string()],
+            name: "raw_close".to_string(),
+            params: vec![Type::Int],
             ret: Type::Unit,
-            throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
-            capability: "HttpServer".to_string(),
+            throws: None,
+            capability: "Socket".to_string(),
         },
         // The Socket capability (spec 0050): the raw TCP byte boundary that
         // backs the embedded `std.socket`. A primitive effect (spec 0049) over

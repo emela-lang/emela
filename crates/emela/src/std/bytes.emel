@@ -12,6 +12,10 @@ intrinsic fn bytes_length(b: Bytes) -> Int uses {}
 intrinsic fn bytes_get_unchecked(b: Bytes, i: Int) -> Int uses {}
 intrinsic fn bytes_slice(b: Bytes, start: Int, end: Int) -> Bytes uses {}
 intrinsic fn bytes_from_string(s: String) -> Bytes uses {}
+-- The unchecked `Bytes` -> `String` reinterpret (spec 0051 B7). `string_from_bytes`
+-- below validates UTF-8 first, so this is only ever reached on valid input. On the
+-- wasm backend it is the identity (shared `[len][bytes]` representation).
+intrinsic fn bytes_as_string_unchecked(b: Bytes) -> String uses {}
 
 pub fn length(b: Bytes) -> Int {
     bytes_length(b)
@@ -42,4 +46,96 @@ pub fn slice(b: Bytes, start: Int, end: Int) -> Bytes {
 -- The UTF-8 encoding of `s` as `Bytes` (spec 0051 B6). Total.
 pub fn to_bytes(s: String) -> Bytes {
     bytes_from_string(s)
+}
+
+-- A continuation byte (0x80–0xBF) present at index `i`.
+fn is_cont(b: Bytes, i: Int, n: Int) -> Bool {
+    if i < n {
+        let c = bytes_get_unchecked(b, i)
+        c >= 128 && c < 192
+    } else {
+        false
+    }
+}
+
+-- The byte at index `i` is present and within `[lo, hi]`.
+fn byte_in(b: Bytes, i: Int, n: Int, lo: Int, hi: Int) -> Bool {
+    if i < n {
+        let c = bytes_get_unchecked(b, i)
+        c >= lo && c <= hi
+    } else {
+        false
+    }
+}
+
+-- Whether `b[i..n]` is well-formed UTF-8 (Unicode Table 3-7: rejects overlong
+-- encodings, surrogates D800–DFFF, and code points above U+10FFFF). Byte ranges
+-- are written in decimal (e.g. 194 = 0xC2, 244 = 0xF4).
+fn valid_from(b: Bytes, i: Int, n: Int) -> Bool {
+    if i >= n {
+        true
+    } else {
+        let c = bytes_get_unchecked(b, i)
+        if c < 128 {
+            valid_from(b, i + 1, n)
+        } else if c < 194 {
+            -- 0x80–0xBF stray continuation, or 0xC0/0xC1 overlong lead.
+            false
+        } else if c < 224 {
+            -- 2-byte (0xC2–0xDF): one continuation.
+            if is_cont(b, i + 1, n) {
+                valid_from(b, i + 2, n)
+            } else {
+                false
+            }
+        } else if c < 240 {
+            -- 3-byte (0xE0–0xEF): the second byte's range depends on the lead
+            -- (0xE0 must be 0xA0–0xBF, 0xED must be 0x80–0x9F), then a continuation.
+            let ok2 = if c == 224 {
+                byte_in(b, i + 1, n, 160, 191)
+            } else if c == 237 {
+                byte_in(b, i + 1, n, 128, 159)
+            } else {
+                is_cont(b, i + 1, n)
+            }
+            if ok2 && is_cont(b, i + 2, n) {
+                valid_from(b, i + 3, n)
+            } else {
+                false
+            }
+        } else if c < 245 {
+            -- 4-byte (0xF0–0xF4): the second byte's range depends on the lead
+            -- (0xF0 must be 0x90–0xBF, 0xF4 must be 0x80–0x8F), then two continuations.
+            let ok2 = if c == 240 {
+                byte_in(b, i + 1, n, 144, 191)
+            } else if c == 244 {
+                byte_in(b, i + 1, n, 128, 143)
+            } else {
+                is_cont(b, i + 1, n)
+            }
+            if ok2 && is_cont(b, i + 2, n) && is_cont(b, i + 3, n) {
+                valid_from(b, i + 4, n)
+            } else {
+                false
+            }
+        } else {
+            -- 0xF5–0xFF: out of range.
+            false
+        }
+    }
+}
+
+-- Whether `b` is well-formed UTF-8 (spec 0051 B7).
+pub fn is_valid_utf8(b: Bytes) -> Bool {
+    valid_from(b, 0, bytes_length(b))
+}
+
+-- The UTF-8 decoding of `b` as `String`, or `None` when `b` is not valid UTF-8
+-- (spec 0051 B7). Total; no panicking variant (spec 0011).
+pub fn string_from_bytes(b: Bytes) -> Option<String> {
+    if valid_from(b, 0, bytes_length(b)) {
+        Some(bytes_as_string_unchecked(b))
+    } else {
+        None
+    }
 }

@@ -865,18 +865,6 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         "http.request" => Some(
             "  (import \"emela_http\" \"request\" (func $host_http_request (param i32) (result i32)))\n",
         ),
-        "http.server_bind" => Some(
-            "  (import \"emela_http\" \"server_bind\" (func $host_http_server_bind (param i32) (result i32)))\n",
-        ),
-        "http.server_accept" => Some(
-            "  (import \"emela_http\" \"server_accept\" (func $host_http_server_accept (param i32) (result i32)))\n",
-        ),
-        "http.server_respond" => Some(
-            "  (import \"emela_http\" \"server_respond\" (func $host_http_server_respond (param i32 i32) (result i32)))\n",
-        ),
-        "http.server_close" => Some(
-            "  (import \"emela_http\" \"server_close\" (func $host_http_server_close (param i32) (result i32)))\n",
-        ),
         // The Socket capability (spec 0050): raw TCP supplied by the `emela run`
         // wasmi host through the `emela_socket` module (the component backend
         // lowers these to `wasi:sockets` instead).
@@ -936,6 +924,7 @@ fn wasm_provides_intrinsic(name: &str) -> bool {
                 | "bytes_concat"
                 | "bytes_eq"
                 | "bytes_from_string"
+                | "bytes_as_string_unchecked"
                 | "array_length"
                 | "array_get_unchecked"
                 | "array_push"
@@ -971,10 +960,6 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
         "io.write_stdout" => Some(WRITE_STDOUT_GLUE),
         "io.write_stderr" => Some(WRITE_STDERR_GLUE),
         "http.request" => Some(HTTP_REQUEST_GLUE),
-        "http.server_bind" => Some(HTTP_SERVER_BIND_GLUE),
-        "http.server_accept" => Some(HTTP_SERVER_ACCEPT_GLUE),
-        "http.server_respond" => Some(HTTP_SERVER_RESPOND_GLUE),
-        "http.server_close" => Some(HTTP_SERVER_CLOSE_GLUE),
         "socket.raw_listen" => Some(SOCKET_RAW_LISTEN_GLUE),
         "socket.raw_accept" => Some(SOCKET_RAW_ACCEPT_GLUE),
         "socket.raw_read" => Some(SOCKET_RAW_READ_GLUE),
@@ -989,16 +974,6 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
 /// spec-0043 Result cell (`[ok][pad][Response | HttpError]`) it allocated in
 /// guest memory via the exported `alloc`.
 const HTTP_REQUEST_GLUE: &str = "  (func $plat_http_request (param $req i32) (result i32)\n    local.get $req\n    call $host_http_request)\n";
-
-// The HttpServer operations (spec 0046) forward their pointer arguments to the
-// host, which returns a spec-0043 Result cell.
-const HTTP_SERVER_BIND_GLUE: &str = "  (func $plat_http_server_bind (param $port i32) (result i32)\n    local.get $port\n    call $host_http_server_bind)\n";
-
-const HTTP_SERVER_ACCEPT_GLUE: &str = "  (func $plat_http_server_accept (param $server i32) (result i32)\n    local.get $server\n    call $host_http_server_accept)\n";
-
-const HTTP_SERVER_RESPOND_GLUE: &str = "  (func $plat_http_server_respond (param $incoming i32) (param $response i32) (result i32)\n    local.get $incoming\n    local.get $response\n    call $host_http_server_respond)\n";
-
-const HTTP_SERVER_CLOSE_GLUE: &str = "  (func $plat_http_server_close (param $server i32) (result i32)\n    local.get $server\n    call $host_http_server_close)\n";
 
 // The Socket operations (spec 0050) forward their arguments to the host, which
 // returns a spec-0043 Result cell it allocated in guest memory (via `alloc`).
@@ -1374,6 +1349,16 @@ const BYTES_HELPERS: &str = r#"  (func $bytes_slice (param $s i32) (param $start
     local.get $n
     memory.copy
     local.get $out)
+  (func $blob_dup (param $s i32) (result i32)
+    (local $len i32) (local $out i32)
+    local.get $s i32.load local.set $len
+    i32.const 4 local.get $len i32.add i32.const 0 call $alloc local.set $out
+    local.get $out local.get $len i32.store
+    local.get $out i32.const 4 i32.add
+    local.get $s i32.const 4 i32.add
+    local.get $len
+    memory.copy
+    local.get $out)
 "#;
 
 /// [`BYTES_HELPERS`] with the (shared string) drop index stamped into its
@@ -1703,7 +1688,18 @@ impl<'a> FnEmitter<'a> {
                     self.emit(&args[1])?;
                     self.line("call $string_eq");
                 }
-                "bytes_from_string" => self.emit(&args[0])?,
+                // `bytes_from_string` (spec 0051 B6) / `bytes_as_string_unchecked`
+                // (spec 0051 B7) *copy* rather than aliasing their argument. The
+                // representation is shared, so an identity would return the arg
+                // pointer — but the RC pass (spec 0048) treats an intrinsic result
+                // as a fresh allocation and its argument as a borrow (rc.rs), so an
+                // alias to a heap argument is released twice (double free, seen as a
+                // drop-dispatch `indirect call type mismatch`). `$blob_dup` gives the
+                // result its own `[len][bytes]` block.
+                "bytes_from_string" | "bytes_as_string_unchecked" => {
+                    self.emit(&args[0])?;
+                    self.line("call $blob_dup");
+                }
                 "bytes_length" => {
                     self.emit(&args[0])?;
                     self.line("i32.load");

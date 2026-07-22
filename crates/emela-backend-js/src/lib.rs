@@ -97,6 +97,10 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         // `bytes_from_string` UTF-8 encodes a JS string (the wasm backend shares
         // the string representation instead). IIFEs avoid re-evaluating args.
         "bytes_from_string" => format!("(new TextEncoder().encode({a}))"),
+        // `bytes_as_string_unchecked` (spec 0051 B7): decode the `Uint8Array` to
+        // a JS string. `std.bytes.string_from_bytes` validates UTF-8 first, so a
+        // non-fatal decode here only ever sees valid input.
+        "bytes_as_string_unchecked" => format!("(new TextDecoder().decode({a}))"),
         "bytes_length" => format!("({a}.length)"),
         "bytes_get_unchecked" => format!("({a}[{b}])"),
         "bytes_slice" => format!("({a}.slice({b}, {c}))"),
