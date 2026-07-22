@@ -144,6 +144,46 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
             params: vec![Type::Char],
             ret: Type::String,
         },
+        // Byte-sequence operations (spec 0051). `Bytes` shares `String`'s
+        // `[len][bytes]` representation but counts/indexes in bytes.
+        // `bytes_from_string` is the identity on that representation (UTF-8
+        // encode is a no-op); `bytes_concat`/`bytes_eq` reuse the string helpers.
+        IntrinsicFn {
+            name: "bytes_length".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes],
+            ret: Type::Int,
+        },
+        IntrinsicFn {
+            name: "bytes_get_unchecked".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes, Type::Int],
+            ret: Type::Int,
+        },
+        IntrinsicFn {
+            name: "bytes_slice".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes, Type::Int, Type::Int],
+            ret: Type::Bytes,
+        },
+        IntrinsicFn {
+            name: "bytes_concat".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes, Type::Bytes],
+            ret: Type::Bytes,
+        },
+        IntrinsicFn {
+            name: "bytes_eq".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes, Type::Bytes],
+            ret: Type::Bool,
+        },
+        IntrinsicFn {
+            name: "bytes_from_string".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::String],
+            ret: Type::Bytes,
+        },
         // Array operations (spec 0007), formerly the `Array::length` /
         // `Array::get` / `Array::push` builtins, now bare generic Core Prelude
         // intrinsics. The element type is a type variable `T` monomorphized at

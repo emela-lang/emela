@@ -80,6 +80,11 @@ intrinsic fn f64_lt(a: Float, b: Float) -> Bool uses {}
 intrinsic fn string_concat(a: String, b: String) -> String uses {}
 intrinsic fn string_eq(a: String, b: String) -> Bool uses {}
 intrinsic fn string_lt(a: String, b: String) -> Bool uses {}
+-- `Bytes` (spec 0051) backs `impl Concat/Eq for Bytes` below, so these
+-- intrinsics live in the prelude alongside their `String` counterparts. `Bytes`
+-- shares `String`'s representation, so the backend reuses the same helpers.
+intrinsic fn bytes_concat(a: Bytes, b: Bytes) -> Bytes uses {}
+intrinsic fn bytes_eq(a: Bytes, b: Bytes) -> Bool uses {}
 -- `char_code` (spec 0030) backs `impl Eq for Char` below, so it lives in the
 -- prelude. The other scalar-string intrinsics (`string_length` /
 -- `string_char_at` / `string_slice`) and `f64_sqrt` are declared where they are
@@ -203,6 +208,18 @@ impl Eq for String {
 
 impl Ord for String {
     fn lt(a: String, b: String) -> Bool uses {} { string_lt(a, b) }
+}
+
+-- `Concat`/`Eq for Bytes` (spec 0051): byte-wise, sharing the runtime helpers
+-- with `String` (the representation is identical). This gives `++` and `==` on
+-- `Bytes`. `Bytes` is owned by the Core Prelude for the orphan rule (spec 0020),
+-- like the other built-in types.
+impl Concat for Bytes {
+    fn concat(a: Bytes, b: Bytes) -> Bytes uses {} { bytes_concat(a, b) }
+}
+
+impl Eq for Bytes {
+    fn eq(a: Bytes, b: Bytes) -> Bool uses {} { bytes_eq(a, b) }
 }
 
 -- `Show for String` is the identity, so generic `Show`-bounded code (e.g. a

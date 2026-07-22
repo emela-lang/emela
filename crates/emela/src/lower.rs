@@ -1961,6 +1961,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::Float => "Float".to_string(),
         Type::String => "String".to_string(),
         Type::Char => "Char".to_string(),
+        Type::Bytes => "Bytes".to_string(),
         Type::Array(element) => format!("Array_{}_", mangle_type(element)),
         Type::Record => "Record".to_string(),
         Type::Enum(name, args) if args.is_empty() => name.clone(),
