@@ -20,3 +20,8 @@ wasm-bindgen = "=0.2.121"
 serde = { workspace = true }
 serde_json = { workspace = true }
 console_error_panic_hook = "0.1"
+# `emela`'s `run` feature pulls in getrandom 0.2 (for the `random` capability).
+# On `wasm32-unknown-unknown` getrandom needs its `js` backend to compile at all
+# (it uses `crypto.getRandomValues`); enabling it here turns it on for the whole
+# wasm build, since Cargo features are additive.
+getrandom = { version = "0.2", features = ["js"] }
