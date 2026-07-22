@@ -1,0 +1,14 @@
+[package]
+name = "emela-backend-wasm-wasip2"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "WASI 0.2 component-model code-generation backend for Emela (spec 0052)."
+
+[dependencies]
+emela-codegen.workspace = true
+emela-backend-wasm.workspace = true
+wat.workspace = true
+wasmparser.workspace = true
+wit-component.workspace = true
+wit-parser.workspace = true

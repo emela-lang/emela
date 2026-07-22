@@ -20,6 +20,8 @@ pub(crate) fn registry() -> BackendRegistry {
     let mut registry = BackendRegistry::new();
     #[cfg(feature = "backend-wasm")]
     registry.register(Box::new(emela_backend_wasm::WasmBackend));
+    #[cfg(feature = "backend-wasm-wasip2")]
+    registry.register(Box::new(emela_backend_wasm_wasip2::Wasip2Backend));
     #[cfg(feature = "backend-js")]
     registry.register(Box::new(emela_backend_js::JsBackend));
     registry

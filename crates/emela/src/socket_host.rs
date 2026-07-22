@@ -14,7 +14,8 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
+use std::time::Duration;
 
 use wasmi::Caller;
 
@@ -34,6 +35,11 @@ const ERR_IO: u32 = 3;
 /// force an unbounded host allocation. `read` may return fewer than `max` bytes
 /// (spec 0050 P5: "up to `max`"), so clamping the buffer is conformant.
 const READ_CAP: i32 = 16 * 1024 * 1024;
+
+/// How long a graceful close lingers draining inbound before giving up (see
+/// `graceful_close`). Short so a peer that reads its data but leaves the socket
+/// open cannot stall the single-threaded accept loop for long.
+const LINGER: Duration = Duration::from_secs(1);
 
 /// A host-side transport failure, mapped to a `SocketError` variant.
 enum SockError {
@@ -159,12 +165,41 @@ pub(crate) fn raw_close(
     caller: &mut Caller<'_, Host>,
     handle: i32,
 ) -> std::result::Result<i32, wasmi::Error> {
-    caller
+    // For a connection, close gracefully so the peer reads whatever was just
+    // written (e.g. an HTTP response) and reaches EOF before the socket drops.
+    // A plain drop is abortive when the receive buffer still holds unread data
+    // — the kernel emits an RST that can discard a reply the peer has buffered
+    // but not yet read, surfacing as an empty/reset response. The teardown is
+    // unobservable to Emela (spec 0050 P7); this only affects the wire.
+    if let Some(Handle::Connection(stream)) = caller
         .data_mut()
         .sockets_mut()
         .handles
-        .remove(&(handle as u32));
+        .remove(&(handle as u32))
+    {
+        graceful_close(stream);
+    }
     Ok(0)
+}
+
+/// Half-closes the write side (sends FIN so the peer sees EOF after the reply),
+/// then drains inbound until the peer closes too or `LINGER` elapses, so the
+/// final drop finds an empty receive buffer and closes without an RST.
+fn graceful_close(mut stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(LINGER));
+    let mut sink = [0u8; 8192];
+    let mut drained = 0usize;
+    while let Ok(n) = stream.read(&mut sink) {
+        if n == 0 {
+            break;
+        }
+        drained += n;
+        if drained > READ_CAP as usize {
+            break;
+        }
+    }
+    // `stream` drops here, closing the (now drained) connection.
 }
 
 fn do_listen(table: &mut SocketTable, port: i32) -> std::result::Result<u32, SockError> {
