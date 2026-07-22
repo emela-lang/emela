@@ -112,6 +112,54 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: Some(Type::Enum("HttpError".to_string(), Vec::new())),
             capability: "HttpServer".to_string(),
         },
+        // The Socket capability (spec 0050): the raw TCP byte boundary that
+        // backs the embedded `std.socket`. A primitive effect (spec 0049) over
+        // wasi:sockets; HttpServer (spec 0046) is a derived effect on top.
+        // `Listener`/`Connection`/`SocketError` are the named types declared by
+        // `std.socket`. All but `close` are fallible (spec 0043).
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_listen".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Enum("Listener".to_string(), Vec::new()),
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
+        },
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_accept".to_string(),
+            params: vec![Type::Enum("Listener".to_string(), Vec::new())],
+            ret: Type::Enum("Connection".to_string(), Vec::new()),
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
+        },
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_read".to_string(),
+            params: vec![Type::Enum("Connection".to_string(), Vec::new()), Type::Int],
+            ret: Type::Bytes,
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
+        },
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_write".to_string(),
+            params: vec![
+                Type::Enum("Connection".to_string(), Vec::new()),
+                Type::Bytes,
+            ],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
+            capability: "Socket".to_string(),
+        },
+        PlatformFn {
+            path: vec!["socket".to_string()],
+            name: "raw_close".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Unit,
+            throws: None,
+            capability: "Socket".to_string(),
+        },
     ]
 }
 
@@ -129,4 +177,50 @@ pub fn lookup_in(entries: &[PlatformFn], canonical: &str) -> Option<PlatformFn> 
         .iter()
         .find(|entry| entry.canonical() == canonical)
         .cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Socket capability (spec 0050) registers all five TCP operations
+    /// under `socket.*`, each producing the `Socket` capability. `raw_close` is
+    /// infallible; every other operation is fallible with `SocketError`.
+    #[test]
+    fn socket_registry_entries() {
+        let socket_error = Some(Type::Enum("SocketError".to_string(), Vec::new()));
+        let listener = Type::Enum("Listener".to_string(), Vec::new());
+        let connection = Type::Enum("Connection".to_string(), Vec::new());
+
+        let listen = lookup("socket.raw_listen").expect("socket.raw_listen registered");
+        assert_eq!(listen.capability, "Socket");
+        assert_eq!(listen.params, vec![Type::Int]);
+        assert_eq!(listen.ret, listener);
+        assert_eq!(listen.throws, socket_error);
+
+        let accept = lookup("socket.raw_accept").expect("socket.raw_accept registered");
+        assert_eq!(accept.capability, "Socket");
+        assert_eq!(accept.params, vec![listener.clone()]);
+        assert_eq!(accept.ret, connection);
+        assert_eq!(accept.throws, socket_error);
+
+        let read = lookup("socket.raw_read").expect("socket.raw_read registered");
+        assert_eq!(read.capability, "Socket");
+        assert_eq!(read.params, vec![connection.clone(), Type::Int]);
+        assert_eq!(read.ret, Type::Bytes);
+        assert_eq!(read.throws, socket_error);
+
+        let write = lookup("socket.raw_write").expect("socket.raw_write registered");
+        assert_eq!(write.capability, "Socket");
+        assert_eq!(write.params, vec![connection, Type::Bytes]);
+        assert_eq!(write.ret, Type::Unit);
+        assert_eq!(write.throws, socket_error);
+
+        // `close` takes an id (Int) and cannot fail (spec 0050 P2/P7).
+        let close = lookup("socket.raw_close").expect("socket.raw_close registered");
+        assert_eq!(close.capability, "Socket");
+        assert_eq!(close.params, vec![Type::Int]);
+        assert_eq!(close.ret, Type::Unit);
+        assert_eq!(close.throws, None);
+    }
 }

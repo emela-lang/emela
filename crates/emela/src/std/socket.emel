@@ -1,0 +1,63 @@
+-- The embedded std.socket module (spec 0050): the Socket capability and its
+-- handle/error types. Socket is a primitive effect (spec 0049) — a raw TCP
+-- byte boundary supplied by the host (wasi:sockets on the component backend,
+-- std::net under `emela run`). The platform functions `socket.raw_*` perform
+-- the minimal listen/accept/read/write/close; transport failure arrives on the
+-- throws channel as SocketError (spec 0043). HttpServer (spec 0046) is a
+-- derived effect written on top of Socket.
+module socket
+
+-- Host-issued identifiers, wrapped in ordinary records (spec 0050 P8). The `id`
+-- is not a permission; the `uses { Socket }` row is. A forged or stale id is
+-- rejected by the host at runtime with a SocketError, never undefined behaviour.
+pub record Listener {
+    id: Int
+}
+
+pub record Connection {
+    id: Int
+}
+
+pub enum SocketError {
+    BindFailed(String)
+    AcceptFailed(String)
+    ConnectionClosed
+    Io(String)
+}
+
+-- Socket: the raw TCP capability (spec 0050). The `raw_*` operations are the
+-- backing platform functions (private to the effect, spec 0037); the `pub fn`
+-- wrappers add the public `Socket.op(...)` API. `raw_close` is infallible
+-- (spec 0050 P2); every other operation is fallible with SocketError.
+effect Socket {
+    extern fn raw_listen(port: Int) -> Listener throws SocketError
+    extern fn raw_accept(listener: Listener) -> Connection throws SocketError
+    extern fn raw_read(conn: Connection, max: Int) -> Bytes throws SocketError
+    extern fn raw_write(conn: Connection, data: Bytes) -> Unit throws SocketError
+    extern fn raw_close(handle: Int) -> Unit
+
+    -- Bind + listen on `port`, returning a Listener (spec 0050 P3).
+    pub fn listen(port: Int) -> Listener throws SocketError {
+        raw_listen(port)?
+    }
+
+    -- Take the next accepted connection, blocking until one arrives (P4).
+    pub fn accept(listener: Listener) -> Connection throws SocketError {
+        raw_accept(listener)?
+    }
+
+    -- Read up to `max` bytes; a zero-length result is EOF (P5).
+    pub fn read(conn: Connection, max: Int) -> Bytes throws SocketError {
+        raw_read(conn, max)?
+    }
+
+    -- Write `data` in full (P6).
+    pub fn write(conn: Connection, data: Bytes) -> Unit throws SocketError {
+        raw_write(conn, data)?
+    }
+
+    -- Release a Listener or Connection by its `id`; double close is harmless (P7).
+    pub fn close(handle: Int) -> Unit {
+        raw_close(handle)
+    }
+}
