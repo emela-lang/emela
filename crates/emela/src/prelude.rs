@@ -28,6 +28,7 @@ pub(crate) const EMBEDDED_STD: &[(&str, &str)] = &[
     ("float", include_str!("std/float.emel")),
     ("http", include_str!("std/http.emel")),
     ("io", include_str!("std/io.emel")),
+    ("socket", include_str!("std/socket.emel")),
     ("string", include_str!("std/string.emel")),
 ];
 
