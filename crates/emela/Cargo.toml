@@ -20,6 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 emela-backend-js = { workspace = true, optional = true }
 emela-backend-wasm = { workspace = true, optional = true }
+emela-backend-wasm-wasip2 = { workspace = true, optional = true }
 wasmi = { workspace = true, optional = true }
 # Argument parsing for the CLI (`emela::run`). The compiler and CLI ship as one
 # crate, so the wasm playground compiles clap too; it never enters `run()`, so
@@ -32,9 +33,10 @@ clap = { workspace = true }
 wasmi = { workspace = true }
 
 [features]
-default = ["backend-js", "backend-wasm", "run"]
+default = ["backend-js", "backend-wasm", "backend-wasm-wasip2", "run"]
 backend-js = ["dep:emela-backend-js"]
 backend-wasm = ["dep:emela-backend-wasm"]
+backend-wasm-wasip2 = ["dep:emela-backend-wasm-wasip2"]
 # `emela run` executes the wasm-wasi output in-process via wasmi; it needs the
 # wasm backend to produce the module.
 run = ["dep:wasmi", "backend-wasm"]

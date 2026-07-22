@@ -37,13 +37,18 @@ pub enum ArtifactKind {
     JsSource,
     WasmBinary,
     WasmText,
+    /// A WebAssembly component binary (WASI 0.2 / spec 0052).
+    WasmComponent,
     Other(String),
 }
 
 impl ArtifactKind {
     /// Whether the bytes are human-readable text (vs. a binary blob).
     pub fn is_text(&self) -> bool {
-        !matches!(self, ArtifactKind::WasmBinary)
+        matches!(
+            self,
+            ArtifactKind::JsSource | ArtifactKind::WasmText | ArtifactKind::Other(_)
+        )
     }
 }
 
