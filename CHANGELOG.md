@@ -7,6 +7,22 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/emela-lang/emela/compare/v0.8.1...v0.9.0) - 2026-07-22
+
+### Added
+
+- playground の実行（Run）サポートを追加（emela-wasm / docs 用） ([#94](https://github.com/emela-lang/emela/pull/94))
+- シード可能 PRNG（xorshift32）を std.random に追加（spec 0054 Part B） ([#93](https://github.com/emela-lang/emela/pull/93))
+- Random effect を wasi:random にバインド（spec 0054 Part A） ([#92](https://github.com/emela-lang/emela/pull/92))
+- ビット演算子 `& | ^ ~ << >> >>>` を追加（spec 0053） ([#91](https://github.com/emela-lang/emela/pull/91))
+- WASI 0.2 component-model backend wasm-wasip2（spec 0052） ([#90](https://github.com/emela-lang/emela/pull/90))
+- HttpServer を Socket 上の派生 effect へ（spec 0046 改訂, PR3/3） ([#88](https://github.com/emela-lang/emela/pull/88))
+- Socket の wasmi ホストと wasm backend glue（spec 0050, PR2/3） ([#87](https://github.com/emela-lang/emela/pull/87))
+- Socket capability と registry を追加（spec 0050, PR1/3） ([#86](https://github.com/emela-lang/emela/pull/86))
+- record 型にジェネリクスを導入（spec 0028） ([#85](https://github.com/emela-lang/emela/pull/85))
+- effect のコンパイル時 DI（デフォルト経路, spec 0049） ([#84](https://github.com/emela-lang/emela/pull/84))
+- Bytes 型を導入（spec 0051） ([#82](https://github.com/emela-lang/emela/pull/82))
+
 ## [0.8.1](https://github.com/emela-lang/emela/compare/v0.8.0...v0.8.1) - 2026-07-21
 
 ### Fixed

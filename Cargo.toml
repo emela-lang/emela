@@ -21,7 +21,7 @@ default-members = [
 
 [workspace.package]
 edition = "2024"
-version = "0.8.1"
+version = "0.9.0"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -45,8 +45,8 @@ getrandom = "0.2"
 # `--help`/`--version`. Pulled in only behind emela's default `cli` feature, so
 # the wasm playground (which never enters the CLI) does not compile it.
 clap = { version = "4", features = ["derive"] }
-emela-codegen = { path = "crates/emela-codegen", version = "0.8.1" }
-emela-backend-js = { path = "crates/emela-backend-js", version = "0.8.1" }
-emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.8.1" }
-emela-backend-wasm-wasip2 = { path = "crates/emela-backend-wasm-wasip2", version = "0.8.1" }
-emela = { path = "crates/emela", version = "0.8.1" }
+emela-codegen = { path = "crates/emela-codegen", version = "0.9.0" }
+emela-backend-js = { path = "crates/emela-backend-js", version = "0.9.0" }
+emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.9.0" }
+emela-backend-wasm-wasip2 = { path = "crates/emela-backend-wasm-wasip2", version = "0.9.0" }
+emela = { path = "crates/emela", version = "0.9.0" }
