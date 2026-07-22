@@ -34,6 +34,10 @@ impl Host {
     pub(crate) fn sockets_mut(&mut self) -> &mut SocketTable {
         &mut self.sockets
     }
+
+    pub(crate) fn sockets_mut(&mut self) -> &mut SocketTable {
+        &mut self.sockets
+    }
 }
 
 /// WASI `errno` for a bad file descriptor; returned when a program writes to a
@@ -309,6 +313,66 @@ fn link_http(linker: &mut Linker<Host>) -> Result<()> {
             },
         )
         .map_err(|err| Error::new(format!("failed to link `emela_http.request`: {err}")))?;
+    Ok(())
+}
+
+/// Links the `Socket` capability's host functions (spec 0050) into `linker`,
+/// backed by `std::net`. Every import is defined for every run; a module that
+/// does not use `Socket` simply never imports them.
+fn link_socket(linker: &mut Linker<Host>) -> Result<()> {
+    linker
+        .func_wrap(
+            "emela_socket",
+            "raw_listen",
+            |mut caller: Caller<'_, Host>, port: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::socket_host::raw_listen(&mut caller, port)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_listen`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_socket",
+            "raw_accept",
+            |mut caller: Caller<'_, Host>,
+             listener: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::socket_host::raw_accept(&mut caller, listener)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_accept`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_socket",
+            "raw_read",
+            |mut caller: Caller<'_, Host>,
+             conn: i32,
+             max: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::socket_host::raw_read(&mut caller, conn, max)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_read`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_socket",
+            "raw_write",
+            |mut caller: Caller<'_, Host>,
+             conn: i32,
+             data: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::socket_host::raw_write(&mut caller, conn, data)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_write`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_socket",
+            "raw_close",
+            |mut caller: Caller<'_, Host>, handle: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::socket_host::raw_close(&mut caller, handle)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_socket.raw_close`: {err}")))?;
     Ok(())
 }
 

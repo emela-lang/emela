@@ -883,6 +883,24 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         "socket.raw_close" => Some(
             "  (import \"emela_socket\" \"raw_close\" (func $host_socket_raw_close (param i32) (result i32)))\n",
         ),
+        // The Socket capability (spec 0050): raw TCP supplied by the `emela run`
+        // wasmi host through the `emela_socket` module (the component backend
+        // lowers these to `wasi:sockets` instead).
+        "socket.raw_listen" => Some(
+            "  (import \"emela_socket\" \"raw_listen\" (func $host_socket_raw_listen (param i32) (result i32)))\n",
+        ),
+        "socket.raw_accept" => Some(
+            "  (import \"emela_socket\" \"raw_accept\" (func $host_socket_raw_accept (param i32) (result i32)))\n",
+        ),
+        "socket.raw_read" => Some(
+            "  (import \"emela_socket\" \"raw_read\" (func $host_socket_raw_read (param i32 i32) (result i32)))\n",
+        ),
+        "socket.raw_write" => Some(
+            "  (import \"emela_socket\" \"raw_write\" (func $host_socket_raw_write (param i32 i32) (result i32)))\n",
+        ),
+        "socket.raw_close" => Some(
+            "  (import \"emela_socket\" \"raw_close\" (func $host_socket_raw_close (param i32) (result i32)))\n",
+        ),
         _ => None,
     }
 }
@@ -974,6 +992,20 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
 /// spec-0043 Result cell (`[ok][pad][Response | HttpError]`) it allocated in
 /// guest memory via the exported `alloc`.
 const HTTP_REQUEST_GLUE: &str = "  (func $plat_http_request (param $req i32) (result i32)\n    local.get $req\n    call $host_http_request)\n";
+
+// The Socket operations (spec 0050) forward their arguments to the host, which
+// returns a spec-0043 Result cell it allocated in guest memory (via `alloc`).
+// `raw_close` is infallible: it forwards through and yields Unit (the host
+// returns 0).
+const SOCKET_RAW_LISTEN_GLUE: &str = "  (func $plat_socket_raw_listen (param $port i32) (result i32)\n    local.get $port\n    call $host_socket_raw_listen)\n";
+
+const SOCKET_RAW_ACCEPT_GLUE: &str = "  (func $plat_socket_raw_accept (param $listener i32) (result i32)\n    local.get $listener\n    call $host_socket_raw_accept)\n";
+
+const SOCKET_RAW_READ_GLUE: &str = "  (func $plat_socket_raw_read (param $conn i32) (param $max i32) (result i32)\n    local.get $conn\n    local.get $max\n    call $host_socket_raw_read)\n";
+
+const SOCKET_RAW_WRITE_GLUE: &str = "  (func $plat_socket_raw_write (param $conn i32) (param $data i32) (result i32)\n    local.get $conn\n    local.get $data\n    call $host_socket_raw_write)\n";
+
+const SOCKET_RAW_CLOSE_GLUE: &str = "  (func $plat_socket_raw_close (param $handle i32) (result i32)\n    local.get $handle\n    call $host_socket_raw_close)\n";
 
 // The Socket operations (spec 0050) forward their arguments to the host, which
 // returns a spec-0043 Result cell it allocated in guest memory (via `alloc`).
