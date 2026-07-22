@@ -832,11 +832,15 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
     module.push_str(&emit_start(main));
     module.push_str("  (export \"main\" (func $f_main))\n");
     module.push_str("  (export \"_start\" (func $_start))\n");
-    if used_platform.iter().any(|name| name.starts_with("http.")) {
-        // The HTTP host functions (specs 0043/0044) allocate their structured
-        // results (Response / HttpError / the Result cell) into guest memory,
-        // so an allocator is exported alongside `memory`. `$alloc_host` keeps
-        // the historical one-parameter shape the host binds against.
+    if used_platform
+        .iter()
+        .any(|name| name.starts_with("http.") || name.starts_with("socket."))
+    {
+        // The HTTP and Socket host functions (specs 0043/0044/0050) allocate
+        // their structured results (records / errors / the Result cell) into
+        // guest memory, so an allocator is exported alongside `memory`.
+        // `$alloc_host` keeps the historical one-parameter shape the host binds
+        // against.
         module.push_str("  (export \"alloc\" (func $alloc_host))\n");
     }
     // Capability manifest (spec 0025): embed the program's requirements as a
@@ -872,6 +876,24 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         ),
         "http.server_close" => Some(
             "  (import \"emela_http\" \"server_close\" (func $host_http_server_close (param i32) (result i32)))\n",
+        ),
+        // The Socket capability (spec 0050): raw TCP supplied by the `emela run`
+        // wasmi host through the `emela_socket` module (the component backend
+        // lowers these to `wasi:sockets` instead).
+        "socket.raw_listen" => Some(
+            "  (import \"emela_socket\" \"raw_listen\" (func $host_socket_raw_listen (param i32) (result i32)))\n",
+        ),
+        "socket.raw_accept" => Some(
+            "  (import \"emela_socket\" \"raw_accept\" (func $host_socket_raw_accept (param i32) (result i32)))\n",
+        ),
+        "socket.raw_read" => Some(
+            "  (import \"emela_socket\" \"raw_read\" (func $host_socket_raw_read (param i32 i32) (result i32)))\n",
+        ),
+        "socket.raw_write" => Some(
+            "  (import \"emela_socket\" \"raw_write\" (func $host_socket_raw_write (param i32 i32) (result i32)))\n",
+        ),
+        "socket.raw_close" => Some(
+            "  (import \"emela_socket\" \"raw_close\" (func $host_socket_raw_close (param i32) (result i32)))\n",
         ),
         _ => None,
     }
@@ -953,6 +975,11 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
         "http.server_accept" => Some(HTTP_SERVER_ACCEPT_GLUE),
         "http.server_respond" => Some(HTTP_SERVER_RESPOND_GLUE),
         "http.server_close" => Some(HTTP_SERVER_CLOSE_GLUE),
+        "socket.raw_listen" => Some(SOCKET_RAW_LISTEN_GLUE),
+        "socket.raw_accept" => Some(SOCKET_RAW_ACCEPT_GLUE),
+        "socket.raw_read" => Some(SOCKET_RAW_READ_GLUE),
+        "socket.raw_write" => Some(SOCKET_RAW_WRITE_GLUE),
+        "socket.raw_close" => Some(SOCKET_RAW_CLOSE_GLUE),
         _ => None,
     }
 }
@@ -972,6 +999,20 @@ const HTTP_SERVER_ACCEPT_GLUE: &str = "  (func $plat_http_server_accept (param $
 const HTTP_SERVER_RESPOND_GLUE: &str = "  (func $plat_http_server_respond (param $incoming i32) (param $response i32) (result i32)\n    local.get $incoming\n    local.get $response\n    call $host_http_server_respond)\n";
 
 const HTTP_SERVER_CLOSE_GLUE: &str = "  (func $plat_http_server_close (param $server i32) (result i32)\n    local.get $server\n    call $host_http_server_close)\n";
+
+// The Socket operations (spec 0050) forward their arguments to the host, which
+// returns a spec-0043 Result cell it allocated in guest memory (via `alloc`).
+// `raw_close` is infallible: it forwards through and yields Unit (the host
+// returns 0).
+const SOCKET_RAW_LISTEN_GLUE: &str = "  (func $plat_socket_raw_listen (param $port i32) (result i32)\n    local.get $port\n    call $host_socket_raw_listen)\n";
+
+const SOCKET_RAW_ACCEPT_GLUE: &str = "  (func $plat_socket_raw_accept (param $listener i32) (result i32)\n    local.get $listener\n    call $host_socket_raw_accept)\n";
+
+const SOCKET_RAW_READ_GLUE: &str = "  (func $plat_socket_raw_read (param $conn i32) (param $max i32) (result i32)\n    local.get $conn\n    local.get $max\n    call $host_socket_raw_read)\n";
+
+const SOCKET_RAW_WRITE_GLUE: &str = "  (func $plat_socket_raw_write (param $conn i32) (param $data i32) (result i32)\n    local.get $conn\n    local.get $data\n    call $host_socket_raw_write)\n";
+
+const SOCKET_RAW_CLOSE_GLUE: &str = "  (func $plat_socket_raw_close (param $handle i32) (result i32)\n    local.get $handle\n    call $host_socket_raw_close)\n";
 
 const WRITE_STDOUT_GLUE: &str = "  (func $plat_io_write_stdout (param $s i32) (result i32)\n    i32.const 0\n    local.get $s\n    i32.const 4\n    i32.add\n    i32.store\n    i32.const 4\n    local.get $s\n    i32.load\n    i32.store\n    i32.const 1\n    i32.const 0\n    i32.const 1\n    i32.const 8\n    call $wasi_fd_write\n    drop\n    i32.const 0)\n";
 

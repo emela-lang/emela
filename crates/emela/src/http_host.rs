@@ -20,8 +20,12 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-use wasmi::{AsContextMut, Caller, Extern, Memory, TypedFunc};
+use wasmi::{Caller, Memory, TypedFunc};
 
+use crate::host_abi::{
+    alloc_enum_string, alloc_enum_tag, alloc_func, alloc_string, guest_alloc, memory, read_string,
+    read_string_bytes, read_u32, write_result, write_u32,
+};
 use crate::run::Host;
 
 /// The default per-request timeout (spec 0044 H7). Implementation-defined.
@@ -342,39 +346,6 @@ fn read_headers<T>(
     Ok(headers)
 }
 
-fn read_string<T>(
-    memory: &Memory,
-    caller: &mut Caller<'_, T>,
-    ptr: usize,
-) -> std::result::Result<Vec<u8>, wasmi::Error> {
-    read_string_bytes(memory, caller, ptr)
-}
-
-fn read_string_bytes<T>(
-    memory: &Memory,
-    caller: &mut Caller<'_, T>,
-    ptr: usize,
-) -> std::result::Result<Vec<u8>, wasmi::Error> {
-    let len = read_u32(memory, caller, ptr)? as usize;
-    let mut bytes = vec![0u8; len];
-    memory
-        .read(&*caller, ptr + 4, &mut bytes)
-        .map_err(|err| host_fail(format!("out-of-bounds string read: {err}")))?;
-    Ok(bytes)
-}
-
-fn read_u32<T>(
-    memory: &Memory,
-    caller: &Caller<'_, T>,
-    offset: usize,
-) -> std::result::Result<u32, wasmi::Error> {
-    let mut buf = [0u8; 4];
-    memory
-        .read(caller, offset, &mut buf)
-        .map_err(|err| host_fail(format!("out-of-bounds wasm memory access: {err}")))?;
-    Ok(u32::from_le_bytes(buf))
-}
-
 // ---------------------------------------------------------------------------
 // Writing the guest Response / HttpError
 // ---------------------------------------------------------------------------
@@ -432,117 +403,17 @@ fn write_error<T>(
     err: &ReqError,
 ) -> std::result::Result<i32, wasmi::Error> {
     match err {
-        ReqError::InvalidUrl(msg) => {
-            alloc_error_string(memory, alloc, caller, ERR_INVALID_URL, msg)
-        }
+        ReqError::InvalidUrl(msg) => alloc_enum_string(memory, alloc, caller, ERR_INVALID_URL, msg),
         ReqError::ConnectFailed(msg) => {
-            alloc_error_string(memory, alloc, caller, ERR_CONNECT_FAILED, msg)
+            alloc_enum_string(memory, alloc, caller, ERR_CONNECT_FAILED, msg)
         }
-        ReqError::Protocol(msg) => alloc_error_string(memory, alloc, caller, ERR_PROTOCOL, msg),
-        ReqError::BindFailed(msg) => {
-            alloc_error_string(memory, alloc, caller, ERR_BIND_FAILED, msg)
-        }
-        ReqError::Timeout => alloc_error_tag(memory, alloc, caller, ERR_TIMEOUT),
-        ReqError::TooLarge => alloc_error_tag(memory, alloc, caller, ERR_TOO_LARGE),
-        ReqError::NonUtf8Body => alloc_error_tag(memory, alloc, caller, ERR_NON_UTF8_BODY),
-        ReqError::ConnectionClosed => alloc_error_tag(memory, alloc, caller, ERR_CONNECTION_CLOSED),
+        ReqError::Protocol(msg) => alloc_enum_string(memory, alloc, caller, ERR_PROTOCOL, msg),
+        ReqError::BindFailed(msg) => alloc_enum_string(memory, alloc, caller, ERR_BIND_FAILED, msg),
+        ReqError::Timeout => alloc_enum_tag(memory, alloc, caller, ERR_TIMEOUT),
+        ReqError::TooLarge => alloc_enum_tag(memory, alloc, caller, ERR_TOO_LARGE),
+        ReqError::NonUtf8Body => alloc_enum_tag(memory, alloc, caller, ERR_NON_UTF8_BODY),
+        ReqError::ConnectionClosed => alloc_enum_tag(memory, alloc, caller, ERR_CONNECTION_CLOSED),
     }
-}
-
-fn alloc_error_tag<T>(
-    memory: &Memory,
-    alloc: &TypedFunc<i32, i32>,
-    caller: &mut Caller<'_, T>,
-    tag: u32,
-) -> std::result::Result<i32, wasmi::Error> {
-    // A no-payload enum value: [tag].
-    let ptr = guest_alloc(alloc, caller, 8)?;
-    write_u32(memory, caller, ptr as usize, tag)?;
-    Ok(ptr)
-}
-
-fn alloc_error_string<T>(
-    memory: &Memory,
-    alloc: &TypedFunc<i32, i32>,
-    caller: &mut Caller<'_, T>,
-    tag: u32,
-    message: &str,
-) -> std::result::Result<i32, wasmi::Error> {
-    let string = alloc_string(memory, alloc, caller, message.as_bytes())?;
-    // A one-payload variant: [tag][field0].
-    let ptr = guest_alloc(alloc, caller, 16)?;
-    write_u32(memory, caller, ptr as usize, tag)?;
-    write_u32(memory, caller, ptr as usize + 8, string as u32)?;
-    Ok(ptr)
-}
-
-fn write_result<T>(
-    memory: &Memory,
-    alloc: &TypedFunc<i32, i32>,
-    caller: &mut Caller<'_, T>,
-    ok: bool,
-    value: i32,
-) -> std::result::Result<i32, wasmi::Error> {
-    // The spec-0011 Result cell: [ok: i32][pad][value: 8 bytes].
-    let cell = guest_alloc(alloc, caller, 16)?;
-    write_u32(memory, caller, cell as usize, u32::from(ok))?;
-    write_u32(memory, caller, cell as usize + 8, value as u32)?;
-    Ok(cell)
-}
-
-fn alloc_string<T>(
-    memory: &Memory,
-    alloc: &TypedFunc<i32, i32>,
-    caller: &mut Caller<'_, T>,
-    bytes: &[u8],
-) -> std::result::Result<i32, wasmi::Error> {
-    let ptr = guest_alloc(alloc, caller, 4 + bytes.len() as i32)?;
-    write_u32(memory, caller, ptr as usize, bytes.len() as u32)?;
-    memory
-        .write(&mut *caller, ptr as usize + 4, bytes)
-        .map_err(|err| host_fail(format!("failed to write string into guest memory: {err}")))?;
-    Ok(ptr)
-}
-
-fn write_u32<T>(
-    memory: &Memory,
-    caller: &mut Caller<'_, T>,
-    offset: usize,
-    value: u32,
-) -> std::result::Result<(), wasmi::Error> {
-    memory
-        .write(&mut *caller, offset, &value.to_le_bytes())
-        .map_err(|err| host_fail(format!("failed to write guest memory: {err}")))
-}
-
-fn guest_alloc<T>(
-    alloc: &TypedFunc<i32, i32>,
-    caller: &mut Caller<'_, T>,
-    n: i32,
-) -> std::result::Result<i32, wasmi::Error> {
-    alloc.call(caller.as_context_mut(), n)
-}
-
-fn memory<T>(caller: &mut Caller<'_, T>) -> std::result::Result<Memory, wasmi::Error> {
-    match caller.get_export("memory") {
-        Some(Extern::Memory(memory)) => Ok(memory),
-        _ => Err(host_fail("module does not export `memory`")),
-    }
-}
-
-fn alloc_func<T>(
-    caller: &mut Caller<'_, T>,
-) -> std::result::Result<TypedFunc<i32, i32>, wasmi::Error> {
-    match caller.get_export("alloc") {
-        Some(Extern::Func(func)) => func
-            .typed::<i32, i32>(&*caller)
-            .map_err(|err| host_fail(format!("`alloc` has an unexpected signature: {err}"))),
-        _ => Err(host_fail("module does not export `alloc`")),
-    }
-}
-
-fn host_fail(message: impl Into<String>) -> wasmi::Error {
-    wasmi::Error::host(super::run::HostFail(message.into()))
 }
 
 // ---------------------------------------------------------------------------
