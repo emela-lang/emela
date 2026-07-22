@@ -123,54 +123,6 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: None,
             capability: "Socket".to_string(),
         },
-        // The Socket capability (spec 0050): the raw TCP byte boundary that
-        // backs the embedded `std.socket`. A primitive effect (spec 0049) over
-        // wasi:sockets; HttpServer (spec 0046) is a derived effect on top.
-        // `Listener`/`Connection`/`SocketError` are the named types declared by
-        // `std.socket`. All but `close` are fallible (spec 0043).
-        PlatformFn {
-            path: vec!["socket".to_string()],
-            name: "raw_listen".to_string(),
-            params: vec![Type::Int],
-            ret: Type::Enum("Listener".to_string(), Vec::new()),
-            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
-            capability: "Socket".to_string(),
-        },
-        PlatformFn {
-            path: vec!["socket".to_string()],
-            name: "raw_accept".to_string(),
-            params: vec![Type::Enum("Listener".to_string(), Vec::new())],
-            ret: Type::Enum("Connection".to_string(), Vec::new()),
-            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
-            capability: "Socket".to_string(),
-        },
-        PlatformFn {
-            path: vec!["socket".to_string()],
-            name: "raw_read".to_string(),
-            params: vec![Type::Enum("Connection".to_string(), Vec::new()), Type::Int],
-            ret: Type::Bytes,
-            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
-            capability: "Socket".to_string(),
-        },
-        PlatformFn {
-            path: vec!["socket".to_string()],
-            name: "raw_write".to_string(),
-            params: vec![
-                Type::Enum("Connection".to_string(), Vec::new()),
-                Type::Bytes,
-            ],
-            ret: Type::Unit,
-            throws: Some(Type::Enum("SocketError".to_string(), Vec::new())),
-            capability: "Socket".to_string(),
-        },
-        PlatformFn {
-            path: vec!["socket".to_string()],
-            name: "raw_close".to_string(),
-            params: vec![Type::Int],
-            ret: Type::Unit,
-            throws: None,
-            capability: "Socket".to_string(),
-        },
     ]
 }
 
