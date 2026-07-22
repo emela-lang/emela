@@ -2947,6 +2947,13 @@ pub(crate) fn operator_trait(op: BinaryOp) -> (&'static str, &'static str) {
         // lowering supplies the swap/negation that distinguishes them.
         BinaryOp::Eq | BinaryOp::Ne => ("Eq", "eq"),
         BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => ("Ord", "lt"),
+        // Bitwise operators (spec 0053), each its own operator trait like `+`.
+        BinaryOp::BitAnd => ("BitAnd", "bitand"),
+        BinaryOp::BitOr => ("BitOr", "bitor"),
+        BinaryOp::BitXor => ("BitXor", "bitxor"),
+        BinaryOp::Shl => ("Shl", "shl"),
+        BinaryOp::Shr => ("Shr", "shr"),
+        BinaryOp::UShr => ("UShr", "ushr"),
     }
 }
 

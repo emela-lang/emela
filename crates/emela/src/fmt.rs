@@ -840,8 +840,10 @@ impl Printer<'_> {
     }
 
     fn is_comparison(&self, token: &Token) -> bool {
-        matches!(token.kind, TokenKind::Lt | TokenKind::Gt)
-            && self.comparisons.contains(&token.span.start)
+        matches!(
+            token.kind,
+            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr
+        ) && self.comparisons.contains(&token.span.start)
     }
 
     /// Every token renders as its exact source text: literals keep their
@@ -864,8 +866,10 @@ fn fits(text: &str) -> bool {
 }
 
 /// The canonical spacing between two adjacent rendered tokens (spec 0035 F5).
-/// `prev_cmp` / `next_cmp` mark `<` / `>` tokens that are comparison
-/// operators rather than generic brackets.
+/// `prev_cmp` / `next_cmp` mark `<` / `>` / `<<` / `>>` / `>>>` tokens that are
+/// comparison (spec 0027) or shift (spec 0053) operators rather than generic
+/// brackets; those fall through to the spaced default, while an unmarked
+/// `<` / `>` / `>>` / `>>>` is a tight generic bracket.
 fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: bool) -> bool {
     use TokenKind::*;
     // Separators and postfix operators attach tightly to the left.
@@ -875,19 +879,21 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
     ) {
         return false;
     }
-    // Openers and prefix operators attach tightly to the right.
-    if matches!(prev, LParen | LBracket | Dot | ColonColon | Bang) {
+    // Openers and prefix operators attach tightly to the right (`~` is prefix,
+    // spec 0053).
+    if matches!(prev, LParen | LBracket | Dot | ColonColon | Bang | Tilde) {
         return false;
     }
-    // Generic angle brackets are tight (`List<Int>`, `impl<T>`); comparison
-    // `<` / `>` fall through to the spaced default.
+    // Generic angle brackets are tight (`List<Int>`, `impl<T>`, and a nested
+    // close `Array<Array<Int>>` where `>>` / `>>>` lex as one token); comparison
+    // and shift operators are marked and fall through to the spaced default.
     if matches!(prev, Lt) && !prev_cmp {
         return false;
     }
-    if matches!(next, Lt | Gt) && !next_cmp {
+    if matches!(next, Lt | Gt | Shr | UShr) && !next_cmp {
         return false;
     }
-    if matches!(prev, Gt) && !prev_cmp {
+    if matches!(prev, Gt | Shr | UShr) && !prev_cmp {
         // `<T>(x)` — a parameter list attaches tightly to a generic closer.
         return !matches!(next, LParen);
     }
@@ -932,10 +938,12 @@ fn comparison_offsets(program: &ast::Program, tokens: &[Token]) -> HashSet<usize
     }
     let mut offsets = HashSet::new();
     for token in tokens {
-        if matches!(token.kind, TokenKind::Lt | TokenKind::Gt)
-            && ranges
-                .iter()
-                .any(|(low, high)| token.span.start >= *low && token.span.start < *high)
+        if matches!(
+            token.kind,
+            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr
+        ) && ranges
+            .iter()
+            .any(|(low, high)| token.span.start >= *low && token.span.start < *high)
         {
             offsets.insert(token.span.start);
         }
@@ -958,7 +966,13 @@ fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>) {
         Expr::Binary {
             op, left, right, ..
         } => {
-            if matches!(op, BinaryOp::Lt | BinaryOp::Gt) {
+            // Comparison (spec 0027) and shift (spec 0053) operators live between
+            // their operands' spans; marking that range distinguishes them from
+            // generic angle brackets so they render spaced.
+            if matches!(
+                op,
+                BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr
+            ) {
                 out.push((left.span().end, right.span().start));
             }
             collect_ranges_expr(left, out);

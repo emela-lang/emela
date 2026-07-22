@@ -66,6 +66,19 @@ pub(crate) enum TokenKind {
     /// `|>` — the pipeline operator (spec 0019). Desugared in the parser to a
     /// first-argument-insertion `Call`, so no later stage sees this token.
     PipeGt,
+    /// Bitwise operators (spec 0053): `&` (BitAnd), `|` (BitOr), `^` (BitXor),
+    /// `~` (BitNot, prefix). Distinguished from `&&` / `||` / `|>` by maximal
+    /// munch (the doubled/pipe forms are matched first).
+    Amp,
+    Pipe,
+    Caret,
+    Tilde,
+    /// Shift operators (spec 0053): `<<` (Shl), `>>` (Shr, arithmetic), `>>>`
+    /// (UShr, logical). Lexed as single tokens; a `>>` / `>>>` that closes nested
+    /// generics (`Array<Array<Int>>`) is split back into `>` by the type parser.
+    Shl,
+    Shr,
+    UShr,
     Question,
     /// `@name` — an attribute (spec 0039). The `@` and the name are one token,
     /// which is what makes them inseparable (R1: no whitespace between them).
@@ -224,6 +237,30 @@ fn lex_with_file(
             b':' => push(&mut tokens, TokenKind::Colon, file.clone(), start, &mut i),
             b'.' => push(&mut tokens, TokenKind::Dot, file.clone(), start, &mut i),
             b'=' => push(&mut tokens, TokenKind::Eq, file.clone(), start, &mut i),
+            // Shift operators (spec 0053), matched before the single `<` / `>`
+            // below; `<=` / `>=` are matched earlier and take priority. `>>>` is
+            // matched before `>>` (maximal munch).
+            b'<' if i + 1 < bytes.len() && bytes[i + 1] == b'<' => {
+                tokens.push(Token {
+                    kind: TokenKind::Shl,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
+            b'>' if i + 2 < bytes.len() && bytes[i + 1] == b'>' && bytes[i + 2] == b'>' => {
+                tokens.push(Token {
+                    kind: TokenKind::UShr,
+                    span: Span::new(file.clone(), start, start + 3),
+                });
+                i += 3;
+            }
+            b'>' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                tokens.push(Token {
+                    kind: TokenKind::Shr,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
             b'<' => push(&mut tokens, TokenKind::Lt, file.clone(), start, &mut i),
             b'>' => push(&mut tokens, TokenKind::Gt, file.clone(), start, &mut i),
             b'+' if i + 1 < bytes.len() && bytes[i + 1] == b'+' => {
@@ -233,8 +270,9 @@ fn lex_with_file(
                 });
                 i += 2;
             }
-            // Short-circuiting logical operators (spec 0027). Only the doubled
-            // forms are tokens; a lone `&` / `|` is not used by the language yet.
+            // Short-circuiting logical operators (spec 0027). The doubled forms
+            // are matched first; a lone `&` / `|` is the bitwise operator (spec
+            // 0053), handled by the fall-through arms below.
             b'&' if i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
                 tokens.push(Token {
                     kind: TokenKind::AmpAmp,
@@ -249,7 +287,7 @@ fn lex_with_file(
                 });
                 i += 2;
             }
-            // The pipeline operator `|>` (spec 0019). A lone `|` remains unused.
+            // The pipeline operator `|>` (spec 0019).
             b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
                 tokens.push(Token {
                     kind: TokenKind::PipeGt,
@@ -257,6 +295,12 @@ fn lex_with_file(
                 });
                 i += 2;
             }
+            // Lone bitwise operators (spec 0053), reached only after the doubled
+            // `&&` / `||` / `|>` forms above fail to match.
+            b'&' => push(&mut tokens, TokenKind::Amp, file.clone(), start, &mut i),
+            b'|' => push(&mut tokens, TokenKind::Pipe, file.clone(), start, &mut i),
+            b'^' => push(&mut tokens, TokenKind::Caret, file.clone(), start, &mut i),
+            b'~' => push(&mut tokens, TokenKind::Tilde, file.clone(), start, &mut i),
             b'+' => push(&mut tokens, TokenKind::Plus, file.clone(), start, &mut i),
             b'-' => push(&mut tokens, TokenKind::Minus, file.clone(), start, &mut i),
             b'*' => push(&mut tokens, TokenKind::Star, file.clone(), start, &mut i),

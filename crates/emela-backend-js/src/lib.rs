@@ -61,6 +61,14 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         "i32_div_s" => format!("(({a} / {b}) | 0)"),
         "f64_div" => format!("({a} / {b})"),
         "i32_rem_s" => format!("({a} % {b})"),
+        // Bitwise / shift (spec 0053). JS bitwise ops coerce to int32, matching
+        // Emela's `Int`; `>>>` is unsigned, so `| 0` restores the i32 bit pattern.
+        "i32_and" => format!("({a} & {b})"),
+        "i32_or" => format!("({a} | {b})"),
+        "i32_xor" => format!("({a} ^ {b})"),
+        "i32_shl" => format!("({a} << {b})"),
+        "i32_shr_s" => format!("({a} >> {b})"),
+        "i32_shr_u" => format!("(({a} >>> {b}) | 0)"),
         "i32_eq" | "f64_eq" => format!("({a} === {b})"),
         "i32_lt_s" | "f64_lt" => format!("({a} < {b})"),
         "f64_sqrt" => format!("Math.sqrt({a})"),
@@ -276,6 +284,16 @@ fn emit_expr(expr: &IrExpr) -> String {
                 // `!= > <= >=` desugar to `eq`/`lt` calls in lowering (spec 0027).
                 BinaryOp::Ne | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
                     unreachable!("derived comparison desugared before lowering")
+                }
+                // Bitwise operators (spec 0053) lower to intrinsic calls, never
+                // to a `Binary` node.
+                BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::UShr => {
+                    unreachable!("bitwise operators lower to intrinsic calls (spec 0053)")
                 }
             }
         }

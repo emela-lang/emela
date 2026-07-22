@@ -849,7 +849,7 @@ impl Parser {
             "Array" => {
                 self.expect(&TokenKind::Lt)?;
                 let element = self.parse_type()?;
-                self.expect(&TokenKind::Gt)?;
+                self.expect_angle_close()?;
                 Ok(Type::Array(Box::new(element)))
             }
             "Record" => Ok(Type::Record),
@@ -867,12 +867,12 @@ impl Parser {
                     args.push(self.parse_type()?);
                     // A trailing comma before the closer is allowed (spec 0034).
                     while self.eat(&TokenKind::Comma) {
-                        if self.at(&TokenKind::Gt) {
+                        if self.at_angle_close() {
                             break;
                         }
                         args.push(self.parse_type()?);
                     }
-                    self.expect(&TokenKind::Gt)?;
+                    self.expect_angle_close()?;
                 }
                 Ok(Type::Enum(name, args))
             }
@@ -1005,9 +1005,11 @@ impl Parser {
     }
 
     fn parse_equality(&mut self) -> Result<Expr> {
-        let mut expr = self.parse_sum()?;
+        let mut expr = self.parse_bit_or()?;
         loop {
             // Comparisons share one precedence level, left-associative (spec 0027).
+            // They bind looser than the bitwise operators (spec 0053): `x & 1 == 0`
+            // parses as `(x & 1) == 0`.
             let op = if self.eat_across_newlines(&TokenKind::EqEq) {
                 BinaryOp::Eq
             } else if self.eat_across_newlines(&TokenKind::Ne) {
@@ -1020,6 +1022,82 @@ impl Parser {
                 BinaryOp::Le
             } else if self.eat_across_newlines(&TokenKind::Ge) {
                 BinaryOp::Ge
+            } else {
+                break;
+            };
+            let right = self.parse_bit_or()?;
+            let span = expr.span().merge(&right.span());
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expr)
+    }
+
+    /// `|`, bitwise OR (spec 0053), left-associative. Weaker than `^`, stronger
+    /// than comparison; distinct from the logical `||` (spec 0027).
+    fn parse_bit_or(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_bit_xor()?;
+        while self.eat_across_newlines(&TokenKind::Pipe) {
+            let right = self.parse_bit_xor()?;
+            let span = expr.span().merge(&right.span());
+            expr = Expr::Binary {
+                op: BinaryOp::BitOr,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expr)
+    }
+
+    /// `^`, bitwise XOR (spec 0053), left-associative.
+    fn parse_bit_xor(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_bit_and()?;
+        while self.eat_across_newlines(&TokenKind::Caret) {
+            let right = self.parse_bit_and()?;
+            let span = expr.span().merge(&right.span());
+            expr = Expr::Binary {
+                op: BinaryOp::BitXor,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expr)
+    }
+
+    /// `&`, bitwise AND (spec 0053), left-associative. Stronger than `^` / `|`;
+    /// distinct from the logical `&&` (spec 0027).
+    fn parse_bit_and(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_shift()?;
+        while self.eat_across_newlines(&TokenKind::Amp) {
+            let right = self.parse_shift()?;
+            let span = expr.span().merge(&right.span());
+            expr = Expr::Binary {
+                op: BinaryOp::BitAnd,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expr)
+    }
+
+    /// Shifts `<<` / `>>` / `>>>` (spec 0053), left-associative, binding tighter
+    /// than the bitwise operators and looser than `+` / `-`.
+    fn parse_shift(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_sum()?;
+        loop {
+            let op = if self.eat_across_newlines(&TokenKind::Shl) {
+                BinaryOp::Shl
+            } else if self.eat_across_newlines(&TokenKind::UShr) {
+                BinaryOp::UShr
+            } else if self.eat_across_newlines(&TokenKind::Shr) {
+                BinaryOp::Shr
             } else {
                 break;
             };
@@ -1094,6 +1172,20 @@ impl Parser {
             let then = Expr::Bool(false, span.clone());
             let els = Expr::Bool(true, span.clone());
             return Ok(if_desugar(operand, then, els, span));
+        }
+        // Prefix `~`, bitwise NOT (spec 0053 U1): `~e ≡ e ^ -1`, flipping every
+        // bit via XOR with all-ones. No dedicated trait — it reuses `BitXor`.
+        if self.at(&TokenKind::Tilde) {
+            let tilde = self.bump();
+            let operand = self.parse_unary()?;
+            let span = tilde.span.merge(&operand.span());
+            let all_ones = Expr::Int(-1, span.clone());
+            return Ok(Expr::Binary {
+                op: BinaryOp::BitXor,
+                left: Box::new(operand),
+                right: Box::new(all_ones),
+                span,
+            });
         }
         self.parse_call()
     }
@@ -1506,6 +1598,43 @@ impl Parser {
         } else {
             self.current = saved;
             false
+        }
+    }
+
+    /// Whether the current token can close a generic argument list: a plain `>`,
+    /// or a `>>` / `>>>` (spec 0053) whose leading `>` closes this level while the
+    /// rest belongs to an enclosing `Array<Array<..>>`.
+    fn at_angle_close(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Gt | TokenKind::Shr | TokenKind::UShr
+        )
+    }
+
+    /// Closes one generic argument list's `>` (spec 0028). Because `>>` / `>>>`
+    /// lex as single `Shr` / `UShr` tokens (spec 0053), a nested close such as
+    /// `Array<Array<Int>>` arrives as one `Shr`: this peels off a single `>`,
+    /// leaving the remainder (`Gt` from a `Shr`, `Shr` from a `UShr`) in place for
+    /// the enclosing level. A plain `>` or any other token defers to `expect`,
+    /// which consumes a `Gt` or reports a faithful error.
+    fn expect_angle_close(&mut self) -> Result<()> {
+        let span = self.peek().span.clone();
+        match self.peek().kind {
+            TokenKind::Shr => {
+                self.tokens[self.current] = Token {
+                    kind: TokenKind::Gt,
+                    span: Span::new(span.file.clone(), span.start + 1, span.end),
+                };
+                Ok(())
+            }
+            TokenKind::UShr => {
+                self.tokens[self.current] = Token {
+                    kind: TokenKind::Shr,
+                    span: Span::new(span.file.clone(), span.start + 1, span.end),
+                };
+                Ok(())
+            }
+            _ => self.expect(&TokenKind::Gt).map(|_| ()),
         }
     }
 

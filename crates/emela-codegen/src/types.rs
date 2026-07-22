@@ -69,6 +69,17 @@ pub enum BinaryOp {
     Gt,
     Le,
     Ge,
+    /// Bitwise operators (spec 0053), each an operator trait like `+` (spec
+    /// 0020): `BitAnd`/`BitOr`/`BitXor` and the shifts `Shl` (left), `Shr`
+    /// (arithmetic right), `UShr` (logical right). Like the other operators they
+    /// desugar through their trait's impl to an intrinsic, so a lowered IR never
+    /// carries them as a `Binary` node.
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    UShr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]

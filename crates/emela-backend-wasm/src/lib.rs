@@ -1022,6 +1022,14 @@ fn intrinsic_wasm(name: &str) -> Option<&'static str> {
         "i32_mul" => "i32.mul",
         "i32_div_s" => "i32.div_s",
         "i32_rem_s" => "i32.rem_s",
+        // Bitwise / shift (spec 0053). WASM masks the shift amount to its low 5
+        // bits, matching spec 0053 B2. `shr_s` sign-extends, `shr_u` zero-fills.
+        "i32_and" => "i32.and",
+        "i32_or" => "i32.or",
+        "i32_xor" => "i32.xor",
+        "i32_shl" => "i32.shl",
+        "i32_shr_s" => "i32.shr_s",
+        "i32_shr_u" => "i32.shr_u",
         "i32_eq" => "i32.eq",
         "i32_lt_s" => "i32.lt_s",
         "f64_add" => "f64.add",
@@ -2735,6 +2743,17 @@ fn binary_op(op: BinaryOp, operand_ty: &Type) -> &'static str {
         (_, BinaryOp::Ne | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge) => {
             unreachable!("derived comparison desugared before lowering")
         }
+        // Bitwise operators (spec 0053) lower through their trait's impl to an
+        // intrinsic call, never to a `Binary` node.
+        (
+            _,
+            BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::UShr,
+        ) => unreachable!("bitwise operators lower to intrinsic calls (spec 0053)"),
     }
 }
 
