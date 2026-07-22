@@ -260,21 +260,25 @@ fn lowercase_effect_name_is_rejected() {
     );
 }
 
-/// An explicit `uses` clause on an operation inside an `effect` block is
-/// redundant and rejected (specs 0036/0037): the effect is implicit.
+/// An effect operation may declare its own dependency effects (spec 0049 PE2b,
+/// relaxing spec 0037 and resolving 0036 Open Question 1): the inline default
+/// body of `Log.info` uses `Io`. *Using* `Log.info` contributes the effect
+/// `Log` (a capability marker) to the caller, so `use_log` may declare
+/// `uses { Log }`; the compiler discharges `Log` to its dependency `Io`.
 #[test]
-fn explicit_uses_inside_effect_is_rejected() {
+fn effect_operation_declares_dependency_effects() {
     let output = check_single(
-        "effect Log {\n\
-             pub fn info(s: String) -> Unit uses { Log } { () }\n\
+        "import std.io\n\
+         effect Log {\n\
+             pub fn info(s: String) -> Unit uses { Io } { Io.print(s) }\n\
          }\n\
-         fn main() -> Unit {}\n",
+         fn use_log() -> Unit uses { Log } { Log.info(\"hi\\n\") }\n\
+         fn main() -> Unit uses { Log } { use_log() }\n",
     );
-    assert!(!output.status.success(), "expected check to fail");
-    let err = stderr(&output);
     assert!(
-        err.contains("Redundant effect on operation") || err.contains("remove the `uses`"),
-        "unexpected diagnostic:\n{err}"
+        output.status.success(),
+        "expected check to pass:\n{}",
+        stderr(&output)
     );
 }
 

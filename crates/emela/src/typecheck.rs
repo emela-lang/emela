@@ -981,7 +981,17 @@ impl<'a> Checker<'a> {
                     .collect(),
                 ret: function.ret.clone(),
                 throws: function.throws.clone(),
-                effects: function.effects.clone(),
+                // An effect operation's caller-facing signature contributes the
+                // *effect* `Name` (a capability marker), not its dependency row
+                // (spec 0049 D1): `Log.info(...)` makes the caller `uses { Log }`
+                // even though `info`'s body depends on `Io`. `function.effects`
+                // (the dependencies) is what `check_function` checks the body
+                // against; the signature is what call sites union in. Ordinary
+                // functions contribute their own effects unchanged.
+                effects: match &function.effect_name {
+                    Some(effect) => EffectRow::sorted(vec![effect.clone()]),
+                    None => function.effects.clone(),
+                },
             });
         }
     }

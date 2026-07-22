@@ -510,10 +510,19 @@ impl Parser {
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 let mut function = self.parse_function(is_public)?;
-                if !function.effects.effects.is_empty() {
-                    return Err(explicit_uses_in_effect(&function.name_span, &name));
+                // An effect operation may declare its own dependency effects
+                // (spec 0049 PE2b: an inline default body can use other effects,
+                // e.g. `fn info(msg) uses { Io } { ... }`) — this relaxes spec
+                // 0037's original "implicit `uses { Name }`, no explicit uses"
+                // and resolves 0036 Open Question 1. When it declares none it
+                // implicitly depends only on its own effect (the old behaviour).
+                // `function.effects` is the operation's *dependencies* (checked
+                // against its body); *using* the operation contributes the
+                // effect `Name` (the caller-facing signature, stamped in
+                // `register_functions`).
+                if function.effects.effects.is_empty() {
+                    function.effects = effect_row.clone();
                 }
-                function.effects = effect_row.clone();
                 function.effect_name = Some(name.clone());
                 function.module_path = vec![name.clone()];
                 functions.push(function);
