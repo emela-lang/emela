@@ -1620,16 +1620,6 @@ const BYTES_HELPERS: &str = r#"  (func $bytes_slice (param $s i32) (param $start
     local.get $n
     memory.copy
     local.get $out)
-  (func $blob_dup (param $s i32) (result i32)
-    (local $len i32) (local $out i32)
-    local.get $s i32.load local.set $len
-    i32.const 4 local.get $len i32.add i32.const 0 call $alloc local.set $out
-    local.get $out local.get $len i32.store
-    local.get $out i32.const 4 i32.add
-    local.get $s i32.const 4 i32.add
-    local.get $len
-    memory.copy
-    local.get $out)
 "#;
 
 /// [`BYTES_HELPERS`] with the (shared string) drop index stamped into its
