@@ -1,14 +1,49 @@
--- The embedded std.random module (spec 0054): the `Random` capability.
+-- The embedded std.random module (spec 0054): two layers of randomness.
 --
--- `Random` is a primitive effect (spec 0049) over `wasi:random/random` (the
--- component backend) / an OS entropy source (`emela run`). It is the
+-- `Random` (Part A) is a primitive effect (spec 0049) over `wasi:random/random`
+-- (the component backend) / an OS entropy source (`emela run`). It is the
 -- cryptographically-secure, non-reproducible source; the platform functions
 -- `random.raw_*` are infallible (spec 0043). Callers import the module and call
 -- `Random.int()` / `Random.bytes(n)` inside a function declaring `uses { Random }`.
 --
--- The seedable, deterministic PRNG (spec 0054 Part B) is added on top of this
--- module separately.
+-- The seedable PRNG (Part B) is deterministic and reproducible, so it is *not* an
+-- effect: `Prng` is an ordinary record threaded through the pure `seed` / `next`
+-- functions (`uses {}`). It is xorshift32, written with the bitwise operators of
+-- spec 0053. Seed it from entropy with `random.seed(Random.int())`.
 module random
+
+-- A pseudo-random generator's state (spec 0054 Part B). An ordinary record, not a
+-- capability: the `Int` is the 32-bit xorshift state.
+pub record Prng {
+    state: Int
+}
+
+-- One draw: the value produced and the advanced generator (spec 0054 Q3). Pure,
+-- so callers thread `next` forward rather than mutating a generator in place.
+pub record Draw {
+    value: Int
+    next: Prng
+}
+
+-- Build a generator from a seed (spec 0054 Q2). xorshift cannot leave state 0, so
+-- a zero seed is remapped to a fixed non-zero constant (the golden-ratio-derived
+-- 0x9E3779B9, as a signed i32).
+pub fn seed(s: Int) -> Prng {
+    if s == 0 {
+        Prng { state: 0 - 1640531527 }
+    } else {
+        Prng { state: s }
+    }
+}
+
+-- Advance the generator one xorshift32 step (spec 0054 Q4): the new state is both
+-- the next state and the drawn value. `>>>` is the logical right shift (spec 0053).
+pub fn next(g: Prng) -> Draw {
+    let x1 = g.state ^ (g.state << 13)
+    let x2 = x1 ^ (x1 >>> 17)
+    let x3 = x2 ^ (x2 << 5)
+    Draw { value: x3, next: Prng { state: x3 } }
+}
 
 -- Random: the cryptographically-secure entropy capability (spec 0054 Part A). The
 -- `raw_*` operations are the backing platform functions (private to the effect,
