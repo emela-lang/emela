@@ -107,6 +107,10 @@ struct Lowerer<'a> {
     /// concrete type arguments into variant field types at construction and
     /// `match`. Empty vec for a non-generic enum.
     enum_type_params: HashMap<String, Vec<String>>,
+    /// Type parameters of each generic record (spec 0028), used to substitute
+    /// the concrete type arguments into field types at construction and field
+    /// access. Empty vec for a non-generic record.
+    record_type_params: HashMap<String, Vec<String>>,
     /// Method name -> the traits declaring it (spec 0020), for bare dispatch.
     method_owners: HashMap<String, Vec<String>>,
     /// (trait, method) -> the trait method's parameter types and return type.
@@ -201,6 +205,11 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
             )
         })
         .collect();
+    let record_type_params: HashMap<String, Vec<String>> = program
+        .records
+        .iter()
+        .map(|decl| (decl.name.clone(), decl.type_params.clone()))
+        .collect();
     // The `Option` lang item (spec 0042): the enum the Core Prelude tagged with
     // `@lang("option")`. Its shape is validated in type checking, so identify
     // the present (one field) and absent (no fields) variants by arity here.
@@ -258,6 +267,7 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         records,
         option_lang_item,
         enum_type_params,
+        record_type_params,
         method_owners,
         trait_methods,
         impls_by,
@@ -786,18 +796,27 @@ impl<'a> Lowerer<'a> {
 
     /// Lowers a record-literal field value, passing the declared field type as
     /// the expected element type so an empty `[]` array is typed from the field
-    /// (mirroring the checker).
-    fn lower_field_value(&self, value: &Expr, field_ty: &Type, scope: &mut Scope) -> IrExpr {
+    /// (mirroring the checker). Returns the lowered expression and its concrete
+    /// type, which drives the record's type-argument inference (spec 0028).
+    fn lower_field_value(
+        &self,
+        value: &Expr,
+        field_ty: &Type,
+        scope: &mut Scope,
+    ) -> (IrExpr, Type) {
         if let (Expr::Array(elements, _), Type::Array(element)) = (value, field_ty) {
-            return self.lower_array(elements, scope, Some(element)).0;
+            return self.lower_array(elements, scope, Some(element));
         }
-        self.lower_expr(value, scope).0
+        self.lower_expr(value, scope)
     }
 
     /// The declaration-order index and type of `field` on a record-typed value
-    /// (spec 0006). The type checker has already validated the access.
+    /// (spec 0006). The type checker has already validated the access. For a
+    /// generic record (spec 0028) the value's concrete type arguments are
+    /// substituted into the declared field type, so no `Type::Var` reaches the
+    /// IR (mirrors `variants_of`).
     fn record_field(&self, ty: &Type, field: &str) -> (u32, Type) {
-        let Type::Enum(name, _) = ty else {
+        let Type::Enum(name, args) = ty else {
             unreachable!("field access on a non-record was rejected by the checker");
         };
         let fields = &self.records[name];
@@ -805,7 +824,13 @@ impl<'a> Lowerer<'a> {
             .iter()
             .position(|(n, _)| n == field)
             .expect("field validated by the checker");
-        (index as u32, fields[index].1.clone())
+        let params = self
+            .record_type_params
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        let subst: HashMap<String, Type> = params.into_iter().zip(args.iter().cloned()).collect();
+        (index as u32, subst_type(&fields[index].1, &subst))
     }
 
     /// Lowers a record literal (spec 0006). Fields are evaluated in written
@@ -819,7 +844,11 @@ impl<'a> Lowerer<'a> {
         scope: &mut Scope,
     ) -> (IrExpr, Type) {
         let declared = self.records[name].clone();
-        let ty = Type::Enum(name.to_string(), Vec::new());
+        // Infer the record's concrete type arguments (spec 0028) from the field
+        // value types, so the value's `ty` and later field access carry no
+        // `Type::Var` (mirrors `enum_type_args`). Non-generic records leave
+        // `subst` empty and the type args a fresh empty vec.
+        let mut subst: HashMap<String, Type> = HashMap::new();
         let written_in_decl_order = fields.len() == declared.len()
             && fields
                 .iter()
@@ -830,9 +859,12 @@ impl<'a> Lowerer<'a> {
                 .iter()
                 .zip(&declared)
                 .map(|((_, _, value), (_, field_ty))| {
-                    self.lower_field_value(value, field_ty, scope)
+                    let (ir, value_ty) = self.lower_field_value(value, field_ty, scope);
+                    infer_subst(field_ty, &value_ty, &mut subst);
+                    ir
                 })
                 .collect();
+            let ty = self.record_value_type(name, &subst);
             return (
                 IrExpr::RecordValue {
                     ty: ty.clone(),
@@ -841,31 +873,39 @@ impl<'a> Lowerer<'a> {
                 ty,
             );
         }
-        let mut temps: HashMap<String, String> = HashMap::new();
+        // Written order differs from declaration order: evaluate in written
+        // order through temporaries, then store in declaration order. The temp's
+        // type is the value's concrete type, not the declared (possibly generic)
+        // field type, so no `Type::Var` reaches the IR.
+        let mut temps: HashMap<String, (String, Type)> = HashMap::new();
         let mut lets: Vec<(String, Type, IrExpr)> = Vec::new();
         for (field_name, _, value) in fields {
             let (_, field_ty) = declared
                 .iter()
                 .find(|(n, _)| n == field_name)
                 .expect("field validated by the checker");
-            let ir = self.lower_field_value(value, field_ty, scope);
-            let value_ty = field_ty.clone();
+            let (ir, value_ty) = self.lower_field_value(value, field_ty, scope);
+            infer_subst(field_ty, &value_ty, &mut subst);
             let temp = {
                 let mut counter = self.stmt_counter.borrow_mut();
                 let temp = format!("$fld{}", *counter);
                 *counter += 1;
                 temp
             };
-            temps.insert(field_name.clone(), temp.clone());
+            temps.insert(field_name.clone(), (temp.clone(), value_ty.clone()));
             lets.push((temp, value_ty, ir));
         }
+        let ty = self.record_value_type(name, &subst);
         let record = IrExpr::RecordValue {
             ty: ty.clone(),
             fields: declared
                 .iter()
-                .map(|(field_name, field_ty)| IrExpr::Var {
-                    name: temps[field_name].clone(),
-                    ty: field_ty.clone(),
+                .map(|(field_name, _)| {
+                    let (temp, temp_ty) = &temps[field_name];
+                    IrExpr::Var {
+                        name: temp.clone(),
+                        ty: temp_ty.clone(),
+                    }
                 })
                 .collect(),
         };
@@ -879,6 +919,24 @@ impl<'a> Lowerer<'a> {
                 next: Box::new(next),
             });
         (ir, ty)
+    }
+
+    /// The concrete type of a constructed record value (spec 0028): its declared
+    /// type parameters resolved through `subst`. Parameters no field pins are
+    /// `Never`, to be refined by the expected type — as a payload-less enum
+    /// variant is. Empty args for a non-generic record.
+    fn record_value_type(&self, name: &str, subst: &HashMap<String, Type>) -> Type {
+        let args = self
+            .record_type_params
+            .get(name)
+            .map(|params| {
+                params
+                    .iter()
+                    .map(|param| subst.get(param).cloned().unwrap_or(Type::Never))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Type::Enum(name.to_string(), args)
     }
 
     fn lower_expr(&self, expr: &Expr, scope: &mut Scope) -> (IrExpr, Type) {

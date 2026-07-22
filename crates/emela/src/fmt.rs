@@ -1069,8 +1069,8 @@ fn ast_dump(program: &ast::Program) -> String {
     for declaration in &program.records {
         let _ = writeln!(
             w,
-            "record {} module={:?}",
-            declaration.name, declaration.module
+            "record {} module={:?} params={:?}",
+            declaration.name, declaration.module, declaration.type_params
         );
         for field in &declaration.fields {
             let _ = writeln!(w, "  field {} {:?}", field.name, field.ty);

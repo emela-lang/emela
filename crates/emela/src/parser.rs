@@ -349,11 +349,23 @@ impl Parser {
     }
 
     /// Parses a `record` declaration (spec 0006): named, typed fields separated
-    /// by newlines and/or commas. Records are non-generic in this first cut.
+    /// by newlines and/or commas. A generic record (spec 0028) may declare type
+    /// parameters used in its field types.
     fn parse_record(&mut self) -> Result<RecordDecl> {
         self.expect(&TokenKind::Record)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
+        // Type parameters (spec 0028); no bounds are allowed on a data type.
+        let (type_params, bounds) = self.parse_type_params()?;
+        if let Some(bound) = bounds.first() {
+            return Err(Error::diagnostic(Diagnostic::new("Bound on a data type").label(
+                bound.span.clone(),
+                "record type parameters cannot have trait bounds; the requirement belongs on the functions or impls that use the type",
+            )));
+        }
+        // The type parameters are in scope while parsing the field types, so a
+        // field type `T` resolves to `Type::Var("T")` rather than a type name.
+        self.type_params = type_params.clone();
         self.expect(&TokenKind::LBrace)?;
         let mut fields = Vec::new();
         self.skip_newlines();
@@ -371,9 +383,11 @@ impl Parser {
             self.skip_newlines();
         }
         self.expect(&TokenKind::RBrace)?;
+        self.type_params = Vec::new();
         Ok(RecordDecl {
             name,
             name_span,
+            type_params,
             // Stamped with the declaring module in `parse_program`.
             module: None,
             fields,

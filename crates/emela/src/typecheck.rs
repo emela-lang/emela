@@ -81,6 +81,18 @@ struct EnumInfo {
     variants: Vec<VariantInfo>,
 }
 
+/// A declared record's fields, in declaration order (spec 0006). A generic
+/// record (spec 0028) carries its type parameters, in terms of which the field
+/// types are stated.
+#[derive(Debug, Clone)]
+struct RecordInfo {
+    /// Type parameters of a generic record (spec 0028); empty for a plain record.
+    type_params: Vec<String>,
+    /// Fields in declaration order: name and declared type (which may reference
+    /// the type parameters as `Type::Var`).
+    fields: Vec<(String, Type)>,
+}
+
 /// The `Option` lang item (spec 0042): the enum bound by `@lang("option")`
 /// (spec 0041) and its present/absent variant names. Lets bare `Some`/`None`
 /// resolve without the compiler hard-coding those names or a dedicated `Option`
@@ -320,9 +332,9 @@ struct Checker<'a> {
     /// or — for an effect backing operation — from sibling operations.
     externs: HashMap<String, ExternSig>,
     enums: HashMap<String, EnumInfo>,
-    /// Declared records (spec 0006), keyed by name: the fields in declaration
-    /// order. Records are non-generic in this first cut.
-    records: HashMap<String, Vec<(String, Type)>>,
+    /// Declared records (spec 0006), keyed by name: the type parameters (spec
+    /// 0028) and fields in declaration order.
+    records: HashMap<String, RecordInfo>,
     /// The `Option` lang item (spec 0042), if the Core Prelude bound one with
     /// `@lang("option")`. Drives bare `Some`/`None` resolution.
     option_lang_item: Option<OptionLangItem>,
@@ -431,7 +443,13 @@ impl<'a> Checker<'a> {
                 }
                 fields.push((field.name.clone(), field.ty.clone()));
             }
-            self.records.insert(decl.name.clone(), fields);
+            self.records.insert(
+                decl.name.clone(),
+                RecordInfo {
+                    type_params: decl.type_params.clone(),
+                    fields,
+                },
+            );
         }
     }
 
@@ -463,15 +481,23 @@ impl<'a> Checker<'a> {
         match ty {
             Type::Enum(name, args) => {
                 // A capitalized name in type position parses as `Type::Enum`;
-                // it may also resolve to a record (spec 0006).
-                if self.records.contains_key(name) {
-                    if !args.is_empty() {
+                // it may also resolve to a record (spec 0006). A generic record
+                // (spec 0028) must be applied at its declared arity.
+                if let Some(record) = self.records.get(name) {
+                    if args.len() != record.type_params.len() {
                         return Err(Error::diagnostic(
                             Diagnostic::new("Wrong number of type arguments").label(
                                 span.clone(),
-                                format!("record `{name}` takes no type arguments"),
+                                format!(
+                                    "record `{name}` takes {} type argument(s), got {}",
+                                    record.type_params.len(),
+                                    args.len()
+                                ),
                             ),
                         ));
+                    }
+                    for arg in args {
+                        self.validate_type(arg, span)?;
                     }
                     return Ok(());
                 }
@@ -2555,7 +2581,7 @@ impl<'a> Checker<'a> {
         ctx: &FnCtx,
         allow_throw: bool,
     ) -> Result<ExprInfo> {
-        let Some(declared) = self.records.get(name).cloned() else {
+        let Some(record) = self.records.get(name).cloned() else {
             let message = if self.enums.contains_key(name) {
                 format!("`{name}` is an enum; construct it as `{name}::Variant(...)`")
             } else {
@@ -2565,9 +2591,14 @@ impl<'a> Checker<'a> {
                 Diagnostic::new("Unknown record").label(name_span.clone(), message),
             ));
         };
+        let declared = &record.fields;
         let mut effects = EffectRow::default();
         let mut throws = None;
         let mut seen = HashSet::new();
+        // Infer the record's type arguments (spec 0028) from the field values.
+        // `match_type` both binds the type parameters and checks the value
+        // against the (possibly generic) field type.
+        let mut subst: HashMap<String, Type> = HashMap::new();
         for (field_name, field_span, value) in fields {
             let Some((_, field_ty)) = declared.iter().find(|(n, _)| n == field_name) else {
                 return Err(Error::diagnostic(Diagnostic::new("Unknown field").label(
@@ -2592,7 +2623,7 @@ impl<'a> Checker<'a> {
             };
             effects.union(&info.effects);
             throws = merge_throws(throws, info.throws, info.span.clone())?;
-            expect_assignable(&info.ty, field_ty, info.span.clone())?;
+            match_type(field_ty, &info.ty, &mut subst, &info.span)?;
         }
         let missing: Vec<&str> = declared
             .iter()
@@ -2605,21 +2636,37 @@ impl<'a> Checker<'a> {
                 format!("record `{name}` needs `{}`", missing.join("`, `")),
             )));
         }
+        // Type parameters no field pins are left `Never`, to be resolved from
+        // the expected type via assignability — as a payload-less enum variant
+        // is (spec 0028).
+        let type_args = record
+            .type_params
+            .iter()
+            .map(|param| subst.get(param).cloned().unwrap_or(Type::Never))
+            .collect();
         Ok(ExprInfo {
-            ty: Type::Enum(name.to_string(), Vec::new()),
+            ty: Type::Enum(name.to_string(), type_args),
             effects,
             throws,
             span: span.clone(),
         })
     }
 
-    /// The type of field `name` on a record value (spec 0006).
+    /// The type of field `name` on a record value (spec 0006). For a generic
+    /// record (spec 0028) the value's type arguments are substituted into the
+    /// declared field type, so `first` on a `Pair<Int, String>` is `Int`.
     fn field_type(&self, target_ty: &Type, name: &str, span: &Span) -> Result<Type> {
-        if let Type::Enum(type_name, _) = target_ty
-            && let Some(fields) = self.records.get(type_name)
+        if let Type::Enum(type_name, args) = target_ty
+            && let Some(record) = self.records.get(type_name)
         {
-            if let Some((_, ty)) = fields.iter().find(|(n, _)| n == name) {
-                return Ok(ty.clone());
+            if let Some((_, ty)) = record.fields.iter().find(|(n, _)| n == name) {
+                let subst: HashMap<String, Type> = record
+                    .type_params
+                    .iter()
+                    .cloned()
+                    .zip(args.iter().cloned())
+                    .collect();
+                return Ok(subst_type(ty, &subst));
             }
             return Err(Error::diagnostic(
                 Diagnostic::new("Unknown field")
