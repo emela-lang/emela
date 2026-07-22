@@ -48,6 +48,7 @@ pub fn is_heap(ty: &Type) -> bool {
     matches!(
         ty,
         Type::String
+            | Type::Bytes
             | Type::Array(_)
             | Type::Record
             | Type::Enum(_, _)

@@ -317,6 +317,7 @@ pub(crate) fn render_type(ty: &Type) -> String {
         Type::Float => "Float".to_string(),
         Type::String => "String".to_string(),
         Type::Char => "Char".to_string(),
+        Type::Bytes => "Bytes".to_string(),
         Type::Record => "Record".to_string(),
         Type::Never => "Never".to_string(),
         Type::Array(inner) => format!("Array<{}>", render_type(inner)),

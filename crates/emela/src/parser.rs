@@ -822,6 +822,7 @@ impl Parser {
             "Float" => Ok(Type::Float),
             "String" => Ok(Type::String),
             "Char" => Ok(Type::Char),
+            "Bytes" => Ok(Type::Bytes),
             "Array" => {
                 self.expect(&TokenKind::Lt)?;
                 let element = self.parse_type()?;

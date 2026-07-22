@@ -1,0 +1,45 @@
+module bytes
+
+-- Byte-sequence operations (spec 0051). `Bytes` is an immutable byte sequence
+-- (bytes 0–255), byte-indexed. The intrinsics are provided by the backend
+-- (spec 0021); the `pub fn` wrappers add the safe, bounds-checked API (spec
+-- 0011: absence is `Option`, no panicking variant). `Bytes` shares `String`'s
+-- `[len][bytes]` representation, so `to_bytes` (UTF-8 encode) is the identity
+-- at runtime on the wasm backend. `Concat`/`Eq for Bytes` (`++`/`==`) live in
+-- the Core Prelude (spec 0020). `Bytes` -> `String` (UTF-8 decode) is added
+-- later, when the byte-boundary consumers (Socket/HTTP) need it.
+intrinsic fn bytes_length(b: Bytes) -> Int uses {}
+intrinsic fn bytes_get_unchecked(b: Bytes, i: Int) -> Int uses {}
+intrinsic fn bytes_slice(b: Bytes, start: Int, end: Int) -> Bytes uses {}
+intrinsic fn bytes_from_string(s: String) -> Bytes uses {}
+
+pub fn length(b: Bytes) -> Int {
+    bytes_length(b)
+}
+
+pub fn is_empty(b: Bytes) -> Bool {
+    bytes_length(b) == 0
+}
+
+-- The byte at index `i` (0–255), or `None` when out of range (spec 0051 B3).
+-- No panicking variant (spec 0011). Mirrors `std.string.char_at`.
+pub fn byte_at(b: Bytes, i: Int) -> Option<Int> {
+    if i < 0 {
+        None
+    } else if i < bytes_length(b) {
+        Some(bytes_get_unchecked(b, i))
+    } else {
+        None
+    }
+}
+
+-- The sub-sequence of byte indices `[start, end)` (spec 0051 B4). Out-of-range
+-- bounds are clamped by the intrinsic; it never panics.
+pub fn slice(b: Bytes, start: Int, end: Int) -> Bytes {
+    bytes_slice(b, start, end)
+}
+
+-- The UTF-8 encoding of `s` as `Bytes` (spec 0051 B6). Total.
+pub fn to_bytes(s: String) -> Bytes {
+    bytes_from_string(s)
+}

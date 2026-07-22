@@ -93,6 +93,19 @@ fn intrinsic_js(name: &str, args: &[IrExpr]) -> String {
         "array_length" => format!("({a}.length)"),
         "array_get_unchecked" => format!("{a}[{b}]"),
         "array_push" => format!("[...{a}, {b}]"),
+        // Byte-sequence operations (spec 0051). `Bytes` is a `Uint8Array` in JS;
+        // `bytes_from_string` UTF-8 encodes a JS string (the wasm backend shares
+        // the string representation instead). IIFEs avoid re-evaluating args.
+        "bytes_from_string" => format!("(new TextEncoder().encode({a}))"),
+        "bytes_length" => format!("({a}.length)"),
+        "bytes_get_unchecked" => format!("({a}[{b}])"),
+        "bytes_slice" => format!("({a}.slice({b}, {c}))"),
+        "bytes_concat" => format!(
+            "(()=>{{const _a={a},_b={b},_r=new Uint8Array(_a.length+_b.length);_r.set(_a);_r.set(_b,_a.length);return _r;}})()"
+        ),
+        "bytes_eq" => format!(
+            "(()=>{{const _a={a},_b={b};return _a.length===_b.length&&_a.every((v,i)=>v===_b[i]);}})()"
+        ),
         _ => unreachable!("intrinsic `{name}` not provided by js-node backend"),
     }
 }

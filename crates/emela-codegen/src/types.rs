@@ -14,6 +14,10 @@ pub enum Type {
     String,
     /// A single Unicode scalar value (spec 0017).
     Char,
+    /// An immutable byte sequence (spec 0051). Shares `String`'s `[len][bytes]`
+    /// representation, but counts and indexes in bytes and carries no UTF-8
+    /// interpretation.
+    Bytes,
     Array(Box<Type>),
     Record,
     /// A named enum type (spec 0005), identified by its declared name and its

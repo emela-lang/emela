@@ -819,6 +819,7 @@ fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) 
     module.push_str(&runtime_wat(strings.heap_start, drops.of(&DropKey::Leak)));
     module.push_str(STRING_CMP);
     module.push_str(&string_index_wat(drops.of(&DropKey::String)));
+    module.push_str(&bytes_helpers_wat(drops.of(&DropKey::String)));
     for name in &used_platform {
         if let Some(glue) = platform_glue(name) {
             module.push_str(glue);
@@ -907,6 +908,12 @@ fn wasm_provides_intrinsic(name: &str) -> bool {
                 | "char_code"
                 | "char_from_code"
                 | "string_from_char"
+                | "bytes_length"
+                | "bytes_get_unchecked"
+                | "bytes_slice"
+                | "bytes_concat"
+                | "bytes_eq"
+                | "bytes_from_string"
                 | "array_length"
                 | "array_get_unchecked"
                 | "array_push"
@@ -1300,6 +1307,43 @@ fn string_index_wat(string_drop: u32) -> String {
     )
 }
 
+/// Runtime helper for the byte-unit slice (spec 0051). A `Bytes` is
+/// `[len: i32 (byte length)][bytes]`; unlike `$string_slice`, `start`/`end` are
+/// byte offsets directly (no scalar walk). Out-of-range bounds are clamped.
+/// Allocated `Bytes` share the string drop shape (spec 0048). Always emitted;
+/// an unused function is fine.
+const BYTES_HELPERS: &str = r#"  (func $bytes_slice (param $s i32) (param $start i32) (param $end i32) (result i32)
+    (local $len i32) (local $n i32) (local $out i32)
+    local.get $s i32.load local.set $len
+    local.get $start i32.const 0 i32.lt_s if i32.const 0 local.set $start end
+    local.get $start local.get $len i32.gt_s if local.get $len local.set $start end
+    local.get $end i32.const 0 i32.lt_s if i32.const 0 local.set $end end
+    local.get $end local.get $len i32.gt_s if local.get $len local.set $end end
+    local.get $start local.get $end i32.ge_s
+    if
+      i32.const 4 i32.const 0 call $alloc local.set $out
+      local.get $out i32.const 0 i32.store
+      local.get $out return
+    end
+    local.get $end local.get $start i32.sub local.set $n
+    i32.const 4 local.get $n i32.add i32.const 0 call $alloc local.set $out
+    local.get $out local.get $n i32.store
+    local.get $out i32.const 4 i32.add
+    local.get $s i32.const 4 i32.add local.get $start i32.add
+    local.get $n
+    memory.copy
+    local.get $out)
+"#;
+
+/// [`BYTES_HELPERS`] with the (shared string) drop index stamped into its
+/// allocation sites (spec 0048).
+fn bytes_helpers_wat(string_drop: u32) -> String {
+    BYTES_HELPERS.replace(
+        "i32.const 0 call $alloc",
+        &format!("i32.const {string_drop} call $alloc"),
+    )
+}
+
 fn emit_start(main: &IrFunction) -> String {
     let mut out = String::new();
     out.push_str("  (func $_start\n");
@@ -1606,6 +1650,37 @@ impl<'a> FnEmitter<'a> {
                 // representation. `string_from_char` builds the `[len][utf8]`.
                 "char_code" | "char_from_code" => self.emit(&args[0])?,
                 "string_from_char" => self.emit_string_from_char(&args[0])?,
+                // Byte-sequence operations (spec 0051). `Bytes` shares `String`'s
+                // `[len][bytes]` representation, so `bytes_concat` reuses the
+                // string concat helper, `bytes_eq` the `$string_eq` byte walk,
+                // and `bytes_from_string` is the identity. `bytes_length` is the
+                // raw byte length (`i32.load`) and `bytes_get_unchecked` a raw
+                // byte load — both differ from the scalar-counting string ops.
+                "bytes_concat" => self.emit_concat(&args[0], &args[1])?,
+                "bytes_eq" => {
+                    self.emit(&args[0])?;
+                    self.emit(&args[1])?;
+                    self.line("call $string_eq");
+                }
+                "bytes_from_string" => self.emit(&args[0])?,
+                "bytes_length" => {
+                    self.emit(&args[0])?;
+                    self.line("i32.load");
+                }
+                "bytes_get_unchecked" => {
+                    self.emit(&args[0])?;
+                    self.line("i32.const 4");
+                    self.line("i32.add");
+                    self.emit(&args[1])?;
+                    self.line("i32.add");
+                    self.line("i32.load8_u");
+                }
+                "bytes_slice" => {
+                    for arg in args {
+                        self.emit(arg)?;
+                    }
+                    self.line("call $bytes_slice");
+                }
                 // Array operations (spec 0007), formerly the `ArrayLength` /
                 // `ArrayGet` / `ArrayPush` nodes. The element type is recovered
                 // from the monomorphized intrinsic's types: `array_get_unchecked`'s

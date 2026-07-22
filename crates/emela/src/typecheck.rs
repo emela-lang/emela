@@ -807,6 +807,7 @@ impl<'a> Checker<'a> {
             | Type::Float
             | Type::String
             | Type::Char
+            | Type::Bytes
             | Type::Bool
             | Type::Unit
             | Type::Array(_) => Some(Some(crate::prelude::CORE_MODULE.to_string())),
@@ -2903,6 +2904,7 @@ pub(crate) fn type_head_key(ty: &Type) -> Option<String> {
         Type::Float => "Float",
         Type::String => "String",
         Type::Char => "Char",
+        Type::Bytes => "Bytes",
         Type::Record => "Record",
         Type::Enum(name, _) => return Some(name.clone()),
         Type::Array(_) => "Array",

@@ -23,6 +23,7 @@ pub(crate) const CORE_SRC: &str = include_str!("std/core.emel");
 /// The embedded std modules (spec 0038), keyed by their `std.<name>` module
 /// name. Sorted by name.
 pub(crate) const EMBEDDED_STD: &[(&str, &str)] = &[
+    ("bytes", include_str!("std/bytes.emel")),
     ("clock", include_str!("std/clock.emel")),
     ("float", include_str!("std/float.emel")),
     ("http", include_str!("std/http.emel")),
