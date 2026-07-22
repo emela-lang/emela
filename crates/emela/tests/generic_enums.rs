@@ -1,8 +1,8 @@
 //! End-to-end tests for user-defined generic enums (spec 0028): declaring
 //! `enum List<T>` / `enum Either<L, R>`, constructing values with inferred type
 //! arguments, matching them, and using them through generic functions that
-//! monomorphize per instantiation. Records are out of scope (spec 0006 is not
-//! implemented), so these cover the enum half of the spec.
+//! monomorphize per instantiation. These cover the enum half of the spec; the
+//! record half lives in `generic_records.rs`.
 
 use std::fs;
 use std::process::Command;

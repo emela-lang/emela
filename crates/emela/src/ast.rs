@@ -32,13 +32,16 @@ pub(crate) struct EffectDecl {
     pub(crate) name_span: Span,
 }
 
-/// A `record` declaration (spec 0006): named fields, no variants. Records are
-/// non-generic in this first cut (0006 defines declaration, literal
-/// construction, and field access only).
+/// A `record` declaration (spec 0006): named fields, no variants. A generic
+/// record (spec 0028) may declare type parameters that appear in its field types.
 #[derive(Debug, Clone)]
 pub(crate) struct RecordDecl {
     pub(crate) name: String,
     pub(crate) name_span: Span,
+    /// The type parameters of a generic record (spec 0028), e.g. `A`/`B` in
+    /// `record Pair<A, B>`. Empty for a non-generic record. They are in scope as
+    /// types (`Type::Var`) within the field types.
+    pub(crate) type_params: Vec<String>,
     /// The declaring file's module path, mirroring `EnumDecl::module`.
     #[allow(dead_code)]
     pub(crate) module: Option<String>,
