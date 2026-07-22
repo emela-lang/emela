@@ -220,6 +220,15 @@ fn ir_op(op: BinaryOp) -> &'static str {
         BinaryOp::Gt => "gt",
         BinaryOp::Le => "le",
         BinaryOp::Ge => "ge",
+        // Bitwise operators (spec 0053); like the derived comparisons these are
+        // desugared to intrinsic calls before lowering, so an IR dump surfaces
+        // them only from a hand-written Binary node.
+        BinaryOp::BitAnd => "bitand",
+        BinaryOp::BitOr => "bitor",
+        BinaryOp::BitXor => "bitxor",
+        BinaryOp::Shl => "shl",
+        BinaryOp::Shr => "shr",
+        BinaryOp::UShr => "ushr",
     }
 }
 

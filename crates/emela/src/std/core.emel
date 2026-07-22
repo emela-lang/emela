@@ -40,6 +40,34 @@ trait Rem {
     fn rem(a: Self, b: Self) -> Self uses {}
 }
 
+-- Bitwise operator traits (spec 0053). Like `Add`, each backs one operator and
+-- is instanced for `Int` below. `Shl`/`Shr`/`UShr` are the shifts (`<<`, `>>`
+-- arithmetic, `>>>` logical); `~` reuses `BitXor` (`~e ≡ e ^ -1`), so it has no
+-- trait of its own.
+trait BitAnd {
+    fn bitand(a: Self, b: Self) -> Self uses {}
+}
+
+trait BitOr {
+    fn bitor(a: Self, b: Self) -> Self uses {}
+}
+
+trait BitXor {
+    fn bitxor(a: Self, b: Self) -> Self uses {}
+}
+
+trait Shl {
+    fn shl(a: Self, b: Self) -> Self uses {}
+}
+
+trait Shr {
+    fn shr(a: Self, b: Self) -> Self uses {}
+}
+
+trait UShr {
+    fn ushr(a: Self, b: Self) -> Self uses {}
+}
+
 trait Concat {
     fn concat(a: Self, b: Self) -> Self uses {}
 }
@@ -69,6 +97,15 @@ intrinsic fn i32_sub(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_mul(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_div_s(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_rem_s(a: Int, b: Int) -> Int uses {}
+-- Bitwise / shift intrinsics (spec 0053): the backends inline them to native
+-- i32 instructions. `i32_shr_s` is the arithmetic (sign-extending) shift, and
+-- `i32_shr_u` the logical (zero-filling) shift.
+intrinsic fn i32_and(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_or(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_xor(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_shl(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_shr_s(a: Int, b: Int) -> Int uses {}
+intrinsic fn i32_shr_u(a: Int, b: Int) -> Int uses {}
 intrinsic fn i32_eq(a: Int, b: Int) -> Bool uses {}
 intrinsic fn i32_lt_s(a: Int, b: Int) -> Bool uses {}
 intrinsic fn f64_add(a: Float, b: Float) -> Float uses {}
@@ -138,6 +175,32 @@ impl Div for Int {
 
 impl Rem for Int {
     fn rem(a: Int, b: Int) -> Int uses {} { i32_rem_s(a, b) }
+}
+
+-- Bitwise operators are `Int`-only (spec 0053 B1): no `Float`/`Bool` instances,
+-- so `Float & Float` etc. fail to type check just like `Float % Float`.
+impl BitAnd for Int {
+    fn bitand(a: Int, b: Int) -> Int uses {} { i32_and(a, b) }
+}
+
+impl BitOr for Int {
+    fn bitor(a: Int, b: Int) -> Int uses {} { i32_or(a, b) }
+}
+
+impl BitXor for Int {
+    fn bitxor(a: Int, b: Int) -> Int uses {} { i32_xor(a, b) }
+}
+
+impl Shl for Int {
+    fn shl(a: Int, b: Int) -> Int uses {} { i32_shl(a, b) }
+}
+
+impl Shr for Int {
+    fn shr(a: Int, b: Int) -> Int uses {} { i32_shr_s(a, b) }
+}
+
+impl UShr for Int {
+    fn ushr(a: Int, b: Int) -> Int uses {} { i32_shr_u(a, b) }
 }
 
 impl Eq for Int {

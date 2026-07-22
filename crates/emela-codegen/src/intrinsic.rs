@@ -65,6 +65,14 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
         int2("i32_mul", Type::Int),
         int2("i32_div_s", Type::Int),
         int2("i32_rem_s", Type::Int),
+        // Bitwise / shift operations on `Int` (spec 0053), the intrinsics behind
+        // `& | ^ << >> >>>`. `i32_shr_s` is arithmetic, `i32_shr_u` logical.
+        int2("i32_and", Type::Int),
+        int2("i32_or", Type::Int),
+        int2("i32_xor", Type::Int),
+        int2("i32_shl", Type::Int),
+        int2("i32_shr_s", Type::Int),
+        int2("i32_shr_u", Type::Int),
         int2("i32_eq", Type::Bool),
         int2("i32_lt_s", Type::Bool),
         float2("f64_add", Type::Float),
