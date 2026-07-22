@@ -96,6 +96,9 @@ fn wit_world(ir: &IrProgram) -> String {
             \x20 import wasi:io/poll@0.2.0;\n",
         );
     }
+    if used.iter().any(|n| n.starts_with("random.")) {
+        imports.push_str("  import wasi:random/random@0.2.0;\n");
+    }
     format!(
         "package emela:app@0.2.0;\n\
          \n\
@@ -205,6 +208,13 @@ package wasi:sockets@0.2.0 {
     use network.{network, error-code, ip-address-family};
     use tcp.{tcp-socket};
     create-tcp-socket: func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
+  }
+}
+
+package wasi:random@0.2.0 {
+  interface random {
+    get-random-bytes: func(len: u64) -> list<u8>;
+    get-random-u64: func() -> u64;
   }
 }
 
