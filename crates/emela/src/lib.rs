@@ -33,6 +33,8 @@ mod socket_host;
 mod test_runner;
 mod typecheck;
 
+#[cfg(feature = "run")]
+pub use api::{RunOutput, run_source};
 pub use api::{check_source, compile_source, ir_source};
 pub use driver::run;
 pub use error::{Error, Result};

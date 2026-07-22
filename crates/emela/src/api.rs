@@ -36,3 +36,48 @@ pub fn compile_source(
 ) -> Result<Artifact> {
     driver::compile_source(label, source, backend, mode)
 }
+
+/// The captured result of compiling and running `source` in-process — the
+/// playground's "Run" button. Mirrors `emela run`: the source is compiled with
+/// the `wasm-wasi` backend and executed via the embedded `wasmi` interpreter,
+/// with stdout/stderr captured into strings instead of written to the process
+/// streams (so it works inside a wasm build, where there are no process
+/// streams).
+#[cfg(feature = "run")]
+#[derive(Debug, Default)]
+pub struct RunOutput {
+    /// Everything the program wrote to stdout.
+    pub stdout: String,
+    /// Everything the program wrote to stderr.
+    pub stderr: String,
+    /// The process exit code, when the program exited cleanly via `proc_exit`.
+    pub exit_code: Option<i32>,
+    /// A runtime trap message (`panic`/`unreachable`), when execution trapped
+    /// instead of exiting cleanly.
+    pub trap: Option<String>,
+}
+
+/// Compiles `source` with the `wasm-wasi` backend and runs it in-process,
+/// returning its captured output.
+///
+/// A compile or type error surfaces as `Err`; a program that runs but traps
+/// returns `Ok` with [`RunOutput::trap`] set. Networking (sockets / HTTP) is
+/// linked but non-functional under a `wasm32-unknown-unknown` host, so programs
+/// that use it trap at run time.
+#[cfg(feature = "run")]
+pub fn run_source(label: &str, source: &str) -> Result<RunOutput> {
+    use crate::run::{Captured, RunOutcome};
+
+    let artifact = driver::compile_source(label, source, "wasm-wasi", EmitMode::Default)?;
+    let (outcome, Captured { stdout, stderr }) = crate::run::execute_captured(&artifact.bytes)?;
+    let (exit_code, trap) = match outcome {
+        RunOutcome::Exit(code) => (Some(code), None),
+        RunOutcome::Trap(message) => (None, Some(message)),
+    };
+    Ok(RunOutput {
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        exit_code,
+        trap,
+    })
+}

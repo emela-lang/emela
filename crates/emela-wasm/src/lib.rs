@@ -62,7 +62,7 @@ fn install_panic_hook() {
 #[wasm_bindgen]
 pub fn compile(source: &str, target: &str) -> String {
     install_panic_hook();
-    let result = run(source, target);
+    let result = dispatch(source, target);
     serde_json::to_string(&result).unwrap_or_else(|err| {
         format!(
             "{{\"ok\":false,\"kind\":\"error\",\"output\":\"\",\"error\":\"failed to serialize result: {err}\"}}"
@@ -70,7 +70,7 @@ pub fn compile(source: &str, target: &str) -> String {
     })
 }
 
-fn run(source: &str, target: &str) -> CompileResult {
+fn dispatch(source: &str, target: &str) -> CompileResult {
     match target {
         "check" => match emela::check_source(LABEL, source) {
             Ok(()) => CompileResult::ok("text", "Type check passed.".to_string()),
@@ -95,4 +95,58 @@ fn emit(backend: &str, kind: &'static str, source: &str, mode: EmitMode) -> Comp
         }
         Err(err) => CompileResult::err(err.to_string()),
     }
+}
+
+/// The shape returned to JavaScript by [`run`] (as JSON).
+#[derive(Serialize)]
+struct RunResult {
+    /// Whether compilation succeeded (execution was attempted). A compile or
+    /// type error sets this to `false`; a program that runs but traps is still
+    /// `true` (see `trap`).
+    ok: bool,
+    /// Everything the program wrote to stdout.
+    stdout: String,
+    /// Everything the program wrote to stderr.
+    stderr: String,
+    /// The process exit code, when the program exited cleanly.
+    exit_code: Option<i32>,
+    /// A runtime trap message (`panic` / `unreachable`), or `null`.
+    trap: Option<String>,
+    /// The rendered compile / type diagnostic, or `null` on success.
+    error: Option<String>,
+}
+
+/// Compiles `source` with the `wasm-wasi` backend and runs it in-process via
+/// the embedded `wasmi` interpreter — the playground's "Run" button — returning
+/// a JSON [`RunResult`] with the captured stdout/stderr.
+///
+/// This mirrors `emela run`. Compile / type errors populate `error`; a program
+/// that runs but traps populates `trap`. Networking is unavailable in the
+/// browser, so programs that use sockets / HTTP trap at run time.
+#[wasm_bindgen]
+pub fn run(source: &str) -> String {
+    install_panic_hook();
+    let result = match emela::run_source(LABEL, source) {
+        Ok(out) => RunResult {
+            ok: true,
+            stdout: out.stdout,
+            stderr: out.stderr,
+            exit_code: out.exit_code,
+            trap: out.trap,
+            error: None,
+        },
+        Err(err) => RunResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: None,
+            trap: None,
+            error: Some(err.to_string()),
+        },
+    };
+    serde_json::to_string(&result).unwrap_or_else(|err| {
+        format!(
+            "{{\"ok\":false,\"stdout\":\"\",\"stderr\":\"\",\"exit_code\":null,\"trap\":null,\"error\":\"failed to serialize result: {err}\"}}"
+        )
+    })
 }
