@@ -1349,16 +1349,6 @@ const BYTES_HELPERS: &str = r#"  (func $bytes_slice (param $s i32) (param $start
     local.get $n
     memory.copy
     local.get $out)
-  (func $blob_dup (param $s i32) (result i32)
-    (local $len i32) (local $out i32)
-    local.get $s i32.load local.set $len
-    i32.const 4 local.get $len i32.add i32.const 0 call $alloc local.set $out
-    local.get $out local.get $len i32.store
-    local.get $out i32.const 4 i32.add
-    local.get $s i32.const 4 i32.add
-    local.get $len
-    memory.copy
-    local.get $out)
 "#;
 
 /// [`BYTES_HELPERS`] with the (shared string) drop index stamped into its
@@ -1689,17 +1679,11 @@ impl<'a> FnEmitter<'a> {
                     self.line("call $string_eq");
                 }
                 // `bytes_from_string` (spec 0051 B6) / `bytes_as_string_unchecked`
-                // (spec 0051 B7) *copy* rather than aliasing their argument. The
-                // representation is shared, so an identity would return the arg
-                // pointer — but the RC pass (spec 0048) treats an intrinsic result
-                // as a fresh allocation and its argument as a borrow (rc.rs), so an
-                // alias to a heap argument is released twice (double free, seen as a
-                // drop-dispatch `indirect call type mismatch`). `$blob_dup` gives the
-                // result its own `[len][bytes]` block.
-                "bytes_from_string" | "bytes_as_string_unchecked" => {
-                    self.emit(&args[0])?;
-                    self.line("call $blob_dup");
-                }
+                // (spec 0051 B7) are the identity on the shared `[len][bytes]`
+                // representation. The result aliases the argument; the RC pass
+                // transfers ownership of that argument to it (see `rc.rs`'s
+                // `identity_cast`), so no copy is needed.
+                "bytes_from_string" | "bytes_as_string_unchecked" => self.emit(&args[0])?,
                 "bytes_length" => {
                     self.emit(&args[0])?;
                     self.line("i32.load");
