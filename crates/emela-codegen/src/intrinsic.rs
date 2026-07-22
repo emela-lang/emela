@@ -184,6 +184,16 @@ pub fn intrinsic_interface() -> Vec<IntrinsicFn> {
             params: vec![Type::String],
             ret: Type::Bytes,
         },
+        // The unchecked `Bytes` -> `String` reinterpret (spec 0051 B7). The safe
+        // `std.bytes.string_from_bytes` validates UTF-8 first (in Emela) and only
+        // then calls this. On the wasm backend it is the identity (the
+        // representation is shared); on JS it is a `TextDecoder` decode.
+        IntrinsicFn {
+            name: "bytes_as_string_unchecked".to_string(),
+            type_params: Vec::new(),
+            params: vec![Type::Bytes],
+            ret: Type::String,
+        },
         // Array operations (spec 0007), formerly the `Array::length` /
         // `Array::get` / `Array::push` builtins, now bare generic Core Prelude
         // intrinsics. The element type is a type variable `T` monomorphized at

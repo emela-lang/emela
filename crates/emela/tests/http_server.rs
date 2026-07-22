@@ -215,9 +215,10 @@ fn main() -> Unit uses { Io, HttpServer } {
     drop(server);
 }
 
-/// `HttpServer` is a distinct capability from the client `Http` (spec 0046
-/// S1): a serve-only program's capability manifest shows `HttpServer` and not
-/// `Http`.
+/// `HttpServer` is a derived effect over `Socket` (spec 0046/0049/0050): a
+/// serve-only program discharges to the `Socket` leaf, so the generated module
+/// imports the standard socket host (`emela_socket`) and neither the bespoke
+/// server host nor the client `Http` host (`emela_http`).
 #[test]
 fn serve_only_program_does_not_require_the_client_capability() {
     let dir = temp_dir("manifest");
@@ -240,12 +241,16 @@ fn serve_only_program_does_not_require_the_client_capability() {
     );
     let bytes = fs::read(&out).unwrap();
     let _ = fs::remove_dir_all(&dir);
-    // Import module/field names are stored as UTF-8 in the binary. A serve-only
-    // program imports the server host functions but not the client `request`.
+    // Import module names are stored as UTF-8 in the binary. The HttpServer
+    // handler lowers to the `Socket` leaf, so the serve-only program imports the
+    // standard socket host and not the client `Http` host.
     let text = String::from_utf8_lossy(&bytes);
-    assert!(text.contains("server_accept"), "server import missing");
     assert!(
-        !text.contains("request"),
-        "serve-only program must not import the client `request`"
+        text.contains("emela_socket"),
+        "socket host import missing (the HttpServer leaf)"
+    );
+    assert!(
+        !text.contains("emela_http"),
+        "serve-only program must not import the client `Http` host `emela_http`"
     );
 }

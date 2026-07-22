@@ -17,26 +17,20 @@ use wasmi::errors::HostError;
 use wasmi::{Caller, Engine, Extern, Linker, Memory, Module, Store};
 
 use crate::error::{Error, Result};
-use crate::http_host::ServerTable;
 use crate::socket_host::SocketTable;
 
 /// The wasmi store data shared by both run paths: the host-side state the
 /// platform functions need. `captured` is `Some` for `emela test` (spec 0040),
 /// where stdout/stderr are buffered instead of written to the process streams;
-/// `servers` holds the live `HttpServer` listeners and connections (spec 0046);
-/// `sockets` holds the live `Socket` listeners and connections (spec 0050).
+/// `sockets` holds the live `Socket` listeners and connections (spec 0050),
+/// which back the `HttpServer` handler (spec 0046) as well as raw sockets.
 #[derive(Default)]
 pub(crate) struct Host {
     captured: Option<Captured>,
-    servers: ServerTable,
     sockets: SocketTable,
 }
 
 impl Host {
-    pub(crate) fn servers_mut(&mut self) -> &mut ServerTable {
-        &mut self.servers
-    }
-
     pub(crate) fn sockets_mut(&mut self) -> &mut SocketTable {
         &mut self.sockets
     }
@@ -300,9 +294,11 @@ fn write_out(mut sink: impl Write, bytes: &[u8]) -> std::result::Result<(), wasm
         .map_err(|err| host_fail(format!("failed to write program output: {err}")))
 }
 
-/// Links the `Http` client (specs 0043/0044) and `HttpServer` (spec 0046) host
-/// functions. Every import is defined for every run; a module that does not use
-/// a capability simply never imports it.
+/// Links the `Http` client (specs 0043/0044) host function. The server
+/// (`HttpServer`, spec 0046) is now a derived effect over `Socket` (spec 0050)
+/// implemented in Emela, so it links through `link_socket`, not here. Every
+/// import is defined for every run; a module that does not use `Http` never
+/// imports it.
 fn link_http(linker: &mut Linker<Host>) -> Result<()> {
     linker
         .func_wrap(
@@ -313,45 +309,6 @@ fn link_http(linker: &mut Linker<Host>) -> Result<()> {
             },
         )
         .map_err(|err| Error::new(format!("failed to link `emela_http.request`: {err}")))?;
-    linker
-        .func_wrap(
-            "emela_http",
-            "server_bind",
-            |mut caller: Caller<'_, Host>, port: i32| -> std::result::Result<i32, wasmi::Error> {
-                crate::http_host::server_bind(&mut caller, port)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `emela_http.server_bind`: {err}")))?;
-    linker
-        .func_wrap(
-            "emela_http",
-            "server_accept",
-            |mut caller: Caller<'_, Host>, server: i32| -> std::result::Result<i32, wasmi::Error> {
-                crate::http_host::server_accept(&mut caller, server)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `emela_http.server_accept`: {err}")))?;
-    linker
-        .func_wrap(
-            "emela_http",
-            "server_respond",
-            |mut caller: Caller<'_, Host>,
-             incoming: i32,
-             response: i32|
-             -> std::result::Result<i32, wasmi::Error> {
-                crate::http_host::server_respond(&mut caller, incoming, response)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `emela_http.server_respond`: {err}")))?;
-    linker
-        .func_wrap(
-            "emela_http",
-            "server_close",
-            |mut caller: Caller<'_, Host>, server: i32| -> std::result::Result<i32, wasmi::Error> {
-                crate::http_host::server_close(&mut caller, server)
-            },
-        )
-        .map_err(|err| Error::new(format!("failed to link `emela_http.server_close`: {err}")))?;
     Ok(())
 }
 

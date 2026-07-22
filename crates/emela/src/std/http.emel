@@ -1,8 +1,18 @@
--- The embedded std.http module (spec 0044): the Http capability and its
--- message types. The platform function `http.request` performs one
--- synchronous HTTP exchange; transport failure arrives on the throws
--- channel as HttpError (spec 0043). HTTP status codes are data, not errors.
+-- The embedded std.http module. The client capability `Http` (spec 0044)
+-- performs one synchronous HTTP exchange through the platform function
+-- `http.request`; transport failure arrives on the throws channel as HttpError
+-- (spec 0043). HTTP status codes are data, not errors.
+--
+-- The server capability `HttpServer` (spec 0046) is a *derived* effect (spec
+-- 0049) written on top of the primitive `Socket` (spec 0050): its handler
+-- accepts connections with `Socket.*` and parses/serializes HTTP/1.1 over
+-- `Bytes` (spec 0051) in the pure functions below. A `uses { HttpServer }`
+-- program discharges to the leaf `{ Socket }`, so the generated module imports
+-- only the standard socket surface — no bespoke host HTTP.
 module http
+
+import std.socket
+import std.bytes
 
 pub enum Method {
     Get
@@ -97,37 +107,452 @@ effect Http {
     }
 }
 
--- The HttpServer capability (spec 0046). A separate capability from the client
--- Http, so a serve-only program's manifest carries no outbound-network
--- permission. `Server` and `Incoming` wrap host-issued identifiers.
+-- The HttpServer capability (spec 0046): a derived effect over `Socket`. `Server`
+-- and `Incoming` wrap the `Socket` handles (`Listener` / `Connection`) plus the
+-- parsed request.
 pub record Server {
-    id: Int
+    listener: Listener
 }
 
 pub record Incoming {
-    id: Int
+    conn: Connection
     request: Request
 }
 
+-- ---------------------------------------------------------------------------
+-- HTTP/1.1 parsing (pure, over Bytes). These are implementation details of the
+-- HttpServer handler (spec 0046 Compilation Notes). Byte constants are decimal:
+-- CR=13 LF=10 SP=32 COLON=58, digits 48-57, uppercase A-Z 65-90.
+-- ---------------------------------------------------------------------------
+
+-- The byte at index `i`, or -1 when out of range (never a valid 0-255 byte).
+fn at(b: Bytes, i: Int) -> Int {
+    match bytes.byte_at(b, i) {
+        Some(v) -> v
+        None -> 0 - 1
+    }
+}
+
+fn to_lower(c: Int) -> Int {
+    if c >= 65 && c <= 90 {
+        c + 32
+    } else {
+        c
+    }
+}
+
+-- Index of the first `\r\n` in [from, n), or -1.
+fn find_crlf(b: Bytes, from: Int, n: Int) -> Int {
+    if from + 1 >= n {
+        0 - 1
+    } else if at(b, from) == 13 && at(b, from + 1) == 10 {
+        from
+    } else {
+        find_crlf(b, from + 1, n)
+    }
+}
+
+-- Index of the first `\r\n\r\n` in [from, n), or -1.
+fn find_crlf_crlf(b: Bytes, from: Int, n: Int) -> Int {
+    if from + 3 >= n {
+        0 - 1
+    } else if at(
+        b,
+        from,
+    ) == 13 && at(b, from + 1) == 10 && at(b, from + 2) == 13 && at(b, from + 3) == 10 {
+        from
+    } else {
+        find_crlf_crlf(b, from + 1, n)
+    }
+}
+
+-- Index of the first `target` byte in [from, end), or -1.
+fn find_byte(b: Bytes, from: Int, end: Int, target: Int) -> Int {
+    if from >= end {
+        0 - 1
+    } else if at(b, from) == target {
+        from
+    } else {
+        find_byte(b, from + 1, end, target)
+    }
+}
+
+fn skip_sp(b: Bytes, pos: Int, end: Int) -> Int {
+    if pos < end && at(b, pos) == 32 {
+        skip_sp(b, pos + 1, end)
+    } else {
+        pos
+    }
+}
+
+-- The UTF-8 String of byte range [start, end), or "" if not valid UTF-8.
+fn string_of(b: Bytes, start: Int, end: Int) -> String {
+    match bytes.string_from_bytes(bytes.slice(b, start, end)) {
+        Some(s) -> s
+        None -> ""
+    }
+}
+
+-- A lowercased ASCII String of byte range [start, end), built scalar by scalar.
+fn lower_string(b: Bytes, pos: Int, end: Int, acc: String) -> String {
+    if pos >= end {
+        acc
+    } else {
+        lower_string(b, pos + 1, end, acc ++ string_from_char(char_from_code(to_lower(at(b, pos)))))
+    }
+}
+
+-- Case-insensitive equality of byte range [start, end) against lowercase `t`.
+fn ci_eq(b: Bytes, start: Int, end: Int, t: Bytes, ti: Int, tn: Int) -> Bool {
+    if start >= end && ti >= tn {
+        true
+    } else if start >= end || ti >= tn {
+        false
+    } else if to_lower(at(b, start)) == at(t, ti) {
+        ci_eq(b, start + 1, end, t, ti + 1, tn)
+    } else {
+        false
+    }
+}
+
+fn parse_digits(b: Bytes, pos: Int, end: Int, acc: Int) -> Int {
+    if pos >= end {
+        acc
+    } else {
+        let c = at(b, pos)
+        if c >= 48 && c <= 57 {
+            parse_digits(b, pos + 1, end, acc * 10 + (c - 48))
+        } else {
+            acc
+        }
+    }
+}
+
+-- The Content-Length declared in the header block [pos, end), or 0 if absent.
+fn content_length(b: Bytes, pos: Int, end: Int) -> Int {
+    if pos >= end {
+        0
+    } else {
+        let le = find_crlf(b, pos, end)
+        let line_end = if le < 0 {
+            end
+        } else {
+            le
+        }
+        let colon = find_byte(b, pos, line_end, 58)
+        if colon >= 0 && ci_eq(b, pos, colon, bytes.to_bytes("content-length"), 0, 14) {
+            parse_digits(b, skip_sp(b, colon + 1, line_end), line_end, 0)
+        } else {
+            content_length(b, line_end + 2, end)
+        }
+    }
+}
+
+fn parse_headers(b: Bytes, pos: Int, end: Int, acc: Array<Header>) -> Array<Header> {
+    if pos >= end {
+        acc
+    } else {
+        let le = find_crlf(b, pos, end)
+        let line_end = if le < 0 {
+            end
+        } else {
+            le
+        }
+        let colon = find_byte(b, pos, line_end, 58)
+        if colon < 0 {
+            parse_headers(b, line_end + 2, end, acc)
+        } else {
+            let h = Header {
+                name: lower_string(b, pos, colon, "")
+                value: string_of(b, skip_sp(b, colon + 1, line_end), line_end)
+            }
+            parse_headers(b, line_end + 2, end, array_push(acc, h))
+        }
+    }
+}
+
+fn method_of(mb: Bytes) -> Option<Method> {
+    match bytes.string_from_bytes(mb) {
+        None -> None
+        Some(s) -> if s == "GET" {
+            Some(Method::Get)
+        } else if s == "HEAD" {
+            Some(Method::Head)
+        } else if s == "POST" {
+            Some(Method::Post)
+        } else if s == "PUT" {
+            Some(Method::Put)
+        } else if s == "DELETE" {
+            Some(Method::Delete)
+        } else if s == "PATCH" {
+            Some(Method::Patch)
+        } else if s == "OPTIONS" {
+            Some(Method::Options)
+        } else {
+            None
+        }
+    }
+}
+
+-- The outcome of parsing an accumulated request buffer.
+enum Parsed {
+    Complete(Request)
+    Unknown
+    Bad
+    Incomplete
+}
+
+-- Whether `raw` does not yet hold a full request (head + declared body). The
+-- accept loop keeps reading while this is true (spec 0046 S3).
+fn needs_more(raw: Bytes) -> Bool {
+    let n = bytes.length(raw)
+    let boundary = find_crlf_crlf(raw, 0, n)
+    if boundary < 0 {
+        true
+    } else {
+        let line_end = find_crlf(raw, 0, boundary)
+        let header_start = line_end + 2
+        let len = content_length(raw, header_start, boundary)
+        boundary + 4 + len > n
+    }
+}
+
+-- Parses a complete request buffer into `Parsed`. Split into small functions so
+-- each keeps few live values (readable, and gentle on the RC pass, spec 0048).
+fn parse_request(raw: Bytes) -> Parsed {
+    let n = bytes.length(raw)
+    let boundary = find_crlf_crlf(raw, 0, n)
+    if boundary < 0 {
+        Parsed::Incomplete
+    } else {
+        parse_after_head(raw, n, boundary)
+    }
+}
+
+fn parse_after_head(raw: Bytes, n: Int, boundary: Int) -> Parsed {
+    let line_end = find_crlf(raw, 0, boundary)
+    let sp1 = find_byte(raw, 0, line_end, 32)
+    let sp2 = if sp1 < 0 {
+        0 - 1
+    } else {
+        find_byte(raw, sp1 + 1, line_end, 32)
+    }
+    if sp1 < 0 || sp2 < 0 {
+        Parsed::Bad
+    } else {
+        parse_body(raw, n, boundary, line_end, sp1, sp2)
+    }
+}
+
+fn parse_body(raw: Bytes, n: Int, boundary: Int, line_end: Int, sp1: Int, sp2: Int) -> Parsed {
+    let header_start = line_end + 2
+    let len = content_length(raw, header_start, boundary)
+    let body_start = boundary + 4
+    if body_start + len > n {
+        Parsed::Incomplete
+    } else {
+        build_parsed(raw, boundary, header_start, sp1, sp2, body_start, len)
+    }
+}
+
+fn build_parsed(
+    raw: Bytes,
+    boundary: Int,
+    header_start: Int,
+    sp1: Int,
+    sp2: Int,
+    body_start: Int,
+    len: Int,
+) -> Parsed {
+    let method_opt = method_of(bytes.slice(raw, 0, sp1))
+    let url_opt = bytes.string_from_bytes(bytes.slice(raw, sp1 + 1, sp2))
+    let body_opt = bytes.string_from_bytes(bytes.slice(raw, body_start, body_start + len))
+    let seed: Array<Header> = []
+    let hdrs = parse_headers(raw, header_start, boundary, seed)
+    match method_opt {
+        None -> Parsed::Unknown
+        Some(m) -> assemble(m, url_opt, body_opt, hdrs)
+    }
+}
+
+fn assemble(
+    m: Method,
+    url_opt: Option<String>,
+    body_opt: Option<String>,
+    hdrs: Array<Header>,
+) -> Parsed {
+    match url_opt {
+        None -> Parsed::Bad
+        Some(url) -> match body_opt {
+            None -> Parsed::Bad
+            Some(body) -> Parsed::Complete(
+                Request {
+                    method: m
+                    url: url
+                    headers: hdrs
+                    body: body
+                },
+            )
+        }
+    }
+}
+
+-- ---------------------------------------------------------------------------
+-- HTTP/1.1 serialization (pure). The platform supplies `content-length` and
+-- `connection`; user-provided copies are dropped (spec 0044 H5/H6).
+-- ---------------------------------------------------------------------------
+
+fn reason(status: Int) -> String {
+    if status == 200 {
+        "OK"
+    } else if status == 201 {
+        "Created"
+    } else if status == 204 {
+        "No Content"
+    } else if status == 400 {
+        "Bad Request"
+    } else if status == 404 {
+        "Not Found"
+    } else if status == 500 {
+        "Internal Server Error"
+    } else if status == 501 {
+        "Not Implemented"
+    } else if status == 502 {
+        "Bad Gateway"
+    } else {
+        "Status"
+    }
+}
+
+fn serialize_headers(headers: Array<Header>, i: Int, n: Int, acc: String) -> String {
+    if i >= n {
+        acc
+    } else {
+        let h = array_get_unchecked(headers, i)
+        if h.name == "content-length" || h.name == "connection" {
+            serialize_headers(headers, i + 1, n, acc)
+        } else {
+            serialize_headers(headers, i + 1, n, acc ++ h.name ++ ": " ++ h.value ++ "\r\n")
+        }
+    }
+}
+
+pub fn serialize_response(res: Response) -> Bytes {
+    let body = bytes.to_bytes(res.body)
+    let head = "HTTP/1.1 " ++ to_string(res.status) ++ " " ++ reason(res.status) ++ "\r\n"
+    ++ serialize_headers(res.headers, 0, array_length(res.headers), "")
+    ++ "content-length: " ++ to_string(bytes.length(body)) ++ "\r\n"
+    ++ "connection: close\r\n\r\n"
+    bytes.to_bytes(head) ++ body
+}
+
+-- ---------------------------------------------------------------------------
+-- The HttpServer handler over Socket. These helpers `uses { Socket }`; they map
+-- SocketError to HttpError with `try`/`catch` (the throws channel carries one
+-- error type, spec 0011, so `Socket.*` errors cannot be `?`-propagated under a
+-- `throws HttpError` operation).
+-- ---------------------------------------------------------------------------
+
+-- Reads from `conn` until a full request has arrived (or the peer closes).
+fn read_full(conn: Connection, acc: Bytes) -> Bytes throws HttpError uses { Socket } {
+    if needs_more(acc) {
+        let chunk = try {
+            Socket.read(conn, 4096)
+        } catch {
+            e -> throw HttpError::ConnectionClosed
+        }
+        if bytes.length(chunk) == 0 {
+            acc
+        } else {
+            read_full(conn, acc ++ chunk)?
+        }
+    } else {
+        acc
+    }
+}
+
+-- Best-effort status-only reply for a request the handler rejects (spec 0046
+-- S3). Failures are swallowed so the accept loop keeps serving.
+fn respond_status(conn: Connection, status: Int, body: String) -> Unit uses { Socket } {
+    try {
+        Socket.write(
+            conn,
+            serialize_response(
+                Response {
+                    status: status
+                    headers: []
+                    body: body
+                },
+            ),
+        )
+        Socket.close(conn.id)
+    } catch {
+        e -> ()
+    }
+}
+
+-- Accepts the next connection that carries a well-formed, known-method request,
+-- answering (and skipping) the rest (spec 0046 S3). Self-tail-recursive so the
+-- skip loop does not grow the stack (spec 0045).
+pub fn accept_one(listener: Listener) -> Incoming throws HttpError uses { Socket } {
+    let conn = try {
+        Socket.accept(listener)
+    } catch {
+        e -> throw HttpError::ConnectionClosed
+    }
+    let raw = read_full(conn, bytes.to_bytes(""))?
+    match parse_request(raw) {
+        Parsed::Complete(req) -> Incoming {
+            conn: conn
+            request: req
+        }
+        Parsed::Unknown -> {
+            respond_status(conn, 501, "Not Implemented\n")
+            accept_one(listener)?
+        }
+        Parsed::Bad -> {
+            respond_status(conn, 400, "Bad Request\n")
+            accept_one(listener)?
+        }
+        Parsed::Incomplete -> {
+            respond_status(conn, 400, "Bad Request\n")
+            accept_one(listener)?
+        }
+    }
+}
+
 effect HttpServer {
-    extern fn server_bind(port: Int) -> Server throws HttpError
-    extern fn server_accept(server: Server) -> Incoming throws HttpError
-    extern fn server_respond(incoming: Incoming, response: Response) -> Unit throws HttpError
-    extern fn server_close(server: Server) -> Unit throws HttpError
-
-    pub fn bind(port: Int) -> Server throws HttpError {
-        server_bind(port)?
+    pub fn bind(port: Int) -> Server throws HttpError uses { Socket } {
+        try {
+            Server {
+                listener: Socket.listen(port)
+            }
+        } catch {
+            e -> throw HttpError::BindFailed("bind failed")
+        }
     }
 
-    pub fn accept(server: Server) -> Incoming throws HttpError {
-        server_accept(server)?
+    pub fn accept(server: Server) -> Incoming throws HttpError uses { Socket } {
+        http.accept_one(server.listener)?
     }
 
-    pub fn respond(incoming: Incoming, response: Response) -> Unit throws HttpError {
-        server_respond(incoming, response)?
+    pub fn respond(
+        incoming: Incoming,
+        response: Response,
+    ) -> Unit throws HttpError uses { Socket } {
+        try {
+            Socket.write(incoming.conn, http.serialize_response(response))
+            Socket.close(incoming.conn.id)
+        } catch {
+            e -> throw HttpError::ConnectionClosed
+        }
     }
 
-    pub fn close(server: Server) -> Unit throws HttpError {
-        server_close(server)?
+    pub fn close(server: Server) -> Unit throws HttpError uses { Socket } {
+        try {
+            Socket.close(server.listener.id)
+        } catch {
+            e -> throw HttpError::ConnectionClosed
+        }
     }
 }
