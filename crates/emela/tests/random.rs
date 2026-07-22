@@ -1,7 +1,9 @@
-//! End-to-end tests for the `Random` capability (spec 0054 Part A). The effect
-//! is non-deterministic, so it is checked structurally — the wasip2 lowering
-//! imports `wasi:random`, and `Random.bytes(n)` yields `n` bytes under
-//! `emela run` (the host-backed parity path).
+//! End-to-end tests for the `Random` capability and the seedable PRNG
+//! (spec 0054). The PRNG (Part B) is pure and deterministic, so its sequence is
+//! asserted exactly and checked to agree across backends. The `Random` effect
+//! (Part A) is non-deterministic, so it is checked structurally — the wasip2
+//! lowering imports `wasi:random`, and `Random.bytes(n)` yields `n` bytes under
+//! `emela run`.
 
 use std::fs;
 use std::process::Command;
@@ -100,5 +102,62 @@ fn random_effect_lowers_to_wasi_random_on_wasip2() {
     assert!(
         !wat.contains("wasi:sockets"),
         "a Random-only program must not import wasi:sockets:\n{wat}"
+    );
+}
+
+#[test]
+fn prng_is_deterministic_and_seed_sensitive() {
+    // Part B (spec 0054 Q1): the same seed yields the same sequence; different
+    // seeds (almost surely) differ. Pure, so no capability is used.
+    let third = "{\n\
+        let a = random.next(random.seed(SEED))\n\
+        let b = random.next(a.next)\n\
+        random.next(b.next).value\n\
+    }";
+    let with_seed = |s: &str| print_prog("Io", &third.replace("SEED", s));
+    let a = run_stdout(&with_seed("42"));
+    let b = run_stdout(&with_seed("42"));
+    let c = run_stdout(&with_seed("43"));
+    assert_eq!(a, b, "same seed must reproduce the sequence");
+    assert_ne!(a, c, "different seeds must (almost surely) differ");
+}
+
+#[test]
+fn prng_agrees_across_backends() {
+    // The PRNG is pure Emela, so wasm-wasi and js-node produce the same value
+    // (spec 0054 Q1, spec 0000).
+    let program = print_prog("Io", "random.next(random.seed(12345)).value");
+    let wasm = run_stdout(&program);
+
+    let dir = temp_dir();
+    let input = dir.join("main.emel");
+    let js_path = dir.join("out.js");
+    fs::write(&input, &program).unwrap();
+    let build = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .args(["build", "--backend", "js-node", "-o"])
+        .arg(&js_path)
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let node = Command::new("node").arg(&js_path).output().unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    let js = String::from_utf8(node.stdout).unwrap().trim().to_owned();
+    assert_eq!(wasm, js, "PRNG must agree across backends");
+}
+
+#[test]
+fn prng_seed_zero_is_remapped() {
+    // Part B (spec 0054 Q2): a zero seed cannot leave xorshift state 0, so it is
+    // remapped; `next` on `seed(0)` produces a non-zero draw.
+    let program = print_prog("Io", "random.next(random.seed(0)).value");
+    assert_ne!(
+        run_stdout(&program),
+        "0",
+        "seed(0) must not yield a zero draw"
     );
 }
