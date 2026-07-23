@@ -53,6 +53,7 @@ impl Lsp {
             result["capabilities"]["completionProvider"].is_object(),
             "{result}"
         );
+        assert_eq!(result["capabilities"]["hoverProvider"], json!(true));
         lsp.notify("initialized", json!({}));
         lsp
     }
@@ -140,6 +141,25 @@ impl Lsp {
                     .unwrap_or_default();
             }
         }
+    }
+
+    fn hover(&mut self, uri: &str, line: u32, character: u32) -> Value {
+        self.request(
+            "textDocument/hover",
+            json!({
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": character},
+            }),
+        )
+    }
+
+    /// The hover's code-block content at a position; panics on a null hover.
+    fn hover_value(&mut self, uri: &str, line: u32, character: u32) -> String {
+        let result = self.hover(uri, line, character);
+        result["contents"]["value"]
+            .as_str()
+            .unwrap_or_else(|| panic!("expected hover at {line}:{character}, got {result}"))
+            .to_string()
     }
 
     fn completion_labels(&mut self, uri: &str, line: u32, character: u32) -> Vec<String> {
@@ -502,8 +522,85 @@ fn rejects_unknown_requests() {
     let mut lsp = Lsp::start();
     lsp.next_id += 1;
     let id = lsp.next_id;
-    lsp.send(&json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/hover", "params": {}}));
+    lsp.send(
+        &json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/definition", "params": {}}),
+    );
     let message = lsp.read_message();
     assert_eq!(message["error"]["code"], json!(-32601), "{message}");
+    lsp.shutdown_and_exit();
+}
+
+// Hover shows the recorded types: parameters and `let` bindings as
+// `name: Type` (inference included), references and expressions as the type
+// alone, and function names as their full signature.
+#[test]
+fn hover_params_lets_and_functions() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "fn add(x: Int, y: Int) -> Int uses {} {\n  x + y\n}\n\nfn main() -> Int uses {} {\n  let s = \"a\"\n  let v = Option::Some(1)\n  add(1, 2)\n}\n";
+    let mut lsp = Lsp::start();
+    open_and_settle(&mut lsp, &uri, source);
+    // The parameter's declaration site names the binding.
+    assert!(lsp.hover_value(&uri, 0, 7).contains("x: Int"));
+    // A reference shows the type alone.
+    assert!(lsp.hover_value(&uri, 1, 2).contains("Int"));
+    // An operator hovers as the enclosing expression.
+    assert!(lsp.hover_value(&uri, 1, 4).contains("Int"));
+    // Un-annotated `let`s show their inferred types.
+    assert!(lsp.hover_value(&uri, 5, 6).contains("s: String"));
+    assert!(lsp.hover_value(&uri, 6, 6).contains("v: Option<Int>"));
+    // A function name — definition or call site — shows the signature.
+    assert!(
+        lsp.hover_value(&uri, 0, 3)
+            .contains("fn add(Int, Int) -> Int")
+    );
+    assert!(
+        lsp.hover_value(&uri, 7, 2)
+            .contains("fn add(Int, Int) -> Int")
+    );
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// Positions are UTF-16 code units: hover past a multibyte string literal
+// resolves correctly, and hovering nothing yields a null result.
+#[test]
+fn hover_utf16_positions_and_null() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "fn greet() -> String uses {} {\n  let x = \"こんにちは\"\n  x\n}\n";
+    let mut lsp = Lsp::start();
+    open_and_settle(&mut lsp, &uri, source);
+    assert!(lsp.hover_value(&uri, 1, 6).contains("x: String"));
+    // Inside the literal, past the multibyte characters.
+    assert!(lsp.hover_value(&uri, 1, 13).contains("String"));
+    assert!(lsp.hover_value(&uri, 2, 2).contains("String"));
+    // The `fn` keyword has no type.
+    assert!(lsp.hover(&uri, 0, 0).is_null());
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// A body keeps the entries checked before its first error, and other bodies
+// are unaffected — hover keeps working in a broken file (spec 0033).
+#[test]
+fn hover_survives_type_errors() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "fn broken() -> Int uses {} {\n  let a = 1\n  unknown_name\n}\n\nfn fine(b: Bool) -> Bool uses {} {\n  b\n}\n";
+    let mut lsp = Lsp::start();
+    lsp.open(&uri, source);
+    let diagnostics = lsp.wait_diagnostics(&uri);
+    assert!(!diagnostics.is_empty(), "expected an error to be published");
+    assert!(lsp.hover_value(&uri, 1, 6).contains("a: Int"));
+    assert!(lsp.hover_value(&uri, 5, 8).contains("b: Bool"));
+    assert!(lsp.hover_value(&uri, 6, 2).contains("Bool"));
+    let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();
 }

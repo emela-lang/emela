@@ -9,6 +9,7 @@
 mod analysis;
 mod completion;
 mod documents;
+mod hover;
 mod position;
 mod protocol;
 mod rpc;
