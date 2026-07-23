@@ -792,13 +792,17 @@ impl<'a> Checker<'a> {
         // `expand_trait_defaults`, so they count as provided.
         for tmethod in &trait_info.methods {
             if !tmethod.has_default && !decl.methods.iter().any(|m| m.name == tmethod.name) {
-                return Err(Error::diagnostic(Diagnostic::new("Incomplete impl").label(
-                    decl.trait_span.clone(),
-                    format!(
-                        "missing method `{}` required by `{}`",
-                        tmethod.name, decl.trait_name
-                    ),
-                )));
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Incomplete impl")
+                        .code("incomplete-impl")
+                        .label(
+                            decl.trait_span.clone(),
+                            format!(
+                                "missing method `{}` required by `{}`",
+                                tmethod.name, decl.trait_name
+                            ),
+                        ),
+                ));
             }
         }
         let idx = self.impls.len();
@@ -2628,6 +2632,7 @@ impl<'a> Checker<'a> {
         } else {
             Err(Error::diagnostic(
                 Diagnostic::new("Non-exhaustive match")
+                    .code("non-exhaustive-match")
                     .label(
                         span.clone(),
                         format!("missing case(s): {}", missing.join(", ")),

@@ -194,6 +194,12 @@ impl Diagnostic {
         &self.title
     }
 
+    /// The machine-readable code, if any — lint rule ids and the compiler
+    /// errors code actions key on (spec 0033). `code` is the builder above.
+    pub(crate) fn code_ref(&self) -> Option<&'static str> {
+        self.code
+    }
+
     pub(crate) fn primary_label(&self) -> Option<&Label> {
         self.primary.as_ref()
     }

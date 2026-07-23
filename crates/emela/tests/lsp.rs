@@ -54,6 +54,10 @@ impl Lsp {
             "{result}"
         );
         assert_eq!(result["capabilities"]["hoverProvider"], json!(true));
+        assert!(
+            result["capabilities"]["codeActionProvider"].is_object(),
+            "{result}"
+        );
         lsp.notify("initialized", json!({}));
         lsp
     }
@@ -149,6 +153,21 @@ impl Lsp {
             json!({
                 "textDocument": {"uri": uri},
                 "position": {"line": line, "character": character},
+            }),
+        )
+    }
+
+    /// Requests code actions for a collapsed range at a position.
+    fn code_actions(&mut self, uri: &str, line: u32, character: u32) -> Value {
+        self.request(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": {"uri": uri},
+                "range": {
+                    "start": {"line": line, "character": character},
+                    "end": {"line": line, "character": character},
+                },
+                "context": {"diagnostics": []},
             }),
         )
     }
@@ -601,6 +620,168 @@ fn hover_survives_type_errors() {
     assert!(lsp.hover_value(&uri, 1, 6).contains("a: Int"));
     assert!(lsp.hover_value(&uri, 5, 8).contains("b: Bool"));
     assert!(lsp.hover_value(&uri, 6, 2).contains("Bool"));
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+/// Byte offset of a line/character position (ASCII-only test sources).
+fn offset_of(text: &str, line: u64, character: u64) -> usize {
+    let mut offset = 0;
+    for _ in 0..line {
+        offset += text[offset..].find('\n').unwrap() + 1;
+    }
+    offset + character as usize
+}
+
+/// Applies one TextEdit to `text`, the way a client would.
+fn apply_edit(text: &str, edit: &Value) -> String {
+    let start = offset_of(
+        text,
+        edit["range"]["start"]["line"].as_u64().unwrap(),
+        edit["range"]["start"]["character"].as_u64().unwrap(),
+    );
+    let end = offset_of(
+        text,
+        edit["range"]["end"]["line"].as_u64().unwrap(),
+        edit["range"]["end"]["character"].as_u64().unwrap(),
+    );
+    format!(
+        "{}{}{}",
+        &text[..start],
+        edit["newText"].as_str().unwrap(),
+        &text[end..]
+    )
+}
+
+// The non-exhaustive-match quickfix appends the missing arms; applying the
+// edit clears the diagnostic.
+#[test]
+fn code_action_fills_missing_match_arms() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "enum Color {\n  Red\n  Green\n}\n\nfn f(c: Color) -> Int uses {} {\n  match c {\n    Red -> 1\n  }\n}\n";
+    let mut lsp = Lsp::start();
+    lsp.open(&uri, source);
+    let diagnostics = lsp.wait_diagnostics(&uri);
+    assert_eq!(diagnostics[0]["code"], json!("non-exhaustive-match"));
+    let actions = lsp.code_actions(&uri, 6, 4);
+    let actions = actions.as_array().unwrap();
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    assert_eq!(actions[0]["kind"], json!("quickfix"));
+    assert!(actions[0]["title"].as_str().unwrap().contains("Green"));
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    assert!(
+        edit["newText"]
+            .as_str()
+            .unwrap()
+            .contains("Color::Green -> panic(\"TODO: handle Green\")"),
+        "{edit}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 2, &fixed);
+    let diagnostics = lsp.wait_diagnostics(&uri);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// Generic enums get instantiated arms, payload variants bind `_` per field,
+// and a match with no arms at all inserts after its opening brace.
+#[test]
+fn code_action_generic_payload_and_empty_match() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let mut lsp = Lsp::start();
+
+    let source = "fn f(o: Option<Int>) -> Int uses {} {\n  match o {\n    Some(v) -> v\n  }\n}\n";
+    lsp.open(&uri, source);
+    lsp.wait_diagnostics(&uri);
+    let actions = lsp.code_actions(&uri, 1, 4);
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    assert!(
+        edit["newText"]
+            .as_str()
+            .unwrap()
+            .contains("Option::None -> panic(\"TODO: handle None\")"),
+        "{edit}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 2, &fixed);
+    assert!(lsp.wait_diagnostics(&uri).is_empty());
+
+    let source = "fn f(o: Option<Int>) -> Int uses {} {\n  match o {\n    None -> 0\n  }\n}\n";
+    lsp.change(&uri, 3, source);
+    lsp.wait_diagnostics(&uri);
+    let actions = lsp.code_actions(&uri, 1, 4);
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    assert!(
+        edit["newText"]
+            .as_str()
+            .unwrap()
+            .contains("Option::Some(_) -> panic(\"TODO: handle Some\")"),
+        "{edit}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 4, &fixed);
+    assert!(lsp.wait_diagnostics(&uri).is_empty());
+
+    let source = "enum Color {\n  Red\n}\n\nfn f(c: Color) -> Int uses {} {\n  match c {\n  }\n}\n";
+    lsp.change(&uri, 5, source);
+    lsp.wait_diagnostics(&uri);
+    let actions = lsp.code_actions(&uri, 5, 4);
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    assert!(
+        edit["newText"]
+            .as_str()
+            .unwrap()
+            .contains("Color::Red -> panic(\"TODO: handle Red\")"),
+        "{edit}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 6, &fixed);
+    assert!(lsp.wait_diagnostics(&uri).is_empty());
+
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// A wildcard arm means exhaustive-by-catch-all: no action. A position outside
+// any match yields none either.
+#[test]
+fn code_action_absent_when_exhaustive() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "fn f(o: Option<Int>) -> Int uses {} {\n  match o {\n    Some(v) -> v\n    _ -> 0\n  }\n}\n";
+    let mut lsp = Lsp::start();
+    open_and_settle(&mut lsp, &uri, source);
+    assert_eq!(lsp.code_actions(&uri, 1, 4), json!([]));
+    assert_eq!(lsp.code_actions(&uri, 0, 0), json!([]));
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// Compiler diagnostics carry their machine-readable code on the wire.
+#[test]
+fn diagnostics_carry_codes() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "trait Greet {\n  fn greet(x: Self) -> String\n}\n\nenum Foo {\n  A\n}\n\nimpl Greet for Foo {\n}\n";
+    let mut lsp = Lsp::start();
+    lsp.open(&uri, source);
+    let diagnostics = lsp.wait_diagnostics(&uri);
+    let incomplete = diagnostics
+        .iter()
+        .find(|d| d["message"].as_str().unwrap().contains("Incomplete impl"))
+        .unwrap();
+    assert_eq!(incomplete["code"], json!("incomplete-impl"));
     let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();
 }
