@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
@@ -22,6 +23,33 @@ pub(crate) struct TypedFunction {
     /// `effects`. The lint for over-declared effects (specs 0023/0035)
     /// compares the two.
     pub(crate) body_effects: EffectRow,
+}
+
+/// What a recorded [`TypeEntry`] describes, which decides how the language
+/// server's hover renders it (spec 0033).
+#[derive(Debug, Clone)]
+pub(crate) enum EntryKind {
+    /// A name-introducing site — parameter, `let`, pattern binding — rendered
+    /// as `name: Type`.
+    Binding(String),
+    /// Any checked expression, rendered as the type alone.
+    Expr,
+}
+
+/// One span→type fact recorded while checking: the raw material for hover.
+#[derive(Debug, Clone)]
+pub(crate) struct TypeEntry {
+    pub(crate) span: Span,
+    pub(crate) ty: Type,
+    pub(crate) kind: EntryKind,
+}
+
+/// Every fact recorded during one [`check_with_index`] run, in checking order.
+/// A body that fails keeps the entries recorded before its error, so hover
+/// still works on the checked prefix (spec 0033).
+#[derive(Debug, Default)]
+pub(crate) struct TypeIndex {
+    pub(crate) entries: Vec<TypeEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -235,6 +263,27 @@ pub(crate) fn check(
     require_main: bool,
     platform_registry: &[emela_codegen::PlatformFn],
 ) -> (TypedProgram, Vec<Error>) {
+    let (typed, _, errors) = check_inner(program, require_main, platform_registry, false);
+    (typed, errors)
+}
+
+/// [`check`] with span→type recording on: additionally returns the
+/// [`TypeIndex`] the language server's hover reads (spec 0033). The normal
+/// compile paths use [`check`] and record nothing.
+pub(crate) fn check_with_index(
+    program: &Program,
+    require_main: bool,
+    platform_registry: &[emela_codegen::PlatformFn],
+) -> (TypedProgram, TypeIndex, Vec<Error>) {
+    check_inner(program, require_main, platform_registry, true)
+}
+
+fn check_inner(
+    program: &Program,
+    require_main: bool,
+    platform_registry: &[emela_codegen::PlatformFn],
+    record: bool,
+) -> (TypedProgram, TypeIndex, Vec<Error>) {
     let mut errors = Vec::new();
     let mut effects_in_scope: HashSet<String> = program
         .effects
@@ -261,6 +310,7 @@ pub(crate) fn check(
         method_owners: HashMap::new(),
         effects_in_scope,
         platform_registry,
+        type_index: record.then(|| RefCell::new(Vec::new())),
     };
     checker.register_enums(program, &mut errors);
     checker.register_records(program, &mut errors);
@@ -318,7 +368,14 @@ pub(crate) fn check(
             })
             .collect(),
     };
-    (typed, errors)
+    let index = TypeIndex {
+        entries: checker
+            .type_index
+            .take()
+            .map(RefCell::into_inner)
+            .unwrap_or_default(),
+    };
+    (typed, index, errors)
 }
 
 struct Checker<'a> {
@@ -354,6 +411,10 @@ struct Checker<'a> {
     effects_in_scope: HashSet<String>,
     /// The platform registry (standard + host-interface entries, spec 0026).
     platform_registry: &'a [emela_codegen::PlatformFn],
+    /// Span→type recording for the language server's hover (spec 0033):
+    /// `Some` only under [`check_with_index`]. `RefCell` because checking is
+    /// `&self` throughout; the borrow never outlives one `record` call.
+    type_index: Option<RefCell<Vec<TypeEntry>>>,
 }
 
 impl<'a> Checker<'a> {
@@ -791,7 +852,13 @@ impl<'a> Checker<'a> {
         subst.insert("Self".to_string(), decl.target.clone());
         let mut scope = HashMap::new();
         for param in &method.params {
-            scope.insert(param.name.clone(), subst_type(&param.ty, &subst));
+            let ty = subst_type(&param.ty, &subst);
+            self.record(
+                &param.name_span,
+                &ty,
+                EntryKind::Binding(param.name.clone()),
+            );
+            scope.insert(param.name.clone(), ty);
         }
         let ret = subst_type(&method.ret, &subst);
         let throws = method.throws.as_ref().map(|t| subst_type(t, &subst));
@@ -1454,6 +1521,11 @@ impl<'a> Checker<'a> {
         self.check_effect_row(&function.effects, &function.name_span)?;
         let mut scope = HashMap::new();
         for param in &function.params {
+            self.record(
+                &param.name_span,
+                &param.ty,
+                EntryKind::Binding(param.name.clone()),
+            );
             scope.insert(param.name.clone(), param.ty.clone());
         }
         let bounds = bounds_map(&function.bounds);
@@ -1551,15 +1623,20 @@ impl<'a> Checker<'a> {
                         ));
                     }
                     let info = match (value, ty) {
-                        (Expr::Array(elements, span), Some(Type::Array(element))) => self
-                            .check_array(
+                        (Expr::Array(elements, span), Some(Type::Array(element))) => {
+                            // Checked directly, not via `check_expr_expected`,
+                            // so the index entry is recorded here.
+                            let info = self.check_array(
                                 elements,
                                 span,
                                 &mut scope,
                                 ctx,
                                 Some(element),
                                 allow_throw,
-                            )?,
+                            )?;
+                            self.record(&info.span, &info.ty, EntryKind::Expr);
+                            info
+                        }
                         // An annotated `let` gives its value an expected type, so
                         // a return-dispatched `empty()` resolves here (spec 0047).
                         (_, Some(annotation)) => self.check_expr_expected(
@@ -1577,6 +1654,9 @@ impl<'a> Checker<'a> {
                     } else {
                         info.ty
                     };
+                    // The binding's type — the annotation, or the inferred
+                    // value type — is what hover shows for the name.
+                    self.record(name_span, &binding_ty, EntryKind::Binding(name.clone()));
                     effects.union(&info.effects);
                     throws = merge_throws(throws, info.throws, info.span)?;
                     scope.insert(name.clone(), binding_ty);
@@ -1621,7 +1701,23 @@ impl<'a> Checker<'a> {
     /// trait methods (`empty()`). It is threaded only through positions that
     /// propagate an expected type (block tail, `let` annotation, call argument,
     /// `if`/`match` branches); elsewhere it is `None`.
+    ///
+    /// Every expression flows through here, so this wrapper is the single
+    /// place the type index (spec 0033) records expression types.
     fn check_expr_expected(
+        &self,
+        expr: &Expr,
+        scope: &mut HashMap<String, Type>,
+        ctx: &FnCtx,
+        allow_throw: bool,
+        expected: Option<&Type>,
+    ) -> Result<ExprInfo> {
+        let info = self.check_expr_expected_inner(expr, scope, ctx, allow_throw, expected)?;
+        self.record(&info.span, &info.ty, EntryKind::Expr);
+        Ok(info)
+    }
+
+    fn check_expr_expected_inner(
         &self,
         expr: &Expr,
         scope: &mut HashMap<String, Type>,
@@ -1740,6 +1836,11 @@ impl<'a> Checker<'a> {
                             ),
                         ));
                     }
+                    self.record(
+                        &param.name_span,
+                        &param.ty,
+                        EntryKind::Binding(param.name.clone()),
+                    );
                     fn_scope.insert(param.name.clone(), param.ty.clone());
                 }
                 // The literal's own declared row is the `uses` gate inside its
@@ -2448,7 +2549,8 @@ impl<'a> Checker<'a> {
     ) -> Result<()> {
         match pattern {
             Pattern::Wildcard(_) => Ok(()),
-            Pattern::Binding { name, .. } => {
+            Pattern::Binding { name, span } => {
+                self.record(span, scrut_ty, EntryKind::Binding(name.clone()));
                 scope.insert(name.clone(), scrut_ty.clone());
                 Ok(())
             }
@@ -2576,6 +2678,18 @@ impl<'a> Checker<'a> {
             effects: EffectRow::default(),
             throws: None,
             span,
+        }
+    }
+
+    /// Records one span→type fact when index recording is on (spec 0033);
+    /// a single branch and no allocation on the normal compile path.
+    fn record(&self, span: &Span, ty: &Type, kind: EntryKind) {
+        if let Some(index) = &self.type_index {
+            index.borrow_mut().push(TypeEntry {
+                span: span.clone(),
+                ty: ty.clone(),
+                kind,
+            });
         }
     }
 
