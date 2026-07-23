@@ -86,6 +86,8 @@ struct EnumInfo {
 /// types are stated.
 #[derive(Debug, Clone)]
 struct RecordInfo {
+    /// The declaring module (spec 0020 orphan rule).
+    module: Option<String>,
     /// Type parameters of a generic record (spec 0028); empty for a plain record.
     type_params: Vec<String>,
     /// Fields in declaration order: name and declared type (which may reference
@@ -446,6 +448,7 @@ impl<'a> Checker<'a> {
             self.records.insert(
                 decl.name.clone(),
                 RecordInfo {
+                    module: decl.module.clone(),
                     type_params: decl.type_params.clone(),
                     fields,
                 },
@@ -828,7 +831,15 @@ impl<'a> Checker<'a> {
     /// nameable owner (e.g. a function type).
     fn type_owning_module(&self, ty: &Type) -> Option<Option<String>> {
         match ty {
-            Type::Enum(name, _) => self.enums.get(name).map(|info| info.module.clone()),
+            // A record and an enum share the `Type::Enum(name, _)` representation
+            // (nominal), but live in separate tables. Consult both so an `impl` on
+            // a user record (spec 0006) — generic or not — resolves its owning
+            // module for the orphan rule, just like an enum.
+            Type::Enum(name, _) => self
+                .enums
+                .get(name)
+                .map(|info| info.module.clone())
+                .or_else(|| self.records.get(name).map(|info| info.module.clone())),
             Type::Int
             | Type::Float
             | Type::String
