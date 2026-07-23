@@ -316,8 +316,9 @@ fn wildcard_item() -> CompletionItem {
 
 /// The declared type of `name` at `offset`: an enclosing function's parameter
 /// or the nearest annotated `let` above the cursor. Best-effort — inference
-/// beyond annotations is out of scope for completion (spec 0033).
-fn scrutinee_type(name: &str, offset: usize, snapshot: &Snapshot) -> Option<Type> {
+/// beyond annotations is out of scope for completion (spec 0033). Code
+/// actions share it as the fallback when the type index has no entry.
+pub(crate) fn scrutinee_type(name: &str, offset: usize, snapshot: &Snapshot) -> Option<Type> {
     let function = enclosing_function(offset, snapshot)?;
     let mut found = None;
     for param in &function.params {

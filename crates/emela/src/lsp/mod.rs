@@ -7,6 +7,7 @@
 //! hand-written on serde_json, like the rest of the CLI.
 
 mod analysis;
+mod code_action;
 mod completion;
 mod documents;
 mod hover;

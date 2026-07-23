@@ -2,6 +2,8 @@
 //! so the protocol layer stays serde-only. Field names follow the wire format
 //! (camelCase) via serde renames; unknown incoming fields are ignored.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +27,10 @@ pub(crate) const SEVERITY_ERROR: u8 = 1;
 pub(crate) struct Diagnostic {
     pub(crate) range: Range,
     pub(crate) severity: u8,
+    /// The compiler diagnostic's machine-readable code (spec 0033), e.g.
+    /// `non-exhaustive-match` — lets clients group and filter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) code: Option<&'static str>,
     pub(crate) source: &'static str,
     pub(crate) message: String,
 }
@@ -106,6 +112,37 @@ pub(crate) struct Hover {
     pub(crate) contents: MarkupContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) range: Option<Range>,
+}
+
+/// `context` is deliberately not deserialized: actions are recomputed from
+/// the latest snapshot at the range, never from client-echoed diagnostics —
+/// the server re-checks synchronously on every change, so the snapshot is
+/// at least as fresh as anything the client holds (spec 0033).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodeActionParams {
+    pub(crate) text_document: TextDocumentIdentifier,
+    pub(crate) range: Range,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TextEdit {
+    pub(crate) range: Range,
+    pub(crate) new_text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct WorkspaceEdit {
+    pub(crate) changes: HashMap<String, Vec<TextEdit>>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CodeAction {
+    pub(crate) title: String,
+    /// Always `"quickfix"` — the one kind this server produces.
+    pub(crate) kind: &'static str,
+    pub(crate) edit: WorkspaceEdit,
 }
 
 /// CompletionItemKind values used by the server.
