@@ -7,6 +7,13 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/emela-lang/emela/compare/v0.9.1...v0.10.0) - 2026-07-23
+
+### Added
+
+- LSP に codeAction（match アーム補充）と診断 code を追加（spec 0033） ([#98](https://github.com/emela-lang/emela/pull/98))
+- LSP に textDocument/hover を追加（span→型インデックス，spec 0033） ([#97](https://github.com/emela-lang/emela/pull/97))
+
 ## [0.9.1](https://github.com/emela-lang/emela/compare/v0.9.0...v0.9.1) - 2026-07-23
 
 ### Fixed
