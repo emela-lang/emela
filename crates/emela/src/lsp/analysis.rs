@@ -93,6 +93,7 @@ fn group_diagnostics(
                         end: offset_to_position(&file.source, span.end),
                     },
                     severity: SEVERITY_ERROR,
+                    code: error.diagnostic_ref().and_then(|d| d.code_ref()),
                     source: "emela",
                     message: render_message(error),
                 };
@@ -151,6 +152,7 @@ fn top_of_file_diagnostic(message: String) -> Diagnostic {
             end: zero,
         },
         severity: SEVERITY_ERROR,
+        code: None,
         source: "emela",
         message,
     }
