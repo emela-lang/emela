@@ -3113,6 +3113,7 @@ pub(crate) fn expand_trait_defaults(program: &mut Program) {
                 declared_module: decl.module.clone(),
                 effect_name: None,
                 type_params: Vec::new(),
+                row_params: Vec::new(),
                 bounds: Vec::new(),
                 params: tmethod.params.clone(),
                 ret: tmethod.ret.clone(),

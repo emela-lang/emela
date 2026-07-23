@@ -85,24 +85,89 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct EffectRow {
     pub effects: Vec<String>,
+    /// Row-variable tails of an open row (spec 0022): the `e` of `uses e` /
+    /// `uses { Io, ..e }`, sorted and deduplicated like `effects`. Empty for a
+    /// closed row. Lowering erases rows to their concrete part (`concrete`), so
+    /// a lowered IR never carries tails — which also keeps the serialized form
+    /// identical to the pre-0022 one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tails: Vec<String>,
 }
 
 impl EffectRow {
     pub fn sorted(mut effects: Vec<String>) -> Self {
         effects.sort();
         effects.dedup();
-        Self { effects }
+        Self {
+            effects,
+            tails: Vec::new(),
+        }
+    }
+
+    /// A normalized row with row-variable tails (spec 0022).
+    pub fn open(effects: Vec<String>, mut tails: Vec<String>) -> Self {
+        let mut row = Self::sorted(effects);
+        tails.sort();
+        tails.dedup();
+        row.tails = tails;
+        row
     }
 
     pub fn union(&mut self, other: &EffectRow) {
         self.effects.extend(other.effects.iter().cloned());
         self.effects.sort();
         self.effects.dedup();
+        self.tails.extend(other.tails.iter().cloned());
+        self.tails.sort();
+        self.tails.dedup();
     }
 
+    /// Component-wise subset (spec 0023): row variables are universally
+    /// quantified, so `{C1, ..T1} ⊆ {C2, ..T2}` holds exactly when `C1 ⊆ C2`
+    /// and `T1 ⊆ T2`.
     pub fn is_subset_of(&self, other: &EffectRow) -> bool {
         self.effects
             .iter()
             .all(|effect| other.effects.contains(effect))
+            && self.tails.iter().all(|tail| other.tails.contains(tail))
+    }
+
+    /// The concrete part of the row, with row-variable tails erased (spec 0022):
+    /// the form lowering writes into the IR.
+    pub fn concrete(&self) -> EffectRow {
+        EffectRow {
+            effects: self.effects.clone(),
+            tails: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EffectRow;
+
+    /// A pre-0022 IR (no `tails` key) still deserializes, and a closed row
+    /// serializes back to the identical shape.
+    #[test]
+    fn effect_row_serde_compat() {
+        let row: EffectRow = serde_json::from_str(r#"{"effects":["Io"]}"#).unwrap();
+        assert_eq!(row.effects, vec!["Io"]);
+        assert!(row.tails.is_empty());
+        assert_eq!(
+            serde_json::to_string(&row).unwrap(),
+            r#"{"effects":["Io"]}"#
+        );
+    }
+
+    #[test]
+    fn effect_row_open_normalizes_and_subsets() {
+        let open = EffectRow::open(vec!["Io".into()], vec!["e".into(), "e".into()]);
+        assert_eq!(open.tails, vec!["e"]);
+        let wider = EffectRow::open(vec!["Io".into(), "Log".into()], vec!["e".into()]);
+        assert!(open.is_subset_of(&wider));
+        assert!(!wider.is_subset_of(&open));
+        // A tail is never implied by a wider concrete row.
+        assert!(!open.is_subset_of(&EffectRow::sorted(vec!["Io".into(), "Log".into()])));
+        assert!(open.concrete().tails.is_empty());
     }
 }

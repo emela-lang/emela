@@ -46,6 +46,9 @@ pub(crate) enum TokenKind {
     /// 0005/0018).
     ColonColon,
     Dot,
+    /// `..` — the row-extension marker in an effect row (`uses { Io, ..e }`,
+    /// specs 0022/0023). Matched before the single `.` (maximal munch).
+    DotDot,
     Eq,
     EqEq,
     Ne,
@@ -235,6 +238,13 @@ fn lex_with_file(
                 i += 2;
             }
             b':' => push(&mut tokens, TokenKind::Colon, file.clone(), start, &mut i),
+            b'.' if i + 1 < bytes.len() && bytes[i + 1] == b'.' => {
+                tokens.push(Token {
+                    kind: TokenKind::DotDot,
+                    span: Span::new(file.clone(), start, start + 2),
+                });
+                i += 2;
+            }
             b'.' => push(&mut tokens, TokenKind::Dot, file.clone(), start, &mut i),
             b'=' => push(&mut tokens, TokenKind::Eq, file.clone(), start, &mut i),
             // Shift operators (spec 0053), matched before the single `<` / `>`

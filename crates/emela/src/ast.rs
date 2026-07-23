@@ -221,6 +221,10 @@ pub(crate) struct Function {
     /// non-generic function. Their names appear as `Type::Var` in this
     /// function's signature and body.
     pub(crate) type_params: Vec<String>,
+    /// Declared effect-row parameters (spec 0022): the lowercase names of the
+    /// `<...>` list, e.g. `["e"]` for `fn map<T, U, e>`. Their names appear as
+    /// tails in the `uses` rows of this function's signature and body.
+    pub(crate) row_params: Vec<String>,
     /// Trait bounds on the type parameters (spec 0020), e.g. `<T: Add>`. Empty
     /// when no parameter is bounded. Consulted only when resolving bare trait
     /// method calls in the body; the monomorphization machinery needs only the
