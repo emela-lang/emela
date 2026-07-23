@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/emela-lang/emela/compare/v0.9.0...v0.9.1) - 2026-07-23
+
+### Fixed
+
+- record を対象にした impl の孤児判定を修正（spec 0020） ([#95](https://github.com/emela-lang/emela/pull/95))
+
 ## [0.9.0](https://github.com/emela-lang/emela/compare/v0.8.1...v0.9.0) - 2026-07-22
 
 ### Added
