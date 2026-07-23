@@ -3,9 +3,10 @@
 //! syntax), operator/`to_string` resolution through the embedded prelude,
 //! bounded-generic monomorphization, coherence, and the diagnostic cases.
 //!
-//! These use only enum and built-in types (the language has no `record`
-//! declaration) and need no packages: the Core Prelude is embedded, so a
-//! single file resolves the operator traits and `Show` with no import.
+//! Most cases use enum and built-in types, plus a few `record` targets (spec
+//! 0006/0028) for the orphan rule; none need packages: the Core Prelude is
+//! embedded, so a single file resolves the operator traits and `Show` with no
+//! import.
 
 use std::fs;
 use std::process::Command;
@@ -263,6 +264,59 @@ fn main() -> Int uses {} { 0 }
     assert!(
         dump.contains("Describe__Array_Color_"),
         "missing the Array<Color> specialization:\n{dump}"
+    );
+}
+
+#[test]
+fn implements_trait_for_record() {
+    // A `record` is a valid impl target (spec 0020's `impl Add for Vec2`), owned
+    // by its declaring module for the orphan rule just like an enum. Records and
+    // enums share the nominal `Type::Enum` representation but live in separate
+    // tables, so the orphan check must consult both.
+    let source = "\
+record Point {
+    x: Int
+    y: Int
+}
+impl Show for Point {
+    fn to_string(p: Point) -> String uses {} {
+        \"(\" ++ to_string(p.x) ++ \", \" ++ to_string(p.y) ++ \")\"
+    }
+}
+fn show_it(p: Point) -> String { to_string(p) }
+fn main() -> Int uses {} { 0 }
+";
+    check_ok(source);
+    let dump = ir(source);
+    assert!(
+        dump.contains("Show__Point__to_string"),
+        "missing the record impl method:\n{dump}"
+    );
+}
+
+#[test]
+fn parameterized_instance_over_generic_record() {
+    // `impl<T: Show> Show for Pair<T>` on a user-defined generic record (spec
+    // 0028) discharges the element bound during dispatch, mirroring the built-in
+    // `Array<T>` case: `Pair<Int>` specializes because `Int: Show`.
+    let source = "\
+record Pair<T> {
+    first: T
+    second: T
+}
+impl<T: Show> Show for Pair<T> {
+    fn to_string(p: Pair<T>) -> String uses {} {
+        \"(\" ++ to_string(p.first) ++ \", \" ++ to_string(p.second) ++ \")\"
+    }
+}
+fn show_it(p: Pair<Int>) -> String { to_string(p) }
+fn main() -> Int uses {} { 0 }
+";
+    check_ok(source);
+    let dump = ir(source);
+    assert!(
+        dump.contains("Show__Pair_Int_"),
+        "missing the Pair<Int> specialization:\n{dump}"
     );
 }
 
