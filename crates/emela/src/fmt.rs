@@ -880,8 +880,8 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
         return false;
     }
     // Openers and prefix operators attach tightly to the right (`~` is prefix,
-    // spec 0053).
-    if matches!(prev, LParen | LBracket | Dot | ColonColon | Bang | Tilde) {
+    // spec 0053; `..` prefixes a row-variable tail, spec 0022).
+    if matches!(prev, LParen | LBracket | Dot | ColonColon | Bang | Tilde | DotDot) {
         return false;
     }
     // Generic angle brackets are tight (`List<Int>`, `impl<T>`, and a nested
@@ -1367,6 +1367,19 @@ mod tests {
         let source = "fn f(xs: Array<Int>, n: Int) -> Bool {\n    n<3\n}\n";
         let expected = "fn f(xs: Array<Int>, n: Int) -> Bool {\n    n < 3\n}\n";
         assert_eq!(fmt(source), expected);
+    }
+
+    #[test]
+    fn effect_row_variable_spacing() {
+        let source = "fn apply<T,e>(x: T, f: (T)->T uses e) -> T uses{Io,..e} {\n    f(x)\n}\n";
+        let expected = "fn apply<T, e>(x: T, f: (T) -> T uses e) -> T uses { Io, ..e } {\n    f(x)\n}\n";
+        assert_eq!(fmt(source), expected);
+    }
+
+    #[test]
+    fn bare_row_variable_before_body_is_stable() {
+        let source = "fn apply<T, e>(x: T, f: (T) -> T uses e) -> T uses e {\n    f(x)\n}\n";
+        assert_eq!(fmt(source), source);
     }
 
     #[test]
