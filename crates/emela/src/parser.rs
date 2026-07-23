@@ -714,7 +714,7 @@ impl Parser {
     /// The impl's own parameters and `Self` are in scope for the target type and
     /// every method.
     fn parse_impl(&mut self) -> Result<ImplDecl> {
-        self.expect(&TokenKind::Impl)?;
+        let start = self.expect(&TokenKind::Impl)?.span;
         let (type_params, bounds) = self.parse_type_params()?;
         let trait_span = self.peek().span.clone();
         let trait_name = self.expect_ident()?;
@@ -732,7 +732,7 @@ impl Parser {
             methods.push(self.parse_impl_method()?);
             self.skip_newlines();
         }
-        self.expect(&TokenKind::RBrace)?;
+        let end = self.expect(&TokenKind::RBrace)?.span;
         self.type_params = Vec::new();
         Ok(ImplDecl {
             trait_name,
@@ -744,6 +744,7 @@ impl Parser {
             // Stamped with the declaring module in `parse_program`.
             module: None,
             methods,
+            span: start.merge(&end),
         })
     }
 
