@@ -86,6 +86,28 @@ pub(crate) struct CompletionParams {
     pub(crate) position: Position,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HoverParams {
+    pub(crate) text_document: TextDocumentIdentifier,
+    pub(crate) position: Position,
+}
+
+/// MarkupContent — `kind` is always `"markdown"`, the one form this server
+/// emits (a fenced `emela` code block).
+#[derive(Debug, Serialize)]
+pub(crate) struct MarkupContent {
+    pub(crate) kind: &'static str,
+    pub(crate) value: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct Hover {
+    pub(crate) contents: MarkupContent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) range: Option<Range>,
+}
+
 /// CompletionItemKind values used by the server.
 pub(crate) mod completion_kind {
     pub(crate) const METHOD: u8 = 2;

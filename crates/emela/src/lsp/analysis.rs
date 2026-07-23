@@ -13,6 +13,7 @@ use crate::lsp::documents::{Document, DocumentStore, path_to_uri};
 use crate::lsp::position::offset_to_position;
 use crate::lsp::protocol::{Diagnostic, Position, Range, SEVERITY_ERROR};
 use crate::parser::parse_program;
+use crate::typecheck::{TypeEntry, TypeIndex};
 
 pub(crate) struct CheckOutcome {
     /// Diagnostics grouped by target URI. The entry document's URI is always
@@ -47,18 +48,19 @@ pub(crate) fn check_document(
     // own `main` (spec 0033); a library module gets `check --library` behavior.
     let (own, _) = parse_program(&label, &doc.text);
     let require_main = own.functions.iter().any(|function| function.name == "main");
-    let (program, _, mut errors) = driver::compile_frontend_source_all(
+    let (program, _, index, mut errors) = driver::compile_frontend_source_indexed(
         &path,
         &doc.text,
         &packages,
         require_main,
         &overlay,
         platform_registry,
+        true,
     );
     errors.extend(extra_errors);
     CheckOutcome {
         diagnostics: group_diagnostics(doc, &label, &errors),
-        snapshot: Snapshot::build(own, &program),
+        snapshot: Snapshot::build(own, &program, index, &label),
     }
 }
 
@@ -190,6 +192,10 @@ pub(crate) struct Snapshot {
     /// The entry file's own functions and impl methods, with bodies and spans,
     /// for locating the enclosing function and its locals at a cursor offset.
     pub(crate) entry_functions: Vec<Function>,
+    /// The entry file's span→type entries from the last check (spec 0033),
+    /// sorted by `(start, width)` — hover's lookup table. Partial when the
+    /// file has errors: a body keeps what was checked before its first error.
+    pub(crate) type_index: Vec<TypeEntry>,
 }
 
 pub(crate) struct EnumSym {
@@ -208,8 +214,20 @@ pub(crate) struct FnSym {
 }
 
 impl Snapshot {
-    fn build(own: Program, merged: &Program) -> Snapshot {
-        let mut snapshot = Snapshot::default();
+    fn build(own: Program, merged: &Program, index: TypeIndex, entry_label: &str) -> Snapshot {
+        // Only entry-file spans are addressable from this document's cursor.
+        // The merged program holds a distinct `Arc<SourceFile>` per module (and
+        // a second one for the entry file itself), so filter by label.
+        let mut type_index: Vec<TypeEntry> = index
+            .entries
+            .into_iter()
+            .filter(|entry| entry.span.file.label == entry_label)
+            .collect();
+        type_index.sort_by_key(|entry| (entry.span.start, entry.span.end - entry.span.start));
+        let mut snapshot = Snapshot {
+            type_index,
+            ..Snapshot::default()
+        };
         let mut seen_enums = BTreeSet::new();
         for decl in &merged.enums {
             if !seen_enums.insert(decl.name.clone()) {

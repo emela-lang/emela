@@ -636,6 +636,36 @@ pub(crate) fn compile_frontend_source_all(
     overlay: &HashMap<PathBuf, String>,
     platform_registry: &[emela_codegen::PlatformFn],
 ) -> (crate::ast::Program, typecheck::TypedProgram, Vec<Error>) {
+    let (program, typed, _, errors) = compile_frontend_source_indexed(
+        input,
+        source,
+        packages,
+        require_main,
+        overlay,
+        platform_registry,
+        false,
+    );
+    (program, typed, errors)
+}
+
+/// [`compile_frontend_source_all`] with optional span→type recording (spec
+/// 0033): `record_types` turns on the checker's type index, which the LSP's
+/// hover reads. The normal compile paths pass `false` and record nothing.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compile_frontend_source_indexed(
+    input: &Path,
+    source: &str,
+    packages: &[imports::PackageSource],
+    require_main: bool,
+    overlay: &HashMap<PathBuf, String>,
+    platform_registry: &[emela_codegen::PlatformFn],
+    record_types: bool,
+) -> (
+    crate::ast::Program,
+    typecheck::TypedProgram,
+    typecheck::TypeIndex,
+    Vec<Error>,
+) {
     let label = input.display().to_string();
     let (mut program, mut errors) = parse_program(&label, source);
     // The compilation root is user-authored: its `intrinsic fn` declarations
@@ -656,10 +686,15 @@ pub(crate) fn compile_frontend_source_all(
     // When recovery already dropped declarations, `main` may be among them;
     // requiring it would only add noise next to the real errors.
     let require_main = require_main && errors.is_empty();
-    let (typed, check_errors) = typecheck::check(&program, require_main, platform_registry);
+    let (typed, index, check_errors) = if record_types {
+        typecheck::check_with_index(&program, require_main, platform_registry)
+    } else {
+        let (typed, check_errors) = typecheck::check(&program, require_main, platform_registry);
+        (typed, typecheck::TypeIndex::default(), check_errors)
+    };
     errors.extend(check_errors);
     crate::error::normalize_errors(&mut errors);
-    (program, typed, errors)
+    (program, typed, index, errors)
 }
 
 /// Single-error variant of [`compile_frontend_source_all`], kept for the
