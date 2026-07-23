@@ -16,6 +16,7 @@ pub(crate) fn parse_program(label: &str, source: &str) -> (Program, Vec<Error>) 
         tokens,
         current: 0,
         type_params: Vec::new(),
+        row_params: Vec::new(),
     };
     let program = parser.parse_program(&mut errors);
     (program, errors)
@@ -29,6 +30,12 @@ struct Parser {
     /// set to `Type::Var` instead of a named enum. Functions never nest, so a
     /// single set (cleared per function) is enough.
     type_params: Vec<String>,
+    /// The effect-row parameters declared by the function currently being
+    /// parsed (spec 0022): the lowercase names of its `<...>` list. Consulted
+    /// by `parse_effect_row` to accept `uses e` / `..e` tails; staying set
+    /// while the body is parsed is what lets a closure literal reference the
+    /// enclosing function's row parameters.
+    row_params: Vec<String>,
 }
 
 impl Parser {
@@ -145,6 +152,7 @@ impl Parser {
                     // The failed declaration may leave its type parameters
                     // installed; clear them so they don't leak into the next one.
                     self.type_params = Vec::new();
+                    self.row_params = Vec::new();
                     self.recover_to_top_level();
                 }
             }
@@ -295,7 +303,7 @@ impl Parser {
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
         // Type parameters (spec 0028); no bounds are allowed on a data type.
-        let (type_params, bounds) = self.parse_type_params()?;
+        let (type_params, _, bounds) = self.parse_type_params(false)?;
         if let Some(bound) = bounds.first() {
             return Err(Error::diagnostic(Diagnostic::new("Bound on a data type").label(
                 bound.span.clone(),
@@ -356,7 +364,7 @@ impl Parser {
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
         // Type parameters (spec 0028); no bounds are allowed on a data type.
-        let (type_params, bounds) = self.parse_type_params()?;
+        let (type_params, _, bounds) = self.parse_type_params(false)?;
         if let Some(bound) = bounds.first() {
             return Err(Error::diagnostic(Diagnostic::new("Bound on a data type").label(
                 bound.span.clone(),
@@ -431,7 +439,9 @@ impl Parser {
         self.expect(&TokenKind::Fn)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
-        let (type_params, bounds) = self.parse_type_params()?;
+        // Effect-row parameters (spec 0022) are not accepted here: an extern is
+        // never parameterized and an intrinsic is pure.
+        let (type_params, _, bounds) = self.parse_type_params(false)?;
         // Only a pure `intrinsic fn` may be generic (spec 0021). A platform
         // `extern fn` (spec 0013) is a concrete runtime call and is never
         // parameterized.
@@ -524,6 +534,19 @@ impl Parser {
             } else {
                 let is_public = self.eat(&TokenKind::Pub);
                 let mut function = self.parse_function(is_public)?;
+                // Row polymorphism on effect operations is out of scope in v1
+                // (spec 0022 Open Questions).
+                if let Some(row_param) = function.row_params.first() {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Effect-row parameter on an effect operation").label(
+                            function.name_span.clone(),
+                            format!(
+                                "operation `{}` declares the effect-row parameter `{row_param}`; effect operations cannot be row-polymorphic (spec 0022)",
+                                function.name
+                            ),
+                        ),
+                    ));
+                }
                 // An effect operation may declare its own dependency effects
                 // (spec 0049 PE2b: an inline default body can use other effects,
                 // e.g. `fn info(msg) uses { Io } { ... }`) — this relaxes spec
@@ -567,12 +590,15 @@ impl Parser {
         self.expect(&TokenKind::Fn)?;
         let name_span = self.peek().span.clone();
         let name = self.expect_ident()?;
-        // Type parameters (spec 0014) are in scope for the whole definition, so
-        // `parse_type` resolves them to `Type::Var` throughout the signature and
-        // body. Functions never nest, and a parse error aborts the whole parse,
-        // so resetting on the success path is enough.
-        let (type_params, bounds) = self.parse_type_params()?;
+        // Type parameters (spec 0014) and effect-row parameters (spec 0022) are
+        // in scope for the whole definition, so `parse_type` resolves type
+        // parameters to `Type::Var` and `parse_effect_row` accepts the row
+        // parameters as tails throughout the signature and body (closures
+        // included). Functions never nest, and a parse error aborts the whole
+        // parse, so resetting on the success path is enough.
+        let (type_params, row_params, bounds) = self.parse_type_params(true)?;
         self.type_params = type_params.clone();
+        self.row_params = row_params.clone();
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
         self.expect(&TokenKind::RParen)?;
@@ -582,6 +608,7 @@ impl Parser {
         let effects = self.parse_effect_row()?;
         let body = self.parse_block()?;
         self.type_params = Vec::new();
+        self.row_params = Vec::new();
         Ok(Function {
             name,
             name_span,
@@ -595,6 +622,7 @@ impl Parser {
             declared_module: None,
             effect_name: None,
             type_params,
+            row_params,
             bounds,
             params,
             ret,
@@ -606,22 +634,51 @@ impl Parser {
         })
     }
 
-    /// Parses an optional `<T, U: Bound + Bound2, ...>` type-parameter list
-    /// (spec 0014; bounds are spec 0020). Returns the parameter names and their
-    /// bounds. An empty vec when there is no list. An empty `<>` is rejected.
-    /// The `+` between bounds is unambiguous with the arithmetic `+` because it
-    /// only appears inside `< >`.
-    fn parse_type_params(&mut self) -> Result<(Vec<String>, Vec<Bound>)> {
+    /// Parses an optional `<T, U: Bound + Bound2, ..., e>` parameter list
+    /// (spec 0014; bounds are spec 0020; effect-row parameters are spec 0022).
+    /// The list is split by the leading letter's case: uppercase names are type
+    /// parameters, lowercase names are effect-row parameters — the latter only
+    /// where `allow_rows` holds (named `fn` definitions). Returns the type
+    /// parameter names, the row parameter names, and the bounds. Empty vecs
+    /// when there is no list. An empty `<>` is rejected. The `+` between bounds
+    /// is unambiguous with the arithmetic `+` because it only appears inside
+    /// `< >`.
+    fn parse_type_params(
+        &mut self,
+        allow_rows: bool,
+    ) -> Result<(Vec<String>, Vec<String>, Vec<Bound>)> {
         if !self.eat(&TokenKind::Lt) {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
         let mut params = Vec::new();
+        let mut row_params = Vec::new();
         let mut bounds = Vec::new();
         let first_span = self.peek().span.clone();
         loop {
             let param_span = self.peek().span.clone();
             let name = self.expect_ident()?;
+            let is_row = !name.chars().next().is_some_and(char::is_uppercase);
+            if is_row && !allow_rows {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Lowercase type parameter")
+                        .label(
+                            param_span.clone(),
+                            "type parameters start with an uppercase letter (spec 0014); a lowercase name declares an effect-row parameter, which only functions may have (spec 0022)",
+                        )
+                        .help(format!("Rename the type parameter, e.g. `{}`.", capitalize(&name))),
+                ));
+            }
             if self.eat(&TokenKind::Colon) {
+                if is_row {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Bound on an effect-row parameter").label(
+                            param_span.clone(),
+                            format!(
+                                "effect-row parameter `{name}` cannot have trait bounds (spec 0022)"
+                            ),
+                        ),
+                    ));
+                }
                 let mut traits = vec![self.expect_ident()?];
                 while self.eat(&TokenKind::Plus) {
                     traits.push(self.expect_ident()?);
@@ -632,16 +689,21 @@ impl Parser {
                     span: param_span,
                 });
             }
-            params.push(name);
+            if is_row {
+                row_params.push(name);
+            } else {
+                params.push(name);
+            }
             // A trailing comma before the closer is allowed (spec 0034).
             if !self.eat(&TokenKind::Comma) || self.at(&TokenKind::Gt) {
                 break;
             }
         }
         self.expect(&TokenKind::Gt)?;
-        // Guard against duplicate names like `<T, T>`.
+        // Guard against duplicate names like `<T, T>` / `<e, e>` across both
+        // kinds.
         let mut seen = std::collections::HashSet::new();
-        for name in &params {
+        for name in params.iter().chain(row_params.iter()) {
             if !seen.insert(name.clone()) {
                 return Err(Error::diagnostic(
                     Diagnostic::new("Duplicate type parameter").label(
@@ -651,7 +713,7 @@ impl Parser {
                 ));
             }
         }
-        Ok((params, bounds))
+        Ok((params, row_params, bounds))
     }
 
     /// Parses a `trait Name { method signatures }` block (spec 0020). Each method
@@ -715,7 +777,7 @@ impl Parser {
     /// every method.
     fn parse_impl(&mut self) -> Result<ImplDecl> {
         self.expect(&TokenKind::Impl)?;
-        let (type_params, bounds) = self.parse_type_params()?;
+        let (type_params, _, bounds) = self.parse_type_params(false)?;
         let trait_span = self.peek().span.clone();
         let trait_name = self.expect_ident()?;
         self.expect(&TokenKind::For)?;
@@ -770,6 +832,7 @@ impl Parser {
             declared_module: None,
             effect_name: None,
             type_params: Vec::new(),
+            row_params: Vec::new(),
             bounds: Vec::new(),
             params,
             ret,
@@ -858,6 +921,15 @@ impl Parser {
             // A name declared as a type parameter of the enclosing function
             // resolves to a type variable (spec 0014).
             _ if self.type_params.contains(&name) => Ok(Type::Var(name)),
+            // An effect-row parameter is not a type (spec 0022).
+            _ if self.row_params.contains(&name) => Err(Error::diagnostic(
+                Diagnostic::new("Effect-row variable in type position").label(
+                    span,
+                    format!(
+                        "effect-row variable `{name}` can only appear in a `uses` clause (spec 0022)"
+                    ),
+                ),
+            )),
             // Any other capitalized name refers to a declared enum type (spec
             // 0005), optionally with type arguments (spec 0028): `List<Int>`.
             // The name and arity are resolved and validated during type checking.
@@ -883,6 +955,31 @@ impl Parser {
         if !self.eat(&TokenKind::Uses) {
             return Ok(EffectRow::default());
         }
+        // Bare form `uses e` (spec 0022): a single row variable, equivalent to
+        // `uses { ..e }`. It is one identifier, so a following `{` is
+        // unambiguously the function body.
+        if let TokenKind::Ident(name) = &self.peek().kind {
+            let name = name.clone();
+            let span = self.peek().span.clone();
+            if self.row_params.contains(&name) {
+                self.bump();
+                return Ok(EffectRow::open(Vec::new(), vec![name]));
+            }
+            let mut diagnostic = Diagnostic::new("Unknown effect-row variable").label(
+                span,
+                format!(
+                    "`uses` is followed by `{{ ... }}` or an effect-row parameter declared in `<...>` (spec 0022); `{name}` is neither"
+                ),
+            );
+            if name.chars().next().is_some_and(char::is_uppercase) {
+                diagnostic =
+                    diagnostic.help(format!("Write `uses {{ {name} }}` for a concrete effect row."));
+            } else {
+                diagnostic = diagnostic
+                    .help(format!("Declare `{name}` in the function's `<...>`, e.g. `fn f<{name}>`."));
+            }
+            return Err(Error::diagnostic(diagnostic));
+        }
         self.expect(&TokenKind::LBrace)?;
         // The effect row's braces are list braces, not a block: newlines inside
         // are insignificant (spec 0034 G2). The lexer cannot tell them apart
@@ -890,8 +987,9 @@ impl Parser {
         // the only separator.
         self.skip_newlines();
         let mut effects = Vec::new();
+        let mut tails = Vec::new();
         if !self.at(&TokenKind::RBrace) {
-            effects.push(self.parse_effect_name()?);
+            self.parse_row_element(&mut effects, &mut tails)?;
             self.skip_newlines();
             // A trailing comma before the closer is allowed (spec 0034).
             while self.eat(&TokenKind::Comma) {
@@ -899,12 +997,57 @@ impl Parser {
                 if self.at(&TokenKind::RBrace) {
                     break;
                 }
-                effects.push(self.parse_effect_name()?);
+                self.parse_row_element(&mut effects, &mut tails)?;
                 self.skip_newlines();
             }
         }
         self.expect(&TokenKind::RBrace)?;
-        Ok(EffectRow::sorted(effects))
+        Ok(EffectRow::open(effects, tails))
+    }
+
+    /// Parses one element of a braced effect row: a concrete effect name, or a
+    /// row-variable tail `..e` (spec 0022/0023). The tail's name must be a row
+    /// parameter declared in the enclosing function's `<...>`.
+    fn parse_row_element(
+        &mut self,
+        effects: &mut Vec<String>,
+        tails: &mut Vec<String>,
+    ) -> Result<()> {
+        if self.eat(&TokenKind::DotDot) {
+            let span = self.peek().span.clone();
+            let name = self.expect_ident()?;
+            if !self.row_params.contains(&name) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Unknown effect-row variable")
+                        .label(
+                            span,
+                            format!(
+                                "effect-row variable `{name}` is not declared in the function's `<...>` (spec 0022)"
+                            ),
+                        )
+                        .help(format!("Declare it, e.g. `fn f<{name}>`.")),
+                ));
+            }
+            tails.push(name);
+            return Ok(());
+        }
+        let span = self.peek().span.clone();
+        let name = self.parse_effect_name()?;
+        // A bare row parameter inside braces is a near-miss for the `..e` tail
+        // syntax; catch it with a targeted diagnostic instead of a later
+        // "unknown effect" error.
+        if self.row_params.contains(&name) {
+            return Err(Error::diagnostic(
+                Diagnostic::new("Effect-row variable without `..`")
+                    .label(
+                        span,
+                        "inside `{ ... }` an effect-row variable is written as a tail (spec 0022)",
+                    )
+                    .help(format!("Write `..{name}` (or the bare form `uses {name}`).")),
+            ));
+        }
+        effects.push(name);
+        Ok(())
     }
 
     /// Parses an effect name in a `uses { ... }` row: a single identifier or
