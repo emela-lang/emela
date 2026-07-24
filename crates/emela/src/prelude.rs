@@ -26,6 +26,7 @@ pub(crate) const EMBEDDED_STD: &[(&str, &str)] = &[
     ("bytes", include_str!("std/bytes.emel")),
     ("clock", include_str!("std/clock.emel")),
     ("float", include_str!("std/float.emel")),
+    ("fs", include_str!("std/fs.emel")),
     ("http", include_str!("std/http.emel")),
     ("io", include_str!("std/io.emel")),
     ("random", include_str!("std/random.emel")),
