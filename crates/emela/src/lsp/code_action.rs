@@ -5,21 +5,24 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Block, BlockItem, Expr, MatchArm, Type};
+use crate::ast::{Block, BlockItem, Expr, MatchArm, TraitMethodSig, Type};
 use crate::error::Span;
 use crate::lexer::{TokenKind, lex};
-use crate::lsp::analysis::{EnumSym, Snapshot, VariantSym};
+use crate::lsp::analysis::{EnumSym, Snapshot, VariantSym, render_type};
 use crate::lsp::completion::scrutinee_type;
 use crate::lsp::documents::Document;
 use crate::lsp::position::{offset_to_position, position_to_offset};
 use crate::lsp::protocol::{CodeAction, Range, TextEdit, WorkspaceEdit};
-use crate::typecheck::EntryKind;
+use crate::typecheck::{EntryKind, subst_type};
 
 pub(crate) fn actions(doc: &Document, range: &Range, snapshot: &Snapshot) -> Vec<CodeAction> {
     let start = position_to_offset(&doc.text, &range.start);
     let end = position_to_offset(&doc.text, &range.end);
     let mut actions = Vec::new();
     if let Some(action) = fill_match_arms(doc, start, end, snapshot) {
+        actions.push(action);
+    }
+    if let Some(action) = implement_missing_methods(doc, start, end, snapshot) {
         actions.push(action);
     }
     actions
@@ -95,6 +98,125 @@ fn fill_match_arms(
             )]),
         },
     })
+}
+
+/// The quickfix for an incomplete impl (spec 0020): appends a stub for every
+/// trait method without a default that the impl does not define. The compiler
+/// reports only the first missing method; the action fills them all.
+fn implement_missing_methods(
+    doc: &Document,
+    start: usize,
+    end: usize,
+    snapshot: &Snapshot,
+) -> Option<CodeAction> {
+    let decl = snapshot
+        .entry_impls
+        .iter()
+        .filter(|decl| decl.span.start <= start && end <= decl.span.end)
+        .min_by_key(|decl| decl.span.end - decl.span.start)?;
+    let trait_decl = snapshot
+        .trait_decls
+        .iter()
+        .find(|t| t.name == decl.trait_name)?;
+    let missing: Vec<&TraitMethodSig> = trait_decl
+        .methods
+        .iter()
+        .filter(|method| {
+            method.default_body.is_none()
+                && !decl
+                    .methods
+                    .iter()
+                    .any(|written| written.name == method.name)
+        })
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let mut subst = HashMap::new();
+    subst.insert("Self".to_string(), decl.target.clone());
+    // Insert after the last written method's body, or right after the block's
+    // opening brace when the impl is empty.
+    let (insert_at, indent) = match decl.methods.last() {
+        Some(last) => (
+            last.body.span.end,
+            line_indent(&doc.text, last.name_span.start),
+        ),
+        None => (
+            open_brace_end(&doc.text, &decl.target_span, &decl.span)?,
+            format!("{}  ", line_indent(&doc.text, decl.span.start)),
+        ),
+    };
+    let mut new_text = String::new();
+    for method in &missing {
+        new_text.push('\n');
+        new_text.push_str(&indent);
+        new_text.push_str(&stub_text(method, &subst, &indent));
+    }
+    let position = offset_to_position(&doc.text, insert_at);
+    let title = format!(
+        "Implement missing methods ({})",
+        missing
+            .iter()
+            .map(|method| method.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Some(CodeAction {
+        title,
+        kind: "quickfix",
+        edit: WorkspaceEdit {
+            changes: HashMap::from([(
+                doc.uri.clone(),
+                vec![TextEdit {
+                    range: Range {
+                        start: position,
+                        end: position,
+                    },
+                    new_text,
+                }],
+            )]),
+        },
+    })
+}
+
+/// One method stub with `Self` substituted to the impl target. The signature
+/// reproduces the trait's `throws` and `uses` rows exactly — `check_impl_sig`
+/// demands strict equality — and the body is a `panic`, which types as `Never`
+/// and so fits any return type with no effects and no throws (spec 0011).
+fn stub_text(method: &TraitMethodSig, subst: &HashMap<String, Type>, indent: &str) -> String {
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|param| {
+            format!(
+                "{}: {}",
+                param.name,
+                render_type(&subst_type(&param.ty, subst))
+            )
+        })
+        .collect();
+    let mut sig = format!(
+        "fn {}({}) -> {}",
+        method.name,
+        params.join(", "),
+        render_type(&subst_type(&method.ret, subst))
+    );
+    if let Some(throws) = &method.throws {
+        sig.push_str(&format!(
+            " throws {}",
+            render_type(&subst_type(throws, subst))
+        ));
+    }
+    if !method.effects.effects.is_empty() {
+        sig.push_str(&format!(
+            " uses {{ {} }}",
+            method.effects.effects.join(", ")
+        ));
+    }
+    format!(
+        "{sig} {{\n{indent}  panic(\"TODO: implement {}\")\n{indent}}}",
+        method.name
+    )
 }
 
 /// The scrutinee's enum, resolved through the type index — recorded even when
@@ -237,17 +359,18 @@ fn line_indent(text: &str, offset: usize) -> String {
         .collect()
 }
 
-/// The end offset of the arm list's opening `{`: the first `{` token after
-/// the scrutinee within the match span. Found by lexing, so a `{` inside a
-/// string literal never matches.
-fn open_brace_end(text: &str, scrutinee_span: &Span, match_span: &Span) -> Option<usize> {
+/// The end offset of a block's opening `{`: the first `{` token after `after`
+/// and within `within` — a match's arm list after its scrutinee, an impl's
+/// body after its target type. Found by lexing, so a `{` inside a string
+/// literal never matches.
+fn open_brace_end(text: &str, after: &Span, within: &Span) -> Option<usize> {
     let (tokens, _) = lex("<code-action>", text);
     tokens
         .iter()
         .find(|token| {
             token.kind == TokenKind::LBrace
-                && token.span.start >= scrutinee_span.end
-                && token.span.start < match_span.end
+                && token.span.start >= after.end
+                && token.span.start < within.end
         })
         .map(|token| token.span.end)
 }
@@ -296,6 +419,37 @@ mod tests {
         assert_eq!(
             arm_text("Color", &pair),
             "Color::Rgb(_, _, _) -> panic(\"TODO: handle Rgb\")"
+        );
+    }
+
+    #[test]
+    fn stub_text_substitutes_self_and_reproduces_rows() {
+        use crate::ast::{EffectRow, Param};
+        use crate::error::SourceFile;
+        let source = SourceFile::new("test.emel", "");
+        let span = Span::new(source, 0, 0);
+        let mut effects = EffectRow::default();
+        effects.effects.push("Io".to_string());
+        let method = TraitMethodSig {
+            name: "greet".to_string(),
+            name_span: span.clone(),
+            params: vec![Param {
+                name: "x".to_string(),
+                name_span: span,
+                ty: Type::Var("Self".to_string()),
+            }],
+            ret: Type::String,
+            throws: Some(Type::Enum("E".to_string(), Vec::new())),
+            effects,
+            default_body: None,
+        };
+        let subst = HashMap::from([(
+            "Self".to_string(),
+            Type::Enum("Foo".to_string(), Vec::new()),
+        )]);
+        assert_eq!(
+            stub_text(&method, &subst, "  "),
+            "fn greet(x: Foo) -> String throws E uses { Io } {\n    panic(\"TODO: implement greet\")\n  }"
         );
     }
 
