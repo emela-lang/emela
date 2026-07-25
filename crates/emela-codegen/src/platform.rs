@@ -144,6 +144,52 @@ pub fn platform_interface() -> Vec<PlatformFn> {
             throws: None,
             capability: "Random".to_string(),
         },
+        // The Fs capability (spec 0055): the host file-system boundary backing
+        // the embedded `std.fs`. A primitive effect (spec 0049) over
+        // wasi:filesystem (component backend) / std::fs under `emela run`.
+        // `File`/`FsError` are the named types declared by `std.fs`. All but
+        // `raw_close` are fallible (spec 0043); `raw_open_read`/`raw_open_write`
+        // are split in lieu of a mode enum (spec 0055 P2).
+        PlatformFn {
+            path: vec!["fs".to_string()],
+            name: "raw_open_read".to_string(),
+            params: vec![Type::String],
+            ret: Type::Enum("File".to_string(), Vec::new()),
+            throws: Some(Type::Enum("FsError".to_string(), Vec::new())),
+            capability: "Fs".to_string(),
+        },
+        PlatformFn {
+            path: vec!["fs".to_string()],
+            name: "raw_open_write".to_string(),
+            params: vec![Type::String],
+            ret: Type::Enum("File".to_string(), Vec::new()),
+            throws: Some(Type::Enum("FsError".to_string(), Vec::new())),
+            capability: "Fs".to_string(),
+        },
+        PlatformFn {
+            path: vec!["fs".to_string()],
+            name: "raw_read".to_string(),
+            params: vec![Type::Enum("File".to_string(), Vec::new()), Type::Int],
+            ret: Type::Bytes,
+            throws: Some(Type::Enum("FsError".to_string(), Vec::new())),
+            capability: "Fs".to_string(),
+        },
+        PlatformFn {
+            path: vec!["fs".to_string()],
+            name: "raw_write".to_string(),
+            params: vec![Type::Enum("File".to_string(), Vec::new()), Type::Bytes],
+            ret: Type::Unit,
+            throws: Some(Type::Enum("FsError".to_string(), Vec::new())),
+            capability: "Fs".to_string(),
+        },
+        PlatformFn {
+            path: vec!["fs".to_string()],
+            name: "raw_close".to_string(),
+            params: vec![Type::Int],
+            ret: Type::Unit,
+            throws: None,
+            capability: "Fs".to_string(),
+        },
     ]
 }
 
@@ -223,5 +269,47 @@ mod tests {
         assert_eq!(raw_bytes.params, vec![Type::Int]);
         assert_eq!(raw_bytes.ret, Type::Bytes);
         assert_eq!(raw_bytes.throws, None);
+    }
+
+    /// The Fs capability (spec 0055) registers `open_read`/`open_write`
+    /// (`String` → `File`), `read` (`File`, `Int` → `Bytes`), `write`
+    /// (`File`, `Bytes` → `Unit`), and `close` (`Int` → `Unit`) under `fs.*`,
+    /// all producing the `Fs` capability. `close` is infallible; every other
+    /// operation is fallible with `FsError`.
+    #[test]
+    fn fs_registry_entries() {
+        let fs_error = Some(Type::Enum("FsError".to_string(), Vec::new()));
+        let file = Type::Enum("File".to_string(), Vec::new());
+
+        let open_read = lookup("fs.raw_open_read").expect("fs.raw_open_read registered");
+        assert_eq!(open_read.capability, "Fs");
+        assert_eq!(open_read.params, vec![Type::String]);
+        assert_eq!(open_read.ret, file);
+        assert_eq!(open_read.throws, fs_error);
+
+        let open_write = lookup("fs.raw_open_write").expect("fs.raw_open_write registered");
+        assert_eq!(open_write.capability, "Fs");
+        assert_eq!(open_write.params, vec![Type::String]);
+        assert_eq!(open_write.ret, file);
+        assert_eq!(open_write.throws, fs_error);
+
+        let read = lookup("fs.raw_read").expect("fs.raw_read registered");
+        assert_eq!(read.capability, "Fs");
+        assert_eq!(read.params, vec![file.clone(), Type::Int]);
+        assert_eq!(read.ret, Type::Bytes);
+        assert_eq!(read.throws, fs_error);
+
+        let write = lookup("fs.raw_write").expect("fs.raw_write registered");
+        assert_eq!(write.capability, "Fs");
+        assert_eq!(write.params, vec![file, Type::Bytes]);
+        assert_eq!(write.ret, Type::Unit);
+        assert_eq!(write.throws, fs_error);
+
+        // `raw_close` takes an id (Int) and cannot fail (spec 0055).
+        let close = lookup("fs.raw_close").expect("fs.raw_close registered");
+        assert_eq!(close.capability, "Fs");
+        assert_eq!(close.params, vec![Type::Int]);
+        assert_eq!(close.ret, Type::Unit);
+        assert_eq!(close.throws, None);
     }
 }

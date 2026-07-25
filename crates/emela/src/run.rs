@@ -17,6 +17,7 @@ use wasmi::errors::HostError;
 use wasmi::{Caller, Engine, Extern, Linker, Memory, Module, Store};
 
 use crate::error::{Error, Result};
+use crate::fs_host::FileTable;
 use crate::socket_host::SocketTable;
 
 /// The wasmi store data shared by both run paths: the host-side state the
@@ -27,10 +28,15 @@ use crate::socket_host::SocketTable;
 #[derive(Default)]
 pub(crate) struct Host {
     captured: Option<Captured>,
+    files: FileTable,
     sockets: SocketTable,
 }
 
 impl Host {
+    pub(crate) fn files_mut(&mut self) -> &mut FileTable {
+        &mut self.files
+    }
+
     pub(crate) fn sockets_mut(&mut self) -> &mut SocketTable {
         &mut self.sockets
     }
@@ -85,6 +91,7 @@ pub fn execute(wasm: &[u8]) -> Result<i32> {
     link_http(&mut linker)?;
     link_socket(&mut linker)?;
     link_random(&mut linker)?;
+    link_fs(&mut linker)?;
 
     let instance = linker
         .instantiate_and_start(&mut store, &module)
@@ -264,6 +271,7 @@ pub(crate) fn execute_captured(wasm: &[u8]) -> Result<(RunOutcome, Captured)> {
     link_http(&mut linker)?;
     link_socket(&mut linker)?;
     link_random(&mut linker)?;
+    link_fs(&mut linker)?;
 
     let instance = match linker.instantiate_and_start(&mut store, &module) {
         Ok(instance) => instance,
@@ -397,6 +405,64 @@ fn link_random(linker: &mut Linker<Host>) -> Result<()> {
             },
         )
         .map_err(|err| Error::new(format!("failed to link `emela_random.raw_bytes`: {err}")))?;
+    Ok(())
+}
+
+/// Links the `Fs` capability's host functions (spec 0055) into `linker`,
+/// backed by `std::fs`. Every import is defined for every run; a module that
+/// does not use `Fs` simply never imports them.
+fn link_fs(linker: &mut Linker<Host>) -> Result<()> {
+    linker
+        .func_wrap(
+            "emela_fs",
+            "raw_open_read",
+            |mut caller: Caller<'_, Host>, path: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::fs_host::open_read(&mut caller, path)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_open_read`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_fs",
+            "raw_open_write",
+            |mut caller: Caller<'_, Host>, path: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::fs_host::open_write(&mut caller, path)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_open_write`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_fs",
+            "raw_read",
+            |mut caller: Caller<'_, Host>,
+             file_ptr: i32,
+             max: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::fs_host::read(&mut caller, file_ptr, max)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_read`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_fs",
+            "raw_write",
+            |mut caller: Caller<'_, Host>,
+             file_ptr: i32,
+             data_ptr: i32|
+             -> std::result::Result<i32, wasmi::Error> {
+                crate::fs_host::write(&mut caller, file_ptr, data_ptr)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_write`: {err}")))?;
+    linker
+        .func_wrap(
+            "emela_fs",
+            "raw_close",
+            |mut caller: Caller<'_, Host>, handle: i32| -> std::result::Result<i32, wasmi::Error> {
+                crate::fs_host::close(&mut caller, handle)
+            },
+        )
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_close`: {err}")))?;
     Ok(())
 }
 

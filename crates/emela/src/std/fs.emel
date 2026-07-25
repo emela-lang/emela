@@ -1,0 +1,84 @@
+-- The embedded std.fs module (spec 0055): the Fs capability and its handle/error
+-- types. Fs is a primitive effect (spec 0049) — a raw file-system boundary
+-- supplied by the host. The platform functions `fs.raw_open_read`/`fs.raw_open_write`/
+-- `fs.raw_read`/`fs.raw_write`/`fs.raw_close` perform the minimal file operations;
+-- host failure arrives on the throws channel as FsError (spec 0043). `open_read`
+-- and `open_write` are split in lieu of a mode enum (spec 0055 P2).
+module fs
+
+import std.bytes
+
+-- Host-issued identifiers, wrapped in ordinary records. The `id` is not a
+-- permission; the `uses { Fs }` row is.
+pub record File {
+    id: Int
+}
+
+pub enum FsError {
+    NotFound(String)
+    PermissionDenied(String)
+    Io(String)
+}
+
+-- Fs: the file-system capability (spec 0055). The `raw_*` operations are the
+-- backing platform functions (private to the effect, spec 0037); the `pub fn`
+-- wrappers add the public `Fs.op(...)` API. `raw_close` is infallible (spec
+-- 0055 P2); every other operation is fallible with FsError (spec 0043).
+effect Fs {
+    extern fn raw_open_read(path: String) -> File throws FsError
+    extern fn raw_open_write(path: String) -> File throws FsError
+    extern fn raw_read(file: File, max: Int) -> Bytes throws FsError
+    extern fn raw_write(file: File, data: Bytes) -> Unit throws FsError
+    extern fn raw_close(handle: Int) -> Unit
+
+    -- Open a file for reading (O_RDONLY).
+    pub fn open_read(path: String) -> File throws FsError {
+        raw_open_read(path)?
+    }
+
+    -- Open a file for writing (O_WRONLY | O_CREAT | O_TRUNC).
+    pub fn open_write(path: String) -> File throws FsError {
+        raw_open_write(path)?
+    }
+
+    -- Read up to `max` bytes; a zero-length result is EOF.
+    pub fn read(file: File, max: Int) -> Bytes throws FsError {
+        raw_read(file, max)?
+    }
+
+    -- Write `data` in full.
+    pub fn write(file: File, data: Bytes) -> Unit throws FsError {
+        raw_write(file, data)?
+    }
+
+    -- Release a File by its `id`; double close is harmless.
+    pub fn close(handle: Int) -> Unit {
+        raw_close(handle)
+    }
+
+    -- Open → read-all loop → close convenience.
+    pub fn read_file(path: String) -> Bytes throws FsError {
+        let f = raw_open_read(path)?
+        let data = read_all_loop(f)?
+        raw_close(f.id)
+        data
+    }
+
+    -- Open → write → close convenience.
+    pub fn write_file(path: String, data: Bytes) -> Unit throws FsError {
+        let f = raw_open_write(path)?
+        raw_write(f, data)?
+        raw_close(f.id)
+    }
+
+    -- Read-all recursion helper (exported as part of the Fs effect).
+    pub fn read_all_loop(file: File) -> Bytes throws FsError {
+        let chunk = raw_read(file, 4096)?
+        if bytes.length(chunk) == 0 {
+            chunk
+        } else {
+            let rest = read_all_loop(file)?
+            chunk ++ rest
+        }
+    }
+}

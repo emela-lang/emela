@@ -99,6 +99,12 @@ fn wit_world(ir: &IrProgram) -> String {
     if used.iter().any(|n| n.starts_with("random.")) {
         imports.push_str("  import wasi:random/random@0.2.0;\n");
     }
+    if used.iter().any(|n| n.starts_with("fs.")) {
+        imports.push_str(
+            "  import wasi:filesystem/types@0.2.0;\n\
+             \x20 import wasi:filesystem/preopens@0.2.0;\n",
+        );
+    }
     format!(
         "package emela:app@0.2.0;\n\
          \n\
@@ -215,6 +221,42 @@ package wasi:random@0.2.0 {
   interface random {
     get-random-bytes: func(len: u64) -> list<u8>;
     get-random-u64: func() -> u64;
+  }
+}
+
+package wasi:filesystem@0.2.0 {
+  interface types {
+    use wasi:io/streams@0.2.0.{input-stream, output-stream};
+    type filesize = u64;
+    flags descriptor-flags {
+      read,
+      write,
+    }
+    flags path-flags {
+      symlink-follow,
+    }
+    flags open-flags {
+      create,
+      exclusive,
+      truncate,
+    }
+    enum error-code {
+      unknown,
+      access-denied,
+      not-permitted,
+      io,
+      no-entry,
+    }
+    resource descriptor {
+      open-at: func(path-flags: path-flags, path: string, open-flags: open-flags, %flags: descriptor-flags) -> result<descriptor, error-code>;
+      read-via-stream: func(offset: filesize) -> result<input-stream, error-code>;
+      write-via-stream: func(offset: filesize) -> result<output-stream, error-code>;
+    }
+    filesystem-error-code: func(err: borrow<error>) -> option<error-code>;
+  }
+  interface preopens {
+    use types.{descriptor};
+    get-directories: func() -> list<tuple<descriptor, string>>;
   }
 }
 

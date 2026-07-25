@@ -11,6 +11,8 @@ mod error;
 mod external;
 mod fmt;
 #[cfg(feature = "run")]
+mod fs_host;
+#[cfg(feature = "run")]
 mod host_abi;
 #[cfg(feature = "run")]
 mod http_host;
