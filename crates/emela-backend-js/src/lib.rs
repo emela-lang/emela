@@ -128,6 +128,21 @@ fn runtime_impl(name: &str) -> Option<&'static str> {
         "io.write_stdout" => Some("(s) => process.stdout.write(s)"),
         "io.write_stderr" => Some("(s) => process.stderr.write(s)"),
         "clock.monotonic_seconds" => Some("() => Math.floor(Date.now() / 1000)"),
+        // The Fs capability (spec 0055): host file-system via Node.js `fs`.
+        // Enums: { tag: N, values: [...] }.  File record: [fd].
+        "fs.raw_open_read" => Some(
+            "(p) => { const fs = require('fs'); try { return [fs.openSync(p, 'r')]; } catch (e) { const t = e.code === 'ENOENT' ? 0 : (e.code === 'EACCES' || e.code === 'EPERM') ? 1 : 2; throw new EmelaError({ tag: t, values: [e.message || ''] }); } }",
+        ),
+        "fs.raw_open_write" => Some(
+            "(p) => { const fs = require('fs'); try { return [fs.openSync(p, 'w')]; } catch (e) { const t = e.code === 'EACCES' || e.code === 'EPERM' ? 1 : 2; throw new EmelaError({ tag: t, values: [e.message || ''] }); } }",
+        ),
+        "fs.raw_read" => Some(
+            "(f, m) => { const fs = require('fs'); try { const len = m > 0 ? m : 0; const buf = Buffer.alloc(len); const n = fs.readSync(f[0], buf, 0, len); return buf.subarray(0, n); } catch (e) { throw new EmelaError({ tag: 2, values: [e.message || ''] }); } }",
+        ),
+        "fs.raw_write" => Some(
+            "(f, d) => { const fs = require('fs'); try { fs.writeSync(f[0], d); } catch (e) { throw new EmelaError({ tag: 2, values: [e.message || ''] }); } }",
+        ),
+        "fs.raw_close" => Some("(h) => { try { require('fs').closeSync(h); } catch (e) {} }"),
         _ => None,
     }
 }
@@ -529,12 +544,12 @@ mod tests {
     fn rejects_unprovided_platform_fn() {
         let err = JsBackend
             .compile(
-                &main_with(platform_call("fs.read")),
+                &main_with(platform_call("nonexistent.do_stuff")),
                 &BackendOptions::default(),
             )
             .unwrap_err();
         assert!(err.to_string().contains("does not provide"), "{err}");
-        assert!(err.to_string().contains("fs.read"), "{err}");
+        assert!(err.to_string().contains("nonexistent.do_stuff"), "{err}");
     }
 
     #[test]
