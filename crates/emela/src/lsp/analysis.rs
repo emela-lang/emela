@@ -6,7 +6,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use crate::ast::{EffectRow, Function, Program, Type};
+use crate::ast::{EffectRow, Function, ImplDecl, Program, TraitDecl, Type};
 use crate::driver;
 use crate::error::Error;
 use crate::lsp::documents::{Document, DocumentStore, path_to_uri};
@@ -198,6 +198,13 @@ pub(crate) struct Snapshot {
     /// sorted by `(start, width)` — hover's lookup table. Partial when the
     /// file has errors: a body keeps what was checked before its first error.
     pub(crate) type_index: Vec<TypeEntry>,
+    /// Trait declarations in scope (merged program, deduped by name), with
+    /// full method signatures — param names included — for impl scaffolding.
+    pub(crate) trait_decls: Vec<TraitDecl>,
+    /// The entry file's impl blocks as written — before `expand_trait_defaults`
+    /// fills in default methods — so a missing-method computation sees only
+    /// what the author actually wrote.
+    pub(crate) entry_impls: Vec<ImplDecl>,
 }
 
 pub(crate) struct EnumSym {
@@ -273,7 +280,11 @@ impl Snapshot {
             snapshot.collect_effects(&declaration.effects);
             snapshot.collect_throws(&declaration.throws);
         }
+        let mut seen_traits = BTreeSet::new();
         for decl in &merged.traits {
+            if seen_traits.insert(decl.name.clone()) {
+                snapshot.trait_decls.push(decl.clone());
+            }
             for method in &decl.methods {
                 snapshot.collect_effects(&method.effects);
                 snapshot.collect_throws(&method.throws);
@@ -303,6 +314,7 @@ impl Snapshot {
                 snapshot.collect_throws(&method.throws);
             }
         }
+        snapshot.entry_impls = own.impls.clone();
         snapshot.entry_functions = own
             .functions
             .into_iter()
