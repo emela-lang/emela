@@ -766,6 +766,69 @@ fn code_action_absent_when_exhaustive() {
     lsp.shutdown_and_exit();
 }
 
+// The incomplete-impl quickfix generates a stub for every missing method —
+// the compiler reports only the first — and applying it clears the diagnostic.
+#[test]
+fn code_action_generates_impl_stubs() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let mut lsp = Lsp::start();
+
+    // An empty impl: the whole scaffold is generated.
+    let source = "trait Greet {\n  fn greet(x: Self) -> String\n}\n\nenum Foo {\n  A\n}\n\nimpl Greet for Foo {\n}\n";
+    lsp.open(&uri, source);
+    let diagnostics = lsp.wait_diagnostics(&uri);
+    assert_eq!(diagnostics[0]["code"], json!("incomplete-impl"));
+    let actions = lsp.code_actions(&uri, 8, 5);
+    let actions = actions.as_array().unwrap();
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    assert!(actions[0]["title"].as_str().unwrap().contains("greet"));
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    let new_text = edit["newText"].as_str().unwrap();
+    assert!(
+        new_text.contains("fn greet(x: Foo) -> String {"),
+        "{new_text}"
+    );
+    assert!(
+        new_text.contains("panic(\"TODO: implement greet\")"),
+        "{new_text}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 2, &fixed);
+    assert!(lsp.wait_diagnostics(&uri).is_empty());
+
+    // A default method and an already-written method are not re-generated;
+    // only the truly missing one is stubbed, after the last written method.
+    let source = "trait Shape {\n  fn area(s: Self) -> Int\n  fn name(s: Self) -> String\n  fn describe(s: Self) -> String {\n    \"shape\"\n  }\n}\n\nenum Sq {\n  S\n}\n\nimpl Shape for Sq {\n  fn area(s: Sq) -> Int uses {} {\n    4\n  }\n}\n";
+    lsp.change(&uri, 3, source);
+    lsp.wait_diagnostics(&uri);
+    let actions = lsp.code_actions(&uri, 12, 5);
+    let actions = actions.as_array().unwrap();
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    let title = actions[0]["title"].as_str().unwrap();
+    assert!(title.contains("name"), "{title}");
+    assert!(
+        !title.contains("describe") && !title.contains("area"),
+        "{title}"
+    );
+    let edit = &actions[0]["edit"]["changes"][uri.as_str()][0];
+    assert!(
+        edit["newText"]
+            .as_str()
+            .unwrap()
+            .contains("fn name(s: Sq) -> String {"),
+        "{edit}"
+    );
+    let fixed = apply_edit(source, edit);
+    lsp.change(&uri, 4, &fixed);
+    assert!(lsp.wait_diagnostics(&uri).is_empty());
+
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
 // Compiler diagnostics carry their machine-readable code on the wire.
 #[test]
 fn diagnostics_carry_codes() {

@@ -116,6 +116,9 @@ pub(crate) struct ImplDecl {
     /// The declaring file's module path (orphan rule).
     pub(crate) module: Option<String>,
     pub(crate) methods: Vec<Function>,
+    /// The whole block, `impl` through the closing `}` — where the language
+    /// server anchors impl-scoped code actions (spec 0033).
+    pub(crate) span: Span,
 }
 
 /// A bound on a type parameter (spec 0020): `T: Add + Show` becomes
