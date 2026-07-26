@@ -7,6 +7,23 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/emela-lang/emela/compare/v0.9.1...v0.10.0) - 2026-07-26
+
+### Added
+
+- std.list を effect row 多相へ、each を追加（spec 0022 案B、PR4/4） ([#105](https://github.com/emela-lang/emela/pull/105))
+- effect row の erasure と LSP 表示（spec 0022 案B、PR3/4） ([#104](https://github.com/emela-lang/emela/pull/104))
+- effect row 多相の型検査（row 単一化と事後 subsumption、spec 0022 案B、PR2/4） ([#103](https://github.com/emela-lang/emela/pull/103))
+- effect row 多相の構文とデータ表現（spec 0022 案B、PR1/4） ([#99](https://github.com/emela-lang/emela/pull/99))
+- wasm-wasip2及びjsバックエンドにFs capabilityを追加（spec 0055） ([#102](https://github.com/emela-lang/emela/pull/102))
+- LSP に impl スタブ生成の codeAction を追加（spec 0033） ([#100](https://github.com/emela-lang/emela/pull/100))
+- LSP に codeAction（match アーム補充）と診断 code を追加（spec 0033） ([#98](https://github.com/emela-lang/emela/pull/98))
+- LSP に textDocument/hover を追加（span→型インデックス，spec 0033） ([#97](https://github.com/emela-lang/emela/pull/97))
+
+### Fixed
+
+- record・enum ペイロード・トレイトメソッドでも関数値の row と throws を検査（spec 0023） ([#106](https://github.com/emela-lang/emela/pull/106))
+
 ### Added
 
 - effect row 多相（spec 0022）: 関数が呼び出し側の effect row をそのまま通せるようになった。

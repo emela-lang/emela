@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "emela"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "clap",
  "emela-backend-js",
@@ -149,14 +149,14 @@ dependencies = [
 
 [[package]]
 name = "emela-backend-js"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "emela-codegen",
 ]
 
 [[package]]
 name = "emela-backend-wasm"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "emela-codegen",
  "wasmparser 0.252.0",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "emela-backend-wasm-wasip2"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "emela-backend-wasm",
  "emela-codegen",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "emela-wasm"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "console_error_panic_hook",
  "emela",
