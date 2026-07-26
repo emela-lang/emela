@@ -1007,6 +1007,16 @@ impl<'a> Checker<'a> {
             ));
         };
         self.check_bound_satisfied(trait_name, &self_ty, ctx, span)?;
+        // With `Self` (and any impl parameter) pinned, each argument is checked
+        // against its instantiated declared type — the trait-dispatch half of the
+        // same subsumption pass a generic call runs. A trait method's row is
+        // always concrete (spec 0022 forbids row parameters on impls), so no row
+        // bindings take part.
+        expect_inferred_assignable(
+            tmethod.params.iter().zip(args.iter()),
+            &subst,
+            &HashMap::new(),
+        )?;
         let mut effects = tmethod.effects.clone();
         let mut throws = None;
         for arg in args {
@@ -2462,15 +2472,22 @@ impl<'a> Checker<'a> {
         let mut effects = EffectRow::default();
         let mut throws = None;
         let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut checked: Vec<(&Type, ExprInfo)> = Vec::with_capacity(args.len());
         for (arg, field_ty) in args.iter().zip(vinfo.fields.iter()) {
             let actual = self.check_expr(arg, scope, ctx, allow_throw)?;
-            // Infer the enum's type arguments from the payload and check the
-            // payload against the (possibly generic) field type (spec 0028):
-            // `match_type` both binds the type parameters and validates.
+            // Infer the enum's type arguments from the payload (spec 0028);
+            // `expect_inferred_assignable` below does the checking once every
+            // parameter is bound.
             match_type(field_ty, &actual.ty, &mut subst, &actual.span)?;
             effects.union(&actual.effects);
-            throws = merge_throws(throws, actual.throws, actual.span)?;
+            throws = merge_throws(throws, actual.throws.clone(), actual.span.clone())?;
+            checked.push((field_ty, actual));
         }
+        expect_inferred_assignable(
+            checked.iter().map(|(declared, actual)| (*declared, actual)),
+            &subst,
+            &HashMap::new(),
+        )?;
         // Type parameters the payload does not pin (e.g. `R` in `Either`'s
         // `Left(1)`, or every parameter of a payload-less variant like `Nil`)
         // are left `Never`, to be resolved from the expected type via
@@ -2820,10 +2837,11 @@ impl<'a> Checker<'a> {
         let mut effects = EffectRow::default();
         let mut throws = None;
         let mut seen = HashSet::new();
-        // Infer the record's type arguments (spec 0028) from the field values.
-        // `match_type` both binds the type parameters and checks the value
-        // against the (possibly generic) field type.
+        // Infer the record's type arguments (spec 0028) from the field values;
+        // `expect_inferred_assignable` below checks each value against its
+        // declared field type once every parameter is bound.
         let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut checked: Vec<(&Type, ExprInfo)> = Vec::with_capacity(fields.len());
         for (field_name, field_span, value) in fields {
             let Some((_, field_ty)) = declared.iter().find(|(n, _)| n == field_name) else {
                 return Err(Error::diagnostic(Diagnostic::new("Unknown field").label(
@@ -2847,9 +2865,15 @@ impl<'a> Checker<'a> {
                 _ => self.check_expr(value, scope, ctx, allow_throw)?,
             };
             effects.union(&info.effects);
-            throws = merge_throws(throws, info.throws, info.span.clone())?;
+            throws = merge_throws(throws, info.throws.clone(), info.span.clone())?;
             match_type(field_ty, &info.ty, &mut subst, &info.span)?;
+            checked.push((field_ty, info));
         }
+        expect_inferred_assignable(
+            checked.iter().map(|(declared, actual)| (*declared, actual)),
+            &subst,
+            &HashMap::new(),
+        )?;
         let missing: Vec<&str> = declared
             .iter()
             .filter(|(n, _)| !seen.contains(n))
@@ -2982,14 +3006,11 @@ impl<'a> Checker<'a> {
         }
         // Post-call subsumption (spec 0022/0023): each argument must be assignable
         // to its declared type once type *and* row parameters are substituted in.
-        // This is where a function argument's effect row and `throws` are finally
-        // checked — `match_type` above only binds variables from `params`/`ret`,
-        // so without this an effectful closure could pass for a pure declared
-        // parameter and silently drop its effects (the soundness fix).
-        for (declared, actual) in &checked {
-            let expected = subst_row_in_type(&subst_type(declared, &subst), &rows);
-            expect_assignable(&actual.ty, &expected, actual.span.clone())?;
-        }
+        expect_inferred_assignable(
+            checked.iter().map(|(declared, actual)| (*declared, actual)),
+            &subst,
+            &rows,
+        )?;
         // A throwing call must use `?` or sit inside a `try` block (spec 0011);
         // the error type is the instantiated `throws` clause. In a `@test`
         // body the bare call instead propagates to the harness (spec 0040 T3).
@@ -3367,6 +3388,25 @@ pub(crate) fn expand_trait_defaults(program: &mut Program) {
             });
         }
     }
+}
+
+/// Re-checks each value against the declared type it was matched against, once
+/// inference has pinned the type (and row) parameters. `match_type` binds
+/// variables structurally but never compares a function value's `uses` row or
+/// `throws` clause, so this pass is what actually enforces them (spec 0022/0023)
+/// — without it an effectful or throwing function passes for a pure declared one
+/// and its effects vanish. Every inference site runs it: generic calls, trait
+/// method dispatch, enum payloads, and record literals.
+fn expect_inferred_assignable<'a>(
+    pairs: impl IntoIterator<Item = (&'a Type, &'a ExprInfo)>,
+    subst: &HashMap<String, Type>,
+    rows: &HashMap<String, EffectRow>,
+) -> Result<()> {
+    for (declared, actual) in pairs {
+        let expected = subst_row_in_type(&subst_type(declared, subst), rows);
+        expect_assignable(&actual.ty, &expected, actual.span.clone())?;
+    }
+    Ok(())
 }
 
 fn expect_assignable(actual: &Type, expected: &Type, span: Span) -> Result<()> {
