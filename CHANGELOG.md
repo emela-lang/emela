@@ -27,6 +27,16 @@ bump may include breaking language changes while the language stabilizes).
 - **破壊的変更**: 非 throwing 宣言のコールバックに throwing な関数値を渡すとエラーになった
   （同じ穴の `throws` 側）。クロージャ内の `try` / `catch` で非 throwing 化して移行する。
 
+### Fixed
+
+- 関数値の `uses` 行と `throws` の検査漏れを塞いだ（spec 0023）。record リテラル・enum の
+  ペイロード・トレイトメソッドの引数は型変数の束縛（`match_type`）しか通っておらず、
+  effect row と `throws` が比較されていなかった。そのため pure 宣言のフィールドに
+  effectful な関数を格納でき、`uses {}` の `main` からその effect を実行できてしまっていた。
+  **破壊的変更**: これらの位置に、宣言より広い row を持つ関数値や throwing な関数値を
+  渡すコードはエラーになる（フィールド / パラメータの宣言を広げるか、`try` / `catch` で
+  閉じて移行する）。
+
 ## [0.9.1](https://github.com/emela-lang/emela/compare/v0.9.0...v0.9.1) - 2026-07-23
 
 ### Fixed
