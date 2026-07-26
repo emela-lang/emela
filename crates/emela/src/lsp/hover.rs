@@ -24,6 +24,10 @@ pub(crate) fn hover(doc: &Document, position: &Position, snapshot: &Snapshot) ->
             if let (EntryKind::Expr, Type::Function(function)) = (&entry.kind, &entry.ty) {
                 let line = render_fn_sig(
                     word,
+                    // The checker already instantiated every type and row
+                    // parameter at this use site, so none are left to spell.
+                    &[],
+                    &[],
                     &function.params,
                     &function.ret,
                     &function.throws.clone().map(|ty| *ty),
