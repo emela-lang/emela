@@ -265,6 +265,8 @@ impl Snapshot {
                 name: function.name.clone(),
                 detail: render_fn_sig(
                     &function.name,
+                    &function.type_params,
+                    &function.row_params,
                     &function
                         .params
                         .iter()
@@ -294,6 +296,11 @@ impl Snapshot {
                         "{} ({})",
                         render_fn_sig(
                             &method.name,
+                            // A trait method declares no parameters of its own:
+                            // it inherits the trait's `Self` and the impl's
+                            // (spec 0020).
+                            &[],
+                            &[],
                             &method
                                 .params
                                 .iter()
@@ -329,6 +336,9 @@ impl Snapshot {
         self.enums.is_empty() && self.functions.is_empty() && self.entry_functions.is_empty()
     }
 
+    /// Only the concrete names join the completion set: a row variable (spec
+    /// 0022) is a parameter of the signature it appears in, not an effect a user
+    /// can name in `uses { ... }`.
     fn collect_effects(&mut self, effects: &EffectRow) {
         self.effects.extend(effects.effects.iter().cloned());
     }
@@ -367,12 +377,7 @@ pub(crate) fn render_type(ty: &Type) -> String {
             if let Some(throws) = &function.throws {
                 out.push_str(&format!(" throws {}", render_type(throws)));
             }
-            if !function.effects.effects.is_empty() {
-                out.push_str(&format!(
-                    " uses {{ {} }}",
-                    function.effects.effects.join(", ")
-                ));
-            }
+            out.push_str(&render_effect_row(&function.effects));
             out
         }
         Type::OpaqueFunction => "Function".to_string(),
@@ -380,21 +385,52 @@ pub(crate) fn render_type(ty: &Type) -> String {
     }
 }
 
-/// Renders a function signature for a completion item's detail line.
+/// Renders a `uses` row the way source spells it (spec 0022), including the
+/// leading space, or nothing at all for an empty row: `uses e` for a bare row
+/// variable, `uses { Io }` / `uses { Io, ..e }` otherwise.
+pub(crate) fn render_effect_row(effects: &EffectRow) -> String {
+    match (effects.effects.as_slice(), effects.tails.as_slice()) {
+        ([], []) => String::new(),
+        ([], [tail]) => format!(" uses {tail}"),
+        _ => {
+            let mut parts = effects.effects.clone();
+            parts.extend(effects.tails.iter().map(|tail| format!("..{tail}")));
+            format!(" uses {{ {} }}", parts.join(", "))
+        }
+    }
+}
+
+/// Renders a function signature for a completion item's detail line. The
+/// declared type and row parameters (spec 0014/0022) are spelled in one `<...>`
+/// list, types first, the way source declares them.
 pub(crate) fn render_fn_sig(
     name: &str,
+    type_params: &[String],
+    row_params: &[String],
     params: &[Type],
     ret: &Type,
     throws: &Option<Type>,
     effects: &EffectRow,
 ) -> String {
+    let generics: Vec<&str> = type_params
+        .iter()
+        .chain(row_params.iter())
+        .map(String::as_str)
+        .collect();
+    let generics = if generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", generics.join(", "))
+    };
     let params: Vec<String> = params.iter().map(render_type).collect();
-    let mut out = format!("fn {name}({}) -> {}", params.join(", "), render_type(ret));
+    let mut out = format!(
+        "fn {name}{generics}({}) -> {}",
+        params.join(", "),
+        render_type(ret)
+    );
     if let Some(throws) = throws {
         out.push_str(&format!(" throws {}", render_type(throws)));
     }
-    if !effects.effects.is_empty() {
-        out.push_str(&format!(" uses {{ {} }}", effects.effects.join(", ")));
-    }
+    out.push_str(&render_effect_row(effects));
     out
 }

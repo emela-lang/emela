@@ -40,6 +40,10 @@ pub struct IrFunction {
     /// function reports on the error channel in addition to its value channel.
     #[serde(default)]
     pub throws: Option<Type>,
+    /// The capabilities this function requires. Always concrete: lowering erases
+    /// the row variables of a row-polymorphic function (spec 0022), which are
+    /// resolved at each call site, so a backend never sees one — here or in a
+    /// `uses` row nested in one of the types above.
     pub effects: EffectRow,
     pub body: IrExpr,
 }

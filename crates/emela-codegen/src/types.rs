@@ -39,6 +39,24 @@ pub enum Type {
     Var(String),
 }
 
+impl Type {
+    /// Erases the row-variable tails of every effect row nested in this type
+    /// (spec 0022) — what [`EffectRow::concrete`] does for one row, applied to
+    /// each function type inside. Lowering runs types through this so a lowered
+    /// IR never carries a row variable, in a signature or anywhere a function
+    /// type hides (an array element, an enum argument, a nested parameter).
+    pub fn erase_rows(&self) -> Type {
+        match self {
+            Type::Array(inner) => Type::Array(Box::new(inner.erase_rows())),
+            Type::Enum(name, args) => {
+                Type::Enum(name.clone(), args.iter().map(Type::erase_rows).collect())
+            }
+            Type::Function(function) => Type::Function(function.erase_rows()),
+            _ => self.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FunctionType {
     pub params: Vec<Type>,
@@ -49,6 +67,22 @@ pub struct FunctionType {
     #[serde(default)]
     pub throws: Option<Box<Type>>,
     pub effects: EffectRow,
+}
+
+impl FunctionType {
+    /// [`Type::erase_rows`] for a signature: the `uses` row loses its row
+    /// variables and so does every type inside (spec 0022).
+    pub fn erase_rows(&self) -> FunctionType {
+        FunctionType {
+            params: self.params.iter().map(Type::erase_rows).collect(),
+            ret: Box::new(self.ret.erase_rows()),
+            throws: self
+                .throws
+                .as_ref()
+                .map(|throws| Box::new(throws.erase_rows())),
+            effects: self.effects.concrete(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -144,7 +178,7 @@ impl EffectRow {
 
 #[cfg(test)]
 mod tests {
-    use super::EffectRow;
+    use super::{EffectRow, FunctionType, Type};
 
     /// A pre-0022 IR (no `tails` key) still deserializes, and a closed row
     /// serializes back to the identical shape.
@@ -157,6 +191,39 @@ mod tests {
             serde_json::to_string(&row).unwrap(),
             r#"{"effects":["Io"]}"#
         );
+    }
+
+    /// `erase_rows` drops the tails of every row it can reach — including a
+    /// function type buried in an array or in another function's parameter —
+    /// and leaves the concrete names alone.
+    #[test]
+    fn erase_rows_clears_tails_at_every_depth() {
+        let open = EffectRow::open(vec!["Io".into()], vec!["e".into()]);
+        let callback = Type::Function(FunctionType {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Int),
+            throws: None,
+            effects: open.clone(),
+        });
+        let outer = Type::Function(FunctionType {
+            params: vec![Type::Array(Box::new(callback))],
+            ret: Box::new(Type::Unit),
+            throws: None,
+            effects: open,
+        });
+        let Type::Function(erased) = outer.erase_rows() else {
+            panic!("a function type erases to a function type");
+        };
+        assert_eq!(erased.effects.effects, vec!["Io"]);
+        assert!(erased.effects.tails.is_empty());
+        let Type::Array(element) = &erased.params[0] else {
+            panic!("the parameter stays an array");
+        };
+        let Type::Function(inner) = element.as_ref() else {
+            panic!("the element stays a function type");
+        };
+        assert_eq!(inner.effects.effects, vec!["Io"]);
+        assert!(inner.effects.tails.is_empty());
     }
 
     #[test]

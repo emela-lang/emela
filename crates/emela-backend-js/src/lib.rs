@@ -168,6 +168,14 @@ fn emit(program: &IrProgram, used_platform: &[String]) -> String {
         out.push_str("};\n\n");
     }
     for function in &program.functions {
+        // Lowering erases effect-row variables (spec 0022), so a backend only
+        // ever sees the concrete part; the comment below would silently drop a
+        // tail otherwise.
+        debug_assert!(
+            function.effects.tails.is_empty(),
+            "lowered IR carries a row variable in `{}`",
+            function.name
+        );
         if !function.effects.effects.is_empty() {
             out.push_str(&format!(
                 "// uses {{{}}}\n",
