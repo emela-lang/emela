@@ -115,6 +115,36 @@ fn writes_to_stdout() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, Emela!\n");
 }
 
+/// A row-polymorphic function (spec 0022) is *not* specialized per effect row:
+/// the pure and the `Io` instantiation share one compiled body, and the row only
+/// shapes what the caller must declare. Type checking is covered in
+/// `effect_row_polymorphism.rs`; this pins that the erased program still runs.
+#[test]
+fn row_polymorphic_function_runs_at_two_instantiations() {
+    let output = run_source(
+        "row-poly",
+        "import std.io\n\
+         fn run_it<e>(f: () -> Int uses e) -> Int uses e { f() }\n\
+         fn pure_one() -> Int uses {} { 1 }\n\
+         fn io_two() -> Int uses { Io } {\n\
+           let p = Io.print(\"two\\n\")\n\
+           2\n\
+         }\n\
+         fn main() -> Int uses { Io } {\n\
+           let a = run_it(pure_one)\n\
+           let b = run_it(io_two)\n\
+           a + b\n\
+         }\n",
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "two\n");
+}
+
 /// A direct self-recursive call in tail position runs in constant stack
 /// (spec 0045): a million iterations would exhaust the call stack without the
 /// loop rewrite.
