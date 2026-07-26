@@ -7,6 +7,26 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+### Added
+
+- effect row 多相（spec 0022）: 関数が呼び出し側の effect row をそのまま通せるようになった。
+  `fn map<T, U, e>(list: List<T>, f: (T) -> U uses e) -> List<U> uses e` のように、`<...>` の
+  小文字要素を row パラメータとして宣言し、コールバックの `uses` 行と関数自身の行に置く。
+  row は呼び出しごとに単一化され、lowering で消える（実行時の表現は変わらない）。
+- `std.list` の `each` / `map` / `filter` / `fold` / `fold_map` が row 多相になった。
+  `list.each(xs, show)` のように effectful なコールバックを渡すと、その effect が呼び出し元に
+  伝播する（`each` は新規追加）。
+
+### Changed
+
+- **破壊的変更**: 小文字始まりの型パラメータはエラーになった。`<...>` の要素は先頭が大文字なら
+  型パラメータ、小文字なら effect row パラメータとして解釈される（spec 0022）。
+- **破壊的変更**: pure 宣言のコールバック（`f: (T) -> T`）に effectful な関数値を渡すとエラーに
+  なった。従来はジェネリック関数の呼び出しで effect が静かに失われていた（健全性の修正）。
+  署名を row 多相（`f: (T) -> T uses e`）にするか、パラメータの row を広げて移行する。
+- **破壊的変更**: 非 throwing 宣言のコールバックに throwing な関数値を渡すとエラーになった
+  （同じ穴の `throws` 側）。クロージャ内の `try` / `catch` で非 throwing 化して移行する。
+
 ## [0.9.1](https://github.com/emela-lang/emela/compare/v0.9.0...v0.9.1) - 2026-07-23
 
 ### Fixed

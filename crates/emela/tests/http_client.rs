@@ -31,6 +31,24 @@ fn run_source(label: &str, source: &str) -> Output {
     output
 }
 
+/// Like [`run_source`], but with the shipped `examples/stdlib` package on the
+/// path so the program can `import std.list`.
+fn run_with_stdlib(label: &str, source: &str) -> Output {
+    let dir = temp_dir(label);
+    let input = dir.join("main.emel");
+    fs::write(&input, source).unwrap();
+    let package = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/stdlib");
+    let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("run")
+        .arg("--package")
+        .arg(&package)
+        .arg(&input)
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    output
+}
+
 /// Serves one connection with a fixed raw HTTP response, then returns the bytes
 /// the client sent. Runs on a background thread so the client can connect.
 fn serve_once(response: &'static [u8]) -> (u16, thread::JoinHandle<String>) {
@@ -170,6 +188,52 @@ fn https_is_rejected_without_tls() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "no tls\n");
+}
+
+/// The integration effect-row polymorphism was written for (spec 0022):
+/// `list.map` carries the callback's row, so an `Http` closure makes the whole
+/// pipeline `uses { Http }` without `list` knowing about `Http`. `throws` is not
+/// row-polymorphic in v1, so the closure closes its own error channel with
+/// `try`/`catch` — the shape a caller has to write today.
+#[test]
+fn list_map_threads_the_http_row_through_a_closure() {
+    let (port_a, server_a) = serve_once(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nA\n");
+    let (port_b, server_b) = serve_once(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nB\n");
+    let source = format!(
+        "import std.io\n\
+         import std.http\n\
+         import std.list\n\
+         \n\
+         fn main() -> Unit uses {{ Io, Http }} {{\n\
+         \x20   let urls: List<String> = List::Cons(\"http://127.0.0.1:{port_a}/a\", List::Cons(\"http://127.0.0.1:{port_b}/b\", List::Nil))\n\
+         \x20   let bodies = list.map(urls, fn (url: String) -> String uses {{ Http }} {{\n\
+         \x20       try {{\n\
+         \x20           Http.get(url).body\n\
+         \x20       }} catch {{\n\
+         \x20           e -> \"error\\n\"\n\
+         \x20       }}\n\
+         \x20   }})\n\
+         \x20   list.each(bodies, fn (body: String) -> Unit uses {{ Io }} {{\n\
+         \x20       Io.print(body)\n\
+         \x20   }})\n\
+         }}\n"
+    );
+    let output = run_with_stdlib("list-map", &source);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // `map` walks the list in order, so the bodies come back in request order.
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "A\nB\n");
+    assert!(
+        server_a.join().unwrap().starts_with("GET /a HTTP/1.1"),
+        "first request should be the first URL"
+    );
+    assert!(
+        server_b.join().unwrap().starts_with("GET /b HTTP/1.1"),
+        "second request should be the second URL"
+    );
 }
 
 /// The JS backend does not supply `http.*`, so a program requiring `Http` is
