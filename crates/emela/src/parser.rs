@@ -973,11 +973,13 @@ impl Parser {
                 ),
             );
             if name.chars().next().is_some_and(char::is_uppercase) {
-                diagnostic =
-                    diagnostic.help(format!("Write `uses {{ {name} }}` for a concrete effect row."));
+                diagnostic = diagnostic.help(format!(
+                    "Write `uses {{ {name} }}` for a concrete effect row."
+                ));
             } else {
-                diagnostic = diagnostic
-                    .help(format!("Declare `{name}` in the function's `<...>`, e.g. `fn f<{name}>`."));
+                diagnostic = diagnostic.help(format!(
+                    "Declare `{name}` in the function's `<...>`, e.g. `fn f<{name}>`."
+                ));
             }
             return Err(Error::diagnostic(diagnostic));
         }
@@ -1044,7 +1046,9 @@ impl Parser {
                         span,
                         "inside `{ ... }` an effect-row variable is written as a tail (spec 0022)",
                     )
-                    .help(format!("Write `..{name}` (or the bare form `uses {name}`).")),
+                    .help(format!(
+                        "Write `..{name}` (or the bare form `uses {name}`)."
+                    )),
             ));
         }
         effects.push(name);
