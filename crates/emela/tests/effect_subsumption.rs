@@ -96,3 +96,164 @@ fn effectful_handler_rejected_where_pure_expected() {
         "unexpected diagnostic:\n{err}"
     );
 }
+
+/// Asserts a program is rejected with a `Type mismatch` naming both rows: the
+/// shape every inference site below has to produce.
+fn assert_row_mismatch(source: &str) {
+    let output = check_single(source);
+    assert!(!output.status.success(), "expected check to fail");
+    let err = stderr(&output);
+    assert!(
+        err.contains("Type mismatch"),
+        "unexpected diagnostic:\n{err}"
+    );
+    assert!(
+        err.contains("expected `(Int) -> Int uses {}`, but found `(Int) -> Int uses { Io }`"),
+        "unexpected diagnostic:\n{err}"
+    );
+}
+
+/// A pure-declared record field rejects an effectful handler. `match_type` binds
+/// the field's type parameters but never compared rows, so this used to be
+/// accepted — and a `uses {}` function could then run the effect through the
+/// stored handler.
+#[test]
+fn effectful_handler_rejected_in_record_field() {
+    assert_row_mismatch(
+        "import std.io\n\
+         record Box { run: (Int) -> Int uses {} }\n\
+         fn io_inc(x: Int) -> Int uses { Io } {\n\
+             let p = Io.print(\"x\\n\")\n\
+             x + 1\n\
+         }\n\
+         fn main() -> Unit uses { Io } {\n\
+             let b = Box { run: io_inc }\n\
+             ()\n\
+         }\n",
+    );
+}
+
+/// The same for a generic record, where the field type goes through the type
+/// parameter substitution first (spec 0028).
+#[test]
+fn effectful_handler_rejected_in_generic_record_field() {
+    assert_row_mismatch(
+        "import std.io\n\
+         record Box<T> { run: (T) -> T uses {} }\n\
+         fn io_inc(x: Int) -> Int uses { Io } {\n\
+             let p = Io.print(\"x\\n\")\n\
+             x + 1\n\
+         }\n\
+         fn main() -> Unit uses { Io } {\n\
+             let b = Box { run: io_inc }\n\
+             ()\n\
+         }\n",
+    );
+}
+
+/// An enum payload is an inference site too: `Wrap(io_inc)` may not smuggle an
+/// effectful function into a pure-declared field.
+#[test]
+fn effectful_handler_rejected_in_enum_payload() {
+    assert_row_mismatch(
+        "import std.io\n\
+         enum Handler {\n\
+             Wrap((Int) -> Int uses {})\n\
+         }\n\
+         fn io_inc(x: Int) -> Int uses { Io } {\n\
+             let p = Io.print(\"x\\n\")\n\
+             x + 1\n\
+         }\n\
+         fn main() -> Unit uses { Io } {\n\
+             let h = Handler::Wrap(io_inc)\n\
+             ()\n\
+         }\n",
+    );
+}
+
+/// And trait-method dispatch: the method's declared parameter row is checked
+/// once `Self` is inferred, like a generic call's.
+#[test]
+fn effectful_handler_rejected_by_trait_method_param() {
+    assert_row_mismatch(
+        "import std.io\n\
+         trait Runner {\n\
+             fn run(subject: Self, f: (Int) -> Int uses {}) -> Int\n\
+         }\n\
+         enum Box {\n\
+             One\n\
+         }\n\
+         impl Runner for Box {\n\
+             fn run(subject: Self, f: (Int) -> Int uses {}) -> Int {\n\
+                 f(1)\n\
+             }\n\
+         }\n\
+         fn io_inc(x: Int) -> Int uses { Io } {\n\
+             let p = Io.print(\"x\\n\")\n\
+             x + 1\n\
+         }\n\
+         fn main() -> Unit uses { Io } {\n\
+             let r = Runner.run(Box::One, io_inc)\n\
+             ()\n\
+         }\n",
+    );
+}
+
+/// The `throws` channel is closed at the same sites: a throwing function is not
+/// acceptable where a non-throwing field is declared (spec 0011/0023).
+#[test]
+fn throwing_handler_rejected_in_record_field() {
+    let output = check_single(
+        "record Box { run: (Int) -> Int uses {} }\n\
+         fn may_fail(x: Int) -> Int throws String uses {} { throw \"bad\" }\n\
+         fn main() -> Unit uses {} {\n\
+             let b = Box { run: may_fail }\n\
+             ()\n\
+         }\n",
+    );
+    assert!(!output.status.success(), "expected check to fail");
+    let err = stderr(&output);
+    assert!(
+        err.contains("throws String"),
+        "unexpected diagnostic:\n{err}"
+    );
+    assert!(
+        err.contains("`try`/`catch`"),
+        "unexpected diagnostic:\n{err}"
+    );
+}
+
+/// Subsumption still runs in the accepting direction at every one of those
+/// sites: a pure handler goes into a `uses { Io }` enum payload, and into a
+/// trait method's `uses { Io }` parameter.
+#[test]
+fn pure_handler_accepted_at_every_inference_site() {
+    let output = check_single(
+        "import std.io\n\
+         enum Handler {\n\
+             Wrap((Int) -> Int uses { Io })\n\
+         }\n\
+         trait Runner {\n\
+             fn run(subject: Self, f: (Int) -> Int uses { Io }) -> Int uses { Io }\n\
+         }\n\
+         enum Box {\n\
+             One\n\
+         }\n\
+         impl Runner for Box {\n\
+             fn run(subject: Self, f: (Int) -> Int uses { Io }) -> Int uses { Io } {\n\
+                 f(1)\n\
+             }\n\
+         }\n\
+         fn pure_inc(x: Int) -> Int uses {} { x + 1 }\n\
+         fn main() -> Unit uses { Io } {\n\
+             let h = Handler::Wrap(pure_inc)\n\
+             let r = Runner.run(Box::One, pure_inc)\n\
+             ()\n\
+         }\n",
+    );
+    assert!(
+        output.status.success(),
+        "expected check to pass:\n{}",
+        stderr(&output)
+    );
+}
