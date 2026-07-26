@@ -468,14 +468,17 @@ fn completes_effects_in_uses_row() {
     let path = dir.join("main.emel");
     let uri = uri_of(&path);
     fs::write(&path, "").unwrap();
-    let source = "fn log() -> Unit uses { Io } {\n  ()\n}\n\nfn tick() -> Unit uses { Clock } {\n  ()\n}\n\nfn main() -> Unit uses {  } {\n  ()\n}\n";
+    let source = "fn log() -> Unit uses { Io } {\n  ()\n}\n\nfn tick() -> Unit uses { Clock } {\n  ()\n}\n\nfn run_it<e>(f: () -> Unit uses e) -> Unit uses e {\n  f()\n}\n\nfn main() -> Unit uses {  } {\n  ()\n}\n";
     let mut lsp = Lsp::start();
     open_and_settle(&mut lsp, &uri, source);
-    // Cursor inside `uses {  }` of main (line 8, between the braces).
-    let labels = lsp.completion_labels(&uri, 8, 24);
+    // Cursor inside `uses {  }` of main (line 12, between the braces).
+    let labels = lsp.completion_labels(&uri, 12, 24);
     assert!(labels.iter().any(|l| l == "Io"), "{labels:?}");
     assert!(labels.iter().any(|l| l == "Clock"), "{labels:?}");
     assert!(!labels.iter().any(|l| l == "let"), "{labels:?}");
+    // A row variable (spec 0022) belongs to its own signature, so it is never
+    // an effect another function can name.
+    assert!(!labels.iter().any(|l| l == "e"), "{labels:?}");
     let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();
 }
@@ -578,6 +581,33 @@ fn hover_params_lets_and_functions() {
     assert!(
         lsp.hover_value(&uri, 7, 2)
             .contains("fn add(Int, Int) -> Int")
+    );
+    let _ = fs::remove_dir_all(&dir);
+    lsp.shutdown_and_exit();
+}
+
+// A row-polymorphic signature (spec 0022) hovers with its `<...>` list — type
+// parameters first, then row parameters — and the row spelled the way source
+// writes it: bare `uses e` when the row is nothing but a variable, `{ Io, ..e }`
+// when it extends one.
+#[test]
+fn hover_shows_row_polymorphic_signature() {
+    let dir = temp_dir();
+    let path = dir.join("main.emel");
+    let uri = uri_of(&path);
+    fs::write(&path, "").unwrap();
+    let source = "import std.io\nfn run_it<e>(f: () -> Int uses e) -> Int uses e {\n  f()\n}\n\nfn traced<T, e>(x: T, f: (T) -> T uses e) -> T uses { Io, ..e } {\n  let p = Io.print(\"call\\n\")\n  f(x)\n}\n\nfn main() -> Unit uses {} {\n  ()\n}\n";
+    let mut lsp = Lsp::start();
+    open_and_settle(&mut lsp, &uri, source);
+    let bare = lsp.hover_value(&uri, 1, 4);
+    assert!(
+        bare.contains("fn run_it<e>(() -> Int uses e) -> Int uses e"),
+        "{bare}"
+    );
+    let extended = lsp.hover_value(&uri, 5, 4);
+    assert!(
+        extended.contains("fn traced<T, e>(T, (T) -> T uses e) -> T uses { Io, ..e }"),
+        "{extended}"
     );
     let _ = fs::remove_dir_all(&dir);
     lsp.shutdown_and_exit();

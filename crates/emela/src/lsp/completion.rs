@@ -534,6 +534,8 @@ fn complete_import(doc: &Document, prefix: &str, package_paths: &[PathBuf]) -> V
                         CompletionItem::new(&function.name, completion_kind::FUNCTION).detail(
                             render_fn_sig(
                                 &function.name,
+                                &function.type_params,
+                                &function.row_params,
                                 &function
                                     .params
                                     .iter()

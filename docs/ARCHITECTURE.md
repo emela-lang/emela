@@ -143,6 +143,10 @@ Int/Float/String に対するそれらの実装、および実装が使う intri
 - **トレイト呼び出しの解決**: `lower_trait_call` / `resolve_impl_call` が lowering 済み
   実引数の型から `Self` を推論し、(トレイト, 型ヘッド) キーで impl を引いて
   マングル済みメソッドへの直接 `Call` を発行する。
+- **effect row の erasure**（spec 0022）: row 変数は呼び出し点で解決済みなので、IR に写す
+  シグネチャと型は `FunctionType::erase_rows` / `Type::erase_rows`（`uses` 行は
+  `EffectRow::concrete`）を通す。row では特殊化を分けない（マングリング無変更）ため、
+  `fn run<e>(...)` は 1 つの IR 関数になり、バックエンドは tail を見ない。
 - **ラムダのキャプチャ解析**: `lambda_captures` が自由変数を安定した順序で収集する。
   バックエンドはこの順序を環境レイアウトとして使う。
 - **組込みの発行**: プラットフォーム関数は `IrExpr::Platform`（正準名、spec 0013）、

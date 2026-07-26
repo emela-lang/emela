@@ -283,7 +283,9 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
 
     // Lower the ordinary functions (no substitution); calls to generics enqueue
     // specializations into the worklist. The type checker's signatures equal the
-    // AST's, so the ret/throws/effects come straight from it.
+    // AST's, so the ret/throws/effects come straight from it — with the row
+    // variables erased (spec 0022). A row-only polymorphic function (`<e>` and no
+    // type parameters) is lowered right here, once: rows never specialize.
     let mut functions: Vec<IrFunction> = program
         .functions
         .iter()
@@ -291,11 +293,12 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
         .enumerate()
         .filter(|(_, (function, _))| function.type_params.is_empty())
         .map(|(index, (function, typed))| {
+            let ret = typed.ret.erase_rows();
             let mut scope: Scope = function
                 .params
                 .iter()
                 .zip(typed.params.iter())
-                .map(|(param, ty)| (param.name.clone(), ty.clone()))
+                .map(|(param, ty)| (param.name.clone(), ty.erase_rows()))
                 .collect();
             *lowerer.current_module.borrow_mut() = function.module_path.clone();
             *lowerer.current_declared_module.borrow_mut() = function.declared_module.clone();
@@ -311,14 +314,14 @@ pub(crate) fn lower(program: &Program, typed: &TypedProgram) -> IrProgram {
                     .zip(typed.params.iter())
                     .map(|(param, ty)| IrParam {
                         name: param.name.clone(),
-                        ty: ty.clone(),
+                        ty: ty.erase_rows(),
                     })
                     .collect(),
-                ret: typed.ret.clone(),
-                throws: typed.throws.clone(),
-                effects: typed.effects.clone(),
+                ret: ret.clone(),
+                throws: typed.throws.as_ref().map(Type::erase_rows),
+                effects: typed.effects.concrete(),
                 body: lowerer
-                    .lower_block(&function.body.items, &mut scope, Some(&typed.ret))
+                    .lower_block(&function.body.items, &mut scope, Some(&ret))
                     .0,
             }
         })
@@ -433,7 +436,7 @@ impl<'a> Lowerer<'a> {
                 .collect(),
             ret: self.apply(&function.ret),
             throws: function.throws.as_ref().map(|throws| self.apply(throws)),
-            effects: function.effects.clone(),
+            effects: function.effects.concrete(),
             body: self
                 .lower_block(
                     &function.body.items,
@@ -444,15 +447,19 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Applies the current specialization substitution to a type. Identity when
-    /// no specialization is in progress (the common, non-generic case).
+    /// Applies the current specialization substitution to a type, then erases
+    /// the effect-row variables inside it (spec 0022): a row is only meaningful
+    /// while the frontend unifies it, and the IR contract is that no lowered
+    /// type carries a tail. The substitution part is identity when no
+    /// specialization is in progress (the common, non-generic case).
     fn apply(&self, ty: &Type) -> Type {
         let subst = self.subst.borrow();
-        if subst.is_empty() {
+        let substituted = if subst.is_empty() {
             ty.clone()
         } else {
             subst_type(ty, &subst)
-        }
+        };
+        substituted.erase_rows()
     }
 
     /// Records a generic-function specialization to emit, deduped by mangled name.
@@ -678,7 +685,8 @@ impl<'a> Lowerer<'a> {
                 .as_ref()
                 .map(|throws| Box::new(subst_type(throws, &subst))),
             effects: method.effects.clone(),
-        };
+        }
+        .erase_rows();
         self.enqueue(
             &mangled,
             TemplateRef::ImplMethod { impl_ix, method_ix },
@@ -705,6 +713,7 @@ impl<'a> Lowerer<'a> {
             throws: function.throws.clone().map(Box::new),
             effects: function.effects.clone(),
         }
+        .erase_rows()
     }
 
     fn next_request(&self) -> Option<MonoRequest> {
@@ -1054,9 +1063,15 @@ impl<'a> Lowerer<'a> {
                     .iter()
                     .map(|param| IrParam {
                         name: param.name.clone(),
-                        ty: param.ty.clone(),
+                        ty: param.ty.erase_rows(),
                     })
                     .collect();
+                // A literal's own row is concrete (a closure cannot declare a row
+                // variable), but a parameter of it may still be a function type
+                // carrying one, so the whole signature is erased (spec 0022).
+                let ret = ret.erase_rows();
+                let throws = throws.as_ref().map(Type::erase_rows);
+                let effects = effects.concrete();
                 let signature = FunctionType {
                     params: ir_params.iter().map(|param| param.ty.clone()).collect(),
                     ret: Box::new(ret.clone()),
@@ -1066,9 +1081,9 @@ impl<'a> Lowerer<'a> {
                 (
                     IrExpr::Fn {
                         params: ir_params,
-                        ret: ret.clone(),
-                        throws: throws.clone(),
-                        effects: effects.clone(),
+                        ret,
+                        throws,
+                        effects,
                         captures,
                         body: Box::new(body),
                     },
@@ -1576,7 +1591,8 @@ impl<'a> Lowerer<'a> {
                 .as_ref()
                 .map(|throws| Box::new(subst_type(throws, &subst))),
             effects: template.effects.clone(),
-        };
+        }
+        .erase_rows();
         self.request_specialization(&mangled, template_index, subst);
         let ret = (*sig.ret).clone();
         (
