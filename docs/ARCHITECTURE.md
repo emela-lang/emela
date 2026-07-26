@@ -119,8 +119,13 @@ Int/Float/String に対するそれらの実装、および実装が使う intri
   （`Result` 型は使わない）。式ごとに throws 型を伝播・`merge_throws` で合成し、
   `?` は throws の転送または `Option` の unwrap として型付けされる。`try/catch` は
   捕捉エラー型で match 腕を決める。
-- **効果システム**: `EffectRow`（capability 文字列の集合）を式単位で合成し、
-  関数宣言の `uses { ... }` と照合する。
+- **効果システム**: `EffectRow`（capability 文字列の集合と row 変数 tail）を式単位で
+  合成し、関数宣言の `uses { ... }` と照合する。
+- **effect row 多相**（spec 0022）: `fn map<T, U, e>(…, f: (T) -> U uses e) … uses e`
+  の row 変数は、直接呼び出しで実引数の関数型から `bind_param_rows` が最小解
+  （残差 row）を束縛し、`subst_row` が呼び出しの結果 row を決める。実引数の適合性
+  （effect row と throws の subsumption）は全束縛が揃ってから `check_generic_call`
+  末尾でまとめて検査するため、ジェネリック HOF に渡す関数値の効果は落ちない。
 
 `expand_trait_defaults` は型検査前にトレイトのデフォルトメソッドを各 impl に展開する。
 

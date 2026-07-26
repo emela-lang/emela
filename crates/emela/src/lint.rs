@@ -636,20 +636,29 @@ fn over_declared_effects(
         if function.effect_name.is_some() {
             continue;
         }
-        let unused: Vec<&String> = typed
+        // Both the concrete effect names and the row-variable tails (spec 0022)
+        // are over-declared if the body's inferred row lacks them. A declared
+        // tail `e` is unused when the body never propagates it (e.g. it never
+        // calls the row-polymorphic parameter it was inferred from).
+        let mut unused: Vec<String> = typed
             .effects
             .effects
             .iter()
             .filter(|effect| !typed.body_effects.effects.contains(effect))
+            .map(|effect| format!("`{effect}`"))
             .collect();
+        unused.extend(
+            typed
+                .effects
+                .tails
+                .iter()
+                .filter(|tail| !typed.body_effects.tails.contains(tail))
+                .map(|tail| format!("`..{tail}`")),
+        );
         if unused.is_empty() {
             continue;
         }
-        let list = unused
-            .iter()
-            .map(|effect| format!("`{effect}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let list = unused.join(", ");
         out.push(
             Diagnostic::warning("Over-declared effects")
                 .code("effects/over-declared")
