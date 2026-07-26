@@ -117,6 +117,27 @@ fn over_declared_effects_rule() {
 }
 
 #[test]
+fn over_declared_row_variable_rule() {
+    // A declared row variable (spec 0022) is over-declared just like a concrete
+    // effect name when the body never propagates it — here `run` never calls the
+    // parameter its row was inferred from.
+    let stderr = lint_warns(
+        "fn run<e>(_f: () -> Unit uses e) -> Unit uses e {\n    ()\n}\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
+        "effects/over-declared",
+    );
+    assert!(stderr.contains("`..e`"), "{stderr}");
+}
+
+#[test]
+fn used_row_variable_is_clean() {
+    // Calling the row-polymorphic parameter makes the body require `e`, so the
+    // declared row is exactly right.
+    lint_clean(
+        "fn run<e>(f: () -> Unit uses e) -> Unit uses e {\n    f()\n}\n\nfn main() -> Unit uses {} {\n    ()\n}\n",
+    );
+}
+
+#[test]
 fn declared_and_used_effects_are_clean() {
     // Calling through an effectful function value (spec 0008) makes the body
     // genuinely require Stdout, so the declared row is not over-declared.

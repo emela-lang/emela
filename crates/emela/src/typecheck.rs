@@ -56,6 +56,10 @@ pub(crate) struct TypeIndex {
 struct FunctionSig {
     /// Declared type parameters (spec 0014); empty for a non-generic function.
     type_params: Vec<String>,
+    /// Declared effect-row parameters (spec 0022): the lowercase `<...>` names
+    /// (`["e"]` for `fn map<T, U, e>`). Empty for a function with no row
+    /// polymorphism. Their names appear as tails in the function's `uses` rows.
+    row_params: Vec<String>,
     /// Trait bounds on those parameters (spec 0020); discharged at each call site
     /// once the type arguments are inferred.
     bounds: Vec<Bound>,
@@ -66,8 +70,13 @@ struct FunctionSig {
 }
 
 impl FunctionSig {
+    /// A row-polymorphic function (`row_params` non-empty) is also "generic" for
+    /// dispatch: it must flow through `check_generic_call` so its declared open
+    /// rows are unified against the argument rows and closed by the post-call
+    /// subsumption check (spec 0022). The non-generic path's `expect_assignable`
+    /// would otherwise reject a concrete closure against an open declared row.
     fn is_generic(&self) -> bool {
-        !self.type_params.is_empty()
+        !self.type_params.is_empty() || !self.row_params.is_empty()
     }
 }
 
@@ -887,8 +896,10 @@ impl<'a> Checker<'a> {
                 Diagnostic::new("Unhandled effects").label(
                     body.span.clone(),
                     format!(
-                        "method `{}` declares uses {:?}, but body uses {:?}",
-                        method.name, method.effects.effects, body.effects.effects
+                        "method `{}` declares uses {}, but body uses {}",
+                        method.name,
+                        format_effect_row(&method.effects),
+                        format_effect_row(&body.effects)
                     ),
                 ),
             ));
@@ -1081,6 +1092,7 @@ impl<'a> Checker<'a> {
             // entries keep resolving (spec 0033).
             self.sigs.push(FunctionSig {
                 type_params: function.type_params.clone(),
+                row_params: function.row_params.clone(),
                 bounds: function.bounds.clone(),
                 params: function
                     .params
@@ -1266,6 +1278,9 @@ impl<'a> Checker<'a> {
                         // parameters so a call is monomorphized like a generic
                         // function (spec 0014). Empty for a non-generic one.
                         type_params: declaration.type_params.clone(),
+                        // Externs are never row-polymorphic (spec 0022): their
+                        // effect rows are always concrete platform capabilities.
+                        row_params: Vec::new(),
                         bounds: declaration.bounds.clone(),
                         params,
                         ret: declaration.ret.clone(),
@@ -1325,6 +1340,7 @@ impl<'a> Checker<'a> {
                 sig: FunctionSig {
                     // Platform functions are never generic (spec 0013).
                     type_params: Vec::new(),
+                    row_params: Vec::new(),
                     bounds: Vec::new(),
                     params,
                     ret: declaration.ret.clone(),
@@ -1385,6 +1401,18 @@ impl<'a> Checker<'a> {
         {
             return Ok(());
         }
+        // A row variable is universally quantified — it can be instantiated with
+        // the empty row — so it never licenses a direct operation call (spec
+        // 0022). When the enclosing row is open, point the fix at naming the
+        // concrete effect alongside the tail.
+        let help = match ctx.effects.tails.first() {
+            Some(tail) => format!(
+                "The row variable `..{tail}` does not grant `{effect}`; declare it concretely, e.g. `uses {{ {effect}, ..{tail} }}` (spec 0022)."
+            ),
+            None => format!(
+                "Operations of `{effect}` are usable only inside a `uses {{ {effect} }}` scope (spec 0037)."
+            ),
+        };
         Err(Error::diagnostic(
             Diagnostic::new("Effect not declared in `uses`")
                 .label(
@@ -1393,9 +1421,7 @@ impl<'a> Checker<'a> {
                         "effect `{effect}` is not declared in the enclosing function's `uses` clause"
                     ),
                 )
-                .help(format!(
-                    "Operations of `{effect}` are usable only inside a `uses {{ {effect} }}` scope (spec 0037)."
-                )),
+                .help(help),
         ))
     }
 
@@ -1517,10 +1543,76 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
+    /// Validates a function's effect-row polymorphism before its body is checked
+    /// (spec 0022): every declared row parameter must be inferable, a parameter
+    /// function's `uses` row may name at most one row variable, and no nested or
+    /// return-position function type may carry one (v1 restriction — those rows
+    /// are not inferable from a call site).
+    fn validate_row_signature(&self, function: &Function) -> Result<()> {
+        if function.row_params.is_empty() {
+            return Ok(());
+        }
+        // Row variables inferable from a call: those in a top-level parameter's
+        // own `uses` row (the parameter is directly a function type).
+        let mut inferable: HashSet<&str> = HashSet::new();
+        for param in &function.params {
+            if let Type::Function(ft) = &param.ty {
+                if ft.effects.tails.len() > 1 {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Too many row variables in a parameter")
+                            .label(
+                                param.name_span.clone(),
+                                format!(
+                                    "parameter `{}` names {} row variables in its `uses` row",
+                                    param.name,
+                                    ft.effects.tails.len()
+                                ),
+                            )
+                            .help(
+                                "A parameter function type may carry at most one row variable \
+                                 in v1 (spec 0022).",
+                            ),
+                    ));
+                }
+                for tail in &ft.effects.tails {
+                    inferable.insert(tail.as_str());
+                }
+                // The parameter function's own params/ret are nested positions.
+                for nested in &ft.params {
+                    reject_nested_row_tails(nested, &param.name_span)?;
+                }
+                reject_nested_row_tails(&ft.ret, &param.name_span)?;
+            } else {
+                reject_nested_row_tails(&param.ty, &param.name_span)?;
+            }
+        }
+        // A function type in the return position is a nested position too.
+        reject_nested_row_tails(&function.ret, &function.name_span)?;
+        for row_param in &function.row_params {
+            if !inferable.contains(row_param.as_str()) {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Uninferable row parameter")
+                        .label(
+                            function.name_span.clone(),
+                            format!(
+                                "row parameter `{row_param}` does not appear in any parameter's `uses` row"
+                            ),
+                        )
+                        .help(
+                            "Each row parameter must be inferable from an argument; \
+                             use it as `f: (T) -> U uses e` on a parameter (spec 0022).",
+                        ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Checks one top-level function and returns the effect row its body
     /// actually requires (always a subset of the declared row); the caller
     /// records it on the `TypedFunction` for the over-declared-effects lint.
     fn check_function(&self, function: &Function) -> Result<EffectRow> {
+        self.validate_row_signature(function)?;
         // The declared `uses` row must name effects that exist (spec 0037).
         self.check_effect_row(&function.effects, &function.name_span)?;
         let mut scope = HashMap::new();
@@ -1551,8 +1643,10 @@ impl<'a> Checker<'a> {
                     .label(
                         body.span.clone(),
                         format!(
-                            "function `{}` declares uses {:?}, but body uses {:?}",
-                            function.name, function.effects.effects, body.effects.effects
+                            "function `{}` declares uses {}, but body uses {}",
+                            function.name,
+                            format_effect_row(&function.effects),
+                            format_effect_row(&body.effects)
                         ),
                     )
                     .help("Add the missing effect names to `uses { ... }`."),
@@ -1870,8 +1964,9 @@ impl<'a> Checker<'a> {
                             .label(
                                 body_info.span.clone(),
                                 format!(
-                                    "function literal declares uses {:?}, but body uses {:?}",
-                                    effects.effects, body_info.effects.effects
+                                    "function literal declares uses {}, but body uses {}",
+                                    format_effect_row(effects),
+                                    format_effect_row(&body_info.effects)
                                 ),
                             )
                             .help("Add the missing effect names to `uses { ... }`."),
@@ -2840,14 +2935,24 @@ impl<'a> Checker<'a> {
                 ),
             ));
         }
-        let mut effects = sig.effects.clone();
+        // The effects of *evaluating* the argument expressions (usually pure for
+        // closure literals). The callee's own row is unioned in at the end, after
+        // its row variables are resolved.
+        let mut arg_effects = EffectRow::default();
         let mut throws = None;
         let mut subst: HashMap<String, Type> = HashMap::new();
+        // Row-variable bindings inferred from function arguments (spec 0022).
+        let mut rows: HashMap<String, EffectRow> = HashMap::new();
+        // Each argument's checked type and span, kept for the post-call
+        // subsumption check once `subst`/`rows` are complete.
+        let mut checked: Vec<(&Type, ExprInfo)> = Vec::with_capacity(args.len());
         for (arg, declared) in args.iter().zip(sig.params.iter()) {
             let actual = self.check_expr(arg, scope, ctx, allow_throw)?;
             match_type(declared, &actual.ty, &mut subst, &actual.span)?;
-            effects.union(&actual.effects);
-            throws = merge_throws(throws, actual.throws, actual.span)?;
+            bind_param_rows(declared, &actual.ty, &mut rows);
+            arg_effects.union(&actual.effects);
+            throws = merge_throws(throws, actual.throws.clone(), actual.span.clone())?;
+            checked.push((declared, actual));
         }
         // Every type parameter must be pinned down by the arguments.
         for type_param in &sig.type_params {
@@ -2860,6 +2965,11 @@ impl<'a> Checker<'a> {
                 ));
             }
         }
+        // A row parameter that no argument constrained is the empty row: a pure
+        // instantiation (spec 0022). Fix it so `subst_row` sees a binding.
+        for row_param in &sig.row_params {
+            rows.entry(row_param.clone()).or_default();
+        }
         // Discharge the callee's bounds (spec 0020) at the inferred type
         // arguments: each `T: Trait` needs an impl (or a matching bound in the
         // caller when `T` is still abstract — bound propagation).
@@ -2869,6 +2979,16 @@ impl<'a> Checker<'a> {
                     self.check_bound_satisfied(tr, &concrete, ctx, span)?;
                 }
             }
+        }
+        // Post-call subsumption (spec 0022/0023): each argument must be assignable
+        // to its declared type once type *and* row parameters are substituted in.
+        // This is where a function argument's effect row and `throws` are finally
+        // checked — `match_type` above only binds variables from `params`/`ret`,
+        // so without this an effectful closure could pass for a pure declared
+        // parameter and silently drop its effects (the soundness fix).
+        for (declared, actual) in &checked {
+            let expected = subst_row_in_type(&subst_type(declared, &subst), &rows);
+            expect_assignable(&actual.ty, &expected, actual.span.clone())?;
         }
         // A throwing call must use `?` or sit inside a `try` block (spec 0011);
         // the error type is the instantiated `throws` clause. In a `@test`
@@ -2881,6 +3001,10 @@ impl<'a> Checker<'a> {
                 return Err(unhandled_throwing_call(span));
             }
         }
+        // The result row is the callee's own row with its variables resolved,
+        // plus whatever evaluating the arguments required (spec 0022).
+        let mut effects = subst_row(&sig.effects, &rows);
+        effects.union(&arg_effects);
         Ok(ExprInfo {
             ty: subst_type(&sig.ret, &subst),
             effects,
@@ -3249,10 +3373,58 @@ fn expect_assignable(actual: &Type, expected: &Type, span: Span) -> Result<()> {
     if types_compatible(actual, expected) {
         return Ok(());
     }
-    Err(Error::diagnostic(Diagnostic::new("Type mismatch").label(
+    let mut diagnostic = Diagnostic::new("Type mismatch").label(
         span,
-        format!("expected `{expected:?}`, but found `{actual:?}`"),
-    )))
+        format!(
+            "expected `{}`, but found `{}`",
+            format_type(expected),
+            format_type(actual)
+        ),
+    );
+    if let Some(help) = function_value_mismatch_help(actual, expected) {
+        diagnostic = diagnostic.help(help);
+    }
+    Err(Error::diagnostic(diagnostic))
+}
+
+/// The fix hint for a function value that has the right *shape* but a wider
+/// `uses` row or a `throws` clause the parameter does not allow — the two cases
+/// a generic higher-order call newly rejects (spec 0022/0023). Returns `None`
+/// for every other mismatch, where the types themselves say enough.
+fn function_value_mismatch_help(actual: &Type, expected: &Type) -> Option<String> {
+    let (Type::Function(a), Type::Function(e)) = (actual, expected) else {
+        return None;
+    };
+    let shape_matches = a.params.len() == e.params.len()
+        && a.params
+            .iter()
+            .zip(e.params.iter())
+            .all(|(ap, ep)| types_compatible(ep, ap))
+        && types_compatible(&a.ret, &e.ret);
+    if !shape_matches {
+        return None;
+    }
+    if !a.effects.is_subset_of(&e.effects) {
+        return Some(format!(
+            "This function value uses {}, wider than the declared {}. Widen the parameter's row, \
+             or make the callee row-polymorphic: `fn f<e>(g: (..) -> .. uses e) -> .. uses e` \
+             (spec 0022).",
+            format_effect_row(&a.effects),
+            format_effect_row(&e.effects)
+        ));
+    }
+    if a.throws != e.throws {
+        return Some(match (&a.throws, &e.throws) {
+            (Some(_), None) => "A throwing function value is not acceptable where a non-throwing \
+                                one is wanted; handle the error inside it with `try`/`catch` \
+                                (spec 0011/0023)."
+                .to_string(),
+            _ => "A function value's `throws` clause must match the declared one exactly; \
+                  subsumption relaxes only the `uses` row (spec 0023)."
+                .to_string(),
+        });
+    }
+    None
 }
 
 /// Whether a value of type `actual` is acceptable where `expected` is wanted.
@@ -3318,6 +3490,152 @@ fn collect_type_vars(ty: &Type, out: &mut HashSet<String>) {
         }
         _ => {}
     }
+}
+
+/// Formats an effect row for a diagnostic (spec 0022): `{}`, `{ Io }`, or
+/// `{ Io, ..e }` — concrete names first, then each row-variable tail as `..e`.
+/// This is the frontend-error rendering, separate from the LSP's (PR-3).
+fn format_effect_row(row: &EffectRow) -> String {
+    let mut parts: Vec<String> = row.effects.clone();
+    parts.extend(row.tails.iter().map(|tail| format!("..{tail}")));
+    if parts.is_empty() {
+        "{}".to_string()
+    } else {
+        format!("{{ {} }}", parts.join(", "))
+    }
+}
+
+/// Formats a type for a diagnostic. Every type but a function keeps its derived
+/// `Debug` form (`Int`, `Array(Int)`, ...); a function type is spelled the way
+/// source writes it — `(Int) -> Int throws String uses { Io }` — because its
+/// `Debug` form buries the `uses` row and `throws` clause that a row/subsumption
+/// mismatch is precisely about (spec 0022/0023).
+fn format_type(ty: &Type) -> String {
+    let Type::Function(function) = ty else {
+        return format!("{ty:?}");
+    };
+    let params = function
+        .params
+        .iter()
+        .map(format_type)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut out = format!("({params}) -> {}", format_type(&function.ret));
+    if let Some(error) = &function.throws {
+        out.push_str(&format!(" throws {}", format_type(error)));
+    }
+    out.push_str(&format!(" uses {}", format_effect_row(&function.effects)));
+    out
+}
+
+/// Rejects any row-variable tail on a function type nested inside `ty` (spec
+/// 0022): a row variable is only inferable from a top-level parameter's own
+/// `uses` row, so a nested or return-position function type may not carry one in
+/// v1. Walks every position a function type can hide in.
+fn reject_nested_row_tails(ty: &Type, span: &Span) -> Result<()> {
+    match ty {
+        Type::Array(inner) => reject_nested_row_tails(inner, span),
+        Type::Enum(_, args) => {
+            for arg in args {
+                reject_nested_row_tails(arg, span)?;
+            }
+            Ok(())
+        }
+        Type::Function(ft) => {
+            if let Some(tail) = ft.effects.tails.first() {
+                return Err(Error::diagnostic(
+                    Diagnostic::new("Row variable in a nested position")
+                        .label(
+                            span.clone(),
+                            format!(
+                                "row variable `{tail}` appears on a nested function type, where it cannot be inferred"
+                            ),
+                        )
+                        .help(
+                            "In v1 a row variable may only appear in a top-level parameter's \
+                             `uses` row (spec 0022).",
+                        ),
+                ));
+            }
+            for param in &ft.params {
+                reject_nested_row_tails(param, span)?;
+            }
+            reject_nested_row_tails(&ft.ret, span)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Substitutes an effect row's row-variable tails with their bindings (spec
+/// 0022). Starts from the concrete part and splices in each bound tail; a tail
+/// with no binding stays as-is. A single pass suffices — a binding is a residual
+/// concrete/tail set that never mentions the variable it is bound to, so there
+/// is nothing to iterate and no occurs check is needed.
+fn subst_row(row: &EffectRow, rows: &HashMap<String, EffectRow>) -> EffectRow {
+    let mut result = row.concrete();
+    for tail in &row.tails {
+        match rows.get(tail) {
+            Some(binding) => result.union(binding),
+            None => result.tails.push(tail.clone()),
+        }
+    }
+    result.tails.sort();
+    result.tails.dedup();
+    result
+}
+
+/// Applies `subst_row` to every function type's effect row inside `ty`, recursing
+/// structurally (spec 0022). Only `Function` effects carry rows; every other
+/// position is returned unchanged.
+fn subst_row_in_type(ty: &Type, rows: &HashMap<String, EffectRow>) -> Type {
+    match ty {
+        Type::Array(inner) => Type::Array(Box::new(subst_row_in_type(inner, rows))),
+        Type::Enum(name, args) => Type::Enum(
+            name.clone(),
+            args.iter()
+                .map(|arg| subst_row_in_type(arg, rows))
+                .collect(),
+        ),
+        Type::Function(function) => Type::Function(FunctionType {
+            params: function
+                .params
+                .iter()
+                .map(|param| subst_row_in_type(param, rows))
+                .collect(),
+            ret: Box::new(subst_row_in_type(&function.ret, rows)),
+            throws: function.throws.clone(),
+            effects: subst_row(&function.effects, rows),
+        }),
+        _ => ty.clone(),
+    }
+}
+
+/// Binds this function's effect-row parameters (spec 0022) from a single
+/// argument. Only a top-level parameter function type carries an inferable row
+/// (`validate_row_signature` forbids tails in nested and return positions), so
+/// only `(Function, Function)` at the top level binds anything. When the declared
+/// parameter's row has exactly one tail `t`, its minimal solution is the residual
+/// `(actual.effects \ declared.effects) ∪ actual.tails`, unioned into `rows[t]`
+/// — the same variable used by several parameters accumulates the sum of their
+/// residuals. This only records bindings; the post-call subsumption check decides
+/// admissibility.
+fn bind_param_rows(declared: &Type, actual: &Type, rows: &mut HashMap<String, EffectRow>) {
+    let (Type::Function(d), Type::Function(a)) = (declared, actual) else {
+        return;
+    };
+    let [tail] = d.effects.tails.as_slice() else {
+        return;
+    };
+    let mut residual = EffectRow::sorted(
+        a.effects
+            .effects
+            .iter()
+            .filter(|effect| !d.effects.effects.contains(*effect))
+            .cloned()
+            .collect(),
+    );
+    residual.tails = a.effects.tails.clone();
+    rows.entry(tail.clone()).or_default().union(&residual);
 }
 
 /// Matches a declared type (which may contain type variables) against a concrete
