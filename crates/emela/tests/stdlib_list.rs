@@ -35,7 +35,7 @@ pub fn concat<M: Monoid>(xs: List<M>) -> M {
     }
 }
 
-pub fn fold_map<T, M: Monoid>(xs: List<T>, f: (T) -> M) -> M {
+pub fn fold_map<T, M: Monoid, e>(xs: List<T>, f: (T) -> M uses e) -> M uses e {
     match xs {
         Nil -> empty()
         Cons(h, t) -> combine(f(h), fold_map(t, f))
@@ -56,21 +56,31 @@ pub fn append<T>(xs: List<T>, ys: List<T>) -> List<T> {
     }
 }
 
-pub fn map<T, U>(xs: List<T>, f: (T) -> U) -> List<U> {
+pub fn each<T, e>(xs: List<T>, f: (T) -> Unit uses e) -> Unit uses e {
+    match xs {
+        Nil -> ()
+        Cons(h, t) -> {
+            let _done = f(h)
+            each(t, f)
+        }
+    }
+}
+
+pub fn map<T, U, e>(xs: List<T>, f: (T) -> U uses e) -> List<U> uses e {
     match xs {
         Nil -> List::Nil
         Cons(h, t) -> List::Cons(f(h), map(t, f))
     }
 }
 
-pub fn filter<T>(xs: List<T>, pred: (T) -> Bool) -> List<T> {
+pub fn filter<T, e>(xs: List<T>, pred: (T) -> Bool uses e) -> List<T> uses e {
     match xs {
         Nil -> List::Nil
         Cons(h, t) -> if pred(h) { List::Cons(h, filter(t, pred)) } else { filter(t, pred) }
     }
 }
 
-pub fn fold<T, A>(xs: List<T>, init: A, f: (A, T) -> A) -> A {
+pub fn fold<T, A, e>(xs: List<T>, init: A, f: (A, T) -> A uses e) -> A uses e {
     match xs {
         Nil -> init
         Cons(h, t) -> fold(t, f(init, h), f)
@@ -273,5 +283,123 @@ fn main() -> Int uses {} {
         output.status.code(),
         Some(6),
         "fold_map app stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn each_runs_an_effectful_callback() {
+    // The point of the row polymorphism (spec 0022): `each` is declared
+    // `uses e`, an `Io` callback instantiates `e = { Io }`, and the effect
+    // surfaces on `main` — which must declare it. `each` itself names no effect.
+    let app = "\
+import std.io
+import std.list
+
+fn show(n: Int) -> Unit uses { Io } {
+    Io.print(\"x\\n\")
+}
+
+fn main() -> Int uses { Io } {
+    let xs: List<Int> = List::Cons(1, List::Cons(2, List::Nil))
+    let _done = list.each(xs, show)
+    list.length(xs)
+}
+";
+    let (package, app_file) = list_project(app);
+    let output = emela()
+        .arg("run")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = fs::remove_dir_all(app_file.parent().unwrap());
+    assert_eq!(output.status.code(), Some(2), "each app stderr:\n{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "x\nx\n");
+}
+
+#[test]
+fn effectful_callback_propagates_into_a_pure_main() {
+    // The same program with a pure `main` is rejected: the row `each` returns is
+    // the callback's, and `uses {}` does not cover it.
+    let app = "\
+import std.io
+import std.list
+
+fn show(n: Int) -> Unit uses { Io } {
+    Io.print(\"x\\n\")
+}
+
+fn main() -> Int uses {} {
+    let xs: List<Int> = List::Cons(1, List::Cons(2, List::Nil))
+    let _done = list.each(xs, show)
+    list.length(xs)
+}
+";
+    let (package, app_file) = list_project(app);
+    let output = emela()
+        .arg("check")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = fs::remove_dir_all(app_file.parent().unwrap());
+    assert!(!output.status.success(), "expected check to fail");
+    assert!(stderr.contains("Unhandled effects"), "{stderr}");
+}
+
+#[test]
+fn map_threads_the_callbacks_row_to_the_caller() {
+    // `map` is row-polymorphic too, so a callback that prints makes the whole
+    // pipeline `uses { Io }` while still returning the mapped list.
+    let app = "\
+import std.io
+import std.list
+
+fn shout(n: Int) -> Int uses { Io } {
+    let _p = Io.print(\"m\\n\")
+    n * 2
+}
+
+fn main() -> Int uses { Io } {
+    let xs: List<Int> = List::Cons(1, List::Cons(2, List::Cons(3, List::Nil)))
+    list.length(list.map(xs, shout))
+}
+";
+    let (package, app_file) = list_project(app);
+    let output = emela()
+        .arg("run")
+        .arg("--package")
+        .arg(&package)
+        .arg(&app_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = fs::remove_dir_all(app_file.parent().unwrap());
+    assert_eq!(output.status.code(), Some(3), "map app stderr:\n{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "m\nm\nm\n");
+}
+
+#[test]
+fn shipped_stdlib_list_checks_as_a_library() {
+    // `examples/stdlib` is the real module this file's compact copy stands in
+    // for; type-check the shipped one so the two cannot drift (spec 0029).
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let package = root.join("examples/stdlib");
+    let output = emela()
+        .arg("check")
+        .arg("--library")
+        .arg("--package")
+        .arg(&package)
+        .arg(package.join("src/list.emel"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "examples/stdlib/src/list.emel should type-check:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

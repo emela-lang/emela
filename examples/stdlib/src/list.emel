@@ -3,11 +3,12 @@
 -- compiler built-in, and every function here is pure Emela — no intrinsic
 -- (spec 0021) or platform function (spec 0013), so `List` works on every backend.
 --
+-- The higher-order functions (`each` / `map` / `filter` / `fold` / `fold_map`)
+-- are effect-row polymorphic (spec 0022): the callback's row `e` is inferred at
+-- each call and reappears on the function itself. A pure callback keeps the call
+-- pure; `list.each(xs, print_line)` makes the caller `uses { Io }`.
+--
 -- Deviations from spec 0029, pending other language features:
---   * The higher-order functions (`map` / `filter` / `fold`) are specified to be
---     effect-row polymorphic (`f: (T) -> U uses 'e`, spec 0022). Effect-row
---     polymorphism is not implemented yet, so the callbacks here are pure; an
---     effectful callback cannot be passed until spec 0022 lands.
 --   * `from_array` / `to_array` (spec 0029) are omitted: `Array<T>` has no length
 --     or indexing operation yet, so a list cannot be built from / turned into one.
 module list
@@ -93,8 +94,21 @@ pub fn append<T>(xs: List<T>, ys: List<T>) -> List<T> {
     }
 }
 
+-- Runs `f` on each element in order, for its effects (spec 0029): the effectful
+-- counterpart of `map`. The recursive call instantiates `e` with `e` itself, so
+-- the row stays exactly the declared one.
+pub fn each<T, e>(list: List<T>, f: (T) -> Unit uses e) -> Unit uses e {
+    match list {
+        Nil -> ()
+        Cons(h, t) -> {
+            let _done = f(h)
+            each(t, f)
+        }
+    }
+}
+
 -- Applies `f` to each element, preserving order (spec 0029 §Examples reference).
-pub fn map<T, U>(list: List<T>, f: (T) -> U) -> List<U> {
+pub fn map<T, U, e>(list: List<T>, f: (T) -> U uses e) -> List<U> uses e {
     match list {
         Nil -> List::Nil
         Cons(h, t) -> List::Cons(f(h), map(t, f))
@@ -102,7 +116,7 @@ pub fn map<T, U>(list: List<T>, f: (T) -> U) -> List<U> {
 }
 
 -- Keeps the elements satisfying `pred`, preserving order (spec 0029).
-pub fn filter<T>(list: List<T>, pred: (T) -> Bool) -> List<T> {
+pub fn filter<T, e>(list: List<T>, pred: (T) -> Bool uses e) -> List<T> uses e {
     match list {
         Nil -> List::Nil
         Cons(h, t) -> if pred(h) {
@@ -115,7 +129,7 @@ pub fn filter<T>(list: List<T>, pred: (T) -> Bool) -> List<T> {
 
 -- Left fold (spec 0029, MUST be a left fold): `f(... f(f(init, x0), x1) ..., xn)`.
 -- Tail-recursive, so it is stack-safe and folds in list order.
-pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A) -> A {
+pub fn fold<T, A, e>(list: List<T>, init: A, f: (A, T) -> A uses e) -> A uses e {
     match list {
         Nil -> init
         Cons(h, t) -> fold(t, f(init, h), f)
@@ -135,7 +149,7 @@ pub fn concat<M: Monoid>(list: List<M>) -> M {
 
 -- Maps each element to a monoid and combines the results (spec 0047, `foldMap`).
 -- `fold_map(xs, f)` equals `concat(map(xs, f))`.
-pub fn fold_map<T, M: Monoid>(list: List<T>, f: (T) -> M) -> M {
+pub fn fold_map<T, M: Monoid, e>(list: List<T>, f: (T) -> M uses e) -> M uses e {
     match list {
         Nil -> empty()
         Cons(h, t) -> combine(f(h), fold_map(t, f))
