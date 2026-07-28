@@ -527,6 +527,7 @@ fn walk_expr_refs(
             }
         }
         Expr::Field { target, .. } => walk_expr_refs(target, module, table, visit),
+        Expr::Neg { value, .. } => walk_expr_refs(value, module, table, visit),
         Expr::Int(..)
         | Expr::Float(..)
         | Expr::Bool(..)

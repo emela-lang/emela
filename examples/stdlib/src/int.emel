@@ -1,27 +1,23 @@
 -- `std.int`: integer helpers. Pure Emela over the operator traits (spec 0020),
--- comparisons (spec 0027), and integer division/remainder (spec 0016). There is
--- no unary minus yet, so negation is written `0 - n`. `to_string` for `Int`
--- lives in the Core Prelude (spec 0021), not here.
+-- comparisons (spec 0027), and integer division/remainder (spec 0016).
+-- `to_string` for `Int` lives in the Core Prelude (spec 0021), not here.
 module int
 
 pub fn abs(n: Int) -> Int {
     if n < 0 {
-        0 - n
+        -n
     } else {
         n
     }
 }
 
 pub fn signum(n: Int) -> Int {
-    -- Nested `if` because `else if` is not supported yet.
     if n < 0 {
-        0 - 1
+        -1
+    } else if n > 0 {
+        1
     } else {
-        if n > 0 {
-            1
-        } else {
-            0
-        }
+        0
     }
 }
 

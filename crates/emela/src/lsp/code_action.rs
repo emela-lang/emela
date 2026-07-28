@@ -320,6 +320,7 @@ fn collect_matches<'a>(expr: &'a Expr, out: &mut Vec<&'a Expr>) {
             }
         }
         Expr::Field { target, .. } => collect_matches(target, out),
+        Expr::Neg { value, .. } => collect_matches(value, out),
         Expr::Int(..)
         | Expr::Float(..)
         | Expr::Bool(..)

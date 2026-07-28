@@ -30,7 +30,7 @@ pub record Draw {
 -- 0x9E3779B9, as a signed i32).
 pub fn seed(s: Int) -> Prng {
     if s == 0 {
-        Prng { state: 0 - 1640531527 }
+        Prng { state: -1640531527 }
     } else {
         Prng { state: s }
     }

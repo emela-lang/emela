@@ -1321,6 +1321,20 @@ impl Parser {
             let els = Expr::Bool(true, span.clone());
             return Ok(if_desugar(operand, then, els, span));
         }
+        // Prefix `-`, unary negation: `-e` desugars to a `Sub` trait call
+        // with a zero literal of `e`'s type during type checking. Restricted
+        // to `Int`/`Float` (the type checker rejects other types) since
+        // those are the only types with a literal zero to synthesize.
+        // Applies recursively so `--e` parses.
+        if self.at(&TokenKind::Minus) {
+            let minus = self.bump();
+            let operand = self.parse_unary()?;
+            let span = minus.span.merge(&operand.span());
+            return Ok(Expr::Neg {
+                value: Box::new(operand),
+                span,
+            });
+        }
         // Prefix `~`, bitwise NOT (spec 0053 U1): `~e ≡ e ^ -1`, flipping every
         // bit via XOR with all-ones. No dedicated trait — it reuses `BitXor`.
         if self.at(&TokenKind::Tilde) {

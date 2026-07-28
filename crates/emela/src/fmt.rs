@@ -139,11 +139,12 @@ pub(crate) fn format_source(label: &str, source: &str) -> Result<String> {
         return Err(error);
     }
     let (tokens, comments) = lex_with_comments(label, source)?;
-    let comparisons = comparison_offsets(&program, &tokens);
+    let (comparisons, negations) = classify_offsets(&program, &tokens);
     let lines = normalize_attributes(Builder::new(source, tokens, comments).build_top());
     let printer = Printer {
         src: source,
         comparisons,
+        negations,
     };
     let output = printer.render_program(&lines);
     let (reparsed, reparse_errors) = parse_program(label, &output);
@@ -580,6 +581,9 @@ struct Printer<'a> {
     /// Byte offsets of `<` / `>` tokens that are comparison operators
     /// (spaced); every other `<` / `>` is a generic bracket (tight).
     comparisons: HashSet<usize>,
+    /// Byte offsets of `-` tokens that are unary negation (tight); every
+    /// other `-` is binary subtraction (spaced).
+    negations: HashSet<usize>,
 }
 
 impl Printer<'_> {
@@ -824,7 +828,7 @@ impl Printer<'_> {
     /// The token kind an atom presents to its left neighbour for spacing.
     fn lead_kind(&self, atom: &Atom) -> (TokenKind, bool) {
         match atom {
-            Atom::Tok(token) => (token.kind.clone(), self.is_comparison(token)),
+            Atom::Tok(token) => (token.kind.clone(), self.is_marked(token)),
             Atom::Group(group) => (group.kind.open_kind(), false),
             Atom::Block(_) => (TokenKind::LBrace, false),
         }
@@ -833,17 +837,24 @@ impl Printer<'_> {
     /// The token kind an atom presents to its right neighbour for spacing.
     fn tail_kind(&self, atom: &Atom) -> (TokenKind, bool) {
         match atom {
-            Atom::Tok(token) => (token.kind.clone(), self.is_comparison(token)),
+            Atom::Tok(token) => (token.kind.clone(), self.is_marked(token)),
             Atom::Group(group) => (group.kind.close_kind(), false),
             Atom::Block(_) => (TokenKind::RBrace, false),
         }
     }
 
-    fn is_comparison(&self, token: &Token) -> bool {
-        matches!(
-            token.kind,
-            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr
-        ) && self.comparisons.contains(&token.span.start)
+    /// Whether `token` was classified by `classify_offsets`: a comparison
+    /// `<`/`>`/shift, or a unary-negation `-`. `space_between` reads this bit
+    /// with the opposite sense for each kind (comparisons default tight and
+    /// this flags them spaced; `-` defaults spaced and this flags it tight).
+    fn is_marked(&self, token: &Token) -> bool {
+        match token.kind {
+            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr => {
+                self.comparisons.contains(&token.span.start)
+            }
+            TokenKind::Minus => self.negations.contains(&token.span.start),
+            _ => false,
+        }
     }
 
     /// Every token renders as its exact source text: literals keep their
@@ -866,10 +877,13 @@ fn fits(text: &str) -> bool {
 }
 
 /// The canonical spacing between two adjacent rendered tokens (spec 0035 F5).
-/// `prev_cmp` / `next_cmp` mark `<` / `>` / `<<` / `>>` / `>>>` tokens that are
-/// comparison (spec 0027) or shift (spec 0053) operators rather than generic
-/// brackets; those fall through to the spaced default, while an unmarked
-/// `<` / `>` / `>>` / `>>>` is a tight generic bracket.
+/// `prev_cmp` / `next_cmp` (from `Printer::is_marked`) mark `<` / `>` / `<<` /
+/// `>>` / `>>>` tokens that are comparison (spec 0027) or shift (spec 0053)
+/// operators rather than generic brackets — those fall through to the spaced
+/// default, while an unmarked `<` / `>` / `>>` / `>>>` is a tight generic
+/// bracket — and mark `-` tokens that are unary negation rather than binary
+/// subtraction, the opposite way round: a marked `-` is tight, an unmarked
+/// one falls through to the spaced default.
 fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: bool) -> bool {
     use TokenKind::*;
     // Separators and postfix operators attach tightly to the left.
@@ -885,6 +899,11 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
         prev,
         LParen | LBracket | Dot | ColonColon | Bang | Tilde | DotDot
     ) {
+        return false;
+    }
+    // Unary `-` is marked and attaches tightly like `~`; binary `-` is
+    // unmarked and falls through to the spaced default.
+    if matches!(prev, Minus) && prev_cmp {
         return false;
     }
     // Generic angle brackets are tight (`List<Int>`, `impl<T>`, and a nested
@@ -913,17 +932,21 @@ fn space_between(prev: &TokenKind, prev_cmp: bool, next: &TokenKind, next_cmp: b
 }
 
 // ---------------------------------------------------------------------------
-// Comparison classification
+// Comparison / unary-minus classification
 // ---------------------------------------------------------------------------
 
-/// Byte offsets of the `<` / `>` tokens that are comparison operators. For
-/// every `Binary { op: Lt | Gt }` node the operator token is the unique
-/// `<` / `>` between the operands' spans; every `<` / `>` outside those
-/// ranges is a generic bracket. The desugaring of `&& || !` keeps the
-/// comparison `Binary` nodes intact, so the ranges survive it.
-fn comparison_offsets(program: &ast::Program, tokens: &[Token]) -> HashSet<usize> {
+/// Byte offsets of the `<` / `>` tokens that are comparison operators, and of
+/// the `-` tokens that are unary negation. For every
+/// `Binary { op: Lt | Gt }` node the operator token is the unique `<` / `>`
+/// between the operands' spans; every `<` / `>` outside those ranges is a
+/// generic bracket. Every `Expr::Neg` node's span starts at its own `-`
+/// token, so its offset directly marks that token as unary; every other `-`
+/// is binary subtraction. The desugaring of `&& || !` keeps the comparison
+/// `Binary` nodes intact, so the ranges survive it.
+fn classify_offsets(program: &ast::Program, tokens: &[Token]) -> (HashSet<usize>, HashSet<usize>) {
     let mut ranges: Vec<(usize, usize)> = Vec::new();
-    let mut on_block = |block: &ast::Block| collect_ranges_block(block, &mut ranges);
+    let mut negs: Vec<usize> = Vec::new();
+    let mut on_block = |block: &ast::Block| collect_ranges_block(block, &mut ranges, &mut negs);
     for function in &program.functions {
         on_block(&function.body);
     }
@@ -939,31 +962,37 @@ fn comparison_offsets(program: &ast::Program, tokens: &[Token]) -> HashSet<usize
             }
         }
     }
-    let mut offsets = HashSet::new();
+    let mut comparisons = HashSet::new();
+    let mut negations = HashSet::new();
     for token in tokens {
-        if matches!(
-            token.kind,
-            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr
-        ) && ranges
-            .iter()
-            .any(|(low, high)| token.span.start >= *low && token.span.start < *high)
-        {
-            offsets.insert(token.span.start);
+        match token.kind {
+            TokenKind::Lt | TokenKind::Gt | TokenKind::Shl | TokenKind::Shr | TokenKind::UShr => {
+                if ranges
+                    .iter()
+                    .any(|(low, high)| token.span.start >= *low && token.span.start < *high)
+                {
+                    comparisons.insert(token.span.start);
+                }
+            }
+            TokenKind::Minus if negs.contains(&token.span.start) => {
+                negations.insert(token.span.start);
+            }
+            _ => {}
         }
     }
-    offsets
+    (comparisons, negations)
 }
 
-fn collect_ranges_block(block: &ast::Block, out: &mut Vec<(usize, usize)>) {
+fn collect_ranges_block(block: &ast::Block, out: &mut Vec<(usize, usize)>, negs: &mut Vec<usize>) {
     for item in &block.items {
         match item {
-            ast::BlockItem::Let { value, .. } => collect_ranges_expr(value, out),
-            ast::BlockItem::Expr(expr) => collect_ranges_expr(expr, out),
+            ast::BlockItem::Let { value, .. } => collect_ranges_expr(value, out, negs),
+            ast::BlockItem::Expr(expr) => collect_ranges_expr(expr, out, negs),
         }
     }
 }
 
-fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>) {
+fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>, negs: &mut Vec<usize>) {
     use ast::Expr;
     match expr {
         Expr::Binary {
@@ -978,49 +1007,53 @@ fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>) {
             ) {
                 out.push((left.span().end, right.span().start));
             }
-            collect_ranges_expr(left, out);
-            collect_ranges_expr(right, out);
+            collect_ranges_expr(left, out, negs);
+            collect_ranges_expr(right, out, negs);
         }
         Expr::Array(items, _) => {
             for item in items {
-                collect_ranges_expr(item, out);
+                collect_ranges_expr(item, out, negs);
             }
         }
         Expr::Call { callee, args, .. } => {
-            collect_ranges_expr(callee, out);
+            collect_ranges_expr(callee, out, negs);
             for arg in args {
-                collect_ranges_expr(arg, out);
+                collect_ranges_expr(arg, out, negs);
             }
         }
-        Expr::Fn { body, .. } => collect_ranges_block(body, out),
-        Expr::Block(block) => collect_ranges_block(block, out),
+        Expr::Fn { body, .. } => collect_ranges_block(body, out, negs),
+        Expr::Block(block) => collect_ranges_block(block, out, negs),
         Expr::If {
             cond, then, els, ..
         } => {
-            collect_ranges_expr(cond, out);
-            collect_ranges_block(then, out);
-            collect_ranges_block(els, out);
+            collect_ranges_expr(cond, out, negs);
+            collect_ranges_block(then, out, negs);
+            collect_ranges_block(els, out, negs);
         }
         Expr::Throw { value, .. } | Expr::Question { value, .. } => {
-            collect_ranges_expr(value, out);
+            collect_ranges_expr(value, out, negs);
         }
-        Expr::Panic { message, .. } => collect_ranges_expr(message, out),
+        Expr::Panic { message, .. } => collect_ranges_expr(message, out, negs),
         Expr::Match {
             scrutinee, arms, ..
         } => {
-            collect_ranges_expr(scrutinee, out);
-            collect_ranges_arms(arms, out);
+            collect_ranges_expr(scrutinee, out, negs);
+            collect_ranges_arms(arms, out, negs);
         }
         Expr::Try { body, arms, .. } => {
-            collect_ranges_block(body, out);
-            collect_ranges_arms(arms, out);
+            collect_ranges_block(body, out, negs);
+            collect_ranges_arms(arms, out, negs);
         }
         Expr::RecordLiteral { fields, .. } => {
             for (_, _, value) in fields {
-                collect_ranges_expr(value, out);
+                collect_ranges_expr(value, out, negs);
             }
         }
-        Expr::Field { target, .. } => collect_ranges_expr(target, out),
+        Expr::Field { target, .. } => collect_ranges_expr(target, out, negs),
+        Expr::Neg { value, span } => {
+            negs.push(span.start);
+            collect_ranges_expr(value, out, negs);
+        }
         Expr::Int(..)
         | Expr::Float(..)
         | Expr::Bool(..)
@@ -1033,12 +1066,16 @@ fn collect_ranges_expr(expr: &ast::Expr, out: &mut Vec<(usize, usize)>) {
     }
 }
 
-fn collect_ranges_arms(arms: &[ast::MatchArm], out: &mut Vec<(usize, usize)>) {
+fn collect_ranges_arms(
+    arms: &[ast::MatchArm],
+    out: &mut Vec<(usize, usize)>,
+    negs: &mut Vec<usize>,
+) {
     for arm in arms {
         if let Some(guard) = &arm.guard {
-            collect_ranges_expr(guard, out);
+            collect_ranges_expr(guard, out, negs);
         }
-        collect_ranges_expr(&arm.body, out);
+        collect_ranges_expr(&arm.body, out, negs);
     }
 }
 
@@ -1289,6 +1326,10 @@ fn dump_expr(w: &mut String, depth: usize, expr: &ast::Expr) {
         Expr::TypePath { segments, .. } => {
             let _ = writeln!(w, "{indent}typepath {segments:?}");
         }
+        Expr::Neg { value, .. } => {
+            let _ = writeln!(w, "{indent}neg");
+            dump_expr(w, depth + 1, value);
+        }
     }
 }
 
@@ -1369,6 +1410,15 @@ mod tests {
     fn comparison_vs_generics_spacing() {
         let source = "fn f(xs: Array<Int>, n: Int) -> Bool {\n    n<3\n}\n";
         let expected = "fn f(xs: Array<Int>, n: Int) -> Bool {\n    n < 3\n}\n";
+        assert_eq!(fmt(source), expected);
+    }
+
+    #[test]
+    fn unary_minus_is_tight_binary_minus_is_spaced() {
+        // Unary `-` attaches tightly like `!`/`~`; binary `-` keeps its
+        // surrounding spaces, so `-a` and `a - -b` must render distinctly.
+        let source = "fn f(a: Int, b: Int) -> Int {\n    let c = - a\n    a-  -  b\n}\n";
+        let expected = "fn f(a: Int, b: Int) -> Int {\n    let c = -a\n    a - -b\n}\n";
         assert_eq!(fmt(source), expected);
     }
 

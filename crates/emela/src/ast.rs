@@ -372,6 +372,14 @@ pub(crate) enum Expr {
         segments: Vec<String>,
         span: Span,
     },
+    /// Unary negation (prefix `-`): `-expr`. Desugars to a `Sub` trait call
+    /// with a zero literal of the operand's type during type checking;
+    /// restricted to `Int`/`Float`, the only types with a literal zero the
+    /// compiler can synthesize.
+    Neg {
+        value: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -397,7 +405,8 @@ impl Expr {
             | Expr::Path { span, .. }
             | Expr::RecordLiteral { span, .. }
             | Expr::Field { span, .. }
-            | Expr::TypePath { span, .. } => span.clone(),
+            | Expr::TypePath { span, .. }
+            | Expr::Neg { span, .. } => span.clone(),
             Expr::Block(block) => block.span.clone(),
         }
     }

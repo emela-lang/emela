@@ -1098,6 +1098,25 @@ impl<'a> Lowerer<'a> {
                 let (ir, ty) = self.lower_binary(*op, left, right);
                 self.maybe_wrap_test_site(ir, ty)
             }
+            Expr::Neg { value, .. } => {
+                let (inner_ir, inner_ty) = self.lower_expr(value, scope);
+                // Emit the zero literal of the operand's type. The type
+                // checker rejects any type other than `Int`/`Float`
+                // (`typecheck.rs`'s `Expr::Neg` case), so this is exhaustive.
+                let zero_ir = match &inner_ty {
+                    Type::Int => IrExpr::Int(0),
+                    Type::Float => IrExpr::Float(0.0),
+                    other => {
+                        unreachable!("type checker only allows Neg on Int/Float, got {other:?}")
+                    }
+                };
+                let (ir, ty) = self.lower_binary(
+                    BinaryOp::Sub,
+                    (zero_ir, inner_ty.clone()),
+                    (inner_ir, inner_ty),
+                );
+                self.maybe_wrap_test_site(ir, ty)
+            }
             Expr::Block(block) => self.lower_block(&block.items, &mut scope.clone(), expected),
             Expr::If {
                 cond, then, els, ..
@@ -1911,6 +1930,7 @@ fn free_vars_expr(expr: &Expr, bound: &HashSet<String>, out: &mut Vec<String>) {
             }
         }
         Expr::Field { target, .. } => free_vars_expr(target, bound, out),
+        Expr::Neg { value, .. } => free_vars_expr(value, bound, out),
         Expr::Match {
             scrutinee, arms, ..
         } => {
