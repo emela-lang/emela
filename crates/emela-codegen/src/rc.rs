@@ -41,6 +41,7 @@
 //! error channel, and the caught error value's own count.
 
 use crate::ir::{IrArm, IrExpr, IrParam, IrPattern, IrProgram};
+use crate::ir_walk::walk_children_mut;
 use crate::types::Type;
 
 /// Whether values of `ty` are heap pointers managed by RC (spec 0048).
@@ -857,7 +858,7 @@ impl Cx {
             } => IrExpr::Let {
                 name: n,
                 value_ty,
-                value,
+                value: Box::new(release_before_jumps(*value, name, ty)),
                 next: Box::new(self.release_at_tails(*next, name, ty)),
             },
             IrExpr::Release {
@@ -875,7 +876,7 @@ impl Cx {
                 els,
                 ty: node_ty,
             } => IrExpr::If {
-                cond,
+                cond: Box::new(release_before_jumps(*cond, name, ty)),
                 then: Box::new(self.release_at_tails(*then, name, ty)),
                 els: Box::new(self.release_at_tails(*els, name, ty)),
                 ty: node_ty,
@@ -885,12 +886,12 @@ impl Cx {
                 arms,
                 ty: node_ty,
             } => IrExpr::Match {
-                scrutinee,
+                scrutinee: Box::new(release_before_jumps(*scrutinee, name, ty)),
                 arms: arms
                     .into_iter()
                     .map(|arm| IrArm {
                         pattern: arm.pattern,
-                        guard: arm.guard,
+                        guard: arm.guard.map(|g| release_before_jumps(g, name, ty)),
                         body: self.release_at_tails(arm.body, name, ty),
                     })
                     .collect(),
@@ -910,13 +911,17 @@ impl Cx {
                     .into_iter()
                     .map(|arm| IrArm {
                         pattern: arm.pattern,
-                        guard: arm.guard,
+                        guard: arm.guard.map(|g| release_before_jumps(g, name, ty)),
                         body: release_at_tail_jumps(arm.body, name, ty),
                     })
                     .collect();
+                // A raise in the body is caught right here, so it leaves the
+                // release to the arm that runs; a self tail call in the body
+                // leaves for good and carries it (spec 0048 A5).
+                let body = release_before_jumps(*body, name, ty);
                 self.leaf_release(
                     IrExpr::Try {
-                        body,
+                        body: Box::new(body),
                         arms,
                         ty: node_ty,
                         err_name,
@@ -939,7 +944,10 @@ impl Cx {
                 ty: ty.clone(),
                 next: Box::new(leaf),
             },
-            leaf => self.leaf_release(leaf, name, ty),
+            leaf => {
+                let leaf = release_before_jumps(leaf, name, ty);
+                self.leaf_release(leaf, name, ty)
+            }
         }
     }
 
@@ -964,6 +972,36 @@ impl Cx {
     }
 }
 
+/// Carries the release across every self tail call in `e`, wherever it sits.
+///
+/// A jump leaves *every* scope enclosing it, so unlike a `throw` — which the
+/// backend's unwind cleanup covers (spec 0048 A7) — it must be met in the IR.
+/// Before the cleanup expansion (spec 0056) a jump only ever sat in a tail
+/// position, which the walkers above already handle; the expansion also puts
+/// one in a `let`'s value and inside a `try`'s body, which they do not reach.
+/// Wrapping is idempotent per path: a jump that fires never reaches the
+/// release below it, and a path with no jump never reaches this one.
+fn release_before_jumps(mut e: IrExpr, name: &str, ty: &Type) -> IrExpr {
+    wrap_jumps(&mut e, name, ty);
+    e
+}
+
+fn wrap_jumps(e: &mut IrExpr, name: &str, ty: &Type) {
+    match e {
+        IrExpr::TailSelfCall { .. } => {
+            let jump = std::mem::replace(e, IrExpr::Unit);
+            *e = IrExpr::Release {
+                name: name.to_string(),
+                ty: ty.clone(),
+                next: Box::new(jump),
+            };
+        }
+        // A lambda is its own function; its jumps are its own (spec 0045 T4).
+        IrExpr::Fn { .. } => {}
+        other => walk_children_mut(other, &mut |child| wrap_jumps(child, name, ty)),
+    }
+}
+
 /// Like [`Cx::release_at_tails`], but only wraps the *jumps* (`TailSelfCall`,
 /// `throw`) and leaves value tails untouched. Used inside a `try`'s catch
 /// arms, whose value paths are released after the `try` as a whole.
@@ -977,7 +1015,7 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
         } => IrExpr::Let {
             name: n,
             value_ty,
-            value,
+            value: Box::new(release_before_jumps(*value, name, ty)),
             next: Box::new(release_at_tail_jumps(*next, name, ty)),
         },
         IrExpr::Release {
@@ -995,7 +1033,7 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
             els,
             ty: node_ty,
         } => IrExpr::If {
-            cond,
+            cond: Box::new(release_before_jumps(*cond, name, ty)),
             then: Box::new(release_at_tail_jumps(*then, name, ty)),
             els: Box::new(release_at_tail_jumps(*els, name, ty)),
             ty: node_ty,
@@ -1005,12 +1043,12 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
             arms,
             ty: node_ty,
         } => IrExpr::Match {
-            scrutinee,
+            scrutinee: Box::new(release_before_jumps(*scrutinee, name, ty)),
             arms: arms
                 .into_iter()
                 .map(|arm| IrArm {
                     pattern: arm.pattern,
-                    guard: arm.guard,
+                    guard: arm.guard.map(|g| release_before_jumps(g, name, ty)),
                     body: release_at_tail_jumps(arm.body, name, ty),
                 })
                 .collect(),
@@ -1022,12 +1060,14 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
             ty: node_ty,
             err_name,
         } => IrExpr::Try {
-            body,
+            // This nested `try` catches its own body's raises, so from there
+            // only a jump escapes; its arms escape as far as we do.
+            body: Box::new(release_before_jumps(*body, name, ty)),
             arms: arms
                 .into_iter()
                 .map(|arm| IrArm {
                     pattern: arm.pattern,
-                    guard: arm.guard,
+                    guard: arm.guard.map(|g| release_before_jumps(g, name, ty)),
                     body: release_at_tail_jumps(arm.body, name, ty),
                 })
                 .collect(),
@@ -1039,7 +1079,7 @@ fn release_at_tail_jumps(e: IrExpr, name: &str, ty: &Type) -> IrExpr {
             ty: ty.clone(),
             next: Box::new(jump),
         },
-        other => other,
+        other => release_before_jumps(other, name, ty),
     }
 }
 
@@ -1935,6 +1975,98 @@ mod tests {
             strip_transfer(inner),
             IrExpr::Var { name, .. } if name == "s"
         ));
+    }
+
+    /// A `try` whose body is `inner` and whose single catch arm yields `()`.
+    fn try_unit(inner: IrExpr) -> IrExpr {
+        IrExpr::Try {
+            body: Box::new(inner),
+            arms: vec![IrArm {
+                pattern: IrPattern::Wildcard { binding: None },
+                guard: None,
+                body: IrExpr::Unit,
+            }],
+            ty: Type::Unit,
+            err_name: None,
+        }
+    }
+
+    #[test]
+    fn a_self_tail_call_in_a_try_body_releases_before_the_jump() {
+        // fn f(s: String) -> Unit { try { tail_self_call(1) } catch { _ -> () } }
+        // The jump leaves the scope for good, so it carries the release even
+        // though it sits inside the `try` (spec 0048 A5). Only a cleanup
+        // expansion (spec 0056) puts one here: a `try` body is not a tail
+        // position, so the frontend never does (spec 0045 T1).
+        let body = try_unit(IrExpr::TailSelfCall {
+            args: vec![IrExpr::Int(1)],
+            ty: Type::Unit,
+        });
+        let mut p = program(vec![("s", Type::String)], Type::Unit, body);
+        insert_rc_ops(&mut p);
+        let body = &p.functions[0].body;
+
+        let mut before_jump = false;
+        walk(body, &mut |e| {
+            if let IrExpr::Release { name, next, .. } = e
+                && name == "s"
+                && matches!(next.as_ref(), IrExpr::TailSelfCall { .. })
+            {
+                before_jump = true;
+            }
+        });
+        assert!(before_jump, "{body:?}");
+    }
+
+    #[test]
+    fn a_self_tail_call_in_a_let_value_releases_before_the_jump() {
+        // fn f(s: String) -> Unit { let x = tail_self_call(1); x }
+        // A jump leaves every scope it sits in, and a `let`'s value is not a
+        // tail position — so the tail walkers never reach it. The cleanup
+        // expansion (spec 0056) puts exactly this shape in the IR: its value
+        // path binds the guarded body, jump and all.
+        let body = IrExpr::Let {
+            name: "x".into(),
+            value_ty: Type::Unit,
+            value: Box::new(IrExpr::TailSelfCall {
+                args: vec![IrExpr::Int(1)],
+                ty: Type::Unit,
+            }),
+            next: Box::new(var("x", Type::Unit)),
+        };
+        let mut p = program(vec![("s", Type::String)], Type::Unit, body);
+        insert_rc_ops(&mut p);
+        let body = &p.functions[0].body;
+
+        let mut before_jump = false;
+        walk(body, &mut |e| {
+            if let IrExpr::Release { name, next, .. } = e
+                && name == "s"
+                && matches!(next.as_ref(), IrExpr::TailSelfCall { .. })
+            {
+                before_jump = true;
+            }
+        });
+        assert!(before_jump, "{body:?}");
+    }
+
+    #[test]
+    fn a_throw_in_a_try_body_leaves_the_release_to_the_catch_path() {
+        // fn f(s: String) -> Unit { try { throw "e" } catch { _ -> () } }
+        // The raise is caught right here, and the arm's value flows out to the
+        // single release below the `try`. Releasing at the raise as well would
+        // release twice on that one path.
+        let body = try_unit(IrExpr::Throw {
+            value: Box::new(IrExpr::String("e".into())),
+        });
+        let mut p = program(vec![("s", Type::String)], Type::Unit, body);
+        insert_rc_ops(&mut p);
+        let body = &p.functions[0].body;
+        assert_eq!(
+            releases(body).iter().filter(|name| *name == "s").count(),
+            1,
+            "{body:?}"
+        );
     }
 
     /// Unwraps the `let $rc = v; %$rc` transfer shell if present.
