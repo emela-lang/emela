@@ -56,19 +56,19 @@ effect Fs {
         raw_close(handle)
     }
 
-    -- Open → read-all loop → close convenience.
+    -- Open → read-all loop → close convenience. The `defer` (spec 0056) closes
+    -- the file on the error path too, where `?` would otherwise skip it.
     pub fn read_file(path: String) -> Bytes throws FsError {
         let f = raw_open_read(path)?
-        let data = read_all_loop(f)?
-        raw_close(f.id)
-        data
+        defer raw_close(f.id)
+        read_all_loop(f)?
     }
 
     -- Open → write → close convenience.
     pub fn write_file(path: String, data: Bytes) -> Unit throws FsError {
         let f = raw_open_write(path)?
+        defer raw_close(f.id)
         raw_write(f, data)?
-        raw_close(f.id)
     }
 
     -- Read-all recursion helper (exported as part of the Fs effect).

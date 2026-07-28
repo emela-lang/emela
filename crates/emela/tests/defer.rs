@@ -273,6 +273,66 @@ fn the_action_needs_the_enclosing_uses_row() {
     assert!(!output.status.success(), "{}", stderr(&output));
 }
 
+// ===========================================================================
+// std — the leak the mechanism exists to close
+// ===========================================================================
+
+/// `std.fs`'s `read_file` closes the file on the error path too. Reading a
+/// *directory* opens fine and then fails, which is exactly the shape that used
+/// to skip `raw_close` and leak one descriptor per call.
+///
+/// The js backend hands out the raw OS descriptor as `File.id`, and POSIX
+/// allocates the lowest free one — so a fresh open receives the same descriptor
+/// after 50 failed reads precisely when none of them leaked. (Against the old
+/// body this prints 50, one leak per iteration.)
+#[test]
+fn std_read_file_closes_on_the_error_path() {
+    let dir = temp_dir("fdleak");
+    let probe = dir.join("probe");
+    fs::create_dir_all(&probe).unwrap();
+    let path = probe.display().to_string();
+    let source = format!(
+        "import std.fs\n\
+         import std.io\n\
+         \n\
+         fn churn(path: String, n: Int) -> Unit uses {{ Fs }} {{\n\
+         \x20   if n == 0 {{\n\
+         \x20       ()\n\
+         \x20   }} else {{\n\
+         \x20       try {{\n\
+         \x20           let _d = Fs.read_file(path)\n\
+         \x20           ()\n\
+         \x20       }} catch {{ e -> () }}\n\
+         \x20       churn(path, n - 1)\n\
+         \x20   }}\n\
+         }}\n\
+         \n\
+         fn next_fd(path: String) -> Int throws FsError uses {{ Fs }} {{\n\
+         \x20   let f = Fs.open_read(path)?\n\
+         \x20   defer Fs.close(f.id)\n\
+         \x20   f.id\n\
+         }}\n\
+         \n\
+         fn main() -> Unit uses {{ Fs, Io }} {{\n\
+         \x20   let dir = {path:?}\n\
+         \x20   let base = try {{ next_fd(dir) }} catch {{ e -> 0 - 1 }}\n\
+         \x20   churn(dir, 50)\n\
+         \x20   let after = try {{ next_fd(dir) }} catch {{ e -> 0 - 1 }}\n\
+         \x20   Io.print(base)\n\
+         \x20   Io.print(\" \")\n\
+         \x20   Io.print(after - base)\n\
+         }}\n"
+    );
+    let out = run_node("fdleak", &source);
+    let _ = fs::remove_dir_all(&dir);
+    let (base, drift) = out.split_once(' ').expect("two numbers");
+    assert!(
+        base.parse::<i32>().unwrap() >= 0,
+        "the probe opens must succeed: {out}"
+    );
+    assert_eq!(drift, "0", "read_file leaked a descriptor per failed read");
+}
+
 /// The other side of D9: declaring the capability is enough — a `defer` is the
 /// only thing that needs it here.
 #[test]
