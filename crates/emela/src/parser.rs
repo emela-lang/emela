@@ -1095,6 +1095,11 @@ impl Parser {
                     ty,
                     value,
                 });
+            } else if self.at(&TokenKind::Defer) {
+                let start = self.bump().span;
+                let value = self.parse_expr()?;
+                let span = start.merge(&value.span());
+                items.push(BlockItem::Defer { value, span });
             } else {
                 items.push(BlockItem::Expr(self.parse_expr()?));
             }

@@ -1775,6 +1775,52 @@ impl<'a> Checker<'a> {
                         span: name_span.clone(),
                     };
                 }
+                BlockItem::Defer { value, span } => {
+                    // A `defer` guards the rest of its block (spec 0056 D2), so
+                    // a trailing one guards nothing (D3).
+                    if ix == last_ix {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("Trailing `defer`")
+                                .label(span.clone(), "nothing follows this to defer past")
+                                .help(
+                                    "Drop the `defer` — at the end of a block the action would \
+                                     run right where it is written.",
+                                ),
+                        ));
+                    }
+                    // Checked with `allow_throw` so a bare throwing call reports
+                    // as the D8 violation it is, rather than as a missing `?`
+                    // (which is not an option here either).
+                    let info = self.check_expr(value, &mut scope, ctx, true)?;
+                    if let Some(thrown) = &info.throws {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("Throwing `defer` action")
+                                .label(
+                                    info.span.clone(),
+                                    format!("this may throw `{}`", format_type(thrown)),
+                                )
+                                .help(
+                                    "A deferred action runs while an error may already be \
+                                     propagating, and the error channel carries one error \
+                                     (spec 0011). Handle it here: \
+                                     `try { ... } catch { e -> () }`.",
+                                ),
+                        ));
+                    }
+                    if !matches!(info.ty, Type::Unit | Type::Never) {
+                        return Err(Error::diagnostic(
+                            Diagnostic::new("`defer` action must be `Unit`")
+                                .label(
+                                    info.span.clone(),
+                                    format!("this has type `{}`", format_type(&info.ty)),
+                                )
+                                .help("A deferred action runs for its effect; its value is discarded."),
+                        ));
+                    }
+                    // The action's capabilities are the enclosing function's
+                    // (spec 0056 D9).
+                    effects.union(&info.effects);
+                }
                 BlockItem::Expr(expr) => {
                     let item_expected = if ix == last_ix { expected } else { None };
                     last = self.check_expr_expected(

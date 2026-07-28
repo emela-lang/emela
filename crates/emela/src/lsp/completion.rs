@@ -38,6 +38,7 @@ const KEYWORDS: &[&str] = &[
     "try",
     "catch",
     "panic",
+    "defer",
     "true",
     "false",
 ];
@@ -148,6 +149,7 @@ fn is_word(kind: &TokenKind) -> bool {
             | TokenKind::Try
             | TokenKind::Catch
             | TokenKind::Panic
+            | TokenKind::Defer
             | TokenKind::True
             | TokenKind::False
     )
@@ -361,7 +363,9 @@ fn collect_lets(block: &Block, offset: usize, out: &mut Vec<(String, Option<Type
                 }
                 collect_lets_expr(value, offset, out);
             }
-            BlockItem::Expr(expr) => collect_lets_expr(expr, offset, out),
+            BlockItem::Defer { value, .. } | BlockItem::Expr(value) => {
+                collect_lets_expr(value, offset, out)
+            }
         }
     }
 }

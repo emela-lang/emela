@@ -178,3 +178,35 @@ fn partial_construction_across_throws_reclaims() {
         "enum E {\n  Nope\n}\nrecord Pair {\n  a: String,\n  b: String\n}\nfn boom() -> String throws E { throw E::Nope }\nfn build() -> Pair throws E {\n  Pair { a: \"left\" ++ \"!\", b: boom()? }\n}\nfn main() -> Int {\n  let _p = try {\n    build()\n  } catch {\n    Nope -> Pair { a: \"x\" ++ \"y\", b: \"z\" ++ \"w\" }\n  }\n  0\n}\n",
     );
 }
+
+/// A `defer` (spec 0056) whose action reads a heap binding across a self tail
+/// call: the action runs before the jump, and the binding's release lands
+/// between the two. Without that ordering the loop leaks one string per
+/// iteration (spec 0048 A5).
+#[test]
+fn defer_across_a_self_tail_call_reclaims_to_zero() {
+    assert_reclaims(
+        "defer-loop",
+        "fn touch(_s: String) -> Unit { () }\nfn churn(n: Int) -> Int {\n  if n == 0 {\n    0\n  } else {\n    let s = \"chunk \" ++ \"data\"\n    defer touch(s)\n    churn(n - 1)\n  }\n}\nfn main() -> Int { churn(500) }\n",
+    );
+}
+
+/// The same on the error path: the action runs on the way out, then the
+/// binding it read is released, then the error keeps propagating (0056 D4.2).
+#[test]
+fn defer_on_the_error_path_reclaims_to_zero() {
+    assert_reclaims(
+        "defer-throw",
+        "enum E {\n  Boom(String)\n}\nfn touch(_s: String) -> Unit { () }\nfn risky() -> Int throws E { throw E::Boom(\"bad \" ++ \"input\") }\nfn guarded() -> Int throws E {\n  let s = \"keep \" ++ \"me\"\n  defer touch(s)\n  risky()?\n}\nfn main() -> Int {\n  let r = try {\n    guarded()\n  } catch {\n    Boom(_m) -> 7\n  }\n  r - 7\n}\n",
+    );
+}
+
+/// Nested `defer`s in one scope, each reading its own heap binding: every copy
+/// of every action is self-contained for RC (0056 D6).
+#[test]
+fn nested_defers_reclaim_to_zero() {
+    assert_reclaims(
+        "defer-nested",
+        "fn touch(_s: String) -> Unit { () }\nfn churn(n: Int) -> Int {\n  if n == 0 {\n    0\n  } else {\n    let a = \"first \" ++ \"one\"\n    defer touch(a)\n    let b = \"second \" ++ \"one\"\n    defer touch(b)\n    churn(n - 1)\n  }\n}\nfn main() -> Int { churn(300) }\n",
+    );
+}
