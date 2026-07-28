@@ -474,6 +474,7 @@ fn read_full(conn: Connection, acc: Bytes) -> Bytes throws HttpError uses { Sock
 -- Best-effort status-only reply for a request the handler rejects (spec 0046
 -- S3). Failures are swallowed so the accept loop keeps serving.
 fn respond_status(conn: Connection, status: Int, body: String) -> Unit uses { Socket } {
+    defer Socket.close(conn.id)
     try {
         Socket.write(
             conn,
@@ -485,7 +486,6 @@ fn respond_status(conn: Connection, status: Int, body: String) -> Unit uses { So
                 },
             ),
         )
-        Socket.close(conn.id)
     } catch {
         e -> ()
     }
@@ -500,7 +500,17 @@ pub fn accept_one(listener: Listener) -> Incoming throws HttpError uses { Socket
     } catch {
         e -> throw HttpError::ConnectionClosed
     }
-    let raw = read_full(conn, bytes.to_bytes(""))?
+    -- `defer` does not fit here: on the success path the connection is handed
+    -- to the caller inside `Incoming`, so only the failure path closes it
+    -- (spec 0056 D11 — there is no ownership transfer to track).
+    let raw = try {
+        read_full(conn, bytes.to_bytes(""))
+    } catch {
+        e -> {
+            Socket.close(conn.id)
+            throw HttpError::ConnectionClosed
+        }
+    }
     match parse_request(raw) {
         Parsed::Complete(req) -> Incoming {
             conn: conn
@@ -540,9 +550,9 @@ effect HttpServer {
         incoming: Incoming,
         response: Response,
     ) -> Unit throws HttpError uses { Socket } {
+        defer Socket.close(incoming.conn.id)
         try {
             Socket.write(incoming.conn, http.serialize_response(response))
-            Socket.close(incoming.conn.id)
         } catch {
             e -> throw HttpError::ConnectionClosed
         }
