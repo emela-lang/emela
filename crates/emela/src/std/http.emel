@@ -129,7 +129,7 @@ pub record Incoming {
 fn at(b: Bytes, i: Int) -> Int {
     match bytes.byte_at(b, i) {
         Some(v) -> v
-        None -> 0 - 1
+        None -> -1
     }
 }
 
@@ -144,7 +144,7 @@ fn to_lower(c: Int) -> Int {
 -- Index of the first `\r\n` in [from, n), or -1.
 fn find_crlf(b: Bytes, from: Int, n: Int) -> Int {
     if from + 1 >= n {
-        0 - 1
+        -1
     } else if at(b, from) == 13 && at(b, from + 1) == 10 {
         from
     } else {
@@ -155,7 +155,7 @@ fn find_crlf(b: Bytes, from: Int, n: Int) -> Int {
 -- Index of the first `\r\n\r\n` in [from, n), or -1.
 fn find_crlf_crlf(b: Bytes, from: Int, n: Int) -> Int {
     if from + 3 >= n {
-        0 - 1
+        -1
     } else if at(
         b,
         from,
@@ -169,7 +169,7 @@ fn find_crlf_crlf(b: Bytes, from: Int, n: Int) -> Int {
 -- Index of the first `target` byte in [from, end), or -1.
 fn find_byte(b: Bytes, from: Int, end: Int, target: Int) -> Int {
     if from >= end {
-        0 - 1
+        -1
     } else if at(b, from) == target {
         from
     } else {
@@ -333,7 +333,7 @@ fn parse_after_head(raw: Bytes, n: Int, boundary: Int) -> Parsed {
     let line_end = find_crlf(raw, 0, boundary)
     let sp1 = find_byte(raw, 0, line_end, 32)
     let sp2 = if sp1 < 0 {
-        0 - 1
+        -1
     } else {
         find_byte(raw, sp1 + 1, line_end, 32)
     }

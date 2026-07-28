@@ -2024,6 +2024,44 @@ impl<'a> Checker<'a> {
                     None,
                 )
             }
+            Expr::Neg { value, span } => {
+                let inner = self.check_expr(value, scope, ctx, allow_throw)?;
+                // `-e` desugars to `Sub.sub(zero, e)` with a zero literal of
+                // `e`'s type. Only `Int`/`Float` have a zero the compiler can
+                // synthesize, so unlike the binary operators (which dispatch
+                // `Sub` generically, allowing user impls like `Sub for
+                // Money`), `-e` is restricted to the two types that have a
+                // literal zero — lowering has no generic zero to emit.
+                if !matches!(inner.ty, Type::Int | Type::Float) {
+                    return Err(Error::diagnostic(
+                        Diagnostic::new("Unsupported type for unary `-`").label(
+                            span.clone(),
+                            format!(
+                                "`-` only applies to `Int` or `Float`, found `{}`",
+                                format_type(&inner.ty)
+                            ),
+                        ),
+                    ));
+                }
+                // The type checker creates a synthetic `ExprInfo` for the
+                // zero; the concrete zero value is emitted during lowering.
+                let zero_info = ExprInfo {
+                    ty: inner.ty.clone(),
+                    effects: EffectRow::default(),
+                    throws: None,
+                    span: span.clone(),
+                };
+                let (trait_name, method) = operator_trait(BinaryOp::Sub);
+                self.dispatch_method(
+                    &[trait_name.to_string()],
+                    method,
+                    &[zero_info, inner],
+                    span,
+                    ctx,
+                    allow_throw,
+                    expected,
+                )
+            }
             Expr::Block(block) => self.check_block(block, scope, ctx, allow_throw, expected),
             Expr::Throw { value, span } => {
                 let val = self.check_expr(value, scope, ctx, allow_throw)?;
