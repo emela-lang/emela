@@ -744,6 +744,21 @@ impl<'a> Lowerer<'a> {
                     next_ty,
                 )
             }
+            // `defer a; rest` guards the rest of the block (spec 0056 D2). The
+            // action is lowered against the scope as it stands here, but runs
+            // on every exit from `rest` — nesting later `defer`s inside earlier
+            // ones is what makes them run in reverse order (D6).
+            Some((BlockItem::Defer { value, .. }, rest)) => {
+                let (action, _) = self.lower_expr(value, scope);
+                let (body, body_ty) = self.lower_block(rest, scope, expected);
+                (
+                    IrExpr::Cleanup {
+                        body: Box::new(body),
+                        action: Box::new(action),
+                    },
+                    body_ty,
+                )
+            }
             Some((
                 BlockItem::Let {
                     name, ty, value, ..
@@ -1866,7 +1881,11 @@ fn free_vars_block(items: &[BlockItem], bound: &HashSet<String>, out: &mut Vec<S
                 free_vars_expr(value, &bound, out);
                 bound.insert(name.clone());
             }
-            BlockItem::Expr(expr) => free_vars_expr(expr, &bound, out),
+            // The action escapes into every exit of the rest of the block, so
+            // its reads are free variables of the enclosing lambda too.
+            BlockItem::Defer { value, .. } | BlockItem::Expr(value) => {
+                free_vars_expr(value, &bound, out)
+            }
         }
     }
 }

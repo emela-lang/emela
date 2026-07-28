@@ -454,8 +454,9 @@ fn walk_block_refs(
     use crate::ast::BlockItem;
     for item in &block.items {
         match item {
-            BlockItem::Let { value, .. } => walk_expr_refs(value, module, table, visit),
-            BlockItem::Expr(expr) => walk_expr_refs(expr, module, table, visit),
+            BlockItem::Let { value, .. }
+            | BlockItem::Defer { value, .. }
+            | BlockItem::Expr(value) => walk_expr_refs(value, module, table, visit),
         }
     }
 }
