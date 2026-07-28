@@ -12,7 +12,7 @@
 use emela_backend_wasm::{WasmTarget, emit_module};
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, EmitMode, IrProgram, Result,
-    Tier, insert_rc_ops, used_platform_fns,
+    TailMode, Tier, expand_cleanups, insert_rc_ops, used_platform_fns,
 };
 use wit_component::{ComponentEncoder, StringEncoding, embed_component_metadata};
 use wit_parser::Resolve;
@@ -30,8 +30,10 @@ impl Backend for Wasip2Backend {
     }
 
     fn compile(&self, ir: &IrProgram, options: &BackendOptions) -> Result<Artifact> {
-        // ARC (spec 0048) on a private copy, like the core wasm backend.
+        // Cleanup expansion (spec 0056) then ARC (spec 0048) on a private
+        // copy, like the core wasm backend it shares an emitter with.
         let mut ir = ir.clone();
+        expand_cleanups(&mut ir, TailMode::Jump);
         insert_rc_ops(&mut ir);
         let core_wat = emit_module(&ir, &options.platform_registry, WasmTarget::Wasip2)?;
         if options.mode == EmitMode::Text {
