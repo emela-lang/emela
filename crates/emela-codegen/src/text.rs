@@ -167,6 +167,11 @@ fn inline_expr(expr: &IrExpr) -> String {
         IrExpr::FieldAccess { target, index, .. } => {
             format!("field {}, {index}", inline_expr(target))
         }
+        IrExpr::Cleanup { body, action } => format!(
+            "cleanup {{ {} }} finally {{ {} }}",
+            inline_expr(body),
+            inline_expr(action)
+        ),
         IrExpr::Retain { value } => format!("retain {}", inline_expr(value)),
         IrExpr::Release { .. } => {
             let mut out = String::from("{\n");

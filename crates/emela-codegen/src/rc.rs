@@ -213,6 +213,9 @@ impl Renamer {
             IrExpr::Panic { message } => self.expr(message, env),
             IrExpr::Retain { value } => self.expr(value, env),
             IrExpr::Release { next, .. } => self.expr(next, env),
+            IrExpr::Cleanup { .. } => {
+                unreachable!("expand_cleanups runs before insert_rc_ops (spec 0056)")
+            }
             IrExpr::Int(_)
             | IrExpr::Float(_)
             | IrExpr::Bool(_)
@@ -706,6 +709,13 @@ impl Cx {
 
             IrExpr::Retain { .. } | IrExpr::Release { .. } => {
                 unreachable!("insert_rc_ops runs once, before any RC nodes exist")
+            }
+
+            // A cleanup scope carries an action that must be ordered *before*
+            // the releases of the bindings it reads, which only holds once the
+            // action sits in a `let` value position (spec 0056).
+            IrExpr::Cleanup { .. } => {
+                unreachable!("expand_cleanups runs before insert_rc_ops (spec 0056)")
             }
         }
     }

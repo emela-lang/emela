@@ -8,6 +8,7 @@
 //! crate alone to add a backend, in-process or as an external plugin.
 
 mod backend;
+mod cleanup;
 mod error;
 mod intrinsic;
 mod ir;
@@ -22,6 +23,7 @@ mod text;
 mod types;
 
 pub use backend::{Artifact, ArtifactKind, Backend, BackendOptions, EmitMode, Tier};
+pub use cleanup::{TailMode, expand_cleanups};
 pub use error::{BackendError, Result};
 pub use intrinsic::{IntrinsicFn, intrinsic_interface, is_intrinsic, lookup as intrinsic_lookup};
 pub use ir::{IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram};

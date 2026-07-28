@@ -193,6 +193,16 @@ pub enum IrExpr {
         args: Vec<IrExpr>,
         ty: Type,
     },
+    /// A scope with a finalizer (spec 0056): evaluate `body`, and evaluate
+    /// `action` for its effect on *every* exit from it — the value path, the
+    /// error channel, and a self tail call that jumps out of the scope. The
+    /// frontend builds one per `defer` block item;
+    /// [`crate::cleanup::expand_cleanups`] rewrites it to the nodes above
+    /// before RC insertion, so a backend never sees one.
+    Cleanup {
+        body: Box<IrExpr>,
+        action: Box<IrExpr>,
+    },
     /// `retain e` (spec 0048 A8): +1 the heap value `e` evaluates to, then
     /// yield that value. Produced by [`crate::rc::insert_rc_ops`] in owned
     /// positions (after the pass `e` is always a `Var`); never built by the
@@ -264,6 +274,7 @@ impl IrExpr {
             IrExpr::Throw { .. } | IrExpr::Panic { .. } => Type::Never,
             IrExpr::Retain { value } => value.ty(),
             IrExpr::Release { next, .. } => next.ty(),
+            IrExpr::Cleanup { body, .. } => body.ty(),
         }
     }
 }

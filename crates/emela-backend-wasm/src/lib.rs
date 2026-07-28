@@ -28,8 +28,8 @@ use std::fmt::Write as _;
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, EmitMode,
     FunctionType, IrArm, IrCapture, IrExpr, IrFunction, IrParam, IrPattern, IrProgram, Result,
-    Tier, Type, contains_tail_self_call, insert_rc_ops, is_heap, used_intrinsics,
-    used_platform_fns, walk,
+    TailMode, Tier, Type, contains_tail_self_call, expand_cleanups, insert_rc_ops, is_heap,
+    used_intrinsics, used_platform_fns, walk,
 };
 
 /// The WASI/WAMR WebAssembly backend.
@@ -45,10 +45,13 @@ impl Backend for WasmBackend {
     }
 
     fn compile(&self, ir: &IrProgram, options: &BackendOptions) -> Result<Artifact> {
-        // ARC (spec 0048): insert retain/release on a private copy, after
-        // lowering already ran the tail-call rewrite (0045). Other backends'
-        // IR stream stays untouched.
+        // Deterministic cleanup (spec 0056) then ARC (spec 0048), both on a
+        // private copy, after lowering already ran the tail-call rewrite
+        // (0045). Other backends' IR stream stays untouched. A self tail call
+        // is a `br` here, so it skips the value path and needs its own copy of
+        // each pending action.
         let mut ir = ir.clone();
+        expand_cleanups(&mut ir, TailMode::Jump);
         insert_rc_ops(&mut ir);
         let wat = emit_module(&ir, &options.platform_registry, WasmTarget::Wasi)?;
         match options.mode {
@@ -2318,6 +2321,13 @@ impl<'a> FnEmitter<'a> {
                 self.line("i32.const 0");
                 self.line(&format!("local.set {id}"));
                 self.emit(next)?;
+            }
+            // A cleanup scope (spec 0056) is expanded away by
+            // `emela_codegen::expand_cleanups` before this emitter runs.
+            IrExpr::Cleanup { .. } => {
+                return Err(BackendError::new(
+                    "a cleanup scope reached the wasm emitter unexpanded (spec 0056)",
+                ));
             }
         }
         Ok(())

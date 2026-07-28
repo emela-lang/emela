@@ -94,6 +94,14 @@ fn rewrite(expr: &mut IrExpr, self_name: &str, tail: bool) {
         }
         // A nested function literal is its own function (spec 0045 T4).
         IrExpr::Fn { body, .. } => rewrite(body, self_name, false),
+        // A cleanup scope (spec 0056) is transparent to tail position: the
+        // expansion re-inserts the action before the jump. The action itself
+        // runs *during* an exit, so a jump out of it would skip the rest of
+        // that exit — it is never a tail position.
+        IrExpr::Cleanup { body, action } => {
+            rewrite(body, self_name, tail);
+            rewrite(action, self_name, false);
+        }
         IrExpr::Array { elems, .. } => {
             for elem in elems {
                 rewrite(elem, self_name, false);
