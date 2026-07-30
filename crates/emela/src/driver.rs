@@ -67,6 +67,9 @@ pub fn run() -> Result<()> {
                 build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
             let mut ir = compile_to_ir(&args.input, &args.packages, &registry)?;
             if rc {
+                // Match what a wasm build sees: cleanup scopes (spec 0056) are
+                // gone by the time the RC pass runs.
+                emela_codegen::expand_cleanups(&mut ir, emela_codegen::TailMode::Jump);
                 emela_codegen::insert_rc_ops(&mut ir);
             }
             let text = emit_text(&ir);
