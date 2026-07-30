@@ -345,8 +345,9 @@ fn collect_matches_arms<'a>(arms: &'a [MatchArm], out: &mut Vec<&'a Expr>) {
 fn collect_matches_block<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
     for item in &block.items {
         match item {
-            BlockItem::Let { value, .. } => collect_matches(value, out),
-            BlockItem::Expr(expr) => collect_matches(expr, out),
+            BlockItem::Let { value, .. }
+            | BlockItem::Defer { value, .. }
+            | BlockItem::Expr(value) => collect_matches(value, out),
         }
     }
 }

@@ -266,6 +266,12 @@ pub(crate) enum BlockItem {
         ty: Option<Type>,
         value: Expr,
     },
+    /// `defer <expr>` (spec 0056): the action runs on every exit from the rest
+    /// of this block. `span` covers the whole item, keyword included.
+    Defer {
+        value: Expr,
+        span: Span,
+    },
     Expr(Expr),
 }
 

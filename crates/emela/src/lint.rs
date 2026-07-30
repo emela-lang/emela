@@ -174,7 +174,9 @@ fn naming_block(block: &ast::Block, out: &mut Vec<Diagnostic>) {
                 warn_snake(name, name_span, "binding", out);
                 naming_expr(value, out);
             }
-            ast::BlockItem::Expr(expr) => naming_expr(expr, out),
+            ast::BlockItem::Defer { value, .. } | ast::BlockItem::Expr(value) => {
+                naming_expr(value, out)
+            }
         }
     }
 }
@@ -339,7 +341,9 @@ fn used_block(block: &ast::Block, used: &mut HashSet<String>) {
                 }
                 used_expr(value, used);
             }
-            ast::BlockItem::Expr(expr) => used_expr(expr, used),
+            ast::BlockItem::Defer { value, .. } | ast::BlockItem::Expr(value) => {
+                used_expr(value, used)
+            }
         }
     }
 }
@@ -474,8 +478,9 @@ fn unused_in_function(
 fn reads_block(block: &ast::Block, reads: &mut HashSet<String>) {
     for item in &block.items {
         match item {
-            ast::BlockItem::Let { value, .. } => reads_expr(value, reads),
-            ast::BlockItem::Expr(expr) => reads_expr(expr, reads),
+            ast::BlockItem::Let { value, .. }
+            | ast::BlockItem::Defer { value, .. }
+            | ast::BlockItem::Expr(value) => reads_expr(value, reads),
         }
     }
 }
@@ -556,7 +561,9 @@ fn unused_lets_in_block(block: &ast::Block, reads: &HashSet<String>, out: &mut V
                 }
                 unused_lets_in_expr(value, reads, out);
             }
-            ast::BlockItem::Expr(expr) => unused_lets_in_expr(expr, reads, out),
+            ast::BlockItem::Defer { value, .. } | ast::BlockItem::Expr(value) => {
+                unused_lets_in_expr(value, reads, out)
+            }
         }
     }
 }

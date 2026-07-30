@@ -986,8 +986,9 @@ fn classify_offsets(program: &ast::Program, tokens: &[Token]) -> (HashSet<usize>
 fn collect_ranges_block(block: &ast::Block, out: &mut Vec<(usize, usize)>, negs: &mut Vec<usize>) {
     for item in &block.items {
         match item {
-            ast::BlockItem::Let { value, .. } => collect_ranges_expr(value, out, negs),
-            ast::BlockItem::Expr(expr) => collect_ranges_expr(expr, out, negs),
+            ast::BlockItem::Let { value, .. }
+            | ast::BlockItem::Defer { value, .. }
+            | ast::BlockItem::Expr(value) => collect_ranges_expr(value, out, negs),
         }
     }
 }
@@ -1209,6 +1210,10 @@ fn dump_block(w: &mut String, depth: usize, block: &ast::Block) {
                 name, ty, value, ..
             } => {
                 let _ = writeln!(w, "{indent}  let {name} ty={ty:?}");
+                dump_expr(w, depth + 2, value);
+            }
+            ast::BlockItem::Defer { value, .. } => {
+                let _ = writeln!(w, "{indent}  defer");
                 dump_expr(w, depth + 2, value);
             }
             ast::BlockItem::Expr(expr) => dump_expr(w, depth + 1, expr),
