@@ -57,8 +57,148 @@ pub fn walk<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
             walk(value, visit)
         }
         IrExpr::Release { next, .. } => walk(next, visit),
+        IrExpr::Cleanup { body, action } => {
+            walk(body, visit);
+            walk(action, visit);
+        }
         IrExpr::Panic { message } => walk(message, visit),
         _ => {}
+    }
+}
+
+/// Visits the immediate sub-expressions of `expr` — one level only, so a caller
+/// can decide per node whether to descend. Passes that rewrite in place (the
+/// cleanup expansion, spec 0056; the RC pass, spec 0048) share this instead of
+/// each spelling out the same match.
+pub(crate) fn walk_children_mut(expr: &mut IrExpr, visit: &mut impl FnMut(&mut IrExpr)) {
+    match expr {
+        IrExpr::Array { elems, .. } => elems.iter_mut().for_each(visit),
+        IrExpr::Let { value, next, .. } => {
+            visit(value);
+            visit(next);
+        }
+        IrExpr::Call { callee, args, .. } => {
+            visit(callee);
+            args.iter_mut().for_each(visit);
+        }
+        IrExpr::Platform { args, .. }
+        | IrExpr::Intrinsic { args, .. }
+        | IrExpr::TailSelfCall { args, .. } => args.iter_mut().for_each(visit),
+        IrExpr::Fn { body, .. } => visit(body),
+        IrExpr::Binary { left, right, .. } | IrExpr::Concat { left, right } => {
+            visit(left);
+            visit(right);
+        }
+        IrExpr::If {
+            cond, then, els, ..
+        } => {
+            visit(cond);
+            visit(then);
+            visit(els);
+        }
+        IrExpr::RecordValue { fields, .. } => fields.iter_mut().for_each(visit),
+        IrExpr::FieldAccess { target, .. } => visit(target),
+        IrExpr::EnumValue { payload, .. } => payload.iter_mut().for_each(visit),
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => {
+            visit(scrutinee);
+            walk_arms_mut(arms, visit);
+        }
+        IrExpr::Try { body, arms, .. } => {
+            visit(body);
+            walk_arms_mut(arms, visit);
+        }
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } | IrExpr::Retain { value } => {
+            visit(value)
+        }
+        IrExpr::Panic { message } => visit(message),
+        IrExpr::Release { next, .. } => visit(next),
+        IrExpr::Cleanup { body, action } => {
+            visit(body);
+            visit(action);
+        }
+        IrExpr::Int(_)
+        | IrExpr::Float(_)
+        | IrExpr::Bool(_)
+        | IrExpr::String(_)
+        | IrExpr::Char(_)
+        | IrExpr::Unit
+        | IrExpr::Var { .. }
+        | IrExpr::FunctionRef { .. } => {}
+    }
+}
+
+/// The immutable twin of [`walk_children_mut`].
+pub(crate) fn walk_children<'a>(expr: &'a IrExpr, visit: &mut impl FnMut(&'a IrExpr)) {
+    match expr {
+        IrExpr::Array { elems, .. } => elems.iter().for_each(visit),
+        IrExpr::Let { value, next, .. } => {
+            visit(value);
+            visit(next);
+        }
+        IrExpr::Call { callee, args, .. } => {
+            visit(callee);
+            args.iter().for_each(visit);
+        }
+        IrExpr::Platform { args, .. }
+        | IrExpr::Intrinsic { args, .. }
+        | IrExpr::TailSelfCall { args, .. } => args.iter().for_each(visit),
+        IrExpr::Fn { body, .. } => visit(body),
+        IrExpr::Binary { left, right, .. } | IrExpr::Concat { left, right } => {
+            visit(left);
+            visit(right);
+        }
+        IrExpr::If {
+            cond, then, els, ..
+        } => {
+            visit(cond);
+            visit(then);
+            visit(els);
+        }
+        IrExpr::RecordValue { fields, .. } => fields.iter().for_each(visit),
+        IrExpr::FieldAccess { target, .. } => visit(target),
+        IrExpr::EnumValue { payload, .. } => payload.iter().for_each(visit),
+        IrExpr::Match {
+            scrutinee, arms, ..
+        } => {
+            visit(scrutinee);
+            for arm in arms {
+                arm.guard.iter().for_each(&mut *visit);
+                visit(&arm.body);
+            }
+        }
+        IrExpr::Try { body, arms, .. } => {
+            visit(body);
+            for arm in arms {
+                arm.guard.iter().for_each(&mut *visit);
+                visit(&arm.body);
+            }
+        }
+        IrExpr::Throw { value } | IrExpr::Question { value, .. } | IrExpr::Retain { value } => {
+            visit(value)
+        }
+        IrExpr::Panic { message } => visit(message),
+        IrExpr::Release { next, .. } => visit(next),
+        IrExpr::Cleanup { body, action } => {
+            visit(body);
+            visit(action);
+        }
+        IrExpr::Int(_)
+        | IrExpr::Float(_)
+        | IrExpr::Bool(_)
+        | IrExpr::String(_)
+        | IrExpr::Char(_)
+        | IrExpr::Unit
+        | IrExpr::Var { .. }
+        | IrExpr::FunctionRef { .. } => {}
+    }
+}
+
+fn walk_arms_mut(arms: &mut [IrArm], visit: &mut impl FnMut(&mut IrExpr)) {
+    for arm in arms {
+        arm.guard.iter_mut().for_each(&mut *visit);
+        visit(&mut arm.body);
     }
 }
 

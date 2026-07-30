@@ -8,8 +8,8 @@
 
 use emela_codegen::{
     Artifact, ArtifactKind, Backend, BackendError, BackendOptions, BinaryOp, IrArm, IrExpr,
-    IrPattern, IrProgram, Result, Tier, Type, contains_tail_self_call, is_intrinsic,
-    used_intrinsics, used_platform_fns,
+    IrPattern, IrProgram, Result, TailMode, Tier, Type, contains_tail_self_call, expand_cleanups,
+    is_intrinsic, used_intrinsics, used_platform_fns,
 };
 
 /// The Node.js-flavored JavaScript backend.
@@ -25,6 +25,13 @@ impl Backend for JsBackend {
     }
 
     fn compile(&self, ir: &IrProgram, _options: &BackendOptions) -> Result<Artifact> {
+        // Deterministic cleanup (spec 0056) on a private copy. A self tail call
+        // is a trampoline marker here, and it flows out through the value path
+        // — which already runs each pending action, so no per-jump copy (a copy
+        // would run the action twice per iteration).
+        let mut ir = ir.clone();
+        expand_cleanups(&mut ir, TailMode::Value);
+        let ir = &ir;
         let used = used_platform_fns(ir);
         for name in &used {
             if runtime_impl(name).is_none() {
@@ -366,6 +373,11 @@ fn emit_expr(expr: &IrExpr) -> String {
             "new EmelaTail([{}])",
             args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
         ),
+        // A cleanup scope (spec 0056) is expanded away by
+        // `emela_codegen::expand_cleanups` before this emitter runs.
+        IrExpr::Cleanup { .. } => {
+            unreachable!("expand_cleanups runs before the JS emitter (spec 0056)")
+        }
     }
 }
 
