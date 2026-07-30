@@ -27,6 +27,8 @@ pub(crate) enum TokenKind {
     Try,
     Catch,
     Panic,
+    /// `defer` (spec 0056).
+    Defer,
     True,
     False,
     Ident(String),
@@ -516,6 +518,7 @@ fn lex_with_file(
                     "try" => TokenKind::Try,
                     "catch" => TokenKind::Catch,
                     "panic" => TokenKind::Panic,
+                    "defer" => TokenKind::Defer,
                     "true" => TokenKind::True,
                     "false" => TokenKind::False,
                     _ => TokenKind::Ident(text.to_string()),
