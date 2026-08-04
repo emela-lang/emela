@@ -228,6 +228,7 @@ package wasi:random@0.2.0 {
 
 package wasi:filesystem@0.2.0 {
   interface types {
+    use wasi:io/error@0.2.0.{error};
     use wasi:io/streams@0.2.0.{input-stream, output-stream};
     type filesize = u64;
     flags descriptor-flags {
