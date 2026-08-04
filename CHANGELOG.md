@@ -7,6 +7,14 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/emela-lang/emela/compare/v0.10.0...v0.11.0) - 2026-08-04
+
+### Added
+
+- defer 構文・型検査・lowering を追加（spec 0056、PR3/4） ([#111](https://github.com/emela-lang/emela/pull/111))
+- IR に cleanup ノードと展開パスを追加（spec 0056、PR1/4） ([#109](https://github.com/emela-lang/emela/pull/109))
+- 単項マイナス演算子（-expr）を追加 ([#107](https://github.com/emela-lang/emela/pull/107))
+
 ## [0.10.0](https://github.com/emela-lang/emela/compare/v0.9.1...v0.10.0) - 2026-07-26
 
 ### Added
