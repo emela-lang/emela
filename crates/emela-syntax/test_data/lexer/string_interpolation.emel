@@ -1,0 +1,6 @@
+"plain"
+"hello #{user.name}!"
+"nested #{f({x: "inner #{y}"})} done"
+"escapes \" \\ \n \#{not_interp}"
+"hash # alone"
+""

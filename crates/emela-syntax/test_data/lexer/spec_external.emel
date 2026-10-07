@@ -1,0 +1,3 @@
+@external(js, "./http_ffi.mjs", "fetchText")
+@external(wasm, "wasi:http/client", "fetch")
+suspend fn fetch_text(url: String) -> String

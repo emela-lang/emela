@@ -48,7 +48,9 @@ lsp-types = "0.97"
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 # スナップショットテスト（構文木・型・出力コードの比較）．
-insta = "1"
+insta = { version = "1", features = ["glob"] }
+# 性質テスト（字句解析の無損失性などを任意の入力で検査する）．
+proptest = "1"
 
 emela-syntax = { path = "crates/emela-syntax" }
 emela-fmt = { path = "crates/emela-fmt" }
