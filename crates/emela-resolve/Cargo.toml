@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 emela-syntax.workspace = true
+rowan.workspace = true
 la-arena.workspace = true
 smol_str.workspace = true
 rustc-hash.workspace = true
