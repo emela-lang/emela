@@ -1,0 +1,10 @@
+if ok {
+  a
+}
+else {
+  b
+}
+
+fn load(id: Int)
+  -> User fails NotFound
+  | DbError

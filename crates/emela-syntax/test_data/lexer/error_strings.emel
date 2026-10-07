@@ -1,0 +1,4 @@
+"unclosed
+x = "bad \t escape \é"
+y = "trailing backslash \
+z = "open #{a

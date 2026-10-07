@@ -2,8 +2,10 @@
 //!
 //! 構文木は rowan の green/red tree．空白，改行，コメントもトークンとして木に残す．
 
+mod lexer;
 mod syntax_kind;
 
+pub use lexer::{Diagnostic, Lexed, Token, lex};
 pub use syntax_kind::SyntaxKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

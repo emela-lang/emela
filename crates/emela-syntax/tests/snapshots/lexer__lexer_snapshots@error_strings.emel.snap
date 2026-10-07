@@ -1,0 +1,39 @@
+---
+source: crates/emela-syntax/tests/lexer.rs
+expression: dump(&src)
+input_file: crates/emela-syntax/test_data/lexer/error_strings.emel
+---
+STRING_QUOTE@0..1 "\""
+STRING_TEXT@1..9 "unclosed"
+NEWLINE@9..10 "\n"
+LOWER_NAME@10..11 "x"
+WHITESPACE@11..12 " "
+EQ@12..13 "="
+WHITESPACE@13..14 " "
+STRING_QUOTE@14..15 "\""
+STRING_TEXT@15..32 "bad \\t escape \\é"
+STRING_QUOTE@32..33 "\""
+NEWLINE@33..34 "\n"
+LOWER_NAME@34..35 "y"
+WHITESPACE@35..36 " "
+EQ@36..37 "="
+WHITESPACE@37..38 " "
+STRING_QUOTE@38..39 "\""
+STRING_TEXT@39..59 "trailing backslash \\"
+NEWLINE@59..60 "\n"
+LOWER_NAME@60..61 "z"
+WHITESPACE@61..62 " "
+EQ@62..63 "="
+WHITESPACE@63..64 " "
+STRING_QUOTE@64..65 "\""
+STRING_TEXT@65..70 "open "
+INTERP_START@70..72 "#{"
+LOWER_NAME@72..73 "a"
+NEWLINE_CONT@73..74 "\n"
+error@0..9: 文字列が閉じていない
+error@19..21: `\t` は使えないエスケープ
+error@29..32: `\é` は使えないエスケープ
+error@38..59: 文字列が閉じていない
+error@58..59: `\` の後ろに文字がない
+error@64..74: 文字列が閉じていない
+error@70..74: 補間が閉じていない
