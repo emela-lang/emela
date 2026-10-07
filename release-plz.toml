@@ -28,8 +28,8 @@ git_tag_enable = false
 changelog_update = false
 
 [[package]]
-name = "emela"
-# The binary crate cuts the one release tag `release.yml` listens for.
+name = "emela-cli"
+# The binary crate (it builds the `emela` binary) cuts the one release tag `release.yml` listens for.
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 # Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
@@ -38,11 +38,3 @@ git_release_draft = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 
-[[package]]
-name = "emela-wasm"
-# Playground cdylib that only wraps `emela`; it is never released. Turning off
-# git_only keeps it out of release-plz's git-only package set (paired with
-# `publish = false` in its Cargo.toml), so its un-packageable path dep never
-# breaks the run.
-git_only = false
-release = false

@@ -1,52 +1,64 @@
+# Emela 0.20 系（言語仕様 草案 2026-10-07）．0.10 系のコンパイラは `legacy` ブランチにある．
+#
+# 依存は一方向:
+#
+#   syntax → resolve → types → core → codegen-js / codegen-wasm
+#      ↓                                      ↓
+#     fmt                                  driver → lsp → cli
+
 [workspace]
-resolver = "2"
-members = [
-    "crates/emela-codegen",
-    "crates/emela-backend-js",
-    "crates/emela-backend-wasm",
-    "crates/emela-backend-wasm-wasip2",
-    "crates/emela",
-    "crates/emela-wasm",
-]
-# `emela-wasm` is a wasm-bindgen cdylib built via wasm-pack for the browser
-# playground; keep it out of the default set so plain `cargo build`/`cargo test`
-# don't pull in wasm-bindgen.
-default-members = [
-    "crates/emela-codegen",
-    "crates/emela-backend-js",
-    "crates/emela-backend-wasm",
-    "crates/emela-backend-wasm-wasip2",
-    "crates/emela",
-]
+resolver = "3"
+members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.10.0"
+version = "0.20.0"
+license = "Apache-2.0"
+publish = false
 
 [workspace.dependencies]
+# 無損失構文木（rust-analyzer と同じ green/red tree）．空白とコメントも木に残るので，
+# fmt と LSP が同じ木を使える．
+rowan = "0.16"
+# 字句解析器の生成．改行の継続判定（2.5）はトークン列を受けた後段で行う．
+logos = "0.16"
+# 型推論の単一化（rustc 由来の union-find）．
+ena = "0.14"
+# 添字で引くアリーナ．名前解決と型付けの結果を ID で持ち回る．
+la-arena = "0.3"
+# O(1) clone の短い文字列．識別子とモジュール名に使う．
+smol_str = "0.3"
+rustc-hash = "2"
+indexmap = "2"
+# Wadler 式の整形コンビネータ（fmt）．
+pretty = "0.12"
+# WASM バイナリの直接出力．検査は wasmparser で行う．
+wasm-encoder = "0.261"
+wasmparser = "0.261"
+# オフセット ↔ 行・列の変換（CLI 表示と LSP の位置で共有）．
+line-index = "0.1"
+# 端末向けの診断表示．
+ariadne = "0.6"
+# emela.toml の読み込み．
 serde = { version = "1", features = ["derive"] }
+toml = "1"
+# 言語サーバー（rust-analyzer と同じ同期型の骨組み．tokio を持ち込まない）．
+lsp-server = "0.10"
+lsp-types = "0.97"
 serde_json = "1"
-wat = "1"
-wasmparser = "0.252"
-# Component-model encoding for the `wasm-wasip2` backend (spec 0052): wraps a
-# core module into a WASI 0.2 component. Pure Rust (Bytecode Alliance), so it
-# keeps the "no external wasm tools / cross-compiles" build property; `wasmtime`
-# (native) is NOT bundled — generated components run under an external runtime.
-wit-component = "0.252"
-wit-parser = "0.252"
-# In-process WASI runtime for `emela run` (pure Rust, keeps the "no external
-# wasm tools" build and cross-compiles with the release matrix).
-wasmi = "1"
-# OS entropy source for the `emela run` host of the `Random` capability (spec
-# 0054). Pulled in only behind emela's native `run` feature, so the wasm
-# playground never compiles it.
-getrandom = "0.2"
-# Argument parsing for the `emela` CLI: derive-based subcommands with generated
-# `--help`/`--version`. Pulled in only behind emela's default `cli` feature, so
-# the wasm playground (which never enters the CLI) does not compile it.
 clap = { version = "4", features = ["derive"] }
-emela-codegen = { path = "crates/emela-codegen", version = "0.10.0" }
-emela-backend-js = { path = "crates/emela-backend-js", version = "0.10.0" }
-emela-backend-wasm = { path = "crates/emela-backend-wasm", version = "0.10.0" }
-emela-backend-wasm-wasip2 = { path = "crates/emela-backend-wasm-wasip2", version = "0.10.0" }
-emela = { path = "crates/emela", version = "0.10.0" }
+# スナップショットテスト（構文木・型・出力コードの比較）．
+insta = "1"
+
+emela-syntax = { path = "crates/emela-syntax" }
+emela-fmt = { path = "crates/emela-fmt" }
+emela-resolve = { path = "crates/emela-resolve" }
+emela-types = { path = "crates/emela-types" }
+emela-core = { path = "crates/emela-core" }
+emela-codegen-js = { path = "crates/emela-codegen-js" }
+emela-codegen-wasm = { path = "crates/emela-codegen-wasm" }
+emela-driver = { path = "crates/emela-driver" }
+emela-lsp = { path = "crates/emela-lsp" }
+
+[profile.dev.package.insta]
+opt-level = 3

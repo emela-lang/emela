@@ -1,0 +1,17 @@
+[package]
+name = "emela-resolve"
+description = "モジュールの読み込み，import，名前解決，pub / opaque，命名規則の検査"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-syntax.workspace = true
+la-arena.workspace = true
+smol_str.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

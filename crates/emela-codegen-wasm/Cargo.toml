@@ -1,0 +1,15 @@
+[package]
+name = "emela-codegen-wasm"
+description = "Core IR から WASM を出力．Perceus，ステートマシン変換．WASM ランタイムを埋め込んで持つ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+wasm-encoder.workspace = true
+
+[dev-dependencies]
+wasmparser.workspace = true
+insta.workspace = true

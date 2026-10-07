@@ -21,8 +21,6 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Emela format
-        run: cargo run --locked -- fmt --check examples crates/emela/src/std
 
   test:
     strategy:
