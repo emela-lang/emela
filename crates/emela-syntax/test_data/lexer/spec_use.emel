@@ -1,0 +1,10 @@
+fn greet(id: Int) {
+  log   = use Logger
+  users = use Users
+
+  user = users.find(id) |> Option.or_fail(NotFound(id:))
+  log.info("hello #{user.name}")
+
+  (use Clock).sleep(1000)
+  user
+}

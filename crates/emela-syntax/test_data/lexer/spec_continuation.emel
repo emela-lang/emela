@@ -1,0 +1,5 @@
+user = users.find(id)
+  |> Option.or_fail(NotFound(id:))   # 前の行の続き
+
+foo
+(bar)                                # foo とは別の文
