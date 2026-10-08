@@ -1,0 +1,13 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $showBool, $showFloat, $strlen } from "./emela_runtime.mjs";
+
+function main() {
+  const name$0 = "Emela";
+  return `hello, ${name$0}! \`\${not interpolated}\` \\ "q"\n${(-42)} ${9007199254740993n} ${$showFloat(1.0)} ${$showFloat(0.1)} ${$showFloat((-2.5e-8))} ${$showFloat(1e21)} ${$showBool(true)} ${$showBool(false)}\n${$strlen("👨‍👩‍👧")} ${$strlen("é")} ${$strlen("日本語")} ${$strlen("")}`;
+}
+
+export { main };
