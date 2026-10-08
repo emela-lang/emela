@@ -35,6 +35,8 @@ pub(crate) struct Emitter<'m> {
     /// 表示関数を出す enum．出したものも残す（`shows_done` まで出し終えた）．
     shows: Vec<EnumId>,
     shows_done: usize,
+    /// 出している最中の enum の表示関数の型引数の数．表示関数の外では `None`．
+    show_params: Option<usize>,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
@@ -48,6 +50,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         loops: Vec::new(),
         shows: Vec::new(),
         shows_done: 0,
+        show_params: None,
     };
 
     // 構成子を持たないバリアントは1つの値を共有する．
@@ -390,7 +393,13 @@ impl Emitter<'_> {
             Type::Unit => self.rt("$showUnit").to_owned(),
             // Never の値は作れないので呼ばれない．
             Type::Never => self.rt("$unreachable").to_owned(),
-            Type::Param(i) => format!("$a{i}"),
+            Type::Param(i) => {
+                assert!(
+                    self.show_params.is_some_and(|n| *i < n),
+                    "不正な IR: 型引数 {i} の表示は enum の表示関数の中でだけ使える"
+                );
+                format!("$a{i}")
+            }
             Type::Enum(id, args) if args.is_empty() => self.show_enum(*id),
             Type::List(_) | Type::Tuple(_) | Type::Enum(..) => {
                 let body = self.show_call(ty, "$x");
@@ -417,6 +426,7 @@ impl Emitter<'_> {
         params.extend((0..def.params).map(|i| format!("$a{i}")));
         let name = self.show_enum(id);
         self.line(&format!("function {name}({}) {{", params.join(", ")));
+        self.show_params = Some(def.params);
         self.indent += 1;
         let switch = def.variants.len() > 1;
         if switch {
@@ -456,6 +466,7 @@ impl Emitter<'_> {
             let u = self.rt("$unreachable");
             self.line(&format!("return {u}();"));
         }
+        self.show_params = None;
         self.indent -= 1;
         self.line("}");
     }

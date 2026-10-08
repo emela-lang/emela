@@ -1425,3 +1425,14 @@ fn runtime_implements_every_builtin() {
         );
     }
 }
+
+#[test]
+#[should_panic(expected = "enum の表示関数の中でだけ使える")]
+fn showing_type_param_outside_enum_show_panics() {
+    let mut m = Module::new();
+    main_fn(
+        &mut m,
+        Expr::Concat(vec![value_part(int(1), Type::Param(0))]),
+    );
+    emit_module(&m, &Options::default());
+}
