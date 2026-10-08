@@ -135,3 +135,16 @@ impl CompletedMarker {
         parent
     }
 }
+
+/// 文法はまだない．全トークンを1つの ERROR に包んで ROOT の下に置く．
+pub(crate) fn root(p: &mut Parser) {
+    let root = p.start();
+    if !p.at_eof() {
+        let e = p.start();
+        while !p.at_eof() {
+            p.bump();
+        }
+        e.complete(p, SyntaxKind::ERROR);
+    }
+    root.complete(p, SyntaxKind::ROOT);
+}

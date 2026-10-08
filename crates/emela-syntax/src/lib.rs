@@ -8,10 +8,47 @@ mod syntax_kind;
 
 use std::fmt::Write;
 
-use rowan::NodeOrToken;
+use rowan::{GreenNode, NodeOrToken};
 
 pub use lexer::{Diagnostic, Lexed, Token, lex};
 pub use syntax_kind::SyntaxKind;
+
+/// パースの結果．木はどんな入力でも組めて，テキストは入力と一致する．
+#[derive(Debug, Clone)]
+pub struct Parse {
+    green: GreenNode,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Parse {
+    pub fn syntax(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green.clone())
+    }
+
+    /// 字句解析の診断のあとにパースの診断が並ぶ．
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    /// 木を1要素1行で書き出し，最後に診断を `error@start..end: メッセージ` で並べる．
+    pub fn debug_dump(&self) -> String {
+        let mut out = debug_tree(&self.syntax());
+        for diagnostic in &self.diagnostics {
+            writeln!(out, "error@{:?}: {}", diagnostic.range, diagnostic.message).unwrap();
+        }
+        out
+    }
+}
+
+pub fn parse(src: &str) -> Parse {
+    let lexed = lex(src);
+    let mut p = parser::Parser::new(lexed.tokens.iter().map(|t| t.kind));
+    parser::root(&mut p);
+    let (green, parse_diagnostics) = parser::build(src, &lexed.tokens, p.finish());
+    let mut diagnostics = lexed.diagnostics;
+    diagnostics.extend(parse_diagnostics);
+    Parse { green, diagnostics }
+}
 
 /// ノードは `KIND@start..end`，トークンは `KIND@start..end "テキスト"` で，深さ1につき2字下げる．
 pub(crate) fn debug_tree(node: &SyntaxNode) -> String {
