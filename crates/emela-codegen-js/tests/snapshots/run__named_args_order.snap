@@ -1,0 +1,18 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $panic } from "./emela_runtime.mjs";
+
+function f(p$0, q$1) {
+  return "unreachable";
+}
+
+function main() {
+  const arg$2 = $panic("first");
+  const arg$3 = $panic("second");
+  return f(arg$3, arg$2);
+}
+
+export { main };

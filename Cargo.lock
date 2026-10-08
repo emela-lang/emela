@@ -260,6 +260,7 @@ dependencies = [
  "emela-types",
  "insta",
  "la-arena",
+ "rustc-hash 2.1.3",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $unreachable } from "./emela_runtime.mjs";
+
+function main() {
+  if (3 === 1) {
+    return "one";
+  }
+  $unreachable();
+}
+
+export { main };

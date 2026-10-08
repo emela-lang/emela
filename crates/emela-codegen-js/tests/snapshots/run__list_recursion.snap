@@ -1,0 +1,91 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $eq, $list, $showBool, $unreachable } from "./emela_runtime.mjs";
+
+function sum(xs$0) {
+  if (xs$0 === null) {
+    return 0;
+  }
+  if (xs$0 !== null) {
+    const x$1 = xs$0.h;
+    const rest$2 = xs$0.t;
+    return ((x$1 + sum(rest$2)) | 0);
+  }
+  $unreachable();
+}
+
+function map(xs$3, f$4) {
+  if (xs$3 === null) {
+    return null;
+  }
+  if (xs$3 !== null) {
+    const x$5 = xs$3.h;
+    const rest$6 = xs$3.t;
+    return $list([f$4(x$5)], map(rest$6, f$4));
+  }
+  $unreachable();
+}
+
+function range(n$7, acc$8) {
+  let $t0 = n$7, $t1 = acc$8;
+  $L0: for (;;) {
+    const n$20 = $t0;
+    const acc$21 = $t1;
+    if (n$20 === 0) {
+      return acc$21;
+    } else {
+      $t0 = ((n$20 - 1) | 0);
+      $t1 = $list([n$20], acc$21);
+      continue $L0;
+    }
+  }
+}
+
+function len(xs$9, acc$10) {
+  let $t2 = xs$9, $t3 = acc$10;
+  $L1: for (;;) {
+    const xs$22 = $t2;
+    const acc$23 = $t3;
+    if (xs$22 === null) {
+      return acc$23;
+    }
+    if (xs$22 !== null) {
+      const rest$11 = xs$22.t;
+      $t2 = rest$11;
+      $t3 = ((acc$23 + 1) | 0);
+      continue $L1;
+    }
+    $unreachable();
+  }
+}
+
+function shape(xs$12) {
+  if (xs$12 === null) {
+    return "none";
+  }
+  if (xs$12 !== null && xs$12.t === null) {
+    const a$13 = xs$12.h;
+    return `one ${a$13}`;
+  }
+  if (xs$12 !== null && xs$12.t !== null && xs$12.t.t === null) {
+    const a$14 = xs$12.h;
+    const b$15 = xs$12.t.h;
+    return `two ${a$14} ${b$15}`;
+  }
+  if (xs$12 !== null) {
+    const a$16 = xs$12.h;
+    return `many from ${a$16}`;
+  }
+  $unreachable();
+}
+
+function main() {
+  const k$17 = 10;
+  const xs$19 = $list([1, 2, 3, 4]);
+  return `${sum(xs$19)}\n${sum(map(xs$19, ((y$18) => (Math.imul(y$18, k$17)))))}\n${len(range(100000, null), 0)}\n${shape(null)}\n${shape($list([7]))}\n${shape($list([7, 8]))}\n${shape(xs$19)}\n${$showBool($eq(range(100000, null), range(100000, null)))}`;
+}
+
+export { main };

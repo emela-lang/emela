@@ -1,0 +1,48 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $list, $showBool, $unreachable } from "./emela_runtime.mjs";
+
+function any_zero(xs$0) {
+  let $t0 = xs$0;
+  $L0: for (;;) {
+    const xs$5 = $t0;
+    if (xs$5 === null) {
+      return false;
+    }
+    if (xs$5 !== null) {
+      const x$1 = xs$5.h;
+      const rest$2 = xs$5.t;
+      if (x$1 === 0) {
+        return true;
+      } else {
+        $t0 = rest$2;
+        continue $L0;
+      }
+    }
+    $unreachable();
+  }
+}
+
+function range(n$3, acc$4) {
+  let $t1 = n$3, $t2 = acc$4;
+  $L1: for (;;) {
+    const n$6 = $t1;
+    const acc$7 = $t2;
+    if (n$6 === 0) {
+      return acc$7;
+    } else {
+      $t1 = ((n$6 - 1) | 0);
+      $t2 = $list([n$6], acc$7);
+      continue $L1;
+    }
+  }
+}
+
+function main() {
+  return `${$showBool(any_zero(range(100000, null)))}\n${$showBool(any_zero($list([0], range(100000, null))))}`;
+}
+
+export { main };

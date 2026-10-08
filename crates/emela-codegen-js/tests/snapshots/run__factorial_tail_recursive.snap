@@ -1,0 +1,28 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+
+function fact(n$0, k$1, acc$2) {
+  let $t0 = n$0, $t1 = k$1, $t2 = acc$2;
+  $L0: for (;;) {
+    const n$3 = $t0;
+    const k$4 = $t1;
+    const acc$5 = $t2;
+    if (n$3 === 0) {
+      return acc$5;
+    } else {
+      $t0 = ((n$3 - 1) | 0);
+      $t1 = BigInt.asIntN(64, k$4 - 1n);
+      $t2 = BigInt.asIntN(64, acc$5 * k$4);
+      continue $L0;
+    }
+  }
+}
+
+function main() {
+  return `${fact(5, 5n, 1n)}\n${fact(20, 20n, 1n)}\n${fact(21, 21n, 1n)}\n${fact(100000, 100000n, 1n)}`;
+}
+
+export { fact, main };
