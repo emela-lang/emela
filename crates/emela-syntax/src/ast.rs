@@ -1,8 +1,8 @@
 //! 型付き AST．構文木のノードを種類ごとの型で包み，子を名前で取り出せるようにする．
 //!
 //! 中身は構文木そのもので，コピーも検証もしない．木は壊れていることがあるので，子を返す
-//! 関数はどれも `Option` か空になりうるイテレータを返す．この段では宣言は `fn` だけ，
-//! 式は主なものだけを型にし，残りは `Expr::Other` で返す．
+//! 関数はどれも `Option` か空になりうるイテレータを返す．宣言は全部を型にする．
+//! 式は主なものだけを型にし，残りは `Expr::Other` で返す．型とパターンはまだ型にしていない．
 
 use crate::SyntaxKind::{self, *};
 use crate::{SyntaxNode, SyntaxToken};
@@ -17,21 +17,29 @@ macro_rules! ast_node {
     ($(#[$meta:meta])* $name:ident, $kind:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-        pub struct $name(SyntaxNode);
+        pub struct $name($crate::SyntaxNode);
 
-        impl AstNode for $name {
-            fn can_cast(kind: SyntaxKind) -> bool {
-                kind == $kind
+        impl $crate::ast::AstNode for $name {
+            fn can_cast(kind: $crate::SyntaxKind) -> bool {
+                kind == $crate::SyntaxKind::$kind
             }
-            fn cast(node: SyntaxNode) -> Option<Self> {
+            fn cast(node: $crate::SyntaxNode) -> Option<Self> {
                 Self::can_cast(node.kind()).then(|| Self(node))
             }
-            fn syntax(&self) -> &SyntaxNode {
+            fn syntax(&self) -> &$crate::SyntaxNode {
                 &self.0
             }
         }
     };
 }
+
+mod items;
+
+pub use items::{
+    Annotation, ConstDecl, DeriveClause, EffectDecl, EnumDecl, ErrorDecl, Field, FieldList,
+    HandlerDecl, HasAttrs, ImplDecl, Import, Item, LayerDecl, OpSig, Path, TraitDecl, TypeDecl,
+    Variant,
+};
 
 fn child<N: AstNode>(node: &SyntaxNode) -> Option<N> {
     node.children().find_map(N::cast)
@@ -54,6 +62,12 @@ ast_node!(
 );
 
 impl SourceFile {
+    pub fn items(&self) -> impl Iterator<Item = Item> {
+        self.0.children().filter_map(Item::cast)
+    }
+    pub fn imports(&self) -> impl Iterator<Item = Import> {
+        children(&self.0)
+    }
     pub fn fn_decls(&self) -> impl Iterator<Item = FnDecl> {
         children(&self.0)
     }
@@ -66,14 +80,14 @@ ast_node!(
 );
 
 impl FnDecl {
-    pub fn is_pub(&self) -> bool {
-        token(&self.0, PUB_KW).is_some()
-    }
     pub fn is_suspend(&self) -> bool {
         token(&self.0, SUSPEND_KW).is_some()
     }
     pub fn name(&self) -> Option<SyntaxToken> {
         token(&self.0, LOWER_NAME)
+    }
+    pub fn type_params(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_PARAM_LIST)
     }
     pub fn param_list(&self) -> Option<ParamList> {
         child(&self.0)
