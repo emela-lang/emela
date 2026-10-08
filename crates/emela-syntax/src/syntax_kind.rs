@@ -243,6 +243,8 @@ pub enum SyntaxKind {
     UNIT_TYPE,
     /// `(Int, String)`
     TUPLE_TYPE,
+    /// 括弧でまとめた型．`(fn(Int) -> String)`
+    PAREN_TYPE,
     /// `fn(A) -> B fails E use R`
     FN_TYPE,
     /// 関数型の引数の並び．`(A, B)`
