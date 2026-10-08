@@ -5,6 +5,7 @@
 
 mod display;
 mod error;
+mod exhaustiveness;
 mod infer;
 mod scheme;
 mod ty;
@@ -14,6 +15,10 @@ mod tests;
 
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
+pub use exhaustiveness::{
+    Arm, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, WITNESS_LIMIT, Witness,
+    check_match,
+};
 pub use infer::{InferCtx, substitute_bound};
 pub use scheme::Scheme;
 pub use ty::{FnTy, Prim, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam, TyVar};
