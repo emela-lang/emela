@@ -1,0 +1,113 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/missing_arrow.emel
+---
+ROOT@0..106
+  FN_DECL@0..58
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "f"
+    PARAM_LIST@4..12
+      L_PAREN@4..5 "("
+      PARAM@5..11
+        LOWER_NAME@5..6 "x"
+        COLON@6..7 ":"
+        WHITESPACE@7..8 " "
+        PATH_TYPE@8..11
+          PATH@8..11
+            TYPE_NAME@8..11 "Int"
+      R_PAREN@11..12 ")"
+    WHITESPACE@12..13 " "
+    RET_TYPE@13..19
+      THIN_ARROW@13..15 "->"
+      WHITESPACE@15..16 " "
+      PATH_TYPE@16..19
+        PATH@16..19
+          TYPE_NAME@16..19 "Int"
+    WHITESPACE@19..20 " "
+    BLOCK_EXPR@20..58
+      L_BRACE@20..21 "{"
+      NEWLINE@21..22 "\n"
+      WHITESPACE@22..24 "  "
+      MATCH_EXPR@24..56
+        MATCH_KW@24..29 "match"
+        WHITESPACE@29..30 " "
+        NAME_REF@30..31
+          LOWER_NAME@30..31 "x"
+        WHITESPACE@31..32 " "
+        MATCH_ARM_LIST@32..56
+          L_BRACE@32..33 "{"
+          NEWLINE@33..34 "\n"
+          WHITESPACE@34..38 "    "
+          MATCH_ARM@38..41
+            LITERAL_PAT@38..39
+              LITERAL@38..39
+                INT@38..39 "0"
+            WHITESPACE@39..40 " "
+            LITERAL@40..41
+              INT@40..41 "1"
+          NEWLINE@41..42 "\n"
+          WHITESPACE@42..46 "    "
+          MATCH_ARM@46..52
+            WILDCARD_PAT@46..47
+              UNDERSCORE@46..47 "_"
+            WHITESPACE@47..48 " "
+            THIN_ARROW@48..50 "->"
+            WHITESPACE@50..51 " "
+            LITERAL@51..52
+              INT@51..52 "2"
+          NEWLINE@52..53 "\n"
+          WHITESPACE@53..55 "  "
+          R_BRACE@55..56 "}"
+      NEWLINE@56..57 "\n"
+      R_BRACE@57..58 "}"
+  NEWLINE@58..59 "\n"
+  NEWLINE@59..60 "\n"
+  FN_DECL@60..105
+    FN_KW@60..62 "fn"
+    WHITESPACE@62..63 " "
+    LOWER_NAME@63..64 "g"
+    PARAM_LIST@64..66
+      L_PAREN@64..65 "("
+      R_PAREN@65..66 ")"
+    WHITESPACE@66..67 " "
+    BLOCK_EXPR@67..105
+      L_BRACE@67..68 "{"
+      WHITESPACE@68..69 " "
+      ESCAPE_EXPR@69..103
+        CALL_EXPR@69..72
+          NAME_REF@69..70
+            LOWER_NAME@69..70 "h"
+          ARG_LIST@70..72
+            L_PAREN@70..71 "("
+            R_PAREN@71..72 ")"
+        WHITESPACE@72..73 " "
+        ESCAPE_KW@73..79 "escape"
+        WHITESPACE@79..80 " "
+        MATCH_ARM_LIST@80..103
+          L_BRACE@80..81 "{"
+          WHITESPACE@81..82 " "
+          MATCH_ARM@82..101
+            VARIANT_PAT@82..93
+              PATH@82..90
+                TYPE_NAME@82..90 "NotFound"
+              PAT_ARG_LIST@90..93
+                L_PAREN@90..91 "("
+                WILDCARD_PAT@91..92
+                  UNDERSCORE@91..92 "_"
+                R_PAREN@92..93 ")"
+            WHITESPACE@93..94 " "
+            CALL_EXPR@94..101
+              NAME_REF@94..99
+                LOWER_NAME@94..99 "guest"
+              ARG_LIST@99..101
+                L_PAREN@99..100 "("
+                R_PAREN@100..101 ")"
+          WHITESPACE@101..102 " "
+          R_BRACE@102..103 "}"
+      WHITESPACE@103..104 " "
+      R_BRACE@104..105 "}"
+  NEWLINE@105..106 "\n"
+error[E0110]@40..41: expected `->`
+error[E0110]@94..99: expected `->`

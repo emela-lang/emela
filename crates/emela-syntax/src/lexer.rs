@@ -4,6 +4,7 @@ use logos::Logos;
 use rowan::{TextRange, TextSize};
 
 use crate::SyntaxKind;
+use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
 mod continuation;
 mod name;
@@ -13,12 +14,6 @@ mod string;
 pub struct Token {
     pub kind: SyntaxKind,
     pub range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub range: TextRange,
-    pub message: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -43,8 +38,18 @@ pub fn lex(src: &str) -> Lexed {
     // 入力の終わりで閉じていないものを，内側から順に報告する．
     while lexer.modes.len() > 1 {
         match lexer.modes.pop() {
-            Some(Mode::Str { open }) => lexer.error(open, src.len(), "文字列が閉じていない"),
-            Some(Mode::Interp { open, .. }) => lexer.error(open, src.len(), "補間が閉じていない"),
+            Some(Mode::Str { open }) => lexer.error(
+                open,
+                src.len(),
+                DiagnosticCode::UnterminatedString,
+                "unterminated string literal",
+            ),
+            Some(Mode::Interp { open, .. }) => lexer.error(
+                open,
+                src.len(),
+                DiagnosticCode::UnterminatedInterpolation,
+                "unterminated interpolation",
+            ),
             _ => {}
         }
     }
@@ -98,8 +103,8 @@ impl Lexer<'_> {
             _ => {}
         }
         self.token(kind, pos, end);
-        if let Some(message) = error {
-            self.error(pos, end, message);
+        if let Some((code, message)) = error {
+            self.error(pos, end, code, message);
         }
         end
     }
@@ -120,7 +125,12 @@ impl Lexer<'_> {
             pos + 2
         } else if rest.starts_with(['\n', '\r']) {
             // 改行はコードとして読み直す．
-            self.error(open, pos, "文字列が閉じていない");
+            self.error(
+                open,
+                pos,
+                DiagnosticCode::UnterminatedString,
+                "unterminated string literal",
+            );
             self.modes.pop();
             pos
         } else {
@@ -138,9 +148,16 @@ impl Lexer<'_> {
         });
     }
 
-    fn error(&mut self, start: usize, end: usize, message: impl Into<String>) {
+    fn error(
+        &mut self,
+        start: usize,
+        end: usize,
+        code: DiagnosticCode,
+        message: impl Into<String>,
+    ) {
         self.lexed.diagnostics.push(Diagnostic {
             range: range(start, end),
+            code,
             message: message.into(),
         });
     }
@@ -150,26 +167,37 @@ fn range(start: usize, end: usize) -> TextRange {
     TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32))
 }
 
-/// logos のトークンを `SyntaxKind` に写す．エラーならメッセージも返す．
-fn classify(raw: Result<RawToken, ()>, text: &str) -> (SyntaxKind, Option<String>) {
+/// logos のトークンを `SyntaxKind` に写す．エラーならコードと文面も返す．
+fn classify(
+    raw: Result<RawToken, ()>,
+    text: &str,
+) -> (SyntaxKind, Option<(DiagnosticCode, String)>) {
+    let shown = text.escape_debug();
     match raw {
         Ok(RawToken::Word) => match name::classify_name(text) {
             Some(kind) => (kind, None),
             None => (
                 SyntaxKind::ERROR_TOKEN,
-                Some(format!(
-                    "{text:?} は小文字名，型名，大文字名のどれにも合わない"
+                Some((
+                    DiagnosticCode::InvalidName,
+                    format!("invalid name `{shown}`: not a lower, type, or upper name"),
                 )),
             ),
         },
         Ok(RawToken::BadNumber) => (
             SyntaxKind::ERROR_TOKEN,
-            Some(format!("{text:?} は数値の形になっていない")),
+            Some((
+                DiagnosticCode::InvalidNumber,
+                format!("invalid number literal `{shown}`"),
+            )),
         ),
         Ok(raw) => (raw.into(), None),
         Err(()) => (
             SyntaxKind::ERROR_TOKEN,
-            Some(format!("認識できない文字 {text:?}")),
+            Some((
+                DiagnosticCode::UnrecognizedCharacter,
+                format!("unrecognized character `{shown}`"),
+            )),
         ),
     }
 }

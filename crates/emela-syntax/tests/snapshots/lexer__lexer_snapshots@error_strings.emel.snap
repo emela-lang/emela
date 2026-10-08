@@ -30,10 +30,10 @@ STRING_TEXT@65..70 "open "
 INTERP_START@70..72 "#{"
 LOWER_NAME@72..73 "a"
 NEWLINE_CONT@73..74 "\n"
-error@0..9: 文字列が閉じていない
-error@19..21: `\t` は使えないエスケープ
-error@29..32: `\é` は使えないエスケープ
-error@38..59: 文字列が閉じていない
-error@58..59: `\` の後ろに文字がない
-error@64..74: 文字列が閉じていない
-error@70..74: 補間が閉じていない
+error[E0101]@0..9: unterminated string literal
+error[E0107]@19..21: unknown escape sequence `\t`
+error[E0107]@29..32: unknown escape sequence `\é`
+error[E0101]@38..59: unterminated string literal
+error[E0106]@58..59: missing character after `\`
+error[E0101]@64..74: unterminated string literal
+error[E0102]@70..74: unterminated interpolation

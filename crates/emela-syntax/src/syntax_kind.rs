@@ -164,9 +164,142 @@ pub enum SyntaxKind {
 
     /// 字句解析で認識できなかった文字．
     ERROR_TOKEN,
+    /// 入力の終わり．パーサの先読みだけで使い，木には出ない．
+    EOF,
 
     // ノード
     ROOT,
+
+    // 宣言（17.3）
+    /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
+    FN_DECL,
+    /// `[A, R: Immediate]`
+    TYPE_PARAM_LIST,
+    /// `R: Immediate + Show`
+    TYPE_PARAM,
+
+    // 型（17.4）
+    /// 型の参照．`Http.Client` `User`
+    PATH,
+    /// 名前の付いた型と型引数．`List[Int]`
+    PATH_TYPE,
+    /// `[Int, String]`
+    TYPE_ARG_LIST,
+    /// 型引数を指す大文字名．`A`
+    TYPE_VAR,
+    /// `Self`
+    SELF_TYPE,
+    /// `()`
+    UNIT_TYPE,
+    /// `(Int, String)`
+    TUPLE_TYPE,
+    /// `fn(A) -> B fails E use R`
+    FN_TYPE,
+    /// 関数型の引数の並び．`(A, B)`
+    PARAM_TYPE_LIST,
+    /// `-> T`
+    RET_TYPE,
+    /// `fails E`
+    FAILS_CLAUSE,
+    /// `{}` `NotFound | DbError` `E`
+    ERROR_SET,
+    /// `use R`
+    USE_CLAUSE,
+    /// `{ Io, Clock }` `Users` `R`
+    EFFECT_SET,
+
+    // リテラル（2.4）
+    /// 数値のリテラル．`42` `3.14`
+    LITERAL,
+    /// 文字列のリテラル．`"hello #{name}"`
+    STRING,
+    /// 文字列の中の補間．`#{name}`
+    INTERP,
+
+    // パターン（17.6）
+    /// `_`
+    WILDCARD_PAT,
+    /// 名前を束縛する．`x`
+    IDENT_PAT,
+    /// `0` `"abc"`
+    LITERAL_PAT,
+    /// 定数．`MAX_SIZE`
+    CONST_PAT,
+    /// バリアントやレコード．`Circle(radius:)` `Empty`
+    VARIANT_PAT,
+    /// `(radius:, ..)`
+    PAT_ARG_LIST,
+    /// 名前付きの引数．`radius:` `name: n`
+    FIELD_PAT,
+    /// `()`
+    UNIT_PAT,
+    /// `(a, b)`
+    TUPLE_PAT,
+    /// `[]` `[x, ..rest]`
+    LIST_PAT,
+    /// 残り．`..` `..rest`
+    REST_PAT,
+
+    // 式（17.5）
+    /// 小文字名，大文字名，`self` の参照．`count` `MAX_SIZE` `self`
+    NAME_REF,
+    /// 型名で始まる参照．`List` `Http.Client`
+    PATH_EXPR,
+    /// `_`．束縛の左辺として読むために式でも受け付ける．
+    UNDERSCORE_EXPR,
+    /// `()`
+    UNIT_EXPR,
+    /// `(a + b)`
+    PAREN_EXPR,
+    /// `(a, b)`
+    TUPLE_EXPR,
+    /// `[x, y, ..rest]`
+    LIST_EXPR,
+    /// 残り．`..rest` `..List.tail(xs)`．束縛の左辺として読むために `..` だけも受け付ける．
+    REST_EXPR,
+    /// `f(x, port: 5432)`
+    CALL_EXPR,
+    /// `(x, port: 5432)`
+    ARG_LIST,
+    /// 名前付き引数．`port: 5432` `input:`
+    NAMED_ARG,
+    /// `user.name`
+    FIELD_EXPR,
+    /// `!valid` `-x`
+    PREFIX_EXPR,
+    /// `a + b` `xs |> f`
+    BIN_EXPR,
+    /// `use Logger`
+    USE_EXPR,
+    /// `fail NotFound(id:)`
+    FAIL_EXPR,
+    /// `assert x == 1`
+    ASSERT_EXPR,
+    /// `{ a = 1⏎ a + 1 }`
+    BLOCK_EXPR,
+    /// 束縛．左辺は式として読み，パターンとしての検査は木の上で行う．`(a, b): (Int, Int) = pair`
+    BINDING,
+    /// `if c { a } else { b }`
+    IF_EXPR,
+    /// `match x { ... }`
+    MATCH_EXPR,
+    /// match と escape の腕の並び．`{ A -> 1⏎ B -> 2 }`
+    MATCH_ARM_LIST,
+    /// `Circle(r) if r > 0.0 -> r`
+    MATCH_ARM,
+    /// `if r > 0.0`
+    MATCH_GUARD,
+    /// `with ConsoleLogger, FixedClock { ... }`
+    WITH_EXPR,
+    /// `find(id) escape { NotFound(_) -> guest() }`
+    ESCAPE_EXPR,
+    /// `fn(n) { n + 1 }`
+    LAMBDA_EXPR,
+    /// `(x: Int, f)`
+    PARAM_LIST,
+    /// `x: Int` `self`
+    PARAM,
+
     /// パーサがエラー回復で読み飛ばした範囲．
     ERROR,
 
@@ -186,5 +319,84 @@ impl SyntaxKind {
             self,
             Self::WHITESPACE | Self::NEWLINE_CONT | Self::COMMENT | Self::DOC_COMMENT
         )
+    }
+
+    /// 診断の文面に出す名前．記号と予約語は `` `(` `` の形，それ以外は種類の名前にする．
+    pub fn describe(self) -> &'static str {
+        use SyntaxKind::*;
+        match self {
+            WHITESPACE => "whitespace",
+            NEWLINE | NEWLINE_CONT => "newline",
+            COMMENT => "comment",
+            DOC_COMMENT => "doc comment",
+            INT => "integer literal",
+            FLOAT => "float literal",
+            STRING_QUOTE => "`\"`",
+            STRING_TEXT => "string text",
+            INTERP_START => "`#{`",
+            INTERP_END => "`}`",
+            LOWER_NAME => "lower name",
+            TYPE_NAME => "type name",
+            UPPER_NAME => "upper name",
+            UNDERSCORE => "`_`",
+            FN_KW => "`fn`",
+            TYPE_KW => "`type`",
+            ENUM_KW => "`enum`",
+            ERROR_KW => "`error`",
+            CONST_KW => "`const`",
+            TRAIT_KW => "`trait`",
+            IMPL_KW => "`impl`",
+            EFFECT_KW => "`effect`",
+            HANDLER_KW => "`handler`",
+            LAYER_KW => "`layer`",
+            IMPORT_KW => "`import`",
+            PUB_KW => "`pub`",
+            OPAQUE_KW => "`opaque`",
+            SUSPEND_KW => "`suspend`",
+            IF_KW => "`if`",
+            ELSE_KW => "`else`",
+            MATCH_KW => "`match`",
+            FAIL_KW => "`fail`",
+            ESCAPE_KW => "`escape`",
+            USE_KW => "`use`",
+            WITH_KW => "`with`",
+            ASSERT_KW => "`assert`",
+            SELF_KW => "`self`",
+            SELF_TYPE_KW => "`Self`",
+            AS_KW => "`as`",
+            RESERVED_KW => "reserved word",
+            L_PAREN => "`(`",
+            R_PAREN => "`)`",
+            L_BRACK => "`[`",
+            R_BRACK => "`]`",
+            L_BRACE => "`{`",
+            R_BRACE => "`}`",
+            COMMA => "`,`",
+            DOT => "`.`",
+            DOT2 => "`..`",
+            COLON => "`:`",
+            EQ => "`=`",
+            THIN_ARROW => "`->`",
+            PIPE => "`|`",
+            PIPE_GT => "`|>`",
+            PLUS => "`+`",
+            MINUS => "`-`",
+            STAR => "`*`",
+            SLASH => "`/`",
+            PERCENT => "`%`",
+            BANG => "`!`",
+            EQ2 => "`==`",
+            NEQ => "`!=`",
+            LT => "`<`",
+            LTEQ => "`<=`",
+            GT => "`>`",
+            GTEQ => "`>=`",
+            AMP2 => "`&&`",
+            PIPE2 => "`||`",
+            AT => "`@`",
+            ERROR_TOKEN => "invalid token",
+            EOF => "end of file",
+            _ => "syntax node",
+        }
     }
 }

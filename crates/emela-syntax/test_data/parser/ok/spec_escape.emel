@@ -1,0 +1,11 @@
+fn g() {
+  user = find_user(id) escape {
+    NotFound(_) -> guest_user()
+  }
+  data = load(id) escape {
+    DbError(message:) -> fail Unavailable(reason: message)
+  }
+  found = Some(find_user(id)) escape {
+    NotFound(_) -> None
+  }
+}

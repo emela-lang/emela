@@ -12,7 +12,7 @@ fn lexer_snapshots() {
     });
 }
 
-/// 1トークン1行で `KIND@start..end "テキスト"`，最後に診断を `error@start..end: メッセージ` で並べる．
+/// 1トークン1行で `KIND@start..end "テキスト"`，最後に診断を `error[E0101]@start..end: 文面` で並べる．
 fn dump(src: &str) -> String {
     let lexed = lex(src);
     let mut out = String::new();
@@ -23,7 +23,12 @@ fn dump(src: &str) -> String {
     }
     for diagnostic in &lexed.diagnostics {
         let range = diagnostic.range;
-        writeln!(out, "error@{range:?}: {}", diagnostic.message).unwrap();
+        writeln!(
+            out,
+            "error[{}]@{range:?}: {}",
+            diagnostic.code, diagnostic.message
+        )
+        .unwrap();
     }
     out
 }

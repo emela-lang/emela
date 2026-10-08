@@ -1,0 +1,238 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"{\\n  a b\\n  c\\n}\", \"{\\n  match x {\\n    A 1\\n    B -> 2\\n  }\\n}\",\n\"{\\n  a + b = 1\\n  f(x) = 2\\n  self = 3\\n}\", \"{\\n  f(_)\\n  g([x, ..])\\n}\",\n\"{\\n  if x { 1 } else 2\\n}\", \"{\\n  x = (1\\n  y = 2\\n}\", \"{\\n  a = 1\",],\nblock,)"
+---
+=== {
+  a b
+  c
+}
+ROOT@0..13
+  BLOCK_EXPR@0..13
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    NAME_REF@4..5
+      LOWER_NAME@4..5 "a"
+    WHITESPACE@5..6 " "
+    ERROR@6..7
+      LOWER_NAME@6..7 "b"
+    NEWLINE@7..8 "\n"
+    WHITESPACE@8..10 "  "
+    NAME_REF@10..11
+      LOWER_NAME@10..11 "c"
+    NEWLINE@11..12 "\n"
+    R_BRACE@12..13 "}"
+error[E0122]@6..7: expected newline or `}` after statement
+=== {
+  match x {
+    A 1
+    B -> 2
+  }
+}
+ROOT@0..38
+  BLOCK_EXPR@0..38
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    MATCH_EXPR@4..36
+      MATCH_KW@4..9 "match"
+      WHITESPACE@9..10 " "
+      NAME_REF@10..11
+        LOWER_NAME@10..11 "x"
+      WHITESPACE@11..12 " "
+      MATCH_ARM_LIST@12..36
+        L_BRACE@12..13 "{"
+        NEWLINE@13..14 "\n"
+        WHITESPACE@14..18 "    "
+        MATCH_ARM@18..21
+          CONST_PAT@18..19
+            UPPER_NAME@18..19 "A"
+          WHITESPACE@19..20 " "
+          LITERAL@20..21
+            INT@20..21 "1"
+        NEWLINE@21..22 "\n"
+        WHITESPACE@22..26 "    "
+        MATCH_ARM@26..32
+          CONST_PAT@26..27
+            UPPER_NAME@26..27 "B"
+          WHITESPACE@27..28 " "
+          THIN_ARROW@28..30 "->"
+          WHITESPACE@30..31 " "
+          LITERAL@31..32
+            INT@31..32 "2"
+        NEWLINE@32..33 "\n"
+        WHITESPACE@33..35 "  "
+        R_BRACE@35..36 "}"
+    NEWLINE@36..37 "\n"
+    R_BRACE@37..38 "}"
+error[E0110]@20..21: expected `->`
+=== {
+  a + b = 1
+  f(x) = 2
+  self = 3
+}
+ROOT@0..37
+  BLOCK_EXPR@0..37
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    BINDING@4..13
+      BIN_EXPR@4..9
+        NAME_REF@4..5
+          LOWER_NAME@4..5 "a"
+        WHITESPACE@5..6 " "
+        PLUS@6..7 "+"
+        WHITESPACE@7..8 " "
+        NAME_REF@8..9
+          LOWER_NAME@8..9 "b"
+      WHITESPACE@9..10 " "
+      EQ@10..11 "="
+      WHITESPACE@11..12 " "
+      LITERAL@12..13
+        INT@12..13 "1"
+    NEWLINE@13..14 "\n"
+    WHITESPACE@14..16 "  "
+    BINDING@16..24
+      CALL_EXPR@16..20
+        NAME_REF@16..17
+          LOWER_NAME@16..17 "f"
+        ARG_LIST@17..20
+          L_PAREN@17..18 "("
+          NAME_REF@18..19
+            LOWER_NAME@18..19 "x"
+          R_PAREN@19..20 ")"
+      WHITESPACE@20..21 " "
+      EQ@21..22 "="
+      WHITESPACE@22..23 " "
+      LITERAL@23..24
+        INT@23..24 "2"
+    NEWLINE@24..25 "\n"
+    WHITESPACE@25..27 "  "
+    BINDING@27..35
+      NAME_REF@27..31
+        SELF_KW@27..31 "self"
+      WHITESPACE@31..32 " "
+      EQ@32..33 "="
+      WHITESPACE@33..34 " "
+      LITERAL@34..35
+        INT@34..35 "3"
+    NEWLINE@35..36 "\n"
+    R_BRACE@36..37 "}"
+error[E0125]@4..9: invalid left-hand side of binding: expected a pattern
+error[E0125]@16..20: invalid left-hand side of binding: expected a pattern
+error[E0125]@27..31: invalid left-hand side of binding: expected a pattern
+=== {
+  f(_)
+  g([x, ..])
+}
+ROOT@0..23
+  BLOCK_EXPR@0..23
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    CALL_EXPR@4..8
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "f"
+      ARG_LIST@5..8
+        L_PAREN@5..6 "("
+        UNDERSCORE_EXPR@6..7
+          UNDERSCORE@6..7 "_"
+        R_PAREN@7..8 ")"
+    NEWLINE@8..9 "\n"
+    WHITESPACE@9..11 "  "
+    CALL_EXPR@11..21
+      NAME_REF@11..12
+        LOWER_NAME@11..12 "g"
+      ARG_LIST@12..21
+        L_PAREN@12..13 "("
+        LIST_EXPR@13..20
+          L_BRACK@13..14 "["
+          NAME_REF@14..15
+            LOWER_NAME@14..15 "x"
+          COMMA@15..16 ","
+          WHITESPACE@16..17 " "
+          REST_EXPR@17..19
+            DOT2@17..19 ".."
+          R_BRACK@19..20 "]"
+        R_PAREN@20..21 ")"
+    NEWLINE@21..22 "\n"
+    R_BRACE@22..23 "}"
+error[E0123]@6..7: `_` can only be used in patterns
+error[E0124]@17..19: `..` without an expression can only be used in patterns
+=== {
+  if x { 1 } else 2
+}
+ROOT@0..23
+  BLOCK_EXPR@0..23
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    IF_EXPR@4..21
+      IF_KW@4..6 "if"
+      WHITESPACE@6..7 " "
+      NAME_REF@7..8
+        LOWER_NAME@7..8 "x"
+      WHITESPACE@8..9 " "
+      BLOCK_EXPR@9..14
+        L_BRACE@9..10 "{"
+        WHITESPACE@10..11 " "
+        LITERAL@11..12
+          INT@11..12 "1"
+        WHITESPACE@12..13 " "
+        R_BRACE@13..14 "}"
+      WHITESPACE@14..15 " "
+      ELSE_KW@15..19 "else"
+      WHITESPACE@19..20 " "
+      LITERAL@20..21
+        INT@20..21 "2"
+    NEWLINE@21..22 "\n"
+    R_BRACE@22..23 "}"
+error[E0110]@20..21: expected `{`
+=== {
+  x = (1
+  y = 2
+}
+ROOT@0..20
+  BLOCK_EXPR@0..20
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    BINDING@4..10
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "x"
+      WHITESPACE@5..6 " "
+      EQ@6..7 "="
+      WHITESPACE@7..8 " "
+      PAREN_EXPR@8..10
+        L_PAREN@8..9 "("
+        LITERAL@9..10
+          INT@9..10 "1"
+    NEWLINE_CONT@10..11 "\n"
+    WHITESPACE@11..13 "  "
+    BINDING@13..18
+      NAME_REF@13..14
+        LOWER_NAME@13..14 "y"
+      WHITESPACE@14..15 " "
+      EQ@15..16 "="
+      WHITESPACE@16..17 " "
+      LITERAL@17..18
+        INT@17..18 "2"
+    NEWLINE_CONT@18..19 "\n"
+    R_BRACE@19..20 "}"
+error[E0110]@13..14: expected `)`
+=== {
+  a = 1
+ROOT@0..9
+  BLOCK_EXPR@0..9
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    BINDING@4..9
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "a"
+      WHITESPACE@5..6 " "
+      EQ@6..7 "="
+      WHITESPACE@7..8 " "
+      LITERAL@8..9
+        INT@8..9 "1"
+error[E0110]@9..9: expected `}`

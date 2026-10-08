@@ -1,0 +1,9 @@
+fn f() {
+  a < b < c
+  connect(port: 5432, "localhost")
+  use Clock.sleep(1)
+  a + b = 1
+  g(_, [x, ..])
+  [..rest] = xs
+  if x { 1 } else 2
+}

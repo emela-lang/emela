@@ -1,0 +1,12 @@
+fn f() {
+  count = 0
+  count = count + 1
+  (evens, odds) = List.partition(xs, is_even)
+  pairs: List[(String, Int)] = Map.to_list(scores)
+  label = if count > 0 { "あり" } else { "なし" }
+  if !valid { fail Invalid(input:) }
+  connect("localhost", port: 5432)
+  scores
+    |> List.filter(is_valid)
+    |> List.fold(init: 0, f: add)
+}

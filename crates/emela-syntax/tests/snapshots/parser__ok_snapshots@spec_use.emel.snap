@@ -1,0 +1,143 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_use.emel
+---
+ROOT@0..188
+  FN_DECL@0..187
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..8 "greet"
+    PARAM_LIST@8..17
+      L_PAREN@8..9 "("
+      PARAM@9..16
+        LOWER_NAME@9..11 "id"
+        COLON@11..12 ":"
+        WHITESPACE@12..13 " "
+        PATH_TYPE@13..16
+          PATH@13..16
+            TYPE_NAME@13..16 "Int"
+      R_PAREN@16..17 ")"
+    WHITESPACE@17..18 " "
+    BLOCK_EXPR@18..187
+      L_BRACE@18..19 "{"
+      NEWLINE@19..20 "\n"
+      WHITESPACE@20..22 "  "
+      BINDING@22..40
+        NAME_REF@22..25
+          LOWER_NAME@22..25 "log"
+        WHITESPACE@25..28 "   "
+        EQ@28..29 "="
+        WHITESPACE@29..30 " "
+        USE_EXPR@30..40
+          USE_KW@30..33 "use"
+          WHITESPACE@33..34 " "
+          PATH@34..40
+            TYPE_NAME@34..40 "Logger"
+      NEWLINE@40..41 "\n"
+      WHITESPACE@41..43 "  "
+      BINDING@43..60
+        NAME_REF@43..48
+          LOWER_NAME@43..48 "users"
+        WHITESPACE@48..49 " "
+        EQ@49..50 "="
+        WHITESPACE@50..51 " "
+        USE_EXPR@51..60
+          USE_KW@51..54 "use"
+          WHITESPACE@54..55 " "
+          PATH@55..60
+            TYPE_NAME@55..60 "Users"
+      NEWLINE@60..61 "\n"
+      NEWLINE@61..62 "\n"
+      WHITESPACE@62..64 "  "
+      BINDING@64..118
+        NAME_REF@64..68
+          LOWER_NAME@64..68 "user"
+        WHITESPACE@68..69 " "
+        EQ@69..70 "="
+        WHITESPACE@70..71 " "
+        BIN_EXPR@71..118
+          CALL_EXPR@71..85
+            FIELD_EXPR@71..81
+              NAME_REF@71..76
+                LOWER_NAME@71..76 "users"
+              DOT@76..77 "."
+              LOWER_NAME@77..81 "find"
+            ARG_LIST@81..85
+              L_PAREN@81..82 "("
+              NAME_REF@82..84
+                LOWER_NAME@82..84 "id"
+              R_PAREN@84..85 ")"
+          WHITESPACE@85..86 " "
+          PIPE_GT@86..88 "|>"
+          WHITESPACE@88..89 " "
+          CALL_EXPR@89..118
+            FIELD_EXPR@89..103
+              PATH_EXPR@89..95
+                PATH@89..95
+                  TYPE_NAME@89..95 "Option"
+              DOT@95..96 "."
+              LOWER_NAME@96..103 "or_fail"
+            ARG_LIST@103..118
+              L_PAREN@103..104 "("
+              CALL_EXPR@104..117
+                PATH_EXPR@104..112
+                  PATH@104..112
+                    TYPE_NAME@104..112 "NotFound"
+                ARG_LIST@112..117
+                  L_PAREN@112..113 "("
+                  NAMED_ARG@113..116
+                    LOWER_NAME@113..115 "id"
+                    COLON@115..116 ":"
+                  R_PAREN@116..117 ")"
+              R_PAREN@117..118 ")"
+      NEWLINE@118..119 "\n"
+      WHITESPACE@119..121 "  "
+      CALL_EXPR@121..151
+        FIELD_EXPR@121..129
+          NAME_REF@121..124
+            LOWER_NAME@121..124 "log"
+          DOT@124..125 "."
+          LOWER_NAME@125..129 "info"
+        ARG_LIST@129..151
+          L_PAREN@129..130 "("
+          STRING@130..150
+            STRING_QUOTE@130..131 "\""
+            STRING_TEXT@131..137 "hello "
+            INTERP@137..149
+              INTERP_START@137..139 "#{"
+              FIELD_EXPR@139..148
+                NAME_REF@139..143
+                  LOWER_NAME@139..143 "user"
+                DOT@143..144 "."
+                LOWER_NAME@144..148 "name"
+              INTERP_END@148..149 "}"
+            STRING_QUOTE@149..150 "\""
+          R_PAREN@150..151 ")"
+      NEWLINE@151..152 "\n"
+      NEWLINE@152..153 "\n"
+      WHITESPACE@153..155 "  "
+      CALL_EXPR@155..178
+        FIELD_EXPR@155..172
+          PAREN_EXPR@155..166
+            L_PAREN@155..156 "("
+            USE_EXPR@156..165
+              USE_KW@156..159 "use"
+              WHITESPACE@159..160 " "
+              PATH@160..165
+                TYPE_NAME@160..165 "Clock"
+            R_PAREN@165..166 ")"
+          DOT@166..167 "."
+          LOWER_NAME@167..172 "sleep"
+        ARG_LIST@172..178
+          L_PAREN@172..173 "("
+          LITERAL@173..177
+            INT@173..177 "1000"
+          R_PAREN@177..178 ")"
+      NEWLINE@178..179 "\n"
+      WHITESPACE@179..181 "  "
+      NAME_REF@181..185
+        LOWER_NAME@181..185 "user"
+      NEWLINE@185..186 "\n"
+      R_BRACE@186..187 "}"
+  NEWLINE@187..188 "\n"
