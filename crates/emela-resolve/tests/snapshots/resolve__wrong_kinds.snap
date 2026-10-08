@@ -1,0 +1,19 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nenum Shape {\n  Empty\n}\nerror NotFound(id: Int)\neffect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Console implements User {\n  fn info(msg) { self }\n}\nlayer App { Logger, Console }\n\nfn f(x: Logger) -> Int fails User use Console {\n  log = use User\n  with Logger { 1 }\n  fail Empty\n  y = 1 escape {\n    Empty -> 2\n  }\n  Logger.info(\"x\")\n  z = Int\n  s = self\n  1\n}\n\nfn g(self) -> Self { 1 }\n\nimpl Show for User {\n  fn display(self) { \"\" }\n}\n\"##,)])"
+---
+error src/main.emel@140..144 `User`: `User` は type で，エフェクトではない
+error src/main.emel@185..191 `Logger`: `Logger` は effect で，ハンドラか layerではない
+error src/main.emel@212..218 `Logger`: `Logger` は effect で，型ではない
+error src/main.emel@233..237 `User`: `User` は type で，エラーではない
+error src/main.emel@242..249 `Console`: `Console` は handler で，エフェクトではない
+error src/main.emel@264..268 `User`: `User` は type で，エフェクトではない
+error src/main.emel@276..282 `Logger`: `Logger` は effect で，ハンドラか layerではない
+error src/main.emel@296..301 `Empty`: `Empty` は constructor で，エラーではない
+error src/main.emel@323..328 `Empty`: `Empty` は constructor で，エラーではない
+error src/main.emel@340..346 `Logger`: `Logger` は effect で，モジュールか Traitではない
+error src/main.emel@363..366 `Int`: `Int` は type で，構成子ではない
+error src/main.emel@373..377 `self`: `self` は handler，impl，trait の中でしか使えない
+error src/main.emel@390..394 `self`: `self` は handler，impl，trait の中でしか使えない
+error src/main.emel@399..403 `Self`: `Self` は impl と trait の中でしか使えない
+error src/main.emel@437..444 `display`: `Show` に `display` がない

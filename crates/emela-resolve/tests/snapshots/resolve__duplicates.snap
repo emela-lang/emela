@@ -1,0 +1,12 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int, id: Int)\nenum User { Admin }\nfn f() { 1 }\nfn f() { 2 }\neffect Log {\n  fn info() -> ()\n  fn info() -> ()\n}\nfn g[A, A](x: Int, x: Int) {\n  (y, y) = (1, 2)\n  match (1, 2) {\n    (z, z) -> z\n  }\n}\n\"##,)])"
+---
+error src/main.emel@19..21 `id`: `id` が重複している
+error src/main.emel@33..37 `User`: `User` が重複している
+error src/main.emel@64..65 `f`: `f` が重複している
+error src/main.emel@110..114 `info`: `info` が重複している
+error src/main.emel@133..134 `A`: `A` が重複している
+error src/main.emel@144..145 `x`: `x` を2回束縛している
+error src/main.emel@160..161 `y`: `y` を2回束縛している
+error src/main.emel@197..198 `z`: `z` を2回束縛している

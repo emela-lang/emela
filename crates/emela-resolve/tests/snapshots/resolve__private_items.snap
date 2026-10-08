@@ -1,0 +1,9 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"lib.emel\",\n\"pub fn open() { 1 }\\nfn secret() { 2 }\\ntype Hidden(x: Int)\\npub type Shown(x: Int)\\n\",),\n(\"main.emel\",\n\"import Lib\\nimport Lib.{open, secret, Hidden, Shown, Missing}\\n\\nfn f() {\\n  Lib.secret()\\n  Lib.open()\\n  Lib.nothing()\\n}\\n\",),])"
+---
+error src/main.emel@29..35 `secret`: `Lib` の `secret` は pub でない
+error src/main.emel@37..43 `Hidden`: `Lib` の `Hidden` は pub でない
+error src/main.emel@52..59 `Missing`: `Lib` に `Missing` がない
+error src/main.emel@77..83 `secret`: `Lib` の `secret` は pub でない
+error src/main.emel@105..112 `nothing`: `Lib` に `nothing` がない
