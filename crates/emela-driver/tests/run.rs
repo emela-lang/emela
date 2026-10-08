@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use emela_core::build::*;
-use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, StrKind};
+use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
     Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input, JsBackend,
     JsOutput, LexOnly, MemoryFiles, Output, OutputFile, Parsed, RunOptions, RunOutput, SourceFile,
@@ -275,9 +275,9 @@ fn core_ir_runs_through_codegen_js() {
                 Builtin::Panic,
                 vec![Expr::Concat(vec![
                     lit_part("fact(5) = "),
-                    value_part(small, StrKind::Int),
+                    value_part(small, Type::Int),
                     lit_part(", fact(100000) = "),
-                    value_part(big, StrKind::Int),
+                    value_part(big, Type::Int),
                 ])],
             )
         }),
