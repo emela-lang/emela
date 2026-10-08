@@ -379,6 +379,9 @@ fn literals_redundant() {
         redundant(T::Float, vec![arm(float(0.0)), arm(float(-0.0)), arm(W)]),
         [1]
     );
+    // NaN の定数は自分自身と一致する．2つ目だけが冗長．
+    let nan = || arm(float(f64::NAN));
+    assert_eq!(redundant(T::Float, vec![nan(), nan(), arm(W)]), [1]);
 }
 
 #[test]

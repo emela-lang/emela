@@ -59,12 +59,24 @@ impl Pat {
 }
 
 /// リテラルの値．値の種類は無限なので，リテラルだけでは網羅できない．
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Lit {
     Int(i64),
-    /// 値で比べる（`0.0` と `-0.0` は同じ）．
+    /// 値で比べる（`0.0` と `-0.0` は同じ）．NaN どうしも同じとみなす．
     Float(f64),
     Str(SmolStr),
+}
+
+impl PartialEq for Lit {
+    fn eq(&self, other: &Lit) -> bool {
+        match (self, other) {
+            (Lit::Int(a), Lit::Int(b)) => a == b,
+            // NaN の定数を書いた腕が，自分自身と一致せず常に冗長になるのを防ぐ．
+            (Lit::Float(a), Lit::Float(b)) => a == b || (a.is_nan() && b.is_nan()),
+            (Lit::Str(a), Lit::Str(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Lit {
