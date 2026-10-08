@@ -33,8 +33,18 @@ pub enum DiagnosticCode {
     ExpectedToken,
     /// 型が来るはずの位置に型がない．
     ExpectedType,
-    /// 要素が1つのタプル型．`(Int)` `(Int,)`
+    /// 要素が1つのタプル．`(Int)` `(a,)`
     SingleElementTuple,
+    /// パターンが来るはずの位置にパターンがない．
+    ExpectedPattern,
+    /// `..` の後ろに要素がある．
+    RestNotLast,
+    /// リストの `..` の前に要素がない．`[..rest]`
+    RestWithoutElements,
+    /// パターンの負の数（18.1 #17 で未決）．
+    NegativeNumberPattern,
+    /// パターンの文字列に補間がある．
+    InterpolationInPattern,
 }
 
 impl DiagnosticCode {
@@ -51,6 +61,11 @@ impl DiagnosticCode {
             Self::ExpectedToken => "E0110",
             Self::ExpectedType => "E0111",
             Self::SingleElementTuple => "E0112",
+            Self::ExpectedPattern => "E0113",
+            Self::RestNotLast => "E0114",
+            Self::RestWithoutElements => "E0115",
+            Self::NegativeNumberPattern => "E0116",
+            Self::InterpolationInPattern => "E0117",
         }
     }
 }

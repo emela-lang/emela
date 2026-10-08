@@ -1,5 +1,6 @@
 //! 文法．17章の規則ごとに関数を1つ置く．
 
+mod patterns;
 mod types;
 
 use super::Parser;
@@ -34,6 +35,39 @@ fn delimited(
         }
     }
     p.expect(close);
+}
+
+/// 数値か文字列のリテラル．補間の中身は `interp` で読む．
+fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) {
+    if p.at(STRING_QUOTE) {
+        string(p, interp);
+        return;
+    }
+    let m = p.start();
+    p.bump();
+    m.complete(p, LITERAL);
+}
+
+/// 字句が部品に分けた文字列を組み立てる．閉じていない文字列と補間は字句が診断を出しているので，
+/// ここでは閉じる `"` と `}` がなくても黙って終える．
+fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) {
+    let m = p.start();
+    p.bump_kind(STRING_QUOTE);
+    loop {
+        match p.current() {
+            STRING_TEXT => p.bump(),
+            INTERP_START => {
+                let i = p.start();
+                p.bump();
+                interp(p);
+                p.eat(INTERP_END);
+                i.complete(p, INTERP);
+            }
+            _ => break,
+        }
+    }
+    p.eat(STRING_QUOTE);
+    m.complete(p, STRING);
 }
 
 #[cfg(test)]

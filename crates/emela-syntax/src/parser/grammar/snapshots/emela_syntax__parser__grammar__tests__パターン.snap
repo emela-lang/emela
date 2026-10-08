@@ -1,0 +1,188 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"_\", \"x\", \"MAX_SIZE\", \"42\", \"\\\"abc\\\"\", \"Empty\", \"Circle(radius:)\",\n\"Circle(_)\", \"Rect(w, h)\", \"User(name:, ..)\", \"User(name: n, age: 0)\",\n\"Option.Some(..)\", \"()\", \"(a, b,)\", \"[]\", \"[x, ..rest]\", \"[x, ..]\",\n\"[[a, b], (c, d)]\",], patterns::pattern,)"
+---
+=== _
+ROOT@0..1
+  WILDCARD_PAT@0..1
+    UNDERSCORE@0..1 "_"
+=== x
+ROOT@0..1
+  IDENT_PAT@0..1
+    LOWER_NAME@0..1 "x"
+=== MAX_SIZE
+ROOT@0..8
+  CONST_PAT@0..8
+    UPPER_NAME@0..8 "MAX_SIZE"
+=== 42
+ROOT@0..2
+  LITERAL_PAT@0..2
+    LITERAL@0..2
+      INT@0..2 "42"
+=== "abc"
+ROOT@0..5
+  LITERAL_PAT@0..5
+    STRING@0..5
+      STRING_QUOTE@0..1 "\""
+      STRING_TEXT@1..4 "abc"
+      STRING_QUOTE@4..5 "\""
+=== Empty
+ROOT@0..5
+  VARIANT_PAT@0..5
+    PATH@0..5
+      TYPE_NAME@0..5 "Empty"
+=== Circle(radius:)
+ROOT@0..15
+  VARIANT_PAT@0..15
+    PATH@0..6
+      TYPE_NAME@0..6 "Circle"
+    PAT_ARG_LIST@6..15
+      L_PAREN@6..7 "("
+      FIELD_PAT@7..14
+        LOWER_NAME@7..13 "radius"
+        COLON@13..14 ":"
+      R_PAREN@14..15 ")"
+=== Circle(_)
+ROOT@0..9
+  VARIANT_PAT@0..9
+    PATH@0..6
+      TYPE_NAME@0..6 "Circle"
+    PAT_ARG_LIST@6..9
+      L_PAREN@6..7 "("
+      WILDCARD_PAT@7..8
+        UNDERSCORE@7..8 "_"
+      R_PAREN@8..9 ")"
+=== Rect(w, h)
+ROOT@0..10
+  VARIANT_PAT@0..10
+    PATH@0..4
+      TYPE_NAME@0..4 "Rect"
+    PAT_ARG_LIST@4..10
+      L_PAREN@4..5 "("
+      IDENT_PAT@5..6
+        LOWER_NAME@5..6 "w"
+      COMMA@6..7 ","
+      WHITESPACE@7..8 " "
+      IDENT_PAT@8..9
+        LOWER_NAME@8..9 "h"
+      R_PAREN@9..10 ")"
+=== User(name:, ..)
+ROOT@0..15
+  VARIANT_PAT@0..15
+    PATH@0..4
+      TYPE_NAME@0..4 "User"
+    PAT_ARG_LIST@4..15
+      L_PAREN@4..5 "("
+      FIELD_PAT@5..10
+        LOWER_NAME@5..9 "name"
+        COLON@9..10 ":"
+      COMMA@10..11 ","
+      WHITESPACE@11..12 " "
+      REST_PAT@12..14
+        DOT2@12..14 ".."
+      R_PAREN@14..15 ")"
+=== User(name: n, age: 0)
+ROOT@0..21
+  VARIANT_PAT@0..21
+    PATH@0..4
+      TYPE_NAME@0..4 "User"
+    PAT_ARG_LIST@4..21
+      L_PAREN@4..5 "("
+      FIELD_PAT@5..12
+        LOWER_NAME@5..9 "name"
+        COLON@9..10 ":"
+        WHITESPACE@10..11 " "
+        IDENT_PAT@11..12
+          LOWER_NAME@11..12 "n"
+      COMMA@12..13 ","
+      WHITESPACE@13..14 " "
+      FIELD_PAT@14..20
+        LOWER_NAME@14..17 "age"
+        COLON@17..18 ":"
+        WHITESPACE@18..19 " "
+        LITERAL_PAT@19..20
+          LITERAL@19..20
+            INT@19..20 "0"
+      R_PAREN@20..21 ")"
+=== Option.Some(..)
+ROOT@0..15
+  VARIANT_PAT@0..15
+    PATH@0..11
+      TYPE_NAME@0..6 "Option"
+      DOT@6..7 "."
+      TYPE_NAME@7..11 "Some"
+    PAT_ARG_LIST@11..15
+      L_PAREN@11..12 "("
+      REST_PAT@12..14
+        DOT2@12..14 ".."
+      R_PAREN@14..15 ")"
+=== ()
+ROOT@0..2
+  UNIT_PAT@0..2
+    L_PAREN@0..1 "("
+    R_PAREN@1..2 ")"
+=== (a, b,)
+ROOT@0..7
+  TUPLE_PAT@0..7
+    L_PAREN@0..1 "("
+    IDENT_PAT@1..2
+      LOWER_NAME@1..2 "a"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    IDENT_PAT@4..5
+      LOWER_NAME@4..5 "b"
+    COMMA@5..6 ","
+    R_PAREN@6..7 ")"
+=== []
+ROOT@0..2
+  LIST_PAT@0..2
+    L_BRACK@0..1 "["
+    R_BRACK@1..2 "]"
+=== [x, ..rest]
+ROOT@0..11
+  LIST_PAT@0..11
+    L_BRACK@0..1 "["
+    IDENT_PAT@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_PAT@4..10
+      DOT2@4..6 ".."
+      LOWER_NAME@6..10 "rest"
+    R_BRACK@10..11 "]"
+=== [x, ..]
+ROOT@0..7
+  LIST_PAT@0..7
+    L_BRACK@0..1 "["
+    IDENT_PAT@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_PAT@4..6
+      DOT2@4..6 ".."
+    R_BRACK@6..7 "]"
+=== [[a, b], (c, d)]
+ROOT@0..16
+  LIST_PAT@0..16
+    L_BRACK@0..1 "["
+    LIST_PAT@1..7
+      L_BRACK@1..2 "["
+      IDENT_PAT@2..3
+        LOWER_NAME@2..3 "a"
+      COMMA@3..4 ","
+      WHITESPACE@4..5 " "
+      IDENT_PAT@5..6
+        LOWER_NAME@5..6 "b"
+      R_BRACK@6..7 "]"
+    COMMA@7..8 ","
+    WHITESPACE@8..9 " "
+    TUPLE_PAT@9..15
+      L_PAREN@9..10 "("
+      IDENT_PAT@10..11
+        LOWER_NAME@10..11 "c"
+      COMMA@11..12 ","
+      WHITESPACE@12..13 " "
+      IDENT_PAT@13..14
+        LOWER_NAME@13..14 "d"
+      R_PAREN@14..15 ")"
+    R_BRACK@15..16 "]"

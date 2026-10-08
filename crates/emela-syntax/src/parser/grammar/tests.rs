@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use super::types;
+use super::{patterns, types};
 use crate::SyntaxKind::*;
 use crate::parser::{Parser, build};
 use crate::{SyntaxNode, debug_tree, lex};
@@ -74,5 +74,51 @@ fn 型のエラー() {
             "42",
         ],
         types::type_,
+    ));
+}
+
+#[test]
+fn パターン() {
+    insta::assert_snapshot!(dump_all(
+        &[
+            "_",
+            "x",
+            "MAX_SIZE",
+            "42",
+            "\"abc\"",
+            "Empty",
+            "Circle(radius:)",
+            "Circle(_)",
+            "Rect(w, h)",
+            "User(name:, ..)",
+            "User(name: n, age: 0)",
+            "Option.Some(..)",
+            "()",
+            "(a, b,)",
+            "[]",
+            "[x, ..rest]",
+            "[x, ..]",
+            "[[a, b], (c, d)]",
+        ],
+        patterns::pattern,
+    ));
+}
+
+#[test]
+fn パターンのエラー() {
+    insta::assert_snapshot!(dump_all(
+        &[
+            "[..rest]",
+            "[..]",
+            "[x, ..r, y]",
+            "User(.., name:)",
+            "-1",
+            "\"a#{x}b\"",
+            "(a)",
+            "Some(",
+            "[1 2]",
+            "+",
+        ],
+        patterns::pattern,
     ));
 }

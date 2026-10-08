@@ -200,6 +200,38 @@ pub enum SyntaxKind {
     /// `{ Io, Clock }` `Users` `R`
     EFFECT_SET,
 
+    // リテラル（2.4）
+    /// 数値のリテラル．`42` `3.14`
+    LITERAL,
+    /// 文字列のリテラル．`"hello #{name}"`
+    STRING,
+    /// 文字列の中の補間．`#{name}`
+    INTERP,
+
+    // パターン（17.6）
+    /// `_`
+    WILDCARD_PAT,
+    /// 名前を束縛する．`x`
+    IDENT_PAT,
+    /// `0` `"abc"`
+    LITERAL_PAT,
+    /// 定数．`MAX_SIZE`
+    CONST_PAT,
+    /// バリアントやレコード．`Circle(radius:)` `Empty`
+    VARIANT_PAT,
+    /// `(radius:, ..)`
+    PAT_ARG_LIST,
+    /// 名前付きの引数．`radius:` `name: n`
+    FIELD_PAT,
+    /// `()`
+    UNIT_PAT,
+    /// `(a, b)`
+    TUPLE_PAT,
+    /// `[]` `[x, ..rest]`
+    LIST_PAT,
+    /// 残り．`..` `..rest`
+    REST_PAT,
+
     /// パーサがエラー回復で読み飛ばした範囲．
     ERROR,
 
