@@ -4,6 +4,7 @@
 
 pub mod code;
 mod diagnostic;
+mod frontend;
 mod js;
 mod output;
 mod pipeline;
@@ -13,6 +14,7 @@ mod source;
 
 pub use diagnostic::{Diagnostic, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;
+pub use frontend::ParseOnly;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{

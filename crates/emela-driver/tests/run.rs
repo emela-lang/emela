@@ -10,7 +10,6 @@ use emela_driver::{
     run,
 };
 use emela_resolve::ModuleId;
-use emela_syntax::Lexed;
 
 /// 決まった JS を返す出力段．
 struct HandWritten {
@@ -198,7 +197,7 @@ struct HandBuiltIr(emela_core::Module);
 impl Frontend for HandBuiltIr {
     type Program = emela_core::Module;
 
-    fn parse(&mut self, _: ModuleId, _: FileId, _: &SourceFile, _: &Lexed) -> Parsed {
+    fn parse(&mut self, _: ModuleId, _: FileId, _: &SourceFile) -> Parsed {
         Parsed::default()
     }
 

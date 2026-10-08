@@ -1,13 +1,15 @@
 //! パイプライン．モジュールを集め，字句解析し，import のグラフを検査する．
 //!
-//! パーサ，型検査，JS の出力はまだないので，[`Frontend`] と [`JsBackend`] で差し込む．
-//! 今の段で使えるのは字句解析だけの [`LexOnly`] と，出力を持たない [`NoJsBackend`]．
+//! 構文解析，型検査，JS の出力は [`Frontend`] と [`JsBackend`] で差し込む．
+//! 今の段で使えるのは構文解析までの [`crate::ParseOnly`]，字句解析だけの [`LexOnly`]，
+//! 出力を持たない [`NoJsBackend`]．
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use emela_resolve::{DirEntry, Import, ImportGraph, ModuleData, ModuleId, ModuleMap, SourceFs};
-use emela_syntax::Lexed;
+use emela_resolve::{
+    DiagnosticKind, DirEntry, Import, ImportGraph, ModuleData, ModuleId, ModuleMap, SourceFs,
+};
 use la_arena::ArenaMap;
 
 use crate::code;
@@ -140,18 +142,12 @@ pub trait Frontend {
     /// 型検査まで済んだプログラム．[`JsBackend`] に渡す．
     type Program;
 
-    /// 1つのモジュールを構文解析する．字句解析は済んでいて，その診断はパイプラインが集める．
-    /// 構文木は `self` に持っておき，[`Frontend::check`] で使う．
-    fn parse(
-        &mut self,
-        module: ModuleId,
-        file: FileId,
-        source: &SourceFile,
-        lexed: &Lexed,
-    ) -> Parsed;
+    /// 1つのモジュールを字句解析して構文解析する．字句と構文の診断はどちらもここで返す
+    /// （パイプラインは字句解析をしない）．構文木は `self` に持っておき，[`Frontend::check`] で使う．
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed;
 
-    /// 全モジュールの構文解析と import の検査の後に1度だけ呼ぶ．
-    /// import が循環していると依存順がないので呼ばない．
+    /// 読んだ全モジュールの構文解析と import の検査の後に1度だけ呼ぶ．
+    /// `order` は読んだモジュールだけの依存順．import が循環していると依存順がないので呼ばない．
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program>;
 }
 
@@ -167,15 +163,23 @@ pub trait JsBackend<P> {
     fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
 }
 
-/// 今ある段だけのフロントエンド．import を返さず，型検査もしない．
+/// 字句解析だけのフロントエンド．字句の診断だけを返し，import を返さず，型検査もしない．
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LexOnly;
 
 impl Frontend for LexOnly {
     type Program = ();
 
-    fn parse(&mut self, _: ModuleId, _: FileId, _: &SourceFile, _: &Lexed) -> Parsed {
-        Parsed::default()
+    fn parse(&mut self, _: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
+        let lexed = emela_syntax::lex(source.text());
+        Parsed {
+            imports: Vec::new(),
+            diagnostics: lexed
+                .diagnostics
+                .iter()
+                .map(|d| Diagnostic::from_syntax(file, d))
+                .collect(),
+        }
     }
 
     fn check(&mut self, _: &Analysis, _: &[ModuleId]) -> Checked<()> {
@@ -203,7 +207,8 @@ impl<P> JsBackend<P> for NoJsBackend {
 pub struct Analysis {
     pub sources: SourceDb,
     pub modules: ModuleMap,
-    /// モジュールのファイル．読めなかったファイルは入らない．
+    /// 読んだモジュールのファイル．読めなかったファイルと，単独ファイルでエントリから
+    /// たどれないモジュールは入らない．
     pub files: ArenaMap<ModuleId, FileId>,
     pub graph: ImportGraph,
     /// エントリのモジュール．エントリがないか，モジュールにならなければ `None`．
@@ -226,6 +231,9 @@ impl Analysis {
 }
 
 /// `emela check` の段．モジュールを集め，字句解析と構文解析をし，import を検査し，型検査する．
+///
+/// モジュールの対応表は全部作る．読んで解析するのは，プロジェクトなら全モジュール，
+/// 単独ファイルならエントリから import でたどれるモジュールだけ．
 pub fn check<F: Frontend>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -239,60 +247,84 @@ pub fn check<F: Frontend>(
         emela_resolve::collect_modules(fs, &input.root)
     };
     analysis.modules = modules;
-
-    let mut imports: ArenaMap<ModuleId, Vec<Import>> = ArenaMap::default();
-    let mut file_diagnostics = Vec::new();
-    for (module, data) in analysis.modules.iter() {
-        let text = match fs.read_to_string(&data.file) {
-            Ok(text) => text,
-            Err(err) => {
-                file_diagnostics.push(
-                    Diagnostic::error(format!("cannot read file: {err}"))
-                        .with_code(code::CANNOT_READ)
-                        .at(Location::Path(data.file.clone())),
-                );
-                continue;
-            }
-        };
-        let file = analysis.sources.add(&data.file, text);
-        analysis.files.insert(module, file);
-        let source = &analysis.sources[file];
-        let lexed = emela_syntax::lex(source.text());
-        file_diagnostics.extend(
-            lexed
-                .diagnostics
-                .iter()
-                .map(|d| Diagnostic::from_syntax(file, d)),
-        );
-        let parsed = frontend.parse(module, file, source, &lexed);
-        file_diagnostics.extend(parsed.diagnostics);
-        imports.insert(module, parsed.imports);
-    }
-    // 名前解決の診断は，ファイルを表に入れてから写す（ID で指せるように）．
-    analysis.diagnostics.extend(
-        resolve_diagnostics
-            .iter()
-            .map(|d| Diagnostic::from_resolve(d, &analysis.sources)),
-    );
-    analysis.diagnostics.extend(file_diagnostics);
-
     if let Some(entry) = &input.entry {
         analysis.entry = analysis
             .modules
             .iter()
             .find(|(_, data)| same_path(&data.file, entry))
             .map(|(id, _)| id);
-        if analysis.entry.is_none() {
-            // 名前の誤りなどでモジュールにならなかった．理由の診断は名前解決が出している．
-            analysis.diagnostics.push(
-                Diagnostic::error(format!(
-                    "the entry `{}` is not a module",
-                    analysis.sources.display_path(entry).display()
-                ))
-                .with_code(code::ENTRY_NOT_MODULE)
-                .at(Location::Path(entry.clone())),
-            );
+    }
+
+    // 作業リスト．単独ファイルではエントリから始め，import 先を見つけるたびに足す．
+    let mut work: Vec<ModuleId> = if input.single_file {
+        analysis.entry.into_iter().collect()
+    } else {
+        analysis.modules.iter().map(|(id, _)| id).collect()
+    };
+    let mut queued: ArenaMap<ModuleId, ()> = ArenaMap::default();
+    for &id in &work {
+        queued.insert(id, ());
+    }
+    let mut imports: ArenaMap<ModuleId, Vec<Import>> = ArenaMap::default();
+    // 診断は読んだ順でなくモジュールの順に並べる．
+    let mut file_diagnostics: ArenaMap<ModuleId, Vec<Diagnostic>> = ArenaMap::default();
+    while let Some(module) = work.pop() {
+        let path = &analysis.modules[module].file;
+        let text = match fs.read_to_string(path) {
+            Ok(text) => text,
+            Err(err) => {
+                file_diagnostics.insert(
+                    module,
+                    vec![
+                        Diagnostic::error(format!("cannot read file: {err}"))
+                            .with_code(code::CANNOT_READ)
+                            .at(Location::Path(path.clone())),
+                    ],
+                );
+                continue;
+            }
+        };
+        let file = analysis.sources.add(path, text);
+        analysis.files.insert(module, file);
+        let parsed = frontend.parse(module, file, &analysis.sources[file]);
+        file_diagnostics.insert(module, parsed.diagnostics);
+        if input.single_file {
+            for import in &parsed.imports {
+                if let Some(target) = analysis.modules.lookup(&import.path)
+                    && !queued.contains_idx(target)
+                {
+                    queued.insert(target, ());
+                    work.push(target);
+                }
+            }
         }
+        imports.insert(module, parsed.imports);
+    }
+
+    // 名前解決の診断は，ファイルを表に入れてから写す（ID で指せるように）．
+    // 単独ファイルでは，たどれたモジュールに関わるものだけを出す．
+    let resolve_diagnostics: Vec<Diagnostic> = resolve_diagnostics
+        .iter()
+        .filter(|d| !input.single_file || concerns_reached(d, input, &analysis, &queued))
+        .map(|d| Diagnostic::from_resolve(d, &analysis.sources))
+        .collect();
+    analysis.diagnostics.extend(resolve_diagnostics);
+    for (module, _) in analysis.modules.iter() {
+        if let Some(diagnostics) = file_diagnostics.remove(module) {
+            analysis.diagnostics.extend(diagnostics);
+        }
+    }
+
+    if let (Some(entry), None) = (&input.entry, analysis.entry) {
+        // 名前の誤りなどでモジュールにならなかった．理由の診断は名前解決が出している．
+        analysis.diagnostics.push(
+            Diagnostic::error(format!(
+                "the entry `{}` is not a module",
+                analysis.sources.display_path(entry).display()
+            ))
+            .with_code(code::ENTRY_NOT_MODULE)
+            .at(Location::Path(entry.clone())),
+        );
     }
 
     let (graph, graph_diagnostics) = emela_resolve::build_import_graph(&analysis.modules, &imports);
@@ -303,12 +335,38 @@ pub fn check<F: Frontend>(
             .map(|d| Diagnostic::from_resolve(d, &analysis.sources)),
     );
 
-    let Some(order) = analysis.graph.order().map(<[_]>::to_vec) else {
+    let Some(order) = analysis.graph.order() else {
         return (analysis, None);
     };
+    let order: Vec<ModuleId> = order
+        .iter()
+        .copied()
+        .filter(|&id| analysis.files.contains_idx(id))
+        .collect();
     let checked = frontend.check(&analysis, &order);
     analysis.diagnostics.extend(checked.diagnostics);
     (analysis, checked.program)
+}
+
+/// 単独ファイルで，名前解決の診断がエントリかたどれたモジュールに関わるか．
+/// 名前の誤りはそのファイルがエントリのときだけ，重複はそのモジュール名をたどったときだけ出す．
+fn concerns_reached(
+    diagnostic: &emela_resolve::Diagnostic,
+    input: &Input,
+    analysis: &Analysis,
+    reached: &ArenaMap<ModuleId, ()>,
+) -> bool {
+    if let DiagnosticKind::DuplicateModule { name, .. } = &diagnostic.kind
+        && let Some(id) = analysis.modules.lookup(name)
+        && reached.contains_idx(id)
+    {
+        return true;
+    }
+    input
+        .entry
+        .as_deref()
+        .is_some_and(|entry| same_path(&diagnostic.file, entry))
+        || analysis.sources.file_id(&diagnostic.file).is_some()
 }
 
 /// `emela build` の段．検査を通ったら JS を出し，`out_dir` に書く．書いたエントリのパスを返す．

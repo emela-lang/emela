@@ -9,3 +9,4 @@
 - （補）`build` と `run` は `--out-dir` で出力先を変えられる
 - （補）診断は標準エラーに出す．色は，標準エラーが端末で `NO_COLOR` が空か未設定のときだけ付ける
 - （補）`Fmt`，`Test`，`Lsp` はまだ `todo!`
+- （補）`check`，`build`，`run` は driver の `ParseOnly`（構文解析まで）を使う．型検査と lowering がまだないので，`build` と `run` は構文と import に誤りがなければ E0905 で止まる
