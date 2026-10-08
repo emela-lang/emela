@@ -850,7 +850,10 @@ fn closures_in_loop_capture_each_iteration() {
 
 #[test]
 fn inline_runtime_runs_standalone() {
+    // ランタイムと同じスコープに入っても，利用者の関数名と衝突しない．
     let mut m = Module::new();
+    let segmenter = m.declare("segmenter", false);
+    m.define(segmenter, vec![], int(7));
     main_fn(
         &mut m,
         Expr::Concat(vec![
@@ -859,7 +862,10 @@ fn inline_runtime_runs_standalone() {
                 StrKind::Int,
             ),
             lit_part(" "),
-            value_part(int_op(BinOp::Div, int(7), int(2)), StrKind::Int),
+            value_part(
+                int_op(BinOp::Div, call(segmenter, vec![]), int(2)),
+                StrKind::Int,
+            ),
         ]),
     );
     let r = run_with("inline_runtime", &m, RuntimeMode::Inline);
@@ -925,4 +931,20 @@ fn short_circuit_tail_call_does_not_grow_stack() {
         ]),
     );
     assert_eq!(run("short_circuit_tail_call", m), "False\nTrue\n");
+}
+
+#[test]
+fn runtime_top_level_names_start_with_dollar() {
+    // Inline では runtime.mjs の最上位の名前が生成コードと同じスコープに入る．
+    // Emela の識別子は `$` を含まないので，`$` で始まる名前なら衝突しない．
+    for line in emela_codegen_js::inline_runtime().lines() {
+        for kw in ["let ", "const ", "var ", "function ", "class "] {
+            if let Some(rest) = line.strip_prefix(kw) {
+                assert!(
+                    rest.starts_with('$'),
+                    "`$` で始まらない最上位の名前: {line}"
+                );
+            }
+        }
+    }
 }

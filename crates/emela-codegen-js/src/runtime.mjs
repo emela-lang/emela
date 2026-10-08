@@ -89,13 +89,13 @@ export function $scmp(a, b) {
   }
 }
 
-let segmenter;
+let $segmenter;
 
 // String.length は書記素クラスタの数．
 export function $strlen(s) {
-  segmenter ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  $segmenter ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
   let n = 0;
-  for (const _ of segmenter.segment(s)) n++;
+  for (const _ of $segmenter.segment(s)) n++;
   return n;
 }
 
