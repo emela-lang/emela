@@ -32,6 +32,9 @@ pub(crate) struct Emitter<'m> {
     next_label: u32,
     used: BTreeSet<&'static str>,
     loops: Vec<LoopCtx>,
+    /// 表示関数を出す enum．出したものも残す（`shows_done` まで出し終えた）．
+    shows: Vec<EnumId>,
+    shows_done: usize,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
@@ -43,10 +46,25 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         next_label: 0,
         used: BTreeSet::new(),
         loops: Vec::new(),
+        shows: Vec::new(),
+        shows_done: 0,
     };
 
     // 構成子を持たないバリアントは1つの値を共有する．
-    for (_, def) in m.enums.iter() {
+    for (id, def) in m.enums.iter() {
+        if m.option == Some(id) {
+            // Prelude の Option の None はランタイムが返すものと同じ値にする．
+            assert!(
+                def.variants.len() == 2 && def.variants[OPTION_NONE].fields.is_empty(),
+                "不正な IR: Prelude の Option の形が違う"
+            );
+            let none = e.rt("$None");
+            e.line(&format!(
+                "const {} = {none};",
+                unit_variant_name(&def.name, &def.variants[OPTION_NONE].name)
+            ));
+            continue;
+        }
         for (k, v) in def.variants.iter().enumerate() {
             if v.fields.is_empty() {
                 e.line(&format!(
@@ -71,6 +89,14 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         e.stmt(&f.body, &Dest::Return);
         e.indent -= 1;
         e.line("}");
+        e.line("");
+    }
+
+    // 表示関数は，表示関数の中で別の enum の表示が要ることがあるので，尽きるまで出す．
+    while e.shows_done < e.shows.len() {
+        let id = e.shows[e.shows_done];
+        e.shows_done += 1;
+        e.show_enum_fn(id);
         e.line("");
     }
 
@@ -215,14 +241,20 @@ impl Emitter<'_> {
                 };
                 format!("{f}({})", vs.join(", "))
             }
-            Expr::Builtin { op, args } => {
-                assert_eq!(args.len(), op.arity(), "{op:?} の引数の数が違う");
+            Expr::Builtin { op, ty_args, args } => {
+                let info = op.info();
+                assert_eq!(args.len(), info.params.len(), "{op:?} の引数の数が違う");
+                assert_eq!(
+                    ty_args.len(),
+                    info.ty_params as usize,
+                    "{op:?} の型引数の数が違う"
+                );
                 let es: Vec<&Expr> = args.iter().collect();
-                let vs = self.values_in_order(&es);
-                let f = match op {
-                    Builtin::StringLength => self.rt("$strlen"),
-                    Builtin::Panic => self.rt("$panic"),
-                };
+                let mut vs = self.values_in_order(&es);
+                if *op == Builtin::Dbg {
+                    vs.push(self.show_fn(&ty_args[0]));
+                }
+                let f = self.rt(info.js);
                 format!("{f}({})", vs.join(", "))
             }
             Expr::Ctor { ctor, args } => {
@@ -301,12 +333,13 @@ impl Emitter<'_> {
                 for p in parts {
                     match p {
                         StrPart::Lit(text) => s.push_str(&template_escape(text)),
-                        StrPart::Value(_, kind) => {
+                        StrPart::Value(_, ty) => {
                             let v = vs.next().unwrap();
-                            let shown = match kind {
-                                StrKind::Int | StrKind::Int64 | StrKind::String => v,
-                                StrKind::Float => format!("{}({v})", self.rt("$showFloat")),
-                                StrKind::Bool => format!("{}({v})", self.rt("$showBool")),
+                            // 補間では String をそのまま埋め込む．Int と Int64 はテンプレートの
+                            // 変換で `String` と同じ文字列になる．それ以外は表示関数を通す．
+                            let shown = match ty {
+                                Type::Int | Type::Int64 | Type::String => v,
+                                _ => self.show_call(ty, &v),
                             };
                             let _ = write!(s, "${{{shown}}}");
                         }
@@ -318,6 +351,113 @@ impl Emitter<'_> {
             Expr::If { .. } | Expr::Match { .. } | Expr::Loop { .. } => self.via_tmp(e),
             Expr::Recur(_) => panic!("不正な IR: Recur が Loop の末尾位置の外にある"),
         }
+    }
+
+    /// 型 `ty` の値 `v`（JS の式）を表示した文字列の JS の式．
+    ///
+    /// `Type::Param(i)` は enum の表示関数の中でだけ使え，引数 `$a{i}` で受けた表示関数を呼ぶ．
+    fn show_call(&mut self, ty: &Type, v: &str) -> String {
+        match ty {
+            Type::List(elem) => {
+                let f = self.show_fn(elem);
+                format!("{}({v}, {f})", self.rt("$showList"))
+            }
+            Type::Tuple(items) => {
+                let fs: Vec<String> = items.iter().map(|t| self.show_fn(t)).collect();
+                format!("{}({v}, [{}])", self.rt("$showTuple"), fs.join(", "))
+            }
+            Type::Enum(id, args) => {
+                let mut s = format!("{}({v}", self.show_enum(*id));
+                for a in args {
+                    let f = self.show_fn(a);
+                    let _ = write!(s, ", {f}");
+                }
+                s.push(')');
+                s
+            }
+            _ => format!("{}({v})", self.show_fn(ty)),
+        }
+    }
+
+    /// 型 `ty` の値を表示する関数の JS の式．
+    fn show_fn(&mut self, ty: &Type) -> String {
+        match ty {
+            Type::Int => self.rt("$showInt").to_owned(),
+            Type::Int64 => self.rt("$showInt64").to_owned(),
+            Type::Float => self.rt("$showFloat").to_owned(),
+            Type::Bool => self.rt("$showBool").to_owned(),
+            Type::String => self.rt("$showString").to_owned(),
+            Type::Unit => self.rt("$showUnit").to_owned(),
+            // Never の値は作れないので呼ばれない．
+            Type::Never => self.rt("$unreachable").to_owned(),
+            Type::Param(i) => format!("$a{i}"),
+            Type::Enum(id, args) if args.is_empty() => self.show_enum(*id),
+            Type::List(_) | Type::Tuple(_) | Type::Enum(..) => {
+                let body = self.show_call(ty, "$x");
+                format!("(($x) => {body})")
+            }
+            Type::Fn => panic!("不正な IR: 関数値は表示できない（仕様 10.6）"),
+        }
+    }
+
+    /// enum の表示関数の名前．まだ出していなければ出す予定に入れる．
+    fn show_enum(&mut self, id: EnumId) -> String {
+        if !self.shows.contains(&id) {
+            self.shows.push(id);
+        }
+        format!("$show${}", sanitize(&self.m.enums[id].name))
+    }
+
+    /// enum の表示関数を出す．型引数の表示関数を `$a0`，`$a1`，… で受ける．
+    /// 構成子はソースの書き方で表す（`Circle(radius: 1.0)`，`Rect(1.0, 2.0)`，`Empty`）．
+    fn show_enum_fn(&mut self, id: EnumId) {
+        let m = self.m;
+        let def = &m.enums[id];
+        let mut params = vec!["v".to_owned()];
+        params.extend((0..def.params).map(|i| format!("$a{i}")));
+        let name = self.show_enum(id);
+        self.line(&format!("function {name}({}) {{", params.join(", ")));
+        self.indent += 1;
+        let switch = def.variants.len() > 1;
+        if switch {
+            self.line("switch (v.$tag) {");
+            self.indent += 1;
+        }
+        for (k, variant) in def.variants.iter().enumerate() {
+            assert_eq!(
+                variant.tys.len(),
+                variant.fields.len(),
+                "不正な IR: {} のフィールドの型の数が違う",
+                variant.name
+            );
+            let mut pieces = Pieces::default();
+            pieces.text(&variant.name);
+            for (i, ty) in variant.tys.iter().enumerate() {
+                pieces.text(if i == 0 { "(" } else { ", " });
+                if let VariantFields::Named(names) = &variant.fields {
+                    pieces.text(&format!("{}: ", names[i]));
+                }
+                let access = format!("v{}", field_access(&variant.fields, i));
+                pieces.js(self.show_call(ty, &access));
+            }
+            if !variant.tys.is_empty() {
+                pieces.text(")");
+            }
+            let expr = pieces.concat();
+            if switch {
+                self.line(&format!("case {k}: return {expr};"));
+            } else {
+                self.line(&format!("return {expr};"));
+            }
+        }
+        if switch {
+            self.indent -= 1;
+            self.line("}");
+            let u = self.rt("$unreachable");
+            self.line(&format!("return {u}();"));
+        }
+        self.indent -= 1;
+        self.line("}");
     }
 
     fn binary(&mut self, op: BinOp, ty: OpTy, lhs: &Expr, rhs: &Expr) -> String {
@@ -601,6 +741,33 @@ impl Emitter<'_> {
                 }
             }
         }
+    }
+}
+
+/// 文字列の連結の部品．隣り合う文字列はまとめて1つのリテラルにする．
+#[derive(Default)]
+struct Pieces(Vec<(bool, String)>);
+
+impl Pieces {
+    fn text(&mut self, t: &str) {
+        match self.0.last_mut() {
+            Some((true, last)) => last.push_str(t),
+            _ => self.0.push((true, t.to_owned())),
+        }
+    }
+
+    fn js(&mut self, e: String) {
+        self.0.push((false, e));
+    }
+
+    /// `+` でつないだ JS の式．
+    fn concat(self) -> String {
+        let parts: Vec<String> = self
+            .0
+            .into_iter()
+            .map(|(is_text, s)| if is_text { js_string(&s) } else { s })
+            .collect();
+        parts.join(" + ")
     }
 }
 

@@ -4,6 +4,7 @@
 //! バックエンドには脱糖済みの IR だけを渡す．
 
 pub mod build;
+pub mod intrinsics;
 mod ir;
 pub mod named;
 pub mod tail;
@@ -11,4 +12,5 @@ pub mod tail;
 #[cfg(test)]
 mod tests;
 
+pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;

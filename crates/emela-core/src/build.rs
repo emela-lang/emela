@@ -1,5 +1,6 @@
 //! IR を組み立てる小さな関数．テストと，後で書く変換の両方で使う．
 
+use crate::intrinsics::Builtin;
 use crate::ir::*;
 
 pub fn int(n: i32) -> Expr {
@@ -53,7 +54,16 @@ pub fn call_value(callee: Expr, args: Vec<Expr>) -> Expr {
 }
 
 pub fn builtin(op: Builtin, args: Vec<Expr>) -> Expr {
-    Expr::Builtin { op, args }
+    Expr::Builtin {
+        op,
+        ty_args: Vec::new(),
+        args,
+    }
+}
+
+/// 型引数を取る組み込み関数（`dbg`）の呼び出し．
+pub fn builtin_ty(op: Builtin, ty_args: Vec<Type>, args: Vec<Expr>) -> Expr {
+    Expr::Builtin { op, ty_args, args }
 }
 
 pub fn ctor(ctor: CtorRef, args: Vec<Expr>) -> Expr {
@@ -138,8 +148,8 @@ pub fn lit_part(s: &str) -> StrPart {
     StrPart::Lit(s.to_owned())
 }
 
-pub fn value_part(e: Expr, kind: StrKind) -> StrPart {
-    StrPart::Value(e, kind)
+pub fn value_part(e: Expr, ty: Type) -> StrPart {
+    StrPart::Value(e, ty)
 }
 
 pub fn p_ctor(ctor: CtorRef, fields: Vec<Pat>) -> Pat {

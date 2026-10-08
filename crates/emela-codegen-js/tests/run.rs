@@ -59,8 +59,25 @@ fn run(name: &str, mut m: Module) -> String {
     r.stdout
 }
 
+/// `run` と同じだが，標準エラー（`dbg` の出力）も返す．
+fn run_stderr(name: &str, mut m: Module) -> (String, String) {
+    tail::loopify(&mut m);
+    let r = run_with(name, &m, RuntimeMode::Import(None));
+    insta::assert_snapshot!(name, r.js);
+    (r.stdout, r.stderr)
+}
+
+/// `main` が defect で終わるときのメッセージ．JS はスナップショットに取らない．
+fn defect_of(name: &str, body: Expr) -> String {
+    let mut m = Module::new();
+    main_fn(&mut m, body);
+    let r = run_with(name, &m, RuntimeMode::Import(None));
+    assert!(r.stderr.is_empty(), "{}\n{}", r.stderr, r.js);
+    r.stdout
+}
+
 /// 文字列の部品を改行でつなぐ．
-fn lines(parts: Vec<(Expr, StrKind)>) -> Expr {
+fn lines(parts: Vec<(Expr, Type)>) -> Expr {
     let mut ps = Vec::new();
     for (i, (e, k)) in parts.into_iter().enumerate() {
         if i > 0 {
@@ -115,20 +132,14 @@ fn fact_module() -> (Module, FnId) {
 fn factorial_tail_recursive() {
     let (mut m, fact) = fact_module();
     let body = lines(vec![
-        (call(fact, vec![int(5), int64(5), int64(1)]), StrKind::Int64),
-        (
-            call(fact, vec![int(20), int64(20), int64(1)]),
-            StrKind::Int64,
-        ),
+        (call(fact, vec![int(5), int64(5), int64(1)]), Type::Int64),
+        (call(fact, vec![int(20), int64(20), int64(1)]), Type::Int64),
         // 21! は 64bit を超えて巻き戻る．
-        (
-            call(fact, vec![int(21), int64(21), int64(1)]),
-            StrKind::Int64,
-        ),
+        (call(fact, vec![int(21), int64(21), int64(1)]), Type::Int64),
         // 10 万回回してもスタックが溢れない．
         (
             call(fact, vec![int(100000), int64(100000), int64(1)]),
-            StrKind::Int64,
+            Type::Int64,
         ),
     ]);
     main_fn(&mut m, body);
@@ -161,27 +172,20 @@ fn enum_match() {
     let mut m = Module::new();
     let shape = m.add_enum(EnumDef {
         name: "Shape".into(),
+        params: 0,
         variants: vec![
-            VariantDef {
-                name: "Circle".into(),
-                fields: VariantFields::Positional(1),
-            },
-            VariantDef {
-                name: "Rect".into(),
-                fields: VariantFields::Named(vec!["w".into(), "h".into()]),
-            },
-            VariantDef {
-                name: "Empty".into(),
-                fields: VariantFields::Unit,
-            },
+            VariantDef::positional("Circle", vec![Type::Float]),
+            VariantDef::named("Rect", vec![("w", Type::Float), ("h", Type::Float)]),
+            VariantDef::unit("Empty"),
         ],
     });
     let point = m.add_enum(EnumDef {
         name: "Point".into(),
-        variants: vec![VariantDef {
-            name: "Point".into(),
-            fields: VariantFields::Named(vec!["x".into(), "y".into()]),
-        }],
+        params: 0,
+        variants: vec![VariantDef::named(
+            "Point",
+            vec![("x", Type::Int), ("y", Type::Int)],
+        )],
     });
     let circle = CtorRef {
         enum_id: shape,
@@ -228,22 +232,16 @@ fn enum_match() {
                 ),
                 arm(
                     p_ctor(circle, vec![Pat::Bind(r2)]),
-                    Expr::Concat(vec![
-                        lit_part("circle "),
-                        value_part(var(r2), StrKind::Float),
-                    ]),
+                    Expr::Concat(vec![lit_part("circle "), value_part(var(r2), Type::Float)]),
                 ),
                 arm_if(
                     p_ctor(rect, vec![Pat::Bind(w1), Pat::Bind(h1)]),
                     float_op(BinOp::Eq, var(w1), var(h1)),
-                    Expr::Concat(vec![
-                        lit_part("square "),
-                        value_part(var(w1), StrKind::Float),
-                    ]),
+                    Expr::Concat(vec![lit_part("square "), value_part(var(w1), Type::Float)]),
                 ),
                 arm(
                     p_ctor(rect, vec![Pat::Bind(w2), Pat::Wild]),
-                    Expr::Concat(vec![lit_part("rect "), value_part(var(w2), StrKind::Float)]),
+                    Expr::Concat(vec![lit_part("rect "), value_part(var(w2), Type::Float)]),
                 ),
                 arm(p_ctor(empty, vec![]), string("empty")),
             ],
@@ -259,7 +257,7 @@ fn enum_match() {
         int_op(BinOp::Add, field(var(p), pt, 0), field(var(p), pt, 1)),
     );
 
-    let d = |e| (call(describe, vec![e]), StrKind::String);
+    let d = |e| (call(describe, vec![e]), Type::String);
     let body = lines(vec![
         d(ctor(circle, vec![float(12.0)])),
         d(ctor(circle, vec![float(1.5)])),
@@ -268,7 +266,7 @@ fn enum_match() {
         d(ctor(empty, vec![])),
         (
             call(norm1, vec![ctor(pt, vec![int(3), int(-4)])]),
-            StrKind::Int,
+            Type::Int,
         ),
         // 構造の等値比較．
         (
@@ -278,7 +276,7 @@ fn enum_match() {
                 ctor(rect, vec![float(1.0), float(2.0)]),
                 ctor(rect, vec![float(1.0), float(2.0)]),
             ),
-            StrKind::Bool,
+            Type::Bool,
         ),
         (
             bin(
@@ -287,7 +285,7 @@ fn enum_match() {
                 ctor(empty, vec![]),
                 ctor(circle, vec![float(0.0)]),
             ),
-            StrKind::Bool,
+            Type::Bool,
         ),
     ]);
     main_fn(&mut m, body);
@@ -400,23 +398,20 @@ fn list_recursion() {
                 arm(p_list(vec![], None), string("none")),
                 arm(
                     p_list(vec![Pat::Bind(a1)], None),
-                    Expr::Concat(vec![lit_part("one "), value_part(var(a1), StrKind::Int)]),
+                    Expr::Concat(vec![lit_part("one "), value_part(var(a1), Type::Int)]),
                 ),
                 arm(
                     p_list(vec![Pat::Bind(a2), Pat::Bind(b2)], None),
                     Expr::Concat(vec![
                         lit_part("two "),
-                        value_part(var(a2), StrKind::Int),
+                        value_part(var(a2), Type::Int),
                         lit_part(" "),
-                        value_part(var(b2), StrKind::Int),
+                        value_part(var(b2), Type::Int),
                     ]),
                 ),
                 arm(
                     p_list(vec![Pat::Bind(a3)], Some(Pat::Wild)),
-                    Expr::Concat(vec![
-                        lit_part("many from "),
-                        value_part(var(a3), StrKind::Int),
-                    ]),
+                    Expr::Concat(vec![lit_part("many from "), value_part(var(a3), Type::Int)]),
                 ),
             ],
         ),
@@ -433,7 +428,7 @@ fn list_recursion() {
             xs_main,
             list(vec![int(1), int(2), int(3), int(4)]),
             lines(vec![
-                (call(sum, vec![var(xs_main)]), StrKind::Int),
+                (call(sum, vec![var(xs_main)]), Type::Int),
                 (
                     call(
                         sum,
@@ -445,22 +440,19 @@ fn list_recursion() {
                             ],
                         )],
                     ),
-                    StrKind::Int,
+                    Type::Int,
                 ),
                 (
                     call(
                         len,
                         vec![call(range, vec![int(100000), list(vec![])]), int(0)],
                     ),
-                    StrKind::Int,
+                    Type::Int,
                 ),
-                (call(shape, vec![list(vec![])]), StrKind::String),
-                (call(shape, vec![list(vec![int(7)])]), StrKind::String),
-                (
-                    call(shape, vec![list(vec![int(7), int(8)])]),
-                    StrKind::String,
-                ),
-                (call(shape, vec![var(xs_main)]), StrKind::String),
+                (call(shape, vec![list(vec![])]), Type::String),
+                (call(shape, vec![list(vec![int(7)])]), Type::String),
+                (call(shape, vec![list(vec![int(7), int(8)])]), Type::String),
+                (call(shape, vec![var(xs_main)]), Type::String),
                 // 長いリストの構造比較もスタックを使わない．
                 (
                     bin(
@@ -469,7 +461,7 @@ fn list_recursion() {
                         call(range, vec![int(100000), list(vec![])]),
                         call(range, vec![int(100000), list(vec![])]),
                     ),
-                    StrKind::Bool,
+                    Type::Bool,
                 ),
             ]),
         ),
@@ -522,9 +514,9 @@ fn tuples() {
                 arm(
                     Pat::Tuple(vec![Pat::Bind(n), Pat::Bind(s)]),
                     Expr::Concat(vec![
-                        value_part(var(n), StrKind::Int),
+                        value_part(var(n), Type::Int),
                         lit_part(" "),
-                        value_part(var(s), StrKind::String),
+                        value_part(var(s), Type::String),
                     ]),
                 ),
             ],
@@ -535,14 +527,14 @@ fn tuples() {
         p,
         call(swap, vec![Expr::Tuple(vec![string("y"), int(5)])]),
         lines(vec![
-            (call(classify, vec![var(p)]), StrKind::String),
+            (call(classify, vec![var(p)]), Type::String),
             (
                 call(classify, vec![Expr::Tuple(vec![int(0), string("q")])]),
-                StrKind::String,
+                Type::String,
             ),
             (
                 call(classify, vec![Expr::Tuple(vec![int(1), string("x")])]),
-                StrKind::String,
+                Type::String,
             ),
             (
                 bin(
@@ -551,7 +543,7 @@ fn tuples() {
                     var(p),
                     Expr::Tuple(vec![int(5), string("y")]),
                 ),
-                StrKind::Bool,
+                Type::Bool,
             ),
         ]),
     );
@@ -569,32 +561,32 @@ fn string_interpolation() {
         string("Emela"),
         Expr::Concat(vec![
             lit_part("hello, "),
-            value_part(var(name), StrKind::String),
+            value_part(var(name), Type::String),
             lit_part("! `${not interpolated}` \\ \"q\"\n"),
-            value_part(int(-42), StrKind::Int),
+            value_part(int(-42), Type::Int),
             lit_part(" "),
-            value_part(int64(9_007_199_254_740_993), StrKind::Int64),
+            value_part(int64(9_007_199_254_740_993), Type::Int64),
             lit_part(" "),
-            value_part(float(1.0), StrKind::Float),
+            value_part(float(1.0), Type::Float),
             lit_part(" "),
-            value_part(float(0.1), StrKind::Float),
+            value_part(float(0.1), Type::Float),
             lit_part(" "),
-            value_part(float(-2.5e-8), StrKind::Float),
+            value_part(float(-2.5e-8), Type::Float),
             lit_part(" "),
-            value_part(float(1e21), StrKind::Float),
+            value_part(float(1e21), Type::Float),
             lit_part(" "),
-            value_part(bool(true), StrKind::Bool),
+            value_part(bool(true), Type::Bool),
             lit_part(" "),
-            value_part(bool(false), StrKind::Bool),
+            value_part(bool(false), Type::Bool),
             lit_part("\n"),
             // 書記素クラスタの数．家族の絵文字は1つ，e + 結合アクセントも1つ．
-            value_part(len("👨‍👩‍👧"), StrKind::Int),
+            value_part(len("👨‍👩‍👧"), Type::Int),
             lit_part(" "),
-            value_part(len("e\u{301}"), StrKind::Int),
+            value_part(len("e\u{301}"), Type::Int),
             lit_part(" "),
-            value_part(len("日本語"), StrKind::Int),
+            value_part(len("日本語"), Type::Int),
             lit_part(" "),
-            value_part(len(""), StrKind::Int),
+            value_part(len(""), Type::Int),
         ]),
     );
     main_fn(&mut m, body);
@@ -619,10 +611,10 @@ fn short_circuit() {
     let c1 = complex_rhs(&mut m);
     let c2 = complex_rhs(&mut m);
     let body = lines(vec![
-        (b(BinOp::And, bool(false), panic_("and")), StrKind::Bool),
-        (b(BinOp::Or, bool(true), panic_("or")), StrKind::Bool),
-        (b(BinOp::And, bool(false), c1), StrKind::Bool),
-        (b(BinOp::Or, bool(true), c2), StrKind::Bool),
+        (b(BinOp::And, bool(false), panic_("and")), Type::Bool),
+        (b(BinOp::Or, bool(true), panic_("or")), Type::Bool),
+        (b(BinOp::And, bool(false), c1), Type::Bool),
+        (b(BinOp::Or, bool(true), c2), Type::Bool),
         (
             let_(
                 x,
@@ -639,7 +631,7 @@ fn short_circuit() {
                     ),
                 ),
             ),
-            StrKind::Bool,
+            Type::Bool,
         ),
         (
             unary(
@@ -647,7 +639,7 @@ fn short_circuit() {
                 OpTy::Bool,
                 b(BinOp::Or, bool(false), bool(false)),
             ),
-            StrKind::Bool,
+            Type::Bool,
         ),
     ]);
     main_fn(&mut m, body);
@@ -660,16 +652,16 @@ fn short_circuit() {
 #[test]
 fn int_arithmetic() {
     let mut m = Module::new();
-    let i = |op, a, b| (int_op(op, int(a), int(b)), StrKind::Int);
-    let l = |op, a, b| (bin(op, OpTy::Int64, int64(a), int64(b)), StrKind::Int64);
-    let fl = |op, a, b| (bin(op, OpTy::Float, float(a), float(b)), StrKind::Float);
+    let i = |op, a, b| (int_op(op, int(a), int(b)), Type::Int);
+    let l = |op, a, b| (bin(op, OpTy::Int64, int64(a), int64(b)), Type::Int64);
+    let fl = |op, a, b| (bin(op, OpTy::Float, float(a), float(b)), Type::Float);
     let body = lines(vec![
         // Int のあふれは2の補数で巻き戻る．
         i(BinOp::Add, i32::MAX, 1),
         i(BinOp::Sub, i32::MIN, 1),
         i(BinOp::Mul, 65536, 65536),
         i(BinOp::Mul, 123456789, 987654321),
-        (unary(UnOp::Neg, OpTy::Int, int(i32::MIN)), StrKind::Int),
+        (unary(UnOp::Neg, OpTy::Int, int(i32::MIN)), Type::Int),
         i(BinOp::Div, i32::MIN, -1),
         // 除算は0方向へ切り捨て，剰余は被除数の符号に従う．
         i(BinOp::Div, -7, 2),
@@ -679,10 +671,7 @@ fn int_arithmetic() {
         // Int64
         l(BinOp::Add, i64::MAX, 1),
         l(BinOp::Mul, i64::MAX, 2),
-        (
-            unary(UnOp::Neg, OpTy::Int64, int64(i64::MIN)),
-            StrKind::Int64,
-        ),
+        (unary(UnOp::Neg, OpTy::Int64, int64(i64::MIN)), Type::Int64),
         l(BinOp::Div, i64::MIN, -1),
         l(BinOp::Div, -7, 2),
         l(BinOp::Rem, -7, 2),
@@ -691,15 +680,15 @@ fn int_arithmetic() {
         fl(BinOp::Div, -1.0, 0.0),
         fl(BinOp::Div, 0.0, 0.0),
         fl(BinOp::Rem, 5.5, 2.0),
-        (bin(BinOp::Lt, OpTy::Int, int(-1), int(0)), StrKind::Bool),
+        (bin(BinOp::Lt, OpTy::Int, int(-1), int(0)), Type::Bool),
         (
             bin(BinOp::Lt, OpTy::String, string("b"), string("ab")),
-            StrKind::Bool,
+            Type::Bool,
         ),
         // コードポイントの順．UTF-16 の順なら U+FF61 が U+1F600 より後になる．
         (
             bin(BinOp::Lt, OpTy::String, string("\u{FF61}"), string("😀")),
-            StrKind::Bool,
+            Type::Bool,
         ),
     ]);
     main_fn(&mut m, body);
@@ -859,12 +848,12 @@ fn inline_runtime_runs_standalone() {
         Expr::Concat(vec![
             value_part(
                 builtin(Builtin::StringLength, vec![string("ok")]),
-                StrKind::Int,
+                Type::Int,
             ),
             lit_part(" "),
             value_part(
                 int_op(BinOp::Div, call(segmenter, vec![]), int(2)),
-                StrKind::Int,
+                Type::Int,
             ),
         ]),
     );
@@ -923,10 +912,10 @@ fn short_circuit_tail_call_does_not_grow_stack() {
     main_fn(
         &mut m,
         lines(vec![
-            (call(any_zero, vec![big()]), StrKind::Bool),
+            (call(any_zero, vec![big()]), Type::Bool),
             (
                 call(any_zero, vec![list_with_tail(vec![int(0)], big())]),
-                StrKind::Bool,
+                Type::Bool,
             ),
         ]),
     );
@@ -946,5 +935,493 @@ fn runtime_top_level_names_start_with_dollar() {
                 );
             }
         }
+    }
+}
+
+// ---- 組み込み関数と表示 ----
+
+fn b(op: Builtin, args: Vec<Expr>) -> Expr {
+    builtin(op, args)
+}
+
+#[test]
+fn string_graphemes_and_bytes() {
+    let mut m = Module::new();
+    let samples = [
+        "👍",
+        "e\u{301}",
+        "👨\u{200d}👩\u{200d}👧",
+        "🇯🇵",
+        "日本語",
+        "",
+    ];
+    let mut parts = Vec::new();
+    for s in samples {
+        // 長さ，バイト数，書記素ごとの分割
+        parts.push((b(Builtin::StringLength, vec![string(s)]), Type::Int));
+        parts.push((b(Builtin::StringByteSize, vec![string(s)]), Type::Int));
+        parts.push((
+            b(Builtin::StringChars, vec![string(s)]),
+            Type::list(Type::String),
+        ));
+    }
+    main_fn(&mut m, lines(parts));
+    let shown = [
+        "1\n4\n[\"👍\"]",
+        "1\n3\n[\"e\u{301}\"]",
+        "1\n18\n[\"👨\u{200d}👩\u{200d}👧\"]",
+        "1\n8\n[\"🇯🇵\"]",
+        "3\n9\n[\"日\", \"本\", \"語\"]",
+        "0\n0\n[]",
+    ];
+    assert_eq!(
+        run("string_graphemes_and_bytes", m),
+        shown.join("\n") + "\n"
+    );
+}
+
+#[test]
+fn string_split_join_and_search() {
+    let mut m = Module::new();
+    let split = |s: &str, sep: &str| b(Builtin::StringSplit, vec![string(s), string(sep)]);
+    let strs = || Type::list(Type::String);
+    let mut parts = vec![
+        (split("a,b,,c", ","), strs()),
+        (split("", ","), strs()),
+        (split("abc", ""), strs()),
+        (split("", ""), strs()),
+        (split("e\u{301}x", ""), strs()),
+        (split("a--b--", "--"), strs()),
+    ];
+    // join(split(s, sep), sep) == s
+    for (s, sep) in [
+        ("a,b,,c", ","),
+        ("", ","),
+        (",", ","),
+        ("abc", ""),
+        ("x--y", "--"),
+    ] {
+        parts.push((
+            bin(
+                BinOp::Eq,
+                OpTy::String,
+                b(Builtin::StringJoin, vec![split(s, sep), string(sep)]),
+                string(s),
+            ),
+            Type::Bool,
+        ));
+    }
+    let two = |op, a: &str, x: &str| b(op, vec![string(a), string(x)]);
+    parts.extend([
+        (two(Builtin::StringContains, "hello", "ell"), Type::Bool),
+        (two(Builtin::StringContains, "hello", ""), Type::Bool),
+        (two(Builtin::StringContains, "e\u{301}", "e"), Type::Bool),
+        (two(Builtin::StringStartsWith, "hello", "he"), Type::Bool),
+        (two(Builtin::StringStartsWith, "hello", "lo"), Type::Bool),
+        (two(Builtin::StringEndsWith, "hello", "lo"), Type::Bool),
+        (two(Builtin::StringConcat, "foo", "bar"), Type::String),
+        (
+            b(
+                Builtin::StringTrim,
+                vec![string(" \t\n\u{3000}\u{85}a b\u{a0}\r ")],
+            ),
+            Type::String,
+        ),
+        // U+FEFF と U+200B は White_Space ではないので残る．
+        (
+            b(Builtin::StringTrim, vec![string("\u{feff}x\u{200b}")]),
+            Type::String,
+        ),
+        (b(Builtin::StringFromInt, vec![int(-7)]), Type::String),
+    ]);
+    main_fn(&mut m, lines(parts));
+    assert_eq!(
+        run("string_split_join_and_search", m),
+        [
+            r#"["a", "b", "", "c"]"#,
+            r#"[""]"#,
+            r#"["a", "b", "c"]"#,
+            "[]",
+            "[\"e\u{301}\", \"x\"]",
+            r#"["a", "b", ""]"#,
+            "True\nTrue\nTrue\nTrue\nTrue",
+            "True\nTrue\nTrue\nTrue\nFalse\nTrue",
+            "foobar",
+            "a b",
+            "\u{feff}x\u{200b}",
+            "-7",
+        ]
+        .join("\n")
+            + "\n"
+    );
+}
+
+#[test]
+fn int_conversions_and_checked_add() {
+    let mut m = Module::new();
+    let opt_int = Type::Enum(m.option_enum(), vec![Type::Int]);
+    let add = |a, c| b(Builtin::IntCheckedAdd, vec![int(a), int(c)]);
+    let parts = vec![
+        (add(1, 2), opt_int.clone()),
+        (add(i32::MAX, 1), opt_int.clone()),
+        (add(i32::MIN, -1), opt_int.clone()),
+        (add(i32::MAX, i32::MIN), opt_int.clone()),
+        (b(Builtin::IntToString, vec![int(-42)]), Type::String),
+        (b(Builtin::IntToFloat, vec![int(7)]), Type::Float),
+        // Int64 にしてからなら Int の最大値の2倍もあふれない．
+        (
+            bin(
+                BinOp::Mul,
+                OpTy::Int64,
+                b(Builtin::IntToInt64, vec![int(i32::MAX)]),
+                b(Builtin::Int64FromInt, vec![int(2)]),
+            ),
+            Type::Int64,
+        ),
+        (
+            b(Builtin::Int64ToString, vec![int64(i64::MIN)]),
+            Type::String,
+        ),
+        // Int64 から Int へは下位 32bit に巻き戻す．
+        (b(Builtin::Int64ToInt, vec![int64(1 << 31)]), Type::Int),
+        (
+            b(Builtin::Int64ToInt, vec![int64((1 << 32) + 5)]),
+            Type::Int,
+        ),
+        (b(Builtin::Int64ToInt, vec![int64(-1)]), Type::Int),
+    ];
+    main_fn(&mut m, lines(parts));
+    assert_eq!(
+        run("int_conversions_and_checked_add", m),
+        "Some(3)\nNone\nNone\nSome(-1)\n-42\n7.0\n4294967294\n-9223372036854775808\n\
+         -2147483648\n5\n-1\n"
+    );
+}
+
+#[test]
+fn float_conversions() {
+    let mut m = Module::new();
+    let ops = [
+        Builtin::FloatFloor,
+        Builtin::FloatCeil,
+        Builtin::FloatRound,
+        Builtin::FloatTruncate,
+    ];
+    let xs = [
+        2.5,
+        -2.5,
+        0.5,
+        -0.5,
+        -0.4,
+        1.4999999999999998,
+        0.49999999999999994,
+        2147483646.6,
+        -2147483647.6,
+    ];
+    let mut parts = Vec::new();
+    for x in xs {
+        let row = ops
+            .iter()
+            .enumerate()
+            .flat_map(|(i, &op)| {
+                let sep = if i == 0 { "" } else { " " };
+                [lit_part(sep), value_part(b(op, vec![float(x)]), Type::Int)]
+            })
+            .collect();
+        parts.push((Expr::Concat(row), Type::String));
+    }
+    for x in [1.0, -0.0, 0.1, 1e21, f64::NAN, f64::NEG_INFINITY] {
+        parts.push((b(Builtin::FloatToString, vec![float(x)]), Type::String));
+    }
+    main_fn(&mut m, lines(parts));
+    assert_eq!(
+        run("float_conversions", m),
+        [
+            "2 3 3 2",
+            "-3 -2 -3 -2",
+            "0 1 1 0",
+            "-1 0 -1 0",
+            "-1 0 0 0",
+            "1 2 1 1",
+            "0 1 0 0",
+            "2147483646 2147483647 2147483647 2147483646",
+            "-2147483648 -2147483647 -2147483648 -2147483647",
+        ]
+        .join("\n")
+            + "\n"
+            + "1.0\n0.0\n0.1\n1e+21\nNaN\n-Infinity\n"
+    );
+}
+
+#[test]
+fn float_to_int_out_of_range_is_defect() {
+    let cases = [
+        (Builtin::FloatFloor, f64::NAN, "NaN"),
+        (Builtin::FloatCeil, f64::INFINITY, "Infinity"),
+        (Builtin::FloatTruncate, f64::NEG_INFINITY, "-Infinity"),
+        (Builtin::FloatTruncate, 2147483648.0, "2147483648.0"),
+        (Builtin::FloatRound, 2147483647.5, "2147483647.5"),
+        (Builtin::FloatFloor, -2147483648.5, "-2147483648.5"),
+        (Builtin::FloatCeil, 2147483647.1, "2147483647.1"),
+    ];
+    for (i, (op, x, shown)) in cases.into_iter().enumerate() {
+        assert_eq!(
+            defect_of(&format!("float_to_int_defect_{i}"), b(op, vec![float(x)])),
+            format!("defect: cannot convert {shown} to Int\n"),
+            "{op:?}({x})"
+        );
+    }
+    // 範囲の端はちょうど収まる．
+    let mut m = Module::new();
+    main_fn(
+        &mut m,
+        lines(vec![
+            (
+                b(Builtin::FloatTruncate, vec![float(-2147483648.9)]),
+                Type::Int,
+            ),
+            (b(Builtin::FloatFloor, vec![float(2147483647.9)]), Type::Int),
+        ]),
+    );
+    assert_eq!(
+        run_with("float_to_int_edges", &m, RuntimeMode::Import(None)).stdout,
+        "-2147483648\n2147483647\n"
+    );
+}
+
+#[test]
+fn todo_is_defect() {
+    assert_eq!(
+        defect_of("todo", b(Builtin::Todo, vec![])),
+        "defect: not yet implemented\n"
+    );
+}
+
+/// `enum Shape { Circle(radius: Float), Rect(Float, Float), Empty }` と
+/// `enum Tree[A] { Leaf, Node(Tree[A], A, Tree[A]) }` と `type Point(x: Int, y: Int)`．
+fn show_module() -> (Module, EnumId, EnumId, EnumId) {
+    let mut m = Module::new();
+    let shape = m.add_enum(EnumDef {
+        name: "Shape".into(),
+        params: 0,
+        variants: vec![
+            VariantDef::named("Circle", vec![("radius", Type::Float)]),
+            VariantDef::positional("Rect", vec![Type::Float, Type::Float]),
+            VariantDef::unit("Empty"),
+        ],
+    });
+    let tree = m.add_enum(EnumDef {
+        name: "Tree".into(),
+        params: 1,
+        variants: vec![VariantDef::unit("Leaf"), VariantDef::unit("Node")],
+    });
+    let tree_a = Type::Enum(tree, vec![Type::Param(0)]);
+    m.enums[tree].variants[1] =
+        VariantDef::positional("Node", vec![tree_a.clone(), Type::Param(0), tree_a]);
+    let point = m.add_enum(EnumDef {
+        name: "Point".into(),
+        params: 0,
+        variants: vec![VariantDef::named(
+            "Point",
+            vec![("x", Type::Int), ("y", Type::Int)],
+        )],
+    });
+    (m, shape, tree, point)
+}
+
+#[test]
+fn dbg_shows_values_in_source_syntax() {
+    let (mut m, shape, tree, point) = show_module();
+    let c = |enum_id, variant| CtorRef { enum_id, variant };
+    let some = m.some_ctor();
+    let none = m.none_ctor();
+    let opt = m.option_enum();
+    let dbg = |ty: Type, e: Expr| builtin_ty(Builtin::Dbg, vec![ty], vec![e]);
+    let shape_ty = Type::Enum(shape, vec![]);
+    let tree_s = Type::Enum(tree, vec![Type::String]);
+    let leaf = || ctor(c(tree, 0), vec![]);
+    let x = m.local("x");
+    let values = vec![
+        dbg(shape_ty.clone(), ctor(c(shape, 0), vec![float(1.0)])),
+        dbg(
+            shape_ty.clone(),
+            ctor(c(shape, 1), vec![float(1.0), float(2.5)]),
+        ),
+        dbg(shape_ty.clone(), ctor(c(shape, 2), vec![])),
+        dbg(
+            Type::Enum(point, vec![]),
+            ctor(c(point, 0), vec![int(-1), int(2)]),
+        ),
+        dbg(Type::list(Type::Int), list(vec![int(1), int(2), int(3)])),
+        dbg(Type::list(Type::Int), list(vec![])),
+        dbg(
+            Type::Tuple(vec![Type::Int, Type::String]),
+            Expr::Tuple(vec![int(1), string("a")]),
+        ),
+        dbg(Type::String, string("say \"hi\"\n\\ #{x} # \t")),
+        dbg(Type::String, string("")),
+        dbg(Type::Bool, bool(true)),
+        dbg(Type::Float, float(3.0)),
+        dbg(Type::Int64, int64(i64::MAX)),
+        dbg(Type::Unit, unit()),
+        dbg(
+            Type::list(Type::Enum(opt, vec![Type::list(Type::String)])),
+            list(vec![
+                ctor(some, vec![list(vec![string("a"), string("b")])]),
+                ctor(none, vec![]),
+            ]),
+        ),
+        dbg(
+            tree_s.clone(),
+            ctor(
+                c(tree, 1),
+                vec![
+                    ctor(c(tree, 1), vec![leaf(), string("l"), leaf()]),
+                    string("root"),
+                    leaf(),
+                ],
+            ),
+        ),
+        dbg(
+            Type::list(Type::Tuple(vec![shape_ty.clone(), Type::list(Type::Bool)])),
+            list(vec![Expr::Tuple(vec![
+                ctor(c(shape, 2), vec![]),
+                list(vec![bool(false)]),
+            ])]),
+        ),
+    ];
+    // dbg は値をそのまま返す: let x = dbg("héllo") in String.length(x)
+    let mut body = let_(
+        x,
+        dbg(Type::String, string("héllo")),
+        b(Builtin::StringLength, vec![var(x)]),
+    );
+    for v in values.into_iter().rev() {
+        let l = m.local("_");
+        body = let_(l, v, body);
+    }
+    main_fn(&mut m, body);
+    let (stdout, stderr) = run_stderr("dbg_shows_values_in_source_syntax", m);
+    assert_eq!(stdout, "5\n");
+    assert_eq!(
+        stderr,
+        [
+            "Circle(radius: 1.0)",
+            "Rect(1.0, 2.5)",
+            "Empty",
+            "Point(x: -1, y: 2)",
+            "[1, 2, 3]",
+            "[]",
+            r#"(1, "a")"#,
+            r#""say \"hi\"\n\\ \#{x} # \t""#,
+            r#""""#,
+            "True",
+            "3.0",
+            "9223372036854775807",
+            "()",
+            r#"[Some(["a", "b"]), None]"#,
+            r#"Node(Node(Leaf, "l", Leaf), "root", Leaf)"#,
+            "[(Empty, [False])]",
+            r#""héllo""#,
+        ]
+        .join("\n")
+            + "\n"
+    );
+}
+
+#[test]
+fn interpolation_shows_any_type() {
+    // 補間では最上位の String だけをそのまま埋め込み，入れ子の String は引用符で囲む．
+    let (mut m, shape, _, _) = show_module();
+    let some = m.some_ctor();
+    let opt = m.option_enum();
+    main_fn(
+        &mut m,
+        Expr::Concat(vec![
+            lit_part("s="),
+            value_part(string("a\"b"), Type::String),
+            lit_part(" shape="),
+            value_part(
+                ctor(
+                    CtorRef {
+                        enum_id: shape,
+                        variant: 0,
+                    },
+                    vec![float(2.0)],
+                ),
+                Type::Enum(shape, vec![]),
+            ),
+            lit_part(" xs="),
+            value_part(
+                list(vec![string("x"), string("y")]),
+                Type::list(Type::String),
+            ),
+            lit_part(" opt="),
+            value_part(
+                ctor(some, vec![string("z")]),
+                Type::Enum(opt, vec![Type::String]),
+            ),
+            lit_part(" unit="),
+            value_part(unit(), Type::Unit),
+        ]),
+    );
+    assert_eq!(
+        run("interpolation_shows_any_type", m),
+        "s=a\"b shape=Circle(radius: 2.0) xs=[\"x\", \"y\"] opt=Some(\"z\") unit=()\n"
+    );
+}
+
+#[test]
+fn option_from_builtin_matches_user_patterns() {
+    // checked_add の結果を，利用者の書く Some / None のパターンで受けられる．
+    // match Int.checked_add(a, 1) { Some(n) => n, None => 0 }
+    let mut m = Module::new();
+    let some = m.some_ctor();
+    let none = m.none_ctor();
+    let f = m.declare("inc_or_zero", false);
+    let a = m.local("a");
+    let n = m.local("n");
+    m.define(
+        f,
+        vec![a],
+        match_(
+            b(Builtin::IntCheckedAdd, vec![var(a), int(1)]),
+            vec![
+                arm(p_ctor(some, vec![Pat::Bind(n)]), var(n)),
+                arm(p_ctor(none, vec![]), int(0)),
+            ],
+        ),
+    );
+    let opt_int = Type::Enum(m.option_enum(), vec![Type::Int]);
+    main_fn(
+        &mut m,
+        lines(vec![
+            (call(f, vec![int(41)]), Type::Int),
+            (call(f, vec![int(i32::MAX)]), Type::Int),
+            // None はランタイムの値と同じものを共有するので構造の等値も成り立つ．
+            (
+                bin(
+                    BinOp::Eq,
+                    OpTy::Structural,
+                    b(Builtin::IntCheckedAdd, vec![int(i32::MAX), int(1)]),
+                    ctor(none, vec![]),
+                ),
+                Type::Bool,
+            ),
+            (ctor(some, vec![int(1)]), opt_int),
+        ]),
+    );
+    assert_eq!(run("option_from_builtin", m), "42\n0\nTrue\nSome(1)\n");
+}
+
+#[test]
+fn runtime_implements_every_builtin() {
+    for &op in Builtin::ALL {
+        let js = op.info().js;
+        let decl = format!("export function {js}(");
+        assert!(
+            RUNTIME.contains(&decl),
+            "{op:?} の実装 {js} がランタイムにない"
+        );
     }
 }
