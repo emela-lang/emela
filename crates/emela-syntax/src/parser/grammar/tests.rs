@@ -52,6 +52,9 @@ fn 型() {
             "Self",
             "()",
             "(Int, String,)",
+            "(Int)",
+            "fn() -> (fn(Int) -> String) fails ParseError",
+            "fn() -> fn(Int) -> String fails ParseError",
             "fn(A) -> B",
             "fn() -> () fails NotFound | DbError use Users",
             "fn(A) -> A use R",
@@ -67,7 +70,7 @@ fn 型のエラー() {
     insta::assert_snapshot!(dump_all(
         &[
             "List[Int",
-            "(Int)",
+            "(Int,)",
             "List[, Int]",
             "fn(A) B",
             "fn A -> B",
