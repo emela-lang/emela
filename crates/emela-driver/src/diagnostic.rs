@@ -111,9 +111,11 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// 字句解析の診断．emela-syntax の診断が種類を持つまでは，コードなしで文面をそのまま使う．
+    /// 字句解析と構文解析の診断．コード（E01xx）と英語の文面は emela-syntax が持つ．
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
-        Diagnostic::error(&diagnostic.message).with_span(Span::new(file, diagnostic.range))
+        Diagnostic::error(&diagnostic.message)
+            .with_code(diagnostic.code.as_str())
+            .with_span(Span::new(file, diagnostic.range))
     }
 
     /// 名前解決の診断．パスがソースの表にあれば ID で指し，なければパスのまま持つ．

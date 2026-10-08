@@ -8,7 +8,7 @@ error[E0202]: directory name `My-Lib` cannot be a module name: not lower snake_c
 error[E0201]: file name `Server` cannot be a module name: not lower snake_case
    ─[ src/http/Server.emel ]
 
-error: "3px" は数値の形になっていない
+error[E0104]: invalid number literal `3px`
    ╭─[ src/http/client.emel:1:9 ]
    │
  1 │ let n = 3px
@@ -16,7 +16,7 @@ error: "3px" は数値の形になっていない
    │          ╰─── 
 ───╯
 
-error: 文字列が閉じていない
+error[E0101]: unterminated string literal
    ╭─[ src/main.emel:1:9 ]
    │
  1 │ let x = "abc
@@ -24,7 +24,7 @@ error: 文字列が閉じていない
    │           ╰─── 
 ───╯
 
-error: 認識できない文字 "$"
+error[E0105]: unrecognized character `$`
    ╭─[ src/main.emel:2:9 ]
    │
  2 │ let y = $

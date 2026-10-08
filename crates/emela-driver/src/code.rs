@@ -2,7 +2,7 @@
 //!
 //! 帯は段ごとに分ける: E01xx 字句・構文，E02xx モジュール・import・プロジェクトの構成，
 //! E03xx 型，E04xx effect，E09xx ツール（入出力，node など）．
-//! 表は仕様の付録 A が持つ．ここはそれを写したもの（E01xx は emela-syntax の診断が持つ）．
+//! 表は仕様の付録 A が持つ．ここはそれを写したもの．E01xx は emela-syntax の `DiagnosticCode` が持つ．
 
 // E02xx: モジュール・import・プロジェクトの構成
 pub const INVALID_FILE_NAME: &str = "E0201";

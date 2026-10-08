@@ -47,7 +47,8 @@ pub trait JsBackend<P> {
 - （補）node がシグナルで止まったときの終了コードは 128 + シグナル番号
 - （補）診断の順序は段の順: モジュールの収集（名前の誤りなど），ファイルごとの字句解析と構文解析（モジュールのパス順），import のグラフ，型検査
 - 診断の文面は英語，コードの体系と表は仕様の付録 A（`code.rs` はその写し）．見出しは `error[E0204]: …`，最後の行は `2 errors, 1 warning`（1件なら単数形）
-- （補）コードの付いていない診断は見出しを `error:` / `warning:` だけにする．今は字句解析の診断（emela-syntax が種類を持つまで，日本語の文面のまま）と，処理系の内部の誤り（`internal error: …`）がそう
+- （補）コードの付いていない診断は見出しを `error:` / `warning:` だけにする．今は処理系の内部の誤り（`internal error: …`）だけがそう
+- 字句解析と構文解析の診断のコードと文面は emela-syntax が持つ（`Diagnostic::code`）．driver はそのまま渡す
 - （補）emela-resolve と emela-types の診断は，種類（`DiagnosticKind`，`TypeErrorKind`）から driver が英語の文面とコードを作る．resolve の `Display`（日本語）は使わない
 - （補）診断の間は空行で区切る
 - （補）ariadne は注記をソースの枠の中にしか出さないので，注記は枠の後に `   = note: …` として自前で出す

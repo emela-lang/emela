@@ -5,7 +5,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 error[E0201]: file name `Bad` cannot be a module name: not lower snake_case
    ─[ Bad.emel ]
 
-error: 認識できない文字 "$"
+error[E0105]: unrecognized character `$`
    ╭─[ util.emel:1:9 ]
    │
  1 │ let x = $

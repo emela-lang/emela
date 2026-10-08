@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-error: 認識できない文字 "$"
+error[E0105]: unrecognized character `$`
    ╭─[ util.emel:1:9 ]
    │
  1 │ let y = $
