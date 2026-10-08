@@ -214,7 +214,11 @@ impl InferCtx {
     ///
     /// 型引数には現れた順に `A`，`B`，… と名前を付ける．制約は付けない．
     pub fn generalize(&mut self, ty: &Ty, env_vars: &[TyVar]) -> Scheme {
-        let env: Vec<TyVar> = env_vars.iter().map(|v| self.table.find(*v)).collect();
+        // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
+        let mut env = Vec::new();
+        for v in env_vars {
+            self.collect_free_vars(&Ty::Var(*v), &mut env);
+        }
         let mut map = FxHashMap::default();
         let mut params = Vec::new();
         for v in self.free_vars(ty) {
