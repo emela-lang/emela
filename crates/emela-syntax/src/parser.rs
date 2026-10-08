@@ -3,9 +3,13 @@
 //! パーサは木を直接組まず，`Event` を積むだけにする．トリビアはパーサから見えず，
 //! 木を組むときに `sink` が差し込む．
 
+mod sink;
+
 use std::cell::Cell;
 
 use crate::SyntaxKind::{self, EOF};
+
+pub(crate) use sink::build;
 
 #[derive(Debug)]
 pub(crate) enum Event {
