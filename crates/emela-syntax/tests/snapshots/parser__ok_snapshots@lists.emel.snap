@@ -4,9 +4,9 @@ expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/lists.emel
 ---
 ROOT@0..295
-  DOC_COMMENT@0..62 "## リストのパターンと構築（2026-10-08 の改訂）"
-  NEWLINE@62..63 "\n"
-  FN_DECL@63..197
+  FN_DECL@0..197
+    DOC_COMMENT@0..62 "## リストのパターンと構築（2026-10-08 の改訂）"
+    NEWLINE@62..63 "\n"
     FN_KW@63..65 "fn"
     WHITESPACE@65..66 " "
     LOWER_NAME@66..71 "lists"

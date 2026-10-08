@@ -48,6 +48,8 @@ struct ParserToken<'t> {
     text: &'t str,
     /// 直前のトークンとの間に改行がある．継続の改行（トリビア）も数える．
     line_start: bool,
+    /// 直前のトークンとの間にドキュメントコメント `##` がある．
+    doc_before: bool,
 }
 
 /// 宣言を始めるトークン．エラー回復で，行頭にあれば読み飛ばさずに止まる．
@@ -59,10 +61,13 @@ const DECL_START: &[SyntaxKind] = &[
 impl<'t> Parser<'t> {
     pub(crate) fn new(src: &'t str, tokens: &[Token]) -> Self {
         let mut line_start = true;
+        let mut doc_before = false;
         let mut parser_tokens = Vec::new();
         for t in tokens {
-            if t.kind == NEWLINE_CONT {
-                line_start = true;
+            match t.kind {
+                NEWLINE_CONT => line_start = true,
+                DOC_COMMENT => doc_before = true,
+                _ => {}
             }
             if t.kind.is_trivia() {
                 continue;
@@ -71,8 +76,10 @@ impl<'t> Parser<'t> {
                 kind: t.kind,
                 text: &src[t.range],
                 line_start,
+                doc_before,
             });
             line_start = t.kind == NEWLINE;
+            doc_before = false;
         }
         Parser {
             tokens: parser_tokens,
@@ -119,6 +126,16 @@ impl<'t> Parser<'t> {
         let kind = self.current();
         let line_start = self.tokens.get(self.pos).is_some_and(|t| t.line_start);
         line_start && DECL_START.contains(&kind) && !(kind == FN_KW && self.nth(1) == L_PAREN)
+    }
+
+    /// 直前にドキュメントコメントがあるか．
+    pub(crate) fn at_doc_comment(&self) -> bool {
+        self.tokens.get(self.pos).is_some_and(|t| t.doc_before)
+    }
+
+    /// `n` 個先が文脈依存の語 `kw` か．
+    pub(crate) fn nth_at_contextual_kw(&self, n: usize, kw: &str) -> bool {
+        self.nth(n) == LOWER_NAME && self.tokens[self.pos + n].text == kw
     }
 
     /// 行頭にいるか．

@@ -171,6 +171,16 @@ pub enum SyntaxKind {
     ROOT,
 
     // 宣言（17.3）
+    /// `import Data.Json.{Json, decode}`
+    IMPORT,
+    /// `.{Json, decode}`
+    IMPORT_LIST,
+    /// `@external(js, "Math.sin")`
+    ANNOTATION,
+    /// `(js, "Math.sin")`
+    ANNOT_ARG_LIST,
+    /// `js` `"Math.sin"` `name: "x"`
+    ANNOT_ARG,
     /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
     FN_DECL,
     /// `[A, R: Immediate]`
@@ -398,5 +408,10 @@ impl SyntaxKind {
             EOF => "end of file",
             _ => "syntax node",
         }
+    }
+
+    /// 直前のドキュメントコメント `##` を中に取り込むノードか．
+    pub fn takes_doc(self) -> bool {
+        matches!(self, Self::FN_DECL)
     }
 }

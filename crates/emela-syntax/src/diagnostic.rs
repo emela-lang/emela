@@ -63,6 +63,8 @@ pub enum DiagnosticCode {
     InvalidBindingTarget,
     /// 宣言が来るはずの位置に宣言がない．
     ExpectedDeclaration,
+    /// 宣言の後ろの import（4.2）．
+    ImportAfterDeclaration,
 }
 
 impl DiagnosticCode {
@@ -93,6 +95,7 @@ impl DiagnosticCode {
             Self::BareRestOutsidePattern => "E0124",
             Self::InvalidBindingTarget => "E0125",
             Self::ExpectedDeclaration => "E0126",
+            Self::ImportAfterDeclaration => "E0127",
         }
     }
 }
