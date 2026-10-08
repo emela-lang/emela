@@ -21,7 +21,8 @@ pub trait JsBackend<P> {
 - `parse` はモジュールごとに1回，字句解析の後に呼ぶ．返すのは import の一覧（`emela_resolve::Import`）と構文の診断．構文木は `Frontend` の側に持っておく
 - `check` は全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
 - `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
-- 今の段の実装は `LexOnly`（import なし，型検査なし，`Program = ()`）と `NoJsBackend`（「JS の出力はまだ実装されていない」の診断を返す）．emela-codegen-js ができたら `JsBackend` を実装した型を cli で差し替える
+- 今の段の実装は `LexOnly`（import なし，型検査なし，`Program = ()`）と `NoJsBackend`（「JS の出力はまだ実装されていない」の診断を返す）
+- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `LexOnly` と `NoJsBackend` をそれぞれ差し替える
 
 ## 補った判断
 
@@ -35,8 +36,10 @@ pub trait JsBackend<P> {
 - （補）JS の出力先の既定は `<プロジェクト>/target/emela/js`．`emela run` も同じ場所に書いてから実行する．前の出力は消さずに上書きする
 - （補）出力のパスが絶対パスや `..` を含むとき，またはエントリが出力に含まれないときは，出力段の誤りとして診断にする
 - （補）node は環境変数 `EMELA_NODE` があればそれを使い，なければ PATH の `node`
-- （補）node は `--input-type=module -e <起動用モジュール> -- <エントリ> <引数…>` で起動する．起動用モジュールはエントリを `import()` し，投げられた例外が defect ならまとめて終了コードを決める．エントリの `.mjs` は読み込まれたときに `main` を実行する前提
-- （補）defect は `name` が `"EmelaDefect"` の `Error`．JS ランタイムの defect のクラスはこの `name` を持つ（クラス名は問わない）．`instanceof` でなく `name` で見るので，ランタイムを import しなくても判定できる
+- （補）node は `--input-type=module -e <起動用モジュール> -- <エントリ> <引数…>` で起動する．起動用モジュールはエントリを `import()` し，`main` を export していれば引数なしで呼ぶ（返り値は捨てる）．export していなければ読み込むだけにする
+- （補）`CoreJs` の出力はエントリの `main.mjs` と，隣のランタイム `emela_runtime.mjs` の2つ
+- （補）defect は `name` が `"Defect"` の `Error`（emela-codegen-js のランタイムの `$Defect`）．`instanceof` でなく `name` で見るので，起動用モジュールはランタイムを import しない
+- （補）`main` がジェネレータ（suspend する関数，16.5）を返す場合はまだ扱わない
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）
 - （補）終了コードは `process.exit` でなく `process.exitCode` で決める（パイプへの書き込みが途中で切れないように）
 - （補）node がシグナルで止まったときの終了コードは 128 + シグナル番号

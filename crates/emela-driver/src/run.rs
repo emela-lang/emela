@@ -9,19 +9,25 @@ use crate::diagnostic::Diagnostic;
 
 /// node の実行ファイルを差し替える環境変数．なければ PATH の `node` を使う．
 pub const NODE_ENV: &str = "EMELA_NODE";
-/// defect のクラスの `name`．JS ランタイムの defect のクラスはこの名前を持つ．
-pub const DEFECT_NAME: &str = "EmelaDefect";
+/// defect のクラスの `name`．emela-codegen-js のランタイムの `$Defect` に合わせる．
+pub const DEFECT_NAME: &str = "Defect";
 /// defect で止まったときの終了コード．
 pub const DEFECT_EXIT_CODE: i32 = 101;
 
-/// エントリを読み込み，defect を終了コードに写す小さな起動用モジュール．
+/// エントリを読み込んで `main` を呼び，defect を終了コードに写す小さな起動用モジュール．
 /// node の `-e` に渡すので，ファイルには書き出さない．
+///
+/// エントリが `main` を export していなければ，読み込むだけにする（読み込みで動く JS 向け）．
+/// `main` の返り値は使わない．
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
 try {
-  await import(pathToFileURL(process.argv[1]).href);
+  const entry = await import(pathToFileURL(process.argv[1]).href);
+  if (typeof entry.main === "function") {
+    await entry.main();
+  }
 } catch (error) {
-  if (error instanceof Error && error.name === "EmelaDefect") {
+  if (error instanceof Error && error.name === "Defect") {
     process.stderr.write(`defect: ${error.message}\n`);
     process.exitCode = 101;
   } else {

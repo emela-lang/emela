@@ -2,10 +2,15 @@
 
 use std::path::{Path, PathBuf};
 
+use emela_core::build::*;
+use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, StrKind};
 use emela_driver::{
-    Analysis, DEFECT_EXIT_CODE, Diagnostic, Input, JsBackend, JsOutput, LexOnly, MemoryFiles,
-    Output, OutputFile, RunOptions, RunOutput, run,
+    Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input, JsBackend,
+    JsOutput, LexOnly, MemoryFiles, Output, OutputFile, Parsed, RunOptions, RunOutput, SourceFile,
+    run,
 };
+use emela_resolve::ModuleId;
+use emela_syntax::Lexed;
 
 /// 決まった JS を返す出力段．
 struct HandWritten {
@@ -19,7 +24,7 @@ impl HandWritten {
                 OutputFile::new("main.mjs", js),
                 OutputFile::new(
                     "runtime/defect.mjs",
-                    "export class EmelaDefect extends Error {\n  constructor(message) { super(message); this.name = \"EmelaDefect\"; }\n}\n",
+                    "export class Defect extends Error {\n  constructor(message) { super(message); this.name = \"Defect\"; }\n}\n",
                 ),
             ],
         }
@@ -89,7 +94,7 @@ fn prints_stdout() {
     let (analysis, output) = run_js(
         "stdout",
         MAIN,
-        "import { EmelaDefect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
+        "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
         &[],
     );
     assert!(
@@ -121,7 +126,7 @@ fn defect_has_its_own_exit_code() {
     let (_, output) = run_js(
         "defect",
         MAIN,
-        "import { EmelaDefect } from \"./runtime/defect.mjs\";\nconsole.log(\"before\");\nthrow new EmelaDefect(\"整数を 0 で割った\");\n",
+        "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"before\");\nthrow new Defect(\"整数を 0 で割った\");\n",
         &[],
     );
     let output = output.unwrap();
@@ -180,4 +185,113 @@ fn missing_node_is_a_diagnostic() {
         .map(|d| d.message.as_str())
         .collect();
     assert_eq!(messages, ["`/nonexistent/node` が見つからない"]);
+}
+
+/// 手で組んだ Core IR を型検査の結果の代わりに返すフロントエンド．
+struct HandBuiltIr(emela_core::Module);
+
+impl Frontend for HandBuiltIr {
+    type Program = emela_core::Module;
+
+    fn parse(&mut self, _: ModuleId, _: FileId, _: &SourceFile, _: &Lexed) -> Parsed {
+        Parsed::default()
+    }
+
+    fn check(&mut self, _: &Analysis, _: &[ModuleId]) -> Checked<emela_core::Module> {
+        Checked {
+            program: Some(self.0.clone()),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+/// `fn fact(n, acc) = if n == 0 then acc else fact(n - 1, acc * n)` と，
+/// `body` を本体にする `main`．
+fn fact_module(body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
+    let mut m = emela_core::Module::new();
+    let fact = m.declare("fact", false);
+    let n = m.local("n");
+    let acc = m.local("acc");
+    m.define(
+        fact,
+        vec![n, acc],
+        if_(
+            bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
+            var(acc),
+            call(
+                fact,
+                vec![
+                    bin(BinOp::Sub, OpTy::Int, var(n), int(1)),
+                    bin(BinOp::Mul, OpTy::Int, var(acc), var(n)),
+                ],
+            ),
+        ),
+    );
+    let main = m.declare("main", true);
+    m.define(main, vec![], body(fact));
+    m
+}
+
+fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
+    let fs = MemoryFiles::new(MAIN.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let options = RunOptions {
+        out_dir: out_dir(name),
+        node: PathBuf::from("node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (analysis, output) = run(&fs, &input, &mut HandBuiltIr(module), &mut CoreJs, &options);
+    let _ = std::fs::remove_dir_all(&options.out_dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    output.unwrap()
+}
+
+#[test]
+fn core_ir_runs_through_codegen_js() {
+    // 末尾再帰を 10 万回回してから，結果を panic のメッセージで外に出す（IR にはまだ入出力がない）．
+    let output = run_ir(
+        "ir-panic",
+        fact_module(|fact| {
+            let big = call(fact, vec![int(100000), int(1)]);
+            let small = call(fact, vec![int(5), int(1)]);
+            builtin(
+                Builtin::Panic,
+                vec![Expr::Concat(vec![
+                    lit_part("fact(5) = "),
+                    value_part(small, StrKind::Int),
+                    lit_part(", fact(100000) = "),
+                    value_part(big, StrKind::Int),
+                ])],
+            )
+        }),
+    );
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(
+        text(&output.stderr),
+        "defect: fact(5) = 120, fact(100000) = 0\n"
+    );
+    assert_eq!(output.code, DEFECT_EXIT_CODE);
+
+    // ランタイムの defect（ゼロ除算）も同じ扱い．
+    let output = run_ir(
+        "ir-div",
+        fact_module(|_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
+    );
+    assert_eq!(text(&output.stderr), "defect: division by zero\n");
+    assert_eq!(output.code, DEFECT_EXIT_CODE);
+
+    // defect がなければ終了コード 0．
+    let output = run_ir(
+        "ir-ok",
+        fact_module(|fact| call(fact, vec![int(10), int(1)])),
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "")
+    );
 }

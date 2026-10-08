@@ -3,6 +3,7 @@
 //! ソースの表を持ち，各段の診断を集めて表示し，出力した JS を node で実行する．
 
 mod diagnostic;
+mod js;
 mod output;
 mod pipeline;
 mod render;
@@ -11,6 +12,7 @@ mod source;
 
 pub use diagnostic::{Diagnostic, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;
+pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{
     Analysis, Checked, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend, LexOnly, NoJsBackend,
