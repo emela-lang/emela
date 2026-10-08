@@ -14,7 +14,11 @@ emela-types.workspace = true
 emela-core.workspace = true
 emela-codegen-js.workspace = true
 emela-codegen-wasm.workspace = true
+la-arena.workspace = true
 line-index.workspace = true
 ariadne.workspace = true
 serde.workspace = true
 toml.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

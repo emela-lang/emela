@@ -1,0 +1,31 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&diagnostics, &sources, false)"
+---
+error[E0301]: type mismatch: expected `Int`, found `String`
+   ╭─[ src/main.emel:1:14 ]
+   │
+ 1 │ let a: Int = "s"
+   │              ─┬─  
+   │               ╰─── 
+───╯
+
+error[E0301]: type mismatch: expected `List[Int]`, found `List[String]`
+   ╭─[ src/main.emel:2:9 ]
+   │
+ 2 │ let b = [1] == ["s"]
+   │         ─────┬─────  
+   │              ╰─────── 
+───╯
+   = note: the mismatch is between `Int` and `String`
+
+error[E0302]: infinite type: `?0` occurs in `fn(?0) -> Int`
+   ╭─[ src/main.emel:3:19 ]
+   │
+ 3 │ let f = fn(x) { x(x) }
+   │                   ──┬─  
+   │                     ╰─── 
+───╯
+   = note: expected `?0`, found `fn(?0) -> Int`
+
+3 errors
