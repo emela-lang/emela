@@ -1,0 +1,18 @@
+# src/email.emel
+pub opaque type Email(value: String)
+
+pub error InvalidEmail(input: String)
+
+pub fn parse(input: String) -> Email fails InvalidEmail {
+  if String.contains(input, "@") {
+    Email(value: input)
+  } else {
+    fail InvalidEmail(input:)
+  }
+}
+
+pub fn to_string(email: Email) -> String {
+  email.value
+}
+
+pub opaque enum Token { Word(String), Number(Int) }

@@ -5,6 +5,7 @@ use std::mem;
 use rowan::{GreenNode, GreenNodeBuilder, Language, TextRange, TextSize};
 
 use super::Event;
+use crate::SyntaxKind::DOC_COMMENT;
 use crate::{Diagnostic, EmelaLanguage, SyntaxKind, Token};
 
 struct Sink<'a> {
@@ -26,6 +27,16 @@ impl Sink<'_> {
     fn eat_trivia(&mut self) {
         while let Some(token) = self.tokens.get(self.pos) {
             if !token.kind.is_trivia() {
+                break;
+            }
+            self.push_token();
+        }
+    }
+
+    /// トリビアのうち，最初のドキュメントコメントの手前までを木に入れる．
+    fn eat_trivia_before_doc(&mut self) {
+        while let Some(token) = self.tokens.get(self.pos) {
+            if !token.kind.is_trivia() || token.kind == DOC_COMMENT {
                 break;
             }
             self.push_token();
@@ -96,7 +107,12 @@ pub(crate) fn build(
                     };
                 }
                 if sink.depth > 0 {
-                    sink.eat_trivia();
+                    // ドキュメントコメントは，それを受け取るノードの中に入れる．
+                    if kinds.iter().any(|k| k.takes_doc()) {
+                        sink.eat_trivia_before_doc();
+                    } else {
+                        sink.eat_trivia();
+                    }
                 }
 
                 for kind in kinds.drain(..).rev() {

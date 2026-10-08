@@ -1,0 +1,220 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_opaque.emel
+---
+ROOT@0..371
+  COMMENT@0..16 "# src/email.emel"
+  NEWLINE@16..17 "\n"
+  TYPE_DECL@17..53
+    PUB_KW@17..20 "pub"
+    WHITESPACE@20..21 " "
+    OPAQUE_KW@21..27 "opaque"
+    WHITESPACE@27..28 " "
+    TYPE_KW@28..32 "type"
+    WHITESPACE@32..33 " "
+    TYPE_NAME@33..38 "Email"
+    FIELD_LIST@38..53
+      L_PAREN@38..39 "("
+      FIELD@39..52
+        LOWER_NAME@39..44 "value"
+        COLON@44..45 ":"
+        WHITESPACE@45..46 " "
+        PATH_TYPE@46..52
+          PATH@46..52
+            TYPE_NAME@46..52 "String"
+      R_PAREN@52..53 ")"
+  NEWLINE@53..54 "\n"
+  NEWLINE@54..55 "\n"
+  ERROR_DECL@55..92
+    PUB_KW@55..58 "pub"
+    WHITESPACE@58..59 " "
+    ERROR_KW@59..64 "error"
+    WHITESPACE@64..65 " "
+    TYPE_NAME@65..77 "InvalidEmail"
+    FIELD_LIST@77..92
+      L_PAREN@77..78 "("
+      FIELD@78..91
+        LOWER_NAME@78..83 "input"
+        COLON@83..84 ":"
+        WHITESPACE@84..85 " "
+        PATH_TYPE@85..91
+          PATH@85..91
+            TYPE_NAME@85..91 "String"
+      R_PAREN@91..92 ")"
+  NEWLINE@92..93 "\n"
+  NEWLINE@93..94 "\n"
+  FN_DECL@94..257
+    PUB_KW@94..97 "pub"
+    WHITESPACE@97..98 " "
+    FN_KW@98..100 "fn"
+    WHITESPACE@100..101 " "
+    LOWER_NAME@101..106 "parse"
+    PARAM_LIST@106..121
+      L_PAREN@106..107 "("
+      PARAM@107..120
+        LOWER_NAME@107..112 "input"
+        COLON@112..113 ":"
+        WHITESPACE@113..114 " "
+        PATH_TYPE@114..120
+          PATH@114..120
+            TYPE_NAME@114..120 "String"
+      R_PAREN@120..121 ")"
+    WHITESPACE@121..122 " "
+    RET_TYPE@122..130
+      THIN_ARROW@122..124 "->"
+      WHITESPACE@124..125 " "
+      PATH_TYPE@125..130
+        PATH@125..130
+          TYPE_NAME@125..130 "Email"
+    WHITESPACE@130..131 " "
+    FAILS_CLAUSE@131..149
+      LOWER_NAME@131..136 "fails"
+      WHITESPACE@136..137 " "
+      ERROR_SET@137..149
+        PATH@137..149
+          TYPE_NAME@137..149 "InvalidEmail"
+    WHITESPACE@149..150 " "
+    BLOCK_EXPR@150..257
+      L_BRACE@150..151 "{"
+      NEWLINE@151..152 "\n"
+      WHITESPACE@152..154 "  "
+      IF_EXPR@154..255
+        IF_KW@154..156 "if"
+        WHITESPACE@156..157 " "
+        CALL_EXPR@157..184
+          FIELD_EXPR@157..172
+            PATH_EXPR@157..163
+              PATH@157..163
+                TYPE_NAME@157..163 "String"
+            DOT@163..164 "."
+            LOWER_NAME@164..172 "contains"
+          ARG_LIST@172..184
+            L_PAREN@172..173 "("
+            NAME_REF@173..178
+              LOWER_NAME@173..178 "input"
+            COMMA@178..179 ","
+            WHITESPACE@179..180 " "
+            STRING@180..183
+              STRING_QUOTE@180..181 "\""
+              STRING_TEXT@181..182 "@"
+              STRING_QUOTE@182..183 "\""
+            R_PAREN@183..184 ")"
+        WHITESPACE@184..185 " "
+        BLOCK_EXPR@185..214
+          L_BRACE@185..186 "{"
+          NEWLINE@186..187 "\n"
+          WHITESPACE@187..191 "    "
+          CALL_EXPR@191..210
+            PATH_EXPR@191..196
+              PATH@191..196
+                TYPE_NAME@191..196 "Email"
+            ARG_LIST@196..210
+              L_PAREN@196..197 "("
+              NAMED_ARG@197..209
+                LOWER_NAME@197..202 "value"
+                COLON@202..203 ":"
+                WHITESPACE@203..204 " "
+                NAME_REF@204..209
+                  LOWER_NAME@204..209 "input"
+              R_PAREN@209..210 ")"
+          NEWLINE@210..211 "\n"
+          WHITESPACE@211..213 "  "
+          R_BRACE@213..214 "}"
+        WHITESPACE@214..215 " "
+        ELSE_KW@215..219 "else"
+        WHITESPACE@219..220 " "
+        BLOCK_EXPR@220..255
+          L_BRACE@220..221 "{"
+          NEWLINE@221..222 "\n"
+          WHITESPACE@222..226 "    "
+          FAIL_EXPR@226..251
+            FAIL_KW@226..230 "fail"
+            WHITESPACE@230..231 " "
+            CALL_EXPR@231..251
+              PATH_EXPR@231..243
+                PATH@231..243
+                  TYPE_NAME@231..243 "InvalidEmail"
+              ARG_LIST@243..251
+                L_PAREN@243..244 "("
+                NAMED_ARG@244..250
+                  LOWER_NAME@244..249 "input"
+                  COLON@249..250 ":"
+                R_PAREN@250..251 ")"
+          NEWLINE@251..252 "\n"
+          WHITESPACE@252..254 "  "
+          R_BRACE@254..255 "}"
+      NEWLINE@255..256 "\n"
+      R_BRACE@256..257 "}"
+  NEWLINE@257..258 "\n"
+  NEWLINE@258..259 "\n"
+  FN_DECL@259..317
+    PUB_KW@259..262 "pub"
+    WHITESPACE@262..263 " "
+    FN_KW@263..265 "fn"
+    WHITESPACE@265..266 " "
+    LOWER_NAME@266..275 "to_string"
+    PARAM_LIST@275..289
+      L_PAREN@275..276 "("
+      PARAM@276..288
+        LOWER_NAME@276..281 "email"
+        COLON@281..282 ":"
+        WHITESPACE@282..283 " "
+        PATH_TYPE@283..288
+          PATH@283..288
+            TYPE_NAME@283..288 "Email"
+      R_PAREN@288..289 ")"
+    WHITESPACE@289..290 " "
+    RET_TYPE@290..299
+      THIN_ARROW@290..292 "->"
+      WHITESPACE@292..293 " "
+      PATH_TYPE@293..299
+        PATH@293..299
+          TYPE_NAME@293..299 "String"
+    WHITESPACE@299..300 " "
+    BLOCK_EXPR@300..317
+      L_BRACE@300..301 "{"
+      NEWLINE@301..302 "\n"
+      WHITESPACE@302..304 "  "
+      FIELD_EXPR@304..315
+        NAME_REF@304..309
+          LOWER_NAME@304..309 "email"
+        DOT@309..310 "."
+        LOWER_NAME@310..315 "value"
+      NEWLINE@315..316 "\n"
+      R_BRACE@316..317 "}"
+  NEWLINE@317..318 "\n"
+  NEWLINE@318..319 "\n"
+  ENUM_DECL@319..370
+    PUB_KW@319..322 "pub"
+    WHITESPACE@322..323 " "
+    OPAQUE_KW@323..329 "opaque"
+    WHITESPACE@329..330 " "
+    ENUM_KW@330..334 "enum"
+    WHITESPACE@334..335 " "
+    TYPE_NAME@335..340 "Token"
+    WHITESPACE@340..341 " "
+    VARIANT_LIST@341..370
+      L_BRACE@341..342 "{"
+      WHITESPACE@342..343 " "
+      VARIANT@343..355
+        TYPE_NAME@343..347 "Word"
+        TUPLE_FIELD_LIST@347..355
+          L_PAREN@347..348 "("
+          PATH_TYPE@348..354
+            PATH@348..354
+              TYPE_NAME@348..354 "String"
+          R_PAREN@354..355 ")"
+      COMMA@355..356 ","
+      WHITESPACE@356..357 " "
+      VARIANT@357..368
+        TYPE_NAME@357..363 "Number"
+        TUPLE_FIELD_LIST@363..368
+          L_PAREN@363..364 "("
+          PATH_TYPE@364..367
+            PATH@364..367
+              TYPE_NAME@364..367 "Int"
+          R_PAREN@367..368 ")"
+      WHITESPACE@368..369 " "
+      R_BRACE@369..370 "}"
+  NEWLINE@370..371 "\n"

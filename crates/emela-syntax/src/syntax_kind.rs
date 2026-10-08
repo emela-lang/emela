@@ -171,8 +171,58 @@ pub enum SyntaxKind {
     ROOT,
 
     // 宣言（17.3）
+    /// `import Data.Json.{Json, decode}`
+    IMPORT,
+    /// `.{Json, decode}`
+    IMPORT_LIST,
+    /// `@external(js, "Math.sin")`
+    ANNOTATION,
+    /// `(js, "Math.sin")`
+    ANNOT_ARG_LIST,
+    /// `js` `"Math.sin"` `name: "x"`
+    ANNOT_ARG,
     /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
     FN_DECL,
+    /// `type User(id: Int, name: String) derive Eq`
+    TYPE_DECL,
+    /// `error NotFound(id: Int)`
+    ERROR_DECL,
+    /// `enum Shape { Circle(radius: Float)⏎ Empty }`
+    ENUM_DECL,
+    /// `(id: Int, name: String)`
+    FIELD_LIST,
+    /// `@json("n") name: String`
+    FIELD,
+    /// `{ Circle(radius: Float), Empty }`
+    VARIANT_LIST,
+    /// `Circle(radius: Float)` `Rect(Float, Float)` `Empty`
+    VARIANT,
+    /// 名前のないフィールドの並び．`(Float, Float)`
+    TUPLE_FIELD_LIST,
+    /// `derive Eq, Show`
+    DERIVE_CLAUSE,
+    /// `const MAX_RETRY: Int = 3`
+    CONST_DECL,
+    /// `effect Clock { suspend fn sleep(ms: Int) -> () }`
+    EFFECT_DECL,
+    /// effect の操作．`suspend fn sleep(ms: Int) -> ()`
+    OP_SIG,
+    /// `handler PostgresUsers(conn: Connection) implements Users { ... }`
+    HANDLER_DECL,
+    /// `implements Users`
+    IMPLEMENTS_CLAUSE,
+    /// `init { ... }`
+    HANDLER_INIT,
+    /// `release { ... }`
+    HANDLER_RELEASE,
+    /// `layer AppLive { EnvConfig⏎ ConsoleLogger }`
+    LAYER_DECL,
+    /// `trait Ord: Eq { ... }`
+    TRAIT_DECL,
+    /// `impl Show for User { ... }`
+    IMPL_DECL,
+    /// 宣言の本体の `{ ... }`．effect，handler，layer，trait，impl に使う．
+    ITEM_LIST,
     /// `[A, R: Immediate]`
     TYPE_PARAM_LIST,
     /// `R: Immediate + Show`
@@ -398,5 +448,27 @@ impl SyntaxKind {
             EOF => "end of file",
             _ => "syntax node",
         }
+    }
+
+    /// 直前のドキュメントコメント `##` を中に取り込むノードか．
+    pub fn takes_doc(self) -> bool {
+        matches!(
+            self,
+            Self::FN_DECL
+                | Self::TYPE_DECL
+                | Self::ERROR_DECL
+                | Self::ENUM_DECL
+                | Self::CONST_DECL
+                | Self::EFFECT_DECL
+                | Self::OP_SIG
+                | Self::HANDLER_DECL
+                | Self::HANDLER_INIT
+                | Self::HANDLER_RELEASE
+                | Self::LAYER_DECL
+                | Self::TRAIT_DECL
+                | Self::IMPL_DECL
+                | Self::FIELD
+                | Self::VARIANT
+        )
     }
 }

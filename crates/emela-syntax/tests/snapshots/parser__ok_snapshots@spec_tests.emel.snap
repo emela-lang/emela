@@ -1,0 +1,162 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_tests.emel
+---
+ROOT@0..258
+  FN_DECL@0..106
+    ANNOTATION@0..5
+      AT@0..1 "@"
+      LOWER_NAME@1..5 "test"
+    NEWLINE@5..6 "\n"
+    FN_KW@6..8 "fn"
+    WHITESPACE@8..9 " "
+    LOWER_NAME@9..27 "greet_returns_user"
+    PARAM_LIST@27..29
+      L_PAREN@27..28 "("
+      R_PAREN@28..29 ")"
+    WHITESPACE@29..30 " "
+    BLOCK_EXPR@30..106
+      L_BRACE@30..31 "{"
+      NEWLINE@31..32 "\n"
+      WHITESPACE@32..34 "  "
+      WITH_EXPR@34..104
+        WITH_KW@34..38 "with"
+        WHITESPACE@38..39 " "
+        PATH@39..46
+          TYPE_NAME@39..46 "AppTest"
+        WHITESPACE@46..47 " "
+        BLOCK_EXPR@47..104
+          L_BRACE@47..48 "{"
+          NEWLINE@48..49 "\n"
+          WHITESPACE@49..53 "    "
+          BINDING@53..68
+            NAME_REF@53..57
+              LOWER_NAME@53..57 "user"
+            WHITESPACE@57..58 " "
+            EQ@58..59 "="
+            WHITESPACE@59..60 " "
+            CALL_EXPR@60..68
+              NAME_REF@60..65
+                LOWER_NAME@60..65 "greet"
+              ARG_LIST@65..68
+                L_PAREN@65..66 "("
+                LITERAL@66..67
+                  INT@66..67 "1"
+                R_PAREN@67..68 ")"
+          NEWLINE@68..69 "\n"
+          WHITESPACE@69..73 "    "
+          ASSERT_EXPR@73..100
+            ASSERT_KW@73..79 "assert"
+            WHITESPACE@79..80 " "
+            BIN_EXPR@80..100
+              FIELD_EXPR@80..89
+                NAME_REF@80..84
+                  LOWER_NAME@80..84 "user"
+                DOT@84..85 "."
+                LOWER_NAME@85..89 "name"
+              WHITESPACE@89..90 " "
+              EQ2@90..92 "=="
+              WHITESPACE@92..93 " "
+              STRING@93..100
+                STRING_QUOTE@93..94 "\""
+                STRING_TEXT@94..99 "alice"
+                STRING_QUOTE@99..100 "\""
+          NEWLINE@100..101 "\n"
+          WHITESPACE@101..103 "  "
+          R_BRACE@103..104 "}"
+      NEWLINE@104..105 "\n"
+      R_BRACE@105..106 "}"
+  NEWLINE@106..107 "\n"
+  NEWLINE@107..108 "\n"
+  FN_DECL@108..257
+    ANNOTATION@108..113
+      AT@108..109 "@"
+      LOWER_NAME@109..113 "test"
+    NEWLINE@113..114 "\n"
+    FN_KW@114..116 "fn"
+    WHITESPACE@116..117 " "
+    LOWER_NAME@117..143 "greet_fails_for_unknown_id"
+    PARAM_LIST@143..145
+      L_PAREN@143..144 "("
+      R_PAREN@144..145 ")"
+    WHITESPACE@145..146 " "
+    BLOCK_EXPR@146..257
+      L_BRACE@146..147 "{"
+      NEWLINE@147..148 "\n"
+      WHITESPACE@148..150 "  "
+      WITH_EXPR@150..255
+        WITH_KW@150..154 "with"
+        WHITESPACE@154..155 " "
+        PATH@155..162
+          TYPE_NAME@155..162 "AppTest"
+        WHITESPACE@162..163 " "
+        BLOCK_EXPR@163..255
+          L_BRACE@163..164 "{"
+          NEWLINE@164..165 "\n"
+          WHITESPACE@165..169 "    "
+          BINDING@169..225
+            NAME_REF@169..175
+              LOWER_NAME@169..175 "result"
+            WHITESPACE@175..176 " "
+            EQ@176..177 "="
+            WHITESPACE@177..178 " "
+            ESCAPE_EXPR@178..225
+              CALL_EXPR@178..194
+                PATH_EXPR@178..182
+                  PATH@178..182
+                    TYPE_NAME@178..182 "Some"
+                ARG_LIST@182..194
+                  L_PAREN@182..183 "("
+                  CALL_EXPR@183..193
+                    NAME_REF@183..188
+                      LOWER_NAME@183..188 "greet"
+                    ARG_LIST@188..193
+                      L_PAREN@188..189 "("
+                      LITERAL@189..192
+                        INT@189..192 "999"
+                      R_PAREN@192..193 ")"
+                  R_PAREN@193..194 ")"
+              WHITESPACE@194..195 " "
+              ESCAPE_KW@195..201 "escape"
+              WHITESPACE@201..202 " "
+              MATCH_ARM_LIST@202..225
+                L_BRACE@202..203 "{"
+                WHITESPACE@203..204 " "
+                MATCH_ARM@204..223
+                  VARIANT_PAT@204..215
+                    PATH@204..212
+                      TYPE_NAME@204..212 "NotFound"
+                    PAT_ARG_LIST@212..215
+                      L_PAREN@212..213 "("
+                      WILDCARD_PAT@213..214
+                        UNDERSCORE@213..214 "_"
+                      R_PAREN@214..215 ")"
+                  WHITESPACE@215..216 " "
+                  THIN_ARROW@216..218 "->"
+                  WHITESPACE@218..219 " "
+                  PATH_EXPR@219..223
+                    PATH@219..223
+                      TYPE_NAME@219..223 "None"
+                WHITESPACE@223..224 " "
+                R_BRACE@224..225 "}"
+          NEWLINE@225..226 "\n"
+          WHITESPACE@226..230 "    "
+          ASSERT_EXPR@230..251
+            ASSERT_KW@230..236 "assert"
+            WHITESPACE@236..237 " "
+            BIN_EXPR@237..251
+              NAME_REF@237..243
+                LOWER_NAME@237..243 "result"
+              WHITESPACE@243..244 " "
+              EQ2@244..246 "=="
+              WHITESPACE@246..247 " "
+              PATH_EXPR@247..251
+                PATH@247..251
+                  TYPE_NAME@247..251 "None"
+          NEWLINE@251..252 "\n"
+          WHITESPACE@252..254 "  "
+          R_BRACE@254..255 "}"
+      NEWLINE@255..256 "\n"
+      R_BRACE@256..257 "}"
+  NEWLINE@257..258 "\n"
