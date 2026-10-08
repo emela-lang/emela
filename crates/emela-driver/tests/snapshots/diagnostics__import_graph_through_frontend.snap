@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+エラー: import が循環している: Http.Client → Json → Http.Client
+   ╭─[ app/src/http/client.emel:1:1 ]
+   │
+ 1 │ import Json
+   │ ─────┬─────  
+   │      ╰─────── 
+───╯
+
+エラー: 未定義のモジュール `Missing`
+   ╭─[ app/src/main.emel:2:1 ]
+   │
+ 2 │ import Missing
+   │ ───────┬──────  
+   │        ╰──────── 
+───╯
+
+エラー 2 件

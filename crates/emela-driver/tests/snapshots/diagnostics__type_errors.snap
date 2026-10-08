@@ -1,0 +1,31 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&diagnostics, &sources, false)"
+---
+エラー: 型が合わない: `Int` を期待したが `String` だった
+   ╭─[ src/main.emel:1:14 ]
+   │
+ 1 │ let a: Int = "s"
+   │              ─┬─  
+   │               ╰─── 
+───╯
+
+エラー: 型が合わない: `List[Int]` を期待したが `List[String]` だった
+   ╭─[ src/main.emel:2:9 ]
+   │
+ 2 │ let b = [1] == ["s"]
+   │         ─────┬─────  
+   │              ╰─────── 
+───╯
+   = 注: 食い違った部分: `Int` と `String`
+
+エラー: 無限型になる: `?0` が `fn(?0) -> Int` の中に現れる
+   ╭─[ src/main.emel:3:19 ]
+   │
+ 3 │ let f = fn(x) { x(x) }
+   │                   ──┬─  
+   │                     ╰─── 
+───╯
+   = 注: 期待した型 `?0`，実際の型 `fn(?0) -> Int`
+
+エラー 3 件

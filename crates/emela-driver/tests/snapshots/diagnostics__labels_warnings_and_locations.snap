@@ -1,0 +1,26 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&diagnostics, &sources, false)"
+---
+警告: `x` を覆い隠している
+   ╭─[ src/main.emel:2:5 ]
+   │
+ 1 │ let x = 1
+   │     ┬  
+   │     ╰── 前の `x` はここ
+ 2 │ let x = 2
+   │     ┬  
+   │     ╰── 
+───╯
+   = 注: 名前を変えるか，前の `x` を使う
+
+エラー: ファイル全体の問題
+   ─[ src/main.emel ]
+
+エラー: ディレクトリを読めない
+   ─[ src/secret ]
+
+エラー: `node` が見つからない
+   = 注: Node.js を入れる
+
+エラー 3 件，警告 1 件

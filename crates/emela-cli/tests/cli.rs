@@ -1,0 +1,138 @@
+//! `emela` をプロセスとして起動する結合テスト．
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// テストごとのプロジェクト．作るときに前の残りを消し，落とすときに消す．
+struct Project {
+    dir: PathBuf,
+}
+
+impl Project {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("emela-cli-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, text) in files {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        Project { dir }
+    }
+
+    fn emela(&self, args: &[&str]) -> Run {
+        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+            .args(args)
+            .current_dir(&self.dir)
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        Run {
+            code: output.status.code(),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl Drop for Project {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[derive(Debug)]
+struct Run {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+const BROKEN: &[(&str, &str)] = &[
+    ("src/main.emel", "let x = \"abc\nlet y = $\n"),
+    ("src/http/client.emel", "let n = 3px\n"),
+    ("src/Util.emel", ""),
+];
+
+#[test]
+fn check_reports_all_errors() {
+    let project = Project::new("broken", BROKEN);
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
+
+#[test]
+fn check_file_and_directory_agree() {
+    let project = Project::new("agree", BROKEN);
+    let by_dir = project.emela(&["check", "."]);
+    let by_file = project.emela(&["check", "src/main.emel"]);
+    assert_eq!(by_dir.stderr, by_file.stderr);
+    assert_eq!(by_file.code, Some(1));
+}
+
+#[test]
+fn check_clean_project() {
+    let project = Project::new(
+        "clean",
+        &[("src/main.emel", "let x = 1\n"), ("src/json.emel", "")],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "")
+    );
+    // プロジェクトの外からディレクトリを渡しても同じ．
+    let parent = project.path().parent().unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(project.path())
+        .current_dir(parent)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(0));
+}
+
+#[test]
+fn check_missing_path() {
+    let project = Project::new("missing", &[]);
+    let run = project.emela(&["check", "nowhere.emel"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr, @"
+    エラー: `nowhere.emel` が見つからない
+
+    エラー 1 件
+    ");
+}
+
+#[test]
+fn build_and_run_without_js_backend() {
+    let project = Project::new("no-backend", &[("src/main.emel", "let x = 1\n")]);
+    for command in ["build", "run"] {
+        let run = project.emela(&[command]);
+        assert_eq!(run.code, Some(1), "{command}");
+        assert_eq!(
+            run.stderr, "エラー: JS の出力はまだ実装されていない\n\nエラー 1 件\n",
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn build_reports_missing_entry() {
+    let project = Project::new("no-entry", &[("src/util.emel", "")]);
+    let run = project.emela(&["build"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(
+        run.stderr,
+        "エラー: エントリ `src/main.emel` がない\n\nエラー 1 件\n"
+    );
+    // check はエントリを求めない．
+    assert_eq!(project.emela(&["check"]).code, Some(0));
+}

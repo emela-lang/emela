@@ -1,0 +1,32 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+エラー: ファイル名 `Util` をモジュール名にできない: 小文字の snake_case ではない
+   ─[ src/Util.emel ]
+
+エラー: "3px" は数値の形になっていない
+   ╭─[ src/http/client.emel:1:9 ]
+   │
+ 1 │ let n = 3px
+   │         ─┬─  
+   │          ╰─── 
+───╯
+
+エラー: 文字列が閉じていない
+   ╭─[ src/main.emel:1:9 ]
+   │
+ 1 │ let x = "abc
+   │         ──┬─  
+   │           ╰─── 
+───╯
+
+エラー: 認識できない文字 "$"
+   ╭─[ src/main.emel:2:9 ]
+   │
+ 2 │ let y = $
+   │         ┬  
+   │         ╰── 
+───╯
+
+エラー 4 件

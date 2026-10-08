@@ -1,0 +1,11 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+エラー: ファイル名 `Main` をモジュール名にできない: 小文字の snake_case ではない
+   ─[ app/src/Main.emel ]
+
+エラー: エントリ `app/src/Main.emel` がモジュールにならない
+   ─[ app/src/Main.emel ]
+
+エラー 2 件
