@@ -8,5 +8,6 @@
 - （補）`run` のプログラムへの引数は `--` の後に書く（`emela run -- a b`）
 - （補）`build` と `run` は `--out-dir` で出力先を変えられる
 - （補）診断は標準エラーに出す．色は，標準エラーが端末で `NO_COLOR` が空か未設定のときだけ付ける
-- （補）`Fmt`，`Test`，`Lsp` はまだ `todo!`
+- （補）`Fmt`，`Test` はまだ `todo!`
 - （補）`check`，`build`，`run` は driver の `ParseOnly`（構文解析まで）を使う．型検査と lowering がまだないので，`build` と `run` は構文と import に誤りがなければ E0905 で止まる
+- （補）`lsp` は引数を取らない．フロントエンドは `check` と同じもの（今は `ParseOnly`）を渡す．exit を受けたら 0，プロトコルの誤りで止まったら標準エラーに1行出して 1
