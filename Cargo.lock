@@ -233,6 +233,7 @@ dependencies = [
  "clap",
  "emela-driver",
  "emela-lsp",
+ "insta",
 ]
 
 [[package]]
@@ -275,6 +276,8 @@ dependencies = [
  "emela-resolve",
  "emela-syntax",
  "emela-types",
+ "insta",
+ "la-arena",
  "line-index",
  "serde",
  "toml",
