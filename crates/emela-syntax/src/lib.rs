@@ -49,7 +49,7 @@ impl Parse {
 
 pub fn parse(src: &str) -> Parse {
     let lexed = lex(src);
-    let mut p = parser::Parser::new(lexed.tokens.iter().map(|t| t.kind));
+    let mut p = parser::Parser::new(src, &lexed.tokens);
     parser::root(&mut p);
     let (green, parse_diagnostics) = parser::build(src, &lexed.tokens, p.finish());
     let mut diagnostics = lexed.diagnostics;

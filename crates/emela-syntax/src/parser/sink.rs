@@ -150,7 +150,7 @@ mod tests {
     /// `src` を字句解析し，`f` でパーサを手で動かして木を組む．
     fn run(src: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<Diagnostic>) {
         let lexed = lex(src);
-        let mut p = Parser::new(lexed.tokens.iter().map(|t| t.kind));
+        let mut p = Parser::new(src, &lexed.tokens);
         f(&mut p);
         let (green, diagnostics) = build(src, &lexed.tokens, p.finish());
         (debug_tree(&SyntaxNode::new_root(green)), diagnostics)

@@ -7,7 +7,8 @@ mod sink;
 
 use std::cell::Cell;
 
-use crate::SyntaxKind::{self, EOF};
+use crate::SyntaxKind::{self, EOF, LOWER_NAME};
+use crate::Token;
 use crate::diagnostic::DiagnosticCode;
 
 pub(crate) use sink::build;
@@ -32,18 +33,23 @@ pub(crate) enum Event {
 /// 進まないまま同じ位置を見てよい回数．超えたらパーサの不具合なので panic する．
 const FUEL: u32 = 256;
 
-pub(crate) struct Parser {
-    kinds: Vec<SyntaxKind>,
+pub(crate) struct Parser<'t> {
+    /// トリビアを除いたトークンの種類とテキスト．テキストは文脈依存の語の判定に使う．
+    tokens: Vec<(SyntaxKind, &'t str)>,
     pos: usize,
     events: Vec<Event>,
     fuel: Cell<u32>,
 }
 
-impl Parser {
-    pub(crate) fn new(kinds: impl IntoIterator<Item = SyntaxKind>) -> Self {
-        let kinds = kinds.into_iter().filter(|k| !k.is_trivia()).collect();
+impl<'t> Parser<'t> {
+    pub(crate) fn new(src: &'t str, tokens: &[Token]) -> Self {
+        let tokens = tokens
+            .iter()
+            .filter(|t| !t.kind.is_trivia())
+            .map(|t| (t.kind, &src[t.range]))
+            .collect();
         Parser {
-            kinds,
+            tokens,
             pos: 0,
             events: Vec::new(),
             fuel: Cell::new(FUEL),
@@ -58,7 +64,7 @@ impl Parser {
         let fuel = self.fuel.get();
         assert!(fuel > 0, "パーサが位置 {} から進んでいない", self.pos);
         self.fuel.set(fuel - 1);
-        self.kinds.get(self.pos + n).copied().unwrap_or(EOF)
+        self.tokens.get(self.pos + n).map_or(EOF, |&(kind, _)| kind)
     }
 
     pub(crate) fn current(&self) -> SyntaxKind {
@@ -67,6 +73,11 @@ impl Parser {
 
     pub(crate) fn at(&self, kind: SyntaxKind) -> bool {
         self.current() == kind
+    }
+
+    /// 文脈依存の語（`fails` など）か．字句では LOWER_NAME なので，テキストで見分ける．
+    pub(crate) fn at_contextual_kw(&self, kw: &str) -> bool {
+        self.at(LOWER_NAME) && self.tokens[self.pos].1 == kw
     }
 
     pub(crate) fn at_eof(&self) -> bool {
@@ -119,7 +130,7 @@ pub(crate) struct Marker {
 }
 
 impl Marker {
-    pub(crate) fn complete(self, p: &mut Parser, kind: SyntaxKind) -> CompletedMarker {
+    pub(crate) fn complete(self, p: &mut Parser<'_>, kind: SyntaxKind) -> CompletedMarker {
         p.events[self.pos as usize] = Event::Start {
             kind,
             forward_parent: None,
@@ -136,7 +147,7 @@ pub(crate) struct CompletedMarker {
 
 impl CompletedMarker {
     /// 閉じたノードを新しい親で包む．束縛 `パターン = 式` や二項演算で使う．
-    pub(crate) fn precede(self, p: &mut Parser) -> Marker {
+    pub(crate) fn precede(self, p: &mut Parser<'_>) -> Marker {
         let parent = p.start();
         match &mut p.events[self.pos as usize] {
             Event::Start { forward_parent, .. } => *forward_parent = Some(parent.pos - self.pos),
@@ -147,7 +158,7 @@ impl CompletedMarker {
 }
 
 /// 文法はまだない．全トークンを1つの ERROR に包んで ROOT の下に置く．
-pub(crate) fn root(p: &mut Parser) {
+pub(crate) fn root(p: &mut Parser<'_>) {
     let root = p.start();
     if !p.at_eof() {
         let e = p.start();
