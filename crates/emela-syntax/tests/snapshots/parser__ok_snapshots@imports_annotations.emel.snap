@@ -1,0 +1,343 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/imports_annotations.emel
+---
+ROOT@0..594
+  IMPORT@0..18
+    IMPORT_KW@0..6 "import"
+    WHITESPACE@6..7 " "
+    PATH@7..18
+      TYPE_NAME@7..11 "Http"
+      DOT@11..12 "."
+      TYPE_NAME@12..18 "Client"
+  NEWLINE@18..19 "\n"
+  IMPORT@19..50
+    IMPORT_KW@19..25 "import"
+    WHITESPACE@25..26 " "
+    PATH@26..35
+      TYPE_NAME@26..30 "Data"
+      DOT@30..31 "."
+      TYPE_NAME@31..35 "Json"
+    IMPORT_LIST@35..50
+      DOT@35..36 "."
+      L_BRACE@36..37 "{"
+      TYPE_NAME@37..41 "Json"
+      COMMA@41..42 ","
+      WHITESPACE@42..43 " "
+      LOWER_NAME@43..49 "decode"
+      R_BRACE@49..50 "}"
+  NEWLINE@50..51 "\n"
+  IMPORT@51..87
+    IMPORT_KW@51..57 "import"
+    WHITESPACE@57..58 " "
+    PATH@58..66
+      TYPE_NAME@58..61 "Std"
+      DOT@61..62 "."
+      TYPE_NAME@62..66 "List"
+    IMPORT_LIST@66..87
+      DOT@66..67 "."
+      L_BRACE@67..68 "{"
+      NEWLINE@68..69 "\n"
+      WHITESPACE@69..71 "  "
+      LOWER_NAME@71..74 "map"
+      COMMA@74..75 ","
+      NEWLINE@75..76 "\n"
+      WHITESPACE@76..78 "  "
+      LOWER_NAME@78..84 "filter"
+      COMMA@84..85 ","
+      NEWLINE@85..86 "\n"
+      R_BRACE@86..87 "}"
+  NEWLINE@87..88 "\n"
+  NEWLINE@88..89 "\n"
+  FN_DECL@89..190
+    DOC_COMMENT@89..116 "## コンソールに出す"
+    NEWLINE@116..117 "\n"
+    DOC_COMMENT@117..127 "## 2行目"
+    NEWLINE@127..128 "\n"
+    ANNOTATION@128..156
+      AT@128..129 "@"
+      LOWER_NAME@129..137 "external"
+      ANNOT_ARG_LIST@137..156
+        L_PAREN@137..138 "("
+        ANNOT_ARG@138..140
+          LOWER_NAME@138..140 "js"
+        COMMA@140..141 ","
+        WHITESPACE@141..142 " "
+        ANNOT_ARG@142..155
+          STRING@142..155
+            STRING_QUOTE@142..143 "\""
+            STRING_TEXT@143..154 "console.log"
+            STRING_QUOTE@154..155 "\""
+        R_PAREN@155..156 ")"
+    NEWLINE@156..157 "\n"
+    FN_KW@157..159 "fn"
+    WHITESPACE@159..160 " "
+    LOWER_NAME@160..171 "console_log"
+    PARAM_LIST@171..184
+      L_PAREN@171..172 "("
+      PARAM@172..183
+        LOWER_NAME@172..175 "msg"
+        COLON@175..176 ":"
+        WHITESPACE@176..177 " "
+        PATH_TYPE@177..183
+          PATH@177..183
+            TYPE_NAME@177..183 "String"
+      R_PAREN@183..184 ")"
+    WHITESPACE@184..185 " "
+    RET_TYPE@185..190
+      THIN_ARROW@185..187 "->"
+      WHITESPACE@187..188 " "
+      UNIT_TYPE@188..190
+        L_PAREN@188..189 "("
+        R_PAREN@189..190 ")"
+  NEWLINE@190..191 "\n"
+  NEWLINE@191..192 "\n"
+  FN_DECL@192..280
+    ANNOTATION@192..217
+      AT@192..193 "@"
+      LOWER_NAME@193..201 "external"
+      ANNOT_ARG_LIST@201..217
+        L_PAREN@201..202 "("
+        ANNOT_ARG@202..204
+          LOWER_NAME@202..204 "js"
+        COMMA@204..205 ","
+        WHITESPACE@205..206 " "
+        ANNOT_ARG@206..216
+          STRING@206..216
+            STRING_QUOTE@206..207 "\""
+            STRING_TEXT@207..215 "Math.sin"
+            STRING_QUOTE@215..216 "\""
+        R_PAREN@216..217 ")"
+    NEWLINE@217..218 "\n"
+    ANNOTATION@218..247
+      AT@218..219 "@"
+      LOWER_NAME@219..227 "external"
+      ANNOT_ARG_LIST@227..247
+        L_PAREN@227..228 "("
+        ANNOT_ARG@228..232
+          LOWER_NAME@228..232 "wasm"
+        COMMA@232..233 ","
+        WHITESPACE@233..234 " "
+        ANNOT_ARG@234..239
+          STRING@234..239
+            STRING_QUOTE@234..235 "\""
+            STRING_TEXT@235..238 "env"
+            STRING_QUOTE@238..239 "\""
+        COMMA@239..240 ","
+        WHITESPACE@240..241 " "
+        ANNOT_ARG@241..246
+          STRING@241..246
+            STRING_QUOTE@241..242 "\""
+            STRING_TEXT@242..245 "sin"
+            STRING_QUOTE@245..246 "\""
+        R_PAREN@246..247 ")"
+    NEWLINE@247..248 "\n"
+    FN_KW@248..250 "fn"
+    WHITESPACE@250..251 " "
+    LOWER_NAME@251..254 "sin"
+    PARAM_LIST@254..264
+      L_PAREN@254..255 "("
+      PARAM@255..263
+        LOWER_NAME@255..256 "x"
+        COLON@256..257 ":"
+        WHITESPACE@257..258 " "
+        PATH_TYPE@258..263
+          PATH@258..263
+            TYPE_NAME@258..263 "Float"
+      R_PAREN@263..264 ")"
+    WHITESPACE@264..265 " "
+    RET_TYPE@265..273
+      THIN_ARROW@265..267 "->"
+      WHITESPACE@267..268 " "
+      PATH_TYPE@268..273
+        PATH@268..273
+          TYPE_NAME@268..273 "Float"
+    WHITESPACE@273..274 " "
+    USE_CLAUSE@274..280
+      USE_KW@274..277 "use"
+      WHITESPACE@277..278 " "
+      EFFECT_SET@278..280
+        L_BRACE@278..279 "{"
+        R_BRACE@279..280 "}"
+  NEWLINE@280..281 "\n"
+  NEWLINE@281..282 "\n"
+  FN_DECL@282..416
+    ANNOTATION@282..326
+      AT@282..283 "@"
+      LOWER_NAME@283..291 "external"
+      ANNOT_ARG_LIST@291..326
+        L_PAREN@291..292 "("
+        ANNOT_ARG@292..294
+          LOWER_NAME@292..294 "js"
+        COMMA@294..295 ","
+        WHITESPACE@295..296 " "
+        ANNOT_ARG@296..312
+          STRING@296..312
+            STRING_QUOTE@296..297 "\""
+            STRING_TEXT@297..311 "./http_ffi.mjs"
+            STRING_QUOTE@311..312 "\""
+        COMMA@312..313 ","
+        WHITESPACE@313..314 " "
+        ANNOT_ARG@314..325
+          STRING@314..325
+            STRING_QUOTE@314..315 "\""
+            STRING_TEXT@315..324 "fetchText"
+            STRING_QUOTE@324..325 "\""
+        R_PAREN@325..326 ")"
+    NEWLINE@326..327 "\n"
+    ANNOTATION@327..371
+      AT@327..328 "@"
+      LOWER_NAME@328..336 "external"
+      ANNOT_ARG_LIST@336..371
+        L_PAREN@336..337 "("
+        ANNOT_ARG@337..341
+          LOWER_NAME@337..341 "wasm"
+        COMMA@341..342 ","
+        WHITESPACE@342..343 " "
+        ANNOT_ARG@343..361
+          STRING@343..361
+            STRING_QUOTE@343..344 "\""
+            STRING_TEXT@344..360 "wasi:http/client"
+            STRING_QUOTE@360..361 "\""
+        COMMA@361..362 ","
+        WHITESPACE@362..363 " "
+        ANNOT_ARG@363..370
+          STRING@363..370
+            STRING_QUOTE@363..364 "\""
+            STRING_TEXT@364..369 "fetch"
+            STRING_QUOTE@369..370 "\""
+        R_PAREN@370..371 ")"
+    NEWLINE@371..372 "\n"
+    SUSPEND_KW@372..379 "suspend"
+    WHITESPACE@379..380 " "
+    FN_KW@380..382 "fn"
+    WHITESPACE@382..383 " "
+    LOWER_NAME@383..393 "fetch_text"
+    PARAM_LIST@393..406
+      L_PAREN@393..394 "("
+      PARAM@394..405
+        LOWER_NAME@394..397 "url"
+        COLON@397..398 ":"
+        WHITESPACE@398..399 " "
+        PATH_TYPE@399..405
+          PATH@399..405
+            TYPE_NAME@399..405 "String"
+      R_PAREN@405..406 ")"
+    WHITESPACE@406..407 " "
+    RET_TYPE@407..416
+      THIN_ARROW@407..409 "->"
+      WHITESPACE@409..410 " "
+      PATH_TYPE@410..416
+        PATH@410..416
+          TYPE_NAME@410..416 "String"
+  NEWLINE@416..417 "\n"
+  NEWLINE@417..418 "\n"
+  FN_DECL@418..537
+    DOC_COMMENT@418..430 "## テスト"
+    NEWLINE@430..431 "\n"
+    ANNOTATION@431..436
+      AT@431..432 "@"
+      LOWER_NAME@432..436 "test"
+    NEWLINE@436..437 "\n"
+    FN_KW@437..439 "fn"
+    WHITESPACE@439..440 " "
+    LOWER_NAME@440..458 "greet_returns_user"
+    PARAM_LIST@458..460
+      L_PAREN@458..459 "("
+      R_PAREN@459..460 ")"
+    WHITESPACE@460..461 " "
+    BLOCK_EXPR@461..537
+      L_BRACE@461..462 "{"
+      NEWLINE@462..463 "\n"
+      WHITESPACE@463..465 "  "
+      WITH_EXPR@465..535
+        WITH_KW@465..469 "with"
+        WHITESPACE@469..470 " "
+        PATH@470..477
+          TYPE_NAME@470..477 "AppTest"
+        WHITESPACE@477..478 " "
+        BLOCK_EXPR@478..535
+          L_BRACE@478..479 "{"
+          NEWLINE@479..480 "\n"
+          WHITESPACE@480..484 "    "
+          BINDING@484..499
+            NAME_REF@484..488
+              LOWER_NAME@484..488 "user"
+            WHITESPACE@488..489 " "
+            EQ@489..490 "="
+            WHITESPACE@490..491 " "
+            CALL_EXPR@491..499
+              NAME_REF@491..496
+                LOWER_NAME@491..496 "greet"
+              ARG_LIST@496..499
+                L_PAREN@496..497 "("
+                LITERAL@497..498
+                  INT@497..498 "1"
+                R_PAREN@498..499 ")"
+          NEWLINE@499..500 "\n"
+          WHITESPACE@500..504 "    "
+          ASSERT_EXPR@504..531
+            ASSERT_KW@504..510 "assert"
+            WHITESPACE@510..511 " "
+            BIN_EXPR@511..531
+              FIELD_EXPR@511..520
+                NAME_REF@511..515
+                  LOWER_NAME@511..515 "user"
+                DOT@515..516 "."
+                LOWER_NAME@516..520 "name"
+              WHITESPACE@520..521 " "
+              EQ2@521..523 "=="
+              WHITESPACE@523..524 " "
+              STRING@524..531
+                STRING_QUOTE@524..525 "\""
+                STRING_TEXT@525..530 "alice"
+                STRING_QUOTE@530..531 "\""
+          NEWLINE@531..532 "\n"
+          WHITESPACE@532..534 "  "
+          R_BRACE@534..535 "}"
+      NEWLINE@535..536 "\n"
+      R_BRACE@536..537 "}"
+  NEWLINE@537..538 "\n"
+  NEWLINE@538..539 "\n"
+  FN_DECL@539..593
+    ANNOTATION@539..573
+      AT@539..540 "@"
+      LOWER_NAME@540..545 "bench"
+      ANNOT_ARG_LIST@545..573
+        L_PAREN@545..546 "("
+        ANNOT_ARG@546..561
+          LOWER_NAME@546..556 "iterations"
+          COLON@556..557 ":"
+          WHITESPACE@557..558 " "
+          LITERAL@558..561
+            INT@558..561 "100"
+        COMMA@561..562 ","
+        WHITESPACE@562..563 " "
+        ANNOT_ARG@563..572
+          LOWER_NAME@563..567 "name"
+          COLON@567..568 ":"
+          WHITESPACE@568..569 " "
+          STRING@569..572
+            STRING_QUOTE@569..570 "\""
+            STRING_TEXT@570..571 "x"
+            STRING_QUOTE@571..572 "\""
+        R_PAREN@572..573 ")"
+    NEWLINE@573..574 "\n"
+    PUB_KW@574..577 "pub"
+    WHITESPACE@577..578 " "
+    FN_KW@578..580 "fn"
+    WHITESPACE@580..581 " "
+    LOWER_NAME@581..585 "fast"
+    PARAM_LIST@585..587
+      L_PAREN@585..586 "("
+      R_PAREN@586..587 ")"
+    WHITESPACE@587..588 " "
+    BLOCK_EXPR@588..593
+      L_BRACE@588..589 "{"
+      WHITESPACE@589..590 " "
+      LITERAL@590..591
+        INT@590..591 "1"
+      WHITESPACE@591..592 " "
+      R_BRACE@592..593 "}"
+  NEWLINE@593..594 "\n"

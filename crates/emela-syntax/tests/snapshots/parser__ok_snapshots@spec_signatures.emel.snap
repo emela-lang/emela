@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/spec_signatures.emel
 ---
-ROOT@0..315
+ROOT@0..417
   FN_DECL@0..41
     FN_KW@0..2 "fn"
     WHITESPACE@2..3 " "
@@ -222,81 +222,87 @@ ROOT@0..315
       R_BRACE@232..233 "}"
   NEWLINE@233..234 "\n"
   NEWLINE@234..235 "\n"
-  FN_DECL@235..314
-    FN_KW@235..237 "fn"
-    WHITESPACE@237..238 " "
-    LOWER_NAME@238..244 "update"
-    TYPE_PARAM_LIST@244..261
-      L_BRACK@244..245 "["
-      TYPE_PARAM@245..246
-        UPPER_NAME@245..246 "A"
-      COMMA@246..247 ","
-      WHITESPACE@247..248 " "
-      TYPE_PARAM@248..260
-        UPPER_NAME@248..249 "R"
-        COLON@249..250 ":"
-        WHITESPACE@250..251 " "
-        PATH@251..260
-          TYPE_NAME@251..260 "Immediate"
-      R_BRACK@260..261 "]"
-    PARAM_LIST@261..302
-      L_PAREN@261..262 "("
-      NEWLINE_CONT@262..263 "\n"
-      WHITESPACE@263..265 "  "
-      PARAM@265..276
-        LOWER_NAME@265..268 "ref"
-        COLON@268..269 ":"
-        WHITESPACE@269..270 " "
-        PATH_TYPE@270..276
-          PATH@270..273
-            TYPE_NAME@270..273 "Ref"
-          TYPE_ARG_LIST@273..276
-            L_BRACK@273..274 "["
-            TYPE_VAR@274..275
-              UPPER_NAME@274..275 "A"
-            R_BRACK@275..276 "]"
-      COMMA@276..277 ","
-      NEWLINE_CONT@277..278 "\n"
-      WHITESPACE@278..280 "  "
-      PARAM@280..299
-        LOWER_NAME@280..281 "f"
-        COLON@281..282 ":"
-        WHITESPACE@282..283 " "
-        FN_TYPE@283..299
-          FN_KW@283..285 "fn"
-          PARAM_TYPE_LIST@285..288
-            L_PAREN@285..286 "("
-            TYPE_VAR@286..287
-              UPPER_NAME@286..287 "A"
-            R_PAREN@287..288 ")"
-          WHITESPACE@288..289 " "
-          RET_TYPE@289..293
-            THIN_ARROW@289..291 "->"
-            WHITESPACE@291..292 " "
-            TYPE_VAR@292..293
-              UPPER_NAME@292..293 "A"
-          WHITESPACE@293..294 " "
-          USE_CLAUSE@294..299
-            USE_KW@294..297 "use"
-            WHITESPACE@297..298 " "
-            EFFECT_SET@298..299
-              TYPE_VAR@298..299
-                UPPER_NAME@298..299 "R"
-      COMMA@299..300 ","
-      NEWLINE_CONT@300..301 "\n"
-      R_PAREN@301..302 ")"
-    WHITESPACE@302..303 " "
-    RET_TYPE@303..308
-      THIN_ARROW@303..305 "->"
-      WHITESPACE@305..306 " "
-      UNIT_TYPE@306..308
-        L_PAREN@306..307 "("
-        R_PAREN@307..308 ")"
-    WHITESPACE@308..309 " "
-    USE_CLAUSE@309..314
-      USE_KW@309..312 "use"
-      WHITESPACE@312..313 " "
-      EFFECT_SET@313..314
-        TYPE_VAR@313..314
-          UPPER_NAME@313..314 "R"
-  NEWLINE@314..315 "\n"
+  COMMENT@235..326 "# 仕様ではシグネチャだけの断片．本体がないので @external を付ける"
+  NEWLINE@326..327 "\n"
+  FN_DECL@327..416
+    ANNOTATION@327..336
+      AT@327..328 "@"
+      LOWER_NAME@328..336 "external"
+    NEWLINE@336..337 "\n"
+    FN_KW@337..339 "fn"
+    WHITESPACE@339..340 " "
+    LOWER_NAME@340..346 "update"
+    TYPE_PARAM_LIST@346..363
+      L_BRACK@346..347 "["
+      TYPE_PARAM@347..348
+        UPPER_NAME@347..348 "A"
+      COMMA@348..349 ","
+      WHITESPACE@349..350 " "
+      TYPE_PARAM@350..362
+        UPPER_NAME@350..351 "R"
+        COLON@351..352 ":"
+        WHITESPACE@352..353 " "
+        PATH@353..362
+          TYPE_NAME@353..362 "Immediate"
+      R_BRACK@362..363 "]"
+    PARAM_LIST@363..404
+      L_PAREN@363..364 "("
+      NEWLINE_CONT@364..365 "\n"
+      WHITESPACE@365..367 "  "
+      PARAM@367..378
+        LOWER_NAME@367..370 "ref"
+        COLON@370..371 ":"
+        WHITESPACE@371..372 " "
+        PATH_TYPE@372..378
+          PATH@372..375
+            TYPE_NAME@372..375 "Ref"
+          TYPE_ARG_LIST@375..378
+            L_BRACK@375..376 "["
+            TYPE_VAR@376..377
+              UPPER_NAME@376..377 "A"
+            R_BRACK@377..378 "]"
+      COMMA@378..379 ","
+      NEWLINE_CONT@379..380 "\n"
+      WHITESPACE@380..382 "  "
+      PARAM@382..401
+        LOWER_NAME@382..383 "f"
+        COLON@383..384 ":"
+        WHITESPACE@384..385 " "
+        FN_TYPE@385..401
+          FN_KW@385..387 "fn"
+          PARAM_TYPE_LIST@387..390
+            L_PAREN@387..388 "("
+            TYPE_VAR@388..389
+              UPPER_NAME@388..389 "A"
+            R_PAREN@389..390 ")"
+          WHITESPACE@390..391 " "
+          RET_TYPE@391..395
+            THIN_ARROW@391..393 "->"
+            WHITESPACE@393..394 " "
+            TYPE_VAR@394..395
+              UPPER_NAME@394..395 "A"
+          WHITESPACE@395..396 " "
+          USE_CLAUSE@396..401
+            USE_KW@396..399 "use"
+            WHITESPACE@399..400 " "
+            EFFECT_SET@400..401
+              TYPE_VAR@400..401
+                UPPER_NAME@400..401 "R"
+      COMMA@401..402 ","
+      NEWLINE_CONT@402..403 "\n"
+      R_PAREN@403..404 ")"
+    WHITESPACE@404..405 " "
+    RET_TYPE@405..410
+      THIN_ARROW@405..407 "->"
+      WHITESPACE@407..408 " "
+      UNIT_TYPE@408..410
+        L_PAREN@408..409 "("
+        R_PAREN@409..410 ")"
+    WHITESPACE@410..411 " "
+    USE_CLAUSE@411..416
+      USE_KW@411..414 "use"
+      WHITESPACE@414..415 " "
+      EFFECT_SET@415..416
+        TYPE_VAR@415..416
+          UPPER_NAME@415..416 "R"
+  NEWLINE@416..417 "\n"

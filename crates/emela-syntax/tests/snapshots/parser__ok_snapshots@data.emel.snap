@@ -1,0 +1,398 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/data.emel
+---
+ROOT@0..716
+  TYPE_DECL@0..32
+    TYPE_KW@0..4 "type"
+    WHITESPACE@4..5 " "
+    TYPE_NAME@5..9 "User"
+    FIELD_LIST@9..32
+      L_PAREN@9..10 "("
+      FIELD@10..17
+        LOWER_NAME@10..12 "id"
+        COLON@12..13 ":"
+        WHITESPACE@13..14 " "
+        PATH_TYPE@14..17
+          PATH@14..17
+            TYPE_NAME@14..17 "Int"
+      COMMA@17..18 ","
+      WHITESPACE@18..19 " "
+      FIELD@19..31
+        LOWER_NAME@19..23 "name"
+        COLON@23..24 ":"
+        WHITESPACE@24..25 " "
+        PATH_TYPE@25..31
+          PATH@25..31
+            TYPE_NAME@25..31 "String"
+      R_PAREN@31..32 ")"
+  NEWLINE@32..33 "\n"
+  NEWLINE@33..34 "\n"
+  TYPE_DECL@34..70
+    TYPE_KW@34..38 "type"
+    WHITESPACE@38..39 " "
+    TYPE_NAME@39..43 "Pair"
+    TYPE_PARAM_LIST@43..49
+      L_BRACK@43..44 "["
+      TYPE_PARAM@44..45
+        UPPER_NAME@44..45 "A"
+      COMMA@45..46 ","
+      WHITESPACE@46..47 " "
+      TYPE_PARAM@47..48
+        UPPER_NAME@47..48 "B"
+      R_BRACK@48..49 "]"
+    FIELD_LIST@49..70
+      L_PAREN@49..50 "("
+      FIELD@50..58
+        LOWER_NAME@50..55 "first"
+        COLON@55..56 ":"
+        WHITESPACE@56..57 " "
+        TYPE_VAR@57..58
+          UPPER_NAME@57..58 "A"
+      COMMA@58..59 ","
+      WHITESPACE@59..60 " "
+      FIELD@60..69
+        LOWER_NAME@60..66 "second"
+        COLON@66..67 ":"
+        WHITESPACE@67..68 " "
+        TYPE_VAR@68..69
+          UPPER_NAME@68..69 "B"
+      R_PAREN@69..70 ")"
+  NEWLINE@70..71 "\n"
+  NEWLINE@71..72 "\n"
+  TYPE_DECL@72..163
+    TYPE_KW@72..76 "type"
+    WHITESPACE@76..77 " "
+    TYPE_NAME@77..81 "Todo"
+    FIELD_LIST@81..163
+      L_PAREN@81..82 "("
+      NEWLINE_CONT@82..83 "\n"
+      WHITESPACE@83..85 "  "
+      FIELD@85..99
+        LOWER_NAME@85..87 "id"
+        COLON@87..88 ":"
+        WHITESPACE@88..96 "        "
+        PATH_TYPE@96..99
+          PATH@96..99
+            TYPE_NAME@96..99 "Int"
+      COMMA@99..100 ","
+      NEWLINE_CONT@100..101 "\n"
+      WHITESPACE@101..103 "  "
+      FIELD@103..120
+        LOWER_NAME@103..108 "title"
+        COLON@108..109 ":"
+        WHITESPACE@109..114 "     "
+        PATH_TYPE@114..120
+          PATH@114..120
+            TYPE_NAME@114..120 "String"
+      COMMA@120..121 ","
+      NEWLINE_CONT@121..122 "\n"
+      WHITESPACE@122..124 "  "
+      FIELD@124..160
+        DOC_COMMENT@124..142 "## 完了したか"
+        NEWLINE_CONT@142..143 "\n"
+        WHITESPACE@143..145 "  "
+        LOWER_NAME@145..154 "completed"
+        COLON@154..155 ":"
+        WHITESPACE@155..156 " "
+        PATH_TYPE@156..160
+          PATH@156..160
+            TYPE_NAME@156..160 "Bool"
+      COMMA@160..161 ","
+      NEWLINE_CONT@161..162 "\n"
+      R_PAREN@162..163 ")"
+  NEWLINE@163..164 "\n"
+  NEWLINE@164..165 "\n"
+  TYPE_DECL@165..201
+    PUB_KW@165..168 "pub"
+    WHITESPACE@168..169 " "
+    OPAQUE_KW@169..175 "opaque"
+    WHITESPACE@175..176 " "
+    TYPE_KW@176..180 "type"
+    WHITESPACE@180..181 " "
+    TYPE_NAME@181..186 "Email"
+    FIELD_LIST@186..201
+      L_PAREN@186..187 "("
+      FIELD@187..200
+        LOWER_NAME@187..192 "value"
+        COLON@192..193 ":"
+        WHITESPACE@193..194 " "
+        PATH_TYPE@194..200
+          PATH@194..200
+            TYPE_NAME@194..200 "String"
+      R_PAREN@200..201 ")"
+  NEWLINE@201..202 "\n"
+  NEWLINE@202..203 "\n"
+  TYPE_DECL@203..276
+    TYPE_KW@203..207 "type"
+    WHITESPACE@207..208 " "
+    TYPE_NAME@208..213 "User2"
+    FIELD_LIST@213..250
+      L_PAREN@213..214 "("
+      FIELD@214..221
+        LOWER_NAME@214..216 "id"
+        COLON@216..217 ":"
+        WHITESPACE@217..218 " "
+        PATH_TYPE@218..221
+          PATH@218..221
+            TYPE_NAME@218..221 "Int"
+      COMMA@221..222 ","
+      WHITESPACE@222..223 " "
+      FIELD@223..235
+        LOWER_NAME@223..227 "name"
+        COLON@227..228 ":"
+        WHITESPACE@228..229 " "
+        PATH_TYPE@229..235
+          PATH@229..235
+            TYPE_NAME@229..235 "String"
+      COMMA@235..236 ","
+      WHITESPACE@236..237 " "
+      FIELD@237..249
+        LOWER_NAME@237..242 "email"
+        COLON@242..243 ":"
+        WHITESPACE@243..244 " "
+        PATH_TYPE@244..249
+          PATH@244..249
+            TYPE_NAME@244..249 "Email"
+      R_PAREN@249..250 ")"
+    NEWLINE@250..251 "\n"
+    WHITESPACE@251..253 "  "
+    DERIVE_CLAUSE@253..276
+      LOWER_NAME@253..259 "derive"
+      WHITESPACE@259..260 " "
+      PATH@260..262
+        TYPE_NAME@260..262 "Eq"
+      COMMA@262..263 ","
+      WHITESPACE@263..264 " "
+      PATH@264..268
+        TYPE_NAME@264..268 "Show"
+      COMMA@268..269 ","
+      WHITESPACE@269..270 " "
+      PATH@270..276
+        TYPE_NAME@270..276 "Encode"
+  NEWLINE@276..277 "\n"
+  NEWLINE@277..278 "\n"
+  TYPE_DECL@278..313
+    TYPE_KW@278..282 "type"
+    WHITESPACE@282..283 " "
+    TYPE_NAME@283..289 "MyDate"
+    FIELD_LIST@289..313
+      L_PAREN@289..290 "("
+      FIELD@290..312
+        LOWER_NAME@290..295 "inner"
+        COLON@295..296 ":"
+        WHITESPACE@296..297 " "
+        PATH_TYPE@297..312
+          PATH@297..312
+            TYPE_NAME@297..307 "ThirdParty"
+            DOT@307..308 "."
+            TYPE_NAME@308..312 "Date"
+      R_PAREN@312..313 ")"
+  NEWLINE@313..314 "\n"
+  NEWLINE@314..315 "\n"
+  TYPE_DECL@315..351
+    TYPE_KW@315..319 "type"
+    WHITESPACE@319..320 " "
+    TYPE_NAME@320..326 "Tagged"
+    FIELD_LIST@326..351
+      L_PAREN@326..327 "("
+      FIELD@327..350
+        ANNOTATION@327..337
+          AT@327..328 "@"
+          LOWER_NAME@328..332 "json"
+          ANNOT_ARG_LIST@332..337
+            L_PAREN@332..333 "("
+            ANNOT_ARG@333..336
+              STRING@333..336
+                STRING_QUOTE@333..334 "\""
+                STRING_TEXT@334..335 "n"
+                STRING_QUOTE@335..336 "\""
+            R_PAREN@336..337 ")"
+        WHITESPACE@337..338 " "
+        LOWER_NAME@338..342 "name"
+        COLON@342..343 ":"
+        WHITESPACE@343..344 " "
+        PATH_TYPE@344..350
+          PATH@344..350
+            TYPE_NAME@344..350 "String"
+      R_PAREN@350..351 ")"
+  NEWLINE@351..352 "\n"
+  NEWLINE@352..353 "\n"
+  TYPE_DECL@353..378
+    ANNOTATION@353..362
+      AT@353..354 "@"
+      LOWER_NAME@354..362 "external"
+    NEWLINE@362..363 "\n"
+    TYPE_KW@363..367 "type"
+    WHITESPACE@367..368 " "
+    TYPE_NAME@368..378 "Connection"
+  NEWLINE@378..379 "\n"
+  NEWLINE@379..380 "\n"
+  ENUM_DECL@380..523
+    ENUM_KW@380..384 "enum"
+    WHITESPACE@384..385 " "
+    TYPE_NAME@385..390 "Shape"
+    WHITESPACE@390..391 " "
+    VARIANT_LIST@391..523
+      L_BRACE@391..392 "{"
+      NEWLINE@392..393 "\n"
+      WHITESPACE@393..395 "  "
+      VARIANT@395..416
+        TYPE_NAME@395..401 "Circle"
+        FIELD_LIST@401..416
+          L_PAREN@401..402 "("
+          FIELD@402..415
+            LOWER_NAME@402..408 "radius"
+            COLON@408..409 ":"
+            WHITESPACE@409..410 " "
+            PATH_TYPE@410..415
+              PATH@410..415
+                TYPE_NAME@410..415 "Float"
+          R_PAREN@415..416 ")"
+      WHITESPACE@416..421 "     "
+      COMMENT@421..435 "# 名前付き"
+      NEWLINE@435..436 "\n"
+      WHITESPACE@436..438 "  "
+      VARIANT@438..456
+        TYPE_NAME@438..442 "Rect"
+        TUPLE_FIELD_LIST@442..456
+          L_PAREN@442..443 "("
+          PATH_TYPE@443..448
+            PATH@443..448
+              TYPE_NAME@443..448 "Float"
+          COMMA@448..449 ","
+          WHITESPACE@449..450 " "
+          PATH_TYPE@450..455
+            PATH@450..455
+              TYPE_NAME@450..455 "Float"
+          R_PAREN@455..456 ")"
+      WHITESPACE@456..464 "        "
+      COMMENT@464..478 "# 位置引数"
+      NEWLINE@478..479 "\n"
+      WHITESPACE@479..481 "  "
+      VARIANT@481..486
+        TYPE_NAME@481..486 "Empty"
+      WHITESPACE@486..507 "                     "
+      COMMENT@507..521 "# 中身なし"
+      NEWLINE@521..522 "\n"
+      R_BRACE@522..523 "}"
+  NEWLINE@523..524 "\n"
+  NEWLINE@524..525 "\n"
+  ENUM_DECL@525..560
+    ENUM_KW@525..529 "enum"
+    WHITESPACE@529..530 " "
+    TYPE_NAME@530..536 "Option"
+    TYPE_PARAM_LIST@536..539
+      L_BRACK@536..537 "["
+      TYPE_PARAM@537..538
+        UPPER_NAME@537..538 "A"
+      R_BRACK@538..539 "]"
+    WHITESPACE@539..540 " "
+    VARIANT_LIST@540..560
+      L_BRACE@540..541 "{"
+      NEWLINE@541..542 "\n"
+      WHITESPACE@542..544 "  "
+      VARIANT@544..551
+        TYPE_NAME@544..548 "Some"
+        TUPLE_FIELD_LIST@548..551
+          L_PAREN@548..549 "("
+          TYPE_VAR@549..550
+            UPPER_NAME@549..550 "A"
+          R_PAREN@550..551 ")"
+      NEWLINE@551..552 "\n"
+      WHITESPACE@552..554 "  "
+      VARIANT@554..558
+        TYPE_NAME@554..558 "None"
+      NEWLINE@558..559 "\n"
+      R_BRACE@559..560 "}"
+  NEWLINE@560..561 "\n"
+  NEWLINE@561..562 "\n"
+  ENUM_DECL@562..610
+    DOC_COMMENT@562..568 "## 色"
+    NEWLINE@568..569 "\n"
+    ENUM_KW@569..573 "enum"
+    WHITESPACE@573..574 " "
+    TYPE_NAME@574..579 "Color"
+    WHITESPACE@579..580 " "
+    VARIANT_LIST@580..600
+      L_BRACE@580..581 "{"
+      WHITESPACE@581..582 " "
+      VARIANT@582..585
+        TYPE_NAME@582..585 "Red"
+      COMMA@585..586 ","
+      WHITESPACE@586..587 " "
+      VARIANT@587..592
+        TYPE_NAME@587..592 "Green"
+      COMMA@592..593 ","
+      WHITESPACE@593..594 " "
+      VARIANT@594..598
+        TYPE_NAME@594..598 "Blue"
+      WHITESPACE@598..599 " "
+      R_BRACE@599..600 "}"
+    WHITESPACE@600..601 " "
+    DERIVE_CLAUSE@601..610
+      LOWER_NAME@601..607 "derive"
+      WHITESPACE@607..608 " "
+      PATH@608..610
+        TYPE_NAME@608..610 "Eq"
+  NEWLINE@610..611 "\n"
+  NEWLINE@611..612 "\n"
+  ENUM_DECL@612..670
+    ENUM_KW@612..616 "enum"
+    WHITESPACE@616..617 " "
+    TYPE_NAME@617..622 "Mixed"
+    WHITESPACE@622..623 " "
+    VARIANT_LIST@623..670
+      L_BRACE@623..624 "{"
+      NEWLINE@624..625 "\n"
+      WHITESPACE@625..627 "  "
+      VARIANT@627..645
+        DOC_COMMENT@627..637 "## 1つ目"
+        NEWLINE@637..638 "\n"
+        WHITESPACE@638..640 "  "
+        TYPE_NAME@640..645 "Alpha"
+      COMMA@645..646 ","
+      NEWLINE@646..647 "\n"
+      WHITESPACE@647..649 "  "
+      VARIANT@649..661
+        TYPE_NAME@649..653 "Beta"
+        FIELD_LIST@653..661
+          L_PAREN@653..654 "("
+          FIELD@654..660
+            LOWER_NAME@654..655 "x"
+            COLON@655..656 ":"
+            WHITESPACE@656..657 " "
+            PATH_TYPE@657..660
+              PATH@657..660
+                TYPE_NAME@657..660 "Int"
+          R_PAREN@660..661 ")"
+      COMMA@661..662 ","
+      WHITESPACE@662..663 " "
+      VARIANT@663..668
+        TYPE_NAME@663..668 "Gamma"
+      NEWLINE@668..669 "\n"
+      R_BRACE@669..670 "}"
+  NEWLINE@670..671 "\n"
+  NEWLINE@671..672 "\n"
+  ERROR_DECL@672..695
+    ERROR_KW@672..677 "error"
+    WHITESPACE@677..678 " "
+    TYPE_NAME@678..686 "NotFound"
+    FIELD_LIST@686..695
+      L_PAREN@686..687 "("
+      FIELD@687..694
+        LOWER_NAME@687..689 "id"
+        COLON@689..690 ":"
+        WHITESPACE@690..691 " "
+        PATH_TYPE@691..694
+          PATH@691..694
+            TYPE_NAME@691..694 "Int"
+      R_PAREN@694..695 ")"
+  NEWLINE@695..696 "\n"
+  NEWLINE@696..697 "\n"
+  ERROR_DECL@697..715
+    ERROR_KW@697..702 "error"
+    WHITESPACE@702..703 " "
+    TYPE_NAME@703..715 "Unauthorized"
+  NEWLINE@715..716 "\n"

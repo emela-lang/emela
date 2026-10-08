@@ -1,0 +1,107 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/data.emel
+---
+ROOT@0..128
+  TYPE_DECL@0..31
+    TYPE_KW@0..4 "type"
+    WHITESPACE@4..5 " "
+    TYPE_NAME@5..9 "User"
+    FIELD_LIST@9..31
+      L_PAREN@9..10 "("
+      FIELD@10..16
+        LOWER_NAME@10..12 "id"
+        WHITESPACE@12..13 " "
+        PATH_TYPE@13..16
+          PATH@13..16
+            TYPE_NAME@13..16 "Int"
+      COMMA@16..17 ","
+      WHITESPACE@17..18 " "
+      FIELD@18..30
+        LOWER_NAME@18..22 "name"
+        COLON@22..23 ":"
+        WHITESPACE@23..24 " "
+        PATH_TYPE@24..30
+          PATH@24..30
+            TYPE_NAME@24..30 "String"
+      R_PAREN@30..31 ")"
+  NEWLINE@31..32 "\n"
+  ENUM_DECL@32..97
+    ENUM_KW@32..36 "enum"
+    WHITESPACE@36..37 " "
+    TYPE_NAME@37..42 "Shape"
+    WHITESPACE@42..43 " "
+    VARIANT_LIST@43..97
+      L_BRACE@43..44 "{"
+      NEWLINE@44..45 "\n"
+      WHITESPACE@45..47 "  "
+      VARIANT@47..75
+        TYPE_NAME@47..53 "Circle"
+        FIELD_LIST@53..75
+          L_PAREN@53..54 "("
+          FIELD@54..67
+            LOWER_NAME@54..60 "radius"
+            COLON@60..61 ":"
+            WHITESPACE@61..62 " "
+            PATH_TYPE@62..67
+              PATH@62..67
+                TYPE_NAME@62..67 "Float"
+          COMMA@67..68 ","
+          WHITESPACE@68..69 " "
+          PATH_TYPE@69..74
+            PATH@69..74
+              TYPE_NAME@69..74 "Float"
+          R_PAREN@74..75 ")"
+      NEWLINE@75..76 "\n"
+      WHITESPACE@76..78 "  "
+      VARIANT@78..89
+        LOWER_NAME@78..82 "rect"
+        TUPLE_FIELD_LIST@82..89
+          L_PAREN@82..83 "("
+          PATH_TYPE@83..88
+            PATH@83..88
+              TYPE_NAME@83..88 "Float"
+          R_PAREN@88..89 ")"
+      NEWLINE@89..90 "\n"
+      WHITESPACE@90..92 "  "
+      VARIANT@92..93
+        UPPER_NAME@92..93 "A"
+      WHITESPACE@93..94 " "
+      ERROR@94..95
+        UPPER_NAME@94..95 "B"
+      NEWLINE@95..96 "\n"
+      R_BRACE@96..97 "}"
+  NEWLINE@97..98 "\n"
+  TYPE_DECL@98..102
+    TYPE_KW@98..102 "type"
+  NEWLINE@102..103 "\n"
+  ERROR_DECL@103..111
+    ERROR_KW@103..108 "error"
+    WHITESPACE@108..109 " "
+    ERROR@109..111
+      INT@109..111 "42"
+  NEWLINE@111..112 "\n"
+  TYPE_DECL@112..127
+    TYPE_KW@112..116 "type"
+    WHITESPACE@116..117 " "
+    TYPE_NAME@117..119 "Ok"
+    FIELD_LIST@119..127
+      L_PAREN@119..120 "("
+      FIELD@120..126
+        LOWER_NAME@120..121 "x"
+        COLON@121..122 ":"
+        WHITESPACE@122..123 " "
+        PATH_TYPE@123..126
+          PATH@123..126
+            TYPE_NAME@123..126 "Int"
+      R_PAREN@126..127 ")"
+  NEWLINE@127..128 "\n"
+error[E0110]@13..16: expected `:`
+error[E0128]@69..74: a variant cannot mix named and positional fields
+error[E0110]@78..82: expected variant name (a type name)
+error[E0110]@92..93: expected variant name (a type name)
+error[E0110]@94..95: expected `,` or newline between variants
+error[E0130]@98..102: a type without fields must be `@external`
+error[E0110]@102..103: expected type name
+error[E0110]@109..111: expected type name
