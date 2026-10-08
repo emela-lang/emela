@@ -2,13 +2,13 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-エラー: ディレクトリ名 `My-Lib` をモジュール名にできない: 小文字の snake_case ではない
+error[E0202]: directory name `My-Lib` cannot be a module name: not lower snake_case
    ─[ src/My-Lib ]
 
-エラー: ファイル名 `Server` をモジュール名にできない: 小文字の snake_case ではない
+error[E0201]: file name `Server` cannot be a module name: not lower snake_case
    ─[ src/http/Server.emel ]
 
-エラー: "3px" は数値の形になっていない
+error: "3px" は数値の形になっていない
    ╭─[ src/http/client.emel:1:9 ]
    │
  1 │ let n = 3px
@@ -16,7 +16,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
    │          ╰─── 
 ───╯
 
-エラー: 文字列が閉じていない
+error: 文字列が閉じていない
    ╭─[ src/main.emel:1:9 ]
    │
  1 │ let x = "abc
@@ -24,7 +24,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
    │           ╰─── 
 ───╯
 
-エラー: 認識できない文字 "$"
+error: 認識できない文字 "$"
    ╭─[ src/main.emel:2:9 ]
    │
  2 │ let y = $
@@ -32,4 +32,4 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
    │         ╰── 
 ───╯
 
-エラー 5 件
+5 errors

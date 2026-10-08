@@ -191,16 +191,16 @@ fn labels_warnings_and_locations() {
     let mut sources = SourceDb::new();
     let file = sources.add("src/main.emel", "let x = 1\nlet x = 2\n");
     let diagnostics = vec![
-        Diagnostic::warning("`x` を覆い隠している")
+        Diagnostic::warning("`x` shadows an earlier binding")
             .with_span(Span::new(file, TextRange::new(14.into(), 15.into())))
             .with_label(
                 Span::new(file, TextRange::new(4.into(), 5.into())),
-                "前の `x` はここ",
+                "the earlier `x` is here",
             )
-            .with_note("名前を変えるか，前の `x` を使う"),
-        Diagnostic::error("ファイル全体の問題").at(Location::File(file)),
-        Diagnostic::error("ディレクトリを読めない").at(Location::Path("src/secret".into())),
-        Diagnostic::error("`node` が見つからない").with_note("Node.js を入れる"),
+            .with_note("rename it, or use the earlier `x`"),
+        Diagnostic::error("a problem with the whole file").at(Location::File(file)),
+        Diagnostic::error("cannot read directory").at(Location::Path("src/secret".into())),
+        Diagnostic::error("`node` not found").with_note("install Node.js"),
     ];
     insta::assert_snapshot!(render(&diagnostics, &sources, false));
 }

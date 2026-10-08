@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&diagnostics, &sources, false)"
 ---
-エラー: 型が合わない: `Int` を期待したが `String` だった
+error[E0301]: type mismatch: expected `Int`, found `String`
    ╭─[ src/main.emel:1:14 ]
    │
  1 │ let a: Int = "s"
@@ -10,22 +10,22 @@ expression: "render(&diagnostics, &sources, false)"
    │               ╰─── 
 ───╯
 
-エラー: 型が合わない: `List[Int]` を期待したが `List[String]` だった
+error[E0301]: type mismatch: expected `List[Int]`, found `List[String]`
    ╭─[ src/main.emel:2:9 ]
    │
  2 │ let b = [1] == ["s"]
    │         ─────┬─────  
    │              ╰─────── 
 ───╯
-   = 注: 食い違った部分: `Int` と `String`
+   = note: the mismatch is between `Int` and `String`
 
-エラー: 無限型になる: `?0` が `fn(?0) -> Int` の中に現れる
+error[E0302]: infinite type: `?0` occurs in `fn(?0) -> Int`
    ╭─[ src/main.emel:3:19 ]
    │
  3 │ let f = fn(x) { x(x) }
    │                   ──┬─  
    │                     ╰─── 
 ───╯
-   = 注: 期待した型 `?0`，実際の型 `fn(?0) -> Int`
+   = note: expected `?0`, found `fn(?0) -> Int`
 
-エラー 3 件
+3 errors

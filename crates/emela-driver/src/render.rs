@@ -26,24 +26,37 @@ pub fn render(diagnostics: &[Diagnostic], sources: &SourceDb, color: bool) -> St
     out
 }
 
-/// 「エラー 2 件，警告 1 件」．どちらもなければ `None`．
+/// `2 errors, 1 warning`．1件なら単数形．どちらもなければ `None`．
 pub fn summary(diagnostics: &[Diagnostic]) -> Option<String> {
     let errors = diagnostics.iter().filter(|d| d.is_error()).count();
     let warnings = diagnostics.len() - errors;
+    let count = |n: usize, word: &str| {
+        if n == 1 {
+            format!("1 {word}")
+        } else {
+            format!("{n} {word}s")
+        }
+    };
     match (errors, warnings) {
         (0, 0) => None,
-        (e, 0) => Some(format!("エラー {e} 件")),
-        (0, w) => Some(format!("警告 {w} 件")),
-        (e, w) => Some(format!("エラー {e} 件，警告 {w} 件")),
+        (e, 0) => Some(count(e, "error")),
+        (0, w) => Some(count(w, "warning")),
+        (e, w) => Some(format!("{}, {}", count(e, "error"), count(w, "warning"))),
     }
 }
 
 /// 1件の診断．
 pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> String {
-    let kind = match diagnostic.severity {
-        Severity::Error => ReportKind::Custom("エラー", Color::Red),
-        Severity::Warning => ReportKind::Custom("警告", Color::Yellow),
+    // 見出しは rustc と同じ `error[E0204]`．コードのない診断は `error` だけ．
+    let (word, kind_color) = match diagnostic.severity {
+        Severity::Error => ("error", Color::Red),
+        Severity::Warning => ("warning", Color::Yellow),
     };
+    let heading = match diagnostic.code {
+        Some(code) => format!("{word}[{code}]"),
+        None => word.to_owned(),
+    };
+    let kind = ReportKind::Custom(&heading, kind_color);
     let config = Config::default()
         .with_color(color)
         .with_index_type(IndexType::Byte);
@@ -120,9 +133,9 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
     if let Some(path) = path_only {
         out = insert_after_first_line(&out, &format!("   ─[ {path} ]\n"));
     }
-    // ariadne は注記をソースの枠の中にしか出さず，見出しも英語なので，枠の後に自分で並べる．
+    // ariadne は注記をソースの枠の中にしか出さないので，枠の後に自分で並べる．
     for note in &diagnostic.notes {
-        out.push_str(&format!("   = 注: {note}\n"));
+        out.push_str(&format!("   = note: {note}\n"));
     }
     out
 }

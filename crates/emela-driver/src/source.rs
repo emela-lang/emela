@@ -210,7 +210,7 @@ impl SourceFs for MemoryFiles {
         if entries.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("`{}` がない", dir.display()),
+                format!("`{}` not found", dir.display()),
             ));
         }
         Ok(entries)
@@ -225,7 +225,7 @@ impl FileSystem for MemoryFiles {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("`{}` がない", path.display()),
+                format!("`{}` not found", path.display()),
             ))
         }
     }
@@ -234,7 +234,7 @@ impl FileSystem for MemoryFiles {
         self.files.get(&clean(path)).cloned().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("`{}` がない", path.display()),
+                format!("`{}` not found", path.display()),
             )
         })
     }

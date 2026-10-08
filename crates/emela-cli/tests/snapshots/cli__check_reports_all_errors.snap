@@ -2,10 +2,10 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-エラー: ファイル名 `Util` をモジュール名にできない: 小文字の snake_case ではない
+error[E0201]: file name `Util` cannot be a module name: not lower snake_case
    ─[ src/Util.emel ]
 
-エラー: "3px" は数値の形になっていない
+error: "3px" は数値の形になっていない
    ╭─[ src/http/client.emel:1:9 ]
    │
  1 │ let n = 3px
@@ -13,7 +13,7 @@ expression: run.stderr
    │          ╰─── 
 ───╯
 
-エラー: 文字列が閉じていない
+error: 文字列が閉じていない
    ╭─[ src/main.emel:1:9 ]
    │
  1 │ let x = "abc
@@ -21,7 +21,7 @@ expression: run.stderr
    │           ╰─── 
 ───╯
 
-エラー: 認識できない文字 "$"
+error: 認識できない文字 "$"
    ╭─[ src/main.emel:2:9 ]
    │
  2 │ let y = $
@@ -29,4 +29,4 @@ expression: run.stderr
    │         ╰── 
 ───╯
 
-エラー 4 件
+4 errors

@@ -2,6 +2,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
 
 /// 出力する1ファイル．`path` は出力先からの相対パス．
@@ -32,16 +33,18 @@ pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagno
     for file in &output.files {
         if !is_plain_relative(&file.path) {
             return Err(Diagnostic::error(format!(
-                "出力のパス `{}` が出力先の外を指している",
+                "internal error: the JS backend wrote `{}` outside the output directory",
                 file.path.display()
-            )));
+            ))
+            .with_code(code::INVALID_JS_OUTPUT));
         }
     }
     if !output.files.iter().any(|file| file.path == output.entry) {
         return Err(Diagnostic::error(format!(
-            "エントリ `{}` が出力に含まれていない",
+            "internal error: the JS backend did not output the entry `{}`",
             output.entry.display()
-        )));
+        ))
+        .with_code(code::INVALID_JS_OUTPUT));
     }
     for file in &output.files {
         let path = out_dir.join(&file.path);
@@ -52,7 +55,9 @@ pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagno
             std::fs::write(&path, &file.contents)
         };
         write().map_err(|err| {
-            Diagnostic::error(format!("出力を書けない: {err}")).at(Location::Path(path.clone()))
+            Diagnostic::error(format!("cannot write output: {err}"))
+                .with_code(code::CANNOT_WRITE_OUTPUT)
+                .at(Location::Path(path.clone()))
         })?;
     }
     Ok(out_dir.join(&output.entry))
@@ -87,6 +92,9 @@ mod tests {
             entry: "main.mjs".into(),
         };
         let err = write_output(Path::new("/nonexistent"), &output).unwrap_err();
-        assert_eq!(err.message, "エントリ `main.mjs` が出力に含まれていない");
+        assert_eq!(
+            err.message,
+            "internal error: the JS backend did not output the entry `main.mjs`"
+        );
     }
 }

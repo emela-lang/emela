@@ -5,6 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
+use crate::code;
 use crate::diagnostic::Diagnostic;
 
 /// node の実行ファイルを差し替える環境変数．なければ PATH の `node` を使う．
@@ -90,14 +91,13 @@ pub fn run_node(
         }),
     };
     result.map_err(|err| match err.kind() {
-        io::ErrorKind::NotFound => Diagnostic::error(format!(
-            "`{}` が見つからない",
-            node.display()
-        ))
-        .with_note(format!(
-            "Node.js を入れて PATH を通すか，環境変数 {NODE_ENV} で node の実行ファイルを指定する"
-        )),
-        _ => Diagnostic::error(format!("`{}` を起動できない: {err}", node.display())),
+        io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", node.display()))
+            .with_code(code::NODE_UNAVAILABLE)
+            .with_note(format!(
+                "install Node.js and add it to PATH, or set {NODE_ENV} to the node executable"
+            )),
+        _ => Diagnostic::error(format!("cannot start `{}`: {err}", node.display()))
+            .with_code(code::NODE_UNAVAILABLE),
     })
 }
 
@@ -134,7 +134,7 @@ mod tests {
             Output::Capture,
         )
         .unwrap_err();
-        assert_eq!(err.message, "`/nonexistent/emela-test-node` が見つからない");
+        assert_eq!(err.message, "`/nonexistent/emela-test-node` not found");
         assert_eq!(err.notes.len(), 1);
     }
 }

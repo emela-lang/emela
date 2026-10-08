@@ -2,25 +2,25 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&diagnostics, &sources, false)"
 ---
-警告: `x` を覆い隠している
+warning: `x` shadows an earlier binding
    ╭─[ src/main.emel:2:5 ]
    │
  1 │ let x = 1
    │     ┬  
-   │     ╰── 前の `x` はここ
+   │     ╰── the earlier `x` is here
  2 │ let x = 2
    │     ┬  
    │     ╰── 
 ───╯
-   = 注: 名前を変えるか，前の `x` を使う
+   = note: rename it, or use the earlier `x`
 
-エラー: ファイル全体の問題
+error: a problem with the whole file
    ─[ src/main.emel ]
 
-エラー: ディレクトリを読めない
+error: cannot read directory
    ─[ src/secret ]
 
-エラー: `node` が見つからない
-   = 注: Node.js を入れる
+error: `node` not found
+   = note: install Node.js
 
-エラー 3 件，警告 1 件
+3 errors, 1 warning

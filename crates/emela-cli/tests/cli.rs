@@ -110,9 +110,9 @@ fn check_missing_path() {
     let run = project.emela(&["check", "nowhere.emel"]);
     assert_eq!(run.code, Some(1));
     insta::assert_snapshot!(run.stderr, @"
-    エラー: `nowhere.emel` が見つからない
+    error[E0901]: `nowhere.emel` not found
 
-    エラー 1 件
+    1 error
     ");
 }
 
@@ -126,7 +126,7 @@ fn build_and_run_without_js_backend() {
         let run = project.emela(&[command]);
         assert_eq!(run.code, Some(1), "{command}");
         assert_eq!(
-            run.stderr, "エラー: JS の出力はまだ実装されていない\n\nエラー 1 件\n",
+            run.stderr, "error[E0905]: JS output is not implemented yet\n\n1 error\n",
             "{command}"
         );
     }
@@ -139,7 +139,7 @@ fn build_reports_missing_entry() {
     assert_eq!(run.code, Some(1));
     assert_eq!(
         run.stderr,
-        "エラー: エントリ `src/main.emel` がない\n\nエラー 1 件\n"
+        "error[E0209]: the entry `src/main.emel` does not exist\n\n1 error\n"
     );
     // check はエントリを求めない．
     assert_eq!(project.emela(&["check"]).code, Some(0));
@@ -191,7 +191,7 @@ fn file_outside_source_root() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .starts_with("エラー: `scripts/x.emel` がソースのルート `"),
+            .starts_with("error[E0208]: `scripts/x.emel` is outside the source root `"),
         "{}",
         run.stderr
     );

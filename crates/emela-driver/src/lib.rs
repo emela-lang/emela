@@ -2,6 +2,7 @@
 //!
 //! ソースの表を持ち，各段の診断を集めて表示し，出力した JS を node で実行する．
 
+pub mod code;
 mod diagnostic;
 mod js;
 mod output;

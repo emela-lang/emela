@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-エラー: import が循環している: Http.Client → Json → Http.Client
+error[E0206]: import cycle: Http.Client → Json → Http.Client
    ╭─[ src/http/client.emel:1:1 ]
    │
  1 │ import Json
@@ -10,7 +10,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
    │      ╰─────── 
 ───╯
 
-エラー: 未定義のモジュール `Missing`
+error[E0205]: undefined module `Missing`
    ╭─[ src/main.emel:2:1 ]
    │
  2 │ import Missing
@@ -18,4 +18,4 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
    │        ╰──────── 
 ───╯
 
-エラー 2 件
+2 errors

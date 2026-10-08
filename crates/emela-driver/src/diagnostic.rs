@@ -2,12 +2,13 @@
 //!
 //! 元の診断の型はそれぞれのクレートに残し，ここでは変換だけを持つ．
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use emela_resolve::DiagnosticKind;
+use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{Ty, TyCons, TypeError, TypeErrorKind};
 use line_index::TextRange;
 
+use crate::code;
 use crate::source::{FileId, SourceDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,6 +51,8 @@ pub struct Label {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,
+    /// エラーコード（[`crate::code`]）．まだ振っていない段（字句解析）の診断は `None`．
+    pub code: Option<&'static str>,
     pub message: String,
     /// 位置がない診断（node が見つからないなど）は `None`．
     pub location: Option<Location>,
@@ -69,11 +72,17 @@ impl Diagnostic {
     fn new(severity: Severity, message: impl Into<String>) -> Self {
         Diagnostic {
             severity,
+            code: None,
             message: message.into(),
             location: None,
             labels: Vec::new(),
             notes: Vec::new(),
         }
+    }
+
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
     }
 
     pub fn at(mut self, location: Location) -> Self {
@@ -102,7 +111,7 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// 字句解析の診断．
+    /// 字句解析の診断．emela-syntax の診断が種類を持つまでは，コードなしで文面をそのまま使う．
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
         Diagnostic::error(&diagnostic.message).with_span(Span::new(file, diagnostic.range))
     }
@@ -114,15 +123,55 @@ impl Diagnostic {
             (Some(file), None) => Location::File(file),
             (None, _) => Location::Path(diagnostic.file.clone()),
         };
-        // 文面に埋め込まれたパスも，診断の位置と同じく起点からの相対パスにする．
-        let kind = match &diagnostic.kind {
-            DiagnosticKind::DuplicateModule { name, first } => DiagnosticKind::DuplicateModule {
-                name: name.clone(),
-                first: sources.display_path(first).to_owned(),
-            },
-            kind => kind.clone(),
+        let display = |path: &Path| format!("`{}`", sources.display_path(path).display());
+        let (code, message) = match &diagnostic.kind {
+            DiagnosticKind::InvalidFileName { name, error } => (
+                code::INVALID_FILE_NAME,
+                format!(
+                    "file name `{name}` cannot be a module name: {}",
+                    name_error(error)
+                ),
+            ),
+            DiagnosticKind::InvalidDirName { name, error } => (
+                code::INVALID_DIR_NAME,
+                format!(
+                    "directory name `{name}` cannot be a module name: {}",
+                    name_error(error)
+                ),
+            ),
+            DiagnosticKind::ReservedModuleName { name } => (
+                code::RESERVED_MODULE_NAME,
+                format!("module name `{name}` is reserved"),
+            ),
+            // 文面のパスも，診断の位置と同じく起点からの相対パスにする．
+            DiagnosticKind::DuplicateModule { name, first } => (
+                code::DUPLICATE_MODULE,
+                format!(
+                    "duplicate module `{name}` (already defined by {})",
+                    display(first)
+                ),
+            ),
+            DiagnosticKind::UndefinedModule { name } => {
+                (code::UNDEFINED_MODULE, format!("undefined module `{name}`"))
+            }
+            DiagnosticKind::ImportCycle { modules } => {
+                let message = match modules.as_slice() {
+                    [only] => format!("module `{only}` imports itself"),
+                    _ => {
+                        let mut cycle: Vec<String> =
+                            modules.iter().map(ToString::to_string).collect();
+                        cycle.push(modules[0].to_string());
+                        format!("import cycle: {}", cycle.join(" → "))
+                    }
+                };
+                (code::IMPORT_CYCLE, message)
+            }
+            DiagnosticKind::Io { message } => (
+                code::CANNOT_READ,
+                format!("cannot read directory: {message}"),
+            ),
         };
-        Diagnostic::error(kind.to_string()).at(location)
+        Diagnostic::error(message).with_code(code).at(location)
     }
 
     /// 型検査の診断．`TypeError` は位置を持たないので，呼び出し側が `span` を渡す．
@@ -131,7 +180,7 @@ impl Diagnostic {
         let diagnostic = match &*error.kind {
             TypeErrorKind::Mismatch { expected, actual } => {
                 let diagnostic = Diagnostic::error(format!(
-                    "型が合わない: {} を期待したが {} だった",
+                    "type mismatch: expected {}, found {}",
                     show(&error.expected),
                     show(&error.actual)
                 ));
@@ -139,24 +188,38 @@ impl Diagnostic {
                     diagnostic
                 } else {
                     diagnostic.with_note(format!(
-                        "食い違った部分: {} と {}",
+                        "the mismatch is between {} and {}",
                         show(expected),
                         show(actual)
                     ))
                 }
             }
             TypeErrorKind::InfiniteType { var, ty } => Diagnostic::error(format!(
-                "無限型になる: {} が {} の中に現れる",
+                "infinite type: {} occurs in {}",
                 show(&Ty::Var(*var)),
                 show(ty)
             ))
             .with_note(format!(
-                "期待した型 {}，実際の型 {}",
+                "expected {}, found {}",
                 show(&error.expected),
                 show(&error.actual)
             )),
         };
-        diagnostic.with_span(span)
+        let code = match &*error.kind {
+            TypeErrorKind::Mismatch { .. } => code::TYPE_MISMATCH,
+            TypeErrorKind::InfiniteType { .. } => code::INFINITE_TYPE,
+        };
+        diagnostic.with_code(code).with_span(span)
+    }
+}
+
+/// 名前の誤りの理由（emela-resolve の `NameError` の英語の文面）．
+fn name_error(error: &NameError) -> String {
+    match error {
+        NameError::NotSnakeCase => "not lower snake_case".to_owned(),
+        NameError::NotTypeName { converted } => {
+            format!("the converted name `{converted}` is not a valid type name")
+        }
     }
 }
 

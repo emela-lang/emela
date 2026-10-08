@@ -177,7 +177,7 @@ fn missing_entry() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert_eq!(messages, ["エントリ `src/main.emel` がない"]);
+    assert_eq!(messages, ["the entry `src/main.emel` does not exist"]);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn missing_node_is_a_diagnostic() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert_eq!(messages, ["`/nonexistent/node` が見つからない"]);
+    assert_eq!(messages, ["`/nonexistent/node` not found"]);
 }
 
 /// 手で組んだ Core IR を型検査の結果の代わりに返すフロントエンド．

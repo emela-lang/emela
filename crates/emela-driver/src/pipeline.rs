@@ -10,6 +10,7 @@ use emela_resolve::{DirEntry, Import, ImportGraph, ModuleData, ModuleId, ModuleM
 use emela_syntax::Lexed;
 use la_arena::ArenaMap;
 
+use crate::code;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
@@ -45,7 +46,10 @@ impl Input {
     /// - ファイルで `Pome.toml` がなければ単独ファイル．ルートはファイルのあるディレクトリ
     /// - ファイルで `Pome.toml` があり，ファイルが `<プロジェクト>/src` の外ならエラー
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
-        let not_found = || Diagnostic::error(format!("`{}` が見つからない", path.display()));
+        let not_found = || {
+            Diagnostic::error(format!("`{}` not found", path.display()))
+                .with_code(code::PATH_NOT_FOUND)
+        };
         let absolute = fs.absolute(path).map_err(|_| not_found())?;
         let is_file = fs.is_file(&absolute);
         if !is_file && !fs.is_dir(&absolute) {
@@ -67,12 +71,13 @@ impl Input {
                 let entry = if is_file {
                     if !absolute.starts_with(&root) {
                         return Err(Diagnostic::error(format!(
-                            "`{}` がソースのルート `{}` の外にある",
+                            "`{}` is outside the source root `{}`",
                             path.display(),
                             root.display()
                         ))
+                        .with_code(code::OUTSIDE_SOURCE_ROOT)
                         .with_note(format!(
-                            "プロジェクト（{PROJECT_FILE} のあるディレクトリ）のファイルは {SOURCE_DIR}/ の下に置く"
+                            "source files of a project (the directory with {PROJECT_FILE}) go under {SOURCE_DIR}/"
                         )));
                     }
                     Some(absolute)
@@ -97,11 +102,12 @@ impl Input {
                 })
             }
             (None, false) => Err(Diagnostic::error(format!(
-                "`{}` にも祖先にも {PROJECT_FILE} がない",
+                "no {PROJECT_FILE} found in `{}` or its parent directories",
                 path.display()
             ))
+            .with_code(code::NO_PROJECT_FILE)
             .with_note(format!(
-                "プロジェクトのディレクトリに {PROJECT_FILE} を置く（中身は空でよい）．1ファイルだけなら，そのファイルを渡す"
+                "put a {PROJECT_FILE} (it may be empty) in the project directory, or pass a single file"
             ))),
         }
     }
@@ -186,7 +192,9 @@ pub struct NoJsBackend;
 
 impl<P> JsBackend<P> for NoJsBackend {
     fn emit(&mut self, _: &P, _: &Analysis) -> Result<JsOutput, Vec<Diagnostic>> {
-        Err(vec![Diagnostic::error("JS の出力はまだ実装されていない")])
+        Err(vec![
+            Diagnostic::error("JS output is not implemented yet").with_code(code::NO_JS_BACKEND),
+        ])
     }
 }
 
@@ -239,7 +247,8 @@ pub fn check<F: Frontend>(
             Ok(text) => text,
             Err(err) => {
                 file_diagnostics.push(
-                    Diagnostic::error(format!("ファイルを読めない: {err}"))
+                    Diagnostic::error(format!("cannot read file: {err}"))
+                        .with_code(code::CANNOT_READ)
                         .at(Location::Path(data.file.clone())),
                 );
                 continue;
@@ -277,9 +286,10 @@ pub fn check<F: Frontend>(
             // 名前の誤りなどでモジュールにならなかった．理由の診断は名前解決が出している．
             analysis.diagnostics.push(
                 Diagnostic::error(format!(
-                    "エントリ `{}` がモジュールにならない",
+                    "the entry `{}` is not a module",
                     analysis.sources.display_path(entry).display()
                 ))
+                .with_code(code::ENTRY_NOT_MODULE)
                 .at(Location::Path(entry.clone())),
             );
         }
@@ -311,22 +321,25 @@ pub fn build<F: Frontend, B: JsBackend<F::Program>>(
 ) -> (Analysis, Option<PathBuf>) {
     let (mut analysis, program) = check(fs, input, frontend);
     if input.entry.is_none() {
-        analysis.diagnostics.push(Diagnostic::error(format!(
-            "エントリ `{}` がない",
-            analysis
-                .sources
-                .display_path(&input.root.join(ENTRY_FILE))
-                .display()
-        )));
+        analysis.diagnostics.push(
+            Diagnostic::error(format!(
+                "the entry `{}` does not exist",
+                analysis
+                    .sources
+                    .display_path(&input.root.join(ENTRY_FILE))
+                    .display()
+            ))
+            .with_code(code::ENTRY_NOT_FOUND),
+        );
     }
     if analysis.has_errors() {
         return (analysis, None);
     }
     let Some(program) = program else {
         // エラーなしでプログラムがないのはフロントエンドの誤り．
-        analysis
-            .diagnostics
-            .push(Diagnostic::error("型検査がプログラムを返さなかった"));
+        analysis.diagnostics.push(Diagnostic::error(
+            "internal error: the type checker returned no program",
+        ));
         return (analysis, None);
     };
     let output = match backend.emit(&program, &analysis) {
@@ -439,7 +452,7 @@ mod tests {
     fn directory_without_pome_toml() {
         assert_eq!(
             message(input(&["/app/src/main.emel"], "/app")),
-            "`/app` にも祖先にも Pome.toml がない"
+            "no Pome.toml found in `/app` or its parent directories"
         );
     }
 
@@ -457,7 +470,7 @@ mod tests {
         );
         assert_eq!(
             message(input(&files, "/app/scripts/x.emel")),
-            "`/app/scripts/x.emel` がソースのルート `/app/src` の外にある"
+            "`/app/scripts/x.emel` is outside the source root `/app/src`"
         );
     }
 
@@ -494,7 +507,7 @@ mod tests {
         );
         assert_eq!(
             message(input(&files, "/home/missing.emel")),
-            "`/home/missing.emel` が見つからない"
+            "`/home/missing.emel` not found"
         );
     }
 

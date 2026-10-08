@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-エラー: 認識できない文字 "$"
+error: 認識できない文字 "$"
    ╭─[ util.emel:1:9 ]
    │
  1 │ let y = $
@@ -10,4 +10,4 @@ expression: run.stderr
    │         ╰── 
 ───╯
 
-エラー 1 件
+1 error

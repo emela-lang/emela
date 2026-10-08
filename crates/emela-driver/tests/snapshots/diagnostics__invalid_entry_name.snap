@@ -2,10 +2,10 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-エラー: ファイル名 `Main` をモジュール名にできない: 小文字の snake_case ではない
+error[E0201]: file name `Main` cannot be a module name: not lower snake_case
    ─[ src/Main.emel ]
 
-エラー: エントリ `src/Main.emel` がモジュールにならない
+error[E0210]: the entry `src/Main.emel` is not a module
    ─[ src/Main.emel ]
 
-エラー 2 件
+2 errors

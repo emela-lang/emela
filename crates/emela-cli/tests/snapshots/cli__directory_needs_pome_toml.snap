@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-エラー: `.` にも祖先にも Pome.toml がない
-   = 注: プロジェクトのディレクトリに Pome.toml を置く（中身は空でよい）．1ファイルだけなら，そのファイルを渡す
+error[E0207]: no Pome.toml found in `.` or its parent directories
+   = note: put a Pome.toml (it may be empty) in the project directory, or pass a single file
 
-エラー 1 件
+1 error
