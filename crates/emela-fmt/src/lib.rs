@@ -134,8 +134,9 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
                 let prev = out.last().map(|(k, _)| *k);
                 let drop = matches!(prev, None | Some(NEWLINE | L_BRACE | COMMA))
                     || matches!(next, None | Some(R_BRACE | COMMA));
+                // `\r\n` と `\n` は同じ改行なので，テキストは比べない．
                 if !drop {
-                    out.push((*kind, text.clone()));
+                    out.push((*kind, String::new()));
                 }
             }
             COMMA if matches!(next, Some(R_PAREN | R_BRACK | R_BRACE)) => {}

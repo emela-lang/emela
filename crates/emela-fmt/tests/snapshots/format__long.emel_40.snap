@@ -6,13 +6,7 @@ fn long_signature(
   first_argument: String,
   second_argument: List[Int],
   third_argument: fn(Int) -> Bool,
-) -> Map[
-  String,
-  List[Int],
-] fails ParseError | IoError use {
-  Io,
-  Clock,
-} {
+) -> Map[String, List[Int]] fails ParseError | IoError use { Io, Clock } {
   todo()
 }
 

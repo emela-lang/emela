@@ -4,6 +4,7 @@ use emela_syntax::SyntaxKind::*;
 use emela_syntax::SyntaxNode;
 use pretty::RcDoc;
 
+use super::exprs::unbreakable;
 use super::{Doc, Printer, significant_children};
 
 impl Printer {
@@ -54,6 +55,11 @@ impl Printer {
                 rowan::NodeOrToken::Token(t) => self.tok(&t),
                 rowan::NodeOrToken::Node(n) => match n.kind() {
                     BLOCK_EXPR => self.block(&n).assemble(false).group(),
+                    // 戻り値と節は折らない．幅を超えるなら先に引数の並びが折れる．
+                    RET_TYPE | FAILS_CLAUSE | USE_CLAUSE => {
+                        let doc = self.node(&n);
+                        unbreakable(&doc)
+                    }
                     _ => self.node(&n),
                 },
             };

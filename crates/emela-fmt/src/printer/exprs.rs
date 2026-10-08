@@ -18,6 +18,8 @@ pub(crate) struct BlockDoc {
     close: Doc,
     /// 文もコメントもない．`{}` と出す．
     empty: bool,
+    /// 中身はないが，`{` に行末のコメントがある．`{ # c⏎}` と出す．
+    comment_only: bool,
 }
 
 impl BlockDoc {
@@ -25,6 +27,14 @@ impl BlockDoc {
     pub(crate) fn assemble(&self, force: bool) -> Doc {
         if self.empty {
             return self.open.clone().append(self.close.clone());
+        }
+        if self.comment_only {
+            // 改行を2つ並べると空行になるので，1つだけ出す．
+            return self
+                .open
+                .clone()
+                .append(RcDoc::hardline())
+                .append(self.close.clone());
         }
         let (first, last) = if force {
             (RcDoc::hardline(), RcDoc::hardline())
@@ -194,6 +204,7 @@ impl Printer {
             last_break,
             close,
             empty: stmts.is_empty() && !has_closing && !forced,
+            comment_only: stmts.is_empty() && !has_closing && forced,
         }
     }
 
@@ -233,8 +244,14 @@ impl Printer {
             Some(t) => self.tok(t),
             None => RcDoc::nil(),
         };
-        if arms.is_empty() && !has_closing && !forced {
-            return open.append(close);
+        if arms.is_empty() && !has_closing {
+            // `{` に行末のコメントがあるときも，改行は1つだけにする．
+            let inner = if forced {
+                RcDoc::hardline()
+            } else {
+                RcDoc::nil()
+            };
+            return open.append(inner).append(close);
         }
         let width = self.width();
         let arms_doc = RcDoc::nesting(move |indent| aligned_arms(&docs, indent, width));
@@ -373,6 +390,7 @@ impl Printer {
             last_break: RcDoc::nil(),
             close: RcDoc::nil(),
             empty: true,
+            comment_only: false,
         });
         (head, block)
     }
@@ -455,13 +473,13 @@ impl Printer {
         )
     }
 
-    /// 文字列の補間．中身は折らずに1行で出す．コメントや強制の改行があればそのまま．
+    /// 文字列の補間．中身は幅で折らない．コメントや複数行のブロックによる強制の改行だけを残す．
     fn interp(&mut self, node: &SyntaxNode) -> Doc {
+        // 抱え込みや腕の揃えの判定は組むときの幅を覚えるので，中身は幅の制限なしで組む．
+        let width = std::mem::replace(&mut self.width, HUGE);
         let doc = self.seq(node, |_, _| false);
-        if has_comments(node) || Self::flat_width(&doc).is_none() {
-            return doc;
-        }
-        text(&render(&doc, HUGE))
+        self.width = width;
+        unbreakable(&doc)
     }
 
     // ---- 二項演算子 ----
@@ -582,6 +600,20 @@ fn aligned_arms(arms: &[ArmDoc], indent: usize, width: usize) -> Doc {
             .append(arm.arrow.clone())
             .append(arm.after_arrow.clone())
             .append(arm.body.clone());
+    }
+    out
+}
+
+/// 幅を無視して描いた形に固定する．強制の改行はそのまま残し，続く行の字下げは
+/// 今の字下げからの相対にする．
+pub(crate) fn unbreakable(doc: &Doc) -> Doc {
+    let rendered = render(doc, HUGE);
+    let mut out = RcDoc::nil();
+    for (i, line) in rendered.split('\n').enumerate() {
+        if i > 0 {
+            out = out.append(RcDoc::hardline());
+        }
+        out = out.append(text(line));
     }
     out
 }

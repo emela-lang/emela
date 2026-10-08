@@ -106,6 +106,53 @@ fn 改行は_lf_にそろえる() {
         format("fn f() {\r\n  a\r\n}\r\n").unwrap(),
         "fn f() {\n  a\n}\n"
     );
+    // 文を区切る改行が比べられる位置にあっても，`\r\n` と `\n` は同じ改行として扱う．
+    assert_eq!(
+        format("fn a() {\r\n  x = 1\r\n  y = 2\r\n}\r\n\r\nfn b() {}\r\n").unwrap(),
+        "fn a() {\n  x = 1\n  y = 2\n}\n\nfn b() {}\n"
+    );
+}
+
+#[test]
+fn 中身のないブロックの行末のコメントの後に空行を入れない() {
+    assert_eq!(format("fn a() { # c\n}\n").unwrap(), "fn a() { # c\n}\n");
+    assert_eq!(
+        format("fn a() {\n  f(fn(y) { # d\n  })\n}\n").unwrap(),
+        "fn a() {\n  f(fn(y) { # d\n  })\n}\n"
+    );
+    assert_eq!(
+        format("fn a() {\n  match x { # e\n  }\n}\n").unwrap(),
+        "fn a() {\n  match x { # e\n  }\n}\n"
+    );
+    assert_eq!(
+        format("fn a() {\n  x escape { # e\n  }\n}\n").unwrap(),
+        "fn a() {\n  x escape { # e\n  }\n}\n"
+    );
+}
+
+#[test]
+fn 長い宣言は引数の並びから折る() {
+    let src = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String] fails NotFound | DbError use { Io, Clock, Random, Http } {\n  x\n}\n";
+    let expected = "fn longsig(\n  aaaa: Int,\n  bbbb: String,\n) -> Result[Int, String] fails NotFound | DbError use { Io, Clock, Random, Http } {\n  x\n}\n";
+    assert_eq!(format(src).unwrap(), expected);
+    let narrow = format_with_width(src, 40).unwrap();
+    assert!(
+        narrow.contains(") -> Result[Int, String] fails"),
+        "{narrow}"
+    );
+}
+
+#[test]
+fn 補間の中は幅で折らない() {
+    let src = "fn a() {\n  s = \"#{ f(fn(x) {\n    x\n  }) }\"\n}\n";
+    let expected = "fn a() {\n  s = \"#{f(fn(x) {\n    x\n  })}\"\n}\n";
+    for width in [100, 10] {
+        assert_eq!(
+            format_with_width(src, width).unwrap(),
+            expected,
+            "幅 {width}"
+        );
+    }
 }
 
 /// 字下げと，トークンの間の空白の量を変える．改行の位置は変えない．
