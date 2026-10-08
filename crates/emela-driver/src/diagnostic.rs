@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use emela_resolve::DiagnosticKind;
 use emela_types::{Ty, TyCons, TypeError, TypeErrorKind};
 use line_index::TextRange;
 
@@ -113,7 +114,15 @@ impl Diagnostic {
             (Some(file), None) => Location::File(file),
             (None, _) => Location::Path(diagnostic.file.clone()),
         };
-        Diagnostic::error(diagnostic.to_string()).at(location)
+        // 文面に埋め込まれたパスも，診断の位置と同じく起点からの相対パスにする．
+        let kind = match &diagnostic.kind {
+            DiagnosticKind::DuplicateModule { name, first } => DiagnosticKind::DuplicateModule {
+                name: name.clone(),
+                first: sources.display_path(first).to_owned(),
+            },
+            kind => kind.clone(),
+        };
+        Diagnostic::error(kind.to_string()).at(location)
     }
 
     /// 型検査の診断．`TypeError` は位置を持たないので，呼び出し側が `span` を渡す．

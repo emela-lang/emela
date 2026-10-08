@@ -21,6 +21,7 @@ fn check_files(files: &[(&str, &str)], path: &str, frontend: &mut impl Frontend)
 fn collects_every_broken_file() {
     let analysis = check_files(
         &[
+            ("app/Pome.toml", ""),
             ("app/src/main.emel", "let x = \"abc\nlet y = $\n"),
             ("app/src/http/client.emel", "let n = 3px\n"),
             ("app/src/http/Server.emel", "let ok = 1\n"),
@@ -36,7 +37,11 @@ fn collects_every_broken_file() {
 
 #[test]
 fn clean_project_has_no_output() {
-    let analysis = check_files(&[("app/src/main.emel", "let x = 1\n")], "app", &mut LexOnly);
+    let analysis = check_files(
+        &[("app/Pome.toml", ""), ("app/src/main.emel", "let x = 1\n")],
+        "app",
+        &mut LexOnly,
+    );
     assert!(analysis.diagnostics.is_empty());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
     assert!(analysis.entry.is_some());
@@ -45,7 +50,7 @@ fn clean_project_has_no_output() {
 #[test]
 fn invalid_entry_name() {
     let analysis = check_files(
-        &[("app/src/Main.emel", "")],
+        &[("app/Pome.toml", ""), ("app/src/Main.emel", "")],
         "app/src/Main.emel",
         &mut LexOnly,
     );
@@ -88,10 +93,38 @@ impl Frontend for ImportLines {
 }
 
 #[test]
+fn single_file_sees_only_its_directory() {
+    let mut frontend = ImportLines { checked: false };
+    let analysis = check_files(
+        &[
+            (
+                "home/src/tools/main.emel",
+                "import Util\nimport Deep.Thing\n",
+            ),
+            ("home/src/tools/util.emel", "let x = $\n"),
+            ("home/src/tools/Bad.emel", ""),
+            // サブディレクトリと祖先は見ない．
+            ("home/src/tools/deep/thing.emel", "let y = $\n"),
+            ("home/src/other.emel", "let z = $\n"),
+        ],
+        "home/src/tools/main.emel",
+        &mut frontend,
+    );
+    let names: Vec<String> = analysis
+        .modules
+        .iter()
+        .map(|(_, m)| m.name.to_string())
+        .collect();
+    assert_eq!(names, ["Main", "Util"]);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
 fn import_graph_through_frontend() {
     let mut frontend = ImportLines { checked: false };
     let analysis = check_files(
         &[
+            ("app/Pome.toml", ""),
             ("app/src/main.emel", "import Http.Client\nimport Missing\n"),
             ("app/src/http/client.emel", "import Json\n"),
             ("app/src/json.emel", "import Http.Client\n"),
@@ -107,7 +140,11 @@ fn import_graph_through_frontend() {
 #[test]
 fn check_runs_in_dependency_order() {
     let mut frontend = ImportLines { checked: false };
-    let fs = MemoryFiles::new([("src/main.emel", "import Json\n"), ("src/json.emel", "")]);
+    let fs = MemoryFiles::new([
+        ("Pome.toml", ""),
+        ("src/main.emel", "import Json\n"),
+        ("src/json.emel", ""),
+    ]);
     let input = Input::resolve(&fs, Path::new(".")).unwrap();
     let (analysis, program) = check(&fs, &input, &mut frontend);
     assert!(analysis.diagnostics.is_empty());

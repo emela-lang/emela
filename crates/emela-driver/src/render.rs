@@ -49,7 +49,10 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
         .with_index_type(IndexType::Byte);
 
     let span = |span: Span| -> (String, Range<usize>) {
-        let path = sources[span.file].path().display().to_string();
+        let path = sources
+            .display_path(sources[span.file].path())
+            .display()
+            .to_string();
         (path, span.range.start().into()..span.range.end().into())
     };
     // ソースの範囲を持たない診断は，ariadne の見出しの後にパスだけを添える．
@@ -57,9 +60,17 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
         Some(Location::Span(s)) => (span(*s), None),
         Some(Location::File(file)) => (
             span(Span::new(*file, Default::default())),
-            Some(sources[*file].path().display().to_string()),
+            Some(
+                sources
+                    .display_path(sources[*file].path())
+                    .display()
+                    .to_string(),
+            ),
         ),
-        Some(Location::Path(path)) => ((String::new(), 0..0), Some(path.display().to_string())),
+        Some(Location::Path(path)) => (
+            (String::new(), 0..0),
+            Some(sources.display_path(path).display().to_string()),
+        ),
         None => ((String::new(), 0..0), None),
     };
 
@@ -92,11 +103,10 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
         });
     }
 
-    let cache = ariadne::sources(
-        sources
-            .iter()
-            .map(|(_, file)| (file.path().display().to_string(), file.text().to_owned())),
-    );
+    let cache = ariadne::sources(sources.iter().map(|(_, file)| {
+        let path = sources.display_path(file.path()).display().to_string();
+        (path, file.text().to_owned())
+    }));
     let mut buf = Vec::new();
     builder
         .finish()

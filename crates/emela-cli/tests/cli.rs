@@ -54,6 +54,7 @@ struct Run {
 }
 
 const BROKEN: &[(&str, &str)] = &[
+    ("Pome.toml", ""),
     ("src/main.emel", "let x = \"abc\nlet y = $\n"),
     ("src/http/client.emel", "let n = 3px\n"),
     ("src/Util.emel", ""),
@@ -81,7 +82,11 @@ fn check_file_and_directory_agree() {
 fn check_clean_project() {
     let project = Project::new(
         "clean",
-        &[("src/main.emel", "let x = 1\n"), ("src/json.emel", "")],
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "let x = 1\n"),
+            ("src/json.emel", ""),
+        ],
     );
     let run = project.emela(&["check"]);
     assert_eq!(
@@ -113,7 +118,10 @@ fn check_missing_path() {
 
 #[test]
 fn build_and_run_without_js_backend() {
-    let project = Project::new("no-backend", &[("src/main.emel", "let x = 1\n")]);
+    let project = Project::new(
+        "no-backend",
+        &[("Pome.toml", ""), ("src/main.emel", "let x = 1\n")],
+    );
     for command in ["build", "run"] {
         let run = project.emela(&[command]);
         assert_eq!(run.code, Some(1), "{command}");
@@ -126,7 +134,7 @@ fn build_and_run_without_js_backend() {
 
 #[test]
 fn build_reports_missing_entry() {
-    let project = Project::new("no-entry", &[("src/util.emel", "")]);
+    let project = Project::new("no-entry", &[("Pome.toml", ""), ("src/util.emel", "")]);
     let run = project.emela(&["build"]);
     assert_eq!(run.code, Some(1));
     assert_eq!(
@@ -135,4 +143,72 @@ fn build_reports_missing_entry() {
     );
     // check はエントリを求めない．
     assert_eq!(project.emela(&["check"]).code, Some(0));
+}
+
+#[test]
+fn check_with_absolute_path_from_elsewhere() {
+    let project = Project::new("absolute", BROKEN);
+    let inside = project.emela(&["check"]);
+    // 別のディレクトリから絶対パスで渡しても，診断のパスはプロジェクトからの相対パス．
+    let entry = project.path().join("src/main.emel");
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(&entry)
+        .current_dir(std::env::temp_dir())
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(run.stderr).unwrap(), inside.stderr);
+    // プロジェクトの中のディレクトリからでも同じ．
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .args(["check", "main.emel"])
+        .current_dir(project.path().join("src"))
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(run.stderr).unwrap(), inside.stderr);
+}
+
+#[test]
+fn directory_needs_pome_toml() {
+    let project = Project::new("no-pome", &[("src/main.emel", "")]);
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
+}
+
+#[test]
+fn file_outside_source_root() {
+    let project = Project::new(
+        "outside",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", ""),
+            ("scripts/x.emel", ""),
+        ],
+    );
+    let run = project.emela(&["check", "scripts/x.emel"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr
+            .starts_with("エラー: `scripts/x.emel` がソースのルート `"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn single_file_sees_only_its_directory() {
+    let project = Project::new(
+        "single",
+        &[
+            ("main.emel", "let x = 1\n"),
+            ("util.emel", "let y = $\n"),
+            ("deep/broken.emel", "let z = $\n"),
+            ("Not-A-Dir/x.emel", ""),
+        ],
+    );
+    let run = project.emela(&["check", "main.emel"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
 }

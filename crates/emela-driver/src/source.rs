@@ -51,6 +51,8 @@ impl SourceFile {
 pub struct SourceDb {
     files: Vec<SourceFile>,
     by_path: HashMap<PathBuf, FileId>,
+    /// 診断に出すパスの起点（プロジェクトのディレクトリ）．
+    base: Option<PathBuf>,
 }
 
 impl SourceDb {
@@ -77,6 +79,22 @@ impl SourceDb {
             line_index,
         });
         id
+    }
+
+    /// 診断に出すパスの起点を決める．
+    pub fn set_base(&mut self, base: impl Into<PathBuf>) {
+        self.base = Some(base.into());
+    }
+
+    /// 診断に出すパス．起点の下ならそこからの相対パス，そうでなければそのまま．
+    pub fn display_path<'a>(&self, path: &'a Path) -> &'a Path {
+        match &self.base {
+            Some(base) => match path.strip_prefix(base) {
+                Ok(relative) if !relative.as_os_str().is_empty() => relative,
+                _ => path,
+            },
+            None => path,
+        }
     }
 
     pub fn file_id(&self, path: &Path) -> Option<FileId> {
@@ -109,12 +127,18 @@ impl std::ops::Index<FileId> for SourceDb {
 
 /// ディレクトリの一覧（[`SourceFs`]）に，ファイルの読み込みと種類の判定を足したもの．
 pub trait FileSystem: SourceFs {
+    /// 絶対パスに直す．パスがなければエラー．
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf>;
     fn read_to_string(&self, path: &Path) -> io::Result<String>;
     fn is_file(&self, path: &Path) -> bool;
     fn is_dir(&self, path: &Path) -> bool;
 }
 
 impl FileSystem for OsFs {
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
+        std::fs::canonicalize(path)
+    }
+
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
         std::fs::read_to_string(path)
     }
@@ -130,7 +154,8 @@ impl FileSystem for OsFs {
 
 /// メモリ上のファイル．パスとテキストの組で組み立てる．
 ///
-/// パスの `.` の区切りは無視する（`./src/main.emel` と `src/main.emel` は同じ）．
+/// `/` を起点にする．相対パスは `/` からのパスとみなし，`.` と `..` の区切りは字面で畳む
+/// （`./src/main.emel` と `/src/main.emel` は同じ）．
 #[derive(Debug, Default, Clone)]
 pub struct MemoryFiles {
     files: BTreeMap<PathBuf, String>,
@@ -146,11 +171,19 @@ impl MemoryFiles {
     }
 }
 
-/// `.` の区切りを落とす．`.` だけなら空のパスになる．
+/// `/` を起点にした絶対パスにし，`.` と `..` を畳む．
 fn clean(path: &Path) -> PathBuf {
-    path.components()
-        .filter(|c| !matches!(c, Component::CurDir))
-        .collect()
+    let mut out = PathBuf::from("/");
+    for component in path.components() {
+        match component {
+            Component::Normal(name) => out.push(name),
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+        }
+    }
+    out
 }
 
 impl SourceFs for MemoryFiles {
@@ -185,6 +218,18 @@ impl SourceFs for MemoryFiles {
 }
 
 impl FileSystem for MemoryFiles {
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
+        let path = clean(path);
+        if self.is_file(&path) || self.is_dir(&path) {
+            Ok(path)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("`{}` がない", path.display()),
+            ))
+        }
+    }
+
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
         self.files.get(&clean(path)).cloned().ok_or_else(|| {
             io::Error::new(
@@ -262,5 +307,29 @@ mod tests {
         assert_eq!(names("."), ["p/"]);
         assert_eq!(names("p/src"), ["a/", "main.emel"]);
         assert!(fs.read_dir(Path::new("q")).is_err());
+        assert_eq!(
+            fs.absolute(Path::new("./p/src/../src/a")).unwrap(),
+            Path::new("/p/src/a")
+        );
+        assert!(fs.absolute(Path::new("p/missing")).is_err());
+    }
+
+    #[test]
+    fn display_path_is_relative_to_base() {
+        let mut db = SourceDb::new();
+        assert_eq!(
+            db.display_path(Path::new("/p/src/a.emel")),
+            Path::new("/p/src/a.emel")
+        );
+        db.set_base("/p");
+        assert_eq!(
+            db.display_path(Path::new("/p/src/a.emel")),
+            Path::new("src/a.emel")
+        );
+        assert_eq!(db.display_path(Path::new("/p")), Path::new("/p"));
+        assert_eq!(
+            db.display_path(Path::new("/q/a.emel")),
+            Path::new("/q/a.emel")
+        );
     }
 }

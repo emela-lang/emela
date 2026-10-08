@@ -1,0 +1,8 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+エラー: `.` にも祖先にも Pome.toml がない
+   = 注: プロジェクトのディレクトリに Pome.toml を置く（中身は空でよい）．1ファイルだけなら，そのファイルを渡す
+
+エラー 1 件

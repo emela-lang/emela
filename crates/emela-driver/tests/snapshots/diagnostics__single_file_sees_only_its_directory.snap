@@ -1,0 +1,24 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+エラー: ファイル名 `Bad` をモジュール名にできない: 小文字の snake_case ではない
+   ─[ Bad.emel ]
+
+エラー: 認識できない文字 "$"
+   ╭─[ util.emel:1:9 ]
+   │
+ 1 │ let x = $
+   │         ┬  
+   │         ╰── 
+───╯
+
+エラー: 未定義のモジュール `Deep.Thing`
+   ╭─[ main.emel:2:1 ]
+   │
+ 2 │ import Deep.Thing
+   │ ────────┬────────  
+   │         ╰────────── 
+───╯
+
+エラー 3 件

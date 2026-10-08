@@ -72,18 +72,22 @@ fn run_with(
         args: args.iter().map(Into::into).collect(),
         output: Output::Capture,
     };
+    let mut reported = None;
     let result = run(
         &fs,
         &input,
         &mut LexOnly,
         &mut HandWritten::main(js),
         &options,
+        |analysis| reported = Some(analysis.diagnostics.len()),
     );
+    // node の前に1度だけ呼ばれる．node を起動できなかった診断はその後に足される．
+    assert!(reported.unwrap() <= result.0.diagnostics.len());
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
 }
 
-const MAIN: &[(&str, &str)] = &[("app/src/main.emel", "let x = 1\n")];
+const MAIN: &[(&str, &str)] = &[("app/Pome.toml", ""), ("app/src/main.emel", "let x = 1\n")];
 
 fn text(bytes: &[u8]) -> &str {
     std::str::from_utf8(bytes).unwrap()
@@ -148,6 +152,7 @@ fn errors_stop_before_node() {
     let (analysis, output) = run_js(
         "errors",
         &[
+            ("app/Pome.toml", ""),
             ("app/src/main.emel", "let x = $\n"),
             ("app/src/b.emel", "\""),
         ],
@@ -162,7 +167,7 @@ fn errors_stop_before_node() {
 fn missing_entry() {
     let (analysis, output) = run_js(
         "no-entry",
-        &[("app/src/util.emel", "")],
+        &[("app/Pome.toml", ""), ("app/src/util.emel", "")],
         "console.log(\"never\");\n",
         &[],
     );
@@ -172,7 +177,7 @@ fn missing_entry() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert_eq!(messages, ["エントリ `app/src/main.emel` がない"]);
+    assert_eq!(messages, ["エントリ `src/main.emel` がない"]);
 }
 
 #[test]
@@ -241,7 +246,14 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(&fs, &input, &mut HandBuiltIr(module), &mut CoreJs, &options);
+    let (analysis, output) = run(
+        &fs,
+        &input,
+        &mut HandBuiltIr(module),
+        &mut CoreJs,
+        &options,
+        |_| {},
+    );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),

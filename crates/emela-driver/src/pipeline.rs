@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use emela_resolve::{Import, ImportGraph, ModuleData, ModuleId, ModuleMap};
+use emela_resolve::{DirEntry, Import, ImportGraph, ModuleData, ModuleId, ModuleMap, SourceFs};
 use emela_syntax::Lexed;
 use la_arena::ArenaMap;
 
@@ -15,86 +15,110 @@ use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
 
-/// ソースのルートのディレクトリ名．この名前の祖先があれば，そこをルートにする．
+/// プロジェクトの目印のファイル（仕様 4.1）．0.20 では有無だけを見る．
+pub const PROJECT_FILE: &str = "Pome.toml";
+/// プロジェクトの中のソースのルート．
 pub const SOURCE_DIR: &str = "src";
-/// ディレクトリを渡したときのエントリ（ルートからの相対パス）．
+/// プロジェクトのエントリ（ソースのルートからの相対パス）．
 pub const ENTRY_FILE: &str = "main.emel";
-/// プロジェクトのディレクトリからの，JS の既定の出力先．
+/// プロジェクト（単独ファイルならファイルのあるディレクトリ）からの，JS の既定の出力先．
 pub const JS_OUT_DIR: &str = "target/emela/js";
 
-/// コマンドラインの path から決めた，ソースのルートとエントリ．
+/// コマンドラインの path から決めた，ソースのルートとエントリ（仕様 4.1）．パスはどれも絶対パス．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Input {
     /// モジュール名はここからの相対パスで決まる．
     pub root: PathBuf,
-    /// エントリのファイル．ルートを付けたパス．ディレクトリを渡して `src/main.emel` がなければ `None`．
+    /// エントリのファイル．ディレクトリを渡して `src/main.emel` がなければ `None`．
     pub entry: Option<PathBuf>,
-    /// `target/` を置くディレクトリ．
-    pub project: PathBuf,
+    /// プロジェクトのディレクトリ．単独ファイルならファイルのあるディレクトリ．
+    /// `target/` を置き，診断のパスはここからの相対パスで出す．
+    pub base: PathBuf,
+    /// `Pome.toml` のない単独ファイル．モジュールはルートの直下の `.emel` だけになる．
+    pub single_file: bool,
 }
 
 impl Input {
-    /// path がファイルならそのファイルがエントリ，ディレクトリなら `<dir>/src/main.emel`．
+    /// 渡されたパスを絶対パスに直し，祖先を上にたどって最初の `Pome.toml` でプロジェクトを決める．
     ///
-    /// ファイルのときのルートは，祖先にある最も近い `src`，なければファイルのあるディレクトリ．
+    /// - ディレクトリで `Pome.toml` がなければエラー．エントリは `<プロジェクト>/src/main.emel`
+    /// - ファイルで `Pome.toml` がなければ単独ファイル．ルートはファイルのあるディレクトリ
+    /// - ファイルで `Pome.toml` があり，ファイルが `<プロジェクト>/src` の外ならエラー
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
-        // `./app` と `app` で診断のパスが変わらないよう，`.` の区切りを落とす．
-        let cleaned: PathBuf = path
-            .components()
-            .filter(|c| !matches!(c, Component::CurDir))
-            .collect();
-        let path = if cleaned.as_os_str().is_empty() {
-            Path::new(".")
+        let not_found = || Diagnostic::error(format!("`{}` が見つからない", path.display()));
+        let absolute = fs.absolute(path).map_err(|_| not_found())?;
+        let is_file = fs.is_file(&absolute);
+        if !is_file && !fs.is_dir(&absolute) {
+            return Err(not_found());
+        }
+        let start = if is_file {
+            absolute.parent().expect("ファイルには親がある")
         } else {
-            cleaned.as_path()
+            &absolute
         };
-        if fs.is_file(path) {
-            let dir = match path.parent() {
-                Some(dir) if dir != Path::new("") => dir.to_owned(),
-                _ => PathBuf::from("."),
-            };
-            let root = dir
-                .ancestors()
-                .find(|a| a.file_name().is_some_and(|name| name == SOURCE_DIR))
-                .map_or_else(|| dir.clone(), Path::to_owned);
-            let relative = dir.strip_prefix(&root).expect("ルートは dir の祖先");
-            let file_name = path.file_name().expect("ファイルには名前がある");
-            let entry = root.join(relative).join(file_name);
-            let project = if root.file_name().is_some_and(|name| name == SOURCE_DIR) {
-                match root.parent() {
-                    Some(parent) if parent != Path::new("") => parent.to_owned(),
-                    _ => PathBuf::from("."),
-                }
-            } else {
-                root.clone()
-            };
-            Ok(Input {
-                root,
-                entry: Some(entry),
-                project,
-            })
-        } else if fs.is_dir(path) {
-            let root = if path == Path::new(".") {
-                PathBuf::from(SOURCE_DIR)
-            } else {
-                path.join(SOURCE_DIR)
-            };
-            let entry = root.join(ENTRY_FILE);
-            Ok(Input {
-                entry: fs.is_file(&entry).then_some(entry),
-                root,
-                project: path.to_owned(),
-            })
-        } else {
-            Err(Diagnostic::error(format!(
-                "`{}` が見つからない",
+        let project = start
+            .ancestors()
+            .find(|dir| fs.is_file(&dir.join(PROJECT_FILE)))
+            .map(Path::to_owned);
+
+        match (project, is_file) {
+            (Some(project), _) => {
+                let root = project.join(SOURCE_DIR);
+                let entry = if is_file {
+                    if !absolute.starts_with(&root) {
+                        return Err(Diagnostic::error(format!(
+                            "`{}` がソースのルート `{}` の外にある",
+                            path.display(),
+                            root.display()
+                        ))
+                        .with_note(format!(
+                            "プロジェクト（{PROJECT_FILE} のあるディレクトリ）のファイルは {SOURCE_DIR}/ の下に置く"
+                        )));
+                    }
+                    Some(absolute)
+                } else {
+                    let entry = root.join(ENTRY_FILE);
+                    fs.is_file(&entry).then_some(entry)
+                };
+                Ok(Input {
+                    root,
+                    entry,
+                    base: project,
+                    single_file: false,
+                })
+            }
+            (None, true) => {
+                let dir = start.to_owned();
+                Ok(Input {
+                    root: dir.clone(),
+                    entry: Some(absolute),
+                    base: dir,
+                    single_file: true,
+                })
+            }
+            (None, false) => Err(Diagnostic::error(format!(
+                "`{}` にも祖先にも {PROJECT_FILE} がない",
                 path.display()
-            )))
+            ))
+            .with_note(format!(
+                "プロジェクトのディレクトリに {PROJECT_FILE} を置く（中身は空でよい）．1ファイルだけなら，そのファイルを渡す"
+            ))),
         }
     }
 
     pub fn default_out_dir(&self) -> PathBuf {
-        self.project.join(JS_OUT_DIR)
+        self.base.join(JS_OUT_DIR)
+    }
+}
+
+/// 単独ファイルのときの一覧．ルートの直下のファイルだけを見せ，サブディレクトリに潜らせない．
+struct Shallow<'a>(&'a dyn FileSystem);
+
+impl SourceFs for Shallow<'_> {
+    fn read_dir(&self, dir: &Path) -> std::io::Result<Vec<DirEntry>> {
+        let mut entries = self.0.read_dir(dir)?;
+        entries.retain(|entry| !entry.is_dir);
+        Ok(entries)
     }
 }
 
@@ -200,7 +224,12 @@ pub fn check<F: Frontend>(
     frontend: &mut F,
 ) -> (Analysis, Option<F::Program>) {
     let mut analysis = Analysis::default();
-    let (modules, resolve_diagnostics) = emela_resolve::collect_modules(fs, &input.root);
+    analysis.sources.set_base(&input.base);
+    let (modules, resolve_diagnostics) = if input.single_file {
+        emela_resolve::collect_modules(&Shallow(fs), &input.root)
+    } else {
+        emela_resolve::collect_modules(fs, &input.root)
+    };
     analysis.modules = modules;
 
     let mut imports: ArenaMap<ModuleId, Vec<Import>> = ArenaMap::default();
@@ -249,7 +278,7 @@ pub fn check<F: Frontend>(
             analysis.diagnostics.push(
                 Diagnostic::error(format!(
                     "エントリ `{}` がモジュールにならない",
-                    entry.display()
+                    analysis.sources.display_path(entry).display()
                 ))
                 .at(Location::Path(entry.clone())),
             );
@@ -284,7 +313,10 @@ pub fn build<F: Frontend, B: JsBackend<F::Program>>(
     if input.entry.is_none() {
         analysis.diagnostics.push(Diagnostic::error(format!(
             "エントリ `{}` がない",
-            input.root.join(ENTRY_FILE).display()
+            analysis
+                .sources
+                .display_path(&input.root.join(ENTRY_FILE))
+                .display()
         )));
     }
     if analysis.has_errors() {
@@ -326,15 +358,20 @@ pub struct RunOptions {
 
 /// `emela run` の段．ビルドして，エントリを node で実行する．
 ///
+/// `before_node` はビルドの後，node を起動する前に1度だけ呼ぶ（ビルドが失敗しても呼ぶ）．
+/// CLI はここで診断を出す．終わらないプログラム（サーバー）でも警告が先に見えるように．
 /// 診断でエラーになったか node を起動できなかったときは，実行結果が `None`．
+/// node を起動できなかった診断は `before_node` の後に `Analysis` の末尾へ足す．
 pub fn run<F: Frontend, B: JsBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
     frontend: &mut F,
     backend: &mut B,
     options: &RunOptions,
+    before_node: impl FnOnce(&Analysis),
 ) -> (Analysis, Option<RunOutput>) {
     let (mut analysis, entry) = build(fs, input, frontend, backend, &options.out_dir);
+    before_node(&analysis);
     let Some(entry) = entry else {
         return (analysis, None);
     };
@@ -365,49 +402,100 @@ mod tests {
         Input::resolve(&fs, Path::new(path))
     }
 
-    fn ok(root: &str, entry: Option<&str>, project: &str) -> Result<Input, Diagnostic> {
+    fn project(root: &str, entry: Option<&str>, base: &str) -> Result<Input, Diagnostic> {
         Ok(Input {
             root: root.into(),
             entry: entry.map(Into::into),
-            project: project.into(),
+            base: base.into(),
+            single_file: false,
         })
     }
 
+    fn message(result: Result<Input, Diagnostic>) -> String {
+        result.unwrap_err().message
+    }
+
     #[test]
-    fn entry_from_directory() {
-        let files = ["app/src/main.emel", "app/src/http/client.emel"];
+    fn project_from_directory() {
+        let files = [
+            "/app/Pome.toml",
+            "/app/src/main.emel",
+            "/app/src/http/client.emel",
+        ];
+        let expected = project("/app/src", Some("/app/src/main.emel"), "/app");
+        assert_eq!(input(&files, "/app"), expected);
+        // 相対パスと `./` 付きでも同じ（メモリ上のファイルは `/` を起点にする）．
+        assert_eq!(input(&files, "./app/"), expected);
+        // プロジェクトの中のディレクトリを渡しても，上にたどって同じプロジェクトになる．
+        assert_eq!(input(&files, "/app/src/http"), expected);
+        // エントリがなくてもプロジェクトにはなる（check はエントリを求めない）．
         assert_eq!(
-            input(&files, "app"),
-            ok("app/src", Some("app/src/main.emel"), "app")
-        );
-        assert_eq!(
-            input(&["./app/src/main.emel"], "./app/"),
-            ok("app/src", Some("app/src/main.emel"), "app")
-        );
-        assert_eq!(
-            input(&["lib/src/util.emel"], "lib"),
-            ok("lib/src", None, "lib")
+            input(&["/lib/Pome.toml", "/lib/src/util.emel"], "/lib"),
+            project("/lib/src", None, "/lib")
         );
     }
 
     #[test]
-    fn entry_from_file() {
-        let files = ["app/src/main.emel", "app/src/http/client.emel", "main.emel"];
+    fn directory_without_pome_toml() {
         assert_eq!(
-            input(&files, "app/src/main.emel"),
-            ok("app/src", Some("app/src/main.emel"), "app")
+            message(input(&["/app/src/main.emel"], "/app")),
+            "`/app` にも祖先にも Pome.toml がない"
         );
-        // `src` の下の深いファイルでも，ルートは `src`．
+    }
+
+    #[test]
+    fn project_from_file() {
+        let files = [
+            "/app/Pome.toml",
+            "/app/src/main.emel",
+            "/app/src/http/client.emel",
+            "/app/scripts/x.emel",
+        ];
         assert_eq!(
-            input(&files, "app/src/http/client.emel"),
-            ok("app/src", Some("app/src/http/client.emel"), "app")
+            input(&files, "/app/src/http/client.emel"),
+            project("/app/src", Some("/app/src/http/client.emel"), "/app")
         );
-        // `src` の祖先がなければ，ファイルのあるディレクトリ．
         assert_eq!(
-            input(&files, "main.emel"),
-            ok(".", Some("./main.emel"), ".")
+            message(input(&files, "/app/scripts/x.emel")),
+            "`/app/scripts/x.emel` がソースのルート `/app/src` の外にある"
         );
-        assert!(input(&files, "missing.emel").is_err());
+    }
+
+    #[test]
+    fn nearest_pome_toml_wins() {
+        // 入れ子のプロジェクトは内側が勝つ．
+        let files = [
+            "/outer/Pome.toml",
+            "/outer/src/inner/Pome.toml",
+            "/outer/src/inner/src/main.emel",
+        ];
+        assert_eq!(
+            input(&files, "/outer/src/inner/src/main.emel"),
+            project(
+                "/outer/src/inner/src",
+                Some("/outer/src/inner/src/main.emel"),
+                "/outer/src/inner"
+            )
+        );
+    }
+
+    #[test]
+    fn single_file() {
+        let files = ["/home/src/proj/main.emel", "/home/src/proj/util.emel"];
+        // 祖先に `src` があっても，Pome.toml がなければ単独ファイル．
+        assert_eq!(
+            input(&files, "/home/src/proj/main.emel"),
+            Ok(Input {
+                root: "/home/src/proj".into(),
+                entry: Some("/home/src/proj/main.emel".into()),
+                base: "/home/src/proj".into(),
+                single_file: true,
+            })
+        );
+        assert_eq!(
+            message(input(&files, "/home/missing.emel")),
+            "`/home/missing.emel` が見つからない"
+        );
     }
 
     #[test]

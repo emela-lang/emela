@@ -101,13 +101,33 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
         args,
         output: Output::Inherit,
     };
-    let (analysis, output) =
-        emela_driver::run(&OsFs, &input, &mut LexOnly, &mut NoJsBackend, &options);
-    let diagnostics_code = report(&analysis);
+    // 診断は node を起動する前に出す．終わらないプログラムでも警告が先に見える．
+    let mut diagnostics_code = ExitCode::SUCCESS;
+    let mut reported = 0;
+    let (analysis, output) = emela_driver::run(
+        &OsFs,
+        &input,
+        &mut LexOnly,
+        &mut NoJsBackend,
+        &options,
+        |analysis| {
+            diagnostics_code = report(analysis);
+            reported = analysis.diagnostics.len();
+        },
+    );
     match output {
         // node の終了コードをそのまま返す．0〜255 の外は 8 ビットに切る（シェルと同じ）．
         Some(output) => ExitCode::from(output.code as u8),
-        None => diagnostics_code,
+        None => {
+            // node を起動できなかった診断は，前に出した分の後に足されている．
+            let rest = &analysis.diagnostics[reported..];
+            if rest.is_empty() {
+                diagnostics_code
+            } else {
+                print_diagnostics(rest, &analysis.sources);
+                ExitCode::from(DIAGNOSTIC_FAILURE)
+            }
+        }
     }
 }
 
