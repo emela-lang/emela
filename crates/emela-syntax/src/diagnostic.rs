@@ -65,6 +65,8 @@ pub enum DiagnosticCode {
     ExpectedDeclaration,
     /// 宣言の後ろの import（4.2）．
     ImportAfterDeclaration,
+    /// 1つのバリアントで名前付きと名前なしのフィールドを混ぜている（5.4）．
+    MixedVariantFields,
 }
 
 impl DiagnosticCode {
@@ -96,6 +98,7 @@ impl DiagnosticCode {
             Self::InvalidBindingTarget => "E0125",
             Self::ExpectedDeclaration => "E0126",
             Self::ImportAfterDeclaration => "E0127",
+            Self::MixedVariantFields => "E0128",
         }
     }
 }

@@ -183,6 +183,24 @@ pub enum SyntaxKind {
     ANNOT_ARG,
     /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
     FN_DECL,
+    /// `type User(id: Int, name: String) derive Eq`
+    TYPE_DECL,
+    /// `error NotFound(id: Int)`
+    ERROR_DECL,
+    /// `enum Shape { Circle(radius: Float)⏎ Empty }`
+    ENUM_DECL,
+    /// `(id: Int, name: String)`
+    FIELD_LIST,
+    /// `@json("n") name: String`
+    FIELD,
+    /// `{ Circle(radius: Float), Empty }`
+    VARIANT_LIST,
+    /// `Circle(radius: Float)` `Rect(Float, Float)` `Empty`
+    VARIANT,
+    /// 名前のないフィールドの並び．`(Float, Float)`
+    TUPLE_FIELD_LIST,
+    /// `derive Eq, Show`
+    DERIVE_CLAUSE,
     /// `[A, R: Immediate]`
     TYPE_PARAM_LIST,
     /// `R: Immediate + Show`
@@ -412,6 +430,14 @@ impl SyntaxKind {
 
     /// 直前のドキュメントコメント `##` を中に取り込むノードか．
     pub fn takes_doc(self) -> bool {
-        matches!(self, Self::FN_DECL)
+        matches!(
+            self,
+            Self::FN_DECL
+                | Self::TYPE_DECL
+                | Self::ERROR_DECL
+                | Self::ENUM_DECL
+                | Self::FIELD
+                | Self::VARIANT
+        )
     }
 }

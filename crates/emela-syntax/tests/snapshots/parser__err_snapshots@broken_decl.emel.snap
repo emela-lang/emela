@@ -111,18 +111,21 @@ ROOT@0..139
       WHITESPACE@97..98 " "
       R_BRACE@98..99 "}"
   NEWLINE@99..100 "\n"
-  ERROR@100..124
-    ERROR@100..124
-      TYPE_KW@100..104 "type"
-      WHITESPACE@104..105 " "
-      TYPE_NAME@105..109 "User"
+  TYPE_DECL@100..123
+    TYPE_KW@100..104 "type"
+    WHITESPACE@104..105 " "
+    TYPE_NAME@105..109 "User"
+    FIELD_LIST@109..123
       L_PAREN@109..110 "("
-      LOWER_NAME@110..114 "name"
-      COLON@114..115 ":"
-      WHITESPACE@115..116 " "
-      TYPE_NAME@116..122 "String"
+      FIELD@110..122
+        LOWER_NAME@110..114 "name"
+        COLON@114..115 ":"
+        WHITESPACE@115..116 " "
+        PATH_TYPE@116..122
+          PATH@116..122
+            TYPE_NAME@116..122 "String"
       R_PAREN@122..123 ")"
-      NEWLINE@123..124 "\n"
+  NEWLINE@123..124 "\n"
   FN_DECL@124..138
     FN_KW@124..126 "fn"
     WHITESPACE@126..127 " "
@@ -144,4 +147,3 @@ error[E0110]@48..49: expected `]`
 error[E0111]@55..56: expected type
 error[E0110]@57..59: expected `}`
 error[E0126]@79..80: expected declaration
-error[E0126]@100..104: `type` is not supported by the parser yet
