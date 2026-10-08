@@ -201,6 +201,28 @@ pub enum SyntaxKind {
     TUPLE_FIELD_LIST,
     /// `derive Eq, Show`
     DERIVE_CLAUSE,
+    /// `const MAX_RETRY: Int = 3`
+    CONST_DECL,
+    /// `effect Clock { suspend fn sleep(ms: Int) -> () }`
+    EFFECT_DECL,
+    /// effect の操作．`suspend fn sleep(ms: Int) -> ()`
+    OP_SIG,
+    /// `handler PostgresUsers(conn: Connection) implements Users { ... }`
+    HANDLER_DECL,
+    /// `implements Users`
+    IMPLEMENTS_CLAUSE,
+    /// `init { ... }`
+    HANDLER_INIT,
+    /// `release { ... }`
+    HANDLER_RELEASE,
+    /// `layer AppLive { EnvConfig⏎ ConsoleLogger }`
+    LAYER_DECL,
+    /// `trait Ord: Eq { ... }`
+    TRAIT_DECL,
+    /// `impl Show for User { ... }`
+    IMPL_DECL,
+    /// 宣言の本体の `{ ... }`．effect，handler，layer，trait，impl に使う．
+    ITEM_LIST,
     /// `[A, R: Immediate]`
     TYPE_PARAM_LIST,
     /// `R: Immediate + Show`
@@ -436,6 +458,15 @@ impl SyntaxKind {
                 | Self::TYPE_DECL
                 | Self::ERROR_DECL
                 | Self::ENUM_DECL
+                | Self::CONST_DECL
+                | Self::EFFECT_DECL
+                | Self::OP_SIG
+                | Self::HANDLER_DECL
+                | Self::HANDLER_INIT
+                | Self::HANDLER_RELEASE
+                | Self::LAYER_DECL
+                | Self::TRAIT_DECL
+                | Self::IMPL_DECL
                 | Self::FIELD
                 | Self::VARIANT
         )

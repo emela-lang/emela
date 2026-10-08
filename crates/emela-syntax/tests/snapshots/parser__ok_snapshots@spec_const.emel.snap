@@ -1,0 +1,54 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_const.emel
+---
+ROOT@0..97
+  CONST_DECL@0..19
+    CONST_KW@0..5 "const"
+    WHITESPACE@5..6 " "
+    UPPER_NAME@6..15 "MAX_RETRY"
+    WHITESPACE@15..16 " "
+    EQ@16..17 "="
+    WHITESPACE@17..18 " "
+    LITERAL@18..19
+      INT@18..19 "3"
+  NEWLINE@19..20 "\n"
+  CONST_DECL@20..61
+    CONST_KW@20..25 "const"
+    WHITESPACE@25..26 " "
+    UPPER_NAME@26..40 "DEFAULT_CONFIG"
+    WHITESPACE@40..41 " "
+    EQ@41..42 "="
+    WHITESPACE@42..43 " "
+    CALL_EXPR@43..61
+      PATH_EXPR@43..49
+        PATH@43..49
+          TYPE_NAME@43..49 "Config"
+      ARG_LIST@49..61
+        L_PAREN@49..50 "("
+        NAMED_ARG@50..60
+          LOWER_NAME@50..54 "port"
+          COLON@54..55 ":"
+          WHITESPACE@55..56 " "
+          LITERAL@56..60
+            INT@56..60 "8080"
+        R_PAREN@60..61 ")"
+  NEWLINE@61..62 "\n"
+  CONST_DECL@62..96
+    PUB_KW@62..65 "pub"
+    WHITESPACE@65..66 " "
+    CONST_KW@66..71 "const"
+    WHITESPACE@71..72 " "
+    UPPER_NAME@72..82 "TIMEOUT_MS"
+    COLON@82..83 ":"
+    WHITESPACE@83..84 " "
+    PATH_TYPE@84..87
+      PATH@84..87
+        TYPE_NAME@84..87 "Int"
+    WHITESPACE@87..88 " "
+    EQ@88..89 "="
+    WHITESPACE@89..90 " "
+    LITERAL@90..96
+      INT@90..96 "30_000"
+  NEWLINE@96..97 "\n"

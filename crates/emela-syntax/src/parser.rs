@@ -138,6 +138,12 @@ impl<'t> Parser<'t> {
         self.nth(n) == LOWER_NAME && self.tokens[self.pos + n].text == kw
     }
 
+    /// 行頭の，`fn` と `suspend` 以外の宣言の始まりにいるか．宣言の本体の中の項目は
+    /// 行頭の `fn` で始まるので，本体の中ではこちらを回復の同期点にする．
+    pub(crate) fn at_top_decl_start(&self) -> bool {
+        self.at_decl_start() && !matches!(self.current(), FN_KW | SUSPEND_KW)
+    }
+
     /// 行頭にいるか．
     pub(crate) fn at_line_start(&self) -> bool {
         self.tokens.get(self.pos).is_some_and(|t| t.line_start)

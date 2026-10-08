@@ -1,6 +1,6 @@
 //! 宣言（17.3）．この段は `fn` だけ．
 
-use super::expressions::block;
+use super::expressions::{block, expr};
 use super::param_list;
 use super::types::{effects_and_errors, path, ret_type, type_};
 use crate::SyntaxKind::*;
@@ -87,9 +87,11 @@ fn import(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, IMPORT);
 }
 
-/// `{ annotation NL } [ "pub" [ "opaque" ] ] item`
+/// `{ annotation NL } [ "pub" [ "opaque" ] ] item | impl_decl`
 fn decl(p: &mut Parser<'_>, m: Marker) {
+    let mut annotated = false;
     while p.at(AT) {
+        annotated = true;
         let named = annotation(p);
         if named && !p.at_eof() && !p.eat(NEWLINE) && !p.at_line_start() {
             p.error(
@@ -99,23 +101,38 @@ fn decl(p: &mut Parser<'_>, m: Marker) {
         }
         while p.eat(NEWLINE) {}
     }
-    p.eat(PUB_KW);
-    p.eat(OPAQUE_KW);
+    let public = p.eat(PUB_KW);
+    if p.at(OPAQUE_KW) {
+        if !public {
+            p.error(
+                DiagnosticCode::MisplacedOpaque,
+                "`opaque` must follow `pub`",
+            );
+        } else if !matches!(p.nth(1), TYPE_KW | ENUM_KW) {
+            p.error(
+                DiagnosticCode::MisplacedOpaque,
+                "`opaque` can only be used on `type` and `enum`",
+            );
+        }
+        p.bump();
+    }
+    if p.at(IMPL_KW) && (public || annotated) {
+        p.error(
+            DiagnosticCode::ModifierOnImpl,
+            "`impl` cannot have `pub` or annotations",
+        );
+    }
     match p.current() {
         FN_KW | SUSPEND_KW => fn_decl(p, m),
         TYPE_KW => type_decl(p, m),
         ERROR_KW => error_decl(p, m),
         ENUM_KW => enum_decl(p, m),
-        CONST_KW | EFFECT_KW | HANDLER_KW | LAYER_KW | TRAIT_KW | IMPL_KW => {
-            // 次のステップで読む．それまでは診断を出して宣言ごと読み飛ばす．
-            let message = format!(
-                "{} is not supported by the parser yet",
-                p.current().describe()
-            );
-            p.error(DiagnosticCode::ExpectedDeclaration, message);
-            skip_to_decl(p);
-            m.complete(p, ERROR);
-        }
+        CONST_KW => const_decl(p, m),
+        EFFECT_KW => effect_decl(p, m),
+        HANDLER_KW => handler_decl(p, m),
+        LAYER_KW => layer_decl(p, m),
+        TRAIT_KW => trait_decl(p, m),
+        IMPL_KW => impl_decl(p, m),
         _ => {
             p.error(DiagnosticCode::ExpectedDeclaration, "expected declaration");
             if !p.at_eof() {
@@ -187,7 +204,7 @@ fn skip_to_decl(p: &mut Parser<'_>) {
 fn fn_decl(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
-    p.expect(LOWER_NAME);
+    decl_name(p, LOWER_NAME);
     if p.at(L_BRACK) {
         type_param_list(p);
     }
@@ -211,12 +228,19 @@ fn fn_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, FN_DECL);
 }
 
-/// `"[" type_param { "," type_param } "]"`．`type_param = upper_name [ ":" bound { "+" bound } ]`
+/// `"[" type_param { "," type_param } "]"`．`type_param = ( upper_name | type_name ) [ ":" bound { "+" bound } ]`
 fn type_param_list(p: &mut Parser<'_>) {
     let m = p.start();
     super::delimited(p, L_BRACK, R_BRACK, |p| {
         let param = p.start();
-        p.expect(UPPER_NAME);
+        // 型引数は大文字名か型名（2.3）．
+        if !p.eat(UPPER_NAME) && !p.eat(TYPE_NAME) {
+            p.err_recover(
+                DiagnosticCode::ExpectedToken,
+                "expected type parameter name",
+                &[COLON, COMMA, R_BRACK, NEWLINE],
+            );
+        }
         if p.eat(COLON) {
             loop {
                 if p.at(TYPE_NAME) {
@@ -450,4 +474,247 @@ fn at_type_start(p: &Parser<'_>) -> bool {
         p.current(),
         TYPE_NAME | UPPER_NAME | SELF_TYPE_KW | L_PAREN | FN_KW
     )
+}
+
+/// `"const" upper_name [ ":" type ] "=" expr`
+fn const_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(CONST_KW);
+    decl_name(p, UPPER_NAME);
+    if p.eat(COLON) {
+        type_(p);
+    }
+    if p.expect(EQ) || !matches!(p.current(), NEWLINE | EOF) {
+        expr(p);
+    }
+    m.complete(p, CONST_DECL);
+}
+
+/// `"effect" type_name "{" { op_sig NL } "}"`
+fn effect_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(EFFECT_KW);
+    decl_name(p, TYPE_NAME);
+    item_list(p, |p, m| {
+        if !matches!(p.current(), FN_KW | SUSPEND_KW) {
+            item_error(p, m, "expected operation (`fn`)");
+            return;
+        }
+        op_sig(p, m);
+    });
+    m.complete(p, EFFECT_DECL);
+}
+
+/// `[ "suspend" ] "fn" lower_name "(" [ params ] ")" "->" type [ "fails" error_set ]`
+fn op_sig(p: &mut Parser<'_>, m: Marker) {
+    p.eat(SUSPEND_KW);
+    p.expect(FN_KW);
+    decl_name(p, LOWER_NAME);
+    if p.at(L_PAREN) {
+        param_list(p);
+    } else {
+        p.expect(L_PAREN);
+    }
+    if p.at(THIN_ARROW) {
+        ret_type(p);
+    } else {
+        p.expect(THIN_ARROW);
+    }
+    effects_and_errors(p);
+    m.complete(p, OP_SIG);
+}
+
+/// `"handler" type_name [ "(" [ fields ] ")" ] "implements" type_ref "{" { handler_item NL } "}"`
+///
+/// `handler_item = "init" block | "release" block
+///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block`
+fn handler_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(HANDLER_KW);
+    decl_name(p, TYPE_NAME);
+    if p.at(L_PAREN) {
+        field_list(p);
+    }
+    // `implements` がなくても型名が続いていれば，それを対象として読む．
+    if p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
+        let c = p.start();
+        if !p.at_contextual_kw("implements") {
+            p.error(DiagnosticCode::ExpectedToken, "expected `implements`");
+        } else {
+            p.bump();
+        }
+        if p.at(TYPE_NAME) {
+            path(p);
+        } else {
+            p.expect(TYPE_NAME);
+        }
+        c.complete(p, IMPLEMENTS_CLAUSE);
+    } else {
+        p.error(DiagnosticCode::ExpectedToken, "expected `implements`");
+    }
+    item_list(p, |p, m| {
+        let kind = if p.at_contextual_kw("init") && p.nth(1) == L_BRACE {
+            HANDLER_INIT
+        } else if p.at_contextual_kw("release") && p.nth(1) == L_BRACE {
+            HANDLER_RELEASE
+        } else if matches!(p.current(), FN_KW | SUSPEND_KW) {
+            fn_decl(p, m);
+            return;
+        } else {
+            item_error(p, m, "expected `init`, `release`, or operation (`fn`)");
+            return;
+        };
+        p.bump();
+        block(p);
+        m.complete(p, kind);
+    });
+    m.complete(p, HANDLER_DECL);
+}
+
+/// `"layer" type_name "{" type_ref { sep type_ref } "}"`
+fn layer_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(LAYER_KW);
+    decl_name(p, TYPE_NAME);
+    let list = p.start();
+    if p.expect(L_BRACE) {
+        separated_items(p, "handlers", |p, m| {
+            m.abandon(p);
+            if p.at(TYPE_NAME) {
+                path(p);
+            } else {
+                p.err_recover(
+                    DiagnosticCode::ExpectedToken,
+                    "expected handler name",
+                    &[COMMA, R_BRACE, NEWLINE],
+                );
+            }
+        });
+        p.expect(R_BRACE);
+    }
+    list.complete(p, ITEM_LIST);
+    m.complete(p, LAYER_DECL);
+}
+
+/// `"trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL } "}"`
+///
+/// `trait_item = "fn" lower_name "(" [ params ] ")" [ signature ] [ block ] | derive_rule`
+fn trait_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(TRAIT_KW);
+    decl_name(p, TYPE_NAME);
+    if p.eat(COLON) {
+        loop {
+            if p.at(TYPE_NAME) {
+                path(p);
+            } else {
+                p.expect(TYPE_NAME);
+            }
+            if !p.eat(PLUS) {
+                break;
+            }
+        }
+    }
+    item_list(p, |p, m| {
+        if p.at(FN_KW) {
+            fn_decl(p, m);
+        } else if p.at_contextual_kw("derive") {
+            // 導出規則は構文が未確定（18.1 #3）．診断を出して丸ごと読み飛ばす．
+            p.error(
+                DiagnosticCode::DeriveRuleUnsupported,
+                "derive rules in traits are not supported yet",
+            );
+            skip_braced_line(p);
+            m.complete(p, ERROR);
+        } else {
+            item_error(p, m, "expected method (`fn`)");
+        }
+    });
+    m.complete(p, TRAIT_DECL);
+}
+
+/// `"impl" type_ref "for" type "{" { impl_item NL } "}"`．`impl_item = "fn" lower_name "(" [ params ] ")" block`
+fn impl_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_kind(IMPL_KW);
+    if p.at(TYPE_NAME) {
+        path(p);
+    } else {
+        p.expect(TYPE_NAME);
+    }
+    if p.at_contextual_kw("for") {
+        p.bump();
+        type_(p);
+    } else {
+        p.error(DiagnosticCode::ExpectedToken, "expected `for`");
+        // `for` がなくても型が続いていれば型として読む．
+        if at_type_start(p) {
+            type_(p);
+        }
+    }
+    item_list(p, |p, m| {
+        if p.at(FN_KW) {
+            fn_decl(p, m);
+        } else {
+            item_error(p, m, "expected method (`fn`)");
+        }
+    });
+    m.complete(p, IMPL_DECL);
+}
+
+/// 宣言の本体 `"{" { item NL } "}"`．項目は `item` が読み，渡したマーカーで閉じる．
+fn item_list(p: &mut Parser<'_>, mut item: impl FnMut(&mut Parser<'_>, Marker)) {
+    let list = p.start();
+    if !p.expect(L_BRACE) {
+        list.complete(p, ITEM_LIST);
+        return;
+    }
+    loop {
+        let doc = newlines_with_doc(p);
+        if p.at(R_BRACE) || p.at_eof() || p.at_top_decl_start() {
+            if let Some(doc) = doc {
+                doc.abandon(p);
+            }
+            break;
+        }
+        let m = doc.unwrap_or_else(|| p.start());
+        let before = p.position();
+        item(p, m);
+        if p.position() == before {
+            let e = p.start();
+            p.bump();
+            e.complete(p, ERROR);
+            continue;
+        }
+        if !matches!(p.current(), NEWLINE | R_BRACE | EOF) && !p.at_line_start() {
+            p.error(
+                DiagnosticCode::ExpectedStatementEnd,
+                "expected newline or `}` after item",
+            );
+            let e = p.start();
+            while !matches!(p.current(), NEWLINE | R_BRACE | EOF) && !p.at_decl_start() {
+                p.bump();
+            }
+            e.complete(p, ERROR);
+        }
+    }
+    p.expect(R_BRACE);
+    list.complete(p, ITEM_LIST);
+}
+
+/// 改行か，対応の取れた外側の `}` の手前まで読む．中の `{ }` は丸ごと読む．
+fn skip_braced_line(p: &mut Parser<'_>) {
+    let mut depth = 0usize;
+    while !p.at_eof() {
+        match p.current() {
+            NEWLINE | R_BRACE if depth == 0 => break,
+            L_BRACE => depth += 1,
+            R_BRACE => depth -= 1,
+            _ => {}
+        }
+        p.bump();
+    }
+}
+
+/// 本体の中の読めない項目．診断を出し，行末か `}` の手前までを ERROR に包む．
+fn item_error(p: &mut Parser<'_>, m: Marker, message: &str) {
+    p.error(DiagnosticCode::ExpectedToken, message);
+    while !matches!(p.current(), NEWLINE | R_BRACE | EOF) && !p.at_top_decl_start() {
+        p.bump();
+    }
+    m.complete(p, ERROR);
 }

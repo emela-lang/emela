@@ -1,0 +1,385 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/constraints.emel
+---
+ROOT@0..528
+  FN_DECL@0..25
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..10 "no_body"
+    PARAM_LIST@10..18
+      L_PAREN@10..11 "("
+      PARAM@11..17
+        LOWER_NAME@11..12 "x"
+        COLON@12..13 ":"
+        WHITESPACE@13..14 " "
+        PATH_TYPE@14..17
+          PATH@14..17
+            TYPE_NAME@14..17 "Int"
+      R_PAREN@17..18 ")"
+    WHITESPACE@18..19 " "
+    RET_TYPE@19..25
+      THIN_ARROW@19..21 "->"
+      WHITESPACE@21..22 " "
+      PATH_TYPE@22..25
+        PATH@22..25
+          TYPE_NAME@22..25 "Int"
+  NEWLINE@25..26 "\n"
+  FN_DECL@26..48
+    SUSPEND_KW@26..33 "suspend"
+    WHITESPACE@33..34 " "
+    FN_KW@34..36 "fn"
+    WHITESPACE@36..37 " "
+    LOWER_NAME@37..40 "top"
+    PARAM_LIST@40..42
+      L_PAREN@40..41 "("
+      R_PAREN@41..42 ")"
+    WHITESPACE@42..43 " "
+    BLOCK_EXPR@43..48
+      L_BRACE@43..44 "{"
+      WHITESPACE@44..45 " "
+      LITERAL@45..46
+        INT@45..46 "1"
+      WHITESPACE@46..47 " "
+      R_BRACE@47..48 "}"
+  NEWLINE@48..49 "\n"
+  TYPE_DECL@49..63
+    TYPE_KW@49..53 "type"
+    WHITESPACE@53..54 " "
+    TYPE_NAME@54..63 "Fieldless"
+  NEWLINE@63..64 "\n"
+  ENUM_DECL@64..77
+    ENUM_KW@64..68 "enum"
+    WHITESPACE@68..69 " "
+    TYPE_NAME@69..74 "Empty"
+    WHITESPACE@74..75 " "
+    VARIANT_LIST@75..77
+      L_BRACE@75..76 "{"
+      R_BRACE@76..77 "}"
+  NEWLINE@77..78 "\n"
+  TYPE_DECL@78..104
+    OPAQUE_KW@78..84 "opaque"
+    WHITESPACE@84..85 " "
+    TYPE_KW@85..89 "type"
+    WHITESPACE@89..90 " "
+    TYPE_NAME@90..96 "NotPub"
+    FIELD_LIST@96..104
+      L_PAREN@96..97 "("
+      FIELD@97..103
+        LOWER_NAME@97..98 "x"
+        COLON@98..99 ":"
+        WHITESPACE@99..100 " "
+        PATH_TYPE@100..103
+          PATH@100..103
+            TYPE_NAME@100..103 "Int"
+      R_PAREN@103..104 ")"
+  NEWLINE@104..105 "\n"
+  FN_DECL@105..133
+    PUB_KW@105..108 "pub"
+    WHITESPACE@108..109 " "
+    OPAQUE_KW@109..115 "opaque"
+    WHITESPACE@115..116 " "
+    FN_KW@116..118 "fn"
+    WHITESPACE@118..119 " "
+    LOWER_NAME@119..125 "hidden"
+    PARAM_LIST@125..127
+      L_PAREN@125..126 "("
+      R_PAREN@126..127 ")"
+    WHITESPACE@127..128 " "
+    BLOCK_EXPR@128..133
+      L_BRACE@128..129 "{"
+      WHITESPACE@129..130 " "
+      LITERAL@130..131
+        INT@130..131 "1"
+      WHITESPACE@131..132 " "
+      R_BRACE@132..133 "}"
+  NEWLINE@133..134 "\n"
+  IMPL_DECL@134..181
+    PUB_KW@134..137 "pub"
+    WHITESPACE@137..138 " "
+    IMPL_KW@138..142 "impl"
+    WHITESPACE@142..143 " "
+    PATH@143..147
+      TYPE_NAME@143..147 "Show"
+    WHITESPACE@147..148 " "
+    LOWER_NAME@148..151 "for"
+    WHITESPACE@151..152 " "
+    PATH_TYPE@152..156
+      PATH@152..156
+        TYPE_NAME@152..156 "User"
+    WHITESPACE@156..157 " "
+    ITEM_LIST@157..181
+      L_BRACE@157..158 "{"
+      WHITESPACE@158..159 " "
+      FN_DECL@159..179
+        FN_KW@159..161 "fn"
+        WHITESPACE@161..162 " "
+        LOWER_NAME@162..166 "show"
+        PARAM_LIST@166..172
+          L_PAREN@166..167 "("
+          PARAM@167..171
+            SELF_KW@167..171 "self"
+          R_PAREN@171..172 ")"
+        WHITESPACE@172..173 " "
+        BLOCK_EXPR@173..179
+          L_BRACE@173..174 "{"
+          WHITESPACE@174..175 " "
+          STRING@175..177
+            STRING_QUOTE@175..176 "\""
+            STRING_QUOTE@176..177 "\""
+          WHITESPACE@177..178 " "
+          R_BRACE@178..179 "}"
+      WHITESPACE@179..180 " "
+      R_BRACE@180..181 "}"
+  NEWLINE@181..182 "\n"
+  IMPL_DECL@182..236
+    ANNOTATION@182..187
+      AT@182..183 "@"
+      LOWER_NAME@183..187 "test"
+    NEWLINE@187..188 "\n"
+    IMPL_KW@188..192 "impl"
+    WHITESPACE@192..193 " "
+    PATH@193..195
+      TYPE_NAME@193..195 "Eq"
+    WHITESPACE@195..196 " "
+    LOWER_NAME@196..199 "for"
+    WHITESPACE@199..200 " "
+    PATH_TYPE@200..204
+      PATH@200..204
+        TYPE_NAME@200..204 "User"
+    WHITESPACE@204..205 " "
+    ITEM_LIST@205..236
+      L_BRACE@205..206 "{"
+      WHITESPACE@206..207 " "
+      FN_DECL@207..234
+        FN_KW@207..209 "fn"
+        WHITESPACE@209..210 " "
+        LOWER_NAME@210..212 "eq"
+        PARAM_LIST@212..225
+          L_PAREN@212..213 "("
+          PARAM@213..217
+            SELF_KW@213..217 "self"
+          COMMA@217..218 ","
+          WHITESPACE@218..219 " "
+          PARAM@219..224
+            LOWER_NAME@219..224 "other"
+          R_PAREN@224..225 ")"
+        WHITESPACE@225..226 " "
+        BLOCK_EXPR@226..234
+          L_BRACE@226..227 "{"
+          WHITESPACE@227..228 " "
+          PATH_EXPR@228..232
+            PATH@228..232
+              TYPE_NAME@228..232 "True"
+          WHITESPACE@232..233 " "
+          R_BRACE@233..234 "}"
+      WHITESPACE@234..235 " "
+      R_BRACE@235..236 "}"
+  NEWLINE@236..237 "\n"
+  HANDLER_DECL@237..317
+    HANDLER_KW@237..244 "handler"
+    WHITESPACE@244..245 " "
+    TYPE_NAME@245..251 "Second"
+    WHITESPACE@251..252 " "
+    IMPLEMENTS_CLAUSE@252..269
+      LOWER_NAME@252..262 "implements"
+      WHITESPACE@262..263 " "
+      PATH@263..269
+        TYPE_NAME@263..269 "Logger"
+    WHITESPACE@269..270 " "
+    ITEM_LIST@270..317
+      L_BRACE@270..271 "{"
+      NEWLINE@271..272 "\n"
+      WHITESPACE@272..274 "  "
+      FN_DECL@274..300
+        FN_KW@274..276 "fn"
+        WHITESPACE@276..277 " "
+        LOWER_NAME@277..281 "info"
+        PARAM_LIST@281..294
+          L_PAREN@281..282 "("
+          PARAM@282..293
+            LOWER_NAME@282..285 "msg"
+            COLON@285..286 ":"
+            WHITESPACE@286..287 " "
+            PATH_TYPE@287..293
+              PATH@287..293
+                TYPE_NAME@287..293 "String"
+          R_PAREN@293..294 ")"
+        WHITESPACE@294..295 " "
+        BLOCK_EXPR@295..300
+          L_BRACE@295..296 "{"
+          WHITESPACE@296..297 " "
+          LITERAL@297..298
+            INT@297..298 "1"
+          WHITESPACE@298..299 " "
+          R_BRACE@299..300 "}"
+      NEWLINE@300..301 "\n"
+      WHITESPACE@301..303 "  "
+      FN_DECL@303..315
+        FN_KW@303..305 "fn"
+        WHITESPACE@305..306 " "
+        LOWER_NAME@306..313 "missing"
+        PARAM_LIST@313..315
+          L_PAREN@313..314 "("
+          R_PAREN@314..315 ")"
+      NEWLINE@315..316 "\n"
+      R_BRACE@316..317 "}"
+  NEWLINE@317..318 "\n"
+  IMPL_DECL@318..407
+    IMPL_KW@318..322 "impl"
+    WHITESPACE@322..323 " "
+    PATH@323..327
+      TYPE_NAME@323..327 "Show"
+    WHITESPACE@327..328 " "
+    LOWER_NAME@328..331 "for"
+    WHITESPACE@331..332 " "
+    PATH_TYPE@332..337
+      PATH@332..337
+        TYPE_NAME@332..337 "Thing"
+    WHITESPACE@337..338 " "
+    ITEM_LIST@338..407
+      L_BRACE@338..339 "{"
+      NEWLINE@339..340 "\n"
+      WHITESPACE@340..342 "  "
+      FN_DECL@342..387
+        FN_KW@342..344 "fn"
+        WHITESPACE@344..345 " "
+        LOWER_NAME@345..349 "show"
+        PARAM_LIST@349..355
+          L_PAREN@349..350 "("
+          PARAM@350..354
+            SELF_KW@350..354 "self"
+          R_PAREN@354..355 ")"
+        WHITESPACE@355..356 " "
+        RET_TYPE@356..365
+          THIN_ARROW@356..358 "->"
+          WHITESPACE@358..359 " "
+          PATH_TYPE@359..365
+            PATH@359..365
+              TYPE_NAME@359..365 "String"
+        WHITESPACE@365..366 " "
+        FAILS_CLAUSE@366..373
+          LOWER_NAME@366..371 "fails"
+          WHITESPACE@371..372 " "
+          ERROR_SET@372..373
+            TYPE_VAR@372..373
+              UPPER_NAME@372..373 "E"
+        WHITESPACE@373..374 " "
+        USE_CLAUSE@374..380
+          USE_KW@374..377 "use"
+          WHITESPACE@377..378 " "
+          EFFECT_SET@378..380
+            PATH@378..380
+              TYPE_NAME@378..380 "Io"
+        WHITESPACE@380..381 " "
+        BLOCK_EXPR@381..387
+          L_BRACE@381..382 "{"
+          WHITESPACE@382..383 " "
+          STRING@383..385
+            STRING_QUOTE@383..384 "\""
+            STRING_QUOTE@384..385 "\""
+          WHITESPACE@385..386 " "
+          R_BRACE@386..387 "}"
+      NEWLINE@387..388 "\n"
+      WHITESPACE@388..390 "  "
+      FN_DECL@390..405
+        FN_KW@390..392 "fn"
+        WHITESPACE@392..393 " "
+        LOWER_NAME@393..399 "nobody"
+        PARAM_LIST@399..405
+          L_PAREN@399..400 "("
+          PARAM@400..404
+            SELF_KW@400..404 "self"
+          R_PAREN@404..405 ")"
+      NEWLINE@405..406 "\n"
+      R_BRACE@406..407 "}"
+  NEWLINE@407..408 "\n"
+  TRAIT_DECL@408..447
+    TRAIT_KW@408..413 "trait"
+    WHITESPACE@413..414 " "
+    TYPE_NAME@414..418 "Fine"
+    WHITESPACE@418..419 " "
+    ITEM_LIST@419..447
+      L_BRACE@419..420 "{"
+      WHITESPACE@420..421 " "
+      FN_DECL@421..445
+        FN_KW@421..423 "fn"
+        WHITESPACE@423..424 " "
+        LOWER_NAME@424..432 "bodyless"
+        PARAM_LIST@432..438
+          L_PAREN@432..433 "("
+          PARAM@433..437
+            SELF_KW@433..437 "self"
+          R_PAREN@437..438 ")"
+        WHITESPACE@438..439 " "
+        RET_TYPE@439..445
+          THIN_ARROW@439..441 "->"
+          WHITESPACE@441..442 " "
+          PATH_TYPE@442..445
+            PATH@442..445
+              TYPE_NAME@442..445 "Int"
+      WHITESPACE@445..446 " "
+      R_BRACE@446..447 "}"
+  NEWLINE@447..448 "\n"
+  FN_DECL@448..487
+    ANNOTATION@448..457
+      AT@448..449 "@"
+      LOWER_NAME@449..457 "external"
+    NEWLINE@457..458 "\n"
+    FN_KW@458..460 "fn"
+    WHITESPACE@460..461 " "
+    LOWER_NAME@461..472 "ok_external"
+    PARAM_LIST@472..480
+      L_PAREN@472..473 "("
+      PARAM@473..479
+        LOWER_NAME@473..474 "x"
+        COLON@474..475 ":"
+        WHITESPACE@475..476 " "
+        PATH_TYPE@476..479
+          PATH@476..479
+            TYPE_NAME@476..479 "Int"
+      R_PAREN@479..480 ")"
+    WHITESPACE@480..481 " "
+    RET_TYPE@481..487
+      THIN_ARROW@481..483 "->"
+      WHITESPACE@483..484 " "
+      PATH_TYPE@484..487
+        PATH@484..487
+          TYPE_NAME@484..487 "Int"
+  NEWLINE@487..488 "\n"
+  FN_DECL@488..527
+    ANNOTATION@488..497
+      AT@488..489 "@"
+      LOWER_NAME@489..497 "external"
+    NEWLINE@497..498 "\n"
+    SUSPEND_KW@498..505 "suspend"
+    WHITESPACE@505..506 " "
+    FN_KW@506..508 "fn"
+    WHITESPACE@508..509 " "
+    LOWER_NAME@509..519 "ok_suspend"
+    PARAM_LIST@519..521
+      L_PAREN@519..520 "("
+      R_PAREN@520..521 ")"
+    WHITESPACE@521..522 " "
+    RET_TYPE@522..527
+      THIN_ARROW@522..524 "->"
+      WHITESPACE@524..525 " "
+      UNIT_TYPE@525..527
+        L_PAREN@525..526 "("
+        R_PAREN@526..527 ")"
+  NEWLINE@527..528 "\n"
+error[E0130]@3..10: a function without a body must be `@external`
+error[E0130]@37..40: a top-level `suspend fn` must be `@external`
+error[E0130]@54..63: a type without fields must be `@external`
+error[E0132]@69..74: an enum needs at least one variant
+error[E0131]@78..84: `opaque` must follow `pub`
+error[E0131]@109..115: `opaque` can only be used on `type` and `enum`
+error[E0133]@138..142: `impl` cannot have `pub` or annotations
+error[E0133]@188..192: `impl` cannot have `pub` or annotations
+error[E0134]@282..293: handler operation parameters take their types from the effect
+error[E0135]@306..313: this function needs a body
+error[E0136]@356..365: impl methods take their signature from the trait
+error[E0136]@366..373: impl methods take their signature from the trait
+error[E0136]@374..380: impl methods take their signature from the trait
+error[E0135]@393..399: this function needs a body

@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn fn_宣言の名前と引数と本体() {
         let file = source_file(
-            "pub fn find(id: Int, self) -> User fails NotFound use Users { todo() }\nsuspend fn tick()",
+            "pub fn find(id: Int, self) -> User fails NotFound use Users { todo() }\n@external\nsuspend fn tick()",
         );
         let fns: Vec<_> = file.fn_decls().collect();
         assert_eq!(fns.len(), 2);
