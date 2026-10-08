@@ -169,6 +169,37 @@ pub enum SyntaxKind {
 
     // ノード
     ROOT,
+
+    // 型（17.4）
+    /// 型の参照．`Http.Client` `User`
+    PATH,
+    /// 名前の付いた型と型引数．`List[Int]`
+    PATH_TYPE,
+    /// `[Int, String]`
+    TYPE_ARG_LIST,
+    /// 型引数を指す大文字名．`A`
+    TYPE_VAR,
+    /// `Self`
+    SELF_TYPE,
+    /// `()`
+    UNIT_TYPE,
+    /// `(Int, String)`
+    TUPLE_TYPE,
+    /// `fn(A) -> B fails E use R`
+    FN_TYPE,
+    /// 関数型の引数の並び．`(A, B)`
+    PARAM_TYPE_LIST,
+    /// `-> T`
+    RET_TYPE,
+    /// `fails E`
+    FAILS_CLAUSE,
+    /// `{}` `NotFound | DbError` `E`
+    ERROR_SET,
+    /// `use R`
+    USE_CLAUSE,
+    /// `{ Io, Clock }` `Users` `R`
+    EFFECT_SET,
+
     /// パーサがエラー回復で読み飛ばした範囲．
     ERROR,
 
@@ -265,7 +296,7 @@ impl SyntaxKind {
             AT => "`@`",
             ERROR_TOKEN => "invalid token",
             EOF => "end of file",
-            ROOT | ERROR | __LAST => "syntax node",
+            _ => "syntax node",
         }
     }
 }

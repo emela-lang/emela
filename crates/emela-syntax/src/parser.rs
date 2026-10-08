@@ -3,6 +3,7 @@
 //! パーサは木を直接組まず，`Event` を積むだけにする．トリビアはパーサから見えず，
 //! 木を組むときに `sink` が差し込む．
 
+mod grammar;
 mod sink;
 
 use std::cell::Cell;
@@ -11,6 +12,7 @@ use crate::SyntaxKind::{self, EOF, LOWER_NAME};
 use crate::Token;
 use crate::diagnostic::DiagnosticCode;
 
+pub(crate) use grammar::root;
 pub(crate) use sink::build;
 
 #[derive(Debug)]
@@ -91,6 +93,12 @@ impl<'t> Parser<'t> {
         self.events.push(Event::Token);
     }
 
+    /// `kind` にいることを確かめてから読み進める．文法の誤りなので，違えば panic する．
+    pub(crate) fn bump_kind(&mut self, kind: SyntaxKind) {
+        assert!(self.at(kind), "{kind:?} にいるはずが {:?}", self.current());
+        self.bump();
+    }
+
     pub(crate) fn eat(&mut self, kind: SyntaxKind) -> bool {
         if !self.at(kind) {
             return false;
@@ -115,6 +123,22 @@ impl<'t> Parser<'t> {
             code,
             message: message.into(),
         });
+    }
+
+    /// 診断を出し，次のトークンが `recovery` になければ1つ ERROR に包んで読み飛ばす．
+    pub(crate) fn err_recover(
+        &mut self,
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        recovery: &[SyntaxKind],
+    ) {
+        self.error(code, message);
+        if self.at_eof() || recovery.contains(&self.current()) {
+            return;
+        }
+        let m = self.start();
+        self.bump();
+        m.complete(self, SyntaxKind::ERROR);
     }
 
     pub(crate) fn start(&mut self) -> Marker {
@@ -155,17 +179,4 @@ impl CompletedMarker {
         }
         parent
     }
-}
-
-/// 文法はまだない．全トークンを1つの ERROR に包んで ROOT の下に置く．
-pub(crate) fn root(p: &mut Parser<'_>) {
-    let root = p.start();
-    if !p.at_eof() {
-        let e = p.start();
-        while !p.at_eof() {
-            p.bump();
-        }
-        e.complete(p, SyntaxKind::ERROR);
-    }
-    root.complete(p, SyntaxKind::ROOT);
 }

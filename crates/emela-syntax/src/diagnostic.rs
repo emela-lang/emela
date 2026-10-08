@@ -31,6 +31,10 @@ pub enum DiagnosticCode {
     UnknownEscape,
     /// 来るはずのトークンがない．
     ExpectedToken,
+    /// 型が来るはずの位置に型がない．
+    ExpectedType,
+    /// 要素が1つのタプル型．`(Int)` `(Int,)`
+    SingleElementTuple,
 }
 
 impl DiagnosticCode {
@@ -45,6 +49,8 @@ impl DiagnosticCode {
             Self::MissingEscapedCharacter => "E0106",
             Self::UnknownEscape => "E0107",
             Self::ExpectedToken => "E0110",
+            Self::ExpectedType => "E0111",
+            Self::SingleElementTuple => "E0112",
         }
     }
 }
