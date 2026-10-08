@@ -2,6 +2,7 @@
 //!
 //! 構文木は rowan の green/red tree．空白，改行，コメントもトークンとして木に残す．
 
+pub mod ast;
 mod diagnostic;
 mod lexer;
 mod parser;
@@ -26,6 +27,11 @@ pub struct Parse {
 impl Parse {
     pub fn syntax(&self) -> SyntaxNode {
         SyntaxNode::new_root(self.green.clone())
+    }
+
+    /// 型付き AST の根．
+    pub fn tree(&self) -> ast::SourceFile {
+        ast::AstNode::cast(self.syntax()).expect("根は必ず ROOT")
     }
 
     /// 字句解析の診断のあとにパースの診断が並ぶ．
