@@ -1,0 +1,60 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/spec_effects.emel
+---
+# 8章，9章，11章の式
+fn handlers() {
+  with ConsoleLogger { greet(1) }
+
+  with AppTest, FixedClock { greet(1) }
+
+  with PrimaryDb {
+    primary = use Db
+    with ReplicaDb {
+      replica = use Db
+      replica.query("...") # ReplicaDb
+      primary.execute("...") # PrimaryDb
+    }
+  }
+}
+
+fn main() {
+  with AppLive { run_server() }
+}
+
+fn make_greeter() {
+  with ConsoleLogger {
+    log = use Logger
+    fn() { log.info("hi") } # エラー: log を抱えたまま with の外に出る
+  }
+}
+
+fn update[A, R: Immediate](ref: Ref[A], f: fn(A) -> A use R) -> () use R
+
+fn profile() {
+  profile = Fiber.scope(fn(s) {
+    a = s.fork(fn() { fetch_user(1) })
+    b = s.fork(fn() { fetch_orders(1) })
+    Profile(user: a.join(), orders: b.join())
+  })
+}
+
+fn max(self, other: Self) -> Self { # 既定の実装
+  match Ord.compare(self, other) {
+    Less -> other
+    _    -> self
+  }
+}
+
+fn sleep(ms, resume) {
+  set_timeout(ms, fn() { resume(()) })
+}
+
+fn continuation(users: Users, id: Int) {
+  user = users.find(id)
+    |> Option.or_fail(NotFound(id:)) # 前の行の続き
+
+  foo
+  (bar) # foo とは別の文
+}
