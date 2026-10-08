@@ -22,9 +22,10 @@ pub trait JsBackend<P> {
 - `parse` は読んだモジュールごとに1回呼ぶ．返すのは import の一覧（`emela_resolve::Import`）と，字句と構文の診断．構文木は `Frontend` の側に持っておく
 - `check` は読んだ全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は読んだモジュールだけの依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
 - `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
-- `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はまだないので `Program = ()`．cli はこれを使う
+- `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はしないので `Program = ()`
+- `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）．cli はこれを使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `ParseOnly` と `NoJsBackend` をそれぞれ差し替える
+- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `Resolve` と `NoJsBackend` をそれぞれ差し替える
 
 ## 読むモジュール
 
@@ -71,4 +72,7 @@ pub trait JsBackend<P> {
 - （補）ariadne 0.6 は `ReportKind::Custom` の色を `with_color(false)` でも付けるので，色なしのときは出力から ANSI の色指定を取り除く
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
+- （補）`Resolve::check` は型検査がまだないので，名前解決の結果をそのまま `Program` として返す．組み込みのモジュールは `NoBuiltins`（emela-core の組み込み関数の表が入ったら差し替える）
+- （補）名前解決の診断（E0211〜E0220，W0201〜W0202）の英語の文面は `Diagnostic::from_resolve` が作る．重複の診断は先の定義に label を付け，「もしかして」の候補は `= help: did you mean ...` にする
+- （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）

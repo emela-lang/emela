@@ -11,6 +11,9 @@ use line_index::TextRange;
 use crate::code;
 use crate::source::{FileId, SourceDb};
 
+/// 注記のうち助言を表すものの頭．
+pub const HELP_PREFIX: &str = "help: ";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
     Error,
@@ -57,6 +60,7 @@ pub struct Diagnostic {
     /// 位置がない診断（node が見つからないなど）は `None`．
     pub location: Option<Location>,
     pub labels: Vec<Label>,
+    /// 注記．[`HELP_PREFIX`] で始まるものは助言（`= help: …`）として出す．
     pub notes: Vec<String>,
 }
 
@@ -105,6 +109,12 @@ impl Diagnostic {
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
         self
+    }
+
+    /// 直し方の助言．`= help: …` として出す．`Result` の誤りの側に置く型が大きくならないよう，
+    /// 欄を足さずに注記に入れる．
+    pub fn with_help(self, help: impl AsRef<str>) -> Self {
+        self.with_note(format!("{HELP_PREFIX}{}", help.as_ref()))
     }
 
     pub fn is_error(&self) -> bool {
@@ -172,8 +182,138 @@ impl Diagnostic {
                 code::CANNOT_READ,
                 format!("cannot read directory: {message}"),
             ),
+            _ => return Diagnostic::from_name_resolution(diagnostic, location),
         };
         Diagnostic::error(message).with_code(code).at(location)
+    }
+
+    /// 名前解決（宣言，import，式の中の名前）の診断．E0211〜E0220，W0201〜W0202．
+    fn from_name_resolution(diagnostic: &emela_resolve::Diagnostic, location: Location) -> Self {
+        let first_here = |first: &Option<TextRange>| match (&location, first) {
+            (Location::Span(span), Some(range)) => Some(Span::new(span.file, *range)),
+            _ => None,
+        };
+        let mut label = None;
+        let mut help = None;
+        let (severity, code, message) = match &diagnostic.kind {
+            DiagnosticKind::UndefinedName {
+                name,
+                expected,
+                suggestion,
+            } => {
+                help = suggestion.as_ref().map(|s| format!("did you mean `{s}`?"));
+                (
+                    Severity::Error,
+                    code::UNDEFINED_NAME,
+                    format!("cannot find {} `{name}` in this scope", expected.describe()),
+                )
+            }
+            DiagnosticKind::UndefinedMember {
+                name,
+                owner,
+                owner_kind,
+                suggestion,
+            } => {
+                help = suggestion.as_ref().map(|s| format!("did you mean `{s}`?"));
+                (
+                    Severity::Error,
+                    code::UNDEFINED_MEMBER,
+                    format!("{owner_kind} `{owner}` has no `{name}`"),
+                )
+            }
+            DiagnosticKind::Duplicate { name, first } => {
+                label =
+                    first_here(first).map(|span| (span, format!("`{name}` is first defined here")));
+                (
+                    Severity::Error,
+                    code::DUPLICATE_DEFINITION,
+                    format!("`{name}` is defined more than once"),
+                )
+            }
+            DiagnosticKind::Private { name, module } => (
+                Severity::Error,
+                code::PRIVATE_ITEM,
+                format!("`{name}` is private to module `{module}`"),
+            ),
+            DiagnosticKind::OpaqueConstruction { name, module } => {
+                help = Some(format!(
+                    "`{name}` is opaque: use the functions of module `{module}` to make one"
+                ));
+                (
+                    Severity::Error,
+                    code::OPAQUE_CONSTRUCTION,
+                    format!("cannot construct opaque `{name}` outside module `{module}`"),
+                )
+            }
+            DiagnosticKind::OpaquePattern { name, module } => (
+                Severity::Error,
+                code::OPAQUE_PATTERN,
+                format!("cannot match on opaque `{name}` outside module `{module}`"),
+            ),
+            DiagnosticKind::WrongKind {
+                name,
+                expected,
+                found,
+            } => {
+                if *found == "effect" && *expected == emela_resolve::Expected::ModuleOrTrait {
+                    help = Some(format!(
+                        "call the operations of an effect through its capability: `(use {name}).op(...)`"
+                    ));
+                } else if *found == "module" {
+                    help = Some(format!(
+                        "`{name}` is a module: qualify the name (`{name}.Name`) or list it in the import (`import ….{name}.{{Name}}`)"
+                    ));
+                }
+                (
+                    Severity::Error,
+                    code::WRONG_KIND_OF_NAME,
+                    format!("expected {}, found {found} `{name}`", expected.describe()),
+                )
+            }
+            DiagnosticKind::Ambiguous { name } => (
+                Severity::Error,
+                code::AMBIGUOUS_NAME,
+                format!("`{name}` refers to both a module and a trait"),
+            ),
+            DiagnosticKind::SelfOutside { self_type } => {
+                let message = if *self_type {
+                    "`Self` can only be used in traits and impls"
+                } else {
+                    "`self` can only be used in handlers, impls, and traits"
+                };
+                (Severity::Error, code::SELF_OUTSIDE, message.to_owned())
+            }
+            DiagnosticKind::DuplicateBinding { name, first } => {
+                label =
+                    first_here(first).map(|span| (span, format!("`{name}` is first bound here")));
+                (
+                    Severity::Error,
+                    code::DUPLICATE_BINDING,
+                    format!("`{name}` is bound more than once in the same pattern"),
+                )
+            }
+            DiagnosticKind::ShadowedByTypeParam { name } => (
+                Severity::Warning,
+                code::SHADOWED_BY_TYPE_PARAM,
+                format!("type parameter `{name}` shadows an outer definition"),
+            ),
+            DiagnosticKind::ShadowsPrelude { name } => (
+                Severity::Warning,
+                code::SHADOWS_PRELUDE,
+                format!("`{name}` shadows the prelude's `{name}`"),
+            ),
+            _ => unreachable!("モジュールと import のグラフの診断は from_resolve で扱う"),
+        };
+        let mut out = Diagnostic::new(severity, message)
+            .with_code(code)
+            .at(location);
+        if let Some((span, message)) = label {
+            out = out.with_label(span, message);
+        }
+        if let Some(help) = help {
+            out = out.with_help(help);
+        }
+        out
     }
 
     /// 型検査の診断．`TypeError` は位置を持たないので，呼び出し側が `span` を渡す．

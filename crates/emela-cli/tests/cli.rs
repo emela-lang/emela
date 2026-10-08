@@ -305,3 +305,25 @@ fn lsp_over_stdio() {
     send(r#"{"jsonrpc":"2.0","method":"exit"}"#.to_owned());
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
+
+#[test]
+fn check_reports_name_resolution_errors() {
+    let project = Project::new(
+        "resolve",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/email.emel",
+                "pub opaque type Email(value: String)\n\npub fn parse(input: String) -> Email {\n  Email(value: input)\n}\n\nfn secret() { 1 }\n",
+            ),
+            (
+                "src/main.emel",
+                "import Email\nimport Email.{Email, secret}\n\nfn main() {\n  count = 1\n  e = Email(value: \"a\")\n  Email.parse(cout)\n}\n\nfn first[Email](e: Email) -> Email { e }\n\nfn twice() { 1 }\nfn twice() { 2 }\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
