@@ -866,3 +866,63 @@ fn inline_runtime_runs_standalone() {
     assert!(!r.js.contains("import "), "{}", r.js);
     assert_eq!(r.stdout, "2 3\n", "{}", r.stderr);
 }
+
+#[test]
+fn short_circuit_tail_call_does_not_grow_stack() {
+    // fn any_zero(xs) = match xs { [] => false, [x, ..rest] => x == 0 || any_zero(rest) }
+    // fn range(n, acc) = if n == 0 then acc else range(n - 1, [n, ..acc])
+    let mut m = Module::new();
+    let any_zero = m.declare("any_zero", false);
+    let xs = m.local("xs");
+    let x = m.local("x");
+    let rest = m.local("rest");
+    m.define(
+        any_zero,
+        vec![xs],
+        match_(
+            var(xs),
+            vec![
+                arm(p_list(vec![], None), bool(false)),
+                arm(
+                    p_list(vec![Pat::Bind(x)], Some(Pat::Bind(rest))),
+                    bin(
+                        BinOp::Or,
+                        OpTy::Bool,
+                        int_op(BinOp::Eq, var(x), int(0)),
+                        call(any_zero, vec![var(rest)]),
+                    ),
+                ),
+            ],
+        ),
+    );
+    let range = m.declare("range", false);
+    let n = m.local("n");
+    let acc = m.local("acc");
+    m.define(
+        range,
+        vec![n, acc],
+        if_(
+            int_op(BinOp::Eq, var(n), int(0)),
+            var(acc),
+            call(
+                range,
+                vec![
+                    int_op(BinOp::Sub, var(n), int(1)),
+                    list_with_tail(vec![var(n)], var(acc)),
+                ],
+            ),
+        ),
+    );
+    let big = || call(range, vec![int(100000), list(vec![])]);
+    main_fn(
+        &mut m,
+        lines(vec![
+            (call(any_zero, vec![big()]), StrKind::Bool),
+            (
+                call(any_zero, vec![list_with_tail(vec![int(0)], big())]),
+                StrKind::Bool,
+            ),
+        ]),
+    );
+    assert_eq!(run("short_circuit_tail_call", m), "False\nTrue\n");
+}

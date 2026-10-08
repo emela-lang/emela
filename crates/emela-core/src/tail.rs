@@ -63,6 +63,12 @@ fn has_tail_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
             has_tail_self_call(then, f, arity) || has_tail_self_call(else_, f, arity)
         }
         Expr::Match { arms, .. } => arms.iter().any(|a| has_tail_self_call(&a.body, f, arity)),
+        // 短絡評価の右辺も末尾位置．
+        Expr::Binary {
+            op: BinOp::And | BinOp::Or,
+            rhs,
+            ..
+        } => has_tail_self_call(rhs, f, arity),
         _ => false,
     }
 }
@@ -74,6 +80,30 @@ fn rewrite_tail(e: &mut Expr, f: FnId, arity: usize) {
         };
         *e = Expr::Recur(args);
         return;
+    }
+    // 右辺に自己末尾呼び出しを持つ `&&` / `||` は `if` に脱糖してから辿る．
+    // `a && b` は `if a then b else false`，`a || b` は `if a then true else b`．
+    if let Expr::Binary {
+        op: op @ (BinOp::And | BinOp::Or),
+        rhs,
+        ..
+    } = e
+        && has_tail_self_call(rhs, f, arity)
+    {
+        let op = *op;
+        let Expr::Binary { lhs, rhs, .. } = std::mem::replace(e, Expr::Lit(Lit::Unit)) else {
+            unreachable!()
+        };
+        let (then, else_) = if op == BinOp::And {
+            (rhs, Box::new(Expr::Lit(Lit::Bool(false))))
+        } else {
+            (Box::new(Expr::Lit(Lit::Bool(true))), rhs)
+        };
+        *e = Expr::If {
+            cond: lhs,
+            then,
+            else_,
+        };
     }
     match e {
         Expr::Let { body, .. } => rewrite_tail(body, f, arity),

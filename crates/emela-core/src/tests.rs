@@ -178,3 +178,45 @@ fn named_args_keep_written_evaluation_order() {
     assert_eq!(*v1, call_value(var(h), vec![]));
     assert_eq!(*body, call(f, vec![int(1), var(a0), var(a1)]));
 }
+
+#[test]
+fn loopify_through_short_circuit() {
+    // fn all_pos(xs) = match xs { [] => true, [x, ..rest] => x > 0 && all_pos(rest) }
+    // fn any_zero(xs) = match xs { [] => false, [x, ..rest] => x == 0 || any_zero(rest) }
+    let mut m = Module::new();
+    for (name, op) in [("all_pos", BinOp::And), ("any_zero", BinOp::Or)] {
+        let f = m.declare(name, false);
+        let xs = m.local("xs");
+        let x = m.local("x");
+        let rest = m.local("rest");
+        let test = bin(BinOp::Gt, OpTy::Int, var(x), int(0));
+        m.define(
+            f,
+            vec![xs],
+            match_(
+                var(xs),
+                vec![
+                    arm(p_list(vec![], None), bool(op == BinOp::And)),
+                    arm(
+                        p_list(vec![Pat::Bind(x)], Some(Pat::Bind(rest))),
+                        bin(op, OpTy::Bool, test.clone(), call(f, vec![var(rest)])),
+                    ),
+                ],
+            ),
+        );
+        assert!(tail::loopify_function(&mut m, f));
+        let Expr::Loop { body, .. } = &m.functions[f].body else {
+            panic!()
+        };
+        let Expr::Match { arms, .. } = &**body else {
+            panic!()
+        };
+        let recur = Expr::Recur(vec![var(rest)]);
+        let expected = if op == BinOp::And {
+            if_(test, recur, bool(false))
+        } else {
+            if_(test, bool(true), recur)
+        };
+        assert_eq!(arms[1].body, expected);
+    }
+}
