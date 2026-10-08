@@ -1,6 +1,6 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run(&[(\"main.emel\",\nr##\"type User(id: Int)\ntype Data(id: Int)\n\nerror NotFound(id: Int)\nerror DbError(message: String)\nerror Unavailable(reason: String)\n\nfn find_user(id: Int) -> User fails NotFound { fail NotFound(id:) }\nfn guest_user() -> User { User(id: 0) }\nfn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: \"x\") }\nfn default_data() -> Data { Data(id: 0) }\n\nfn main(id: Int) {\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  data = load(id) escape {\n    NotFound(_) -> default_data()\n  }\n  other = load(id) escape {\n    DbError(message:) -> fail Unavailable(reason: message)\n  }\n  found = Some(find_user(id)) escape {\n    NotFound(_) -> None\n  }\n  user\n}\n\"##,)])"
+expression: "run(&[(\"main.emel\",\nr##\"type User(id: Int)\ntype Data(id: Int)\n\nerror NotFound(id: Int)\nerror DbError(message: String)\nerror Unavailable(reason: String)\n\nfn find_user(id: Int) -> User fails NotFound { fail NotFound(id:) }\nfn guest_user() -> User { User(id: 0) }\nfn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: \"x\") }\nfn default_data() -> Data { Data(id: 0) }\n\nfn rethrow(e: NotFound) -> User fails NotFound {\n  fail e\n}\n\nfn main(id: Int) {\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  data = load(id) escape {\n    NotFound(_) -> default_data()\n  }\n  other = load(id) escape {\n    DbError(message:) -> fail Unavailable(reason: message)\n  }\n  found = Some(find_user(id)) escape {\n    NotFound(_) -> None\n  }\n  user\n}\n\"##,)])"
 ---
 == Main (src/main.emel)
 type Main.User
@@ -50,44 +50,52 @@ fn Main.default_data
         Main.Data.Data
         id:
           0
-fn Main.main
-  param id#2: Int
+fn Main.rethrow
+  param e#2: Main.NotFound
+  ret Main.User
+  fails {Main.NotFound}
   body
     block
-      let user#3 =
+      fail
+        e#2
+fn Main.main
+  param id#3: Int
+  body
+    block
+      let user#4 =
         escape
           call
             Main.find_user
-            id#2
+            id#3
           arm Main.NotFound(_)
             call
               Main.guest_user
-      let data#4 =
+      let data#5 =
         escape
           call
             Main.load
-            id#2
+            id#3
           arm Main.NotFound(_)
             call
               Main.default_data
-      let other#5 =
+      let other#6 =
         escape
           call
             Main.load
-            id#2
-          arm Main.DbError(message: message#6)
+            id#3
+          arm Main.DbError(message: message#7)
             fail
               call
                 Main.Unavailable
                 reason:
-                  message#6
-      let found#7 =
+                  message#7
+      let found#8 =
         escape
           call
             Option.Some
             call
               Main.find_user
-              id#2
+              id#3
           arm Main.NotFound(_)
             Option.None
-      user#3
+      user#4

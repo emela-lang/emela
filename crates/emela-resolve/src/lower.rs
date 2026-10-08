@@ -774,6 +774,10 @@ impl Lower<'_, '_> {
             && !(expected == Expected::Effect
                 && kind == DefKind::TypeParam
                 && path_in_use_expr(path));
+        if !fits && expected == Expected::Type && kind == DefKind::Effect {
+            self.error(range, DiagnosticKind::EffectAsType { name });
+            return Res::Err;
+        }
         if !fits {
             self.error(
                 range,
@@ -961,9 +965,8 @@ impl Lower<'_, '_> {
                 ExprKind::Use { effect }
             }
             FAIL_EXPR => {
-                let e = self.child_expr(node, 0);
-                self.check_error_ctor(e);
-                ExprKind::Fail(e)
+                // `fail e` の e は普通の式（エラーの型の値）．型は型推論が確かめる（7.2）．
+                ExprKind::Fail(self.child_expr(node, 0))
             }
             ASSERT_EXPR => ExprKind::Assert(self.child_expr(node, 0)),
             BLOCK_EXPR => {
@@ -1360,33 +1363,6 @@ impl Lower<'_, '_> {
             })
             .unwrap_or(BinaryOp::Add);
         ExprKind::Binary { op, lhs, rhs }
-    }
-
-    /// `fail e` の `e` が構成子の参照なら，エラーの構成子であることを確かめる（7.2）．
-    /// 変数や関数の呼び出しはエラーの値として型推論に任せる．
-    fn check_error_ctor(&mut self, e: ExprId) {
-        let target = match &self.r.program.exprs[e].kind {
-            ExprKind::Path(Res::Def(def)) => Some((*def, e)),
-            ExprKind::Call { callee, .. } => match self.r.program.exprs[*callee].kind {
-                ExprKind::Path(Res::Def(def)) => Some((def, *callee)),
-                _ => None,
-            },
-            _ => None,
-        };
-        let Some((def, at)) = target else { return };
-        let data = &self.r.program.defs[def];
-        if data.kind == DefKind::Ctor {
-            let (name, found) = (data.name.clone(), data.kind.describe());
-            let range = self.r.program.exprs[at].span.range;
-            self.error(
-                range,
-                DiagnosticKind::WrongKind {
-                    name,
-                    expected: Expected::Error,
-                    found,
-                },
-            );
-        }
     }
 
     /// escape の腕の最上位のパターンは，エラーの構成子（7.3）．

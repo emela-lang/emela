@@ -68,6 +68,8 @@ pub enum DiagnosticKind {
     Ambiguous { name: SmolStr },
     /// `self` か `Self` を，使えない場所に書いた（E0219）．
     SelfOutside { self_type: bool },
+    /// 型の位置にエフェクトの名前を書いた（E0221）．能力の値の型はソースに書けない（8.2）．
+    EffectAsType { name: SmolStr },
     /// 1つのパターンか引数の並びで，同じ名前を2回束縛した（E0220）．
     DuplicateBinding {
         name: SmolStr,
@@ -239,6 +241,9 @@ impl fmt::Display for DiagnosticKind {
             }
             DiagnosticKind::SelfOutside { self_type: true } => {
                 f.write_str("`Self` は impl と trait の中でしか使えない")
+            }
+            DiagnosticKind::EffectAsType { name } => {
+                write!(f, "エフェクト `{name}` は型として使えない")
             }
             DiagnosticKind::DuplicateBinding { name, .. } => {
                 write!(f, "`{name}` を2回束縛している")

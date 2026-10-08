@@ -26,6 +26,7 @@ pub const WRONG_KIND_OF_NAME: &str = "E0217";
 pub const AMBIGUOUS_NAME: &str = "E0218";
 pub const SELF_OUTSIDE: &str = "E0219";
 pub const DUPLICATE_BINDING: &str = "E0220";
+pub const EFFECT_AS_TYPE: &str = "E0221";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 

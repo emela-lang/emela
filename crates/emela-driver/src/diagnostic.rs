@@ -283,6 +283,16 @@ impl Diagnostic {
                 };
                 (Severity::Error, code::SELF_OUTSIDE, message.to_owned())
             }
+            DiagnosticKind::EffectAsType { name } => {
+                help = Some(format!(
+                    "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"
+                ));
+                (
+                    Severity::Error,
+                    code::EFFECT_AS_TYPE,
+                    format!("effect `{name}` cannot be used as a type"),
+                )
+            }
             DiagnosticKind::DuplicateBinding { name, first } => {
                 label =
                     first_here(first).map(|span| (span, format!("`{name}` is first bound here")));

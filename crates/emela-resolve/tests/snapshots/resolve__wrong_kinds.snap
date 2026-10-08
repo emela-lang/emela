@@ -4,12 +4,11 @@ expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nenum Shape 
 ---
 error src/main.emel@140..144 `User`: `User` は type で，エフェクトではない
 error src/main.emel@185..191 `Logger`: `Logger` は effect で，ハンドラか layerではない
-error src/main.emel@212..218 `Logger`: `Logger` は effect で，型ではない
+error src/main.emel@212..218 `Logger`: エフェクト `Logger` は型として使えない
 error src/main.emel@233..237 `User`: `User` は type で，エラーではない
 error src/main.emel@242..249 `Console`: `Console` は handler で，エフェクトではない
 error src/main.emel@264..268 `User`: `User` は type で，エフェクトではない
 error src/main.emel@276..282 `Logger`: `Logger` は effect で，ハンドラか layerではない
-error src/main.emel@296..301 `Empty`: `Empty` は constructor で，エラーではない
 error src/main.emel@323..328 `Empty`: `Empty` は constructor で，エラーではない
 error src/main.emel@340..346 `Logger`: `Logger` は effect で，モジュールか Traitではない
 error src/main.emel@363..366 `Int`: `Int` は type で，構成子ではない

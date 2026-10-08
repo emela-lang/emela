@@ -257,6 +257,10 @@ fn guest_user() -> User { User(id: 0) }
 fn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: "x") }
 fn default_data() -> Data { Data(id: 0) }
 
+fn rethrow(e: NotFound) -> User fails NotFound {
+  fail e
+}
+
 fn main(id: Int) {
   user = find_user(id) escape {
     NotFound(_) -> guest_user()

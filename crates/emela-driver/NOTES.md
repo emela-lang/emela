@@ -73,6 +73,6 @@ pub trait JsBackend<P> {
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
 - （補）`Resolve::check` は型検査がまだないので，名前解決の結果をそのまま `Program` として返す．組み込みのモジュールは `NoBuiltins`（emela-core の組み込み関数の表が入ったら差し替える）
-- （補）名前解決の診断（E0211〜E0220，W0201〜W0202）の英語の文面は `Diagnostic::from_resolve` が作る．重複の診断は先の定義に label を付け，「もしかして」の候補は `= help: did you mean ...` にする
+- （補）名前解決の診断（E0211〜E0221，W0201〜W0202）の英語の文面は `Diagnostic::from_resolve` が作る．重複の診断は先の定義に label を付け，「もしかして」の候補は `= help: did you mean ...` にする
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
