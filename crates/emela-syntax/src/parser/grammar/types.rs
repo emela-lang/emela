@@ -56,26 +56,36 @@ fn type_var(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, TYPE_VAR)
 }
 
-/// `()` か，要素が2つ以上のタプル．要素が1つなら閉じ括弧に診断を出してタプルとして読む．
+/// `()`，括弧の型 `(T)`，要素が2つ以上のタプル．
+///
+/// 括弧は関数を返す関数型で fails と use の付き先を書き分けるのに使う（5.5）．
+/// `(T,)` は要素が1つのタプルなので，閉じ括弧に診断を出してタプルとして読む．
 fn paren_type(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_PAREN);
     let mut count = 0;
+    let mut trailing_comma = false;
     while !p.at(R_PAREN) && !p.at_eof() {
         count += 1;
         type_(p);
-        if !p.eat(COMMA) {
+        trailing_comma = p.eat(COMMA);
+        if !trailing_comma {
             break;
         }
     }
-    if count == 1 {
+    if count == 1 && trailing_comma {
         p.error(
             DiagnosticCode::SingleElementTuple,
             "a tuple type needs at least two elements",
         );
     }
     p.expect(R_PAREN);
-    m.complete(p, if count == 0 { UNIT_TYPE } else { TUPLE_TYPE });
+    let kind = match (count, trailing_comma) {
+        (0, _) => UNIT_TYPE,
+        (1, false) => PAREN_TYPE,
+        _ => TUPLE_TYPE,
+    };
+    m.complete(p, kind);
 }
 
 /// `"fn" "(" [ type { "," type } ] ")" "->" type [ "fails" error_set ] [ "use" effect_set ]`

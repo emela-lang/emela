@@ -1,0 +1,7 @@
+## 括弧の型（5.5）．fails は make のもの
+fn make() -> (fn(Int) -> String) fails ParseError { todo() }
+
+## 括弧がなければ fails は内側の fn のもの
+fn make_inner() -> fn(Int) -> String fails ParseError { todo() }
+
+fn apply(f: (fn(Int) -> Int), x: (Int)) -> (Int) { f(x) }
