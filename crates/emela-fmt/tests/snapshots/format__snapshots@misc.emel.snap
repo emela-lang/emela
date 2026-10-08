@@ -74,4 +74,7 @@ fn one_line() -> Int { 42 }
 
 fn empty_body() {}
 
+## ホスト側の関数
+@external(js, "Math.abs")
+@external(wasm, "env", "abs")
 fn no_body(x: Int) -> Int

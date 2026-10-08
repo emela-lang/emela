@@ -30,6 +30,7 @@ fn make_greeter() {
   }
 }
 
+@external(js, "Ref.update")
 fn update[A, R: Immediate](ref: Ref[A], f: fn(A) -> A use R) -> () use R
 
 fn profile() {

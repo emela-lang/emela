@@ -23,6 +23,7 @@ fn after_blank_lines() {
 
 
 }
+@external( js ,  "./ext.mjs" , "ext" )
 suspend   fn   ext ( url : String ) -> String   fails   HttpError   use   {   Http ,   Io   }
 fn else_on_next_line(a: Bool, b: Bool) -> Int {
   if a {

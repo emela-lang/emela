@@ -5,7 +5,8 @@ use emela_syntax::{SyntaxNode, SyntaxToken};
 use pretty::RcDoc;
 
 use super::{
-    Doc, HUGE, INDENT, Printer, child_token, has_newline_child, render, significant_children, text,
+    Doc, HUGE, INDENT, Printer, child_token, first_significant_token, has_newline_child, render,
+    significant_children, text,
 };
 use crate::comments::{has_comments, has_comments_outside_blocks};
 
@@ -84,18 +85,17 @@ impl Printer {
             // 間に何も置かずにつなぐもの．
             PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
             | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | STRING
-            | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT | REST_PAT => {
-                self.seq(node, |_, _| false)
-            }
+            | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT | REST_PAT
+            | ANNOTATION => self.seq(node, |_, _| false),
             // 括弧で囲んだ並び．
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
-            | TUPLE_PAT | LIST_PAT => self.list(node, |p, n| p.node(n)),
+            | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST => self.list(node, |p, n| p.node(n)),
             // 空白で区切るもの．
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | USE_EXPR | FAIL_EXPR | ASSERT_EXPR
             | MATCH_GUARD => self.seq(node, |_, _| true),
             // `name: value`．`:` の前に空白を置かない．
-            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING => {
+            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
                 self.seq(node, |_, cur| cur != COLON)
             }
             FN_TYPE => self.seq(node, |_, cur| cur != PARAM_TYPE_LIST),
@@ -141,23 +141,35 @@ impl Printer {
 
     /// 想定していないノード．元のテキストをそのまま出し，中のコメントは出したことにする．
     pub(crate) fn verbatim(&mut self, node: &SyntaxNode) -> Doc {
+        // 前置きの `##` と改行は呼ぶ側が出しているので，最初の意味のあるトークンから出す．
+        let Some(first) = first_significant_token(node) else {
+            return RcDoc::nil();
+        };
+        let last = node.last_token();
         for token in node
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
         {
             self.take_leading(&token);
-            self.comments.take_trailing(&token);
+            // 最後のトークンの行末のコメントはノードの外にあるので，下で出す．
+            if Some(&token) != last.as_ref() {
+                self.comments.take_trailing(&token);
+            }
         }
+        let start = first.text_range().start() - node.text_range().start();
         let source = node.text().to_string();
         let mut out = RcDoc::nil();
-        for (i, line) in source.split('\n').enumerate() {
+        for (i, line) in source[usize::from(start)..].split('\n').enumerate() {
             if i > 0 {
                 out = out.append(RcDoc::hardline());
             }
             out = out.append(text(line.trim_end_matches('\r')));
         }
         self.at_break = false;
-        out
+        match last {
+            Some(last) => out.append(self.trailing(&last)),
+            None => out,
+        }
     }
 
     // ---- ブロックと腕 ----
@@ -178,7 +190,7 @@ impl Printer {
             if i > 0 {
                 body = body.append(self.hard());
             }
-            if let Some(first) = stmt.first_token() {
+            if let Some(first) = first_significant_token(stmt) {
                 body = body.append(self.leading_lines(&first, i == 0));
             }
             body = body.append(self.node(stmt));
@@ -224,7 +236,7 @@ impl Printer {
             if i > 0 {
                 pre = pre.append(self.hard());
             }
-            if let Some(first) = arm.first_token() {
+            if let Some(first) = first_significant_token(arm) {
                 pre = pre.append(self.leading_lines(&first, i == 0));
             }
             docs.push(self.arm(arm, pre));

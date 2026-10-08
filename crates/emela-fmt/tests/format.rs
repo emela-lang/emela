@@ -31,6 +31,15 @@ fn inputs() -> Vec<(String, String)> {
     inputs
 }
 
+/// 入力を揺らす proptest に使う入力．`decls.emel` は fn 以外の宣言（この段では元の
+/// テキストのまま出す）を集めたものなので，空白や改行を揺らすと結果も変わる．
+fn perturbable_inputs() -> Vec<(String, String)> {
+    inputs()
+        .into_iter()
+        .filter(|(name, _)| name != "decls.emel")
+        .collect()
+}
+
 /// 整形の結果について，冪等・トークン列・コメントを確かめる．
 fn check(name: &str, src: &str, width: usize) -> String {
     let out = format_with_width(src, width)
@@ -86,11 +95,19 @@ fn 構文エラーがあれば整形しない() {
         matches!(err, FormatError::Syntax(ref d) if !d.is_empty()),
         "{err:?}"
     );
-    // この段で読まない宣言も ERROR ノードになるので整形しない．
     assert!(matches!(
-        format("type User(id: Int)\n"),
+        format("fn f(x: Int) -> Int\n"),
         Err(FormatError::Syntax(_))
     ));
+}
+
+#[test]
+fn この段で整形しない宣言は元のまま出す() {
+    let src = "## ドキュメント\ntype   User( id :Int )   # 行末\nfn   f() {}\n";
+    assert_eq!(
+        format(src).unwrap(),
+        "## ドキュメント\ntype   User( id :Int ) # 行末\nfn f() {}\n"
+    );
 }
 
 #[test]
@@ -274,7 +291,7 @@ proptest! {
     /// 空白の量だけが違う入力は，同じ結果になる．
     #[test]
     fn 空白の量によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..32)) {
-        for (name, src) in inputs() {
+        for (name, src) in perturbable_inputs() {
             let shuffled = reshuffle(&src, &seeds);
             let expected = format(&src).unwrap();
             let got = format(&shuffled).unwrap_or_else(|e| panic!("{name}: {e}\n{shuffled}"));
@@ -285,7 +302,7 @@ proptest! {
     /// どこにコメントを足しても，整形は冪等で，トークン列とコメントを変えない．
     #[test]
     fn コメントを足しても壊れない(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
-        for (name, src) in inputs() {
+        for (name, src) in perturbable_inputs() {
             let commented = add_comments(&src, &seeds);
             for width in [100, 30] {
                 check(&format!("{name}\n{commented}"), &commented, width);
@@ -296,7 +313,7 @@ proptest! {
     /// 括弧の中の改行の位置だけが違う入力は，同じ結果になる．
     #[test]
     fn 括弧の中の改行によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
-        for (name, src) in inputs() {
+        for (name, src) in perturbable_inputs() {
             let rebroken = rebreak(&src, &seeds);
             let expected = format(&src).unwrap();
             let got = format(&rebroken).unwrap_or_else(|e| panic!("{name}: {e}\n{rebroken}"));

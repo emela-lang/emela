@@ -273,7 +273,7 @@ impl Printer {
                 self.line()
             };
             breaks.push(brk);
-            let lead = match elem.first_token() {
+            let lead = match first_significant_token(elem) {
                 Some(t) => self.leading_in_list(&t),
                 None => RcDoc::nil(),
             };
@@ -370,6 +370,14 @@ impl ListParts {
 pub(crate) fn significant_children(node: &SyntaxNode) -> impl Iterator<Item = SyntaxElement> {
     node.children_with_tokens()
         .filter(|e| !e.kind().is_trivia() && e.kind() != NEWLINE)
+}
+
+/// ノードの最初の意味のあるトークン．宣言のノードは前の `##` と改行を中に含むので，
+/// `first_token` ではなくこれで前置きを引く．
+pub(crate) fn first_significant_token(node: &SyntaxNode) -> Option<SyntaxToken> {
+    node.descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| !t.kind().is_trivia() && t.kind() != NEWLINE)
 }
 
 pub(crate) fn child_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {

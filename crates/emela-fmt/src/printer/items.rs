@@ -5,7 +5,7 @@ use emela_syntax::SyntaxNode;
 use pretty::RcDoc;
 
 use super::exprs::unbreakable;
-use super::{Doc, Printer, significant_children};
+use super::{Doc, Printer, first_significant_token, significant_children};
 
 impl Printer {
     /// ファイル全体．宣言の間の空行は1つまで保つ．最後は改行で終える．
@@ -16,7 +16,7 @@ impl Printer {
             if started {
                 out = out.append(self.hard());
             }
-            if let Some(first) = decl.first_token() {
+            if let Some(first) = first_significant_token(&decl) {
                 out = out.append(self.leading_lines(&first, !started));
             }
             out = out.append(self.decl(&decl));
@@ -40,11 +40,21 @@ impl Printer {
         }
     }
 
-    /// `[pub] [suspend] fn name[A](x: Int) -> T fails E use R { ... }`
+    /// `@external(...)⏎ [pub] [suspend] fn name[A](x: Int) -> T fails E use R { ... }`
+    ///
+    /// 注釈は1つずつ自分の行に置く．
     fn fn_decl(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut first = true;
         for child in significant_children(node) {
+            if child.kind() == ANNOTATION {
+                let doc = match &child {
+                    rowan::NodeOrToken::Node(n) => self.node(n),
+                    rowan::NodeOrToken::Token(t) => self.tok(t),
+                };
+                out = out.append(doc).append(self.hard());
+                continue;
+            }
             // 型引数と引数の並びは名前に付ける．
             let attached = matches!(child.kind(), TYPE_PARAM_LIST | PARAM_LIST);
             if !first && !attached {
