@@ -1,6 +1,7 @@
 //! 文法．17章の規則ごとに関数を1つ置く．
 
 mod expressions;
+mod items;
 mod patterns;
 mod types;
 
@@ -8,16 +9,7 @@ use super::{CompletedMarker, Parser};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 
-/// 文法はまだ途中．読めないトークンは1つずつ ERROR に包んで ROOT の下に置く．
-pub(crate) fn root(p: &mut Parser<'_>) {
-    let root = p.start();
-    while !p.at_eof() {
-        let e = p.start();
-        p.bump();
-        e.complete(p, ERROR);
-    }
-    root.complete(p, ROOT);
-}
+pub(crate) use items::source_file as root;
 
 /// `open` で始まり `close` で終わる，カンマ区切りの並び．末尾のカンマを許す．
 ///

@@ -1,0 +1,277 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_with.emel
+---
+ROOT@0..385
+  FN_DECL@0..384
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "h"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..384
+      L_BRACE@7..8 "{"
+      NEWLINE@8..9 "\n"
+      WHITESPACE@9..11 "  "
+      WITH_EXPR@11..42
+        WITH_KW@11..15 "with"
+        WHITESPACE@15..16 " "
+        PATH@16..29
+          TYPE_NAME@16..29 "ConsoleLogger"
+        WHITESPACE@29..30 " "
+        BLOCK_EXPR@30..42
+          L_BRACE@30..31 "{"
+          WHITESPACE@31..32 " "
+          CALL_EXPR@32..40
+            NAME_REF@32..37
+              LOWER_NAME@32..37 "greet"
+            ARG_LIST@37..40
+              L_PAREN@37..38 "("
+              LITERAL@38..39
+                INT@38..39 "1"
+              R_PAREN@39..40 ")"
+          WHITESPACE@40..41 " "
+          R_BRACE@41..42 "}"
+      NEWLINE@42..43 "\n"
+      WHITESPACE@43..45 "  "
+      WITH_EXPR@45..82
+        WITH_KW@45..49 "with"
+        WHITESPACE@49..50 " "
+        PATH@50..57
+          TYPE_NAME@50..57 "AppTest"
+        COMMA@57..58 ","
+        WHITESPACE@58..59 " "
+        PATH@59..69
+          TYPE_NAME@59..69 "FixedClock"
+        WHITESPACE@69..70 " "
+        BLOCK_EXPR@70..82
+          L_BRACE@70..71 "{"
+          WHITESPACE@71..72 " "
+          CALL_EXPR@72..80
+            NAME_REF@72..77
+              LOWER_NAME@72..77 "greet"
+            ARG_LIST@77..80
+              L_PAREN@77..78 "("
+              LITERAL@78..79
+                INT@78..79 "1"
+              R_PAREN@79..80 ")"
+          WHITESPACE@80..81 " "
+          R_BRACE@81..82 "}"
+      NEWLINE@82..83 "\n"
+      WHITESPACE@83..85 "  "
+      WITH_EXPR@85..232
+        WITH_KW@85..89 "with"
+        WHITESPACE@89..90 " "
+        PATH@90..99
+          TYPE_NAME@90..99 "PrimaryDb"
+        WHITESPACE@99..100 " "
+        BLOCK_EXPR@100..232
+          L_BRACE@100..101 "{"
+          NEWLINE@101..102 "\n"
+          WHITESPACE@102..106 "    "
+          BINDING@106..122
+            NAME_REF@106..113
+              LOWER_NAME@106..113 "primary"
+            WHITESPACE@113..114 " "
+            EQ@114..115 "="
+            WHITESPACE@115..116 " "
+            USE_EXPR@116..122
+              USE_KW@116..119 "use"
+              WHITESPACE@119..120 " "
+              PATH@120..122
+                TYPE_NAME@120..122 "Db"
+          NEWLINE@122..123 "\n"
+          WHITESPACE@123..127 "    "
+          WITH_EXPR@127..228
+            WITH_KW@127..131 "with"
+            WHITESPACE@131..132 " "
+            PATH@132..141
+              TYPE_NAME@132..141 "ReplicaDb"
+            WHITESPACE@141..142 " "
+            BLOCK_EXPR@142..228
+              L_BRACE@142..143 "{"
+              NEWLINE@143..144 "\n"
+              WHITESPACE@144..150 "      "
+              BINDING@150..166
+                NAME_REF@150..157
+                  LOWER_NAME@150..157 "replica"
+                WHITESPACE@157..158 " "
+                EQ@158..159 "="
+                WHITESPACE@159..160 " "
+                USE_EXPR@160..166
+                  USE_KW@160..163 "use"
+                  WHITESPACE@163..164 " "
+                  PATH@164..166
+                    TYPE_NAME@164..166 "Db"
+              NEWLINE@166..167 "\n"
+              WHITESPACE@167..173 "      "
+              CALL_EXPR@173..193
+                FIELD_EXPR@173..186
+                  NAME_REF@173..180
+                    LOWER_NAME@173..180 "replica"
+                  DOT@180..181 "."
+                  LOWER_NAME@181..186 "query"
+                ARG_LIST@186..193
+                  L_PAREN@186..187 "("
+                  STRING@187..192
+                    STRING_QUOTE@187..188 "\""
+                    STRING_TEXT@188..191 "..."
+                    STRING_QUOTE@191..192 "\""
+                  R_PAREN@192..193 ")"
+              NEWLINE@193..194 "\n"
+              WHITESPACE@194..200 "      "
+              CALL_EXPR@200..222
+                FIELD_EXPR@200..215
+                  NAME_REF@200..207
+                    LOWER_NAME@200..207 "primary"
+                  DOT@207..208 "."
+                  LOWER_NAME@208..215 "execute"
+                ARG_LIST@215..222
+                  L_PAREN@215..216 "("
+                  STRING@216..221
+                    STRING_QUOTE@216..217 "\""
+                    STRING_TEXT@217..220 "..."
+                    STRING_QUOTE@220..221 "\""
+                  R_PAREN@221..222 ")"
+              NEWLINE@222..223 "\n"
+              WHITESPACE@223..227 "    "
+              R_BRACE@227..228 "}"
+          NEWLINE@228..229 "\n"
+          WHITESPACE@229..231 "  "
+          R_BRACE@231..232 "}"
+      NEWLINE@232..233 "\n"
+      WHITESPACE@233..235 "  "
+      CALL_EXPR@235..273
+        FIELD_EXPR@235..243
+          PATH_EXPR@235..239
+            PATH@235..239
+              TYPE_NAME@235..239 "List"
+          DOT@239..240 "."
+          LOWER_NAME@240..243 "map"
+        ARG_LIST@243..273
+          L_PAREN@243..244 "("
+          NAME_REF@244..249
+            LOWER_NAME@244..249 "names"
+          COMMA@249..250 ","
+          WHITESPACE@250..251 " "
+          LAMBDA_EXPR@251..272
+            FN_KW@251..253 "fn"
+            PARAM_LIST@253..256
+              L_PAREN@253..254 "("
+              PARAM@254..255
+                LOWER_NAME@254..255 "n"
+              R_PAREN@255..256 ")"
+            WHITESPACE@256..257 " "
+            BLOCK_EXPR@257..272
+              L_BRACE@257..258 "{"
+              WHITESPACE@258..259 " "
+              CALL_EXPR@259..270
+                FIELD_EXPR@259..267
+                  NAME_REF@259..262
+                    LOWER_NAME@259..262 "log"
+                  DOT@262..263 "."
+                  LOWER_NAME@263..267 "info"
+                ARG_LIST@267..270
+                  L_PAREN@267..268 "("
+                  NAME_REF@268..269
+                    LOWER_NAME@268..269 "n"
+                  R_PAREN@269..270 ")"
+              WHITESPACE@270..271 " "
+              R_BRACE@271..272 "}"
+          R_PAREN@272..273 ")"
+      NEWLINE@273..274 "\n"
+      WHITESPACE@274..276 "  "
+      MATCH_EXPR@276..382
+        MATCH_KW@276..281 "match"
+        WHITESPACE@281..282 " "
+        NAME_REF@282..284
+          LOWER_NAME@282..284 "xs"
+        WHITESPACE@284..285 " "
+        MATCH_ARM_LIST@285..382
+          L_BRACE@285..286 "{"
+          NEWLINE@286..287 "\n"
+          WHITESPACE@287..291 "    "
+          MATCH_ARM@291..298
+            LIST_PAT@291..293
+              L_BRACK@291..292 "["
+              R_BRACK@292..293 "]"
+            WHITESPACE@293..294 " "
+            THIN_ARROW@294..296 "->"
+            WHITESPACE@296..297 " "
+            LITERAL@297..298
+              INT@297..298 "0"
+          NEWLINE@298..299 "\n"
+          WHITESPACE@299..303 "    "
+          MATCH_ARM@303..319
+            LIST_PAT@303..314
+              L_BRACK@303..304 "["
+              IDENT_PAT@304..305
+                LOWER_NAME@304..305 "x"
+              COMMA@305..306 ","
+              WHITESPACE@306..307 " "
+              REST_PAT@307..313
+                DOT2@307..309 ".."
+                LOWER_NAME@309..313 "rest"
+              R_BRACK@313..314 "]"
+            WHITESPACE@314..315 " "
+            THIN_ARROW@315..317 "->"
+            WHITESPACE@317..318 " "
+            NAME_REF@318..319
+              LOWER_NAME@318..319 "x"
+          NEWLINE@319..320 "\n"
+          WHITESPACE@320..324 "    "
+          MATCH_ARM@324..344
+            VARIANT_PAT@324..339
+              PATH@324..328
+                TYPE_NAME@324..328 "User"
+              PAT_ARG_LIST@328..339
+                L_PAREN@328..329 "("
+                FIELD_PAT@329..334
+                  LOWER_NAME@329..333 "name"
+                  COLON@333..334 ":"
+                COMMA@334..335 ","
+                WHITESPACE@335..336 " "
+                REST_PAT@336..338
+                  DOT2@336..338 ".."
+                R_PAREN@338..339 ")"
+            WHITESPACE@339..340 " "
+            THIN_ARROW@340..342 "->"
+            WHITESPACE@342..343 " "
+            LITERAL@343..344
+              INT@343..344 "1"
+          NEWLINE@344..345 "\n"
+          WHITESPACE@345..349 "    "
+          MATCH_ARM@349..360
+            TUPLE_PAT@349..355
+              L_PAREN@349..350 "("
+              IDENT_PAT@350..351
+                LOWER_NAME@350..351 "a"
+              COMMA@351..352 ","
+              WHITESPACE@352..353 " "
+              IDENT_PAT@353..354
+                LOWER_NAME@353..354 "b"
+              R_PAREN@354..355 ")"
+            WHITESPACE@355..356 " "
+            THIN_ARROW@356..358 "->"
+            WHITESPACE@358..359 " "
+            LITERAL@359..360
+              INT@359..360 "2"
+          NEWLINE@360..361 "\n"
+          WHITESPACE@361..365 "    "
+          MATCH_ARM@365..378
+            CONST_PAT@365..373
+              UPPER_NAME@365..373 "MAX_SIZE"
+            WHITESPACE@373..374 " "
+            THIN_ARROW@374..376 "->"
+            WHITESPACE@376..377 " "
+            LITERAL@377..378
+              INT@377..378 "3"
+          NEWLINE@378..379 "\n"
+          WHITESPACE@379..381 "  "
+          R_BRACE@381..382 "}"
+      NEWLINE@382..383 "\n"
+      R_BRACE@383..384 "}"
+  NEWLINE@384..385 "\n"

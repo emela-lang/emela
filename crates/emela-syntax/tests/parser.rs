@@ -1,6 +1,25 @@
-//! パーサの性質のテスト．スナップショットは文法を書き始めてから足す．
+//! パーサのテスト．`test_data/parser/{ok,err}/*.emel` の木と診断をスナップショットで比べる．
+//! ok は診断が0件であることも確かめる．
 
 use emela_syntax::parse;
+
+#[test]
+fn ok_snapshots() {
+    insta::glob!("../test_data/parser/ok", "*.emel", |path| {
+        let src = std::fs::read_to_string(path).unwrap();
+        let parse = parse(&src);
+        assert!(parse.diagnostics().is_empty(), "{}", parse.debug_dump());
+        insta::assert_snapshot!(parse.debug_dump());
+    });
+}
+
+#[test]
+fn err_snapshots() {
+    insta::glob!("../test_data/parser/err", "*.emel", |path| {
+        let src = std::fs::read_to_string(path).unwrap();
+        insta::assert_snapshot!(parse(&src).debug_dump());
+    });
+}
 use proptest::prelude::*;
 
 proptest! {

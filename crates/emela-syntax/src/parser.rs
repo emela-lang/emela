@@ -8,7 +8,7 @@ mod sink;
 
 use std::cell::Cell;
 
-use crate::SyntaxKind::{self, EOF, LOWER_NAME};
+use crate::SyntaxKind::{self, *};
 use crate::Token;
 use crate::diagnostic::DiagnosticCode;
 
@@ -36,26 +36,55 @@ pub(crate) enum Event {
 const FUEL: u32 = 256;
 
 pub(crate) struct Parser<'t> {
-    /// トリビアを除いたトークンの種類とテキスト．テキストは文脈依存の語の判定に使う．
-    tokens: Vec<(SyntaxKind, &'t str)>,
+    /// トリビアを除いたトークン．テキストは文脈依存の語の判定に使う．
+    tokens: Vec<ParserToken<'t>>,
     pos: usize,
     events: Vec<Event>,
     fuel: Cell<u32>,
 }
 
+struct ParserToken<'t> {
+    kind: SyntaxKind,
+    text: &'t str,
+    /// 直前のトークンとの間に改行がある．継続の改行（トリビア）も数える．
+    line_start: bool,
+}
+
+/// 宣言を始めるトークン．エラー回復で，行頭にあれば読み飛ばさずに止まる．
+const DECL_START: &[SyntaxKind] = &[
+    FN_KW, PUB_KW, SUSPEND_KW, OPAQUE_KW, TYPE_KW, ENUM_KW, ERROR_KW, CONST_KW, EFFECT_KW,
+    HANDLER_KW, LAYER_KW, TRAIT_KW, IMPL_KW, IMPORT_KW, AT,
+];
+
 impl<'t> Parser<'t> {
     pub(crate) fn new(src: &'t str, tokens: &[Token]) -> Self {
-        let tokens = tokens
-            .iter()
-            .filter(|t| !t.kind.is_trivia())
-            .map(|t| (t.kind, &src[t.range]))
-            .collect();
+        let mut line_start = true;
+        let mut parser_tokens = Vec::new();
+        for t in tokens {
+            if t.kind == NEWLINE_CONT {
+                line_start = true;
+            }
+            if t.kind.is_trivia() {
+                continue;
+            }
+            parser_tokens.push(ParserToken {
+                kind: t.kind,
+                text: &src[t.range],
+                line_start,
+            });
+            line_start = t.kind == NEWLINE;
+        }
         Parser {
-            tokens,
+            tokens: parser_tokens,
             pos: 0,
             events: Vec::new(),
             fuel: Cell::new(FUEL),
         }
+    }
+
+    /// 読んだトークンの数．文法の関数が進んだかを確かめるのに使う．
+    pub(crate) fn position(&self) -> usize {
+        self.pos
     }
 
     pub(crate) fn finish(self) -> Vec<Event> {
@@ -66,7 +95,7 @@ impl<'t> Parser<'t> {
         let fuel = self.fuel.get();
         assert!(fuel > 0, "パーサが位置 {} から進んでいない", self.pos);
         self.fuel.set(fuel - 1);
-        self.tokens.get(self.pos + n).map_or(EOF, |&(kind, _)| kind)
+        self.tokens.get(self.pos + n).map_or(EOF, |t| t.kind)
     }
 
     pub(crate) fn current(&self) -> SyntaxKind {
@@ -79,7 +108,22 @@ impl<'t> Parser<'t> {
 
     /// 文脈依存の語（`fails` など）か．字句では LOWER_NAME なので，テキストで見分ける．
     pub(crate) fn at_contextual_kw(&self, kw: &str) -> bool {
-        self.at(LOWER_NAME) && self.tokens[self.pos].1 == kw
+        self.at(LOWER_NAME) && self.tokens[self.pos].text == kw
+    }
+
+    /// 行頭の宣言の始まりにいるか．`fn(` はラムダなので除く．
+    ///
+    /// 閉じていない `(` の中では改行が継続になり NEWLINE が来ないので，壊れた宣言から
+    /// 立ち直るにはこれで次の宣言を見つける．
+    pub(crate) fn at_decl_start(&self) -> bool {
+        let kind = self.current();
+        let line_start = self.tokens.get(self.pos).is_some_and(|t| t.line_start);
+        line_start && DECL_START.contains(&kind) && !(kind == FN_KW && self.nth(1) == L_PAREN)
+    }
+
+    /// 行頭にいるか．
+    pub(crate) fn at_line_start(&self) -> bool {
+        self.tokens.get(self.pos).is_some_and(|t| t.line_start)
     }
 
     pub(crate) fn at_eof(&self) -> bool {
@@ -133,7 +177,7 @@ impl<'t> Parser<'t> {
         recovery: &[SyntaxKind],
     ) {
         self.error(code, message);
-        if self.at_eof() || recovery.contains(&self.current()) {
+        if self.at_eof() || recovery.contains(&self.current()) || self.at_decl_start() {
             return;
         }
         let m = self.start();

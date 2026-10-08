@@ -170,6 +170,14 @@ pub enum SyntaxKind {
     // ノード
     ROOT,
 
+    // 宣言（17.3）
+    /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
+    FN_DECL,
+    /// `[A, R: Immediate]`
+    TYPE_PARAM_LIST,
+    /// `R: Immediate + Show`
+    TYPE_PARAM,
+
     // 型（17.4）
     /// 型の参照．`Http.Client` `User`
     PATH,

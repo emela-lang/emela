@@ -57,11 +57,17 @@ pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
     p.bump_kind(L_BRACE);
     loop {
         while p.eat(NEWLINE) {}
-        if p.at(R_BRACE) || p.at_eof() {
+        if p.at(R_BRACE) || p.at_eof() || p.at_decl_start() {
             break;
         }
+        let before = p.position();
         stmt(p);
-        if !p.at(NEWLINE) && !p.at(R_BRACE) && !p.at_eof() {
+        if p.position() == before {
+            // 診断は出ているが1トークンも進んでいない．行頭の `=` など．
+            bump_error(p);
+            continue;
+        }
+        if !at_stmt_end(p) {
             p.error(
                 DiagnosticCode::ExpectedStatementEnd,
                 "expected newline or `}` after statement",
@@ -73,11 +79,22 @@ pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, BLOCK_EXPR)
 }
 
-/// 改行か，対応の取れた外側の `}` の手前までを ERROR に包んで読み飛ばす．
+fn bump_error(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump();
+    m.complete(p, ERROR);
+}
+
+/// 文や腕の終わり．閉じていない `(` の中では改行が継続になるので，行頭も区切りとみなす．
+fn at_stmt_end(p: &Parser<'_>) -> bool {
+    p.at(NEWLINE) || p.at(R_BRACE) || p.at_eof() || p.at_line_start()
+}
+
+/// 改行か，対応の取れた外側の `}` か，行頭の宣言の手前までを ERROR に包んで読み飛ばす．
 fn skip_to_line_end(p: &mut Parser<'_>) {
     let m = p.start();
     let mut depth = 0usize;
-    while !p.at_eof() && !(depth == 0 && (p.at(NEWLINE) || p.at(R_BRACE))) {
+    while !(p.at_eof() || p.at_decl_start() || depth == 0 && (p.at(NEWLINE) || p.at(R_BRACE))) {
         match p.current() {
             L_BRACE => depth += 1,
             R_BRACE => depth -= 1,
@@ -125,11 +142,17 @@ fn arm_list(p: &mut Parser<'_>) {
     }
     loop {
         while p.eat(NEWLINE) {}
-        if p.at(R_BRACE) || p.at_eof() {
+        if p.at(R_BRACE) || p.at_eof() || p.at_decl_start() {
             break;
         }
+        let before = p.position();
         arm(p);
-        if !p.at(NEWLINE) && !p.at(R_BRACE) && !p.at_eof() {
+        if p.position() == before {
+            // 診断は出ているが1トークンも進んでいない．行頭の `=` など．
+            bump_error(p);
+            continue;
+        }
+        if !at_stmt_end(p) {
             p.error(
                 DiagnosticCode::ExpectedStatementEnd,
                 "expected newline or `}` after match arm",
@@ -228,21 +251,25 @@ fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 p.expect(TYPE_NAME);
             }
             let use_expr = m.complete(p, USE_EXPR);
-            if p.at(DOT) || p.at(L_PAREN) {
-                p.error(
-                    DiagnosticCode::UnparenthesizedUse,
-                    "wrap `use` in parentheses to call its operations: `(use X).op()`",
-                );
+            if !p.at(DOT) && !p.at(L_PAREN) {
+                return Some(use_expr);
             }
-            Some(use_expr)
+            // 括弧を忘れた形として診断を1つ出し，続きは呼び出しとして読む．
+            p.error(
+                DiagnosticCode::UnparenthesizedUse,
+                "wrap `use` in parentheses to call its operations: `(use X).op()`",
+            );
+            Some(postfix_ops(p, use_expr))
         }
-        _ => postfix(p),
+        _ => {
+            let lhs = primary(p)?;
+            Some(postfix_ops(p, lhs))
+        }
     }
 }
 
-/// `primary { "(" [ args ] ")" | "." lower_name }`
-fn postfix(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    let mut lhs = primary(p)?;
+/// `primary` の後ろの `{ "(" [ args ] ")" | "." lower_name }`
+fn postfix_ops(p: &mut Parser<'_>, mut lhs: CompletedMarker) -> CompletedMarker {
     loop {
         match p.current() {
             L_PAREN => {
@@ -256,7 +283,7 @@ fn postfix(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 p.expect(LOWER_NAME);
                 lhs = m.complete(p, FIELD_EXPR);
             }
-            _ => return Some(lhs),
+            _ => return lhs,
         }
     }
 }

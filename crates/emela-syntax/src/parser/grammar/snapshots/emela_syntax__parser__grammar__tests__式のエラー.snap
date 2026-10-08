@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"a < b < c\", \"f(x: 1, 2)\", \"use Clock.sleep(1)\", \"[..a]\",\n\"[x, ..a, ..b]\", \"f(1, \", \"1 +\", \"(1\", \"x.\", \"\\\"a #{} b\\\"\", \"(a,)\",\n\"1 + ) + 2\",], expressions::expr,)"
+expression: "dump_all(&[\"a < b < c\", \"f(x: 1, 2)\", \"use Clock.sleep(1)\", \"[..a]\",\n\"[x, ..a, ..b]\", \"f(1, \", \"1 +\", \"(1\", \"x.\", \"\\\"a #{} b\\\"\", \"(a,)\",\n\"1 + ) + 2\",], |p| { expressions::expr(p); },)"
 ---
 === a < b < c
 ROOT@0..9
@@ -40,17 +40,20 @@ ROOT@0..10
 error[E0120]@8..9: positional arguments cannot follow named arguments
 === use Clock.sleep(1)
 ROOT@0..18
-  USE_EXPR@0..9
-    USE_KW@0..3 "use"
-    WHITESPACE@3..4 " "
-    PATH@4..9
-      TYPE_NAME@4..9 "Clock"
-  ERROR@9..18
-    DOT@9..10 "."
-    LOWER_NAME@10..15 "sleep"
-    L_PAREN@15..16 "("
-    INT@16..17 "1"
-    R_PAREN@17..18 ")"
+  CALL_EXPR@0..18
+    FIELD_EXPR@0..15
+      USE_EXPR@0..9
+        USE_KW@0..3 "use"
+        WHITESPACE@3..4 " "
+        PATH@4..9
+          TYPE_NAME@4..9 "Clock"
+      DOT@9..10 "."
+      LOWER_NAME@10..15 "sleep"
+    ARG_LIST@15..18
+      L_PAREN@15..16 "("
+      LITERAL@16..17
+        INT@16..17 "1"
+      R_PAREN@17..18 ")"
 error[E0121]@9..10: wrap `use` in parentheses to call its operations: `(use X).op()`
 === [..a]
 ROOT@0..5

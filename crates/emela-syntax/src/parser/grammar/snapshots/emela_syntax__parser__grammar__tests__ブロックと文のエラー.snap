@@ -209,16 +209,17 @@ ROOT@0..20
           INT@9..10 "1"
     NEWLINE_CONT@10..11 "\n"
     WHITESPACE@11..13 "  "
-    ERROR@13..18
-      LOWER_NAME@13..14 "y"
+    BINDING@13..18
+      NAME_REF@13..14
+        LOWER_NAME@13..14 "y"
       WHITESPACE@14..15 " "
       EQ@15..16 "="
       WHITESPACE@16..17 " "
-      INT@17..18 "2"
+      LITERAL@17..18
+        INT@17..18 "2"
     NEWLINE_CONT@18..19 "\n"
     R_BRACE@19..20 "}"
 error[E0110]@13..14: expected `)`
-error[E0122]@13..14: expected newline or `}` after statement
 === {
   a = 1
 ROOT@0..9

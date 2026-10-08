@@ -61,6 +61,8 @@ pub enum DiagnosticCode {
     BareRestOutsidePattern,
     /// 束縛の左辺がパターンとして読めない．`a + b = 1`
     InvalidBindingTarget,
+    /// 宣言が来るはずの位置に宣言がない．
+    ExpectedDeclaration,
 }
 
 impl DiagnosticCode {
@@ -90,6 +92,7 @@ impl DiagnosticCode {
             Self::UnderscoreOutsidePattern => "E0123",
             Self::BareRestOutsidePattern => "E0124",
             Self::InvalidBindingTarget => "E0125",
+            Self::ExpectedDeclaration => "E0126",
         }
     }
 }
