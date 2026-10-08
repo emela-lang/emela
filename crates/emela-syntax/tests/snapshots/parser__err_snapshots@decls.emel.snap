@@ -1,0 +1,295 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/decls.emel
+---
+ROOT@0..421
+  TRAIT_DECL@0..218
+    TRAIT_KW@0..5 "trait"
+    WHITESPACE@5..6 " "
+    TYPE_NAME@6..12 "Encode"
+    WHITESPACE@12..13 " "
+    ITEM_LIST@13..218
+      L_BRACE@13..14 "{"
+      NEWLINE@14..15 "\n"
+      WHITESPACE@15..17 "  "
+      FN_DECL@17..40
+        FN_KW@17..19 "fn"
+        WHITESPACE@19..20 " "
+        LOWER_NAME@20..26 "encode"
+        PARAM_LIST@26..32
+          L_PAREN@26..27 "("
+          PARAM@27..31
+            SELF_KW@27..31 "self"
+          R_PAREN@31..32 ")"
+        WHITESPACE@32..33 " "
+        RET_TYPE@33..40
+          THIN_ARROW@33..35 "->"
+          WHITESPACE@35..36 " "
+          PATH_TYPE@36..40
+            PATH@36..40
+              TYPE_NAME@36..40 "Json"
+      NEWLINE@40..41 "\n"
+      WHITESPACE@41..43 "  "
+      ERROR@43..216
+        LOWER_NAME@43..49 "derive"
+        WHITESPACE@49..50 " "
+        LOWER_NAME@50..54 "fold"
+        WHITESPACE@54..55 " "
+        L_BRACE@55..56 "{"
+        NEWLINE@56..57 "\n"
+        WHITESPACE@57..61 "    "
+        LOWER_NAME@61..67 "record"
+        L_PAREN@67..68 "("
+        LOWER_NAME@68..72 "name"
+        COMMA@72..73 ","
+        WHITESPACE@73..74 " "
+        LOWER_NAME@74..80 "fields"
+        R_PAREN@80..81 ")"
+        WHITESPACE@81..82 " "
+        L_BRACE@82..83 "{"
+        WHITESPACE@83..84 " "
+        TYPE_NAME@84..88 "Json"
+        DOT@88..89 "."
+        LOWER_NAME@89..95 "object"
+        L_PAREN@95..96 "("
+        LOWER_NAME@96..102 "fields"
+        R_PAREN@102..103 ")"
+        WHITESPACE@103..104 " "
+        R_BRACE@104..105 "}"
+        NEWLINE@105..106 "\n"
+        WHITESPACE@106..110 "    "
+        LOWER_NAME@110..117 "variant"
+        L_PAREN@117..118 "("
+        LOWER_NAME@118..122 "name"
+        COMMA@122..123 ","
+        WHITESPACE@123..124 " "
+        LOWER_NAME@124..127 "tag"
+        COMMA@127..128 ","
+        WHITESPACE@128..129 " "
+        LOWER_NAME@129..136 "payload"
+        R_PAREN@136..137 ")"
+        WHITESPACE@137..138 " "
+        L_BRACE@138..139 "{"
+        NEWLINE@139..140 "\n"
+        WHITESPACE@140..146 "      "
+        TYPE_NAME@146..150 "Json"
+        DOT@150..151 "."
+        LOWER_NAME@151..157 "object"
+        L_PAREN@157..158 "("
+        L_BRACK@158..159 "["
+        L_PAREN@159..160 "("
+        STRING_QUOTE@160..161 "\""
+        STRING_TEXT@161..164 "tag"
+        STRING_QUOTE@164..165 "\""
+        COMMA@165..166 ","
+        WHITESPACE@166..167 " "
+        TYPE_NAME@167..171 "Json"
+        DOT@171..172 "."
+        LOWER_NAME@172..178 "string"
+        L_PAREN@178..179 "("
+        LOWER_NAME@179..182 "tag"
+        R_PAREN@182..183 ")"
+        R_PAREN@183..184 ")"
+        COMMA@184..185 ","
+        WHITESPACE@185..186 " "
+        L_PAREN@186..187 "("
+        STRING_QUOTE@187..188 "\""
+        STRING_TEXT@188..193 "value"
+        STRING_QUOTE@193..194 "\""
+        COMMA@194..195 ","
+        WHITESPACE@195..196 " "
+        LOWER_NAME@196..203 "payload"
+        R_PAREN@203..204 ")"
+        R_BRACK@204..205 "]"
+        R_PAREN@205..206 ")"
+        NEWLINE@206..207 "\n"
+        WHITESPACE@207..211 "    "
+        R_BRACE@211..212 "}"
+        NEWLINE@212..213 "\n"
+        WHITESPACE@213..215 "  "
+        R_BRACE@215..216 "}"
+      NEWLINE@216..217 "\n"
+      R_BRACE@217..218 "}"
+  NEWLINE@218..219 "\n"
+  EFFECT_DECL@219..275
+    EFFECT_KW@219..225 "effect"
+    WHITESPACE@225..226 " "
+    TYPE_NAME@226..232 "Broken"
+    WHITESPACE@232..233 " "
+    ITEM_LIST@233..275
+      L_BRACE@233..234 "{"
+      NEWLINE@234..235 "\n"
+      WHITESPACE@235..237 "  "
+      OP_SIG@237..249
+        FN_KW@237..239 "fn"
+        WHITESPACE@239..240 " "
+        LOWER_NAME@240..241 "a"
+        PARAM_LIST@241..249
+          L_PAREN@241..242 "("
+          PARAM@242..248
+            LOWER_NAME@242..243 "x"
+            COLON@243..244 ":"
+            WHITESPACE@244..245 " "
+            PATH_TYPE@245..248
+              PATH@245..248
+                TYPE_NAME@245..248 "Int"
+          R_PAREN@248..249 ")"
+      NEWLINE@249..250 "\n"
+      WHITESPACE@250..252 "  "
+      ERROR@252..257
+        LOWER_NAME@252..255 "val"
+        WHITESPACE@255..256 " "
+        LOWER_NAME@256..257 "b"
+      NEWLINE@257..258 "\n"
+      WHITESPACE@258..260 "  "
+      OP_SIG@260..273
+        FN_KW@260..262 "fn"
+        WHITESPACE@262..263 " "
+        LOWER_NAME@263..264 "c"
+        PARAM_LIST@264..266
+          L_PAREN@264..265 "("
+          R_PAREN@265..266 ")"
+        WHITESPACE@266..267 " "
+        RET_TYPE@267..273
+          THIN_ARROW@267..269 "->"
+          WHITESPACE@269..270 " "
+          PATH_TYPE@270..273
+            PATH@270..273
+              TYPE_NAME@270..273 "Int"
+      NEWLINE@273..274 "\n"
+      R_BRACE@274..275 "}"
+  NEWLINE@275..276 "\n"
+  HANDLER_DECL@276..317
+    HANDLER_KW@276..283 "handler"
+    WHITESPACE@283..284 " "
+    ERROR@284..285
+      UPPER_NAME@284..285 "H"
+    WHITESPACE@285..286 " "
+    IMPLEMENTS_CLAUSE@286..292
+      PATH@286..292
+        TYPE_NAME@286..292 "Logger"
+    WHITESPACE@292..293 " "
+    ITEM_LIST@293..317
+      L_BRACE@293..294 "{"
+      NEWLINE@294..295 "\n"
+      WHITESPACE@295..297 "  "
+      FN_DECL@297..315
+        FN_KW@297..299 "fn"
+        WHITESPACE@299..300 " "
+        LOWER_NAME@300..304 "info"
+        PARAM_LIST@304..309
+          L_PAREN@304..305 "("
+          PARAM@305..308
+            LOWER_NAME@305..308 "msg"
+          R_PAREN@308..309 ")"
+        WHITESPACE@309..310 " "
+        BLOCK_EXPR@310..315
+          L_BRACE@310..311 "{"
+          WHITESPACE@311..312 " "
+          LITERAL@312..313
+            INT@312..313 "1"
+          WHITESPACE@313..314 " "
+          R_BRACE@314..315 "}"
+      NEWLINE@315..316 "\n"
+      R_BRACE@316..317 "}"
+  NEWLINE@317..318 "\n"
+  IMPL_DECL@318..357
+    IMPL_KW@318..322 "impl"
+    WHITESPACE@322..323 " "
+    PATH@323..327
+      TYPE_NAME@323..327 "Show"
+    WHITESPACE@327..328 " "
+    PATH_TYPE@328..332
+      PATH@328..332
+        TYPE_NAME@328..332 "User"
+    WHITESPACE@332..333 " "
+    ITEM_LIST@333..357
+      L_BRACE@333..334 "{"
+      WHITESPACE@334..335 " "
+      FN_DECL@335..355
+        FN_KW@335..337 "fn"
+        WHITESPACE@337..338 " "
+        LOWER_NAME@338..342 "show"
+        PARAM_LIST@342..348
+          L_PAREN@342..343 "("
+          PARAM@343..347
+            SELF_KW@343..347 "self"
+          R_PAREN@347..348 ")"
+        WHITESPACE@348..349 " "
+        BLOCK_EXPR@349..355
+          L_BRACE@349..350 "{"
+          WHITESPACE@350..351 " "
+          STRING@351..353
+            STRING_QUOTE@351..352 "\""
+            STRING_QUOTE@352..353 "\""
+          WHITESPACE@353..354 " "
+          R_BRACE@354..355 "}"
+      WHITESPACE@355..356 " "
+      R_BRACE@356..357 "}"
+  NEWLINE@357..358 "\n"
+  CONST_DECL@358..373
+    CONST_KW@358..363 "const"
+    WHITESPACE@363..364 " "
+    ERROR@364..369
+      LOWER_NAME@364..369 "lower"
+    WHITESPACE@369..370 " "
+    EQ@370..371 "="
+    WHITESPACE@371..372 " "
+    LITERAL@372..373
+      INT@372..373 "1"
+  NEWLINE@373..374 "\n"
+  CONST_DECL@374..385
+    CONST_KW@374..379 "const"
+    WHITESPACE@379..380 " "
+    UPPER_NAME@380..383 "MAX"
+    WHITESPACE@383..384 " "
+    LITERAL@384..385
+      INT@384..385 "2"
+  NEWLINE@385..386 "\n"
+  LAYER_DECL@386..403
+    LAYER_KW@386..391 "layer"
+    WHITESPACE@391..392 " "
+    ERROR@392..393
+      UPPER_NAME@392..393 "L"
+    WHITESPACE@393..394 " "
+    ITEM_LIST@394..403
+      L_BRACE@394..395 "{"
+      WHITESPACE@395..396 " "
+      ERROR@396..397
+        UPPER_NAME@396..397 "A"
+      WHITESPACE@397..398 " "
+      ERROR@398..401
+        LOWER_NAME@398..399 "b"
+        WHITESPACE@399..400 " "
+        UPPER_NAME@400..401 "C"
+      WHITESPACE@401..402 " "
+      R_BRACE@402..403 "}"
+  NEWLINE@403..404 "\n"
+  FN_DECL@404..420
+    FN_KW@404..406 "fn"
+    WHITESPACE@406..407 " "
+    LOWER_NAME@407..412 "after"
+    PARAM_LIST@412..414
+      L_PAREN@412..413 "("
+      R_PAREN@413..414 ")"
+    WHITESPACE@414..415 " "
+    BLOCK_EXPR@415..420
+      L_BRACE@415..416 "{"
+      WHITESPACE@416..417 " "
+      LITERAL@417..418
+        INT@417..418 "1"
+      WHITESPACE@418..419 " "
+      R_BRACE@419..420 "}"
+  NEWLINE@420..421 "\n"
+error[E0129]@43..49: derive rules in traits are not supported yet
+error[E0110]@249..250: expected `->`
+error[E0110]@252..255: expected operation (`fn`)
+error[E0110]@284..285: expected type name
+error[E0110]@286..292: expected `implements`
+error[E0110]@328..332: expected `for`
+error[E0110]@364..369: expected upper name
+error[E0110]@384..385: expected `=`
+error[E0110]@392..393: expected type name
+error[E0110]@396..397: expected handler name
+error[E0110]@398..399: expected `,` or newline between handlers

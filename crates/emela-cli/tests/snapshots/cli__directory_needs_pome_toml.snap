@@ -1,0 +1,8 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+error[E0207]: no Pome.toml found in `.` or its parent directories
+   = note: put a Pome.toml (it may be empty) in the project directory, or pass a single file
+
+1 error

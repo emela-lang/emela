@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 emela-types.workspace = true
 la-arena.workspace = true
+rustc-hash.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

@@ -80,4 +80,5 @@ ROOT@0..62
       R_BRACE@60..61 "}"
   NEWLINE_CONT@61..62 "\n"
 error[E0110]@20..21: expected `)`
+error[E0130]@32..33: a function without a body must be `@external`
 error[E0110]@49..51: expected `)`

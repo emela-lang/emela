@@ -12,6 +12,7 @@ use crate::diagnostic::DiagnosticCode;
 pub(crate) use items::source_file as root;
 
 /// `open` で始まり `close` で終わる，カンマ区切りの並び．末尾のカンマを許す．
+/// 波括弧の中の改行は区切りとして字句に残るので，要素の前後で読み飛ばす．
 ///
 /// 要素を読む `element` は，読めなければ診断を出すだけで，区切りや閉じ括弧を消費しないこと．
 /// 閉じ括弧がなければ診断を出し，その手前で止まる．
@@ -22,11 +23,14 @@ fn delimited(
     mut element: impl FnMut(&mut Parser<'_>),
 ) {
     p.bump_kind(open);
+    while p.eat(NEWLINE) {}
     while !p.at(close) && !p.at_eof() {
         element(p);
+        while p.eat(NEWLINE) {}
         if !p.eat(COMMA) {
             break;
         }
+        while p.eat(NEWLINE) {}
     }
     p.expect(close);
 }

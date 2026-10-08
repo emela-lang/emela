@@ -63,6 +63,27 @@ pub enum DiagnosticCode {
     InvalidBindingTarget,
     /// 宣言が来るはずの位置に宣言がない．
     ExpectedDeclaration,
+    /// 宣言の後ろの import（4.2）．
+    ImportAfterDeclaration,
+    /// 1つのバリアントで名前付きと名前なしのフィールドを混ぜている（5.4）．
+    MixedVariantFields,
+    /// trait の導出規則．構文が未確定（18.1 #3）．
+    DeriveRuleUnsupported,
+    /// `@external` が要る宣言に付いていない．本体のない fn，トップレベルの suspend fn，
+    /// フィールドのない type．
+    MissingExternal,
+    /// `opaque` を type と enum 以外に付けた，または `pub` なしで付けた．
+    MisplacedOpaque,
+    /// バリアントのない enum．
+    EmptyEnum,
+    /// impl に `pub` や注釈を付けた．
+    ModifierOnImpl,
+    /// handler の操作の引数に型を書いた．型は effect の宣言から決まる．
+    TypedHandlerParam,
+    /// impl と handler の fn に本体がない．
+    MissingBody,
+    /// impl の fn に戻り値，fails，use を書いた．型は trait の宣言から決まる．
+    SignatureInImpl,
 }
 
 impl DiagnosticCode {
@@ -93,6 +114,16 @@ impl DiagnosticCode {
             Self::BareRestOutsidePattern => "E0124",
             Self::InvalidBindingTarget => "E0125",
             Self::ExpectedDeclaration => "E0126",
+            Self::ImportAfterDeclaration => "E0127",
+            Self::MixedVariantFields => "E0128",
+            Self::DeriveRuleUnsupported => "E0129",
+            Self::MissingExternal => "E0130",
+            Self::MisplacedOpaque => "E0131",
+            Self::EmptyEnum => "E0132",
+            Self::ModifierOnImpl => "E0133",
+            Self::TypedHandlerParam => "E0134",
+            Self::MissingBody => "E0135",
+            Self::SignatureInImpl => "E0136",
         }
     }
 }

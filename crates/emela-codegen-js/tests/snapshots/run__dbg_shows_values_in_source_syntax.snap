@@ -1,0 +1,62 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $None, $dbg, $list, $showBool, $showFloat, $showInt, $showInt64, $showList, $showString, $showTuple, $showUnit, $strlen, $unreachable } from "./emela_runtime.mjs";
+
+const Shape$Empty = Object.freeze({ $tag: 2 });
+const Tree$Leaf = Object.freeze({ $tag: 0 });
+const Option$None = $None;
+
+function main() {
+  const _$16 = $dbg({ $tag: 0, radius: 1.0 }, $show$Shape);
+  const _$15 = $dbg({ $tag: 1, $0: 1.0, $1: 2.5 }, $show$Shape);
+  const _$14 = $dbg(Shape$Empty, $show$Shape);
+  const _$13 = $dbg({ $tag: 0, x: (-1), y: 2 }, $show$Point);
+  const _$12 = $dbg($list([1, 2, 3]), (($x) => $showList($x, $showInt)));
+  const _$11 = $dbg(null, (($x) => $showList($x, $showInt)));
+  const _$10 = $dbg([1, "a"], (($x) => $showTuple($x, [$showInt, $showString])));
+  const _$9 = $dbg("say \"hi\"\n\\ #{x} # \t", $showString);
+  const _$8 = $dbg("", $showString);
+  const _$7 = $dbg(true, $showBool);
+  const _$6 = $dbg(3.0, $showFloat);
+  const _$5 = $dbg(9223372036854775807n, $showInt64);
+  const _$4 = $dbg(undefined, $showUnit);
+  const _$3 = $dbg($list([{ $tag: 0, $0: $list(["a", "b"]) }, Option$None]), (($x) => $showList($x, (($x) => $show$Option($x, (($x) => $showList($x, $showString)))))));
+  const _$2 = $dbg({ $tag: 1, $0: { $tag: 1, $0: Tree$Leaf, $1: "l", $2: Tree$Leaf }, $1: "root", $2: Tree$Leaf }, (($x) => $show$Tree($x, $showString)));
+  const _$1 = $dbg($list([[Shape$Empty, $list([false])]]), (($x) => $showList($x, (($x) => $showTuple($x, [$show$Shape, (($x) => $showList($x, $showBool))])))));
+  const x$0 = $dbg("héllo", $showString);
+  return $strlen(x$0);
+}
+
+function $show$Shape(v) {
+  switch (v.$tag) {
+    case 0: return "Circle(radius: " + $showFloat(v.radius) + ")";
+    case 1: return "Rect(" + $showFloat(v.$0) + ", " + $showFloat(v.$1) + ")";
+    case 2: return "Empty";
+  }
+  return $unreachable();
+}
+
+function $show$Point(v) {
+  return "Point(x: " + $showInt(v.x) + ", y: " + $showInt(v.y) + ")";
+}
+
+function $show$Option(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Some(" + $a0(v.$0) + ")";
+    case 1: return "None";
+  }
+  return $unreachable();
+}
+
+function $show$Tree(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Leaf";
+    case 1: return "Node(" + $show$Tree(v.$0, $a0) + ", " + $a0(v.$1) + ", " + $show$Tree(v.$2, $a0) + ")";
+  }
+  return $unreachable();
+}
+
+export { main };
