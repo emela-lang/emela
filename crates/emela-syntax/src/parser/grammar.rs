@@ -6,6 +6,7 @@ mod types;
 
 use super::{CompletedMarker, Parser};
 use crate::SyntaxKind::{self, *};
+use crate::diagnostic::DiagnosticCode;
 
 /// 文法はまだ途中．読めないトークンは1つずつ ERROR に包んで ROOT の下に置く．
 pub(crate) fn root(p: &mut Parser<'_>) {
@@ -36,6 +37,27 @@ fn delimited(
         }
     }
     p.expect(close);
+}
+
+/// `"(" [ param { "," param } ] ")"`．`param = "self" | lower_name [ ":" type ]`
+fn param_list(p: &mut Parser<'_>) {
+    let m = p.start();
+    delimited(p, L_PAREN, R_PAREN, |p| {
+        let param = p.start();
+        if p.eat(LOWER_NAME) {
+            if p.eat(COLON) {
+                types::type_(p);
+            }
+        } else if !p.eat(SELF_KW) {
+            p.err_recover(
+                DiagnosticCode::ExpectedToken,
+                "expected parameter name",
+                &[COMMA, R_PAREN, L_BRACE, NEWLINE],
+            );
+        }
+        param.complete(p, PARAM);
+    });
+    m.complete(p, PARAM_LIST);
 }
 
 /// 数値か文字列のリテラル．補間の中身は `interp` で読む．

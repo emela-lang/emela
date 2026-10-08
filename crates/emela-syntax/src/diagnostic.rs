@@ -53,6 +53,14 @@ pub enum DiagnosticCode {
     PositionalAfterNamed,
     /// 括弧で囲まずに `use X` の操作を呼んでいる．`use Clock.sleep(1)`
     UnparenthesizedUse,
+    /// 文の後ろに改行か `}` がない．`a b`
+    ExpectedStatementEnd,
+    /// パターンの外の `_`．
+    UnderscoreOutsidePattern,
+    /// パターンの外の，式のない `..`．
+    BareRestOutsidePattern,
+    /// 束縛の左辺がパターンとして読めない．`a + b = 1`
+    InvalidBindingTarget,
 }
 
 impl DiagnosticCode {
@@ -78,6 +86,10 @@ impl DiagnosticCode {
             Self::ChainedComparison => "E0119",
             Self::PositionalAfterNamed => "E0120",
             Self::UnparenthesizedUse => "E0121",
+            Self::ExpectedStatementEnd => "E0122",
+            Self::UnderscoreOutsidePattern => "E0123",
+            Self::BareRestOutsidePattern => "E0124",
+            Self::InvalidBindingTarget => "E0125",
         }
     }
 }

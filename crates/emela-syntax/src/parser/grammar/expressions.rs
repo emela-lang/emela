@@ -1,7 +1,8 @@
-//! 式（17.5）．ブロックと制御構文はまだ．
+//! 式（17.5）．
 
-use super::literal;
-use super::types::path;
+use super::patterns::pattern;
+use super::types::{path, type_};
+use super::{literal, param_list};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
@@ -11,20 +12,165 @@ const RECOVERY: &[SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, NEWLINE, INTERP_END,
 ];
 
-/// `"fail" expr | "assert" expr | pipe_expr`
-pub(crate) fn expr(p: &mut Parser<'_>) {
+/// `"fail" expr | "assert" expr | pipe_expr { "escape" "{" { arm NL } "}" }`
+pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let kind = match p.current() {
         FAIL_KW => FAIL_EXPR,
         ASSERT_KW => ASSERT_EXPR,
         _ => {
-            expr_bp(p, 0);
-            return;
+            let mut lhs = expr_bp(p, 0)?;
+            while p.at(ESCAPE_KW) {
+                let m = lhs.precede(p);
+                p.bump();
+                arm_list(p);
+                lhs = m.complete(p, ESCAPE_EXPR);
+            }
+            return Some(lhs);
         }
     };
     let m = p.start();
     p.bump();
     expr(p);
-    m.complete(p, kind);
+    Some(m.complete(p, kind))
+}
+
+/// `binding | expr`．`binding = pattern [ ":" type ] "=" expr`
+///
+/// 左辺はまず式として読み，直後に `:` か `=` があれば BINDING で包み直す．
+pub(crate) fn stmt(p: &mut Parser<'_>) {
+    let Some(lhs) = expr(p) else { return };
+    if !p.at(COLON) && !p.at(EQ) {
+        return;
+    }
+    let m = lhs.precede(p);
+    if p.eat(COLON) {
+        type_(p);
+    }
+    p.expect(EQ);
+    expr(p);
+    m.complete(p, BINDING);
+}
+
+/// `"{" { stmt NL } "}"`
+pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
+    let m = p.start();
+    p.bump_kind(L_BRACE);
+    loop {
+        while p.eat(NEWLINE) {}
+        if p.at(R_BRACE) || p.at_eof() {
+            break;
+        }
+        stmt(p);
+        if !p.at(NEWLINE) && !p.at(R_BRACE) && !p.at_eof() {
+            p.error(
+                DiagnosticCode::ExpectedStatementEnd,
+                "expected newline or `}` after statement",
+            );
+            skip_to_line_end(p);
+        }
+    }
+    p.expect(R_BRACE);
+    m.complete(p, BLOCK_EXPR)
+}
+
+/// 改行か，対応の取れた外側の `}` の手前までを ERROR に包んで読み飛ばす．
+fn skip_to_line_end(p: &mut Parser<'_>) {
+    let m = p.start();
+    let mut depth = 0usize;
+    while !p.at_eof() && !(depth == 0 && (p.at(NEWLINE) || p.at(R_BRACE))) {
+        match p.current() {
+            L_BRACE => depth += 1,
+            R_BRACE => depth -= 1,
+            _ => {}
+        }
+        p.bump();
+    }
+    m.complete(p, ERROR);
+}
+
+/// `"if" expr block [ "else" ( block | if_expr ) ]`
+fn if_expr(p: &mut Parser<'_>) {
+    p.bump_kind(IF_KW);
+    expr(p);
+    block_or_error(p);
+    if p.eat(ELSE_KW) {
+        if p.at(IF_KW) {
+            let m = p.start();
+            if_expr(p);
+            m.complete(p, IF_EXPR);
+        } else {
+            block_or_error(p);
+        }
+    }
+}
+
+/// ブロック．`{` がなくても同じ行に式が続いていれば，診断を1つ出して式として読む．
+fn block_or_error(p: &mut Parser<'_>) {
+    if p.at(L_BRACE) {
+        block(p);
+        return;
+    }
+    p.expect(L_BRACE);
+    if !matches!(p.current(), NEWLINE | R_BRACE | EOF) {
+        expr(p);
+    }
+}
+
+/// `"{" { arm NL } "}"`．`arm = pattern [ "if" expr ] "->" expr`
+fn arm_list(p: &mut Parser<'_>) {
+    let m = p.start();
+    if !p.expect(L_BRACE) {
+        m.complete(p, MATCH_ARM_LIST);
+        return;
+    }
+    loop {
+        while p.eat(NEWLINE) {}
+        if p.at(R_BRACE) || p.at_eof() {
+            break;
+        }
+        arm(p);
+        if !p.at(NEWLINE) && !p.at(R_BRACE) && !p.at_eof() {
+            p.error(
+                DiagnosticCode::ExpectedStatementEnd,
+                "expected newline or `}` after match arm",
+            );
+            skip_to_line_end(p);
+        }
+    }
+    p.expect(R_BRACE);
+    m.complete(p, MATCH_ARM_LIST);
+}
+
+fn arm(p: &mut Parser<'_>) {
+    let m = p.start();
+    pattern(p);
+    if p.at(IF_KW) {
+        let g = p.start();
+        p.bump();
+        expr(p);
+        g.complete(p, MATCH_GUARD);
+    }
+    // 矢印がなくても，同じ行に式が続いていれば本体として読む．
+    if p.expect(THIN_ARROW) || !matches!(p.current(), NEWLINE | R_BRACE | EOF) {
+        expr(p);
+    }
+    m.complete(p, MATCH_ARM);
+}
+
+/// `"with" type_ref { "," type_ref } block`
+fn with_expr(p: &mut Parser<'_>) {
+    p.bump_kind(WITH_KW);
+    loop {
+        if p.at(TYPE_NAME) {
+            path(p);
+        } else {
+            p.expect(TYPE_NAME);
+        }
+        if !p.eat(COMMA) {
+            break;
+        }
+    }
+    block_or_error(p);
 }
 
 /// 二項演算子の強さ．大きいほど強く結合する．比較は結合しない．
@@ -138,6 +284,35 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         L_BRACK => {
             list_expr(p);
             LIST_EXPR
+        }
+        L_BRACE => {
+            m.abandon(p);
+            return Some(block(p));
+        }
+        IF_KW => {
+            if_expr(p);
+            IF_EXPR
+        }
+        MATCH_KW => {
+            p.bump();
+            expr(p);
+            arm_list(p);
+            MATCH_EXPR
+        }
+        WITH_KW => {
+            with_expr(p);
+            WITH_EXPR
+        }
+        // `lambda = "fn" "(" [ params ] ")" block`
+        FN_KW => {
+            p.bump();
+            if p.at(L_PAREN) {
+                param_list(p);
+            } else {
+                p.expect(L_PAREN);
+            }
+            block_or_error(p);
+            LAMBDA_EXPR
         }
         _ => {
             m.abandon(p);

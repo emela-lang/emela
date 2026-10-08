@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"count + 1\", \"a + b * c - d\", \"-x * y\", \"a || b && !c\",\n\"radius > 0.0\", \"List.partition(xs, is_even)\", \"fail Invalid(input:)\",\n\"connect(\\\"localhost\\\", port: 5432)\",\n\"scores\\n  |> List.filter(is_valid)\\n  |> List.fold(init: 0, f: add)\",\n\"use Logger\", \"(use Clock).sleep(1000)\",\n\"users.find(id) |> Option.or_fail(NotFound(id:))\",\n\"log.info(\\\"hello #{user.name}\\\")\", \"assert x == 1\", \"self.name\", \"MAX_SIZE\",\n\"()\", \"(a + b) * c\", \"(a, b,)\", \"[]\", \"[x, y, ..rest]\",\n\"[x, ..List.tail(xs)]\", \"User(name:, ..)\", \"[x, ..]\",], expressions::expr,)"
+expression: "dump_all(&[\"count + 1\", \"a + b * c - d\", \"-x * y\", \"a || b && !c\",\n\"radius > 0.0\", \"List.partition(xs, is_even)\", \"fail Invalid(input:)\",\n\"connect(\\\"localhost\\\", port: 5432)\",\n\"scores\\n  |> List.filter(is_valid)\\n  |> List.fold(init: 0, f: add)\",\n\"use Logger\", \"(use Clock).sleep(1000)\",\n\"users.find(id) |> Option.or_fail(NotFound(id:))\",\n\"log.info(\\\"hello #{user.name}\\\")\", \"assert x == 1\", \"self.name\", \"MAX_SIZE\",\n\"()\", \"(a + b) * c\", \"(a, b,)\", \"[]\", \"[x, y, ..rest]\",\n\"[x, ..List.tail(xs)]\",], |p| { expressions::expr(p); },)"
 ---
 === count + 1
 ROOT@0..9
@@ -370,30 +370,3 @@ ROOT@0..20
             LOWER_NAME@16..18 "xs"
           R_PAREN@18..19 ")"
     R_BRACK@19..20 "]"
-=== User(name:, ..)
-ROOT@0..15
-  CALL_EXPR@0..15
-    PATH_EXPR@0..4
-      PATH@0..4
-        TYPE_NAME@0..4 "User"
-    ARG_LIST@4..15
-      L_PAREN@4..5 "("
-      NAMED_ARG@5..10
-        LOWER_NAME@5..9 "name"
-        COLON@9..10 ":"
-      COMMA@10..11 ","
-      WHITESPACE@11..12 " "
-      REST_EXPR@12..14
-        DOT2@12..14 ".."
-      R_PAREN@14..15 ")"
-=== [x, ..]
-ROOT@0..7
-  LIST_EXPR@0..7
-    L_BRACK@0..1 "["
-    NAME_REF@1..2
-      LOWER_NAME@1..2 "x"
-    COMMA@2..3 ","
-    WHITESPACE@3..4 " "
-    REST_EXPR@4..6
-      DOT2@4..6 ".."
-    R_BRACK@6..7 "]"

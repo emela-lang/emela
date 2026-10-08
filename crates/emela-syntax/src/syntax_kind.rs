@@ -267,6 +267,30 @@ pub enum SyntaxKind {
     FAIL_EXPR,
     /// `assert x == 1`
     ASSERT_EXPR,
+    /// `{ a = 1⏎ a + 1 }`
+    BLOCK_EXPR,
+    /// 束縛．左辺は式として読み，パターンとしての検査は木の上で行う．`(a, b): (Int, Int) = pair`
+    BINDING,
+    /// `if c { a } else { b }`
+    IF_EXPR,
+    /// `match x { ... }`
+    MATCH_EXPR,
+    /// match と escape の腕の並び．`{ A -> 1⏎ B -> 2 }`
+    MATCH_ARM_LIST,
+    /// `Circle(r) if r > 0.0 -> r`
+    MATCH_ARM,
+    /// `if r > 0.0`
+    MATCH_GUARD,
+    /// `with ConsoleLogger, FixedClock { ... }`
+    WITH_EXPR,
+    /// `find(id) escape { NotFound(_) -> guest() }`
+    ESCAPE_EXPR,
+    /// `fn(n) { n + 1 }`
+    LAMBDA_EXPR,
+    /// `(x: Int, f)`
+    PARAM_LIST,
+    /// `x: Int` `self`
+    PARAM,
 
     /// パーサがエラー回復で読み飛ばした範囲．
     ERROR,

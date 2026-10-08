@@ -57,7 +57,7 @@ fn interp_in_pattern(p: &mut Parser<'_>) {
     );
     let m = p.start();
     let mut depth = 0;
-    while !p.at_eof() && !(depth == 0 && p.at(INTERP_END)) {
+    while !(p.at_eof() || depth == 0 && p.at(INTERP_END)) {
         match p.current() {
             INTERP_START => depth += 1,
             INTERP_END => depth -= 1,

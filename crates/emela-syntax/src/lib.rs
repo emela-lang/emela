@@ -6,6 +6,7 @@ mod diagnostic;
 mod lexer;
 mod parser;
 mod syntax_kind;
+mod validation;
 
 use std::fmt::Write;
 
@@ -51,7 +52,10 @@ pub fn parse(src: &str) -> Parse {
     let lexed = lex(src);
     let mut p = parser::Parser::new(src, &lexed.tokens);
     parser::root(&mut p);
-    let (green, parse_diagnostics) = parser::build(src, &lexed.tokens, p.finish());
+    let (green, mut parse_diagnostics) = parser::build(src, &lexed.tokens, p.finish());
+    parse_diagnostics.extend(validation::validate(&SyntaxNode::new_root(green.clone())));
+    // パースと検査の診断は位置の順に並べる．同じ位置なら出した順のまま．
+    parse_diagnostics.sort_by_key(|d| (d.range.start(), d.range.end()));
     let mut diagnostics = lexed.diagnostics;
     diagnostics.extend(parse_diagnostics);
     Parse { green, diagnostics }
