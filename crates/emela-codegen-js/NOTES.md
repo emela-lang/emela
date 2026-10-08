@@ -31,10 +31,10 @@
 
 - （補）Int の加減算は `(a + b) | 0`，乗算は `Math.imul`，除算と剰余はランタイムの `$idiv` / `$irem`（ゼロ除算の defect と `| 0` での巻き戻し・`-0` の除去を受け持つ）．
 - （補）Int64 の除算 `$ldiv` は `i64::MIN / -1` を `BigInt.asIntN` で巻き戻して `i64::MIN` にする．
-- （補）Float の `%` は JS の `%`（fmod，被除数の符号）．
-- （補）文字列の順序比較はコードポイントの辞書順（`$scmp`）．JS の `<` は UTF-16 の順なので使わない．等値は `===`．
+- （補）Float の `%` は JS の `%`（fmod，被除数の符号）．仕様 16.1 に反映済み．
+- （補）文字列の順序比較はコードポイントの辞書順（`$scmp`）．JS の `<` は UTF-16 の順なので使わない．等値は `===`．仕様 10.6，16.2 に反映済み．
 - （補）基本型以外の `==` は `$eq` で構造を比べる．長いリストでもスタックを使わないよう明示的なスタックで辿る．NaN は自分自身とも等しくない．
-- （補）補間での表示: Bool は `True` / `False`（enum のバリアント名），Float は整数値で有限なら `1.0` のように `.0` を付ける．それ以外の Float は JS の `String`（`1e+21`，`-2.5e-8`，`Infinity`，`NaN`）．桁数は最短で往復できる桁数（JS の Number#toString と同じ規則）で，WASM 側でもこれに合わせる（16章冒頭の「JS と WASM で同じ結果」）．Int64 は `n` を付けない．
+- （補）補間での表示: Bool は `True` / `False`（enum のバリアント名），Float は整数値で有限なら `1.0` のように `.0` を付ける．それ以外の Float は JS の `String`（`1e+21`，`-2.5e-8`，`Infinity`，`NaN`）．桁数は最短で往復できる桁数（JS の Number#toString と同じ規則）で，WASM 側でもこれに合わせる．Int64 は `n` を付けない．仕様 10.6 に反映済み．
 - （補）defect は `$Defect`（`name` が `"Defect"` の `Error`）を投げる．メッセージは英語で `division by zero`，`unreachable: no match arm matched`，`panic` は渡したメッセージ．
 - （補）match の対象はリテラルか変数でなければ一時変数に1回だけ入れる．腕は `if` の列で，ガードはパターンの束縛の後に評価する．無条件に合う腕があればそれ以降の腕と `$unreachable()` を出さない．
 - （補）評価順: 引数の後ろの方に文を要する式（`let`，`match` など）があると，それより左の引数を先に一時変数へ束縛してから文を出す．リテラル・変数・関数・ラムダは束縛しない．
@@ -44,4 +44,4 @@
 ## ランタイム
 
 - （補）ランタイムは `src/runtime.mjs` 1つで，`RUNTIME` として埋め込む．`RuntimeMode::Import` は使った名前だけを `./emela_runtime.mjs` から import し，ファイルの書き出しは呼び出し側が行う．`RuntimeMode::Inline` は行頭の `export ` を外して出力の先頭に埋め込む．そのため runtime.mjs では `export` を行頭にだけ書く．
-- （補）`String.length` は `Intl.Segmenter`（ロケールは既定）で書記素クラスタを数える．Segmenter は最初の呼び出しで1つ作って使い回す．書記素の区切りの Unicode の版はホストの ICU に依存する．WASM と揃えるときに版を固定する．
+- （補）`String.length` は `Intl.Segmenter`（ロケールは既定）で書記素クラスタを数える．Segmenter は最初の呼び出しで1つ作って使い回す．書記素の区切りの Unicode の版はホストの ICU に依存する．固定する版は仕様 18.1 #18 で未決．
