@@ -164,6 +164,8 @@ pub enum SyntaxKind {
 
     /// 字句解析で認識できなかった文字．
     ERROR_TOKEN,
+    /// 入力の終わり．パーサの先読みだけで使い，木には出ない．
+    EOF,
 
     // ノード
     ROOT,

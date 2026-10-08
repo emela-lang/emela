@@ -3,6 +3,7 @@
 //! 構文木は rowan の green/red tree．空白，改行，コメントもトークンとして木に残す．
 
 mod lexer;
+mod parser;
 mod syntax_kind;
 
 pub use lexer::{Diagnostic, Lexed, Token, lex};
