@@ -244,6 +244,19 @@ fn generalize_skips_env_vars() {
 }
 
 #[test]
+fn generalize_skips_vars_reached_from_bound_env_vars() {
+    // 環境の ?0 が List[?1] に束縛されていれば，?1 も環境の型変数なので量化しない．
+    let (cons, _, _) = cons();
+    let mut cx = InferCtx::new();
+    let (a, b) = (cx.new_var(), cx.new_var());
+    let Ty::Var(av) = a else { unreachable!() };
+    cx.unify(&a, &Ty::list(b.clone())).unwrap();
+    let ty = Ty::func([b.clone()], b);
+    let scheme = cx.generalize(&ty, &[av]);
+    assert_eq!(scheme.display(&cons).to_string(), "fn(?1) -> ?1");
+}
+
+#[test]
 fn generalize_follows_bindings() {
     let (cons, pair, _) = cons();
     let mut cx = InferCtx::new();
