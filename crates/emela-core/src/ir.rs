@@ -6,6 +6,8 @@
 
 use la_arena::{Arena, Idx};
 
+use crate::intrinsics::Builtin;
+
 pub type FnId = Idx<Function>;
 pub type EnumId = Idx<EnumDef>;
 pub type Local = Idx<LocalData>;
@@ -16,6 +18,8 @@ pub struct Module {
     pub enums: Arena<EnumDef>,
     pub functions: Arena<Function>,
     pub locals: Arena<LocalData>,
+    /// Prelude の `Option` を入れたなら，その ID（`option_enum`）．
+    pub option: Option<EnumId>,
 }
 
 impl Module {
@@ -56,6 +60,35 @@ impl Module {
         self.enums.alloc(def)
     }
 
+    /// Prelude の `Option[A]`（`Some(A)` / `None` の順）を入れて ID を返す．2回目以降は同じ ID を返す．
+    ///
+    /// `List.get` や `Int.checked_add` のように Option を返す組み込み関数と，利用者の書く
+    /// `Some` / `None` が同じ定義を指すように，モジュールごとに1つだけ持つ．
+    pub fn option_enum(&mut self) -> EnumId {
+        if let Some(id) = self.option {
+            return id;
+        }
+        let id = self.enums.alloc(EnumDef::option());
+        self.option = Some(id);
+        id
+    }
+
+    /// `Some`．
+    pub fn some_ctor(&mut self) -> CtorRef {
+        CtorRef {
+            enum_id: self.option_enum(),
+            variant: OPTION_SOME,
+        }
+    }
+
+    /// `None`．
+    pub fn none_ctor(&mut self) -> CtorRef {
+        CtorRef {
+            enum_id: self.option_enum(),
+            variant: OPTION_NONE,
+        }
+    }
+
     pub fn variant(&self, ctor: CtorRef) -> &VariantDef {
         &self.enums[ctor.enum_id].variants[ctor.variant]
     }
@@ -80,13 +113,103 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub struct EnumDef {
     pub name: String,
+    /// 型引数の数．フィールドの型の `Type::Param(i)` が `i` 番目を指す．
+    pub params: usize,
     pub variants: Vec<VariantDef>,
+}
+
+/// Prelude の `Option` の `Some` の添字．
+pub const OPTION_SOME: usize = 0;
+/// Prelude の `Option` の `None` の添字．
+pub const OPTION_NONE: usize = 1;
+
+impl EnumDef {
+    /// Prelude の `enum Option[A] { Some(A), None }`．
+    pub fn option() -> Self {
+        EnumDef {
+            name: "Option".to_owned(),
+            params: 1,
+            variants: vec![
+                VariantDef::positional("Some", vec![Type::Param(0)]),
+                VariantDef::unit("None"),
+            ],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct VariantDef {
     pub name: String,
     pub fields: VariantFields,
+    /// フィールドの型．`fields` と同じ順に並ぶ．表示関数（Show の仮実装）を型から作るのに使う．
+    pub tys: Vec<Type>,
+}
+
+impl VariantDef {
+    pub fn unit(name: &str) -> Self {
+        VariantDef {
+            name: name.to_owned(),
+            fields: VariantFields::Unit,
+            tys: Vec::new(),
+        }
+    }
+
+    pub fn positional(name: &str, tys: Vec<Type>) -> Self {
+        VariantDef {
+            name: name.to_owned(),
+            fields: VariantFields::Positional(tys.len()),
+            tys,
+        }
+    }
+
+    pub fn named(name: &str, fields: Vec<(&str, Type)>) -> Self {
+        let (names, tys) = fields.into_iter().map(|(n, t)| (n.to_owned(), t)).unzip();
+        VariantDef {
+            name: name.to_owned(),
+            fields: VariantFields::Named(names),
+            tys,
+        }
+    }
+}
+
+/// IR の値の型．表示（Show の仮実装）と，型で振る舞いの変わる組み込み関数に使う．
+///
+/// 型検査の `emela_types::Ty` を，IR の名前（`EnumId`）で書き直したもの．型変数は持たない．
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Type {
+    Int,
+    Int64,
+    Float,
+    Bool,
+    String,
+    Unit,
+    Never,
+    /// 要素は2つ以上．
+    Tuple(Vec<Type>),
+    List(Box<Type>),
+    /// enum / type の適用．引数の数は `EnumDef::params`．
+    Enum(EnumId, Vec<Type>),
+    /// 囲む `EnumDef` の型引数．フィールドの型の中にだけ現れる．
+    Param(usize),
+    /// 関数型．表示できない（10.6）ので中身は持たない．
+    Fn,
+}
+
+impl Type {
+    pub fn list(elem: Type) -> Type {
+        Type::List(Box::new(elem))
+    }
+
+    /// `Type::Param(i)` を `args[i]` に置き換える．
+    pub fn subst(&self, args: &[Type]) -> Type {
+        match self {
+            Type::Param(i) => args[*i].clone(),
+            Type::Tuple(ts) => Type::Tuple(ts.iter().map(|t| t.subst(args)).collect()),
+            Type::List(t) => Type::list(t.subst(args)),
+            Type::Enum(id, ts) => Type::Enum(*id, ts.iter().map(|t| t.subst(args)).collect()),
+            _ => self.clone(),
+        }
+    }
 }
 
 /// バリアントの3形式．
@@ -151,8 +274,11 @@ pub enum Expr {
         callee: Callee,
         args: Vec<Expr>,
     },
+    /// 組み込み関数（`intrinsics`）の呼び出し．`ty_args` は型引数の具体的な型で，
+    /// `dbg` のように型で振る舞いの変わるものだけが使う（数は `Builtin::info().ty_params`）．
     Builtin {
         op: Builtin,
+        ty_args: Vec<Type>,
         args: Vec<Expr>,
     },
     /// 構成子の構築．引数はフィールドの定義順．
@@ -220,23 +346,6 @@ pub enum Callee {
     Indirect(Box<Expr>),
 }
 
-/// 組み込み関数．
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Builtin {
-    /// `String.length`．書記素クラスタの数．
-    StringLength,
-    /// Prelude の `panic(message)`．defect を起こす．
-    Panic,
-}
-
-impl Builtin {
-    pub fn arity(self) -> usize {
-        match self {
-            Builtin::StringLength | Builtin::Panic => 1,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arm {
     pub pat: Pat,
@@ -264,20 +373,12 @@ pub enum Pat {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StrKind {
-    Int,
-    Int64,
-    Float,
-    Bool,
-    String,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum StrPart {
     Lit(String),
-    /// 値を文字列にして埋め込む．この段では基本型だけ（Show は 0.21）．
-    Value(Expr, StrKind),
+    /// 値を文字列にして埋め込む．型から決まる表示関数を使う（Show の仮実装．Trait は 0.21）．
+    /// 型は `Type::Param` を含まない具体的な型でなければならない．
+    Value(Expr, Type),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

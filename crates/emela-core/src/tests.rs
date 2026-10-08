@@ -220,3 +220,83 @@ fn loopify_through_short_circuit() {
         assert_eq!(arms[1].body, expected);
     }
 }
+
+// ---- 組み込み関数の表 ----
+
+fn prelude_cons() -> (emela_types::TyCons, emela_types::TyConId) {
+    use emela_types::{TyConData, TyConKind, TyCons, TyParam};
+    let mut cons = TyCons::new();
+    let option = cons.alloc(TyConData {
+        name: "Option".into(),
+        kind: TyConKind::Enum,
+        params: vec![TyParam::new("A")],
+    });
+    (cons, option)
+}
+
+#[test]
+fn builtin_names_are_unique_and_found_by_lookup() {
+    for &op in Builtin::ALL {
+        let i = op.info();
+        assert_eq!(Builtin::lookup(i.module, i.name), Some(op), "{}", i.path());
+        assert!(i.pure, "{} が純粋でない", i.path());
+        assert!(i.js.starts_with('$'), "{} の実装名", i.path());
+    }
+    assert_eq!(
+        Builtin::lookup(Some("String"), "length"),
+        Some(Builtin::StringLength)
+    );
+    assert_eq!(Builtin::lookup(None, "dbg"), Some(Builtin::Dbg));
+    // Prelude の関数は修飾しない．
+    assert_eq!(Builtin::lookup(Some("Prelude"), "panic"), None);
+    assert_eq!(Builtin::lookup(Some("List"), "map"), None);
+}
+
+#[test]
+fn builtin_schemes() {
+    let (cons, option) = prelude_cons();
+    let show = |op: Builtin| format!("{}", op.info().scheme(option).display(&cons));
+    assert_eq!(show(Builtin::StringLength), "fn(String) -> Int");
+    assert_eq!(
+        show(Builtin::StringSplit),
+        "fn(String, String) -> List[String]"
+    );
+    assert_eq!(
+        show(Builtin::StringJoin),
+        "fn(List[String], String) -> String"
+    );
+    assert_eq!(show(Builtin::IntCheckedAdd), "fn(Int, Int) -> Option[Int]");
+    assert_eq!(show(Builtin::FloatRound), "fn(Float) -> Int");
+    assert_eq!(show(Builtin::Panic), "fn(String) -> Never");
+    assert_eq!(show(Builtin::Todo), "fn() -> Never");
+    assert_eq!(show(Builtin::Dbg), "∀ A. fn(A) -> A");
+    assert_eq!(Builtin::Dbg.info().path(), "dbg");
+    assert_eq!(Builtin::Int64FromInt.info().path(), "Int64.from_int");
+}
+
+#[test]
+fn option_enum_is_shared() {
+    let mut m = Module::new();
+    let a = m.option_enum();
+    let b = m.option_enum();
+    assert_eq!(a, b);
+    assert_eq!(m.enums.len(), 1);
+    assert_eq!(m.some_ctor().variant, OPTION_SOME);
+    let none = m.none_ctor();
+    assert_eq!(m.variant(none).name, "None");
+    assert_eq!(m.enums[a].variants[OPTION_SOME].tys, vec![Type::Param(0)]);
+}
+
+#[test]
+fn type_subst_replaces_params() {
+    let mut m = Module::new();
+    let opt = m.option_enum();
+    let t = Type::list(Type::Enum(opt, vec![Type::Param(0)]));
+    assert_eq!(
+        t.subst(&[Type::Tuple(vec![Type::Int, Type::String])]),
+        Type::list(Type::Enum(
+            opt,
+            vec![Type::Tuple(vec![Type::Int, Type::String])]
+        ))
+    );
+}

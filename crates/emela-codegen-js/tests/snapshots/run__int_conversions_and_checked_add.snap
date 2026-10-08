@@ -1,0 +1,22 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $None, $icheckedAdd, $itof, $itol, $ltoi, $showFloat, $showInt, $showInt64, $unreachable } from "./emela_runtime.mjs";
+
+const Option$None = $None;
+
+function main() {
+  return `${$show$Option($icheckedAdd(1, 2), $showInt)}\n${$show$Option($icheckedAdd(2147483647, 1), $showInt)}\n${$show$Option($icheckedAdd((-2147483648), (-1)), $showInt)}\n${$show$Option($icheckedAdd(2147483647, (-2147483648)), $showInt)}\n${$showInt((-42))}\n${$showFloat($itof(7))}\n${BigInt.asIntN(64, $itol(2147483647) * $itol(2))}\n${$showInt64((-9223372036854775808n))}\n${$ltoi(2147483648n)}\n${$ltoi(4294967301n)}\n${$ltoi((-1n))}`;
+}
+
+function $show$Option(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Some(" + $a0(v.$0) + ")";
+    case 1: return "None";
+  }
+  return $unreachable();
+}
+
+export { main };

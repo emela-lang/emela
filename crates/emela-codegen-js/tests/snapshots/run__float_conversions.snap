@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $fceil, $ffloor, $fround, $ftrunc, $showFloat } from "./emela_runtime.mjs";
+
+function main() {
+  return `${`${$ffloor(2.5)} ${$fceil(2.5)} ${$fround(2.5)} ${$ftrunc(2.5)}`}\n${`${$ffloor((-2.5))} ${$fceil((-2.5))} ${$fround((-2.5))} ${$ftrunc((-2.5))}`}\n${`${$ffloor(0.5)} ${$fceil(0.5)} ${$fround(0.5)} ${$ftrunc(0.5)}`}\n${`${$ffloor((-0.5))} ${$fceil((-0.5))} ${$fround((-0.5))} ${$ftrunc((-0.5))}`}\n${`${$ffloor((-0.4))} ${$fceil((-0.4))} ${$fround((-0.4))} ${$ftrunc((-0.4))}`}\n${`${$ffloor(1.4999999999999998)} ${$fceil(1.4999999999999998)} ${$fround(1.4999999999999998)} ${$ftrunc(1.4999999999999998)}`}\n${`${$ffloor(0.49999999999999994)} ${$fceil(0.49999999999999994)} ${$fround(0.49999999999999994)} ${$ftrunc(0.49999999999999994)}`}\n${`${$ffloor(2147483646.6)} ${$fceil(2147483646.6)} ${$fround(2147483646.6)} ${$ftrunc(2147483646.6)}`}\n${`${$ffloor((-2147483647.6))} ${$fceil((-2147483647.6))} ${$fround((-2147483647.6))} ${$ftrunc((-2147483647.6))}`}\n${$showFloat(1.0)}\n${$showFloat((-0.0))}\n${$showFloat(0.1)}\n${$showFloat(1e21)}\n${$showFloat(NaN)}\n${$showFloat((-Infinity))}`;
+}
+
+export { main };

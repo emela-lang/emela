@@ -1,0 +1,34 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $None, $eq, $icheckedAdd, $showBool, $showInt, $unreachable } from "./emela_runtime.mjs";
+
+const Option$None = $None;
+
+function inc_or_zero(a$0) {
+  const $t0 = $icheckedAdd(a$0, 1);
+  if ($t0.$tag === 0) {
+    const n$1 = $t0.$0;
+    return n$1;
+  }
+  if ($t0.$tag === 1) {
+    return 0;
+  }
+  $unreachable();
+}
+
+function main() {
+  return `${inc_or_zero(41)}\n${inc_or_zero(2147483647)}\n${$showBool($eq($icheckedAdd(2147483647, 1), Option$None))}\n${$show$Option({ $tag: 0, $0: 1 }, $showInt)}`;
+}
+
+function $show$Option(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Some(" + $a0(v.$0) + ")";
+    case 1: return "None";
+  }
+  return $unreachable();
+}
+
+export { main };

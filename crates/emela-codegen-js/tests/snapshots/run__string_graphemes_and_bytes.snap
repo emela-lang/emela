@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $showList, $showString, $strbytes, $strchars, $strlen } from "./emela_runtime.mjs";
+
+function main() {
+  return `${$strlen("👍")}\n${$strbytes("👍")}\n${$showList($strchars("👍"), $showString)}\n${$strlen("é")}\n${$strbytes("é")}\n${$showList($strchars("é"), $showString)}\n${$strlen("👨‍👩‍👧")}\n${$strbytes("👨‍👩‍👧")}\n${$showList($strchars("👨‍👩‍👧"), $showString)}\n${$strlen("🇯🇵")}\n${$strbytes("🇯🇵")}\n${$showList($strchars("🇯🇵"), $showString)}\n${$strlen("日本語")}\n${$strbytes("日本語")}\n${$showList($strchars("日本語"), $showString)}\n${$strlen("")}\n${$strbytes("")}\n${$showList($strchars(""), $showString)}`;
+}
+
+export { main };

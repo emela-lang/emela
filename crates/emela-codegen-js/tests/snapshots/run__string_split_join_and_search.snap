@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $showBool, $showInt, $showList, $showString, $strcat, $strends, $strhas, $strjoin, $strsplit, $strstarts, $strtrim } from "./emela_runtime.mjs";
+
+function main() {
+  return `${$showList($strsplit("a,b,,c", ","), $showString)}\n${$showList($strsplit("", ","), $showString)}\n${$showList($strsplit("abc", ""), $showString)}\n${$showList($strsplit("", ""), $showString)}\n${$showList($strsplit("éx", ""), $showString)}\n${$showList($strsplit("a--b--", "--"), $showString)}\n${$showBool(($strjoin($strsplit("a,b,,c", ","), ",") === "a,b,,c"))}\n${$showBool(($strjoin($strsplit("", ","), ",") === ""))}\n${$showBool(($strjoin($strsplit(",", ","), ",") === ","))}\n${$showBool(($strjoin($strsplit("abc", ""), "") === "abc"))}\n${$showBool(($strjoin($strsplit("x--y", "--"), "--") === "x--y"))}\n${$showBool($strhas("hello", "ell"))}\n${$showBool($strhas("hello", ""))}\n${$showBool($strhas("é", "e"))}\n${$showBool($strstarts("hello", "he"))}\n${$showBool($strstarts("hello", "lo"))}\n${$showBool($strends("hello", "lo"))}\n${$strcat("foo", "bar")}\n${$strtrim(" \t\n　a b \r ")}\n${$strtrim("﻿x​")}\n${$showInt((-7))}`;
+}
+
+export { main };
