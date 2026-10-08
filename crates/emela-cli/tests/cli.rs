@@ -55,8 +55,8 @@ struct Run {
 
 const BROKEN: &[(&str, &str)] = &[
     ("Pome.toml", ""),
-    ("src/main.emel", "let x = \"abc\nlet y = $\n"),
-    ("src/http/client.emel", "let n = 3px\n"),
+    ("src/main.emel", "fn main() {\n  \"abc\n}\nconst Y = $\n"),
+    ("src/http/client.emel", "const N = 3px\n"),
     ("src/Util.emel", ""),
 ];
 
@@ -84,7 +84,7 @@ fn check_clean_project() {
         "clean",
         &[
             ("Pome.toml", ""),
-            ("src/main.emel", "let x = 1\n"),
+            ("src/main.emel", "import Json\n\nfn main() { 1 }\n"),
             ("src/json.emel", ""),
         ],
     );
@@ -120,7 +120,7 @@ fn check_missing_path() {
 fn build_and_run_without_js_backend() {
     let project = Project::new(
         "no-backend",
-        &[("Pome.toml", ""), ("src/main.emel", "let x = 1\n")],
+        &[("Pome.toml", ""), ("src/main.emel", "fn main() { 1 }\n")],
     );
     for command in ["build", "run"] {
         let run = project.emela(&[command]);
@@ -198,17 +198,52 @@ fn file_outside_source_root() {
 }
 
 #[test]
-fn single_file_sees_only_its_directory() {
+fn single_file_reads_only_imported_files() {
     let project = Project::new(
         "single",
         &[
-            ("main.emel", "let x = 1\n"),
-            ("util.emel", "let y = $\n"),
-            ("deep/broken.emel", "let z = $\n"),
+            ("main.emel", "import Util\n\nfn main() { 1 }\n"),
+            ("util.emel", "const Y = $\n"),
+            // エントリからたどれないものは読まない．
+            ("scratch.emel", "fn broken( {\n"),
+            ("Bad.emel", ""),
+            ("deep/broken.emel", "const Z = $\n"),
             ("Not-A-Dir/x.emel", ""),
         ],
     );
     let run = project.emela(&["check", "main.emel"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
+    // 誤りのあるファイルを import しなければ通る．
+    let clean = Project::new(
+        "single-clean",
+        &[
+            ("main.emel", "fn main() { 1 }\n"),
+            ("scratch.emel", "fn broken( {\n"),
+        ],
+    );
+    let run = clean.emela(&["check", "main.emel"]);
+    assert_eq!((run.code, run.stderr.as_str()), (Some(0), ""));
+}
+
+#[test]
+fn check_reports_syntax_and_import_errors() {
+    let project = Project::new(
+        "imports",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "import Http.Client.{get}\nimport Missing\n\nfn main() {\n  get(\n}\n",
+            ),
+            (
+                "src/http/client.emel",
+                "import Json\n\npub fn get(url: String) { url }\n",
+            ),
+            ("src/json.emel", "import Http.Client\n\nconst Z: = 1\n"),
+        ],
+    );
+    let run = project.emela(&["check"]);
     assert_eq!(run.code, Some(1));
     insta::assert_snapshot!(run.stderr);
 }

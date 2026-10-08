@@ -1,0 +1,53 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0104]: invalid number literal `3px`
+   ╭─[ src/http/client.emel:2:9 ]
+   │
+ 2 │ let n = 3px
+   │         ─┬─  
+   │          ╰─── 
+───╯
+
+error[E0132]: an enum needs at least one variant
+   ╭─[ src/http/client.emel:1:6 ]
+   │
+ 1 │ enum Method {}
+   │      ───┬──  
+   │         ╰──── 
+───╯
+
+error[E0126]: expected declaration
+   ╭─[ src/http/client.emel:2:1 ]
+   │
+ 2 │ let n = 3px
+   │ ─┬─  
+   │  ╰─── 
+───╯
+
+error[E0110]: expected `)`
+   ╭─[ src/json.emel:1:24 ]
+   │
+ 1 │ pub fn parse(s: String -> Int { 1 }
+   │                        ─┬  
+   │                         ╰── 
+───╯
+
+error[E0118]: expected expression
+   ╭─[ src/main.emel:3:3 ]
+   │
+ 3 │   let x = (1,)
+   │   ─┬─  
+   │    ╰─── 
+───╯
+
+error[E0122]: expected newline or `}` after statement
+   ╭─[ src/main.emel:3:7 ]
+   │
+ 3 │   let x = (1,)
+   │       ┬  
+   │       ╰── 
+───╯
+
+6 errors

@@ -3,11 +3,10 @@
 use std::path::Path;
 
 use emela_driver::{
-    Analysis, Checked, Diagnostic, FileId, Frontend, Input, LexOnly, Location, MemoryFiles, Parsed,
-    SourceDb, SourceFile, Span, check, render,
+    Analysis, Checked, Diagnostic, FileId, Frontend, Input, LexOnly, Location, MemoryFiles,
+    ParseOnly, Parsed, SourceDb, SourceFile, Span, check, render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
-use emela_syntax::Lexed;
 use emela_types::{InferCtx, Prim, Ty, TyCons};
 use line_index::{TextRange, TextSize};
 
@@ -57,7 +56,7 @@ fn invalid_entry_name() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// `import A.B` の行だけを読む仮のパーサ．差し込み口を通して import の検査を確かめる．
+/// 字句解析をして，`import A.B` の行だけを読む仮のパーサ．差し込み口を通して import の検査を確かめる．
 struct ImportLines {
     checked: bool,
 }
@@ -65,8 +64,9 @@ struct ImportLines {
 impl Frontend for ImportLines {
     type Program = Vec<ModuleId>;
 
-    fn parse(&mut self, _: ModuleId, _: FileId, source: &SourceFile, _: &Lexed) -> Parsed {
-        let mut parsed = Parsed::default();
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
+        // 字句の診断はフロントエンドが出す．
+        let mut parsed = LexOnly.parse(module, file, source);
         let mut offset = 0;
         for line in source.text().split_inclusive('\n') {
             if let Some(path) = line.trim_end().strip_prefix("import ") {
@@ -213,4 +213,155 @@ fn color_output_has_escapes() {
         .with_span(Span::new(file, TextRange::new(0.into(), 1.into())))];
     assert!(render(&diagnostics, &sources, true).contains('\x1b'));
     assert!(!render(&diagnostics, &sources, false).contains('\x1b'));
+}
+
+#[test]
+fn syntax_errors_in_every_file() {
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "import Json\nfn main() {\n  let x = (1,)\n}\n",
+            ),
+            ("app/src/json.emel", "pub fn parse(s: String -> Int { 1 }\n"),
+            ("app/src/http/client.emel", "enum Method {}\nlet n = 3px\n"),
+        ],
+        "app",
+        &mut ParseOnly::new(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn lexical_errors_are_reported_once() {
+    let files = [
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "fn main() {\n  \"abc\n}\nconst y = $\n",
+        ),
+    ];
+    // 字句の診断（E0101〜E0109）だけを取り出す．
+    let codes = |analysis: &Analysis| -> Vec<&'static str> {
+        analysis
+            .diagnostics
+            .iter()
+            .filter_map(|d| d.code)
+            .filter(|c| *c < "E0110")
+            .collect()
+    };
+    let parsed = check_files(&files, "app", &mut ParseOnly::new());
+    assert_eq!(codes(&parsed), ["E0101", "E0105"]);
+    let lexed = check_files(&files, "app", &mut LexOnly);
+    assert_eq!(codes(&lexed), ["E0101", "E0105"]);
+}
+
+#[test]
+fn real_imports_are_checked() {
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "import Http.Client.{get, Response}\nimport Missing.Thing\n",
+            ),
+            ("app/src/http/client.emel", "## 送る\nimport Json\n"),
+            ("app/src/json.emel", "import Http.Client.{get}\n"),
+            ("app/src/selfish.emel", "import Selfish\n"),
+        ],
+        "app",
+        &mut ParseOnly::new(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn broken_import_is_not_resolved() {
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "import http\nimport Nope.\nimport Json\n",
+            ),
+            ("app/src/json.emel", ""),
+        ],
+        "app",
+        &mut ParseOnly::new(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0110", "E0122"]);
+}
+
+#[test]
+fn single_file_reads_only_what_the_entry_imports() {
+    let mut frontend = ParseOnly::new();
+    let analysis = check_files(
+        &[
+            ("tools/main.emel", "import Util\nfn main() { 1 }\n"),
+            ("tools/util.emel", "import Strings\nfn f( { 1 }\n"),
+            ("tools/strings.emel", "const s = \"x\n"),
+            // どこからも import されないもの．読まず，診断も出さない．
+            ("tools/scratch.emel", "fn broken( {\nconst z = $\n"),
+            ("tools/Bad.emel", ""),
+            ("tools/http_2.emel", ""),
+            ("tools/http2.emel", ""),
+        ],
+        "tools/main.emel",
+        &mut frontend,
+    );
+    // 対応表は全部作る．
+    let names: Vec<String> = analysis
+        .modules
+        .iter()
+        .map(|(_, m)| m.name.to_string())
+        .collect();
+    assert_eq!(names, ["Http2", "Main", "Scratch", "Strings", "Util"]);
+    // 読んで構文解析したのはたどれた3つだけ．
+    let read: Vec<String> = analysis
+        .modules
+        .iter()
+        .filter(|(id, _)| frontend.parse_of(*id).is_some())
+        .map(|(_, m)| m.name.to_string())
+        .collect();
+    assert_eq!(read, ["Main", "Strings", "Util"]);
+    assert_eq!(analysis.files.iter().count(), 3);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn single_file_reports_duplicates_it_reaches() {
+    let analysis = check_files(
+        &[
+            ("tools/main.emel", "import Http2\n"),
+            ("tools/http_2.emel", ""),
+            ("tools/http2.emel", ""),
+        ],
+        "tools/main.emel",
+        &mut ParseOnly::new(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
+    assert_eq!(codes, ["E0204"]);
+}
+
+#[test]
+fn project_reads_everything() {
+    let mut frontend = ParseOnly::new();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            ("app/src/main.emel", ""),
+            ("app/src/unused.emel", "fn f( {\n"),
+        ],
+        "app/src/main.emel",
+        &mut frontend,
+    );
+    assert_eq!(analysis.files.iter().count(), 2);
+    // エントリから import されていなくても，プロジェクトなら診断が出る．
+    let unused = analysis.sources.file_id("/app/src/unused.emel".as_ref());
+    assert!(analysis.has_errors());
+    assert!(analysis.diagnostics.iter().all(|d| {
+        matches!(d.location, Some(Location::Span(span)) if Some(span.file) == unused)
+    }));
 }
