@@ -95,12 +95,12 @@ pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf8(bytes).ok()?))
 }
 
-/// 絶対パスを `file:` の URI にする．
+/// 絶対パスを `file:` の URI にする．英数字と `-._~/` 以外は `%` で符号化する（VS Code と同じ）．
 pub fn path_to_uri(path: &Path) -> Option<lsp::Uri> {
     let path = path.to_str()?;
     let mut uri = String::from("file://");
     for byte in path.bytes() {
-        if byte.is_ascii_alphanumeric() || b"/-._~!$&'()*+,;=:@".contains(&byte) {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
             uri.push(byte as char);
         } else {
             uri.push_str(&format!("%{byte:02X}"));
@@ -207,11 +207,11 @@ mod tests {
 
     #[test]
     fn uri_round_trip() {
-        let path = Path::new("/tmp/my project/日本.emel");
+        let path = Path::new("/tmp/my project (1)/日本.emel");
         let uri = path_to_uri(path).unwrap();
         assert_eq!(
             uri.as_str(),
-            "file:///tmp/my%20project/%E6%97%A5%E6%9C%AC.emel"
+            "file:///tmp/my%20project%20%281%29/%E6%97%A5%E6%9C%AC.emel"
         );
         assert_eq!(uri_to_path(&uri).unwrap(), path);
         let localhost = lsp::Uri::from_str("file://localhost/a/b.emel").unwrap();

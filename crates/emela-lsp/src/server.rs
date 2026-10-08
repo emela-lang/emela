@@ -3,7 +3,7 @@
 // `Uri` は内部に `Cell` を持つが，比較とハッシュは文字列（`as_str`）だけで決まるので，鍵にしてよい．
 #![allow(clippy::mutable_key_type)]
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use emela_driver::{Diagnostic, FileSystem, Frontend, Input};
@@ -91,8 +91,9 @@ struct Server<'c, Fs, M> {
     /// ワークスペースのフォルダ．`Pome.toml` があれば，ファイルを開かなくても解析する．
     workspace: Vec<Folder>,
     documents: HashMap<Uri, Document>,
-    /// 前回に診断を送ったファイル．診断がなくなったら空の配列を送る．
-    published: HashSet<Uri>,
+    /// 前回に診断を送ったファイルのパスと，送った URI．診断がなくなったら空の配列を送る．
+    /// 同じファイルでも URI の書き方（`%` の符号化）が変わることがあるので，パスで比べる．
+    published: HashMap<PathBuf, Uri>,
 }
 
 impl<'c, Fs, M, F> Server<'c, Fs, M>
@@ -108,7 +109,7 @@ where
             make_frontend,
             workspace: Vec::new(),
             documents: HashMap::new(),
-            published: HashSet::new(),
+            published: HashMap::new(),
         }
     }
 
@@ -336,19 +337,29 @@ where
     }
 
     fn publish(&mut self, diagnostics: BTreeMap<PathBuf, Vec<lsp::Diagnostic>>) {
-        let mut published = HashSet::new();
-        for (path, diagnostics) in diagnostics {
-            let Some(uri) = self.uri_of(&path) else {
-                continue;
-            };
-            self.publish_one(uri.clone(), diagnostics);
-            published.insert(uri);
+        let mut published = HashMap::new();
+        for path in diagnostics.keys() {
+            if let Some(uri) = self.uri_of(path) {
+                published.insert(path.clone(), uri);
+            }
         }
-        // 前に送ったのに今回は診断のないファイルは，空の配列を送って消す．
-        let mut cleared: Vec<Uri> = self.published.difference(&published).cloned().collect();
+        // 前に送ったのに今回は診断のないファイルと，URI の書き方が変わったファイルの古い URI には，
+        // 空の配列を送って消す．エディタが2つの書き方を同じファイルとみなしても新しい診断が残るように，
+        // 消す方を先に送る．
+        let mut cleared: Vec<Uri> = self
+            .published
+            .iter()
+            .filter(|(path, uri)| published.get(*path) != Some(*uri))
+            .map(|(_, uri)| uri.clone())
+            .collect();
         cleared.sort();
         for uri in cleared {
             self.publish_one(uri, Vec::new());
+        }
+        for (path, diagnostics) in diagnostics {
+            if let Some(uri) = published.get(&path) {
+                self.publish_one(uri.clone(), diagnostics);
+            }
         }
         self.published = published;
     }

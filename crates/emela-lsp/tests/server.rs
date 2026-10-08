@@ -267,11 +267,11 @@ fn import_errors_go_to_the_importing_file() {
     // ディスクにまだないファイルも，開けばモジュールになる．
     client.open("/app/src/http/clinet.emel", 1, "const GET = 2\n");
     let published = client.diagnostics_n(2);
-    assert_eq!(published[0].uri, uri("/app/src/util.emel"));
-    assert_eq!(codes(&published[0]), ["E0205"]);
-    // main の誤りが消えたので，空の配列で消す．
-    assert_eq!(published[1].uri, uri("/app/src/main.emel"));
-    assert!(published[1].diagnostics.is_empty());
+    // main の誤りが消えたので，空の配列で消す（消す方を先に送る）．
+    assert_eq!(published[0].uri, uri("/app/src/main.emel"));
+    assert!(published[0].diagnostics.is_empty());
+    assert_eq!(published[1].uri, uri("/app/src/util.emel"));
+    assert_eq!(codes(&published[1]), ["E0205"]);
     client.shutdown();
 }
 
@@ -297,6 +297,47 @@ fn close_reverts_to_disk() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
     assert_eq!(published.version, None);
+    assert_eq!(codes(&published), ["E0107"]);
+    client.shutdown();
+}
+
+/// エディタの URI の書き方（ここでは括弧を符号化しない）がサーバーの書き方と違っても，
+/// 古い書き方の URI を先に消すので，同じファイルの診断は最後に送ったものが残る．
+#[test]
+fn uri_spelling_changes_clear_first() {
+    let files = [
+        ("/w/proj (1)/Pome.toml", ""),
+        ("/w/proj (1)/src/main.emel", "const X = \"\\q\"\n"),
+    ];
+    let main = "/w/proj%20(1)/src/main.emel";
+    let client = Client::initialize(&files, Some("/w/proj%20(1)"), ParseOnly::new);
+    let published = client.diagnostics();
+    assert_eq!(
+        published.uri.as_str(),
+        "file:///w/proj%20%281%29/src/main.emel"
+    );
+    assert_eq!(codes(&published), ["E0107"]);
+
+    client.open(main, 1, "const X = \"\\q\"\n");
+    let cleared = client.diagnostics();
+    assert_eq!(
+        cleared.uri.as_str(),
+        "file:///w/proj%20%281%29/src/main.emel"
+    );
+    assert!(cleared.diagnostics.is_empty());
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri(main));
+    assert_eq!(codes(&published), ["E0107"]);
+
+    client.close(main);
+    let cleared = client.diagnostics();
+    assert_eq!(cleared.uri, uri(main));
+    assert!(cleared.diagnostics.is_empty());
+    let published = client.diagnostics();
+    assert_eq!(
+        published.uri.as_str(),
+        "file:///w/proj%20%281%29/src/main.emel"
+    );
     assert_eq!(codes(&published), ["E0107"]);
     client.shutdown();
 }
