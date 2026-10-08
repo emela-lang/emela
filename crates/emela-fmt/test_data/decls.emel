@@ -1,24 +1,30 @@
-# fn 以外の宣言はこの段では整形せず，元のテキストのまま出す
-import Http.Client
-import Data.Json.{Json,   decode}
+# 崩れた宣言
+import   Http.Client
+import Data.Json.{ Json ,decode , }
 
 ## 利用者
-pub type User(id: Int,   name: String)
-  derive Eq, Show   # 行末のコメント
+pub   type User( id :Int,   name: String )   derive   Eq ,Show   # 行末のコメント
 
 
-enum Shape {
-  Circle(radius: Float)     # 名前付き
-  Rect(Float, Float)        # 位置引数
-  Empty                     # 中身なし
+enum Shape {   Circle( radius :Float ) ,Rect(Float,Float),
+Empty }
+enum Color{Red,Green,Blue,}
+error   NotFound( id: Int )
+const   MAX_RETRY:Int=3+1
+
+effect Clock { suspend fn sleep(ms: Int) -> ()
+     fn now() -> Instant }
+handler   FixedClock   implements   Clock{
+init{FixedClock()}
+  suspend fn sleep(ms,resume){resume(())}
+fn now(){Instant(0)}
 }
-error NotFound(id: Int)
-const MAX_RETRY = 3
+layer AppTest{FixedClock,ConsoleLogger}
+trait   Show{fn show(self)->String}
+impl   Show   for   User{fn show(self){"User(#{self.name})"}}
 
-effect Clock {
-  suspend fn sleep(ms: Int) -> ()
-  fn now() -> Instant
-}
+type LongRecord(first_field_name: String, second_field_name: List[Int], third_field_name: Bool) derive Eq, Show
+enum LongEnum { FirstVariantName(Int), SecondVariantName(String), ThirdVariantName, FourthVariantName }
 
 ## 整形される fn
 @test

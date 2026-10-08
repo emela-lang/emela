@@ -241,12 +241,13 @@ impl Printer {
         node: &SyntaxNode,
         mut element: impl FnMut(&mut Self, &SyntaxNode, bool) -> Doc,
     ) -> ListParts {
+        let mut prefix = Vec::new();
         let mut open = None;
         let mut close = None;
-        let mut elements: Vec<(SyntaxNode, Option<SyntaxToken>)> = Vec::new();
+        // 要素はノードか，名前のトークン（import の `.{Json, decode}`）．
+        let mut elements: Vec<(SyntaxElement, Option<SyntaxToken>)> = Vec::new();
         for child in significant_children(node) {
             match child {
-                rowan::NodeOrToken::Node(n) => elements.push((n, None)),
                 rowan::NodeOrToken::Token(t) => match t.kind() {
                     COMMA => {
                         if let Some(last) = elements.last_mut() {
@@ -255,13 +256,23 @@ impl Printer {
                     }
                     L_PAREN | L_BRACK | L_BRACE if open.is_none() => open = Some(t),
                     R_PAREN | R_BRACK | R_BRACE => close = Some(t),
-                    _ => {}
+                    // 開き括弧の前のトークン（import の `.`）．
+                    _ if open.is_none() => prefix.push(t),
+                    _ => elements.push((rowan::NodeOrToken::Token(t), None)),
                 },
+                node => elements.push((node, None)),
             }
         }
-        // 波括弧（効果の集合）は内側に空白を置く．`{ Io, Clock }`
-        let braces = open.as_ref().is_some_and(|t| t.kind() == L_BRACE);
-        let open_doc = open.as_ref().map_or_else(RcDoc::nil, |t| self.tok(t));
+        // 効果の集合の波括弧は内側に空白を置く．`{ Io, Clock }`．import の `.{a, b}` は置かない．
+        let braces =
+            open.as_ref().is_some_and(|t| t.kind() == L_BRACE) && node.kind() != IMPORT_LIST;
+        let mut open_doc = RcDoc::nil();
+        for t in &prefix {
+            open_doc = open_doc.append(self.tok(t));
+        }
+        if let Some(t) = &open {
+            open_doc = open_doc.append(self.tok(t));
+        }
         let n = elements.len();
         let mut breaks = Vec::with_capacity(n);
         let mut docs = Vec::with_capacity(n);
@@ -273,12 +284,20 @@ impl Printer {
                 self.line()
             };
             breaks.push(brk);
-            let lead = match first_significant_token(elem) {
+            let first = match elem {
+                rowan::NodeOrToken::Node(n) => first_significant_token(n),
+                rowan::NodeOrToken::Token(t) => Some(t.clone()),
+            };
+            let lead = match first {
                 Some(t) => self.leading_in_list(&t),
                 None => RcDoc::nil(),
             };
             let last = i + 1 == n;
-            let mut doc = lead.append(element(self, elem, last));
+            let elem_doc = match elem {
+                rowan::NodeOrToken::Node(n) => element(self, n, last),
+                rowan::NodeOrToken::Token(t) => self.tok(t),
+            };
+            let mut doc = lead.append(elem_doc);
             let trailing_comma = text(",").flat_alt(RcDoc::nil());
             match (comma, last) {
                 (Some(c), false) => doc = doc.append(self.tok(c)),

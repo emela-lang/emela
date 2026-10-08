@@ -1,7 +1,7 @@
 //! 式（17.5），型（17.4），パターン（17.6）．
 
 use emela_syntax::SyntaxKind::{self, *};
-use emela_syntax::{SyntaxNode, SyntaxToken};
+use emela_syntax::{SyntaxElement, SyntaxNode, SyntaxToken};
 use pretty::RcDoc;
 
 use super::{
@@ -90,7 +90,13 @@ impl Printer {
             // 括弧で囲んだ並び．
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
-            | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST => self.list(node, |p, n| p.node(n)),
+            | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
+            | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
+            // 宣言の部品．
+            VARIANT => self.seq(node, |_, _| false),
+            FIELD => self.seq(node, |_, cur| cur != COLON),
+            DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
+            IMPLEMENTS_CLAUSE => self.seq(node, |_, _| true),
             // 空白で区切るもの．
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | USE_EXPR | FAIL_EXPR | ASSERT_EXPR
             | MATCH_GUARD => self.seq(node, |_, _| true),
@@ -116,6 +122,14 @@ impl Printer {
                 head.append(block.assemble(false).group())
             }
             _ => self.verbatim(node),
+        }
+    }
+
+    /// トークンかノード．
+    pub(crate) fn element(&mut self, element: &SyntaxElement) -> Doc {
+        match element {
+            rowan::NodeOrToken::Token(t) => self.tok(t),
+            rowan::NodeOrToken::Node(n) => self.node(n),
         }
     }
 
@@ -637,7 +651,7 @@ fn bin_op(node: &SyntaxNode) -> Option<SyntaxToken> {
 }
 
 /// トークンの直前（トリビアの中）に改行があるか．
-fn newline_before(token: &SyntaxToken) -> bool {
+pub(crate) fn newline_before(token: &SyntaxToken) -> bool {
     let mut cur = token.prev_token();
     while let Some(t) = cur {
         match t.kind() {

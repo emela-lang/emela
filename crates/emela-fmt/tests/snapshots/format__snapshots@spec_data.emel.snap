@@ -1,0 +1,57 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/spec_data.emel
+---
+# 5章のデータの宣言と 5.6 の const
+type User(id: Int, name: String)
+
+type Pair[A, B](first: A, second: B)
+
+type Todo(
+  id: Int,
+  title: String,
+  ## 完了したか
+  completed: Bool,
+)
+
+pub opaque type Email(value: String)
+
+type User2(id: Int, name: String, email: Email)
+  derive Eq, Show, Encode
+
+type MyDate(inner: ThirdParty.Date)
+
+type Tagged(@json("n") name: String)
+
+@external
+type Connection
+
+enum Shape {
+  Circle(radius: Float) # 名前付き
+  Rect(Float, Float) # 位置引数
+  Empty # 中身なし
+}
+
+enum Option[A] {
+  Some(A)
+  None
+}
+
+## 色
+enum Color { Red, Green, Blue } derive Eq
+
+enum Mixed {
+  ## 1つ目
+  Alpha
+  Beta(x: Int)
+  Gamma
+}
+
+error NotFound(id: Int)
+
+error Unauthorized
+
+const MAX_RETRY = 3
+const DEFAULT_CONFIG = Config(port: 8080)
+pub const TIMEOUT_MS: Int = 30_000

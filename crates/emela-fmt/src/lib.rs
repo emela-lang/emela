@@ -11,7 +11,7 @@ mod printer;
 
 use std::fmt;
 
-use emela_syntax::{Diagnostic, SyntaxKind, SyntaxNode};
+use emela_syntax::{Diagnostic, SyntaxKind, SyntaxNode, SyntaxToken};
 
 /// 既定の幅．
 pub const DEFAULT_WIDTH: usize = 100;
@@ -114,6 +114,8 @@ fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
 /// - 並びの末尾のカンマ（閉じ括弧の直前のカンマ）
 /// - 文を区切る改行のうち，ブロックの `{` の直後と `}` の直前，カンマの前後，入力の
 ///   始まりと終わりのもの．続いた改行は1つにまとめる
+/// - 区切りとして働かない改行（注釈の後ろ，`derive` の前など）
+/// - 残った改行は `,` に置き換える（enum のバリアントなどはどちらでも区切れる）
 #[doc(hidden)]
 pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
@@ -121,6 +123,7 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
         .descendants_with_tokens()
         .filter_map(|e| e.into_token())
         .filter(|t| !t.kind().is_trivia())
+        .filter(|t| t.kind() != NEWLINE || separates(t))
         .map(|t| (t.kind(), t.text().to_owned()))
         .collect();
     let mut out: Vec<(SyntaxKind, String)> = Vec::new();
@@ -134,9 +137,10 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
                 let prev = out.last().map(|(k, _)| *k);
                 let drop = matches!(prev, None | Some(NEWLINE | L_BRACE | COMMA))
                     || matches!(next, None | Some(R_BRACE | COMMA));
-                // `\r\n` と `\n` は同じ改行なので，テキストは比べない．
+                // 残った改行は区切りとして `,` と同じに扱う．enum のバリアントなどは
+                // カンマでも改行でも区切れ，整形で入れ替わるため．`\r\n` と `\n` も区別しない．
                 if !drop {
-                    out.push((*kind, String::new()));
+                    out.push((COMMA, ",".to_owned()));
                 }
             }
             COMMA if matches!(next, Some(R_PAREN | R_BRACK | R_BRACE)) => {}
@@ -144,6 +148,18 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
         }
     }
     out
+}
+
+/// 改行が区切りとして働くか．ファイル，ブロック，腕の並び，宣言の本体の改行だけが
+/// 区切りで，注釈の後ろや `derive` の前，効果の集合の中の改行はパーサが読み飛ばす．
+fn separates(newline: &SyntaxToken) -> bool {
+    use SyntaxKind::*;
+    newline.parent().is_some_and(|p| {
+        matches!(
+            p.kind(),
+            ROOT | BLOCK_EXPR | MATCH_ARM_LIST | ITEM_LIST | VARIANT_LIST
+        )
+    })
 }
 
 /// コメントの本文の並び（行末の空白を除く）．
