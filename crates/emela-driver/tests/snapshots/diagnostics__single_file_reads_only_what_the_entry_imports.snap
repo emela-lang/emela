@@ -1,0 +1,37 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0101]: unterminated string literal
+   ╭─[ strings.emel:1:11 ]
+   │
+ 1 │ const s = "x
+   │           ─┬  
+   │            ╰── 
+───╯
+
+error[E0110]: expected upper name
+   ╭─[ strings.emel:1:7 ]
+   │
+ 1 │ const s = "x
+   │       ┬  
+   │       ╰── 
+───╯
+
+error[E0110]: expected parameter name
+   ╭─[ util.emel:2:7 ]
+   │
+ 2 │ fn f( { 1 }
+   │       ┬  
+   │       ╰── 
+───╯
+
+error[E0110]: expected `)`
+   ╭─[ util.emel:2:7 ]
+   │
+ 2 │ fn f( { 1 }
+   │       ┬  
+   │       ╰── 
+───╯
+
+4 errors

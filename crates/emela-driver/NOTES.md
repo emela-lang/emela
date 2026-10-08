@@ -4,12 +4,12 @@
 
 ## 差し込み口
 
-パーサ，型検査，JS の出力はまだないので，trait で差し込む．
+構文解析，型検査，JS の出力は trait で差し込む．
 
 ```rust
 pub trait Frontend {
     type Program;
-    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile, lexed: &Lexed) -> Parsed;
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed;
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program>;
 }
 
@@ -18,18 +18,31 @@ pub trait JsBackend<P> {
 }
 ```
 
-- `parse` はモジュールごとに1回，字句解析の後に呼ぶ．返すのは import の一覧（`emela_resolve::Import`）と構文の診断．構文木は `Frontend` の側に持っておく
-- `check` は全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
+- 字句解析は `Frontend` に任せる．パイプラインは字句解析をしない．`emela_syntax::parse` が字句解析をやり直して字句の診断も返すので，パイプラインでも字句解析をすると同じ診断が2回出るため
+- `parse` は読んだモジュールごとに1回呼ぶ．返すのは import の一覧（`emela_resolve::Import`）と，字句と構文の診断．構文木は `Frontend` の側に持っておく
+- `check` は読んだ全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は読んだモジュールだけの依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
 - `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
-- 今の段の実装は `LexOnly`（import なし，型検査なし，`Program = ()`）と `NoJsBackend`（「JS の出力はまだ実装されていない」の診断を返す）
-- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `LexOnly` と `NoJsBackend` をそれぞれ差し替える
+- `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はまだないので `Program = ()`．cli はこれを使う
+- `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
+- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `ParseOnly` と `NoJsBackend` をそれぞれ差し替える
+
+## 読むモジュール
+
+- モジュールの対応表はいつも全部作る．読んで解析するモジュールは作業リストで決める
+- プロジェクト（`Pome.toml` あり）は全モジュールを読む
+- 単独ファイルはエントリから始め，`parse` が返した import の先を作業リストに足していく．エントリから import でたどれないファイルは読まず，その診断も出ない
 
 ## 補った判断
 
 - プロジェクトとソースのルート，エントリ，出力先，診断のパスの決め方は仕様 4.1 にある（`Pome.toml` の有無で決める）．以下はそれ以外の判断
 - （補）`Pome.toml` は `fs.absolute` で絶対パスに直したパスから上にたどって探す．`OsFs` の絶対パスは `canonicalize`（シンボリックリンクも解く）
 - （補）単独ファイルのときは，`emela_resolve::collect_modules` に渡す一覧からディレクトリを除く（`Shallow`）．resolve は変えずに「直下の `.emel` だけ」にする
-- （補）単独ファイルで，エントリから import でたどれないファイルの診断（兄弟の名前の誤りや字句のエラー）も出る．たどれるファイルだけを読む形はパーサが import を返すようになってから入れる（仕様側から提案あり）
+- （補）単独ファイルでは，エントリから import でたどれるファイルだけを読み，診断もそれだけにする（仕様側からの提案）
+- （補）単独ファイルでの名前解決の診断は，名前の誤りと予約名はそのファイルがエントリのときだけ，重複はそのモジュール名をたどったときだけ出す．たどれない兄弟の名前の誤りは出さない
+- （補）単独ファイルで，エントリがモジュールにならなければ何も読まない（E0210 と名前の誤りだけが出る）
+- （補）`check` に渡す依存順からは読まなかったモジュール（読めなかったファイル，単独ファイルでたどれないもの）を除く
+- （補）`Import` の範囲は import 文でなくパスの部分（`import A.B.{x}` の `A.B`）．未定義のモジュールと循環の診断はここを指す
+- （補）構文の誤りで読めない import は import の一覧に入れない: パスがない，中に ERROR がある，`.{` が閉じていない，文の直後に読み残しがある（`import A.` の `.`）．宣言の後ろの import（E0127）は位置の誤りなので一覧に入れる
 - （補）`MemoryFiles` は `/` を起点にし，相対パスは `/` からとみなす．`.` と `..` は字面で畳む
 - （補）診断のパスは `SourceDb::display_path` で起点（プロジェクトか単独ファイルのディレクトリ）からの相対パスにする．名前解決の診断の文面に埋め込まれたパス（重複の「先に `…` がある」）も同じく相対にする
 - （補）ディレクトリを渡してエントリ（`src/main.emel`）がなくても `check` は通す．エントリがないことは `build` と `run` で初めてエラーにする
@@ -45,7 +58,7 @@ pub trait JsBackend<P> {
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）（仕様 7.5 に反映済み）
 - （補）終了コードは `process.exit` でなく `process.exitCode` で決める（パイプへの書き込みが途中で切れないように）
 - （補）node がシグナルで止まったときの終了コードは 128 + シグナル番号
-- （補）診断の順序は段の順: モジュールの収集（名前の誤りなど），ファイルごとの字句解析と構文解析（モジュールのパス順），import のグラフ，型検査
+- （補）診断の順序は段の順: モジュールの収集（名前の誤りなど），ファイルごとの字句解析と構文解析（読んだ順でなくモジュールのパス順），import のグラフ，型検査
 - 診断の文面は英語，コードの体系と表は仕様の付録 A（`code.rs` はその写し）．見出しは `error[E0204]: …`，最後の行は `2 errors, 1 warning`（1件なら単数形）
 - （補）コードの付いていない診断は見出しを `error:` / `warning:` だけにする．今は処理系の内部の誤り（`internal error: …`）だけがそう
 - 字句解析と構文解析の診断のコードと文面は emela-syntax が持つ（`Diagnostic::code`）．driver はそのまま渡す
