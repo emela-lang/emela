@@ -8,6 +8,7 @@ mod sink;
 use std::cell::Cell;
 
 use crate::SyntaxKind::{self, EOF};
+use crate::diagnostic::DiagnosticCode;
 
 pub(crate) use sink::build;
 
@@ -20,7 +21,10 @@ pub(crate) enum Event {
     },
     Token,
     Finish,
-    Error(String),
+    Error {
+        code: DiagnosticCode,
+        message: String,
+    },
     /// まだ種類が決まっていない，または捨てたノードの開始．
     Tombstone,
 }
@@ -88,12 +92,18 @@ impl Parser {
         if self.eat(kind) {
             return true;
         }
-        self.error(format!("{kind:?} がありません"));
+        self.error(
+            DiagnosticCode::ExpectedToken,
+            format!("expected {}", kind.describe()),
+        );
         false
     }
 
-    pub(crate) fn error(&mut self, message: impl Into<String>) {
-        self.events.push(Event::Error(message.into()));
+    pub(crate) fn error(&mut self, code: DiagnosticCode, message: impl Into<String>) {
+        self.events.push(Event::Error {
+            code,
+            message: message.into(),
+        });
     }
 
     pub(crate) fn start(&mut self) -> Marker {

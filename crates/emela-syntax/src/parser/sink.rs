@@ -116,9 +116,13 @@ pub(crate) fn build(
                 sink.builder.finish_node();
                 sink.depth -= 1;
             }
-            Event::Error(message) => {
+            Event::Error { code, message } => {
                 let range = sink.error_range();
-                sink.diagnostics.push(Diagnostic { range, message });
+                sink.diagnostics.push(Diagnostic {
+                    range,
+                    code,
+                    message,
+                });
             }
             Event::Tombstone => {}
         }
@@ -141,7 +145,7 @@ mod tests {
     use super::build;
     use crate::SyntaxKind::{ERROR, ROOT};
     use crate::parser::Parser;
-    use crate::{Diagnostic, SyntaxNode, debug_tree, lex};
+    use crate::{Diagnostic, DiagnosticCode, SyntaxNode, debug_tree, lex};
 
     /// `src` を字句解析し，`f` でパーサを手で動かして木を組む．
     fn run(src: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<Diagnostic>) {
@@ -204,9 +208,9 @@ mod tests {
         let (_, diagnostics) = run("a  b ", |p| {
             let root = p.start();
             p.bump();
-            p.error("途中");
+            p.error(DiagnosticCode::ExpectedToken, "middle");
             p.bump();
-            p.error("終わり");
+            p.error(DiagnosticCode::ExpectedToken, "end");
             root.complete(p, ROOT);
         });
         let range = |s: u32, e: u32| TextRange::new(TextSize::from(s), TextSize::from(e));
@@ -214,6 +218,6 @@ mod tests {
             .iter()
             .map(|d| (d.range, d.message.as_str()))
             .collect();
-        assert_eq!(got, [(range(3, 4), "途中"), (range(5, 5), "終わり")]);
+        assert_eq!(got, [(range(3, 4), "middle"), (range(5, 5), "end")]);
     }
 }

@@ -50,10 +50,10 @@ WHITESPACE@68..69 " "
 LOWER_NAME@69..72 "caf"
 ERROR_TOKEN@72..74 "é"
 NEWLINE@74..75 "\n"
-error@0..11: "Http_client" は小文字名，型名，大文字名のどれにも合わない
-error@16..24: "Max_SIZE" は小文字名，型名，大文字名のどれにも合わない
-error@29..32: "1e9" は数値の形になっていない
-error@35..39: "1.0e" は数値の形になっていない
-error@42..45: "3px" は数値の形になっていない
-error@61..62: 認識できない文字 "&"
-error@72..74: 認識できない文字 "é"
+error[E0103]@0..11: invalid name `Http_client`: not a lower, type, or upper name
+error[E0103]@16..24: invalid name `Max_SIZE`: not a lower, type, or upper name
+error[E0104]@29..32: invalid number literal `1e9`
+error[E0104]@35..39: invalid number literal `1.0e`
+error[E0104]@42..45: invalid number literal `3px`
+error[E0105]@61..62: unrecognized character `&`
+error[E0105]@72..74: unrecognized character `é`

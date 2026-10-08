@@ -2,6 +2,7 @@
 //!
 //! 構文木は rowan の green/red tree．空白，改行，コメントもトークンとして木に残す．
 
+mod diagnostic;
 mod lexer;
 mod parser;
 mod syntax_kind;
@@ -10,7 +11,8 @@ use std::fmt::Write;
 
 use rowan::{GreenNode, NodeOrToken};
 
-pub use lexer::{Diagnostic, Lexed, Token, lex};
+pub use diagnostic::{Diagnostic, DiagnosticCode};
+pub use lexer::{Lexed, Token, lex};
 pub use syntax_kind::SyntaxKind;
 
 /// パースの結果．木はどんな入力でも組めて，テキストは入力と一致する．
@@ -30,11 +32,16 @@ impl Parse {
         &self.diagnostics
     }
 
-    /// 木を1要素1行で書き出し，最後に診断を `error@start..end: メッセージ` で並べる．
+    /// 木を1要素1行で書き出し，最後に診断を `error[E0101]@start..end: 文面` で並べる．
     pub fn debug_dump(&self) -> String {
         let mut out = debug_tree(&self.syntax());
         for diagnostic in &self.diagnostics {
-            writeln!(out, "error@{:?}: {}", diagnostic.range, diagnostic.message).unwrap();
+            writeln!(
+                out,
+                "error[{}]@{:?}: {}",
+                diagnostic.code, diagnostic.range, diagnostic.message
+            )
+            .unwrap();
         }
         out
     }
