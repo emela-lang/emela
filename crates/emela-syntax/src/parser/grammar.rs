@@ -1,9 +1,10 @@
 //! 文法．17章の規則ごとに関数を1つ置く．
 
+mod expressions;
 mod patterns;
 mod types;
 
-use super::Parser;
+use super::{CompletedMarker, Parser};
 use crate::SyntaxKind::{self, *};
 
 /// 文法はまだ途中．読めないトークンは1つずつ ERROR に包んで ROOT の下に置く．
@@ -38,19 +39,18 @@ fn delimited(
 }
 
 /// 数値か文字列のリテラル．補間の中身は `interp` で読む．
-fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) {
+fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     if p.at(STRING_QUOTE) {
-        string(p, interp);
-        return;
+        return string(p, interp);
     }
     let m = p.start();
     p.bump();
-    m.complete(p, LITERAL);
+    m.complete(p, LITERAL)
 }
 
 /// 字句が部品に分けた文字列を組み立てる．閉じていない文字列と補間は字句が診断を出しているので，
 /// ここでは閉じる `"` と `}` がなくても黙って終える．
-fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) {
+fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     let m = p.start();
     p.bump_kind(STRING_QUOTE);
     loop {
@@ -67,7 +67,7 @@ fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) {
         }
     }
     p.eat(STRING_QUOTE);
-    m.complete(p, STRING);
+    m.complete(p, STRING)
 }
 
 #[cfg(test)]

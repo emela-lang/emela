@@ -1,0 +1,399 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"count + 1\", \"a + b * c - d\", \"-x * y\", \"a || b && !c\",\n\"radius > 0.0\", \"List.partition(xs, is_even)\", \"fail Invalid(input:)\",\n\"connect(\\\"localhost\\\", port: 5432)\",\n\"scores\\n  |> List.filter(is_valid)\\n  |> List.fold(init: 0, f: add)\",\n\"use Logger\", \"(use Clock).sleep(1000)\",\n\"users.find(id) |> Option.or_fail(NotFound(id:))\",\n\"log.info(\\\"hello #{user.name}\\\")\", \"assert x == 1\", \"self.name\", \"MAX_SIZE\",\n\"()\", \"(a + b) * c\", \"(a, b,)\", \"[]\", \"[x, y, ..rest]\",\n\"[x, ..List.tail(xs)]\", \"User(name:, ..)\", \"[x, ..]\",], expressions::expr,)"
+---
+=== count + 1
+ROOT@0..9
+  BIN_EXPR@0..9
+    NAME_REF@0..5
+      LOWER_NAME@0..5 "count"
+    WHITESPACE@5..6 " "
+    PLUS@6..7 "+"
+    WHITESPACE@7..8 " "
+    LITERAL@8..9
+      INT@8..9 "1"
+=== a + b * c - d
+ROOT@0..13
+  BIN_EXPR@0..13
+    BIN_EXPR@0..9
+      NAME_REF@0..1
+        LOWER_NAME@0..1 "a"
+      WHITESPACE@1..2 " "
+      PLUS@2..3 "+"
+      WHITESPACE@3..4 " "
+      BIN_EXPR@4..9
+        NAME_REF@4..5
+          LOWER_NAME@4..5 "b"
+        WHITESPACE@5..6 " "
+        STAR@6..7 "*"
+        WHITESPACE@7..8 " "
+        NAME_REF@8..9
+          LOWER_NAME@8..9 "c"
+    WHITESPACE@9..10 " "
+    MINUS@10..11 "-"
+    WHITESPACE@11..12 " "
+    NAME_REF@12..13
+      LOWER_NAME@12..13 "d"
+=== -x * y
+ROOT@0..6
+  BIN_EXPR@0..6
+    PREFIX_EXPR@0..2
+      MINUS@0..1 "-"
+      NAME_REF@1..2
+        LOWER_NAME@1..2 "x"
+    WHITESPACE@2..3 " "
+    STAR@3..4 "*"
+    WHITESPACE@4..5 " "
+    NAME_REF@5..6
+      LOWER_NAME@5..6 "y"
+=== a || b && !c
+ROOT@0..12
+  BIN_EXPR@0..12
+    NAME_REF@0..1
+      LOWER_NAME@0..1 "a"
+    WHITESPACE@1..2 " "
+    PIPE2@2..4 "||"
+    WHITESPACE@4..5 " "
+    BIN_EXPR@5..12
+      NAME_REF@5..6
+        LOWER_NAME@5..6 "b"
+      WHITESPACE@6..7 " "
+      AMP2@7..9 "&&"
+      WHITESPACE@9..10 " "
+      PREFIX_EXPR@10..12
+        BANG@10..11 "!"
+        NAME_REF@11..12
+          LOWER_NAME@11..12 "c"
+=== radius > 0.0
+ROOT@0..12
+  BIN_EXPR@0..12
+    NAME_REF@0..6
+      LOWER_NAME@0..6 "radius"
+    WHITESPACE@6..7 " "
+    GT@7..8 ">"
+    WHITESPACE@8..9 " "
+    LITERAL@9..12
+      FLOAT@9..12 "0.0"
+=== List.partition(xs, is_even)
+ROOT@0..27
+  CALL_EXPR@0..27
+    FIELD_EXPR@0..14
+      PATH_EXPR@0..4
+        PATH@0..4
+          TYPE_NAME@0..4 "List"
+      DOT@4..5 "."
+      LOWER_NAME@5..14 "partition"
+    ARG_LIST@14..27
+      L_PAREN@14..15 "("
+      NAME_REF@15..17
+        LOWER_NAME@15..17 "xs"
+      COMMA@17..18 ","
+      WHITESPACE@18..19 " "
+      NAME_REF@19..26
+        LOWER_NAME@19..26 "is_even"
+      R_PAREN@26..27 ")"
+=== fail Invalid(input:)
+ROOT@0..20
+  FAIL_EXPR@0..20
+    FAIL_KW@0..4 "fail"
+    WHITESPACE@4..5 " "
+    CALL_EXPR@5..20
+      PATH_EXPR@5..12
+        PATH@5..12
+          TYPE_NAME@5..12 "Invalid"
+      ARG_LIST@12..20
+        L_PAREN@12..13 "("
+        NAMED_ARG@13..19
+          LOWER_NAME@13..18 "input"
+          COLON@18..19 ":"
+        R_PAREN@19..20 ")"
+=== connect("localhost", port: 5432)
+ROOT@0..32
+  CALL_EXPR@0..32
+    NAME_REF@0..7
+      LOWER_NAME@0..7 "connect"
+    ARG_LIST@7..32
+      L_PAREN@7..8 "("
+      STRING@8..19
+        STRING_QUOTE@8..9 "\""
+        STRING_TEXT@9..18 "localhost"
+        STRING_QUOTE@18..19 "\""
+      COMMA@19..20 ","
+      WHITESPACE@20..21 " "
+      NAMED_ARG@21..31
+        LOWER_NAME@21..25 "port"
+        COLON@25..26 ":"
+        WHITESPACE@26..27 " "
+        LITERAL@27..31
+          INT@27..31 "5432"
+      R_PAREN@31..32 ")"
+=== scores
+  |> List.filter(is_valid)
+  |> List.fold(init: 0, f: add)
+ROOT@0..65
+  BIN_EXPR@0..65
+    BIN_EXPR@0..33
+      NAME_REF@0..6
+        LOWER_NAME@0..6 "scores"
+      NEWLINE_CONT@6..7 "\n"
+      WHITESPACE@7..9 "  "
+      PIPE_GT@9..11 "|>"
+      WHITESPACE@11..12 " "
+      CALL_EXPR@12..33
+        FIELD_EXPR@12..23
+          PATH_EXPR@12..16
+            PATH@12..16
+              TYPE_NAME@12..16 "List"
+          DOT@16..17 "."
+          LOWER_NAME@17..23 "filter"
+        ARG_LIST@23..33
+          L_PAREN@23..24 "("
+          NAME_REF@24..32
+            LOWER_NAME@24..32 "is_valid"
+          R_PAREN@32..33 ")"
+    NEWLINE_CONT@33..34 "\n"
+    WHITESPACE@34..36 "  "
+    PIPE_GT@36..38 "|>"
+    WHITESPACE@38..39 " "
+    CALL_EXPR@39..65
+      FIELD_EXPR@39..48
+        PATH_EXPR@39..43
+          PATH@39..43
+            TYPE_NAME@39..43 "List"
+        DOT@43..44 "."
+        LOWER_NAME@44..48 "fold"
+      ARG_LIST@48..65
+        L_PAREN@48..49 "("
+        NAMED_ARG@49..56
+          LOWER_NAME@49..53 "init"
+          COLON@53..54 ":"
+          WHITESPACE@54..55 " "
+          LITERAL@55..56
+            INT@55..56 "0"
+        COMMA@56..57 ","
+        WHITESPACE@57..58 " "
+        NAMED_ARG@58..64
+          LOWER_NAME@58..59 "f"
+          COLON@59..60 ":"
+          WHITESPACE@60..61 " "
+          NAME_REF@61..64
+            LOWER_NAME@61..64 "add"
+        R_PAREN@64..65 ")"
+=== use Logger
+ROOT@0..10
+  USE_EXPR@0..10
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH@4..10
+      TYPE_NAME@4..10 "Logger"
+=== (use Clock).sleep(1000)
+ROOT@0..23
+  CALL_EXPR@0..23
+    FIELD_EXPR@0..17
+      PAREN_EXPR@0..11
+        L_PAREN@0..1 "("
+        USE_EXPR@1..10
+          USE_KW@1..4 "use"
+          WHITESPACE@4..5 " "
+          PATH@5..10
+            TYPE_NAME@5..10 "Clock"
+        R_PAREN@10..11 ")"
+      DOT@11..12 "."
+      LOWER_NAME@12..17 "sleep"
+    ARG_LIST@17..23
+      L_PAREN@17..18 "("
+      LITERAL@18..22
+        INT@18..22 "1000"
+      R_PAREN@22..23 ")"
+=== users.find(id) |> Option.or_fail(NotFound(id:))
+ROOT@0..47
+  BIN_EXPR@0..47
+    CALL_EXPR@0..14
+      FIELD_EXPR@0..10
+        NAME_REF@0..5
+          LOWER_NAME@0..5 "users"
+        DOT@5..6 "."
+        LOWER_NAME@6..10 "find"
+      ARG_LIST@10..14
+        L_PAREN@10..11 "("
+        NAME_REF@11..13
+          LOWER_NAME@11..13 "id"
+        R_PAREN@13..14 ")"
+    WHITESPACE@14..15 " "
+    PIPE_GT@15..17 "|>"
+    WHITESPACE@17..18 " "
+    CALL_EXPR@18..47
+      FIELD_EXPR@18..32
+        PATH_EXPR@18..24
+          PATH@18..24
+            TYPE_NAME@18..24 "Option"
+        DOT@24..25 "."
+        LOWER_NAME@25..32 "or_fail"
+      ARG_LIST@32..47
+        L_PAREN@32..33 "("
+        CALL_EXPR@33..46
+          PATH_EXPR@33..41
+            PATH@33..41
+              TYPE_NAME@33..41 "NotFound"
+          ARG_LIST@41..46
+            L_PAREN@41..42 "("
+            NAMED_ARG@42..45
+              LOWER_NAME@42..44 "id"
+              COLON@44..45 ":"
+            R_PAREN@45..46 ")"
+        R_PAREN@46..47 ")"
+=== log.info("hello #{user.name}")
+ROOT@0..30
+  CALL_EXPR@0..30
+    FIELD_EXPR@0..8
+      NAME_REF@0..3
+        LOWER_NAME@0..3 "log"
+      DOT@3..4 "."
+      LOWER_NAME@4..8 "info"
+    ARG_LIST@8..30
+      L_PAREN@8..9 "("
+      STRING@9..29
+        STRING_QUOTE@9..10 "\""
+        STRING_TEXT@10..16 "hello "
+        INTERP@16..28
+          INTERP_START@16..18 "#{"
+          FIELD_EXPR@18..27
+            NAME_REF@18..22
+              LOWER_NAME@18..22 "user"
+            DOT@22..23 "."
+            LOWER_NAME@23..27 "name"
+          INTERP_END@27..28 "}"
+        STRING_QUOTE@28..29 "\""
+      R_PAREN@29..30 ")"
+=== assert x == 1
+ROOT@0..13
+  ASSERT_EXPR@0..13
+    ASSERT_KW@0..6 "assert"
+    WHITESPACE@6..7 " "
+    BIN_EXPR@7..13
+      NAME_REF@7..8
+        LOWER_NAME@7..8 "x"
+      WHITESPACE@8..9 " "
+      EQ2@9..11 "=="
+      WHITESPACE@11..12 " "
+      LITERAL@12..13
+        INT@12..13 "1"
+=== self.name
+ROOT@0..9
+  FIELD_EXPR@0..9
+    NAME_REF@0..4
+      SELF_KW@0..4 "self"
+    DOT@4..5 "."
+    LOWER_NAME@5..9 "name"
+=== MAX_SIZE
+ROOT@0..8
+  NAME_REF@0..8
+    UPPER_NAME@0..8 "MAX_SIZE"
+=== ()
+ROOT@0..2
+  UNIT_EXPR@0..2
+    L_PAREN@0..1 "("
+    R_PAREN@1..2 ")"
+=== (a + b) * c
+ROOT@0..11
+  BIN_EXPR@0..11
+    PAREN_EXPR@0..7
+      L_PAREN@0..1 "("
+      BIN_EXPR@1..6
+        NAME_REF@1..2
+          LOWER_NAME@1..2 "a"
+        WHITESPACE@2..3 " "
+        PLUS@3..4 "+"
+        WHITESPACE@4..5 " "
+        NAME_REF@5..6
+          LOWER_NAME@5..6 "b"
+      R_PAREN@6..7 ")"
+    WHITESPACE@7..8 " "
+    STAR@8..9 "*"
+    WHITESPACE@9..10 " "
+    NAME_REF@10..11
+      LOWER_NAME@10..11 "c"
+=== (a, b,)
+ROOT@0..7
+  TUPLE_EXPR@0..7
+    L_PAREN@0..1 "("
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "a"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    NAME_REF@4..5
+      LOWER_NAME@4..5 "b"
+    COMMA@5..6 ","
+    R_PAREN@6..7 ")"
+=== []
+ROOT@0..2
+  LIST_EXPR@0..2
+    L_BRACK@0..1 "["
+    R_BRACK@1..2 "]"
+=== [x, y, ..rest]
+ROOT@0..14
+  LIST_EXPR@0..14
+    L_BRACK@0..1 "["
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    NAME_REF@4..5
+      LOWER_NAME@4..5 "y"
+    COMMA@5..6 ","
+    WHITESPACE@6..7 " "
+    REST_EXPR@7..13
+      DOT2@7..9 ".."
+      NAME_REF@9..13
+        LOWER_NAME@9..13 "rest"
+    R_BRACK@13..14 "]"
+=== [x, ..List.tail(xs)]
+ROOT@0..20
+  LIST_EXPR@0..20
+    L_BRACK@0..1 "["
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_EXPR@4..19
+      DOT2@4..6 ".."
+      CALL_EXPR@6..19
+        FIELD_EXPR@6..15
+          PATH_EXPR@6..10
+            PATH@6..10
+              TYPE_NAME@6..10 "List"
+          DOT@10..11 "."
+          LOWER_NAME@11..15 "tail"
+        ARG_LIST@15..19
+          L_PAREN@15..16 "("
+          NAME_REF@16..18
+            LOWER_NAME@16..18 "xs"
+          R_PAREN@18..19 ")"
+    R_BRACK@19..20 "]"
+=== User(name:, ..)
+ROOT@0..15
+  CALL_EXPR@0..15
+    PATH_EXPR@0..4
+      PATH@0..4
+        TYPE_NAME@0..4 "User"
+    ARG_LIST@4..15
+      L_PAREN@4..5 "("
+      NAMED_ARG@5..10
+        LOWER_NAME@5..9 "name"
+        COLON@9..10 ":"
+      COMMA@10..11 ","
+      WHITESPACE@11..12 " "
+      REST_EXPR@12..14
+        DOT2@12..14 ".."
+      R_PAREN@14..15 ")"
+=== [x, ..]
+ROOT@0..7
+  LIST_EXPR@0..7
+    L_BRACK@0..1 "["
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_EXPR@4..6
+      DOT2@4..6 ".."
+    R_BRACK@6..7 "]"

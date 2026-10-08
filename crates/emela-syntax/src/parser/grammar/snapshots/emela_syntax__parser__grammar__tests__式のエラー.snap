@@ -1,0 +1,153 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"a < b < c\", \"f(x: 1, 2)\", \"use Clock.sleep(1)\", \"[..a]\",\n\"[x, ..a, ..b]\", \"f(1, \", \"1 +\", \"(1\", \"x.\", \"\\\"a #{} b\\\"\", \"(a,)\",\n\"1 + ) + 2\",], expressions::expr,)"
+---
+=== a < b < c
+ROOT@0..9
+  BIN_EXPR@0..9
+    BIN_EXPR@0..5
+      NAME_REF@0..1
+        LOWER_NAME@0..1 "a"
+      WHITESPACE@1..2 " "
+      LT@2..3 "<"
+      WHITESPACE@3..4 " "
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "b"
+    WHITESPACE@5..6 " "
+    LT@6..7 "<"
+    WHITESPACE@7..8 " "
+    NAME_REF@8..9
+      LOWER_NAME@8..9 "c"
+error[E0119]@6..7: comparison operators cannot be chained
+=== f(x: 1, 2)
+ROOT@0..10
+  CALL_EXPR@0..10
+    NAME_REF@0..1
+      LOWER_NAME@0..1 "f"
+    ARG_LIST@1..10
+      L_PAREN@1..2 "("
+      NAMED_ARG@2..6
+        LOWER_NAME@2..3 "x"
+        COLON@3..4 ":"
+        WHITESPACE@4..5 " "
+        LITERAL@5..6
+          INT@5..6 "1"
+      COMMA@6..7 ","
+      WHITESPACE@7..8 " "
+      LITERAL@8..9
+        INT@8..9 "2"
+      R_PAREN@9..10 ")"
+error[E0120]@8..9: positional arguments cannot follow named arguments
+=== use Clock.sleep(1)
+ROOT@0..18
+  USE_EXPR@0..9
+    USE_KW@0..3 "use"
+    WHITESPACE@3..4 " "
+    PATH@4..9
+      TYPE_NAME@4..9 "Clock"
+  ERROR@9..18
+    DOT@9..10 "."
+    LOWER_NAME@10..15 "sleep"
+    L_PAREN@15..16 "("
+    INT@16..17 "1"
+    R_PAREN@17..18 ")"
+error[E0121]@9..10: wrap `use` in parentheses to call its operations: `(use X).op()`
+=== [..a]
+ROOT@0..5
+  LIST_EXPR@0..5
+    L_BRACK@0..1 "["
+    REST_EXPR@1..4
+      DOT2@1..3 ".."
+      NAME_REF@3..4
+        LOWER_NAME@3..4 "a"
+    R_BRACK@4..5 "]"
+error[E0115]@1..3: `..` needs at least one element before it
+=== [x, ..a, ..b]
+ROOT@0..13
+  LIST_EXPR@0..13
+    L_BRACK@0..1 "["
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_EXPR@4..7
+      DOT2@4..6 ".."
+      NAME_REF@6..7
+        LOWER_NAME@6..7 "a"
+    COMMA@7..8 ","
+    WHITESPACE@8..9 " "
+    REST_EXPR@9..12
+      DOT2@9..11 ".."
+      NAME_REF@11..12
+        LOWER_NAME@11..12 "b"
+    R_BRACK@12..13 "]"
+error[E0114]@9..11: `..` must come last
+=== f(1, 
+ROOT@0..5
+  CALL_EXPR@0..4
+    NAME_REF@0..1
+      LOWER_NAME@0..1 "f"
+    ARG_LIST@1..4
+      L_PAREN@1..2 "("
+      LITERAL@2..3
+        INT@2..3 "1"
+      COMMA@3..4 ","
+  WHITESPACE@4..5 " "
+error[E0110]@5..5: expected `)`
+=== 1 +
+ROOT@0..3
+  BIN_EXPR@0..3
+    LITERAL@0..1
+      INT@0..1 "1"
+    WHITESPACE@1..2 " "
+    PLUS@2..3 "+"
+error[E0118]@3..3: expected expression
+=== (1
+ROOT@0..2
+  PAREN_EXPR@0..2
+    L_PAREN@0..1 "("
+    LITERAL@1..2
+      INT@1..2 "1"
+error[E0110]@2..2: expected `)`
+=== x.
+ROOT@0..2
+  FIELD_EXPR@0..2
+    NAME_REF@0..1
+      LOWER_NAME@0..1 "x"
+    DOT@1..2 "."
+error[E0110]@2..2: expected lower name
+=== "a #{} b"
+ROOT@0..9
+  STRING@0..9
+    STRING_QUOTE@0..1 "\""
+    STRING_TEXT@1..3 "a "
+    INTERP@3..6
+      INTERP_START@3..5 "#{"
+      INTERP_END@5..6 "}"
+    STRING_TEXT@6..8 " b"
+    STRING_QUOTE@8..9 "\""
+error[E0118]@5..6: expected expression
+=== (a,)
+ROOT@0..4
+  TUPLE_EXPR@0..4
+    L_PAREN@0..1 "("
+    NAME_REF@1..2
+      LOWER_NAME@1..2 "a"
+    COMMA@2..3 ","
+    R_PAREN@3..4 ")"
+error[E0112]@3..4: a tuple needs at least two elements
+=== 1 + ) + 2
+ROOT@0..9
+  BIN_EXPR@0..3
+    LITERAL@0..1
+      INT@0..1 "1"
+    WHITESPACE@1..2 " "
+    PLUS@2..3 "+"
+  WHITESPACE@3..4 " "
+  ERROR@4..9
+    R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    PLUS@6..7 "+"
+    WHITESPACE@7..8 " "
+    INT@8..9 "2"
+error[E0118]@4..5: expected expression

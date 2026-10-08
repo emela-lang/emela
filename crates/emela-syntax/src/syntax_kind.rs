@@ -232,6 +232,42 @@ pub enum SyntaxKind {
     /// 残り．`..` `..rest`
     REST_PAT,
 
+    // 式（17.5）
+    /// 小文字名，大文字名，`self` の参照．`count` `MAX_SIZE` `self`
+    NAME_REF,
+    /// 型名で始まる参照．`List` `Http.Client`
+    PATH_EXPR,
+    /// `_`．束縛の左辺として読むために式でも受け付ける．
+    UNDERSCORE_EXPR,
+    /// `()`
+    UNIT_EXPR,
+    /// `(a + b)`
+    PAREN_EXPR,
+    /// `(a, b)`
+    TUPLE_EXPR,
+    /// `[x, y, ..rest]`
+    LIST_EXPR,
+    /// 残り．`..rest` `..List.tail(xs)`．束縛の左辺として読むために `..` だけも受け付ける．
+    REST_EXPR,
+    /// `f(x, port: 5432)`
+    CALL_EXPR,
+    /// `(x, port: 5432)`
+    ARG_LIST,
+    /// 名前付き引数．`port: 5432` `input:`
+    NAMED_ARG,
+    /// `user.name`
+    FIELD_EXPR,
+    /// `!valid` `-x`
+    PREFIX_EXPR,
+    /// `a + b` `xs |> f`
+    BIN_EXPR,
+    /// `use Logger`
+    USE_EXPR,
+    /// `fail NotFound(id:)`
+    FAIL_EXPR,
+    /// `assert x == 1`
+    ASSERT_EXPR,
+
     /// パーサがエラー回復で読み飛ばした範囲．
     ERROR,
 

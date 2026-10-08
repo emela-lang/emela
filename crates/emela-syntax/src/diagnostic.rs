@@ -45,6 +45,14 @@ pub enum DiagnosticCode {
     NegativeNumberPattern,
     /// パターンの文字列に補間がある．
     InterpolationInPattern,
+    /// 式が来るはずの位置に式がない．
+    ExpectedExpression,
+    /// 比較演算子の連鎖．`a < b < c`
+    ChainedComparison,
+    /// 名前付き引数の後ろの位置引数．
+    PositionalAfterNamed,
+    /// 括弧で囲まずに `use X` の操作を呼んでいる．`use Clock.sleep(1)`
+    UnparenthesizedUse,
 }
 
 impl DiagnosticCode {
@@ -66,6 +74,10 @@ impl DiagnosticCode {
             Self::RestWithoutElements => "E0115",
             Self::NegativeNumberPattern => "E0116",
             Self::InterpolationInPattern => "E0117",
+            Self::ExpectedExpression => "E0118",
+            Self::ChainedComparison => "E0119",
+            Self::PositionalAfterNamed => "E0120",
+            Self::UnparenthesizedUse => "E0121",
         }
     }
 }

@@ -154,6 +154,9 @@ pub(crate) struct Marker {
 }
 
 impl Marker {
+    /// ノードを作らずに捨てる．開始は Tombstone のまま残り，木には出ない．
+    pub(crate) fn abandon(self, _p: &mut Parser<'_>) {}
+
     pub(crate) fn complete(self, p: &mut Parser<'_>, kind: SyntaxKind) -> CompletedMarker {
         p.events[self.pos as usize] = Event::Start {
             kind,

@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use super::{patterns, types};
+use super::{expressions, patterns, types};
 use crate::SyntaxKind::*;
 use crate::parser::{Parser, build};
 use crate::{SyntaxNode, debug_tree, lex};
@@ -120,5 +120,59 @@ fn パターンのエラー() {
             "+",
         ],
         patterns::pattern,
+    ));
+}
+
+#[test]
+fn 式() {
+    insta::assert_snapshot!(dump_all(
+        &[
+            "count + 1",
+            "a + b * c - d",
+            "-x * y",
+            "a || b && !c",
+            "radius > 0.0",
+            "List.partition(xs, is_even)",
+            "fail Invalid(input:)",
+            "connect(\"localhost\", port: 5432)",
+            "scores\n  |> List.filter(is_valid)\n  |> List.fold(init: 0, f: add)",
+            "use Logger",
+            "(use Clock).sleep(1000)",
+            "users.find(id) |> Option.or_fail(NotFound(id:))",
+            "log.info(\"hello #{user.name}\")",
+            "assert x == 1",
+            "self.name",
+            "MAX_SIZE",
+            "()",
+            "(a + b) * c",
+            "(a, b,)",
+            "[]",
+            "[x, y, ..rest]",
+            "[x, ..List.tail(xs)]",
+            "User(name:, ..)",
+            "[x, ..]",
+        ],
+        expressions::expr,
+    ));
+}
+
+#[test]
+fn 式のエラー() {
+    insta::assert_snapshot!(dump_all(
+        &[
+            "a < b < c",
+            "f(x: 1, 2)",
+            "use Clock.sleep(1)",
+            "[..a]",
+            "[x, ..a, ..b]",
+            "f(1, ",
+            "1 +",
+            "(1",
+            "x.",
+            "\"a #{} b\"",
+            "(a,)",
+            "1 + ) + 2",
+        ],
+        expressions::expr,
     ));
 }
