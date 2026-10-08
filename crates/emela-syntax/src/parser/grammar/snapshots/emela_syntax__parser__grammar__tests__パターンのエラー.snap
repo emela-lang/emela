@@ -1,0 +1,108 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"[..rest]\", \"[..]\", \"[x, ..r, y]\", \"User(.., name:)\", \"-1\",\n\"\\\"a#{x}b\\\"\", \"(a)\", \"Some(\", \"[1 2]\", \"+\",], patterns::pattern,)"
+---
+=== [..rest]
+ROOT@0..8
+  LIST_PAT@0..8
+    L_BRACK@0..1 "["
+    REST_PAT@1..7
+      DOT2@1..3 ".."
+      LOWER_NAME@3..7 "rest"
+    R_BRACK@7..8 "]"
+error[E0115]@1..3: `..` needs at least one element before it
+=== [..]
+ROOT@0..4
+  LIST_PAT@0..4
+    L_BRACK@0..1 "["
+    REST_PAT@1..3
+      DOT2@1..3 ".."
+    R_BRACK@3..4 "]"
+error[E0115]@1..3: `..` needs at least one element before it
+=== [x, ..r, y]
+ROOT@0..11
+  LIST_PAT@0..11
+    L_BRACK@0..1 "["
+    IDENT_PAT@1..2
+      LOWER_NAME@1..2 "x"
+    COMMA@2..3 ","
+    WHITESPACE@3..4 " "
+    REST_PAT@4..7
+      DOT2@4..6 ".."
+      LOWER_NAME@6..7 "r"
+    COMMA@7..8 ","
+    WHITESPACE@8..9 " "
+    IDENT_PAT@9..10
+      LOWER_NAME@9..10 "y"
+    R_BRACK@10..11 "]"
+error[E0114]@9..10: `..` must come last
+=== User(.., name:)
+ROOT@0..15
+  VARIANT_PAT@0..15
+    PATH@0..4
+      TYPE_NAME@0..4 "User"
+    PAT_ARG_LIST@4..15
+      L_PAREN@4..5 "("
+      REST_PAT@5..7
+        DOT2@5..7 ".."
+      COMMA@7..8 ","
+      WHITESPACE@8..9 " "
+      FIELD_PAT@9..14
+        LOWER_NAME@9..13 "name"
+        COLON@13..14 ":"
+      R_PAREN@14..15 ")"
+error[E0114]@9..13: `..` must come last
+=== -1
+ROOT@0..2
+  LITERAL_PAT@0..2
+    MINUS@0..1 "-"
+    LITERAL@1..2
+      INT@1..2 "1"
+error[E0116]@0..1: negative numbers are not supported in patterns yet
+=== "a#{x}b"
+ROOT@0..8
+  LITERAL_PAT@0..8
+    STRING@0..8
+      STRING_QUOTE@0..1 "\""
+      STRING_TEXT@1..2 "a"
+      INTERP@2..6
+        INTERP_START@2..4 "#{"
+        ERROR@4..5
+          LOWER_NAME@4..5 "x"
+        INTERP_END@5..6 "}"
+      STRING_TEXT@6..7 "b"
+      STRING_QUOTE@7..8 "\""
+error[E0117]@4..5: string interpolation is not allowed in a pattern
+=== (a)
+ROOT@0..3
+  TUPLE_PAT@0..3
+    L_PAREN@0..1 "("
+    IDENT_PAT@1..2
+      LOWER_NAME@1..2 "a"
+    R_PAREN@2..3 ")"
+error[E0112]@2..3: a tuple pattern needs at least two elements
+=== Some(
+ROOT@0..5
+  VARIANT_PAT@0..5
+    PATH@0..4
+      TYPE_NAME@0..4 "Some"
+    PAT_ARG_LIST@4..5
+      L_PAREN@4..5 "("
+error[E0110]@5..5: expected `)`
+=== [1 2]
+ROOT@0..5
+  LIST_PAT@0..2
+    L_BRACK@0..1 "["
+    LITERAL_PAT@1..2
+      LITERAL@1..2
+        INT@1..2 "1"
+  WHITESPACE@2..3 " "
+  ERROR@3..5
+    INT@3..4 "2"
+    R_BRACK@4..5 "]"
+error[E0110]@3..4: expected `]`
+=== +
+ROOT@0..1
+  ERROR@0..1
+    PLUS@0..1 "+"
+error[E0113]@0..1: expected pattern

@@ -1,0 +1,8 @@
+fn (x: Int) { x }
+fn ok1() { 1 }
+pub fn broken[A(x) -> {
+fn ok2() -> Int { 2 }
++ - *
+fn ok3() { 3 }
+type User(name: String)
+fn ok4() { 4 }

@@ -1,0 +1,12 @@
+## リストのパターンと構築（2026-10-08 の改訂）
+fn lists(xs: List[Int]) -> List[Int] {
+  [first, ..] = xs
+  match xs {
+    [x, ..] -> [x, x, ..xs]
+    _ -> [0, ..List.tail(xs)]
+  }
+}
+
+suspend fn tick() use { Io, Clock }
+
+fn self_param(self, other: Self) -> Bool { self == other }

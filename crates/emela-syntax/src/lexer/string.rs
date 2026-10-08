@@ -1,6 +1,7 @@
 //! 文字列の本文の読み取り（2.4）．
 
-use super::{Diagnostic, range};
+use super::range;
+use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
 /// 文字列の中を `start` から読み進め，本文の終わりの位置と，エスケープの診断を返す．
 ///
@@ -27,12 +28,22 @@ pub(super) fn scan_string_text(src: &str, start: usize) -> (usize, Vec<Diagnosti
             '\\' => match chars.next() {
                 Some((_, '"' | '\\' | 'n' | '#')) => {}
                 None | Some((_, '\n' | '\r')) => {
-                    diagnostics.push(error(i, i + 1, "`\\` の後ろに文字がない"));
+                    diagnostics.push(error(
+                        i,
+                        i + 1,
+                        DiagnosticCode::MissingEscapedCharacter,
+                        "missing character after `\\`",
+                    ));
                     return (i + 1, diagnostics);
                 }
                 Some((next, other)) => {
                     let end = start + next + other.len_utf8();
-                    diagnostics.push(error(i, end, format!("`\\{other}` は使えないエスケープ")));
+                    diagnostics.push(error(
+                        i,
+                        end,
+                        DiagnosticCode::UnknownEscape,
+                        format!("unknown escape sequence `\\{}`", other.escape_debug()),
+                    ));
                 }
             },
             _ => {}
@@ -42,9 +53,10 @@ pub(super) fn scan_string_text(src: &str, start: usize) -> (usize, Vec<Diagnosti
     (src.len(), diagnostics)
 }
 
-fn error(start: usize, end: usize, message: impl Into<String>) -> Diagnostic {
+fn error(start: usize, end: usize, code: DiagnosticCode, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         range: range(start, end),
+        code,
         message: message.into(),
     }
 }

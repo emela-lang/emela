@@ -1,0 +1,169 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_escape.emel
+---
+ROOT@0..236
+  FN_DECL@0..235
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "g"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..235
+      L_BRACE@7..8 "{"
+      NEWLINE@8..9 "\n"
+      WHITESPACE@9..11 "  "
+      BINDING@11..76
+        NAME_REF@11..15
+          LOWER_NAME@11..15 "user"
+        WHITESPACE@15..16 " "
+        EQ@16..17 "="
+        WHITESPACE@17..18 " "
+        ESCAPE_EXPR@18..76
+          CALL_EXPR@18..31
+            NAME_REF@18..27
+              LOWER_NAME@18..27 "find_user"
+            ARG_LIST@27..31
+              L_PAREN@27..28 "("
+              NAME_REF@28..30
+                LOWER_NAME@28..30 "id"
+              R_PAREN@30..31 ")"
+          WHITESPACE@31..32 " "
+          ESCAPE_KW@32..38 "escape"
+          WHITESPACE@38..39 " "
+          MATCH_ARM_LIST@39..76
+            L_BRACE@39..40 "{"
+            NEWLINE@40..41 "\n"
+            WHITESPACE@41..45 "    "
+            MATCH_ARM@45..72
+              VARIANT_PAT@45..56
+                PATH@45..53
+                  TYPE_NAME@45..53 "NotFound"
+                PAT_ARG_LIST@53..56
+                  L_PAREN@53..54 "("
+                  WILDCARD_PAT@54..55
+                    UNDERSCORE@54..55 "_"
+                  R_PAREN@55..56 ")"
+              WHITESPACE@56..57 " "
+              THIN_ARROW@57..59 "->"
+              WHITESPACE@59..60 " "
+              CALL_EXPR@60..72
+                NAME_REF@60..70
+                  LOWER_NAME@60..70 "guest_user"
+                ARG_LIST@70..72
+                  L_PAREN@70..71 "("
+                  R_PAREN@71..72 ")"
+            NEWLINE@72..73 "\n"
+            WHITESPACE@73..75 "  "
+            R_BRACE@75..76 "}"
+      NEWLINE@76..77 "\n"
+      WHITESPACE@77..79 "  "
+      BINDING@79..166
+        NAME_REF@79..83
+          LOWER_NAME@79..83 "data"
+        WHITESPACE@83..84 " "
+        EQ@84..85 "="
+        WHITESPACE@85..86 " "
+        ESCAPE_EXPR@86..166
+          CALL_EXPR@86..94
+            NAME_REF@86..90
+              LOWER_NAME@86..90 "load"
+            ARG_LIST@90..94
+              L_PAREN@90..91 "("
+              NAME_REF@91..93
+                LOWER_NAME@91..93 "id"
+              R_PAREN@93..94 ")"
+          WHITESPACE@94..95 " "
+          ESCAPE_KW@95..101 "escape"
+          WHITESPACE@101..102 " "
+          MATCH_ARM_LIST@102..166
+            L_BRACE@102..103 "{"
+            NEWLINE@103..104 "\n"
+            WHITESPACE@104..108 "    "
+            MATCH_ARM@108..162
+              VARIANT_PAT@108..125
+                PATH@108..115
+                  TYPE_NAME@108..115 "DbError"
+                PAT_ARG_LIST@115..125
+                  L_PAREN@115..116 "("
+                  FIELD_PAT@116..124
+                    LOWER_NAME@116..123 "message"
+                    COLON@123..124 ":"
+                  R_PAREN@124..125 ")"
+              WHITESPACE@125..126 " "
+              THIN_ARROW@126..128 "->"
+              WHITESPACE@128..129 " "
+              FAIL_EXPR@129..162
+                FAIL_KW@129..133 "fail"
+                WHITESPACE@133..134 " "
+                CALL_EXPR@134..162
+                  PATH_EXPR@134..145
+                    PATH@134..145
+                      TYPE_NAME@134..145 "Unavailable"
+                  ARG_LIST@145..162
+                    L_PAREN@145..146 "("
+                    NAMED_ARG@146..161
+                      LOWER_NAME@146..152 "reason"
+                      COLON@152..153 ":"
+                      WHITESPACE@153..154 " "
+                      NAME_REF@154..161
+                        LOWER_NAME@154..161 "message"
+                    R_PAREN@161..162 ")"
+            NEWLINE@162..163 "\n"
+            WHITESPACE@163..165 "  "
+            R_BRACE@165..166 "}"
+      NEWLINE@166..167 "\n"
+      WHITESPACE@167..169 "  "
+      BINDING@169..233
+        NAME_REF@169..174
+          LOWER_NAME@169..174 "found"
+        WHITESPACE@174..175 " "
+        EQ@175..176 "="
+        WHITESPACE@176..177 " "
+        ESCAPE_EXPR@177..233
+          CALL_EXPR@177..196
+            PATH_EXPR@177..181
+              PATH@177..181
+                TYPE_NAME@177..181 "Some"
+            ARG_LIST@181..196
+              L_PAREN@181..182 "("
+              CALL_EXPR@182..195
+                NAME_REF@182..191
+                  LOWER_NAME@182..191 "find_user"
+                ARG_LIST@191..195
+                  L_PAREN@191..192 "("
+                  NAME_REF@192..194
+                    LOWER_NAME@192..194 "id"
+                  R_PAREN@194..195 ")"
+              R_PAREN@195..196 ")"
+          WHITESPACE@196..197 " "
+          ESCAPE_KW@197..203 "escape"
+          WHITESPACE@203..204 " "
+          MATCH_ARM_LIST@204..233
+            L_BRACE@204..205 "{"
+            NEWLINE@205..206 "\n"
+            WHITESPACE@206..210 "    "
+            MATCH_ARM@210..229
+              VARIANT_PAT@210..221
+                PATH@210..218
+                  TYPE_NAME@210..218 "NotFound"
+                PAT_ARG_LIST@218..221
+                  L_PAREN@218..219 "("
+                  WILDCARD_PAT@219..220
+                    UNDERSCORE@219..220 "_"
+                  R_PAREN@220..221 ")"
+              WHITESPACE@221..222 " "
+              THIN_ARROW@222..224 "->"
+              WHITESPACE@224..225 " "
+              PATH_EXPR@225..229
+                PATH@225..229
+                  TYPE_NAME@225..229 "None"
+            NEWLINE@229..230 "\n"
+            WHITESPACE@230..232 "  "
+            R_BRACE@232..233 "}"
+      NEWLINE@233..234 "\n"
+      R_BRACE@234..235 "}"
+  NEWLINE@235..236 "\n"
