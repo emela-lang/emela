@@ -1,0 +1,155 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"app.emel\",\nr##\"import Effects.{Logger, Users, Clock, Config, User, NotFound}\n\npub handler ConsoleLogger implements Logger {\n  fn info(msg) { console_log(msg) }\n}\n\n@external(js, \"console.log\")\nfn console_log(msg: String) -> ()\n\n@external(js, \"pg.connect\")\nfn pg_connect(url: String) -> Connection\n\n@external(js, \"pg.close\")\nfn pg_close(conn: Connection) -> ()\n\n@external(js, \"Connection\")\ntype Connection\n\npub handler PostgresUsers(conn: Connection) implements Users {\n  init {\n    config = use Config\n    PostgresUsers(conn: pg_connect(config.db_url()))\n  }\n\n  release {\n    pg_close(self.conn)\n  }\n\n  fn find(id) { todo() }\n}\n\npub handler EnvConfig implements Config {\n  fn db_url() { \"postgres://\" }\n}\n\npub handler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    resume(())\n  }\n  fn now() { todo() }\n}\n\npub layer AppLive {\n  EnvConfig\n  ConsoleLogger\n  JsClock\n  PostgresUsers\n}\n\nfn greet(id: Int) {\n  log   = use Logger\n  users = use Users\n\n  user = users.find(id) |> Option.or_fail(NotFound(id:))\n  log.info(\"hello #{user.name}\")\n\n  (use Clock).sleep(1000)\n  user\n}\n\nfn main() {\n  with AppLive { greet(1) }\n  with AppLive, ConsoleLogger {\n    primary = use Logger\n    with ConsoleLogger {\n      primary.info(\"x\")\n    }\n  }\n}\n\"##,),\n(\"effects.emel\",\nr##\"pub type User(id: Int, name: String)\n\npub error NotFound(id: Int)\n\npub effect Logger {\n  fn info(msg: String) -> ()\n}\n\npub effect Users {\n  fn find(id: Int) -> Option[User]\n}\n\npub effect Config {\n  fn db_url() -> String\n}\n\npub effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n  fn now() -> Time.Instant\n}\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R {\n  f(x)\n}\n\"##,),])"
+---
+== App (src/app.emel)
+handler App.ConsoleLogger pub implements Effects.Logger
+  fn info -> Effects.Logger.info self#0
+    param msg#1
+    body
+      block
+        call
+          App.console_log
+          msg#1
+fn App.console_log external
+  param msg#2: String
+  ret ()
+fn App.pg_connect external
+  param url#3: String
+  ret App.Connection
+fn App.pg_close external
+  param conn#4: App.Connection
+  ret ()
+type App.Connection
+handler App.PostgresUsers pub implements Effects.Users
+  field conn: App.Connection
+  ctor App.PostgresUsers.PostgresUsers
+  init
+    block
+      let config#5 =
+        use Effects.Config
+      call
+        App.PostgresUsers.PostgresUsers
+        conn:
+          call
+            App.pg_connect
+            call
+              field .db_url
+                config#5
+  release self#6
+    block
+      call
+        App.pg_close
+        field .conn
+          self#6
+  fn find -> Effects.Users.find self#7
+    param id#8
+    body
+      block
+        call
+          todo
+handler App.EnvConfig pub implements Effects.Config
+  fn db_url -> Effects.Config.db_url self#9
+    body
+      block
+        "postgres://"
+handler App.JsClock pub implements Effects.Clock
+  fn sleep -> Effects.Clock.sleep suspend self#10
+    param ms#11
+    param resume#12
+    body
+      block
+        call
+          resume#12
+          ()
+  fn now -> Effects.Clock.now self#13
+    body
+      block
+        call
+          todo
+layer App.AppLive pub { App.EnvConfig, App.ConsoleLogger, App.JsClock, App.PostgresUsers }
+fn App.greet
+  param id#14: Int
+  body
+    block
+      let log#15 =
+        use Effects.Logger
+      let users#16 =
+        use Effects.Users
+      let user#17 =
+        Pipe
+          call
+            field .find
+              users#16
+            id#14
+          call
+            @Option.or_fail
+            call
+              Effects.NotFound
+              id: (punned)
+                id#14
+      call
+        field .info
+          log#15
+        interpolated
+          "hello "
+          field .name
+            user#17
+      call
+        field .sleep
+          use Effects.Clock
+        1000
+      user#17
+fn App.main
+  body
+    block
+      with App.AppLive
+        block
+          call
+            App.greet
+            1
+      with App.AppLive, App.ConsoleLogger
+        block
+          let primary#18 =
+            use Effects.Logger
+          with App.ConsoleLogger
+            block
+              call
+                field .info
+                  primary#18
+                "x"
+== Effects (src/effects.emel)
+type Effects.User pub
+  field id: Int
+  field name: String
+  ctor Effects.User.User
+error Effects.NotFound(id: Int) pub
+effect Effects.Logger pub
+  op Effects.Logger.info
+    param msg#0: String
+    ret ()
+effect Effects.Users pub
+  op Effects.Users.find
+    param id#1: Int
+    ret Option[Effects.User]
+effect Effects.Config pub
+  op Effects.Config.db_url
+    ret String
+effect Effects.Clock pub
+  op Effects.Clock.sleep suspend
+    param ms#2: Int
+    ret ()
+  op Effects.Clock.now
+    ret @Time.Instant
+fn Effects.update
+  type-param Effects.update.A
+  type-param Effects.update.R: Immediate
+  param x#3: Effects.update.A
+  param f#4: fn(Effects.update.A) -> Effects.update.A use {Effects.update.R}
+  ret Effects.update.A
+  use {Effects.update.R}
+  body
+    block
+      call
+        f#4
+        x#3

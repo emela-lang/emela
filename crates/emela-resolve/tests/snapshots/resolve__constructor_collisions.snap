@@ -1,0 +1,8 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"enum Color {\n  Red\n  Green\n}\n\nenum Light {\n  Red\n  Yellow\n}\n\ntype Green(x: Int)\n\nenum Maybe[A] {\n  Some(A)\n  None\n}\n\nfn f() -> Maybe[Int] {\n  Some(1)\n}\n\"##,)])"
+---
+error src/main.emel@45..48 `Red`: `Red` が重複している
+error src/main.emel@66..71 `Green`: `Green` が重複している
+warning src/main.emel@99..103 `Some`: `Some` が Prelude の同じ名前を隠す
+warning src/main.emel@109..113 `None`: `None` が Prelude の同じ名前を隠す

@@ -1,6 +1,7 @@
-//! emela-syntax のパーサを差し込むフロントエンド．型検査はまだしない．
+//! emela-syntax のパーサと名前解決を差し込むフロントエンド．型検査はまだしない．
 
-use emela_resolve::{Import, ModuleId, ModuleName};
+use emela_resolve::hir::Program;
+use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
 use la_arena::ArenaMap;
@@ -49,6 +50,57 @@ impl Frontend for ParseOnly {
         Checked {
             program: Some(()),
             diagnostics: Vec::new(),
+        }
+    }
+}
+
+/// 構文解析（[`ParseOnly`]）の後に名前を解決するフロントエンド．型検査はまだないので，
+/// 名前解決の結果（HIR）をそのままプログラムとして返す．
+///
+/// 組み込みのモジュール（`String`，`List` など）は `B` から引く．
+pub struct Resolve<B = NoBuiltins> {
+    parse: ParseOnly,
+    builtins: B,
+}
+
+impl Default for Resolve<NoBuiltins> {
+    fn default() -> Self {
+        Resolve::new(NoBuiltins)
+    }
+}
+
+impl<B: BuiltinModules> Resolve<B> {
+    pub fn new(builtins: B) -> Self {
+        Resolve {
+            parse: ParseOnly::new(),
+            builtins,
+        }
+    }
+}
+
+impl<B: BuiltinModules> Frontend for Resolve<B> {
+    type Program = Program;
+
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
+        self.parse.parse(module, file, source)
+    }
+
+    fn check(&mut self, analysis: &Analysis, _: &[ModuleId]) -> Checked<Program> {
+        // 読まなかったモジュール（単独ファイルでエントリからたどれないもの）は空とみなされる．
+        let mut trees = ArenaMap::default();
+        for (module, _) in analysis.modules.iter() {
+            if let Some(parse) = self.parse.parse_of(module) {
+                trees.insert(module, parse.tree());
+            }
+        }
+        let (program, diagnostics) =
+            emela_resolve::resolve(&analysis.modules, &trees, &self.builtins);
+        Checked {
+            program: Some(program),
+            diagnostics: diagnostics
+                .iter()
+                .map(|d| Diagnostic::from_resolve(d, &analysis.sources))
+                .collect(),
         }
     }
 }

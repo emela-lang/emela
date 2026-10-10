@@ -1,0 +1,24 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"type Item(id: Int)\n\nfn first[Item, A](xs: List[Item]) -> Option[Item] { todo() }\n\ntype Box[String](value: String)\n\"##,)])"
+---
+== Main (src/main.emel)
+type Main.Item
+  field id: Int
+  ctor Main.Item.Item
+fn Main.first
+  type-param Main.first.Item
+  type-param Main.first.A
+  param xs#0: List[Main.first.Item]
+  ret Option[Main.first.Item]
+  body
+    block
+      call
+        todo
+type Main.Box
+  type-param Main.Box.String
+  field value: Main.Box.String
+  ctor Main.Box.Box
+== diagnostics
+warning src/main.emel@29..33 `Item`: 型引数 `Item` が外側の同じ名前の定義を隠す
+warning src/main.emel@91..97 `String`: 型引数 `String` が外側の同じ名前の定義を隠す

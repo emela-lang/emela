@@ -1,0 +1,50 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+error[E0214]: `secret` is private to module `Email`
+   ╭─[ src/main.emel:2:22 ]
+   │
+ 2 │ import Email.{Email, secret}
+   │                      ───┬──  
+   │                         ╰──── 
+───╯
+
+error[E0215]: cannot construct opaque `Email` outside module `Email`
+   ╭─[ src/main.emel:6:7 ]
+   │
+ 6 │   e = Email(value: "a")
+   │       ──┬──  
+   │         ╰──── 
+───╯
+   = help: `Email` is opaque: use the functions of module `Email` to make one
+
+error[E0211]: cannot find value `cout` in this scope
+   ╭─[ src/main.emel:7:15 ]
+   │
+ 7 │   Email.parse(cout)
+   │               ──┬─  
+   │                 ╰─── 
+───╯
+   = help: did you mean `count`?
+
+warning[W0201]: type parameter `Email` shadows an outer definition
+    ╭─[ src/main.emel:10:10 ]
+    │
+ 10 │ fn first[Email](e: Email) -> Email { e }
+    │          ──┬──  
+    │            ╰──── 
+────╯
+
+error[E0213]: `twice` is defined more than once
+    ╭─[ src/main.emel:13:4 ]
+    │
+ 12 │ fn twice() { 1 }
+    │    ──┬──  
+    │      ╰──── `twice` is first defined here
+ 13 │ fn twice() { 2 }
+    │    ──┬──  
+    │      ╰──── 
+────╯
+
+4 errors, 1 warning
