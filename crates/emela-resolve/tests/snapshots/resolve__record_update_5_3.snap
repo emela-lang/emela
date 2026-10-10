@@ -1,0 +1,95 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"type User(id: Int, name: String)\nerror NotFound(id: Int, detail: String)\nenum Shape {\n  Circle(radius: Float)\n}\neffect Counter {\n  fn get() -> Int\n}\nhandler Fixed(value: Int) implements Counter {\n  init { Fixed(value: 0) }\n  fn get() {\n    next = Fixed(value: 1, ..self)\n    next.value\n  }\n}\n\nfn rename(user: User) -> User {\n  User(name: \"b\", ..user)\n}\n\nfn retag(e: NotFound) -> NotFound {\n  NotFound(detail: \"x\", ..e)\n}\n\nfn bad(user: User, shape: Shape) {\n  a = Circle(radius: 1.0, ..shape)\n  b = rename(name: \"c\", ..user)\n  c = User(\"c\", ..user)\n  d = user(name: \"c\", ..user)\n  d\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+type Main.User
+  field id: Int
+  field name: String
+  ctor Main.User.User
+error Main.NotFound(id: Int, detail: String)
+enum Main.Shape
+  variant Main.Shape.Circle(radius: Float)
+effect Main.Counter
+  op Main.Counter.get
+    ret Int
+handler Main.Fixed implements Main.Counter
+  field value: Int
+  ctor Main.Fixed.Fixed
+  init
+    block
+      call
+        Main.Fixed.Fixed
+        value:
+          0
+  fn get -> Main.Counter.get self#0
+    body
+      block
+        let next#1 =
+          update
+            Main.Fixed.Fixed
+            value:
+              1
+            ..
+              self#0
+        field .value
+          next#1
+fn Main.rename
+  param user#2: Main.User
+  ret Main.User
+  body
+    block
+      update
+        Main.User.User
+        name:
+          "b"
+        ..
+          user#2
+fn Main.retag
+  param e#3: Main.NotFound
+  ret Main.NotFound
+  body
+    block
+      update
+        Main.NotFound
+        detail:
+          "x"
+        ..
+          e#3
+fn Main.bad
+  param user#4: Main.User
+  param shape#5: Main.Shape
+  body
+    block
+      let a#6 =
+        update
+          Main.Shape.Circle
+          radius:
+            1.0
+          ..
+            shape#5
+      let b#7 =
+        update
+          Main.rename
+          name:
+            "c"
+          ..
+            user#4
+      let c#8 =
+        update
+          Main.User.User
+          ..
+            user#4
+      let d#9 =
+        update
+          user#4
+          name:
+            "c"
+          ..
+            user#4
+      d#9
+== diagnostics
+error src/main.emel@463..469 `Circle`: `Circle` は enum variant で，部分更新できない
+error src/main.emel@498..504 `rename`: `rename` は function で，部分更新できない
+error src/main.emel@535..538 `"c"`: 部分更新では変えるフィールドを名前で書く
+error src/main.emel@554..558 `user`: `user` は local variable で，部分更新できない

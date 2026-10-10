@@ -27,8 +27,12 @@ pub const AMBIGUOUS_NAME: &str = "E0218";
 pub const SELF_OUTSIDE: &str = "E0219";
 pub const DUPLICATE_BINDING: &str = "E0220";
 pub const EFFECT_AS_TYPE: &str = "E0221";
+pub const INVALID_UPDATE_TARGET: &str = "E0222";
+pub const POSITIONAL_IN_UPDATE: &str = "E0223";
+pub const INTRINSIC_OUTSIDE_CORE: &str = "E0224";
+pub const MISPLACED_INTRINSIC: &str = "E0225";
 // テスト（13.1）
-pub const INVALID_TEST: &str = "E0222";
+pub const INVALID_TEST: &str = "E0226";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 

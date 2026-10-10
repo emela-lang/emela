@@ -23,7 +23,13 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
-        ast::Item::Fn(f) => Item::Fn(lower.fn_item(pending.def, f)),
+        ast::Item::Fn(f) => {
+            let bodyless = f.body().is_none();
+            lower
+                .r
+                .check_intrinsic(pending.module, f.syntax(), bodyless);
+            Item::Fn(lower.fn_item(pending.def, f))
+        }
         ast::Item::Type(t) => lower.type_item(pending.def, pending.ctor, t),
         ast::Item::Enum(e) => lower.enum_item(pending.def, &pending.children, e),
         ast::Item::Error(e) => {
@@ -252,6 +258,7 @@ impl Lower<'_, '_> {
             sig,
             body,
             is_external: f.has_annotation("external"),
+            is_intrinsic: f.has_annotation("intrinsic"),
         }
     }
 
@@ -471,6 +478,8 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 let op = self.member_of(effect, &name, range);
+                // `@intrinsic` はトップレベルの fn だけ．今のパーサは本体の中に注釈を置かせないが，備えて見る．
+                self.r.check_intrinsic(self.module, f.syntax(), false);
                 self.push_scope();
                 let self_local = self.implicit_self(def);
                 self.push_scope();
@@ -553,6 +562,7 @@ impl Lower<'_, '_> {
             }) else {
                 continue;
             };
+            self.r.check_intrinsic(self.module, f.syntax(), false);
             let item = self.fn_item(def, &f);
             self.r.program.items.insert(def, Item::TraitFn(item));
         }
@@ -576,6 +586,7 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 let trait_fn = self.member_of(trait_ref, &name, range);
+                self.r.check_intrinsic(self.module, f.syntax(), false);
                 self.push_scope();
                 let params = self.params(f.param_list(), LocalKind::Param);
                 let body = f.body().map(|b| self.block(&b));
@@ -1264,8 +1275,16 @@ impl Lower<'_, '_> {
     fn call(&mut self, node: &SyntaxNode) -> ExprKind {
         let callee = self.child_expr(node, 0);
         let mut args = Vec::new();
+        let mut spread = None;
         if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
             for arg in list.children() {
+                if arg.kind() == SPREAD_ARG {
+                    // 式のない `..` は構文の検査が診断を出している．
+                    if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
+                        spread = Some(self.expr(&e));
+                    }
+                    continue;
+                }
                 if arg.kind() == NAMED_ARG {
                     let Some(token) = child_token(&arg, LOWER_NAME) else {
                         continue;
@@ -1298,7 +1317,72 @@ impl Lower<'_, '_> {
                 }
             }
         }
-        ExprKind::Call { callee, args }
+        match spread {
+            Some(base) => self.update(callee, args, base),
+            None => ExprKind::Call { callee, args },
+        }
+    }
+
+    /// 部分更新 `C(f: e, ..base)`（5.3）．`C` は構成子が1つのもの（type，error，フィールドの
+    /// ある handler）に限り，変えるフィールドは名前で書く．
+    fn update(&mut self, ctor: ExprId, args: Vec<Arg>, base: ExprId) -> ExprKind {
+        let Expr { kind, span } = &self.r.program.exprs[ctor];
+        let range = span.range;
+        let target = match kind {
+            ExprKind::Path(Res::Def(def)) => Some(*def),
+            // 解決できなかった名前は診断が出ている．
+            ExprKind::Path(Res::Err) | ExprKind::Missing => None,
+            ExprKind::Path(Res::Local(local)) => {
+                let name = self.r.program.locals[*local].name.clone();
+                self.error(
+                    range,
+                    DiagnosticKind::InvalidUpdateTarget {
+                        name: Some(name),
+                        found: "local variable",
+                    },
+                );
+                None
+            }
+            _ => {
+                self.error(
+                    range,
+                    DiagnosticKind::InvalidUpdateTarget {
+                        name: None,
+                        found: "expression",
+                    },
+                );
+                None
+            }
+        };
+        if let Some(def) = target {
+            let data = &self.r.program.defs[def];
+            let single = match data.kind {
+                DefKind::Error => true,
+                DefKind::Ctor => data.parent.is_some_and(|p| {
+                    matches!(
+                        self.r.program.defs[p].kind,
+                        DefKind::Type | DefKind::Handler
+                    )
+                }),
+                _ => false,
+            };
+            if !single {
+                let found = match (data.kind, data.parent) {
+                    (DefKind::Ctor, Some(p)) if self.r.program.defs[p].kind == DefKind::Enum => {
+                        "enum variant"
+                    }
+                    (kind, _) => kind.describe(),
+                };
+                let name = Some(data.name.clone());
+                self.error(range, DiagnosticKind::InvalidUpdateTarget { name, found });
+            }
+        }
+        for arg in args.iter().filter(|a| a.label.is_none()) {
+            let range = self.r.program.exprs[arg.value].span.range;
+            self.error(range, DiagnosticKind::PositionalInUpdate);
+        }
+        let fields = args.into_iter().filter(|a| a.label.is_some()).collect();
+        ExprKind::Update { ctor, fields, base }
     }
 
     /// `x.name` はフィールドか能力の操作，`Module.f` と `Trait.f` は静的な参照（2.3）．

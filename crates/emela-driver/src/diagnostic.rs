@@ -293,6 +293,35 @@ impl Diagnostic {
                     format!("effect `{name}` cannot be used as a type"),
                 )
             }
+            DiagnosticKind::InvalidUpdateTarget { name, found } => {
+                help = Some(
+                    "only a type, an error, or a handler with fields (one constructor) can be updated"
+                        .to_owned(),
+                );
+                let message = match name {
+                    Some(name) => format!("cannot update {found} `{name}` with `..`"),
+                    None => format!("cannot update an {found} with `..`"),
+                };
+                (Severity::Error, code::INVALID_UPDATE_TARGET, message)
+            }
+            DiagnosticKind::PositionalInUpdate => (
+                Severity::Error,
+                code::POSITIONAL_IN_UPDATE,
+                "fields to update must be named: `field: value`".to_owned(),
+            ),
+            DiagnosticKind::IntrinsicOutsideCore => {
+                help = Some("use `@external` to bind a host function".to_owned());
+                (
+                    Severity::Error,
+                    code::INTRINSIC_OUTSIDE_CORE,
+                    "`@intrinsic` can only be used in the bundled core library".to_owned(),
+                )
+            }
+            DiagnosticKind::MisplacedIntrinsic => (
+                Severity::Error,
+                code::MISPLACED_INTRINSIC,
+                "`@intrinsic` can only be used on a function without a body".to_owned(),
+            ),
             DiagnosticKind::DuplicateBinding { name, first } => {
                 label =
                     first_here(first).map(|span| (span, format!("`{name}` is first bound here")));

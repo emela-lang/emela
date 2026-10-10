@@ -7,7 +7,7 @@ use emela_syntax::{Parse, SyntaxKind};
 use la_arena::ArenaMap;
 
 use crate::diagnostic::Diagnostic;
-use crate::pipeline::{Analysis, Checked, Frontend, Parsed};
+use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 
 /// 構文解析までのフロントエンド．構文木をモジュールごとに持ち，import の一覧を返す．
@@ -61,11 +61,13 @@ impl Frontend for ParseOnly {
 pub struct Resolve<B = NoBuiltins> {
     parse: ParseOnly,
     builtins: B,
+    core: Vec<CoreSource>,
 }
 
+/// 同梱の core のソース（`emela_core::core_sources()`）を読むフロントエンド．コンパイラの既定．
 impl Default for Resolve<NoBuiltins> {
     fn default() -> Self {
-        Resolve::new(NoBuiltins)
+        Resolve::new(NoBuiltins).with_core(CoreSource::bundled())
     }
 }
 
@@ -74,12 +76,19 @@ impl<B: BuiltinModules> Resolve<B> {
         Resolve {
             parse: ParseOnly::new(),
             builtins,
+            core: Vec::new(),
         }
     }
 
     /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
     pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
         self.parse.parse_of(module)
+    }
+
+    /// 同梱の core のソースを渡す（[`Frontend::core_sources`]）．
+    pub fn with_core(mut self, core: Vec<CoreSource>) -> Self {
+        self.core = core;
+        self
     }
 }
 
@@ -88,6 +97,10 @@ impl<B: BuiltinModules> Frontend for Resolve<B> {
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
         self.parse.parse(module, file, source)
+    }
+
+    fn core_sources(&self) -> Vec<CoreSource> {
+        self.core.clone()
     }
 
     fn check(&mut self, analysis: &Analysis, _: &[ModuleId]) -> Checked<Program> {
