@@ -11,7 +11,8 @@ pub struct Diagnostic {
 
 /// 診断の種類．番号は付録 A の一覧と一致させ，一度振った番号は使い回さない．
 ///
-/// E0101〜E0109 は字句，E0110〜E0199 は構文．
+/// E0101〜E0109 は字句，E0110〜E0189 は構文，E0190〜E0199 は字句の追加分（E0101〜E0109 が
+/// 埋まったため）．
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
