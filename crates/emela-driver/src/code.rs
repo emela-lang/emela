@@ -15,6 +15,20 @@ pub const NO_PROJECT_FILE: &str = "E0207";
 pub const OUTSIDE_SOURCE_ROOT: &str = "E0208";
 pub const ENTRY_NOT_FOUND: &str = "E0209";
 pub const ENTRY_NOT_MODULE: &str = "E0210";
+// 名前解決
+pub const UNDEFINED_NAME: &str = "E0211";
+pub const UNDEFINED_MEMBER: &str = "E0212";
+pub const DUPLICATE_DEFINITION: &str = "E0213";
+pub const PRIVATE_ITEM: &str = "E0214";
+pub const OPAQUE_CONSTRUCTION: &str = "E0215";
+pub const OPAQUE_PATTERN: &str = "E0216";
+pub const WRONG_KIND_OF_NAME: &str = "E0217";
+pub const AMBIGUOUS_NAME: &str = "E0218";
+pub const SELF_OUTSIDE: &str = "E0219";
+pub const DUPLICATE_BINDING: &str = "E0220";
+pub const EFFECT_AS_TYPE: &str = "E0221";
+pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
+pub const SHADOWS_PRELUDE: &str = "W0202";
 
 // E03xx: 型
 pub const TYPE_MISMATCH: &str = "E0301";

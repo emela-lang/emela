@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use emela_driver::{
-    Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, ParseOnly, RunOptions,
+    Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, Resolve, RunOptions,
     SourceDb,
 };
 use std::ffi::OsString;
@@ -76,7 +76,7 @@ fn check(path: &Path) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
-    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut ParseOnly::new());
+    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Resolve::default());
     report(&analysis)
 }
 
@@ -85,11 +85,11 @@ fn build(path: &Path, out_dir: Option<PathBuf>) -> ExitCode {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir());
-    // 型検査と JS の出力の段ができたら ParseOnly と NoJsBackend を差し替える．
+    // 型検査と JS の出力の段ができたら Resolve と NoJsBackend を差し替える．
     let (analysis, _) = emela_driver::build(
         &OsFs,
         &input,
-        &mut ParseOnly::new(),
+        &mut Resolve::default(),
         &mut NoJsBackend,
         &out_dir,
     );
@@ -112,7 +112,7 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
     let (analysis, output) = emela_driver::run(
         &OsFs,
         &input,
-        &mut ParseOnly::new(),
+        &mut Resolve::default(),
         &mut NoJsBackend,
         &options,
         |analysis| {
@@ -138,7 +138,7 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
 
 fn lsp() -> ExitCode {
     // フロントエンドは check と同じものを使う（同じ診断を出すため）．
-    match emela_lsp::run_stdio(ParseOnly::new) {
+    match emela_lsp::run_stdio(Resolve::default) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("emela lsp: {err}");
