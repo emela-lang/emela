@@ -27,18 +27,20 @@ pub fn lex(src: &str) -> Lexed {
         src,
         lexed: Lexed::default(),
         modes: vec![Mode::Code],
+        multi_lines: Vec::new(),
     };
     let mut pos = 0;
     while pos < src.len() {
         pos = match lexer.modes.last().copied().unwrap_or(Mode::Code) {
             Mode::Str { open } => lexer.string_step(pos, open),
+            Mode::MultiStr { .. } => lexer.multi_string_step(pos),
             Mode::Code | Mode::Interp { .. } => lexer.code_step(pos),
         };
     }
     // 入力の終わりで閉じていないものを，内側から順に報告する．
     while lexer.modes.len() > 1 {
         match lexer.modes.pop() {
-            Some(Mode::Str { open }) => lexer.error(
+            Some(Mode::Str { open } | Mode::MultiStr { open }) => lexer.error(
                 open,
                 src.len(),
                 DiagnosticCode::UnterminatedString,
@@ -70,6 +72,10 @@ enum Mode {
     Str {
         open: usize,
     },
+    /// 複数行の文字列 `"""`．`open` は開いた `"""` の位置．
+    MultiStr {
+        open: usize,
+    },
     /// `open` は `#{` の位置．`depth` は補間の中で開いている `{` の数．
     Interp {
         open: usize,
@@ -81,6 +87,8 @@ struct Lexer<'a> {
     src: &'a str,
     lexed: Lexed,
     modes: Vec<Mode>,
+    /// 開いている複数行の文字列ごとに，本文の中の行の先頭の位置．閉じたときにインデントを検査する．
+    multi_lines: Vec<Vec<usize>>,
 }
 
 impl Lexer<'_> {
@@ -94,6 +102,10 @@ impl Lexer<'_> {
         let (mut kind, error) = classify(raw, &self.src[pos..end]);
         match (raw, self.modes.last_mut()) {
             (Ok(RawToken::Quote), _) => self.modes.push(Mode::Str { open: pos }),
+            (Ok(RawToken::TripleQuote), _) => {
+                self.modes.push(Mode::MultiStr { open: pos });
+                self.multi_lines.push(Vec::new());
+            }
             (Ok(RawToken::LBrace), Some(Mode::Interp { depth, .. })) => *depth += 1,
             (Ok(RawToken::RBrace), Some(Mode::Interp { depth: 0, .. })) => {
                 kind = SyntaxKind::INTERP_END;
@@ -106,7 +118,78 @@ impl Lexer<'_> {
         if let Some((code, message)) = error {
             self.error(pos, end, code, message);
         }
+        if raw == Ok(RawToken::TripleQuote) && !self.src[end..].starts_with(['\n', '\r']) {
+            self.error(
+                pos,
+                end,
+                DiagnosticCode::MalformedMultilineString,
+                "expected a newline after the opening `\"\"\"`",
+            );
+        }
         end
+    }
+
+    /// 複数行の文字列の中で1トークン読み，次の位置を返す．
+    fn multi_string_step(&mut self, pos: usize) -> usize {
+        let src = self.src;
+        let rest = &src[pos..];
+        // 行頭の `"""` が閉じる側．行頭の空白もトークンに含め，その幅がインデントになる．
+        if src[..pos].ends_with('\n')
+            && let Some(indent) = string::closing_indent(src, pos)
+        {
+            let end = pos + indent + 3;
+            self.token(SyntaxKind::TRIPLE_QUOTE, pos, end);
+            self.close_multi_string(pos, Some(&src[pos..pos + indent]));
+            return end;
+        }
+        if rest.starts_with("\"\"\"") {
+            self.error(
+                pos,
+                pos + 3,
+                DiagnosticCode::MalformedMultilineString,
+                "the closing `\"\"\"` must be on its own line",
+            );
+            self.token(SyntaxKind::TRIPLE_QUOTE, pos, pos + 3);
+            self.close_multi_string(pos, None);
+            return pos + 3;
+        }
+        if rest.starts_with("#{") {
+            self.token(SyntaxKind::INTERP_START, pos, pos + 2);
+            self.modes.push(Mode::Interp {
+                open: pos,
+                depth: 0,
+            });
+            return pos + 2;
+        }
+        let (end, diagnostics, lines) = string::scan_multiline_text(src, pos);
+        self.token(SyntaxKind::STRING_TEXT, pos, end);
+        self.lexed.diagnostics.extend(diagnostics);
+        if let Some(open_lines) = self.multi_lines.last_mut() {
+            open_lines.extend(lines);
+        }
+        end
+    }
+
+    /// 複数行の文字列を閉じる．閉じる行のインデント `indent` が分かれば，それより浅い行に
+    /// 診断を出す．空白だけの行は数えない．
+    fn close_multi_string(&mut self, close: usize, indent: Option<&str>) {
+        self.modes.pop();
+        let lines = self.multi_lines.pop().unwrap_or_default();
+        let Some(indent) = indent else { return };
+        for start in lines.into_iter().filter(|&s| s != close) {
+            let line = self.src[start..].split('\n').next().unwrap_or("");
+            if line.trim().is_empty() || line.starts_with(indent) {
+                continue;
+            }
+            let ws = line.len() - line.trim_start_matches([' ', '\t']).len();
+            let first = line[ws..].chars().next().map_or(0, char::len_utf8);
+            self.error(
+                start,
+                start + ws + first,
+                DiagnosticCode::MalformedMultilineString,
+                "this line is indented less than the closing `\"\"\"`",
+            );
+        }
     }
 
     /// 文字列の中で1トークン読み，次の位置を返す．
@@ -219,6 +302,8 @@ enum RawToken {
 
     #[token("\"")]
     Quote,
+    #[token("\"\"\"")]
+    TripleQuote,
 
     #[regex(r"[0-9][0-9_]*")]
     Int,
@@ -306,6 +391,7 @@ impl From<RawToken> for SyntaxKind {
             // `lex` が先に診断つきで扱うので，ここには来ない
             R::Word | R::BadNumber => K::ERROR_TOKEN,
             R::Quote => K::STRING_QUOTE,
+            R::TripleQuote => K::TRIPLE_QUOTE,
             R::Int | R::RadixInt => K::INT,
             R::Float => K::FLOAT,
             R::LParen => K::L_PAREN,
@@ -512,6 +598,21 @@ mod tests {
             let lexed = lex(&src);
             let text: String = lexed.tokens.iter().map(|t| &src[t.range]).collect();
             proptest::prop_assert_eq!(text, src);
+        }
+
+        /// 複数行の文字列，補間，エスケープの部品に偏らせた入力でも，連結すると入力に戻り，
+        /// トークンは隙間なく並ぶ．
+        #[test]
+        fn 文字列の部品でも連結すると入力に戻る(
+            src in r##"("""|"|#\{|\}|\\|u\{|0x|0b|\n|  |[a-zA-Z0-9_]){0,40}"##
+        ) {
+            let lexed = lex(&src);
+            let mut pos = 0;
+            for token in &lexed.tokens {
+                proptest::prop_assert_eq!(usize::from(token.range.start()), pos);
+                pos = token.range.end().into();
+            }
+            proptest::prop_assert_eq!(pos, src.len());
         }
     }
 }

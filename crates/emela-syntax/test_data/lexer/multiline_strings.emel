@@ -1,0 +1,13 @@
+query = """
+  SELECT *
+  FROM users
+  WHERE id = #{id}
+  """
+empty = """
+"""
+quotes = """
+    say "hi" and ""ok""
+    tab\t and \u{1F600}
+
+    """
+next = 1

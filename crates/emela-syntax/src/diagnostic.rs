@@ -31,6 +31,9 @@ pub enum DiagnosticCode {
     UnknownEscape,
     /// `\u{...}` の形が崩れている，または値がサロゲートか 10FFFF を超える．
     InvalidUnicodeEscape,
+    /// 複数行の文字列の形の誤り．開く `"""` の後ろが改行でない，閉じる `"""` が1行に
+    /// 1つでない，閉じる行より浅くインデントした行がある．
+    MalformedMultilineString,
     /// 来るはずのトークンがない．
     ExpectedToken,
     /// 型が来るはずの位置に型がない．
@@ -100,6 +103,7 @@ impl DiagnosticCode {
             Self::MissingEscapedCharacter => "E0106",
             Self::UnknownEscape => "E0107",
             Self::InvalidUnicodeEscape => "E0108",
+            Self::MalformedMultilineString => "E0109",
             Self::ExpectedToken => "E0110",
             Self::ExpectedType => "E0111",
             Self::SingleElementTuple => "E0112",

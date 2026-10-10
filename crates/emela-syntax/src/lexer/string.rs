@@ -34,6 +34,41 @@ pub(super) fn scan_string_text(src: &str, start: usize) -> (usize, Vec<Diagnosti
     (src.len(), diagnostics)
 }
 
+/// 複数行の文字列の本文を `start` から読み進め，本文の終わりの位置，エスケープの診断，
+/// 本文の中で始まる行の先頭の位置を返す．
+///
+/// `\"\"\"` と補間の `#{` の手前で止まる．閉じる `\"\"\"` だけの行に着いたら，その行の先頭で
+/// 止まる（行頭の空白は閉じる側のトークンに入れる）．改行と，1つや2つの `"` は本文に含める．
+pub(super) fn scan_multiline_text(src: &str, start: usize) -> (usize, Vec<Diagnostic>, Vec<usize>) {
+    let mut diagnostics = Vec::new();
+    let mut lines = Vec::new();
+    let mut i = start;
+    while let Some(c) = src[i..].chars().next() {
+        match c {
+            '"' if src[i..].starts_with("\"\"\"") => break,
+            '#' if src[i..].starts_with("#{") => break,
+            '\n' => {
+                i += 1;
+                lines.push(i);
+                if closing_indent(src, i).is_some() {
+                    break;
+                }
+            }
+            // `\` の後ろが改行でも，複数行の文字列では本文を読み続ける．
+            '\\' => i = escape(src, i, &mut diagnostics).unwrap_or(i + 1),
+            _ => i += c.len_utf8(),
+        }
+    }
+    (i, diagnostics, lines)
+}
+
+/// `src[i..]` が空白と `\"\"\"` だけの行なら，空白の幅を返す．
+pub(super) fn closing_indent(src: &str, i: usize) -> Option<usize> {
+    let rest = &src[i..];
+    let indent = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    rest[indent..].starts_with("\"\"\"").then_some(indent)
+}
+
 /// `src[i]` の `\` から1つのエスケープを読み，次の位置を返す．`\` の後ろに文字がなければ
 /// 診断を出して `None` を返す（呼ぶ側は `\` だけを本文に含めて止まる）．
 fn escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> Option<usize> {

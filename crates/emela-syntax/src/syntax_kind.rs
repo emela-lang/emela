@@ -27,6 +27,9 @@ pub enum SyntaxKind {
     // `"a #{x} b"` は STRING_QUOTE STRING_TEXT INTERP_START LOWER_NAME INTERP_END STRING_TEXT STRING_QUOTE
     /// 文字列を開く，または閉じる `"`．
     STRING_QUOTE,
+    /// 複数行の文字列を開く，または閉じる `"""`．閉じる側は行頭からの空白を含み，
+    /// その空白が各行から取り除くインデントになる．`  """`
+    TRIPLE_QUOTE,
     /// 文字列の本文．エスケープ（`\" \\ \n \#`）もこの中に含む．
     STRING_TEXT,
     /// 文字列の中の `#{`．
@@ -384,6 +387,7 @@ impl SyntaxKind {
             INT => "integer literal",
             FLOAT => "float literal",
             STRING_QUOTE => "`\"`",
+            TRIPLE_QUOTE => "`\"\"\"`",
             STRING_TEXT => "string text",
             INTERP_START => "`#{`",
             INTERP_END => "`}`",
