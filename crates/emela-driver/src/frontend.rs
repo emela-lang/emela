@@ -64,9 +64,10 @@ pub struct Resolve<B = NoBuiltins> {
     core: Vec<CoreSource>,
 }
 
+/// 同梱の core のソース（`emela_core::core_sources()`）を読むフロントエンド．コンパイラの既定．
 impl Default for Resolve<NoBuiltins> {
     fn default() -> Self {
-        Resolve::new(NoBuiltins)
+        Resolve::new(NoBuiltins).with_core(CoreSource::bundled())
     }
 }
 

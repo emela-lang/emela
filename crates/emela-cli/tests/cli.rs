@@ -327,3 +327,22 @@ fn check_reports_name_resolution_errors() {
     assert_eq!(run.stdout, "");
     insta::assert_snapshot!(run.stderr);
 }
+
+#[test]
+fn check_resolves_bundled_core() {
+    let project = Project::new(
+        "core",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.unwrap_or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "")
+    );
+}

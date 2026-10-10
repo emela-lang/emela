@@ -98,7 +98,7 @@
 - （補）core に `Prelude` があれば，その pub な定義で Prelude の名前（型，構成子，値）を名前ごとに上書きする．ソースで書いていない名前は組み込みの Prelude のまま残るので，corelib の `prelude.emel` へ少しずつ移せる．上書きした定義は `Program::prelude` にも入るので，`prelude_def` で引ける（`DefModule` は `Source` になる）
 - （補）core のモジュールの中では Prelude を隠す警告（W0202）を出さない
 - （補）`@intrinsic` は，同梱の core のソースのトップレベルの本体のない fn にだけ付けられる．core の外で使えば E0224，本体のある fn や fn 以外に付ければ E0225．HIR の `FnItem::is_intrinsic` が立つ
-- （補）`BuiltinModules`（組み込みのモジュールの表）は，corelib のソースが入るまで残す．入ったら外す
+- （補）`BuiltinModules`（組み込みのモジュールの表）と `DefModule::Builtin` は，同梱の core のソースで置き換わったので使われていない（driver は `NoBuiltins`）．HIR を読む型推論の側と合わせてから外す
 
 ### この段で見ないもの（型推論以降に残す）
 
