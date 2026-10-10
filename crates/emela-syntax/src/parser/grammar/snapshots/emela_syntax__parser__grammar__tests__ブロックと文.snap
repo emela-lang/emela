@@ -564,7 +564,7 @@ ROOT@0..78
             COLON@32..33 ":"
           COMMA@33..34 ","
           WHITESPACE@34..35 " "
-          REST_EXPR@35..37
+          SPREAD_ARG@35..37
             DOT2@35..37 ".."
           R_PAREN@37..38 ")"
       WHITESPACE@38..39 " "

@@ -54,7 +54,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             DiagnosticCode::UnderscoreOutsidePattern,
             "`_` can only be used in patterns",
         ),
-        REST_EXPR if node.first_child().is_none() => error(
+        REST_EXPR | SPREAD_ARG if node.first_child().is_none() => error(
             out,
             node.text_range(),
             DiagnosticCode::BareRestOutsidePattern,
@@ -90,6 +90,8 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 for arg in args.children() {
                     match arg.kind() {
                         NAMED_ARG => arg.children().for_each(|c| binding_target(&c, out)),
+                        // パターンに書けるのは式のない `..` だけ．`..式` は部分更新の構文．
+                        SPREAD_ARG if arg.first_child().is_none() => {}
                         _ => binding_target(&arg, out),
                     }
                 }
