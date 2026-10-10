@@ -258,6 +258,7 @@ dependencies = [
 name = "emela-core"
 version = "0.20.0"
 dependencies = [
+ "emela-syntax",
  "emela-types",
  "insta",
  "la-arena",

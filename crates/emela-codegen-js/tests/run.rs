@@ -1190,6 +1190,141 @@ fn float_to_int_out_of_range_is_defect() {
 }
 
 #[test]
+fn int_bitwise_and_shifts() {
+    let mut m = Module::new();
+    let two = |op, a, c| b(op, vec![int(a), int(c)]);
+    let mut parts = vec![
+        (two(Builtin::IntBitAnd, 0b1100, 0b1010), Type::Int),
+        (two(Builtin::IntBitOr, 0b1100, 0b1010), Type::Int),
+        (two(Builtin::IntBitXor, 0b1100, 0b1010), Type::Int),
+        (b(Builtin::IntBitNot, vec![int(0)]), Type::Int),
+        (two(Builtin::IntBitAnd, -1, i32::MIN), Type::Int),
+    ];
+    // シフト量 0，1，31，32（幅ちょうど），100（幅を超える）．
+    for op in [
+        Builtin::IntShiftLeft,
+        Builtin::IntShiftRight,
+        Builtin::IntShiftRightUnsigned,
+    ] {
+        for (n, by) in [(1, 31), (-8, 1), (-1, 0), (-1, 31), (-1, 32), (5, 100)] {
+            parts.push((two(op, n, by), Type::Int));
+        }
+    }
+    main_fn(&mut m, lines(parts));
+    let shifts = [
+        // shift_left: 1 << 31 は最小値に巻き戻る．
+        "-2147483648\n-16\n-1\n-2147483648\n0\n0",
+        // shift_right: 符号で埋める．幅以上は 0 か -1．
+        "0\n-4\n-1\n-1\n-1\n0",
+        // shift_right_unsigned: 0 で埋めた結果を Int として読む．
+        "0\n2147483644\n-1\n1\n0\n0",
+    ];
+    assert_eq!(
+        run("int_bitwise_and_shifts", m),
+        format!("8\n14\n6\n-1\n-2147483648\n{}\n", shifts.join("\n"))
+    );
+}
+
+#[test]
+fn int64_bitwise_and_shifts() {
+    let mut m = Module::new();
+    let two = |op, a, c| b(op, vec![int64(a), int64(c)]);
+    let shift = |op, a, by| b(op, vec![int64(a), int(by)]);
+    let mut parts = vec![
+        (two(Builtin::Int64BitAnd, 0b1100, 0b1010), Type::Int64),
+        (two(Builtin::Int64BitOr, 0b1100, 0b1010), Type::Int64),
+        (two(Builtin::Int64BitXor, -1, i64::MAX), Type::Int64),
+        (b(Builtin::Int64BitNot, vec![int64(i64::MAX)]), Type::Int64),
+    ];
+    for op in [
+        Builtin::Int64ShiftLeft,
+        Builtin::Int64ShiftRight,
+        Builtin::Int64ShiftRightUnsigned,
+    ] {
+        for (n, by) in [(1, 63), (-8, 1), (-1, 0), (-1, 63), (-1, 64), (5, 100)] {
+            parts.push((shift(op, n, by), Type::Int64));
+        }
+    }
+    // 32 を超えるシフトも 64bit で正しく行う．
+    parts.push((shift(Builtin::Int64ShiftLeft, 3, 40), Type::Int64));
+    main_fn(&mut m, lines(parts));
+    let min = i64::MIN.to_string();
+    let shifts = [
+        format!("{min}\n-16\n-1\n{min}\n0\n0"),
+        "0\n-4\n-1\n-1\n-1\n0".to_owned(),
+        format!("0\n{}\n-1\n1\n0\n0", (u64::MAX - 7) >> 1),
+    ];
+    assert_eq!(
+        run("int64_bitwise_and_shifts", m),
+        format!(
+            "8\n14\n{min}\n{min}\n{}\n{}\n",
+            shifts.join("\n"),
+            3_i64 << 40
+        )
+    );
+}
+
+#[test]
+fn negative_shift_is_defect() {
+    let cases = [
+        b(Builtin::IntShiftLeft, vec![int(1), int(-1)]),
+        b(Builtin::IntShiftRight, vec![int(1), int(-1)]),
+        b(Builtin::IntShiftRightUnsigned, vec![int(1), int(-1)]),
+        b(Builtin::Int64ShiftLeft, vec![int64(1), int(-1)]),
+        b(Builtin::Int64ShiftRight, vec![int64(1), int(-1)]),
+        b(Builtin::Int64ShiftRightUnsigned, vec![int64(1), int(-1)]),
+    ];
+    for (i, e) in cases.into_iter().enumerate() {
+        assert_eq!(
+            defect_of(&format!("negative_shift_{i}"), e),
+            "defect: negative shift amount: -1\n"
+        );
+    }
+}
+
+#[test]
+fn string_code_points() {
+    let mut m = Module::new();
+    let opt_str = Type::Enum(m.option_enum(), vec![Type::String]);
+    let ints = || Type::list(Type::Int);
+    let points = |s: &str| b(Builtin::StringCodePoints, vec![string(s)]);
+    let from = |n| b(Builtin::StringFromCodePoint, vec![int(n)]);
+    let parts = vec![
+        (points("aé"), ints()),
+        // サロゲートペアで表す文字も1つのコードポイント．
+        (points("👍"), ints()),
+        // 書記素クラスタ1つでもコードポイントは2つ．
+        (points("e\u{301}"), ints()),
+        (points(""), ints()),
+        (from(0x41), opt_str.clone()),
+        (from(0x1f44d), opt_str.clone()),
+        (from(0), opt_str.clone()),
+        (from(0x10ffff), opt_str.clone()),
+        (from(-1), opt_str.clone()),
+        (from(0xd800), opt_str.clone()),
+        (from(0xdfff), opt_str.clone()),
+        (from(0x110000), opt_str),
+    ];
+    main_fn(&mut m, lines(parts));
+    assert_eq!(
+        run("string_code_points", m),
+        [
+            "[97, 233]",
+            "[128077]",
+            "[101, 769]",
+            "[]",
+            r#"Some("A")"#,
+            "Some(\"👍\")",
+            r#"Some("\u{0}")"#,
+            "Some(\"\u{10ffff}\")",
+            "None\nNone\nNone\nNone",
+        ]
+        .join("\n")
+            + "\n"
+    );
+}
+
+#[test]
 fn todo_is_defect() {
     assert_eq!(
         defect_of("todo", b(Builtin::Todo, vec![])),

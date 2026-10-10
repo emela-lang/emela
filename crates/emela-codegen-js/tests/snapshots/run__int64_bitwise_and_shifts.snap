@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $land, $lnot, $lor, $lshl, $lshr, $lushr, $lxor } from "./emela_runtime.mjs";
+
+function main() {
+  return `${$land(12n, 10n)}\n${$lor(12n, 10n)}\n${$lxor((-1n), 9223372036854775807n)}\n${$lnot(9223372036854775807n)}\n${$lshl(1n, 63)}\n${$lshl((-8n), 1)}\n${$lshl((-1n), 0)}\n${$lshl((-1n), 63)}\n${$lshl((-1n), 64)}\n${$lshl(5n, 100)}\n${$lshr(1n, 63)}\n${$lshr((-8n), 1)}\n${$lshr((-1n), 0)}\n${$lshr((-1n), 63)}\n${$lshr((-1n), 64)}\n${$lshr(5n, 100)}\n${$lushr(1n, 63)}\n${$lushr((-8n), 1)}\n${$lushr((-1n), 0)}\n${$lushr((-1n), 63)}\n${$lushr((-1n), 64)}\n${$lushr(5n, 100)}\n${$lshl(3n, 40)}`;
+}
+
+export { main };

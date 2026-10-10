@@ -1,0 +1,42 @@
+# Int64（64bit の符号付き整数）の関数．あふれは2の補数で巻き戻る（仕様 16.1）．
+
+## Int から作る．`Int.to_int64` と同じ．
+@intrinsic
+pub fn from_int(n: Int) -> Int64
+
+## 10進の文字列にする．接尾辞は付けない．
+@intrinsic
+pub fn to_string(n: Int64) -> String
+
+## 下位 32bit を Int にする（巻き戻す）．
+@intrinsic
+pub fn to_int(n: Int64) -> Int
+
+## ビットごとの論理積．
+@intrinsic
+pub fn bit_and(a: Int64, b: Int64) -> Int64
+
+## ビットごとの論理和．
+@intrinsic
+pub fn bit_or(a: Int64, b: Int64) -> Int64
+
+## ビットごとの排他的論理和．
+@intrinsic
+pub fn bit_xor(a: Int64, b: Int64) -> Int64
+
+## ビットの反転．
+@intrinsic
+pub fn bit_not(n: Int64) -> Int64
+
+## 左へ `by` ビットずらす．`by` が 64 以上なら 0，負なら defect．
+@intrinsic
+pub fn shift_left(n: Int64, by: Int) -> Int64
+
+## 右へ `by` ビットずらし，上位を符号で埋める（算術シフト）．
+## `by` が 64 以上なら 0 か -1，負なら defect．
+@intrinsic
+pub fn shift_right(n: Int64, by: Int) -> Int64
+
+## 右へ `by` ビットずらし，上位を 0 で埋める（論理シフト）．`by` が 64 以上なら 0，負なら defect．
+@intrinsic
+pub fn shift_right_unsigned(n: Int64, by: Int) -> Int64
