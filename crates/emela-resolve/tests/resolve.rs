@@ -197,6 +197,8 @@ fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
 
 fn connect(host: String, port: Int) -> () { () }
 
+fn apply(f: (fn(Int) -> Int), x: Int) -> Int { f(x) }
+
 fn is_even(n: Int) -> Bool { n % 2 == 0 }
 
 fn calls(xs: List[Int], scores: Map[String, Int]) {

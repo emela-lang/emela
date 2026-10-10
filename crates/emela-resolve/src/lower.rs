@@ -629,6 +629,13 @@ impl Lower<'_, '_> {
                     TypeKind::Missing
                 }
             }
+            // `(fn(A) -> B)` の括弧は形を変えない．
+            PAREN_TYPE => {
+                if let Some(inner) = node.first_child() {
+                    return self.lower_type(&inner);
+                }
+                TypeKind::Missing
+            }
             UNIT_TYPE => TypeKind::Unit,
             TUPLE_TYPE => TypeKind::Tuple(node.children().map(|t| self.lower_type(&t)).collect()),
             FN_TYPE => {

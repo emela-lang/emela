@@ -1,6 +1,6 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run(&[(\"main.emel\",\nr##\"fn add(x: Int, y: Int) -> Int {\n  x + y\n}\n\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {\n  match xs {\n    []           -> []\n    [x, ..rest]  -> [f(x), ..map(rest, f)]\n  }\n}\n\nfn connect(host: String, port: Int) -> () { () }\n\nfn is_even(n: Int) -> Bool { n % 2 == 0 }\n\nfn calls(xs: List[Int], scores: Map[String, Int]) {\n  connect(\"localhost\", 5432)\n  connect(\"localhost\", port: 5432)\n  port = 1\n  connect(host: \"localhost\", port:)\n  count = 0\n  count = count + 1\n  (evens, odds) = List.partition(xs, is_even)\n  pairs: List[(String, Int)] = Map.to_list(scores)\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  total = xs\n    |> List.filter(is_even)\n    |> List.fold(init: 0, f: add)\n  doubled = List.map(xs, fn(x) { x * 2 })\n  \"#{label}: #{total}\"\n}\n\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn area(shape: Shape) -> Float {\n  match shape {\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\n    Circle(_)                       -> 0.0\n    Rect(w, h)                      -> w * h\n    Empty                           -> 0.0\n  }\n}\n\ntype User(id: Int, name: String)\n\nfn name_of(user: User) -> String {\n  User(name:, ..) = user\n  name\n}\n\"##,)])"
+expression: "run(&[(\"main.emel\",\nr##\"fn add(x: Int, y: Int) -> Int {\n  x + y\n}\n\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {\n  match xs {\n    []           -> []\n    [x, ..rest]  -> [f(x), ..map(rest, f)]\n  }\n}\n\nfn connect(host: String, port: Int) -> () { () }\n\nfn apply(f: (fn(Int) -> Int), x: Int) -> Int { f(x) }\n\nfn is_even(n: Int) -> Bool { n % 2 == 0 }\n\nfn calls(xs: List[Int], scores: Map[String, Int]) {\n  connect(\"localhost\", 5432)\n  connect(\"localhost\", port: 5432)\n  port = 1\n  connect(host: \"localhost\", port:)\n  count = 0\n  count = count + 1\n  (evens, odds) = List.partition(xs, is_even)\n  pairs: List[(String, Int)] = Map.to_list(scores)\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  total = xs\n    |> List.filter(is_even)\n    |> List.fold(init: 0, f: add)\n  doubled = List.map(xs, fn(x) { x * 2 })\n  \"#{label}: #{total}\"\n}\n\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn area(shape: Shape) -> Float {\n  match shape {\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\n    Circle(_)                       -> 0.0\n    Rect(w, h)                      -> w * h\n    Empty                           -> 0.0\n  }\n}\n\ntype User(id: Int, name: String)\n\nfn name_of(user: User) -> String {\n  User(name:, ..) = user\n  name\n}\n\"##,)])"
 ---
 == Main (src/main.emel)
 fn Main.add
@@ -41,19 +41,28 @@ fn Main.connect
   body
     block
       ()
+fn Main.apply
+  param f#8: fn(Int) -> Int
+  param x#9: Int
+  ret Int
+  body
+    block
+      call
+        f#8
+        x#9
 fn Main.is_even
-  param n#8: Int
+  param n#10: Int
   ret Bool
   body
     block
       Eq
         Rem
-          n#8
+          n#10
           2
         0
 fn Main.calls
-  param xs#9: List[Int]
-  param scores#10: @Map.Map[String, Int]
+  param xs#11: List[Int]
+  param scores#12: @Map.Map[String, Int]
   body
     block
       call
@@ -65,43 +74,43 @@ fn Main.calls
         "localhost"
         port:
           5432
-      let port#11 =
+      let port#13 =
         1
       call
         Main.connect
         host:
           "localhost"
         port: (punned)
-          port#11
-      let count#12 =
+          port#13
+      let count#14 =
         0
-      let count#13 =
+      let count#15 =
         Add
-          count#12
+          count#14
           1
-      let (evens#14, odds#15) =
+      let (evens#16, odds#17) =
         call
           @List.partition
-          xs#9
+          xs#11
           Main.is_even
-      let pairs#16: List[(String, Int)] =
+      let pairs#18: List[(String, Int)] =
         call
           @Map.to_list
-          scores#10
-      let label#17 =
+          scores#12
+      let label#19 =
         if
           Gt
-            count#13
+            count#15
             0
           block
             "あり"
         else
           block
             "なし"
-      let total#18 =
+      let total#20 =
         Pipe
           Pipe
-            xs#9
+            xs#11
             call
               @List.filter
               Main.is_even
@@ -111,46 +120,46 @@ fn Main.calls
               0
             f:
               Main.add
-      let doubled#19 =
+      let doubled#21 =
         call
           @List.map
-          xs#9
-          lambda(x#20)
+          xs#11
+          lambda(x#22)
             block
               Mul
-                x#20
+                x#22
                 2
       interpolated
-        label#17
+        label#19
         ": "
-        total#18
+        total#20
 enum Main.Shape
   variant Main.Shape.Circle(radius: Float)
   variant Main.Shape.Rect(Float, Float)
   variant Main.Shape.Empty
 fn Main.area
-  param shape#21: Main.Shape
+  param shape#23: Main.Shape
   ret Float
   body
     block
       match
-        shape#21
-        arm Main.Shape.Circle(radius: radius#22)
+        shape#23
+        arm Main.Shape.Circle(radius: radius#24)
           guard
             Gt
-              radius#22
+              radius#24
               0.0
           Mul
             Mul
               3.14
-              radius#22
-            radius#22
+              radius#24
+            radius#24
         arm Main.Shape.Circle(_)
           0.0
-        arm Main.Shape.Rect(w#23, h#24)
+        arm Main.Shape.Rect(w#25, h#26)
           Mul
-            w#23
-            h#24
+            w#25
+            h#26
         arm Main.Shape.Empty
           0.0
 type Main.User
@@ -158,10 +167,10 @@ type Main.User
   field name: String
   ctor Main.User.User
 fn Main.name_of
-  param user#25: Main.User
+  param user#27: Main.User
   ret String
   body
     block
-      let Main.User.User(name: name#26, ..) =
-        user#25
-      name#26
+      let Main.User.User(name: name#28, ..) =
+        user#27
+      name#28
