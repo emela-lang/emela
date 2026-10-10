@@ -88,4 +88,4 @@
 - 名前付き引数とフィールドのパターンのラベルの照合，フィールドの過不足（`..` なしの省略は 6.5 でエラー）
 - handler が effect の操作を全部実装しているか，layer の依存と重複（8.5），impl を書ける場所（10.2），derive と impl の重複（10.5）
 - opaque な型のフィールドアクセス
-- レコードの部分更新 `User(name: "b", ..user)`（5.3，18.1 #10）．パーサの SPREAD_ARG（feat/syntax-record-update，未マージ）が入ったら，束縛の左辺の `User(name:, ..)` の `..` を REST_EXPR でなく SPREAD_ARG として読むよう `lower.rs` の `expr_pat` を直す．あわせて `..` の後の式を解決し，呼び出し先が type の構成子でなければ（enum のバリアントを含めて）エラーにする
+- レコードの部分更新 `User(name: "b", ..user)`（5.3，18.1 #10）．パーサの SPREAD_ARG（feat/syntax-record-update，未マージ）が入ったら，束縛の左辺の `User(name:, ..)` の `..` を REST_EXPR でなく SPREAD_ARG として読むよう `lower.rs` の `expr_pat` を直す．あわせて `..` の後の式を解決し，呼び出し先が構成子1つだけのもの（type の構成子，error，フィールドのある handler の構成子）でなければエラーにする．enum のバリアント，関数，構成子でないものはエラー
