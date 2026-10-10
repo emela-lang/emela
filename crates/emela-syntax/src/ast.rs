@@ -295,7 +295,18 @@ impl CallExpr {
     pub fn callee(&self) -> Option<Expr> {
         self.0.children().next().and_then(Expr::cast)
     }
-    /// 引数のノード．位置引数は式，名前付き引数は NAMED_ARG．
+    /// 部分更新の `..式` の式．`User(name: "b", ..user)` の `user`．
+    pub fn spread(&self) -> Option<Expr> {
+        self.0
+            .children()
+            .find(|n| n.kind() == ARG_LIST)?
+            .children()
+            .find(|n| n.kind() == SPREAD_ARG)?
+            .first_child()
+            .and_then(Expr::cast)
+    }
+
+    /// 引数のノード．位置引数は式，名前付き引数は NAMED_ARG，末尾の `..式` は SPREAD_ARG．
     pub fn args(&self) -> impl Iterator<Item = SyntaxNode> {
         self.0
             .children()

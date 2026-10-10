@@ -318,6 +318,10 @@ pub enum SyntaxKind {
     ARG_LIST,
     /// 名前付き引数．`port: 5432` `input:`
     NAMED_ARG,
+    /// 引数の並びの末尾の `..式`．構成子の部分更新（5.3）．`User(name: "b", ..user)`
+    ///
+    /// 束縛の左辺として読むために，式のない `..` もこれで受け付ける．`User(name:, ..) = user`
+    SPREAD_ARG,
     /// `user.name`
     FIELD_EXPR,
     /// `!valid` `-x`

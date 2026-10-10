@@ -425,14 +425,21 @@ fn rest_expr(p: &mut Parser<'_>) {
     m.complete(p, REST_EXPR);
 }
 
-/// `"(" [ arg { "," arg } ] ")"`．`arg = expr | lower_name ":" [ expr ]`
+/// `"(" [ args ] ")"`．
 ///
-/// 束縛の左辺 `User(name:, ..)` として読むために，`..` も受け付ける．
+/// `args = arg { "," arg } [ "," ".." expr ] | ".." expr`，`arg = expr | lower_name ":" [ expr ]`
+///
+/// 末尾の `..式` は構成子の部分更新（5.3）．呼び出し先が構成子かはここでは区別しない．
+/// 束縛の左辺 `User(name:, ..)` として読むために，式のない `..` も受け付ける．
 fn arg_list(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_PAREN);
     let mut seen_named = false;
+    let mut seen_spread = false;
     while !p.at(R_PAREN) && !p.at_eof() {
+        if seen_spread {
+            p.error(DiagnosticCode::RestNotLast, "`..` must come last");
+        }
         if p.at(LOWER_NAME) && p.nth(1) == COLON {
             let a = p.start();
             p.bump();
@@ -443,7 +450,13 @@ fn arg_list(p: &mut Parser<'_>) {
             a.complete(p, NAMED_ARG);
             seen_named = true;
         } else if p.at(DOT2) {
-            rest_expr(p);
+            let a = p.start();
+            p.bump();
+            if !p.at(COMMA) && !p.at(R_PAREN) {
+                expr(p);
+            }
+            a.complete(p, SPREAD_ARG);
+            seen_spread = true;
         } else {
             if seen_named {
                 p.error(
