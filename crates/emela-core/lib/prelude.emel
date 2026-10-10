@@ -1,0 +1,40 @@
+# Prelude（仕様 15.1）．import なしですべてのモジュールから見える．
+# 純粋なものだけを置く．
+#
+# Int，Int64，Float，String，Never，List はコンパイラが組み込みで持つ型なので，ここでは宣言しない．
+# Eq，Ord，Show，Hash の Trait も組み込み（10.6）．
+
+## 真偽値．`if` の条件と `&&`，`||` に使う．
+## 導出する Ord が `False < True` になるよう，False を先に置く．
+pub enum Bool {
+  False
+  True
+}
+  derive Eq, Ord, Show, Hash
+
+## 値があるか（`Some`），ないか（`None`）．
+pub enum Option[A] {
+  Some(A)
+  None
+}
+  derive Eq, Ord, Show, Hash
+
+## 比較の結果．
+pub enum Ordering {
+  Less
+  Equal
+  Greater
+}
+  derive Eq, Ord, Show, Hash
+
+## defect を起こす．メッセージは defect の説明になる．
+@intrinsic
+pub fn panic(message: String) -> Never
+
+## まだ書いていないところに置く．`not yet implemented` の defect を起こす．
+@intrinsic
+pub fn todo() -> Never
+
+## 値の表示を標準エラーに1行出して，値をそのまま返す．デバッグ用．
+@intrinsic
+pub fn dbg[A: Show](value: A) -> A

@@ -1,0 +1,45 @@
+# Option の関数．Option 自体は Prelude の enum（prelude.emel）．
+# 対象の Option を第1引数 `opt` に置く（`opt |> Option.map(f)` と書けるように）．
+#
+# `Option.or_fail(opt, error)`（`None` なら fail する）は fail の実装が入る alpha.2 で足す．
+#   pub fn or_fail[A, E](opt: Option[A], error: E) -> A fails E
+
+## 中身に `f` を適用する．`None` は `None` のまま．
+pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
+  match opt {
+    Some(x) -> Some(f(x))
+    None -> None
+  }
+}
+
+## 中身に Option を返す `f` を適用して平らにする．
+pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
+  match opt {
+    Some(x) -> f(x)
+    None -> None
+  }
+}
+
+## 中身か，`None` なら `default`．
+pub fn unwrap_or[A](opt: Option[A], default: A) -> A {
+  match opt {
+    Some(x) -> x
+    None -> default
+  }
+}
+
+## `Some` か．
+pub fn is_some[A](opt: Option[A]) -> Bool {
+  match opt {
+    Some(_) -> True
+    None -> False
+  }
+}
+
+## `None` か．
+pub fn is_none[A](opt: Option[A]) -> Bool {
+  match opt {
+    Some(_) -> False
+    None -> True
+  }
+}

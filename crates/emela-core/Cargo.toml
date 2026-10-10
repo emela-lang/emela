@@ -12,4 +12,5 @@ la-arena.workspace = true
 rustc-hash.workspace = true
 
 [dev-dependencies]
+emela-syntax.workspace = true
 insta.workspace = true

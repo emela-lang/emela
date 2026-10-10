@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $iand, $inot, $ior, $ishl, $ishr, $iushr, $ixor } from "./emela_runtime.mjs";
+
+function main() {
+  return `${$iand(12, 10)}\n${$ior(12, 10)}\n${$ixor(12, 10)}\n${$inot(0)}\n${$iand((-1), (-2147483648))}\n${$ishl(1, 31)}\n${$ishl((-8), 1)}\n${$ishl((-1), 0)}\n${$ishl((-1), 31)}\n${$ishl((-1), 32)}\n${$ishl(5, 100)}\n${$ishr(1, 31)}\n${$ishr((-8), 1)}\n${$ishr((-1), 0)}\n${$ishr((-1), 31)}\n${$ishr((-1), 32)}\n${$ishr(5, 100)}\n${$iushr(1, 31)}\n${$iushr((-8), 1)}\n${$iushr((-1), 0)}\n${$iushr((-1), 31)}\n${$iushr((-1), 32)}\n${$iushr(5, 100)}`;
+}
+
+export { main };

@@ -1,0 +1,150 @@
+# List の関数．コレクションは不変（仕様 15.2）．
+#
+# - 対象のリストを第1引数 `xs` に置く（`xs |> List.map(f)` と書けるように）．
+# - 引数名は仕様の例に合わせる（`List.fold(init: 0, f: add)`，6.7）．
+# - 繰り返しは自分自身への末尾呼び出しで書く（6.8）．長いリストでもスタックを使わない．
+#   先頭から結果を積むものは逆順に積んでから `reverse` する．
+
+## 各要素に `f` を適用したリスト．
+pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
+  reverse(fold(xs, init: [], f: fn(acc, x) { [f(x), ..acc] }))
+}
+
+## `f` が True を返す要素だけを残したリスト．順序は保つ．
+pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
+  reverse(fold(xs, init: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }))
+}
+
+## 先頭から畳み込む．`f(f(f(init, x0), x1), x2)`．
+pub fn fold[A, B](xs: List[A], init: B, f: fn(B, A) -> B) -> B {
+  match xs {
+    [] -> init
+    [x, ..rest] -> fold(rest, f(init, x), f)
+  }
+}
+
+## 要素の数．
+pub fn length[A](xs: List[A]) -> Int {
+  count_onto(xs, 0)
+}
+
+## `xs` の要素の数を `n` に足す．
+fn count_onto[A](xs: List[A], n: Int) -> Int {
+  match xs {
+    [] -> n
+    [_, ..rest] -> count_onto(rest, n + 1)
+  }
+}
+
+## 空か．
+pub fn is_empty[A](xs: List[A]) -> Bool {
+  match xs {
+    [] -> True
+    _ -> False
+  }
+}
+
+## `index` 番目（0 始まり）の要素．範囲外か負なら `None`．
+pub fn get[A](xs: List[A], index: Int) -> Option[A] {
+  match xs {
+    _ if index < 0 -> None
+    [] -> None
+    [x, ..rest] -> if index == 0 { Some(x) } else { get(rest, index - 1) }
+  }
+}
+
+## 先頭の要素．空なら `None`．
+pub fn head[A](xs: List[A]) -> Option[A] {
+  match xs {
+    [] -> None
+    [x, ..] -> Some(x)
+  }
+}
+
+## 先頭を除いた残り．空なら空のまま．
+pub fn tail[A](xs: List[A]) -> List[A] {
+  match xs {
+    [] -> []
+    [_, ..rest] -> rest
+  }
+}
+
+## 逆順にしたリスト．
+pub fn reverse[A](xs: List[A]) -> List[A] {
+  reverse_onto(xs, [])
+}
+
+## `xs` を逆順にして `acc` の前に付ける．
+fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
+  match xs {
+    [] -> acc
+    [x, ..rest] -> reverse_onto(rest, [x, ..acc])
+  }
+}
+
+## `xs` の後ろに `ys` をつなぐ．
+pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
+  reverse_onto(reverse(xs), ys)
+}
+
+## リストのリストを1つのリストにつなぐ．
+pub fn concat[A](xss: List[List[A]]) -> List[A] {
+  fold(reverse(xss), init: [], f: fn(acc, xs) { append(xs, acc) })
+}
+
+## `f` が True を返す要素と False を返す要素に分ける．どちらも順序は保つ．
+## `(evens, odds) = List.partition(xs, is_even)`．
+pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
+  (yes, no) = fold(xs, init: ([], []), f: fn(acc, x) {
+    (ys, ns) = acc
+    if f(x) { ([x, ..ys], ns) } else { (ys, [x, ..ns]) }
+  })
+  (reverse(yes), reverse(no))
+}
+
+## `f` が True を返す要素があるか．見つかった時点で止める．空なら False．
+pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
+  match xs {
+    [] -> False
+    [x, ..rest] -> f(x) || any(rest, f)
+  }
+}
+
+## すべての要素で `f` が True を返すか．False が出た時点で止める．空なら True．
+pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
+  match xs {
+    [] -> True
+    [x, ..rest] -> f(x) && all(rest, f)
+  }
+}
+
+## `f` が True を返す最初の要素．なければ `None`．
+pub fn find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A] {
+  match xs {
+    [] -> None
+    [x, ..rest] -> if f(x) { Some(x) } else { find(rest, f) }
+  }
+}
+
+## `from` 以上 `to` 未満の整数を小さい順に並べたリスト．`to <= from` なら空．
+pub fn range(from: Int, to: Int) -> List[Int] {
+  range_onto(from, to, [])
+}
+
+## `from` 以上 `to` 未満の整数を `acc` の前に付ける．後ろから積むので `to - 1` はあふれない．
+fn range_onto(from: Int, to: Int, acc: List[Int]) -> List[Int] {
+  if to <= from { acc } else { range_onto(from, to - 1, [to - 1, ..acc]) }
+}
+
+## 同じ位置の要素を組にしたリスト．長さは短い方に合わせる．
+pub fn zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)] {
+  zip_onto(xs, ys, [])
+}
+
+## 組にした要素を逆順に `acc` の前に付け，最後に反転する．
+fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
+  match (xs, ys) {
+    ([x, ..xs_rest], [y, ..ys_rest]) -> zip_onto(xs_rest, ys_rest, [(x, y), ..acc])
+    _ -> reverse(acc)
+  }
+}

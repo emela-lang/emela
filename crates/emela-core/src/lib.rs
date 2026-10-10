@@ -7,6 +7,7 @@ pub mod build;
 pub mod intrinsics;
 mod ir;
 pub mod named;
+mod sources;
 pub mod tail;
 
 #[cfg(test)]
@@ -14,3 +15,4 @@ mod tests;
 
 pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
+pub use sources::{PRELUDE, core_source, core_sources};

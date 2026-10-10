@@ -1,0 +1,22 @@
+# Float（IEEE 754 binary64）の関数．
+# Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defect（仕様 16.1）．
+
+## 最短で往復できる桁数の文字列にする．整数値で有限なら `1.0` のように `.0` を付ける（10.6）．
+@intrinsic
+pub fn to_string(x: Float) -> String
+
+## 負の無限大の方向へ丸めて Int にする．
+@intrinsic
+pub fn floor(x: Float) -> Int
+
+## 正の無限大の方向へ丸めて Int にする．
+@intrinsic
+pub fn ceil(x: Float) -> Int
+
+## 最も近い整数へ丸めて Int にする．0.5 は 0 から遠い方へ丸める（`2.5` は 3，`-2.5` は -3）．
+@intrinsic
+pub fn round(x: Float) -> Int
+
+## 0 の方向へ丸めて Int にする．
+@intrinsic
+pub fn truncate(x: Float) -> Int

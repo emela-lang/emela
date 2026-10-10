@@ -176,6 +176,19 @@ export function $strtrim(s) {
   return s.replace($trimRe, "");
 }
 
+// String.code_points はコードポイントの値のリスト．文字列の反復はコードポイントごとに進む．
+export function $strcodepoints(s) {
+  const items = [];
+  for (const c of s) items.push(c.codePointAt(0));
+  return $list(items);
+}
+
+// Unicode のスカラー値（0〜10FFFF でサロゲートを除く）でなければ None．
+export function $strfromcodepoint(n) {
+  if (n < 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return $None;
+  return { $tag: 0, $0: String.fromCodePoint(n) };
+}
+
 // ---- 数値の変換（仕様 16.1）----
 
 export function $itof(n) {
@@ -219,6 +232,72 @@ export function $fround(x) {
 
 export function $ftrunc(x) {
   return $ftoi(x, Math.trunc(x));
+}
+
+// ---- ビット演算（仕様 6.6）----
+// シフト量が負なら defect，幅（32 か 64）以上なら全部のビットを押し出した値にする．
+// JS の `<<` などはシフト量の下位 5bit しか見ないので，範囲外を先に処理する．
+
+function $shiftBy(by) {
+  if (by < 0) throw new $Defect(`negative shift amount: ${by}`);
+  return by;
+}
+
+export function $iand(a, b) {
+  return a & b;
+}
+
+export function $ior(a, b) {
+  return a | b;
+}
+
+export function $ixor(a, b) {
+  return a ^ b;
+}
+
+export function $inot(a) {
+  return ~a;
+}
+
+export function $ishl(a, by) {
+  return $shiftBy(by) >= 32 ? 0 : a << by;
+}
+
+export function $ishr(a, by) {
+  return a >> Math.min($shiftBy(by), 31);
+}
+
+export function $iushr(a, by) {
+  return $shiftBy(by) >= 32 ? 0 : (a >>> by) | 0;
+}
+
+// Int64 は BigInt．and / or / xor / not は2の補数として働くので巻き戻しは要らない．
+export function $land(a, b) {
+  return a & b;
+}
+
+export function $lor(a, b) {
+  return a | b;
+}
+
+export function $lxor(a, b) {
+  return a ^ b;
+}
+
+export function $lnot(a) {
+  return ~a;
+}
+
+export function $lshl(a, by) {
+  return $shiftBy(by) >= 64 ? 0n : BigInt.asIntN(64, a << BigInt(by));
+}
+
+export function $lshr(a, by) {
+  return a >> BigInt(Math.min($shiftBy(by), 63));
+}
+
+export function $lushr(a, by) {
+  return $shiftBy(by) >= 64 ? 0n : BigInt.asIntN(64, BigInt.asUintN(64, a) >> BigInt(by));
 }
 
 // ---- 表示（Show の仮実装．仕様 10.6）----

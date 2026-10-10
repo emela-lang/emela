@@ -1,0 +1,55 @@
+# String の関数（仕様 16.2）．位置を数値で指定する API は持たない．
+# 対象の文字列を第1引数に置く（`s |> String.contains("@")` と書けるように）．
+
+## 見た目の文字数（書記素クラスタの数）．`length("👍")` は 1．
+@intrinsic
+pub fn length(s: String) -> Int
+
+## UTF-8 で符号化したときのバイト数．
+@intrinsic
+pub fn byte_size(s: String) -> Int
+
+## 2つの文字列をつなぐ．
+@intrinsic
+pub fn concat(a: String, b: String) -> String
+
+## `sub` を含むか．照合はコードポイントの列で行う．
+@intrinsic
+pub fn contains(s: String, sub: String) -> Bool
+
+## `prefix` で始まるか．
+@intrinsic
+pub fn starts_with(s: String, prefix: String) -> Bool
+
+## `suffix` で終わるか．
+@intrinsic
+pub fn ends_with(s: String, suffix: String) -> Bool
+
+## `sep` で分ける．`sep` が空なら書記素クラスタごとに分ける．
+## `join(split(s, sep), sep) == s` が成り立つ．
+@intrinsic
+pub fn split(s: String, sep: String) -> List[String]
+
+## 書記素クラスタごとの文字列のリスト．
+@intrinsic
+pub fn chars(s: String) -> List[String]
+
+## `sep` を挟んでつなぐ．`parts |> String.join(", ")` と書ける．
+@intrinsic
+pub fn join(parts: List[String], sep: String) -> String
+
+## 前後の空白（Unicode の White_Space）を取り除く．
+@intrinsic
+pub fn trim(s: String) -> String
+
+## 10進の文字列にする．`Int.to_string` と同じ．
+@intrinsic
+pub fn from_int(n: Int) -> String
+
+## コードポイントの値のリスト．
+@intrinsic
+pub fn code_points(s: String) -> List[Int]
+
+## コードポイント1つからなる文字列．`n` が Unicode のスカラー値（0〜10FFFF でサロゲートを除く）でなければ `None`．
+@intrinsic
+pub fn from_code_point(n: Int) -> Option[String]

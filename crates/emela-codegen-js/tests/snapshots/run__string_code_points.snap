@@ -1,0 +1,22 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $None, $showInt, $showList, $showString, $strcodepoints, $strfromcodepoint, $unreachable } from "./emela_runtime.mjs";
+
+const Option$None = $None;
+
+function main() {
+  return `${$showList($strcodepoints("aé"), $showInt)}\n${$showList($strcodepoints("👍"), $showInt)}\n${$showList($strcodepoints("é"), $showInt)}\n${$showList($strcodepoints(""), $showInt)}\n${$show$Option($strfromcodepoint(65), $showString)}\n${$show$Option($strfromcodepoint(128077), $showString)}\n${$show$Option($strfromcodepoint(0), $showString)}\n${$show$Option($strfromcodepoint(1114111), $showString)}\n${$show$Option($strfromcodepoint((-1)), $showString)}\n${$show$Option($strfromcodepoint(55296), $showString)}\n${$show$Option($strfromcodepoint(57343), $showString)}\n${$show$Option($strfromcodepoint(1114112), $showString)}`;
+}
+
+function $show$Option(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Some(" + $a0(v.$0) + ")";
+    case 1: return "None";
+  }
+  return $unreachable();
+}
+
+export { main };
