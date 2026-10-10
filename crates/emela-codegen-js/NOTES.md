@@ -60,3 +60,16 @@
 - （補）`dbg` は `console.error` で表示を1行出す（ブラウザでも動くように `process.stderr` は使わない）．位置（ファイルと行）はまだ出さない．構文木とつなぐときに足す．
 - （補）enum のリストのような深い入れ子の表示はリストの部分だけループで辿り，enum の入れ子は再帰で辿る．深い木の表示はスタックの深さに制限される．
 - （補）関数型（`Type::Fn`）の表示を求める IR は panic する（10.6．型検査で弾く前提）．`Type::Param` も enum の表示関数の外では panic する．
+
+## assert（仕様 13.2）
+
+- （補）比較の assert（`AssertCond::Compare`）は両辺を左から1回ずつ評価して一時変数に入れ，比較が偽のときだけ両辺を表示関数で文字列にして `$assertCmp` で defect を投げる．表示は `dbg` と同じ（String は引用符付き）
+- （補）defect のメッセージは `assertion failed: <式の字面>` の後に `\n  left: <左辺>\n right: <右辺>` を続ける（rustc の `assert_eq!` に近い形）．字面が空なら `left == right` のように演算子だけを出す
+- （補）比較でない assert（`AssertCond::Bool`）は `assertion failed: <式の字面>`（字面が空なら `assertion failed`）．値は表示しない
+- （補）assert は文を要する式（`is_simple` が偽）として扱う．左の引数は先に一時変数へ束縛され，評価順が保たれる
+
+## テストランナー
+
+- （補）テストの起動用モジュール（`emit_test_main`）は出力したモジュールを `import * as $m` で読み，`test_runner.mjs` を `export` を外して埋め込み，`$runTests([[表示名, $m["名前"]], …])` を呼ぶ．関数は Emela の名前（JS の予約語なら `export { new$ as new }` の公開名）で引く
+- （補）結果は1テストごとに `\x1eemela-test {"event":"result","name":…,"outcome":"ok"|"defect"|"error","message":…}`，最後に `{"event":"done"}` を標準出力に書く．頭の制御文字で利用者の出力と見分ける
+- （補）`name` が `"Defect"` でない例外（外部関数が投げたもの）も defect として報告し，メッセージに `TypeError: …` のように例外の名前を前に付ける（7.5 の「外部関数が投げた例外」）

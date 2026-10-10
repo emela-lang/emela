@@ -19,6 +19,7 @@ line-index.workspace = true
 ariadne.workspace = true
 serde.workspace = true
 toml.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

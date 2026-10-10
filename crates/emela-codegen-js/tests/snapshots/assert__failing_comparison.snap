@@ -1,0 +1,18 @@
+---
+source: crates/emela-codegen-js/tests/assert.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $assertCmp, $showString } from "./emela_runtime.mjs";
+
+function main() {
+  const $t0 = "bob";
+  const $t1 = "alice";
+  if (!($t0 === $t1)) {
+    $assertCmp("user.name == \"alice\"", "==", $showString($t0), $showString($t1));
+  }
+  const unit$0 = undefined;
+  return "ok";
+}
+
+export { main };

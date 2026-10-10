@@ -187,5 +187,6 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             inits.iter_mut().for_each(&mut *f);
             f(body);
         }
+        Expr::Assert(a) => a.for_each_operand_mut(f),
     }
 }

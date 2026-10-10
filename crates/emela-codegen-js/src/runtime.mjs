@@ -20,6 +20,17 @@ export function $unreachable() {
   throw new $Defect("unreachable: no match arm matched");
 }
 
+// assert（仕様 13.2）の失敗．`text` はソースの式の字面で，空でもよい．
+export function $assertFail(text) {
+  throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);
+}
+
+// 比較の assert の失敗．両辺は表示した文字列で受ける（失敗したときだけ表示する）．
+export function $assertCmp(text, op, left, right) {
+  const head = text === "" ? `left ${op} right` : text;
+  throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`);
+}
+
 // Int（32bit）の除算と剰余．0方向へ切り捨て，剰余は被除数の符号に従う．
 // `| 0` で 2^31 / -1 のあふれを巻き戻し，-0 を 0 にする．
 export function $idiv(a, b) {

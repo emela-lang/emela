@@ -76,6 +76,11 @@ impl<B: BuiltinModules> Resolve<B> {
             builtins,
         }
     }
+
+    /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
+    pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
+        self.parse.parse_of(module)
+    }
 }
 
 impl<B: BuiltinModules> Frontend for Resolve<B> {

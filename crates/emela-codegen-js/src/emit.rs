@@ -12,6 +12,8 @@ use emela_core::*;
 
 use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 
+mod assert;
+
 /// 値の行き先．
 #[derive(Clone)]
 enum Dest {
@@ -353,6 +355,10 @@ impl Emitter<'_> {
             }
             Expr::If { .. } | Expr::Match { .. } | Expr::Loop { .. } => self.via_tmp(e),
             Expr::Recur(_) => panic!("不正な IR: Recur が Loop の末尾位置の外にある"),
+            Expr::Assert(a) => {
+                self.assert(a);
+                lit_js(&Lit::Unit)
+            }
         }
     }
 
@@ -498,7 +504,11 @@ impl Emitter<'_> {
         }
 
         let vs = self.values_in_order(&[lhs, rhs]);
-        let (a, b) = (&vs[0], &vs[1]);
+        self.binary_js(op, ty, &vs[0], &vs[1])
+    }
+
+    /// 評価済みの両辺 `a` と `b`（JS の式）の二項演算の JS の式．`&&` と `||` は扱わない．
+    fn binary_js(&mut self, op: BinOp, ty: OpTy, a: &str, b: &str) -> String {
         let cmp = |js: &str| format!("({a} {js} {b})");
         match (ty, op) {
             (OpTy::Int, BinOp::Add) => format!("(({a} + {b}) | 0)"),
@@ -786,7 +796,11 @@ impl Pieces {
 fn is_simple(e: &Expr) -> bool {
     match e {
         Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. } => true,
-        Expr::Let { .. } | Expr::Match { .. } | Expr::Loop { .. } | Expr::Recur(_) => false,
+        Expr::Let { .. }
+        | Expr::Match { .. }
+        | Expr::Loop { .. }
+        | Expr::Recur(_)
+        | Expr::Assert(_) => false,
         Expr::Call { callee, args } => {
             let callee_simple = match callee {
                 Callee::Direct(_) => true,

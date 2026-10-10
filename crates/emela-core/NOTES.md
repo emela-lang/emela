@@ -17,6 +17,8 @@
 - （補）エラーとエフェクトを足すとき，escape の対象の中と with の本体の中は末尾位置にしない（仕様 6.8 に反映済み）．
 - （補）エラー（16.5 の戻り値方式）とエフェクトは後で `Expr` のバリアントを足して入れる．バックエンドは値の行き先（return / 代入）で式を出す作りにしてあるので，「エラーなら return」の分岐を足せる．
 
+- （補）`assert`（13.2）は `Expr::Assert` で持つ．比較の形（`AssertCond::Compare`: 演算子，`OpTy`，両辺の型 `Type`，両辺）と，比較でない形（`AssertCond::Bool`）に分け，ソースの式の字面 `text` を添える．値は `()`．両辺の型は表示関数を作るのに使う
+
 ## 組み込み関数（`intrinsics.rs`）
 
 - （補）組み込み関数は `Builtin` の1値ごとに，モジュール名と関数名，型（`Sig`），純粋か，JS の実装名を `Builtin::info` で持つ．名前解決は `Builtin::lookup(module, name)`，型推論は `BuiltinInfo::scheme(option)` で引く．Prelude の関数（`panic`，`todo`，`dbg`）は `module` が `None`．

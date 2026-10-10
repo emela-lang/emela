@@ -336,6 +336,68 @@ pub enum Expr {
     },
     /// 囲む `Loop` の次の回へ進む．`Loop` の本体の末尾位置にだけ現れる．
     Recur(Vec<Expr>),
+    /// `assert 式`（仕様 13.2）．値は `()`．偽なら defect．
+    Assert(Box<Assert>),
+}
+
+/// `assert 式`．
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assert {
+    pub cond: AssertCond,
+    /// ソースに書かれた式の字面（`user.name == "alice"`）．失敗の表示に使う．空でもよい．
+    pub text: String,
+}
+
+/// assert の式の形．コンパイラが式の形を見て，比較なら両辺の値を表示する（13.2）．
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssertCond {
+    /// `lhs op rhs`．`op` は `Eq`，`Ne`，`Lt`，`Le`，`Gt`，`Ge` のどれか．
+    /// 両辺を左から1回ずつ評価して比べ，偽なら両辺を表示して defect にする．
+    /// `op_ty` は比較の意味（`Expr::Binary` と同じ），`ty` は両辺の型（表示関数を作るのに使う）．
+    Compare {
+        op: BinOp,
+        op_ty: OpTy,
+        ty: Type,
+        lhs: Expr,
+        rhs: Expr,
+    },
+    /// 比較でない式．式の値だけを見る．
+    Bool(Expr),
+}
+
+impl Assert {
+    /// 比較の assert の式．
+    pub fn compare(op: BinOp, op_ty: OpTy, ty: Type, lhs: Expr, rhs: Expr, text: &str) -> Expr {
+        Expr::Assert(Box::new(Assert {
+            cond: AssertCond::Compare {
+                op,
+                op_ty,
+                ty,
+                lhs,
+                rhs,
+            },
+            text: text.to_owned(),
+        }))
+    }
+
+    /// 比較でない assert の式．
+    pub fn bool(cond: Expr, text: &str) -> Expr {
+        Expr::Assert(Box::new(Assert {
+            cond: AssertCond::Bool(cond),
+            text: text.to_owned(),
+        }))
+    }
+
+    /// 部分式に評価の順で `f` をかける．
+    pub fn for_each_operand_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
+        match &mut self.cond {
+            AssertCond::Compare { lhs, rhs, .. } => {
+                f(lhs);
+                f(rhs);
+            }
+            AssertCond::Bool(e) => f(e),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -6,8 +6,11 @@
 //! 出力は ES モジュール．公開する関数は Emela の名前で `export` する．
 
 mod emit;
+mod test_runner;
 
 use emela_core::Module;
+
+pub use test_runner::{TEST_EVENT_PREFIX, TEST_RUNNER, TestEntry, emit_test_main};
 
 /// JS ランタイムの本文（ES モジュール）．
 pub const RUNTIME: &str = include_str!("runtime.mjs");
