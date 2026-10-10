@@ -1574,7 +1574,8 @@ impl Lower<'_, '_> {
                 if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
                     for arg in list.children() {
                         match arg.kind() {
-                            REST_EXPR => rest = true,
+                            // 左辺の `User(name:, ..)` の `..` は，式のない SPREAD_ARG として読まれる．
+                            SPREAD_ARG => rest = true,
                             NAMED_ARG => {
                                 let Some(token) = child_token(&arg, LOWER_NAME) else {
                                     continue;
