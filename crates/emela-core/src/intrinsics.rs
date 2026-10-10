@@ -5,6 +5,8 @@
 //! `BuiltinInfo::scheme` でこの表を引き，バックエンドは `BuiltinInfo::js` などで実装を選ぶ．
 //!
 //! `List.map` のように Emela で書ける関数はここに入れない（core を Emela で書く）．
+//! 各行は同梱のソース（`lib/*.emel`）に `@intrinsic` の宣言を1つずつ持ち，
+//! `Builtin::lookup_intrinsic` で宣言から行を引く．
 
 use emela_types::{Scheme, Ty, TyConId, TyParam};
 
@@ -29,6 +31,10 @@ pub enum Builtin {
     /// `String.trim`．前後の Unicode の White_Space を取り除く．
     StringTrim,
     StringFromInt,
+    /// `String.code_points`．コードポイントの値のリスト．
+    StringCodePoints,
+    /// `String.from_code_point`．Unicode のスカラー値でなければ `None`．
+    StringFromCodePoint,
 
     // Int．
     IntToString,
@@ -36,12 +42,29 @@ pub enum Builtin {
     IntToInt64,
     /// `Int.checked_add`．あふれたら `None`．
     IntCheckedAdd,
+    IntBitAnd,
+    IntBitOr,
+    IntBitXor,
+    IntBitNot,
+    /// `Int.shift_left(n, by)`．シフト量の扱いは `NOTES.md`．
+    IntShiftLeft,
+    /// `Int.shift_right(n, by)`．符号を保つ（算術シフト）．
+    IntShiftRight,
+    /// `Int.shift_right_unsigned(n, by)`．上位を 0 で埋める（論理シフト）．
+    IntShiftRightUnsigned,
 
     // Int64．
     Int64FromInt,
     Int64ToString,
     /// `Int64.to_int`．下位 32bit に巻き戻す．
     Int64ToInt,
+    Int64BitAnd,
+    Int64BitOr,
+    Int64BitXor,
+    Int64BitNot,
+    Int64ShiftLeft,
+    Int64ShiftRight,
+    Int64ShiftRightUnsigned,
 
     // Float．Int への変換は，結果が Int の範囲外か NaN なら defect．
     FloatToString,
@@ -170,13 +193,29 @@ impl Builtin {
         Builtin::StringJoin,
         Builtin::StringTrim,
         Builtin::StringFromInt,
+        Builtin::StringCodePoints,
+        Builtin::StringFromCodePoint,
         Builtin::IntToString,
         Builtin::IntToFloat,
         Builtin::IntToInt64,
         Builtin::IntCheckedAdd,
+        Builtin::IntBitAnd,
+        Builtin::IntBitOr,
+        Builtin::IntBitXor,
+        Builtin::IntBitNot,
+        Builtin::IntShiftLeft,
+        Builtin::IntShiftRight,
+        Builtin::IntShiftRightUnsigned,
         Builtin::Int64FromInt,
         Builtin::Int64ToString,
         Builtin::Int64ToInt,
+        Builtin::Int64BitAnd,
+        Builtin::Int64BitOr,
+        Builtin::Int64BitXor,
+        Builtin::Int64BitNot,
+        Builtin::Int64ShiftLeft,
+        Builtin::Int64ShiftRight,
+        Builtin::Int64ShiftRightUnsigned,
         Builtin::FloatToString,
         Builtin::FloatFloor,
         Builtin::FloatCeil,
@@ -204,15 +243,43 @@ impl Builtin {
             Builtin::StringJoin => info(S, "join", &[STRS, String], String, "$strjoin"),
             Builtin::StringTrim => info(S, "trim", &[String], String, "$strtrim"),
             Builtin::StringFromInt => info(S, "from_int", &[Int], String, "$showInt"),
+            Builtin::StringCodePoints => {
+                info(S, "code_points", &[String], List(&Int), "$strcodepoints")
+            }
+            Builtin::StringFromCodePoint => info(
+                S,
+                "from_code_point",
+                &[Int],
+                Option(&String),
+                "$strfromcodepoint",
+            ),
             Builtin::IntToString => info(I, "to_string", &[Int], String, "$showInt"),
             Builtin::IntToFloat => info(I, "to_float", &[Int], Float, "$itof"),
             Builtin::IntToInt64 => info(I, "to_int64", &[Int], Int64, "$itol"),
             Builtin::IntCheckedAdd => {
                 info(I, "checked_add", &[Int, Int], Option(&Int), "$icheckedAdd")
             }
+            Builtin::IntBitAnd => info(I, "bit_and", &[Int, Int], Int, "$iand"),
+            Builtin::IntBitOr => info(I, "bit_or", &[Int, Int], Int, "$ior"),
+            Builtin::IntBitXor => info(I, "bit_xor", &[Int, Int], Int, "$ixor"),
+            Builtin::IntBitNot => info(I, "bit_not", &[Int], Int, "$inot"),
+            Builtin::IntShiftLeft => info(I, "shift_left", &[Int, Int], Int, "$ishl"),
+            Builtin::IntShiftRight => info(I, "shift_right", &[Int, Int], Int, "$ishr"),
+            Builtin::IntShiftRightUnsigned => {
+                info(I, "shift_right_unsigned", &[Int, Int], Int, "$iushr")
+            }
             Builtin::Int64FromInt => info(L, "from_int", &[Int], Int64, "$itol"),
             Builtin::Int64ToString => info(L, "to_string", &[Int64], String, "$showInt64"),
             Builtin::Int64ToInt => info(L, "to_int", &[Int64], Int, "$ltoi"),
+            Builtin::Int64BitAnd => info(L, "bit_and", &[Int64, Int64], Int64, "$land"),
+            Builtin::Int64BitOr => info(L, "bit_or", &[Int64, Int64], Int64, "$lor"),
+            Builtin::Int64BitXor => info(L, "bit_xor", &[Int64, Int64], Int64, "$lxor"),
+            Builtin::Int64BitNot => info(L, "bit_not", &[Int64], Int64, "$lnot"),
+            Builtin::Int64ShiftLeft => info(L, "shift_left", &[Int64, Int], Int64, "$lshl"),
+            Builtin::Int64ShiftRight => info(L, "shift_right", &[Int64, Int], Int64, "$lshr"),
+            Builtin::Int64ShiftRightUnsigned => {
+                info(L, "shift_right_unsigned", &[Int64, Int], Int64, "$lushr")
+            }
             Builtin::FloatToString => info(F, "to_string", &[Float], String, "$showFloat"),
             Builtin::FloatFloor => info(F, "floor", &[Float], Int, "$ffloor"),
             Builtin::FloatCeil => info(F, "ceil", &[Float], Int, "$fceil"),
@@ -237,5 +304,12 @@ impl Builtin {
             let i = b.info();
             i.module == module && i.name == name
         })
+    }
+
+    /// 同梱のソースの `@intrinsic` の宣言から引く．`module` は `crate::core_sources` の
+    /// モジュール名で，Prelude のソース（`crate::PRELUDE`）の宣言は `module` が `None` の行に当たる．
+    pub fn lookup_intrinsic(module: &str, name: &str) -> Option<Builtin> {
+        let module = (module != crate::PRELUDE).then_some(module);
+        Builtin::lookup(module, name)
     }
 }

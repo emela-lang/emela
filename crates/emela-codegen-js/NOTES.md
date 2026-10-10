@@ -46,6 +46,8 @@
 - （補）ランタイムは `src/runtime.mjs` 1つで，`RUNTIME` として埋め込む．`RuntimeMode::Import` は使った名前だけを `./emela_runtime.mjs` から import し，ファイルの書き出しは呼び出し側が行う．`RuntimeMode::Inline` は行頭の `export ` を外して出力の先頭に埋め込む．そのため runtime.mjs では `export` を行頭にだけ書く．
 - （補）組み込み関数は `BuiltinInfo::js` の名前のランタイムの関数を呼ぶ．`Int.to_float` のような恒等の関数も，生成コードを一様にするため関数として呼ぶ．
 - （補）`checked_add` などランタイムが返す `None` は `$None` で，Prelude の Option を持つモジュールは `const Option$None = $None;` として同じ値を共有する．
+- （補）シフト（`$ishl` など）は，JS の `<<` がシフト量の下位 5bit しか見ないので，負（defect）と幅以上を先に処理してから演算子を使う．Int64 は BigInt の `<<` / `>>` を使い，`$lushr` は `BigInt.asUintN(64, …)` で符号なしにしてからずらす．
+- （補）`String.code_points` は JS の文字列の反復（コードポイントごとに進む）で値を集める．`String.from_code_point` は `$None` か `{ $tag: 0, $0: … }` を返す（`checked_add` と同じ形）．
 - （補）`String.length` は `Intl.Segmenter`（ロケールは既定）で書記素クラスタを数える．Segmenter は最初の呼び出しで1つ作って使い回す．書記素の区切りの Unicode の版はホストの ICU に依存する．固定する版は仕様 18.1 #18 で未決．
 
 ## 表示（Show の仮実装）
