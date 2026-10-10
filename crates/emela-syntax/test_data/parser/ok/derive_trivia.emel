@@ -1,0 +1,36 @@
+# derive の前にコメントだけの行，空行，ドキュメントコメントを挟める（17.3，2.5）
+type User(id: Int, name: String)
+  # 比較と表示を導出する
+  derive Eq, Show
+
+type Point(x: Int, y: Int)
+
+  derive Eq
+
+type Pair(a: Int, b: Int)
+  # 1つ目
+
+  # 2つ目
+  derive Eq, Show
+
+type Id(value: Int)
+  ## 比較を導出する
+  derive Eq
+
+enum Color {
+  Red
+  Green
+}
+  # 比較を導出する
+  derive Eq, Show
+
+enum Shape {
+  Circle(r: Int)
+}
+
+  ## 表示を導出する
+  derive Show
+
+type Next(n: Int)
+# derive の付かない宣言の後ろのコメントは次の宣言の前のまま
+fn main() {}

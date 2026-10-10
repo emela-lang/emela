@@ -435,14 +435,18 @@ fn field(p: &mut Parser<'_>) {
 }
 
 /// `"derive" type_ref { "," type_ref }`．次の行に書いてもよい．
+///
+/// 間のコメントだけの行と空行は飛ばす（2.5）．間にドキュメントコメントがあれば，
+/// 宣言と同じくその位置から開き，sink がコメントを DERIVE_CLAUSE の中に入れる．
 fn derive_clause(p: &mut Parser<'_>) {
-    if p.at(NEWLINE) && p.nth_at_contextual_kw(1, "derive") {
-        p.bump();
+    let mut newlines = 0;
+    while p.nth(newlines) == NEWLINE {
+        newlines += 1;
     }
-    if !p.at_contextual_kw("derive") {
+    if !p.nth_at_contextual_kw(newlines, "derive") {
         return;
     }
-    let m = p.start();
+    let m = newlines_with_doc(p).unwrap_or_else(|| p.start());
     p.bump();
     loop {
         if p.at(TYPE_NAME) {

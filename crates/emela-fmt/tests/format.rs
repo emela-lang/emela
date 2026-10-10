@@ -305,6 +305,7 @@ proptest! {
     }
 
     /// どこにコメントを足しても，整形は冪等で，トークン列とコメントを変えない．
+    /// 結果を元の入力と比べないので，`decls.emel` も含める（`derive` の前の行にも足す）．
     #[test]
     fn コメントを足しても壊れない(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
         for (name, src) in inputs() {
