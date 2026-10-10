@@ -1,0 +1,162 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/record_update.emel
+---
+ROOT@0..154
+  FN_DECL@0..153
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "f"
+    PARAM_LIST@4..16
+      L_PAREN@4..5 "("
+      PARAM@5..15
+        LOWER_NAME@5..9 "user"
+        COLON@9..10 ":"
+        WHITESPACE@10..11 " "
+        PATH_TYPE@11..15
+          PATH@11..15
+            TYPE_NAME@11..15 "User"
+      R_PAREN@15..16 ")"
+    WHITESPACE@16..17 " "
+    BLOCK_EXPR@17..153
+      L_BRACE@17..18 "{"
+      NEWLINE@18..19 "\n"
+      WHITESPACE@19..21 "  "
+      BINDING@21..48
+        NAME_REF@21..22
+          LOWER_NAME@21..22 "a"
+        WHITESPACE@22..23 " "
+        EQ@23..24 "="
+        WHITESPACE@24..25 " "
+        CALL_EXPR@25..48
+          PATH_EXPR@25..29
+            PATH@25..29
+              TYPE_NAME@25..29 "User"
+          ARG_LIST@29..48
+            L_PAREN@29..30 "("
+            SPREAD_ARG@30..36
+              DOT2@30..32 ".."
+              NAME_REF@32..36
+                LOWER_NAME@32..36 "user"
+            COMMA@36..37 ","
+            WHITESPACE@37..38 " "
+            NAMED_ARG@38..47
+              LOWER_NAME@38..42 "name"
+              COLON@42..43 ":"
+              WHITESPACE@43..44 " "
+              STRING@44..47
+                STRING_QUOTE@44..45 "\""
+                STRING_TEXT@45..46 "b"
+                STRING_QUOTE@46..47 "\""
+            R_PAREN@47..48 ")"
+      NEWLINE@48..49 "\n"
+      WHITESPACE@49..51 "  "
+      BINDING@51..87
+        NAME_REF@51..52
+          LOWER_NAME@51..52 "b"
+        WHITESPACE@52..53 " "
+        EQ@53..54 "="
+        WHITESPACE@54..55 " "
+        CALL_EXPR@55..87
+          PATH_EXPR@55..59
+            PATH@55..59
+              TYPE_NAME@55..59 "User"
+          ARG_LIST@59..87
+            L_PAREN@59..60 "("
+            NAMED_ARG@60..69
+              LOWER_NAME@60..64 "name"
+              COLON@64..65 ":"
+              WHITESPACE@65..66 " "
+              STRING@66..69
+                STRING_QUOTE@66..67 "\""
+                STRING_TEXT@67..68 "b"
+                STRING_QUOTE@68..69 "\""
+            COMMA@69..70 ","
+            WHITESPACE@70..71 " "
+            SPREAD_ARG@71..77
+              DOT2@71..73 ".."
+              NAME_REF@73..77
+                LOWER_NAME@73..77 "user"
+            COMMA@77..78 ","
+            WHITESPACE@78..79 " "
+            SPREAD_ARG@79..86
+              DOT2@79..81 ".."
+              NAME_REF@81..86
+                LOWER_NAME@81..86 "other"
+            R_PAREN@86..87 ")"
+      NEWLINE@87..88 "\n"
+      WHITESPACE@88..90 "  "
+      BINDING@90..113
+        NAME_REF@90..91
+          LOWER_NAME@90..91 "c"
+        WHITESPACE@91..92 " "
+        EQ@92..93 "="
+        WHITESPACE@93..94 " "
+        CALL_EXPR@94..113
+          PATH_EXPR@94..98
+            PATH@94..98
+              TYPE_NAME@94..98 "User"
+          ARG_LIST@98..113
+            L_PAREN@98..99 "("
+            NAMED_ARG@99..108
+              LOWER_NAME@99..103 "name"
+              COLON@103..104 ":"
+              WHITESPACE@104..105 " "
+              STRING@105..108
+                STRING_QUOTE@105..106 "\""
+                STRING_TEXT@106..107 "b"
+                STRING_QUOTE@107..108 "\""
+            COMMA@108..109 ","
+            WHITESPACE@109..110 " "
+            SPREAD_ARG@110..112
+              DOT2@110..112 ".."
+            R_PAREN@112..113 ")"
+      NEWLINE@113..114 "\n"
+      WHITESPACE@114..116 "  "
+      BINDING@116..139
+        CALL_EXPR@116..135
+          PATH_EXPR@116..120
+            PATH@116..120
+              TYPE_NAME@116..120 "User"
+          ARG_LIST@120..135
+            L_PAREN@120..121 "("
+            NAMED_ARG@121..126
+              LOWER_NAME@121..125 "name"
+              COLON@125..126 ":"
+            COMMA@126..127 ","
+            WHITESPACE@127..128 " "
+            SPREAD_ARG@128..134
+              DOT2@128..130 ".."
+              NAME_REF@130..134
+                LOWER_NAME@130..134 "user"
+            R_PAREN@134..135 ")"
+        WHITESPACE@135..136 " "
+        EQ@136..137 "="
+        WHITESPACE@137..138 " "
+        NAME_REF@138..139
+          LOWER_NAME@138..139 "a"
+      NEWLINE@139..140 "\n"
+      WHITESPACE@140..142 "  "
+      BINDING@142..151
+        NAME_REF@142..143
+          LOWER_NAME@142..143 "d"
+        WHITESPACE@143..144 " "
+        EQ@144..145 "="
+        WHITESPACE@145..146 " "
+        CALL_EXPR@146..151
+          NAME_REF@146..147
+            LOWER_NAME@146..147 "f"
+          ARG_LIST@147..151
+            L_PAREN@147..148 "("
+            SPREAD_ARG@148..150
+              DOT2@148..150 ".."
+            R_PAREN@150..151 ")"
+      NEWLINE@151..152 "\n"
+      R_BRACE@152..153 "}"
+  NEWLINE@153..154 "\n"
+error[E0114]@38..42: `..` must come last
+error[E0114]@79..81: `..` must come last
+error[E0124]@110..112: `..` without an expression can only be used in patterns
+error[E0125]@128..134: invalid left-hand side of binding: expected a pattern
+error[E0124]@148..150: `..` without an expression can only be used in patterns

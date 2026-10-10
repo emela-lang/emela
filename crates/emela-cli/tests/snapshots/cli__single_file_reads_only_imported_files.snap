@@ -1,0 +1,21 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+error[E0105]: unrecognized character `$`
+   ╭─[ util.emel:1:11 ]
+   │
+ 1 │ const Y = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+error[E0118]: expected expression
+   ╭─[ util.emel:1:11 ]
+   │
+ 1 │ const Y = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+2 errors

@@ -1,0 +1,19 @@
+[package]
+name = "emela-cli"
+description = "emela バイナリ．引数の解釈，run / test の実行"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-driver.workspace = true
+emela-lsp.workspace = true
+clap.workspace = true
+
+[[bin]]
+name = "emela"
+path = "src/main.rs"
+
+[dev-dependencies]
+insta.workspace = true

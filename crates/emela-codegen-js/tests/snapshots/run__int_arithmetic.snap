@@ -1,0 +1,12 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $idiv, $irem, $ldiv, $lrem, $scmp, $showBool, $showFloat } from "./emela_runtime.mjs";
+
+function main() {
+  return `${((2147483647 + 1) | 0)}\n${(((-2147483648) - 1) | 0)}\n${Math.imul(65536, 65536)}\n${Math.imul(123456789, 987654321)}\n${((-(-2147483648)) | 0)}\n${$idiv((-2147483648), (-1))}\n${$idiv((-7), 2)}\n${$irem((-7), 2)}\n${$irem(7, (-2))}\n${$irem((-6), 3)}\n${BigInt.asIntN(64, 9223372036854775807n + 1n)}\n${BigInt.asIntN(64, 9223372036854775807n * 2n)}\n${BigInt.asIntN(64, -(-9223372036854775808n))}\n${$ldiv((-9223372036854775808n), (-1n))}\n${$ldiv((-7n), 2n)}\n${$lrem((-7n), 2n)}\n${$showFloat((1.0 / 0.0))}\n${$showFloat(((-1.0) / 0.0))}\n${$showFloat((0.0 / 0.0))}\n${$showFloat((5.5 % 2.0))}\n${$showBool(((-1) < 0))}\n${$showBool(($scmp("b", "ab") < 0))}\n${$showBool(($scmp("｡", "😀") < 0))}`;
+}
+
+export { main };

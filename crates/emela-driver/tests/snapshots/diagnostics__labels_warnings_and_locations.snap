@@ -1,0 +1,26 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&diagnostics, &sources, false)"
+---
+warning: `x` shadows an earlier binding
+   ╭─[ src/main.emel:2:5 ]
+   │
+ 1 │ let x = 1
+   │     ┬  
+   │     ╰── the earlier `x` is here
+ 2 │ let x = 2
+   │     ┬  
+   │     ╰── 
+───╯
+   = note: rename it, or use the earlier `x`
+
+error: a problem with the whole file
+   ─[ src/main.emel ]
+
+error: cannot read directory
+   ─[ src/secret ]
+
+error: `node` not found
+   = note: install Node.js
+
+3 errors, 1 warning

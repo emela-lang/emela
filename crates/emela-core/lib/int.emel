@@ -1,0 +1,46 @@
+# Int（32bit の符号付き整数）の関数．あふれは2の補数で巻き戻る（仕様 16.1）．
+
+## 10進の文字列にする．`String.from_int` と同じ．
+@intrinsic
+pub fn to_string(n: Int) -> String
+
+## Float にする．Int の値はすべて Float で正確に表せる．
+@intrinsic
+pub fn to_float(n: Int) -> Float
+
+## Int64 にする．`Int64.from_int` と同じ．
+@intrinsic
+pub fn to_int64(n: Int) -> Int64
+
+## 足し算．あふれたら `None`．
+@intrinsic
+pub fn checked_add(a: Int, b: Int) -> Option[Int]
+
+## ビットごとの論理積．`flags |> Int.bit_and(MASK)` のように書ける．
+@intrinsic
+pub fn bit_and(a: Int, b: Int) -> Int
+
+## ビットごとの論理和．
+@intrinsic
+pub fn bit_or(a: Int, b: Int) -> Int
+
+## ビットごとの排他的論理和．
+@intrinsic
+pub fn bit_xor(a: Int, b: Int) -> Int
+
+## ビットの反転．`-n - 1` と同じ．
+@intrinsic
+pub fn bit_not(n: Int) -> Int
+
+## 左へ `by` ビットずらす．`by` が 32 以上なら 0，負なら defect．
+@intrinsic
+pub fn shift_left(n: Int, by: Int) -> Int
+
+## 右へ `by` ビットずらし，上位を符号で埋める（算術シフト）．
+## `by` が 32 以上なら 0 か -1，負なら defect．
+@intrinsic
+pub fn shift_right(n: Int, by: Int) -> Int
+
+## 右へ `by` ビットずらし，上位を 0 で埋める（論理シフト）．`by` が 32 以上なら 0，負なら defect．
+@intrinsic
+pub fn shift_right_unsigned(n: Int, by: Int) -> Int

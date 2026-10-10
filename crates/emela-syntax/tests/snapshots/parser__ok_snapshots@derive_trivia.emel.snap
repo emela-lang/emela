@@ -1,0 +1,247 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/derive_trivia.emel
+---
+ROOT@0..636
+  COMMENT@0..112 "# derive の前にコメントだけの行，空行，ドキュメントコメントを挟める（17.3，2.5）"
+  NEWLINE@112..113 "\n"
+  TYPE_DECL@113..198
+    TYPE_KW@113..117 "type"
+    WHITESPACE@117..118 " "
+    TYPE_NAME@118..122 "User"
+    FIELD_LIST@122..145
+      L_PAREN@122..123 "("
+      FIELD@123..130
+        LOWER_NAME@123..125 "id"
+        COLON@125..126 ":"
+        WHITESPACE@126..127 " "
+        PATH_TYPE@127..130
+          PATH@127..130
+            TYPE_NAME@127..130 "Int"
+      COMMA@130..131 ","
+      WHITESPACE@131..132 " "
+      FIELD@132..144
+        LOWER_NAME@132..136 "name"
+        COLON@136..137 ":"
+        WHITESPACE@137..138 " "
+        PATH_TYPE@138..144
+          PATH@138..144
+            TYPE_NAME@138..144 "String"
+      R_PAREN@144..145 ")"
+    NEWLINE@145..146 "\n"
+    WHITESPACE@146..148 "  "
+    COMMENT@148..180 "# 比較と表示を導出する"
+    NEWLINE@180..181 "\n"
+    WHITESPACE@181..183 "  "
+    DERIVE_CLAUSE@183..198
+      LOWER_NAME@183..189 "derive"
+      WHITESPACE@189..190 " "
+      PATH@190..192
+        TYPE_NAME@190..192 "Eq"
+      COMMA@192..193 ","
+      WHITESPACE@193..194 " "
+      PATH@194..198
+        TYPE_NAME@194..198 "Show"
+  NEWLINE@198..199 "\n"
+  NEWLINE@199..200 "\n"
+  TYPE_DECL@200..239
+    TYPE_KW@200..204 "type"
+    WHITESPACE@204..205 " "
+    TYPE_NAME@205..210 "Point"
+    FIELD_LIST@210..226
+      L_PAREN@210..211 "("
+      FIELD@211..217
+        LOWER_NAME@211..212 "x"
+        COLON@212..213 ":"
+        WHITESPACE@213..214 " "
+        PATH_TYPE@214..217
+          PATH@214..217
+            TYPE_NAME@214..217 "Int"
+      COMMA@217..218 ","
+      WHITESPACE@218..219 " "
+      FIELD@219..225
+        LOWER_NAME@219..220 "y"
+        COLON@220..221 ":"
+        WHITESPACE@221..222 " "
+        PATH_TYPE@222..225
+          PATH@222..225
+            TYPE_NAME@222..225 "Int"
+      R_PAREN@225..226 ")"
+    NEWLINE@226..227 "\n"
+    NEWLINE@227..228 "\n"
+    WHITESPACE@228..230 "  "
+    DERIVE_CLAUSE@230..239
+      LOWER_NAME@230..236 "derive"
+      WHITESPACE@236..237 " "
+      PATH@237..239
+        TYPE_NAME@237..239 "Eq"
+  NEWLINE@239..240 "\n"
+  NEWLINE@240..241 "\n"
+  TYPE_DECL@241..309
+    TYPE_KW@241..245 "type"
+    WHITESPACE@245..246 " "
+    TYPE_NAME@246..250 "Pair"
+    FIELD_LIST@250..266
+      L_PAREN@250..251 "("
+      FIELD@251..257
+        LOWER_NAME@251..252 "a"
+        COLON@252..253 ":"
+        WHITESPACE@253..254 " "
+        PATH_TYPE@254..257
+          PATH@254..257
+            TYPE_NAME@254..257 "Int"
+      COMMA@257..258 ","
+      WHITESPACE@258..259 " "
+      FIELD@259..265
+        LOWER_NAME@259..260 "b"
+        COLON@260..261 ":"
+        WHITESPACE@261..262 " "
+        PATH_TYPE@262..265
+          PATH@262..265
+            TYPE_NAME@262..265 "Int"
+      R_PAREN@265..266 ")"
+    NEWLINE@266..267 "\n"
+    WHITESPACE@267..269 "  "
+    COMMENT@269..278 "# 1つ目"
+    NEWLINE@278..279 "\n"
+    NEWLINE@279..280 "\n"
+    WHITESPACE@280..282 "  "
+    COMMENT@282..291 "# 2つ目"
+    NEWLINE@291..292 "\n"
+    WHITESPACE@292..294 "  "
+    DERIVE_CLAUSE@294..309
+      LOWER_NAME@294..300 "derive"
+      WHITESPACE@300..301 " "
+      PATH@301..303
+        TYPE_NAME@301..303 "Eq"
+      COMMA@303..304 ","
+      WHITESPACE@304..305 " "
+      PATH@305..309
+        TYPE_NAME@305..309 "Show"
+  NEWLINE@309..310 "\n"
+  NEWLINE@310..311 "\n"
+  TYPE_DECL@311..369
+    TYPE_KW@311..315 "type"
+    WHITESPACE@315..316 " "
+    TYPE_NAME@316..318 "Id"
+    FIELD_LIST@318..330
+      L_PAREN@318..319 "("
+      FIELD@319..329
+        LOWER_NAME@319..324 "value"
+        COLON@324..325 ":"
+        WHITESPACE@325..326 " "
+        PATH_TYPE@326..329
+          PATH@326..329
+            TYPE_NAME@326..329 "Int"
+      R_PAREN@329..330 ")"
+    NEWLINE@330..331 "\n"
+    WHITESPACE@331..333 "  "
+    DERIVE_CLAUSE@333..369
+      DOC_COMMENT@333..357 "## 比較を導出する"
+      NEWLINE@357..358 "\n"
+      WHITESPACE@358..360 "  "
+      LOWER_NAME@360..366 "derive"
+      WHITESPACE@366..367 " "
+      PATH@367..369
+        TYPE_NAME@367..369 "Eq"
+  NEWLINE@369..370 "\n"
+  NEWLINE@370..371 "\n"
+  ENUM_DECL@371..443
+    ENUM_KW@371..375 "enum"
+    WHITESPACE@375..376 " "
+    TYPE_NAME@376..381 "Color"
+    WHITESPACE@381..382 " "
+    VARIANT_LIST@382..399
+      L_BRACE@382..383 "{"
+      NEWLINE@383..384 "\n"
+      WHITESPACE@384..386 "  "
+      VARIANT@386..389
+        TYPE_NAME@386..389 "Red"
+      NEWLINE@389..390 "\n"
+      WHITESPACE@390..392 "  "
+      VARIANT@392..397
+        TYPE_NAME@392..397 "Green"
+      NEWLINE@397..398 "\n"
+      R_BRACE@398..399 "}"
+    NEWLINE@399..400 "\n"
+    WHITESPACE@400..402 "  "
+    COMMENT@402..425 "# 比較を導出する"
+    NEWLINE@425..426 "\n"
+    WHITESPACE@426..428 "  "
+    DERIVE_CLAUSE@428..443
+      LOWER_NAME@428..434 "derive"
+      WHITESPACE@434..435 " "
+      PATH@435..437
+        TYPE_NAME@435..437 "Eq"
+      COMMA@437..438 ","
+      WHITESPACE@438..439 " "
+      PATH@439..443
+        TYPE_NAME@439..443 "Show"
+  NEWLINE@443..444 "\n"
+  NEWLINE@444..445 "\n"
+  ENUM_DECL@445..518
+    ENUM_KW@445..449 "enum"
+    WHITESPACE@449..450 " "
+    TYPE_NAME@450..455 "Shape"
+    WHITESPACE@455..456 " "
+    VARIANT_LIST@456..476
+      L_BRACE@456..457 "{"
+      NEWLINE@457..458 "\n"
+      WHITESPACE@458..460 "  "
+      VARIANT@460..474
+        TYPE_NAME@460..466 "Circle"
+        FIELD_LIST@466..474
+          L_PAREN@466..467 "("
+          FIELD@467..473
+            LOWER_NAME@467..468 "r"
+            COLON@468..469 ":"
+            WHITESPACE@469..470 " "
+            PATH_TYPE@470..473
+              PATH@470..473
+                TYPE_NAME@470..473 "Int"
+          R_PAREN@473..474 ")"
+      NEWLINE@474..475 "\n"
+      R_BRACE@475..476 "}"
+    NEWLINE@476..477 "\n"
+    NEWLINE@477..478 "\n"
+    WHITESPACE@478..480 "  "
+    DERIVE_CLAUSE@480..518
+      DOC_COMMENT@480..504 "## 表示を導出する"
+      NEWLINE@504..505 "\n"
+      WHITESPACE@505..507 "  "
+      LOWER_NAME@507..513 "derive"
+      WHITESPACE@513..514 " "
+      PATH@514..518
+        TYPE_NAME@514..518 "Show"
+  NEWLINE@518..519 "\n"
+  NEWLINE@519..520 "\n"
+  TYPE_DECL@520..537
+    TYPE_KW@520..524 "type"
+    WHITESPACE@524..525 " "
+    TYPE_NAME@525..529 "Next"
+    FIELD_LIST@529..537
+      L_PAREN@529..530 "("
+      FIELD@530..536
+        LOWER_NAME@530..531 "n"
+        COLON@531..532 ":"
+        WHITESPACE@532..533 " "
+        PATH_TYPE@533..536
+          PATH@533..536
+            TYPE_NAME@533..536 "Int"
+      R_PAREN@536..537 ")"
+  NEWLINE@537..538 "\n"
+  COMMENT@538..622 "# derive の付かない宣言の後ろのコメントは次の宣言の前のまま"
+  NEWLINE@622..623 "\n"
+  FN_DECL@623..635
+    FN_KW@623..625 "fn"
+    WHITESPACE@625..626 " "
+    LOWER_NAME@626..630 "main"
+    PARAM_LIST@630..632
+      L_PAREN@630..631 "("
+      R_PAREN@631..632 ")"
+    WHITESPACE@632..633 " "
+    BLOCK_EXPR@633..635
+      L_BRACE@633..634 "{"
+      R_BRACE@634..635 "}"
+  NEWLINE@635..636 "\n"

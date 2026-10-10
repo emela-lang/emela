@@ -1,0 +1,46 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $list, $unreachable } from "./emela_runtime.mjs";
+
+function build(n$0, acc$1) {
+  let $t0 = n$0, $t1 = acc$1;
+  $L0: for (;;) {
+    const n$6 = $t0;
+    const acc$7 = $t1;
+    if (n$6 === 0) {
+      return acc$7;
+    } else {
+      $t0 = ((n$6 - 1) | 0);
+      $t1 = $list([(() => (n$6))], acc$7);
+      continue $L0;
+    }
+  }
+}
+
+function total(fs$2, acc$3) {
+  let $t2 = fs$2, $t3 = acc$3;
+  $L1: for (;;) {
+    const fs$8 = $t2;
+    const acc$9 = $t3;
+    if (fs$8 === null) {
+      return acc$9;
+    }
+    if (fs$8 !== null) {
+      const f$4 = fs$8.h;
+      const rest$5 = fs$8.t;
+      $t2 = rest$5;
+      $t3 = ((Math.imul(acc$9, 10) + f$4()) | 0);
+      continue $L1;
+    }
+    $unreachable();
+  }
+}
+
+function main() {
+  return total(build(4, null), 0);
+}
+
+export { main };

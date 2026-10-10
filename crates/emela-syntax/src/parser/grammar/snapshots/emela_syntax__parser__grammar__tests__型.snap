@@ -1,0 +1,306 @@
+---
+source: crates/emela-syntax/src/parser/grammar/tests.rs
+expression: "dump_all(&[\"Int\", \"Http.Client\", \"List[A]\", \"Map[String, List[(Int, Bool)]]\",\n\"Self\", \"()\", \"(Int, String,)\", \"(Int)\",\n\"fn() -> (fn(Int) -> String) fails ParseError\",\n\"fn() -> fn(Int) -> String fails ParseError\", \"fn(A) -> B\",\n\"fn() -> () fails NotFound | DbError use Users\", \"fn(A) -> A use R\",\n\"fn(A) -> A fails {} use { Io, Clock }\",\n\"fn(A) -> A fails E use {\\n  Io,\\n  Clock,\\n}\",], types::type_,)"
+---
+=== Int
+ROOT@0..3
+  PATH_TYPE@0..3
+    PATH@0..3
+      TYPE_NAME@0..3 "Int"
+=== Http.Client
+ROOT@0..11
+  PATH_TYPE@0..11
+    PATH@0..11
+      TYPE_NAME@0..4 "Http"
+      DOT@4..5 "."
+      TYPE_NAME@5..11 "Client"
+=== List[A]
+ROOT@0..7
+  PATH_TYPE@0..7
+    PATH@0..4
+      TYPE_NAME@0..4 "List"
+    TYPE_ARG_LIST@4..7
+      L_BRACK@4..5 "["
+      TYPE_VAR@5..6
+        UPPER_NAME@5..6 "A"
+      R_BRACK@6..7 "]"
+=== Map[String, List[(Int, Bool)]]
+ROOT@0..30
+  PATH_TYPE@0..30
+    PATH@0..3
+      TYPE_NAME@0..3 "Map"
+    TYPE_ARG_LIST@3..30
+      L_BRACK@3..4 "["
+      PATH_TYPE@4..10
+        PATH@4..10
+          TYPE_NAME@4..10 "String"
+      COMMA@10..11 ","
+      WHITESPACE@11..12 " "
+      PATH_TYPE@12..29
+        PATH@12..16
+          TYPE_NAME@12..16 "List"
+        TYPE_ARG_LIST@16..29
+          L_BRACK@16..17 "["
+          TUPLE_TYPE@17..28
+            L_PAREN@17..18 "("
+            PATH_TYPE@18..21
+              PATH@18..21
+                TYPE_NAME@18..21 "Int"
+            COMMA@21..22 ","
+            WHITESPACE@22..23 " "
+            PATH_TYPE@23..27
+              PATH@23..27
+                TYPE_NAME@23..27 "Bool"
+            R_PAREN@27..28 ")"
+          R_BRACK@28..29 "]"
+      R_BRACK@29..30 "]"
+=== Self
+ROOT@0..4
+  SELF_TYPE@0..4
+    SELF_TYPE_KW@0..4 "Self"
+=== ()
+ROOT@0..2
+  UNIT_TYPE@0..2
+    L_PAREN@0..1 "("
+    R_PAREN@1..2 ")"
+=== (Int, String,)
+ROOT@0..14
+  TUPLE_TYPE@0..14
+    L_PAREN@0..1 "("
+    PATH_TYPE@1..4
+      PATH@1..4
+        TYPE_NAME@1..4 "Int"
+    COMMA@4..5 ","
+    WHITESPACE@5..6 " "
+    PATH_TYPE@6..12
+      PATH@6..12
+        TYPE_NAME@6..12 "String"
+    COMMA@12..13 ","
+    R_PAREN@13..14 ")"
+=== (Int)
+ROOT@0..5
+  PAREN_TYPE@0..5
+    L_PAREN@0..1 "("
+    PATH_TYPE@1..4
+      PATH@1..4
+        TYPE_NAME@1..4 "Int"
+    R_PAREN@4..5 ")"
+=== fn() -> (fn(Int) -> String) fails ParseError
+ROOT@0..44
+  FN_TYPE@0..44
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..27
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      PAREN_TYPE@8..27
+        L_PAREN@8..9 "("
+        FN_TYPE@9..26
+          FN_KW@9..11 "fn"
+          PARAM_TYPE_LIST@11..16
+            L_PAREN@11..12 "("
+            PATH_TYPE@12..15
+              PATH@12..15
+                TYPE_NAME@12..15 "Int"
+            R_PAREN@15..16 ")"
+          WHITESPACE@16..17 " "
+          RET_TYPE@17..26
+            THIN_ARROW@17..19 "->"
+            WHITESPACE@19..20 " "
+            PATH_TYPE@20..26
+              PATH@20..26
+                TYPE_NAME@20..26 "String"
+        R_PAREN@26..27 ")"
+    WHITESPACE@27..28 " "
+    FAILS_CLAUSE@28..44
+      LOWER_NAME@28..33 "fails"
+      WHITESPACE@33..34 " "
+      ERROR_SET@34..44
+        PATH@34..44
+          TYPE_NAME@34..44 "ParseError"
+=== fn() -> fn(Int) -> String fails ParseError
+ROOT@0..42
+  FN_TYPE@0..42
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..42
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      FN_TYPE@8..42
+        FN_KW@8..10 "fn"
+        PARAM_TYPE_LIST@10..15
+          L_PAREN@10..11 "("
+          PATH_TYPE@11..14
+            PATH@11..14
+              TYPE_NAME@11..14 "Int"
+          R_PAREN@14..15 ")"
+        WHITESPACE@15..16 " "
+        RET_TYPE@16..25
+          THIN_ARROW@16..18 "->"
+          WHITESPACE@18..19 " "
+          PATH_TYPE@19..25
+            PATH@19..25
+              TYPE_NAME@19..25 "String"
+        WHITESPACE@25..26 " "
+        FAILS_CLAUSE@26..42
+          LOWER_NAME@26..31 "fails"
+          WHITESPACE@31..32 " "
+          ERROR_SET@32..42
+            PATH@32..42
+              TYPE_NAME@32..42 "ParseError"
+=== fn(A) -> B
+ROOT@0..10
+  FN_TYPE@0..10
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..5
+      L_PAREN@2..3 "("
+      TYPE_VAR@3..4
+        UPPER_NAME@3..4 "A"
+      R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    RET_TYPE@6..10
+      THIN_ARROW@6..8 "->"
+      WHITESPACE@8..9 " "
+      TYPE_VAR@9..10
+        UPPER_NAME@9..10 "B"
+=== fn() -> () fails NotFound | DbError use Users
+ROOT@0..45
+  FN_TYPE@0..45
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..10
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      UNIT_TYPE@8..10
+        L_PAREN@8..9 "("
+        R_PAREN@9..10 ")"
+    WHITESPACE@10..11 " "
+    FAILS_CLAUSE@11..35
+      LOWER_NAME@11..16 "fails"
+      WHITESPACE@16..17 " "
+      ERROR_SET@17..35
+        PATH@17..25
+          TYPE_NAME@17..25 "NotFound"
+        WHITESPACE@25..26 " "
+        PIPE@26..27 "|"
+        WHITESPACE@27..28 " "
+        PATH@28..35
+          TYPE_NAME@28..35 "DbError"
+    WHITESPACE@35..36 " "
+    USE_CLAUSE@36..45
+      USE_KW@36..39 "use"
+      WHITESPACE@39..40 " "
+      EFFECT_SET@40..45
+        PATH@40..45
+          TYPE_NAME@40..45 "Users"
+=== fn(A) -> A use R
+ROOT@0..16
+  FN_TYPE@0..16
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..5
+      L_PAREN@2..3 "("
+      TYPE_VAR@3..4
+        UPPER_NAME@3..4 "A"
+      R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    RET_TYPE@6..10
+      THIN_ARROW@6..8 "->"
+      WHITESPACE@8..9 " "
+      TYPE_VAR@9..10
+        UPPER_NAME@9..10 "A"
+    WHITESPACE@10..11 " "
+    USE_CLAUSE@11..16
+      USE_KW@11..14 "use"
+      WHITESPACE@14..15 " "
+      EFFECT_SET@15..16
+        TYPE_VAR@15..16
+          UPPER_NAME@15..16 "R"
+=== fn(A) -> A fails {} use { Io, Clock }
+ROOT@0..37
+  FN_TYPE@0..37
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..5
+      L_PAREN@2..3 "("
+      TYPE_VAR@3..4
+        UPPER_NAME@3..4 "A"
+      R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    RET_TYPE@6..10
+      THIN_ARROW@6..8 "->"
+      WHITESPACE@8..9 " "
+      TYPE_VAR@9..10
+        UPPER_NAME@9..10 "A"
+    WHITESPACE@10..11 " "
+    FAILS_CLAUSE@11..19
+      LOWER_NAME@11..16 "fails"
+      WHITESPACE@16..17 " "
+      ERROR_SET@17..19
+        L_BRACE@17..18 "{"
+        R_BRACE@18..19 "}"
+    WHITESPACE@19..20 " "
+    USE_CLAUSE@20..37
+      USE_KW@20..23 "use"
+      WHITESPACE@23..24 " "
+      EFFECT_SET@24..37
+        L_BRACE@24..25 "{"
+        WHITESPACE@25..26 " "
+        PATH@26..28
+          TYPE_NAME@26..28 "Io"
+        COMMA@28..29 ","
+        WHITESPACE@29..30 " "
+        PATH@30..35
+          TYPE_NAME@30..35 "Clock"
+        WHITESPACE@35..36 " "
+        R_BRACE@36..37 "}"
+=== fn(A) -> A fails E use {
+  Io,
+  Clock,
+}
+ROOT@0..41
+  FN_TYPE@0..41
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..5
+      L_PAREN@2..3 "("
+      TYPE_VAR@3..4
+        UPPER_NAME@3..4 "A"
+      R_PAREN@4..5 ")"
+    WHITESPACE@5..6 " "
+    RET_TYPE@6..10
+      THIN_ARROW@6..8 "->"
+      WHITESPACE@8..9 " "
+      TYPE_VAR@9..10
+        UPPER_NAME@9..10 "A"
+    WHITESPACE@10..11 " "
+    FAILS_CLAUSE@11..18
+      LOWER_NAME@11..16 "fails"
+      WHITESPACE@16..17 " "
+      ERROR_SET@17..18
+        TYPE_VAR@17..18
+          UPPER_NAME@17..18 "E"
+    WHITESPACE@18..19 " "
+    USE_CLAUSE@19..41
+      USE_KW@19..22 "use"
+      WHITESPACE@22..23 " "
+      EFFECT_SET@23..41
+        L_BRACE@23..24 "{"
+        NEWLINE@24..25 "\n"
+        WHITESPACE@25..27 "  "
+        PATH@27..29
+          TYPE_NAME@27..29 "Io"
+        COMMA@29..30 ","
+        NEWLINE@30..31 "\n"
+        WHITESPACE@31..33 "  "
+        PATH@33..38
+          TYPE_NAME@33..38 "Clock"
+        COMMA@38..39 ","
+        NEWLINE@39..40 "\n"
+        R_BRACE@40..41 "}"

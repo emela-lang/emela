@@ -1,0 +1,31 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $eq, $showBool } from "./emela_runtime.mjs";
+
+function swap(t$0) {
+  const a$1 = t$0[0];
+  const b$2 = t$0[1];
+  return [b$2, a$1];
+}
+
+function classify(t$3) {
+  if (t$3[0] === 0) {
+    return "zero first";
+  }
+  if (t$3[1] === "x") {
+    return "x second";
+  }
+  const n$4 = t$3[0];
+  const s$5 = t$3[1];
+  return `${n$4} ${s$5}`;
+}
+
+function main() {
+  const p$6 = swap(["y", 5]);
+  return `${classify(p$6)}\n${classify([0, "q"])}\n${classify([1, "x"])}\n${$showBool($eq(p$6, [5, "y"]))}`;
+}
+
+export { main };

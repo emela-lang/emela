@@ -1,0 +1,33 @@
+---
+source: crates/emela-codegen-js/tests/run.rs
+expression: r.js
+---
+// Emela が生成したコード．
+import { $None, $list, $showFloat, $showList, $showString, $showUnit, $unreachable } from "./emela_runtime.mjs";
+
+const Shape$Empty = Object.freeze({ $tag: 2 });
+const Tree$Leaf = Object.freeze({ $tag: 0 });
+const Option$None = $None;
+
+function main() {
+  return `s=${"a\"b"} shape=${$show$Shape({ $tag: 0, radius: 2.0 })} xs=${$showList($list(["x", "y"]), $showString)} opt=${$show$Option({ $tag: 0, $0: "z" }, $showString)} unit=${$showUnit(undefined)}`;
+}
+
+function $show$Shape(v) {
+  switch (v.$tag) {
+    case 0: return "Circle(radius: " + $showFloat(v.radius) + ")";
+    case 1: return "Rect(" + $showFloat(v.$0) + ", " + $showFloat(v.$1) + ")";
+    case 2: return "Empty";
+  }
+  return $unreachable();
+}
+
+function $show$Option(v, $a0) {
+  switch (v.$tag) {
+    case 0: return "Some(" + $a0(v.$0) + ")";
+    case 1: return "None";
+  }
+  return $unreachable();
+}
+
+export { main };

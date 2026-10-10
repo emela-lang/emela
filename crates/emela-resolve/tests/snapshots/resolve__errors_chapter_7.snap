@@ -1,0 +1,101 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"type User(id: Int)\ntype Data(id: Int)\n\nerror NotFound(id: Int)\nerror DbError(message: String)\nerror Unavailable(reason: String)\n\nfn find_user(id: Int) -> User fails NotFound { fail NotFound(id:) }\nfn guest_user() -> User { User(id: 0) }\nfn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: \"x\") }\nfn default_data() -> Data { Data(id: 0) }\n\nfn rethrow(e: NotFound) -> User fails NotFound {\n  fail e\n}\n\nfn main(id: Int) {\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  data = load(id) escape {\n    NotFound(_) -> default_data()\n  }\n  other = load(id) escape {\n    DbError(message:) -> fail Unavailable(reason: message)\n  }\n  found = Some(find_user(id)) escape {\n    NotFound(_) -> None\n  }\n  user\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+type Main.User
+  field id: Int
+  ctor Main.User.User
+type Main.Data
+  field id: Int
+  ctor Main.Data.Data
+error Main.NotFound(id: Int)
+error Main.DbError(message: String)
+error Main.Unavailable(reason: String)
+fn Main.find_user
+  param id#0: Int
+  ret Main.User
+  fails {Main.NotFound}
+  body
+    block
+      fail
+        call
+          Main.NotFound
+          id: (punned)
+            id#0
+fn Main.guest_user
+  ret Main.User
+  body
+    block
+      call
+        Main.User.User
+        id:
+          0
+fn Main.load
+  param id#1: Int
+  ret Main.Data
+  fails {Main.NotFound, Main.DbError}
+  body
+    block
+      fail
+        call
+          Main.DbError
+          message:
+            "x"
+fn Main.default_data
+  ret Main.Data
+  body
+    block
+      call
+        Main.Data.Data
+        id:
+          0
+fn Main.rethrow
+  param e#2: Main.NotFound
+  ret Main.User
+  fails {Main.NotFound}
+  body
+    block
+      fail
+        e#2
+fn Main.main
+  param id#3: Int
+  body
+    block
+      let user#4 =
+        escape
+          call
+            Main.find_user
+            id#3
+          arm Main.NotFound(_)
+            call
+              Main.guest_user
+      let data#5 =
+        escape
+          call
+            Main.load
+            id#3
+          arm Main.NotFound(_)
+            call
+              Main.default_data
+      let other#6 =
+        escape
+          call
+            Main.load
+            id#3
+          arm Main.DbError(message: message#7)
+            fail
+              call
+                Main.Unavailable
+                reason:
+                  message#7
+      let found#8 =
+        escape
+          call
+            Option.Some
+            call
+              Main.find_user
+              id#3
+          arm Main.NotFound(_)
+            Option.None
+      user#4

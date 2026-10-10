@@ -1,0 +1,3 @@
+scores
+  |> List.filter(is_valid)
+  |> List.fold(init: 0, f: add)

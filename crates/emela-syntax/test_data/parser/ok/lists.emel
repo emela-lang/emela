@@ -1,0 +1,20 @@
+## リストのパターンと構築（2026-10-08 の改訂）
+fn lists(xs: List[Int]) -> List[Int] {
+  [first, ..] = xs
+  match xs {
+    [x, ..] -> [x, x, ..xs]
+    _ -> [0, ..List.tail(xs)]
+  }
+}
+
+@external
+suspend fn tick() use { Io, Clock }
+
+fn self_param(self, other: Self) -> Bool { self == other }
+
+## 型引数は型名でも書ける（2.3）
+fn lookup[Key: Eq + Hash, Value](map: Map[Key, Value], key: Key) -> Option[Value] { todo() }
+
+type Entry[Key, Value](key: Key, value: Value)
+
+enum Tree[Item] { Leaf, Node(Tree[Item], Item, Tree[Item]) }

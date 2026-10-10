@@ -1,0 +1,236 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/record_update.emel
+---
+ROOT@0..364
+  FN_DECL@0..363
+    DOC_COMMENT@0..54 "## レコードの一部だけを変えた値（5.3）"
+    NEWLINE@54..55 "\n"
+    FN_KW@55..57 "fn"
+    WHITESPACE@57..58 " "
+    LOWER_NAME@58..64 "rename"
+    PARAM_LIST@64..99
+      L_PAREN@64..65 "("
+      PARAM@65..75
+        LOWER_NAME@65..69 "user"
+        COLON@69..70 ":"
+        WHITESPACE@70..71 " "
+        PATH_TYPE@71..75
+          PATH@71..75
+            TYPE_NAME@71..75 "User"
+      COMMA@75..76 ","
+      WHITESPACE@76..77 " "
+      PARAM@77..87
+        LOWER_NAME@77..81 "todo"
+        COLON@81..82 ":"
+        WHITESPACE@82..83 " "
+        PATH_TYPE@83..87
+          PATH@83..87
+            TYPE_NAME@83..87 "Todo"
+      COMMA@87..88 ","
+      WHITESPACE@88..89 " "
+      PARAM@89..98
+        LOWER_NAME@89..90 "v"
+        COLON@90..91 ":"
+        WHITESPACE@91..92 " "
+        PATH_TYPE@92..98
+          PATH@92..98
+            TYPE_NAME@92..98 "String"
+      R_PAREN@98..99 ")"
+    WHITESPACE@99..100 " "
+    BLOCK_EXPR@100..363
+      L_BRACE@100..101 "{"
+      NEWLINE@101..102 "\n"
+      WHITESPACE@102..104 "  "
+      BINDING@104..137
+        NAME_REF@104..111
+          LOWER_NAME@104..111 "renamed"
+        WHITESPACE@111..112 " "
+        EQ@112..113 "="
+        WHITESPACE@113..114 " "
+        CALL_EXPR@114..137
+          PATH_EXPR@114..118
+            PATH@114..118
+              TYPE_NAME@114..118 "User"
+          ARG_LIST@118..137
+            L_PAREN@118..119 "("
+            NAMED_ARG@119..128
+              LOWER_NAME@119..123 "name"
+              COLON@123..124 ":"
+              WHITESPACE@124..125 " "
+              STRING@125..128
+                STRING_QUOTE@125..126 "\""
+                STRING_TEXT@126..127 "b"
+                STRING_QUOTE@127..128 "\""
+            COMMA@128..129 ","
+            WHITESPACE@129..130 " "
+            SPREAD_ARG@130..136
+              DOT2@130..132 ".."
+              NAME_REF@132..136
+                LOWER_NAME@132..136 "user"
+            R_PAREN@136..137 ")"
+      NEWLINE@137..138 "\n"
+      WHITESPACE@138..140 "  "
+      BINDING@140..198
+        NAME_REF@140..145
+          LOWER_NAME@140..145 "fixed"
+        WHITESPACE@145..148 "   "
+        EQ@148..149 "="
+        WHITESPACE@149..150 " "
+        CALL_EXPR@150..198
+          PATH_EXPR@150..154
+            PATH@150..154
+              TYPE_NAME@150..154 "Todo"
+          ARG_LIST@154..198
+            L_PAREN@154..155 "("
+            NAMED_ARG@155..172
+              LOWER_NAME@155..160 "title"
+              COLON@160..161 ":"
+              WHITESPACE@161..162 " "
+              STRING@162..172
+                STRING_QUOTE@162..163 "\""
+                STRING_TEXT@163..171 "Buy milk"
+                STRING_QUOTE@171..172 "\""
+            COMMA@172..173 ","
+            WHITESPACE@173..174 " "
+            NAMED_ARG@174..189
+              LOWER_NAME@174..183 "completed"
+              COLON@183..184 ":"
+              WHITESPACE@184..185 " "
+              PATH_EXPR@185..189
+                PATH@185..189
+                  TYPE_NAME@185..189 "True"
+            COMMA@189..190 ","
+            WHITESPACE@190..191 " "
+            SPREAD_ARG@191..197
+              DOT2@191..193 ".."
+              NAME_REF@193..197
+                LOWER_NAME@193..197 "todo"
+            R_PAREN@197..198 ")"
+      NEWLINE@198..199 "\n"
+      WHITESPACE@199..201 "  "
+      BINDING@201..261
+        NAME_REF@201..207
+          LOWER_NAME@201..207 "nested"
+        WHITESPACE@207..209 "  "
+        EQ@209..210 "="
+        WHITESPACE@210..211 " "
+        CALL_EXPR@211..261
+          PATH_EXPR@211..215
+            PATH@211..215
+              TYPE_NAME@211..215 "User"
+          ARG_LIST@215..261
+            L_PAREN@215..216 "("
+            NAMED_ARG@216..252
+              LOWER_NAME@216..221 "email"
+              COLON@221..222 ":"
+              WHITESPACE@222..223 " "
+              CALL_EXPR@223..252
+                PATH_EXPR@223..228
+                  PATH@223..228
+                    TYPE_NAME@223..228 "Email"
+                ARG_LIST@228..252
+                  L_PAREN@228..229 "("
+                  NAMED_ARG@229..237
+                    LOWER_NAME@229..234 "value"
+                    COLON@234..235 ":"
+                    WHITESPACE@235..236 " "
+                    NAME_REF@236..237
+                      LOWER_NAME@236..237 "v"
+                  COMMA@237..238 ","
+                  WHITESPACE@238..239 " "
+                  SPREAD_ARG@239..251
+                    DOT2@239..241 ".."
+                    FIELD_EXPR@241..251
+                      NAME_REF@241..245
+                        LOWER_NAME@241..245 "user"
+                      DOT@245..246 "."
+                      LOWER_NAME@246..251 "email"
+                  R_PAREN@251..252 ")"
+            COMMA@252..253 ","
+            WHITESPACE@253..254 " "
+            SPREAD_ARG@254..260
+              DOT2@254..256 ".."
+              NAME_REF@256..260
+                LOWER_NAME@256..260 "user"
+            R_PAREN@260..261 ")"
+      NEWLINE@261..262 "\n"
+      WHITESPACE@262..264 "  "
+      BINDING@264..286
+        NAME_REF@264..268
+          LOWER_NAME@264..268 "same"
+        WHITESPACE@268..272 "    "
+        EQ@272..273 "="
+        WHITESPACE@273..274 " "
+        CALL_EXPR@274..286
+          PATH_EXPR@274..278
+            PATH@274..278
+              TYPE_NAME@274..278 "User"
+          ARG_LIST@278..286
+            L_PAREN@278..279 "("
+            SPREAD_ARG@279..285
+              DOT2@279..281 ".."
+              NAME_REF@281..285
+                LOWER_NAME@281..285 "user"
+            R_PAREN@285..286 ")"
+      NEWLINE@286..287 "\n"
+      WHITESPACE@287..289 "  "
+      BINDING@289..333
+        NAME_REF@289..293
+          LOWER_NAME@289..293 "wide"
+        WHITESPACE@293..297 "    "
+        EQ@297..298 "="
+        WHITESPACE@298..299 " "
+        CALL_EXPR@299..333
+          PATH_EXPR@299..303
+            PATH@299..303
+              TYPE_NAME@299..303 "Pair"
+          ARG_LIST@303..333
+            L_PAREN@303..304 "("
+            NEWLINE_CONT@304..305 "\n"
+            WHITESPACE@305..309 "    "
+            NAMED_ARG@309..319
+              LOWER_NAME@309..314 "first"
+              COLON@314..315 ":"
+              WHITESPACE@315..316 " "
+              STRING@316..319
+                STRING_QUOTE@316..317 "\""
+                STRING_TEXT@317..318 "s"
+                STRING_QUOTE@318..319 "\""
+            COMMA@319..320 ","
+            NEWLINE_CONT@320..321 "\n"
+            WHITESPACE@321..325 "    "
+            SPREAD_ARG@325..328
+              DOT2@325..327 ".."
+              NAME_REF@327..328
+                LOWER_NAME@327..328 "p"
+            COMMA@328..329 ","
+            NEWLINE_CONT@329..330 "\n"
+            WHITESPACE@330..332 "  "
+            R_PAREN@332..333 ")"
+      NEWLINE@333..334 "\n"
+      WHITESPACE@334..336 "  "
+      BINDING@336..361
+        CALL_EXPR@336..351
+          PATH_EXPR@336..340
+            PATH@336..340
+              TYPE_NAME@336..340 "User"
+          ARG_LIST@340..351
+            L_PAREN@340..341 "("
+            NAMED_ARG@341..346
+              LOWER_NAME@341..345 "name"
+              COLON@345..346 ":"
+            COMMA@346..347 ","
+            WHITESPACE@347..348 " "
+            SPREAD_ARG@348..350
+              DOT2@348..350 ".."
+            R_PAREN@350..351 ")"
+        WHITESPACE@351..352 " "
+        EQ@352..353 "="
+        WHITESPACE@353..354 " "
+        NAME_REF@354..361
+          LOWER_NAME@354..361 "renamed"
+      NEWLINE@361..362 "\n"
+      R_BRACE@362..363 "}"
+  NEWLINE@363..364 "\n"

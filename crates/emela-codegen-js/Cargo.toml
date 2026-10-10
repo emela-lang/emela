@@ -1,0 +1,13 @@
+[package]
+name = "emela-codegen-js"
+description = "Core IR から JS を出力．ジェネレータ変換．JS ランタイムを埋め込んで持つ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

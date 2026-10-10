@@ -1,0 +1,16 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nerror NotFound(id: Int)\n\nfn f(count: Int) -> Strng {\n  x = cout + 1\n  y = Usr(id: 1)\n  z = Lisst.map([], fn(a) { a })\n  w = List.mapp([], fn(a) { a })\n  v = Show.shw(1)\n  u = Undefined\n  match x {\n    Nothing -> 1\n    MISSING -> 2\n  }\n}\n\nfn g[A](a: B) -> A fails NotFonud use Loger { a }\n\"##,)])"
+---
+error src/main.emel@64..69 `Strng`: 未定義の型 `Strng`（もしかして `String`）
+error src/main.emel@78..82 `cout`: 未定義の値 `cout`（もしかして `count`）
+error src/main.emel@93..96 `Usr`: 未定義の構成子 `Usr`（もしかして `User`）
+error src/main.emel@110..115 `Lisst`: 未定義のモジュールか Trait `Lisst`（もしかして `List`）
+error src/main.emel@148..152 `mapp`: `List` に `mapp` がない（もしかして `map`）
+error src/main.emel@181..184 `shw`: `Show` に `shw` がない（もしかして `show`）
+error src/main.emel@194..203 `Undefined`: 未定義の構成子 `Undefined`
+error src/main.emel@220..227 `Nothing`: 未定義の構成子 `Nothing`
+error src/main.emel@237..244 `MISSING`: 未定義の値 `MISSING`
+error src/main.emel@268..269 `B`: 未定義の型引数 `B`（もしかして `A`）
+error src/main.emel@282..290 `NotFonud`: 未定義のエラー `NotFonud`（もしかして `NotFound`）
+error src/main.emel@295..300 `Loger`: 未定義のエフェクト `Loger`

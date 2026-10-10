@@ -1,0 +1,11 @@
+pub opaque type Email(value: String)
+
+pub error InvalidEmail(input: String)
+
+pub fn parse(input: String) -> Email fails InvalidEmail {
+  if String.contains(input, "@") {
+    Email(value: input)
+  } else {
+    fail InvalidEmail(input:)
+  }
+}

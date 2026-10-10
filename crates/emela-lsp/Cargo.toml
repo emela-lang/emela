@@ -1,0 +1,16 @@
+[package]
+name = "emela-lsp"
+description = "言語サーバー．ホバー，診断，コードアクション"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-driver.workspace = true
+lsp-server.workspace = true
+lsp-types.workspace = true
+serde_json.workspace = true
+line-index.workspace = true
+emela-resolve.workspace = true
+

@@ -1,0 +1,21 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0105]: unrecognized character `$`
+   ╭─[ util.emel:1:9 ]
+   │
+ 1 │ let x = $
+   │         ┬  
+   │         ╰── 
+───╯
+
+error[E0205]: undefined module `Deep.Thing`
+   ╭─[ main.emel:2:1 ]
+   │
+ 2 │ import Deep.Thing
+   │ ────────┬────────  
+   │         ╰────────── 
+───╯
+
+2 errors

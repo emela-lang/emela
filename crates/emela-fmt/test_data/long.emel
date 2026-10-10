@@ -1,0 +1,29 @@
+fn long_signature(first_argument: String, second_argument: List[Int], third_argument: fn(Int) -> Bool) -> Map[String, List[Int]] fails ParseError | IoError use { Io, Clock } {
+  todo()
+}
+
+fn long_expressions() {
+  result = some_function_with_a_long_name(first_argument_value, second_argument_value, third_argument_value)
+  numbers = [one_hundred_thousand, two_hundred_thousand, three_hundred_thousand, four_hundred_thousand]
+  ok = first_condition_is_true(value) && second_condition_is_true(value) && third_condition(value)
+  sum = a_long_operand_name_number_one + a_long_operand_name_number_two + another_long_operand_name
+  difference = a_long_operand_name_number_one - a_long_operand_name_number_two - another_long_operand
+  piped = input_values |> List.filter(is_valid_value) |> List.map(transform_value) |> List.fold(init: 0, f: add)
+  mapped = List.map(input_values_that_are_long, fn(value) { transform_the_value_with_a_long_function(value) })
+  hugged = Fiber.scope(fn(s) { s.fork(fn() { fetch_user_profile_and_orders_for_the_current_session(1) }) })
+  nested = outer_function(inner_function(first_inner_argument, second_inner_argument), another_argument_here)
+  tuple = (first_element_of_the_tuple, second_element_of_the_tuple, third_element_of_the_tuple_value)
+  named = Profile(user: fetch_the_user_record(user_id), orders: fetch_the_order_list(user_id), extra: 1)
+  xs |> List.map(fn(x) {
+    x + 1
+  })
+}
+
+fn long_patterns(value: Shape) {
+  match value {
+    Rectangle(width: first_width_value, height: first_height_value, label: first_label_value) -> width
+    Circle(radius:) -> radius
+    Triangle(a, b, c) if a + b > c && b + c > a && a + c > b && is_valid_triangle_shape(a, b, c) -> a
+    _ -> 0
+  }
+}

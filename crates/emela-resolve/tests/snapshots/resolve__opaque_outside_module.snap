@@ -1,0 +1,9 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"email.emel\",\n\"pub opaque type Email(value: String)\\npub opaque enum Token {\\n  Raw(String)\\n}\\npub fn make() -> Email { Email(value: \\\"\\\") }\\nfn inside(e: Email) -> String {\\n  Email(value:) = e\\n  value\\n}\\n\",),\n(\"main.emel\",\n\"import Email\\nimport Email.{Email, Raw}\\n\\nfn f(e: Email) {\\n  a = Email(value: \\\"x\\\")\\n  b = Email.Email(value: \\\"y\\\")\\n  c = Raw(\\\"z\\\")\\n  Email(value:) = e\\n  match Email.make() {\\n    Email(value: v) -> v\\n  }\\n}\\n\",),])"
+---
+error src/main.emel@63..68 `Email`: opaque な `Email` は `Email` の外で構築できない
+error src/main.emel@93..98 `Email`: opaque な `Email` は `Email` の外で構築できない
+error src/main.emel@117..120 `Raw`: opaque な `Raw` は `Email` の外で構築できない
+error src/main.emel@128..133 `Email`: opaque な `Email` は `Email` の外でパターンに書けない
+error src/main.emel@173..178 `Email`: opaque な `Email` は `Email` の外でパターンに書けない

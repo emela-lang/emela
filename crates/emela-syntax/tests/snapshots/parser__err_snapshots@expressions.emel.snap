@@ -1,0 +1,151 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/expressions.emel
+---
+ROOT@0..143
+  FN_DECL@0..142
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..142
+      L_BRACE@7..8 "{"
+      NEWLINE@8..9 "\n"
+      WHITESPACE@9..11 "  "
+      BIN_EXPR@11..20
+        BIN_EXPR@11..16
+          NAME_REF@11..12
+            LOWER_NAME@11..12 "a"
+          WHITESPACE@12..13 " "
+          LT@13..14 "<"
+          WHITESPACE@14..15 " "
+          NAME_REF@15..16
+            LOWER_NAME@15..16 "b"
+        WHITESPACE@16..17 " "
+        LT@17..18 "<"
+        WHITESPACE@18..19 " "
+        NAME_REF@19..20
+          LOWER_NAME@19..20 "c"
+      NEWLINE@20..21 "\n"
+      WHITESPACE@21..23 "  "
+      CALL_EXPR@23..55
+        NAME_REF@23..30
+          LOWER_NAME@23..30 "connect"
+        ARG_LIST@30..55
+          L_PAREN@30..31 "("
+          NAMED_ARG@31..41
+            LOWER_NAME@31..35 "port"
+            COLON@35..36 ":"
+            WHITESPACE@36..37 " "
+            LITERAL@37..41
+              INT@37..41 "5432"
+          COMMA@41..42 ","
+          WHITESPACE@42..43 " "
+          STRING@43..54
+            STRING_QUOTE@43..44 "\""
+            STRING_TEXT@44..53 "localhost"
+            STRING_QUOTE@53..54 "\""
+          R_PAREN@54..55 ")"
+      NEWLINE@55..56 "\n"
+      WHITESPACE@56..58 "  "
+      CALL_EXPR@58..76
+        FIELD_EXPR@58..73
+          USE_EXPR@58..67
+            USE_KW@58..61 "use"
+            WHITESPACE@61..62 " "
+            PATH@62..67
+              TYPE_NAME@62..67 "Clock"
+          DOT@67..68 "."
+          LOWER_NAME@68..73 "sleep"
+        ARG_LIST@73..76
+          L_PAREN@73..74 "("
+          LITERAL@74..75
+            INT@74..75 "1"
+          R_PAREN@75..76 ")"
+      NEWLINE@76..77 "\n"
+      WHITESPACE@77..79 "  "
+      BINDING@79..88
+        BIN_EXPR@79..84
+          NAME_REF@79..80
+            LOWER_NAME@79..80 "a"
+          WHITESPACE@80..81 " "
+          PLUS@81..82 "+"
+          WHITESPACE@82..83 " "
+          NAME_REF@83..84
+            LOWER_NAME@83..84 "b"
+        WHITESPACE@84..85 " "
+        EQ@85..86 "="
+        WHITESPACE@86..87 " "
+        LITERAL@87..88
+          INT@87..88 "1"
+      NEWLINE@88..89 "\n"
+      WHITESPACE@89..91 "  "
+      CALL_EXPR@91..104
+        NAME_REF@91..92
+          LOWER_NAME@91..92 "g"
+        ARG_LIST@92..104
+          L_PAREN@92..93 "("
+          UNDERSCORE_EXPR@93..94
+            UNDERSCORE@93..94 "_"
+          COMMA@94..95 ","
+          WHITESPACE@95..96 " "
+          LIST_EXPR@96..103
+            L_BRACK@96..97 "["
+            NAME_REF@97..98
+              LOWER_NAME@97..98 "x"
+            COMMA@98..99 ","
+            WHITESPACE@99..100 " "
+            REST_EXPR@100..102
+              DOT2@100..102 ".."
+            R_BRACK@102..103 "]"
+          R_PAREN@103..104 ")"
+      NEWLINE@104..105 "\n"
+      WHITESPACE@105..107 "  "
+      BINDING@107..120
+        LIST_EXPR@107..115
+          L_BRACK@107..108 "["
+          REST_EXPR@108..114
+            DOT2@108..110 ".."
+            NAME_REF@110..114
+              LOWER_NAME@110..114 "rest"
+          R_BRACK@114..115 "]"
+        WHITESPACE@115..116 " "
+        EQ@116..117 "="
+        WHITESPACE@117..118 " "
+        NAME_REF@118..120
+          LOWER_NAME@118..120 "xs"
+      NEWLINE@120..121 "\n"
+      WHITESPACE@121..123 "  "
+      IF_EXPR@123..140
+        IF_KW@123..125 "if"
+        WHITESPACE@125..126 " "
+        NAME_REF@126..127
+          LOWER_NAME@126..127 "x"
+        WHITESPACE@127..128 " "
+        BLOCK_EXPR@128..133
+          L_BRACE@128..129 "{"
+          WHITESPACE@129..130 " "
+          LITERAL@130..131
+            INT@130..131 "1"
+          WHITESPACE@131..132 " "
+          R_BRACE@132..133 "}"
+        WHITESPACE@133..134 " "
+        ELSE_KW@134..138 "else"
+        WHITESPACE@138..139 " "
+        LITERAL@139..140
+          INT@139..140 "2"
+      NEWLINE@140..141 "\n"
+      R_BRACE@141..142 "}"
+  NEWLINE@142..143 "\n"
+error[E0119]@17..18: comparison operators cannot be chained
+error[E0120]@43..44: positional arguments cannot follow named arguments
+error[E0121]@67..68: wrap `use` in parentheses to call its operations: `(use X).op()`
+error[E0125]@79..84: invalid left-hand side of binding: expected a pattern
+error[E0123]@93..94: `_` can only be used in patterns
+error[E0124]@100..102: `..` without an expression can only be used in patterns
+error[E0115]@108..110: `..` needs at least one element before it
+error[E0110]@139..140: expected `{`

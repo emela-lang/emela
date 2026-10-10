@@ -1,0 +1,16 @@
+[package]
+name = "emela-core"
+description = "Core IR の定義と型付き構文木からの変換．derive の展開，末尾再帰のループ化，layer の配線"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+emela-types.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+emela-syntax.workspace = true
+insta.workspace = true
