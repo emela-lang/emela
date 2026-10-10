@@ -58,7 +58,7 @@ fn param_list(p: &mut Parser<'_>) {
 
 /// 数値か文字列のリテラル．補間の中身は `interp` で読む．
 fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
-    if p.at(STRING_QUOTE) {
+    if p.at(STRING_QUOTE) || p.at(TRIPLE_QUOTE) {
         return string(p, interp);
     }
     let m = p.start();
@@ -70,7 +70,9 @@ fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
 /// ここでは閉じる `"` と `}` がなくても黙って終える．
 fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     let m = p.start();
-    p.bump_kind(STRING_QUOTE);
+    // 開いた引用符と同じ種類で閉じる．
+    let quote = p.current();
+    p.bump();
     loop {
         match p.current() {
             STRING_TEXT => p.bump(),
@@ -84,7 +86,7 @@ fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
             _ => break,
         }
     }
-    p.eat(STRING_QUOTE);
+    p.eat(quote);
     m.complete(p, STRING)
 }
 

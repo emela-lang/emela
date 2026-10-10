@@ -1,4 +1,5 @@
 "unclosed
-x = "bad \t escape \é"
+x = "bad \v escape \é"
+w = "ok \t \r \u{1F600}, bad \u{D800} \u{110000} \u{} \u41"
 y = "trailing backslash \
 z = "open #{a

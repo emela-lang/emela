@@ -1,0 +1,73 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/multiline_strings.emel
+---
+ROOT@0..143
+  FN_DECL@0..142
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..8 "query"
+    PARAM_LIST@8..17
+      L_PAREN@8..9 "("
+      PARAM@9..16
+        LOWER_NAME@9..11 "id"
+        COLON@11..12 ":"
+        WHITESPACE@12..13 " "
+        PATH_TYPE@13..16
+          PATH@13..16
+            TYPE_NAME@13..16 "Int"
+      R_PAREN@16..17 ")"
+    WHITESPACE@17..18 " "
+    RET_TYPE@18..27
+      THIN_ARROW@18..20 "->"
+      WHITESPACE@20..21 " "
+      PATH_TYPE@21..27
+        PATH@21..27
+          TYPE_NAME@21..27 "String"
+    WHITESPACE@27..28 " "
+    BLOCK_EXPR@28..142
+      L_BRACE@28..29 "{"
+      NEWLINE@29..30 "\n"
+      WHITESPACE@30..32 "  "
+      BINDING@32..98
+        NAME_REF@32..35
+          LOWER_NAME@32..35 "sql"
+        WHITESPACE@35..36 " "
+        EQ@36..37 "="
+        WHITESPACE@37..38 " "
+        STRING@38..98
+          TRIPLE_QUOTE@38..41 "\"\"\""
+          STRING_TEXT@41..85 "\n    SELECT *\n    FROM users\n    WHERE id = "
+          INTERP@85..90
+            INTERP_START@85..87 "#{"
+            NAME_REF@87..89
+              LOWER_NAME@87..89 "id"
+            INTERP_END@89..90 "}"
+          STRING_TEXT@90..91 "\n"
+          TRIPLE_QUOTE@91..98 "    \"\"\""
+      NEWLINE@98..99 "\n"
+      WHITESPACE@99..101 "  "
+      CALL_EXPR@101..134
+        NAME_REF@101..104
+          LOWER_NAME@101..104 "log"
+        ARG_LIST@104..134
+          L_PAREN@104..105 "("
+          STRING@105..133
+            TRIPLE_QUOTE@105..108 "\"\"\""
+            STRING_TEXT@108..119 "\n    done: "
+            INTERP@119..125
+              INTERP_START@119..121 "#{"
+              NAME_REF@121..124
+                LOWER_NAME@121..124 "sql"
+              INTERP_END@124..125 "}"
+            STRING_TEXT@125..126 "\n"
+            TRIPLE_QUOTE@126..133 "    \"\"\""
+          R_PAREN@133..134 ")"
+      NEWLINE@134..135 "\n"
+      WHITESPACE@135..137 "  "
+      NAME_REF@137..140
+        LOWER_NAME@137..140 "sql"
+      NEWLINE@140..141 "\n"
+      R_BRACE@141..142 "}"
+  NEWLINE@142..143 "\n"

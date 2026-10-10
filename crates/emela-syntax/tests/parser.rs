@@ -45,4 +45,13 @@ proptest! {
         let parse = parse(&src);
         prop_assert_eq!(parse.syntax().text().to_string(), src);
     }
+
+    /// 複数行の文字列，補間，エスケープの部品に偏らせた入力．
+    #[test]
+    fn 文字列らしい文字列で無損失(
+        src in r##"("""|"|#\{|\}|\\|u\{|0x|0b|\n|  |=|\(|\)|fn |[a-z0-9]){0,40}"##
+    ) {
+        let parse = parse(&src);
+        prop_assert_eq!(parse.syntax().text().to_string(), src);
+    }
 }

@@ -16,7 +16,7 @@ pub(crate) fn pattern(p: &mut Parser<'_>) {
         UNDERSCORE => token_node(p, WILDCARD_PAT),
         LOWER_NAME => token_node(p, IDENT_PAT),
         UPPER_NAME => token_node(p, CONST_PAT),
-        INT | FLOAT | STRING_QUOTE => {
+        INT | FLOAT | STRING_QUOTE | TRIPLE_QUOTE => {
             let m = p.start();
             literal(p, interp_in_pattern);
             m.complete(p, LITERAL_PAT);
