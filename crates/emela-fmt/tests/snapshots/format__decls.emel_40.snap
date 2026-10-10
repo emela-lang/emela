@@ -1,14 +1,14 @@
 ---
 source: crates/emela-fmt/tests/format.rs
-expression: "check(&name, &src, 100)"
-input_file: crates/emela-fmt/test_data/decls.emel
+expression: "check(name, &src, 40)"
 ---
 # 崩れた宣言
 import Http.Client
 import Data.Json.{Json, decode}
 
 ## 利用者
-pub type User(id: Int, name: String) derive Eq, Show # 行末のコメント
+pub type User(id: Int, name: String)
+  derive Eq, Show # 行末のコメント
 
 enum Shape {
   Circle(radius: Float)
@@ -25,15 +25,25 @@ effect Clock {
 }
 handler FixedClock implements Clock {
   init { FixedClock() }
-  suspend fn sleep(ms, resume) { resume(()) }
+  suspend fn sleep(ms, resume) {
+    resume(())
+  }
   fn now() { Instant(0) }
 }
-layer AppTest { FixedClock, ConsoleLogger }
+layer AppTest {
+  FixedClock
+  ConsoleLogger
+}
 trait Show { fn show(self) -> String }
-impl Show for User { fn show(self) { "User(#{self.name})" } }
+impl Show for User {
+  fn show(self) { "User(#{self.name})" }
+}
 
-type LongRecord(first_field_name: String, second_field_name: List[Int], third_field_name: Bool)
-  derive Eq, Show
+type LongRecord(
+  first_field_name: String,
+  second_field_name: List[Int],
+  third_field_name: Bool,
+) derive Eq, Show
 enum LongEnum {
   FirstVariantName(Int)
   SecondVariantName(String)

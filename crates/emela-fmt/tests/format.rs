@@ -31,15 +31,6 @@ fn inputs() -> Vec<(String, String)> {
     inputs
 }
 
-/// 入力を揺らす proptest に使う入力．`decls.emel` は fn 以外の宣言（この段では元の
-/// テキストのまま出す）を集めたものなので，空白や改行を揺らすと結果も変わる．
-fn perturbable_inputs() -> Vec<(String, String)> {
-    inputs()
-        .into_iter()
-        .filter(|(name, _)| name != "decls.emel")
-        .collect()
-}
-
 /// 整形の結果について，冪等・トークン列・コメントを確かめる．
 fn check(name: &str, src: &str, width: usize) -> String {
     let out = format_with_width(src, width)
@@ -73,7 +64,7 @@ fn snapshots() {
 /// 狭い幅での折り返し．
 #[test]
 fn narrow_snapshots() {
-    for name in ["long.emel", "comments.emel"] {
+    for name in ["long.emel", "comments.emel", "decls.emel"] {
         let (_, src) = inputs().into_iter().find(|(n, _)| n == name).unwrap();
         insta::assert_snapshot!(format!("{name}_40"), check(name, &src, 40));
     }
@@ -102,15 +93,6 @@ fn 構文エラーがあれば整形しない() {
 }
 
 #[test]
-fn この段で整形しない宣言は元のまま出す() {
-    let src = "## ドキュメント\ntype   User( id :Int )   # 行末\nfn   f() {}\n";
-    assert_eq!(
-        format(src).unwrap(),
-        "## ドキュメント\ntype   User( id :Int ) # 行末\nfn f() {}\n"
-    );
-}
-
-#[test]
 fn 空のファイルとコメントだけのファイル() {
     assert_eq!(format("").unwrap(), "");
     assert_eq!(format("\n\n  \n").unwrap(), "");
@@ -128,6 +110,20 @@ fn 改行は_lf_にそろえる() {
         format("fn a() {\r\n  x = 1\r\n  y = 2\r\n}\r\n\r\nfn b() {}\r\n").unwrap(),
         "fn a() {\n  x = 1\n  y = 2\n}\n\nfn b() {}\n"
     );
+}
+
+#[test]
+fn 複数行の文字列の中身は変えない() {
+    // 字下げと行末の空白は値の一部．囲むブロックの字下げが変わっても動かさない．
+    let src = "fn a() {\r\n      s = \"\"\"\r\n  x  \r\n\r\n    y\r\n  \"\"\"\r\n}\r\n";
+    let expected = "fn a() {\n  s = \"\"\"\n  x  \n\n    y\n  \"\"\"\n}\n";
+    for width in [100, 10] {
+        assert_eq!(
+            format_with_width(src, width).unwrap(),
+            expected,
+            "幅 {width}"
+        );
+    }
 }
 
 #[test]
@@ -221,7 +217,7 @@ fn rebreak(src: &str, seeds: &[u8]) -> String {
             NEWLINE_CONT
                 if in_parens
                     && choice == 0
-                    && prev != Some(COMMENT)
+                    && !matches!(prev, Some(COMMENT | DOC_COMMENT))
                     && !matches!(next, Some(PIPE_GT | COMMENT | DOC_COMMENT) | None) =>
             {
                 out.push(' ');
@@ -230,7 +226,10 @@ fn rebreak(src: &str, seeds: &[u8]) -> String {
                 && choice == 1
                 && !k.is_trivia()
                 && k != NEWLINE
-                && !matches!(k, PIPE_GT | STRING_QUOTE | STRING_TEXT | INTERP_START) =>
+                && !matches!(
+                    k,
+                    PIPE_GT | STRING_QUOTE | TRIPLE_QUOTE | STRING_TEXT | INTERP_START
+                ) =>
             {
                 out.push('\n');
                 out.push_str(text);
@@ -271,7 +270,13 @@ fn add_comments(src: &str, seeds: &[u8]) -> String {
                 out.push_str(&format!(" # t{i}"));
             }
             out.push_str(text);
-            if choice == 1 {
+            // 次の行の `derive` の前にコメントだけの行を挟むと，パーサが読めない
+            // （emela-syntax の課題．2.5 ではコメントだけの行は読み飛ばすはず）．
+            let next_is_derive = tokens[i + 1..]
+                .iter()
+                .find(|t| !t.kind.is_trivia() && t.kind != NEWLINE)
+                .is_some_and(|t| &src[t.range] == "derive");
+            if choice == 1 && !next_is_derive {
                 out.push_str(&format!("# o{i}\n"));
             }
         } else {
@@ -291,7 +296,7 @@ proptest! {
     /// 空白の量だけが違う入力は，同じ結果になる．
     #[test]
     fn 空白の量によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..32)) {
-        for (name, src) in perturbable_inputs() {
+        for (name, src) in inputs() {
             let shuffled = reshuffle(&src, &seeds);
             let expected = format(&src).unwrap();
             let got = format(&shuffled).unwrap_or_else(|e| panic!("{name}: {e}\n{shuffled}"));
@@ -302,7 +307,7 @@ proptest! {
     /// どこにコメントを足しても，整形は冪等で，トークン列とコメントを変えない．
     #[test]
     fn コメントを足しても壊れない(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
-        for (name, src) in perturbable_inputs() {
+        for (name, src) in inputs() {
             let commented = add_comments(&src, &seeds);
             for width in [100, 30] {
                 check(&format!("{name}\n{commented}"), &commented, width);
@@ -313,7 +318,7 @@ proptest! {
     /// 括弧の中の改行の位置だけが違う入力は，同じ結果になる．
     #[test]
     fn 括弧の中の改行によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
-        for (name, src) in perturbable_inputs() {
+        for (name, src) in inputs() {
             let rebroken = rebreak(&src, &seeds);
             let expected = format(&src).unwrap();
             let got = format(&rebroken).unwrap_or_else(|e| panic!("{name}: {e}\n{rebroken}"));

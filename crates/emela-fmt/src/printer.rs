@@ -56,6 +56,29 @@ impl Printer {
         self.tok_as(token, text)
     }
 
+    /// 複数行の文字列 `"""` の部品．中の改行に字下げを足さず，テキストをそのまま出す．
+    /// 字下げは値の一部なので変えられない．
+    pub(crate) fn raw_tok(&mut self, token: &SyntaxToken) -> Doc {
+        let mut doc = RcDoc::nil();
+        for (i, line) in token.text().split('\n').enumerate() {
+            let line = text(line.strip_suffix('\r').unwrap_or(line));
+            if i == 0 {
+                doc = doc.append(line);
+                continue;
+            }
+            // 今の字下げを打ち消して行頭から書く．pretty は改行の後の字下げを次の部品の
+            // 字下げで決めるので，改行と行の中身を一緒に打ち消す．
+            // 行が空でも改行の直後に部品が要るので，幅のない目印を置く．
+            doc = doc.append(RcDoc::nesting(move |indent| {
+                RcDoc::hardline()
+                    .append(RcDoc::column(|_| RcDoc::nil()))
+                    .append(line.clone())
+                    .nest(-(indent as isize))
+            }));
+        }
+        self.tok_as(token, doc)
+    }
+
     /// トークンの位置に `doc` を出す．コメントの扱いは `tok` と同じ．
     pub(crate) fn tok_as(&mut self, token: &SyntaxToken, doc: Doc) -> Doc {
         let mut out = RcDoc::nil();
@@ -241,12 +264,13 @@ impl Printer {
         node: &SyntaxNode,
         mut element: impl FnMut(&mut Self, &SyntaxNode, bool) -> Doc,
     ) -> ListParts {
+        let mut prefix = Vec::new();
         let mut open = None;
         let mut close = None;
-        let mut elements: Vec<(SyntaxNode, Option<SyntaxToken>)> = Vec::new();
+        // 要素はノードか，名前のトークン（import の `.{Json, decode}`）．
+        let mut elements: Vec<(SyntaxElement, Option<SyntaxToken>)> = Vec::new();
         for child in significant_children(node) {
             match child {
-                rowan::NodeOrToken::Node(n) => elements.push((n, None)),
                 rowan::NodeOrToken::Token(t) => match t.kind() {
                     COMMA => {
                         if let Some(last) = elements.last_mut() {
@@ -255,13 +279,23 @@ impl Printer {
                     }
                     L_PAREN | L_BRACK | L_BRACE if open.is_none() => open = Some(t),
                     R_PAREN | R_BRACK | R_BRACE => close = Some(t),
-                    _ => {}
+                    // 開き括弧の前のトークン（import の `.`）．
+                    _ if open.is_none() => prefix.push(t),
+                    _ => elements.push((rowan::NodeOrToken::Token(t), None)),
                 },
+                node => elements.push((node, None)),
             }
         }
-        // 波括弧（効果の集合）は内側に空白を置く．`{ Io, Clock }`
-        let braces = open.as_ref().is_some_and(|t| t.kind() == L_BRACE);
-        let open_doc = open.as_ref().map_or_else(RcDoc::nil, |t| self.tok(t));
+        // 効果の集合の波括弧は内側に空白を置く．`{ Io, Clock }`．import の `.{a, b}` は置かない．
+        let braces =
+            open.as_ref().is_some_and(|t| t.kind() == L_BRACE) && node.kind() != IMPORT_LIST;
+        let mut open_doc = RcDoc::nil();
+        for t in &prefix {
+            open_doc = open_doc.append(self.tok(t));
+        }
+        if let Some(t) = &open {
+            open_doc = open_doc.append(self.tok(t));
+        }
         let n = elements.len();
         let mut breaks = Vec::with_capacity(n);
         let mut docs = Vec::with_capacity(n);
@@ -273,12 +307,20 @@ impl Printer {
                 self.line()
             };
             breaks.push(brk);
-            let lead = match first_significant_token(elem) {
+            let first = match elem {
+                rowan::NodeOrToken::Node(n) => first_significant_token(n),
+                rowan::NodeOrToken::Token(t) => Some(t.clone()),
+            };
+            let lead = match first {
                 Some(t) => self.leading_in_list(&t),
                 None => RcDoc::nil(),
             };
             let last = i + 1 == n;
-            let mut doc = lead.append(element(self, elem, last));
+            let elem_doc = match elem {
+                rowan::NodeOrToken::Node(n) => element(self, n, last),
+                rowan::NodeOrToken::Token(t) => self.tok(t),
+            };
+            let mut doc = lead.append(elem_doc);
             let trailing_comma = text(",").flat_alt(RcDoc::nil());
             match (comma, last) {
                 (Some(c), false) => doc = doc.append(self.tok(c)),

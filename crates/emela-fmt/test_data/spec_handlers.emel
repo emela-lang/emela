@@ -1,0 +1,49 @@
+# 8章の effect，handler，layer
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Instant
+}
+
+## 失敗しうる操作
+effect Users {
+  fn find(id: Int) -> User fails NotFound
+}
+
+handler ConsoleLogger implements Logger {
+  fn info(msg) { console_log(msg) }
+}
+
+handler PostgresUsers(conn: Connection) implements Users {
+  init {
+    config = use Config
+    PostgresUsers(conn: pg_connect(config.db_url()))
+  }
+  release {
+    pg_close(self.conn)
+  }
+  fn find(id) { todo(self.conn) }
+}
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    set_timeout(ms, fn() { resume(()) })
+  }
+  fn now() { date_now() }
+}
+
+layer AppLive {
+  EnvConfig
+  ConsoleLogger
+  JsClock
+  PostgresUsers      # init で Config を use している
+}
+
+layer Small { EnvConfig, ConsoleLogger }
+
+fn main() {
+  with AppLive { run_server() }
+}
