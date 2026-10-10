@@ -478,6 +478,8 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 let op = self.member_of(effect, &name, range);
+                // `@intrinsic` はトップレベルの fn だけ．今のパーサは本体の中に注釈を置かせないが，備えて見る．
+                self.r.check_intrinsic(self.module, f.syntax(), false);
                 self.push_scope();
                 let self_local = self.implicit_self(def);
                 self.push_scope();
@@ -560,6 +562,7 @@ impl Lower<'_, '_> {
             }) else {
                 continue;
             };
+            self.r.check_intrinsic(self.module, f.syntax(), false);
             let item = self.fn_item(def, &f);
             self.r.program.items.insert(def, Item::TraitFn(item));
         }
@@ -583,6 +586,7 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 let trait_fn = self.member_of(trait_ref, &name, range);
+                self.r.check_intrinsic(self.module, f.syntax(), false);
                 self.push_scope();
                 let params = self.params(f.param_list(), LocalKind::Param);
                 let body = f.body().map(|b| self.block(&b));
