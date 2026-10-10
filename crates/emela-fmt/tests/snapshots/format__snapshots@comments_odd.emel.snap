@@ -1,0 +1,69 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/comments_odd.emel
+---
+# 構造の境目でない位置のコメント．どれも落とさず，読み方を変えない位置に出す
+fn types(
+  xs: List[ # 型引数の中
+    Int,
+  ],
+) # 戻り値の前
+-> Int fails NotFound # エラーの間
+| DbError use { # 効果の集合の中
+  Io, # 要素の後ろ
+  # 要素の前
+  Clock,
+} {
+  users # ドットの前
+  .find(id)
+  # 行だけのドットの前
+  .name
+  load(id) # escape の前
+  escape {
+    A # 矢印の前
+    -> 1
+  }
+  "#{a # 補間の中
+  }"
+  (a
+    + # 演算子の後ろ
+    b)
+  (a # 引き算の前
+    - b)
+  (a
+    # 行だけの引き算の前
+    - b)
+  f(
+    fn(x) # ブロックの前
+    { x },
+  )
+  f(
+    if a # 条件の後ろ
+    {
+      b
+    } else {
+      c
+    },
+  )
+  g( # 開き括弧の後ろ
+    a,
+  )
+  xs |> List.map(fn(x) { # 本体の先頭
+    x
+  })
+  match x {
+    A -> 1 # 最後の腕
+  }
+  h(
+    a # カンマの前
+    ,
+    b,
+  )
+  h(
+    a,
+    b # 最後の要素の後ろ
+  )
+}
+## ドキュメントコメント
+fn documented() {}

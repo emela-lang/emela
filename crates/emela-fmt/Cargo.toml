@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 emela-syntax.workspace = true
 pretty.workspace = true
+rowan.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+proptest.workspace = true

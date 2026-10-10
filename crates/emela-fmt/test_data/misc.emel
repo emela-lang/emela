@@ -1,0 +1,65 @@
+fn strings(name: String, n: Int) {
+  greeting = "hello #{name}, you are #{ n + 1 } years old"
+  nested = "outer #{"inner #{name}"}"
+  escaped = "quote \" backslash \\ hash \# newline \n"
+  empty = ""
+}
+
+fn types(f: fn(Int, String) -> Bool fails {} use {}, g: fn() -> (), t: (Int, (String, Bool)), s: Self, p: Http.Client) -> List[Map[String, Int]] fails E use R {
+  todo()
+}
+
+fn patterns(x: Value) {
+  match x {
+    _ -> 0
+    MAX_SIZE -> 1
+    "text" -> 2
+    3.14 -> 3
+    () -> 4
+    (a, b) -> 5
+    [] -> 6
+    [h, ..] -> 7
+    [h, ..t] -> 8
+    User(name:, age: n, ..) -> 9
+    Wrapper(..) -> 10
+    Http.Status(code) -> 11
+  }
+}
+
+fn expressions(xs: List[Int]) {
+  unit = ()
+  paren = (a + b) * c
+  list = [1, 2, ..xs]
+  call = f()(x).field.other
+  neg = -x
+  not = !flag
+  path = Http.Client.get
+  block = {
+    a = 1
+    a + 1
+  }
+  inline = { 1 }
+  empty_block = {}
+  lambda = fn(x: Int, y) { x + y }
+  no_args = fn() { 0 }
+  assert x == 1
+  fail Oops
+  with Logs { use Logs }
+  else_if = if a { 1 } else if b { 2 } else { 3 }
+  else_if_long = if a {
+    1
+  } else if b { 2 } else { 3 }
+  escape_inline = load(id) escape { NotFound(_) -> 0 }
+  self_param = self.field
+}
+
+fn generics[A: Ord + Show, B, R: Immediate](xs: List[A]) -> Option[A] use R { todo() }
+
+fn one_line() -> Int { 42 }
+
+fn empty_body() {}
+
+## ホスト側の関数
+@external(js, "Math.abs")
+@external(wasm, "env", "abs")
+fn no_body(x: Int) -> Int

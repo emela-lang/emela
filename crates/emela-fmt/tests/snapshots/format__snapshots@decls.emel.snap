@@ -1,0 +1,34 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/decls.emel
+---
+# fn 以外の宣言はこの段では整形せず，元のテキストのまま出す
+import Http.Client
+import Data.Json.{Json,   decode}
+
+## 利用者
+pub type User(id: Int,   name: String)
+  derive Eq, Show # 行末のコメント
+
+enum Shape {
+  Circle(radius: Float)     # 名前付き
+  Rect(Float, Float)        # 位置引数
+  Empty                     # 中身なし
+}
+error NotFound(id: Int)
+const MAX_RETRY = 3
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Instant
+}
+
+## 整形される fn
+@test
+fn greet_returns_user() {
+  with AppTest {
+    user = greet(1)
+    assert user.name == "alice"
+  }
+}
