@@ -12,3 +12,5 @@ lsp-server.workspace = true
 lsp-types.workspace = true
 serde_json.workspace = true
 line-index.workspace = true
+emela-resolve.workspace = true
+

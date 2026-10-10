@@ -299,6 +299,7 @@ name = "emela-lsp"
 version = "0.20.0"
 dependencies = [
  "emela-driver",
+ "emela-resolve",
  "line-index",
  "lsp-server",
  "lsp-types",

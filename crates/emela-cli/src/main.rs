@@ -64,7 +64,7 @@ fn main() -> ExitCode {
         } => run(&path_or_current(path), out_dir, args),
         Command::Test { .. } => todo!("test"),
         Command::Fmt { .. } => todo!("fmt"),
-        Command::Lsp => todo!("lsp"),
+        Command::Lsp => lsp(),
     }
 }
 
@@ -132,6 +132,17 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
                 print_diagnostics(rest, &analysis.sources);
                 ExitCode::from(DIAGNOSTIC_FAILURE)
             }
+        }
+    }
+}
+
+fn lsp() -> ExitCode {
+    // フロントエンドは check と同じものを使う（同じ診断を出すため）．
+    match emela_lsp::run_stdio(ParseOnly::new) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("emela lsp: {err}");
+            ExitCode::FAILURE
         }
     }
 }

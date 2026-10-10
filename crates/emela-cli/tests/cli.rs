@@ -247,3 +247,61 @@ fn check_reports_syntax_and_import_errors() {
     assert_eq!(run.code, Some(1));
     insta::assert_snapshot!(run.stderr);
 }
+
+/// `emela lsp` を起動し，ワークスペースの診断が届いてから shutdown と exit で 0 で終わる．
+#[test]
+fn lsp_over_stdio() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::Stdio;
+
+    let project = Project::new(
+        "lsp",
+        &[("Pome.toml", ""), ("src/main.emel", "const X = $\n")],
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut send = |body: String| {
+        write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        stdin.flush().unwrap();
+    };
+    let mut recv = || {
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            stdout.read_line(&mut line).unwrap();
+            let line = line.trim();
+            if line.is_empty() {
+                break;
+            }
+            if let Some(n) = line.strip_prefix("Content-Length: ") {
+                length = n.parse().unwrap();
+            }
+        }
+        let mut body = vec![0; length];
+        stdout.read_exact(&mut body).unwrap();
+        String::from_utf8(body).unwrap()
+    };
+    let root = format!("file://{}", project.path().display());
+    send(format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"capabilities":{{}},"rootUri":"{root}"}}}}"#
+    ));
+    assert!(recv().contains(r#""textDocumentSync""#));
+    send(r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#.to_owned());
+    let published = recv();
+    assert!(
+        published.contains("textDocument/publishDiagnostics"),
+        "{published}"
+    );
+    assert!(published.contains(r#""code":"E0105""#), "{published}");
+    assert!(published.contains("src/main.emel"), "{published}");
+    send(r#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#.to_owned());
+    assert!(recv().contains(r#""id":2"#));
+    send(r#"{"jsonrpc":"2.0","method":"exit"}"#.to_owned());
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
