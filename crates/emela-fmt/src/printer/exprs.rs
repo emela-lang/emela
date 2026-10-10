@@ -84,9 +84,9 @@ impl Printer {
         match node.kind() {
             // 間に何も置かずにつなぐもの．
             PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
-            | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | STRING
-            | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT | REST_PAT
-            | ANNOTATION => self.seq(node, |_, _| false),
+            | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
+            | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
+            | REST_PAT | ANNOTATION => self.seq(node, |_, _| false),
             // 括弧で囲んだ並び．
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
@@ -108,6 +108,7 @@ impl Printer {
             ERROR_SET => self.seq(node, |prev, cur| prev != L_BRACE && cur != R_BRACE),
             EFFECT_SET if child_token(node, L_BRACE).is_some() => self.list(node, |p, n| p.node(n)),
             EFFECT_SET => self.seq(node, |_, _| true),
+            STRING => self.string(node),
             INTERP => self.interp(node),
             CALL_EXPR => self.call(node),
             BIN_EXPR => self.bin_chain(node),
@@ -505,7 +506,29 @@ impl Printer {
         let width = std::mem::replace(&mut self.width, HUGE);
         let doc = self.seq(node, |_, _| false);
         self.width = width;
+        // 中に複数行の文字列があれば，その改行を字下げし直さないよう形を固めない．
+        if node
+            .descendants_with_tokens()
+            .any(|e| e.kind() == TRIPLE_QUOTE)
+        {
+            return doc;
+        }
         unbreakable(&doc)
+    }
+
+    /// 文字列．複数行の文字列 `"""` の部品はテキストをそのまま出す．
+    fn string(&mut self, node: &SyntaxNode) -> Doc {
+        let multiline = child_token(node, TRIPLE_QUOTE).is_some();
+        let mut out = RcDoc::nil();
+        for child in significant_children(node) {
+            let doc = match child {
+                rowan::NodeOrToken::Token(t) if multiline => self.raw_tok(&t),
+                rowan::NodeOrToken::Token(t) => self.tok(&t),
+                rowan::NodeOrToken::Node(n) => self.node(&n),
+            };
+            out = out.append(doc);
+        }
+        out
     }
 
     // ---- 二項演算子 ----

@@ -70,10 +70,34 @@ pub fn format_with_width(src: &str, width: usize) -> Result<String, FormatError>
 }
 
 /// 行末の空白を落とし，最後を改行1つで終える．
+///
+/// 複数行の文字列 `"""` の中の改行の手前の空白は値の一部なので残す．
 fn finish(rendered: &str) -> String {
+    // 文字列の中にある改行の位置．
+    let mut in_string = std::collections::HashSet::new();
+    for token in emela_syntax::lex(rendered).tokens {
+        if matches!(
+            token.kind,
+            SyntaxKind::STRING_TEXT | SyntaxKind::TRIPLE_QUOTE
+        ) {
+            let start = usize::from(token.range.start());
+            for (i, _) in rendered[token.range].match_indices('\n') {
+                in_string.insert(start + i);
+            }
+        }
+    }
     let mut out = String::with_capacity(rendered.len());
-    for line in rendered.lines() {
-        out.push_str(line.trim_end());
+    let mut offset = 0;
+    for line in rendered.split_inclusive('\n') {
+        let body = line.strip_suffix('\n').unwrap_or(line);
+        let newline_at = offset + body.len();
+        offset += line.len();
+        let body = body.strip_suffix('\r').unwrap_or(body);
+        if in_string.contains(&newline_at) {
+            out.push_str(body);
+        } else {
+            out.push_str(body.trim_end());
+        }
         out.push('\n');
     }
     let trimmed = out.trim_end_matches('\n').len();
@@ -124,7 +148,8 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
         .filter_map(|e| e.into_token())
         .filter(|t| !t.kind().is_trivia())
         .filter(|t| t.kind() != NEWLINE || separates(t))
-        .map(|t| (t.kind(), t.text().to_owned()))
+        // 複数行の文字列の中の `\r\n` は `\n` と同じ改行として比べる．
+        .map(|t| (t.kind(), t.text().replace("\r\n", "\n")))
         .collect();
     let mut out: Vec<(SyntaxKind, String)> = Vec::new();
     for (i, (kind, text)) in tokens.iter().enumerate() {

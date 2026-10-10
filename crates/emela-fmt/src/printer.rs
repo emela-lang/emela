@@ -56,6 +56,29 @@ impl Printer {
         self.tok_as(token, text)
     }
 
+    /// 複数行の文字列 `"""` の部品．中の改行に字下げを足さず，テキストをそのまま出す．
+    /// 字下げは値の一部なので変えられない．
+    pub(crate) fn raw_tok(&mut self, token: &SyntaxToken) -> Doc {
+        let mut doc = RcDoc::nil();
+        for (i, line) in token.text().split('\n').enumerate() {
+            let line = text(line.strip_suffix('\r').unwrap_or(line));
+            if i == 0 {
+                doc = doc.append(line);
+                continue;
+            }
+            // 今の字下げを打ち消して行頭から書く．pretty は改行の後の字下げを次の部品の
+            // 字下げで決めるので，改行と行の中身を一緒に打ち消す．
+            // 行が空でも改行の直後に部品が要るので，幅のない目印を置く．
+            doc = doc.append(RcDoc::nesting(move |indent| {
+                RcDoc::hardline()
+                    .append(RcDoc::column(|_| RcDoc::nil()))
+                    .append(line.clone())
+                    .nest(-(indent as isize))
+            }));
+        }
+        self.tok_as(token, doc)
+    }
+
     /// トークンの位置に `doc` を出す．コメントの扱いは `tok` と同じ．
     pub(crate) fn tok_as(&mut self, token: &SyntaxToken, doc: Doc) -> Doc {
         let mut out = RcDoc::nil();

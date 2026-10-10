@@ -113,6 +113,20 @@ fn 改行は_lf_にそろえる() {
 }
 
 #[test]
+fn 複数行の文字列の中身は変えない() {
+    // 字下げと行末の空白は値の一部．囲むブロックの字下げが変わっても動かさない．
+    let src = "fn a() {\r\n      s = \"\"\"\r\n  x  \r\n\r\n    y\r\n  \"\"\"\r\n}\r\n";
+    let expected = "fn a() {\n  s = \"\"\"\n  x  \n\n    y\n  \"\"\"\n}\n";
+    for width in [100, 10] {
+        assert_eq!(
+            format_with_width(src, width).unwrap(),
+            expected,
+            "幅 {width}"
+        );
+    }
+}
+
+#[test]
 fn 中身のないブロックの行末のコメントの後に空行を入れない() {
     assert_eq!(format("fn a() { # c\n}\n").unwrap(), "fn a() { # c\n}\n");
     assert_eq!(
@@ -212,7 +226,10 @@ fn rebreak(src: &str, seeds: &[u8]) -> String {
                 && choice == 1
                 && !k.is_trivia()
                 && k != NEWLINE
-                && !matches!(k, PIPE_GT | STRING_QUOTE | STRING_TEXT | INTERP_START) =>
+                && !matches!(
+                    k,
+                    PIPE_GT | STRING_QUOTE | TRIPLE_QUOTE | STRING_TEXT | INTERP_START
+                ) =>
             {
                 out.push('\n');
                 out.push_str(text);
