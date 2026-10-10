@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(r#\"\ntype Pair[A, B](first: A, second: B)\n\nfn too_many(x: List[Int, Int]) -> Int[String] { todo() }\nfn too_few(x: List) -> Option { todo() }\nfn pair(p: Pair[Int]) -> Bool[Int] { todo() }\nfn param[Item](x: Item[Int]) -> Int { todo() }\n\"#)"
+---
+too_many: fn({unknown}) -> {unknown}
+too_few: fn({unknown}) -> {unknown}
+pair: fn({unknown}) -> {unknown}
+param: ∀ Item. fn({unknown}) -> Int
+`List[Int, Int]` WrongTypeArgCount { name: "List", expected: 1, found: 2 }
+`Int[String]` WrongTypeArgCount { name: "Int", expected: 0, found: 1 }
+`List` WrongTypeArgCount { name: "List", expected: 1, found: 0 }
+`Option` WrongTypeArgCount { name: "Option", expected: 1, found: 0 }
+`Pair[Int]` WrongTypeArgCount { name: "Pair", expected: 2, found: 1 }
+`Bool[Int]` WrongTypeArgCount { name: "Bool", expected: 0, found: 1 }
+`Item[Int]` WrongTypeArgCount { name: "Item", expected: 0, found: 1 }

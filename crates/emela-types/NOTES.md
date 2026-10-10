@@ -29,3 +29,7 @@
 - （補）escape（7.3）の腕は一部だけ受けてよいので，`MatchCheck` の `redundant` だけを使い，`missing` は見ない．
 - （補）opaque な型（4.4）は定義モジュールの外では構成子パターンを書けないので，列に構成子がなく witness は `_` になり，隠れた構成子は出ない．呼び出し側は `TyShape` をそのまま渡してよい．
 - （補）17.6，6.5 改訂済み（`emela-0.20-spec.md`）: リストのパターンで名前なしの `[x, ..]` を許す．`[..]` と `[..rest]` は書けない．網羅性の検査は名前の有無を区別しないので変更は要らない．
+- （補）Bool は Prelude では enum（`True` / `False`）だが，型推論では `Prim::Bool` で持つ．Bool の enum の `DefId` は `TyCons` に登録せず `Ty::BOOL` に写し，`True` / `False` の構成子の型も `Bool` にする．網羅性の検査には `TyShape::Enum`（`False`，`True` の順．prelude.emel の宣言順）で渡す．仕様が enum とするのは利用者から見える意味で，表現は実装依存（16.4）．
+- （補）読めなかった型（`TypeKind::Missing`）と解決できなかった名前（`Res::Err`）は `Ty::Error` にする．単一化ではどの型とも黙って一致し，型変数は `Ty::Error` に束縛される．エラーが1件でもあれば lowering は呼ばれないので，lowering は `Ty::Error` を見ない．表示は `{unknown}`．
+- （補）`error` の宣言は `TyConKind::Error` として `TyCons` に登録する（7.1 で同じ名前の型を定義するため）．alpha.2 の E（fails の集合）はエラーを `DefId` で持つ予定で，型の表に `DefId → TyConId` の対応を持つ．
+- （補）型引数の数の検査（`List[Int, Int]`，型引数のない `Option`）は名前解決ではなく型推論で行う（E0304）．組み込みの型の型引数の数を知っているのが型推論のため．

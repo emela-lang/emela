@@ -144,6 +144,7 @@ impl InferCtx {
                 Ok(())
             }
             (Ty::Var(v), t) | (t, Ty::Var(v)) => self.bind(*v, t),
+            (Ty::Error, _) | (_, Ty::Error) => Ok(()),
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),

@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\ntype Pair[A, B](first: A, second: B)\nenum Shape {\n  Circle(radius: Float)\n  Empty\n}\nerror NotFound(id: Int)\n\nfn user(u: User) -> Pair[User, Shape] { todo() }\nfn option(x: Option[Int]) -> Option[Option[String]] { todo() }\nfn err(e: NotFound) -> NotFound { todo() }\n\"#)"
+---
+user: fn(User) -> Pair[User, Shape]
+option: fn(Option[Int]) -> Option[Option[String]]
+err: fn(NotFound) -> NotFound

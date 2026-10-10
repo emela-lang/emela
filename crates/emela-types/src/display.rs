@@ -57,6 +57,7 @@ impl fmt::Display for TyDisplay<'_> {
         match self.ty {
             Ty::Prim(p) => f.write_str(p.name()),
             Ty::Never => f.write_str("Never"),
+            Ty::Error => f.write_str("{unknown}"),
             Ty::Var(v) => write!(f, "?{}", v.index()),
             Ty::Bound(i) => match self.bound.get(*i as usize) {
                 Some(p) => f.write_str(&p.name),

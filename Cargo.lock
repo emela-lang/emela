@@ -336,6 +336,7 @@ name = "emela-types"
 version = "0.20.0"
 dependencies = [
  "emela-resolve",
+ "emela-syntax",
  "ena",
  "insta",
  "la-arena",
