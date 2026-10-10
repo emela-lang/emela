@@ -7,3 +7,5 @@
 cc bbe21275d95006ba44222c0a40c8a310e36ee7cd27e0600363f029d9d2ddf262 # shrinks to seeds = [0]
 cc 7fcc3726c15db6bdd6c81d3204e21ab1073d7ac9e0e2d1e18d137b72b9111c35 # shrinks to seeds = [89]
 cc 6c9eb997c92103a06e5e330d2a54f84ba4f11a56b9a5f6884b57ec14d4fb8f42 # shrinks to seeds = [0, 0, 0, 0, 0, 145]
+cc 67fbfa2791529844ba28b574cb51ca342e3db7a9820e0989b249cca5db33f0dc # shrinks to seeds = [44]
+cc a02f53f9d48de2c2646d6e2a79e2fd56908eee20ba598345e11f4c51c3af9827 # shrinks to seeds = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 245]

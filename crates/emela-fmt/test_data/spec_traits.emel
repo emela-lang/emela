@@ -1,0 +1,38 @@
+# 10章の trait と impl
+trait Show {
+  fn show(self) -> String
+}
+
+trait Ord: Eq {                          # Eq を前提とする
+  fn compare(self, other: Self) -> Ordering
+
+  fn max(self, other: Self) -> Self {    # 既定の実装
+    match Ord.compare(self, other) {
+      Less -> other
+      _    -> self
+    }
+  }
+}
+
+trait Decode {
+  fn decode(json: Json) -> Self fails DecodeError
+}
+
+trait Both: Show + Ord {}
+
+impl Show for User {
+  fn show(self) { "User(#{self.name})" }
+}
+
+type MyDate(inner: ThirdParty.Date)
+
+impl Encode for MyDate { fn encode(self) { todo() } }
+
+impl Show for List[Int] {
+  fn show(self) { "list" }
+}
+
+fn largest[A: Ord](xs: List[A]) -> Option[A] { todo() }
+
+type User(id: Int, name: String, email: Email)
+  derive Eq, Show, Encode

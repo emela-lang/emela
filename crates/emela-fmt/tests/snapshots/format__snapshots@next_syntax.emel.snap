@@ -1,0 +1,47 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/next_syntax.emel
+---
+# next に入った構文: 16進と2進の整数，エスケープ，複数行の文字列，部分更新，括弧でまとめた型
+fn literals(f: (fn(Int) -> String), g: List[(fn() -> Int)]) -> (fn(Int) -> Int) {
+  mask = 0xFF_FF + 0b1010
+  escaped = "tab\t unicode\u{1F600} quote\" hash\#"
+  doc = """
+    1行目  
+
+      字下げした行 #{name}
+    """
+  nested = if ok {
+    """
+  浅い字下げの文字列
+    深い行
+  """
+  } else {
+    ""
+  }
+  f(
+    """
+    引数の中
+    """,
+    other_argument_that_is_rather_long_to_force_breaking_the_argument_list_please,
+  )
+  interp = "外 #{g(
+    """
+    補間の中の複数行
+    """,
+  )} 外"
+  fn(x) { x }
+}
+
+fn updates(user: User) {
+  renamed = User(name: "b", ..user)
+  moved = User(
+    first_field_value: 1,
+    second_field_value: 2,
+    third_field_value: 3,
+    ..original_user_value,
+  )
+  User(name:, ..) = renamed
+  only = User(..user)
+}
