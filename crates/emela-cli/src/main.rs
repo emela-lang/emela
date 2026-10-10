@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use emela_driver::{
     Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, Resolve, RunOptions,
-    SourceDb,
+    SourceDb, TestOptions, WithTests,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -39,7 +39,14 @@ enum Command {
         args: Vec<OsString>,
     },
     /// `@test` の付いた関数を実行する
-    Test { path: Option<PathBuf> },
+    Test {
+        path: Option<PathBuf>,
+        /// テストの名前の部分文字列．合うテストだけを実行する
+        filter: Option<String>,
+        /// 出力先（既定は `<プロジェクト>/target/emela/test`）
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+    },
     /// ソースを整形する
     Fmt {
         paths: Vec<PathBuf>,
@@ -62,7 +69,11 @@ fn main() -> ExitCode {
             out_dir,
             args,
         } => run(&path_or_current(path), out_dir, args),
-        Command::Test { .. } => todo!("test"),
+        Command::Test {
+            path,
+            filter,
+            out_dir,
+        } => test(&path_or_current(path), filter, out_dir),
         Command::Fmt { .. } => todo!("fmt"),
         Command::Lsp => lsp(),
     }
@@ -125,6 +136,47 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
         Some(output) => ExitCode::from(output.code as u8),
         None => {
             // node を起動できなかった診断は，前に出した分の後に足されている．
+            let rest = &analysis.diagnostics[reported..];
+            if rest.is_empty() {
+                diagnostics_code
+            } else {
+                print_diagnostics(rest, &analysis.sources);
+                ExitCode::from(DIAGNOSTIC_FAILURE)
+            }
+        }
+    }
+}
+
+fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCode {
+    let Some(input) = resolve_input(&OsFs, path) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
+    let options = TestOptions {
+        out_dir: out_dir.unwrap_or_else(|| emela_driver::default_test_out_dir(&input)),
+        node: emela_driver::node_program(),
+        filter,
+        output: Output::Inherit,
+    };
+    // 結果は標準出力，診断は標準エラーに出す．診断は node を起動する前に出す．
+    let mut diagnostics_code = ExitCode::SUCCESS;
+    let mut reported = 0;
+    let stdout = std::io::stdout();
+    // lowering ができたら Resolve と NoJsBackend を差し替える（テスト関数の IR は TestModule）．
+    let (analysis, report) = emela_driver::test(
+        &OsFs,
+        &input,
+        &mut WithTests(Resolve::default()),
+        &mut NoJsBackend,
+        &options,
+        |analysis| {
+            diagnostics_code = report(analysis);
+            reported = analysis.diagnostics.len();
+        },
+        &mut stdout.lock(),
+    );
+    match report {
+        Some(report) => ExitCode::from(report.exit_code()),
+        None => {
             let rest = &analysis.diagnostics[reported..];
             if rest.is_empty() {
                 diagnostics_code

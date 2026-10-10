@@ -280,6 +280,7 @@ dependencies = [
  "la-arena",
  "line-index",
  "serde",
+ "serde_json",
  "toml",
 ]
 

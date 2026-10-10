@@ -1,0 +1,38 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+expression: rendered
+---
+error[E0222]: test function `foreign` needs a body
+   ╭─[ src/http/client.emel:8:4 ]
+   │
+ 8 │ fn foreign()
+   │    ───┬───  
+   │       ╰───── 
+───╯
+
+error[E0222]: test function `takes` cannot take parameters
+   ╭─[ src/main.emel:9:9 ]
+   │
+ 9 │ fn takes(x: Int) {
+   │         ────┬───  
+   │             ╰───── 
+───╯
+
+error[E0222]: `@test` can only be used on top-level functions
+    ╭─[ src/main.emel:13:1 ]
+    │
+ 13 │ @test
+    │ ──┬──  
+    │   ╰──── 
+────╯
+   = note: a test is a function without parameters (13.1)
+
+error[E0222]: `@test` takes no arguments
+    ╭─[ src/main.emel:16:1 ]
+    │
+ 16 │ @test()
+    │ ───┬───  
+    │    ╰───── 
+────╯
+
+4 errors

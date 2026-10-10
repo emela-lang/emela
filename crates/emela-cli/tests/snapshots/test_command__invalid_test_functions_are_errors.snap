@@ -1,0 +1,13 @@
+---
+source: crates/emela-cli/tests/test_command.rs
+expression: stderr
+---
+error[E0222]: test function `takes` cannot take parameters
+   ╭─[ src/main.emel:2:9 ]
+   │
+ 2 │ fn takes(x: Int) {
+   │         ────┬───  
+   │             ╰───── 
+───╯
+
+1 error
