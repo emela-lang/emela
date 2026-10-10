@@ -479,6 +479,7 @@ impl SyntaxKind {
                 | Self::IMPL_DECL
                 | Self::FIELD
                 | Self::VARIANT
+                | Self::DERIVE_CLAUSE
         )
     }
 }
