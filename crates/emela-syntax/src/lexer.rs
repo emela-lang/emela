@@ -222,11 +222,16 @@ enum RawToken {
 
     #[regex(r"[0-9][0-9_]*")]
     Int,
+    /// 16進と2進の整数（`0xFF` `0b1010`）．接頭辞は小文字だけ．`0xFF` は BadNumber と同じ長さで
+    /// 当たるので，優先度を上げてある．
+    #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*", priority = 10)]
+    RadixInt,
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?", priority = 10)]
     Float,
-    /// 数値の直後に英字が続いたもの（`1e9` `1.0e` `3px`）．かたまりごとエラーにする．
+    /// 数値の直後に英字が続いたもの（`1e9` `1.0e` `3px` `0o17` `0XFF`）と，16進と2進の
+    /// 小数（`0x1.5`）．かたまりごとエラーにする．
     /// `1.0e9` は Float と同じ長さで当たるので，Float の優先度を上げてある．
-    #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?[A-Za-z][A-Za-z0-9_]*")]
+    #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?[A-Za-z][A-Za-z0-9_]*|0[xb][0-9A-Za-z_]*\.[0-9][0-9A-Za-z_]*")]
     BadNumber,
 
     #[token("(")]
@@ -301,7 +306,7 @@ impl From<RawToken> for SyntaxKind {
             // `lex` が先に診断つきで扱うので，ここには来ない
             R::Word | R::BadNumber => K::ERROR_TOKEN,
             R::Quote => K::STRING_QUOTE,
-            R::Int => K::INT,
+            R::Int | R::RadixInt => K::INT,
             R::Float => K::FLOAT,
             R::LParen => K::L_PAREN,
             R::RParen => K::R_PAREN,
@@ -398,6 +403,34 @@ mod tests {
         }
         // 指数の数字が欠けたら，符号の手前までがエラー
         assert_eq!(kinds("1.0e+"), [ERROR_TOKEN, PLUS]);
+    }
+
+    #[test]
+    fn 十六進と二進の整数() {
+        assert_eq!(
+            kinds("0xFF 0xdead_BEEF 0b1010 0b1111_0000 0x0"),
+            [
+                INT, WHITESPACE, INT, WHITESPACE, INT, WHITESPACE, INT, WHITESPACE, INT
+            ]
+        );
+        // 2進の後ろの範囲とフィールドは今までどおり
+        assert_eq!(kinds("0b1..0x2"), [INT, DOT2, INT]);
+    }
+
+    #[test]
+    fn 接頭辞の誤りと十六進の小数はかたまりごとエラー() {
+        for src in [
+            "0XFF", "0B1", "0o17", "0x", "0b", "0xFG", "0b102", "0x_1", "0x1.5", "0b1.0",
+        ] {
+            let lexed = lex(src);
+            assert_eq!(kinds(src), [ERROR_TOKEN], "{src}");
+            assert_eq!(lexed.diagnostics.len(), 1, "{src}");
+            assert_eq!(
+                lexed.diagnostics[0].code,
+                DiagnosticCode::InvalidNumber,
+                "{src}"
+            );
+        }
     }
 
     #[test]
