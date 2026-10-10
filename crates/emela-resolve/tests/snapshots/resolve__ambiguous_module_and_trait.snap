@@ -1,0 +1,5 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"codec.emel\", \"pub fn encode() { 1 }\\n\"),\n(\"main.emel\",\n\"import Codec\\n\\ntrait Codec {\\n  fn encode(self) -> String\\n}\\n\\nfn f() { Codec.encode() }\\n\",),])"
+---
+error src/main.emel@68..73 `Codec`: `Codec` がモジュールと Trait の両方を指す

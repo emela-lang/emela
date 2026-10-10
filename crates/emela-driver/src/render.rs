@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use ariadne::{Color, Config, IndexType, Label, Report, ReportKind};
 
-use crate::diagnostic::{Diagnostic, Location, Severity, Span};
+use crate::diagnostic::{Diagnostic, HELP_PREFIX, Location, Severity, Span};
 use crate::source::SourceDb;
 
 /// 診断を全部並べ，最後に件数をまとめる．診断の間は空行で区切る．
@@ -135,7 +135,10 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
     }
     // ariadne は注記をソースの枠の中にしか出さないので，枠の後に自分で並べる．
     for note in &diagnostic.notes {
-        out.push_str(&format!("   = note: {note}\n"));
+        match note.strip_prefix(HELP_PREFIX) {
+            Some(help) => out.push_str(&format!("   = help: {help}\n")),
+            None => out.push_str(&format!("   = note: {note}\n")),
+        }
     }
     out
 }

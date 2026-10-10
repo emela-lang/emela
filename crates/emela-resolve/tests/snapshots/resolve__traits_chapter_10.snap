@@ -1,0 +1,62 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"pub trait Decode {\n  fn decode(json: String) -> Self fails DecodeError\n}\n\npub error DecodeError(message: String)\n\npub trait Compare: Eq {\n  fn compare(self, other: Self) -> Ordering\n\n  fn max(self, other: Self) -> Self {\n    match Compare.compare(self, other) {\n      Less -> other\n      _    -> self\n    }\n  }\n}\n\ntype User(id: Int, name: String)\n  derive Eq, Show\n\nimpl Show for User {\n  fn show(self) { \"User(#{self.name})\" }\n}\n\nfn largest[A: Ord + Show](xs: List[A]) -> Option[A] {\n  todo()\n}\n\nfn describe(user: User) -> String {\n  user |> Show.show\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+trait Main.Decode pub
+  fn Main.Decode.decode
+    param json#0: String
+    ret Self
+    fails {Main.DecodeError}
+error Main.DecodeError(message: String) pub
+trait Main.Compare pub: Eq
+  fn Main.Compare.compare
+    param self#1
+    param other#2: Self
+    ret Ordering
+  fn Main.Compare.max
+    param self#3
+    param other#4: Self
+    ret Self
+    body
+      block
+        match
+          call
+            Main.Compare.compare
+            self#3
+            other#4
+          arm Ordering.Less
+            other#4
+          arm _
+            self#3
+type Main.User
+  field id: Int
+  field name: String
+  derive Eq, Show
+  ctor Main.User.User
+impl Show for Main.User
+  fn show -> Show.show
+    param self#5
+    body
+      block
+        interpolated
+          "User("
+          field .name
+            self#5
+          ")"
+fn Main.largest
+  type-param Main.largest.A: Ord, Show
+  param xs#6: List[Main.largest.A]
+  ret Option[Main.largest.A]
+  body
+    block
+      call
+        todo
+fn Main.describe
+  param user#7: Main.User
+  ret String
+  body
+    block
+      Pipe
+        user#7
+        Show.show
