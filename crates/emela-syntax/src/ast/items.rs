@@ -530,6 +530,24 @@ mod tests {
     }
 
     #[test]
+    fn derive_の前のドキュメントコメントは型に付かない() {
+        let items = items(
+            "## 利用者\ntype User(id: Int)\n  # 比較\n\n  ## 導出\n  derive Eq, Show\nenum Color {\n  Red\n}\n  # 表示\n  derive Show",
+        );
+        let Item::Type(user) = &items[0] else {
+            panic!("type のはず")
+        };
+        let docs: Vec<_> = user.doc_comments().map(|t| t.to_string()).collect();
+        assert_eq!(docs, ["## 利用者"]);
+        assert_eq!(user.derive().unwrap().traits().count(), 2);
+
+        let Item::Enum(e) = &items[1] else {
+            panic!("enum のはず")
+        };
+        assert_eq!(e.derive().unwrap().traits().count(), 1);
+    }
+
+    #[test]
     fn 効果とハンドラ() {
         let items = items(
             "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n  fn now() -> Instant\n}\nhandler Pg(conn: Conn) implements Users {\n  init { Pg(conn: open()) }\n  release { close(self.conn) }\n  fn find(id) { 1 }\n}\nlayer App { Env, Pg }",
