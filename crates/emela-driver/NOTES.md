@@ -27,6 +27,48 @@ pub trait JsBackend<P> {
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
 - `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `Resolve` と `NoJsBackend` をそれぞれ差し替える
 
+## テスト（`emela test`，仕様 13章）
+
+`src/testing.rs` と `src/testing/` に分けてある．流れは「検査 → テスト関数の IR → JS の出力 → node で1つずつ実行 → 結果の表示」．
+
+```rust
+/// ソースの `@test` を集めるフロントエンド．内側の検査の後に `collect_tests` をかける．
+pub struct WithTests<F>(pub F);                 // Program = SourceTests<F::Program>
+pub struct SourceTests<P> { pub program: P, pub tests: Vec<TestFn> }
+
+/// テスト用の lowering が返す Core IR．
+pub struct TestModule { pub module: emela_core::Module, pub tests: Vec<TestCase> }
+pub struct TestCase { pub name: String, pub function: FnId }
+
+pub trait TestBackend<P> {
+    fn test_names(&self, program: &P) -> Vec<String>;
+    fn emit_tests(&mut self, program: &P, selected: &[usize], analysis: &Analysis)
+        -> Result<JsOutput, Vec<Diagnostic>>;
+}
+```
+
+### ソースからの差し込み口（lowering ができたら）
+
+- テスト用の lowering は `Frontend<Program = TestModule>` として書く．`WithTests` と同じく内側（型推論まで）の検査の後に `collect_tests` を呼び，`TestFn` ごとに HIR の定義を引いて（`TestFn::module` と `name_range` が `DefData::span` と一致する），テスト関数も含めて Core IR にする．`TestCase::name` は `TestFn::display_name` をそのまま使う
+- 通常のビルドの lowering は `is_test_fn`（または `collect_tests` の結果）でテスト関数を除く（13.1）．`assert` は除かない（13.2）
+- cli の `Test` は今 `WithTests(Resolve)` と `NoJsBackend` を使う．lowering ができたらテスト用の lowering と `CoreJs` に差し替える（`CoreJs` は `TestBackend<TestModule>` を持つ）
+- `assert` の lowering は，式が比較（`==`，`!=`，`<`，`<=`，`>`，`>=`）なら `Assert::compare`，それ以外は `Assert::bool` にする．`text` には式のソースの字面を入れる
+
+### 補った判断
+
+- （補）`@test` の誤りは E0222 にする: 引数のある fn，本体のない fn（`@external`），トップレベルの fn 以外（type，impl の中の fn など）に付けたもの，`@test(...)` のように引数を付けたもの．誤ったものは集めない
+- （補）`@test` の誤りは今は `emela test` だけで出る（`check` と LSP は `WithTests` を使っていない）．lowering か型検査に移すときに `check` でも出す
+- （補）テストの表示名は，エントリのモジュールなら関数名だけ（`greet_returns_user`），ほかのモジュールならモジュール名を付ける（`Http.Client.gets`）．`cargo test` がクレートのルートだけ前置きを付けないのに合わせた．フィルタはこの表示名の部分一致（大文字小文字を区別する）
+- （補）単独ファイルでは，エントリから import でたどれるモジュールのテストだけを実行する（読むモジュールの規則と同じ）
+- （補）テストの JS の出力先は `target/emela/test`（`--out-dir` で変えられる）．テスト関数を export した別の出力なので，通常のビルドの `target/emela/js` を上書きしない
+- （補）`CoreJs` のテストの出力は `main.mjs`（選んだテスト関数を Emela の名前で export する），ランタイム，起動用モジュール `emela_test.mjs` の3つ．node は起動用モジュールを直接実行する（`run` の起動用モジュールは使わない）
+- （補）テストランナーは結果を標準出力に1行ずつ `\x1eemela-test ` + JSON で書き，driver が読みながら表示する．結果の行でない標準出力はそのまま流す．node の標準エラーは `Output::Inherit` なら素通し，`Capture` なら `TestReport::stderr` に集める．標準入力は渡さない
+- （補）結果の表示は `cargo test` に近い形: `running 3 tests`，`test name ... ok` / `FAILED`，失敗の詳細（`---- name ----` の後に `defect: <message>` か `error: <エラーの表示>`），失敗の一覧，`test result: ok. 3 passed; 0 failed; 0 filtered out`．かかった時間は出さない（出力を比べるテストのため）
+- （補）終了コードは失敗が1つでもあれば 1，なければ 0（テストが0個でも 0）．診断でエラーなら 1
+- （補）テストの途中で node が終わったとき（外部関数の `process.exit` など）は，実行中だったテストを失敗にし，その後ろで実行されなかった数を詳細に添える
+- 積み残し: 処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` で返り値から見分けて `outcome: "error"` で報告する形だけ用意した．fail が入ったら（alpha.2）エラーの値の表現に合わせて埋める
+- 積み残し: suspend するテスト（ジェネレータを返す関数）と Async の供給（13.3）はまだ扱わない
+
 ## 読むモジュール
 
 - モジュールの対応表はいつも全部作る．読んで解析するモジュールは作業リストで決める

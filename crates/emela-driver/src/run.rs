@@ -90,7 +90,12 @@ pub fn run_node(
             stderr: out.stderr,
         }),
     };
-    result.map_err(|err| match err.kind() {
+    result.map_err(|err| spawn_error(node, &err))
+}
+
+/// node を起動できなかった診断．
+pub(crate) fn spawn_error(node: &Path, err: &io::Error) -> Diagnostic {
+    match err.kind() {
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", node.display()))
             .with_code(code::NODE_UNAVAILABLE)
             .with_note(format!(
@@ -98,10 +103,10 @@ pub fn run_node(
             )),
         _ => Diagnostic::error(format!("cannot start `{}`: {err}", node.display()))
             .with_code(code::NODE_UNAVAILABLE),
-    })
+    }
 }
 
-fn exit_code(status: ExitStatus) -> i32 {
+pub(crate) fn exit_code(status: ExitStatus) -> i32 {
     if let Some(code) = status.code() {
         return code;
     }
