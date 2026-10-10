@@ -422,22 +422,17 @@ impl Dumper<'_> {
                 self.line(depth, format!("field .{}", name.name));
                 self.expr(depth + 1, *base);
             }
+            ExprKind::Update { ctor, fields, base } => {
+                self.line(depth, "update");
+                self.expr(depth + 1, *ctor);
+                self.args(depth + 1, fields);
+                self.line(depth + 1, "..");
+                self.expr(depth + 2, *base);
+            }
             ExprKind::Call { callee, args } => {
                 self.line(depth, "call");
                 self.expr(depth + 1, *callee);
-                for arg in args {
-                    match &arg.label {
-                        Some(label) if arg.punned => {
-                            self.line(depth + 1, format!("{}: (punned)", label.name));
-                            self.expr(depth + 2, arg.value);
-                        }
-                        Some(label) => {
-                            self.line(depth + 1, format!("{}:", label.name));
-                            self.expr(depth + 2, arg.value);
-                        }
-                        None => self.expr(depth + 1, arg.value),
-                    }
-                }
+                self.args(depth + 1, args);
             }
             ExprKind::Unary { op, operand } => {
                 self.line(depth, format!("{op:?}"));
@@ -526,6 +521,22 @@ impl Dumper<'_> {
                 let params: Vec<String> = params.iter().map(|p| self.local(p.local)).collect();
                 self.line(depth, format!("lambda({})", params.join(", ")));
                 self.expr(depth + 1, *body);
+            }
+        }
+    }
+
+    fn args(&mut self, depth: usize, args: &[Arg]) {
+        for arg in args {
+            match &arg.label {
+                Some(label) if arg.punned => {
+                    self.line(depth, format!("{}: (punned)", label.name));
+                    self.expr(depth + 1, arg.value);
+                }
+                Some(label) => {
+                    self.line(depth, format!("{}:", label.name));
+                    self.expr(depth + 1, arg.value);
+                }
+                None => self.expr(depth, arg.value),
             }
         }
     }

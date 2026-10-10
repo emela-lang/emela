@@ -68,7 +68,7 @@ pub struct SourceTests<P> {
 }
 
 /// 内側のフロントエンドの検査の後に `@test` の関数を集めるフロントエンド．
-/// 誤った `@test`（E0222）は検査の診断の後に足す．
+/// 誤った `@test`（E0226）は検査の診断の後に足す．
 #[derive(Debug, Default)]
 pub struct WithTests<F>(pub F);
 

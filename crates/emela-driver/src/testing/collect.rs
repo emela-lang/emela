@@ -30,7 +30,7 @@ pub struct TestFn {
 /// 読んだモジュールの構文木から `@test` の関数を，モジュールの順，宣言の順に集める．
 ///
 /// `@test` を付けられるのはトップレベルの引数のない fn で，本体を持つもの（`@external` でない）．
-/// それ以外に付いた `@test` と，`@test(...)` のような引数は E0222 にする．誤りのある関数は集めない．
+/// それ以外に付いた `@test` と，`@test(...)` のような引数は E0226 にする．誤りのある関数は集めない．
 pub fn collect_tests<'p>(
     analysis: &Analysis,
     parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,

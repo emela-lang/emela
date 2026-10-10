@@ -5,8 +5,8 @@ use std::fmt::Write;
 use std::path::Path;
 
 use emela_resolve::{
-    BuiltinKind, BuiltinTable, MemoryFs, build_import_graph, collect_modules, dump_module, imports,
-    resolve,
+    BuiltinKind, BuiltinTable, MemoryFs, ModuleName, build_import_graph, collect_modules,
+    dump_module, imports, resolve, to_type_name,
 };
 use la_arena::ArenaMap;
 
@@ -32,14 +32,34 @@ fn builtins() -> BuiltinTable {
 
 /// `src/` の下のファイルを解決し，モジュールごとのダンプと診断を返す．構文の誤りは許さない．
 fn run(files: &[(&str, &str)]) -> String {
+    run_with_core(files, &[])
+}
+
+/// `core` は同梱の core のソース（ファイル名と中身）．`<core>/` の下に置いたことにする．
+/// ダンプは `src/` のモジュールだけを出す．
+fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
     let fs = MemoryFs::new(files.iter().map(|(path, _)| format!("src/{path}")));
-    let (modules, diagnostics) = collect_modules(&fs, Path::new("src"));
+    let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
     assert_eq!(diagnostics, []);
+    for (file, _) in core {
+        let stem = file.strip_suffix(".emel").unwrap();
+        let name = ModuleName::new([to_type_name(stem).unwrap()]);
+        let (_, shadowed) = modules.add_core(name, Path::new("<core>").join(file));
+        assert_eq!(shadowed, None);
+    }
+    let text_of = |file: &Path| -> &str {
+        if let Ok(path) = file.strip_prefix("<core>") {
+            let path = path.to_str().unwrap();
+            return core.iter().find(|(p, _)| *p == path).unwrap().1;
+        }
+        let path = file.strip_prefix("src").unwrap().to_str().unwrap();
+        files.iter().find(|(p, _)| *p == path).unwrap().1
+    };
     let mut trees = ArenaMap::default();
     let mut import_lists = ArenaMap::default();
     for (id, data) in modules.iter() {
-        let path = data.file.strip_prefix("src").unwrap().to_str().unwrap();
-        let text = files.iter().find(|(p, _)| *p == path).unwrap().1;
+        let path = data.file.to_str().unwrap();
+        let text = text_of(&data.file);
         let parse = emela_syntax::parse(text);
         assert!(
             parse.diagnostics().is_empty(),
@@ -54,7 +74,7 @@ fn run(files: &[(&str, &str)]) -> String {
     let (program, diagnostics) = resolve(&modules, &trees, &builtins());
 
     let mut out = String::new();
-    for (id, data) in modules.iter() {
+    for (id, data) in modules.iter().filter(|(id, _)| !modules.is_core(*id)) {
         writeln!(out, "== {} ({})", data.name, data.file.display()).unwrap();
         out.push_str(&dump_module(&program, &modules, id));
     }
@@ -62,8 +82,7 @@ fn run(files: &[(&str, &str)]) -> String {
         out.push_str("== diagnostics\n");
     }
     for d in &diagnostics {
-        let path = d.file.strip_prefix("src").unwrap().to_str().unwrap();
-        let text = files.iter().find(|(p, _)| *p == path).unwrap().1;
+        let text = text_of(&d.file);
         let range = d.range.unwrap();
         let level = if d.kind.is_warning() {
             "warning"
@@ -617,4 +636,120 @@ fn spans_point_at_source() {
     assert_eq!(texts, ["x", "1", "x + 1", "{ x + 1 }"]);
     let local = program.locals.iter().next().unwrap().1;
     assert_eq!(&text[local.span.range], "x");
+}
+
+#[test]
+fn record_update_5_3() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"type User(id: Int, name: String)
+error NotFound(id: Int, detail: String)
+enum Shape {
+  Circle(radius: Float)
+}
+effect Counter {
+  fn get() -> Int
+}
+handler Fixed(value: Int) implements Counter {
+  init { Fixed(value: 0) }
+  fn get() {
+    next = Fixed(value: 1, ..self)
+    next.value
+  }
+}
+
+fn rename(user: User) -> User {
+  User(name: "b", ..user)
+}
+
+fn retag(e: NotFound) -> NotFound {
+  NotFound(detail: "x", ..e)
+}
+
+fn bad(user: User, shape: Shape) {
+  a = Circle(radius: 1.0, ..shape)
+  b = rename(name: "c", ..user)
+  c = User("c", ..user)
+  d = user(name: "c", ..user)
+  d
+}
+"##,
+    )]));
+}
+
+/// 同梱の core のソースの代わりに使う小さな core．
+const CORE: &[(&str, &str)] = &[
+    (
+        "option.emel",
+        r##"pub fn unwrap_or[A](o: Option[A], default: A) -> A {
+  match o {
+    Some(x) -> x
+    None    -> default
+  }
+}
+
+@intrinsic
+pub fn is_some[A](o: Option[A]) -> Bool
+"##,
+    ),
+    (
+        "map.emel",
+        r##"pub opaque type Map[K, V](entries: List[(K, V)])
+
+@intrinsic
+pub fn get[K, V](m: Map[K, V], key: K) -> Option[V]
+"##,
+    ),
+    (
+        "prelude.emel",
+        r##"pub enum Ordering {
+  Less
+  Equal
+  Greater
+}
+
+pub fn identity[A](x: A) -> A { x }
+"##,
+    ),
+];
+
+#[test]
+fn core_modules_are_implicit() {
+    insta::assert_snapshot!(run_with_core(
+        &[
+            ("util.emel", "pub fn twice(x: Int) -> Int { x + x }\n"),
+            (
+                "main.emel",
+                r##"fn lookup(m: Map[String, Int]) -> Int {
+  Option.unwrap_or(Map.get(m, "a"), 0)
+}
+
+fn order(x: Int) -> Ordering {
+  if Option.is_some(Some(x)) { Less } else { identity(Greater) }
+}
+
+fn not_imported() -> Int {
+  Util.twice(1)
+}
+"##,
+            ),
+        ],
+        CORE,
+    ));
+}
+
+#[test]
+fn intrinsic_only_in_core() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"@intrinsic
+fn length(s: String) -> Int
+
+@intrinsic
+type Handle(id: Int)
+
+@intrinsic
+fn with_body() -> Int { 1 }
+"##,
+    )]));
 }
