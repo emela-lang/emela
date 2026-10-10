@@ -29,6 +29,8 @@ pub enum DiagnosticCode {
     MissingEscapedCharacter,
     /// 使えないエスケープ．
     UnknownEscape,
+    /// `\u{...}` の形が崩れている，または値がサロゲートか 10FFFF を超える．
+    InvalidUnicodeEscape,
     /// 来るはずのトークンがない．
     ExpectedToken,
     /// 型が来るはずの位置に型がない．
@@ -97,6 +99,7 @@ impl DiagnosticCode {
             Self::UnrecognizedCharacter => "E0105",
             Self::MissingEscapedCharacter => "E0106",
             Self::UnknownEscape => "E0107",
+            Self::InvalidUnicodeEscape => "E0108",
             Self::ExpectedToken => "E0110",
             Self::ExpectedType => "E0111",
             Self::SingleElementTuple => "E0112",

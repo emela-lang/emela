@@ -11,29 +11,41 @@ WHITESPACE@11..12 " "
 EQ@12..13 "="
 WHITESPACE@13..14 " "
 STRING_QUOTE@14..15 "\""
-STRING_TEXT@15..32 "bad \\t escape \\é"
+STRING_TEXT@15..32 "bad \\v escape \\é"
 STRING_QUOTE@32..33 "\""
 NEWLINE@33..34 "\n"
-LOWER_NAME@34..35 "y"
+LOWER_NAME@34..35 "w"
 WHITESPACE@35..36 " "
 EQ@36..37 "="
 WHITESPACE@37..38 " "
 STRING_QUOTE@38..39 "\""
-STRING_TEXT@39..59 "trailing backslash \\"
-NEWLINE@59..60 "\n"
-LOWER_NAME@60..61 "z"
-WHITESPACE@61..62 " "
-EQ@62..63 "="
-WHITESPACE@63..64 " "
-STRING_QUOTE@64..65 "\""
-STRING_TEXT@65..70 "open "
-INTERP_START@70..72 "#{"
-LOWER_NAME@72..73 "a"
-NEWLINE_CONT@73..74 "\n"
+STRING_TEXT@39..92 "ok \\t \\r \\u{1F600}, bad \\u{D800} \\u{110000} \\u{} \\u41"
+STRING_QUOTE@92..93 "\""
+NEWLINE@93..94 "\n"
+LOWER_NAME@94..95 "y"
+WHITESPACE@95..96 " "
+EQ@96..97 "="
+WHITESPACE@97..98 " "
+STRING_QUOTE@98..99 "\""
+STRING_TEXT@99..119 "trailing backslash \\"
+NEWLINE@119..120 "\n"
+LOWER_NAME@120..121 "z"
+WHITESPACE@121..122 " "
+EQ@122..123 "="
+WHITESPACE@123..124 " "
+STRING_QUOTE@124..125 "\""
+STRING_TEXT@125..130 "open "
+INTERP_START@130..132 "#{"
+LOWER_NAME@132..133 "a"
+NEWLINE_CONT@133..134 "\n"
 error[E0101]@0..9: unterminated string literal
-error[E0107]@19..21: unknown escape sequence `\t`
+error[E0107]@19..21: unknown escape sequence `\v`
 error[E0107]@29..32: unknown escape sequence `\é`
-error[E0101]@38..59: unterminated string literal
-error[E0106]@58..59: missing character after `\`
-error[E0101]@64..74: unterminated string literal
-error[E0102]@70..74: unterminated interpolation
+error[E0108]@63..71: `\u{D800}` is a surrogate, not a Unicode scalar value
+error[E0108]@72..82: `\u{110000}` is out of range: the maximum is `\u{10FFFF}`
+error[E0108]@83..87: a unicode escape needs 1 to 6 hex digits
+error[E0108]@88..90: expected `{` after `\u`
+error[E0101]@98..119: unterminated string literal
+error[E0106]@118..119: missing character after `\`
+error[E0101]@124..134: unterminated string literal
+error[E0102]@130..134: unterminated interpolation
