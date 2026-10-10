@@ -291,7 +291,7 @@ fn postfix_ops(p: &mut Parser<'_>, mut lhs: CompletedMarker) -> CompletedMarker 
 fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     let kind = match p.current() {
-        INT | FLOAT | STRING_QUOTE => {
+        INT | FLOAT | STRING_QUOTE | TRIPLE_QUOTE => {
             m.abandon(p);
             return Some(literal(p, interp));
         }

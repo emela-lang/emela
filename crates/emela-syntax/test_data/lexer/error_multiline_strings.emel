@@ -1,0 +1,18 @@
+a = """no newline
+  x
+  """
+b = """
+  ok
+  done"""
+c = """
+  #{f(
+    x)} after
+  """
+e = """
+    deep
+  shallow
+
+    deep again
+    """
+d = """
+  never closed

@@ -11,7 +11,8 @@ pub struct Diagnostic {
 
 /// 診断の種類．番号は付録 A の一覧と一致させ，一度振った番号は使い回さない．
 ///
-/// E0101〜E0109 は字句，E0110〜E0199 は構文．
+/// E0101〜E0109 は字句，E0110〜E0189 は構文，E0190〜E0199 は字句の追加分（E0101〜E0109 が
+/// 埋まったため）．
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
@@ -29,6 +30,11 @@ pub enum DiagnosticCode {
     MissingEscapedCharacter,
     /// 使えないエスケープ．
     UnknownEscape,
+    /// `\u{...}` の形が崩れている，または値がサロゲートか 10FFFF を超える．
+    InvalidUnicodeEscape,
+    /// 複数行の文字列の形の誤り．開く `"""` の後ろが改行でない，閉じる `"""` が1行に
+    /// 1つでない，閉じる行より浅くインデントした行がある．
+    MalformedMultilineString,
     /// 来るはずのトークンがない．
     ExpectedToken,
     /// 型が来るはずの位置に型がない．
@@ -97,6 +103,8 @@ impl DiagnosticCode {
             Self::UnrecognizedCharacter => "E0105",
             Self::MissingEscapedCharacter => "E0106",
             Self::UnknownEscape => "E0107",
+            Self::InvalidUnicodeEscape => "E0108",
+            Self::MalformedMultilineString => "E0109",
             Self::ExpectedToken => "E0110",
             Self::ExpectedType => "E0111",
             Self::SingleElementTuple => "E0112",

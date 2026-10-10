@@ -173,7 +173,7 @@ pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
 }
 
 fn annot_literal(p: &mut Parser<'_>) {
-    if matches!(p.current(), INT | FLOAT | STRING_QUOTE) {
+    if matches!(p.current(), INT | FLOAT | STRING_QUOTE | TRIPLE_QUOTE) {
         super::literal(p, |p| {
             super::expressions::expr(p);
         });
