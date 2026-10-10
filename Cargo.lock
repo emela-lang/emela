@@ -290,6 +290,8 @@ dependencies = [
  "emela-syntax",
  "insta",
  "pretty",
+ "proptest",
+ "rowan",
 ]
 
 [[package]]

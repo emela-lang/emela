@@ -1,0 +1,50 @@
+  pub   fn   messy( x :Int,y:  Int )->Int{
+        a=x+y*2
+ b   =   if a>0{a}else{0-a}
+            match b{
+  0->"zero"
+     n if n>100->"big"
+   _->"other"
+        }
+}
+fn squeezed(xs:List[Int])->List[Int]{xs|>List.map(fn(x){x*2})|>List.filter(fn(x){x>2})}
+fn   tight(a:Int,b:Int)->Bool{!(a==b)&&-a<b||a>=-b}
+
+
+
+fn after_blank_lines() {
+
+
+  x = 1
+
+
+
+  y = 2
+
+
+}
+@external( js ,  "./ext.mjs" , "ext" )
+suspend   fn   ext ( url : String ) -> String   fails   HttpError   use   {   Http ,   Io   }
+fn else_on_next_line(a: Bool, b: Bool) -> Int {
+  if a {
+    1
+  }
+  else if b {
+    2
+  }
+     else {
+    3
+  }
+}
+fn trailing_commas(xs: List[Int],) {
+  f(a, b,)
+  [1, 2,]
+  g(
+    a
+  )
+  match xs { [x, ..rest,] -> x
+    _ -> 0 }
+  user = users.find(id)
+  |> Option.or_fail(NotFound(id:))
+  shorthand = NotFound(id:)
+}
