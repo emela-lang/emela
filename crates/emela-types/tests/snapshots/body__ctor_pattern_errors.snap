@@ -13,10 +13,10 @@ f: fn(User, Shape) -> Int
   r: {unknown}
   v: ?0
   q: ?1
-`User(name:)` MissingPatternFields { ctor: "User", fields: ["id"] }
-`Rect(w)` PatternFieldCount { ctor: "Rect", expected: 2, found: 1 }
+`User(name:)` pattern `User` does not mention id
+`Rect(w)` pattern `Rect` has 2 fields, found 1
 `Rect(w)` refutable pattern in binding: Circle(_), Empty not covered
-`Rect(w2, h2, d2)` PatternFieldCount { ctor: "Rect", expected: 2, found: 3 }
+`Rect(w2, h2, d2)` pattern `Rect` has 2 fields, found 3
 `Rect(w2, h2, d2)` refutable pattern in binding: Circle(_), Empty not covered
 `Circle(r: r)` refutable pattern in binding: Rect(_, _), Empty not covered
 `r` UnknownLabel { callee: "Circle", label: "r" }

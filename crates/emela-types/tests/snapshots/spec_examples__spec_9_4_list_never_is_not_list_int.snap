@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn nothing() -> List[Never] { [] }\n\nfn f() -> Int {\n  xs: List[Int] = nothing()\n  1\n}\n\"#)"
+---
+nothing: fn() -> List[Never]
+f: fn() -> Int
+  xs: List[Int]
+`nothing()` mismatch: expected `List[Int]`, found `List[Never]`

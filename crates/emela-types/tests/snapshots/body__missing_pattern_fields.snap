@@ -6,4 +6,4 @@ f: fn(Account) -> Int
   a: Account
   name: String
   name: String
-`Account(name:)` MissingPatternFields { ctor: "Account", fields: ["id", "email"] }
+`Account(name:)` pattern `Account` does not mention id, email

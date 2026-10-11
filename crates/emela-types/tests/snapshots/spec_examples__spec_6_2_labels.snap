@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn connect(host: String, port: Int) { () }\n\nfn calls() {\n  connect(\"localhost\", 5432)\n  connect(\"localhost\", port: 5432)\n  connect(host: \"localhost\", port: 5432)\n}\n\"#)"
+---
+connect: fn(String, Int) -> ()
+  host: String
+  port: Int
+calls: fn() -> ()

@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn is_even(n: Int) -> Bool { n % 2 == 0 }  # 補\n\nfn bindings(xs: List[Int], names: List[String]) -> Int {\n  count = 0\n  count = count + 1            # 同名での束縛し直し\n  (evens, odds) = List.partition(xs, is_even)\n  pairs: List[(String, Int)] = List.zip(names, xs)\n  count\n}\n\"#)"
+---
+is_even: fn(Int) -> Bool
+  n: Int
+bindings: fn(List[Int], List[String]) -> Int
+  xs: List[Int]
+  names: List[String]
+  count: Int
+  count: Int
+  evens: List[Int]
+  odds: List[Int]
+  pairs: List[(String, Int)]

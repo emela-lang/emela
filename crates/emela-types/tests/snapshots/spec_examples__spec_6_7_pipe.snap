@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn is_valid(n: Int) -> Bool { n >= 0 }  # 補\nfn add(acc: Int, n: Int) -> Int { acc + n }  # 補\n\nfn total(scores: List[Int]) -> Int {\n  scores\n    |> List.filter(is_valid)\n    |> List.fold(init: 0, f: add)\n}\n\"#)"
+---
+is_valid: fn(Int) -> Bool
+  n: Int
+add: fn(Int, Int) -> Int
+  acc: Int
+  n: Int
+total: fn(List[Int]) -> Int
+  scores: List[Int]

@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r##\"\nfn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {\n  fn(x) { g(f(x)) }\n}\n\nfn use_it() -> String {\n  h = compose(fn(n: Int) { n + 1 }, fn(n) { \"#{n}\" })\n  h(1)\n}\n\"##)"
+---
+compose: ∀ A, B, C. fn(fn(A) -> B, fn(B) -> C) -> fn(A) -> C
+  f: fn('0) -> '1
+  g: fn('1) -> '2
+  x: '0
+use_it: fn() -> String
+  n: Int
+  n: Int
+  h: fn(Int) -> String

@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn f(n: Int, big: Int64, s: String) -> Int {\n  a = n + big\n  b = s + s\n  c = n + 1.5\n  d = !n\n  n\n}\n\"#)"
+---
+f: fn(Int, Int64, String) -> Int
+  n: Int
+  big: Int64
+  s: String
+  a: Int
+  b: String
+  c: Int
+  d: Bool
+`big` mismatch: expected `Int`, found `Int64`
+`s + s` not numeric (integer: false): `String`
+`1.5` mismatch: expected `Int`, found `Float`
+`n` mismatch: expected `Bool`, found `Int`

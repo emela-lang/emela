@@ -103,6 +103,18 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
+    /// alpha.1 ではまだ扱えない式．「まだ扱えない」の診断を積み，中の式だけ推論する．
+    fn unsupported(&mut self, span: Span, what: &'static str, inner: &[ExprId]) -> Ty {
+        self.diags.push(Diagnostic {
+            span: Some(span),
+            kind: DiagnosticKind::Unsupported { what },
+        });
+        for &expr in inner {
+            self.infer_expr(expr);
+        }
+        Ty::Error
+    }
+
     /// これから推論する定義に切り替える．モジュールと型引数をその定義のものにする．
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
@@ -388,13 +400,11 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Update { ctor, fields, base } => {
                 self.infer_update(expr, *ctor, fields, *base)
             }
-            _ => {
-                self.diags.push(Diagnostic {
-                    span: Some(e.span),
-                    kind: DiagnosticKind::Unsupported { what: "expression" },
-                });
-                Ty::Error
-            }
+            // エラーとエフェクト（7章，8章）は alpha.2．中の式は推論して型を記録しておく．
+            ExprKind::Fail(inner) => self.unsupported(e.span, "`fail`", &[*inner]),
+            ExprKind::Escape { expr: inner, .. } => self.unsupported(e.span, "`escape`", &[*inner]),
+            ExprKind::Use { .. } => self.unsupported(e.span, "`use`", &[]),
+            ExprKind::With { body, .. } => self.unsupported(e.span, "`with`", &[*body]),
         }
     }
 

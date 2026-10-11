@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn pick(c: Bool, n: Int) -> Int {\n  a = if c { n } else { panic(\"no\") }\n  b = match c {\n    True -> todo()\n    False -> n\n  }\n  a + b\n}\n\"#)"
+---
+pick: fn(Bool, Int) -> Int
+  c: Bool
+  n: Int
+  a: Int
+  b: Int

@@ -7,50 +7,12 @@ mod common;
 
 use std::fmt::Write;
 
-use emela_resolve::hir::{DefKind, DefModule};
 use emela_types::check_program;
 
-use common::{describe, resolve_main};
+use common::{render_bodies, resolve_main};
 
 fn run(src: &str) -> String {
-    let (program, module, resolve_diagnostics) = resolve_main(src);
-    let types = check_program(&program);
-    let cons = &types.ty_table.cons;
-
-    let mut out = String::new();
-    for (def, data) in program.defs.iter() {
-        if data.module != DefModule::Source(module) || data.kind != DefKind::Fn {
-            continue;
-        }
-        match types.sigs.get(def) {
-            Some(sig) => writeln!(out, "{}: {}", data.name, sig.scheme.display(cons)).unwrap(),
-            None => writeln!(out, "{}: <no type>", data.name).unwrap(),
-        }
-        for (local, ty) in types.locals.iter() {
-            if types.local_owner.get(local) == Some(&def) {
-                writeln!(
-                    out,
-                    "  {}: {}",
-                    program.locals[local].name,
-                    ty.display(cons)
-                )
-                .unwrap();
-            }
-        }
-    }
-    for d in &resolve_diagnostics {
-        writeln!(out, "resolve: {d}").unwrap();
-    }
-    let mut diags: Vec<_> = types
-        .diags
-        .iter()
-        .filter(|d| d.span.is_some_and(|s| s.module == module))
-        .collect();
-    diags.sort_by_key(|d| d.span.map(|s| s.range.start()));
-    for d in diags {
-        writeln!(out, "{}", describe(src, cons, d)).unwrap();
-    }
-    out
+    render_bodies(src)
 }
 
 /// 同梱の Prelude と core のソースは，型の診断なしに検査を通る．

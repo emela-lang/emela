@@ -7,12 +7,14 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use emela_resolve::hir::{DefId, DefModule, Program};
+use emela_resolve::hir::{DefId, DefKind, DefModule, Program};
 use emela_resolve::{
     Diagnostic, MemoryFs, ModuleId, ModuleName, NoBuiltins, build_import_graph, collect_modules,
     imports, resolve,
 };
-use emela_types::{Diagnostic as TypeDiagnostic, DiagnosticKind, Signatures, TyCons, TyTable};
+use emela_types::{
+    Diagnostic as TypeDiagnostic, DiagnosticKind, Signatures, TyCons, TyTable, check_program,
+};
 use la_arena::ArenaMap;
 
 /// `main.emel` を，同梱の Prelude と core のソースと一緒に名前解決する．構文の誤りは許さない．
@@ -97,6 +99,18 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             )
         }
         DiagnosticKind::UnreachableArm => format!("`{text}` warning: unreachable match arm"),
+        DiagnosticKind::MissingPatternFields { ctor, fields } => {
+            format!(
+                "`{text}` pattern `{ctor}` does not mention {}",
+                fields.join(", ")
+            )
+        }
+        DiagnosticKind::PatternFieldCount {
+            ctor,
+            expected,
+            found,
+        } => format!("`{text}` pattern `{ctor}` has {expected} fields, found {found}"),
+        DiagnosticKind::Unsupported { what } => format!("`{text}` not supported yet: {what}"),
         kind => format!("`{text}` {kind:?}"),
     }
 }
@@ -139,6 +153,49 @@ pub fn render_signatures(
     }
     for d in &diags {
         writeln!(out, "{}", describe(src, &table.cons, d)).unwrap();
+    }
+    out
+}
+
+/// `main.emel` をプログラム全体の型検査にかけ，fn ごとの宣言の型と局所変数の型，
+/// `main.emel` の型の診断（位置の順）を文字列にする．
+pub fn render_bodies(src: &str) -> String {
+    let (program, module, resolve_diagnostics) = resolve_main(src);
+    let types = check_program(&program);
+    let cons = &types.ty_table.cons;
+
+    let mut out = String::new();
+    for (def, data) in program.defs.iter() {
+        if data.module != DefModule::Source(module) || data.kind != DefKind::Fn {
+            continue;
+        }
+        match types.sigs.get(def) {
+            Some(sig) => writeln!(out, "{}: {}", data.name, sig.scheme.display(cons)).unwrap(),
+            None => writeln!(out, "{}: <no type>", data.name).unwrap(),
+        }
+        for (local, ty) in types.locals.iter() {
+            if types.local_owner.get(local) == Some(&def) {
+                writeln!(
+                    out,
+                    "  {}: {}",
+                    program.locals[local].name,
+                    ty.display(cons)
+                )
+                .unwrap();
+            }
+        }
+    }
+    for d in &resolve_diagnostics {
+        writeln!(out, "resolve: {d}").unwrap();
+    }
+    let mut diags: Vec<_> = types
+        .diags
+        .iter()
+        .filter(|d| d.span.is_some_and(|s| s.module == module))
+        .collect();
+    diags.sort_by_key(|d| d.span.map(|s| s.range.start()));
+    for d in diags {
+        writeln!(out, "{}", describe(src, cons, d)).unwrap();
     }
     out
 }
