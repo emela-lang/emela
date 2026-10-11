@@ -8,6 +8,9 @@
 //!
 //! に書き換え，末尾位置の `f(a, b)` を `Recur([a, b])` にする．
 //! ループの変数 `q` は回ごとに新しく束縛するので，ラムダが捕捉しても後の回に上書きされない．
+//!
+//! 失敗しうる自己末尾呼び出し（`fails: true`）もループにする．末尾位置の呼び出しの失敗は
+//! そのまま呼び出し元へ伝わるので，次の回で失敗しても同じ結果になる．
 
 use rustc_hash::FxHashMap;
 
@@ -50,7 +53,7 @@ pub fn loopify_function(module: &mut Module, f: FnId) -> bool {
 }
 
 fn is_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
-    matches!(e, Expr::Call { callee: Callee::Direct(g), args } if *g == f && args.len() == arity)
+    matches!(e, Expr::Call { callee: Callee::Direct(g), args, .. } if *g == f && args.len() == arity)
 }
 
 fn has_tail_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
@@ -69,6 +72,7 @@ fn has_tail_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
             rhs,
             ..
         } => has_tail_self_call(rhs, f, arity),
+        // escape の対象は末尾位置でない（腕が後に走りうる，6.8）．腕も辿らない．
         _ => false,
     }
 }
@@ -139,7 +143,7 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             f(value);
             f(body);
         }
-        Expr::Call { callee, args } => {
+        Expr::Call { callee, args, .. } => {
             if let Callee::Indirect(c) = callee {
                 f(c);
             }
@@ -188,5 +192,15 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             f(body);
         }
         Expr::Assert(a) => a.for_each_operand_mut(f),
+        Expr::Fail(e) => f(e),
+        Expr::Escape { body, arms } => {
+            f(body);
+            for arm in arms {
+                if let Some(g) = &mut arm.guard {
+                    f(g);
+                }
+                f(&mut arm.body);
+            }
+        }
     }
 }

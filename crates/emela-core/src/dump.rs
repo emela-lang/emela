@@ -1,7 +1,8 @@
 //! Core IR を読める形の文字列にする．テストのスナップショットと調べものに使う．
 //!
 //! 見た目は Emela に寄せるが，ソースと取り違えないように Emela にない印を付ける
-//! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`）．
+//! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`，
+//! 失敗しうる呼び出しの後ろの `?`，error の enum の `error enum`）．
 //! IR が区別していることは全部書き分ける．読み戻すことは考えない．
 //!
 //! ```text
@@ -58,6 +59,9 @@ struct Printer<'a> {
 impl Printer<'_> {
     fn enum_def(&mut self, def: &EnumDef) {
         let params: Vec<String> = (0..def.params).map(param_name).collect();
+        if def.error {
+            self.out.push_str("error ");
+        }
         if params.is_empty() {
             write!(self.out, "enum {} {{", def.name).unwrap();
         } else {
@@ -154,7 +158,11 @@ impl Printer<'_> {
             Expr::Var(l) => self.out.push_str(&self.local(*l)),
             Expr::Fn(f) => self.out.push_str(&self.m.functions[*f].name),
             Expr::Let { .. } => self.braced(e),
-            Expr::Call { callee, args } => {
+            Expr::Call {
+                callee,
+                args,
+                fails,
+            } => {
                 match callee {
                     Callee::Direct(f) => self.out.push_str(&self.m.functions[*f].name),
                     // 値の呼び出しは呼ばれる側を括弧で囲み，直接の呼び出しと見分ける．
@@ -167,6 +175,9 @@ impl Printer<'_> {
                 self.out.push('(');
                 self.exprs(args);
                 self.out.push(')');
+                if *fails {
+                    self.out.push('?');
+                }
             }
             Expr::Builtin { op, ty_args, args } => {
                 write!(self.out, "@{}", op.info().path()).unwrap();
@@ -320,6 +331,22 @@ impl Printer<'_> {
                     AssertCond::Bool(e) => self.expr(e),
                 }
                 write!(self.out, ", text: {:?})", a.text).unwrap();
+            }
+            Expr::Fail(e) => {
+                self.out.push_str("fail ");
+                self.expr(e);
+            }
+            Expr::Escape { body, arms } => {
+                self.braced(body);
+                self.out.push_str(" escape {");
+                self.indent += 1;
+                for arm in arms {
+                    self.newline();
+                    self.arm(arm);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.out.push('}');
             }
         }
     }

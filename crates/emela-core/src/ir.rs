@@ -116,6 +116,10 @@ pub struct EnumDef {
     /// 型引数の数．フィールドの型の `Type::Param(i)` が `i` 番目を指す．
     pub params: usize,
     pub variants: Vec<VariantDef>,
+    /// error の宣言（7.1）か．構成子は1つで型引数を持たない．`Expr::Fail` に渡せて，
+    /// `Expr::Escape` の腕のパターンに書ける．バックエンドは実行時にどのエラーかを見分けられる
+    /// 表現にする．
+    pub error: bool,
 }
 
 /// Prelude の `Option` の `Some` の添字．
@@ -133,6 +137,7 @@ impl EnumDef {
                 VariantDef::positional("Some", vec![Type::Param(0)]),
                 VariantDef::unit("None"),
             ],
+            error: false,
         }
     }
 }
@@ -270,9 +275,12 @@ pub enum Expr {
         body: Box<Expr>,
     },
     /// 引数は位置の順に並ぶ．名前付き引数の並べ替えは `named::call_in_written_order` を使う．
+    /// `fails` は呼ばれる側が失敗しうるか（関数型の E が空でない，7.2）．偽なら呼び出しの結果を
+    /// 確かめなくてよい．真でも失敗するとは限らない．
     Call {
         callee: Callee,
         args: Vec<Expr>,
+        fails: bool,
     },
     /// 組み込み関数（`intrinsics`）の呼び出し．`ty_args` は型引数の具体的な型で，
     /// `dbg` のように型で振る舞いの変わるものだけが使う（数は `Builtin::info().ty_params`）．
@@ -338,6 +346,19 @@ pub enum Expr {
     Recur(Vec<Expr>),
     /// `assert 式`（仕様 13.2）．値は `()`．偽なら defect．
     Assert(Box<Assert>),
+    /// `fail e`（7.2）．`e` を評価して，その値（error の enum の値）で現在の計算を終わらせる．
+    /// 失敗は外側へ順に伝わり，最も内側の受ける `Escape` か，関数の呼び出し元へ達する．型は Never．
+    Fail(Box<Expr>),
+    /// `body escape { arms }`（7.3）．`body` の評価中に起きた失敗を受ける．
+    ///
+    /// 腕のパターンは error の構成子（`Pat::Ctor`）．失敗したエラーと同じ error の腕を上から試し，
+    /// パターンとガードが合った最初の腕の本体を escape の値にする．どの腕にも書かれていない error は
+    /// そのまま外側へ伝わる．腕に書かれた error なのにどの腕にも合わなければ defect（match と同じ）．
+    /// 腕の中で起きた失敗は外側へ伝わる．`body` は末尾位置でない（6.8）．
+    Escape {
+        body: Box<Expr>,
+        arms: Vec<Arm>,
+    },
 }
 
 /// `assert 式`．

@@ -48,7 +48,7 @@
 | `unwrap_or` | `unwrap_or[A](opt: Option[A], default: A) -> A` | Emela | 中身か，`None` なら `default` |
 | `is_some` | `is_some[A](opt: Option[A]) -> Bool` | Emela | `Some` か |
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
-| `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela（保留中） | 中身か，`None` なら `err` で fail（7.2）．型推論が fail を扱えるまで読み込まない |
+| `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
 
 ## Console（`console.emel`，保留中）
 

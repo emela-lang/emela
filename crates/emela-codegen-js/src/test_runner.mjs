@@ -10,10 +10,11 @@ function $testReport(event) {
   process.stdout.write($TEST_EVENT + JSON.stringify(event) + "\n");
 }
 
-// テスト関数の返した値が処理されなかったエラー（14.3）なら，その表示を返す．
-// エラーの値の表現（16.5 の戻り値方式）は fail を入れるときに決めるので，今はいつも undefined．
-function $testUnhandledError(_value) {
-  return undefined;
+// テスト関数の返した値が処理されなかったエラー（13.3）なら，その表示を返す．
+// 失敗はランタイムの `$Fail` で返る（16.5）．$Fail のクラスを読み込まないので `Symbol.for` の鍵で見分ける．
+function $testUnhandledError(value) {
+  const show = value?.[Symbol.for("emela.fail")];
+  return typeof show === "function" ? show.call(value) : undefined;
 }
 
 // テスト関数の投げた例外を表示する．defect は `name` が "Defect" の Error（7.5）．

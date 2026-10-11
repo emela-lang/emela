@@ -375,3 +375,127 @@ fn lowered_int_arithmetic_wraps() {
         (0, "", "-2147483648\n")
     );
 }
+
+#[test]
+fn unhandled_error_exits_with_1() {
+    // main まで達したエラーは `error: <エラーの値の表示>` を出して終了コード 1（14.3）．
+    // defect の 101 とは分ける．
+    let output = run_source(
+        "lower-fail",
+        "\
+error NotFound(id: Int)
+error Unauthorized
+
+fn find(id: Int) -> Int fails NotFound | Unauthorized {
+  if id < 0 { fail Unauthorized } else if id == 0 { fail NotFound(id:) } else { id }
+}
+
+fn main() {
+  dbg(find(1))
+  find(0)
+}
+",
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (1, "", "1\nerror: NotFound(id: 0)\n")
+    );
+    let output = run_source(
+        "lower-fail-unit",
+        "error Unauthorized\n\nfn main() {\n  fail Unauthorized\n}\n",
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (1, "", "error: Unauthorized\n")
+    );
+    let output = run_source("lower-defect", "fn main() {\n  panic(\"boom\")\n}\n");
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (DEFECT_EXIT_CODE, "", "defect: boom\n")
+    );
+}
+
+#[test]
+fn errors_are_values_and_escape_recovers() {
+    // エラーの値は普通の値で，補間と dbg で表示できる（7.1，10.6）．escape で受けたエラーは通常の値に
+    // 戻り，受けないエラーは伝わる．腕の中のエラーも伝わる（7.3，14.3）．
+    let output = run_source(
+        "lower-escape",
+        "\
+error NotFound(id: Int)
+error DbError(message: String)
+error Unavailable(reason: String)
+
+fn load(id: Int) -> String fails NotFound | DbError {
+  if id < 0 { fail DbError(message: \"down\") } else if id == 0 { fail NotFound(id:) } else { \"user #{id}\" }
+}
+
+fn partial(id: Int) {
+  load(id) escape { NotFound(_) -> \"guest\" }
+}
+
+fn convert(id: Int) -> String fails NotFound | Unavailable {
+  load(id) escape { DbError(message:) -> fail Unavailable(reason: message) }
+}
+
+fn main() {
+  e = NotFound(id: 7)
+  dbg(e)
+  dbg(\"got #{e} and #{[DbError(message: \"x\")]}\")
+  dbg(e == NotFound(id: 7))
+  dbg(load(1))
+  dbg(load(0) escape { NotFound(id:) -> \"none #{id}\" })
+  dbg(Some(load(0)) escape { NotFound(_) -> None })
+  dbg(partial(0))
+  dbg(partial(-1) escape { DbError(message:) -> \"partial: #{message}\" })
+  dbg(convert(-1) escape { Unavailable(reason:) -> \"unavailable: #{reason}\" })
+  dbg([1, 2] |> List.get(5) |> Option.or_fail(NotFound(id: 5)) escape { NotFound(id:) -> id * 10 })
+  dbg(convert(0))
+}
+",
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            1,
+            "",
+            "\
+NotFound(id: 7)
+\"got NotFound(id: 7) and [DbError(message: \\\"x\\\")]\"
+True
+\"user 1\"
+\"none 0\"
+None
+\"guest\"
+\"partial: down\"
+\"unavailable: down\"
+50
+error: NotFound(id: 0)
+"
+        )
+    );
+}
+
+#[test]
+fn failing_tail_calls_do_not_grow_stack() {
+    // 失敗しうる自己末尾呼び出しもループになる（16.3）．escape の対象の中の呼び出しは末尾位置でない．
+    let output = run_source(
+        "lower-fail-loop",
+        "\
+error Found(at: Int)
+
+fn search(n: Int, target: Int) -> Int fails Found {
+  if n == target { fail Found(at: n) } else if n == 0 { -1 } else { search(n - 1, target) }
+}
+
+fn main() {
+  dbg(search(1000000, 3) escape { Found(at:) -> at })
+  dbg(search(1000000, -5))
+}
+",
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "3\n-1\n")
+    );
+}
