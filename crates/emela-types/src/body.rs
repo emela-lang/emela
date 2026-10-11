@@ -4,8 +4,8 @@
 //! 式の位置を付けた診断を積んで続ける．
 
 use emela_resolve::hir::{
-    Arg, Block, DefId, ExprId, ExprKind, FnItem, Item, Literal, LocalId, PatId, PatKind, Program,
-    Res, Span, Stmt, TypeId,
+    Arg, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal, LocalId, PatArg,
+    PatId, PatKind, Program, Res, Span, Stmt, TypeId,
 };
 use la_arena::{ArenaMap, Idx};
 use smol_str::SmolStr;
@@ -155,9 +155,7 @@ impl<'a> BodyInfer<'a> {
         let e = &program.exprs[expr];
         match &e.kind {
             ExprKind::Missing => Ty::Error,
-            ExprKind::Lit(Literal::Int(_)) => Ty::INT,
-            ExprKind::Lit(Literal::Float(_)) => Ty::FLOAT,
-            ExprKind::Lit(Literal::String(_)) => Ty::STRING,
+            ExprKind::Lit(lit) => lit_ty(lit),
             ExprKind::Unit => Ty::UNIT,
             ExprKind::Tuple(elems) => Ty::tuple(elems.iter().map(|&e| self.infer_expr(e))),
             ExprKind::Path(Res::Local(local)) => {
@@ -249,15 +247,30 @@ impl<'a> BodyInfer<'a> {
             }
         };
 
-        let (slots, extra) = self.assign_args(callee_name, labels, f.params.len(), args, span);
+        let assigned = self.assign_args(
+            callee_name,
+            labels,
+            f.params.len(),
+            args.iter().map(|arg| (arg.label.as_ref(), arg.value)),
+        );
+        if !assigned.reported && (assigned.too_many || assigned.has_missing()) {
+            self.diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::WrongArgCount {
+                    callee: callee_name.cloned(),
+                    expected: f.params.len(),
+                    found: args.len(),
+                },
+            });
+        }
 
-        for (slot, param_ty) in slots.iter().zip(&f.params) {
+        for (slot, param_ty) in assigned.slots.iter().zip(&f.params) {
             if let Some(arg) = slot {
                 self.check_expr(*arg, param_ty);
             }
         }
 
-        for expr in extra {
+        for expr in assigned.extra {
             self.infer_expr(expr);
         }
 
@@ -288,71 +301,177 @@ impl<'a> BodyInfer<'a> {
             PatKind::Bind(local) => {
                 self.locals.insert(*local, ty.clone());
             }
-            PatKind::Wild => {}
-            _ => {
-                self.diags.push(Diagnostic {
-                    span: Some(p.span),
-                    kind: DiagnosticKind::Unsupported { what: "pattern" },
-                });
+            PatKind::Unit => self.coerce_at(p.span, ty, &Ty::UNIT),
+            PatKind::Lit(lit) => self.coerce_at(p.span, ty, &lit_ty(lit)),
+            PatKind::Const(Res::Def(def)) => {
+                let const_ty = self.infer_def_ref(*def, p.span);
+                self.coerce_at(p.span, ty, &const_ty);
             }
+            PatKind::Const(_) => {}
+            PatKind::Tuple(elems) => {
+                let elem_tys: Vec<Ty> = elems.iter().map(|_| self.ctx.new_var()).collect();
+                self.coerce_at(p.span, ty, &Ty::tuple(elem_tys.clone()));
+                for (elem, elem_ty) in elems.iter().zip(&elem_tys) {
+                    self.bind_pat(*elem, elem_ty);
+                }
+            }
+            PatKind::List { elems, rest } => {
+                let elem_ty = self.ctx.new_var();
+                self.coerce_at(p.span, ty, &Ty::list(elem_ty.clone()));
+
+                for elem in elems {
+                    self.bind_pat(*elem, &elem_ty);
+                }
+
+                if let Some(ListRest {
+                    binding: Some(local),
+                    ..
+                }) = rest
+                {
+                    self.locals.insert(*local, Ty::list(elem_ty));
+                }
+            }
+            PatKind::Ctor {
+                res: Res::Def(def),
+                args,
+                rest,
+            } => self.bind_ctor_pat(p.span, *def, args.as_deref(), *rest, ty),
+            PatKind::Ctor { .. } => {}
+            PatKind::Missing => {}
+            PatKind::Wild => {}
         }
     }
 
+    /// 構成子のパターン．構成子の型を具体化し，作る型を `ty` と照合して，フィールドに型を渡す．
+    /// フィールドは呼び出しと同じく並べ直す．`..` なしでフィールドを省けば E0308（6.5）．
+    fn bind_ctor_pat(
+        &mut self,
+        span: Span,
+        def: DefId,
+        args: Option<&[PatArg]>,
+        rest: bool,
+        ty: &Ty,
+    ) {
+        let sigs = self.sigs;
+        let program = self.program;
+
+        let ctor_ty = self.infer_def_ref(def, span);
+        let labels = sigs.get(def).map(|sig| sig.labels.as_slice());
+
+        let (fields_tys, made_ty) = match self.ctx.shallow_resolve(&ctor_ty) {
+            Ty::Fn(f) => (f.params, f.ret),
+            other => (Vec::new(), other),
+        };
+
+        let ctor_name = &program.defs[def].name;
+        let pat_args = args.unwrap_or(&[]);
+        let assigned = self.assign_args(
+            Some(ctor_name),
+            labels,
+            fields_tys.len(),
+            pat_args.iter().map(|arg| (arg.label.as_ref(), arg.pat)),
+        );
+
+        if !assigned.reported {
+            if assigned.too_many {
+                self.diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::PatternFieldCount {
+                        ctor: ctor_name.clone(),
+                        expected: assigned.slots.len(),
+                        found: pat_args.len(),
+                    },
+                });
+            } else if assigned.has_missing() && !rest {
+                let missing_field = assigned
+                    .slots
+                    .iter()
+                    .zip(labels.unwrap_or(&[]))
+                    .find(|(slot, _)| slot.is_none())
+                    .and_then(|(_, label)| label.clone());
+
+                if let Some(field) = missing_field {
+                    self.diags.push(Diagnostic {
+                        span: Some(span),
+                        kind: DiagnosticKind::MissingPatternField {
+                            ctor: ctor_name.clone(),
+                            field: field.clone(),
+                        },
+                    })
+                } else {
+                    self.diags.push(Diagnostic {
+                        span: Some(span),
+                        kind: DiagnosticKind::PatternFieldCount {
+                            ctor: ctor_name.clone(),
+                            expected: assigned.slots.len(),
+                            found: pat_args.len(),
+                        },
+                    })
+                }
+            }
+        }
+
+        for (slot, field_ty) in assigned.slots.iter().zip(&fields_tys) {
+            if let Some(pat) = slot {
+                self.bind_pat(*pat, field_ty);
+            }
+        }
+
+        for pat in assigned.extra {
+            self.bind_pat(pat, &Ty::Error);
+        }
+
+        self.coerce_at(span, ty, &made_ty);
+    }
+
     /// 引数を仮引数の位置に並べ直す．位置引数は前から，名前付き引数はラベルで置く．
+    /// 呼び出しの引数（`ExprId`）と構成子のパターンの引数（`PatId`）の両方に使う．
     ///
     /// `labels` は呼ばれる側の仮引数のラベル．名前で指していない値（局所変数，ラムダ）なら `None`．
-    /// 返すのは，位置ごとの引数（埋まらなければ `None`）と，どこにも置けなかった引数．
-    /// ラベルの誤りを出したときは，引数の数の誤りを重ねない．
-    fn assign_args(
+    /// ラベルの誤りはここで診断を積む．数の誤りは，呼び出しとパターンで規則が違うので呼ぶ側で出す．
+    fn assign_args<'l, T: Copy>(
         &mut self,
         callee_name: Option<&SmolStr>,
         labels: Option<&[Option<SmolStr>]>,
         n_params: usize,
-        args: &[Arg],
-        span: Span,
-    ) -> (Vec<Option<ExprId>>, Vec<ExprId>) {
-        let mut slots: Vec<Option<ExprId>> = vec![None; n_params];
-        let mut extra: Vec<ExprId> = Vec::new();
-        let mut reported = false;
+        args: impl IntoIterator<Item = (Option<&'l Label>, T)>,
+    ) -> Assigned<T> {
+        let mut assigned = Assigned {
+            slots: vec![None; n_params],
+            extra: Vec::new(),
+            reported: false,
+            too_many: false,
+        };
         let mut next_positional = 0;
 
-        for arg in args {
-            match &arg.label {
+        for (label, value) in args {
+            match label {
                 None => {
                     if next_positional < n_params {
-                        slots[next_positional] = Some(arg.value);
+                        assigned.slots[next_positional] = Some(value);
                     } else {
-                        extra.push(arg.value);
+                        assigned.extra.push(value);
+                        assigned.too_many = true;
                     }
                     next_positional += 1;
                 }
-                Some(label) => match label_slot(callee_name, labels, &slots, &label.name) {
-                    Ok(i) => slots[i] = Some(arg.value),
-                    Err(kind) => {
-                        self.diags.push(Diagnostic {
-                            span: Some(label.span),
-                            kind,
-                        });
-                        reported = true;
-                        extra.push(arg.value);
+                Some(label) => {
+                    match label_slot(callee_name, labels, &assigned.slots, &label.name) {
+                        Ok(i) => assigned.slots[i] = Some(value),
+                        Err(kind) => {
+                            self.diags.push(Diagnostic {
+                                span: Some(label.span),
+                                kind,
+                            });
+                            assigned.reported = true;
+                            assigned.extra.push(value);
+                        }
                     }
-                },
+                }
             }
         }
 
-        let missing = slots.iter().any(|s| s.is_none());
-        if !reported && (missing || next_positional > n_params) {
-            self.diags.push(Diagnostic {
-                span: Some(span),
-                kind: DiagnosticKind::WrongArgCount {
-                    callee: callee_name.cloned(),
-                    expected: n_params,
-                    found: args.len(),
-                },
-            })
-        }
-
-        (slots, extra)
+        assigned
     }
 }
 
@@ -365,11 +484,39 @@ fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Id
     out
 }
 
+/// リテラルの型．整数は Int（Int64 は文脈で決める処理を後で入れる）．
+fn lit_ty(lit: &Literal) -> Ty {
+    match lit {
+        Literal::Int(_) => Ty::INT,
+        Literal::Float(_) => Ty::FLOAT,
+        Literal::String(_) => Ty::STRING,
+    }
+}
+
+/// 引数を仮引数の位置に並べ直した結果（[`BodyInfer::assign_args`]）．
+struct Assigned<T> {
+    /// 位置ごとの引数．埋まらなければ `None`．
+    slots: Vec<Option<T>>,
+    /// どこにも置けなかった引数．照合はせず，型を記録するためだけに推論する．
+    extra: Vec<T>,
+    /// ラベルの誤りの診断を出したか．出していれば数の誤りは重ねない．
+    reported: bool,
+    /// 位置引数が仮引数より多かったか．
+    too_many: bool,
+}
+
+impl<T> Assigned<T> {
+    /// 埋まっていない位置があるか．
+    fn has_missing(&self) -> bool {
+        self.slots.iter().any(Option::is_none)
+    }
+}
+
 /// 名前付き引数を置く位置．置けなければ，その理由の診断の中身．
-fn label_slot(
+fn label_slot<T>(
     callee_name: Option<&SmolStr>,
     labels: Option<&[Option<SmolStr>]>,
-    slots: &[Option<ExprId>],
+    slots: &[Option<T>],
     label: &SmolStr,
 ) -> Result<usize, DiagnosticKind> {
     let labels = labels.ok_or_else(|| DiagnosticKind::LabelOnUnnamedCallee {

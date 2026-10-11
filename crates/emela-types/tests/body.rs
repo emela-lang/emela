@@ -206,3 +206,72 @@ fn f(g: fn(Int) -> Int) -> Int {
 }
 "#));
 }
+
+#[test]
+fn simple_patterns() {
+    insta::assert_snapshot!(run(r#"
+const ORIGIN: (Int, Int) = (0, 0)
+
+fn f(p: (Int, String)) -> Int {
+  (n, s) = p
+  ((a, b), c) = ((1, "x"), 2.0)
+  () = ()
+  (_, t) = p
+  n
+}
+"#));
+}
+
+#[test]
+fn pattern_mismatch() {
+    insta::assert_snapshot!(run(r#"
+fn f(p: (Int, String)) -> Int {
+  (a, b, c) = p
+  (x, y) = 1
+  () = 1
+  1
+}
+"#));
+}
+
+#[test]
+fn ctor_and_list_patterns() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+type Pair[A, B](first: A, second: B)
+
+fn f(u: User, p: Pair[Int, String], o: Option[Bool], xs: List[Int]) -> Int {
+  User(id:, name:) = u
+  User(name: n, ..) = u
+  User(i, s) = u
+  Pair(a, b) = p
+  Some(flag) = o
+  [x, y, ..rest] = xs
+  [z, ..] = xs
+  [] = xs
+  id
+}
+"#));
+}
+
+#[test]
+fn ctor_pattern_errors() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+
+fn f(u: User, s: Shape) -> Int {
+  User(name:) = u
+  Rect(w) = s
+  Rect(w2, h2, d2) = s
+  Circle(r: r) = s
+  Some(v) = u
+  [q] = u
+  1
+}
+"#));
+}
