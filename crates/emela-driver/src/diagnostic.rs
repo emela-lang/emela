@@ -403,6 +403,17 @@ impl Diagnostic {
 }
 
 impl Diagnostic {
+    /// lowering の誤り．型検査は通ったが Core IR にまだできない箇所．文面は型検査の
+    /// `Unsupported` と同じ．位置の引き方は [`Diagnostic::from_type`] と同じ．
+    pub fn from_lower(error: &emela_core::LowerError, files: &ArenaMap<ModuleId, FileId>) -> Self {
+        let emela_core::LowerError::Unsupported { what, span } = error;
+        let diagnostic = Diagnostic::error(format!("not supported yet: {what}"));
+        match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
+            Some(span) => diagnostic.with_span(span),
+            None => diagnostic,
+        }
+    }
+
     /// 型検査の診断．位置は HIR の位置（モジュールと範囲）で，モジュールのファイルを
     /// `files` で引く．ソースのない位置（Prelude の宣言）は位置なしにする．
     pub fn from_type(

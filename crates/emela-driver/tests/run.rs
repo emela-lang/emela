@@ -6,8 +6,8 @@ use emela_core::build::*;
 use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
     Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input, JsBackend,
-    JsOutput, LexOnly, MemoryFiles, Output, OutputFile, Parsed, RunOptions, RunOutput, SourceFile,
-    run,
+    JsOutput, LexOnly, Lower, MemoryFiles, Output, OutputFile, Parsed, RunOptions, RunOutput,
+    SourceFile, run,
 };
 use emela_resolve::ModuleId;
 
@@ -304,5 +304,74 @@ fn core_ir_runs_through_codegen_js() {
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "", "")
+    );
+}
+
+/// ソースを `Lower`（名前解決，型検査，lowering）と `CoreJs` で `emela run` の経路に通す．
+fn run_source(name: &str, main: &str) -> RunOutput {
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let options = RunOptions {
+        out_dir: out_dir(name),
+        node: PathBuf::from("node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (analysis, output) = run(
+        &fs,
+        &input,
+        &mut Lower::default(),
+        &mut CoreJs,
+        &options,
+        |_| {},
+    );
+    let _ = std::fs::remove_dir_all(&options.out_dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    output.unwrap()
+}
+
+#[test]
+fn source_runs_through_lowering() {
+    let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n}\n");
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "3\n")
+    );
+}
+
+#[test]
+fn lowered_calls_reorder_named_args_and_reach_core() {
+    // 名前付き引数は位置の順に並べ替え，core の `List.range` はたどって写す．
+    let output = run_source(
+        "lower-calls",
+        "\
+fn main() {
+  dbg(List.range(0, 3))
+  dbg(scale(by: 3, n: String.length(\"emela\")))
+}
+
+fn scale(n: Int, by: Int) -> Int {
+  n * by
+}
+",
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "[0, 1, 2]\n15\n")
+    );
+}
+
+#[test]
+fn lowered_int_arithmetic_wraps() {
+    // Int のあふれは 32bit で折り返す（16.1）．
+    let output = run_source("lower-wrap", "fn main() {\n  dbg(2147483647 + 1)\n}\n");
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "-2147483648\n")
     );
 }

@@ -7,9 +7,10 @@ use emela_syntax::{Parse, SyntaxKind};
 use emela_types::{ProgramTypes, check_program};
 use la_arena::ArenaMap;
 
-use crate::diagnostic::{Diagnostic, Location};
+use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
+use crate::testing::{TestDef, collect_tests, resolve_tests};
 
 /// 構文解析までのフロントエンド．構文木をモジュールごとに持ち，import の一覧を返す．
 /// 型検査はまだないので，[`Frontend::check`] は診断なしで `()` を返す．
@@ -175,6 +176,8 @@ pub struct Typecheck<B = NoBuiltins> {
 pub struct TypedProgram {
     pub hir: Program,
     pub types: ProgramTypes,
+    /// ソースの `@test` の関数．モジュールの順，宣言の順．
+    pub tests: Vec<TestDef>,
 }
 
 impl Default for Typecheck<NoBuiltins> {
@@ -217,11 +220,16 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         };
         let types = check_program(&hir);
         let mut diagnostics = resolved.diagnostics;
+        // `@test` の誤り（E0226）とテスト関数の参照の誤り（E0227）も，check と LSP で出すためにここで見る．
+        let (tests, mut test_diagnostics) = collect_tests(analysis, |m| self.parse_of(m));
+        let (tests, ref_diagnostics) = resolve_tests(analysis, &hir, tests);
+        test_diagnostics.extend(ref_diagnostics);
         // 型推論は呼び出しの順に進むので，名前解決と同じくファイルと位置の順に並べ直す．
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
             .iter()
             .map(|d| Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files))
+            .chain(test_diagnostics)
             .collect();
         type_diagnostics.sort_by_key(|d| match &d.location {
             Some(Location::Span(span)) => (Some(span.file), span.range.start()),
@@ -229,8 +237,91 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         });
         diagnostics.extend(type_diagnostics);
         Checked {
-            program: Some(TypedProgram { hir, types }),
+            program: Some(TypedProgram { hir, types, tests }),
             diagnostics,
+        }
+    }
+}
+
+/// 型検査（[`Typecheck`]）の後に Core IR へ写すフロントエンド．`emela build` と `run` の既定．
+///
+/// 名前解決か型検査に誤りが1件でもあれば lowering は呼ばない（lowering は誤りのない
+/// プログラムを前提にする）．エントリのモジュールの export する fn からたどれる fn だけを写す．
+pub struct Lower<B = NoBuiltins> {
+    typecheck: Typecheck<B>,
+}
+
+impl Default for Lower<NoBuiltins> {
+    fn default() -> Self {
+        Lower {
+            typecheck: Typecheck::default(),
+        }
+    }
+}
+
+impl<B: BuiltinModules> Frontend for Lower<B> {
+    type Program = emela_core::Module;
+
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
+        self.typecheck.parse(module, file, source)
+    }
+
+    fn core_sources(&self) -> Vec<CoreSource> {
+        self.typecheck.core_sources()
+    }
+
+    fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<emela_core::Module> {
+        let checked = self.typecheck.check(analysis, order);
+        let mut diagnostics = checked.diagnostics;
+        let program = checked.program.and_then(|typed| {
+            lower_typed(
+                analysis,
+                &typed,
+                emela_core::Roots::Exported,
+                &mut diagnostics,
+            )
+            .map(|lowered| lowered.module)
+        });
+        Checked {
+            program,
+            diagnostics,
+        }
+    }
+}
+
+/// 型検査の結果を Core IR にする．`diagnostics` に誤りが1件でもあるか，エントリがなければ
+/// lowering を呼ばずに `None`．lowering の誤りは `diagnostics` に足して `None`．
+pub(crate) fn lower_typed(
+    analysis: &Analysis,
+    typed: &TypedProgram,
+    roots: emela_core::Roots,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<emela_core::Lowered> {
+    let entry = analysis.entry?;
+    if error_count(diagnostics) > 0 {
+        return None;
+    }
+    let mut sources = ArenaMap::default();
+    for (module, &file) in analysis.files.iter() {
+        sources.insert(module, analysis.sources[file].text());
+    }
+    let input = emela_core::LowerInput {
+        hir: &typed.hir,
+        types: &typed.types,
+        modules: &analysis.modules,
+        sources,
+        entry,
+        tests: typed.tests.iter().map(|t| t.def).collect(),
+    };
+    match emela_core::lower(&input, roots) {
+        Ok(lowered) => Some(lowered),
+        Err(errors) => {
+            diagnostics.extend(
+                errors
+                    .iter()
+                    .map(|e| Diagnostic::from_lower(e, &analysis.files)),
+            );
+            None
         }
     }
 }

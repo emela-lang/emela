@@ -1,8 +1,8 @@
 //! `emela test` の段（仕様 13章）．
 //!
-//! ソースから `@test` の関数を集める部分（[`WithTests`]）と，Core IR のテスト関数を JS にして
-//! node で1つずつ呼ぶ部分（[`TestBackend`]，[`test`]）からなる．ソースからテスト関数の IR を作る
-//! lowering はまだないので，その間は [`Frontend`] の `Program` を [`TestModule`] にして差し込む．
+//! ソースから `@test` の関数を集める部分（[`collect_tests`]，[`resolve_tests`]．型検査
+//! [`Typecheck`] の中で呼ぶ），テスト関数を根にして Core IR へ写すフロントエンド（[`LowerTests`]），
+//! Core IR のテスト関数を JS にして node で1つずつ呼ぶ部分（[`TestBackend`]，[`test`]）からなる．
 
 mod collect;
 mod report;
@@ -15,16 +15,17 @@ use emela_codegen_js::{
     Options, RUNTIME, RUNTIME_FILE, RuntimeMode, TEST_EVENT_PREFIX, TestEntry, emit_module,
     emit_test_main,
 };
-use emela_core::FnId;
-use emela_resolve::{BuiltinModules, ModuleId};
-use emela_syntax::Parse;
+use emela_core::{FnId, Roots};
+use emela_resolve::hir::{DefId, DefKind, Program};
+use emela_resolve::{BuiltinModules, ModuleId, NoBuiltins};
 use serde::Deserialize;
 
 pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
 pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
 
+use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::frontend::{ParseOnly, Resolve, Typecheck};
+use crate::frontend::{Typecheck, lower_typed};
 use crate::js::{CoreJs, JS_ENTRY_FILE};
 use crate::output::{JsOutput, OutputFile, write_output};
 use crate::pipeline::{
@@ -45,61 +46,108 @@ pub fn default_test_out_dir(input: &Input) -> PathBuf {
     input.base.join(JS_TEST_OUT_DIR)
 }
 
-/// モジュールごとの構文木を引けるフロントエンド．
-pub trait ParseTrees {
-    fn parse_of(&self, module: ModuleId) -> Option<&Parse>;
+/// 型検査まで通った `@test` の関数．`def` は HIR の定義．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestDef {
+    pub test: TestFn,
+    pub def: DefId,
 }
 
-impl ParseTrees for ParseOnly {
-    fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
-        ParseOnly::parse_of(self, module)
+/// 集めた `@test` の関数に HIR の定義を対応させ，通常のコードからテスト関数を参照している
+/// 箇所を E0227 にする．テスト関数は通常のビルドで取り除かれる（13.1）ので，参照できない．
+/// テスト関数どうしの参照は許す．
+pub(crate) fn resolve_tests(
+    analysis: &Analysis,
+    hir: &Program,
+    tests: Vec<TestFn>,
+) -> (Vec<TestDef>, Vec<Diagnostic>) {
+    // `TestFn::name_range` は名前解決の `DefData::span` と同じ範囲．
+    let tests: Vec<TestDef> = tests
+        .into_iter()
+        .filter_map(|test| {
+            let def = hir.defs.iter().find_map(|(def, data)| {
+                let span = data.span?;
+                (data.kind == DefKind::Fn
+                    && span.module == test.module
+                    && span.range == test.name_range)
+                    .then_some(def)
+            })?;
+            Some(TestDef { test, def })
+        })
+        .collect();
+
+    let mut diagnostics = Vec::new();
+    for (def, _) in hir.defs.iter() {
+        if tests.iter().any(|t| t.def == def) {
+            continue;
+        }
+        for (target, span) in emela_types::body_refs(hir, def) {
+            if !tests.iter().any(|t| t.def == target) {
+                continue;
+            }
+            let Some(&file) = analysis.files.get(span.module) else {
+                continue;
+            };
+            diagnostics.push(
+                Diagnostic::error(format!(
+                    "test function `{}` can only be used from test functions",
+                    hir.defs[target].name
+                ))
+                .with_code(code::TEST_FN_OUTSIDE_TESTS)
+                .with_span(crate::diagnostic::Span::new(file, span.range))
+                .with_note("test functions are removed from normal builds (13.1)"),
+            );
+        }
+    }
+    (tests, diagnostics)
+}
+
+/// 型検査（[`Typecheck`]）の後に，テスト関数を根にして Core IR へ写すフロントエンド．
+/// `emela test` の既定．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．
+pub struct LowerTests<B = NoBuiltins> {
+    typecheck: Typecheck<B>,
+}
+
+impl Default for LowerTests<NoBuiltins> {
+    fn default() -> Self {
+        LowerTests {
+            typecheck: Typecheck::default(),
+        }
     }
 }
 
-impl<B: BuiltinModules> ParseTrees for Resolve<B> {
-    fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
-        Resolve::parse_of(self, module)
-    }
-}
-
-impl<B: BuiltinModules> ParseTrees for Typecheck<B> {
-    fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
-        Typecheck::parse_of(self, module)
-    }
-}
-
-/// [`WithTests`] のプログラム．内側のフロントエンドのプログラムと，ソースの `@test` の関数．
-#[derive(Debug)]
-pub struct SourceTests<P> {
-    pub program: P,
-    pub tests: Vec<TestFn>,
-}
-
-/// 内側のフロントエンドの検査の後に `@test` の関数を集めるフロントエンド．
-/// 誤った `@test`（E0226）は検査の診断の後に足す．
-#[derive(Debug, Default)]
-pub struct WithTests<F>(pub F);
-
-impl<F: Frontend + ParseTrees> Frontend for WithTests<F> {
-    type Program = SourceTests<F::Program>;
+impl<B: BuiltinModules> Frontend for LowerTests<B> {
+    type Program = TestModule;
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
-        self.0.parse(module, file, source)
+        self.typecheck.parse(module, file, source)
     }
 
     fn core_sources(&self) -> Vec<CoreSource> {
-        self.0.core_sources()
+        self.typecheck.core_sources()
     }
 
-    fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program> {
-        let checked = self.0.check(analysis, order);
-        let (tests, test_diagnostics) = collect_tests(analysis, |m| self.0.parse_of(m));
+    fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TestModule> {
+        let checked = self.typecheck.check(analysis, order);
         let mut diagnostics = checked.diagnostics;
-        diagnostics.extend(test_diagnostics);
+        let program = checked.program.and_then(|typed| {
+            let lowered = lower_typed(analysis, &typed, Roots::Tests, &mut diagnostics)?;
+            let tests = typed
+                .tests
+                .iter()
+                .zip(lowered.tests)
+                .map(|(t, function)| TestCase {
+                    name: t.test.display_name.clone(),
+                    function,
+                })
+                .collect();
+            Some(TestModule {
+                module: lowered.module,
+                tests,
+            })
+        });
         Checked {
-            program: checked
-                .program
-                .map(|program| SourceTests { program, tests }),
+            program,
             diagnostics,
         }
     }

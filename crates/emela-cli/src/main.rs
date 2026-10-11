@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use emela_driver::{
-    Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, RunOptions, SourceDb,
-    TestOptions, Typecheck, WithTests,
+    Analysis, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests, OsFs, Output, RunOptions,
+    SourceDb, TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -96,14 +96,8 @@ fn build(path: &Path, out_dir: Option<PathBuf>) -> ExitCode {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir());
-    // lowering と JS の出力の段ができたら NoJsBackend を差し替える．
-    let (analysis, _) = emela_driver::build(
-        &OsFs,
-        &input,
-        &mut Typecheck::default(),
-        &mut NoJsBackend,
-        &out_dir,
-    );
+    let (analysis, _) =
+        emela_driver::build(&OsFs, &input, &mut Lower::default(), &mut CoreJs, &out_dir);
     report(&analysis)
 }
 
@@ -123,8 +117,8 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
     let (analysis, output) = emela_driver::run(
         &OsFs,
         &input,
-        &mut Typecheck::default(),
-        &mut NoJsBackend,
+        &mut Lower::default(),
+        &mut CoreJs,
         &options,
         |analysis| {
             diagnostics_code = report(analysis);
@@ -161,12 +155,11 @@ fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCo
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let stdout = std::io::stdout();
-    // lowering ができたら NoJsBackend を差し替える（テスト関数の IR は TestModule）．
     let (analysis, report) = emela_driver::test(
         &OsFs,
         &input,
-        &mut WithTests(Typecheck::default()),
-        &mut NoJsBackend,
+        &mut LowerTests::default(),
+        &mut CoreJs,
         &options,
         |analysis| {
             diagnostics_code = report(analysis);
