@@ -6,7 +6,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [main, dev, next]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -36,3 +36,22 @@ jobs:
           node-version: 24
       - name: Test
         run: cargo test --workspace --locked
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `emela run` and `emela test` execute the generated JS with node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: cargo build --bin emela --locked
+      - name: Check, test and fmt every example
+        run: |
+          emela="$PWD/target/debug/emela"
+          for dir in examples/*/; do
+            echo "::group::$dir"
+            (cd "$dir" && "$emela" check && "$emela" test && "$emela" fmt --check)
+            echo "::endgroup::"
+          done
