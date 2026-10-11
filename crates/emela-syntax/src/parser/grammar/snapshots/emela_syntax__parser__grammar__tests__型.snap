@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"Int\", \"Http.Client\", \"List[A]\", \"Map[String, List[(Int, Bool)]]\",\n\"Self\", \"()\", \"(Int, String,)\", \"(Int)\",\n\"fn() -> (fn(Int) -> String) fails ParseError\",\n\"fn() -> fn(Int) -> String fails ParseError\", \"fn(A) -> B\",\n\"fn() -> () fails NotFound | DbError use Users\", \"fn(A) -> A use R\",\n\"fn(A) -> A fails {} use { Io, Clock }\",\n\"fn(A) -> A fails E use {\\n  Io,\\n  Clock,\\n}\",], types::type_,)"
+expression: "dump_all(&[\"Int\", \"Http.Client\", \"List[A]\", \"Map[String, List[(Int, Bool)]]\",\n\"Self\", \"()\", \"(Int, String,)\", \"(Int)\",\n\"fn() -> (fn(Int) -> String) fails ParseError\",\n\"fn() -> fn(Int) -> String fails ParseError\", \"fn(A) -> B\",\n\"fn() -> () fails NotFound | DbError use Users\", \"fn(A) -> A use R\",\n\"fn(A) -> A fails {} use { Io, Clock }\",\n\"fn(A) -> A fails E use {\\n  Io,\\n  Clock,\\n}\", \"fn() -> A fails Timeout | E\",\n\"fn() -> A fails E | Timeout | Http.Error\",], types::type_,)"
 ---
 === Int
 ROOT@0..3
@@ -304,3 +304,60 @@ ROOT@0..41
         COMMA@38..39 ","
         NEWLINE@39..40 "\n"
         R_BRACE@40..41 "}"
+=== fn() -> A fails Timeout | E
+ROOT@0..27
+  FN_TYPE@0..27
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..9
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      TYPE_VAR@8..9
+        UPPER_NAME@8..9 "A"
+    WHITESPACE@9..10 " "
+    FAILS_CLAUSE@10..27
+      LOWER_NAME@10..15 "fails"
+      WHITESPACE@15..16 " "
+      ERROR_SET@16..27
+        PATH@16..23
+          TYPE_NAME@16..23 "Timeout"
+        WHITESPACE@23..24 " "
+        PIPE@24..25 "|"
+        WHITESPACE@25..26 " "
+        TYPE_VAR@26..27
+          UPPER_NAME@26..27 "E"
+=== fn() -> A fails E | Timeout | Http.Error
+ROOT@0..40
+  FN_TYPE@0..40
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..9
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      TYPE_VAR@8..9
+        UPPER_NAME@8..9 "A"
+    WHITESPACE@9..10 " "
+    FAILS_CLAUSE@10..40
+      LOWER_NAME@10..15 "fails"
+      WHITESPACE@15..16 " "
+      ERROR_SET@16..40
+        TYPE_VAR@16..17
+          UPPER_NAME@16..17 "E"
+        WHITESPACE@17..18 " "
+        PIPE@18..19 "|"
+        WHITESPACE@19..20 " "
+        PATH@20..27
+          TYPE_NAME@20..27 "Timeout"
+        WHITESPACE@27..28 " "
+        PIPE@28..29 "|"
+        WHITESPACE@29..30 " "
+        PATH@30..40
+          TYPE_NAME@30..34 "Http"
+          DOT@34..35 "."
+          TYPE_NAME@35..40 "Error"

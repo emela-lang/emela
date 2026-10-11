@@ -1,0 +1,15 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/error_sets.emel
+---
+# エラーのタグと集合の型引数を混ぜた fails 節（7.3，7.4）
+error Timeout
+
+fn retry[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E {
+  f() escape { Timeout(_) -> f() }
+}
+
+fn first[E](f: fn() -> Int fails E | Timeout | Http.Error) -> Int fails E | Timeout | Http.Error {
+  f()
+}

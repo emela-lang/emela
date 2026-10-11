@@ -134,21 +134,19 @@ pub(crate) fn effects_and_errors(p: &mut Parser<'_>) {
     }
 }
 
-/// `"{" "}" | type_ref { "|" type_ref } | upper_name`
+/// `"{" "}" | error_item { "|" error_item }`．`error_item = type_ref | upper_name`
+///
+/// エラーのタグ（`NotFound`）と集合の型引数（`E`）を混ぜてよい（`Timeout | E`，7.4）．
 fn error_set(p: &mut Parser<'_>) {
     let m = p.start();
-    match p.current() {
-        L_BRACE => {
-            p.bump();
-            p.expect(R_BRACE);
+    if p.at(L_BRACE) {
+        p.bump();
+        p.expect(R_BRACE);
+    } else {
+        set_element(p);
+        while p.eat(PIPE) {
+            set_element(p);
         }
-        TYPE_NAME => {
-            path(p);
-            while p.eat(PIPE) {
-                set_element(p);
-            }
-        }
-        _ => set_element(p),
     }
     m.complete(p, ERROR_SET);
 }
