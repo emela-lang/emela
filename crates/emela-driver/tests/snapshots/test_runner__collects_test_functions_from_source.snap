@@ -2,14 +2,6 @@
 source: crates/emela-driver/tests/test_runner.rs
 expression: rendered
 ---
-error[E0226]: test function `foreign` needs a body
-   ╭─[ src/http/client.emel:8:4 ]
-   │
- 8 │ fn foreign()
-   │    ───┬───  
-   │       ╰───── 
-───╯
-
 error[E0226]: test function `takes` cannot take parameters
    ╭─[ src/main.emel:9:9 ]
    │
@@ -34,5 +26,13 @@ error[E0226]: `@test` takes no arguments
     │ ───┬───  
     │    ╰───── 
 ────╯
+
+error[E0226]: test function `foreign` needs a body
+   ╭─[ src/http/client.emel:8:4 ]
+   │
+ 8 │ fn foreign()
+   │    ───┬───  
+   │       ╰───── 
+───╯
 
 4 errors

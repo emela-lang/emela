@@ -1,8 +1,7 @@
 //! `emela test` をプロセスとして起動する結合テスト．
 //!
-//! ソースからテスト関数の IR を作る lowering はまだないので，ここでは引数の解釈と，
-//! `@test` の検査（E0226），検査を通った後に JS の出力がないこと（E0905）で止まることを見る．
-//! IR からテストを実行する経路は emela-driver の tests/test_runner.rs が見る．
+//! 引数の解釈，`@test` の検査（E0226），ソースのテスト関数を lowering して node で
+//! 実行するところまでを見る．結果の表示の細部は emela-driver の tests/test_runner.rs が見る．
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -64,25 +63,28 @@ fn invalid_test_functions_are_errors() {
 }
 
 #[test]
-fn valid_tests_stop_at_the_missing_backend() {
+fn valid_tests_run() {
     let project = Project::new(
         "valid",
         &[
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "@test\nfn adds() {\n  assert 1 + 2 == 3\n}\n",
+                "@test\nfn adds() {\n  assert 1 + 2 == 3\n}\n\n@test\nfn subtracts() {\n  assert 3 - 1 == 2\n}\n",
             ),
         ],
     );
-    for args in [
-        &["test"][..],
-        &["test", ".", "adds"],
-        &["test", "src/main.emel"],
+    for (args, ran) in [
+        (&["test"][..], 2),
+        (&["test", ".", "adds"], 1),
+        (&["test", "src/main.emel"], 2),
     ] {
         let (code, stdout, stderr) = project.emela(args);
-        assert_eq!(code, Some(1), "{args:?}");
-        assert_eq!(stdout, "");
-        assert!(stderr.starts_with("error[E0905]: "), "{stderr}");
+        assert_eq!((code, stderr.as_str()), (Some(0), ""), "{args:?}");
+        assert!(
+            stdout.starts_with(&format!("running {ran} test")),
+            "{stdout}"
+        );
+        assert!(stdout.contains("test adds ... ok"), "{stdout}");
     }
 }

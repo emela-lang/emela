@@ -6,7 +6,8 @@
 //! まとまりの中では単相なので，宣言の型のない定義どうしの再帰は多相にならない．
 
 use emela_resolve::hir::{
-    Block, DefId, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Stmt, StrPart,
+    Block, DefId, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Span, Stmt,
+    StrPart,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -126,16 +127,10 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
 
     let mut edges: FxHashMap<DefId, Vec<DefId>> = FxHashMap::default();
     for &def in &nodes {
-        let mut refs = Vec::new();
-        match program.item(def) {
-            Some(Item::Fn(item)) => {
-                if let Some(body) = item.body {
-                    collect_expr_refs(program, body, &mut refs);
-                }
-            }
-            Some(Item::Const(item)) => collect_expr_refs(program, item.value, &mut refs),
-            _ => {}
-        }
+        let mut refs: Vec<DefId> = body_refs(program, def)
+            .into_iter()
+            .map(|(r, _)| r)
+            .collect();
         refs.retain(|r| is_node.contains_key(r));
         refs.dedup();
         edges.insert(def, refs);
@@ -206,11 +201,28 @@ impl Tarjan<'_> {
     }
 }
 
+/// 定義（本体のある fn と const）の本体の中で参照している定義と，参照の位置．書かれた順．
+/// 本体のない定義は空．パターンの中の const も含む．
+pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
+    let mut out = Vec::new();
+    match program.item(def) {
+        Some(Item::Fn(item)) => {
+            if let Some(body) = item.body {
+                collect_expr_refs(program, body, &mut out);
+            }
+        }
+        Some(Item::Const(item)) => collect_expr_refs(program, item.value, &mut out),
+        _ => {}
+    }
+    out
+}
+
 /// 式の中で参照している定義を集める．
-fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<DefId>) {
-    let go = |e: ExprId, out: &mut Vec<DefId>| collect_expr_refs(program, e, out);
-    match &program.exprs[expr].kind {
-        ExprKind::Path(Res::Def(def)) => out.push(*def),
+fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span)>) {
+    let go = |e: ExprId, out: &mut Vec<(DefId, Span)>| collect_expr_refs(program, e, out);
+    let e = &program.exprs[expr];
+    match &e.kind {
+        ExprKind::Path(Res::Def(def)) => out.push((*def, e.span)),
         ExprKind::Missing
         | ExprKind::Lit(_)
         | ExprKind::Path(_)
@@ -281,7 +293,7 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<DefId>) {
     }
 }
 
-fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<DefId>) {
+fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<(DefId, Span)>) {
     for stmt in &block.stmts {
         match stmt {
             Stmt::Let { pat, value, .. } => {
@@ -297,9 +309,10 @@ fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<DefId>) {
 }
 
 /// パターンの中で参照している const を集める．
-fn collect_pat_refs(program: &Program, pat: PatId, out: &mut Vec<DefId>) {
-    match &program.pats[pat].kind {
-        PatKind::Const(Res::Def(def)) => out.push(*def),
+fn collect_pat_refs(program: &Program, pat: PatId, out: &mut Vec<(DefId, Span)>) {
+    let p = &program.pats[pat];
+    match &p.kind {
+        PatKind::Const(Res::Def(def)) => out.push((*def, p.span)),
         PatKind::Ctor { args, .. } => {
             for arg in args.iter().flatten() {
                 collect_pat_refs(program, arg.pat, out);

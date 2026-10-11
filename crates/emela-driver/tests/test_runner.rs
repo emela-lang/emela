@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type};
 use emela_driver::{
-    Analysis, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, JsOutput, MemoryFiles,
-    NoJsBackend, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
-    TestModule, TestOptions, TestOutcome, TestReport, WithTests, check, test,
+    Analysis, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, JsOutput, LowerTests,
+    MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
+    TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check, test,
 };
 use emela_resolve::ModuleId;
 
@@ -380,12 +380,12 @@ const SOURCE_TESTS: &[(&str, &str)] = &[
 fn collects_test_functions_from_source() {
     let fs = MemoryFiles::new(SOURCE_TESTS.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
-    let (analysis, program) = check(&fs, &input, &mut WithTests(ParseOnly::new()));
+    let (analysis, program) = check(&fs, &input, &mut Typecheck::default());
     let tests: Vec<_> = program
         .unwrap()
         .tests
         .iter()
-        .map(|t| t.display_name.clone())
+        .map(|t| t.test.display_name.clone())
         .collect();
     // エントリのモジュールは関数名だけ，ほかはモジュール名を付ける．
     assert_eq!(tests, ["Http.Client.gets", "adds"]);
@@ -394,24 +394,65 @@ fn collects_test_functions_from_source() {
 }
 
 #[test]
-fn source_tests_stop_before_lowering() {
-    // lowering がまだないので，検査を通ったら JS の出力がないことの診断で止まる．
+fn source_tests_run_through_lowering() {
+    // ソースの `@test` の関数を lowering（`LowerTests`）で写し，node で実行する．
     let sources = &[
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            "@test\nfn adds() {\n  assert 1 + 2 == 3\n}\n",
+            "\
+fn add(a: Int, b: Int) -> Int { a + b }
+
+@test
+fn adds() {
+  assert add(1, 2) == 3
+}
+
+@test
+fn fails() {
+  assert add(1, 2) == 4
+}
+",
+        ),
+        (
+            "app/src/util.emel",
+            "@test\nfn in_util() {\n  assert List.map([1], fn(x) { x + 1 }) == [2]\n}\n",
         ),
     ];
     let (analysis, report, out) = run_tests(
         "source",
         sources,
-        &mut WithTests(ParseOnly::new()),
-        &mut NoJsBackend,
+        &mut LowerTests::default(),
+        &mut CoreJs,
         None,
     );
-    assert!(report.is_none());
-    assert_eq!(out, "");
+    assert_eq!(analysis.diagnostics, []);
+    let report = report.unwrap();
+    let results: Vec<_> = report
+        .results
+        .iter()
+        .map(|r| (r.name.as_str(), matches!(r.outcome, TestOutcome::Passed)))
+        .collect();
+    assert_eq!(
+        results,
+        [("adds", true), ("fails", false), ("Util.in_util", true)]
+    );
+    insta::assert_snapshot!(out);
+}
+
+#[test]
+fn test_functions_cannot_be_used_outside_tests() {
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "fn main() {\n  adds()\n}\n\n@test\nfn adds() {\n  assert True\n}\n\n@test\nfn calls_adds() {\n  adds()\n}\n",
+        ),
+    ];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
+    // テスト関数どうしの参照（`calls_adds`）は許す．
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
-    assert_eq!(codes, [Some("E0905")]);
+    assert_eq!(codes, [Some("E0227")]);
 }

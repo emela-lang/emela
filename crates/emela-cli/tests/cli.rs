@@ -117,17 +117,42 @@ fn check_missing_path() {
 }
 
 #[test]
-fn build_and_run_without_js_backend() {
+fn build_writes_js() {
     let project = Project::new(
-        "no-backend",
-        &[("Pome.toml", ""), ("src/main.emel", "fn main() { 1 }\n")],
+        "build-js",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n}\n"),
+        ],
+    );
+    let run = project.emela(&["build"]);
+    assert_eq!((run.code, run.stderr.as_str()), (Some(0), ""));
+    let js = std::fs::read_to_string(project.path().join("target/emela/js/main.mjs")).unwrap();
+    assert!(js.contains("function main()"), "{js}");
+    assert!(js.contains("export { main };"), "{js}");
+}
+
+#[test]
+fn build_reports_unsupported_expressions() {
+    let project = Project::new(
+        "unsupported",
+        &[
+            ("Pome.toml", ""),
+            // 型引数の値の表示は Show の辞書渡しか単相化が要るので，0.21 まで扱えない．
+            (
+                "src/main.emel",
+                "fn main() {\n  show(1)\n}\n\nfn show[A](x: A) -> String {\n  \"#{x}\"\n}\n",
+            ),
+        ],
     );
     for command in ["build", "run"] {
         let run = project.emela(&[command]);
         assert_eq!(run.code, Some(1), "{command}");
-        assert_eq!(
-            run.stderr, "error[E0905]: JS output is not implemented yet\n\n1 error\n",
-            "{command}"
+        assert!(
+            run.stderr
+                .starts_with("error: not supported yet: showing a value of a type parameter\n"),
+            "{command}: {}",
+            run.stderr
         );
     }
 }

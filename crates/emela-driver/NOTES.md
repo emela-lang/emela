@@ -24,20 +24,21 @@ pub trait JsBackend<P> {
 - `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
 - `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はしないので `Program = ()`
 - `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）
-- `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli と LSP はこれを使う
+- `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli の `check` と LSP はこれを使う
+- `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `Typecheck` と `NoJsBackend` をそれぞれ差し替える（lowering は `TypedProgram` を読む）
+- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．cli の `build` と `run` は `Lower` と組み合わせて使う
 
 ## テスト（`emela test`，仕様 13章）
 
 `src/testing.rs` と `src/testing/` に分けてある．流れは「検査 → テスト関数の IR → JS の出力 → node で1つずつ実行 → 結果の表示」．
 
 ```rust
-/// ソースの `@test` を集めるフロントエンド．内側の検査の後に `collect_tests` をかける．
-pub struct WithTests<F>(pub F);                 // Program = SourceTests<F::Program>
-pub struct SourceTests<P> { pub program: P, pub tests: Vec<TestFn> }
+/// 型検査（`Typecheck::check`）が `@test` を集め，HIR の定義と組にして `TypedProgram::tests` に持つ．
+pub struct TestDef { pub test: TestFn, pub def: DefId }
 
-/// テスト用の lowering が返す Core IR．
+/// テスト関数を根にして Core IR へ写すフロントエンド（Program = TestModule）．
+pub struct LowerTests<B = NoBuiltins> { .. }
 pub struct TestModule { pub module: emela_core::Module, pub tests: Vec<TestCase> }
 pub struct TestCase { pub name: String, pub function: FnId }
 
@@ -48,17 +49,17 @@ pub trait TestBackend<P> {
 }
 ```
 
-### ソースからの差し込み口（lowering ができたら）
-
-- テスト用の lowering は `Frontend<Program = TestModule>` として書く．`WithTests` と同じく内側（型推論まで）の検査の後に `collect_tests` を呼び，`TestFn` ごとに HIR の定義を引いて（`TestFn::module` と `name_range` が `DefData::span` と一致する），テスト関数も含めて Core IR にする．`TestCase::name` は `TestFn::display_name` をそのまま使う
-- 通常のビルドの lowering は `is_test_fn`（または `collect_tests` の結果）でテスト関数を除く（13.1）．`assert` は除かない（13.2）
-- cli の `Test` は今 `WithTests(Typecheck)` と `NoJsBackend` を使う．lowering ができたらテスト用の lowering と `CoreJs` に差し替える（`CoreJs` は `TestBackend<TestModule>` を持つ）
-- `assert` の lowering は，式が比較（`==`，`!=`，`<`，`<=`，`>`，`>=`）なら `Assert::compare`，それ以外は `Assert::bool` にする．`text` には式のソースの字面を入れる
+- `Typecheck::check` が `collect_tests`（E0226）と `resolve_tests` を呼ぶ．`check`，LSP，`build`，`run`，`test` のどれでも `@test` の誤りが出る
+- `resolve_tests` は `TestFn` ごとに HIR の定義を引く（`TestFn::module` と `name_range` が `DefData::span` と一致する）．テスト関数でない fn と const の本体からテスト関数を参照していれば E0227．テスト関数どうしの参照は許す
+- `LowerTests` は `Roots::Tests` で写し，`Lowered::tests`（`LowerInput::tests` と同じ順の `FnId`）から `TestCase` を作る．`TestCase::name` は `TestFn::display_name`
+- 通常のビルド（`Lower`）は `LowerInput::tests` を渡し，テスト関数を export しない．通常のコードからは参照できない（E0227）ので，たどれずに取り除かれる（13.1）．`assert` は除かない（13.2）
+- cli の `test` は `LowerTests` と `CoreJs` を使う
+- （補）JS で export する名前が識別子として書けないとき（エントリ以外のモジュールのテスト関数 `Util.in_util`）は，文字列の名前で export する（`export { Util_in_util as "Util.in_util" }`，ES2022）．起動用モジュールは `$m["Util.in_util"]` で引く
 
 ### 補った判断
 
 - （補）`@test` の誤りは E0226 にする: 引数のある fn，本体のない fn（`@external`），トップレベルの fn 以外（type，impl の中の fn など）に付けたもの，`@test(...)` のように引数を付けたもの．誤ったものは集めない
-- （補）`@test` の誤りは今は `emela test` だけで出る（`check` と LSP は `WithTests` を使っていない）．lowering か型検査に移すときに `check` でも出す
+- （補）テスト関数を通常のコード（テスト関数でない fn と const の本体）から参照すると E0227（``test function `adds` can only be used from test functions``，注記 ``= note: test functions are removed from normal builds (13.1)``）．13.1 と付録 A に反映済み
 - （補）テストの表示名は，エントリのモジュールなら関数名だけ（`greet_returns_user`），ほかのモジュールならモジュール名を付ける（`Http.Client.gets`）．`cargo test` がクレートのルートだけ前置きを付けないのに合わせた．フィルタはこの表示名の部分一致（大文字小文字を区別する）
 - （補）単独ファイルでは，エントリから import でたどれるモジュールのテストだけを実行する（読むモジュールの規則と同じ）
 - （補）テストの JS の出力先は `target/emela/test`（`--out-dir` で変えられる）．テスト関数を export した別の出力なので，通常のビルドの `target/emela/js` を上書きしない
@@ -116,7 +117,7 @@ pub trait TestBackend<P> {
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
-- （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える．`WithTests` は内側のフロントエンドの core のソースをそのまま渡す
+- （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える
 - （補）`@test` の誤りのコードは E0226 にした．E0222〜E0225 は仕様の付録 A で部分更新と `@intrinsic` に振ってあったため
 - （補）`Resolve::check` は名前解決の結果をそのまま `Program` として返す．型検査は `Typecheck` が重ねる．組み込みのモジュールは `NoBuiltins`（emela-core の組み込み関数の表が入ったら差し替える）
 - （補）名前解決の診断（E0211〜E0221，W0201〜W0202）の英語の文面は `Diagnostic::from_resolve` が作る．重複の診断は先の定義に label を付け，「もしかして」の候補は `= help: did you mean ...` にする

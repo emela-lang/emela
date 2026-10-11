@@ -57,3 +57,30 @@
 - （補）`List.tail([])` は `[]`（17.5 の例 `[x, ..List.tail(xs)]` が List を受けるため Option にしない）．`List.head` と `List.get` は Option．`List.get` の負の添字は `None`．
 - （補）`List.range(from, to)` は `from` 以上 `to` 未満．`List.zip` は短い方に合わせる．
 - （補）`Option.or_fail` は fail が要るので alpha.2 で足す（`option.emel` にコメントで残してある）．
+
+## lowering（`lower.rs`）
+
+本人と相談して決めた（2026-10-11）．型検査の結果（emela-driver の `TypedProgram`．HIR と `ProgramTypes` の組）から Core IR を作る．
+
+- （補）lowering は emela-core に置く．emela-core はもともと emela-types に依存しているので，別のクレートに分けても依存は軽くならない．
+- （補）プログラム全体（利用者のモジュール，Prelude，core）を IR の `Module` 1つにする．
+- （補）enum（type，enum，error）は先に全部に `EnumId` を割り振り，構成子を入れる．fn は根（`Roots`）からたどれるものだけを写す．通常のビルドの根はエントリのモジュールの export する fn，`Roots::All` は本体のある全部の fn．fn の `FnId` は参照に出会ったときに `Lowerer::fn_id` が割り振って作業リストに積み，作業リストが尽きるまで本体を変換する．相互再帰でも ID は参照した時点で決まる．`fns` の表に足すのは `fn_id` だけにする（参照の拾い漏れを防ぐため）．
+- （補）たどれない fn は写さないので，その中の lowering の誤り（`Unsupported`）は呼ばれるまで出ない．型の誤りは型検査が全部の fn について出すので，ずれるのは lowering の誤りだけ．使われない core の関数も写せることは，テスト `every_core_function_lowers`（`Roots::All`）で確かめる．
+- （補）関数と enum の名前にはモジュール名を付ける（`List.map`，`Http.Client.User`）．エントリのモジュールの定義だけは付けない（`main`）．JS では `.` が `_` になるが，モジュール名は `_` を含まず（4.1），関数名は小文字で始まる（2.3）のでぶつからない．enum にも付けるのは，表示関数（`$show$User`）と値のない構成子の JS の名前を enum の名前から作るため．
+- （補）HIR の `LocalId` はプログラム全体で一意なので，IR の `Local` へ表で1対1に写す．添字は使い回さない．IR の側では名前付き引数の並べ替えやループ化で `Local` が増える．
+- （補）`lower` は `LowerInput`（HIR，型検査の結果，モジュール名の表，モジュールのソース，エントリ）と根（`Roots`）を受け，`Result<Module, Vec<LowerError>>` を返す．型検査を通っても IR にできない場面（汎用の fn の中での型引数の値の補間など）を「まだ扱えない」の診断にする．見つけた分を全部集める．driver が `Diagnostic` に写す．ソースは assert の失敗に出す式の字面を切り出すのに使う．
+- （補）`error` の宣言も IR の enum にする（構成子1つ，型引数なし）．type と同じく同じ名前の型と構成子を定義し，普通の値として扱える（7.1）．error の構成子は宣言の `DefId` そのもの．
+- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．
+- （補）JS で export するのは，エントリのモジュールの `pub` の fn と `main`（`emela run` の起動用モジュールが `entry.main` を呼ぶ）．
+- （補）呼び出しの引数は，型検査が並べ直した仮引数の順（`ProgramTypes::calls`）から各引数の位置を引き，`named::in_written_order` で書かれた順に評価する．呼ばれる側が変数か関数でない式なら，引数より先に `let` で束縛する．パイプ `x |> f(a)` は左辺を先頭の引数とする呼び出しとして写す．
+- （補）`@intrinsic` の fn の呼び出しは `Expr::Builtin` にする．型引数は `ProgramTypes::type_args` から引く．`@intrinsic` の fn とフィールドのある構成子を値として使うとき（`List.map(xs, String.length)`，`List.map(xs, Some)`）は，それを呼ぶだけのラムダで包む（`fn(x) { Some(x) }`）．引数の数は参照の式の型（関数型）から取る．
+- （補）ブロックの文は `let` の入れ子にする．値を使わない文と `_ = e` は，捨てる用の新しい局所変数（`_`）に束縛する．変数と `_` でないパターンの束縛（`(a, b) = pair`）は腕1つの match にして，残りの文を腕の本体に入れる．必ず成功することは型検査が確かめてある（E0317）．
+- （補）パターンの `True` / `False` は `Pat::Lit(Lit::Bool)`，`()` は `Pat::Lit(Lit::Unit)`．構成子のパターンのフィールドは `ProgramTypes::pat_fields`（位置の順，省いたものは `None`）から引き，`None` を `Pat::Wild` で埋める．括弧のない構成子のパターン（`Empty`）は表にないので，フィールドの数だけ `Wild` を並べる．const のパターンは const の式を扱うまで `Unsupported`．
+- （補）演算子の `OpTy` は左辺の型から決める．`==` / `!=` で基本型でなければ `Structural`．大小比較で基本型でなければ（Ord）`Unsupported`．
+- （補）フィールドの参照は，値の型（type か error．構成子は1つ）の構成子と，型検査が引いた添字（`ProgramTypes::fields`）で `Expr::Field` にする．表にないフィールドの参照は能力の操作（`log.info`）で，エフェクトの段まで `Unsupported`．
+- （補）部分更新 `C(f: e, ..base)` は，書いたフィールドを書かれた順に評価して（リテラル・変数・関数・ラムダ以外は `let` で束縛して），`..base` を最後に評価して束縛する（14.1）．書いていないフィールドは `base` の `Expr::Field` で埋めて `Expr::Ctor` を作る．
+- （補）補間は `Expr::Concat` にし，埋め込む値に IR の型を付ける．型が型引数（`Type::Param`）か関数を含むと表示関数を作れないので `Unsupported`（型引数は Show の辞書渡しか単相化が要るので 0.21，関数は表示できない（10.6）が Show の検査は Trait の段まで型検査にない）．
+- （補）const は引数のない関数にして，参照のたびに呼ぶ（`LIMIT` → `LIMIT()`）．値は純粋な式（5.6）なので結果は同じ．使う場所に式を埋め込まないのは，const の式の中の局所変数を2回束縛することになるため．1回だけ計算する形は，IR に「モジュールの値」を足すときに最適化として入れる．const は export しない．
+- （補）const のパターンは新しい変数で受け，`x == LIMIT()` を腕のガードにする．構成子の中など入れ子の const のパターンも同じで，比較は書いたガードより先に評価する（`&&` でつなぐ）．`OpTy` はパターンの型が基本型ならその型，そうでなければ `Structural`．
+- （補）`assert` は，式が比較なら `Assert::compare`（両辺の値を表示する），それ以外は `Assert::bool`．比較でも両辺の型が表示できない（型引数や関数を含む）ときは `Assert::bool` に落とす（基本型でない値の大小比較は，式の側で `Unsupported` になる）．`text` はソースから切り出した式の字面．
+- （補）`Roots::Tests` はテスト関数（`LowerInput::tests`）を根にする．`lower` は `Lowered { module, tests }` を返し，`tests` は `LowerInput::tests` と同じ順の `FnId`（`Roots::Tests` のときだけ埋める）．通常のビルドではテスト関数を export しない．
