@@ -4,8 +4,8 @@
 //! 式の位置を付けた診断を積んで続ける．
 
 use emela_resolve::hir::{
-    Arg, Arm, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal, LocalId,
-    PatArg, PatId, PatKind, Program, Res, Span, Stmt, TypeId,
+    Arg, Arm, BinaryOp, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal,
+    LocalId, PatArg, PatId, PatKind, Program, Res, Span, Stmt, TypeId, UnaryOp,
 };
 use la_arena::{ArenaMap, Idx};
 use smol_str::SmolStr;
@@ -15,7 +15,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
 use crate::lower::TyTable;
 use crate::signature::{Signature, Signatures};
-use crate::ty::Ty;
+use crate::ty::{Prim, Ty};
 
 /// fn の本体1つの推論の結果．型は単一化の束縛を辿った形．
 ///
@@ -57,6 +57,8 @@ pub(crate) struct BodyInfer<'a> {
     exprs: ArenaMap<ExprId, Ty>,
     pats: ArenaMap<PatId, Ty>,
     diags: Vec<Diagnostic>,
+    /// 数の型の制約．本体を推論し終えたときに確かめる（[`Self::check_numbers`]）．
+    numbers: Vec<NumConstraint>,
 }
 
 impl<'a> BodyInfer<'a> {
@@ -77,11 +79,13 @@ impl<'a> BodyInfer<'a> {
             exprs: ArenaMap::new(),
             pats: ArenaMap::new(),
             diags: Vec::new(),
+            numbers: Vec::new(),
         }
     }
 
     /// 推論を終え，型を辿った形にして返す．
     pub(crate) fn finish(mut self, fn_ty: Ty) -> BodyTypes {
+        self.check_numbers();
         let fn_ty = self.ctx.resolve(&fn_ty);
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
         let pats = resolve_all(&mut self.ctx, &self.pats);
@@ -158,7 +162,7 @@ impl<'a> BodyInfer<'a> {
         let e = &program.exprs[expr];
         match &e.kind {
             ExprKind::Missing => Ty::Error,
-            ExprKind::Lit(lit) => lit_ty(lit),
+            ExprKind::Lit(lit) => self.lit_ty(lit, e.span),
             ExprKind::Unit => Ty::UNIT,
             ExprKind::Tuple(elems) => Ty::tuple(elems.iter().map(|&e| self.infer_expr(e))),
             ExprKind::Path(Res::Local(local)) => {
@@ -174,6 +178,8 @@ impl<'a> BodyInfer<'a> {
                 else_branch,
             } => self.infer_if(*cond, *then_branch, *else_branch, e.span, expected),
             ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms, expected),
+            ExprKind::Binary { op, lhs, rhs } => self.infer_binary(*op, *lhs, *rhs, e.span),
+            ExprKind::Unary { op, operand } => self.infer_unary(*op, *operand, e.span),
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -330,6 +336,74 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
+    /// 二項演算子の型（6.6）．パイプは呼び出しに読み替える（6.7）．
+    fn infer_binary(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
+        match op {
+            // 算術: 両辺は同じ数の型．
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                let ty = self.infer_expr(lhs);
+                self.check_expr(rhs, &ty);
+                self.require_numeric(&ty, span);
+                ty
+            }
+            // 比較: 両辺は同じ型．Eq と Ord の検査は Trait の段で行う．
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => {
+                let ty = self.infer_expr(lhs);
+                self.check_expr(rhs, &ty);
+                Ty::BOOL
+            }
+            // 論理: 両辺は Bool．
+            BinaryOp::And | BinaryOp::Or => {
+                self.check_expr(lhs, &Ty::BOOL);
+                self.check_expr(rhs, &Ty::BOOL);
+                Ty::BOOL
+            }
+            BinaryOp::Pipe => self.infer_pipe(lhs, rhs, span),
+        }
+    }
+
+    /// `x |> f(a)` は `f(x, a)`，`x |> f` は `f(x)` として推論する（6.7）．
+    fn infer_pipe(&mut self, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
+        let program = self.program;
+        let piped = Arg {
+            label: None,
+            value: lhs,
+            punned: false,
+        };
+        let ty = match &program.exprs[rhs].kind {
+            ExprKind::Call { callee, args } => {
+                let args: Vec<Arg> = std::iter::once(piped).chain(args.iter().cloned()).collect();
+                self.infer_call(*callee, &args, span)
+            }
+            _ => self.infer_call(rhs, &[piped], span),
+        };
+        // 右辺の呼び出しの式にも，読み替えた呼び出しの型を記録しておく．
+        if matches!(program.exprs[rhs].kind, ExprKind::Call { .. }) {
+            self.exprs.insert(rhs, ty.clone());
+        }
+        ty
+    }
+
+    /// 単項演算子の型．`!` は Bool，`-` は数の型（6.6）．
+    fn infer_unary(&mut self, op: UnaryOp, operand: ExprId, span: Span) -> Ty {
+        match op {
+            UnaryOp::Not => {
+                self.check_expr(operand, &Ty::BOOL);
+                Ty::BOOL
+            }
+            UnaryOp::Neg => {
+                let ty = self.infer_expr(operand);
+                self.require_numeric(&ty, span);
+                ty
+            }
+        }
+    }
+
     /// match の型．各腕のパターンに対象の型を渡し，腕の本体の型を合わせる．
     /// 全体の型は `Never` から始めて腕ごとに `join` する．腕のない match は `Never`．
     /// 期待する型があれば，各腕の本体に渡す．
@@ -397,7 +471,10 @@ impl<'a> BodyInfer<'a> {
                 self.locals.insert(*local, ty.clone());
             }
             PatKind::Unit => self.coerce_at(p.span, ty, &Ty::UNIT),
-            PatKind::Lit(lit) => self.coerce_at(p.span, ty, &lit_ty(lit)),
+            PatKind::Lit(lit) => {
+                let lit_ty = self.lit_ty(lit, p.span);
+                self.coerce_at(p.span, ty, &lit_ty);
+            }
             PatKind::Const(Res::Def(def)) => {
                 let const_ty = self.infer_def_ref(*def, p.span);
                 self.coerce_at(p.span, ty, &const_ty);
@@ -584,6 +661,74 @@ impl<'a> BodyInfer<'a> {
             }
         }
     }
+
+    /// リテラルの型．整数は Int か Int64 の型変数で，どちらかは文脈で決まる（2.4）．
+    fn lit_ty(&mut self, lit: &Literal, span: Span) -> Ty {
+        match lit {
+            Literal::Int(text) => {
+                let ty = self.ctx.new_int_var();
+                self.numbers.push(NumConstraint {
+                    ty: ty.clone(),
+                    span,
+                    kind: NumKind::Integer,
+                    literal: Some(text.clone()),
+                });
+                ty
+            }
+            Literal::Float(_) => Ty::FLOAT,
+            Literal::String(_) => Ty::STRING,
+        }
+    }
+
+    /// `ty` が Int，Int64，Float のどれかであることを求める（算術演算子，単項マイナス）．
+    /// 確かめるのは本体を推論し終えたとき．
+    fn require_numeric(&mut self, ty: &Ty, span: Span) {
+        self.numbers.push(NumConstraint {
+            ty: ty.clone(),
+            span,
+            kind: NumKind::Numeric,
+            literal: None,
+        });
+    }
+
+    /// 数の型の制約を確かめる．まだ決まっていない型変数は Int にする（2.4）．
+    /// 整数リテラルは，決まった型の範囲に収まるかも確かめる．
+    fn check_numbers(&mut self) {
+        for c in std::mem::take(&mut self.numbers) {
+            let ty = match self.ctx.shallow_resolve(&c.ty) {
+                Ty::Var(_) => {
+                    // 何にも決まらなかった数は Int．単一化は必ず成功する．
+                    let _ = self.ctx.unify(&Ty::INT, &c.ty);
+                    Ty::INT
+                }
+                ty => ty,
+            };
+            let ok = match (&ty, c.kind) {
+                (Ty::Error | Ty::Never, _) => continue,
+                (Ty::Prim(Prim::Int | Prim::Int64), _) => true,
+                (Ty::Prim(Prim::Float), NumKind::Numeric) => true,
+                _ => false,
+            };
+            if !ok {
+                self.diags.push(Diagnostic {
+                    span: Some(c.span),
+                    kind: DiagnosticKind::NotNumeric {
+                        found: self.ctx.resolve(&ty),
+                        integer: c.kind == NumKind::Integer,
+                    },
+                });
+                continue;
+            }
+            if let Some(literal) = c.literal
+                && !int_literal_fits(&literal, &ty)
+            {
+                self.diags.push(Diagnostic {
+                    span: Some(c.span),
+                    kind: DiagnosticKind::IntLiteralOutOfRange { literal, ty },
+                });
+            }
+        }
+    }
 }
 
 /// 表の型をすべて，単一化の束縛を辿った形にする．
@@ -593,15 +738,6 @@ fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Id
         out.insert(id, ctx.resolve(ty));
     }
     out
-}
-
-/// リテラルの型．整数は Int（Int64 は文脈で決める処理を後で入れる）．
-fn lit_ty(lit: &Literal) -> Ty {
-    match lit {
-        Literal::Int(_) => Ty::INT,
-        Literal::Float(_) => Ty::FLOAT,
-        Literal::String(_) => Ty::STRING,
-    }
 }
 
 /// 引数を仮引数の位置に並べ直した結果（[`BodyInfer::assign_args`]）．
@@ -649,4 +785,40 @@ fn label_slot<T>(
     }
 
     Ok(i)
+}
+
+/// 数の型の制約．
+struct NumConstraint {
+    ty: Ty,
+    /// 診断の位置．リテラルか演算子の式．
+    span: Span,
+    kind: NumKind,
+    /// 整数リテラルなら，その数字の列（`_` を除いたもの．`0x`，`0b` の接頭辞は残る）．
+    literal: Option<SmolStr>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NumKind {
+    /// Int か Int64．整数リテラル．
+    Integer,
+    /// Int，Int64，Float．算術演算子と単項マイナス．
+    Numeric,
+}
+
+/// 整数リテラルが型の範囲に収まるか．負の数は単項マイナスの式なので，ここでは正の数だけを見る．
+/// 2の補数として読み替えない（`0xFFFF_FFFF` は Int に収まらない，2.4）．
+fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
+    let max = match ty {
+        Ty::Prim(Prim::Int) => i32::MAX as u128,
+        Ty::Prim(Prim::Int64) => i64::MAX as u128,
+        _ => return true,
+    };
+    let (digits, radix) = if let Some(hex) = literal.strip_prefix("0x") {
+        (hex, 16)
+    } else if let Some(bin) = literal.strip_prefix("0b") {
+        (bin, 2)
+    } else {
+        (literal, 10)
+    };
+    u128::from_str_radix(digits, radix).is_ok_and(|n| n <= max)
 }

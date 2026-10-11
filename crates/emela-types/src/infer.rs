@@ -6,13 +6,15 @@ use smol_str::SmolStr;
 
 use crate::error::{TypeError, TypeErrorKind};
 use crate::scheme::{Scheme, param_name};
-use crate::ty::{Ty, TyParam, TyVar, TyVarValue};
+use crate::ty::{Prim, Ty, TyParam, TyVar, TyVarValue};
 
 /// 推論の状態．型変数の表と，集めた型エラーを持つ．
 #[derive(Default)]
 pub struct InferCtx {
     table: InPlaceUnificationTable<TyVar>,
     errors: Vec<TypeError>,
+    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない（2.4）．
+    int_vars: Vec<TyVar>,
 }
 
 impl InferCtx {
@@ -26,6 +28,22 @@ impl InferCtx {
 
     pub fn new_var(&mut self) -> Ty {
         Ty::Var(self.fresh_var())
+    }
+
+    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない．他の型変数と単一化すると，
+    /// その型変数も同じ制約を持つ．
+    pub fn new_int_var(&mut self) -> Ty {
+        let v = self.fresh_var();
+        self.int_vars.push(v);
+        Ty::Var(v)
+    }
+
+    /// `v` が整数リテラルの型変数（と単一化した型変数）か．
+    pub fn is_int_var(&mut self, v: TyVar) -> bool {
+        let int_vars = std::mem::take(&mut self.int_vars);
+        let found = int_vars.iter().any(|&w| self.table.unioned(v, w));
+        self.int_vars = int_vars;
+        found
     }
 
     /// 束縛済みの型変数を辿り，先頭が束縛済みの型変数でない形にする．
@@ -60,20 +78,29 @@ impl InferCtx {
                 self.table.rollback_to(snapshot);
                 let kind = match kind {
                     TypeErrorKind::Mismatch { expected, actual } => TypeErrorKind::Mismatch {
-                        expected: self.resolve(&expected),
-                        actual: self.resolve(&actual),
+                        expected: self.resolve_for_report(&expected),
+                        actual: self.resolve_for_report(&actual),
                     },
                     TypeErrorKind::InfiniteType { var, ty } => TypeErrorKind::InfiniteType {
                         var,
-                        ty: self.resolve(&ty),
+                        ty: self.resolve_for_report(&ty),
                     },
                 };
                 Err(TypeError {
-                    expected: self.resolve(expected),
-                    actual: self.resolve(actual),
+                    expected: self.resolve_for_report(expected),
+                    actual: self.resolve_for_report(actual),
                     kind: Box::new(kind),
                 })
             }
+        }
+    }
+
+    /// エラーに出すための形．まだ決まっていない整数リテラルの型変数は `Int` と出す
+    /// （決まらなければ Int になるので）．
+    fn resolve_for_report(&mut self, ty: &Ty) -> Ty {
+        match self.shallow_resolve(ty) {
+            Ty::Var(v) if self.is_int_var(v) => Ty::INT,
+            ty => ty.map_children(|child| self.resolve_for_report(child)),
         }
     }
 
@@ -140,10 +167,22 @@ impl InferCtx {
         };
         match (&e, &a) {
             (Ty::Var(x), Ty::Var(y)) => {
+                let int = self.is_int_var(*x) || self.is_int_var(*y);
                 self.table.union(*x, *y);
+                if int {
+                    let root = self.table.find(*x);
+                    self.int_vars.push(root);
+                }
                 Ok(())
             }
-            (Ty::Var(v), t) | (t, Ty::Var(v)) => self.bind(*v, t),
+            (Ty::Var(v), t) | (t, Ty::Var(v)) => {
+                if self.is_int_var(*v)
+                    && !matches!(t, Ty::Prim(Prim::Int | Prim::Int64) | Ty::Error)
+                {
+                    return Err(mismatch(&e, &a));
+                }
+                self.bind(*v, t)
+            }
             (Ty::Error, _) | (_, Ty::Error) => Ok(()),
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),

@@ -396,3 +396,60 @@ fn never_branch(c: Bool) -> Int {
 }
 "#));
 }
+
+#[test]
+fn int_literals() {
+    insta::assert_snapshot!(run(r#"
+fn take64(n: Int64) -> Int64 { n }
+
+fn f() -> Int {
+  a = 1
+  b: Int64 = 3_000_000_000
+  c = take64(42)
+  d: Int = 2147483647
+  e: Int = 2147483648
+  g: Int = 0xFFFF_FFFF
+  h: Int64 = 0xFFFF_FFFF
+  i: Int = 0b1010
+  j: Float = 1
+  k: String = 2
+  a
+}
+"#));
+}
+
+#[test]
+fn operators() {
+    insta::assert_snapshot!(run(r#"
+fn add(x: Int, y: Int) -> Int { x }
+
+fn f(n: Int, big: Int64, r: Float, c: Bool) -> Bool {
+  a = n + 1
+  b = big * 2
+  d = r / 2.0
+  e = -n
+  g = n % 3 == 0
+  h = !c && n < 10 || r >= 1.0
+  i = n |> add(1)
+  j = 5 |> add(n)
+  k = 1 + 2
+  h
+}
+"#));
+}
+
+#[test]
+fn operator_errors() {
+    insta::assert_snapshot!(run(r#"
+fn f(n: Int, big: Int64, s: String, c: Bool) -> Int {
+  a = n + big
+  b = s + s
+  d = n + 1.5
+  e = -c
+  g = !n
+  h = c && 1
+  i = n == "x"
+  n
+}
+"#));
+}

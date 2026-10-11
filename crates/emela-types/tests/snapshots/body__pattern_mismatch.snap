@@ -7,8 +7,8 @@ f: fn((Int, String)) -> Int
   a: ?0
   b: ?1
   c: ?2
-  x: ?3
-  y: ?4
+  x: ?4
+  y: ?5
 `(a, b, c)` mismatch: expected `(Int, String)`, found `(?0, ?1, ?2)`
-`(x, y)` mismatch: expected `Int`, found `(?3, ?4)`
+`(x, y)` mismatch: expected `Int`, found `(?4, ?5)`
 `()` mismatch: expected `Int`, found `()`

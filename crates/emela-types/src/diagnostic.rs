@@ -6,6 +6,7 @@ use emela_resolve::hir::Span;
 use smol_str::SmolStr;
 
 use crate::error::TypeError;
+use crate::ty::Ty;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -49,4 +50,9 @@ pub enum DiagnosticKind {
     /// 名前付きフィールドの構成子のパターンで，`..` を書かずにフィールドを省いた（E0308，6.5）．
     /// `fields` は省いたフィールドの全部（宣言の順）．
     MissingPatternFields { ctor: SmolStr, fields: Vec<SmolStr> },
+    /// 数の型でない（E0310）．`integer` なら Int か Int64 が要る（整数リテラル），
+    /// そうでなければ Int，Int64，Float のどれかが要る（算術演算子，6.6）．
+    NotNumeric { found: Ty, integer: bool },
+    /// 整数リテラルが型の範囲を超える（E0311，2.4）．
+    IntLiteralOutOfRange { literal: SmolStr, ty: Ty },
 }

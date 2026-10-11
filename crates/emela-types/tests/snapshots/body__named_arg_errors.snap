@@ -10,7 +10,7 @@ f: fn(fn(Int) -> Int) -> Int
   a: Bool
   b: Bool
   c: Bool
-  d: Option[?0]
+  d: Option[?1]
   e: Int
 `prot` UnknownLabel { callee: "connect", label: "prot" }
 `host` DuplicateArg { label: "host" }

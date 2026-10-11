@@ -6,4 +6,4 @@ f: fn() -> Option[User]
   u: User
   s: Option[Int]
   t: Option[String]
-  n: Option[?2]
+  n: Option[?4]

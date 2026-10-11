@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn add(x: Int, y: Int) -> Int { x }\n\nfn f(n: Int, big: Int64, r: Float, c: Bool) -> Bool {\n  a = n + 1\n  b = big * 2\n  d = r / 2.0\n  e = -n\n  g = n % 3 == 0\n  h = !c && n < 10 || r >= 1.0\n  i = n |> add(1)\n  j = 5 |> add(n)\n  k = 1 + 2\n  h\n}\n\"#)"
+---
+add: fn(Int, Int) -> Int
+  x: Int
+  y: Int
+f: fn(Int, Int64, Float, Bool) -> Bool
+  n: Int
+  big: Int64
+  r: Float
+  c: Bool
+  a: Int
+  b: Int64
+  d: Float
+  e: Int
+  g: Bool
+  h: Bool
+  i: Int
+  j: Int
+  k: Int
