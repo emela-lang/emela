@@ -17,9 +17,11 @@ use crate::lower::TyTable;
 use crate::signature::Signatures;
 use crate::ty::Ty;
 
-/// プログラム全体の型検査の結果．式，パターン，局所変数の型は単一化の束縛を辿った形．
+/// プログラム全体の型検査の結果．HIR の番号をキーにした表を並べたもの．
 ///
-/// 形は仮．lowering に渡す形はステップ6で決める．
+/// lowering は HIR を辿りながら，必要な情報をこの表から引く（NOTES.md「結果の形」）．
+/// 型は単一化の束縛を辿った形．決まらずに残った型変数（使われない `None` など）は
+/// 型変数のまま残る．lowering は `()` として扱う．
 pub struct ProgramTypes {
     pub ty_table: TyTable,
     /// fn，構成子，const の宣言の型．宣言の型のなかった定義は推論して汎化した型．
@@ -29,6 +31,16 @@ pub struct ProgramTypes {
     pub locals: ArenaMap<LocalId, Ty>,
     /// 局所変数がどの定義の本体のものか．
     pub local_owner: ArenaMap<LocalId, DefId>,
+    /// フィールドの参照の式（`ExprKind::Field`）→ フィールドの添字（構成子の宣言の順）．
+    pub fields: ArenaMap<ExprId, usize>,
+    /// 呼び出し（`Call`），パイプ（`Binary { op: Pipe }`），部分更新（`Update`）の式 →
+    /// 仮引数（フィールド）の位置の順に並べ直した引数．
+    /// パイプは左辺を先頭に含む．部分更新は書いたフィールドだけが `Some`．
+    pub calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
+    /// 汎用の定義の参照の式（`Path`）→ 具体化した型引数（宣言の型引数の順）．
+    pub type_args: ArenaMap<ExprId, Vec<Ty>>,
+    /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールドは `None`．
+    pub pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -45,6 +57,10 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         pats: ArenaMap::default(),
         locals: ArenaMap::default(),
         local_owner: ArenaMap::default(),
+        fields: ArenaMap::default(),
+        calls: ArenaMap::default(),
+        type_args: ArenaMap::default(),
+        pat_fields: ArenaMap::default(),
         diags,
     };
 
@@ -74,6 +90,18 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         types
             .local_owner
             .extend(body.local_owner.iter().map(|(id, &def)| (id, def)));
+        types
+            .fields
+            .extend(body.fields.iter().map(|(id, &i)| (id, i)));
+        types
+            .calls
+            .extend(body.calls.iter().map(|(id, args)| (id, args.clone())));
+        types
+            .type_args
+            .extend(body.type_args.iter().map(|(id, args)| (id, args.clone())));
+        types
+            .pat_fields
+            .extend(body.pat_fields.iter().map(|(id, pats)| (id, pats.clone())));
         types.diags.extend(body.diags);
     }
 

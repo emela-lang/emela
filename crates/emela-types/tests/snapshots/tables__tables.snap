@@ -1,0 +1,17 @@
+---
+source: crates/emela-types/tests/tables.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\nfn connect(host: String, port: Int) -> Bool { todo() }\nfn add(x: Int, y: Int) -> Int { x }\n\nfn f(u: User, o: Option[Int]) -> Int {\n  a = u.name\n  b = connect(port: 1, host: \"h\")\n  c = 1 |> add(2)\n  d = User(name: \"b\", ..u)\n  e = Some(\"s\")\n  g = dbg(u)\n  User(name: n, ..) = u\n  h = match o {\n    Some(x) -> x\n    None -> 0\n  }\n  u.id\n}\n\"#)"
+---
+call `todo()` -> []
+field `u.name` -> 1
+call `connect(port: 1, host: "h")` -> ["h", 1]
+call `1 |> add(2)` -> [1, 2]
+call `User(name: "b", ..u)` -> [_, "b"]
+call `Some("s")` -> ["s"]
+type args `Some` -> [String]
+call `dbg(u)` -> [u]
+type args `dbg` -> [User]
+pattern `User(name: n, ..)` -> [_, n]
+pattern `Some(x)` -> [x]
+pattern `None` -> []
+field `u.id` -> 0

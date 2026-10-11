@@ -30,6 +30,10 @@ pub(crate) struct BodyTypes {
     pub(crate) locals: ArenaMap<LocalId, Ty>,
     /// 局所変数がどの定義の本体のものか．
     pub(crate) local_owner: ArenaMap<LocalId, DefId>,
+    pub(crate) fields: ArenaMap<ExprId, usize>,
+    pub(crate) calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
+    pub(crate) type_args: ArenaMap<ExprId, Vec<Ty>>,
+    pub(crate) pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     pub(crate) diags: Vec<Diagnostic>,
     /// 宣言の型のなかった定義の，汎化した宣言の型．
     pub(crate) inferred: Vec<(DefId, Signature)>,
@@ -55,6 +59,14 @@ pub(crate) struct BodyInfer<'a> {
     deferred: Vec<DeferredRef>,
     locals: ArenaMap<LocalId, Ty>,
     local_owner: ArenaMap<LocalId, DefId>,
+    /// フィールドの参照の式 → フィールドの添字．
+    fields: ArenaMap<ExprId, usize>,
+    /// 呼び出し・パイプ・部分更新の式 → 位置の順に並べ直した引数．
+    calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
+    /// 汎用の定義の参照の式 → 具体化した型引数．
+    type_args: ArenaMap<ExprId, Vec<Ty>>,
+    /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．
+    pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     exprs: ArenaMap<ExprId, Ty>,
     pats: ArenaMap<PatId, Ty>,
     diags: Vec<Diagnostic>,
@@ -79,6 +91,10 @@ impl<'a> BodyInfer<'a> {
             deferred: Vec::new(),
             locals: ArenaMap::new(),
             local_owner: ArenaMap::new(),
+            fields: ArenaMap::new(),
+            calls: ArenaMap::new(),
+            type_args: ArenaMap::new(),
+            pat_fields: ArenaMap::new(),
             exprs: ArenaMap::new(),
             pats: ArenaMap::new(),
             diags: Vec::new(),
@@ -284,11 +300,20 @@ impl<'a> BodyInfer<'a> {
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
         let pats = resolve_all(&mut self.ctx, &self.pats);
         let locals = resolve_all(&mut self.ctx, &self.locals);
+        let mut type_args = ArenaMap::default();
+        for (expr, args) in self.type_args.iter() {
+            let args: Vec<Ty> = args.iter().map(|ty| self.ctx.resolve(ty)).collect();
+            type_args.insert(expr, args);
+        }
         BodyTypes {
             exprs,
             pats,
             locals,
             local_owner: self.local_owner,
+            fields: self.fields,
+            calls: self.calls,
+            type_args,
+            pat_fields: self.pat_fields,
             diags: self.diags,
             inferred,
         }
@@ -326,21 +351,27 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Local(local)) => {
                 self.locals.get(*local).cloned().unwrap_or(Ty::Error)
             }
-            ExprKind::Path(Res::Def(def)) => self.infer_def_ref(*def, e.span),
+            ExprKind::Path(Res::Def(def)) => {
+                let (ty, args) = self.instantiate_def(*def, e.span);
+                if !args.is_empty() {
+                    self.type_args.insert(expr, args);
+                }
+                ty
+            }
             ExprKind::Path(Res::Err) => Ty::Error,
             ExprKind::Block(block) => self.infer_block(block, e.span, expected),
-            ExprKind::Call { callee, args } => self.infer_call(*callee, args, e.span),
+            ExprKind::Call { callee, args } => self.infer_call(expr, *callee, args, e.span),
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => self.infer_if(*cond, *then_branch, *else_branch, e.span, expected),
             ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms, expected),
-            ExprKind::Binary { op, lhs, rhs } => self.infer_binary(*op, *lhs, *rhs, e.span),
+            ExprKind::Binary { op, lhs, rhs } => self.infer_binary(expr, *op, *lhs, *rhs, e.span),
             ExprKind::Unary { op, operand } => self.infer_unary(*op, *operand, e.span),
             ExprKind::Lambda { params, body } => self.infer_lambda(params, *body, e.span, expected),
             ExprKind::List { elems, rest } => self.infer_list(elems, *rest, e.span, expected),
-            ExprKind::Field { base, name } => self.infer_field(*base, name),
+            ExprKind::Field { base, name } => self.infer_field(expr, *base, name),
             ExprKind::Interpolated(parts) => {
                 for part in parts {
                     if let StrPart::Interp(expr) = part {
@@ -354,7 +385,9 @@ impl<'a> BodyInfer<'a> {
                 self.check_expr(*cond, &Ty::BOOL);
                 Ty::UNIT
             }
-            ExprKind::Update { ctor, fields, base } => self.infer_update(*ctor, fields, *base),
+            ExprKind::Update { ctor, fields, base } => {
+                self.infer_update(expr, *ctor, fields, *base)
+            }
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -412,13 +445,19 @@ impl<'a> BodyInfer<'a> {
     ///
     /// 同じまとまりの中の，宣言の型のない定義は単相の型をそのまま使う（具体化しない）．
     fn infer_def_ref(&mut self, def: DefId, span: Span) -> Ty {
+        self.instantiate_def(def, span).0
+    }
+
+    /// [`Self::infer_def_ref`] と同じく型を付け，型引数に置いた型も返す．
+    /// 書いた型引数を持たない参照（単相の参照を含む）は空．
+    fn instantiate_def(&mut self, def: DefId, span: Span) -> (Ty, Vec<Ty>) {
         let sigs = self.sigs;
         if let Some(sig) = sigs.get(def) {
-            return self.ctx.instantiate(&sig.scheme);
+            return self.ctx.instantiate_with_args(&sig.scheme);
         }
         if let Some((ty, n_type_params)) = self.pending_ty(def) {
             if self.current == Some(def) || n_type_params == 0 {
-                return ty;
+                return (ty, Vec::new());
             }
             // 書いた型引数（`Ty::Bound(i)`）はその定義の中でだけ意味を持つので，
             // 他の定義から参照するときは新しい型変数に置き換える．まだ決まっていない部分
@@ -430,11 +469,11 @@ impl<'a> BodyInfer<'a> {
             let instance = self.freshen(&substitute_bound(&ty, &args), &mut fresh);
             self.deferred.push(DeferredRef {
                 def,
-                args,
+                args: args.clone(),
                 instance: instance.clone(),
                 span,
             });
-            return instance;
+            return (instance, args);
         }
         // 型を付けない種類の定義（trait の関数，effect の操作など．alpha.2 以降）．
         self.diags.push(Diagnostic {
@@ -443,11 +482,12 @@ impl<'a> BodyInfer<'a> {
                 what: "reference to this kind of definition",
             },
         });
-        Ty::Error
+        (Ty::Error, Vec::new())
     }
 
     /// 呼び出しの型．引数を仮引数の位置に並べ直してから，型を照合する（6.2）．
-    fn infer_call(&mut self, callee: ExprId, args: &[Arg], span: Span) -> Ty {
+    /// `expr` は並べ直した引数を記録する式（呼び出しの式か，パイプの式）．
+    fn infer_call(&mut self, expr: ExprId, callee: ExprId, args: &[Arg], span: Span) -> Ty {
         let program = self.program;
         let sigs = self.sigs;
 
@@ -501,9 +541,10 @@ impl<'a> BodyInfer<'a> {
             }
         }
 
-        for expr in assigned.extra {
-            self.infer_expr(expr);
+        for extra in assigned.extra {
+            self.infer_expr(extra);
         }
+        self.calls.insert(expr, assigned.slots);
 
         f.ret
     }
@@ -540,7 +581,14 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// 二項演算子の型（6.6）．パイプは呼び出しに読み替える（6.7）．
-    fn infer_binary(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
+    fn infer_binary(
+        &mut self,
+        expr: ExprId,
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+        span: Span,
+    ) -> Ty {
         match op {
             // 算術: 両辺は同じ数の型．
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
@@ -566,12 +614,14 @@ impl<'a> BodyInfer<'a> {
                 self.check_expr(rhs, &Ty::BOOL);
                 Ty::BOOL
             }
-            BinaryOp::Pipe => self.infer_pipe(lhs, rhs, span),
+            BinaryOp::Pipe => self.infer_pipe(expr, lhs, rhs, span),
         }
     }
 
     /// `x |> f(a)` は `f(x, a)`，`x |> f` は `f(x)` として推論する（6.7）．
-    fn infer_pipe(&mut self, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
+    /// 並べ直した引数（左辺を含む）はパイプの式 `expr` に記録する．呼ばれる側は，右辺が
+    /// 呼び出しならその呼ばれる側，そうでなければ右辺そのもの．
+    fn infer_pipe(&mut self, expr: ExprId, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
         let program = self.program;
         let piped = Arg {
             label: None,
@@ -581,9 +631,9 @@ impl<'a> BodyInfer<'a> {
         let ty = match &program.exprs[rhs].kind {
             ExprKind::Call { callee, args } => {
                 let args: Vec<Arg> = std::iter::once(piped).chain(args.iter().cloned()).collect();
-                self.infer_call(*callee, &args, span)
+                self.infer_call(expr, *callee, &args, span)
             }
-            _ => self.infer_call(rhs, &[piped], span),
+            _ => self.infer_call(expr, rhs, &[piped], span),
         };
         // 右辺の呼び出しの式にも，読み替えた呼び出しの型を記録しておく．
         if matches!(program.exprs[rhs].kind, ExprKind::Call { .. }) {
@@ -673,7 +723,7 @@ impl<'a> BodyInfer<'a> {
 
     /// フィールドの参照 `x.name` の型．対象の型（type か error）の宣言からフィールドの型を引く．
     /// 対象の型はこの時点でわかっている必要がある（名前からの逆算はしない）．
-    fn infer_field(&mut self, base: ExprId, name: &Label) -> Ty {
+    fn infer_field(&mut self, expr: ExprId, base: ExprId, name: &Label) -> Ty {
         let base_ty = self.infer_expr(base);
         let base_ty = self.ctx.shallow_resolve(&base_ty);
         let (id, args) = match &base_ty {
@@ -714,7 +764,10 @@ impl<'a> BodyInfer<'a> {
         }
 
         match self.field_ty(type_def, args, &name.name) {
-            FieldTy::Found(ty) => ty,
+            FieldTy::Found(index, ty) => {
+                self.fields.insert(expr, index);
+                ty
+            }
             FieldTy::NoSuchField => {
                 let ty = self.ctx.resolve(&base_ty);
                 self.field_error(
@@ -759,7 +812,7 @@ impl<'a> BodyInfer<'a> {
             return FieldTy::NoSuchField;
         };
         match sig.labels.iter().position(|l| l.as_ref() == Some(field)) {
-            Some(i) => FieldTy::Found(substitute_bound(&f.params[i], args)),
+            Some(i) => FieldTy::Found(i, substitute_bound(&f.params[i], args)),
             None => FieldTy::NoSuchField,
         }
     }
@@ -778,7 +831,10 @@ impl<'a> BodyInfer<'a> {
     /// 構成子の型を2回具体化する．1つ目が作る値の型，2つ目が `base` の型で，型引数は違ってよい．
     /// 書いたフィールドは1つ目の型で検査し，書いていないフィールドは `base` から引き継ぐので，
     /// 2つの型のそのフィールドの型を単一化する．
-    fn infer_update(&mut self, ctor: ExprId, fields: &[Arg], base: ExprId) -> Ty {
+    ///
+    /// 並べ直した引数は，書いたフィールドだけが `Some` で，書いていないフィールドは `None`
+    /// （`base` から引き継ぐ）．
+    fn infer_update(&mut self, expr: ExprId, ctor: ExprId, fields: &[Arg], base: ExprId) -> Ty {
         let program = self.program;
         let sigs = self.sigs;
         let ctor_ty = self.infer_expr(ctor);
@@ -808,6 +864,7 @@ impl<'a> BodyInfer<'a> {
         self.check_expr(base, &from.ret);
 
         let mut written = vec![false; made.params.len()];
+        let mut slots: Vec<Option<ExprId>> = vec![None; made.params.len()];
         for field in fields {
             let Some(label) = &field.label else {
                 // 位置で書いたフィールドは名前解決が誤りを出している．
@@ -830,6 +887,7 @@ impl<'a> BodyInfer<'a> {
                 }
                 Some(i) => {
                     written[i] = true;
+                    slots[i] = Some(field.value);
                     self.check_expr(field.value, &made.params[i]);
                 }
                 None => {
@@ -853,6 +911,7 @@ impl<'a> BodyInfer<'a> {
                 self.coerce_at(base_span, &made.params[i], &from.params[i]);
             }
         }
+        self.calls.insert(expr, slots);
 
         made.ret
     }
@@ -985,7 +1044,7 @@ impl<'a> BodyInfer<'a> {
                 res: Res::Def(def),
                 args,
                 rest,
-            } => self.bind_ctor_pat(p.span, *def, args.as_deref(), *rest, ty),
+            } => self.bind_ctor_pat(pat, *def, args.as_deref(), *rest, ty),
             PatKind::Ctor { .. } => {}
             PatKind::Missing => {}
             PatKind::Wild => {}
@@ -996,12 +1055,13 @@ impl<'a> BodyInfer<'a> {
     /// フィールドは呼び出しと同じく並べ直す．`..` なしでフィールドを省けば E0308（6.5）．
     fn bind_ctor_pat(
         &mut self,
-        span: Span,
+        pat: PatId,
         def: DefId,
         args: Option<&[PatArg]>,
         rest: bool,
         ty: &Ty,
     ) {
+        let span = self.program.pats[pat].span;
         let sigs = self.sigs;
         let program = self.program;
 
@@ -1069,9 +1129,10 @@ impl<'a> BodyInfer<'a> {
             }
         }
 
-        for pat in assigned.extra {
-            self.bind_pat(pat, &Ty::Error);
+        for extra in assigned.extra {
+            self.bind_pat(extra, &Ty::Error);
         }
+        self.pat_fields.insert(pat, assigned.slots);
 
         self.coerce_at(span, ty, &made_ty);
     }
@@ -1303,7 +1364,8 @@ fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
 
 /// フィールドの型を引いた結果．
 enum FieldTy {
-    Found(Ty),
+    /// フィールドの添字と型．
+    Found(usize, Ty),
     /// 型はフィールドを持つが，その名前のフィールドがない．
     NoSuchField,
     /// フィールドを持たない型（enum，フィールドのない `@external` の type）．

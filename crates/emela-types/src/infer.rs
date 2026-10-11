@@ -292,8 +292,13 @@ impl InferCtx {
 
     /// スキームの型引数をそれぞれ新しい型変数に置き換える．
     pub fn instantiate(&mut self, scheme: &Scheme) -> Ty {
+        self.instantiate_with_args(scheme).0
+    }
+
+    /// [`Self::instantiate`] と同じく具体化し，型引数に置いた型変数も返す．
+    pub fn instantiate_with_args(&mut self, scheme: &Scheme) -> (Ty, Vec<Ty>) {
         let args: Vec<Ty> = scheme.params.iter().map(|_| self.new_var()).collect();
-        substitute_bound(&scheme.ty, &args)
+        (substitute_bound(&scheme.ty, &args), args)
     }
 }
 
