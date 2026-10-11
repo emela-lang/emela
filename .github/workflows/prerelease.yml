@@ -1,0 +1,133 @@
+name: Prerelease
+# Hand-cut prereleases (e.g. `v0.20.0-alpha.1`) from any branch, typically
+# `next`. Stable `vX.Y.Z` releases stay with release-plz.yml on `main`; the
+# `v*-*` filter (a hyphen is required) keeps the two from overlapping.
+#
+# A tag push runs the workflow definition at the tagged commit, so this works
+# before the file reaches `main`. `workflow_dispatch` only works once the file
+# is on the default branch; it is kept as a fallback to re-run a tag.
+on:
+  push:
+    tags:
+      - "v*-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Prerelease tag to build (e.g. v0.20.0-alpha.1). The tag must already exist."
+        required: true
+        type: string
+
+concurrency:
+  group: prerelease-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve tag
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'emela-lang' }}
+    permissions: {}
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve and validate the tag
+        id: tag
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "$TAG" in
+            v*-*) ;;
+            *)
+              echo "::error::'$TAG' is not a prerelease tag (expected vX.Y.Z-<pre>, e.g. v0.20.0-alpha.1)"
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: resolve
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Fail fast before the release build if the tag and Cargo.toml disagree.
+      - name: Check the tag matches the workspace version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "emela-cli") | .version')
+          if [ "$version" != "${TAG#v}" ]; then
+            echo "::error::tag $TAG does not match emela-cli version $version"
+            exit 1
+          fi
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --bin emela
+
+      - name: Check the binary reports the tag's version
+        run: |
+          reported=$(target/${{ matrix.target }}/release/emela --version)
+          if [ "$reported" != "emela ${TAG#v}" ]; then
+            echo "::error::emela --version printed '$reported', expected 'emela ${TAG#v}'"
+            exit 1
+          fi
+
+      # Same naming as release-plz.yml; install.sh fetches emela-<tag>-<target>.tar.gz.
+      - name: Package tarball
+        run: |
+          tar czf "emela-$TAG-${{ matrix.target }}.tar.gz" \
+            -C target/${{ matrix.target }}/release emela
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: emela-${{ matrix.target }}
+          path: emela-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub prerelease
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: emela-*
+          merge-multiple: true
+
+      # Re-running on an existing release (e.g. via workflow_dispatch) replaces
+      # the assets instead of failing on the create.
+      - name: Create prerelease and upload tarballs
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" ./emela-*.tar.gz --clobber
+          else
+            gh release create "$TAG" ./emela-*.tar.gz \
+              --prerelease --verify-tag --generate-notes --title "$TAG"
+          fi

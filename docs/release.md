@@ -1,51 +1,107 @@
-# リリース手順（release-plz）
+# リリース手順
 
-安定版リリースは release-plz が自動化する。設定は `release-plz.toml`、動作は
-`.github/workflows/release-plz.yml`。`dev` の nightly（`nightly.yml`）と
-タグ起点の tarball リリース（`release.yml`）はそのまま。
+リリースは2系統ある。
 
-## セットアップ（初回のみ）
+- 正式版（`vX.Y.Z`）: `main` で release-plz が自動化する。設定は `release-plz.toml`、
+  動作は `.github/workflows/release-plz.yml`。
+- プレリリース（`vX.Y.Z-<pre>`、例 `v0.20.0-alpha.1`）: タグを手で打つと
+  `.github/workflows/prerelease.yml` が動く。0.20 系の alpha は `next` から出す。
 
-デフォルトの `GITHUB_TOKEN` では release-plz が打ったタグが `release.yml` を
-起動できない（GITHUB_TOKEN 由来のイベントは他ワークフローを起こさない）。
-そのため GitHub App で認証し、実行ごとに一時トークンを発行する。
+どちらも配布物は `emela` バイナリの tarball
+`emela-<tag>-<target>.tar.gz`（`x86_64-unknown-linux-gnu` と `aarch64-apple-darwin`）
+で、`install.sh` がこの名前を引く。
+
+## 正式版（release-plz）
+
+### セットアップ（初回のみ）
+
+`release-plz.yml` の `notify-nix` は GitHub App のトークンで emela.nix に
+`repository_dispatch` を送る。
 
 1. GitHub App を作る（Settings → Developer settings → GitHub Apps → New）。
-   - Repository permissions で **Contents: Read and write** と
-     **Pull requests: Read and write** を付与（タグ保護を使う場合のみ
-     Administration: Read and write も）。
+   - Repository permissions で **Contents: Read and write** を付与（`repository_dispatch` に要る）。
    - Webhook は無効でよい。
 2. App の設定画面で **Private key** を生成し（Generate a private key）、
    ダウンロードした `.pem` を控える。**App ID** もメモする。
-3. App を **このリポジトリに Install** する（Install App）。
-4. リポジトリに Secret を2つ登録する
+3. App を emela.nix に Install する（Install App）。
+4. このリポジトリに Secret を2つ登録する
    （Settings → Secrets and variables → Actions → New repository secret）。
    - `APP_ID`: App ID
    - `APP_PRIVATE_KEY`: `.pem` の中身を `-----BEGIN` から `-----END` まで
      そのまま貼る。
-   ワークフローは各実行で `actions/create-github-app-token` を使い、この2つから
-   一時トークンを発行して release-plz に渡す。
-5. `release-plz.toml` と `.github/workflows/release-plz.yml` をリポジトリに置く。
 
-## リリース手順（毎回）
+### 手順（毎回）
 
-1. `dev` で開発する。push すると `nightly.yml` が `x.y.z-dev.<TZ>` を発行する。
-2. リリースする区切りで `dev` → `main` を PR にしてマージする。
-   コミット/PR タイトルは conventional commits（`feat:` `fix:` など）に従う。
-   次バージョンはこの履歴から決まる（0.y 系では `feat:`→minor、`fix:`→patch）。
-3. `main` への push で release-plz が `release/vX.Y.Z` PR を自動で開く。
+1. `main` にマージする。コミット/PR タイトルは conventional commits
+   （`feat:` `fix:` など）に従う。次バージョンはこの履歴から決まる
+   （0.y 系では `feat:`→minor、`fix:`→patch）。
+2. `main` への push で release-plz が `release/vX.Y.Z` PR を自動で開く。
    中身は Cargo.toml/Cargo.lock の bump と CHANGELOG の追記。内容を確認する。
-4. その `release/vX.Y.Z` PR をマージする。
-5. release-plz が `vX.Y.Z` タグを打ち、`release.yml` が tarball 付きの
-   GitHub Release を発行する。
+3. その `release/vX.Y.Z` PR をマージする。
+4. `release-plz.yml` が続けて動く。
+   1. release-plz が `vX.Y.Z` タグを打ち、下書きの GitHub Release を作る
+      （タグを打つのは `emela-cli` パッケージだけ）。
+   2. `build` が Linux と macOS で tarball を作り、Release に載せる。
+   3. `publish-release` が下書きを公開する。
+   4. `notify-nix` が emela.nix に新しい版を知らせる。
+
+## プレリリース（prerelease.yml）
+
+`prerelease.yml` はプレリリースのタグ（`v*-*`）の push で動く。ハイフンのない
+`vX.Y.Z` では動かないので、release-plz の正式版と二重にならない。
+
+タグの push で動かすのは、`workflow_dispatch` は既定のブランチ（`main`）に
+ワークフローの定義がないと使えないため。タグの push ならタグを打ったコミット
+（`next` の上）の定義で動く。`workflow_dispatch`（入力にタグ名）は、`main` に
+このファイルが入った後に既存のタグで作り直すための予備。
+
+ワークフローがやること:
+
+1. タグ（先頭の `v` を除く）と `emela-cli` の version（workspace の version）が
+   一致するか確かめる。違えば失敗する。ビルド後に `emela --version` も確かめる。
+2. Linux（`x86_64-unknown-linux-gnu`）と macOS（`aarch64-apple-darwin`）で
+   `cargo build --release --bin emela` を走らせ、tarball に固める。
+3. GitHub Release を prerelease として作り（本文は `--generate-notes`）、
+   2つの tarball を載せる。同じタグの Release が既にあれば tarball を差し替える。
+
+emela.nix には知らせない（正式版だけ）。
+
+### 0.20 の alpha を `next` から出す
+
+1. `next` 向けに version を上げる PR を出す。`Cargo.toml` の
+   `[workspace.package]` の `version` を `0.20.0-alpha.N` にし、
+   `cargo build` で `Cargo.lock` も更新する。
+2. その PR を `next` にマージする。
+3. `next` の先頭でタグを打って push する。
+
+   ```sh
+   git switch next && git pull
+   git tag v0.20.0-alpha.N
+   git push origin v0.20.0-alpha.N
+   ```
+
+4. `prerelease.yml` が prerelease を作る。Actions の実行と Releases を確認する。
+
+タグと version がずれていたら、ワークフローはビルドの前に失敗する。そのときは
+タグを消して（`git push origin :refs/tags/v0.20.0-alpha.N`）、version を直してから
+打ち直す。
+
+## インストール
+
+```sh
+# 最新の正式版（prerelease は選ばれない）
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
+
+# 版を指定する（prerelease も可、先頭の v は省略可）
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh \
+  | EMELA_VERSION=v0.20.0-alpha.1 sh
+```
+
+`EMELA_CHANNEL=nightly` は最新の prerelease を選ぶ。今は nightly を出していないので、
+alpha が選ばれる。
 
 ## 補足
 
 - crates.io へは publish しない（`publish = false`）。配布物は `emela` バイナリの
   tarball のみ。
-- GitHub Release は `release.yml` が作る。release-plz は作らない
-  （`git_release_enable = false`）。
-- リリース後、`main` の bump を `dev` に取り込むため `main` → `dev` をマージする
-  （`dev` と `main` のバージョンを揃える）。
-</parameter>
-</invoke>
+- 0.20.0 の正式版を出すときに `next` を `main` に入れる。
