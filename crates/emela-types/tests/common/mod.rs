@@ -5,28 +5,45 @@ use std::path::Path;
 
 use emela_resolve::hir::{DefId, DefModule, Program};
 use emela_resolve::{
-    Diagnostic, MemoryFs, ModuleId, NoBuiltins, build_import_graph, collect_modules, imports,
-    resolve,
+    Diagnostic, MemoryFs, ModuleId, ModuleName, NoBuiltins, build_import_graph, collect_modules,
+    imports, resolve,
 };
 use emela_types::{Diagnostic as TypeDiagnostic, DiagnosticKind, Signatures, TyCons, TyTable};
 use la_arena::ArenaMap;
 
-/// `main.emel` を名前解決する．構文の誤りは許さない．
+/// `main.emel` を，同梱の Prelude と core のソースと一緒に名前解決する．構文の誤りは許さない．
+/// 返すモジュールは `main.emel` のもの．
 pub fn resolve_main(src: &str) -> (Program, ModuleId, Vec<Diagnostic>) {
     let fs = MemoryFs::new(["src/main.emel".to_string()]);
-    let (modules, diagnostics) = collect_modules(&fs, Path::new("src"));
+    let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
     assert_eq!(diagnostics, []);
-    let (module, _) = modules.iter().next().unwrap();
-    let parse = emela_syntax::parse(src);
-    assert!(parse.diagnostics().is_empty(), "{:?}", parse.diagnostics());
+    let (main, _) = modules.iter().next().unwrap();
+    let mut texts: ArenaMap<ModuleId, &str> = ArenaMap::default();
+    texts.insert(main, src);
+    for (name, text) in emela_core::core_sources() {
+        let (id, shadowed) =
+            modules.add_core(ModuleName::parse(name), Path::new("<core>").join(name));
+        assert_eq!(shadowed, None);
+        texts.insert(id, text);
+    }
+
     let mut trees = ArenaMap::default();
     let mut import_lists = ArenaMap::default();
-    import_lists.insert(module, imports(&parse.tree()));
-    trees.insert(module, parse.tree());
+    for (id, text) in texts.iter() {
+        let parse = emela_syntax::parse(text);
+        assert!(
+            parse.diagnostics().is_empty(),
+            "{}: {:?}",
+            modules[id].file.display(),
+            parse.diagnostics()
+        );
+        import_lists.insert(id, imports(&parse.tree()));
+        trees.insert(id, parse.tree());
+    }
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
-    (program, module, diagnostics)
+    (program, main, diagnostics)
 }
 
 /// 型の診断を `` `List[Int, Int]` WrongTypeArgCount { ... } `` の形にする．
