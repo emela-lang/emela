@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/signature.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\ntype Pair[A, B](first: A, second: B)\n\"#)"
+---
+User: fn(Int, String) -> User  (id:, name:)
+Pair: ∀ A, B. fn(A, B) -> Pair[A, B]  (first:, second:)

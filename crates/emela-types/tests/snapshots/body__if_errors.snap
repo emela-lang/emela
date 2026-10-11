@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(n: Int) -> Int {\n  a = if n { 1 } else { 2 }\n  b = if True { 1 } else { \"a\" }\n  c = if True { 1 }\n  n\n}\n\"#)"
+---
+f: fn(Int) -> Int
+  n: Int
+  a: Int
+  b: Int
+  c: ()
+`n` mismatch: expected `Bool`, found `Int`
+`{ "a" }` mismatch: expected `Int`, found `String`
+`1` mismatch: expected `()`, found `Int`

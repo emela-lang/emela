@@ -1,12 +1,13 @@
-//! emela-syntax のパーサと名前解決を差し込むフロントエンド．型検査はまだしない．
+//! emela-syntax のパーサ，名前解決，型検査を差し込むフロントエンド．
 
 use emela_resolve::hir::Program;
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
+use emela_types::{ProgramTypes, check_program};
 use la_arena::ArenaMap;
 
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, Location};
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 
@@ -160,6 +161,78 @@ fn is_broken(import: &ast::Import) -> bool {
             .find(|e| !e.kind().is_trivia())
             .is_some_and(|e| e.kind() == SyntaxKind::ERROR);
     has_error || unclosed || trailing
+}
+
+/// 名前解決（[`Resolve`]）の後に型検査をするフロントエンド．`emela check` などの既定．
+///
+/// 型検査は名前解決に誤りがあっても行う（解決できなかった名前は型推論が `Ty::Error` として
+/// 扱い，誤りを重ねない）．プログラムは HIR と型検査の結果の組．
+pub struct Typecheck<B = NoBuiltins> {
+    resolve: Resolve<B>,
+}
+
+/// 名前解決と型検査の結果．lowering はこの2つを読む（emela-types の NOTES.md「結果の形」）．
+pub struct TypedProgram {
+    pub hir: Program,
+    pub types: ProgramTypes,
+}
+
+impl Default for Typecheck<NoBuiltins> {
+    fn default() -> Self {
+        Typecheck {
+            resolve: Resolve::default(),
+        }
+    }
+}
+
+impl<B: BuiltinModules> Typecheck<B> {
+    pub fn new(resolve: Resolve<B>) -> Self {
+        Typecheck { resolve }
+    }
+
+    /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
+    pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
+        self.resolve.parse_of(module)
+    }
+}
+
+impl<B: BuiltinModules> Frontend for Typecheck<B> {
+    type Program = TypedProgram;
+
+    fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
+        self.resolve.parse(module, file, source)
+    }
+
+    fn core_sources(&self) -> Vec<CoreSource> {
+        self.resolve.core_sources()
+    }
+
+    fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
+        let resolved = self.resolve.check(analysis, order);
+        let Some(hir) = resolved.program else {
+            return Checked {
+                program: None,
+                diagnostics: resolved.diagnostics,
+            };
+        };
+        let types = check_program(&hir);
+        let mut diagnostics = resolved.diagnostics;
+        // 型推論は呼び出しの順に進むので，名前解決と同じくファイルと位置の順に並べ直す．
+        let mut type_diagnostics: Vec<Diagnostic> = types
+            .diags
+            .iter()
+            .map(|d| Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files))
+            .collect();
+        type_diagnostics.sort_by_key(|d| match &d.location {
+            Some(Location::Span(span)) => (Some(span.file), span.range.start()),
+            _ => (None, 0.into()),
+        });
+        diagnostics.extend(type_diagnostics);
+        Checked {
+            program: Some(TypedProgram { hir, types }),
+            diagnostics,
+        }
+    }
 }
 
 #[cfg(test)]

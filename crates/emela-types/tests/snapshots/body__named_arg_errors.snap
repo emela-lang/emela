@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn connect(host: String, port: Int) -> Bool { todo() }\n\nfn f(g: fn(Int) -> Int) -> Int {\n  a = connect(\"x\", prot: 1)\n  b = connect(\"x\", host: \"y\")\n  c = connect(port: \"no\")\n  d = Some(value: 1)\n  e = g(x: 1)\n  1\n}\n\"#)"
+---
+connect: fn(String, Int) -> Bool
+  host: String
+  port: Int
+f: fn(fn(Int) -> Int) -> Int
+  g: fn(Int) -> Int
+  a: Bool
+  b: Bool
+  c: Bool
+  d: Option[?1]
+  e: Int
+`prot` UnknownLabel { callee: "connect", label: "prot" }
+`host` DuplicateArg { label: "host" }
+`connect(port: "no")` WrongArgCount { callee: Some("connect"), expected: 2, found: 1 }
+`"no"` mismatch: expected `Int`, found `String`
+`value` UnknownLabel { callee: "Some", label: "value" }
+`x` LabelOnUnnamedCallee { label: "x" }

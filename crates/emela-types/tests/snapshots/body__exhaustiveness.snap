@@ -1,0 +1,29 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn area(s: Shape) -> Float {\n  match s {\n    Circle(radius:) -> radius\n    Rect(w, h) -> w * h\n  }\n}\n\nfn guarded(o: Option[Int]) -> Int {\n  match o {\n    Some(x) if x > 0 -> x\n    None -> 0\n  }\n}\n\nfn nested(o: Option[Option[Bool]]) -> Int {\n  match o {\n    Some(Some(True)) -> 1\n    None -> 0\n  }\n}\n\nfn lists(xs: List[Int]) -> Int {\n  match xs {\n    [] -> 0\n    [x] -> x\n  }\n}\n\nfn bools(a: Bool, b: Bool) -> Int {\n  match (a, b) {\n    (True, _) -> 1\n    (False, True) -> 2\n    (False, False) -> 3\n  }\n}\n\nfn literals(n: Int) -> String {\n  match n {\n    0 -> \"zero\"\n    1 -> \"one\"\n  }\n}\n\nfn named(u: Option[Shape]) -> Int {\n  match u {\n    Some(Circle(radius: _)) -> 1\n    Some(Rect(..)) -> 2\n    Some(Empty) -> 3\n    None -> 4\n  }\n}\n\"#)"
+---
+area: fn(Shape) -> Float
+  s: Shape
+  radius: Float
+  w: Float
+  h: Float
+guarded: fn(Option[Int]) -> Int
+  o: Option[Int]
+  x: Int
+nested: fn(Option[Option[Bool]]) -> Int
+  o: Option[Option[Bool]]
+lists: fn(List[Int]) -> Int
+  xs: List[Int]
+  x: Int
+bools: fn(Bool, Bool) -> Int
+  a: Bool
+  b: Bool
+literals: fn(Int) -> String
+  n: Int
+named: fn(Option[Shape]) -> Int
+  u: Option[Shape]
+`s` non-exhaustive match: Empty not covered
+`o` non-exhaustive match: Some(_) not covered
+`o` non-exhaustive match: Some(Some(False)), Some(None) not covered
+`xs` non-exhaustive match: [_, _, ..] not covered
+`n` non-exhaustive match: _ not covered

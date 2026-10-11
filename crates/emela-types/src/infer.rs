@@ -6,13 +6,15 @@ use smol_str::SmolStr;
 
 use crate::error::{TypeError, TypeErrorKind};
 use crate::scheme::{Scheme, param_name};
-use crate::ty::{Ty, TyParam, TyVar, TyVarValue};
+use crate::ty::{Prim, Ty, TyParam, TyVar, TyVarValue};
 
 /// 推論の状態．型変数の表と，集めた型エラーを持つ．
 #[derive(Default)]
 pub struct InferCtx {
     table: InPlaceUnificationTable<TyVar>,
     errors: Vec<TypeError>,
+    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない（2.4）．
+    int_vars: Vec<TyVar>,
 }
 
 impl InferCtx {
@@ -26,6 +28,22 @@ impl InferCtx {
 
     pub fn new_var(&mut self) -> Ty {
         Ty::Var(self.fresh_var())
+    }
+
+    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない．他の型変数と単一化すると，
+    /// その型変数も同じ制約を持つ．
+    pub fn new_int_var(&mut self) -> Ty {
+        let v = self.fresh_var();
+        self.int_vars.push(v);
+        Ty::Var(v)
+    }
+
+    /// `v` が整数リテラルの型変数（と単一化した型変数）か．
+    pub fn is_int_var(&mut self, v: TyVar) -> bool {
+        let int_vars = std::mem::take(&mut self.int_vars);
+        let found = int_vars.iter().any(|&w| self.table.unioned(v, w));
+        self.int_vars = int_vars;
+        found
     }
 
     /// 束縛済みの型変数を辿り，先頭が束縛済みの型変数でない形にする．
@@ -60,20 +78,29 @@ impl InferCtx {
                 self.table.rollback_to(snapshot);
                 let kind = match kind {
                     TypeErrorKind::Mismatch { expected, actual } => TypeErrorKind::Mismatch {
-                        expected: self.resolve(&expected),
-                        actual: self.resolve(&actual),
+                        expected: self.resolve_for_report(&expected),
+                        actual: self.resolve_for_report(&actual),
                     },
                     TypeErrorKind::InfiniteType { var, ty } => TypeErrorKind::InfiniteType {
                         var,
-                        ty: self.resolve(&ty),
+                        ty: self.resolve_for_report(&ty),
                     },
                 };
                 Err(TypeError {
-                    expected: self.resolve(expected),
-                    actual: self.resolve(actual),
+                    expected: self.resolve_for_report(expected),
+                    actual: self.resolve_for_report(actual),
                     kind: Box::new(kind),
                 })
             }
+        }
+    }
+
+    /// エラーに出すための形．まだ決まっていない整数リテラルの型変数は `Int` と出す
+    /// （決まらなければ Int になるので）．
+    fn resolve_for_report(&mut self, ty: &Ty) -> Ty {
+        match self.shallow_resolve(ty) {
+            Ty::Var(v) if self.is_int_var(v) => Ty::INT,
+            ty => ty.map_children(|child| self.resolve_for_report(child)),
         }
     }
 
@@ -140,10 +167,23 @@ impl InferCtx {
         };
         match (&e, &a) {
             (Ty::Var(x), Ty::Var(y)) => {
+                let int = self.is_int_var(*x) || self.is_int_var(*y);
                 self.table.union(*x, *y);
+                if int {
+                    let root = self.table.find(*x);
+                    self.int_vars.push(root);
+                }
                 Ok(())
             }
-            (Ty::Var(v), t) | (t, Ty::Var(v)) => self.bind(*v, t),
+            (Ty::Var(v), t) | (t, Ty::Var(v)) => {
+                if self.is_int_var(*v)
+                    && !matches!(t, Ty::Prim(Prim::Int | Prim::Int64) | Ty::Error)
+                {
+                    return Err(mismatch(&e, &a));
+                }
+                self.bind(*v, t)
+            }
+            (Ty::Error, _) | (_, Ty::Error) => Ok(()),
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
@@ -214,17 +254,36 @@ impl InferCtx {
     ///
     /// 型引数には現れた順に `A`，`B`，… と名前を付ける．制約は付けない．
     pub fn generalize(&mut self, ty: &Ty, env_vars: &[TyVar]) -> Scheme {
+        self.generalize_with(ty, Vec::new(), env_vars)
+    }
+
+    /// [`Self::generalize`] と同じく量化する．`existing`（宣言で書いた型引数．`ty` の中では
+    /// `Ty::Bound(i)`）の後ろに，量化した型変数を足す．名前は書いた型引数と重ならないものを選ぶ．
+    pub fn generalize_with(
+        &mut self,
+        ty: &Ty,
+        existing: Vec<TyParam>,
+        env_vars: &[TyVar],
+    ) -> Scheme {
         // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
         let mut env = Vec::new();
         for v in env_vars {
             self.collect_free_vars(&Ty::Var(*v), &mut env);
         }
         let mut map = FxHashMap::default();
-        let mut params = Vec::new();
+        let mut params = existing;
+        let mut next_name = 0;
         for v in self.free_vars(ty) {
             if !env.contains(&v) {
                 map.insert(v, params.len() as u32);
-                params.push(TyParam::new(SmolStr::new(param_name(params.len()))));
+                let name = loop {
+                    let name = param_name(next_name);
+                    next_name += 1;
+                    if !params.iter().any(|p| p.name == name) {
+                        break name;
+                    }
+                };
+                params.push(TyParam::new(SmolStr::new(name)));
             }
         }
         let ty = self.resolve(ty);
@@ -233,8 +292,13 @@ impl InferCtx {
 
     /// スキームの型引数をそれぞれ新しい型変数に置き換える．
     pub fn instantiate(&mut self, scheme: &Scheme) -> Ty {
+        self.instantiate_with_args(scheme).0
+    }
+
+    /// [`Self::instantiate`] と同じく具体化し，型引数に置いた型変数も返す．
+    pub fn instantiate_with_args(&mut self, scheme: &Scheme) -> (Ty, Vec<Ty>) {
         let args: Vec<Ty> = scheme.params.iter().map(|_| self.new_var()).collect();
-        substitute_bound(&scheme.ty, &args)
+        (substitute_bound(&scheme.ty, &args), args)
     }
 }
 

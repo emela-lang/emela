@@ -15,6 +15,7 @@ emela-core.workspace = true
 emela-codegen-js.workspace = true
 emela-codegen-wasm.workspace = true
 la-arena.workspace = true
+smol_str.workspace = true
 line-index.workspace = true
 ariadne.workspace = true
 serde.workspace = true

@@ -282,6 +282,7 @@ dependencies = [
  "line-index",
  "serde",
  "serde_json",
+ "smol_str",
  "toml",
 ]
 
@@ -335,7 +336,9 @@ dependencies = [
 name = "emela-types"
 version = "0.20.0"
 dependencies = [
+ "emela-core",
  "emela-resolve",
+ "emela-syntax",
  "ena",
  "insta",
  "la-arena",

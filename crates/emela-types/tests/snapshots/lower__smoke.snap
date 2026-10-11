@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(\"fn f(x: Int) -> Int { x }\\n\")"
+---
+f: fn(Int) -> Int

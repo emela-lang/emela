@@ -29,3 +29,78 @@
 - （補）escape（7.3）の腕は一部だけ受けてよいので，`MatchCheck` の `redundant` だけを使い，`missing` は見ない．
 - （補）opaque な型（4.4）は定義モジュールの外では構成子パターンを書けないので，列に構成子がなく witness は `_` になり，隠れた構成子は出ない．呼び出し側は `TyShape` をそのまま渡してよい．
 - （補）17.6，6.5 改訂済み（`emela-0.20-spec.md`）: リストのパターンで名前なしの `[x, ..]` を許す．`[..]` と `[..rest]` は書けない．網羅性の検査は名前の有無を区別しないので変更は要らない．
+- （補）Bool は Prelude では enum（`True` / `False`）だが，型推論では `Prim::Bool` で持つ．Bool の enum の `DefId` は `TyCons` に登録せず `Ty::BOOL` に写し，`True` / `False` の構成子の型も `Bool` にする．網羅性の検査には `TyShape::Enum`（`False`，`True` の順．prelude.emel の宣言順）で渡す．仕様が enum とするのは利用者から見える意味で，表現は実装依存（16.4）．
+- （補）読めなかった型（`TypeKind::Missing`）と解決できなかった名前（`Res::Err`）は `Ty::Error` にする．単一化ではどの型とも黙って一致し，型変数は `Ty::Error` に束縛される．エラーが1件でもあれば lowering は呼ばれないので，lowering は `Ty::Error` を見ない．表示は `{unknown}`．
+- （補）`error` の宣言は `TyConKind::Error` として `TyCons` に登録する（7.1 で同じ名前の型を定義するため）．alpha.2 の E（fails の集合）はエラーを `DefId` で持つ予定で，型の表に `DefId → TyConId` の対応を持つ．
+- （補）型引数の数の検査（`List[Int, Int]`，型引数のない `Option`）は名前解決ではなく型推論で行う（E0304）．組み込みの型の型引数の数を知っているのが型推論のため．
+- （補）Prelude の `panic`，`todo`，`dbg` は同梱の `prelude.emel` の `@intrinsic` の fn なので，宣言の型は他の fn と同じく `Signatures` が作る．特別扱いしない．
+- （補）呼び出しは，引数を仮引数の位置に並べ直してから型を照合する．位置引数は前から，名前付き引数はラベル（仮引数名，名前付きフィールド名）で置く．ラベルを引けるのは，呼ばれる側が定義（fn，構成子）を名前で指しているときだけ．局所変数やラムダの値を名前付き引数で呼ぶと E0306．
+- （補）呼び出しのエラー: 引数の数が合わない E0305，そのラベルの引数がない E0306，同じ引数を2回渡した E0307．ラベルの誤りを出した呼び出しには，引数の数の誤りを重ねない．
+- （補）呼ばれる側の型がまだ関数型と分からない（型変数）か関数でない型なら，引数の数だけ型変数を並べた関数型と単一化する．関数でなければ型が合わないエラーになる．
+- （補）戻り値の型を書いていない fn と，型を書いていない const の参照は，呼び出しの順の推論（ステップ4）が入るまで「まだ扱えない」の診断にする．
+- （補）パターンの照合は「来た値の型」を期待する側，パターンの型を実際の側に置く（`expected` が値の型）．タプルとリストのパターンは，要素の型変数を並べた型と来た値の型を単一化してから要素に渡す．
+- （補）構成子のパターンのフィールドは，呼び出しの引数と同じく位置とラベルで並べ直す．名前付きフィールドの構成子を位置で書いてもよい（6.2）．名前付きフィールドの構成子で `..` なしにフィールドを省けば E0308（省いたフィールドを全部持つ），フィールドより多い，または位置だけの構成子で `..` なしに足りなければ E0309．ラベルの誤りは E0306，E0307．置けなかったパターンには `Ty::Error` を渡す．
+- （補）束縛のパターンが必ず成功するかどうか（6.3）は，網羅性の検査をつなぐステップ5で見る．それまではリテラルや構成子のパターンも束縛に書ける．
+
+- （補）ラムダとリストのリテラルも，期待する型があれば中へ渡す．ラムダは期待する型が同じ数の引数の関数型なら，その引数の型を（型を書いていない）ラムダの引数に先に付けてから本体を推論する．`List.map(users, fn(u) { u.name })` の `u` が `User` に決まってからフィールドを引けるようにするため．
+- （補）フィールドの参照 `x.name` は，`x` の型がその時点で type か error の名前付き型に決まっている必要がある．型変数のままなら E0314（型注釈が要る）．フィールドの名前から型を逆算することはしない（行多相を持たない）．
+- （補）フィールドの型は，その型の構成子の宣言の型（ラベルと引数の型）から引き，型引数を代入する．enum とフィールドのない `@external` の type はフィールドを持たない（E0313）．opaque な型のフィールドは定義モジュールの外では引けない（E0315，4.4）．
+- （補）部分更新 `C(f: e, ..base)` は構成子の型を2回具体化する．1つ目が作る値，2つ目が `base` の型．書いたフィールドは1つ目の型で検査し，書いていないフィールドは2つの型のそのフィールドの型を単一化する（引き継ぐ）．型引数は変わってよい（5.3）．ないフィールドは E0312，2回書いたフィールドは E0307．
+- （補）補間の中の式は推論するだけで，Show を満たすかは Trait の段で見る．`assert e` の `e` は Bool で，全体は `()`．
+- （補）プログラム全体の検査（`check_program`）は，本体のある fn と const を，本体の中で参照する定義への辺で結び，強連結成分（互いに参照し合うまとまり）ごとに，参照される側から順に推論する（Tarjan）．まとまりごとに `InferCtx` を1つ使う．
+- （補）宣言の型のない定義（戻り値の型を書いていない fn，型を書いていない const）は，まとまりの中では単相の型で参照し，まとまりを推論し終えてから汎化して宣言の型の表に足す．書いた型引数（`fn f[A](...)`）は汎化した型引数の前に並べ，汎化した型引数には書いたものと重ならない名前を付ける．宣言の型のない定義どうしの再帰は多相にならない（同じまとまりの中で別々の型に使うと型が合わない）．
+- （補）宣言の型のない定義に書いた型引数があるとき，同じまとまりの他の定義からの参照は，型引数を新しい型変数に置き換え，まだ決まっていない部分も新しい型変数にして，まとまりを推論し終えてから定義の最終的な型と照合する．その定義の型引数が他の定義へ漏れないようにするため．
+- （補）const も汎化する（`const EMPTY = []` は `∀ A. List[A]`）．ただし alpha.1 では const の値は純粋な式に限る（5.6）ので，汎化して困る場面はない．
+- （補）トップレベルの fn の引数に型を書いていなければ E0316（6.1）．構文と名前解決では検査していない．型は `Ty::Error` にして続ける．
+- （補）同梱の Prelude と core のソースは，型の診断なしに検査を通る（テスト `core_sources_typecheck`）．
+- （補）網羅性の検査は，定義のまとまりの推論が終わって型が決まった後に行う（`coverage.rs`）．match は E0303（足りない値の例を全部）と W0301（冗長な腕ごと），束縛は E0317（6.3．直し方が match への書き換えなので E0303 と分ける）．対象の型が `Ty::Error` なら確かめない．
+- （補）パターンは対象の型に沿って検査用の形に変換する．型に合わない部分（型検査が誤りを出している）はワイルドカードにして，検査が崩れないようにする．
+- （補）const のパターンは，値がリテラル（か負の数値リテラル）ならその値として検査する．それ以外の式はコンパイル時の評価がまだないので，その const だけに合う値として扱う（網羅したとは見なさず，同じ const を2回書いたときだけ冗長）．
+- （補）足りない値の例では，名前付きフィールドの構成子も位置で出す（`Circle(_)`）．
+- （補）alpha.1 で扱わない式（`fail`，`escape`，`use`，`with`）は，構文の名前を入れた「まだ扱えない」の診断にし，中の式は推論して型を記録する．式の種類はこれで全部扱っている（`ExprKind` の `match` に `_` の腕はない）．
+- （補）仕様の例（2.4，5章，6章，9章）は `tests/spec_examples.rs` で型検査にかける．仕様の例は断片が多いので，足りない定義を補って完全なプログラムにしてある（補った行に「補」と書く）．
+
+## 結果の形（lowering に渡すもの）
+
+本人と相談して決めた（2026-10-11）．lowering は HIR を直接辿り，必要な情報を `ProgramTypes` の表から引く．型付きの木（THIR）は作らない．
+
+- （補）型が付いた木を別に持つと HIR とほぼ同じ形の木を二重に保守することになるので，HIR の番号（`ExprId`，`PatId`，`LocalId`，`DefId`）をキーにした表を並べる．LSP の hover も同じ表を引く．
+- （補）`exprs`，`pats`，`locals`: 各式，パターン，局所変数の型．`local_owner`: 局所変数がどの定義の本体のものか．
+- （補）`sigs`: fn，構成子，const の宣言の型．宣言の型のなかった定義は推論して汎化した型．`ty_table`: `TyConId` から型の定義（`TyTable::def`）を引く．
+- （補）`fields`: フィールドの参照の式 → フィールドの添字（構成子の宣言の順）．IR の `Expr::Field { index }` に使う．
+- （補）`calls`: 呼び出し（`Call`），パイプ（`Binary { op: Pipe }`），部分更新（`Update`）の式 → 仮引数（フィールド）の位置の順に並べ直した引数．パイプは左辺を先頭に含み，呼ばれる側は右辺が呼び出しならその呼ばれる側，そうでなければ右辺そのもの．部分更新は書いたフィールドだけが `Some` で，`None` は `..` の後の値から引き継ぐ．書かれた順で評価するかどうか（`named::in_written_order`）は lowering が決める．
+- （補）`type_args`: 汎用の定義（`Some`，`dbg`，型引数のある fn）の参照の式 → 具体化した型引数（宣言の型引数の順）．組み込み関数の `ty_args` に使う．
+- （補）`pat_fields`: 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールド（`..`）は `None`．IR では `Pat::Wild` で埋める．
+- （補）決まらずに残った型変数（使われない `None` の `Option[?]` など）は型変数のまま表に残る．lowering は `()` として扱う．どの表現でも振る舞いは変わらない．
+- （補）汎用の fn の本体の中の型には，その fn の型引数が `Ty::Bound(i)` で現れる．
+- （補）エラーが1件でもあれば lowering は呼ばれない前提．表は誤りのある式に対しては欠けることがある（たとえば型の誤りのある呼び出しの `calls`）．
+
+## driver に渡すときの文面
+
+driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこの文面で写す．
+
+付録 A の文面に合わせる．文面は仕様の一部ではないが，ここに置いておく．
+
+- E0301 `Mismatch`: ``type mismatch: expected `Int`, found `String` ``
+- E0302 `Mismatch`（`TypeErrorKind::InfiniteType`）: ``infinite type: `?0` occurs in `List[?0]` ``
+- E0304 `WrongTypeArgCount`: ``wrong number of type arguments: `List` takes 1, found 2``
+- E0305 `WrongArgCount`: ``wrong number of arguments: `connect` takes 2, found 3``．`callee` が `None`（関数値の呼び出し）なら ``this function takes 2 arguments, found 3``
+- E0306 `UnknownLabel`: ``no parameter named `prot` in `connect` ``．`LabelOnUnnamedCallee`: ``no parameter named `x`: a function value has no parameter names``
+- E0307 `DuplicateArg`: ``argument `port` given more than once``
+- E0308 `MissingPatternFields`: ``pattern `User` does not mention fields `id`, `email` ``（1つなら ``field `id` ``）．4つ以上なら先頭の3つと ``and N more``．注記 ``= help: add `..` to ignore the remaining fields``
+- E0309 `PatternFieldCount`: ``pattern `Rect` has 2 fields, found 1``
+- E0310 `NotNumeric`: ``expected a number (`Int`, `Int64` or `Float`), found `String` ``．`integer` なら ``expected an integer (`Int` or `Int64`), found `Float` ``
+- E0311 `IntLiteralOutOfRange`: ``integer literal `3000000000` is out of range for `Int` ``
+- E0312 `NoField`: ``no field `nmae` on type `User` ``
+- E0313 `NoFields`: ``type `Int` has no fields``
+- E0314 `FieldOnUnknownType`: ``the type of this value must be known to access field `name` ``．注記 ``= help: add a type annotation``
+- E0315 `OpaqueField`: ``cannot access field `value` of opaque type `Email` outside its module``
+- E0316 `MissingParamType`: ``parameter `x` of a top-level function needs a type``
+- E0303 `NonExhaustiveMatch`: ``non-exhaustive match: `Rect(_, _)` not covered``（複数なら ``patterns `A`, `B` not covered``）
+- E0317 `RefutableBinding`: ``refutable pattern in binding: `None` not covered``．注記 ``= help: use `match` to handle the other cases``
+- W0301 `UnreachableArm`: ``unreachable match arm``
+- `Unsupported`: コードなしの ``error: not supported yet: {what}``（alpha.1 の間だけ）
+- （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．
+- （補）整数リテラルの型は「整数リテラルの型変数」（`InferCtx::new_int_var`）にする．Int か Int64 にしか束縛できず，他の型と単一化すると，その場で型が合わないエラーになる（エラーには `Int` と出す）．他の型変数と単一化すると，その型変数も同じ制約を持つ．本体を推論し終えても決まらなければ Int にする（2.4）．
+- （補）整数リテラルの範囲は，本体を推論し終えて型が決まった後に確かめる（E0311）．負の数は単項マイナスの式なので，リテラルは正の数として見る．そのため Int の `-2147483648` は書けない（`2147483648` が範囲外）．2の補数として読み替えない（`0xFFFF_FFFF` は Int に収まらない）．
+- （補）算術演算子と単項マイナスのオペランドは Int，Int64，Float のどれか（6.6）．型変数のまま決まらないこともあるので，本体を推論し終えたときに確かめる（E0310）．決まらなければ Int にする．

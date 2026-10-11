@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn f() -> Int {\n  a: Int = 0xFFFF_FFFF\n  b: Int64 = 0xFFFF_FFFF\n  c: Float = 1\n  a\n}\n\"#)"
+---
+f: fn() -> Int
+  a: Int
+  b: Int64
+  c: Float
+`0xFFFF_FFFF` integer literal `0xFFFFFFFF` out of range for `Int`
+`1` mismatch: expected `Float`, found `Int`

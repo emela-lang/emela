@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn g(x: Int, s: String) {\n  y = x\n  (y, s, 1.0)\n}\nfn unit() {\n  x = 1\n}\n\"#)"
+---
+g: fn(Int, String) -> (Int, String, Float)
+  x: Int
+  s: String
+  y: Int
+unit: fn() -> ()
+  x: Int

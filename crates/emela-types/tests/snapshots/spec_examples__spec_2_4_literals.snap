@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn literals(id: Int) -> String {\n  hex = 0xFF\n  bin = 0b1010\n  big: Int64 = 0xFFFF_FFFF\n  million = 1_000_000\n  ratio = 1.0e9\n  query = \"\"\"\n    SELECT *\n    FROM users\n    WHERE id = #{id}\n    \"\"\"\n  query\n}\n\"#)"
+---
+literals: fn(Int) -> String
+  id: Int
+  hex: Int
+  bin: Int
+  big: Int64
+  million: Int
+  ratio: Float
+  query: String

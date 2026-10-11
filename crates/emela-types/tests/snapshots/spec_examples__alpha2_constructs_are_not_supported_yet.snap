@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nerror Invalid(input: String)\n\nfn validate(input: String, valid: Bool) -> String {\n  if !valid { fail Invalid(input:) }\n  input\n}\n\"#)"
+---
+validate: fn(String, Bool) -> String
+  input: String
+  valid: Bool
+`fail Invalid(input:)` not supported yet: `fail`

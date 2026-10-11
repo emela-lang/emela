@@ -15,7 +15,7 @@ mod testing;
 
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;
-pub use frontend::{ParseOnly, Resolve};
+pub use frontend::{ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{

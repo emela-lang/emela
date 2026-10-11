@@ -1,0 +1,23 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(n: Int, big: Int64, s: String, c: Bool) -> Int {\n  a = n + big\n  b = s + s\n  d = n + 1.5\n  e = -c\n  g = !n\n  h = c && 1\n  i = n == \"x\"\n  n\n}\n\"#)"
+---
+f: fn(Int, Int64, String, Bool) -> Int
+  n: Int
+  big: Int64
+  s: String
+  c: Bool
+  a: Int
+  b: String
+  d: Int
+  e: Bool
+  g: Bool
+  h: Bool
+  i: Bool
+`big` mismatch: expected `Int`, found `Int64`
+`s + s` not numeric (integer: false): `String`
+`1.5` mismatch: expected `Int`, found `Float`
+`-c` not numeric (integer: false): `Bool`
+`n` mismatch: expected `Bool`, found `Int`
+`1` mismatch: expected `Bool`, found `Int`
+`"x"` mismatch: expected `Int`, found `String`

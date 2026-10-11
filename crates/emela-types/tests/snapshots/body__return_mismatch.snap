@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(x: Int) -> String {\n  x\n}\nfn id[A](x: A) -> A {\n  1\n}\nfn ok[A](x: A) -> A {\n  y = x\n  y\n}\n\"#)"
+---
+f: fn(Int) -> String
+  x: Int
+id: ∀ A. fn(A) -> A
+  x: '0
+ok: ∀ A. fn(A) -> A
+  x: '0
+  y: '0
+`x` mismatch: expected `String`, found `Int`
+`1` mismatch: expected `'0`, found `Int`

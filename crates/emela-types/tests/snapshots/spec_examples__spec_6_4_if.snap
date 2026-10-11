@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn label(count: Int) -> String {\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  label\n}\n\"#)"
+---
+label: fn(Int) -> String
+  count: Int
+  label: String

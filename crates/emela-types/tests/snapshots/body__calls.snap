@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn add(x: Int, y: Int) -> Int { x }\nfn pair[A, B](a: A, b: B) -> (A, B) { (a, b) }\n\nfn f() -> Int {\n  a = add(1, 2)\n  p = pair(1, \"s\")\n  q = pair(\"t\", 2.0)\n  a\n}\n\"#)"
+---
+add: fn(Int, Int) -> Int
+  x: Int
+  y: Int
+pair: ∀ A, B. fn(A, B) -> (A, B)
+  a: '0
+  b: '1
+f: fn() -> Int
+  a: Int
+  p: (Int, String)
+  q: (String, Float)

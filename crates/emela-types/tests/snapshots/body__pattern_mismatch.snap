@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(p: (Int, String)) -> Int {\n  (a, b, c) = p\n  (x, y) = 1\n  () = 1\n  1\n}\n\"#)"
+---
+f: fn((Int, String)) -> Int
+  p: (Int, String)
+  a: ?0
+  b: ?1
+  c: ?2
+  x: ?4
+  y: ?5
+`(a, b, c)` mismatch: expected `(Int, String)`, found `(?0, ?1, ?2)`
+`(x, y)` mismatch: expected `Int`, found `(?4, ?5)`
+`()` mismatch: expected `Int`, found `()`

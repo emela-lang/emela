@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/signature.rs
+expression: "run(r#\"\nfn connect(host: String, port: Int) -> () { todo() }\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { todo() }\nfn inferred(x: Int) { x }\n\"#)"
+---
+connect: fn(String, Int) -> ()  (host:, port:)
+map: ∀ A, B. fn(List[A], fn(A) -> B) -> List[B]  (xs:, f:)

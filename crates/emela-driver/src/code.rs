@@ -40,6 +40,20 @@ pub const SHADOWS_PRELUDE: &str = "W0202";
 pub const TYPE_MISMATCH: &str = "E0301";
 pub const INFINITE_TYPE: &str = "E0302";
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0303";
+pub const WRONG_TYPE_ARG_COUNT: &str = "E0304";
+pub const WRONG_ARG_COUNT: &str = "E0305";
+pub const UNKNOWN_LABEL: &str = "E0306";
+pub const DUPLICATE_ARG: &str = "E0307";
+pub const MISSING_PATTERN_FIELDS: &str = "E0308";
+pub const PATTERN_FIELD_COUNT: &str = "E0309";
+pub const NOT_NUMERIC: &str = "E0310";
+pub const INT_LITERAL_OUT_OF_RANGE: &str = "E0311";
+pub const NO_FIELD: &str = "E0312";
+pub const NO_FIELDS: &str = "E0313";
+pub const FIELD_ON_UNKNOWN_TYPE: &str = "E0314";
+pub const OPAQUE_FIELD: &str = "E0315";
+pub const MISSING_PARAM_TYPE: &str = "E0316";
+pub const REFUTABLE_BINDING: &str = "E0317";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 
 // E09xx: ツール

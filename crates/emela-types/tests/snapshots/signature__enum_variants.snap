@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/signature.rs
+expression: "run(r#\"\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\nenum Tree[A] {\n  Leaf\n  Node(Tree[A], A, Tree[A])\n}\n\"#)"
+---
+Circle: fn(Float) -> Shape  (radius:)
+Rect: fn(Float, Float) -> Shape  (_, _)
+Empty: Shape
+Leaf: ∀ A. Tree[A]
+Node: ∀ A. fn(Tree[A], A, Tree[A]) -> Tree[A]  (_, _, _)

@@ -3,16 +3,24 @@
 //! 判定の形は `Γ ⊢ e : T ! E ; R`（仕様 9.1）．T は Hindley-Milner で推論し，
 //! E と R は集合の和と差で求める．
 
+mod body;
+mod check;
+mod coverage;
+mod diagnostic;
 mod display;
 mod error;
 mod exhaustiveness;
 mod infer;
+mod lower;
 mod scheme;
+mod signature;
 mod ty;
 
 #[cfg(test)]
 mod tests;
 
+pub use check::{ProgramTypes, check_program};
+pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{
@@ -20,5 +28,7 @@ pub use exhaustiveness::{
     check_match,
 };
 pub use infer::{InferCtx, substitute_bound};
+pub use lower::TyTable;
 pub use scheme::Scheme;
+pub use signature::{Signature, Signatures};
 pub use ty::{FnTy, Prim, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam, TyVar};

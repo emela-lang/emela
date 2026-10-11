@@ -85,6 +85,8 @@ pub enum TyConKind {
     /// `type`（レコード）．
     Type,
     Enum,
+    /// `error`（7.1）．同じ名前の型も定義する．
+    Error,
 }
 
 /// 型引数とその制約（`A: Ord + Show`）．
@@ -176,6 +178,9 @@ pub enum Ty {
     List(Box<Ty>),
     /// 名前付き型の適用（`Pair[A, B]`，`Option[A]`）．
     Named(TyConId, Vec<Ty>),
+    /// 壊れた型．読めなかった型や解決できなかった名前から作る．
+    /// 単一化ではどの型とも黙って一致し，エラーを重ねて出さない．
+    Error,
 }
 
 impl Ty {
@@ -210,7 +215,7 @@ impl Ty {
     /// 直下の子の型を順に渡す．
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) => {}
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
             Ty::Fn(fun) => {
                 fun.params.iter().for_each(&mut f);
                 f(&fun.ret);
@@ -223,7 +228,7 @@ impl Ty {
     /// 直下の子の型を `f` で置き換えた型を作る．
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) => self.clone(),
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),
             Ty::Fn(fun) => Ty::Fn(Box::new(FnTy {
                 params: fun.params.iter().map(&mut f).collect(),
                 ret: f(&fun.ret),

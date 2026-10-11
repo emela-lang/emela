@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use emela_driver::{
-    Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, Resolve, RunOptions,
-    SourceDb, TestOptions, WithTests,
+    Analysis, Diagnostic, FileSystem, Input, NoJsBackend, OsFs, Output, RunOptions, SourceDb,
+    TestOptions, Typecheck, WithTests,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -87,7 +87,7 @@ fn check(path: &Path) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
-    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Resolve::default());
+    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
     report(&analysis)
 }
 
@@ -96,11 +96,11 @@ fn build(path: &Path, out_dir: Option<PathBuf>) -> ExitCode {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
     let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir());
-    // 型検査と JS の出力の段ができたら Resolve と NoJsBackend を差し替える．
+    // lowering と JS の出力の段ができたら NoJsBackend を差し替える．
     let (analysis, _) = emela_driver::build(
         &OsFs,
         &input,
-        &mut Resolve::default(),
+        &mut Typecheck::default(),
         &mut NoJsBackend,
         &out_dir,
     );
@@ -123,7 +123,7 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
     let (analysis, output) = emela_driver::run(
         &OsFs,
         &input,
-        &mut Resolve::default(),
+        &mut Typecheck::default(),
         &mut NoJsBackend,
         &options,
         |analysis| {
@@ -161,11 +161,11 @@ fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCo
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let stdout = std::io::stdout();
-    // lowering ができたら Resolve と NoJsBackend を差し替える（テスト関数の IR は TestModule）．
+    // lowering ができたら NoJsBackend を差し替える（テスト関数の IR は TestModule）．
     let (analysis, report) = emela_driver::test(
         &OsFs,
         &input,
-        &mut WithTests(Resolve::default()),
+        &mut WithTests(Typecheck::default()),
         &mut NoJsBackend,
         &options,
         |analysis| {
@@ -190,7 +190,7 @@ fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCo
 
 fn lsp() -> ExitCode {
     // フロントエンドは check と同じものを使う（同じ診断を出すため）．
-    match emela_lsp::run_stdio(Resolve::default) {
+    match emela_lsp::run_stdio(Typecheck::default) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("emela lsp: {err}");

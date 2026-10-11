@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype User(id: Int, name: String)\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn f(shape: Shape, o: Option[Int], u: User) -> Float {\n  Some(n) = o\n  User(name:) = u\n  match shape {\n    Circle(radius:) if radius > 0.0 -> radius\n    Rect(w, h) -> w\n    _ -> 0.0\n    Empty -> 1.0\n  }\n}\n\"#)"
+---
+f: fn(Shape, Option[Int], User) -> Float
+  shape: Shape
+  o: Option[Int]
+  u: User
+  n: Int
+  name: String
+  radius: Float
+  w: Float
+  h: Float
+`Some(n)` refutable pattern in binding: None not covered
+`User(name:)` pattern `User` does not mention id
+`Empty` warning: unreachable match arm

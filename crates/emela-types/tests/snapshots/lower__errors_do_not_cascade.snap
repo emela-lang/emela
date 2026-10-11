@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(r#\"\nfn undefined(x: Nope) -> List[Nope] { todo() }\n\"#)"
+---
+undefined: fn({unknown}) -> List[{unknown}]
+resolve: 未定義の型 `Nope`
+resolve: 未定義の型 `Nope`

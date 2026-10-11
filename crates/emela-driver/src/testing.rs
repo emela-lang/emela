@@ -24,7 +24,7 @@ pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
 pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
 
 use crate::diagnostic::Diagnostic;
-use crate::frontend::{ParseOnly, Resolve};
+use crate::frontend::{ParseOnly, Resolve, Typecheck};
 use crate::js::{CoreJs, JS_ENTRY_FILE};
 use crate::output::{JsOutput, OutputFile, write_output};
 use crate::pipeline::{
@@ -59,6 +59,12 @@ impl ParseTrees for ParseOnly {
 impl<B: BuiltinModules> ParseTrees for Resolve<B> {
     fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
         Resolve::parse_of(self, module)
+    }
+}
+
+impl<B: BuiltinModules> ParseTrees for Typecheck<B> {
+    fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
+        Typecheck::parse_of(self, module)
     }
 }
 

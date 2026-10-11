@@ -14,4 +14,6 @@ rustc-hash.workspace = true
 smol_str.workspace = true
 
 [dev-dependencies]
+emela-core.workspace = true
+emela-syntax.workspace = true
 insta.workspace = true

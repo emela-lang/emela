@@ -1,0 +1,17 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn add(x: Int, y: Int) -> Int { x }\n\nfn f(n: Int) -> Int {\n  a = add(1)\n  b = add(1, 2, 3)\n  c = add(\"one\", 2)\n  d = n(1)\n  a\n}\n\"#)"
+---
+add: fn(Int, Int) -> Int
+  x: Int
+  y: Int
+f: fn(Int) -> Int
+  n: Int
+  a: Int
+  b: Int
+  c: Int
+  d: ?6
+`add(1)` WrongArgCount { callee: Some("add"), expected: 2, found: 1 }
+`add(1, 2, 3)` WrongArgCount { callee: Some("add"), expected: 2, found: 3 }
+`"one"` mismatch: expected `Int`, found `String`
+`n` mismatch: expected `fn(?5) -> ?6`, found `Int`

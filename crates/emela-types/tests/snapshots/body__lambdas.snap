@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\n\nfn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }\nfn names(users: List[User], f: fn(User) -> String) -> List[String] { todo() }\n\nfn f(users: List[User]) -> Int {\n  inc = fn(x) { x + 1 }\n  typed = fn(x: Int) { x * 2 }\n  a = apply(fn(n) { n * 3 }, 1)\n  b = names(users, fn(u) { u.name })\n  c = inc(1)\n  a\n}\n\"#)"
+---
+apply: fn(fn(Int) -> Int, Int) -> Int
+  f: fn(Int) -> Int
+  x: Int
+names: fn(List[User], fn(User) -> String) -> List[String]
+  users: List[User]
+  f: fn(User) -> String
+f: fn(List[User]) -> Int
+  users: List[User]
+  x: Int
+  inc: fn(Int) -> Int
+  x: Int
+  typed: fn(Int) -> Int
+  n: Int
+  a: Int
+  u: User
+  b: List[String]
+  c: Int

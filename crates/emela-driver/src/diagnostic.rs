@@ -4,9 +4,12 @@
 
 use std::path::{Path, PathBuf};
 
+use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
-use emela_types::{Ty, TyCons, TypeError, TypeErrorKind};
+use emela_types::{DiagnosticKind as TypeDiagnosticKind, Ty, TyCons, TypeError, TypeErrorKind};
+use la_arena::ArenaMap;
 use line_index::TextRange;
+use smol_str::SmolStr;
 
 use crate::code;
 use crate::source::{FileId, SourceDb};
@@ -357,6 +360,11 @@ impl Diagnostic {
 
     /// 型検査の診断．`TypeError` は位置を持たないので，呼び出し側が `span` を渡す．
     pub fn from_type_error(error: &TypeError, cons: &TyCons, span: Span) -> Self {
+        Diagnostic::type_error(error, cons).with_span(span)
+    }
+
+    /// 型の不一致の診断（位置なし）．
+    fn type_error(error: &TypeError, cons: &TyCons) -> Self {
         let show = |ty: &Ty| format!("`{}`", ty.display(cons));
         let diagnostic = match &*error.kind {
             TypeErrorKind::Mismatch { expected, actual } => {
@@ -390,7 +398,199 @@ impl Diagnostic {
             TypeErrorKind::Mismatch { .. } => code::TYPE_MISMATCH,
             TypeErrorKind::InfiniteType { .. } => code::INFINITE_TYPE,
         };
-        diagnostic.with_code(code).with_span(span)
+        diagnostic.with_code(code)
+    }
+}
+
+impl Diagnostic {
+    /// 型検査の診断．位置は HIR の位置（モジュールと範囲）で，モジュールのファイルを
+    /// `files` で引く．ソースのない位置（Prelude の宣言）は位置なしにする．
+    pub fn from_type(
+        diagnostic: &emela_types::Diagnostic,
+        cons: &TyCons,
+        files: &ArenaMap<ModuleId, FileId>,
+    ) -> Self {
+        let span = diagnostic
+            .span
+            .and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range)));
+        let show = |ty: &Ty| format!("`{}`", ty.display(cons));
+        let mut help = None;
+        let (severity, code, message) = match &diagnostic.kind {
+            TypeDiagnosticKind::Mismatch(error) => {
+                let out = Diagnostic::type_error(error, cons);
+                return match span {
+                    Some(span) => out.with_span(span),
+                    None => out,
+                };
+            }
+            TypeDiagnosticKind::WrongTypeArgCount {
+                name,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_TYPE_ARG_COUNT),
+                format!("wrong number of type arguments: `{name}` takes {expected}, found {found}"),
+            ),
+            TypeDiagnosticKind::Unsupported { what } => {
+                (Severity::Error, None, format!("not supported yet: {what}"))
+            }
+            TypeDiagnosticKind::WrongArgCount {
+                callee,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_ARG_COUNT),
+                match callee {
+                    Some(callee) => format!(
+                        "wrong number of arguments: `{callee}` takes {expected}, found {found}"
+                    ),
+                    None => format!(
+                        "wrong number of arguments: this function takes {expected}, found {found}"
+                    ),
+                },
+            ),
+            TypeDiagnosticKind::UnknownLabel { callee, label } => (
+                Severity::Error,
+                Some(code::UNKNOWN_LABEL),
+                format!("no parameter named `{label}` in `{callee}`"),
+            ),
+            TypeDiagnosticKind::LabelOnUnnamedCallee { label } => (
+                Severity::Error,
+                Some(code::UNKNOWN_LABEL),
+                format!("no parameter named `{label}`: a function value has no parameter names"),
+            ),
+            TypeDiagnosticKind::DuplicateArg { label } => (
+                Severity::Error,
+                Some(code::DUPLICATE_ARG),
+                format!("argument `{label}` given more than once"),
+            ),
+            TypeDiagnosticKind::MissingPatternFields { ctor, fields } => {
+                help = Some("add `..` to ignore the remaining fields".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::MISSING_PATTERN_FIELDS),
+                    format!(
+                        "pattern `{ctor}` does not mention {}",
+                        quoted_list("field", "fields", fields)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::PatternFieldCount {
+                ctor,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::PATTERN_FIELD_COUNT),
+                format!("pattern `{ctor}` has {expected} fields, found {found}"),
+            ),
+            TypeDiagnosticKind::NotNumeric { found, integer } => (
+                Severity::Error,
+                Some(code::NOT_NUMERIC),
+                if *integer {
+                    format!(
+                        "expected an integer (`Int` or `Int64`), found {}",
+                        show(found)
+                    )
+                } else {
+                    format!(
+                        "expected a number (`Int`, `Int64` or `Float`), found {}",
+                        show(found)
+                    )
+                },
+            ),
+            TypeDiagnosticKind::IntLiteralOutOfRange { literal, ty } => (
+                Severity::Error,
+                Some(code::INT_LITERAL_OUT_OF_RANGE),
+                format!(
+                    "integer literal `{literal}` is out of range for {}",
+                    show(ty)
+                ),
+            ),
+            TypeDiagnosticKind::NoField { ty, field } => (
+                Severity::Error,
+                Some(code::NO_FIELD),
+                format!("no field `{field}` on type {}", show(ty)),
+            ),
+            TypeDiagnosticKind::NoFields { ty, .. } => (
+                Severity::Error,
+                Some(code::NO_FIELDS),
+                format!("type {} has no fields", show(ty)),
+            ),
+            TypeDiagnosticKind::FieldOnUnknownType { field } => {
+                help = Some("add a type annotation".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::FIELD_ON_UNKNOWN_TYPE),
+                    format!("the type of this value must be known to access field `{field}`"),
+                )
+            }
+            TypeDiagnosticKind::OpaqueField { ty, field } => (
+                Severity::Error,
+                Some(code::OPAQUE_FIELD),
+                format!(
+                    "cannot access field `{field}` of opaque type {} outside its module",
+                    show(ty)
+                ),
+            ),
+            TypeDiagnosticKind::MissingParamType { param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of a top-level function needs a type"),
+            ),
+            TypeDiagnosticKind::NonExhaustiveMatch { missing } => (
+                Severity::Error,
+                Some(code::NON_EXHAUSTIVE_MATCH),
+                format!(
+                    "non-exhaustive match: {} not covered",
+                    quoted_list("pattern", "patterns", missing)
+                ),
+            ),
+            TypeDiagnosticKind::RefutableBinding { missing } => {
+                help = Some("use `match` to handle the other cases".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::REFUTABLE_BINDING),
+                    format!(
+                        "refutable pattern in binding: {} not covered",
+                        quoted_list("pattern", "patterns", missing)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::UnreachableArm => (
+                Severity::Warning,
+                Some(code::UNREACHABLE_MATCH_ARM),
+                "unreachable match arm".to_owned(),
+            ),
+        };
+        let mut out = Diagnostic::new(severity, message);
+        if let Some(code) = code {
+            out = out.with_code(code);
+        }
+        if let Some(span) = span {
+            out = out.with_span(span);
+        }
+        if let Some(help) = help {
+            out = out.with_help(help);
+        }
+        out
+    }
+}
+
+/// 名前を `` `a` `` か `` fields `a`, `b` `` の形で並べる．4つ以上なら先頭の3つと `and N more`．
+fn quoted_list(one: &str, many: &str, names: &[SmolStr]) -> String {
+    match names {
+        [only] => format!("{one} `{only}`"),
+        _ => {
+            let shown: Vec<String> = names.iter().take(3).map(|n| format!("`{n}`")).collect();
+            let mut list = shown.join(", ");
+            if names.len() > 3 {
+                list.push_str(&format!(" and {} more", names.len() - 3));
+            }
+            format!("{many} {list}")
+        }
     }
 }
 

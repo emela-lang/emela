@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f() -> String {\n  x = 1\n  x = \"now a string\"\n  x\n}\n\"#)"
+---
+f: fn() -> String
+  x: Int
+  x: String
