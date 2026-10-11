@@ -1,0 +1,10 @@
+# Console のエフェクト（仕様 15.2 の platform 層）．宣言だけを置き，ハンドラはターゲットごとの
+# モジュールに置く（JS 用は `JsConsole`）．
+#
+# 使うときは `(use Console).print_line("hi")` と書き，main などで `with JsConsole { ... }` で供給する．
+
+## 文字列を1行ずつ標準出力と標準エラーに書く．
+pub effect Console {
+  fn print_line(text: String) -> ()
+  fn print_error_line(text: String) -> ()
+}

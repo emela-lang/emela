@@ -1,8 +1,8 @@
 # Option の関数．Option 自体は Prelude の enum（prelude.emel）．
 # 対象の Option を第1引数 `opt` に置く（`opt |> Option.map(f)` と書けるように）．
 #
-# `Option.or_fail(opt, error)`（`None` なら fail する）は fail の実装が入る alpha.2 で足す．
-#   pub fn or_fail[A, E](opt: Option[A], error: E) -> A fails E
+# `Option.or_fail(opt, err)`（`None` なら fail する）は，型推論が fail を扱えるまで
+# `staged/option_or_fail.emel` に置いて同梱の読み込みから外している（NOTES.md の「保留中のソース」）．
 
 ## 中身に `f` を適用する．`None` は `None` のまま．
 pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
