@@ -19,7 +19,7 @@ mod ty;
 #[cfg(test)]
 mod tests;
 
-pub use check::{ProgramTypes, check_program};
+pub use check::{ProgramTypes, body_refs, check_program};
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
