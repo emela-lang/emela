@@ -330,6 +330,13 @@ pub enum ExprKind {
     },
     Fail(ExprId),
     Assert(ExprId),
+    /// 部分更新 `C(f: e, ..base)`（5.3）．`ctor` は構成子が1つのもの（type，error，
+    /// フィールドのある handler）の構成子の参照．`fields` は名前付き引数だけ．
+    Update {
+        ctor: ExprId,
+        fields: Vec<Arg>,
+        base: ExprId,
+    },
     /// `use X`．`effect` はエフェクトを指す．
     Use {
         effect: Res,
@@ -430,6 +437,8 @@ pub struct FnItem {
     pub body: Option<ExprId>,
     /// `@external` が付いている．
     pub is_external: bool,
+    /// `@intrinsic` が付いている（同梱の core のソースの組み込み関数）．
+    pub is_intrinsic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

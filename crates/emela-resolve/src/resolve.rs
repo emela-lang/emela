@@ -117,11 +117,14 @@ pub fn resolve(
             pending.extend(resolver.collect(module, file));
         }
     }
+    resolver.use_core_prelude();
     for (module, _) in modules.iter() {
         if let Some(file) = files.get(module) {
             resolver.imports(module, file);
         }
-        resolver.warn_prelude_shadowing(module);
+        if !modules.is_core(module) {
+            resolver.warn_prelude_shadowing(module);
+        }
     }
     for pending in pending {
         crate::lower::lower_item(&mut resolver, pending);
@@ -275,6 +278,9 @@ impl<'a> Resolver<'a> {
                 ast::Item::Trait(it) => (DefKind::Trait, it.name(), it.is_pub(), false),
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
+            if !matches!(item, ast::Item::Fn(_)) {
+                self.check_intrinsic(module, &syntax, false);
+            }
             let (name, range) = match &name_token {
                 Some(token) => token_name(token),
                 None if kind == DefKind::Impl => {
@@ -355,6 +361,28 @@ impl<'a> Resolver<'a> {
             });
         }
         pending
+    }
+
+    /// `@intrinsic` の置き場所．同梱の core のソースの，本体のない fn にだけ付けられる．
+    pub(crate) fn check_intrinsic(
+        &mut self,
+        module: ModuleId,
+        node: &SyntaxNode,
+        bodyless_fn: bool,
+    ) {
+        let Some(annotation) = node
+            .children()
+            .filter_map(ast::Annotation::cast)
+            .find(|a| a.name().is_some_and(|n| n.text() == "intrinsic"))
+        else {
+            return;
+        };
+        let range = annotation.syntax().text_range();
+        if !bodyless_fn {
+            self.error(module, range, DiagnosticKind::MisplacedIntrinsic);
+        } else if !self.modules.is_core(module) {
+            self.error(module, range, DiagnosticKind::IntrinsicOutsideCore);
+        }
     }
 
     /// type と handler の，同じ名前の構成子．
@@ -591,7 +619,9 @@ impl<'a> Resolver<'a> {
             (Some(m), None) => Some(DotLeft::Module(m)),
             (None, Some(t)) => Some(DotLeft::Trait(t)),
             (None, None) => {
-                if self.builtin_modules.contains(name) {
+                if let Some(core) = self.core_module(name) {
+                    Some(DotLeft::Module(ModRef::Source(core)))
+                } else if self.builtin_modules.contains(name) {
                     Some(DotLeft::Module(ModRef::Builtin(name.clone())))
                 } else {
                     self.prelude[Ns::Type as usize]
@@ -621,6 +651,12 @@ impl<'a> Resolver<'a> {
         }
         let mut candidates: Vec<SmolStr> = self.scopes[module].modules.keys().cloned().collect();
         candidates.extend(self.builtin_modules.iter().cloned());
+        candidates.extend(
+            self.modules
+                .iter()
+                .filter(|&(id, _)| self.modules.is_core(id))
+                .map(|(_, m)| m.name.last().clone()),
+        );
         candidates.extend(self.candidates(module, Ns::Type).into_iter().filter(|n| {
             self.lookup(module, Ns::Type, n)
                 .is_some_and(|d| self.program.defs[d].kind == DefKind::Trait)
@@ -729,13 +765,20 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// 組み込みのモジュール `X` が同じ名前の型 `X` を持てば，それを返す（`Map[K, V]`，5.7）．
+    /// 同梱の core のモジュールか組み込みのモジュール `X` が同じ名前の型 `X` を持てば，
+    /// それを返す（`Map[K, V]`，5.7，4.6）．
     /// 型の位置で，型引数，モジュールの定義と import，Prelude のどれにもないときに使う．
     pub(crate) fn builtin_eponymous_type(
         &mut self,
         module: ModuleId,
         name: &SmolStr,
     ) -> Option<DefId> {
+        if let Some(core) = self.core_module(name) {
+            return self.scopes[core]
+                .get(Ns::Type, name)
+                .filter(|e| !e.imported && self.program.defs[e.target].is_pub)
+                .map(|e| e.target);
+        }
         if !self.builtin_modules.contains(name)
             || self.builtins.lookup(name, name) != Some(BuiltinKind::Type)
         {
@@ -743,6 +786,36 @@ impl<'a> Resolver<'a> {
         }
         let target = ModRef::Builtin(name.clone());
         self.module_member(module, &target, Ns::Type, name, TextRange::default())
+    }
+
+    /// 名前が1区切りの，同梱の core のモジュール．import なしで `.` の左に書ける（4.6）．
+    fn core_module(&self, name: &SmolStr) -> Option<ModuleId> {
+        self.modules
+            .lookup(&ModuleName::new([name.clone()]))
+            .filter(|&id| self.modules.is_core(id))
+    }
+
+    /// 同梱の core に `Prelude` があれば，その pub な定義で Prelude の名前を上書きする．
+    /// ソースで書いていない名前は，組み込みの Prelude（[`build_prelude`]）のまま残る．
+    fn use_core_prelude(&mut self) {
+        let Some(prelude) = self.core_module(&SmolStr::new(crate::PRELUDE)) else {
+            return;
+        };
+        for ns in NAMESPACES {
+            let defs: Vec<(SmolStr, DefId)> = self.scopes[prelude].names[ns as usize]
+                .iter()
+                .filter(|(_, e)| !e.imported && self.program.defs[e.target].is_pub)
+                .map(|(n, e)| (n.clone(), e.target))
+                .collect();
+            for (name, def) in defs {
+                if let Some(old) = self.prelude[ns as usize].insert(name, def) {
+                    self.program.prelude.defs.retain(|&d| d != old);
+                }
+                if !self.program.prelude.defs.contains(&def) {
+                    self.program.prelude.defs.push(def);
+                }
+            }
+        }
     }
 
     /// trait の関数か effect の操作を名前で引く．

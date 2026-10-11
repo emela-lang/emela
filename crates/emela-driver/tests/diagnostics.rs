@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use emela_driver::{
-    Analysis, Checked, Diagnostic, FileId, Frontend, Input, LexOnly, Location, MemoryFiles,
-    ParseOnly, Parsed, SourceDb, SourceFile, Span, check, render,
+    Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location,
+    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, check, render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -364,4 +364,74 @@ fn project_reads_everything() {
     assert!(analysis.diagnostics.iter().all(|d| {
         matches!(d.location, Some(Location::Span(span)) if Some(span.file) == unused)
     }));
+}
+
+/// 同梱の core のソースの代わりに使う小さな core．
+fn test_core() -> Vec<CoreSource> {
+    vec![
+        CoreSource {
+            module: "String".into(),
+            text: "@intrinsic\npub fn length(s: String) -> Int\n".into(),
+        },
+        CoreSource {
+            module: "Prelude".into(),
+            text: "pub fn identity[A](x: A) -> A { x }\n".into(),
+        },
+    ]
+}
+
+#[test]
+fn core_sources_resolve_as_modules() {
+    let mut frontend = Resolve::default().with_core(test_core());
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/main.emel",
+                "fn main() -> Int {\n  identity(String.length(\"abc\"))\n}\n\n@intrinsic\nfn mine() -> Int\n",
+            ),
+            // core と同じ名前のソースのモジュールは隠れ，予約された名前になる．
+            (
+                "app/src/string.emel",
+                "pub fn length(s: String) -> Int { 0 }\n",
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn single_file_reads_core_sources() {
+    let mut frontend = Resolve::default().with_core(test_core());
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "fn main() -> Int { String.length(\"a\") }\n",
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    let names: Vec<String> = analysis
+        .files
+        .iter()
+        .map(|(id, _)| analysis.module(id).name.to_string())
+        .collect();
+    assert!(names.contains(&"String".to_owned()), "{names:?}");
+}
+
+#[test]
+fn bundled_core_resolves_cleanly() {
+    let mut frontend = Resolve::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.unwrap_or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }

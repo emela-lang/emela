@@ -75,6 +75,18 @@ pub enum DiagnosticKind {
         name: SmolStr,
         first: Option<TextRange>,
     },
+    /// 部分更新 `C(f: e, ..r)` の呼び出し先が，構成子が1つのもの（type，error，フィールドの
+    /// ある handler）でない（E0222，5.3）．`found` は見つかった名前の種類．
+    InvalidUpdateTarget {
+        name: Option<SmolStr>,
+        found: &'static str,
+    },
+    /// 部分更新で，変えるフィールドを位置で書いた（E0223，5.3）．
+    PositionalInUpdate,
+    /// `@intrinsic` を，コンパイラに同梱した core のソースの外で使った（E0224）．
+    IntrinsicOutsideCore,
+    /// `@intrinsic` を，本体のない fn 以外に付けた（E0225）．
+    MisplacedIntrinsic,
     /// 型名の型引数が，外側の同じ名前の型を隠す（W0201，2.3）．
     ShadowedByTypeParam { name: SmolStr },
     /// モジュールの定義か import が，Prelude の同じ名前を隠す（W0202）．
@@ -247,6 +259,19 @@ impl fmt::Display for DiagnosticKind {
             }
             DiagnosticKind::DuplicateBinding { name, .. } => {
                 write!(f, "`{name}` を2回束縛している")
+            }
+            DiagnosticKind::InvalidUpdateTarget { name, found } => match name {
+                Some(name) => write!(f, "`{name}` は {found} で，部分更新できない"),
+                None => write!(f, "{found} は部分更新できない"),
+            },
+            DiagnosticKind::PositionalInUpdate => {
+                f.write_str("部分更新では変えるフィールドを名前で書く")
+            }
+            DiagnosticKind::IntrinsicOutsideCore => {
+                f.write_str("`@intrinsic` は同梱の core のソースの中でしか使えない")
+            }
+            DiagnosticKind::MisplacedIntrinsic => {
+                f.write_str("`@intrinsic` は本体のない fn にしか付けられない")
             }
             DiagnosticKind::ShadowedByTypeParam { name } => {
                 write!(f, "型引数 `{name}` が外側の同じ名前の定義を隠す")

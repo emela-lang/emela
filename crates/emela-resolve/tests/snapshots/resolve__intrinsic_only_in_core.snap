@@ -1,0 +1,7 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"@intrinsic\nfn length(s: String) -> Int\n\n@intrinsic\ntype Handle(id: Int)\n\n@intrinsic\nfn with_body() -> Int { 1 }\n\"##,)])"
+---
+error src/main.emel@0..10 `@intrinsic`: `@intrinsic` は同梱の core のソースの中でしか使えない
+error src/main.emel@40..50 `@intrinsic`: `@intrinsic` は本体のない fn にしか付けられない
+error src/main.emel@73..83 `@intrinsic`: `@intrinsic` は本体のない fn にしか付けられない

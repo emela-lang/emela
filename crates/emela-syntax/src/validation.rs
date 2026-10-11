@@ -121,7 +121,8 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     match owner {
         // トップレベル．
         None => {
-            if !is_external(node) {
+            // 同梱の core のソースの組み込み関数は `@intrinsic` で本体を省く．置き場所の検査は名前解決が行う．
+            if !is_external(node) && !has_annotation(node, "intrinsic") {
                 if !has_body {
                     error(
                         out,
@@ -188,10 +189,15 @@ fn missing_body(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
 
 /// `@external` が付いているか．
 fn is_external(node: &SyntaxNode) -> bool {
+    has_annotation(node, "external")
+}
+
+/// `@name` の注釈が付いているか．
+fn has_annotation(node: &SyntaxNode, name: &str) -> bool {
     node.children().filter(|c| c.kind() == ANNOTATION).any(|a| {
         a.children_with_tokens()
             .filter_map(|e| e.into_token())
-            .any(|t| t.kind() == LOWER_NAME && t.text() == "external")
+            .any(|t| t.kind() == LOWER_NAME && t.text() == name)
     })
 }
 

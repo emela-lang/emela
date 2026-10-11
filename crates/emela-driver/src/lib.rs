@@ -19,8 +19,8 @@ pub use frontend::{ParseOnly, Resolve};
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{
-    Analysis, Checked, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend, LexOnly, NoJsBackend,
-    Parsed, RunOptions, SOURCE_DIR, build, check, run,
+    Analysis, CORE_DIR, Checked, CoreSource, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend,
+    LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
 };
 pub use render::{render, render_one, summary};
 pub use run::{DEFECT_EXIT_CODE, DEFECT_NAME, NODE_ENV, Output, RunOutput, node_program, run_node};

@@ -26,6 +26,41 @@ pub const SOURCE_DIR: &str = "src";
 pub const ENTRY_FILE: &str = "main.emel";
 /// プロジェクト（単独ファイルならファイルのあるディレクトリ）からの，JS の既定の出力先．
 pub const JS_OUT_DIR: &str = "target/emela/js";
+/// 同梱の core のソースを載せる仮のディレクトリ．診断のパスに `<core>/list.emel` のように出る．
+pub const CORE_DIR: &str = "<core>";
+
+/// コンパイラに同梱した core のソース（モジュール名と中身）．[`Frontend::core_sources`] で渡す．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreSource {
+    /// モジュール名（`List`，`Prelude`）．`emela_core::core_sources()` の名前をそのまま使う．
+    pub module: String,
+    pub text: String,
+}
+
+impl CoreSource {
+    /// `emela_core::core_sources()` の全部（Prelude と core のモジュール）．
+    pub fn bundled() -> Vec<CoreSource> {
+        emela_core::core_sources()
+            .iter()
+            .map(|(module, text)| CoreSource {
+                module: (*module).to_owned(),
+                text: (*text).to_owned(),
+            })
+            .collect()
+    }
+
+    /// ソースの表に載せる仮のパス．`List` なら `<core>/list.emel`，`Int64` なら `<core>/int64.emel`．
+    fn path(&self) -> PathBuf {
+        let mut file = String::new();
+        for (i, c) in self.module.chars().enumerate() {
+            if c.is_ascii_uppercase() && i > 0 {
+                file.push('_');
+            }
+            file.push(c.to_ascii_lowercase());
+        }
+        Path::new(CORE_DIR).join(format!("{file}.emel"))
+    }
+}
 
 /// コマンドラインの path から決めた，ソースのルートとエントリ（仕様 4.1）．パスはどれも絶対パス．
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +184,12 @@ pub trait Frontend {
     /// 読んだ全モジュールの構文解析と import の検査の後に1度だけ呼ぶ．
     /// `order` は読んだモジュールだけの依存順．import が循環していると依存順がないので呼ばない．
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program>;
+
+    /// コンパイラに同梱した core のソース．パイプラインはモジュールの対応表に足し，
+    /// ソースのモジュールと同じく（単独ファイルでも必ず）読んで [`Frontend::parse`] に渡す．
+    fn core_sources(&self) -> Vec<CoreSource> {
+        Vec::new()
+    }
 }
 
 /// 型検査の結果．診断にエラーがあっても，続けられる限りプログラムを返してよい．
@@ -241,12 +282,20 @@ pub fn check<F: Frontend>(
 ) -> (Analysis, Option<F::Program>) {
     let mut analysis = Analysis::default();
     analysis.sources.set_base(&input.base);
-    let (modules, resolve_diagnostics) = if input.single_file {
+    let (modules, mut resolve_diagnostics) = if input.single_file {
         emela_resolve::collect_modules(&Shallow(fs), &input.root)
     } else {
         emela_resolve::collect_modules(fs, &input.root)
     };
     analysis.modules = modules;
+    // 同梱の core のソース．同じ名前のソースのモジュールは隠れ，予約された名前の診断が出る．
+    let mut core_texts: ArenaMap<ModuleId, String> = ArenaMap::default();
+    for source in frontend.core_sources() {
+        let name = emela_resolve::ModuleName::parse(&source.module);
+        let (id, shadowed) = analysis.modules.add_core(name, source.path());
+        resolve_diagnostics.extend(shadowed);
+        core_texts.insert(id, source.text);
+    }
     if let Some(entry) = &input.entry {
         analysis.entry = analysis
             .modules
@@ -257,7 +306,12 @@ pub fn check<F: Frontend>(
 
     // 作業リスト．単独ファイルではエントリから始め，import 先を見つけるたびに足す．
     let mut work: Vec<ModuleId> = if input.single_file {
-        analysis.entry.into_iter().collect()
+        let core = analysis
+            .modules
+            .iter()
+            .map(|(id, _)| id)
+            .filter(|&id| analysis.modules.is_core(id));
+        analysis.entry.into_iter().chain(core).collect()
     } else {
         analysis.modules.iter().map(|(id, _)| id).collect()
     };
@@ -270,7 +324,11 @@ pub fn check<F: Frontend>(
     let mut file_diagnostics: ArenaMap<ModuleId, Vec<Diagnostic>> = ArenaMap::default();
     while let Some(module) = work.pop() {
         let path = &analysis.modules[module].file;
-        let text = match fs.read_to_string(path) {
+        let read = match core_texts.remove(module) {
+            Some(text) => Ok(text),
+            None => fs.read_to_string(path),
+        };
+        let text = match read {
             Ok(text) => text,
             Err(err) => {
                 file_diagnostics.insert(

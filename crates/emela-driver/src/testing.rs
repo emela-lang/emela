@@ -27,7 +27,9 @@ use crate::diagnostic::Diagnostic;
 use crate::frontend::{ParseOnly, Resolve};
 use crate::js::{CoreJs, JS_ENTRY_FILE};
 use crate::output::{JsOutput, OutputFile, write_output};
-use crate::pipeline::{Analysis, Checked, Frontend, Input, JsBackend, NoJsBackend, Parsed, check};
+use crate::pipeline::{
+    Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, check,
+};
 use crate::run::{Output, exit_code, spawn_error};
 use crate::source::{FileId, FileSystem, SourceFile};
 
@@ -68,7 +70,7 @@ pub struct SourceTests<P> {
 }
 
 /// 内側のフロントエンドの検査の後に `@test` の関数を集めるフロントエンド．
-/// 誤った `@test`（E0222）は検査の診断の後に足す．
+/// 誤った `@test`（E0226）は検査の診断の後に足す．
 #[derive(Debug, Default)]
 pub struct WithTests<F>(pub F);
 
@@ -77,6 +79,10 @@ impl<F: Frontend + ParseTrees> Frontend for WithTests<F> {
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
         self.0.parse(module, file, source)
+    }
+
+    fn core_sources(&self) -> Vec<CoreSource> {
+        self.0.core_sources()
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program> {

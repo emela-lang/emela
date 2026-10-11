@@ -1,0 +1,53 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run_with_core(&[(\"util.emel\", \"pub fn twice(x: Int) -> Int { x + x }\\n\"),\n(\"main.emel\",\nr##\"fn lookup(m: Map[String, Int]) -> Int {\n  Option.unwrap_or(Map.get(m, \"a\"), 0)\n}\n\nfn order(x: Int) -> Ordering {\n  if Option.is_some(Some(x)) { Less } else { identity(Greater) }\n}\n\nfn not_imported() -> Int {\n  Util.twice(1)\n}\n\"##,),],\nCORE,)"
+---
+== Main (src/main.emel)
+fn Main.lookup
+  param m#0: Map.Map[String, Int]
+  ret Int
+  body
+    block
+      call
+        Option.unwrap_or
+        call
+          Map.get
+          m#0
+          "a"
+        0
+fn Main.order
+  param x#1: Int
+  ret Prelude.Ordering
+  body
+    block
+      if
+        call
+          Option.is_some
+          call
+            Option.Some
+            x#1
+        block
+          Prelude.Ordering.Less
+      else
+        block
+          call
+            Prelude.identity
+            Prelude.Ordering.Greater
+fn Main.not_imported
+  ret Int
+  body
+    block
+      call
+        <error>
+        1
+== Util (src/util.emel)
+fn Util.twice pub
+  param x#0: Int
+  ret Int
+  body
+    block
+      Add
+        x#0
+        x#0
+== diagnostics
+error src/main.emel@210..214 `Util`: 未定義のモジュールか Trait `Util`

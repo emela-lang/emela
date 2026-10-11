@@ -112,6 +112,8 @@ pub struct ModuleData {
 pub struct ModuleMap {
     modules: Arena<ModuleData>,
     by_name: FxHashMap<ModuleName, ModuleId>,
+    /// コンパイラに同梱した core のモジュール（[`ModuleMap::add_core`]）．
+    core: Vec<ModuleId>,
 }
 
 impl ModuleMap {
@@ -131,6 +133,27 @@ impl ModuleMap {
     /// ファイルのパス順に並ぶ．
     pub fn iter(&self) -> impl Iterator<Item = (ModuleId, &ModuleData)> {
         self.modules.iter()
+    }
+
+    /// コンパイラに同梱した core のモジュール（`List`，`Option`，`Prelude` など）を足す．
+    /// `file` はソースの表に載せるための仮のパス．
+    ///
+    /// 同じ名前のソースのモジュールがあれば，名前は core の方を指すようにし，隠された
+    /// ソースのモジュールの診断（予約された名前）を返す．
+    pub fn add_core(&mut self, name: ModuleName, file: PathBuf) -> (ModuleId, Option<Diagnostic>) {
+        let shadowed = self.lookup(&name).map(|id| Diagnostic {
+            file: self.modules[id].file.clone(),
+            range: None,
+            kind: DiagnosticKind::ReservedModuleName { name: name.clone() },
+        });
+        let id = self.insert(ModuleData { name, file });
+        self.core.push(id);
+        (id, shadowed)
+    }
+
+    /// 同梱した core のモジュールか．
+    pub fn is_core(&self, id: ModuleId) -> bool {
+        self.core.contains(&id)
     }
 
     fn insert(&mut self, data: ModuleData) -> ModuleId {
