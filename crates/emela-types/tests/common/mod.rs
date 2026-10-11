@@ -1,4 +1,8 @@
 //! テストの共通の準備．ソース1つを名前解決して `Program` を作る．
+//!
+//! テストのファイルごとに使う関数が違うので，使わない関数の警告は止める．
+
+#![allow(dead_code)]
 
 use std::fmt::Write;
 use std::path::Path;

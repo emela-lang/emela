@@ -110,3 +110,99 @@ fn f() -> String {
 }
 "#));
 }
+
+#[test]
+fn calls() {
+    insta::assert_snapshot!(run(r#"
+fn add(x: Int, y: Int) -> Int { x }
+fn pair[A, B](a: A, b: B) -> (A, B) { (a, b) }
+
+fn f() -> Int {
+  a = add(1, 2)
+  p = pair(1, "s")
+  q = pair("t", 2.0)
+  a
+}
+"#));
+}
+
+#[test]
+fn ctor_calls() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+
+fn f() -> Option[User] {
+  u = User(1, "a")
+  s = Some(1)
+  t = Some("x")
+  n = None
+  Some(u)
+}
+"#));
+}
+
+#[test]
+fn never_from_prelude() {
+    insta::assert_snapshot!(run(r#"
+fn f(x: Int) -> String {
+  y = dbg(x)
+  todo()
+}
+"#));
+}
+
+#[test]
+fn call_errors() {
+    insta::assert_snapshot!(run(r#"
+fn add(x: Int, y: Int) -> Int { x }
+
+fn f(n: Int) -> Int {
+  a = add(1)
+  b = add(1, 2, 3)
+  c = add("one", 2)
+  d = n(1)
+  a
+}
+"#));
+}
+
+#[test]
+fn calling_a_local_function() {
+    insta::assert_snapshot!(run(r#"
+fn apply(f: fn(Int) -> String, x: Int) -> String {
+  f(x)
+}
+"#));
+}
+
+#[test]
+fn named_args() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+fn connect(host: String, port: Int) -> Bool { todo() }
+
+fn f(id: Int) -> User {
+  a = connect("localhost", 5432)
+  b = connect("localhost", port: 5432)
+  c = connect(port: 5432, host: "localhost")
+  u = User(name: "a", id:)
+  u
+}
+"#));
+}
+
+#[test]
+fn named_arg_errors() {
+    insta::assert_snapshot!(run(r#"
+fn connect(host: String, port: Int) -> Bool { todo() }
+
+fn f(g: fn(Int) -> Int) -> Int {
+  a = connect("x", prot: 1)
+  b = connect("x", host: "y")
+  c = connect(port: "no")
+  d = Some(value: 1)
+  e = g(x: 1)
+  1
+}
+"#));
+}

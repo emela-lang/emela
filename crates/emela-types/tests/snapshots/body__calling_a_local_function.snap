@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn apply(f: fn(Int) -> String, x: Int) -> String {\n  f(x)\n}\n\"#)"
+---
+apply: fn(fn(Int) -> String, Int) -> String
+  f: fn(Int) -> String
+  x: Int

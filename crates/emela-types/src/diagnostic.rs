@@ -26,4 +26,17 @@ pub enum DiagnosticKind {
     Unsupported { what: &'static str },
     /// 単一化の失敗（E0301 の型が合わない，E0302 の無限型）．
     Mismatch(TypeError),
+    /// 呼び出しの引数の数が合わない（E0305）．`callee` は呼んだ関数か構成子の名前．
+    /// 名前で指していない値（局所変数，ラムダ）を呼んだときは `None`．
+    WrongArgCount {
+        callee: Option<SmolStr>,
+        expected: usize,
+        found: usize,
+    },
+    /// そのラベルの引数がない（E0306）．
+    UnknownLabel { callee: SmolStr, label: SmolStr },
+    /// 同じ引数を2回渡した（E0307）．位置引数とラベルで同じ引数を指したときも含む．
+    DuplicateArg { label: SmolStr },
+    /// ラベルを持たない値（局所変数，ラムダ）の呼び出しで名前付き引数を書いた（E0306）．
+    LabelOnUnnamedCallee { label: SmolStr },
 }

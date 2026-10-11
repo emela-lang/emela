@@ -4,11 +4,13 @@
 //! 式の位置を付けた診断を積んで続ける．
 
 use emela_resolve::hir::{
-    Block, DefId, ExprId, ExprKind, FnItem, Item, Literal, LocalId, PatId, PatKind, Program, Res,
-    Span, Stmt, TypeId,
+    Arg, Block, DefId, ExprId, ExprKind, FnItem, Item, Literal, LocalId, PatId, PatKind, Program,
+    Res, Span, Stmt, TypeId,
 };
 use la_arena::{ArenaMap, Idx};
+use smol_str::SmolStr;
 
+use crate::FnTy;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
 use crate::lower::TyTable;
@@ -161,7 +163,10 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Local(local)) => {
                 self.locals.get(*local).cloned().unwrap_or(Ty::Error)
             }
+            ExprKind::Path(Res::Def(def)) => self.infer_def_ref(*def, e.span),
+            ExprKind::Path(Res::Err) => Ty::Error,
             ExprKind::Block(block) => self.infer_block(block),
+            ExprKind::Call { callee, args } => self.infer_call(*callee, args, e.span),
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -170,6 +175,93 @@ impl<'a> BodyInfer<'a> {
                 Ty::Error
             }
         }
+    }
+
+    /// ブロックの型．最後が束縛か空なら `()`．
+    fn infer_block(&mut self, block: &Block) -> Ty {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Let { pat, ty, value } => {
+                    let bound_ty = match ty {
+                        Some(ty) => {
+                            let expected = self.lower_type(*ty);
+                            self.check_expr(*value, &expected);
+                            expected
+                        }
+                        None => self.infer_expr(*value),
+                    };
+                    self.bind_pat(*pat, &bound_ty);
+                }
+                Stmt::Expr(expr) => {
+                    self.infer_expr(*expr);
+                }
+            }
+        }
+        match block.tail {
+            Some(expr) => self.infer_expr(expr),
+            None => Ty::UNIT,
+        }
+    }
+
+    /// 定義の参照の型．宣言の型の型引数を新しい型変数に置き換える．
+    fn infer_def_ref(&mut self, def: DefId, span: Span) -> Ty {
+        let sigs = self.sigs;
+        if let Some(sig) = sigs.get(def) {
+            self.ctx.instantiate(&sig.scheme)
+        } else {
+            self.diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::Unsupported { what: "def" },
+            });
+            Ty::Error
+        }
+    }
+
+    /// 呼び出しの型．引数を仮引数の位置に並べ直してから，型を照合する（6.2）．
+    fn infer_call(&mut self, callee: ExprId, args: &[Arg], span: Span) -> Ty {
+        let program = self.program;
+        let sigs = self.sigs;
+
+        let (callee_name, labels) = match &program.exprs[callee].kind {
+            ExprKind::Path(Res::Def(def)) => (
+                Some(&program.defs[*def].name),
+                sigs.get(*def).map(|sig| sig.labels.as_slice()),
+            ),
+            _ => (None, None),
+        };
+        let callee_ty = self.infer_expr(callee);
+
+        let f: FnTy = match self.ctx.shallow_resolve(&callee_ty) {
+            Ty::Fn(f) => *f,
+            Ty::Error => {
+                for arg in args {
+                    self.infer_expr(arg.value);
+                }
+                return Ty::Error;
+            }
+            _ => {
+                let params: Vec<Ty> = (0..args.len()).map(|_| self.ctx.new_var()).collect();
+                let ret = self.ctx.new_var();
+                let expected = Ty::func(params.clone(), ret.clone());
+                let callee_span = program.exprs[callee].span;
+                self.coerce_at(callee_span, &expected, &callee_ty);
+                FnTy { params, ret }
+            }
+        };
+
+        let (slots, extra) = self.assign_args(callee_name, labels, f.params.len(), args, span);
+
+        for (slot, param_ty) in slots.iter().zip(&f.params) {
+            if let Some(arg) = slot {
+                self.check_expr(*arg, param_ty);
+            }
+        }
+
+        for expr in extra {
+            self.infer_expr(expr);
+        }
+
+        f.ret
     }
 
     /// 式を推論し，期待する型の位置に置く．
@@ -206,30 +298,61 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// ブロックの型．最後が束縛か空なら `()`．
-    fn infer_block(&mut self, block: &Block) -> Ty {
-        for stmt in &block.stmts {
-            match stmt {
-                Stmt::Let { pat, ty, value } => {
-                    let bound_ty = match ty {
-                        Some(ty) => {
-                            let expected = self.lower_type(*ty);
-                            self.check_expr(*value, &expected);
-                            expected
-                        }
-                        None => self.infer_expr(*value),
-                    };
-                    self.bind_pat(*pat, &bound_ty);
+    /// 引数を仮引数の位置に並べ直す．位置引数は前から，名前付き引数はラベルで置く．
+    ///
+    /// `labels` は呼ばれる側の仮引数のラベル．名前で指していない値（局所変数，ラムダ）なら `None`．
+    /// 返すのは，位置ごとの引数（埋まらなければ `None`）と，どこにも置けなかった引数．
+    /// ラベルの誤りを出したときは，引数の数の誤りを重ねない．
+    fn assign_args(
+        &mut self,
+        callee_name: Option<&SmolStr>,
+        labels: Option<&[Option<SmolStr>]>,
+        n_params: usize,
+        args: &[Arg],
+        span: Span,
+    ) -> (Vec<Option<ExprId>>, Vec<ExprId>) {
+        let mut slots: Vec<Option<ExprId>> = vec![None; n_params];
+        let mut extra: Vec<ExprId> = Vec::new();
+        let mut reported = false;
+        let mut next_positional = 0;
+
+        for arg in args {
+            match &arg.label {
+                None => {
+                    if next_positional < n_params {
+                        slots[next_positional] = Some(arg.value);
+                    } else {
+                        extra.push(arg.value);
+                    }
+                    next_positional += 1;
                 }
-                Stmt::Expr(expr) => {
-                    self.infer_expr(*expr);
-                }
+                Some(label) => match label_slot(callee_name, labels, &slots, &label.name) {
+                    Ok(i) => slots[i] = Some(arg.value),
+                    Err(kind) => {
+                        self.diags.push(Diagnostic {
+                            span: Some(label.span),
+                            kind,
+                        });
+                        reported = true;
+                        extra.push(arg.value);
+                    }
+                },
             }
         }
-        match block.tail {
-            Some(expr) => self.infer_expr(expr),
-            None => Ty::UNIT,
+
+        let missing = slots.iter().any(|s| s.is_none());
+        if !reported && (missing || next_positional > n_params) {
+            self.diags.push(Diagnostic {
+                span: Some(span),
+                kind: DiagnosticKind::WrongArgCount {
+                    callee: callee_name.cloned(),
+                    expected: n_params,
+                    found: args.len(),
+                },
+            })
         }
+
+        (slots, extra)
     }
 }
 
@@ -240,4 +363,32 @@ fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Id
         out.insert(id, ctx.resolve(ty));
     }
     out
+}
+
+/// 名前付き引数を置く位置．置けなければ，その理由の診断の中身．
+fn label_slot(
+    callee_name: Option<&SmolStr>,
+    labels: Option<&[Option<SmolStr>]>,
+    slots: &[Option<ExprId>],
+    label: &SmolStr,
+) -> Result<usize, DiagnosticKind> {
+    let labels = labels.ok_or_else(|| DiagnosticKind::LabelOnUnnamedCallee {
+        label: label.clone(),
+    })?;
+
+    let i = labels
+        .iter()
+        .position(|l| l.as_ref() == Some(label))
+        .ok_or_else(|| DiagnosticKind::UnknownLabel {
+            callee: callee_name.cloned().unwrap_or_default(),
+            label: label.clone(),
+        })?;
+
+    if slots[i].is_some() {
+        return Err(DiagnosticKind::DuplicateArg {
+            label: label.clone(),
+        });
+    }
+
+    Ok(i)
 }

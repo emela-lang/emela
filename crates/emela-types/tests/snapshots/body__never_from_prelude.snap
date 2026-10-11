@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(x: Int) -> String {\n  y = dbg(x)\n  todo()\n}\n\"#)"
+---
+f: fn(Int) -> String
+  x: Int
+  y: Int

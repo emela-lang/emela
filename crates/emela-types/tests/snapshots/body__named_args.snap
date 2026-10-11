@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\nfn connect(host: String, port: Int) -> Bool { todo() }\n\nfn f(id: Int) -> User {\n  a = connect(\"localhost\", 5432)\n  b = connect(\"localhost\", port: 5432)\n  c = connect(port: 5432, host: \"localhost\")\n  u = User(name: \"a\", id:)\n  u\n}\n\"#)"
+---
+connect: fn(String, Int) -> Bool
+  host: String
+  port: Int
+f: fn(Int) -> User
+  id: Int
+  a: Bool
+  b: Bool
+  c: Bool
+  u: User
