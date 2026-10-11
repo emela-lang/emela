@@ -1,0 +1,25 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 187
+expression: "render_errors(r#\"\nerror Boom\nerror Bad(n: Int)\n\nfn steady() -> Int { 1 }\nfn fy(n: Int) -> Int fails Bad { fail Bad(n:) }\n\nfn never_raised() -> Int {\n  steady() escape { Boom -> 0 }\n}\n\nfn unknown[A](f: fn() -> A) -> A {\n  f() escape { Boom -> f() }\n}\n\nfn redundant() -> Int {\n  fy(1) escape {\n    Bad(_) -> 0\n    Bad(n: 1) -> 1\n  }\n}\n\nfn guarded() -> Int {\n  fy(1) escape {\n    Bad(n:) if n > 0 -> n\n    Bad(_) -> 0\n  }\n}\n\"#)"
+---
+steady: fn() -> Int
+fy: fn(Int) -> Int fails Bad
+  n: Int
+never_raised: fn() -> Int
+unknown: ∀ A, E(f). fn(fn() -> A fails E(f)) -> A fails E(f)
+  f: fn() -> '0 fails '1
+redundant: fn() -> Int
+guarded: fn() -> Int
+  n: Int
+`Boom` warning: `Boom` is never raised here
+`Bad(n: 1)` warning: unreachable match arm
+--- E
+{ fail Bad(n:) }: Bad
+fail Bad(n:): Bad
+{   f() escape { Boom -> f() } }: '1
+f() escape { Boom -> f() }: '1
+f(): '1
+f(): '1
+fy(1): Bad
+fy(1): Bad

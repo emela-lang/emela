@@ -1,9 +1,10 @@
 ---
 source: crates/emela-types/tests/lower.rs
-expression: "run(r#\"\nfn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () { todo() }\nfn never() -> Never { todo() }\nfn tuple(p: (Int, String)) -> (Int, (Bool, Float)) { todo() }\nfn func(f: fn(Int, String) -> Bool) -> fn() -> () { todo() }\nfn list(xs: List[Int]) -> List[List[String]] { todo() }\n\"#)"
+assertion_line: 27
+expression: "run(r#\"\nfn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () { todo() }\nfn never() -> Never { todo() }\nfn tuple(p: (Int, String)) -> (Int, (Bool, Float)) { todo() }\nfn func(f: fn(Int, String) -> Bool) -> fn() -> () fails {} { todo() }\nfn list(xs: List[Int]) -> List[List[String]] { todo() }\n\"#)"
 ---
 prims: fn(Int, Int64, Float, String, Bool) -> ()
 never: fn() -> Never
 tuple: fn((Int, String)) -> (Int, (Bool, Float))
-func: fn(fn(Int, String) -> Bool) -> fn() -> ()
+func: ∀ E(f). fn(fn(Int, String) -> Bool fails E(f)) -> (fn() -> ()) fails E(f)
 list: fn(List[Int]) -> List[List[String]]

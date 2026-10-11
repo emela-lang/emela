@@ -15,6 +15,7 @@ use rustc_hash::FxHashMap;
 use crate::body::BodyInfer;
 use crate::diagnostic::Diagnostic;
 use crate::lower::TyTable;
+use crate::row::Row;
 use crate::signature::Signatures;
 use crate::ty::Ty;
 
@@ -42,6 +43,9 @@ pub struct ProgramTypes {
     pub type_args: ArenaMap<ExprId, Vec<Ty>>,
     /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールドは `None`．
     pub pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
+    /// 各式のエラーの集合 E（9.4）．集合変数は解に置き換えてある．汎化した定義の本体の中では，
+    /// 汎化した集合変数が `RowElem::Var` のまま残る．
+    pub errors: ArenaMap<ExprId, Row>,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -62,6 +66,7 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         calls: ArenaMap::default(),
         type_args: ArenaMap::default(),
         pat_fields: ArenaMap::default(),
+        errors: ArenaMap::default(),
         diags,
     };
 
@@ -103,6 +108,9 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         types
             .pat_fields
             .extend(body.pat_fields.iter().map(|(id, pats)| (id, pats.clone())));
+        types
+            .errors
+            .extend(body.errors.iter().map(|(id, row)| (id, row.clone())));
         types.diags.extend(body.diags);
     }
 

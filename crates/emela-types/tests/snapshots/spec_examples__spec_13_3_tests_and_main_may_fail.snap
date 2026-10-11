@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 401
+expression: "render_bodies(r#\"\nerror NotFound(id: Int)  # 補\n\nfn greet(id: Int) -> String fails NotFound { fail NotFound(id:) }  # 補\n\n@test\nfn greet_fails_for_unknown_id() {\n  result = Some(greet(999)) escape { NotFound(_) -> None }\n  assert result == None\n}\n\n@test\nfn greet_returns_user() {\n  name = greet(1)\n  assert name == \"alice\"\n}\n\nfn main() {\n  greet(1)\n}\n\"#)"
+---
+greet: fn(Int) -> String fails NotFound
+  id: Int
+greet_fails_for_unknown_id: fn() -> ()
+  result: Option[String]
+greet_returns_user: fn() -> () fails NotFound
+  name: String
+main: fn() -> String fails NotFound

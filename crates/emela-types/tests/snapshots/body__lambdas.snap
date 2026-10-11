@@ -1,13 +1,14 @@
 ---
 source: crates/emela-types/tests/body.rs
+assertion_line: 445
 expression: "run(r#\"\ntype User(id: Int, name: String)\n\nfn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }\nfn names(users: List[User], f: fn(User) -> String) -> List[String] { todo() }\n\nfn f(users: List[User]) -> Int {\n  inc = fn(x) { x + 1 }\n  typed = fn(x: Int) { x * 2 }\n  a = apply(fn(n) { n * 3 }, 1)\n  b = names(users, fn(u) { u.name })\n  c = inc(1)\n  a\n}\n\"#)"
 ---
-apply: fn(fn(Int) -> Int, Int) -> Int
-  f: fn(Int) -> Int
+apply: ∀ E(f). fn(fn(Int) -> Int fails E(f), Int) -> Int fails E(f)
+  f: fn(Int) -> Int fails '0
   x: Int
-names: fn(List[User], fn(User) -> String) -> List[String]
+names: ∀ E(f). fn(List[User], fn(User) -> String fails E(f)) -> List[String] fails E(f)
   users: List[User]
-  f: fn(User) -> String
+  f: fn(User) -> String fails '0
 f: fn(List[User]) -> Int
   users: List[User]
   x: Int

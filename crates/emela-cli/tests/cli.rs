@@ -371,3 +371,46 @@ fn check_resolves_bundled_core() {
         (Some(0), "", "")
     );
 }
+
+#[test]
+fn check_reports_error_set_errors() {
+    let project = Project::new(
+        "errors",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(fn() { fail Timeout }) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_all() -> Int { find(1) escape { _ -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
+
+/// fail と escape は型検査を通るが，lowering はまだ扱わない（panic しない）．
+#[test]
+fn build_reports_fail_and_escape_as_unsupported() {
+    let project = Project::new(
+        "fail-build",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  find(1) escape { NotFound(_) -> 0 }\n}\n",
+            ),
+        ],
+    );
+    assert_eq!(project.emela(&["check"]).code, Some(0));
+    for command in ["build", "run"] {
+        let run = project.emela(&[command]);
+        assert_eq!(run.code, Some(1), "{command}");
+        assert!(
+            run.stderr.starts_with("error: not supported yet: escape\n"),
+            "{command}: {}",
+            run.stderr
+        );
+    }
+}

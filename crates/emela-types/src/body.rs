@@ -6,9 +6,9 @@
 //! 中では単相の型で参照し，まとまりを推論し終えてから汎化する（[`crate::check`]）．
 
 use emela_resolve::hir::{
-    Arg, Arm, BinaryOp, Block, DefId, DefModule, ExprId, ExprKind, FnItem, Item, Label, ListRest,
-    Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span, Stmt, StrPart, TypeId,
-    UnaryOp,
+    Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnItem, Item, Label,
+    ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span, Stmt, StrPart,
+    TypeId, UnaryOp,
 };
 use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -18,10 +18,13 @@ use crate::FnTy;
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::exhaustiveness::{self, Witness, check_match};
-use crate::infer::{InferCtx, substitute_bound};
-use crate::lower::TyTable;
-use crate::signature::{Signature, Signatures, param_ty};
-use crate::ty::{Prim, Ty, TyParam, TyVar};
+use crate::infer::{InferCtx, Origin, substitute, substitute_bound};
+use crate::lower::{Omitted, Scope, TyTable};
+use crate::row::{Row, RowVar};
+use crate::signature::{FnParams, Signature, Signatures, param_labels};
+use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
+
+mod errors;
 
 /// 定義のまとまり1つの推論の結果．型は単一化の束縛を辿った形．
 pub(crate) struct BodyTypes {
@@ -37,6 +40,8 @@ pub(crate) struct BodyTypes {
     pub(crate) diags: Vec<Diagnostic>,
     /// 宣言の型のなかった定義の，汎化した宣言の型．
     pub(crate) inferred: Vec<(DefId, Signature)>,
+    /// 各式のエラーの集合 E（9.4）．
+    pub(crate) errors: ArenaMap<ExprId, Row>,
 }
 
 /// 定義のまとまり1つを推論する間の状態．
@@ -50,10 +55,16 @@ pub(crate) struct BodyInfer<'a> {
     module: DefModule,
     /// 推論している fn の型引数．
     type_params: Vec<DefId>,
+    /// 推論している fn の型引数の種類（`type_params` と同じ並び）．
+    param_kinds: Vec<ParamKind>,
     ctx: InferCtx,
-    /// まとまりの中の，宣言の型のない定義の単相の型と，書いた型引数の数．
+    /// まとまりの中の，宣言の型のない定義の単相の型と，型引数（書いた型引数と見えない集合の型引数）．
     /// 推論し終えてから汎化する．
-    pending: Vec<(DefId, Ty, usize)>,
+    pending: Vec<(DefId, Ty, Vec<TyParam>)>,
+    /// 推論した定義（本体のある fn と const）．推論した順．
+    defs: Vec<DefId>,
+    /// ラムダの式 → その型のエラーの集合の集合変数．本体の E を含める（`body/errors.rs`）．
+    lambda_rows: ArenaMap<ExprId, RowVar>,
     /// 書いた型引数のある `pending` の定義を，まとまりの中の他の定義から参照したもの．
     /// 推論し終えてから，その定義の最終的な型と照合する（[`Self::finish`]）．
     deferred: Vec<DeferredRef>,
@@ -74,11 +85,19 @@ pub(crate) struct BodyInfer<'a> {
     numbers: Vec<NumConstraint>,
     /// 網羅性を確かめる match と束縛．型が決まってから確かめる（[`Self::check_coverage`]）．
     coverage: Vec<CoverageSite>,
+    /// 各式のエラーの集合．本体の推論が終わってから求める（`body/errors.rs`）．
+    expr_rows: ArenaMap<ExprId, Row>,
+    /// escape で受けたタグを集合変数の解から除くための集合変数（`δ ⊇ v ∖ tags`）．
+    row_diffs: Vec<(RowVar, RowVar, Vec<DefId>)>,
+    /// escape の元の式と，腕が受けるエラー（腕のパターンとタグ）．W0302 を確かめるのに使う．
+    escapes: Vec<(ExprId, Vec<(PatId, DefId)>)>,
 }
 
 impl<'a> BodyInfer<'a> {
     /// 空の状態で始める．
     pub(crate) fn new(program: &'a Program, ty_table: &'a TyTable, sigs: &'a Signatures) -> Self {
+        let mut ctx = InferCtx::new();
+        ctx.set_error_tags(ty_table.error_tags());
         BodyInfer {
             program,
             ty_table,
@@ -86,8 +105,11 @@ impl<'a> BodyInfer<'a> {
             current: None,
             module: DefModule::Prelude,
             type_params: Vec::new(),
-            ctx: InferCtx::new(),
+            param_kinds: Vec::new(),
+            ctx,
             pending: Vec::new(),
+            defs: Vec::new(),
+            lambda_rows: ArenaMap::new(),
             deferred: Vec::new(),
             locals: ArenaMap::new(),
             local_owner: ArenaMap::new(),
@@ -100,6 +122,9 @@ impl<'a> BodyInfer<'a> {
             diags: Vec::new(),
             numbers: Vec::new(),
             coverage: Vec::new(),
+            expr_rows: ArenaMap::new(),
+            row_diffs: Vec::new(),
+            escapes: Vec::new(),
         }
     }
 
@@ -119,44 +144,62 @@ impl<'a> BodyInfer<'a> {
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
         self.module = self.program.defs[def].module.clone();
-        self.type_params = match self.program.item(def) {
-            Some(Item::Fn(item)) => item.sig.type_params.iter().map(|tp| tp.def).collect(),
-            _ => Vec::new(),
+        (self.type_params, self.param_kinds) = match self.program.item(def) {
+            Some(Item::Fn(item)) => {
+                let params = FnParams::new(self.program, &item.sig);
+                (params.defs, params.kinds)
+            }
+            _ => (Vec::new(), Vec::new()),
         };
     }
 
     /// 宣言の型のない定義に，まとまりの中で使う単相の型を付ける．fn は書いた引数の型と，
-    /// 戻り値の型の型変数．const は型変数．
+    /// 戻り値の型（書いていなければ型変数）と，E の集合変数．const は型変数．
     pub(crate) fn declare(&mut self, def: DefId) {
         self.enter(def);
         let program = self.program;
-        let ty = match program.item(def) {
+        let (ty, params) = match program.item(def) {
             Some(Item::Fn(item)) => {
-                let params: Vec<Ty> = item
-                    .sig
-                    .params
-                    .iter()
-                    .map(|p| {
-                        param_ty(
+                let mut fn_params = FnParams::new(program, &item.sig);
+                let params = fn_params.lower_params(
+                    program,
+                    self.ty_table,
+                    &item.sig.params,
+                    &mut self.diags,
+                );
+                let (ret, fails) = match item.sig.ret {
+                    Some(ret) => {
+                        let mut scope = fn_params.scope(Omitted::Fresh(&mut self.ctx));
+                        let ret =
+                            self.ty_table
+                                .lower_in(program, &mut scope, ret, true, &mut self.diags);
+                        // E は本体から推論し，宣言の E（書いた fails 節と見えない集合）に
+                        // 含まれることを確かめる．返す関数が引数の関数を呼ぶだけなら，この fn
+                        // 自身は失敗しない（9.2 の compose）．
+                        let declared = fn_params.declared_fails(
                             program,
                             self.ty_table,
-                            &self.type_params,
-                            p,
+                            &item.sig,
                             &mut self.diags,
-                        )
-                    })
-                    .collect();
-                let ret = self.ctx.new_var();
-                Ty::func(params, ret)
+                        );
+                        let fails = Row::var(self.ctx.new_row_var());
+                        self.ctx
+                            .add_subset(fails.clone(), declared, Origin::Body(def));
+                        (ret, fails)
+                    }
+                    None => (self.ctx.new_var(), Row::var(self.ctx.new_row_var())),
+                };
+                (Ty::func_fails(params, ret, fails), fn_params.all_params())
             }
-            _ => self.ctx.new_var(),
+            _ => (self.ctx.new_var(), Vec::new()),
         };
-        self.pending.push((def, ty, self.type_params.len()));
+        self.pending.push((def, ty, params));
     }
 
     /// 定義の本体を推論する．宣言の型（なければ [`Self::declare`] で付けた型）の位置に置く．
     pub(crate) fn infer_def(&mut self, def: DefId) {
         self.enter(def);
+        self.defs.push(def);
         let declared = match self.sigs.get(def) {
             Some(sig) => sig.scheme.ty.clone(),
             None => match self.pending_ty(def) {
@@ -185,12 +228,12 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// まとまりの中の，宣言の型のない定義の単相の型と，書いた型引数の数．
-    fn pending_ty(&self, def: DefId) -> Option<(Ty, usize)> {
+    /// まとまりの中の，宣言の型のない定義の単相の型と，型引数．
+    fn pending_ty(&self, def: DefId) -> Option<(Ty, Vec<TyParam>)> {
         self.pending
             .iter()
             .find(|(d, _, _)| *d == def)
-            .map(|(_, ty, n)| (ty.clone(), *n))
+            .map(|(_, ty, params)| (ty.clone(), params.clone()))
     }
 
     /// match の網羅性と冗長な腕，束縛のパターンが必ず成功するかを確かめる（6.3，6.5）．
@@ -233,6 +276,23 @@ impl<'a> BodyInfer<'a> {
                             span: Some(self.program.pats[arms[i].pat].span),
                             kind: DiagnosticKind::UnreachableArm,
                         });
+                    }
+                }
+                CoverageSite::Escape { groups } => {
+                    for (ty, arms) in groups {
+                        let check_arms: Vec<exhaustiveness::Arm> = arms
+                            .iter()
+                            .map(|arm| exhaustiveness::Arm {
+                                pat: shapes.pat(arm.pat, &ty),
+                                guarded: arm.guard.is_some(),
+                            })
+                            .collect();
+                        for i in check_match(&shapes, &ty, &check_arms).redundant {
+                            self.diags.push(Diagnostic {
+                                span: Some(self.program.pats[arms[i].pat].span),
+                                kind: DiagnosticKind::UnreachableArm,
+                            });
+                        }
                     }
                 }
                 CoverageSite::Binding { pat, ty } => {
@@ -279,37 +339,33 @@ impl<'a> BodyInfer<'a> {
         for r in std::mem::take(&mut self.deferred) {
             if let Some((ty, _)) = self.pending_ty(r.def) {
                 let ty = self.ctx.resolve(&ty);
-                let actual = substitute_bound(&ty, &r.args);
+                let actual = substitute(&ty, &r.args, &r.rows);
                 self.coerce_at(r.span, &r.instance, &actual);
             }
         }
         self.check_numbers();
+        // エラーの集合を求めて解く（`body/errors.rs`）．
+        self.infer_errors();
+        self.solve_errors();
         self.check_coverage();
 
         let program = self.program;
         let mut inferred = Vec::new();
-        for (def, ty, _) in std::mem::take(&mut self.pending) {
-            let (existing, labels) = match program.item(def) {
-                Some(Item::Fn(item)) => (
-                    item.sig
-                        .type_params
-                        .iter()
-                        .map(|tp| TyParam::new(program.defs[tp.def].name.clone()))
-                        .collect(),
-                    item.sig
-                        .params
-                        .iter()
-                        .map(|p| Some(program.locals[p.local].name.clone()))
-                        .collect(),
-                ),
-                _ => (Vec::new(), Vec::new()),
+        for (def, ty, params) in std::mem::take(&mut self.pending) {
+            let labels = match program.item(def) {
+                Some(Item::Fn(item)) => param_labels(program, &item.sig.params),
+                _ => Vec::new(),
             };
             // トップレベルなので環境の型変数はない．
-            let scheme = self.ctx.generalize_with(&ty, existing, &[]);
+            let scheme = self.ctx.generalize_with(&ty, params, &[]);
             inferred.push((def, Signature { scheme, labels }));
         }
 
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
+        let mut errors = ArenaMap::default();
+        for (expr, row) in self.expr_rows.iter() {
+            errors.insert(expr, self.ctx.resolve_row(row));
+        }
         let pats = resolve_all(&mut self.ctx, &self.pats);
         let locals = resolve_all(&mut self.ctx, &self.locals);
         let mut type_args = ArenaMap::default();
@@ -328,12 +384,16 @@ impl<'a> BodyInfer<'a> {
             pat_fields: self.pat_fields,
             diags: self.diags,
             inferred,
+            errors,
         }
     }
 
     /// `actual` を `expected` の位置に置く．合わなければ `span` の位置で診断を積む．
     fn coerce_at(&mut self, span: Span, expected: &Ty, actual: &Ty) {
-        if let Err(e) = self.ctx.coerce(expected, actual) {
+        self.ctx.set_origin(Some(span), self.current);
+        let result = self.ctx.coerce(expected, actual);
+        self.ctx.set_origin(None, self.current);
+        if let Err(e) = result {
             self.diags.push(Diagnostic {
                 span: Some(span),
                 kind: DiagnosticKind::Mismatch(e),
@@ -361,14 +421,15 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Unit => Ty::UNIT,
             ExprKind::Tuple(elems) => Ty::tuple(elems.iter().map(|&e| self.infer_expr(e))),
             ExprKind::Path(Res::Local(local)) => {
-                self.locals.get(*local).cloned().unwrap_or(Ty::Error)
+                let ty = self.locals.get(*local).cloned().unwrap_or(Ty::Error);
+                self.open_fails(ty)
             }
             ExprKind::Path(Res::Def(def)) => {
                 let (ty, args) = self.instantiate_def(*def, e.span);
                 if !args.is_empty() {
                     self.type_args.insert(expr, args);
                 }
-                ty
+                self.open_fails(ty)
             }
             ExprKind::Path(Res::Err) => Ty::Error,
             ExprKind::Block(block) => self.infer_block(block, e.span, expected),
@@ -381,7 +442,9 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms, expected),
             ExprKind::Binary { op, lhs, rhs } => self.infer_binary(expr, *op, *lhs, *rhs, e.span),
             ExprKind::Unary { op, operand } => self.infer_unary(*op, *operand, e.span),
-            ExprKind::Lambda { params, body } => self.infer_lambda(params, *body, e.span, expected),
+            ExprKind::Lambda { params, body } => {
+                self.infer_lambda(expr, params, *body, e.span, expected)
+            }
             ExprKind::List { elems, rest } => self.infer_list(elems, *rest, e.span, expected),
             ExprKind::Field { base, name } => self.infer_field(expr, *base, name),
             ExprKind::Interpolated(parts) => {
@@ -400,9 +463,13 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Update { ctor, fields, base } => {
                 self.infer_update(expr, *ctor, fields, *base)
             }
-            // エラーとエフェクト（7章，8章）は alpha.2．中の式は推論して型を記録しておく．
-            ExprKind::Fail(inner) => self.unsupported(e.span, "`fail`", &[*inner]),
-            ExprKind::Escape { expr: inner, .. } => self.unsupported(e.span, "`escape`", &[*inner]),
+            // `fail e` は Never．e の型のタグを E に足すのは本体の E を求めるとき（7.2）．
+            ExprKind::Fail(inner) => {
+                self.infer_expr(*inner);
+                Ty::Never
+            }
+            ExprKind::Escape { expr: inner, arms } => self.infer_escape(*inner, arms),
+            // エフェクト（8章）は次の段．中の式は推論して型を記録しておく．
             ExprKind::Use { .. } => self.unsupported(e.span, "`use`", &[]),
             ExprKind::With { body, .. } => self.unsupported(e.span, "`with`", &[*body]),
         }
@@ -443,6 +510,19 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
+    /// 関数の値の参照の型．E に新しい集合変数を足す．E が小さい関数は，E がそれより大きい
+    /// 関数として使ってよいので（分岐の合流やリストの要素で E の違う関数を並べられるように）．
+    fn open_fails(&mut self, ty: Ty) -> Ty {
+        match self.ctx.shallow_resolve(&ty) {
+            Ty::Fn(f) => {
+                let mut fails = f.fails.clone();
+                fails.insert(crate::RowElem::Var(self.ctx.new_row_var()));
+                Ty::func_fails(f.params, f.ret, fails)
+            }
+            _ => ty,
+        }
+    }
+
     /// 値が `()` の式の型．期待する型があれば `()` をその位置に置く．
     fn unit_at(&mut self, span: Span, expected: Option<&Ty>) -> Ty {
         if let Some(expected) = expected {
@@ -465,21 +545,22 @@ impl<'a> BodyInfer<'a> {
         if let Some(sig) = sigs.get(def) {
             return self.ctx.instantiate_with_args(&sig.scheme);
         }
-        if let Some((ty, n_type_params)) = self.pending_ty(def) {
-            if self.current == Some(def) || n_type_params == 0 {
+        if let Some((ty, params)) = self.pending_ty(def) {
+            if self.current == Some(def) || params.is_empty() {
                 return (ty, Vec::new());
             }
-            // 書いた型引数（`Ty::Bound(i)`）はその定義の中でだけ意味を持つので，
-            // 他の定義から参照するときは新しい型変数に置き換える．まだ決まっていない部分
-            // （戻り値の型など）は，後でその定義の型引数に決まることがあるので，ここでは
-            // 新しい型変数にしておき，まとまりを推論し終えてから照合する．
+            // 書いた型引数（`Ty::Bound(i)`）と見えない集合の型引数はその定義の中でだけ意味を
+            // 持つので，他の定義から参照するときは新しい型変数と集合変数に置き換える．まだ
+            // 決まっていない部分（戻り値の型など）は，後でその定義の型引数に決まることがあるので，
+            // ここでは新しい型変数にしておき，まとまりを推論し終えてから照合する．
             let ty = self.ctx.resolve(&ty);
-            let args: Vec<Ty> = (0..n_type_params).map(|_| self.ctx.new_var()).collect();
+            let (args, rows) = self.ctx.fresh_args(&params);
             let mut fresh = FxHashMap::default();
-            let instance = self.freshen(&substitute_bound(&ty, &args), &mut fresh);
+            let instance = self.freshen(&substitute(&ty, &args, &rows), &mut fresh);
             self.deferred.push(DeferredRef {
                 def,
                 args: args.clone(),
+                rows,
                 instance: instance.clone(),
                 span,
             });
@@ -521,10 +602,11 @@ impl<'a> BodyInfer<'a> {
             _ => {
                 let params: Vec<Ty> = (0..args.len()).map(|_| self.ctx.new_var()).collect();
                 let ret = self.ctx.new_var();
-                let expected = Ty::func(params.clone(), ret.clone());
+                let fails = Row::var(self.ctx.new_row_var());
+                let expected = Ty::func_fails(params.clone(), ret.clone(), fails.clone());
                 let callee_span = program.exprs[callee].span;
                 self.coerce_at(callee_span, &expected, &callee_ty);
-                FnTy { params, ret }
+                FnTy { params, ret, fails }
             }
         };
 
@@ -653,9 +735,11 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// ラムダの型．期待する型が同じ数の引数の関数型なら，その引数の型をラムダの引数に先に渡す．
-    /// 本体の型を外へ出さない（9.4．fails と use は alpha.2）．
+    /// 本体の E は外へ出さず，関数型の E（新しい集合変数）に閉じ込める（9.4）．本体の E を
+    /// その集合変数に含める制約は，本体の E を求めるときに足す（`body/errors.rs`）．
     fn infer_lambda(
         &mut self,
+        expr: ExprId,
         params: &[Param],
         body: ExprId,
         span: Span,
@@ -693,10 +777,22 @@ impl<'a> BodyInfer<'a> {
             None => self.infer_expr(body),
         };
 
-        let ty = Ty::func(param_tys, ret_ty);
-        // 期待する型が関数型でなかった（か引数の数が違った）ときは，ここで照合して誤りを出す．
-        if let (Some(expected), None) = (expected, &expected_fn) {
-            self.coerce_at(span, expected, &ty);
+        let row = self.ctx.new_row_var();
+        self.lambda_rows.insert(expr, row);
+        let ty = Ty::func_fails(param_tys, ret_ty, Row::var(row));
+        match (expected, &expected_fn) {
+            // 期待する型の E に，ラムダの E が含まれる．
+            (_, Some(f)) => self.ctx.add_subset(
+                Row::var(row),
+                f.fails.clone(),
+                Origin::Coerce {
+                    span: Some(span),
+                    def: self.current,
+                },
+            ),
+            // 期待する型が関数型でなかった（か引数の数が違った）ときは，ここで照合して誤りを出す．
+            (Some(expected), None) => self.coerce_at(span, expected, &ty),
+            (None, None) => {}
         }
         ty
     }
@@ -977,6 +1073,50 @@ impl<'a> BodyInfer<'a> {
         result
     }
 
+    /// escape の型（7.3）．腕のパターンはエラーの構成子で，その型の値に合わせる．
+    /// 腕の結果は元の式と同じ型か Never で，全体は元の式の型．受けるタグと E は本体の E を
+    /// 求めるときに扱う（`body/errors.rs`）．腕が網羅していなくてよい．
+    fn infer_escape(&mut self, inner: ExprId, arms: &[Arm]) -> Ty {
+        let program = self.program;
+        let inner_ty = self.infer_expr(inner);
+        let mut groups: Vec<(DefId, Ty, Vec<Arm>)> = Vec::new();
+        let mut result = inner_ty;
+        for arm in arms {
+            let p = &program.pats[arm.pat];
+            match &p.kind {
+                PatKind::Ctor {
+                    res: Res::Def(def), ..
+                } if program.defs[*def].kind == DefKind::Error => {
+                    let ty = self.ty_table.self_ty(*def).unwrap_or(Ty::Error);
+                    self.bind_pat(arm.pat, &ty);
+                    match groups.iter_mut().find(|(d, _, _)| d == def) {
+                        Some((_, _, group)) => group.push(arm.clone()),
+                        None => groups.push((*def, ty, vec![arm.clone()])),
+                    }
+                }
+                // エラーでない構成子は名前解決が誤りを出している．
+                PatKind::Ctor { .. } | PatKind::Missing => self.bind_pat(arm.pat, &Ty::Error),
+                _ => {
+                    self.diags.push(Diagnostic {
+                        span: Some(p.span),
+                        kind: DiagnosticKind::EscapeArmNotError,
+                    });
+                    self.bind_pat(arm.pat, &Ty::Error);
+                }
+            }
+            if let Some(guard) = arm.guard {
+                self.check_expr(guard, &Ty::BOOL);
+            }
+            let body_ty = self.infer_expr(arm.body);
+            let span = program.exprs[arm.body].span;
+            result = self.join_at(span, &result, &body_ty);
+        }
+        self.coverage.push(CoverageSite::Escape {
+            groups: groups.into_iter().map(|(_, ty, arms)| (ty, arms)).collect(),
+        });
+        result
+    }
+
     /// 式を推論し，期待する型の位置に置く．
     ///
     /// ブロック，if，match は期待する型を最後の式や各分岐まで渡すので，型が合わないときは
@@ -1002,9 +1142,17 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// 本体の中の型注釈を Ty にする．
+    ///
+    /// 束縛の型注釈とラムダの引数の型の関数型の `fails` を省略すれば，本体から推論する（9.2）．
     fn lower_type(&mut self, ty: TypeId) -> Ty {
+        let mut scope = Scope {
+            params: &self.type_params,
+            kinds: &self.param_kinds,
+            omitted: Omitted::Fresh(&mut self.ctx),
+            sets: true,
+        };
         self.ty_table
-            .lower(self.program, &self.type_params, ty, &mut self.diags)
+            .lower_in(self.program, &mut scope, ty, true, &mut self.diags)
     }
 
     /// パターンに型を付け，束縛する変数の型を覚える．
@@ -1199,7 +1347,10 @@ impl<'a> BodyInfer<'a> {
 
     /// 2つの分岐の共通の型．合わなければ `span` の位置で診断を積み，`a` を全体の型にする．
     fn join_at(&mut self, span: Span, a: &Ty, b: &Ty) -> Ty {
-        match self.ctx.join(a, b) {
+        self.ctx.set_origin(Some(span), self.current);
+        let result = self.ctx.join(a, b);
+        self.ctx.set_origin(None, self.current);
+        match result {
             Ok(ty) => ty,
             Err(e) => {
                 self.diags.push(Diagnostic {
@@ -1387,6 +1538,8 @@ struct DeferredRef {
     def: DefId,
     /// 型引数に置いた型変数．
     args: Vec<Ty>,
+    /// 集合の型引数に置いた集合変数．
+    rows: Vec<Row>,
     /// 参照の式に付けた型．
     instance: Ty,
     span: Span,
@@ -1401,6 +1554,8 @@ enum CoverageSite {
     },
     /// 束縛 `pat = value`．パターンは必ず成功しなければならない（6.3）．
     Binding { pat: PatId, ty: Ty },
+    /// escape の腕．受けるエラーの型ごとに分け，冗長な腕だけを確かめる（網羅は求めない）．
+    Escape { groups: Vec<(Ty, Vec<Arm>)> },
 }
 
 /// 足りない値の例を文字列にする．

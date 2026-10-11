@@ -1,0 +1,25 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 223
+expression: "render_errors(r#\"\nerror NotFound(id: Int)\n\nfn or_fail[A, E](opt: Option[A], err: E) -> A fails E {\n  match opt {\n    Some(a) -> a\n    None -> fail err\n  }\n}\n\nfn first(xs: List[Int]) {\n  xs |> List.head |> or_fail(NotFound(id: 0))\n}\n\nfn raise_any[E](err: E) {\n  fail err\n}\n\nfn use_raise() {\n  raise_any(NotFound(id: 1))\n}\n\"#)"
+---
+or_fail: ∀ A, E. fn(Option[A], E) -> A fails E
+  opt: Option['0]
+  err: '1
+  a: '0
+first: fn(List[Int]) -> Int fails NotFound
+  xs: List[Int]
+raise_any: ∀ E, A. fn(E) -> A fails E
+  err: '0
+use_raise: ∀ A. fn() -> A fails NotFound
+--- E
+{   match opt {     Some(a) -> a     None -> fail err   } }: '1
+match opt {     Some(a) -> a     None -> fail err   }: '1
+fail err: '1
+{   xs |> List.head |> or_fail(NotFound(id: 0)) }: NotFound
+xs |> List.head |> or_fail(NotFound(id: 0)): NotFound
+or_fail(NotFound(id: 0)): NotFound
+{   fail err }: '0
+fail err: '0
+{   raise_any(NotFound(id: 1)) }: NotFound
+raise_any(NotFound(id: 1)): NotFound

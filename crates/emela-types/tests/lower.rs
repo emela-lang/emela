@@ -28,7 +28,7 @@ fn builtin_types() {
 fn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () { todo() }
 fn never() -> Never { todo() }
 fn tuple(p: (Int, String)) -> (Int, (Bool, Float)) { todo() }
-fn func(f: fn(Int, String) -> Bool) -> fn() -> () { todo() }
+fn func(f: fn(Int, String) -> Bool) -> fn() -> () fails {} { todo() }
 fn list(xs: List[Int]) -> List[List[String]] { todo() }
 "#));
 }

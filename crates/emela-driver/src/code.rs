@@ -55,7 +55,13 @@ pub const FIELD_ON_UNKNOWN_TYPE: &str = "E0314";
 pub const OPAQUE_FIELD: &str = "E0315";
 pub const MISSING_PARAM_TYPE: &str = "E0316";
 pub const REFUTABLE_BINDING: &str = "E0317";
+// エラー（7章）
+pub const UNHANDLED_ERRORS: &str = "E0318";
+pub const NOT_AN_ERROR: &str = "E0319";
+pub const ESCAPE_ARM_NOT_ERROR: &str = "E0320";
+pub const ERROR_SET_MISMATCH: &str = "E0321";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
+pub const UNRAISED_ERROR: &str = "W0302";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

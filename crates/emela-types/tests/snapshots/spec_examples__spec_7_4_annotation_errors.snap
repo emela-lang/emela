@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 554
+expression: "render_bodies(r#\"\nerror NotFound  # 補\nerror DbError  # 補\n\nfn find() -> Int fails NotFound { fail NotFound }  # 補\n\nfn strict() -> Int {\n  find()\n}\n\nfn wrong() -> Int fails DbError {\n  find()\n}\n\nconst VALUE: Int = find()  # 5.6 const の値は失敗できない\n\"#)"
+---
+find: fn() -> Int fails NotFound
+strict: fn() -> Int
+wrong: fn() -> Int fails DbError
+`find()` unhandled errors NotFound (fails written: false)
+`find()` unhandled errors NotFound (fails written: true)
+`find()` unhandled errors NotFound (fails written: false)

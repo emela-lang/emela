@@ -3,14 +3,17 @@
 //! 呼び出しの推論が，呼ばれる側の型とラベルをここから引く．戻り値の型を書いていない fn と，
 //! 型を書いていない const は，本体を推論した後に足す．
 
-use emela_resolve::hir::{DefId, Fields, FnItem, Item, Param, Program, TypeId};
+use emela_resolve::hir::{DefId, Fields, FnItem, FnSig, Item, Param, Program, TypeId};
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::lower::{TyTable, ty_params, type_param_defs};
+use crate::lower::{
+    Hidden, Omitted, Scope, TyTable, classify_params, has_omitted_fails, ty_params, type_param_defs,
+};
+use crate::row::Row;
 use crate::scheme::Scheme;
-use crate::ty::Ty;
+use crate::ty::{ParamKind, Ty, TyParam};
 
 /// 定義1つの型と引数のラベル．
 pub struct Signature {
@@ -74,6 +77,7 @@ impl Default for Signatures {
     }
 }
 /// fn の型とラベル．戻り値の型を書いていなければ `None`（本体から推論する）．
+/// 戻り値の型の中に `fails` を省略した関数型があるときも，その E を本体から推論するので `None`．
 fn fn_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -81,26 +85,120 @@ fn fn_signature(
     diags: &mut Vec<Diagnostic>,
 ) -> Option<Signature> {
     let ret = item.sig.ret?;
-    let defs: Vec<DefId> = item.sig.type_params.iter().map(|tp| tp.def).collect();
-
-    let arg_tys: Vec<Ty> = item
-        .sig
-        .params
-        .iter()
-        .map(|p| param_ty(program, ty_table, &defs, p, diags))
-        .collect();
-    let labels = item
-        .sig
-        .params
-        .iter()
-        .map(|p| Some(program.locals[p.local].name.clone()))
-        .collect();
-    let ret_ty = ty_table.lower(program, &defs, ret, diags);
+    if has_omitted_fails(program, ret) {
+        return None;
+    }
+    let mut params = FnParams::new(program, &item.sig);
+    let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
+    let labels = param_labels(program, &item.sig.params);
+    let mut scope = params.scope(Omitted::Empty);
+    let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
+    let fails = params.declared_fails(program, ty_table, &item.sig, diags);
 
     Some(Signature {
-        scheme: Scheme::new(ty_params(program, &defs), Ty::func(arg_tys, ret_ty)),
+        scheme: Scheme::new(params.all_params(), Ty::func_fails(arg_tys, ret_ty, fails)),
         labels,
     })
+}
+
+/// 引数の名前のラベル．
+pub(crate) fn param_labels(program: &Program, params: &[Param]) -> Vec<Option<SmolStr>> {
+    params
+        .iter()
+        .map(|p| Some(program.locals[p.local].name.clone()))
+        .collect()
+}
+
+/// fn の型引数．書いた型引数（種類は使われた位置で決める）と，引数の型の中の見えない集合の型引数．
+pub(crate) struct FnParams {
+    /// 書いた型引数の定義．
+    pub(crate) defs: Vec<DefId>,
+    pub(crate) kinds: Vec<ParamKind>,
+    /// 書いた型引数．
+    declared: Vec<TyParam>,
+    pub(crate) hidden: Hidden,
+}
+
+impl FnParams {
+    pub(crate) fn new(program: &Program, sig: &FnSig) -> Self {
+        let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
+        let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
+        let kinds = classify_params(program, &defs, types);
+        let declared = ty_params(program, &defs)
+            .into_iter()
+            .zip(&kinds)
+            .map(|(p, &kind)| TyParam { kind, ..p })
+            .collect();
+        let hidden = Hidden::new(defs.len());
+        FnParams {
+            defs,
+            kinds,
+            declared,
+            hidden,
+        }
+    }
+
+    pub(crate) fn scope<'a>(&'a self, omitted: Omitted<'a>) -> Scope<'a> {
+        Scope {
+            params: &self.defs,
+            kinds: &self.kinds,
+            omitted,
+            sets: true,
+        }
+    }
+
+    /// 引数の型．`fails` を省略した関数型には見えない集合の型引数を置く．
+    /// 型を書いていない引数は E0316（6.1）を積んで `Ty::Error`．
+    pub(crate) fn lower_params(
+        &mut self,
+        program: &Program,
+        ty_table: &TyTable,
+        params: &[Param],
+        diags: &mut Vec<Diagnostic>,
+    ) -> Vec<Ty> {
+        params
+            .iter()
+            .map(|p| {
+                let Some(ty) = p.ty else {
+                    return param_ty(program, ty_table, &self.defs, p, diags);
+                };
+                self.hidden
+                    .start_param(program.locals[p.local].name.clone());
+                let mut scope = Scope {
+                    params: &self.defs,
+                    kinds: &self.kinds,
+                    omitted: Omitted::Hidden(&mut self.hidden),
+                    sets: true,
+                };
+                ty_table.lower_in(program, &mut scope, ty, true, diags)
+            })
+            .collect()
+    }
+
+    /// 宣言の E．書いた `fails` 節（なければ空）と，引数の型の中の正の位置の見えない集合の和．
+    /// 見えない集合は書けないので，引数の関数を呼んだときのエラーはいつも伝えてよい（9.2）．
+    pub(crate) fn declared_fails(
+        &self,
+        program: &Program,
+        ty_table: &TyTable,
+        sig: &FnSig,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Row {
+        let written = match &sig.fails {
+            Some(set) => ty_table.lower_error_set(program, &self.scope(Omitted::Empty), set, diags),
+            None => Row::empty(),
+        };
+        written.union(&self.hidden.positive)
+    }
+
+    /// 書いた型引数と見えない集合の型引数を並べたもの．
+    pub(crate) fn all_params(&self) -> Vec<TyParam> {
+        self.declared
+            .iter()
+            .chain(&self.hidden.params)
+            .cloned()
+            .collect()
+    }
 }
 
 /// 構成子の型とラベル．`owner` は構成子が作る型（type / enum / error）．
@@ -123,9 +221,23 @@ fn ctor_signature(
         Fields::Positional(tys) => (tys.clone(), vec![None; tys.len()]),
         Fields::Named(fs) => fs.iter().map(|f| (f.ty, Some(f.name.clone()))).unzip(),
     };
+    // フィールドの関数型の `fails` を省略すれば空（9.2）．集合の型引数は扱わない．
+    let kinds = classify_params(program, &defs, field_tys.iter().copied());
+    let mut scope = Scope {
+        params: &defs,
+        kinds: &kinds,
+        omitted: Omitted::Empty,
+        sets: false,
+    };
     let ty = match fields {
         Fields::None => ret_ty,
-        _ => Ty::func(ty_table.lower_all(program, &defs, field_tys, diags), ret_ty),
+        _ => Ty::func(
+            field_tys
+                .iter()
+                .map(|&t| ty_table.lower_in(program, &mut scope, t, true, diags))
+                .collect::<Vec<_>>(),
+            ret_ty,
+        ),
     };
 
     Some(Signature {

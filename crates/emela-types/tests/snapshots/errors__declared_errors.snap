@@ -1,0 +1,33 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 140
+expression: "render_errors(r#\"\nerror Boom\n\nfn pure() -> Int fails {} { 1 }\n\nfn impure() -> Int fails {} {\n  fail Boom\n}\n\nfn apply(f: fn(Int) -> Int, x: Int) -> Int {\n  f(x)\n}\n\nfn apply_x(f: fn(Int) -> Int, x: Int) -> Int fails Boom {\n  if x > 0 { f(x) } else { fail Boom }\n}\n\nfn use_apply() {\n  apply(fn(n) { if n > 0 { n } else { fail Boom } }, 1)\n}\n\"#)"
+---
+pure: fn() -> Int
+impure: fn() -> Int
+apply: ∀ E(f). fn(fn(Int) -> Int fails E(f), Int) -> Int fails E(f)
+  f: fn(Int) -> Int fails '0
+  x: Int
+apply_x: ∀ E(f). fn(fn(Int) -> Int fails E(f), Int) -> Int fails Boom | E(f)
+  f: fn(Int) -> Int fails '0
+  x: Int
+use_apply: fn() -> Int fails Boom
+  n: Int
+`fail Boom` unhandled errors Boom (fails written: true)
+--- E
+{   fail Boom }: Boom
+fail Boom: Boom
+{   f(x) }: '0
+f(x): '0
+{   if x > 0 { f(x) } else { fail Boom } }: Boom | '0
+if x > 0 { f(x) } else { fail Boom }: Boom | '0
+{ f(x) }: '0
+f(x): '0
+{ fail Boom }: Boom
+fail Boom: Boom
+{   apply(fn(n) { if n > 0 { n } else { fail Boom } }, 1) }: Boom
+apply(fn(n) { if n > 0 { n } else { fail Boom } }, 1): Boom
+{ if n > 0 { n } else { fail Boom } }: Boom
+if n > 0 { n } else { fail Boom }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom

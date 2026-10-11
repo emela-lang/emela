@@ -1,13 +1,91 @@
-//! 型の表示．仕様の書き方（`List[Int]`，`fn(Int) -> Bool`，`(Int, String)`）に合わせる．
+//! 型の表示．仕様の書き方（`List[Int]`，`fn(Int) -> Bool fails NotFound`，`(Int, String)`）に合わせる．
 //!
-//! 名前付き型の名前は `TyCons` にあるので，表示には表を渡す．
+//! 名前付き型とエラーのタグの名前は `TyCons` にあるので，表示には表を渡す．
 //! 型変数は束縛を辿らずにそのまま `?0` と出す．辿った形を出すときは
 //! `InferCtx::resolve` を通してから表示する．
+//!
+//! 関数型のエラーの集合は，空なら `fails` 節ごと省く．ただし引数の型の中では，省くと
+//! 「何でもよい」と読めるので `fails {}` と出す（9.2）．戻り値が関数型で外側の関数型に
+//! `fails` 節があるときは，付き先が分かるように戻り値を括弧で囲む（5.5）．
 
 use std::fmt;
 
+use crate::row::{Row, RowElem};
 use crate::scheme::Scheme;
 use crate::ty::{Ty, TyCons, TyParam};
+
+impl Row {
+    /// `NotFound | E` の形．空なら `{}`．
+    pub fn display<'a>(&'a self, cons: &'a TyCons) -> RowDisplay<'a> {
+        RowDisplay {
+            row: self,
+            ty: TyDisplay {
+                ty: &Ty::Never,
+                cons,
+                bound: &[],
+                in_param: false,
+            },
+        }
+    }
+
+    /// [`Self::display`] と同じ．`Bound(i)` の名前を `bound` から引く．
+    pub fn display_with<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> RowDisplay<'a> {
+        RowDisplay {
+            row: self,
+            ty: TyDisplay {
+                ty: &Ty::Never,
+                cons,
+                bound,
+                in_param: false,
+            },
+        }
+    }
+}
+
+impl Ty {
+    /// [`Self::display`] と同じ．`Bound(i)` の名前を `bound` から引く．
+    pub fn display_with<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> TyDisplay<'a> {
+        TyDisplay {
+            ty: self,
+            cons,
+            bound,
+            in_param: false,
+        }
+    }
+}
+
+/// 集合の表示．要素を ` | ` で区切る．
+pub struct RowDisplay<'a> {
+    row: &'a Row,
+    /// 要素の中の型を表示するための文脈（`ty` は使わない）．
+    ty: TyDisplay<'a>,
+}
+
+impl fmt::Display for RowDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.row.is_empty() {
+            return f.write_str("{}");
+        }
+        for (i, e) in self.row.elems().iter().enumerate() {
+            if i > 0 {
+                f.write_str(" | ")?;
+            }
+            match e {
+                RowElem::Tag(def) => match self.ty.cons.tag_name(*def) {
+                    Some(name) => f.write_str(name)?,
+                    None => write!(f, "#{}", def.into_raw())?,
+                },
+                RowElem::Bound(i) => match self.ty.bound.get(*i as usize) {
+                    Some(p) => f.write_str(&p.name)?,
+                    None => write!(f, "'{i}")?,
+                },
+                RowElem::Of(ty) => write!(f, "{}", self.ty.child(ty))?,
+                RowElem::Var(v) => write!(f, "?e{}", v.index())?,
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Ty {
     pub fn display<'a>(&'a self, cons: &'a TyCons) -> TyDisplay<'a> {
@@ -15,6 +93,7 @@ impl Ty {
             ty: self,
             cons,
             bound: &[],
+            in_param: false,
         }
     }
 }
@@ -30,6 +109,8 @@ pub struct TyDisplay<'a> {
     cons: &'a TyCons,
     /// `Ty::Bound(i)` の名前．範囲外なら `'i` と出す．
     bound: &'a [TyParam],
+    /// 関数型の引数の型の中か．空のエラーの集合を `fails {}` と出す．
+    in_param: bool,
 }
 
 impl TyDisplay<'_> {
@@ -38,6 +119,7 @@ impl TyDisplay<'_> {
             ty,
             cons: self.cons,
             bound: self.bound,
+            in_param: self.in_param,
         }
     }
 
@@ -47,6 +129,20 @@ impl TyDisplay<'_> {
                 f.write_str(", ")?;
             }
             write!(f, "{}", self.child(ty))?;
+        }
+        Ok(())
+    }
+
+    fn params(&self, f: &mut fmt::Formatter<'_>, tys: &[Ty]) -> fmt::Result {
+        for (i, ty) in tys.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            let child = TyDisplay {
+                in_param: true,
+                ..self.child(ty)
+            };
+            write!(f, "{child}")?;
         }
         Ok(())
     }
@@ -65,8 +161,19 @@ impl fmt::Display for TyDisplay<'_> {
             },
             Ty::Fn(fun) => {
                 f.write_str("fn(")?;
-                self.list(f, &fun.params)?;
-                write!(f, ") -> {}", self.child(&fun.ret))
+                self.params(f, &fun.params)?;
+                if fun.fails.is_empty() && !self.in_param {
+                    return write!(f, ") -> {}", self.child(&fun.ret));
+                }
+                match &fun.ret {
+                    Ty::Fn(_) => write!(f, ") -> ({})", self.child(&fun.ret))?,
+                    ret => write!(f, ") -> {}", self.child(ret))?,
+                }
+                let row = RowDisplay {
+                    row: &fun.fails,
+                    ty: self.child(&fun.ret),
+                };
+                write!(f, " fails {row}")
             }
             Ty::Tuple(elems) => {
                 f.write_str("(")?;
@@ -114,6 +221,7 @@ impl fmt::Display for SchemeDisplay<'_> {
             ty: &self.scheme.ty,
             cons: self.cons,
             bound: params,
+            in_param: false,
         };
         write!(f, "{ty}")
     }

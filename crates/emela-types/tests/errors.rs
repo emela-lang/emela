@@ -1,0 +1,247 @@
+//! エラーの集合 E の推論（7章，9.2，9.4）をスナップショットで確かめる．
+//!
+//! `render_bodies` の出力（宣言の型と診断）に加え，`render_errors` は `main.emel` の式のうち
+//! E が空でないものを，位置の順に `式: E` の形で出す．
+
+mod common;
+
+use std::fmt::Write;
+
+use emela_resolve::hir::DefModule;
+use emela_types::check_program;
+
+use common::{render_bodies, resolve_main};
+
+/// 式ごとの E．同じ位置の式（パイプの右辺の呼び出しなど）は1つにまとめない．
+fn render_errors(src: &str) -> String {
+    let (program, module, _) = resolve_main(src);
+    let types = check_program(&program);
+    let cons = &types.ty_table.cons;
+    let mut rows: Vec<_> = types
+        .errors
+        .iter()
+        .filter(|(_, row)| !row.is_empty())
+        .filter_map(|(expr, row)| {
+            let span = program.exprs[expr].span;
+            (span.module == module).then_some((span.range, row))
+        })
+        .collect();
+    rows.sort_by_key(|(range, _)| (range.start(), std::cmp::Reverse(range.end())));
+    let mut out = render_bodies(src);
+    out.push_str("--- E\n");
+    for (range, row) in rows {
+        let text = &src[usize::from(range.start())..usize::from(range.end())];
+        let text = text.replace('\n', " ");
+        writeln!(out, "{text}: {}", row.display(cons)).unwrap();
+    }
+    let _ = DefModule::Prelude;
+    out
+}
+
+/// 無名関数は本体の E を関数型に閉じ込める．呼んだときに表に出る．
+#[test]
+fn lambdas_close_over_errors() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn make() {
+  fn() { fail Boom }
+}
+
+fn call_local() {
+  f = fn() { fail Boom }
+  f()
+}
+
+fn call_made() {
+  make()()
+}
+"#
+    ));
+}
+
+/// 汎化で集合変数も一般化する．引数の関数の E は，呼んだ側の E に出る．
+#[test]
+fn generalizes_set_variables() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn caller() {
+  fn(g) { g() }
+}
+
+fn twice() {
+  fn(g) { g() + g() }
+}
+
+fn use_it() {
+  call = caller()
+  a = call(fn() { 1 })
+  b = call(fn() { fail Boom })
+  (a, b)
+}
+"#
+    ));
+}
+
+/// E の違う関数を分岐の合流とリストで並べられる．
+#[test]
+fn functions_with_different_errors_join() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+error Bad
+
+fn fx() -> Int fails Boom { fail Boom }
+fn fy() -> Int fails Bad { fail Bad }
+
+fn pick(c: Bool) {
+  f = if c { fx } else { fy }
+  f()
+}
+
+fn all() {
+  fs = [fx, fy]
+  fs
+}
+
+fn annotated() {
+  h: fn() -> Int = fx
+  h()
+}
+"#
+    ));
+}
+
+/// 互いに呼び合う定義の E．escape は推論中の集合変数の解からも受けたタグを消す．
+#[test]
+fn recursive_groups() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn a(n: Int) {
+  if n > 0 { b(n - 1) } else { fail Boom }
+}
+
+fn b(n: Int) {
+  a(n) escape { Boom -> 0 }
+}
+"#
+    ));
+}
+
+/// 宣言の E．`fails {}` を書けば失敗しない．引数の関数を呼ぶ fn は，その関数の E を
+/// 書かなくても伝えてよい（見えない集合は書けないので）．
+#[test]
+fn declared_errors() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn pure() -> Int fails {} { 1 }
+
+fn impure() -> Int fails {} {
+  fail Boom
+}
+
+fn apply(f: fn(Int) -> Int, x: Int) -> Int {
+  f(x)
+}
+
+fn apply_x(f: fn(Int) -> Int, x: Int) -> Int fails Boom {
+  if x > 0 { f(x) } else { fail Boom }
+}
+
+fn use_apply() {
+  apply(fn(n) { if n > 0 { n } else { fail Boom } }, 1)
+}
+"#
+    ));
+}
+
+/// 引数の関数が受け取る関数（負の位置）の見えない集合は，本体からは中身の分からない集合．
+#[test]
+fn callbacks_in_negative_position() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn with_callback(f: fn(fn() -> Int) -> Int) -> Int {
+  f(fn() { 1 })
+}
+
+fn bad_callback(f: fn(fn() -> Int) -> Int) -> Int {
+  f(fn() { fail Boom })
+}
+"#
+    ));
+}
+
+/// escape の腕が受けるエラーが起きないなら警告する（W0302）．中身の分からない集合が
+/// あれば警告しない．同じエラーの冗長な腕は W0301．
+#[test]
+fn escape_warnings() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+error Bad(n: Int)
+
+fn steady() -> Int { 1 }
+fn fy(n: Int) -> Int fails Bad { fail Bad(n:) }
+
+fn never_raised() -> Int {
+  steady() escape { Boom -> 0 }
+}
+
+fn unknown[A](f: fn() -> A) -> A {
+  f() escape { Boom -> f() }
+}
+
+fn redundant() -> Int {
+  fy(1) escape {
+    Bad(_) -> 0
+    Bad(n: 1) -> 1
+  }
+}
+
+fn guarded() -> Int {
+  fy(1) escape {
+    Bad(n:) if n > 0 -> n
+    Bad(_) -> 0
+  }
+}
+"#
+    ));
+}
+
+/// パイプの右辺の呼び出しの E と，エラーの型の型引数（`or_fail`）．
+#[test]
+fn pipes_and_error_type_params() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error NotFound(id: Int)
+
+fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
+  match opt {
+    Some(a) -> a
+    None -> fail err
+  }
+}
+
+fn first(xs: List[Int]) {
+  xs |> List.head |> or_fail(NotFound(id: 0))
+}
+
+fn raise_any[E](err: E) {
+  fail err
+}
+
+fn use_raise() {
+  raise_any(NotFound(id: 1))
+}
+"#
+    ));
+}

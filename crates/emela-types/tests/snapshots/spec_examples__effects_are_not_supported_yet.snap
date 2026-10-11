@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 537
+expression: "render_bodies(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn log() {\n  logger = use Logger\n  ()\n}\n\"#)"
+---
+log: fn() -> ()
+  logger: {unknown}
+`use Logger` not supported yet: `use`

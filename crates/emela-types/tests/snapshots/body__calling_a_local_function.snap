@@ -1,7 +1,8 @@
 ---
 source: crates/emela-types/tests/body.rs
+assertion_line: 157
 expression: "run(r#\"\nfn apply(f: fn(Int) -> String, x: Int) -> String {\n  f(x)\n}\n\"#)"
 ---
-apply: fn(fn(Int) -> String, Int) -> String
-  f: fn(Int) -> String
+apply: ∀ E(f). fn(fn(Int) -> String fails E(f), Int) -> String fails E(f)
+  f: fn(Int) -> String fails '0
   x: Int

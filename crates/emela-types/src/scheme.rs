@@ -37,3 +37,12 @@ pub(crate) fn param_name(i: usize) -> String {
         format!("T{i}")
     }
 }
+
+/// 汎化で付ける集合の型引数の名前．`E`，`E1`，`E2`，…
+pub(crate) fn set_param_name(i: usize) -> String {
+    if i == 0 {
+        "E".to_string()
+    } else {
+        format!("E{i}")
+    }
+}

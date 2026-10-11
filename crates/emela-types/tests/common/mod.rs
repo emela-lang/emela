@@ -111,6 +111,20 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             found,
         } => format!("`{text}` pattern `{ctor}` has {expected} fields, found {found}"),
         DiagnosticKind::Unsupported { what } => format!("`{text}` not supported yet: {what}"),
+        DiagnosticKind::UnhandledErrors { errors, declared } => format!(
+            "`{text}` unhandled errors {} (fails written: {declared})",
+            errors.join(" | ")
+        ),
+        DiagnosticKind::NotAnError { found } => {
+            format!("`{text}` not an error type: `{}`", found.display(cons))
+        }
+        DiagnosticKind::EscapeArmNotError => format!("`{text}` escape arm is not an error"),
+        DiagnosticKind::ErrorSetMismatch { expected, found } => format!(
+            "`{text}` error set mismatch: expected `fails {expected}`, found `fails {found}`"
+        ),
+        DiagnosticKind::UnraisedError { error } => {
+            format!("`{text}` warning: `{error}` is never raised here")
+        }
         kind => format!("`{text}` {kind:?}"),
     }
 }
