@@ -91,6 +91,16 @@ pub fn position(index: &LineIndex, offset: TextSize) -> lsp::Position {
     }
 }
 
+/// LSP の既定の位置（行と UTF-16 の列）をバイト位置にする．範囲の外なら `None`．
+pub fn offset(index: &LineIndex, position: lsp::Position) -> Option<TextSize> {
+    let wide = line_index::WideLineCol {
+        line: position.line,
+        col: position.character,
+    };
+    let line_col = index.to_utf8(WideEncoding::Utf16, wide)?;
+    index.offset(line_col)
+}
+
 /// `file:` の URI をパスにする．ほかの scheme なら `None`．
 pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     let rest = uri.as_str().strip_prefix("file://")?;

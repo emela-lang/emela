@@ -8,6 +8,7 @@ use emela_types::{ProgramTypes, check_program};
 use la_arena::ArenaMap;
 
 use crate::diagnostic::{Diagnostic, Location, error_count};
+use crate::hover::HoverInfo;
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
@@ -208,6 +209,15 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn core_sources(&self) -> Vec<CoreSource> {
         self.resolve.core_sources()
+    }
+
+    fn hover(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Option<HoverInfo> {
+        crate::hover::hover(program, analysis, file, offset)
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
