@@ -17,5 +17,5 @@ f: fn() -> Int
   k: String
 `1` mismatch: expected `Float`, found `Int`
 `2` mismatch: expected `String`, found `Int`
-`2147483648` IntLiteralOutOfRange { literal: "2147483648", ty: Prim(Int) }
-`0xFFFF_FFFF` IntLiteralOutOfRange { literal: "0xFFFFFFFF", ty: Prim(Int) }
+`2147483648` integer literal `2147483648` out of range for `Int`
+`0xFFFF_FFFF` integer literal `0xFFFFFFFF` out of range for `Int`

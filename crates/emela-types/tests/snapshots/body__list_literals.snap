@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(xs: List[Int]) -> List[Int] {\n  a = [1, 2, 3]\n  b = []\n  c = [0, ..xs]\n  d: List[Int64] = [1, 2]\n  e = [[1], []]\n  [1, \"a\"]\n}\n\"#)"
+---
+f: fn(List[Int]) -> List[Int]
+  xs: List[Int]
+  a: List[Int]
+  b: List[?4]
+  c: List[Int]
+  d: List[Int64]
+  e: List[List[Int]]
+`"a"` mismatch: expected `Int`, found `String`

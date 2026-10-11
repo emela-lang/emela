@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(n: Int, name: String) -> String {\n  assert n > 0\n  assert n\n  \"hello #{name}, #{n + 1}\"\n}\n\"#)"
+---
+f: fn(Int, String) -> String
+  n: Int
+  name: String
+`n` mismatch: expected `Bool`, found `Int`

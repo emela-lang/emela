@@ -63,6 +63,24 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             e.expected.display(cons),
             e.actual.display(cons)
         ),
+        DiagnosticKind::NoField { ty, field } => {
+            format!("`{text}` no field `{field}` on type `{}`", ty.display(cons))
+        }
+        DiagnosticKind::NoFields { ty, field } => {
+            format!("`{text}` type `{}` has no fields (`{field}`)", ty.display(cons))
+        }
+        DiagnosticKind::OpaqueField { ty, field } => format!(
+            "`{text}` cannot access field `{field}` of opaque type `{}`",
+            ty.display(cons)
+        ),
+        DiagnosticKind::NotNumeric { found, integer } => format!(
+            "`{text}` not numeric (integer: {integer}): `{}`",
+            found.display(cons)
+        ),
+        DiagnosticKind::IntLiteralOutOfRange { literal, ty } => format!(
+            "`{text}` integer literal `{literal}` out of range for `{}`",
+            ty.display(cons)
+        ),
         kind => format!("`{text}` {kind:?}"),
     }
 }

@@ -19,5 +19,5 @@ f: fn(Int, Int64, String, Bool) -> Int
 `n` mismatch: expected `Bool`, found `Int`
 `1` mismatch: expected `Bool`, found `Int`
 `"x"` mismatch: expected `Int`, found `String`
-`s + s` NotNumeric { found: Prim(String), integer: false }
-`-c` NotNumeric { found: Prim(Bool), integer: false }
+`s + s` not numeric (integer: false): `String`
+`-c` not numeric (integer: false): `Bool`

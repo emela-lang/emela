@@ -42,6 +42,11 @@
 - （補）構成子のパターンのフィールドは，呼び出しの引数と同じく位置とラベルで並べ直す．名前付きフィールドの構成子を位置で書いてもよい（6.2）．名前付きフィールドの構成子で `..` なしにフィールドを省けば E0308（省いたフィールドを全部持つ），フィールドより多い，または位置だけの構成子で `..` なしに足りなければ E0309．ラベルの誤りは E0306，E0307．置けなかったパターンには `Ty::Error` を渡す．
 - （補）束縛のパターンが必ず成功するかどうか（6.3）は，網羅性の検査をつなぐステップ5で見る．それまではリテラルや構成子のパターンも束縛に書ける．
 
+- （補）ラムダとリストのリテラルも，期待する型があれば中へ渡す．ラムダは期待する型が同じ数の引数の関数型なら，その引数の型を（型を書いていない）ラムダの引数に先に付けてから本体を推論する．`List.map(users, fn(u) { u.name })` の `u` が `User` に決まってからフィールドを引けるようにするため．
+- （補）フィールドの参照 `x.name` は，`x` の型がその時点で type か error の名前付き型に決まっている必要がある．型変数のままなら E0314（型注釈が要る）．フィールドの名前から型を逆算することはしない（行多相を持たない）．
+- （補）フィールドの型は，その型の構成子の宣言の型（ラベルと引数の型）から引き，型引数を代入する．enum とフィールドのない `@external` の type はフィールドを持たない（E0313）．opaque な型のフィールドは定義モジュールの外では引けない（E0315，4.4）．
+- （補）部分更新 `C(f: e, ..base)` は構成子の型を2回具体化する．1つ目が作る値，2つ目が `base` の型．書いたフィールドは1つ目の型で検査し，書いていないフィールドは2つの型のそのフィールドの型を単一化する（引き継ぐ）．型引数は変わってよい（5.3）．ないフィールドは E0312，2回書いたフィールドは E0307．
+- （補）補間の中の式は推論するだけで，Show を満たすかは Trait の段で見る．`assert e` の `e` は Bool で，全体は `()`．
 ## driver に渡すときの文面（ステップ7でつなぐ）
 
 付録 A の文面に合わせる．文面は仕様の一部ではないが，ここに置いておく．
@@ -54,6 +59,12 @@
 - E0307 `DuplicateArg`: ``argument `port` given more than once``
 - E0308 `MissingPatternFields`: ``pattern `User` does not mention fields `id`, `email` ``（1つなら ``field `id` ``）．4つ以上なら先頭の3つと ``and N more``．注記 ``= help: add `..` to ignore the remaining fields``
 - E0309 `PatternFieldCount`: ``pattern `Rect` has 2 fields, found 1``
+- E0310 `NotNumeric`: ``expected a number (`Int`, `Int64` or `Float`), found `String` ``．`integer` なら ``expected an integer (`Int` or `Int64`), found `Float` ``
+- E0311 `IntLiteralOutOfRange`: ``integer literal `3000000000` is out of range for `Int` ``
+- E0312 `NoField`: ``no field `nmae` on type `User` ``
+- E0313 `NoFields`: ``type `Int` has no fields``
+- E0314 `FieldOnUnknownType`: ``the type of this value must be known to access field `name` ``．注記 ``= help: add a type annotation``
+- E0315 `OpaqueField`: ``cannot access field `value` of opaque type `Email` outside its module``
 - `Unsupported`: コードなしの ``error: not supported yet: {what}``（alpha.1 の間だけ）
 - （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．
 - （補）整数リテラルの型は「整数リテラルの型変数」（`InferCtx::new_int_var`）にする．Int か Int64 にしか束縛できず，他の型と単一化すると，その場で型が合わないエラーになる（エラーには `Int` と出す）．他の型変数と単一化すると，その型変数も同じ制約を持つ．本体を推論し終えても決まらなければ Int にする（2.4）．

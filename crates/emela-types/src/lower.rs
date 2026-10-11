@@ -23,6 +23,8 @@ pub struct TyTable {
     by_def: ArenaMap<DefId, TyConId>,
     /// Prelude の Bool の enum．TyCons に登録せず Ty::BOOL に写す．
     bool_def: Option<DefId>,
+    /// 登録した宣言から，その定義への対応（`by_def` の逆）．
+    def_of: ArenaMap<TyConId, DefId>,
 }
 
 impl TyTable {
@@ -30,6 +32,7 @@ impl TyTable {
     pub fn new(program: &Program) -> Self {
         let mut cons = TyCons::new();
         let mut by_def = ArenaMap::default();
+        let mut def_of = ArenaMap::default();
         let bool_def = program.prelude_def("Bool");
 
         for (def, data) in program.defs.iter() {
@@ -50,18 +53,25 @@ impl TyTable {
             });
 
             by_def.insert(def, id);
+            def_of.insert(id, def);
         }
 
         TyTable {
             cons,
             by_def,
             bool_def,
+            def_of,
         }
     }
 
     /// type / enum / error の定義を登録した宣言．Bool と，それ以外の定義には `None`．
     pub fn con(&self, def: DefId) -> Option<TyConId> {
         self.by_def.get(def).copied()
+    }
+
+    /// 登録した宣言の定義（type / enum / error）．
+    pub fn def(&self, id: TyConId) -> DefId {
+        self.def_of[id]
     }
 
     /// 型の書き方を Ty にする．`params` は宣言の型引数で，`A` は位置 i の `Ty::Bound(i)` になる．

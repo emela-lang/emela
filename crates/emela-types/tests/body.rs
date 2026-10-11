@@ -453,3 +453,101 @@ fn f(n: Int, big: Int64, s: String, c: Bool) -> Int {
 }
 "#));
 }
+
+#[test]
+fn lambdas() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+
+fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
+fn names(users: List[User], f: fn(User) -> String) -> List[String] { todo() }
+
+fn f(users: List[User]) -> Int {
+  inc = fn(x) { x + 1 }
+  typed = fn(x: Int) { x * 2 }
+  a = apply(fn(n) { n * 3 }, 1)
+  b = names(users, fn(u) { u.name })
+  c = inc(1)
+  a
+}
+"#));
+}
+
+#[test]
+fn lambda_errors() {
+    insta::assert_snapshot!(run(r#"
+fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
+
+fn f() -> Int {
+  a = apply(fn(n) { "s" }, 1)
+  b = apply(fn(n, m) { n }, 1)
+  c = apply(fn(n: String) { 1 }, 1)
+  g = fn(u) { u.name }
+  1
+}
+"#));
+}
+
+#[test]
+fn list_literals() {
+    insta::assert_snapshot!(run(r#"
+fn f(xs: List[Int]) -> List[Int] {
+  a = [1, 2, 3]
+  b = []
+  c = [0, ..xs]
+  d: List[Int64] = [1, 2]
+  e = [[1], []]
+  [1, "a"]
+}
+"#));
+}
+
+#[test]
+fn fields() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+type Pair[A, B](first: A, second: B)
+error NotFound(id: Int)
+enum Shape {
+  Circle(radius: Float)
+}
+
+fn f(u: User, p: Pair[Int, String], e: NotFound, s: Shape, n: Int) -> String {
+  a = u.id
+  b = p.second
+  c = e.id
+  d = u.nmae
+  g = s.radius
+  h = n.name
+  u.name
+}
+"#));
+}
+
+#[test]
+fn interpolation_and_assert() {
+    insta::assert_snapshot!(run(r#"
+fn f(n: Int, name: String) -> String {
+  assert n > 0
+  assert n
+  "hello #{name}, #{n + 1}"
+}
+"#));
+}
+
+#[test]
+fn record_update() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+type Pair[A, B](first: A, second: B)
+
+fn f(u: User, p: Pair[Int, Bool]) -> Int {
+  a = User(name: "b", ..u)
+  b = Pair(first: "s", ..p)
+  c = User(name: 1, ..u)
+  d = User(nmae: "x", ..u)
+  g = User(name: "x", ..p)
+  1
+}
+"#));
+}

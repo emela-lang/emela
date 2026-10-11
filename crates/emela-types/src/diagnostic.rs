@@ -55,4 +55,12 @@ pub enum DiagnosticKind {
     NotNumeric { found: Ty, integer: bool },
     /// 整数リテラルが型の範囲を超える（E0311，2.4）．
     IntLiteralOutOfRange { literal: SmolStr, ty: Ty },
+    /// そのフィールドがない（E0312）．フィールドの参照と部分更新で使う．
+    NoField { ty: Ty, field: SmolStr },
+    /// フィールドを持たない型のフィールドを引いた（E0313）．enum，基本型，タプルなど．
+    NoFields { ty: Ty, field: SmolStr },
+    /// 型がまだわからない値のフィールドを引いた（E0314）．型注釈が要る．
+    FieldOnUnknownType { field: SmolStr },
+    /// opaque な型のフィールドを，定義モジュールの外で引いた（E0315，4.4）．
+    OpaqueField { ty: Ty, field: SmolStr },
 }

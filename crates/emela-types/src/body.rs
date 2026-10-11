@@ -4,15 +4,16 @@
 //! 式の位置を付けた診断を積んで続ける．
 
 use emela_resolve::hir::{
-    Arg, Arm, BinaryOp, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal,
-    LocalId, PatArg, PatId, PatKind, Program, Res, Span, Stmt, TypeId, UnaryOp,
+    Arg, Arm, BinaryOp, Block, DefId, DefModule, ExprId, ExprKind, FnItem, Item, Label, ListRest,
+    Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span, Stmt, StrPart, TypeId,
+    UnaryOp,
 };
 use la_arena::{ArenaMap, Idx};
 use smol_str::SmolStr;
 
 use crate::FnTy;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::InferCtx;
+use crate::infer::{InferCtx, substitute_bound};
 use crate::lower::TyTable;
 use crate::signature::{Signature, Signatures};
 use crate::ty::{Prim, Ty};
@@ -41,7 +42,8 @@ pub fn infer_fn_body(
         return None;
     };
     let type_params = item.sig.type_params.iter().map(|tp| tp.def).collect();
-    let mut infer = BodyInfer::new(program, ty_table, sigs, type_params);
+    let module = program.defs[def].module.clone();
+    let mut infer = BodyInfer::new(program, ty_table, sigs, module, type_params);
     let fn_ty = infer.infer_fn(item, sigs.get(def));
     Some(infer.finish(fn_ty))
 }
@@ -51,6 +53,8 @@ pub(crate) struct BodyInfer<'a> {
     program: &'a Program,
     ty_table: &'a TyTable,
     sigs: &'a Signatures,
+    /// 推論している fn のモジュール．opaque な型のフィールドを引けるかの判定に使う．
+    module: DefModule,
     type_params: Vec<DefId>,
     ctx: InferCtx,
     locals: ArenaMap<LocalId, Ty>,
@@ -67,12 +71,14 @@ impl<'a> BodyInfer<'a> {
         program: &'a Program,
         ty_table: &'a TyTable,
         sigs: &'a Signatures,
+        module: DefModule,
         type_params: Vec<DefId>,
     ) -> Self {
         BodyInfer {
             program,
             ty_table,
             sigs,
+            module,
             type_params,
             ctx: InferCtx::new(),
             locals: ArenaMap::new(),
@@ -180,6 +186,23 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms, expected),
             ExprKind::Binary { op, lhs, rhs } => self.infer_binary(*op, *lhs, *rhs, e.span),
             ExprKind::Unary { op, operand } => self.infer_unary(*op, *operand, e.span),
+            ExprKind::Lambda { params, body } => self.infer_lambda(params, *body, e.span, expected),
+            ExprKind::List { elems, rest } => self.infer_list(elems, *rest, e.span, expected),
+            ExprKind::Field { base, name } => self.infer_field(*base, name),
+            ExprKind::Interpolated(parts) => {
+                for part in parts {
+                    if let StrPart::Interp(expr) = part {
+                        // Show を満たすかは Trait の段で見る．
+                        self.infer_expr(*expr);
+                    }
+                }
+                Ty::STRING
+            }
+            ExprKind::Assert(cond) => {
+                self.check_expr(*cond, &Ty::BOOL);
+                Ty::UNIT
+            }
+            ExprKind::Update { ctor, fields, base } => self.infer_update(*ctor, fields, *base),
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -389,6 +412,271 @@ impl<'a> BodyInfer<'a> {
         ty
     }
 
+    /// ラムダの型．期待する型が同じ数の引数の関数型なら，その引数の型をラムダの引数に先に渡す．
+    /// 本体の型を外へ出さない（9.4．fails と use は alpha.2）．
+    fn infer_lambda(
+        &mut self,
+        params: &[Param],
+        body: ExprId,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let expected_fn = match expected.map(|ty| self.ctx.shallow_resolve(ty)) {
+            Some(Ty::Fn(f)) if f.params.len() == params.len() => Some(*f),
+            _ => None,
+        };
+
+        let mut param_tys = Vec::new();
+        for (i, param) in params.iter().enumerate() {
+            let from_context = expected_fn.as_ref().map(|f| f.params[i].clone());
+            let ty = match (param.ty, from_context) {
+                (Some(annotation), from_context) => {
+                    let ty = self.lower_type(annotation);
+                    if let Some(from_context) = from_context {
+                        let span = self.program.locals[param.local].span;
+                        self.coerce_at(span, &from_context, &ty);
+                    }
+                    ty
+                }
+                (None, Some(from_context)) => from_context,
+                (None, None) => self.ctx.new_var(),
+            };
+            self.locals.insert(param.local, ty.clone());
+            param_tys.push(ty);
+        }
+
+        let ret_ty = match &expected_fn {
+            Some(f) => {
+                self.check_expr(body, &f.ret);
+                f.ret.clone()
+            }
+            None => self.infer_expr(body),
+        };
+
+        let ty = Ty::func(param_tys, ret_ty);
+        // 期待する型が関数型でなかった（か引数の数が違った）ときは，ここで照合して誤りを出す．
+        if let (Some(expected), None) = (expected, &expected_fn) {
+            self.coerce_at(span, expected, &ty);
+        }
+        ty
+    }
+
+    /// リストの型．要素は全部同じ型で，`..rest` はその型のリスト（2.4，17.5）．
+    /// 期待する型がリストなら，その要素の型を各要素に先に渡す．
+    fn infer_list(
+        &mut self,
+        elems: &[ExprId],
+        rest: Option<ExprId>,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let from_context = match expected.map(|ty| self.ctx.shallow_resolve(ty)) {
+            Some(Ty::List(elem)) => Some(*elem),
+            _ => None,
+        };
+        let elem_ty = match &from_context {
+            Some(elem) => elem.clone(),
+            None => self.ctx.new_var(),
+        };
+        for &elem in elems {
+            self.check_expr(elem, &elem_ty);
+        }
+        let ty = Ty::list(elem_ty);
+        if let Some(rest) = rest {
+            self.check_expr(rest, &ty);
+        }
+        if let (Some(expected), None) = (expected, &from_context) {
+            self.coerce_at(span, expected, &ty);
+        }
+        ty
+    }
+
+    /// フィールドの参照 `x.name` の型．対象の型（type か error）の宣言からフィールドの型を引く．
+    /// 対象の型はこの時点でわかっている必要がある（名前からの逆算はしない）．
+    fn infer_field(&mut self, base: ExprId, name: &Label) -> Ty {
+        let base_ty = self.infer_expr(base);
+        let base_ty = self.ctx.shallow_resolve(&base_ty);
+        let (id, args) = match &base_ty {
+            Ty::Named(id, args) => (*id, args),
+            Ty::Error | Ty::Never => return Ty::Error,
+            Ty::Var(_) => {
+                return self.field_error(
+                    name,
+                    DiagnosticKind::FieldOnUnknownType {
+                        field: name.name.clone(),
+                    },
+                );
+            }
+            _ => {
+                let ty = self.ctx.resolve(&base_ty);
+                return self.field_error(
+                    name,
+                    DiagnosticKind::NoFields {
+                        ty,
+                        field: name.name.clone(),
+                    },
+                );
+            }
+        };
+
+        let program = self.program;
+        let type_def = self.ty_table.def(id);
+        let data = &program.defs[type_def];
+        if data.is_opaque && data.module != self.module {
+            let ty = self.ctx.resolve(&base_ty);
+            return self.field_error(
+                name,
+                DiagnosticKind::OpaqueField {
+                    ty,
+                    field: name.name.clone(),
+                },
+            );
+        }
+
+        match self.field_ty(type_def, args, &name.name) {
+            FieldTy::Found(ty) => ty,
+            FieldTy::NoSuchField => {
+                let ty = self.ctx.resolve(&base_ty);
+                self.field_error(
+                    name,
+                    DiagnosticKind::NoField {
+                        ty,
+                        field: name.name.clone(),
+                    },
+                )
+            }
+            FieldTy::NotARecord => {
+                let ty = self.ctx.resolve(&base_ty);
+                self.field_error(
+                    name,
+                    DiagnosticKind::NoFields {
+                        ty,
+                        field: name.name.clone(),
+                    },
+                )
+            }
+        }
+    }
+
+    /// 型の定義 `type_def` を型引数 `args` で適用した型の，フィールド `field` の型．
+    /// フィールドは構成子の宣言の型（ラベルと引数の型）から引く．
+    fn field_ty(&mut self, type_def: DefId, args: &[Ty], field: &SmolStr) -> FieldTy {
+        let program = self.program;
+        let ctor = match program.item(type_def) {
+            Some(Item::Type(item)) => match item.ctor {
+                Some(ctor) => ctor,
+                None => return FieldTy::NotARecord,
+            },
+            // error は自分自身が構成子．
+            Some(Item::Error(_)) => type_def,
+            _ => return FieldTy::NotARecord,
+        };
+        let Some(sig) = self.sigs.get(ctor) else {
+            return FieldTy::NotARecord;
+        };
+        let Ty::Fn(f) = &sig.scheme.ty else {
+            // フィールドのない type と error．
+            return FieldTy::NoSuchField;
+        };
+        match sig.labels.iter().position(|l| l.as_ref() == Some(field)) {
+            Some(i) => FieldTy::Found(substitute_bound(&f.params[i], args)),
+            None => FieldTy::NoSuchField,
+        }
+    }
+
+    /// フィールドの誤りの診断をフィールド名の位置に積み，`Ty::Error` を返す．
+    fn field_error(&mut self, name: &Label, kind: DiagnosticKind) -> Ty {
+        self.diags.push(Diagnostic {
+            span: Some(name.span),
+            kind,
+        });
+        Ty::Error
+    }
+
+    /// 部分更新 `C(f: e, ..base)` の型（5.3）．
+    ///
+    /// 構成子の型を2回具体化する．1つ目が作る値の型，2つ目が `base` の型で，型引数は違ってよい．
+    /// 書いたフィールドは1つ目の型で検査し，書いていないフィールドは `base` から引き継ぐので，
+    /// 2つの型のそのフィールドの型を単一化する．
+    fn infer_update(&mut self, ctor: ExprId, fields: &[Arg], base: ExprId) -> Ty {
+        let program = self.program;
+        let sigs = self.sigs;
+        let ctor_ty = self.infer_expr(ctor);
+        let ExprKind::Path(Res::Def(ctor_def)) = program.exprs[ctor].kind else {
+            // 構成子でないものは名前解決が誤りを出している．
+            for field in fields {
+                self.infer_expr(field.value);
+            }
+            self.infer_expr(base);
+            return Ty::Error;
+        };
+        let Ty::Fn(made) = self.ctx.shallow_resolve(&ctor_ty) else {
+            // フィールドのない構成子（か宣言の型のないもの）．
+            self.check_expr(base, &ctor_ty);
+            for field in fields {
+                self.infer_expr(field.value);
+            }
+            return ctor_ty;
+        };
+        let Some(sig) = sigs.get(ctor_def) else {
+            return Ty::Error;
+        };
+        let base_ty = self.ctx.instantiate(&sig.scheme);
+        let Ty::Fn(from) = base_ty else {
+            return Ty::Error;
+        };
+        self.check_expr(base, &from.ret);
+
+        let mut written = vec![false; made.params.len()];
+        for field in fields {
+            let Some(label) = &field.label else {
+                // 位置で書いたフィールドは名前解決が誤りを出している．
+                self.infer_expr(field.value);
+                continue;
+            };
+            let slot = sig
+                .labels
+                .iter()
+                .position(|l| l.as_ref() == Some(&label.name));
+            match slot {
+                Some(i) if written[i] => {
+                    self.diags.push(Diagnostic {
+                        span: Some(label.span),
+                        kind: DiagnosticKind::DuplicateArg {
+                            label: label.name.clone(),
+                        },
+                    });
+                    self.infer_expr(field.value);
+                }
+                Some(i) => {
+                    written[i] = true;
+                    self.check_expr(field.value, &made.params[i]);
+                }
+                None => {
+                    let ty = self.ctx.resolve(&made.ret);
+                    self.diags.push(Diagnostic {
+                        span: Some(label.span),
+                        kind: DiagnosticKind::NoField {
+                            ty,
+                            field: label.name.clone(),
+                        },
+                    });
+                    self.infer_expr(field.value);
+                }
+            }
+        }
+
+        // 書いていないフィールドは base から引き継ぐ．
+        let base_span = program.exprs[base].span;
+        for (i, was_written) in written.iter().enumerate() {
+            if !was_written {
+                self.coerce_at(base_span, &made.params[i], &from.params[i]);
+            }
+        }
+
+        made.ret
+    }
+
     /// 単項演算子の型．`!` は Bool，`-` は数の型（6.6）．
     fn infer_unary(&mut self, op: UnaryOp, operand: ExprId, span: Span) -> Ty {
         match op {
@@ -438,12 +726,17 @@ impl<'a> BodyInfer<'a> {
     /// 式を推論し，期待する型の位置に置く．
     ///
     /// ブロック，if，match は期待する型を最後の式や各分岐まで渡すので，型が合わないときは
-    /// 一番内側の食い違った式を指す．それ以外の式は推論してから照合する．
+    /// 一番内側の食い違った式を指す．ラムダとリストは期待する型を引数や要素に先に渡す．
+    /// それ以外の式は推論してから照合する．
     fn check_expr(&mut self, expr: ExprId, expected: &Ty) {
         let program = self.program;
         let e = &program.exprs[expr];
         match e.kind {
-            ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Match { .. } => {
+            ExprKind::Block(_)
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::List { .. } => {
                 let ty = self.infer_expr_kind(expr, Some(expected));
                 self.exprs.insert(expr, ty);
             }
@@ -821,4 +1114,13 @@ fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
         (literal, 10)
     };
     u128::from_str_radix(digits, radix).is_ok_and(|n| n <= max)
+}
+
+/// フィールドの型を引いた結果．
+enum FieldTy {
+    Found(Ty),
+    /// 型はフィールドを持つが，その名前のフィールドがない．
+    NoSuchField,
+    /// フィールドを持たない型（enum，フィールドのない `@external` の type）．
+    NotARecord,
 }
