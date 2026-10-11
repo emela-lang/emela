@@ -82,7 +82,7 @@ pub trait TestBackend<P> {
 - （補）診断と一覧のパスは `Input::base`（プロジェクトか単独ファイルのディレクトリ）からの相対パス．起点がファイルごとに違いうるので，診断はファイルごとのソースの表と組にして持つ（`FmtFailure`）
 - （補）構文エラーのファイルは整形せず，`Diagnostic::from_syntax` の診断（コード付き）を集めて次へ進む．formatter の検証の失敗（`FormatError::Internal`）はコードなしの `internal error: …` にし，ファイルは書き換えない
 - （補）整形の結果が元と同じなら書き込みの関数を呼ばない（更新時刻を変えない）．読めなければ E0902，書けなければ E0903
-- 積み残し: LSP の `textDocument/formatting` はまだない．つなぐなら emela-lsp で未保存のバッファのテキストを `format_source` に渡し，`Ok(Some(text))` を文書全体を置き換える1つの `TextEdit` に，`Ok(None)` を空の配列に，`Err` を `null`（エラー応答にはしない．診断は publishDiagnostics が出している）にする．`initialize` の応答に `documentFormattingProvider: true` を足す
+- （補）言語サーバーの `textDocument/formatting` も `format_source` を使う（emela-lsp の NOTES.md）
 
 ## 読むモジュール
 
