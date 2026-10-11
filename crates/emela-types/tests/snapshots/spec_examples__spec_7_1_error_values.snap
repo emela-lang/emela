@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 246
+expression: "render_bodies(r#\"\nerror NotFound(id: Int)\nerror Unauthorized\n\nfn values() -> Int {  # 補\n  e = NotFound(id: 1)\n  es = [e, NotFound(id: 2)]\n  u = Unauthorized\n  e.id\n}\n\"#)"
+---
+values: fn() -> Int
+  e: NotFound
+  es: List[NotFound]
+  u: Unauthorized

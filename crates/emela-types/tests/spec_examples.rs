@@ -93,7 +93,7 @@ fn port() -> Int {
     ));
 }
 
-/// 6.1 関数の宣言．`find` は fails と use を使うので alpha.2（ここでは省く）．
+/// 6.1 関数の宣言．`find` は use を使うので，効果の段まで省く．
 #[test]
 fn spec_6_1_functions() {
     insta::assert_snapshot!(render_bodies(
@@ -146,14 +146,21 @@ fn bindings(xs: List[Int], names: List[String]) -> Int {
     ));
 }
 
-/// 6.4 if．`if !valid { fail ... }` は fail を使うので alpha.2（ここでは省く）．
+/// 6.4 if．else のない if の本体は `fail` でもよい（Never）．
 #[test]
 fn spec_6_4_if() {
     insta::assert_snapshot!(render_bodies(
         r#"
+error Invalid(input: String)  # 補
+
 fn label(count: Int) -> String {
   label = if count > 0 { "あり" } else { "なし" }
   label
+}
+
+fn validate(input: String, valid: Bool) -> String fails Invalid {  # 補
+  if !valid { fail Invalid(input:) }
+  input
 }
 "#
     ));
@@ -199,7 +206,7 @@ fn total(scores: List[Int]) -> Int {
     ));
 }
 
-/// 9.2 関数型．`compose` の戻り値の関数（fails と use の推論は alpha.2）．
+/// 9.2 関数型．`compose` の戻り値の関数は f と g のエラーを持つと推論する．compose 自身は失敗しない．
 #[test]
 fn spec_9_2_compose() {
     insta::assert_snapshot!(render_bodies(
@@ -228,6 +235,189 @@ fn pick(c: Bool, n: Int) -> Int {
     False -> n
   }
   a + b
+}
+"#
+    ));
+}
+
+/// 7.1 error の宣言は同じ名前の型と構成子を定義する．エラーの値は普通の値として扱える．
+#[test]
+fn spec_7_1_error_values() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error NotFound(id: Int)
+error Unauthorized
+
+fn values() -> Int {  # 補
+  e = NotFound(id: 1)
+  es = [e, NotFound(id: 2)]
+  u = Unauthorized
+  e.id
+}
+"#
+    ));
+}
+
+/// 7.2 fail と or_fail．型引数が値と fails の両方に出たら1つのエラーの型．
+#[test]
+fn spec_7_2_fail_and_or_fail() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type User(id: Int, name: String)  # 補
+error NotFound(id: Int)
+
+fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
+  match opt {
+    Some(a) -> a
+    None    -> fail err
+  }
+}
+
+fn find(users: List[User], id: Int) {  # 補
+  user = List.find(users, fn(u) { u.id == id }) |> or_fail(NotFound(id:))
+  user
+}
+
+fn raise(id: Int) {  # 補
+  fail NotFound(id:)
+}
+"#
+    ));
+}
+
+/// 7.3 escape．復帰，一部だけ受ける，別のエラーに変える，値として扱う．
+#[test]
+fn spec_7_3_escape() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type User(name: String)  # 補
+type Data(n: Int)  # 補
+error NotFound(id: Int)  # 補
+error DbError(message: String)  # 補
+error Unavailable(reason: String)  # 補
+
+fn find_user(id: Int) -> User fails NotFound { fail NotFound(id:) }  # 補
+fn guest_user() -> User { User(name: "guest") }  # 補
+fn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: "down") }  # 補
+fn default_data() -> Data { Data(n: 0) }  # 補
+
+fn recover(id: Int) {
+  user = find_user(id) escape {
+    NotFound(_) -> guest_user()
+  }
+  user
+}
+
+fn partial(id: Int) {
+  data = load(id) escape {
+    NotFound(_) -> default_data()
+  }
+  data
+}
+
+fn convert(id: Int) {
+  data = load(id) escape {
+    DbError(message:) -> fail Unavailable(reason: message)
+  }
+  data
+}
+
+fn as_value(id: Int) {
+  found = Some(find_user(id)) escape {
+    NotFound(_) -> None
+  }
+  found
+}
+"#
+    ));
+}
+
+/// 7.3 escape と集合変数．引数の関数の見えない集合変数からは消えない．`fails Timeout | E` と
+/// 書き出せば，1回目の呼び出しの Timeout は型からも消える．呼ぶ側では集合が決まる．
+#[test]
+fn spec_7_3_escape_and_set_variables() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error Timeout(ms: Int)  # 補
+error DbError  # 補
+
+fn retry[A](f: fn() -> A) -> A {
+  f() escape { Timeout(_) -> f() }
+}
+
+fn retry_exact[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E {
+  f() escape { Timeout(_) -> f() }
+}
+
+fn flaky() -> Int fails Timeout | DbError { 1 }  # 補
+fn steady() -> Int { 1 }  # 補
+
+fn callers() {  # 補
+  a = retry(flaky)
+  b = retry_exact(flaky)
+  c = retry_exact(steady)
+  d = flaky() escape { Timeout(_) -> 0 }
+  (a, b, c, d)
+}
+"#
+    ));
+}
+
+/// 7.4 fails の注釈．戻り値の型を省略すれば推論，`fails` はちょうどその集合．
+/// `fails Timeout | E` の引数に渡した関数のエラーのうち Timeout 以外が E になる．
+#[test]
+fn spec_7_4_annotations() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type User(name: String)  # 補
+error NotFound  # 補
+error DbError  # 補
+error Timeout  # 補
+
+fn inferred(n: Int) {
+  if n > 0 { fail NotFound } else { fail DbError }
+}
+
+fn load(id: Int) -> User fails NotFound | DbError {
+  inferred(id)
+}
+
+fn retry[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E { f() }
+
+fn only_db() {  # 補
+  retry(fn() { if True { fail Timeout } else { fail DbError } })
+}
+
+fn no_timeout() {  # 補．Timeout を起こさない関数を渡してもよい
+  retry(fn() { fail DbError })
+}
+"#
+    ));
+}
+
+/// 13.3，14.3 テスト関数と main の E は空でなくてよい．
+#[test]
+fn spec_13_3_tests_and_main_may_fail() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error NotFound(id: Int)  # 補
+
+fn greet(id: Int) -> String fails NotFound { fail NotFound(id:) }  # 補
+
+@test
+fn greet_fails_for_unknown_id() {
+  result = Some(greet(999)) escape { NotFound(_) -> None }
+  assert result == None
+}
+
+@test
+fn greet_returns_user() {
+  name = greet(1)
+  assert name == "alice"
+}
+
+fn main() {
+  greet(1)
 }
 "#
     ));
@@ -341,17 +531,89 @@ fn f() -> Int {
     ));
 }
 
-/// alpha.2 の構文（fail，use，with）は「まだ扱えない」の診断になる．
+/// 効果の構文（use，with）は「まだ扱えない」の診断になる．
 #[test]
-fn alpha2_constructs_are_not_supported_yet() {
+fn effects_are_not_supported_yet() {
     insta::assert_snapshot!(render_bodies(
         r#"
-error Invalid(input: String)
-
-fn validate(input: String, valid: Bool) -> String {
-  if !valid { fail Invalid(input:) }
-  input
+effect Logger {
+  fn info(msg: String) -> ()
 }
+
+fn log() {
+  logger = use Logger
+  ()
+}
+"#
+    ));
+}
+
+/// 7.4 `-> T` はエラーなしを強制し，`fails X` はちょうどその集合．本体に未処理のエラーがあれば E0318．
+#[test]
+fn spec_7_4_annotation_errors() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error NotFound  # 補
+error DbError  # 補
+
+fn find() -> Int fails NotFound { fail NotFound }  # 補
+
+fn strict() -> Int {
+  find()
+}
+
+fn wrong() -> Int fails DbError {
+  find()
+}
+
+const VALUE: Int = find()  # 5.6 const の値は失敗できない
+"#
+    ));
+}
+
+/// 7.2 `fail` に渡せるのはエラーの値だけ．7.3 escape の腕のパターンはエラーの構成子．
+#[test]
+fn spec_7_fail_and_escape_errors() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error NotFound  # 補
+
+fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {  # 補
+  match opt {
+    Some(a) -> a
+    None -> fail err
+  }
+}
+
+fn not_error() {
+  fail 1
+}
+
+fn not_error_type() {
+  or_fail(Some(1), "no")
+}
+
+fn catch_all() -> Int {
+  0 escape { _ -> 1 }
+}
+"#
+    ));
+}
+
+/// 9.2 `fails {}` の引数には失敗しない関数しか渡せない（E0321）．
+#[test]
+fn spec_9_2_pure_parameter() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+error Timeout  # 補
+
+fn run(f: fn() -> Int fails {}) -> Int { f() }
+
+fn flaky() -> Int fails Timeout { fail Timeout }  # 補
+
+fn ok() -> Int { run(fn() { 1 }) }
+fn bad() -> Int { run(flaky) }
+fn bad_lambda() -> Int { run(fn() { fail Timeout }) }
 "#
     ));
 }

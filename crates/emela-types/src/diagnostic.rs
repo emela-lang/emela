@@ -71,11 +71,31 @@ pub enum DiagnosticKind {
     RefutableBinding { missing: Vec<SmolStr> },
     /// それより上の腕で全部覆われている腕（W0301，6.5）．警告．
     UnreachableArm,
+    /// 本体のエラーが宣言の E に含まれない（E0318，7.4）．`errors` は含まれないエラー
+    /// （タグか集合の型引数の名前）．`declared` は fails 節を書いたか（書いていなければ
+    /// エラーなしの宣言で，未処理のエラー）．const の値も失敗できない（5.6．`declared` は偽）．
+    UnhandledErrors {
+        errors: Vec<SmolStr>,
+        declared: bool,
+    },
+    /// エラーの型でない値を `fail` に渡した，または1つのエラーの型の型引数をエラーでない型で
+    /// 具体化した（E0319，7.2）．
+    NotAnError { found: Ty },
+    /// escape の腕のパターンがエラーの構成子でない（E0320，7.3）．
+    EscapeArmNotError,
+    /// 関数の値の E が，期待する関数型の E に含まれない（E0321，7.4，9.2）．
+    /// `expected` と `found` は集合の表示（`Timeout | E`，空なら `{}`）．
+    ErrorSetMismatch { expected: SmolStr, found: SmolStr },
+    /// escape の腕が受けるエラーが，元の式から起きない（W0302，7.3）．警告．
+    UnraisedError { error: SmolStr },
 }
 
 impl DiagnosticKind {
     /// 警告か．警告でなければエラー．
     pub fn is_warning(&self) -> bool {
-        matches!(self, DiagnosticKind::UnreachableArm)
+        matches!(
+            self,
+            DiagnosticKind::UnreachableArm | DiagnosticKind::UnraisedError { .. }
+        )
     }
 }

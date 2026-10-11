@@ -575,6 +575,45 @@ impl Diagnostic {
                 Some(code::UNREACHABLE_MATCH_ARM),
                 "unreachable match arm".to_owned(),
             ),
+            TypeDiagnosticKind::UnhandledErrors { errors, declared } => {
+                let list = quoted_list("error", "errors", errors);
+                if *declared {
+                    help = Some("add it to `fails` or handle it with `escape`".to_owned());
+                    let verb = if errors.len() == 1 { "is" } else { "are" };
+                    (
+                        Severity::Error,
+                        Some(code::UNHANDLED_ERRORS),
+                        format!("{list} {verb} not declared in `fails`"),
+                    )
+                } else {
+                    help = Some("handle it with `escape`, or declare it with `fails`".to_owned());
+                    (
+                        Severity::Error,
+                        Some(code::UNHANDLED_ERRORS),
+                        format!("unhandled {list}"),
+                    )
+                }
+            }
+            TypeDiagnosticKind::NotAnError { found } => (
+                Severity::Error,
+                Some(code::NOT_AN_ERROR),
+                format!("expected an error value, found {}", show(found)),
+            ),
+            TypeDiagnosticKind::EscapeArmNotError => (
+                Severity::Error,
+                Some(code::ESCAPE_ARM_NOT_ERROR),
+                "escape arms must match an error constructor".to_owned(),
+            ),
+            TypeDiagnosticKind::ErrorSetMismatch { expected, found } => (
+                Severity::Error,
+                Some(code::ERROR_SET_MISMATCH),
+                format!("error set mismatch: expected `fails {expected}`, found `fails {found}`"),
+            ),
+            TypeDiagnosticKind::UnraisedError { error } => (
+                Severity::Warning,
+                Some(code::UNRAISED_ERROR),
+                format!("error `{error}` is never raised here"),
+            ),
         };
         let mut out = Diagnostic::new(severity, message);
         if let Some(code) = code {

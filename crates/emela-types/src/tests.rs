@@ -352,9 +352,102 @@ fn display_types() {
             [Ty::func([Ty::INT], Ty::INT)],
             Ty::func([Ty::INT], Ty::INT)
         )),
-        "fn(fn(Int) -> Int) -> fn(Int) -> Int"
+        "fn(fn(Int) -> Int fails {}) -> fn(Int) -> Int"
     );
     assert_eq!(d(Ty::Bound(0)), "'0");
+}
+
+/// 集合のタグ（error の定義）を作る．名前は表示用に登録する．
+fn tag(cons: &mut TyCons, i: u32, name: &str) -> emela_resolve::hir::DefId {
+    let def = la_arena::Idx::from_raw(la_arena::RawIdx::from_u32(i));
+    cons.set_tag_name(def, name.into());
+    def
+}
+
+#[test]
+fn display_fails() {
+    let (mut cons, _, _) = cons();
+    let not_found = tag(&mut cons, 0, "NotFound");
+    let db = tag(&mut cons, 1, "DbError");
+    let row = Row::from_elems([RowElem::Tag(db), RowElem::Tag(not_found)]);
+    let d = |ty: Ty, cons: &TyCons| ty.display(cons).to_string();
+    assert_eq!(
+        d(Ty::func_fails([Ty::INT], Ty::BOOL, row.clone()), &cons),
+        "fn(Int) -> Bool fails NotFound | DbError"
+    );
+    // 戻り値の関数型は，外側に fails 節があれば括弧で囲む．
+    assert_eq!(
+        d(
+            Ty::func_fails(
+                [],
+                Ty::func_fails([], Ty::INT, Row::tag(db)),
+                Row::tag(not_found)
+            ),
+            &cons
+        ),
+        "fn() -> (fn() -> Int fails DbError) fails NotFound"
+    );
+    assert_eq!(
+        d(
+            Ty::func([], Ty::func_fails([], Ty::INT, Row::tag(db))),
+            &cons
+        ),
+        "fn() -> fn() -> Int fails DbError"
+    );
+    // 集合の型引数とエラーの型．
+    let scheme = Scheme::new(
+        vec![TyParam::new("A"), TyParam::set("E")],
+        Ty::func_fails(
+            [Ty::func_fails(
+                [],
+                Ty::Bound(0),
+                Row::from_elems([RowElem::Tag(db), RowElem::Bound(1)]),
+            )],
+            Ty::Bound(0),
+            Row::from_elems([RowElem::Bound(1), RowElem::Of(Ty::Bound(0))]),
+        ),
+    );
+    assert_eq!(
+        scheme.display(&cons).to_string(),
+        "∀ A, E. fn(fn() -> A fails DbError | E) -> A fails E | A"
+    );
+    assert_eq!(Row::empty().display(&cons).to_string(), "{}");
+}
+
+/// 関数型の E は単一化で等しくせず，包含の制約にする．引数の中は逆向き．
+#[test]
+fn unify_relates_fails_by_variance() {
+    let (mut cons, _, _) = cons();
+    let x = tag(&mut cons, 0, "X");
+    let mut cx = InferCtx::new();
+    let v = cx.new_row_var();
+    let w = cx.new_row_var();
+    let expected = Ty::func_fails(
+        [Ty::func_fails([], Ty::INT, Row::var(w))],
+        Ty::INT,
+        Row::var(v),
+    );
+    let actual = Ty::func_fails([Ty::func([], Ty::INT)], Ty::INT, Row::tag(x));
+    cx.unify(&expected, &actual).unwrap();
+    let shown: Vec<String> = cx
+        .subsets()
+        .iter()
+        .map(|c| format!("{} <= {}", c.sub.display(&cons), c.sup.display(&cons)))
+        .collect();
+    assert_eq!(shown, ["?e1 <= {}", "X <= ?e0"]);
+}
+
+/// 単一化に失敗したら，途中で作った包含の制約は溜めない．
+#[test]
+fn failed_unify_drops_row_constraints() {
+    let (mut cons, _, _) = cons();
+    let x = tag(&mut cons, 0, "X");
+    let mut cx = InferCtx::new();
+    let v = cx.new_row_var();
+    let expected = Ty::tuple([Ty::func_fails([], Ty::INT, Row::var(v)), Ty::INT]);
+    let actual = Ty::tuple([Ty::func_fails([], Ty::INT, Row::tag(x)), Ty::STRING]);
+    assert!(cx.unify(&expected, &actual).is_err());
+    assert!(cx.subsets().is_empty());
 }
 
 #[test]

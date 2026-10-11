@@ -12,6 +12,7 @@ mod error;
 mod exhaustiveness;
 mod infer;
 mod lower;
+mod row;
 mod scheme;
 mod signature;
 mod ty;
@@ -31,4 +32,7 @@ pub use infer::{InferCtx, substitute_bound};
 pub use lower::TyTable;
 pub use scheme::Scheme;
 pub use signature::{Signature, Signatures};
-pub use ty::{FnTy, Prim, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam, TyVar};
+pub use ty::{
+    FnTy, ParamKind, Prim, Row, RowElem, RowVar, Ty, TyConData, TyConId, TyConKind, TyCons,
+    TyParam, TyVar,
+};

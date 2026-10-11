@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 264
+expression: "render_bodies(r#\"\ntype User(id: Int, name: String)  # 補\nerror NotFound(id: Int)\n\nfn or_fail[A, E](opt: Option[A], err: E) -> A fails E {\n  match opt {\n    Some(a) -> a\n    None    -> fail err\n  }\n}\n\nfn find(users: List[User], id: Int) {  # 補\n  user = List.find(users, fn(u) { u.id == id }) |> or_fail(NotFound(id:))\n  user\n}\n\nfn raise(id: Int) {  # 補\n  fail NotFound(id:)\n}\n\"#)"
+---
+or_fail: ∀ A, E. fn(Option[A], E) -> A fails E
+  opt: Option['0]
+  err: '1
+  a: '0
+find: fn(List[User], Int) -> User fails NotFound
+  users: List[User]
+  id: Int
+  u: User
+  user: User
+raise: ∀ A. fn(Int) -> A fails NotFound
+  id: Int

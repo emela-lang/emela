@@ -1,0 +1,18 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 44
+expression: "render_errors(r#\"\nerror Boom\n\nfn make() {\n  fn() { fail Boom }\n}\n\nfn call_local() {\n  f = fn() { fail Boom }\n  f()\n}\n\nfn call_made() {\n  make()()\n}\n\"#)"
+---
+make: fn() -> fn() -> Never fails Boom
+call_local: ∀ A. fn() -> A fails Boom
+  f: fn() -> Never fails Boom
+call_made: ∀ A. fn() -> A fails Boom
+--- E
+{ fail Boom }: Boom
+fail Boom: Boom
+{   f = fn() { fail Boom }   f() }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+f(): Boom
+{   make()() }: Boom
+make()(): Boom

@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 339
+expression: "render_bodies(r#\"\nerror Timeout(ms: Int)  # 補\nerror DbError  # 補\n\nfn retry[A](f: fn() -> A) -> A {\n  f() escape { Timeout(_) -> f() }\n}\n\nfn retry_exact[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E {\n  f() escape { Timeout(_) -> f() }\n}\n\nfn flaky() -> Int fails Timeout | DbError { 1 }  # 補\nfn steady() -> Int { 1 }  # 補\n\nfn callers() {  # 補\n  a = retry(flaky)\n  b = retry_exact(flaky)\n  c = retry_exact(steady)\n  d = flaky() escape { Timeout(_) -> 0 }\n  (a, b, c, d)\n}\n\"#)"
+---
+retry: ∀ A, E(f). fn(fn() -> A fails E(f)) -> A fails E(f)
+  f: fn() -> '0 fails '1
+retry_exact: ∀ A, E. fn(fn() -> A fails Timeout | E) -> A fails Timeout | E
+  f: fn() -> '0 fails Timeout | '1
+flaky: fn() -> Int fails Timeout | DbError
+steady: fn() -> Int
+callers: fn() -> (Int, Int, Int, Int) fails Timeout | DbError
+  a: Int
+  b: Int
+  c: Int
+  d: Int

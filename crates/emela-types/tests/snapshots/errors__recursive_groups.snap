@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 121
+expression: "render_errors(r#\"\nerror Boom\n\nfn a(n: Int) {\n  if n > 0 { b(n - 1) } else { fail Boom }\n}\n\nfn b(n: Int) {\n  a(n) escape { Boom -> 0 }\n}\n\"#)"
+---
+a: fn(Int) -> Int fails Boom
+  n: Int
+b: fn(Int) -> Int
+  n: Int
+--- E
+{   if n > 0 { b(n - 1) } else { fail Boom } }: Boom
+if n > 0 { b(n - 1) } else { fail Boom }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+a(n): Boom

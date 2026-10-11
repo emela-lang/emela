@@ -1,7 +1,11 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\nfn label(count: Int) -> String {\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  label\n}\n\"#)"
+assertion_line: 152
+expression: "render_bodies(r#\"\nerror Invalid(input: String)  # 補\n\nfn label(count: Int) -> String {\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  label\n}\n\nfn validate(input: String, valid: Bool) -> String fails Invalid {  # 補\n  if !valid { fail Invalid(input:) }\n  input\n}\n\"#)"
 ---
 label: fn(Int) -> String
   count: Int
   label: String
+validate: fn(String, Bool) -> String fails Invalid
+  input: String
+  valid: Bool
