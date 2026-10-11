@@ -18,9 +18,32 @@ const SOURCES: &[(&str, &str)] = &[
     ("Float", include_str!("../lib/float.emel")),
 ];
 
+/// 型推論が `fail`，`use`，`with` を扱えるまで，同梱の読み込みから外しているソース．
+/// モジュール名とソースの組．[`SOURCES`] にあるモジュールなら，そのソースの後ろにつなぐ．
+/// 有効にする手順は `NOTES.md` の「保留中のソース」．
+const STAGED: &[(&str, &str)] = &[
+    ("Option", include_str!("../lib/staged/option_or_fail.emel")),
+    ("Console", include_str!("../lib/console.emel")),
+    ("JsConsole", include_str!("../lib/js_console.emel")),
+];
+
 /// 同梱する Prelude と core のソースを，モジュール名とソースの組で返す．Prelude が先頭．
 pub fn core_sources() -> &'static [(&'static str, &'static str)] {
     SOURCES
+}
+
+/// [`core_sources`] に保留中のソースを足したもの．構文と名前解決の検査と，
+/// 有効にした後に通すテストで使う．同梱の読み込みには使わない．
+pub fn staged_core_sources() -> Vec<(&'static str, String)> {
+    let mut sources: Vec<(&str, String)> =
+        SOURCES.iter().map(|(m, s)| (*m, (*s).to_owned())).collect();
+    for (module, text) in STAGED {
+        match sources.iter_mut().find(|(m, _)| m == module) {
+            Some((_, source)) => source.push_str(text),
+            None => sources.push((module, (*text).to_owned())),
+        }
+    }
+    sources
 }
 
 /// モジュール名で同梱のソースを引く．
@@ -67,7 +90,8 @@ mod tests {
 
     #[test]
     fn sources_parse_without_syntax_errors() {
-        for (module, src) in core_sources() {
+        for (module, src) in staged_core_sources() {
+            let src = src.as_str();
             let parse = parse(src);
             let intrinsics: Vec<_> = fn_decls(src)
                 .into_iter()
@@ -101,7 +125,10 @@ mod tests {
             for f in fn_decls(src) {
                 let name = name(&f);
                 if !f.has_annotation("intrinsic") {
-                    assert!(f.body().is_some(), "{module}.{name} に本体がない");
+                    assert!(
+                        f.body().is_some() || f.has_annotation("external"),
+                        "{module}.{name} に本体がない"
+                    );
                     continue;
                 }
                 assert!(
@@ -133,6 +160,21 @@ mod tests {
             let n = declared.iter().filter(|d| *d == op).count();
             assert_eq!(n, 1, "{} の @intrinsic の宣言が {n} 個", op.info().path());
         }
+    }
+
+    #[test]
+    fn staged_sources_extend_the_bundled_ones() {
+        let staged = staged_core_sources();
+        let modules: Vec<_> = staged.iter().map(|(m, _)| *m).collect();
+        let bundled: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
+        assert_eq!(modules[..bundled.len()], bundled[..]);
+        assert_eq!(modules[bundled.len()..], ["Console", "JsConsole"]);
+        let (_, option) = staged.iter().find(|(m, _)| *m == "Option").unwrap();
+        assert!(option.starts_with(core_source("Option").unwrap()));
+        assert!(option.contains("pub fn or_fail"));
+        // 保留中のソースは同梱の読み込みに入れない．
+        assert!(!core_source("Option").unwrap().contains("pub fn or_fail"));
+        assert_eq!(core_source("Console"), None);
     }
 
     #[test]

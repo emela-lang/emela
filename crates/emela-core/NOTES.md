@@ -56,7 +56,43 @@
 - （補）`List.append(xs, ys)` は2つのリストをつなぎ，`List.concat(xss)` はリストのリストを平らにする（Elm，Gleam と同じ）．`String.concat(a, b)` とは引数の形が違う．
 - （補）`List.tail([])` は `[]`（17.5 の例 `[x, ..List.tail(xs)]` が List を受けるため Option にしない）．`List.head` と `List.get` は Option．`List.get` の負の添字は `None`．
 - （補）`List.range(from, to)` は `from` 以上 `to` 未満．`List.zip` は短い方に合わせる．
-- （補）`Option.or_fail` は fail が要るので alpha.2 で足す（`option.emel` にコメントで残してある）．
+- （補）`Option.or_fail[A, E](opt: Option[A], err: E) -> A fails E` の引数名は仕様 7.2 の例に合わせて `err`．本体も 7.2 のとおり（`None -> fail err`）．下の「保留中のソース」に置いてある．
+
+## Console（`console.emel`，`js_console.emel`）
+
+alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決めている（15.2）ので，名前と数はここで決めた．
+
+- （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書く．`fails` は書かない（失敗しない）．改行なしの `print` と入力の読み取りは，要るときに足す．
+- （補）エフェクトはモジュール `Console`（`console.emel`），JS 用のハンドラはモジュール `JsConsole`（`js_console.emel`）に置き，ハンドラの名前もモジュールと同じ `JsConsole` にする．ターゲットの名前を前に付ける（WASI 用は `WasiConsole` にする）．名前が1区切りの core のモジュールは，型の位置の名前をモジュールと同じ名前の型に解決する（4.6）ので，利用者は import なしで `with JsConsole { (use Console).print_line("hi") }` と書ける．ターゲットごとの layer（15.2）は，layer を入れるときに別のモジュールで決める．
+- （補）`JsConsole` は `import Console.{Console}` でエフェクトを取り込む．core のモジュールが別の core のモジュールを import する初めての例．
+- （補）ホストの関数（`console_log` は `console.log`，`console_error` は `console.error`）は `JsConsole` の中の非公開の `@external(js, ...)` の fn にし，`use` を書かない（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）．ハンドラは状態を持たない（フィールド，init，release なし）．
+
+## 保留中のソース（`sources.rs` の `STAGED`）
+
+型推論は今 `fail`，`escape`，`use`，`with` を「まだ扱えない」（`Unsupported`）にする．同梱の core は全プログラムで型検査されるので，これらを含むソースを `core_sources()` に入れると，すべてのプログラムに診断が出る．そこで次の3つは `STAGED` に置き，同梱の読み込みから外している．
+
+| モジュール | ソース | 要るもの |
+|---|---|---|
+| `Option` の `or_fail` | `lib/staged/option_or_fail.emel`（`option.emel` の後ろにつなぐ） | E（fail） |
+| `Console` | `lib/console.emel` | R（effect の宣言） |
+| `JsConsole` | `lib/js_console.emel` | R（handler，`@external`） |
+
+- （補）`staged_core_sources()` は `core_sources()` に `STAGED` を足したものを返す．同じ名前のモジュールはソースの後ろにつなぎ，ないモジュールは後ろに足す．driver の `CoreSource::staged()` がこれを `Resolve::with_core` に渡す形にする．
+- 今確かめていること: 構文の誤りがない（`sources::tests::sources_parse_without_syntax_errors`），名前解決で診断が出ない（emela-driver の `tests/staged_core.rs` の `staged_core_resolves_cleanly`．main から import なしで `Option.or_fail`，`use Console`，`with JsConsole` を使う）．
+- `#[ignore]` にしたテスト: `tests/staged_core.rs` の `staged_core_typechecks_cleanly`（型検査で診断が出ない）と `staged_core_runs_on_node`（node で動かして標準出力 `alice\nno 1\n`，標準エラー `done\n`）．
+
+有効にする手順（`or_fail` は E が入った後，Console と JsConsole は R が入った後．別々に進めてよい）．
+
+1. `or_fail`: `lib/staged/option_or_fail.emel` の中身を `lib/option.emel` の末尾へ移し，冒頭のコメントの「保留中」の段落を消す．`STAGED` から `Option` の行を消し，ファイルを `trash` する．
+2. Console: `STAGED` の `Console` と `JsConsole` の行を `SOURCES` の末尾へ移す．
+3. `lib/README.md` の「保留中」の記述を消す．`sources::tests::staged_sources_extend_the_bundled_ones` を残りの `STAGED` に合わせる（空になったら `STAGED`，`staged_core_sources`，`CoreSource::staged` とこのテストを消す）．
+4. `tests/staged_core.rs` の `#[ignore]` を外し，`CoreSource::staged()` を使わない既定のフロントエンド（`Resolve::default()`，`Typecheck::default()`，`Lower::default()`）に替える．すべて有効にしたら，テストは `diagnostics.rs` と `run.rs` へ移してファイルを消す．
+5. 既存のテストで次を確かめる: emela-types の `core_sources_typecheck`，emela-core の `every_core_function_lowers`（`Roots::All` が handler の操作と `@external` の fn をどう扱うか），`intrinsics_match_the_table`（`@external` の fn は本体なしを許すようにしてある）．
+
+有効にするときに決めること．
+
+- `JsConsole` は `@external(js, ...)` しか持たない．ビルド対象のターゲットに対応する注釈がなければエラー（12.1）なので，WASM のビルドで `JsConsole` を読むとエラーになりうる．ターゲットに合わないハンドラのモジュールは読まないか，注釈の検査を使われる fn に限る必要がある．
+- `Console` と `JsConsole` を同梱すると，ソースのルート直下の `console.emel` と `js_console.emel` は予約名（E0203）になり，そういうファイルを持つ既存のプログラムが壊れる．
 
 ## lowering（`lower.rs`）
 

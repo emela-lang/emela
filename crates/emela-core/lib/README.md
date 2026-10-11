@@ -48,7 +48,30 @@
 | `unwrap_or` | `unwrap_or[A](opt: Option[A], default: A) -> A` | Emela | 中身か，`None` なら `default` |
 | `is_some` | `is_some[A](opt: Option[A]) -> Bool` | Emela | `Some` か |
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
-| `or_fail` | `or_fail[A, E](opt: Option[A], error: E) -> A fails E` | （alpha.2） | `None` なら fail．fail の実装を待つ |
+| `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela（保留中） | 中身か，`None` なら `err` で fail（7.2）．型推論が fail を扱えるまで読み込まない |
+
+## Console（`console.emel`，保留中）
+
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．型推論が use と with を扱えるまで読み込まない．
+
+| 操作 | シグネチャ | 説明 |
+|---|---|---|
+| `print_line` | `fn print_line(text: String) -> ()` | `text` と改行を標準出力に書く |
+| `print_error_line` | `fn print_error_line(text: String) -> ()` | `text` と改行を標準エラーに書く |
+
+## JsConsole（`js_console.emel`，保留中）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `JsConsole` | `handler JsConsole implements Console` | JS の `console.log` と `console.error` で書く．状態を持たない |
+
+```emel
+fn main() {
+  with JsConsole {
+    (use Console).print_line("hi")
+  }
+}
+```
 
 ## String（`string.emel`）
 
@@ -116,3 +139,5 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - 高階関数の引数名はすべて `f`．`List.filter(xs, keep: …)` のような意味のある名前にする案もある
 - シフト量が負なら defect，幅以上は全部のビットを押し出した値．JS や WASM のように幅で剰余を取る方式は採らなかった
 - 数値の `min` / `max` / `abs` / `compare` はまだ入れていない
+- Console の操作は `print_line` と `print_error_line` の2つにした．改行なしの `print` や，入力の読み取りはまだ入れていない
+- エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある

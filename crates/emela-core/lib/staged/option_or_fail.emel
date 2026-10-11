@@ -1,0 +1,9 @@
+
+## 中身か，`None` なら `err` で失敗する（仕様 7.2）．
+## `users.find(id) |> Option.or_fail(NotFound(id:))` のように，Option を失敗に変える．
+pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
+  match opt {
+    Some(x) -> x
+    None -> fail err
+  }
+}

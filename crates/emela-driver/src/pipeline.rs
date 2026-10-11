@@ -50,6 +50,18 @@ impl CoreSource {
             .collect()
     }
 
+    /// [`CoreSource::bundled`] に，同梱の読み込みから外している保留中のソース
+    /// （`emela_core::staged_core_sources()`）を足したもの．テストで使う．
+    pub fn staged() -> Vec<CoreSource> {
+        emela_core::staged_core_sources()
+            .into_iter()
+            .map(|(module, text)| CoreSource {
+                module: module.to_owned(),
+                text,
+            })
+            .collect()
+    }
+
     /// ソースの表に載せる仮のパス．`List` なら `<core>/list.emel`，`Int64` なら `<core>/int64.emel`．
     fn path(&self) -> PathBuf {
         let mut file = String::new();

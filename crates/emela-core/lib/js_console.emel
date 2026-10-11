@@ -1,0 +1,15 @@
+# Console の JS 用のハンドラ（仕様 15.2）．状態を持たない．
+
+import Console.{Console}
+
+@external(js, "console.log")
+fn console_log(text: String) -> ()
+
+@external(js, "console.error")
+fn console_error(text: String) -> ()
+
+## Console を JS の `console.log`（標準出力）と `console.error`（標準エラー）で実装する．
+pub handler JsConsole implements Console {
+  fn print_line(text) { console_log(text) }
+  fn print_error_line(text) { console_error(text) }
+}

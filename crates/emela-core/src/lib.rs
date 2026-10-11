@@ -19,4 +19,4 @@ pub use dump::dump;
 pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
 pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
-pub use sources::{PRELUDE, core_source, core_sources};
+pub use sources::{PRELUDE, core_source, core_sources, staged_core_sources};

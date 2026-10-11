@@ -269,6 +269,12 @@ impl Default for Lower<NoBuiltins> {
     }
 }
 
+impl<B: BuiltinModules> Lower<B> {
+    pub fn new(typecheck: Typecheck<B>) -> Self {
+        Lower { typecheck }
+    }
+}
+
 impl<B: BuiltinModules> Frontend for Lower<B> {
     type Program = emela_core::Module;
 
