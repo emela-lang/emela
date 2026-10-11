@@ -18,11 +18,10 @@ const SOURCES: &[(&str, &str)] = &[
     ("Float", include_str!("../lib/float.emel")),
 ];
 
-/// 型推論が `fail`，`use`，`with` を扱えるまで，同梱の読み込みから外しているソース．
+/// 型推論が `use`，`with` を扱えるまで，同梱の読み込みから外しているソース．
 /// モジュール名とソースの組．[`SOURCES`] にあるモジュールなら，そのソースの後ろにつなぐ．
 /// 有効にする手順は `NOTES.md` の「保留中のソース」．
 const STAGED: &[(&str, &str)] = &[
-    ("Option", include_str!("../lib/staged/option_or_fail.emel")),
     ("Console", include_str!("../lib/console.emel")),
     ("JsConsole", include_str!("../lib/js_console.emel")),
 ];
@@ -169,12 +168,11 @@ mod tests {
         let bundled: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
         assert_eq!(modules[..bundled.len()], bundled[..]);
         assert_eq!(modules[bundled.len()..], ["Console", "JsConsole"]);
-        let (_, option) = staged.iter().find(|(m, _)| *m == "Option").unwrap();
-        assert!(option.starts_with(core_source("Option").unwrap()));
-        assert!(option.contains("pub fn or_fail"));
         // 保留中のソースは同梱の読み込みに入れない．
-        assert!(!core_source("Option").unwrap().contains("pub fn or_fail"));
         assert_eq!(core_source("Console"), None);
+        assert_eq!(core_source("JsConsole"), None);
+        // `Option.or_fail` は E が入ったので同梱する．
+        assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
     }
 
     #[test]

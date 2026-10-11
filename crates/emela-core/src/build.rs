@@ -43,6 +43,7 @@ pub fn call(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Direct(f),
         args,
+        fails: false,
     }
 }
 
@@ -50,6 +51,38 @@ pub fn call_value(callee: Expr, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Indirect(Box::new(callee)),
         args,
+        fails: false,
+    }
+}
+
+/// 失敗しうる関数の直接呼び出し（`fails: true`）．
+pub fn call_fails(f: FnId, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        callee: Callee::Direct(f),
+        args,
+        fails: true,
+    }
+}
+
+/// 失敗しうる関数の値の呼び出し（`fails: true`）．
+pub fn call_value_fails(callee: Expr, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        callee: Callee::Indirect(Box::new(callee)),
+        args,
+        fails: true,
+    }
+}
+
+/// `fail e`．
+pub fn fail(e: Expr) -> Expr {
+    Expr::Fail(Box::new(e))
+}
+
+/// `body escape { arms }`．
+pub fn escape(body: Expr, arms: Vec<Arm>) -> Expr {
+    Expr::Escape {
+        body: Box::new(body),
+        arms,
     }
 }
 

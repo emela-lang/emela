@@ -30,7 +30,10 @@ pub use pipeline::{
     LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
 };
 pub use render::{render, render_one, summary};
-pub use run::{DEFECT_EXIT_CODE, DEFECT_NAME, NODE_ENV, Output, RunOutput, node_program, run_node};
+pub use run::{
+    DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, NODE_ENV, Output, RunOutput,
+    node_program, run_node,
+};
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use testing::{
     JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE,

@@ -1,8 +1,9 @@
-//! 同梱の読み込みから外している保留中の core のソース（`Option.or_fail`，`Console`，`JsConsole`）．
+//! 同梱の読み込みから外している保留中の core のソース（`Console`，`JsConsole`）．
 //!
 //! 名前解決と型検査で診断が出ないことを確かめる．`#[ignore]` のテスト（node で動かす）は，
 //! lowering と JS の出力がエフェクトを扱えるようになって保留中のソースを有効にした後に通す
 //! （手順は emela-core の `NOTES.md` の「保留中のソース」）．
+//! `Option.or_fail` は E が入ったので同梱した（`tests/run.rs` で動かしている）．main はそれも使う．
 
 use std::path::{Path, PathBuf};
 

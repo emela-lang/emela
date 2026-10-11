@@ -456,3 +456,60 @@ fn test_functions_cannot_be_used_outside_tests() {
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
     assert_eq!(codes, [Some("E0227")]);
 }
+
+#[test]
+fn unhandled_errors_fail_only_that_test() {
+    // 処理されなかったエラーはそのテストの失敗になり，他のテストは続く（13.3）．
+    // テスト関数の E は空でなくてよい．
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "\
+error NotFound(id: Int)
+
+fn find(id: Int) -> Int fails NotFound {
+  if id > 0 { id } else { fail NotFound(id:) }
+}
+
+@test
+fn finds() {
+  assert find(1) == 1
+}
+
+@test
+fn not_found() {
+  assert find(0) == 0
+}
+
+@test
+fn escapes() {
+  assert (find(0) escape { NotFound(id:) -> id - 1 }) == -1
+}
+",
+        ),
+    ];
+    let (analysis, report, out) = run_tests(
+        "unhandled",
+        sources,
+        &mut LowerTests::default(),
+        &mut CoreJs,
+        None,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let report = report.unwrap();
+    let results: Vec<_> = report
+        .results
+        .iter()
+        .map(|r| (r.name.as_str(), r.outcome.clone()))
+        .collect();
+    assert_eq!(
+        results,
+        [
+            ("finds", TestOutcome::Passed),
+            ("not_found", TestOutcome::Error("NotFound(id: 0)".into())),
+            ("escapes", TestOutcome::Passed),
+        ]
+    );
+    insta::assert_snapshot!(out);
+}

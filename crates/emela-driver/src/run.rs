@@ -14,18 +14,29 @@ pub const NODE_ENV: &str = "EMELA_NODE";
 pub const DEFECT_NAME: &str = "Defect";
 /// defect で止まったときの終了コード．
 pub const DEFECT_EXIT_CODE: i32 = 101;
+/// main まで達したエラーで止まったときの終了コード（14.3）．
+pub const ERROR_EXIT_CODE: i32 = 1;
+/// 失敗の値（emela-codegen-js のランタイムの `$Fail`）を見分ける `Symbol.for` の鍵．
+/// 鍵の関数はエラーの値の表示を返す．
+pub const FAIL_KEY: &str = "emela.fail";
 
-/// エントリを読み込んで `main` を呼び，defect を終了コードに写す小さな起動用モジュール．
-/// node の `-e` に渡すので，ファイルには書き出さない．
+/// エントリを読み込んで `main` を呼び，main まで達したエラーと defect を終了コードに写す
+/// 小さな起動用モジュール．node の `-e` に渡すので，ファイルには書き出さない．
 ///
 /// エントリが `main` を export していなければ，読み込むだけにする（読み込みで動く JS 向け）．
-/// `main` の返り値は使わない．
+/// `main` の返り値は，失敗（`$Fail`）なら `error: <エラーの値の表示>` を出して終了コード 1，
+/// それ以外は捨てる（14.3）．
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
 try {
   const entry = await import(pathToFileURL(process.argv[1]).href);
   if (typeof entry.main === "function") {
-    await entry.main();
+    const value = await entry.main();
+    const show = value?.[Symbol.for("emela.fail")];
+    if (typeof show === "function") {
+      process.stderr.write(`error: ${show.call(value)}\n`);
+      process.exitCode = 1;
+    }
   }
 } catch (error) {
   if (error instanceof Error && error.name === "Defect") {
@@ -128,6 +139,12 @@ mod tests {
     fn launcher_uses_constants() {
         assert!(LAUNCHER.contains(&format!("\"{DEFECT_NAME}\"")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {DEFECT_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
+        // ランタイムの `$Fail` とテストランナーも同じ鍵を使う．
+        let key = format!("Symbol.for(\"{FAIL_KEY}\")");
+        assert!(emela_codegen_js::RUNTIME.contains(&key));
+        assert!(emela_codegen_js::TEST_RUNNER.contains(&key));
     }
 
     #[test]

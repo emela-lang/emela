@@ -178,6 +178,7 @@ fn enum_match() {
             VariantDef::named("Rect", vec![("w", Type::Float), ("h", Type::Float)]),
             VariantDef::unit("Empty"),
         ],
+        error: false,
     });
     let point = m.add_enum(EnumDef {
         name: "Point".into(),
@@ -186,6 +187,7 @@ fn enum_match() {
             "Point",
             vec![("x", Type::Int), ("y", Type::Int)],
         )],
+        error: false,
     });
     let circle = CtorRef {
         enum_id: shape,
@@ -1344,11 +1346,13 @@ fn show_module() -> (Module, EnumId, EnumId, EnumId) {
             VariantDef::positional("Rect", vec![Type::Float, Type::Float]),
             VariantDef::unit("Empty"),
         ],
+        error: false,
     });
     let tree = m.add_enum(EnumDef {
         name: "Tree".into(),
         params: 1,
         variants: vec![VariantDef::unit("Leaf"), VariantDef::unit("Node")],
+        error: false,
     });
     let tree_a = Type::Enum(tree, vec![Type::Param(0)]);
     m.enums[tree].variants[1] =
@@ -1360,6 +1364,7 @@ fn show_module() -> (Module, EnumId, EnumId, EnumId) {
             "Point",
             vec![("x", Type::Int), ("y", Type::Int)],
         )],
+        error: false,
     });
     (m, shape, tree, point)
 }

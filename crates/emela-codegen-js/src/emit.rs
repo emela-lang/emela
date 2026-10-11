@@ -13,6 +13,9 @@ use emela_core::*;
 use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 
 mod assert;
+mod errors;
+
+use errors::FailTarget;
 
 /// 値の行き先．
 #[derive(Clone)]
@@ -39,6 +42,8 @@ pub(crate) struct Emitter<'m> {
     shows_done: usize,
     /// 出している最中の enum の表示関数の型引数の数．表示関数の外では `None`．
     show_params: Option<usize>,
+    /// 失敗の行き先．内側の escape ほど後ろ．空なら関数の呼び出し元（`return`）．
+    fail_targets: Vec<FailTarget>,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
@@ -53,7 +58,11 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         shows: Vec::new(),
         shows_done: 0,
         show_params: None,
+        fail_targets: Vec::new(),
     };
+
+    // error の値は，どの error かを実行時に見分ける印を `$tag` に持つ．
+    e.error_descriptors();
 
     // 構成子を持たないバリアントは1つの値を共有する．
     for (id, def) in m.enums.iter() {
@@ -72,8 +81,9 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         }
         for (k, v) in def.variants.iter().enumerate() {
             if v.fields.is_empty() {
+                let tag = e.tag(id, k);
                 e.line(&format!(
-                    "const {} = Object.freeze({{ $tag: {k} }});",
+                    "const {} = Object.freeze({{ $tag: {tag} }});",
                     unit_variant_name(&def.name, &v.name)
                 ));
             }
@@ -237,18 +247,13 @@ impl Emitter<'_> {
                 self.line(&format!("const {name} = {v};"));
                 self.value(body)
             }
-            Expr::Call { callee, args } => {
-                let mut es: Vec<&Expr> = Vec::new();
-                if let Callee::Indirect(c) = callee {
-                    es.push(c);
-                }
-                es.extend(args.iter());
-                let mut vs = self.values_in_order(&es);
-                let f = match callee {
-                    Callee::Direct(f) => fn_name(&self.m.functions[*f].name),
-                    Callee::Indirect(_) => vs.remove(0),
-                };
-                format!("{f}({})", vs.join(", "))
+            Expr::Call {
+                callee,
+                args,
+                fails,
+            } => {
+                let call = self.call(callee, args);
+                if *fails { self.checked(call) } else { call }
             }
             Expr::Builtin { op, ty_args, args } => {
                 let info = op.info();
@@ -280,7 +285,7 @@ impl Emitter<'_> {
                 }
                 let es: Vec<&Expr> = args.iter().collect();
                 let vs = self.values_in_order(&es);
-                let mut s = format!("{{ $tag: {}", ctor.variant);
+                let mut s = format!("{{ $tag: {}", self.tag(ctor.enum_id, ctor.variant));
                 for (i, v) in vs.iter().enumerate() {
                     let _ = write!(s, ", {}: {v}", field_key(&variant.fields, i));
                 }
@@ -357,13 +362,35 @@ impl Emitter<'_> {
                 s.push('`');
                 s
             }
-            Expr::If { .. } | Expr::Match { .. } | Expr::Loop { .. } => self.via_tmp(e),
+            Expr::If { .. } | Expr::Match { .. } | Expr::Loop { .. } | Expr::Escape { .. } => {
+                self.via_tmp(e)
+            }
+            Expr::Fail(inner) => {
+                self.fail(inner);
+                // 値は使われない（`fail` の型は Never）．
+                lit_js(&Lit::Unit)
+            }
             Expr::Recur(_) => panic!("不正な IR: Recur が Loop の末尾位置の外にある"),
             Expr::Assert(a) => {
                 self.assert(a);
                 lit_js(&Lit::Unit)
             }
         }
+    }
+
+    /// 呼び出しの JS の式．呼ばれる側と引数を左から順に評価する．失敗は確かめない．
+    fn call(&mut self, callee: &Callee, args: &[Expr]) -> String {
+        let mut es: Vec<&Expr> = Vec::new();
+        if let Callee::Indirect(c) = callee {
+            es.push(c);
+        }
+        es.extend(args.iter());
+        let mut vs = self.values_in_order(&es);
+        let f = match callee {
+            Callee::Direct(f) => fn_name(&self.m.functions[*f].name),
+            Callee::Indirect(_) => vs.remove(0),
+        };
+        format!("{f}({})", vs.join(", "))
     }
 
     /// 型 `ty` の値 `v`（JS の式）を表示した文字列の JS の式．
@@ -548,8 +575,9 @@ impl Emitter<'_> {
     fn lambda(&mut self, params: &[Local], body: &Expr) -> String {
         let ps: Vec<String> = params.iter().map(|&p| self.local(p)).collect();
         let ps = ps.join(", ");
-        // ラムダの本体は別の関数なので，囲むループへは続かない．
+        // ラムダの本体は別の関数なので，囲むループへは続かない．失敗はラムダの呼び出し元へ返す．
         let loops = std::mem::take(&mut self.loops);
+        let fail_targets = std::mem::take(&mut self.fail_targets);
         let s = if is_simple(body) {
             let v = self.value(body);
             format!("(({ps}) => ({v}))")
@@ -566,6 +594,7 @@ impl Emitter<'_> {
             format!("(({ps}) => {{\n{inner}{close}}})")
         };
         self.loops = loops;
+        self.fail_targets = fail_targets;
         s
     }
 
@@ -590,6 +619,17 @@ impl Emitter<'_> {
                 self.line("}");
             }
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, dest),
+            // 呼び出し元へ返す位置の呼び出しは，失敗もそのまま返せばよい．
+            Expr::Call {
+                callee,
+                args,
+                fails: true,
+            } if matches!(dest, Dest::Return) && self.fail_targets.is_empty() => {
+                let call = self.call(callee, args);
+                self.emit_dest(dest, &call);
+            }
+            Expr::Fail(inner) => self.fail(inner),
+            Expr::Escape { body, arms } => self.escape(body, arms, dest),
             Expr::Loop { vars, inits, body } => {
                 let es: Vec<&Expr> = inits.iter().collect();
                 let vs = self.values_in_order(&es);
@@ -804,8 +844,12 @@ fn is_simple(e: &Expr) -> bool {
         | Expr::Match { .. }
         | Expr::Loop { .. }
         | Expr::Recur(_)
-        | Expr::Assert(_) => false,
-        Expr::Call { callee, args } => {
+        | Expr::Assert(_)
+        | Expr::Fail(_)
+        | Expr::Escape { .. } => false,
+        // 失敗しうる呼び出しは，結果を確かめる文を出す．
+        Expr::Call { fails: true, .. } => false,
+        Expr::Call { callee, args, .. } => {
             let callee_simple = match callee {
                 Callee::Direct(_) => true,
                 Callee::Indirect(c) => is_simple(c),

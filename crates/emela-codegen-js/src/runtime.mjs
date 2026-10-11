@@ -20,6 +20,27 @@ export function $unreachable() {
   throw new $Defect("unreachable: no match arm matched");
 }
 
+// escape の腕に書かれた error なのに，どの腕のパターンとガードにも合わなかった．
+export function $unmatchedEscape() {
+  throw new $Defect("unreachable: no escape arm matched");
+}
+
+// 失敗（仕様 7章）．エラーは戻り値として返す（16.5）．`fail e` は `new $Fail(e)` を返し，
+// 失敗しうる呼び出しの結果が `$Fail` なら，それを呼び出し元か escape へ渡す．
+// `error` は error の値で，`$tag` に error ごとの印（`{ show }`）を持つ．
+//
+// 起動用モジュールとテストランナーは $Fail のクラスを読み込まないので，`Symbol.for` の鍵で見分ける．
+// 鍵の関数は，処理されなかったエラーの表示（`NotFound(id: 1)`）を返す．
+export class $Fail {
+  constructor(error) {
+    this.error = error;
+  }
+
+  [Symbol.for("emela.fail")]() {
+    return this.error.$tag.show(this.error);
+  }
+}
+
 // assert（仕様 13.2）の失敗．`text` はソースの式の字面で，空でもよい．
 export function $assertFail(text) {
   throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);

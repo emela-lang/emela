@@ -152,29 +152,33 @@ enum Bind {
 
 /// 呼び出しの呼ばれる側．
 enum Target {
-    Direct(FnId),
+    /// `fails` は呼ばれる側が失敗しうるか（`Expr::Call::fails`）．
+    Direct(FnId, bool),
     Builtin {
         op: Builtin,
         ty_args: Vec<Type>,
     },
     Ctor(CtorRef),
     /// 関数の値．評価済みで，副作用なく何度でも参照できる式（変数か関数）．
-    Value(Expr),
+    /// `bool` は呼ばれる側が失敗しうるか．
+    Value(Expr, bool),
 }
 
 impl Target {
     /// 位置の順に並んだ引数で呼ぶ式．
     fn apply(self, args: Vec<Expr>) -> Expr {
         match self {
-            Target::Direct(f) => Expr::Call {
+            Target::Direct(f, fails) => Expr::Call {
                 callee: Callee::Direct(f),
                 args,
+                fails,
             },
             Target::Builtin { op, ty_args } => Expr::Builtin { op, ty_args, args },
             Target::Ctor(ctor) => Expr::Ctor { ctor, args },
-            Target::Value(f) => Expr::Call {
+            Target::Value(f, fails) => Expr::Call {
                 callee: Callee::Indirect(Box::new(f)),
                 args,
+                fails,
             },
         }
     }
@@ -206,6 +210,7 @@ impl<'a> Lowerer<'a> {
                     // error は type と同じく同じ名前の型と構成子を定義する（7.1）．型引数は持たない．
                     Some(Item::Error(_)) => {
                         let id = self.declare_enum(def, 0);
+                        self.module.enums[id].error = true;
                         self.enums.insert(def, id);
                     }
                     _ => {}
@@ -427,8 +432,11 @@ impl<'a> Lowerer<'a> {
             ExprKind::Update { ctor, fields, base } => {
                 self.update(id, *ctor, fields, *base, e.span)
             }
-            ExprKind::Escape { .. } => self.unsupported("escape", e.span),
-            ExprKind::Fail(_) => self.unsupported("fail", e.span),
+            ExprKind::Escape { expr, arms } => Expr::Escape {
+                body: Box::new(self.expr(*expr)),
+                arms: arms.iter().map(|arm| self.arm(arm)).collect(),
+            },
+            ExprKind::Fail(inner) => Expr::Fail(Box::new(self.expr(*inner))),
             ExprKind::Use { .. } => self.unsupported("use", e.span),
             ExprKind::With { .. } => self.unsupported("with", e.span),
         }
@@ -479,9 +487,11 @@ impl<'a> Lowerer<'a> {
                 },
                 _ => self.wrap_in_lambda(id, span),
             },
+            // const の値は失敗しない（5.6）．
             Some(Item::Const(_)) => Expr::Call {
                 callee: Callee::Direct(self.fn_id(def)),
                 args: Vec::new(),
+                fails: false,
             },
             _ => self.unsupported("reference to this kind of definition", span),
         }
@@ -513,11 +523,11 @@ impl<'a> Lowerer<'a> {
             .map(|(pos, arg)| (pos, self.expr(arg)))
             .collect();
         let (target, binding) = match target {
-            Target::Value(f) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
+            Target::Value(f, fails) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
                 // 引数を並べ替えて `let` で束縛すると呼ばれる側より先に評価されるので，
                 // 呼ばれる側を先に束縛しておく．
                 let l = self.module.local("f");
-                (Target::Value(Expr::Var(l)), Some((l, f)))
+                (Target::Value(Expr::Var(l), fails), Some((l, f)))
             }
             t => (t, None),
         };
@@ -554,11 +564,12 @@ impl<'a> Lowerer<'a> {
     /// 呼ばれる側．IR にできなければ診断を積んで `Err` に代わりの式を入れる．
     fn callee(&mut self, callee: ExprId, span: Span) -> Result<Target, Expr> {
         let hir = self.hir;
+        let fails = self.callee_fails(callee);
         let ExprKind::Path(Res::Def(def)) = hir.exprs[callee].kind else {
-            return Ok(Target::Value(self.expr(callee)));
+            return Ok(Target::Value(self.expr(callee), fails));
         };
         match hir.item(def) {
-            Some(Item::Fn(f)) if f.body.is_some() => Ok(Target::Direct(self.fn_id(def))),
+            Some(Item::Fn(f)) if f.body.is_some() => Ok(Target::Direct(self.fn_id(def), fails)),
             Some(Item::Fn(f)) if f.is_intrinsic => {
                 let data = &hir.defs[def];
                 let module = match &data.module {
@@ -578,8 +589,15 @@ impl<'a> Lowerer<'a> {
                 Some(&ctor) => Ok(Target::Ctor(ctor)),
                 None => Err(self.unsupported("this constructor", span)),
             },
-            _ => Ok(Target::Value(self.expr(callee))),
+            _ => Ok(Target::Value(self.expr(callee), fails)),
         }
+    }
+
+    /// 呼ばれる側が失敗しうるか．呼ばれる側の式の関数型の E（型検査が解を入れたもの）が空でなければ
+    /// 真．集合の型引数や汎化した集合変数のように中身の分からない集合も，空でないので真にする．
+    /// 組み込み関数と構成子の型の E は空．
+    fn callee_fails(&self, callee: ExprId) -> bool {
+        matches!(self.expr_ty(callee), Ty::Fn(f) if !f.fails.is_empty())
     }
 
     fn binary(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) -> Expr {
@@ -873,6 +891,7 @@ impl<'a> Lowerer<'a> {
                 let value = Expr::Call {
                     callee: Callee::Direct(self.fn_id(*def)),
                     args: Vec::new(),
+                    fails: false,
                 };
                 self.pat_guards.push(Expr::Binary {
                     op: BinOp::Eq,
@@ -895,6 +914,7 @@ impl<'a> Lowerer<'a> {
             name,
             params,
             variants: Vec::new(),
+            error: false,
         })
     }
 

@@ -390,27 +390,25 @@ fn check_reports_error_set_errors() {
     insta::assert_snapshot!(run.stderr);
 }
 
-/// fail と escape は型検査を通るが，lowering はまだ扱わない（panic しない）．
+/// main まで達したエラーは `error: <エラーの値の表示>` を出して終了コード 1（14.3）．
+/// escape で受けたエラーは通常の値に戻る（7.3）．defect の 101 とは分ける．
 #[test]
-fn build_reports_fail_and_escape_as_unsupported() {
+fn run_reports_unhandled_error_with_exit_code_1() {
     let project = Project::new(
-        "fail-build",
+        "fail-run",
         &[
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  find(1) escape { NotFound(_) -> 0 }\n}\n",
+                "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
             ),
         ],
     );
     assert_eq!(project.emela(&["check"]).code, Some(0));
-    for command in ["build", "run"] {
-        let run = project.emela(&[command]);
-        assert_eq!(run.code, Some(1), "{command}");
-        assert!(
-            run.stderr.starts_with("error: not supported yet: escape\n"),
-            "{command}: {}",
-            run.stderr
-        );
-    }
+    assert_eq!(project.emela(&["build"]).code, Some(0));
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(1), "", "0\nerror: NotFound(id: -1)\n")
+    );
 }

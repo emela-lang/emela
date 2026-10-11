@@ -68,7 +68,7 @@ pub trait TestBackend<P> {
 - （補）結果の表示は `cargo test` に近い形: `running 3 tests`，`test name ... ok` / `FAILED`，失敗の詳細（`---- name ----` の後に `defect: <message>` か `error: <エラーの表示>`），失敗の一覧，`test result: ok. 3 passed; 0 failed; 0 filtered out`．かかった時間は出さない（出力を比べるテストのため）
 - （補）終了コードは失敗が1つでもあれば 1，なければ 0（テストが0個でも 0）．診断でエラーなら 1
 - （補）テストの途中で node が終わったとき（外部関数の `process.exit` など）は，実行中だったテストを失敗にし，その後ろで実行されなかった数を詳細に添える
-- 積み残し: 処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` で返り値から見分けて `outcome: "error"` で報告する形だけ用意した．fail が入ったら（alpha.2）エラーの値の表現に合わせて埋める
+- （補）処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` が返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分けて `outcome: "error"` で報告する．表示は `error: <エラーの値の表示>`（`dbg` と同じ表示．String は引用符付き）
 - 積み残し: suspend するテスト（ジェネレータを返す関数）と Async の供給（13.3）はまだ扱わない
 
 ## 整形（`emela fmt`）
@@ -114,7 +114,7 @@ pub trait TestBackend<P> {
 - （補）defect は `name` が `"Defect"` の `Error`（emela-codegen-js のランタイムの `$Defect`）．`instanceof` でなく `name` で見るので，起動用モジュールはランタイムを import しない
 - （補）`main` がジェネレータ（suspend する関数，16.5）を返す場合はまだ扱わない
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）（仕様 7.5 に反映済み）
-- 積み残し: main まで達したエラー（fail）は，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（仕様 14.3 で決定）．defect は 101 のまま．fail が実装されたら起動用モジュールでこれを扱う
+- （補）main まで達したエラーは，起動用モジュールが main の返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分け，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（`ERROR_EXIT_CODE`，14.3）．表示は `dbg` と同じ（`error: DbError(message: "down")`）．defect は 101 のまま．起動用モジュールはランタイムを import しないので，`instanceof` でなく鍵で見る
 - （補）終了コードは `process.exit` でなく `process.exitCode` で決める（パイプへの書き込みが途中で切れないように）
 - （補）node がシグナルで止まったときの終了コードは 128 + シグナル番号
 - （補）診断の順序は段の順: モジュールの収集（名前の誤りなど），ファイルごとの字句解析と構文解析（読んだ順でなくモジュールのパス順），import のグラフ，型検査

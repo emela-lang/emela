@@ -443,3 +443,49 @@ fn is_small(n: Int) -> Bool {
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
+
+/// fail と escape（7.2，7.3）．失敗しうる呼び出しには `?` が付く．error は `error enum` になる．
+#[test]
+fn fail_and_escape() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+error NotFound(id: Int)
+error Unauthorized
+
+fn find(id: Int) -> Int fails NotFound | Unauthorized {
+  if id > 0 { id } else if id == 0 { fail NotFound(id:) } else { fail Unauthorized }
+}
+
+fn main() {
+  a = find(1) escape {
+    NotFound(id:) if id > 5 -> id
+    Unauthorized -> fail NotFound(id: 0)
+  }
+  b = Some(1) |> Option.or_fail(Unauthorized)
+  c = pure(a) + b
+  dbg(c)
+}
+
+fn pure(n: Int) -> Int {
+  n + 1
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            [
+                "fn main(",
+                "fn find(",
+                "fn pure(",
+                "fn Option.or_fail(",
+                "error enum",
+            ]
+            .iter()
+            .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}

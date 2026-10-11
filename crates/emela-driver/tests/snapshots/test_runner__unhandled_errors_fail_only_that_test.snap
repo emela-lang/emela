@@ -1,0 +1,18 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+expression: out
+---
+running 3 tests
+test finds ... ok
+test not_found ... FAILED
+test escapes ... ok
+
+failures:
+
+---- not_found ----
+error: NotFound(id: 0)
+
+failures:
+    not_found
+
+test result: FAILED. 2 passed; 1 failed; 0 filtered out

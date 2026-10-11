@@ -15,7 +15,7 @@
 - （補）自己末尾呼び出しのループ化は `Expr::Loop` / `Expr::Recur` を作る．ループの変数は引数とは別の新しい `Local` にして回ごとに束縛し，ラムダが捕捉した値が後の回に書き換わらないようにする．
 - （補）末尾位置として辿るのは `let` の本体，`if` の両枝，match の腕の本体，`&&` / `||` の右辺．右辺に自己末尾呼び出しがある `a && b` は `if a then b else false`，`a || b` は `if a then true else b` に脱糖してから `Recur` にする（仕様 6.8 の末尾位置の定義に反映済み）．呼び出しの引数の数が引数の数と違うものは対象外．ラムダの中の呼び出しは対象外．
 - （補）エラーとエフェクトを足すとき，escape の対象の中と with の本体の中は末尾位置にしない（仕様 6.8 に反映済み）．
-- （補）エラー（16.5 の戻り値方式）とエフェクトは後で `Expr` のバリアントを足して入れる．バックエンドは値の行き先（return / 代入）で式を出す作りにしてあるので，「エラーなら return」の分岐を足せる．
+- （補）エフェクトは後で `Expr` のバリアントを足して入れる．エラーは下の「エラー」の節．
 
 - （補）`assert`（13.2）は `Expr::Assert` で持つ．比較の形（`AssertCond::Compare`: 演算子，`OpTy`，両辺の型 `Type`，両辺）と，比較でない形（`AssertCond::Bool`）に分け，ソースの式の字面 `text` を添える．値は `()`．両辺の型は表示関数を作るのに使う
 
@@ -56,7 +56,7 @@
 - （補）`List.append(xs, ys)` は2つのリストをつなぎ，`List.concat(xss)` はリストのリストを平らにする（Elm，Gleam と同じ）．`String.concat(a, b)` とは引数の形が違う．
 - （補）`List.tail([])` は `[]`（17.5 の例 `[x, ..List.tail(xs)]` が List を受けるため Option にしない）．`List.head` と `List.get` は Option．`List.get` の負の添字は `None`．
 - （補）`List.range(from, to)` は `from` 以上 `to` 未満．`List.zip` は短い方に合わせる．
-- （補）`Option.or_fail[A, E](opt: Option[A], err: E) -> A fails E` の引数名は仕様 7.2 の例に合わせて `err`．本体も 7.2 のとおり（`None -> fail err`）．下の「保留中のソース」に置いてある．
+- （補）`Option.or_fail[A, E](opt: Option[A], err: E) -> A fails E` の引数名は仕様 7.2 の例に合わせて `err`．本体も 7.2 のとおり（`None -> fail err`）．E が入ったので `option.emel` に同梱した（2026-10-12）．
 
 ## Console（`console.emel`，`js_console.emel`）
 
@@ -69,21 +69,21 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 
 ## 保留中のソース（`sources.rs` の `STAGED`）
 
-型推論は E（`fail`，`escape`）と R（`use`，`with`，handler，`@external`）を扱えるようになった．同梱の core は全プログラムで lowering されうるが，lowering と JS の出力はまだ `use`，`with`，handler を「まだ扱えない」にする．また下の「有効にするときに決めること」が残っている．そこで次の3つは `STAGED` に置き，同梱の読み込みから外したままにしている．
+型推論は E（`fail`，`escape`）と R（`use`，`with`，handler，`@external`）を扱えるようになった．同梱の core は全プログラムで lowering されうるが，lowering と JS の出力はまだ `use`，`with`，handler を「まだ扱えない」にする．また下の「有効にするときに決めること」が残っている．そこで次の2つは `STAGED` に置き，同梱の読み込みから外したままにしている．`Option.or_fail` も E が入るまでここにあった（手順の1で同梱した）．
 
 | モジュール | ソース | 要るもの |
 |---|---|---|
-| `Option` の `or_fail` | `lib/staged/option_or_fail.emel`（`option.emel` の後ろにつなぐ） | E（fail） |
 | `Console` | `lib/console.emel` | R（effect の宣言） |
 | `JsConsole` | `lib/js_console.emel` | R（handler，`@external`） |
 
 - （補）`staged_core_sources()` は `core_sources()` に `STAGED` を足したものを返す．同じ名前のモジュールはソースの後ろにつなぎ，ないモジュールは後ろに足す．driver の `CoreSource::staged()` がこれを `Resolve::with_core` に渡す形にする．
 - 今確かめていること: 構文の誤りがない（`sources::tests::sources_parse_without_syntax_errors`），名前解決と型検査で診断が出ない（emela-driver の `tests/staged_core.rs` の `staged_core_resolves_cleanly` と `staged_core_typechecks_cleanly`．main から import なしで `Option.or_fail`，`use Console`，`with JsConsole` を使う）．
+- `Option.or_fail` を同梱した後も，`tests/staged_core.rs` の main は `Option.or_fail` を使ったまま（Console と一緒に動かす）．`or_fail` だけの実行は emela-driver の `tests/run.rs` の `errors_are_values_and_escape_recovers` で見る．
 - `#[ignore]` にしたテスト: `tests/staged_core.rs` の `staged_core_runs_on_node`（node で動かして標準出力 `alice\nno 1\n`，標準エラー `done\n`）．lowering と JS の出力が handler の evidence passing を扱えるまで．
 
 有効にする手順（`or_fail` は E が入った後，Console と JsConsole は R と lowering が入った後．別々に進めてよい）．
 
-1. `or_fail`: `lib/staged/option_or_fail.emel` の中身を `lib/option.emel` の末尾へ移し，冒頭のコメントの「保留中」の段落を消す．`STAGED` から `Option` の行を消し，ファイルを `trash` する．
+1. （済み）`or_fail`: `lib/staged/option_or_fail.emel` の中身を `lib/option.emel` の末尾へ移し，冒頭のコメントの「保留中」の段落を消す．`STAGED` から `Option` の行を消し，ファイルを `trash` する．
 2. Console: `STAGED` の `Console` と `JsConsole` の行を `SOURCES` の末尾へ移す．
 3. `lib/README.md` の「保留中」の記述を消す．`sources::tests::staged_sources_extend_the_bundled_ones` を残りの `STAGED` に合わせる（空になったら `STAGED`，`staged_core_sources`，`CoreSource::staged` とこのテストを消す）．
 4. `tests/staged_core.rs` の `#[ignore]` を外し，`CoreSource::staged()` を使わない既定のフロントエンド（`Resolve::default()`，`Typecheck::default()`，`Lower::default()`）に替える．すべて有効にしたら，テストは `diagnostics.rs` と `run.rs` へ移してファイルを消す．
@@ -119,4 +119,17 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 - （補）const は引数のない関数にして，参照のたびに呼ぶ（`LIMIT` → `LIMIT()`）．値は純粋な式（5.6）なので結果は同じ．使う場所に式を埋め込まないのは，const の式の中の局所変数を2回束縛することになるため．1回だけ計算する形は，IR に「モジュールの値」を足すときに最適化として入れる．const は export しない．
 - （補）const のパターンは新しい変数で受け，`x == LIMIT()` を腕のガードにする．構成子の中など入れ子の const のパターンも同じで，比較は書いたガードより先に評価する（`&&` でつなぐ）．`OpTy` はパターンの型が基本型ならその型，そうでなければ `Structural`．
 - （補）`assert` は，式が比較なら `Assert::compare`（両辺の値を表示する），それ以外は `Assert::bool`．比較でも両辺の型が表示できない（型引数や関数を含む）ときは `Assert::bool` に落とす（基本型でない値の大小比較は，式の側で `Unsupported` になる）．`text` はソースから切り出した式の字面．
+- （補）`fail e` は `Expr::Fail`，`式 escape { 腕 }` は `Expr::Escape` にする（下の「エラー」の節）．腕は match の腕と同じに写す（const のパターンの比較はガードの先頭に置く）．
 - （補）`Roots::Tests` はテスト関数（`LowerInput::tests`）を根にする．`lower` は `Lowered { module, tests }` を返し，`tests` は `LowerInput::tests` と同じ順の `FnId`（`Roots::Tests` のときだけ埋める）．通常のビルドではテスト関数を export しない．
+
+## エラー（7章，16.5）
+
+alpha.2 の lowering（2026-10-12）．失敗は戻り値として返す（16.5）．defect は今のまま例外．
+
+- （補）IR は `Expr::Fail(e)` と `Expr::Escape { body, arms }` を持つ．エラーの値は error の enum（`EnumDef::error` が真．構成子1つ，型引数なし）の値で，普通の値として作り，比べ，表示する（7.1）．
+- （補）呼び出しには失敗しうるかの印 `Expr::Call::fails` を付ける．lowering は呼ばれる側の式の型（型検査が E の解を入れた関数型）の E が空でなければ真にする．集合の型引数，見えない集合，1つのエラーの型の型引数，汎化した集合変数のように中身の分からない集合も，空でないので真．偽の呼び出しの結果はバックエンドが確かめない．E が空の関数だけのプログラムは今までと同じ IR になる．
+- （補）組み込み関数，構成子，const の呼び出しの `fails` はいつも偽（型の E が空，const は 5.6）．組み込み関数は関数を引数に取らないので，渡された関数の失敗を受けることもない．
+- （補）escape の腕は match と同じ `Arm` で，パターンは error の構成子（`Pat::Ctor`）．失敗したエラーと同じ error の腕を上から試し，パターンとガードが合った最初の腕を選ぶ．腕に書かれていない error はそのまま外側へ伝える．
+- （補）腕に書かれた error なのに，どの腕のパターンとガードにも合わない（`NotFound(id: 1)` の腕に `NotFound(id: 2)` が来た）ときは defect（`unreachable: no escape arm matched`）にする．型検査はその error を腕があるだけで E から消す（7.3．error ごとの網羅は求めない）ので，外へ伝えると E にない失敗が出てしまう．match の網羅できなかった腕（14.1）と同じ扱い．
+- （補）escape の対象は末尾位置でない（6.8）．`tail.rs` は escape の中（対象も腕も）を辿らない．失敗しうる自己末尾呼び出し（`fails` が真）はループにする．末尾位置の呼び出しの失敗はそのまま呼び出し元へ伝わるので，ループの次の回で失敗しても同じ結果になる．
+- （補）ダンプでは失敗しうる呼び出しの後ろに `?`，error の enum の前に `error` を付ける（`error enum NotFound { … }`）．

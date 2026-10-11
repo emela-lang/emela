@@ -18,6 +18,7 @@ fn every_kind_of_expression() {
                 vec![("width", Type::Float), ("height", Type::Float)],
             ),
         ],
+        error: false,
     });
     let pair = m.add_enum(EnumDef {
         name: "Pair".into(),
@@ -26,6 +27,7 @@ fn every_kind_of_expression() {
             "Pair",
             vec![("first", Type::Param(0)), ("second", Type::Param(1))],
         )],
+        error: false,
     });
     let circle = CtorRef {
         enum_id: shape,
