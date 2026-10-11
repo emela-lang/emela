@@ -1,13 +1,12 @@
 ---
 source: crates/emela-types/tests/body.rs
-assertion_line: 182
 expression: "run(r#\"\nfn connect(host: String, port: Int) -> Bool { todo() }\n\nfn f(g: fn(Int) -> Int) -> Int {\n  a = connect(\"x\", prot: 1)\n  b = connect(\"x\", host: \"y\")\n  c = connect(port: \"no\")\n  d = Some(value: 1)\n  e = g(x: 1)\n  1\n}\n\"#)"
 ---
 connect: fn(String, Int) -> Bool
   host: String
   port: Int
-f: ∀ E(g). fn(fn(Int) -> Int fails E(g)) -> Int fails E(g)
-  g: fn(Int) -> Int fails '0
+f: ∀ E(g), R(g). fn(fn(Int) -> Int fails E(g) use R(g)) -> Int fails E(g) use R(g)
+  g: fn(Int) -> Int fails '0 use '1
   a: Bool
   b: Bool
   c: Bool

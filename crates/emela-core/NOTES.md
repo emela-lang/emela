@@ -69,7 +69,7 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 
 ## 保留中のソース（`sources.rs` の `STAGED`）
 
-型推論は今 `fail`，`escape`，`use`，`with` を「まだ扱えない」（`Unsupported`）にする．同梱の core は全プログラムで型検査されるので，これらを含むソースを `core_sources()` に入れると，すべてのプログラムに診断が出る．そこで次の3つは `STAGED` に置き，同梱の読み込みから外している．
+型推論は E（`fail`，`escape`）と R（`use`，`with`，handler，`@external`）を扱えるようになった．同梱の core は全プログラムで lowering されうるが，lowering と JS の出力はまだ `use`，`with`，handler を「まだ扱えない」にする．また下の「有効にするときに決めること」が残っている．そこで次の3つは `STAGED` に置き，同梱の読み込みから外したままにしている．
 
 | モジュール | ソース | 要るもの |
 |---|---|---|
@@ -78,10 +78,10 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 | `JsConsole` | `lib/js_console.emel` | R（handler，`@external`） |
 
 - （補）`staged_core_sources()` は `core_sources()` に `STAGED` を足したものを返す．同じ名前のモジュールはソースの後ろにつなぎ，ないモジュールは後ろに足す．driver の `CoreSource::staged()` がこれを `Resolve::with_core` に渡す形にする．
-- 今確かめていること: 構文の誤りがない（`sources::tests::sources_parse_without_syntax_errors`），名前解決で診断が出ない（emela-driver の `tests/staged_core.rs` の `staged_core_resolves_cleanly`．main から import なしで `Option.or_fail`，`use Console`，`with JsConsole` を使う）．
-- `#[ignore]` にしたテスト: `tests/staged_core.rs` の `staged_core_typechecks_cleanly`（型検査で診断が出ない）と `staged_core_runs_on_node`（node で動かして標準出力 `alice\nno 1\n`，標準エラー `done\n`）．
+- 今確かめていること: 構文の誤りがない（`sources::tests::sources_parse_without_syntax_errors`），名前解決と型検査で診断が出ない（emela-driver の `tests/staged_core.rs` の `staged_core_resolves_cleanly` と `staged_core_typechecks_cleanly`．main から import なしで `Option.or_fail`，`use Console`，`with JsConsole` を使う）．
+- `#[ignore]` にしたテスト: `tests/staged_core.rs` の `staged_core_runs_on_node`（node で動かして標準出力 `alice\nno 1\n`，標準エラー `done\n`）．lowering と JS の出力が handler の evidence passing を扱えるまで．
 
-有効にする手順（`or_fail` は E が入った後，Console と JsConsole は R が入った後．別々に進めてよい）．
+有効にする手順（`or_fail` は E が入った後，Console と JsConsole は R と lowering が入った後．別々に進めてよい）．
 
 1. `or_fail`: `lib/staged/option_or_fail.emel` の中身を `lib/option.emel` の末尾へ移し，冒頭のコメントの「保留中」の段落を消す．`STAGED` から `Option` の行を消し，ファイルを `trash` する．
 2. Console: `STAGED` の `Console` と `JsConsole` の行を `SOURCES` の末尾へ移す．
@@ -106,7 +106,7 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 - （補）HIR の `LocalId` はプログラム全体で一意なので，IR の `Local` へ表で1対1に写す．添字は使い回さない．IR の側では名前付き引数の並べ替えやループ化で `Local` が増える．
 - （補）`lower` は `LowerInput`（HIR，型検査の結果，モジュール名の表，モジュールのソース，エントリ）と根（`Roots`）を受け，`Result<Module, Vec<LowerError>>` を返す．型検査を通っても IR にできない場面（汎用の fn の中での型引数の値の補間など）を「まだ扱えない」の診断にする．見つけた分を全部集める．driver が `Diagnostic` に写す．ソースは assert の失敗に出す式の字面を切り出すのに使う．
 - （補）`error` の宣言も IR の enum にする（構成子1つ，型引数なし）．type と同じく同じ名前の型と構成子を定義し，普通の値として扱える（7.1）．error の構成子は宣言の `DefId` そのもの．
-- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．
+- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．能力の値の型（`Ty::Cap`）も今は `Type::Unit` にする．`use`，`with`，能力の値の操作は「まだ扱えない」なので，誤りのないプログラムの IR には現れない．表現は handler の evidence passing の段で決める．
 - （補）JS で export するのは，エントリのモジュールの `pub` の fn と `main`（`emela run` の起動用モジュールが `entry.main` を呼ぶ）．
 - （補）呼び出しの引数は，型検査が並べ直した仮引数の順（`ProgramTypes::calls`）から各引数の位置を引き，`named::in_written_order` で書かれた順に評価する．呼ばれる側が変数か関数でない式なら，引数より先に `let` で束縛する．パイプ `x |> f(a)` は左辺を先頭の引数とする呼び出しとして写す．
 - （補）`@intrinsic` の fn の呼び出しは `Expr::Builtin` にする．型引数は `ProgramTypes::type_args` から引く．`@intrinsic` の fn とフィールドのある構成子を値として使うとき（`List.map(xs, String.length)`，`List.map(xs, Some)`）は，それを呼ぶだけのラムダで包む（`fn(x) { Some(x) }`）．引数の数は参照の式の型（関数型）から取る．

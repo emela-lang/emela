@@ -20,8 +20,8 @@ mod ty;
 #[cfg(test)]
 mod tests;
 
-pub use check::{ProgramTypes, body_refs, check_program};
-pub use diagnostic::{Diagnostic, DiagnosticKind};
+pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
+pub use diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{

@@ -531,18 +531,139 @@ fn f() -> Int {
     ));
 }
 
-/// 効果の構文（use，with）は「まだ扱えない」の診断になる．
+/// 8.2 `use X` は能力の値を返し，X を R に載せる．操作は能力の値を通して呼ぶ．
 #[test]
-fn effects_are_not_supported_yet() {
+fn spec_8_2_use() {
     insta::assert_snapshot!(render_bodies(
         r#"
-effect Logger {
+error NotFound(id: Int)  # 補
+type User(name: String)  # 補
+
+effect Logger {  # 補
   fn info(msg: String) -> ()
 }
 
-fn log() {
-  logger = use Logger
-  ()
+effect Users {  # 補
+  fn find(id: Int) -> Option[User]
+}
+
+effect Clock {  # 補
+  fn sleep(ms: Int) -> ()
+}
+
+fn greet(id: Int) {
+  log   = use Logger
+  users = use Users
+
+  user = match users.find(id) {  # 補: Option.or_fail はまだ同梱していない
+    Some(u) -> u
+    None -> fail NotFound(id:)
+  }
+  log.info("hello #{user.name}")
+
+  (use Clock).sleep(1000)
+  user
+}
+"#
+    ));
+}
+
+/// 8.2 特定のハンドラの能力を使わせるときは，能力を捕まえたクロージャを渡す．
+/// 8.3 外側で取り出した能力の値は，内側の with で上書きされても外側のハンドラを指す．
+#[test]
+fn spec_8_2_copy() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Rows(n: Int)  # 補
+
+effect Db {  # 補
+  fn query(q: String) -> Rows
+  fn execute(rows: Rows) -> ()
+}
+
+handler PrimaryDb implements Db {  # 補
+  fn query(q) { Rows(n: 0) }
+  fn execute(rows) { () }
+}
+
+handler ReplicaDb implements Db {  # 補
+  fn query(q) { Rows(n: 1) }
+  fn execute(rows) { () }
+}
+
+fn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {
+  write(read())
+}
+
+fn main() {  # 補
+  with PrimaryDb {
+    primary = use Db
+    with ReplicaDb {
+      replica = use Db
+      copy(fn() { replica.query("...") }, fn(rows) { primary.execute(rows) })
+    }
+  }
+}
+"#
+    ));
+}
+
+/// 8.3 with は供給したエフェクトを本体の R から消す．カンマで並べられる．
+/// 8.4 状態を持たないハンドラは，エフェクトの操作を全部実装する．引数の型は書かない．
+#[test]
+fn spec_8_3_with() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+effect Clock {  # 補
+  fn now() -> Int
+}
+
+@external(js, "console.log")  # 補
+fn console_log(msg: String) -> ()
+
+handler ConsoleLogger implements Logger {
+  fn info(msg) { console_log(msg) }
+}
+
+handler FixedClock implements Clock {  # 補
+  fn now() { 0 }
+}
+
+fn greet(id: Int) {  # 補
+  (use Logger).info("hello")
+  (use Clock).now()
+}
+
+fn run() {  # 補．ConsoleLogger だけでは Clock が残る
+  with ConsoleLogger { greet(1) }
+  with ConsoleLogger, FixedClock { greet(1) }
+}
+"#
+    ));
+}
+
+/// 9.2 `fn(A) -> B use {}` は効果を持たない関数だけを受け取る．省略すれば何でもよく，呼んだ側の R に加わる．
+#[test]
+fn spec_9_2_effect_free_parameter() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+fn run_pure(f: fn() -> Int use {}) -> Int { f() }  # 補
+fn run_any(f: fn() -> Int) -> Int { f() }  # 補
+
+fn callers() {  # 補
+  a = run_any(fn() { (use Logger).info("a")
+  1 })
+  b = run_pure(fn() { (use Logger).info("b")
+  1 })
+  (a, b)
 }
 "#
     ));

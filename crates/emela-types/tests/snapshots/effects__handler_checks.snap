@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\nerror Boom\n\neffect Logger {\n  fn info(msg: String) -> ()\n  fn warn(msg: String) -> () fails Boom\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\nhandler Half implements Logger {\n  fn info(msg) { () }\n}\n\nhandler Twice implements Logger {\n  fn info(msg) { () }\n  fn info(msg) { () }\n  fn warn(a, b) { () }\n}\n\nhandler Fails implements Logger {\n  fn info(msg) { fail Boom }\n  fn warn(msg) { fail Boom }\n}\n\nhandler Typed implements Logger {\n  fn info(msg) { msg + 1 }\n  fn warn(msg) { self }\n}\n\nhandler Stateful(n: Int) implements Logger {\n  fn info(msg) { () }\n  fn warn(msg) { () }\n}\n\nhandler Sleepy implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n}\n\"#)"
+---
+handler Half: use {}
+handler Twice: use {}
+handler Fails: use {}
+handler Typed: use {}
+handler Stateful: use {}
+handler Sleepy: use {}
+`Half` MissingHandlerOps { handler: "Half", ops: ["warn"] }
+`info` DuplicateHandlerOp { op: "info" }
+`warn` HandlerOpArgCount { op: "warn", expected: 1, found: 2 }
+`fail Boom` unhandled errors Boom (fails written: false)
+`msg + 1` mismatch: expected `()`, found `String`
+`msg + 1` not numeric (integer: false): `String`
+`1` mismatch: expected `String`, found `Int`
+`self` not supported yet: `self` in handlers without fields
+`Stateful` not supported yet: handlers with fields, `init` or `release`
+`sleep` not supported yet: suspend operations
+--- R

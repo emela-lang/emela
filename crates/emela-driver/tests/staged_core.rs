@@ -1,7 +1,7 @@
 //! 同梱の読み込みから外している保留中の core のソース（`Option.or_fail`，`Console`，`JsConsole`）．
 //!
-//! 型推論が `fail`，`escape`，`use`，`with` を扱えるまでは名前解決までを確かめる．
-//! `#[ignore]` のテストは，E と R が入って保留中のソースを有効にした後に通す
+//! 名前解決と型検査で診断が出ないことを確かめる．`#[ignore]` のテスト（node で動かす）は，
+//! lowering と JS の出力がエフェクトを扱えるようになって保留中のソースを有効にした後に通す
 //! （手順は emela-core の `NOTES.md` の「保留中のソース」）．
 
 use std::path::{Path, PathBuf};
@@ -42,7 +42,6 @@ fn staged_core_resolves_cleanly() {
 }
 
 #[test]
-#[ignore = "型推論が fail，escape，use，with を扱えるまで（NOTES.md の「保留中のソース」）"]
 fn staged_core_typechecks_cleanly() {
     let mut frontend = Typecheck::new(Resolve::default().with_core(CoreSource::staged()));
     let analysis = check_main(&mut frontend);
@@ -50,7 +49,7 @@ fn staged_core_typechecks_cleanly() {
 }
 
 #[test]
-#[ignore = "型推論が fail，escape，use，with を扱えるまで（NOTES.md の「保留中のソース」）"]
+#[ignore = "lowering と JS の出力が use，with，handler を扱えるまで（NOTES.md の「保留中のソース」）"]
 fn staged_core_runs_on_node() {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", MAIN)];
     let fs = MemoryFiles::new(sources);

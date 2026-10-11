@@ -352,7 +352,7 @@ fn display_types() {
             [Ty::func([Ty::INT], Ty::INT)],
             Ty::func([Ty::INT], Ty::INT)
         )),
-        "fn(fn(Int) -> Int fails {}) -> fn(Int) -> Int"
+        "fn(fn(Int) -> Int fails {} use {}) -> fn(Int) -> Int"
     );
     assert_eq!(d(Ty::Bound(0)), "'0");
 }
@@ -409,9 +409,67 @@ fn display_fails() {
     );
     assert_eq!(
         scheme.display(&cons).to_string(),
-        "∀ A, E. fn(fn() -> A fails DbError | E) -> A fails E | A"
+        "∀ A, E. fn(fn() -> A fails DbError | E use {}) -> A fails E | A"
     );
     assert_eq!(Row::empty().display(&cons).to_string(), "{}");
+}
+
+#[test]
+fn display_uses() {
+    let (mut cons, _, _) = cons();
+    let logger = tag(&mut cons, 0, "Logger");
+    let clock = tag(&mut cons, 1, "Clock");
+    let boom = tag(&mut cons, 2, "Boom");
+    let d = |ty: Ty, cons: &TyCons| ty.display(cons).to_string();
+    // 効果の集合は1つならそのまま，2つ以上なら波括弧で囲む（17.4）．fails の後に出す．
+    assert_eq!(
+        d(
+            Ty::func_sets([], Ty::UNIT, Row::empty(), Row::tag(logger)),
+            &cons
+        ),
+        "fn() -> () use Logger"
+    );
+    assert_eq!(
+        d(
+            Ty::func_sets(
+                [],
+                Ty::UNIT,
+                Row::tag(boom),
+                Row::from_elems([RowElem::Tag(logger), RowElem::Tag(clock)])
+            ),
+            &cons
+        ),
+        "fn() -> () fails Boom use { Logger, Clock }"
+    );
+    // 戻り値の関数型は，外側に use 節があれば括弧で囲む．
+    assert_eq!(
+        d(
+            Ty::func_sets([], Ty::func([], Ty::INT), Row::empty(), Row::tag(logger)),
+            &cons
+        ),
+        "fn() -> (fn() -> Int) use Logger"
+    );
+    // 集合の型引数．
+    let scheme = Scheme::new(
+        vec![TyParam::set("R")],
+        Ty::func_sets(
+            [Ty::func_sets(
+                [],
+                Ty::INT,
+                Row::empty(),
+                Row::from_elems([RowElem::Bound(0)]),
+            )],
+            Ty::INT,
+            Row::empty(),
+            Row::from_elems([RowElem::Tag(clock), RowElem::Bound(0)]),
+        ),
+    );
+    assert_eq!(
+        scheme.display(&cons).to_string(),
+        "∀ R. fn(fn() -> Int fails {} use R) -> Int use { Clock, R }"
+    );
+    // 能力の値の型は，それを作る式の形．
+    assert_eq!(d(Ty::Cap(logger), &cons), "use Logger");
 }
 
 /// 関数型の E は単一化で等しくせず，包含の制約にする．引数の中は逆向き．

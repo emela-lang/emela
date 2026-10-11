@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\nerror NotFound(id: Int)\n\neffect Users {\n  fn find(id: Int) -> String fails NotFound\n}\n\nfn by_label() {\n  users = use Users\n  users.find(id: 1)\n}\n\nfn wrong() {\n  users = use Users\n  a = users.find(\"x\")\n  users.fnd(1)\n}\n\"#)"
+---
+by_label: fn() -> String fails NotFound use Users
+wrong: fn() -> {unknown} fails NotFound use Users
+`"x"` mismatch: expected `Int`, found `String`
+`fnd` UnknownOperation { effect: "Users", op: "fnd" }
+--- R
+{   users = use Users   users.find(id: 1) }: Users
+use Users: Users
+users.find(id: 1): Users
+{   users = use Users   a = users.find("x")   users.fnd(1) }: Users
+use Users: Users
+users.find("x"): Users

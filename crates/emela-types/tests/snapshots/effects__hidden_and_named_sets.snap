@@ -1,0 +1,31 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }\n\nfn update[A, R](x: A, f: fn(A) -> A use R) -> A use R { f(x) }\n\nfn make() {\n  fn() { (use Logger).info(\"later\") }\n}\n\nfn callers() {\n  a = apply(fn(n) { (use Logger).info(\"n\")\n  n }, 1)\n  b = update(1, fn(n) { n + 1 })\n  c = List.map([1], fn(n) { (use Logger).info(\"m\") })\n  f = make()\n}\n\nfn caller() {\n  fn(g) { g() }\n}\n\"#)"
+---
+apply: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f), Int) -> Int fails E(f) use R(f)
+update: ∀ A, R, E(f). fn(A, fn(A) -> A fails E(f) use R) -> A fails E(f) use R
+make: fn() -> fn() -> () use Logger
+callers: fn() -> () use Logger
+caller: ∀ A, E, R. fn() -> fn(fn() -> A fails E use R) -> A fails E use R
+--- R
+{ f(x) }: '1
+f(x): '1
+{ f(x) }: '1
+f(x): '1
+{ (use Logger).info("later") }: Logger
+(use Logger).info("later"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{   a = apply(fn(n) { (use Logger).info("n")   n }, 1)   b = update(1, fn(n) { n + 1 })   c = List.map([1], fn(n) { (use Logger).info("m") })   f = make() }: Logger
+apply(fn(n) { (use Logger).info("n")   n }, 1): Logger
+{ (use Logger).info("n")   n }: Logger
+(use Logger).info("n"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+List.map([1], fn(n) { (use Logger).info("m") }): Logger
+{ (use Logger).info("m") }: Logger
+(use Logger).info("m"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ g() }: ?e3
+g(): ?e3

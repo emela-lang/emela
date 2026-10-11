@@ -1,8 +1,7 @@
 ---
 source: crates/emela-types/tests/lower.rs
-assertion_line: 55
-expression: "run(r#\"\nfn id[A](x: A) -> A { x }\nfn swap[A, B](p: (A, B)) -> (B, A) { todo() }\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { todo() }\n\"#)"
+expression: "run(r#\"\nfn id[A](x: A) -> A use {} { x }\nfn swap[A, B](p: (A, B)) -> (B, A) use {} { todo() }\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] use {} { todo() }\n\"#)"
 ---
 id: ∀ A. fn(A) -> A
 swap: ∀ A, B. fn((A, B)) -> (B, A)
-map: ∀ A, B, E(f). fn(List[A], fn(A) -> B fails E(f)) -> List[B] fails E(f)
+map: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)

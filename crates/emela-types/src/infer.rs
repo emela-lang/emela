@@ -1,7 +1,7 @@
 //! 単一化，`Never` の join，汎化と具体化．
 //!
-//! 関数型のエラーの集合は単一化では等しくせず，包含の制約（[`Subset`]）として溜める．
-//! 期待する型の位置に置いた関数の E は，期待する型の E に含まれればよい（7.4，9.2）．
+//! 関数型のエラーの集合と効果の集合は単一化では等しくせず，包含の制約（[`Subset`]）として溜める．
+//! 期待する型の位置に置いた関数の E と R は，期待する型の E と R に含まれればよい（7.4，9.2）．
 //! 制約は本体の推論が終わってから解く（`body/errors.rs`）．
 
 use emela_resolve::hir::{DefId, Span};
@@ -14,12 +14,20 @@ use crate::row::{Row, RowElem, RowVar};
 use crate::scheme::{Scheme, param_name, set_param_name};
 use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
 
+/// 集合の種類．エラーの集合 E か効果の集合 R か．
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SetKind {
+    Errors,
+    Effects,
+}
+
 /// 集合の包含の制約 `sub ⊆ sup`．
 #[derive(Clone, Debug)]
 pub(crate) struct Subset {
     pub(crate) sub: Row,
     pub(crate) sup: Row,
     pub(crate) origin: Origin,
+    pub(crate) kind: SetKind,
 }
 
 /// 包含の制約がどこから来たか．解けなかったときの診断を決める．
@@ -30,9 +38,13 @@ pub(crate) enum Origin {
         span: Option<Span>,
         def: Option<DefId>,
     },
-    /// 定義の本体の E が，宣言の E に含まれる．
+    /// 定義の本体の E（R）が，宣言の E（R）に含まれる．
     Body(DefId),
-    /// ラムダの本体の E が，ラムダの型の E に含まれる．必ず満たせる．
+    /// handler の `index` 番目の操作の本体の E が，エフェクトの操作の宣言の E に含まれる（8.1）．
+    HandlerOp { handler: DefId, index: usize },
+    /// main かテスト関数の本体の R が空である（8.3，13.3）．
+    Closed(DefId),
+    /// ラムダの本体の E（R）が，ラムダの型の E（R）に含まれる．必ず満たせる．
     Lambda,
 }
 
@@ -69,7 +81,7 @@ pub struct InferCtx {
     /// 溜めた包含の制約．
     subsets: Vec<Subset>,
     /// 単一化の途中で作った包含の制約．単一化が成功したら `subsets` に移す．
-    row_buffer: Vec<(Row, Row)>,
+    row_buffer: Vec<(Row, Row, SetKind)>,
     /// これから溜める単一化の制約の位置と，推論している定義．
     origin: (Option<Span>, Option<DefId>),
     /// error の名前付き型 → タグ．`RowElem::Of` をタグにするのに使う．
@@ -113,12 +125,22 @@ impl InferCtx {
         self.origin = (span, def);
     }
 
-    /// 包含の制約を足す．
+    /// エラーの集合の包含の制約を足す．
     pub(crate) fn add_subset(&mut self, sub: Row, sup: Row, origin: Origin) {
+        self.add_subset_of(SetKind::Errors, sub, sup, origin);
+    }
+
+    /// 種類 `kind` の集合の包含の制約を足す．
+    pub(crate) fn add_subset_of(&mut self, kind: SetKind, sub: Row, sup: Row, origin: Origin) {
         if sub.is_empty() || sub == sup {
             return;
         }
-        self.subsets.push(Subset { sub, sup, origin });
+        self.subsets.push(Subset {
+            sub,
+            sup,
+            origin,
+            kind,
+        });
     }
 
     pub(crate) fn subsets(&self) -> &[Subset] {
@@ -166,10 +188,11 @@ impl InferCtx {
     /// 型引数と型変数のほかは捨てる（誤りは別に出す）．集合変数を解いた後なら，集合変数を解に置き換える．
     pub fn resolve(&mut self, ty: &Ty) -> Ty {
         match self.shallow_resolve(ty) {
-            Ty::Fn(f) => Ty::func_fails(
+            Ty::Fn(f) => Ty::func_sets(
                 f.params.iter().map(|p| self.resolve(p)).collect::<Vec<_>>(),
                 self.resolve(&f.ret),
                 self.resolve_row(&f.fails),
+                self.resolve_row(&f.uses),
             ),
             ty => ty.map_children(|child| self.resolve(child)),
         }
@@ -208,8 +231,8 @@ impl InferCtx {
                     span: self.origin.0,
                     def: self.origin.1,
                 };
-                for (sub, sup) in std::mem::take(&mut self.row_buffer) {
-                    self.add_subset(sub, sup, origin.clone());
+                for (sub, sup, kind) in std::mem::take(&mut self.row_buffer) {
+                    self.add_subset_of(kind, sub, sup, origin.clone());
                 }
                 Ok(())
             }
@@ -243,20 +266,24 @@ impl InferCtx {
         match self.shallow_resolve(ty) {
             Ty::Var(v) if self.is_int_var(v) => Ty::INT,
             Ty::Fn(f) => {
-                let fails = Row::from_elems(
-                    f.fails
-                        .elems()
-                        .iter()
-                        .filter(|e| !matches!(e, RowElem::Var(_)))
-                        .cloned(),
-                );
-                Ty::func_fails(
+                let known = |row: &Row| {
+                    Row::from_elems(
+                        row.elems()
+                            .iter()
+                            .filter(|e| !matches!(e, RowElem::Var(_)))
+                            .cloned(),
+                    )
+                };
+                let fails = known(&f.fails);
+                let uses = known(&f.uses);
+                Ty::func_sets(
                     f.params
                         .iter()
                         .map(|p| self.resolve_for_report(p))
                         .collect::<Vec<_>>(),
                     self.resolve_for_report(&f.ret),
                     fails.map_tys(|t| self.resolve_for_report(t)),
+                    uses,
                 )
             }
             ty => ty.map_children(|child| self.resolve_for_report(child)),
@@ -282,7 +309,7 @@ impl InferCtx {
     ///
     /// 失敗したときは `a` を期待した型，`b` を実際の型として報告する．
     ///
-    /// 両方が関数型なら，エラーの集合は新しい集合変数にして両方の E を含める．
+    /// 両方が関数型なら，エラーの集合と効果の集合は新しい集合変数にして両方の E と R を含める．
     pub fn join(&mut self, a: &Ty, b: &Ty) -> Result<Ty, TypeError> {
         let a = self.shallow_resolve(a);
         let b = self.shallow_resolve(b);
@@ -290,8 +317,10 @@ impl InferCtx {
             (Ty::Never, _) => Ok(b),
             (_, Ty::Never) => Ok(a),
             (Ty::Fn(f), Ty::Fn(g)) if f.params.len() == g.params.len() => {
+                let e = self.new_row_var();
                 let r = self.new_row_var();
-                let joined = Ty::func_fails(f.params.clone(), f.ret.clone(), Row::var(r));
+                let joined =
+                    Ty::func_sets(f.params.clone(), f.ret.clone(), Row::var(e), Row::var(r));
                 self.unify(&joined, &a)?;
                 self.unify(&joined, &b).map_err(|mut e| {
                     e.expected = self.resolve_for_report(&a);
@@ -363,23 +392,14 @@ impl InferCtx {
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
+            (Ty::Cap(x), Ty::Cap(y)) if x == y => Ok(()),
             (Ty::Fn(f), Ty::Fn(g)) if f.params.len() == g.params.len() => {
                 for (p, q) in f.params.iter().zip(&g.params) {
                     self.unify_inner(p, q, variance.flip())?;
                 }
                 self.unify_inner(&f.ret, &g.ret, variance)?;
-                if f.fails != g.fails {
-                    match variance {
-                        Variance::Co => self.row_buffer.push((g.fails.clone(), f.fails.clone())),
-                        Variance::Contra => {
-                            self.row_buffer.push((f.fails.clone(), g.fails.clone()))
-                        }
-                        Variance::Inv => {
-                            self.row_buffer.push((g.fails.clone(), f.fails.clone()));
-                            self.row_buffer.push((f.fails.clone(), g.fails.clone()));
-                        }
-                    }
-                }
+                self.buffer_rows(SetKind::Errors, &f.fails, &g.fails, variance);
+                self.buffer_rows(SetKind::Effects, &f.uses, &g.uses, variance);
                 Ok(())
             }
             (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => {
@@ -392,6 +412,22 @@ impl InferCtx {
             // 値は不変なので，リストとタプルの要素は外側と同じ向きでよい．
             (Ty::List(x), Ty::List(y)) => self.unify_inner(x, y, variance),
             _ => Err(mismatch(&e, &a)),
+        }
+    }
+
+    /// 関数型の集合の包含の制約を溜める．`expected` は期待する側の集合．
+    fn buffer_rows(&mut self, kind: SetKind, expected: &Row, actual: &Row, variance: Variance) {
+        if expected == actual {
+            return;
+        }
+        let (e, a) = (expected.clone(), actual.clone());
+        match variance {
+            Variance::Co => self.row_buffer.push((a, e, kind)),
+            Variance::Contra => self.row_buffer.push((e, a, kind)),
+            Variance::Inv => {
+                self.row_buffer.push((a.clone(), e.clone(), kind));
+                self.row_buffer.push((e, a, kind));
+            }
         }
     }
 
@@ -454,7 +490,8 @@ impl InferCtx {
     /// `Ty::Bound(i)`）の後ろに，量化した型変数を足す．名前は書いた型引数と重ならないものを選ぶ．
     ///
     /// 型の中に残った集合変数（[`Self::resolve`] の後に残るもの）も，集合の型引数として量化する．
-    /// 名前は `E`，`E1`，`E2`，…．型変数の後ろに並べる．
+    /// 名前はエラーの集合が `E`，`E1`，`E2`，…，効果の集合が `R`，`R1`，….
+    /// 型変数の後ろに並べる．
     pub fn generalize_with(
         &mut self,
         ty: &Ty,
@@ -484,12 +521,16 @@ impl InferCtx {
         }
         let ty = self.resolve(ty);
         let mut row_map = FxHashMap::default();
-        let mut next_name = 0;
-        for v in free_row_vars(&ty) {
+        let mut next_name = [0, 0];
+        for (v, kind) in free_row_vars(&ty) {
             row_map.insert(v, params.len() as u32);
+            let (prefix, next_name) = match kind {
+                SetKind::Errors => ("E", &mut next_name[0]),
+                SetKind::Effects => ("R", &mut next_name[1]),
+            };
             let name = loop {
-                let name = set_param_name(next_name);
-                next_name += 1;
+                let name = set_param_name(prefix, *next_name);
+                *next_name += 1;
                 if !params.iter().any(|p| p.name == name) {
                     break name;
                 }
@@ -527,18 +568,20 @@ impl InferCtx {
     }
 }
 
-/// 型の中の集合変数を，現れた順に重複なく集める．
-pub(crate) fn free_row_vars(ty: &Ty) -> Vec<RowVar> {
+/// 型の中の集合変数と，その集合の種類を，現れた順に重複なく集める．
+pub(crate) fn free_row_vars(ty: &Ty) -> Vec<(RowVar, SetKind)> {
     let mut out = Vec::new();
     collect_row_vars(ty, &mut out);
     out
 }
 
-fn collect_row_vars(ty: &Ty, out: &mut Vec<RowVar>) {
+fn collect_row_vars(ty: &Ty, out: &mut Vec<(RowVar, SetKind)>) {
     if let Ty::Fn(f) = ty {
-        for v in f.fails.vars() {
-            if !out.contains(&v) {
-                out.push(v);
+        for (row, kind) in [(&f.fails, SetKind::Errors), (&f.uses, SetKind::Effects)] {
+            for v in row.vars() {
+                if !out.iter().any(|(w, _)| *w == v) {
+                    out.push((v, kind));
+                }
             }
         }
     }
@@ -548,21 +591,27 @@ fn collect_row_vars(ty: &Ty, out: &mut Vec<RowVar>) {
 fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u32>) -> Ty {
     match ty {
         Ty::Var(v) => map.get(v).map_or_else(|| ty.clone(), |i| Ty::Bound(*i)),
-        Ty::Fn(f) => Ty::func_fails(
-            f.params
-                .iter()
-                .map(|p| replace_vars(p, map, rows))
-                .collect::<Vec<_>>(),
-            replace_vars(&f.ret, map, rows),
-            f.fails.flat_map(|e| match e {
-                RowElem::Var(v) => match rows.get(v) {
-                    Some(i) => Row::from_elems([RowElem::Bound(*i)]),
-                    None => Row::var(*v),
-                },
-                RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
-                e => Row::from_elems([e.clone()]),
-            }),
-        ),
+        Ty::Fn(f) => {
+            let replace_row = |row: &Row| {
+                row.flat_map(|e| match e {
+                    RowElem::Var(v) => match rows.get(v) {
+                        Some(i) => Row::from_elems([RowElem::Bound(*i)]),
+                        None => Row::var(*v),
+                    },
+                    RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
+                    e => Row::from_elems([e.clone()]),
+                })
+            };
+            Ty::func_sets(
+                f.params
+                    .iter()
+                    .map(|p| replace_vars(p, map, rows))
+                    .collect::<Vec<_>>(),
+                replace_vars(&f.ret, map, rows),
+                replace_row(&f.fails),
+                replace_row(&f.uses),
+            )
+        }
         _ => ty.map_children(|child| replace_vars(child, map, rows)),
     }
 }
@@ -577,13 +626,14 @@ pub fn substitute_bound(ty: &Ty, args: &[Ty]) -> Ty {
 pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
     match ty {
         Ty::Bound(i) => tys.get(*i as usize).cloned().unwrap_or_else(|| ty.clone()),
-        Ty::Fn(f) => Ty::func_fails(
+        Ty::Fn(f) => Ty::func_sets(
             f.params
                 .iter()
                 .map(|p| substitute(p, tys, rows))
                 .collect::<Vec<_>>(),
             substitute(&f.ret, tys, rows),
             substitute_row(&f.fails, tys, rows),
+            substitute_row(&f.uses, tys, rows),
         ),
         _ => ty.map_children(|child| substitute(child, tys, rows)),
     }
