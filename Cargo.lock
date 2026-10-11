@@ -282,6 +282,7 @@ dependencies = [
  "line-index",
  "serde",
  "serde_json",
+ "smol_str",
  "toml",
 ]
 

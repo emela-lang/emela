@@ -4,7 +4,7 @@ use std::path::Path;
 
 use emela_driver::{
     Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location,
-    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, check, render,
+    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Typecheck, check, render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -434,4 +434,60 @@ fn bundled_core_resolves_cleanly() {
         &mut frontend,
     );
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+}
+
+#[test]
+fn bundled_core_typechecks_cleanly() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.unwrap_or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+}
+
+#[test]
+fn type_checking_reports_in_source_order() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"type User(id: Int, name: String)
+
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+
+fn connect(host: String, port: Int) -> Bool { todo() }
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle(radius:) -> radius
+    Rect(w, h) -> w * h
+    _ -> 0.0
+    Empty -> 1.0
+  }
+}
+
+fn main() {
+  u = User(id: 1, name: "a")
+  a: Int = u.name
+  b = connect("x", prot: 1)
+  c: Int = 3000000000
+  Some(x) = Some(1)
+  User(name:) = u
+  d = u.nmae
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

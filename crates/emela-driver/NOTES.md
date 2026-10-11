@@ -23,9 +23,10 @@ pub trait JsBackend<P> {
 - `check` は読んだ全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は読んだモジュールだけの依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
 - `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
 - `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はしないので `Program = ()`
-- `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）．cli はこれを使う
+- `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）
+- `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli と LSP はこれを使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `Resolve` と `NoJsBackend` をそれぞれ差し替える
+- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．lowering ができて `Frontend::Program` が `emela_core::Module` になったら，cli の `Typecheck` と `NoJsBackend` をそれぞれ差し替える（lowering は `TypedProgram` を読む）
 
 ## テスト（`emela test`，仕様 13章）
 
@@ -51,7 +52,7 @@ pub trait TestBackend<P> {
 
 - テスト用の lowering は `Frontend<Program = TestModule>` として書く．`WithTests` と同じく内側（型推論まで）の検査の後に `collect_tests` を呼び，`TestFn` ごとに HIR の定義を引いて（`TestFn::module` と `name_range` が `DefData::span` と一致する），テスト関数も含めて Core IR にする．`TestCase::name` は `TestFn::display_name` をそのまま使う
 - 通常のビルドの lowering は `is_test_fn`（または `collect_tests` の結果）でテスト関数を除く（13.1）．`assert` は除かない（13.2）
-- cli の `Test` は今 `WithTests(Resolve)` と `NoJsBackend` を使う．lowering ができたらテスト用の lowering と `CoreJs` に差し替える（`CoreJs` は `TestBackend<TestModule>` を持つ）
+- cli の `Test` は今 `WithTests(Typecheck)` と `NoJsBackend` を使う．lowering ができたらテスト用の lowering と `CoreJs` に差し替える（`CoreJs` は `TestBackend<TestModule>` を持つ）
 - `assert` の lowering は，式が比較（`==`，`!=`，`<`，`<=`，`>`，`>=`）なら `Assert::compare`，それ以外は `Assert::bool` にする．`text` には式のソースの字面を入れる
 
 ### 補った判断
@@ -117,7 +118,10 @@ pub trait TestBackend<P> {
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
 - （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える．`WithTests` は内側のフロントエンドの core のソースをそのまま渡す
 - （補）`@test` の誤りのコードは E0226 にした．E0222〜E0225 は仕様の付録 A で部分更新と `@intrinsic` に振ってあったため
-- （補）`Resolve::check` は型検査がまだないので，名前解決の結果をそのまま `Program` として返す．組み込みのモジュールは `NoBuiltins`（emela-core の組み込み関数の表が入ったら差し替える）
+- （補）`Resolve::check` は名前解決の結果をそのまま `Program` として返す．型検査は `Typecheck` が重ねる．組み込みのモジュールは `NoBuiltins`（emela-core の組み込み関数の表が入ったら差し替える）
 - （補）名前解決の診断（E0211〜E0221，W0201〜W0202）の英語の文面は `Diagnostic::from_resolve` が作る．重複の診断は先の定義に label を付け，「もしかして」の候補は `= help: did you mean ...` にする
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
+- （補）`Typecheck` は名前解決に誤りがあっても型検査をする．解決できなかった名前は型推論が `Ty::Error` として扱い，誤りを重ねない（仕様の「誤りを全部集める」方針）
+- （補）型検査の診断（E0301〜E0317，W0301）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．alpha.1 でまだ扱えない構文（fail，use，with など）はコードなしのエラー `not supported yet: …` にする
+- （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く
