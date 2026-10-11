@@ -10,7 +10,7 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Initialized, Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{Initialize, Request as _, Shutdown};
+use lsp_types::request::{Formatting, Initialize, Request as _, Shutdown};
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
 
@@ -135,6 +135,29 @@ impl Client {
             DidCloseTextDocument::METHOD,
             json!({ "textDocument": { "uri": uri(path) } }),
         );
+    }
+
+    /// `id` の要求の応答．先に届いた publishDiagnostics は読み飛ばす（解析と要求の順は決まらない）．
+    fn response(&self, id: &RequestId) -> lsp_server::Response {
+        loop {
+            match self.recv() {
+                Message::Response(response) if response.id == *id => return response,
+                Message::Notification(n) if n.method == PublishDiagnostics::METHOD => {}
+                other => panic!("応答の前に届いた: {other:?}"),
+            }
+        }
+    }
+
+    /// 文書の整形を求め，結果（`null` なら `None`）を返す．
+    fn format(&mut self, path: &str) -> Option<Vec<lsp::TextEdit>> {
+        let id = self.request(
+            Formatting::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "options": { "tabSize": 4, "insertSpaces": true },
+            }),
+        );
+        serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
     }
 
     /// 次の publishDiagnostics．
@@ -410,6 +433,52 @@ fn unsupported_requests_get_an_error() {
             );
         }
         other => panic!("{other:?}"),
+    }
+    client.shutdown();
+}
+
+#[test]
+fn formatting_replaces_the_whole_document() {
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", "fn main() { 1 }\n"),
+        ("/app/src/util.emel", "fn f( ) {1}\n"),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    // 能力で整形を知らせる．
+    assert_eq!(
+        emela_lsp::capabilities().document_formatting_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    // 開いた文書は未保存の内容を整形する．範囲は文書の全体（末尾の改行の後ろまで）．
+    client.open("/app/src/main.emel", 1, "fn main( ) {\n  \"あ\"}");
+    let edits = client.format("/app/src/main.emel").unwrap();
+    assert_eq!(
+        edits,
+        vec![lsp::TextEdit {
+            range: range((0, 0), (1, 6)),
+            new_text: "fn main() {\n  \"あ\"\n}\n".to_owned(),
+        }]
+    );
+    // 整っていれば編集なし．
+    client.change("/app/src/main.emel", 2, "fn main() { 1 }\n");
+    assert_eq!(client.format("/app/src/main.emel"), Some(vec![]));
+    // 開いていなければディスクの内容．
+    let edits = client.format("/app/src/util.emel").unwrap();
+    assert_eq!(edits[0].range, range((0, 0), (1, 0)));
+    assert_eq!(edits[0].new_text, "fn f() { 1 }\n");
+    // 構文エラーなら null．
+    client.change("/app/src/main.emel", 3, "fn main( {\n");
+    assert_eq!(client.format("/app/src/main.emel"), None);
+    // 読めないファイルも null．
+    assert_eq!(client.format("/app/src/nowhere.emel"), None);
+    // 先に届いていない診断を読んでから終える．
+    while let Ok(message) = client
+        .connection
+        .receiver
+        .recv_timeout(Duration::from_millis(200))
+    {
+        assert!(matches!(message, Message::Notification(_)), "{message:?}");
     }
     client.shutdown();
 }
