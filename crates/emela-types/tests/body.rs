@@ -365,3 +365,34 @@ fn f(o: Option[Int]) -> Int {
 }
 "#));
 }
+
+#[test]
+fn expected_type_reaches_branches() {
+    insta::assert_snapshot!(run(r#"
+fn by_if(c: Bool) -> Int {
+  if c { 1 } else { "a" }
+}
+fn by_match(o: Option[Int]) -> Int {
+  match o {
+    Some(x) -> x
+    None -> "none"
+  }
+}
+fn nested(c: Bool) -> Int {
+  {
+    y = 1
+    if c { y } else { { "deep" } }
+  }
+}
+fn no_tail() -> Int {
+  x = 1
+}
+fn annotated(c: Bool) -> Int {
+  v: String = if c { "s" } else { 2 }
+  1
+}
+fn never_branch(c: Bool) -> Int {
+  if c { panic("x") } else { 1 }
+}
+"#));
+}

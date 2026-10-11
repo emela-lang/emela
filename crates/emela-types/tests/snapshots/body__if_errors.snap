@@ -9,4 +9,4 @@ f: fn(Int) -> Int
   c: ()
 `n` mismatch: expected `Bool`, found `Int`
 `{ "a" }` mismatch: expected `Int`, found `String`
-`{ 1 }` mismatch: expected `()`, found `Int`
+`1` mismatch: expected `()`, found `Int`

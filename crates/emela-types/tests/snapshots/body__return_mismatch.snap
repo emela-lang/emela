@@ -9,9 +9,5 @@ id: fn('0) -> '0
 ok: fn('0) -> '0
   x: '0
   y: '0
-`{
-  x
-}` mismatch: expected `String`, found `Int`
-`{
-  1
-}` mismatch: expected `'0`, found `Int`
+`x` mismatch: expected `String`, found `Int`
+`1` mismatch: expected `'0`, found `Int`

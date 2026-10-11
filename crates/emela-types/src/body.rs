@@ -144,13 +144,16 @@ impl<'a> BodyInfer<'a> {
 
     /// 式の型を推論し，記録して返す．
     fn infer_expr(&mut self, expr: ExprId) -> Ty {
-        let ty = self.infer_expr_kind(expr);
+        let ty = self.infer_expr_kind(expr, None);
         self.exprs.insert(expr, ty.clone());
         ty
     }
 
     /// 式の種類ごとの推論．
-    fn infer_expr_kind(&mut self, expr: ExprId) -> Ty {
+    ///
+    /// `expected` は期待する型．ブロック，if，match だけが使い，最後の式や各分岐まで渡す
+    /// （[`Self::check_expr`]）．それ以外の式は無視する．
+    fn infer_expr_kind(&mut self, expr: ExprId, expected: Option<&Ty>) -> Ty {
         let program = self.program;
         let e = &program.exprs[expr];
         match &e.kind {
@@ -163,14 +166,14 @@ impl<'a> BodyInfer<'a> {
             }
             ExprKind::Path(Res::Def(def)) => self.infer_def_ref(*def, e.span),
             ExprKind::Path(Res::Err) => Ty::Error,
-            ExprKind::Block(block) => self.infer_block(block),
+            ExprKind::Block(block) => self.infer_block(block, e.span, expected),
             ExprKind::Call { callee, args } => self.infer_call(*callee, args, e.span),
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => self.infer_if(*cond, *then_branch, *else_branch),
-            ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms),
+            } => self.infer_if(*cond, *then_branch, *else_branch, e.span, expected),
+            ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms, expected),
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -182,7 +185,8 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// ブロックの型．最後が束縛か空なら `()`．
-    fn infer_block(&mut self, block: &Block) -> Ty {
+    /// 期待する型があれば最後の式に渡し，ブロックの型はその型にする．
+    fn infer_block(&mut self, block: &Block, span: Span, expected: Option<&Ty>) -> Ty {
         for stmt in &block.stmts {
             match stmt {
                 Stmt::Let { pat, ty, value } => {
@@ -201,10 +205,22 @@ impl<'a> BodyInfer<'a> {
                 }
             }
         }
-        match block.tail {
-            Some(expr) => self.infer_expr(expr),
-            None => Ty::UNIT,
+        match (block.tail, expected) {
+            (Some(expr), Some(expected)) => {
+                self.check_expr(expr, expected);
+                expected.clone()
+            }
+            (Some(expr), None) => self.infer_expr(expr),
+            (None, expected) => self.unit_at(span, expected),
         }
+    }
+
+    /// 値が `()` の式の型．期待する型があれば `()` をその位置に置く．
+    fn unit_at(&mut self, span: Span, expected: Option<&Ty>) -> Ty {
+        if let Some(expected) = expected {
+            self.coerce_at(span, expected, &Ty::UNIT);
+        }
+        Ty::UNIT
     }
 
     /// 定義の参照の型．宣言の型の型引数を新しい型変数に置き換える．
@@ -284,28 +300,40 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// if の型．else がなければ本体は `()` か `Never` で，全体は `()`（6.4）．
-    fn infer_if(&mut self, cond: ExprId, then_branch: ExprId, else_branch: Option<ExprId>) -> Ty {
+    /// 期待する型があり else もあれば，両方の分岐に期待する型を渡す．
+    fn infer_if(
+        &mut self,
+        cond: ExprId,
+        then_branch: ExprId,
+        else_branch: Option<ExprId>,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> Ty {
         self.check_expr(cond, &Ty::BOOL);
 
-        let then_ty = self.infer_expr(then_branch);
-
-        match else_branch {
-            Some(else_branch) => {
+        match (else_branch, expected) {
+            (Some(else_branch), Some(expected)) => {
+                self.check_expr(then_branch, expected);
+                self.check_expr(else_branch, expected);
+                expected.clone()
+            }
+            (Some(else_branch), None) => {
+                let then_ty = self.infer_expr(then_branch);
                 let else_ty = self.infer_expr(else_branch);
                 let span = self.program.exprs[else_branch].span;
                 self.join_at(span, &then_ty, &else_ty)
             }
-            None => {
-                let span = self.program.exprs[then_branch].span;
-                self.coerce_at(span, &Ty::UNIT, &then_ty);
-                Ty::UNIT
+            (None, expected) => {
+                self.check_expr(then_branch, &Ty::UNIT);
+                self.unit_at(span, expected)
             }
         }
     }
 
     /// match の型．各腕のパターンに対象の型を渡し，腕の本体の型を合わせる．
     /// 全体の型は `Never` から始めて腕ごとに `join` する．腕のない match は `Never`．
-    fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm]) -> Ty {
+    /// 期待する型があれば，各腕の本体に渡す．
+    fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm], expected: Option<&Ty>) -> Ty {
         let scrutinee_ty = self.infer_expr(scrutinee);
 
         let mut result = Ty::Never;
@@ -317,20 +345,39 @@ impl<'a> BodyInfer<'a> {
                 self.check_expr(guard, &Ty::BOOL);
             }
 
-            let body_ty = self.infer_expr(arm.body);
-            let span = self.program.exprs[arm.body].span;
-            result = self.join_at(span, &result, &body_ty);
+            match expected {
+                Some(expected) => {
+                    self.check_expr(arm.body, expected);
+                    result = expected.clone();
+                }
+                None => {
+                    let body_ty = self.infer_expr(arm.body);
+                    let span = self.program.exprs[arm.body].span;
+                    result = self.join_at(span, &result, &body_ty);
+                }
+            }
         }
 
         result
     }
 
     /// 式を推論し，期待する型の位置に置く．
+    ///
+    /// ブロック，if，match は期待する型を最後の式や各分岐まで渡すので，型が合わないときは
+    /// 一番内側の食い違った式を指す．それ以外の式は推論してから照合する．
     fn check_expr(&mut self, expr: ExprId, expected: &Ty) {
         let program = self.program;
         let e = &program.exprs[expr];
-        let actual = self.infer_expr(expr);
-        self.coerce_at(e.span, expected, &actual)
+        match e.kind {
+            ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Match { .. } => {
+                let ty = self.infer_expr_kind(expr, Some(expected));
+                self.exprs.insert(expr, ty);
+            }
+            _ => {
+                let actual = self.infer_expr(expr);
+                self.coerce_at(e.span, expected, &actual);
+            }
+        }
     }
 
     /// 本体の中の型注釈を Ty にする．

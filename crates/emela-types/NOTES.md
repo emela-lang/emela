@@ -55,3 +55,4 @@
 - E0308 `MissingPatternFields`: ``pattern `User` does not mention fields `id`, `email` ``（1つなら ``field `id` ``）．4つ以上なら先頭の3つと ``and N more``．注記 ``= help: add `..` to ignore the remaining fields``
 - E0309 `PatternFieldCount`: ``pattern `Rect` has 2 fields, found 1``
 - `Unsupported`: コードなしの ``error: not supported yet: {what}``（alpha.1 の間だけ）
+- （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．

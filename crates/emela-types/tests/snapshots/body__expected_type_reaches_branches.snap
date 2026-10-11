@@ -1,0 +1,26 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn by_if(c: Bool) -> Int {\n  if c { 1 } else { \"a\" }\n}\nfn by_match(o: Option[Int]) -> Int {\n  match o {\n    Some(x) -> x\n    None -> \"none\"\n  }\n}\nfn nested(c: Bool) -> Int {\n  {\n    y = 1\n    if c { y } else { { \"deep\" } }\n  }\n}\nfn no_tail() -> Int {\n  x = 1\n}\nfn annotated(c: Bool) -> Int {\n  v: String = if c { \"s\" } else { 2 }\n  1\n}\nfn never_branch(c: Bool) -> Int {\n  if c { panic(\"x\") } else { 1 }\n}\n\"#)"
+---
+by_if: fn(Bool) -> Int
+  c: Bool
+by_match: fn(Option[Int]) -> Int
+  o: Option[Int]
+  x: Int
+nested: fn(Bool) -> Int
+  c: Bool
+  y: Int
+no_tail: fn() -> Int
+  x: Int
+annotated: fn(Bool) -> Int
+  c: Bool
+  v: String
+never_branch: fn(Bool) -> Int
+  c: Bool
+`"a"` mismatch: expected `Int`, found `String`
+`"none"` mismatch: expected `Int`, found `String`
+`"deep"` mismatch: expected `Int`, found `String`
+`{
+  x = 1
+}` mismatch: expected `Int`, found `()`
+`2` mismatch: expected `String`, found `Int`
