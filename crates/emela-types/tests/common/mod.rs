@@ -1,0 +1,81 @@
+//! テストの共通の準備．ソース1つを名前解決して `Program` を作る．
+
+use std::fmt::Write;
+use std::path::Path;
+
+use emela_resolve::hir::{DefId, DefModule, Program};
+use emela_resolve::{
+    Diagnostic, MemoryFs, ModuleId, NoBuiltins, build_import_graph, collect_modules, imports,
+    resolve,
+};
+use emela_types::{Diagnostic as TypeDiagnostic, Signatures, TyTable};
+use la_arena::ArenaMap;
+
+/// `main.emel` を名前解決する．構文の誤りは許さない．
+pub fn resolve_main(src: &str) -> (Program, ModuleId, Vec<Diagnostic>) {
+    let fs = MemoryFs::new(["src/main.emel".to_string()]);
+    let (modules, diagnostics) = collect_modules(&fs, Path::new("src"));
+    assert_eq!(diagnostics, []);
+    let (module, _) = modules.iter().next().unwrap();
+    let parse = emela_syntax::parse(src);
+    assert!(parse.diagnostics().is_empty(), "{:?}", parse.diagnostics());
+    let mut trees = ArenaMap::default();
+    let mut import_lists = ArenaMap::default();
+    import_lists.insert(module, imports(&parse.tree()));
+    trees.insert(module, parse.tree());
+    let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
+    assert_eq!(graph_diagnostics, []);
+    let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
+    (program, module, diagnostics)
+}
+
+/// 型の診断を `` `List[Int, Int]` WrongTypeArgCount { ... } `` の形にする．
+pub fn describe(src: &str, d: &TypeDiagnostic) -> String {
+    let text = d.span.map_or("<no span>", |s| {
+        let range = s.range;
+        &src[usize::from(range.start())..usize::from(range.end())]
+    });
+    format!("`{text}` {:?}", d.kind)
+}
+
+/// `main.emel` の宣言の型を集め，`include` が選んだ定義の型と診断を文字列にする．
+///
+/// 1行に1つ，`名前: 型` と出す．`show_labels` なら，ラベルを後ろに `(id:, name:)` の形で添える．
+/// 位置だけのフィールドのラベルは `_`．
+pub fn render_signatures(
+    src: &str,
+    show_labels: bool,
+    include: impl Fn(&Program, DefId) -> bool,
+) -> String {
+    let (program, module, resolve_diagnostics) = resolve_main(src);
+    let table = TyTable::new(&program);
+    let mut diags = Vec::new();
+    let sigs = Signatures::collect(&program, &table, &mut diags);
+
+    let mut out = String::new();
+    for (def, data) in program.defs.iter() {
+        if data.module != DefModule::Source(module) || !include(&program, def) {
+            continue;
+        }
+        let Some(sig) = sigs.get(def) else {
+            continue;
+        };
+        write!(out, "{}: {}", data.name, sig.scheme.display(&table.cons)).unwrap();
+        if show_labels && !sig.labels.is_empty() {
+            let labels: Vec<String> = sig
+                .labels
+                .iter()
+                .map(|l| l.as_ref().map_or("_".to_string(), |l| format!("{l}:")))
+                .collect();
+            write!(out, "  ({})", labels.join(", ")).unwrap();
+        }
+        out.push('\n');
+    }
+    for d in &resolve_diagnostics {
+        writeln!(out, "resolve: {d}").unwrap();
+    }
+    for d in &diags {
+        writeln!(out, "{}", describe(src, d)).unwrap();
+    }
+    out
+}

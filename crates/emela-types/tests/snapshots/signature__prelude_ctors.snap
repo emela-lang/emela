@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/signature.rs
+expression: out
+---
+Some: ∀ A. fn(A) -> Option[A]
+None: ∀ A. Option[A]
+True: Bool
+False: Bool

@@ -10,6 +10,7 @@ mod exhaustiveness;
 mod infer;
 mod lower;
 mod scheme;
+mod signature;
 mod ty;
 
 #[cfg(test)]
@@ -25,4 +26,5 @@ pub use exhaustiveness::{
 pub use infer::{InferCtx, substitute_bound};
 pub use lower::TyTable;
 pub use scheme::Scheme;
+pub use signature::{Signature, Signatures};
 pub use ty::{FnTy, Prim, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam, TyVar};

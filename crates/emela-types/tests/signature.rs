@@ -1,0 +1,69 @@
+//! 宣言の型（`Signatures::collect`）をスナップショットで確かめる．
+//!
+//! fn・構成子・const の型と引数のラベルを出す．例は仕様の 5章，6.2，7.1 から取る．
+
+mod common;
+
+use common::render_signatures;
+
+fn run(src: &str) -> String {
+    render_signatures(src, true, |_, _| true)
+}
+
+#[test]
+fn fn_labels() {
+    insta::assert_snapshot!(run(r#"
+fn connect(host: String, port: Int) -> () { todo() }
+fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { todo() }
+fn inferred(x: Int) { x }
+"#));
+}
+
+#[test]
+fn type_ctors() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+type Pair[A, B](first: A, second: B)
+"#));
+}
+
+#[test]
+fn enum_variants() {
+    insta::assert_snapshot!(run(r#"
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+enum Tree[A] {
+  Leaf
+  Node(Tree[A], A, Tree[A])
+}
+"#));
+}
+
+#[test]
+fn errors_and_consts() {
+    insta::assert_snapshot!(run(r#"
+error NotFound(id: Int)
+error Timeout
+const MAX_RETRY: Int = 3
+const INFERRED = 3
+"#));
+}
+
+#[test]
+fn prelude_ctors() {
+    // Prelude の構成子は main.emel の定義ではないので，ここで直接引いて出す．
+    use emela_types::{Signatures, TyTable};
+    let (program, _, _) = common::resolve_main("");
+    let table = TyTable::new(&program);
+    let sigs = Signatures::collect(&program, &table, &mut Vec::new());
+    let mut out = String::new();
+    for name in ["Some", "None", "True", "False"] {
+        let def = program.prelude_def(name).unwrap();
+        let sig = sigs.get(def).unwrap();
+        out.push_str(&format!("{name}: {}\n", sig.scheme.display(&table.cons)));
+    }
+    insta::assert_snapshot!(out);
+}

@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/signature.rs
+expression: "run(r#\"\nerror NotFound(id: Int)\nerror Timeout\nconst MAX_RETRY: Int = 3\nconst INFERRED = 3\n\"#)"
+---
+NotFound: fn(Int) -> NotFound  (id:)
+Timeout: Timeout
+MAX_RETRY: Int

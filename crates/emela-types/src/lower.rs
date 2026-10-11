@@ -15,13 +15,18 @@ use smol_str::SmolStr;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::ty::{Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
+/// 名前付き型の表．type / enum / error の定義から作る．
 pub struct TyTable {
+    /// 登録した宣言．型の表示で名前を引くのに使う．
     pub cons: TyCons,
+    /// 定義から，登録した宣言への対応．
     by_def: ArenaMap<DefId, TyConId>,
+    /// Prelude の Bool の enum．TyCons に登録せず Ty::BOOL に写す．
     bool_def: Option<DefId>,
 }
 
 impl TyTable {
+    /// type / enum / error の定義を登録して表を作る．
     pub fn new(program: &Program) -> Self {
         let mut cons = TyCons::new();
         let mut by_def = ArenaMap::default();
@@ -38,21 +43,10 @@ impl TyTable {
                 continue;
             }
 
-            let type_params: &[TypeParam] = match program.item(def) {
-                Some(Item::Type(TypeItem { type_params, .. }))
-                | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
-                _ => &[],
-            };
-
-            let params = type_params
-                .iter()
-                .map(|tp| TyParam::new(program.defs[tp.def].name.clone()))
-                .collect();
-
             let id = cons.alloc(TyConData {
                 name: data.name.clone(),
                 kind,
-                params,
+                params: ty_params(program, &type_param_defs(program, def)),
             });
 
             by_def.insert(def, id);
@@ -65,6 +59,12 @@ impl TyTable {
         }
     }
 
+    /// type / enum / error の定義を登録した宣言．Bool と，それ以外の定義には `None`．
+    pub fn con(&self, def: DefId) -> Option<TyConId> {
+        self.by_def.get(def).copied()
+    }
+
+    /// 型の書き方を Ty にする．`params` は宣言の型引数で，`A` は位置 i の `Ty::Bound(i)` になる．
     pub fn lower(
         &self,
         program: &Program,
@@ -72,44 +72,76 @@ impl TyTable {
         ty: TypeId,
         diags: &mut Vec<Diagnostic>,
     ) -> Ty {
-        let type_def = &program.types[ty];
-        match &type_def.kind {
+        let type_ref = &program.types[ty];
+        match &type_ref.kind {
             TypeKind::Missing => Ty::Error,
             TypeKind::Unit => Ty::UNIT,
             TypeKind::SelfType => {
                 diags.push(Diagnostic {
-                    span: type_def.span,
+                    span: type_ref.span,
                     kind: DiagnosticKind::Unsupported { what: "Self" },
                 });
                 Ty::Error
             }
-            TypeKind::Tuple(elems) => Ty::tuple(
-                elems
-                    .iter()
-                    .map(|&elem| self.lower(program, params, elem, diags)),
-            ),
+            TypeKind::Tuple(elems) => {
+                Ty::tuple(self.lower_all(program, params, elems.iter().copied(), diags))
+            }
             TypeKind::Fn {
                 params: fn_params,
                 ret,
                 ..
             } => {
-                let ret_ty = match ret {
-                    Some(ty) => self.lower(program, params, *ty, diags),
-                    None => Ty::Error,
-                };
-                Ty::func(
-                    fn_params
-                        .iter()
-                        .map(|&p| self.lower(program, params, p, diags)),
-                    ret_ty,
-                )
+                let ret_ty = self.lower_or_error(program, params, *ret, diags);
+                let param_tys = self.lower_all(program, params, fn_params.iter().copied(), diags);
+                Ty::func(param_tys, ret_ty)
             }
             TypeKind::Path { res, args } => {
-                self.lower_path(program, params, type_def, *res, args, diags)
+                self.lower_path(program, params, type_ref, *res, args, diags)
             }
         }
     }
 
+    /// 型の書き方の並びを順に Ty にする．
+    pub fn lower_all(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        tys: impl IntoIterator<Item = TypeId>,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Vec<Ty> {
+        tys.into_iter()
+            .map(|ty| self.lower(program, params, ty, diags))
+            .collect()
+    }
+
+    /// 書いていないかもしれない型を Ty にする．書いていなければ `Ty::Error`．
+    pub fn lower_or_error(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        ty: Option<TypeId>,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Ty {
+        match ty {
+            Some(ty) => self.lower(program, params, ty, diags),
+            None => Ty::Error,
+        }
+    }
+
+    /// type / enum / error の定義が名指す型．型引数は `Bound(0)`，`Bound(1)`，… で埋める．
+    /// Bool は `Ty::BOOL`．それ以外の定義（handler など）は `None`．
+    pub fn self_ty(&self, def: DefId) -> Option<Ty> {
+        if self.bool_def == Some(def) {
+            return Some(Ty::BOOL);
+        }
+
+        let id = self.con(def)?;
+        let n = self.cons[id].params.len();
+
+        Some(Ty::named(id, (0..n).map(|i| Ty::Bound(i as u32))))
+    }
+
+    /// 名前の付いた型（`Int`，`List[A]`，`Option[Int]`，`A`）を Ty にする．
     fn lower_path(
         &self,
         program: &Program,
@@ -170,8 +202,7 @@ impl TyTable {
                 };
                 Ty::named(
                     id,
-                    args.iter()
-                        .map(|&elem| self.lower(program, params, elem, diags)),
+                    self.lower_all(program, params, args.iter().copied(), diags),
                 )
             }
             _ => Ty::Error,
@@ -179,6 +210,7 @@ impl TyTable {
     }
 }
 
+/// 型引数の数が `expected` なら true．違えば E0304 を足して false．
 fn check_arity(
     name: &SmolStr,
     expected: usize,
@@ -199,4 +231,22 @@ fn check_arity(
     } else {
         true
     }
+}
+
+/// type / enum の型引数の定義．それ以外は空．
+pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
+    let type_params: &[TypeParam] = match program.item(def) {
+        Some(Item::Type(TypeItem { type_params, .. }))
+        | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
+        _ => &[],
+    };
+
+    type_params.iter().map(|tp| tp.def).collect()
+}
+
+/// 型引数の定義の並びから，スキームと型の宣言に付ける名前の並びを作る．
+pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
+    defs.iter()
+        .map(|&def| TyParam::new(program.defs[def].name.clone()))
+        .collect()
 }
