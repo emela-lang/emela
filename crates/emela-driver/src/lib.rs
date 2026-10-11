@@ -4,6 +4,7 @@
 
 pub mod code;
 mod diagnostic;
+mod fmt;
 mod frontend;
 mod js;
 mod output;
@@ -15,6 +16,10 @@ mod testing;
 
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;
+pub use fmt::{
+    FmtFailure, FmtReport, FmtTarget, STDIN_DISPLAY, STDIN_PATH, WriteFile, fmt, fmt_targets,
+    format_source,
+};
 pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use output::{JsOutput, OutputFile, write_output};
