@@ -650,3 +650,108 @@ fn uses_k_twice(n: Int) {
 }
 "#));
 }
+
+#[test]
+fn exhaustiveness() {
+    insta::assert_snapshot!(run(r#"
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle(radius:) -> radius
+    Rect(w, h) -> w * h
+  }
+}
+
+fn guarded(o: Option[Int]) -> Int {
+  match o {
+    Some(x) if x > 0 -> x
+    None -> 0
+  }
+}
+
+fn nested(o: Option[Option[Bool]]) -> Int {
+  match o {
+    Some(Some(True)) -> 1
+    None -> 0
+  }
+}
+
+fn lists(xs: List[Int]) -> Int {
+  match xs {
+    [] -> 0
+    [x] -> x
+  }
+}
+
+fn bools(a: Bool, b: Bool) -> Int {
+  match (a, b) {
+    (True, _) -> 1
+    (False, True) -> 2
+    (False, False) -> 3
+  }
+}
+
+fn literals(n: Int) -> String {
+  match n {
+    0 -> "zero"
+    1 -> "one"
+  }
+}
+
+fn named(u: Option[Shape]) -> Int {
+  match u {
+    Some(Circle(radius: _)) -> 1
+    Some(Rect(..)) -> 2
+    Some(Empty) -> 3
+    None -> 4
+  }
+}
+"#));
+}
+
+#[test]
+fn unreachable_arms() {
+    insta::assert_snapshot!(run(r#"
+const MAX = 10
+
+fn f(o: Option[Int], n: Int) -> Int {
+  a = match o {
+    _ -> 0
+    Some(x) -> x
+  }
+  b = match n {
+    MAX -> 1
+    MAX -> 2
+    _ -> 3
+  }
+  c = match o {
+    Some(x) if x > 0 -> x
+    Some(x) -> x
+    None -> 0
+  }
+  a
+}
+"#));
+}
+
+#[test]
+fn refutable_bindings() {
+    insta::assert_snapshot!(run(r#"
+type User(id: Int, name: String)
+
+fn f(o: Option[Int], xs: List[Int], u: User, p: (Int, Bool)) -> Int {
+  Some(x) = o
+  [y, ..rest] = xs
+  0 = x
+  User(id:, ..) = u
+  (n, True) = p
+  (m, b) = p
+  id
+}
+"#));
+}

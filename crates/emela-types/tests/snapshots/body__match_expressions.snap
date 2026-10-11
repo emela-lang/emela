@@ -13,3 +13,4 @@ first: fn(List[Int]) -> Option[Int]
 label: fn(Int) -> String
   n: Int
   r: String
+`s` non-exhaustive match: Circle(_) not covered

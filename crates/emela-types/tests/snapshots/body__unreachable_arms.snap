@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nconst MAX = 10\n\nfn f(o: Option[Int], n: Int) -> Int {\n  a = match o {\n    _ -> 0\n    Some(x) -> x\n  }\n  b = match n {\n    MAX -> 1\n    MAX -> 2\n    _ -> 3\n  }\n  c = match o {\n    Some(x) if x > 0 -> x\n    Some(x) -> x\n    None -> 0\n  }\n  a\n}\n\"#)"
+---
+f: fn(Option[Int], Int) -> Int
+  o: Option[Int]
+  n: Int
+  x: Int
+  a: Int
+  b: Int
+  x: Int
+  x: Int
+  c: Int
+`Some(x)` warning: unreachable match arm
+`MAX` warning: unreachable match arm

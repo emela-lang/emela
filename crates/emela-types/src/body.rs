@@ -15,7 +15,9 @@ use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
 use crate::FnTy;
+use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::exhaustiveness::{self, Witness, check_match};
 use crate::infer::{InferCtx, substitute_bound};
 use crate::lower::TyTable;
 use crate::signature::{Signature, Signatures, param_ty};
@@ -58,6 +60,8 @@ pub(crate) struct BodyInfer<'a> {
     diags: Vec<Diagnostic>,
     /// 数の型の制約．本体を推論し終えたときに確かめる（[`Self::check_numbers`]）．
     numbers: Vec<NumConstraint>,
+    /// 網羅性を確かめる match と束縛．型が決まってから確かめる（[`Self::check_coverage`]）．
+    coverage: Vec<CoverageSite>,
 }
 
 impl<'a> BodyInfer<'a> {
@@ -79,6 +83,7 @@ impl<'a> BodyInfer<'a> {
             pats: ArenaMap::new(),
             diags: Vec::new(),
             numbers: Vec::new(),
+            coverage: Vec::new(),
         }
     }
 
@@ -160,6 +165,71 @@ impl<'a> BodyInfer<'a> {
             .map(|(_, ty, n)| (ty.clone(), *n))
     }
 
+    /// match の網羅性と冗長な腕，束縛のパターンが必ず成功するかを確かめる（6.3，6.5）．
+    /// 対象の型が `Ty::Error` なら，別の誤りが出ているので確かめない．
+    fn check_coverage(&mut self) {
+        let shapes = Shapes {
+            program: self.program,
+            ty_table: self.ty_table,
+            sigs: self.sigs,
+        };
+        for site in std::mem::take(&mut self.coverage) {
+            match site {
+                CoverageSite::Match {
+                    scrutinee,
+                    ty,
+                    arms,
+                } => {
+                    let ty = self.ctx.resolve(&ty);
+                    if ty == Ty::Error {
+                        continue;
+                    }
+                    let check_arms: Vec<exhaustiveness::Arm> = arms
+                        .iter()
+                        .map(|arm| exhaustiveness::Arm {
+                            pat: shapes.pat(arm.pat, &ty),
+                            guarded: arm.guard.is_some(),
+                        })
+                        .collect();
+                    let result = check_match(&shapes, &ty, &check_arms);
+                    if !result.missing.is_empty() {
+                        self.diags.push(Diagnostic {
+                            span: Some(self.program.exprs[scrutinee].span),
+                            kind: DiagnosticKind::NonExhaustiveMatch {
+                                missing: witnesses(&result.missing),
+                            },
+                        });
+                    }
+                    for i in result.redundant {
+                        self.diags.push(Diagnostic {
+                            span: Some(self.program.pats[arms[i].pat].span),
+                            kind: DiagnosticKind::UnreachableArm,
+                        });
+                    }
+                }
+                CoverageSite::Binding { pat, ty } => {
+                    let ty = self.ctx.resolve(&ty);
+                    if ty == Ty::Error {
+                        continue;
+                    }
+                    let arm = exhaustiveness::Arm {
+                        pat: shapes.pat(pat, &ty),
+                        guarded: false,
+                    };
+                    let result = check_match(&shapes, &ty, &[arm]);
+                    if !result.missing.is_empty() {
+                        self.diags.push(Diagnostic {
+                            span: Some(self.program.pats[pat].span),
+                            kind: DiagnosticKind::RefutableBinding {
+                                missing: witnesses(&result.missing),
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     /// 型の中のまだ決まっていない型変数を，新しい型変数に置き換える．同じ型変数は同じものにする．
     fn freshen(&mut self, ty: &Ty, fresh: &mut FxHashMap<TyVar, Ty>) -> Ty {
         match self.ctx.shallow_resolve(ty) {
@@ -186,6 +256,7 @@ impl<'a> BodyInfer<'a> {
             }
         }
         self.check_numbers();
+        self.check_coverage();
 
         let program = self.program;
         let mut inferred = Vec::new();
@@ -309,6 +380,10 @@ impl<'a> BodyInfer<'a> {
                         None => self.infer_expr(*value),
                     };
                     self.bind_pat(*pat, &bound_ty);
+                    self.coverage.push(CoverageSite::Binding {
+                        pat: *pat,
+                        ty: bound_ty,
+                    });
                 }
                 Stmt::Expr(expr) => {
                     self.infer_expr(*expr);
@@ -802,6 +877,11 @@ impl<'a> BodyInfer<'a> {
     /// 期待する型があれば，各腕の本体に渡す．
     fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm], expected: Option<&Ty>) -> Ty {
         let scrutinee_ty = self.infer_expr(scrutinee);
+        self.coverage.push(CoverageSite::Match {
+            scrutinee,
+            ty: scrutinee_ty.clone(),
+            arms: arms.to_vec(),
+        });
 
         let mut result = Ty::Never;
 
@@ -1238,4 +1318,23 @@ struct DeferredRef {
     /// 参照の式に付けた型．
     instance: Ty,
     span: Span,
+}
+
+/// 網羅性を確かめる場所．
+enum CoverageSite {
+    Match {
+        scrutinee: ExprId,
+        ty: Ty,
+        arms: Vec<Arm>,
+    },
+    /// 束縛 `pat = value`．パターンは必ず成功しなければならない（6.3）．
+    Binding { pat: PatId, ty: Ty },
+}
+
+/// 足りない値の例を文字列にする．
+fn witnesses(missing: &[Witness]) -> Vec<SmolStr> {
+    missing
+        .iter()
+        .map(|w| SmolStr::new(w.to_string()))
+        .collect()
 }

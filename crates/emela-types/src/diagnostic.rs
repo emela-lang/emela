@@ -65,4 +65,17 @@ pub enum DiagnosticKind {
     OpaqueField { ty: Ty, field: SmolStr },
     /// トップレベルの fn の引数に型を書いていない（E0316，6.1）．
     MissingParamType { param: SmolStr },
+    /// match が網羅していない（E0303，6.5）．`missing` は足りない値の例（`Rect(_, _)`）．
+    NonExhaustiveMatch { missing: Vec<SmolStr> },
+    /// 束縛のパターンが失敗しうる（E0317，6.3）．`missing` は合わない値の例．
+    RefutableBinding { missing: Vec<SmolStr> },
+    /// それより上の腕で全部覆われている腕（W0301，6.5）．警告．
+    UnreachableArm,
+}
+
+impl DiagnosticKind {
+    /// 警告か．警告でなければエラー．
+    pub fn is_warning(&self) -> bool {
+        matches!(self, DiagnosticKind::UnreachableArm)
+    }
 }

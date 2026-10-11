@@ -19,3 +19,7 @@ f: fn(User, Pair[Int, String], Option[Bool], List[Int]) -> Int
   y: Int
   rest: List[Int]
   z: Int
+`Some(flag)` refutable pattern in binding: None not covered
+`[x, y, ..rest]` refutable pattern in binding: [], [_] not covered
+`[z, ..]` refutable pattern in binding: [] not covered
+`[]` refutable pattern in binding: [_, ..] not covered

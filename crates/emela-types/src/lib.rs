@@ -5,6 +5,7 @@
 
 mod body;
 mod check;
+mod coverage;
 mod diagnostic;
 mod display;
 mod error;

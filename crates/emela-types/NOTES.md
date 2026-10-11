@@ -53,6 +53,10 @@
 - （補）const も汎化する（`const EMPTY = []` は `∀ A. List[A]`）．ただし alpha.1 では const の値は純粋な式に限る（5.6）ので，汎化して困る場面はない．
 - （補）トップレベルの fn の引数に型を書いていなければ E0316（6.1）．構文と名前解決では検査していない．型は `Ty::Error` にして続ける．
 - （補）同梱の Prelude と core のソースは，型の診断なしに検査を通る（テスト `core_sources_typecheck`）．
+- （補）網羅性の検査は，定義のまとまりの推論が終わって型が決まった後に行う（`coverage.rs`）．match は E0303（足りない値の例を全部）と W0301（冗長な腕ごと），束縛は E0317（6.3．直し方が match への書き換えなので E0303 と分ける）．対象の型が `Ty::Error` なら確かめない．
+- （補）パターンは対象の型に沿って検査用の形に変換する．型に合わない部分（型検査が誤りを出している）はワイルドカードにして，検査が崩れないようにする．
+- （補）const のパターンは，値がリテラル（か負の数値リテラル）ならその値として検査する．それ以外の式はコンパイル時の評価がまだないので，その const だけに合う値として扱う（網羅したとは見なさず，同じ const を2回書いたときだけ冗長）．
+- （補）足りない値の例では，名前付きフィールドの構成子も位置で出す（`Circle(_)`）．
 ## driver に渡すときの文面（ステップ7でつなぐ）
 
 付録 A の文面に合わせる．文面は仕様の一部ではないが，ここに置いておく．
@@ -72,6 +76,9 @@
 - E0314 `FieldOnUnknownType`: ``the type of this value must be known to access field `name` ``．注記 ``= help: add a type annotation``
 - E0315 `OpaqueField`: ``cannot access field `value` of opaque type `Email` outside its module``
 - E0316 `MissingParamType`: ``parameter `x` of a top-level function needs a type``
+- E0303 `NonExhaustiveMatch`: ``non-exhaustive match: `Rect(_, _)` not covered``（複数なら ``patterns `A`, `B` not covered``）
+- E0317 `RefutableBinding`: ``refutable pattern in binding: `None` not covered``．注記 ``= help: use `match` to handle the other cases``
+- W0301 `UnreachableArm`: ``unreachable match arm``
 - `Unsupported`: コードなしの ``error: not supported yet: {what}``（alpha.1 の間だけ）
 - （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．
 - （補）整数リテラルの型は「整数リテラルの型変数」（`InferCtx::new_int_var`）にする．Int か Int64 にしか束縛できず，他の型と単一化すると，その場で型が合わないエラーになる（エラーには `Int` と出す）．他の型変数と単一化すると，その型変数も同じ制約を持つ．本体を推論し終えても決まらなければ Int にする（2.4）．

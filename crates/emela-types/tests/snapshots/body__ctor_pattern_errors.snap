@@ -15,7 +15,10 @@ f: fn(User, Shape) -> Int
   q: ?1
 `User(name:)` MissingPatternFields { ctor: "User", fields: ["id"] }
 `Rect(w)` PatternFieldCount { ctor: "Rect", expected: 2, found: 1 }
+`Rect(w)` refutable pattern in binding: Circle(_), Empty not covered
 `Rect(w2, h2, d2)` PatternFieldCount { ctor: "Rect", expected: 2, found: 3 }
+`Rect(w2, h2, d2)` refutable pattern in binding: Circle(_), Empty not covered
+`Circle(r: r)` refutable pattern in binding: Rect(_, _), Empty not covered
 `r` UnknownLabel { callee: "Circle", label: "r" }
 `Some(v)` mismatch: expected `User`, found `Option[?0]`
 `[q]` mismatch: expected `User`, found `List[?1]`

@@ -84,6 +84,19 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             "`{text}` integer literal `{literal}` out of range for `{}`",
             ty.display(cons)
         ),
+        DiagnosticKind::NonExhaustiveMatch { missing } => {
+            format!(
+                "`{text}` non-exhaustive match: {} not covered",
+                missing.join(", ")
+            )
+        }
+        DiagnosticKind::RefutableBinding { missing } => {
+            format!(
+                "`{text}` refutable pattern in binding: {} not covered",
+                missing.join(", ")
+            )
+        }
+        DiagnosticKind::UnreachableArm => format!("`{text}` warning: unreachable match arm"),
         kind => format!("`{text}` {kind:?}"),
     }
 }
