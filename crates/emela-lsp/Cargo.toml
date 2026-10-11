@@ -1,6 +1,6 @@
 [package]
 name = "emela-lsp"
-description = "言語サーバー．ホバー，診断，コードアクション"
+description = "言語サーバー．ホバー，診断，コードアクション，整形"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

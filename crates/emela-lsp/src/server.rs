@@ -12,6 +12,7 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _, PublishDiagnostics,
 };
+use lsp_types::request::{Formatting, Request as _};
 use lsp_types::{self as lsp, Uri};
 
 use crate::convert::{self, path_to_uri, uri_to_path};
@@ -20,7 +21,7 @@ use crate::overlay::Overlay;
 /// プロジェクトの目印のファイル（仕様 4.1）．位置のない診断をプロジェクトに付けるときに使う．
 const PROJECT_FILE: &str = "Pome.toml";
 
-/// サーバーの能力．テキストは全文で同期する．
+/// サーバーの能力．テキストは全文で同期する．文書全体の整形を受ける．
 pub fn capabilities() -> lsp::ServerCapabilities {
     lsp::ServerCapabilities {
         text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
@@ -35,6 +36,7 @@ pub fn capabilities() -> lsp::ServerCapabilities {
                 ..lsp::TextDocumentSyncOptions::default()
             },
         )),
+        document_formatting_provider: Some(lsp::OneOf::Left(true)),
         ..lsp::ServerCapabilities::default()
     }
 }
@@ -187,13 +189,43 @@ where
         if self.connection.handle_shutdown(&request)? {
             return Ok(Step::Exit);
         }
-        let response = Response::new_err(
-            request.id,
-            ErrorCode::MethodNotFound as i32,
-            format!("unsupported request `{}`", request.method),
-        );
+        let response = match request.method.as_str() {
+            Formatting::METHOD => match serde_json::from_value(request.params) {
+                Ok(params) => Response::new_ok(request.id, self.format(&params)),
+                Err(err) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    format!("invalid params: {err}"),
+                ),
+            },
+            _ => Response::new_err(
+                request.id,
+                ErrorCode::MethodNotFound as i32,
+                format!("unsupported request `{}`", request.method),
+            ),
+        };
         self.send(response.into());
         Ok(Step::Unchanged)
+    }
+
+    /// 文書全体を整形する（`emela fmt` と同じ）．開いていれば未保存の内容を，開いていなければディスクの内容を使う．
+    /// 整っていれば空の配列，変わるなら全体を置き換える編集1つ．構文エラーなどで整形できなければ `null`
+    /// （誤りの応答にはしない．診断は publishDiagnostics で出ている）．幅と字下げは `options` を見ずに既定のもの．
+    fn format(&self, params: &lsp::DocumentFormattingParams) -> Option<Vec<lsp::TextEdit>> {
+        let uri = &params.text_document.uri;
+        let path = match self.documents.get(uri) {
+            Some(document) => document.path.clone(),
+            None => self.fs.normalize(&uri_to_path(uri)?),
+        };
+        let text = self.fs.read_to_string(&path).ok()?;
+        let formatted = emela_driver::format_source(&path, &text).ok()?;
+        Some(match formatted {
+            None => Vec::new(),
+            Some(formatted) => vec![lsp::TextEdit {
+                range: convert::whole_range(&text),
+                new_text: formatted,
+            }],
+        })
     }
 
     fn notification(&mut self, notification: Notification) -> Step {

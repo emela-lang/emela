@@ -69,6 +69,15 @@ fn span_range(sources: &SourceDb, span: &Span) -> lsp::Range {
     }
 }
 
+/// テキスト全体の範囲（先頭から末尾まで）．
+pub fn whole_range(text: &str) -> lsp::Range {
+    let index = LineIndex::new(text);
+    lsp::Range {
+        start: lsp::Position::new(0, 0),
+        end: position(&index, index.len()),
+    }
+}
+
 /// バイト位置を LSP の既定の位置（行と UTF-16 の列）にする．
 pub fn position(index: &LineIndex, offset: TextSize) -> lsp::Position {
     let offset = offset.min(index.len());
