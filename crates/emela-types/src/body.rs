@@ -4,8 +4,8 @@
 //! 式の位置を付けた診断を積んで続ける．
 
 use emela_resolve::hir::{
-    Arg, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal, LocalId, PatArg,
-    PatId, PatKind, Program, Res, Span, Stmt, TypeId,
+    Arg, Arm, Block, DefId, ExprId, ExprKind, FnItem, Item, Label, ListRest, Literal, LocalId,
+    PatArg, PatId, PatKind, Program, Res, Span, Stmt, TypeId,
 };
 use la_arena::{ArenaMap, Idx};
 use smol_str::SmolStr;
@@ -165,6 +165,12 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Path(Res::Err) => Ty::Error,
             ExprKind::Block(block) => self.infer_block(block),
             ExprKind::Call { callee, args } => self.infer_call(*callee, args, e.span),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.infer_if(*cond, *then_branch, *else_branch),
+            ExprKind::Match { scrutinee, arms } => self.infer_match(*scrutinee, arms),
             _ => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -275,6 +281,48 @@ impl<'a> BodyInfer<'a> {
         }
 
         f.ret
+    }
+
+    /// if の型．else がなければ本体は `()` か `Never` で，全体は `()`（6.4）．
+    fn infer_if(&mut self, cond: ExprId, then_branch: ExprId, else_branch: Option<ExprId>) -> Ty {
+        self.check_expr(cond, &Ty::BOOL);
+
+        let then_ty = self.infer_expr(then_branch);
+
+        match else_branch {
+            Some(else_branch) => {
+                let else_ty = self.infer_expr(else_branch);
+                let span = self.program.exprs[else_branch].span;
+                self.join_at(span, &then_ty, &else_ty)
+            }
+            None => {
+                let span = self.program.exprs[then_branch].span;
+                self.coerce_at(span, &Ty::UNIT, &then_ty);
+                Ty::UNIT
+            }
+        }
+    }
+
+    /// match の型．各腕のパターンに対象の型を渡し，腕の本体の型を合わせる．
+    /// 全体の型は `Never` から始めて腕ごとに `join` する．腕のない match は `Never`．
+    fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm]) -> Ty {
+        let scrutinee_ty = self.infer_expr(scrutinee);
+
+        let mut result = Ty::Never;
+
+        for arm in arms {
+            self.bind_pat(arm.pat, &scrutinee_ty);
+
+            if let Some(guard) = arm.guard {
+                self.check_expr(guard, &Ty::BOOL);
+            }
+
+            let body_ty = self.infer_expr(arm.body);
+            let span = self.program.exprs[arm.body].span;
+            result = self.join_at(span, &result, &body_ty);
+        }
+
+        result
     }
 
     /// 式を推論し，期待する型の位置に置く．
@@ -474,6 +522,20 @@ impl<'a> BodyInfer<'a> {
         }
 
         assigned
+    }
+
+    /// 2つの分岐の共通の型．合わなければ `span` の位置で診断を積み，`a` を全体の型にする．
+    fn join_at(&mut self, span: Span, a: &Ty, b: &Ty) -> Ty {
+        match self.ctx.join(a, b) {
+            Ok(ty) => ty,
+            Err(e) => {
+                self.diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::Mismatch(e),
+                });
+                a.clone()
+            }
+        }
     }
 }
 

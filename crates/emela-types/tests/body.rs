@@ -288,3 +288,80 @@ fn f(a: Account) -> Int {
 }
 "#));
 }
+
+#[test]
+fn if_expressions() {
+    insta::assert_snapshot!(run(r#"
+fn f(c: Bool, n: Int) -> String {
+  a = if c { 1 } else { 2 }
+  b = if c { "x" } else { panic("no") }
+  d = if c { todo() } else { (n, "y") }
+  e = if c { () }
+  g = if c { panic("stop") }
+  "ok"
+}
+"#));
+}
+
+#[test]
+fn if_errors() {
+    insta::assert_snapshot!(run(r#"
+fn f(n: Int) -> Int {
+  a = if n { 1 } else { 2 }
+  b = if True { 1 } else { "a" }
+  c = if True { 1 }
+  n
+}
+"#));
+}
+
+#[test]
+fn match_expressions() {
+    insta::assert_snapshot!(run(r#"
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle(radius:) if True -> radius
+    Rect(w, h) -> w
+    Empty -> panic("empty")
+  }
+}
+
+fn first(xs: List[Int]) -> Option[Int] {
+  match xs {
+    [] -> None
+    [x, ..] -> Some(x)
+  }
+}
+
+fn label(n: Int) -> String {
+  r = match n {
+    0 -> "zero"
+    _ -> "many"
+  }
+  r
+}
+"#));
+}
+
+#[test]
+fn match_errors() {
+    insta::assert_snapshot!(run(r#"
+fn f(o: Option[Int]) -> Int {
+  a = match o {
+    Some(x) -> x
+    None -> "none"
+  }
+  b = match o {
+    Some(x) if x -> 1
+    "s" -> 2
+  }
+  1
+}
+"#));
+}

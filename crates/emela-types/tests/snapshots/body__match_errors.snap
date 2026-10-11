@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(o: Option[Int]) -> Int {\n  a = match o {\n    Some(x) -> x\n    None -> \"none\"\n  }\n  b = match o {\n    Some(x) if x -> 1\n    \"s\" -> 2\n  }\n  1\n}\n\"#)"
+---
+f: fn(Option[Int]) -> Int
+  o: Option[Int]
+  x: Int
+  a: Int
+  x: Int
+  b: Int
+`"none"` mismatch: expected `Int`, found `String`
+`x` mismatch: expected `Bool`, found `Int`
+`"s"` mismatch: expected `Option[Int]`, found `String`
