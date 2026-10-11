@@ -1,13 +1,12 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-assertion_line: 370
 expression: "render_bodies(r#\"\ntype User(name: String)  # 補\nerror NotFound  # 補\nerror DbError  # 補\nerror Timeout  # 補\n\nfn inferred(n: Int) {\n  if n > 0 { fail NotFound } else { fail DbError }\n}\n\nfn load(id: Int) -> User fails NotFound | DbError {\n  inferred(id)\n}\n\nfn retry[A, E](f: fn() -> A fails Timeout | E) -> A fails Timeout | E { f() }\n\nfn only_db() {  # 補\n  retry(fn() { if True { fail Timeout } else { fail DbError } })\n}\n\nfn no_timeout() {  # 補．Timeout を起こさない関数を渡してもよい\n  retry(fn() { fail DbError })\n}\n\"#)"
 ---
 inferred: ∀ A. fn(Int) -> A fails NotFound | DbError
   n: Int
 load: fn(Int) -> User fails NotFound | DbError
   id: Int
-retry: ∀ A, E. fn(fn() -> A fails Timeout | E) -> A fails Timeout | E
-  f: fn() -> '0 fails Timeout | '1
+retry: ∀ A, E, R(f). fn(fn() -> A fails Timeout | E use R(f)) -> A fails Timeout | E use R(f)
+  f: fn() -> '0 fails Timeout | '1 use '2
 only_db: ∀ A. fn() -> A fails DbError | Timeout
 no_timeout: ∀ A. fn() -> A fails DbError | Timeout

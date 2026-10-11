@@ -531,7 +531,7 @@ fn hover_shows_types_and_errors() {
     // 汎用の関数の参照は汎化した型．引数の関数の見えない集合が出る．
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f). fn(List[A], fn(A) -> B fails E(f)) -> List[B] fails E(f)\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)\n```"
     );
     // 何もない位置．
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -539,5 +539,45 @@ fn hover_shows_types_and_errors() {
     client.shutdown();
     let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     assert_eq!(client.hover("/app/src/main.emel", 2, 4), None);
+    client.shutdown();
+}
+
+#[test]
+fn hover_shows_effects() {
+    let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nfn greet() {\n  log = use Logger\n  log.info(\"hi\")\n}\n\nfn main() {\n  with Quiet { greet() }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    // 推論した R．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 4)),
+        "```emela\ngreet: fn() -> () use Logger\n```"
+    );
+    // 能力の値の局所変数．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 9, 2)),
+        "```emela\nlog: use Logger\n```"
+    );
+    // 操作の呼び出しの式は型と R．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 10, 16)),
+        "```emela\n()\nuse Logger\n```"
+    );
+    // with の中の呼び出しには R が出て，with の外には出ない．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 21)),
+        "```emela\n()\nuse Logger\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 3)),
+        "```emela\n()\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 13, 4)),
+        "```emela\nmain: fn() -> ()\n```"
+    );
     client.shutdown();
 }

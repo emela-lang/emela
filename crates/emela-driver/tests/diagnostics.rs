@@ -491,3 +491,70 @@ fn main() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// エフェクトの診断（E04xx）の文面．main とテスト関数の R が空でないことも，driver が
+/// main とテスト関数を型推論に渡して確かめる（8.3，13.3）．
+#[test]
+fn effect_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Logger {
+  fn info(msg: String) -> ()
+  fn warn(msg: String) -> ()
+}
+
+effect Clock {
+  fn now() -> Int
+}
+
+handler Half implements Logger {
+  fn info(msg) { () }
+  fn info(msg) { () }
+}
+
+handler Stamped implements Logger {
+  fn info(a, b) { (use Clock).now()
+  () }
+  fn warn(msg) { () }
+}
+
+handler Ticking implements Clock {
+  fn now() { (use Logger).info("tick")
+  0 }
+}
+
+@external(js, "console.log")
+fn console_log(text: String) -> ()
+
+fn only(f: fn() -> () use {}) -> () use {} {
+  (use Logger).infoo("x")
+  f()
+}
+
+fn misuse() {
+  log = use Logger
+  only(fn() { log.info("x") })
+  console_log("x")
+  xs = [log]
+  Some(log)
+  with Stamped, Ticking { () }
+  log
+}
+
+fn main() {
+  (use Clock).now()
+}
+
+@test
+fn logs() {
+  (use Logger).info("t")
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

@@ -88,6 +88,51 @@ pub enum DiagnosticKind {
     ErrorSetMismatch { expected: SmolStr, found: SmolStr },
     /// escape の腕が受けるエラーが，元の式から起きない（W0302，7.3）．警告．
     UnraisedError { error: SmolStr },
+    /// 能力の値のエフェクトに，その名前の操作がない（E0401，8.2）．
+    UnknownOperation { effect: SmolStr, op: SmolStr },
+    /// 本体の R が，宣言や文脈の許す R に含まれない（E0402，8.3，9.3，13.3）．`effects` は含まれない
+    /// エフェクト（タグか集合の型引数の名前）．
+    UnhandledEffects {
+        effects: Vec<SmolStr>,
+        context: EffectContext,
+    },
+    /// 関数の値の R が，期待する関数型の R に含まれない（E0403，9.2）．
+    /// `expected` と `found` は効果の集合の表示（`{ Logger, Clock }`，空なら `{}`）．
+    EffectSetMismatch { expected: SmolStr, found: SmolStr },
+    /// handler がエフェクトの操作を全部は実装していない（E0404，8.4）．`ops` は足りない操作（宣言の順）．
+    MissingHandlerOps { handler: SmolStr, ops: Vec<SmolStr> },
+    /// handler が同じ操作を2回実装した（E0405，8.4）．
+    DuplicateHandlerOp { op: SmolStr },
+    /// handler の操作の引数の数が，エフェクトの操作の宣言と違う（E0406，8.4）．
+    HandlerOpArgCount {
+        op: SmolStr,
+        expected: usize,
+        found: usize,
+    },
+    /// `use` を省略した `@external` の fn を，ハンドラの操作の本体の外で使った（E0407，12.2）．
+    ExternalOutsideHandler { name: SmolStr },
+    /// 能力の値を関数の引数に渡した（E0408，8.2）．
+    CapabilityArgument,
+    /// 能力の値をデータ構造（リスト，タプル，構成子）に入れた（E0409，8.2）．
+    CapabilityInData,
+    /// 能力の値を関数から返した（E0410，8.2）．
+    CapabilityReturned,
+    /// 同じ with に並べたハンドラが，互いの効果に依存して循環している（E0411，8.3，14.2）．
+    /// `cycle` は循環をたどるハンドラの名前（最初のハンドラを最後にもう一度入れる）．
+    HandlerCycle { cycle: Vec<SmolStr> },
+}
+
+/// R が含まれるべき集合がどこから決まったか（[`DiagnosticKind::UnhandledEffects`]）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectContext {
+    /// fn に書いた `use` 節（9.3）．
+    Declared,
+    /// const の値．効果を持てない（5.6）．
+    Const,
+    /// main．R は空でなければならない（8.3）．
+    Main,
+    /// テスト関数．R は空でなければならない（13.3）．`name` は関数の名前．
+    Test { name: SmolStr },
 }
 
 impl DiagnosticKind {

@@ -38,11 +38,11 @@ pub(crate) fn param_name(i: usize) -> String {
     }
 }
 
-/// 汎化で付ける集合の型引数の名前．`E`，`E1`，`E2`，…
-pub(crate) fn set_param_name(i: usize) -> String {
+/// 汎化で付ける集合の型引数の名前．`prefix` が `E` なら `E`，`E1`，`E2`，…
+pub(crate) fn set_param_name(prefix: &str, i: usize) -> String {
     if i == 0 {
-        "E".to_string()
+        prefix.to_string()
     } else {
-        format!("E{i}")
+        format!("{prefix}{i}")
     }
 }

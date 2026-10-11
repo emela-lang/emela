@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/lower.rs
-expression: "run(r#\"\ntype Pair[A, B](first: A, second: B)\n\nfn too_many(x: List[Int, Int]) -> Int[String] { todo() }\nfn too_few(x: List) -> Option { todo() }\nfn pair(p: Pair[Int]) -> Bool[Int] { todo() }\nfn param[Item](x: Item[Int]) -> Int { todo() }\n\"#)"
+expression: "run(r#\"\ntype Pair[A, B](first: A, second: B)\n\nfn too_many(x: List[Int, Int]) -> Int[String] use {} { todo() }\nfn too_few(x: List) -> Option use {} { todo() }\nfn pair(p: Pair[Int]) -> Bool[Int] use {} { todo() }\nfn param[Item](x: Item[Int]) -> Int use {} { todo() }\n\"#)"
 ---
 too_many: fn({unknown}) -> {unknown}
 too_few: fn({unknown}) -> {unknown}

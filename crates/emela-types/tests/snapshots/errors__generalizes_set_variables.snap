@@ -1,23 +1,22 @@
 ---
 source: crates/emela-types/tests/errors.rs
-assertion_line: 67
 expression: "render_errors(r#\"\nerror Boom\n\nfn caller() {\n  fn(g) { g() }\n}\n\nfn twice() {\n  fn(g) { g() + g() }\n}\n\nfn use_it() {\n  call = caller()\n  a = call(fn() { 1 })\n  b = call(fn() { fail Boom })\n  (a, b)\n}\n\"#)"
 ---
-caller: ∀ A, E. fn() -> fn(fn() -> A fails E) -> A fails E
-  g: fn() -> ?2 fails ?e1
-twice: ∀ E. fn() -> fn(fn() -> Int fails E) -> Int fails E
-  g: fn() -> Int fails ?e1
+caller: ∀ A, E, R. fn() -> fn(fn() -> A fails E use R) -> A fails E use R
+  g: fn() -> ?2 fails ?e2 use ?e3
+twice: ∀ E, R. fn() -> fn(fn() -> Int fails E use R) -> Int fails E use R
+  g: fn() -> Int fails ?e2 use ?e3
 use_it: fn() -> (Int, Int) fails Boom
-  call: fn(fn() -> Int fails Boom) -> Int fails Boom
+  call: fn(fn() -> Int fails Boom use {}) -> Int fails Boom
   a: Int
   b: Int
 --- E
-{ g() }: ?e1
-g(): ?e1
-{ g() + g() }: ?e1
-g() + g(): ?e1
-g(): ?e1
-g(): ?e1
+{ g() }: ?e2
+g(): ?e2
+{ g() + g() }: ?e2
+g() + g(): ?e2
+g(): ?e2
+g(): ?e2
 {   call = caller()   a = call(fn() { 1 })   b = call(fn() { fail Boom })   (a, b) }: Boom
 call(fn() { 1 }): Boom
 call(fn() { fail Boom }): Boom

@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nfn run_pure(f: fn() -> Int use {}) -> Int { f() }  # 補\nfn run_any(f: fn() -> Int) -> Int { f() }  # 補\n\nfn callers() {  # 補\n  a = run_any(fn() { (use Logger).info(\"a\")\n  1 })\n  b = run_pure(fn() { (use Logger).info(\"b\")\n  1 })\n  (a, b)\n}\n\"#)"
+---
+run_pure: ∀ E(f). fn(fn() -> Int fails E(f) use {}) -> Int fails E(f)
+  f: fn() -> Int fails '0
+run_any: ∀ E(f), R(f). fn(fn() -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
+  f: fn() -> Int fails '0 use '1
+callers: fn() -> (Int, Int) use Logger
+  a: Int
+  b: Int
+`fn() { (use Logger).info("b")
+  1 }` effect set mismatch: expected `use {}`, found `use Logger`

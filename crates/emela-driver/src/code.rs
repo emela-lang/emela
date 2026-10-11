@@ -63,6 +63,19 @@ pub const ERROR_SET_MISMATCH: &str = "E0321";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 
+// E04xx: effect，handler（8章）
+pub const UNKNOWN_OPERATION: &str = "E0401";
+pub const UNHANDLED_EFFECTS: &str = "E0402";
+pub const EFFECT_SET_MISMATCH: &str = "E0403";
+pub const MISSING_HANDLER_OPS: &str = "E0404";
+pub const DUPLICATE_HANDLER_OP: &str = "E0405";
+pub const HANDLER_OP_ARG_COUNT: &str = "E0406";
+pub const EXTERNAL_OUTSIDE_HANDLER: &str = "E0407";
+pub const CAPABILITY_ARGUMENT: &str = "E0408";
+pub const CAPABILITY_IN_DATA: &str = "E0409";
+pub const CAPABILITY_RETURNED: &str = "E0410";
+pub const HANDLER_CYCLE: &str = "E0411";
+
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";
 pub const CANNOT_READ: &str = "E0902";

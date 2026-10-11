@@ -125,6 +125,13 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
         DiagnosticKind::UnraisedError { error } => {
             format!("`{text}` warning: `{error}` is never raised here")
         }
+        DiagnosticKind::UnhandledEffects { effects, context } => format!(
+            "`{text}` unhandled effects {} ({context:?})",
+            effects.join(", ")
+        ),
+        DiagnosticKind::EffectSetMismatch { expected, found } => {
+            format!("`{text}` effect set mismatch: expected `use {expected}`, found `use {found}`")
+        }
         kind => format!("`{text}` {kind:?}"),
     }
 }
