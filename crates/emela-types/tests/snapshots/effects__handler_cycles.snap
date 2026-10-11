@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Ping {\n  fn ping() -> ()\n}\n\neffect Pong {\n  fn pong() -> ()\n}\n\nhandler HPing implements Ping {\n  fn ping() { (use Pong).pong() }\n}\n\nhandler HPong implements Pong {\n  fn pong() { (use Ping).ping() }\n}\n\nfn f() {\n  with HPing, HPong { (use Ping).ping() }\n}\n\"#)"
+---
+f: fn() -> ()
+handler HPing: use Pong
+handler HPong: use Ping
+`HPing` HandlerCycle { cycle: ["HPing", "HPong", "HPing"] }
+--- R
+{ (use Pong).pong() }: Pong
+(use Pong).pong(): Pong
+(use Pong).pong: Pong
+use Pong: Pong
+{ (use Ping).ping() }: Ping
+(use Ping).ping(): Ping
+(use Ping).ping: Ping
+use Ping: Ping
+{ (use Ping).ping() }: Ping
+(use Ping).ping(): Ping
+(use Ping).ping: Ping
+use Ping: Ping

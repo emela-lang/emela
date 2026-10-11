@@ -1,10 +1,9 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-assertion_line: 606
 expression: "render_bodies(r#\"\nerror Timeout  # 補\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn flaky() -> Int fails Timeout { fail Timeout }  # 補\n\nfn ok() -> Int { run(fn() { 1 }) }\nfn bad() -> Int { run(flaky) }\nfn bad_lambda() -> Int { run(fn() { fail Timeout }) }\n\"#)"
 ---
-run: fn(fn() -> Int fails {}) -> Int
-  f: fn() -> Int
+run: ∀ R(f). fn(fn() -> Int fails {} use R(f)) -> Int use R(f)
+  f: fn() -> Int use '0
 flaky: fn() -> Int fails Timeout
 ok: fn() -> Int
 bad: fn() -> Int

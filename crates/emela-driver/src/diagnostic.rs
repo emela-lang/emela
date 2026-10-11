@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
-use emela_types::{DiagnosticKind as TypeDiagnosticKind, Ty, TyCons, TypeError, TypeErrorKind};
+use emela_types::{
+    DiagnosticKind as TypeDiagnosticKind, EffectContext, Ty, TyCons, TypeError, TypeErrorKind,
+};
 use la_arena::ArenaMap;
 use line_index::TextRange;
 use smol_str::SmolStr;
@@ -614,6 +616,94 @@ impl Diagnostic {
                 Some(code::UNRAISED_ERROR),
                 format!("error `{error}` is never raised here"),
             ),
+            TypeDiagnosticKind::UnknownOperation { effect, op } => (
+                Severity::Error,
+                Some(code::UNKNOWN_OPERATION),
+                format!("effect `{effect}` has no operation `{op}`"),
+            ),
+            TypeDiagnosticKind::UnhandledEffects { effects, context } => {
+                let list = quoted_list("effect", "effects", effects);
+                let verb = if effects.len() == 1 { "is" } else { "are" };
+                let message = match context {
+                    EffectContext::Declared => {
+                        help = Some("add it to `use` or provide it with `with`".to_owned());
+                        format!("{list} {verb} not declared in `use`")
+                    }
+                    EffectContext::Const => format!("constant values cannot use {list}"),
+                    EffectContext::Main => {
+                        help = Some("provide it with `with`".to_owned());
+                        format!("{list} {verb} not provided in `main`")
+                    }
+                    EffectContext::Test { name } => {
+                        help = Some("provide it with `with`".to_owned());
+                        format!("{list} {verb} not provided in test function `{name}`")
+                    }
+                };
+                (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
+            }
+            TypeDiagnosticKind::EffectSetMismatch { expected, found } => (
+                Severity::Error,
+                Some(code::EFFECT_SET_MISMATCH),
+                format!("effect set mismatch: expected `use {expected}`, found `use {found}`"),
+            ),
+            TypeDiagnosticKind::MissingHandlerOps { handler, ops } => (
+                Severity::Error,
+                Some(code::MISSING_HANDLER_OPS),
+                format!(
+                    "handler `{handler}` does not implement {}",
+                    quoted_list("operation", "operations", ops)
+                ),
+            ),
+            TypeDiagnosticKind::DuplicateHandlerOp { op } => (
+                Severity::Error,
+                Some(code::DUPLICATE_HANDLER_OP),
+                format!("operation `{op}` is implemented more than once"),
+            ),
+            TypeDiagnosticKind::HandlerOpArgCount {
+                op,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::HANDLER_OP_ARG_COUNT),
+                format!(
+                    "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
+                ),
+            ),
+            TypeDiagnosticKind::ExternalOutsideHandler { name } => {
+                help = Some("declare it with `use {}` if it has no side effects".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::EXTERNAL_OUTSIDE_HANDLER),
+                    format!("external function `{name}` can only be used in handlers"),
+                )
+            }
+            TypeDiagnosticKind::CapabilityArgument => {
+                help = Some("pass a closure that uses the capability instead".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::CAPABILITY_ARGUMENT),
+                    "a capability cannot be passed as an argument".to_owned(),
+                )
+            }
+            TypeDiagnosticKind::CapabilityInData => (
+                Severity::Error,
+                Some(code::CAPABILITY_IN_DATA),
+                "a capability cannot be stored in a data structure".to_owned(),
+            ),
+            TypeDiagnosticKind::CapabilityReturned => (
+                Severity::Error,
+                Some(code::CAPABILITY_RETURNED),
+                "a capability cannot be returned from a function".to_owned(),
+            ),
+            TypeDiagnosticKind::HandlerCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|h| format!("`{h}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::HANDLER_CYCLE),
+                    format!("handlers depend on each other: {}", path.join(" -> ")),
+                )
+            }
         };
         let mut out = Diagnostic::new(severity, message);
         if let Some(code) = code {

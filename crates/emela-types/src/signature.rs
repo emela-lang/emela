@@ -1,7 +1,8 @@
 //! 宣言の型．fn・構成子・const の型（[`Scheme`]）と，引数のラベル．
 //!
 //! 呼び出しの推論が，呼ばれる側の型とラベルをここから引く．戻り値の型を書いていない fn と，
-//! 型を書いていない const は，本体を推論した後に足す．
+//! `use` 節を書いていない本体のある fn と，型を書いていない const は，本体を推論した後に足す．
+//! effect の操作の型もここに置く（能力の値を通した呼び出しが引く）．
 
 use emela_resolve::hir::{DefId, Fields, FnItem, FnSig, Item, Param, Program, TypeId};
 use la_arena::ArenaMap;
@@ -9,7 +10,8 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::{
-    Hidden, Omitted, Scope, TyTable, classify_params, has_omitted_fails, ty_params, type_param_defs,
+    Hidden, Omitted, Scope, TyTable, classify_params, has_omitted_fails, has_omitted_uses,
+    ty_params, type_param_defs,
 };
 use crate::row::Row;
 use crate::scheme::Scheme;
@@ -42,7 +44,7 @@ impl Signatures {
         self.by_def.get(def)
     }
 
-    /// fn・構成子・const の宣言の型を集める．
+    /// fn・構成子・const・effect の操作の宣言の型を集める．
     pub fn collect(program: &Program, ty_table: &TyTable, diags: &mut Vec<Diagnostic>) -> Self {
         let mut sigs = Signatures::new();
 
@@ -59,6 +61,7 @@ impl Signatures {
                     scheme: Scheme::mono(ty_table.lower(program, &[], ty, diags)),
                     labels: Vec::new(),
                 }),
+                Some(Item::Op(item)) => Some(op_signature(program, ty_table, &item.sig, diags)),
                 _ => None,
             };
 
@@ -77,7 +80,9 @@ impl Default for Signatures {
     }
 }
 /// fn の型とラベル．戻り値の型を書いていなければ `None`（本体から推論する）．
-/// 戻り値の型の中に `fails` を省略した関数型があるときも，その E を本体から推論するので `None`．
+/// 戻り値の型の中に `fails` か `use` を省略した関数型があるときも，その E と R を本体から
+/// 推論するので `None`．本体のある fn で `use` 節を書いていなければ，R を推論するので `None`
+/// （9.3）．本体のない fn（`@external`，`@intrinsic`）の `use` を省略すれば R は空．
 fn fn_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -85,7 +90,10 @@ fn fn_signature(
     diags: &mut Vec<Diagnostic>,
 ) -> Option<Signature> {
     let ret = item.sig.ret?;
-    if has_omitted_fails(program, ret) {
+    if has_omitted_fails(program, ret)
+        || has_omitted_uses(program, ret)
+        || (item.body.is_some() && item.sig.uses.is_none())
+    {
         return None;
     }
     let mut params = FnParams::new(program, &item.sig);
@@ -94,11 +102,60 @@ fn fn_signature(
     let mut scope = params.scope(Omitted::Empty);
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
+    let uses = params.declared_uses(program, ty_table, &item.sig, diags);
 
     Some(Signature {
-        scheme: Scheme::new(params.all_params(), Ty::func_fails(arg_tys, ret_ty, fails)),
+        scheme: Scheme::new(
+            params.all_params(),
+            Ty::func_sets(arg_tys, ret_ty, fails, uses),
+        ),
         labels,
     })
+}
+
+/// effect の操作の型とラベル（8.1）．宣言の中なので，引数の関数型の `fails` と `use` を
+/// 省略すれば空（9.2）．操作の `fails` 節はその操作の E．操作の型の R は空で，能力の値を通して
+/// 呼ぶときにそのエフェクトを足す．操作に `use` 節は書けない（「まだ扱えない」）．
+fn op_signature(
+    program: &Program,
+    ty_table: &TyTable,
+    sig: &FnSig,
+    diags: &mut Vec<Diagnostic>,
+) -> Signature {
+    let mut scope = Scope {
+        params: &[],
+        kinds: &[],
+        omitted: Omitted::Empty,
+        sets: false,
+    };
+    let params: Vec<Ty> = sig
+        .params
+        .iter()
+        .map(|p| match p.ty {
+            Some(ty) => ty_table.lower_in(program, &mut scope, ty, true, diags),
+            None => param_ty(program, ty_table, &[], p, diags),
+        })
+        .collect();
+    let ret = match sig.ret {
+        Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
+        None => Ty::UNIT,
+    };
+    let fails = match &sig.fails {
+        Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
+        None => Row::empty(),
+    };
+    if let Some(uses) = &sig.uses {
+        diags.push(Diagnostic {
+            span: Some(uses.span),
+            kind: DiagnosticKind::Unsupported {
+                what: "`use` clauses on effect operations",
+            },
+        });
+    }
+    Signature {
+        scheme: Scheme::mono(Ty::func_fails(params, ret, fails)),
+        labels: param_labels(program, &sig.params),
+    }
 }
 
 /// 引数の名前のラベル．
@@ -189,6 +246,24 @@ impl FnParams {
             None => Row::empty(),
         };
         written.union(&self.hidden.positive)
+    }
+
+    /// 宣言の R．書いた `use` 節と，引数の型の中の正の位置の見えない効果の集合の和．
+    /// `use` 節を書いていなければ R は本体から推論するので，これは使わない．
+    pub(crate) fn declared_uses(
+        &self,
+        program: &Program,
+        ty_table: &TyTable,
+        sig: &FnSig,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Row {
+        let written = match &sig.uses {
+            Some(set) => {
+                ty_table.lower_effect_set(program, &self.scope(Omitted::Empty), set, diags)
+            }
+            None => Row::empty(),
+        };
+        written.union(&self.hidden.positive_uses)
     }
 
     /// 書いた型引数と見えない集合の型引数を並べたもの．

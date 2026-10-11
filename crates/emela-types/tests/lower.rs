@@ -10,7 +10,7 @@ use emela_resolve::hir::DefKind;
 use common::render_signatures;
 
 /// `main.emel` のトップレベルの fn ごとに，引数と戻り値の型の変換結果と診断を返す．
-/// テストの fn は戻り値の型を書く（書かない fn は宣言の型を作らないので出ない）．
+/// テストの fn は戻り値の型と `use {}` を書く（書かない fn は宣言の型を作らないので出ない．9.3）．
 fn run(src: &str) -> String {
     render_signatures(src, false, |program, def| {
         program.defs[def].kind == DefKind::Fn
@@ -19,17 +19,17 @@ fn run(src: &str) -> String {
 
 #[test]
 fn smoke() {
-    insta::assert_snapshot!(run("fn f(x: Int) -> Int { x }\n"));
+    insta::assert_snapshot!(run("fn f(x: Int) -> Int use {} { x }\n"));
 }
 
 #[test]
 fn builtin_types() {
     insta::assert_snapshot!(run(r#"
-fn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () { todo() }
-fn never() -> Never { todo() }
-fn tuple(p: (Int, String)) -> (Int, (Bool, Float)) { todo() }
-fn func(f: fn(Int, String) -> Bool) -> fn() -> () fails {} { todo() }
-fn list(xs: List[Int]) -> List[List[String]] { todo() }
+fn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () use {} { todo() }
+fn never() -> Never use {} { todo() }
+fn tuple(p: (Int, String)) -> (Int, (Bool, Float)) use {} { todo() }
+fn func(f: fn(Int, String) -> Bool) -> fn() -> () fails {} use {} use {} { todo() }
+fn list(xs: List[Int]) -> List[List[String]] use {} { todo() }
 "#));
 }
 
@@ -44,18 +44,18 @@ enum Shape {
 }
 error NotFound(id: Int)
 
-fn user(u: User) -> Pair[User, Shape] { todo() }
-fn option(x: Option[Int]) -> Option[Option[String]] { todo() }
-fn err(e: NotFound) -> NotFound { todo() }
+fn user(u: User) -> Pair[User, Shape] use {} { todo() }
+fn option(x: Option[Int]) -> Option[Option[String]] use {} { todo() }
+fn err(e: NotFound) -> NotFound use {} { todo() }
 "#));
 }
 
 #[test]
 fn type_params() {
     insta::assert_snapshot!(run(r#"
-fn id[A](x: A) -> A { x }
-fn swap[A, B](p: (A, B)) -> (B, A) { todo() }
-fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { todo() }
+fn id[A](x: A) -> A use {} { x }
+fn swap[A, B](p: (A, B)) -> (B, A) use {} { todo() }
+fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] use {} { todo() }
 "#));
 }
 
@@ -64,16 +64,16 @@ fn wrong_type_arg_count() {
     insta::assert_snapshot!(run(r#"
 type Pair[A, B](first: A, second: B)
 
-fn too_many(x: List[Int, Int]) -> Int[String] { todo() }
-fn too_few(x: List) -> Option { todo() }
-fn pair(p: Pair[Int]) -> Bool[Int] { todo() }
-fn param[Item](x: Item[Int]) -> Int { todo() }
+fn too_many(x: List[Int, Int]) -> Int[String] use {} { todo() }
+fn too_few(x: List) -> Option use {} { todo() }
+fn pair(p: Pair[Int]) -> Bool[Int] use {} { todo() }
+fn param[Item](x: Item[Int]) -> Int use {} { todo() }
 "#));
 }
 
 #[test]
 fn errors_do_not_cascade() {
     insta::assert_snapshot!(run(r#"
-fn undefined(x: Nope) -> List[Nope] { todo() }
+fn undefined(x: Nope) -> List[Nope] use {} { todo() }
 "#));
 }

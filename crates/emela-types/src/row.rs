@@ -1,13 +1,13 @@
-//! 集合の型．エラーの集合 E（7章）を表す．効果の集合 R（8章）も同じ形で持つ予定．
+//! 集合の型．エラーの集合 E（7章）と効果の集合 R（8章）を同じ形で持つ．
 //!
-//! 集合は，タグ（error の定義の [`DefId`]）と，中身の決まっていない集合の和で表す（9.4）．
+//! 集合は，タグ（error か effect の定義の [`DefId`]）と，中身の決まっていない集合の和で表す（9.4）．
 //! 中身の決まっていない集合は3通りある．
 //!
 //! - 推論の集合変数（[`RowVar`]）．本体の推論が終わったところで，下界の和（最小の解）に決める．
 //! - 型スキームの集合の型引数（`RowElem::Bound`）．`fails E` の `E` と，引数の関数型の
 //!   見えない集合変数．定義の本体の中では中身の分からない集合として扱う．
 //! - 1つのエラーの型（`RowElem::Of`）．`fail e` の `e` の型や，`or_fail` の `E` のように，
-//!   値の型にも使う型引数．型が決まればそのタグになる．
+//!   値の型にも使う型引数．型が決まればそのタグになる．E にだけ現れる．
 
 use emela_resolve::hir::DefId;
 
@@ -26,7 +26,7 @@ impl RowVar {
 /// 集合の要素．
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RowElem {
-    /// タグ．エラーなら error の定義．
+    /// タグ．E なら error の定義，R なら effect の定義．
     Tag(DefId),
     /// 型スキームの集合の型引数（[`crate::ParamKind::Set`]）．`Scheme::params` の添字．
     Bound(u32),
@@ -101,6 +101,14 @@ impl Row {
         for e in &other.elems {
             self.insert(e.clone());
         }
+    }
+
+    /// タグ．
+    pub fn tags(&self) -> impl Iterator<Item = DefId> + '_ {
+        self.elems.iter().filter_map(|e| match e {
+            RowElem::Tag(t) => Some(*t),
+            _ => None,
+        })
     }
 
     /// 推論の集合変数．

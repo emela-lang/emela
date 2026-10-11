@@ -1,0 +1,30 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  fn now() -> Int\n}\n\nfn declared() -> () use Logger {\n  (use Logger).info(\"a\")\n}\n\nfn too_many() -> () use Logger {\n  (use Clock).now()\n  ()\n}\n\nfn pure_only() -> () use {} {\n  (use Logger).info(\"a\")\n}\n\nfn run_pure(f: fn() -> () use {}) { f() }\n\nfn callers() {\n  run_pure(fn() { () })\n  run_pure(fn() { (use Logger).info(\"x\") })\n  run_pure(declared)\n}\n\"#)"
+---
+declared: fn() -> () use Logger
+too_many: fn() -> () use Logger
+pure_only: fn() -> ()
+run_pure: ∀ E(f). fn(fn() -> () fails E(f) use {}) -> () fails E(f)
+callers: fn() -> ()
+`use Clock` unhandled effects Clock (Declared)
+`use Logger` unhandled effects Logger (Declared)
+`fn() { (use Logger).info("x") }` effect set mismatch: expected `use {}`, found `use Logger`
+`declared` effect set mismatch: expected `use {}`, found `use Logger`
+--- R
+{   (use Logger).info("a") }: Logger
+(use Logger).info("a"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{   (use Clock).now()   () }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{   (use Logger).info("a") }: Logger
+(use Logger).info("a"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ (use Logger).info("x") }: Logger
+(use Logger).info("x"): Logger
+(use Logger).info: Logger
+use Logger: Logger

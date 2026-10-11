@@ -98,7 +98,8 @@ pub enum ParamKind {
     /// ふつうの型．`Ty::Bound(i)` で指す．`fails` にも書かれていれば，1つのエラーの型
     /// （7.2 の `or_fail` の `E`）で，集合の中では `RowElem::Of(Ty::Bound(i))` になる．
     Type,
-    /// エラーの集合．`RowElem::Bound(i)` で指す（`fails E` の `E`，引数の関数型の見えない集合変数）．
+    /// 集合．`RowElem::Bound(i)` で指す．エラーの集合（`fails E` の `E`）か効果の集合
+    /// （`use R` の `R`）かは，書いた位置で決まる．引数の関数型の見えない集合変数も含む．
     Set,
 }
 
@@ -121,7 +122,7 @@ impl TyParam {
         }
     }
 
-    /// エラーの集合の型引数．
+    /// 集合（エラーか効果）の型引数．
     pub fn set(name: impl Into<SmolStr>) -> Self {
         TyParam {
             kind: ParamKind::Set,
@@ -148,7 +149,7 @@ pub struct TyConData {
     pub params: Vec<TyParam>,
 }
 
-/// 名前付き型の表．エラーの集合のタグ（error の定義）の名前も持つ（表示に使う）．
+/// 名前付き型の表．集合のタグ（error と effect の定義）の名前も持つ（表示に使う）．
 #[derive(Clone, Debug, Default)]
 pub struct TyCons {
     arena: Arena<TyConData>,
@@ -164,7 +165,7 @@ impl TyCons {
         self.arena.alloc(data)
     }
 
-    /// 集合のタグ（error の定義）の名前を登録する．
+    /// 集合のタグ（error か effect の定義）の名前を登録する．
     pub fn set_tag_name(&mut self, def: DefId, name: SmolStr) {
         self.tags.insert(def, name);
     }
@@ -187,15 +188,15 @@ impl Index<TyConId> for TyCons {
     }
 }
 
-/// 関数型 `fn(A, B) -> C fails E`．
-///
-/// `use R` はまだ持たない．足すときは `fails` と同じく [`Row`] のフィールドを加える．
+/// 関数型 `fn(A, B) -> C fails E use R`．
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FnTy {
     pub params: Vec<Ty>,
     pub ret: Ty,
     /// エラーの集合 E（7章，9.2）．空なら失敗しない．
     pub fails: Row,
+    /// 効果の集合 R（8章，9.2）．タグは effect の定義．空なら環境に依存しない．
+    pub uses: Row,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -213,6 +214,9 @@ pub enum Ty {
     List(Box<Ty>),
     /// 名前付き型の適用（`Pair[A, B]`，`Option[A]`）．
     Named(TyConId, Vec<Ty>),
+    /// エフェクトの能力の値の型（8.2）．`use X` が返す．中身は effect の定義．
+    /// ソースには書けず，引数に渡す，データ構造に入れる，返すことはできない．
+    Cap(DefId),
     /// 壊れた型．読めなかった型や解決できなかった名前から作る．
     /// 単一化ではどの型とも黙って一致し，エラーを重ねて出さない．
     Error,
@@ -231,12 +235,18 @@ impl Ty {
         Ty::func_fails(params, ret, Row::empty())
     }
 
-    /// エラーの集合 `fails` を持つ関数型．
+    /// エラーの集合 `fails` を持ち，効果を持たない関数型．
     pub fn func_fails(params: impl IntoIterator<Item = Ty>, ret: Ty, fails: Row) -> Ty {
+        Ty::func_sets(params, ret, fails, Row::empty())
+    }
+
+    /// エラーの集合 `fails` と効果の集合 `uses` を持つ関数型．
+    pub fn func_sets(params: impl IntoIterator<Item = Ty>, ret: Ty, fails: Row, uses: Row) -> Ty {
         Ty::Fn(Box::new(FnTy {
             params: params.into_iter().collect(),
             ret,
             fails,
+            uses,
         }))
     }
 
@@ -257,7 +267,7 @@ impl Ty {
     /// 直下の子の型を順に渡す．関数型のエラーの集合の中の型（`RowElem::Of`）も含む．
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Cap(_) | Ty::Error => {}
             Ty::Fn(fun) => {
                 fun.params.iter().for_each(&mut f);
                 f(&fun.ret);
@@ -269,13 +279,17 @@ impl Ty {
     }
 
     /// 直下の子の型を `f` で置き換えた型を作る．関数型のエラーの集合の中の型も置き換える．
+    /// 効果の集合は型を含まないのでそのまま．
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Cap(_) | Ty::Error => {
+                self.clone()
+            }
             Ty::Fn(fun) => Ty::Fn(Box::new(FnTy {
                 params: fun.params.iter().map(&mut f).collect(),
                 ret: f(&fun.ret),
                 fails: fun.fails.map_tys(&mut f),
+                uses: fun.uses.clone(),
             })),
             Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(f).collect()),
             Ty::Named(id, args) => Ty::Named(*id, args.iter().map(f).collect()),

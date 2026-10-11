@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  fn now() -> Int\n}\n\nfn log(msg: String) {\n  (use Logger).info(msg)\n}\n\nfn maybe(c: Bool) -> Int {\n  if c { (use Clock).now() } else { 0 }\n}\n\nfn both() {\n  log(\"a\")\n  maybe(True)\n}\n\"#)"
+---
+log: fn(String) -> () use Logger
+maybe: fn(Bool) -> Int use Clock
+both: fn() -> Int use { Logger, Clock }
+--- R
+{   (use Logger).info(msg) }: Logger
+(use Logger).info(msg): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{   if c { (use Clock).now() } else { 0 } }: Clock
+if c { (use Clock).now() } else { 0 }: Clock
+{ (use Clock).now() }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{   log("a")   maybe(True) }: { Logger, Clock }
+log("a"): Logger
+maybe(True): Clock

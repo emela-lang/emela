@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nerror NotFound(id: Int)  # 補\ntype User(name: String)  # 補\n\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\neffect Users {  # 補\n  fn find(id: Int) -> Option[User]\n}\n\neffect Clock {  # 補\n  fn sleep(ms: Int) -> ()\n}\n\nfn greet(id: Int) {\n  log   = use Logger\n  users = use Users\n\n  user = match users.find(id) {  # 補: Option.or_fail はまだ同梱していない\n    Some(u) -> u\n    None -> fail NotFound(id:)\n  }\n  log.info(\"hello #{user.name}\")\n\n  (use Clock).sleep(1000)\n  user\n}\n\"#)"
+---
+greet: fn(Int) -> User fails NotFound use { Logger, Users, Clock }
+  id: Int
+  log: use Logger
+  users: use Users
+  u: User
+  user: User

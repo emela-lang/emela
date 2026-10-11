@@ -1,6 +1,6 @@
 //! 位置の情報（LSP のホバー）．型検査の結果から，カーソルの下の名前や式の型を引く．
 //!
-//! E（エラーの集合）は普段ソースに現れないので，ここで見せる（9.3）．
+//! E（エラーの集合）と R（効果の集合）は普段ソースに現れないので，ここで見せる（9.3）．
 
 use emela_resolve::hir::{DefId, ExprKind, Item, Res};
 use emela_types::{Row, TyParam};
@@ -21,7 +21,7 @@ pub struct HoverInfo {
 ///
 /// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）
 /// - 定義か局所変数の参照: 同じく `名前: 型`
-/// - それ以外の式: 型と，E が空でなければ `fails E`
+/// - それ以外の式: 型と，E が空でなければ `fails E`，R が空でなければ `use R`
 ///
 /// 一番内側の（範囲の短い）ものを選ぶ．
 pub(crate) fn hover(
@@ -107,6 +107,10 @@ pub(crate) fn hover(
                     let errors = types.errors.get(expr).cloned().unwrap_or_else(Row::empty);
                     if !errors.is_empty() {
                         text.push_str(&format!("\nfails {}", errors.display_with(cons, &params)));
+                    }
+                    let effects = types.effects.get(expr).cloned().unwrap_or_else(Row::empty);
+                    if !effects.is_empty() {
+                        text.push_str(&format!("\nuse {}", effects.display_effects(cons, &params)));
                     }
                     text
                 }

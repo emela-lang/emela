@@ -1,6 +1,6 @@
 //! プログラム全体の型検査．宣言の型を集め，定義の本体を呼び出しの順に推論する．
 //!
-//! 定義（本体のある fn と const）を，本体の中で参照する定義への辺で結んだグラフにし，
+//! 定義（本体のある fn と const と handler）を，本体の中で参照する定義への辺で結んだグラフにし，
 //! 強連結成分（互いに参照し合うまとまり）ごとに，参照される側から順に推論する（Tarjan）．
 //! 宣言の型のない定義は，まとまりを推論し終えたところで汎化して宣言の型の表に足す．
 //! まとまりの中では単相なので，宣言の型のない定義どうしの再帰は多相にならない．
@@ -13,7 +13,7 @@ use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
 
 use crate::body::BodyInfer;
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, EffectContext};
 use crate::lower::TyTable;
 use crate::row::Row;
 use crate::signature::Signatures;
@@ -46,11 +46,40 @@ pub struct ProgramTypes {
     /// 各式のエラーの集合 E（9.4）．集合変数は解に置き換えてある．汎化した定義の本体の中では，
     /// 汎化した集合変数が `RowElem::Var` のまま残る．
     pub errors: ArenaMap<ExprId, Row>,
+    /// 各式の効果の集合 R（9.4）．`errors` と同じく集合変数は解に置き換えてある．
+    pub effects: ArenaMap<ExprId, Row>,
+    /// 能力の値の操作の参照（`log.info` の `Field` の式）→ effect の操作の定義．
+    pub ops: ArenaMap<ExprId, DefId>,
+    /// handler の依存（操作の本体の R の和．8.4 の「依存」）．推論した handler だけ．
+    pub handler_uses: ArenaMap<DefId, Row>,
     pub diags: Vec<Diagnostic>,
+}
+
+/// 検査の設定．R が空でなければならない定義（8.3 の main，13.3 のテスト関数）を渡す．
+/// どれがエントリの main で，どれがテスト関数かは driver が決める．
+#[derive(Debug, Clone, Default)]
+pub struct CheckOptions {
+    /// エントリのモジュールの main．
+    pub main: Option<DefId>,
+    /// テスト関数．
+    pub tests: Vec<DefId>,
 }
 
 /// プログラム全体を型検査する．
 pub fn check_program(program: &Program) -> ProgramTypes {
+    check_program_with(program, &CheckOptions::default())
+}
+
+/// プログラム全体を，設定 `options` で型検査する．
+pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramTypes {
+    let mut closed: FxHashMap<DefId, EffectContext> = FxHashMap::default();
+    if let Some(main) = options.main {
+        closed.insert(main, EffectContext::Main);
+    }
+    for &test in &options.tests {
+        let name = program.defs[test].name.clone();
+        closed.insert(test, EffectContext::Test { name });
+    }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
@@ -67,11 +96,20 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         type_args: ArenaMap::default(),
         pat_fields: ArenaMap::default(),
         errors: ArenaMap::default(),
+        effects: ArenaMap::default(),
+        ops: ArenaMap::default(),
+        handler_uses: ArenaMap::default(),
         diags,
     };
 
     for group in groups(program) {
-        let mut infer = BodyInfer::new(program, &types.ty_table, &sigs);
+        let mut infer = BodyInfer::new(
+            program,
+            &types.ty_table,
+            &sigs,
+            &types.handler_uses,
+            &closed,
+        );
         for &def in &group {
             if sigs.get(def).is_none() {
                 infer.declare(def);
@@ -111,6 +149,11 @@ pub fn check_program(program: &Program) -> ProgramTypes {
         types
             .errors
             .extend(body.errors.iter().map(|(id, row)| (id, row.clone())));
+        types
+            .effects
+            .extend(body.effects.iter().map(|(id, row)| (id, row.clone())));
+        types.ops.extend(body.ops.iter().map(|(id, &op)| (id, op)));
+        types.handler_uses.extend(body.handler_uses);
         types.diags.extend(body.diags);
     }
 
@@ -118,7 +161,7 @@ pub fn check_program(program: &Program) -> ProgramTypes {
     types
 }
 
-/// 推論する定義（本体のある fn と const）を，参照される側が先になる順に，
+/// 推論する定義（本体のある fn と const，handler）を，参照される側が先になる順に，
 /// 互いに参照し合うまとまりに分けて並べる．
 fn groups(program: &Program) -> Vec<Vec<DefId>> {
     let nodes: Vec<DefId> = program
@@ -127,7 +170,7 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
         .map(|(def, _)| def)
         .filter(|&def| match program.item(def) {
             Some(Item::Fn(item)) => item.body.is_some(),
-            Some(Item::Const(_)) => true,
+            Some(Item::Const(_) | Item::Handler(_)) => true,
             _ => false,
         })
         .collect();
@@ -209,8 +252,9 @@ impl Tarjan<'_> {
     }
 }
 
-/// 定義（本体のある fn と const）の本体の中で参照している定義と，参照の位置．書かれた順．
-/// 本体のない定義は空．パターンの中の const も含む．
+/// 定義（本体のある fn と const，handler）の本体の中で参照している定義と，参照の位置．書かれた順．
+/// 本体のない定義は空．パターンの中の const と，with に書いた handler も含む．handler は
+/// init，release，操作の本体を見る．
 pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     let mut out = Vec::new();
     match program.item(def) {
@@ -220,6 +264,16 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
             }
         }
         Some(Item::Const(item)) => collect_expr_refs(program, item.value, &mut out),
+        Some(Item::Handler(item)) => {
+            let bodies = item
+                .init
+                .iter()
+                .chain(item.release.iter().map(|(_, body)| body))
+                .chain(item.ops.iter().filter_map(|op| op.body.as_ref()));
+            for &body in bodies {
+                collect_expr_refs(program, body, &mut out);
+            }
+        }
         _ => {}
     }
     out
@@ -296,7 +350,14 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
             }
             go(*base, out);
         }
-        ExprKind::With { body, .. } => go(*body, out),
+        ExprKind::With { handlers, body } => {
+            for &(res, span) in handlers {
+                if let Res::Def(h) = res {
+                    out.push((h, span));
+                }
+            }
+            go(*body, out);
+        }
         ExprKind::Lambda { body, .. } => go(*body, out),
     }
 }

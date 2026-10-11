@@ -129,7 +129,7 @@ pub trait TestBackend<P> {
 - （補）ariadne 0.6 は `ReportKind::Custom` の色を `with_color(false)` でも付けるので，色なしのときは出力から ANSI の色指定を取り除く
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
-- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`）から作る（`hover.rs`）．
+- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
 - （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える
 - （補）`@test` の誤りのコードは E0226 にした．E0222〜E0225 は仕様の付録 A で部分更新と `@intrinsic` に振ってあったため
@@ -138,5 +138,6 @@ pub trait TestBackend<P> {
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
 - （補）`Typecheck` は名前解決に誤りがあっても型検査をする．解決できなかった名前は型推論が `Ty::Error` として扱い，誤りを重ねない（仕様の「誤りを全部集める」方針）
-- （補）型検査の診断（E0301〜E0317，W0301）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．alpha.1 でまだ扱えない構文（fail，use，with など）はコードなしのエラー `not supported yet: …` にする
+- （補）型検査の診断（E0301〜E0321，W0301〜W0302，E0401〜E0411）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
+- （補）`Typecheck` は，エントリのモジュールの `main` という名前の fn と，`@test` のテスト関数を `CheckOptions` で型推論に渡す．型推論はそれらの R が空であることを確かめる（E0402，8.3，13.3）．そのためテスト関数の収集（`collect_tests`，`resolve_tests`）を型検査の前に行う．エントリのないとき（`check` にディレクトリを渡してエントリがないなど）は main を確かめない
 - （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く

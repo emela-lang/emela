@@ -14,6 +14,9 @@
 //!   新しい集合変数に置き換える．集合の型引数（中身の分からない集合）からは何も消さない（7.3）．
 //! - 汎化する定義の型で，負の位置（引数の関数型の E）にあり，下界も上界もない集合変数は，
 //!   空にせず集合の型引数として汎化する．それ以外の集合変数は最小の解にする．
+//!
+//! 効果の集合 R の制約（`body/effects.rs`）も同じ表に溜め，ここで一緒に解く．集合変数は E と R で
+//! 別々に作るので混ざらない．
 
 use emela_resolve::hir::{
     Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
@@ -23,8 +26,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use super::BodyInfer;
+use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::Origin;
+use crate::infer::{Origin, SetKind};
 use crate::row::{Row, RowElem, RowVar};
 use crate::ty::{Ty, TyParam};
 
@@ -53,6 +57,27 @@ impl BodyInfer<'_> {
                 }
                 // const の値は失敗できない（5.6）．
                 Some(Item::Const(item)) => (item.value, Row::empty()),
+                // handler の操作の本体の E は，操作の宣言の E を超えない（8.1）．
+                Some(Item::Handler(_)) => {
+                    let bodies: Vec<(usize, ExprId, Row)> = self
+                        .handler_bodies
+                        .iter()
+                        .filter(|b| b.handler == def)
+                        .map(|b| (b.index, b.body, b.fails.clone()))
+                        .collect();
+                    for (index, body, fails) in bodies {
+                        let row = self.expr_row(body);
+                        self.ctx.add_subset(
+                            row,
+                            fails,
+                            Origin::HandlerOp {
+                                handler: def,
+                                index,
+                            },
+                        );
+                    }
+                    continue;
+                }
                 _ => continue,
             };
             let row = self.expr_row(body);
@@ -61,7 +86,7 @@ impl BodyInfer<'_> {
     }
 
     /// 定義の型．宣言の型か，まとまりの中の単相の型．
-    fn def_ty(&self, def: DefId) -> Option<Ty> {
+    pub(super) fn def_ty(&self, def: DefId) -> Option<Ty> {
         match self.sigs.get(def) {
             Some(sig) => Some(sig.scheme.ty.clone()),
             None => self.pending_ty(def).map(|(ty, _)| ty),
@@ -69,7 +94,7 @@ impl BodyInfer<'_> {
     }
 
     /// 定義の型引数（`Bound(i)` の名前）．
-    fn def_params(&self, def: DefId) -> Vec<TyParam> {
+    pub(super) fn def_params(&self, def: DefId) -> Vec<TyParam> {
         match self.sigs.get(def) {
             Some(sig) => sig.scheme.params.clone(),
             None => self
@@ -236,7 +261,7 @@ impl BodyInfer<'_> {
             // 本体の E はラムダの型の E に閉じ込める．表に出るのは呼んだとき（9.4）．
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_row(*body);
-                if let Some(&v) = self.lambda_rows.get(expr) {
+                if let Some(&(v, _)) = self.lambda_rows.get(expr) {
                     self.ctx.add_subset(body_row, Row::var(v), Origin::Lambda);
                 }
                 Row::empty()
@@ -394,34 +419,53 @@ impl BodyInfer<'_> {
             if missing.is_empty() {
                 continue;
             }
-            match &c.origin {
-                Origin::Body(def) => self.report_unhandled(*def, &missing),
-                Origin::Coerce { span, def } => {
+            match (&c.origin, c.kind) {
+                (Origin::Body(def), SetKind::Errors) => self.report_unhandled(*def, &missing),
+                (Origin::HandlerOp { handler, index }, SetKind::Errors) => {
+                    self.report_unhandled_op(*handler, *index, &missing)
+                }
+                (Origin::Body(def), SetKind::Effects) => {
+                    let context = match self.program.item(*def) {
+                        Some(Item::Const(_)) => EffectContext::Const,
+                        _ => EffectContext::Declared,
+                    };
+                    self.report_unhandled_effects(*def, &missing, context);
+                }
+                (Origin::Closed(def), _) => {
+                    if let Some(context) = self.closed.get(def).cloned() {
+                        self.report_unhandled_effects(*def, &missing, context);
+                    }
+                }
+                (Origin::Coerce { span, def }, kind) => {
                     let params = def.map(|d| self.def_params(d)).unwrap_or_default();
                     let cons = &self.ty_table.cons;
-                    self.diags.push(Diagnostic {
-                        span: *span,
-                        kind: DiagnosticKind::ErrorSetMismatch {
+                    let kind = match kind {
+                        SetKind::Errors => DiagnosticKind::ErrorSetMismatch {
                             expected: SmolStr::new(sup.display_with(cons, &params).to_string()),
                             found: SmolStr::new(sub.display_with(cons, &params).to_string()),
                         },
-                    });
+                        SetKind::Effects => DiagnosticKind::EffectSetMismatch {
+                            expected: SmolStr::new(sup.display_effects(cons, &params).to_string()),
+                            found: SmolStr::new(sub.display_effects(cons, &params).to_string()),
+                        },
+                    };
+                    self.diags.push(Diagnostic { span: *span, kind });
                 }
-                // ラムダの型の E は集合変数なので，必ず満たせる．
-                Origin::Lambda => {}
+                // ラムダの型の E と R，handler の依存は集合変数なので，必ず満たせる．
+                (Origin::Lambda, _) | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
             }
         }
 
         self.check_unraised();
     }
 
-    /// 型の中の，負の位置（引数の関数型の E）にある集合変数を集める．名前付き型の型引数の中は
+    /// 型の中の，負の位置（引数の関数型の E と R）にある集合変数を集める．名前付き型の型引数の中は
     /// 両方の位置とみなす．
     fn negative_row_vars(&mut self, ty: &Ty, positive: bool, out: &mut Vec<RowVar>) {
         match self.ctx.shallow_resolve(ty) {
             Ty::Fn(f) => {
                 if !positive {
-                    for v in f.fails.vars() {
+                    for v in f.fails.vars().chain(f.uses.vars()) {
                         if !out.contains(&v) {
                             out.push(v);
                         }
@@ -460,21 +504,32 @@ impl BodyInfer<'_> {
             Some(Item::Const(item)) => (item.value, false),
             _ => return,
         };
-        let mut rows: ArenaMap<ExprId, Row> = ArenaMap::default();
-        for (expr, row) in self.expr_rows.clone().iter() {
-            rows.insert(expr, self.ctx.resolve_row(row));
-        }
-        let mut groups: Vec<(ExprId, Vec<RowElem>)> = Vec::new();
-        for e in missing {
-            let origin = self.origin_of(&rows, body, e);
-            match groups.iter_mut().find(|(o, _)| *o == origin) {
-                Some((_, elems)) => elems.push(e.clone()),
-                None => groups.push((origin, vec![e.clone()])),
-            }
-        }
-        let params = self.def_params(def);
+        self.push_unhandled(body, declared, missing);
+    }
+
+    /// handler の操作の本体のエラーが，エフェクトの操作の宣言の E に含まれない（E0318，8.1）．
+    fn report_unhandled_op(&mut self, handler: DefId, index: usize, missing: &[RowElem]) {
+        let program = self.program;
+        let Some(Item::Handler(item)) = program.item(handler) else {
+            return;
+        };
+        let Some(body) = item.ops[index].body else {
+            return;
+        };
+        let declared = match item.ops[index].op {
+            Res::Def(op) => matches!(program.item(op), Some(Item::Op(o)) if o.sig.fails.is_some()),
+            _ => false,
+        };
+        self.push_unhandled(body, declared, missing);
+    }
+
+    /// E0318 を，エラーを起こした式ごとにまとめて積む．
+    fn push_unhandled(&mut self, body: ExprId, declared: bool, missing: &[RowElem]) {
+        // handler の操作は型引数を持たない．
+        let params = self.current_params(body).unwrap_or_default();
+        let rows = self.resolved_rows(SetKind::Errors);
         let cons = &self.ty_table.cons;
-        for (origin, elems) in groups {
+        for (origin, elems) in self.group_by_origin(&rows, body, missing) {
             let errors = elems
                 .iter()
                 .map(|e| {
@@ -483,10 +538,89 @@ impl BodyInfer<'_> {
                 })
                 .collect();
             self.diags.push(Diagnostic {
-                span: Some(program.exprs[origin].span),
+                span: Some(self.program.exprs[origin].span),
                 kind: DiagnosticKind::UnhandledErrors { errors, declared },
             });
         }
+    }
+
+    /// 本体の R が，宣言か文脈の許す R に含まれない（E0402）．エフェクトごとに，それを要求した式
+    /// （`use` か呼び出し）を探し，同じ式から起きたものをまとめて1つの診断にする．
+    pub(super) fn report_unhandled_effects(
+        &mut self,
+        def: DefId,
+        missing: &[RowElem],
+        context: EffectContext,
+    ) {
+        let body = match self.program.item(def) {
+            Some(Item::Fn(item)) => match item.body {
+                Some(body) => body,
+                None => return,
+            },
+            Some(Item::Const(item)) => item.value,
+            _ => return,
+        };
+        let params = self.def_params(def);
+        let rows = self.resolved_rows(SetKind::Effects);
+        let cons = &self.ty_table.cons;
+        for (origin, elems) in self.group_by_origin(&rows, body, missing) {
+            let effects = elems
+                .iter()
+                .map(|e| {
+                    let row = Row::from_elems([e.clone()]);
+                    SmolStr::new(row.display_effects(cons, &params).to_string())
+                })
+                .collect();
+            self.diags.push(Diagnostic {
+                span: Some(self.program.exprs[origin].span),
+                kind: DiagnosticKind::UnhandledEffects {
+                    effects,
+                    context: context.clone(),
+                },
+            });
+        }
+    }
+
+    /// 各式の E（`kind` が R なら R）を，集合変数を解いた形にした表．
+    fn resolved_rows(&mut self, kind: SetKind) -> ArenaMap<ExprId, Row> {
+        let table = match kind {
+            SetKind::Errors => self.expr_rows.clone(),
+            SetKind::Effects => self.expr_effects.clone(),
+        };
+        let mut rows: ArenaMap<ExprId, Row> = ArenaMap::default();
+        for (expr, row) in table.iter() {
+            rows.insert(expr, self.ctx.resolve_row(row));
+        }
+        rows
+    }
+
+    /// 足りない要素を，それを起こした式（[`Self::origin_of`]）ごとにまとめる．
+    fn group_by_origin(
+        &self,
+        rows: &ArenaMap<ExprId, Row>,
+        body: ExprId,
+        missing: &[RowElem],
+    ) -> Vec<(ExprId, Vec<RowElem>)> {
+        let mut groups: Vec<(ExprId, Vec<RowElem>)> = Vec::new();
+        for e in missing {
+            let origin = self.origin_of(rows, body, e);
+            match groups.iter_mut().find(|(o, _)| *o == origin) {
+                Some((_, elems)) => elems.push(e.clone()),
+                None => groups.push((origin, vec![e.clone()])),
+            }
+        }
+        groups
+    }
+
+    /// 本体 `body` を持つ定義の型引数．fn と const の本体でなければ（handler の操作）`None`．
+    fn current_params(&self, body: ExprId) -> Option<Vec<TyParam>> {
+        let program = self.program;
+        let def = self.defs.iter().copied().find(|&d| match program.item(d) {
+            Some(Item::Fn(item)) => item.body == Some(body),
+            Some(Item::Const(item)) => item.value == body,
+            _ => false,
+        })?;
+        Some(self.def_params(def))
     }
 
     /// エラー `elem` を起こした式．E に `elem` を含む部分式を，書かれた順に最初のものへ辿り，
@@ -505,8 +639,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E が合流する部分式．書かれた順．ラムダの本体は含めない．
-    fn sub_exprs(&self, expr: ExprId) -> Vec<ExprId> {
+    /// E（R）が合流する部分式．書かれた順．ラムダの本体は含めない．
+    pub(super) fn sub_exprs(&self, expr: ExprId) -> Vec<ExprId> {
         let program = self.program;
         let mut out = Vec::new();
         match &program.exprs[expr].kind {

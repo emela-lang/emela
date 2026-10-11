@@ -1,10 +1,10 @@
 //! emela-syntax のパーサ，名前解決，型検査を差し込むフロントエンド．
 
-use emela_resolve::hir::Program;
+use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
-use emela_types::{ProgramTypes, check_program};
+use emela_types::{CheckOptions, ProgramTypes, check_program_with};
 use la_arena::ArenaMap;
 
 use crate::diagnostic::{Diagnostic, Location, error_count};
@@ -228,12 +228,17 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
                 diagnostics: resolved.diagnostics,
             };
         };
-        let types = check_program(&hir);
         let mut diagnostics = resolved.diagnostics;
         // `@test` の誤り（E0226）とテスト関数の参照の誤り（E0227）も，check と LSP で出すためにここで見る．
         let (tests, mut test_diagnostics) = collect_tests(analysis, |m| self.parse_of(m));
         let (tests, ref_diagnostics) = resolve_tests(analysis, &hir, tests);
         test_diagnostics.extend(ref_diagnostics);
+        // main とテスト関数の R は空でなければならない（8.3，13.3）．
+        let options = CheckOptions {
+            main: analysis.entry.and_then(|entry| entry_main(&hir, entry)),
+            tests: tests.iter().map(|t| t.def).collect(),
+        };
+        let types = check_program_with(&hir, &options);
         // 型推論は呼び出しの順に進むので，名前解決と同じくファイルと位置の順に並べ直す．
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
@@ -340,6 +345,14 @@ pub(crate) fn lower_typed(
             None
         }
     }
+}
+
+/// エントリのモジュールの `main`（トップレベルの fn）．
+fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
+    hir.modules.get(entry)?.items.iter().copied().find(|&def| {
+        let data = &hir.defs[def];
+        data.name == "main" && data.kind == DefKind::Fn
+    })
 }
 
 #[cfg(test)]

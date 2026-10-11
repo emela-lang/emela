@@ -280,6 +280,9 @@ impl<'a> Lowerer<'a> {
             // 振る舞いは変わらない．`Ty::Error` は型の誤りがあるときだけ現れ，そのときは
             // lowering を呼ばない．
             Ty::Var(_) | Ty::Error => Type::Unit,
+            // 能力の値は `use` と操作の呼び出しにしか現れず，それらはまだ写さない（「まだ扱えない」）．
+            // 表現は次の段（evidence passing）で決める．
+            Ty::Cap(_) => Type::Unit,
             Ty::Bound(i) => Type::Param(*i as usize),
             Ty::Fn(_) => Type::Fn,
             Ty::Tuple(ts) => Type::Tuple(ts.iter().map(|t| self.ty(t)).collect()),

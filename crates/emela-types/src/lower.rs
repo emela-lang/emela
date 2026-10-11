@@ -6,8 +6,8 @@
 //! [`TypeRef`]: emela_resolve::hir::TypeRef
 
 use emela_resolve::hir::{
-    DefId, DefKind, EnumItem, ErrorSet, Item, Program, Res, Span, TypeId, TypeItem, TypeKind,
-    TypeParam, TypeRef,
+    DefId, DefKind, EffectSet, EnumItem, ErrorSet, Item, Program, Res, Span, TypeId, TypeItem,
+    TypeKind, TypeParam, TypeRef,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -18,7 +18,7 @@ use crate::infer::InferCtx;
 use crate::row::{Row, RowElem};
 use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
-/// 関数型の `fails` 節を省略したときの意味．書いた位置で決まる（9.2）．
+/// 関数型の `fails` 節と `use` 節を省略したときの意味．書いた位置で決まる（9.2）．
 pub(crate) enum Omitted<'a> {
     /// 宣言の中（フィールド，const など）．空．
     Empty,
@@ -34,12 +34,14 @@ pub(crate) struct Hidden {
     base: usize,
     /// 足した見えない集合の型引数．
     pub(crate) params: Vec<TyParam>,
-    /// 今の引数の名前．見えない集合の型引数の名前（`E(f)`）に使う．
+    /// 今の引数の名前．見えない集合の型引数の名前（`E(f)`，`R(f)`）に使う．
     param: SmolStr,
-    /// 今の引数で足した数．
-    in_param: usize,
-    /// 引数の型の中の正の位置（本体が呼べる関数）に置いた見えない集合．宣言の E に含める．
+    /// 今の引数で足したエラーの集合と効果の集合の数．
+    in_param: [usize; 2],
+    /// 引数の型の中の正の位置（本体が呼べる関数）に置いた見えないエラーの集合．宣言の E に含める．
     pub(crate) positive: Row,
+    /// 同じく，見えない効果の集合．宣言の R に含める．
+    pub(crate) positive_uses: Row,
 }
 
 impl Hidden {
@@ -48,28 +50,39 @@ impl Hidden {
             base,
             params: Vec::new(),
             param: SmolStr::default(),
-            in_param: 0,
+            in_param: [0, 0],
             positive: Row::empty(),
+            positive_uses: Row::empty(),
         }
     }
 
     /// これから lower する引数の名前．
     pub(crate) fn start_param(&mut self, name: SmolStr) {
         self.param = name;
-        self.in_param = 0;
+        self.in_param = [0, 0];
     }
 
-    fn fresh(&mut self, positive: bool) -> Row {
-        self.in_param += 1;
-        let name = match self.in_param {
-            1 => format!("E({})", self.param),
-            n => format!("E({}, {n})", self.param),
+    /// 見えない集合の型引数を足す．`effects` なら効果の集合（`R(f)`），でなければエラーの集合（`E(f)`）．
+    fn fresh(&mut self, positive: bool, effects: bool) -> Row {
+        let (prefix, count) = if effects {
+            ("R", &mut self.in_param[1])
+        } else {
+            ("E", &mut self.in_param[0])
+        };
+        *count += 1;
+        let name = match *count {
+            1 => format!("{prefix}({})", self.param),
+            n => format!("{prefix}({}, {n})", self.param),
         };
         let i = (self.base + self.params.len()) as u32;
         self.params.push(TyParam::set(name));
         let row = Row::from_elems([RowElem::Bound(i)]);
         if positive {
-            self.positive.extend(&row);
+            if effects {
+                self.positive_uses.extend(&row);
+            } else {
+                self.positive.extend(&row);
+            }
         }
         row
     }
@@ -81,7 +94,19 @@ pub(crate) struct Scope<'a> {
     pub(crate) kinds: &'a [ParamKind],
     pub(crate) omitted: Omitted<'a>,
     /// 集合の型引数を書けるか．type などの宣言の型引数は集合にできない（まだ扱わない）．
+    /// effect の操作の宣言の中も同じ．
     pub(crate) sets: bool,
+}
+
+impl Scope<'_> {
+    /// 省略した `fails` 節（`effects` なら `use` 節）の集合．
+    fn omitted_row(&mut self, positive: bool, effects: bool) -> Row {
+        match &mut self.omitted {
+            Omitted::Empty => Row::empty(),
+            Omitted::Hidden(hidden) => hidden.fresh(positive, effects),
+            Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
+        }
+    }
 }
 
 /// 名前付き型の表．type / enum / error の定義から作る．
@@ -111,6 +136,10 @@ impl TyTable {
                 DefKind::Error => {
                     cons.set_tag_name(def, data.name.clone());
                     TyConKind::Error
+                }
+                DefKind::Effect => {
+                    cons.set_tag_name(def, data.name.clone());
+                    continue;
                 }
                 _ => continue,
             };
@@ -205,17 +234,17 @@ impl TyTable {
                 params: fn_params,
                 ret,
                 fails,
-                ..
+                uses,
             } => {
                 // 見えない集合の型引数は外側の関数型から振る（`f: fn(fn() -> A) -> B` の
                 // f 自身の E が `E(f)`）．
                 let fails = match fails {
                     Some(set) => self.lower_error_set(program, scope, set, diags),
-                    None => match &mut scope.omitted {
-                        Omitted::Empty => Row::empty(),
-                        Omitted::Hidden(hidden) => hidden.fresh(positive),
-                        Omitted::Fresh(ctx) => Row::var(ctx.new_row_var()),
-                    },
+                    None => scope.omitted_row(positive, false),
+                };
+                let uses = match uses {
+                    Some(set) => self.lower_effect_set(program, scope, set, diags),
+                    None => scope.omitted_row(positive, true),
                 };
                 let ret_ty = match ret {
                     Some(ret) => self.lower_in(program, scope, *ret, positive, diags),
@@ -225,7 +254,7 @@ impl TyTable {
                     .iter()
                     .map(|&p| self.lower_in(program, scope, p, !positive, diags))
                     .collect();
-                Ty::func_fails(param_tys, ret_ty, fails)
+                Ty::func_sets(param_tys, ret_ty, fails, uses)
             }
             TypeKind::Path { res, args } => {
                 self.lower_path(program, scope, type_ref, *res, args, positive, diags)
@@ -265,6 +294,48 @@ impl TyTable {
                         }
                         Some(ParamKind::Set) => row.insert(RowElem::Bound(i as u32)),
                         _ => row.insert(RowElem::Of(Ty::Bound(i as u32))),
+                    }
+                }
+                _ => {}
+            }
+        }
+        row
+    }
+
+    /// `use` 節の集合．エフェクトはタグ，集合の型引数は `RowElem::Bound`．
+    pub(crate) fn lower_effect_set(
+        &self,
+        program: &Program,
+        scope: &Scope<'_>,
+        set: &EffectSet,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Row {
+        let mut row = Row::empty();
+        for &(res, span) in &set.items {
+            let Res::Def(def) = res else {
+                continue;
+            };
+            match program.defs[def].kind {
+                DefKind::Effect => row.insert(RowElem::Tag(def)),
+                DefKind::TypeParam => {
+                    let Some(i) = scope.params.iter().position(|&p| p == def) else {
+                        continue;
+                    };
+                    match scope.kinds.get(i) {
+                        Some(ParamKind::Set) if scope.sets => row.insert(RowElem::Bound(i as u32)),
+                        Some(ParamKind::Set) => diags.push(Diagnostic {
+                            span: Some(span),
+                            kind: DiagnosticKind::Unsupported {
+                                what: "effect set type parameters on type declarations",
+                            },
+                        }),
+                        // 値の型にも書いた型引数は効果の集合にならない．
+                        _ => diags.push(Diagnostic {
+                            span: Some(span),
+                            kind: DiagnosticKind::Unsupported {
+                                what: "type parameters used both as a type and in `use`",
+                            },
+                        }),
                     }
                 }
                 _ => {}
@@ -427,8 +498,8 @@ pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
         .collect()
 }
 
-/// 型引数の種類を，使われた位置から決める（9.2）．`fails` 節にだけ書いた型引数はエラーの集合，
-/// それ以外はふつうの型（値の型と `fails` の両方に書けば1つのエラーの型，7.2）．
+/// 型引数の種類を，使われた位置から決める（9.2）．`fails` 節か `use` 節にだけ書いた型引数は
+/// 集合，それ以外はふつうの型（値の型と `fails` の両方に書けば1つのエラーの型，7.2）．
 /// `types` は型引数が現れうる型の書き方（引数，戻り値，フィールドの型）．
 pub(crate) fn classify_params(
     program: &Program,
@@ -483,7 +554,7 @@ fn mark_params(
             params: fn_params,
             ret,
             fails,
-            ..
+            uses,
         } => {
             for &p in fn_params {
                 go(p, in_type, in_set);
@@ -491,7 +562,9 @@ fn mark_params(
             if let Some(ret) = ret {
                 go(*ret, in_type, in_set);
             }
-            for (res, _) in fails.iter().flat_map(|f| &f.items) {
+            let fails = fails.iter().flat_map(|f| &f.items);
+            let uses = uses.iter().flat_map(|u| &u.items);
+            for (res, _) in fails.chain(uses) {
                 if let Res::Def(def) = res
                     && let Some(i) = params.iter().position(|p| p == def)
                 {
@@ -513,6 +586,21 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
         TypeKind::Fn { params, ret, .. } => {
             params.iter().any(|&p| has_omitted_fails(program, p))
                 || ret.is_some_and(|r| has_omitted_fails(program, r))
+        }
+        TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+    }
+}
+
+/// 型の書き方の中に，`use` 節を省略した関数型があるか．戻り値の型にあれば，
+/// その R は本体から推論する（9.2）．
+pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
+    match &program.types[ty].kind {
+        TypeKind::Path { args, .. } => args.iter().any(|&a| has_omitted_uses(program, a)),
+        TypeKind::Tuple(elems) => elems.iter().any(|&e| has_omitted_uses(program, e)),
+        TypeKind::Fn { uses: None, .. } => true,
+        TypeKind::Fn { params, ret, .. } => {
+            params.iter().any(|&p| has_omitted_uses(program, p))
+                || ret.is_some_and(|r| has_omitted_uses(program, r))
         }
         TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
     }
