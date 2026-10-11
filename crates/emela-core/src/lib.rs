@@ -4,8 +4,10 @@
 //! バックエンドには脱糖済みの IR だけを渡す．
 
 pub mod build;
+mod dump;
 pub mod intrinsics;
 mod ir;
+mod lower;
 pub mod named;
 mod sources;
 pub mod tail;
@@ -13,6 +15,8 @@ pub mod tail;
 #[cfg(test)]
 mod tests;
 
+pub use dump::dump;
 pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
+pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
 pub use sources::{PRELUDE, core_source, core_sources};

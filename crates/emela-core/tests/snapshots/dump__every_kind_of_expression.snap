@@ -1,0 +1,48 @@
+---
+source: crates/emela-core/tests/dump.rs
+expression: dump(&m)
+---
+enum Shapes.Shape {
+  Circle(Float)
+  Rect(width: Float, height: Float)
+}
+
+enum Pair[A, B] {
+  Pair(first: A, second: B)
+}
+
+enum Option[A] {
+  Some(A)
+  None
+}
+
+fn Shapes.area(s%0) {
+  match s%0 {
+    Shapes.Shape.Circle(r%1) -> ((r%1 *[Float] r%1) *[Float] 2.5)
+    Shapes.Shape.Rect(width: w%2, height: _) if (w%2 >[Float] 0.0) -> w%2
+    _ -> 0.0
+  }
+}
+
+fn sum(xs%3, acc%4) {
+  loop(xs%5 = xs%3, acc%6 = acc%4) {
+    match xs%5 {
+      [] -> acc%6
+      [x%7, ..rest%8] -> recur(rest%8, (acc%6 +[Int] x%7))
+    }
+  }
+}
+
+export fn main() {
+  let p%9 = Pair.Pair(first: 1, second: "a")
+  let f%10 = fn(y%11) {
+    (y%11 +[Int64] 1i64)
+  }
+  let name%12 = if (true &&[Bool] (![Bool] false)) {
+    "yes"
+  } else {
+    let z%13 = ()
+    "no"
+  }
+  (p%9.first#0, (f%10)(41i64), sum([1, 2, ..[]], 0), Shapes.area(Shapes.Shape.Circle((-[Float] 1.5))), Shapes.area, @dbg[Pair[Int, String]](p%9), @String.length(name%12), concat("n = ", name%12 as String), Option.Some(1), Option.None, assert(p%9 ==[Structural] p%9, ty: Pair[Int, String], text: "p == p"), assert(true, text: "True"))
+}

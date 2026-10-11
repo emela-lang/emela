@@ -1,0 +1,55 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: dump(&m)
+---
+enum Shape {
+  Circle(Float)
+  Rect(width: Float, height: Float)
+  Empty
+}
+
+enum Pair[A, B] {
+  Pair(first: A, second: B)
+}
+
+enum Option[A] {
+  Some(A)
+  None
+}
+
+enum Prelude.Ordering {
+  Less
+  Equal
+  Greater
+}
+
+export fn main() {
+  let _%0 = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
+  let _%1 = @dbg[String](describe([1, 2, 3]))
+  match (1, "x") {
+    (a%2, b%3) -> match Pair.Pair(first: a%2, second: b%3) {
+      Pair.Pair(first: _, second: second%4) -> @dbg[String](second%4)
+    }
+  }
+}
+
+fn area(s%7) {
+  match s%7 {
+    Shape.Circle(r%8) -> ((r%8 *[Float] r%8) *[Float] 3.0)
+    Shape.Rect(width: w%9, height: _) if (w%9 >[Float] 10.0) -> 0.0
+    Shape.Rect(width: w%10, height: h%11) -> (w%10 *[Float] h%11)
+    Shape.Empty -> 0.0
+  }
+}
+
+fn describe(xs%5) {
+  match xs%5 {
+    [] -> "empty"
+    [1, .._] -> "one first"
+    [_, ..rest%6] -> if (rest%6 ==[Structural] []) {
+      "single"
+    } else {
+      "many"
+    }
+  }
+}
