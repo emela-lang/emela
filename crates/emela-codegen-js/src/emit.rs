@@ -113,8 +113,12 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
             let js = fn_name(&f.name);
             if js == f.name {
                 js
-            } else {
+            } else if is_identifier_name(&f.name) {
                 format!("{js} as {}", f.name)
+            } else {
+                // 他のモジュールの関数（`Util.in_util`）は識別子として書けないので，
+                // 文字列の名前で export する（ES2022）．
+                format!("{js} as {}", js_string(&f.name))
             }
         })
         .collect();
@@ -961,6 +965,15 @@ fn sanitize(s: &str) -> String {
             }
         })
         .collect()
+}
+
+/// export の名前に識別子として書けるか（ASCII の範囲で見る．予約語も export の名前には使える）．
+fn is_identifier_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 /// トップレベル関数の JS 名．予約語や生成コードが使う大域名と重なるときは `$` を付ける．
