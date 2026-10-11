@@ -12,7 +12,7 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{Formatting, Request as _};
+use lsp_types::request::{Formatting, HoverRequest, Request as _};
 use lsp_types::{self as lsp, Uri};
 
 use crate::convert::{self, path_to_uri, uri_to_path};
@@ -21,7 +21,7 @@ use crate::overlay::Overlay;
 /// プロジェクトの目印のファイル（仕様 4.1）．位置のない診断をプロジェクトに付けるときに使う．
 const PROJECT_FILE: &str = "Pome.toml";
 
-/// サーバーの能力．テキストは全文で同期する．文書全体の整形を受ける．
+/// サーバーの能力．テキストは全文で同期する．文書全体の整形とホバーを受ける．
 pub fn capabilities() -> lsp::ServerCapabilities {
     lsp::ServerCapabilities {
         text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
@@ -37,6 +37,7 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             },
         )),
         document_formatting_provider: Some(lsp::OneOf::Left(true)),
+        hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
         ..lsp::ServerCapabilities::default()
     }
 }
@@ -198,6 +199,14 @@ where
                     format!("invalid params: {err}"),
                 ),
             },
+            HoverRequest::METHOD => match serde_json::from_value(request.params) {
+                Ok(params) => Response::new_ok(request.id, self.hover(&params)),
+                Err(err) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    format!("invalid params: {err}"),
+                ),
+            },
             _ => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,
@@ -225,6 +234,38 @@ where
                 range: convert::whole_range(&text),
                 new_text: formatted,
             }],
+        })
+    }
+
+    /// カーソルの下の名前や式の型（と E）．ファイルを含むプロジェクトをその場で検査し直す．
+    /// 型を持たないフロントエンド，検査できないファイル，何もない位置では `null`．
+    fn hover(&mut self, params: &lsp::HoverParams) -> Option<lsp::Hover> {
+        let position = &params.text_document_position_params;
+        let uri = &position.text_document.uri;
+        let path = match self.documents.get(uri) {
+            Some(document) => document.path.clone(),
+            None => self.fs.normalize(&uri_to_path(uri)?),
+        };
+        let input = match Input::resolve(&self.fs, &path).ok()? {
+            input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
+            input => input,
+        };
+        let (analysis, program) =
+            emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
+        let program = program?;
+        let file = analysis.sources.file_id(&path)?;
+        let index = analysis.sources[file].line_index();
+        let offset = convert::offset(index, position.position)?;
+        let info = F::hover(&program, &analysis, file, offset)?;
+        Some(lsp::Hover {
+            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                kind: lsp::MarkupKind::Markdown,
+                value: info.contents,
+            }),
+            range: Some(lsp::Range {
+                start: convert::position(index, info.range.start()),
+                end: convert::position(index, info.range.end()),
+            }),
         })
     }
 

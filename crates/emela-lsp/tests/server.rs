@@ -4,13 +4,13 @@ use std::str::FromStr;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use emela_driver::{Frontend, MemoryFiles, ParseOnly};
+use emela_driver::{Frontend, MemoryFiles, ParseOnly, Typecheck};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Initialized, Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{Formatting, Initialize, Request as _, Shutdown};
+use lsp_types::request::{Formatting, HoverRequest, Initialize, Request as _, Shutdown};
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
 
@@ -155,6 +155,18 @@ impl Client {
             json!({
                 "textDocument": { "uri": uri(path) },
                 "options": { "tabSize": 4, "insertSpaces": true },
+            }),
+        );
+        serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
+    }
+
+    /// 位置の情報を求め，結果（`null` なら `None`）を返す．
+    fn hover(&mut self, path: &str, line: u32, character: u32) -> Option<lsp::Hover> {
+        let id = self.request(
+            HoverRequest::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "position": { "line": line, "character": character },
             }),
         );
         serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
@@ -423,7 +435,7 @@ fn file_outside_the_source_root() {
 #[test]
 fn unsupported_requests_get_an_error() {
     let mut client = Client::initialize(&[("/tmp/main.emel", "")], None, ParseOnly::new);
-    let id = client.request("textDocument/hover", json!({}));
+    let id = client.request("textDocument/completion", json!({}));
     match client.recv() {
         Message::Response(response) => {
             assert_eq!(response.id, id);
@@ -480,5 +492,52 @@ fn formatting_replaces_the_whole_document() {
     {
         assert!(matches!(message, Message::Notification(_)), "{message:?}");
     }
+    client.shutdown();
+}
+
+/// ホバーで型と E（エラーの集合）を見せる（9.3）．
+#[test]
+fn hover_shows_types_and_errors() {
+    let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], fn(x) { x })\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        emela_lsp::capabilities().hover_provider,
+        Some(lsp::HoverProviderCapability::Simple(true))
+    );
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    // 定義の名前は宣言の型．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 4)),
+        "```emela\nfind: fn(Int) -> Int fails NotFound\n```"
+    );
+    // 推論した E．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 4)),
+        "```emela\nmain: fn() -> List[Int] fails NotFound\n```"
+    );
+    // 呼び出しの式は型と E．範囲は式．
+    let hover = client.hover("/app/src/main.emel", 7, 12).unwrap();
+    assert_eq!(hover.range, Some(range((7, 6), (7, 13))));
+    assert_eq!(text(Some(hover)), "```emela\nInt\nfails NotFound\n```");
+    // 局所変数．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 7, 2)),
+        "```emela\nn: Int\n```"
+    );
+    // 汎用の関数の参照は汎化した型．引数の関数の見えない集合が出る．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 8)),
+        "```emela\nmap: ∀ A, B, E(f). fn(List[A], fn(A) -> B fails E(f)) -> List[B] fails E(f)\n```"
+    );
+    // 何もない位置．
+    assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
+    // 型を持たないフロントエンドは null．
+    client.shutdown();
+    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    assert_eq!(client.hover("/app/src/main.emel", 2, 4), None);
     client.shutdown();
 }

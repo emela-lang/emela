@@ -14,6 +14,7 @@ use la_arena::ArenaMap;
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location, error_count};
+use crate::hover::HoverInfo;
 use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -189,6 +190,16 @@ pub trait Frontend {
     /// ソースのモジュールと同じく（単独ファイルでも必ず）読んで [`Frontend::parse`] に渡す．
     fn core_sources(&self) -> Vec<CoreSource> {
         Vec::new()
+    }
+
+    /// `file` の `offset` の位置の情報（LSP のホバー）．型を持つフロントエンドだけが返す．
+    fn hover(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Option<HoverInfo> {
+        None
     }
 }
 
