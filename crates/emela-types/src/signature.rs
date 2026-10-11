@@ -73,7 +73,6 @@ impl Default for Signatures {
         Self::new()
     }
 }
-
 /// fn の型とラベル．戻り値の型を書いていなければ `None`（本体から推論する）．
 fn fn_signature(
     program: &Program,

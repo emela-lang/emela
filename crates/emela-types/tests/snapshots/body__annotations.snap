@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f() -> Int {\n  x: Int = 1\n  y: String = 2\n  x\n}\n\"#)"
+---
+f: fn() -> Int
+  x: Int
+  y: String
+`2` mismatch: expected `String`, found `Int`

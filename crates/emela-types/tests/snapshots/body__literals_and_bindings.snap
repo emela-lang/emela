@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(n: Int) -> (Int, String) {\n  a = 1\n  b = 2.5\n  c = \"s\"\n  d = (a, c)\n  e = ()\n  (n, c)\n}\n\"#)"
+---
+f: fn(Int) -> (Int, String)
+  n: Int
+  a: Int
+  b: Float
+  c: String
+  d: (Int, String)
+  e: ()

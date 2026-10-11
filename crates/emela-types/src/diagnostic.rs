@@ -1,9 +1,11 @@
-//! 型推論の診断のうち，単一化の失敗（[`crate::TypeError`]）でないもの．
+//! 型推論の診断．単一化の失敗（[`crate::TypeError`]）には位置を付けてここに入れる．
 //!
 //! 文面とエラーコードは driver が決める．ここでは中身だけを持つ．
 
 use emela_resolve::hir::Span;
 use smol_str::SmolStr;
+
+use crate::error::TypeError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -22,4 +24,6 @@ pub enum DiagnosticKind {
     },
     /// alpha.1 ではまだ扱えない構文．`what` は構文の名前（`Self` など）．
     Unsupported { what: &'static str },
+    /// 単一化の失敗（E0301 の型が合わない，E0302 の無限型）．
+    Mismatch(TypeError),
 }

@@ -8,7 +8,7 @@ use emela_resolve::{
     Diagnostic, MemoryFs, ModuleId, NoBuiltins, build_import_graph, collect_modules, imports,
     resolve,
 };
-use emela_types::{Diagnostic as TypeDiagnostic, Signatures, TyTable};
+use emela_types::{Diagnostic as TypeDiagnostic, DiagnosticKind, Signatures, TyCons, TyTable};
 use la_arena::ArenaMap;
 
 /// `main.emel` を名前解決する．構文の誤りは許さない．
@@ -30,12 +30,20 @@ pub fn resolve_main(src: &str) -> (Program, ModuleId, Vec<Diagnostic>) {
 }
 
 /// 型の診断を `` `List[Int, Int]` WrongTypeArgCount { ... } `` の形にする．
-pub fn describe(src: &str, d: &TypeDiagnostic) -> String {
+/// 型が合わない診断は `` `"a"` mismatch: expected `Int`, found `String` `` の形にする．
+pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
     let text = d.span.map_or("<no span>", |s| {
         let range = s.range;
         &src[usize::from(range.start())..usize::from(range.end())]
     });
-    format!("`{text}` {:?}", d.kind)
+    match &d.kind {
+        DiagnosticKind::Mismatch(e) => format!(
+            "`{text}` mismatch: expected `{}`, found `{}`",
+            e.expected.display(cons),
+            e.actual.display(cons)
+        ),
+        kind => format!("`{text}` {kind:?}"),
+    }
 }
 
 /// `main.emel` の宣言の型を集め，`include` が選んだ定義の型と診断を文字列にする．
@@ -75,7 +83,7 @@ pub fn render_signatures(
         writeln!(out, "resolve: {d}").unwrap();
     }
     for d in &diags {
-        writeln!(out, "{}", describe(src, d)).unwrap();
+        writeln!(out, "{}", describe(src, &table.cons, d)).unwrap();
     }
     out
 }
