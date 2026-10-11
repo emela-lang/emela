@@ -383,19 +383,21 @@ impl<'a> BodyInfer<'a> {
                     },
                 });
             } else if assigned.has_missing() && !rest {
-                let missing_field = assigned
+                // 埋まっていない名前付きフィールドを全部集める．位置だけのフィールドは名前がない．
+                let missing_fields: Vec<SmolStr> = assigned
                     .slots
                     .iter()
                     .zip(labels.unwrap_or(&[]))
-                    .find(|(slot, _)| slot.is_none())
-                    .and_then(|(_, label)| label.clone());
+                    .filter(|(slot, _)| slot.is_none())
+                    .filter_map(|(_, label)| label.clone())
+                    .collect();
 
-                if let Some(field) = missing_field {
+                if !missing_fields.is_empty() {
                     self.diags.push(Diagnostic {
                         span: Some(span),
-                        kind: DiagnosticKind::MissingPatternField {
+                        kind: DiagnosticKind::MissingPatternFields {
                             ctor: ctor_name.clone(),
-                            field: field.clone(),
+                            fields: missing_fields,
                         },
                     })
                 } else {

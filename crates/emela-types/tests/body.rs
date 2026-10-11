@@ -275,3 +275,16 @@ fn f(u: User, s: Shape) -> Int {
 }
 "#));
 }
+
+#[test]
+fn missing_pattern_fields() {
+    insta::assert_snapshot!(run(r#"
+type Account(id: Int, name: String, email: String)
+
+fn f(a: Account) -> Int {
+  Account(name:) = a
+  Account(name:, ..) = a
+  1
+}
+"#));
+}

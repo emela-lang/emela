@@ -13,7 +13,7 @@ f: fn(User, Shape) -> Int
   r: {unknown}
   v: ?0
   q: ?1
-`User(name:)` MissingPatternField { ctor: "User", field: "id" }
+`User(name:)` MissingPatternFields { ctor: "User", fields: ["id"] }
 `Rect(w)` PatternFieldCount { ctor: "Rect", expected: 2, found: 1 }
 `Rect(w2, h2, d2)` PatternFieldCount { ctor: "Rect", expected: 2, found: 3 }
 `r` UnknownLabel { callee: "Circle", label: "r" }

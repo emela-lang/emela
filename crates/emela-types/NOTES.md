@@ -39,5 +39,19 @@
 - （補）呼ばれる側の型がまだ関数型と分からない（型変数）か関数でない型なら，引数の数だけ型変数を並べた関数型と単一化する．関数でなければ型が合わないエラーになる．
 - （補）戻り値の型を書いていない fn と，型を書いていない const の参照は，呼び出しの順の推論（ステップ4）が入るまで「まだ扱えない」の診断にする．
 - （補）パターンの照合は「来た値の型」を期待する側，パターンの型を実際の側に置く（`expected` が値の型）．タプルとリストのパターンは，要素の型変数を並べた型と来た値の型を単一化してから要素に渡す．
-- （補）構成子のパターンのフィールドは，呼び出しの引数と同じく位置とラベルで並べ直す．名前付きフィールドの構成子を位置で書いてもよい（6.2）．`..` なしで埋まらないフィールドがあれば E0308（名前付きなら最初に省いたフィールドの名前を出す），フィールドより多ければ E0308．ラベルの誤りは E0306，E0307．置けなかったパターンには `Ty::Error` を渡す．
+- （補）構成子のパターンのフィールドは，呼び出しの引数と同じく位置とラベルで並べ直す．名前付きフィールドの構成子を位置で書いてもよい（6.2）．名前付きフィールドの構成子で `..` なしにフィールドを省けば E0308（省いたフィールドを全部持つ），フィールドより多い，または位置だけの構成子で `..` なしに足りなければ E0309．ラベルの誤りは E0306，E0307．置けなかったパターンには `Ty::Error` を渡す．
 - （補）束縛のパターンが必ず成功するかどうか（6.3）は，網羅性の検査をつなぐステップ5で見る．それまではリテラルや構成子のパターンも束縛に書ける．
+
+## driver に渡すときの文面（ステップ7でつなぐ）
+
+付録 A の文面に合わせる．文面は仕様の一部ではないが，ここに置いておく．
+
+- E0301 `Mismatch`: ``type mismatch: expected `Int`, found `String` ``
+- E0302 `Mismatch`（`TypeErrorKind::InfiniteType`）: ``infinite type: `?0` occurs in `List[?0]` ``
+- E0304 `WrongTypeArgCount`: ``wrong number of type arguments: `List` takes 1, found 2``
+- E0305 `WrongArgCount`: ``wrong number of arguments: `connect` takes 2, found 3``．`callee` が `None`（関数値の呼び出し）なら ``this function takes 2 arguments, found 3``
+- E0306 `UnknownLabel`: ``no parameter named `prot` in `connect` ``．`LabelOnUnnamedCallee`: ``no parameter named `x`: a function value has no parameter names``
+- E0307 `DuplicateArg`: ``argument `port` given more than once``
+- E0308 `MissingPatternFields`: ``pattern `User` does not mention fields `id`, `email` ``（1つなら ``field `id` ``）．4つ以上なら先頭の3つと ``and N more``．注記 ``= help: add `..` to ignore the remaining fields``
+- E0309 `PatternFieldCount`: ``pattern `Rect` has 2 fields, found 1``
+- `Unsupported`: コードなしの ``error: not supported yet: {what}``（alpha.1 の間だけ）

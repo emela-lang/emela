@@ -39,12 +39,14 @@ pub enum DiagnosticKind {
     DuplicateArg { label: SmolStr },
     /// ラベルを持たない値（局所変数，ラムダ）の呼び出しで名前付き引数を書いた（E0306）．
     LabelOnUnnamedCallee { label: SmolStr },
-    /// 構成子のパターンのフィールドの数が合わない（E0308）．`Rect(w)`．
+    /// 構成子のパターンのフィールドの数が合わない（E0309）．多すぎる（`Rect(w, h, d)`），
+    /// または位置だけのフィールドの構成子で `..` なしに足りない（`Rect(w)`）．
     PatternFieldCount {
         ctor: SmolStr,
         expected: usize,
         found: usize,
     },
     /// 名前付きフィールドの構成子のパターンで，`..` を書かずにフィールドを省いた（E0308，6.5）．
-    MissingPatternField { ctor: SmolStr, field: SmolStr },
+    /// `fields` は省いたフィールドの全部（宣言の順）．
+    MissingPatternFields { ctor: SmolStr, fields: Vec<SmolStr> },
 }
