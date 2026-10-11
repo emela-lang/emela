@@ -67,7 +67,10 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             format!("`{text}` no field `{field}` on type `{}`", ty.display(cons))
         }
         DiagnosticKind::NoFields { ty, field } => {
-            format!("`{text}` type `{}` has no fields (`{field}`)", ty.display(cons))
+            format!(
+                "`{text}` type `{}` has no fields (`{field}`)",
+                ty.display(cons)
+            )
         }
         DiagnosticKind::OpaqueField { ty, field } => format!(
             "`{text}` cannot access field `{field}` of opaque type `{}`",

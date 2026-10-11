@@ -1,49 +1,73 @@
-//! fn の本体の推論（`infer_fn_body`）をスナップショットで確かめる．
+//! 定義の本体の推論（`check_program`）をスナップショットで確かめる．
 //!
-//! fn ごとに，fn の型と，引数と束縛した変数の型を出す．その下に型の診断を出す．
+//! `main.emel` の fn ごとに，宣言の型（書いていなければ推論して汎化した型）と，
+//! 引数と束縛した変数の型を出す．その下に `main.emel` の型の診断を位置の順に出す．
 
 mod common;
 
 use std::fmt::Write;
 
 use emela_resolve::hir::{DefKind, DefModule};
-use emela_types::{Signatures, TyTable, infer_fn_body};
+use emela_types::check_program;
 
 use common::{describe, resolve_main};
 
 fn run(src: &str) -> String {
     let (program, module, resolve_diagnostics) = resolve_main(src);
-    let table = TyTable::new(&program);
-    let mut diags = Vec::new();
-    let sigs = Signatures::collect(&program, &table, &mut diags);
+    let types = check_program(&program);
+    let cons = &types.ty_table.cons;
 
     let mut out = String::new();
     for (def, data) in program.defs.iter() {
         if data.module != DefModule::Source(module) || data.kind != DefKind::Fn {
             continue;
         }
-        let Some(body) = infer_fn_body(&program, &table, &sigs, def) else {
-            continue;
-        };
-        writeln!(out, "{}: {}", data.name, body.fn_ty.display(&table.cons)).unwrap();
-        for (local, ty) in body.locals.iter() {
-            writeln!(
-                out,
-                "  {}: {}",
-                program.locals[local].name,
-                ty.display(&table.cons)
-            )
-            .unwrap();
+        match types.sigs.get(def) {
+            Some(sig) => writeln!(out, "{}: {}", data.name, sig.scheme.display(cons)).unwrap(),
+            None => writeln!(out, "{}: <no type>", data.name).unwrap(),
         }
-        diags.extend(body.diags);
+        for (local, ty) in types.locals.iter() {
+            if types.local_owner.get(local) == Some(&def) {
+                writeln!(
+                    out,
+                    "  {}: {}",
+                    program.locals[local].name,
+                    ty.display(cons)
+                )
+                .unwrap();
+            }
+        }
     }
     for d in &resolve_diagnostics {
         writeln!(out, "resolve: {d}").unwrap();
     }
-    for d in &diags {
-        writeln!(out, "{}", describe(src, &table.cons, d)).unwrap();
+    let mut diags: Vec<_> = types
+        .diags
+        .iter()
+        .filter(|d| d.span.is_some_and(|s| s.module == module))
+        .collect();
+    diags.sort_by_key(|d| d.span.map(|s| s.range.start()));
+    for d in diags {
+        writeln!(out, "{}", describe(src, cons, d)).unwrap();
     }
     out
+}
+
+/// 同梱の Prelude と core のソースは，型の診断なしに検査を通る．
+#[test]
+fn core_sources_typecheck() {
+    let (program, module, _) = resolve_main("");
+    let types = check_program(&program);
+    let cons = &types.ty_table.cons;
+    let mut out = String::new();
+    for d in &types.diags {
+        if d.span.is_some_and(|s| s.module == module) {
+            continue;
+        }
+        writeln!(out, "{:?} {:?}", d.span.map(|s| s.module), d.kind).unwrap();
+    }
+    let _ = cons;
+    assert_eq!(out, "");
 }
 
 #[test]
@@ -548,6 +572,81 @@ fn f(u: User, p: Pair[Int, Bool]) -> Int {
   d = User(nmae: "x", ..u)
   g = User(name: "x", ..p)
   1
+}
+"#));
+}
+
+#[test]
+fn inferred_functions_are_generalized() {
+    insta::assert_snapshot!(run(r#"
+fn use_them() -> Int {
+  a = wrap(1)
+  b = wrap("s")
+  c = empty(0)
+  d: List[String] = empty(1)
+  e = one()
+  a_len()
+}
+
+fn wrap[A](x: A) { [x] }
+fn untyped(x) { x }
+fn empty(n: Int) { [] }
+fn one() { 1 }
+fn keep[A](x: A, n: Int) { (x, n) }
+const LIMIT = 10
+fn a_len() { LIMIT }
+"#));
+}
+
+#[test]
+fn recursion() {
+    insta::assert_snapshot!(run(r#"
+fn count(n: Int) {
+  if n == 0 { 0 } else { count(n - 1) }
+}
+
+fn is_even(n: Int) {
+  if n == 0 { True } else { is_odd(n - 1) }
+}
+fn is_odd(n: Int) {
+  if n == 0 { False } else { is_even(n - 1) }
+}
+
+fn length[A](xs: List[A]) -> Int {
+  match xs {
+    [] -> 0
+    [_, ..rest] -> 1 + length(rest)
+  }
+}
+"#));
+}
+
+#[test]
+fn recursion_is_monomorphic_without_annotation() {
+    insta::assert_snapshot!(run(r#"
+fn f(n: Int) {
+  a = g(1)
+  b = g(2)
+  c = h(n)
+  d = h("s")
+  e = uses_k_twice(n)
+  n
+}
+fn g[A](x: A) {
+  f(1)
+  x
+}
+fn h(x: Int) {
+  f(x)
+}
+fn k(n: Int) {
+  f(n)
+  []
+}
+fn uses_k_twice(n: Int) {
+  xs: List[Int] = k(1)
+  ys: List[String] = k(2)
+  f(n)
 }
 "#));
 }

@@ -63,4 +63,6 @@ pub enum DiagnosticKind {
     FieldOnUnknownType { field: SmolStr },
     /// opaque な型のフィールドを，定義モジュールの外で引いた（E0315，4.4）．
     OpaqueField { ty: Ty, field: SmolStr },
+    /// トップレベルの fn の引数に型を書いていない（E0316，6.1）．
+    MissingParamType { param: SmolStr },
 }

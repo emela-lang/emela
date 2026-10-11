@@ -254,17 +254,36 @@ impl InferCtx {
     ///
     /// 型引数には現れた順に `A`，`B`，… と名前を付ける．制約は付けない．
     pub fn generalize(&mut self, ty: &Ty, env_vars: &[TyVar]) -> Scheme {
+        self.generalize_with(ty, Vec::new(), env_vars)
+    }
+
+    /// [`Self::generalize`] と同じく量化する．`existing`（宣言で書いた型引数．`ty` の中では
+    /// `Ty::Bound(i)`）の後ろに，量化した型変数を足す．名前は書いた型引数と重ならないものを選ぶ．
+    pub fn generalize_with(
+        &mut self,
+        ty: &Ty,
+        existing: Vec<TyParam>,
+        env_vars: &[TyVar],
+    ) -> Scheme {
         // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
         let mut env = Vec::new();
         for v in env_vars {
             self.collect_free_vars(&Ty::Var(*v), &mut env);
         }
         let mut map = FxHashMap::default();
-        let mut params = Vec::new();
+        let mut params = existing;
+        let mut next_name = 0;
         for v in self.free_vars(ty) {
             if !env.contains(&v) {
                 map.insert(v, params.len() as u32);
-                params.push(TyParam::new(SmolStr::new(param_name(params.len()))));
+                let name = loop {
+                    let name = param_name(next_name);
+                    next_name += 1;
+                    if !params.iter().any(|p| p.name == name) {
+                        break name;
+                    }
+                };
+                params.push(TyParam::new(SmolStr::new(name)));
             }
         }
         let ty = self.resolve(ty);

@@ -1,0 +1,23 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(n: Int) {\n  a = g(1)\n  b = g(2)\n  c = h(n)\n  d = h(\"s\")\n  e = uses_k_twice(n)\n  n\n}\nfn g[A](x: A) {\n  f(1)\n  x\n}\nfn h(x: Int) {\n  f(x)\n}\nfn k(n: Int) {\n  f(n)\n  []\n}\nfn uses_k_twice(n: Int) {\n  xs: List[Int] = k(1)\n  ys: List[String] = k(2)\n  f(n)\n}\n\"#)"
+---
+f: fn(Int) -> Int
+  n: Int
+  a: Int
+  b: Int
+  c: Int
+  d: Int
+  e: Int
+g: ∀ A. fn(A) -> A
+  x: '0
+h: fn(Int) -> Int
+  x: Int
+k: fn(Int) -> List[Int]
+  n: Int
+uses_k_twice: fn(Int) -> Int
+  n: Int
+  xs: List[Int]
+  ys: List[String]
+`"s"` mismatch: expected `Int`, found `String`
+`k(2)` mismatch: expected `List[String]`, found `List[Int]`

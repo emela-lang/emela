@@ -3,11 +3,11 @@
 //! 呼び出しの推論が，呼ばれる側の型とラベルをここから引く．戻り値の型を書いていない fn と，
 //! 型を書いていない const は，本体を推論した後に足す．
 
-use emela_resolve::hir::{DefId, Fields, FnItem, Item, Program, TypeId};
+use emela_resolve::hir::{DefId, Fields, FnItem, Item, Param, Program, TypeId};
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::{TyTable, ty_params, type_param_defs};
 use crate::scheme::Scheme;
 use crate::ty::Ty;
@@ -87,7 +87,7 @@ fn fn_signature(
         .sig
         .params
         .iter()
-        .map(|p| ty_table.lower_or_error(program, &defs, p.ty, diags))
+        .map(|p| param_ty(program, ty_table, &defs, p, diags))
         .collect();
     let labels = item
         .sig
@@ -132,4 +132,27 @@ fn ctor_signature(
         scheme: Scheme::new(ty_params(program, &defs), ty),
         labels,
     })
+}
+
+/// トップレベルの fn の引数の型．書いていなければ E0316（6.1）を積んで `Ty::Error`．
+pub(crate) fn param_ty(
+    program: &Program,
+    ty_table: &TyTable,
+    type_params: &[DefId],
+    param: &Param,
+    diags: &mut Vec<Diagnostic>,
+) -> Ty {
+    match param.ty {
+        Some(ty) => ty_table.lower(program, type_params, ty, diags),
+        None => {
+            let local = &program.locals[param.local];
+            diags.push(Diagnostic {
+                span: Some(local.span),
+                kind: DiagnosticKind::MissingParamType {
+                    param: local.name.clone(),
+                },
+            });
+            Ty::Error
+        }
+    }
 }

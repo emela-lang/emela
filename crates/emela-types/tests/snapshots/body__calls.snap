@@ -5,7 +5,7 @@ expression: "run(r#\"\nfn add(x: Int, y: Int) -> Int { x }\nfn pair[A, B](a: A, 
 add: fn(Int, Int) -> Int
   x: Int
   y: Int
-pair: fn('0, '1) -> ('0, '1)
+pair: ∀ A, B. fn(A, B) -> (A, B)
   a: '0
   b: '1
 f: fn() -> Int

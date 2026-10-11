@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn count(n: Int) {\n  if n == 0 { 0 } else { count(n - 1) }\n}\n\nfn is_even(n: Int) {\n  if n == 0 { True } else { is_odd(n - 1) }\n}\nfn is_odd(n: Int) {\n  if n == 0 { False } else { is_even(n - 1) }\n}\n\nfn length[A](xs: List[A]) -> Int {\n  match xs {\n    [] -> 0\n    [_, ..rest] -> 1 + length(rest)\n  }\n}\n\"#)"
+---
+count: fn(Int) -> Int
+  n: Int
+is_even: fn(Int) -> Bool
+  n: Int
+is_odd: fn(Int) -> Bool
+  n: Int
+length: ∀ A. fn(List[A]) -> Int
+  xs: List['0]
+  rest: List['0]

@@ -15,9 +15,9 @@ f: fn(Int, Int64, String, Bool) -> Int
   h: Bool
   i: Bool
 `big` mismatch: expected `Int`, found `Int64`
+`s + s` not numeric (integer: false): `String`
 `1.5` mismatch: expected `Int`, found `Float`
+`-c` not numeric (integer: false): `Bool`
 `n` mismatch: expected `Bool`, found `Int`
 `1` mismatch: expected `Bool`, found `Int`
 `"x"` mismatch: expected `Int`, found `String`
-`s + s` not numeric (integer: false): `String`
-`-c` not numeric (integer: false): `Bool`

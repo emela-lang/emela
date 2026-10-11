@@ -1,7 +1,9 @@
-//! 関数の本体の推論．式とパターンに型を付ける．
+//! 関数と const の本体の推論．式とパターンに型を付ける．
 //!
-//! 関数の本体1つごとに [`BodyInfer`] を作り，式を下から順に推論する．型が合わなければ
-//! 式の位置を付けた診断を積んで続ける．
+//! 互いに参照し合う定義のまとまり（呼び出しグラフの強連結成分）ごとに [`BodyInfer`] を作り，
+//! 式を下から順に推論する．型が合わなければ式の位置を付けた診断を積んで続ける．
+//! 宣言の型のない定義（戻り値の型を書いていない fn，型を書いていない const）は，まとまりの
+//! 中では単相の型で参照し，まとまりを推論し終えてから汎化する（[`crate::check`]）．
 
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefModule, ExprId, ExprKind, FnItem, Item, Label, ListRest,
@@ -9,55 +11,48 @@ use emela_resolve::hir::{
     UnaryOp,
 };
 use la_arena::{ArenaMap, Idx};
+use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
 use crate::FnTy;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{InferCtx, substitute_bound};
 use crate::lower::TyTable;
-use crate::signature::{Signature, Signatures};
-use crate::ty::{Prim, Ty};
+use crate::signature::{Signature, Signatures, param_ty};
+use crate::ty::{Prim, Ty, TyParam, TyVar};
 
-/// fn の本体1つの推論の結果．型は単一化の束縛を辿った形．
-///
-/// 形は仮．lowering に渡す形はステップ6で決める．
-#[derive(Debug)]
-pub struct BodyTypes {
-    /// fn の型．
-    pub fn_ty: Ty,
-    pub exprs: ArenaMap<ExprId, Ty>,
-    pub pats: ArenaMap<PatId, Ty>,
-    pub locals: ArenaMap<LocalId, Ty>,
-    pub diags: Vec<Diagnostic>,
+/// 定義のまとまり1つの推論の結果．型は単一化の束縛を辿った形．
+pub(crate) struct BodyTypes {
+    pub(crate) exprs: ArenaMap<ExprId, Ty>,
+    pub(crate) pats: ArenaMap<PatId, Ty>,
+    pub(crate) locals: ArenaMap<LocalId, Ty>,
+    /// 局所変数がどの定義の本体のものか．
+    pub(crate) local_owner: ArenaMap<LocalId, DefId>,
+    pub(crate) diags: Vec<Diagnostic>,
+    /// 宣言の型のなかった定義の，汎化した宣言の型．
+    pub(crate) inferred: Vec<(DefId, Signature)>,
 }
 
-/// トップレベルの fn `def` の本体を推論する．
-pub fn infer_fn_body(
-    program: &Program,
-    ty_table: &TyTable,
-    sigs: &Signatures,
-    def: DefId,
-) -> Option<BodyTypes> {
-    let Some(Item::Fn(item)) = program.item(def) else {
-        return None;
-    };
-    let type_params = item.sig.type_params.iter().map(|tp| tp.def).collect();
-    let module = program.defs[def].module.clone();
-    let mut infer = BodyInfer::new(program, ty_table, sigs, module, type_params);
-    let fn_ty = infer.infer_fn(item, sigs.get(def));
-    Some(infer.finish(fn_ty))
-}
-
-/// 関数の本体1つを推論する間の状態．
+/// 定義のまとまり1つを推論する間の状態．
 pub(crate) struct BodyInfer<'a> {
     program: &'a Program,
     ty_table: &'a TyTable,
     sigs: &'a Signatures,
-    /// 推論している fn のモジュール．opaque な型のフィールドを引けるかの判定に使う．
+    /// 推論している定義．
+    current: Option<DefId>,
+    /// 推論している定義のモジュール．opaque な型のフィールドを引けるかの判定に使う．
     module: DefModule,
+    /// 推論している fn の型引数．
     type_params: Vec<DefId>,
     ctx: InferCtx,
+    /// まとまりの中の，宣言の型のない定義の単相の型と，書いた型引数の数．
+    /// 推論し終えてから汎化する．
+    pending: Vec<(DefId, Ty, usize)>,
+    /// 書いた型引数のある `pending` の定義を，まとまりの中の他の定義から参照したもの．
+    /// 推論し終えてから，その定義の最終的な型と照合する（[`Self::finish`]）．
+    deferred: Vec<DeferredRef>,
     locals: ArenaMap<LocalId, Ty>,
+    local_owner: ArenaMap<LocalId, DefId>,
     exprs: ArenaMap<ExprId, Ty>,
     pats: ArenaMap<PatId, Ty>,
     diags: Vec<Diagnostic>,
@@ -66,22 +61,20 @@ pub(crate) struct BodyInfer<'a> {
 }
 
 impl<'a> BodyInfer<'a> {
-    /// 推論している fn の型引数 `type_params` を受け取り，空の状態で始める．
-    pub(crate) fn new(
-        program: &'a Program,
-        ty_table: &'a TyTable,
-        sigs: &'a Signatures,
-        module: DefModule,
-        type_params: Vec<DefId>,
-    ) -> Self {
+    /// 空の状態で始める．
+    pub(crate) fn new(program: &'a Program, ty_table: &'a TyTable, sigs: &'a Signatures) -> Self {
         BodyInfer {
             program,
             ty_table,
             sigs,
-            module,
-            type_params,
+            current: None,
+            module: DefModule::Prelude,
+            type_params: Vec::new(),
             ctx: InferCtx::new(),
+            pending: Vec::new(),
+            deferred: Vec::new(),
             locals: ArenaMap::new(),
+            local_owner: ArenaMap::new(),
             exprs: ArenaMap::new(),
             pats: ArenaMap::new(),
             diags: Vec::new(),
@@ -89,57 +82,145 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 推論を終え，型を辿った形にして返す．
-    pub(crate) fn finish(mut self, fn_ty: Ty) -> BodyTypes {
+    /// これから推論する定義に切り替える．モジュールと型引数をその定義のものにする．
+    fn enter(&mut self, def: DefId) {
+        self.current = Some(def);
+        self.module = self.program.defs[def].module.clone();
+        self.type_params = match self.program.item(def) {
+            Some(Item::Fn(item)) => item.sig.type_params.iter().map(|tp| tp.def).collect(),
+            _ => Vec::new(),
+        };
+    }
+
+    /// 宣言の型のない定義に，まとまりの中で使う単相の型を付ける．fn は書いた引数の型と，
+    /// 戻り値の型の型変数．const は型変数．
+    pub(crate) fn declare(&mut self, def: DefId) {
+        self.enter(def);
+        let program = self.program;
+        let ty = match program.item(def) {
+            Some(Item::Fn(item)) => {
+                let params: Vec<Ty> = item
+                    .sig
+                    .params
+                    .iter()
+                    .map(|p| {
+                        param_ty(
+                            program,
+                            self.ty_table,
+                            &self.type_params,
+                            p,
+                            &mut self.diags,
+                        )
+                    })
+                    .collect();
+                let ret = self.ctx.new_var();
+                Ty::func(params, ret)
+            }
+            _ => self.ctx.new_var(),
+        };
+        self.pending.push((def, ty, self.type_params.len()));
+    }
+
+    /// 定義の本体を推論する．宣言の型（なければ [`Self::declare`] で付けた型）の位置に置く．
+    pub(crate) fn infer_def(&mut self, def: DefId) {
+        self.enter(def);
+        let declared = match self.sigs.get(def) {
+            Some(sig) => sig.scheme.ty.clone(),
+            None => match self.pending_ty(def) {
+                Some((ty, _)) => ty,
+                None => return,
+            },
+        };
+        let program = self.program;
+        match program.item(def) {
+            Some(Item::Fn(item)) => self.infer_fn(item, &declared),
+            Some(Item::Const(item)) => self.check_expr(item.value, &declared),
+            _ => {}
+        }
+    }
+
+    /// fn の本体を推論する．`declared` は fn の型．
+    fn infer_fn(&mut self, item: &FnItem, declared: &Ty) {
+        let Ty::Fn(f) = declared else {
+            return;
+        };
+        for (p, ty) in item.sig.params.iter().zip(&f.params) {
+            self.set_local(p.local, ty.clone());
+        }
+        if let Some(body) = item.body {
+            self.check_expr(body, &f.ret);
+        }
+    }
+
+    /// まとまりの中の，宣言の型のない定義の単相の型と，書いた型引数の数．
+    fn pending_ty(&self, def: DefId) -> Option<(Ty, usize)> {
+        self.pending
+            .iter()
+            .find(|(d, _, _)| *d == def)
+            .map(|(_, ty, n)| (ty.clone(), *n))
+    }
+
+    /// 型の中のまだ決まっていない型変数を，新しい型変数に置き換える．同じ型変数は同じものにする．
+    fn freshen(&mut self, ty: &Ty, fresh: &mut FxHashMap<TyVar, Ty>) -> Ty {
+        match self.ctx.shallow_resolve(ty) {
+            Ty::Var(v) => fresh.entry(v).or_insert_with(|| self.ctx.new_var()).clone(),
+            ty => ty.map_children(|child| self.freshen(child, fresh)),
+        }
+    }
+
+    /// 局所変数に型を付ける．どの定義の本体のものかも覚える．
+    fn set_local(&mut self, local: LocalId, ty: Ty) {
+        self.locals.insert(local, ty);
+        if let Some(def) = self.current {
+            self.local_owner.insert(local, def);
+        }
+    }
+
+    /// 推論を終える．数の型を確かめ，宣言の型のなかった定義を汎化して，型を辿った形にして返す．
+    pub(crate) fn finish(mut self) -> BodyTypes {
+        for r in std::mem::take(&mut self.deferred) {
+            if let Some((ty, _)) = self.pending_ty(r.def) {
+                let ty = self.ctx.resolve(&ty);
+                let actual = substitute_bound(&ty, &r.args);
+                self.coerce_at(r.span, &r.instance, &actual);
+            }
+        }
         self.check_numbers();
-        let fn_ty = self.ctx.resolve(&fn_ty);
+
+        let program = self.program;
+        let mut inferred = Vec::new();
+        for (def, ty, _) in std::mem::take(&mut self.pending) {
+            let (existing, labels) = match program.item(def) {
+                Some(Item::Fn(item)) => (
+                    item.sig
+                        .type_params
+                        .iter()
+                        .map(|tp| TyParam::new(program.defs[tp.def].name.clone()))
+                        .collect(),
+                    item.sig
+                        .params
+                        .iter()
+                        .map(|p| Some(program.locals[p.local].name.clone()))
+                        .collect(),
+                ),
+                _ => (Vec::new(), Vec::new()),
+            };
+            // トップレベルなので環境の型変数はない．
+            let scheme = self.ctx.generalize_with(&ty, existing, &[]);
+            inferred.push((def, Signature { scheme, labels }));
+        }
+
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
         let pats = resolve_all(&mut self.ctx, &self.pats);
         let locals = resolve_all(&mut self.ctx, &self.locals);
         BodyTypes {
-            fn_ty,
             exprs,
             pats,
             locals,
+            local_owner: self.local_owner,
             diags: self.diags,
+            inferred,
         }
-    }
-
-    /// fn の本体を推論し，fn の型を返す．
-    pub(crate) fn infer_fn(&mut self, item: &FnItem, sig: Option<&Signature>) -> Ty {
-        let (params_tys, declared_ret): (Vec<Ty>, Option<Ty>) = match sig {
-            Some(sig) => {
-                let Ty::Fn(f) = &sig.scheme.ty else {
-                    return Ty::Error;
-                };
-                (f.params.clone(), Some(f.ret.clone()))
-            }
-            None => {
-                let tys = item
-                    .sig
-                    .params
-                    .iter()
-                    .map(|p| p.ty.map(|ty| self.lower_type(ty)).unwrap_or(Ty::Error))
-                    .collect();
-                (tys, None)
-            }
-        };
-
-        for (p, ty) in item.sig.params.iter().zip(&params_tys) {
-            self.locals.insert(p.local, ty.clone());
-        }
-
-        let ret_ty = match (item.body, declared_ret) {
-            (Some(body), Some(ret)) => {
-                self.check_expr(body, &ret);
-                ret
-            }
-            (Some(body), None) => self.infer_expr(body),
-            (None, Some(ret)) => ret,
-            (None, None) => Ty::Error,
-        };
-
-        Ty::func(params_tys, ret_ty)
     }
 
     /// `actual` を `expected` の位置に置く．合わなければ `span` の位置で診断を積む．
@@ -253,17 +334,41 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// 定義の参照の型．宣言の型の型引数を新しい型変数に置き換える．
+    ///
+    /// 同じまとまりの中の，宣言の型のない定義は単相の型をそのまま使う（具体化しない）．
     fn infer_def_ref(&mut self, def: DefId, span: Span) -> Ty {
         let sigs = self.sigs;
         if let Some(sig) = sigs.get(def) {
-            self.ctx.instantiate(&sig.scheme)
-        } else {
-            self.diags.push(Diagnostic {
-                span: Some(span),
-                kind: DiagnosticKind::Unsupported { what: "def" },
-            });
-            Ty::Error
+            return self.ctx.instantiate(&sig.scheme);
         }
+        if let Some((ty, n_type_params)) = self.pending_ty(def) {
+            if self.current == Some(def) || n_type_params == 0 {
+                return ty;
+            }
+            // 書いた型引数（`Ty::Bound(i)`）はその定義の中でだけ意味を持つので，
+            // 他の定義から参照するときは新しい型変数に置き換える．まだ決まっていない部分
+            // （戻り値の型など）は，後でその定義の型引数に決まることがあるので，ここでは
+            // 新しい型変数にしておき，まとまりを推論し終えてから照合する．
+            let ty = self.ctx.resolve(&ty);
+            let args: Vec<Ty> = (0..n_type_params).map(|_| self.ctx.new_var()).collect();
+            let mut fresh = FxHashMap::default();
+            let instance = self.freshen(&substitute_bound(&ty, &args), &mut fresh);
+            self.deferred.push(DeferredRef {
+                def,
+                args,
+                instance: instance.clone(),
+                span,
+            });
+            return instance;
+        }
+        // 型を付けない種類の定義（trait の関数，effect の操作など．alpha.2 以降）．
+        self.diags.push(Diagnostic {
+            span: Some(span),
+            kind: DiagnosticKind::Unsupported {
+                what: "reference to this kind of definition",
+            },
+        });
+        Ty::Error
     }
 
     /// 呼び出しの型．引数を仮引数の位置に並べ直してから，型を照合する（6.2）．
@@ -441,7 +546,7 @@ impl<'a> BodyInfer<'a> {
                 (None, Some(from_context)) => from_context,
                 (None, None) => self.ctx.new_var(),
             };
-            self.locals.insert(param.local, ty.clone());
+            self.set_local(param.local, ty.clone());
             param_tys.push(ty);
         }
 
@@ -761,7 +866,7 @@ impl<'a> BodyInfer<'a> {
         let p = &program.pats[pat];
         match &p.kind {
             PatKind::Bind(local) => {
-                self.locals.insert(*local, ty.clone());
+                self.set_local(*local, ty.clone());
             }
             PatKind::Unit => self.coerce_at(p.span, ty, &Ty::UNIT),
             PatKind::Lit(lit) => {
@@ -793,7 +898,7 @@ impl<'a> BodyInfer<'a> {
                     ..
                 }) = rest
                 {
-                    self.locals.insert(*local, Ty::list(elem_ty));
+                    self.set_local(*local, Ty::list(elem_ty));
                 }
             }
             PatKind::Ctor {
@@ -1123,4 +1228,14 @@ enum FieldTy {
     NoSuchField,
     /// フィールドを持たない型（enum，フィールドのない `@external` の type）．
     NotARecord,
+}
+
+/// まとまりの中の，書いた型引数のある宣言の型のない定義への参照．
+struct DeferredRef {
+    def: DefId,
+    /// 型引数に置いた型変数．
+    args: Vec<Ty>,
+    /// 参照の式に付けた型．
+    instance: Ty,
+    span: Span,
 }

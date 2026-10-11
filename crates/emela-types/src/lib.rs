@@ -4,6 +4,7 @@
 //! E と R は集合の和と差で求める．
 
 mod body;
+mod check;
 mod diagnostic;
 mod display;
 mod error;
@@ -17,7 +18,7 @@ mod ty;
 #[cfg(test)]
 mod tests;
 
-pub use body::{BodyTypes, infer_fn_body};
+pub use check::{ProgramTypes, check_program};
 pub use diagnostic::{Diagnostic, DiagnosticKind};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};

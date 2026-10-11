@@ -15,7 +15,7 @@ f: fn() -> Int
   i: Int
   j: Float
   k: String
-`1` mismatch: expected `Float`, found `Int`
-`2` mismatch: expected `String`, found `Int`
 `2147483648` integer literal `2147483648` out of range for `Int`
 `0xFFFF_FFFF` integer literal `0xFFFFFFFF` out of range for `Int`
+`1` mismatch: expected `Float`, found `Int`
+`2` mismatch: expected `String`, found `Int`
