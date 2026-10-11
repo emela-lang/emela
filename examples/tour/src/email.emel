@@ -1,0 +1,11 @@
+# `opaque` hides the constructor and fields outside this module,
+# so every Email goes through `parse`.
+pub opaque type Email(value: String)
+
+pub fn parse(input: String) -> Option[Email] {
+  if String.contains(input, "@") { Some(Email(value: input)) } else { None }
+}
+
+pub fn to_string(email: Email) -> String {
+  email.value
+}
