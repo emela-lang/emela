@@ -60,6 +60,8 @@ fn 型() {
             "fn(A) -> A use R",
             "fn(A) -> A fails {} use { Io, Clock }",
             "fn(A) -> A fails E use {\n  Io,\n  Clock,\n}",
+            "fn() -> A fails Timeout | E",
+            "fn() -> A fails E | Timeout | Http.Error",
         ],
         types::type_,
     ));
@@ -75,6 +77,7 @@ fn 型のエラー() {
             "fn(A) B",
             "fn A -> B",
             "fn() -> A fails",
+            "fn() -> A fails E |",
             "fn() -> A use { Io, 1 }",
             "42",
         ],

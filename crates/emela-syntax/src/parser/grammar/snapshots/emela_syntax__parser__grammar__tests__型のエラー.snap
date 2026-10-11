@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"List[Int\", \"(Int,)\", \"List[, Int]\", \"fn(A) B\", \"fn A -> B\",\n\"fn() -> A fails\", \"fn() -> A use { Io, 1 }\", \"42\",], types::type_,)"
+expression: "dump_all(&[\"List[Int\", \"(Int,)\", \"List[, Int]\", \"fn(A) B\", \"fn A -> B\",\n\"fn() -> A fails\", \"fn() -> A fails E |\", \"fn() -> A use { Io, 1 }\", \"42\",],\ntypes::type_,)"
 ---
 === List[Int
 ROOT@0..8
@@ -80,6 +80,29 @@ ROOT@0..15
       LOWER_NAME@10..15 "fails"
       ERROR_SET@15..15
 error[E0111]@15..15: expected type
+=== fn() -> A fails E |
+ROOT@0..19
+  FN_TYPE@0..19
+    FN_KW@0..2 "fn"
+    PARAM_TYPE_LIST@2..4
+      L_PAREN@2..3 "("
+      R_PAREN@3..4 ")"
+    WHITESPACE@4..5 " "
+    RET_TYPE@5..9
+      THIN_ARROW@5..7 "->"
+      WHITESPACE@7..8 " "
+      TYPE_VAR@8..9
+        UPPER_NAME@8..9 "A"
+    WHITESPACE@9..10 " "
+    FAILS_CLAUSE@10..19
+      LOWER_NAME@10..15 "fails"
+      WHITESPACE@15..16 " "
+      ERROR_SET@16..19
+        TYPE_VAR@16..17
+          UPPER_NAME@16..17 "E"
+        WHITESPACE@17..18 " "
+        PIPE@18..19 "|"
+error[E0111]@19..19: expected type
 === fn() -> A use { Io, 1 }
 ROOT@0..23
   FN_TYPE@0..23
