@@ -105,5 +105,22 @@
 
 - （補）テストの起動用モジュール（`emit_test_main`）は出力したモジュールを `import * as $m` で読み，`test_runner.mjs` を `export` を外して埋め込み，`$runTests([[表示名, $m["名前"]], …])` を呼ぶ．関数は Emela の名前（JS の予約語なら `export { new$ as new }` の公開名）で引く
 - （補）テスト関数の返り値が `$Fail`（処理されなかったエラー，13.3）なら `outcome: "error"` で，`message` はエラーの値の表示（`NotFound(id: 0)`）．他のテストは続ける
-- （補）結果は1テストごとに `\x1eemela-test {"event":"result","name":…,"outcome":"ok"|"defect"|"error","message":…}`，最後に `{"event":"done"}` を標準出力に書く．頭の制御文字で利用者の出力と見分ける
+- （補）結果は1テストごとに `\x1eemela-test {"event":"result","name":…,"outcome":"ok"|"defect"|"error"|"interrupted","message":…}`，最後に `{"event":"done"}` を標準出力に書く．頭の制御文字で利用者の出力と見分ける
+- （補）中断しうるテスト関数は，出力したモジュールの `$start` で進める．resume されないままイベントループが空になったら（`beforeExit`）`outcome: "interrupted"`．テストの実行中にホストのコールバックの中で投げられた例外（`uncaughtException`）は，そのテストの defect
 - （補）`name` が `"Defect"` でない例外（外部関数が投げたもの）も defect として報告し，メッセージに `TypeError: …` のように例外の名前を前に付ける（7.5 の「外部関数が投げた例外」）
+
+## 中断と再開（仕様 8.4，14.5，16.5）
+
+`src/emit/suspend.rs` とランタイムの `$start`．継続はジェネレータで表す（16.5）．CPS にしなかったのは，中断しない関数の出力を変えずに済み，エラーの `$Fail` の戻り値と末尾呼び出しのループ（16.3）がそのまま使えるため．
+
+- （補）中断しうる関数とラムダはジェネレータ（`function*`，ラムダは `(function* (…) { … })`）．アロー関数には yield を書けないため．中断しうる呼び出しは `(yield* f(x))`．関数の値の呼び出しと，印の付いた fn の操作の呼び出しは `(yield* $maybe(g(x)))` で，呼んだ値がジェネレータでなければそのまま返す
+- （補）suspend fn の操作の呼び出しは `(yield $perform(h.op, [引数]))`．要求は最も外側の駆動（`$start` の `$step`）まで `yield*` を素通りして届く．駆動が resume を作り，操作の実装を `(引数…, resume)` で呼ぶ
+- （補）操作の実装の中でその場で resume したら，実装が戻った後，駆動のループの中でそのまま継続を進める（14.5 の3）．中断も JS のスタックの伸びもない．resume の後に実装の残りがあれば，それを先に走らせてから呼び出し元が続く
+- （補）後から resume したら，その resume の呼び出しの中で継続を進める．継続が次に中断するか終わると resume が戻る（値は `()`）
+- （補）2回目の resume は defect（``resume called twice in operation `sleep` of handler `JsClock` ``）．その場の2回目は操作の呼び出しの位置の defect，ホストのコールバックの中の2回目はコールバックから投げる（起動用モジュールとテストランナーが拾う）
+- （補）継続へ渡すのは，resume の値，実装の失敗（`$Fail`），実装の defect のうち先に起きた1つ．resume せずに失敗した実装の失敗は操作の呼び出しの値になる（呼び出しの `fails` で確かめる）．resume した後で実装が失敗したら，その起動の defect（`… failed after resume: <エラー>`）．resume した後の実装の defect も起動の defect
+- （補）中断しうる実装（ジェネレータ）は，同じ起動の中の別の継続として進める．実装が中断した後で resume すれば，その resume の中で呼び出し元が続く
+- （補）起動（main かテスト関数）が終わる（値，defect，中断のまま巻き戻る）と，残った継続は進めない．その後の resume は何もしない（2回目でも defect にしない）
+- （補）`@external suspend fn` の包みはジェネレータで，ホストの関数を呼んで返った値を `yield $await(値)` で待つ．Promise でない値はそのまま解決した値として扱う（`Promise.resolve`）．解決した値は戻り値と同じ規則で写す．呼んだときの例外と拒否はどちらも `$foreign` で defect（12.5）．拒否は待っていた位置へ投げる
+- （補）中断しうる関数を export するモジュールは，ランタイムの `$start` も export する．起動用モジュールとテストランナーはランタイムを読み込まないので，`$start` を出力したモジュールから引く．中断しうる関数がなければ出力は今までと同じ
+- （補）`$start(gen, done)` は `done(true, 戻り値)` か `done(false, 例外)` を1回だけ呼び，止める関数を返す．中断したまま resume されなければ `done` は呼ばれない．それを見分けるのは呼び出し側（イベントループが空になったか）

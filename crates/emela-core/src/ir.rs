@@ -62,6 +62,7 @@ impl Module {
             params: Vec::new(),
             body: Expr::Lit(Lit::Unit),
             external: None,
+            suspends: false,
         })
     }
 
@@ -141,6 +142,10 @@ pub struct Function {
     pub body: Expr,
     /// 外部関数（12章）なら，ホストの関数の指定．そのとき `body` は使わない．
     pub external: Option<External>,
+    /// 中断しうるか（8.1，16.5）．真なら，本体に中断しうる呼び出し（`Expr::Call::suspends`）を
+    /// 書ける．外部関数なら `@external suspend fn`（12.2）で，ホストの関数は完了を待つ値
+    /// （JS では Promise）を返す．偽の関数の出力は中断を知らない．
+    pub suspends: bool,
 }
 
 /// 外部関数のホストの関数の指定（12.1）．
@@ -192,8 +197,35 @@ pub enum Boundary {
 pub struct EffectDef {
     /// モジュール内で一意な名前．証拠の表の鍵に使う．
     pub name: String,
-    /// 操作の名前．宣言の順．`Callee::Op::op` と `Expr::Handler::ops` の添字．
-    pub ops: Vec<String>,
+    /// 操作．宣言の順．`Callee::Op::op` と `Expr::Handler::ops` の添字．
+    pub ops: Vec<OpDef>,
+}
+
+/// エフェクトの操作（8.1）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpDef {
+    pub name: String,
+    /// `suspend fn` か．真なら，ハンドラの実装（`Expr::Handler::ops` のラムダ）は最後の引数に
+    /// resume を受け取り，操作の呼び出し（`Callee::Op`）は中断しうる呼び出しになる（8.4，14.5）．
+    pub suspend: bool,
+}
+
+impl OpDef {
+    /// `fn` の操作．
+    pub fn new(name: &str) -> Self {
+        OpDef {
+            name: name.to_owned(),
+            suspend: false,
+        }
+    }
+
+    /// `suspend fn` の操作．
+    pub fn suspend(name: &str) -> Self {
+        OpDef {
+            name: name.to_owned(),
+            suspend: true,
+        }
+    }
 }
 
 /// enum の定義．`type` は構成子1つの enum として持つ．
@@ -364,10 +396,20 @@ pub enum Expr {
     /// 引数は位置の順に並ぶ．名前付き引数の並べ替えは `named::call_in_written_order` を使う．
     /// `fails` は呼ばれる側が失敗しうるか（関数型の E が空でない，7.2）．偽なら呼び出しの結果を
     /// 確かめなくてよい．真でも失敗するとは限らない．
+    ///
+    /// `suspends` は呼び出しが中断しうるか（8.1，14.5）．真の呼び出しは，中断しうる関数
+    /// （`Function::suspends`，`Lambda::suspends`）の本体の中にしか書けない．呼ばれる側ごとの決まり:
+    ///
+    /// - `Callee::Direct`: 呼ばれる関数の `Function::suspends` と同じでなければならない．
+    /// - `Callee::Indirect`: 呼ばれる側の式の型の R が中断しうるなら真．真のとき，実際に呼ばれる
+    ///   関数の値は中断しうるものでもしないものでもよい．偽のときは中断しない関数の値でなければならない．
+    /// - `Callee::Op`: suspend fn の操作（`OpDef::suspend`）なら真でなければならない．fn の操作で
+    ///   真なら，`Indirect` と同じく実装が中断しうるものでもしないものでもよい．
     Call {
         callee: Callee,
         args: Vec<Expr>,
         fails: bool,
+        suspends: bool,
     },
     /// 組み込み関数（`intrinsics`）の呼び出し．`ty_args` は型引数の具体的な型で，
     /// `dbg` のように型で振る舞いの変わるものだけが使う（数は `Builtin::info().ty_params`）．
@@ -416,9 +458,11 @@ pub enum Expr {
         operand: Box<Expr>,
     },
     /// ラムダ．自由変数はそのまま捕捉する（capture set は WASM の段で求める）．
+    /// `suspends` は `Function::suspends` と同じ意味．
     Lambda {
         params: Vec<Local>,
         body: Box<Expr>,
+        suspends: bool,
     },
     /// 文字列の補間 `"a#{x}b"`．部品を左から順に評価して連結する．
     Concat(Vec<StrPart>),
@@ -461,7 +505,12 @@ pub enum Expr {
         bindings: Vec<(EffectId, Expr)>,
     },
     /// 状態を持たないハンドラの値（8.4）．`ops` はエフェクトの操作の宣言の順のラムダ．
+    ///
+    /// suspend fn の操作（`OpDef::suspend`）のラムダは，宣言の引数の後ろに resume を1つ多く受ける．
+    /// resume は値を1つ取って `()` を返す関数の値で，呼ぶと中断していた呼び出し元が再開する（8.4，14.5）．
+    /// 高々1回しか呼べず，2回目は defect．`name` はハンドラの名前で，その defect の文面に使う．
     Handler {
+        name: String,
         effect: EffectId,
         ops: Vec<Expr>,
     },

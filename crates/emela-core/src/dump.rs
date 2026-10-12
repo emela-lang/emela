@@ -2,8 +2,9 @@
 //!
 //! 見た目は Emela に寄せるが，ソースと取り違えないように Emela にない印を付ける
 //! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`，
-//! 失敗しうる呼び出しの後ろの `?`，error の enum の `error enum`，証拠の表の `use[X](ctx)` と
-//! `provide(..)`，操作の呼び出しの `h.X#op(..)`）．
+//! 失敗しうる呼び出しの後ろの `?`，中断しうる呼び出しの後ろの `!`，error の enum の `error enum`，
+//! 証拠の表の `use[X](ctx)` と `provide(..)`，操作の呼び出しの `h.X#op(..)`）．
+//! 中断しうる関数とラムダ，suspend fn の操作には `suspend` を前に付ける．
 //! IR が区別していることは全部書き分ける．読み戻すことは考えない．
 //!
 //! ```text
@@ -37,11 +38,25 @@ pub fn dump(m: &Module) -> String {
         p.out.push('\n');
     }
     for (_, def) in m.effects.iter() {
-        writeln!(p.out, "effect {} {{ {} }}\n", def.name, def.ops.join(", ")).unwrap();
+        let ops: Vec<String> = def
+            .ops
+            .iter()
+            .map(|op| {
+                if op.suspend {
+                    format!("suspend {}", op.name)
+                } else {
+                    op.name.clone()
+                }
+            })
+            .collect();
+        writeln!(p.out, "effect {} {{ {} }}\n", def.name, ops.join(", ")).unwrap();
     }
     for (_, f) in m.functions.iter() {
         if f.exported {
             p.out.push_str("export ");
+        }
+        if f.suspends {
+            p.out.push_str("suspend ");
         }
         let params: Vec<String> = f.params.iter().map(|&l| p.local(l)).collect();
         if let Some(ext) = &f.external {
@@ -182,6 +197,7 @@ impl Printer<'_> {
                 callee,
                 args,
                 fails,
+                suspends,
             } => {
                 match callee {
                     Callee::Direct(f) => self.out.push_str(&self.m.functions[*f].name),
@@ -199,12 +215,15 @@ impl Printer<'_> {
                     } => {
                         self.atom(handler);
                         let def = &self.m.effects[*effect];
-                        write!(self.out, ".{}#{}", def.name, def.ops[*op]).unwrap();
+                        write!(self.out, ".{}#{}", def.name, def.ops[*op].name).unwrap();
                     }
                 }
                 self.out.push('(');
                 self.exprs(args);
                 self.out.push(')');
+                if *suspends {
+                    self.out.push('!');
+                }
                 if *fails {
                     self.out.push('?');
                 }
@@ -305,8 +324,15 @@ impl Printer<'_> {
                 self.expr(operand);
                 self.out.push(')');
             }
-            Expr::Lambda { params, body } => {
+            Expr::Lambda {
+                params,
+                body,
+                suspends,
+            } => {
                 let params: Vec<String> = params.iter().map(|&l| self.local(l)).collect();
+                if *suspends {
+                    self.out.push_str("suspend ");
+                }
                 write!(self.out, "fn({}) ", params.join(", ")).unwrap();
                 self.braced(body);
             }
@@ -395,13 +421,13 @@ impl Printer<'_> {
                 }
                 self.out.push(')');
             }
-            Expr::Handler { effect, ops } => {
+            Expr::Handler { name, effect, ops } => {
                 let def = &self.m.effects[*effect];
-                write!(self.out, "handler {} {{", def.name).unwrap();
+                write!(self.out, "handler {name}: {} {{", def.name).unwrap();
                 self.indent += 1;
-                for (name, op) in def.ops.iter().zip(ops) {
+                for (op_def, op) in def.ops.iter().zip(ops) {
                     self.newline();
-                    write!(self.out, "{name}: ").unwrap();
+                    write!(self.out, "{}: ", op_def.name).unwrap();
                     self.expr(op);
                 }
                 self.indent -= 1;

@@ -1,0 +1,23 @@
+---
+source: crates/emela-codegen-js/tests/suspend.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $await, $foreign, $start } from "./emela_runtime.mjs";
+
+function* reject(x$0) {
+  let $p;
+  try {
+    $p = Promise.reject(x$0);
+  } catch ($e) {
+    throw $foreign($e);
+  }
+  (yield $await($p));
+  return undefined;
+}
+
+function* main() {
+  return (yield* reject("boom"));
+}
+
+export { main, $start };

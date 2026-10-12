@@ -19,6 +19,8 @@ pub enum TestOutcome {
     Defect(String),
     /// 処理されなかったエラーで終わった（13.3）．値はエラーの値の表示．fail が入ってから使う．
     Error(String),
+    /// 中断したまま resume されずに巻き戻った（14.5）．
+    Interrupted,
     /// このテストの途中でテストランナー（node）が終わった．`code` は node の終了コード，
     /// `not_run` はその後ろで実行されなかったテストの数．
     Aborted {
@@ -102,6 +104,7 @@ pub(crate) fn write_summary(out: &mut dyn Write, report: &TestReport) -> io::Res
                 TestOutcome::Passed => unreachable!(),
                 TestOutcome::Defect(message) => writeln!(out, "defect: {message}")?,
                 TestOutcome::Error(message) => writeln!(out, "error: {message}")?,
+                TestOutcome::Interrupted => writeln!(out, "interrupted")?,
                 TestOutcome::Aborted { code, not_run } => {
                     write!(
                         out,

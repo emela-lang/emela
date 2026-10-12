@@ -359,6 +359,7 @@ enum Outcome {
     Ok,
     Defect,
     Error,
+    Interrupted,
 }
 
 /// 起動用モジュールを node で実行し，結果を集めながら `out` に書く．
@@ -413,6 +414,7 @@ fn run_tests(
                     Outcome::Ok => TestOutcome::Passed,
                     Outcome::Defect => TestOutcome::Defect(message),
                     Outcome::Error => TestOutcome::Error(message),
+                    Outcome::Interrupted => TestOutcome::Interrupted,
                 };
                 let result = TestResult { name, outcome };
                 let _ = report::write_result(out, &result);

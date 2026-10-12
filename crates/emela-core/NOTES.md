@@ -152,3 +152,14 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）引いた指定は，出力先の `emela_core/`（`CORE_JS_DIR`）に書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）に直す．JS 出力は `./` で始まる指定を書かれたまま import する．利用者のソースのファイルの指定（絶対パスにして `file://` で読む）とは扱いを分ける．
 - （補）写した外部関数が同梱のファイルを1つでも指したら，同梱の JS のファイルを全部 `Module::js_files` に入れる（どのファイルがどれを import するかを JS を読まずに済ませるため，`lib/` と同じ並びで全部書き出す）．1つも指さなければ空で，何も書き出さない．
 - （補）core の WASM の `@external` のファイルの指定は直さない（WASM は範囲外）．
+
+## 中断と再開（8.4，8.7，14.5，16.5）
+
+alpha.3 の第2段の前半（2026-10-12）．IR とバックエンドだけを先に作り，手で組んだ IR で確かめた．lowering はまだ印を付けない（全部偽．suspend fn の操作の実装は今までどおり `Unsupported`）．
+
+- （補）中断しうる関数は `Function::suspends`，中断しうるラムダは `Expr::Lambda::suspends`，中断しうる呼び出しは `Expr::Call::suspends` の印で持つ．真の呼び出しは真の関数かラムダの本体の中にだけ書ける．lowering は型（どの関数が中断しうるか）から付ける
+- （補）`Callee::Direct` の呼び出しの印は，呼ばれる関数の印と同じでなければならない．`Callee::Indirect` は呼ばれる側の式の型で決め，真でも実際の関数の値は中断しないものでよい（逆は不可）．`List.map` のように中身の分からない R の関数を呼ぶ側も真にする．`Callee::Op` は suspend fn の操作なら真
+- （補）エフェクトの操作は `OpDef`（名前と `suspend`）．suspend fn の操作のハンドラの実装（`Expr::Handler::ops` のラムダ）は，宣言の引数の後ろに resume を1つ多く受ける．resume は `fn(A) -> ()` の普通の関数の値で，それを呼ぶ式は中断も失敗もしない（`Callee::Indirect`，`fails` も `suspends` も偽）
+- （補）`Expr::Handler::name` はハンドラの名前（ソースの名前）．2回目の resume の defect の文面に使う（14.5）
+- （補）`@external suspend fn` は `Function::suspends` が真の外部関数（`External` に印は足さない）
+- （補）ダンプでは中断しうる呼び出しの後ろに `!`（失敗の `?` の前），中断しうる関数とラムダと suspend fn の操作の前に `suspend`，ハンドラの値は `handler 名前: エフェクト { … }`

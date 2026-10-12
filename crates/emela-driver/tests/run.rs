@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
-    Analysis, Checked, CoreJs, CoreSource, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input,
-    JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output, OutputFile, Parsed, Resolve,
-    RunOptions, RunOutput, SourceFile, Typecheck, run,
+    Analysis, Checked, CoreJs, CoreSource, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
+    INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
+    OutputFile, Parsed, Resolve, RunOptions, RunOutput, SourceFile, Typecheck, run,
 };
 use emela_resolve::ModuleId;
 
@@ -661,4 +661,100 @@ fn main() {
     assert_eq!(text(&output.stderr), "");
     assert_eq!(output.code, 0);
     insta::assert_snapshot!(text(&output.stdout));
+}
+
+mod suspend;
+
+#[test]
+fn suspended_main_waits_for_promises() {
+    // 中断した main はイベントループで待ち，再開して終わる．
+    let mut m = emela_core::Module::new();
+    let resolve = suspend::resolve(&mut m);
+    suspend::main(
+        &mut m,
+        builtin_ty(
+            Builtin::Dbg,
+            vec![Type::Int],
+            vec![bin(
+                BinOp::Add,
+                OpTy::Int,
+                call_suspends(resolve, vec![int(41)]),
+                int(1),
+            )],
+        ),
+    );
+    let output = run_ir("suspend-promise", m);
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "42\n")
+    );
+}
+
+#[test]
+fn dropped_resume_interrupts_main() {
+    // resume されないまま終わった main は `interrupted` と終了コード 130（14.5）．
+    let mut m = emela_core::Module::new();
+    let (never, wait) = suspend::never(&mut m);
+    let h = m.local("h");
+    suspend::main(
+        &mut m,
+        Expr::With {
+            binds: vec![(h, call(never, vec![]))],
+            body: Box::new(suspend::forever(wait, h)),
+        },
+    );
+    let output = run_ir("suspend-interrupted", m);
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (INTERRUPTED_EXIT_CODE, "", "interrupted\n")
+    );
+}
+
+#[test]
+fn defects_after_resuming_and_in_callbacks() {
+    // 再開した後の defect も，ホストのコールバックの中の defect も，defect として終わる（7.5）．
+    let mut m = emela_core::Module::new();
+    let resolve = suspend::resolve(&mut m);
+    let x = m.local("_");
+    suspend::main(
+        &mut m,
+        let_(
+            x,
+            call_suspends(resolve, vec![int(1)]),
+            builtin(Builtin::Panic, vec![string("after")]),
+        ),
+    );
+    let output = run_ir("suspend-defect", m);
+    assert_eq!(
+        (output.code, text(&output.stderr)),
+        (DEFECT_EXIT_CODE, "defect: after\n")
+    );
+
+    // main は中断したまま，setTimeout のコールバックが panic する．interrupted にはならない．
+    let mut m = emela_core::Module::new();
+    let set_timeout = suspend::set_timeout(&mut m);
+    let (never, wait) = suspend::never(&mut m);
+    let (h, x) = (m.local("h"), m.local("_"));
+    suspend::main(
+        &mut m,
+        Expr::With {
+            binds: vec![(h, call(never, vec![]))],
+            body: Box::new(let_(
+                x,
+                call(
+                    set_timeout,
+                    vec![
+                        lambda(vec![], builtin(Builtin::Panic, vec![string("late")])),
+                        int(0),
+                    ],
+                ),
+                suspend::forever(wait, h),
+            )),
+        },
+    );
+    let output = run_ir("suspend-callback-defect", m);
+    assert_eq!(
+        (output.code, text(&output.stderr)),
+        (DEFECT_EXIT_CODE, "defect: late\n")
+    );
 }

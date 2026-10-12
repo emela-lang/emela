@@ -15,6 +15,7 @@ use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 mod assert;
 mod effects;
 mod errors;
+mod suspend;
 
 use errors::FailTarget;
 
@@ -47,6 +48,8 @@ pub(crate) struct Emitter<'m> {
     fail_targets: Vec<FailTarget>,
     /// 外部関数のモジュールの import（モジュール，名前，JS の局所名）．出した順．
     imports: Vec<(String, String, String)>,
+    /// 出している関数（トップレベルの関数かラムダ）がジェネレータか（中断しうるか，16.5）．
+    generator: bool,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
@@ -63,6 +66,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         show_params: None,
         fail_targets: Vec::new(),
         imports: Vec::new(),
+        generator: false,
     };
 
     // error の値は，どの error かを実行時に見分ける印を `$tag` に持つ．
@@ -105,12 +109,15 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         }
         let params: Vec<String> = f.params.iter().map(|&p| e.local(p)).collect();
         e.line(&format!(
-            "function {}({}) {{",
+            "{} {}({}) {{",
+            function_keyword(f.suspends),
             fn_name(&m.functions[id].name),
             params.join(", ")
         ));
         e.indent += 1;
+        e.generator = f.suspends;
         e.stmt(&f.body, &Dest::Return);
+        e.generator = false;
         e.indent -= 1;
         e.line("}");
         e.line("");
@@ -124,7 +131,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         e.line("");
     }
 
-    let exports: Vec<String> = m
+    let mut exports: Vec<String> = m
         .functions
         .iter()
         .filter(|(_, f)| f.exported)
@@ -141,6 +148,11 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
             }
         })
         .collect();
+    // 中断しうる関数を公開するときは，それを呼んだジェネレータを進める駆動も公開する．
+    // 起動用モジュールとテストランナーが使う（ランタイムを読み込まないので）．
+    if m.functions.iter().any(|(_, f)| f.exported && f.suspends) {
+        exports.push(e.rt("$start").to_owned());
+    }
     if !exports.is_empty() {
         e.line(&format!("export {{ {} }};", exports.join(", ")));
     }
@@ -272,8 +284,9 @@ impl Emitter<'_> {
                 callee,
                 args,
                 fails,
+                suspends,
             } => {
-                let call = self.call(callee, args);
+                let call = self.call(callee, args, *suspends);
                 if *fails { self.checked(call) } else { call }
             }
             Expr::Builtin { op, ty_args, args } => {
@@ -354,7 +367,11 @@ impl Emitter<'_> {
                     _ => panic!("不正な IR: 単項演算 {op:?} は {ty:?} に使えない"),
                 }
             }
-            Expr::Lambda { params, body } => self.lambda(params, body),
+            Expr::Lambda {
+                params,
+                body,
+                suspends,
+            } => self.lambda(params, body, *suspends),
             Expr::Concat(parts) => {
                 let es: Vec<&Expr> = parts
                     .iter()
@@ -397,7 +414,7 @@ impl Emitter<'_> {
                 format!("{c}.{}", effects::effect_key(self.m, *effect))
             }
             Expr::Provide { base, bindings } => self.provide(base.as_deref(), bindings),
-            Expr::Handler { effect, ops } => self.handler(*effect, ops),
+            Expr::Handler { name, effect, ops } => self.handler(name, *effect, ops),
             Expr::With { binds, body } => {
                 self.with_binds(binds);
                 self.value(body)
@@ -410,7 +427,8 @@ impl Emitter<'_> {
     }
 
     /// 呼び出しの JS の式．呼ばれる側と引数を左から順に評価する．失敗は確かめない．
-    fn call(&mut self, callee: &Callee, args: &[Expr]) -> String {
+    /// 中断しうる呼び出しは `yield*` か `yield` を含む（`suspend::call`）．
+    fn call(&mut self, callee: &Callee, args: &[Expr], suspends: bool) -> String {
         let mut es: Vec<&Expr> = Vec::new();
         if let Callee::Indirect(c) | Callee::Op { handler: c, .. } = callee {
             es.push(c);
@@ -422,11 +440,11 @@ impl Emitter<'_> {
             Callee::Indirect(_) => vs.remove(0),
             Callee::Op { effect, op, .. } => {
                 let h = vs.remove(0);
-                let name = &self.m.effects[*effect].ops[*op];
+                let name = &self.m.effects[*effect].ops[*op].name;
                 format!("{h}{}", effects::op_access(name))
             }
         };
-        format!("{f}({})", vs.join(", "))
+        self.suspending_call(callee, &f, &vs, suspends)
     }
 
     /// 型 `ty` の値 `v`（JS の式）を表示した文字列の JS の式．
@@ -608,30 +626,41 @@ impl Emitter<'_> {
         }
     }
 
-    fn lambda(&mut self, params: &[Local], body: &Expr) -> String {
+    fn lambda(&mut self, params: &[Local], body: &Expr, suspends: bool) -> String {
         let ps: Vec<String> = params.iter().map(|&p| self.local(p)).collect();
         let ps = ps.join(", ");
         // ラムダの本体は別の関数なので，囲むループへは続かない．失敗はラムダの呼び出し元へ返す．
         let loops = std::mem::take(&mut self.loops);
         let fail_targets = std::mem::take(&mut self.fail_targets);
-        let s = if is_simple(body) {
+        let generator = std::mem::replace(&mut self.generator, suspends);
+        let s = if suspends {
+            // アロー関数は yield を書けないので，ジェネレータの関数式にする．
+            let body = self.function_body(body);
+            format!("(function* ({ps}) {{\n{body}}})")
+        } else if is_simple(body) {
             let v = self.value(body);
             format!("(({ps}) => ({v}))")
         } else {
-            let outer = std::mem::take(&mut self.out);
-            self.indent += 1;
-            self.stmt(body, &Dest::Return);
-            self.indent -= 1;
-            let inner = std::mem::replace(&mut self.out, outer);
-            let mut close = String::new();
-            for _ in 0..self.indent {
-                close.push_str("  ");
-            }
-            format!("(({ps}) => {{\n{inner}{close}}})")
+            let body = self.function_body(body);
+            format!("(({ps}) => {{\n{body}}})")
         };
         self.loops = loops;
         self.fail_targets = fail_targets;
+        self.generator = generator;
         s
+    }
+
+    /// ラムダの本体の文を，1段深く字下げして返す．閉じ括弧の前の字下げまで含む．
+    fn function_body(&mut self, body: &Expr) -> String {
+        let outer = std::mem::take(&mut self.out);
+        self.indent += 1;
+        self.stmt(body, &Dest::Return);
+        self.indent -= 1;
+        let mut inner = std::mem::replace(&mut self.out, outer);
+        for _ in 0..self.indent {
+            inner.push_str("  ");
+        }
+        inner
     }
 
     fn stmt(&mut self, e: &Expr, dest: &Dest) {
@@ -660,8 +689,9 @@ impl Emitter<'_> {
                 callee,
                 args,
                 fails: true,
+                suspends,
             } if matches!(dest, Dest::Return) && self.fail_targets.is_empty() => {
-                let call = self.call(callee, args);
+                let call = self.call(callee, args, *suspends);
                 self.emit_dest(dest, &call);
             }
             Expr::Fail(inner) => self.fail(inner),
@@ -917,6 +947,11 @@ fn is_simple(e: &Expr) -> bool {
             StrPart::Value(v, _) => is_simple(v),
         }),
     }
+}
+
+/// 関数の宣言の頭．中断しうる関数はジェネレータにする（16.5）．
+pub(crate) fn function_keyword(suspends: bool) -> &'static str {
+    if suspends { "function*" } else { "function" }
 }
 
 /// 評価しても何も起きず，何度評価しても同じ値の式．

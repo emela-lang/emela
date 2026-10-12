@@ -86,7 +86,7 @@ fn handlers_are_passed_as_evidence() {
     };
     let counter = m.add_effect(EffectDef {
         name: "Counter".into(),
-        ops: vec!["add".into(), "boom".into()],
+        ops: vec![OpDef::new("add"), OpDef::new("boom")],
     });
     let max = external(
         &mut m,
@@ -100,6 +100,7 @@ fn handlers_are_passed_as_evidence() {
     let doubler = m.declare("Doubler", false);
     let n = m.local("n");
     let handler = Expr::Handler {
+        name: "Doubler".into(),
         effect: counter,
         ops: vec![
             lambda(vec![n], int_op(BinOp::Mul, var(n), int(2))),
@@ -119,6 +120,7 @@ fn handlers_are_passed_as_evidence() {
         },
         args,
         fails,
+        suspends: false,
     };
     m.define(
         use_it,

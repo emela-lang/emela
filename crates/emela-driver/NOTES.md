@@ -66,6 +66,8 @@ pub trait TestBackend<P> {
 - （補）`CoreJs` のテストの出力は `main.mjs`（選んだテスト関数を Emela の名前で export する），ランタイム，起動用モジュール `emela_test.mjs` の3つ．node は起動用モジュールを直接実行する（`run` の起動用モジュールは使わない）
 - （補）テストランナーは結果を標準出力に1行ずつ `\x1eemela-test ` + JSON で書き，driver が読みながら表示する．結果の行でない標準出力はそのまま流す．node の標準エラーは `Output::Inherit` なら素通し，`Capture` なら `TestReport::stderr` に集める．標準入力は渡さない
 - （補）結果の表示は `cargo test` に近い形: `running 3 tests`，`test name ... ok` / `FAILED`，失敗の詳細（`---- name ----` の後に `defect: <message>` か `error: <エラーの表示>`），失敗の一覧，`test result: ok. 3 passed; 0 failed; 0 filtered out`．かかった時間は出さない（出力を比べるテストのため）
+- （補）中断しうるテスト関数（返り値がジェネレータ）は，`main.mjs` が公開する `$start` で進めて終わるまで待つ．resume されないままイベントループが空になったら（`beforeExit`），そのテストの結果を `interrupted`（`TestOutcome::Interrupted`）にして次のテストへ進む（14.5）．失敗の詳細は `interrupted` の1行
+- （補）テストの実行中にホストのコールバックの中で投げられた例外（`uncaughtException`）は，実行中のテストの defect にする．終わったテストの継続（後から呼ばれた resume など）は進めない
 - （補）終了コードは失敗が1つでもあれば 1，なければ 0（テストが0個でも 0）．診断でエラーなら 1
 - （補）テストの途中で node が終わったとき（外部関数の `process.exit` など）は，実行中だったテストを失敗にし，その後ろで実行されなかった数を詳細に添える
 - （補）処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` が返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分けて `outcome: "error"` で報告する．表示は `error: <エラーの値の表示>`（`dbg` と同じ表示．String は引用符付き）
@@ -124,6 +126,9 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）`main` がジェネレータ（suspend する関数，16.5）を返す場合はまだ扱わない
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）（仕様 7.5 に反映済み）
 - （補）main まで達したエラーは，起動用モジュールが main の返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分け，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（`ERROR_EXIT_CODE`，14.3）．表示は `dbg` と同じ（`error: DbError(message: "down")`）．defect は 101 のまま．起動用モジュールはランタイムを import しないので，`instanceof` でなく鍵で見る
+- （補）中断しうる main（返り値がジェネレータ）は，エントリが公開するランタイムの `$start` で進め，イベントループで待つ．起動用モジュールはランタイムを import しないので，`$start` はエントリから引く（emela-codegen-js の NOTES の「中断と再開」）
+- （補）main の継続が resume されないまま「プログラムの最上位が終わる」（14.5）のは，node のイベントループが空になったとき（`beforeExit`）とした．標準エラーに `interrupted` を1行出して終了コード 130（`INTERRUPTED_EXIT_CODE`）
+- （補）ホストのコールバックの中で投げられた defect（`uncaughtException`）も，main の defect と同じく `defect: <message>` と 101．defect で止まるときは，標準エラーを書き終えてから `process.exit` で終わる（残ったタイマーなどのホストの処理を走らせない）．defect でない例外はスタックを出して 1
 - （補）終了コードは `process.exit` でなく `process.exitCode` で決める（パイプへの書き込みが途中で切れないように）
 - （補）node がシグナルで止まったときの終了コードは 128 + シグナル番号
 - （補）診断の順序は段の順: モジュールの収集（名前の誤りなど），ファイルごとの字句解析と構文解析（読んだ順でなくモジュールのパス順），import のグラフ，型検査

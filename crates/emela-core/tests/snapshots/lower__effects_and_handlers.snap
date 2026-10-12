@@ -35,7 +35,7 @@ export fn main() {
 }
 
 fn Fixed() {
-  handler Clock {
+  handler Fixed: Clock {
     now: fn() {
       42
     }
@@ -43,7 +43,7 @@ fn Fixed() {
 }
 
 fn ClockStamp(ev%36) {
-  handler Stamp {
+  handler ClockStamp: Stamp {
     stamp: fn(s%37) {
       let t%38 = (use[Clock](ev%36)).Clock#now()
       let _%39 = if (t%38 >[Int] 100) {

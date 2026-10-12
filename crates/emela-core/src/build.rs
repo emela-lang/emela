@@ -44,6 +44,7 @@ pub fn call(f: FnId, args: Vec<Expr>) -> Expr {
         callee: Callee::Direct(f),
         args,
         fails: false,
+        suspends: false,
     }
 }
 
@@ -52,6 +53,7 @@ pub fn call_value(callee: Expr, args: Vec<Expr>) -> Expr {
         callee: Callee::Indirect(Box::new(callee)),
         args,
         fails: false,
+        suspends: false,
     }
 }
 
@@ -61,6 +63,7 @@ pub fn call_fails(f: FnId, args: Vec<Expr>) -> Expr {
         callee: Callee::Direct(f),
         args,
         fails: true,
+        suspends: false,
     }
 }
 
@@ -70,6 +73,48 @@ pub fn call_value_fails(callee: Expr, args: Vec<Expr>) -> Expr {
         callee: Callee::Indirect(Box::new(callee)),
         args,
         fails: true,
+        suspends: false,
+    }
+}
+
+/// 中断しうる関数の直接呼び出し（`suspends: true`）．
+pub fn call_suspends(f: FnId, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        callee: Callee::Direct(f),
+        args,
+        fails: false,
+        suspends: true,
+    }
+}
+
+/// 中断しうる関数の値の呼び出し（`suspends: true`）．
+pub fn call_value_suspends(callee: Expr, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        callee: Callee::Indirect(Box::new(callee)),
+        args,
+        fails: false,
+        suspends: true,
+    }
+}
+
+/// ハンドラの値 `handler` の操作の呼び出し（8.2）．
+pub fn call_op(
+    handler: Expr,
+    effect: EffectId,
+    op: usize,
+    args: Vec<Expr>,
+    fails: bool,
+    suspends: bool,
+) -> Expr {
+    Expr::Call {
+        callee: Callee::Op {
+            handler: Box::new(handler),
+            effect,
+            op,
+        },
+        args,
+        fails,
+        suspends,
     }
 }
 
@@ -163,6 +208,16 @@ pub fn lambda(params: Vec<Local>, body: Expr) -> Expr {
     Expr::Lambda {
         params,
         body: Box::new(body),
+        suspends: false,
+    }
+}
+
+/// 中断しうるラムダ（`suspends: true`）．
+pub fn suspend_lambda(params: Vec<Local>, body: Expr) -> Expr {
+    Expr::Lambda {
+        params,
+        body: Box::new(body),
+        suspends: true,
     }
 }
 

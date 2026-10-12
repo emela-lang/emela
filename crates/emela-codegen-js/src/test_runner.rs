@@ -23,7 +23,7 @@ pub struct TestEntry<'a> {
 }
 
 /// `module`（起動用モジュールからの相対パス，`./main.mjs` など）の `tests` を順に呼ぶ起動用モジュール．
-/// node でそのまま実行できる．
+/// node でそのまま実行できる．中断しうるテスト関数は，`module` が公開するランタイムの `$start` で進める．
 pub fn emit_test_main(module: &str, tests: &[TestEntry]) -> String {
     let mut out = String::from("// Emela が生成したテストの起動用モジュール．\n");
     let _ = writeln!(out, "import * as $m from {};", js_string(module));
@@ -41,7 +41,7 @@ pub fn emit_test_main(module: &str, tests: &[TestEntry]) -> String {
             js_string(t.export)
         );
     }
-    out.push_str("]);\n");
+    out.push_str("], $m.$start);\n");
     out
 }
 
