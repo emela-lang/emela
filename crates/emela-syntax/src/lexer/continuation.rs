@@ -1,4 +1,5 @@
-//! 行の継続（2.5）．NEWLINE のうち，前の行が続くものを NEWLINE_CONT に付け替える．
+//! Line continuation (spec 2.5). Retags as NEWLINE_CONT each NEWLINE that continues the previous
+//! line.
 
 use super::Token;
 use crate::SyntaxKind;
@@ -62,7 +63,7 @@ mod tests {
     use crate::SyntaxKind::{self, *};
     use crate::lex;
 
-    /// 改行の種類だけを順に取り出す．
+    /// Only the kinds of the newlines, in order.
     fn newlines(src: &str) -> Vec<SyntaxKind> {
         lex(src)
             .tokens
@@ -98,7 +99,7 @@ mod tests {
 
     #[test]
     fn 波括弧の中は区切り() {
-        // 頂上が `{` なら，括弧の中でも改行は文を区切る
+        // If the innermost bracket is `{`, newlines separate statements even inside parentheses
         assert_eq!(newlines("f(fn(x) {\na\nb\n})"), [NEWLINE; 3]);
         assert_eq!(newlines("{\na\n|> f\n}"), [NEWLINE, NEWLINE_CONT, NEWLINE]);
     }

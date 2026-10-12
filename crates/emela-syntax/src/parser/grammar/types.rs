@@ -1,11 +1,12 @@
-//! 型（17.4）．
+//! Types (spec 17.4).
 
 use super::delimited;
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
 
-/// 型が読めなかったとき，次のトークンが続きの一部なら消費せずに止まる．
+/// When a type fails to parse, stop without consuming the next token if it belongs to what
+/// follows.
 const RECOVERY: &[crate::SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, THIN_ARROW, PIPE, NEWLINE,
 ];
@@ -41,15 +42,16 @@ fn path_type(p: &mut Parser<'_>) {
 
 /// `type_arg = type | "{" [ effect_item { "," effect_item } ] "}" | error_item "|" error_item { "|" error_item }`
 ///
-/// 名前付き型の集合の型引数に渡す集合（9.2 の `Handler[NotFound | Timeout, { Db, Log }]`）．
-/// 波括弧は効果の集合の書き方（`{}` は空の集合で，エラーの集合の位置にも書ける），`|` で
-/// つないだものはエラーの集合の書き方．要素が1つなら型として読む（`Handler[NotFound, Db]`）．
+/// A set passed as a type argument to a set type parameter of a named type
+/// (`Handler[NotFound | Timeout, { Db, Log }]`, spec 9.2). Braces are the effect set notation
+/// (`{}` is the empty set and may also stand where an error set goes); `|` joins an error set.
+/// A single element is read as a type (`Handler[NotFound, Db]`).
 fn type_arg(p: &mut Parser<'_>) {
     if p.at(L_BRACE) {
         effect_set(p);
         return;
     }
-    // `A | B` か `Mod.A | B`．
+    // `A | B` or `Mod.A | B`.
     let mut n = 0;
     match p.current() {
         TYPE_NAME => {
@@ -68,7 +70,7 @@ fn type_arg(p: &mut Parser<'_>) {
     }
 }
 
-/// `type_ref = [ module_path "." ] type_name`．呼ぶ側が TYPE_NAME にいることを確かめる．
+/// `type_ref = [ module_path "." ] type_name`. The caller checks that it is at TYPE_NAME.
 pub(crate) fn path(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump_kind(TYPE_NAME);
@@ -85,10 +87,11 @@ fn type_var(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, TYPE_VAR)
 }
 
-/// `()`，括弧の型 `(T)`，要素が2つ以上のタプル．
+/// `()`, a parenthesized type `(T)`, or a tuple of two or more.
 ///
-/// 括弧は関数を返す関数型で fails と use の付き先を書き分けるのに使う（5.5）．
-/// `(T,)` は要素が1つのタプルなので，閉じ括弧に診断を出してタプルとして読む．
+/// Parentheses tell where fails and use attach in a function type that returns a function
+/// (spec 5.5). `(T,)` would be a one-element tuple, so the closing parenthesis gets a diagnostic
+/// and it is read as a tuple.
 fn paren_type(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_PAREN);
@@ -129,7 +132,7 @@ fn fn_type(p: &mut Parser<'_>) {
     } else {
         p.expect(L_PAREN);
     }
-    // 引数の並びがないときは，`->` の診断を重ねて出さない．
+    // Without a parameter list, do not pile a `->` diagnostic on top.
     if p.at(THIN_ARROW) {
         ret_type(p);
     } else if has_params {
@@ -165,7 +168,7 @@ pub(crate) fn effects_and_errors(p: &mut Parser<'_>) {
 
 /// `"{" "}" | error_item { "|" error_item }`．`error_item = type_ref | upper_name`
 ///
-/// エラーのタグ（`NotFound`）と集合の型引数（`E`）を混ぜてよい（`Timeout | E`，7.4）．
+/// Error tags (`NotFound`) and set type parameters (`E`) may be mixed (`Timeout | E`, spec 7.4).
 fn error_set(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(L_BRACE) {
@@ -183,8 +186,8 @@ fn error_set(p: &mut Parser<'_>) {
 /// `"{" [ effect_item { "," effect_item } ] "}" | type_ref | upper_name`．
 /// `effect_item = type_ref | upper_name`
 ///
-/// エフェクト（`Quiet`）と集合の型引数（`R`）を混ぜてよい（`{ Quiet, R }`，8.3）．
-/// 波括弧の中の改行は区切りとして字句に残るので，ここで読み飛ばす．
+/// Effects (`Quiet`) and set type parameters (`R`) may be mixed (`{ Quiet, R }`, spec 8.3).
+/// Newlines inside braces remain as separators in the token stream, so they are skipped here.
 fn effect_set(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(L_BRACE) {
@@ -205,7 +208,7 @@ fn effect_set(p: &mut Parser<'_>) {
     m.complete(p, EFFECT_SET);
 }
 
-/// 集合の要素．type_ref か大文字名．
+/// A type_ref or an uppercase name.
 fn set_element(p: &mut Parser<'_>) {
     match p.current() {
         TYPE_NAME => {

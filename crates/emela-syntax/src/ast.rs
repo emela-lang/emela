@@ -1,8 +1,9 @@
-//! 型付き AST．構文木のノードを種類ごとの型で包み，子を名前で取り出せるようにする．
+//! Typed AST. Wraps syntax nodes in per-kind types so children can be fetched by name.
 //!
-//! 中身は構文木そのもので，コピーも検証もしない．木は壊れていることがあるので，子を返す
-//! 関数はどれも `Option` か空になりうるイテレータを返す．宣言は全部を型にする．
-//! 式は主なものだけを型にし，残りは `Expr::Other` で返す．型とパターンはまだ型にしていない．
+//! The wrappers are the syntax tree itself, with no copying or validation. The tree may be
+//! broken, so every child accessor returns an `Option` or a possibly empty iterator. Every
+//! declaration has a type; only the main expressions do, the rest come back as `Expr::Other`.
+//! Types and patterns are not typed yet.
 
 use crate::SyntaxKind::{self, *};
 use crate::{SyntaxNode, SyntaxToken};
@@ -55,11 +56,7 @@ fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
         .find(|t| t.kind() == kind)
 }
 
-ast_node!(
-    /// ファイル全体．
-    SourceFile,
-    ROOT
-);
+ast_node!(SourceFile, ROOT);
 
 impl SourceFile {
     pub fn items(&self) -> impl Iterator<Item = Item> {
@@ -92,14 +89,14 @@ impl FnDecl {
     pub fn param_list(&self) -> Option<ParamList> {
         child(&self.0)
     }
-    /// 戻り値の型のノード（`-> T` の `T`）．型はまだ型付きにしていない．
+    /// The `T` of `-> T`, as an untyped node.
     pub fn ret_type(&self) -> Option<SyntaxNode> {
         self.0
             .children()
             .find(|n| n.kind() == RET_TYPE)?
             .first_child()
     }
-    /// 本体．`@external` の宣言にはない．
+    /// `None` for an `@external` declaration.
     pub fn body(&self) -> Option<BlockExpr> {
         child(&self.0)
     }
@@ -130,7 +127,7 @@ impl Param {
     pub fn name(&self) -> Option<SyntaxToken> {
         token(&self.0, LOWER_NAME)
     }
-    /// 型注釈のノード．型はまだ型付きにしていない．
+    /// An untyped node.
     pub fn ty(&self) -> Option<SyntaxNode> {
         self.0.first_child()
     }
@@ -148,7 +145,6 @@ impl BlockExpr {
     }
 }
 
-/// ブロックの中の文．
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Binding(Binding),
@@ -171,16 +167,14 @@ ast_node!(
 );
 
 impl Binding {
-    /// 左辺．式として読んであり，パターンとしての形は検査済み．
+    /// Parsed as an expression; its shape as a pattern has already been checked.
     pub fn lhs(&self) -> Option<Expr> {
         self.0.children().next().and_then(Expr::cast)
     }
-    /// 型注釈のノード．
     pub fn ty(&self) -> Option<SyntaxNode> {
         let mut children = self.0.children().skip(1);
         token(&self.0, COLON).and_then(|_| children.next())
     }
-    /// 右辺．
     pub fn value(&self) -> Option<Expr> {
         let skip = if token(&self.0, COLON).is_some() {
             2
@@ -191,7 +185,7 @@ impl Binding {
     }
 }
 
-/// 式．主なものだけを型にし，残りは `Other` に入れる．
+/// Only the main expressions are typed; the rest go in `Other`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Literal(Literal),
@@ -232,7 +226,6 @@ impl Expr {
     }
 }
 
-/// 数値か文字列のリテラル．
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Literal(SyntaxNode);
 
@@ -240,7 +233,7 @@ impl Literal {
     pub fn is_string(&self) -> bool {
         self.0.kind() == STRING
     }
-    /// 数値のトークン．文字列なら `None`．
+    /// `None` for a string.
     pub fn number(&self) -> Option<SyntaxToken> {
         self.0
             .first_token()
@@ -276,7 +269,6 @@ impl BinExpr {
     pub fn rhs(&self) -> Option<Expr> {
         self.0.children().nth(1).and_then(Expr::cast)
     }
-    /// 演算子のトークン．
     pub fn op(&self) -> Option<SyntaxToken> {
         self.0
             .children_with_tokens()
@@ -295,7 +287,7 @@ impl CallExpr {
     pub fn callee(&self) -> Option<Expr> {
         self.0.children().next().and_then(Expr::cast)
     }
-    /// 部分更新の `..式` の式．`User(name: "b", ..user)` の `user`．
+    /// The `user` of `User(name: "b", ..user)`.
     pub fn spread(&self) -> Option<Expr> {
         self.0
             .children()
@@ -306,7 +298,8 @@ impl CallExpr {
             .and_then(Expr::cast)
     }
 
-    /// 引数のノード．位置引数は式，名前付き引数は NAMED_ARG，末尾の `..式` は SPREAD_ARG．
+    /// Positional arguments are expressions, named ones NAMED_ARG, and a trailing `..expr`
+    /// SPREAD_ARG.
     pub fn args(&self) -> impl Iterator<Item = SyntaxNode> {
         self.0
             .children()
@@ -329,7 +322,7 @@ impl IfExpr {
     pub fn then_branch(&self) -> Option<BlockExpr> {
         child(&self.0)
     }
-    /// `else` の後ろ．ブロックか，`else if` の IfExpr．
+    /// A block, or the IfExpr of `else if`.
     pub fn else_branch(&self) -> Option<Expr> {
         token(&self.0, ELSE_KW)?;
         self.0.children().skip(2).find_map(Expr::cast)
@@ -380,30 +373,30 @@ mod tests {
         assert_eq!(stmts.len(), 3);
 
         let Stmt::Binding(binding) = &stmts[0] else {
-            panic!("束縛のはず")
+            panic!("expected a binding")
         };
         assert!(matches!(binding.lhs(), Some(Expr::NameRef(_))));
         assert_eq!(binding.ty().unwrap().text().to_string(), "List[Int]");
         let Some(Expr::CallExpr(call)) = binding.value() else {
-            panic!("呼び出しのはず")
+            panic!("expected a call")
         };
         assert_eq!(call.callee().unwrap().syntax().text().to_string(), "g");
         assert_eq!(call.args().count(), 2);
 
         let Stmt::Expr(Expr::IfExpr(if_expr)) = &stmts[1] else {
-            panic!("if のはず")
+            panic!("expected `if`")
         };
         assert!(matches!(if_expr.condition(), Some(Expr::BinExpr(_))));
         assert!(if_expr.then_branch().is_some());
         assert!(matches!(if_expr.else_branch(), Some(Expr::IfExpr(_))));
 
         let Stmt::Expr(Expr::BinExpr(bin)) = &stmts[2] else {
-            panic!("二項演算のはず")
+            panic!("expected a binary expression")
         };
         assert_eq!(bin.op().unwrap().text(), "+");
         assert!(matches!(bin.lhs(), Some(Expr::NameRef(_))));
         let Some(Expr::Literal(one)) = bin.rhs() else {
-            panic!("リテラルのはず")
+            panic!("expected a literal")
         };
         assert_eq!(one.number().unwrap().text(), "1");
     }

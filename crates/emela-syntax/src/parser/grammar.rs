@@ -1,4 +1,4 @@
-//! 文法．17章の規則ごとに関数を1つ置く．
+//! The grammar, one function per rule of spec chapter 17.
 
 mod expressions;
 mod items;
@@ -11,11 +11,12 @@ use crate::diagnostic::DiagnosticCode;
 
 pub(crate) use items::source_file as root;
 
-/// `open` で始まり `close` で終わる，カンマ区切りの並び．末尾のカンマを許す．
-/// 波括弧の中の改行は区切りとして字句に残るので，要素の前後で読み飛ばす．
+/// A comma-separated list from `open` to `close`, with an optional trailing comma. Newlines
+/// inside braces remain as separators in the token stream, so they are skipped around elements.
 ///
-/// 要素を読む `element` は，読めなければ診断を出すだけで，区切りや閉じ括弧を消費しないこと．
-/// 閉じ括弧がなければ診断を出し，その手前で止まる．
+/// `element` must only report a diagnostic when it cannot read an element, without consuming a
+/// separator or the closing bracket. A missing closing bracket is reported and parsing stops
+/// before it.
 fn delimited(
     p: &mut Parser<'_>,
     open: SyntaxKind,
@@ -56,7 +57,7 @@ fn param_list(p: &mut Parser<'_>) {
     m.complete(p, PARAM_LIST);
 }
 
-/// 数値か文字列のリテラル．補間の中身は `interp` で読む．
+/// Interpolation contents are read with `interp`.
 fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     if p.at(STRING_QUOTE) || p.at(TRIPLE_QUOTE) {
         return string(p, interp);
@@ -66,11 +67,11 @@ fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     m.complete(p, LITERAL)
 }
 
-/// 字句が部品に分けた文字列を組み立てる．閉じていない文字列と補間は字句が診断を出しているので，
-/// ここでは閉じる `"` と `}` がなくても黙って終える．
+/// Assembles a string the lexer split into pieces. The lexer has already reported unclosed
+/// strings and interpolations, so a missing closing `"` or `}` ends the string silently here.
 fn string(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     let m = p.start();
-    // 開いた引用符と同じ種類で閉じる．
+    // Close with the same kind of quote that opened it.
     let quote = p.current();
     p.bump();
     loop {

@@ -1,22 +1,23 @@
-//! 文字列の本文の読み取り（2.4）．
+//! Scanning string bodies (spec 2.4).
 
 use super::range;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
-/// 文字列の中を `start` から読み進め，本文の終わりの位置と，エスケープの診断を返す．
+/// Scans a string from `start` and returns the end of the body and the escape diagnostics.
 ///
-/// 次のどれかの手前で止まる．止まった位置の文字は読まない．
+/// Stops before any of the following, without consuming it:
 ///
-/// - 閉じる `"`（`\"` は止まらない）
-/// - 補間の `#{`（`\#{` は止まらない．`#` の後ろが `{` でなければただの文字）
-/// - 改行 `\n` または `\r`
-/// - 入力の終わり
+/// - the closing `"` (`\"` does not stop)
+/// - an interpolation `#{` (`\#{` does not stop; `#` not followed by `{` is an ordinary character)
+/// - a newline `\n` or `\r`
+/// - the end of the input
 ///
-/// エスケープは `\" \\ \n \t \r \#` と `\u{...}`（1〜6桁の16進）を通す．それ以外は `\` と
-/// その次の1文字の範囲に診断を出し，読むのはやめずに続ける．`\` が入力の終わりや改行の直前に
-/// あるときは `\` だけの範囲に診断を出す．
+/// Accepts the escapes `\" \\ \n \t \r \#` and `\u{...}` (1 to 6 hex digits). Any other escape
+/// gets a diagnostic over `\` and the next character, and scanning continues. A `\` right before
+/// the end of the input or a newline gets a diagnostic over the `\` alone.
 ///
-/// `src[start..]` の先頭が上の止まる文字でないときだけ呼ばれる．`start` は文字の境界にある．
+/// Called only when `src[start..]` does not begin with one of the stop characters. `start` is on
+/// a character boundary.
 pub(super) fn scan_string_text(src: &str, start: usize) -> (usize, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
     let mut i = start;
@@ -34,11 +35,12 @@ pub(super) fn scan_string_text(src: &str, start: usize) -> (usize, Vec<Diagnosti
     (src.len(), diagnostics)
 }
 
-/// 複数行の文字列の本文を `start` から読み進め，本文の終わりの位置，エスケープの診断，
-/// 本文の中で始まる行の先頭の位置を返す．
+/// Scans a multiline string body from `start` and returns the end of the body, the escape
+/// diagnostics, and the start of each line that begins inside the body.
 ///
-/// `\"\"\"` と補間の `#{` の手前で止まる．閉じる `\"\"\"` だけの行に着いたら，その行の先頭で
-/// 止まる（行頭の空白は閉じる側のトークンに入れる）．改行と，1つや2つの `"` は本文に含める．
+/// Stops before `"""` and an interpolation `#{`. On reaching a line holding only the closing
+/// `"""`, stops at the start of that line (its leading whitespace belongs to the closing token).
+/// Newlines and one or two `"` are part of the body.
 pub(super) fn scan_multiline_text(src: &str, start: usize) -> (usize, Vec<Diagnostic>, Vec<usize>) {
     let mut diagnostics = Vec::new();
     let mut lines = Vec::new();
@@ -54,7 +56,7 @@ pub(super) fn scan_multiline_text(src: &str, start: usize) -> (usize, Vec<Diagno
                     break;
                 }
             }
-            // `\` の後ろが改行でも，複数行の文字列では本文を読み続ける．
+            // In a multiline string, a `\` before a newline does not end the body.
             '\\' => i = escape(src, i, &mut diagnostics).unwrap_or(i + 1),
             _ => i += c.len_utf8(),
         }
@@ -62,15 +64,16 @@ pub(super) fn scan_multiline_text(src: &str, start: usize) -> (usize, Vec<Diagno
     (i, diagnostics, lines)
 }
 
-/// `src[i..]` が空白と `\"\"\"` だけの行なら，空白の幅を返す．
+/// If `src[i..]` is a line of only whitespace and `"""`, returns the width of the whitespace.
 pub(super) fn closing_indent(src: &str, i: usize) -> Option<usize> {
     let rest = &src[i..];
     let indent = rest.len() - rest.trim_start_matches([' ', '\t']).len();
     rest[indent..].starts_with("\"\"\"").then_some(indent)
 }
 
-/// `src[i]` の `\` から1つのエスケープを読み，次の位置を返す．`\` の後ろに文字がなければ
-/// 診断を出して `None` を返す（呼ぶ側は `\` だけを本文に含めて止まる）．
+/// Reads one escape starting at the `\` at `src[i]` and returns the next position. If nothing
+/// follows `\`, reports a diagnostic and returns `None` (the caller keeps the `\` in the body and
+/// stops).
 fn escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> Option<usize> {
     match src[i + 1..].chars().next() {
         None | Some('\n' | '\r') => {
@@ -97,8 +100,7 @@ fn escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> Option<usiz
     }
 }
 
-/// `\u{...}` を読み，次の位置を返す．形が崩れているか，値がサロゲートか 10FFFF を超えれば
-/// E0108 を出す．
+/// Reports E0108 if the escape is malformed or its value is a surrogate or above 10FFFF.
 fn unicode_escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> usize {
     let after_u = i + 2;
     let mut report = |end: usize, message: String| {
@@ -125,7 +127,7 @@ fn unicode_escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> usi
     if !(1..=6).contains(&digits_len) {
         return report(end, "a unicode escape needs 1 to 6 hex digits".to_owned());
     }
-    let value = u32::from_str_radix(digits, 16).expect("6桁以下の16進");
+    let value = u32::from_str_radix(digits, 16).expect("at most 6 hex digits");
     if (0xD800..=0xDFFF).contains(&value) {
         return report(
             end,
@@ -153,7 +155,7 @@ fn error(start: usize, end: usize, code: DiagnosticCode, message: impl Into<Stri
 mod tests {
     use super::*;
 
-    /// 本文の終わりと，診断の範囲だけを取り出す．
+    /// Only the end of the body and the diagnostic ranges.
     fn scan(src: &str, start: usize) -> (usize, Vec<(u32, u32)>) {
         let (end, diagnostics) = scan_string_text(src, start);
         let ranges = diagnostics
@@ -193,12 +195,12 @@ mod tests {
     fn ユニコードのエスケープ() {
         assert_eq!(scan(r"\u{1F600}x", 0), (10, vec![]));
         assert_eq!(scan(r"\u{a}\u{10FFFF}\u{D7FF}\u{E000}", 0), (31, vec![]));
-        // 形の崩れ: `{` がない，`}` がない，桁がない，7桁
+        // Malformed: no `{`, no `}`, no digits, 7 digits
         assert_eq!(scan(r"\u41", 0), (4, vec![(0, 2)]));
         assert_eq!(scan(r#"\u{41""#, 0), (5, vec![(0, 5)]));
         assert_eq!(scan(r"\u{}x", 0), (5, vec![(0, 4)]));
         assert_eq!(scan(r"\u{1234567}", 0), (11, vec![(0, 11)]));
-        // 値: サロゲートと 10FFFF 超え
+        // Values: surrogates and above 10FFFF
         assert_eq!(scan(r"\u{D800}\u{dfff}", 0), (16, vec![(0, 8), (8, 16)]));
         assert_eq!(scan(r"\u{110000}", 0), (10, vec![(0, 10)]));
     }
@@ -220,7 +222,7 @@ mod tests {
     fn 通さないエスケープ() {
         assert_eq!(scan(r#"a\vb""#, 0), (4, vec![(1, 3)]));
         assert_eq!(scan(r"\q\w", 0), (4, vec![(0, 2), (2, 4)]));
-        // 次の文字が複数バイトでも，1文字ぶんの範囲にする
+        // A multibyte next character still yields a one-character range
         assert_eq!(scan("\\é\"", 0), (3, vec![(0, 3)]));
     }
 

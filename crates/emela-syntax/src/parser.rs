@@ -1,7 +1,7 @@
-//! イベント方式のパーサ．
+//! An event-based parser.
 //!
-//! パーサは木を直接組まず，`Event` を積むだけにする．トリビアはパーサから見えず，
-//! 木を組むときに `sink` が差し込む．
+//! The parser does not build the tree directly; it only pushes `Event`s. Trivia is invisible to
+//! the parser and is inserted by `sink` when the tree is built.
 
 mod grammar;
 mod sink;
@@ -17,7 +17,7 @@ pub(crate) use sink::build;
 
 #[derive(Debug)]
 pub(crate) enum Event {
-    /// `forward_parent` は `precede` で後から付いた親の位置（自分からの差分）．
+    /// `forward_parent` is the offset to a parent attached later by `precede`.
     Start {
         kind: SyntaxKind,
         forward_parent: Option<u32>,
@@ -28,15 +28,16 @@ pub(crate) enum Event {
         code: DiagnosticCode,
         message: String,
     },
-    /// まだ種類が決まっていない，または捨てたノードの開始．
+    /// The start of a node whose kind is not decided yet, or that was abandoned.
     Tombstone,
 }
 
-/// 進まないまま同じ位置を見てよい回数．超えたらパーサの不具合なので panic する．
+/// How many times the parser may look at the same position without advancing. Exceeding it is a
+/// parser bug, so it panics.
 const FUEL: u32 = 256;
 
 pub(crate) struct Parser<'t> {
-    /// トリビアを除いたトークン．テキストは文脈依存の語の判定に使う．
+    /// Tokens without trivia. The text is used to recognize contextual words.
     tokens: Vec<ParserToken<'t>>,
     pos: usize,
     events: Vec<Event>,
@@ -46,13 +47,14 @@ pub(crate) struct Parser<'t> {
 struct ParserToken<'t> {
     kind: SyntaxKind,
     text: &'t str,
-    /// 直前のトークンとの間に改行がある．継続の改行（トリビア）も数える．
+    /// There is a newline since the previous token, continuation newlines (trivia) included.
     line_start: bool,
-    /// 直前のトークンとの間にドキュメントコメント `##` がある．
+    /// There is a doc comment `##` since the previous token.
     doc_before: bool,
 }
 
-/// 宣言を始めるトークン．エラー回復で，行頭にあれば読み飛ばさずに止まる．
+/// Tokens that start a declaration. Error recovery stops at one at the start of a line instead of
+/// skipping it.
 const DECL_START: &[SyntaxKind] = &[
     FN_KW, PUB_KW, SUSPEND_KW, OPAQUE_KW, TYPE_KW, ENUM_KW, ERROR_KW, CONST_KW, EFFECT_KW,
     HANDLER_KW, LAYER_KW, TRAIT_KW, IMPL_KW, IMPORT_KW, AT,
@@ -89,7 +91,7 @@ impl<'t> Parser<'t> {
         }
     }
 
-    /// 読んだトークンの数．文法の関数が進んだかを確かめるのに使う．
+    /// The number of tokens read, used to check that a grammar function advanced.
     pub(crate) fn position(&self) -> usize {
         self.pos
     }
@@ -100,7 +102,7 @@ impl<'t> Parser<'t> {
 
     pub(crate) fn nth(&self, n: usize) -> SyntaxKind {
         let fuel = self.fuel.get();
-        assert!(fuel > 0, "パーサが位置 {} から進んでいない", self.pos);
+        assert!(fuel > 0, "the parser is stuck at position {}", self.pos);
         self.fuel.set(fuel - 1);
         self.tokens.get(self.pos + n).map_or(EOF, |t| t.kind)
     }
@@ -113,38 +115,36 @@ impl<'t> Parser<'t> {
         self.current() == kind
     }
 
-    /// 文脈依存の語（`fails` など）か．字句では LOWER_NAME なので，テキストで見分ける．
+    /// Contextual words (`fails` and so on) lex as LOWER_NAME, so they are told apart by text.
     pub(crate) fn at_contextual_kw(&self, kw: &str) -> bool {
         self.at(LOWER_NAME) && self.tokens[self.pos].text == kw
     }
 
-    /// 行頭の宣言の始まりにいるか．`fn(` はラムダなので除く．
+    /// At the start of a declaration at the start of a line. `fn(` is excluded as a lambda.
     ///
-    /// 閉じていない `(` の中では改行が継続になり NEWLINE が来ないので，壊れた宣言から
-    /// 立ち直るにはこれで次の宣言を見つける．
+    /// Inside an unclosed `(` newlines are continuations and no NEWLINE arrives, so this is how
+    /// recovery from a broken declaration finds the next one.
     pub(crate) fn at_decl_start(&self) -> bool {
         let kind = self.current();
         let line_start = self.tokens.get(self.pos).is_some_and(|t| t.line_start);
         line_start && DECL_START.contains(&kind) && !(kind == FN_KW && self.nth(1) == L_PAREN)
     }
 
-    /// 直前にドキュメントコメントがあるか．
     pub(crate) fn at_doc_comment(&self) -> bool {
         self.tokens.get(self.pos).is_some_and(|t| t.doc_before)
     }
 
-    /// `n` 個先が文脈依存の語 `kw` か．
     pub(crate) fn nth_at_contextual_kw(&self, n: usize, kw: &str) -> bool {
         self.nth(n) == LOWER_NAME && self.tokens[self.pos + n].text == kw
     }
 
-    /// 行頭の，`fn` と `suspend` 以外の宣言の始まりにいるか．宣言の本体の中の項目は
-    /// 行頭の `fn` で始まるので，本体の中ではこちらを回復の同期点にする．
+    /// At the start of a declaration other than `fn` and `suspend`, at the start of a line. Items
+    /// in a declaration body start with `fn` at the start of a line, so inside a body this is the
+    /// recovery sync point.
     pub(crate) fn at_top_decl_start(&self) -> bool {
         self.at_decl_start() && !matches!(self.current(), FN_KW | SUSPEND_KW)
     }
 
-    /// 行頭にいるか．
     pub(crate) fn at_line_start(&self) -> bool {
         self.tokens.get(self.pos).is_some_and(|t| t.line_start)
     }
@@ -154,15 +154,19 @@ impl<'t> Parser<'t> {
     }
 
     pub(crate) fn bump(&mut self) {
-        assert!(!self.at_eof(), "EOF は読み進められない");
+        assert!(!self.at_eof(), "cannot advance past EOF");
         self.pos += 1;
         self.fuel.set(FUEL);
         self.events.push(Event::Token);
     }
 
-    /// `kind` にいることを確かめてから読み進める．文法の誤りなので，違えば panic する．
+    /// Being elsewhere is a grammar bug, so it panics.
     pub(crate) fn bump_kind(&mut self, kind: SyntaxKind) {
-        assert!(self.at(kind), "{kind:?} にいるはずが {:?}", self.current());
+        assert!(
+            self.at(kind),
+            "expected to be at {kind:?}, found {:?}",
+            self.current()
+        );
         self.bump();
     }
 
@@ -192,7 +196,8 @@ impl<'t> Parser<'t> {
         });
     }
 
-    /// 診断を出し，次のトークンが `recovery` になければ1つ ERROR に包んで読み飛ばす．
+    /// Reports a diagnostic, and unless the next token is in `recovery`, wraps one token in ERROR
+    /// and skips it.
     pub(crate) fn err_recover(
         &mut self,
         code: DiagnosticCode,
@@ -215,13 +220,13 @@ impl<'t> Parser<'t> {
     }
 }
 
-/// 開いたままのノード．`complete` を呼ばずに捨てると Tombstone のまま残り，木には出ない．
+/// An open node. Dropping it without `complete` leaves a Tombstone, which never reaches the tree.
 pub(crate) struct Marker {
     pos: u32,
 }
 
 impl Marker {
-    /// ノードを作らずに捨てる．開始は Tombstone のまま残り，木には出ない．
+    /// The start stays a Tombstone and never reaches the tree.
     pub(crate) fn abandon(self, _p: &mut Parser<'_>) {}
 
     pub(crate) fn complete(self, p: &mut Parser<'_>, kind: SyntaxKind) -> CompletedMarker {
@@ -240,12 +245,13 @@ pub(crate) struct CompletedMarker {
 }
 
 impl CompletedMarker {
-    /// 閉じたノードを新しい親で包む．束縛 `パターン = 式` や二項演算で使う．
+    /// Wraps a completed node in a new parent. Used for bindings `pattern = expr` and binary
+    /// operators.
     pub(crate) fn precede(self, p: &mut Parser<'_>) -> Marker {
         let parent = p.start();
         match &mut p.events[self.pos as usize] {
             Event::Start { forward_parent, .. } => *forward_parent = Some(parent.pos - self.pos),
-            _ => unreachable!("閉じたノードの開始は Start のはず"),
+            _ => unreachable!("a closed node must begin with Start"),
         }
         parent
     }

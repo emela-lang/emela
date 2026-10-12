@@ -1,4 +1,5 @@
-//! 字句解析．入力を `SyntaxKind` と範囲の列に切る．空白，改行，コメントも捨てずに残す．
+//! The lexer. Splits the input into `SyntaxKind`s with ranges, keeping whitespace, newlines and
+//! comments.
 
 use logos::Logos;
 use rowan::{TextRange, TextSize};
@@ -37,7 +38,7 @@ pub fn lex(src: &str) -> Lexed {
             Mode::Code | Mode::Interp { .. } => lexer.code_step(pos),
         };
     }
-    // 入力の終わりで閉じていないものを，内側から順に報告する．
+    // Report what is still open at the end of the input, innermost first.
     while lexer.modes.len() > 1 {
         match lexer.modes.pop() {
             Some(Mode::Str { open } | Mode::MultiStr { open }) => lexer.error(
@@ -56,7 +57,7 @@ pub fn lex(src: &str) -> Lexed {
         }
     }
     continuation::mark_continuations(&mut lexer.lexed.tokens);
-    // 出した順ではなく位置の順に並べる．同じ位置なら出した順のまま．
+    // Sort by position, not by emission order. Equal positions keep emission order.
     lexer
         .lexed
         .diagnostics
@@ -64,19 +65,19 @@ pub fn lex(src: &str) -> Lexed {
     lexer.lexed
 }
 
-/// いま読んでいる場所．底は必ず `Code` で，文字列と補間に入るたびに積む．
+/// The bottom is always `Code`; a mode is pushed on entering each string and interpolation.
 #[derive(Debug, Clone, Copy)]
 enum Mode {
     Code,
-    /// `open` は開いた `"` の位置．
+    /// `open` is the position of the opening `"`.
     Str {
         open: usize,
     },
-    /// 複数行の文字列 `"""`．`open` は開いた `"""` の位置．
+    /// A multiline string `"""`. `open` is the position of the opening `"""`.
     MultiStr {
         open: usize,
     },
-    /// `open` は `#{` の位置．`depth` は補間の中で開いている `{` の数．
+    /// `open` is the position of `#{`. `depth` counts the `{` open inside the interpolation.
     Interp {
         open: usize,
         depth: u32,
@@ -87,12 +88,14 @@ struct Lexer<'a> {
     src: &'a str,
     lexed: Lexed,
     modes: Vec<Mode>,
-    /// 開いている複数行の文字列ごとに，本文の中の行の先頭の位置．閉じたときにインデントを検査する．
+    /// For each open multiline string, the start of each body line, used to check indentation on
+    /// close.
     multi_lines: Vec<Vec<usize>>,
 }
 
 impl Lexer<'_> {
-    /// コード（文字列の外か補間の中）で1トークン読み，次の位置を返す．
+    /// Reads one token in code (outside strings or inside an interpolation) and returns the next
+    /// position.
     fn code_step(&mut self, pos: usize) -> usize {
         let mut raw_lexer = RawToken::lexer(&self.src[pos..]);
         let Some(raw) = raw_lexer.next() else {
@@ -129,11 +132,11 @@ impl Lexer<'_> {
         end
     }
 
-    /// 複数行の文字列の中で1トークン読み，次の位置を返す．
     fn multi_string_step(&mut self, pos: usize) -> usize {
         let src = self.src;
         let rest = &src[pos..];
-        // 行頭の `"""` が閉じる側．行頭の空白もトークンに含め，その幅がインデントになる．
+        // A `"""` at the start of a line closes the string. The leading whitespace is part of
+        // the token, and its width is the indentation.
         if src[..pos].ends_with('\n')
             && let Some(indent) = string::closing_indent(src, pos)
         {
@@ -170,8 +173,8 @@ impl Lexer<'_> {
         end
     }
 
-    /// 複数行の文字列を閉じる．閉じる行のインデント `indent` が分かれば，それより浅い行に
-    /// 診断を出す．空白だけの行は数えない．
+    /// Reports lines indented less than `indent`, the closing line's indentation, if known.
+    /// Whitespace-only lines are not counted.
     fn close_multi_string(&mut self, close: usize, indent: Option<&str>) {
         self.modes.pop();
         let lines = self.multi_lines.pop().unwrap_or_default();
@@ -192,7 +195,6 @@ impl Lexer<'_> {
         }
     }
 
-    /// 文字列の中で1トークン読み，次の位置を返す．
     fn string_step(&mut self, pos: usize, open: usize) -> usize {
         let rest = &self.src[pos..];
         if rest.starts_with('"') {
@@ -207,7 +209,7 @@ impl Lexer<'_> {
             });
             pos + 2
         } else if rest.starts_with(['\n', '\r']) {
-            // 改行はコードとして読み直す．
+            // Re-read the newline as code.
             self.error(
                 open,
                 pos,
@@ -250,7 +252,7 @@ fn range(start: usize, end: usize) -> TextRange {
     TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32))
 }
 
-/// logos のトークンを `SyntaxKind` に写す．エラーならコードと文面も返す．
+/// Also returns the code and message for an error.
 fn classify(
     raw: Result<RawToken, ()>,
     text: &str,
@@ -285,7 +287,7 @@ fn classify(
     }
 }
 
-/// logos が直接切り出すトークン．`SyntaxKind` にはノードの種類も入っているので分けておく．
+/// The tokens logos cuts directly. Kept apart from `SyntaxKind`, which also holds node kinds.
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq)]
 enum RawToken {
     #[regex(r"[ \t]+")]
@@ -296,7 +298,7 @@ enum RawToken {
     Comment,
     #[regex(r"##[^\r\n]*", allow_greedy = true)]
     DocComment,
-    /// 名前と予約語．分類は `name::classify_name` で行う．
+    /// Names and reserved words, classified by `name::classify_name`.
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Word,
 
@@ -307,15 +309,15 @@ enum RawToken {
 
     #[regex(r"[0-9][0-9_]*")]
     Int,
-    /// 16進と2進の整数（`0xFF` `0b1010`）．接頭辞は小文字だけ．`0xFF` は BadNumber と同じ長さで
-    /// 当たるので，優先度を上げてある．
+    /// Hex and binary integers (`0xFF` `0b1010`); the prefix is lowercase only. `0xFF` matches
+    /// BadNumber with the same length, so this has a higher priority.
     #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*", priority = 10)]
     RadixInt,
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?", priority = 10)]
     Float,
-    /// 数値の直後に英字が続いたもの（`1e9` `1.0e` `3px` `0o17` `0XFF`）と，16進と2進の
-    /// 小数（`0x1.5`）．かたまりごとエラーにする．
-    /// `1.0e9` は Float と同じ長さで当たるので，Float の優先度を上げてある．
+    /// A number followed directly by letters (`1e9` `1.0e` `3px` `0o17` `0XFF`), and hex or
+    /// binary fractions (`0x1.5`). The whole chunk becomes an error.
+    /// `1.0e9` matches Float with the same length, so Float has a higher priority.
     #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?[A-Za-z][A-Za-z0-9_]*|0[xb][0-9A-Za-z_]*\.[0-9][0-9A-Za-z_]*")]
     BadNumber,
 
@@ -388,7 +390,7 @@ impl From<RawToken> for SyntaxKind {
             R::Newline => K::NEWLINE,
             R::Comment => K::COMMENT,
             R::DocComment => K::DOC_COMMENT,
-            // `lex` が先に診断つきで扱うので，ここには来ない
+            // `lex` handles these first with a diagnostic, so they never get here.
             R::Word | R::BadNumber => K::ERROR_TOKEN,
             R::Quote => K::STRING_QUOTE,
             R::TripleQuote => K::TRIPLE_QUOTE,
@@ -487,7 +489,7 @@ mod tests {
             assert_eq!(kinds(src), [ERROR_TOKEN], "{src}");
             assert_eq!(lexed.diagnostics.len(), 1, "{src}");
         }
-        // 指数の数字が欠けたら，符号の手前までがエラー
+        // A missing exponent digit makes everything up to the sign an error.
         assert_eq!(kinds("1.0e+"), [ERROR_TOKEN, PLUS]);
     }
 
@@ -499,7 +501,7 @@ mod tests {
                 INT, WHITESPACE, INT, WHITESPACE, INT, WHITESPACE, INT, WHITESPACE, INT
             ]
         );
-        // 2進の後ろの範囲とフィールドは今までどおり
+        // A range or field after a binary integer still works.
         assert_eq!(kinds("0b1..0x2"), [INT, DOT2, INT]);
     }
 
@@ -586,7 +588,7 @@ mod tests {
         let lexed = lex("\"\nx");
         assert_eq!(kinds("\"\nx"), [STRING_QUOTE, NEWLINE, LOWER_NAME]);
         assert_eq!(lexed.diagnostics.len(), 1);
-        // 文字列と補間の両方が閉じていない
+        // Both the string and the interpolation are unclosed.
         let lexed = lex(r##""#{x"##);
         assert_eq!(kinds(r##""#{x"##), [STRING_QUOTE, INTERP_START, LOWER_NAME]);
         assert_eq!(lexed.diagnostics.len(), 2);
@@ -600,8 +602,8 @@ mod tests {
             proptest::prop_assert_eq!(text, src);
         }
 
-        /// 複数行の文字列，補間，エスケープの部品に偏らせた入力でも，連結すると入力に戻り，
-        /// トークンは隙間なく並ぶ．
+        /// Even with input biased toward multiline strings, interpolations and escapes, the tokens
+        /// concatenate back to the input with no gaps.
         #[test]
         fn 文字列の部品でも連結すると入力に戻る(
             src in r##"("""|"|#\{|\}|\\|u\{|0x|0b|\n|  |[a-zA-Z0-9_]){0,40}"##

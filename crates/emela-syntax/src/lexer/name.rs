@@ -1,11 +1,12 @@
-//! 名前と予約語の分類（2.3，3.1〜3.3）．
+//! Classifying names and reserved words (spec 2.3, 3.1–3.3).
 
 use crate::SyntaxKind;
 
-/// `[A-Za-z_][A-Za-z0-9_]*` で切り出した単語を分類する．
+/// Classifies a word cut as `[A-Za-z_][A-Za-z0-9_]*`.
 ///
-/// 予約語は `keyword` で引く．3.2 の文脈依存の語と 3.4 の語は普通の名前として返す．
-/// どのクラスにも合わないときは `None` を返し，呼び出し側が診断を出す．
+/// Reserved words are looked up with `keyword`. The contextual words of spec 3.2 and the words of
+/// spec 3.4 come back as ordinary names. Returns `None` if no class matches; the caller reports
+/// the diagnostic.
 pub(super) fn classify_name(word: &str) -> Option<SyntaxKind> {
     use SyntaxKind::*;
     if let Some(kind) = keyword(word) {
@@ -30,7 +31,7 @@ pub(super) fn classify_name(word: &str) -> Option<SyntaxKind> {
     }
 }
 
-/// 予約語（3.1）と将来の予約（3.3）．
+/// Reserved words (spec 3.1) and words reserved for the future (spec 3.3).
 fn keyword(word: &str) -> Option<SyntaxKind> {
     use SyntaxKind::*;
     let kind = match word {
@@ -87,7 +88,7 @@ mod tests {
             ("_tmp", Some(LOWER_NAME)),
             ("__", Some(LOWER_NAME)),
             ("x1", Some(LOWER_NAME)),
-            // 17.2 の EBNF どおり字句では通す．snake_case かどうかは lint に任せる
+            // Accepted by the lexer per the spec 17.2 EBNF; snake_case is left to lint
             ("userId", Some(LOWER_NAME)),
         ]);
     }

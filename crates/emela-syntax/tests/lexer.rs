@@ -1,4 +1,4 @@
-//! `test_data/lexer/*.emel` を字句解析し，トークン列と診断をスナップショットで比べる．
+//! Lexes `test_data/lexer/*.emel` and snapshots the tokens and diagnostics.
 
 use std::fmt::Write;
 
@@ -12,7 +12,8 @@ fn lexer_snapshots() {
     });
 }
 
-/// 1トークン1行で `KIND@start..end "テキスト"`，最後に診断を `error[E0101]@start..end: 文面` で並べる．
+/// One token per line as `KIND@start..end "text"`, followed by the diagnostics as
+/// `error[E0101]@start..end: message`.
 fn dump(src: &str) -> String {
     let lexed = lex(src);
     let mut out = String::new();

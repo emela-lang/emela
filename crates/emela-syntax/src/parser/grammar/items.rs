@@ -1,4 +1,4 @@
-//! 宣言（17.3）．この段は `fn` だけ．
+//! Declarations (spec 17.3).
 
 use super::expressions::{block, expr};
 use super::param_list;
@@ -7,7 +7,8 @@ use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{Marker, Parser};
 
-/// `{ import NL } { decl NL }`．宣言の後ろに改行がなければ診断を出し，次の宣言まで読み飛ばす．
+/// `{ import NL } { decl NL }`. A declaration not followed by a newline gets a diagnostic, and
+/// the parser skips to the next declaration.
 pub(crate) fn source_file(p: &mut Parser<'_>) {
     let root = p.start();
     let mut seen_decl = false;
@@ -43,8 +44,9 @@ pub(crate) fn source_file(p: &mut Parser<'_>) {
     root.complete(p, ROOT);
 }
 
-/// 区切りの改行を読む．ドキュメントコメントが付いていれば，その位置から開いたマーカーを返す．
-/// 宣言はこのマーカーで開くので，sink がコメントを宣言のノードの中に入れる．
+/// Reads separating newlines. If a doc comment is attached, returns a marker opened at its
+/// position. The declaration opens with this marker, so `sink` puts the comment inside the
+/// declaration node.
 pub(crate) fn newlines_with_doc(p: &mut Parser<'_>) -> Option<Marker> {
     let mut doc = None;
     while p.at(NEWLINE) {
@@ -147,7 +149,7 @@ fn decl(p: &mut Parser<'_>, m: Marker) {
 ///
 /// `annot_arg = lower_name | literal | lower_name ":" literal`
 ///
-/// 名前があれば `true` を返す．名前がないときは呼ぶ側で診断を重ねない．
+/// Returns `true` if there is a name. Without one, the caller should not add more diagnostics.
 pub(crate) fn annotation(p: &mut Parser<'_>) -> bool {
     let m = p.start();
     p.bump_kind(AT);
@@ -186,7 +188,8 @@ fn annot_literal(p: &mut Parser<'_>) {
     }
 }
 
-/// 少なくとも1トークン読み，次の行頭の宣言か入力の終わりの手前で止まる．
+/// Reads at least one token and stops before the next declaration at the start of a line, or
+/// before the end of the input.
 fn skip_to_decl(p: &mut Parser<'_>) {
     let m = p.start();
     while !p.at_eof() {
@@ -233,7 +236,7 @@ fn type_param_list(p: &mut Parser<'_>) {
     let m = p.start();
     super::delimited(p, L_BRACK, R_BRACK, |p| {
         let param = p.start();
-        // 型引数は大文字名か型名（2.3）．
+        // A type parameter is an uppercase name or a type name (spec 2.3).
         if !p.eat(UPPER_NAME) && !p.eat(TYPE_NAME) {
             p.err_recover(
                 DiagnosticCode::ExpectedToken,
@@ -303,7 +306,7 @@ fn variant_list(p: &mut Parser<'_>) {
     p.bump_kind(L_BRACE);
     separated_items(p, "variants", |p, m| {
         if matches!(p.current(), LOWER_NAME | UPPER_NAME) {
-            // 名前のクラスだけが違う．診断を出してバリアントとして読む．
+            // Only the name class differs. Report it and read it as a variant.
             p.error(
                 DiagnosticCode::ExpectedToken,
                 "expected variant name (a type name)",
@@ -334,10 +337,10 @@ fn variant_list(p: &mut Parser<'_>) {
     list.complete(p, VARIANT_LIST);
 }
 
-/// `{` の直後から `}` の手前まで，カンマか改行で区切られた要素を読む．
+/// Reads elements separated by commas or newlines, from right after `{` up to before `}`.
 ///
-/// 要素は `item` が読む．渡すマーカーはドキュメントコメントの位置から開いてあるので，
-/// 要素のノードはこれで閉じる．`}` は読まない．
+/// `item` reads each element. The marker it gets is opened at the doc comment's position, so the
+/// element node is completed with it. Does not consume `}`.
 pub(crate) fn separated_items(
     p: &mut Parser<'_>,
     what: &str,
@@ -355,7 +358,7 @@ pub(crate) fn separated_items(
         let before = p.position();
         item(p, m);
         if p.position() == before {
-            // 1トークンも読めなかった．そのトークンを読み飛ばして進める．
+            // Not even one token was read. Skip that token to make progress.
             let e = p.start();
             p.bump();
             e.complete(p, ERROR);
@@ -376,7 +379,7 @@ pub(crate) fn separated_items(
     }
 }
 
-/// バリアントの中身．名前付きなら FIELD_LIST，名前なしなら TUPLE_FIELD_LIST．混ぜたら E0128．
+/// FIELD_LIST if named, TUPLE_FIELD_LIST if unnamed; mixing them is E0128.
 fn variant_fields(p: &mut Parser<'_>) {
     let m = p.start();
     let mut named = None;
@@ -427,17 +430,17 @@ fn field(p: &mut Parser<'_>) {
         return;
     }
     p.bump();
-    // `:` がなくても型が続いていれば型として読む．
+    // Read a type even without `:` if one follows.
     if p.expect(COLON) || at_type_start(p) {
         type_(p);
     }
     m.complete(p, FIELD);
 }
 
-/// `"derive" type_ref { "," type_ref }`．次の行に書いてもよい．
+/// `"derive" type_ref { "," type_ref }`. May be written on the next line.
 ///
-/// 間のコメントだけの行と空行は飛ばす（2.5）．間にドキュメントコメントがあれば，
-/// 宣言と同じくその位置から開き，sink がコメントを DERIVE_CLAUSE の中に入れる．
+/// Comment-only lines and blank lines in between are skipped (spec 2.5). A doc comment in between
+/// opens the node at its position, as for declarations, so `sink` puts it inside DERIVE_CLAUSE.
 fn derive_clause(p: &mut Parser<'_>) {
     let mut newlines = 0;
     while p.nth(newlines) == NEWLINE {
@@ -461,7 +464,8 @@ fn derive_clause(p: &mut Parser<'_>) {
     m.complete(p, DERIVE_CLAUSE);
 }
 
-/// 宣言の名前．違うトークンなら診断を出し，宣言の続きでなければ ERROR に包んで読み飛ばす．
+/// On a different token, reports a diagnostic and, unless the declaration continues, wraps it in
+/// ERROR and skips it.
 fn decl_name(p: &mut Parser<'_>, kind: crate::SyntaxKind) {
     if p.eat(kind) {
         return;
@@ -536,7 +540,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_PAREN) {
         field_list(p);
     }
-    // `implements` がなくても型名が続いていれば，それを対象として読む．
+    // Even without `implements`, a following type name is read as the target.
     if p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
         let c = p.start();
         if !p.at_contextual_kw("implements") {
@@ -618,7 +622,8 @@ fn trait_decl(p: &mut Parser<'_>, m: Marker) {
         if p.at(FN_KW) {
             fn_decl(p, m);
         } else if p.at_contextual_kw("derive") {
-            // 導出規則は構文が未確定（18.1 #3）．診断を出して丸ごと読み飛ばす．
+            // The syntax of derive rules is undecided (spec 18.1 #3). Report it and skip the
+            // whole thing.
             p.error(
                 DiagnosticCode::DeriveRuleUnsupported,
                 "derive rules in traits are not supported yet",
@@ -645,7 +650,7 @@ fn impl_decl(p: &mut Parser<'_>, m: Marker) {
         type_(p);
     } else {
         p.error(DiagnosticCode::ExpectedToken, "expected `for`");
-        // `for` がなくても型が続いていれば型として読む．
+        // Read a type even without `for` if one follows.
         if at_type_start(p) {
             type_(p);
         }
@@ -660,7 +665,8 @@ fn impl_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, IMPL_DECL);
 }
 
-/// 宣言の本体 `"{" { item NL } "}"`．項目は `item` が読み，渡したマーカーで閉じる．
+/// A declaration body `"{" { item NL } "}"`. `item` reads each item and completes it with the
+/// marker it gets.
 fn item_list(p: &mut Parser<'_>, mut item: impl FnMut(&mut Parser<'_>, Marker)) {
     let list = p.start();
     if !p.expect(L_BRACE) {
@@ -700,7 +706,7 @@ fn item_list(p: &mut Parser<'_>, mut item: impl FnMut(&mut Parser<'_>, Marker)) 
     list.complete(p, ITEM_LIST);
 }
 
-/// 改行か，対応の取れた外側の `}` の手前まで読む．中の `{ }` は丸ごと読む．
+/// Reads up to a newline or the matching outer `}`. Inner `{ }` are read whole.
 fn skip_braced_line(p: &mut Parser<'_>) {
     let mut depth = 0usize;
     while !p.at_eof() {
@@ -714,7 +720,8 @@ fn skip_braced_line(p: &mut Parser<'_>) {
     }
 }
 
-/// 本体の中の読めない項目．診断を出し，行末か `}` の手前までを ERROR に包む．
+/// An unreadable item in a body. Reports a diagnostic and wraps everything up to the end of the
+/// line or before `}` in ERROR.
 fn item_error(p: &mut Parser<'_>, m: Marker, message: &str) {
     p.error(DiagnosticCode::ExpectedToken, message);
     while !matches!(p.current(), NEWLINE | R_BRACE | EOF) && !p.at_top_decl_start() {
