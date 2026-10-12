@@ -1,6 +1,6 @@
 [package]
 name = "emela-syntax"
-description = "字句解析，パーサ，無損失構文木．エラー回復もここ"
+description = "Lexer, parser and lossless syntax tree, including error recovery"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

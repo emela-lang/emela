@@ -1,4 +1,4 @@
-//! 文法の単体テスト．`fn` 宣言が読めるまでは，規則ごとの入口を直接呼ぶ．
+//! Unit tests for the grammar. Calls each rule's entry point directly.
 
 use std::fmt::Write;
 
@@ -7,7 +7,7 @@ use crate::SyntaxKind::*;
 use crate::parser::{Parser, build};
 use crate::{SyntaxNode, debug_tree, lex, validation};
 
-/// `entry` で読み，残りを ERROR に包んだ木と診断をダンプする．
+/// Reads with `entry`, wraps the rest in ERROR, and dumps the tree and diagnostics.
 fn dump(src: &str, entry: fn(&mut Parser<'_>)) -> String {
     let lexed = lex(src);
     let mut p = Parser::new(src, &lexed.tokens);
@@ -31,7 +31,7 @@ fn dump(src: &str, entry: fn(&mut Parser<'_>)) -> String {
     out
 }
 
-/// ケースごとに `=== 入力` の見出しを付けて並べる．
+/// Lists the cases, each under a `=== <input>` heading.
 fn dump_all(cases: &[&str], entry: fn(&mut Parser<'_>)) -> String {
     let mut out = String::new();
     for src in cases {
@@ -189,7 +189,6 @@ fn 式のエラー() {
     ));
 }
 
-/// ブロックを入口にして読む．
 fn block(p: &mut Parser<'_>) {
     expressions::block(p);
 }
@@ -230,7 +229,7 @@ mod robustness {
 
     use super::*;
 
-    /// 入口ごとに，panic せず木のテキストが入力と一致することを確かめる．
+    /// For each entry point: no panic, and the tree's text equals the input.
     fn lossless(src: &str, entry: fn(&mut Parser<'_>)) -> Result<(), TestCaseError> {
         let lexed = lex(src);
         let mut p = Parser::new(src, &lexed.tokens);

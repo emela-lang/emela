@@ -1,10 +1,11 @@
-//! 木ができた後の形の検査．パーサは寛容に読み，ここで文法の外の制約を見る．
+//! Shape checks after the tree is built. The parser reads leniently; constraints outside the
+//! grammar are checked here.
 //!
-//! - 束縛の左辺は式として読んでいるので，パターンとして読める形かを確かめる．あわせて，
-//!   パターンにしか書けない `_` と式のない `..` が左辺の外にないかを見る
-//! - 17.3 の文法の外の制約のうち，構文だけで判るもの（`@external` の要否，空の enum，
-//!   handler と impl の fn の形）を見る
-//! - `@external` の引数の形（12.1，12.3）を見る
+//! - The left side of a binding is parsed as an expression, so check that it reads as a pattern.
+//!   Also check that `_` and a bare `..`, which only patterns allow, do not appear outside it.
+//! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
+//!   `@external` is needed, empty enums, the shape of handler and impl fns).
+//! - Check the arguments of `@external` (spec 12.1, 12.3).
 
 use rowan::TextRange;
 
@@ -43,7 +44,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                     "a type without fields must be `@external`",
                 );
             }
-            // `@external type` の注釈は引数を取らない（12.3）．
+            // The annotation on `@external type` takes no arguments (spec 12.3).
             for list in annotations(node, "external").filter_map(|a| child_kind(&a, ANNOT_ARG_LIST))
             {
                 error(
@@ -95,7 +96,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// 束縛の左辺．17.6 のパターンに対応する式の形だけを通す．
+/// Accepts only the expression shapes that correspond to spec 17.6 patterns.
 fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let ok = match node.kind() {
         UNDERSCORE_EXPR | PATH_EXPR | UNIT_EXPR | LITERAL => true,
@@ -105,12 +106,12 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             node.children().for_each(|c| binding_target(&c, out));
             true
         }
-        // `..` の後ろは名前だけ．
+        // Only a name may follow `..`.
         REST_EXPR => match node.first_child() {
             None => true,
             Some(c) => c.kind() == NAME_REF && has_token(&c, LOWER_NAME),
         },
-        // `Circle(radius:)` `User(name: n, ..)`．呼ぶ側は型の参照に限る．
+        // `Circle(radius:)` `User(name: n, ..)`. The callee must be a type reference.
         CALL_EXPR => {
             let mut children = node.children();
             let callee_ok = children.next().is_some_and(|c| c.kind() == PATH_EXPR);
@@ -118,7 +119,7 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 for arg in args.children() {
                     match arg.kind() {
                         NAMED_ARG => arg.children().for_each(|c| binding_target(&c, out)),
-                        // パターンに書けるのは式のない `..` だけ．`..式` は部分更新の構文．
+                        // Only a bare `..` is a pattern; `..expr` is the partial update syntax.
                         SPREAD_ARG if arg.first_child().is_none() => {}
                         _ => binding_target(&arg, out),
                     }
@@ -138,7 +139,7 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// fn の置き場所ごとの制約．
+/// Constraints that depend on where the fn is.
 fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let has_body = child_kind(node, BLOCK_EXPR).is_some();
     let owner = node
@@ -147,9 +148,10 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         .and_then(|list| list.parent())
         .map(|decl| decl.kind());
     match owner {
-        // トップレベル．
+        // Top level.
         None => {
-            // 同梱の core のソースの組み込み関数は `@intrinsic` で本体を省く．置き場所の検査は名前解決が行う．
+            // Built-in functions in the bundled core omit the body with `@intrinsic`. Name
+            // resolution checks where they may appear.
             if !is_external(node) && !has_annotation(node, "intrinsic") {
                 if !has_body {
                     error(
@@ -201,16 +203,16 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 missing_body(node, out);
             }
         }
-        // trait の fn は本体を省ける．
+        // A trait fn may omit the body.
         _ => {}
     }
 }
 
-/// `@external` のターゲットとして知っている名前（12.1）．
+/// Known `@external` targets (spec 12.1).
 const EXTERNAL_TARGETS: [&str; 2] = ["js", "wasm"];
 
-/// fn の `@external(ターゲット, "a")` と `@external(ターゲット, "a", "b")` の形（12.1）．
-/// ターゲットの名前の後ろに文字列が1つか2つ．ターゲットごとに1つ．
+/// The shape of a fn's `@external(target, "a")` and `@external(target, "a", "b")` (spec 12.1):
+/// one or two strings after the target name, and one annotation per target.
 fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let mut seen: Vec<String> = Vec::new();
     for annotation in annotations(node, "external") {
@@ -219,7 +221,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             .flat_map(|list| list.children())
             .filter(|arg| arg.kind() == ANNOT_ARG)
             .collect();
-        // 読めなかった引数は構文の診断が出ている．重ねない．
+        // Arguments that failed to parse already have a syntax diagnostic; do not pile on.
         if args
             .iter()
             .any(|arg| arg.descendants().any(|n| n.kind() == ERROR))
@@ -288,7 +290,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// 名前だけの注釈の引数（`js`）の名前．
+/// The name of an annotation argument that is a bare name (`js`).
 fn annot_name(arg: &SyntaxNode) -> Option<String> {
     if arg.first_child().is_some() || has_token(arg, COLON) {
         return None;
@@ -299,8 +301,8 @@ fn annot_name(arg: &SyntaxNode) -> Option<String> {
         .map(|t| t.text().to_owned())
 }
 
-/// 文字列だけの注釈の引数か．補間のない文字列なら `Some(true)`，補間のある文字列なら
-/// `Some(false)`，文字列でなければ `None`．
+/// Whether the annotation argument is just a string: `Some(true)` without interpolation,
+/// `Some(false)` with it, `None` if it is not a string.
 fn annot_string(arg: &SyntaxNode) -> Option<bool> {
     if has_token(arg, LOWER_NAME) {
         return None;
@@ -318,17 +320,14 @@ fn missing_body(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     );
 }
 
-/// `@external` が付いているか．
 fn is_external(node: &SyntaxNode) -> bool {
     has_annotation(node, "external")
 }
 
-/// `@name` の注釈が付いているか．
 fn has_annotation(node: &SyntaxNode, name: &str) -> bool {
     annotations(node, name).next().is_some()
 }
 
-/// 宣言に付いた `@name` の注釈．
 fn annotations<'a>(node: &SyntaxNode, name: &'a str) -> impl Iterator<Item = SyntaxNode> + 'a {
     node.children()
         .filter(|c| c.kind() == ANNOTATION)
@@ -343,7 +342,7 @@ fn child_kind(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
     node.children().find(|c| c.kind() == kind)
 }
 
-/// 診断を出す範囲．宣言全体は長いので，名前のトークンがあればそこにする．
+/// The range to report on. A whole declaration is long, so use its name token if it has one.
 fn name_or(node: &SyntaxNode) -> TextRange {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())

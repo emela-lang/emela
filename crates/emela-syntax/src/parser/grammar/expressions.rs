@@ -1,4 +1,4 @@
-//! 式（17.5）．
+//! Expressions (spec 17.5).
 
 use super::patterns::pattern;
 use super::types::{path, type_};
@@ -7,7 +7,8 @@ use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
 
-/// 式が読めなかったとき，次のトークンが続きの一部なら消費せずに止まる．
+/// When an expression fails to parse, stop without consuming the next token if it belongs to
+/// what follows.
 const RECOVERY: &[SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, NEWLINE, INTERP_END,
 ];
@@ -36,7 +37,8 @@ pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 
 /// `binding | expr`．`binding = pattern [ ":" type ] "=" expr`
 ///
-/// 左辺はまず式として読み，直後に `:` か `=` があれば BINDING で包み直す．
+/// The left side is parsed as an expression first, and rewrapped in BINDING if `:` or `=`
+/// follows.
 pub(crate) fn stmt(p: &mut Parser<'_>) {
     let Some(lhs) = expr(p) else { return };
     if !p.at(COLON) && !p.at(EQ) {
@@ -63,7 +65,7 @@ pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
         let before = p.position();
         stmt(p);
         if p.position() == before {
-            // 診断は出ているが1トークンも進んでいない．行頭の `=` など．
+            // A diagnostic was reported but no token was consumed (e.g. `=` at line start).
             bump_error(p);
             continue;
         }
@@ -85,12 +87,13 @@ fn bump_error(p: &mut Parser<'_>) {
     m.complete(p, ERROR);
 }
 
-/// 文や腕の終わり．閉じていない `(` の中では改行が継続になるので，行頭も区切りとみなす．
+/// Inside an unclosed `(` newlines are continuations, so a line start also ends a statement.
 fn at_stmt_end(p: &Parser<'_>) -> bool {
     p.at(NEWLINE) || p.at(R_BRACE) || p.at_eof() || p.at_line_start()
 }
 
-/// 改行か，対応の取れた外側の `}` か，行頭の宣言の手前までを ERROR に包んで読み飛ばす．
+/// Wraps everything up to a newline, the matching outer `}` or a declaration at the start of a
+/// line in ERROR and skips it.
 fn skip_to_line_end(p: &mut Parser<'_>) {
     let m = p.start();
     let mut depth = 0usize;
@@ -121,7 +124,7 @@ fn if_expr(p: &mut Parser<'_>) {
     }
 }
 
-/// ブロック．`{` がなくても同じ行に式が続いていれば，診断を1つ出して式として読む．
+/// Without `{`, an expression on the same line is read as the body after one diagnostic.
 fn block_or_error(p: &mut Parser<'_>) {
     if p.at(L_BRACE) {
         block(p);
@@ -148,7 +151,7 @@ fn arm_list(p: &mut Parser<'_>) {
         let before = p.position();
         arm(p);
         if p.position() == before {
-            // 診断は出ているが1トークンも進んでいない．行頭の `=` など．
+            // A diagnostic was reported but no token was consumed (e.g. `=` at line start).
             bump_error(p);
             continue;
         }
@@ -173,7 +176,7 @@ fn arm(p: &mut Parser<'_>) {
         expr(p);
         g.complete(p, MATCH_GUARD);
     }
-    // 矢印がなくても，同じ行に式が続いていれば本体として読む．
+    // Even without the arrow, an expression on the same line is read as the body.
     if p.expect(THIN_ARROW) || !matches!(p.current(), NEWLINE | R_BRACE | EOF) {
         expr(p);
     }
@@ -196,7 +199,7 @@ fn with_expr(p: &mut Parser<'_>) {
     block_or_error(p);
 }
 
-/// 二項演算子の強さ．大きいほど強く結合する．比較は結合しない．
+/// Higher binds tighter. Comparisons do not associate.
 fn infix_power(kind: SyntaxKind) -> Option<u8> {
     Some(match kind {
         PIPE_GT => 1,
@@ -209,7 +212,7 @@ fn infix_power(kind: SyntaxKind) -> Option<u8> {
     })
 }
 
-/// 強さ `min` 以上の二項演算子をつないで読む（Pratt）．左結合．
+/// Pratt parsing of binary operators of strength `min` or more. Left-associative.
 fn expr_bp(p: &mut Parser<'_>, min: u8) -> Option<CompletedMarker> {
     let mut lhs = unary(p)?;
     let mut after_comparison = false;
@@ -254,7 +257,7 @@ fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             if !p.at(DOT) && !p.at(L_PAREN) {
                 return Some(use_expr);
             }
-            // 括弧を忘れた形として診断を1つ出し，続きは呼び出しとして読む．
+            // Treat it as forgotten parentheses: one diagnostic, then read the rest as a call.
             p.error(
                 DiagnosticCode::UnparenthesizedUse,
                 "wrap `use` in parentheses to call its operations: `(use X).op()`",
@@ -268,7 +271,7 @@ fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     }
 }
 
-/// `primary` の後ろの `{ "(" [ args ] ")" | "." lower_name }`
+/// `{ "(" [ args ] ")" | "." lower_name }` after `primary`
 fn postfix_ops(p: &mut Parser<'_>, mut lhs: CompletedMarker) -> CompletedMarker {
     loop {
         match p.current() {
@@ -354,12 +357,11 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     Some(m.complete(p, kind))
 }
 
-/// 補間 `#{ }` の中身．
 fn interp(p: &mut Parser<'_>) {
     expr(p);
 }
 
-/// `()`，`(expr)`，要素が2つ以上のタプル．`(a,)` は診断を出してタプルにする．
+/// `()`, `(expr)`, or a tuple of two or more. `(a,)` gets a diagnostic and becomes a tuple.
 fn paren_expr(p: &mut Parser<'_>) -> SyntaxKind {
     p.bump_kind(L_PAREN);
     let mut count = 0;
@@ -415,7 +417,7 @@ fn list_expr(p: &mut Parser<'_>) {
     p.expect(R_BRACK);
 }
 
-/// `..` と，あれば後ろの式．
+/// `..` and the expression after it, if any.
 fn rest_expr(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(DOT2);
@@ -429,8 +431,9 @@ fn rest_expr(p: &mut Parser<'_>) {
 ///
 /// `args = arg { "," arg } [ "," ".." expr ] | ".." expr`，`arg = expr | lower_name ":" [ expr ]`
 ///
-/// 末尾の `..式` は構成子の部分更新（5.3）．呼び出し先が構成子かはここでは区別しない．
-/// 束縛の左辺 `User(name:, ..)` として読むために，式のない `..` も受け付ける．
+/// A trailing `..expr` is a partial update of a constructor (spec 5.3); whether the callee is a
+/// constructor is not checked here. A bare `..` is also accepted so that `User(name:, ..)` can
+/// be read as the left side of a binding.
 fn arg_list(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_PAREN);

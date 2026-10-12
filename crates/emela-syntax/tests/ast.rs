@@ -1,4 +1,4 @@
-//! 型付き AST を公開 API から使うテスト．
+//! Uses the typed AST through the public API.
 
 use emela_syntax::ast::{Expr, Stmt};
 use emela_syntax::parse;
@@ -12,10 +12,10 @@ fn 部分更新の_spread() {
         .stmts()
         .map(|s| match s {
             Stmt::Expr(Expr::CallExpr(call)) => call,
-            _ => panic!("呼び出しのはず"),
+            _ => panic!("expected a call"),
         })
         .collect();
-    let spread = calls[0].spread().expect("..user があるはず");
+    let spread = calls[0].spread().expect("expected `..user`");
     assert_eq!(spread.syntax().text().to_string(), "user");
     assert_eq!(calls[0].args().count(), 2);
     assert!(calls[1].spread().is_none());

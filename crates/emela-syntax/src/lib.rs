@@ -1,6 +1,6 @@
-//! 字句解析，パーサ，無損失構文木．エラー回復もここで行う．
+//! Lexer, parser and lossless syntax tree, including error recovery.
 //!
-//! 構文木は rowan の green/red tree．空白，改行，コメントもトークンとして木に残す．
+//! The tree is a rowan green/red tree. Whitespace, newlines and comments stay in it as tokens.
 
 pub mod ast;
 mod diagnostic;
@@ -17,7 +17,7 @@ pub use diagnostic::{Diagnostic, DiagnosticCode};
 pub use lexer::{Lexed, Token, lex};
 pub use syntax_kind::SyntaxKind;
 
-/// パースの結果．木はどんな入力でも組めて，テキストは入力と一致する．
+/// A tree can be built for any input, and its text always equals the input.
 #[derive(Debug, Clone)]
 pub struct Parse {
     green: GreenNode,
@@ -29,17 +29,17 @@ impl Parse {
         SyntaxNode::new_root(self.green.clone())
     }
 
-    /// 型付き AST の根．
     pub fn tree(&self) -> ast::SourceFile {
-        ast::AstNode::cast(self.syntax()).expect("根は必ず ROOT")
+        ast::AstNode::cast(self.syntax()).expect("the root is always ROOT")
     }
 
-    /// 字句解析の診断のあとにパースの診断が並ぶ．
+    /// Lexer diagnostics come first, then parser diagnostics.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
-    /// 木を1要素1行で書き出し，最後に診断を `error[E0101]@start..end: 文面` で並べる．
+    /// Dumps the tree one element per line, followed by the diagnostics as
+    /// `error[E0101]@start..end: message`.
     pub fn debug_dump(&self) -> String {
         let mut out = debug_tree(&self.syntax());
         for diagnostic in &self.diagnostics {
@@ -60,14 +60,14 @@ pub fn parse(src: &str) -> Parse {
     parser::root(&mut p);
     let (green, mut parse_diagnostics) = parser::build(src, &lexed.tokens, p.finish());
     parse_diagnostics.extend(validation::validate(&SyntaxNode::new_root(green.clone())));
-    // パースと検査の診断は位置の順に並べる．同じ位置なら出した順のまま．
+    // Parser and validation diagnostics are sorted by position, keeping emission order for ties.
     parse_diagnostics.sort_by_key(|d| (d.range.start(), d.range.end()));
     let mut diagnostics = lexed.diagnostics;
     diagnostics.extend(parse_diagnostics);
     Parse { green, diagnostics }
 }
 
-/// ノードは `KIND@start..end`，トークンは `KIND@start..end "テキスト"` で，深さ1につき2字下げる．
+/// Nodes as `KIND@start..end`, tokens as `KIND@start..end "text"`, indented two spaces per level.
 pub(crate) fn debug_tree(node: &SyntaxNode) -> String {
     let mut out = String::new();
     let mut depth = 0;

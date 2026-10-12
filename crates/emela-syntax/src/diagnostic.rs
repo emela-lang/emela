@@ -1,4 +1,4 @@
-//! 診断．文面は英語で，コードは仕様の付録 A に従う．
+//! Diagnostics. Messages are in English; codes follow spec appendix A.
 
 use rowan::TextRange;
 
@@ -9,102 +9,91 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-/// 診断の種類．番号は付録 A の一覧と一致させ，一度振った番号は使い回さない．
+/// Codes match the list in spec appendix A. A code once assigned is never reused.
 ///
-/// E0101〜E0109 は字句，E0110〜E0189 は構文，E0190〜E0199 は字句の追加分（E0101〜E0109 が
-/// 埋まったため）．
+/// E0101–E0109 are lexical, E0110–E0189 syntactic, and E0190–E0199 more lexical ones (added
+/// after E0101–E0109 filled up).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
-    /// 文字列が閉じていない．
     UnterminatedString,
-    /// 補間 `#{` が閉じていない．
+    /// An interpolation `#{` is not closed.
     UnterminatedInterpolation,
-    /// どの名前のクラスにも合わない（2.3）．
+    /// Matches none of the name classes (spec 2.3).
     InvalidName,
-    /// 数値の形になっていない．
     InvalidNumber,
-    /// 認識できない文字．
     UnrecognizedCharacter,
-    /// `\` の後ろに文字がない．
+    /// Nothing follows `\`.
     MissingEscapedCharacter,
-    /// 使えないエスケープ．
     UnknownEscape,
-    /// `\u{...}` の形が崩れている，または値がサロゲートか 10FFFF を超える．
+    /// `\u{...}` is malformed, or its value is a surrogate or above 10FFFF.
     InvalidUnicodeEscape,
-    /// 複数行の文字列の形の誤り．開く `"""` の後ろが改行でない，閉じる `"""` が1行に
-    /// 1つでない，閉じる行より浅くインデントした行がある．
+    /// The opening `"""` is not followed by a newline, the closing `"""` is not alone on its
+    /// line, or a line is indented less than the closing line.
     MalformedMultilineString,
-    /// 来るはずのトークンがない．
     ExpectedToken,
-    /// 型が来るはずの位置に型がない．
     ExpectedType,
-    /// 要素が1つのタプル．`(Int)` `(a,)`
+    /// `(Int)` `(a,)`
     SingleElementTuple,
-    /// パターンが来るはずの位置にパターンがない．
     ExpectedPattern,
-    /// `..` の後ろに要素がある．
+    /// Something follows `..`.
     RestNotLast,
-    /// リストの `..` の前に要素がない．`[..rest]`
+    /// No element before `..` in a list. `[..rest]`
     RestWithoutElements,
-    /// パターンの負の数（18.1 #17 で未決）．
+    /// Negative numbers in patterns are undecided (spec 18.1 #17).
     NegativeNumberPattern,
-    /// パターンの文字列に補間がある．
     InterpolationInPattern,
-    /// 式が来るはずの位置に式がない．
     ExpectedExpression,
-    /// 比較演算子の連鎖．`a < b < c`
+    /// `a < b < c`
     ChainedComparison,
-    /// 名前付き引数の後ろの位置引数．
     PositionalAfterNamed,
-    /// 括弧で囲まずに `use X` の操作を呼んでいる．`use Clock.sleep(1)`
+    /// Calling an operation of `use X` without parentheses. `use Clock.sleep(1)`
     UnparenthesizedUse,
-    /// 文の後ろに改行か `}` がない．`a b`
+    /// A statement not followed by a newline or `}`. `a b`
     ExpectedStatementEnd,
-    /// パターンの外の `_`．
     UnderscoreOutsidePattern,
-    /// パターンの外の，式のない `..`．
+    /// A bare `..` (without an expression) outside a pattern.
     BareRestOutsidePattern,
-    /// 束縛の左辺がパターンとして読めない．`a + b = 1`
+    /// The left side of a binding cannot be read as a pattern. `a + b = 1`
     InvalidBindingTarget,
-    /// 宣言が来るはずの位置に宣言がない．
     ExpectedDeclaration,
-    /// 宣言の後ろの import（4.2）．
+    /// An import after a declaration (spec 4.2).
     ImportAfterDeclaration,
-    /// 1つのバリアントで名前付きと名前なしのフィールドを混ぜている（5.4）．
+    /// Named and unnamed fields mixed in one variant (spec 5.4).
     MixedVariantFields,
-    /// trait の導出規則．構文が未確定（18.1 #3）．
+    /// Trait derive rules; the syntax is undecided (spec 18.1 #3).
     DeriveRuleUnsupported,
-    /// `@external` が要る宣言に付いていない．本体のない fn，トップレベルの suspend fn，
-    /// フィールドのない type．
+    /// A declaration that needs `@external` lacks it: a fn without a body, a top-level
+    /// suspend fn, or a type without fields.
     MissingExternal,
-    /// `opaque` を type と enum 以外に付けた，または `pub` なしで付けた．
+    /// `opaque` on something other than type and enum, or without `pub`.
     MisplacedOpaque,
-    /// バリアントのない enum．
+    /// An enum with no variants.
     EmptyEnum,
-    /// impl に `pub` や注釈を付けた．
+    /// `pub` or an annotation on an impl.
     ModifierOnImpl,
-    /// handler の操作の引数に型を書いた．型は effect の宣言から決まる．
+    /// A type on a handler operation's parameter. The type comes from the effect declaration.
     TypedHandlerParam,
-    /// impl と handler の fn に本体がない．
+    /// An impl or handler fn without a body.
     MissingBody,
-    /// impl の fn に戻り値，fails，use を書いた．型は trait の宣言から決まる．
+    /// A return type, fails or use on an impl fn. The types come from the trait declaration.
     SignatureInImpl,
-    /// エフェクトの操作に `use` 節を書いた（8.1）．
+    /// A `use` clause on an effect operation (spec 8.1).
     UseOnEffectOp,
-    /// fn の `@external` の引数の形が `(ターゲット, "a")` か `(ターゲット, "a", "b")` でない（12.1）．
-    /// ターゲットの名前がない・名前でない，文字列でない引数，文字列の数が1つか2つでない．
+    /// A fn's `@external` arguments are not `(target, "a")` or `(target, "a", "b")` (spec 12.1):
+    /// the target is missing or not a name, an argument is not a string, or there are not one or
+    /// two strings.
     MalformedExternal,
-    /// 1つの fn に同じターゲットの `@external` が2つ以上ある（12.1）．
+    /// Two or more `@external` for the same target on one fn (spec 12.1).
     DuplicateExternalTarget,
-    /// `@external` のターゲットが知らない名前（12.1）．
+    /// An `@external` target that is not a known name (spec 12.1).
     UnknownExternalTarget,
-    /// `@external type` に引数を付けた（12.3）．
+    /// Arguments on `@external type` (spec 12.3).
     ExternalTypeWithArgs,
 }
 
 impl DiagnosticCode {
-    /// `E0101` の形のコード．
+    /// A code of the form `E0101`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::UnterminatedString => "E0101",

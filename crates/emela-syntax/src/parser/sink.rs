@@ -1,4 +1,4 @@
-//! イベント列から rowan の木を組む．トリビアはここで差し込む．
+//! Builds the rowan tree from the event list, inserting trivia here.
 
 use std::mem;
 
@@ -23,7 +23,6 @@ impl Sink<'_> {
         self.depth += 1;
     }
 
-    /// tokens[pos] がトリビアである間，木に入れて進める．
     fn eat_trivia(&mut self) {
         while let Some(token) = self.tokens.get(self.pos) {
             if !token.kind.is_trivia() {
@@ -33,7 +32,7 @@ impl Sink<'_> {
         }
     }
 
-    /// トリビアのうち，最初のドキュメントコメントの手前までを木に入れる．
+    /// Pushes trivia up to, but not including, the first doc comment.
     fn eat_trivia_before_doc(&mut self) {
         while let Some(token) = self.tokens.get(self.pos) {
             if !token.kind.is_trivia() || token.kind == DOC_COMMENT {
@@ -43,7 +42,6 @@ impl Sink<'_> {
         }
     }
 
-    /// tokens[pos] を1つ木に入れて進める．
     fn push_token(&mut self) {
         let token = self.tokens[self.pos];
         let text = &self.src[token.range];
@@ -52,7 +50,7 @@ impl Sink<'_> {
         self.pos += 1;
     }
 
-    /// Error イベントの位置．pos から先の最初の非トリビアの範囲で，なければ末尾の長さ0の範囲．
+    /// The range of the first non-trivia token from `pos`, or an empty range at the end.
     fn error_range(&self) -> TextRange {
         self.tokens[self.pos..]
             .iter()
@@ -61,14 +59,15 @@ impl Sink<'_> {
     }
 }
 
-/// `tokens` はトリビア込みの全トークン．`events` はトリビアを除いた列に対するもの．
+/// `tokens` are all tokens, trivia included. `events` refer to the list without trivia.
 ///
-/// 返す診断はパースの `Error` イベントの分だけ．位置は次の意味のあるトークンの範囲で，
-/// 入力の終わりなら末尾の長さ0の範囲にする．字句解析の診断は `parse` が足す．
+/// Returns only the diagnostics from the parser's `Error` events. Each is placed on the next
+/// significant token, or on an empty range at the end of the input. `parse` adds the lexer
+/// diagnostics.
 ///
-/// トリビアの置き場所:
-/// - ノードの直前のトリビアはそのノードの外（親の側）に置く
-/// - 先頭と末尾のトリビアは ROOT の中に置く
+/// Where trivia goes:
+/// - trivia right before a node goes outside it (on the parent's side)
+/// - leading and trailing trivia goes inside ROOT
 pub(crate) fn build(
     src: &str,
     tokens: &[Token],
@@ -107,7 +106,7 @@ pub(crate) fn build(
                     };
                 }
                 if sink.depth > 0 {
-                    // ドキュメントコメントは，それを受け取るノードの中に入れる．
+                    // A doc comment goes inside the node that takes it.
                     if kinds.iter().any(|k| k.takes_doc()) {
                         sink.eat_trivia_before_doc();
                     } else {
@@ -147,7 +146,7 @@ pub(crate) fn build(
     debug_assert_eq!(
         sink.pos,
         tokens.len(),
-        "木に入っていないトークンが残っている"
+        "tokens left over that are not in the tree"
     );
     debug_assert_eq!(sink.depth, 0);
 
@@ -163,7 +162,7 @@ mod tests {
     use crate::parser::Parser;
     use crate::{Diagnostic, DiagnosticCode, SyntaxNode, debug_tree, lex};
 
-    /// `src` を字句解析し，`f` でパーサを手で動かして木を組む．
+    /// Lexes `src` and builds a tree by driving the parser by hand with `f`.
     fn run(src: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<Diagnostic>) {
         let lexed = lex(src);
         let mut p = Parser::new(src, &lexed.tokens);

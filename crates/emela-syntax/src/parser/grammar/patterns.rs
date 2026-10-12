@@ -1,4 +1,4 @@
-//! パターン（17.6）．
+//! Patterns (spec 17.6).
 
 use super::literal;
 use super::types::path;
@@ -6,7 +6,8 @@ use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::Parser;
 
-/// パターンが読めなかったとき，次のトークンが続きの一部なら消費せずに止まる．
+/// When a pattern fails to parse, stop without consuming the next token if it belongs to what
+/// follows.
 const RECOVERY: &[SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, IF_KW, NEWLINE,
 ];
@@ -21,7 +22,7 @@ pub(crate) fn pattern(p: &mut Parser<'_>) {
             literal(p, interp_in_pattern);
             m.complete(p, LITERAL_PAT);
         }
-        // 負の数は 18.1 #17 で未決．診断を出し，木には `-` ごと残す．
+        // Negative numbers are undecided (spec 18.1 #17). Report it and keep the `-` in the tree.
         MINUS if matches!(p.nth(1), INT | FLOAT) => {
             let m = p.start();
             p.error(
@@ -49,7 +50,7 @@ fn token_node(p: &mut Parser<'_>, kind: SyntaxKind) {
     m.complete(p, kind);
 }
 
-/// パターンの文字列の補間は意味を持たないので，診断を出して `}` まで読み飛ばす．
+/// Interpolation in a pattern string has no meaning, so report it and skip to `}`.
 fn interp_in_pattern(p: &mut Parser<'_>) {
     p.error(
         DiagnosticCode::InterpolationInPattern,
@@ -109,7 +110,7 @@ fn pat_args(p: &mut Parser<'_>) {
     m.complete(p, PAT_ARG_LIST);
 }
 
-/// `()` か，要素が2つ以上のタプル．
+/// `()` or a tuple of two or more.
 fn paren_pat(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(L_PAREN);
@@ -162,7 +163,7 @@ fn list_pat(p: &mut Parser<'_>) {
     m.complete(p, LIST_PAT);
 }
 
-/// `..`．リストでは後ろに名前を置ける．
+/// In a list, a name may follow.
 fn rest_pat(p: &mut Parser<'_>, named: bool) {
     let m = p.start();
     p.bump_kind(DOT2);
