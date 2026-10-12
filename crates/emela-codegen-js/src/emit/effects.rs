@@ -9,9 +9,9 @@
 //! ホストから受け取る文字列の対になっていないサロゲートを置換文字に直す（12.5）．
 //! `@external suspend fn` の包みはジェネレータで，ホストの返した Promise を待つ（12.2）．
 
-use emela_core::{Boundary, EffectId, Expr, External, Function, Local, Module};
+use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, WithBind};
 
-use super::{Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
+use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
 /// 証拠の表の鍵．
 pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
@@ -103,12 +103,84 @@ impl Emitter<'_> {
         format!("{{ {} }}", fields.join(", "))
     }
 
-    /// with の束縛（ハンドラの値と証拠の表）．
-    pub(super) fn with_binds(&mut self, binds: &[(Local, Expr)]) {
-        for (var, value) in binds {
-            let v = self.value(value);
-            let name = self.local(*var);
-            self.line(&format!("const {name} = {v};"));
+    /// release のない with の束縛（ハンドラの値と証拠の表）．
+    pub(super) fn with_binds(&mut self, binds: &[WithBind]) {
+        for b in binds {
+            assert!(b.release.is_none(), "release のある束縛は with_ で出す");
+            self.bind(b);
+        }
+    }
+
+    fn bind(&mut self, b: &WithBind) -> String {
+        let v = self.value(&b.value);
+        let name = self.local(b.var);
+        self.line(&format!("const {name} = {v};"));
+        name
+    }
+
+    /// `with` の値を `dest` へ渡す文（14.2，14.4）．
+    ///
+    /// release のある束縛ごとに，それより後ろの束縛と本体を `try` で囲み，`finally` で release を
+    /// 評価する．後ろの束縛（init）の失敗も本体の失敗も `return` か `break` で `try` を抜けるので，
+    /// 束縛と逆の順に release が走る．中断されたまま巻き戻るときは，ランタイムが `gen.return()` で
+    /// ジェネレータを閉じて同じ `finally` を走らせる（`$sync` の `$Interrupted` は例外として抜ける）．
+    ///
+    /// ```js
+    /// const h$1 = Pool();
+    /// let $t0;                         // 本体が投げたもの（defect か $Interrupted）
+    /// try {
+    ///   …                              // 後ろの束縛と本体
+    /// } catch ($e) {
+    ///   $t0 = $e;
+    ///   throw $e;
+    /// } finally {
+    ///   try {
+    ///     …                            // release
+    ///   } catch ($e) {
+    ///     throw $releaseDefect($t0, $e, "Pool");
+    ///   } finally {
+    ///     $retire(h$1, "Pool");
+    ///   }
+    /// }
+    /// ```
+    pub(super) fn with_(&mut self, binds: &[WithBind], body: &Expr, dest: &Dest) {
+        let mut open: Vec<(String, String, &Release)> = Vec::new();
+        for b in binds {
+            let name = self.bind(b);
+            if let Some(r) = &b.release {
+                let thrown = self.tmp();
+                self.line(&format!("let {thrown};"));
+                self.line("try {");
+                self.indent += 1;
+                open.push((name, thrown, r));
+            }
+        }
+        self.stmt(body, dest);
+        for (name, thrown, r) in open.into_iter().rev() {
+            self.indent -= 1;
+            self.line("} catch ($e) {");
+            self.line(&format!("  {thrown} = $e;"));
+            self.line("  throw $e;");
+            self.line("} finally {");
+            self.indent += 1;
+            self.line("try {");
+            self.indent += 1;
+            // release の値は捨てる．失敗しない（E が空，8.4）ので行き先も要らない．
+            let v = self.value(&r.body);
+            if !super::is_atom(&r.body) {
+                self.line(&format!("{v};"));
+            }
+            self.indent -= 1;
+            let handler = js_string(&r.handler);
+            let merge = self.rt("$releaseDefect");
+            self.line("} catch ($e) {");
+            self.line(&format!("  throw {merge}({thrown}, $e, {handler});"));
+            let retire = self.rt("$retire");
+            self.line("} finally {");
+            self.line(&format!("  {retire}({name}, {handler});"));
+            self.line("}");
+            self.indent -= 1;
+            self.line("}");
         }
     }
 

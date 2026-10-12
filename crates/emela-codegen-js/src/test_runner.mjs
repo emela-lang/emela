@@ -70,7 +70,10 @@ function $runTest(test, start) {
           ? { outcome: "interrupted" }
           : { outcome: "defect", message: $testDescribe(error) },
       );
-    $testCurrent = { defect, interrupt: () => finish({ outcome: "interrupted" }) };
+    // Left suspended: unwind it through `stop`, which runs the releases of its open withs (14.5) and then
+    // reports `$Interrupted` (or a defect a release raised) to `defect`.
+    const interrupt = () => (stop === undefined ? finish({ outcome: "interrupted" }) : stop());
+    $testCurrent = { defect, interrupt };
     let v;
     try {
       v = test();

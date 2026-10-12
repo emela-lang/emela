@@ -21,7 +21,7 @@ use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
     External, ExternalBinding, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat, StrPart, Type,
-    UnOp, VariantDef, VariantFields,
+    UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
@@ -778,7 +778,7 @@ impl<'a> Lowerer<'a> {
             };
             let l = self.module.local("h");
             locals[i] = Some(l);
-            binds.push((
+            binds.push(WithBind::new(
                 l,
                 Expr::Call {
                     callee: Callee::Direct(f),
@@ -804,7 +804,7 @@ impl<'a> Lowerer<'a> {
                 .zip(&locals)
                 .map(|(&(_, effect), l)| (self.effect_id(effect), Expr::Var(l.unwrap())))
                 .collect();
-            binds.push((
+            binds.push(WithBind::new(
                 ctx,
                 Expr::Provide {
                     base: outer.map(|l| Box::new(Expr::Var(l))),

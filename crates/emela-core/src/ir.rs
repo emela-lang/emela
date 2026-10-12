@@ -517,8 +517,14 @@ pub enum Expr {
     },
     /// `with`（8.3，14.2）．`binds` を順に評価して束縛し（ハンドラの値と証拠の表），`body` を評価する．
     /// `Let` と同じ意味だが，`body` は末尾位置でない（6.8）．
+    ///
+    /// release のある束縛（`WithBind::release`，8.4）は，束縛した後で with がどの形で終わっても
+    /// （値，失敗，defect，中断されたまま巻き戻る），その release を評価する．release は束縛と逆の順に
+    /// 評価する．束縛の値の評価が失敗したら，後ろの束縛と `body` は評価せず，それまでに束縛した
+    /// release だけを逆の順に評価してから失敗を伝える（14.2）．release の中の defect は 14.4 の規則で
+    /// with の結果に合わせ，残りの release はすべて評価する．
     With {
-        binds: Vec<(Local, Expr)>,
+        binds: Vec<WithBind>,
         body: Box<Expr>,
     },
 }
@@ -601,13 +607,60 @@ impl Expr {
                 }
             }
             Expr::With { binds, body } => {
-                for (_, v) in binds {
-                    f(v);
+                for b in binds {
+                    f(&b.value);
+                    if let Some(r) = &b.release {
+                        f(&r.body);
+                    }
                 }
                 f(body);
             }
         }
     }
+}
+
+/// `Expr::With` の束縛の1つ．
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithBind {
+    pub var: Local,
+    pub value: Expr,
+    /// 束縛した値が init と release のあるハンドラの値（8.4）なら，その後始末．`None` なら `Let` と同じ．
+    pub release: Option<Release>,
+}
+
+impl WithBind {
+    /// release のない束縛（状態を持たないハンドラの値と証拠の表）．
+    pub fn new(var: Local, value: Expr) -> Self {
+        WithBind {
+            var,
+            value,
+            release: None,
+        }
+    }
+
+    /// init と release のあるハンドラの値の束縛．`value` が init にあたる（失敗も中断もしてよい）．
+    pub fn managed(var: Local, value: Expr, handler: &str, release: Expr) -> Self {
+        WithBind {
+            var,
+            value,
+            release: Some(Release {
+                handler: handler.to_owned(),
+                body: release,
+            }),
+        }
+    }
+}
+
+/// with を抜けるときの後始末（8.4，14.2）．
+///
+/// `body` を評価して値を捨てた後，束縛したハンドラの値を「release 済み」にする．以後その操作を呼ぶと
+/// defect（`handler <名前> was used after release`，8.6）．`body` は同じ with のその束縛まで（自身を含む）の
+/// 変数を参照してよい．`body` は失敗しない（release の E は空，8.4）が，中断はしてよい．
+#[derive(Debug, Clone, PartialEq)]
+pub struct Release {
+    /// ハンドラの名前（ソースの名前）．release 後の使用の defect の文面に使う．
+    pub handler: String,
+    pub body: Expr,
 }
 
 /// `assert 式`．

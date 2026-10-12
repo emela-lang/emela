@@ -184,7 +184,7 @@ fn suspend_main(m: &mut Module, handler: FnId, body: impl FnOnce(&mut Module, Lo
         main,
         vec![],
         Expr::With {
-            binds: vec![(h, call(handler, vec![]))],
+            binds: vec![WithBind::new(h, call(handler, vec![]))],
             body: Box::new(body),
         },
     );
@@ -502,7 +502,7 @@ fn immediate_contexts_run_suspending_calls_in_place() {
         main,
         vec![],
         Expr::With {
-            binds: vec![(h, call(instant, vec![]))],
+            binds: vec![WithBind::new(h, call(instant, vec![]))],
             body: Box::new(int_op(
                 BinOp::Add,
                 call_suspends(twice, vec![var(h)]),
@@ -521,7 +521,7 @@ fn immediate_contexts_run_suspending_calls_in_place() {
         main,
         vec![],
         Expr::With {
-            binds: vec![(h, call(never, vec![]))],
+            binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(sleep(h, clock_effect, 1)),
         },
     );

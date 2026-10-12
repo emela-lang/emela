@@ -30,8 +30,9 @@ pub const FAIL_KEY: &str = "emela.fail";
 /// それ以外は捨てる（14.3）．
 ///
 /// 中断しうる main（ジェネレータを返す）は，エントリが公開するランタイムの `$start` で進め，
-/// イベントループで待つ．resume されないままループが空になったら，`interrupted` を出して
-/// 終了コード 130 で終わる（14.5）．中断しない main の中で resume されずに捨てられた継続
+/// イベントループで待つ．resume されないままループが空になったら，`$start` の返した関数で
+/// 開いている with の release を内側から走らせてから，`interrupted` を出して終了コード 130 で
+/// 終わる（14.5）．release が中断したまま残れば，次にループが空になったときにもう一度呼ぶ．中断しない main の中で resume されずに捨てられた継続
 /// （ランタイムの `$Interrupted`）も同じ．defect は，ホストのコールバックの中で起きたものも
 /// `defect: <メッセージ>` を出して終了コード 101 で終わる（7.5）．
 const LAUNCHER: &str = r#"
@@ -59,9 +60,14 @@ function crash(error) {
     process.stderr.write(`${error?.stack ?? String(error)}\n`, () => process.exit(1));
   }
 }
+let cancel;
 process.on("uncaughtException", crash);
 process.on("beforeExit", () => {
   if (over) return;
+  if (cancel !== undefined) {
+    cancel();
+    return;
+  }
   over = true;
   process.stderr.write("interrupted\n");
   process.exitCode = 130;
@@ -71,7 +77,7 @@ try {
   if (typeof entry.main === "function") {
     const value = entry.main();
     if (typeof entry.$start === "function" && Object.prototype.toString.call(value) === "[object Generator]") {
-      entry.$start(value, (ok, result) => (ok ? finish(result) : crash(result)));
+      cancel = entry.$start(value, (ok, result) => (ok ? finish(result) : crash(result)));
     } else {
       finish(value);
     }

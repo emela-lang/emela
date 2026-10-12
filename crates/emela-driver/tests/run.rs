@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use emela_core::build::*;
-use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
+use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type, WithBind};
 use emela_driver::{
     Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
     INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
@@ -752,7 +752,7 @@ fn dropped_resume_interrupts_main() {
     suspend::main(
         &mut m,
         Expr::With {
-            binds: vec![(h, call(never, vec![]))],
+            binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(suspend::forever(wait, h)),
         },
     );
@@ -760,6 +760,28 @@ fn dropped_resume_interrupts_main() {
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (INTERRUPTED_EXIT_CODE, "", "interrupted\n")
+    );
+}
+
+#[test]
+fn dropped_main_releases_before_interrupted() {
+    // 中断されたまま巻き戻る main も，開いている with の release を走らせてから `interrupted` で終わる（14.5）．
+    let mut m = emela_core::Module::new();
+    let (never, wait) = suspend::never(&mut m);
+    let log = suspend::log(&mut m);
+    let (h, r) = (m.local("h"), m.local("r"));
+    let pool = suspend::released(&mut m, log, r, "Pool", "released");
+    suspend::main(
+        &mut m,
+        Expr::With {
+            binds: vec![pool, WithBind::new(h, call(never, vec![]))],
+            body: Box::new(suspend::forever(wait, h)),
+        },
+    );
+    let output = run_ir("release-interrupted", m);
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (INTERRUPTED_EXIT_CODE, "released\n", "interrupted\n")
     );
 }
 
@@ -791,7 +813,7 @@ fn defects_after_resuming_and_in_callbacks() {
     suspend::main(
         &mut m,
         Expr::With {
-            binds: vec![(h, call(never, vec![]))],
+            binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(let_(
                 x,
                 call(

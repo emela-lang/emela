@@ -155,8 +155,8 @@ fn handlers_are_passed_as_evidence() {
         &mut m,
         Expr::With {
             binds: vec![
-                (h, call(doubler, vec![])),
-                (
+                WithBind::new(h, call(doubler, vec![])),
+                WithBind::new(
                     ctx,
                     Expr::Provide {
                         base: None,
