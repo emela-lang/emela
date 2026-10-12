@@ -4,7 +4,8 @@
 //! テキストで決め，候補は名前解決と型推論の結果から引く．
 
 use emela_resolve::hir::{
-    DefId, DefKind, Expr, ExprKind, Fields, Item, LocalId, PatId, PatKind, Program, Res, Stmt,
+    DefId, DefKind, Expr, ExprId, ExprKind, Fields, Item, LocalId, PatId, PatKind, Program, Res,
+    Stmt,
 };
 use emela_resolve::{ModuleId, ModuleName};
 use emela_syntax::ast::AstNode;
@@ -22,6 +23,8 @@ pub struct Completion {
     pub kind: CompletionKind,
     /// 型やモジュール名など，候補の横に出す説明．
     pub detail: Option<String>,
+    /// 選んだときに入れる文字列．`None` なら `label`．
+    pub insert_text: Option<String>,
 }
 
 /// 候補の種類．
@@ -45,6 +48,8 @@ pub enum CompletionKind {
     Field,
     Module,
     Keyword,
+    /// 名前付き引数のラベル（`h: `）．
+    Label,
 }
 
 /// 予約語（3.1）のうち，書き始めに補える語．`as` は構文を持たないので出さない．
@@ -92,11 +97,14 @@ pub(crate) fn complete(
                 matches!(kind, DefKind::Handler | DefKind::Layer)
             }),
             _ => {
-                let mut items = cx.in_scope(offset, |_| true);
+                // 呼び出しの引数の書き始めなら，まだ書いていないラベルを先に出す．
+                let mut items = labels(program, analysis, file, offset, start);
+                items.extend(cx.in_scope(offset, |_| true));
                 items.extend(KEYWORDS.iter().map(|k| Completion {
                     label: (*k).to_owned(),
                     kind: CompletionKind::Keyword,
                     detail: None,
+                    insert_text: None,
                 }));
                 items
             }
@@ -106,6 +114,51 @@ pub(crate) fn complete(
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| seen.insert(item.label.clone()));
     items
+}
+
+/// 呼び出しの引数の書き始め（`f(` の後ろかカンマの後ろで，書きかけの名前だけ）なら，呼ぶ先の
+/// ラベルのうちまだ書いていないもの．選ぶと `label: ` を入れる．説明はその引数の型．
+fn labels(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+    start: usize,
+) -> Vec<Completion> {
+    let text = analysis.sources[file].text();
+    let Some((callee, open)) = crate::signature::call_at(program, analysis, file, offset) else {
+        return Vec::new();
+    };
+    let Some(args) = text.get(usize::from(open) + 1..start) else {
+        return Vec::new();
+    };
+    let parts = crate::signature::split_args(args);
+    let (current, written) = parts.split_last().expect("1つはある");
+    if !current.trim().is_empty() {
+        return Vec::new();
+    }
+    let written: Vec<&str> = written
+        .iter()
+        .filter_map(|a| crate::signature::arg_label(a))
+        .collect();
+    let Some((_, Ty::Fn(f), params, labels)) = crate::signature::callee_type(program, callee)
+    else {
+        return Vec::new();
+    };
+    let cons = &program.types.ty_table.cons;
+    labels
+        .iter()
+        .zip(&f.params)
+        .filter_map(|(label, ty)| {
+            let label = label.as_deref()?;
+            (!written.contains(&label)).then(|| Completion {
+                label: format!("{label}:"),
+                kind: CompletionKind::Label,
+                detail: Some(ty.display_with(cons, &params).to_string()),
+                insert_text: Some(format!("{label}: ")),
+            })
+        })
+        .collect()
 }
 
 struct Context<'a> {
@@ -147,6 +200,7 @@ impl Context<'_> {
                     label: segments[typed.len()].to_string(),
                     kind: CompletionKind::Module,
                     detail: Some(data.name.to_string()),
+                    insert_text: None,
                 })
             })
             .collect();
@@ -254,19 +308,7 @@ impl Context<'_> {
         else {
             return Vec::new();
         };
-        // `log.` の名前のない `.` は名前解決が `Missing` にし，左の式は型推論に回らない．
-        // 左が局所変数か定義の参照なら，その型を使う．
-        let ty = types
-            .exprs
-            .get(expr)
-            .cloned()
-            .or_else(|| match &hir.exprs[expr].kind {
-                ExprKind::Path(Res::Local(local)) => types.locals.get(*local).cloned(),
-                ExprKind::Path(Res::Def(def)) => {
-                    types.sigs.get(*def).map(|sig| sig.scheme.ty.clone())
-                }
-                _ => None,
-            });
+        let ty = self.expr_ty(expr);
         match ty.as_ref() {
             Some(Ty::Cap(effect)) => match hir.item(*effect) {
                 Some(Item::Effect(e)) => e.ops.iter().filter_map(|&op| self.def_item(op)).collect(),
@@ -288,11 +330,60 @@ impl Context<'_> {
                         label: f.name.to_string(),
                         kind: CompletionKind::Field,
                         detail: hir.types[f.ty].span.and_then(|s| self.source_text(s)),
+                        insert_text: None,
                     })
                     .collect()
             }
             _ => Vec::new(),
         }
+    }
+
+    /// 式の型．型推論の表になければ（`log.` や `a.b.` の名前のない `.` は名前解決が `Missing` にし，
+    /// 左の式は型推論に回らない），左からたどって求める．局所変数と定義はその宣言の型，
+    /// `x.f` はフィールドの型か能力の値の操作の型，呼び出しは呼ぶ先の関数型の戻り値．
+    fn expr_ty(&self, expr: ExprId) -> Option<Ty> {
+        let hir = self.hir();
+        let types = &self.program.types;
+        if let Some(ty) = types.exprs.get(expr) {
+            return Some(ty.clone());
+        }
+        match &hir.exprs[expr].kind {
+            ExprKind::Path(Res::Local(local)) => types.locals.get(*local).cloned(),
+            ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
+            ExprKind::Field { base, name } => match self.expr_ty(*base)? {
+                Ty::Cap(effect) => {
+                    let Some(Item::Effect(e)) = hir.item(effect) else {
+                        return None;
+                    };
+                    let op = e.ops.iter().find(|&&op| hir.defs[op].name == name.name)?;
+                    types.sigs.get(*op).map(|sig| sig.scheme.ty.clone())
+                }
+                Ty::Named(con, args) => self.field_ty(types.ty_table.def(con), &args, &name.name),
+                _ => None,
+            },
+            ExprKind::Call { callee, .. } => match self.expr_ty(*callee)? {
+                Ty::Fn(f) => Some(f.ret),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// type か error の名前付きのフィールドの型．構成子のシグネチャ（引数がフィールドの型）から引き，
+    /// 型引数を `args` で置き換える．
+    fn field_ty(&self, def: DefId, args: &[Ty], name: &str) -> Option<Ty> {
+        let hir = self.hir();
+        let ctor = match hir.item(def)? {
+            Item::Type(t) => t.ctor?,
+            Item::Error(_) => def,
+            _ => return None,
+        };
+        let sig = self.program.types.sigs.get(ctor)?;
+        let index = sig.labels.iter().position(|l| l.as_deref() == Some(name))?;
+        let Ty::Fn(f) = &sig.scheme.ty else {
+            return None;
+        };
+        Some(emela_types::substitute_bound(f.params.get(index)?, args))
     }
 
     /// 位置から見える名前．局所変数（内側が先），このモジュールの定義，import した名前と
@@ -314,6 +405,7 @@ impl Context<'_> {
                     label: data.name.to_string(),
                     kind: CompletionKind::Local,
                     detail,
+                    insert_text: None,
                 });
             }
         }
@@ -369,6 +461,7 @@ impl Context<'_> {
                     label: name.last().to_string(),
                     kind: CompletionKind::Module,
                     detail: Some(name.to_string()),
+                    insert_text: None,
                 });
             }
         }
@@ -402,6 +495,7 @@ impl Context<'_> {
             label: data.name.to_string(),
             kind,
             detail,
+            insert_text: None,
         })
     }
 

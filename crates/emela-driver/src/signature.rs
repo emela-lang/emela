@@ -29,33 +29,8 @@ pub(crate) fn signature_help(
     file: FileId,
     offset: TextSize,
 ) -> Option<SignatureInfo> {
-    let module = analysis
-        .files
-        .iter()
-        .find(|(_, f)| **f == file)
-        .map(|(m, _)| m)?;
-    let hir = &program.hir;
     let text = analysis.sources[file].text();
-    // カーソルを括弧の中に含む一番内側の呼び出し．
-    let (callee, open) = hir
-        .exprs
-        .iter()
-        .filter_map(|(_, e)| {
-            let ExprKind::Call { callee, .. } = &e.kind else {
-                return None;
-            };
-            if e.span.module != module {
-                return None;
-            }
-            let range = e.span.range;
-            let open = hir.exprs[*callee].span.range.end();
-            let closed = text[..usize::from(range.end())].ends_with(')');
-            let inside =
-                open < offset && (offset < range.end() || (!closed && offset == range.end()));
-            inside.then_some((*callee, open, range.len()))
-        })
-        .min_by_key(|&(_, _, len)| len)
-        .map(|(callee, open, _)| (callee, open))?;
+    let (callee, open) = call_at(program, analysis, file, offset)?;
     let (name, ty, params, labels) = callee_type(program, callee)?;
     let Ty::Fn(f) = ty else {
         return None;
@@ -90,10 +65,45 @@ pub(crate) fn signature_help(
     })
 }
 
-/// 呼ぶ先の名前，型，型引数，ラベル．定義（関数，構成子），effect の操作，それ以外の式の型の順に見る．
-type Callee = (String, Ty, Vec<TyParam>, Vec<Option<smol_str::SmolStr>>);
+/// カーソルを括弧の中に含む一番内側の呼び出しの，呼ぶ先の式と開き括弧の位置．閉じていない
+/// 呼び出しは範囲の終わりの位置も括弧の中とみなす．
+pub(crate) fn call_at(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Option<(ExprId, TextSize)> {
+    let module = analysis
+        .files
+        .iter()
+        .find(|(_, f)| **f == file)
+        .map(|(m, _)| m)?;
+    let hir = &program.hir;
+    let text = analysis.sources[file].text();
+    hir.exprs
+        .iter()
+        .filter_map(|(_, e)| {
+            let ExprKind::Call { callee, .. } = &e.kind else {
+                return None;
+            };
+            if e.span.module != module {
+                return None;
+            }
+            let range = e.span.range;
+            let open = hir.exprs[*callee].span.range.end();
+            let closed = text[..usize::from(range.end())].ends_with(')');
+            let inside =
+                open < offset && (offset < range.end() || (!closed && offset == range.end()));
+            inside.then_some((*callee, open, range.len()))
+        })
+        .min_by_key(|&(_, _, len)| len)
+        .map(|(callee, open, _)| (callee, open))
+}
 
-fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Callee> {
+/// 呼ぶ先の名前，型，型引数，ラベル．定義（関数，構成子），effect の操作，それ以外の式の型の順に見る．
+pub(crate) type Callee = (String, Ty, Vec<TyParam>, Vec<Option<smol_str::SmolStr>>);
+
+pub(crate) fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Callee> {
     let hir = &program.hir;
     let types = &program.types;
     let def = match &hir.exprs[callee].kind {
@@ -134,14 +144,14 @@ fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Callee> {
     Some((name, ty, params, Vec::new()))
 }
 
-/// カーソルのある引数．書きかけの引数が `label:` で始まればそのラベルの引数，そうでなければ
-/// 括弧の入れ子の外のカンマの数．
-fn active_param(args: &str, labels: &[Option<smol_str::SmolStr>], count: usize) -> Option<usize> {
+/// 括弧の中の書いたテキストを，括弧の入れ子の外のカンマで引数に分ける（文字列の中は数えない）．
+/// 最後の要素が書きかけの引数．
+pub(crate) fn split_args(args: &str) -> Vec<&str> {
     let mut depth = 0usize;
     let mut in_string = false;
-    let mut index = 0;
-    let mut current = 0;
+    let mut start = 0;
     let mut prev = '\0';
+    let mut parts = Vec::new();
     for (i, c) in args.char_indices() {
         if in_string {
             if c == '"' && prev != '\\' {
@@ -153,23 +163,36 @@ fn active_param(args: &str, labels: &[Option<smol_str::SmolStr>], count: usize) 
                 '(' | '[' | '{' => depth += 1,
                 ')' | ']' | '}' => depth = depth.saturating_sub(1),
                 ',' if depth == 0 => {
-                    index += 1;
-                    current = i + 1;
+                    parts.push(&args[start..i]);
+                    start = i + 1;
                 }
                 _ => {}
             }
         }
         prev = c;
     }
-    let arg = args[current..].trim_start();
-    let name_len = arg
+    parts.push(&args[start..]);
+    parts
+}
+
+/// 引数が `ラベル:` で始まれば，そのラベル．
+pub(crate) fn arg_label(arg: &str) -> Option<&str> {
+    let arg = arg.trim_start();
+    let len = arg
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .unwrap_or(arg.len());
-    if name_len > 0 && arg[name_len..].trim_start().starts_with(':') {
-        let name = &arg[..name_len];
-        if let Some(i) = labels.iter().position(|l| l.as_deref() == Some(name)) {
-            return Some(i);
-        }
+    (len > 0 && arg[len..].trim_start().starts_with(':')).then(|| &arg[..len])
+}
+
+/// カーソルのある引数．書きかけの引数が `ラベル:` で始まればそのラベルの引数，そうでなければ
+/// 括弧の入れ子の外のカンマの数．
+fn active_param(args: &str, labels: &[Option<smol_str::SmolStr>], count: usize) -> Option<usize> {
+    let parts = split_args(args);
+    let index = parts.len() - 1;
+    if let Some(name) = arg_label(parts[index])
+        && let Some(i) = labels.iter().position(|l| l.as_deref() == Some(name))
+    {
+        return Some(i);
     }
     (index < count).then_some(index)
 }

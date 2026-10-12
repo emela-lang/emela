@@ -1589,3 +1589,108 @@ fn main() {
     assert_eq!(client.inlay_hints(MAIN), Some(vec![]));
     client.shutdown();
 }
+
+const CHAIN_MAIN: &str = "type Point(x: Int, y: Int)
+type Line(from: Point, to: Point)
+type Box[A](value: A)
+
+effect Clock {
+  fn now() -> Point
+}
+
+fn main() {
+  l = Line(from: Point(x: 1, y: 2), to: Point(x: 3, y: 4))
+  b = Box(value: l)
+  c = use Clock
+  0
+}
+";
+
+/// `a.b.` の連鎖．名前のない `.` の左は型推論に回らないので，左からたどって型を求める．
+#[test]
+fn completion_after_dot_chains() {
+    let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let with = |line: &str| CHAIN_MAIN.replace("  0\n", &format!("  {line}\n"));
+    // フィールドのフィールド．
+    client.open(MAIN, 1, &with("l.from."));
+    let items = client.complete(MAIN, 12, 9).unwrap();
+    assert_eq!(labels(&items), ["x", "y"]);
+    // 汎用の type のフィールドは型引数を置き換える（Box[Line] の value は Line）．
+    client.change(MAIN, 2, &with("b.value.to."));
+    assert_eq!(labels(&client.complete(MAIN, 12, 13).unwrap()), ["x", "y"]);
+    // 能力の値の操作の戻り値．
+    client.change(MAIN, 3, &with("c.now()."));
+    assert_eq!(labels(&client.complete(MAIN, 12, 10).unwrap()), ["x", "y"]);
+    // 書きかけの名前があっても同じ．
+    client.change(MAIN, 4, &with("l.to.x"));
+    assert_eq!(labels(&client.complete(MAIN, 12, 8).unwrap()), ["x", "y"]);
+    drain(&client);
+    client.shutdown();
+}
+
+/// 呼び出しの引数の書き始めでは，まだ書いていないラベルを先に出す．
+#[test]
+fn completion_of_argument_labels() {
+    let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let with = |line: &str| CHAIN_MAIN.replace("  0\n", &format!("  {line}\n"));
+    let raw = |client: &mut Client, line: u32, character: u32| -> Vec<lsp::CompletionItem> {
+        let id = client.request(Completion::METHOD, Client::position(MAIN, line, character));
+        let result: Option<lsp::CompletionResponse> =
+            serde_json::from_value(client.response(&id).response_result.unwrap()).unwrap();
+        let Some(lsp::CompletionResponse::Array(mut items)) = result else {
+            panic!("配列でない");
+        };
+        items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
+        items
+    };
+    client.open(MAIN, 1, &with("Point("));
+    let items = raw(&mut client, 12, 8);
+    let first: Vec<_> = items[..2]
+        .iter()
+        .map(|i| {
+            (
+                i.label.as_str(),
+                i.kind,
+                i.detail.as_deref(),
+                i.insert_text.as_deref(),
+            )
+        })
+        .collect();
+    let property = Some(lsp::CompletionItemKind::PROPERTY);
+    assert_eq!(
+        first,
+        [
+            ("x:", property, Some("Int"), Some("x: ")),
+            ("y:", property, Some("Int"), Some("y: ")),
+        ]
+    );
+    // 値の候補も続けて出す．
+    assert!(items.iter().any(|i| i.label == "l"));
+    // 書いたラベルは出さない．書きかけの名前があっても出す．
+    client.change(MAIN, 2, &with("Line(from: Point(x: 1, y: 2), t"));
+    let items = client.complete(MAIN, 12, 33).unwrap();
+    assert_eq!(
+        items[0],
+        (
+            "to:".to_owned(),
+            lsp::CompletionItemKind::PROPERTY,
+            Some("Point".to_owned())
+        )
+    );
+    assert!(!labels(&items).contains(&"from:"));
+    // ラベルの後ろ（値の位置）では出さない．
+    client.change(MAIN, 3, &with("Point(x: "));
+    let items = client.complete(MAIN, 12, 11).unwrap();
+    assert!(
+        !labels(&items).iter().any(|l| l.ends_with(':')),
+        "{items:?}"
+    );
+    // 入れ子の呼び出しは内側のラベル．
+    client.change(MAIN, 4, &with("Line(from: Point("));
+    let items = client.complete(MAIN, 12, 19).unwrap();
+    assert_eq!(labels(&items)[..2], ["x:", "y:"]);
+    drain(&client);
+    client.shutdown();
+}
