@@ -445,6 +445,7 @@ pub struct FnItem {
 
 /// `@external(target, "a", "b")` の引数（12.1）．`target` は最初の引数の名前（`js`，`wasm`），
 /// `args` は残りの文字列．形の崩れた引数（名前でない最初の引数，文字列でない残り）は入れない．
+/// 形の誤りは構文の段が診断する（E0138〜E0141）．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalAttr {
     pub target: SmolStr,

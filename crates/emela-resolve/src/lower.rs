@@ -1761,6 +1761,7 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
 
 /// fn の `@external(target, "a", "b")` の引数．最初の引数が名前でないもの（`@external("x")`）は飛ばす．
 /// 文字列でない残りの引数（`@external(js, 1)`，`@external(js, k: "v")`）も飛ばす．
+/// どちらも構文の段が E0138 を出している．
 fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
     f.annotations()
         .filter(|a| a.name().is_some_and(|n| n.text() == "external"))

@@ -92,6 +92,15 @@ pub enum DiagnosticCode {
     SignatureInImpl,
     /// エフェクトの操作に `use` 節を書いた（8.1）．
     UseOnEffectOp,
+    /// fn の `@external` の引数の形が `(ターゲット, "a")` か `(ターゲット, "a", "b")` でない（12.1）．
+    /// ターゲットの名前がない・名前でない，文字列でない引数，文字列の数が1つか2つでない．
+    MalformedExternal,
+    /// 1つの fn に同じターゲットの `@external` が2つ以上ある（12.1）．
+    DuplicateExternalTarget,
+    /// `@external` のターゲットが知らない名前（12.1）．
+    UnknownExternalTarget,
+    /// `@external type` に引数を付けた（12.3）．
+    ExternalTypeWithArgs,
 }
 
 impl DiagnosticCode {
@@ -135,6 +144,10 @@ impl DiagnosticCode {
             Self::MissingBody => "E0135",
             Self::SignatureInImpl => "E0136",
             Self::UseOnEffectOp => "E0137",
+            Self::MalformedExternal => "E0138",
+            Self::DuplicateExternalTarget => "E0139",
+            Self::UnknownExternalTarget => "E0140",
+            Self::ExternalTypeWithArgs => "E0141",
         }
     }
 }
