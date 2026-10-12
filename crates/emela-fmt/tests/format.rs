@@ -1,11 +1,11 @@
-//! formatter のテスト．`test_data/*.emel` を整形した結果をスナップショットで比べ，
-//! どの入力でも次が成り立つことを確かめる．
+//! Formatter tests. Snapshots the output for `test_data/*.emel` and checks, for every input:
 //!
-//! - 冪等: `format(format(x)) == format(x)`
-//! - 意味を変えない: trivia，末尾のカンマ，ブロックの端の改行を除いたトークン列が一致する
-//! - コメントが落ちない: コメントの本文の並びが一致する
+//! - idempotence: `format(format(x)) == format(x)`
+//! - meaning is preserved: the tokens match, ignoring trivia, trailing commas and newlines at
+//!   block edges
+//! - no comment is dropped: the comment texts match
 //!
-//! 幅を変えると折り返し方が変わるので，性質の検査はいくつかの幅で行う．
+//! Line breaking depends on the width, so the properties are checked at several widths.
 
 use std::path::Path;
 
@@ -31,23 +31,22 @@ fn inputs() -> Vec<(String, String)> {
     inputs
 }
 
-/// 整形の結果について，冪等・トークン列・コメントを確かめる．
 fn check(name: &str, src: &str, width: usize) -> String {
     let out = format_with_width(src, width)
-        .unwrap_or_else(|e| panic!("{name}（幅 {width}）を整形できない: {e}"));
+        .unwrap_or_else(|e| panic!("cannot format {name} (width {width}): {e}"));
     let again = format_with_width(&out, width).unwrap();
-    assert_eq!(again, out, "{name}（幅 {width}）が冪等でない");
+    assert_eq!(again, out, "{name} (width {width}) is not idempotent");
     let before = parse(src).syntax();
     let after = parse(&out).syntax();
     assert_eq!(
         normalized_tokens(&before),
         normalized_tokens(&after),
-        "{name}（幅 {width}）のトークン列が変わった"
+        "{name} (width {width}) changed the tokens"
     );
     assert_eq!(
         comment_texts(&before),
         comment_texts(&after),
-        "{name}（幅 {width}）のコメントが変わった"
+        "{name} (width {width}) changed the comments"
     );
     out
 }
@@ -61,7 +60,6 @@ fn snapshots() {
     });
 }
 
-/// 狭い幅での折り返し．
 #[test]
 fn narrow_snapshots() {
     for name in ["long.emel", "comments.emel", "decls.emel"] {
@@ -105,7 +103,7 @@ fn 改行は_lf_にそろえる() {
         format("fn f() {\r\n  a\r\n}\r\n").unwrap(),
         "fn f() {\n  a\n}\n"
     );
-    // 文を区切る改行が比べられる位置にあっても，`\r\n` と `\n` は同じ改行として扱う．
+    // `\r\n` and `\n` count as the same newline even where statement separators are compared.
     assert_eq!(
         format("fn a() {\r\n  x = 1\r\n  y = 2\r\n}\r\n\r\nfn b() {}\r\n").unwrap(),
         "fn a() {\n  x = 1\n  y = 2\n}\n\nfn b() {}\n"
@@ -114,14 +112,15 @@ fn 改行は_lf_にそろえる() {
 
 #[test]
 fn 複数行の文字列の中身は変えない() {
-    // 字下げと行末の空白は値の一部．囲むブロックの字下げが変わっても動かさない．
+    // Indentation and trailing whitespace are part of the value; they stay put even when the
+    // enclosing block's indentation changes.
     let src = "fn a() {\r\n      s = \"\"\"\r\n  x  \r\n\r\n    y\r\n  \"\"\"\r\n}\r\n";
     let expected = "fn a() {\n  s = \"\"\"\n  x  \n\n    y\n  \"\"\"\n}\n";
     for width in [100, 10] {
         assert_eq!(
             format_with_width(src, width).unwrap(),
             expected,
-            "幅 {width}"
+            "width {width}"
         );
     }
 }
@@ -163,12 +162,12 @@ fn 補間の中は幅で折らない() {
         assert_eq!(
             format_with_width(src, width).unwrap(),
             expected,
-            "幅 {width}"
+            "width {width}"
         );
     }
 }
 
-/// 字下げと，トークンの間の空白の量を変える．改行の位置は変えない．
+/// Changes indentation and the amount of whitespace between tokens, but not where newlines are.
 fn reshuffle(src: &str, seeds: &[u8]) -> String {
     let tokens = emela_syntax::lex(src).tokens;
     let mut out = String::new();
@@ -179,7 +178,7 @@ fn reshuffle(src: &str, seeds: &[u8]) -> String {
         match t.kind {
             emela_syntax::SyntaxKind::WHITESPACE => {
                 let n = *seed.next().unwrap_or(&0) as usize % 4;
-                // 行頭の字下げは0個でもよいが，トークンの間は1つ以上要る．
+                // Indentation may be empty, but tokens need at least one space between them.
                 let n = if line_start { n } else { n + 1 };
                 out.push_str(&" ".repeat(n));
             }
@@ -193,11 +192,11 @@ fn reshuffle(src: &str, seeds: &[u8]) -> String {
     out
 }
 
-/// 丸括弧と角括弧のすぐ内側で，トークンの間の改行を足したり除いたりする．
-/// そこでは改行が継続になる（2.5）ので，読み方は変わらない．
+/// Adds or removes newlines between tokens right inside parentheses and brackets. Newlines
+/// there are continuations (spec 2.5), so the reading does not change.
 ///
-/// パイプの前の改行（元の折り方を保つ手がかり），コメントの直後の改行，行だけの
-/// コメントの前の改行は変えない．
+/// Newlines before a pipe (the hint for keeping the source's breaks), right after a comment,
+/// and before a line comment are left alone.
 fn rebreak(src: &str, seeds: &[u8]) -> String {
     use emela_syntax::SyntaxKind::*;
     let tokens = emela_syntax::lex(src).tokens;
@@ -254,8 +253,8 @@ fn rebreak(src: &str, seeds: &[u8]) -> String {
     out
 }
 
-/// 改行の手前に行末のコメントを，改行の直後に行だけのコメントを差し込む．
-/// コメントは継続の判定で読み飛ばされるので，読み方は変わらない．
+/// Inserts a trailing comment before a newline and a line comment right after one. Comments are
+/// skipped when deciding continuation, so the reading does not change.
 fn add_comments(src: &str, seeds: &[u8]) -> String {
     use emela_syntax::SyntaxKind::*;
     let tokens = emela_syntax::lex(src).tokens;
@@ -270,8 +269,8 @@ fn add_comments(src: &str, seeds: &[u8]) -> String {
                 out.push_str(&format!(" # t{i}"));
             }
             out.push_str(text);
-            // 次の行の `derive` の前にコメントだけの行を挟むと，パーサが読めない
-            // （emela-syntax の課題．2.5 ではコメントだけの行は読み飛ばすはず）．
+            // A comment-only line before a `derive` on the next line makes the parser fail
+            // (an emela-syntax issue; per spec 2.5 comment-only lines should be skipped).
             let next_is_derive = tokens[i + 1..]
                 .iter()
                 .find(|t| !t.kind.is_trivia() && t.kind != NEWLINE)
@@ -290,10 +289,9 @@ fn add_comments(src: &str, seeds: &[u8]) -> String {
 }
 
 proptest! {
-    // 1件ごとに全部の入力を整形するので，件数は少なめにする．
+    // Each case formats every input, so keep the number of cases small.
     #![proptest_config(ProptestConfig::with_cases(32))]
 
-    /// 空白の量だけが違う入力は，同じ結果になる．
     #[test]
     fn 空白の量によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..32)) {
         for (name, src) in inputs() {
@@ -304,8 +302,8 @@ proptest! {
         }
     }
 
-    /// どこにコメントを足しても，整形は冪等で，トークン列とコメントを変えない．
-    /// 結果を元の入力と比べないので，`decls.emel` も含める（`derive` の前の行にも足す）．
+    /// The output is not compared with the original input, so `decls.emel` is included too
+    /// (comments are also added on the line before `derive`).
     #[test]
     fn コメントを足しても壊れない(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
         for (name, src) in inputs() {
@@ -316,7 +314,6 @@ proptest! {
         }
     }
 
-    /// 括弧の中の改行の位置だけが違う入力は，同じ結果になる．
     #[test]
     fn 括弧の中の改行によらず同じ結果(seeds in proptest::collection::vec(any::<u8>(), 1..64)) {
         for (name, src) in inputs() {

@@ -1,4 +1,4 @@
-//! 式（17.5），型（17.4），パターン（17.6）．
+//! Expressions (spec 17.5), types (spec 17.4) and patterns (spec 17.6).
 
 use emela_syntax::SyntaxKind::{self, *};
 use emela_syntax::{SyntaxElement, SyntaxNode, SyntaxToken};
@@ -10,27 +10,27 @@ use super::{
 };
 use crate::comments::{has_comments, has_comments_outside_blocks};
 
-/// ブロック `{ ... }` の部品．group で包むかどうかは呼ぶ側が決める．
+/// The parts of a block `{ ... }`. The caller decides whether to wrap it in a group.
 pub(crate) struct BlockDoc {
     open: Doc,
     first_break: Doc,
     body: Doc,
     last_break: Doc,
     close: Doc,
-    /// 文もコメントもない．`{}` と出す．
+    /// No statements and no comments: printed as `{}`.
     empty: bool,
-    /// 中身はないが，`{` に行末のコメントがある．`{ # c⏎}` と出す．
+    /// Nothing inside, but `{` has a trailing comment: printed as `{ # c⏎}`.
     comment_only: bool,
 }
 
 impl BlockDoc {
-    /// `force` なら，元が1行でも必ず折る．
+    /// With `force`, the block breaks even if the source had it on one line.
     pub(crate) fn assemble(&self, force: bool) -> Doc {
         if self.empty {
             return self.open.clone().append(self.close.clone());
         }
         if self.comment_only {
-            // 改行を2つ並べると空行になるので，1つだけ出す．
+            // Two newlines in a row would make a blank line, so print only one.
             return self
                 .open
                 .clone()
@@ -50,22 +50,23 @@ impl BlockDoc {
     }
 }
 
-/// match の腕の部品．`->` を揃えるために，頭と本体を分けて持つ．
+/// The parts of a match arm. Head and body are kept apart so that `->` can be aligned.
 #[derive(Clone)]
 struct ArmDoc {
-    /// 前の腕との区切りと，前置きのコメント．
+    /// The separator from the previous arm, and leading comments.
     pre: Doc,
     head: Doc,
-    /// 頭と `->` の間（揃えないとき）．
+    /// Between the head and `->` when the arm is not aligned.
     gap: Doc,
     arrow: Doc,
     after_arrow: Doc,
     body: Doc,
-    /// 揃えてよい腕なら，頭と本体の幅．
+    /// Widths of the head and body, if the arm may be aligned.
     widths: Option<(usize, usize)>,
 }
 
-/// 二項演算子の結合の強さ．同じ強さの演算子の並びを1つの鎖として整形する．
+/// Binding strength of a binary operator. A run of operators of equal strength is formatted as
+/// one chain.
 fn op_class(kind: SyntaxKind) -> u8 {
     match kind {
         PIPE_GT => 1,
@@ -79,28 +80,23 @@ fn op_class(kind: SyntaxKind) -> u8 {
 }
 
 impl Printer {
-    /// ノードの種類で振り分ける．
     pub(crate) fn node(&mut self, node: &SyntaxNode) -> Doc {
         match node.kind() {
-            // 間に何も置かずにつなぐもの．
             PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
             | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
             | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
             | REST_PAT | ANNOTATION => self.seq(node, |_, _| false),
-            // 括弧で囲んだ並び．
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
             | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
             | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
-            // 宣言の部品．
             VARIANT => self.seq(node, |_, _| false),
             FIELD => self.seq(node, |_, cur| cur != COLON),
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
             IMPLEMENTS_CLAUSE => self.seq(node, |_, _| true),
-            // 空白で区切るもの．
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | USE_EXPR | FAIL_EXPR | ASSERT_EXPR
             | MATCH_GUARD => self.seq(node, |_, _| true),
-            // `name: value`．`:` の前に空白を置かない．
+            // No space before `:`.
             PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
                 self.seq(node, |_, cur| cur != COLON)
             }
@@ -126,7 +122,6 @@ impl Printer {
         }
     }
 
-    /// トークンかノード．
     pub(crate) fn element(&mut self, element: &SyntaxElement) -> Doc {
         match element {
             rowan::NodeOrToken::Token(t) => self.tok(t),
@@ -134,7 +129,7 @@ impl Printer {
         }
     }
 
-    /// 子を順に出す．`space(前, 今)` が真なら間に空白を置く．
+    /// Puts a space between children when `space(prev, cur)` is true.
     fn seq(&mut self, node: &SyntaxNode, space: impl Fn(SyntaxKind, SyntaxKind) -> bool) -> Doc {
         let mut out = RcDoc::nil();
         let mut prev = None;
@@ -154,9 +149,11 @@ impl Printer {
         out
     }
 
-    /// 想定していないノード．元のテキストをそのまま出し，中のコメントは出したことにする．
+    /// For nodes the printer does not expect. Prints the source text as is and marks the
+    /// comments inside as printed.
     pub(crate) fn verbatim(&mut self, node: &SyntaxNode) -> Doc {
-        // 前置きの `##` と改行は呼ぶ側が出しているので，最初の意味のあるトークンから出す．
+        // The caller has already printed the leading `##` and newline, so start from the
+        // first significant token.
         let Some(first) = first_significant_token(node) else {
             return RcDoc::nil();
         };
@@ -166,7 +163,7 @@ impl Printer {
             .filter_map(|e| e.into_token())
         {
             self.take_leading(&token);
-            // 最後のトークンの行末のコメントはノードの外にあるので，下で出す．
+            // The trailing comment of the last token lies outside the node; it is printed below.
             if Some(&token) != last.as_ref() {
                 self.comments.take_trailing(&token);
             }
@@ -187,16 +184,15 @@ impl Printer {
         }
     }
 
-    // ---- ブロックと腕 ----
-
-    /// `{ stmt NL ... }`．元が1行（文が1つ以下）なら，収まるかぎり1行のままにする．
+    /// `{ stmt NL ... }`. A one-line source (at most one statement) stays on one line while it
+    /// fits.
     pub(crate) fn block(&mut self, node: &SyntaxNode) -> BlockDoc {
         let multi = has_newline_child(node);
         let open = match child_token(node, L_BRACE) {
             Some(t) => self.tok(&t),
             None => RcDoc::nil(),
         };
-        // `{` の行末のコメントは，ここで改行を強制する．
+        // A trailing comment after `{` forces a newline here.
         let forced = self.pending;
         let first_break = self.brk(multi);
         let mut body = RcDoc::nil();
@@ -235,7 +231,7 @@ impl Printer {
         }
     }
 
-    /// match と escape の腕の並び．1行の腕は `->` を揃える．
+    /// Arms of `match` and `escape`. One-line arms get their `->` aligned.
     fn arm_list(&mut self, node: &SyntaxNode) -> Doc {
         let multi = has_newline_child(node);
         let open = match child_token(node, L_BRACE) {
@@ -272,7 +268,7 @@ impl Printer {
             None => RcDoc::nil(),
         };
         if arms.is_empty() && !has_closing {
-            // `{` に行末のコメントがあるときも，改行は1つだけにする．
+            // Even when `{` has a trailing comment, print only one newline.
             let inner = if forced {
                 RcDoc::hardline()
             } else {
@@ -336,10 +332,8 @@ impl Printer {
         }
     }
 
-    // ---- 制御構文 ----
-
-    /// `if c { a } else if d { b } else { c }`．ブロックの改行を1つの group で共有するので，
-    /// どれかが折れれば全部折れる．
+    /// `if c { a } else if d { b } else { c }`. All blocks share one group for their newlines,
+    /// so if one breaks, all break.
     fn if_chain(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut nodes = 0;
@@ -357,7 +351,6 @@ impl Printer {
                 rowan::NodeOrToken::Node(n) => {
                     nodes += 1;
                     let doc = match n.kind() {
-                        // 1つ目は条件．
                         _ if nodes == 1 => {
                             let cond = self.node(&n);
                             cond.append(self.space())
@@ -379,7 +372,7 @@ impl Printer {
         let mut prev = None;
         for child in significant_children(node) {
             if prev.is_some_and(|p| p != COMMA) && child.kind() == COMMA {
-                // `,` の前には空白を置かない．
+                // No space before `,`.
             } else if prev.is_some() {
                 out = out.append(self.space());
             }
@@ -396,7 +389,6 @@ impl Printer {
         out
     }
 
-    /// `fn(params) ` と本体のブロック．
     fn lambda_parts(&mut self, node: &SyntaxNode) -> (Doc, BlockDoc) {
         let mut head = RcDoc::nil();
         let mut block = None;
@@ -422,8 +414,6 @@ impl Printer {
         (head, block)
     }
 
-    // ---- 呼び出し ----
-
     fn call(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         for child in significant_children(node) {
@@ -437,8 +427,8 @@ impl Printer {
         out
     }
 
-    /// 引数の並び．最後の引数がブロックを持つ無名関数なら，括弧を開いたまま本体を
-    /// 抱え込む形（`f(xs, fn(x) {` ... `})`）を試す．
+    /// If the last argument is a lambda with a block, tries the hugging form that keeps the
+    /// parenthesis open around its body (`f(xs, fn(x) {` ... `})`).
     fn arg_list(&mut self, node: &SyntaxNode) -> Doc {
         let args: Vec<_> = node.children().collect();
         let huggable = !has_comments_outside_blocks(node) && args.last().is_some_and(is_lambda_arg);
@@ -477,7 +467,7 @@ impl Printer {
         })
     }
 
-    /// 最後の引数の無名関数．（そのままの形，抱え込む形）を返す．
+    /// Returns (the plain form, the hugging form) of the trailing lambda argument.
     fn lambda_arg(&mut self, node: &SyntaxNode) -> (Doc, Doc) {
         let mut prefix = RcDoc::nil();
         let mut lambda = node.clone();
@@ -500,13 +490,15 @@ impl Printer {
         )
     }
 
-    /// 文字列の補間．中身は幅で折らない．コメントや複数行のブロックによる強制の改行だけを残す．
+    /// String interpolation. The contents never break by width; only forced newlines from
+    /// comments and multiline blocks remain.
     fn interp(&mut self, node: &SyntaxNode) -> Doc {
-        // 抱え込みや腕の揃えの判定は組むときの幅を覚えるので，中身は幅の制限なしで組む．
+        // Hugging and arm alignment record the width at build time, so build the contents
+        // with no width limit.
         let width = std::mem::replace(&mut self.width, HUGE);
         let doc = self.seq(node, |_, _| false);
         self.width = width;
-        // 中に複数行の文字列があれば，その改行を字下げし直さないよう形を固めない．
+        // A multiline string inside must not be re-indented, so do not freeze the shape.
         if node
             .descendants_with_tokens()
             .any(|e| e.kind() == TRIPLE_QUOTE)
@@ -516,7 +508,7 @@ impl Printer {
         unbreakable(&doc)
     }
 
-    /// 文字列．複数行の文字列 `"""` の部品はテキストをそのまま出す．
+    /// The pieces of a multiline string `"""` are printed verbatim.
     fn string(&mut self, node: &SyntaxNode) -> Doc {
         let multiline = child_token(node, TRIPLE_QUOTE).is_some();
         let mut out = RcDoc::nil();
@@ -531,15 +523,15 @@ impl Printer {
         out
     }
 
-    // ---- 二項演算子 ----
-
-    /// 同じ強さの演算子の鎖．折るときは演算子を行頭に置いて1段下げる．
+    /// A chain of operators of equal strength. When it breaks, each operator starts a line,
+    /// indented one level.
     ///
-    /// `-` の前では折らない（行頭の `-` は単項マイナスとして新しい文になる．2.5）．
-    /// パイプは，元のソースで1か所でも `|>` の前に改行があれば全部折る．
+    /// Never break before `-`: a `-` at the start of a line is a unary minus that starts a new
+    /// statement (spec 2.5). A pipe chain breaks entirely if the source had a newline before
+    /// any of its `|>`.
     fn bin_chain(&mut self, node: &SyntaxNode) -> Doc {
         let class = bin_op(node).map_or(0, |t| op_class(t.kind()));
-        // 左結合なので，左の子をたどって鎖を集める．
+        // Left-associative, so collect the chain by following left children.
         let mut links = Vec::new();
         let mut cur = node.clone();
         let first = loop {
@@ -563,7 +555,8 @@ impl Printer {
         let mut ops = Vec::with_capacity(links.len());
         let mut tail = RcDoc::nil();
         for (op, rhs) in &links {
-            // `-` の前で折れるのは括弧の中だけ．行だけのコメントがあれば，それを行頭に保つ．
+            // Breaking before `-` is only safe inside parentheses. A line comment before it
+            // keeps it at the start of a line.
             let brk = if op.kind() == MINUS && self.comments.has_leading_comment(op) {
                 self.hard()
             } else if op.kind() == MINUS {
@@ -580,8 +573,8 @@ impl Printer {
             ops.push(link);
         }
         let normal = first_doc.clone().append(tail.nest(INDENT)).group();
-        // `xs |> List.map(fn(x) {` のように，1つのパイプが抱え込んだ本体で折れるとき，
-        // 1行目が収まるならパイプは折らない．
+        // When a single pipe breaks only inside a hugged body (`xs |> List.map(fn(x) {`), do
+        // not break the pipe if the first line fits.
         if pipe
             && !source_broken
             && ops.len() == 1
@@ -604,10 +597,10 @@ impl Printer {
     }
 }
 
-/// `->` を揃えた腕の並び．`indent` は腕の字下げ．
+/// Arms with `->` aligned. `indent` is the arms' indentation.
 ///
-/// 揃えるのは1行に収まる腕だけ．揃えた結果どれかが幅を超えるなら，頭が最も長い腕を
-/// 揃えから外してやり直す．
+/// Only arms that fit on one line are aligned. If alignment pushes any arm past the width, the
+/// arm with the longest head is dropped from the alignment and it is retried.
 fn aligned_arms(arms: &[ArmDoc], indent: usize, width: usize) -> Doc {
     let mut aligned: Vec<bool> = arms.iter().map(|a| a.widths.is_some()).collect();
     let column = loop {
@@ -626,7 +619,7 @@ fn aligned_arms(arms: &[ArmDoc], indent: usize, width: usize) -> Doc {
         if !overflow {
             break column;
         }
-        // 頭が最も長い腕（同じなら後ろのもの）を外す．
+        // Drop the arm with the longest head (the later one on ties).
         let widest = arms
             .iter()
             .enumerate()
@@ -653,8 +646,8 @@ fn aligned_arms(arms: &[ArmDoc], indent: usize, width: usize) -> Doc {
     out
 }
 
-/// 幅を無視して描いた形に固定する．強制の改行はそのまま残し，続く行の字下げは
-/// 今の字下げからの相対にする．
+/// Freezes the shape rendered with no width limit. Forced newlines remain, and following lines
+/// are indented relative to the current indentation.
 pub(crate) fn unbreakable(doc: &Doc) -> Doc {
     let rendered = render(doc, HUGE);
     let mut out = RcDoc::nil();
@@ -673,7 +666,7 @@ fn bin_op(node: &SyntaxNode) -> Option<SyntaxToken> {
         .find(|t| op_class(t.kind()) != 0)
 }
 
-/// トークンの直前（トリビアの中）に改行があるか．
+/// Whether there is a newline in the trivia right before the token.
 pub(crate) fn newline_before(token: &SyntaxToken) -> bool {
     let mut cur = token.prev_token();
     while let Some(t) = cur {
@@ -686,7 +679,7 @@ pub(crate) fn newline_before(token: &SyntaxToken) -> bool {
     false
 }
 
-/// ブロックを持つ無名関数か，それを値にした名前付き引数．
+/// A lambda with a block, or a named argument whose value is one.
 fn is_lambda_arg(node: &SyntaxNode) -> bool {
     let lambda = match node.kind() {
         LAMBDA_EXPR => Some(node.clone()),
