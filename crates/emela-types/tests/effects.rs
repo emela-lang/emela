@@ -436,3 +436,67 @@ fn test_outside() -> () use Logger {
 "#
     ));
 }
+
+/// エフェクトと集合の型引数を混ぜた `use { Quiet, R }`（8.3，17.4）．エラーの `fails Timeout | E`
+/// （7.4）と同じ場合分け．書き出したエフェクトは with で消え，集合の型引数は残る．
+/// 引数に渡した関数の R から Quiet を除いたものが R に入る．
+#[test]
+fn mixed_effect_sets() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Quiet {
+  fn hush() -> ()
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Silent implements Quiet {
+  fn hush() { () }
+}
+
+fn run[R](f: fn() -> () use { Quiet, R }) -> () use R {
+  with Silent { f() }
+}
+
+fn run_rev[R](f: fn() -> () use { R, Quiet }) -> () use R {
+  with Silent { f() }
+}
+
+fn run_inferred[R](f: fn() -> () use { Quiet, R }) {
+  with Silent { f() }
+}
+
+fn run_hidden(f: fn() -> ()) {
+  with Silent { f() }
+}
+
+fn not_provided[R](f: fn() -> () use { Quiet, R }) -> () use R {
+  f()
+}
+
+fn wrap[R](f: fn() -> () use R) -> fn() -> () use { Quiet, R } {
+  fn() {
+    (use Quiet).hush()
+    f()
+  }
+}
+
+fn forward(g: fn() -> ()) {
+  run(g)
+}
+
+fn callers() {
+  a = run(fn() {
+    (use Quiet).hush()
+    (use Logger).info("x")
+  })
+  b = run(fn() { (use Quiet).hush() })
+  c = run(fn() { () })
+  d = run_hidden(fn() { (use Quiet).hush() })
+  e = run(wrap(fn() { (use Logger).info("y") }))
+}
+"#
+    ));
+}

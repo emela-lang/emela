@@ -20,3 +20,8 @@ trait Fine { fn bodyless(self) -> Int }
 fn ok_external(x: Int) -> Int
 @external
 suspend fn ok_suspend() -> ()
+effect Store {
+  fn get(key: String) -> String use Db
+  fn put(key: String) -> () fails Full use { Db, Clock }
+  fn ok(key: String) -> () fails Full
+}

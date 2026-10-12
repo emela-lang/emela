@@ -90,6 +90,8 @@ pub enum DiagnosticCode {
     MissingBody,
     /// impl の fn に戻り値，fails，use を書いた．型は trait の宣言から決まる．
     SignatureInImpl,
+    /// エフェクトの操作に `use` 節を書いた（8.1）．
+    UseOnEffectOp,
 }
 
 impl DiagnosticCode {
@@ -132,6 +134,7 @@ impl DiagnosticCode {
             Self::TypedHandlerParam => "E0134",
             Self::MissingBody => "E0135",
             Self::SignatureInImpl => "E0136",
+            Self::UseOnEffectOp => "E0137",
         }
     }
 }
