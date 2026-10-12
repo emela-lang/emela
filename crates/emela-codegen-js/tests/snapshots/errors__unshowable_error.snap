@@ -41,6 +41,27 @@ class $Fail {
   }
 }
 
+// 外部関数（仕様 12.5）が投げた例外を defect にする．defect（Emela のコールバックの中で起きたもの）は
+// そのまま．メッセージは例外の名前を前に付ける（`TypeError: …`）．
+function $foreign(error) {
+  if (error instanceof Error) {
+    return error.name === "Defect" ? error : new $Defect(`${error.name}: ${error.message}`);
+  }
+  return new $Defect(`uncaught exception: ${String(error)}`);
+}
+
+// ビルド対象のターゲットの `@external` がない外部関数（エントリからたどれないもの）を呼んだ．
+function $noExternal(name) {
+  throw new $Defect(`external function \`${name}\` is not available on this target`);
+}
+
+// ホストから受け取った文字列の，対になっていないサロゲートを置換文字にする（仕様 12.5）．
+function $wellFormed(s) {
+  if (typeof s !== "string") return s;
+  if (typeof s.toWellFormed === "function") return s.toWellFormed();
+  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+}
+
 // assert（仕様 13.2）の失敗．`text` はソースの式の字面で，空でもよい．
 function $assertFail(text) {
   throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);

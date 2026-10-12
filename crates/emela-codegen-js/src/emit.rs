@@ -13,6 +13,7 @@ use emela_core::*;
 use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 
 mod assert;
+mod effects;
 mod errors;
 
 use errors::FailTarget;
@@ -44,6 +45,8 @@ pub(crate) struct Emitter<'m> {
     show_params: Option<usize>,
     /// 失敗の行き先．内側の escape ほど後ろ．空なら関数の呼び出し元（`return`）．
     fail_targets: Vec<FailTarget>,
+    /// 外部関数のモジュールの import（モジュール，名前，JS の局所名）．出した順．
+    imports: Vec<(String, String, String)>,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
@@ -59,6 +62,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         shows_done: 0,
         show_params: None,
         fail_targets: Vec::new(),
+        imports: Vec::new(),
     };
 
     // error の値は，どの error かを実行時に見分ける印を `$tag` に持つ．
@@ -94,6 +98,11 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
     }
 
     for (id, f) in m.functions.iter() {
+        if let Some(ext) = &f.external {
+            e.external_fn(f, ext);
+            e.line("");
+            continue;
+        }
         let params: Vec<String> = f.params.iter().map(|&p| e.local(p)).collect();
         e.line(&format!(
             "function {}({}) {{",
@@ -154,6 +163,18 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
             head.push_str(&inline_runtime());
             head.push_str("// ここから生成コード．\n");
         }
+    }
+    for (module, name, local) in &e.imports {
+        let imported = if is_identifier_name(name) {
+            name.clone()
+        } else {
+            js_string(name)
+        };
+        let _ = writeln!(
+            head,
+            "import {{ {imported} as {local} }} from {};",
+            js_string(&effects::module_specifier(module))
+        );
     }
     head.push('\n');
     head + &e.out
@@ -371,6 +392,16 @@ impl Emitter<'_> {
                 lit_js(&Lit::Unit)
             }
             Expr::Recur(_) => panic!("不正な IR: Recur が Loop の末尾位置の外にある"),
+            Expr::Use { ctx, effect } => {
+                let c = self.value(ctx);
+                format!("{c}.{}", effects::effect_key(self.m, *effect))
+            }
+            Expr::Provide { base, bindings } => self.provide(base.as_deref(), bindings),
+            Expr::Handler { effect, ops } => self.handler(*effect, ops),
+            Expr::With { binds, body } => {
+                self.with_binds(binds);
+                self.value(body)
+            }
             Expr::Assert(a) => {
                 self.assert(a);
                 lit_js(&Lit::Unit)
@@ -381,7 +412,7 @@ impl Emitter<'_> {
     /// 呼び出しの JS の式．呼ばれる側と引数を左から順に評価する．失敗は確かめない．
     fn call(&mut self, callee: &Callee, args: &[Expr]) -> String {
         let mut es: Vec<&Expr> = Vec::new();
-        if let Callee::Indirect(c) = callee {
+        if let Callee::Indirect(c) | Callee::Op { handler: c, .. } = callee {
             es.push(c);
         }
         es.extend(args.iter());
@@ -389,6 +420,11 @@ impl Emitter<'_> {
         let f = match callee {
             Callee::Direct(f) => fn_name(&self.m.functions[*f].name),
             Callee::Indirect(_) => vs.remove(0),
+            Callee::Op { effect, op, .. } => {
+                let h = vs.remove(0);
+                let name = &self.m.effects[*effect].ops[*op];
+                format!("{h}{}", effects::op_access(name))
+            }
         };
         format!("{f}({})", vs.join(", "))
     }
@@ -630,6 +666,10 @@ impl Emitter<'_> {
             }
             Expr::Fail(inner) => self.fail(inner),
             Expr::Escape { body, arms } => self.escape(body, arms, dest),
+            Expr::With { binds, body } => {
+                self.with_binds(binds);
+                self.stmt(body, dest);
+            }
             Expr::Loop { vars, inits, body } => {
                 let es: Vec<&Expr> = inits.iter().collect();
                 let vs = self.values_in_order(&es);
@@ -846,13 +886,19 @@ fn is_simple(e: &Expr) -> bool {
         | Expr::Recur(_)
         | Expr::Assert(_)
         | Expr::Fail(_)
-        | Expr::Escape { .. } => false,
+        | Expr::Escape { .. }
+        | Expr::With { .. } => false,
+        Expr::Use { ctx, .. } => is_simple(ctx),
+        Expr::Provide { base, bindings } => {
+            base.as_deref().is_none_or(is_simple) && bindings.iter().all(|(_, h)| is_simple(h))
+        }
+        Expr::Handler { ops, .. } => ops.iter().all(is_simple),
         // 失敗しうる呼び出しは，結果を確かめる文を出す．
         Expr::Call { fails: true, .. } => false,
         Expr::Call { callee, args, .. } => {
             let callee_simple = match callee {
                 Callee::Direct(_) => true,
-                Callee::Indirect(c) => is_simple(c),
+                Callee::Indirect(c) | Callee::Op { handler: c, .. } => is_simple(c),
             };
             callee_simple && args.iter().all(is_simple)
         }
@@ -999,7 +1045,7 @@ fn unit_variant_name(enum_name: &str, variant: &str) -> String {
     format!("{}${}", sanitize(enum_name), sanitize(variant))
 }
 
-fn sanitize(s: &str) -> String {
+pub(crate) fn sanitize(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '_' {
@@ -1012,7 +1058,7 @@ fn sanitize(s: &str) -> String {
 }
 
 /// export の名前に識別子として書けるか（ASCII の範囲で見る．予約語も export の名前には使える）．
-fn is_identifier_name(name: &str) -> bool {
+pub(crate) fn is_identifier_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars
         .next()
@@ -1021,7 +1067,7 @@ fn is_identifier_name(name: &str) -> bool {
 }
 
 /// トップレベル関数の JS 名．予約語や生成コードが使う大域名と重なるときは `$` を付ける．
-fn fn_name(name: &str) -> String {
+pub(crate) fn fn_name(name: &str) -> String {
     let s = sanitize(name);
     if RESERVED.contains(&s.as_str()) {
         format!("{s}$")

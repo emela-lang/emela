@@ -310,8 +310,14 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
     }
 }
 
+/// build，run，test のターゲット．外部関数の `@external` の検査（12.1）に使う．
+pub const JS_TARGET: &str = "js";
+
 /// 型検査の結果を Core IR にする．`diagnostics` に誤りが1件でもあるか，エントリがなければ
 /// lowering を呼ばずに `None`．lowering の誤りは `diagnostics` に足して `None`．
+///
+/// 外部関数の検査（12.1）は JS のターゲット（[`JS_TARGET`]）で行う．lowering を呼ぶのは
+/// build，run，test だけ（check と LSP は呼ばない）．
 pub(crate) fn lower_typed(
     analysis: &Analysis,
     typed: &TypedProgram,
@@ -323,8 +329,10 @@ pub(crate) fn lower_typed(
         return None;
     }
     let mut sources = ArenaMap::default();
+    let mut paths = ArenaMap::default();
     for (module, &file) in analysis.files.iter() {
         sources.insert(module, analysis.sources[file].text());
+        paths.insert(module, analysis.sources[file].path());
     }
     let input = emela_core::LowerInput {
         hir: &typed.hir,
@@ -333,6 +341,8 @@ pub(crate) fn lower_typed(
         sources,
         entry,
         tests: typed.tests.iter().map(|t| t.def).collect(),
+        paths,
+        target: Some(JS_TARGET),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => Some(lowered),

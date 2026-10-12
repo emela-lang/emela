@@ -11,6 +11,7 @@ use crate::intrinsics::Builtin;
 pub type FnId = Idx<Function>;
 pub type EnumId = Idx<EnumDef>;
 pub type Local = Idx<LocalData>;
+pub type EffectId = Idx<EffectDef>;
 
 /// 1つのモジュール．
 #[derive(Debug, Clone, Default)]
@@ -18,6 +19,8 @@ pub struct Module {
     pub enums: Arena<EnumDef>,
     pub functions: Arena<Function>,
     pub locals: Arena<LocalData>,
+    /// エフェクト（8.1）．証拠の表の鍵とハンドラの操作の名前に使う．
+    pub effects: Arena<EffectDef>,
     /// Prelude の `Option` を入れたなら，その ID（`option_enum`）．
     pub option: Option<EnumId>,
 }
@@ -47,7 +50,25 @@ impl Module {
             exported,
             params: Vec::new(),
             body: Expr::Lit(Lit::Unit),
+            external: None,
         })
+    }
+
+    /// 関数を外部関数（12章）にする．本体は使わない．
+    pub fn define_external(&mut self, f: FnId, params: Vec<Local>, external: External) {
+        let func = &mut self.functions[f];
+        func.params = params;
+        func.external = Some(external);
+    }
+
+    /// エフェクトを足す．`name` はモジュール内で一意でなければならない．
+    pub fn add_effect(&mut self, def: EffectDef) -> EffectId {
+        debug_assert!(
+            self.effects.iter().all(|(_, e)| e.name != def.name),
+            "エフェクト名 `{}` が重複している",
+            def.name
+        );
+        self.effects.alloc(def)
     }
 
     pub fn define(&mut self, f: FnId, params: Vec<Local>, body: Expr) {
@@ -107,6 +128,61 @@ pub struct Function {
     pub exported: bool,
     pub params: Vec<Local>,
     pub body: Expr,
+    /// 外部関数（12章）なら，ホストの関数の指定．そのとき `body` は使わない．
+    pub external: Option<External>,
+}
+
+/// 外部関数のホストの関数の指定（12.1）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct External {
+    /// ターゲットごとの `@external` の引数．書かれた順．
+    pub bindings: Vec<ExternalBinding>,
+    /// 引数の境界での扱い（12.4，12.5）．`Function::params` と同じ順．
+    pub params: Vec<Boundary>,
+    /// 戻り値の境界での扱い．
+    pub ret: Boundary,
+}
+
+impl External {
+    /// ターゲット `target`（`js`，`wasm`）の指定．なければ `None`．同じターゲットが2つあれば先のもの．
+    pub fn binding(&self, target: &str) -> Option<&ExternalBinding> {
+        self.bindings.iter().find(|b| b.target == target)
+    }
+}
+
+/// `@external(js, "./http_ffi.mjs", "fetchText")` の1つ．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalBinding {
+    pub target: String,
+    /// 残りの引数．JS では1つならグローバルの参照（`"console.log"`），2つならモジュールと名前．
+    /// ファイルを指すモジュール（`./` か `../` で始まる）は，lowering が宣言を含むソースの
+    /// ディレクトリからの絶対パスに直してある（12.1）．
+    pub args: Vec<String>,
+}
+
+/// 外部関数の引数と戻り値の，境界での扱い（12.4，12.5）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Boundary {
+    /// ホストから受け取るときに，対になっていないサロゲートを置換文字に直す．
+    String,
+    /// ホストの返した値を捨てて `()` にする．
+    Unit,
+    /// コールバック．ホストから呼ばれる引数と，ホストへ返す値を同じ規則で写す．
+    Fn {
+        params: Vec<Boundary>,
+        ret: Box<Boundary>,
+    },
+    /// そのまま渡す．
+    Plain,
+}
+
+/// エフェクト（8.1）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectDef {
+    /// モジュール内で一意な名前．証拠の表の鍵に使う．
+    pub name: String,
+    /// 操作の名前．宣言の順．`Callee::Op::op` と `Expr::Handler::ops` の添字．
+    pub ops: Vec<String>,
 }
 
 /// enum の定義．`type` は構成子1つの enum として持つ．
@@ -359,6 +435,118 @@ pub enum Expr {
         body: Box<Expr>,
         arms: Vec<Arm>,
     },
+    /// 証拠の表 `ctx` から，エフェクトの今のハンドラを引く（`use X`，8.2）．
+    ///
+    /// 証拠の表は，エフェクトからハンドラの値への表で，R が空でない関数とラムダの最後の引数に
+    /// 渡す（evidence passing，16.5）．
+    Use {
+        ctx: Box<Expr>,
+        effect: EffectId,
+    },
+    /// 証拠の表 `base` に `bindings` を足した新しい表．`base` は変えない．同じエフェクトは後ろが優先．
+    /// `base` が `None` なら空の表に足す．
+    Provide {
+        base: Option<Box<Expr>>,
+        bindings: Vec<(EffectId, Expr)>,
+    },
+    /// 状態を持たないハンドラの値（8.4）．`ops` はエフェクトの操作の宣言の順のラムダ．
+    Handler {
+        effect: EffectId,
+        ops: Vec<Expr>,
+    },
+    /// `with`（8.3，14.2）．`binds` を順に評価して束縛し（ハンドラの値と証拠の表），`body` を評価する．
+    /// `Let` と同じ意味だが，`body` は末尾位置でない（6.8）．
+    With {
+        binds: Vec<(Local, Expr)>,
+        body: Box<Expr>,
+    },
+}
+
+impl Expr {
+    /// 直下の部分式すべてに `f` をかける（パターンは除く）．順序は評価の順とは限らない．
+    pub fn for_each_child(&self, f: &mut impl FnMut(&Expr)) {
+        match self {
+            Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) => {}
+            Expr::Let { value, body, .. } => {
+                f(value);
+                f(body);
+            }
+            Expr::Call { callee, args, .. } => {
+                match callee {
+                    Callee::Direct(_) => {}
+                    Callee::Indirect(c) | Callee::Op { handler: c, .. } => f(c),
+                }
+                args.iter().for_each(f);
+            }
+            Expr::Builtin { args, .. }
+            | Expr::Ctor { args, .. }
+            | Expr::Tuple(args)
+            | Expr::Recur(args)
+            | Expr::Handler { ops: args, .. } => args.iter().for_each(f),
+            Expr::Field { base, .. } | Expr::Use { ctx: base, .. } => f(base),
+            Expr::List { elems, tail } => {
+                elems.iter().for_each(&mut *f);
+                if let Some(t) = tail {
+                    f(t);
+                }
+            }
+            Expr::If { cond, then, else_ } => {
+                f(cond);
+                f(then);
+                f(else_);
+            }
+            Expr::Match {
+                scrutinee: body,
+                arms,
+            }
+            | Expr::Escape { body, arms } => {
+                f(body);
+                for arm in arms {
+                    if let Some(g) = &arm.guard {
+                        f(g);
+                    }
+                    f(&arm.body);
+                }
+            }
+            Expr::Binary { lhs, rhs, .. } => {
+                f(lhs);
+                f(rhs);
+            }
+            Expr::Unary { operand: e, .. } | Expr::Lambda { body: e, .. } | Expr::Fail(e) => f(e),
+            Expr::Concat(parts) => {
+                for p in parts {
+                    if let StrPart::Value(v, _) = p {
+                        f(v);
+                    }
+                }
+            }
+            Expr::Loop { inits, body, .. } => {
+                inits.iter().for_each(&mut *f);
+                f(body);
+            }
+            Expr::Assert(a) => match &a.cond {
+                AssertCond::Compare { lhs, rhs, .. } => {
+                    f(lhs);
+                    f(rhs);
+                }
+                AssertCond::Bool(e) => f(e),
+            },
+            Expr::Provide { base, bindings } => {
+                if let Some(b) = base {
+                    f(b);
+                }
+                for (_, h) in bindings {
+                    f(h);
+                }
+            }
+            Expr::With { binds, body } => {
+                for (_, v) in binds {
+                    f(v);
+                }
+                f(body);
+            }
+        }
+    }
 }
 
 /// `assert 式`．
@@ -427,6 +615,13 @@ pub enum Callee {
     Direct(FnId),
     /// クロージャの値を呼ぶ．
     Indirect(Box<Expr>),
+    /// ハンドラの値 `handler` の操作を呼ぶ（`log.info(...)`，8.2）．`op` は
+    /// `EffectDef::ops` の添字．証拠の表は渡さない（操作の本体の効果は with で決まっている）．
+    Op {
+        handler: Box<Expr>,
+        effect: EffectId,
+        op: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

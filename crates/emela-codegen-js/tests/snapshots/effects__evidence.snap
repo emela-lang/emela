@@ -1,0 +1,57 @@
+---
+source: crates/emela-codegen-js/tests/effects.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $Fail, $foreign } from "./emela_runtime.mjs";
+
+const $err$Oops = Object.freeze({ show: $show$Oops });
+
+const Oops$Oops = Object.freeze({ $tag: $err$Oops });
+
+function js_max(x$0, x$1) {
+  try {
+    return Math.max(x$0, x$1);
+  } catch ($e) {
+    throw $foreign($e);
+  }
+}
+
+function Doubler() {
+  return { add: ((n$2) => (Math.imul(n$2, 2))), boom: (() => {
+    return new $Fail(Oops$Oops);
+  }) };
+}
+
+function use_it(ev$3) {
+  return ev$3.Counter.add(21);
+}
+
+function main() {
+  const h$4 = Doubler();
+  const ev$5 = { __proto__: null, Counter: h$4 };
+  const $t0 = use_it(ev$5);
+  let $t1;
+  let $t2;
+  $x0: {
+    $e1: {
+      const $t3 = h$4.boom();
+      if ($t3 instanceof $Fail) { $t2 = $t3; break $e1; }
+      $t1 = $t3;
+      break $x0;
+    }
+    const $t4 = $t2.error;
+    if ($t4.$tag === $err$Oops) {
+      $t1 = 1;
+      break $x0;
+    }
+    return $t2;
+  }
+  return (((($t0 + $t1) | 0) + js_max(1, 2)) | 0);
+}
+
+function $show$Oops(v) {
+  return "Oops";
+}
+
+export { main };

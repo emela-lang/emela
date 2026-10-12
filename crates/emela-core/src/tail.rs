@@ -144,8 +144,9 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             f(body);
         }
         Expr::Call { callee, args, .. } => {
-            if let Callee::Indirect(c) = callee {
-                f(c);
+            match callee {
+                Callee::Direct(_) => {}
+                Callee::Indirect(c) | Callee::Op { handler: c, .. } => f(c),
             }
             args.iter_mut().for_each(f);
         }
@@ -201,6 +202,22 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
                 }
                 f(&mut arm.body);
             }
+        }
+        Expr::Use { ctx, .. } => f(ctx),
+        Expr::Provide { base, bindings } => {
+            if let Some(b) = base {
+                f(b);
+            }
+            for (_, h) in bindings {
+                f(h);
+            }
+        }
+        Expr::Handler { ops, .. } => ops.iter_mut().for_each(f),
+        Expr::With { binds, body } => {
+            for (_, v) in binds {
+                f(v);
+            }
+            f(body);
         }
     }
 }

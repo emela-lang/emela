@@ -1,0 +1,17 @@
+# Side effects go through effects. `Console` is declared in the bundled core,
+# and `JsConsole` provides it when the program runs on JavaScript.
+
+# `greet` uses Console, so its caller has to provide one with `with`.
+fn greet(name: String) {
+  console = use Console
+  console.print_line("Hello, #{name}!")
+}
+
+fn main() {
+  with JsConsole {
+    console = use Console
+    console.print_line("hi")
+    List.map(["Emela", "world"], greet)
+    console.print_error_line("done")
+  }
+}

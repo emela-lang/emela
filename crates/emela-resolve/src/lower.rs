@@ -258,6 +258,7 @@ impl Lower<'_, '_> {
             sig,
             body,
             is_external: f.has_annotation("external"),
+            externals: external_attrs(f),
             is_intrinsic: f.has_annotation("intrinsic"),
         }
     }
@@ -1756,6 +1757,43 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
         .map(|t| unescape(t.text()))
         .collect();
     PatKind::Lit(Literal::String(text))
+}
+
+/// fn の `@external(target, "a", "b")` の引数．最初の引数が名前でないもの（`@external("x")`）は飛ばす．
+/// 文字列でない残りの引数（`@external(js, 1)`，`@external(js, k: "v")`）も飛ばす．
+fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
+    f.annotations()
+        .filter(|a| a.name().is_some_and(|n| n.text() == "external"))
+        .filter_map(|a| {
+            let mut args = a.args();
+            let first = args.next()?;
+            let target = first
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| t.kind() == LOWER_NAME)
+                .filter(|_| first.children().next().is_none())?;
+            let args = args
+                .filter(|arg| {
+                    !arg.children_with_tokens()
+                        .any(|e| e.kind() == LOWER_NAME || e.kind() == COLON)
+                })
+                .filter_map(|arg| {
+                    let lit = arg.children().find(|n| n.kind() == STRING)?;
+                    Some(
+                        lit.descendants_with_tokens()
+                            .filter_map(|e| e.into_token())
+                            .filter(|t| t.kind() == STRING_TEXT)
+                            .map(|t| unescape(t.text()))
+                            .collect(),
+                    )
+                })
+                .collect();
+            Some(ExternalAttr {
+                target: target.text().into(),
+                args,
+            })
+        })
+        .collect()
 }
 
 /// `\"` `\\` `\n` `\#` を解く．不正なエスケープは字句が診断を出しているので，そのまま残す．

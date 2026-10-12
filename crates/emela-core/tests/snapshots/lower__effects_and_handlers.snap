@@ -1,0 +1,65 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+effect Clock { now }
+
+effect Stamp { stamp }
+
+export fn main() {
+  with {
+    let h%0 = Fixed()
+    let h%1 = ClockStamp(provide(; Clock = h%0))
+    let ev%2 = provide(; Clock = h%0 Stamp = h%1)
+  } {
+    let clock%3 = h%0
+    let _%4 = @dbg[String]({
+      stamped("a", ev%2)?
+    } escape {
+      Late.Late -> "late"
+    })
+    let _%7 = @dbg[Int](apply(fn(ev%5) {
+      (clock%3.Clock#now() +[Int] h%0.Clock#now())
+    }, ev%2))
+    let _%11 = @dbg[List[Int]](List.map([1], fn(x%8, ev%9) {
+      (x%8 +[Int] h%0.Clock#now())
+    }, ev%2))
+    let f%14 = {
+      let h%12 = clock%3
+      fn(ev%13) {
+        h%12.Clock#now()
+      }
+    }
+    @dbg[Int]((f%14)(ev%2))
+  }
+}
+
+fn Fixed() {
+  handler Clock {
+    now: fn() {
+      42
+    }
+  }
+}
+
+fn ClockStamp(ev%36) {
+  handler Stamp {
+    stamp: fn(s%37) {
+      let t%38 = (use[Clock](ev%36)).Clock#now()
+      let _%39 = if (t%38 >[Int] 100) {
+        fail Late.Late
+      } else {
+        ()
+      }
+      concat(s%37 as String, "@", t%38 as Int)
+    }
+  }
+}
+
+fn stamped(s%34, ev%35) {
+  (use[Stamp](ev%35)).Stamp#stamp(s%34)?
+}
+
+fn apply(f%32, ev%33) {
+  (f%32)(ev%33)?
+}

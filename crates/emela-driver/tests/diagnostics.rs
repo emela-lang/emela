@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use emela_driver::{
-    Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location,
+    Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location, Lower,
     MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Typecheck, check, render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
@@ -557,4 +557,53 @@ fn logs() {
         &mut frontend,
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn bundled_console_checks_cleanly() {
+    // 同梱の Console と JsConsole は import なしで使える（15.2）．
+    let main = "fn main() {\n  with JsConsole {\n    (use Console).print_line(\"hi\")\n  }\n}\n";
+    let files = [("home/main.emel", main)];
+    for analysis in [
+        check_files(&files, "home/main.emel", &mut Resolve::default()),
+        check_files(&files, "home/main.emel", &mut Typecheck::default()),
+        check_files(&files, "home/main.emel", &mut Lower::default()),
+    ] {
+        assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    }
+}
+
+/// JS 用の `@external` のない外部関数を，main からハンドラ越しに呼ぶもの．`wasm_unused` は使わない．
+const WASM_ONLY: &str = r#"effect Clock {
+  fn now() -> Int
+}
+
+@external(wasm, "env", "now")
+fn wasm_now() -> Int
+
+@external(wasm, "env", "unused")
+fn wasm_unused() -> Int
+
+handler WasmClock implements Clock {
+  fn now() { wasm_now() }
+}
+
+handler UnusedClock implements Clock {
+  fn now() { wasm_unused() }
+}
+
+fn main() {
+  with WasmClock { dbg((use Clock).now()) }
+}
+"#;
+
+#[test]
+fn reachable_external_without_target() {
+    // build，run，test の lowering は，main からたどれる外部関数に JS の注釈を求める（12.1）．
+    let files = [("home/main.emel", WASM_ONLY)];
+    let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+    // check と LSP（型検査まで）はターゲットを決めないので検査しない．
+    let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }

@@ -160,6 +160,34 @@ Each command takes a project directory or an entry file, and defaults to `.`.
 Programs print with `dbg`, which writes to stderr. The value `main` returns is
 not printed.
 
+Side effects go through effects. The bundled `Console` effect writes lines, and
+`JsConsole` provides it on JavaScript. This is
+[`examples/hello`](examples/hello):
+
+```emela
+fn greet(name: String) {
+  console = use Console
+  console.print_line("Hello, #{name}!")
+}
+
+fn main() {
+  with JsConsole {
+    console = use Console
+    console.print_line("hi")
+    List.map(["Emela", "world"], greet)
+    console.print_error_line("done")
+  }
+}
+```
+
+```console
+$ emela run
+hi
+Hello, Emela!
+Hello, world!
+done
+```
+
 ## Crates
 
 | Crate                | Role                                                                     |

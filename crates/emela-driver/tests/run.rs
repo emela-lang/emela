@@ -541,3 +541,30 @@ fn main() {
         (0, "", "3\n-1\n")
     );
 }
+
+#[test]
+fn console_runs_through_handlers() {
+    // 同梱の Console を JsConsole で供給する（8.3，15.2）．`Option.or_fail` の失敗も一緒に通す．
+    let output = run_source(
+        "console",
+        r#"error NotFound(id: Int)
+
+fn name(id: Int) -> String fails NotFound {
+  List.get(["alice"], id) |> Option.or_fail(NotFound(id:))
+}
+
+fn main() {
+  with JsConsole {
+    console = use Console
+    console.print_line(name(0))
+    console.print_line(name(1) escape { NotFound(id:) -> "no #{id}" })
+    (use Console).print_error_line("done")
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "alice\nno 1\n", "done\n")
+    );
+}

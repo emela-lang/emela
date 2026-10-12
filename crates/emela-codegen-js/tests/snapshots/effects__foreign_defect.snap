@@ -1,0 +1,20 @@
+---
+source: crates/emela-codegen-js/tests/effects.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $foreign } from "./emela_runtime.mjs";
+
+function parse(x$0) {
+  try {
+    return JSON.parse(x$0);
+  } catch ($e) {
+    throw $foreign($e);
+  }
+}
+
+function main() {
+  return parse("{");
+}
+
+export { main };

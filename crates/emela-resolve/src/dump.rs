@@ -104,6 +104,12 @@ impl Dumper<'_> {
                 if f.is_external {
                     header.push_str(" external");
                 }
+                for ext in &f.externals {
+                    let args: Vec<String> = std::iter::once(ext.target.to_string())
+                        .chain(ext.args.iter().map(|a| format!("{a:?}")))
+                        .collect();
+                    header.push_str(&format!("({})", args.join(", ")));
+                }
                 self.line(0, header);
                 self.fn_body(1, &f.sig, f.body);
             }

@@ -513,3 +513,69 @@ fn escapes() {
     );
     insta::assert_snapshot!(out);
 }
+
+#[test]
+fn tests_provide_effects_with_handlers() {
+    // テスト関数の R は空なので，ハンドラは with で供給する（13.3）．差し替えたハンドラの操作の
+    // 本体の失敗は，操作の呼び出し元へ伝わる．
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "\
+error Down(reason: String)
+
+effect Store {
+  fn get(key: String) -> Int fails Down
+}
+
+handler FixedStore implements Store {
+  fn get(key) { String.length(key) }
+}
+
+handler DownStore implements Store {
+  fn get(key) { fail Down(reason: key) }
+}
+
+fn total(keys: List[String]) -> Int fails Down {
+  store = use Store
+  List.fold(keys, 0, fn(acc, k) { acc + store.get(k) })
+}
+
+@test
+fn fixed() {
+  with FixedStore { assert total([\"ab\", \"c\"]) == 3 }
+}
+
+@test
+fn down() {
+  r = with DownStore { total([\"x\"]) } escape { Down(reason:) -> String.length(reason) * 10 }
+  assert r == 10
+}
+
+@test
+fn printed() {
+  with JsConsole { (use Console).print_line(\"from test\") }
+}
+",
+        ),
+    ];
+    let (analysis, report, _) = run_tests(
+        "effects",
+        sources,
+        &mut LowerTests::default(),
+        &mut CoreJs,
+        None,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let report = report.unwrap();
+    let results: Vec<_> = report
+        .results
+        .iter()
+        .map(|r| (r.name.as_str(), matches!(r.outcome, TestOutcome::Passed)))
+        .collect();
+    assert_eq!(
+        results,
+        [("fixed", true), ("down", true), ("printed", true)]
+    );
+}

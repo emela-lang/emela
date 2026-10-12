@@ -1,0 +1,14 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0412]: external function `wasm_now` has no `@external` for target `js`
+   ╭─[ main.emel:6:4 ]
+   │
+ 6 │ fn wasm_now() -> Int
+   │    ────┬───  
+   │        ╰───── 
+───╯
+   = help: add `@external(js, ...)`, or avoid calling it from the entry
+
+1 error

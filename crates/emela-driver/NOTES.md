@@ -130,6 +130,8 @@ pub trait TestBackend<P> {
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
 - （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．
+- （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
+- （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
 - （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える
 - （補）`@test` の誤りのコードは E0226 にした．E0222〜E0225 は仕様の付録 A で部分更新と `@intrinsic` に振ってあったため
