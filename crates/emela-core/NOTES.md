@@ -55,7 +55,7 @@
 - （補）Prelude の enum（Bool，Option，Ordering）には `derive Eq, Ord, Show, Hash` を書く．Option の型引数の制約の扱いは導出の側で決める．
 - （補）`dbg` は `dbg[A: Show](value: A) -> A` と書く．表の `ty_params` は制約を持たないので，制約は型推論の側でソースから読む．
 - （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
-- （補）15.3 の「関数を受ける引数は `with`，判定は `where`」は入れていない．`with` は予約語（3.1），`where` は将来のための予約で識別子に使えない（3.3）ので，仮引数の名前（6.2 で名前がそのままラベル）にできない．関数の引数は今までどおり `f`．文法をどうするか（予約語をラベルに許す，ラベルと仮引数の名前を分ける，など）が決まってから直す
+- （補）高階関数の関数の引数名は `f`（位置で渡す）．15.3 の `with` と `where` のラベルは，`with` が予約語（3.1），`where` が将来のための予約（3.3）で仮引数の名前にできないため取りやめになった（2026-10-12 本人の決定．仕様 15.3 と 6.7 も改めた）．畳み込みの初期値の `from` は残す
 - （補）繰り返しは自己末尾呼び出しで書き，先頭から結果を積むものは逆順に積んで `reverse` する．補助の関数は非公開の `*_onto`（`reverse_onto` など）．
 - （補）15.3 のとおり，2つをつなぐのは `List.append(xs, ys)` と `String.append(a, b)`，平らにするのは `List.flatten(xss)` と `String.concat(parts)`．`String.concat` は Emela で書いた（`join(parts, "")`）
 - （補）変換は依存する側のモジュールに行きと帰りをまとめる（15.3）．`Int.to_float` は `Float.from_int` に（Float は `floor` などの Int への変換も持つので），`Int.to_int64` は消して `Int64.from_int` だけにした．`String.from_int` は消した（`Int.to_string`）．`String.code_points` と `String.from_code_point` は String の側のまま
