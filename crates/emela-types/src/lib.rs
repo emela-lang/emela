@@ -21,7 +21,7 @@ mod ty;
 mod tests;
 
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
-pub use diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
+pub use diagnostic::{Diagnostic, DiagnosticKind, EffectContext, ImmediateSource};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{

@@ -28,6 +28,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 mod capabilities;
 mod effects;
 mod errors;
+mod suspend;
 
 /// 定義のまとまり1つの推論の結果．型は単一化の束縛を辿った形．
 pub(crate) struct BodyTypes {
@@ -61,6 +62,8 @@ struct HandlerBody {
     body: ExprId,
     /// エフェクトの操作の宣言の E．
     fails: Row,
+    /// suspend fn の実装で，`resume` を直接呼ぶ以外の使い方をしている（8.7）．依存に Async を足す．
+    resume_later: bool,
 }
 
 /// 定義のまとまり1つを推論する間の状態．
@@ -126,6 +129,10 @@ pub(crate) struct BodyInfer<'a> {
     /// with に並べた handler（handler，供給するエフェクト，依存）と位置．依存の循環を，
     /// 集合を解いた後に確かめる（`body/effects.rs`）．
     withs: Vec<Vec<(DefId, DefId, Row, Span)>>,
+    /// `Immediate` を求める効果の集合（`body/suspend.rs`）．
+    immediates: Vec<ImmediateObligation>,
+    /// 汎化するときに `Immediate` の制約を付ける集合変数．
+    immediate_vars: rustc_hash::FxHashSet<RowVar>,
 }
 
 impl<'a> BodyInfer<'a> {
@@ -173,6 +180,8 @@ impl<'a> BodyInfer<'a> {
             expr_effects: ArenaMap::new(),
             ops: ArenaMap::new(),
             withs: Vec::new(),
+            immediates: Vec::new(),
+            immediate_vars: Default::default(),
         }
     }
 
@@ -194,7 +203,7 @@ impl<'a> BodyInfer<'a> {
         self.module = self.program.defs[def].module.clone();
         (self.type_params, self.param_kinds) = match self.program.item(def) {
             Some(Item::Fn(item)) => {
-                let params = FnParams::new(self.program, &item.sig);
+                let params = FnParams::new(self.program, item);
                 (params.defs, params.kinds)
             }
             _ => (Vec::new(), Vec::new()),
@@ -214,7 +223,7 @@ impl<'a> BodyInfer<'a> {
         }
         let (ty, params) = match program.item(def) {
             Some(Item::Fn(item)) => {
-                let mut fn_params = FnParams::new(program, &item.sig);
+                let mut fn_params = FnParams::new(program, item);
                 let params = fn_params.lower_params(
                     program,
                     self.ty_table,
@@ -306,13 +315,24 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// handler の操作の本体を推論する（8.4）．引数と戻り値の型はエフェクトの操作の宣言から決まる．
-    /// 状態を持つ handler（フィールド，init，release）と suspend な操作はまだ扱わない．
+    /// suspend fn の実装は最後の引数に `resume` を受ける．`resume` は操作の戻り値の型の値を受けて
+    /// `()` を返す関数で，本体の値は `()`．状態を持つ handler（フィールド，init，release）は
+    /// まだ扱わない．Async のハンドラは書けない（8.7）．
     fn infer_handler(&mut self, def: DefId, item: &HandlerItem) {
         let program = self.program;
         let span = program.defs[def].span;
         let Res::Def(effect) = item.effect else {
             return;
         };
+        if program.prelude_def("Async") == Some(effect) {
+            self.diags.push(Diagnostic {
+                span,
+                kind: DiagnosticKind::AsyncHandler {
+                    handler: program.defs[def].name.clone(),
+                },
+            });
+            return;
+        }
         if !item.fields.is_empty() || item.init.is_some() || item.release.is_some() {
             self.diags.push(Diagnostic {
                 span,
@@ -356,20 +376,25 @@ impl<'a> BodyInfer<'a> {
                 // 名前解決が誤りを出している．
                 _ => None,
             };
-            let suspend = hop.is_suspend
-                || op.is_some_and(
-                    |op| matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend),
-                );
-            if suspend {
+            // 実装の `suspend` がエフェクトの宣言と違えば E0415．誤りを重ねないよう，引数と本体は
+            // 実装の書き方に従って検査する．
+            let declared_suspend =
+                op.map(|op| matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend));
+            if let Some(declared) = declared_suspend
+                && declared != hop.is_suspend
+            {
                 self.diags.push(Diagnostic {
                     span: Some(hop.name.span),
-                    kind: DiagnosticKind::Unsupported {
-                        what: "suspend operations",
+                    kind: DiagnosticKind::SuspendMismatch {
+                        op: hop.name.name.clone(),
+                        effect: program.defs[effect].name.clone(),
+                        suspend: declared,
                     },
                 });
             }
+            let suspend = hop.is_suspend;
             let f = match op.and_then(|op| self.sigs.get(op)).map(|s| &s.scheme.ty) {
-                Some(Ty::Fn(f)) if !suspend => Some(f.as_ref().clone()),
+                Some(Ty::Fn(f)) => Some(f.as_ref().clone()),
                 _ => None,
             };
             let Some(f) = f else {
@@ -382,29 +407,44 @@ impl<'a> BodyInfer<'a> {
                 }
                 continue;
             };
-            if hop.params.len() != f.params.len() {
+            // suspend fn の実装の引数は，操作の引数と `resume`．
+            let mut params = f.params.clone();
+            if suspend {
+                params.push(Ty::func(vec![f.ret.clone()], Ty::UNIT));
+            }
+            if hop.params.len() != params.len() {
                 self.diags.push(Diagnostic {
                     span: Some(hop.name.span),
                     kind: DiagnosticKind::HandlerOpArgCount {
                         op: hop.name.name.clone(),
-                        expected: f.params.len(),
+                        expected: params.len(),
                         found: hop.params.len(),
                     },
                 });
             }
             for (i, p) in hop.params.iter().enumerate() {
-                let ty = f.params.get(i).cloned().unwrap_or(Ty::Error);
+                let ty = params.get(i).cloned().unwrap_or(Ty::Error);
                 self.set_local(p.local, ty);
             }
-            if let Some(body) = hop.body {
-                self.check_expr(body, &f.ret);
-                self.handler_bodies.push(HandlerBody {
-                    handler: def,
-                    index,
-                    body,
-                    fails: f.fails.clone(),
-                });
-            }
+            let Some(body) = hop.body else {
+                continue;
+            };
+            // suspend fn の実装の値は捨てる．操作の値は `resume` に渡したもの．
+            let ret = if suspend { Ty::UNIT } else { f.ret.clone() };
+            self.check_expr(body, &ret);
+            let resume_later = suspend
+                && hop.params.len() == params.len()
+                && hop
+                    .params
+                    .last()
+                    .is_some_and(|resume| suspend::resume_escapes(program, body, resume.local));
+            self.handler_bodies.push(HandlerBody {
+                handler: def,
+                index,
+                body,
+                fails: f.fails.clone(),
+                resume_later,
+            });
         }
     }
 
@@ -532,6 +572,7 @@ impl<'a> BodyInfer<'a> {
         self.infer_errors();
         self.infer_effects();
         self.solve_errors();
+        self.check_immediates();
         self.check_handler_cycles();
         self.check_coverage();
         self.check_capabilities();
@@ -544,7 +585,9 @@ impl<'a> BodyInfer<'a> {
                 _ => Vec::new(),
             };
             // トップレベルなので環境の型変数はない．
-            let scheme = self.ctx.generalize_with(&ty, params, &[]);
+            let scheme = self
+                .ctx
+                .generalize_bounded(&ty, params, &[], &self.immediate_vars);
             inferred.push((def, Signature { scheme, labels }));
         }
 
@@ -676,6 +719,16 @@ impl<'a> BodyInfer<'a> {
             }
             ExprKind::Escape { expr: inner, arms } => self.infer_escape(*inner, arms),
             // `use X` は X の能力の値（8.2）．R に X を足すのは本体の R を求めるとき．
+            // Async は操作を持たず，供給するのはランタイムだけ（8.7）．
+            ExprKind::Use {
+                effect: Res::Def(effect),
+            } if program.prelude_def("Async") == Some(*effect) => {
+                self.diags.push(Diagnostic {
+                    span: Some(e.span),
+                    kind: DiagnosticKind::UseAsync,
+                });
+                Ty::Error
+            }
             ExprKind::Use {
                 effect: Res::Def(effect),
             } => Ty::Cap(*effect),
@@ -702,28 +755,21 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// `use` を省略した `@external` の fn は，ハンドラの操作の本体の中でしか使えない（12.2）．
-    /// 呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．
-    /// `suspend fn` の外部関数は alpha.3 の範囲なので「まだ扱えない」にする．
+    /// `use` を省略した `@external` の fn と `@external suspend fn` は，ハンドラの操作の本体の中で
+    /// しか使えない（12.2）．呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．
     fn check_external(&mut self, def: DefId, span: Span) {
         let Some(Item::Fn(item)) = self.program.item(def) else {
             return;
         };
-        if !item.is_external {
+        if !item.is_external || self.in_handler() {
             return;
         }
-        if item.sig.is_suspend {
-            self.diags.push(Diagnostic {
-                span: Some(span),
-                kind: DiagnosticKind::Unsupported {
-                    what: "suspend external functions",
-                },
-            });
-        } else if item.sig.uses.is_none() && !self.in_handler() {
+        if item.sig.is_suspend || item.sig.uses.is_none() {
             self.diags.push(Diagnostic {
                 span: Some(span),
                 kind: DiagnosticKind::ExternalOutsideHandler {
                     name: self.program.defs[def].name.clone(),
+                    suspend: item.sig.is_suspend,
                 },
             });
         }
@@ -799,7 +845,9 @@ impl<'a> BodyInfer<'a> {
     fn instantiate_def(&mut self, def: DefId, span: Span) -> (Ty, Vec<Ty>) {
         let sigs = self.sigs;
         if let Some(sig) = sigs.get(def) {
-            return self.ctx.instantiate_with_args(&sig.scheme);
+            let (tys, rows) = self.ctx.fresh_args(&sig.scheme.params);
+            self.require_immediate(def, &sig.scheme.params, &rows, span);
+            return (substitute(&sig.scheme.ty, &tys, &rows), tys);
         }
         if let Some((ty, params)) = self.pending_ty(def) {
             if self.current == Some(def) || params.is_empty() {
@@ -811,6 +859,7 @@ impl<'a> BodyInfer<'a> {
             // ここでは新しい型変数にしておき，まとまりを推論し終えてから照合する．
             let ty = self.ctx.resolve(&ty);
             let (args, rows) = self.ctx.fresh_args(&params);
+            self.require_immediate(def, &params, &rows, span);
             let mut fresh = FxHashMap::default();
             let instance = self.freshen(&substitute(&ty, &args, &rows), &mut fresh);
             self.deferred.push(DeferredRef {
@@ -1843,6 +1892,17 @@ enum FieldTy {
 }
 
 /// まとまりの中の，書いた型引数のある宣言の型のない定義への参照．
+/// `Immediate` を求める効果の集合（9.5）．集合を解いた後に確かめる（`body/suspend.rs`）．
+struct ImmediateObligation {
+    /// 具体化した集合．
+    row: Row,
+    /// 参照の位置．
+    span: Span,
+    /// 参照した定義（`row` の中の `RowElem::Bound` はこの定義の型引数）．
+    owner: Option<DefId>,
+    source: crate::diagnostic::ImmediateSource,
+}
+
 struct DeferredRef {
     def: DefId,
     /// 型引数に置いた型変数．

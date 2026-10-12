@@ -109,8 +109,9 @@ pub enum DiagnosticKind {
         expected: usize,
         found: usize,
     },
-    /// `use` を省略した `@external` の fn を，ハンドラの操作の本体の外で使った（E0407，12.2）．
-    ExternalOutsideHandler { name: SmolStr },
+    /// `use` を省略した `@external` の fn か，`@external suspend fn` を，ハンドラの操作の本体の外で
+    /// 使った（E0407，12.2）．`suspend` は後者か（注記を変える）．
+    ExternalOutsideHandler { name: SmolStr, suspend: bool },
     /// 能力の値を関数の引数に渡した（E0408，8.2）．
     CapabilityArgument,
     /// 能力の値をデータ構造（リスト，タプル，構成子）に入れた（E0409，8.2）．
@@ -120,6 +121,36 @@ pub enum DiagnosticKind {
     /// 同じ with に並べたハンドラが，互いの効果に依存して循環している（E0411，8.3，14.2）．
     /// `cycle` は循環をたどるハンドラの名前（最初のハンドラを最後にもう一度入れる）．
     HandlerCycle { cycle: Vec<SmolStr> },
+    /// 組み込みのエフェクト Async のハンドラを書いた（E0413，8.7）．
+    AsyncHandler { handler: SmolStr },
+    /// `use Async` を書いた（E0414，8.7）．Async は操作を持たず，供給するのはランタイムだけ．
+    UseAsync,
+    /// handler の操作の `suspend` の有無が，エフェクトの操作の宣言と違う（E0415，8.1，8.4）．
+    /// `suspend` はエフェクトの宣言の側が `suspend fn` か．
+    SuspendMismatch {
+        op: SmolStr,
+        effect: SmolStr,
+        suspend: bool,
+    },
+    /// `Immediate` を求める効果の集合に，中断しうるエフェクトか，Immediate と分からない集合が
+    /// 入る（E0416，9.5）．`effects` は中断しうるエフェクト（suspend fn を持つか Async），
+    /// `sets` は `Immediate` の制約のない集合の型引数の名前．`required` は何が求めたか．
+    NotImmediate {
+        effects: Vec<SmolStr>,
+        sets: Vec<SmolStr>,
+        required: ImmediateSource,
+    },
+    /// `Immediate` を，効果の集合でない型引数に付けた（E0322，9.5）．
+    ImmediateOnNonEffect { param: SmolStr },
+}
+
+/// `Immediate` を求めたもの（[`DiagnosticKind::NotImmediate`]）．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImmediateSource {
+    /// 型引数の制約 `R: Immediate`．`param` は型引数の名前，`callee` はそれを持つ関数．
+    Bound { param: SmolStr, callee: SmolStr },
+    /// 外部関数に渡すコールバック（9.5）．`callee` は外部関数の名前．
+    ExternalCallback { callee: SmolStr },
 }
 
 /// R が含まれるべき集合がどこから決まったか（[`DiagnosticKind::UnhandledEffects`]）．

@@ -19,7 +19,9 @@ pub struct HoverInfo {
 
 /// `file` の `offset` の位置の情報．
 ///
-/// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）
+/// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）．
+///   suspend fn（エフェクトの操作と外部関数）は型の前に `suspend` を付ける
+/// - handler の名前: `handler H implements E` と，依存があれば `use R`（Async が残るか）
 /// - 定義か局所変数の参照: 同じく `名前: 型`
 /// - それ以外の式: 型と，E が空でなければ `fails E`，R が空でなければ `use R`
 ///
@@ -50,7 +52,30 @@ pub(crate) fn hover(
     {
         return Some(HoverInfo {
             range: data.span?.range,
-            contents: code(&format!("{}: {}", data.name, sig.scheme.display(cons))),
+            contents: code(&format!(
+                "{}: {}{}",
+                data.name,
+                suspend_prefix(hir, def),
+                sig.scheme.display(cons)
+            )),
+        });
+    }
+    // handler の名前: 実装するエフェクトと依存（8.4．Async が残るかが分かる，8.7）．
+    if let Some((def, data)) = def
+        && let Some(Item::Handler(item)) = hir.item(def)
+    {
+        let mut text = format!("handler {}", data.name);
+        if let Res::Def(effect) = item.effect {
+            text.push_str(&format!(" implements {}", hir.defs[effect].name));
+        }
+        if let Some(deps) = types.handler_uses.get(def)
+            && !deps.is_empty()
+        {
+            text.push_str(&format!("\nuse {}", deps.display_effects(cons, &[])));
+        }
+        return Some(HoverInfo {
+            range: data.span?.range,
+            contents: code(&text),
         });
     }
 
@@ -91,7 +116,12 @@ pub(crate) fn hover(
             let text = match &e.kind {
                 ExprKind::Path(Res::Def(def)) => {
                     let sig = types.sigs.get(*def)?;
-                    format!("{}: {}", hir.defs[*def].name, sig.scheme.display(cons))
+                    format!(
+                        "{}: {}{}",
+                        hir.defs[*def].name,
+                        suspend_prefix(hir, *def),
+                        sig.scheme.display(cons)
+                    )
                 }
                 ExprKind::Path(Res::Local(local)) => {
                     let ty = types.locals.get(*local)?;
@@ -103,7 +133,12 @@ pub(crate) fn hover(
                 }
                 _ => {
                     let ty = types.exprs.get(expr)?;
-                    let mut text = ty.display_with(cons, &params).to_string();
+                    // 能力の値の suspend な操作（`clock.sleep`）．
+                    let prefix = types
+                        .ops
+                        .get(expr)
+                        .map_or("", |&op| suspend_prefix(hir, op));
+                    let mut text = format!("{prefix}{}", ty.display_with(cons, &params));
                     let errors = types.errors.get(expr).cloned().unwrap_or_else(Row::empty);
                     if !errors.is_empty() {
                         text.push_str(&format!("\nfails {}", errors.display_with(cons, &params)));
@@ -142,6 +177,16 @@ fn enclosing_def(
             span.module == module && span.range.contains(offset)
         })
     })
+}
+
+/// suspend fn（エフェクトの操作と `@external suspend fn`）の型の前に付ける印．
+fn suspend_prefix(hir: &emela_resolve::hir::Program, def: DefId) -> &'static str {
+    let suspend = match hir.item(def) {
+        Some(Item::Op(op)) => op.sig.is_suspend,
+        Some(Item::Fn(f)) => f.sig.is_suspend,
+        _ => false,
+    };
+    if suspend { "suspend " } else { "" }
 }
 
 /// Emela のコードのブロック．

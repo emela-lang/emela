@@ -4,16 +4,19 @@
 //! `use` 節を書いていない本体のある fn と，型を書いていない const は，本体を推論した後に足す．
 //! effect の操作の型もここに置く（能力の値を通した呼び出しが引く）．
 
-use emela_resolve::hir::{DefId, Fields, FnItem, FnSig, Item, Param, Program, TypeId};
+use emela_resolve::hir::{
+    DefId, DefKind, Fields, FnItem, FnSig, Item, Param, Program, Res, TypeId, TypeKind,
+};
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
-use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
 use crate::lower::{
-    Hidden, Omitted, Scope, TyTable, classify_params, has_omitted_fails, has_omitted_uses,
-    ty_params, type_param_defs,
+    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, has_omitted_fails,
+    has_omitted_uses, immediate_bounds, is_immediate_effect, ty_params, type_param_defs,
+    used_in_uses,
 };
-use crate::row::Row;
+use crate::row::{Row, RowElem};
 use crate::scheme::Scheme;
 use crate::ty::{ParamKind, Ty, TyParam};
 
@@ -50,7 +53,10 @@ impl Signatures {
 
         for (def, _) in program.defs.iter() {
             let sig = match program.item(def) {
-                Some(Item::Fn(item)) => fn_signature(program, ty_table, item, diags),
+                Some(Item::Fn(item)) => {
+                    check_bounds(program, def, item, diags);
+                    fn_signature(program, ty_table, item, diags)
+                }
                 Some(Item::Ctor(item)) => {
                     ctor_signature(program, ty_table, item.owner, &item.fields, diags)
                 }
@@ -96,13 +102,19 @@ fn fn_signature(
     {
         return None;
     }
-    let mut params = FnParams::new(program, &item.sig);
+    let mut params = FnParams::new(program, item);
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
     let mut scope = params.scope(Omitted::Empty);
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
-    let uses = params.declared_uses(program, ty_table, &item.sig, diags);
+    let mut uses = params.declared_uses(program, ty_table, &item.sig, diags);
+    // `@external suspend fn` は Async を要求する（12.2）．
+    if item.sig.is_suspend
+        && let Some(async_) = program.prelude_def("Async")
+    {
+        uses.insert(RowElem::Tag(async_));
+    }
 
     Some(Signature {
         scheme: Scheme::new(
@@ -111,6 +123,127 @@ fn fn_signature(
         ),
         labels,
     })
+}
+
+/// fn の型引数の制約を確かめる（9.5）．制約は Immediate だけを扱う．
+///
+/// - Immediate は効果の集合（`use` 節に書いた型引数）にだけ付けられる（E0322）．
+/// - 効果の集合に Immediate 以外の制約（Trait）を付けたら「まだ扱えない」．ふつうの型の型引数の
+///   Trait の制約は 0.21 まで検査しない（Prelude の `dbg[A: Show]`）．
+/// - 外部関数の引数の関数型に書いた `use` 節は Immediate でなければならない（E0416）．省略した
+///   `use` 節は見えない集合で，Immediate の制約を付ける（[`FnParams::new`]）．
+fn check_bounds(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Diagnostic>) {
+    let sig = &item.sig;
+    let types: Vec<TypeId> = sig
+        .params
+        .iter()
+        .filter_map(|p| p.ty)
+        .chain(sig.ret)
+        .collect();
+    let immediate = program.prelude_def(IMMEDIATE);
+    let mut constrained = Vec::new();
+    for tp in &sig.type_params {
+        let in_uses = used_in_uses(program, tp.def, types.iter().copied())
+            || sig
+                .uses
+                .iter()
+                .flat_map(|u| &u.items)
+                .any(|(res, _)| *res == Res::Def(tp.def));
+        let spans = immediate_bounds(program, tp);
+        if !in_uses {
+            for span in spans {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::ImmediateOnNonEffect {
+                        param: program.defs[tp.def].name.clone(),
+                    },
+                });
+            }
+            continue;
+        }
+        if !spans.is_empty() {
+            constrained.push(tp.def);
+        }
+        for &(res, span) in &tp.bounds {
+            if matches!(res, Res::Def(d) if Some(d) != immediate) {
+                diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::Unsupported {
+                        what: "trait bounds on effect sets",
+                    },
+                });
+            }
+        }
+    }
+    if !item.is_external {
+        return;
+    }
+    // 外部関数のコールバックの `use` 節．
+    fn walk(
+        program: &Program,
+        ty: TypeId,
+        constrained: &[DefId],
+        effects: &mut Vec<SmolStr>,
+        sets: &mut Vec<SmolStr>,
+    ) {
+        match &program.types[ty].kind {
+            TypeKind::Path { args, .. } => {
+                for &a in args {
+                    walk(program, a, constrained, effects, sets);
+                }
+            }
+            TypeKind::Tuple(elems) => {
+                for &e in elems {
+                    walk(program, e, constrained, effects, sets);
+                }
+            }
+            TypeKind::Fn {
+                params, ret, uses, ..
+            } => {
+                for &(res, _) in uses.iter().flat_map(|u| &u.items) {
+                    let Res::Def(d) = res else {
+                        continue;
+                    };
+                    let name = program.defs[d].name.clone();
+                    let list = match program.defs[d].kind {
+                        DefKind::Effect if !is_immediate_effect(program, d) => &mut *effects,
+                        DefKind::TypeParam if !constrained.contains(&d) => &mut *sets,
+                        _ => continue,
+                    };
+                    if !list.contains(&name) {
+                        list.push(name);
+                    }
+                }
+                for &p in params {
+                    walk(program, p, constrained, effects, sets);
+                }
+                if let Some(r) = ret {
+                    walk(program, *r, constrained, effects, sets);
+                }
+            }
+            TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
+        }
+    }
+    for p in &sig.params {
+        let Some(ty) = p.ty else {
+            continue;
+        };
+        let (mut effects, mut sets) = (Vec::new(), Vec::new());
+        walk(program, ty, &constrained, &mut effects, &mut sets);
+        if effects.is_empty() && sets.is_empty() {
+            continue;
+        }
+        diags.push(Diagnostic {
+            span: program.types[ty].span,
+            kind: DiagnosticKind::NotImmediate {
+                effects,
+                sets,
+                required: ImmediateSource::ExternalCallback {
+                    callee: program.defs[def].name.clone(),
+                },
+            },
+        });
+    }
 }
 
 /// effect の操作の型とラベル（8.1）．宣言の中なので，引数の関数型の `fails` と `use` を
@@ -170,16 +303,29 @@ pub(crate) struct FnParams {
 }
 
 impl FnParams {
-    pub(crate) fn new(program: &Program, sig: &FnSig) -> Self {
+    /// fn の型引数．外部関数なら，引数の型の中の見えない効果の集合に `Immediate` の制約を付ける
+    /// （コールバックは Immediate でなければならない，9.5）．
+    pub(crate) fn new(program: &Program, item: &FnItem) -> Self {
+        let sig = &item.sig;
         let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
         let kinds = classify_params(program, &defs, types);
+        // 制約は Immediate だけを持つ（Trait は 0.21．名前も持たない）．効果の集合でない型引数に
+        // 付けた Immediate は [`check_bounds`] が E0322 にする．
         let declared = ty_params(program, &defs)
             .into_iter()
             .zip(&kinds)
-            .map(|(p, &kind)| TyParam { kind, ..p })
+            .zip(&sig.type_params)
+            .map(|((p, &kind), tp)| {
+                let mut p = TyParam { kind, ..p };
+                if kind == ParamKind::Set && !immediate_bounds(program, tp).is_empty() {
+                    p.bounds.push(SmolStr::new(IMMEDIATE));
+                }
+                p
+            })
             .collect();
-        let hidden = Hidden::new(defs.len());
+        let mut hidden = Hidden::new(defs.len());
+        hidden.immediate = item.is_external;
         FnParams {
             defs,
             kinds,

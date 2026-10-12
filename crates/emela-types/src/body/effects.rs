@@ -11,8 +11,11 @@
 //!   置き換えて消す．集合の型引数（中身の分からない集合）からは消さない．
 //! - 無名関数は本体の R を関数型に閉じ込める．
 //! - 本体の R は宣言の R に含まれる．`use` 節を書いていなければ宣言の R は集合変数で，本体の R が
-//!   そのまま解になる（9.3）．main とテスト関数の本体の R は空でなければならない（8.3，13.3）．
-//! - handler の依存は操作の本体の R の和（集合変数）．
+//!   そのまま解になる（9.3）．main とテスト関数の本体の R は，Async を除いて空でなければならない
+//!   （8.3，13.3）．
+//! - handler の依存は操作の本体の R の和（集合変数）．resume を後から呼びうる suspend fn の実装は，
+//!   Async も依存に足す（8.7，`body/suspend.rs`）．
+//! - main とテスト関数の本体の R は Async だけを含んでよい（Async はランタイムが供給する）．
 
 use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, Res, Span};
 use smol_str::SmolStr;
@@ -41,10 +44,14 @@ impl BodyInfer<'_> {
                     let row = self.expr_effects(body);
                     let closed = self.closed.contains_key(&def);
                     if closed {
+                        // Async はランタイムとテストランナーが供給する（8.3，13.3）．
+                        let allowed = program
+                            .prelude_def("Async")
+                            .map_or_else(Row::empty, Row::tag);
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row.clone(),
-                            Row::empty(),
+                            allowed,
                             Origin::Closed(def),
                         );
                     }
@@ -62,14 +69,18 @@ impl BodyInfer<'_> {
                 }
                 Some(Item::Handler(_)) => {
                     let deps = self.handler_deps(def);
-                    let bodies: Vec<(usize, ExprId)> = self
+                    let bodies: Vec<(usize, ExprId, bool)> = self
                         .handler_bodies
                         .iter()
                         .filter(|b| b.handler == def)
-                        .map(|b| (b.index, b.body))
+                        .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
-                    for (index, body) in bodies {
-                        let row = self.expr_effects(body);
+                    for (index, body, resume_later) in bodies {
+                        let mut row = self.expr_effects(body);
+                        // resume を後から呼びうる suspend fn の実装は Async を要求する（8.7）．
+                        if resume_later && let Some(async_) = program.prelude_def("Async") {
+                            row.insert(RowElem::Tag(async_));
+                        }
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row,
@@ -90,6 +101,10 @@ impl BodyInfer<'_> {
     fn expr_effects(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let row = match &program.exprs[expr].kind {
+            // `use Async` は誤り（E0414）．R には足さない．
+            ExprKind::Use {
+                effect: Res::Def(effect),
+            } if program.prelude_def("Async") == Some(*effect) => Row::empty(),
             ExprKind::Use {
                 effect: Res::Def(effect),
             } => Row::tag(*effect),
@@ -160,6 +175,10 @@ impl BodyInfer<'_> {
             let Res::Def(effect) = item.effect else {
                 continue;
             };
+            // Async のハンドラは誤り（E0413）．Async を消さない．
+            if program.prelude_def("Async") == Some(effect) {
+                continue;
+            }
             entries.push((h, effect, self.handler_deps(h), span));
         }
         let provided: Vec<DefId> = entries.iter().map(|e| e.1).collect();

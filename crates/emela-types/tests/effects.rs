@@ -500,3 +500,202 @@ fn callers() {
 "#
     ));
 }
+
+/// suspend fn の操作と実装（8.1，8.4，8.7）．実装は最後の引数に resume（操作の戻り値の型を受けて
+/// `()` を返す関数）を受ける．resume を直接呼ぶ以外の使い方（変数に入れる，クロージャで捕まえる，
+/// 引数に渡す）をしたら，ハンドラの依存に Async が載る．main とテスト関数の R には Async だけが残ってよい．
+#[test]
+fn suspend_operations() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Int
+}
+
+effect Ask {
+  suspend fn ask() -> Int
+}
+
+@external(js, "setTimeout")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+fn later(f: fn(()) -> ()) { () }
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { 0 }
+}
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    set_timeout(ms, fn() { resume(()) })
+  }
+  fn now() { 0 }
+}
+
+handler Stored implements Clock {
+  suspend fn sleep(ms, resume) {
+    r = resume
+    r(())
+  }
+  fn now() { 0 }
+}
+
+handler Passed implements Clock {
+  suspend fn sleep(ms, resume) { later(resume) }
+  fn now() { 0 }
+}
+
+handler Piped implements Ask {
+  suspend fn ask(resume) { 42 |> resume }
+}
+
+handler WrongValue implements Ask {
+  suspend fn ask(resume) { resume("x") }
+}
+
+handler ReturnsValue implements Ask {
+  suspend fn ask(resume) { 42 }
+}
+
+handler NoResume implements Ask {
+  suspend fn ask() { () }
+}
+
+handler Mismatched implements Clock {
+  fn sleep(ms) { () }
+  suspend fn now(resume) { resume(0) }
+}
+
+fn nap() {
+  (use Clock).sleep(10)
+  (use Clock).now()
+}
+
+fn instant() { with InstantClock { nap() } }
+
+fn waits() { with JsClock { nap() } }
+
+fn pure_only() -> Int use {} { with JsClock { nap() } }
+
+fn main() {
+  with JsClock { nap() }
+}
+
+fn test_waits() {
+  with JsClock { nap() }
+}
+"#
+    ));
+}
+
+/// Async は組み込みのエフェクト（8.7）．ハンドラは書けず（E0413），`use Async` も書けない（E0414）．
+/// use 節には書ける．
+#[test]
+fn async_effect() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+handler MyAsync implements Async {
+}
+
+fn grab() { use Async }
+
+fn declared() -> Int use Async { 1 }
+
+fn main() {
+  with MyAsync { declared() }
+}
+"#
+    ));
+}
+
+/// `@external suspend fn` は Async を要求し，ハンドラの中でしか使えない（12.2）．
+#[test]
+fn external_suspend_functions() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Http {
+  fn get(url: String) -> String
+}
+
+@external(js, "./ffi.mjs", "fetchText")
+suspend fn fetch_text(url: String) -> String
+
+handler JsHttp implements Http {
+  fn get(url) { fetch_text(url) }
+}
+
+fn outside() { fetch_text("x") }
+
+fn main() {
+  with JsHttp { (use Http).get("x") }
+}
+"#
+    ));
+}
+
+/// `R: Immediate`（9.5）．エフェクトは suspend fn がなく Async でもないとき Immediate．
+/// 集合の型引数は制約を持つときだけ．外部関数に渡すコールバックも Immediate でなければならない．
+#[test]
+fn immediate_constraint() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+@external(js, "setTimeout")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+@external(js, "./ffi.mjs", "fetchText")
+suspend fn fetch_text(url: String) -> String
+
+@external(js, "onTick")
+fn on_tick(f: fn() -> () use { Clock }) -> ()
+
+fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+
+fn logs() -> Int {
+  update(1, fn(x) {
+    (use Logger).info("x")
+    x
+  })
+}
+
+fn sleeps() -> Int {
+  update(1, fn(x) {
+    (use Clock).sleep(1)
+    x
+  })
+}
+
+fn hidden(f: fn(Int) -> Int) -> Int { update(1, f) }
+
+fn named[R: Immediate](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
+
+fn unnamed[R](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }
+
+fn inferred() { fn(g) { update(1, g) } }
+
+fn not_effect[A: Immediate](x: A) -> A { x }
+
+fn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }
+
+handler Ticking implements Logger {
+  fn info(msg) {
+    set_timeout(1, fn() { (use Logger).info(msg) })
+    set_timeout(1, fn() { (use Clock).sleep(1) })
+    set_timeout(1, fn() {
+      fetch_text(msg)
+      ()
+    })
+  }
+}
+"#
+    ));
+}
