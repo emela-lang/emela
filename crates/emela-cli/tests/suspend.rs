@@ -73,7 +73,7 @@ handler InstantClock implements Clock {
 #[test]
 fn clocks_resume_later_and_in_place() {
     // JsClock の sleep は setTimeout の後で再開する．InstantClock は中断しない．
-    // 中断しうるラムダを渡した List.map は中断しうる版を，渡さない List.map は今までの版を使う．
+    // 中断しうるラムダを渡した List.map は中断用の写しを，渡さない List.map は元の関数を呼ぶ．
     let project = Project::new(
         "clocks",
         r#"fn total(xs: List[Int]) -> Int use Clock {

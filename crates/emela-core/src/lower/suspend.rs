@@ -4,19 +4,20 @@
 //! R の要素ごとに，エフェクトは suspend fn を持つか Async なら中断しうる（9.5）．
 //!
 //! 集合の型引数（`List.map` の `R(f)` など）は，具体化しだいで中断しうるかが変わる．中断しうる関数は
-//! ジェネレータにし，呼び出しの形も変わるので，そういう関数は「版」に分けて写す．版は，効果の集合の
-//! 型引数のうち，中断しうるものに具体化したものの印（ビットの集合）．版 0 は全部が Immediate の場合で，
-//! 今までと同じ出力になる．参照ごとに具体化した集合（`ProgramTypes::type_rows`）から版を決める．
-//! 版を決めた関数の本体の中では，その版で集合の型引数が中断しうるかが決まっているので，ラムダや
-//! 関数の値の呼び出しの印も型から一意に決まる．
+//! ジェネレータにし，呼び出しの形も変わるので，そういう関数は，中断しうる集合に具体化した呼び出し用に
+//! 「中断用の写し」を別の IR の関数として作る．どの型引数が中断しうるかは [`Specialization`]（効果の
+//! 集合の型引数のうち，中断しうる集合に具体化したもののビット）で表す．0 は全部が Immediate の場合で，
+//! 元の関数そのもの（今までと同じ出力）．参照ごとに具体化した集合（`ProgramTypes::type_rows`）から
+//! どれを呼ぶかを決める．中断用の写しの本体の中では，集合の型引数が中断しうるかが決まっているので，ラムダや関数の値の呼び出しの印も型から一意に決まる．
 
 use emela_resolve::hir::{DefId, ExprId, Item};
 use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
 
 use super::Lowerer;
 
-/// 版．効果の集合の型引数のうち，中断しうるものに具体化したものの添字のビット．
-pub(super) type Version = u64;
+/// どの中断用の写しか．効果の集合の型引数のうち，中断しうる集合に具体化したものの添字のビット．
+/// 0 は元の関数（全部 Immediate）．
+pub(super) type Specialization = u64;
 
 /// 組み込みの制約 Immediate の名前（9.5）．
 const IMMEDIATE: &str = "Immediate";
@@ -38,16 +39,16 @@ impl Lowerer<'_> {
     }
 
     /// 本体を写している関数の中の集合 `row` が中断しうるか．集合の型引数（と，推論で汎化した集合
-    /// 変数）は，写している版で決まる．
+    /// 変数）は，写している関数（元の関数か，どの中断用の写しか）で決まる．
     pub(super) fn row_suspends(&self, row: &Row) -> bool {
         row.elems().iter().any(|e| match e {
             RowElem::Tag(effect) => !self.is_immediate_effect(*effect),
-            RowElem::Bound(i) => version_has(self.version, *i),
+            RowElem::Bound(i) => spec_has(self.spec, *i),
             RowElem::Var(v) => self
                 .current_def
                 .and_then(|def| self.types.generalized_rows.get(def))
                 .and_then(|rows| rows.iter().find(|(w, _)| w == v))
-                .is_some_and(|&(_, i)| version_has(self.version, i)),
+                .is_some_and(|&(_, i)| spec_has(self.spec, i)),
             RowElem::Of(_) => false,
         })
     }
@@ -57,20 +58,22 @@ impl Lowerer<'_> {
         matches!(ty, Ty::Fn(f) if self.row_suspends(&f.uses))
     }
 
-    /// 定義 `def` の版 `version` が中断しうるか（ジェネレータにするか）．宣言の型の R で決める．
-    pub(super) fn fn_suspends(&self, def: DefId, version: Version) -> bool {
+    /// 定義 `def` の写し `spec` が中断しうるか（ジェネレータにするか）．宣言の型の R で
+    /// 決める．
+    pub(super) fn fn_suspends(&self, def: DefId, spec: Specialization) -> bool {
         let Some(Ty::Fn(f)) = self.types.sigs.get(def).map(|s| &s.scheme.ty) else {
             return false;
         };
         f.uses.elems().iter().any(|e| match e {
             RowElem::Tag(effect) => !self.is_immediate_effect(*effect),
-            RowElem::Bound(i) => version_has(version, *i),
+            RowElem::Bound(i) => spec_has(spec, *i),
             _ => false,
         })
     }
 
-    /// 定義 `def` を式 `expr` で参照したときの版．`expr` が `None` なら（参照の式がない根）版 0．
-    pub(super) fn version_of(&self, def: DefId, expr: Option<ExprId>) -> Version {
+    /// 定義 `def` を式 `expr` で参照したときに呼ぶ写し．`expr` が `None` なら（参照の式がない根）
+    /// 元の関数（0）．
+    pub(super) fn specialization_of(&self, def: DefId, expr: Option<ExprId>) -> Specialization {
         let Some(sig) = self.types.sigs.get(def) else {
             return 0;
         };
@@ -81,54 +84,54 @@ impl Lowerer<'_> {
         let Some(expr) = expr else {
             return 0;
         };
-        let mut version = 0;
+        let mut spec = 0;
         match self.types.type_rows.get(expr) {
             Some(rows) => {
                 for (i, row) in rows.iter().enumerate() {
-                    if version_has(candidates, i as u32) && self.row_suspends(row) {
-                        version |= 1 << i;
+                    if spec_has(candidates, i as u32) && self.row_suspends(row) {
+                        spec |= 1 << i;
                     }
                 }
             }
-            // 自分自身の参照は具体化しない（型検査の `instantiate_def`）ので，今の版のまま．
-            None if self.current_def == Some(def) => return self.version,
+            // 自分自身の参照は具体化しない（型検査の `instantiate_def`）ので，今写している関数と同じ．
+            None if self.current_def == Some(def) => return self.spec,
             // 同じまとまりの中でまだ汎化していない定義の参照も具体化しない．その定義の型引数は，
             // 汎化した集合変数をそのまま共有している．
             None => {
                 for &(v, i) in self.types.generalized_rows.get(def).into_iter().flatten() {
-                    if version_has(candidates, i) && self.row_suspends(&Row::var(v)) {
-                        version |= 1 << i;
+                    if spec_has(candidates, i) && self.row_suspends(&Row::var(v)) {
+                        spec |= 1 << i;
                     }
                 }
             }
         }
-        version
+        spec
     }
 }
 
-/// 版 `version` で `i` 番目の型引数が中断しうるか．
-fn version_has(version: Version, i: u32) -> bool {
-    i < Version::BITS && version & (1 << i) != 0
+/// 写し `spec` で `i` 番目の型引数が中断しうるか．
+fn spec_has(spec: Specialization, i: u32) -> bool {
+    i < Specialization::BITS && spec & (1 << i) != 0
 }
 
-/// スキームの型引数のうち，効果の集合として使われ，Immediate の制約を持たないもの（版のビットの
-/// 候補）．
-fn effect_params(scheme: &Scheme) -> Version {
+/// スキームの型引数のうち，効果の集合として使われ，Immediate の制約を持たないもの（中断用の
+/// 写しのビットの候補）．
+fn effect_params(scheme: &Scheme) -> Specialization {
     let mut out = 0;
     collect_effect_params(&scheme.ty, &mut out);
     for (i, p) in scheme.params.iter().enumerate() {
-        if p.bounds.iter().any(|b| b == IMMEDIATE) && (i as u32) < Version::BITS {
+        if p.bounds.iter().any(|b| b == IMMEDIATE) && (i as u32) < Specialization::BITS {
             out &= !(1 << i);
         }
     }
     out
 }
 
-fn collect_effect_params(ty: &Ty, out: &mut Version) {
+fn collect_effect_params(ty: &Ty, out: &mut Specialization) {
     let mut row = |row: &Row| {
         for e in row.elems() {
             if let RowElem::Bound(i) = e
-                && *i < Version::BITS
+                && *i < Specialization::BITS
             {
                 *out |= 1 << i;
             }

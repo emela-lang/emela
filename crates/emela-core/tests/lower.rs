@@ -691,10 +691,10 @@ fn missing_core_js_file_is_an_error() {
 }
 
 /// suspend（8.1，8.4，12.2，16.5）．中断しうる関数，ラムダ，呼び出しに印を付ける．多相な R の関数
-/// （`List.map`）は，中断しうる関数を渡したところで中断しうる版（`List.map$suspend…`）を作る．
+/// （`List.map`）は，中断しうる関数を渡したところで中断用の写し（`List.map$suspend…`）を作る．
 /// main の R に残った Async は証拠の表を要らない（ランタイムが供給する）．
 #[test]
-fn suspend_marks_and_versions() {
+fn suspend_marks_and_copies() {
     let m = lower_files(&[(
         "main.emel",
         "\

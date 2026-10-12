@@ -26,7 +26,7 @@ use crate::named;
 
 mod suspend;
 
-use suspend::Version;
+use suspend::Specialization;
 
 /// 型検査を通ったが IR にできなかった理由．
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,7 +107,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         fns: FxHashMap::default(),
         worklist: Vec::new(),
         current_def: None,
-        version: 0,
+        spec: 0,
         enums: ArenaMap::default(),
         ctors: ArenaMap::default(),
         locals: ArenaMap::default(),
@@ -138,8 +138,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def, 0)).collect(),
         _ => Vec::new(),
     };
-    while let Some((def, version)) = cx.worklist.pop() {
-        cx.define_fn(def, version);
+    while let Some((def, spec)) = cx.worklist.pop() {
+        cx.define_fn(def, spec);
     }
     if let Some(target) = input.target {
         let entries: Vec<FnId> = match roots {
@@ -185,14 +185,14 @@ struct Lowerer<'a> {
     false_def: Option<DefId>,
     /// 作りかけの IR．
     module: Module,
-    /// HIR の fn と const の版（`suspend.rs`）→ IR の関数．const は引数のない関数にする．
+    /// HIR の fn と const と，どの中断用の写しか（`suspend.rs`）→ IR の関数．const は引数のない関数にする．
     /// [`Lowerer::fn_id`] だけが足す．
-    fns: FxHashMap<(DefId, Version), FnId>,
-    /// ID を割り振ったが本体をまだ写していない fn の版．
-    worklist: Vec<(DefId, Version)>,
-    /// 本体を写している定義と，その版．ラムダと呼び出しの「中断しうる」の印を決めるのに使う．
+    fns: FxHashMap<(DefId, Specialization), FnId>,
+    /// ID を割り振ったが本体をまだ写していない fn（と，どの中断用の写しか）．
+    worklist: Vec<(DefId, Specialization)>,
+    /// 本体を写している定義と，どの中断用の写しか．ラムダと呼び出しの「中断しうる」の印を決めるのに使う．
     current_def: Option<DefId>,
-    version: Version,
+    spec: Specialization,
     /// HIR の type / enum / error → IR の enum．
     enums: ArenaMap<DefId, EnumId>,
     /// HIR の構成子 → IR の構成子．error は宣言そのものが構成子．Bool の構成子は持たない．
@@ -407,30 +407,30 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// fn の版 `version` の IR の ID．まだなければ割り振って作業リストに積む．fn の ID はここでしか
-    /// 作らない．版 0 の名前は定義の IR の名前のまま，それ以外は `名前$suspend版` にする（`$` は
-    /// Emela の名前に現れないので重ならない）．公開するのは版 0 だけ．
-    fn fn_id(&mut self, def: DefId, version: Version) -> FnId {
-        if let Some(&id) = self.fns.get(&(def, version)) {
+    /// fn の写し `spec` の IR の ID．まだなければ割り振って作業リストに積む．fn の ID はここでしか
+    /// 作らない．元の関数（0）の名前は定義の IR の名前のまま，中断用の写しは `名前$suspendビット` に
+    /// する（`$` は Emela の名前に現れないので重ならない）．公開するのは元の関数だけ．
+    fn fn_id(&mut self, def: DefId, spec: Specialization) -> FnId {
+        if let Some(&id) = self.fns.get(&(def, spec)) {
             return id;
         }
         let mut name = self.ir_name(def);
-        if version != 0 {
-            name = format!("{name}$suspend{version}");
+        if spec != 0 {
+            name = format!("{name}$suspend{spec}");
         }
         let id = self
             .module
-            .declare(&name, version == 0 && self.is_exported(def));
-        self.module.functions[id].suspends = self.fn_suspends(def, version);
-        self.fns.insert((def, version), id);
-        self.worklist.push((def, version));
+            .declare(&name, spec == 0 && self.is_exported(def));
+        self.module.functions[id].suspends = self.fn_suspends(def, spec);
+        self.fns.insert((def, spec), id);
+        self.worklist.push((def, spec));
         id
     }
 
-    /// 式 `expr` で参照した fn の IR の ID．具体化に合う版を選ぶ．
+    /// 式 `expr` で参照した fn の IR の ID．具体化に合う写しを選ぶ．
     fn fn_ref(&mut self, def: DefId, expr: ExprId) -> FnId {
-        let version = self.version_of(def, Some(expr));
-        self.fn_id(def, version)
+        let spec = self.specialization_of(def, Some(expr));
+        self.fn_id(def, spec)
     }
 
     /// HIR の局所変数に対応する IR の局所変数．まだなければ作る．
@@ -443,16 +443,16 @@ impl<'a> Lowerer<'a> {
         l
     }
 
-    fn define_fn(&mut self, def: DefId, version: Version) {
+    fn define_fn(&mut self, def: DefId, spec: Specialization) {
         let hir = self.hir;
-        let id = self.fns[&(def, version)];
-        // 関数ごとに証拠の表と with の束縛を始め直す．局所変数の対応も作り直す（同じ定義の別の版も
-        // 局所変数を共有しないように．HIR の局所変数はどれか1つの定義の本体のもの）．
+        let id = self.fns[&(def, spec)];
+        // 関数ごとに証拠の表と with の束縛を始め直す．局所変数の対応も作り直す（同じ定義の元の関数と
+        // 中断用の写しが局所変数を共有しないように．HIR の局所変数はどれか1つの定義の本体のもの）．
         self.ev = None;
         self.bound.clear();
         self.locals = ArenaMap::default();
         self.current_def = Some(def);
-        self.version = version;
+        self.spec = spec;
         let (mut params, body) = match hir.item(def) {
             // `@external suspend fn` は，宣言の型の R に Async があるので中断しうる関数になり，
             // ホストの関数の返した Promise を待つ（12.2，`fn_id`）．
