@@ -10,6 +10,10 @@
 //!   汎化するときに `Immediate` の制約を付ける．
 //! - 外部関数の引数の関数型で `use` を省略したときの見えない集合は `Immediate` の制約を持つ
 //!   （コールバックは Immediate でなければならない，9.5）ので，同じ仕組みで確かめる．
+//! - fn の操作の実装の本体は，R が Immediate であるか，中断しうる呼び出しを含まないかの
+//!   どちらかを満たす（E0417，8.1）．呼び出しが中断しうるかは，操作の呼び出しなら操作の宣言
+//!   （`suspend fn` か），`@external suspend fn` ならいつも，関数と関数の値なら呼ばれる側の型の R
+//!   （Immediate でないか）で決める．
 
 use emela_resolve::hir::{
     BinaryOp, DefId, ExprId, ExprKind, Item, LocalId, Program, Res, Span, Stmt, StrPart,
@@ -17,10 +21,10 @@ use emela_resolve::hir::{
 use smol_str::SmolStr;
 
 use super::{BodyInfer, ImmediateObligation};
-use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
 use crate::lower::{IMMEDIATE, is_immediate_effect};
 use crate::row::{Row, RowElem};
-use crate::ty::TyParam;
+use crate::ty::{Ty, TyParam};
 
 impl BodyInfer<'_> {
     /// 定義 `def` の参照で，型引数 `params` を集合 `rows` に具体化した．`Immediate` の制約のある
@@ -98,9 +102,13 @@ impl BodyInfer<'_> {
 }
 
 impl BodyInfer<'_> {
-    /// fn の操作の実装の本体が中断しないか確かめる（E0417）．fn の操作は「ハンドラが値を返すと，
-    /// 呼び出し元はすぐ続きを実行する」（8.1）ので，呼び出し元は中断しない前提で出力する．
-    /// 集合を解いた後に呼ぶ．handler は型引数を持たないので，本体の R の要素はタグだけを見る．
+    /// fn の操作の実装の本体が中断しないか確かめる（E0417，8.1）．fn の操作は「ハンドラが値を返すと，
+    /// 呼び出し元はすぐ続きを実行する」ので，呼び出し元は中断しない前提で出力する．集合を解いた後に呼ぶ．
+    ///
+    /// 本体の R が Immediate か，本体が中断しうる呼び出しを含まなければ通す．どちらもそれだけで
+    /// 本体が中断しないことを保証する．後者は本体の中の呼び出しを1つずつ見る
+    /// （[`Self::suspending_call`]）．無名関数の本体の中の呼び出しは，その無名関数を呼んだところで
+    /// 関数の値の呼び出しとして数える．どちらも満たさなければ，中断しうる呼び出しごとに報告する．
     pub(super) fn check_fn_op_bodies(&mut self) {
         let program = self.program;
         let bodies: Vec<(DefId, usize, ExprId)> = self
@@ -110,35 +118,116 @@ impl BodyInfer<'_> {
             .map(|b| (b.handler, b.index, b.body))
             .collect();
         for (handler, index, body) in bodies {
-            let Some(row) = self.expr_effects.get(body).cloned() else {
-                continue;
-            };
-            let row = self.ctx.resolve_row(&row);
-            let effects: Vec<SmolStr> = row
-                .elems()
-                .iter()
-                .filter_map(|e| match e {
-                    RowElem::Tag(effect) if !is_immediate_effect(program, *effect) => {
-                        Some(program.defs[*effect].name.clone())
-                    }
-                    _ => None,
-                })
-                .collect();
-            if effects.is_empty() {
-                continue;
-            }
             let Some(Item::Handler(h)) = program.item(handler) else {
                 continue;
             };
-            let name = &h.ops[index].name;
-            self.diags.push(Diagnostic {
-                span: Some(name.span),
-                kind: DiagnosticKind::SuspendingFnOp {
-                    op: name.name.clone(),
-                    effects,
-                },
+            // 本体の R が Immediate なら，中に中断しうる呼び出しがあっても（その場で resume する
+            // ハンドラの with の中），本体は中断しない．呼び出しを見ずに通す．handler は型引数を
+            // 持たないので，R の要素はタグだけを見る．
+            let row = self
+                .expr_effects
+                .get(body)
+                .cloned()
+                .map(|r| self.ctx.resolve_row(&r));
+            let immediate = row.is_some_and(|r| {
+                r.elems().iter().all(|e| match e {
+                    RowElem::Tag(effect) => is_immediate_effect(program, *effect),
+                    _ => true,
+                })
+            });
+            if immediate {
+                continue;
+            }
+            let op = h.ops[index].name.name.clone();
+            let mut stack = vec![body];
+            while let Some(expr) = stack.pop() {
+                let callee = match &program.exprs[expr].kind {
+                    ExprKind::Call { callee, .. } => Some(*callee),
+                    // `x |> f` は `f(x)`．右辺が呼び出しなら，その呼び出しの式で数える．
+                    ExprKind::Binary {
+                        op: BinaryOp::Pipe,
+                        rhs,
+                        ..
+                    } if !matches!(program.exprs[*rhs].kind, ExprKind::Call { .. }) => Some(*rhs),
+                    _ => None,
+                };
+                if let Some(call) = callee.and_then(|c| self.suspending_call(c)) {
+                    self.diags.push(Diagnostic {
+                        span: Some(program.exprs[expr].span),
+                        kind: DiagnosticKind::SuspendingFnOp {
+                            op: op.clone(),
+                            call,
+                        },
+                    });
+                }
+                // 書かれた順に報告するよう，逆順に積む．
+                stack.extend(self.sub_exprs(expr).into_iter().rev());
+            }
+        }
+    }
+
+    /// 呼ばれる側 `callee` の呼び出しが中断しうるなら，その理由（8.1）．
+    ///
+    /// - 能力の値の操作の呼び出しは，操作の宣言が `suspend fn` なら中断しうる．
+    /// - `@external suspend fn` の呼び出しは中断しうる．
+    /// - 関数と関数の値の呼び出しは，呼ばれる側の型の R が Immediate でなければ中断しうる．
+    ///   関数の本体から中断しないことを推論しない（関数のシグネチャに中断の印は付かない）．
+    fn suspending_call(&mut self, callee: ExprId) -> Option<SuspendingCall> {
+        let program = self.program;
+        if let Some(&op) = self.ops.get(callee) {
+            let Some(Item::Op(o)) = program.item(op) else {
+                return None;
+            };
+            if !o.sig.is_suspend {
+                return None;
+            }
+            let data = &program.defs[op];
+            let effect = data
+                .parent
+                .map(|e| program.defs[e].name.clone())
+                .unwrap_or_default();
+            return Some(SuspendingCall::Op {
+                effect,
+                op: data.name.clone(),
             });
         }
+        let named = match program.exprs[callee].kind {
+            ExprKind::Path(Res::Def(def)) => Some(def),
+            _ => None,
+        };
+        if let Some(def) = named
+            && let Some(Item::Fn(f)) = program.item(def)
+            && f.is_external
+            && f.sig.is_suspend
+        {
+            return Some(SuspendingCall::External {
+                callee: program.defs[def].name.clone(),
+            });
+        }
+        let ty = self.exprs.get(callee).cloned().unwrap_or(Ty::Error);
+        let Ty::Fn(f) = self.ctx.shallow_resolve(&ty) else {
+            return None;
+        };
+        let row = self.ctx.resolve_row(&f.uses);
+        let effects: Vec<SmolStr> = row
+            .elems()
+            .iter()
+            .filter_map(|e| match e {
+                RowElem::Tag(effect) if !is_immediate_effect(program, *effect) => {
+                    Some(program.defs[*effect].name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        if effects.is_empty() {
+            return None;
+        }
+        let callee = match program.exprs[callee].kind {
+            ExprKind::Path(Res::Def(def)) => Some(program.defs[def].name.clone()),
+            ExprKind::Path(Res::Local(l)) => Some(program.locals[l].name.clone()),
+            _ => None,
+        };
+        Some(SuspendingCall::Fn { callee, effects })
     }
 }
 

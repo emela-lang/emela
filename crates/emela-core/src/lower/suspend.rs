@@ -1,7 +1,9 @@
 //! 中断しうるかの印（8.1，9.5，16.5）．
 //!
 //! 関数，ラムダ，呼び出しの印は，型の効果の集合 R が Immediate でないか（中断しうるか）で決める．
-//! R の要素ごとに，エフェクトは suspend fn を持つか Async なら中断しうる（9.5）．
+//! R の要素ごとに，エフェクトは suspend fn を持つか Async なら中断しうる（9.5）．操作の呼び出しは
+//! 操作の宣言（`suspend fn` か）で決め，fn の操作の実装は，本体の R が Immediate でなく，本体の中に
+//! 中断しうる呼び出しの印もあるときだけ中断しうるとする（E0417，8.1）．
 //!
 //! 集合の型引数（`List.map` の `R(f)` など）は，具体化しだいで中断しうるかが変わる．中断しうる関数は
 //! ジェネレータにし，呼び出しの形も変わるので，そういう関数は，中断しうる集合に具体化した呼び出し用に
@@ -14,6 +16,7 @@ use emela_resolve::hir::{DefId, ExprId, Item};
 use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
 
 use super::Lowerer;
+use crate::ir::Expr;
 
 /// どの中断用の写しか．効果の集合の型引数のうち，中断しうる集合に具体化したものの添字のビット．
 /// 0 は元の関数（全部 Immediate）．
@@ -106,6 +109,21 @@ impl Lowerer<'_> {
             }
         }
         spec
+    }
+}
+
+/// 写した式 `e` が，中断しうる呼び出し（`Expr::Call::suspends`）を含むか．無名関数の本体の中は
+/// 見ない（その無名関数を呼んだところで，関数の値の呼び出しの印になる）．呼び出しの印は型検査の
+/// E0417 と同じ判定（操作の呼び出しは操作の宣言，関数の呼び出しは型の R）で付けてある．
+pub(super) fn has_suspending_call(e: &Expr) -> bool {
+    match e {
+        Expr::Lambda { .. } => false,
+        Expr::Call { suspends: true, .. } => true,
+        _ => {
+            let mut found = false;
+            e.for_each_child(&mut |c| found = found || has_suspending_call(c));
+            found
+        }
     }
 }
 

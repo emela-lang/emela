@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
-    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, Ty, TyCons, TypeError,
-    TypeErrorKind,
+    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, SuspendingCall, Ty,
+    TyCons, TypeError, TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -760,17 +760,46 @@ impl Diagnostic {
                     )
                 }
             }
-            TypeDiagnosticKind::SuspendingFnOp { op, effects } => {
-                help = Some(format!(
-                    "declare `{op}` as a `suspend fn` in the effect, or call the suspending operation outside the handler"
-                ));
+            TypeDiagnosticKind::SuspendingFnOp { op, call } => {
+                let declare = format!("declare `{op}` as a `suspend fn` in the effect");
+                let cause = match call {
+                    SuspendingCall::Op { effect, op: called } => {
+                        help = Some(declare);
+                        format!(
+                            "operation `{called}` of `{effect}` is a `suspend fn` and may suspend"
+                        )
+                    }
+                    SuspendingCall::External { callee } => {
+                        help = Some(declare);
+                        format!("external function `{callee}` may suspend")
+                    }
+                    SuspendingCall::Fn { callee, effects } => {
+                        // 関数を挟むと，fn の操作しか呼ばなくても中断しうるとみなす（8.1）．
+                        // Async だけなら操作を直接呼んでも変わらないので案内しない．
+                        let ops: Vec<String> = effects
+                            .iter()
+                            .filter(|e| e.as_str() != "Async")
+                            .map(|e| format!("`{e}`"))
+                            .collect();
+                        help = Some(if ops.is_empty() {
+                            declare
+                        } else {
+                            format!(
+                                "{declare}, or call the `fn` operations of {} directly instead of through a function",
+                                ops.join(", ")
+                            )
+                        });
+                        let list = quoted_list("effect", "effects", effects);
+                        match callee {
+                            Some(f) => format!("calling `{f}` may suspend because it uses {list}"),
+                            None => format!("this call may suspend because it uses {list}"),
+                        }
+                    }
+                };
                 (
                     Severity::Error,
                     Some(code::SUSPENDING_FN_OP),
-                    format!(
-                        "{} may suspend, but operation `{op}` is not a `suspend fn`",
-                        quoted_list("effect", "effects", effects)
-                    ),
+                    format!("{cause}, but operation `{op}` is not a `suspend fn`"),
                 )
             }
             TypeDiagnosticKind::NotImmediate {

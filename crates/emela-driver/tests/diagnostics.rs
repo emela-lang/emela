@@ -596,6 +596,16 @@ handler JsHttp implements Http {
   fn get(url) { fetch_text(url) }
 }
 
+effect Ticks {
+  fn tick() -> Int
+}
+
+fn stamp() -> Int use { Clock } { (use Clock).now() }
+
+handler Stamped implements Ticks {
+  fn tick() { stamp() + (use Clock).now() }
+}
+
 fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }

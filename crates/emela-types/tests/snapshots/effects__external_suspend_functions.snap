@@ -7,7 +7,7 @@ outside: fn() -> String use Async
 main: fn() -> String use Async
 handler JsHttp: use Async
 handler AwaitingInFn: use Async
-`get` SuspendingFnOp { op: "get", effects: ["Async"] }
+`fetch_text(url)` SuspendingFnOp { op: "get", call: External { callee: "fetch_text" } }
 `fetch_text` ExternalOutsideHandler { name: "fetch_text", suspend: true }
 --- R
 { resume(fetch_text(url)) }: Async

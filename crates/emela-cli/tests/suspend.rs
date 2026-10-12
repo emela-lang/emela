@@ -203,3 +203,64 @@ fn never_resumed() {
         "{stdout}"
     );
 }
+
+/// fn の操作の実装は，fn の操作を呼ぶだけなら中断しない（8.1，E0417）．内側の InstantTimer の
+/// `now` は外側の JsTimer の `now` を呼んで返す．`now` はジェネレータにならない．
+#[test]
+fn fn_op_calls_outer_fn_op() {
+    let project = Project::new(
+        "fn-op",
+        r#"effect Timer {
+  suspend fn wait(ms: Int) -> Int
+  fn now() -> Int
+}
+
+handler JsTimer implements Timer {
+  suspend fn wait(ms, resume) {
+    after(ms, fn() { resume(ms) })
+  }
+  fn now() { 42 }
+}
+
+handler InstantTimer implements Timer {
+  suspend fn wait(ms, resume) { resume(0) }
+  fn now() { (use Timer).now() + 1 }
+}
+
+handler PureTimer implements Timer {
+  suspend fn wait(ms, resume) { resume(ms * 2) }
+  fn now() { 0 }
+}
+
+handler LocalWait implements Timer {
+  suspend fn wait(ms, resume) { resume(0) }
+  fn now() {
+    with PureTimer { (use Timer).wait(7) }
+  }
+}
+
+fn main() {
+  with JsConsole {
+    console = use Console
+    with JsTimer {
+      waited = (use Timer).wait(5)
+      with InstantTimer {
+        console.print_line("now #{(use Timer).now()} after #{waited}")
+      }
+      with LocalWait {
+        console.print_line("local #{(use Timer).now()}")
+      }
+    }
+  }
+}
+"#,
+    );
+    let (code, stdout, stderr) = project.emela(&["run"]);
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), "now 43 after 5\nlocal 14\n", "")
+    );
+    let js = std::fs::read_to_string(project.dir.join("target/emela/js/main.mjs")).unwrap();
+    assert!(!js.contains("now: (function*"), "{js}");
+    assert!(js.contains("now: (() => (((ev$"), "{js}");
+}
