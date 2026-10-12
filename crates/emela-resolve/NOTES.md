@@ -96,6 +96,7 @@
 
 - （補）core のモジュールは `ModuleMap::add_core` でソースのモジュールと同じ対応表に足し，同じように収集，import，変換する．同じ名前のソースのモジュールがあれば，名前は core の方を指し，ソースのモジュールには E0203（予約された名前）を出す
 - （補）import なしで `.` の左に書けるのと，型の位置で見つからない `X` を `X` モジュールの pub な型 `X` に解決するのは，名前が1区切りの core のモジュールだけ（4.6）．ソースのモジュールは import が要る
+- （補）同梱の std のモジュールも `add_core` で足す．名前は `Std.Console` のように `Std` の下の2区切りなので，上の import なしの規則は当たらず，import して使う（15.2）．ソースのルート直下の `std.emel` と `std/` は，std のモジュールと重なるかに関わらず E0203（4.1）．`std/` はディレクトリの位置に1つ出し，中は読まない．`std` 以外のディレクトリの下の `std.emel`（`App.Std`）は置ける
 - （補）core に `Prelude` があれば，その pub な定義で Prelude の名前（型，構成子，値）を名前ごとに上書きする．ソースで書いていない名前は組み込みの Prelude のまま残るので，corelib の `prelude.emel` へ少しずつ移せる．上書きした定義は `Program::prelude` にも入るので，`prelude_def` で引ける（`DefModule` は `Source` になる）
 - （補）core のモジュールの中では Prelude を隠す警告（W0202）を出さない
 - （補）`@intrinsic` は，同梱の core のソースのトップレベルの本体のない fn にだけ付けられる．core の外で使えば E0224，本体のある fn，fn 以外，trait・impl・handler の中の fn に付ければ E0225（今のパーサは本体の中に注釈を置かせないので，最後のものは備え）．HIR の `FnItem::is_intrinsic` が立つ

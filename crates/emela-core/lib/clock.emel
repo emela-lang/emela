@@ -1,9 +1,0 @@
-# The Clock effect (spec 8.1; the platform layer of spec 15.2). Only the declaration lives here;
-# handlers live in per-target modules (`JsClock` for JS).
-#
-# Use it as `(use Clock).now()` and provide it with `with JsClock { ... }` in `main` or similar.
-
-pub effect Clock {
-  suspend fn sleep(ms: Int) -> ()
-  fn now() -> Instant
-}

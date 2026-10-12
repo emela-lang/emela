@@ -1,4 +1,4 @@
-// Host functions for JsClock (js_clock.emel). Int64 is a BigInt in JS.
+// Host functions for SystemClock (clock.emel). Int64 is a BigInt in JS.
 
 export function nowMilliseconds() {
   return BigInt(Date.now());

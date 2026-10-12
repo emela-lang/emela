@@ -122,6 +122,9 @@ fn state_source_typechecks() {
 fn spec_test_console() {
     insta::assert_snapshot!(render(
         r#"
+import Std.Console.{Console}
+import Std.State.{State}
+
 fn greet(id: Int) -> () use { Console } {
   (use Console).print_line("Hello, alice!")
 }
@@ -151,6 +154,11 @@ fn captured() {
 fn test_clock() {
     insta::assert_snapshot!(render(
         r#"
+import Std.Clock.{Clock}
+import Std.State.{State}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
 handler TestClock implements Clock {
   suspend fn sleep(ms, resume) {
     (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int.to_int64(ms))) })
@@ -181,6 +189,8 @@ fn test_elapsed() {
 fn distinct_by_type_args() {
     insta::assert_snapshot!(render(
         r#"
+import Std.State.{State}
+
 handler Zero implements State[Int] {
   fn get() { 0 }
   fn set(value) { () }
@@ -231,6 +241,8 @@ fn test_leftover() { with Zero { both() } }
 fn generic_state() {
     insta::assert_snapshot!(render(
         r#"
+import Std.State.{State}
+
 fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
   st = use State[S]
   st.update(f)
@@ -256,6 +268,8 @@ fn peek_int() { State.run(1, fn() { peek() }) }
 fn errors() {
     insta::assert_snapshot!(render(
         r#"
+import Std.State.{State}
+
 effect Logger {
   fn info(msg: String) -> ()
 }
@@ -300,6 +314,9 @@ fn as_type(x: State[Int]) { () }
 fn handlers_and_layers() {
     insta::assert_snapshot!(render(
         r#"
+import Std.Console.{Console}
+import Std.State.{State}
+
 handler Zero implements State[Int] {
   fn get() { 0 }
   fn set(value) { () }

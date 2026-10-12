@@ -329,9 +329,9 @@ fn every_core_function_lowers() {
         .unwrap_or_else(|errors| panic!("{}", errors.join("\n")));
     let names = fn_names(&m);
     assert!(names.contains(&"List.map"));
-    // handler と外部関数も写す（同梱の JsConsole）．
-    assert!(names.contains(&"JsConsole.JsConsole"));
-    assert!(names.contains(&"JsConsole.console_log"));
+    // handler と外部関数も写す（同梱の SystemConsole）．
+    assert!(names.contains(&"Std.Console.SystemConsole"), "{names:?}");
+    assert!(names.contains(&"Std.Console.console_log"));
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn state_run_and_effect_type_args() {
     let m = lower_files(&[(
         "main.emel",
         "\
-fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+import Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
   (use State[S]).update(f)
   (use State[S]).get()
 }
@@ -731,10 +731,10 @@ pub fn gone() -> Int use {}
 /// 同梱の JS のファイル．`host_test.mjs` が `helper.mjs` を相対で import する．
 const HOST_TEST_JS: &[(&str, &str)] = &[
     (
-        "host_test.mjs",
+        "core/host_test.mjs",
         "import { base } from \"./helper.mjs\";\nexport const now = () => base;\n",
     ),
-    ("helper.mjs", "export const base = 42;\n"),
+    ("core/helper.mjs", "export const base = 42;\n"),
 ];
 
 /// 同梱の core に `HostTest` を足して lowering する．
@@ -758,7 +758,7 @@ fn core_external_points_to_bundled_js_file() {
     assert_eq!(ext.len(), 1, "{out}");
     assert_eq!(
         ext[0].trim(),
-        "external fn HostTest.now() = js[\"./emela_core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
+        "external fn HostTest.now() = js[\"./emela_core/core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
     );
     let files: Vec<(&str, &str)> = m
         .js_files
@@ -801,7 +801,7 @@ fn after(ms: Int, f: fn() -> ()) -> ()
 @external(js, \"./ffi.mjs\", \"fetchText\")
 suspend fn fetch_text(url: String) -> String
 
-handler JsClock implements Clock {
+handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
   fn now() { 0 }
 }
@@ -822,7 +822,7 @@ fn naps(xs: List[Int]) -> List[Int] use Clock {
 }
 
 fn main() {
-  with JsClock { dbg(naps([1, 2])) }
+  with SystemClock { dbg(naps([1, 2])) }
   with InstantClock { dbg((use Clock).sleep(1)) }
   with FetchingClock { dbg((use Clock).sleep(1)) }
   dbg(List.map([1], fn(x) { x }))
@@ -836,7 +836,7 @@ fn main() {
             [
                 "fn main(",
                 "fn naps(",
-                "fn JsClock(",
+                "fn SystemClock(",
                 "fn InstantClock(",
                 "fn FetchingClock(",
                 "fn fetch_text(",
@@ -867,7 +867,7 @@ effect Clock {
 @external(js, \"setTimeout\")
 fn after(ms: Int, f: fn() -> ()) -> ()
 
-handler JsClock implements Clock {
+handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
   fn now() { 42 }
 }
@@ -898,7 +898,7 @@ handler LocalSleep implements Clock {
 }
 
 fn main() {
-  with JsClock {
+  with SystemClock {
     with InstantClock { dbg((use Clock).now()) }
     with CapturedClock { dbg((use Clock).now()) }
     with LocalSleep { dbg((use Clock).now()) }

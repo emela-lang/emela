@@ -93,7 +93,7 @@ pub enum Builtin {
 
 /// lowering がランタイムのハンドラとして写す `@intrinsic` の宣言（モジュール名と関数名）．
 /// 組み込み関数の表には載せない（`State.run` は body を呼び，証拠の表を足すので，関数1つの実装でない）．
-pub const RUNTIME_HANDLERS: &[(&str, &str)] = &[("State", "run")];
+pub const RUNTIME_HANDLERS: &[(&str, &str)] = &[("Std.State", "run")];
 
 /// [`RUNTIME_HANDLERS`] の宣言か．
 pub fn is_runtime_handler(module: &str, name: &str) -> bool {

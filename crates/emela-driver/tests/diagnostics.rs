@@ -578,7 +578,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> ()
 @external(js, "./ffi.mjs", "fetchText")
 suspend fn fetch_text(url: String) -> String
 
-handler JsClock implements Clock {
+handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
@@ -625,7 +625,7 @@ fn misuse(g: fn(Int) -> Int) {
 }
 
 fn main() {
-  with JsClock { (use Clock).sleep(1) }
+  with SystemClock { (use Clock).sleep(1) }
 }
 "#,
         )],
@@ -767,7 +767,7 @@ layer Twice {
 #[test]
 fn bundled_console_checks_cleanly() {
     // 同梱の Console と JsConsole は import なしで使える（15.2）．
-    let main = "fn main() {\n  with JsConsole {\n    (use Console).print_line(\"hi\")\n  }\n}\n";
+    let main = "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    (use Console).print_line(\"hi\")\n  }\n}\n";
     let files = [("home/main.emel", main)];
     for analysis in [
         check_files(&files, "home/main.emel", &mut Resolve::default()),
@@ -852,18 +852,23 @@ fn mine() -> Int { 1 }
 }
 
 #[test]
-fn time_module_files_are_reserved() {
-    // 同梱の Instant と Duration と同じ名前のファイルはソースのルート直下に置けない（4.1，E0203）．
+fn std_and_core_module_files_are_reserved() {
+    // core のモジュールと同じ名前のファイルと，`std.emel` と `std/` はソースのルート直下に置けない
+    // （4.1，E0203）．std のモジュールは `Std` の下にあるので，`instant.emel` は置ける（15.2）．
     let analysis = check_files(
         &[
             ("app/Pome.toml", ""),
-            ("app/src/main.emel", "fn main() {}\n"),
+            (
+                "app/src/main.emel",
+                "import Instant\n\nfn main() { Instant.f() }\n",
+            ),
             ("app/src/instant.emel", "pub fn f() -> Int { 1 }\n"),
-            ("app/src/duration.emel", "pub fn f() -> Int { 1 }\n"),
+            ("app/src/list.emel", "pub fn f() -> Int { 1 }\n"),
+            ("app/src/std.emel", "pub fn f() -> Int { 1 }\n"),
+            ("app/src/std/console.emel", "pub fn f() -> Int { 1 }\n"),
         ],
         "app",
         &mut Typecheck::default(),
     );
-    let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
-    assert_eq!(codes, [Some("E0203"), Some("E0203")]);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }

@@ -3,6 +3,8 @@
 #
 # This module cannot read the current time; the Clock effect returns it.
 
+import Std.Duration.{Duration}
+
 pub opaque type Instant(milliseconds: Int64)
 
 ## Negative values are before the epoch.

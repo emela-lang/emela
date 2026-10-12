@@ -1,9 +1,0 @@
-# The Random effect (the platform layer of spec 15.2). Only the declaration lives here; handlers
-# live in per-target modules (`JsRandom` for JS).
-
-pub effect Random {
-  ## Uniform over the whole range of Int.
-  fn int() -> Int
-  ## Uniform in [0, 1).
-  fn float() -> Float
-}

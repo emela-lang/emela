@@ -44,7 +44,10 @@
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
-- （補）Prelude と core のソースは `lib/*.emel` で，`core_sources()` がモジュール名とソースの組を返す．モジュール名は `List`，`Option`，`String`，`Int`，`Int64`，`Float`，`Duration`，`Instant`，`Console`，`JsConsole`，`Random`，`JsRandom`，`Env`，`JsEnv`，`Clock`，`JsClock` と，Prelude の `PRELUDE`（`"Prelude"`）．Prelude が先頭．
+- （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
+- （補）std のモジュールは `Std` の下の2区切りの名前で，import して使う（`import Std.Console.{Console, SystemConsole}`）．名前が1区切りでないので，import なしで `.` の左に書く規則と，型の位置の名前をモジュールと同じ名前の型に解決する規則（4.6）は当たらない．std のモジュールどうしも import でつなぐ（`Std.Instant` は `import Std.Duration.{Duration}`）
+- （補）std のモジュールを足しても，利用者のファイル名は予約名にならない．予約名は core のモジュール名と `std.emel`，`std/`（4.1．emela-resolve の NOTES）
+- （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引き，出力先の `emela_core/std/clock.mjs` に書き出す
 - （補）`@intrinsic` の宣言は `Builtin::lookup_intrinsic(モジュール名, 関数名)` で表を引く．`"Prelude"` は表の `module: None`（修飾せずに呼ぶ関数）に当たる．
 - （補）`@intrinsic` の宣言は `pub` で，引数と戻り値の型，型引数の数を表と一致させる．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
@@ -58,18 +61,15 @@
 - （補）`List.range(from, to)` は `from` 以上 `to` 未満．`List.zip` は短い方に合わせる．
 - （補）`Option.or_fail[A, E](opt: Option[A], err: E) -> A fails E` の引数名は仕様 7.2 の例に合わせて `err`．本体も 7.2 のとおり（`None -> fail err`）．E が入ったので `option.emel` に同梱した（2026-10-12）．
 
-## Console（`console.emel`，`js_console.emel`）
+## platform のハンドラと Platform（`std/console.emel`，`std/clock.emel`，`std/random.emel`，`std/env.emel`，`std/platform.emel`）
 
-alpha.2 で同梱した（2026-10-12）．仕様は構成だけを決めている（15.2）ので，名前と数はここで決めた．
+alpha.2〜alpha.3 で JS 用のハンドラ（`JsConsole` など）を別のモジュールに置いて同梱し，alpha.4 で仕様 15.2，18.1 #33 の形に移した（2026-10-12）．
 
-- （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書く．`fails` は書かない（失敗しない）．改行なしの `print` と入力の読み取りは，要るときに足す．
-- （補）エフェクトはモジュール `Console`（`console.emel`），JS 用のハンドラはモジュール `JsConsole`（`js_console.emel`）に置き，ハンドラの名前もモジュールと同じ `JsConsole` にする．ターゲットの名前を前に付ける（WASI 用は `WasiConsole` にする）．名前が1区切りの core のモジュールは，型の位置の名前をモジュールと同じ名前の型に解決する（4.6）ので，利用者は import なしで `with JsConsole { (use Console).print_line("hi") }` と書ける．ターゲットごとの layer（15.2）は，layer を入れるときに別のモジュールで決める．
-- （補）`JsConsole` は `import Console.{Console}` でエフェクトを取り込む．core のモジュールが別の core のモジュールを import する初めての例．
-- （補）`Console` と `JsConsole` を同梱したので，ソースのルート直下の `console.emel` と `js_console.emel` は予約名（E0203）になる（仕様 4.1，15.2．本人の決定）．
-- （補）WASM のビルドで `JsConsole` を読んでも，使わなければ誤りにならない（12.1 の「たどれる fn だけ検査」．下の「外部関数」）．
-- （補）ホストの関数（`console_log` は `console.log`，`console_error` は `console.error`）は `JsConsole` の中の非公開の `@external(js, ...)` の fn にし，`use` を書かない（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）．ハンドラは状態を持たない（フィールド，init，release なし）．
-
-## Instant と Duration（`instant.emel`，`duration.emel`）
+- （補）ホストを使うハンドラは `System*`（`SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`），テスト用は `Test*`（`TestConsole`，`TestClock`）で，どちらもエフェクトと同じモジュールに置く．外部関数はハンドラと同じモジュールの非公開の fn．今の外部関数は JS の `@external` だけを持つ（WASM の注釈は WASM の出力を入れる段で並べる，12.1）
+- （補）`Std.Platform` の layer `Platform` は `SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv` の4つ．並び順は意味を持たない（8.5）．SystemClock が Async に依存するので，`with Platform { ... }` の R には Async が残る（main とテスト関数ではランタイムが供給する）
+- （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書き，失敗しない．`SystemConsole` は `console.log` と `console.error` を呼ぶ．状態を持たない
+- （補）ホストの関数は `use` を書かない `@external` の fn（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）
+## Instant と Duration（`std/instant.emel`，`std/duration.emel`）
 
 alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque な型」だけを決めている（15.2）ので，単位と関数の名前と数はここで決めた．
 
@@ -80,52 +80,47 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
 - （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
 - （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` は構造の比較で使える．`dbg` と補間では中身がそのまま見える（`Instant(milliseconds: …)`．Show を Trait にする 0.21 で `to_string` に揃える）．
-- （補）Instant は Duration を import せずに使う（名前が1区切りの core のモジュールなので `.` の左と型の位置で見える，4.6）．
-- （補）`Instant` と `Duration` を同梱したので，ソースのルート直下の `instant.emel` と `duration.emel` は予約名（E0203）になる（4.1，15.2．本人の決定）．
+- （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
-## Random（`random.emel`，`js_random.emel`，`js_random.mjs`）
+## Random（`std/random.emel`，`std/random.mjs`）
 
-alpha.3 で同梱した（2026-10-12）．形は Console と同じ（エフェクトとターゲットごとのハンドラを別のモジュールに置く）．
+alpha.3 で同梱した（2026-10-12）．
 
 - （補）エフェクト `Random` の操作は `int() -> Int`（Int の全域で一様）と `float() -> Float`（0 以上 1 未満で一様）の2つ．0.1x の spec 0054 の `bytes(len)` は，0.20 に Bytes がないので入れない．
 - （補）範囲つきの `between(min, max)` は操作にしない．入れるなら `int()` の上に書く普通の関数にする（ハンドラが実装する操作を少なく保ち，テスト用のハンドラを書きやすくするため）．種を渡せる PRNG（spec 0054 の Part B）はエフェクトでなく純粋な値と関数にする．どちらも alpha.3 には入れない．
-- （補）`JsRandom` は `crypto.getRandomValues` で引く（暗号論的に安全）．`Math.random` は使わない．関数のパスひとつで書けないので補助の `lib/js_random.mjs` を置く（#155）．
+- （補）`SystemRandom` は `crypto.getRandomValues` で引く（暗号論的に安全）．`Math.random` は使わない．関数のパスひとつで書けないので補助の `lib/std/random.mjs` を置く（#155）．
 - （補）`int` は `Int32Array` で受ける．符号付き 32 ビットになるので，Int（16.1）へそのまま渡せる．
 - （補）`float` は 32 ビットを2つ引き，上位 27 ビットと 26 ビットから 53 ビットの整数を作って 2^53 で割る．0 以上 1 未満で，Float で表せる 2^-53 刻みの値が一様に出る．
-- （補）`Random` と `JsRandom` を同梱したので，ソースのルート直下の `random.emel` と `js_random.emel` は予約名（E0203）になる（Console と同じ）．
 
-## Env（`env.emel`，`js_env.emel`，`js_env.mjs`）
+## Env（`std/env.emel`，`std/env.mjs`）
 
-alpha.3 で同梱した（2026-10-12）．形は Console と同じ．
+alpha.3 で同梱した（2026-10-12）．
 
 - （補）エフェクト `Env` の操作は `get(name: String) -> Option[String]` だけ．全部の変数を返す操作（`List[(String, String)]`）は，境界の変換が増えるので入れない．
-- （補）`Option[String]` は外部関数の境界を越えられない（12.4）ので，ホストの関数は有無の `has(name) -> Bool` と値の `get(name) -> String` の2つに分け，`JsEnv` の操作の本体で Option に組み立てる．`@external type` で値と有無をまとめる案より，ホストの側が単純になる．
+- （補）`Option[String]` は外部関数の境界を越えられない（12.4）ので，ホストの関数は有無の `has(name) -> Bool` と値の `get(name) -> String` の2つに分け，`SystemEnv` の操作の本体で Option に組み立てる．`@external type` で値と有無をまとめる案より，ホストの側が単純になる．
 - （補）空の値（`NAME=`）は `Some("")`，未設定は `None`．`has` は `Object.hasOwn(process.env, name)` で見る（`process.env[name] !== undefined` でも同じだが，プロトタイプの名前を拾わないことを明示する）．
 - （補）`has` と `get` の間に環境変数が変わることは考えない（JS のプログラムの中から `process.env` を書き換える手段を core は持たない）．
-- （補）`Env` と `JsEnv` を同梱したので，ソースのルート直下の `env.emel` と `js_env.emel` は予約名（E0203）になる（Console と同じ）．
 
-## Clock（`clock.emel`，`js_clock.emel`，`js_clock.mjs`）
+## Clock（`std/clock.emel`，`std/clock.mjs`）
 
-alpha.3 で同梱した（2026-10-12）．Console と同じ形（エフェクトとターゲットごとのハンドラのモジュールを分ける）．
+alpha.3 で同梱した（2026-10-12）．
 
 - （補）エフェクト `Clock` の操作は仕様 8.1 のとおり `suspend fn sleep(ms: Int) -> ()` と `fn now() -> Instant` の2つ（宣言の順も 8.1 に合わせた）．
-- （補）`JsClock` は状態を持たないハンドラ．`now` は `Date.now()` を `BigInt` にして返す同梱の `js_clock.mjs` の `nowMilliseconds` を呼び，`Instant.from_unix_milliseconds` で包む．Int64 は JS では BigInt なので，境界（12.4）はそのまま渡る．`Date.now()` を直接 `@external` にしないのは Number を返すため．
-- （補）`JsClock` の `sleep` は `js_clock.mjs` の `after(ms, f)`（`setTimeout(f, ms)`．引数の順を Emela の慣習の「対象が先」に合わせた）のコールバックから `resume(())` を呼ぶ（8.4 の例のとおり）．resume をクロージャで捕まえるので，JsClock は Async に依存し，`with JsClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
+- （補）`SystemClock` は状態を持たないハンドラ．`now` は `Date.now()` を `BigInt` にして返す同梱の `std/clock.mjs` の `nowMilliseconds` を呼び，`Instant.from_unix_milliseconds` で包む．Int64 は JS では BigInt なので，境界（12.4）はそのまま渡る．`Date.now()` を直接 `@external` にしないのは Number を返すため．
+- （補）`SystemClock` の `sleep` は `std/clock.mjs` の `after(ms, f)`（`setTimeout(f, ms)`．引数の順を Emela の慣習の「対象が先」に合わせた）のコールバックから `resume(())` を呼ぶ（8.4 の例のとおり）．resume をクロージャで捕まえるので，SystemClock は Async に依存し，`with SystemClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
 - （補）`sleep` の負の `ms` は 0 と同じ（`setTimeout` に従う）．defect にしない．待つ時間はタイマーの精度に従い，正確さは保証しない．
 - （補）Clock が中断しうるので，Clock を使う関数はすべて中断しうる関数になる（`now` しか呼ばなくても．印は R で決まる，下の「lowering の印」）．
 - （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を State に置くハンドラとして同梱した（下の「State，TestConsole，TestClock」）．
-- （補）`Clock` と `JsClock` を同梱したので，ソースのルート直下の `clock.emel` と `js_clock.emel` は予約名（E0203）になる（4.1，15.2）．
 
-## State，TestConsole，TestClock（`state.emel`，`test_console.emel`，`test_clock.emel`）
+## State，TestConsole，TestClock（`std/state.emel`，`std/console.emel`，`std/clock.emel`）
 
 alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12）で同梱した．
 
 - （補）操作は仕様 8.8 のとおり `get`，`set`，`update` の3つ（宣言の順も合わせた）．どれも `fn`（suspend fn でない）なので State は Immediate
 - （補）`State.run` は `@intrinsic` の本体のない宣言のまま，組み込み関数の表には載せない（`intrinsics::RUNTIME_HANDLERS`）．body を呼び，証拠の表に State のハンドラを足すので，関数1つの実装にならないため．lowering がその場で写す（下の「エフェクト」の `State.run`）
-- （補）TestConsole と TestClock は，仕様 15.2 では Console や Clock と同じモジュールに置くが，今の同梱の形（JsConsole，JsClock と同じ並び）に合わせて別のモジュール（`TestConsole`，`TestClock`）にした．Std の下へ移す作業で一緒に動かす
+- （補）TestConsole は `Std.Console`，TestClock は `Std.Clock` に，エフェクトと一緒に置く（15.2）
 - （補）TestConsole の `print_line` は，行を `State[List[String]]` に書いた順に足す（`List.append`）．仕様 8.8 の例は先頭に足す（`[text, ..st.get()]`）ので，2行以上だと逆順になる．読み出したリストをそのまま比べられるよう，書いた順にした．`print_error_line` は仕様 8.8 の例のとおり捨てる
-- （補）TestClock の `sleep(ms, resume)` は `State[Instant]` を `ms` ミリ秒進めて，その場で resume する（Async に依存しない）．負の `ms` は JsClock と同じく 0 とみなす．`now` は `State[Instant]` を返す
-- （補）同梱したので，ソースのルート直下の `state.emel`，`test_console.emel`，`test_clock.emel` は予約名（E0203）になる
+- （補）TestClock の `sleep(ms, resume)` は `State[Instant]` を `ms` ミリ秒進めて，その場で resume する（Async に依存しない）．負の `ms` は SystemClock と同じく 0 とみなす．`now` は `State[Instant]` を返す
 
 ## lowering（`lower.rs`）
 
@@ -179,7 +174,7 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）ラムダの中の `use X` も，ラムダを囲む with（同じ関数の中のもの）を先に見る．なければラムダの呼び出し元から渡された表から引く．仕様 8.3 の「同じ関数に該当する with がなければ呼び出し元から」の「関数」を，囲む with についてはトップレベルの fn，表についてはラムダと読んだ．型検査はラムダの本体の R をラムダの型に閉じ込める（囲む関数の R に足さない）ので，囲む関数の表は X を持っているとは限らず，ラムダの呼び出し元から受けるしかない．ラムダの中で使う表は，受けた表に囲む with の束縛を足したもの．
 - （補）`with H1, ..., Hn { e }` は `Expr::With`．ハンドラの値を型検査の決めた初期化の順（`ProgramTypes::with_handlers`）に作り（ハンドラごとの関数を呼ぶ），今の表に供給するエフェクトを足した新しい表（`Expr::Provide`）で本体を評価する．同じエフェクトは後ろが優先で，上書きされたハンドラは作らない（8.3）．本体が表を使わないとき（`use` が with のハンドラを直接指すだけ）は表を作らない．`With` の本体は末尾位置でない（6.8，`tail.rs` は辿らない）．
 - （補）ハンドラの依存（`ProgramTypes::handler_uses`）は，同じ with の別のエフェクトを供給するハンドラ（`with_handlers` で先に初期化されたもの）が満たし，残りと自分のエフェクトへの依存は外側の表が満たす（8.3，14.2）．依存のあるハンドラの関数は，それを足した表を引数に受ける．循環は型検査が E0411 にしてある．
-- （補）状態を持たない handler は，ハンドラの値（`Expr::Handler`．操作は宣言の順のラムダ）を返す IR の関数にする．名前は handler の IR の名前（`JsConsole.JsConsole`）．操作の本体は証拠の表を受けない（効果は with の位置で決まっている）．操作の本体の失敗は，ラムダの失敗と同じく操作の呼び出し元へ戻り値で返る．
+- （補）状態を持たない handler は，ハンドラの値（`Expr::Handler`．操作は宣言の順のラムダ）を返す IR の関数にする．名前は handler の IR の名前（`Std.Console.SystemConsole`）．操作の本体は証拠の表を受けない（効果は with の位置で決まっている）．操作の本体の失敗は，ラムダの失敗と同じく操作の呼び出し元へ戻り値で返る．
 - （補）能力の値はハンドラの値そのもの．外側で取り出した能力の値は変数に入っているので，内側の with で上書きされても外側のハンドラを指す（8.3）．能力を捕まえたクロージャ（8.2 の `copy`）も変数を捕まえるだけ．
 - （補）操作の呼び出し `log.info(x)` は `Callee::Op`（ハンドラの値，エフェクト，操作の添字）．`fails` は操作の型の E で決める．操作を呼ばずに値として使う（`f = log.info`）ときは，能力の値をその場で評価して束縛し，操作を呼ぶだけのラムダにする．
 - （補）IR のエフェクト（`EffectDef`）は使ったものだけを入れる．名前は IR の名前（`Console.Console`）で，証拠の表の鍵に使う．
@@ -219,8 +214,8 @@ alpha.4 の第3段の前半（2026-10-12）．
 - （補）引数と戻り値の境界での扱い（`Boundary`）は型から決める．String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む（12.4，12.5）．
 - （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
 - （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
-- （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `JsConsole` を写せることを `every_core_function_lowers` で見る）．
-- （補）同梱の core のソースはディスク上のパスを持たないので，core の `@external(js, "./x.mjs", …)` はソースの隣でなく，同梱の JS のファイル（`lib/` の `.mjs` を `include_str!` で埋め込んだ `core_js_files()`，`LowerInput::core_js_files`）から引く．core のソースは `lib/` の直下にあるとみなし，指定の `.` と `..` を畳んだ `lib/` からのパスで引く．`lib/` の外へ出る指定と表にない指定は `LowerError::MissingCoreFile`（同梱のソースの誤り．driver は内部の誤りの診断にする）．
+- （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `SystemConsole` を写せることを `every_core_function_lowers` で見る）．
+- （補）同梱の core のソースはディスク上のパスを持たないので，core の `@external(js, "./x.mjs", …)` はソースの隣でなく，同梱の JS のファイル（`lib/` の `.mjs` を `include_str!` で埋め込んだ `core_js_files()`，`LowerInput::core_js_files`）から引く．指定はソースを置いた `lib/` の中のディレクトリ（`lib_dir`）からの相対パスとみなし，`.` と `..` を畳んだ `lib/` からのパスで引く．`lib/` の外へ出る指定と表にない指定は `LowerError::MissingCoreFile`（同梱のソースの誤り．driver は内部の誤りの診断にする）．
 - （補）引いた指定は，出力先の `emela_core/`（`CORE_JS_DIR`）に書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）に直す．JS 出力は `./` で始まる指定を書かれたまま import する．利用者のソースのファイルの指定（絶対パスにして `file://` で読む）とは扱いを分ける．
 - （補）`lib/` の `.mjs` は出力先へそのまま書き出すので，コメントを英語で書く（`.emel` のコメントは出力に入らないので日本語のまま）
 - （補）写した外部関数が同梱のファイルを1つでも指したら，同梱の JS のファイルを全部 `Module::js_files` に入れる（どのファイルがどれを import するかを JS を読まずに済ませるため，`lib/` と同じ並びで全部書き出す）．1つも指さなければ空で，何も書き出さない．

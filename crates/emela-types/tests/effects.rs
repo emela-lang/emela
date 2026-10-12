@@ -410,7 +410,7 @@ fn console_log(text: String) -> ()
 @external(js, "Math.abs")
 fn abs(x: Int) -> Int use {}
 
-handler JsConsole implements Console {
+handler SystemConsole implements Console {
   fn print_line(text) {
     f = fn() { console_log(text) }
     f()
@@ -585,7 +585,7 @@ handler InstantClock implements Clock {
   fn now() { 0 }
 }
 
-handler JsClock implements Clock {
+handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
@@ -633,16 +633,16 @@ fn nap() {
 
 fn instant() { with InstantClock { nap() } }
 
-fn waits() { with JsClock { nap() } }
+fn waits() { with SystemClock { nap() } }
 
-fn pure_only() -> Int use {} { with JsClock { nap() } }
+fn pure_only() -> Int use {} { with SystemClock { nap() } }
 
 fn main() {
-  with JsClock { nap() }
+  with SystemClock { nap() }
 }
 
 fn test_waits() {
-  with JsClock { nap() }
+  with SystemClock { nap() }
 }
 "#
     ));

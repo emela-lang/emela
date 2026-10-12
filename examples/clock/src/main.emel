@@ -1,6 +1,10 @@
 # Suspending effects. `sleep` is a `suspend fn`: calls to it look like any other
 # call, and the handler decides when the caller resumes.
 
+import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+
 fn countdown(n: Int) {
   console = use Console
   clock = use Clock
@@ -12,7 +16,7 @@ fn countdown(n: Int) {
 }
 
 fn main() {
-  with JsConsole, JsClock {
+  with SystemConsole, SystemClock {
     countdown(3)
   }
 }
@@ -25,7 +29,7 @@ handler InstantClock implements Clock {
 
 @test
 fn countdown_does_not_wait() {
-  with JsConsole, InstantClock {
+  with SystemConsole, InstantClock {
     countdown(3)
   }
 }

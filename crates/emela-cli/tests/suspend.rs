@@ -19,7 +19,7 @@ impl Project {
         let files = [
             ("Pome.toml", ""),
             ("src/clock.mjs", CLOCK_MJS),
-            ("src/main.emel", &format!("{CLOCK}\n{main}")),
+            ("src/main.emel", &format!("{IMPORTS}\n{CLOCK}\n{main}")),
         ];
         for (path, text) in files {
             let path = dir.join(path);
@@ -49,6 +49,9 @@ impl Drop for Project {
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
+
+/// The bundled Console that the programs print with (spec 15.2).
+const IMPORTS: &str = "import Std.Console.{Console, SystemConsole}\n";
 
 const CLOCK_MJS: &str = "export function after(ms, f) { setTimeout(f, ms); }\n";
 
@@ -83,7 +86,7 @@ fn clocks_resume_later_and_in_place() {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     with JsClock {
       console.print_line("start")
@@ -150,7 +153,7 @@ fn dropped_resume_interrupts_main() {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     with NeverClock {
       console.print_line("before")
@@ -242,7 +245,7 @@ handler LocalWait implements Timer {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     with JsTimer {
       waited = (use Timer).wait(5)

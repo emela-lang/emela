@@ -14,7 +14,7 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::naming::to_type_name;
-use crate::{ModuleName, PRELUDE};
+use crate::{ModuleName, PRELUDE, STD};
 
 pub const EXTENSION: &str = "emel";
 
@@ -213,6 +213,13 @@ impl Collector<'_> {
             if entry.is_dir {
                 let name = entry.name.to_string_lossy();
                 match to_type_name(&name) {
+                    // `std/` at the root is reserved for the bundled std modules (spec 4.1, 15.2).
+                    Ok(segment) if prefix.is_empty() && segment == STD => self.error(
+                        &path,
+                        DiagnosticKind::ReservedModuleName {
+                            name: ModuleName::new([segment]),
+                        },
+                    ),
                     Ok(segment) => {
                         prefix.push(segment);
                         self.walk(&path, prefix);
@@ -267,7 +274,7 @@ impl Collector<'_> {
         };
         let name = ModuleName::new(prefix.iter().cloned().chain([segment]));
 
-        if prefix.is_empty() && name.last() == PRELUDE {
+        if prefix.is_empty() && (name.last() == PRELUDE || name.last() == STD) {
             self.error(&path, DiagnosticKind::ReservedModuleName { name });
             return;
         }
@@ -402,12 +409,34 @@ mod tests {
 
     #[test]
     fn prelude_is_reserved() {
-        let (map, diagnostics) = collect(&["src/prelude.emel", "src/std/prelude.emel"]);
+        let (map, diagnostics) = collect(&["src/prelude.emel", "src/app/prelude.emel"]);
         assert_eq!(
             diagnostics,
             ["src/prelude.emel: モジュール名 `Prelude` は予約されている"]
         );
-        assert_eq!(names(&map), ["Std.Prelude = src/std/prelude.emel"]);
+        assert_eq!(names(&map), ["App.Prelude = src/app/prelude.emel"]);
+    }
+
+    #[test]
+    fn std_is_reserved() {
+        // `std.emel` and `std/` at the root are reserved (spec 4.1); `Std` elsewhere is not.
+        let (map, diagnostics) = collect(&[
+            "src/std.emel",
+            "src/std/console.emel",
+            "src/app/std.emel",
+            "src/console.emel",
+        ]);
+        assert_eq!(
+            diagnostics,
+            [
+                "src/std: モジュール名 `Std` は予約されている",
+                "src/std.emel: モジュール名 `Std` は予約されている",
+            ]
+        );
+        assert_eq!(
+            names(&map),
+            ["App.Std = src/app/std.emel", "Console = src/console.emel"]
+        );
     }
 
     #[test]

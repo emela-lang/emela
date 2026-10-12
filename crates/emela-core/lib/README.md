@@ -1,22 +1,26 @@
-# 同梱の Prelude と core（提案）
+# 同梱の core と std（提案）
 
 コンパイラに同梱する `.emel` のソースの API の一覧．個々の API は仕様の範囲外（15章）なので，この一覧は確認してもらうための提案として置く．
 
+- core（`lib/core/`）: Prelude と `@intrinsic` を持つモジュール．短い名前（`List`，`String`）で import なしで使える（15.2）
+- std（`lib/std/`）: `Std` の下のモジュール．`import Std.Console.{Console, SystemConsole}` のように import して使う
 - 「実装」の列: `intrinsic` は本体のない宣言で，組み込み関数の表（`src/intrinsics.rs`）の実装を使う．`Emela` はソースに本体を書いたもの
 - 対象を第1引数に置くので，`xs |> List.map(f)` のようにパイプで書ける
 - 引数名は名前付き引数のラベルになる（6.2）．`List.fold(init: 0, f: add)` のように書ける
 
-## core に JS のファイルを足す
+## 同梱のソースに JS のファイルを足す
 
-core の `.emel` から `@external(js, "./x.mjs", "name")` でホストの関数を呼ぶときは，`.mjs` を `lib/` に置いて埋め込む．
+同梱の `.emel` から `@external(js, "./x.mjs", "name")` でホストの関数を呼ぶときは，`.mjs` をそのソースと同じディレクトリ（`lib/std/` など）に置いて埋め込む．
 
-1. `lib/x.mjs` を書く．別の `.mjs` を `./y.mjs` のように相対で import してよい（`lib/` の下のサブディレクトリも使える）
-2. `src/sources.rs` の `JS_FILES` に `("x.mjs", include_str!("../lib/x.mjs"))` を足す．パスは `lib/` からの相対で `/` 区切り．載せ忘れはテスト `js_files_match_lib_dir` が見つける
-3. core の `.emel` に `@external(js, "./x.mjs", "name")` を書く．パスは `lib/` の直下からの相対（core のソースは `lib/` の直下にある）
+1. `lib/std/x.mjs` を書く．別の `.mjs` を `./y.mjs` のように相対で import してよい
+2. `src/sources.rs` の `JS_FILES` に `("std/x.mjs", include_str!("../lib/std/x.mjs"))` を足す．パスは `lib/` からの相対で `/` 区切り．載せ忘れはテスト `js_files_match_lib_dir` が見つける
+3. `.emel` に `@external(js, "./x.mjs", "name")` を書く．パスはそのソースのディレクトリからの相対
 
-build，run，test では，lowering がその指定を `./emela_core/x.mjs` に直し，出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
+build，run，test では，lowering がその指定を `./emela_core/std/x.mjs` に直し，出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
 
-## Prelude（`prelude.emel`）
+# core
+
+## Prelude（`core/prelude.emel`）
 
 | 宣言 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -27,7 +31,7 @@ build，run，test では，lowering がその指定を `./emela_core/x.mjs` に
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
 | `dbg` | `dbg[A: Show](value: A) -> A` | intrinsic | 表示を標準エラーに出して値を返す |
 
-## List（`list.emel`）
+## List（`core/list.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -49,7 +53,7 @@ build，run，test では，lowering がその指定を `./emela_core/x.mjs` に
 | `range` | `range(from: Int, to: Int) -> List[Int]` | Emela | `from` 以上 `to` 未満 |
 | `zip` | `zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)]` | Emela | 同じ位置の要素の組．短い方に合わせる |
 
-## Option（`option.emel`）
+## Option（`core/option.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -60,139 +64,7 @@ build，run，test では，lowering がその指定を `./emela_core/x.mjs` に
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
 | `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
 
-## Console（`console.emel`）
-
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
-
-| 操作 | シグネチャ | 説明 |
-|---|---|---|
-| `print_line` | `fn print_line(text: String) -> ()` | `text` と改行を標準出力に書く |
-| `print_error_line` | `fn print_error_line(text: String) -> ()` | `text` と改行を標準エラーに書く |
-
-## JsConsole（`js_console.emel`）
-
-| 宣言 | 内容 | 説明 |
-|---|---|---|
-| `JsConsole` | `handler JsConsole implements Console` | JS の `console.log` と `console.error` で書く．状態を持たない |
-
-```emel
-fn main() {
-  with JsConsole {
-    (use Console).print_line("hi")
-  }
-}
-```
-
-## Random（`random.emel`）
-
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
-
-| 操作 | シグネチャ | 説明 |
-|---|---|---|
-| `int` | `fn int() -> Int` | Int の全域で一様な値 |
-| `float` | `fn float() -> Float` | 0 以上 1 未満で一様な値 |
-
-## JsRandom（`js_random.emel`，`js_random.mjs`）
-
-| 宣言 | 内容 | 説明 |
-|---|---|---|
-| `JsRandom` | `handler JsRandom implements Random` | JS の `crypto.getRandomValues` で引く．状態を持たない |
-
-## Env（`env.emel`）
-
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
-
-| 操作 | シグネチャ | 説明 |
-|---|---|---|
-| `get` | `fn get(name: String) -> Option[String]` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
-
-## JsEnv（`js_env.emel`，`js_env.mjs`）
-
-| 宣言 | 内容 | 説明 |
-|---|---|---|
-| `JsEnv` | `handler JsEnv implements Env` | JS の `process.env` を読む．状態を持たない |
-
-```emel
-fn main() {
-  with JsConsole, JsRandom, JsEnv {
-    home = (use Env).get("HOME") |> Option.unwrap_or("?")
-    (use Console).print_line("#{home} #{(use Random).int()}")
-  }
-}
-```
-
-## Clock（`clock.emel`）
-
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
-
-| 操作 | シグネチャ | 説明 |
-|---|---|---|
-| `sleep` | `suspend fn sleep(ms: Int) -> ()` | `ms` ミリ秒待つ．負なら 0 と同じ |
-| `now` | `fn now() -> Instant` | 現在の時点 |
-
-## JsClock（`js_clock.emel`，`js_clock.mjs`）
-
-| 宣言 | 内容 | 説明 |
-|---|---|---|
-| `JsClock` | `handler JsClock implements Clock` | `sleep` は `setTimeout`，`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
-
-```emel
-fn main() {
-  with JsConsole, JsClock {
-    clock = use Clock
-    start = clock.now()
-    clock.sleep(100)
-    (use Console).print_line(Instant.to_string(start))
-  }
-}
-```
-
-## State（`state.emel`）
-
-仕様 8.8 の可変な状態．`run` はランタイムが供給するハンドラで，lowering がその場で写す（NOTES.md）．
-
-| 宣言 | シグネチャ | 実装 | 説明 |
-|---|---|---|---|
-| `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | 型 `S` の状態を読み書きする |
-| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | ランタイム | 初期値 `initial` の状態で `body` を実行し，値と最後の状態を返す．失敗したら状態は捨てる |
-
-```emel
-fn count() -> Int use { State[Int] } {
-  st = use State[Int]
-  st.update(fn(n) { n + 1 })
-  st.get()
-}
-
-fn main() {
-  (n, last) = State.run(0, fn() { count() })
-}
-```
-
-## TestConsole（`test_console.emel`）と TestClock（`test_clock.emel`）
-
-test 層（15.2）のハンドラ．状態を State に置くので，`State.run` の中で使う．
-
-| 宣言 | 内容 | 説明 |
-|---|---|---|
-| `TestConsole` | `handler TestConsole implements Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる |
-| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]`．`sleep(ms)` は時刻を進めてその場で再開する（負なら 0）．`now` はその時刻 |
-
-```emel
-@test
-fn greets() {
-  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
-  assert lines == ["Hello, 1!"]
-}
-
-@test
-fn waits() {
-  start = Instant.from_unix_milliseconds(Int.to_int64(0))
-  (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
-  assert Instant.to_unix_milliseconds(end) == Int.to_int64(1000)
-}
-```
-
-## String（`string.emel`）
+## String（`core/string.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -210,7 +82,7 @@ fn waits() {
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | コードポイントの値のリスト |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | スカラー値でなければ `None` |
 
-## Int（`int.emel`）
+## Int（`core/int.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -226,7 +98,7 @@ fn waits() {
 | `shift_right` | `shift_right(n: Int, by: Int) -> Int` | intrinsic | 算術右シフト．32 以上で 0 か -1 |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int, by: Int) -> Int` | intrinsic | 論理右シフト．32 以上で 0 |
 
-## Int64（`int64.emel`）
+## Int64（`core/int64.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
@@ -239,7 +111,7 @@ fn waits() {
 | `shift_right` | `shift_right(n: Int64, by: Int) -> Int64` | intrinsic | 算術右シフト．64 以上で 0 か -1 |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int64, by: Int) -> Int64` | intrinsic | 論理右シフト．64 以上で 0 |
 
-## Float（`float.emel`）
+## Float（`core/float.emel`）
 
 Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defect．
 
@@ -251,7 +123,9 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `round` | `round(x: Float) -> Int` | intrinsic | 最も近い整数．0.5 は 0 から遠い方へ |
 | `truncate` | `truncate(x: Float) -> Int` | intrinsic | 0 の方向へ丸める |
 
-## Duration（`duration.emel`）
+# std
+
+## Std.Duration（`std/duration.emel`）
 
 時間の長さ．中身はミリ秒の Int64 の opaque な型（15.2）．あふれは Int64 の規則で巻き戻る．
 
@@ -268,7 +142,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `compare` | `compare(d: Duration, other: Duration) -> Ordering` | Emela | 比べる |
 | `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
 
-## Instant（`instant.emel`）
+## Std.Instant（`std/instant.emel`）
 
 ある時点．中身は Unix エポックからのミリ秒の Int64 の opaque な型（15.2）．現在の時点は Clock のエフェクトが返す（このモジュールでは取れない）．
 
@@ -282,6 +156,110 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `compare` | `compare(t: Instant, other: Instant) -> Ordering` | Emela | 早い方が小さい |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | UTC の ISO 8601（`2025-10-12T03:04:05.678Z`） |
 
+## Std.State（`std/state.emel`）
+
+仕様 8.8 の可変な状態．`run` はランタイムが供給するハンドラで，lowering がその場で写す（NOTES.md）．
+
+| 宣言 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | 型 `S` の状態を読み書きする |
+| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | ランタイム | 初期値 `initial` の状態で `body` を実行し，値と最後の状態を返す．失敗したら状態は捨てる |
+
+```emel
+import Std.State.{State}
+
+fn count() -> Int use { State[Int] } {
+  st = use State[Int]
+  st.update(fn(n) { n + 1 })
+  st.get()
+}
+
+fn main() {
+  (n, last) = State.run(0, fn() { count() })
+}
+```
+
+## Std.Console（`std/console.emel`）
+
+platform 層と test 層（15.2）．
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Console` | `effect Console { fn print_line(text: String) -> (); fn print_error_line(text: String) -> () }` | 標準出力と標準エラーに1行ずつ書く．失敗しない |
+| `SystemConsole` | `handler SystemConsole implements Console` | ホストの標準出力と標準エラー（JS の `console.log` と `console.error`）．状態を持たない |
+| `TestConsole` | `handler TestConsole implements Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる．`State.run` の中で使う |
+
+```emel
+import Std.Console.{Console, SystemConsole}
+
+fn main() {
+  with SystemConsole {
+    (use Console).print_line("hi")
+  }
+}
+```
+
+## Std.Clock（`std/clock.emel`，`std/clock.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | 待つ（負なら 0 と同じ）．現在の時点 |
+| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout`，`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
+| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]`．`sleep(ms)` は時刻を進めてその場で再開する（負なら 0）．`now` はその時刻 |
+
+## Std.Random（`std/random.emel`，`std/random.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Random` | `effect Random { fn int() -> Int; fn float() -> Float }` | Int の全域で一様な値．0 以上 1 未満で一様な値 |
+| `SystemRandom` | `handler SystemRandom implements Random` | JS の `crypto.getRandomValues` で引く．状態を持たない |
+
+## Std.Env（`std/env.emel`，`std/env.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Env` | `effect Env { fn get(name: String) -> Option[String] }` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
+| `SystemEnv` | `handler SystemEnv implements Env` | JS の `process.env` を読む．状態を持たない |
+
+## Std.Platform（`std/platform.emel`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv }` | System のハンドラの束．一部を差し替えるときは `with Platform, TestClock { ... }` と後ろに並べる |
+
+```emel
+import Std.Platform.{Platform}
+import Std.Console.{Console}
+
+fn main() {
+  with Platform {
+    (use Console).print_line("hi")
+  }
+}
+```
+
+## テスト用のハンドラの例
+
+```emel
+import Std.Clock.{Clock, TestClock}
+import Std.Console.{TestConsole}
+import Std.Instant
+import Std.State.{State}
+
+@test
+fn greets() {
+  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  assert lines == ["Hello, 1!"]
+}
+
+@test
+fn waits() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
+}
+```
+
 ## 確認してほしい点
 
 - `List.append(xs, ys)` / `List.concat(xss)` の組（Elm，Gleam と同じ）にした．`String.concat(a, b)` と形が違うので，`List.concat(xs, ys)` / `List.flatten(xss)` にそろえる案もある
@@ -290,10 +268,9 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - シフト量が負なら defect，幅以上は全部のビットを押し出した値．JS や WASM のように幅で剰余を取る方式は採らなかった
 - 数値の `min` / `max` / `abs` / `compare` はまだ入れていない
 - Console の操作は `print_line` と `print_error_line` の2つにした．改行なしの `print` や，入力の読み取りはまだ入れていない
-- エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
-- 利用者の書く Clock のハンドラの `now` は，`Instant.from_unix_milliseconds`（#172）か外側の Clock の `now`（#173）で書く．時刻を進める TestClock は状態を持つハンドラの段で足す
+- 利用者の書く Clock のハンドラの `now` は，`Instant.from_unix_milliseconds`（#172）か外側の Clock の `now`（#173）で書く．時刻を進める TestClock は State に時刻を置く
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない

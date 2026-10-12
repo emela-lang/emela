@@ -1,0 +1,20 @@
+# The Random effect and its handler (the platform layer of spec 15.2).
+
+pub effect Random {
+  ## Uniform over the whole range of Int.
+  fn int() -> Int
+  ## Uniform in [0, 1).
+  fn float() -> Float
+}
+
+@external(js, "./random.mjs", "int")
+fn random_int() -> Int
+
+@external(js, "./random.mjs", "float")
+fn random_float() -> Float
+
+## The host's random source (JS `crypto.getRandomValues`, cryptographically secure). Stateless.
+pub handler SystemRandom implements Random {
+  fn int() { random_int() }
+  fn float() { random_float() }
+}

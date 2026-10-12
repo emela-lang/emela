@@ -6,7 +6,7 @@ effect Clock { suspend sleep, now }
 
 export suspend fn main() {
   let _%2 = with {
-    let h%0 = JsClock()
+    let h%0 = SystemClock()
     let ev%1 = provide(; Clock = h%0)
   } {
     @dbg[List[Int]](naps([1, 2], ev%1)!)
@@ -26,8 +26,8 @@ export suspend fn main() {
   }, ()))
 }
 
-fn JsClock() {
-  handler JsClock: Clock {
+fn SystemClock() {
+  handler SystemClock: Clock {
     sleep: fn(ms%49, resume%50) {
       after(ms%49, fn() {
         (resume%50)(ms%49)

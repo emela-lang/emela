@@ -168,17 +168,19 @@ Programs print with `dbg`, which writes to stderr. The value `main` returns is
 not printed.
 
 Side effects go through effects. The bundled `Console` effect writes lines, and
-`JsConsole` provides it on JavaScript. This is
-[`examples/hello`](examples/hello):
+`SystemConsole` provides it on the host. Both live in `Std.Console` and are
+imported. This is [`examples/hello`](examples/hello):
 
 ```emela
+import Std.Console.{Console, SystemConsole}
+
 fn greet(name: String) {
   console = use Console
   console.print_line("Hello, #{name}!")
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     console.print_line("hi")
     List.map(["Emela", "world"], greet)
@@ -202,6 +204,8 @@ exits with status 1. This is [`examples/errors`](examples/errors):
 
 ```emela
 # Typed errors and effects. `fails` and `use` are inferred unless written.
+
+import Std.Console.{Console, SystemConsole}
 
 error NotFound(id: Int)
 error Invalid(reason: String)
@@ -238,7 +242,7 @@ fn greeting_or_guest(id: Int) {
 }
 
 fn main() {
-  with JsConsole, SampleUsers {
+  with SystemConsole, SampleUsers {
     console = use Console
     console.print_line(greeting_or_guest(1))
     console.print_line(greeting_or_guest(3))
@@ -280,6 +284,10 @@ clock in `main` and on an instant one in the test. This is
 # Suspending effects. `sleep` is a `suspend fn`: calls to it look like any other
 # call, and the handler decides when the caller resumes.
 
+import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+
 fn countdown(n: Int) {
   console = use Console
   clock = use Clock
@@ -291,7 +299,7 @@ fn countdown(n: Int) {
 }
 
 fn main() {
-  with JsConsole, JsClock {
+  with SystemConsole, SystemClock {
     countdown(3)
   }
 }
@@ -304,7 +312,7 @@ handler InstantClock implements Clock {
 
 @test
 fn countdown_does_not_wait() {
-  with JsConsole, InstantClock {
+  with SystemConsole, InstantClock {
     countdown(3)
   }
 }
@@ -318,11 +326,15 @@ $ emela run
 liftoff
 ```
 
-The bundled platform effects are `Console`, `Clock`, `Random` and `Env`, with
-JavaScript handlers `JsConsole`, `JsClock`, `JsRandom` and `JsEnv`.
+The bundled std lives under `Std` and is imported: the platform effects
+`Std.Console`, `Std.Clock`, `Std.Random` and `Std.Env`, each with its host
+handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`), the layer
+`Std.Platform.Platform` that bundles them, `Std.State`, `Std.Instant` and
+`Std.Duration`. The test handlers `TestConsole` and `TestClock` keep their state
+in `State`. The core modules (`List`, `Option`, `String`, `Int`, `Int64`,
+`Float`) need no import.
 
-Not yet supported: handlers with fields, `init` or `release`, `layer`, `State`,
-and fibers.
+Not yet supported: fibers.
 
 ## Crates
 

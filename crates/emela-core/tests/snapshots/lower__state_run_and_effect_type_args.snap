@@ -5,7 +5,7 @@ expression: "mine.join(\"\\n\\n\")"
 export fn main() {
   @dbg[((Int, Int), String)]({
     let cell%0 = @$Cell.new("")
-    let state%1 = handler State: State.State[String] {
+    let state%1 = handler State: Std.State.State[String] {
       get: fn() {
         @$Cell.get(cell%0)
       }
@@ -18,7 +18,7 @@ export fn main() {
     }
     let result%4 = (fn(ev%5) {
       let cell%6 = @$Cell.new(1)
-      let state%7 = handler State: State.State[Int] {
+      let state%7 = handler State: Std.State.State[Int] {
         get: fn() {
           @$Cell.get(cell%6)
         }
@@ -30,18 +30,18 @@ export fn main() {
         }
       }
       let result%10 = (fn(ev%11) {
-        let _%12 = (use[State.State[String]](ev%11)).State.State[String]#set("x")
+        let _%12 = (use[Std.State.State[String]](ev%11)).Std.State.State[String]#set("x")
         modify(fn(n%13) {
           (n%13 +[Int] 1)
-        }, provide(ev%11; State.State[$modify.0] = use[State.State[Int]](ev%11)))
-      })(provide(ev%5; State.State[Int] = state%7))
+        }, provide(ev%11; Std.State.State[$modify.0] = use[Std.State.State[Int]](ev%11)))
+      })(provide(ev%5; Std.State.State[Int] = state%7))
       (result%10, @$Cell.get(cell%6))
-    })(provide(; State.State[String] = state%1))
+    })(provide(; Std.State.State[String] = state%1))
     (result%4, @$Cell.get(cell%0))
   })
 }
 
 fn modify(f%14, ev%15) {
-  let _%16 = (use[State.State[$modify.0]](ev%15)).State.State[$modify.0]#update(f%14)
-  (use[State.State[$modify.0]](ev%15)).State.State[$modify.0]#get()
+  let _%16 = (use[Std.State.State[$modify.0]](ev%15)).Std.State.State[$modify.0]#update(f%14)
+  (use[Std.State.State[$modify.0]](ev%15)).Std.State.State[$modify.0]#get()
 }

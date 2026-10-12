@@ -1,7 +1,8 @@
 # The State effect (spec 8.8). Represents mutable state. The state lives in the frame of
 # `State.run`; the values themselves stay immutable.
 #
-# Use it as `(use State[Int]).get()` and provide the state with `State.run(0, fn() { ... })`.
+# Import it with `import Std.State.{State}`. Use it as `(use State[Int]).get()` and provide the
+# state with `State.run(0, fn() { ... })`.
 # To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
 #
 # `run` is a built-in handler provided by the runtime: the lowering writes it in place instead of

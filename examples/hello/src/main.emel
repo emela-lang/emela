@@ -1,5 +1,7 @@
-# Side effects go through effects. `Console` is declared in the bundled core,
-# and `JsConsole` provides it when the program runs on JavaScript.
+# Side effects go through effects. `Console` is declared in the bundled std
+# (`Std.Console`), and `SystemConsole` provides it on the host the program runs on.
+
+import Std.Console.{Console, SystemConsole}
 
 # `greet` uses Console, so its caller has to provide one with `with`.
 fn greet(name: String) {
@@ -8,7 +10,7 @@ fn greet(name: String) {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     console.print_line("hi")
     List.map(["Emela", "world"], greet)

@@ -3,6 +3,8 @@
 # names a bundle of handlers, and the compiler initializes them in the order their
 # dependencies need.
 
+import Std.Console.{Console, SystemConsole}
+
 effect Config {
   fn prefix() -> String
 }
@@ -35,7 +37,7 @@ layer AppLive {
 }
 
 fn main() {
-  with JsConsole, AppLive {
+  with SystemConsole, AppLive {
     store = use Store
     (use Console).print_line(store.get("alice"))
     (use Console).print_line(store.get("bob"))
@@ -49,7 +51,7 @@ handler TestConfig implements Config {
 
 @test
 fn reads_through_the_store() {
-  with JsConsole, AppLive, TestConfig {
+  with SystemConsole, AppLive, TestConfig {
     assert (use Store).get("alice") == "test/alice"
   }
 }
