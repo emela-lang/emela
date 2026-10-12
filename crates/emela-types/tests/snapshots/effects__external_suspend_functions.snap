@@ -1,13 +1,18 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Http {\n  fn get(url: String) -> String\n}\n\n@external(js, \"./ffi.mjs\", \"fetchText\")\nsuspend fn fetch_text(url: String) -> String\n\nhandler JsHttp implements Http {\n  fn get(url) { fetch_text(url) }\n}\n\nfn outside() { fetch_text(\"x\") }\n\nfn main() {\n  with JsHttp { (use Http).get(\"x\") }\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Http {\n  suspend fn get(url: String) -> String\n}\n\n@external(js, \"./ffi.mjs\", \"fetchText\")\nsuspend fn fetch_text(url: String) -> String\n\nhandler JsHttp implements Http {\n  suspend fn get(url, resume) { resume(fetch_text(url)) }\n}\n\neffect Blocking {\n  fn get(url: String) -> String\n}\n\nhandler AwaitingInFn implements Blocking {\n  fn get(url) { fetch_text(url) }\n}\n\nfn outside() { fetch_text(\"x\") }\n\nfn main() {\n  with JsHttp { (use Http).get(\"x\") }\n}\n\"#)"
 ---
 fetch_text: fn(String) -> String use Async
 outside: fn() -> String use Async
 main: fn() -> String use Async
 handler JsHttp: use Async
+handler AwaitingInFn: use Async
+`get` SuspendingFnOp { op: "get", effects: ["Async"] }
 `fetch_text` ExternalOutsideHandler { name: "fetch_text", suspend: true }
 --- R
+{ resume(fetch_text(url)) }: Async
+resume(fetch_text(url)): Async
+fetch_text(url): Async
 { fetch_text(url) }: Async
 fetch_text(url): Async
 { fetch_text("x") }: Async

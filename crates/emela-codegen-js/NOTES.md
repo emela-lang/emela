@@ -124,4 +124,6 @@
 - （補）起動（main かテスト関数）が終わる（値，defect，中断のまま巻き戻る）と，残った継続は進めない．その後の resume は何もしない（2回目でも defect にしない）
 - （補）`@external suspend fn` の包みはジェネレータで，ホストの関数を呼んで返った値を `yield $await(値)` で待つ．Promise でない値はそのまま解決した値として扱う（`Promise.resolve`）．解決した値は戻り値と同じ規則で写す．呼んだときの例外と拒否はどちらも `$foreign` で defect（12.5）．拒否は待っていた位置へ投げる
 - （補）中断しうる関数を export するモジュールは，ランタイムの `$start` も export する．起動用モジュールとテストランナーはランタイムを読み込まないので，`$start` を出力したモジュールから引く．中断しうる関数がなければ出力は今までと同じ
+- （補）中断しない関数（R が Immediate）の中の中断しうる呼び出しは，その場で resume するハンドラの with の中にだけ現れる（8.7）．ジェネレータを `$sync` でその場で最後まで進め，suspend fn の操作は `$syncPerform` で呼ぶ．その場で resume されなければ，その継続は二度と resume されない（resume を後から呼べるハンドラは依存に Async があり，R が Immediate でなくなる）ので，すぐに `$Interrupted`（`name` が `"Interrupted"` の `Error`）を投げて巻き戻る．起動用モジュールとテストランナーは `interrupted` として報告する
+- （補）関数の名前の `$`（lowering が分けた版の `List.map$suspend8`）は JS の名前にそのまま残す（`List_map$suspend8`）．Emela の名前に `$` は現れないので版のない関数と重ならない
 - （補）`$start(gen, done)` は `done(true, 戻り値)` か `done(false, 例外)` を1回だけ呼び，止める関数を返す．中断したまま resume されなければ `done` は呼ばれない．それを見分けるのは呼び出し側（イベントループが空になったか）

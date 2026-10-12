@@ -130,6 +130,7 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）（仕様 7.5 に反映済み）
 - （補）main まで達したエラーは，起動用モジュールが main の返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分け，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（`ERROR_EXIT_CODE`，14.3）．表示は `dbg` と同じ（`error: DbError(message: "down")`）．defect は 101 のまま．起動用モジュールはランタイムを import しないので，`instanceof` でなく鍵で見る
 - （補）中断しうる main（返り値がジェネレータ）は，エントリが公開するランタイムの `$start` で進め，イベントループで待つ．起動用モジュールはランタイムを import しないので，`$start` はエントリから引く（emela-codegen-js の NOTES の「中断と再開」）
+- （補）中断しない main（R が Immediate）の中で，その場で resume されずに捨てられた継続（ランタイムの `$Interrupted`．8.7 の InstantClock の形のハンドラで resume しなかったとき）も，`interrupted` と 130．イベントループが空になるのを待たずにその場で終わる．テストでは `interrupted` の失敗
 - （補）main の継続が resume されないまま「プログラムの最上位が終わる」（14.5）のは，node のイベントループが空になったとき（`beforeExit`）とした．標準エラーに `interrupted` を1行出して終了コード 130（`INTERRUPTED_EXIT_CODE`）
 - （補）ホストのコールバックの中で投げられた defect（`uncaughtException`）も，main の defect と同じく `defect: <message>` と 101．defect で止まるときは，標準エラーを書き終えてから `process.exit` で終わる（残ったタイマーなどのホストの処理を走らせない）．defect でない例外はスタックを出して 1
 - （補）終了コードは `process.exit` でなく `process.exitCode` で決める（パイプへの書き込みが途中で切れないように）
@@ -157,6 +158,6 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
 - （補）`Typecheck` は名前解決に誤りがあっても型検査をする．解決できなかった名前は型推論が `Ty::Error` として扱い，誤りを重ねない（仕様の「誤りを全部集める」方針）
-- （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0416）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
+- （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0417）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
 - （補）`Typecheck` は，エントリのモジュールの `main` という名前の fn と，`@test` のテスト関数を `CheckOptions` で型推論に渡す．型推論はそれらの R が空であることを確かめる（E0402，8.3，13.3）．そのためテスト関数の収集（`collect_tests`，`resolve_tests`）を型検査の前に行う．エントリのないとき（`check` にディレクトリを渡してエントリがないなど）は main を確かめない
 - （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く

@@ -132,6 +132,9 @@ pub enum DiagnosticKind {
         effect: SmolStr,
         suspend: bool,
     },
+    /// suspend fn でない操作の実装の本体が中断しうる（E0417，8.1）．`effects` は本体の R の
+    /// 中断しうるエフェクト（suspend fn を持つか Async）．
+    SuspendingFnOp { op: SmolStr, effects: Vec<SmolStr> },
     /// `Immediate` を求める効果の集合に，中断しうるエフェクトか，Immediate と分からない集合が
     /// 入る（E0416，9.5）．`effects` は中断しうるエフェクト（suspend fn を持つか Async），
     /// `sets` は `Immediate` の制約のない集合の型引数の名前．`required` は何が求めたか．

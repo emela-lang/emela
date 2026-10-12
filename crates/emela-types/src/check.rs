@@ -15,7 +15,7 @@ use rustc_hash::FxHashMap;
 use crate::body::BodyInfer;
 use crate::diagnostic::{Diagnostic, EffectContext};
 use crate::lower::TyTable;
-use crate::row::Row;
+use crate::row::{Row, RowVar};
 use crate::signature::Signatures;
 use crate::ty::Ty;
 
@@ -41,6 +41,13 @@ pub struct ProgramTypes {
     pub calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     /// 汎用の定義の参照の式（`Path`）→ 具体化した型引数（宣言の型引数の順）．
     pub type_args: ArenaMap<ExprId, Vec<Ty>>,
+    /// 汎用の定義の参照の式（`Path`）→ 具体化した集合（宣言の型引数の順．集合の型引数でない位置は
+    /// 空）．`type_args` と違い，集合の型引数を具体化した集合が入る．lowering が，多相な R の関数が
+    /// 中断しうるかを具体化ごとに決めるのに使う．
+    pub type_rows: ArenaMap<ExprId, Vec<Row>>,
+    /// 宣言の型のなかった定義の本体の中の，汎化した集合変数 → 宣言の型（`sigs`）の型引数の添字．
+    /// 本体の式の型と集合（`exprs`，`effects`）には，汎化した集合変数が `RowElem::Var` のまま残る．
+    pub generalized_rows: ArenaMap<DefId, Vec<(RowVar, u32)>>,
     /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールドは `None`．
     pub pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     /// 各式のエラーの集合 E（9.4）．集合変数は解に置き換えてある．汎化した定義の本体の中では，
@@ -94,6 +101,8 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         fields: ArenaMap::default(),
         calls: ArenaMap::default(),
         type_args: ArenaMap::default(),
+        type_rows: ArenaMap::default(),
+        generalized_rows: ArenaMap::default(),
         pat_fields: ArenaMap::default(),
         errors: ArenaMap::default(),
         effects: ArenaMap::default(),
@@ -143,6 +152,10 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .type_args
             .extend(body.type_args.iter().map(|(id, args)| (id, args.clone())));
+        types
+            .type_rows
+            .extend(body.type_rows.iter().map(|(id, rows)| (id, rows.clone())));
+        types.generalized_rows.extend(body.generalized_rows);
         types
             .pat_fields
             .extend(body.pat_fields.iter().map(|(id, pats)| (id, pats.clone())));

@@ -13,13 +13,18 @@ use emela_core::*;
 /// と同じ形で，`$start` が戻る前に終わったかどうか（`sync` / `async`）も出す．
 ///
 /// - 値: `sync 42`，エラー: `async error: Oops`，defect: `sync defect: …`
-/// - resume されないままイベントループが空になった: `interrupted`
+/// - resume されないままイベントループが空になったか，その場で resume されずに捨てられた: `interrupted`
 /// - ホストのコールバックの中で起きた defect: `defect: …`
 const HARNESS: &str = r#"import * as m from "./main.mjs";
 let over = false;
 let sync = true;
 const out = (s) => process.stdout.write(s + "\n");
-const describe = (e) => (e?.name === "Defect" ? "defect: " + e.message : "throw: " + String(e));
+const describe = (e) =>
+  e?.name === "Interrupted"
+    ? "interrupted"
+    : e?.name === "Defect"
+      ? "defect: " + e.message
+      : "throw: " + String(e);
 const show = (v) => {
   const f = v?.[Symbol.for("emela.fail")];
   return typeof f === "function" ? "error: " + f.call(v) : String(v);
@@ -470,12 +475,55 @@ fn functions_without_the_mark_are_unchanged() {
 }
 
 #[test]
-#[should_panic(expected = "中断しうる呼び出しが中断しない関数の中にある")]
-fn suspending_call_outside_generator_panics() {
+fn immediate_contexts_run_suspending_calls_in_place() {
+    // 中断しない関数（R が Immediate）の中でも，その場で resume するハンドラの with の中なら
+    // 中断しうる呼び出しがある（8.7）．その場で最後まで進める．resume されなければ interrupted．
     let mut m = Module::new();
-    let clock = clock(&mut m);
+    let clock_effect = clock(&mut m);
+    let instant = clock_handler(&mut m, clock_effect, "InstantClock", |_, ms, resume| {
+        resume_with(resume, var(ms))
+    });
+    // suspend fn twice(h) = h.sleep(20) + h.sleep(1)
+    let twice = m.declare("twice", false);
+    m.functions[twice].suspends = true;
+    let h = m.local("h");
+    m.define(
+        twice,
+        vec![h],
+        int_op(
+            BinOp::Add,
+            sleep(h, clock_effect, 20),
+            sleep(h, clock_effect, 1),
+        ),
+    );
     let h = m.local("h");
     let main = m.declare("main", true);
-    m.define(main, vec![h], sleep(h, clock, 1));
-    emit_module(&m, &Options::default());
+    m.define(
+        main,
+        vec![],
+        Expr::With {
+            binds: vec![(h, call(instant, vec![]))],
+            body: Box::new(int_op(
+                BinOp::Add,
+                call_suspends(twice, vec![var(h)]),
+                sleep(h, clock_effect, 21),
+            )),
+        },
+    );
+    assert_eq!(run("sync_in_place", m), "42\n");
+
+    let mut m = Module::new();
+    let clock_effect = clock(&mut m);
+    let never = clock_handler(&mut m, clock_effect, "NeverClock", |_, _, _| unit());
+    let h = m.local("h");
+    let main = m.declare("main", true);
+    m.define(
+        main,
+        vec![],
+        Expr::With {
+            binds: vec![(h, call(never, vec![]))],
+            body: Box::new(sleep(h, clock_effect, 1)),
+        },
+    );
+    assert_eq!(run("sync_dropped", m), "interrupted\n");
 }

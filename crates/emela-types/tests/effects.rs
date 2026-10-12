@@ -611,18 +611,27 @@ fn main() {
 }
 
 /// `@external suspend fn` は Async を要求し，ハンドラの中でしか使えない（12.2）．
+/// fn の操作の本体では待てない（E0417）．
 #[test]
 fn external_suspend_functions() {
     insta::assert_snapshot!(render_effects(
         r#"
 effect Http {
-  fn get(url: String) -> String
+  suspend fn get(url: String) -> String
 }
 
 @external(js, "./ffi.mjs", "fetchText")
 suspend fn fetch_text(url: String) -> String
 
 handler JsHttp implements Http {
+  suspend fn get(url, resume) { resume(fetch_text(url)) }
+}
+
+effect Blocking {
+  fn get(url: String) -> String
+}
+
+handler AwaitingInFn implements Blocking {
   fn get(url) { fetch_text(url) }
 }
 

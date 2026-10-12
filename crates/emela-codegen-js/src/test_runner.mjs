@@ -64,7 +64,12 @@ function $runTest(test, start) {
       const error = $testUnhandledError(v);
       finish(error === undefined ? { outcome: "ok" } : { outcome: "error", message: error });
     };
-    const defect = (error) => finish({ outcome: "defect", message: $testDescribe(error) });
+    const defect = (error) =>
+      finish(
+        error instanceof Error && error.name === "Interrupted"
+          ? { outcome: "interrupted" }
+          : { outcome: "defect", message: $testDescribe(error) },
+      );
     $testCurrent = { defect, interrupt: () => finish({ outcome: "interrupted" }) };
     let v;
     try {

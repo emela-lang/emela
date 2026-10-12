@@ -40,6 +40,10 @@ pub(crate) struct BodyTypes {
     pub(crate) fields: ArenaMap<ExprId, usize>,
     pub(crate) calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     pub(crate) type_args: ArenaMap<ExprId, Vec<Ty>>,
+    /// 汎用の定義の参照の式 → 集合の型引数を具体化した集合．
+    pub(crate) type_rows: ArenaMap<ExprId, Vec<Row>>,
+    /// 宣言の型のなかった定義の，汎化した集合変数と型引数の添字．
+    pub(crate) generalized_rows: Vec<(DefId, Vec<(RowVar, u32)>)>,
     pub(crate) pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     pub(crate) diags: Vec<Diagnostic>,
     /// 宣言の型のなかった定義の，汎化した宣言の型．
@@ -64,6 +68,8 @@ struct HandlerBody {
     fails: Row,
     /// suspend fn の実装で，`resume` を直接呼ぶ以外の使い方をしている（8.7）．依存に Async を足す．
     resume_later: bool,
+    /// suspend fn の実装か．fn の操作の本体は中断できない（E0417）．
+    suspend: bool,
 }
 
 /// 定義のまとまり1つを推論する間の状態．
@@ -107,6 +113,8 @@ pub(crate) struct BodyInfer<'a> {
     calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     /// 汎用の定義の参照の式 → 具体化した型引数．
     type_args: ArenaMap<ExprId, Vec<Ty>>,
+    /// 汎用の定義の参照の式 → 集合の型引数を具体化した集合．
+    type_rows: ArenaMap<ExprId, Vec<Row>>,
     /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．
     pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     exprs: ArenaMap<ExprId, Ty>,
@@ -168,6 +176,7 @@ impl<'a> BodyInfer<'a> {
             fields: ArenaMap::new(),
             calls: ArenaMap::new(),
             type_args: ArenaMap::new(),
+            type_rows: ArenaMap::new(),
             pat_fields: ArenaMap::new(),
             exprs: ArenaMap::new(),
             pats: ArenaMap::new(),
@@ -444,6 +453,7 @@ impl<'a> BodyInfer<'a> {
                 body,
                 fails: f.fails.clone(),
                 resume_later,
+                suspend,
             });
         }
     }
@@ -573,22 +583,25 @@ impl<'a> BodyInfer<'a> {
         self.infer_effects();
         self.solve_errors();
         self.check_immediates();
+        self.check_fn_op_bodies();
         self.check_handler_cycles();
         self.check_coverage();
         self.check_capabilities();
 
         let program = self.program;
         let mut inferred = Vec::new();
+        let mut generalized_rows = Vec::new();
         for (def, ty, params) in std::mem::take(&mut self.pending) {
             let labels = match program.item(def) {
                 Some(Item::Fn(item)) => param_labels(program, &item.sig.params),
                 _ => Vec::new(),
             };
             // トップレベルなので環境の型変数はない．
-            let scheme = self
-                .ctx
-                .generalize_bounded(&ty, params, &[], &self.immediate_vars);
+            let (scheme, rows) =
+                self.ctx
+                    .generalize_bounded(&ty, params, &[], &self.immediate_vars);
             inferred.push((def, Signature { scheme, labels }));
+            generalized_rows.push((def, rows));
         }
 
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
@@ -611,6 +624,11 @@ impl<'a> BodyInfer<'a> {
             let args: Vec<Ty> = args.iter().map(|ty| self.ctx.resolve(ty)).collect();
             type_args.insert(expr, args);
         }
+        let mut type_rows = ArenaMap::default();
+        for (expr, rows) in self.type_rows.iter() {
+            let rows: Vec<Row> = rows.iter().map(|row| self.ctx.resolve_row(row)).collect();
+            type_rows.insert(expr, rows);
+        }
         BodyTypes {
             exprs,
             pats,
@@ -619,6 +637,8 @@ impl<'a> BodyInfer<'a> {
             fields: self.fields,
             calls: self.calls,
             type_args,
+            type_rows,
+            generalized_rows,
             pat_fields: self.pat_fields,
             diags: self.diags,
             inferred,
@@ -674,9 +694,12 @@ impl<'a> BodyInfer<'a> {
             },
             ExprKind::Path(Res::Def(def)) => {
                 self.check_external(*def, e.span);
-                let (ty, args) = self.instantiate_def(*def, e.span);
+                let (ty, args, rows) = self.instantiate_def(*def, e.span);
                 if !args.is_empty() {
                     self.type_args.insert(expr, args);
+                }
+                if !rows.is_empty() {
+                    self.type_rows.insert(expr, rows);
                 }
                 self.open_fails(ty)
             }
@@ -842,16 +865,18 @@ impl<'a> BodyInfer<'a> {
 
     /// [`Self::infer_def_ref`] と同じく型を付け，型引数に置いた型も返す．
     /// 書いた型引数を持たない参照（単相の参照を含む）は空．
-    fn instantiate_def(&mut self, def: DefId, span: Span) -> (Ty, Vec<Ty>) {
+    /// 定義の参照の型と，具体化した型引数と集合（どちらも宣言の型引数の順．集合の型引数でない位置の
+    /// 集合は空）．同じ定義の中の自分自身の参照は具体化しない（どちらも空）．
+    fn instantiate_def(&mut self, def: DefId, span: Span) -> (Ty, Vec<Ty>, Vec<Row>) {
         let sigs = self.sigs;
         if let Some(sig) = sigs.get(def) {
             let (tys, rows) = self.ctx.fresh_args(&sig.scheme.params);
             self.require_immediate(def, &sig.scheme.params, &rows, span);
-            return (substitute(&sig.scheme.ty, &tys, &rows), tys);
+            return (substitute(&sig.scheme.ty, &tys, &rows), tys, rows);
         }
         if let Some((ty, params)) = self.pending_ty(def) {
             if self.current == Some(def) || params.is_empty() {
-                return (ty, Vec::new());
+                return (ty, Vec::new(), Vec::new());
             }
             // 書いた型引数（`Ty::Bound(i)`）と見えない集合の型引数はその定義の中でだけ意味を
             // 持つので，他の定義から参照するときは新しい型変数と集合変数に置き換える．まだ
@@ -865,11 +890,11 @@ impl<'a> BodyInfer<'a> {
             self.deferred.push(DeferredRef {
                 def,
                 args: args.clone(),
-                rows,
+                rows: rows.clone(),
                 instance: instance.clone(),
                 span,
             });
-            return (instance, args);
+            return (instance, args, rows);
         }
         // 型を付けない種類の定義（trait の関数，effect の操作など．alpha.2 以降）．
         self.diags.push(Diagnostic {
@@ -878,7 +903,7 @@ impl<'a> BodyInfer<'a> {
                 what: "reference to this kind of definition",
             },
         });
-        (Ty::Error, Vec::new())
+        (Ty::Error, Vec::new(), Vec::new())
     }
 
     /// 呼び出しの型．引数を仮引数の位置に並べ直してから，型を照合する（6.2）．
