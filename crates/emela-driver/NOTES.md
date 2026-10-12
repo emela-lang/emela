@@ -115,11 +115,14 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）診断のパスは `SourceDb::display_path` で起点（プロジェクトか単独ファイルのディレクトリ）からの相対パスにする．名前解決の診断の文面に埋め込まれたパス（重複の「先に `…` がある」）も同じく相対にする
 - （補）ディレクトリを渡してエントリ（`src/main.emel`）がなくても `check` は通す．エントリがないことは `build` と `run` で初めてエラーにする
 - （補）エントリのファイルが名前の誤りでモジュールにならないときは，名前解決の診断に加えて「エントリ `…` がモジュールにならない」を出す
+- （補）`emela run` は，エントリのモジュールに `main` という名前の fn がなければ E0230（``entry `src/main.emel` has no `main` function``，位置はエントリのファイル）で止まり，出力も node の起動もしない．`build` は main がなくても出力する（8.3）．`main` という名前でも fn でないもの（const など）は main と数えない
+- （補）E0230 はほかの誤り（構文，名前，型，lowering）が1件もないときだけ出す．構文の誤りで main を読めなかっただけのときに誤りを重ねないため
+- （補）main があるかは `Frontend::has_entry_main` で引く．`Typecheck`（と，それを包む `Lower`）が直前の `check` の HIR から答える．答えないフロントエンド（`None`，既定）では確かめずに node を起動する
 - （補）`emela run` も既定の出力先（仕様 4.1）に書いてから実行する．前の出力は消さずに上書きする
 - （補）`run` は，ビルドの後で node を起動する前に `before_node` を呼ぶ．CLI はここで診断を出す（終わらないプログラムでも警告が先に見える）．node を起動できなかった診断はその後に足す
 - （補）出力のパスが絶対パスや `..` を含むとき，またはエントリが出力に含まれないときは，出力段の誤りとして診断にする
 - （補）node は環境変数 `EMELA_NODE` があればそれを使い，なければ PATH の `node`
-- （補）node は `--input-type=module -e <起動用モジュール> -- <エントリ> <引数…>` で起動する．起動用モジュールはエントリを `import()` し，`main` を export していれば引数なしで呼ぶ（返り値は捨てる）．export していなければ読み込むだけにする
+- （補）node は `--input-type=module -e <起動用モジュール> -- <エントリ> <引数…>` で起動する．起動用モジュールはエントリを `import()` し，`main` を export していれば引数なしで呼ぶ（返り値は捨てる）．export していなければ読み込むだけにする（`run` はエントリに main がなければ E0230 で止めるので，ここに来るのは手で書いた出力段などで main を確かめないときだけ）
 - （補）`CoreJs` の出力はエントリの `main.mjs` と，隣のランタイム `emela_runtime.mjs` の2つ
 - （補）lowering が同梱の core の JS のファイルを IR に入れたとき（`Module::js_files`），`CoreJs` はそれを出力先の `emela_core/` の下に `lib/` と同じ並びで書き出す（build，run，test のどれも）．エントリの出力は出力先の直下にあるので，`./emela_core/x.mjs` で import できる．前の出力の `emela_core/` は消さない（ほかの出力と同じく上書きだけ）
 - （補）defect は `name` が `"Defect"` の `Error`（emela-codegen-js のランタイムの `$Defect`）．`instanceof` でなく `name` で見るので，起動用モジュールはランタイムを import しない

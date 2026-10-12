@@ -172,6 +172,8 @@ fn is_broken(import: &ast::Import) -> bool {
 /// 扱い，誤りを重ねない）．プログラムは HIR と型検査の結果の組．
 pub struct Typecheck<B = NoBuiltins> {
     resolve: Resolve<B>,
+    /// 直前の `check` で，エントリのモジュールに `main` の fn があったか．エントリか HIR がなければ `None`．
+    entry_main: Option<bool>,
 }
 
 /// 名前解決と型検査の結果．lowering はこの2つを読む（emela-types の NOTES.md「結果の形」）．
@@ -186,13 +188,17 @@ impl Default for Typecheck<NoBuiltins> {
     fn default() -> Self {
         Typecheck {
             resolve: Resolve::default(),
+            entry_main: None,
         }
     }
 }
 
 impl<B: BuiltinModules> Typecheck<B> {
     pub fn new(resolve: Resolve<B>) -> Self {
-        Typecheck { resolve }
+        Typecheck {
+            resolve,
+            entry_main: None,
+        }
     }
 
     /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
@@ -221,7 +227,12 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         crate::hover::hover(program, analysis, file, offset)
     }
 
+    fn has_entry_main(&self) -> Option<bool> {
+        self.entry_main
+    }
+
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
+        self.entry_main = None;
         let resolved = self.resolve.check(analysis, order);
         let Some(hir) = resolved.program else {
             return Checked {
@@ -237,8 +248,10 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         // `@internal` の置き場所（E0229）と core の外からの参照（E0228）．
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
         // main とテスト関数の R は空でなければならない（8.3，13.3）．
+        let main = analysis.entry.and_then(|entry| entry_main(&hir, entry));
+        self.entry_main = analysis.entry.map(|_| main.is_some());
         let options = CheckOptions {
-            main: analysis.entry.and_then(|entry| entry_main(&hir, entry)),
+            main,
             tests: tests.iter().map(|t| t.def).collect(),
         };
         let types = check_program_with(&hir, &options);
@@ -292,6 +305,10 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
 
     fn core_sources(&self) -> Vec<CoreSource> {
         self.typecheck.core_sources()
+    }
+
+    fn has_entry_main(&self) -> Option<bool> {
+        self.typecheck.has_entry_main()
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<emela_core::Module> {

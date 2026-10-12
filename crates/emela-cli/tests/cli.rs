@@ -171,6 +171,44 @@ fn build_reports_missing_entry() {
 }
 
 #[test]
+fn run_without_main_is_an_error() {
+    // run はエントリに main を求める（8.3）．build は main がなくても出力する．
+    let project = Project::new(
+        "no-main",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn helper() {\n  dbg(1)\n}\n"),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
+    insta::assert_snapshot!(run.stderr, @"
+    error[E0230]: entry `src/main.emel` has no `main` function
+       ─[ src/main.emel ]
+
+    1 error
+    ");
+    let build = project.emela(&["build"]);
+    assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));
+    assert!(project.path().join("target/emela/js/main.mjs").exists());
+}
+
+#[test]
+fn run_single_file_without_main_is_an_error() {
+    let project = Project::new("no-main-file", &[("lone.emel", "const N = 1\n")]);
+    let run = project.emela(&["run", "lone.emel"]);
+    assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
+    insta::assert_snapshot!(run.stderr, @"
+    error[E0230]: entry `lone.emel` has no `main` function
+       ─[ lone.emel ]
+
+    1 error
+    ");
+    let build = project.emela(&["build", "lone.emel"]);
+    assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));
+}
+
+#[test]
 fn check_with_absolute_path_from_elsewhere() {
     let project = Project::new("absolute", BROKEN);
     let inside = project.emela(&["check"]);
