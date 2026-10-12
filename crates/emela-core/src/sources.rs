@@ -20,11 +20,18 @@ const SOURCES: &[(&str, &str)] = &[
     ("Instant", include_str!("../lib/instant.emel")),
     ("Console", include_str!("../lib/console.emel")),
     ("JsConsole", include_str!("../lib/js_console.emel")),
+    ("Random", include_str!("../lib/random.emel")),
+    ("JsRandom", include_str!("../lib/js_random.emel")),
+    ("Env", include_str!("../lib/env.emel")),
+    ("JsEnv", include_str!("../lib/js_env.emel")),
 ];
 
 /// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．core の `@external(js, "./x.mjs", …)`
 /// が指すファイルで，`.emel` と同じく `include_str!` で埋め込む（手順は `lib/README.md`）．
-const JS_FILES: &[(&str, &str)] = &[];
+const JS_FILES: &[(&str, &str)] = &[
+    ("js_random.mjs", include_str!("../lib/js_random.mjs")),
+    ("js_env.mjs", include_str!("../lib/js_env.mjs")),
+];
 
 /// 同梱の JS のファイルを書き出す，JS の出力先の中のディレクトリ．core の `@external` の
 /// ファイルの指定は，lowering がエントリの出力（出力先の直下）からの相対パス
@@ -180,9 +187,11 @@ mod tests {
     }
 
     #[test]
-    fn console_is_bundled() {
+    fn platform_effects_are_bundled() {
         let modules: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
-        assert_eq!(modules[modules.len() - 2..], ["Console", "JsConsole"]);
+        for module in ["Console", "JsConsole", "Random", "JsRandom", "Env", "JsEnv"] {
+            assert!(modules.contains(&module), "{module} が同梱されていない");
+        }
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
         assert!(
             core_source("JsConsole")

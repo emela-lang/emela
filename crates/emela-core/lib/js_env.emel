@@ -1,0 +1,17 @@
+# Env の JS 用のハンドラ（仕様 15.2）．`Option[String]` は外部関数の境界を越えられない（12.4）
+# ので，ホストの側は有無と値の2つに分け，ハンドラの中で Option に組み立てる．
+
+import Env.{Env}
+
+@external(js, "./js_env.mjs", "has")
+fn env_has(name: String) -> Bool
+
+@external(js, "./js_env.mjs", "get")
+fn env_get(name: String) -> String
+
+## Env を JS の `process.env` で実装する．
+pub handler JsEnv implements Env {
+  fn get(name) {
+    if env_has(name) { Some(env_get(name)) } else { None }
+  }
+}

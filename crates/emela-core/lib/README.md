@@ -83,6 +83,44 @@ fn main() {
 }
 ```
 
+## Random（`random.emel`）
+
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
+
+| 操作 | シグネチャ | 説明 |
+|---|---|---|
+| `int` | `fn int() -> Int` | Int の全域で一様な値 |
+| `float` | `fn float() -> Float` | 0 以上 1 未満で一様な値 |
+
+## JsRandom（`js_random.emel`，`js_random.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `JsRandom` | `handler JsRandom implements Random` | JS の `crypto.getRandomValues` で引く．状態を持たない |
+
+## Env（`env.emel`）
+
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
+
+| 操作 | シグネチャ | 説明 |
+|---|---|---|
+| `get` | `fn get(name: String) -> Option[String]` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
+
+## JsEnv（`js_env.emel`，`js_env.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `JsEnv` | `handler JsEnv implements Env` | JS の `process.env` を読む．状態を持たない |
+
+```emel
+fn main() {
+  with JsConsole, JsRandom, JsEnv {
+    home = (use Env).get("HOME") |> Option.unwrap_or("?")
+    (use Console).print_line("#{home} #{(use Random).int()}")
+  }
+}
+```
+
 ## String（`string.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
@@ -185,3 +223,5 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` を `@internal`（core の中からだけ呼べる，E0228）にした．利用者の書く Clock のハンドラは Instant を作れないので，テスト用の時刻は同梱の `TestClock` に任せる前提
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
+- Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
+- Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない
