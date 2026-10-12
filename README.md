@@ -166,14 +166,16 @@ Side effects go through effects. The bundled `Console` effect writes lines, and
 
 ```emela
 fn greet(name: String) {
-  (use Console).print_line("Hello, #{name}!")
+  console = use Console
+  console.print_line("Hello, #{name}!")
 }
 
 fn main() {
   with JsConsole {
-    (use Console).print_line("hi")
+    console = use Console
+    console.print_line("hi")
     List.map(["Emela", "world"], greet)
-    (use Console).print_error_line("done")
+    console.print_error_line("done")
   }
 }
 ```
