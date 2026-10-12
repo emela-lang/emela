@@ -1,31 +1,31 @@
-//! コメントと空行を，意味のあるトークンに割り当てる．
+//! Attaches comments and blank lines to significant tokens.
 //!
-//! コメントは行末までなので，どれも「前のトークンと同じ行にある（行末のコメント）」か
-//! 「自分の行にある（行だけのコメント）」かのどちらかになる．
-//! - 行末のコメントは，直前の意味のあるトークンに付ける
-//! - 行だけのコメントと空行は，直後の意味のあるトークン（なければ入力の終わり）に付ける
+//! A comment runs to the end of its line, so it either shares a line with the preceding token
+//! (a trailing comment) or sits on its own line (a line comment).
+//! - A trailing comment attaches to the preceding significant token.
+//! - Line comments and blank lines attach to the following significant token, or to the end of
+//!   the input if there is none.
 //!
-//! ここで「意味のあるトークン」は，トリビアと文を区切る改行（NEWLINE）を除いたもの．
-//! 整形は，宣言・文・腕・並びの要素といった構造の境目で前置きを引き取り，引き取られずに
-//! 残ったものはトークンを出すときに必ず出す．どちらでも一度しか出さない．
+//! Significant tokens are those other than trivia and statement-separating NEWLINEs. The printer
+//! claims leading items at structural boundaries (declarations, statements, arms, list elements);
+//! anything left unclaimed is printed with its token. Either way, each item is printed once.
 
 use std::collections::HashMap;
 
 use emela_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use rowan::TextSize;
 
-/// トークンの前に置くもの．
 #[derive(Debug, Clone)]
 pub(crate) enum Leading {
     Comment(String),
-    /// 空行．連続する空行は1つにまとめてある．
+    /// Consecutive blank lines are collapsed into one.
     Blank,
 }
 
 pub(crate) struct Comments {
     leading: HashMap<TextSize, Vec<Leading>>,
     trailing: HashMap<TextSize, Vec<String>>,
-    /// 入力の終わりの位置．最後のトークンの後ろにあるものはこの位置に付ける．
+    /// Items after the last token attach to this position.
     eof: TextSize,
 }
 
@@ -83,33 +83,32 @@ impl Comments {
         }
     }
 
-    /// トークンの前置きを引き取る．二度目からは空．
+    /// Later calls for the same token return nothing.
     pub(crate) fn take_leading(&mut self, token: &SyntaxToken) -> Vec<Leading> {
         self.leading
             .remove(&token.text_range().start())
             .unwrap_or_default()
     }
 
-    /// 入力の終わりの前置き（最後の宣言の後ろのコメント）を引き取る．
+    /// Comments after the last declaration.
     pub(crate) fn take_leading_eof(&mut self) -> Vec<Leading> {
         self.leading.remove(&self.eof).unwrap_or_default()
     }
 
-    /// トークンの前に行だけのコメントがあるか．引き取らない．
+    /// Does not claim them.
     pub(crate) fn has_leading_comment(&self, token: &SyntaxToken) -> bool {
         self.leading
             .get(&token.text_range().start())
             .is_some_and(|items| items.iter().any(|l| matches!(l, Leading::Comment(_))))
     }
 
-    /// トークンの行末のコメントを引き取る．
     pub(crate) fn take_trailing(&mut self, token: &SyntaxToken) -> Vec<String> {
         self.trailing
             .remove(&token.text_range().start())
             .unwrap_or_default()
     }
 
-    /// まだ出していないコメントの数．整形の終わりに0であることを確かめる．
+    /// Checked to be zero after printing, so no comment is silently dropped.
     pub(crate) fn remaining(&self) -> usize {
         let leading = self
             .leading
@@ -121,8 +120,8 @@ impl Comments {
     }
 }
 
-/// ブロックと腕の並びの外にコメントがあるか．中のコメントの後の改行はブロックが
-/// 自分で出すので，外側の区切りを空白に変えても壊れない．
+/// Whether a comment sits outside every block and arm list. Blocks print the newline after
+/// their own comments, so turning an outer separator into a space cannot break them.
 pub(crate) fn has_comments_outside_blocks(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens()
         .filter(|e| matches!(e.kind(), SyntaxKind::COMMENT | SyntaxKind::DOC_COMMENT))
@@ -136,7 +135,7 @@ pub(crate) fn has_comments_outside_blocks(node: &SyntaxNode) -> bool {
         })
 }
 
-/// ノードの中にコメントがあるか．最初のトークンの前と最後のトークンの後ろは含まない．
+/// Excludes comments before the first token and after the last one.
 pub(crate) fn has_comments(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens()
         .any(|e| matches!(e.kind(), SyntaxKind::COMMENT | SyntaxKind::DOC_COMMENT))

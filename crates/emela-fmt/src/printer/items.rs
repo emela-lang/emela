@@ -1,4 +1,4 @@
-//! ファイルと宣言（17.3）．この段の宣言は `fn` だけ．
+//! Files and declarations (spec 17.3).
 
 use emela_syntax::SyntaxKind::*;
 use emela_syntax::SyntaxNode;
@@ -12,7 +12,7 @@ use super::{
 use crate::comments::Leading;
 
 impl Printer {
-    /// ファイル全体．宣言の間の空行は1つまで保つ．最後は改行で終える．
+    /// Keeps at most one blank line between declarations and ends with a newline.
     pub(crate) fn root(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut started = false;
@@ -45,12 +45,13 @@ impl Printer {
         }
     }
 
-    /// 宣言．effect の操作，handler の init と release もこれで出す．
+    /// Also prints effect operations and handler `init` and `release`.
     ///
     /// `@external(...)⏎ [pub] [opaque] type Name[A](x: Int) derive Eq`
     /// `[pub] [suspend] fn name[A](x: Int) -> T fails E use R { ... }`
     ///
-    /// 注釈は1つずつ自分の行に置く．型引数，引数，フィールドの並びは名前に付ける．
+    /// Each annotation goes on its own line. Type parameter, parameter and field lists attach
+    /// to the name.
     pub(crate) fn decl_seq(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut first = true;
@@ -65,7 +66,8 @@ impl Printer {
                 TYPE_PARAM_LIST | PARAM_LIST | FIELD_LIST | TUPLE_FIELD_LIST | IMPORT_LIST | COLON
             );
             if child.kind() == DERIVE_CLAUSE {
-                // 元のソースで次の行に書いてあれば次の行に置く．同じ行で収まらなくても次の行へ．
+                // Keep `derive` on the next line if the source had it there; it also moves to
+                // the next line when it does not fit.
                 let on_next_line = first_significant_token(child.as_node().unwrap())
                     .is_some_and(|t| newline_before(&t));
                 let brk = self.brk(on_next_line);
@@ -81,7 +83,7 @@ impl Printer {
                 rowan::NodeOrToken::Token(t) => self.tok(&t),
                 rowan::NodeOrToken::Node(n) => match n.kind() {
                     BLOCK_EXPR => self.block(&n).assemble(false).group(),
-                    // 戻り値と節は折らない．幅を超えるなら先に引数の並びが折れる．
+                    // The return type and clauses never break; the parameter list breaks first.
                     RET_TYPE | FAILS_CLAUSE | USE_CLAUSE => {
                         let doc = self.node(&n);
                         unbreakable(&doc)
@@ -95,11 +97,12 @@ impl Printer {
         out
     }
 
-    /// 宣言の本体 `{ ... }`．enum のバリアント，layer のハンドラ，effect，handler，
-    /// trait，impl の項目．
+    /// A declaration body `{ ... }`: enum variants, layer handlers, and the items of effects,
+    /// handlers, traits and impls.
     ///
-    /// 元が複数行なら1行に1項目で，区切りのカンマは消す（`enum Shape {⏎  Circle⏎  Empty⏎}`）．
-    /// 元が1行なら，収まるかぎり `{ Red, Green }` のまま，収まらなければ複数行にする．
+    /// A multiline source gets one item per line with the separating commas removed
+    /// (`enum Shape {⏎  Circle⏎  Empty⏎}`). A one-line source stays as `{ Red, Green }` while it
+    /// fits, and becomes multiline otherwise.
     fn item_list(&mut self, node: &SyntaxNode) -> Doc {
         let multi = has_newline_child(node);
         let open = match child_token(node, L_BRACE) {
@@ -115,7 +118,7 @@ impl Printer {
         for child in &children {
             match child {
                 rowan::NodeOrToken::Token(t) if t.kind() == COMMA => {
-                    // 1行のときだけ，平らに出したところで `,` を出す．
+                    // The comma is printed only when the list stays flat on one line.
                     let last = children
                         .iter()
                         .skip_while(|c| c.as_token() != Some(t))
@@ -171,7 +174,6 @@ impl Printer {
             .group()
     }
 
-    /// 本体の項目．
     fn item(&mut self, node: &SyntaxNode) -> Doc {
         match node.kind() {
             FN_DECL | OP_SIG | HANDLER_INIT | HANDLER_RELEASE => self.decl_seq(node),

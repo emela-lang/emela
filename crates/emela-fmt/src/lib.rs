@@ -1,10 +1,11 @@
-//! 構文木を整形して出力する．
+//! Formats a syntax tree.
 //!
-//! 入力は `emela_syntax` の無損失構文木．コメントと空行は木に残っているので，
-//! 整形はトークン列を作り直さずに木をたどって行う．折り返しは `pretty`（Wadler 式）に任せる．
+//! The input is the lossless tree from `emela_syntax`. Comments and blank lines stay in the
+//! tree, so the printer walks it instead of rebuilding a token stream. Line breaking is left to
+//! `pretty` (Wadler-style).
 //!
-//! 構文エラーを含むファイルは整形しない．ERROR ノードの中身は文法どおりに並んでいないので，
-//! 整形すると壊しうるため．
+//! Files with syntax errors are not formatted: the contents of an ERROR node do not follow the
+//! grammar, so reprinting them could break the file.
 
 mod comments;
 mod printer;
@@ -13,16 +14,14 @@ use std::fmt;
 
 use emela_syntax::{Diagnostic, SyntaxKind, SyntaxNode, SyntaxToken};
 
-/// 既定の幅．
 pub const DEFAULT_WIDTH: usize = 100;
 
-/// 整形できなかった理由．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
-    /// 入力に構文エラーがある．診断は `emela_syntax::parse` のもの．
+    /// The input has syntax errors. The diagnostics are those of `emela_syntax::parse`.
     Syntax(Vec<Diagnostic>),
-    /// 整形の結果が入力と同じトークン列にならなかった，またはコメントが落ちた．
-    /// formatter の不具合なので，入力を書き換えずに止める．
+    /// The output did not reproduce the input's tokens, or a comment was dropped. This is a
+    /// formatter bug, so we stop rather than rewrite the input.
     Internal(String),
 }
 
@@ -44,12 +43,12 @@ impl fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// 既定の幅（100）で整形する．
 pub fn format(src: &str) -> Result<String, FormatError> {
     format_with_width(src, DEFAULT_WIDTH)
 }
 
-/// 幅を指定して整形する．幅は1行の表示幅の目安で，収まらない字句（長い文字列など）は超える．
+/// `width` is a target for the display width of a line. Tokens that cannot fit (such as long
+/// strings) exceed it.
 pub fn format_with_width(src: &str, width: usize) -> Result<String, FormatError> {
     let parse = emela_syntax::parse(src);
     if !parse.diagnostics().is_empty() {
@@ -69,11 +68,11 @@ pub fn format_with_width(src: &str, width: usize) -> Result<String, FormatError>
     Ok(out)
 }
 
-/// 行末の空白を落とし，最後を改行1つで終える．
+/// Strips trailing whitespace and ends the output with exactly one newline.
 ///
-/// 複数行の文字列 `"""` の中の改行の手前の空白は値の一部なので残す．
+/// Whitespace before a newline inside a multiline string `"""` is part of the value, so it is
+/// kept.
 fn finish(rendered: &str) -> String {
-    // 文字列の中にある改行の位置．
     let mut in_string = std::collections::HashSet::new();
     for token in emela_syntax::lex(rendered).tokens {
         if matches!(
@@ -108,8 +107,8 @@ fn finish(rendered: &str) -> String {
     out
 }
 
-/// 整形の前後で意味が変わっていないことを確かめる．結果は構文エラーなく読め，
-/// トークン列（`normalized_tokens`）とコメントの並びが入力と一致しなければならない．
+/// Checks that formatting did not change the meaning: the output must parse without errors, and
+/// its tokens (`normalized_tokens`) and comments must match the input's.
 fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
     let parse = emela_syntax::parse(out);
     if let Some(d) = parse.diagnostics().first() {
@@ -132,14 +131,14 @@ fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
     Ok(())
 }
 
-/// 意味に関わるトークンの列．整形で変わってよいものを除く．
+/// The tokens that carry meaning, minus what formatting is allowed to change:
 ///
-/// - トリビア（空白，継続の改行，コメント）
-/// - 並びの末尾のカンマ（閉じ括弧の直前のカンマ）
-/// - 文を区切る改行のうち，ブロックの `{` の直後と `}` の直前，カンマの前後，入力の
-///   始まりと終わりのもの．続いた改行は1つにまとめる
-/// - 区切りとして働かない改行（注釈の後ろ，`derive` の前など）
-/// - 残った改行は `,` に置き換える（enum のバリアントなどはどちらでも区切れる）
+/// - trivia (whitespace, continuation newlines, comments)
+/// - trailing commas in lists (a comma right before a closing bracket)
+/// - statement-separating newlines right after a block's `{`, right before `}`, around commas,
+///   and at the start and end of the input; consecutive newlines are collapsed into one
+/// - newlines that do not separate anything (after an annotation, before `derive`, ...)
+/// - the remaining newlines become `,` (enum variants and the like accept either)
 #[doc(hidden)]
 pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
@@ -148,7 +147,7 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
         .filter_map(|e| e.into_token())
         .filter(|t| !t.kind().is_trivia())
         .filter(|t| t.kind() != NEWLINE || separates(t))
-        // 複数行の文字列の中の `\r\n` は `\n` と同じ改行として比べる．
+        // A `\r\n` inside a multiline string compares equal to `\n`.
         .map(|t| (t.kind(), t.text().replace("\r\n", "\n")))
         .collect();
     let mut out: Vec<(SyntaxKind, String)> = Vec::new();
@@ -162,8 +161,8 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
                 let prev = out.last().map(|(k, _)| *k);
                 let drop = matches!(prev, None | Some(NEWLINE | L_BRACE | COMMA))
                     || matches!(next, None | Some(R_BRACE | COMMA));
-                // 残った改行は区切りとして `,` と同じに扱う．enum のバリアントなどは
-                // カンマでも改行でも区切れ，整形で入れ替わるため．`\r\n` と `\n` も区別しない．
+                // A remaining newline counts as a `,` separator: enum variants and the like
+                // accept either, and the formatter swaps one for the other.
                 if !drop {
                     out.push((COMMA, ",".to_owned()));
                 }
@@ -175,8 +174,8 @@ pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     out
 }
 
-/// 改行が区切りとして働くか．ファイル，ブロック，腕の並び，宣言の本体の改行だけが
-/// 区切りで，注釈の後ろや `derive` の前，効果の集合の中の改行はパーサが読み飛ばす．
+/// Only newlines in a file, block, arm list or declaration body separate anything. The parser
+/// skips newlines after an annotation, before `derive` and inside an effect set.
 fn separates(newline: &SyntaxToken) -> bool {
     use SyntaxKind::*;
     newline.parent().is_some_and(|p| {
@@ -187,7 +186,7 @@ fn separates(newline: &SyntaxToken) -> bool {
     })
 }
 
-/// コメントの本文の並び（行末の空白を除く）．
+/// Comment texts, with trailing whitespace removed.
 #[doc(hidden)]
 pub fn comment_texts(root: &SyntaxNode) -> Vec<String> {
     root.descendants_with_tokens()
