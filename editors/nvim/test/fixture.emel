@@ -1,0 +1,68 @@
+# Places that tend to break a regex-based highlighter. Checked by check.vim.
+import Http.Client
+import Data.Json.{Json, decode}
+
+## A documented type. TODO: more fields
+pub opaque type Email(value: String)
+  derive Eq, Show
+
+type Pair[A, B: Eq + Show](first: A, second: B)
+
+enum Shape {
+  Circle(radius: Float)
+  Empty
+}
+
+error NotFound(id: Int)
+
+const MAX_SIZE = 1_000
+
+@external(js, "Math.abs")
+fn abs(x: Int) -> Int
+
+@intrinsic
+fn bit_and(a: Int, b: Int) -> Int
+
+effect Users {
+  suspend fn find(id: Int) -> User fails NotFound | DbError
+}
+
+handler PostgresUsers(conn: Connection) implements Users {
+  init {
+    PostgresUsers(conn: connect())
+  }
+  release {
+    close(self.conn)
+  }
+  fn find(id) { todo(self.conn) }
+}
+
+layer AppLive { PostgresUsers, ConsoleLogger }
+
+impl Show for Shape {
+  fn show(self) { "shape" }
+}
+
+fn run[A, R](f: fn() -> A fails A | B use { A, R }) -> A use R {
+  with AppLive { f() }
+}
+
+fn literals() {
+  hex = 0xFF_ff + 0b1010 + 3.14 + 1.0e9 + 1..2
+  bad = 1e9 + 0XFF
+  unit = ()
+  flags = True && !False || x != y |> List.map(f)
+  escaped = "tab\t uni\u{1F600} quote\" hash\#{not} bad\q"
+  nested = "a #{ f({ x: 1 }) } b #{ "in #{ y } ner" } c"
+  commented = "a #{ x # } still a comment
+  } b"
+  multi = """
+    line #{ name }
+    "quoted" ## not a comment
+    """
+  after = 1
+  for = 2
+  fails = for
+  r = x escape { NotFound(_) -> fail Other }
+  assert self == Self
+}
