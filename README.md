@@ -5,9 +5,9 @@ JavaScript and WebAssembly.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.2**:
-the pure subset plus typed errors and effects compile to JavaScript and run on
-Node.js. The 0.11
+This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.3**:
+the pure subset, typed errors and effects, and suspending effects compile to
+JavaScript and run on Node.js. The 0.11
 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
 branch.
 
@@ -15,7 +15,9 @@ branch.
 | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 0.20.0-alpha.1 | Functions, records, enums, `opaque` types, pattern matching, tail calls, pipes, `List` / `Option`, modules, `@test`, `dbg` |
 | 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`, `Console`            |
-| 0.20.0-alpha.3 | `suspend`, `Async`                                                                                                         |
+| 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
+| 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`                                                               |
+| 0.20.0-alpha.5 | Fibers: `Fiber.scope`, `fork`, interruption                                                                                |
 | 0.21 and later | `trait`, `impl`, `derive`, `Map`, `Set`, WebAssembly output                                                                |
 
 The 0.20 language specification is still being written. The
@@ -28,7 +30,7 @@ Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.2 sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.3 sh
 emela --version
 ```
 
@@ -158,6 +160,10 @@ Each command takes a project directory or an entry file, and defaults to `.`.
 | `emela fmt`   | Formats the sources in place; `--check` only lists them |
 | `emela lsp`   | Starts the language server over stdio                   |
 
+The language server reports diagnostics and offers hover (types, `fails`, `use`),
+inlay hints, completion, go to definition, references, rename, signature help,
+formatting, and a code action that writes inferred annotations.
+
 Programs print with `dbg`, which writes to stderr. The value `main` returns is
 not printed.
 
@@ -265,8 +271,58 @@ test unknown_users_get_the_guest_greeting ... ok
 test result: ok. 1 passed; 0 failed; 0 filtered out
 ```
 
-Not yet supported: handlers with fields, `init` or `release`, `layer`, and
-`suspend`.
+A `suspend fn` operation may pause its caller; the handler decides when to
+resume. Callers write ordinary calls, so the same `countdown` runs on a real
+clock in `main` and on an instant one in the test. This is
+[`examples/clock`](examples/clock):
+
+```emela
+# Suspending effects. `sleep` is a `suspend fn`: calls to it look like any other
+# call, and the handler decides when the caller resumes.
+
+fn countdown(n: Int) {
+  console = use Console
+  clock = use Clock
+  List.map(List.range(0, n), fn(i) {
+    clock.sleep(100)
+    console.print_line("#{n - i}")
+  })
+  console.print_line("liftoff")
+}
+
+fn main() {
+  with JsConsole, JsClock {
+    countdown(3)
+  }
+}
+
+# Resumes on the spot, so tests do not wait and need no `Async`.
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { Instant.from_unix_milliseconds(0) }
+}
+
+@test
+fn countdown_does_not_wait() {
+  with JsConsole, InstantClock {
+    countdown(3)
+  }
+}
+```
+
+```console
+$ emela run
+3
+2
+1
+liftoff
+```
+
+The bundled platform effects are `Console`, `Clock`, `Random` and `Env`, with
+JavaScript handlers `JsConsole`, `JsClock`, `JsRandom` and `JsEnv`.
+
+Not yet supported: handlers with fields, `init` or `release`, `layer`, `State`,
+and fibers.
 
 ## Crates
 
