@@ -15,8 +15,8 @@ pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
   }
 }
 
-## `default` if `None`.
-pub fn unwrap_or[A](opt: Option[A], default: A) -> A {
+## The value, or `default` if `None`.
+pub fn or[A](opt: Option[A], default: A) -> A {
   match opt {
     Some(x) -> x
     None -> default

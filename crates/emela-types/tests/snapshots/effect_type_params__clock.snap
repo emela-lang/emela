@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effect_type_params.rs
-expression: "render(r#\"\nhandler TestClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int.to_int64(ms))) })\n    resume(())\n  }\n  fn now() { (use State[Instant]).get() }\n}\n\nfn elapsed() -> Duration use { Clock } {\n  clock = use Clock\n  start = clock.now()\n  clock.sleep(1500)\n  clock.now() |> Instant.since(start)\n}\n\nfn test_elapsed() {\n  start = Instant.from_unix_milliseconds(Int.to_int64(0))\n  (d, last) = State.run(start, fn() { with TestClock { elapsed() } })\n  assert Duration.to_milliseconds(d) == Int.to_int64(1500)\n}\n\"#)"
+expression: "render(r#\"\nimport Std.Clock.{Clock}\nimport Std.State.{State}\nimport Std.Instant.{Instant}\nimport Std.Duration.{Duration}\n\nhandler TestClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) })\n    resume(())\n  }\n  fn now() { (use State[Instant]).get() }\n}\n\nfn elapsed() -> Duration use { Clock } {\n  clock = use Clock\n  start = clock.now()\n  clock.sleep(1500)\n  clock.now() |> Instant.since(start)\n}\n\nfn test_elapsed() {\n  start = Instant.from_unix_milliseconds(Int64.from_int(0))\n  (d, last) = State.run(start, fn() { with TestClock { elapsed() } })\n  assert Duration.to_milliseconds(d) == Int64.from_int(1500)\n}\n\"#)"
 ---
 elapsed: fn() -> Duration use Clock
   clock: use Clock
@@ -11,8 +11,8 @@ test_elapsed: fn() -> ()
   last: Instant
 handler TestClock: use State[Instant]
 --- R
-{     (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int.to_int64(ms))) })     resume(())   }: State[Instant]
-(use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int.to_int64(ms))) }): State[Instant]
+{     (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) })     resume(())   }: State[Instant]
+(use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) }): State[Instant]
 (use State[Instant]).update: State[Instant]
 use State[Instant]: State[Instant]
 { (use State[Instant]).get() }: State[Instant]

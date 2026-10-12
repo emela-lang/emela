@@ -23,6 +23,10 @@ enum Prelude.Ordering {
   Greater
 }
 
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
 enum Std.Duration.Duration {
   Duration(milliseconds: Int64)
 }

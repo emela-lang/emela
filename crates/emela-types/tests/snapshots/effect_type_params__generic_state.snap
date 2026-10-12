@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effect_type_params.rs
-expression: "render(r#\"\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {\n  st = use State[S]\n  st.update(f)\n  st.get()\n}\n\nfn bump() { modify(fn(n) { n + 1 }) }\n\nfn run_bump() { State.run(41, fn() { bump() }) }\n\nfn shout() { State.run(\"a\", fn() { modify(fn(s) { String.concat(s, \"!\") }) }) }\n\nfn peek() { modify(fn(x) { x }) }\n\nfn peek_int() { State.run(1, fn() { peek() }) }\n\"#)"
+expression: "render(r#\"\nimport Std.State.{State}\n\nfn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {\n  st = use State[S]\n  st.update(f)\n  st.get()\n}\n\nfn bump() { modify(fn(n) { n + 1 }) }\n\nfn run_bump() { State.run(41, fn() { bump() }) }\n\nfn shout() { State.run(\"a\", fn() { modify(fn(s) { String.append(s, \"!\") }) }) }\n\nfn peek() { modify(fn(x) { x }) }\n\nfn peek_int() { State.run(1, fn() { peek() }) }\n\"#)"
 ---
 modify: ∀ S. fn(fn(S) -> S fails {} use {}) -> S use State[S]
   f: fn('0) -> '0
@@ -22,8 +22,8 @@ st.get(): State['0]
 modify(fn(n) { n + 1 }): State[Int]
 { bump() }: State[Int]
 bump(): State[Int]
-{ modify(fn(s) { String.concat(s, "!") }) }: State[String]
-modify(fn(s) { String.concat(s, "!") }): State[String]
+{ modify(fn(s) { String.append(s, "!") }) }: State[String]
+modify(fn(s) { String.append(s, "!") }): State[String]
 { modify(fn(x) { x }) }: State[?1]
 modify(fn(x) { x }): State[?1]
 { peek() }: State[Int]

@@ -1,6 +1,6 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run_with_core(&[(\"util.emel\", \"pub fn twice(x: Int) -> Int { x + x }\\n\"),\n(\"main.emel\",\nr##\"fn lookup(m: Map[String, Int]) -> Int {\n  Option.unwrap_or(Map.get(m, \"a\"), 0)\n}\n\nfn order(x: Int) -> Ordering {\n  if Option.is_some(Some(x)) { Less } else { identity(Greater) }\n}\n\nfn not_imported() -> Int {\n  Util.twice(1)\n}\n\"##,),],\nCORE,)"
+expression: "run_with_core(&[(\"util.emel\", \"pub fn twice(x: Int) -> Int { x + x }\\n\"),\n(\"main.emel\",\nr##\"fn lookup(m: Map[String, Int]) -> Int {\n  Option.or(Map.get(m, \"a\"), 0)\n}\n\nfn order(x: Int) -> Ordering {\n  if Option.is_some(Some(x)) { Less } else { identity(Greater) }\n}\n\nfn not_imported() -> Int {\n  Util.twice(1)\n}\n\"##,),],\nCORE,)"
 ---
 == Main (src/main.emel)
 fn Main.lookup
@@ -9,7 +9,7 @@ fn Main.lookup
   body
     block
       call
-        Option.unwrap_or
+        Option.or
         call
           Map.get
           m#0
@@ -50,4 +50,4 @@ fn Util.twice pub
         x#0
         x#0
 == diagnostics
-error src/main.emel@210..214 `Util`: 未定義のモジュールか Trait `Util`
+error src/main.emel@203..207 `Util`: 未定義のモジュールか Trait `Util`

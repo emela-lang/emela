@@ -18,7 +18,8 @@ pub enum Builtin {
     StringLength,
     /// `String.byte_size`．UTF-8 で符号化したときのバイト数．
     StringByteSize,
-    StringConcat,
+    /// `String.append(a, b)`．
+    StringAppend,
     StringContains,
     StringStartsWith,
     StringEndsWith,
@@ -30,7 +31,6 @@ pub enum Builtin {
     StringJoin,
     /// `String.trim`．前後の Unicode の White_Space を取り除く．
     StringTrim,
-    StringFromInt,
     /// `String.code_points`．コードポイントの値のリスト．
     StringCodePoints,
     /// `String.from_code_point`．Unicode のスカラー値でなければ `None`．
@@ -38,8 +38,8 @@ pub enum Builtin {
 
     // Int．
     IntToString,
-    IntToFloat,
-    IntToInt64,
+    /// `Int.parse` の中身．10進の数字と先頭の符号だけを読み，それ以外と範囲外は `None`．
+    IntParse,
     /// `Int.checked_add`．あふれたら `None`．
     IntCheckedAdd,
     IntBitAnd,
@@ -68,6 +68,10 @@ pub enum Builtin {
 
     // Float．Int への変換は，結果が Int の範囲外か NaN なら defect．
     FloatToString,
+    /// `Float.from_int`．どの Int も Float で正確に表せる．
+    FloatFromInt,
+    /// `Float.parse` の中身．`to_string` の書く形だけを読み，それ以外は `None`．
+    FloatParse,
     FloatFloor,
     FloatCeil,
     /// 0.5 は 0 から遠い方へ丸める．
@@ -201,7 +205,7 @@ impl Builtin {
     pub const ALL: &'static [Builtin] = &[
         Builtin::StringLength,
         Builtin::StringByteSize,
-        Builtin::StringConcat,
+        Builtin::StringAppend,
         Builtin::StringContains,
         Builtin::StringStartsWith,
         Builtin::StringEndsWith,
@@ -209,12 +213,10 @@ impl Builtin {
         Builtin::StringChars,
         Builtin::StringJoin,
         Builtin::StringTrim,
-        Builtin::StringFromInt,
         Builtin::StringCodePoints,
         Builtin::StringFromCodePoint,
         Builtin::IntToString,
-        Builtin::IntToFloat,
-        Builtin::IntToInt64,
+        Builtin::IntParse,
         Builtin::IntCheckedAdd,
         Builtin::IntBitAnd,
         Builtin::IntBitOr,
@@ -234,6 +236,8 @@ impl Builtin {
         Builtin::Int64ShiftRight,
         Builtin::Int64ShiftRightUnsigned,
         Builtin::FloatToString,
+        Builtin::FloatFromInt,
+        Builtin::FloatParse,
         Builtin::FloatFloor,
         Builtin::FloatCeil,
         Builtin::FloatRound,
@@ -249,7 +253,7 @@ impl Builtin {
         match self {
             Builtin::StringLength => info(S, "length", &[String], Int, "$strlen"),
             Builtin::StringByteSize => info(S, "byte_size", &[String], Int, "$strbytes"),
-            Builtin::StringConcat => info(S, "concat", &[String, String], String, "$strcat"),
+            Builtin::StringAppend => info(S, "append", &[String, String], String, "$strcat"),
             Builtin::StringContains => info(S, "contains", &[String, String], Bool, "$strhas"),
             Builtin::StringStartsWith => {
                 info(S, "starts_with", &[String, String], Bool, "$strstarts")
@@ -259,7 +263,6 @@ impl Builtin {
             Builtin::StringChars => info(S, "chars", &[String], STRS, "$strchars"),
             Builtin::StringJoin => info(S, "join", &[STRS, String], String, "$strjoin"),
             Builtin::StringTrim => info(S, "trim", &[String], String, "$strtrim"),
-            Builtin::StringFromInt => info(S, "from_int", &[Int], String, "$showInt"),
             Builtin::StringCodePoints => {
                 info(S, "code_points", &[String], List(&Int), "$strcodepoints")
             }
@@ -271,8 +274,7 @@ impl Builtin {
                 "$strfromcodepoint",
             ),
             Builtin::IntToString => info(I, "to_string", &[Int], String, "$showInt"),
-            Builtin::IntToFloat => info(I, "to_float", &[Int], Float, "$itof"),
-            Builtin::IntToInt64 => info(I, "to_int64", &[Int], Int64, "$itol"),
+            Builtin::IntParse => info(I, "parse_or_none", &[String], Option(&Int), "$iparse"),
             Builtin::IntCheckedAdd => {
                 info(I, "checked_add", &[Int, Int], Option(&Int), "$icheckedAdd")
             }
@@ -298,6 +300,8 @@ impl Builtin {
                 info(L, "shift_right_unsigned", &[Int64, Int], Int64, "$lushr")
             }
             Builtin::FloatToString => info(F, "to_string", &[Float], String, "$showFloat"),
+            Builtin::FloatFromInt => info(F, "from_int", &[Int], Float, "$itof"),
+            Builtin::FloatParse => info(F, "parse_or_none", &[String], Option(&Float), "$fparse"),
             Builtin::FloatFloor => info(F, "floor", &[Float], Int, "$ffloor"),
             Builtin::FloatCeil => info(F, "ceil", &[Float], Int, "$fceil"),
             Builtin::FloatRound => info(F, "round", &[Float], Int, "$fround"),

@@ -1013,7 +1013,7 @@ fn string_split_join_and_search() {
         (two(Builtin::StringStartsWith, "hello", "he"), Type::Bool),
         (two(Builtin::StringStartsWith, "hello", "lo"), Type::Bool),
         (two(Builtin::StringEndsWith, "hello", "lo"), Type::Bool),
-        (two(Builtin::StringConcat, "foo", "bar"), Type::String),
+        (two(Builtin::StringAppend, "foo", "bar"), Type::String),
         (
             b(
                 Builtin::StringTrim,
@@ -1026,7 +1026,7 @@ fn string_split_join_and_search() {
             b(Builtin::StringTrim, vec![string("\u{feff}x\u{200b}")]),
             Type::String,
         ),
-        (b(Builtin::StringFromInt, vec![int(-7)]), Type::String),
+        (b(Builtin::IntToString, vec![int(-7)]), Type::String),
     ]);
     main_fn(&mut m, lines(parts));
     assert_eq!(
@@ -1061,13 +1061,13 @@ fn int_conversions_and_checked_add() {
         (add(i32::MIN, -1), opt_int.clone()),
         (add(i32::MAX, i32::MIN), opt_int.clone()),
         (b(Builtin::IntToString, vec![int(-42)]), Type::String),
-        (b(Builtin::IntToFloat, vec![int(7)]), Type::Float),
+        (b(Builtin::FloatFromInt, vec![int(7)]), Type::Float),
         // Converted to Int64 first, twice Int's maximum does not overflow.
         (
             bin(
                 BinOp::Mul,
                 OpTy::Int64,
-                b(Builtin::IntToInt64, vec![int(i32::MAX)]),
+                b(Builtin::Int64FromInt, vec![int(i32::MAX)]),
                 b(Builtin::Int64FromInt, vec![int(2)]),
             ),
             Type::Int64,

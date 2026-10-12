@@ -9,8 +9,14 @@ pub fn length(s: String) -> Int
 @intrinsic
 pub fn byte_size(s: String) -> Int
 
+## Joins two strings: `String.append("ab", "cd")` is `"abcd"`.
 @intrinsic
-pub fn concat(a: String, b: String) -> String
+pub fn append(a: String, b: String) -> String
+
+## Joins all the strings in order: `String.concat(["a", "b", "c"])` is `"abc"`.
+pub fn concat(parts: List[String]) -> String {
+  join(parts, "")
+}
 
 ## Matches by code point sequence.
 @intrinsic
@@ -38,10 +44,6 @@ pub fn join(parts: List[String], sep: String) -> String
 ## Removes leading and trailing whitespace (Unicode White_Space).
 @intrinsic
 pub fn trim(s: String) -> String
-
-## Same as `Int.to_string`.
-@intrinsic
-pub fn from_int(n: Int) -> String
 
 @intrinsic
 pub fn code_points(s: String) -> List[Int]

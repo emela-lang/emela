@@ -10,6 +10,10 @@ error enum Unauthorized {
   Unauthorized
 }
 
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
 export fn main() {
   let a%1 = {
     find(1)?

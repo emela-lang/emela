@@ -2,6 +2,23 @@
 # Converting to Int is a defect if the result is NaN, ±Infinity or outside the range of Int
 # (spec 16.1).
 
+## Every Int is exactly representable as a Float.
+@intrinsic
+pub fn from_int(n: Int) -> Float
+
+## Reads a decimal number in the forms that `to_string` writes: digits with an optional `.` and
+## fraction, an optional exponent (`1e+21`), an optional leading `-` or `+`, and `Infinity`,
+## `-Infinity`, `NaN`. Fails with `ParseError` otherwise (including spaces).
+pub fn parse(s: String) -> Float fails ParseError {
+  match parse_or_none(s) {
+    Some(x) -> x
+    None -> fail ParseError(input: s)
+  }
+}
+
+@intrinsic
+fn parse_or_none(s: String) -> Option[Float]
+
 ## The shortest digits that round-trip. A finite integral value gets a `.0` suffix, as in `1.0`
 ## (spec 10.6).
 @intrinsic

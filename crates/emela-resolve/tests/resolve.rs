@@ -18,7 +18,7 @@ fn builtins() -> BuiltinTable {
             "List",
             &["map", "filter", "fold", "partition", "get", "tail", "each"],
         )
-        .functions("Option", &["or_fail", "unwrap_or"])
+        .functions("Option", &["or_fail", "or"])
         .module(
             "Map",
             &[("Map", BuiltinKind::Type), ("to_list", BuiltinKind::Fn)],
@@ -232,7 +232,7 @@ fn calls(xs: List[Int], scores: Map[String, Int]) {
   label = if count > 0 { "あり" } else { "なし" }
   total = xs
     |> List.filter(is_even)
-    |> List.fold(init: 0, f: add)
+    |> List.fold(from: 0, f: add)
   doubled = List.map(xs, fn(x) { x * 2 })
   "#{label}: #{total}"
 }
@@ -681,7 +681,7 @@ fn bad(user: User, shape: Shape) {
 const CORE: &[(&str, &str)] = &[
     (
         "option.emel",
-        r##"pub fn unwrap_or[A](o: Option[A], default: A) -> A {
+        r##"pub fn or[A](o: Option[A], default: A) -> A {
   match o {
     Some(x) -> x
     None    -> default
@@ -721,7 +721,7 @@ fn core_modules_are_implicit() {
             (
                 "main.emel",
                 r##"fn lookup(m: Map[String, Int]) -> Int {
-  Option.unwrap_or(Map.get(m, "a"), 0)
+  Option.or(Map.get(m, "a"), 0)
 }
 
 fn order(x: Int) -> Ordering {

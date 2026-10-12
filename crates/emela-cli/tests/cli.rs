@@ -416,7 +416,7 @@ fn check_resolves_bundled_core() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.unwrap_or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
             ),
         ],
     );

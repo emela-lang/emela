@@ -151,7 +151,6 @@ mod tests {
                     f.body().is_none(),
                     "@intrinsic の {module}.{name} に本体がある"
                 );
-                assert!(f.is_pub(), "@intrinsic の {module}.{name} が pub でない");
                 // ランタイムのハンドラ（`State.run`）は lowering がその場で写すので，表に行を持たない．
                 if crate::intrinsics::is_runtime_handler(module, &name) {
                     continue;

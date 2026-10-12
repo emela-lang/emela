@@ -190,7 +190,7 @@ fn area(shape: Shape) -> Float {
     ));
 }
 
-/// 6.7 Pipes. The named arguments of `List.fold(init: 0, f: add)` follow the pipe's left side.
+/// 6.7 Pipes. The named arguments of `List.fold(from: 0, f: add)` follow the pipe's left side.
 #[test]
 fn spec_6_7_pipe() {
     insta::assert_snapshot!(render_bodies(
@@ -201,7 +201,7 @@ fn add(acc: Int, n: Int) -> Int { acc + n }  # 補
 fn total(scores: List[Int]) -> Int {
   scores
     |> List.filter(is_valid)
-    |> List.fold(init: 0, f: add)
+    |> List.fold(from: 0, f: add)
 }
 "#
     ));

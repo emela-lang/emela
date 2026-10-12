@@ -428,7 +428,7 @@ fn bundled_core_resolves_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.unwrap_or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
@@ -442,7 +442,7 @@ fn bundled_core_typechecks_cleanly() {
     let analysis = check_files(
         &[(
             "home/main.emel",
-            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.unwrap_or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
+            "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x + 1 })\n  n = Option.or(List.head(xs), 0)\n  String.length(\"#{n}\")\n}\n",
         )],
         "home/main.emel",
         &mut frontend,
