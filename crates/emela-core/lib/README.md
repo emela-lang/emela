@@ -121,6 +121,29 @@ fn main() {
 }
 ```
 
+## Clock（`clock.emel`）
+
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．`suspend fn sleep(ms: Int) -> ()`（8.1）は suspend が入ってから足す．
+
+| 操作 | シグネチャ | 説明 |
+|---|---|---|
+| `now` | `fn now() -> Instant` | 現在の時点 |
+
+## JsClock（`js_clock.emel`，`js_clock.mjs`）
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `JsClock` | `handler JsClock implements Clock` | JS の `Date.now()` で現在の時点を返す．状態を持たない |
+
+```emel
+fn main() {
+  with JsConsole, JsClock {
+    start = (use Clock).now()
+    (use Console).print_line(Instant.to_string(start))
+  }
+}
+```
+
 ## String（`string.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
@@ -222,6 +245,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
+- Clock の操作は今は `now` だけ．`sleep` を足すと，Clock を実装するハンドラはそれも書く必要がある
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない

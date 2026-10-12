@@ -24,6 +24,8 @@ const SOURCES: &[(&str, &str)] = &[
     ("JsRandom", include_str!("../lib/js_random.emel")),
     ("Env", include_str!("../lib/env.emel")),
     ("JsEnv", include_str!("../lib/js_env.emel")),
+    ("Clock", include_str!("../lib/clock.emel")),
+    ("JsClock", include_str!("../lib/js_clock.emel")),
 ];
 
 /// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．core の `@external(js, "./x.mjs", …)`
@@ -31,6 +33,7 @@ const SOURCES: &[(&str, &str)] = &[
 const JS_FILES: &[(&str, &str)] = &[
     ("js_random.mjs", include_str!("../lib/js_random.mjs")),
     ("js_env.mjs", include_str!("../lib/js_env.mjs")),
+    ("js_clock.mjs", include_str!("../lib/js_clock.mjs")),
 ];
 
 /// 同梱の JS のファイルを書き出す，JS の出力先の中のディレクトリ．core の `@external` の
@@ -189,7 +192,16 @@ mod tests {
     #[test]
     fn platform_effects_are_bundled() {
         let modules: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
-        for module in ["Console", "JsConsole", "Random", "JsRandom", "Env", "JsEnv"] {
+        for module in [
+            "Console",
+            "JsConsole",
+            "Random",
+            "JsRandom",
+            "Env",
+            "JsEnv",
+            "Clock",
+            "JsClock",
+        ] {
             assert!(modules.contains(&module), "{module} が同梱されていない");
         }
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
@@ -197,6 +209,11 @@ mod tests {
             core_source("JsConsole")
                 .unwrap()
                 .contains("pub handler JsConsole")
+        );
+        assert!(
+            core_source("JsClock")
+                .unwrap()
+                .contains("pub handler JsClock")
         );
     }
 

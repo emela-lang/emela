@@ -44,7 +44,7 @@
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
-- （補）Prelude と core のソースは `lib/*.emel` で，`core_sources()` がモジュール名とソースの組を返す．モジュール名は `List`，`Option`，`String`，`Int`，`Int64`，`Float`，`Duration`，`Instant`，`Console`，`JsConsole` と，Prelude の `PRELUDE`（`"Prelude"`）．Prelude が先頭．
+- （補）Prelude と core のソースは `lib/*.emel` で，`core_sources()` がモジュール名とソースの組を返す．モジュール名は `List`，`Option`，`String`，`Int`，`Int64`，`Float`，`Duration`，`Instant`，`Console`，`JsConsole`，`Random`，`JsRandom`，`Env`，`JsEnv`，`Clock`，`JsClock` と，Prelude の `PRELUDE`（`"Prelude"`）．Prelude が先頭．
 - （補）`@intrinsic` の宣言は `Builtin::lookup_intrinsic(モジュール名, 関数名)` で表を引く．`"Prelude"` は表の `module: None`（修飾せずに呼ぶ関数）に当たる．
 - （補）`@intrinsic` の宣言は `pub` で，引数と戻り値の型，型引数の数を表と一致させる．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
@@ -103,6 +103,15 @@ alpha.3 で同梱した（2026-10-12）．形は Console と同じ．
 - （補）空の値（`NAME=`）は `Some("")`，未設定は `None`．`has` は `Object.hasOwn(process.env, name)` で見る（`process.env[name] !== undefined` でも同じだが，プロトタイプの名前を拾わないことを明示する）．
 - （補）`has` と `get` の間に環境変数が変わることは考えない（JS のプログラムの中から `process.env` を書き換える手段を core は持たない）．
 - （補）`Env` と `JsEnv` を同梱したので，ソースのルート直下の `env.emel` と `js_env.emel` は予約名（E0203）になる（Console と同じ）．
+
+## Clock（`clock.emel`，`js_clock.emel`，`js_clock.mjs`）
+
+alpha.3 で同梱した（2026-10-12）．Console と同じ形（エフェクトとターゲットごとのハンドラのモジュールを分ける）．
+
+- （補）エフェクト `Clock` の操作は今は `fn now() -> Instant` だけ．仕様 8.1 の `suspend fn sleep(ms: Int) -> ()` は，suspend を型検査（#156）と JS の出力（#159）で扱えるようになってから足す．足すと Clock を実装する利用者のハンドラは `sleep` も書く必要がある（8.4）．
+- （補）`JsClock` は状態を持たないハンドラで，`now` は `Date.now()` を `BigInt` にして返す同梱の `js_clock.mjs` の `nowMilliseconds` を `@external(js, "./js_clock.mjs", "nowMilliseconds")` で呼び，`Instant.from_unix_milliseconds` で包む．Int64 は JS では BigInt なので，境界（12.4）はそのまま渡る．`Date.now()` を直接 `@external` にしないのは Number を返すため．
+- （補）テスト用の時計（15.2 の TestClock，8.7 の InstantClock）はまだ置かない．時刻を進めるには状態を持つハンドラ（alpha.4）が，`sleep` をその場で resume するには suspend が要る．
+- （補）`Clock` と `JsClock` を同梱したので，ソースのルート直下の `clock.emel` と `js_clock.emel` は予約名（E0203）になる（4.1，15.2）．
 
 ## lowering（`lower.rs`）
 

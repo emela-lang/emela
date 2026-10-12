@@ -653,3 +653,28 @@ fn suspended_tests_are_awaited_or_interrupted() {
         "{out}"
     );
 }
+
+#[test]
+fn tests_can_use_js_clock() {
+    // テストの出力にも同梱の `js_clock.mjs` を書き出す（`emela_core/` の下）．
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            "fn main() {}\n\n@test\nfn clock_moves_forward() {\n  with JsClock {\n    start = (use Clock).now()\n    d = (use Clock).now() |> Instant.since(start)\n    assert Duration.to_milliseconds(d) >= 0\n  }\n}\n",
+        ),
+    ];
+    let (analysis, report, _) = run_tests(
+        "js-clock",
+        sources,
+        &mut LowerTests::default(),
+        &mut CoreJs,
+        None,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let report = report.unwrap();
+    assert!(
+        matches!(report.results[0].outcome, TestOutcome::Passed),
+        "{report:?}"
+    );
+}
