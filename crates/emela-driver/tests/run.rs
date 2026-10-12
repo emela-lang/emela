@@ -1210,3 +1210,137 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn state_run_returns_value_and_final_state() {
+    // State.run（8.8）は body の値と最後の状態の組を返す．型引数の違う State は別のエフェクトで，
+    // 汎用の fn（`modify[S]`）は呼ぶ側の State[Int] か State[String] を引く（8.1）．body が失敗すれば
+    // 状態は捨ててエラーだけが伝わる．update に渡す関数は一息に実行される．
+    let output = run_source(
+        "state-run",
+        r##"error Boom
+
+fn count() -> Int use { State[Int] } {
+  st = use State[Int]
+  st.update(fn(n) { n + 1 })
+  st.get()
+}
+
+fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+  (use State[S]).update(f)
+  (use State[S]).get()
+}
+
+fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
+  modify(f)
+  modify(f)
+}
+
+fn both() -> String use { State[Int], State[String] } {
+  n = modify(fn(n) { n + 1 })
+  (use State[String]).set("n=#{n}")
+  twice(fn(s) { String.concat(s, "!") })
+}
+
+fn peek() { modify(fn(x) { x }) }
+
+fn failing() -> Int fails Boom {
+  (_, last) = State.run(1, fn() {
+    (use State[Int]).set(5)
+    fail Boom
+  })
+  last
+}
+
+fn main() {
+  with JsConsole {
+    c = use Console
+    (n, last) = State.run(0, fn() { count() + count() })
+    c.print_line("#{n} #{last}")
+    ((s, inner), outer) = State.run(10, fn() { State.run("", fn() { both() }) })
+    c.print_line("#{s} #{inner} #{outer}")
+    (v, same) = State.run(7, fn() { peek() })
+    c.print_line("#{v} #{same}")
+    f = modify
+    (g, h) = State.run(3, fn() { f(fn(k) { k * 4 }) })
+    c.print_line("#{g} #{h}")
+    c.print_line("#{failing() escape { Boom -> -1 }}")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "3 2\nn=11!! n=11!! 11\n7 7\n12 12\n-1\n", "")
+    );
+}
+
+#[test]
+fn test_handlers_record_output_and_move_the_clock() {
+    // 同梱の TestConsole は出力を State[List[String]] に書いた順に溜め，TestClock は
+    // State[Instant] の時刻を sleep で進めてその場で resume する（15.2）．
+    let output = run_source(
+        "state-test-handlers",
+        r##"fn greet(name: String) -> () use { Console } {
+  (use Console).print_line("Hello, #{name}!")
+  (use Console).print_error_line("dropped")
+}
+
+fn elapsed() -> Duration use { Clock } {
+  clock = use Clock
+  start = clock.now()
+  clock.sleep(1500)
+  clock.sleep(-3)
+  clock.now() |> Instant.since(start)
+}
+
+fn main() {
+  (_, lines) = State.run([], fn() {
+    with TestConsole {
+      greet("alice")
+      greet("bob")
+    }
+  })
+  start = Instant.from_unix_milliseconds(Int.to_int64(1000))
+  (d, end) = State.run(start, fn() { with TestClock { elapsed() } })
+  with JsConsole {
+    c = use Console
+    c.print_line(String.join(lines, "|"))
+    c.print_line("#{Duration.to_milliseconds(d)} #{Instant.to_unix_milliseconds(end)}")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "Hello, alice!|Hello, bob!\n1500 2500\n", "")
+    );
+}
+
+#[test]
+fn state_run_keeps_the_state_across_suspension() {
+    // body が JsClock で中断しても（8.7，14.5），State.run の状態は再開の後に引き継がれる．
+    let output = run_source(
+        "state-suspend",
+        r##"fn tick() -> () use { State[Int], Clock } {
+  (use Clock).sleep(10)
+  (use State[Int]).update(fn(n) { n + 1 })
+}
+
+fn main() {
+  (_, n) = State.run(0, fn() {
+    with JsClock {
+      tick()
+      tick()
+      List.map([1, 2, 3], fn(x) { tick() })
+    }
+  })
+  with JsConsole { (use Console).print_line("#{n}") }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "5\n", "")
+    );
+}

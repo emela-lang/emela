@@ -147,14 +147,14 @@ fn main() {
 }
 ```
 
-## State（`state.emel`．まだ同梱しない）
+## State（`state.emel`）
 
-仕様 8.8 の可変な状態．宣言だけを置き，`run` の実装（ランタイムが供給するハンドラ）と同梱は次の段（NOTES.md）．
+仕様 8.8 の可変な状態．`run` はランタイムが供給するハンドラで，lowering がその場で写す（NOTES.md）．
 
 | 宣言 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
 | `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | 型 `S` の状態を読み書きする |
-| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | intrinsic | 初期値 `initial` の状態で `body` を実行し，値と最後の状態を返す |
+| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | ランタイム | 初期値 `initial` の状態で `body` を実行し，値と最後の状態を返す．失敗したら状態は捨てる |
 
 ```emel
 fn count() -> Int use { State[Int] } {
@@ -165,6 +165,30 @@ fn count() -> Int use { State[Int] } {
 
 fn main() {
   (n, last) = State.run(0, fn() { count() })
+}
+```
+
+## TestConsole（`test_console.emel`）と TestClock（`test_clock.emel`）
+
+test 層（15.2）のハンドラ．状態を State に置くので，`State.run` の中で使う．
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `TestConsole` | `handler TestConsole implements Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる |
+| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]`．`sleep(ms)` は時刻を進めてその場で再開する（負なら 0）．`now` はその時刻 |
+
+```emel
+@test
+fn greets() {
+  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  assert lines == ["Hello, 1!"]
+}
+
+@test
+fn waits() {
+  start = Instant.from_unix_milliseconds(Int.to_int64(0))
+  (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+  assert Instant.to_unix_milliseconds(end) == Int.to_int64(1000)
 }
 ```
 

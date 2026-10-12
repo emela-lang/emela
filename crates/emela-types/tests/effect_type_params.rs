@@ -1,8 +1,8 @@
 //! エフェクトの型引数（8.1）と State（8.8）．型引数の違うエフェクトを R の中で区別すること，
 //! with と `State.run` が型引数まで同じエフェクトを消すこと，型引数の省略と数の誤りを確かめる．
 //!
-//! State はまだ同梱していないので，`emela-core/lib/state.emel` を core のモジュールとして足して
-//! 読む．出力は宣言の型，局所変数の型，handler の依存，`main.emel` の診断，R が空でない式．
+//! State は同梱の core のモジュール（`emela-core/lib/state.emel`）．出力は宣言の型，局所変数の型，
+//! handler の依存，`main.emel` の診断，R が空でない式．
 
 mod common;
 
@@ -11,12 +11,10 @@ use std::fmt::Write;
 use emela_resolve::hir::{DefKind, DefModule};
 use emela_types::{CheckOptions, check_program_with};
 
-use common::{describe, resolve_main_with};
-
-const STATE: &str = include_str!("../../emela-core/lib/state.emel");
+use common::{describe, resolve_main};
 
 fn render(src: &str) -> String {
-    let (program, module, resolve_diagnostics) = resolve_main_with(src, &[("State", STATE)]);
+    let (program, module, resolve_diagnostics) = resolve_main(src);
     let in_main =
         |def: emela_resolve::hir::DefId| program.defs[def].module == DefModule::Source(module);
     let tests = program
@@ -87,11 +85,10 @@ fn render(src: &str) -> String {
     out
 }
 
-/// 同梱する予定の State のソースは，core と一緒に誤りなく型検査を通る．`run` の型は仕様 8.8 のとおり．
+/// 同梱の State のソースは，core と一緒に誤りなく型検査を通る．`run` の型は仕様 8.8 のとおり．
 #[test]
 fn state_source_typechecks() {
-    let (program, _, resolve_diagnostics) =
-        resolve_main_with("fn unused() { () }\n", &[("State", STATE)]);
+    let (program, _, resolve_diagnostics) = resolve_main("fn unused() { () }\n");
     assert_eq!(resolve_diagnostics, []);
     let types = check_program_with(&program, &CheckOptions::default());
     assert_eq!(types.diags, []);

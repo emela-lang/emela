@@ -26,6 +26,9 @@ const SOURCES: &[(&str, &str)] = &[
     ("JsEnv", include_str!("../lib/js_env.emel")),
     ("Clock", include_str!("../lib/clock.emel")),
     ("JsClock", include_str!("../lib/js_clock.emel")),
+    ("State", include_str!("../lib/state.emel")),
+    ("TestConsole", include_str!("../lib/test_console.emel")),
+    ("TestClock", include_str!("../lib/test_clock.emel")),
 ];
 
 /// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．core の `@external(js, "./x.mjs", …)`
@@ -140,6 +143,10 @@ mod tests {
                     "@intrinsic の {module}.{name} に本体がある"
                 );
                 assert!(f.is_pub(), "@intrinsic の {module}.{name} が pub でない");
+                // ランタイムのハンドラ（`State.run`）は lowering がその場で写すので，表に行を持たない．
+                if crate::intrinsics::is_runtime_handler(module, &name) {
+                    continue;
+                }
                 let op = Builtin::lookup_intrinsic(module, &name)
                     .unwrap_or_else(|| panic!("{module}.{name} が組み込み関数の表にない"));
                 let info = op.info();
@@ -201,6 +208,9 @@ mod tests {
             "JsEnv",
             "Clock",
             "JsClock",
+            "State",
+            "TestConsole",
+            "TestClock",
         ] {
             assert!(modules.contains(&module), "{module} が同梱されていない");
         }

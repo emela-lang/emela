@@ -113,16 +113,19 @@ alpha.3 で同梱した（2026-10-12）．Console と同じ形（エフェクト
 - （補）`JsClock` の `sleep` は `js_clock.mjs` の `after(ms, f)`（`setTimeout(f, ms)`．引数の順を Emela の慣習の「対象が先」に合わせた）のコールバックから `resume(())` を呼ぶ（8.4 の例のとおり）．resume をクロージャで捕まえるので，JsClock は Async に依存し，`with JsClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
 - （補）`sleep` の負の `ms` は 0 と同じ（`setTimeout` に従う）．defect にしない．待つ時間はタイマーの精度に従い，正確さは保証しない．
 - （補）Clock が中断しうるので，Clock を使う関数はすべて中断しうる関数になる（`now` しか呼ばなくても．印は R で決まる，下の「lowering の印」）．
-- （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を進めるのに状態を持つハンドラ（alpha.4）が要るので，その段で core に足す．
+- （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を State に置くハンドラとして同梱した（下の「State，TestConsole，TestClock」）．
 - （補）`Clock` と `JsClock` を同梱したので，ソースのルート直下の `clock.emel` と `js_clock.emel` は予約名（E0203）になる（4.1，15.2）．
 
-## State（`state.emel`．まだ同梱しない）
+## State，TestConsole，TestClock（`state.emel`，`test_console.emel`，`test_clock.emel`）
 
-alpha.4 の第2段（2026-10-12）．仕様 8.8 のエフェクト `State[S]` と `State.run` の宣言を `lib/state.emel` に置いた．型検査は通る（emela-types の `tests/effect_type_params.rs` が core と一緒に読んで確かめる）．
+alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12）で同梱した．
 
-- （補）まだ `SOURCES` に入れない（同梱しない）．`run` の実装（ランタイムが供給する組み込みのハンドラ）と，型引数のあるエフェクトの lowering が第3段なので，今同梱しても `State.run` を呼ぶプログラムは build で動かせない．同梱するとソースのルート直下の `state.emel` が予約名（E0203）になり，既存のプログラムを壊しうるので，動かせるようになる段でまとめて入れる
-- （補）`run` は `@intrinsic` の本体のない宣言にした．組み込み関数の表（`intrinsics.rs` の `Sig`）は関数型と効果の集合を書けないので，まだ行を足していない（`intrinsics_match_the_table` は `SOURCES` だけを見るので通る）．同梱する段で，表に `Sig` を広げて足すか，ランタイムのハンドラとして別に扱うかを決める
 - （補）操作は仕様 8.8 のとおり `get`，`set`，`update` の3つ（宣言の順も合わせた）．どれも `fn`（suspend fn でない）なので State は Immediate
+- （補）`State.run` は `@intrinsic` の本体のない宣言のまま，組み込み関数の表には載せない（`intrinsics::RUNTIME_HANDLERS`）．body を呼び，証拠の表に State のハンドラを足すので，関数1つの実装にならないため．lowering がその場で写す（下の「エフェクト」の `State.run`）
+- （補）TestConsole と TestClock は，仕様 15.2 では Console や Clock と同じモジュールに置くが，今の同梱の形（JsConsole，JsClock と同じ並び）に合わせて別のモジュール（`TestConsole`，`TestClock`）にした．Std の下へ移す作業で一緒に動かす
+- （補）TestConsole の `print_line` は，行を `State[List[String]]` に書いた順に足す（`List.append`）．仕様 8.8 の例は先頭に足す（`[text, ..st.get()]`）ので，2行以上だと逆順になる．読み出したリストをそのまま比べられるよう，書いた順にした．`print_error_line` は仕様 8.8 の例のとおり捨てる
+- （補）TestClock の `sleep(ms, resume)` は `State[Instant]` を `ms` ミリ秒進めて，その場で resume する（Async に依存しない）．負の `ms` は JsClock と同じく 0 とみなす．`now` は `State[Instant]` を返す
+- （補）同梱したので，ソースのルート直下の `state.emel`，`test_console.emel`，`test_clock.emel` は予約名（E0203）になる
 
 ## lowering（`lower.rs`）
 
@@ -180,7 +183,11 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）能力の値はハンドラの値そのもの．外側で取り出した能力の値は変数に入っているので，内側の with で上書きされても外側のハンドラを指す（8.3）．能力を捕まえたクロージャ（8.2 の `copy`）も変数を捕まえるだけ．
 - （補）操作の呼び出し `log.info(x)` は `Callee::Op`（ハンドラの値，エフェクト，操作の添字）．`fails` は操作の型の E で決める．操作を呼ばずに値として使う（`f = log.info`）ときは，能力の値をその場で評価して束縛し，操作を呼ぶだけのラムダにする．
 - （補）IR のエフェクト（`EffectDef`）は使ったものだけを入れる．名前は IR の名前（`Console.Console`）で，証拠の表の鍵に使う．
-- （補）型引数のあるエフェクト（8.1 の `State[S]`）は第3段．証拠の表の鍵を型引数ごとに分ける必要がある（`State[Int]` と `State[String]` は別のエフェクト）．それまでは `use`，handler，with に現れたら `Unsupported`（`effects with type parameters`）にして panic しない．型引数のあるエフェクトを宣言しただけのプログラムは今までどおり出力する
+- （補）証拠の表の鍵は，エフェクトと型引数の組（`EffectKey`）．型引数の違うエフェクト（`State[Int]` と `State[String]`，8.1）は別の IR のエフェクト（`EffectDef`）で，名前は `State.State[Int]` の形．型引数のないエフェクトの名前は今までどおり
+- （補）鍵に書く型は，名前付き型を IR の名前，型引数（`Bound(i)`）を持ち主の定義の IR の名前と添字（`$modify.0`）にする．推論した定義の本体に残る汎化した型変数は，`ProgramTypes::generalized_tys` で型引数の添字に直す．汎化しなかった決まらない型変数は `_`（`()` として扱うので，どれも同じ鍵）．関数型の E と R は鍵に入れない（近似．型引数に関数型を書いた State で，E や R だけが違うものを区別しない）
+- （補）汎用の fn の本体は，型引数の鍵（`State[$modify.0]`）でハンドラを引く．型引数を含むタグを宣言の R に持つ fn を呼ぶときは，呼ぶ側で具体化した鍵（`State[Int]`．呼ぶ側も汎用ならその型引数の鍵）のハンドラを，呼ばれる側の鍵で引けるように今の表に足して渡す（`generic_ev`）．まとまりの中の単相の参照（再帰）は具体化しないので足さない．そうした fn を値として使うとき（`f = modify`）は，表を受けて同じく足すラムダで包む
+- （補）`State.run(initial, body)` はランタイムが供給するハンドラで，その場で写す: 初期値の入れ物を作り（内部の組み込み関数 `$cellNew`，`$cellGet`，`$cellSet`），それを読み書きする操作のハンドラの値を `State[S]` の鍵で今の表に足して body を呼び，body の値と最後の状態の組を返す．body の失敗はその呼び出しの失敗としてそのまま伝わり，状態は捨てる．body の中断も呼び出しの中断として扱う（状態は入れ物にあるので再開の後も引き継ぐ）．`update` は読んで `f` を呼んで書くまでを中断しない呼び出しで行う（`f` は純粋）．`State.run` を値として使うときも，表を受けるラムダで包む
+- （補）入れ物の組み込み関数は `Builtin` に足したが `Builtin::ALL` には載せない（ソースから呼べず，表の照合にも入らない）．入れ物の型は IR の型で書けないので，型引数の型で代わりに書いた
 
 ### init と release（8.4，8.6，14.2，14.4，14.5）
 

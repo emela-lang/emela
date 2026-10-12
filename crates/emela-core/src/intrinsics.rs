@@ -81,6 +81,23 @@ pub enum Builtin {
     Todo,
     /// `dbg(value)`．値の表示を標準エラーに1行出して，値をそのまま返す．
     Dbg,
+
+    // lowering だけが使う内部の組み込み関数．`ALL` に載せず，ソースからは呼べない．
+    /// 値を1つ入れた入れ物を作る（`State.run` の状態，8.8）．
+    CellNew,
+    /// 入れ物の中身．
+    CellGet,
+    /// 入れ物の中身を置き換える．値は `()`．
+    CellSet,
+}
+
+/// lowering がランタイムのハンドラとして写す `@intrinsic` の宣言（モジュール名と関数名）．
+/// 組み込み関数の表には載せない（`State.run` は body を呼び，証拠の表を足すので，関数1つの実装でない）．
+pub const RUNTIME_HANDLERS: &[(&str, &str)] = &[("State", "run")];
+
+/// [`RUNTIME_HANDLERS`] の宣言か．
+pub fn is_runtime_handler(module: &str, name: &str) -> bool {
+    RUNTIME_HANDLERS.contains(&(module, name))
 }
 
 /// 組み込み関数の型の簡単な表現．`Sig::to_ty` で型検査の `Ty` に変換する．
@@ -290,6 +307,25 @@ impl Builtin {
             Builtin::Dbg => BuiltinInfo {
                 ty_params: 1,
                 ..info(None, "dbg", &[Param(0)], Param(0), "$dbg")
+            },
+            // 入れ物の型は `Sig` で書けないので型引数で代わりに書く（型推論には渡さない）．
+            Builtin::CellNew => BuiltinInfo {
+                pure: false,
+                ..info(Some("$Cell"), "new", &[Param(0)], Param(0), "$cellNew")
+            },
+            Builtin::CellGet => BuiltinInfo {
+                pure: false,
+                ..info(Some("$Cell"), "get", &[Param(0)], Param(0), "$cellGet")
+            },
+            Builtin::CellSet => BuiltinInfo {
+                pure: false,
+                ..info(
+                    Some("$Cell"),
+                    "set",
+                    &[Param(0), Param(0)],
+                    Unit,
+                    "$cellSet",
+                )
             },
         }
     }

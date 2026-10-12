@@ -573,7 +573,7 @@ impl InferCtx {
         existing: Vec<TyParam>,
         env_vars: &[TyVar],
         immediate: &rustc_hash::FxHashSet<RowVar>,
-    ) -> (Scheme, Vec<(RowVar, u32)>) {
+    ) -> (Scheme, Indices<RowVar>, Indices<TyVar>) {
         // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
         let mut env = Vec::new();
         for v in env_vars {
@@ -619,9 +619,12 @@ impl InferCtx {
             }
             params.push(param);
         }
+        let mut tys: Vec<(TyVar, u32)> = map.iter().map(|(&v, &i)| (v, i)).collect();
+        tys.sort_by_key(|&(_, i)| i);
         (
             Scheme::new(params, replace_vars(&ty, &map, &row_map)),
             generalized,
+            tys,
         )
     }
 
@@ -652,6 +655,9 @@ impl InferCtx {
         (tys, rows)
     }
 }
+
+/// 汎化した変数と，それを置き換えた型引数の添字．
+pub(crate) type Indices<V> = Vec<(V, u32)>;
 
 /// 型の中の集合変数と，その集合の種類を，現れた順に重複なく集める．
 pub(crate) fn free_row_vars(ty: &Ty) -> Vec<(RowVar, SetKind)> {

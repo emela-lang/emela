@@ -142,7 +142,8 @@
 - （補）handler は型引数を持たないので，implements の型引数は型引数のない文脈で読む（汎用のハンドラはない．8.1）．読んだタグは `Signatures::handler_effect` に持ち，with と layer の供給（`layer::Entry::effect`）に使う．with の「同じエフェクトは後ろが優先」と layer の重複（E0421）は型引数まで同じものだけを数える．E0421 の文面のエフェクトは `State[Int]` の形
 - （補）`use State[S]` は，囲む fn の型引数を型引数に書ける．型引数の種類を決めるとき，エフェクトの型引数の位置はふつうの型の位置として数える（`fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S]`）
 - （補）Immediate はエフェクトの定義で決める（型引数に左右されない）．State は suspend fn を持たないので Immediate
-- （補）同梱の core の State（`emela-core/lib/state.emel`）はまだ同梱しない（emela-core の NOTES）．`State.run` は型検査の上ではふつうの型引数のある fn で，body の R の `State[S]` は書き出したエフェクトなので消える（8.3 の `use { Logger, R }` と同じ）
+- （補）`State.run`（同梱の core の `State`）は型検査の上ではふつうの型引数のある fn で，body の R の `State[S]` は書き出したエフェクトなので消える（8.3 の `use { Logger, R }` と同じ）
+- （補）推論した定義の汎化した型変数と型引数の添字を `ProgramTypes::generalized_tys` に持つ（`generalized_rows` の型版）．本体の式の型には汎化した型変数が残るので，lowering が本体の中の `use State[A]` の `A` を型引数として扱うのに使う
 
 ## suspend，Async，Immediate（8.1，8.4，8.7，9.5，12.2）
 

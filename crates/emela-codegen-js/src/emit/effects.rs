@@ -13,9 +13,15 @@ use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, 
 
 use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
-/// 証拠の表の鍵．
+/// 証拠の表の鍵．型引数のあるエフェクト（`State.State[Int]`，8.1）は名前を識別子にすると
+/// 型引数の区切りが潰れて重なりうるので，IR のエフェクトの番号を足して重ならないようにする．
 pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
-    sanitize(&m.effects[effect].name)
+    let name = &m.effects[effect].name;
+    if name.contains('[') {
+        format!("{}${}", sanitize(name), effect.into_raw().into_u32())
+    } else {
+        sanitize(name)
+    }
 }
 
 /// ハンドラの値の操作の参照（`.print_line`）．

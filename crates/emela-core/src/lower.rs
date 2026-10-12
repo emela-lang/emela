@@ -13,7 +13,7 @@ use emela_resolve::hir::{
     UnaryOp,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{Prim, ProgramTypes, Row, RowElem, Ty};
+use emela_types::{Prim, ProgramTypes, Row, RowElem, Tag, Ty};
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
 
@@ -112,7 +112,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         enums: ArenaMap::default(),
         ctors: ArenaMap::default(),
         locals: ArenaMap::default(),
-        effects: ArenaMap::default(),
+        effects: FxHashMap::default(),
         handler_parts: FxHashMap::default(),
         ev: None,
         bound: Vec::new(),
@@ -201,8 +201,8 @@ struct Lowerer<'a> {
     ctors: ArenaMap<DefId, CtorRef>,
     /// HIR の局所変数 → IR の局所変数．[`Lowerer::local`] だけが足す．
     locals: ArenaMap<LocalId, Local>,
-    /// HIR の effect → IR のエフェクト．[`Lowerer::effect_id`] だけが足す．
-    effects: ArenaMap<DefId, EffectId>,
+    /// エフェクトとその型引数の鍵（[`EffectKey`]）→ IR のエフェクト．[`Lowerer::effect_id`] だけが足す．
+    effects: FxHashMap<EffectKey, EffectId>,
     /// 状態のある handler → init と release の IR の関数．[`Lowerer::handler_fns`] だけが足す．
     handler_parts: FxHashMap<DefId, (FnId, Option<FnId>)>,
     /// 今の証拠の表（evidence passing，16.5）．R が空でない関数とラムダの最後の引数か，
@@ -210,13 +210,18 @@ struct Lowerer<'a> {
     ev: Option<Local>,
     /// 囲む with が供給したエフェクトとハンドラの値．外側が先．同じ関数（トップレベルの fn か
     /// handler の操作）の中の with だけで，ラムダの中にも引き継ぐ．`use X` は後ろから探す（8.3）．
-    bound: Vec<(DefId, Local)>,
+    bound: Vec<(EffectKey, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
     core_js_files: &'a [(&'a str, &'a str)],
     /// 写した外部関数が同梱の JS のファイルを指したか．
     uses_core_js: bool,
     errors: Vec<LowerError>,
 }
+
+/// 証拠の表の鍵．エフェクトと，型引数を書いた文字列（型引数のないエフェクトは空）．
+/// 型引数の違うエフェクトは別のエフェクト（8.1）なので，型引数ごとに別の IR のエフェクトにする．
+/// 型引数 `Bound(i)` は，それを持つ定義の IR の名前と添字で書く（`$modify.0`）．
+type EffectKey = (DefId, String);
 
 /// ブロックの文の束縛．
 enum Bind {
@@ -247,6 +252,97 @@ enum Target {
         op: usize,
         call: Call,
     },
+    /// `State.run(initial, body)`（8.8）．ランタイムが供給する組み込みのハンドラ．
+    StateRun(Box<StateRun>),
+}
+
+/// `State.run(initial, body)` を写すのに要るもの．局所変数は先に割り振っておく．
+///
+/// 初期値の入れ物（`$cellNew`）を作り，それを読み書きするハンドラの値を `State[S]` の鍵で証拠の表に
+/// 足して body を呼び，body の値と最後の状態の組を返す．body が失敗すれば，呼び出しの失敗として
+/// そのまま伝わり，状態は捨てる．
+struct StateRun {
+    /// `State[S]` の IR のエフェクト．
+    effect: EffectId,
+    /// 操作 get，set，update の `EffectDef::ops` の添字．
+    ops: [usize; 3],
+    /// body を呼ぶときの土台の証拠の表（今の表）．
+    base: Option<Expr>,
+    /// body の呼び出しの印．
+    call: Call,
+    cell: Local,
+    handler: Local,
+    value: Local,
+    f: Local,
+    result: Local,
+}
+
+impl StateRun {
+    /// 位置の順の引数（初期値，body）で `State.run` の式を作る．
+    fn apply(self, args: Vec<Expr>) -> Expr {
+        let [initial, body]: [Expr; 2] = args.try_into().expect("State.run の引数は2つ");
+        let cell = || Expr::Var(self.cell);
+        let get = || Expr::Builtin {
+            op: Builtin::CellGet,
+            ty_args: Vec::new(),
+            args: vec![cell()],
+        };
+        let set = |value: Expr| Expr::Builtin {
+            op: Builtin::CellSet,
+            ty_args: Vec::new(),
+            args: vec![cell(), value],
+        };
+        let lambda = |params: Vec<Local>, body: Expr| Expr::Lambda {
+            params,
+            body: Box::new(body),
+            suspends: false,
+        };
+        // update に渡す関数は純粋（8.8）なので，読んで呼んで書くまでが一息に終わる．
+        let update = set(Expr::Call {
+            callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
+            args: vec![get()],
+            fails: false,
+            suspends: false,
+        });
+        let mut ops = vec![None, None, None];
+        ops[self.ops[0]] = Some(lambda(Vec::new(), get()));
+        ops[self.ops[1]] = Some(lambda(vec![self.value], set(Expr::Var(self.value))));
+        ops[self.ops[2]] = Some(lambda(vec![self.f], update));
+        let handler = Expr::Handler {
+            name: "State".to_owned(),
+            effect: self.effect,
+            ops: ops.into_iter().map(|o| o.expect("操作は3つ")).collect(),
+        };
+        let run = Expr::Call {
+            callee: Callee::Indirect(Box::new(body)),
+            args: vec![Expr::Provide {
+                base: self.base.map(Box::new),
+                bindings: vec![(self.effect, Expr::Var(self.handler))],
+            }],
+            fails: self.call.fails,
+            suspends: self.call.suspends,
+        };
+        let lets = [
+            (
+                self.cell,
+                Expr::Builtin {
+                    op: Builtin::CellNew,
+                    ty_args: Vec::new(),
+                    args: vec![initial],
+                },
+            ),
+            (self.handler, handler),
+            (self.result, run),
+        ];
+        let tuple = Expr::Tuple(vec![Expr::Var(self.result), get()]);
+        lets.into_iter()
+            .rev()
+            .fold(tuple, |body, (var, value)| Expr::Let {
+                var,
+                value: Box::new(value),
+                body: Box::new(body),
+            })
+    }
 }
 
 /// 呼び出しの印．
@@ -289,6 +385,7 @@ impl Target {
                 fails: call.fails,
                 suspends: call.suspends,
             },
+            Target::StateRun(run) => run.apply(args),
         }
     }
 }
@@ -528,11 +625,12 @@ impl<'a> Lowerer<'a> {
     }
 
     /// エフェクトの IR の ID．まだなければ作る．
-    fn effect_id(&mut self, def: DefId) -> EffectId {
-        if let Some(&id) = self.effects.get(def) {
+    fn effect_id(&mut self, key: &EffectKey) -> EffectId {
+        if let Some(&id) = self.effects.get(key) {
             return id;
         }
-        let ops = match self.hir.item(def) {
+        let (def, args) = key;
+        let ops = match self.hir.item(*def) {
             Some(Item::Effect(e)) => e
                 .ops
                 .iter()
@@ -543,10 +641,74 @@ impl<'a> Lowerer<'a> {
                 .collect(),
             _ => Vec::new(),
         };
-        let name = self.ir_name(def);
+        let name = if args.is_empty() {
+            self.ir_name(*def)
+        } else {
+            format!("{}[{args}]", self.ir_name(*def))
+        };
         let id = self.module.add_effect(EffectDef { name, ops });
-        self.effects.insert(def, id);
+        self.effects.insert(key.clone(), id);
         id
+    }
+
+    /// タグの証拠の表の鍵（8.1）．`ctx` は型引数（`Bound(i)`）と汎化した型変数を持つ定義．
+    fn tag_key(&self, tag: &Tag, ctx: Option<DefId>) -> EffectKey {
+        let args: Vec<String> = tag.args.iter().map(|t| self.key_ty(t, ctx)).collect();
+        (tag.def, args.join(", "))
+    }
+
+    /// 本体を写している定義の中のタグの鍵．
+    fn key_here(&self, tag: &Tag) -> EffectKey {
+        self.tag_key(tag, self.current_def)
+    }
+
+    /// 鍵に書く型．名前付き型は IR の名前，型引数は持ち主の定義の IR の名前と添字．決まらずに残った
+    /// 型変数（汎化しなかったもの）は `_`（lowering は `()` として扱う．どれも同じ鍵になる）．
+    fn key_ty(&self, ty: &Ty, ctx: Option<DefId>) -> String {
+        let list = |tys: &[Ty]| {
+            tys.iter()
+                .map(|t| self.key_ty(t, ctx))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match ty {
+            Ty::Prim(p) => p.name().to_owned(),
+            Ty::Never => "Never".to_owned(),
+            Ty::List(e) => format!("List[{}]", self.key_ty(e, ctx)),
+            Ty::Tuple(es) => format!("({})", list(es)),
+            Ty::Named(id, args) => {
+                let name = self.ir_name(self.types.ty_table.def(*id));
+                if args.is_empty() {
+                    name
+                } else {
+                    format!("{name}[{}]", list(args))
+                }
+            }
+            // 関数型の E と R は鍵に入れない（近似．NOTES.md）．
+            Ty::Fn(f) => format!("fn({}) -> {}", list(&f.params), self.key_ty(&f.ret, ctx)),
+            Ty::Bound(i) => match ctx {
+                Some(def) => format!("${}.{i}", self.ir_name(def)),
+                None => format!("${i}"),
+            },
+            Ty::Var(v) => ctx
+                .and_then(|def| self.types.generalized_tys.get(def))
+                .and_then(|vars| vars.iter().find(|(w, _)| w == v))
+                .map_or_else(|| "_".to_owned(), |&(_, i)| self.key_ty(&Ty::Bound(i), ctx)),
+            Ty::Set(..) | Ty::Cap(_) | Ty::Error => "_".to_owned(),
+        }
+    }
+
+    /// 鍵のエフェクトの今のハンドラ．同じ関数の中で供給する最も内側の with のハンドラか，
+    /// 証拠の表から引く（`use X`，8.3）．どちらもなければ `None`．
+    fn lookup_effect(&mut self, key: &EffectKey) -> Option<Expr> {
+        if let Some((_, h)) = self.bound.iter().rev().find(|(e, _)| e == key) {
+            return Some(Expr::Var(*h));
+        }
+        let ev = self.ev?;
+        Some(Expr::Use {
+            ctx: Box::new(Expr::Var(ev)),
+            effect: self.effect_id(key),
+        })
     }
 
     /// エフェクトの操作の添字（`EffectDef::ops`）．
@@ -638,13 +800,13 @@ impl<'a> Lowerer<'a> {
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
-        if has_type_params(hir, effect) {
+        let Some(tag) = self.types.sigs.handler_effect(def) else {
             return (
                 Vec::new(),
-                self.unsupported_at("effects with type parameters", span),
+                self.unsupported_at("handler of an unknown effect", span),
             );
-        }
-        let effect_id = self.effect_id(effect);
+        };
+        let effect_id = self.effect_id(&self.tag_key(tag, None));
         let takes_ev = self
             .types
             .handler_uses
@@ -803,8 +965,8 @@ impl<'a> Lowerer<'a> {
         let Some(order) = self.types.with_handlers.get(id) else {
             return self.unsupported("with without handlers", span);
         };
-        // （handler，供給するエフェクト）．
-        let mut hs: Vec<(DefId, DefId)> = Vec::new();
+        // （handler，供給するエフェクトの鍵）．
+        let mut hs: Vec<(DefId, EffectKey)> = Vec::new();
         for &def in order {
             // 誤りはハンドラを書いた位置に出す．layer から展開したものは with の位置．
             let span = handlers
@@ -812,14 +974,11 @@ impl<'a> Lowerer<'a> {
                 .find(|(res, _)| *res == Res::Def(def))
                 .map_or(span, |&(_, s)| s);
             match hir.item(def) {
-                Some(Item::Handler(h)) => {
-                    let Res::Def(effect) = h.effect else {
+                Some(Item::Handler(_)) => {
+                    let Some(tag) = self.types.sigs.handler_effect(def) else {
                         return self.unsupported("handler of an unknown effect", span);
                     };
-                    if has_type_params(hir, effect) {
-                        return self.unsupported("effects with type parameters", span);
-                    }
-                    hs.push((def, effect));
+                    hs.push((def, self.tag_key(tag, None)));
                 }
                 _ => return self.unsupported("this kind of handler", span),
             }
@@ -827,7 +986,8 @@ impl<'a> Lowerer<'a> {
         let outer = self.ev;
         let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
         let mut binds = Vec::new();
-        for (i, &(h, own)) in hs.iter().enumerate() {
+        for (i, (h, own)) in hs.iter().enumerate() {
+            let h = *h;
             let f = self.fn_id(h, 0);
             let ctx = if self
                 .types
@@ -837,13 +997,16 @@ impl<'a> Lowerer<'a> {
             {
                 // 依存のうち，同じ with の先に初期化した別のエフェクトのハンドラが満たすもの．
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
-                let bindings: Vec<(EffectId, Expr)> = row
+                let keys: Vec<EffectKey> = row
                     .tags()
-                    .map(|t| t.def)
-                    .filter(|&y| y != own)
+                    .map(|t| self.tag_key(t, None))
+                    .filter(|y| y != own)
+                    .collect();
+                let bindings: Vec<(EffectId, Expr)> = keys
+                    .into_iter()
                     .filter_map(|y| {
-                        let j = hs[..i].iter().position(|&(_, e)| e == y)?;
-                        Some((self.effect_id(y), Expr::Var(locals[j])))
+                        let j = hs[..i].iter().position(|(_, e)| *e == y)?;
+                        Some((self.effect_id(&y), Expr::Var(locals[j])))
                     })
                     .collect();
                 Some(if bindings.is_empty() {
@@ -912,8 +1075,8 @@ impl<'a> Lowerer<'a> {
         }
         let ctx = self.module.local("ev");
         let depth = self.bound.len();
-        for (&(_, effect), &l) in hs.iter().zip(&locals) {
-            self.bound.push((effect, l));
+        for ((_, effect), &l) in hs.iter().zip(&locals) {
+            self.bound.push((effect.clone(), l));
         }
         self.ev = Some(ctx);
         let body = self.expr(body);
@@ -924,7 +1087,7 @@ impl<'a> Lowerer<'a> {
             let bindings = hs
                 .iter()
                 .zip(&locals)
-                .map(|(&(_, effect), &l)| (self.effect_id(effect), Expr::Var(l)))
+                .map(|((_, effect), &l)| (self.effect_id(effect), Expr::Var(l)))
                 .collect();
             binds.push(WithBind::new(
                 ctx,
@@ -941,25 +1104,16 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `use X`（8.2，8.3）．同じ関数の中で X を供給する最も内側の with のハンドラ．なければ
-    /// 呼び出し元から渡された証拠の表から引く．
-    fn use_(&mut self, effect: Res, span: Span) -> Expr {
-        let Res::Def(effect) = effect else {
+    /// 呼び出し元から渡された証拠の表から引く．型引数のあるエフェクトは型引数まで同じものを引く（8.1）．
+    fn use_(&mut self, id: ExprId, span: Span) -> Expr {
+        let Some(Ty::Cap(tag)) = self.types.exprs.get(id) else {
             return self.unsupported("unresolved effect", span);
         };
-        // 型引数のあるエフェクト（8.1）の証拠の表は，型引数ごとに分ける必要がある．第3段で扱う．
-        if has_type_params(self.hir, effect) {
-            return self.unsupported("effects with type parameters", span);
-        }
-        if let Some(&(_, h)) = self.bound.iter().rev().find(|(e, _)| *e == effect) {
-            return Expr::Var(h);
-        }
-        let Some(ev) = self.ev else {
+        let key = self.key_here(tag);
+        match self.lookup_effect(&key) {
+            Some(e) => e,
             // R を確かめた型検査を通っていれば来ない．
-            return self.unsupported("`use` without a provided effect", span);
-        };
-        Expr::Use {
-            ctx: Box::new(Expr::Var(ev)),
-            effect: self.effect_id(effect),
+            None => self.unsupported("`use` without a provided effect", span),
         }
     }
 
@@ -986,7 +1140,7 @@ impl<'a> Lowerer<'a> {
                 .bound
                 .clone()
                 .into_iter()
-                .map(|(e, h)| (self.effect_id(e), Expr::Var(h)))
+                .map(|(e, h)| (self.effect_id(&e), Expr::Var(h)))
                 .collect();
             (
                 c,
@@ -1016,14 +1170,13 @@ impl<'a> Lowerer<'a> {
     /// 能力の値の操作を，呼ばずに値として使う（`List.each(xs, log.info)`）．それを呼ぶだけの
     /// ラムダにする．能力の値は参照の位置で評価する．
     fn op_value(&mut self, id: ExprId, base: ExprId, op: DefId, span: Span) -> Expr {
-        let Some(Ty::Cap(effect)) = self.types.exprs.get(base).cloned() else {
+        let Some(Ty::Cap(tag)) = self.types.exprs.get(base).cloned() else {
             return self.unsupported("effect operation", span);
         };
-        let effect = effect.def;
-        let Some(index) = self.op_index(effect, op) else {
+        let Some(index) = self.op_index(tag.def, op) else {
             return self.unsupported("effect operation", span);
         };
-        let effect_id = self.effect_id(effect);
+        let effect_id = self.effect_id(&self.key_here(&tag));
         let fails = self.callee_fails(id);
         let suspends = self.module.effects[effect_id].ops[index].suspend;
         let (arity, ev) = match self.expr_ty(id) {
@@ -1217,7 +1370,7 @@ impl<'a> Lowerer<'a> {
                 arms: arms.iter().map(|arm| self.arm(arm)).collect(),
             },
             ExprKind::Fail(inner) => Expr::Fail(Box::new(self.expr(*inner))),
-            ExprKind::Use { effect, .. } => self.use_(*effect, e.span),
+            ExprKind::Use { .. } => self.use_(id, e.span),
             ExprKind::With { handlers, body } => self.with(id, handlers, *body, e.span),
         }
     }
@@ -1263,6 +1416,10 @@ impl<'a> Lowerer<'a> {
             return Expr::Lit(Lit::Bool(false));
         }
         match self.hir.item(def) {
+            // 型引数のあるエフェクトを R に持つ汎用の fn は，呼ぶたびに鍵を足す必要があるので包む．
+            Some(Item::Fn(f)) if f.body.is_some() && self.has_generic_tags(def) => {
+                self.wrap_in_lambda(id, span)
+            }
             Some(Item::Fn(f)) if f.body.is_some() => Expr::Fn(self.fn_ref(def, id)),
             // 組み込み関数とフィールドのある構成子は IR の値でないので，ラムダで包む．
             Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
@@ -1348,8 +1505,21 @@ impl<'a> Lowerer<'a> {
 
     /// 組み込み関数か構成子の参照（`id`）を，それを呼ぶだけのラムダにする．
     /// `List.map(xs, Some)` は `List.map(xs, fn(x) { Some(x) })` になる．引数の数は参照の型から取る．
+    ///
+    /// 参照の型の R が証拠の表を要るなら，ラムダも表を最後の引数に受け，それを呼ぶ側の表にする
+    /// （`State.run` と，型引数のあるエフェクトを R に持つ汎用の fn）．
     fn wrap_in_lambda(&mut self, id: ExprId, span: Span) -> Expr {
-        let target = match self.callee(id, span) {
+        let ev = self
+            .ty_takes_ev(self.expr_ty(id))
+            .then(|| self.module.local("ev"));
+        let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
+        if ev.is_some() {
+            self.ev = ev;
+        }
+        let target = self.callee(id, span);
+        self.ev = outer;
+        self.bound = bound;
+        let target = match target {
             Ok(t) => t,
             Err(e) => return e,
         };
@@ -1357,8 +1527,9 @@ impl<'a> Lowerer<'a> {
             Ty::Fn(f) => f.params.len(),
             _ => unreachable!("呼べる定義の参照の型は関数型"),
         };
-        let params: Vec<Local> = (0..arity).map(|_| self.module.local("x")).collect();
+        let mut params: Vec<Local> = (0..arity).map(|_| self.module.local("x")).collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
+        params.extend(ev);
         Expr::Lambda {
             params,
             body: Box::new(target.apply(args)),
@@ -1383,7 +1554,7 @@ impl<'a> Lowerer<'a> {
             && let Some(Ty::Cap(effect)) = self.types.exprs.get(*base).cloned()
             && let Some(index) = self.op_index(effect.def, op)
         {
-            let effect = self.effect_id(effect.def);
+            let effect = self.effect_id(&self.key_here(&effect));
             let handler = self.expr(*base);
             // suspend fn の操作の呼び出しは中断しうる（8.1）．fn の操作の本体は中断しない（E0417）．
             let call = Call {
@@ -1402,10 +1573,15 @@ impl<'a> Lowerer<'a> {
         };
         match hir.item(def) {
             Some(Item::Fn(f)) if f.body.is_some() => {
-                let ev = self.takes_ev(def).then(|| self.ev_arg());
+                let ev = self
+                    .takes_ev(def)
+                    .then(|| self.generic_ev(def, callee, self.ev_arg()));
                 let f = self.fn_ref(def, callee);
                 Ok(Target::Direct(f, self.direct_call(f, call), ev))
             }
+            Some(Item::Fn(f)) if f.is_intrinsic && self.is_state_run(def) => self
+                .state_run(callee, span)
+                .map(|r| Target::StateRun(Box::new(r))),
             Some(Item::Fn(f)) if f.is_intrinsic => {
                 let data = &hir.defs[def];
                 let module = match &data.module {
@@ -1434,6 +1610,125 @@ impl<'a> Lowerer<'a> {
                 None => Err(self.unsupported("this constructor", span)),
             },
             _ => Ok(Target::Value(self.expr(callee), call, ev)),
+        }
+    }
+
+    /// 型引数を持つタグ（`State[S]` の `S` が型引数）を宣言の R に持つ定義か．
+    fn has_generic_tags(&self, def: DefId) -> bool {
+        !self.generic_tags(def).is_empty()
+    }
+
+    /// 宣言の R の，型引数を含むタグ．
+    fn generic_tags(&self, def: DefId) -> Vec<Tag> {
+        match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
+            Some(Ty::Fn(f)) => f
+                .uses
+                .tags()
+                .filter(|t| t.args.iter().any(has_bound))
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// 汎用の定義 `def` を呼ぶときの証拠の表（8.1）．呼ばれる側の本体は自分の型引数で書いた鍵
+    /// （`State[$modify.0]`）で引くので，呼ぶ側で具体化した鍵（`State[Int]`）のハンドラを，その鍵
+    /// でも引けるように今の表 `ev` に足す．具体化した型引数は参照の式 `callee` の `type_args`．
+    fn generic_ev(&mut self, def: DefId, callee: ExprId, ev: Expr) -> Expr {
+        let tags = self.generic_tags(def);
+        let Some(args) = self.types.type_args.get(callee).cloned() else {
+            // まとまりの中の単相の参照（再帰）は型引数を具体化しない．鍵はそのまま通じる．
+            return ev;
+        };
+        let mut bindings = Vec::new();
+        for tag in tags {
+            let inner = self.tag_key(&tag, Some(def));
+            let instance = tag.map_args(|t| emela_types::substitute_bound(t, &args));
+            let outer = self.key_here(&instance);
+            if inner == outer {
+                continue;
+            }
+            if let Some(h) = self.lookup_effect(&outer) {
+                bindings.push((self.effect_id(&inner), h));
+            }
+        }
+        if bindings.is_empty() {
+            return ev;
+        }
+        Expr::Provide {
+            base: match ev {
+                Expr::Lit(Lit::Unit) => None,
+                ev => Some(Box::new(ev)),
+            },
+            bindings,
+        }
+    }
+
+    /// 同梱の core の `State.run`（8.8）か．
+    fn is_state_run(&self, def: DefId) -> bool {
+        let data = &self.hir.defs[def];
+        let module = match &data.module {
+            DefModule::Source(m) => self.modules[*m].name.to_string(),
+            _ => return false,
+        };
+        crate::intrinsics::is_runtime_handler(&module, &data.name)
+    }
+
+    /// `State.run` の呼び出しを写す準備．`callee` は `State.run` の参照の式．
+    fn state_run(&mut self, callee: ExprId, span: Span) -> Result<StateRun, Expr> {
+        let Ty::Fn(f) = self.expr_ty(callee).clone() else {
+            return Err(self.unsupported("State.run", span));
+        };
+        let Some(Ty::Fn(body)) = f.params.get(1) else {
+            return Err(self.unsupported("State.run", span));
+        };
+        // body の R の State[S]．State.run と同じモジュールの State のエフェクト．
+        let module = &self.hir.defs[self.hir_def_of(callee)].module;
+        let Some(tag) = body
+            .uses
+            .tags()
+            .find(|t| {
+                let d = &self.hir.defs[t.def];
+                d.kind == DefKind::Effect && d.name == "State" && d.module == *module
+            })
+            .cloned()
+        else {
+            return Err(self.unsupported("State.run", span));
+        };
+        let effect = self.effect_id(&self.key_here(&tag));
+        let index = |name: &str| {
+            self.module.effects[effect]
+                .ops
+                .iter()
+                .position(|o| o.name == name)
+        };
+        let (Some(get), Some(set), Some(update)) = (index("get"), index("set"), index("update"))
+        else {
+            return Err(self.unsupported("State.run", span));
+        };
+        let call = Call {
+            fails: !body.fails.is_empty(),
+            suspends: self.row_suspends(&body.uses),
+        };
+        let base = self.ev.map(Expr::Var);
+        Ok(StateRun {
+            effect,
+            ops: [get, set, update],
+            base,
+            call,
+            cell: self.module.local("cell"),
+            handler: self.module.local("state"),
+            value: self.module.local("value"),
+            f: self.module.local("f"),
+            result: self.module.local("result"),
+        })
+    }
+
+    /// 参照の式の定義．
+    fn hir_def_of(&self, expr: ExprId) -> DefId {
+        match self.hir.exprs[expr].kind {
+            ExprKind::Path(Res::Def(def)) => def,
+            _ => unreachable!("定義の参照"),
         }
     }
 
@@ -1948,7 +2243,9 @@ fn parse_int(text: &str) -> u64 {
     u64::from_str_radix(digits, radix).expect("型検査が範囲を確かめた整数")
 }
 
-/// 型引数のあるエフェクト（`effect State[S]`，8.1）か．lowering はまだ扱わない（第3段）．
-fn has_type_params(hir: &Program, effect: DefId) -> bool {
-    matches!(hir.item(effect), Some(Item::Effect(e)) if !e.type_params.is_empty())
+/// 型の中に型引数（`Ty::Bound`）があるか．
+fn has_bound(ty: &Ty) -> bool {
+    let mut found = matches!(ty, Ty::Bound(_));
+    ty.for_each_child(|c| found |= has_bound(c));
+    found
 }
