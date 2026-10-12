@@ -1417,6 +1417,97 @@ fn signature_help_in_calls() {
     client.shutdown();
 }
 
+const PIPE_MAIN: &str = "effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet implements Logger {
+  fn info(msg) { () }
+}
+
+fn add(a: Int, b: Int) -> Int { a + b }
+
+fn greet(s: String) {
+  log = use Logger
+  s |> log.info
+  s |> log.info()
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  ys = xs |> List.map(fn(x) { x |> add(1) })
+  n = xs |> List.fold(init: 0, f: add)
+  m = 1 |> add(2) |> add(3)
+  k = add(1, 2) |> add(3)
+  with Quiet { greet(\"a\") }
+}
+";
+
+#[test]
+fn signature_help_on_the_right_of_a_pipe() {
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", PIPE_MAIN)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let s = |label: &str, params: &[&str], active: Option<u32>| {
+        Some((
+            label.to_owned(),
+            params.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>(),
+            active,
+        ))
+    };
+    // The left side fills the first parameter, so it is left out.
+    let add_b = s("add(b: Int) -> Int", &["b: Int"], Some(0));
+    let f = "f: fn(A) -> B fails E(f) use R(f)";
+    assert_eq!(
+        client.signature(MAIN, 18, 22),
+        s(
+            &format!("map({f}) -> List[B] fails E(f) use R(f)"),
+            &[f],
+            Some(0)
+        )
+    );
+    // Nested in a lambda on the right of another pipe.
+    assert_eq!(client.signature(MAIN, 18, 39), add_b);
+    // The other parameters given by name.
+    let f = "f: fn(B, A) -> B fails E(f) use R(f)";
+    let fold = format!("fold(init: B, {f}) -> B fails E(f) use R(f)");
+    for (col, active) in [(22, 0), (32, 1), (34, 1)] {
+        assert_eq!(
+            client.signature(MAIN, 19, col),
+            s(&fold, &["init: B", f], Some(active))
+        );
+    }
+    // A chain of pipes.
+    assert_eq!(client.signature(MAIN, 20, 15), add_b);
+    assert_eq!(client.signature(MAIN, 20, 25), add_b);
+    // A call on the left of a pipe keeps all its parameters.
+    assert_eq!(
+        client.signature(MAIN, 21, 10),
+        s("add(a: Int, b: Int) -> Int", &["a: Int", "b: Int"], Some(0))
+    );
+    assert_eq!(client.signature(MAIN, 21, 23), add_b);
+    // An operation of a capability value.
+    assert_eq!(client.signature(MAIN, 13, 16), s("info() -> ()", &[], None));
+    // The first parameter's label is not offered.
+    let items = client.complete(MAIN, 19, 22).unwrap();
+    let labels: Vec<&str> = labels(&items)
+        .into_iter()
+        .filter(|l| l.ends_with(':'))
+        .collect();
+    assert_eq!(labels, ["init:", "f:"]);
+    // Naming the first parameter is an error, so no parameter is active.
+    client.open(
+        MAIN,
+        1,
+        &PIPE_MAIN.replace("List.fold(init: 0, f: add)", "List.fold(xs: "),
+    );
+    assert_eq!(
+        client.signature(MAIN, 19, 26),
+        s(&fold, &["init: B", f], None)
+    );
+    drain(&client);
+    client.shutdown();
+}
+
 #[test]
 fn rename_across_files() {
     let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);

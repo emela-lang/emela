@@ -1,11 +1,12 @@
 //! 呼び出しのシグネチャ（LSP の `textDocument/signatureHelp`）．
 //!
 //! カーソルを含む一番内側の呼び出しの，呼ぶ先の型とラベルを見せる．引数の位置はカーソルの前の
-//! テキストのカンマを数えて決める．
+//! テキストのカンマを数えて決める．パイプの右辺の呼び出し（`x |> f(a)`）は左辺が第1引数に入る
+//! ので（6.7），第1引数を除いた形を見せる．
 
 use std::ops::Range;
 
-use emela_resolve::hir::{ExprId, ExprKind, Res};
+use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Res};
 use emela_types::{Ty, TyParam};
 use line_index::TextSize;
 
@@ -30,11 +31,12 @@ pub(crate) fn signature_help(
     offset: TextSize,
 ) -> Option<SignatureInfo> {
     let text = analysis.sources[file].text();
-    let (callee, open) = call_at(program, analysis, file, offset)?;
-    let (name, ty, params, labels) = callee_type(program, callee)?;
-    let Ty::Fn(f) = ty else {
+    let call = call_at(program, analysis, file, offset)?;
+    let (name, ty, params, labels) = callee_type(program, call.callee)?;
+    let Ty::Fn(mut f) = ty else {
         return None;
     };
+    let labels = without_piped(call.piped, &mut f.params, labels);
     let cons = &program.types.ty_table.cons;
     let mut label = format!("{name}(");
     let mut ranges = Vec::new();
@@ -56,7 +58,7 @@ pub(crate) fn signature_help(
     if !f.uses.is_empty() {
         label.push_str(&format!(" use {}", f.uses.display_effects(cons, &params)));
     }
-    let args = text.get(usize::from(open) + 1..usize::from(offset))?;
+    let args = text.get(usize::from(call.open) + 1..usize::from(offset))?;
     let active = active_param(args, &labels, ranges.len());
     Some(SignatureInfo {
         label,
@@ -65,14 +67,24 @@ pub(crate) fn signature_help(
     })
 }
 
-/// カーソルを括弧の中に含む一番内側の呼び出しの，呼ぶ先の式と開き括弧の位置．閉じていない
-/// 呼び出しは範囲の終わりの位置も括弧の中とみなす．
+/// カーソルを括弧の中に含む呼び出し．
+pub(crate) struct CallAt {
+    /// 呼ぶ先の式．
+    pub callee: ExprId,
+    /// 開き括弧の位置．
+    pub open: TextSize,
+    /// パイプの右辺の呼び出しか．そうなら左辺の値が第1引数に入る（6.7）．
+    pub piped: bool,
+}
+
+/// カーソルを括弧の中に含む一番内側の呼び出し．閉じていない呼び出しは範囲の終わりの位置も
+/// 括弧の中とみなす．
 pub(crate) fn call_at(
     program: &TypedProgram,
     analysis: &Analysis,
     file: FileId,
     offset: TextSize,
-) -> Option<(ExprId, TextSize)> {
+) -> Option<CallAt> {
     let module = analysis
         .files
         .iter()
@@ -82,7 +94,7 @@ pub(crate) fn call_at(
     let text = analysis.sources[file].text();
     hir.exprs
         .iter()
-        .filter_map(|(_, e)| {
+        .filter_map(|(id, e)| {
             let ExprKind::Call { callee, .. } = &e.kind else {
                 return None;
             };
@@ -94,10 +106,38 @@ pub(crate) fn call_at(
             let closed = text[..usize::from(range.end())].ends_with(')');
             let inside =
                 open < offset && (offset < range.end() || (!closed && offset == range.end()));
-            inside.then_some((*callee, open, range.len()))
+            inside.then_some((id, *callee, open, range.len()))
         })
-        .min_by_key(|&(_, _, len)| len)
-        .map(|(callee, open, _)| (callee, open))
+        .min_by_key(|&(_, _, _, len)| len)
+        .map(|(call, callee, open, _)| CallAt {
+            callee,
+            open,
+            piped: is_piped(program, call),
+        })
+}
+
+/// 呼び出しがパイプの右辺か．
+fn is_piped(program: &TypedProgram, call: ExprId) -> bool {
+    program.hir.exprs.iter().any(
+        |(_, e)| matches!(e.kind, ExprKind::Binary { op: BinaryOp::Pipe, rhs, .. } if rhs == call),
+    )
+}
+
+/// パイプの右辺の呼び出しなら，左辺の値が入る第1引数を引数の型とラベルから除く．型検査は左辺を
+/// 位置引数の先頭に足して読むので，名前付き引数をどう書いても左辺は第1引数に入る（6.2，6.7）．
+/// 残りのラベルを返す．ラベルのない呼ぶ先（関数値）は空のまま．
+pub(crate) fn without_piped<T>(
+    piped: bool,
+    params: &mut Vec<T>,
+    mut labels: Vec<Option<smol_str::SmolStr>>,
+) -> Vec<Option<smol_str::SmolStr>> {
+    if piped && !params.is_empty() {
+        params.remove(0);
+        if !labels.is_empty() {
+            labels.remove(0);
+        }
+    }
+    labels
 }
 
 /// 呼ぶ先の名前，型，型引数，ラベル．定義（関数，構成子），effect の操作，それ以外の式の型の順に見る．
@@ -184,15 +224,15 @@ pub(crate) fn arg_label(arg: &str) -> Option<&str> {
     (len > 0 && arg[len..].trim_start().starts_with(':')).then(|| &arg[..len])
 }
 
-/// カーソルのある引数．書きかけの引数が `ラベル:` で始まればそのラベルの引数，そうでなければ
-/// 括弧の入れ子の外のカンマの数．
+/// カーソルのある引数．書きかけの引数が `ラベル:` で始まればそのラベルの引数（ないラベルなら
+/// なし），そうでなければ括弧の入れ子の外のカンマの数．
 fn active_param(args: &str, labels: &[Option<smol_str::SmolStr>], count: usize) -> Option<usize> {
     let parts = split_args(args);
     let index = parts.len() - 1;
-    if let Some(name) = arg_label(parts[index])
-        && let Some(i) = labels.iter().position(|l| l.as_deref() == Some(name))
+    if !labels.is_empty()
+        && let Some(name) = arg_label(parts[index])
     {
-        return Some(i);
+        return labels.iter().position(|l| l.as_deref() == Some(name));
     }
     (index < count).then_some(index)
 }
