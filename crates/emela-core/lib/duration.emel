@@ -1,51 +1,44 @@
-# Duration（時間の長さ）．中身はミリ秒の Int64 で，opaque（仕様 15.2，4.4）．
-# 値はこのモジュールの関数でだけ作り，取り出す．負の長さも表せる．
-# 単位の換算と足し算のあふれは Int64 の規則（16.1）で巻き戻る．
+# A Duration is an opaque Int64 of milliseconds (spec 15.2, 4.4). Values are made and taken apart
+# only through this module, and may be negative. Unit conversion and addition wrap on overflow
+# like Int64 (spec 16.1).
 
-## 時間の長さ．`Duration.seconds(5)` のように作る．
+## Made with constructors like `Duration.seconds(5)`.
 pub opaque type Duration(milliseconds: Int64)
 
-## `n` ミリ秒．
 pub fn milliseconds(n: Int64) -> Duration {
   Duration(milliseconds: n)
 }
 
-## `n` 秒．
 pub fn seconds(n: Int64) -> Duration {
   Duration(milliseconds: n * 1000)
 }
 
-## `n` 分．
 pub fn minutes(n: Int64) -> Duration {
   Duration(milliseconds: n * 60000)
 }
 
-## `n` 時間．
 pub fn hours(n: Int64) -> Duration {
   Duration(milliseconds: n * 3600000)
 }
 
-## ミリ秒の数．
 pub fn to_milliseconds(d: Duration) -> Int64 {
   d.milliseconds
 }
 
-## 秒の数．1秒に満たない端数は 0 の方向へ切り捨てる．
+## Truncates toward zero.
 pub fn to_seconds(d: Duration) -> Int64 {
   d.milliseconds / 1000
 }
 
-## 2つの長さの和．
 pub fn add(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds + other.milliseconds)
 }
 
-## `d` から `other` を引いた長さ．負になりうる．
+## May be negative.
 pub fn subtract(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds - other.milliseconds)
 }
 
-## 長さを比べる．
 pub fn compare(d: Duration, other: Duration) -> Ordering {
   if d.milliseconds < other.milliseconds {
     Less
@@ -56,7 +49,7 @@ pub fn compare(d: Duration, other: Duration) -> Ordering {
   }
 }
 
-## ミリ秒の数に `ms` を付けた文字列（`1500ms`）．
+## Milliseconds with an `ms` suffix (`1500ms`).
 pub fn to_string(d: Duration) -> String {
   "#{Int64.to_string(d.milliseconds)}ms"
 }

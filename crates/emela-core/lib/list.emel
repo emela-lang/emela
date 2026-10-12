@@ -1,21 +1,20 @@
-# List の関数．コレクションは不変（仕様 15.2）．
+# Functions on List. Collections are immutable (spec 15.2).
 #
-# - 対象のリストを第1引数 `xs` に置く（`xs |> List.map(f)` と書けるように）．
-# - 引数名は仕様の例に合わせる（`List.fold(init: 0, f: add)`，6.7）．
-# - 繰り返しは自分自身への末尾呼び出しで書く（6.8）．長いリストでもスタックを使わない．
-#   先頭から結果を積むものは逆順に積んでから `reverse` する．
+# - The list comes first as `xs`, so calls read as `xs |> List.map(f)`.
+# - Parameter names match the spec's examples (`List.fold(init: 0, f: add)`, spec 6.7).
+# - Loops are self tail calls (spec 6.8), so long lists do not use the stack. Functions that build
+#   a result from the front accumulate it in reverse and then `reverse` it.
 
-## 各要素に `f` を適用したリスト．
 pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
   reverse(fold(xs, init: [], f: fn(acc, x) { [f(x), ..acc] }))
 }
 
-## `f` が True を返す要素だけを残したリスト．順序は保つ．
+## Keeps the order.
 pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
   reverse(fold(xs, init: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }))
 }
 
-## 先頭から畳み込む．`f(f(f(init, x0), x1), x2)`．
+## Folds from the front: `f(f(f(init, x0), x1), x2)`.
 pub fn fold[A, B](xs: List[A], init: B, f: fn(B, A) -> B) -> B {
   match xs {
     [] -> init
@@ -23,12 +22,10 @@ pub fn fold[A, B](xs: List[A], init: B, f: fn(B, A) -> B) -> B {
   }
 }
 
-## 要素の数．
 pub fn length[A](xs: List[A]) -> Int {
   count_onto(xs, 0)
 }
 
-## `xs` の要素の数を `n` に足す．
 fn count_onto[A](xs: List[A], n: Int) -> Int {
   match xs {
     [] -> n
@@ -36,7 +33,6 @@ fn count_onto[A](xs: List[A], n: Int) -> Int {
   }
 }
 
-## 空か．
 pub fn is_empty[A](xs: List[A]) -> Bool {
   match xs {
     [] -> True
@@ -44,7 +40,7 @@ pub fn is_empty[A](xs: List[A]) -> Bool {
   }
 }
 
-## `index` 番目（0 始まり）の要素．範囲外か負なら `None`．
+## Zero-based. `None` if out of range or negative.
 pub fn get[A](xs: List[A], index: Int) -> Option[A] {
   match xs {
     _ if index < 0 -> None
@@ -53,7 +49,7 @@ pub fn get[A](xs: List[A], index: Int) -> Option[A] {
   }
 }
 
-## 先頭の要素．空なら `None`．
+## `None` if empty.
 pub fn head[A](xs: List[A]) -> Option[A] {
   match xs {
     [] -> None
@@ -61,7 +57,7 @@ pub fn head[A](xs: List[A]) -> Option[A] {
   }
 }
 
-## 先頭を除いた残り．空なら空のまま．
+## Empty if empty.
 pub fn tail[A](xs: List[A]) -> List[A] {
   match xs {
     [] -> []
@@ -69,12 +65,11 @@ pub fn tail[A](xs: List[A]) -> List[A] {
   }
 }
 
-## 逆順にしたリスト．
 pub fn reverse[A](xs: List[A]) -> List[A] {
   reverse_onto(xs, [])
 }
 
-## `xs` を逆順にして `acc` の前に付ける．
+## Prepends `xs` reversed to `acc`.
 fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
   match xs {
     [] -> acc
@@ -82,17 +77,15 @@ fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
   }
 }
 
-## `xs` の後ろに `ys` をつなぐ．
 pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
   reverse_onto(reverse(xs), ys)
 }
 
-## リストのリストを1つのリストにつなぐ．
 pub fn concat[A](xss: List[List[A]]) -> List[A] {
   fold(reverse(xss), init: [], f: fn(acc, xs) { append(xs, acc) })
 }
 
-## `f` が True を返す要素と False を返す要素に分ける．どちらも順序は保つ．
+## Splits into the elements where `f` is True and those where it is False, both in order.
 ## `(evens, odds) = List.partition(xs, is_even)`．
 pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
   (yes, no) = fold(xs, init: ([], []), f: fn(acc, x) {
@@ -102,7 +95,7 @@ pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
   (reverse(yes), reverse(no))
 }
 
-## `f` が True を返す要素があるか．見つかった時点で止める．空なら False．
+## Stops at the first match. False if empty.
 pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   match xs {
     [] -> False
@@ -110,7 +103,7 @@ pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   }
 }
 
-## すべての要素で `f` が True を返すか．False が出た時点で止める．空なら True．
+## Stops at the first False. True if empty.
 pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   match xs {
     [] -> True
@@ -118,7 +111,7 @@ pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   }
 }
 
-## `f` が True を返す最初の要素．なければ `None`．
+## The first element where `f` is True.
 pub fn find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A] {
   match xs {
     [] -> None
@@ -126,22 +119,22 @@ pub fn find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A] {
   }
 }
 
-## `from` 以上 `to` 未満の整数を小さい順に並べたリスト．`to <= from` なら空．
+## The integers from `from` up to but excluding `to`, ascending. Empty if `to <= from`.
 pub fn range(from: Int, to: Int) -> List[Int] {
   range_onto(from, to, [])
 }
 
-## `from` 以上 `to` 未満の整数を `acc` の前に付ける．後ろから積むので `to - 1` はあふれない．
+## Builds from the back, so `to - 1` cannot overflow.
 fn range_onto(from: Int, to: Int, acc: List[Int]) -> List[Int] {
   if to <= from { acc } else { range_onto(from, to - 1, [to - 1, ..acc]) }
 }
 
-## 同じ位置の要素を組にしたリスト．長さは短い方に合わせる．
+## Pairs elements at the same position. As long as the shorter list.
 pub fn zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)] {
   zip_onto(xs, ys, [])
 }
 
-## 組にした要素を逆順に `acc` の前に付け，最後に反転する．
+## Prepends the pairs to `acc` in reverse, then reverses at the end.
 fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
   match (xs, ys) {
     ([x, ..xs_rest], [y, ..ys_rest]) -> zip_onto(xs_rest, ys_rest, [(x, y), ..acc])

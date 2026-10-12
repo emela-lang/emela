@@ -1,46 +1,45 @@
-# Int（32bit の符号付き整数）の関数．あふれは2の補数で巻き戻る（仕様 16.1）．
+# Functions on Int (32-bit signed). Overflow wraps in two's complement (spec 16.1).
 
-## 10進の文字列にする．`String.from_int` と同じ．
+## Same as `String.from_int`.
 @intrinsic
 pub fn to_string(n: Int) -> String
 
-## Float にする．Int の値はすべて Float で正確に表せる．
+## Every Int is exactly representable as a Float.
 @intrinsic
 pub fn to_float(n: Int) -> Float
 
-## Int64 にする．`Int64.from_int` と同じ．
+## Same as `Int64.from_int`.
 @intrinsic
 pub fn to_int64(n: Int) -> Int64
 
-## 足し算．あふれたら `None`．
+## `None` on overflow.
 @intrinsic
 pub fn checked_add(a: Int, b: Int) -> Option[Int]
 
-## ビットごとの論理積．`flags |> Int.bit_and(MASK)` のように書ける．
+## Reads as `flags |> Int.bit_and(MASK)`.
 @intrinsic
 pub fn bit_and(a: Int, b: Int) -> Int
 
-## ビットごとの論理和．
 @intrinsic
 pub fn bit_or(a: Int, b: Int) -> Int
 
-## ビットごとの排他的論理和．
 @intrinsic
 pub fn bit_xor(a: Int, b: Int) -> Int
 
-## ビットの反転．`-n - 1` と同じ．
+## Same as `-n - 1`.
 @intrinsic
 pub fn bit_not(n: Int) -> Int
 
-## 左へ `by` ビットずらす．`by` が 32 以上なら 0，負なら defect．
+## 0 if `by` is 32 or more; a defect if `by` is negative.
 @intrinsic
 pub fn shift_left(n: Int, by: Int) -> Int
 
-## 右へ `by` ビットずらし，上位を符号で埋める（算術シフト）．
-## `by` が 32 以上なら 0 か -1，負なら defect．
+## Arithmetic shift: fills the high bits with the sign.
+## 0 or -1 if `by` is 32 or more; a defect if `by` is negative.
 @intrinsic
 pub fn shift_right(n: Int, by: Int) -> Int
 
-## 右へ `by` ビットずらし，上位を 0 で埋める（論理シフト）．`by` が 32 以上なら 0，負なら defect．
+## Logical shift: fills the high bits with 0. 0 if `by` is 32 or more; a defect if `by` is
+## negative.
 @intrinsic
 pub fn shift_right_unsigned(n: Int, by: Int) -> Int

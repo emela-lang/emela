@@ -1,4 +1,4 @@
-# Console の JS 用のハンドラ（仕様 15.2）．状態を持たない．
+# The JS handler for Console (spec 15.2). Stateless.
 
 import Console.{Console}
 
@@ -8,7 +8,7 @@ fn console_log(text: String) -> ()
 @external(js, "console.error")
 fn console_error(text: String) -> ()
 
-## Console を JS の `console.log`（標準出力）と `console.error`（標準エラー）で実装する．
+## `print_line` uses `console.log` (stdout); `print_error_line` uses `console.error` (stderr).
 pub handler JsConsole implements Console {
   fn print_line(text) { console_log(text) }
   fn print_error_line(text) { console_error(text) }
