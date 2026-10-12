@@ -100,7 +100,7 @@
 - （補）`@intrinsic` は，同梱の core のソースのトップレベルの本体のない fn にだけ付けられる．core の外で使えば E0224，本体のある fn，fn 以外，trait・impl・handler の中の fn に付ければ E0225（今のパーサは本体の中に注釈を置かせないので，最後のものは備え）．HIR の `FnItem::is_intrinsic` が立つ
 - （補）`BuiltinModules`（組み込みのモジュールの表）と `DefModule::Builtin` は，同梱の core のソースで置き換わったので使われていない（driver は `NoBuiltins`）．HIR を読む型推論の側と合わせてから外す
 
-- （補）`@external(target, "a", "b")` の引数は `FnItem::externals`（`ExternalAttr`）に書かれた順で持つ．最初の引数が名前でないもの，文字列でない残りの引数は飛ばす（形の誤りの診断はまだ出さない）．文字列はエスケープを解いた値．
+- （補）`@external(target, "a", "b")` の引数は `FnItem::externals`（`ExternalAttr`）に書かれた順で持つ．最初の引数が名前でないもの，文字列でない残りの引数は飛ばす（形の誤りは構文の段の E0138〜E0141 が出す）．文字列はエスケープを解いた値．
 
 ### この段で見ないもの（型推論以降に残す）
 

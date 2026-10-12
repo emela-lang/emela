@@ -372,7 +372,7 @@ const SOURCE_TESTS: &[(&str, &str)] = &[
     ),
     (
         "app/src/http/client.emel",
-        "@test\nfn gets() {\n  assert True\n}\n\n@test\n@external(\"x\")\nfn foreign()\n",
+        "@test\nfn gets() {\n  assert True\n}\n\n@test\n@external(js, \"x\")\nfn foreign()\n",
     ),
 ];
 

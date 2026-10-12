@@ -321,7 +321,7 @@ fn pg_connect(url: String) -> Connection
 @external(js, "pg.close")
 fn pg_close(conn: Connection) -> ()
 
-@external(js, "Connection")
+@external
 type Connection
 
 pub handler PostgresUsers(conn: Connection) implements Users {

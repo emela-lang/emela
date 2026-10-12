@@ -1,0 +1,598 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/external_attrs.emel
+---
+ROOT@0..862
+  COMMENT@0..47 "# @external の引数の形（12.1，12.3）．"
+  NEWLINE@47..48 "\n"
+  FN_DECL@48..140
+    ANNOTATION@48..73
+      AT@48..49 "@"
+      LOWER_NAME@49..57 "external"
+      ANNOT_ARG_LIST@57..73
+        L_PAREN@57..58 "("
+        ANNOT_ARG@58..60
+          LOWER_NAME@58..60 "js"
+        COMMA@60..61 ","
+        WHITESPACE@61..62 " "
+        ANNOT_ARG@62..72
+          STRING@62..72
+            STRING_QUOTE@62..63 "\""
+            STRING_TEXT@63..71 "Math.sin"
+            STRING_QUOTE@71..72 "\""
+        R_PAREN@72..73 ")"
+    NEWLINE@73..74 "\n"
+    ANNOTATION@74..103
+      AT@74..75 "@"
+      LOWER_NAME@75..83 "external"
+      ANNOT_ARG_LIST@83..103
+        L_PAREN@83..84 "("
+        ANNOT_ARG@84..88
+          LOWER_NAME@84..88 "wasm"
+        COMMA@88..89 ","
+        WHITESPACE@89..90 " "
+        ANNOT_ARG@90..95
+          STRING@90..95
+            STRING_QUOTE@90..91 "\""
+            STRING_TEXT@91..94 "env"
+            STRING_QUOTE@94..95 "\""
+        COMMA@95..96 ","
+        WHITESPACE@96..97 " "
+        ANNOT_ARG@97..102
+          STRING@97..102
+            STRING_QUOTE@97..98 "\""
+            STRING_TEXT@98..101 "sin"
+            STRING_QUOTE@101..102 "\""
+        R_PAREN@102..103 ")"
+    NEWLINE@103..104 "\n"
+    FN_KW@104..106 "fn"
+    WHITESPACE@106..107 " "
+    LOWER_NAME@107..114 "ok_both"
+    PARAM_LIST@114..124
+      L_PAREN@114..115 "("
+      PARAM@115..123
+        LOWER_NAME@115..116 "x"
+        COLON@116..117 ":"
+        WHITESPACE@117..118 " "
+        PATH_TYPE@118..123
+          PATH@118..123
+            TYPE_NAME@118..123 "Float"
+      R_PAREN@123..124 ")"
+    WHITESPACE@124..125 " "
+    RET_TYPE@125..133
+      THIN_ARROW@125..127 "->"
+      WHITESPACE@127..128 " "
+      PATH_TYPE@128..133
+        PATH@128..133
+          TYPE_NAME@128..133 "Float"
+    WHITESPACE@133..134 " "
+    USE_CLAUSE@134..140
+      USE_KW@134..137 "use"
+      WHITESPACE@137..138 " "
+      EFFECT_SET@138..140
+        L_BRACE@138..139 "{"
+        R_BRACE@139..140 "}"
+  NEWLINE@140..141 "\n"
+  NEWLINE@141..142 "\n"
+  FN_DECL@142..170
+    ANNOTATION@142..151
+      AT@142..143 "@"
+      LOWER_NAME@143..151 "external"
+    NEWLINE@151..152 "\n"
+    FN_KW@152..154 "fn"
+    WHITESPACE@154..155 " "
+    LOWER_NAME@155..162 "no_args"
+    PARAM_LIST@162..164
+      L_PAREN@162..163 "("
+      R_PAREN@163..164 ")"
+    WHITESPACE@164..165 " "
+    RET_TYPE@165..170
+      THIN_ARROW@165..167 "->"
+      WHITESPACE@167..168 " "
+      UNIT_TYPE@168..170
+        L_PAREN@168..169 "("
+        R_PAREN@169..170 ")"
+  NEWLINE@170..171 "\n"
+  NEWLINE@171..172 "\n"
+  FN_DECL@172..205
+    ANNOTATION@172..183
+      AT@172..173 "@"
+      LOWER_NAME@173..181 "external"
+      ANNOT_ARG_LIST@181..183
+        L_PAREN@181..182 "("
+        R_PAREN@182..183 ")"
+    NEWLINE@183..184 "\n"
+    FN_KW@184..186 "fn"
+    WHITESPACE@186..187 " "
+    LOWER_NAME@187..197 "empty_args"
+    PARAM_LIST@197..199
+      L_PAREN@197..198 "("
+      R_PAREN@198..199 ")"
+    WHITESPACE@199..200 " "
+    RET_TYPE@200..205
+      THIN_ARROW@200..202 "->"
+      WHITESPACE@202..203 " "
+      UNIT_TYPE@203..205
+        L_PAREN@203..204 "("
+        R_PAREN@204..205 ")"
+  NEWLINE@205..206 "\n"
+  NEWLINE@206..207 "\n"
+  FN_DECL@207..255
+    ANNOTATION@207..231
+      AT@207..208 "@"
+      LOWER_NAME@208..216 "external"
+      ANNOT_ARG_LIST@216..231
+        L_PAREN@216..217 "("
+        ANNOT_ARG@217..230
+          STRING@217..230
+            STRING_QUOTE@217..218 "\""
+            STRING_TEXT@218..229 "console.log"
+            STRING_QUOTE@229..230 "\""
+        R_PAREN@230..231 ")"
+    NEWLINE@231..232 "\n"
+    FN_KW@232..234 "fn"
+    WHITESPACE@234..235 " "
+    LOWER_NAME@235..247 "string_first"
+    PARAM_LIST@247..249
+      L_PAREN@247..248 "("
+      R_PAREN@248..249 ")"
+    WHITESPACE@249..250 " "
+    RET_TYPE@250..255
+      THIN_ARROW@250..252 "->"
+      WHITESPACE@252..253 " "
+      UNIT_TYPE@253..255
+        L_PAREN@253..254 "("
+        R_PAREN@254..255 ")"
+  NEWLINE@255..256 "\n"
+  NEWLINE@256..257 "\n"
+  FN_DECL@257..295
+    ANNOTATION@257..274
+      AT@257..258 "@"
+      LOWER_NAME@258..266 "external"
+      ANNOT_ARG_LIST@266..274
+        L_PAREN@266..267 "("
+        ANNOT_ARG@267..268
+          LITERAL@267..268
+            INT@267..268 "1"
+        COMMA@268..269 ","
+        WHITESPACE@269..270 " "
+        ANNOT_ARG@270..273
+          STRING@270..273
+            STRING_QUOTE@270..271 "\""
+            STRING_TEXT@271..272 "x"
+            STRING_QUOTE@272..273 "\""
+        R_PAREN@273..274 ")"
+    NEWLINE@274..275 "\n"
+    FN_KW@275..277 "fn"
+    WHITESPACE@277..278 " "
+    LOWER_NAME@278..287 "int_first"
+    PARAM_LIST@287..289
+      L_PAREN@287..288 "("
+      R_PAREN@288..289 ")"
+    WHITESPACE@289..290 " "
+    RET_TYPE@290..295
+      THIN_ARROW@290..292 "->"
+      WHITESPACE@292..293 " "
+      UNIT_TYPE@293..295
+        L_PAREN@293..294 "("
+        R_PAREN@294..295 ")"
+  NEWLINE@295..296 "\n"
+  NEWLINE@296..297 "\n"
+  FN_DECL@297..342
+    ANNOTATION@297..319
+      AT@297..298 "@"
+      LOWER_NAME@298..306 "external"
+      ANNOT_ARG_LIST@306..319
+        L_PAREN@306..307 "("
+        ANNOT_ARG@307..313
+          LOWER_NAME@307..308 "k"
+          COLON@308..309 ":"
+          WHITESPACE@309..310 " "
+          STRING@310..313
+            STRING_QUOTE@310..311 "\""
+            STRING_TEXT@311..312 "v"
+            STRING_QUOTE@312..313 "\""
+        COMMA@313..314 ","
+        WHITESPACE@314..315 " "
+        ANNOT_ARG@315..318
+          STRING@315..318
+            STRING_QUOTE@315..316 "\""
+            STRING_TEXT@316..317 "x"
+            STRING_QUOTE@317..318 "\""
+        R_PAREN@318..319 ")"
+    NEWLINE@319..320 "\n"
+    FN_KW@320..322 "fn"
+    WHITESPACE@322..323 " "
+    LOWER_NAME@323..334 "named_first"
+    PARAM_LIST@334..336
+      L_PAREN@334..335 "("
+      R_PAREN@335..336 ")"
+    WHITESPACE@336..337 " "
+    RET_TYPE@337..342
+      THIN_ARROW@337..339 "->"
+      WHITESPACE@339..340 " "
+      UNIT_TYPE@340..342
+        L_PAREN@340..341 "("
+        R_PAREN@341..342 ")"
+  NEWLINE@342..343 "\n"
+  NEWLINE@343..344 "\n"
+  FN_DECL@344..378
+    ANNOTATION@344..357
+      AT@344..345 "@"
+      LOWER_NAME@345..353 "external"
+      ANNOT_ARG_LIST@353..357
+        L_PAREN@353..354 "("
+        ANNOT_ARG@354..356
+          LOWER_NAME@354..356 "js"
+        R_PAREN@356..357 ")"
+    NEWLINE@357..358 "\n"
+    FN_KW@358..360 "fn"
+    WHITESPACE@360..361 " "
+    LOWER_NAME@361..370 "no_string"
+    PARAM_LIST@370..372
+      L_PAREN@370..371 "("
+      R_PAREN@371..372 ")"
+    WHITESPACE@372..373 " "
+    RET_TYPE@373..378
+      THIN_ARROW@373..375 "->"
+      WHITESPACE@375..376 " "
+      UNIT_TYPE@376..378
+        L_PAREN@376..377 "("
+        R_PAREN@377..378 ")"
+  NEWLINE@378..379 "\n"
+  NEWLINE@379..380 "\n"
+  FN_DECL@380..433
+    ANNOTATION@380..408
+      AT@380..381 "@"
+      LOWER_NAME@381..389 "external"
+      ANNOT_ARG_LIST@389..408
+        L_PAREN@389..390 "("
+        ANNOT_ARG@390..392
+          LOWER_NAME@390..392 "js"
+        COMMA@392..393 ","
+        WHITESPACE@393..394 " "
+        ANNOT_ARG@394..397
+          STRING@394..397
+            STRING_QUOTE@394..395 "\""
+            STRING_TEXT@395..396 "a"
+            STRING_QUOTE@396..397 "\""
+        COMMA@397..398 ","
+        WHITESPACE@398..399 " "
+        ANNOT_ARG@399..402
+          STRING@399..402
+            STRING_QUOTE@399..400 "\""
+            STRING_TEXT@400..401 "b"
+            STRING_QUOTE@401..402 "\""
+        COMMA@402..403 ","
+        WHITESPACE@403..404 " "
+        ANNOT_ARG@404..407
+          STRING@404..407
+            STRING_QUOTE@404..405 "\""
+            STRING_TEXT@405..406 "c"
+            STRING_QUOTE@406..407 "\""
+        R_PAREN@407..408 ")"
+    NEWLINE@408..409 "\n"
+    FN_KW@409..411 "fn"
+    WHITESPACE@411..412 " "
+    LOWER_NAME@412..425 "three_strings"
+    PARAM_LIST@425..427
+      L_PAREN@425..426 "("
+      R_PAREN@426..427 ")"
+    WHITESPACE@427..428 " "
+    RET_TYPE@428..433
+      THIN_ARROW@428..430 "->"
+      WHITESPACE@430..431 " "
+      UNIT_TYPE@431..433
+        L_PAREN@431..432 "("
+        R_PAREN@432..433 ")"
+  NEWLINE@433..434 "\n"
+  NEWLINE@434..435 "\n"
+  FN_DECL@435..470
+    ANNOTATION@435..451
+      AT@435..436 "@"
+      LOWER_NAME@436..444 "external"
+      ANNOT_ARG_LIST@444..451
+        L_PAREN@444..445 "("
+        ANNOT_ARG@445..447
+          LOWER_NAME@445..447 "js"
+        COMMA@447..448 ","
+        WHITESPACE@448..449 " "
+        ANNOT_ARG@449..450
+          LITERAL@449..450
+            INT@449..450 "1"
+        R_PAREN@450..451 ")"
+    NEWLINE@451..452 "\n"
+    FN_KW@452..454 "fn"
+    WHITESPACE@454..455 " "
+    LOWER_NAME@455..462 "int_arg"
+    PARAM_LIST@462..464
+      L_PAREN@462..463 "("
+      R_PAREN@463..464 ")"
+    WHITESPACE@464..465 " "
+    RET_TYPE@465..470
+      THIN_ARROW@465..467 "->"
+      WHITESPACE@467..468 " "
+      UNIT_TYPE@468..470
+        L_PAREN@468..469 "("
+        R_PAREN@469..470 ")"
+  NEWLINE@470..471 "\n"
+  NEWLINE@471..472 "\n"
+  FN_DECL@472..516
+    ANNOTATION@472..496
+      AT@472..473 "@"
+      LOWER_NAME@473..481 "external"
+      ANNOT_ARG_LIST@481..496
+        L_PAREN@481..482 "("
+        ANNOT_ARG@482..484
+          LOWER_NAME@482..484 "js"
+        COMMA@484..485 ","
+        WHITESPACE@485..486 " "
+        ANNOT_ARG@486..490
+          LOWER_NAME@486..490 "name"
+        COMMA@490..491 ","
+        WHITESPACE@491..492 " "
+        ANNOT_ARG@492..495
+          STRING@492..495
+            STRING_QUOTE@492..493 "\""
+            STRING_TEXT@493..494 "x"
+            STRING_QUOTE@494..495 "\""
+        R_PAREN@495..496 ")"
+    NEWLINE@496..497 "\n"
+    FN_KW@497..499 "fn"
+    WHITESPACE@499..500 " "
+    LOWER_NAME@500..508 "name_arg"
+    PARAM_LIST@508..510
+      L_PAREN@508..509 "("
+      R_PAREN@509..510 ")"
+    WHITESPACE@510..511 " "
+    RET_TYPE@511..516
+      THIN_ARROW@511..513 "->"
+      WHITESPACE@513..514 " "
+      UNIT_TYPE@514..516
+        L_PAREN@514..515 "("
+        R_PAREN@515..516 ")"
+  NEWLINE@516..517 "\n"
+  NEWLINE@517..518 "\n"
+  FN_DECL@518..560
+    ANNOTATION@518..539
+      AT@518..519 "@"
+      LOWER_NAME@519..527 "external"
+      ANNOT_ARG_LIST@527..539
+        L_PAREN@527..528 "("
+        ANNOT_ARG@528..530
+          LOWER_NAME@528..530 "js"
+        COMMA@530..531 ","
+        WHITESPACE@531..532 " "
+        ANNOT_ARG@532..538
+          LOWER_NAME@532..533 "k"
+          COLON@533..534 ":"
+          WHITESPACE@534..535 " "
+          STRING@535..538
+            STRING_QUOTE@535..536 "\""
+            STRING_TEXT@536..537 "v"
+            STRING_QUOTE@537..538 "\""
+        R_PAREN@538..539 ")"
+    NEWLINE@539..540 "\n"
+    FN_KW@540..542 "fn"
+    WHITESPACE@542..543 " "
+    LOWER_NAME@543..552 "named_arg"
+    PARAM_LIST@552..554
+      L_PAREN@552..553 "("
+      R_PAREN@553..554 ")"
+    WHITESPACE@554..555 " "
+    RET_TYPE@555..560
+      THIN_ARROW@555..557 "->"
+      WHITESPACE@557..558 " "
+      UNIT_TYPE@558..560
+        L_PAREN@558..559 "("
+        R_PAREN@559..560 ")"
+  NEWLINE@560..561 "\n"
+  NEWLINE@561..562 "\n"
+  FN_DECL@562..607
+    ANNOTATION@562..583
+      AT@562..563 "@"
+      LOWER_NAME@563..571 "external"
+      ANNOT_ARG_LIST@571..583
+        L_PAREN@571..572 "("
+        ANNOT_ARG@572..574
+          LOWER_NAME@572..574 "js"
+        COMMA@574..575 ","
+        WHITESPACE@575..576 " "
+        ANNOT_ARG@576..582
+          STRING@576..582
+            STRING_QUOTE@576..577 "\""
+            INTERP@577..581
+              INTERP_START@577..579 "#{"
+              NAME_REF@579..580
+                LOWER_NAME@579..580 "x"
+              INTERP_END@580..581 "}"
+            STRING_QUOTE@581..582 "\""
+        R_PAREN@582..583 ")"
+    NEWLINE@583..584 "\n"
+    FN_KW@584..586 "fn"
+    WHITESPACE@586..587 " "
+    LOWER_NAME@587..599 "interpolated"
+    PARAM_LIST@599..601
+      L_PAREN@599..600 "("
+      R_PAREN@600..601 ")"
+    WHITESPACE@601..602 " "
+    RET_TYPE@602..607
+      THIN_ARROW@602..604 "->"
+      WHITESPACE@604..605 " "
+      UNIT_TYPE@605..607
+        L_PAREN@605..606 "("
+        R_PAREN@606..607 ")"
+  NEWLINE@607..608 "\n"
+  NEWLINE@608..609 "\n"
+  FN_DECL@609..667
+    ANNOTATION@609..627
+      AT@609..610 "@"
+      LOWER_NAME@610..618 "external"
+      ANNOT_ARG_LIST@618..627
+        L_PAREN@618..619 "("
+        ANNOT_ARG@619..621
+          LOWER_NAME@619..621 "js"
+        COMMA@621..622 ","
+        WHITESPACE@622..623 " "
+        ANNOT_ARG@623..626
+          STRING@623..626
+            STRING_QUOTE@623..624 "\""
+            STRING_TEXT@624..625 "a"
+            STRING_QUOTE@625..626 "\""
+        R_PAREN@626..627 ")"
+    NEWLINE@627..628 "\n"
+    ANNOTATION@628..646
+      AT@628..629 "@"
+      LOWER_NAME@629..637 "external"
+      ANNOT_ARG_LIST@637..646
+        L_PAREN@637..638 "("
+        ANNOT_ARG@638..640
+          LOWER_NAME@638..640 "js"
+        COMMA@640..641 ","
+        WHITESPACE@641..642 " "
+        ANNOT_ARG@642..645
+          STRING@642..645
+            STRING_QUOTE@642..643 "\""
+            STRING_TEXT@643..644 "b"
+            STRING_QUOTE@644..645 "\""
+        R_PAREN@645..646 ")"
+    NEWLINE@646..647 "\n"
+    FN_KW@647..649 "fn"
+    WHITESPACE@649..650 " "
+    LOWER_NAME@650..659 "duplicate"
+    PARAM_LIST@659..661
+      L_PAREN@659..660 "("
+      R_PAREN@660..661 ")"
+    WHITESPACE@661..662 " "
+    RET_TYPE@662..667
+      THIN_ARROW@662..664 "->"
+      WHITESPACE@664..665 " "
+      UNIT_TYPE@665..667
+        L_PAREN@665..666 "("
+        R_PAREN@666..667 ")"
+  NEWLINE@667..668 "\n"
+  NEWLINE@668..669 "\n"
+  FN_DECL@669..714
+    ANNOTATION@669..688
+      AT@669..670 "@"
+      LOWER_NAME@670..678 "external"
+      ANNOT_ARG_LIST@678..688
+        L_PAREN@678..679 "("
+        ANNOT_ARG@679..682
+          LOWER_NAME@679..682 "jvm"
+        COMMA@682..683 ","
+        WHITESPACE@683..684 " "
+        ANNOT_ARG@684..687
+          STRING@684..687
+            STRING_QUOTE@684..685 "\""
+            STRING_TEXT@685..686 "a"
+            STRING_QUOTE@686..687 "\""
+        R_PAREN@687..688 ")"
+    NEWLINE@688..689 "\n"
+    FN_KW@689..691 "fn"
+    WHITESPACE@691..692 " "
+    LOWER_NAME@692..706 "unknown_target"
+    PARAM_LIST@706..708
+      L_PAREN@706..707 "("
+      R_PAREN@707..708 ")"
+    WHITESPACE@708..709 " "
+    RET_TYPE@709..714
+      THIN_ARROW@709..711 "->"
+      WHITESPACE@711..712 " "
+      UNIT_TYPE@712..714
+        L_PAREN@712..713 "("
+        R_PAREN@713..714 ")"
+  NEWLINE@714..715 "\n"
+  NEWLINE@715..716 "\n"
+  FN_DECL@716..769
+    ANNOTATION@716..748
+      AT@716..717 "@"
+      LOWER_NAME@717..725 "external"
+      ANNOT_ARG_LIST@725..748
+        L_PAREN@725..726 "("
+        ANNOT_ARG@726..728
+          LOWER_NAME@726..728 "js"
+        COMMA@728..729 ","
+        WHITESPACE@729..730 " "
+        ANNOT_ARG@730..747
+          STRING@730..747
+            TRIPLE_QUOTE@730..733 "\"\"\""
+            STRING_TEXT@733..742 "\n  multi\n"
+            TRIPLE_QUOTE@742..747 "  \"\"\""
+        R_PAREN@747..748 ")"
+    NEWLINE@748..749 "\n"
+    FN_KW@749..751 "fn"
+    WHITESPACE@751..752 " "
+    LOWER_NAME@752..761 "multiline"
+    PARAM_LIST@761..763
+      L_PAREN@761..762 "("
+      R_PAREN@762..763 ")"
+    WHITESPACE@763..764 " "
+    RET_TYPE@764..769
+      THIN_ARROW@764..766 "->"
+      WHITESPACE@766..767 " "
+      UNIT_TYPE@767..769
+        L_PAREN@767..768 "("
+        R_PAREN@768..769 ")"
+  NEWLINE@769..770 "\n"
+  NEWLINE@770..771 "\n"
+  TYPE_DECL@771..796
+    ANNOTATION@771..780
+      AT@771..772 "@"
+      LOWER_NAME@772..780 "external"
+    NEWLINE@780..781 "\n"
+    TYPE_KW@781..785 "type"
+    WHITESPACE@785..786 " "
+    TYPE_NAME@786..796 "Connection"
+  NEWLINE@796..797 "\n"
+  NEWLINE@797..798 "\n"
+  TYPE_DECL@798..833
+    ANNOTATION@798..819
+      AT@798..799 "@"
+      LOWER_NAME@799..807 "external"
+      ANNOT_ARG_LIST@807..819
+        L_PAREN@807..808 "("
+        ANNOT_ARG@808..810
+          LOWER_NAME@808..810 "js"
+        COMMA@810..811 ","
+        WHITESPACE@811..812 " "
+        ANNOT_ARG@812..818
+          STRING@812..818
+            STRING_QUOTE@812..813 "\""
+            STRING_TEXT@813..817 "Conn"
+            STRING_QUOTE@817..818 "\""
+        R_PAREN@818..819 ")"
+    NEWLINE@819..820 "\n"
+    TYPE_KW@820..824 "type"
+    WHITESPACE@824..825 " "
+    TYPE_NAME@825..833 "WithArgs"
+  NEWLINE@833..834 "\n"
+  NEWLINE@834..835 "\n"
+  TYPE_DECL@835..861
+    ANNOTATION@835..846
+      AT@835..836 "@"
+      LOWER_NAME@836..844 "external"
+      ANNOT_ARG_LIST@844..846
+        L_PAREN@844..845 "("
+        R_PAREN@845..846 ")"
+    NEWLINE@846..847 "\n"
+    TYPE_KW@847..851 "type"
+    WHITESPACE@851..852 " "
+    TYPE_NAME@852..861 "EmptyArgs"
+  NEWLINE@861..862 "\n"
+error[E0138]@142..151: `@external` on a function needs a target and a name: `@external(js, "name")`
+error[E0138]@172..183: `@external` on a function needs a target and a name: `@external(js, "name")`
+error[E0138]@217..230: the first argument of `@external` must be a target name such as `js`
+error[E0138]@267..268: the first argument of `@external` must be a target name such as `js`
+error[E0138]@307..313: the first argument of `@external` must be a target name such as `js`
+error[E0138]@344..357: `@external` takes one or two strings after the target, found 0
+error[E0138]@380..408: `@external` takes one or two strings after the target, found 3
+error[E0138]@449..450: arguments after the target of `@external` must be strings
+error[E0138]@486..490: arguments after the target of `@external` must be strings
+error[E0138]@532..538: arguments after the target of `@external` must be strings
+error[E0138]@576..582: string interpolation is not allowed in `@external`
+error[E0139]@638..640: more than one `@external` for target `js`
+error[E0140]@679..682: unknown target `jvm` in `@external`: expected `js` or `wasm`
+error[E0141]@807..819: `@external` on a type takes no arguments
+error[E0141]@844..846: `@external` on a type takes no arguments

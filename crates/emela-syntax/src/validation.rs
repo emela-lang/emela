@@ -4,6 +4,7 @@
 //!   パターンにしか書けない `_` と式のない `..` が左辺の外にないかを見る
 //! - 17.3 の文法の外の制約のうち，構文だけで判るもの（`@external` の要否，空の enum，
 //!   handler と impl の fn の形）を見る
+//! - `@external` の引数の形（12.1，12.3）を見る
 
 use rowan::TextRange;
 
@@ -29,13 +30,30 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         return;
     }
     match node.kind() {
-        FN_DECL => fn_decl(node, out),
-        TYPE_DECL if child_kind(node, FIELD_LIST).is_none() && !is_external(node) => error(
-            out,
-            name_or(node),
-            DiagnosticCode::MissingExternal,
-            "a type without fields must be `@external`",
-        ),
+        FN_DECL => {
+            fn_decl(node, out);
+            fn_externals(node, out);
+        }
+        TYPE_DECL => {
+            if child_kind(node, FIELD_LIST).is_none() && !is_external(node) {
+                error(
+                    out,
+                    name_or(node),
+                    DiagnosticCode::MissingExternal,
+                    "a type without fields must be `@external`",
+                );
+            }
+            // `@external type` の注釈は引数を取らない（12.3）．
+            for list in annotations(node, "external").filter_map(|a| child_kind(&a, ANNOT_ARG_LIST))
+            {
+                error(
+                    out,
+                    list.text_range(),
+                    DiagnosticCode::ExternalTypeWithArgs,
+                    "`@external` on a type takes no arguments",
+                );
+            }
+        }
         OP_SIG => {
             if let Some(clause) = child_kind(node, USE_CLAUSE) {
                 error(
@@ -188,6 +206,109 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// `@external` のターゲットとして知っている名前（12.1）．
+const EXTERNAL_TARGETS: [&str; 2] = ["js", "wasm"];
+
+/// fn の `@external(ターゲット, "a")` と `@external(ターゲット, "a", "b")` の形（12.1）．
+/// ターゲットの名前の後ろに文字列が1つか2つ．ターゲットごとに1つ．
+fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let mut seen: Vec<String> = Vec::new();
+    for annotation in annotations(node, "external") {
+        let args: Vec<SyntaxNode> = child_kind(&annotation, ANNOT_ARG_LIST)
+            .into_iter()
+            .flat_map(|list| list.children())
+            .filter(|arg| arg.kind() == ANNOT_ARG)
+            .collect();
+        // 読めなかった引数は構文の診断が出ている．重ねない．
+        if args
+            .iter()
+            .any(|arg| arg.descendants().any(|n| n.kind() == ERROR))
+        {
+            continue;
+        }
+        let Some((first, rest)) = args.split_first() else {
+            error(
+                out,
+                annotation.text_range(),
+                DiagnosticCode::MalformedExternal,
+                "`@external` on a function needs a target and a name: `@external(js, \"name\")`",
+            );
+            continue;
+        };
+        let Some(target) = annot_name(first) else {
+            error(
+                out,
+                first.text_range(),
+                DiagnosticCode::MalformedExternal,
+                "the first argument of `@external` must be a target name such as `js`",
+            );
+            continue;
+        };
+        if !EXTERNAL_TARGETS.contains(&target.as_str()) {
+            error(
+                out,
+                first.text_range(),
+                DiagnosticCode::UnknownExternalTarget,
+                &format!("unknown target `{target}` in `@external`: expected `js` or `wasm`"),
+            );
+        } else if seen.contains(&target) {
+            error(
+                out,
+                first.text_range(),
+                DiagnosticCode::DuplicateExternalTarget,
+                &format!("more than one `@external` for target `{target}`"),
+            );
+        } else {
+            seen.push(target);
+        }
+        for arg in rest {
+            let message = match annot_string(arg) {
+                Some(true) => continue,
+                Some(false) => "string interpolation is not allowed in `@external`",
+                None => "arguments after the target of `@external` must be strings",
+            };
+            error(
+                out,
+                arg.text_range(),
+                DiagnosticCode::MalformedExternal,
+                message,
+            );
+        }
+        if !(1..=2).contains(&rest.len()) {
+            error(
+                out,
+                annotation.text_range(),
+                DiagnosticCode::MalformedExternal,
+                &format!(
+                    "`@external` takes one or two strings after the target, found {}",
+                    rest.len()
+                ),
+            );
+        }
+    }
+}
+
+/// 名前だけの注釈の引数（`js`）の名前．
+fn annot_name(arg: &SyntaxNode) -> Option<String> {
+    if arg.first_child().is_some() || has_token(arg, COLON) {
+        return None;
+    }
+    arg.children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME)
+        .map(|t| t.text().to_owned())
+}
+
+/// 文字列だけの注釈の引数か．補間のない文字列なら `Some(true)`，補間のある文字列なら
+/// `Some(false)`，文字列でなければ `None`．
+fn annot_string(arg: &SyntaxNode) -> Option<bool> {
+    if has_token(arg, LOWER_NAME) {
+        return None;
+    }
+    let string = child_kind(arg, STRING)?;
+    Some(child_kind(&string, INTERP).is_none())
+}
+
 fn missing_body(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     error(
         out,
@@ -204,11 +325,18 @@ fn is_external(node: &SyntaxNode) -> bool {
 
 /// `@name` の注釈が付いているか．
 fn has_annotation(node: &SyntaxNode, name: &str) -> bool {
-    node.children().filter(|c| c.kind() == ANNOTATION).any(|a| {
-        a.children_with_tokens()
-            .filter_map(|e| e.into_token())
-            .any(|t| t.kind() == LOWER_NAME && t.text() == name)
-    })
+    annotations(node, name).next().is_some()
+}
+
+/// 宣言に付いた `@name` の注釈．
+fn annotations<'a>(node: &SyntaxNode, name: &'a str) -> impl Iterator<Item = SyntaxNode> + 'a {
+    node.children()
+        .filter(|c| c.kind() == ANNOTATION)
+        .filter(move |a| {
+            a.children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == LOWER_NAME && t.text() == name)
+        })
 }
 
 fn child_kind(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {

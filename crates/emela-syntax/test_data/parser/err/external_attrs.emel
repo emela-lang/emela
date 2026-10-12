@@ -1,0 +1,58 @@
+# @external の引数の形（12.1，12.3）．
+@external(js, "Math.sin")
+@external(wasm, "env", "sin")
+fn ok_both(x: Float) -> Float use {}
+
+@external
+fn no_args() -> ()
+
+@external()
+fn empty_args() -> ()
+
+@external("console.log")
+fn string_first() -> ()
+
+@external(1, "x")
+fn int_first() -> ()
+
+@external(k: "v", "x")
+fn named_first() -> ()
+
+@external(js)
+fn no_string() -> ()
+
+@external(js, "a", "b", "c")
+fn three_strings() -> ()
+
+@external(js, 1)
+fn int_arg() -> ()
+
+@external(js, name, "x")
+fn name_arg() -> ()
+
+@external(js, k: "v")
+fn named_arg() -> ()
+
+@external(js, "#{x}")
+fn interpolated() -> ()
+
+@external(js, "a")
+@external(js, "b")
+fn duplicate() -> ()
+
+@external(jvm, "a")
+fn unknown_target() -> ()
+
+@external(js, """
+  multi
+  """)
+fn multiline() -> ()
+
+@external
+type Connection
+
+@external(js, "Conn")
+type WithArgs
+
+@external()
+type EmptyArgs
