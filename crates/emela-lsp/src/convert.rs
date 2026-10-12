@@ -121,12 +121,14 @@ pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::Co
         K::Field => lsp::CompletionItemKind::FIELD,
         K::Module => lsp::CompletionItemKind::MODULE,
         K::Keyword => lsp::CompletionItemKind::KEYWORD,
+        K::Label => lsp::CompletionItemKind::PROPERTY,
     };
     lsp::CompletionItem {
         label: item.label.clone(),
         kind: Some(kind),
         detail: item.detail.clone(),
         sort_text: Some(format!("{index:05}")),
+        insert_text: item.insert_text.clone(),
         ..lsp::CompletionItem::default()
     }
 }
