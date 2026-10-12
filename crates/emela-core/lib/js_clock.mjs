@@ -1,11 +1,10 @@
-// JsClock（js_clock.emel）のホストの関数．Int64 は JS では BigInt で持つ．
+// Host functions for JsClock (js_clock.emel). Int64 is a BigInt in JS.
 
-/** Unix エポックからのミリ秒．`Date.now()` を BigInt にする． */
 export function nowMilliseconds() {
   return BigInt(Date.now());
 }
 
-/** `ms` ミリ秒後に `f` を1回呼ぶ．`setTimeout` と引数の順が逆．負の `ms` は 0 と同じ． */
+/** Calls `f` once after `ms` milliseconds. The argument order is the reverse of `setTimeout`. A negative `ms` behaves like 0. */
 export function after(ms, f) {
   setTimeout(f, ms);
 }

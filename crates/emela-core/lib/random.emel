@@ -1,10 +1,9 @@
-# Random のエフェクト（仕様 15.2 の platform 層）．宣言だけを置き，ハンドラはターゲットごとの
-# モジュールに置く（JS 用は `JsRandom`）．
+# The Random effect (the platform layer of spec 15.2). Only the declaration lives here; handlers
+# live in per-target modules (`JsRandom` for JS).
 
-## 乱数を引く．
 pub effect Random {
-  ## Int の全域で一様な値．
+  ## Uniform over the whole range of Int.
   fn int() -> Int
-  ## 0 以上 1 未満で一様な値．
+  ## Uniform in [0, 1).
   fn float() -> Float
 }

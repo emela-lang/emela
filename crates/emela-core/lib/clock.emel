@@ -1,9 +1,8 @@
-# Clock のエフェクト（仕様 8.1，15.2 の platform 層）．宣言だけを置き，ハンドラはターゲットごとの
-# モジュールに置く（JS 用は `JsClock`）．
+# The Clock effect (spec 8.1; the platform layer of spec 15.2). Only the declaration lives here;
+# handlers live in per-target modules (`JsClock` for JS).
 #
-# 使うときは `(use Clock).now()` と書き，main などで `with JsClock { ... }` で供給する．
+# Use it as `(use Clock).now()` and provide it with `with JsClock { ... }` in `main` or similar.
 
-## 現在の時点を返し，指定した時間だけ待つ．
 pub effect Clock {
   suspend fn sleep(ms: Int) -> ()
   fn now() -> Instant

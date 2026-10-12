@@ -1,38 +1,35 @@
-# Instant（ある時点）．中身は Unix エポック（1970-01-01T00:00:00Z）からのミリ秒の Int64 で，
-# opaque（仕様 15.2，4.4）．閏秒は数えない．
+# An Instant is an opaque Int64 of milliseconds since the Unix epoch (1970-01-01T00:00:00Z)
+# (spec 15.2, 4.4). Leap seconds are not counted.
 #
-# 現在の時点はこのモジュールでは取れない．Clock のエフェクトが返す．
+# This module cannot read the current time; the Clock effect returns it.
 
-## ある時点．
 pub opaque type Instant(milliseconds: Int64)
 
-## Unix エポックから `ms` ミリ秒の時点．負ならエポックより前．
+## Negative values are before the epoch.
 pub fn from_unix_milliseconds(ms: Int64) -> Instant {
   Instant(milliseconds: ms)
 }
 
-## Unix エポックからのミリ秒の数．
 pub fn to_unix_milliseconds(t: Instant) -> Int64 {
   t.milliseconds
 }
 
-## `d` だけ後の時点（`d` が負なら前）．
+## Earlier if `d` is negative.
 pub fn add(t: Instant, d: Duration) -> Instant {
   Instant(milliseconds: t.milliseconds + Duration.to_milliseconds(d))
 }
 
-## `d` だけ前の時点．
 pub fn subtract(t: Instant, d: Duration) -> Instant {
   Instant(milliseconds: t.milliseconds - Duration.to_milliseconds(d))
 }
 
-## `earlier` から `t` までの長さ．`earlier` の方が後なら負．
-## `now |> Instant.since(start)` と書ける．
+## The duration from `earlier` to `t`; negative if `earlier` is later.
+## Reads as `now |> Instant.since(start)`.
 pub fn since(t: Instant, earlier: Instant) -> Duration {
   Duration.milliseconds(t.milliseconds - earlier.milliseconds)
 }
 
-## 時点を比べる．早い方が小さい．
+## Earlier instants are smaller.
 pub fn compare(t: Instant, other: Instant) -> Ordering {
   if t.milliseconds < other.milliseconds {
     Less
@@ -43,12 +40,12 @@ pub fn compare(t: Instant, other: Instant) -> Ordering {
   }
 }
 
-## UTC の ISO 8601 の文字列（`2026-10-12T03:04:05.678Z`）．JS の `Date.prototype.toISOString` と
-## 同じ形で，年が 0〜9999 の外なら符号と6桁で書く（`+010000`，`-000001`）．
+## UTC in ISO 8601 (`2026-10-12T03:04:05.678Z`). Same format as JS `Date.prototype.toISOString`:
+## years outside 0 to 9999 are written with a sign and six digits (`+010000`, `-000001`).
 pub fn to_string(t: Instant) -> String {
   days = floor_div(t.milliseconds, 86400000)
   ms_of_day = t.milliseconds - days * 86400000
-  # 日数から暦の日付へ（proleptic Gregorian．H. Hinnant の civil_from_days）．
+  # Days to a civil date (proleptic Gregorian; H. Hinnant's civil_from_days).
   z = days + 719468
   era = floor_div(z, 146097)
   doe = z - era * 146097
@@ -66,7 +63,7 @@ pub fn to_string(t: Instant) -> String {
   "#{date}T#{pad(hour, 2)}:#{pad(minute, 2)}:#{pad(second, 2)}.#{pad(milli, 3)}Z"
 }
 
-## 負の無限大の方向へ丸める除算（`b` は正）．
+## `b` must be positive.
 fn floor_div(a: Int64, b: Int64) -> Int64 {
   if a >= 0 { a / b } else { (a - b + 1) / b }
 }
@@ -81,7 +78,7 @@ fn year_to_string(year: Int64) -> String {
   }
 }
 
-## 0 以上の `n` を，`width` 桁に満たなければ前を 0 で埋めた10進の文字列にする．
+## Zero-pads `n` to `width` digits. `n` must be non-negative.
 fn pad(n: Int64, width: Int) -> String {
   pad_onto(Int64.to_string(n), width)
 }

@@ -1,7 +1,6 @@
-# Option の関数．Option 自体は Prelude の enum（prelude.emel）．
-# 対象の Option を第1引数 `opt` に置く（`opt |> Option.map(f)` と書けるように）．
+# Functions on Option. Option itself is the Prelude enum (prelude.emel).
+# The Option comes first as `opt`, so calls read as `opt |> Option.map(f)`.
 
-## 中身に `f` を適用する．`None` は `None` のまま．
 pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   match opt {
     Some(x) -> Some(f(x))
@@ -9,7 +8,6 @@ pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   }
 }
 
-## 中身に Option を返す `f` を適用して平らにする．
 pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
   match opt {
     Some(x) -> f(x)
@@ -17,7 +15,7 @@ pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
   }
 }
 
-## 中身か，`None` なら `default`．
+## `default` if `None`.
 pub fn unwrap_or[A](opt: Option[A], default: A) -> A {
   match opt {
     Some(x) -> x
@@ -25,7 +23,6 @@ pub fn unwrap_or[A](opt: Option[A], default: A) -> A {
   }
 }
 
-## `Some` か．
 pub fn is_some[A](opt: Option[A]) -> Bool {
   match opt {
     Some(_) -> True
@@ -33,7 +30,6 @@ pub fn is_some[A](opt: Option[A]) -> Bool {
   }
 }
 
-## `None` か．
 pub fn is_none[A](opt: Option[A]) -> Bool {
   match opt {
     Some(_) -> False
@@ -41,8 +37,8 @@ pub fn is_none[A](opt: Option[A]) -> Bool {
   }
 }
 
-## 中身か，`None` なら `err` で失敗する（仕様 7.2）．
-## `users.find(id) |> Option.or_fail(NotFound(id:))` のように，Option を失敗に変える．
+## Fails with `err` if `None` (spec 7.2). Turns an Option into a failure, as in
+## `users.find(id) |> Option.or_fail(NotFound(id:))`.
 pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
   match opt {
     Some(x) -> x

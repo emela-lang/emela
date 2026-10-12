@@ -1,9 +1,10 @@
-# Console のエフェクト（仕様 15.2 の platform 層）．宣言だけを置き，ハンドラはターゲットごとの
-# モジュールに置く（JS 用は `JsConsole`）．
+# The Console effect (the platform layer of spec 15.2). Only the declaration lives here; handlers
+# live in per-target modules (`JsConsole` for JS).
 #
-# 使うときは `(use Console).print_line("hi")` と書き，main などで `with JsConsole { ... }` で供給する．
+# Use it as `(use Console).print_line("hi")` and provide it with `with JsConsole { ... }` in `main`
+# or similar.
 
-## 文字列を1行ずつ標準出力と標準エラーに書く．
+## Writes a line to standard output (`print_line`) or standard error (`print_error_line`).
 pub effect Console {
   fn print_line(text: String) -> ()
   fn print_error_line(text: String) -> ()
