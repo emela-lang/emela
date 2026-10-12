@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
-    Analysis, Checked, CoreJs, CoreSource, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
+    Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
     INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
-    OutputFile, Parsed, Resolve, RunOptions, RunOutput, SourceFile, Typecheck, build, run,
+    OutputFile, Parsed, RunOptions, RunOutput, SourceFile, build, run,
 };
 use emela_resolve::ModuleId;
 
@@ -675,15 +675,8 @@ fn main() {
 
 #[test]
 fn time_values_run_through_core() {
-    // Instant は `@internal` の関数でしか作れないので，Clock のハンドラの代わりの core のモジュール
-    // （`FixedClock`）から作る（15.2）．
-    let mut core = CoreSource::bundled();
-    core.push(CoreSource {
-        module: "FixedClock".into(),
-        text: "pub fn at(ms: Int64) -> Instant {\n  Instant.from_unix_milliseconds(ms)\n}\n".into(),
-    });
-    let mut frontend = Lower::new(Typecheck::new(Resolve::default().with_core(core)));
-    let output = run_source_with(
+    // Instant は Unix エポックからのミリ秒で作れる（15.2）．
+    let output = run_source(
         "time",
         r#"fn show(o: Ordering) -> String {
   match o {
@@ -702,22 +695,21 @@ fn main() {
     c.print_line(Duration.to_string(Duration.subtract(Duration.hours(1), Duration.minutes(61))))
     c.print_line(show(Duration.compare(Duration.seconds(1), Duration.milliseconds(1000))))
     c.print_line(if Duration.seconds(1) == Duration.milliseconds(1000) { "eq" } else { "ne" })
-    start = FixedClock.at(1760238245678)
+    start = Instant.from_unix_milliseconds(1760238245678)
     later = start |> Instant.add(Duration.hours(25))
     c.print_line(Instant.to_string(start))
     c.print_line(Instant.to_string(later))
     c.print_line(Duration.to_string(later |> Instant.since(start)))
     c.print_line(show(Instant.compare(start, later)))
     c.print_line(Int64.to_string(Instant.to_unix_milliseconds(Instant.subtract(start, Duration.milliseconds(678)))))
-    c.print_line(Instant.to_string(FixedClock.at(0)))
-    c.print_line(Instant.to_string(FixedClock.at(-1)))
-    c.print_line(Instant.to_string(FixedClock.at(951782400000)))
-    c.print_line(Instant.to_string(FixedClock.at(-62198755200000)))
-    c.print_line(Instant.to_string(FixedClock.at(253402300800000)))
+    c.print_line(Instant.to_string(Instant.from_unix_milliseconds(0)))
+    c.print_line(Instant.to_string(Instant.from_unix_milliseconds(-1)))
+    c.print_line(Instant.to_string(Instant.from_unix_milliseconds(951782400000)))
+    c.print_line(Instant.to_string(Instant.from_unix_milliseconds(-62198755200000)))
+    c.print_line(Instant.to_string(Instant.from_unix_milliseconds(253402300800000)))
   }
 }
 "#,
-        &mut frontend,
     );
     assert_eq!(text(&output.stderr), "");
     assert_eq!(output.code, 0);

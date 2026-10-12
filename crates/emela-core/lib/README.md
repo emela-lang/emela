@@ -203,7 +203,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
-| `from_unix_milliseconds` | `from_unix_milliseconds(ms: Int64) -> Instant` | Emela | `@internal`．core の中（Clock のハンドラ）からだけ呼べる |
+| `from_unix_milliseconds` | `from_unix_milliseconds(ms: Int64) -> Instant` | Emela | Unix エポックから `ms` ミリ秒の時点 |
 | `to_unix_milliseconds` | `to_unix_milliseconds(t: Instant) -> Int64` | Emela | Unix エポックからのミリ秒 |
 | `add` | `add(t: Instant, d: Duration) -> Instant` | Emela | `d` だけ後 |
 | `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` だけ前 |
@@ -221,7 +221,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - Console の操作は `print_line` と `print_error_line` の2つにした．改行なしの `print` や，入力の読み取りはまだ入れていない
 - エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
-- `Instant.from_unix_milliseconds` を `@internal`（core の中からだけ呼べる，E0228）にした．利用者の書く Clock のハンドラは Instant を作れないので，テスト用の時刻は同梱の `TestClock` に任せる前提
+- `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない
