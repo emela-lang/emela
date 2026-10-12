@@ -12,7 +12,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 license = "Apache-2.0"
 publish = false
 

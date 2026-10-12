@@ -5,9 +5,9 @@ JavaScript and WebAssembly.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.3**:
-the pure subset, typed errors and effects, and suspending effects compile to
-JavaScript and run on Node.js. The 0.11
+This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.4**:
+the pure subset, typed errors and effects, suspending effects, and handlers
+with state compile to JavaScript and run on Node.js. The 0.11
 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
 branch.
 
@@ -16,9 +16,10 @@ branch.
 | 0.20.0-alpha.1 | Functions, records, enums, `opaque` types, pattern matching, tail calls, pipes, `List` / `Option`, modules, `@test`, `dbg` |
 | 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`, `Console`            |
 | 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
-| 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`                                                               |
+| 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`, the `Std` namespace, `Platform`                              |
 | 0.20.0-alpha.5 | Fibers: `Fiber.scope`, `fork`, interruption                                                                                |
-| 0.21 and later | `trait`, `impl`, `derive`, `Map`, `Set`, WebAssembly output                                                                |
+| Later in 0.20  | `Map`, `Set`, `Array`, `FileSystem`, `Http`                                                                                |
+| 0.21 and later | `trait`, `impl`, `derive`, WebAssembly output                                                                              |
 
 The 0.20 language specification is still being written. The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
@@ -30,7 +31,7 @@ Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.3 sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.4 sh
 emela --version
 ```
 
@@ -333,6 +334,34 @@ handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`), the layer
 `Std.Duration`. The test handlers `TestConsole` and `TestClock` keep their state
 in `State`. The core modules (`List`, `Option`, `String`, `Int`, `Int64`,
 `Float`) need no import.
+
+Handlers can hold state: `init` runs when a `with` is entered and builds the
+handler's value, and `release` runs when the `with` is left, however its body
+ends. A `layer` names a bundle of handlers, initialized in the order their
+dependencies need, and a handler listed later replaces the layer's handler for
+the same effect. This is [`examples/resources`](examples/resources):
+
+```console
+$ emela run
+open store v1
+v1/alice
+v1/bob
+close store v1
+```
+
+Mutable state is the `State` effect: `State.run(initial, body)` returns the
+body's value and the final state, so a test can read what `TestConsole`
+recorded.
+
+```emela
+(_, lines) = State.run([], fn() {
+  with TestConsole {
+    greet("a")
+    greet("b")
+  }
+})
+# lines == ["hello, a", "hello, b"]
+```
 
 Not yet supported: fibers.
 

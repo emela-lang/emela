@@ -228,7 +228,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "emela-cli"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "clap",
  "emela-driver",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-js"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-core",
  "insta",
@@ -246,7 +246,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-wasm"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-core",
  "insta",
@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "emela-core"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-resolve",
  "emela-syntax",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "emela-driver"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "ariadne",
  "emela-codegen-js",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "emela-fmt"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-syntax",
  "insta",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "emela-lsp"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-driver",
  "emela-resolve",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "emela-resolve"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-syntax",
  "indexmap",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "emela-syntax"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "insta",
  "logos",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "emela-types"
-version = "0.20.0-alpha.3"
+version = "0.20.0-alpha.4"
 dependencies = [
  "emela-core",
  "emela-resolve",
