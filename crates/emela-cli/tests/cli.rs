@@ -434,6 +434,32 @@ fn run_hello_example() {
 }
 
 #[test]
+fn run_and_test_errors_example() {
+    // README の例（`examples/errors`）．escape で受けなかったエラーは main まで来て終了コード 1（14.3），
+    // テストはハンドラを差し替えて動かす（13章）．
+    let project = Project::new(
+        "errors",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/errors/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(1),
+            "Hello, alice!\nHello, guest!\n",
+            "error: Invalid(reason: \"negative id\")\n"
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
 fn run_calls_external_module_next_to_the_source() {
     // ファイルを指す `@external` は宣言を含むソースの隣のファイル（12.1）．投げた例外は defect，
     // 受け取った文字列の対になっていないサロゲートは置換文字になる（12.5）．

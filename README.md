@@ -5,16 +5,17 @@ JavaScript and WebAssembly.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.1**: the
-pure subset of the language compiles to JavaScript and runs on Node.js. The 0.11
+This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.2**:
+the pure subset plus typed errors and effects compile to JavaScript and run on
+Node.js. The 0.11
 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
 branch.
 
 | Release        | Adds                                                                                                                       |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 0.20.0-alpha.1 | Functions, records, enums, `opaque` types, pattern matching, tail calls, pipes, `List` / `Option`, modules, `@test`, `dbg` |
-| 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`                       |
-| 0.20.0-alpha.3 | `suspend`, `Async`, `Console`                                                                                              |
+| 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`, `Console`            |
+| 0.20.0-alpha.3 | `suspend`, `Async`                                                                                                         |
 | 0.21 and later | `trait`, `impl`, `derive`, `Map`, `Set`, WebAssembly output                                                                |
 
 The 0.20 language specification is still being written. The
@@ -27,7 +28,7 @@ Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.1 sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.2 sh
 emela --version
 ```
 
@@ -51,7 +52,7 @@ tour/
 `src/main.emel`:
 
 ```emela
-# A tour of what 0.20.0-alpha.1 compiles. `dbg` prints to stderr.
+# A tour of the pure part of the language. `dbg` prints to stderr.
 import Email
 
 # Variants carry labelled fields.
@@ -187,6 +188,85 @@ Hello, Emela!
 Hello, world!
 done
 ```
+
+Errors are values declared with `error`. A function's errors (`fails`) and
+effects (`use`) are part of its type and inferred unless written. `escape`
+handles some errors and lets the rest propagate; an error that reaches `main`
+exits with status 1. This is [`examples/errors`](examples/errors):
+
+```emela
+# Typed errors and effects. `fails` and `use` are inferred unless written.
+
+error NotFound(id: Int)
+error Invalid(reason: String)
+
+type User(id: Int, name: String)
+
+# An effect declares operations; handlers implement them.
+effect Users {
+  fn find(id: Int) -> User fails NotFound
+}
+
+handler SampleUsers implements Users {
+  fn find(id) {
+    match id {
+      1 -> User(id: 1, name: "alice")
+      2 -> User(id: 2, name: "bob")
+      _ -> fail NotFound(id:)
+    }
+  }
+}
+
+# Inferred: fails NotFound | Invalid, use Users.
+fn greeting(id: Int) {
+  if id < 0 { fail Invalid(reason: "negative id") }
+  user = (use Users).find(id)
+  "Hello, #{user.name}!"
+}
+
+# `escape` handles NotFound; Invalid still propagates.
+fn greeting_or_guest(id: Int) {
+  greeting(id) escape {
+    NotFound(_) -> "Hello, guest!"
+  }
+}
+
+fn main() {
+  with JsConsole, SampleUsers {
+    console = use Console
+    console.print_line(greeting_or_guest(1))
+    console.print_line(greeting_or_guest(3))
+    console.print_line(greeting_or_guest(-1))
+  }
+}
+
+# Tests swap the handler instead of mocking.
+handler NoUsers implements Users {
+  fn find(id) { fail NotFound(id:) }
+}
+
+@test
+fn unknown_users_get_the_guest_greeting() {
+  with NoUsers {
+    assert greeting_or_guest(1) == "Hello, guest!"
+  }
+}
+```
+
+```console
+$ emela run
+Hello, alice!
+Hello, guest!
+error: Invalid(reason: "negative id")
+$ emela test
+running 1 test
+test unknown_users_get_the_guest_greeting ... ok
+
+test result: ok. 1 passed; 0 failed; 0 filtered out
+```
+
+Not yet supported: handlers with fields, `init` or `release`, `layer`, and
+`suspend`.
 
 ## Crates
 
