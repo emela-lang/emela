@@ -12,7 +12,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize,
-    References, Request as _, Shutdown,
+    PrepareRenameRequest, References, Rename, Request as _, Shutdown, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
@@ -261,6 +261,88 @@ impl Client {
                 .map(|i| (i.label, i.kind.unwrap(), i.detail))
                 .collect(),
         )
+    }
+
+    /// 位置のテキスト文書の引数．
+    fn position(path: &str, line: u32, character: u32) -> serde_json::Value {
+        json!({
+            "textDocument": { "uri": uri(path) },
+            "position": { "line": line, "character": character },
+        })
+    }
+
+    /// シグネチャのヘルプを求め，（ラベル，引数のラベルの文字列，カーソルのある引数）を返す．
+    fn signature(
+        &mut self,
+        path: &str,
+        line: u32,
+        character: u32,
+    ) -> Option<(String, Vec<String>, Option<u32>)> {
+        let id = self.request(
+            SignatureHelpRequest::METHOD,
+            Client::position(path, line, character),
+        );
+        let result: Option<lsp::SignatureHelp> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        let help = result?;
+        let sig = &help.signatures[0];
+        let utf16: Vec<u16> = sig.label.encode_utf16().collect();
+        let params = sig
+            .parameters
+            .iter()
+            .flatten()
+            .map(|p| match p.label {
+                lsp::ParameterLabel::LabelOffsets([a, b]) => {
+                    String::from_utf16(&utf16[a as usize..b as usize]).unwrap()
+                }
+                _ => panic!("位置でない"),
+            })
+            .collect();
+        Some((sig.label.clone(), params, help.active_parameter))
+    }
+
+    fn prepare_rename(&mut self, path: &str, line: u32, character: u32) -> Option<lsp::Range> {
+        let id = self.request(
+            PrepareRenameRequest::METHOD,
+            Client::position(path, line, character),
+        );
+        let result: Option<lsp::PrepareRenameResponse> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        match result? {
+            lsp::PrepareRenameResponse::Range(range) => Some(range),
+            other => panic!("範囲でない: {other:?}"),
+        }
+    }
+
+    /// 名前を変える編集を，（パス，範囲，新しいテキスト）をパスと位置の順に並べて返す．
+    /// 誤りの応答なら文面を返す．
+    fn rename(
+        &mut self,
+        path: &str,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> Result<Vec<(String, lsp::Range, String)>, String> {
+        let mut params = Client::position(path, line, character);
+        params["newName"] = json!(new_name);
+        let id = self.request(Rename::METHOD, params);
+        let edit: lsp::WorkspaceEdit = match self.response(&id).response_result {
+            Ok(value) => serde_json::from_value(value).unwrap(),
+            Err(err) => return Err(err.message),
+        };
+        let mut found: Vec<(String, lsp::Range, String)> = edit
+            .changes
+            .unwrap()
+            .into_iter()
+            .flat_map(|(uri, edits)| {
+                let path = uri.as_str().strip_prefix("file://").unwrap().to_owned();
+                edits
+                    .into_iter()
+                    .map(move |e| (path.clone(), e.range, e.new_text))
+            })
+            .collect();
+        found.sort_by_key(|(path, r, _)| (path.clone(), r.start.line, r.start.character));
+        Ok(found)
     }
 
     /// 次の publishDiagnostics．
@@ -1146,4 +1228,146 @@ fn drain(client: &Client) {
     {
         assert!(matches!(message, Message::Notification(_)), "{message:?}");
     }
+}
+
+#[test]
+fn signature_help_in_calls() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let caps = emela_lsp::capabilities();
+    assert_eq!(
+        caps.signature_help_provider
+            .and_then(|s| s.trigger_characters),
+        Some(vec!["(".to_owned(), ",".to_owned()])
+    );
+    let s = |label: &str, params: &[&str], active: Option<u32>| {
+        Some((
+            label.to_owned(),
+            params.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>(),
+            active,
+        ))
+    };
+    // 一番内側の呼び出し．
+    assert_eq!(
+        client.signature(MAIN, 13, 22),
+        s("prefix(s: String) -> String", &["s: String"], Some(0))
+    );
+    // effect の操作．
+    assert_eq!(
+        client.signature(MAIN, 13, 11),
+        s("info(msg: String) -> ()", &["msg: String"], Some(0))
+    );
+    // 構成子．カンマの数で引数を決める．
+    let shape = "Shape(w: Int, h: Int) -> Shape";
+    assert_eq!(
+        client.signature(MAIN, 17, 12),
+        s(shape, &["w: Int", "h: Int"], Some(0))
+    );
+    assert_eq!(
+        client.signature(MAIN, 17, 18),
+        s(shape, &["w: Int", "h: Int"], Some(1))
+    );
+    // 書きかけの呼び出しと，ラベルで決まる引数．
+    client.open(
+        MAIN,
+        1,
+        &NAV_MAIN.replace("Shape(w: 1, h: 2)", "Shape(h: 2, w:"),
+    );
+    assert_eq!(
+        client.signature(MAIN, 17, 20),
+        s(shape, &["w: Int", "h: Int"], Some(0))
+    );
+    // 呼び出しの外．
+    client.change(MAIN, 2, NAV_MAIN);
+    assert_eq!(client.signature(MAIN, 12, 2), None);
+    assert_eq!(client.signature(MAIN, 17, 23), None);
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn rename_across_files() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    assert!(matches!(
+        emela_lsp::capabilities().rename_provider,
+        Some(lsp::OneOf::Right(lsp::RenameOptions {
+            prepare_provider: Some(true),
+            ..
+        }))
+    ));
+    let edit = |path: &str, s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    // 型と構成子をまとめて変える．import の名前も．
+    assert_eq!(
+        client.rename(MAIN, 17, 7, "Figure"),
+        Ok(vec![
+            edit(MAIN, (1, 15), (1, 20), "Figure"),
+            edit(MAIN, (17, 6), (17, 11), "Figure"),
+            edit(SHAPES, (0, 9), (0, 14), "Figure"),
+            edit(SHAPES, (2, 15), (2, 20), "Figure"),
+        ])
+    );
+    // effect の操作は宣言，handler の実装，呼び出し．
+    assert_eq!(
+        client.rename(MAIN, 4, 6, "log_info"),
+        Ok(vec![
+            edit(MAIN, (4, 5), (4, 9), "log_info"),
+            edit(MAIN, (8, 5), (8, 9), "log_info"),
+            edit(MAIN, (13, 6), (13, 10), "log_info"),
+        ])
+    );
+    // 局所変数．
+    assert_eq!(
+        client.rename(MAIN, 11, 10, "who"),
+        Ok(vec![
+            edit(MAIN, (11, 9), (11, 13), "who"),
+            edit(MAIN, (13, 22), (13, 26), "who"),
+        ])
+    );
+    // 字句クラスの合わない名前，予約語．
+    assert_eq!(
+        client.rename(MAIN, 17, 7, "figure"),
+        Err("`figure` is not a valid type name".to_owned())
+    );
+    assert_eq!(
+        client.rename(MAIN, 11, 10, "match"),
+        Err("`match` is not a valid lowercase name".to_owned())
+    );
+    // モジュールは変えられない．
+    assert_eq!(
+        client.rename(MAIN, 13, 12, "Logs"),
+        Err("this name cannot be renamed".to_owned())
+    );
+    // prepareRename は名前の範囲．変えられなければ null．
+    assert_eq!(
+        client.prepare_rename(MAIN, 13, 7),
+        Some(range((13, 6), (13, 10)))
+    );
+    assert_eq!(client.prepare_rename(MAIN, 13, 12), None);
+    assert_eq!(client.prepare_rename(MAIN, 2, 0), None);
+    client.shutdown();
+}
+
+/// 省略形の名前付き引数とフィールドのパターンはラベルを残す．同梱の core の名前は変えられない．
+#[test]
+fn rename_keeps_punned_labels() {
+    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  match u {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let path = "/tmp/main.emel";
+    let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
+    let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
+    assert_eq!(
+        client.rename(path, 4, 8, "key"),
+        Ok(vec![
+            edit((4, 8), (4, 10), "key"),
+            edit((5, 16), (5, 18), "id: key")
+        ])
+    );
+    assert_eq!(
+        client.rename(path, 10, 20, "who"),
+        Ok(vec![
+            edit((10, 9), (10, 13), "name: who"),
+            edit((10, 19), (10, 23), "who")
+        ])
+    );
+    assert_eq!(client.prepare_rename(path, 15, 8), None);
+    assert_eq!(client.prepare_rename(path, 15, 3), None);
+    client.shutdown();
 }

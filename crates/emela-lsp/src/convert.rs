@@ -131,6 +131,30 @@ pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::Co
     }
 }
 
+/// 呼び出しのシグネチャを LSP の形にする．引数の範囲はラベルの中の UTF-16 の位置．
+pub fn signature_help(info: &emela_driver::SignatureInfo) -> lsp::SignatureHelp {
+    let utf16 = |byte: usize| info.label[..byte].encode_utf16().count() as u32;
+    let parameters = info
+        .params
+        .iter()
+        .map(|r| lsp::ParameterInformation {
+            label: lsp::ParameterLabel::LabelOffsets([utf16(r.start), utf16(r.end)]),
+            documentation: None,
+        })
+        .collect();
+    let active = info.active.map(|i| i as u32);
+    lsp::SignatureHelp {
+        signatures: vec![lsp::SignatureInformation {
+            label: info.label.clone(),
+            documentation: None,
+            parameters: Some(parameters),
+            active_parameter: active,
+        }],
+        active_signature: Some(0),
+        active_parameter: active,
+    }
+}
+
 /// バイトの範囲を LSP の範囲にする．
 pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {

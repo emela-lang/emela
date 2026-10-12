@@ -13,8 +13,8 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, References,
-    Request as _,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
+    PrepareRenameRequest, References, Rename, Request as _, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -45,6 +45,14 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         definition_provider: Some(lsp::OneOf::Left(true)),
         references_provider: Some(lsp::OneOf::Left(true)),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
+        signature_help_provider: Some(lsp::SignatureHelpOptions {
+            trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
+            ..lsp::SignatureHelpOptions::default()
+        }),
+        rename_provider: Some(lsp::OneOf::Right(lsp::RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+        })),
         completion_provider: Some(lsp::CompletionOptions {
             trigger_characters: Some(vec![".".to_owned()]),
             ..lsp::CompletionOptions::default()
@@ -205,6 +213,21 @@ where
             Formatting::METHOD => respond(request, |params| self.format(&params)),
             HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
             Completion::METHOD => respond(request, |params| self.complete(&params)),
+            SignatureHelpRequest::METHOD => respond(request, |params| self.signature_help(&params)),
+            PrepareRenameRequest::METHOD => respond(request, |params| self.prepare_rename(&params)),
+            Rename::METHOD => match serde_json::from_value(request.params) {
+                Ok(params) => match self.rename(&params) {
+                    Ok(edit) => Response::new_ok(request.id, edit),
+                    Err(message) => {
+                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, message)
+                    }
+                },
+                Err(err) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    format!("invalid params: {err}"),
+                ),
+            },
             GotoDefinition::METHOD => respond(request, |params| self.definition(&params)),
             References::METHOD => respond(request, |params| self.references(&params)),
             DocumentSymbolRequest::METHOD => {
@@ -265,6 +288,59 @@ where
             .map(|(i, item)| convert::completion_item(i, item))
             .collect();
         Some(lsp::CompletionResponse::Array(items))
+    }
+
+    /// カーソルを括弧の中に含む呼び出しのシグネチャ．呼び出しの外や，呼ぶ先の型が分からなければ `null`．
+    fn signature_help(&mut self, params: &lsp::SignatureHelpParams) -> Option<lsp::SignatureHelp> {
+        let at = self.check_at(&params.text_document_position_params)?;
+        let info = F::signature_help(&at.program, &at.analysis, at.file, at.offset)?;
+        Some(convert::signature_help(&info))
+    }
+
+    /// 名前を変えられる位置なら，その名前の範囲．変えられなければ `null`．
+    fn prepare_rename(
+        &mut self,
+        params: &lsp::TextDocumentPositionParams,
+    ) -> Option<lsp::PrepareRenameResponse> {
+        let at = self.check_at(params)?;
+        let range = F::prepare_rename(&at.program, &at.analysis, at.file, at.offset)?;
+        let index = at.analysis.sources[at.file].line_index();
+        Some(lsp::PrepareRenameResponse::Range(convert::range(
+            index, range,
+        )))
+    }
+
+    /// 名前を変える編集．変えられない名前や字句クラスの合わない新しい名前は誤りの応答にする．
+    fn rename(&mut self, params: &lsp::RenameParams) -> Result<lsp::WorkspaceEdit, String> {
+        let not_renamable = || emela_driver::RenameError::NotRenamable.to_string();
+        let at = self
+            .check_at(&params.text_document_position)
+            .ok_or_else(not_renamable)?;
+        let edits = F::rename(
+            &at.program,
+            &at.analysis,
+            at.file,
+            at.offset,
+            &params.new_name,
+        )
+        .map_err(|err| err.to_string())?;
+        let mut changes: HashMap<Uri, Vec<lsp::TextEdit>> = HashMap::new();
+        for (target, new_text) in edits {
+            let Some(location) = self.location(&at.analysis, target) else {
+                continue;
+            };
+            changes
+                .entry(location.uri)
+                .or_default()
+                .push(lsp::TextEdit {
+                    range: location.range,
+                    new_text,
+                });
+        }
+        Ok(lsp::WorkspaceEdit {
+            changes: Some(changes),
+            ..lsp::WorkspaceEdit::default()
+        })
     }
 
     /// カーソルの下の名前の定義．ホバーと同じくその場で検査し直す．

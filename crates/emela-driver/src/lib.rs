@@ -15,6 +15,7 @@ mod output;
 mod pipeline;
 mod render;
 mod run;
+mod signature;
 mod source;
 mod testing;
 
@@ -28,7 +29,7 @@ pub use fmt::{
 pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
-pub use nav::{DocumentSymbol, NavTarget, SymbolKind, document_symbols};
+pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{
     Analysis, CORE_DIR, Checked, CoreSource, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend,
@@ -39,6 +40,7 @@ pub use run::{
     DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, NODE_ENV,
     Output, RunOutput, node_program, run_node,
 };
+pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use testing::{
     JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE,
