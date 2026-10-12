@@ -415,6 +415,10 @@ impl Emitter<'_> {
             }
             Expr::Provide { base, bindings } => self.provide(base.as_deref(), bindings),
             Expr::Handler { name, effect, ops } => self.handler(name, *effect, ops),
+            // release のある with は本体を try の中で評価するので，値を一時変数で受ける．
+            Expr::With { binds, .. } if binds.iter().any(|b| b.release.is_some()) => {
+                self.via_tmp(e)
+            }
             Expr::With { binds, body } => {
                 self.with_binds(binds);
                 self.value(body)
@@ -696,10 +700,7 @@ impl Emitter<'_> {
             }
             Expr::Fail(inner) => self.fail(inner),
             Expr::Escape { body, arms } => self.escape(body, arms, dest),
-            Expr::With { binds, body } => {
-                self.with_binds(binds);
-                self.stmt(body, dest);
-            }
+            Expr::With { binds, body } => self.with_(binds, body, dest),
             Expr::Loop { vars, inits, body } => {
                 let es: Vec<&Expr> = inits.iter().collect();
                 let vs = self.values_in_order(&es);

@@ -437,10 +437,14 @@ impl Printer<'_> {
             Expr::With { binds, body } => {
                 self.out.push_str("with {");
                 self.indent += 1;
-                for (var, value) in binds {
+                for b in binds {
                     self.newline();
-                    write!(self.out, "let {} = ", self.local(*var)).unwrap();
-                    self.expr(value);
+                    write!(self.out, "let {} = ", self.local(b.var)).unwrap();
+                    self.expr(&b.value);
+                    if let Some(r) = &b.release {
+                        write!(self.out, " release {} ", r.handler).unwrap();
+                        self.braced(&r.body);
+                    }
                 }
                 self.indent -= 1;
                 self.newline();

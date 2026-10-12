@@ -214,8 +214,11 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         }
         Expr::Handler { ops, .. } => ops.iter_mut().for_each(f),
         Expr::With { binds, body } => {
-            for (_, v) in binds {
-                f(v);
+            for b in binds {
+                f(&mut b.value);
+                if let Some(r) = &mut b.release {
+                    f(&mut r.body);
+                }
             }
             f(body);
         }

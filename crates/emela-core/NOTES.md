@@ -173,6 +173,16 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）操作の呼び出し `log.info(x)` は `Callee::Op`（ハンドラの値，エフェクト，操作の添字）．`fails` は操作の型の E で決める．操作を呼ばずに値として使う（`f = log.info`）ときは，能力の値をその場で評価して束縛し，操作を呼ぶだけのラムダにする．
 - （補）IR のエフェクト（`EffectDef`）は使ったものだけを入れる．名前は IR の名前（`Console.Console`）で，証拠の表の鍵に使う．
 
+### init と release（8.4，8.6，14.2，14.4，14.5）
+
+alpha.4 の第1段（2026-10-12）．IR とバックエンドとランタイムを先に作り，手で組んだ IR で確かめた．lowering からの接続は第3段．
+
+- （補）`Expr::With` の束縛は `WithBind`（変数，値，`release: Option<Release>`）．release のある束縛は init と release のあるハンドラの値で，束縛の値が init にあたる（失敗も中断もしてよい）．`Release` はハンドラの名前と，with を抜けるときに評価する式．式は同じ with のその束縛まで（自身を含む）の変数を参照してよい．init がハンドラの値でなく状態（`self`）を返す形なら，lowering は状態を release のない束縛に，状態を捕まえたハンドラの値を release のある束縛にして，release の式で状態を使う
+- （補）依存の順の初期化は束縛の順，解放はその逆．束縛の値が失敗したら，後ろの束縛と本体は評価せず，それまでの release だけが逆の順に走る．失敗した束縛自身の release は走らない（14.2）．init を束縛の値にすると，この規則は「release のある束縛から後ろを1つの区間として囲む」だけで決まる
+- （補）release の式は失敗しない（release の E は空，8.4）．IR では確かめない．中断はしてよい
+- （補）release 後の使用の検査（8.6）は release のある束縛のハンドラの値にだけ付ける．release の式を評価した後（release が defect になっても），そのハンドラの値の操作はすべて defect（`handler <名前> was used after release`）になる．release のない束縛（状態を持たないハンドラ）は持ち出しても今までどおり動く．lowering は init か release かフィールドのあるハンドラを release のある束縛にする想定（init だけのハンドラは `release` を `()` にする）
+- （補）ダンプでは release のある束縛を `let h = 値 release 名前 { 式 }` と出す
+
 ## 外部関数（12章）
 
 - （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．

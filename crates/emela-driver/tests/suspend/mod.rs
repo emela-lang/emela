@@ -93,3 +93,33 @@ pub fn main(m: &mut Module, body: Expr) {
     m.functions[main].suspends = true;
     m.define(main, vec![], body);
 }
+
+/// `console.log(x)` を呼ぶ外部関数．
+pub fn log(m: &mut Module) -> FnId {
+    external(
+        m,
+        "log",
+        "console.log",
+        vec![Boundary::Plain],
+        Boundary::Unit,
+        false,
+    )
+}
+
+/// release で `log(message)` を呼ぶハンドラ `name` の束縛．操作は持たない（`Wait` の `forever` を
+/// その場で resume する）．
+pub fn released(m: &mut Module, log: FnId, h: Local, name: &str, message: &str) -> WithBind {
+    let wait = m
+        .effects
+        .iter()
+        .find(|(_, e)| e.name == "Wait")
+        .map(|(id, _)| id)
+        .expect("先に never で Wait を足しておく");
+    let resume = m.local("resume");
+    let handler = Expr::Handler {
+        name: name.into(),
+        effect: wait,
+        ops: vec![lambda(vec![resume], call_value(var(resume), vec![unit()]))],
+    };
+    WithBind::managed(h, handler, name, call(log, vec![string(message)]))
+}

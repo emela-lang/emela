@@ -104,11 +104,16 @@ export function* $maybe(result) {
 }
 
 // One run (main or a test function). Calls `done(ok, value)` exactly once.
-// Continuations left after it ends (discarded without resume, or resumed later) are not run (14.5).
+// Continuations left after it ends (resumed later) are not run, and their withs are not released (14.5).
 class $Root {
   constructor(done) {
     this.done = done;
     this.over = false;
+    // Continuations waiting for a resume or a promise (`{ gen, end, live }`), in the order they started waiting.
+    this.waits = new Set();
+    // While the run unwinds as interrupted: how many continuations are still being closed, and the first defect
+    // a release raised on the way (14.5).
+    this.closing = null;
   }
 
   finish(ok, value) {
@@ -116,17 +121,51 @@ class $Root {
     this.over = true;
     this.done(ok, value);
   }
+
+  // Unwinds the run as interrupted (14.5): closes every waiting continuation with `gen.return()`, which runs the
+  // releases of its open withs from the inside (the `finally` blocks). A release may suspend again; if it is
+  // resumed the closing goes on, and if it is left suspended, calling this again cuts that release short and
+  // goes on outward. When nothing is left, ends the run with the first defect a release raised, or `$Interrupted`.
+  interrupt() {
+    if (this.over) return;
+    const closing = (this.closing ??= { running: 0, defect: undefined });
+    const waits = [...this.waits].reverse();
+    this.waits.clear();
+    const steps = waits.map((wait) => {
+      wait.live = false;
+      let end = wait.end;
+      if (!end.$closing) {
+        closing.running++;
+        end = (ok, value) => {
+          closing.running--;
+          if (!ok && !$isInterrupted(value)) closing.defect ??= value;
+          this.settle();
+        };
+        end.$closing = true;
+      }
+      return [wait.gen, end];
+    });
+    for (const [gen, end] of steps) $step(this, gen, end, "return", undefined);
+    this.settle();
+  }
+
+  settle() {
+    const closing = this.closing;
+    if (closing === null || closing.running > 0 || this.waits.size > 0) return;
+    this.finish(false, closing.defect ?? new $Interrupted());
+  }
 }
 
 // Runs the generator `gen` that called a suspending function to completion. `done(ok, value)` is called with
-// `(true, return value)` when it finishes and `(false, exception)` on a defect. It is not called if it stays suspended without resume.
-// Returns a stop function; calling it discards all later continuations.
+// `(true, return value)` when it finishes and `(false, exception)` on a defect. It is not called while it stays
+// suspended without resume.
+// Returns a cancel function: if the run has not ended, calling it unwinds the run as interrupted, running the
+// releases of the open withs (`$Root#interrupt`), and then `done(false, …)` is called with `$Interrupted` (or a
+// defect a release raised). The launcher calls it when the event loop runs dry.
 export function $start(gen, done) {
   const root = new $Root(done);
   $step(root, gen, (ok, value) => root.finish(ok, value), "next", undefined);
-  return () => {
-    root.over = true;
-  };
+  return () => root.interrupt();
 }
 
 // A continuation unwound while still suspended, never resumed (14.5). Thrown by `$sync` when a
@@ -149,6 +188,9 @@ export function $sync(result) {
     out = { ok, value };
   });
   $step(root, result, (ok, value) => root.finish(ok, value), "next", undefined);
+  // Not resumed in place: unwind it right away, running the releases of its open withs (14.5).
+  // Each round cuts short the releases left suspended, so this ends.
+  while (out === undefined && root.waits.size > 0) root.interrupt();
   if (out === undefined) {
     root.over = true;
     throw new $Interrupted();
@@ -166,14 +208,14 @@ export function $syncPerform(op, args) {
   );
 }
 
-// Advances `gen` with `mode` ("next" or "throw") and `input` until it next suspends or finishes.
-// When it finishes, calls `end(ok, value)`.
+// Advances `gen` with `mode` ("next", "throw" or "return") and `input` until it next suspends or finishes.
+// When it finishes, calls `end(ok, value)`. While it is suspended, it is in `root.waits`.
 function $step(root, gen, end, mode, input) {
   for (;;) {
     if (root.over) return;
     let r;
     try {
-      r = mode === "next" ? gen.next(input) : gen.throw(input);
+      r = gen[mode](input);
     } catch (error) {
       end(false, error);
       return;
@@ -183,16 +225,28 @@ function $step(root, gen, end, mode, input) {
       return;
     }
     const request = r.value;
+    // Continues the suspended `gen`, unless the run closed it in the meantime (`$Root#interrupt`).
+    const wait = { gen, end, live: true };
+    const cont = (mode, value) => {
+      if (!wait.live) return;
+      wait.live = false;
+      root.waits.delete(wait);
+      $step(root, gen, end, mode, value);
+    };
     if (request instanceof $Await) {
+      root.waits.add(wait);
       // A host exception (rejection) becomes a defect and is thrown at the waiting point (12.5).
       Promise.resolve(request.promise).then(
-        (value) => $step(root, gen, end, "next", value),
-        (error) => $step(root, gen, end, "throw", $foreign(error)),
+        (value) => cont("next", value),
+        (error) => cont("throw", $foreign(error)),
       );
       return;
     }
-    const now = $performOp(root, gen, end, request);
-    if (now === undefined) return;
+    const now = $performOp(root, cont, request);
+    if (now === undefined) {
+      root.waits.add(wait);
+      return;
+    }
     mode = now.mode;
     input = now.value;
   }
@@ -203,7 +257,7 @@ function $step(root, gen, end, mode, input) {
 //
 // What is passed to the continuation is exactly one of: the resumed value, a failure of the implementation (`$Fail`, which becomes the
 // value of the operation call), or a defect, whichever comes first. A failure of the implementation after resume becomes a defect.
-function $performOp(root, gen, end, request) {
+function $performOp(root, cont, request) {
   const where = request.op?.$where ?? "a suspend operation";
   let sync = true;
   let now;
@@ -211,7 +265,7 @@ function $performOp(root, gen, end, request) {
   const pass = (mode, value) => {
     used = true;
     if (sync) now = { mode, value };
-    else $step(root, gen, end, mode, value);
+    else cont(mode, value);
   };
   const resume = (value) => {
     if (root.over) return undefined;
@@ -238,6 +292,36 @@ function $performOp(root, gen, end, request) {
   }
   sync = false;
   return now;
+}
+
+// ---- Releasing handlers (spec 8.4, 8.6, 14.2, 14.4) ----
+
+// What a with ends with when the release of handler `name` threw `error` (a defect, or `$Interrupted` if a suspend
+// operation in it was dropped). `thrown` is what the body (and the releases inside it) threw, or undefined if it
+// ended with a value or an error, or was closed as interrupted.
+// If the body already ended in a defect, that first defect stays the result and the release's defect is added to
+// its message as a note. Otherwise the release's defect becomes the result (14.4).
+export function $releaseDefect(thrown, error, name) {
+  if (thrown === undefined || $isInterrupted(thrown)) return error;
+  if (thrown instanceof Error && !$isInterrupted(error)) {
+    const message = error instanceof Error ? error.message : String(error);
+    thrown.message += `\nnote: the release of handler ${name} also failed: ${message}`;
+  }
+  return thrown;
+}
+
+function $isInterrupted(x) {
+  return x instanceof Error && x.name === "Interrupted";
+}
+
+// Marks a released handler value: from now on each of its operations is a defect (8.6). Until capture sets are
+// checked (0.22), a capability that escaped its with is caught here at run time.
+export function $retire(handler, name) {
+  const used = () => {
+    throw new $Defect(`handler ${name} was used after release`);
+  };
+  // `defineProperty`, since an operation may be named `__proto__`.
+  for (const key of Object.keys(handler)) Object.defineProperty(handler, key, { value: used });
 }
 
 // A failed assert (spec 13.2). `text` is the source text of the expression and may be empty.

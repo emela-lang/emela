@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use emela_core::build::*;
-use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type};
+use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, WithBind};
 use emela_driver::{
     Analysis, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, JsOutput, LowerTests,
     MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
@@ -611,13 +611,13 @@ fn suspended_tests_are_awaited_or_interrupted() {
     case(&mut m, "awaits", true, awaited);
     let h = m.local("h");
     let forever = Expr::With {
-        binds: vec![(h, call(never, vec![]))],
+        binds: vec![WithBind::new(h, call(never, vec![]))],
         body: Box::new(suspend::forever(wait, h)),
     };
     case(&mut m, "waits_forever", true, forever);
     let (h, x) = (m.local("h"), m.local("_"));
     let late = Expr::With {
-        binds: vec![(h, call(never, vec![]))],
+        binds: vec![WithBind::new(h, call(never, vec![]))],
         body: Box::new(let_(
             x,
             call(
@@ -632,6 +632,14 @@ fn suspended_tests_are_awaited_or_interrupted() {
     };
     case(&mut m, "panics_later", true, late);
     case(&mut m, "plain", false, unit());
+    let log = suspend::log(&mut m);
+    let (h, r) = (m.local("h"), m.local("r"));
+    let pool = suspend::released(&mut m, log, r, "Pool", "released");
+    let releasing = Expr::With {
+        binds: vec![pool, WithBind::new(h, call(never, vec![]))],
+        body: Box::new(suspend::forever(wait, h)),
+    };
+    case(&mut m, "releases_when_interrupted", true, releasing);
 
     let (report, out) = run_ir("suspend", TestModule { module: m, tests }, None);
     let outcomes: Vec<_> = report
@@ -646,7 +654,12 @@ fn suspended_tests_are_awaited_or_interrupted() {
             ("waits_forever", TestOutcome::Interrupted),
             ("panics_later", TestOutcome::Defect("late".into())),
             ("plain", TestOutcome::Passed),
+            ("releases_when_interrupted", TestOutcome::Interrupted),
         ]
+    );
+    assert!(
+        out.contains("released\ntest releases_when_interrupted ... FAILED\n"),
+        "{out}"
     );
     assert!(
         out.contains("---- waits_forever ----\ninterrupted\n"),
