@@ -13,7 +13,7 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
+    CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
     PrepareRenameRequest, References, Rename, Request as _, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
@@ -53,6 +53,12 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             prepare_provider: Some(true),
             work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
         })),
+        code_action_provider: Some(lsp::CodeActionProviderCapability::Options(
+            lsp::CodeActionOptions {
+                code_action_kinds: Some(vec![lsp::CodeActionKind::REFACTOR_REWRITE]),
+                ..lsp::CodeActionOptions::default()
+            },
+        )),
         completion_provider: Some(lsp::CompletionOptions {
             trigger_characters: Some(vec![".".to_owned()]),
             ..lsp::CompletionOptions::default()
@@ -212,6 +218,7 @@ where
         let response = match request.method.as_str() {
             Formatting::METHOD => respond(request, |params| self.format(&params)),
             HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
+            CodeActionRequest::METHOD => respond(request, |params| self.code_actions(&params)),
             Completion::METHOD => respond(request, |params| self.complete(&params)),
             SignatureHelpRequest::METHOD => respond(request, |params| self.signature_help(&params)),
             PrepareRenameRequest::METHOD => respond(request, |params| self.prepare_rename(&params)),
@@ -276,6 +283,42 @@ where
             }),
             range: Some(convert::range(index, info.range)),
         })
+    }
+
+    /// 範囲に掛かるコードアクション（省いた注釈に推論結果を挿入する，4.5）．検査できないファイルでは `null`．
+    fn code_actions(
+        &mut self,
+        params: &lsp::CodeActionParams,
+    ) -> Option<Vec<lsp::CodeActionOrCommand>> {
+        let uri = &params.text_document.uri;
+        let (analysis, program, file) = self.check_file(uri)?;
+        let index = analysis.sources[file].line_index();
+        let start = convert::offset(index, params.range.start)?;
+        let end = convert::offset(index, params.range.end)?.max(start);
+        let range = line_index::TextRange::new(start, end);
+        let actions = F::code_actions(&program, &analysis, file, range)
+            .into_iter()
+            .map(|action| {
+                let edits = action
+                    .edits
+                    .iter()
+                    .map(|(range, text)| lsp::TextEdit {
+                        range: convert::range(index, *range),
+                        new_text: text.clone(),
+                    })
+                    .collect();
+                lsp::CodeActionOrCommand::CodeAction(lsp::CodeAction {
+                    title: action.title,
+                    kind: Some(lsp::CodeActionKind::REFACTOR_REWRITE),
+                    edit: Some(lsp::WorkspaceEdit {
+                        changes: Some(HashMap::from([(uri.clone(), edits)])),
+                        ..lsp::WorkspaceEdit::default()
+                    }),
+                    ..lsp::CodeAction::default()
+                })
+            })
+            .collect();
+        Some(actions)
     }
 
     /// カーソルの位置の補完の候補．ホバーと同じくその場で検査し直す．書きかけの名前での絞り込みは
@@ -393,7 +436,19 @@ where
         &mut self,
         position: &lsp::TextDocumentPositionParams,
     ) -> Option<CheckedAt<F::Program>> {
-        let path = self.path_of(&position.text_document.uri)?;
+        let (analysis, program, file) = self.check_file(&position.text_document.uri)?;
+        let offset = convert::offset(analysis.sources[file].line_index(), position.position)?;
+        Some(CheckedAt {
+            analysis,
+            program,
+            file,
+            offset,
+        })
+    }
+
+    /// ファイルを含むプロジェクト（単独ファイルならそのファイル）を検査する．
+    fn check_file(&mut self, uri: &Uri) -> Option<(Analysis, F::Program, FileId)> {
+        let path = self.path_of(uri)?;
         let input = match Input::resolve(&self.fs, &path).ok()? {
             input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
             input => input,
@@ -402,13 +457,7 @@ where
             emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
         let program = program?;
         let file = analysis.sources.file_id(&path)?;
-        let offset = convert::offset(analysis.sources[file].line_index(), position.position)?;
-        Some(CheckedAt {
-            analysis,
-            program,
-            file,
-            offset,
-        })
+        Some((analysis, program, file))
     }
 
     /// URI のファイルの，driver が使う絶対パス．

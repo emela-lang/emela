@@ -11,11 +11,15 @@ use lsp_types::notification::{
     Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize,
-    PrepareRenameRequest, References, Rename, Request as _, Shutdown, SignatureHelpRequest,
+    CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
+    Initialize, PrepareRenameRequest, References, Rename, Request as _, Shutdown,
+    SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
+
+/// コードアクションの題と編集（範囲，挿入するテキスト）．
+type Action = (String, Vec<(lsp::Range, String)>);
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -343,6 +347,49 @@ impl Client {
             .collect();
         found.sort_by_key(|(path, r, _)| (path.clone(), r.start.line, r.start.character));
         Ok(found)
+    }
+
+    /// 範囲のコードアクションを求め，（題，編集）を返す．編集は（範囲，挿入するテキスト）．
+    fn code_actions(
+        &mut self,
+        path: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) -> Option<Vec<Action>> {
+        let id = self.request(
+            CodeActionRequest::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "range": range(start, end),
+                "context": { "diagnostics": [] },
+            }),
+        );
+        let result: Option<Vec<lsp::CodeActionOrCommand>> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        Some(
+            result?
+                .into_iter()
+                .map(|a| match a {
+                    lsp::CodeActionOrCommand::CodeAction(a) => {
+                        assert_eq!(a.kind, Some(lsp::CodeActionKind::REFACTOR_REWRITE));
+                        let edits = a
+                            .edit
+                            .unwrap()
+                            .changes
+                            .unwrap()
+                            .into_iter()
+                            .flat_map(|(u, edits)| {
+                                assert_eq!(u, uri(path));
+                                edits
+                            })
+                            .map(|e| (e.range, e.new_text))
+                            .collect();
+                        (a.title, edits)
+                    }
+                    other => panic!("コマンドでなくアクション: {other:?}"),
+                })
+                .collect(),
+        )
     }
 
     /// 次の publishDiagnostics．
@@ -1369,5 +1416,86 @@ fn rename_keeps_punned_labels() {
     );
     assert_eq!(client.prepare_rename(path, 15, 8), None);
     assert_eq!(client.prepare_rename(path, 15, 3), None);
+    client.shutdown();
+}
+
+/// 省いた注釈に推論結果を挿入する（4.5）．
+#[test]
+fn code_action_inserts_inferred_annotations() {
+    let main = "import Errs.{NotFound}
+import Other
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn find(id: Int) {
+  if id > 0 { id } else { fail NotFound(id:) }
+}
+
+fn greet() {
+  log = use Logger
+  log.info(\"hi\")
+}
+
+fn both(id: Int) -> Int {
+  (use Logger).info(\"x\")
+  id
+}
+
+fn other() {
+  fail Other.Hidden(n: 1)
+}
+
+fn apply[A](f: fn() -> A) {
+  f()
+}
+";
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", main),
+        ("/app/src/errs.emel", "pub error NotFound(id: Int)\n"),
+        ("/app/src/other.emel", "pub error Hidden(n: Int)\n"),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert!(emela_lsp::capabilities().code_action_provider.is_some());
+    let action = |title: &str, at: (u32, u32), text: &str| {
+        Some(vec![(
+            title.to_owned(),
+            vec![(range(at, at), text.to_owned())],
+        )])
+    };
+    // 戻り値の型と，推論した E を一緒に足す．
+    assert_eq!(
+        client.code_actions(MAIN, (7, 4), (7, 4)),
+        action(
+            "Add inferred `-> Int fails NotFound`",
+            (7, 16),
+            " -> Int fails NotFound"
+        )
+    );
+    // 推論した R．
+    assert_eq!(
+        client.code_actions(MAIN, (11, 0), (11, 0)),
+        action(
+            "Add inferred `-> () use Logger`",
+            (11, 10),
+            " -> () use Logger"
+        )
+    );
+    // 戻り値の型があれば use だけ．戻り値の型の後ろに足す．
+    assert_eq!(
+        client.code_actions(MAIN, (16, 5), (16, 5)),
+        action("Add inferred `use Logger`", (16, 23), " use Logger")
+    );
+    // 修飾なしに書けないエラーは足さない．
+    assert_eq!(client.code_actions(MAIN, (21, 4), (21, 4)), Some(vec![]));
+    // 引数の関数の見えない集合は書かない（書いた節に暗に足される）．
+    assert_eq!(
+        client.code_actions(MAIN, (25, 4), (25, 4)),
+        action("Add inferred `-> A`", (25, 25), " -> A")
+    );
+    // 本体の中では出さない．
+    assert_eq!(client.code_actions(MAIN, (8, 4), (8, 4)), Some(vec![]));
     client.shutdown();
 }
