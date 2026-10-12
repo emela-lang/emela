@@ -1,4 +1,4 @@
-# A tour of what 0.20.0-alpha.1 compiles. `dbg` prints to stderr.
+# A tour of the pure part of the language. `dbg` prints to stderr.
 import Email
 
 # Variants carry labelled fields.
