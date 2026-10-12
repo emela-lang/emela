@@ -16,6 +16,8 @@ const SOURCES: &[(&str, &str)] = &[
     ("Int", include_str!("../lib/int.emel")),
     ("Int64", include_str!("../lib/int64.emel")),
     ("Float", include_str!("../lib/float.emel")),
+    ("Duration", include_str!("../lib/duration.emel")),
+    ("Instant", include_str!("../lib/instant.emel")),
     ("Console", include_str!("../lib/console.emel")),
     ("JsConsole", include_str!("../lib/js_console.emel")),
 ];
