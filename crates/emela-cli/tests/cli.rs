@@ -513,6 +513,27 @@ fn run_and_test_errors_example() {
 }
 
 #[test]
+fn run_and_test_clock_example() {
+    // README の例（`examples/clock`）．JsClock は後から再開し，テストの InstantClock はその場で再開する（8.4，8.7）．
+    let project = Project::new(
+        "clock",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/clock/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "3\n2\n1\nliftoff\n", "")
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
 fn run_calls_external_module_next_to_the_source() {
     // ファイルを指す `@external` は宣言を含むソースの隣のファイル（12.1）．投げた例外は defect，
     // 受け取った文字列の対になっていないサロゲートは置換文字になる（12.5）．

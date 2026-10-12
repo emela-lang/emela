@@ -1,0 +1,31 @@
+# Suspending effects. `sleep` is a `suspend fn`: calls to it look like any other
+# call, and the handler decides when the caller resumes.
+
+fn countdown(n: Int) {
+  console = use Console
+  clock = use Clock
+  List.map(List.range(0, n), fn(i) {
+    clock.sleep(100)
+    console.print_line("#{n - i}")
+  })
+  console.print_line("liftoff")
+}
+
+fn main() {
+  with JsConsole, JsClock {
+    countdown(3)
+  }
+}
+
+# Resumes on the spot, so tests do not wait and need no `Async`.
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { Instant.from_unix_milliseconds(0) }
+}
+
+@test
+fn countdown_does_not_wait() {
+  with JsConsole, InstantClock {
+    countdown(3)
+  }
+}
