@@ -4,9 +4,9 @@
 //! （`ProgramTypes::ops`）から引く．文書のシンボルは構文木だけから作る．
 
 use emela_resolve::ModuleId;
-use emela_resolve::hir::{DefId, ExprKind, LocalId, RefTarget, Span};
+use emela_resolve::hir::{DefId, DefKind, ExprKind, LocalId, PatKind, RefTarget, Span};
 use emela_syntax::ast::{self, AstNode};
-use emela_syntax::{SyntaxNode, SyntaxToken};
+use emela_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use line_index::{TextRange, TextSize};
 
 use crate::frontend::TypedProgram;
@@ -65,6 +65,18 @@ pub(crate) fn references(
     let Some(symbol) = symbol_at(program, module, offset) else {
         return Vec::new();
     };
+    let spans = occurrences(program, symbol, declaration);
+    let mut targets: Vec<NavTarget> = spans
+        .into_iter()
+        .filter_map(|span| target(analysis, span))
+        .collect();
+    targets.sort_by_key(|t| (t.file, t.range.start(), t.range.end()));
+    targets.dedup();
+    targets
+}
+
+/// 名前の現れる位置．`declaration` なら定義の名前も含める．
+fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec<Span> {
     let hir = &program.hir;
     let same = |other: Symbol| same_symbol(program, symbol, other);
     let mut spans: Vec<Span> = hir
@@ -97,13 +109,165 @@ pub(crate) fn references(
             Symbol::Module(_) => {}
         }
     }
-    let mut targets: Vec<NavTarget> = spans
+    spans
+}
+
+// ---------------------------------------------------------------------------
+// 名前の変更
+
+/// 名前を変えられる位置．名前の範囲．変えられない名前（モジュール，`self`，同梱の core と
+/// ソースのない定義）は `None`．
+pub(crate) fn prepare_rename(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Option<TextRange> {
+    let module = module_of(analysis, file)?;
+    let symbol = symbol_at(program, module, offset)?;
+    renamable(program, analysis, symbol)?;
+    // 位置の名前の範囲（参照，定義のどちらでも）．
+    occurrences(program, symbol, true)
         .into_iter()
-        .filter_map(|span| target(analysis, span))
+        .find(|span| span.module == module && span.range.contains_inclusive(offset))
+        .map(|span| span.range)
+}
+
+/// 名前の変更の誤り．文面はエディタに出す．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameError {
+    /// 変えられない名前（モジュール，`self`，同梱の core とソースのない定義）か，名前のない位置．
+    NotRenamable,
+    /// 新しい名前が元の名前と同じ字句クラス（2.3．小文字名，型名，大文字名）でない．
+    InvalidName { name: String, class: &'static str },
+}
+
+impl std::fmt::Display for RenameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RenameError::NotRenamable => write!(f, "this name cannot be renamed"),
+            RenameError::InvalidName { name, class } => {
+                write!(f, "`{name}` is not a valid {class}")
+            }
+        }
+    }
+}
+
+/// 名前を変える編集．定義と参照の位置ごとに置き換える文字列．省略形の名前付き引数と
+/// フィールドのパターン（`NotFound(id:)`，`User(name:)`）はラベルを残して `id: 新しい名前` にする．
+pub(crate) fn rename(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+    new_name: &str,
+) -> Result<Vec<(NavTarget, String)>, RenameError> {
+    let module = module_of(analysis, file).ok_or(RenameError::NotRenamable)?;
+    let symbol = symbol_at(program, module, offset).ok_or(RenameError::NotRenamable)?;
+    let kind = renamable(program, analysis, symbol).ok_or(RenameError::NotRenamable)?;
+    if lex_one(new_name) != Some(kind) {
+        let class = match kind {
+            SyntaxKind::TYPE_NAME => "type name",
+            SyntaxKind::UPPER_NAME => "uppercase name",
+            _ => "lowercase name",
+        };
+        return Err(RenameError::InvalidName {
+            name: new_name.to_owned(),
+            class,
+        });
+    }
+    let puns = puns(program);
+    let mut edits: Vec<(NavTarget, String)> = occurrences(program, symbol, true)
+        .into_iter()
+        .filter_map(|span| {
+            let text = if puns.contains(&span) {
+                let label = &analysis.sources[*analysis.files.get(span.module)?].text()
+                    [std::ops::Range::<usize>::from(span.range)];
+                format!("{label}: {new_name}")
+            } else {
+                new_name.to_owned()
+            };
+            Some((target(analysis, span)?, text))
+        })
         .collect();
-    targets.sort_by_key(|t| (t.file, t.range.start(), t.range.end()));
-    targets.dedup();
-    targets
+    edits.sort_by_key(|(t, _)| (t.file, t.range.start()));
+    edits.dedup();
+    Ok(edits)
+}
+
+/// 名前を変えられるか．変えられれば元の名前の字句の種類．
+fn renamable(program: &TypedProgram, analysis: &Analysis, symbol: Symbol) -> Option<SyntaxKind> {
+    let hir = &program.hir;
+    let span = match symbol {
+        Symbol::Def(def) => {
+            let data = &hir.defs[def];
+            if matches!(data.kind, DefKind::Impl | DefKind::BuiltinType) {
+                return None;
+            }
+            data.span?
+        }
+        Symbol::Local(local) => hir.locals[local].span,
+        Symbol::Module(_) => return None,
+    };
+    let file = *analysis.files.get(span.module)?;
+    if analysis.modules.is_core(span.module) {
+        return None;
+    }
+    let text = analysis.sources[file].text();
+    let kind = lex_one(text.get(std::ops::Range::<usize>::from(span.range))?)?;
+    matches!(
+        kind,
+        SyntaxKind::LOWER_NAME | SyntaxKind::TYPE_NAME | SyntaxKind::UPPER_NAME
+    )
+    .then_some(kind)
+}
+
+/// 字句が1つだけなら，その種類．
+fn lex_one(text: &str) -> Option<SyntaxKind> {
+    let lexed = emela_syntax::lex(text);
+    if !lexed.diagnostics.is_empty() {
+        return None;
+    }
+    let mut tokens = lexed
+        .tokens
+        .iter()
+        .filter(|t| !t.kind.is_trivia() && t.kind != SyntaxKind::EOF);
+    let token = tokens.next()?;
+    (tokens.next().is_none() && token.range.len() == TextSize::of(text)).then_some(token.kind)
+}
+
+/// 省略形の名前付き引数（`NotFound(id:)`）とフィールドのパターン（`User(name:)`）の名前の位置．
+fn puns(program: &TypedProgram) -> std::collections::HashSet<Span> {
+    let hir = &program.hir;
+    let mut puns = std::collections::HashSet::new();
+    for (_, expr) in hir.exprs.iter() {
+        let args = match &expr.kind {
+            ExprKind::Call { args, .. } => args,
+            ExprKind::Update { fields, .. } => fields,
+            _ => continue,
+        };
+        puns.extend(
+            args.iter()
+                .filter(|a| a.punned)
+                .map(|a| hir.exprs[a.value].span),
+        );
+    }
+    for (_, pat) in hir.pats.iter() {
+        if let PatKind::Ctor {
+            args: Some(args), ..
+        } = &pat.kind
+        {
+            for arg in args {
+                if let Some(label) = &arg.label
+                    && matches!(hir.pats[arg.pat].kind, PatKind::Bind(_))
+                    && hir.pats[arg.pat].span == label.span
+                {
+                    puns.insert(label.span);
+                }
+            }
+        }
+    }
+    puns
 }
 
 /// 位置にある名前．参照，effect の操作の参照，定義の名前，局所変数を束縛した位置の順に見る．

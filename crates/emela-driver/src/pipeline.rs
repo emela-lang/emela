@@ -16,9 +16,10 @@ use crate::code;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
-use crate::nav::NavTarget;
+use crate::nav::{NavTarget, RenameError};
 use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
+use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
 
 /// プロジェクトの目印のファイル（仕様 4.1）．0.20 では有無だけを見る．
@@ -229,6 +230,37 @@ pub trait Frontend {
         _offset: line_index::TextSize,
     ) -> Vec<Completion> {
         Vec::new()
+    }
+
+    /// `file` の `offset` を括弧の中に含む呼び出しのシグネチャ（LSP のシグネチャのヘルプ）．
+    fn signature_help(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Option<SignatureInfo> {
+        None
+    }
+
+    /// `file` の `offset` の名前を変えられるなら，その名前の範囲（LSP の prepareRename）．
+    fn prepare_rename(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Option<line_index::TextRange> {
+        None
+    }
+
+    /// `file` の `offset` の名前を `new_name` に変える編集（LSP の rename）．
+    fn rename(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+        _new_name: &str,
+    ) -> Result<Vec<(NavTarget, String)>, RenameError> {
+        Err(RenameError::NotRenamable)
     }
 
     /// `file` の `offset` の名前の参照（LSP の参照の検索）．`declaration` なら定義の名前も含める．

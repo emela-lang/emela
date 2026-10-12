@@ -11,6 +11,8 @@
 - `textDocument/definition` で名前の定義へ，`textDocument/references` で名前の参照へ移動する
 - `textDocument/documentSymbol` でファイルの中の宣言を入れ子で返す
 - `textDocument/completion` で文脈に合う名前を出す（`.` で起動する）
+- `textDocument/signatureHelp` で呼び出しの型とラベルを見せる（`(` と `,` で起動する）
+- `textDocument/rename` と `textDocument/prepareRename` で名前をプロジェクト全体で変える
 - コードアクションはまだない（`MethodNotFound` を返す）
 
 ## しくみ
@@ -44,6 +46,8 @@
 - （補）シンボルの種類は fn → Function，type と error → Struct，enum → Enum，バリアント → EnumMember，const → Constant，effect と trait → Interface，effect の操作と trait・impl・handler の fn → Method，handler → Class，layer と impl → Namespace，フィールド → Field
 - （補）補完はホバーと同じく要求のたびに検査し直して引く（driver の `Frontend::complete`）．書きかけの名前での絞り込みはエディタに任せ，候補を全部返す．並びは driver の順で，`sortText` に連番を入れて保つ．起動の文字は `.` だけ
 - （補）補完の種類は局所変数 → Variable，fn → Function，const → Constant，構成子 → Constructor，type と error → Struct，enum → Enum，effect と trait → Interface，handler と layer → Class，effect の操作と trait の関数 → Method，フィールド → Field，モジュール → Module，予約語 → Keyword
+- （補）シグネチャのヘルプは1つだけ返す（多重定義はない）．引数の範囲は `ParameterInformation` のラベルの中の UTF-16 の位置．カーソルの引数が引数の数を超えれば `activeParameter` を付けない
+- （補）名前の変更は `WorkspaceEdit` の `changes`（URI ごとの編集）で返す．開いていないファイルも同じく編集に入れる．変えられない名前と字句クラスの合わない新しい名前は `RequestFailed` の誤りの応答にし，文面（`this name cannot be renamed`，`` `figure` is not a valid type name ``）をエディタに出す．`prepareRename` は変えられなければ `null`
 - （補）整形の `options`（`tabSize`，`insertSpaces`）は見ない．字下げは空白2つ，幅は 100 のまま（仕様の整形の規則に揃える）
 - （補）`publishDiagnostics` の `version` は，開いているファイルなら最後に受けた版，開いていなければ付けない
 - （補）毎回の解析で，診断のあるファイルは全部送り直す（変わっていなくても）．前回に送って今回ないファイルには空の配列を送る

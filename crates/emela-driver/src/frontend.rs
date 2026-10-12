@@ -11,8 +11,9 @@ use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
 use crate::internal::check_internal;
-use crate::nav::NavTarget;
+use crate::nav::{NavTarget, RenameError};
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
+use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
 
@@ -240,6 +241,34 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
         crate::nav::definition(program, analysis, file, offset)
+    }
+
+    fn signature_help(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Option<SignatureInfo> {
+        crate::signature::signature_help(program, analysis, file, offset)
+    }
+
+    fn prepare_rename(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Option<line_index::TextRange> {
+        crate::nav::prepare_rename(program, analysis, file, offset)
+    }
+
+    fn rename(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+        new_name: &str,
+    ) -> Result<Vec<(NavTarget, String)>, RenameError> {
+        crate::nav::rename(program, analysis, file, offset, new_name)
     }
 
     fn complete(
