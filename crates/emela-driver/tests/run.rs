@@ -359,12 +359,17 @@ fn run_source(name: &str, main: &str) -> RunOutput {
 }
 
 fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
+    run_source_in(name, main, frontend, PathBuf::from("node"))
+}
+
+/// `run_source_with` と同じで，node の実行ファイルを指定する．
+fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
         out_dir: out_dir(name),
-        node: PathBuf::from("node"),
+        node,
         args: Vec::new(),
         output: Output::Capture,
     };
@@ -812,5 +817,105 @@ fn defects_after_resuming_and_in_callbacks() {
     assert_eq!(
         (output.code, text(&output.stderr)),
         (DEFECT_EXIT_CODE, "defect: late\n")
+    );
+}
+
+#[test]
+fn random_runs_through_handlers() {
+    // 同梱の Random を JsRandom で供給する（15.2）．値は毎回変わるので範囲だけを見る．
+    let output = run_source(
+        "random",
+        r##"fn draw(n: Int) {
+  if n > 0 {
+    random = use Random
+    console = use Console
+    console.print_line("#{random.int()} #{random.float()}")
+    draw(n - 1)
+  }
+}
+
+fn main() {
+  with JsConsole, JsRandom {
+    draw(100)
+  }
+}
+"##,
+    );
+    assert_eq!((output.code, text(&output.stderr)), (0, ""));
+    let mut ints = Vec::new();
+    for line in text(&output.stdout).lines() {
+        let (int, float) = line.split_once(' ').unwrap();
+        ints.push(int.parse::<i32>().unwrap());
+        let float: f64 = float.parse().unwrap();
+        assert!(
+            (0.0..1.0).contains(&float),
+            "{float} が 0 以上 1 未満でない"
+        );
+    }
+    assert_eq!(ints.len(), 100);
+    ints.sort();
+    ints.dedup();
+    assert!(ints.len() > 1, "100 回とも同じ値");
+}
+
+/// 環境変数を設定してから node を起動するスクリプトを書き，そのパスを返す．
+/// テストの中で `std::env::set_var` すると並列のテストと競合するので，node の側にだけ渡す．
+#[cfg(unix)]
+fn node_with_env(name: &str, exports: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = out_dir(&format!("{name}-node"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("node");
+    std::fs::write(&path, format!("#!/bin/sh\n{exports}\nexec node \"$@\"\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[cfg(unix)]
+#[test]
+fn env_runs_through_handlers() {
+    // 同梱の Env を JsEnv で供給する（15.2）．空の値と未設定を区別する．
+    // 後半はハンドラを差し替えるだけで別の値を読ませる（13章の DI）．
+    let node = node_with_env(
+        "env",
+        "export EMELA_TEST_SET=hello EMELA_TEST_EMPTY=\nunset EMELA_TEST_UNSET",
+    );
+    let output = run_source_in(
+        "env",
+        r##"fn show(name: String) -> String {
+  match (use Env).get(name) {
+    Some(value) -> "#{name}=#{value}"
+    None -> "#{name} is unset"
+  }
+}
+
+handler FixedEnv implements Env {
+  fn get(name) { Some("fixed") }
+}
+
+fn main() {
+  with JsConsole, JsEnv {
+    console = use Console
+    console.print_line(show("EMELA_TEST_SET"))
+    console.print_line(show("EMELA_TEST_EMPTY"))
+    console.print_line(show("EMELA_TEST_UNSET"))
+  }
+  with JsConsole, FixedEnv {
+    (use Console).print_line(show("EMELA_TEST_UNSET"))
+  }
+}
+"##,
+        &mut Lower::default(),
+        node.clone(),
+    );
+    let _ = std::fs::remove_dir_all(node.parent().unwrap());
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            "EMELA_TEST_SET=hello\nEMELA_TEST_EMPTY=\nEMELA_TEST_UNSET is unset\nEMELA_TEST_UNSET=fixed\n",
+            ""
+        )
     );
 }

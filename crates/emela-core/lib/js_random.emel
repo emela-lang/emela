@@ -1,0 +1,15 @@
+# Random の JS 用のハンドラ（仕様 15.2）．状態を持たない．
+
+import Random.{Random}
+
+@external(js, "./js_random.mjs", "int")
+fn random_int() -> Int
+
+@external(js, "./js_random.mjs", "float")
+fn random_float() -> Float
+
+## Random を JS の `crypto.getRandomValues`（暗号論的に安全な乱数）で実装する．
+pub handler JsRandom implements Random {
+  fn int() { random_int() }
+  fn float() { random_float() }
+}

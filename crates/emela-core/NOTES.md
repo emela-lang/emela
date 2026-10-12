@@ -83,6 +83,27 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）Instant は Duration を import せずに使う（名前が1区切りの core のモジュールなので `.` の左と型の位置で見える，4.6）．
 - （補）`Instant` と `Duration` を同梱したので，ソースのルート直下の `instant.emel` と `duration.emel` は予約名（E0203）になる（4.1，15.2．本人の決定）．
 
+## Random（`random.emel`，`js_random.emel`，`js_random.mjs`）
+
+alpha.3 で同梱した（2026-10-12）．形は Console と同じ（エフェクトとターゲットごとのハンドラを別のモジュールに置く）．
+
+- （補）エフェクト `Random` の操作は `int() -> Int`（Int の全域で一様）と `float() -> Float`（0 以上 1 未満で一様）の2つ．0.1x の spec 0054 の `bytes(len)` は，0.20 に Bytes がないので入れない．
+- （補）範囲つきの `between(min, max)` は操作にしない．入れるなら `int()` の上に書く普通の関数にする（ハンドラが実装する操作を少なく保ち，テスト用のハンドラを書きやすくするため）．種を渡せる PRNG（spec 0054 の Part B）はエフェクトでなく純粋な値と関数にする．どちらも alpha.3 には入れない．
+- （補）`JsRandom` は `crypto.getRandomValues` で引く（暗号論的に安全）．`Math.random` は使わない．関数のパスひとつで書けないので補助の `lib/js_random.mjs` を置く（#155）．
+- （補）`int` は `Int32Array` で受ける．符号付き 32 ビットになるので，Int（16.1）へそのまま渡せる．
+- （補）`float` は 32 ビットを2つ引き，上位 27 ビットと 26 ビットから 53 ビットの整数を作って 2^53 で割る．0 以上 1 未満で，Float で表せる 2^-53 刻みの値が一様に出る．
+- （補）`Random` と `JsRandom` を同梱したので，ソースのルート直下の `random.emel` と `js_random.emel` は予約名（E0203）になる（Console と同じ）．
+
+## Env（`env.emel`，`js_env.emel`，`js_env.mjs`）
+
+alpha.3 で同梱した（2026-10-12）．形は Console と同じ．
+
+- （補）エフェクト `Env` の操作は `get(name: String) -> Option[String]` だけ．全部の変数を返す操作（`List[(String, String)]`）は，境界の変換が増えるので入れない．
+- （補）`Option[String]` は外部関数の境界を越えられない（12.4）ので，ホストの関数は有無の `has(name) -> Bool` と値の `get(name) -> String` の2つに分け，`JsEnv` の操作の本体で Option に組み立てる．`@external type` で値と有無をまとめる案より，ホストの側が単純になる．
+- （補）空の値（`NAME=`）は `Some("")`，未設定は `None`．`has` は `Object.hasOwn(process.env, name)` で見る（`process.env[name] !== undefined` でも同じだが，プロトタイプの名前を拾わないことを明示する）．
+- （補）`has` と `get` の間に環境変数が変わることは考えない（JS のプログラムの中から `process.env` を書き換える手段を core は持たない）．
+- （補）`Env` と `JsEnv` を同梱したので，ソースのルート直下の `env.emel` と `js_env.emel` は予約名（E0203）になる（Console と同じ）．
+
 ## lowering（`lower.rs`）
 
 本人と相談して決めた（2026-10-11）．型検査の結果（emela-driver の `TypedProgram`．HIR と `ProgramTypes` の組）から Core IR を作る．
