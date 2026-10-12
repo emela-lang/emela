@@ -60,6 +60,21 @@ const BROKEN: &[(&str, &str)] = &[
     ("src/Util.emel", ""),
 ];
 
+/// `--help` の文言は英語で書く（README の Commands の表と同じ言葉）．
+#[test]
+fn help_is_english() {
+    let project = Project::new("help", &[]);
+    for command in ["", "check", "build", "run", "test", "fmt", "lsp"] {
+        let args: Vec<&str> = [command, "--help"]
+            .into_iter()
+            .filter(|a| !a.is_empty())
+            .collect();
+        let run = project.emela(&args);
+        assert_eq!(run.code, Some(0), "{command}: {run:?}");
+        assert!(run.stdout.is_ascii(), "{command}: {}", run.stdout);
+    }
+}
+
 #[test]
 fn check_reports_all_errors() {
     let project = Project::new("broken", BROKEN);

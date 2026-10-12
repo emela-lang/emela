@@ -1,7 +1,7 @@
-// Env の JS 用のホスト関数．`process.env` を読む．
+// Host functions for Env on JS. Reads `process.env`.
 
-// 名前 `name` の環境変数が設定されているか．
+// Whether the environment variable named `name` is set.
 export const has = (name) => Object.hasOwn(process.env, name);
 
-// 名前 `name` の環境変数の値．`has` が true のときだけ呼ぶ．
+// The value of the environment variable named `name`. Call only when `has` is true.
 export const get = (name) => process.env[name];

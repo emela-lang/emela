@@ -1,8 +1,8 @@
-// Emela のテストランナー（仕様 13章）．テストの起動用モジュールの先頭に埋め込む．
+// The Emela test runner (spec chapter 13). Embedded at the top of the test entry module.
 //
-// テスト関数を1つずつ呼び，結果を1行ずつ標準出力に書く．行は `\x1eemela-test ` の後に JSON．
-// 結果の表示（`test name ... ok`）は呼び出し側（emela-driver）が受け持つ．
-// インラインで埋め込むときは行頭の `export ` を取り除くので，`export` は行頭にだけ書く．
+// Calls the test functions one by one and writes one result per line to stdout. Each line is `\x1eemela-test ` followed by JSON.
+// Displaying the results (`test name ... ok`) is up to the caller (emela-driver).
+// When inlined, the leading `export ` of each line is stripped, so write `export` only at the start of a line.
 
 const $TEST_EVENT = "\x1eemela-test ";
 
@@ -10,15 +10,15 @@ function $testReport(event) {
   process.stdout.write($TEST_EVENT + JSON.stringify(event) + "\n");
 }
 
-// テスト関数の返した値が処理されなかったエラー（13.3）なら，その表示を返す．
-// 失敗はランタイムの `$Fail` で返る（16.5）．$Fail のクラスを読み込まないので `Symbol.for` の鍵で見分ける．
+// If the value returned by a test function is an unhandled error (13.3), returns its display.
+// A failure comes back as the runtime's `$Fail` (16.5). The $Fail class is not loaded here, so it is recognized by a `Symbol.for` key.
 function $testUnhandledError(value) {
   const show = value?.[Symbol.for("emela.fail")];
   return typeof show === "function" ? show.call(value) : undefined;
 }
 
-// テスト関数の投げた例外を表示する．defect は `name` が "Defect" の Error（7.5）．
-// それ以外の例外（外部関数が投げたもの）も defect として扱い，名前を前に付ける．
+// Displays an exception thrown by a test function. A defect is an Error whose `name` is "Defect" (7.5).
+// Other exceptions (thrown by external functions) are treated as defects too, prefixed with their name.
 function $testDescribe(error) {
   if (error instanceof Error) {
     return error.name === "Defect" ? error.message : `${error.name}: ${error.message}`;
@@ -26,11 +26,11 @@ function $testDescribe(error) {
   return String(error);
 }
 
-// 中断したまま resume されないテスト（14.5）と，ホストのコールバックの中で投げられた例外を，
-// 実行中のテストに結び付ける．`$testCurrent` は実行中のテストの `{ defect, interrupt }`．
+// Ties tests left suspended without resume (14.5), and exceptions thrown inside host callbacks,
+// to the running test. `$testCurrent` is the running test's `{ defect, interrupt }`.
 let $testCurrent = null;
 
-// イベントループが空になったのに実行中のテストが終わっていなければ，そのテストは中断されたまま．
+// If the event loop is empty but the running test has not finished, that test is left suspended.
 process.on("beforeExit", () => {
   $testCurrent?.interrupt();
 });
@@ -47,8 +47,8 @@ function $testIsGenerator(value) {
   return Object.prototype.toString.call(value) === "[object Generator]";
 }
 
-// テスト関数を1つ呼んで結果を返す．中断しうるテスト関数（ジェネレータを返す）は `start`（ランタイムの
-// `$start`）で進め，終わるか，defect か，中断されたまま巻き戻るまで待つ．
+// Calls one test function and returns its result. A suspending test function (one that returns a generator) is driven by `start` (the runtime's
+// `$start`), waiting until it finishes, hits a defect, or unwinds while left suspended.
 function $runTest(test, start) {
   return new Promise((resolve) => {
     let over = false;
@@ -81,8 +81,8 @@ function $runTest(test, start) {
   });
 }
 
-// `tests` は [表示名, 関数] の配列．1つが失敗しても残りを続ける（13.3）．
-// `start` は出力したモジュールが公開するランタイムの `$start`（中断しうるテスト関数がなければ undefined）．
+// `tests` is an array of [display name, function]. A failure in one does not stop the rest (13.3).
+// `start` is the runtime's `$start` exported by the output module (undefined if no test function can suspend).
 export async function $runTests(tests, start) {
   for (const [name, test] of tests) {
     const result = await $runTest(test, start);
