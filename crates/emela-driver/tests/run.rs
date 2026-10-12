@@ -673,6 +673,221 @@ fn main() {
     );
 }
 
+/// 状態のあるハンドラと layer のエンドツーエンドの確かめに使う宣言（8.4，8.5）．`Pool` は init と
+/// release で `Console` に出す．`Fragile` は release で panic する．
+const STATEFUL: &str = r#"error DbDown
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+effect Config {
+  fn db_url() -> String
+}
+
+effect Wait {
+  suspend fn forever() -> ()
+}
+
+handler EnvConfig implements Config {
+  fn db_url() { "db://app" }
+}
+
+handler EmptyConfig implements Config {
+  fn db_url() { "" }
+}
+
+handler Pool(url: String, opened: Int) implements Users {
+  init {
+    url = (use Config).db_url()
+    if url == "" { fail DbDown }
+    (use Console).print_line("open #{url}")
+    Pool(url:, opened: 1)
+  }
+
+  release {
+    (use Console).print_line("close #{self.url}")
+  }
+
+  fn find(id) { "user #{id} via #{self.url}" }
+}
+
+handler Spare implements Users {
+  init {
+    (use Console).print_line("open spare")
+    Spare
+  }
+
+  release { (use Console).print_line("close spare") }
+
+  fn find(id) { "spare #{id}" }
+}
+
+handler Fragile implements Wait {
+  release { panic("close failed") }
+  suspend fn forever(resume) { resume(()) }
+}
+
+handler Stuck implements Wait {
+  suspend fn forever(resume) { () }
+}
+
+layer AppLive {
+  Pool
+  EnvConfig
+}
+"#;
+
+fn run_stateful(name: &str, main: &str) -> RunOutput {
+    run_source(name, &format!("{STATEFUL}\n{main}"))
+}
+
+#[test]
+fn stateful_handlers_and_layers_run() {
+    // layer を展開し，依存の順（EnvConfig，Pool）に init，逆の順に release を走らせる（8.5，14.2）．
+    // 後ろに並べたハンドラに上書きされたハンドラ（AppLive の Pool）は初期化しない（8.3）．
+    let output = run_stateful(
+        "stateful",
+        r#"fn main() {
+  with JsConsole, AppLive {
+    (use Console).print_line((use Users).find(1))
+  }
+  with JsConsole, AppLive, Spare {
+    (use Console).print_line((use Users).find(2))
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            "open db://app\nuser 1 via db://app\nclose db://app\n\
+             open spare\nspare 2\nclose spare\n",
+            ""
+        )
+    );
+}
+
+#[test]
+fn failing_init_releases_what_was_initialized() {
+    // Pool の init が失敗したら，本体は走らず，先に初期化した Spare だけを release する（14.2）．
+    // with はその init のエラーで終わる．
+    let output = run_stateful(
+        "stateful-init-fails",
+        r#"handler SpareFirst implements Config {
+  init {
+    (use Console).print_line("open config")
+    SpareFirst
+  }
+  release { (use Console).print_line("close config") }
+  fn db_url() { "" }
+}
+
+fn main() {
+  with JsConsole, SpareFirst, Pool {
+    (use Console).print_line("body")
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (1, "open config\nclose config\n", "error: DbDown\n")
+    );
+}
+
+#[test]
+fn release_defects_follow_the_body() {
+    // 本体が値なら release の defect が結果．残りの release も走る（14.4）．
+    let output = run_stateful(
+        "stateful-release-defect",
+        r#"fn main() {
+  with JsConsole, EnvConfig, Pool, Fragile {
+    (use Wait).forever()
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            DEFECT_EXIT_CODE,
+            "open db://app\nclose db://app\n",
+            "defect: close failed\n"
+        )
+    );
+
+    // 本体が defect なら，最初の defect が結果で，release の defect は注記になる．
+    let output = run_stateful(
+        "stateful-release-note",
+        r#"fn main() {
+  with JsConsole, Fragile { panic("boom") }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stderr)),
+        (
+            DEFECT_EXIT_CODE,
+            "defect: boom\nnote: the release of handler Fragile also failed: close failed\n"
+        )
+    );
+}
+
+#[test]
+fn released_handlers_are_defects_when_used() {
+    // with の外へ持ち出した能力を release の後に呼ぶと defect（8.6）．
+    let output = run_stateful(
+        "stateful-used-after-release",
+        r#"fn main() {
+  with JsConsole, EnvConfig {
+    f = with Pool {
+      users = use Users
+      fn() { users.find(1) }
+    }
+    with Spare { (use Console).print_line(f()) }
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            DEFECT_EXIT_CODE,
+            "open db://app\nclose db://app\nopen spare\nclose spare\n",
+            "defect: handler Pool was used after release\n"
+        )
+    );
+}
+
+#[test]
+fn interrupted_main_releases_first() {
+    // 中断されたまま巻き戻る main も，開いている with の release を内側から走らせてから
+    // `interrupted` で終わる（14.5）．中断しない main（$sync）でも，後から resume されうる main でも同じ．
+    for (name, main) in [
+        (
+            "stateful-interrupted",
+            "fn main() {\n  with JsConsole, AppLive, Stuck { (use Wait).forever() }\n}\n",
+        ),
+        (
+            "stateful-interrupted-async",
+            "fn main() {\n  with JsConsole, JsClock, AppLive, Stuck {\n    (use Clock).sleep(1)\n    (use Wait).forever()\n  }\n}\n",
+        ),
+    ] {
+        let output = run_stateful(name, main);
+        assert_eq!(
+            (output.code, text(&output.stdout), text(&output.stderr)),
+            (
+                INTERRUPTED_EXIT_CODE,
+                "open db://app\nclose db://app\n",
+                "interrupted\n"
+            ),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn time_values_run_through_core() {
     // Instant は Unix エポックからのミリ秒で作れる（15.2）．

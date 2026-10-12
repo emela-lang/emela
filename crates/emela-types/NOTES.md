@@ -128,7 +128,7 @@
 - （補）互いを含む layer は，展開で2回目に出会ったところで止める（中身は空として続ける）．
 - （補）layer の中で満たされない依存（`LayerInfo::uses`）は，展開したハンドラの依存のうち，layer の中の別のエフェクトのハンドラが供給しないもの．with の R に残る（8.5）．
 - （補）型の表示: ハンドラの値は名前だけ（`DbUsers`）．ホバーは handler の名前にフィールドと init の E を足し，layer の名前に初期化の順のハンドラと満たされない依存を出す（emela-driver の NOTES）．
-- （補）lowering は第3段．`emela build` は状態のある handler，layer，`self` を `Unsupported` にして panic しない（emela-core）．
+- （補）lowering は `with_handlers` の順に束縛を並べ，状態のある handler を init，ハンドラの値，release の3つの関数にする（emela-core の NOTES の「状態のあるハンドラと layer の lowering」）．
 
 ## エフェクトの型引数と State（8.1，8.8）
 

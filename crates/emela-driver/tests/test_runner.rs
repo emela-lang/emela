@@ -691,3 +691,94 @@ fn tests_can_use_js_clock() {
         "{report:?}"
     );
 }
+
+#[test]
+fn tests_run_stateful_handlers() {
+    // テスト関数の中の状態のあるハンドラも，値，エラー（init の失敗），中断のどの終わり方でも
+    // release を走らせる（14.2，14.5）．出力はテストの結果の行より前に出る．
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r##"error Down
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+effect Wait {
+  suspend fn forever() -> ()
+}
+
+handler Pool(name: String) implements Users {
+  init {
+    (use Console).print_line("open")
+    Pool(name: "pool")
+  }
+  release { (use Console).print_line("close #{self.name}") }
+  fn find(id) { "#{self.name} #{id}" }
+}
+
+handler Broken implements Wait {
+  init { fail Down }
+  suspend fn forever(resume) { resume(()) }
+}
+
+handler Stuck implements Wait {
+  suspend fn forever(resume) { () }
+}
+
+fn main() {}
+
+@test
+fn finds() {
+  with JsConsole, Pool { assert (use Users).find(1) == "pool 1" }
+}
+
+@test
+fn init_fails() {
+  with JsConsole, Pool, Broken { (use Users).find(1) }
+}
+
+@test
+fn stuck() {
+  with JsConsole, Pool, Stuck { (use Wait).forever() }
+}
+"##,
+        ),
+    ];
+    let (analysis, report, out) = run_tests(
+        "stateful",
+        sources,
+        &mut LowerTests::default(),
+        &mut CoreJs,
+        None,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let outcomes: Vec<_> = report
+        .unwrap()
+        .results
+        .iter()
+        .map(|r| (r.name.clone(), r.outcome.clone()))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            ("finds".to_owned(), TestOutcome::Passed),
+            ("init_fails".to_owned(), TestOutcome::Error("Down".into())),
+            ("stuck".to_owned(), TestOutcome::Interrupted),
+        ]
+    );
+    assert!(
+        out.contains("open\nclose pool\ntest finds ... ok\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("open\nclose pool\ntest init_fails ... FAILED\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("open\nclose pool\ntest stuck ... FAILED\n"),
+        "{out}"
+    );
+}

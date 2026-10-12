@@ -537,6 +537,33 @@ fn run_and_test_clock_example() {
 }
 
 #[test]
+fn run_and_test_resources_example() {
+    // The `examples/resources` example. A handler with state opens in `init` and closes in
+    // `release`; the layer is ordered by dependencies, and a later handler replaces the layer's
+    // one for the same effect (spec 8.3, 8.4, 8.5, 14.2).
+    let project = Project::new(
+        "resources",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/resources/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "open store v1\nv1/alice\nv1/bob\nclose store v1\n",
+            ""
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
 fn run_calls_external_module_next_to_the_source() {
     // An `@external` pointing to a file resolves next to the declaring source (spec 12.1). A thrown
     // exception is a defect, and a lone surrogate in a received string becomes U+FFFD (spec 12.5).
