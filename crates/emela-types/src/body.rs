@@ -68,7 +68,7 @@ struct HandlerBody {
     fails: Row,
     /// suspend fn の実装で，`resume` を直接呼ぶ以外の使い方をしている（8.7）．依存に Async を足す．
     resume_later: bool,
-    /// suspend fn の実装か．fn の操作の本体は中断しうる呼び出しを含めない（E0417）．
+    /// suspend fn の実装か．fn の操作の本体は中断できない（E0417）．
     suspend: bool,
 }
 

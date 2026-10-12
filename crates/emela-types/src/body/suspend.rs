@@ -10,9 +10,10 @@
 //!   汎化するときに `Immediate` の制約を付ける．
 //! - 外部関数の引数の関数型で `use` を省略したときの見えない集合は `Immediate` の制約を持つ
 //!   （コールバックは Immediate でなければならない，9.5）ので，同じ仕組みで確かめる．
-//! - fn の操作の実装の本体は，中断しうる呼び出しを含めない（E0417，8.1）．呼び出しが中断しうるかは，
-//!   操作の呼び出しなら操作の宣言（`suspend fn` か），`@external suspend fn` ならいつも，関数と関数の
-//!   値なら呼ばれる側の型の R（Immediate でないか）で決める．本体の R は見ない．
+//! - fn の操作の実装の本体は，R が Immediate であるか，中断しうる呼び出しを含まないかの
+//!   どちらかを満たす（E0417，8.1）．呼び出しが中断しうるかは，操作の呼び出しなら操作の宣言
+//!   （`suspend fn` か），`@external suspend fn` ならいつも，関数と関数の値なら呼ばれる側の型の R
+//!   （Immediate でないか）で決める．
 
 use emela_resolve::hir::{
     BinaryOp, DefId, ExprId, ExprKind, Item, LocalId, Program, Res, Span, Stmt, StrPart,
@@ -101,12 +102,13 @@ impl BodyInfer<'_> {
 }
 
 impl BodyInfer<'_> {
-    /// fn の操作の実装の本体が中断しうる呼び出しを含まないか確かめる（E0417，8.1）．fn の操作は
-    /// 「ハンドラが値を返すと，呼び出し元はすぐ続きを実行する」ので，呼び出し元は中断しない前提で
-    /// 出力する．集合を解いた後に呼ぶ．
+    /// fn の操作の実装の本体が中断しないか確かめる（E0417，8.1）．fn の操作は「ハンドラが値を返すと，
+    /// 呼び出し元はすぐ続きを実行する」ので，呼び出し元は中断しない前提で出力する．集合を解いた後に呼ぶ．
     ///
-    /// 本体の R ではなく，本体の中の呼び出しを1つずつ見る（[`Self::suspending_call`]）．無名関数の
-    /// 本体の中の呼び出しは，その無名関数を呼んだところで関数の値の呼び出しとして数える．
+    /// 本体の R が Immediate か，本体が中断しうる呼び出しを含まなければ通す．どちらもそれだけで
+    /// 本体が中断しないことを保証する．後者は本体の中の呼び出しを1つずつ見る
+    /// （[`Self::suspending_call`]）．無名関数の本体の中の呼び出しは，その無名関数を呼んだところで
+    /// 関数の値の呼び出しとして数える．どちらも満たさなければ，中断しうる呼び出しごとに報告する．
     pub(super) fn check_fn_op_bodies(&mut self) {
         let program = self.program;
         let bodies: Vec<(DefId, usize, ExprId)> = self
@@ -119,6 +121,23 @@ impl BodyInfer<'_> {
             let Some(Item::Handler(h)) = program.item(handler) else {
                 continue;
             };
+            // 本体の R が Immediate なら，中に中断しうる呼び出しがあっても（その場で resume する
+            // ハンドラの with の中），本体は中断しない．呼び出しを見ずに通す．handler は型引数を
+            // 持たないので，R の要素はタグだけを見る．
+            let row = self
+                .expr_effects
+                .get(body)
+                .cloned()
+                .map(|r| self.ctx.resolve_row(&r));
+            let immediate = row.is_some_and(|r| {
+                r.elems().iter().all(|e| match e {
+                    RowElem::Tag(effect) => is_immediate_effect(program, *effect),
+                    _ => true,
+                })
+            });
+            if immediate {
+                continue;
+            }
             let op = h.ops[index].name.name.clone();
             let mut stack = vec![body];
             while let Some(expr) = stack.pop() {

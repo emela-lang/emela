@@ -760,7 +760,8 @@ fn main() {
 
 /// fn の操作の実装は，本体の中の呼び出しで中断しうるかを決める（E0417，8.1）．本体の R に
 /// suspend fn を持つ Clock があっても，fn の操作 `now` しか呼ばなければジェネレータにしない．
-/// `now` の呼び出しにも中断の印は付かない．
+/// `now` の呼び出しにも中断の印は付かない．本体の R が Immediate なら，その場で resume する
+/// PureClock の with の中で sleep を呼んでも（呼び出しには中断の印が付く）ジェネレータにしない．
 #[test]
 fn fn_op_calling_fn_ops_is_not_a_generator() {
     let m = lower_files(&[(
@@ -792,10 +793,23 @@ handler CapturedClock implements Clock {
   }
 }
 
+handler PureClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(0) }
+  fn now() { 0 }
+}
+
+handler LocalSleep implements Clock {
+  suspend fn sleep(ms, resume) { resume(0) }
+  fn now() {
+    with PureClock { (use Clock).sleep(1) }
+  }
+}
+
 fn main() {
   with JsClock {
     with InstantClock { dbg((use Clock).now()) }
     with CapturedClock { dbg((use Clock).now()) }
+    with LocalSleep { dbg((use Clock).now()) }
   }
 }
 ",
@@ -803,7 +817,11 @@ fn main() {
     let out = dump(&m);
     let mine: Vec<&str> = out
         .split("\n\n")
-        .filter(|f| f.contains("fn InstantClock(") || f.contains("fn CapturedClock("))
+        .filter(|f| {
+            ["fn InstantClock(", "fn CapturedClock(", "fn LocalSleep("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }

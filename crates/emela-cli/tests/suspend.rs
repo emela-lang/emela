@@ -227,6 +227,18 @@ handler InstantTimer implements Timer {
   fn now() { (use Timer).now() + 1 }
 }
 
+handler PureTimer implements Timer {
+  suspend fn wait(ms, resume) { resume(ms * 2) }
+  fn now() { 0 }
+}
+
+handler LocalWait implements Timer {
+  suspend fn wait(ms, resume) { resume(0) }
+  fn now() {
+    with PureTimer { (use Timer).wait(7) }
+  }
+}
+
 fn main() {
   with JsConsole {
     console = use Console
@@ -234,6 +246,9 @@ fn main() {
       waited = (use Timer).wait(5)
       with InstantTimer {
         console.print_line("now #{(use Timer).now()} after #{waited}")
+      }
+      with LocalWait {
+        console.print_line("local #{(use Timer).now()}")
       }
     }
   }
@@ -243,7 +258,7 @@ fn main() {
     let (code, stdout, stderr) = project.emela(&["run"]);
     assert_eq!(
         (code, stdout.as_str(), stderr.as_str()),
-        (Some(0), "now 43 after 5\n", "")
+        (Some(0), "now 43 after 5\nlocal 14\n", "")
     );
     let js = std::fs::read_to_string(project.dir.join("target/emela/js/main.mjs")).unwrap();
     assert!(!js.contains("now: (function*"), "{js}");
