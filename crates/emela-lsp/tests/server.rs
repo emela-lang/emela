@@ -581,3 +581,31 @@ fn hover_shows_effects() {
     );
     client.shutdown();
 }
+
+/// エフェクトと集合の型引数を混ぜた use 節（8.3）．with の中では書き出したエフェクトが見え，
+/// with の外では集合の型引数だけが残る．
+#[test]
+fn hover_shows_mixed_effect_sets() {
+    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent implements Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 4)),
+        "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R\n```"
+    );
+    // 呼び出しの式の R は集合の型引数を含む．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 9, 17)),
+        "```emela\n()\nfails E(f)\nuse { Quiet, R }\n```"
+    );
+    // with の外では Quiet が消える．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 9, 3)),
+        "```emela\n()\nfails E(f)\nuse R\n```"
+    );
+    client.shutdown();
+}

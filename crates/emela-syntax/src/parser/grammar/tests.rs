@@ -62,6 +62,8 @@ fn 型() {
             "fn(A) -> A fails E use {\n  Io,\n  Clock,\n}",
             "fn() -> A fails Timeout | E",
             "fn() -> A fails E | Timeout | Http.Error",
+            "fn() -> () use { Quiet, R }",
+            "fn() -> () use { R, Quiet, Http.Client }",
         ],
         types::type_,
     ));

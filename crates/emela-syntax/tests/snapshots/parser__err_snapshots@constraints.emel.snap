@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/constraints.emel
 ---
-ROOT@0..528
+ROOT@0..679
   FN_DECL@0..25
     FN_KW@0..2 "fn"
     WHITESPACE@2..3 " "
@@ -369,6 +369,121 @@ ROOT@0..528
         L_PAREN@525..526 "("
         R_PAREN@526..527 ")"
   NEWLINE@527..528 "\n"
+  EFFECT_DECL@528..678
+    EFFECT_KW@528..534 "effect"
+    WHITESPACE@534..535 " "
+    TYPE_NAME@535..540 "Store"
+    WHITESPACE@540..541 " "
+    ITEM_LIST@541..678
+      L_BRACE@541..542 "{"
+      NEWLINE@542..543 "\n"
+      WHITESPACE@543..545 "  "
+      OP_SIG@545..581
+        FN_KW@545..547 "fn"
+        WHITESPACE@547..548 " "
+        LOWER_NAME@548..551 "get"
+        PARAM_LIST@551..564
+          L_PAREN@551..552 "("
+          PARAM@552..563
+            LOWER_NAME@552..555 "key"
+            COLON@555..556 ":"
+            WHITESPACE@556..557 " "
+            PATH_TYPE@557..563
+              PATH@557..563
+                TYPE_NAME@557..563 "String"
+          R_PAREN@563..564 ")"
+        WHITESPACE@564..565 " "
+        RET_TYPE@565..574
+          THIN_ARROW@565..567 "->"
+          WHITESPACE@567..568 " "
+          PATH_TYPE@568..574
+            PATH@568..574
+              TYPE_NAME@568..574 "String"
+        WHITESPACE@574..575 " "
+        USE_CLAUSE@575..581
+          USE_KW@575..578 "use"
+          WHITESPACE@578..579 " "
+          EFFECT_SET@579..581
+            PATH@579..581
+              TYPE_NAME@579..581 "Db"
+      NEWLINE@581..582 "\n"
+      WHITESPACE@582..584 "  "
+      OP_SIG@584..638
+        FN_KW@584..586 "fn"
+        WHITESPACE@586..587 " "
+        LOWER_NAME@587..590 "put"
+        PARAM_LIST@590..603
+          L_PAREN@590..591 "("
+          PARAM@591..602
+            LOWER_NAME@591..594 "key"
+            COLON@594..595 ":"
+            WHITESPACE@595..596 " "
+            PATH_TYPE@596..602
+              PATH@596..602
+                TYPE_NAME@596..602 "String"
+          R_PAREN@602..603 ")"
+        WHITESPACE@603..604 " "
+        RET_TYPE@604..609
+          THIN_ARROW@604..606 "->"
+          WHITESPACE@606..607 " "
+          UNIT_TYPE@607..609
+            L_PAREN@607..608 "("
+            R_PAREN@608..609 ")"
+        WHITESPACE@609..610 " "
+        FAILS_CLAUSE@610..620
+          LOWER_NAME@610..615 "fails"
+          WHITESPACE@615..616 " "
+          ERROR_SET@616..620
+            PATH@616..620
+              TYPE_NAME@616..620 "Full"
+        WHITESPACE@620..621 " "
+        USE_CLAUSE@621..638
+          USE_KW@621..624 "use"
+          WHITESPACE@624..625 " "
+          EFFECT_SET@625..638
+            L_BRACE@625..626 "{"
+            WHITESPACE@626..627 " "
+            PATH@627..629
+              TYPE_NAME@627..629 "Db"
+            COMMA@629..630 ","
+            WHITESPACE@630..631 " "
+            PATH@631..636
+              TYPE_NAME@631..636 "Clock"
+            WHITESPACE@636..637 " "
+            R_BRACE@637..638 "}"
+      NEWLINE@638..639 "\n"
+      WHITESPACE@639..641 "  "
+      OP_SIG@641..676
+        FN_KW@641..643 "fn"
+        WHITESPACE@643..644 " "
+        LOWER_NAME@644..646 "ok"
+        PARAM_LIST@646..659
+          L_PAREN@646..647 "("
+          PARAM@647..658
+            LOWER_NAME@647..650 "key"
+            COLON@650..651 ":"
+            WHITESPACE@651..652 " "
+            PATH_TYPE@652..658
+              PATH@652..658
+                TYPE_NAME@652..658 "String"
+          R_PAREN@658..659 ")"
+        WHITESPACE@659..660 " "
+        RET_TYPE@660..665
+          THIN_ARROW@660..662 "->"
+          WHITESPACE@662..663 " "
+          UNIT_TYPE@663..665
+            L_PAREN@663..664 "("
+            R_PAREN@664..665 ")"
+        WHITESPACE@665..666 " "
+        FAILS_CLAUSE@666..676
+          LOWER_NAME@666..671 "fails"
+          WHITESPACE@671..672 " "
+          ERROR_SET@672..676
+            PATH@672..676
+              TYPE_NAME@672..676 "Full"
+      NEWLINE@676..677 "\n"
+      R_BRACE@677..678 "}"
+  NEWLINE@678..679 "\n"
 error[E0130]@3..10: a function without a body must be `@external`
 error[E0130]@37..40: a top-level `suspend fn` must be `@external`
 error[E0130]@54..63: a type without fields must be `@external`
@@ -383,3 +498,5 @@ error[E0136]@356..365: impl methods take their signature from the trait
 error[E0136]@366..373: impl methods take their signature from the trait
 error[E0136]@374..380: impl methods take their signature from the trait
 error[E0135]@393..399: this function needs a body
+error[E0137]@575..581: effect operations cannot have a `use` clause
+error[E0137]@621..638: effect operations cannot have a `use` clause

@@ -646,6 +646,43 @@ fn run() {  # 補．ConsoleLogger だけでは Clock が残る
     ));
 }
 
+/// 8.3 with と見えない効果の集合．with は引数の関数の見えない集合からは消さない．
+/// `use { Quiet, R }` と書き出せば，Quiet は with で消えて `-> () use R` で通る．
+/// 仕様の例は handler とエフェクトを同じ名前 Quiet で書いているが，同じ名前は名前解決で
+/// 重複になるので，handler を QuietHandler とした．
+#[test]
+fn spec_8_3_with_and_set_variables() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+effect Quiet {  # 補
+  fn hush() -> ()
+}
+
+effect Logger {  # 補
+  fn info(msg: String) -> ()
+}
+
+handler QuietHandler implements Quiet {  # 補
+  fn hush() { () }
+}
+
+fn run_hidden(f: fn() -> ()) { with QuietHandler { f() } }  # 補．仕様の `run(f: fn() -> ())`
+
+fn run[R](f: fn() -> () use { Quiet, R }) -> () use R {
+  with QuietHandler { f() }      # R は R だけ。Quiet は消える
+}
+
+fn callers() {  # 補
+  a = run(fn() {
+    (use Quiet).hush()
+    (use Logger).info("x")
+  })
+  b = run_hidden(fn() { (use Quiet).hush() })
+}
+"#
+    ));
+}
+
 /// 9.2 `fn(A) -> B use {}` は効果を持たない関数だけを受け取る．省略すれば何でもよく，呼んだ側の R に加わる．
 #[test]
 fn spec_9_2_effect_free_parameter() {

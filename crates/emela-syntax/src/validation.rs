@@ -36,6 +36,16 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             DiagnosticCode::MissingExternal,
             "a type without fields must be `@external`",
         ),
+        OP_SIG => {
+            if let Some(clause) = child_kind(node, USE_CLAUSE) {
+                error(
+                    out,
+                    clause.text_range(),
+                    DiagnosticCode::UseOnEffectOp,
+                    "effect operations cannot have a `use` clause",
+                );
+            }
+        }
         ENUM_DECL => {
             if let Some(list) = child_kind(node, VARIANT_LIST)
                 && child_kind(&list, VARIANT).is_none()

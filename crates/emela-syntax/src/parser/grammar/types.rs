@@ -151,8 +151,10 @@ fn error_set(p: &mut Parser<'_>) {
     m.complete(p, ERROR_SET);
 }
 
-/// `"{" [ type_ref { "," type_ref } ] "}" | type_ref | upper_name`
+/// `"{" [ effect_item { "," effect_item } ] "}" | type_ref | upper_name`．
+/// `effect_item = type_ref | upper_name`
 ///
+/// エフェクト（`Quiet`）と集合の型引数（`R`）を混ぜてよい（`{ Quiet, R }`，8.3）．
 /// 波括弧の中の改行は区切りとして字句に残るので，ここで読み飛ばす．
 fn effect_set(p: &mut Parser<'_>) {
     let m = p.start();

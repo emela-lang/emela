@@ -115,7 +115,7 @@ fn fn_signature(
 
 /// effect の操作の型とラベル（8.1）．宣言の中なので，引数の関数型の `fails` と `use` を
 /// 省略すれば空（9.2）．操作の `fails` 節はその操作の E．操作の型の R は空で，能力の値を通して
-/// 呼ぶときにそのエフェクトを足す．操作に `use` 節は書けない（「まだ扱えない」）．
+/// 呼ぶときにそのエフェクトを足す．操作に `use` 節は書けない（構文の段の E0137）．
 fn op_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -144,14 +144,7 @@ fn op_signature(
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
-    if let Some(uses) = &sig.uses {
-        diags.push(Diagnostic {
-            span: Some(uses.span),
-            kind: DiagnosticKind::Unsupported {
-                what: "`use` clauses on effect operations",
-            },
-        });
-    }
+    // 操作の `use` 節は構文の段の E0137（8.1）．ここでは読まない．
     Signature {
         scheme: Scheme::mono(Ty::func_fails(params, ret, fails)),
         labels: param_labels(program, &sig.params),
