@@ -408,8 +408,22 @@ impl Diagnostic {
     /// lowering の誤り．型検査は通ったが Core IR にまだできない箇所．文面は型検査の
     /// `Unsupported` と同じ．位置の引き方は [`Diagnostic::from_type`] と同じ．
     pub fn from_lower(error: &emela_core::LowerError, files: &ArenaMap<ModuleId, FileId>) -> Self {
-        let emela_core::LowerError::Unsupported { what, span } = error;
-        let diagnostic = Diagnostic::error(format!("not supported yet: {what}"));
+        let (diagnostic, span) = match error {
+            emela_core::LowerError::Unsupported { what, span } => (
+                Diagnostic::error(format!("not supported yet: {what}")),
+                span,
+            ),
+            emela_core::LowerError::MissingExternal { name, target, span } => (
+                Diagnostic::error(format!(
+                    "external function `{name}` has no `@external` for target `{target}`"
+                ))
+                .with_code(code::MISSING_EXTERNAL_TARGET)
+                .with_help(format!(
+                    "add `@external({target}, ...)`, or avoid calling it from the entry"
+                )),
+                span,
+            ),
+        };
         match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
             Some(span) => diagnostic.with_span(span),
             None => diagnostic,

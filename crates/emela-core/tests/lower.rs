@@ -77,12 +77,20 @@ fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>
         sources: texts.clone(),
         entry,
         tests: Vec::new(),
+        paths: Default::default(),
+        target: None,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
     lowered.map_err(|errors| {
         errors
             .iter()
-            .map(|LowerError::Unsupported { what, span }| {
+            .map(|e| {
+                let (what, span) = match e {
+                    LowerError::Unsupported { what, span } => (what.clone(), span),
+                    LowerError::MissingExternal { name, target, span } => {
+                        (format!("missing {target} external {name}"), span)
+                    }
+                };
                 let Some(span) = span else {
                     return format!("<no span> {what}");
                 };
@@ -299,7 +307,11 @@ fn show_any[A](x: A) -> String {
 fn every_core_function_lowers() {
     let m = try_lower(&[("main.emel", "fn main() { 0 }\n")], Roots::All)
         .unwrap_or_else(|errors| panic!("{}", errors.join("\n")));
-    assert!(fn_names(&m).contains(&"List.map"));
+    let names = fn_names(&m);
+    assert!(names.contains(&"List.map"));
+    // handler と外部関数も写す（同梱の JsConsole）．
+    assert!(names.contains(&"JsConsole.JsConsole"));
+    assert!(names.contains(&"JsConsole.console_log"));
 }
 
 #[test]
@@ -488,4 +500,108 @@ fn pure(n: Int) -> Int {
         })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// use，with，handler，能力の値の操作（8.2〜8.4）．R が空でない関数とラムダは証拠の表を最後の
+/// 引数に受け，with は表を延ばす．同じ with の Clock が Stamp の依存を満たす．
+#[test]
+fn effects_and_handlers() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+error Late
+
+effect Clock {
+  fn now() -> Int
+}
+
+effect Stamp {
+  fn stamp(s: String) -> String fails Late
+}
+
+handler Fixed implements Clock {
+  fn now() { 42 }
+}
+
+handler ClockStamp implements Stamp {
+  fn stamp(s) {
+    t = (use Clock).now()
+    if t > 100 { fail Late }
+    \"#{s}@#{t}\"
+  }
+}
+
+fn stamped(s: String) {
+  (use Stamp).stamp(s)
+}
+
+fn apply(f: fn() -> Int) -> Int {
+  f()
+}
+
+fn main() {
+  with Fixed, ClockStamp {
+    clock = use Clock
+    dbg(stamped(\"a\") escape { Late -> \"late\" })
+    dbg(apply(fn() { clock.now() + (use Clock).now() }))
+    dbg(List.map([1], fn(x) { x + (use Clock).now() }))
+    f = clock.now
+    dbg(f())
+  }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            [
+                "fn main(",
+                "fn stamped(",
+                "fn apply(",
+                "fn Fixed(",
+                "fn ClockStamp(",
+                "effect ",
+            ]
+            .iter()
+            .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// 外部関数（12章）．ファイルを指すモジュールはソースの隣のパスに直す．
+#[test]
+fn external_functions() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Host {
+  fn get() -> String
+}
+
+@external(js, \"./ffi.mjs\", \"get\")
+@external(wasm, \"env\", \"get\")
+fn host_get() -> String
+
+handler JsHost implements Host {
+  fn get() { host_get() }
+}
+
+fn main() {
+  with JsHost { dbg((use Host).get()) }
+}
+",
+    )]);
+    let out = dump(&m);
+    let ext: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| f.contains("external fn host_get"))
+        .collect();
+    assert_eq!(ext.len(), 1, "{out}");
+    // テストのソースはパスを持たないので，ファイルの指定はそのまま．
+    assert_eq!(
+        ext[0].trim(),
+        "external fn host_get() = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
+    );
 }

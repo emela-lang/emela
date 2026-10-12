@@ -50,16 +50,16 @@
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
 | `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
 
-## Console（`console.emel`，保留中）
+## Console（`console.emel`）
 
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．型推論が use と with を扱えるまで読み込まない．
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
 
 | 操作 | シグネチャ | 説明 |
 |---|---|---|
 | `print_line` | `fn print_line(text: String) -> ()` | `text` と改行を標準出力に書く |
 | `print_error_line` | `fn print_error_line(text: String) -> ()` | `text` と改行を標準エラーに書く |
 
-## JsConsole（`js_console.emel`，保留中）
+## JsConsole（`js_console.emel`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|

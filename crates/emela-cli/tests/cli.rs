@@ -412,3 +412,52 @@ fn run_reports_unhandled_error_with_exit_code_1() {
         (Some(1), "", "0\nerror: NotFound(id: -1)\n")
     );
 }
+
+#[test]
+fn run_hello_example() {
+    // README の例（`examples/hello`）．Console を JsConsole で供給する（8.3，15.2）．
+    let project = Project::new(
+        "hello",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/hello/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "hi\nHello, Emela!\nHello, world!\n", "done\n")
+    );
+}
+
+#[test]
+fn run_calls_external_module_next_to_the_source() {
+    // ファイルを指す `@external` は宣言を含むソースの隣のファイル（12.1）．投げた例外は defect，
+    // 受け取った文字列の対になっていないサロゲートは置換文字になる（12.5）．
+    let project = Project::new(
+        "ffi",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/host/ffi.mjs",
+                "export function lone() { return \"a\\uD800\"; }\nexport function boom() { throw new TypeError(\"bad\"); }\n",
+            ),
+            (
+                "src/host/host.emel",
+                "pub effect Host {\n  fn lone() -> String\n  fn boom() -> ()\n}\n\n@external(js, \"./ffi.mjs\", \"lone\")\nfn js_lone() -> String\n\n@external(js, \"./ffi.mjs\", \"boom\")\nfn js_boom() -> ()\n\npub handler NodeHost implements Host {\n  fn lone() { js_lone() }\n  fn boom() { js_boom() }\n}\n",
+            ),
+            (
+                "src/main.emel",
+                "import Host.Host.{Host, NodeHost}\n\nfn main() {\n  with NodeHost {\n    h = use Host\n    dbg(String.code_points(h.lone()))\n    h.boom()\n  }\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(101), "", "[97, 65533]\ndefect: TypeError: bad\n")
+    );
+}

@@ -2,7 +2,8 @@
 //!
 //! 見た目は Emela に寄せるが，ソースと取り違えないように Emela にない印を付ける
 //! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`，
-//! 失敗しうる呼び出しの後ろの `?`，error の enum の `error enum`）．
+//! 失敗しうる呼び出しの後ろの `?`，error の enum の `error enum`，証拠の表の `use[X](ctx)` と
+//! `provide(..)`，操作の呼び出しの `h.X#op(..)`）．
 //! IR が区別していることは全部書き分ける．読み戻すことは考えない．
 //!
 //! ```text
@@ -35,11 +36,30 @@ pub fn dump(m: &Module) -> String {
         p.enum_def(def);
         p.out.push('\n');
     }
+    for (_, def) in m.effects.iter() {
+        writeln!(p.out, "effect {} {{ {} }}\n", def.name, def.ops.join(", ")).unwrap();
+    }
     for (_, f) in m.functions.iter() {
         if f.exported {
             p.out.push_str("export ");
         }
         let params: Vec<String> = f.params.iter().map(|&l| p.local(l)).collect();
+        if let Some(ext) = &f.external {
+            let bindings: Vec<String> = ext
+                .bindings
+                .iter()
+                .map(|b| format!("{}{:?}", b.target, b.args))
+                .collect();
+            writeln!(
+                p.out,
+                "external fn {}({}) = {}\n",
+                f.name,
+                params.join(", "),
+                bindings.join(" ")
+            )
+            .unwrap();
+            continue;
+        }
         write!(p.out, "fn {}({}) ", f.name, params.join(", ")).unwrap();
         p.braced(&f.body);
         p.out.push_str("\n\n");
@@ -170,6 +190,16 @@ impl Printer<'_> {
                         self.out.push('(');
                         self.expr(f);
                         self.out.push(')');
+                    }
+                    // 操作は `ハンドラ.エフェクト#操作` と書く．
+                    Callee::Op {
+                        handler,
+                        effect,
+                        op,
+                    } => {
+                        self.atom(handler);
+                        let def = &self.m.effects[*effect];
+                        write!(self.out, ".{}#{}", def.name, def.ops[*op]).unwrap();
                     }
                 }
                 self.out.push('(');
@@ -347,6 +377,49 @@ impl Printer<'_> {
                 self.indent -= 1;
                 self.newline();
                 self.out.push('}');
+            }
+            Expr::Use { ctx, effect } => {
+                write!(self.out, "use[{}](", self.m.effects[*effect].name).unwrap();
+                self.expr(ctx);
+                self.out.push(')');
+            }
+            Expr::Provide { base, bindings } => {
+                self.out.push_str("provide(");
+                if let Some(b) = base {
+                    self.expr(b);
+                }
+                self.out.push(';');
+                for (effect, h) in bindings {
+                    write!(self.out, " {} = ", self.m.effects[*effect].name).unwrap();
+                    self.expr(h);
+                }
+                self.out.push(')');
+            }
+            Expr::Handler { effect, ops } => {
+                let def = &self.m.effects[*effect];
+                write!(self.out, "handler {} {{", def.name).unwrap();
+                self.indent += 1;
+                for (name, op) in def.ops.iter().zip(ops) {
+                    self.newline();
+                    write!(self.out, "{name}: ").unwrap();
+                    self.expr(op);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.out.push('}');
+            }
+            Expr::With { binds, body } => {
+                self.out.push_str("with {");
+                self.indent += 1;
+                for (var, value) in binds {
+                    self.newline();
+                    write!(self.out, "let {} = ", self.local(*var)).unwrap();
+                    self.expr(value);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.out.push_str("} ");
+                self.braced(body);
             }
         }
     }

@@ -75,6 +75,8 @@ pub const CAPABILITY_ARGUMENT: &str = "E0408";
 pub const CAPABILITY_IN_DATA: &str = "E0409";
 pub const CAPABILITY_RETURNED: &str = "E0410";
 pub const HANDLER_CYCLE: &str = "E0411";
+// 外部関数（12.1）．effect と同じく副作用の経路なので E04xx に置く（E05xx〜E08xx は予約）．
+pub const MISSING_EXTERNAL_TARGET: &str = "E0412";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

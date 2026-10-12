@@ -15,7 +15,7 @@
 - （補）自己末尾呼び出しのループ化は `Expr::Loop` / `Expr::Recur` を作る．ループの変数は引数とは別の新しい `Local` にして回ごとに束縛し，ラムダが捕捉した値が後の回に書き換わらないようにする．
 - （補）末尾位置として辿るのは `let` の本体，`if` の両枝，match の腕の本体，`&&` / `||` の右辺．右辺に自己末尾呼び出しがある `a && b` は `if a then b else false`，`a || b` は `if a then true else b` に脱糖してから `Recur` にする（仕様 6.8 の末尾位置の定義に反映済み）．呼び出しの引数の数が引数の数と違うものは対象外．ラムダの中の呼び出しは対象外．
 - （補）エラーとエフェクトを足すとき，escape の対象の中と with の本体の中は末尾位置にしない（仕様 6.8 に反映済み）．
-- （補）エフェクトは後で `Expr` のバリアントを足して入れる．エラーは下の「エラー」の節．
+- （補）エラーとエフェクトは下の「エラー」と「エフェクト」の節．
 
 - （補）`assert`（13.2）は `Expr::Assert` で持つ．比較の形（`AssertCond::Compare`: 演算子，`OpTy`，両辺の型 `Type`，両辺）と，比較でない形（`AssertCond::Bool`）に分け，ソースの式の字面 `text` を添える．値は `()`．両辺の型は表示関数を作るのに使う
 
@@ -60,39 +60,14 @@
 
 ## Console（`console.emel`，`js_console.emel`）
 
-alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決めている（15.2）ので，名前と数はここで決めた．
+alpha.2 で同梱した（2026-10-12）．仕様は構成だけを決めている（15.2）ので，名前と数はここで決めた．
 
 - （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書く．`fails` は書かない（失敗しない）．改行なしの `print` と入力の読み取りは，要るときに足す．
 - （補）エフェクトはモジュール `Console`（`console.emel`），JS 用のハンドラはモジュール `JsConsole`（`js_console.emel`）に置き，ハンドラの名前もモジュールと同じ `JsConsole` にする．ターゲットの名前を前に付ける（WASI 用は `WasiConsole` にする）．名前が1区切りの core のモジュールは，型の位置の名前をモジュールと同じ名前の型に解決する（4.6）ので，利用者は import なしで `with JsConsole { (use Console).print_line("hi") }` と書ける．ターゲットごとの layer（15.2）は，layer を入れるときに別のモジュールで決める．
 - （補）`JsConsole` は `import Console.{Console}` でエフェクトを取り込む．core のモジュールが別の core のモジュールを import する初めての例．
+- （補）`Console` と `JsConsole` を同梱したので，ソースのルート直下の `console.emel` と `js_console.emel` は予約名（E0203）になる（仕様 4.1，15.2．本人の決定）．
+- （補）WASM のビルドで `JsConsole` を読んでも，使わなければ誤りにならない（12.1 の「たどれる fn だけ検査」．下の「外部関数」）．
 - （補）ホストの関数（`console_log` は `console.log`，`console_error` は `console.error`）は `JsConsole` の中の非公開の `@external(js, ...)` の fn にし，`use` を書かない（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）．ハンドラは状態を持たない（フィールド，init，release なし）．
-
-## 保留中のソース（`sources.rs` の `STAGED`）
-
-型推論は E（`fail`，`escape`）と R（`use`，`with`，handler，`@external`）を扱えるようになった．同梱の core は全プログラムで lowering されうるが，lowering と JS の出力はまだ `use`，`with`，handler を「まだ扱えない」にする．また下の「有効にするときに決めること」が残っている．そこで次の2つは `STAGED` に置き，同梱の読み込みから外したままにしている．`Option.or_fail` も E が入るまでここにあった（手順の1で同梱した）．
-
-| モジュール | ソース | 要るもの |
-|---|---|---|
-| `Console` | `lib/console.emel` | R（effect の宣言） |
-| `JsConsole` | `lib/js_console.emel` | R（handler，`@external`） |
-
-- （補）`staged_core_sources()` は `core_sources()` に `STAGED` を足したものを返す．同じ名前のモジュールはソースの後ろにつなぎ，ないモジュールは後ろに足す．driver の `CoreSource::staged()` がこれを `Resolve::with_core` に渡す形にする．
-- 今確かめていること: 構文の誤りがない（`sources::tests::sources_parse_without_syntax_errors`），名前解決と型検査で診断が出ない（emela-driver の `tests/staged_core.rs` の `staged_core_resolves_cleanly` と `staged_core_typechecks_cleanly`．main から import なしで `Option.or_fail`，`use Console`，`with JsConsole` を使う）．
-- `Option.or_fail` を同梱した後も，`tests/staged_core.rs` の main は `Option.or_fail` を使ったまま（Console と一緒に動かす）．`or_fail` だけの実行は emela-driver の `tests/run.rs` の `errors_are_values_and_escape_recovers` で見る．
-- `#[ignore]` にしたテスト: `tests/staged_core.rs` の `staged_core_runs_on_node`（node で動かして標準出力 `alice\nno 1\n`，標準エラー `done\n`）．lowering と JS の出力が handler の evidence passing を扱えるまで．
-
-有効にする手順（`or_fail` は E が入った後，Console と JsConsole は R と lowering が入った後．別々に進めてよい）．
-
-1. （済み）`or_fail`: `lib/staged/option_or_fail.emel` の中身を `lib/option.emel` の末尾へ移し，冒頭のコメントの「保留中」の段落を消す．`STAGED` から `Option` の行を消し，ファイルを `trash` する．
-2. Console: `STAGED` の `Console` と `JsConsole` の行を `SOURCES` の末尾へ移す．
-3. `lib/README.md` の「保留中」の記述を消す．`sources::tests::staged_sources_extend_the_bundled_ones` を残りの `STAGED` に合わせる（空になったら `STAGED`，`staged_core_sources`，`CoreSource::staged` とこのテストを消す）．
-4. `tests/staged_core.rs` の `#[ignore]` を外し，`CoreSource::staged()` を使わない既定のフロントエンド（`Resolve::default()`，`Typecheck::default()`，`Lower::default()`）に替える．すべて有効にしたら，テストは `diagnostics.rs` と `run.rs` へ移してファイルを消す．
-5. 既存のテストで次を確かめる: emela-types の `core_sources_typecheck`，emela-core の `every_core_function_lowers`（`Roots::All` が handler の操作と `@external` の fn をどう扱うか），`intrinsics_match_the_table`（`@external` の fn は本体なしを許すようにしてある）．
-
-有効にするときに決めること．
-
-- `JsConsole` は `@external(js, ...)` しか持たない．ビルド対象のターゲットに対応する注釈がなければエラー（12.1）なので，WASM のビルドで `JsConsole` を読むとエラーになりうる．ターゲットに合わないハンドラのモジュールは読まないか，注釈の検査を使われる fn に限る必要がある．
-- `Console` と `JsConsole` を同梱すると，ソースのルート直下の `console.emel` と `js_console.emel` は予約名（E0203）になり，そういうファイルを持つ既存のプログラムが壊れる．
 
 ## lowering（`lower.rs`）
 
@@ -106,14 +81,14 @@ alpha.2 の core の下準備（2026-10-12）．仕様は構成だけを決め�
 - （補）HIR の `LocalId` はプログラム全体で一意なので，IR の `Local` へ表で1対1に写す．添字は使い回さない．IR の側では名前付き引数の並べ替えやループ化で `Local` が増える．
 - （補）`lower` は `LowerInput`（HIR，型検査の結果，モジュール名の表，モジュールのソース，エントリ）と根（`Roots`）を受け，`Result<Module, Vec<LowerError>>` を返す．型検査を通っても IR にできない場面（汎用の fn の中での型引数の値の補間など）を「まだ扱えない」の診断にする．見つけた分を全部集める．driver が `Diagnostic` に写す．ソースは assert の失敗に出す式の字面を切り出すのに使う．
 - （補）`error` の宣言も IR の enum にする（構成子1つ，型引数なし）．type と同じく同じ名前の型と構成子を定義し，普通の値として扱える（7.1）．error の構成子は宣言の `DefId` そのもの．
-- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．能力の値の型（`Ty::Cap`）も今は `Type::Unit` にする．`use`，`with`，能力の値の操作は「まだ扱えない」なので，誤りのないプログラムの IR には現れない．表現は handler の evidence passing の段で決める．
+- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．能力の値の型（`Ty::Cap`）は `Type::Fn`（表示も比較もできない値）にする．
 - （補）JS で export するのは，エントリのモジュールの `pub` の fn と `main`（`emela run` の起動用モジュールが `entry.main` を呼ぶ）．
 - （補）呼び出しの引数は，型検査が並べ直した仮引数の順（`ProgramTypes::calls`）から各引数の位置を引き，`named::in_written_order` で書かれた順に評価する．呼ばれる側が変数か関数でない式なら，引数より先に `let` で束縛する．パイプ `x |> f(a)` は左辺を先頭の引数とする呼び出しとして写す．
 - （補）`@intrinsic` の fn の呼び出しは `Expr::Builtin` にする．型引数は `ProgramTypes::type_args` から引く．`@intrinsic` の fn とフィールドのある構成子を値として使うとき（`List.map(xs, String.length)`，`List.map(xs, Some)`）は，それを呼ぶだけのラムダで包む（`fn(x) { Some(x) }`）．引数の数は参照の式の型（関数型）から取る．
 - （補）ブロックの文は `let` の入れ子にする．値を使わない文と `_ = e` は，捨てる用の新しい局所変数（`_`）に束縛する．変数と `_` でないパターンの束縛（`(a, b) = pair`）は腕1つの match にして，残りの文を腕の本体に入れる．必ず成功することは型検査が確かめてある（E0317）．
 - （補）パターンの `True` / `False` は `Pat::Lit(Lit::Bool)`，`()` は `Pat::Lit(Lit::Unit)`．構成子のパターンのフィールドは `ProgramTypes::pat_fields`（位置の順，省いたものは `None`）から引き，`None` を `Pat::Wild` で埋める．括弧のない構成子のパターン（`Empty`）は表にないので，フィールドの数だけ `Wild` を並べる．const のパターンは const の式を扱うまで `Unsupported`．
 - （補）演算子の `OpTy` は左辺の型から決める．`==` / `!=` で基本型でなければ `Structural`．大小比較で基本型でなければ（Ord）`Unsupported`．
-- （補）フィールドの参照は，値の型（type か error．構成子は1つ）の構成子と，型検査が引いた添字（`ProgramTypes::fields`）で `Expr::Field` にする．表にないフィールドの参照は能力の操作（`log.info`）で，エフェクトの段まで `Unsupported`．
+- （補）フィールドの参照は，値の型（type か error．構成子は1つ）の構成子と，型検査が引いた添字（`ProgramTypes::fields`）で `Expr::Field` にする．表にないフィールドの参照は能力の操作（`log.info`，`ProgramTypes::ops`）で，下の「エフェクト」の節．
 - （補）部分更新 `C(f: e, ..base)` は，書いたフィールドを書かれた順に評価して（リテラル・変数・関数・ラムダ以外は `let` で束縛して），`..base` を最後に評価して束縛する（14.1）．書いていないフィールドは `base` の `Expr::Field` で埋めて `Expr::Ctor` を作る．
 - （補）補間は `Expr::Concat` にし，埋め込む値に IR の型を付ける．型が型引数（`Type::Param`）か関数を含むと表示関数を作れないので `Unsupported`（型引数は Show の辞書渡しか単相化が要るので 0.21，関数は表示できない（10.6）が Show の検査は Trait の段まで型検査にない）．
 - （補）const は引数のない関数にして，参照のたびに呼ぶ（`LIMIT` → `LIMIT()`）．値は純粋な式（5.6）なので結果は同じ．使う場所に式を埋め込まないのは，const の式の中の局所変数を2回束縛することになるため．1回だけ計算する形は，IR に「モジュールの値」を足すときに最適化として入れる．const は export しない．
@@ -133,3 +108,28 @@ alpha.2 の lowering（2026-10-12）．失敗は戻り値として返す（16.5�
 - （補）腕に書かれた error なのに，どの腕のパターンとガードにも合わない（`NotFound(id: 1)` の腕に `NotFound(id: 2)` が来た）ときも，腕に書かれていない error と同じく外側へ伝える（7.3，18.1 #20）．型検査は腕がその error の値をすべて受けるときだけ E から消すので，合わない値が来うる error は E に残っている．網羅している error では起きない．IR には網羅したかどうかを持たせない．
 - （補）escape の対象は末尾位置でない（6.8）．`tail.rs` は escape の中（対象も腕も）を辿らない．失敗しうる自己末尾呼び出し（`fails` が真）はループにする．末尾位置の呼び出しの失敗はそのまま呼び出し元へ伝わるので，ループの次の回で失敗しても同じ結果になる．
 - （補）ダンプでは失敗しうる呼び出しの後ろに `?`，error の enum の前に `error` を付ける（`error enum NotFound { … }`）．
+
+## エフェクト（8章，16.5）
+
+alpha.2 の lowering（2026-10-12）．ハンドラは引数で渡して直接呼ぶ（evidence passing，16.5）．状態を持つ handler（フィールド，init，release），layer，suspend，capture set は範囲外で，型検査の「まだ扱えない」のまま（lowering に来ても `Unsupported` にして panic しない）．
+
+- （補）証拠の表（evidence）は，エフェクトからハンドラの値への表．宣言の型の R が空でない fn と，型の R が空でないラムダは，証拠の表を最後の引数（`ev`）に受ける．R が空の関数の IR と出力は変わらない．R が見えない集合（`R(f)`）や汎化した集合だけの関数（`List.map`）も受ける（引数の関数へ渡すため）．
+- （補）表は1つの値で渡す（エフェクトごとの引数にしない）．`List.map` のように中身の分からない R の関数を呼ぶ側は，どのエフェクトが要るか分からないので，今の表をまるごと渡す．
+- （補）直接の呼び出しは，呼ばれる fn が表を受けるなら今の表を渡す．関数の値の呼び出しは，呼ばれる側の式の型の R が空でなければ渡す．R が空の関数の値に表を渡しても無視される（JS）．今の表がない所（R が空の関数の中）では `()` を渡す．型検査が R を確かめてあるので，そのとき呼ばれる側は表を使わない．
+- （補）`use X` は，同じ関数（トップレベルの fn か handler の操作）の中で X を供給する最も内側の with のハンドラを直接指す（8.3）．なければ今の証拠の表から引く（`Expr::Use`）．
+- （補）ラムダの中の `use X` も，ラムダを囲む with（同じ関数の中のもの）を先に見る．なければラムダの呼び出し元から渡された表から引く．仕様 8.3 の「同じ関数に該当する with がなければ呼び出し元から」の「関数」を，囲む with についてはトップレベルの fn，表についてはラムダと読んだ．型検査はラムダの本体の R をラムダの型に閉じ込める（囲む関数の R に足さない）ので，囲む関数の表は X を持っているとは限らず，ラムダの呼び出し元から受けるしかない．ラムダの中で使う表は，受けた表に囲む with の束縛を足したもの．
+- （補）`with H1, ..., Hn { e }` は `Expr::With`．ハンドラの値を依存の順に作り（ハンドラごとの関数を呼ぶ），今の表に供給するエフェクトを足した新しい表（`Expr::Provide`）で本体を評価する．同じエフェクトは後ろが優先．本体が表を使わないとき（`use` が with のハンドラを直接指すだけ）は表を作らない．`With` の本体は末尾位置でない（6.8，`tail.rs` は辿らない）．
+- （補）ハンドラの依存（`ProgramTypes::handler_uses`）は，同じ with の別のエフェクトを供給するハンドラ（同じエフェクトが複数なら後ろのもの）が満たし，残りと自分のエフェクトへの依存は外側の表が満たす（8.3，14.2）．依存のあるハンドラの関数は，それを足した表を引数に受ける．循環は型検査が E0411 にしてある．
+- （補）状態を持たない handler は，ハンドラの値（`Expr::Handler`．操作は宣言の順のラムダ）を返す IR の関数にする．名前は handler の IR の名前（`JsConsole.JsConsole`）．操作の本体は証拠の表を受けない（効果は with の位置で決まっている）．操作の本体の失敗は，ラムダの失敗と同じく操作の呼び出し元へ戻り値で返る．
+- （補）能力の値はハンドラの値そのもの．外側で取り出した能力の値は変数に入っているので，内側の with で上書きされても外側のハンドラを指す（8.3）．能力を捕まえたクロージャ（8.2 の `copy`）も変数を捕まえるだけ．
+- （補）操作の呼び出し `log.info(x)` は `Callee::Op`（ハンドラの値，エフェクト，操作の添字）．`fails` は操作の型の E で決める．操作を呼ばずに値として使う（`f = log.info`）ときは，能力の値をその場で評価して束縛し，操作を呼ぶだけのラムダにする．
+- （補）IR のエフェクト（`EffectDef`）は使ったものだけを入れる．名前は IR の名前（`Console.Console`）で，証拠の表の鍵に使う．
+
+## 外部関数（12章）
+
+- （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
+- （補）ファイルを指すモジュール（`./` か `../` で始まる，引数が2つのときの1つ目）は，宣言を含むソースのディレクトリからの絶対パスに直す（12.1）．`.` と `..` は字面で畳む．パスは `LowerInput::paths`（driver がソースの表から渡す）．
+- （補）引数と戻り値の境界での扱い（`Boundary`）は型から決める．String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む（12.4，12.5）．
+- （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
+- （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
+- （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `JsConsole` を写せることを `every_core_function_lowers` で見る）．

@@ -16,12 +16,6 @@ const SOURCES: &[(&str, &str)] = &[
     ("Int", include_str!("../lib/int.emel")),
     ("Int64", include_str!("../lib/int64.emel")),
     ("Float", include_str!("../lib/float.emel")),
-];
-
-/// 型推論が `use`，`with` を扱えるまで，同梱の読み込みから外しているソース．
-/// モジュール名とソースの組．[`SOURCES`] にあるモジュールなら，そのソースの後ろにつなぐ．
-/// 有効にする手順は `NOTES.md` の「保留中のソース」．
-const STAGED: &[(&str, &str)] = &[
     ("Console", include_str!("../lib/console.emel")),
     ("JsConsole", include_str!("../lib/js_console.emel")),
 ];
@@ -29,20 +23,6 @@ const STAGED: &[(&str, &str)] = &[
 /// 同梱する Prelude と core のソースを，モジュール名とソースの組で返す．Prelude が先頭．
 pub fn core_sources() -> &'static [(&'static str, &'static str)] {
     SOURCES
-}
-
-/// [`core_sources`] に保留中のソースを足したもの．構文と名前解決の検査と，
-/// 有効にした後に通すテストで使う．同梱の読み込みには使わない．
-pub fn staged_core_sources() -> Vec<(&'static str, String)> {
-    let mut sources: Vec<(&str, String)> =
-        SOURCES.iter().map(|(m, s)| (*m, (*s).to_owned())).collect();
-    for (module, text) in STAGED {
-        match sources.iter_mut().find(|(m, _)| m == module) {
-            Some((_, source)) => source.push_str(text),
-            None => sources.push((module, (*text).to_owned())),
-        }
-    }
-    sources
 }
 
 /// モジュール名で同梱のソースを引く．
@@ -89,8 +69,7 @@ mod tests {
 
     #[test]
     fn sources_parse_without_syntax_errors() {
-        for (module, src) in staged_core_sources() {
-            let src = src.as_str();
+        for (module, src) in core_sources() {
             let parse = parse(src);
             let intrinsics: Vec<_> = fn_decls(src)
                 .into_iter()
@@ -162,17 +141,15 @@ mod tests {
     }
 
     #[test]
-    fn staged_sources_extend_the_bundled_ones() {
-        let staged = staged_core_sources();
-        let modules: Vec<_> = staged.iter().map(|(m, _)| *m).collect();
-        let bundled: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
-        assert_eq!(modules[..bundled.len()], bundled[..]);
-        assert_eq!(modules[bundled.len()..], ["Console", "JsConsole"]);
-        // 保留中のソースは同梱の読み込みに入れない．
-        assert_eq!(core_source("Console"), None);
-        assert_eq!(core_source("JsConsole"), None);
-        // `Option.or_fail` は E が入ったので同梱する．
+    fn console_is_bundled() {
+        let modules: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
+        assert_eq!(modules[modules.len() - 2..], ["Console", "JsConsole"]);
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
+        assert!(
+            core_source("JsConsole")
+                .unwrap()
+                .contains("pub handler JsConsole")
+        );
     }
 
     #[test]
