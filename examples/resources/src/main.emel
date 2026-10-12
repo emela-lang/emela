@@ -1,0 +1,55 @@
+# Handlers with state. `init` runs when a `with` is entered and builds the handler's
+# value; `release` runs when the `with` is left, however its body ends. A `layer`
+# names a bundle of handlers, and the compiler initializes them in the order their
+# dependencies need.
+
+effect Config {
+  fn prefix() -> String
+}
+
+effect Store {
+  fn get(key: String) -> String
+}
+
+handler EnvConfig implements Config {
+  fn prefix() { "v1" }
+}
+
+handler MemoryStore(prefix: String) implements Store {
+  init {
+    prefix = (use Config).prefix()
+    (use Console).print_line("open store #{prefix}")
+    MemoryStore(prefix:)
+  }
+
+  release {
+    (use Console).print_line("close store #{self.prefix}")
+  }
+
+  fn get(key) { "#{self.prefix}/#{key}" }
+}
+
+layer AppLive {
+  MemoryStore
+  EnvConfig
+}
+
+fn main() {
+  with JsConsole, AppLive {
+    store = use Store
+    (use Console).print_line(store.get("alice"))
+    (use Console).print_line(store.get("bob"))
+  }
+}
+
+# Handlers listed later replace the layer's handler for the same effect.
+handler TestConfig implements Config {
+  fn prefix() { "test" }
+}
+
+@test
+fn reads_through_the_store() {
+  with JsConsole, AppLive, TestConfig {
+    assert (use Store).get("alice") == "test/alice"
+  }
+}

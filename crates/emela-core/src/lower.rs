@@ -113,6 +113,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         ctors: ArenaMap::default(),
         locals: ArenaMap::default(),
         effects: ArenaMap::default(),
+        handler_parts: FxHashMap::default(),
         ev: None,
         bound: Vec::new(),
         paths: &input.paths,
@@ -202,6 +203,8 @@ struct Lowerer<'a> {
     locals: ArenaMap<LocalId, Local>,
     /// HIR の effect → IR のエフェクト．[`Lowerer::effect_id`] だけが足す．
     effects: ArenaMap<DefId, EffectId>,
+    /// 状態のある handler → init と release の IR の関数．[`Lowerer::handler_fns`] だけが足す．
+    handler_parts: FxHashMap<DefId, (FnId, Option<FnId>)>,
     /// 今の証拠の表（evidence passing，16.5）．R が空でない関数とラムダの最後の引数か，
     /// with で足した表．関数の外や R が空の関数では `None`．
     ev: Option<Local>,
@@ -319,6 +322,11 @@ impl<'a> Lowerer<'a> {
                         self.module.enums[id].error = true;
                         self.enums.insert(def, id);
                     }
+                    // 状態のあるハンドラの値（self）は，handler の構成子1つの enum（8.4）．
+                    Some(Item::Handler(h)) if is_stateful(h) => {
+                        let id = self.declare_enum(def, 0);
+                        self.enums.insert(def, id);
+                    }
                     _ => {}
                 }
             }
@@ -337,6 +345,7 @@ impl<'a> Lowerer<'a> {
                 Some(Item::Type(t)) => t.ctor.into_iter().collect(),
                 Some(Item::Enum(e)) => e.variants.clone(),
                 Some(Item::Error(_)) => vec![def],
+                Some(Item::Handler(h)) => h.ctor.into_iter().collect(),
                 _ => Vec::new(),
             };
             for (variant, ctor) in ctors.into_iter().enumerate() {
@@ -403,7 +412,11 @@ impl<'a> Lowerer<'a> {
             Ty::List(t) => Type::list(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
-                Type::Enum(self.enums[def], args.iter().map(|t| self.ty(t)).collect())
+                match self.enums.get(def) {
+                    Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
+                    // 状態を持たない handler の `self`．値は `()`（`Lowerer::path`）．
+                    None => Type::Unit,
+                }
             }
         }
     }
@@ -604,24 +617,27 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// 状態を持たないハンドラを，ハンドラの値を返す関数にする．依存（操作の本体の R，8.4）が
-    /// あれば，with の位置の証拠の表を引数に受ける．操作は宣言の順のラムダ．
+    /// handler を IR の関数にする（`define_fn` から呼ぶ）．返すのはハンドラの値を返す関数の引数と本体．
+    ///
+    /// 状態を持たないハンドラは，ハンドラの値（操作は宣言の順のラムダ）を返す関数．依存（操作の本体の
+    /// R，8.4）があれば，with の位置の証拠の表を最後の引数に受ける．
+    ///
+    /// 状態のあるハンドラ（フィールド，init，release のどれかを持つ，8.4）は3つの関数にする．
+    /// init の関数（`名前$init`）は状態（self）を返し，ハンドラの値を返す関数は状態を最初の引数に受けて
+    /// 操作のラムダに捕まえさせ，release の関数（`名前$release`）は状態を受けて release の本体を評価する．
+    /// 証拠の表は3つとも同じ表を最後の引数に受ける（依存(H) は init，release，操作の本体の R の和）．
     fn handler(&mut self, def: DefId) -> (Vec<Local>, Expr) {
         let hir = self.hir;
         let Some(Item::Handler(h)) = hir.item(def) else {
             unreachable!("handler の定義");
         };
         let span = hir.defs[def].span;
-        let stateful = !h.fields.is_empty() || h.init.is_some() || h.release.is_some();
         let Res::Def(effect) = h.effect else {
             return (
                 Vec::new(),
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
-        if stateful {
-            return (Vec::new(), self.unsupported_at("handlers with state", span));
-        }
         if has_type_params(hir, effect) {
             return (
                 Vec::new(),
@@ -629,13 +645,27 @@ impl<'a> Lowerer<'a> {
             );
         }
         let effect_id = self.effect_id(effect);
-        let mut params = Vec::new();
-        if self
+        let takes_ev = self
             .types
             .handler_uses
             .get(def)
-            .is_some_and(|r| self.row_needs_ev(r))
-        {
+            .is_some_and(|r| self.row_needs_ev(r));
+        let stateful = is_stateful(h);
+        if stateful {
+            self.handler_parts(def, h, takes_ev);
+        }
+
+        let mut params = Vec::new();
+        if stateful {
+            // 操作ごとの暗黙の self は，どれもこの引数を指す．
+            let state = self.module.local("self");
+            for op in &h.ops {
+                self.locals.insert(op.self_local, state);
+            }
+            params.push(state);
+        }
+        self.ev = None;
+        if takes_ev {
             let ev = self.module.local("ev");
             params.push(ev);
             self.ev = Some(ev);
@@ -695,25 +725,94 @@ impl<'a> Lowerer<'a> {
         )
     }
 
+    /// 状態のあるハンドラの init と release の関数の本体を写す．
+    fn handler_parts(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem, takes_ev: bool) {
+        let (init, release) = self.handler_fns(def);
+        let ev_param = |cx: &mut Self| {
+            cx.ev = None;
+            takes_ev.then(|| {
+                let ev = cx.module.local("ev");
+                cx.ev = Some(ev);
+                ev
+            })
+        };
+
+        // init の値がハンドラの状態．init のない（フィールドのない）ハンドラの状態は，構成子があれば
+        // その値（`ConsoleLogger`），なければ `()`．
+        let params: Vec<Local> = ev_param(self).into_iter().collect();
+        let body = match (h.init, h.ctor.and_then(|c| self.ctors.get(c).copied())) {
+            (Some(body), _) => self.expr(body),
+            (None, Some(ctor)) => Expr::Ctor {
+                ctor,
+                args: Vec::new(),
+            },
+            (None, None) => Expr::Lit(Lit::Unit),
+        };
+        self.module.define(init, params, body);
+
+        if let (Some(f), Some((self_local, body))) = (release, h.release) {
+            let state = self.local(self_local);
+            let mut params = vec![state];
+            params.extend(ev_param(self));
+            let body = self.expr(body);
+            self.module.define(f, params, body);
+        }
+    }
+
+    /// 状態のあるハンドラの init と release（あれば）の IR の関数．まだなければ宣言する．本体は
+    /// ハンドラの値を返す関数（`fn_id(def, 0)`）と一緒に `define_fn` で写す．
+    ///
+    /// 中断しうるかは本体の式の R で決める（init が `@external suspend fn` を待つなど）．
+    fn handler_fns(&mut self, def: DefId) -> (FnId, Option<FnId>) {
+        if let Some(&fns) = self.handler_parts.get(&def) {
+            return fns;
+        }
+        self.fn_id(def, 0);
+        let Some(Item::Handler(h)) = self.hir.item(def) else {
+            unreachable!("handler の定義");
+        };
+        let name = self.ir_name(def);
+        let suspends = |cx: &Self, body: ExprId| {
+            cx.types
+                .effects
+                .get(body)
+                .is_some_and(|r| r.tags().any(|t| !cx.is_immediate_effect(t.def)))
+        };
+        let init = self.module.declare(&format!("{name}$init"), false);
+        self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
+        let release = h.release.map(|(_, body)| {
+            let f = self.module.declare(&format!("{name}$release"), false);
+            self.module.functions[f].suspends = suspends(self, body);
+            f
+        });
+        self.handler_parts.insert(def, (init, release));
+        (init, release)
+    }
+
     /// `with H1, ..., Hn { body }`（8.3，14.2）．
     ///
-    /// ハンドラの値を依存の順に作り，今の証拠の表に供給するエフェクトを足した表で本体を評価する．
-    /// 同じエフェクトは後ろのハンドラが優先．ハンドラの依存は，同じ with の別のエフェクトを供給する
-    /// ハンドラ（同じエフェクトが複数なら後ろのもの）が満たし，残りと自分のエフェクトへの依存は
-    /// 外側の表が満たす．依存の循環は型検査が E0411 にしてある．
-    fn with(&mut self, handlers: &[(Res, Span)], body: ExprId) -> Expr {
+    /// ハンドラを型検査の決めた初期化の順（`ProgramTypes::with_handlers`．layer は展開し，後ろに
+    /// 並べたもので上書きされたハンドラは除いてある）に作り，今の証拠の表に供給するエフェクトを足した
+    /// 表で本体を評価する．ハンドラの依存は，同じ with の別のエフェクトを供給するハンドラが満たし，
+    /// 残りと自分のエフェクトへの依存は外側の表が満たす．依存の循環は型検査が E0411 にしてある．
+    ///
+    /// 状態のあるハンドラは，init の値（状態）を release のない束縛に，状態を受けて作ったハンドラの
+    /// 値を release のある束縛（`WithBind::managed`）にする．release の関数がなければ release は `()`．
+    fn with(&mut self, id: ExprId, handlers: &[(Res, Span)], body: ExprId, span: Span) -> Expr {
         let hir = self.hir;
+        let Some(order) = self.types.with_handlers.get(id) else {
+            return self.unsupported("with without handlers", span);
+        };
         // （handler，供給するエフェクト）．
         let mut hs: Vec<(DefId, DefId)> = Vec::new();
-        for &(res, span) in handlers {
-            let Res::Def(def) = res else {
-                return self.unsupported("unresolved handler", span);
-            };
+        for &def in order {
+            // 誤りはハンドラを書いた位置に出す．layer から展開したものは with の位置．
+            let span = handlers
+                .iter()
+                .find(|(res, _)| *res == Res::Def(def))
+                .map_or(span, |&(_, s)| s);
             match hir.item(def) {
                 Some(Item::Handler(h)) => {
-                    if !h.fields.is_empty() || h.init.is_some() || h.release.is_some() {
-                        return self.unsupported("handlers with state", span);
-                    }
                     let Res::Def(effect) = h.effect else {
                         return self.unsupported("handler of an unknown effect", span);
                     };
@@ -722,86 +821,99 @@ impl<'a> Lowerer<'a> {
                     }
                     hs.push((def, effect));
                 }
-                Some(Item::Layer(_)) => return self.unsupported("layer", span),
                 _ => return self.unsupported("this kind of handler", span),
             }
         }
-        // 各ハンドラの依存のうち，同じ with の別のハンドラが満たすもの（エフェクト，添字）．
-        let deps: Vec<Vec<(DefId, usize)>> = hs
-            .iter()
-            .map(|&(h, own)| {
-                let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
-                row.tags()
-                    .map(|t| t.def)
-                    .filter(|&y| y != own)
-                    .filter_map(|y| hs.iter().rposition(|&(_, e)| e == y).map(|j| (y, j)))
-                    .collect()
-            })
-            .collect();
-        // 依存が先に来る順．
-        let mut order = Vec::new();
-        let mut state = vec![0u8; hs.len()];
-        fn visit(i: usize, deps: &[Vec<(DefId, usize)>], state: &mut [u8], order: &mut Vec<usize>) {
-            if state[i] != 0 {
-                return;
-            }
-            state[i] = 1;
-            for &(_, j) in &deps[i] {
-                visit(j, deps, state, order);
-            }
-            state[i] = 2;
-            order.push(i);
-        }
-        for i in 0..hs.len() {
-            visit(i, &deps, &mut state, &mut order);
-        }
         let outer = self.ev;
-        let mut locals: Vec<Option<Local>> = vec![None; hs.len()];
+        let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
         let mut binds = Vec::new();
-        for i in order {
-            let (h, _) = hs[i];
+        for (i, &(h, own)) in hs.iter().enumerate() {
             let f = self.fn_id(h, 0);
-            let args = if self
+            let ctx = if self
                 .types
                 .handler_uses
                 .get(h)
                 .is_some_and(|r| self.row_needs_ev(r))
             {
-                let bindings: Vec<(EffectId, Expr)> = deps[i]
-                    .iter()
-                    .map(|&(y, j)| {
-                        let l = locals[j].expect("依存のハンドラを先に作ってある");
-                        (self.effect_id(y), Expr::Var(l))
+                // 依存のうち，同じ with の先に初期化した別のエフェクトのハンドラが満たすもの．
+                let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
+                let bindings: Vec<(EffectId, Expr)> = row
+                    .tags()
+                    .map(|t| t.def)
+                    .filter(|&y| y != own)
+                    .filter_map(|y| {
+                        let j = hs[..i].iter().position(|&(_, e)| e == y)?;
+                        Some((self.effect_id(y), Expr::Var(locals[j])))
                     })
                     .collect();
-                let ctx = if bindings.is_empty() {
+                Some(if bindings.is_empty() {
                     self.ev_arg()
                 } else {
                     Expr::Provide {
                         base: outer.map(|l| Box::new(Expr::Var(l))),
                         bindings,
                     }
-                };
-                vec![ctx]
+                })
             } else {
-                Vec::new()
+                None
             };
             let l = self.module.local("h");
-            locals[i] = Some(l);
+            locals.push(l);
+            let Some(Item::Handler(item)) = hir.item(h) else {
+                unreachable!("handler の定義");
+            };
+            if !is_stateful(item) {
+                binds.push(WithBind::new(
+                    l,
+                    direct(f, ctx.into_iter().collect(), false),
+                ));
+                continue;
+            }
+            // 状態のあるハンドラは表を3回使うので，変数に入れておく．
+            let ctx = ctx.map(|c| match c {
+                Expr::Var(_) | Expr::Lit(_) => c,
+                c => {
+                    let v = self.module.local("ev");
+                    binds.push(WithBind::new(v, c));
+                    Expr::Var(v)
+                }
+            });
+            let (init, release) = self.handler_fns(h);
+            let state = self.module.local("self");
+            let init_fails = self
+                .types
+                .handler_fails
+                .get(h)
+                .is_some_and(|r| !r.is_empty());
             binds.push(WithBind::new(
+                state,
+                direct_marked(
+                    &self.module,
+                    init,
+                    ctx.clone().into_iter().collect(),
+                    init_fails,
+                ),
+            ));
+            let with_state = |ctx: &Option<Expr>| {
+                std::iter::once(Expr::Var(state))
+                    .chain(ctx.clone())
+                    .collect::<Vec<_>>()
+            };
+            let release = match release {
+                Some(r) => direct_marked(&self.module, r, with_state(&ctx), false),
+                None => Expr::Lit(Lit::Unit),
+            };
+            binds.push(WithBind::managed(
                 l,
-                Expr::Call {
-                    callee: Callee::Direct(f),
-                    args,
-                    fails: false,
-                    suspends: false,
-                },
+                direct(f, with_state(&ctx), false),
+                &hir.defs[h].name,
+                release,
             ));
         }
         let ctx = self.module.local("ev");
         let depth = self.bound.len();
-        for (&(_, effect), l) in hs.iter().zip(&locals) {
-            self.bound.push((effect, l.unwrap()));
+        for (&(_, effect), &l) in hs.iter().zip(&locals) {
+            self.bound.push((effect, l));
         }
         self.ev = Some(ctx);
         let body = self.expr(body);
@@ -812,7 +924,7 @@ impl<'a> Lowerer<'a> {
             let bindings = hs
                 .iter()
                 .zip(&locals)
-                .map(|(&(_, effect), l)| (self.effect_id(effect), Expr::Var(l.unwrap())))
+                .map(|(&(_, effect), &l)| (self.effect_id(effect), Expr::Var(l)))
                 .collect();
             binds.push(WithBind::new(
                 ctx,
@@ -1106,7 +1218,7 @@ impl<'a> Lowerer<'a> {
             },
             ExprKind::Fail(inner) => Expr::Fail(Box::new(self.expr(*inner))),
             ExprKind::Use { effect, .. } => self.use_(*effect, e.span),
-            ExprKind::With { handlers, body } => self.with(handlers, *body),
+            ExprKind::With { handlers, body } => self.with(id, handlers, *body, e.span),
         }
     }
 
@@ -1133,9 +1245,12 @@ impl<'a> Lowerer<'a> {
     /// 呼び出しの外に出てくる名前の参照（値としての参照）．
     fn path(&mut self, id: ExprId, res: Res, span: Span) -> Expr {
         let def = match res {
-            // ハンドラの値の lowering はまだない（状態のあるハンドラと一緒に入れる）．
-            Res::Local(l) if self.hir.locals[l].kind == LocalKind::SelfParam => {
-                return self.unsupported("`self` in handlers", span);
+            // 状態を持たない handler の `self` は値を持たない（ハンドラの値を作る関数が受けない）．
+            Res::Local(l)
+                if self.hir.locals[l].kind == LocalKind::SelfParam
+                    && self.locals.get(l).is_none() =>
+            {
+                return Expr::Lit(Lit::Unit);
             }
             Res::Local(l) => return Expr::Var(self.local(l)),
             Res::Def(def) => def,
@@ -1449,7 +1564,7 @@ impl<'a> Lowerer<'a> {
         let ExprKind::Path(Res::Def(def)) = self.hir.exprs[ctor].kind else {
             unreachable!("部分更新の構成子は構成子の参照");
         };
-        // 表にないのは handler の構成子．handler は alpha.2．
+        // 構成子の表にはすべての構成子（状態のある handler のものも）がある．
         let Some(&ctor) = self.ctors.get(def) else {
             return self.unsupported("record update of this constructor", span);
         };
@@ -1726,6 +1841,31 @@ fn lib_relative(spec: &str) -> Option<String> {
         }
     }
     (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// 状態のあるハンドラか（フィールド，init，release のどれかを持つ，8.4，8.6）．
+fn is_stateful(h: &emela_resolve::hir::HandlerItem) -> bool {
+    !h.fields.is_empty() || h.init.is_some() || h.release.is_some()
+}
+
+/// 中断しない関数 `f` の直接の呼び出し．
+fn direct(f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
+    Expr::Call {
+        callee: Callee::Direct(f),
+        args,
+        fails,
+        suspends: false,
+    }
+}
+
+/// 関数 `f` の直接の呼び出し．中断しうるかは関数の印と同じにする．
+fn direct_marked(m: &Module, f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
+    Expr::Call {
+        callee: Callee::Direct(f),
+        args,
+        fails,
+        suspends: m.functions[f].suspends,
+    }
 }
 
 /// 式が局所変数 `l` を参照するか．

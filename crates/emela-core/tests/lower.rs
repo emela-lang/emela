@@ -590,6 +590,67 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// 状態のあるハンドラと layer（8.4，8.5，14.2）．状態のあるハンドラは init（`$init`），ハンドラの値を
+/// 作る関数（状態を最初の引数に受ける），release（`$release`）の3つの関数になる．with は layer を展開して
+/// 依存の順（Env，Pool）に並べ，init の値を release のない束縛に，ハンドラの値を release のある束縛に
+/// する．AppLive の Pool は後ろの Spare に上書きされるので初期化しない．
+#[test]
+fn stateful_handlers_and_layers() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+error Down
+
+effect Config {
+  fn url() -> String
+}
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+handler Env implements Config {
+  fn url() { \"db\" }
+}
+
+handler Pool(url: String, n: Int) implements Users {
+  init {
+    u = (use Config).url()
+    if u == \"\" { fail Down }
+    Pool(n: 1, ..Pool(url: u, n: 0))
+  }
+  release { dbg(self.url) }
+  fn find(id) { self.url }
+}
+
+handler Spare implements Users {
+  init { Spare }
+  fn find(id) { \"spare\" }
+}
+
+layer AppLive {
+  Pool
+  Env
+}
+
+fn main() {
+  dbg(with AppLive { (use Users).find(1) } escape { Down -> \"down\" })
+  with AppLive, Spare { dbg((use Users).find(2)) }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["fn main(", "Pool", "Spare", "fn Env("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// 外部関数（12章）．ファイルを指すモジュールはソースの隣のパスに直す．
 #[test]
 fn external_functions() {
