@@ -1,4 +1,5 @@
-//! 名前解決の診断．止まらずに全部集めて，呼び出し側へまとめて返す．
+//! Name-resolution diagnostics. Resolution does not stop at the first one; all are collected and
+//! returned together.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use smol_str::SmolStr;
 use crate::ModuleName;
 use crate::naming::NameError;
 
-/// 1件の診断．位置はファイルのパスと，分かるときはその中の範囲．
+/// `range` is the range within `file`, when known.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub file: PathBuf,
@@ -19,107 +20,109 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
-    /// ファイル名（拡張子を除く）が型名へ変換できない．
+    /// The file name (without extension) cannot be converted to a type name.
     InvalidFileName { name: String, error: NameError },
-    /// ディレクトリ名が型名へ変換できない．その下のファイルはモジュールにしない．
+    /// The directory name cannot be converted to a type name. Files under it do not become
+    /// modules.
     InvalidDirName { name: String, error: NameError },
-    /// 予約されたモジュール名（`Prelude`）をファイルが名乗っている．
+    /// A file claims a reserved module name (`Prelude`).
     ReservedModuleName { name: ModuleName },
-    /// 別のファイルが同じモジュール名になる．`first` が対応表に残った方．
+    /// Two files map to the same module name. `first` is the one kept in the module map.
     DuplicateModule { name: ModuleName, first: PathBuf },
-    /// import 先のモジュールがない．
+    /// The imported module does not exist.
     UndefinedModule { name: ModuleName },
-    /// import の循環．`modules` は循環を1周する列（最初のモジュールへ戻る辺は省く）．
+    /// `modules` goes around the cycle once (the edge back to the first module is omitted).
     ImportCycle { modules: Vec<ModuleName> },
-    /// ディレクトリを読めなかった．
+    /// A directory could not be read.
     Io { message: SmolStr },
-    /// 未定義の名前（E0211）．`expected` はどの位置で引いたか．
+    /// E0211. `expected` is the position the name was looked up in.
     UndefinedName {
         name: SmolStr,
         expected: Expected,
         suggestion: Option<SmolStr>,
     },
-    /// モジュール，Trait，エフェクトに，その名前の項目がない（E0212）．
-    /// import の一覧，`Module.f`，`Trait.f`，handler の操作，impl の関数で使う．
+    /// A module, trait or effect has no item with that name (E0212). Used for import lists,
+    /// `Module.f`, `Trait.f`, handler operations and impl functions.
     UndefinedMember {
         name: SmolStr,
         owner: SmolStr,
         owner_kind: &'static str,
         suggestion: Option<SmolStr>,
     },
-    /// 同じ名前空間での重複（E0213）．`first` は同じファイルの先の定義か import．
+    /// A duplicate in the same namespace (E0213). `first` is the earlier definition or import in
+    /// the same file.
     Duplicate {
         name: SmolStr,
         first: Option<TextRange>,
     },
-    /// pub でない定義を，他のモジュールから import するか修飾して参照した（E0214）．
+    /// A non-pub definition imported or referenced qualified from another module (E0214).
     Private { name: SmolStr, module: ModuleName },
-    /// opaque な型を定義モジュールの外で構築した（E0215）．
+    /// An opaque type constructed outside its defining module (E0215).
     OpaqueConstruction { name: SmolStr, module: ModuleName },
-    /// opaque な型を定義モジュールの外でパターンに書いた（E0216）．
+    /// An opaque type used in a pattern outside its defining module (E0216).
     OpaquePattern { name: SmolStr, module: ModuleName },
-    /// 名前は見つかったが，その位置に書けない種類だった（E0217）．
+    /// The name was found, but its kind cannot be written in that position (E0217).
     WrongKind {
         name: SmolStr,
         expected: Expected,
         found: &'static str,
     },
-    /// `.` の左の名前が，モジュールと Trait の両方を指す（E0218）．
+    /// The name left of `.` refers to both a module and a trait (E0218).
     Ambiguous { name: SmolStr },
-    /// `self` か `Self` を，使えない場所に書いた（E0219）．
+    /// `self` or `Self` where it cannot be used (E0219).
     SelfOutside { self_type: bool },
-    /// 型の位置にエフェクトの名前を書いた（E0221）．能力の値の型はソースに書けない（8.2）．
+    /// An effect name in a type position (E0221). The type of a capability value cannot be
+    /// written in source (spec 8.2).
     EffectAsType { name: SmolStr },
-    /// 1つのパターンか引数の並びで，同じ名前を2回束縛した（E0220）．
+    /// The same name bound twice in one pattern or parameter list (E0220).
     DuplicateBinding {
         name: SmolStr,
         first: Option<TextRange>,
     },
-    /// 部分更新 `C(f: e, ..r)` の呼び出し先が，構成子が1つのもの（type，error，フィールドの
-    /// ある handler）でない（E0222，5.3）．`found` は見つかった名前の種類．
+    /// The target of a record update `C(f: e, ..r)` is not something with a single constructor
+    /// (a type, an error, or a handler with fields) (E0222, spec 5.3). `found` is the kind of
+    /// name that was found.
     InvalidUpdateTarget {
         name: Option<SmolStr>,
         found: &'static str,
     },
-    /// 部分更新で，変えるフィールドを位置で書いた（E0223，5.3）．
+    /// A record update gives a changed field by position (E0223, spec 5.3).
     PositionalInUpdate,
-    /// `@intrinsic` を，コンパイラに同梱した core のソースの外で使った（E0224）．
+    /// `@intrinsic` used outside the core sources bundled with the compiler (E0224).
     IntrinsicOutsideCore,
-    /// `@intrinsic` を，本体のない fn 以外に付けた（E0225）．
+    /// `@intrinsic` on something other than an fn without a body (E0225).
     MisplacedIntrinsic,
-    /// 型名の型引数が，外側の同じ名前の型を隠す（W0201，2.3）．
+    /// A type parameter hides an outer type of the same name (W0201, spec 2.3).
     ShadowedByTypeParam { name: SmolStr },
-    /// モジュールの定義か import が，Prelude の同じ名前を隠す（W0202）．
+    /// A module definition or import hides a Prelude name of the same name (W0202).
     ShadowsPrelude { name: SmolStr },
 }
 
-/// 名前を引いた位置．診断の文面に使う．
+/// Where a name was looked up. Used in the diagnostic message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Expected {
-    /// 式の小文字名と大文字名（変数，関数，const）．
+    /// Lowercase and uppercase names in expressions (variables, functions, consts).
     Value,
-    /// 式とパターンの型名（構成子）．
+    /// Type names in expressions and patterns (constructors).
     Constructor,
-    /// 型の位置．
     Type,
-    /// 型の位置の大文字名．
+    /// Uppercase names in type positions.
     TypeParam,
-    /// `.` の左．
+    /// Left of `.`.
     ModuleOrTrait,
-    /// `use X`，`implements X`，`use` 節．
+    /// `use X`, `implements X`, the `use` clause.
     Effect,
-    /// `with H`，layer の中身．
+    /// `with H`, and the contents of a layer.
     HandlerOrLayer,
-    /// `fail e`，escape の腕，`fails` 節．
+    /// `fail e`, escape arms, the `fails` clause.
     Error,
-    /// 制約，derive，impl．
+    /// Constraints, derive, impl.
     Trait,
-    /// パターンの大文字名．
+    /// Uppercase names in patterns.
     Const,
 }
 
 impl Expected {
-    /// 英語の名前．
     pub fn describe(self) -> &'static str {
         match self {
             Expected::Value => "value",
@@ -152,7 +155,7 @@ impl Expected {
 }
 
 impl DiagnosticKind {
-    /// 警告か．警告でなければエラー．
+    /// Errors otherwise.
     pub fn is_warning(&self) -> bool {
         matches!(
             self,

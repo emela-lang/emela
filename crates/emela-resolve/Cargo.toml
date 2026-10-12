@@ -1,6 +1,6 @@
 [package]
 name = "emela-resolve"
-description = "モジュールの読み込み，import，名前解決，pub / opaque，命名規則の検査"
+description = "Module loading, imports, name resolution, pub / opaque, and naming-rule checks"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

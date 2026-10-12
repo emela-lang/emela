@@ -1,7 +1,7 @@
-//! ソースのルートから `.emel` ファイルを集め，モジュール名との対応表を作る（4章）．
+//! Collects `.emel` files under the source root and maps them to module names (spec chapter 4).
 //!
-//! 1つのファイルが1つのモジュールで，名前はルートからのパスで決まる．
-//! `src/http/client.emel` は `Http.Client`．ファイルシステムは [`SourceFs`] で差し替える．
+//! Each file is one module, named by its path from the root: `src/http/client.emel` is
+//! `Http.Client`. The file system is swappable through [`SourceFs`].
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -16,12 +16,11 @@ use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::naming::to_type_name;
 use crate::{ModuleName, PRELUDE};
 
-/// ソースファイルの拡張子．
 pub const EXTENSION: &str = "emel";
 
-/// ディレクトリの中身を読むだけの小さなファイルシステム．
+/// A minimal file system that only lists directories.
 pub trait SourceFs {
-    /// `dir` の直下の項目を返す．順序は問わない（呼び出し側で並べる）．
+    /// The entries directly under `dir`, in any order (the caller sorts them).
     fn read_dir(&self, dir: &Path) -> io::Result<Vec<DirEntry>>;
 }
 
@@ -31,7 +30,6 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
-/// 実際のファイルシステム．
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OsFs;
 
@@ -40,7 +38,7 @@ impl SourceFs for OsFs {
         std::fs::read_dir(dir)?
             .map(|entry| {
                 let entry = entry?;
-                // シンボリックリンクはたどった先の種類で判断する．
+                // Symlinks are classified by what they point to.
                 let is_dir = std::fs::metadata(entry.path())?.is_dir();
                 Ok(DirEntry {
                     name: entry.file_name(),
@@ -51,7 +49,7 @@ impl SourceFs for OsFs {
     }
 }
 
-/// メモリ上のファイル一覧．テストと，LSP の未保存バッファ向け．
+/// An in-memory file list, for tests and unsaved LSP buffers.
 #[derive(Debug, Default, Clone)]
 pub struct MemoryFs {
     files: BTreeSet<PathBuf>,
@@ -82,7 +80,7 @@ impl SourceFs for MemoryFs {
                 name: first.as_os_str().to_owned(),
                 is_dir: components.next().is_some(),
             };
-            // パスは区切りごとに比べて並ぶので，同じディレクトリの中身は隣り合う．
+            // Paths compare segment by segment, so entries of the same directory are adjacent.
             if entries.last() != Some(&entry) {
                 entries.push(entry);
             }
@@ -103,21 +101,20 @@ pub type ModuleId = Idx<ModuleData>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleData {
     pub name: ModuleName,
-    /// ルートを付けたファイルのパス．
+    /// The file path, including the root.
     pub file: PathBuf,
 }
 
-/// モジュール名とファイルの対応表．
 #[derive(Debug, Default, Clone)]
 pub struct ModuleMap {
     modules: Arena<ModuleData>,
     by_name: FxHashMap<ModuleName, ModuleId>,
-    /// コンパイラに同梱した core のモジュール（[`ModuleMap::add_core`]）．
+    /// Core modules bundled with the compiler ([`ModuleMap::add_core`]).
     core: Vec<ModuleId>,
 }
 
 impl ModuleMap {
-    /// import のパスからモジュールを引く．
+    /// Looks up a module by its import path.
     pub fn lookup(&self, name: &ModuleName) -> Option<ModuleId> {
         self.by_name.get(name).copied()
     }
@@ -130,16 +127,16 @@ impl ModuleMap {
         self.modules.is_empty()
     }
 
-    /// ファイルのパス順に並ぶ．
+    /// Ordered by file path.
     pub fn iter(&self) -> impl Iterator<Item = (ModuleId, &ModuleData)> {
         self.modules.iter()
     }
 
-    /// コンパイラに同梱した core のモジュール（`List`，`Option`，`Prelude` など）を足す．
-    /// `file` はソースの表に載せるための仮のパス．
+    /// Adds a core module bundled with the compiler (`List`, `Option`, `Prelude`, ...). `file` is
+    /// a placeholder path for the source table.
     ///
-    /// 同じ名前のソースのモジュールがあれば，名前は core の方を指すようにし，隠された
-    /// ソースのモジュールの診断（予約された名前）を返す．
+    /// If a source module has the same name, the name points to the core module instead, and a
+    /// reserved-name diagnostic is returned for the hidden source module.
     pub fn add_core(&mut self, name: ModuleName, file: PathBuf) -> (ModuleId, Option<Diagnostic>) {
         let shadowed = self.lookup(&name).map(|id| Diagnostic {
             file: self.modules[id].file.clone(),
@@ -151,7 +148,6 @@ impl ModuleMap {
         (id, shadowed)
     }
 
-    /// 同梱した core のモジュールか．
     pub fn is_core(&self, id: ModuleId) -> bool {
         self.core.contains(&id)
     }
@@ -172,7 +168,7 @@ impl std::ops::Index<ModuleId> for ModuleMap {
     }
 }
 
-/// `root` の下の `.emel` ファイルを集め，対応表を作る．診断は全部集める．
+/// Collects all diagnostics.
 pub fn collect_modules(fs: &dyn SourceFs, root: &Path) -> (ModuleMap, Vec<Diagnostic>) {
     let mut collector = Collector {
         fs,
@@ -188,7 +184,7 @@ struct Collector<'a> {
     fs: &'a dyn SourceFs,
     map: ModuleMap,
     diagnostics: Vec<Diagnostic>,
-    /// 小文字にしたパス → 最初に見たファイル．大文字小文字の違いだけのファイルを見つける．
+    /// Lowercased path → the first file seen. Finds files that differ only in case.
     by_lowercase: FxHashMap<String, PathBuf>,
 }
 
@@ -206,11 +202,11 @@ impl Collector<'_> {
                 return;
             }
         };
-        // 対応表の順序と診断の順序を決めるために名前で並べる．
+        // Sort by name to fix the order of the module map and of the diagnostics.
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         for entry in entries {
             let path = dir.join(&entry.name);
-            // 隠しファイルと隠しディレクトリ（エディタの一時ファイル，.git など）は見ない．
+            // Skip hidden files and directories (editor temp files, .git, ...).
             if entry.name.as_encoded_bytes().starts_with(b".") {
                 continue;
             }
@@ -258,8 +254,8 @@ impl Collector<'_> {
                         error,
                     },
                 );
-                // 大文字小文字の違いだけで正しい名前のファイルと重なるなら，それも報告する．
-                // 大文字小文字を区別しないファイルシステムでは同じファイルになる．
+                // Also report it if it collides, up to case, with a correctly named file: on a
+                // case-insensitive file system they are the same file.
                 if let Some(first) = first_same_case
                     && let Ok(segment) = to_type_name(&stem.to_lowercase())
                 {
@@ -279,7 +275,7 @@ impl Collector<'_> {
             self.error(&path, DiagnosticKind::DuplicateModule { name, first });
             return;
         }
-        // 先に正しくない名前のファイルを見ていて，こちらと大文字小文字だけ違う．
+        // A wrongly named file seen earlier differs from this one only in case.
         if let Some(first) = first_same_case {
             self.error(
                 &first,

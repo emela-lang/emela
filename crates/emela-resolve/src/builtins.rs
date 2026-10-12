@@ -1,10 +1,12 @@
-//! Prelude（15.1）と，組み込みのモジュールを外から差し込む口．
+//! The Prelude (spec 15.1), and the hook for plugging in built-in modules from outside.
 //!
-//! Prelude の型，構成子，Trait，関数は [`crate::hir::Program`] の定義として最初に作る．
-//! `Bool`，`Option`，`Ordering` は普通の enum として，バリアントと型引数を持つ．
+//! Prelude types, constructors, traits and functions are created first, as definitions in
+//! [`crate::hir::Program`]. `Bool`, `Option` and `Ordering` are ordinary enums with variants and
+//! type parameters.
 //!
-//! 組み込みのモジュール（`String`，`List` など）の中身は emela-core の組み込み関数の表が持つ．
-//! resolve は core に依存できないので，[`BuiltinModules`] で引く．
+//! The contents of built-in modules (`String`, `List`, ...) live in emela-core's table of
+//! built-in functions. resolve cannot depend on core, so it looks them up through
+//! [`BuiltinModules`].
 
 use indexmap::IndexMap;
 use la_arena::Idx;
@@ -15,31 +17,26 @@ use crate::hir::{
     TraitItem, TypeKind, TypeParam, TypeRef,
 };
 
-/// 組み込みのモジュールの項目の種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinKind {
-    /// 関数．`List.map` のように修飾して呼ぶ．
+    /// Called qualified, as in `List.map`.
     Fn,
-    /// 型．`Time.Instant` のように修飾して書く．
+    /// Written qualified, as in `Time.Instant`.
     Type,
 }
 
-/// 組み込みのモジュールの表．名前で引く．
-///
-/// モジュールは import なしで `.` の左に書ける（`String.contains(s, "@")`，4.4 の例）．
+/// Modules can be written left of `.` without an import (`String.contains(s, "@")`, the example
+/// in spec 4.4).
 pub trait BuiltinModules {
-    /// モジュールの名前の一覧．
     fn modules(&self) -> Vec<SmolStr>;
-    /// モジュールの項目を名前で引く．
     fn lookup(&self, module: &str, name: &str) -> Option<BuiltinKind>;
-    /// モジュールの項目の名前の一覧．「もしかして」の候補に使う．
+    /// Used for "did you mean" suggestions.
     fn names(&self, module: &str) -> Vec<SmolStr> {
         let _ = module;
         Vec::new()
     }
 }
 
-/// 組み込みのモジュールがない．
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoBuiltins;
 
@@ -53,7 +50,7 @@ impl BuiltinModules for NoBuiltins {
     }
 }
 
-/// 表で持つ組み込みのモジュール．テストと，core の表が入るまでの仮の表に使う．
+/// Used by tests, and as a stand-in until the core table lands.
 #[derive(Debug, Default, Clone)]
 pub struct BuiltinTable {
     modules: IndexMap<SmolStr, IndexMap<SmolStr, BuiltinKind>>,
@@ -64,7 +61,7 @@ impl BuiltinTable {
         BuiltinTable::default()
     }
 
-    /// モジュールを足す．同じ名前なら項目を足す．
+    /// Adds the items to an existing module of the same name.
     pub fn module(mut self, name: &str, items: &[(&str, BuiltinKind)]) -> Self {
         let module = self.modules.entry(name.into()).or_default();
         for &(item, kind) in items {
@@ -73,7 +70,6 @@ impl BuiltinTable {
         self
     }
 
-    /// 関数だけのモジュールを足す．
     pub fn functions(self, name: &str, fns: &[&str]) -> Self {
         let items: Vec<_> = fns.iter().map(|f| (*f, BuiltinKind::Fn)).collect();
         self.module(name, &items)
@@ -97,10 +93,10 @@ impl BuiltinModules for BuiltinTable {
     }
 }
 
-/// 15.1 の型のうち，enum でないもの．
+/// The types of spec 15.1 that are not enums.
 const PRELUDE_TYPES: &[&str] = &["Int", "Int64", "Float", "String", "Never", "List"];
-/// 15.1 の Trait と，組み込みの制約 `Immediate`（9.5，10.6）．関数の名前を添える．
-/// 関数のシグネチャは型推論の段が持つ．
+/// The traits of spec 15.1 and the built-in constraint `Immediate` (spec 9.5, 10.6), with their
+/// function names. The function signatures belong to type inference.
 const PRELUDE_TRAITS: &[(&str, &[&str])] = &[
     ("Eq", &["eq"]),
     ("Ord", &["compare"]),
@@ -108,12 +104,12 @@ const PRELUDE_TRAITS: &[(&str, &[&str])] = &[
     ("Hash", &["hash"]),
     ("Immediate", &[]),
 ];
-/// 15.1 の関数．
+/// The functions of spec 15.1.
 const PRELUDE_FNS: &[&str] = &["panic", "todo", "dbg"];
-/// 組み込みのエフェクト（8.7）．
+/// Built-in effects (spec 8.7).
 const PRELUDE_EFFECTS: &[&str] = &["Async"];
 
-/// Prelude の定義を作る．`Program` が空のときに1度だけ呼ぶ．
+/// Called once, while `Program` is empty.
 pub(crate) fn build_prelude(program: &mut Program) {
     let mut defs = Vec::new();
     let mut add = |program: &mut Program, name: &str, kind: DefKind, parent: Option<DefId>| {
@@ -209,7 +205,7 @@ pub(crate) fn build_prelude(program: &mut Program) {
     program.prelude.defs = defs;
 }
 
-/// enum の中身と，中身のないバリアントの構成子を登録する．
+/// Registers the enum's contents and the constructors of its variants without payload.
 fn enum_item(
     program: &mut Program,
     def: DefId,
