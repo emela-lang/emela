@@ -10,7 +10,7 @@ use ena::unify::{NoError, UnifyKey, UnifyValue};
 use la_arena::{Arena, ArenaMap, Idx};
 use smol_str::SmolStr;
 
-pub use crate::row::{Row, RowElem, RowVar, SetKind};
+pub use crate::row::{Row, RowElem, RowVar, SetKind, Tag};
 
 /// 組み込みの基本型．
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -219,9 +219,9 @@ pub enum Ty {
     /// 名前付き型の集合の型引数に渡した集合（9.2 の `Handler[E, R]` の `E` と `R`）．
     /// 名前付き型の型引数の位置にだけ現れる．値の型ではない．
     Set(SetKind, Row),
-    /// エフェクトの能力の値の型（8.2）．`use X` が返す．中身は effect の定義．
-    /// ソースには書けず，引数に渡す，データ構造に入れる，返すことはできない．
-    Cap(DefId),
+    /// エフェクトの能力の値の型（8.2）．`use X` が返す．中身は effect の定義と型引数
+    /// （`use State[Int]`，8.1）．ソースには書けず，引数に渡す，データ構造に入れる，返すことはできない．
+    Cap(Tag),
     /// 壊れた型．読めなかった型や解決できなかった名前から作る．
     /// 単一化ではどの型とも黙って一致し，エラーを重ねて出さない．
     Error,
@@ -269,14 +269,17 @@ impl Ty {
         Ty::Named(id, args.into_iter().collect())
     }
 
-    /// 直下の子の型を順に渡す．関数型のエラーの集合の中の型（`RowElem::Of`）も含む．
+    /// 直下の子の型を順に渡す．関数型のエラーの集合の中の型（`RowElem::Of`）と，効果の集合の
+    /// タグの型引数（`State[Int]` の `Int`）も含む．
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Cap(_) | Ty::Error => {}
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
+            Ty::Cap(tag) => tag.args.iter().for_each(f),
             Ty::Fn(fun) => {
                 fun.params.iter().for_each(&mut f);
                 f(&fun.ret);
-                fun.fails.for_each_ty(f);
+                fun.fails.for_each_ty(&mut f);
+                fun.uses.for_each_ty(f);
             }
             Ty::Set(_, row) => row.for_each_ty(f),
             Ty::Tuple(elems) | Ty::Named(_, elems) => elems.iter().for_each(f),
@@ -284,18 +287,17 @@ impl Ty {
         }
     }
 
-    /// 直下の子の型を `f` で置き換えた型を作る．関数型のエラーの集合の中の型も置き換える．
-    /// 効果の集合は型を含まないのでそのまま．
+    /// 直下の子の型を `f` で置き換えた型を作る．関数型のエラーの集合の中の型と，効果の集合の
+    /// タグの型引数も置き換える．
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
-            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Cap(_) | Ty::Error => {
-                self.clone()
-            }
+            Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),
+            Ty::Cap(tag) => Ty::Cap(tag.map_args(f)),
             Ty::Fn(fun) => Ty::Fn(Box::new(FnTy {
                 params: fun.params.iter().map(&mut f).collect(),
                 ret: f(&fun.ret),
                 fails: fun.fails.map_tys(&mut f),
-                uses: fun.uses.clone(),
+                uses: fun.uses.map_tys(&mut f),
             })),
             Ty::Set(kind, row) => Ty::Set(*kind, row.map_tys(f)),
             Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(f).collect()),

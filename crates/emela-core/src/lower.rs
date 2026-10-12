@@ -502,7 +502,7 @@ impl<'a> Lowerer<'a> {
         let async_ = self.hir.prelude_def("Async");
         row.elems()
             .iter()
-            .any(|e| !matches!(e, RowElem::Tag(t) if Some(*t) == async_))
+            .any(|e| !matches!(e, RowElem::Tag(t) if Some(t.def) == async_))
     }
 
     /// 呼び出しの最後の引数に渡す今の証拠の表．表がなければ `()`（呼ばれる側は使わない．
@@ -622,6 +622,12 @@ impl<'a> Lowerer<'a> {
         if stateful {
             return (Vec::new(), self.unsupported_at("handlers with state", span));
         }
+        if has_type_params(hir, effect) {
+            return (
+                Vec::new(),
+                self.unsupported_at("effects with type parameters", span),
+            );
+        }
         let effect_id = self.effect_id(effect);
         let mut params = Vec::new();
         if self
@@ -711,6 +717,9 @@ impl<'a> Lowerer<'a> {
                     let Res::Def(effect) = h.effect else {
                         return self.unsupported("handler of an unknown effect", span);
                     };
+                    if has_type_params(hir, effect) {
+                        return self.unsupported("effects with type parameters", span);
+                    }
                     hs.push((def, effect));
                 }
                 Some(Item::Layer(_)) => return self.unsupported("layer", span),
@@ -723,6 +732,7 @@ impl<'a> Lowerer<'a> {
             .map(|&(h, own)| {
                 let row = self.types.handler_uses.get(h).cloned().unwrap_or_default();
                 row.tags()
+                    .map(|t| t.def)
                     .filter(|&y| y != own)
                     .filter_map(|y| hs.iter().rposition(|&(_, e)| e == y).map(|j| (y, j)))
                     .collect()
@@ -824,6 +834,10 @@ impl<'a> Lowerer<'a> {
         let Res::Def(effect) = effect else {
             return self.unsupported("unresolved effect", span);
         };
+        // 型引数のあるエフェクト（8.1）の証拠の表は，型引数ごとに分ける必要がある．第3段で扱う．
+        if has_type_params(self.hir, effect) {
+            return self.unsupported("effects with type parameters", span);
+        }
         if let Some(&(_, h)) = self.bound.iter().rev().find(|(e, _)| *e == effect) {
             return Expr::Var(h);
         }
@@ -893,6 +907,7 @@ impl<'a> Lowerer<'a> {
         let Some(Ty::Cap(effect)) = self.types.exprs.get(base).cloned() else {
             return self.unsupported("effect operation", span);
         };
+        let effect = effect.def;
         let Some(index) = self.op_index(effect, op) else {
             return self.unsupported("effect operation", span);
         };
@@ -1090,7 +1105,7 @@ impl<'a> Lowerer<'a> {
                 arms: arms.iter().map(|arm| self.arm(arm)).collect(),
             },
             ExprKind::Fail(inner) => Expr::Fail(Box::new(self.expr(*inner))),
-            ExprKind::Use { effect } => self.use_(*effect, e.span),
+            ExprKind::Use { effect, .. } => self.use_(*effect, e.span),
             ExprKind::With { handlers, body } => self.with(handlers, *body),
         }
     }
@@ -1251,9 +1266,9 @@ impl<'a> Lowerer<'a> {
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
             && let Some(Ty::Cap(effect)) = self.types.exprs.get(*base).cloned()
-            && let Some(index) = self.op_index(effect, op)
+            && let Some(index) = self.op_index(effect.def, op)
         {
-            let effect = self.effect_id(effect);
+            let effect = self.effect_id(effect.def);
             let handler = self.expr(*base);
             // suspend fn の操作の呼び出しは中断しうる（8.1）．fn の操作の本体は中断しない（E0417）．
             let call = Call {
@@ -1791,4 +1806,9 @@ fn parse_int(text: &str) -> u64 {
         (text, 10)
     };
     u64::from_str_radix(digits, radix).expect("型検査が範囲を確かめた整数")
+}
+
+/// 型引数のあるエフェクト（`effect State[S]`，8.1）か．lowering はまだ扱わない（第3段）．
+fn has_type_params(hir: &Program, effect: DefId) -> bool {
+    matches!(hir.item(effect), Some(Item::Effect(e)) if !e.type_params.is_empty())
 }

@@ -116,6 +116,14 @@ alpha.3 で同梱した（2026-10-12）．Console と同じ形（エフェクト
 - （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を進めるのに状態を持つハンドラ（alpha.4）が要るので，その段で core に足す．
 - （補）`Clock` と `JsClock` を同梱したので，ソースのルート直下の `clock.emel` と `js_clock.emel` は予約名（E0203）になる（4.1，15.2）．
 
+## State（`state.emel`．まだ同梱しない）
+
+alpha.4 の第2段（2026-10-12）．仕様 8.8 のエフェクト `State[S]` と `State.run` の宣言を `lib/state.emel` に置いた．型検査は通る（emela-types の `tests/effect_type_params.rs` が core と一緒に読んで確かめる）．
+
+- （補）まだ `SOURCES` に入れない（同梱しない）．`run` の実装（ランタイムが供給する組み込みのハンドラ）と，型引数のあるエフェクトの lowering が第3段なので，今同梱しても `State.run` を呼ぶプログラムは build で動かせない．同梱するとソースのルート直下の `state.emel` が予約名（E0203）になり，既存のプログラムを壊しうるので，動かせるようになる段でまとめて入れる
+- （補）`run` は `@intrinsic` の本体のない宣言にした．組み込み関数の表（`intrinsics.rs` の `Sig`）は関数型と効果の集合を書けないので，まだ行を足していない（`intrinsics_match_the_table` は `SOURCES` だけを見るので通る）．同梱する段で，表に `Sig` を広げて足すか，ランタイムのハンドラとして別に扱うかを決める
+- （補）操作は仕様 8.8 のとおり `get`，`set`，`update` の3つ（宣言の順も合わせた）．どれも `fn`（suspend fn でない）なので State は Immediate
+
 ## lowering（`lower.rs`）
 
 本人と相談して決めた（2026-10-11）．型検査の結果（emela-driver の `TypedProgram`．HIR と `ProgramTypes` の組）から Core IR を作る．
@@ -172,6 +180,7 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）能力の値はハンドラの値そのもの．外側で取り出した能力の値は変数に入っているので，内側の with で上書きされても外側のハンドラを指す（8.3）．能力を捕まえたクロージャ（8.2 の `copy`）も変数を捕まえるだけ．
 - （補）操作の呼び出し `log.info(x)` は `Callee::Op`（ハンドラの値，エフェクト，操作の添字）．`fails` は操作の型の E で決める．操作を呼ばずに値として使う（`f = log.info`）ときは，能力の値をその場で評価して束縛し，操作を呼ぶだけのラムダにする．
 - （補）IR のエフェクト（`EffectDef`）は使ったものだけを入れる．名前は IR の名前（`Console.Console`）で，証拠の表の鍵に使う．
+- （補）型引数のあるエフェクト（8.1 の `State[S]`）は第3段．証拠の表の鍵を型引数ごとに分ける必要がある（`State[Int]` と `State[String]` は別のエフェクト）．それまでは `use`，handler，with に現れたら `Unsupported`（`effects with type parameters`）にして panic しない．型引数のあるエフェクトを宣言しただけのプログラムは今までどおり出力する
 
 ### init と release（8.4，8.6，14.2，14.4，14.5）
 

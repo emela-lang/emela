@@ -195,7 +195,16 @@ pub struct ErrorSet {
 /// `use` 節．要素はエフェクトか型引数を指す．`use {}` は空．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSet {
-    pub items: Vec<(Res, Span)>,
+    pub items: Vec<EffectRef>,
+    pub span: Span,
+}
+
+/// 効果の集合の要素．エフェクトか型引数を指す．`args` はエフェクトの型引数
+/// （`State[Int]` の `Int`，8.1）．型引数を書いていなければ空．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectRef {
+    pub res: Res,
+    pub args: Vec<TypeId>,
     pub span: Span,
 }
 
@@ -360,9 +369,10 @@ pub enum ExprKind {
         fields: Vec<Arg>,
         base: ExprId,
     },
-    /// `use X`．`effect` はエフェクトを指す．
+    /// `use X`．`effect` はエフェクトを指す．`args` はエフェクトの型引数（`use State[Int]`，8.1）．
     Use {
         effect: Res,
+        args: Vec<TypeId>,
     },
     /// `with H1, H2 { body }`．`handlers` は handler か layer を指す．
     With {
@@ -512,6 +522,8 @@ pub struct ConstItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectItem {
+    /// 型引数（`effect State[S]` の `S`，8.1）．操作のシグネチャの中で使える．
+    pub type_params: Vec<TypeParam>,
     pub ops: Vec<DefId>,
 }
 
@@ -525,6 +537,8 @@ pub struct OpItem {
 pub struct HandlerItem {
     /// `implements` のエフェクト．
     pub effect: Res,
+    /// `implements` のエフェクトの型引数（`implements State[Int]` の `Int`，8.1）．
+    pub effect_args: Vec<TypeId>,
     pub fields: Vec<FieldDef>,
     /// フィールドがあるときの構成子（init で使う）．
     pub ctor: Option<DefId>,

@@ -271,7 +271,9 @@ impl<'a> Names<'a> {
 
     fn writable_row(&self, row: &Row) -> bool {
         row.elems().iter().all(|e| match e {
-            RowElem::Tag(def) => self.writable(*def),
+            RowElem::Tag(tag) => {
+                self.writable(tag.def) && tag.args.iter().all(|t| self.writable_ty(t))
+            }
             RowElem::Bound(_) => true,
             RowElem::Of(ty) => self.writable_ty(ty),
             RowElem::Var(_) => false,

@@ -788,6 +788,43 @@ impl Diagnostic {
                     format!("layers include each other: {}", path.join(" -> ")),
                 )
             }
+            TypeDiagnosticKind::MissingEffectTypeArgs {
+                effect,
+                params,
+                handler,
+            } => {
+                let holes = vec!["..."; params.len()].join(", ");
+                let message = match handler {
+                    Some(handler) => {
+                        help = Some(format!(
+                            "write the types, like `implements {effect}[{holes}]`; a handler cannot be generic"
+                        ));
+                        format!(
+                            "handler `{handler}` must implement `{effect}[{}]` with concrete types",
+                            params.join(", ")
+                        )
+                    }
+                    None => {
+                        help = Some(format!("write the types, like `{effect}[{holes}]`"));
+                        format!(
+                            "missing type arguments for effect `{effect}[{}]`",
+                            params.join(", ")
+                        )
+                    }
+                };
+                (
+                    Severity::Error,
+                    Some(code::MISSING_EFFECT_TYPE_ARGS),
+                    message,
+                )
+            }
+            TypeDiagnosticKind::EffectParamNotType { effect, param } => (
+                Severity::Error,
+                Some(code::EFFECT_PARAM_NOT_TYPE),
+                format!(
+                    "type parameter `{param}` of effect `{effect}` is used as a set, but effect type parameters must be ordinary types"
+                ),
+            ),
             TypeDiagnosticKind::AsyncHandler { handler } => (
                 Severity::Error,
                 Some(code::ASYNC_HANDLER),

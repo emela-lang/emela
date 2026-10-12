@@ -2,7 +2,7 @@
 
 use super::expressions::{block, expr};
 use super::param_list;
-use super::types::{effects_and_errors, path, ret_type, type_};
+use super::types::{effect_type_args, effects_and_errors, path, ret_type, type_};
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{Marker, Parser};
@@ -497,10 +497,13 @@ fn const_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, CONST_DECL);
 }
 
-/// `"effect" type_name "{" { op_sig NL } "}"`
+/// `"effect" type_name [ type_params ] "{" { op_sig NL } "}"`
 fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(EFFECT_KW);
     decl_name(p, TYPE_NAME);
+    if p.at(L_BRACK) {
+        type_param_list(p);
+    }
     item_list(p, |p, m| {
         if !matches!(p.current(), FN_KW | SUSPEND_KW) {
             item_error(p, m, "expected operation (`fn`)");
@@ -530,7 +533,8 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, OP_SIG);
 }
 
-/// `"handler" type_name [ "(" [ fields ] ")" ] "implements" type_ref "{" { handler_item NL } "}"`
+/// `"handler" type_name [ "(" [ fields ] ")" ] "implements" type_ref [ "[" type { "," type } "]" ]
+/// "{" { handler_item NL } "}"`
 ///
 /// `handler_item = "init" block | "release" block
 ///               | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block`
@@ -550,6 +554,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
         }
         if p.at(TYPE_NAME) {
             path(p);
+            effect_type_args(p);
         } else {
             p.expect(TYPE_NAME);
         }

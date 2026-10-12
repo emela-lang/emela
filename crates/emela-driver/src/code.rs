@@ -99,6 +99,9 @@ pub const MISSING_INIT: &str = "E0419";
 pub const RELEASE_FAILS: &str = "E0420";
 pub const DUPLICATE_LAYER_EFFECT: &str = "E0421";
 pub const LAYER_CYCLE: &str = "E0422";
+// エフェクトの型引数（8.1）
+pub const MISSING_EFFECT_TYPE_ARGS: &str = "E0423";
+pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

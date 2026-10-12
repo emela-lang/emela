@@ -78,6 +78,27 @@ impl Dumper<'_> {
             .join(", ")
     }
 
+    /// 効果の集合の要素．型引数は `State[Int]` の形で出す．
+    fn effect_list(&mut self, items: &[EffectRef]) -> String {
+        items
+            .iter()
+            .map(|item| {
+                let res = self.res(item.res);
+                format!("{res}{}", self.ty_args(&item.args))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// エフェクトの型引数．なければ空．
+    fn ty_args(&mut self, args: &[TypeId]) -> String {
+        if args.is_empty() {
+            return String::new();
+        }
+        let args: Vec<String> = args.iter().map(|&t| self.ty(t)).collect();
+        format!("[{}]", args.join(", "))
+    }
+
     // -----------------------------------------------------------------------
     // 宣言
 
@@ -155,6 +176,7 @@ impl Dumper<'_> {
             }
             Item::Effect(e) => {
                 self.line(0, format!("effect {name}{flags}"));
+                self.type_params(1, &e.type_params);
                 for &op in &e.ops {
                     let op_name = self.def(op);
                     let Some(Item::Op(op)) = self.program.items.get(op) else {
@@ -167,7 +189,11 @@ impl Dumper<'_> {
             }
             Item::Handler(h) => {
                 let effect = self.res(h.effect);
-                self.line(0, format!("handler {name}{flags} implements {effect}"));
+                let args = self.ty_args(&h.effect_args);
+                self.line(
+                    0,
+                    format!("handler {name}{flags} implements {effect}{args}"),
+                );
                 for field in &h.fields {
                     let ty = self.ty(field.ty);
                     self.line(1, format!("field {}: {ty}", field.name));
@@ -249,7 +275,7 @@ impl Dumper<'_> {
             self.line(depth, format!("fails {{{fails}}}"));
         }
         if let Some(uses) = &sig.uses {
-            let uses = self.res_list(&uses.items);
+            let uses = self.effect_list(&uses.items);
             self.line(depth, format!("use {{{uses}}}"));
         }
         if let Some(body) = body {
@@ -352,13 +378,13 @@ impl Dumper<'_> {
                     let _ = write!(s, " fails {{{fails}}}");
                 }
                 if let Some(uses) = uses {
-                    let uses = self.res_list(&uses.items);
+                    let uses = self.effect_list(&uses.items);
                     let _ = write!(s, " use {{{uses}}}");
                 }
                 s
             }
             TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
-            TypeKind::EffectSet(set) => format!("use {{{}}}", self.res_list(&set.items)),
+            TypeKind::EffectSet(set) => format!("use {{{}}}", self.effect_list(&set.items)),
             TypeKind::Missing => "missing".to_owned(),
         }
     }
@@ -516,9 +542,10 @@ impl Dumper<'_> {
                 self.line(depth, "assert");
                 self.expr(depth + 1, *e);
             }
-            ExprKind::Use { effect } => {
+            ExprKind::Use { effect, args } => {
                 let effect = self.res(*effect);
-                self.line(depth, format!("use {effect}"));
+                let args = self.ty_args(args);
+                self.line(depth, format!("use {effect}{args}"));
             }
             ExprKind::With { handlers, body } => {
                 let handlers = self.res_list(handlers);

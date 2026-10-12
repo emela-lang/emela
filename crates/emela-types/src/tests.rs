@@ -369,7 +369,10 @@ fn display_fails() {
     let (mut cons, _, _) = cons();
     let not_found = tag(&mut cons, 0, "NotFound");
     let db = tag(&mut cons, 1, "DbError");
-    let row = Row::from_elems([RowElem::Tag(db), RowElem::Tag(not_found)]);
+    let row = Row::from_elems([
+        RowElem::Tag(Tag::new(db)),
+        RowElem::Tag(Tag::new(not_found)),
+    ]);
     let d = |ty: Ty, cons: &TyCons| ty.display(cons).to_string();
     assert_eq!(
         d(Ty::func_fails([Ty::INT], Ty::BOOL, row.clone()), &cons),
@@ -401,7 +404,7 @@ fn display_fails() {
             [Ty::func_fails(
                 [],
                 Ty::Bound(0),
-                Row::from_elems([RowElem::Tag(db), RowElem::Bound(1)]),
+                Row::from_elems([RowElem::Tag(Tag::new(db)), RowElem::Bound(1)]),
             )],
             Ty::Bound(0),
             Row::from_elems([RowElem::Bound(1), RowElem::Of(Ty::Bound(0))]),
@@ -435,7 +438,10 @@ fn display_uses() {
                 [],
                 Ty::UNIT,
                 Row::tag(boom),
-                Row::from_elems([RowElem::Tag(logger), RowElem::Tag(clock)])
+                Row::from_elems([
+                    RowElem::Tag(Tag::new(logger)),
+                    RowElem::Tag(Tag::new(clock))
+                ])
             ),
             &cons
         ),
@@ -461,7 +467,7 @@ fn display_uses() {
             )],
             Ty::INT,
             Row::empty(),
-            Row::from_elems([RowElem::Tag(clock), RowElem::Bound(0)]),
+            Row::from_elems([RowElem::Tag(Tag::new(clock)), RowElem::Bound(0)]),
         ),
     );
     assert_eq!(
@@ -469,7 +475,7 @@ fn display_uses() {
         "∀ R. fn(fn() -> Int fails {} use R) -> Int use { Clock, R }"
     );
     // 能力の値の型は，それを作る式の形．
-    assert_eq!(d(Ty::Cap(logger), &cons), "use Logger");
+    assert_eq!(d(Ty::Cap(Tag::new(logger)), &cons), "use Logger");
 }
 
 /// 関数型の E は単一化で等しくせず，包含の制約にする．引数の中は逆向き．

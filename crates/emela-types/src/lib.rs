@@ -35,6 +35,6 @@ pub use lower::TyTable;
 pub use scheme::Scheme;
 pub use signature::{Signature, Signatures};
 pub use ty::{
-    FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Ty, TyConData, TyConId, TyConKind,
+    FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId, TyConKind,
     TyCons, TyParam, TyVar,
 };

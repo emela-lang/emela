@@ -20,13 +20,22 @@ use la_arena::ArenaMap;
 /// `main.emel` を，同梱の Prelude と core のソースと一緒に名前解決する．構文の誤りは許さない．
 /// 返すモジュールは `main.emel` のもの．
 pub fn resolve_main(src: &str) -> (Program, ModuleId, Vec<Diagnostic>) {
+    resolve_main_with(src, &[])
+}
+
+/// [`resolve_main`] に，同梱の core のモジュールとして `extra`（モジュール名とソース）を足したもの．
+/// まだ同梱していない core のソース（`State`）を確かめるのに使う．
+pub fn resolve_main_with(
+    src: &str,
+    extra: &[(&str, &str)],
+) -> (Program, ModuleId, Vec<Diagnostic>) {
     let fs = MemoryFs::new(["src/main.emel".to_string()]);
     let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
     assert_eq!(diagnostics, []);
     let (main, _) = modules.iter().next().unwrap();
     let mut texts: ArenaMap<ModuleId, &str> = ArenaMap::default();
     texts.insert(main, src);
-    for (name, text) in emela_core::core_sources() {
+    for (name, text) in emela_core::core_sources().iter().chain(extra) {
         let (id, shadowed) =
             modules.add_core(ModuleName::parse(name), Path::new("<core>").join(name));
         assert_eq!(shadowed, None);

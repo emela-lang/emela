@@ -32,6 +32,7 @@
 - 型の位置に書けるのは type，enum，error（7.1：error は同じ名前の型も定義する），組み込みの型，型引数．effect は「型として使えない」の E0221（8.2：能力の値の型は書けない）．型引数の位置に書いた集合（`Handler[NotFound | Timeout, { Db }]`）は `TypeKind::ErrorSet` と `TypeKind::EffectSet` にし，要素を `fails` 節と `use` 節と同じく引く．ただし名前付き型の型引数の位置（`Handler[NotFound, Db]` の `Db`）では effect も通す（9.2 の集合の型引数に渡すため）．集合の型引数の位置かは宣言の型引数の種類で決まるので，型推論が確かめ，集合でない位置なら同じ E0221 を出す．handler，layer，trait は E0217
 - 型引数は，ふつうの型・エラーの集合・効果の集合のどれかを区別せずに解決する．種は型推論の段が使われ方から推論する（9.2）．`fails` 節と `use` 節にも型引数を書ける
 - （補）`fails` 節は error と型引数，`use` 節は effect と型引数，`use X` の式は effect だけ．`with` と layer の中身は handler か layer．制約，derive，impl，上位の Trait は trait
+- （補）エフェクトの型引数（8.1）．`effect State[S]` の型引数は effect の定義を親にした `DefKind::TypeParam` で，`EffectItem::type_params` に持ち，操作のシグネチャの中で引ける．`use State[Int]` の型引数は `ExprKind::Use::args`，`implements State[Int]` は `HandlerItem::effect_args`，`use` 節の要素は `EffectRef`（エフェクトか型引数と，その型引数）に持つ．型引数の中はふつうの型の位置として引く（エフェクトの名前は E0221）．型引数の数と省略は型推論が確かめる（E0304，E0423）
 - （補）大文字名の型引数を式に書いたら E0217（2.3：型の位置でだけ参照できる）
 
 ### import と可視性

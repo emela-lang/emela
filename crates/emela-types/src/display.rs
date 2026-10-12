@@ -10,10 +10,11 @@
 //! 戻り値を括弧で囲む（5.5）．
 //!
 //! 能力の値の型（`Ty::Cap`）はソースに書けないので，それを作る式の形で `use Logger` と出す．
+//! 型引数のあるエフェクトは，集合の中でも能力の値でも `State[Int]` の形で出す（8.1）．
 
 use std::fmt;
 
-use crate::row::{Row, RowElem, SetKind};
+use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
 use crate::ty::{Ty, TyCons, TyParam};
 
@@ -94,10 +95,7 @@ impl fmt::Display for RowDisplay<'_> {
                 f.write_str(if self.effects { ", " } else { " | " })?;
             }
             match e {
-                RowElem::Tag(def) => match self.ty.cons.tag_name(*def) {
-                    Some(name) => f.write_str(name)?,
-                    None => write!(f, "#{}", def.into_raw())?,
-                },
+                RowElem::Tag(tag) => self.ty.tag(f, tag)?,
                 RowElem::Bound(i) => match self.ty.bound.get(*i as usize) {
                     Some(p) => f.write_str(&p.name)?,
                     None => write!(f, "'{i}")?,
@@ -159,6 +157,20 @@ impl TyDisplay<'_> {
         Ok(())
     }
 
+    /// 集合のタグ．型引数があれば `State[Int]` の形（8.1）．
+    fn tag(&self, f: &mut fmt::Formatter<'_>, tag: &Tag) -> fmt::Result {
+        match self.cons.tag_name(tag.def) {
+            Some(name) => f.write_str(name)?,
+            None => write!(f, "#{}", tag.def.into_raw())?,
+        }
+        if !tag.args.is_empty() {
+            f.write_str("[")?;
+            self.list(f, &tag.args)?;
+            f.write_str("]")?;
+        }
+        Ok(())
+    }
+
     fn params(&self, f: &mut fmt::Formatter<'_>, tys: &[Ty]) -> fmt::Result {
         for (i, ty) in tys.iter().enumerate() {
             if i > 0 {
@@ -185,10 +197,10 @@ impl fmt::Display for TyDisplay<'_> {
                 Some(p) => f.write_str(&p.name),
                 None => write!(f, "'{i}"),
             },
-            Ty::Cap(effect) => match self.cons.tag_name(*effect) {
-                Some(name) => write!(f, "use {name}"),
-                None => write!(f, "use #{}", effect.into_raw()),
-            },
+            Ty::Cap(tag) => {
+                f.write_str("use ")?;
+                self.tag(f, tag)
+            }
             Ty::Fn(fun) => {
                 f.write_str("fn(")?;
                 self.params(f, &fun.params)?;

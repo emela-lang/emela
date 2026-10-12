@@ -30,13 +30,13 @@ use crate::coverage::Shapes;
 use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::row::{Row, RowElem, RowVar};
+use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
 /// 集合変数の下界の1つ．`elem` の要素のうち，`minus` のタグを除いたもの．
 struct Lower {
     elem: RowElem,
-    minus: Vec<DefId>,
+    minus: Vec<Tag>,
 }
 
 impl BodyInfer<'_> {
@@ -233,11 +233,12 @@ impl BodyInfer<'_> {
                 let mut row = Row::empty();
                 for e in self.ctx.resolve_row(&inner_row).elems() {
                     match e {
-                        RowElem::Tag(t) if tags.contains(t) => {}
+                        RowElem::Tag(t) if tags.contains(&t.def) => {}
                         // 集合変数は，受けたタグを除いた解を持つ集合変数に置き換える．
                         RowElem::Var(v) if !tags.is_empty() => {
                             let d = self.ctx.new_row_var();
-                            self.row_diffs.push((d, *v, tags.clone()));
+                            let minus = tags.iter().map(|&t| Tag::new(t)).collect();
+                            self.row_diffs.push((d, *v, minus));
                             row.insert(RowElem::Var(d));
                         }
                         // 集合の型引数とエラーの型の型引数からは消さない（7.3）．
@@ -279,7 +280,7 @@ impl BodyInfer<'_> {
             // with の E は，本体の E と，並べたハンドラの init の E（9.4）．
             ExprKind::With { handlers, body } => {
                 let mut row = self.expr_row(*body);
-                for entry in crate::layer::with_entries(program, handlers) {
+                for entry in crate::layer::with_entries(program, self.sigs, handlers) {
                     row.extend(&self.handler_init_fails(entry.handler));
                 }
                 row
@@ -353,6 +354,15 @@ impl BodyInfer<'_> {
         }
     }
 
+    /// 集合 `row` が要素 `e` を含むか．タグは型引数まで同じものを探し，型引数がまだ決まって
+    /// いなければ単一化を試す（8.1，`InferCtx::same_tag`）．
+    fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
+        match e {
+            RowElem::Tag(t) => self.ctx.row_has_tag(row, t),
+            e => row.contains(e),
+        }
+    }
+
     /// 包含の制約を解き，満たされない制約の診断を積む．解は以後の `resolve` に使う．
     pub(super) fn solve_errors(&mut self) {
         let subsets = self.ctx.subsets().to_vec();
@@ -372,16 +382,9 @@ impl BodyInfer<'_> {
             let sup = self.ctx.resolve_row(&c.sup);
             match sup.vars().next() {
                 Some(v) => {
-                    let minus: Vec<DefId> = sup
-                        .elems()
-                        .iter()
-                        .filter_map(|e| match e {
-                            RowElem::Tag(t) => Some(*t),
-                            _ => None,
-                        })
-                        .collect();
+                    let minus: Vec<Tag> = sup.tags().cloned().collect();
                     for e in sub.elems() {
-                        if !sup.contains(e) {
+                        if !self.contains_elem(&sup, e) {
                             lowers.entry(v).or_default().push(Lower {
                                 elem: e.clone(),
                                 minus: minus.clone(),
@@ -416,7 +419,9 @@ impl BodyInfer<'_> {
                     };
                     let target = solution.entry(v).or_default();
                     for a in atoms.elems() {
-                        if matches!(a, RowElem::Tag(t) if lower.minus.contains(t)) {
+                        if let RowElem::Tag(t) = a
+                            && lower.minus.iter().any(|m| self.ctx.same_tag(m, t))
+                        {
                             continue;
                         }
                         if !target.contains(a) {
@@ -439,7 +444,7 @@ impl BodyInfer<'_> {
             let missing: Vec<RowElem> = sub
                 .elems()
                 .iter()
-                .filter(|e| !sup.contains(e))
+                .filter(|e| !self.contains_elem(&sup, e))
                 .cloned()
                 .collect();
             if missing.is_empty() {
@@ -814,7 +819,7 @@ impl BodyInfer<'_> {
                 continue;
             }
             for (pat, tag) in caught {
-                if !row.contains(&RowElem::Tag(tag)) {
+                if !row.contains(&RowElem::Tag(Tag::new(tag))) {
                     let error = self.program.defs[tag].name.clone();
                     self.diags.push(Diagnostic {
                         span: Some(self.program.pats[pat].span),

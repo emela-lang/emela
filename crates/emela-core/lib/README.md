@@ -147,6 +147,27 @@ fn main() {
 }
 ```
 
+## State（`state.emel`．まだ同梱しない）
+
+仕様 8.8 の可変な状態．宣言だけを置き，`run` の実装（ランタイムが供給するハンドラ）と同梱は次の段（NOTES.md）．
+
+| 宣言 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `State` | `effect State[S] { fn get() -> S; fn set(value: S) -> (); fn update(f: fn(S) -> S) -> () }` | Emela | 型 `S` の状態を読み書きする |
+| `run` | `run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R` | intrinsic | 初期値 `initial` の状態で `body` を実行し，値と最後の状態を返す |
+
+```emel
+fn count() -> Int use { State[Int] } {
+  st = use State[Int]
+  st.update(fn(n) { n + 1 })
+  st.get()
+}
+
+fn main() {
+  (n, last) = State.run(0, fn() { count() })
+}
+```
+
 ## String（`string.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |

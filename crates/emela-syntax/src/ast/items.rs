@@ -313,6 +313,10 @@ impl EffectDecl {
     pub fn name(&self) -> Option<SyntaxToken> {
         name(&self.0)
     }
+    /// The type parameter list (`[S]` in `effect State[S]`, spec 8.1).
+    pub fn type_params(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_PARAM_LIST)
+    }
     pub fn ops(&self) -> impl Iterator<Item = OpSig> {
         items(&self.0)
     }
@@ -358,6 +362,14 @@ impl HandlerDecl {
     /// The effect after `implements`.
     pub fn effect(&self) -> Option<Path> {
         child(&self.0.children().find(|n| n.kind() == IMPLEMENTS_CLAUSE)?)
+    }
+    /// The type argument list of the implemented effect (`[Int]` in `implements State[Int]`, spec 8.1).
+    pub fn effect_type_args(&self) -> Option<SyntaxNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == IMPLEMENTS_CLAUSE)?
+            .children()
+            .find(|n| n.kind() == TYPE_ARG_LIST)
     }
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)

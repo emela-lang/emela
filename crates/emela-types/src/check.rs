@@ -188,7 +188,13 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.diags.extend(body.diags);
     }
 
-    types.layers = layer::check_layers(program, &types.handler_uses, &mut types.diags);
+    types.layers = layer::check_layers(
+        program,
+        &sigs,
+        &types.ty_table.cons,
+        &types.handler_uses,
+        &mut types.diags,
+    );
     types.sigs = sigs;
     types
 }

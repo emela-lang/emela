@@ -1,0 +1,57 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0424]: type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types
+   ╭─[ main.emel:5:14 ]
+   │
+ 5 │ effect Raise[E] {
+   │              ┬  
+   │              ╰── 
+───╯
+
+error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
+   ╭─[ main.emel:9:9 ]
+   │
+ 9 │ handler Generic implements Cell {
+   │         ───┬───  
+   │            ╰───── 
+───╯
+   = help: write the types, like `implements Cell[...]`; a handler cannot be generic
+
+error[E0423]: missing type arguments for effect `Cell[S]`
+    ╭─[ main.emel:17:17 ]
+    │
+ 17 │ fn omitted() { (use Cell).get() }
+    │                 ────┬───  
+    │                     ╰───── 
+────╯
+   = help: write the types, like `Cell[...]`
+
+error[E0304]: wrong number of type arguments: `Cell` takes 1, found 2
+    ╭─[ main.emel:19:18 ]
+    │
+ 19 │ fn too_many() { (use Cell[Int, Int]).get() }
+    │                  ─────────┬────────  
+    │                           ╰────────── 
+────╯
+
+error[E0402]: effect `Cell[String]` is not declared in `use`
+    ╭─[ main.emel:31:6 ]
+    │
+ 31 │     (use Cell[String]).get()
+    │      ────────┬───────  
+    │              ╰───────── 
+────╯
+   = help: add it to `use` or provide it with `with`
+
+error[E0421]: effect `Cell[Int]` is provided by both `Zero` and `One` in layer `Twice`
+    ╭─[ main.emel:43:3 ]
+    │
+ 43 │   One
+    │   ─┬─  
+    │    ╰─── 
+────╯
+   = help: keep one of them, or override it with `with Twice, One { ... }`
+
+6 errors
