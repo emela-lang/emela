@@ -1436,7 +1436,7 @@ fn greet(s: String) {
 fn main() {
   xs = [1, 2, 3]
   ys = xs |> List.map(fn(x) { x |> add(1) })
-  n = xs |> List.fold(init: 0, f: add)
+  n = xs |> List.fold(from: 0, f: add)
   m = 1 |> add(2) |> add(3)
   k = add(1, 2) |> add(3)
   with Quiet { greet(\"a\") }
@@ -1469,11 +1469,11 @@ fn signature_help_on_the_right_of_a_pipe() {
     assert_eq!(client.signature(MAIN, 18, 39), add_b);
     // The other parameters given by name.
     let f = "f: fn(B, A) -> B fails E(f) use R(f)";
-    let fold = format!("fold(init: B, {f}) -> B fails E(f) use R(f)");
+    let fold = format!("fold(from: B, {f}) -> B fails E(f) use R(f)");
     for (col, active) in [(22, 0), (32, 1), (34, 1)] {
         assert_eq!(
             client.signature(MAIN, 19, col),
-            s(&fold, &["init: B", f], Some(active))
+            s(&fold, &["from: B", f], Some(active))
         );
     }
     // A chain of pipes.
@@ -1493,16 +1493,16 @@ fn signature_help_on_the_right_of_a_pipe() {
         .into_iter()
         .filter(|l| l.ends_with(':'))
         .collect();
-    assert_eq!(labels, ["init:", "f:"]);
+    assert_eq!(labels, ["from:", "f:"]);
     // Naming the first parameter is an error, so no parameter is active.
     client.open(
         MAIN,
         1,
-        &PIPE_MAIN.replace("List.fold(init: 0, f: add)", "List.fold(xs: "),
+        &PIPE_MAIN.replace("List.fold(from: 0, f: add)", "List.fold(xs: "),
     );
     assert_eq!(
         client.signature(MAIN, 19, 26),
-        s(&fold, &["init: B", f], None)
+        s(&fold, &["from: B", f], None)
     );
     drain(&client);
     client.shutdown();
