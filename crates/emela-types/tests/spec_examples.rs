@@ -223,6 +223,28 @@ fn use_it() -> String {
     ));
 }
 
+/// 9.2 宣言の中で効果のある関数を持つときは型引数で明示する（`type Handler[E, R]`）．
+#[test]
+fn spec_9_2_handler_type_params() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Request(path: String)  # 補
+type Response(body: String)  # 補
+error NotFound  # 補
+
+type Handler[E, R](run: fn(Request) -> Response fails E use R)
+
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {  # 補
+  h.run(req)
+}
+
+fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E0323
+  Handler(run: fn(req) { fail NotFound })
+}
+"#
+    ));
+}
+
 /// 9.4 Never は分岐の合流で他の型になる．if の一方が panic でも全体はもう一方の型．
 #[test]
 fn spec_9_4_never_joins() {

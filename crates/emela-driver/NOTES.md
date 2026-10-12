@@ -149,6 +149,6 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
 - （補）`Typecheck` は名前解決に誤りがあっても型検査をする．解決できなかった名前は型推論が `Ty::Error` として扱い，誤りを重ねない（仕様の「誤りを全部集める」方針）
-- （補）型検査の診断（E0301〜E0322，W0301〜W0302，E0401〜E0411，E0413〜E0416）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
+- （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0416）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
 - （補）`Typecheck` は，エントリのモジュールの `main` という名前の fn と，`@test` のテスト関数を `CheckOptions` で型推論に渡す．型推論はそれらの R が空であることを確かめる（E0402，8.3，13.3）．そのためテスト関数の収集（`collect_tests`，`resolve_tests`）を型検査の前に行う．エントリのないとき（`check` にディレクトリを渡してエントリがないなど）は main を確かめない
 - （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く

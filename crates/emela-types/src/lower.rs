@@ -6,8 +6,8 @@
 //! [`TypeRef`]: emela_resolve::hir::TypeRef
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectSet, EnumItem, ErrorSet, Item, Program, Res, Span, TypeId, TypeItem,
-    TypeKind, TypeParam, TypeRef,
+    DefId, DefKind, EffectSet, EnumItem, ErrorSet, Fields, Item, Program, Res, Span, TypeId,
+    TypeItem, TypeKind, TypeParam, TypeRef,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -15,7 +15,7 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
-use crate::row::{Row, RowElem};
+use crate::row::{Row, RowElem, SetKind};
 use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
 /// 関数型の `fails` 節と `use` 節を省略したときの意味．書いた位置で決まる（9.2）．
@@ -127,6 +127,8 @@ pub struct TyTable {
     bool_def: Option<DefId>,
     /// 登録した宣言から，その定義への対応（`by_def` の逆）．
     def_of: ArenaMap<TyConId, DefId>,
+    /// type / enum の型引数の集合の種類（9.2 の `type Handler[E, R]`）．
+    sets: DeclSets,
 }
 
 impl TyTable {
@@ -136,6 +138,7 @@ impl TyTable {
         let mut by_def = ArenaMap::default();
         let mut def_of = ArenaMap::default();
         let bool_def = program.prelude_def("Bool");
+        let sets = decl_sets(program);
 
         for (def, data) in program.defs.iter() {
             let kind = match data.kind {
@@ -158,7 +161,7 @@ impl TyTable {
             let id = cons.alloc(TyConData {
                 name: data.name.clone(),
                 kind,
-                params: ty_params(program, &type_param_defs(program, def)),
+                params: decl_params(program, def, sets.get(def).map_or(&[], Vec::as_slice)),
             });
 
             by_def.insert(def, id);
@@ -170,7 +173,18 @@ impl TyTable {
             by_def,
             bool_def,
             def_of,
+            sets,
         }
+    }
+
+    /// type / enum の型引数の集合の種類．
+    pub(crate) fn decl_sets(&self) -> &DeclSets {
+        &self.sets
+    }
+
+    /// type / enum の `i` 番目の型引数が集合なら，その種類．
+    fn set_kind(&self, def: DefId, i: usize) -> Option<SetKind> {
+        self.sets.get(def).and_then(|s| s.get(i).copied().flatten())
     }
 
     /// type / enum / error の定義を登録した宣言．Bool と，それ以外の定義には `None`．
@@ -224,6 +238,14 @@ impl TyTable {
         let type_ref = &program.types[ty];
         match &type_ref.kind {
             TypeKind::Missing => Ty::Error,
+            // 集合は名前付き型の集合の型引数の位置にだけ書ける（`lower_set_arg`）．
+            TypeKind::ErrorSet(_) | TypeKind::EffectSet(_) => {
+                diags.push(Diagnostic {
+                    span: type_ref.span,
+                    kind: DiagnosticKind::SetAsType,
+                });
+                Ty::Error
+            }
             TypeKind::Unit => Ty::UNIT,
             TypeKind::SelfType => {
                 diags.push(Diagnostic {
@@ -389,7 +411,13 @@ impl TyTable {
         let id = self.con(def)?;
         let n = self.cons[id].params.len();
 
-        Some(Ty::named(id, (0..n).map(|i| Ty::Bound(i as u32))))
+        Some(Ty::named(
+            id,
+            (0..n).map(|i| match self.set_kind(def, i) {
+                Some(kind) => Ty::Set(kind, Row::from_elems([RowElem::Bound(i as u32)])),
+                None => Ty::Bound(i as u32),
+            }),
+        ))
     }
 
     /// 名前の付いた型（`Int`，`List[A]`，`Option[Int]`，`A`）を Ty にする．
@@ -410,6 +438,15 @@ impl TyTable {
         };
         let data = &program.defs[def];
         let span = type_ref.span;
+        if data.kind == DefKind::Effect {
+            diags.push(Diagnostic {
+                span,
+                kind: DiagnosticKind::EffectAsType {
+                    name: data.name.clone(),
+                },
+            });
+            return Ty::Error;
+        }
 
         let expected = match data.kind {
             DefKind::BuiltinType if data.name == "List" => 1,
@@ -456,13 +493,179 @@ impl TyTable {
                 };
                 let args: Vec<Ty> = args
                     .iter()
-                    .map(|&a| self.lower_in(program, scope, a, positive, diags))
+                    .enumerate()
+                    .map(|(i, &a)| match self.set_kind(def, i) {
+                        Some(kind) => self.lower_set_arg(program, scope, def, i, kind, a, diags),
+                        None => self.lower_in(program, scope, a, positive, diags),
+                    })
                     .collect();
                 Ty::named(id, args)
             }
             _ => Ty::Error,
         }
     }
+}
+
+/// 集合の型引数に合わないものを書いたときの診断（E0323）を積む．位置と，書いたものの説明を受ける．
+type ReportMismatch<'a> = dyn Fn(Option<Span>, SmolStr, &mut Vec<Diagnostic>) + 'a;
+
+impl TyTable {
+    /// 名前付き型の集合の型引数に書いたものを集合にする（`Handler[NotFound, Db]`，
+    /// `Handler[NotFound | Timeout, { Db, Log }]`，`Handler[E, R]`，`Handler[{}, {}]`）．
+    /// 要素に書けるのは，その種類のタグ（error か effect の名前）と集合の型引数．エラーの集合は
+    /// `|` でつなぎ，効果の集合は波括弧で囲む．空の `{}` はどちらの位置にも書ける．
+    /// それ以外は E0323 で，その要素を除いて続ける．
+    #[allow(clippy::too_many_arguments)]
+    fn lower_set_arg(
+        &self,
+        program: &Program,
+        scope: &Scope<'_>,
+        decl: DefId,
+        index: usize,
+        kind: SetKind,
+        arg: TypeId,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Ty {
+        let mismatch = |span: Option<Span>, found: SmolStr, diags: &mut Vec<Diagnostic>| {
+            diags.push(Diagnostic {
+                span,
+                kind: DiagnosticKind::SetArgMismatch {
+                    param: type_param_defs(program, decl)
+                        .get(index)
+                        .map(|&p| program.defs[p].name.clone())
+                        .unwrap_or_default(),
+                    ty: program.defs[decl].name.clone(),
+                    effects: kind == SetKind::Effects,
+                    found,
+                },
+            });
+        };
+        let type_ref = &program.types[arg];
+        let items: &[(Res, Span)] = match (&type_ref.kind, kind) {
+            (TypeKind::ErrorSet(set), SetKind::Errors) => &set.items,
+            (TypeKind::EffectSet(set), SetKind::Effects) => &set.items,
+            (TypeKind::EffectSet(set), SetKind::Errors) if set.items.is_empty() => &[],
+            (TypeKind::ErrorSet(_), SetKind::Effects) => {
+                mismatch(type_ref.span, "an error set".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            (TypeKind::EffectSet(_), SetKind::Errors) => {
+                mismatch(type_ref.span, "an effect set".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            (TypeKind::Missing, _) => return Ty::Set(kind, Row::empty()),
+            (TypeKind::Path { res, args }, _) if args.is_empty() => {
+                return Ty::Set(
+                    kind,
+                    self.set_elem(program, scope, kind, *res, type_ref.span, &mismatch, diags),
+                );
+            }
+            (
+                TypeKind::Path {
+                    res: Res::Def(def), ..
+                },
+                _,
+            ) => {
+                let found = format!("type `{}`", program.defs[*def].name);
+                mismatch(type_ref.span, found.into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            _ => {
+                mismatch(type_ref.span, "a type".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+        };
+        let mut row = Row::empty();
+        for &(res, span) in items {
+            row.extend(&self.set_elem(program, scope, kind, res, Some(span), &mismatch, diags));
+        }
+        Ty::Set(kind, row)
+    }
+
+    /// 集合の要素1つ．その種類のタグか集合の型引数．
+    #[allow(clippy::too_many_arguments)]
+    fn set_elem(
+        &self,
+        program: &Program,
+        scope: &Scope<'_>,
+        kind: SetKind,
+        res: Res,
+        span: Option<Span>,
+        mismatch: &ReportMismatch<'_>,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Row {
+        // 名前解決が誤りを出している．
+        let Res::Def(def) = res else {
+            return Row::empty();
+        };
+        let data = &program.defs[def];
+        match (data.kind, kind) {
+            (DefKind::Error, SetKind::Errors) | (DefKind::Effect, SetKind::Effects) => {
+                Row::tag(def)
+            }
+            (DefKind::TypeParam, _) => match scope.params.iter().position(|p| *p == def) {
+                Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) && scope.sets => {
+                    Row::from_elems([RowElem::Bound(i as u32)])
+                }
+                Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) => {
+                    diags.push(Diagnostic {
+                        span,
+                        kind: DiagnosticKind::Unsupported {
+                            what: "set type parameters here",
+                        },
+                    });
+                    Row::empty()
+                }
+                _ => {
+                    mismatch(
+                        span,
+                        format!("type parameter `{}`", data.name).into(),
+                        diags,
+                    );
+                    Row::empty()
+                }
+            },
+            (DefKind::Effect, _) => {
+                mismatch(span, format!("effect `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+            (DefKind::Error, _) => {
+                mismatch(span, format!("error `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+            _ => {
+                mismatch(span, format!("type `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+        }
+    }
+}
+
+/// type / enum の宣言の型引数．集合の型引数は `ParamKind::Set` にし，効果の集合に Immediate の
+/// 制約があれば付ける（9.5）．
+fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<TyParam> {
+    let type_params: &[TypeParam] = match program.item(def) {
+        Some(Item::Type(TypeItem { type_params, .. }))
+        | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
+        _ => &[],
+    };
+    type_params
+        .iter()
+        .enumerate()
+        .map(|(i, tp)| {
+            let name = program.defs[tp.def].name.clone();
+            match sets.get(i).copied().flatten() {
+                Some(kind) => {
+                    let mut p = TyParam::set(name);
+                    if kind == SetKind::Effects && !immediate_bounds(program, tp).is_empty() {
+                        p.bounds.push(SmolStr::new(IMMEDIATE));
+                    }
+                    p
+                }
+                None => TyParam::new(name),
+            }
+        })
+        .collect()
 }
 
 /// 型引数の数が `expected` なら true．違えば E0304 を足して false．
@@ -533,81 +736,98 @@ pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     }
 }
 
-/// 型引数が，関数型の `use` 節に書かれているか（効果の集合か）．`types` は型引数が現れうる型の書き方．
-pub(crate) fn used_in_uses(
-    program: &Program,
-    param: DefId,
-    types: impl IntoIterator<Item = TypeId>,
-) -> bool {
-    fn go(program: &Program, param: DefId, ty: TypeId) -> bool {
-        match &program.types[ty].kind {
-            TypeKind::Path { args, .. } => args.iter().any(|&a| go(program, param, a)),
-            TypeKind::Tuple(elems) => elems.iter().any(|&e| go(program, param, e)),
-            TypeKind::Fn {
-                params, ret, uses, ..
-            } => {
-                uses.iter()
-                    .flat_map(|u| &u.items)
-                    .any(|(res, _)| *res == Res::Def(param))
-                    || params.iter().any(|&p| go(program, param, p))
-                    || ret.is_some_and(|r| go(program, param, r))
-            }
-            TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
-        }
-    }
-    types.into_iter().any(|ty| go(program, param, ty))
-}
+/// 名前付き型の宣言の型引数ごとの集合の種類（集合でなければ `None`）．type / enum の定義で引く．
+pub(crate) type DeclSets = ArenaMap<DefId, Vec<Option<SetKind>>>;
 
 /// 型引数の種類を，使われた位置から決める（9.2）．`fails` 節か `use` 節にだけ書いた型引数は
 /// 集合，それ以外はふつうの型（値の型と `fails` の両方に書けば1つのエラーの型，7.2）．
+/// 名前付き型の集合の型引数の位置（`Handler[E, R]` の `E`）に書いた型引数も集合．
 /// `types` は型引数が現れうる型の書き方（引数，戻り値，フィールドの型）．
 pub(crate) fn classify_params(
     program: &Program,
+    decls: &DeclSets,
     params: &[DefId],
     types: impl IntoIterator<Item = TypeId>,
 ) -> Vec<ParamKind> {
-    let mut in_type = vec![false; params.len()];
-    let mut in_set = vec![false; params.len()];
-    for ty in types {
-        mark_params(program, params, ty, &mut in_type, &mut in_set);
-    }
-    in_type
-        .iter()
-        .zip(&in_set)
-        .map(|(&t, &s)| {
-            if s && !t {
-                ParamKind::Set
-            } else {
-                ParamKind::Type
-            }
+    classify_sets(program, decls, params, types)
+        .into_iter()
+        .map(|set| match set {
+            Some(_) => ParamKind::Set,
+            None => ParamKind::Type,
         })
         .collect()
 }
 
+/// [`classify_params`] と同じく決め，集合ならその種類（エラーの集合か効果の集合か）を返す．
+/// 両方に書いた型引数は，先に見つけた方にする．
+pub(crate) fn classify_sets(
+    program: &Program,
+    decls: &DeclSets,
+    params: &[DefId],
+    types: impl IntoIterator<Item = TypeId>,
+) -> Vec<Option<SetKind>> {
+    let mut marks = Marks {
+        in_type: vec![false; params.len()],
+        in_set: vec![None; params.len()],
+    };
+    for ty in types {
+        mark_params(program, decls, params, ty, &mut marks);
+    }
+    marks
+        .in_type
+        .iter()
+        .zip(&marks.in_set)
+        .map(|(&t, &s)| if t { None } else { s })
+        .collect()
+}
+
+struct Marks {
+    in_type: Vec<bool>,
+    in_set: Vec<Option<SetKind>>,
+}
+
+impl Marks {
+    fn set(&mut self, i: usize, kind: SetKind) {
+        self.in_set[i].get_or_insert(kind);
+    }
+}
+
 fn mark_params(
     program: &Program,
+    decls: &DeclSets,
     params: &[DefId],
     ty: TypeId,
-    in_type: &mut [bool],
-    in_set: &mut [bool],
+    marks: &mut Marks,
 ) {
-    let go = |ty: TypeId, in_type: &mut [bool], in_set: &mut [bool]| {
-        mark_params(program, params, ty, in_type, in_set)
+    let position = |res: &Res| match res {
+        Res::Def(def) => params.iter().position(|p| p == def),
+        _ => None,
     };
     match &program.types[ty].kind {
         TypeKind::Path { res, args } => {
-            if let Res::Def(def) = res
-                && let Some(i) = params.iter().position(|p| p == def)
-            {
-                in_type[i] = true;
+            if let Some(i) = position(res) {
+                marks.in_type[i] = true;
             }
-            for &a in args {
-                go(a, in_type, in_set);
+            let sets = match res {
+                Res::Def(def) => decls.get(*def),
+                _ => None,
+            };
+            for (j, &a) in args.iter().enumerate() {
+                // 集合の型引数の位置に書いた型引数は集合．
+                if let Some(kind) = sets.and_then(|s| s.get(j).copied().flatten())
+                    && let TypeKind::Path { res, args } = &program.types[a].kind
+                    && args.is_empty()
+                    && let Some(i) = position(res)
+                {
+                    marks.set(i, kind);
+                    continue;
+                }
+                mark_params(program, decls, params, a, marks);
             }
         }
         TypeKind::Tuple(elems) => {
             for &e in elems {
-                go(e, in_type, in_set);
+                mark_params(program, decls, params, e, marks);
             }
         }
         TypeKind::Fn {
@@ -617,22 +837,89 @@ fn mark_params(
             uses,
         } => {
             for &p in fn_params {
-                go(p, in_type, in_set);
+                mark_params(program, decls, params, p, marks);
             }
             if let Some(ret) = ret {
-                go(*ret, in_type, in_set);
+                mark_params(program, decls, params, *ret, marks);
             }
-            let fails = fails.iter().flat_map(|f| &f.items);
-            let uses = uses.iter().flat_map(|u| &u.items);
-            for (res, _) in fails.chain(uses) {
-                if let Res::Def(def) = res
-                    && let Some(i) = params.iter().position(|p| p == def)
-                {
-                    in_set[i] = true;
+            for (res, _) in fails.iter().flat_map(|f| &f.items) {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Errors);
+                }
+            }
+            for (res, _) in uses.iter().flat_map(|u| &u.items) {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Effects);
+                }
+            }
+        }
+        TypeKind::ErrorSet(set) => {
+            for (res, _) in &set.items {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Errors);
+                }
+            }
+        }
+        TypeKind::EffectSet(set) => {
+            for (res, _) in &set.items {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Effects);
                 }
             }
         }
         TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
+    }
+}
+
+/// type / enum の宣言の型引数の集合の種類を決める．フィールドの型から決め，名前付き型の
+/// 集合の型引数の位置に渡したもの（`type Server[E](h: Handler[E, {}])`）も集合なので，
+/// 変わらなくなるまで繰り返す．
+fn decl_sets(program: &Program) -> DeclSets {
+    let decls: Vec<(DefId, Vec<DefId>, Vec<TypeId>)> = program
+        .defs
+        .iter()
+        .filter(|(_, d)| matches!(d.kind, DefKind::Type | DefKind::Enum))
+        .map(|(def, _)| {
+            (
+                def,
+                type_param_defs(program, def),
+                field_types(program, def),
+            )
+        })
+        .collect();
+    let mut sets = DeclSets::default();
+    loop {
+        let mut changed = false;
+        for (def, params, types) in &decls {
+            let kinds = classify_sets(program, &sets, params, types.iter().copied());
+            if sets.get(*def) != Some(&kinds) {
+                sets.insert(*def, kinds);
+                changed = true;
+            }
+        }
+        if !changed {
+            return sets;
+        }
+    }
+}
+
+/// type / enum の構成子のフィールドの型の書き方．
+fn field_types(program: &Program, def: DefId) -> Vec<TypeId> {
+    let fields = |f: &Fields| -> Vec<TypeId> {
+        match f {
+            Fields::None => Vec::new(),
+            Fields::Positional(tys) => tys.clone(),
+            Fields::Named(fs) => fs.iter().map(|f| f.ty).collect(),
+        }
+    };
+    let ctor_fields = |ctor: DefId| match program.item(ctor) {
+        Some(Item::Ctor(c)) => fields(&c.fields),
+        _ => Vec::new(),
+    };
+    match program.item(def) {
+        Some(Item::Type(t)) => t.ctor.map(ctor_fields).unwrap_or_default(),
+        Some(Item::Enum(e)) => e.variants.iter().flat_map(|&v| ctor_fields(v)).collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -647,7 +934,11 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
             params.iter().any(|&p| has_omitted_fails(program, p))
                 || ret.is_some_and(|r| has_omitted_fails(program, r))
         }
-        TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+        TypeKind::SelfType
+        | TypeKind::Unit
+        | TypeKind::Missing
+        | TypeKind::ErrorSet(_)
+        | TypeKind::EffectSet(_) => false,
     }
 }
 
@@ -662,6 +953,10 @@ pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
             params.iter().any(|&p| has_omitted_uses(program, p))
                 || ret.is_some_and(|r| has_omitted_uses(program, r))
         }
-        TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+        TypeKind::SelfType
+        | TypeKind::Unit
+        | TypeKind::Missing
+        | TypeKind::ErrorSet(_)
+        | TypeKind::EffectSet(_) => false,
     }
 }

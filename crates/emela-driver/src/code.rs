@@ -65,6 +65,9 @@ pub const ESCAPE_ARM_NOT_ERROR: &str = "E0320";
 pub const ERROR_SET_MISMATCH: &str = "E0321";
 // 効果への制約（9.5）
 pub const IMMEDIATE_ON_NON_EFFECT: &str = "E0322";
+// 宣言の型引数の集合（9.2）
+pub const SET_ARG_MISMATCH: &str = "E0323";
+pub const SET_AS_TYPE: &str = "E0324";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 

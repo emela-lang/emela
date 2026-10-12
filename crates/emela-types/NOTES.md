@@ -74,7 +74,7 @@
 - （補）戻り値の型を書いた fn の宣言の E は，書いた `fails` 節（なければ空）と，引数の型の中の正の位置（本体が呼べる関数．引数の関数型の E と，その戻り値の関数型の E）の見えない集合の和にする．見えない集合は書けないので，引数の関数を呼んだときのエラーはいつも伝えてよい（`List.map` が f のエラーを引き継ぐ，9.2）．負の位置（引数の関数が受け取る関数）の見えない集合は含めない．本体から見ると中身の分からない集合で，そこに失敗する関数を渡すと E0321．
 - （補）戻り値の型の中に `fails` を省略した関数型がある fn（`compose`）は，宣言の型を本体から推論する（戻り値の型を書いていない fn と同じく，まとまりの中では単相）．この fn 自身の E も推論し，宣言の E（上の和）に含まれることを確かめる．引数の関数を呼ぶ関数を返すだけなら，この fn 自身は失敗しない．
 - （補）型引数の種類は使われた位置から決める．`fails` にだけ書いた型引数は集合，値の型に書いた型引数はふつうの型で，`fails` にも書いていれば1つのエラーの型（`RowElem::Of(Ty::Bound(i))`，7.2）．`use` にだけ書いた型引数も集合（`ParamKind::Set`）で，エラーの集合か効果の集合かは書いた位置で決まる．
-- （補）type・enum・error の宣言の型引数を `fails` に書く（`type Handler[E, R](run: fn(Request) -> Response fails E use R)`，9.2）のはまだ扱わない（「まだ扱えない」の診断）．名前付き型の型引数に集合を渡す表現が要るため．
+- （補）type・enum の宣言の型引数を `fails` と `use` に書く形（9.2 の `type Handler[E, R]`）は，下の「宣言の型引数の集合」に書いた．
 - （補）`fail e` の E は `e` の型のタグ．`e` の型が型引数か推論の型変数なら1つのエラーの型として E に入れ，汎化で値と `fails` の両方に出る型引数になる（`fn raise[E](err: E) { fail err }` は `∀ E, A. fn(E) -> A fails E`）．`Never` と壊れた型は何も足さない．それ以外の型は E0319．呼ぶ側で1つのエラーの型の型引数をエラーでない型に具体化したときも，呼び出しの位置に E0319．
 - （補）escape（7.3，18.1 #20）は，元の式の E から，腕がそのエラーの値をすべて受けるタグだけを消す．エラーごとに腕を集め，W0301 と同じ網羅性の検査（`Shapes::check_arms`）で足りない値がなければ消す．ガード付きの腕は網羅に数えない．`Flag(on: True)` と `Flag(on: False)` のように，ガードのない腕を合わせて網羅していれば，1本の `Flag(_)` でなくても消す．一部の値しか受けないエラーは E に残るので，`-> T` の関数なら E0318．エラーは型引数を持たず形が宣言だけで決まるので，この判定は E を求めるときに行う（`body/errors.rs` の `escaped_tags`）．W0302（起きないエラーの腕）と W0301（冗長な腕）は今のまま，一部しか受けない腕でも確かめる．推論の集合変数（同じまとまりの中で決まる E や，関数の値の参照に足した集合変数）は，消すタグを除いた解を持つ新しい集合変数に置き換えるので，解が決まった後でも正確に消える．消さないのは，集合の型引数（`fails E` の `E`，見えない集合）と1つのエラーの型の型引数と，汎化する集合変数．7.3 の「中身の分からない集合変数」をこの3つと読んだ．
 - （補）escape の腕のパターンがエラーの構成子でない（`_`，変数など）ときは E0320．名前解決が誤りを出すエラーでない構成子は型検査では重ねない．誤りのある escape は，元の式のエラーを全部受けたとみなす（E0318 を重ねない）．
@@ -130,7 +130,18 @@
 - （補）E0416 は参照の位置（呼ばれる側の名前）に出す．同じ呼び出しの中の要素はまとめて1つにする．
 - （補）型の表示: `R: Immediate` はスキームの表示に `∀ A, R: Immediate. ...` と出す．ホバーでは suspend fn（操作と `@external suspend fn`）の型の前に `suspend` を付け，handler の名前には `handler H implements E` と依存（`use Async` など）を出す．
 - （補）lowering と JS の出力は次の段．今は suspend の実装を持つ handler を with に書くと，lowering が「まだ扱えない」（`suspend operations`）にする．`@external suspend fn` を出力に含めるときも「まだ扱えない」（`suspend external functions`）．
-- （補）宣言の型引数を fails と use に使う形（9.2 の `type Handler[E, R]`）を入れるときは，`R: Immediate` の制約も type の型引数に付けられるようにする．制約は `TyParam::bounds` に名前で持ち，検査は参照の具体化（`require_immediate`）で行っているので，構成子のスキームに制約を写せば同じ仕組みで確かめられる．
+- （補）type の効果の集合の型引数にも `R: Immediate` を書ける（`type Ticker[R: Immediate](tick: fn() -> () use R)`）．制約は構成子のスキームに写り，構成子を参照したところで確かめる（E0416）．型の書き方（`Ticker[Clock]` と書いた引数の型など）では確かめない．値は構成子からしか作れないので，作ったところで確かめれば足りる．
+
+## 宣言の型引数の集合（9.2 の `type Handler[E, R]`）
+
+- （補）名前付き型の型引数に渡す集合は `Ty::Set(SetKind, Row)` で持つ．`Ty::Named` の型引数の位置にだけ現れ，値の型ではない．`SetKind` で表示の形（エラーの集合は `A | B`，効果の集合は `{ A, B }`）を決める．単一化では同じ種類の `Set` どうしを包含の制約にする（名前付き型の型引数の中なので両方向，つまり一致）．置き換え（`substitute`，`substitute_bound`），汎化，集合を解いた後の辿り方は関数型の E と R と同じに扱う．汎化では名前付き型の型引数の中の集合変数を負の位置とみなす（両方の位置）．
+- （補）type・enum の型引数の種類は，フィールドの型の中で使われた位置から決める（9.2）．`fails` にだけ書けばエラーの集合，`use` にだけ書けば効果の集合，値の型にも書けばふつうの型．別の名前付き型の集合の型引数の位置に渡した型引数（`type Server[E](inner: Handler[E, Db])` の `E`）も集合なので，宣言全体で変わらなくなるまで繰り返して決める（`lower.rs` の `decl_sets`）．`fails` と `use` の両方に書いた型引数は，先に見つけた方の種類にする．fn の型引数の種類も，名前付き型の集合の型引数の位置に書けば集合（`fn serve[E, R](h: Handler[E, R])`）．
+- （補）集合の型引数の位置には集合を書ける（17.4 に足した `type_arg`）．エラーの集合は `|` でつなぎ（`Handler[NotFound | Timeout, R]`），効果の集合は波括弧で囲む（`Handler[E, { Db, Log }]`）．要素1つなら囲まずに書ける（`Handler[NotFound, Db]`）．空の `{}` はどちらの位置にも書ける（エラーの集合の空も `fails {}` と同じ書き方なので）．要素に書けるのは，その種類のタグ（error か effect の名前）と集合の型引数で，それ以外（ふつうの型，違う種類のタグや集合の書き方，ふつうの型の型引数）は E0323 で，その要素を除いて続ける．
+- （補）集合でない型引数の位置（`List[{}]`，ふつうの型の型引数）に集合の書き方を書いたら E0324．
+- （補）名前解決は，名前付き型の型引数の位置ではエフェクトの名前も通す（emela-resolve の `type_arg`）．集合でない型引数の位置（`List[Db]` など）にエフェクトを書いたときは，型推論が名前解決と同じ E0221 を出す．
+- （補）宣言の中なので，フィールドの関数型で `fails` と `use` を省略すれば空のまま（9.2）．効果を持たせたいときに型引数で明示するのは仕様どおり．
+- （補）構成子 `Handler(run: f)` は，フィールドの関数型の E と R を集合変数に具体化し，渡した関数の E と R がそれに含まれる制約から推論する（`fn db_handler()` は `fn() -> Handler[{}, Db]`）．フィールドの関数を呼ぶ（`h.run(req)`）と，その E と R が呼んだ側に載る．
+- （補）lowering では，集合の型引数は実行時の表現を持たない．IR の型引数の位置をそろえるため `()` にする．evidence passing はフィールドの関数の型の R で決まるので，構成子に渡した関数と，フィールドから取り出して呼ぶ側とで R が一致する（名前付き型の型引数は一致の制約）．
 
 ## 結果の形（lowering に渡すもの）
 
@@ -192,6 +203,9 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``
 - E0416 `NotImmediate`: ``effect `Clock` may suspend, but `R` of `update` must be `Immediate` ``．集合の型引数なら ``effect set `R(f)` may suspend, ...``，注記 ``= help: constrain the effect set with `: Immediate` ``．外部関数のコールバックは ``effect `Async` may suspend, but callbacks passed to external function `set_timeout` must be `Immediate` ``
+- E0323 `SetArgMismatch`: ``` `E` of `Handler` is an error set, found type `Int` ```（`found` は ``effect `Clock` ``，``error `NotFound` ``，``type parameter `A` `` など）．注記 ``= help: write an error or an error set type parameter``（効果の集合なら ``an effect or an effect set type parameter``）
+- E0324 `SetAsType`: ``expected a type, found a set: sets can only be passed to set type parameters``
+- E0221 `EffectAsType`（型推論から）: ``effect `Db` cannot be used as a type``．注記は名前解決の E0221 と同じ
 - E0322 `ImmediateOnNonEffect`: ``` `Immediate` can only constrain effect sets, but `A` is not used in `use` ```
 - （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．
 - （補）整数リテラルの型は「整数リテラルの型変数」（`InferCtx::new_int_var`）にする．Int か Int64 にしか束縛できず，他の型と単一化すると，その場で型が合わないエラーになる（エラーには `Int` と出す）．他の型変数と単一化すると，その型変数も同じ制約を持つ．本体を推論し終えても決まらなければ Int にする（2.4）．

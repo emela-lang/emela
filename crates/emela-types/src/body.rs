@@ -203,7 +203,7 @@ impl<'a> BodyInfer<'a> {
         self.module = self.program.defs[def].module.clone();
         (self.type_params, self.param_kinds) = match self.program.item(def) {
             Some(Item::Fn(item)) => {
-                let params = FnParams::new(self.program, item);
+                let params = FnParams::new(self.program, self.ty_table, item);
                 (params.defs, params.kinds)
             }
             _ => (Vec::new(), Vec::new()),
@@ -223,7 +223,7 @@ impl<'a> BodyInfer<'a> {
         }
         let (ty, params) = match program.item(def) {
             Some(Item::Fn(item)) => {
-                let mut fn_params = FnParams::new(program, item);
+                let mut fn_params = FnParams::new(program, self.ty_table, item);
                 let params = fn_params.lower_params(
                     program,
                     self.ty_table,

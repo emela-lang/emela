@@ -559,7 +559,7 @@ fn logs() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// suspend，Async，Immediate の診断（E0322，E0407，E0413〜E0416）の文面．main の R には Async だけが
+/// suspend，Async，Immediate，宣言の型引数の集合の診断（E0221，E0322〜E0324，E0407，E0413〜E0416）の文面．main の R には Async だけが
 /// 残ってよい（8.3）．
 #[test]
 fn suspend_diagnostics() {
@@ -591,6 +591,10 @@ handler Runtime implements Async {
 fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }
+
+type Handler[E, R](run: fn() -> () fails E use R)
+
+fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
 
 fn misuse(g: fn(Int) -> Int) {
   use Async

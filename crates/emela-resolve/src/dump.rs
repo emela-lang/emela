@@ -357,6 +357,8 @@ impl Dumper<'_> {
                 }
                 s
             }
+            TypeKind::ErrorSet(set) => format!("fails {{{}}}", self.res_list(&set.items)),
+            TypeKind::EffectSet(set) => format!("use {{{}}}", self.res_list(&set.items)),
             TypeKind::Missing => "missing".to_owned(),
         }
     }

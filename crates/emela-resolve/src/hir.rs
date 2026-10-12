@@ -158,6 +158,12 @@ pub enum TypeKind {
         fails: Option<ErrorSet>,
         uses: Option<EffectSet>,
     },
+    /// 名前付き型の型引数に書いたエラーの集合（`Handler[NotFound | Timeout, R]`，9.2）．
+    /// 型引数の位置にだけ現れる．
+    ErrorSet(ErrorSet),
+    /// 名前付き型の型引数に書いた波括弧の集合（`Handler[E, { Db, Log }]`，`{}`）．
+    /// 型引数の位置にだけ現れる．空の `{}` はエラーの集合の位置にも書ける．
+    EffectSet(EffectSet),
     /// 読めなかった型．
     Missing,
 }

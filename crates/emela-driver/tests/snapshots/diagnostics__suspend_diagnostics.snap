@@ -27,37 +27,72 @@ error[E0322]: `Immediate` can only constrain effect sets, but `A` is not used in
     │                      ╰────── 
 ────╯
 
-error[E0414]: `Async` has no operations and cannot be used with `use`
-    ╭─[ main.emel:27:3 ]
+error[E0323]: `E` of `Handler` is an error set, found type `Int`
+    ╭─[ main.emel:28:24 ]
     │
- 27 │   use Async
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
+    │                        ─┬─  
+    │                         ╰─── 
+────╯
+   = help: write an error or an error set type parameter
+
+error[E0323]: `E` of `Handler` is an error set, found effect `Clock`
+    ╭─[ main.emel:28:48 ]
+    │
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
+    │                                                ──┬──  
+    │                                                  ╰──── 
+────╯
+   = help: write an error or an error set type parameter
+
+error[E0221]: effect `Clock` cannot be used as a type
+    ╭─[ main.emel:28:71 ]
+    │
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
+    │                                                                       ──┬──  
+    │                                                                         ╰──── 
+────╯
+   = help: a capability cannot be passed around; take `use Clock` where it is needed, or pass a closure that captures it
+
+error[E0324]: expected a type, found a set: sets can only be passed to set type parameters
+    ╭─[ main.emel:28:87 ]
+    │
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
+    │                                                                                       ─┬  
+    │                                                                                        ╰── 
+────╯
+
+error[E0414]: `Async` has no operations and cannot be used with `use`
+    ╭─[ main.emel:31:3 ]
+    │
+ 31 │   use Async
     │   ────┬────  
     │       ╰────── 
 ────╯
 
 error[E0407]: external function `fetch_text` can only be used in handlers
-    ╭─[ main.emel:28:3 ]
+    ╭─[ main.emel:32:3 ]
     │
- 28 │   fetch_text("x")
+ 32 │   fetch_text("x")
     │   ─────┬────  
     │        ╰────── 
 ────╯
 
 error[E0416]: effect `Clock` may suspend, but `R` of `update` must be `Immediate`
-    ╭─[ main.emel:29:3 ]
+    ╭─[ main.emel:33:3 ]
     │
- 29 │   update(1, fn(n) {
+ 33 │   update(1, fn(n) {
     │   ───┬──  
     │      ╰──── 
 ────╯
 
 error[E0416]: effect set `R(g)` may suspend, but `R` of `update` must be `Immediate`
-    ╭─[ main.emel:33:3 ]
+    ╭─[ main.emel:37:3 ]
     │
- 33 │   update(1, g)
+ 37 │   update(1, g)
     │   ───┬──  
     │      ╰──── 
 ────╯
    = help: constrain the effect set with `: Immediate`
 
-7 errors
+11 errors

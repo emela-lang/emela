@@ -20,6 +20,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         locals: Vec::new(),
         type_params: Vec::new(),
         self_type: false,
+        type_arg: false,
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -73,6 +74,9 @@ struct Lower<'r, 'a> {
     type_params: Vec<FxHashMap<SmolStr, DefId>>,
     /// `Self` を書ける（trait と impl の中）．
     self_type: bool,
+    /// 名前付き型の型引数の位置の型を引いている．エフェクトの名前も書ける（集合の型引数，
+    /// 9.2 の `Handler[NotFound, Db]`）．エフェクトを書いてよい位置かは型推論が確かめる．
+    type_arg: bool,
 }
 
 /// 1つのパターン（か引数の並び）で束縛する名前．同じ名前を2回束縛したら診断を出す．
@@ -616,16 +620,29 @@ impl Lower<'_, '_> {
 
     fn lower_type(&mut self, node: &SyntaxNode) -> TypeId {
         let range = node.text_range();
+        let type_arg = std::mem::take(&mut self.type_arg);
         let kind = match node.kind() {
             PATH_TYPE => {
                 let res = match node.children().find_map(ast::Path::cast) {
-                    Some(path) => self.resolve_type_ns(&path, Expected::Type),
+                    Some(path) => {
+                        self.type_arg = type_arg;
+                        let res = self.resolve_type_ns(&path, Expected::Type);
+                        self.type_arg = false;
+                        res
+                    }
                     None => Res::Err,
                 };
                 let args = node
                     .children()
                     .find(|n| n.kind() == TYPE_ARG_LIST)
-                    .map(|list| list.children().map(|t| self.lower_type(&t)).collect())
+                    .map(|list| {
+                        list.children()
+                            .map(|t| {
+                                self.type_arg = true;
+                                self.lower_type(&t)
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 TypeKind::Path { res, args }
             }
@@ -649,6 +666,15 @@ impl Lower<'_, '_> {
                 TypeKind::Missing
             }
             UNIT_TYPE => TypeKind::Unit,
+            // 型引数の位置の集合（9.2）．パーサは型引数の位置でだけ作る．
+            ERROR_SET => TypeKind::ErrorSet(ErrorSet {
+                items: self.set_node_items(node, Expected::Error),
+                span: self.span(range),
+            }),
+            EFFECT_SET => TypeKind::EffectSet(EffectSet {
+                items: self.set_node_items(node, Expected::Effect),
+                span: self.span(range),
+            }),
             TUPLE_TYPE => TypeKind::Tuple(node.children().map(|t| self.lower_type(&t)).collect()),
             FN_TYPE => {
                 let params = node
@@ -731,6 +757,11 @@ impl Lower<'_, '_> {
         else {
             return Vec::new();
         };
+        self.set_node_items(&set, expected)
+    }
+
+    /// 集合（ERROR_SET か EFFECT_SET）の要素．
+    fn set_node_items(&mut self, set: &SyntaxNode, expected: Expected) -> Vec<(Res, Span)> {
         set.children()
             .filter_map(|n| {
                 let res = match n.kind() {
@@ -774,14 +805,16 @@ impl Lower<'_, '_> {
         };
         let kind = self.r.program.defs[def].kind;
         let fits = match expected {
-            Expected::Type => matches!(
-                kind,
-                DefKind::Type
-                    | DefKind::Enum
-                    | DefKind::Error
-                    | DefKind::BuiltinType
-                    | DefKind::TypeParam
-            ),
+            Expected::Type => {
+                matches!(
+                    kind,
+                    DefKind::Type
+                        | DefKind::Enum
+                        | DefKind::Error
+                        | DefKind::BuiltinType
+                        | DefKind::TypeParam
+                ) || (self.type_arg && kind == DefKind::Effect)
+            }
             Expected::Effect => matches!(kind, DefKind::Effect | DefKind::TypeParam),
             Expected::Error => matches!(kind, DefKind::Error | DefKind::TypeParam),
             Expected::HandlerOrLayer => matches!(kind, DefKind::Handler | DefKind::Layer),

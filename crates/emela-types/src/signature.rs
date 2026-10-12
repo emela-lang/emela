@@ -12,11 +12,10 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
 use crate::lower::{
-    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, has_omitted_fails,
+    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, classify_sets, has_omitted_fails,
     has_omitted_uses, immediate_bounds, is_immediate_effect, ty_params, type_param_defs,
-    used_in_uses,
 };
-use crate::row::{Row, RowElem};
+use crate::row::{Row, RowElem, SetKind};
 use crate::scheme::Scheme;
 use crate::ty::{ParamKind, Ty, TyParam};
 
@@ -54,7 +53,7 @@ impl Signatures {
         for (def, _) in program.defs.iter() {
             let sig = match program.item(def) {
                 Some(Item::Fn(item)) => {
-                    check_bounds(program, def, item, diags);
+                    check_bounds(program, ty_table, def, item, diags);
                     fn_signature(program, ty_table, item, diags)
                 }
                 Some(Item::Ctor(item)) => {
@@ -102,7 +101,7 @@ fn fn_signature(
     {
         return None;
     }
-    let mut params = FnParams::new(program, item);
+    let mut params = FnParams::new(program, ty_table, item);
     let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
     let labels = param_labels(program, &item.sig.params);
     let mut scope = params.scope(Omitted::Empty);
@@ -132,7 +131,13 @@ fn fn_signature(
 ///   Trait の制約は 0.21 まで検査しない（Prelude の `dbg[A: Show]`）．
 /// - 外部関数の引数の関数型に書いた `use` 節は Immediate でなければならない（E0416）．省略した
 ///   `use` 節は見えない集合で，Immediate の制約を付ける（[`FnParams::new`]）．
-fn check_bounds(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Diagnostic>) {
+fn check_bounds(
+    program: &Program,
+    ty_table: &TyTable,
+    def: DefId,
+    item: &FnItem,
+    diags: &mut Vec<Diagnostic>,
+) {
     let sig = &item.sig;
     let types: Vec<TypeId> = sig
         .params
@@ -142,8 +147,10 @@ fn check_bounds(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Di
         .collect();
     let immediate = program.prelude_def(IMMEDIATE);
     let mut constrained = Vec::new();
-    for tp in &sig.type_params {
-        let in_uses = used_in_uses(program, tp.def, types.iter().copied())
+    let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
+    let sets = classify_sets(program, ty_table.decl_sets(), &defs, types.iter().copied());
+    for (i, tp) in sig.type_params.iter().enumerate() {
+        let in_uses = sets[i] == Some(SetKind::Effects)
             || sig
                 .uses
                 .iter()
@@ -221,7 +228,11 @@ fn check_bounds(program: &Program, def: DefId, item: &FnItem, diags: &mut Vec<Di
                     walk(program, *r, constrained, effects, sets);
                 }
             }
-            TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
+            TypeKind::SelfType
+            | TypeKind::Unit
+            | TypeKind::Missing
+            | TypeKind::ErrorSet(_)
+            | TypeKind::EffectSet(_) => {}
         }
     }
     for p in &sig.params {
@@ -305,11 +316,11 @@ pub(crate) struct FnParams {
 impl FnParams {
     /// fn の型引数．外部関数なら，引数の型の中の見えない効果の集合に `Immediate` の制約を付ける
     /// （コールバックは Immediate でなければならない，9.5）．
-    pub(crate) fn new(program: &Program, item: &FnItem) -> Self {
+    pub(crate) fn new(program: &Program, ty_table: &TyTable, item: &FnItem) -> Self {
         let sig = &item.sig;
         let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
-        let kinds = classify_params(program, &defs, types);
+        let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
         // 制約は Immediate だけを持つ（Trait は 0.21．名前も持たない）．効果の集合でない型引数に
         // 付けた Immediate は [`check_bounds`] が E0322 にする．
         let declared = ty_params(program, &defs)
@@ -435,13 +446,18 @@ fn ctor_signature(
         Fields::Positional(tys) => (tys.clone(), vec![None; tys.len()]),
         Fields::Named(fs) => fs.iter().map(|f| (f.ty, Some(f.name.clone()))).unzip(),
     };
-    // フィールドの関数型の `fails` を省略すれば空（9.2）．集合の型引数は扱わない．
-    let kinds = classify_params(program, &defs, field_tys.iter().copied());
+    // フィールドの関数型の `fails` と `use` を省略すれば空（9.2）．型引数の種類（集合か）は
+    // 型の表が決めたもの（`type Handler[E, R]`）．
+    let params: Vec<TyParam> = match ty_table.con(owner) {
+        Some(id) => ty_table.cons[id].params.clone(),
+        None => ty_params(program, &defs),
+    };
+    let kinds: Vec<ParamKind> = params.iter().map(|p| p.kind).collect();
     let mut scope = Scope {
         params: &defs,
         kinds: &kinds,
         omitted: Omitted::Empty,
-        sets: false,
+        sets: true,
     };
     let ty = match fields {
         Fields::None => ret_ty,
@@ -455,7 +471,7 @@ fn ctor_signature(
     };
 
     Some(Signature {
-        scheme: Scheme::new(ty_params(program, &defs), ty),
+        scheme: Scheme::new(params, ty),
         labels,
     })
 }

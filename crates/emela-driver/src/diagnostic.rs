@@ -784,6 +784,44 @@ impl Diagnostic {
                 };
                 (Severity::Error, Some(code::NOT_IMMEDIATE), message)
             }
+            TypeDiagnosticKind::SetAsType => (
+                Severity::Error,
+                Some(code::SET_AS_TYPE),
+                "expected a type, found a set: sets can only be passed to set type parameters"
+                    .to_owned(),
+            ),
+            TypeDiagnosticKind::EffectAsType { name } => {
+                help = Some(format!(
+                    "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_AS_TYPE),
+                    format!("effect `{name}` cannot be used as a type"),
+                )
+            }
+            TypeDiagnosticKind::SetArgMismatch {
+                param,
+                ty,
+                effects,
+                found,
+            } => {
+                let set = if *effects {
+                    "an effect set"
+                } else {
+                    "an error set"
+                };
+                help = Some(if *effects {
+                    "write an effect or an effect set type parameter".to_owned()
+                } else {
+                    "write an error or an error set type parameter".to_owned()
+                });
+                (
+                    Severity::Error,
+                    Some(code::SET_ARG_MISMATCH),
+                    format!("`{param}` of `{ty}` is {set}, found {found}"),
+                )
+            }
             TypeDiagnosticKind::ImmediateOnNonEffect { param } => (
                 Severity::Error,
                 Some(code::IMMEDIATE_ON_NON_EFFECT),

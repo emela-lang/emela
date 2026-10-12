@@ -699,3 +699,149 @@ handler Ticking implements Logger {
 "#
     ));
 }
+
+/// 宣言の型引数を fails と use に使う形（9.2 の `type Handler[E, R]`）．型引数の種類は使われた
+/// 位置から決める．型引数の位置には，その種類のタグ1つか集合の型引数を書ける．構成子の呼び出しは
+/// フィールドの関数から E と R を推論し，フィールドの関数を呼ぶと E と R が呼んだ側に載る．
+#[test]
+fn declaration_sets() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+type Request(path: String)
+type Response(body: String)
+
+error NotFound
+error Timeout
+
+effect Db {
+  fn query(q: String) -> String
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+type Handler[E, R](run: fn(Request) -> Response fails E use R)
+
+enum Step[E] {
+  Done,
+  Next(fn() -> Int fails E),
+}
+
+type Server[E](inner: Handler[E, Db])
+
+type Ticker[R: Immediate](tick: fn() -> () use R)
+
+handler MemDb implements Db {
+  fn query(q) { q }
+}
+
+fn db_handler() {
+  Handler(run: fn(req) {
+    body = (use Db).query(req.path)
+    Response(body:)
+  })
+}
+
+fn failing() -> Handler[NotFound, Db] {
+  Handler(run: fn(req) { fail NotFound })
+}
+
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {
+  h.run(req)
+}
+
+fn served() -> Response {
+  with MemDb {
+    serve(failing(), Request(path: "/")) escape {
+      NotFound -> Response(body: "404")
+    }
+  }
+}
+
+fn inferred(req: Request) {
+  serve(db_handler(), req)
+}
+
+fn too_much() -> Handler[NotFound, Db] {
+  Handler(run: fn(req) {
+    (use Clock).sleep(1)
+    fail Timeout
+  })
+}
+
+fn bad_args(a: Handler[Int, Db], b: Handler[NotFound, NotFound], c: List[Db]) { () }
+
+fn steps(s: Step[Timeout]) -> Int fails Timeout {
+  match s {
+    Done -> 0
+    Next(f) -> f()
+  }
+}
+
+fn server(s: Server[NotFound], req: Request) -> Response fails NotFound use Db {
+  s.inner.run(req)
+}
+
+fn tickers() {
+  a = Ticker(tick: fn() {
+    (use Db).query("x")
+    ()
+  })
+  b = Ticker(tick: fn() { (use Clock).sleep(1) })
+}
+"#
+    ));
+}
+
+/// 型引数の位置に書く集合（9.2）．エラーの集合は `|` でつなぎ，効果の集合は波括弧で囲む．
+/// 空の `{}` はどちらの位置にも書ける．集合でない型引数の位置に集合を書けば E0324．
+#[test]
+fn declaration_set_args() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+type Request(path: String)
+type Response(body: String)
+
+error NotFound
+error Timeout
+
+effect Db {
+  fn query(q: String) -> String
+}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+type Handler[E, R](run: fn(Request) -> Response fails E use R)
+
+fn both() -> Handler[NotFound | Timeout, { Db, Log }] {
+  Handler(run: fn(req) {
+    (use Log).info(req.path)
+    if req.path == "/" { fail Timeout }
+    body = (use Db).query(req.path)
+    if body == "" { fail NotFound }
+    Response(body:)
+  })
+}
+
+fn pure() -> Handler[{}, {}] {
+  Handler(run: fn(req) { Response(body: req.path) })
+}
+
+fn too_much() -> Handler[{}, {}] {
+  Handler(run: fn(req) { fail NotFound })
+}
+
+fn wrap[E, R](h: Handler[E, R]) -> Handler[E | Timeout, { R, Log }] {
+  Handler(run: fn(req) {
+    (use Log).info("wrap")
+    h.run(req)
+  })
+}
+
+fn misplaced(a: Handler[{ Db }, Db], b: Handler[NotFound, NotFound | Timeout], c: List[{}], d: Handler[NotFound | Db, {}]) { () }
+"#
+    ));
+}

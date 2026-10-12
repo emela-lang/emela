@@ -27,16 +27,45 @@ pub(crate) fn type_(p: &mut Parser<'_>) {
     }
 }
 
-/// `type_ref [ "[" type { "," type } "]" ]`
+/// `type_ref [ "[" type_arg { "," type_arg } "]" ]`
 fn path_type(p: &mut Parser<'_>) {
     let m = p.start();
     path(p);
     if p.at(L_BRACK) {
         let args = p.start();
-        delimited(p, L_BRACK, R_BRACK, type_);
+        delimited(p, L_BRACK, R_BRACK, type_arg);
         args.complete(p, TYPE_ARG_LIST);
     }
     m.complete(p, PATH_TYPE);
+}
+
+/// `type_arg = type | "{" [ effect_item { "," effect_item } ] "}" | error_item "|" error_item { "|" error_item }`
+///
+/// 名前付き型の集合の型引数に渡す集合（9.2 の `Handler[NotFound | Timeout, { Db, Log }]`）．
+/// 波括弧は効果の集合の書き方（`{}` は空の集合で，エラーの集合の位置にも書ける），`|` で
+/// つないだものはエラーの集合の書き方．要素が1つなら型として読む（`Handler[NotFound, Db]`）．
+fn type_arg(p: &mut Parser<'_>) {
+    if p.at(L_BRACE) {
+        effect_set(p);
+        return;
+    }
+    // `A | B` か `Mod.A | B`．
+    let mut n = 0;
+    match p.current() {
+        TYPE_NAME => {
+            n = 1;
+            while p.nth(n) == DOT && p.nth(n + 1) == TYPE_NAME {
+                n += 2;
+            }
+        }
+        UPPER_NAME => n = 1,
+        _ => {}
+    }
+    if n > 0 && p.nth(n) == PIPE {
+        error_set(p);
+    } else {
+        type_(p);
+    }
 }
 
 /// `type_ref = [ module_path "." ] type_name`．呼ぶ側が TYPE_NAME にいることを確かめる．

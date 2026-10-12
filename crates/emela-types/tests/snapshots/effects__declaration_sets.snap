@@ -1,0 +1,53 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\ntype Request(path: String)\ntype Response(body: String)\n\nerror NotFound\nerror Timeout\n\neffect Db {\n  fn query(q: String) -> String\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\ntype Handler[E, R](run: fn(Request) -> Response fails E use R)\n\nenum Step[E] {\n  Done,\n  Next(fn() -> Int fails E),\n}\n\ntype Server[E](inner: Handler[E, Db])\n\ntype Ticker[R: Immediate](tick: fn() -> () use R)\n\nhandler MemDb implements Db {\n  fn query(q) { q }\n}\n\nfn db_handler() {\n  Handler(run: fn(req) {\n    body = (use Db).query(req.path)\n    Response(body:)\n  })\n}\n\nfn failing() -> Handler[NotFound, Db] {\n  Handler(run: fn(req) { fail NotFound })\n}\n\nfn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {\n  h.run(req)\n}\n\nfn served() -> Response {\n  with MemDb {\n    serve(failing(), Request(path: \"/\")) escape {\n      NotFound -> Response(body: \"404\")\n    }\n  }\n}\n\nfn inferred(req: Request) {\n  serve(db_handler(), req)\n}\n\nfn too_much() -> Handler[NotFound, Db] {\n  Handler(run: fn(req) {\n    (use Clock).sleep(1)\n    fail Timeout\n  })\n}\n\nfn bad_args(a: Handler[Int, Db], b: Handler[NotFound, NotFound], c: List[Db]) { () }\n\nfn steps(s: Step[Timeout]) -> Int fails Timeout {\n  match s {\n    Done -> 0\n    Next(f) -> f()\n  }\n}\n\nfn server(s: Server[NotFound], req: Request) -> Response fails NotFound use Db {\n  s.inner.run(req)\n}\n\nfn tickers() {\n  a = Ticker(tick: fn() {\n    (use Db).query(\"x\")\n    ()\n  })\n  b = Ticker(tick: fn() { (use Clock).sleep(1) })\n}\n\"#)"
+---
+db_handler: fn() -> Handler[{}, Db]
+failing: fn() -> Handler[NotFound, Db]
+serve: ∀ E, R. fn(Handler[E, R], Request) -> Response fails E use R
+served: fn() -> Response
+inferred: fn(Request) -> Response use Db
+too_much: fn() -> Handler[NotFound, Db]
+bad_args: fn(Handler[{}, Db], Handler[NotFound, {}], List[{unknown}]) -> ()
+steps: fn(Step[Timeout]) -> Int fails Timeout
+server: fn(Server[NotFound], Request) -> Response fails NotFound use Db
+tickers: fn() -> ()
+handler MemDb: use {}
+`Handler(run: fn(req) {
+    (use Clock).sleep(1)
+    fail Timeout
+  })` error set mismatch: expected `fails NotFound`, found `fails NotFound | Timeout`
+`Handler(run: fn(req) {
+    (use Clock).sleep(1)
+    fail Timeout
+  })` effect set mismatch: expected `use Db`, found `use { Db, Clock }`
+`Int` SetArgMismatch { param: "E", ty: "Handler", effects: false, found: "type `Int`" }
+`NotFound` SetArgMismatch { param: "R", ty: "Handler", effects: true, found: "error `NotFound`" }
+`Db` EffectAsType { name: "Db" }
+`Ticker` NotImmediate { effects: ["Clock"], sets: [], required: Bound { param: "R", callee: "Ticker" } }
+--- R
+{     body = (use Db).query(req.path)     Response(body:)   }: Db
+(use Db).query(req.path): Db
+(use Db).query: Db
+use Db: Db
+{   h.run(req) }: '1
+h.run(req): '1
+{     serve(failing(), Request(path: "/")) escape {       NotFound -> Response(body: "404")     }   }: Db
+serve(failing(), Request(path: "/")) escape {       NotFound -> Response(body: "404")     }: Db
+serve(failing(), Request(path: "/")): Db
+{   serve(db_handler(), req) }: Db
+serve(db_handler(), req): Db
+{     (use Clock).sleep(1)     fail Timeout   }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
+{   s.inner.run(req) }: Db
+s.inner.run(req): Db
+{     (use Db).query("x")     ()   }: Db
+(use Db).query("x"): Db
+(use Db).query: Db
+use Db: Db
+{ (use Clock).sleep(1) }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
