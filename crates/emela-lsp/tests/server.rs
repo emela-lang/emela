@@ -11,8 +11,8 @@ use lsp_types::notification::{
     Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize, References,
-    Request as _, Shutdown,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize,
+    References, Request as _, Shutdown,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
@@ -233,6 +233,34 @@ impl Client {
             lsp::DocumentSymbolResponse::Nested(symbols) => Some(symbols),
             other => panic!("入れ子でない: {other:?}"),
         }
+    }
+
+    /// 補完を求め，（名前，種類，説明）の並びを返す．`null` なら `None`．
+    fn complete(
+        &mut self,
+        path: &str,
+        line: u32,
+        character: u32,
+    ) -> Option<Vec<(String, lsp::CompletionItemKind, Option<String>)>> {
+        let id = self.request(
+            Completion::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "position": { "line": line, "character": character },
+            }),
+        );
+        let result: Option<lsp::CompletionResponse> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        let lsp::CompletionResponse::Array(mut items) = result? else {
+            panic!("配列でない");
+        };
+        items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
+        Some(
+            items
+                .into_iter()
+                .map(|i| (i.label, i.kind.unwrap(), i.detail))
+                .collect(),
+        )
     }
 
     /// 次の publishDiagnostics．
@@ -498,7 +526,7 @@ fn file_outside_the_source_root() {
 #[test]
 fn unsupported_requests_get_an_error() {
     let mut client = Client::initialize(&[("/tmp/main.emel", "")], None, ParseOnly::new);
-    let id = client.request("textDocument/completion", json!({}));
+    let id = client.request("textDocument/codeLens", json!({}));
     match client.recv() {
         Message::Response(response) => {
             assert_eq!(response.id, id);
@@ -975,4 +1003,147 @@ fn document_symbols_list_declarations() {
         assert!(matches!(message, Message::Notification(_)), "{message:?}");
     }
     client.shutdown();
+}
+
+/// 補完の名前だけ．
+fn labels(items: &[(String, lsp::CompletionItemKind, Option<String>)]) -> Vec<&str> {
+    items.iter().map(|(l, _, _)| l.as_str()).collect()
+}
+
+#[test]
+fn completion_after_dot() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    assert_eq!(
+        emela_lsp::capabilities()
+            .completion_provider
+            .and_then(|c| c.trigger_characters),
+        Some(vec![".".to_owned()])
+    );
+    // 能力の値の操作．書きかけの名前があってもなくても同じ候補．
+    let src = NAV_MAIN.replace("  log.info(Log.prefix(name))\n", "  log.\n  log.in\n");
+    client.open(MAIN, 1, &src);
+    let items = client.complete(MAIN, 13, 6).unwrap();
+    assert_eq!(
+        items,
+        [(
+            "info".to_owned(),
+            lsp::CompletionItemKind::METHOD,
+            Some("fn(String) -> ()".to_owned())
+        )]
+    );
+    assert_eq!(labels(&client.complete(MAIN, 14, 8).unwrap()), ["info"]);
+    // モジュールの pub な定義．
+    client.change(MAIN, 2, &NAV_MAIN.replace("Log.prefix(name)", "Log."));
+    assert_eq!(labels(&client.complete(MAIN, 13, 15).unwrap()), ["prefix"]);
+    // type のフィールド．説明は書いた型．
+    client.change(MAIN, 3, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
+    assert_eq!(
+        client.complete(MAIN, 19, 4).unwrap(),
+        [
+            (
+                "w".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+            (
+                "h".to_owned(),
+                lsp::CompletionItemKind::FIELD,
+                Some("Int".to_owned())
+            ),
+        ]
+    );
+    // import しなくても書ける core のモジュール．
+    client.change(MAIN, 4, &NAV_MAIN.replace("  area(s)\n", "  List.\n"));
+    let items = client.complete(MAIN, 19, 7).unwrap();
+    assert!(labels(&items).contains(&"map"), "{items:?}");
+    // 型の分からない式の後ろは空．
+    client.change(MAIN, 5, &NAV_MAIN.replace("  area(s)\n", "  1.\n"));
+    assert_eq!(client.complete(MAIN, 19, 4), Some(vec![]));
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn completion_in_imports() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let src = format!("import \n{NAV_MAIN}");
+    client.open(MAIN, 1, &src);
+    // モジュール名の最初の区切り（自分は出さない）．
+    let items = client.complete(MAIN, 0, 7).unwrap();
+    assert!(labels(&items).contains(&"Shapes"), "{items:?}");
+    assert!(labels(&items).contains(&"Util"), "{items:?}");
+    assert!(!labels(&items).contains(&"Main"), "{items:?}");
+    assert!(items.iter().all(|i| i.1 == lsp::CompletionItemKind::MODULE));
+    // 次の区切りはモジュール名だけ（関数の名前は出さない）．
+    client.change(MAIN, 2, &format!("import Util.\n{NAV_MAIN}"));
+    assert_eq!(
+        client.complete(MAIN, 0, 12).unwrap(),
+        [(
+            "Log".to_owned(),
+            lsp::CompletionItemKind::MODULE,
+            Some("Util.Log".to_owned())
+        )]
+    );
+    // 波括弧の中はモジュールの pub な名前．
+    client.change(MAIN, 3, &format!("import Shapes.{{a}}\n{NAV_MAIN}"));
+    assert_eq!(
+        labels(&client.complete(MAIN, 0, 16).unwrap()),
+        ["Shape", "area"]
+    );
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn completion_of_names_in_scope() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    // greet の本体．局所変数（内側が先），モジュールの定義，import した名前，モジュール，キーワード．
+    let src = NAV_MAIN.replace(
+        "  log.info(Log.prefix(name))\n",
+        "  log.info(Log.prefix(name))\n  n\n",
+    );
+    client.open(MAIN, 1, &src);
+    let items = client.complete(MAIN, 14, 3).unwrap();
+    let names = labels(&items);
+    assert_eq!(names[..2], ["log", "name"]);
+    assert_eq!(items[0].2.as_deref(), Some("use Logger"));
+    assert_eq!(items[1].2.as_deref(), Some("String"));
+    assert!(!names.contains(&"Prelude"), "{names:?}");
+    for name in [
+        "greet", "main", "Logger", "Quiet", "Shape", "area", "Log", "List", "Some", "match",
+    ] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    // 別の関数の局所変数と，import していない名前は出さない．
+    assert!(!names.contains(&"s"), "{names:?}");
+    assert!(!names.contains(&"prefix"), "{names:?}");
+    // 束縛の前と右辺の中では，その変数は見えない．
+    let items = client.complete(MAIN, 12, 2).unwrap();
+    assert!(!labels(&items).contains(&"log"), "{items:?}");
+    let items = client.complete(MAIN, 12, 12).unwrap();
+    assert!(!labels(&items).contains(&"log"), "{items:?}");
+    // `use` の後ろはエフェクト，`with` の後ろは handler と layer だけ．
+    let items = client.complete(MAIN, 12, 12).unwrap();
+    assert!(labels(&items).contains(&"Logger"), "{items:?}");
+    assert!(
+        items
+            .iter()
+            .all(|i| i.1 == lsp::CompletionItemKind::INTERFACE),
+        "{items:?}"
+    );
+    let items = client.complete(MAIN, 19, 7).unwrap();
+    assert_eq!(labels(&items), ["Quiet"]);
+    drain(&client);
+    client.shutdown();
+}
+
+/// 先に届いていない診断を読み捨てる．
+fn drain(client: &Client) {
+    while let Ok(message) = client
+        .connection
+        .receiver
+        .recv_timeout(Duration::from_millis(200))
+    {
+        assert!(matches!(message, Message::Notification(_)), "{message:?}");
+    }
 }

@@ -105,6 +105,32 @@ fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
     }
 }
 
+/// 補完の候補を LSP の形にする．`index` は driver の並び順で，`sortText` にして順を保つ．
+pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::CompletionItem {
+    use emela_driver::CompletionKind as K;
+    let kind = match item.kind {
+        K::Local => lsp::CompletionItemKind::VARIABLE,
+        K::Fn => lsp::CompletionItemKind::FUNCTION,
+        K::Const => lsp::CompletionItemKind::CONSTANT,
+        K::Ctor => lsp::CompletionItemKind::CONSTRUCTOR,
+        K::Type | K::Error => lsp::CompletionItemKind::STRUCT,
+        K::Enum => lsp::CompletionItemKind::ENUM,
+        K::Effect | K::Trait => lsp::CompletionItemKind::INTERFACE,
+        K::Handler | K::Layer => lsp::CompletionItemKind::CLASS,
+        K::Method => lsp::CompletionItemKind::METHOD,
+        K::Field => lsp::CompletionItemKind::FIELD,
+        K::Module => lsp::CompletionItemKind::MODULE,
+        K::Keyword => lsp::CompletionItemKind::KEYWORD,
+    };
+    lsp::CompletionItem {
+        label: item.label.clone(),
+        kind: Some(kind),
+        detail: item.detail.clone(),
+        sort_text: Some(format!("{index:05}")),
+        ..lsp::CompletionItem::default()
+    }
+}
+
 /// バイトの範囲を LSP の範囲にする．
 pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {

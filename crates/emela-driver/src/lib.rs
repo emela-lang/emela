@@ -3,6 +3,7 @@
 //! ソースの表を持ち，各段の診断を集めて表示し，出力した JS を node で実行する．
 
 pub mod code;
+mod complete;
 mod diagnostic;
 mod fmt;
 mod frontend;
@@ -17,6 +18,7 @@ mod run;
 mod source;
 mod testing;
 
+pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;
 pub use fmt::{

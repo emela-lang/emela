@@ -7,6 +7,7 @@ use emela_syntax::{Parse, SyntaxKind};
 use emela_types::{CheckOptions, ProgramTypes, check_program_with};
 use la_arena::ArenaMap;
 
+use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
 use crate::internal::check_internal;
@@ -239,6 +240,15 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
         crate::nav::definition(program, analysis, file, offset)
+    }
+
+    fn complete(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Vec<Completion> {
+        crate::complete::complete(program, analysis, file, offset)
     }
 
     fn references(
