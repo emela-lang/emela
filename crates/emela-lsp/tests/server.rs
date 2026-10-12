@@ -1,4 +1,4 @@
-//! メモリ上の接続でサーバーを立て，メッセージをやりとりして診断を確かめる．
+//! Runs the server over an in-memory connection and checks the messages it sends.
 
 use std::str::FromStr;
 use std::thread::JoinHandle;
@@ -18,7 +18,7 @@ use lsp_types::request::{
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
 
-/// コードアクションの題と編集（範囲，挿入するテキスト）．
+/// A code action's title and edits (range, inserted text).
 type Action = (String, Vec<(lsp::Range, String)>);
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -27,7 +27,7 @@ fn uri(path: &str) -> Uri {
     Uri::from_str(&format!("file://{path}")).unwrap()
 }
 
-/// エディタの側．サーバーは別のスレッドで動かす．
+/// The editor side. The server runs on another thread.
 struct Client {
     connection: Connection,
     server: Option<JoinHandle<()>>,
@@ -35,7 +35,8 @@ struct Client {
 }
 
 impl Client {
-    /// 送るメッセージを先に溜めてからサーバーを立てられるように，起動は [`Client::start`] で分ける．
+    /// Starting is split out into [`Client::start`] so messages can be queued before the server
+    /// starts.
     fn new() -> (Client, Connection) {
         let (server, client) = Connection::memory();
         let client = Client {
@@ -58,7 +59,7 @@ impl Client {
         }));
     }
 
-    /// initialize と initialized を送る．応答はまだ読まない．
+    /// Does not read the response yet.
     fn send_initialize(&mut self, root: Option<&str>) {
         let params = json!({
             "capabilities": {},
@@ -78,7 +79,7 @@ impl Client {
         client.start(server, files, make_frontend);
         let response = client.recv();
         let Message::Response(response) = response else {
-            panic!("initialize の応答がない: {response:?}");
+            panic!("no initialize response: {response:?}");
         };
         let result: lsp::InitializeResult =
             serde_json::from_value(response.response_result.unwrap()).expect("InitializeResult");
@@ -108,7 +109,7 @@ impl Client {
         self.connection
             .receiver
             .recv_timeout(TIMEOUT)
-            .expect("サーバーから応答がない")
+            .expect("no response from the server")
     }
 
     fn open(&self, path: &str, version: i32, text: &str) {
@@ -144,18 +145,18 @@ impl Client {
         );
     }
 
-    /// `id` の要求の応答．先に届いた publishDiagnostics は読み飛ばす（解析と要求の順は決まらない）．
+    /// Skips publishDiagnostics that arrive first; analysis and requests are not ordered.
     fn response(&self, id: &RequestId) -> lsp_server::Response {
         loop {
             match self.recv() {
                 Message::Response(response) if response.id == *id => return response,
                 Message::Notification(n) if n.method == PublishDiagnostics::METHOD => {}
-                other => panic!("応答の前に届いた: {other:?}"),
+                other => panic!("arrived before the response: {other:?}"),
             }
         }
     }
 
-    /// 文書の整形を求め，結果（`null` なら `None`）を返す．
+    /// `None` for `null`.
     fn format(&mut self, path: &str) -> Option<Vec<lsp::TextEdit>> {
         let id = self.request(
             Formatting::METHOD,
@@ -167,7 +168,7 @@ impl Client {
         serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
     }
 
-    /// 位置の情報を求め，結果（`null` なら `None`）を返す．
+    /// `None` for `null`.
     fn hover(&mut self, path: &str, line: u32, character: u32) -> Option<lsp::Hover> {
         let id = self.request(
             HoverRequest::METHOD,
@@ -179,7 +180,7 @@ impl Client {
         serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
     }
 
-    /// 定義の位置を求め，結果（`null` なら `None`）を返す．
+    /// `None` for `null`.
     fn definition(&mut self, path: &str, line: u32, character: u32) -> Option<lsp::Location> {
         let id = self.request(
             GotoDefinition::METHOD,
@@ -192,11 +193,11 @@ impl Client {
             serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
         match result? {
             lsp::GotoDefinitionResponse::Scalar(location) => Some(location),
-            other => panic!("位置が1つでない: {other:?}"),
+            other => panic!("not exactly one location: {other:?}"),
         }
     }
 
-    /// 参照を求め，（パス，範囲）をパスと位置の順に並べて返す．`null` なら `None`．
+    /// Returns (path, range) sorted by path and position; `None` for `null`.
     fn references(
         &mut self,
         path: &str,
@@ -225,7 +226,7 @@ impl Client {
         Some(found)
     }
 
-    /// 文書のシンボルを求める．`null` なら `None`．
+    /// `None` for `null`.
     fn document_symbols(&mut self, path: &str) -> Option<Vec<lsp::DocumentSymbol>> {
         let id = self.request(
             DocumentSymbolRequest::METHOD,
@@ -235,11 +236,11 @@ impl Client {
             serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
         match result? {
             lsp::DocumentSymbolResponse::Nested(symbols) => Some(symbols),
-            other => panic!("入れ子でない: {other:?}"),
+            other => panic!("not nested: {other:?}"),
         }
     }
 
-    /// 補完を求め，（名前，種類，説明）の並びを返す．`null` なら `None`．
+    /// Returns (name, kind, detail); `None` for `null`.
     fn complete(
         &mut self,
         path: &str,
@@ -256,7 +257,7 @@ impl Client {
         let result: Option<lsp::CompletionResponse> =
             serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
         let lsp::CompletionResponse::Array(mut items) = result? else {
-            panic!("配列でない");
+            panic!("not an array");
         };
         items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
         Some(
@@ -267,7 +268,6 @@ impl Client {
         )
     }
 
-    /// 位置のテキスト文書の引数．
     fn position(path: &str, line: u32, character: u32) -> serde_json::Value {
         json!({
             "textDocument": { "uri": uri(path) },
@@ -275,7 +275,7 @@ impl Client {
         })
     }
 
-    /// シグネチャのヘルプを求め，（ラベル，引数のラベルの文字列，カーソルのある引数）を返す．
+    /// Returns (label, parameter label strings, active parameter).
     fn signature(
         &mut self,
         path: &str,
@@ -299,7 +299,7 @@ impl Client {
                 lsp::ParameterLabel::LabelOffsets([a, b]) => {
                     String::from_utf16(&utf16[a as usize..b as usize]).unwrap()
                 }
-                _ => panic!("位置でない"),
+                _ => panic!("not an offset pair"),
             })
             .collect();
         Some((sig.label.clone(), params, help.active_parameter))
@@ -314,12 +314,12 @@ impl Client {
             serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
         match result? {
             lsp::PrepareRenameResponse::Range(range) => Some(range),
-            other => panic!("範囲でない: {other:?}"),
+            other => panic!("not a range: {other:?}"),
         }
     }
 
-    /// 名前を変える編集を，（パス，範囲，新しいテキスト）をパスと位置の順に並べて返す．
-    /// 誤りの応答なら文面を返す．
+    /// Returns (path, range, new text) sorted by path and position, or the message of an error
+    /// response.
     fn rename(
         &mut self,
         path: &str,
@@ -349,7 +349,7 @@ impl Client {
         Ok(found)
     }
 
-    /// 範囲のコードアクションを求め，（題，編集）を返す．編集は（範囲，挿入するテキスト）．
+    /// Returns (title, edits) where each edit is (range, inserted text).
     fn code_actions(
         &mut self,
         path: &str,
@@ -386,13 +386,13 @@ impl Client {
                             .collect();
                         (a.title, edits)
                     }
-                    other => panic!("コマンドでなくアクション: {other:?}"),
+                    other => panic!("a command, not an action: {other:?}"),
                 })
                 .collect(),
         )
     }
 
-    /// ファイル全体のインレイヒントを（行，列，ラベル，左の空白）で返す．
+    /// Returns hints for the whole file as (line, column, label, left padding).
     fn inlay_hints(&mut self, path: &str) -> Option<Vec<(u32, u32, String, bool)>> {
         let id = self.request(
             InlayHintRequest::METHOD,
@@ -408,7 +408,7 @@ impl Client {
                 .into_iter()
                 .map(|h| {
                     let lsp::InlayHintLabel::String(label) = h.label else {
-                        panic!("文字列でない");
+                        panic!("not a string");
                     };
                     (
                         h.position.line,
@@ -421,27 +421,26 @@ impl Client {
         )
     }
 
-    /// 次の publishDiagnostics．
     fn diagnostics(&self) -> lsp::PublishDiagnosticsParams {
         match self.recv() {
             Message::Notification(n) if n.method == PublishDiagnostics::METHOD => {
                 serde_json::from_value(n.params).unwrap()
             }
-            other => panic!("publishDiagnostics でない: {other:?}"),
+            other => panic!("not publishDiagnostics: {other:?}"),
         }
     }
 
-    /// 次から `n` 件の publishDiagnostics を URI の順に並べたもの．1回の解析の分は URI の順に届く．
+    /// The next `n` publishDiagnostics. One analysis publishes in URI order.
     fn diagnostics_n(&self, n: usize) -> Vec<lsp::PublishDiagnosticsParams> {
         (0..n).map(|_| self.diagnostics()).collect()
     }
 
-    /// shutdown と exit を送り，それまでに届いた通知が他にないことを確かめる．
+    /// Also checks that no other notification arrived before shutting down.
     fn shutdown(mut self) {
         let id = self.request(Shutdown::METHOD, serde_json::Value::Null);
         match self.recv() {
             Message::Response(response) if response.id == id => {}
-            other => panic!("shutdown の応答の前に届いた: {other:?}"),
+            other => panic!("arrived before the shutdown response: {other:?}"),
         }
         self.notify("exit", serde_json::Value::Null);
         self.server.take().unwrap().join().unwrap();
@@ -454,7 +453,7 @@ fn codes(params: &lsp::PublishDiagnosticsParams) -> Vec<String> {
         .iter()
         .map(|d| match &d.code {
             Some(lsp::NumberOrString::String(code)) => code.clone(),
-            other => panic!("コードがない: {other:?}"),
+            other => panic!("no code: {other:?}"),
         })
         .collect()
 }
@@ -473,7 +472,7 @@ fn lex_error_appears_and_clears() {
         ("/app/src/main.emel", "const X = 1\n"),
     ];
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
-    // ディスクの内容には誤りがないので，最初は何も届かない．
+    // The contents on disk have no errors, so nothing arrives at first.
     client.open("/app/src/main.emel", 1, "const X = 1\nconst Y = \"\\q\"\n");
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
@@ -495,10 +494,10 @@ fn lex_error_appears_and_clears() {
 
 #[test]
 fn columns_are_utf16() {
-    // `Pome.toml` がないので単独ファイル．
+    // No `Pome.toml`, so this is a standalone file.
     let files = [("/tmp/x/main.emel", "")];
     let client = Client::initialize(&files, None, ParseOnly::new);
-    // `あ` と `日本` は UTF-16 で1単位ずつ，`😀` は2単位．UTF-8 ではそれぞれ3バイトと4バイト．
+    // `あ` and `日本` take one UTF-16 unit per character and `😀` two; in UTF-8, 3 and 4 bytes.
     client.open(
         "/tmp/x/main.emel",
         1,
@@ -522,7 +521,7 @@ fn import_errors_go_to_the_importing_file() {
         ("/app/src/http/client.emel", "const GET = 1\n"),
         ("/app/src/util.emel", "const U = 1\n"),
     ];
-    // ワークスペースのプロジェクトは，ファイルを開く前から診断が出る．
+    // Workspace projects get diagnostics before any file is opened.
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
@@ -534,7 +533,8 @@ fn import_errors_go_to_the_importing_file() {
         "undefined module `Http.Clinet`"
     );
 
-    // 開いた別のファイルの未保存の内容で import を壊す．診断はそのファイルに出て，main は変わらない．
+    // Break the import with unsaved contents of another open file. The diagnostic goes to that
+    // file and main does not change.
     client.open(
         "/app/src/util.emel",
         1,
@@ -548,10 +548,10 @@ fn import_errors_go_to_the_importing_file() {
     assert_eq!(codes(&published[1]), ["E0205"]);
     assert_eq!(published[1].diagnostics[0].range, range((1, 7), (1, 11)));
 
-    // ディスクにまだないファイルも，開けばモジュールになる．
+    // A file not yet on disk becomes a module once opened.
     client.open("/app/src/http/clinet.emel", 1, "const GET = 2\n");
     let published = client.diagnostics_n(2);
-    // main の誤りが消えたので，空の配列で消す（消す方を先に送る）．
+    // main's error is gone, so it is cleared with an empty array (clearing is sent first).
     assert_eq!(published[0].uri, uri("/app/src/main.emel"));
     assert!(published[0].diagnostics.is_empty());
     assert_eq!(published[1].uri, uri("/app/src/util.emel"));
@@ -575,7 +575,7 @@ fn close_reverts_to_disk() {
     assert!(published.diagnostics.is_empty());
     assert_eq!(published.version, Some(1));
 
-    // 保存しても（ディスクは書き換わらないので）診断は変わらない．
+    // Saving does not change the diagnostics (the disk is not written).
     client.save("/app/src/main.emel");
     client.close("/app/src/main.emel");
     let published = client.diagnostics();
@@ -585,8 +585,8 @@ fn close_reverts_to_disk() {
     client.shutdown();
 }
 
-/// エディタの URI の書き方（ここでは括弧を符号化しない）がサーバーの書き方と違っても，
-/// 古い書き方の URI を先に消すので，同じファイルの診断は最後に送ったものが残る．
+/// Even if the editor spells the URI differently from the server (here, parentheses are not
+/// encoded), the old spelling is cleared first, so the last diagnostics sent for the file remain.
 #[test]
 fn uri_spelling_changes_clear_first() {
     let files = [
@@ -643,7 +643,7 @@ fn closing_a_single_file_clears_it() {
 fn consecutive_changes_publish_only_the_latest() {
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", "")];
     let (mut client, server) = Client::new();
-    // サーバーを立てる前に全部送っておく．届いている書き換えはまとめて1回だけ解析する．
+    // Queue everything before starting the server. Pending edits are analyzed once together.
     client.send_initialize(Some("/app"));
     client.open("/app/src/main.emel", 1, "const X = $\n");
     client.change("/app/src/main.emel", 2, "const A = 3px\n");
@@ -654,7 +654,7 @@ fn consecutive_changes_publish_only_the_latest() {
     assert_eq!(published.version, Some(3));
     assert_eq!(codes(&published), ["E0101"]);
     assert_eq!(published.diagnostics[0].range, range((1, 10), (1, 11)));
-    // 古い版の診断はこの後にも届かない（shutdown の応答が次に来る）．
+    // Diagnostics for the old version never arrive (the shutdown response comes next).
     client.shutdown();
 }
 
@@ -706,12 +706,13 @@ fn formatting_replaces_the_whole_document() {
         ("/app/src/util.emel", "fn f( ) {1}\n"),
     ];
     let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
-    // 能力で整形を知らせる．
+    // Formatting is announced in the capabilities.
     assert_eq!(
         emela_lsp::capabilities().document_formatting_provider,
         Some(lsp::OneOf::Left(true))
     );
-    // 開いた文書は未保存の内容を整形する．範囲は文書の全体（末尾の改行の後ろまで）．
+    // An open document formats its unsaved contents. The range covers the whole document
+    // (through the final newline).
     client.open("/app/src/main.emel", 1, "fn main( ) {\n  \"あ\"}");
     let edits = client.format("/app/src/main.emel").unwrap();
     assert_eq!(
@@ -721,19 +722,19 @@ fn formatting_replaces_the_whole_document() {
             new_text: "fn main() {\n  \"あ\"\n}\n".to_owned(),
         }]
     );
-    // 整っていれば編集なし．
+    // No edits if already formatted.
     client.change("/app/src/main.emel", 2, "fn main() { 1 }\n");
     assert_eq!(client.format("/app/src/main.emel"), Some(vec![]));
-    // 開いていなければディスクの内容．
+    // The contents on disk if not open.
     let edits = client.format("/app/src/util.emel").unwrap();
     assert_eq!(edits[0].range, range((0, 0), (1, 0)));
     assert_eq!(edits[0].new_text, "fn f() { 1 }\n");
-    // 構文エラーなら null．
+    // null on syntax errors.
     client.change("/app/src/main.emel", 3, "fn main( {\n");
     assert_eq!(client.format("/app/src/main.emel"), None);
-    // 読めないファイルも null．
+    // null for unreadable files too.
     assert_eq!(client.format("/app/src/nowhere.emel"), None);
-    // 先に届いていない診断を読んでから終える．
+    // Read the diagnostics that have not arrived yet before finishing.
     while let Ok(message) = client
         .connection
         .receiver
@@ -744,7 +745,7 @@ fn formatting_replaces_the_whole_document() {
     client.shutdown();
 }
 
-/// ホバーで型と E（エラーの集合）を見せる（9.3）．
+/// Hover shows the type and E (spec 9.3).
 #[test]
 fn hover_shows_types_and_errors() {
     let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], fn(x) { x })\n}\n";
@@ -758,33 +759,34 @@ fn hover_shows_types_and_errors() {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
     };
-    // 定義の名前は宣言の型．
+    // A definition's name shows the declared type.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 2, 4)),
         "```emela\nfind: fn(Int) -> Int fails NotFound\n```"
     );
-    // 推論した E．
+    // Inferred E.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 6, 4)),
         "```emela\nmain: fn() -> List[Int] fails NotFound\n```"
     );
-    // 呼び出しの式は型と E．範囲は式．
+    // A call expression shows its type and E; the range is the expression.
     let hover = client.hover("/app/src/main.emel", 7, 12).unwrap();
     assert_eq!(hover.range, Some(range((7, 6), (7, 13))));
     assert_eq!(text(Some(hover)), "```emela\nInt\nfails NotFound\n```");
-    // 局所変数．
+    // A local variable.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 7, 2)),
         "```emela\nn: Int\n```"
     );
-    // 汎用の関数の参照は汎化した型．引数の関数の見えない集合が出る．
+    // A reference to a generic function shows the generalized type, including the invisible sets
+    // of function arguments.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
         "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)\n```"
     );
-    // 何もない位置．
+    // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
-    // 型を持たないフロントエンドは null．
+    // null for frontends without types.
     client.shutdown();
     let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     assert_eq!(client.hover("/app/src/main.emel", 2, 4), None);
@@ -800,22 +802,22 @@ fn hover_shows_effects() {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
     };
-    // 推論した R．
+    // Inferred R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 4)),
         "```emela\ngreet: fn() -> () use Logger\n```"
     );
-    // 能力の値の局所変数．
+    // A local variable holding a capability.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 2)),
         "```emela\nlog: use Logger\n```"
     );
-    // 操作の呼び出しの式は型と R．
+    // An operation call expression shows its type and R.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 16)),
         "```emela\n()\nuse Logger\n```"
     );
-    // with の中の呼び出しには R が出て，with の外には出ない．
+    // A call inside `with` shows R; outside it does not.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 21)),
         "```emela\n()\nuse Logger\n```"
@@ -831,8 +833,8 @@ fn hover_shows_effects() {
     client.shutdown();
 }
 
-/// suspend な操作と，Async が残るハンドラ（8.4，8.7）．操作の型には `suspend` を付け，
-/// handler の名前には依存を出す．
+/// Suspending operations and handlers that leave Async (spec 8.4, 8.7). Operation types get
+/// `suspend`, and handler names show their dependencies.
 #[test]
 fn hover_shows_suspend_and_async() {
     let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
@@ -850,7 +852,7 @@ fn hover_shows_suspend_and_async() {
         text(client.hover("/app/src/main.emel", 7, 10)),
         "```emela\nhandler JsClock implements Clock\nuse Async\n```"
     );
-    // resume は操作の戻り値の型を受けて `()` を返す関数．
+    // `resume` takes the operation's return type and returns `()`.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 24)),
         "```emela\nresume: fn(()) -> ()\n```"
@@ -859,7 +861,7 @@ fn hover_shows_suspend_and_async() {
         text(client.hover("/app/src/main.emel", 14, 31)),
         "```emela\nsuspend fn(Int) -> () use Clock\nuse Clock\n```"
     );
-    // main の R には Async が残ってよい（8.3）．
+    // Async may remain in main's R (spec 8.3).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 13, 4)),
         "```emela\nmain: fn() -> () use Async\n```"
@@ -867,8 +869,9 @@ fn hover_shows_suspend_and_async() {
     client.shutdown();
 }
 
-/// 状態のあるハンドラと layer（8.4，8.5）．handler の名前にはフィールドと init の E と依存，
-/// layer の名前には初期化の順のハンドラと満たされない依存，`self` にはハンドラの値の型を出す．
+/// Stateful handlers and layers (spec 8.4, 8.5). A handler's name shows its fields, the E of
+/// `init` and its dependencies; a layer's name shows its handlers in initialization order and
+/// the unmet dependencies; `self` shows the handler value's type.
 #[test]
 fn hover_shows_stateful_handlers_and_layers() {
     let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String) implements Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
@@ -893,8 +896,8 @@ fn hover_shows_stateful_handlers_and_layers() {
     client.shutdown();
 }
 
-/// エフェクトと集合の型引数を混ぜた use 節（8.3）．with の中では書き出したエフェクトが見え，
-/// with の外では集合の型引数だけが残る．
+/// A use clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
+/// is visible; outside it only the set type parameter remains.
 #[test]
 fn hover_shows_mixed_effect_sets() {
     let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent implements Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
@@ -908,12 +911,12 @@ fn hover_shows_mixed_effect_sets() {
         text(client.hover("/app/src/main.emel", 8, 4)),
         "```emela\nrun: ∀ R, E(f). fn(fn() -> () fails E(f) use { Quiet, R }) -> () fails E(f) use R\n```"
     );
-    // 呼び出しの式の R は集合の型引数を含む．
+    // The call expression's R includes the set type parameter.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 17)),
         "```emela\n()\nfails E(f)\nuse { Quiet, R }\n```"
     );
-    // with の外では Quiet が消える．
+    // Outside `with`, Quiet is gone.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
         "```emela\n()\nfails E(f)\nuse R\n```"
@@ -921,7 +924,7 @@ fn hover_shows_mixed_effect_sets() {
     client.shutdown();
 }
 
-/// 定義へ移動，参照の検索，文書のシンボルを確かめるプロジェクト．
+/// The project for go-to-definition, find-references and document symbols.
 const NAV_MAIN: &str = "import Util.Log
 import Shapes.{Shape, area}
 
@@ -975,17 +978,17 @@ fn definition_of_names() {
         emela_lsp::capabilities().definition_provider,
         Some(lsp::OneOf::Left(true))
     );
-    // エフェクトの操作（`log.info` の info）．
+    // An effect operation (the `info` of `log.info`).
     assert_eq!(
         client.definition(MAIN, 13, 7),
         location(MAIN, (4, 5), (4, 9))
     );
-    // handler の操作の名前から effect の操作へ．
+    // From a handler's operation name to the effect's operation.
     assert_eq!(
         client.definition(MAIN, 8, 6),
         location(MAIN, (4, 5), (4, 9))
     );
-    // 局所変数．
+    // A local variable.
     assert_eq!(
         client.definition(MAIN, 13, 3),
         location(MAIN, (12, 2), (12, 5))
@@ -994,7 +997,8 @@ fn definition_of_names() {
         client.definition(MAIN, 13, 23),
         location(MAIN, (11, 9), (11, 13))
     );
-    // `.` の左のモジュールはファイルの先頭，その右の関数は定義．
+    // The module left of `.` goes to the top of its file; the function right of it to its
+    // definition.
     assert_eq!(
         client.definition(MAIN, 13, 12),
         location(LOG, (0, 0), (0, 0))
@@ -1003,7 +1007,7 @@ fn definition_of_names() {
         client.definition(MAIN, 13, 17),
         location(LOG, (0, 7), (0, 13))
     );
-    // import のパスと取り込んだ名前．`Util` はモジュールでないので null．
+    // The import path and an imported name. `Util` is not a module, so null.
     assert_eq!(
         client.definition(MAIN, 0, 13),
         location(LOG, (0, 0), (0, 0))
@@ -1017,7 +1021,7 @@ fn definition_of_names() {
         client.definition(MAIN, 1, 23),
         location(SHAPES, (2, 7), (2, 11))
     );
-    // エフェクト，handler，構成子，関数．名前の直後の位置も名前とみなす．
+    // Effect, handler, constructor, function. The position right after a name counts as the name.
     assert_eq!(
         client.definition(MAIN, 12, 12),
         location(MAIN, (3, 7), (3, 13))
@@ -1042,22 +1046,22 @@ fn definition_of_names() {
         client.definition(MAIN, 19, 6),
         location(SHAPES, (2, 7), (2, 11))
     );
-    // 定義の名前は自分自身．
+    // A definition's name points to itself.
     assert_eq!(
         client.definition(MAIN, 11, 4),
         location(MAIN, (11, 3), (11, 8))
     );
-    // 型の位置．
+    // A type position.
     assert_eq!(
         client.definition(SHAPES, 2, 16),
         location(SHAPES, (0, 9), (0, 14))
     );
-    // 何もない位置．
+    // A position with nothing there.
     assert_eq!(client.definition(MAIN, 2, 0), None);
     client.shutdown();
 }
 
-/// 同梱の core の定義には移動先がない．
+/// Definitions in the bundled core have no location to go to.
 #[test]
 fn definition_of_core_is_null() {
     let src = "fn main() {\n  List.map([1], fn(x) { x })\n}\n";
@@ -1065,12 +1069,12 @@ fn definition_of_core_is_null() {
     let mut client = Client::initialize(&files, None, Typecheck::default);
     assert_eq!(client.definition("/tmp/main.emel", 1, 3), None);
     assert_eq!(client.definition("/tmp/main.emel", 1, 8), None);
-    // 単独ファイルの局所変数には移動できる．
+    // A local variable in a standalone file can be navigated.
     assert_eq!(
         client.definition("/tmp/main.emel", 1, 24),
         location("/tmp/main.emel", (1, 19), (1, 20))
     );
-    // 名前を解決しないフロントエンドは null．
+    // null for frontends that do not resolve names.
     client.shutdown();
     let mut client = Client::initialize(&files, None, ParseOnly::new);
     assert_eq!(client.definition("/tmp/main.emel", 1, 24), None);
@@ -1086,7 +1090,8 @@ fn references_in_the_project() {
     );
     let main = |s, e| (MAIN.to_owned(), range(s, e));
     let shapes = |s, e| (SHAPES.to_owned(), range(s, e));
-    // 型と同じ名前の構成子は同じものとみなす．定義を含める．
+    // A constructor with the same name as its type counts as the same thing. Includes the
+    // declaration.
     assert_eq!(
         client.references(SHAPES, 0, 10, true),
         Some(vec![
@@ -1096,7 +1101,7 @@ fn references_in_the_project() {
             shapes((2, 15), (2, 20)),
         ])
     );
-    // 参照の位置から引いても同じ．定義を含めない．
+    // Same result from a reference position. Excludes the declaration.
     assert_eq!(
         client.references(MAIN, 17, 7, false),
         Some(vec![
@@ -1105,22 +1110,22 @@ fn references_in_the_project() {
             shapes((2, 15), (2, 20)),
         ])
     );
-    // エフェクトの操作．handler の実装と能力の値の呼び出し．
+    // An effect operation: the handler's implementation and calls on the capability.
     assert_eq!(
         client.references(MAIN, 4, 6, false),
         Some(vec![main((8, 5), (8, 9)), main((13, 6), (13, 10))])
     );
-    // 局所変数．
+    // A local variable.
     assert_eq!(
         client.references(MAIN, 12, 3, true),
         Some(vec![main((12, 2), (12, 5)), main((13, 2), (13, 5))])
     );
-    // モジュール．import のパスと `.` の左．
+    // A module: the import path and the left of `.`.
     assert_eq!(
         client.references(MAIN, 13, 12, true),
         Some(vec![main((0, 12), (0, 15)), main((13, 11), (13, 14))])
     );
-    // 何もない位置．
+    // A position with nothing there.
     assert_eq!(client.references(MAIN, 2, 0, true), None);
     client.shutdown();
 }
@@ -1156,7 +1161,7 @@ fn document_symbols_list_declarations() {
             "main Function",
         ]
     );
-    // 範囲は宣言の全体，選ぶ範囲は名前．
+    // The range is the whole declaration; the selection range is the name.
     assert_eq!(symbols[0].range, range((3, 0), (5, 1)));
     assert_eq!(symbols[0].selection_range, range((3, 7), (3, 13)));
     let symbols = client.document_symbols(SHAPES).unwrap();
@@ -1164,7 +1169,8 @@ fn document_symbols_list_declarations() {
         outline(&symbols),
         ["Shape Struct [w Field, h Field]", "area Function"]
     );
-    // 開いた文書は未保存の内容．構文の誤りがあっても読めた宣言は出す．
+    // An open document uses unsaved contents. Declarations that parsed are listed despite syntax
+    // errors.
     let src = "enum Color { Red\n Green }\n\nconst MAX: Int = 3\n\ntrait Named {\n  fn name(self) -> String\n}\n\nimpl Named for Color {\n  fn name(self) { \"c\" }\n}\n\nfn broken( {\n";
     client.open("/app/src/other.emel", 1, src);
     assert_eq!(
@@ -1177,7 +1183,7 @@ fn document_symbols_list_declarations() {
             "broken Function",
         ]
     );
-    // 読めないファイルは null．
+    // null for unreadable files.
     assert_eq!(client.document_symbols("/app/src/nowhere.emel"), None);
     while let Ok(message) = client
         .connection
@@ -1189,7 +1195,6 @@ fn document_symbols_list_declarations() {
     client.shutdown();
 }
 
-/// 補完の名前だけ．
 fn labels(items: &[(String, lsp::CompletionItemKind, Option<String>)]) -> Vec<&str> {
     items.iter().map(|(l, _, _)| l.as_str()).collect()
 }
@@ -1203,7 +1208,7 @@ fn completion_after_dot() {
             .and_then(|c| c.trigger_characters),
         Some(vec![".".to_owned()])
     );
-    // 能力の値の操作．書きかけの名前があってもなくても同じ候補．
+    // Operations of a capability. Same candidates with or without a partially typed name.
     let src = NAV_MAIN.replace("  log.info(Log.prefix(name))\n", "  log.\n  log.in\n");
     client.open(MAIN, 1, &src);
     let items = client.complete(MAIN, 13, 6).unwrap();
@@ -1216,10 +1221,10 @@ fn completion_after_dot() {
         )]
     );
     assert_eq!(labels(&client.complete(MAIN, 14, 8).unwrap()), ["info"]);
-    // モジュールの pub な定義．
+    // A module's pub definitions.
     client.change(MAIN, 2, &NAV_MAIN.replace("Log.prefix(name)", "Log."));
     assert_eq!(labels(&client.complete(MAIN, 13, 15).unwrap()), ["prefix"]);
-    // type のフィールド．説明は書いた型．
+    // A type's fields, with the declared type as detail.
     client.change(MAIN, 3, &NAV_MAIN.replace("  area(s)\n", "  s.\n"));
     assert_eq!(
         client.complete(MAIN, 19, 4).unwrap(),
@@ -1236,11 +1241,11 @@ fn completion_after_dot() {
             ),
         ]
     );
-    // import しなくても書ける core のモジュール．
+    // core modules usable without an import.
     client.change(MAIN, 4, &NAV_MAIN.replace("  area(s)\n", "  List.\n"));
     let items = client.complete(MAIN, 19, 7).unwrap();
     assert!(labels(&items).contains(&"map"), "{items:?}");
-    // 型の分からない式の後ろは空．
+    // Nothing after an expression of unknown type.
     client.change(MAIN, 5, &NAV_MAIN.replace("  area(s)\n", "  1.\n"));
     assert_eq!(client.complete(MAIN, 19, 4), Some(vec![]));
     drain(&client);
@@ -1252,13 +1257,13 @@ fn completion_in_imports() {
     let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
     let src = format!("import \n{NAV_MAIN}");
     client.open(MAIN, 1, &src);
-    // モジュール名の最初の区切り（自分は出さない）．
+    // The first segment of a module path (the current module is excluded).
     let items = client.complete(MAIN, 0, 7).unwrap();
     assert!(labels(&items).contains(&"Shapes"), "{items:?}");
     assert!(labels(&items).contains(&"Util"), "{items:?}");
     assert!(!labels(&items).contains(&"Main"), "{items:?}");
     assert!(items.iter().all(|i| i.1 == lsp::CompletionItemKind::MODULE));
-    // 次の区切りはモジュール名だけ（関数の名前は出さない）．
+    // Later segments offer only module names (no function names).
     client.change(MAIN, 2, &format!("import Util.\n{NAV_MAIN}"));
     assert_eq!(
         client.complete(MAIN, 0, 12).unwrap(),
@@ -1268,7 +1273,7 @@ fn completion_in_imports() {
             Some("Util.Log".to_owned())
         )]
     );
-    // 波括弧の中はモジュールの pub な名前．
+    // Inside braces, the module's pub names.
     client.change(MAIN, 3, &format!("import Shapes.{{a}}\n{NAV_MAIN}"));
     assert_eq!(
         labels(&client.complete(MAIN, 0, 16).unwrap()),
@@ -1281,7 +1286,8 @@ fn completion_in_imports() {
 #[test]
 fn completion_of_names_in_scope() {
     let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
-    // greet の本体．局所変数（内側が先），モジュールの定義，import した名前，モジュール，キーワード．
+    // The body of greet: locals (innermost first), module definitions, imported names, modules,
+    // keywords.
     let src = NAV_MAIN.replace(
         "  log.info(Log.prefix(name))\n",
         "  log.info(Log.prefix(name))\n  n\n",
@@ -1298,15 +1304,15 @@ fn completion_of_names_in_scope() {
     ] {
         assert!(names.contains(&name), "{name}: {names:?}");
     }
-    // 別の関数の局所変数と，import していない名前は出さない．
+    // No locals of other functions and no names that were not imported.
     assert!(!names.contains(&"s"), "{names:?}");
     assert!(!names.contains(&"prefix"), "{names:?}");
-    // 束縛の前と右辺の中では，その変数は見えない．
+    // A variable is not visible before its binding or inside its right-hand side.
     let items = client.complete(MAIN, 12, 2).unwrap();
     assert!(!labels(&items).contains(&"log"), "{items:?}");
     let items = client.complete(MAIN, 12, 12).unwrap();
     assert!(!labels(&items).contains(&"log"), "{items:?}");
-    // `use` の後ろはエフェクト，`with` の後ろは handler と layer だけ．
+    // Only effects after `use`; only handlers and layers after `with`.
     let items = client.complete(MAIN, 12, 12).unwrap();
     assert!(labels(&items).contains(&"Logger"), "{items:?}");
     assert!(
@@ -1321,7 +1327,6 @@ fn completion_of_names_in_scope() {
     client.shutdown();
 }
 
-/// 先に届いていない診断を読み捨てる．
 fn drain(client: &Client) {
     while let Ok(message) = client
         .connection
@@ -1348,17 +1353,17 @@ fn signature_help_in_calls() {
             active,
         ))
     };
-    // 一番内側の呼び出し．
+    // The innermost call.
     assert_eq!(
         client.signature(MAIN, 13, 22),
         s("prefix(s: String) -> String", &["s: String"], Some(0))
     );
-    // effect の操作．
+    // An effect operation.
     assert_eq!(
         client.signature(MAIN, 13, 11),
         s("info(msg: String) -> ()", &["msg: String"], Some(0))
     );
-    // 構成子．カンマの数で引数を決める．
+    // A constructor. The active parameter is decided by the number of commas.
     let shape = "Shape(w: Int, h: Int) -> Shape";
     assert_eq!(
         client.signature(MAIN, 17, 12),
@@ -1368,7 +1373,7 @@ fn signature_help_in_calls() {
         client.signature(MAIN, 17, 18),
         s(shape, &["w: Int", "h: Int"], Some(1))
     );
-    // 書きかけの呼び出しと，ラベルで決まる引数．
+    // A partially written call, and a parameter decided by its label.
     client.open(
         MAIN,
         1,
@@ -1378,7 +1383,7 @@ fn signature_help_in_calls() {
         client.signature(MAIN, 17, 20),
         s(shape, &["w: Int", "h: Int"], Some(0))
     );
-    // 呼び出しの外．
+    // Outside a call.
     client.change(MAIN, 2, NAV_MAIN);
     assert_eq!(client.signature(MAIN, 12, 2), None);
     assert_eq!(client.signature(MAIN, 17, 23), None);
@@ -1397,7 +1402,7 @@ fn rename_across_files() {
         }))
     ));
     let edit = |path: &str, s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
-    // 型と構成子をまとめて変える．import の名前も．
+    // A type and its constructor are renamed together, including import names.
     assert_eq!(
         client.rename(MAIN, 17, 7, "Figure"),
         Ok(vec![
@@ -1407,7 +1412,7 @@ fn rename_across_files() {
             edit(SHAPES, (2, 15), (2, 20), "Figure"),
         ])
     );
-    // effect の操作は宣言，handler の実装，呼び出し．
+    // An effect operation: the declaration, the handler's implementation and the calls.
     assert_eq!(
         client.rename(MAIN, 4, 6, "log_info"),
         Ok(vec![
@@ -1416,7 +1421,7 @@ fn rename_across_files() {
             edit(MAIN, (13, 6), (13, 10), "log_info"),
         ])
     );
-    // 局所変数．
+    // A local variable.
     assert_eq!(
         client.rename(MAIN, 11, 10, "who"),
         Ok(vec![
@@ -1424,7 +1429,7 @@ fn rename_across_files() {
             edit(MAIN, (13, 22), (13, 26), "who"),
         ])
     );
-    // 字句クラスの合わない名前，予約語．
+    // Names of the wrong lexical class, and reserved words.
     assert_eq!(
         client.rename(MAIN, 17, 7, "figure"),
         Err("`figure` is not a valid type name".to_owned())
@@ -1433,12 +1438,12 @@ fn rename_across_files() {
         client.rename(MAIN, 11, 10, "match"),
         Err("`match` is not a valid lowercase name".to_owned())
     );
-    // モジュールは変えられない．
+    // Modules cannot be renamed.
     assert_eq!(
         client.rename(MAIN, 13, 12, "Logs"),
         Err("this name cannot be renamed".to_owned())
     );
-    // prepareRename は名前の範囲．変えられなければ null．
+    // prepareRename returns the name's range, or null if it cannot be renamed.
     assert_eq!(
         client.prepare_rename(MAIN, 13, 7),
         Some(range((13, 6), (13, 10)))
@@ -1448,7 +1453,8 @@ fn rename_across_files() {
     client.shutdown();
 }
 
-/// 省略形の名前付き引数とフィールドのパターンはラベルを残す．同梱の core の名前は変えられない．
+/// Shorthand named arguments and field patterns keep their labels. Names in the bundled core
+/// cannot be renamed.
 #[test]
 fn rename_keeps_punned_labels() {
     let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  match u {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
@@ -1474,7 +1480,7 @@ fn rename_keeps_punned_labels() {
     client.shutdown();
 }
 
-/// 省いた注釈に推論結果を挿入する（4.5）．
+/// Inserts inferred results into omitted annotations (spec 4.5).
 #[test]
 fn code_action_inserts_inferred_annotations() {
     let main = "import Errs.{NotFound}
@@ -1520,7 +1526,7 @@ fn apply[A](f: fn() -> A) {
             vec![(range(at, at), text.to_owned())],
         )])
     };
-    // 戻り値の型と，推論した E を一緒に足す．
+    // The return type and the inferred E are added together.
     assert_eq!(
         client.code_actions(MAIN, (7, 4), (7, 4)),
         action(
@@ -1529,7 +1535,7 @@ fn apply[A](f: fn() -> A) {
             " -> Int fails NotFound"
         )
     );
-    // 推論した R．
+    // Inferred R.
     assert_eq!(
         client.code_actions(MAIN, (11, 0), (11, 0)),
         action(
@@ -1538,24 +1544,25 @@ fn apply[A](f: fn() -> A) {
             " -> () use Logger"
         )
     );
-    // 戻り値の型があれば use だけ．戻り値の型の後ろに足す．
+    // With a return type present, only `use` is added, after the return type.
     assert_eq!(
         client.code_actions(MAIN, (16, 5), (16, 5)),
         action("Add inferred `use Logger`", (16, 23), " use Logger")
     );
-    // 修飾なしに書けないエラーは足さない．
+    // Errors that cannot be written unqualified are not added.
     assert_eq!(client.code_actions(MAIN, (21, 4), (21, 4)), Some(vec![]));
-    // 引数の関数の見えない集合は書かない（書いた節に暗に足される）．
+    // The invisible sets of function arguments are not written (they are implicitly added to
+    // written clauses).
     assert_eq!(
         client.code_actions(MAIN, (25, 4), (25, 4)),
         action("Add inferred `-> A`", (25, 25), " -> A")
     );
-    // 本体の中では出さない．
+    // Not offered inside a body.
     assert_eq!(client.code_actions(MAIN, (8, 4), (8, 4)), Some(vec![]));
     client.shutdown();
 }
 
-/// 書かない型と E，R を行の中に見せる（9.3）．
+/// Shows the unwritten types, E and R inline (spec 9.3).
 #[test]
 fn inlay_hints_show_types_errors_and_effects() {
     let src = "error NotFound(id: Int)
@@ -1593,23 +1600,23 @@ fn main() {
     assert_eq!(
         client.inlay_hints(MAIN).unwrap(),
         [
-            // handler の操作の引数の型．
+            // Parameter types of a handler operation.
             hint(11, 13, ": String", false),
-            // 省いた注釈．見えない集合も出す．
+            // An omitted annotation, including invisible sets.
             hint(14, 10, "-> List[Int] fails NotFound use Logger", true),
-            // 文の位置の呼び出しの E と R．
+            // E and R of a call in statement position.
             hint(16, 16, "use Logger", true),
-            // 束縛の型（能力の値の `log` には出さない）．
+            // The type of a binding (not shown for the capability `log`).
             hint(17, 3, ": Int", false),
             hint(17, 13, "fails NotFound", true),
-            // ラムダの引数．E も R もない呼び出しには出さない．
+            // Lambda parameters. Calls with neither E nor R get no hint.
             hint(18, 20, ": Int", false),
             hint(21, 9, "-> List[Int] fails NotFound", true),
-            // with の中の呼び出しには R が出る．
+            // A call inside `with` shows R.
             hint(22, 22, "fails NotFound use Logger", true),
         ]
     );
-    // 書いた注釈には出さない．型を持たないフロントエンドは空．
+    // Written annotations get no hints. Frontends without types give none.
     client.shutdown();
     let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     assert_eq!(client.inlay_hints(MAIN), Some(vec![]));
@@ -1632,30 +1639,31 @@ fn main() {
 }
 ";
 
-/// `a.b.` の連鎖．名前のない `.` の左は型推論に回らないので，左からたどって型を求める．
+/// `a.b.` chains. The left of a nameless `.` never reaches type inference, so its type is found
+/// by walking from the left.
 #[test]
 fn completion_after_dot_chains() {
     let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let with = |line: &str| CHAIN_MAIN.replace("  0\n", &format!("  {line}\n"));
-    // フィールドのフィールド．
+    // A field of a field.
     client.open(MAIN, 1, &with("l.from."));
     let items = client.complete(MAIN, 12, 9).unwrap();
     assert_eq!(labels(&items), ["x", "y"]);
-    // 汎用の type のフィールドは型引数を置き換える（Box[Line] の value は Line）．
+    // Fields of a generic type substitute the type arguments (`value` of `Box[Line]` is `Line`).
     client.change(MAIN, 2, &with("b.value.to."));
     assert_eq!(labels(&client.complete(MAIN, 12, 13).unwrap()), ["x", "y"]);
-    // 能力の値の操作の戻り値．
+    // The return value of a capability's operation.
     client.change(MAIN, 3, &with("c.now()."));
     assert_eq!(labels(&client.complete(MAIN, 12, 10).unwrap()), ["x", "y"]);
-    // 書きかけの名前があっても同じ．
+    // Same with a partially typed name.
     client.change(MAIN, 4, &with("l.to.x"));
     assert_eq!(labels(&client.complete(MAIN, 12, 8).unwrap()), ["x", "y"]);
     drain(&client);
     client.shutdown();
 }
 
-/// ハンドラの値（`self.`）の後ろにはフィールドを出す（8.4）．
+/// After a handler value (`self.`), its fields are offered (spec 8.4).
 #[test]
 fn completion_of_handler_fields() {
     let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int) implements Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
@@ -1667,7 +1675,7 @@ fn completion_of_handler_fields() {
     client.shutdown();
 }
 
-/// 呼び出しの引数の書き始めでは，まだ書いていないラベルを先に出す．
+/// At the start of a call argument, labels not yet written come first.
 #[test]
 fn completion_of_argument_labels() {
     let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
@@ -1678,7 +1686,7 @@ fn completion_of_argument_labels() {
         let result: Option<lsp::CompletionResponse> =
             serde_json::from_value(client.response(&id).response_result.unwrap()).unwrap();
         let Some(lsp::CompletionResponse::Array(mut items)) = result else {
-            panic!("配列でない");
+            panic!("not an array");
         };
         items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
         items
@@ -1704,9 +1712,9 @@ fn completion_of_argument_labels() {
             ("y:", property, Some("Int"), Some("y: ")),
         ]
     );
-    // 値の候補も続けて出す．
+    // Value candidates follow.
     assert!(items.iter().any(|i| i.label == "l"));
-    // 書いたラベルは出さない．書きかけの名前があっても出す．
+    // Written labels are not offered; still offered with a partially typed name.
     client.change(MAIN, 2, &with("Line(from: Point(x: 1, y: 2), t"));
     let items = client.complete(MAIN, 12, 33).unwrap();
     assert_eq!(
@@ -1718,14 +1726,14 @@ fn completion_of_argument_labels() {
         )
     );
     assert!(!labels(&items).contains(&"from:"));
-    // ラベルの後ろ（値の位置）では出さない．
+    // Not offered after a label (in value position).
     client.change(MAIN, 3, &with("Point(x: "));
     let items = client.complete(MAIN, 12, 11).unwrap();
     assert!(
         !labels(&items).iter().any(|l| l.ends_with(':')),
         "{items:?}"
     );
-    // 入れ子の呼び出しは内側のラベル．
+    // A nested call offers the inner call's labels.
     client.change(MAIN, 4, &with("Line(from: Point("));
     let items = client.complete(MAIN, 12, 19).unwrap();
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);

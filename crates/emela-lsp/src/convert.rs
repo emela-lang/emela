@@ -1,4 +1,4 @@
-//! driver の診断と LSP の診断の変換，パスと URI の変換．
+//! Conversions between driver and LSP diagnostics, and between paths and URIs.
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -7,10 +7,10 @@ use emela_driver::{Diagnostic, Location, Severity, SourceDb, Span, SymbolKind};
 use line_index::{LineIndex, TextRange, TextSize, WideEncoding};
 use lsp_types as lsp;
 
-/// 診断に付ける `source`．
 pub const SOURCE: &str = "emela";
 
-/// 主な位置のファイルのパスと，LSP の診断の組．位置のない診断は `anchor` に付ける．
+/// Pairs the LSP diagnostic with the file of its primary location. Diagnostics without a location
+/// attach to `anchor`.
 pub fn diagnostic(
     diagnostic: &Diagnostic,
     sources: &SourceDb,
@@ -65,8 +65,7 @@ fn span_range(sources: &SourceDb, span: &Span) -> lsp::Range {
     range(sources[span.file].line_index(), span.range)
 }
 
-/// 文書のシンボルを LSP の形にする．
-#[allow(deprecated)] // `deprecated` は必須のフィールド．
+#[allow(deprecated)] // `deprecated` is a required field.
 pub fn document_symbol(
     index: &LineIndex,
     symbol: &emela_driver::DocumentSymbol,
@@ -89,7 +88,6 @@ pub fn document_symbol(
     }
 }
 
-/// 宣言の種類を LSP のシンボルの種類にする．
 fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
     match kind {
         SymbolKind::Fn => lsp::SymbolKind::FUNCTION,
@@ -105,7 +103,7 @@ fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
     }
 }
 
-/// 補完の候補を LSP の形にする．`index` は driver の並び順で，`sortText` にして順を保つ．
+/// `index` is the driver's ordering; it becomes `sortText` to preserve that order.
 pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::CompletionItem {
     use emela_driver::CompletionKind as K;
     let kind = match item.kind {
@@ -133,7 +131,7 @@ pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::Co
     }
 }
 
-/// 呼び出しのシグネチャを LSP の形にする．引数の範囲はラベルの中の UTF-16 の位置．
+/// Parameter ranges are UTF-16 offsets into the label.
 pub fn signature_help(info: &emela_driver::SignatureInfo) -> lsp::SignatureHelp {
     let utf16 = |byte: usize| info.label[..byte].encode_utf16().count() as u32;
     let parameters = info
@@ -157,7 +155,7 @@ pub fn signature_help(info: &emela_driver::SignatureInfo) -> lsp::SignatureHelp 
     }
 }
 
-/// インレイヒントを LSP の形にする．型は `:` で始まるので左に空白を入れず，ほかは左に空白を入れる．
+/// Type hints start with `:`, so they get no left padding; other hints do.
 pub fn inlay_hint(index: &LineIndex, hint: &emela_driver::InlayHint) -> lsp::InlayHint {
     use emela_driver::HintKind;
     let kind = match hint.kind {
@@ -176,7 +174,6 @@ pub fn inlay_hint(index: &LineIndex, hint: &emela_driver::InlayHint) -> lsp::Inl
     }
 }
 
-/// バイトの範囲を LSP の範囲にする．
 pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {
         start: position(index, range.start()),
@@ -184,7 +181,6 @@ pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     }
 }
 
-/// テキスト全体の範囲（先頭から末尾まで）．
 pub fn whole_range(text: &str) -> lsp::Range {
     let index = LineIndex::new(text);
     lsp::Range {
@@ -193,7 +189,7 @@ pub fn whole_range(text: &str) -> lsp::Range {
     }
 }
 
-/// バイト位置を LSP の既定の位置（行と UTF-16 の列）にする．
+/// Converts to LSP's default position encoding (line and UTF-16 column).
 pub fn position(index: &LineIndex, offset: TextSize) -> lsp::Position {
     let offset = offset.min(index.len());
     let line_col = index.line_col(offset);
@@ -206,7 +202,7 @@ pub fn position(index: &LineIndex, offset: TextSize) -> lsp::Position {
     }
 }
 
-/// LSP の既定の位置（行と UTF-16 の列）をバイト位置にする．範囲の外なら `None`．
+/// `None` if out of range.
 pub fn offset(index: &LineIndex, position: lsp::Position) -> Option<TextSize> {
     let wide = line_index::WideLineCol {
         line: position.line,
@@ -216,10 +212,10 @@ pub fn offset(index: &LineIndex, position: lsp::Position) -> Option<TextSize> {
     index.offset(line_col)
 }
 
-/// `file:` の URI をパスにする．ほかの scheme なら `None`．
+/// `None` for schemes other than `file:`.
 pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     let rest = uri.as_str().strip_prefix("file://")?;
-    // `file://localhost/…` と `file:///…` を受ける．
+    // Accept both `file://localhost/…` and `file:///…`.
     let path = rest.strip_prefix("localhost").unwrap_or(rest);
     if !path.starts_with('/') {
         return None;
@@ -229,7 +225,7 @@ pub fn uri_to_path(uri: &lsp::Uri) -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf8(bytes).ok()?))
 }
 
-/// 絶対パスを `file:` の URI にする．英数字と `-._~/` 以外は `%` で符号化する（VS Code と同じ）．
+/// Percent-encodes everything except alphanumerics and `-._~/`, as VS Code does.
 pub fn path_to_uri(path: &Path) -> Option<lsp::Uri> {
     let path = path.to_str()?;
     let mut uri = String::from("file://");
@@ -266,7 +262,7 @@ mod tests {
 
     #[test]
     fn columns_are_utf16() {
-        // `あ` は UTF-8 で3バイト，UTF-16 で1単位．`😀` は4バイト，2単位．
+        // `あ` is 3 bytes in UTF-8 and 1 unit in UTF-16; `😀` is 4 bytes and 2 units.
         let text = "let あ😀 = $\n";
         let index = LineIndex::new(text);
         let dollar = text.find('$').unwrap() as u32;

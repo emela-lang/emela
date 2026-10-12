@@ -1,7 +1,8 @@
-//! 言語サーバー．ホバー，診断，コードアクション．
+//! The language server.
 //!
-//! 解析は `emela_driver` に任せ，ここでは LSP のメッセージとの変換だけを持つ．
-//! 今の段は診断と整形とホバー，定義へ移動，参照の検索，文書のシンボル．開いているファイルの未保存の内容を重ねて，`emela check` と同じ診断を出し，`emela fmt` と同じく整形し，型と E（エラーの集合）を見せ，名前の定義と参照をたどる．
+//! Analysis is left to `emela_driver`; this crate only converts to and from LSP messages. Unsaved
+//! contents of open files are overlaid on the file system, so diagnostics match `emela check` and
+//! formatting matches `emela fmt`.
 
 mod convert;
 mod overlay;
@@ -14,7 +15,7 @@ pub use server::{Error, capabilities, serve};
 use emela_driver::{Frontend, OsFs};
 use lsp_server::Connection;
 
-/// 標準入出力で言語サーバーを動かす（`emela lsp`）．exit を受けたら戻る．
+/// Runs the server over stdio (`emela lsp`). Returns after receiving `exit`.
 pub fn run_stdio<F: Frontend>(frontend: impl FnMut() -> F) -> Result<(), Error> {
     let (connection, io_threads) = Connection::stdio();
     serve(&connection, OsFs, frontend)?;
