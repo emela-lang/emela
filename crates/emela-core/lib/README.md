@@ -142,6 +142,37 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `round` | `round(x: Float) -> Int` | intrinsic | 最も近い整数．0.5 は 0 から遠い方へ |
 | `truncate` | `truncate(x: Float) -> Int` | intrinsic | 0 の方向へ丸める |
 
+## Duration（`duration.emel`）
+
+時間の長さ．中身はミリ秒の Int64 の opaque な型（15.2）．あふれは Int64 の規則で巻き戻る．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `milliseconds` | `milliseconds(n: Int64) -> Duration` | Emela | `n` ミリ秒 |
+| `seconds` | `seconds(n: Int64) -> Duration` | Emela | `n` 秒 |
+| `minutes` | `minutes(n: Int64) -> Duration` | Emela | `n` 分 |
+| `hours` | `hours(n: Int64) -> Duration` | Emela | `n` 時間 |
+| `to_milliseconds` | `to_milliseconds(d: Duration) -> Int64` | Emela | ミリ秒の数 |
+| `to_seconds` | `to_seconds(d: Duration) -> Int64` | Emela | 秒の数．端数は 0 の方向へ切り捨て |
+| `add` | `add(d: Duration, other: Duration) -> Duration` | Emela | 和 |
+| `subtract` | `subtract(d: Duration, other: Duration) -> Duration` | Emela | 差．負になりうる |
+| `compare` | `compare(d: Duration, other: Duration) -> Ordering` | Emela | 比べる |
+| `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
+
+## Instant（`instant.emel`）
+
+ある時点．中身は Unix エポックからのミリ秒の Int64 の opaque な型（15.2）．現在の時点は Clock のエフェクトが返す（このモジュールでは取れない）．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `from_unix_milliseconds` | `from_unix_milliseconds(ms: Int64) -> Instant` | Emela | `@internal`．core の中（Clock のハンドラ）からだけ呼べる |
+| `to_unix_milliseconds` | `to_unix_milliseconds(t: Instant) -> Int64` | Emela | Unix エポックからのミリ秒 |
+| `add` | `add(t: Instant, d: Duration) -> Instant` | Emela | `d` だけ後 |
+| `subtract` | `subtract(t: Instant, d: Duration) -> Instant` | Emela | `d` だけ前 |
+| `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | `earlier` から `t` までの長さ |
+| `compare` | `compare(t: Instant, other: Instant) -> Ordering` | Emela | 早い方が小さい |
+| `to_string` | `to_string(t: Instant) -> String` | Emela | UTC の ISO 8601（`2025-10-12T03:04:05.678Z`） |
+
 ## 確認してほしい点
 
 - `List.append(xs, ys)` / `List.concat(xss)` の組（Elm，Gleam と同じ）にした．`String.concat(a, b)` と形が違うので，`List.concat(xs, ys)` / `List.flatten(xss)` にそろえる案もある
@@ -151,3 +182,6 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - 数値の `min` / `max` / `abs` / `compare` はまだ入れていない
 - Console の操作は `print_line` と `print_error_line` の2つにした．改行なしの `print` や，入力の読み取りはまだ入れていない
 - エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
+- Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
+- `Instant.from_unix_milliseconds` を `@internal`（core の中からだけ呼べる，E0228）にした．利用者の書く Clock のハンドラは Instant を作れないので，テスト用の時刻は同梱の `TestClock` に任せる前提
+- `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある

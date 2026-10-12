@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
-    Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input, JsBackend,
-    JsOutput, LexOnly, Lower, MemoryFiles, Output, OutputFile, Parsed, RunOptions, RunOutput,
-    SourceFile, run,
+    Analysis, Checked, CoreJs, CoreSource, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend, Input,
+    JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output, OutputFile, Parsed, Resolve,
+    RunOptions, RunOutput, SourceFile, Typecheck, run,
 };
 use emela_resolve::ModuleId;
 
@@ -355,6 +355,10 @@ fn core_js_files_are_written_next_to_the_output() {
 
 /// ソースを `Lower`（名前解決，型検査，lowering）と `CoreJs` で `emela run` の経路に通す．
 fn run_source(name: &str, main: &str) -> RunOutput {
+    run_source_with(name, main, &mut Lower::default())
+}
+
+fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -364,14 +368,7 @@ fn run_source(name: &str, main: &str) -> RunOutput {
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(
-        &fs,
-        &input,
-        &mut Lower::default(),
-        &mut CoreJs,
-        &options,
-        |_| {},
-    );
+    let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -613,4 +610,55 @@ fn main() {
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "alice\nno 1\n", "done\n")
     );
+}
+
+#[test]
+fn time_values_run_through_core() {
+    // Instant は `@internal` の関数でしか作れないので，Clock のハンドラの代わりの core のモジュール
+    // （`FixedClock`）から作る（15.2）．
+    let mut core = CoreSource::bundled();
+    core.push(CoreSource {
+        module: "FixedClock".into(),
+        text: "pub fn at(ms: Int64) -> Instant {\n  Instant.from_unix_milliseconds(ms)\n}\n".into(),
+    });
+    let mut frontend = Lower::new(Typecheck::new(Resolve::default().with_core(core)));
+    let output = run_source_with(
+        "time",
+        r#"fn show(o: Ordering) -> String {
+  match o {
+    Less -> "Less"
+    Equal -> "Equal"
+    Greater -> "Greater"
+  }
+}
+
+fn main() {
+  with JsConsole {
+    c = use Console
+    d = Duration.add(Duration.minutes(2), Duration.seconds(3))
+    c.print_line(Duration.to_string(d))
+    c.print_line(Int64.to_string(Duration.to_seconds(Duration.milliseconds(-1500))))
+    c.print_line(Duration.to_string(Duration.subtract(Duration.hours(1), Duration.minutes(61))))
+    c.print_line(show(Duration.compare(Duration.seconds(1), Duration.milliseconds(1000))))
+    c.print_line(if Duration.seconds(1) == Duration.milliseconds(1000) { "eq" } else { "ne" })
+    start = FixedClock.at(1760238245678)
+    later = start |> Instant.add(Duration.hours(25))
+    c.print_line(Instant.to_string(start))
+    c.print_line(Instant.to_string(later))
+    c.print_line(Duration.to_string(later |> Instant.since(start)))
+    c.print_line(show(Instant.compare(start, later)))
+    c.print_line(Int64.to_string(Instant.to_unix_milliseconds(Instant.subtract(start, Duration.milliseconds(678)))))
+    c.print_line(Instant.to_string(FixedClock.at(0)))
+    c.print_line(Instant.to_string(FixedClock.at(-1)))
+    c.print_line(Instant.to_string(FixedClock.at(951782400000)))
+    c.print_line(Instant.to_string(FixedClock.at(-62198755200000)))
+    c.print_line(Instant.to_string(FixedClock.at(253402300800000)))
+  }
+}
+"#,
+        &mut frontend,
+    );
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.code, 0);
+    insta::assert_snapshot!(text(&output.stdout));
 }

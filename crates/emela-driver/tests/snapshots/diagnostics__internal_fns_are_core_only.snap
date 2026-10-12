@@ -1,0 +1,31 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0228]: function `Instant.from_unix_milliseconds` can only be used from the bundled core library
+   ╭─[ main.emel:2:7 ]
+   │
+ 2 │   t = Instant.from_unix_milliseconds(0)
+   │       ───────────────┬──────────────  
+   │                      ╰──────────────── 
+───╯
+   = note: it is marked `@internal`
+
+error[E0228]: function `Instant.from_unix_milliseconds` can only be used from the bundled core library
+   ╭─[ main.emel:3:7 ]
+   │
+ 3 │   f = Instant.from_unix_milliseconds
+   │       ───────────────┬──────────────  
+   │                      ╰──────────────── 
+───╯
+   = note: it is marked `@internal`
+
+error[E0229]: `@internal` can only be used in the bundled core library
+   ╭─[ main.emel:8:1 ]
+   │
+ 8 │ @internal
+   │ ────┬────  
+   │     ╰────── 
+───╯
+
+3 errors

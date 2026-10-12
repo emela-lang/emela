@@ -607,3 +607,53 @@ fn reachable_external_without_target() {
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
+
+#[test]
+fn internal_fns_are_core_only() {
+    // `@internal` の fn は core のモジュールからは呼べ，ソースのモジュールからは呼べない（E0228）．
+    // `@internal` はソースのモジュールには書けない（E0229）．
+    let mut core = CoreSource::bundled();
+    core.push(CoreSource {
+        module: "FixedClock".into(),
+        text: "pub fn at(ms: Int64) -> Instant {\n  Instant.from_unix_milliseconds(ms)\n}\n".into(),
+    });
+    let mut frontend = Typecheck::new(Resolve::default().with_core(core));
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "\
+fn main() {
+  t = Instant.from_unix_milliseconds(0)
+  f = Instant.from_unix_milliseconds
+  u = FixedClock.at(1)
+  dbg(Instant.to_unix_milliseconds(Instant.add(t, Duration.seconds(1))))
+}
+
+@internal
+fn mine() -> Int { 1 }
+",
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
+    assert_eq!(codes, [Some("E0228"), Some("E0228"), Some("E0229")]);
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+#[test]
+fn time_module_files_are_reserved() {
+    // 同梱の Instant と Duration と同じ名前のファイルはソースのルート直下に置けない（4.1，E0203）．
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            ("app/src/main.emel", "fn main() {}\n"),
+            ("app/src/instant.emel", "pub fn f() -> Int { 1 }\n"),
+            ("app/src/duration.emel", "pub fn f() -> Int { 1 }\n"),
+        ],
+        "app",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
+    assert_eq!(codes, [Some("E0203"), Some("E0203")]);
+}

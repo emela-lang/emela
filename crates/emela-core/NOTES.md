@@ -44,7 +44,7 @@
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
-- （補）Prelude と core のソースは `lib/*.emel` で，`core_sources()` がモジュール名とソースの組を返す．モジュール名は `List`，`Option`，`String`，`Int`，`Int64`，`Float` と，Prelude の `PRELUDE`（`"Prelude"`）．Prelude が先頭．
+- （補）Prelude と core のソースは `lib/*.emel` で，`core_sources()` がモジュール名とソースの組を返す．モジュール名は `List`，`Option`，`String`，`Int`，`Int64`，`Float`，`Duration`，`Instant`，`Console`，`JsConsole` と，Prelude の `PRELUDE`（`"Prelude"`）．Prelude が先頭．
 - （補）`@intrinsic` の宣言は `Builtin::lookup_intrinsic(モジュール名, 関数名)` で表を引く．`"Prelude"` は表の `module: None`（修飾せずに呼ぶ関数）に当たる．
 - （補）`@intrinsic` の宣言は `pub` で，引数と戻り値の型，型引数の数を表と一致させる．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
@@ -68,6 +68,20 @@ alpha.2 で同梱した（2026-10-12）．仕様は構成だけを決めてい�
 - （補）`Console` と `JsConsole` を同梱したので，ソースのルート直下の `console.emel` と `js_console.emel` は予約名（E0203）になる（仕様 4.1，15.2．本人の決定）．
 - （補）WASM のビルドで `JsConsole` を読んでも，使わなければ誤りにならない（12.1 の「たどれる fn だけ検査」．下の「外部関数」）．
 - （補）ホストの関数（`console_log` は `console.log`，`console_error` は `console.error`）は `JsConsole` の中の非公開の `@external(js, ...)` の fn にし，`use` を書かない（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）．ハンドラは状態を持たない（フィールド，init，release なし）．
+
+## Instant と Duration（`instant.emel`，`duration.emel`）
+
+alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque な型」だけを決めている（15.2）ので，単位と関数の名前と数はここで決めた．
+
+- （補）どちらも中身はミリ秒の Int64（`pub opaque type Instant(milliseconds: Int64)`，`Duration` も同じ形）．JS の `Date.now()` の単位に合わせた．Instant は Unix エポック（1970-01-01T00:00:00Z）からのミリ秒で，閏秒は数えない．Duration は負の長さも表す．
+- （補）Duration は `milliseconds` / `seconds` / `minutes` / `hours`（引数は Int64．リテラルは文脈で Int64 になる），`to_milliseconds`，`to_seconds`（0 の方向へ切り捨て），`add`，`subtract`，`compare`（`Ordering`），`to_string`（`1500ms`）．
+- （補）Instant は `to_unix_milliseconds`，`add` / `subtract`（Duration だけずらす），`since(t, earlier)`（`earlier` から `t` までの Duration．`now |> Instant.since(start)`），`compare`，`to_string`．
+- （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
+- （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
+- （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`，次の段）．Instant を作れるのは `Instant.from_unix_milliseconds(ms: Int64) -> Instant` だけで，これは `@internal`（同梱の core の中からだけ参照できる．E0228，emela-driver の NOTES）．Clock のハンドラ（`JsClock`，`TestClock`）が使う．利用者のコードは Clock から Instant を受け取るだけで，時点を作り出せない．
+- （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` は構造の比較で使える．`dbg` と補間では中身がそのまま見える（`Instant(milliseconds: …)`．Show を Trait にする 0.21 で `to_string` に揃える）．
+- （補）Instant は Duration を import せずに使う（名前が1区切りの core のモジュールなので `.` の左と型の位置で見える，4.6）．
+- （補）`Instant` と `Duration` を同梱したので，ソースのルート直下の `instant.emel` と `duration.emel` は予約名（E0203）になる（4.1，15.2．本人の決定）．
 
 ## lowering（`lower.rs`）
 

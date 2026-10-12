@@ -23,6 +23,14 @@ enum Prelude.Ordering {
   Greater
 }
 
+enum Duration.Duration {
+  Duration(milliseconds: Int64)
+}
+
+enum Instant.Instant {
+  Instant(milliseconds: Int64)
+}
+
 export fn main() {
   let _%0 = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
   let _%1 = @dbg[String](describe([1, 2, 3]))

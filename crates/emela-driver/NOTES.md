@@ -71,6 +71,14 @@ pub trait TestBackend<P> {
 - （補）処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` が返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分けて `outcome: "error"` で報告する．表示は `error: <エラーの値の表示>`（`dbg` と同じ表示．String は引用符付き）
 - 積み残し: suspend するテスト（ジェネレータを返す関数）と Async の供給（13.3）はまだ扱わない
 
+## core の中からだけ参照できる fn（`@internal`，`internal.rs`）
+
+alpha.3 で Instant を Clock のハンドラが作るために足した（2026-10-12）．仕様にない注釈なので，仕様 3.5 と付録 A への反映を待つ．
+
+- （補）`@internal` は同梱の core のソースのトップレベルの fn にだけ付けられる．ソースのモジュールに書いたもの，トップレベルの fn 以外に付けたものは E0229（``` `@internal` can only be used in the bundled core library ``` / ``` `@internal` can only be used on top-level functions ```）
+- （補）`@internal` の fn を core のモジュールの外（fn，const，handler の本体）から参照すると E0228（``function `Instant.from_unix_milliseconds` can only be used from the bundled core library``，注記 ``= note: it is marked `@internal` ``）．呼び出しも値としての参照も数える．import の一覧に書くだけでは出ない（E0227 と同じく本体の参照だけを見る）
+- （補）検査は E0227 と同じく型検査のフロントエンド（`Typecheck::check`）で，名前解決の後に HIR の本体の参照（`emela_types::body_refs`）をたどって行う．名前解決の可視性（pub）とは別の検査にして，名前解決には手を入れない．check と LSP の両方で出る
+
 ## 整形（`emela fmt`）
 
 `src/fmt.rs`．対象を決め（`fmt_targets`），1ファイルずつ emela-fmt で整形する（`format_source`）．書き込みは呼び出し側が関数で渡し，`None` なら書かない（`--check`）．
