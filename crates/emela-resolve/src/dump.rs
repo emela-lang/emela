@@ -1,10 +1,11 @@
-//! HIR を読める形に書き出す．スナップショットテストで名前の解決先を確かめるのに使う．
+//! Prints the HIR in a readable form, for snapshot tests that check where names resolve to.
 //!
-//! - ソースの定義は `モジュール.名前`（バリアント，操作，型引数などは `モジュール.親.名前`）
-//! - Prelude の定義は名前だけ（`Int`，`Some`）
-//! - 組み込みのモジュールの定義は `@モジュール.名前`
-//! - 局所変数は `名前#番号`．番号はダンプの中で最初に現れた順
-//! - 解決できなかった名前は `<error>`
+//! - Source definitions are `Module.name` (`Module.Parent.name` for variants, operations, type
+//!   parameters and the like)
+//! - Prelude definitions are the bare name (`Int`, `Some`)
+//! - Built-in module definitions are `@Module.name`
+//! - Locals are `name#n`, numbered in order of first appearance in the dump
+//! - Unresolved names are `<error>`
 
 use std::fmt::Write;
 
@@ -13,7 +14,6 @@ use rustc_hash::FxHashMap;
 use crate::hir::*;
 use crate::source::{ModuleId, ModuleMap};
 
-/// 1つのモジュールの宣言を書き出す．
 pub fn dump_module(program: &Program, modules: &ModuleMap, module: ModuleId) -> String {
     let mut dumper = Dumper {
         program,
@@ -78,7 +78,7 @@ impl Dumper<'_> {
             .join(", ")
     }
 
-    /// 効果の集合の要素．型引数は `State[Int]` の形で出す．
+    /// Elements of an effect set. Type arguments are printed as `State[Int]`.
     fn effect_list(&mut self, items: &[EffectRef]) -> String {
         items
             .iter()
@@ -90,7 +90,7 @@ impl Dumper<'_> {
             .join(", ")
     }
 
-    /// エフェクトの型引数．なければ空．
+    /// Empty if there are none.
     fn ty_args(&mut self, args: &[TypeId]) -> String {
         if args.is_empty() {
             return String::new();
@@ -98,9 +98,6 @@ impl Dumper<'_> {
         let args: Vec<String> = args.iter().map(|&t| self.ty(t)).collect();
         format!("[{}]", args.join(", "))
     }
-
-    // -----------------------------------------------------------------------
-    // 宣言
 
     fn item(&mut self, def: DefId) {
         let data = &self.program.defs[def];
@@ -342,9 +339,6 @@ impl Dumper<'_> {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 型とパターン（1行で書く）
-
     fn ty(&mut self, ty: TypeId) -> String {
         match &self.program.types[ty].kind {
             TypeKind::Path { res, args } => {
@@ -431,9 +425,6 @@ impl Dumper<'_> {
             PatKind::Missing => "missing".to_owned(),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // 式（1ノード1行）
 
     fn expr(&mut self, depth: usize, expr: ExprId) {
         match &self.program.exprs[expr].kind {

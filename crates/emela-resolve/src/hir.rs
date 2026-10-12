@@ -1,8 +1,10 @@
-//! HIR．名前がすべて定義か局所変数を指している木．型推論はこれだけを見る．
+//! HIR: a tree in which every name points to a definition or a local. Type inference sees only
+//! this.
 //!
-//! 定義（[`DefId`]），局所変数（[`LocalId`]），式，パターン，型はプログラム全体で1つの
-//! アリーナに持つ．モジュールをまたぐ参照も ID のまま引ける．位置（[`Span`]）は全ノードが持つ．
-//! Prelude と組み込みのモジュールの定義はソースを持たないので，位置が `None` になる．
+//! Definitions ([`DefId`]), locals ([`LocalId`]), expressions, patterns and types live in one
+//! arena for the whole program, so references across modules are plain IDs. Every node has a
+//! position ([`Span`]). Prelude and built-in module definitions have no source, so their position
+//! is `None`.
 
 use la_arena::{Arena, ArenaMap, Idx};
 use rowan::TextRange;
@@ -16,53 +18,52 @@ pub type ExprId = Idx<Expr>;
 pub type PatId = Idx<Pat>;
 pub type TypeId = Idx<TypeRef>;
 
-/// ソースの中の位置．モジュールが1つのファイルなので，ファイルはモジュールで指す．
+/// A module is one file, so the file is identified by its module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub module: ModuleId,
     pub range: TextRange,
 }
 
-/// 定義の持ち主のモジュール．
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DefModule {
-    /// ソースのモジュール．
     Source(ModuleId),
-    /// Prelude（15.1）．import なしで見える．
+    /// Prelude (spec 15.1), visible without an import.
     Prelude,
-    /// 組み込みのモジュール（`String`，`List` など）．[`crate::BuiltinModules`] から引く．
+    /// A built-in module (`String`, `List`, ...), looked up through [`crate::BuiltinModules`].
     Builtin(SmolStr),
 }
 
-/// 定義の種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DefKind {
     Fn,
-    /// `type`．同じ名前の構成子は [`DefKind::Ctor`] として別に持つ．
+    /// `type`. Its same-named constructor is a separate [`DefKind::Ctor`].
     Type,
     Enum,
-    /// 構成子．`type` の構成子，enum のバリアント，handler のフィールドからの構築．
+    /// The constructor of a `type`, an enum variant, or construction of a handler from its
+    /// fields.
     Ctor,
-    /// `error`．型の名前空間ではエラーのタグ，構成子の名前空間ではその値を作る構成子．
+    /// `error`. In the type namespace, the error tag; in the constructor namespace, the
+    /// constructor that builds its value.
     Error,
     Const,
     Effect,
-    /// effect の操作．
+    /// An effect operation.
     Op,
     Handler,
     Layer,
     Trait,
-    /// trait の関数．
+    /// A trait function.
     TraitFn,
     Impl,
-    /// 型引数．大文字名（`A`）か型名（`Item`）．
+    /// An uppercase name (`A`) or a type name (`Item`).
     TypeParam,
-    /// 組み込みの型（`Int`，`String`，`List` など）．
+    /// `Int`, `String`, `List`, ...
     BuiltinType,
 }
 
 impl DefKind {
-    /// 診断の文面に使う英語の名前．
+    /// The English name used in diagnostic messages.
     pub fn describe(self) -> &'static str {
         match self {
             DefKind::Fn => "function",
@@ -89,28 +90,27 @@ pub struct DefData {
     pub name: SmolStr,
     pub kind: DefKind,
     pub module: DefModule,
-    /// 外側の定義．バリアントなら enum，操作なら effect，型引数なら付いている宣言．
+    /// The enclosing definition: the enum of a variant, the effect of an operation, the
+    /// declaration a type parameter belongs to.
     pub parent: Option<DefId>,
-    /// 名前の位置．ソースのないものは `None`．
+    /// `None` for definitions without source.
     pub span: Option<Span>,
-    /// `pub` が付いているか．バリアントと構成子は親の型に従う．
+    /// Variants and constructors follow their parent type.
     pub is_pub: bool,
-    /// `pub opaque` の型（4.4）．構成子は親の型に従う．
+    /// A `pub opaque` type (spec 4.4). Constructors follow their parent type.
     pub is_opaque: bool,
 }
 
-/// 局所変数の種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LocalKind {
-    /// 関数（トップレベル，trait，impl，handler の操作）の引数．
+    /// A parameter of a function (top-level, trait, impl, or handler operation).
     Param,
-    /// `self`．impl と trait では引数として書き，handler では暗黙に入る．
+    /// `self`. Written as a parameter in impls and traits; implicit in handlers.
     SelfParam,
-    /// ラムダの引数．
     LambdaParam,
-    /// 束縛 `x = ...` とそのパターンの中の変数．
+    /// A binding `x = ...` and the variables in its pattern.
     Binding,
-    /// match と escape の腕のパターンの変数．
+    /// Variables in the patterns of match and escape arms.
     ArmBinding,
 }
 
@@ -121,51 +121,47 @@ pub struct LocalData {
     pub span: Span,
 }
 
-/// 名前の参照の解決先．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Res {
     Def(DefId),
     Local(LocalId),
-    /// 解決できなかった．診断は出してある．
+    /// Already reported.
     Err,
 }
 
-/// ソースに書いた名前の参照（LSP の定義へ移動と参照の検索に使う）．
+/// A name reference written in source, for LSP go-to-definition and find-references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NameRef {
-    /// 名前の字句の位置．`Http.Client.get` なら区切りごとに別の参照になる．
+    /// The name token's position. `Http.Client.get` gives one reference per segment.
     pub span: Span,
     pub target: RefTarget,
 }
 
-/// 名前の参照の指す先．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RefTarget {
     Def(DefId),
     Local(LocalId),
-    /// ソースのモジュール（import のパスと `.` の左）．
+    /// A source module (import paths and the left of `.`).
     Module(ModuleId),
 }
-
-// ---------------------------------------------------------------------------
-// 型
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeRef {
     pub kind: TypeKind,
-    /// Prelude の宣言の中の型（`Some(A)` の `A`）だけはソースがないので `None`．
+    /// `None` only for types inside Prelude declarations (the `A` of `Some(A)`), which have no
+    /// source.
     pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    /// 名前の付いた型と型引数．`List[Int]`，`Email.Email`，`A`．
-    /// `res` は型（type，enum，error，組み込みの型）か型引数を指す．
+    /// Named types and type parameters: `List[Int]`, `Email.Email`, `A`. `res` points to a type
+    /// (type, enum, error, built-in type) or a type parameter.
     Path {
         res: Res,
         args: Vec<TypeId>,
     },
-    /// `Self`（trait と impl の中）．
+    /// `Self` (inside traits and impls).
     SelfType,
     Unit,
     Tuple(Vec<TypeId>),
@@ -175,41 +171,39 @@ pub enum TypeKind {
         fails: Option<ErrorSet>,
         uses: Option<EffectSet>,
     },
-    /// 名前付き型の型引数に書いたエラーの集合（`Handler[NotFound | Timeout, R]`，9.2）．
-    /// 型引数の位置にだけ現れる．
+    /// An error set written as a type argument of a named type (`Handler[NotFound | Timeout, R]`,
+    /// spec 9.2). Appears only in type argument positions.
     ErrorSet(ErrorSet),
-    /// 名前付き型の型引数に書いた波括弧の集合（`Handler[E, { Db, Log }]`，`{}`）．
-    /// 型引数の位置にだけ現れる．空の `{}` はエラーの集合の位置にも書ける．
+    /// A braced set written as a type argument of a named type (`Handler[E, { Db, Log }]`, `{}`).
+    /// Appears only in type argument positions; an empty `{}` may also appear where an error set
+    /// goes.
     EffectSet(EffectSet),
-    /// 読めなかった型．
+    /// A type that could not be parsed.
     Missing,
 }
 
-/// `fails` 節．要素はエラーか型引数を指す．`fails {}` は空．
+/// The `fails` clause. Elements point to errors or type parameters. `fails {}` is empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorSet {
     pub items: Vec<(Res, Span)>,
     pub span: Span,
 }
 
-/// `use` 節．要素はエフェクトか型引数を指す．`use {}` は空．
+/// The `use` clause. Elements point to effects or type parameters. `use {}` is empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSet {
     pub items: Vec<EffectRef>,
     pub span: Span,
 }
 
-/// 効果の集合の要素．エフェクトか型引数を指す．`args` はエフェクトの型引数
-/// （`State[Int]` の `Int`，8.1）．型引数を書いていなければ空．
+/// An element of an effect set, pointing to an effect or a type parameter. `args` are the
+/// effect's type arguments (the `Int` of `State[Int]`, spec 8.1); empty if none are written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectRef {
     pub res: Res,
     pub args: Vec<TypeId>,
     pub span: Span,
 }
-
-// ---------------------------------------------------------------------------
-// パターン
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pat {
@@ -220,16 +214,16 @@ pub struct Pat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatKind {
     Wild,
-    /// 変数．何にでも合い，束縛する．
+    /// Matches anything and binds it.
     Bind(LocalId),
     Lit(Literal),
-    /// const との照合．`res` は const を指す．
+    /// Matching against a const; `res` points to the const.
     Const(Res),
-    /// 構成子のパターン．`args` が `None` なら括弧なし（`Empty`）．
+    /// `args` is `None` without parentheses (`Empty`).
     Ctor {
         res: Res,
         args: Option<Vec<PatArg>>,
-        /// `..` で残りのフィールドを無視する．
+        /// `..` ignores the remaining fields.
         rest: bool,
     },
     Unit,
@@ -242,36 +236,34 @@ pub enum PatKind {
     Missing,
 }
 
-/// 構成子のパターンの引数．名前付きならラベルを持つ．`User(name:)` は `name` を束縛する．
+/// Named arguments carry a label. `User(name:)` binds `name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatArg {
     pub label: Option<Label>,
     pub pat: PatId,
 }
 
-/// リストのパターンの残り．`..rest` なら名前を束縛する．
+/// `..rest` binds a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListRest {
     pub binding: Option<LocalId>,
     pub span: Span,
 }
 
-/// 名前付き引数とフィールドのパターンのラベル．解決はしない（呼び出し先のシグネチャが要る）．
+/// Labels of named arguments and field patterns. Not resolved here, since that needs the callee's
+/// signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     pub name: SmolStr,
     pub span: Span,
 }
 
-// ---------------------------------------------------------------------------
-// 式
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Literal {
-    /// `_` を取り除いた数字の列．範囲の検査は型推論が行う．
+    /// Digits with `_` removed. Range checks are left to type inference.
     Int(SmolStr),
     Float(SmolStr),
-    /// 補間のない文字列．エスケープは解いてある．
+    /// A string without interpolation, escapes already resolved.
     String(String),
 }
 
@@ -296,7 +288,7 @@ pub enum BinaryOp {
     Ge,
     And,
     Or,
-    /// `|>`．右辺の呼び出しの第1引数に左辺が入る（6.7）．
+    /// `|>`. The left side becomes the first argument of the call on the right (spec 6.7).
     Pipe,
 }
 
@@ -308,7 +300,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StrPart {
-    /// エスケープを解いた文字列．
+    /// Escapes already resolved.
     Text(String),
     Interp(ExprId),
 }
@@ -317,11 +309,10 @@ pub enum StrPart {
 pub enum ExprKind {
     Missing,
     Lit(Literal),
-    /// 補間を含む文字列．
     Interpolated(Vec<StrPart>),
-    /// 名前の参照．局所変数，関数，const，構成子，`Trait.f`，`Module.f`．
+    /// Locals, functions, consts, constructors, `Trait.f`, `Module.f`.
     Path(Res),
-    /// フィールドか能力の操作 `x.name`．名前は型推論で引く．
+    /// A field or capability operation `x.name`. The name is looked up by type inference.
     Field {
         base: ExprId,
         name: Label,
@@ -355,26 +346,28 @@ pub enum ExprKind {
         scrutinee: ExprId,
         arms: Vec<Arm>,
     },
-    /// `e escape { ... }`．腕のパターンの最上位はエラーの構成子．
+    /// `e escape { ... }`. The top-level pattern of each arm is an error constructor.
     Escape {
         expr: ExprId,
         arms: Vec<Arm>,
     },
     Fail(ExprId),
     Assert(ExprId),
-    /// 部分更新 `C(f: e, ..base)`（5.3）．`ctor` は構成子が1つのもの（type，error，
-    /// フィールドのある handler）の構成子の参照．`fields` は名前付き引数だけ．
+    /// A record update `C(f: e, ..base)` (spec 5.3). `ctor` refers to the constructor of
+    /// something with a single constructor (a type, an error, or a handler with fields).
+    /// `fields` holds only named arguments.
     Update {
         ctor: ExprId,
         fields: Vec<Arg>,
         base: ExprId,
     },
-    /// `use X`．`effect` はエフェクトを指す．`args` はエフェクトの型引数（`use State[Int]`，8.1）．
+    /// `use X`. `effect` points to the effect; `args` are its type arguments (`use State[Int]`,
+    /// spec 8.1).
     Use {
         effect: Res,
         args: Vec<TypeId>,
     },
-    /// `with H1, H2 { body }`．`handlers` は handler か layer を指す．
+    /// `with H1, H2 { body }`. `handlers` point to handlers or layers.
     With {
         handlers: Vec<(Res, Span)>,
         body: ExprId,
@@ -385,8 +378,9 @@ pub enum ExprKind {
     },
 }
 
-/// 呼び出しの引数．`label` のある名前付き引数は解決せず，名前と位置だけを残す．
-/// `NotFound(id:)` の省略形は `value` が変数 `id` の参照になり，`punned` が立つ．
+/// A call argument. Named arguments (with `label`) are not resolved; only the name and position
+/// are kept. The shorthand `NotFound(id:)` makes `value` a reference to the local `id` and sets
+/// `punned`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arg {
     pub label: Option<Label>,
@@ -397,7 +391,8 @@ pub struct Arg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub stmts: Vec<Stmt>,
-    /// 最後の文が式なら，その値．束縛で終わるか空ならブロックの値は `()`．
+    /// The value of the last statement if it is an expression. A block ending in a binding, or an
+    /// empty block, has value `()`.
     pub tail: Option<ExprId>,
 }
 
@@ -419,17 +414,14 @@ pub struct Arm {
     pub body: ExprId,
 }
 
-// ---------------------------------------------------------------------------
-// 宣言
-
-/// 関数の引数．トップレベルの fn では型が必須，ラムダ，handler，impl では省ける．
+/// Types are required in top-level fns and optional in lambdas, handlers and impls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     pub local: LocalId,
     pub ty: Option<TypeId>,
 }
 
-/// 関数のシグネチャと本体．トップレベルの fn，trait の fn，impl と handler の fn で共有する．
+/// Shared by top-level fns, trait fns, and impl and handler fns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnSig {
     pub type_params: Vec<TypeParam>,
@@ -443,11 +435,11 @@ pub struct FnSig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeParam {
     pub def: DefId,
-    /// 制約．Trait（`Ord`）か組み込みの制約（`Immediate`）を指す．
+    /// Constraints. Point to a trait (`Ord`) or a built-in constraint (`Immediate`).
     pub bounds: Vec<(Res, Span)>,
 }
 
-/// フィールド．type，enum のバリアント，error，handler で使う．
+/// Used by type, enum variants, error and handler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldDef {
     pub name: SmolStr,
@@ -455,7 +447,7 @@ pub struct FieldDef {
     pub span: Span,
 }
 
-/// 構成子のフィールドの形（5.4）．
+/// The shape of a constructor's fields (spec 5.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fields {
     None,
@@ -466,19 +458,20 @@ pub enum Fields {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnItem {
     pub sig: FnSig,
-    /// 本体．`@external` の関数と，既定の実装のない trait の関数にはない．
+    /// Absent for `@external` functions and trait functions without a default implementation.
     pub body: Option<ExprId>,
-    /// `@external` が付いている．
     pub is_external: bool,
-    /// `@external(js, "console.log")` の引数．書かれた順．引数のない `@external` は入らない．
+    /// The arguments of `@external(js, "console.log")`, in source order. An `@external` without
+    /// arguments is not included.
     pub externals: Vec<ExternalAttr>,
-    /// `@intrinsic` が付いている（同梱の core のソースの組み込み関数）．
+    /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
 }
 
-/// `@external(target, "a", "b")` の引数（12.1）．`target` は最初の引数の名前（`js`，`wasm`），
-/// `args` は残りの文字列．形の崩れた引数（名前でない最初の引数，文字列でない残り）は入れない．
-/// 形の誤りは構文の段が診断する（E0138〜E0141）．
+/// The arguments of `@external(target, "a", "b")` (spec 12.1). `target` is the first argument's
+/// name (`js`, `wasm`); `args` are the remaining strings. Malformed arguments (a first argument
+/// that is not a name, non-string remaining ones) are left out; the parser reports them
+/// (E0138 to E0141).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalAttr {
     pub target: SmolStr,
@@ -488,7 +481,7 @@ pub struct ExternalAttr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeItem {
     pub type_params: Vec<TypeParam>,
-    /// 同じ名前の構成子．`@external` のフィールドのない型にはない．
+    /// The same-named constructor. Absent for an `@external` type without fields.
     pub ctor: Option<DefId>,
     pub fields: Fields,
     pub derives: Vec<(Res, Span)>,
@@ -497,14 +490,14 @@ pub struct TypeItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumItem {
     pub type_params: Vec<TypeParam>,
-    /// バリアント（[`DefKind::Ctor`]）．宣言の順．
+    /// [`DefKind::Ctor`]s, in declaration order.
     pub variants: Vec<DefId>,
     pub derives: Vec<(Res, Span)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CtorItem {
-    /// 構成子が作る型（type か enum か handler）．
+    /// The type the constructor builds (type, enum or handler).
     pub owner: DefId,
     pub fields: Fields,
 }
@@ -522,12 +515,12 @@ pub struct ConstItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectItem {
-    /// 型引数（`effect State[S]` の `S`，8.1）．操作のシグネチャの中で使える．
+    /// Type parameters (the `S` of `effect State[S]`, spec 8.1), usable in operation signatures.
     pub type_params: Vec<TypeParam>,
     pub ops: Vec<DefId>,
 }
 
-/// effect の操作のシグネチャ．本体はない．
+/// No body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpItem {
     pub sig: FnSig,
@@ -535,27 +528,27 @@ pub struct OpItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
-    /// `implements` のエフェクト．
+    /// The effect after `implements`.
     pub effect: Res,
-    /// `implements` のエフェクトの型引数（`implements State[Int]` の `Int`，8.1）．
+    /// Its type arguments (the `Int` of `implements State[Int]`, spec 8.1).
     pub effect_args: Vec<TypeId>,
     pub fields: Vec<FieldDef>,
-    /// フィールドがあるときの構成子（init で使う）．
+    /// The constructor when there are fields, used in `init`.
     pub ctor: Option<DefId>,
     pub init: Option<ExprId>,
-    /// `release` と，その中の暗黙の `self`．
+    /// `release` and its implicit `self`.
     pub release: Option<(LocalId, ExprId)>,
     pub ops: Vec<HandlerOp>,
 }
 
-/// handler の操作の実装．引数の型は effect の宣言から決まる．
+/// Parameter types come from the effect declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerOp {
     pub name: Label,
-    /// 実装する effect の操作．
+    /// The effect operation implemented.
     pub op: Res,
     pub is_suspend: bool,
-    /// 暗黙の `self`．
+    /// The implicit `self`.
     pub self_local: LocalId,
     pub params: Vec<Param>,
     pub body: Option<ExprId>,
@@ -563,14 +556,14 @@ pub struct HandlerOp {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerItem {
-    /// handler か layer．
+    /// Handlers or layers.
     pub members: Vec<(Res, Span)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitItem {
     pub supertraits: Vec<(Res, Span)>,
-    /// trait の関数（[`DefKind::TraitFn`]）．
+    /// [`DefKind::TraitFn`]s.
     pub fns: Vec<DefId>,
 }
 
@@ -581,17 +574,17 @@ pub struct ImplItem {
     pub fns: Vec<ImplFn>,
 }
 
-/// impl の関数．シグネチャは trait の宣言から決まる．
+/// The signature comes from the trait declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplFn {
     pub name: Label,
-    /// 実装する trait の関数．
+    /// The trait function implemented.
     pub trait_fn: Res,
     pub params: Vec<Param>,
     pub body: Option<ExprId>,
 }
 
-/// 定義の中身．型引数と組み込みの定義は中身を持たない．
+/// Type parameters and built-in definitions have no item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     Fn(FnItem),
@@ -605,18 +598,17 @@ pub enum Item {
     Handler(HandlerItem),
     Layer(LayerItem),
     Trait(TraitItem),
-    /// trait の関数．本体があれば既定の実装．
+    /// With a body, it is the default implementation.
     TraitFn(FnItem),
     Impl(ImplItem),
 }
 
-/// 1つのモジュールの宣言．書かれた順．
+/// In source order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleItems {
     pub items: Vec<DefId>,
 }
 
-/// 名前解決の結果．
 #[derive(Debug, Default, Clone)]
 pub struct Program {
     pub defs: Arena<DefData>,
@@ -626,23 +618,24 @@ pub struct Program {
     pub pats: Arena<Pat>,
     pub types: Arena<TypeRef>,
     pub modules: ArenaMap<ModuleId, ModuleItems>,
-    /// Prelude の定義．名前から引ける．
+    /// Looked up by name.
     pub prelude: Prelude,
-    /// 解決できた名前の参照．書いた順（モジュールの順ではない）．定義の名前と局所変数を
-    /// 束縛した位置は入らない（[`DefData::span`] と [`LocalData::span`] にある）．
-    /// effect の操作（`log.info`）は型推論が引くのでここにはない．
+    /// Resolved name references, in source order (not module order). The names of definitions
+    /// and the places where locals are bound are not included (they are in [`DefData::span`] and
+    /// [`LocalData::span`]). Effect operations (`log.info`) are looked up by type inference, so
+    /// they are not here either.
     pub refs: Vec<NameRef>,
 }
 
-/// Prelude の定義の ID．型推論が組み込みの型と構成子を引くのに使う．
+/// Used by type inference to look up built-in types and constructors.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Prelude {
-    /// 15.1 の名前と，組み込みの Trait（`Immediate`）とエフェクト（`Async`）．
+    /// The names of spec 15.1, plus the built-in trait (`Immediate`) and effect (`Async`).
     pub defs: Vec<DefId>,
 }
 
 impl Program {
-    /// Prelude の定義を名前で引く．`Some` などの構成子も引ける．
+    /// Constructors such as `Some` can be looked up too.
     pub fn prelude_def(&self, name: &str) -> Option<DefId> {
         self.prelude
             .defs

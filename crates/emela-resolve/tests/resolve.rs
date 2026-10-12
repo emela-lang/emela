@@ -1,5 +1,5 @@
-//! 名前解決の結果（HIR のダンプと診断）をスナップショットで確かめる．
-//! 例は仕様の 4.4，5章，6章，7.3，8.2〜8.5，10章から取る．
+//! Snapshot tests of name resolution (HIR dumps and diagnostics).
+//! Examples are taken from spec 4.4, chapters 5 and 6, 7.3, 8.2 to 8.5, and chapter 10.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -10,7 +10,7 @@ use emela_resolve::{
 };
 use la_arena::ArenaMap;
 
-/// 仮の組み込みのモジュール．core の表（#122）が入るまでのもの．
+/// A stand-in table of built-in modules, until the core table (#122) lands.
 fn builtins() -> BuiltinTable {
     BuiltinTable::new()
         .functions("String", &["contains", "concat", "length"])
@@ -30,13 +30,14 @@ fn builtins() -> BuiltinTable {
         )
 }
 
-/// `src/` の下のファイルを解決し，モジュールごとのダンプと診断を返す．構文の誤りは許さない．
+/// Resolves the files under `src/` and returns the dump and diagnostics per module. Syntax errors
+/// are not allowed.
 fn run(files: &[(&str, &str)]) -> String {
     run_with_core(files, &[])
 }
 
-/// `core` は同梱の core のソース（ファイル名と中身）．`<core>/` の下に置いたことにする．
-/// ダンプは `src/` のモジュールだけを出す．
+/// `core` is the bundled core's sources (file name and contents), placed under `<core>/`.
+/// Only the `src/` modules are dumped.
 fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
     let fs = MemoryFs::new(files.iter().map(|(path, _)| format!("src/{path}")));
     let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
@@ -101,7 +102,6 @@ fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
     out
 }
 
-/// 診断だけを返す．
 fn diagnostics(files: &[(&str, &str)]) -> String {
     let out = run(files);
     match out.find("== diagnostics\n") {
@@ -623,7 +623,7 @@ fn spans_point_at_source() {
     trees.insert(id, emela_syntax::parse(text).tree());
     let (program, diagnostics) = resolve(&modules, &trees, &builtins());
     assert_eq!(diagnostics, []);
-    // 全ノードがモジュールと範囲を持ち，範囲はソースの中にある．
+    // Every node has a module and a range, and the range lies within the source.
     for (_, expr) in program.exprs.iter() {
         assert_eq!(expr.span.module, id);
         assert!(usize::from(expr.span.range.end()) <= text.len());
@@ -677,7 +677,7 @@ fn bad(user: User, shape: Shape) {
     )]));
 }
 
-/// 同梱の core のソースの代わりに使う小さな core．
+/// A small core standing in for the bundled core sources.
 const CORE: &[(&str, &str)] = &[
     (
         "option.emel",

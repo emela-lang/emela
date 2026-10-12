@@ -1,4 +1,5 @@
-//! 宣言の中身を HIR へ写す．局所のスコープ（6.3，6.5，7.3，8.4）と型引数のスコープを持つ．
+//! Lowers declaration contents to HIR. Holds the local scopes (spec 6.3, 6.5, 7.3, 8.4) and the
+//! type parameter scopes.
 
 use emela_syntax::SyntaxKind::{self, *};
 use emela_syntax::ast::{self, AstNode, HasAttrs};
@@ -68,18 +69,18 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
 struct Lower<'r, 'a> {
     r: &'r mut Resolver<'a>,
     module: ModuleId,
-    /// 局所変数のスコープ．内側が後ろ．束縛し直すと同じスコープの名前を上書きする．
+    /// Innermost last. Rebinding overwrites the name in the same scope.
     locals: Vec<FxHashMap<SmolStr, LocalId>>,
-    /// 型引数のスコープ．
     type_params: Vec<FxHashMap<SmolStr, DefId>>,
-    /// `Self` を書ける（trait と impl の中）．
+    /// Whether `Self` may be written (inside traits and impls).
     self_type: bool,
-    /// 名前付き型の型引数の位置の型を引いている．エフェクトの名前も書ける（集合の型引数，
-    /// 9.2 の `Handler[NotFound, Db]`）．エフェクトを書いてよい位置かは型推論が確かめる．
+    /// Set while looking up a type in a type argument position of a named type. Effect names may
+    /// appear there too (set type arguments, `Handler[NotFound, Db]` in spec 9.2); whether an
+    /// effect is allowed in that position is checked by type inference.
     type_arg: bool,
 }
 
-/// 1つのパターン（か引数の並び）で束縛する名前．同じ名前を2回束縛したら診断を出す．
+/// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
 #[derive(Default)]
 struct Binder {
     names: Vec<(SmolStr, LocalId)>,
@@ -97,7 +98,7 @@ impl Lower<'_, '_> {
         self.r.error(self.module, range, kind);
     }
 
-    /// 名前の参照を記録する（[`Program::refs`]）．
+    /// Records into [`Program::refs`].
     fn refer(&mut self, range: TextRange, target: RefTarget) {
         let span = self.span(range);
         self.r.program.refs.push(NameRef { span, target });
@@ -123,9 +124,6 @@ impl Lower<'_, '_> {
         self.r.program.locals.alloc(LocalData { name, kind, span })
     }
 
-    // -----------------------------------------------------------------------
-    // スコープ
-
     fn push_scope(&mut self) {
         self.locals.push(FxHashMap::default());
     }
@@ -134,12 +132,12 @@ impl Lower<'_, '_> {
         self.locals.pop();
     }
 
-    /// 束縛した名前を今のスコープに入れる．同じ名前は新しい方が見える（6.3）．
+    /// The newer of two same-named bindings is the visible one (spec 6.3).
     fn bind_all(&mut self, binder: Binder) {
         if self.locals.is_empty() {
             self.push_scope();
         }
-        let scope = self.locals.last_mut().expect("スコープがある");
+        let scope = self.locals.last_mut().expect("a scope is pushed");
         for (name, local) in binder.names {
             scope.insert(name, local);
         }
@@ -181,10 +179,8 @@ impl Lower<'_, '_> {
             .find_map(|scope| scope.get(name).copied())
     }
 
-    // -----------------------------------------------------------------------
-    // 宣言
-
-    /// `[A: Ord, Item]`．型引数のスコープを1つ積む．呼ぶ側が `pop_type_params` で降ろす．
+    /// `[A: Ord, Item]`. Pushes a type parameter scope; the caller pops it with
+    /// `pop_type_params`.
     fn type_params(&mut self, owner: DefId, list: Option<SyntaxNode>) -> Vec<TypeParam> {
         self.type_params.push(FxHashMap::default());
         let Some(list) = list else {
@@ -212,7 +208,8 @@ impl Lower<'_, '_> {
                 continue;
             }
             seen.insert(name.clone(), range);
-            // 型名の型引数は外側の同じ名前の型・エフェクト・エラーを隠す（2.3）．
+            // A type-name type parameter hides an outer type, effect or error of the same name
+            // (spec 2.3).
             if token.kind() == TYPE_NAME
                 && (self.r.lookup(self.module, Ns::Type, &name).is_some()
                     || self.lookup_type_param(&name).is_some())
@@ -231,11 +228,11 @@ impl Lower<'_, '_> {
             );
             self.type_params
                 .last_mut()
-                .expect("積んである")
+                .expect("a type parameter scope is pushed")
                 .insert(name, def);
             params.push((def, param));
         }
-        // 制約は全部の型引数を入れてから引く．
+        // Constraints are looked up after every type parameter is in scope.
         params
             .into_iter()
             .map(|(def, param)| {
@@ -273,7 +270,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// `-> T fails E use R`．`node` は FN_DECL か OP_SIG．
+    /// `-> T fails E use R`. `node` is a FN_DECL or OP_SIG.
     fn signature(
         &mut self,
         node: &SyntaxNode,
@@ -304,7 +301,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// 引数の並び．今のスコープに入れる．
+    /// Adds them to the current scope.
     fn params(&mut self, list: Option<ast::ParamList>, kind: LocalKind) -> Vec<Param> {
         let Some(list) = list else {
             return Vec::new();
@@ -316,7 +313,8 @@ impl Lower<'_, '_> {
                 let (name, range) = token_name(&token);
                 (name, range, kind)
             } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
-                // impl と trait の `self`．置けない場所の `self` は構文が診断しないので，ここで見る．
+                // `self` of impls and traits. The parser does not report a misplaced `self`, so
+                // it is checked here.
                 if !self.self_type {
                     self.error(
                         token.text_range(),
@@ -411,7 +409,8 @@ impl Lower<'_, '_> {
             def,
             e.syntax().children().find(|n| n.kind() == TYPE_PARAM_LIST),
         );
-        // 名前の読めないバリアントは収集で飛ばしたので，名前のあるものだけを順に対応させる．
+        // Variants with unreadable names were skipped during collection, so match up only the
+        // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
         for (&variant, syntax) in variants.iter().zip(&syntax_variants) {
             let fields = if let Some(fields) = self.named_fields(syntax.field_list()) {
@@ -439,9 +438,9 @@ impl Lower<'_, '_> {
     }
 
     fn effect_item(&mut self, def: DefId, ops: &[DefId], e: &ast::EffectDecl) -> Item {
-        // エフェクトの型引数（8.1）は操作のシグネチャの中で使える．
+        // An effect's type parameters (spec 8.1) are usable in its operation signatures.
         let type_params = self.type_params(def, e.type_params());
-        // 重複した操作は収集で飛ばしたので，名前で対応させる．
+        // Duplicate operations were skipped during collection, so match by name.
         for op in e.ops() {
             let Some(name) = op.name() else { continue };
             let Some(&def) = ops.iter().find(|&&d| {
@@ -468,7 +467,7 @@ impl Lower<'_, '_> {
     fn handler_item(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
         let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
-            // フィールドを書いていない handler の構成子は値（`ConsoleLogger`）．
+            // The constructor of a handler without fields is a value (`ConsoleLogger`).
             let ctor_fields = match &fields {
                 Some(fields) => Fields::Named(fields.clone()),
                 None => Fields::None,
@@ -487,7 +486,7 @@ impl Lower<'_, '_> {
             None => Res::Err,
         };
         let effect_args = self.type_arg_list(h.effect_type_args());
-        // init は with に入るときに走り，ハンドラの値を作る．`self` はまだない．
+        // `init` runs on entering `with` and builds the handler value; there is no `self` yet.
         let init = h.init().map(|b| self.block(&b));
         let release = h.release().map(|b| {
             self.push_scope();
@@ -502,7 +501,8 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 let op = self.member_of(effect, &name, range);
-                // `@intrinsic` はトップレベルの fn だけ．今のパーサは本体の中に注釈を置かせないが，備えて見る．
+                // `@intrinsic` is for top-level fns only. The parser does not allow annotations
+                // inside bodies today, but check anyway.
                 self.r.check_intrinsic(self.module, f.syntax(), false);
                 self.push_scope();
                 let self_local = self.implicit_self(def);
@@ -535,7 +535,7 @@ impl Lower<'_, '_> {
         })
     }
 
-    /// handler の操作と release の暗黙の `self`．位置は handler の名前．
+    /// The implicit `self` of handler operations and `release`, located at the handler's name.
     fn implicit_self(&mut self, handler: DefId) -> LocalId {
         let range = self.r.program.defs[handler]
             .span
@@ -543,12 +543,12 @@ impl Lower<'_, '_> {
         let local = self.alloc_local("self".into(), LocalKind::SelfParam, range);
         self.locals
             .last_mut()
-            .expect("積んである")
+            .expect("a scope is pushed")
             .insert("self".into(), local);
         local
     }
 
-    /// trait の関数か effect の操作を名前で引く．見つからなければ診断を出す．
+    /// Reports if not found.
     fn member_of(&mut self, owner: Res, name: &SmolStr, range: TextRange) -> Res {
         let Res::Def(owner) = owner else {
             return Res::Err;
@@ -636,9 +636,6 @@ impl Lower<'_, '_> {
         })
     }
 
-    // -----------------------------------------------------------------------
-    // 型
-
     fn lower_type(&mut self, node: &SyntaxNode) -> TypeId {
         let range = node.text_range();
         let type_arg = std::mem::take(&mut self.type_arg);
@@ -679,7 +676,7 @@ impl Lower<'_, '_> {
                     TypeKind::Missing
                 }
             }
-            // `(fn(A) -> B)` の括弧は形を変えない．
+            // The parentheses of `(fn(A) -> B)` do not change the type.
             PAREN_TYPE => {
                 if let Some(inner) = node.first_child() {
                     return self.lower_type(&inner);
@@ -687,7 +684,7 @@ impl Lower<'_, '_> {
                 TypeKind::Missing
             }
             UNIT_TYPE => TypeKind::Unit,
-            // 型引数の位置の集合（9.2）．パーサは型引数の位置でだけ作る．
+            // A set in a type argument position (spec 9.2). The parser creates these only there.
             ERROR_SET => TypeKind::ErrorSet(ErrorSet {
                 items: self.set_node_items(node, Expected::Error),
                 span: self.span(range),
@@ -728,7 +725,7 @@ impl Lower<'_, '_> {
         self.alloc_type(kind, range)
     }
 
-    /// 型の位置の大文字名．型引数だけを引く．
+    /// Uppercase names in type positions. Only type parameters are looked up.
     fn type_var(&mut self, node: &SyntaxNode) -> Res {
         let Some(token) = child_token(node, UPPER_NAME) else {
             return Res::Err;
@@ -755,7 +752,7 @@ impl Lower<'_, '_> {
         Res::Err
     }
 
-    /// `fails` 節．`FAILS_CLAUSE` の中の ERROR_SET．
+    /// The ERROR_SET inside a `FAILS_CLAUSE`.
     fn error_set(&mut self, clause: &SyntaxNode) -> ErrorSet {
         let items = self.set_items(clause, Expected::Error);
         ErrorSet {
@@ -775,7 +772,8 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// 効果の集合（EFFECT_SET）の要素．型引数のあるエフェクト（`State[Int]`，8.1）は PATH_TYPE．
+    /// Elements of an EFFECT_SET. An effect with type arguments (`State[Int]`, spec 8.1) is a
+    /// PATH_TYPE.
     fn effect_set_items(&mut self, set: &SyntaxNode) -> Vec<EffectRef> {
         set.children()
             .filter_map(|n| {
@@ -803,7 +801,7 @@ impl Lower<'_, '_> {
             .collect()
     }
 
-    /// 型引数の並び（TYPE_ARG_LIST）の型．並びがなければ空．
+    /// Types in a TYPE_ARG_LIST. Empty if there is no list.
     fn type_arg_list(&mut self, list: Option<SyntaxNode>) -> Vec<TypeId> {
         let Some(list) = list else {
             return Vec::new();
@@ -821,7 +819,7 @@ impl Lower<'_, '_> {
         self.set_node_items(&set, expected)
     }
 
-    /// 集合（ERROR_SET か EFFECT_SET）の要素．
+    /// Elements of an ERROR_SET or EFFECT_SET.
     fn set_node_items(&mut self, set: &SyntaxNode, expected: Expected) -> Vec<(Res, Span)> {
         set.children()
             .filter_map(|n| {
@@ -835,8 +833,9 @@ impl Lower<'_, '_> {
             .collect()
     }
 
-    /// 型の名前空間のパスを引き，種類を確かめる．1区切りなら型引数，モジュールの定義，
-    /// Prelude の順．`A.B` ならモジュール `A` の pub な型．
+    /// Looks up a path in the type namespace and checks its kind. A single segment is looked up
+    /// as a type parameter, then a module definition, then the Prelude; `A.B` is the pub type of
+    /// module `A`.
     fn resolve_type_ns(&mut self, path: &ast::Path, expected: Expected) -> Res {
         let segments: Vec<SyntaxToken> = path.segments().collect();
         let Some((last, prefix)) = segments.split_last() else {
@@ -882,7 +881,7 @@ impl Lower<'_, '_> {
             Expected::Trait => kind == DefKind::Trait,
             _ => true,
         };
-        // `use X` には型引数を書けない．
+        // `use X` cannot take type arguments.
         let fits = fits
             && !(expected == Expected::Effect
                 && kind == DefKind::TypeParam
@@ -907,7 +906,7 @@ impl Lower<'_, '_> {
     }
 
     fn undefined_type(&mut self, name: &SmolStr, range: TextRange, expected: Expected) {
-        // モジュール名を型の位置に書いた（4.4 の `Email`）．
+        // A module name in a type position (the `Email` of spec 4.4).
         if self.r.scopes[self.module].modules.contains_key(name) {
             self.error(
                 range,
@@ -932,7 +931,8 @@ impl Lower<'_, '_> {
         );
     }
 
-    /// `A.B.f` の `A.B`．先頭は `.` の左として引き，続きはモジュールの中の Trait を引く．
+    /// The `A.B` of `A.B.f`. The first segment is looked up as left of `.`, the rest as traits
+    /// inside the module.
     fn resolve_prefix(&mut self, prefix: &[SyntaxToken]) -> Option<DotLeft> {
         let (first, rest) = prefix.split_first()?;
         let (name, range) = token_name(first);
@@ -963,7 +963,8 @@ impl Lower<'_, '_> {
         Some(left)
     }
 
-    /// `.` の左の中の名前．モジュールなら名前空間 `ns` の pub な定義，Trait なら関数．
+    /// A name inside the left of `.`: a pub definition in namespace `ns` for a module, a function
+    /// for a trait.
     fn member_of_left(
         &mut self,
         left: &DotLeft,
@@ -998,9 +999,6 @@ impl Lower<'_, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 式
-
     fn opt_expr(&mut self, expr: Option<ast::Expr>, range: TextRange) -> ExprId {
         match expr {
             Some(e) => self.expr(e.syntax()),
@@ -1008,7 +1006,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// 子の式．なければ `Missing`．
+    /// `Missing` if absent.
     fn child_expr(&mut self, node: &SyntaxNode, nth: usize) -> ExprId {
         match node.children().filter(|c| is_expr(c.kind())).nth(nth) {
             Some(c) => self.expr(&c),
@@ -1086,7 +1084,8 @@ impl Lower<'_, '_> {
                 ExprKind::Use { effect, args }
             }
             FAIL_EXPR => {
-                // `fail e` の e は普通の式（エラーの型の値）．型は型推論が確かめる（7.2）．
+                // The `e` of `fail e` is an ordinary expression (a value of the error type); type
+                // inference checks its type (spec 7.2).
                 ExprKind::Fail(self.child_expr(node, 0))
             }
             ASSERT_EXPR => ExprKind::Assert(self.child_expr(node, 0)),
@@ -1176,7 +1175,8 @@ impl Lower<'_, '_> {
         Block { stmts, tail }
     }
 
-    /// `pat: ty = value`．右辺を先に解決し，後でパターンの名前を入れる（`count = count + 1`）．
+    /// `pat: ty = value`. The right side is resolved first and the pattern's names are bound
+    /// after, so `count = count + 1` works.
     fn binding(&mut self, node: &SyntaxNode) -> Stmt {
         let binding = ast::Binding::cast(node.clone()).expect("BINDING");
         let ty = binding.ty().map(|t| self.lower_type(&t));
@@ -1190,7 +1190,8 @@ impl Lower<'_, '_> {
         Stmt::Let { pat, ty, value }
     }
 
-    /// match と escape の腕．腕ごとにスコープを積み，パターンの名前はガードと本体から見える．
+    /// Arms of match and escape. Each arm pushes a scope; pattern names are visible in the guard
+    /// and body.
     fn arms(&mut self, node: &SyntaxNode, escape: bool) -> Vec<Arm> {
         let Some(list) = node.children().find(|c| c.kind() == MATCH_ARM_LIST) else {
             return Vec::new();
@@ -1250,7 +1251,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// 式の小文字名，大文字名，`self`．
+    /// Lowercase and uppercase names in expressions, and `self`.
     fn name_ref(&mut self, node: &SyntaxNode) -> Res {
         let Some(token) = node.first_token() else {
             return Res::Err;
@@ -1280,7 +1281,7 @@ impl Lower<'_, '_> {
             self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
-        // 大文字名の型引数は型の位置でしか使えない（2.3）．
+        // Uppercase-name type parameters are usable only in type positions (spec 2.3).
         if let Some(def) = self.lookup_type_param(name) {
             let found = self.r.program.defs[def].kind.describe();
             self.error(
@@ -1308,8 +1309,9 @@ impl Lower<'_, '_> {
         Res::Err
     }
 
-    /// 式とパターンの型名のパス．構成子を引く．`Email.Email` ならモジュールの構成子．
-    /// opaque な型の構成子を定義モジュールの外で使えば診断を出す．
+    /// A type-name path in an expression or pattern; looks up a constructor. `Email.Email` is the
+    /// module's constructor. Using an opaque type's constructor outside its defining module is
+    /// reported.
     fn ctor_path(&mut self, path: &ast::Path, in_pattern: bool) -> Res {
         let segments: Vec<SyntaxToken> = path.segments().collect();
         let Some((last, prefix)) = segments.split_last() else {
@@ -1348,7 +1350,7 @@ impl Lower<'_, '_> {
     }
 
     fn undefined_ctor(&mut self, name: &SmolStr, range: TextRange) {
-        // 型やエフェクトの名前，モジュール名を値として書いた．
+        // A type, effect or module name written as a value.
         let found = if let Some(def) = self.r.lookup(self.module, Ns::Type, name) {
             Some(self.r.program.defs[def].kind.describe())
         } else if self.lookup_type_param(name).is_some() {
@@ -1388,7 +1390,7 @@ impl Lower<'_, '_> {
         if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
             for arg in list.children() {
                 if arg.kind() == SPREAD_ARG {
-                    // 式のない `..` は構文の検査が診断を出している．
+                    // A `..` without an expression is already reported by the syntax checks.
                     if let Some(e) = arg.children().find(|c| is_expr(c.kind())) {
                         spread = Some(self.expr(&e));
                     }
@@ -1403,7 +1405,7 @@ impl Lower<'_, '_> {
                         name: name.clone(),
                         span: self.span(range),
                     };
-                    // `NotFound(id:)` は `id: id` の省略．
+                    // `NotFound(id:)` is short for `id: id`.
                     let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
                         Some(e) => (self.expr(&e), false),
                         None => {
@@ -1432,14 +1434,14 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// 部分更新 `C(f: e, ..base)`（5.3）．`C` は構成子が1つのもの（type，error，フィールドの
-    /// ある handler）に限り，変えるフィールドは名前で書く．
+    /// A record update `C(f: e, ..base)` (spec 5.3). `C` must have a single constructor (a type,
+    /// an error, or a handler with fields), and changed fields are given by name.
     fn update(&mut self, ctor: ExprId, args: Vec<Arg>, base: ExprId) -> ExprKind {
         let Expr { kind, span } = &self.r.program.exprs[ctor];
         let range = span.range;
         let target = match kind {
             ExprKind::Path(Res::Def(def)) => Some(*def),
-            // 解決できなかった名前は診断が出ている．
+            // Unresolved names are already reported.
             ExprKind::Path(Res::Err) | ExprKind::Missing => None,
             ExprKind::Path(Res::Local(local)) => {
                 let name = self.r.program.locals[*local].name.clone();
@@ -1494,7 +1496,8 @@ impl Lower<'_, '_> {
         ExprKind::Update { ctor, fields, base }
     }
 
-    /// `x.name` はフィールドか能力の操作，`Module.f` と `Trait.f` は静的な参照（2.3）．
+    /// `x.name` is a field or a capability operation; `Module.f` and `Trait.f` are static
+    /// references (spec 2.3).
     fn field(&mut self, node: &SyntaxNode) -> ExprKind {
         let name_token = node
             .children_with_tokens()
@@ -1502,7 +1505,7 @@ impl Lower<'_, '_> {
             .find(|t| t.kind() == LOWER_NAME);
         let base = node.children().find(|c| is_expr(c.kind()));
         let Some(token) = name_token else {
-            // `x.` で名前がない．構文の診断が出ている．
+            // `x.` without a name. The syntax diagnostic is already out.
             if let Some(base) = base {
                 self.expr(&base);
             }
@@ -1568,7 +1571,7 @@ impl Lower<'_, '_> {
         ExprKind::Binary { op, lhs, rhs }
     }
 
-    /// escape の腕の最上位のパターンは，エラーの構成子（7.3）．
+    /// The top-level pattern of an escape arm is an error constructor (spec 7.3).
     fn check_escape_pat(&mut self, pat: PatId) {
         let Pat { kind, span } = &self.r.program.pats[pat];
         let PatKind::Ctor {
@@ -1591,9 +1594,6 @@ impl Lower<'_, '_> {
             );
         }
     }
-
-    // -----------------------------------------------------------------------
-    // パターン
 
     fn pat(&mut self, node: &SyntaxNode, binder: &mut Binder) -> PatId {
         let range = node.text_range();
@@ -1674,7 +1674,7 @@ impl Lower<'_, '_> {
         self.alloc_pat(kind, range)
     }
 
-    /// `name: pat`，または `name:`（`name` を束縛する）．
+    /// `name: pat`, or `name:` (which binds `name`).
     fn field_pat(
         &mut self,
         label: &SyntaxToken,
@@ -1720,8 +1720,8 @@ impl Lower<'_, '_> {
         res
     }
 
-    /// 束縛の左辺．式として読んであるので，17.6 のパターンに読み替える．
-    /// パターンとして読めない形は構文の検査が診断を出している．
+    /// The left side of a binding was parsed as an expression, so it is reinterpreted as a
+    /// pattern (spec 17.6). Shapes that are not patterns are already reported by the syntax checks.
     fn expr_pat(&mut self, node: &SyntaxNode, binder: &mut Binder) -> PatId {
         let range = node.text_range();
         let kind = match node.kind() {
@@ -1770,7 +1770,8 @@ impl Lower<'_, '_> {
                 if let Some(list) = node.children().find(|c| c.kind() == ARG_LIST) {
                     for arg in list.children() {
                         match arg.kind() {
-                            // 左辺の `User(name:, ..)` の `..` は，式のない SPREAD_ARG として読まれる．
+                            // The `..` of `User(name:, ..)` on the left is parsed as a
+                            // SPREAD_ARG without an expression.
                             SPREAD_ARG => rest = true,
                             NAMED_ARG => {
                                 let Some(token) = child_token(&arg, LOWER_NAME) else {
@@ -1839,7 +1840,7 @@ impl Lower<'_, '_> {
     }
 }
 
-/// `use X` の X か（`use` 節の要素ではない）．
+/// The `X` of `use X` (not an element of a `use` clause).
 fn path_in_use_expr(path: &ast::Path) -> bool {
     path.syntax().parent().is_some_and(|p| p.kind() == USE_EXPR)
 }
@@ -1870,9 +1871,9 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
     PatKind::Lit(Literal::String(text))
 }
 
-/// fn の `@external(target, "a", "b")` の引数．最初の引数が名前でないもの（`@external("x")`）は飛ばす．
-/// 文字列でない残りの引数（`@external(js, 1)`，`@external(js, k: "v")`）も飛ばす．
-/// どちらも構文の段が E0138 を出している．
+/// The arguments of an fn's `@external(target, "a", "b")`. Skips annotations whose first argument
+/// is not a name (`@external("x")`), and non-string remaining arguments (`@external(js, 1)`,
+/// `@external(js, k: "v")`). The parser reports E0138 for both.
 fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
     f.annotations()
         .filter(|a| a.name().is_some_and(|n| n.text() == "external"))
@@ -1908,7 +1909,8 @@ fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
         .collect()
 }
 
-/// `\"` `\\` `\n` `\#` を解く．不正なエスケープは字句が診断を出しているので，そのまま残す．
+/// Unescapes `\"` `\\` `\n` `\#`. Invalid escapes are already reported by the lexer, so they are
+/// kept as is.
 fn unescape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars();

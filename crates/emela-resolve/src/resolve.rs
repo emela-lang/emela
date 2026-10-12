@@ -1,14 +1,17 @@
-//! 名前解決の入口．宣言を集め，import を解き，宣言の中身を HIR へ写す．
+//! The entry point of name resolution: collects declarations, resolves imports, and lowers
+//! declaration contents to HIR.
 //!
-//! 段は3つ．
+//! Three phases:
 //!
-//! 1. 宣言の収集: モジュールごとに，名前空間（型，構成子，値）を分けて定義を登録する
-//! 2. import: 全モジュールの宣言が揃ってから，列挙した名前とモジュールをスコープに入れる
-//! 3. 写す: 宣言の中身（型，式，パターン）を HIR にする（[`crate::lower`]）
+//! 1. Collect declarations: per module, register definitions in separate namespaces (types,
+//!    constructors, values)
+//! 2. Imports: once every module's declarations are in, bring the listed names and modules into
+//!    scope
+//! 3. Lower: turn declaration contents (types, expressions, patterns) into HIR ([`crate::lower`])
 //!
-//! 名前空間は位置で分ける．`.` の左ではモジュールと Trait だけを，型の位置では型だけを，
-//! 式とパターンの型名では構成子だけを引く．モジュール `Email` とその中の型 `Email`（4.4）は
-//! 位置で区別がつくので衝突しない．
+//! Namespaces are chosen by position: left of `.` only modules and traits are looked up, in type
+//! positions only types, and for type names in expressions and patterns only constructors. So a
+//! module `Email` and a type `Email` inside it (spec 4.4) do not collide.
 
 use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{SyntaxNode, SyntaxToken};
@@ -24,20 +27,21 @@ use crate::source::{ModuleId, ModuleMap};
 use crate::suggest::best_match;
 use crate::{Import, ModuleName};
 
-/// モジュールの名前空間．モジュール名の名前空間は [`ModuleScope::modules`] に別に持つ．
+/// Module names live separately, in [`ModuleScope::modules`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Ns {
-    /// 型名: type，enum，error，effect，handler，layer，trait．
+    /// Type names: type, enum, error, effect, handler, layer, trait.
     Type = 0,
-    /// 式とパターンの型名: 構成子，バリアント，error，フィールドのある handler．
+    /// Type names in expressions and patterns: constructors, variants, errors, handlers with
+    /// fields.
     Ctor = 1,
-    /// 小文字名と大文字名: fn と const．
+    /// Lowercase and uppercase names: fn and const.
     Value = 2,
 }
 
 const NAMESPACES: [Ns; 3] = [Ns::Type, Ns::Ctor, Ns::Value];
 
-/// `.` の左に書けるモジュール．
+/// A module that can be written left of `.`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModRef {
     Source(ModuleId),
@@ -47,9 +51,9 @@ pub(crate) enum ModRef {
 #[derive(Debug, Clone)]
 pub(crate) struct Entry<T> {
     pub(crate) target: T,
-    /// 定義の名前か import の名前の位置．
+    /// The range of the definition's name or of the import's name.
     pub(crate) range: Option<TextRange>,
-    /// import で入った名前．他のモジュールへは見せない．
+    /// Brought in by an import; not visible to other modules.
     pub(crate) imported: bool,
 }
 
@@ -69,18 +73,18 @@ impl ModuleScope {
     }
 }
 
-/// 写す段に渡す宣言．
+/// A declaration handed to the lowering phase.
 pub(crate) struct Pending {
     pub(crate) module: ModuleId,
     pub(crate) def: DefId,
     pub(crate) item: ast::Item,
-    /// バリアント，effect の操作，trait の関数．宣言の順．
+    /// Variants, effect operations and trait functions, in declaration order.
     pub(crate) children: Vec<DefId>,
-    /// type と handler の構成子．
+    /// The constructor of a type or handler.
     pub(crate) ctor: Option<DefId>,
 }
 
-/// `.` の左の解決先．
+/// What the name left of `.` resolves to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DotLeft {
     Module(ModRef),
@@ -95,14 +99,14 @@ pub(crate) struct Resolver<'a> {
     pub(crate) program: Program,
     pub(crate) scopes: ArenaMap<ModuleId, ModuleScope>,
     prelude: [FxHashMap<SmolStr, DefId>; 3],
-    /// trait の関数と effect の操作．名前で引く．
+    /// Trait functions and effect operations, looked up by name.
     pub(crate) members: FxHashMap<DefId, Vec<DefId>>,
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
-/// 全モジュールの名前を解決する．`files` にないモジュール（読めなかったファイル）は空とみなす．
+/// Modules missing from `files` (files that could not be read) are treated as empty.
 ///
-/// 診断はモジュールの順，その中では位置の順に並ぶ．
+/// Diagnostics are ordered by module, and by position within a module.
 pub fn resolve(
     modules: &ModuleMap,
     files: &ArenaMap<ModuleId, ast::SourceFile>,
@@ -134,7 +138,7 @@ pub fn resolve(
         mut diagnostics,
         ..
     } = resolver;
-    // モジュールの順，同じファイルの中は位置の順に並べ直す．同じ位置なら見つけた順．
+    // Reorder by module, and by position within a file; ties keep discovery order.
     let order: FxHashMap<_, _> = modules
         .iter()
         .enumerate()
@@ -147,7 +151,7 @@ pub fn resolve(
     (program, diagnostics)
 }
 
-/// 構文木から import の一覧を取り出す（import のグラフに渡す）．
+/// For the import graph.
 pub fn imports(file: &ast::SourceFile) -> Vec<Import> {
     file.imports()
         .filter_map(|import| {
@@ -211,7 +215,7 @@ impl<'a> Resolver<'a> {
         });
     }
 
-    /// 名前の参照を記録する（[`Program::refs`]）．
+    /// Records into [`Program::refs`].
     pub(crate) fn refer(&mut self, module: ModuleId, range: TextRange, target: RefTarget) {
         let span = Span { module, range };
         self.program.refs.push(NameRef { span, target });
@@ -242,13 +246,12 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    /// モジュールの名前空間に名前を入れる．同じ名前空間に先の名前があれば重複の診断を出し，
-    /// 先の方を残す．
+    /// If the namespace already has the name, reports a duplicate and keeps the earlier one.
     fn insert(&mut self, module: ModuleId, ns: Ns, name: SmolStr, entry: Entry<DefId>) {
         let scope = &mut self.scopes[module];
         match scope.names[ns as usize].get(&name) {
             Some(first) => {
-                // 同じ定義を別の import で入れ直しただけなら重複にしない．
+                // Re-importing the same definition through another import is not a duplicate.
                 if first.target == entry.target {
                     return;
                 }
@@ -262,9 +265,6 @@ impl<'a> Resolver<'a> {
             }
         }
     }
-
-    // -----------------------------------------------------------------------
-    // 1. 宣言の収集
 
     fn collect(&mut self, module: ModuleId, file: &ast::SourceFile) -> Vec<Pending> {
         let mut pending = Vec::new();
@@ -293,7 +293,7 @@ impl<'a> Resolver<'a> {
                     impl_count += 1;
                     (format!("impl#{impl_count}").into(), syntax.text_range())
                 }
-                // 名前の読めない宣言は構文の診断が出ている．
+                // A declaration whose name could not be read already has a syntax diagnostic.
                 None => continue,
             };
             let def = self.alloc_def(module, name.clone(), range, kind, None);
@@ -321,7 +321,8 @@ impl<'a> Resolver<'a> {
                 ast::Item::Type(it) if it.field_list().is_some() => {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
-                // フィールドのない handler も，init があれば値を作る構成子が要る（8.4）．
+                // A handler without fields still needs a constructor for its value if it has
+                // `init` (spec 8.4).
                 ast::Item::Handler(it) if it.field_list().is_some() || it.init().is_some() => {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
@@ -370,7 +371,7 @@ impl<'a> Resolver<'a> {
         pending
     }
 
-    /// `@intrinsic` の置き場所．同梱の core のソースの，本体のない fn にだけ付けられる．
+    /// `@intrinsic` is allowed only on fns without a body in the bundled core sources.
     pub(crate) fn check_intrinsic(
         &mut self,
         module: ModuleId,
@@ -392,7 +393,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// type と handler の，同じ名前の構成子．
+    /// The same-named constructor of a type or handler.
     fn define_ctor(
         &mut self,
         module: ModuleId,
@@ -414,7 +415,7 @@ impl<'a> Resolver<'a> {
         ctor
     }
 
-    /// effect の操作と trait の関数．名前は宣言の中で重複できない．
+    /// Effect operations and trait functions. Names may not repeat within a declaration.
     fn define_members(
         &mut self,
         module: ModuleId,
@@ -443,9 +444,6 @@ impl<'a> Resolver<'a> {
         defs
     }
 
-    // -----------------------------------------------------------------------
-    // 2. import
-
     fn imports(&mut self, module: ModuleId, file: &ast::SourceFile) {
         for import in file.imports() {
             let Some(path) = import.path() else { continue };
@@ -454,11 +452,12 @@ impl<'a> Resolver<'a> {
                 continue;
             };
             let name = ModuleName::new(segments.iter().map(|t| SmolStr::from(t.text())));
-            // 未定義のモジュールは import のグラフが診断を出している．
+            // The import graph has already reported undefined modules.
             let Some(target) = self.modules.lookup(&name) else {
                 continue;
             };
-            // パスの区切りごとに，そこまでの名前のモジュールを指す（`import Http.Client` の `Http`）．
+            // Each path prefix points to the module of that name (the `Http` of
+            // `import Http.Client`).
             for (i, segment) in segments.iter().enumerate() {
                 let prefix =
                     ModuleName::new(segments[..=i].iter().map(|t| SmolStr::from(t.text())));
@@ -495,7 +494,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// `import A.B.{x}` の `x`．pub な定義をすべての名前空間から取り込む．
+    /// The `x` of `import A.B.{x}`. Brings in the pub definitions from every namespace.
     fn import_name(
         &mut self,
         module: ModuleId,
@@ -568,7 +567,7 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// モジュールの定義と import が Prelude の名前を隠していれば警告する．
+    /// Warns if module definitions or imports hide Prelude names.
     fn warn_prelude_shadowing(&mut self, module: ModuleId) {
         let mut shadowing: Vec<(TextRange, SmolStr)> = Vec::new();
         for ns in NAMESPACES {
@@ -580,7 +579,7 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        // 型と構成子の両方を隠す定義（type，error）は1件にまとめる．
+        // A definition hiding both a type and a constructor (type, error) is reported once.
         shadowing.sort_by_key(|(range, _)| (range.start(), range.end()));
         shadowing.dedup();
         for (range, name) in shadowing {
@@ -588,10 +587,8 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // モジュールの水準での名前の引き方
-
-    /// モジュールの名前空間と Prelude から引く．局所変数と型引数は呼ぶ側が先に見る．
+    /// Looks in the module's namespaces and the Prelude. Locals and type parameters are checked
+    /// first by the caller.
     pub(crate) fn lookup(&self, module: ModuleId, ns: Ns, name: &str) -> Option<DefId> {
         self.scopes[module]
             .get(ns, name)
@@ -599,7 +596,7 @@ impl<'a> Resolver<'a> {
             .or_else(|| self.prelude[ns as usize].get(name).copied())
     }
 
-    /// 「もしかして」の候補．モジュールの名前空間と Prelude の名前．
+    /// "Did you mean" candidates: names in the module's namespaces and the Prelude.
     pub(crate) fn candidates(&self, module: ModuleId, ns: Ns) -> Vec<SmolStr> {
         self.scopes[module]
             .names(ns)
@@ -608,9 +605,9 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// `.` の左の型名を引く．モジュールの水準（定義と import）で見つからなければ，
-    /// 組み込みのモジュールと Prelude の Trait を見る．同じ水準でモジュールと Trait の
-    /// 両方が見つかれば曖昧として診断を出す．
+    /// Looks up a type name left of `.`. If not found at module level (definitions and imports),
+    /// tries the built-in modules and the Prelude traits. If a module and a trait are both found
+    /// at the same level, reports an ambiguity.
     pub(crate) fn lookup_dot_left(
         &mut self,
         module: ModuleId,
@@ -651,7 +648,7 @@ impl<'a> Resolver<'a> {
         if found.is_some() {
             return found;
         }
-        // 別の種類の名前なら，それを伝える．
+        // If it is a name of another kind, say so.
         if let Some(def) = self.lookup(module, Ns::Type, name) {
             let found = self.program.defs[def].kind.describe();
             self.error(
@@ -690,8 +687,8 @@ impl<'a> Resolver<'a> {
         None
     }
 
-    /// モジュールの項目を引く．他のモジュールの pub でない定義は診断を出してから返す
-    /// （続きの解決は進める）．見つからなければ診断を出して `None`．
+    /// A non-pub definition from another module is reported, then still returned so resolution
+    /// can continue. Reports and returns `None` if not found.
     pub(crate) fn module_member(
         &mut self,
         module: ModuleId,
@@ -781,9 +778,9 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// 同梱の core のモジュールか組み込みのモジュール `X` が同じ名前の型 `X` を持てば，
-    /// それを返す（`Map[K, V]`，5.7，4.6）．
-    /// 型の位置で，型引数，モジュールの定義と import，Prelude のどれにもないときに使う．
+    /// If a bundled core module or built-in module `X` has a type `X` of the same name, returns
+    /// it (`Map[K, V]`, spec 5.7, 4.6). Used in type positions when the name is not a type
+    /// parameter, a module definition or import, or a Prelude name.
     pub(crate) fn builtin_eponymous_type(
         &mut self,
         module: ModuleId,
@@ -804,15 +801,16 @@ impl<'a> Resolver<'a> {
         self.module_member(module, &target, Ns::Type, name, TextRange::default())
     }
 
-    /// 名前が1区切りの，同梱の core のモジュール．import なしで `.` の左に書ける（4.6）．
+    /// A single-segment bundled core module. Can be written left of `.` without an import
+    /// (spec 4.6).
     fn core_module(&self, name: &SmolStr) -> Option<ModuleId> {
         self.modules
             .lookup(&ModuleName::new([name.clone()]))
             .filter(|&id| self.modules.is_core(id))
     }
 
-    /// 同梱の core に `Prelude` があれば，その pub な定義で Prelude の名前を上書きする．
-    /// ソースで書いていない名前は，組み込みの Prelude（[`build_prelude`]）のまま残る．
+    /// If the bundled core has a `Prelude`, its pub definitions override the Prelude names.
+    /// Names it does not define stay as in the built-in Prelude ([`build_prelude`]).
     fn use_core_prelude(&mut self) {
         let Some(prelude) = self.core_module(&SmolStr::new(crate::PRELUDE)) else {
             return;
@@ -834,7 +832,6 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// trait の関数か effect の操作を名前で引く．
     pub(crate) fn member(&self, owner: DefId, name: &str) -> Option<DefId> {
         self.members
             .get(&owner)?
@@ -852,7 +849,7 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// 定義の持ち主のモジュール名（診断の文面用）．
+    /// For diagnostic messages.
     pub(crate) fn def_module_name(&self, def: DefId) -> ModuleName {
         match &self.program.defs[def].module {
             DefModule::Source(m) => self.modules[*m].name.clone(),
@@ -862,7 +859,6 @@ impl<'a> Resolver<'a> {
     }
 }
 
-/// ノードの直下のトークンを種類で探す．
 pub(crate) fn child_token(
     node: &SyntaxNode,
     kind: emela_syntax::SyntaxKind,

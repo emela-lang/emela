@@ -1,19 +1,19 @@
-//! ファイル名・ディレクトリ名から型名（モジュール名の1区切り）への変換．
+//! Converting file and directory names to type names (one module-name segment).
 //!
-//! 名前は小文字の snake_case でなければならない（補）．変換は `_` で区切った各語の
-//! 先頭を大文字にしてつなぐ．変換後は型名の字句クラス（2.3: 大文字で始まり，
-//! 小文字を1つ以上含み，英数字だけ）に合わなければならない．
+//! Names must be lower snake_case. Conversion capitalizes each `_`-separated word and joins them.
+//! The result must match the lexical class of type names (spec 2.3: starts with an uppercase
+//! letter, contains at least one lowercase letter, alphanumeric only).
 
 use std::fmt;
 
 use smol_str::SmolStr;
 
-/// 名前の変換に失敗した理由．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NameError {
-    /// 小文字の snake_case でない（大文字，`-` や `.` などの記号，先頭・末尾・連続の `_`）．
+    /// Not lower snake_case (uppercase letters, symbols such as `-` or `.`, or a leading,
+    /// trailing or doubled `_`).
     NotSnakeCase,
-    /// snake_case だが，変換後の名前が型名の字句クラスに合わない（`2fa` → `2fa`，`x_y` → `XY`）．
+    /// Snake case, but the converted name is not a valid type name (`2fa` → `2fa`, `x_y` → `XY`).
     NotTypeName { converted: SmolStr },
 }
 
@@ -28,9 +28,7 @@ impl fmt::Display for NameError {
     }
 }
 
-/// 小文字の snake_case の名前を PascalCase の型名へ変換する．
-///
-/// `json_codec` は `JsonCodec`，`http2` は `Http2`．
+/// `json_codec` becomes `JsonCodec`, `http2` becomes `Http2`.
 pub fn to_type_name(name: &str) -> Result<SmolStr, NameError> {
     if !is_snake_case(name) {
         return Err(NameError::NotSnakeCase);
@@ -52,7 +50,7 @@ pub fn to_type_name(name: &str) -> Result<SmolStr, NameError> {
     }
 }
 
-/// 小文字の snake_case か．空の語（先頭・末尾・連続の `_`）を含まない．
+/// Rejects empty words (a leading, trailing or doubled `_`).
 fn is_snake_case(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -61,7 +59,8 @@ fn is_snake_case(name: &str) -> bool {
         && name.split('_').all(|word| !word.is_empty())
 }
 
-/// 型名の字句クラス（2.3）．大文字で始まり，小文字を1つ以上含み，英数字だけ．
+/// The lexical class of type names (spec 2.3): starts with an uppercase letter, contains at least
+/// one lowercase letter, alphanumeric only.
 pub fn is_type_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     bytes.first().is_some_and(u8::is_ascii_uppercase)
@@ -101,9 +100,9 @@ mod tests {
             Err(NameError::NotTypeName { converted }) => converted.to_string(),
             other => panic!("{name:?}: {other:?}"),
         };
-        // 数字で始まる．
+        // Starts with a digit.
         assert_eq!(err("2fa"), "2fa");
-        // 小文字を含まない．
+        // No lowercase letter.
         assert_eq!(err("a"), "A");
         assert_eq!(err("x_y"), "XY");
         assert_eq!(err("a_1"), "A1");

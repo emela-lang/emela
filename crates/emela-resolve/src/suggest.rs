@@ -1,7 +1,7 @@
-//! 未定義の名前に「もしかして」の候補を出す．
+//! "Did you mean" suggestions for undefined names.
 //!
-//! 編集距離（レーベンシュタイン距離）が名前の長さの3分の1以下（最低1）の候補のうち，
-//! 最も近いものを選ぶ．同じ距離なら先に渡した候補を選ぶ．
+//! Picks the closest candidate whose Levenshtein distance is at most a third of the name's length
+//! (at least 1). Ties go to the candidate passed first.
 
 use smol_str::SmolStr;
 

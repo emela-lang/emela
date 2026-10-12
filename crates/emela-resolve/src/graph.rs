@@ -1,7 +1,7 @@
-//! import のグラフ．import 先のモジュールを引き，循環を見つけ，依存順を返す．
+//! The import graph: resolves import targets, finds cycles, and returns the dependency order.
 //!
-//! 循環は Tarjan の強連結成分分解で見つける．成分ごとに診断を1件出すので，
-//! 循環が複数あれば全部報告される．
+//! Cycles are found with Tarjan's strongly connected components. One diagnostic is reported per
+//! component, so every cycle is reported.
 
 use std::collections::VecDeque;
 
@@ -12,16 +12,13 @@ use crate::ModuleName;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::source::{ModuleId, ModuleMap};
 
-/// 1つの import 文．今はテストで組み立て，後でパーサから渡す．
-///
-/// `import A.B.{x, Y}` の `path` は `A.B`．取り込む名前の一覧はここでは扱わない．
+/// For `import A.B.{x, Y}`, `path` is `A.B`. The list of imported names is not handled here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Import {
     pub path: ModuleName,
     pub range: TextRange,
 }
 
-/// 解決できた import の辺．
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImportEdge {
     pub target: ModuleId,
@@ -35,20 +32,19 @@ pub struct ImportGraph {
 }
 
 impl ImportGraph {
-    /// `module` の import のうち解決できたもの．書かれた順．
+    /// In source order.
     pub fn imports(&self, module: ModuleId) -> &[ImportEdge] {
         self.edges.get(module).map_or(&[], Vec::as_slice)
     }
 
-    /// 依存順（import 先が先）．循環があれば `None`．型検査の順序に使う．
+    /// Dependency order (imported modules first), or `None` if there is a cycle. Used to order
+    /// type checking.
     pub fn order(&self) -> Option<&[ModuleId]> {
         self.order.as_deref()
     }
 }
 
-/// 各モジュールの import を解決し，循環を検出する．診断は全部集める．
-///
-/// `imports` にないモジュールは何も import しないものとして扱う．
+/// Collects all diagnostics. Modules missing from `imports` are treated as importing nothing.
 pub fn build_import_graph(
     modules: &ModuleMap,
     imports: &ArenaMap<ModuleId, Vec<Import>>,
@@ -84,17 +80,17 @@ pub fn build_import_graph(
             diagnostics.push(diagnostic);
         }
     }
-    // 診断はモジュールの順に並べる（Tarjan の出力順は依存順なので読みにくい）．
+    // Sort diagnostics by module; Tarjan's output is in dependency order, which reads poorly.
     diagnostics.sort_by_key(|d| d.file.clone());
     if !has_cycle {
-        // Tarjan は依存先の成分から順に閉じるので，そのまま依存順になる．
+        // Tarjan closes the components depended on first, so this is already dependency order.
         graph.order = Some(components.into_iter().flatten().collect());
     }
     (graph, diagnostics)
 }
 
-/// 強連結成分を依存順（import 先が先）に返す．深い import の鎖でスタックを
-/// 溢れさせないよう，再帰を使わずに書く．
+/// Strongly connected components in dependency order (imported modules first). Written without
+/// recursion so that deep import chains cannot overflow the stack.
 fn tarjan(modules: &ModuleMap, graph: &ImportGraph) -> Vec<Vec<ModuleId>> {
     #[derive(Clone, Copy)]
     struct NodeState {
@@ -112,7 +108,7 @@ fn tarjan(modules: &ModuleMap, graph: &ImportGraph) -> Vec<Vec<ModuleId>> {
         if state.contains_idx(root) {
             continue;
         }
-        // (ノード, 次に見る辺の位置)
+        // (node, index of the next edge to visit)
         let mut work = vec![(root, 0)];
         while let Some(&mut (node, ref mut edge)) = work.last_mut() {
             if *edge == 0 && !state.contains_idx(node) {
@@ -164,9 +160,11 @@ fn tarjan(modules: &ModuleMap, graph: &ImportGraph) -> Vec<Vec<ModuleId>> {
     components
 }
 
-/// 強連結成分が循環なら診断を作る．位置は循環の最初のモジュールの，次のモジュールへの import．
+/// A diagnostic if the component is a cycle, located at the first module's import of the next
+/// module.
 ///
-/// 成分が単純な循環でないとき（辺が多いとき）は，最初のモジュールを通る最短の循環を示す．
+/// When the component is not a simple cycle (it has extra edges), shows the shortest cycle
+/// through the first module.
 fn cycle_diagnostic(
     modules: &ModuleMap,
     graph: &ImportGraph,
@@ -197,7 +195,8 @@ fn cycle_diagnostic(
     })
 }
 
-/// 成分の中で `start` から `start` へ戻る最短の道（`start` から始まり，戻る直前で終わる）．
+/// The shortest path from `start` back to `start` within the component (starting at `start` and
+/// ending just before returning).
 fn shortest_cycle(graph: &ImportGraph, component: &[ModuleId], start: ModuleId) -> Vec<ModuleId> {
     let mut parent: ArenaMap<ModuleId, ModuleId> = ArenaMap::default();
     let mut queue = VecDeque::from([start]);
@@ -220,7 +219,7 @@ fn shortest_cycle(graph: &ImportGraph, component: &[ModuleId], start: ModuleId) 
             }
         }
     }
-    unreachable!("強連結成分の中には start へ戻る道がある")
+    unreachable!("a strongly connected component has a path back to start")
 }
 
 #[cfg(test)]
@@ -235,8 +234,8 @@ mod tests {
         imports: ArenaMap<ModuleId, Vec<Import>>,
     }
 
-    /// `(ファイル, [import 先])` からモジュールと import を組み立てる．
-    /// import の範囲は，ファイルの中の何番目かを 10 刻みの位置にする．
+    /// Builds modules and imports from `(file, [imported modules])`. Each import's range is its
+    /// index in the file, in steps of 10.
     fn fixture(files: &[(&str, &[&str])]) -> Fixture {
         let fs = MemoryFs::new(files.iter().map(|(file, _)| format!("src/{file}")));
         let (modules, diagnostics) = collect_modules(&fs, Path::new("src"));
@@ -298,7 +297,7 @@ mod tests {
             ("Http.Client", "Json"),
             ("Http.Client", "Http.Url"),
         ] {
-            assert!(pos(to) < pos(from), "{to} は {from} より先: {order:?}");
+            assert!(pos(to) < pos(from), "{to} comes before {from}: {order:?}");
         }
         assert_eq!(order, ["Json", "Http.Url", "Http.Client", "App", "Main"]);
     }
@@ -317,7 +316,7 @@ mod tests {
                 "src/main.emel@20..25: 未定義のモジュール `Missing`",
             ]
         );
-        // 未定義の import は辺にしないので，依存順は出る．
+        // Undefined imports are not edges, so there is still an order.
         assert_eq!(order.unwrap(), ["Http.Client", "Main"]);
     }
 
@@ -338,11 +337,11 @@ mod tests {
             ("aa.emel", &["Bb"]),
             ("bb.emel", &["A2a"]),
             ("a2a.emel", &["Bb"]),
-            // C → D → E → C，ただし C → E の近道もある
+            // C → D → E → C, with a shortcut C → E
             ("cc.emel", &["Dd", "Ee"]),
             ("dd.emel", &["Ee"]),
             ("ee.emel", &["Cc"]),
-            // 循環に依存するが，循環には入らない
+            // Depends on the cycles but is not part of them
             ("main.emel", &["Cc", "Bb", "Free"]),
             ("free.emel", &[]),
         ]);
@@ -364,7 +363,7 @@ mod tests {
             ("three.emel", &["Four"]),
             ("four.emel", &["One"]),
         ]);
-        // モジュールは名前順（Four, One, Three, Two）に ID が振られる．
+        // Module IDs are assigned in name order (Four, One, Three, Two).
         assert_eq!(
             diagnostics,
             ["src/four.emel@0..5: import が循環している: Four → One → Two → Three → Four"]
