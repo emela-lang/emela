@@ -1,9 +1,11 @@
-//! Core IR から JS のテキストを出す．
+//! Emits JS text from the Core IR.
 //!
-//! 式は `value`（JS の式を返す．前置きの文を出してよい）と `stmt`（値を行き先へ渡す文を出す）
-//! の2通りで出す．`let` / `match` / ループなど文が要る式は，一時変数に代入してから式として使う．
-//! 文を前に出すと，それより左にある引数の評価が後ろへずれるので，その前に左の引数を一時変数に束縛して
-//! 左から右の評価順を保つ．
+//! Expressions are emitted in two ways: `value` (returns a JS expression and may emit preceding
+//! statements) and `stmt` (emits statements that pass the value to a destination). Expressions
+//! that need statements (`let`, `match`, loops, ...) are assigned to a temporary and then used as
+//! an expression. Emitting statements first would move the evaluation of arguments to their left
+//! after them, so those left arguments are bound to temporaries first to keep left-to-right
+//! evaluation order.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -19,7 +21,6 @@ mod suspend;
 
 use errors::FailTarget;
 
-/// 値の行き先．
 #[derive(Clone)]
 enum Dest {
     Return,
@@ -39,16 +40,17 @@ pub(crate) struct Emitter<'m> {
     next_label: u32,
     used: BTreeSet<&'static str>,
     loops: Vec<LoopCtx>,
-    /// 表示関数を出す enum．出したものも残す（`shows_done` まで出し終えた）．
+    /// Enums whose show functions are to be emitted. Emitted ones stay (up to `shows_done`).
     shows: Vec<EnumId>,
     shows_done: usize,
-    /// 出している最中の enum の表示関数の型引数の数．表示関数の外では `None`．
+    /// The number of type parameters of the enum show function being emitted; `None` outside one.
     show_params: Option<usize>,
-    /// 失敗の行き先．内側の escape ほど後ろ．空なら関数の呼び出し元（`return`）．
+    /// Failure targets, innermost escape last. Empty means the function's caller (`return`).
     fail_targets: Vec<FailTarget>,
-    /// 外部関数のモジュールの import（モジュール，名前，JS の局所名）．出した順．
+    /// Imports of external function modules (module, name, JS local name), in emission order.
     imports: Vec<(String, String, String)>,
-    /// 出している関数（トップレベルの関数かラムダ）がジェネレータか（中断しうるか，16.5）．
+    /// Whether the function being emitted (top level or lambda) is a generator (may suspend,
+    /// spec 16.5).
     generator: bool,
 }
 
@@ -69,16 +71,16 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         generator: false,
     };
 
-    // error の値は，どの error かを実行時に見分ける印を `$tag` に持つ．
+    // An error value carries a descriptor in `$tag` that identifies the error at run time.
     e.error_descriptors();
 
-    // 構成子を持たないバリアントは1つの値を共有する．
+    // Variants without fields share a single value.
     for (id, def) in m.enums.iter() {
         if m.option == Some(id) {
-            // Prelude の Option の None はランタイムが返すものと同じ値にする．
+            // Prelude's Option None is the same value the runtime returns.
             assert!(
                 def.variants.len() == 2 && def.variants[OPTION_NONE].fields.is_empty(),
-                "不正な IR: Prelude の Option の形が違う"
+                "invalid IR: Prelude's Option has the wrong shape"
             );
             let none = e.rt("$None");
             e.line(&format!(
@@ -123,7 +125,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         e.line("");
     }
 
-    // 表示関数は，表示関数の中で別の enum の表示が要ることがあるので，尽きるまで出す．
+    // A show function may need another enum's show function, so emit until none are left.
     while e.shows_done < e.shows.len() {
         let id = e.shows[e.shows_done];
         e.shows_done += 1;
@@ -142,14 +144,14 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
             } else if is_identifier_name(&f.name) {
                 format!("{js} as {}", f.name)
             } else {
-                // 他のモジュールの関数（`Util.in_util`）は識別子として書けないので，
-                // 文字列の名前で export する（ES2022）．
+                // Functions of other modules (`Util.in_util`) cannot be written as identifiers,
+                // so they are exported under string names (ES2022).
                 format!("{js} as {}", js_string(&f.name))
             }
         })
         .collect();
-    // 中断しうる関数を公開するときは，それを呼んだジェネレータを進める駆動も公開する．
-    // 起動用モジュールとテストランナーが使う（ランタイムを読み込まないので）．
+    // When a suspending function is exported, also export the driver that steps generators that
+    // call it. The entry module and the test runner use it, since they do not load the runtime.
     if m.functions.iter().any(|(_, f)| f.exported && f.suspends) {
         exports.push(e.rt("$start").to_owned());
     }
@@ -244,7 +246,7 @@ impl Emitter<'_> {
         }
     }
 
-    /// `es` を左から順に評価した JS の式を返す．
+    /// Evaluates `es` left to right.
     fn values_in_order(&mut self, es: &[&Expr]) -> Vec<String> {
         let last_complex = es.iter().rposition(|e| !is_simple(e));
         let mut vs = Vec::with_capacity(es.len());
@@ -261,7 +263,7 @@ impl Emitter<'_> {
         vs
     }
 
-    /// 文が要る式を一時変数に入れて，その名前を返す．
+    /// Binds an expression that needs statements to a temporary and returns its name.
     fn via_tmp(&mut self, e: &Expr) -> String {
         let t = self.tmp();
         self.line(&format!("let {t};"));
@@ -291,11 +293,15 @@ impl Emitter<'_> {
             }
             Expr::Builtin { op, ty_args, args } => {
                 let info = op.info();
-                assert_eq!(args.len(), info.params.len(), "{op:?} の引数の数が違う");
+                assert_eq!(
+                    args.len(),
+                    info.params.len(),
+                    "wrong number of arguments to {op:?}"
+                );
                 assert_eq!(
                     ty_args.len(),
                     info.ty_params as usize,
-                    "{op:?} の型引数の数が違う"
+                    "wrong number of type arguments to {op:?}"
                 );
                 let es: Vec<&Expr> = args.iter().collect();
                 let mut vs = self.values_in_order(&es);
@@ -311,7 +317,7 @@ impl Emitter<'_> {
                 assert_eq!(
                     args.len(),
                     variant.fields.len(),
-                    "{} の引数の数が違う",
+                    "wrong number of arguments to {}",
                     variant.name
                 );
                 if variant.fields.is_empty() {
@@ -364,7 +370,7 @@ impl Emitter<'_> {
                     (UnOp::Neg, OpTy::Int64) => format!("BigInt.asIntN(64, -{v})"),
                     (UnOp::Neg, OpTy::Float) => format!("(-{v})"),
                     (UnOp::Not, OpTy::Bool) => format!("(!{v})"),
-                    _ => panic!("不正な IR: 単項演算 {op:?} は {ty:?} に使えない"),
+                    _ => panic!("invalid IR: unary {op:?} cannot be applied to {ty:?}"),
                 }
             }
             Expr::Lambda {
@@ -387,8 +393,9 @@ impl Emitter<'_> {
                         StrPart::Lit(text) => s.push_str(&template_escape(text)),
                         StrPart::Value(_, ty) => {
                             let v = vs.next().unwrap();
-                            // 補間では String をそのまま埋め込む．Int と Int64 はテンプレートの
-                            // 変換で `String` と同じ文字列になる．それ以外は表示関数を通す．
+                            // Interpolation embeds a String as is. Int and Int64 convert in the
+                            // template to the same string as `Show`. Anything else goes through
+                            // its show function.
                             let shown = match ty {
                                 Type::Int | Type::Int64 | Type::String => v,
                                 _ => self.show_call(ty, &v),
@@ -405,17 +412,18 @@ impl Emitter<'_> {
             }
             Expr::Fail(inner) => {
                 self.fail(inner);
-                // 値は使われない（`fail` の型は Never）．
+                // The value is never used (`fail` has type Never).
                 lit_js(&Lit::Unit)
             }
-            Expr::Recur(_) => panic!("不正な IR: Recur が Loop の末尾位置の外にある"),
+            Expr::Recur(_) => panic!("invalid IR: Recur outside the tail position of a Loop"),
             Expr::Use { ctx, effect } => {
                 let c = self.value(ctx);
                 format!("{c}.{}", effects::effect_key(self.m, *effect))
             }
             Expr::Provide { base, bindings } => self.provide(base.as_deref(), bindings),
             Expr::Handler { name, effect, ops } => self.handler(name, *effect, ops),
-            // release のある with は本体を try の中で評価するので，値を一時変数で受ける．
+            // A `with` with release evaluates its body inside `try`, so the value goes through a
+            // temporary.
             Expr::With { binds, .. } if binds.iter().any(|b| b.release.is_some()) => {
                 self.via_tmp(e)
             }
@@ -430,8 +438,8 @@ impl Emitter<'_> {
         }
     }
 
-    /// 呼び出しの JS の式．呼ばれる側と引数を左から順に評価する．失敗は確かめない．
-    /// 中断しうる呼び出しは `yield*` か `yield` を含む（`suspend::call`）．
+    /// Evaluates the callee and arguments left to right. Failures are not checked. A suspending
+    /// call contains `yield*` or `yield` (`suspend::call`).
     fn call(&mut self, callee: &Callee, args: &[Expr], suspends: bool) -> String {
         let mut es: Vec<&Expr> = Vec::new();
         if let Callee::Indirect(c) | Callee::Op { handler: c, .. } = callee {
@@ -451,9 +459,10 @@ impl Emitter<'_> {
         self.suspending_call(callee, &f, &vs, suspends)
     }
 
-    /// 型 `ty` の値 `v`（JS の式）を表示した文字列の JS の式．
+    /// A JS expression for the string showing `v` (a JS expression) of type `ty`.
     ///
-    /// `Type::Param(i)` は enum の表示関数の中でだけ使え，引数 `$a{i}` で受けた表示関数を呼ぶ．
+    /// `Type::Param(i)` is only valid inside an enum show function, where it calls the show
+    /// function received as `$a{i}`.
     fn show_call(&mut self, ty: &Type, v: &str) -> String {
         match ty {
             Type::List(elem) => {
@@ -477,7 +486,6 @@ impl Emitter<'_> {
         }
     }
 
-    /// 型 `ty` の値を表示する関数の JS の式．
     fn show_fn(&mut self, ty: &Type) -> String {
         match ty {
             Type::Int => self.rt("$showInt").to_owned(),
@@ -486,12 +494,12 @@ impl Emitter<'_> {
             Type::Bool => self.rt("$showBool").to_owned(),
             Type::String => self.rt("$showString").to_owned(),
             Type::Unit => self.rt("$showUnit").to_owned(),
-            // Never の値は作れないので呼ばれない．
+            // Never has no values, so this is never called.
             Type::Never => self.rt("$unreachable").to_owned(),
             Type::Param(i) => {
                 assert!(
                     self.show_params.is_some_and(|n| *i < n),
-                    "不正な IR: 型引数 {i} の表示は enum の表示関数の中でだけ使える"
+                    "invalid IR: showing type parameter {i} is only valid inside an enum show function"
                 );
                 format!("$a{i}")
             }
@@ -500,11 +508,11 @@ impl Emitter<'_> {
                 let body = self.show_call(ty, "$x");
                 format!("(($x) => {body})")
             }
-            Type::Fn => panic!("不正な IR: 関数値は表示できない（仕様 10.6）"),
+            Type::Fn => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
         }
     }
 
-    /// enum の表示関数の名前．まだ出していなければ出す予定に入れる．
+    /// Schedules the enum's show function if it has not been emitted yet.
     fn show_enum(&mut self, id: EnumId) -> String {
         if !self.shows.contains(&id) {
             self.shows.push(id);
@@ -512,8 +520,8 @@ impl Emitter<'_> {
         format!("$show${}", sanitize(&self.m.enums[id].name))
     }
 
-    /// enum の表示関数を出す．型引数の表示関数を `$a0`，`$a1`，… で受ける．
-    /// 構成子はソースの書き方で表す（`Circle(radius: 1.0)`，`Rect(1.0, 2.0)`，`Empty`）．
+    /// Type parameter show functions are received as `$a0`, `$a1`, …. Constructors are shown as
+    /// written in source (`Circle(radius: 1.0)`, `Rect(1.0, 2.0)`, `Empty`).
     fn show_enum_fn(&mut self, id: EnumId) {
         let m = self.m;
         let def = &m.enums[id];
@@ -532,7 +540,7 @@ impl Emitter<'_> {
             assert_eq!(
                 variant.tys.len(),
                 variant.fields.len(),
-                "不正な IR: {} のフィールドの型の数が違う",
+                "invalid IR: wrong number of field types for {}",
                 variant.name
             );
             let mut pieces = Pieces::default();
@@ -568,14 +576,15 @@ impl Emitter<'_> {
 
     fn binary(&mut self, op: BinOp, ty: OpTy, lhs: &Expr, rhs: &Expr) -> String {
         if matches!(op, BinOp::And | BinOp::Or) {
-            assert_eq!(ty, OpTy::Bool, "不正な IR: {op:?} は Bool にだけ使える");
+            assert_eq!(ty, OpTy::Bool, "invalid IR: {op:?} only applies to Bool");
             let js_op = if op == BinOp::And { "&&" } else { "||" };
             if is_simple(rhs) {
                 let a = self.value(lhs);
                 let b = self.value(rhs);
                 return format!("({a} {js_op} {b})");
             }
-            // 右辺が文を要するときは，左辺の結果で分岐してから右辺を評価する．
+            // When the right side needs statements, branch on the left result before evaluating
+            // it.
             let a = self.value(lhs);
             let t = self.tmp();
             self.line(&format!("let {t} = {a};"));
@@ -596,7 +605,7 @@ impl Emitter<'_> {
         self.binary_js(op, ty, &vs[0], &vs[1])
     }
 
-    /// 評価済みの両辺 `a` と `b`（JS の式）の二項演算の JS の式．`&&` と `||` は扱わない．
+    /// `a` and `b` are evaluated JS expressions. Does not handle `&&` and `||`.
     fn binary_js(&mut self, op: BinOp, ty: OpTy, a: &str, b: &str) -> String {
         let cmp = |js: &str| format!("({a} {js} {b})");
         match (ty, op) {
@@ -626,19 +635,20 @@ impl Emitter<'_> {
                 OpTy::Int | OpTy::Int64 | OpTy::Float | OpTy::Bool,
                 BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge,
             ) => cmp(cmp_op(op)),
-            _ => panic!("不正な IR: 二項演算 {op:?} は {ty:?} に使えない"),
+            _ => panic!("invalid IR: binary {op:?} cannot be applied to {ty:?}"),
         }
     }
 
     fn lambda(&mut self, params: &[Local], body: &Expr, suspends: bool) -> String {
         let ps: Vec<String> = params.iter().map(|&p| self.local(p)).collect();
         let ps = ps.join(", ");
-        // ラムダの本体は別の関数なので，囲むループへは続かない．失敗はラムダの呼び出し元へ返す．
+        // A lambda body is a separate function, so it does not continue enclosing loops, and its
+        // failures return to the lambda's caller.
         let loops = std::mem::take(&mut self.loops);
         let fail_targets = std::mem::take(&mut self.fail_targets);
         let generator = std::mem::replace(&mut self.generator, suspends);
         let s = if suspends {
-            // アロー関数は yield を書けないので，ジェネレータの関数式にする．
+            // Arrow functions cannot `yield`, so use a generator function expression.
             let body = self.function_body(body);
             format!("(function* ({ps}) {{\n{body}}})")
         } else if is_simple(body) {
@@ -654,7 +664,8 @@ impl Emitter<'_> {
         s
     }
 
-    /// ラムダの本体の文を，1段深く字下げして返す．閉じ括弧の前の字下げまで含む．
+    /// Returns the lambda body's statements indented one level deeper, including the indentation
+    /// before the closing brace.
     fn function_body(&mut self, body: &Expr) -> String {
         let outer = std::mem::take(&mut self.out);
         self.indent += 1;
@@ -688,7 +699,7 @@ impl Emitter<'_> {
                 self.line("}");
             }
             Expr::Match { scrutinee, arms } => self.match_(scrutinee, arms, dest),
-            // 呼び出し元へ返す位置の呼び出しは，失敗もそのまま返せばよい．
+            // A call in return position can return a failure as is.
             Expr::Call {
                 callee,
                 args,
@@ -735,14 +746,11 @@ impl Emitter<'_> {
             Expr::Recur(args) => {
                 let es: Vec<&Expr> = args.iter().collect();
                 let vs = self.values_in_order(&es);
-                let ctx = self
-                    .loops
-                    .last()
-                    .expect("不正な IR: Recur が Loop の外にある");
+                let ctx = self.loops.last().expect("invalid IR: Recur outside a Loop");
                 assert_eq!(
                     ctx.cells.len(),
                     vs.len(),
-                    "不正な IR: Recur の引数の数が違う"
+                    "invalid IR: wrong number of Recur arguments"
                 );
                 let assigns: Vec<String> = ctx
                     .cells
@@ -773,7 +781,7 @@ impl Emitter<'_> {
             t
         };
 
-        // 行き先が return でなければ，腕の後で抜けるためにラベル付きのブロックで囲む．
+        // Unless the destination is return, wrap in a labeled block so the arms can break out.
         let label = match dest {
             Dest::Return => None,
             Dest::Assign(_) => {
@@ -814,7 +822,7 @@ impl Emitter<'_> {
                 self.line("}");
             }
             if opened == 0 {
-                // 無条件に合う腕より後ろの腕には届かない．
+                // Arms after an irrefutable arm are unreachable.
                 exhaustive = true;
                 break;
             }
@@ -830,7 +838,8 @@ impl Emitter<'_> {
         }
     }
 
-    /// `access` の値が `p` に合う条件と，束縛する変数を集める．条件は左から順に評価してよい形に並ぶ．
+    /// The conditions for `access` matching `p`, and the variables it binds. The conditions are
+    /// ordered so they can be evaluated left to right.
     fn pattern(
         &self,
         p: &Pat,
@@ -848,7 +857,7 @@ impl Emitter<'_> {
                 assert_eq!(
                     fields.len(),
                     variant.fields.len(),
-                    "{} のフィールドの数が違う",
+                    "wrong number of fields for {}",
                     variant.name
                 );
                 if def.variants.len() > 1 {
@@ -880,7 +889,7 @@ impl Emitter<'_> {
     }
 }
 
-/// 文字列の連結の部品．隣り合う文字列はまとめて1つのリテラルにする．
+/// Parts of a string concatenation. Adjacent string literals are merged into one.
 #[derive(Default)]
 struct Pieces(Vec<(bool, String)>);
 
@@ -896,7 +905,6 @@ impl Pieces {
         self.0.push((false, e));
     }
 
-    /// `+` でつないだ JS の式．
     fn concat(self) -> String {
         let parts: Vec<String> = self
             .0
@@ -907,7 +915,7 @@ impl Pieces {
     }
 }
 
-/// 文を出さずに JS の式1つにできるか．
+/// Whether it can be emitted as a single JS expression with no statements.
 fn is_simple(e: &Expr) -> bool {
     match e {
         Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. } => true,
@@ -924,7 +932,7 @@ fn is_simple(e: &Expr) -> bool {
             base.as_deref().is_none_or(is_simple) && bindings.iter().all(|(_, h)| is_simple(h))
         }
         Expr::Handler { ops, .. } => ops.iter().all(is_simple),
-        // 失敗しうる呼び出しは，結果を確かめる文を出す．
+        // A fallible call emits a statement that checks its result.
         Expr::Call { fails: true, .. } => false,
         Expr::Call { callee, args, .. } => {
             let callee_simple = match callee {
@@ -950,12 +958,12 @@ fn is_simple(e: &Expr) -> bool {
     }
 }
 
-/// 関数の宣言の頭．中断しうる関数はジェネレータにする（16.5）．
+/// Suspending functions become generators (spec 16.5).
 pub(crate) fn function_keyword(suspends: bool) -> &'static str {
     if suspends { "function*" } else { "function" }
 }
 
-/// 評価しても何も起きず，何度評価しても同じ値の式．
+/// Evaluating it has no effect and always yields the same value.
 fn is_atom(e: &Expr) -> bool {
     matches!(
         e,
@@ -963,8 +971,8 @@ fn is_atom(e: &Expr) -> bool {
     )
 }
 
-/// 全体を囲む括弧が1組あれば外す（`if` の条件を読みやすくするため）．
-/// 文字列を含むときは括弧を数え違えうるので外さない．
+/// Strips one pair of parentheses around the whole expression (for readable `if` conditions).
+/// Not done when it contains a string, since parentheses could be miscounted.
 fn unparen(s: &str) -> &str {
     let Some(inner) = s.strip_prefix('(').and_then(|t| t.strip_suffix(')')) else {
         return s;
@@ -1093,7 +1101,8 @@ pub(crate) fn sanitize(s: &str) -> String {
         .collect()
 }
 
-/// export の名前に識別子として書けるか（ASCII の範囲で見る．予約語も export の名前には使える）．
+/// Whether the name can be written as an identifier in an export (ASCII only; reserved words are
+/// allowed as export names).
 pub(crate) fn is_identifier_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars
@@ -1102,9 +1111,10 @@ pub(crate) fn is_identifier_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-/// トップレベル関数の JS 名．予約語や生成コードが使う大域名と重なるときは `$` を付ける．
-/// lowering が作った中断用の写しの名前（`List.map$suspend1`）の `$` はそのまま残す（Emela の名前には
-/// 現れないので，元の関数と重ならない）．
+/// The JS name of a top-level function. A `$` is added when it clashes with a reserved word or a
+/// global used by generated code. The `$` in names of suspending copies made by lowering
+/// (`List.map$suspend1`) is kept: it never appears in Emela names, so it cannot clash with the
+/// original.
 pub(crate) fn fn_name(name: &str) -> String {
     let s: String = name.split('$').map(sanitize).collect::<Vec<_>>().join("$");
     if RESERVED.contains(&s.as_str()) {

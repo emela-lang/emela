@@ -1,9 +1,9 @@
-//! Core IR から JS を出力する．
+//! Emits JS from the Core IR.
 //!
-//! suspend な操作に到達する関数はジェネレータに変換する（仕様 16.5）．
-//! JS ランタイムは `include_str!` で埋め込んで出力先に書き出す．
+//! Functions that reach a suspend operation become generators (spec 16.5). The JS runtime is
+//! embedded with `include_str!` and written out alongside the output.
 //!
-//! 出力は ES モジュール．公開する関数は Emela の名前で `export` する．
+//! The output is an ES module. Public functions are exported under their Emela names.
 
 mod emit;
 mod test_runner;
@@ -12,19 +12,18 @@ use emela_core::Module;
 
 pub use test_runner::{TEST_EVENT_PREFIX, TEST_RUNNER, TestEntry, emit_test_main};
 
-/// JS ランタイムの本文（ES モジュール）．
+/// The JS runtime source (an ES module).
 pub const RUNTIME: &str = include_str!("runtime.mjs");
 
-/// ランタイムを隣に書き出すときの既定のファイル名．
+/// Default file name when the runtime is written next to the output.
 pub const RUNTIME_FILE: &str = "emela_runtime.mjs";
 
-/// ランタイムの持たせ方．
 #[derive(Debug, Clone)]
 pub enum RuntimeMode {
-    /// 出力の先頭にランタイムを埋め込む．1ファイルで完結する．
+    /// Embeds the runtime at the top of the output, so it is self-contained in one file.
     Inline,
-    /// 同じディレクトリのランタイムを import する．`None` なら `RUNTIME_FILE`．
-    /// 書き出しは呼び出し側が `RUNTIME` を使って行う．
+    /// Imports the runtime from the same directory; `None` means `RUNTIME_FILE`. The caller
+    /// writes it out from `RUNTIME`.
     Import(Option<String>),
 }
 
@@ -41,15 +40,13 @@ impl Default for Options {
     }
 }
 
-/// モジュールを ES モジュールの JS テキストにする．
-///
-/// 自己末尾呼び出しのループ化（`emela_core::tail::loopify`）は呼び出し側で先に済ませておく．
-/// IR が不正（演算と型の組み合わせ，引数の数など）なら panic する．
+/// Self tail call loopification (`emela_core::tail::loopify`) must already be done by the caller.
+/// Panics on invalid IR (operator and type mismatches, wrong argument counts, ...).
 pub fn emit_module(module: &Module, options: &Options) -> String {
     emit::emit_module(module, options)
 }
 
-/// ランタイムを他のコードに埋め込める形（`export` を外したもの）で返す．
+/// The runtime with `export`s removed, so it can be embedded in other code.
 pub fn inline_runtime() -> String {
     let mut out = String::with_capacity(RUNTIME.len());
     for line in RUNTIME.lines() {

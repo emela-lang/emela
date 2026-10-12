@@ -1,6 +1,6 @@
-//! init と release のあるハンドラ（仕様 8.4，8.6，14.2，14.4，14.5）の出力．IR を手で組み立てて JS を出し，
-//! node で実行する．with の本体がどの形で終わっても release が走ることを，ホストの `console.log` に出した
-//! 順で確かめる．出力した JS は insta のスナップショットでも見る．
+//! Handlers with init and release (spec 8.4, 8.6, 14.2, 14.4, 14.5). Builds IR by hand, emits JS
+//! and runs it on node. Checks that release runs however the `with` body ends, by the order of
+//! lines printed with the host's `console.log`. The emitted JS is also snapshotted with insta.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -9,11 +9,13 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
-/// `main` を呼び，ジェネレータなら `$start` で進めて結果を1行出す．起動用モジュール（emela-driver）と
-/// 同じく，resume されないままイベントループが空になったら `$start` の返した関数で巻き戻す．
+/// Calls `main`, steps it with `$start` if it is a generator, and prints one result line. Like the
+/// entry module (emela-driver), when the event loop empties without a resume, it unwinds with the
+/// function `$start` returned.
 ///
-/// - 値: `42`（中断しうる main は `sync 42` / `async 42`），エラー: `error: Oops`，defect: `defect: …`
-/// - 中断されたまま巻き戻った: `interrupted`
+/// - a value: `42` (a suspending main prints `sync 42` / `async 42`); an error: `error: Oops`;
+///   a defect: `defect: …`
+/// - unwound while suspended: `interrupted`
 const HARNESS: &str = r#"import * as m from "./main.mjs";
 let over = false;
 let sync = true;
@@ -81,16 +83,16 @@ fn run(name: &str, mut m: Module) -> String {
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
-        .expect("node を起動できない");
+        .expect("cannot start node");
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.is_empty(), "node が失敗した:\n{stderr}\n{js}");
+    assert!(stderr.is_empty(), "node failed:\n{stderr}\n{js}");
     insta::assert_snapshot!(name, js);
     String::from_utf8(out.stdout).unwrap()
 }
 
-/// 手で組む IR の部品．
+/// Parts for building IR by hand.
 struct Kit {
-    /// `console.log(x)` を呼ぶ外部関数．
+    /// An external function calling `console.log(x)`.
     log: FnId,
     /// `effect Res { fn name() -> String }`．
     res: EffectId,
@@ -139,7 +141,7 @@ impl Kit {
         let_(x, self.log(text), then)
     }
 
-    /// `handler name implements Res { fn name() { "name" } }` の値．
+    /// The value of `handler name implements Res { fn name() { "name" } }`.
     fn handler(&self, name: &str) -> Expr {
         Expr::Handler {
             name: name.into(),
@@ -148,13 +150,14 @@ impl Kit {
         }
     }
 
-    /// init で `init <name>` を，release で `release <name>` を出すハンドラの束縛．
+    /// A handler binding that prints `init <name>` on init and `release <name>` on release.
     fn managed(&self, m: &mut Module, h: Local, name: &str) -> WithBind {
         let init = self.log_then(m, &format!("init {name}"), self.handler(name));
         WithBind::managed(h, init, name, self.log(&format!("release {name}")))
     }
 
-    /// release で `release <name>` を出してから `panic(message)` するハンドラの束縛．
+    /// A handler binding that prints `release <name>` on release and then calls
+    /// `panic(message)`.
     fn breaking(&self, m: &mut Module, h: Local, name: &str, message: &str) -> WithBind {
         let release = self.log_then(
             m,
@@ -169,7 +172,8 @@ impl Kit {
     }
 }
 
-/// ホストの関数 `path`（グローバルの参照）を呼ぶ外部関数．`suspends` なら `@external suspend fn`．
+/// An external function calling the host function `path` (a global reference). With `suspends`,
+/// it is an `@external suspend fn`.
 fn external(
     m: &mut Module,
     name: &str,
@@ -217,7 +221,7 @@ fn clock(m: &mut Module) -> EffectId {
     })
 }
 
-/// `setTimeout` の後で resume する `JsClock`．
+/// A `JsClock` that resumes after `setTimeout`.
 fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
     let set_timeout = external(
         m,
@@ -254,7 +258,7 @@ fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
     f
 }
 
-/// resume を呼ばずに捨てる `NeverClock`．
+/// A `NeverClock` that drops resume without calling it.
 fn never_clock(m: &mut Module, clock: EffectId) -> FnId {
     let f = m.declare("NeverClock", false);
     let (ms, resume) = (m.local("ms"), m.local("resume"));
@@ -277,7 +281,8 @@ fn sleep(h: Local, clock: EffectId, ms: i32) -> Expr {
 
 #[test]
 fn releases_run_in_reverse_order_after_a_value() {
-    // init は束縛の順，release は逆の順（14.2）．with の値は本体の値．
+    // init runs in binding order and release in reverse (spec 14.2). The `with` evaluates to the
+    // body's value.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, b) = (m.local("a"), m.local("b"));
@@ -292,7 +297,8 @@ fn releases_run_in_reverse_order_after_a_value() {
 
 #[test]
 fn releases_run_when_the_body_fails() {
-    // 本体の失敗は，release を走らせてから外側へ伝わる．escape の中の with は break で抜ける．
+    // A body failure propagates outward after release runs. A `with` inside an escape leaves by
+    // `break`.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, b) = (m.local("a"), m.local("b"));
@@ -332,8 +338,8 @@ fn releases_run_when_the_body_defects() {
 
 #[test]
 fn failing_init_releases_only_the_initialized_handlers() {
-    // B の init が失敗したら，本体と C は評価せず，初期化の済んだ A だけを release する．
-    // B 自身の release は走らない（14.2）．
+    // If B's init fails, the body and C are not evaluated, and only the initialized A is released.
+    // B's own release does not run (spec 14.2).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let init_b = m.declare("init_b", false);
@@ -355,7 +361,8 @@ fn failing_init_releases_only_the_initialized_handlers() {
 
 #[test]
 fn a_release_defect_replaces_a_value_or_an_error() {
-    // 本体が値で終わっていたら，release の defect が with の結果．残りの release も走る（14.4）．
+    // If the body ended with a value, the release defect is the `with`'s result. The remaining
+    // releases still run (spec 14.4).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, b) = (m.local("a"), m.local("b"));
@@ -369,7 +376,7 @@ fn a_release_defect_replaces_a_value_or_an_error() {
         "init A\nrelease B\nrelease A\ndefect: B broke\n"
     );
 
-    // エラーで終わっていても同じ．
+    // Same when it ended with an error.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let a = m.local("a");
@@ -383,7 +390,8 @@ fn a_release_defect_replaces_a_value_or_an_error() {
 
 #[test]
 fn the_first_defect_wins_and_later_ones_are_noted() {
-    // 本体が defect なら，それが結果のまま．release の defect は文面の注記になる（14.4）．
+    // If the body is a defect, it stays the result; the release defect becomes a note in its
+    // message (spec 14.4).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, b) = (m.local("a"), m.local("b"));
@@ -403,7 +411,7 @@ fn the_first_defect_wins_and_later_ones_are_noted() {
          note: the release of handler A also failed: A broke\n"
     );
 
-    // 本体が値なら，最初の release の defect が結果で，後の release の defect が注記．
+    // If the body is a value, the first release defect is the result and later ones are notes.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, b) = (m.local("a"), m.local("b"));
@@ -421,7 +429,7 @@ fn the_first_defect_wins_and_later_ones_are_noted() {
 
 #[test]
 fn released_handlers_are_defects_when_used() {
-    // with の外へ持ち出した能力を release の後に使うと defect（8.6）．
+    // Using a capability taken outside the `with` after its release is a defect (spec 8.6).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (a, f) = (m.local("a"), m.local("f"));
@@ -429,7 +437,7 @@ fn released_handlers_are_defects_when_used() {
         vec![k.managed(&mut m, a, "Pool")],
         lambda(vec![], call_op(var(a), k.res, 0, vec![], false, false)),
     );
-    // 中では使える．
+    // Inside, it works.
     let i = m.local("i");
     let inside = with(
         vec![k.managed(&mut m, i, "Inside")],
@@ -454,7 +462,7 @@ fn released_handlers_are_defects_when_used() {
 
 #[test]
 fn releases_run_after_a_later_resume() {
-    // 本体が中断して後から resume されても，release は本体が終わった後に走る．
+    // Even if the body suspends and is resumed later, release runs after the body ends.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let clock = clock(&mut m);
@@ -476,8 +484,8 @@ fn releases_run_after_a_later_resume() {
 
 #[test]
 fn dropped_continuations_release_from_the_inside() {
-    // resume されないまま捨てられた main は，開いている with の release を内側から走らせてから
-    // interrupted で終わる（14.5）．内側の with は `yield*` の先のジェネレータの中にある．
+    // A main dropped without a resume runs the releases of open `with`s from the inside out, then
+    // ends as interrupted (spec 14.5). The inner `with` is inside the generator behind `yield*`.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let clock = clock(&mut m);
@@ -507,9 +515,10 @@ fn dropped_continuations_release_from_the_inside() {
 
 #[test]
 fn immediate_contexts_release_when_dropped() {
-    // 中断しない main（R が Immediate）の中で resume されなかった継続も，その場で巻き戻して release を
-    // 走らせる．`$sync` で進めたジェネレータの中の with（B）は `gen.return()` で，main の中の with（A）は
-    // `$Interrupted` の例外で抜ける（14.5）．
+    // A continuation not resumed inside a non-suspending main (R is Immediate) is also unwound on
+    // the spot, running releases. The `with` (B) inside the generator driven by `$sync` leaves via
+    // `gen.return()`, and the `with` (A) in main leaves via the `$Interrupted` exception
+    // (spec 14.5).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let clock = clock(&mut m);
@@ -539,8 +548,8 @@ fn immediate_contexts_release_when_dropped() {
 
 #[test]
 fn releases_may_suspend() {
-    // release の中で suspend な操作を呼んでよい（8.4）．後から resume されたら続きを走らせる．
-    // 中断されたまま巻き戻るときも同じ（release が終わってから interrupted）．
+    // A release may call suspend operations (spec 8.4). Resumed later, it continues. The same
+    // holds when unwinding while suspended (interrupted comes after release finishes).
     for (name, dropped, expected) in [
         (
             "release_suspends",
@@ -579,7 +588,8 @@ fn releases_may_suspend() {
 
 #[test]
 fn a_release_defect_while_interrupted_is_the_result() {
-    // 中断されたまま巻き戻る途中の release の defect は，その起動の defect になる．残りの release も走る．
+    // A release defect while unwinding a suspension becomes that run's defect. The remaining
+    // releases still run.
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let clock = clock(&mut m);

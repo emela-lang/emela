@@ -1,6 +1,6 @@
-//! 中断と再開（仕様 8.4，14.5，16.5）の出力．IR を手で組み立てて JS を出し，node で実行する．
-//! 中断しうる関数はジェネレータになり，ランタイムの `$start` が進める．出力した JS は insta の
-//! スナップショットでも見る．
+//! Suspension and resumption (spec 8.4, 14.5, 16.5). Builds IR by hand, emits JS and runs it on
+//! node. Suspending functions become generators stepped by the runtime's `$start`. The emitted JS
+//! is also snapshotted with insta.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -9,12 +9,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
-/// `main` を呼び，ジェネレータなら `$start` で進めて結果を1行出す．起動用モジュール（emela-driver）
-/// と同じ形で，`$start` が戻る前に終わったかどうか（`sync` / `async`）も出す．
+/// Calls `main`, steps it with `$start` if it is a generator, and prints one result line. Like the
+/// entry module (emela-driver), it also prints whether it finished before `$start` returned
+/// (`sync` / `async`).
 ///
-/// - 値: `sync 42`，エラー: `async error: Oops`，defect: `sync defect: …`
-/// - resume されないままイベントループが空になったか，その場で resume されずに捨てられた: `interrupted`
-/// - ホストのコールバックの中で起きた defect: `defect: …`
+/// - a value: `sync 42`; an error: `async error: Oops`; a defect: `sync defect: …`
+/// - the event loop emptied without a resume, or the continuation was dropped without an
+///   immediate resume: `interrupted`
+/// - a defect inside a host callback: `defect: …`
 const HARNESS: &str = r#"import * as m from "./main.mjs";
 let over = false;
 let sync = true;
@@ -77,9 +79,9 @@ fn run(name: &str, mut m: Module) -> String {
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
-        .expect("node を起動できない");
+        .expect("cannot start node");
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.is_empty(), "node が失敗した:\n{stderr}\n{js}");
+    assert!(stderr.is_empty(), "node failed:\n{stderr}\n{js}");
     insta::assert_snapshot!(name, js);
     String::from_utf8(out.stdout).unwrap()
 }
@@ -88,7 +90,7 @@ fn int_op(op: BinOp, a: Expr, b: Expr) -> Expr {
     bin(op, OpTy::Int, a, b)
 }
 
-/// `effect Clock { suspend fn sleep(ms: Int) -> Int }`．`sleep` は resume された値を返す．
+/// `effect Clock { suspend fn sleep(ms: Int) -> Int }`. `sleep` returns the resumed value.
 fn clock(m: &mut Module) -> EffectId {
     m.add_effect(EffectDef {
         name: "Clock".into(),
@@ -96,7 +98,7 @@ fn clock(m: &mut Module) -> EffectId {
     })
 }
 
-/// `handler name implements Clock { suspend fn sleep(ms, resume) { body(ms, resume) } }` の関数．
+/// The function of `handler name implements Clock { suspend fn sleep(ms, resume) { body(ms, resume) } }`.
 fn clock_handler(
     m: &mut Module,
     clock: EffectId,
@@ -129,7 +131,7 @@ fn sleep(h: Local, clock: EffectId, ms: i32) -> Expr {
     call_op(var(h), clock, 0, vec![int(ms)], false, true)
 }
 
-/// ホストの `setTimeout(callback, ms)` を呼ぶ外部関数．
+/// An external function calling the host's `setTimeout(callback, ms)`.
 fn set_timeout(m: &mut Module) -> FnId {
     external(
         m,
@@ -147,7 +149,8 @@ fn set_timeout(m: &mut Module) -> FnId {
     )
 }
 
-/// ホストの関数 `path`（グローバルの参照）を呼ぶ外部関数．`suspends` なら `@external suspend fn`．
+/// An external function calling the host function `path` (a global reference). With `suspends`,
+/// it is an `@external suspend fn`.
 fn external(
     m: &mut Module,
     name: &str,
@@ -192,8 +195,9 @@ fn suspend_main(m: &mut Module, handler: FnId, body: impl FnOnce(&mut Module, Lo
 
 #[test]
 fn immediate_resume_continues_without_suspending() {
-    // その場で resume するハンドラは中断しない（14.5 の3）．`$start` が戻る前に終わる．
-    // 10万回の自己末尾呼び出しのループの中で中断しうる呼び出しをしても，スタックは伸びない．
+    // A handler that resumes immediately does not suspend (spec 14.5, item 3) and finishes before
+    // `$start` returns. Suspending calls inside a 100,000-iteration self tail call loop do not
+    // grow the stack.
     let mut m = Module::new();
     let clock = clock(&mut m);
     let instant = clock_handler(&mut m, clock, "InstantClock", |_, ms, resume| {
@@ -228,8 +232,8 @@ fn immediate_resume_continues_without_suspending() {
 
 #[test]
 fn later_resume_continues_from_the_callback() {
-    // コールバックの中で後から resume すると，中断していた呼び出し元が再開する（14.5 の2）．
-    // 証拠の表から引いたハンドラでも，中断しうる関数の呼び出しを挟んでも同じ．
+    // Resuming later from a callback resumes the suspended caller (spec 14.5, item 2). The same
+    // holds for a handler taken from the evidence table, and across a suspending function call.
     let mut m = Module::new();
     let clock = clock(&mut m);
     let set_timeout = set_timeout(&mut m);
@@ -273,7 +277,7 @@ fn later_resume_continues_from_the_callback() {
 
 #[test]
 fn resuming_twice_in_place_is_a_defect() {
-    // 2回目の resume は defect．文面にハンドラと操作の名前を出す（14.5）．
+    // A second resume is a defect whose message names the handler and operation (spec 14.5).
     let mut m = Module::new();
     let clock = clock(&mut m);
     let twice = clock_handler(&mut m, clock, "TwiceClock", |m, ms, resume| {
@@ -293,8 +297,8 @@ fn resuming_twice_in_place_is_a_defect() {
 
 #[test]
 fn resuming_twice_later_is_a_defect() {
-    // コールバックの中の2回目の resume も defect．1回目の resume で呼び出し元は次の sleep まで進み，
-    // 2回目はホストのコールバックの中で defect を投げる．
+    // A second resume inside a callback is also a defect. The first resume runs the caller up to
+    // the next sleep, and the second throws a defect inside the host callback.
     let mut m = Module::new();
     let clock = clock(&mut m);
     let set_timeout = set_timeout(&mut m);
@@ -326,7 +330,7 @@ fn resuming_twice_later_is_a_defect() {
 
 #[test]
 fn dropped_resume_interrupts_main() {
-    // resume を呼ばずに捨てると，main は中断されたまま終わる（14.5）．
+    // Dropping resume without calling it leaves main suspended (spec 14.5).
     let mut m = Module::new();
     let clock = clock(&mut m);
     let never = clock_handler(&mut m, clock, "NeverClock", |_, _, _| unit());
@@ -336,7 +340,8 @@ fn dropped_resume_interrupts_main() {
 
 #[test]
 fn failing_operation_fails_at_the_call() {
-    // resume せずに失敗した操作の実装は，操作の呼び出し元へ失敗を返す（呼び出しの fails が真）．
+    // An operation implementation that fails without resuming returns the failure to the
+    // operation's caller (the call's `fails` is true).
     let mut m = Module::new();
     let oops = m.add_enum(EnumDef {
         name: "Oops".into(),
@@ -367,7 +372,7 @@ fn failing_operation_fails_at_the_call() {
 
 #[test]
 fn external_promises_are_awaited() {
-    // `@external suspend fn` はホストの返した Promise を待つ（12.2）．
+    // `@external suspend fn` awaits the Promise the host returns (spec 12.2).
     let mut m = Module::new();
     let resolve = external(
         &mut m,
@@ -389,7 +394,8 @@ fn external_promises_are_awaited() {
 
 #[test]
 fn rejected_promises_are_defects() {
-    // 拒否された Promise は defect（12.5）．Error でない理由は `uncaught exception: …`．
+    // A rejected Promise is a defect (spec 12.5). A reason that is not an Error shows as
+    // `uncaught exception: …`.
     let mut m = Module::new();
     let reject = external(
         &mut m,
@@ -410,8 +416,8 @@ fn rejected_promises_are_defects() {
 
 #[test]
 fn suspending_function_values() {
-    // 中断しうる呼び出しで呼ぶ関数の値は，中断しうるものでもしないものでもよい．
-    // 中断しうる操作の実装（ジェネレータ）は，Promise を待ってから resume してよい．
+    // A function value called by a suspending call may or may not suspend. A suspending operation
+    // implementation (a generator) may await a Promise before resuming.
     let mut m = Module::new();
     let clock = clock(&mut m);
     let resolve = external(
@@ -459,7 +465,7 @@ fn suspending_function_values() {
 
 #[test]
 fn functions_without_the_mark_are_unchanged() {
-    // 印のない関数はジェネレータにせず，`$start` も公開しない．
+    // Unmarked functions are not generators, and `$start` is not exported.
     let mut m = Module::new();
     let main = m.declare("main", true);
     m.define(main, vec![], int(1));
@@ -476,8 +482,9 @@ fn functions_without_the_mark_are_unchanged() {
 
 #[test]
 fn immediate_contexts_run_suspending_calls_in_place() {
-    // 中断しない関数（R が Immediate）の中でも，その場で resume するハンドラの with の中なら
-    // 中断しうる呼び出しがある（8.7）．その場で最後まで進める．resume されなければ interrupted．
+    // Suspending calls can appear in a non-suspending function (R is Immediate) inside a `with`
+    // of an immediately resuming handler (spec 8.7). They run to completion on the spot; without
+    // a resume, the result is interrupted.
     let mut m = Module::new();
     let clock_effect = clock(&mut m);
     let instant = clock_handler(&mut m, clock_effect, "InstantClock", |_, ms, resume| {

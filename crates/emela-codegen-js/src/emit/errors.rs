@@ -1,39 +1,40 @@
-//! エラー（仕様 7章）の出力．
+//! Emits errors (spec chapter 7).
 //!
-//! 失敗は戻り値として返す（16.5）．`fail e` はランタイムの `$Fail` に包んだエラーの値を返し，
-//! 失敗しうる呼び出し（`Expr::Call::fails`）の結果が `$Fail` なら，それを失敗の行き先へ渡す．
-//! 行き先は最も内側の escape か，関数の呼び出し元．
+//! Failures are returned as values (spec 16.5). `fail e` returns the error value wrapped in the
+//! runtime's `$Fail`, and when a fallible call (`Expr::Call::fails`) yields a `$Fail`, it is
+//! passed to the failure target: the innermost `escape`, or the function's caller.
 //!
-//! escape は2重のラベル付きブロックにする．
+//! `escape` becomes two nested labeled blocks.
 //!
 //! ```js
-//! let $t0, $t1;          // escape の値，受けた失敗
+//! let $t0, $t1;          // the escape's value, the caught failure
 //! $x0: {
 //!   $e1: {
-//!     ...                // 対象の式．失敗したら `{ $t1 = 失敗; break $e1; }`
+//!     ...                // the target expression; on failure `{ $t1 = failure; break $e1; }`
 //!     break $x0;
 //!   }
 //!   const $t2 = $t1.error;
-//!   if ($t2.$tag === $err$NotFound) { ...; $t0 = 腕の値; break $x0; }
-//!   return $t1;          // どの腕にも合わなかった失敗は外側へ伝える
+//!   if ($t2.$tag === $err$NotFound) { ...; $t0 = arm value; break $x0; }
+//!   return $t1;          // a failure no arm matched propagates outward
 //! }
 //! ```
 //!
-//! error の値は `$tag` に error ごとの印（`$err$NotFound`）を持つ．印は表示関数も持ち，
-//! 起動用モジュールとテストランナーが，処理されなかったエラーを表示するのに使う．
+//! An error value carries a per-error descriptor (`$err$NotFound`) in `$tag`. The descriptor also
+//! has a show function, which the entry module and the test runner use to print unhandled errors.
 
 use emela_core::{Arm, EnumId, Expr, Pat, Type};
 
 use super::{Dest, Emitter, sanitize, unparen};
 
-/// 失敗の行き先．
 pub(super) enum FailTarget {
-    /// escape の対象の式の中．失敗を `cell` に入れて `label` のブロックを抜ける．
+    /// Inside an escape's target expression. Stores the failure in `cell` and breaks out of the
+    /// `label` block.
     Escape { label: String, cell: String },
 }
 
 impl Emitter<'_> {
-    /// enum の値の `$tag` に書く JS の式．error なら印，それ以外はバリアントの添字．
+    /// The JS expression for an enum value's `$tag`: the descriptor for an error, otherwise the
+    /// variant index.
     pub(super) fn tag(&self, id: EnumId, variant: usize) -> String {
         if self.m.enums[id].error {
             descriptor_name(&self.m.enums[id].name)
@@ -42,9 +43,11 @@ impl Emitter<'_> {
         }
     }
 
-    /// error ごとの印をモジュールの先頭に出す．印は値の表示関数（`show`）を持つ．
+    /// Emits the per-error descriptors at the top of the module. Each has a show function
+    /// (`show`).
     ///
-    /// 関数型のフィールドを持つ error は表示できない（10.6）ので，error の名前だけを出す．
+    /// An error with a function-typed field cannot be shown (spec 10.6), so only its name is
+    /// printed.
     pub(super) fn error_descriptors(&mut self) {
         let m = self.m;
         let mut any = false;
@@ -69,7 +72,7 @@ impl Emitter<'_> {
         }
     }
 
-    /// 失敗 `v`（`$Fail` の JS の式）を行き先へ渡す文．
+    /// A statement passing the failure `v` (a JS expression for a `$Fail`) to the target.
     fn propagate_stmt(&self, v: &str) -> String {
         match self.fail_targets.last() {
             None => format!("return {v};"),
@@ -79,7 +82,8 @@ impl Emitter<'_> {
         }
     }
 
-    /// 失敗しうる呼び出し `call` の結果を一時変数に入れ，失敗なら行き先へ渡す．値は一時変数の名前．
+    /// Binds the result of a fallible call to a temporary and passes a failure to the target.
+    /// Returns the temporary's name.
     pub(super) fn checked(&mut self, call: String) -> String {
         let t = self.tmp();
         self.line(&format!("const {t} = {call};"));
@@ -89,7 +93,6 @@ impl Emitter<'_> {
         t
     }
 
-    /// `fail e` の文．
     pub(super) fn fail(&mut self, e: &Expr) {
         let v = self.value(e);
         let fail = self.rt("$Fail");
@@ -97,9 +100,10 @@ impl Emitter<'_> {
         self.line(&stmt);
     }
 
-    /// `body escape { arms }` の値を `dest` へ渡す文．
+    /// Statements that pass the value of `body escape { arms }` to `dest`.
     pub(super) fn escape(&mut self, body: &Expr, arms: &[Arm], dest: &Dest) {
-        // 対象の式の中では呼び出し元へ直接返せないので，値はいつも一時変数で受ける．
+        // Inside the target expression we cannot return to the caller directly, so the value
+        // always goes through a temporary.
         let result = match dest {
             Dest::Assign(t) => t.clone(),
             Dest::Return => {
@@ -127,18 +131,18 @@ impl Emitter<'_> {
         self.indent -= 1;
         self.line("}");
 
-        // 腕は対象の式の外なので，腕の中の失敗は外側の行き先へ伝わる．
+        // The arms are outside the target expression, so failures in them go to the outer target.
         let error = self.tmp();
         self.line(&format!("const {error} = {cell}.error;"));
-        // 上の腕が全部受けている error．その下の同じ error の腕には来ない．
+        // Errors fully caught by earlier arms; later arms for the same error never see them.
         let mut total: Vec<EnumId> = Vec::new();
         for arm in arms {
             let Pat::Ctor { ctor, .. } = &arm.pat else {
-                panic!("不正な IR: escape の腕のパターンが error の構成子でない");
+                panic!("invalid IR: an escape arm's pattern is not an error constructor");
             };
             assert!(
                 self.m.enums[ctor.enum_id].error,
-                "不正な IR: escape の腕のパターンが error の構成子でない"
+                "invalid IR: an escape arm's pattern is not an error constructor"
             );
             if total.contains(&ctor.enum_id) {
                 continue;
@@ -174,8 +178,8 @@ impl Emitter<'_> {
             self.indent -= 1;
             self.line("}");
         }
-        // どの腕にも合わなかった失敗（腕に書かれていない error と，一部の値しか受けない腕に
-        // 合わなかった値）は外側へ伝える（7.3）．
+        // A failure no arm matched (an error with no arm, or a value that partial arms did not
+        // match) propagates outward (spec 7.3).
         let propagate = self.propagate_stmt(&cell);
         self.line(&propagate);
 
@@ -187,12 +191,12 @@ impl Emitter<'_> {
     }
 }
 
-/// error の印の JS の名前．
 fn descriptor_name(error: &str) -> String {
     format!("$err${}", sanitize(error))
 }
 
-/// 関数型を含む型か（表示できない，10.6）．error は型引数を持たないので `Type::Param` は来ない．
+/// Whether the type contains a function type (not showable, spec 10.6). Errors have no type
+/// parameters, so `Type::Param` never occurs.
 fn contains_fn(ty: &Type) -> bool {
     match ty {
         Type::Fn => true,

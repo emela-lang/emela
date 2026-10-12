@@ -1,5 +1,5 @@
-//! IR を手で組み立てて JS を出し，node で実行して標準出力を比べる．
-//! 出力した JS は insta のスナップショットでも見る．
+//! Builds IR by hand, emits JS, runs it on node and compares stdout. The emitted JS is also
+//! snapshotted with insta.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -8,7 +8,7 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
-/// `main` を呼んで返り値を出力し，defect なら `defect: <メッセージ>` と出す．
+/// Calls `main` and prints its return value, or `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
   process.stdout.write(String(main()) + "\n");
@@ -37,7 +37,7 @@ fn run_with(name: &str, m: &Module, runtime: RuntimeMode) -> Run {
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
-        .expect("node を起動できない");
+        .expect("cannot start node");
     Run {
         js,
         stdout: String::from_utf8(out.stdout).unwrap(),
@@ -45,21 +45,16 @@ fn run_with(name: &str, m: &Module, runtime: RuntimeMode) -> Run {
     }
 }
 
-/// ループ化をかけてから出力して実行する．JS はスナップショットで見る．
+/// Loopifies, emits and runs. The JS is checked by snapshot.
 fn run(name: &str, mut m: Module) -> String {
     tail::loopify(&mut m);
     let r = run_with(name, &m, RuntimeMode::Import(None));
-    assert!(
-        r.stderr.is_empty(),
-        "node が失敗した:\n{}\n{}",
-        r.stderr,
-        r.js
-    );
+    assert!(r.stderr.is_empty(), "node failed:\n{}\n{}", r.stderr, r.js);
     insta::assert_snapshot!(name, r.js);
     r.stdout
 }
 
-/// `run` と同じだが，標準エラー（`dbg` の出力）も返す．
+/// Like `run`, but also returns stderr (the output of `dbg`).
 fn run_stderr(name: &str, mut m: Module) -> (String, String) {
     tail::loopify(&mut m);
     let r = run_with(name, &m, RuntimeMode::Import(None));
@@ -67,7 +62,7 @@ fn run_stderr(name: &str, mut m: Module) -> (String, String) {
     (r.stdout, r.stderr)
 }
 
-/// `main` が defect で終わるときのメッセージ．JS はスナップショットに取らない．
+/// The message when `main` ends in a defect. The JS is not snapshotted.
 fn defect_of(name: &str, body: Expr) -> String {
     let mut m = Module::new();
     main_fn(&mut m, body);
@@ -76,7 +71,7 @@ fn defect_of(name: &str, body: Expr) -> String {
     r.stdout
 }
 
-/// 文字列の部品を改行でつなぐ．
+/// Joins string parts with newlines.
 fn lines(parts: Vec<(Expr, Type)>) -> Expr {
     let mut ps = Vec::new();
     for (i, (e, k)) in parts.into_iter().enumerate() {
@@ -102,7 +97,6 @@ fn panic_(msg: &str) -> Expr {
 }
 
 /// fn fact(n: Int, acc: Int64) = if n == 0 then acc else fact(n - 1, acc * Int64(n))
-/// Int から Int64 への変換はまだないので，Int64 の数も引数で持ち回る．
 fn fact_module() -> (Module, FnId) {
     let mut m = Module::new();
     let fact = m.declare("fact", true);
@@ -134,9 +128,9 @@ fn factorial_tail_recursive() {
     let body = lines(vec![
         (call(fact, vec![int(5), int64(5), int64(1)]), Type::Int64),
         (call(fact, vec![int(20), int64(20), int64(1)]), Type::Int64),
-        // 21! は 64bit を超えて巻き戻る．
+        // 21! overflows 64 bits and wraps.
         (call(fact, vec![int(21), int64(21), int64(1)]), Type::Int64),
-        // 10 万回回してもスタックが溢れない．
+        // 100,000 iterations do not overflow the stack.
         (
             call(fact, vec![int(100000), int64(100000), int64(1)]),
             Type::Int64,
@@ -151,7 +145,7 @@ fn factorial_tail_recursive() {
 
 #[test]
 fn factorial_without_loopify_overflows_the_stack() {
-    // ループ化しなければ同じ IR でスタックが溢れることを確かめ，テストが意味を持つことを示す．
+    // Without loopification, the same IR overflows the stack; this shows the test is meaningful.
     let (mut m, fact) = fact_module();
     main_fn(
         &mut m,
@@ -250,7 +244,7 @@ fn enum_match() {
         ),
     );
 
-    // fn norm1(p) = p.x + p.y      （フィールドの参照）
+    // fn norm1(p) = p.x + p.y      (field access)
     let norm1 = m.declare("norm1", false);
     let p = m.local("p");
     m.define(
@@ -270,7 +264,7 @@ fn enum_match() {
             call(norm1, vec![ctor(pt, vec![int(3), int(-4)])]),
             Type::Int,
         ),
-        // 構造の等値比較．
+        // Structural equality.
         (
             bin(
                 BinOp::Eq,
@@ -300,7 +294,7 @@ fn enum_match() {
 #[test]
 fn list_recursion() {
     let mut m = Module::new();
-    // fn sum(xs) = match xs { [] => 0, [x, ..rest] => x + sum(rest) }   （末尾でない再帰）
+    // fn sum(xs) = match xs { [] => 0, [x, ..rest] => x + sum(rest) }   (non-tail recursion)
     let sum = m.declare("sum", false);
     let xs = m.local("xs");
     let x = m.local("x");
@@ -344,7 +338,7 @@ fn list_recursion() {
         ),
     );
 
-    // fn range(n, acc) = if n == 0 then acc else range(n - 1, [n, ..acc])   （末尾再帰）
+    // fn range(n, acc) = if n == 0 then acc else range(n - 1, [n, ..acc])   (tail recursion)
     let range = m.declare("range", false);
     let n = m.local("n");
     let acc = m.local("acc");
@@ -422,7 +416,7 @@ fn list_recursion() {
     let k = m.local("k");
     let y = m.local("y");
     let xs_main = m.local("xs");
-    // let k = 10; sum(map([1, 2, 3, 4], fn(y) => y * k))   ラムダは k を捕捉する
+    // let k = 10; sum(map([1, 2, 3, 4], fn(y) => y * k))   the lambda captures k
     let body = let_(
         k,
         int(10),
@@ -455,7 +449,7 @@ fn list_recursion() {
                 (call(shape, vec![list(vec![int(7)])]), Type::String),
                 (call(shape, vec![list(vec![int(7), int(8)])]), Type::String),
                 (call(shape, vec![var(xs_main)]), Type::String),
-                // 長いリストの構造比較もスタックを使わない．
+                // Structural comparison of long lists does not use the stack either.
                 (
                     bin(
                         BinOp::Eq,
@@ -581,7 +575,7 @@ fn string_interpolation() {
             lit_part(" "),
             value_part(bool(false), Type::Bool),
             lit_part("\n"),
-            // 書記素クラスタの数．家族の絵文字は1つ，e + 結合アクセントも1つ．
+            // Grapheme cluster counts: a family emoji is one, and e plus a combining accent is one.
             value_part(len("👨‍👩‍👧"), Type::Int),
             lit_part(" "),
             value_part(len("e\u{301}"), Type::Int),
@@ -605,7 +599,7 @@ fn short_circuit() {
     let mut m = Module::new();
     let x = m.local("x");
     let b = |op, l, r| bin(op, OpTy::Bool, l, r);
-    // 右辺が文を要する形（match）でも短絡する．
+    // Short-circuits even when the right side needs statements (match).
     let complex_rhs = |m: &mut Module| {
         let v = m.local("v");
         match_(panic_("must not run"), vec![arm(Pat::Bind(v), var(v))])
@@ -658,14 +652,14 @@ fn int_arithmetic() {
     let l = |op, a, b| (bin(op, OpTy::Int64, int64(a), int64(b)), Type::Int64);
     let fl = |op, a, b| (bin(op, OpTy::Float, float(a), float(b)), Type::Float);
     let body = lines(vec![
-        // Int のあふれは2の補数で巻き戻る．
+        // Int overflow wraps in two's complement.
         i(BinOp::Add, i32::MAX, 1),
         i(BinOp::Sub, i32::MIN, 1),
         i(BinOp::Mul, 65536, 65536),
         i(BinOp::Mul, 123456789, 987654321),
         (unary(UnOp::Neg, OpTy::Int, int(i32::MIN)), Type::Int),
         i(BinOp::Div, i32::MIN, -1),
-        // 除算は0方向へ切り捨て，剰余は被除数の符号に従う．
+        // Division truncates toward zero; the remainder takes the dividend's sign.
         i(BinOp::Div, -7, 2),
         i(BinOp::Rem, -7, 2),
         i(BinOp::Rem, 7, -2),
@@ -677,7 +671,7 @@ fn int_arithmetic() {
         l(BinOp::Div, i64::MIN, -1),
         l(BinOp::Div, -7, 2),
         l(BinOp::Rem, -7, 2),
-        // Float のゼロ除算は IEEE のとおり．
+        // Float division by zero follows IEEE.
         fl(BinOp::Div, 1.0, 0.0),
         fl(BinOp::Div, -1.0, 0.0),
         fl(BinOp::Div, 0.0, 0.0),
@@ -687,7 +681,7 @@ fn int_arithmetic() {
             bin(BinOp::Lt, OpTy::String, string("b"), string("ab")),
             Type::Bool,
         ),
-        // コードポイントの順．UTF-16 の順なら U+FF61 が U+1F600 より後になる．
+        // Code point order. In UTF-16 order, U+FF61 would come after U+1F600.
         (
             bin(BinOp::Lt, OpTy::String, string("\u{FF61}"), string("😀")),
             Type::Bool,
@@ -746,7 +740,7 @@ fn panic_and_unmatched_are_defects() {
 
 #[test]
 fn evaluation_order_is_left_to_right() {
-    // f(panic("a"), match 1 { _ => panic("b") })   左の引数が先に評価される
+    // f(panic("a"), match 1 { _ => panic("b") })   the left argument is evaluated first
     let mut m = Module::new();
     let f = m.declare("f", false);
     let p = m.local("p");
@@ -764,7 +758,7 @@ fn evaluation_order_is_left_to_right() {
     );
     assert_eq!(run("evaluation_order", m), "defect: a\n");
 
-    // 名前付き引数 f(q: panic("first"), p: panic("second")) は書かれた順に評価する．
+    // Named arguments f(q: panic("first"), p: panic("second")) are evaluated in written order.
     let mut m = Module::new();
     let f = m.declare("f", false);
     let p = m.local("p");
@@ -841,7 +835,7 @@ fn closures_in_loop_capture_each_iteration() {
 
 #[test]
 fn inline_runtime_runs_standalone() {
-    // ランタイムと同じスコープに入っても，利用者の関数名と衝突しない．
+    // Even in the same scope as the runtime, user function names do not clash.
     let mut m = Module::new();
     let segmenter = m.declare("segmenter", false);
     m.define(segmenter, vec![], int(7));
@@ -926,21 +920,19 @@ fn short_circuit_tail_call_does_not_grow_stack() {
 
 #[test]
 fn runtime_top_level_names_start_with_dollar() {
-    // Inline では runtime.mjs の最上位の名前が生成コードと同じスコープに入る．
-    // Emela の識別子は `$` を含まないので，`$` で始まる名前なら衝突しない．
+    // With Inline, runtime.mjs's top-level names share the generated code's scope. Emela
+    // identifiers never contain `$`, so names starting with `$` cannot clash.
     for line in emela_codegen_js::inline_runtime().lines() {
         for kw in ["let ", "const ", "var ", "function ", "class "] {
             if let Some(rest) = line.strip_prefix(kw) {
                 assert!(
                     rest.starts_with('$'),
-                    "`$` で始まらない最上位の名前: {line}"
+                    "top-level name not starting with `$`: {line}"
                 );
             }
         }
     }
 }
-
-// ---- 組み込み関数と表示 ----
 
 fn b(op: Builtin, args: Vec<Expr>) -> Expr {
     builtin(op, args)
@@ -959,7 +951,7 @@ fn string_graphemes_and_bytes() {
     ];
     let mut parts = Vec::new();
     for s in samples {
-        // 長さ，バイト数，書記素ごとの分割
+        // Length, byte size, and splitting into graphemes
         parts.push((b(Builtin::StringLength, vec![string(s)]), Type::Int));
         parts.push((b(Builtin::StringByteSize, vec![string(s)]), Type::Int));
         parts.push((
@@ -1029,7 +1021,7 @@ fn string_split_join_and_search() {
             ),
             Type::String,
         ),
-        // U+FEFF と U+200B は White_Space ではないので残る．
+        // U+FEFF and U+200B are not White_Space, so they stay.
         (
             b(Builtin::StringTrim, vec![string("\u{feff}x\u{200b}")]),
             Type::String,
@@ -1070,7 +1062,7 @@ fn int_conversions_and_checked_add() {
         (add(i32::MAX, i32::MIN), opt_int.clone()),
         (b(Builtin::IntToString, vec![int(-42)]), Type::String),
         (b(Builtin::IntToFloat, vec![int(7)]), Type::Float),
-        // Int64 にしてからなら Int の最大値の2倍もあふれない．
+        // Converted to Int64 first, twice Int's maximum does not overflow.
         (
             bin(
                 BinOp::Mul,
@@ -1084,7 +1076,7 @@ fn int_conversions_and_checked_add() {
             b(Builtin::Int64ToString, vec![int64(i64::MIN)]),
             Type::String,
         ),
-        // Int64 から Int へは下位 32bit に巻き戻す．
+        // Int64 to Int keeps the low 32 bits.
         (b(Builtin::Int64ToInt, vec![int64(1 << 31)]), Type::Int),
         (
             b(Builtin::Int64ToInt, vec![int64((1 << 32) + 5)]),
@@ -1173,7 +1165,7 @@ fn float_to_int_out_of_range_is_defect() {
             "{op:?}({x})"
         );
     }
-    // 範囲の端はちょうど収まる．
+    // The ends of the range fit exactly.
     let mut m = Module::new();
     main_fn(
         &mut m,
@@ -1202,7 +1194,7 @@ fn int_bitwise_and_shifts() {
         (b(Builtin::IntBitNot, vec![int(0)]), Type::Int),
         (two(Builtin::IntBitAnd, -1, i32::MIN), Type::Int),
     ];
-    // シフト量 0，1，31，32（幅ちょうど），100（幅を超える）．
+    // Shift amounts 0, 1, 31, 32 (exactly the width), and 100 (beyond the width).
     for op in [
         Builtin::IntShiftLeft,
         Builtin::IntShiftRight,
@@ -1214,11 +1206,11 @@ fn int_bitwise_and_shifts() {
     }
     main_fn(&mut m, lines(parts));
     let shifts = [
-        // shift_left: 1 << 31 は最小値に巻き戻る．
+        // shift_left: 1 << 31 wraps to the minimum.
         "-2147483648\n-16\n-1\n-2147483648\n0\n0",
-        // shift_right: 符号で埋める．幅以上は 0 か -1．
+        // shift_right: fills with the sign; 0 or -1 at or beyond the width.
         "0\n-4\n-1\n-1\n-1\n0",
-        // shift_right_unsigned: 0 で埋めた結果を Int として読む．
+        // shift_right_unsigned: the zero-filled result read as an Int.
         "0\n2147483644\n-1\n1\n0\n0",
     ];
     assert_eq!(
@@ -1247,7 +1239,7 @@ fn int64_bitwise_and_shifts() {
             parts.push((shift(op, n, by), Type::Int64));
         }
     }
-    // 32 を超えるシフトも 64bit で正しく行う．
+    // Shifts beyond 32 are done correctly in 64 bits.
     parts.push((shift(Builtin::Int64ShiftLeft, 3, 40), Type::Int64));
     main_fn(&mut m, lines(parts));
     let min = i64::MIN.to_string();
@@ -1293,9 +1285,9 @@ fn string_code_points() {
     let from = |n| b(Builtin::StringFromCodePoint, vec![int(n)]);
     let parts = vec![
         (points("aé"), ints()),
-        // サロゲートペアで表す文字も1つのコードポイント．
+        // A character written as a surrogate pair is still one code point.
         (points("👍"), ints()),
-        // 書記素クラスタ1つでもコードポイントは2つ．
+        // One grapheme cluster, but two code points.
         (points("e\u{301}"), ints()),
         (points(""), ints()),
         (from(0x41), opt_str.clone()),
@@ -1334,8 +1326,8 @@ fn todo_is_defect() {
     );
 }
 
-/// `enum Shape { Circle(radius: Float), Rect(Float, Float), Empty }` と
-/// `enum Tree[A] { Leaf, Node(Tree[A], A, Tree[A]) }` と `type Point(x: Int, y: Int)`．
+/// `enum Shape { Circle(radius: Float), Rect(Float, Float), Empty }`,
+/// `enum Tree[A] { Leaf, Node(Tree[A], A, Tree[A]) }` and `type Point(x: Int, y: Int)`.
 fn show_module() -> (Module, EnumId, EnumId, EnumId) {
     let mut m = Module::new();
     let shape = m.add_enum(EnumDef {
@@ -1430,7 +1422,7 @@ fn dbg_shows_values_in_source_syntax() {
             ])]),
         ),
     ];
-    // dbg は値をそのまま返す: let x = dbg("héllo") in String.length(x)
+    // dbg returns its value as is: let x = dbg("héllo") in String.length(x)
     let mut body = let_(
         x,
         dbg(Type::String, string("héllo")),
@@ -1471,7 +1463,7 @@ fn dbg_shows_values_in_source_syntax() {
 
 #[test]
 fn interpolation_shows_any_type() {
-    // 補間では最上位の String だけをそのまま埋め込み，入れ子の String は引用符で囲む．
+    // Interpolation embeds only a top-level String as is; nested Strings are quoted.
     let (mut m, shape, _, _) = show_module();
     let some = m.some_ctor();
     let opt = m.option_enum();
@@ -1513,7 +1505,7 @@ fn interpolation_shows_any_type() {
 
 #[test]
 fn option_from_builtin_matches_user_patterns() {
-    // checked_add の結果を，利用者の書く Some / None のパターンで受けられる．
+    // The result of checked_add can be matched with user-written Some / None patterns.
     // match Int.checked_add(a, 1) { Some(n) => n, None => 0 }
     let mut m = Module::new();
     let some = m.some_ctor();
@@ -1538,7 +1530,7 @@ fn option_from_builtin_matches_user_patterns() {
         lines(vec![
             (call(f, vec![int(41)]), Type::Int),
             (call(f, vec![int(i32::MAX)]), Type::Int),
-            // None はランタイムの値と同じものを共有するので構造の等値も成り立つ．
+            // None shares the runtime's value, so structural equality holds too.
             (
                 bin(
                     BinOp::Eq,
@@ -1561,13 +1553,13 @@ fn runtime_implements_every_builtin() {
         let decl = format!("export function {js}(");
         assert!(
             RUNTIME.contains(&decl),
-            "{op:?} の実装 {js} がランタイムにない"
+            "the runtime has no implementation {js} for {op:?}"
         );
     }
 }
 
 #[test]
-#[should_panic(expected = "enum の表示関数の中でだけ使える")]
+#[should_panic(expected = "is only valid inside an enum show function")]
 fn showing_type_param_outside_enum_show_panics() {
     let mut m = Module::new();
     main_fn(

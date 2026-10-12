@@ -1,20 +1,23 @@
-//! エフェクト（仕様 8章）と外部関数（12章）の出力．
+//! Emits effects (spec chapter 8) and external functions (spec chapter 12).
 //!
-//! ハンドラは引数で渡して直接呼ぶ（16.5）．証拠の表は，エフェクトの名前を鍵にハンドラの値を
-//! 持つオブジェクトで，R が空でない関数とラムダの最後の引数に渡す．with は表を `__proto__` で
-//! 延ばした新しいオブジェクトを作る（外側の表は変えない）．ハンドラの値は操作の名前を鍵に
-//! 関数を持つオブジェクト．
+//! Handlers are passed as arguments and called directly (spec 16.5). The evidence table is an
+//! object mapping effect names to handler values, passed as the last argument of functions and
+//! lambdas whose R is not empty. `with` creates a new object extending the table via `__proto__`
+//! (the outer table is left unchanged). A handler value is an object mapping operation names to
+//! functions.
 //!
-//! 外部関数は，ホストの関数を呼ぶ包みの関数にする．投げた例外は defect にし（12.5），
-//! ホストから受け取る文字列の対になっていないサロゲートを置換文字に直す（12.5）．
-//! `@external suspend fn` の包みはジェネレータで，ホストの返した Promise を待つ（12.2）．
+//! An external function becomes a wrapper that calls the host function. Thrown exceptions become
+//! defects (spec 12.5), and lone surrogates in strings received from the host are replaced with
+//! U+FFFD (spec 12.5). The wrapper for an `@external suspend fn` is a generator that awaits the
+//! Promise the host returns (spec 12.2).
 
 use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, WithBind};
 
 use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
-/// 証拠の表の鍵．型引数のあるエフェクト（`State.State[Int]`，8.1）は名前を識別子にすると
-/// 型引数の区切りが潰れて重なりうるので，IR のエフェクトの番号を足して重ならないようにする．
+/// The evidence table key. For an effect with type arguments (`State.State[Int]`, spec 8.1),
+/// turning the name into an identifier could collapse the type argument delimiters and collide,
+/// so the IR effect index is appended to keep keys distinct.
 pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
     let name = &m.effects[effect].name;
     if name.contains('[') {
@@ -24,7 +27,7 @@ pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
     }
 }
 
-/// ハンドラの値の操作の参照（`.print_line`）．
+/// Accessing an operation on a handler value (`.print_line`).
 pub(crate) fn op_access(name: &str) -> String {
     if name == "__proto__" {
         "[\"__proto__\"]".to_owned()
@@ -33,7 +36,7 @@ pub(crate) fn op_access(name: &str) -> String {
     }
 }
 
-/// ハンドラの値のオブジェクトリテラルの鍵．
+/// A key in a handler value's object literal.
 fn op_key(name: &str) -> String {
     if name == "__proto__" {
         "[\"__proto__\"]".to_owned()
@@ -42,8 +45,8 @@ fn op_key(name: &str) -> String {
     }
 }
 
-/// import の指定．絶対パス（lowering がソースの隣のファイルに直したもの）は `file:` の URL にする．
-/// それ以外（`node:fs`，パッケージ名）は書かれたまま．
+/// An import specifier. Absolute paths (rewritten by lowering to files next to the source) become
+/// `file:` URLs; anything else (`node:fs`, package names) is kept as written.
 pub(crate) fn module_specifier(module: &str) -> String {
     if !module.starts_with('/') {
         return module.to_owned();
@@ -77,15 +80,15 @@ impl Emitter<'_> {
         s
     }
 
-    /// `{ print_line: (text) => …, … }`．suspend fn の操作は `$suspendOp` でハンドラと操作の名前を
-    /// 付ける（2回目の resume の defect の文面に使う，14.5）．
+    /// `{ print_line: (text) => …, … }`. Suspend fn operations are tagged with the handler and
+    /// operation names via `$suspendOp`, for the defect message of a second resume (spec 14.5).
     pub(super) fn handler(&mut self, handler: &str, effect: EffectId, ops: &[Expr]) -> String {
         let m = self.m;
         let names = &m.effects[effect].ops;
         assert_eq!(
             names.len(),
             ops.len(),
-            "不正な IR: ハンドラの操作の数が違う"
+            "invalid IR: wrong number of handler operations"
         );
         let es: Vec<&Expr> = ops.iter().collect();
         let vs = self.values_in_order(&es);
@@ -109,10 +112,13 @@ impl Emitter<'_> {
         format!("{{ {} }}", fields.join(", "))
     }
 
-    /// release のない with の束縛（ハンドラの値と証拠の表）．
+    /// Bindings of a `with` without release (handler values and evidence tables).
     pub(super) fn with_binds(&mut self, binds: &[WithBind]) {
         for b in binds {
-            assert!(b.release.is_none(), "release のある束縛は with_ で出す");
+            assert!(
+                b.release.is_none(),
+                "bindings with release are emitted by with_"
+            );
             self.bind(b);
         }
     }
@@ -124,25 +130,26 @@ impl Emitter<'_> {
         name
     }
 
-    /// `with` の値を `dest` へ渡す文（14.2，14.4）．
+    /// Statements that pass the value of a `with` to `dest` (spec 14.2, 14.4).
     ///
-    /// release のある束縛ごとに，それより後ろの束縛と本体を `try` で囲み，`finally` で release を
-    /// 評価する．後ろの束縛（init）の失敗も本体の失敗も `return` か `break` で `try` を抜けるので，
-    /// 束縛と逆の順に release が走る．中断されたまま巻き戻るときは，ランタイムが `gen.return()` で
-    /// ジェネレータを閉じて同じ `finally` を走らせる（`$sync` の `$Interrupted` は例外として抜ける）．
+    /// For each binding with release, the later bindings and the body are wrapped in `try`, and
+    /// release is evaluated in `finally`. A failure of a later binding (init) or of the body leaves
+    /// the `try` by `return` or `break`, so releases run in reverse binding order. When unwinding
+    /// while suspended, the runtime closes the generator with `gen.return()`, which runs the same
+    /// `finally` (`$Interrupted` from `$sync` leaves as an exception).
     ///
     /// ```js
     /// const h$1 = Pool();
-    /// let $t0;                         // 本体が投げたもの（defect か $Interrupted）
+    /// let $t0;                         // what the body threw (a defect or $Interrupted)
     /// try {
-    ///   …                              // 後ろの束縛と本体
+    ///   …                              // later bindings and the body
     /// } catch ($e) {
     ///   $t0 = $e;
     ///   throw $e;
     /// } finally {
     ///   try {
     ///     …                            // release
-    ///   } catch ($e) {
+    ///     …                            // release
     ///     throw $releaseDefect($t0, $e, "Pool");
     ///   } finally {
     ///     $retire(h$1, "Pool");
@@ -171,7 +178,8 @@ impl Emitter<'_> {
             self.indent += 1;
             self.line("try {");
             self.indent += 1;
-            // release の値は捨てる．失敗しない（E が空，8.4）ので行き先も要らない．
+            // The release value is discarded. It cannot fail (E is empty, spec 8.4), so it needs
+            // no target.
             let v = self.value(&r.body);
             if !super::is_atom(&r.body) {
                 self.line(&format!("{v};"));
@@ -190,12 +198,14 @@ impl Emitter<'_> {
         }
     }
 
-    /// 外部関数の包み．JS の `@external` がなければ，呼ばれたら defect にする（エントリから
-    /// たどれる関数は lowering が誤りにしてあるので，ここに来るのはたどれない関数だけ）．
+    /// The wrapper of an external function. Without a JS `@external`, calling it is a defect
+    /// (lowering already reports functions reachable from the entry, so only unreachable ones get
+    /// here).
     ///
-    /// `@external suspend fn`（`Function::suspends`）の包みはジェネレータで，ホストの関数の返した値
-    /// （Promise）を `yield $await(…)` で待ち，解決した値を戻り値と同じ規則で写す．拒否されたら，
-    /// 駆動がその理由を `$foreign` で defect にして待っていた位置へ投げる（12.5）．
+    /// The wrapper of an `@external suspend fn` (`Function::suspends`) is a generator: it awaits
+    /// the host function's return value (a Promise) with `yield $await(…)` and converts the
+    /// resolved value by the same rules as a return value. On rejection, the driver turns the
+    /// reason into a defect with `$foreign` and throws it at the waiting point (spec 12.5).
     pub(super) fn external_fn(&mut self, f: &Function, ext: &External) {
         let params: Vec<String> = f.params.iter().map(|&p| self.local(p)).collect();
         self.line(&format!(
@@ -251,7 +261,7 @@ impl Emitter<'_> {
         self.line("}");
     }
 
-    /// `@external suspend fn` の包みの本体．`call` はホストの関数の呼び出し．
+    /// `call` is the call of the host function.
     fn suspending_external(&mut self, call: &str, ret: &Boundary, foreign: &str) {
         self.line("let $p;");
         self.line("try {");
@@ -273,7 +283,7 @@ impl Emitter<'_> {
         }
     }
 
-    /// モジュールの名前を import して，局所名を返す．同じものは1回だけ import する．
+    /// Imports `name` from the module and returns its local name. Each is imported only once.
     fn import(&mut self, module: &str, name: &str) -> String {
         if let Some((_, _, local)) = self
             .imports
@@ -288,12 +298,13 @@ impl Emitter<'_> {
         local
     }
 
-    /// 値 `v`（JS の式．1回だけ使う）を境界の向き `dir` に写した JS の式．
+    /// The JS expression converting `v` (a JS expression, used once) across the boundary in
+    /// direction `dir`.
     fn convert(&mut self, b: &Boundary, v: &str, dir: Dir, depth: usize) -> String {
         match (b, dir) {
             (Boundary::String, Dir::FromHost) => format!("{}({v})", self.rt("$wellFormed")),
             (Boundary::Fn { params, ret }, _) => {
-                // コールバックの引数は逆の向きに，戻り値は同じ向きに写す．
+                // Callback arguments convert the opposite way; return values the same way.
                 let names: Vec<String> = (0..params.len())
                     .map(|i| format!("$a{depth}_{i}"))
                     .collect();
@@ -311,12 +322,9 @@ impl Emitter<'_> {
     }
 }
 
-/// 値の渡る向き．
 #[derive(Clone, Copy)]
 enum Dir {
-    /// Emela からホストへ．
     ToHost,
-    /// ホストから Emela へ．
     FromHost,
 }
 
@@ -329,7 +337,8 @@ impl Dir {
     }
 }
 
-/// グローバルの参照（`console.log`）．識別子でない区切りは `globalThis["…"]` の添字にする．
+/// A global reference (`console.log`). Non-identifier segments become `globalThis["…"]`
+/// subscripts.
 fn global_ref(path: &str) -> String {
     let parts: Vec<&str> = path.split('.').collect();
     if parts.iter().all(|p| is_identifier_name(p)) {

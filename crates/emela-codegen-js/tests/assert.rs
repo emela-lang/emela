@@ -1,4 +1,4 @@
-//! `assert`（仕様 13.2）の IR を手で組み立てて JS を出し，node で実行して結果を比べる．
+//! Builds `assert` (spec 13.2) IR by hand, emits JS, runs it on node and compares the results.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -7,7 +7,7 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
-/// `main` を呼び，defect なら `defect: <メッセージ>` と出す．
+/// Calls `main` and prints `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
   process.stdout.write(String(main()) + "\n");
@@ -23,7 +23,7 @@ struct Run {
     stderr: String,
 }
 
-/// `body` を本体とする `main` を出力して実行する．
+/// Emits and runs a `main` whose body is `body`.
 fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
     let mut m = Module::new();
     let body = build(&mut m);
@@ -46,7 +46,7 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
-        .expect("node を起動できない");
+        .expect("cannot start node");
     Run {
         js,
         stdout: String::from_utf8(out.stdout).unwrap(),
@@ -54,7 +54,7 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
     }
 }
 
-/// assert の後に `"ok"` を返す本体．
+/// A body that returns `"ok"` after the assert.
 fn then_ok(m: &mut Module, assert: Expr) -> Expr {
     let unit = m.local("unit");
     let_(unit, assert, string("ok"))
@@ -126,7 +126,8 @@ fn structural_values_are_shown_in_source_syntax() {
 
 #[test]
 fn operands_are_evaluated_once_from_left() {
-    // dbg は値を標準エラーに出して返す．比較と表示で2回使っても1回ずつしか出ない．
+    // dbg prints its value to stderr and returns it. Used twice (compare and show), it still
+    // prints once per call.
     let r = run("once", |m| {
         let dbg = |n| builtin_ty(Builtin::Dbg, vec![Type::Int], vec![int(n)]);
         let a = Assert::compare(BinOp::Ge, OpTy::Int, Type::Int, dbg(1), dbg(2), "");
@@ -162,7 +163,7 @@ fn non_comparison_looks_only_at_the_value() {
 
 #[test]
 fn assert_as_an_argument_keeps_evaluation_order() {
-    // (dbg(1), assert dbg(2) == 2) の組．左の要素が assert より先に評価される．
+    // A tuple (dbg(1), assert dbg(2) == 2): the left element is evaluated before the assert.
     let r = run("order", |m| {
         let dbg = |n| builtin_ty(Builtin::Dbg, vec![Type::Int], vec![int(n)]);
         let t = Expr::Tuple(vec![
