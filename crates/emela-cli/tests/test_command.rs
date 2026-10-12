@@ -1,7 +1,8 @@
-//! `emela test` をプロセスとして起動する結合テスト．
+//! Integration tests that run `emela test` as a process.
 //!
-//! 引数の解釈，`@test` の検査（E0226），ソースのテスト関数を lowering して node で
-//! 実行するところまでを見る．結果の表示の細部は emela-driver の tests/test_runner.rs が見る．
+//! Covers argument parsing, the `@test` checks (E0226), and lowering the source's test functions
+//! and running them on node. Details of the result output are tested in emela-driver's
+//! tests/test_runner.rs.
 
 use std::path::PathBuf;
 use std::process::Command;

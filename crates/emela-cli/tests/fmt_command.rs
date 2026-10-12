@@ -1,7 +1,7 @@
-//! `emela fmt` をプロセスとして起動する結合テスト．
+//! Integration tests that run `emela fmt` as a process.
 //!
-//! 対象の決め方，上書き，`--check` の終了コード，構文エラーのファイル，標準入出力を見る．
-//! 整形の結果そのものは emela-fmt のテストが見る．
+//! Covers target selection, rewriting, the `--check` exit code, files with syntax errors, and
+//! stdin/stdout. The formatting itself is tested in emela-fmt.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -81,7 +81,7 @@ fn formats_project_sources_in_place() {
             ("Pome.toml", ""),
             ("src/main.emel", MESSY),
             ("src/http/client.emel", MESSY),
-            // ソースのルートの外は見ない．
+            // Outside the source root, so not formatted.
             ("scripts/x.emel", MESSY),
         ],
     );
@@ -115,7 +115,7 @@ fn formats_given_paths_from_inside_project() {
     assert_eq!(project.read("src/main.emel"), CLEAN);
     assert_eq!(project.read("src/http/client.emel"), CLEAN);
     assert_eq!(project.read("src/http/server.emel"), MESSY);
-    // ディレクトリを渡せばその下を全部．
+    // A directory means everything under it.
     let run = project.emela(&["fmt", "src/http"]);
     assert_eq!(run.code, Some(0));
     assert_eq!(project.read("src/http/server.emel"), CLEAN);
@@ -137,7 +137,6 @@ fn check_lists_unformatted_files() {
         (run.code, run.stdout.as_str(), run.stderr.as_str()),
         (Some(1), "src/a.emel\nsrc/b/c.emel\n", "")
     );
-    // 書き換えない．
     assert_eq!(project.read("src/a.emel"), MESSY);
 
     assert_eq!(project.emela(&["fmt"]).code, Some(0));
@@ -166,7 +165,7 @@ fn syntax_errors_are_reported_and_other_files_are_formatted() {
     assert_eq!(project.read("src/main.emel"), CLEAN);
     assert_eq!(project.read("src/broken.emel"), BROKEN);
 
-    // --check でも同じ診断を出し，整形が要るものを並べる．
+    // `--check` reports the same diagnostics and lists the files that need formatting.
     let run = project.emela(&["fmt", "--check", "src/broken.emel", "src/z.emel"]);
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
     assert!(run.stderr.starts_with("error[E0110]: "), "{}", run.stderr);
@@ -178,7 +177,7 @@ fn unchanged_files_are_not_written() {
     let project = Project::new("unchanged", &[("Pome.toml", ""), ("src/main.emel", CLEAN)]);
     let path = project.dir.join("src/main.emel");
     let before = std::fs::metadata(&path).unwrap().modified().unwrap();
-    // 読み取り専用にしておく．書き込もうとすれば E0903 で失敗する．
+    // Read-only, so a write fails with E0903.
     let mut permissions = std::fs::metadata(&path).unwrap().permissions();
     permissions.set_readonly(true);
     std::fs::set_permissions(&path, permissions.clone()).unwrap();
@@ -190,7 +189,7 @@ fn unchanged_files_are_not_written() {
         before
     );
 
-    // 整形が要るファイルなら書き込みの失敗が診断になる．
+    // A write failure is a diagnostic only when the file needs formatting.
     std::fs::write(project.dir.join("src/a.emel"), MESSY).unwrap();
     let a = project.dir.join("src/a.emel");
     std::fs::set_permissions(&a, permissions.clone()).unwrap();
@@ -214,9 +213,9 @@ fn single_file_without_project() {
     let run = project.emela(&["fmt", "main.emel"]);
     assert_eq!((run.code, run.stderr.as_str()), (Some(0), ""));
     assert_eq!(project.read("main.emel"), CLEAN);
-    // 単独ファイルでも渡したファイルだけを整形する．
+    // A single file formats only the files passed.
     assert_eq!(project.read("util.emel"), MESSY);
-    // ディレクトリには Pome.toml が要る（check と同じ）．
+    // A directory needs Pome.toml, as with `check`.
     let run = project.emela(&["fmt"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stderr.starts_with("error[E0207]: "), "{}", run.stderr);
@@ -240,7 +239,7 @@ fn file_outside_source_root_is_an_error() {
         "{}",
         run.stderr
     );
-    // 残りのパスは整形する．
+    // The remaining paths are still formatted.
     assert_eq!(project.read("src/main.emel"), CLEAN);
     assert_eq!(project.read("scripts/x.emel"), MESSY);
 }
@@ -253,11 +252,11 @@ fn stdin_to_stdout() {
         (run.code, run.stdout.as_str(), run.stderr.as_str()),
         (Some(0), CLEAN, "")
     );
-    // 整っていればそのまま返す．
+    // Already formatted input is returned as is.
     let run = project.emela_in(&project.dir, &["fmt", "-"], Some(CLEAN));
     assert_eq!((run.code, run.stdout.as_str()), (Some(0), CLEAN));
 
-    // 構文エラーなら何も書かず，`<stdin>` の診断を出す．
+    // On a syntax error, writes nothing and reports a `<stdin>` diagnostic.
     let run = project.emela_in(&project.dir, &["fmt", "-"], Some("const X = $\n"));
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
     assert!(
@@ -273,7 +272,7 @@ fn stdin_to_stdout() {
     let run = project.emela_in(&project.dir, &["fmt", "--check", "-"], Some(CLEAN));
     assert_eq!((run.code, run.stdout.as_str()), (Some(0), ""));
 
-    // ほかのパスとは混ぜられない．
+    // `-` cannot be mixed with other paths.
     let run = project.emela_in(&project.dir, &["fmt", "-", "a.emel"], Some(""));
     assert_eq!(run.code, Some(2));
     assert!(run.stderr.contains("cannot be combined"), "{}", run.stderr);

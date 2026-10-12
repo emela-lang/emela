@@ -65,7 +65,6 @@ enum Command {
     Lsp,
 }
 
-/// 診断でエラーになったときの終了コード．
 const DIAGNOSTIC_FAILURE: u8 = 1;
 
 fn main() -> ExitCode {
@@ -119,7 +118,8 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
         args,
         output: Output::Inherit,
     };
-    // 診断は node を起動する前に出す．終わらないプログラムでも警告が先に見える．
+    // Diagnostics go out before node starts, so warnings show first even if the program never
+    // ends.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let (analysis, output) = emela_driver::run(
@@ -134,10 +134,10 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
         },
     );
     match output {
-        // node の終了コードをそのまま返す．0〜255 の外は 8 ビットに切る（シェルと同じ）．
+        // Pass node's exit code through, truncated to 8 bits like a shell does.
         Some(output) => ExitCode::from(output.code as u8),
         None => {
-            // node を起動できなかった診断は，前に出した分の後に足されている．
+            // Diagnostics about failing to start node were appended after those already printed.
             let rest = &analysis.diagnostics[reported..];
             if rest.is_empty() {
                 diagnostics_code
@@ -159,7 +159,7 @@ fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCo
         filter,
         output: Output::Inherit,
     };
-    // 結果は標準出力，診断は標準エラーに出す．診断は node を起動する前に出す．
+    // Results go to stdout, diagnostics to stderr. Diagnostics go out before node starts.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let stdout = std::io::stdout();
@@ -197,7 +197,7 @@ fn fmt(paths: Vec<PathBuf>, check: bool) -> ExitCode {
             command.build();
             command
                 .find_subcommand_mut("fmt")
-                .expect("fmt のサブコマンドがある")
+                .expect("the fmt subcommand exists")
                 .error(
                     clap::error::ErrorKind::ArgumentConflict,
                     "`-` (standard input) cannot be combined with other paths",
@@ -230,8 +230,8 @@ fn fmt(paths: Vec<PathBuf>, check: bool) -> ExitCode {
     code
 }
 
-/// 標準入力のソースを整形して標準出力に書く（エディタ連携用）．
-/// 構文エラーなら標準出力には何も書かない．`--check` なら書かずに，整形が要れば `<stdin>` を出す．
+/// For editor integration. On a syntax error nothing is written to stdout. With `--check`,
+/// nothing is written either, and `<stdin>` is listed if formatting is needed.
 fn fmt_stdin(check: bool) -> ExitCode {
     let mut text = String::new();
     if let Err(err) = std::io::stdin().read_to_string(&mut text) {
@@ -263,7 +263,7 @@ fn fmt_stdin(check: bool) -> ExitCode {
 }
 
 fn lsp() -> ExitCode {
-    // フロントエンドは check と同じものを使う（同じ診断を出すため）．
+    // Use the same frontend as `check` so the diagnostics are the same.
     match emela_lsp::run_stdio(Typecheck::default) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -283,7 +283,7 @@ fn resolve_input(fs: &dyn FileSystem, path: &Path) -> Option<Input> {
     }
 }
 
-/// 診断を標準エラーに出し，エラーがあれば 1 を返す．
+/// Returns 1 if there are errors.
 fn report(analysis: &Analysis) -> ExitCode {
     print_diagnostics(&analysis.diagnostics, &analysis.sources);
     if analysis.has_errors() {
@@ -304,7 +304,7 @@ fn print_rendered(text: &str) {
     let _ = std::io::stderr().lock().write_all(text.as_bytes());
 }
 
-/// 診断に色を付けるか．標準エラーが端末で `NO_COLOR` が空か未設定のときだけ付ける．
+/// Only when stderr is a terminal and `NO_COLOR` is unset or empty.
 fn stderr_color() -> bool {
     std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
 }

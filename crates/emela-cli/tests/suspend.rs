@@ -1,7 +1,8 @@
-//! suspend と Async（仕様 8.4，8.7，14.5）を，`emela run` と `emela test` の経路で動かす結合テスト．
+//! Integration tests for suspend and Async (spec 8.4, 8.7, 14.5) through `emela run` and
+//! `emela test`.
 //!
-//! 仕様 8.4 の JsClock の形（`setTimeout` で後から resume する `suspend fn sleep`）を，ソースの隣の
-//! `.mjs` で書く．その場で resume する InstantClock も同じプログラムで使う．
+//! The JsClock of spec 8.4 (a `suspend fn sleep` resumed later by `setTimeout`) is written in an
+//! `.mjs` next to the source. The same program also uses InstantClock, which resumes immediately.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -51,7 +52,7 @@ impl Drop for Project {
 
 const CLOCK_MJS: &str = "export function after(ms, f) { setTimeout(f, ms); }\n";
 
-/// 仕様 8.4 の JsClock と，その場で resume する InstantClock．
+/// The JsClock of spec 8.4, and InstantClock, which resumes immediately.
 const CLOCK: &str = r#"effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
@@ -72,8 +73,8 @@ handler InstantClock implements Clock {
 
 #[test]
 fn clocks_resume_later_and_in_place() {
-    // JsClock の sleep は setTimeout の後で再開する．InstantClock は中断しない．
-    // 中断しうるラムダを渡した List.map は中断用の写しを，渡さない List.map は元の関数を呼ぶ．
+    // JsClock's sleep resumes after setTimeout; InstantClock never suspends. List.map calls its
+    // suspending copy when given a suspending lambda, and the original otherwise.
     let project = Project::new(
         "clocks",
         r#"fn total(xs: List[Int]) -> Int use Clock {
@@ -169,7 +170,7 @@ fn main() {
 
 #[test]
 fn tests_wait_for_clocks() {
-    // テスト関数の R の Async はテストランナーが供給する（13.3）．resume されないテストは失敗．
+    // The test runner provides Async in a test's R (spec 13.3). A test that is never resumed fails.
     let project = Project::new(
         "test",
         r#"handler NeverClock implements Clock {
@@ -204,8 +205,9 @@ fn never_resumed() {
     );
 }
 
-/// fn の操作の実装は，fn の操作を呼ぶだけなら中断しない（8.1，E0417）．内側の InstantTimer の
-/// `now` は外側の JsTimer の `now` を呼んで返す．`now` はジェネレータにならない．
+/// An fn-operation implementation that only calls fn operations does not suspend (spec 8.1,
+/// E0417). The inner InstantTimer's `now` returns the outer JsTimer's `now`, and `now` does not
+/// become a generator.
 #[test]
 fn fn_op_calls_outer_fn_op() {
     let project = Project::new(

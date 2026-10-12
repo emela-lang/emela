@@ -1,9 +1,9 @@
-//! `emela` をプロセスとして起動する結合テスト．
+//! Integration tests that run `emela` as a process.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// テストごとのプロジェクト．作るときに前の残りを消し，落とすときに消す．
+/// A per-test project. Leftovers are removed on creation, and the directory on drop.
 struct Project {
     dir: PathBuf,
 }
@@ -60,7 +60,7 @@ const BROKEN: &[(&str, &str)] = &[
     ("src/Util.emel", ""),
 ];
 
-/// `--help` の文言は英語で書く（README の Commands の表と同じ言葉）．
+/// `--help` is written in English, using the same words as the Commands table in the README.
 #[test]
 fn help_is_english() {
     let project = Project::new("help", &[]);
@@ -108,7 +108,7 @@ fn check_clean_project() {
         (run.code, run.stdout.as_str(), run.stderr.as_str()),
         (Some(0), "", "")
     );
-    // プロジェクトの外からディレクトリを渡しても同じ．
+    // Same when the directory is passed from outside the project.
     let parent = project.path().parent().unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_emela"))
         .arg("check")
@@ -153,7 +153,8 @@ fn build_reports_unsupported_expressions() {
         "unsupported",
         &[
             ("Pome.toml", ""),
-            // 型引数の値の表示は Show の辞書渡しか単相化が要るので，0.21 まで扱えない．
+            // Showing a type parameter's value needs Show dictionary passing or monomorphization,
+            // which comes in 0.21.
             (
                 "src/main.emel",
                 "fn main() {\n  show(1)\n}\n\nfn show[A](x: A) -> String {\n  \"#{x}\"\n}\n",
@@ -181,13 +182,13 @@ fn build_reports_missing_entry() {
         run.stderr,
         "error[E0209]: the entry `src/main.emel` does not exist\n\n1 error\n"
     );
-    // check はエントリを求めない．
+    // `check` does not require the entry.
     assert_eq!(project.emela(&["check"]).code, Some(0));
 }
 
 #[test]
 fn run_without_main_is_an_error() {
-    // run はエントリに main を求める（8.3）．build は main がなくても出力する．
+    // `run` requires `main` in the entry (spec 8.3); `build` emits output without one.
     let project = Project::new(
         "no-main",
         &[
@@ -227,7 +228,8 @@ fn run_single_file_without_main_is_an_error() {
 fn check_with_absolute_path_from_elsewhere() {
     let project = Project::new("absolute", BROKEN);
     let inside = project.emela(&["check"]);
-    // 別のディレクトリから絶対パスで渡しても，診断のパスはプロジェクトからの相対パス．
+    // A path given as absolute from another directory is still reported relative to the
+    // project.
     let entry = project.path().join("src/main.emel");
     let run = Command::new(env!("CARGO_BIN_EXE_emela"))
         .arg("check")
@@ -237,7 +239,7 @@ fn check_with_absolute_path_from_elsewhere() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8(run.stderr).unwrap(), inside.stderr);
-    // プロジェクトの中のディレクトリからでも同じ．
+    // Same from a directory inside the project.
     let run = Command::new(env!("CARGO_BIN_EXE_emela"))
         .args(["check", "main.emel"])
         .current_dir(project.path().join("src"))
@@ -282,7 +284,7 @@ fn single_file_reads_only_imported_files() {
         &[
             ("main.emel", "import Util\n\nfn main() { 1 }\n"),
             ("util.emel", "const Y = $\n"),
-            // エントリからたどれないものは読まない．
+            // Not reachable from the entry, so never read.
             ("scratch.emel", "fn broken( {\n"),
             ("Bad.emel", ""),
             ("deep/broken.emel", "const Z = $\n"),
@@ -292,7 +294,7 @@ fn single_file_reads_only_imported_files() {
     let run = project.emela(&["check", "main.emel"]);
     assert_eq!(run.code, Some(1));
     insta::assert_snapshot!(run.stderr);
-    // 誤りのあるファイルを import しなければ通る．
+    // Passes as long as the broken file is not imported.
     let clean = Project::new(
         "single-clean",
         &[
@@ -326,7 +328,7 @@ fn check_reports_syntax_and_import_errors() {
     insta::assert_snapshot!(run.stderr);
 }
 
-/// `emela lsp` を起動し，ワークスペースの診断が届いてから shutdown と exit で 0 で終わる．
+/// Runs `emela lsp`, waits for workspace diagnostics, then exits with 0 after shutdown and exit.
 #[test]
 fn lsp_over_stdio() {
     use std::io::{BufRead, BufReader, Read, Write};
@@ -443,8 +445,8 @@ fn check_reports_error_set_errors() {
     insta::assert_snapshot!(run.stderr);
 }
 
-/// main まで達したエラーは `error: <エラーの値の表示>` を出して終了コード 1（14.3）．
-/// escape で受けたエラーは通常の値に戻る（7.3）．defect の 101 とは分ける．
+/// An error that reaches `main` prints `error: <the error's Show>` and exits with 1 (spec 14.3),
+/// distinct from 101 for a defect. An error caught by `escape` becomes a normal value (spec 7.3).
 #[test]
 fn run_reports_unhandled_error_with_exit_code_1() {
     let project = Project::new(
@@ -468,7 +470,7 @@ fn run_reports_unhandled_error_with_exit_code_1() {
 
 #[test]
 fn run_hello_example() {
-    // README の例（`examples/hello`）．Console を JsConsole で供給する（8.3，15.2）．
+    // The README example (`examples/hello`). Console is provided by JsConsole (spec 8.3, 15.2).
     let project = Project::new(
         "hello",
         &[
@@ -488,8 +490,8 @@ fn run_hello_example() {
 
 #[test]
 fn run_and_test_errors_example() {
-    // README の例（`examples/errors`）．escape で受けなかったエラーは main まで来て終了コード 1（14.3），
-    // テストはハンドラを差し替えて動かす（13章）．
+    // The README example (`examples/errors`). An error not caught by `escape` reaches `main` and
+    // exits with 1 (spec 14.3); tests swap the handler (spec chapter 13).
     let project = Project::new(
         "errors",
         &[
@@ -514,7 +516,8 @@ fn run_and_test_errors_example() {
 
 #[test]
 fn run_and_test_clock_example() {
-    // README の例（`examples/clock`）．JsClock は後から再開し，テストの InstantClock はその場で再開する（8.4，8.7）．
+    // The README example (`examples/clock`). JsClock resumes later; the test's InstantClock resumes
+    // immediately (spec 8.4, 8.7).
     let project = Project::new(
         "clock",
         &[
@@ -535,8 +538,8 @@ fn run_and_test_clock_example() {
 
 #[test]
 fn run_calls_external_module_next_to_the_source() {
-    // ファイルを指す `@external` は宣言を含むソースの隣のファイル（12.1）．投げた例外は defect，
-    // 受け取った文字列の対になっていないサロゲートは置換文字になる（12.5）．
+    // An `@external` pointing to a file resolves next to the declaring source (spec 12.1). A thrown
+    // exception is a defect, and a lone surrogate in a received string becomes U+FFFD (spec 12.5).
     let project = Project::new(
         "ffi",
         &[
