@@ -509,17 +509,18 @@ impl InferCtx {
         env_vars: &[TyVar],
     ) -> Scheme {
         self.generalize_bounded(ty, existing, env_vars, &Default::default())
+            .0
     }
 
     /// [`Self::generalize_with`] と同じく量化する．`immediate` の集合変数を量化した型引数には
-    /// `Immediate` の制約を付ける（9.5）．
+    /// `Immediate` の制約を付ける（9.5）．量化した集合変数と，それを置き換えた型引数の添字も返す．
     pub(crate) fn generalize_bounded(
         &mut self,
         ty: &Ty,
         existing: Vec<TyParam>,
         env_vars: &[TyVar],
         immediate: &rustc_hash::FxHashSet<RowVar>,
-    ) -> Scheme {
+    ) -> (Scheme, Vec<(RowVar, u32)>) {
         // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
         let mut env = Vec::new();
         for v in env_vars {
@@ -543,9 +544,11 @@ impl InferCtx {
         }
         let ty = self.resolve(ty);
         let mut row_map = FxHashMap::default();
+        let mut generalized = Vec::new();
         let mut next_name = [0, 0];
         for (v, kind) in free_row_vars(&ty) {
             row_map.insert(v, params.len() as u32);
+            generalized.push((v, params.len() as u32));
             let (prefix, next_name) = match kind {
                 SetKind::Errors => ("E", &mut next_name[0]),
                 SetKind::Effects => ("R", &mut next_name[1]),
@@ -563,7 +566,10 @@ impl InferCtx {
             }
             params.push(param);
         }
-        Scheme::new(params, replace_vars(&ty, &map, &row_map))
+        (
+            Scheme::new(params, replace_vars(&ty, &map, &row_map)),
+            generalized,
+        )
     }
 
     /// スキームの型引数をそれぞれ新しい型変数（集合の型引数は新しい集合変数）に置き換える．

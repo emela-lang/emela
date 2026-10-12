@@ -97,6 +97,51 @@ impl BodyInfer<'_> {
     }
 }
 
+impl BodyInfer<'_> {
+    /// fn の操作の実装の本体が中断しないか確かめる（E0417）．fn の操作は「ハンドラが値を返すと，
+    /// 呼び出し元はすぐ続きを実行する」（8.1）ので，呼び出し元は中断しない前提で出力する．
+    /// 集合を解いた後に呼ぶ．handler は型引数を持たないので，本体の R の要素はタグだけを見る．
+    pub(super) fn check_fn_op_bodies(&mut self) {
+        let program = self.program;
+        let bodies: Vec<(DefId, usize, ExprId)> = self
+            .handler_bodies
+            .iter()
+            .filter(|b| !b.suspend)
+            .map(|b| (b.handler, b.index, b.body))
+            .collect();
+        for (handler, index, body) in bodies {
+            let Some(row) = self.expr_effects.get(body).cloned() else {
+                continue;
+            };
+            let row = self.ctx.resolve_row(&row);
+            let effects: Vec<SmolStr> = row
+                .elems()
+                .iter()
+                .filter_map(|e| match e {
+                    RowElem::Tag(effect) if !is_immediate_effect(program, *effect) => {
+                        Some(program.defs[*effect].name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            if effects.is_empty() {
+                continue;
+            }
+            let Some(Item::Handler(h)) = program.item(handler) else {
+                continue;
+            };
+            let name = &h.ops[index].name;
+            self.diags.push(Diagnostic {
+                span: Some(name.span),
+                kind: DiagnosticKind::SuspendingFnOp {
+                    op: name.name.clone(),
+                    effects,
+                },
+            });
+        }
+    }
+}
+
 /// suspend fn の実装の本体 `body` で，`resume`（局所変数 `resume`）を直接呼ぶ以外の使い方を
 /// しているか（8.7）．直接呼ぶとは，無名関数の外で `resume(v)` か `v |> resume` と書くこと．
 pub(super) fn resume_escapes(program: &Program, body: ExprId, resume: LocalId) -> bool {

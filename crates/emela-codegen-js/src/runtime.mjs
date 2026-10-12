@@ -129,6 +129,43 @@ export function $start(gen, done) {
   };
 }
 
+// A continuation unwound while still suspended, never resumed (14.5). Thrown by `$sync` when a
+// suspend operation inside a non-suspending function is not resumed in place. It unwinds like a
+// defect; the launcher and the test runner report it as `interrupted`.
+export class $Interrupted extends Error {
+  constructor() {
+    super("interrupted");
+    this.name = "Interrupted";
+  }
+}
+
+// Runs a suspending call inside a non-suspending function to completion in place (InstantClock, 8.7).
+// When R is Immediate, a suspend operation is either resumed in place or dropped without being
+// resumed; if dropped, throws $Interrupted. Returns `result` as is when it is not a generator.
+export function $sync(result) {
+  if (!$isGenerator(result)) return result;
+  let out;
+  const root = new $Root((ok, value) => {
+    out = { ok, value };
+  });
+  $step(root, result, (ok, value) => root.finish(ok, value), "next", undefined);
+  if (out === undefined) {
+    root.over = true;
+    throw new $Interrupted();
+  }
+  if (!out.ok) throw out.value;
+  return out.value;
+}
+
+// A call to a suspend fn operation inside a non-suspending function.
+export function $syncPerform(op, args) {
+  return $sync(
+    (function* () {
+      return yield $perform(op, args);
+    })(),
+  );
+}
+
 // Advances `gen` with `mode` ("next" or "throw") and `input` until it next suspends or finishes.
 // When it finishes, calls `end(ok, value)`.
 function $step(root, gen, end, mode, input) {

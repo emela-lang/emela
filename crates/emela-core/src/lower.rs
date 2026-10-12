@@ -12,8 +12,9 @@ use emela_resolve::hir::{
     Literal, LocalId, PatId, PatKind, Program, Res, Span, Stmt, StrPart as HirStrPart, UnaryOp,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{Prim, ProgramTypes, Ty};
+use emela_types::{Prim, ProgramTypes, Row, RowElem, Ty};
 use la_arena::ArenaMap;
+use rustc_hash::FxHashMap;
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
@@ -22,6 +23,10 @@ use crate::ir::{
     UnOp, VariantDef, VariantFields,
 };
 use crate::named;
+
+mod suspend;
+
+use suspend::Specialization;
 
 /// 型検査を通ったが IR にできなかった理由．
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,8 +104,10 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         true_def: hir.prelude_def("True"),
         false_def: hir.prelude_def("False"),
         module: Module::new(),
-        fns: ArenaMap::default(),
+        fns: FxHashMap::default(),
         worklist: Vec::new(),
+        current_def: None,
+        spec: 0,
         enums: ArenaMap::default(),
         ctors: ArenaMap::default(),
         locals: ArenaMap::default(),
@@ -123,16 +130,16 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
                 _ => false,
             };
             if is_root {
-                cx.fn_id(def);
+                cx.fn_id(def, 0);
             }
         }
     }
     let tests = match roots {
-        Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def)).collect(),
+        Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def, 0)).collect(),
         _ => Vec::new(),
     };
-    while let Some(def) = cx.worklist.pop() {
-        cx.define_fn(def);
+    while let Some((def, spec)) = cx.worklist.pop() {
+        cx.define_fn(def, spec);
     }
     if let Some(target) = input.target {
         let entries: Vec<FnId> = match roots {
@@ -178,10 +185,14 @@ struct Lowerer<'a> {
     false_def: Option<DefId>,
     /// 作りかけの IR．
     module: Module,
-    /// HIR の fn と const → IR の関数．const は引数のない関数にする．[`Lowerer::fn_id`] だけが足す．
-    fns: ArenaMap<DefId, FnId>,
-    /// ID を割り振ったが本体をまだ写していない fn．
-    worklist: Vec<DefId>,
+    /// HIR の fn と const と，どの中断用の写しか（`suspend.rs`）→ IR の関数．const は引数のない関数にする．
+    /// [`Lowerer::fn_id`] だけが足す．
+    fns: FxHashMap<(DefId, Specialization), FnId>,
+    /// ID を割り振ったが本体をまだ写していない fn（と，どの中断用の写しか）．
+    worklist: Vec<(DefId, Specialization)>,
+    /// 本体を写している定義と，どの中断用の写しか．ラムダと呼び出しの「中断しうる」の印を決めるのに使う．
+    current_def: Option<DefId>,
+    spec: Specialization,
     /// HIR の type / enum / error → IR の enum．
     enums: ArenaMap<DefId, EnumId>,
     /// HIR の構成子 → IR の構成子．error は宣言そのものが構成子．Bool の構成子は持たない．
@@ -212,50 +223,58 @@ enum Bind {
 }
 
 /// 呼び出しの呼ばれる側．
+///
+/// `Call` は呼び出しの印（`fails` は `Expr::Call::fails`，`suspends` は `Expr::Call::suspends`）．
 enum Target {
-    /// `fails` は呼ばれる側が失敗しうるか（`Expr::Call::fails`）．
     /// `Option<Expr>` は最後の引数に足す証拠の表（R が空でない関数を呼ぶとき）．
-    Direct(FnId, bool, Option<Expr>),
+    Direct(FnId, Call, Option<Expr>),
     Builtin {
         op: Builtin,
         ty_args: Vec<Type>,
     },
     Ctor(CtorRef),
     /// 関数の値．評価済みで，副作用なく何度でも参照できる式（変数か関数）．
-    /// `bool` は呼ばれる側が失敗しうるか．`Option<Expr>` は `Direct` と同じ．
-    Value(Expr, bool, Option<Expr>),
+    /// `Option<Expr>` は `Direct` と同じ．
+    Value(Expr, Call, Option<Expr>),
     /// 能力の値の操作（`log.info`）．`handler` は能力の値の式．
     Op {
         handler: Expr,
         effect: EffectId,
         op: usize,
-        fails: bool,
+        call: Call,
     },
+}
+
+/// 呼び出しの印．
+#[derive(Clone, Copy)]
+struct Call {
+    fails: bool,
+    suspends: bool,
 }
 
 impl Target {
     /// 位置の順に並んだ引数で呼ぶ式．
     fn apply(self, args: Vec<Expr>) -> Expr {
         match self {
-            Target::Direct(f, fails, ev) => Expr::Call {
+            Target::Direct(f, call, ev) => Expr::Call {
                 callee: Callee::Direct(f),
                 args: args.into_iter().chain(ev).collect(),
-                fails,
-                suspends: false,
+                fails: call.fails,
+                suspends: call.suspends,
             },
             Target::Builtin { op, ty_args } => Expr::Builtin { op, ty_args, args },
             Target::Ctor(ctor) => Expr::Ctor { ctor, args },
-            Target::Value(f, fails, ev) => Expr::Call {
+            Target::Value(f, call, ev) => Expr::Call {
                 callee: Callee::Indirect(Box::new(f)),
                 args: args.into_iter().chain(ev).collect(),
-                fails,
-                suspends: false,
+                fails: call.fails,
+                suspends: call.suspends,
             },
             Target::Op {
                 handler,
                 effect,
                 op,
-                fails,
+                call,
             } => Expr::Call {
                 callee: Callee::Op {
                     handler: Box::new(handler),
@@ -263,8 +282,8 @@ impl Target {
                     op,
                 },
                 args,
-                fails,
-                suspends: false,
+                fails: call.fails,
+                suspends: call.suspends,
             },
         }
     }
@@ -388,16 +407,30 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// fn の IR の ID．まだなければ割り振って作業リストに積む．fn の ID はここでしか作らない．
-    fn fn_id(&mut self, def: DefId) -> FnId {
-        if let Some(&id) = self.fns.get(def) {
+    /// fn の写し `spec` の IR の ID．まだなければ割り振って作業リストに積む．fn の ID はここでしか
+    /// 作らない．元の関数（0）の名前は定義の IR の名前のまま，中断用の写しは `名前$suspendビット` に
+    /// する（`$` は Emela の名前に現れないので重ならない）．公開するのは元の関数だけ．
+    fn fn_id(&mut self, def: DefId, spec: Specialization) -> FnId {
+        if let Some(&id) = self.fns.get(&(def, spec)) {
             return id;
         }
-        let name = self.ir_name(def);
-        let id = self.module.declare(&name, self.is_exported(def));
-        self.fns.insert(def, id);
-        self.worklist.push(def);
+        let mut name = self.ir_name(def);
+        if spec != 0 {
+            name = format!("{name}$suspend{spec}");
+        }
+        let id = self
+            .module
+            .declare(&name, spec == 0 && self.is_exported(def));
+        self.module.functions[id].suspends = self.fn_suspends(def, spec);
+        self.fns.insert((def, spec), id);
+        self.worklist.push((def, spec));
         id
+    }
+
+    /// 式 `expr` で参照した fn の IR の ID．具体化に合う写しを選ぶ．
+    fn fn_ref(&mut self, def: DefId, expr: ExprId) -> FnId {
+        let spec = self.specialization_of(def, Some(expr));
+        self.fn_id(def, spec)
     }
 
     /// HIR の局所変数に対応する IR の局所変数．まだなければ作る．
@@ -410,20 +443,20 @@ impl<'a> Lowerer<'a> {
         l
     }
 
-    fn define_fn(&mut self, def: DefId) {
+    fn define_fn(&mut self, def: DefId, spec: Specialization) {
         let hir = self.hir;
-        let id = self.fns[def];
-        // 関数ごとに証拠の表と with の束縛を始め直す．
+        let id = self.fns[&(def, spec)];
+        // 関数ごとに証拠の表と with の束縛を始め直す．局所変数の対応も作り直す（同じ定義の元の関数と
+        // 中断用の写しが局所変数を共有しないように．HIR の局所変数はどれか1つの定義の本体のもの）．
         self.ev = None;
         self.bound.clear();
+        self.locals = ArenaMap::default();
+        self.current_def = Some(def);
+        self.spec = spec;
         let (mut params, body) = match hir.item(def) {
+            // `@external suspend fn` は，宣言の型の R に Async があるので中断しうる関数になり，
+            // ホストの関数の返した Promise を待つ（12.2，`fn_id`）．
             Some(Item::Fn(f)) if f.body.is_none() => {
-                // `@external suspend fn` は Promise を返す関数に写す（12.2）．次の段で扱う．
-                if f.sig.is_suspend
-                    && let Some(span) = hir.defs[def].span
-                {
-                    self.report("suspend external functions", span);
-                }
                 let params = f.sig.params.iter().map(|p| self.local(p.local)).collect();
                 let external = self.external(def, f);
                 self.module.define_external(id, params, external);
@@ -451,15 +484,24 @@ impl<'a> Lowerer<'a> {
         self.module.define(id, params, body);
     }
 
-    /// fn が証拠の表を最後の引数に受けるか．宣言の型（汎化した型）の R が空でなければ受ける．
-    /// 中身の分からない集合（`R(f)`，汎化した集合）も空でないので受ける（引数の関数へ渡すため）．
+    /// fn が証拠の表を最後の引数に受けるか．宣言の型（汎化した型）の R に Async 以外の要素があれば
+    /// 受ける．中身の分からない集合（`R(f)`，汎化した集合）も受ける（引数の関数へ渡すため）．
+    /// Async はランタイムが供給し（8.3，13.3），ハンドラの値を持たないので，表は要らない．
     fn takes_ev(&self, def: DefId) -> bool {
-        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if !f.uses.is_empty())
+        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if self.row_needs_ev(&f.uses))
     }
 
-    /// 関数型の値を呼ぶときに証拠の表を渡すか．値の型の R が空でなければ渡す．
-    fn ty_takes_ev(ty: &Ty) -> bool {
-        matches!(ty, Ty::Fn(f) if !f.uses.is_empty())
+    /// 関数型の値を呼ぶときに証拠の表を渡すか．値の型の R に Async 以外の要素があれば渡す．
+    fn ty_takes_ev(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Fn(f) if self.row_needs_ev(&f.uses))
+    }
+
+    /// 効果の集合 `row` の関数に証拠の表が要るか．Async 以外の要素があれば要る．
+    fn row_needs_ev(&self, row: &Row) -> bool {
+        let async_ = self.hir.prelude_def("Async");
+        row.elems()
+            .iter()
+            .any(|e| !matches!(e, RowElem::Tag(t) if Some(*t) == async_))
     }
 
     /// 呼び出しの最後の引数に渡す今の証拠の表．表がなければ `()`（呼ばれる側は使わない．
@@ -585,7 +627,7 @@ impl<'a> Lowerer<'a> {
             .types
             .handler_uses
             .get(def)
-            .is_some_and(|r| !r.is_empty())
+            .is_some_and(|r| self.row_needs_ev(r))
         {
             let ev = self.module.local("ev");
             params.push(ev);
@@ -601,16 +643,21 @@ impl<'a> Lowerer<'a> {
             let (Some(index), Some(body)) = (index, op.body) else {
                 continue;
             };
-            if op.is_suspend {
-                self.report("suspend operations", hir.exprs[body].span);
-                continue;
-            }
+            // suspend fn の実装の引数は，操作の引数と最後の resume（8.4）．resume は普通の
+            // 関数の値で，呼んでも中断も失敗もしない（型が `fn(T) -> ()`）．
             let ps = op.params.iter().map(|p| self.local(p.local)).collect();
+            // 本体が中断しうる（`@external suspend fn` を待つなど）なら，実装もジェネレータにする．
+            // resume を後から呼ぶだけの Async（8.7）は本体の R に載らないので，中断しない．
+            let suspends = self
+                .types
+                .effects
+                .get(body)
+                .is_some_and(|r| self.row_suspends(r));
             // 操作の本体の失敗は戻り値として操作の呼び出し元へ返る（ラムダと同じ）．
             ops[index] = Some(Expr::Lambda {
                 params: ps,
                 body: Box::new(self.expr(body)),
-                suspends: false,
+                suspends,
             });
         }
         if ops.iter().any(Option::is_none) {
@@ -649,9 +696,6 @@ impl<'a> Lowerer<'a> {
                 Some(Item::Handler(h)) => {
                     if !h.fields.is_empty() || h.init.is_some() || h.release.is_some() {
                         return self.unsupported("handlers with state", span);
-                    }
-                    if h.ops.iter().any(|op| op.is_suspend) {
-                        return self.unsupported("suspend operations", span);
                     }
                     let Res::Def(effect) = h.effect else {
                         return self.unsupported("handler of an unknown effect", span);
@@ -695,12 +739,12 @@ impl<'a> Lowerer<'a> {
         let mut binds = Vec::new();
         for i in order {
             let (h, _) = hs[i];
-            let f = self.fn_id(h);
+            let f = self.fn_id(h, 0);
             let args = if self
                 .types
                 .handler_uses
                 .get(h)
-                .is_some_and(|r| !r.is_empty())
+                .is_some_and(|r| self.row_needs_ev(r))
             {
                 let bindings: Vec<(EffectId, Expr)> = deps[i]
                     .iter()
@@ -786,11 +830,12 @@ impl<'a> Lowerer<'a> {
     /// 足して本体の表にする（`use X` は囲む with を先に見る，8.3）．
     fn lambda(&mut self, id: ExprId, params: &[emela_resolve::hir::Param], body: ExprId) -> Expr {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
-        if !Self::ty_takes_ev(self.expr_ty(id)) {
+        let suspends = self.ty_suspends(self.expr_ty(id));
+        if !self.ty_takes_ev(self.expr_ty(id)) {
             return Expr::Lambda {
                 params: ps,
                 body: Box::new(self.expr(body)),
-                suspends: false,
+                suspends,
             };
         }
         let outer = self.ev;
@@ -827,7 +872,7 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params: ps,
             body: Box::new(body),
-            suspends: false,
+            suspends,
         }
     }
 
@@ -842,8 +887,9 @@ impl<'a> Lowerer<'a> {
         };
         let effect_id = self.effect_id(effect);
         let fails = self.callee_fails(id);
+        let suspends = self.module.effects[effect_id].ops[index].suspend;
         let (arity, ev) = match self.expr_ty(id) {
-            Ty::Fn(f) => (f.params.len(), !f.uses.is_empty()),
+            Ty::Fn(f) => (f.params.len(), self.row_needs_ev(&f.uses)),
             _ => unreachable!("操作の参照の型は関数型"),
         };
         let handler = self.expr(base);
@@ -866,9 +912,9 @@ impl<'a> Lowerer<'a> {
                     },
                     args,
                     fails,
-                    suspends: false,
+                    suspends,
                 }),
-                suspends: false,
+                suspends,
             }),
         }
     }
@@ -879,7 +925,7 @@ impl<'a> Lowerer<'a> {
         items.items.iter().find_map(|&def| {
             let data = &self.hir.defs[def];
             (data.name == "main" && data.kind == DefKind::Fn)
-                .then(|| self.fns.get(def).copied())
+                .then(|| self.fns.get(&(def, 0)).copied())
                 .flatten()
         })
     }
@@ -910,7 +956,7 @@ impl<'a> Lowerer<'a> {
                 self.fns
                     .iter()
                     .find(|(_, id)| **id == f)
-                    .map(|(d, _)| d)
+                    .map(|(&(d, _), _)| d)
                     .expect("IR の関数は HIR の定義から作る")
             })
             .collect();
@@ -1072,10 +1118,10 @@ impl<'a> Lowerer<'a> {
             return Expr::Lit(Lit::Bool(false));
         }
         match self.hir.item(def) {
-            Some(Item::Fn(f)) if f.body.is_some() => Expr::Fn(self.fn_id(def)),
+            Some(Item::Fn(f)) if f.body.is_some() => Expr::Fn(self.fn_ref(def, id)),
             // 組み込み関数とフィールドのある構成子は IR の値でないので，ラムダで包む．
             Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
-            Some(Item::Fn(_)) => Expr::Fn(self.fn_id(def)),
+            Some(Item::Fn(_)) => Expr::Fn(self.fn_ref(def, id)),
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
                 Some(&ctor) if self.module.variant(ctor).fields.is_empty() => Expr::Ctor {
                     ctor,
@@ -1085,7 +1131,7 @@ impl<'a> Lowerer<'a> {
             },
             // const の値は失敗しない（5.6）．
             Some(Item::Const(_)) => Expr::Call {
-                callee: Callee::Direct(self.fn_id(def)),
+                callee: Callee::Direct(self.fn_id(def, 0)),
                 args: Vec::new(),
                 fails: false,
                 suspends: false,
@@ -1120,17 +1166,17 @@ impl<'a> Lowerer<'a> {
             .map(|(pos, arg)| (pos, self.expr(arg)))
             .collect();
         let (target, binding) = match target {
-            Target::Value(f, fails, ev) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
+            Target::Value(f, call, ev) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
                 // 引数を並べ替えて `let` で束縛すると呼ばれる側より先に評価されるので，
                 // 呼ばれる側を先に束縛しておく．
                 let l = self.module.local("f");
-                (Target::Value(Expr::Var(l), fails, ev), Some((l, f)))
+                (Target::Value(Expr::Var(l), call, ev), Some((l, f)))
             }
             Target::Op {
                 handler,
                 effect,
                 op,
-                fails,
+                call,
             } if !matches!(handler, Expr::Var(_) | Expr::Use { .. }) => {
                 // 証拠の表を引くだけの式（`(use X).op()`）は副作用がないので束縛しない．
                 let l = self.module.local("h");
@@ -1138,7 +1184,7 @@ impl<'a> Lowerer<'a> {
                     handler: Expr::Var(l),
                     effect,
                     op,
-                    fails,
+                    call,
                 };
                 (t, Some((l, handler)))
             }
@@ -1171,15 +1217,21 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params,
             body: Box::new(target.apply(args)),
-            suspends: false,
+            suspends: self.ty_suspends(self.expr_ty(id)),
         }
     }
 
     /// 呼ばれる側．IR にできなければ診断を積んで `Err` に代わりの式を入れる．
     fn callee(&mut self, callee: ExprId, span: Span) -> Result<Target, Expr> {
         let hir = self.hir;
-        let fails = self.callee_fails(callee);
-        let ev = Self::ty_takes_ev(self.expr_ty(callee)).then(|| self.ev_arg());
+        // 関数の値の呼び出しは，呼ばれる側の式の型で決める．
+        let call = Call {
+            fails: self.callee_fails(callee),
+            suspends: self.ty_suspends(self.expr_ty(callee)),
+        };
+        let ev = self
+            .ty_takes_ev(self.expr_ty(callee))
+            .then(|| self.ev_arg());
         // 能力の値の操作（`log.info(...)`）．
         if let ExprKind::Field { base, .. } = &hir.exprs[callee].kind
             && let Some(&op) = self.types.ops.get(callee)
@@ -1188,20 +1240,26 @@ impl<'a> Lowerer<'a> {
         {
             let effect = self.effect_id(effect);
             let handler = self.expr(*base);
+            // suspend fn の操作の呼び出しは中断しうる（8.1）．fn の操作の本体は中断しない（E0417）．
+            let call = Call {
+                suspends: self.module.effects[effect].ops[index].suspend,
+                ..call
+            };
             return Ok(Target::Op {
                 handler,
                 effect,
                 op: index,
-                fails,
+                call,
             });
         }
         let ExprKind::Path(Res::Def(def)) = hir.exprs[callee].kind else {
-            return Ok(Target::Value(self.expr(callee), fails, ev));
+            return Ok(Target::Value(self.expr(callee), call, ev));
         };
         match hir.item(def) {
             Some(Item::Fn(f)) if f.body.is_some() => {
                 let ev = self.takes_ev(def).then(|| self.ev_arg());
-                Ok(Target::Direct(self.fn_id(def), fails, ev))
+                let f = self.fn_ref(def, callee);
+                Ok(Target::Direct(f, self.direct_call(f, call), ev))
             }
             Some(Item::Fn(f)) if f.is_intrinsic => {
                 let data = &hir.defs[def];
@@ -1217,13 +1275,28 @@ impl<'a> Lowerer<'a> {
                 };
                 Ok(Target::Builtin { op, ty_args })
             }
-            // 外部関数は失敗せず（12.5），R も空（12.2）．
-            Some(Item::Fn(_)) => Ok(Target::Direct(self.fn_id(def), false, None)),
+            // 外部関数は失敗せず（12.5），R は空か Async だけ（12.2）なので表も渡さない．
+            Some(Item::Fn(_)) => {
+                let f = self.fn_ref(def, callee);
+                let call = Call {
+                    fails: false,
+                    ..call
+                };
+                Ok(Target::Direct(f, self.direct_call(f, call), None))
+            }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
                 Some(&ctor) => Ok(Target::Ctor(ctor)),
                 None => Err(self.unsupported("this constructor", span)),
             },
-            _ => Ok(Target::Value(self.expr(callee), fails, ev)),
+            _ => Ok(Target::Value(self.expr(callee), call, ev)),
+        }
+    }
+
+    /// 関数 `f` を直接呼ぶときの印．中断しうるかは呼ぶ関数の印と同じにする（`Expr::Call`）．
+    fn direct_call(&self, f: FnId, call: Call) -> Call {
+        Call {
+            suspends: self.module.functions[f].suspends,
+            ..call
         }
     }
 
@@ -1526,7 +1599,7 @@ impl<'a> Lowerer<'a> {
                 let x = self.module.local("c");
                 let ty = prim_op_ty(&self.types.pats[id]).unwrap_or(OpTy::Structural);
                 let value = Expr::Call {
-                    callee: Callee::Direct(self.fn_id(*def)),
+                    callee: Callee::Direct(self.fn_id(*def, 0)),
                     args: Vec::new(),
                     fails: false,
                     suspends: false,

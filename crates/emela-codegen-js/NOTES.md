@@ -124,4 +124,18 @@
 - （補）起動（main かテスト関数）が終わる（値，defect，中断のまま巻き戻る）と，残った継続は進めない．その後の resume は何もしない（2回目でも defect にしない）
 - （補）`@external suspend fn` の包みはジェネレータで，ホストの関数を呼んで返った値を `yield $await(値)` で待つ．Promise でない値はそのまま解決した値として扱う（`Promise.resolve`）．解決した値は戻り値と同じ規則で写す．呼んだときの例外と拒否はどちらも `$foreign` で defect（12.5）．拒否は待っていた位置へ投げる
 - （補）中断しうる関数を export するモジュールは，ランタイムの `$start` も export する．起動用モジュールとテストランナーはランタイムを読み込まないので，`$start` を出力したモジュールから引く．中断しうる関数がなければ出力は今までと同じ
+- （補）中断しない関数（R が Immediate）の中の中断しうる呼び出しは，その場で resume するハンドラの with の中にだけ現れる（8.7）．ジェネレータを `$sync` でその場で最後まで進め，suspend fn の操作は `$syncPerform` で呼ぶ．その場で resume されなければ，その継続は二度と resume されない（resume を後から呼べるハンドラは依存に Async があり，R が Immediate でなくなる）ので，すぐに `$Interrupted`（`name` が `"Interrupted"` の `Error`）を投げて巻き戻る．起動用モジュールとテストランナーは `interrupted` として報告する
+- （補）関数の名前の `$`（lowering が作った中断用の写しの `List.map$suspend8`）は JS の名前にそのまま残す（`List_map$suspend8`）．Emela の名前に `$` は現れないので元の関数と重ならない
 - （補）`$start(gen, done)` は `done(true, 戻り値)` か `done(false, 例外)` を1回だけ呼び，止める関数を返す．中断したまま resume されなければ `done` は呼ばれない．それを見分けるのは呼び出し側（イベントループが空になったか）
+
+### alpha.5（fiber，11章）への申し送り
+
+2026-10-12 時点の見通し．（補）ではなく，次の段で決めることのメモ．
+
+- 中断しない関数（R が Immediate）をふつうの JS の関数のままにし，fiber の切り替えをジェネレータの yield でだけ起こすことで，11.1 の「Immediate な関数は他の fiber から見て一息に実行される」が成り立つ．fn の操作の本体で待つのを E0417 で禁じているのはこのためでもある（State の `update` の一息性，8.8）
+- 起動ごとの `$Root` を，fiber の一覧を持つスケジューラに広げる．各 fiber は今の `$step` で進める．join は「子が終わったら resume する suspend な操作」として書ける
+- 中断されたまま巻き戻るのを fiber 単位にする．`$sync` の `$Interrupted` も，その fiber の Interrupt（11.5）としてスコープが受ける．今は起動用モジュールとテストランナーがプログラム全体（かテスト）の `interrupted` にしている
+- 中断された fiber の release（11.4，14.5）は，ジェネレータの `return()` で `finally` を走らせて実行する．release の出力（alpha.4）を `try/finally` にしておくとそのまま使える．中断しない関数の中の with は `$Interrupted` の例外で巻き戻るので，同じ `finally` で足りる
+- 公平性のための譲渡（11.1）は，中断しうる関数の yield の位置にだけ挟める．中断しない長いループは割り込まれない（11.1 のとおり）
+- fork の引数の関数は R が多相なので，lowering の中断用の写し（emela-core の NOTES の「lowering の印」）をそのまま使える．中断しない関数を渡せば元の関数のまま，子の fiber として一息に走る
+- 決め直すこと: suspend fn の実装の本体が resume の後も走り続けるとき（14.5 の3，4），今は同じ起動の中の別の継続として進めている（`$performOp` の中のジェネレータの実装）．fiber が入ったら，本物の fiber にするか，resume した側の続きの前に一息で走らせるだけに限るかを決める．中断と失敗の扱いを Fiber.scope とそろえるため

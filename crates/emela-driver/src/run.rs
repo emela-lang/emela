@@ -31,7 +31,8 @@ pub const FAIL_KEY: &str = "emela.fail";
 ///
 /// 中断しうる main（ジェネレータを返す）は，エントリが公開するランタイムの `$start` で進め，
 /// イベントループで待つ．resume されないままループが空になったら，`interrupted` を出して
-/// 終了コード 130 で終わる（14.5）．defect は，ホストのコールバックの中で起きたものも
+/// 終了コード 130 で終わる（14.5）．中断しない main の中で resume されずに捨てられた継続
+/// （ランタイムの `$Interrupted`）も同じ．defect は，ホストのコールバックの中で起きたものも
 /// `defect: <メッセージ>` を出して終了コード 101 で終わる（7.5）．
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
@@ -47,7 +48,10 @@ function finish(value) {
 function crash(error) {
   if (over) return;
   over = true;
-  if (error instanceof Error && error.name === "Defect") {
+  if (error instanceof Error && error.name === "Interrupted") {
+    process.exitCode = 130;
+    process.stderr.write("interrupted\n", () => process.exit(130));
+  } else if (error instanceof Error && error.name === "Defect") {
     process.exitCode = 101;
     process.stderr.write(`defect: ${error.message}\n`, () => process.exit(101));
   } else {

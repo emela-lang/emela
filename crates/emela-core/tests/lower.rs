@@ -689,3 +689,71 @@ fn missing_core_js_file_is_an_error() {
     let errors = lower_with_host_test("fn main() { dbg(HostTest.gone()) }\n").unwrap_err();
     assert_eq!(errors, ["HostTest: `gone` missing core file ./missing.mjs"]);
 }
+
+/// suspend（8.1，8.4，12.2，16.5）．中断しうる関数，ラムダ，呼び出しに印を付ける．多相な R の関数
+/// （`List.map`）は，中断しうる関数を渡したところで中断用の写し（`List.map$suspend…`）を作る．
+/// main の R に残った Async は証拠の表を要らない（ランタイムが供給する）．
+#[test]
+fn suspend_marks_and_copies() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Clock {
+  suspend fn sleep(ms: Int) -> Int
+  fn now() -> Int
+}
+
+@external(js, \"setTimeout\")
+fn after(ms: Int, f: fn() -> ()) -> ()
+
+@external(js, \"./ffi.mjs\", \"fetchText\")
+suspend fn fetch_text(url: String) -> String
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  fn now() { 0 }
+}
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(0) }
+  fn now() { 0 }
+}
+
+handler FetchingClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(String.length(fetch_text(\"x\"))) }
+  fn now() { 0 }
+}
+
+fn naps(xs: List[Int]) -> List[Int] use Clock {
+  clock = use Clock
+  List.map(xs, fn(ms) { clock.sleep(ms) + clock.now() })
+}
+
+fn main() {
+  with JsClock { dbg(naps([1, 2])) }
+  with InstantClock { dbg((use Clock).sleep(1)) }
+  with FetchingClock { dbg((use Clock).sleep(1)) }
+  dbg(List.map([1], fn(x) { x }))
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            [
+                "fn main(",
+                "fn naps(",
+                "fn JsClock(",
+                "fn InstantClock(",
+                "fn FetchingClock(",
+                "fn fetch_text(",
+                "fn List.map",
+                "effect ",
+            ]
+            .iter()
+            .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}

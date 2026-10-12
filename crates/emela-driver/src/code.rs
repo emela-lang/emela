@@ -92,6 +92,7 @@ pub const ASYNC_HANDLER: &str = "E0413";
 pub const USE_ASYNC: &str = "E0414";
 pub const SUSPEND_MISMATCH: &str = "E0415";
 pub const NOT_IMMEDIATE: &str = "E0416";
+pub const SUSPENDING_FN_OP: &str = "E0417";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

@@ -21,6 +21,7 @@ handler Ticking: use { Async, Logger, Clock }
 `update` NotImmediate { effects: [], sets: ["R"], required: Bound { param: "R", callee: "update" } }
 `Immediate` ImmediateOnNonEffect { param: "A" }
 `Show` not supported yet: trait bounds on effect sets
+`info` SuspendingFnOp { op: "info", effects: ["Async", "Clock"] }
 `set_timeout` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
 `set_timeout` NotImmediate { effects: ["Async"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
 --- R

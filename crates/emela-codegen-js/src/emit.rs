@@ -1102,8 +1102,10 @@ pub(crate) fn is_identifier_name(name: &str) -> bool {
 }
 
 /// トップレベル関数の JS 名．予約語や生成コードが使う大域名と重なるときは `$` を付ける．
+/// lowering が作った中断用の写しの名前（`List.map$suspend1`）の `$` はそのまま残す（Emela の名前には
+/// 現れないので，元の関数と重ならない）．
 pub(crate) fn fn_name(name: &str) -> String {
-    let s = sanitize(name);
+    let s: String = name.split('$').map(sanitize).collect::<Vec<_>>().join("$");
     if RESERVED.contains(&s.as_str()) {
         format!("{s}$")
     } else {

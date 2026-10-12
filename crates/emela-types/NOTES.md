@@ -129,7 +129,8 @@
 - （補）外部関数の引数の型の中で `use` を省略した見えない効果の集合（`R(f)`）は Immediate の制約を持つ（9.5 の「外部関数に渡すコールバック」）．渡したコールバックは上と同じ仕組みで確かめ，文面だけを変える．外部関数の宣言の引数の関数型に書いた `use` 節も，Immediate でないエフェクトか制約のない集合の型引数があれば宣言の位置に E0416．
 - （補）E0416 は参照の位置（呼ばれる側の名前）に出す．同じ呼び出しの中の要素はまとめて1つにする．
 - （補）型の表示: `R: Immediate` はスキームの表示に `∀ A, R: Immediate. ...` と出す．ホバーでは suspend fn（操作と `@external suspend fn`）の型の前に `suspend` を付け，handler の名前には `handler H implements E` と依存（`use Async` など）を出す．
-- （補）lowering と JS の出力は次の段．今は suspend の実装を持つ handler を with に書くと，lowering が「まだ扱えない」（`suspend operations`）にする．`@external suspend fn` を出力に含めるときも「まだ扱えない」（`suspend external functions`）．
+- （補）fn の操作（suspend fn でないもの）の実装の本体の R は Immediate でなければならない（E0417）．fn の操作は「ハンドラが値を返すと呼び出し元はすぐ続きを実行する」（8.1）もので，エフェクトが Immediate なら呼ぶ側は中断しない前提で動く．本体で `@external suspend fn` を待ったり suspend な操作を呼んだりすると，Immediate なエフェクトの操作が中断することになり，`R: Immediate` を求める場所（9.5）にも渡せてしまう．待つ操作は suspend fn にする．診断は操作の実装の名前の位置に出し，本体の R の中断しうるエフェクトを並べる．
+- （補）lowering が中断しうるかの印を具体化ごとに決められるよう，`ProgramTypes::type_rows`（参照の式 → 集合の型引数を具体化した集合）と `ProgramTypes::generalized_rows`（推論した定義の本体に残る汎化した集合変数 → 型引数の添字）を返す（emela-core の NOTES の「lowering の印」）．
 - （補）type の効果の集合の型引数にも `R: Immediate` を書ける（`type Ticker[R: Immediate](tick: fn() -> () use R)`）．制約は構成子のスキームに写り，構成子を参照したところで確かめる（E0416）．型の書き方（`Ticker[Clock]` と書いた引数の型など）では確かめない．値は構成子からしか作れないので，作ったところで確かめれば足りる．
 
 ## 宣言の型引数の集合（9.2 の `type Handler[E, R]`）
@@ -202,6 +203,7 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
 - E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``
+- E0417 `SuspendingFnOp`: ``effect `Async` may suspend, but operation `get` is not a `suspend fn` ``．注記 ``= help: declare `get` as a `suspend fn` in the effect, or call the suspending operation outside the handler ``
 - E0416 `NotImmediate`: ``effect `Clock` may suspend, but `R` of `update` must be `Immediate` ``．集合の型引数なら ``effect set `R(f)` may suspend, ...``，注記 ``= help: constrain the effect set with `: Immediate` ``．外部関数のコールバックは ``effect `Async` may suspend, but callbacks passed to external function `set_timeout` must be `Immediate` ``
 - E0323 `SetArgMismatch`: ``` `E` of `Handler` is an error set, found type `Int` ```（`found` は ``effect `Clock` ``，``error `NotFound` ``，``type parameter `A` `` など）．注記 ``= help: write an error or an error set type parameter``（効果の集合なら ``an effect or an effect set type parameter``）
 - E0324 `SetAsType`: ``expected a type, found a set: sets can only be passed to set type parameters``

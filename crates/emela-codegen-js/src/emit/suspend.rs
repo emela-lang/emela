@@ -14,7 +14,11 @@
 //! }
 //! ```
 //!
-//! 中断しない関数の出力は変わらない．失敗の `$Fail` はジェネレータの戻り値として同じように返り，
+//! 中断しない関数（R が Immediate）の中にも，その場で resume するハンドラ（8.7 の InstantClock）の
+//! with の中なら中断しうる呼び出しが現れる．そこではジェネレータを `$sync` でその場で最後まで進め，
+//! suspend fn の操作は `$syncPerform` で呼ぶ．resume されなければ `$Interrupted` を投げる（14.5）．
+//!
+//! 中断しうる呼び出しのない関数の出力は変わらない．失敗の `$Fail` はジェネレータの戻り値として同じように返り，
 //! 自己末尾呼び出しのループ（16.3）は `Recur` が呼び出しを置き換えているので `yield*` を挟まない．
 
 use emela_core::Callee;
@@ -43,7 +47,9 @@ impl Emitter<'_> {
                 if !suspends {
                     return call;
                 }
-                self.expect_generator();
+                if !self.generator {
+                    return format!("{}({call})", self.rt("$sync"));
+                }
                 format!("(yield* {call})")
             }
             Callee::Op { effect, op, .. } if self.m.effects[*effect].ops[*op].suspend => {
@@ -53,7 +59,10 @@ impl Emitter<'_> {
                     "不正な IR: suspend fn の操作 `{}.{}` の呼び出しが中断しないことになっている",
                     def.name, def.ops[*op].name
                 );
-                self.expect_generator();
+                if !self.generator {
+                    let perform = self.rt("$syncPerform");
+                    return format!("{perform}({f}, [{}])", args.join(", "));
+                }
                 let perform = self.rt("$perform");
                 format!("(yield {perform}({f}, [{}]))", args.join(", "))
             }
@@ -62,17 +71,12 @@ impl Emitter<'_> {
                 if !suspends {
                     return call;
                 }
-                self.expect_generator();
+                if !self.generator {
+                    return format!("{}({call})", self.rt("$sync"));
+                }
                 let maybe = self.rt("$maybe");
                 format!("(yield* {maybe}({call}))")
             }
         }
-    }
-
-    fn expect_generator(&self) {
-        assert!(
-            self.generator,
-            "不正な IR: 中断しうる呼び出しが中断しない関数の中にある"
-        );
     }
 }

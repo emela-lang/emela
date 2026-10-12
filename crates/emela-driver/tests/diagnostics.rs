@@ -588,6 +588,14 @@ handler JsClock implements Clock {
 handler Runtime implements Async {
 }
 
+effect Http {
+  fn get(url: String) -> String
+}
+
+handler JsHttp implements Http {
+  fn get(url) { fetch_text(url) }
+}
+
 fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
 
 fn not_effect[A: Immediate](x: A) -> A { x }

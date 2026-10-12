@@ -760,6 +760,19 @@ impl Diagnostic {
                     )
                 }
             }
+            TypeDiagnosticKind::SuspendingFnOp { op, effects } => {
+                help = Some(format!(
+                    "declare `{op}` as a `suspend fn` in the effect, or call the suspending operation outside the handler"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::SUSPENDING_FN_OP),
+                    format!(
+                        "{} may suspend, but operation `{op}` is not a `suspend fn`",
+                        quoted_list("effect", "effects", effects)
+                    ),
+                )
+            }
             TypeDiagnosticKind::NotImmediate {
                 effects,
                 sets,
