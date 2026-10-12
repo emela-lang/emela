@@ -7,6 +7,7 @@ mod diagnostic;
 mod fmt;
 mod frontend;
 mod hover;
+mod internal;
 mod js;
 mod output;
 mod pipeline;

@@ -9,6 +9,7 @@ use la_arena::ArenaMap;
 
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
+use crate::internal::check_internal;
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
@@ -233,6 +234,8 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         let (tests, mut test_diagnostics) = collect_tests(analysis, |m| self.parse_of(m));
         let (tests, ref_diagnostics) = resolve_tests(analysis, &hir, tests);
         test_diagnostics.extend(ref_diagnostics);
+        // `@internal` の置き場所（E0229）と core の外からの参照（E0228）．
+        test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
         // main とテスト関数の R は空でなければならない（8.3，13.3）．
         let options = CheckOptions {
             main: analysis.entry.and_then(|entry| entry_main(&hir, entry)),

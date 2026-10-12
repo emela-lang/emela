@@ -34,6 +34,9 @@ pub const MISPLACED_INTRINSIC: &str = "E0225";
 // テスト（13.1）
 pub const INVALID_TEST: &str = "E0226";
 pub const TEST_FN_OUTSIDE_TESTS: &str = "E0227";
+// core の中からだけ参照できる fn（`@internal`）
+pub const INTERNAL_FN_OUTSIDE_CORE: &str = "E0228";
+pub const MISPLACED_INTERNAL: &str = "E0229";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 
