@@ -342,6 +342,7 @@ pub(crate) fn lower_typed(
         entry,
         tests: typed.tests.iter().map(|t| t.def).collect(),
         paths,
+        core_js_files: emela_core::core_js_files(),
         target: Some(JS_TARGET),
     };
     match emela_core::lower(&input, roots) {

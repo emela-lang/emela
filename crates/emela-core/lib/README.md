@@ -6,6 +6,16 @@
 - 対象を第1引数に置くので，`xs |> List.map(f)` のようにパイプで書ける
 - 引数名は名前付き引数のラベルになる（6.2）．`List.fold(init: 0, f: add)` のように書ける
 
+## core に JS のファイルを足す
+
+core の `.emel` から `@external(js, "./x.mjs", "name")` でホストの関数を呼ぶときは，`.mjs` を `lib/` に置いて埋め込む．
+
+1. `lib/x.mjs` を書く．別の `.mjs` を `./y.mjs` のように相対で import してよい（`lib/` の下のサブディレクトリも使える）
+2. `src/sources.rs` の `JS_FILES` に `("x.mjs", include_str!("../lib/x.mjs"))` を足す．パスは `lib/` からの相対で `/` 区切り．載せ忘れはテスト `js_files_match_lib_dir` が見つける
+3. core の `.emel` に `@external(js, "./x.mjs", "name")` を書く．パスは `lib/` の直下からの相対（core のソースは `lib/` の直下にある）
+
+build，run，test では，lowering がその指定を `./emela_core/x.mjs` に直し，出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
+
 ## Prelude（`prelude.emel`）
 
 | 宣言 | シグネチャ | 実装 | 説明 |

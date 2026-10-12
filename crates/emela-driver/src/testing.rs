@@ -26,7 +26,7 @@ pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
 use crate::code;
 use crate::diagnostic::Diagnostic;
 use crate::frontend::{Typecheck, lower_typed};
-use crate::js::{CoreJs, JS_ENTRY_FILE};
+use crate::js::{CoreJs, JS_ENTRY_FILE, core_js_outputs};
 use crate::output::{JsOutput, OutputFile, write_output};
 use crate::pipeline::{
     Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, check,
@@ -230,12 +230,14 @@ impl TestBackend<TestModule> for CoreJs {
             })
             .collect();
         let main = emit_test_main(&format!("./{JS_ENTRY_FILE}"), &entries);
+        let mut files = vec![
+            OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
+            OutputFile::new(RUNTIME_FILE, RUNTIME),
+            OutputFile::new(JS_TEST_ENTRY_FILE, main),
+        ];
+        files.extend(core_js_outputs(&module));
         Ok(JsOutput {
-            files: vec![
-                OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
-                OutputFile::new(RUNTIME_FILE, RUNTIME),
-                OutputFile::new(JS_TEST_ENTRY_FILE, main),
-            ],
+            files,
             entry: JS_TEST_ENTRY_FILE.into(),
         })
     }

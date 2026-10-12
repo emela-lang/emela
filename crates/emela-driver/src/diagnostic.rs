@@ -423,6 +423,12 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::MissingCoreFile { path, span } => (
+                Diagnostic::error(format!(
+                    "internal error: the bundled core has no file `{path}`"
+                )),
+                span,
+            ),
         };
         match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
             Some(span) => diagnostic.with_span(span),
