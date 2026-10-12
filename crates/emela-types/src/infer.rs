@@ -1,8 +1,9 @@
-//! 単一化，`Never` の join，汎化と具体化．
+//! Unification, joining with `Never`, generalization and instantiation.
 //!
-//! 関数型のエラーの集合と効果の集合は単一化では等しくせず，包含の制約（[`Subset`]）として溜める．
-//! 期待する型の位置に置いた関数の E と R は，期待する型の E と R に含まれればよい（7.4，9.2）．
-//! 制約は本体の推論が終わってから解く（`body/errors.rs`）．
+//! Error sets and effect sets of function types are not equated by unification; they are
+//! collected as inclusion constraints ([`Subset`]). A function placed where a type is expected
+//! only needs its E and R to be contained in the expected E and R (spec 7.4, 9.2). The
+//! constraints are solved after the body is inferred (`body/errors.rs`).
 
 use emela_resolve::hir::{DefId, Span};
 use ena::unify::InPlaceUnificationTable;
@@ -16,7 +17,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
 
 pub use crate::row::SetKind;
 
-/// 集合の包含の制約 `sub ⊆ sup`．
+/// An inclusion constraint `sub ⊆ sup`.
 #[derive(Clone, Debug)]
 pub(crate) struct Subset {
     pub(crate) sub: Row,
@@ -25,37 +26,40 @@ pub(crate) struct Subset {
     pub(crate) kind: SetKind,
 }
 
-/// 包含の制約がどこから来たか．解けなかったときの診断を決める．
+/// Where an inclusion constraint came from; decides the diagnostic when it cannot be solved.
 #[derive(Clone, Debug)]
 pub(crate) enum Origin {
-    /// 関数の値を，関数型を期待する位置に置いた（単一化）．位置はその式，`def` は推論していた定義．
+    /// A function value placed where a function type is expected (unification). The span is that
+    /// expression's; `def` is the definition being inferred.
     Coerce {
         span: Option<Span>,
         def: Option<DefId>,
     },
-    /// 定義の本体の E（R）が，宣言の E（R）に含まれる．
+    /// The E (R) of a definition's body is contained in the declared E (R).
     Body(DefId),
-    /// handler の `index` 番目の操作の本体の E が，エフェクトの操作の宣言の E に含まれる（8.1）．
+    /// The E of the body of a handler's `index`-th operation is contained in the E of the effect's
+    /// operation declaration (spec 8.1).
     HandlerOp { handler: DefId, index: usize },
-    /// handler の init と release の本体の R が依存に，init の E が init の E の集合変数に
-    /// 含まれる（8.4，9.4）．どちらも集合変数なので必ず満たせる．
+    /// The R of a handler's init and release bodies is contained in its dependencies, and the E
+    /// of init in init's E set variable (spec 8.4, 9.4). Both are set variables, so this always
+    /// holds.
     HandlerPart,
-    /// handler の release の本体の E が空である（8.4）．
+    /// The E of a handler's release body is empty (spec 8.4).
     Release(DefId),
-    /// main かテスト関数の本体の R が空である（8.3，13.3）．
+    /// The R of the body of `main` or a test function is empty (spec 8.3, 13.3).
     Closed(DefId),
-    /// ラムダの本体の E（R）が，ラムダの型の E（R）に含まれる．必ず満たせる．
+    /// The E (R) of a lambda's body is contained in the lambda type's E (R). Always holds.
     Lambda,
 }
 
-/// 単一化の向き．関数型の E の包含の向きを決める．
+/// Decides the direction of inclusion for the E of function types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Variance {
-    /// 実際の側が期待する側に含まれる．
+    /// The actual side is contained in the expected side.
     Co,
-    /// 期待する側が実際の側に含まれる（関数の引数の中）．
+    /// The expected side is contained in the actual side (inside function parameters).
     Contra,
-    /// 両方向（名前付き型の型引数の中）．
+    /// Both directions (inside type arguments of named types).
     Inv,
 }
 
@@ -69,24 +73,22 @@ impl Variance {
     }
 }
 
-/// 推論の状態．型変数の表と，集めた型エラーを持つ．
+/// Holds the type variable table and the collected type errors.
 #[derive(Default)]
 pub struct InferCtx {
     table: InPlaceUnificationTable<TyVar>,
     errors: Vec<TypeError>,
-    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない（2.4）．
+    /// Type variables of integer literals. They can only be bound to Int or Int64 (spec 2.4).
     int_vars: Vec<TyVar>,
-    /// 次に作る集合変数の番号．
     next_row_var: u32,
-    /// 溜めた包含の制約．
     subsets: Vec<Subset>,
-    /// 単一化の途中で作った包含の制約．単一化が成功したら `subsets` に移す．
+    /// Constraints created during unification, moved to `subsets` once unification succeeds.
     row_buffer: Vec<(Row, Row, SetKind)>,
-    /// これから溜める単一化の制約の位置と，推論している定義．
+    /// The span and definition for constraints collected from now on.
     origin: (Option<Span>, Option<DefId>),
-    /// error の名前付き型 → タグ．`RowElem::Of` をタグにするのに使う．
+    /// Named error type → tag. Used to turn `RowElem::Of` into tags.
     error_tags: FxHashMap<TyConId, DefId>,
-    /// 集合変数の解．解いた後（[`Self::set_row_solution`]）だけ持つ．
+    /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
 }
 
@@ -103,34 +105,30 @@ impl InferCtx {
         Ty::Var(self.fresh_var())
     }
 
-    /// 新しい集合変数．
     pub fn new_row_var(&mut self) -> RowVar {
         let v = RowVar(self.next_row_var);
         self.next_row_var += 1;
         v
     }
 
-    /// error の名前付き型からタグへの対応を渡す．
     pub(crate) fn set_error_tags(&mut self, tags: FxHashMap<TyConId, DefId>) {
         self.error_tags = tags;
     }
 
-    /// error の名前付き型のタグ．
     pub(crate) fn error_tag(&self, con: TyConId) -> Option<DefId> {
         self.error_tags.get(&con).copied()
     }
 
-    /// これから単一化で溜める包含の制約の位置．
+    /// The span for inclusion constraints that unification collects from now on.
     pub(crate) fn set_origin(&mut self, span: Option<Span>, def: Option<DefId>) {
         self.origin = (span, def);
     }
 
-    /// エラーの集合の包含の制約を足す．
+    /// Adds an inclusion constraint on error sets.
     pub(crate) fn add_subset(&mut self, sub: Row, sup: Row, origin: Origin) {
         self.add_subset_of(SetKind::Errors, sub, sup, origin);
     }
 
-    /// 種類 `kind` の集合の包含の制約を足す．
     pub(crate) fn add_subset_of(&mut self, kind: SetKind, sub: Row, sup: Row, origin: Origin) {
         if sub.is_empty() || sub == sup {
             return;
@@ -147,21 +145,21 @@ impl InferCtx {
         &self.subsets
     }
 
-    /// 集合変数の解を渡す．以後の [`Self::resolve`] は集合変数を解に置き換える．
-    /// 解にない集合変数は空にする．
+    /// After this, [`Self::resolve`] replaces set variables with their solutions. Set variables
+    /// without a solution become empty.
     pub(crate) fn set_row_solution(&mut self, solution: FxHashMap<RowVar, Row>) {
         self.row_solution = Some(solution);
     }
 
-    /// 整数リテラルの型変数．Int か Int64 にしか束縛できない．他の型変数と単一化すると，
-    /// その型変数も同じ制約を持つ．
+    /// A type variable for an integer literal, bindable only to Int or Int64. Type variables
+    /// unified with it inherit the same constraint.
     pub fn new_int_var(&mut self) -> Ty {
         let v = self.fresh_var();
         self.int_vars.push(v);
         Ty::Var(v)
     }
 
-    /// `v` が整数リテラルの型変数（と単一化した型変数）か．
+    /// Whether `v` is an integer-literal type variable (or unified with one).
     pub fn is_int_var(&mut self, v: TyVar) -> bool {
         let int_vars = std::mem::take(&mut self.int_vars);
         let found = int_vars.iter().any(|&w| self.table.unioned(v, w));
@@ -169,8 +167,8 @@ impl InferCtx {
         found
     }
 
-    /// 束縛済みの型変数を辿り，先頭が束縛済みの型変数でない形にする．
-    /// 未束縛の型変数は代表元にそろえる．
+    /// Follows bound type variables until the head is not a bound type variable. Unbound type
+    /// variables are normalized to their representative.
     pub fn shallow_resolve(&mut self, ty: &Ty) -> Ty {
         let mut ty = ty.clone();
         while let Ty::Var(v) = ty {
@@ -182,10 +180,11 @@ impl InferCtx {
         ty
     }
 
-    /// 型の中の束縛済みの型変数をすべて辿った形にする．
+    /// Follows every bound type variable in the type.
     ///
-    /// エラーの集合の中のエラーの型（`RowElem::Of`）は，error の名前付き型ならタグにし，
-    /// 型引数と型変数のほかは捨てる（誤りは別に出す）．集合変数を解いた後なら，集合変数を解に置き換える．
+    /// Error types inside error sets (`RowElem::Of`) become tags if they are named error types;
+    /// anything other than type parameters and type variables is dropped (reported separately).
+    /// After set variables are solved, they are replaced by their solutions.
     pub fn resolve(&mut self, ty: &Ty) -> Ty {
         match self.shallow_resolve(ty) {
             Ty::Fn(f) => Ty::func_sets(
@@ -199,7 +198,7 @@ impl InferCtx {
         }
     }
 
-    /// 集合の中の型を辿り，[`Self::resolve`] と同じく整える．
+    /// Normalizes the types inside a set like [`Self::resolve`].
     pub fn resolve_row(&mut self, row: &Row) -> Row {
         row.flat_map(|e| match e {
             RowElem::Of(ty) => match self.resolve(ty) {
@@ -210,7 +209,8 @@ impl InferCtx {
                 ty @ (Ty::Bound(_) | Ty::Var(_)) => Row::from_elems([RowElem::Of(ty)]),
                 _ => Row::empty(),
             },
-            // 解のタグの型引数は，解を求めた後に単一化で決まったものがありうるので辿る（8.1）．
+            // Type arguments of tags in a solution may have been fixed by unification after
+            // solving, so follow them (spec 8.1).
             RowElem::Var(v) => match &self.row_solution {
                 Some(solution) => {
                     let row = solution.get(v).cloned().unwrap_or_default();
@@ -223,10 +223,11 @@ impl InferCtx {
         })
     }
 
-    /// 2つのタグが同じエフェクト（かエラー）か（8.1）．型引数の違うエフェクトは別のタグなので，
-    /// 定義と型引数を比べる．型引数がまだ決まっていなければ単一化を試し，できれば型変数を束縛して
-    /// 同じとみなす（`State.run(initial, body)` の `State[S]` の `S` を body の R から決める）．
-    /// できなければ何も変えずに false．
+    /// Whether two tags are the same effect (or error) (spec 8.1). Effects with different type
+    /// arguments are different tags, so the definitions and type arguments are compared. If the
+    /// type arguments are not determined yet, tries unification and treats them as the same if it
+    /// succeeds, binding the type variables (deciding the `S` of `State[S]` in
+    /// `State.run(initial, body)` from the body's R). Otherwise changes nothing and returns false.
     pub(crate) fn same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
         if a.def != b.def || a.args.len() != b.args.len() {
             return false;
@@ -257,16 +258,17 @@ impl InferCtx {
         ok
     }
 
-    /// `row` のタグのうち `tag` と同じもの（[`Self::same_tag`]）があるか．
+    /// Whether `row` has a tag that is the same as `tag` ([`Self::same_tag`]).
     pub(crate) fn row_has_tag(&mut self, row: &Row, tag: &Tag) -> bool {
         let tags: Vec<Tag> = row.tags().cloned().collect();
         tags.iter().any(|t| t == tag) || tags.iter().any(|t| self.same_tag(t, tag))
     }
 
-    /// `expected` と `actual` を単一化する．失敗したら表は呼ぶ前の状態に戻る．
+    /// On failure, the table is restored to its state before the call.
     ///
-    /// 関数型のエラーの集合は，実際の側が期待する側に含まれる制約にする（引数の中は逆向き，
-    /// 名前付き型の型引数の中は両方向）．制約は単一化が成功したときだけ溜める．
+    /// Error sets of function types become constraints that the actual side is contained in the
+    /// expected side (reversed inside parameters, both directions inside type arguments of named
+    /// types). Constraints are kept only if unification succeeds.
     pub fn unify(&mut self, expected: &Ty, actual: &Ty) -> Result<(), TypeError> {
         let snapshot = self.table.snapshot();
         self.row_buffer.clear();
@@ -284,7 +286,8 @@ impl InferCtx {
             }
             Err(kind) => {
                 self.row_buffer.clear();
-                // 部分的に束縛した型変数で表示が崩れないように，戻してから辿る．
+                // Roll back before resolving so partially bound type variables do not garble the
+                // display.
                 self.table.rollback_to(snapshot);
                 let kind = match kind {
                     TypeErrorKind::Mismatch { expected, actual } => TypeErrorKind::Mismatch {
@@ -305,9 +308,9 @@ impl InferCtx {
         }
     }
 
-    /// エラーに出すための形．まだ決まっていない整数リテラルの型変数は `Int` と出す
-    /// （決まらなければ Int になるので）．
-    /// まだ解いていない集合変数は出さない（型の食い違いの説明には関わらないので）．
+    /// The form for error reports. Undetermined integer-literal type variables are shown as
+    /// `Int`, since that is what they default to. Unsolved set variables are omitted, since they
+    /// play no part in explaining a type mismatch.
     fn resolve_for_report(&mut self, ty: &Ty) -> Ty {
         match self.shallow_resolve(ty) {
             Ty::Var(v) if self.is_int_var(v) => Ty::INT,
@@ -345,14 +348,15 @@ impl InferCtx {
         }
     }
 
-    /// `unify` の失敗をエラーとして溜めて続ける．単一化できたら `true`．
+    /// Records a `unify` failure as an error and continues. Returns `true` if unification
+    /// succeeded.
     pub fn expect(&mut self, expected: &Ty, actual: &Ty) -> bool {
         self.unify(expected, actual)
             .map_err(|e| self.errors.push(e))
             .is_ok()
     }
 
-    /// 期待した型の位置に `actual` を置く．`actual` が `Never` ならどの型でもよい．
+    /// Places `actual` where `expected` is expected. A `Never` fits any type.
     pub fn coerce(&mut self, expected: &Ty, actual: &Ty) -> Result<(), TypeError> {
         if self.shallow_resolve(actual) == Ty::Never {
             return Ok(());
@@ -360,11 +364,12 @@ impl InferCtx {
         self.unify(expected, actual)
     }
 
-    /// 2つの分岐の共通の型．片方が `Never` ならもう片方の型になる．
+    /// The common type of two branches. If one side is `Never`, the other's type.
     ///
-    /// 失敗したときは `a` を期待した型，`b` を実際の型として報告する．
+    /// On failure, reports `a` as the expected type and `b` as the actual type.
     ///
-    /// 両方が関数型なら，エラーの集合と効果の集合は新しい集合変数にして両方の E と R を含める．
+    /// If both are function types, the error and effect sets become fresh set variables that
+    /// contain both E and both R.
     pub fn join(&mut self, a: &Ty, b: &Ty) -> Result<Ty, TypeError> {
         let a = self.shallow_resolve(a);
         let b = self.shallow_resolve(b);
@@ -390,7 +395,7 @@ impl InferCtx {
         }
     }
 
-    /// `join` の失敗をエラーとして溜める．失敗したときは `a` を全体の型とする．
+    /// Records a `join` failure as an error, taking `a` as the overall type.
     pub fn join_or_report(&mut self, a: &Ty, b: &Ty) -> Ty {
         match self.join(a, b) {
             Ok(ty) => ty,
@@ -447,11 +452,12 @@ impl InferCtx {
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
-            // 能力の値は，エフェクトと型引数の組が同じものどうしだけが一致する（8.1）．
+            // Capability values match only with the same effect and type arguments (spec 8.1).
             (Ty::Cap(x), Ty::Cap(y)) if x.def == y.def && x.args.len() == y.args.len() => {
                 self.unify_all(&x.args, &y.args, Variance::Inv)
             }
-            // 名前付き型の集合の型引数．型引数の中なので，ふつうは両方向の包含になる．
+            // Set type arguments of a named type. Being inside type arguments, inclusion is
+            // usually both ways.
             (Ty::Set(k, x), Ty::Set(l, y)) if k == l => {
                 self.buffer_rows(*k, x, y, variance);
                 Ok(())
@@ -468,17 +474,17 @@ impl InferCtx {
             (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => {
                 self.unify_all(xs, ys, variance)
             }
-            // 型引数がどの位置に使われるかは見ないので，両方向にする．
+            // Where a type argument is used is not tracked, so both directions.
             (Ty::Named(c, xs), Ty::Named(d, ys)) if c == d && xs.len() == ys.len() => {
                 self.unify_all(xs, ys, Variance::Inv)
             }
-            // 値は不変なので，リストとタプルの要素は外側と同じ向きでよい．
+            // Values are immutable, so list and tuple elements keep the outer direction.
             (Ty::List(x), Ty::List(y)) => self.unify_inner(x, y, variance),
             _ => Err(mismatch(&e, &a)),
         }
     }
 
-    /// 関数型の集合の包含の制約を溜める．`expected` は期待する側の集合．
+    /// Collects inclusion constraints on a function type's sets. `expected` is the expected side.
     fn buffer_rows(&mut self, kind: SetKind, expected: &Row, actual: &Row, variance: Variance) {
         if expected == actual {
             return;
@@ -501,7 +507,8 @@ impl InferCtx {
         Ok(())
     }
 
-    /// 未束縛の型変数 `v` を `ty` に束縛する．`v` が `ty` に現れるなら無限型として拒否する．
+    /// Binds the unbound type variable `v` to `ty`, rejecting an infinite type if `v` occurs in
+    /// `ty`.
     fn bind(&mut self, v: TyVar, ty: &Ty) -> Result<(), TypeErrorKind> {
         if self.occurs(v, ty) {
             return Err(TypeErrorKind::InfiniteType {
@@ -524,7 +531,8 @@ impl InferCtx {
         }
     }
 
-    /// 型に現れる未束縛の型変数（代表元）を，最初に現れた順に重複なく返す．
+    /// The unbound type variables (representatives) in the type, in order of first occurrence,
+    /// without duplicates.
     pub fn free_vars(&mut self, ty: &Ty) -> Vec<TyVar> {
         let mut out = Vec::new();
         self.collect_free_vars(ty, &mut out);
@@ -542,19 +550,21 @@ impl InferCtx {
         }
     }
 
-    /// `ty` の型変数のうち，`env_vars`（環境に現れる型変数）にないものを量化する．
+    /// Quantifies the type variables of `ty` not in `env_vars` (those occurring in the
+    /// environment).
     ///
-    /// 型引数には現れた順に `A`，`B`，… と名前を付ける．制約は付けない．
+    /// Type parameters are named `A`, `B`, ... in order of occurrence, without constraints.
     pub fn generalize(&mut self, ty: &Ty, env_vars: &[TyVar]) -> Scheme {
         self.generalize_with(ty, Vec::new(), env_vars)
     }
 
-    /// [`Self::generalize`] と同じく量化する．`existing`（宣言で書いた型引数．`ty` の中では
-    /// `Ty::Bound(i)`）の後ろに，量化した型変数を足す．名前は書いた型引数と重ならないものを選ぶ．
+    /// Quantifies like [`Self::generalize`], appending the quantified variables after `existing`
+    /// (the type parameters written in the declaration, `Ty::Bound(i)` inside `ty`). Names are
+    /// chosen not to clash with the written ones.
     ///
-    /// 型の中に残った集合変数（[`Self::resolve`] の後に残るもの）も，集合の型引数として量化する．
-    /// 名前はエラーの集合が `E`，`E1`，`E2`，…，効果の集合が `R`，`R1`，….
-    /// 型変数の後ろに並べる．
+    /// Set variables left in the type (after [`Self::resolve`]) are also quantified, as set type
+    /// parameters named `E`, `E1`, `E2`, ... for error sets and `R`, `R1`, ... for effect sets,
+    /// placed after the type variables.
     pub fn generalize_with(
         &mut self,
         ty: &Ty,
@@ -565,8 +575,9 @@ impl InferCtx {
             .0
     }
 
-    /// [`Self::generalize_with`] と同じく量化する．`immediate` の集合変数を量化した型引数には
-    /// `Immediate` の制約を付ける（9.5）．量化した集合変数と，それを置き換えた型引数の添字も返す．
+    /// Quantifies like [`Self::generalize_with`], adding an `Immediate` bound to the parameters
+    /// that replace set variables in `immediate` (spec 9.5). Also returns the quantified set
+    /// variables and the indices of the parameters replacing them.
     pub(crate) fn generalize_bounded(
         &mut self,
         ty: &Ty,
@@ -574,7 +585,8 @@ impl InferCtx {
         env_vars: &[TyVar],
         immediate: &rustc_hash::FxHashSet<RowVar>,
     ) -> (Scheme, Indices<RowVar>, Indices<TyVar>) {
-        // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
+        // If an environment type variable is bound, the type variables it reaches also belong to
+        // the environment.
         let mut env = Vec::new();
         for v in env_vars {
             self.collect_free_vars(&Ty::Var(*v), &mut env);
@@ -628,20 +640,22 @@ impl InferCtx {
         )
     }
 
-    /// スキームの型引数をそれぞれ新しい型変数（集合の型引数は新しい集合変数）に置き換える．
+    /// Replaces each type parameter of the scheme with a fresh type variable (a fresh set
+    /// variable for set type parameters).
     pub fn instantiate(&mut self, scheme: &Scheme) -> Ty {
         self.instantiate_with_args(scheme).0
     }
 
-    /// [`Self::instantiate`] と同じく具体化し，型引数に置いた型変数も返す．
-    /// 集合の型引数の位置には，使わない型変数を置く（並びを宣言の型引数とそろえるため）．
+    /// Instantiates like [`Self::instantiate`], also returning the type variables used as type
+    /// arguments. Set type parameter positions get an unused type variable, so the list lines up
+    /// with the declaration's type parameters.
     pub fn instantiate_with_args(&mut self, scheme: &Scheme) -> (Ty, Vec<Ty>) {
         let (tys, rows) = self.fresh_args(&scheme.params);
         (substitute(&scheme.ty, &tys, &rows), tys)
     }
 
-    /// 型引数ごとに新しい型変数と集合変数を作る．型の型引数の集合は空，集合の型引数の型は
-    /// 使わない型変数．
+    /// A fresh type variable and set variable per type parameter. Type parameters get an empty
+    /// set; set type parameters get an unused type variable.
     pub(crate) fn fresh_args(&mut self, params: &[TyParam]) -> (Vec<Ty>, Vec<Row>) {
         let mut tys = Vec::new();
         let mut rows = Vec::new();
@@ -656,10 +670,11 @@ impl InferCtx {
     }
 }
 
-/// 汎化した変数と，それを置き換えた型引数の添字．
+/// Generalized variables and the indices of the type parameters that replaced them.
 pub(crate) type Indices<V> = Vec<(V, u32)>;
 
-/// 型の中の集合変数と，その集合の種類を，現れた順に重複なく集める．
+/// The set variables in the type and their kinds, in order of first occurrence, without
+/// duplicates.
 pub(crate) fn free_row_vars(ty: &Ty) -> Vec<(RowVar, SetKind)> {
     let mut out = Vec::new();
     collect_row_vars(ty, &mut out);
@@ -710,9 +725,9 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
     }
 }
 
-/// `Ty::Bound(i)` を `args[i]` に置き換える．名前付き型の型引数を代入するのに使う．
-/// 集合の型引数（`RowElem::Bound(i)`）は，`args[i]` が集合（`Ty::Set`）ならその集合に置き換え，
-/// そうでなければそのまま残す．
+/// Replaces `Ty::Bound(i)` with `args[i]`; used to substitute type arguments of named types. Set
+/// type parameters (`RowElem::Bound(i)`) are replaced when `args[i]` is a set (`Ty::Set`), and
+/// left as is otherwise.
 pub fn substitute_bound(ty: &Ty, args: &[Ty]) -> Ty {
     let rows: Vec<Row> = args
         .iter()
@@ -725,8 +740,8 @@ pub fn substitute_bound(ty: &Ty, args: &[Ty]) -> Ty {
     substitute(ty, args, &rows)
 }
 
-/// `Ty::Bound(i)` を `tys[i]` に，集合の中の `RowElem::Bound(i)` を `rows[i]` に置き換える．
-/// 範囲外の添字はそのまま残す．
+/// Replaces `Ty::Bound(i)` with `tys[i]` and `RowElem::Bound(i)` in sets with `rows[i]`.
+/// Out-of-range indices are left as is.
 pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
     match ty {
         Ty::Bound(i) => tys.get(*i as usize).cloned().unwrap_or_else(|| ty.clone()),
@@ -744,7 +759,7 @@ pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
     }
 }
 
-/// 集合の中の型引数を [`substitute`] と同じく置き換える．
+/// Replaces type parameters inside a set like [`substitute`].
 pub(crate) fn substitute_row(row: &Row, tys: &[Ty], rows: &[Row]) -> Row {
     row.flat_map(|e| match e {
         RowElem::Bound(i) => rows

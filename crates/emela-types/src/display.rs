@@ -1,16 +1,19 @@
-//! 型の表示．仕様の書き方（`List[Int]`，`fn(Int) -> Bool fails NotFound`，`(Int, String)`）に合わせる．
+//! Displays types the way the spec writes them (`List[Int]`, `fn(Int) -> Bool fails NotFound`,
+//! `(Int, String)`).
 //!
-//! 名前付き型とエラーのタグの名前は `TyCons` にあるので，表示には表を渡す．
-//! 型変数は束縛を辿らずにそのまま `?0` と出す．辿った形を出すときは
-//! `InferCtx::resolve` を通してから表示する．
+//! Names of named types and error tags live in `TyCons`, so displaying takes the table. Type
+//! variables are shown as `?0` without following bindings; to show the resolved form, pass the
+//! type through `InferCtx::resolve` first.
 //!
-//! 関数型のエラーの集合と効果の集合は，空なら `fails` 節と `use` 節ごと省く．ただし引数の
-//! 型の中では，省くと「何でもよい」と読めるので `fails {}` と `use {}` と出す（9.2）．
-//! 戻り値が関数型で外側の関数型に `fails` 節か `use` 節があるときは，付き先が分かるように
-//! 戻り値を括弧で囲む（5.5）．
+//! An empty error set or effect set in a function type drops the whole `fails` or `use` clause.
+//! Inside a parameter type, however, dropping them would read as "anything", so they are shown
+//! as `fails {}` and `use {}` (spec 9.2). When a function returns a function type and the outer
+//! function type has a `fails` or `use` clause, the return type is parenthesized so it is clear
+//! which function the clause belongs to (spec 5.5).
 //!
-//! 能力の値の型（`Ty::Cap`）はソースに書けないので，それを作る式の形で `use Logger` と出す．
-//! 型引数のあるエフェクトは，集合の中でも能力の値でも `State[Int]` の形で出す（8.1）．
+//! Capability value types (`Ty::Cap`) cannot be written in source, so they are shown as the
+//! expression that creates them, `use Logger`. Effects with type arguments are shown as
+//! `State[Int]`, both in sets and as capability values (spec 8.1).
 
 use std::fmt;
 
@@ -19,7 +22,7 @@ use crate::scheme::Scheme;
 use crate::ty::{Ty, TyCons, TyParam};
 
 impl Row {
-    /// `NotFound | E` の形．空なら `{}`．
+    /// The `NotFound | E` form; `{}` if empty.
     pub fn display<'a>(&'a self, cons: &'a TyCons) -> RowDisplay<'a> {
         RowDisplay {
             row: self,
@@ -33,7 +36,7 @@ impl Row {
         }
     }
 
-    /// [`Self::display`] と同じ．`Bound(i)` の名前を `bound` から引く．
+    /// Like [`Self::display`], taking the names of `Bound(i)` from `bound`.
     pub fn display_with<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> RowDisplay<'a> {
         RowDisplay {
             row: self,
@@ -49,8 +52,8 @@ impl Row {
 }
 
 impl Row {
-    /// 効果の集合の形（17.4）．要素が1つなら `Logger`，2つ以上なら `{ Logger, Clock }`，
-    /// 空なら `{}`．`Bound(i)` の名前を `bound` から引く．
+    /// The effect-set form (spec 17.4): `Logger` for one element, `{ Logger, Clock }` for two or
+    /// more, `{}` if empty. Takes the names of `Bound(i)` from `bound`.
     pub fn display_effects<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> RowDisplay<'a> {
         RowDisplay {
             effects: true,
@@ -60,7 +63,7 @@ impl Row {
 }
 
 impl Ty {
-    /// [`Self::display`] と同じ．`Bound(i)` の名前を `bound` から引く．
+    /// Like [`Self::display`], taking the names of `Bound(i)` from `bound`.
     pub fn display_with<'a>(&'a self, cons: &'a TyCons, bound: &'a [TyParam]) -> TyDisplay<'a> {
         TyDisplay {
             ty: self,
@@ -71,13 +74,13 @@ impl Ty {
     }
 }
 
-/// 集合の表示．エラーの集合は要素を ` | ` で区切る．効果の集合は2つ以上なら
-/// `{ A, B }` と波括弧で囲み，`, ` で区切る．
+/// Error sets separate elements with ` | `. Effect sets with two or more elements are wrapped
+/// in braces as `{ A, B }` and separated with `, `.
 pub struct RowDisplay<'a> {
     row: &'a Row,
-    /// 効果の集合の形で出すか．
+    /// Whether to use the effect-set form.
     effects: bool,
-    /// 要素の中の型を表示するための文脈（`ty` は使わない）．
+    /// Context for displaying types inside elements (its `ty` is unused).
     ty: TyDisplay<'a>,
 }
 
@@ -131,9 +134,10 @@ impl Scheme {
 pub struct TyDisplay<'a> {
     ty: &'a Ty,
     cons: &'a TyCons,
-    /// `Ty::Bound(i)` の名前．範囲外なら `'i` と出す．
+    /// Names for `Ty::Bound(i)`. Out of range is shown as `'i`.
     bound: &'a [TyParam],
-    /// 関数型の引数の型の中か．空のエラーの集合を `fails {}` と出す．
+    /// Inside a parameter type of a function type, where an empty error set is shown as
+    /// `fails {}`.
     in_param: bool,
 }
 
@@ -157,7 +161,7 @@ impl TyDisplay<'_> {
         Ok(())
     }
 
-    /// 集合のタグ．型引数があれば `State[Int]` の形（8.1）．
+    /// `State[Int]` if the tag has type arguments (spec 8.1).
     fn tag(&self, f: &mut fmt::Formatter<'_>, tag: &Tag) -> fmt::Result {
         match self.cons.tag_name(tag.def) {
             Some(name) => f.write_str(name)?,
@@ -230,7 +234,7 @@ impl fmt::Display for TyDisplay<'_> {
                 }
                 Ok(())
             }
-            // 名前付き型の集合の型引数（`Handler[NotFound | Timeout, { Db, Logger }]`）．
+            // Set type arguments of a named type (`Handler[NotFound | Timeout, { Db, Logger }]`).
             Ty::Set(kind, row) => {
                 let row = RowDisplay {
                     row,
@@ -258,7 +262,7 @@ impl fmt::Display for TyDisplay<'_> {
     }
 }
 
-/// `∀ A: Ord + Show, B. fn(A) -> B`．量化しないスキームは型だけを出す．
+/// `∀ A: Ord + Show, B. fn(A) -> B`. A scheme without quantifiers shows only the type.
 pub struct SchemeDisplay<'a> {
     scheme: &'a Scheme,
     cons: &'a TyCons,

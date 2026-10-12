@@ -1,6 +1,7 @@
-//! 宣言の型（`Signatures::collect`）をスナップショットで確かめる．
+//! Snapshot tests for declared types (`Signatures::collect`).
 //!
-//! fn・構成子・const の型と引数のラベルを出す．例は仕様の 5章，6.2，7.1 から取る．
+//! Prints the types and parameter labels of fns, constructors and consts. Examples come from spec
+//! chapter 5, 6.2 and 7.1.
 
 mod common;
 
@@ -54,7 +55,7 @@ const INFERRED = 3
 
 #[test]
 fn prelude_ctors() {
-    // Prelude の構成子は main.emel の定義ではないので，ここで直接引いて出す．
+    // Prelude constructors are not definitions of main.emel, so look them up directly.
     use emela_types::{Signatures, TyTable};
     let (program, _, _) = common::resolve_main("");
     let table = TyTable::new(&program);

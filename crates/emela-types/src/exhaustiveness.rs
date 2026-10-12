@@ -1,42 +1,44 @@
-//! match の網羅性と冗長な腕の検査．
+//! Match exhaustiveness and redundant-arm checks.
 //!
-//! Maranget の usefulness（"Warnings for pattern matching", 2007）に基づく．
-//! 「パターンの行列 P に対してベクトル q が有用（useful）か」，つまり q に合い P のどの行にも
-//! 合わない値があるかを求め，その値の例（witness）を組み立てる．
+//! Based on Maranget's usefulness ("Warnings for pattern matching", 2007): whether a vector q is
+//! useful with respect to a pattern matrix P, that is, whether some value matches q but no row of
+//! P, along with an example of such a value (a witness).
 //!
-//! - 網羅性: ガードのない腕を並べた行列に対して `_` が有用なら，足りない値がある．
-//! - 冗長性: 腕 i のパターンが，それより上のガードのない腕の行列に対して有用でなければ冗長．
+//! - Exhaustiveness: values are missing if `_` is useful against the matrix of unguarded arms.
+//! - Redundancy: arm i is redundant if its pattern is not useful against the matrix of the
+//!   unguarded arms above it.
 //!
-//! 構文木にも型推論にも依存しない．入力はこの検査専用の [`Pat`] と，型から構成子の形を引く
-//! [`CtorTable`] で，型推論側から変換して呼ぶ．型の中身（構成子のフィールドの型）は特殊化の
-//! たびに1段だけ引くので，再帰的な型でも止まる．
+//! Independent of the syntax tree and of type inference. The input is this module's own [`Pat`]
+//! and a [`CtorTable`] that looks up constructor shapes from types; type inference converts to
+//! them. Field types are looked up one level at a time on each specialization, so recursive types
+//! terminate.
 
 use std::fmt;
 
 use smol_str::SmolStr;
 
-/// 網羅性の検査に使うパターン．名前の解決と型検査は済んでいる前提．
+/// Assumes name resolution and type checking are done.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pat {
-    /// `_` と変数 `x`．
+    /// `_` and a variable `x`.
     Wild,
-    /// リテラル `0` `1.5` `"a"` と定数 `MAX_SIZE`（定数は値に置き換えて渡す）．
+    /// Literals `0` `1.5` `"a"` and constants `MAX_SIZE` (constants are passed as their values).
     Lit(Lit),
-    /// enum の構成子と `type`．`variant` は [`TyShape::Enum`] の何番目の構成子か．
-    /// `fields` は（フィールドの宣言順の位置，パターン）の組で，書いていないフィールドは
-    /// ワイルドカードとして扱う（`User(name:, ..)`）．
+    /// Enum constructors and `type`. `variant` is the constructor's index in [`TyShape::Enum`].
+    /// `fields` pairs a field's position in declaration order with a pattern; fields not written
+    /// are wildcards (`User(name:, ..)`).
     Variant {
         variant: usize,
         fields: Vec<(usize, Pat)>,
     },
-    /// タプル `(a, b)` と `()`．
+    /// Tuples `(a, b)` and `()`.
     Tuple(Vec<Pat>),
-    /// リスト．`[x, y]` は `rest: false`，`[x, ..rest]` は `rest: true`．
+    /// `[x, y]` has `rest: false`; `[x, ..rest]` has `rest: true`.
     List { prefix: Vec<Pat>, rest: bool },
 }
 
 impl Pat {
-    /// 全フィールドを位置で並べた構成子パターン `Rect(w, h)`．
+    /// A constructor pattern with all fields by position, `Rect(w, h)`.
     pub fn variant(variant: usize, args: Vec<Pat>) -> Pat {
         Pat::Variant {
             variant,
@@ -44,7 +46,7 @@ impl Pat {
         }
     }
 
-    /// 長さ固定のリスト `[x, y]`．
+    /// A fixed-length list `[x, y]`.
     pub fn list(elems: Vec<Pat>) -> Pat {
         Pat::List {
             prefix: elems,
@@ -52,17 +54,17 @@ impl Pat {
         }
     }
 
-    /// 長さ n 以上のリスト `[x, ..rest]`．
+    /// A list of length n or more, `[x, ..rest]`.
     pub fn list_rest(prefix: Vec<Pat>) -> Pat {
         Pat::List { prefix, rest: true }
     }
 }
 
-/// リテラルの値．値の種類は無限なので，リテラルだけでは網羅できない．
+/// Literal values are infinitely many, so literals alone can never be exhaustive.
 #[derive(Clone, Debug)]
 pub enum Lit {
     Int(i64),
-    /// 値で比べる（`0.0` と `-0.0` は同じ）．NaN どうしも同じとみなす．
+    /// Compared by value (`0.0` and `-0.0` are equal). NaNs are equal to each other.
     Float(f64),
     Str(SmolStr),
 }
@@ -71,7 +73,8 @@ impl PartialEq for Lit {
     fn eq(&self, other: &Lit) -> bool {
         match (self, other) {
             (Lit::Int(a), Lit::Int(b)) => a == b,
-            // NaN の定数を書いた腕が，自分自身と一致せず常に冗長になるのを防ぐ．
+            // Otherwise an arm with a NaN constant would never match itself and always be
+            // redundant.
             (Lit::Float(a), Lit::Float(b)) => a == b || (a.is_nan() && b.is_nan()),
             (Lit::Str(a), Lit::Str(b)) => a == b,
             _ => false,
@@ -89,48 +92,45 @@ impl fmt::Display for Lit {
     }
 }
 
-/// 型が値をどう作るか．[`CtorTable::shape`] が返す．
+/// Returned by [`CtorTable::shape`].
 #[derive(Clone, Debug)]
 pub enum TyShape<T> {
-    /// 構成子を数え上げられない型（`Int`，`Float`，`String`，関数など）．
-    /// リテラルで照合できるが，ワイルドカードなしでは網羅できない．
+    /// A type whose constructors cannot be enumerated (`Int`, `Float`, `String`, functions,
+    /// ...). Literals can match it, but only a wildcard makes it exhaustive.
     Opaque,
-    /// enum．`Bool`（`True` / `False`），`Option`，構成子1つの `type` もこれで表す．
+    /// Also represents `Bool` (`True` / `False`), `Option`, and a single-constructor `type`.
     Enum(Vec<VariantShape<T>>),
-    /// タプル．`()` は要素なし．
+    /// `()` has no elements.
     Tuple(Vec<T>),
-    /// 要素の型が `T` のリスト．
     List(T),
 }
 
-/// enum の構成子1つ．`fields` は宣言順のフィールドの型（型引数は具体化済み）．
+/// `fields` holds the field types in declaration order, with type arguments instantiated.
 #[derive(Clone, Debug)]
 pub struct VariantShape<T> {
     pub name: SmolStr,
     pub fields: Vec<T>,
 }
 
-/// 型から構成子の形を引く表．型推論側が実装する．
+/// Implemented by type inference.
 pub trait CtorTable {
     type Ty: Clone;
 
     fn shape(&self, ty: &Self::Ty) -> TyShape<Self::Ty>;
 }
 
-/// match の腕1つ．
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
-    /// `if 条件` が付いているか．
+    /// Whether it has an `if` guard.
     pub guarded: bool,
 }
 
-/// 検査の結果．
 #[derive(Clone, Debug, PartialEq)]
 pub struct MatchCheck {
-    /// 足りない値の例．空なら網羅している．多すぎるときは [`WITNESS_LIMIT`] 個で打ち切る．
+    /// Examples of missing values; empty if exhaustive. Truncated at [`WITNESS_LIMIT`].
     pub missing: Vec<Witness>,
-    /// 冗長な腕（それより上の腕で全部覆われている腕）の添字．
+    /// Indices of redundant arms (arms fully covered by the arms above them).
     pub redundant: Vec<usize>,
 }
 
@@ -140,10 +140,9 @@ impl MatchCheck {
     }
 }
 
-/// 足りない値の例の数の上限．
 pub const WITNESS_LIMIT: usize = 64;
 
-/// 足りない値の例．表示は仕様のパターンの書き方に合わせる．
+/// Displayed in the spec's pattern syntax.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Witness {
     Wild,
@@ -153,7 +152,7 @@ pub enum Witness {
         args: Vec<Witness>,
     },
     Tuple(Vec<Witness>),
-    /// `rest` なら `[_, ..]`（長さ `elems.len()` 以上）．
+    /// With `rest`, `[_, ..]` (length `elems.len()` or more).
     List {
         elems: Vec<Witness>,
         rest: bool,
@@ -203,7 +202,7 @@ impl fmt::Display for Witness {
     }
 }
 
-/// match を検査する．`ty` は照合される値の型．
+/// `ty` is the type of the matched value.
 pub fn check_match<C: CtorTable>(table: &C, ty: &C::Ty, arms: &[Arm]) -> MatchCheck {
     let cx = Cx { table };
     let tys = [ty.clone()];
@@ -213,7 +212,7 @@ pub fn check_match<C: CtorTable>(table: &C, ty: &C::Ty, arms: &[Arm]) -> MatchCh
         if cx.useful(&rows, &[&arm.pat], &tys, 1).is_empty() {
             redundant.push(i);
         }
-        // ガード付きの腕は，それより下の腕を覆わない．
+        // A guarded arm does not cover the arms below it.
         if !arm.guarded {
             rows.push(vec![&arm.pat]);
         }
@@ -221,7 +220,7 @@ pub fn check_match<C: CtorTable>(table: &C, ty: &C::Ty, arms: &[Arm]) -> MatchCh
     let missing = cx
         .useful(&rows, &[&WILD], &tys, WITNESS_LIMIT)
         .into_iter()
-        .map(|mut ws| ws.pop().expect("1列の witness"))
+        .map(|mut ws| ws.pop().expect("a one-column witness"))
         .collect();
     MatchCheck { missing, redundant }
 }
@@ -230,17 +229,19 @@ static WILD: Pat = Pat::Wild;
 
 type Row<'p> = Vec<&'p Pat>;
 
-/// 列を分けるときの構成子．リストは長さで分け，リテラルは現れた値と「それ以外」に分ける．
+/// Constructors for splitting a column. Lists split by length; literals split into the values
+/// that appear and "everything else".
 #[derive(Clone, Debug)]
 enum Ctor<'p> {
     Variant(usize),
     Tuple,
-    /// 長さちょうど n のリスト．
+    /// A list of length exactly n.
     ListFixed(usize),
-    /// 長さ n 以上のリスト．n は列のどの固定長よりも長く，どの `[.., ..]` の前置部より短くない．
+    /// A list of length n or more. n is longer than every fixed length in the column and no
+    /// shorter than any `[.., ..]` prefix.
     ListAtLeast(usize),
     Lit(&'p Lit),
-    /// 列に現れていないリテラル全部．ワイルドカードだけが覆う．
+    /// All literals not in the column. Only a wildcard covers it.
     Other,
 }
 
@@ -249,8 +250,8 @@ struct Cx<'a, C> {
 }
 
 impl<C: CtorTable> Cx<'_, C> {
-    /// `rows` に対して `q` が有用なら，`q` に合い `rows` のどの行にも合わない値の例を返す．
-    /// 有用でなければ空．例は `limit` 個までで打ち切る．
+    /// If `q` is useful against `rows`, returns examples of values that match `q` but no row of
+    /// `rows`; otherwise empty. At most `limit` examples.
     fn useful<'p>(
         &self,
         rows: &[Row<'p>],
@@ -278,9 +279,10 @@ impl<C: CtorTable> Cx<'_, C> {
             if !covers(head, &ctor) {
                 continue;
             }
-            // q の先頭が `_` で，列のどの構成子パターンもこの構成子を覆わないなら，
-            // 特殊化した行列は既定の行列（先頭が `_` の行）と同じなので，まとめて調べる．
-            // ワイルドカードの行で特殊化し続けると再帰的な型で止まらない．
+            // If q starts with `_` and no constructor pattern in the column covers this
+            // constructor, the specialized matrix equals the default matrix (rows starting with
+            // `_`), so check them together. Specializing on wildcard rows forever would not
+            // terminate on recursive types.
             if matches!(head, Pat::Wild)
                 && !rows
                     .iter()
@@ -311,7 +313,7 @@ impl<C: CtorTable> Cx<'_, C> {
                 .collect();
             for ws in self.useful(&default_rows, q_rest, &tys[1..], limit - out.len()) {
                 if !column_has_ctor {
-                    // 列に構成子が1つもないなら，構成子を並べず `_` とだけ示す．
+                    // No constructor in the column: show just `_` rather than listing them.
                     out.push(prepend(Witness::Wild, ws));
                 } else {
                     for ctor in &missing {
@@ -325,14 +327,15 @@ impl<C: CtorTable> Cx<'_, C> {
     }
 }
 
-/// 列の先頭のパターンから，その型の値を余さず分ける構成子の並びを作る．
+/// Builds constructors that partition all values of the type, from the column's head patterns.
 fn split_ctors<'p, T>(shape: &TyShape<T>, heads: impl Iterator<Item = &'p Pat>) -> Vec<Ctor<'p>> {
     match shape {
         TyShape::Enum(variants) => (0..variants.len()).map(Ctor::Variant).collect(),
         TyShape::Tuple(_) => vec![Ctor::Tuple],
         TyShape::List(_) => {
-            // 固定長の最大より長く，`[.., ..]` の前置部の最大以上の長さ n をとると，
-            // n 以上の長さはどれも同じ行に合うので，0..n と「n 以上」で全部を分けられる．
+            // Take n longer than the longest fixed length and at least the longest `[.., ..]`
+            // prefix. Every length of n or more matches the same rows, so 0..n plus "n or more"
+            // covers everything.
             let mut n = 0;
             for p in heads {
                 if let Pat::List { prefix, rest } = p {
@@ -365,7 +368,7 @@ fn split_ctors<'p, T>(shape: &TyShape<T>, heads: impl Iterator<Item = &'p Pat>) 
     }
 }
 
-/// パターン `p` が構成子 `ctor` の値を全部覆うか（`ctor` の中身は問わない）．
+/// Whether `p` covers every value of `ctor`, regardless of its contents.
 fn covers(p: &Pat, ctor: &Ctor<'_>) -> bool {
     match (p, ctor) {
         (Pat::Wild, _) => true,
@@ -384,7 +387,7 @@ fn covers(p: &Pat, ctor: &Ctor<'_>) -> bool {
         }
         (Pat::Lit(a), Ctor::Lit(b)) => a == *b,
         (Pat::Lit(_), Ctor::Other) => false,
-        _ => unreachable!("型検査済みのパターンと型が食い違っている: {p:?} / {ctor:?}"),
+        _ => unreachable!("type-checked pattern does not match its type: {p:?} / {ctor:?}"),
     }
 }
 
@@ -406,8 +409,8 @@ fn field_tys<T: Clone>(shape: &TyShape<T>, ctor: &Ctor<'_>) -> Vec<T> {
     }
 }
 
-/// 先頭の列を `ctor` で特殊化した行．先頭は `ctor` のフィールド `arity` 個に置き換わる．
-/// 呼ぶ前に `covers(row[0], ctor)` を確かめておく．
+/// The row with its first column specialized by `ctor`: the head is replaced by `arity` fields
+/// of `ctor`. Check `covers(row[0], ctor)` before calling.
 fn specialize<'p>(row: &[&'p Pat], ctor: &Ctor<'_>, arity: usize) -> Row<'p> {
     let mut out: Row<'p> = vec![&WILD; arity];
     match row[0] {
@@ -423,7 +426,7 @@ fn specialize<'p>(row: &[&'p Pat], ctor: &Ctor<'_>, arity: usize) -> Row<'p> {
             }
         }
         Pat::List { prefix, .. } => {
-            // `[x, ..rest]` の残りはワイルドカード．
+            // The remainder of `[x, ..rest]` is wildcards.
             for (slot, p) in out.iter_mut().zip(prefix) {
                 *slot = p;
             }
@@ -434,7 +437,7 @@ fn specialize<'p>(row: &[&'p Pat], ctor: &Ctor<'_>, arity: usize) -> Row<'p> {
     out
 }
 
-/// 特殊化した列の例から，先頭の `arity` 個を `ctor` にまとめ直す．
+/// Regroups the first `arity` items of a specialized column's witness into `ctor`.
 fn wrap<T>(shape: &TyShape<T>, ctor: &Ctor<'_>, mut ws: Vec<Witness>) -> Vec<Witness> {
     let rest = ws.split_off(arity(shape, ctor));
     let head = match (shape, ctor) {
@@ -457,11 +460,11 @@ fn wrap<T>(shape: &TyShape<T>, ctor: &Ctor<'_>, mut ws: Vec<Witness>) -> Vec<Wit
     prepend(head, rest)
 }
 
-/// フィールドを全部 `_` にした `ctor` の例（`Rect(_, _)`，`[_, ..]`）．
+/// A witness of `ctor` with all fields `_` (`Rect(_, _)`, `[_, ..]`).
 fn wild_witness<T>(shape: &TyShape<T>, ctor: &Ctor<'_>) -> Witness {
     let ws = vec![Witness::Wild; arity(shape, ctor)];
     let mut out = wrap(shape, ctor, ws);
-    out.pop().expect("構成子1つ分の witness")
+    out.pop().expect("one constructor's witness")
 }
 
 fn prepend(head: Witness, mut rest: Vec<Witness>) -> Vec<Witness> {

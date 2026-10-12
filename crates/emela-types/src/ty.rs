@@ -1,7 +1,7 @@
-//! 型の表現．
+//! Type representation.
 //!
-//! 型は名前で区別する（nominal）．`type` と `enum` で宣言した型は `TyCons` に登録し，
-//! `TyConId` で指す．基本型と `List` とタプルと関数は構造で持つ．
+//! Types are nominal. Types declared with `type` and `enum` are registered in `TyCons` and
+//! referred to by `TyConId`. Primitive types, `List`, tuples and functions are structural.
 
 use std::ops::Index;
 
@@ -12,10 +12,9 @@ use smol_str::SmolStr;
 
 pub use crate::row::{Row, RowElem, RowVar, SetKind, Tag};
 
-/// 組み込みの基本型．
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prim {
-    /// 32bit 整数．
+    /// 32-bit.
     Int,
     Int64,
     Float,
@@ -38,7 +37,7 @@ impl Prim {
     }
 }
 
-/// 単一化の型変数．表示は `?0`．
+/// Displayed as `?0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TyVar(u32);
 
@@ -64,7 +63,7 @@ impl UnifyKey for TyVar {
     }
 }
 
-/// 型変数に束縛された型．`None` は未束縛．
+/// `None` means unbound.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TyVarValue(pub(crate) Option<Ty>);
 
@@ -72,7 +71,7 @@ impl UnifyValue for TyVarValue {
     type Error = NoError;
 
     fn unify_values(a: &Self, b: &Self) -> Result<Self, NoError> {
-        // 両方が束縛済みのまま union することはない（`InferCtx` が先に構造で単一化する）．
+        // Never unioned with both sides bound: `InferCtx` unifies the structures first.
         Ok(match (&a.0, &b.0) {
             (Some(_), _) => a.clone(),
             (None, _) => b.clone(),
@@ -80,34 +79,37 @@ impl UnifyValue for TyVarValue {
     }
 }
 
-/// 名前付き型（`type` / `enum`）の宣言を指す ID．
 pub type TyConId = Idx<TyConData>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TyConKind {
-    /// `type`（レコード）．
+    /// A record.
     Type,
     Enum,
-    /// `error`（7.1）．同じ名前の型も定義する．
+    /// `error` (spec 7.1). Also defines a type of the same name.
     Error,
-    /// handler の値（8.4）．ソースには書けず，handler の init の値と `self` の型にだけ現れる．
+    /// A handler value (spec 8.4). Cannot be written in source; appears only as the value of a
+    /// handler's `init` and as the type of `self`.
     Handler,
 }
 
-/// 型引数の種類．種を書く構文はなく，使われた位置から決める（9.2）．
+/// There is no syntax for kinds; the kind is determined by where the parameter is used
+/// (spec 9.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ParamKind {
-    /// ふつうの型．`Ty::Bound(i)` で指す．`fails` にも書かれていれば，1つのエラーの型
-    /// （7.2 の `or_fail` の `E`）で，集合の中では `RowElem::Of(Ty::Bound(i))` になる．
+    /// An ordinary type, referred to by `Ty::Bound(i)`. If it is also written in `fails`, it is
+    /// the type of a single error (the `E` of `or_fail`, spec 7.2) and appears in sets as
+    /// `RowElem::Of(Ty::Bound(i))`.
     Type,
-    /// 集合．`RowElem::Bound(i)` で指す．エラーの集合（`fails E` の `E`）か効果の集合
-    /// （`use R` の `R`）かは，書いた位置で決まる．引数の関数型の見えない集合変数も含む．
+    /// A set, referred to by `RowElem::Bound(i)`. Whether it is an error set (the `E` of
+    /// `fails E`) or an effect set (the `R` of `use R`) depends on where it is written. Includes
+    /// the invisible set variables of function-typed parameters.
     Set,
 }
 
-/// 型引数とその制約（`A: Ord + Show`）．
+/// A type parameter and its constraints (`A: Ord + Show`).
 ///
-/// Trait は 0.21 以降なので，制約は名前を保持するだけで検査しない．
+/// Traits come in 0.21 or later, so constraints are only recorded, not checked.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TyParam {
     pub name: SmolStr,
@@ -124,7 +126,7 @@ impl TyParam {
         }
     }
 
-    /// 集合（エラーか効果）の型引数．
+    /// A set (error or effect) type parameter.
     pub fn set(name: impl Into<SmolStr>) -> Self {
         TyParam {
             kind: ParamKind::Set,
@@ -143,7 +145,6 @@ impl TyParam {
     }
 }
 
-/// 名前付き型の宣言．
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TyConData {
     pub name: SmolStr,
@@ -151,7 +152,7 @@ pub struct TyConData {
     pub params: Vec<TyParam>,
 }
 
-/// 名前付き型の表．集合のタグ（error と effect の定義）の名前も持つ（表示に使う）．
+/// Also holds the names of set tags (error and effect definitions), for display.
 #[derive(Clone, Debug, Default)]
 pub struct TyCons {
     arena: Arena<TyConData>,
@@ -167,12 +168,11 @@ impl TyCons {
         self.arena.alloc(data)
     }
 
-    /// 集合のタグ（error か effect の定義）の名前を登録する．
     pub fn set_tag_name(&mut self, def: DefId, name: SmolStr) {
         self.tags.insert(def, name);
     }
 
-    /// 集合のタグの名前．登録していなければ `None`．
+    /// `None` if not registered.
     pub fn tag_name(&self, def: DefId) -> Option<&SmolStr> {
         self.tags.get(def)
     }
@@ -190,40 +190,41 @@ impl Index<TyConId> for TyCons {
     }
 }
 
-/// 関数型 `fn(A, B) -> C fails E use R`．
+/// `fn(A, B) -> C fails E use R`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FnTy {
     pub params: Vec<Ty>,
     pub ret: Ty,
-    /// エラーの集合 E（7章，9.2）．空なら失敗しない．
+    /// The error set E (spec chapter 7, 9.2). Empty means the function cannot fail.
     pub fails: Row,
-    /// 効果の集合 R（8章，9.2）．タグは effect の定義．空なら環境に依存しない．
+    /// The effect set R (spec chapter 8, 9.2). Tags are effect definitions. Empty means the
+    /// function does not depend on its environment.
     pub uses: Row,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Prim(Prim),
-    /// 値を持たない型．どの型とも `join` できる．
+    /// The type with no values. Joins with any type.
     Never,
-    /// 単一化の型変数．
     Var(TyVar),
-    /// 型スキームが量化した型引数．`Scheme::params` の添字．
+    /// A type parameter quantified by a type scheme; an index into `Scheme::params`.
     Bound(u32),
     Fn(Box<FnTy>),
-    /// 要素は2つ以上．
+    /// At least two elements.
     Tuple(Vec<Ty>),
     List(Box<Ty>),
-    /// 名前付き型の適用（`Pair[A, B]`，`Option[A]`）．
+    /// An application of a named type (`Pair[A, B]`, `Option[A]`).
     Named(TyConId, Vec<Ty>),
-    /// 名前付き型の集合の型引数に渡した集合（9.2 の `Handler[E, R]` の `E` と `R`）．
-    /// 名前付き型の型引数の位置にだけ現れる．値の型ではない．
+    /// A set passed as a set type argument of a named type (the `E` and `R` of `Handler[E, R]`,
+    /// spec 9.2). Appears only in type argument positions of named types; not a value type.
     Set(SetKind, Row),
-    /// エフェクトの能力の値の型（8.2）．`use X` が返す．中身は effect の定義と型引数
-    /// （`use State[Int]`，8.1）．ソースには書けず，引数に渡す，データ構造に入れる，返すことはできない．
+    /// The type of an effect's capability value (spec 8.2), returned by `use X`. Holds the
+    /// effect definition and its type arguments (`use State[Int]`, spec 8.1). Cannot be written in
+    /// source, and cannot be passed as an argument, stored in a data structure or returned.
     Cap(Tag),
-    /// 壊れた型．読めなかった型や解決できなかった名前から作る．
-    /// 単一化ではどの型とも黙って一致し，エラーを重ねて出さない．
+    /// A broken type, made from a type that could not be read or a name that could not be
+    /// resolved. Unification silently accepts it against any type so errors do not cascade.
     Error,
 }
 
@@ -235,17 +236,14 @@ impl Ty {
     pub const STRING: Ty = Ty::Prim(Prim::String);
     pub const UNIT: Ty = Ty::Prim(Prim::Unit);
 
-    /// 失敗しない関数型．
     pub fn func(params: impl IntoIterator<Item = Ty>, ret: Ty) -> Ty {
         Ty::func_fails(params, ret, Row::empty())
     }
 
-    /// エラーの集合 `fails` を持ち，効果を持たない関数型．
     pub fn func_fails(params: impl IntoIterator<Item = Ty>, ret: Ty, fails: Row) -> Ty {
         Ty::func_sets(params, ret, fails, Row::empty())
     }
 
-    /// エラーの集合 `fails` と効果の集合 `uses` を持つ関数型．
     pub fn func_sets(params: impl IntoIterator<Item = Ty>, ret: Ty, fails: Row, uses: Row) -> Ty {
         Ty::Fn(Box::new(FnTy {
             params: params.into_iter().collect(),
@@ -257,7 +255,7 @@ impl Ty {
 
     pub fn tuple(elems: impl IntoIterator<Item = Ty>) -> Ty {
         let elems: Vec<Ty> = elems.into_iter().collect();
-        debug_assert!(elems.len() >= 2, "タプルの要素は2つ以上");
+        debug_assert!(elems.len() >= 2, "a tuple has at least two elements");
         Ty::Tuple(elems)
     }
 
@@ -269,8 +267,8 @@ impl Ty {
         Ty::Named(id, args.into_iter().collect())
     }
 
-    /// 直下の子の型を順に渡す．関数型のエラーの集合の中の型（`RowElem::Of`）と，効果の集合の
-    /// タグの型引数（`State[Int]` の `Int`）も含む．
+    /// Visits the immediate child types, including types inside a function type's error set
+    /// (`RowElem::Of`) and type arguments of effect-set tags (the `Int` of `State[Int]`).
     pub fn for_each_child(&self, mut f: impl FnMut(&Ty)) {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => {}
@@ -287,8 +285,8 @@ impl Ty {
         }
     }
 
-    /// 直下の子の型を `f` で置き換えた型を作る．関数型のエラーの集合の中の型と，効果の集合の
-    /// タグの型引数も置き換える．
+    /// Replaces the immediate child types with `f`, including types inside a function type's
+    /// error set and type arguments of effect-set tags.
     pub fn map_children(&self, mut f: impl FnMut(&Ty) -> Ty) -> Ty {
         match self {
             Ty::Prim(_) | Ty::Never | Ty::Var(_) | Ty::Bound(_) | Ty::Error => self.clone(),

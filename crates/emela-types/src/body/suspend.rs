@@ -1,19 +1,23 @@
-//! suspend と Async と Immediate（8.4，8.7，9.5）．
+//! suspend, Async and Immediate (spec 8.4, 8.7, 9.5).
 //!
-//! - suspend fn の実装の本体で，`resume` を直接呼ぶ（`resume(v)`）以外の使い方をしていれば，
-//!   resume を後から呼びうるとみなす（8.7）．判定は構文だけで行う．無名関数の中の参照は，
-//!   直接の呼び出しでもクロージャで捕まえたものなので，直接の呼び出しに数えない．
-//!   その操作の本体の R には Async を足す（ハンドラの依存になる）．
-//! - `R: Immediate` の制約のある型引数を持つ定義を参照したら，具体化した集合を覚えておき，
-//!   集合を解いた後に Immediate か確かめる．要素ごとに，エフェクトは suspend fn を持たず
-//!   Async でないこと，集合の型引数は `Immediate` の制約を持つこと．まだ汎化していない集合変数は，
-//!   汎化するときに `Immediate` の制約を付ける．
-//! - 外部関数の引数の関数型で `use` を省略したときの見えない集合は `Immediate` の制約を持つ
-//!   （コールバックは Immediate でなければならない，9.5）ので，同じ仕組みで確かめる．
-//! - fn の操作の実装の本体は，R が Immediate であるか，中断しうる呼び出しを含まないかの
-//!   どちらかを満たす（E0417，8.1）．呼び出しが中断しうるかは，操作の呼び出しなら操作の宣言
-//!   （`suspend fn` か），`@external suspend fn` ならいつも，関数と関数の値なら呼ばれる側の型の R
-//!   （Immediate でないか）で決める．
+//! - If the body of a suspend fn implementation uses `resume` in any way other than calling it
+//!   directly (`resume(v)`), resume is assumed to be callable later (spec 8.7). This is decided
+//!   syntactically. References inside a lambda do not count as direct calls even if they look
+//!   like one, since the closure captured `resume`. Async is added to that operation body's R
+//!   (making it a handler dependency).
+//! - When a definition with a type parameter bounded by `R: Immediate` is referenced, the
+//!   instantiating set is recorded and checked for Immediate after sets are solved: each effect
+//!   must have no suspend fn and not be Async, and each set type parameter must have an
+//!   `Immediate` bound. Set variables not yet generalized get the `Immediate` bound when they are
+//!   generalized.
+//! - Invisible sets from an omitted `use` on a function-typed parameter of an external function
+//!   carry an `Immediate` bound (callbacks must be Immediate, spec 9.5), so the same mechanism
+//!   checks them.
+//! - The body of an fn operation implementation must either have an Immediate R or contain no
+//!   call that may suspend (E0417, spec 8.1). Whether a call may suspend is decided by the
+//!   operation's declaration (`suspend fn` or not) for operation calls, always for
+//!   `@external suspend fn`, and by the callee type's R (not Immediate) for functions and
+//!   function values.
 
 use emela_resolve::hir::{
     BinaryOp, DefId, ExprId, ExprKind, Item, LocalId, Program, Res, Span, Stmt, StrPart,
@@ -27,8 +31,8 @@ use crate::row::{Row, RowElem};
 use crate::ty::{Ty, TyParam};
 
 impl BodyInfer<'_> {
-    /// 定義 `def` の参照で，型引数 `params` を集合 `rows` に具体化した．`Immediate` の制約のある
-    /// 集合の型引数の具体化を，後で確かめるために覚える．
+    /// A reference to `def` instantiated type parameters `params` with the sets `rows`. Records
+    /// the instantiations of set type parameters with an `Immediate` bound, to check later.
     pub(super) fn require_immediate(
         &mut self,
         def: DefId,
@@ -43,7 +47,8 @@ impl BodyInfer<'_> {
                 continue;
             }
             let callee = program.defs[def].name.clone();
-            // 外部関数の見えない集合（`R(f)`）はコールバックの R．書いた型引数は制約として出す．
+            // An external function's invisible sets (`R(f)`) are callback Rs. Written type
+            // parameters are reported as bounds.
             let source = if external && p.name.contains('(') {
                 ImmediateSource::ExternalCallback { callee }
             } else {
@@ -61,7 +66,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 覚えておいた集合が Immediate か確かめる（E0416）．集合を解いた後に呼ぶ．
+    /// Checks that the recorded sets are Immediate (E0416). Call after sets are solved.
     pub(super) fn check_immediates(&mut self) {
         let program = self.program;
         for ob in std::mem::take(&mut self.immediates) {
@@ -79,7 +84,7 @@ impl BodyInfer<'_> {
                         Some(p) => sets.push(p.name.clone()),
                         None => {}
                     },
-                    // 汎化する集合変数．汎化するときに制約を付ける．
+                    // A set variable to be generalized; it gets the bound at generalization.
                     RowElem::Var(v) => {
                         self.immediate_vars.insert(*v);
                     }
@@ -102,13 +107,14 @@ impl BodyInfer<'_> {
 }
 
 impl BodyInfer<'_> {
-    /// fn の操作の実装の本体が中断しないか確かめる（E0417，8.1）．fn の操作は「ハンドラが値を返すと，
-    /// 呼び出し元はすぐ続きを実行する」ので，呼び出し元は中断しない前提で出力する．集合を解いた後に呼ぶ．
+    /// Checks that fn operation implementation bodies do not suspend (E0417, spec 8.1). For an fn
+    /// operation, "the caller continues as soon as the handler returns a value", so callers are
+    /// emitted assuming no suspension. Call after sets are solved.
     ///
-    /// 本体の R が Immediate か，本体が中断しうる呼び出しを含まなければ通す．どちらもそれだけで
-    /// 本体が中断しないことを保証する．後者は本体の中の呼び出しを1つずつ見る
-    /// （[`Self::suspending_call`]）．無名関数の本体の中の呼び出しは，その無名関数を呼んだところで
-    /// 関数の値の呼び出しとして数える．どちらも満たさなければ，中断しうる呼び出しごとに報告する．
+    /// Passes if the body's R is Immediate or the body contains no call that may suspend; either
+    /// alone guarantees the body does not suspend. The latter looks at each call in the body
+    /// ([`Self::suspending_call`]). Calls inside a lambda's body count where the lambda is called,
+    /// as a call of a function value. If neither holds, each call that may suspend is reported.
     pub(super) fn check_fn_op_bodies(&mut self) {
         let program = self.program;
         let bodies: Vec<(DefId, usize, ExprId)> = self
@@ -121,9 +127,9 @@ impl BodyInfer<'_> {
             let Some(Item::Handler(h)) = program.item(handler) else {
                 continue;
             };
-            // 本体の R が Immediate なら，中に中断しうる呼び出しがあっても（その場で resume する
-            // ハンドラの with の中），本体は中断しない．呼び出しを見ずに通す．handler は型引数を
-            // 持たないので，R の要素はタグだけを見る．
+            // If the body's R is Immediate, the body does not suspend even if it contains calls
+            // that may (inside a `with` of a handler that resumes immediately), so pass without
+            // looking at the calls. Handlers have no type parameters, so only tags in R matter.
             let row = self
                 .expr_effects
                 .get(body)
@@ -143,7 +149,7 @@ impl BodyInfer<'_> {
             while let Some(expr) = stack.pop() {
                 let callee = match &program.exprs[expr].kind {
                     ExprKind::Call { callee, .. } => Some(*callee),
-                    // `x |> f` は `f(x)`．右辺が呼び出しなら，その呼び出しの式で数える．
+                    // `x |> f` is `f(x)`. If the right side is a call, count that call expression.
                     ExprKind::Binary {
                         op: BinaryOp::Pipe,
                         rhs,
@@ -160,18 +166,19 @@ impl BodyInfer<'_> {
                         },
                     });
                 }
-                // 書かれた順に報告するよう，逆順に積む．
+                // Push in reverse so reports come in source order.
                 stack.extend(self.sub_exprs(expr).into_iter().rev());
             }
         }
     }
 
-    /// 呼ばれる側 `callee` の呼び出しが中断しうるなら，その理由（8.1）．
+    /// Why a call of `callee` may suspend, if it may (spec 8.1).
     ///
-    /// - 能力の値の操作の呼び出しは，操作の宣言が `suspend fn` なら中断しうる．
-    /// - `@external suspend fn` の呼び出しは中断しうる．
-    /// - 関数と関数の値の呼び出しは，呼ばれる側の型の R が Immediate でなければ中断しうる．
-    ///   関数の本体から中断しないことを推論しない（関数のシグネチャに中断の印は付かない）．
+    /// - A capability operation call may suspend if the operation is declared `suspend fn`.
+    /// - A call of an `@external suspend fn` may suspend.
+    /// - A call of a function or function value may suspend if the callee type's R is not
+    ///   Immediate. Not suspending is never inferred from the function's body, since signatures
+    ///   carry no suspension marker.
     fn suspending_call(&mut self, callee: ExprId) -> Option<SuspendingCall> {
         let program = self.program;
         if let Some(&op) = self.ops.get(callee) {
@@ -231,8 +238,9 @@ impl BodyInfer<'_> {
     }
 }
 
-/// suspend fn の実装の本体 `body` で，`resume`（局所変数 `resume`）を直接呼ぶ以外の使い方を
-/// しているか（8.7）．直接呼ぶとは，無名関数の外で `resume(v)` か `v |> resume` と書くこと．
+/// Whether the body `body` of a suspend fn implementation uses `resume` (the local `resume`) in
+/// any way other than calling it directly (spec 8.7). Calling directly means writing `resume(v)`
+/// or `v |> resume` outside any lambda.
 pub(super) fn resume_escapes(program: &Program, body: ExprId, resume: LocalId) -> bool {
     Walker {
         program,
@@ -258,7 +266,7 @@ impl Walker<'_> {
         matches!(self.program.exprs[expr].kind, ExprKind::Path(Res::Local(l)) if l == self.resume)
     }
 
-    /// 呼ばれる側の位置の式．resume なら，無名関数の外での直接の呼び出し．
+    /// An expression in callee position. For resume, a direct call outside any lambda.
     fn callee(&mut self, callee: ExprId, in_lambda: bool) {
         if self.is_resume(callee) {
             if in_lambda {

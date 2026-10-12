@@ -1,17 +1,18 @@
-//! 仕様（emela-0.20-spec.md）の例を型検査にかける．
+//! Type-checks the examples of the spec (emela-0.20-spec.md).
 //!
-//! 仕様の例は断片（文だけ，定義のない名前，alpha.2 の構文）が多いので，足りない定義を補って
-//! 完全なプログラムにしてある．補った部分には「補」と書く．節の番号は仕様のもの．
-//! 前半は通るべき例，後半は本文が誤りと定めている書き方．
+//! Many spec examples are fragments (statements only, undefined names, alpha.2 syntax), so missing
+//! definitions are filled in to make complete programs; filled-in parts are marked "補". Section
+//! numbers are the spec's. The first half holds examples that must pass; the second half holds
+//! code the text declares to be errors.
 
 mod common;
 
 use common::render_bodies;
 
 // ---------------------------------------------------------------------------
-// 通るべき例
+// Examples that must pass
 
-/// 2.4 リテラル．16進と2進，文脈で決まる Int64，複数行の文字列と補間．
+/// 2.4 Literals: hex and binary, Int64 decided by context, multiline strings and interpolation.
 #[test]
 fn spec_2_4_literals() {
     insta::assert_snapshot!(render_bodies(
@@ -33,7 +34,7 @@ fn literals(id: Int) -> String {
     ));
 }
 
-/// 5.3 type と部分更新．型引数は変わってよい（`Pair[Int, Bool]` から `Pair[String, Bool]`）．
+/// 5.3 Types and update. Type arguments may change (`Pair[Int, Bool]` to `Pair[String, Bool]`).
 #[test]
 fn spec_5_3_types_and_update() {
     insta::assert_snapshot!(render_bodies(
@@ -58,7 +59,7 @@ fn update(user: User, todo: Todo, p: Pair[Int, Bool]) -> Pair[String, Bool] {
     ));
 }
 
-/// 5.4 enum．名前付き，位置引数，中身なしのバリアント．
+/// 5.4 enum: named, positional and empty variants.
 #[test]
 fn spec_5_4_enum() {
     insta::assert_snapshot!(render_bodies(
@@ -76,7 +77,7 @@ fn shapes() -> List[Shape] {
     ));
 }
 
-/// 5.6 const．型を書かない const も値から推論する．
+/// 5.6 const. A const without a type is inferred from its value.
 #[test]
 fn spec_5_6_const() {
     insta::assert_snapshot!(render_bodies(
@@ -93,7 +94,7 @@ fn port() -> Int {
     ));
 }
 
-/// 6.1 関数の宣言．`find` は use を使うので，効果の段まで省く．
+/// 6.1 Function declarations. `find` uses `use`, so it is left out until the effect stage.
 #[test]
 fn spec_6_1_functions() {
     insta::assert_snapshot!(render_bodies(
@@ -111,7 +112,7 @@ fn inc() -> fn(Int) -> Int {
     ));
 }
 
-/// 6.2 引数とラベル．位置，名前付き，混在の3通り．
+/// 6.2 Parameters and labels: positional, named and mixed.
 #[test]
 fn spec_6_2_labels() {
     insta::assert_snapshot!(render_bodies(
@@ -127,8 +128,8 @@ fn calls() {
     ));
 }
 
-/// 6.3 ブロックと束縛．束縛し直し，タプルの分解，型注釈．
-/// `Map.to_list` は core にないので `List.zip` に置き換えた（補）．
+/// 6.3 Blocks and bindings: rebinding, tuple destructuring, type annotations. `Map.to_list` is not
+/// in core, so it is replaced with `List.zip` (補).
 #[test]
 fn spec_6_3_bindings() {
     insta::assert_snapshot!(render_bodies(
@@ -146,7 +147,7 @@ fn bindings(xs: List[Int], names: List[String]) -> Int {
     ));
 }
 
-/// 6.4 if．else のない if の本体は `fail` でもよい（Never）．
+/// 6.4 if. The body of an if without else may be `fail` (Never).
 #[test]
 fn spec_6_4_if() {
     insta::assert_snapshot!(render_bodies(
@@ -166,7 +167,7 @@ fn validate(input: String, valid: Bool) -> String fails Invalid {  # 補
     ));
 }
 
-/// 6.5 match とパターン．ガード付きの腕と網羅．
+/// 6.5 match and patterns: guarded arms and exhaustiveness.
 #[test]
 fn spec_6_5_match() {
     insta::assert_snapshot!(render_bodies(
@@ -189,7 +190,7 @@ fn area(shape: Shape) -> Float {
     ));
 }
 
-/// 6.7 パイプ．`List.fold(init: 0, f: add)` の名前付き引数もパイプの左辺の後に並ぶ．
+/// 6.7 Pipes. The named arguments of `List.fold(init: 0, f: add)` follow the pipe's left side.
 #[test]
 fn spec_6_7_pipe() {
     insta::assert_snapshot!(render_bodies(
@@ -206,7 +207,8 @@ fn total(scores: List[Int]) -> Int {
     ));
 }
 
-/// 9.2 関数型．`compose` の戻り値の関数は f と g のエラーを持つと推論する．compose 自身は失敗しない．
+/// 9.2 Function types. The function `compose` returns is inferred to have the errors of f and g;
+/// compose itself does not fail.
 #[test]
 fn spec_9_2_compose() {
     insta::assert_snapshot!(render_bodies(
@@ -223,7 +225,8 @@ fn use_it() -> String {
     ));
 }
 
-/// 9.2 宣言の中で効果のある関数を持つときは型引数で明示する（`type Handler[E, R]`）．
+/// 9.2 Functions with effects held in declarations make them explicit with type parameters
+/// (`type Handler[E, R]`).
 #[test]
 fn spec_9_2_handler_type_params() {
     insta::assert_snapshot!(render_bodies(
@@ -245,7 +248,8 @@ fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置�
     ));
 }
 
-/// 9.4 Never は分岐の合流で他の型になる．if の一方が panic でも全体はもう一方の型．
+/// 9.4 Never becomes the other type where branches merge. If one side of an if panics, the whole
+/// has the other side's type.
 #[test]
 fn spec_9_4_never_joins() {
     insta::assert_snapshot!(render_bodies(
@@ -262,7 +266,8 @@ fn pick(c: Bool, n: Int) -> Int {
     ));
 }
 
-/// 7.1 error の宣言は同じ名前の型と構成子を定義する．エラーの値は普通の値として扱える．
+/// 7.1 An error declaration defines a type and constructor of the same name. Error values are
+/// ordinary values.
 #[test]
 fn spec_7_1_error_values() {
     insta::assert_snapshot!(render_bodies(
@@ -280,7 +285,8 @@ fn values() -> Int {  # 補
     ));
 }
 
-/// 7.2 fail と or_fail．型引数が値と fails の両方に出たら1つのエラーの型．
+/// 7.2 fail and or_fail. A type parameter appearing both as a value and in fails is the type of a
+/// single error.
 #[test]
 fn spec_7_2_fail_and_or_fail() {
     insta::assert_snapshot!(render_bodies(
@@ -307,7 +313,7 @@ fn raise(id: Int) {  # 補
     ));
 }
 
-/// 7.3 escape．復帰，一部だけ受ける，別のエラーに変える，値として扱う．
+/// 7.3 escape: recovering, catching only some, converting to another error, treating as a value.
 #[test]
 fn spec_7_3_escape() {
     insta::assert_snapshot!(render_bodies(
@@ -354,8 +360,9 @@ fn as_value(id: Int) {
     ));
 }
 
-/// 7.3 escape と集合変数．引数の関数の見えない集合変数からは消えない．`fails Timeout | E` と
-/// 書き出せば，1回目の呼び出しの Timeout は型からも消える．呼ぶ側では集合が決まる．
+/// 7.3 escape and set variables. Nothing is removed from a parameter function's invisible set
+/// variable. Writing `fails Timeout | E` removes the first call's Timeout from the type too. The
+/// set is decided at the caller.
 #[test]
 fn spec_7_3_escape_and_set_variables() {
     insta::assert_snapshot!(render_bodies(
@@ -385,8 +392,8 @@ fn callers() {  # 補
     ));
 }
 
-/// 7.4 fails の注釈．戻り値の型を省略すれば推論，`fails` はちょうどその集合．
-/// `fails Timeout | E` の引数に渡した関数のエラーのうち Timeout 以外が E になる．
+/// 7.4 fails annotations. An omitted return type is inferred; `fails` is exactly that set. For a
+/// function passed to a `fails Timeout | E` parameter, its errors other than Timeout become E.
 #[test]
 fn spec_7_4_annotations() {
     insta::assert_snapshot!(render_bodies(
@@ -417,7 +424,7 @@ fn no_timeout() {  # 補．Timeout を起こさない関数を渡してもよい
     ));
 }
 
-/// 13.3，14.3 テスト関数と main の E は空でなくてよい．
+/// 13.3, 14.3 The E of test functions and `main` may be non-empty.
 #[test]
 fn spec_13_3_tests_and_main_may_fail() {
     insta::assert_snapshot!(render_bodies(
@@ -446,9 +453,10 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
-// 本文が誤りと定めている書き方
+// Code the text declares to be errors
 
-/// 2.4 整数リテラルが文脈の型の範囲を超える．2の補数として読み替えない．
+/// 2.4 An integer literal exceeding the range of its context's type. Not reinterpreted as two's
+/// complement.
 #[test]
 fn spec_2_4_out_of_range() {
     insta::assert_snapshot!(render_bodies(
@@ -463,7 +471,7 @@ fn f() -> Int {
     ));
 }
 
-/// 5.3 部分更新で引き継ぐフィールドの型が矛盾する，または `..` の後が別の型．
+/// 5.3 In an update, carried-over fields with conflicting types, or a different type after `..`.
 #[test]
 fn spec_5_3_update_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -481,7 +489,7 @@ fn f(u: User, p: Pair[Int, Bool]) -> Int {
     ));
 }
 
-/// 6.4 値として使う if は else が必要．else のない if の本体は () か Never．
+/// 6.4 An if used as a value needs else. The body of an if without else is () or Never.
 #[test]
 fn spec_6_4_if_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -495,8 +503,8 @@ fn f(count: Int) -> Int {
     ));
 }
 
-/// 6.3，6.5 束縛のパターンは必ず成功するものに限る．match は網羅する．冗長な腕は警告．
-/// 名前付きフィールドを `..` なしに省いたパターンはエラー．
+/// 6.3, 6.5 Binding patterns must always succeed. match must be exhaustive. Redundant arms warn.
+/// Omitting named fields without `..` is an error.
 #[test]
 fn spec_6_5_pattern_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -522,7 +530,8 @@ fn f(shape: Shape, o: Option[Int], u: User) -> Float {
     ));
 }
 
-/// 6.6 算術演算子は Int，Int64，Float にだけ使え，両辺は同じ型．文字列の連結に + は使えない．
+/// 6.6 Arithmetic operators apply only to Int, Int64 and Float, with both sides of the same type.
+/// `+` cannot concatenate strings.
 #[test]
 fn spec_6_6_operator_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -538,7 +547,8 @@ fn f(n: Int, big: Int64, s: String) -> Int {
     ));
 }
 
-/// 9.4 Never が他の型として扱われるのは最上位だけ．`List[Never]` と `List[Int]` は一致しない．
+/// 9.4 Never stands for other types only at the top level; `List[Never]` and `List[Int]` do not
+/// match.
 #[test]
 fn spec_9_4_list_never_is_not_list_int() {
     insta::assert_snapshot!(render_bodies(
@@ -553,7 +563,8 @@ fn f() -> Int {
     ));
 }
 
-/// 8.2 `use X` は能力の値を返し，X を R に載せる．操作は能力の値を通して呼ぶ．
+/// 8.2 `use X` returns a capability value and puts X in R. Operations are called through the
+/// capability value.
 #[test]
 fn spec_8_2_use() {
     insta::assert_snapshot!(render_bodies(
@@ -590,8 +601,9 @@ fn greet(id: Int) {
     ));
 }
 
-/// 8.2 特定のハンドラの能力を使わせるときは，能力を捕まえたクロージャを渡す．
-/// 8.3 外側で取り出した能力の値は，内側の with で上書きされても外側のハンドラを指す．
+/// 8.2 To use a specific handler's capability, pass a closure capturing it.
+/// 8.3 A capability value taken outside still refers to the outer handler even when an inner
+/// `with` overrides it.
 #[test]
 fn spec_8_2_copy() {
     insta::assert_snapshot!(render_bodies(
@@ -630,8 +642,8 @@ fn main() {  # 補
     ));
 }
 
-/// 8.3 with は供給したエフェクトを本体の R から消す．カンマで並べられる．
-/// 8.4 状態を持たないハンドラは，エフェクトの操作を全部実装する．引数の型は書かない．
+/// 8.3 `with` removes the provided effects from the body's R; handlers can be listed with commas.
+/// 8.4 A stateless handler implements every operation of the effect, without parameter types.
 #[test]
 fn spec_8_3_with() {
     insta::assert_snapshot!(render_bodies(
@@ -668,8 +680,9 @@ fn run() {  # 補．ConsoleLogger だけでは Clock が残る
     ));
 }
 
-/// 8.3 with と見えない効果の集合．with は引数の関数の見えない集合からは消さない．
-/// `use { Logger, R }` と書き出せば，Logger は with で消えて `-> () use R` で通る．
+/// 8.3 `with` and invisible effect sets. `with` removes nothing from a parameter function's
+/// invisible set. Writing `use { Logger, R }` lets `with` remove Logger and passes as
+/// `-> () use R`.
 #[test]
 fn spec_8_3_with_and_set_variables() {
     insta::assert_snapshot!(render_bodies(
@@ -704,9 +717,9 @@ fn callers() {  # 補
     ));
 }
 
-/// 8.1 suspend fn の操作，8.4 suspend fn の実装（最後の引数に resume），8.7 Async．
-/// JsClock は resume をクロージャで捕まえるので Async に依存し，`with JsClock` の R に Async が残る．
-/// その場で resume する InstantClock は Async を要求しない．
+/// 8.1 suspend fn operations, 8.4 suspend fn implementations (resume as the last parameter), 8.7
+/// Async. JsClock captures resume in a closure, so it depends on Async, and Async remains in the R
+/// of `with JsClock`. InstantClock, which resumes immediately, does not require Async.
 #[test]
 fn spec_8_4_suspend_and_async() {
     insta::assert_snapshot!(render_bodies(
@@ -748,7 +761,7 @@ fn instant() { with InstantClock { nap() } }  # 補
     ));
 }
 
-/// 9.5 効果への制約 `R: Immediate`．12.1 の `@external suspend fn` は Async を要求する．
+/// 9.5 The bound `R: Immediate` on effects. 12.1 `@external suspend fn` requires Async.
 #[test]
 fn spec_9_5_immediate() {
     insta::assert_snapshot!(render_bodies(
@@ -772,7 +785,8 @@ fn bump(r: Ref[Int]) { update(r, fn(n) { n + 1 }) }  # 補
     ));
 }
 
-/// 9.2 `fn(A) -> B use {}` は効果を持たない関数だけを受け取る．省略すれば何でもよく，呼んだ側の R に加わる．
+/// 9.2 `fn(A) -> B use {}` accepts only functions without effects. Omitted, it accepts anything,
+/// and the effects join the caller's R.
 #[test]
 fn spec_9_2_effect_free_parameter() {
     insta::assert_snapshot!(render_bodies(
@@ -795,7 +809,8 @@ fn callers() {  # 補
     ));
 }
 
-/// 7.4 `-> T` はエラーなしを強制し，`fails X` はちょうどその集合．本体に未処理のエラーがあれば E0318．
+/// 7.4 `-> T` forces no errors, and `fails X` is exactly that set. Unhandled errors in the body are
+/// E0318.
 #[test]
 fn spec_7_4_annotation_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -818,7 +833,8 @@ const VALUE: Int = find()  # 5.6 const の値は失敗できない
     ));
 }
 
-/// 7.2 `fail` に渡せるのはエラーの値だけ．7.3 escape の腕のパターンはエラーの構成子．
+/// 7.2 Only error values can be passed to `fail`. 7.3 `escape` arm patterns are error
+/// constructors.
 #[test]
 fn spec_7_fail_and_escape_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -847,7 +863,7 @@ fn catch_all() -> Int {
     ));
 }
 
-/// 9.2 `fails {}` の引数には失敗しない関数しか渡せない（E0321）．
+/// 9.2 Only functions that cannot fail can be passed to a `fails {}` parameter (E0321).
 #[test]
 fn spec_9_2_pure_parameter() {
     insta::assert_snapshot!(render_bodies(

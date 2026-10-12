@@ -1,10 +1,12 @@
-//! 能力の値の制約（8.2）．能力の値は，関数の引数に渡せず，データ構造に入れられず，返せない．
+//! Capability value restrictions (spec 8.2): a capability value cannot be passed as an argument,
+//! stored in a data structure, or returned.
 //!
-//! 型が決まってから（集合を解いた後に）確かめる．型引数や無名関数の引数を通して能力の値が
-//! 渡ることがあるので，式の型を見る．見るのは値の最上位の型だけ．入れ子の中の能力の値
-//! （`List[use Logger]` など）は，それを作った式で誤りになっている．
+//! Checked once types are settled (after sets are solved). Capability values can travel through
+//! type parameters and lambda parameters, so this looks at expression types. Only the top-level
+//! type of a value is checked; a capability nested inside (`List[use Logger]`, ...) is already
+//! an error at the expression that built it.
 //!
-//! with の外への持ち出し（capture set，8.6）は 0.22 の範囲なので，ここでは見ない．
+//! Escaping a `with` (capture sets, spec 8.6) is in scope for 0.22 and not checked here.
 
 use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, Res};
 
@@ -59,8 +61,8 @@ impl BodyInfer<'_> {
                         self.reject_cap(field.value, DiagnosticKind::CapabilityInData);
                     }
                 }
-                // 無名関数の引数をそのまま返すだけなら，能力の値は引数として渡ってきたもので，
-                // 渡した側で誤りになっている．
+                // A lambda that just returns its parameter returns a capability passed in as an
+                // argument, which is already an error at the caller.
                 ExprKind::Lambda { params, body } => {
                     let value = tail(program, *body);
                     let returns_param = matches!(
@@ -75,7 +77,7 @@ impl BodyInfer<'_> {
             }
         }
 
-        // fn の本体と handler の操作の本体の値．
+        // The values of fn bodies and handler operation bodies.
         for def in self.defs.clone() {
             let bodies: Vec<ExprId> = match program.item(def) {
                 Some(Item::Fn(item)) => item.body.into_iter().collect(),
@@ -88,7 +90,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 呼ばれる側が構成子か（引数はデータ構造に入る）．
+    /// Whether the callee is a constructor (its arguments go into a data structure).
     fn is_ctor(&self, callee: ExprId) -> bool {
         match self.program.exprs[callee].kind {
             ExprKind::Path(Res::Def(def)) => {
@@ -98,7 +100,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 式の値が能力の値なら，`kind` の診断をその式に積む．
+    /// Pushes a `kind` diagnostic on `expr` if its value is a capability value.
     fn reject_cap(&mut self, expr: ExprId, kind: DiagnosticKind) {
         let Some(ty) = self.exprs.get(expr).cloned() else {
             return;
@@ -112,7 +114,7 @@ impl BodyInfer<'_> {
     }
 }
 
-/// 本体の値を作る式．ブロックなら最後の式を辿る．
+/// The expression producing a body's value, following the last expression of blocks.
 fn tail(program: &emela_resolve::hir::Program, mut expr: ExprId) -> ExprId {
     while let ExprKind::Block(block) = &program.exprs[expr].kind {
         match block.tail {

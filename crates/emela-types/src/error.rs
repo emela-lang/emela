@@ -1,22 +1,24 @@
-//! 型の不一致の報告．
+//! Type mismatch reports.
 //!
-//! 位置（span）はまだ持たない．構文木とつなぐときに呼び出し側が付ける．
+//! These carry no span yet; the caller attaches one when connecting to the syntax tree.
 
 use crate::ty::{Ty, TyVar};
 
-/// 単一化の失敗．`expected` と `actual` は単一化に渡した型そのもの（束縛は辿った形）．
+/// A unification failure. `expected` and `actual` are the types passed to unification, with
+/// bindings followed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeError {
     pub expected: Ty,
     pub actual: Ty,
-    /// `Result` の `Err` を小さく保つため箱に入れる．
+    /// Boxed to keep the `Err` of a `Result` small.
     pub kind: Box<TypeErrorKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeErrorKind {
-    /// 食い違った部分．全体が食い違ったときは `TypeError` の `expected` / `actual` と同じ．
+    /// The part that differs. Same as the `TypeError`'s `expected` and `actual` when the whole
+    /// type differs.
     Mismatch { expected: Ty, actual: Ty },
-    /// `var` を `ty` に束縛すると無限型になる（出現検査）．
+    /// Binding `var` to `ty` would create an infinite type (occurs check).
     InfiniteType { var: TyVar, ty: Ty },
 }

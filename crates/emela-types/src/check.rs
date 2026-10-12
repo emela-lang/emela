@@ -1,9 +1,11 @@
-//! プログラム全体の型検査．宣言の型を集め，定義の本体を呼び出しの順に推論する．
+//! Type checking of a whole program: collects declared types and infers definition bodies in
+//! call order.
 //!
-//! 定義（本体のある fn と const と handler）を，本体の中で参照する定義への辺で結んだグラフにし，
-//! 強連結成分（互いに参照し合うまとまり）ごとに，参照される側から順に推論する（Tarjan）．
-//! 宣言の型のない定義は，まとまりを推論し終えたところで汎化して宣言の型の表に足す．
-//! まとまりの中では単相なので，宣言の型のない定義どうしの再帰は多相にならない．
+//! Definitions (fns with bodies, consts and handlers) form a graph with edges to the definitions
+//! their bodies refer to. Strongly connected components (groups that refer to each other) are
+//! inferred callees first (Tarjan). Definitions without a declared type are generalized and added
+//! to the declared types once their group is inferred. Inside a group they are monomorphic, so
+//! recursion between definitions without declared types is not polymorphic.
 
 use emela_resolve::hir::{
     Block, DefId, ExprId, ExprKind, Item, LocalId, PatId, PatKind, Program, Res, Span, Stmt,
@@ -20,76 +22,87 @@ use crate::row::{Row, RowVar};
 use crate::signature::Signatures;
 use crate::ty::{Ty, TyVar};
 
-/// プログラム全体の型検査の結果．HIR の番号をキーにした表を並べたもの．
+/// Tables keyed by HIR ids.
 ///
-/// lowering は HIR を辿りながら，必要な情報をこの表から引く（NOTES.md「結果の形」）．
-/// 型は単一化の束縛を辿った形．決まらずに残った型変数（使われない `None` など）は
-/// 型変数のまま残る．lowering は `()` として扱う．
+/// Lowering walks the HIR and looks up what it needs in these tables (see NOTES.md). Types have
+/// unification bindings followed. Type variables that were never determined (an unused `None`,
+/// say) remain type variables; lowering treats them as `()`.
 pub struct ProgramTypes {
     pub ty_table: TyTable,
-    /// fn，構成子，const の宣言の型．宣言の型のなかった定義は推論して汎化した型．
+    /// Declared types of fns, constructors and consts. Definitions without a declared type get
+    /// their inferred, generalized type.
     pub sigs: Signatures,
     pub exprs: ArenaMap<ExprId, Ty>,
     pub pats: ArenaMap<PatId, Ty>,
     pub locals: ArenaMap<LocalId, Ty>,
-    /// 局所変数がどの定義の本体のものか．
+    /// The definition whose body a local variable belongs to.
     pub local_owner: ArenaMap<LocalId, DefId>,
-    /// フィールドの参照の式（`ExprKind::Field`）→ フィールドの添字（構成子の宣言の順）．
+    /// Field access expressions (`ExprKind::Field`) → the field index (constructor declaration
+    /// order).
     pub fields: ArenaMap<ExprId, usize>,
-    /// 呼び出し（`Call`），パイプ（`Binary { op: Pipe }`），部分更新（`Update`）の式 →
-    /// 仮引数（フィールド）の位置の順に並べ直した引数．
-    /// パイプは左辺を先頭に含む．部分更新は書いたフィールドだけが `Some`．
+    /// Call (`Call`), pipe (`Binary { op: Pipe }`) and update (`Update`) expressions → the
+    /// arguments reordered by parameter (field) position. Pipes include the left operand first.
+    /// Updates have `Some` only for the fields written.
     pub calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
-    /// 汎用の定義の参照の式（`Path`）→ 具体化した型引数（宣言の型引数の順）．
+    /// References to generic definitions (`Path`) → the instantiated type arguments, in the
+    /// declaration's type parameter order.
     pub type_args: ArenaMap<ExprId, Vec<Ty>>,
-    /// 汎用の定義の参照の式（`Path`）→ 具体化した集合（宣言の型引数の順．集合の型引数でない位置は
-    /// 空）．`type_args` と違い，集合の型引数を具体化した集合が入る．lowering が，多相な R の関数が
-    /// 中断しうるかを具体化ごとに決めるのに使う．
+    /// References to generic definitions (`Path`) → the instantiated sets, in the declaration's
+    /// type parameter order (empty at positions that are not set parameters). Unlike `type_args`,
+    /// these hold the sets instantiating set type parameters. Lowering uses them to decide, per
+    /// instantiation, whether a function polymorphic in R may suspend.
     pub type_rows: ArenaMap<ExprId, Vec<Row>>,
-    /// 宣言の型のなかった定義の本体の中の，汎化した集合変数 → 宣言の型（`sigs`）の型引数の添字．
-    /// 本体の式の型と集合（`exprs`，`effects`）には，汎化した集合変数が `RowElem::Var` のまま残る．
+    /// In the bodies of definitions without a declared type: generalized set variable → index of
+    /// the type parameter in the declared type (`sigs`). The bodies' expression types and sets
+    /// (`exprs`, `effects`) still contain the generalized set variables as `RowElem::Var`.
     pub generalized_rows: ArenaMap<DefId, Vec<(RowVar, u32)>>,
-    /// 宣言の型のなかった定義の本体の中の，汎化した型変数 → 宣言の型の型引数の添字．本体の式の型には
-    /// 汎化した型変数が `Ty::Var` のまま残る．lowering が，本体の中の `use State[A]` の `A` を
-    /// 型引数として扱うのに使う（証拠の表の鍵，8.1）．
+    /// For a definition without a declared type: generalized type variables in its body → the
+    /// index of the type parameter of the declared type. Body expression types keep generalized
+    /// variables as `Ty::Var`; lowering uses this to treat the `A` of `use State[A]` in the body
+    /// as a type parameter (the evidence table key, spec 8.1).
     pub generalized_tys: ArenaMap<DefId, Vec<(TyVar, u32)>>,
-    /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールドは `None`．
+    /// Constructor patterns → the patterns reordered by field position; omitted fields are
+    /// `None`.
     pub pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
-    /// 各式のエラーの集合 E（9.4）．集合変数は解に置き換えてある．汎化した定義の本体の中では，
-    /// 汎化した集合変数が `RowElem::Var` のまま残る．
+    /// The error set E of each expression (spec 9.4), with set variables replaced by their
+    /// solutions. In the bodies of generalized definitions, the generalized set variables remain
+    /// as `RowElem::Var`.
     pub errors: ArenaMap<ExprId, Row>,
-    /// 各式の効果の集合 R（9.4）．`errors` と同じく集合変数は解に置き換えてある．
+    /// The effect set R of each expression (spec 9.4), with set variables replaced by their
+    /// solutions as in `errors`.
     pub effects: ArenaMap<ExprId, Row>,
-    /// 能力の値の操作の参照（`log.info` の `Field` の式）→ effect の操作の定義．
+    /// References to capability operations (the `Field` expression of `log.info`) → the effect
+    /// operation's definition.
     pub ops: ArenaMap<ExprId, DefId>,
-    /// handler の依存（init，release，操作の本体の R の和．9.4 の「依存(H)」）．推論した handler だけ．
+    /// A handler's dependencies (the union of the R of init, release and the operation bodies;
+    /// "deps(H)" in spec 9.4). Only for inferred handlers.
     pub handler_uses: ArenaMap<DefId, Row>,
-    /// handler の init の E．with の E に入る（9.4）．推論した handler だけ．
+    /// The E of a handler's init, which goes into the E of `with` (spec 9.4). Only for inferred
+    /// handlers.
     pub handler_fails: ArenaMap<DefId, Row>,
-    /// with の式 → 初期化の順に並べたハンドラ（14.2）．layer は展開し，同じエフェクトのハンドラは
-    /// 後ろに並べたものだけを残す（8.3，8.5）．release はこの逆順．
+    /// `with` expressions → handlers in initialization order (spec 14.2). Layers are expanded, and
+    /// for handlers of the same effect only the last one is kept (spec 8.3, 8.5). Release runs in
+    /// reverse order.
     pub with_handlers: ArenaMap<ExprId, Vec<DefId>>,
-    /// layer → 展開した中身（初期化の順のハンドラと，layer の中で満たされない依存）．
+    /// Layer → its expansion (handlers in initialization order and the dependencies the layer
+    /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
     pub diags: Vec<Diagnostic>,
 }
 
-/// 検査の設定．R が空でなければならない定義（8.3 の main，13.3 のテスト関数）を渡す．
-/// どれがエントリの main で，どれがテスト関数かは driver が決める．
+/// Names the definitions whose R must be empty (`main` in spec 8.3, test functions in spec
+/// 13.3). The driver decides which is the entry's `main` and which are test functions.
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
-    /// エントリのモジュールの main．
+    /// The entry module's `main`.
     pub main: Option<DefId>,
-    /// テスト関数．
     pub tests: Vec<DefId>,
 }
 
-/// プログラム全体を型検査する．
 pub fn check_program(program: &Program) -> ProgramTypes {
     check_program_with(program, &CheckOptions::default())
 }
 
-/// プログラム全体を，設定 `options` で型検査する．
 pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramTypes {
     let mut closed: FxHashMap<DefId, EffectContext> = FxHashMap::default();
     if let Some(main) = options.main {
@@ -205,8 +218,8 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     types
 }
 
-/// 推論する定義（本体のある fn と const，handler）を，参照される側が先になる順に，
-/// 互いに参照し合うまとまりに分けて並べる．
+/// Orders the definitions to infer (fns with bodies, consts, handlers) into groups that refer to
+/// each other, callees first.
 fn groups(program: &Program) -> Vec<Vec<DefId>> {
     let nodes: Vec<DefId> = program
         .defs
@@ -222,7 +235,7 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
 
     let mut edges: FxHashMap<DefId, Vec<DefId>> = FxHashMap::default();
     for &def in &nodes {
-        // with に書いた layer は，中のハンドラへの辺にする（8.5）．
+        // A layer written in `with` becomes edges to its handlers (spec 8.5).
         let mut refs: Vec<DefId> = body_refs(program, def)
             .into_iter()
             .flat_map(|(r, _)| match program.item(r) {
@@ -255,7 +268,8 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
     tarjan.groups
 }
 
-/// Tarjan の強連結成分の分解．成分は，そこから辿れる成分の後に並ぶ（参照される側が先）．
+/// Tarjan's strongly connected components. A component comes after every component reachable
+/// from it (callees first).
 struct Tarjan<'g> {
     edges: &'g FxHashMap<DefId, Vec<DefId>>,
     index: FxHashMap<DefId, usize>,
@@ -289,23 +303,24 @@ impl Tarjan<'_> {
         if self.low[&v] == self.index[&v] {
             let mut group = Vec::new();
             loop {
-                let w = self.stack.pop().expect("v はスタックにある");
+                let w = self.stack.pop().expect("v is on the stack");
                 self.on_stack.insert(w, false);
                 group.push(w);
                 if w == v {
                     break;
                 }
             }
-            // まとまりの中は定義の順に推論する（診断の順を安定させるため）．
+            // Within a group, infer in definition order so diagnostics come in a stable order.
             group.sort_by_key(|def| def.into_raw());
             self.groups.push(group);
         }
     }
 }
 
-/// 定義（本体のある fn と const，handler）の本体の中で参照している定義と，参照の位置．書かれた順．
-/// 本体のない定義は空．パターンの中の const と，with に書いた handler も含む．handler は
-/// init，release，操作の本体を見る．
+/// The definitions referred to in a definition's body (fns with bodies, consts, handlers), with
+/// their spans, in source order. Empty for definitions without a body. Includes consts in
+/// patterns and handlers written in `with`. For handlers, looks at init, release and the
+/// operation bodies.
 pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     let mut out = Vec::new();
     match program.item(def) {
@@ -330,7 +345,6 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     out
 }
 
-/// 式の中で参照している定義を集める．
 fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span)>) {
     let go = |e: ExprId, out: &mut Vec<(DefId, Span)>| collect_expr_refs(program, e, out);
     let e = &program.exprs[expr];
@@ -428,7 +442,7 @@ fn collect_block_refs(program: &Program, block: &Block, out: &mut Vec<(DefId, Sp
     }
 }
 
-/// パターンの中で参照している const を集める．
+/// Collects the consts referred to in a pattern.
 fn collect_pat_refs(program: &Program, pat: PatId, out: &mut Vec<(DefId, Span)>) {
     let p = &program.pats[pat];
     match &p.kind {

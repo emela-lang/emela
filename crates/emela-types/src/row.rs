@@ -1,27 +1,30 @@
-//! 集合の型．エラーの集合 E（7章）と効果の集合 R（8章）を同じ形で持つ．
+//! Set types. Error sets E (spec chapter 7) and effect sets R (spec chapter 8) share one
+//! representation.
 //!
-//! 集合は，タグ（[`Tag`]．error の定義か，effect の定義とその型引数の組）と，中身の決まっていない
-//! 集合の和で表す（9.4）．
-//! 中身の決まっていない集合は3通りある．
+//! A set is a union of tags ([`Tag`]: an error definition, or an effect definition with its type
+//! arguments) and sets whose contents are not known (spec 9.4). There are three kinds of the
+//! latter:
 //!
-//! - 推論の集合変数（[`RowVar`]）．本体の推論が終わったところで，下界の和（最小の解）に決める．
-//! - 型スキームの集合の型引数（`RowElem::Bound`）．`fails E` の `E` と，引数の関数型の
-//!   見えない集合変数．定義の本体の中では中身の分からない集合として扱う．
-//! - 1つのエラーの型（`RowElem::Of`）．`fail e` の `e` の型や，`or_fail` の `E` のように，
-//!   値の型にも使う型引数．型が決まればそのタグになる．E にだけ現れる．
+//! - Inference set variables ([`RowVar`]). Once a body's inference is done, each is fixed to the
+//!   union of its lower bounds (the least solution).
+//! - Set type parameters of a type scheme (`RowElem::Bound`): the `E` of `fails E`, and the
+//!   invisible set variables of function-typed parameters. Inside the definition's body they are
+//!   sets with unknown contents.
+//! - The type of a single error (`RowElem::Of`): a type parameter also used as a value type, like
+//!   the type of `e` in `fail e` or the `E` of `or_fail`. It becomes a tag once the type is known.
+//!   Appears only in E.
 
 use emela_resolve::hir::DefId;
 
 use crate::ty::Ty;
 
-/// 集合の種類．エラーの集合 E か効果の集合 R か．
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SetKind {
     Errors,
     Effects,
 }
 
-/// 推論の集合変数．表示は `?e0`．
+/// Displayed as `?e0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RowVar(pub(crate) u32);
 
@@ -31,11 +34,12 @@ impl RowVar {
     }
 }
 
-/// 集合のタグ．E なら error の定義，R なら effect の定義とその型引数（8.1）．
+/// For E, an error definition; for R, an effect definition and its type arguments (spec 8.1).
 ///
-/// 型引数の違うエフェクトは別のタグ（`State[Int]` と `State[String]`）．型引数のないエフェクトと
-/// エラーの `args` は空．型引数には推論の型変数が残りうるので，比べる前に
-/// `InferCtx::resolve_row` で辿る．
+/// An effect with different type arguments is a different tag (`State[Int]` and
+/// `State[String]`). `args` is empty for errors and effects without type parameters. The
+/// arguments may still hold inference type variables, so resolve them with
+/// `InferCtx::resolve_row` before comparing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Tag {
     pub def: DefId,
@@ -43,7 +47,6 @@ pub struct Tag {
 }
 
 impl Tag {
-    /// 型引数のないタグ．
     pub fn new(def: DefId) -> Self {
         Tag {
             def,
@@ -55,7 +58,6 @@ impl Tag {
         Tag { def, args }
     }
 
-    /// 型引数を `f` で置き換えたタグ．
     pub fn map_args(&self, f: impl FnMut(&Ty) -> Ty) -> Tag {
         Tag {
             def: self.def,
@@ -64,38 +66,35 @@ impl Tag {
     }
 }
 
-/// 集合の要素．
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RowElem {
-    /// タグ．E なら error の定義，R なら effect の定義とその型引数．
+    /// For E, an error definition; for R, an effect definition and its type arguments.
     Tag(Tag),
-    /// 型スキームの集合の型引数（[`crate::ParamKind::Set`]）．`Scheme::params` の添字．
+    /// A set type parameter of a type scheme ([`crate::ParamKind::Set`]); an index into
+    /// `Scheme::params`.
     Bound(u32),
-    /// エラーの型 `ty` のタグ．型が error の名前付き型に決まればそのタグになる．
+    /// The tag of the error type `ty`, once `ty` resolves to a named error type.
     Of(Ty),
-    /// 推論の集合変数．
     Var(RowVar),
 }
 
-/// 集合．要素の重複は持たない．順序は意味を持たないが，表示を安定させるため，
-/// タグ，型引数，型，集合変数の順に並べる（タグと型引数と集合変数はその中で番号の順）．
+/// Elements are not duplicated. Order has no meaning, but for stable display the elements are
+/// sorted as tags, type parameters, types, then set variables (tags, type parameters and set
+/// variables by number within their group).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Row {
     elems: Vec<RowElem>,
 }
 
 impl Row {
-    /// 空の集合．
     pub fn empty() -> Self {
         Row::default()
     }
 
-    /// 型引数のないタグ1つの集合．
     pub fn tag(def: DefId) -> Self {
         Row::from_elems([RowElem::Tag(Tag::new(def))])
     }
 
-    /// タグ1つの集合．
     pub fn of_tag(tag: Tag) -> Self {
         Row::from_elems([RowElem::Tag(tag)])
     }
@@ -124,7 +123,7 @@ impl Row {
         self.elems.contains(elem)
     }
 
-    /// 要素を足す．すでにあれば何もしない．
+    /// Does nothing if the element is already present.
     pub fn insert(&mut self, elem: RowElem) {
         if self.elems.contains(&elem) {
             return;
@@ -137,7 +136,6 @@ impl Row {
         self.elems.insert(at, elem);
     }
 
-    /// 和集合．
     pub fn union(&self, other: &Row) -> Row {
         let mut out = self.clone();
         out.extend(other);
@@ -150,7 +148,6 @@ impl Row {
         }
     }
 
-    /// タグ．
     pub fn tags(&self) -> impl Iterator<Item = &Tag> + '_ {
         self.elems.iter().filter_map(|e| match e {
             RowElem::Tag(t) => Some(t),
@@ -158,7 +155,6 @@ impl Row {
         })
     }
 
-    /// 推論の集合変数．
     pub fn vars(&self) -> impl Iterator<Item = RowVar> + '_ {
         self.elems.iter().filter_map(|e| match e {
             RowElem::Var(v) => Some(*v),
@@ -166,7 +162,7 @@ impl Row {
         })
     }
 
-    /// 要素の中の型（`RowElem::Of` と，タグの型引数）を順に渡す．
+    /// Visits the types inside the elements (`RowElem::Of` and tag type arguments).
     pub fn for_each_ty(&self, mut f: impl FnMut(&Ty)) {
         for e in &self.elems {
             match e {
@@ -177,7 +173,7 @@ impl Row {
         }
     }
 
-    /// 要素の中の型（`RowElem::Of` と，タグの型引数）を `f` で置き換えた集合．
+    /// Replaces the types inside the elements (`RowElem::Of` and tag type arguments) with `f`.
     pub fn map_tys(&self, mut f: impl FnMut(&Ty) -> Ty) -> Row {
         Row::from_elems(self.elems.iter().map(|e| match e {
             RowElem::Of(ty) => RowElem::Of(f(ty)),
@@ -186,7 +182,7 @@ impl Row {
         }))
     }
 
-    /// 要素ごとに置き換えた集合．1つの要素を集合に広げてよい．
+    /// `f` may expand one element into a set.
     pub fn flat_map(&self, mut f: impl FnMut(&RowElem) -> Row) -> Row {
         let mut out = Row::empty();
         for e in &self.elems {
@@ -196,7 +192,8 @@ impl Row {
     }
 }
 
-/// 並べる順の鍵．`Of` の中の型どうしと，同じ定義の型引数の違うタグどうしは足した順のまま．
+/// Sort key. Types inside `Of`, and tags of the same definition with different type arguments,
+/// keep insertion order.
 fn order(e: &RowElem) -> (u8, u32) {
     match e {
         RowElem::Tag(t) => (0, t.def.into_raw().into_u32()),

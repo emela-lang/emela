@@ -1,22 +1,27 @@
-//! エラーの集合 E の推論（7章，9.4）．
+//! Inference of error sets E (spec chapter 7, 9.4).
 //!
-//! 式の型を推論し終えてから，HIR をもう一度辿って各式の E を求める．呼び出しの E は呼ばれる側の
-//! 関数型の E なので，型が決まった後の方が扱いやすい．
+//! After expression types are inferred, the HIR is walked again to compute each expression's E.
+//! A call's E is the callee function type's E, so this is easier once types are settled.
 //!
-//! E は，単一化で溜めた包含の制約（関数の値を関数型の位置に置いたとき）と，ここで足す制約
-//! （定義の本体の E ⊆ 宣言の E，ラムダの本体の E ⊆ ラムダの型の E）で決まる．集合変数ごとに
-//! 下界を集め，最小の解を求めてから，すべての制約を確かめる．
+//! E is determined by the inclusion constraints collected during unification (when a function
+//! value is placed where a function type is expected) and the ones added here (a definition
+//! body's E ⊆ the declared E, a lambda body's E ⊆ the lambda type's E). Lower bounds are
+//! collected per set variable, the least solution is computed, and then every constraint is
+//! checked.
 //!
-//! - 制約 `sub ⊆ sup` の `sup` に集合変数があれば，`sub` の要素のうち `sup` にないものを，
-//!   `sup` の最初の集合変数の下界にする．`sup` のタグは除いて渡す（`fails Timeout | E` の引数に
-//!   関数を渡すと，`E` には Timeout を除いたものが入る．7.4）．
-//! - escape は，元の式の E のタグから，腕が値をすべて受けるタグを消す．集合変数は，そのタグを
-//!   除いた解を持つ新しい集合変数に置き換える．集合の型引数（中身の分からない集合）からは何も消さない（7.3）．
-//! - 汎化する定義の型で，負の位置（引数の関数型の E）にあり，下界も上界もない集合変数は，
-//!   空にせず集合の型引数として汎化する．それ以外の集合変数は最小の解にする．
+//! - If `sup` of a constraint `sub ⊆ sup` has a set variable, the elements of `sub` not in `sup`
+//!   become lower bounds of the first set variable in `sup`, minus the tags of `sup` (passing a
+//!   function to a parameter of type `fails Timeout | E` puts everything but Timeout into `E`,
+//!   spec 7.4).
+//! - `escape` removes from the inner expression's E the tags whose values the arms fully catch.
+//!   Set variables are replaced with fresh set variables whose solutions exclude those tags.
+//!   Nothing is removed from set type parameters (sets with unknown contents) (spec 7.3).
+//! - In the type of a definition being generalized, a set variable in a negative position (the E
+//!   of a function-typed parameter) with neither lower nor upper bounds is generalized into a set
+//!   type parameter instead of becoming empty. Other set variables take the least solution.
 //!
-//! 効果の集合 R の制約（`body/effects.rs`）も同じ表に溜め，ここで一緒に解く．集合変数は E と R で
-//! 別々に作るので混ざらない．
+//! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here
+//! together. E and R get separate set variables, so they never mix.
 
 use emela_resolve::hir::{
     Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
@@ -33,14 +38,15 @@ use crate::infer::{Origin, SetKind};
 use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
-/// 集合変数の下界の1つ．`elem` の要素のうち，`minus` のタグを除いたもの．
+/// One lower bound of a set variable: the elements of `elem` minus the tags in `minus`.
 struct Lower {
     elem: RowElem,
     minus: Vec<Tag>,
 }
 
 impl BodyInfer<'_> {
-    /// 推論した定義の本体の E を求め，宣言の E に含まれる制約を足す．
+    /// Computes the E of inferred definition bodies and adds constraints that they are contained
+    /// in the declared E.
     pub(super) fn infer_errors(&mut self) {
         let program = self.program;
         for def in self.defs.clone() {
@@ -56,9 +62,10 @@ impl BodyInfer<'_> {
                     };
                     (body, declared)
                 }
-                // const の値は失敗できない（5.6）．
+                // A const's value cannot fail (spec 5.6).
                 Some(Item::Const(item)) => (item.value, Row::empty()),
-                // handler の操作の本体の E は，操作の宣言の E を超えない（8.1）．
+                // A handler operation body's E must not exceed the operation's declared E
+                // (spec 8.1).
                 Some(Item::Handler(_)) => {
                     let bodies: Vec<(usize, ExprId, Row)> = self
                         .handler_bodies
@@ -77,7 +84,8 @@ impl BodyInfer<'_> {
                             },
                         );
                     }
-                    // init の E は with の E に入る（9.4）．release の E は空（8.4）．
+                    // init's E goes into the E of `with` (spec 9.4); release's E is empty
+                    // (spec 8.4).
                     let parts: Vec<(ExprId, bool)> = self
                         .handler_parts
                         .iter()
@@ -102,7 +110,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 定義の型．宣言の型か，まとまりの中の単相の型．
+    /// The declared type, or the monomorphic type within the group.
     pub(super) fn def_ty(&self, def: DefId) -> Option<Ty> {
         match self.sigs.get(def) {
             Some(sig) => Some(sig.scheme.ty.clone()),
@@ -110,7 +118,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 定義の型引数（`Bound(i)` の名前）．
+    /// The definition's type parameters (the names of `Bound(i)`).
     pub(super) fn def_params(&self, def: DefId) -> Vec<TyParam> {
         match self.sigs.get(def) {
             Some(sig) => sig.scheme.params.clone(),
@@ -121,7 +129,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 式の E．部分式の E は親の式に合流する（9.4）．求めた E は式ごとに記録する．
+    /// Sub-expressions' E flows into the parent (spec 9.4). Records the computed E per
+    /// expression.
     fn expr_row(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let e = &program.exprs[expr];
@@ -155,7 +164,8 @@ impl BodyInfer<'_> {
                 lhs,
                 rhs,
             } => {
-                // `x |> f(a)` は `f(x, a)`．右辺の呼び出しの式には，左辺を除いた E を記録する．
+                // `x |> f(a)` is `f(x, a)`. The right side's call expression records E without
+                // the left side's.
                 let mut row = self.expr_row(*lhs);
                 let rhs_row = match &program.exprs[*rhs].kind {
                     ExprKind::Call { callee, args } => {
@@ -219,10 +229,12 @@ impl BodyInfer<'_> {
                         _ => None,
                     })
                     .collect();
-                // E から消すのは，腕がその値をすべて受けるエラーだけ（7.3）．一部の値しか受けない
-                // エラー（`NotFound(id: 1)`，ガード付きの腕）は E に残り，合わなかった値が伝わる．
+                // Only errors whose values the arms fully catch are removed from E (spec 7.3).
+                // Errors caught only partially (`NotFound(id: 1)`, guarded arms) stay in E, and
+                // unmatched values propagate.
                 let tags = self.escaped_tags(arms, &caught);
-                // エラーの構成子でない腕（E0320）があれば，誤りを重ねないよう全部受けたとみなす．
+                // If some arm is not an error constructor (E0320), treat everything as caught so
+                // errors do not cascade.
                 let broken = arms.iter().any(|arm| {
                     !matches!(
                         &program.pats[arm.pat].kind,
@@ -234,14 +246,16 @@ impl BodyInfer<'_> {
                 for e in self.ctx.resolve_row(&inner_row).elems() {
                     match e {
                         RowElem::Tag(t) if tags.contains(&t.def) => {}
-                        // 集合変数は，受けたタグを除いた解を持つ集合変数に置き換える．
+                        // Replace the set variable with one whose solution excludes the caught
+                        // tags.
                         RowElem::Var(v) if !tags.is_empty() => {
                             let d = self.ctx.new_row_var();
                             let minus = tags.iter().map(|&t| Tag::new(t)).collect();
                             self.row_diffs.push((d, *v, minus));
                             row.insert(RowElem::Var(d));
                         }
-                        // 集合の型引数とエラーの型の型引数からは消さない（7.3）．
+                        // Nothing is removed from set type parameters or error type parameters
+                        // (spec 7.3).
                         e => row.insert(e.clone()),
                     }
                 }
@@ -277,7 +291,7 @@ impl BodyInfer<'_> {
                 row.extend(&self.expr_row(*base));
                 row
             }
-            // with の E は，本体の E と，並べたハンドラの init の E（9.4）．
+            // The E of `with` is the body's E plus the init E of the listed handlers (spec 9.4).
             ExprKind::With { handlers, body } => {
                 let mut row = self.expr_row(*body);
                 for entry in crate::layer::with_entries(program, self.sigs, handlers) {
@@ -285,7 +299,8 @@ impl BodyInfer<'_> {
                 }
                 row
             }
-            // 本体の E はラムダの型の E に閉じ込める．表に出るのは呼んだとき（9.4）．
+            // The body's E is enclosed in the lambda type's E; it surfaces when the lambda is
+            // called (spec 9.4).
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_row(*body);
                 if let Some(&(v, _)) = self.lambda_rows.get(expr) {
@@ -320,8 +335,8 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// 呼ばれる側の関数型の E．1つのエラーの型の型引数をエラーでない型で具体化していれば
-    /// E0319 を `span`（呼び出しの式）に積む．
+    /// The callee function type's E. If a single-error type parameter is instantiated with a
+    /// non-error type, pushes E0319 at `span` (the call expression).
     fn callee_fails(&mut self, callee: ExprId, span: Span) -> Row {
         let ty = self.exprs.get(callee).cloned().unwrap_or(Ty::Error);
         let Ty::Fn(f) = self.ctx.shallow_resolve(&ty) else {
@@ -344,8 +359,9 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// エラーの型として使える型か．error の名前付き型，型引数，まだ決まっていない型変数．
-    /// `Never` と `Ty::Error` は誤りを重ねないために受け入れる（E に何も足さない）．
+    /// Whether the type can be used as an error type: a named error type, a type parameter, or a
+    /// type variable not yet determined. `Never` and `Ty::Error` are accepted (adding nothing to
+    /// E) so errors do not cascade.
     fn is_error_ty(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Named(con, _) => self.ctx.error_tag(*con).is_some(),
@@ -354,8 +370,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 集合 `row` が要素 `e` を含むか．タグは型引数まで同じものを探し，型引数がまだ決まって
-    /// いなければ単一化を試す（8.1，`InferCtx::same_tag`）．
+    /// Tags are matched including type arguments; if those are not determined yet, unification is
+    /// tried (spec 8.1, `InferCtx::same_tag`).
     fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
         match e {
             RowElem::Tag(t) => self.ctx.row_has_tag(row, t),
@@ -363,11 +379,12 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 包含の制約を解き，満たされない制約の診断を積む．解は以後の `resolve` に使う．
+    /// Solves the inclusion constraints and pushes diagnostics for unsatisfied ones. Later
+    /// `resolve` calls use the solution.
     pub(super) fn solve_errors(&mut self) {
         let subsets = self.ctx.subsets().to_vec();
 
-        // 集合変数の下界．
+        // Lower bounds of set variables.
         let mut lowers: FxHashMap<RowVar, Vec<Lower>> = FxHashMap::default();
         for (d, v, minus) in std::mem::take(&mut self.row_diffs) {
             lowers.entry(d).or_default().push(Lower {
@@ -375,7 +392,8 @@ impl BodyInfer<'_> {
                 minus,
             });
         }
-        // 上界のある集合変数（集合変数のない集合に含まれる）．汎化しない．
+        // Set variables with an upper bound (contained in a set without set variables). Not
+        // generalized.
         let mut upper: FxHashSet<RowVar> = FxHashSet::default();
         for c in &subsets {
             let sub = self.ctx.resolve_row(&c.sub);
@@ -396,7 +414,7 @@ impl BodyInfer<'_> {
             }
         }
 
-        // 汎化する集合変数．
+        // Set variables to generalize.
         let mut negative = Vec::new();
         for (_, ty, _) in self.pending.clone() {
             self.negative_row_vars(&ty, true, &mut negative);
@@ -408,7 +426,7 @@ impl BodyInfer<'_> {
             }
         }
 
-        // 最小の解．下界の和を，変わらなくなるまで広げる．
+        // The least solution: widen the union of lower bounds until nothing changes.
         loop {
             let mut changed = false;
             for (&v, entries) in &lowers {
@@ -437,7 +455,7 @@ impl BodyInfer<'_> {
         }
         self.ctx.set_row_solution(solution);
 
-        // 制約を確かめる．
+        // Check the constraints.
         for c in &subsets {
             let sub = self.ctx.resolve_row(&c.sub);
             let sup = self.ctx.resolve_row(&c.sup);
@@ -483,7 +501,8 @@ impl BodyInfer<'_> {
                     };
                     self.diags.push(Diagnostic { span: *span, kind });
                 }
-                // ラムダの型の E と R，handler の依存は集合変数なので，必ず満たせる．
+                // Lambda types' E and R and handler dependencies are set variables, so these
+                // always hold.
                 (Origin::Lambda | Origin::HandlerPart, _)
                 | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
             }
@@ -492,8 +511,8 @@ impl BodyInfer<'_> {
         self.check_unraised();
     }
 
-    /// 型の中の，負の位置（引数の関数型の E と R）にある集合変数を集める．名前付き型の型引数の中は
-    /// 両方の位置とみなす．
+    /// Collects set variables in negative positions (the E and R of function-typed parameters).
+    /// Inside type arguments of named types, both positions count.
     fn negative_row_vars(&mut self, ty: &Ty, positive: bool, out: &mut Vec<RowVar>) {
         match self.ctx.shallow_resolve(ty) {
             Ty::Fn(f) => {
@@ -515,7 +534,8 @@ impl BodyInfer<'_> {
                     self.negative_row_vars(a, true, out);
                 }
             }
-            // 名前付き型の集合の型引数は両方の位置とみなす（上で両方から呼ぶ）．
+            // Set type arguments of named types count as both positions (called from both
+            // above).
             Ty::Set(_, row) if !positive => {
                 for v in row.vars() {
                     if !out.contains(&v) {
@@ -533,8 +553,9 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 本体のエラーが宣言の E に含まれない（E0318）．エラーごとに，それを起こした式
-    /// （`fail` か呼び出し）を探し，同じ式から起きたものをまとめて1つの診断にする．
+    /// Body errors not contained in the declared E (E0318). For each error, finds the expression
+    /// that raised it (`fail` or a call) and groups errors from the same expression into one
+    /// diagnostic.
     fn report_unhandled(&mut self, def: DefId, missing: &[RowElem]) {
         let program = self.program;
         let (body, declared) = match program.item(def) {
@@ -548,7 +569,8 @@ impl BodyInfer<'_> {
         self.push_unhandled(body, declared, missing);
     }
 
-    /// handler の操作の本体のエラーが，エフェクトの操作の宣言の E に含まれない（E0318，8.1）．
+    /// Errors of a handler operation body not contained in the effect operation's declared E
+    /// (E0318, spec 8.1).
     fn report_unhandled_op(&mut self, handler: DefId, index: usize, missing: &[RowElem]) {
         let program = self.program;
         let Some(Item::Handler(item)) = program.item(handler) else {
@@ -564,7 +586,7 @@ impl BodyInfer<'_> {
         self.push_unhandled(body, declared, missing);
     }
 
-    /// release が失敗しうる（E0420，8.4）．エラーを起こした式ごとにまとめて積む．
+    /// E0420, spec 8.4. Grouped by the expression that raised each error.
     fn report_release_fails(&mut self, handler: DefId, missing: &[RowElem]) {
         let program = self.program;
         let Some(Item::Handler(item)) = program.item(handler) else {
@@ -593,9 +615,9 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0318 を，エラーを起こした式ごとにまとめて積む．
+    /// Pushes E0318, grouped by the expression that raised each error.
     fn push_unhandled(&mut self, body: ExprId, declared: bool, missing: &[RowElem]) {
-        // handler の操作は型引数を持たない．
+        // Handler operations have no type parameters.
         let params = self.current_params(body).unwrap_or_default();
         let rows = self.resolved_rows(SetKind::Errors);
         let cons = &self.ty_table.cons;
@@ -614,8 +636,9 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 本体の R が，宣言か文脈の許す R に含まれない（E0402）．エフェクトごとに，それを要求した式
-    /// （`use` か呼び出し）を探し，同じ式から起きたものをまとめて1つの診断にする．
+    /// The body's R not contained in the R the declaration or context allows (E0402). For each
+    /// effect, finds the expression that required it (`use` or a call) and groups effects from the
+    /// same expression into one diagnostic.
     pub(super) fn report_unhandled_effects(
         &mut self,
         def: DefId,
@@ -651,7 +674,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 各式の E（`kind` が R なら R）を，集合変数を解いた形にした表．
+    /// Each expression's E (R if `kind` says so), with set variables solved.
     fn resolved_rows(&mut self, kind: SetKind) -> ArenaMap<ExprId, Row> {
         let table = match kind {
             SetKind::Errors => self.expr_rows.clone(),
@@ -664,7 +687,7 @@ impl BodyInfer<'_> {
         rows
     }
 
-    /// 足りない要素を，それを起こした式（[`Self::origin_of`]）ごとにまとめる．
+    /// Groups missing elements by the expression that raised them ([`Self::origin_of`]).
     fn group_by_origin(
         &self,
         rows: &ArenaMap<ExprId, Row>,
@@ -682,7 +705,7 @@ impl BodyInfer<'_> {
         groups
     }
 
-    /// 本体 `body` を持つ定義の型引数．fn と const の本体でなければ（handler の操作）`None`．
+    /// `None` unless `body` is the body of a fn or const (that is, for handler operations).
     fn current_params(&self, body: ExprId) -> Option<Vec<TyParam>> {
         let program = self.program;
         let def = self.defs.iter().copied().find(|&d| match program.item(d) {
@@ -693,8 +716,9 @@ impl BodyInfer<'_> {
         Some(self.def_params(def))
     }
 
-    /// エラー `elem` を起こした式．E に `elem` を含む部分式を，書かれた順に最初のものへ辿り，
-    /// それ以上辿れない式（`fail` か呼び出し）を返す．
+    /// The expression that raised error `elem`: follows the first sub-expression in source order
+    /// whose E contains `elem`, and returns the one that cannot be followed further (`fail` or a
+    /// call).
     fn origin_of(&self, rows: &ArenaMap<ExprId, Row>, expr: ExprId, elem: &RowElem) -> ExprId {
         let mut current = expr;
         loop {
@@ -709,7 +733,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E（R）が合流する部分式．書かれた順．ラムダの本体は含めない．
+    /// Sub-expressions whose E (R) flows into this one, in source order. Lambda bodies are
+    /// excluded.
     pub(super) fn sub_exprs(&self, expr: ExprId) -> Vec<ExprId> {
         let program = self.program;
         let mut out = Vec::new();
@@ -778,8 +803,9 @@ impl BodyInfer<'_> {
         out
     }
 
-    /// escape の腕がその値をすべて受けるエラー（7.3）．エラーごとに腕を集め，網羅性の検査で
-    /// 足りない値がないものを選ぶ．エラーは型引数を持たないので，型が決まるのを待たなくてよい．
+    /// Errors whose values the `escape` arms fully catch (spec 7.3). Collects the arms per error
+    /// and keeps those with no missing values by the exhaustiveness check. Errors have no type
+    /// parameters, so this need not wait for types to settle.
     fn escaped_tags(&self, arms: &[Arm], caught: &[(PatId, DefId)]) -> Vec<DefId> {
         let shapes = Shapes {
             program: self.program,
@@ -806,9 +832,9 @@ impl BodyInfer<'_> {
         tags
     }
 
-    /// escape の腕が受けるエラーが，元の式から起きないなら警告する（W0302）．元の式の E に
-    /// 中身の分からない集合（集合の型引数，エラーの型の型引数，汎化する集合変数）があれば，
-    /// 実行時に受けることがあるので警告しない．
+    /// Warns when an `escape` arm catches an error the inner expression cannot raise (W0302). No
+    /// warning if the inner E has a set with unknown contents (a set type parameter, an error
+    /// type parameter, a set variable to be generalized), since it may be caught at run time.
     fn check_unraised(&mut self) {
         for (inner, caught) in std::mem::take(&mut self.escapes) {
             let Some(row) = self.expr_rows.get(inner).cloned() else {

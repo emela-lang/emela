@@ -1,7 +1,7 @@
-//! HIR の型の書き方（[`TypeRef`]）を [`Ty`] に変換する．
+//! Converts HIR type expressions ([`TypeRef`]) into [`Ty`].
 //!
-//! type / enum / error の定義を [`TyCons`] に登録して型の表を作り，
-//! 型の書き方をその表で引いて [`Ty`] にする．
+//! Registers type, enum and error definitions in [`TyCons`] to build the type table, then looks
+//! type expressions up in it.
 //!
 //! [`TypeRef`]: emela_resolve::hir::TypeRef
 
@@ -18,32 +18,35 @@ use crate::infer::InferCtx;
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
-/// 関数型の `fails` 節と `use` 節を省略したときの意味．書いた位置で決まる（9.2）．
+/// What omitted `fails` and `use` clauses on a function type mean, decided by where they are
+/// written (spec 9.2).
 pub(crate) enum Omitted<'a> {
-    /// 宣言の中（フィールド，const など）．空．
+    /// Inside a declaration (fields, consts, ...): empty.
     Empty,
-    /// トップレベルの fn の引数の型の中．見えない集合の型引数を足す．
+    /// Inside a top-level fn's parameter types: adds an invisible set type parameter.
     Hidden(&'a mut Hidden),
-    /// 戻り値と束縛の型注釈，ラムダの引数．本体から推論するので，新しい集合変数を置く．
+    /// Return type and binding annotations, lambda parameters: inferred from the body, so a fresh
+    /// set variable.
     Fresh(&'a mut InferCtx),
 }
 
-/// 引数の型の中の見えない集合の型引数（9.2）．書いた型引数の後ろに並べる．
+/// Invisible set type parameters inside parameter types (spec 9.2), placed after the written
+/// type parameters.
 pub(crate) struct Hidden {
-    /// 書いた型引数の数．見えない集合の型引数の添字はこの後ろから振る．
+    /// The number of written type parameters; invisible ones are indexed after these.
     base: usize,
-    /// 足した見えない集合の型引数．
     pub(crate) params: Vec<TyParam>,
-    /// 今の引数の名前．見えない集合の型引数の名前（`E(f)`，`R(f)`）に使う．
+    /// The current parameter's name, used to name invisible set type parameters (`E(f)`, `R(f)`).
     param: SmolStr,
-    /// 今の引数で足したエラーの集合と効果の集合の数．
+    /// How many error sets and effect sets were added for the current parameter.
     in_param: [usize; 2],
-    /// 引数の型の中の正の位置（本体が呼べる関数）に置いた見えないエラーの集合．宣言の E に含める．
+    /// Invisible error sets in positive positions of parameter types (functions the body can
+    /// call). Included in the declared E.
     pub(crate) positive: Row,
-    /// 同じく，見えない効果の集合．宣言の R に含める．
+    /// Likewise for invisible effect sets; included in the declared R.
     pub(crate) positive_uses: Row,
-    /// 見えない効果の集合に `Immediate` の制約を付けるか．外部関数のコールバックは
-    /// Immediate でなければならない（9.5）．
+    /// Whether invisible effect sets get an `Immediate` bound. Callbacks of external functions
+    /// must be Immediate (spec 9.5).
     pub(crate) immediate: bool,
 }
 
@@ -60,13 +63,13 @@ impl Hidden {
         }
     }
 
-    /// これから lower する引数の名前．
     pub(crate) fn start_param(&mut self, name: SmolStr) {
         self.param = name;
         self.in_param = [0, 0];
     }
 
-    /// 見えない集合の型引数を足す．`effects` なら効果の集合（`R(f)`），でなければエラーの集合（`E(f)`）．
+    /// Adds an invisible set type parameter: an effect set (`R(f)`) if `effects`, otherwise an
+    /// error set (`E(f)`).
     fn fresh(&mut self, positive: bool, effects: bool) -> Row {
         let (prefix, count) = if effects {
             ("R", &mut self.in_param[1])
@@ -96,18 +99,20 @@ impl Hidden {
     }
 }
 
-/// 型の書き方を読む文脈．型引数（`params[i]` が `Bound(i)`）とその種類，`fails` を省略したときの意味．
+/// Context for reading type expressions: type parameters (`params[i]` is `Bound(i)`), their
+/// kinds, and what an omitted `fails` means.
 pub(crate) struct Scope<'a> {
     pub(crate) params: &'a [DefId],
     pub(crate) kinds: &'a [ParamKind],
     pub(crate) omitted: Omitted<'a>,
-    /// 集合の型引数を書けるか．type などの宣言の型引数は集合にできない（まだ扱わない）．
-    /// effect の操作の宣言の中も同じ．
+    /// Whether set type parameters may be written. Type parameters of declarations such as
+    /// `type` cannot be sets (not supported yet); the same holds inside effect operation
+    /// declarations.
     pub(crate) sets: bool,
 }
 
 impl Scope<'_> {
-    /// 省略した `fails` 節（`effects` なら `use` 節）の集合．
+    /// The set for an omitted `fails` clause (`use` clause if `effects`).
     fn omitted_row(&mut self, positive: bool, effects: bool) -> Row {
         match &mut self.omitted {
             Omitted::Empty => Row::empty(),
@@ -117,22 +122,20 @@ impl Scope<'_> {
     }
 }
 
-/// 名前付き型の表．type / enum / error の定義から作る．
+/// Built from type, enum and error definitions.
 pub struct TyTable {
-    /// 登録した宣言．型の表示で名前を引くのに使う．
+    /// Used to look up names when displaying types.
     pub cons: TyCons,
-    /// 定義から，登録した宣言への対応．
     by_def: ArenaMap<DefId, TyConId>,
-    /// Prelude の Bool の enum．TyCons に登録せず Ty::BOOL に写す．
+    /// Prelude's Bool enum. Not registered in TyCons; maps to Ty::BOOL.
     bool_def: Option<DefId>,
-    /// 登録した宣言から，その定義への対応（`by_def` の逆）．
+    /// The inverse of `by_def`.
     def_of: ArenaMap<TyConId, DefId>,
-    /// type / enum の型引数の集合の種類（9.2 の `type Handler[E, R]`）．
+    /// The set kinds of type and enum type parameters (`type Handler[E, R]` in spec 9.2).
     sets: DeclSets,
 }
 
 impl TyTable {
-    /// type / enum / error の定義を登録して表を作る．
     pub fn new(program: &Program) -> Self {
         let mut cons = TyCons::new();
         let mut by_def = ArenaMap::default();
@@ -178,27 +181,25 @@ impl TyTable {
         }
     }
 
-    /// type / enum の型引数の集合の種類．
     pub(crate) fn decl_sets(&self) -> &DeclSets {
         &self.sets
     }
 
-    /// type / enum の `i` 番目の型引数が集合なら，その種類．
+    /// The set kind of the `i`-th type parameter of a type or enum, if it is a set.
     fn set_kind(&self, def: DefId, i: usize) -> Option<SetKind> {
         self.sets.get(def).and_then(|s| s.get(i).copied().flatten())
     }
 
-    /// type / enum / error / handler の定義を登録した宣言．Bool と，それ以外の定義には `None`．
+    /// `None` for Bool and for definitions other than type, enum, error and handler.
     pub fn con(&self, def: DefId) -> Option<TyConId> {
         self.by_def.get(def).copied()
     }
 
-    /// 登録した宣言の定義（type / enum / error）．
     pub fn def(&self, id: TyConId) -> DefId {
         self.def_of[id]
     }
 
-    /// error の名前付き型 → その error の定義．
+    /// Named error type → that error's definition.
     pub(crate) fn error_tags(&self) -> FxHashMap<TyConId, DefId> {
         self.cons
             .iter()
@@ -207,8 +208,9 @@ impl TyTable {
             .collect()
     }
 
-    /// 型の書き方を Ty にする．`params` は宣言の型引数で，`A` は位置 i の `Ty::Bound(i)` になる．
-    /// 宣言の中の型として読む（関数型の `fails` を省略すれば空，型引数はふつうの型）．
+    /// `params` are the declaration's type parameters; the one at position i becomes
+    /// `Ty::Bound(i)`. Reads the type as inside a declaration (omitted `fails` on a function type
+    /// is empty; type parameters are ordinary types).
     pub fn lower(
         &self,
         program: &Program,
@@ -226,8 +228,9 @@ impl TyTable {
         self.lower_in(program, &mut scope, ty, true, diags)
     }
 
-    /// 型の書き方を，文脈 `scope` で Ty にする．`positive` は本体から見て値を受け取る位置か
-    /// （関数型の引数の中で反転する）．見えない集合の型引数を宣言の E に含めるかに使う．
+    /// Converts in the context `scope`. `positive` tells whether the position receives values as
+    /// seen from the body (it flips inside function parameter types); it decides whether
+    /// invisible set type parameters join the declared E.
     pub(crate) fn lower_in(
         &self,
         program: &Program,
@@ -239,7 +242,7 @@ impl TyTable {
         let type_ref = &program.types[ty];
         match &type_ref.kind {
             TypeKind::Missing => Ty::Error,
-            // 集合は名前付き型の集合の型引数の位置にだけ書ける（`lower_set_arg`）．
+            // Sets may only be written as set type arguments of named types (`lower_set_arg`).
             TypeKind::ErrorSet(_) | TypeKind::EffectSet(_) => {
                 diags.push(Diagnostic {
                     span: type_ref.span,
@@ -267,8 +270,8 @@ impl TyTable {
                 fails,
                 uses,
             } => {
-                // 見えない集合の型引数は外側の関数型から振る（`f: fn(fn() -> A) -> B` の
-                // f 自身の E が `E(f)`）．
+                // Invisible set type parameters are numbered from the outer function type (for
+                // `f: fn(fn() -> A) -> B`, f's own E is `E(f)`).
                 let fails = match fails {
                     Some(set) => self.lower_error_set(program, scope, set, diags),
                     None => scope.omitted_row(positive, false),
@@ -293,8 +296,8 @@ impl TyTable {
         }
     }
 
-    /// `fails` 節の集合．エラーはタグ，集合の型引数は `RowElem::Bound`，値にも使う型引数は
-    /// そのエラーの型（`RowElem::Of`）．
+    /// The set of a `fails` clause. Errors become tags, set type parameters `RowElem::Bound`, and
+    /// type parameters also used as values the error type (`RowElem::Of`).
     pub(crate) fn lower_error_set(
         &self,
         program: &Program,
@@ -314,7 +317,8 @@ impl TyTable {
                         continue;
                     };
                     match scope.kinds.get(i) {
-                        // type などの宣言の型引数は集合にできない（まだ扱わない）．
+                        // Type parameters of declarations such as `type` cannot be sets (not
+                        // supported yet).
                         Some(ParamKind::Set) if !scope.sets => {
                             diags.push(Diagnostic {
                                 span: Some(span),
@@ -333,7 +337,7 @@ impl TyTable {
         row
     }
 
-    /// `use` 節の集合．エフェクトはタグ，集合の型引数は `RowElem::Bound`．
+    /// The set of a `use` clause. Effects become tags, set type parameters `RowElem::Bound`.
     pub(crate) fn lower_effect_set(
         &self,
         program: &Program,
@@ -367,7 +371,7 @@ impl TyTable {
                                 what: "effect set type parameters on type declarations",
                             },
                         }),
-                        // 値の型にも書いた型引数は効果の集合にならない．
+                        // A type parameter also written as a value type is not an effect set.
                         _ => diags.push(Diagnostic {
                             span: Some(span),
                             kind: DiagnosticKind::Unsupported {
@@ -382,12 +386,13 @@ impl TyTable {
         row
     }
 
-    /// エフェクトとその型引数のタグ（8.1）．型引数はふつうの型として読む．書いていない型引数の
-    /// 関数型の `fails` と `use` は空（宣言の中と同じ）．
+    /// The tag of an effect with its type arguments (spec 8.1). Type arguments are read as
+    /// ordinary types; omitted `fails` and `use` on function types inside them are empty (as in
+    /// declarations).
     ///
-    /// 型引数のあるエフェクトで型引数を書いていなければ E0423（`handler` は implements に書いた
-    /// ハンドラの名前），数が違えば E0304．どちらも型引数を `Ty::Error` で埋めたタグを返す
-    /// （`Ty::Error` はどの型とも単一化できるので，誤りを重ねない）．
+    /// Missing type arguments on an effect with type parameters are E0423 (`handler` names the
+    /// handler when written in `implements`); a wrong count is E0304. Both return a tag with the
+    /// arguments filled with `Ty::Error`, which unifies with anything so errors do not cascade.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn effect_tag(
         &self,
@@ -434,7 +439,6 @@ impl TyTable {
         Some(Tag::with_args(effect, args))
     }
 
-    /// 型の書き方の並びを順に Ty にする．
     pub fn lower_all(
         &self,
         program: &Program,
@@ -447,7 +451,7 @@ impl TyTable {
             .collect()
     }
 
-    /// 書いていないかもしれない型を Ty にする．書いていなければ `Ty::Error`．
+    /// `Ty::Error` if no type is written.
     pub fn lower_or_error(
         &self,
         program: &Program,
@@ -461,8 +465,8 @@ impl TyTable {
         }
     }
 
-    /// type / enum / error / handler の定義が名指す型．型引数は `Bound(0)`，`Bound(1)`，… で埋める．
-    /// Bool は `Ty::BOOL`．それ以外の定義は `None`．
+    /// The type a type, enum, error or handler definition names, with type arguments filled as
+    /// `Bound(0)`, `Bound(1)`, .... Bool is `Ty::BOOL`. `None` for other definitions.
     pub fn self_ty(&self, def: DefId) -> Option<Ty> {
         if self.bool_def == Some(def) {
             return Some(Ty::BOOL);
@@ -480,7 +484,7 @@ impl TyTable {
         ))
     }
 
-    /// 名前の付いた型（`Int`，`List[A]`，`Option[Int]`，`A`）を Ty にする．
+    /// Named types (`Int`, `List[A]`, `Option[Int]`, `A`).
     #[allow(clippy::too_many_arguments)]
     fn lower_path(
         &self,
@@ -566,15 +570,16 @@ impl TyTable {
     }
 }
 
-/// 集合の型引数に合わないものを書いたときの診断（E0323）を積む．位置と，書いたものの説明を受ける．
+/// Pushes the diagnostic for something that does not fit a set type parameter (E0323). Takes the
+/// span and a description of what was written.
 type ReportMismatch<'a> = dyn Fn(Option<Span>, SmolStr, &mut Vec<Diagnostic>) + 'a;
 
 impl TyTable {
-    /// 名前付き型の集合の型引数に書いたものを集合にする（`Handler[NotFound, Db]`，
-    /// `Handler[NotFound | Timeout, { Db, Log }]`，`Handler[E, R]`，`Handler[{}, {}]`）．
-    /// 要素に書けるのは，その種類のタグ（error か effect の名前）と集合の型引数．エラーの集合は
-    /// `|` でつなぎ，効果の集合は波括弧で囲む．空の `{}` はどちらの位置にも書ける．
-    /// それ以外は E0323 で，その要素を除いて続ける．
+    /// Converts what is written as a set type argument of a named type into a set
+    /// (`Handler[NotFound, Db]`, `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[E, R]`,
+    /// `Handler[{}, {}]`). Elements may be tags of the right kind (error or effect names) and set
+    /// type parameters. Error sets are joined with `|`; effect sets are wrapped in braces. An empty
+    /// `{}` fits either position. Anything else is E0323, and that element is skipped.
     #[allow(clippy::too_many_arguments)]
     fn lower_set_arg(
         &self,
@@ -670,7 +675,8 @@ impl TyTable {
         Ty::Set(kind, row)
     }
 
-    /// 集合の要素1つ．その種類のタグか集合の型引数．`elem` は書いた名前と，エフェクトの型引数．
+    /// One set element: a tag of the right kind or a set type parameter. `elem` is the written
+    /// name and the effect's type arguments.
     #[allow(clippy::too_many_arguments)]
     fn set_elem(
         &self,
@@ -683,7 +689,7 @@ impl TyTable {
         diags: &mut Vec<Diagnostic>,
     ) -> Row {
         let (res, args) = elem;
-        // 名前解決が誤りを出している．
+        // Name resolution has reported this.
         let Res::Def(def) = res else {
             return Row::empty();
         };
@@ -734,8 +740,8 @@ impl TyTable {
     }
 }
 
-/// type / enum の宣言の型引数．集合の型引数は `ParamKind::Set` にし，効果の集合に Immediate の
-/// 制約があれば付ける（9.5）．
+/// Type parameters of a type or enum declaration. Set type parameters become `ParamKind::Set`,
+/// with an Immediate bound on effect sets if written (spec 9.5).
 fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<TyParam> {
     let type_params: &[TypeParam] = match program.item(def) {
         Some(Item::Type(TypeItem { type_params, .. }))
@@ -761,7 +767,8 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
         .collect()
 }
 
-/// 型引数の数が `expected` なら true．違えば E0304 を足して false．
+/// Returns true if the type argument count is `expected`; otherwise pushes E0304 and returns
+/// false.
 fn check_arity(
     name: &SmolStr,
     expected: usize,
@@ -784,7 +791,7 @@ fn check_arity(
     }
 }
 
-/// type / enum の型引数の定義．それ以外は空．
+/// Type parameter definitions of a type or enum; empty for anything else.
 pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
     let type_params: &[TypeParam] = match program.item(def) {
         Some(Item::Type(TypeItem { type_params, .. }))
@@ -795,10 +802,10 @@ pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
     type_params.iter().map(|tp| tp.def).collect()
 }
 
-/// 組み込みの制約 Immediate の名前（9.5）．
+/// The name of the built-in Immediate bound (spec 9.5).
 pub(crate) const IMMEDIATE: &str = "Immediate";
 
-/// エフェクトの型引数（8.1）．型引数のないエフェクトと，エフェクトでない定義は空．
+/// Effect type parameters (spec 8.1). Empty for effects without them and for non-effects.
 pub(crate) fn effect_params(program: &Program, effect: DefId) -> &[TypeParam] {
     match program.item(effect) {
         Some(Item::Effect(e)) => &e.type_params,
@@ -806,14 +813,14 @@ pub(crate) fn effect_params(program: &Program, effect: DefId) -> &[TypeParam] {
     }
 }
 
-/// 型引数の定義の並びから，スキームと型の宣言に付ける名前の並びを作る．
+/// The names given to schemes and type declarations, from type parameter definitions.
 pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
     defs.iter()
         .map(|&def| TyParam::new(program.defs[def].name.clone()))
         .collect()
 }
 
-/// 型引数の制約のうち，組み込みの Immediate を指す位置．
+/// The spans of a type parameter's bounds that refer to the built-in Immediate.
 pub(crate) fn immediate_bounds(program: &Program, tp: &TypeParam) -> Vec<Span> {
     let immediate = program.prelude_def(IMMEDIATE);
     tp.bounds
@@ -823,7 +830,7 @@ pub(crate) fn immediate_bounds(program: &Program, tp: &TypeParam) -> Vec<Span> {
         .collect()
 }
 
-/// エフェクトが Immediate か（9.5）．suspend fn を1つも持たず，Async でもないとき．
+/// Whether an effect is Immediate (spec 9.5): it has no suspend fn and is not Async.
 pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     if program.prelude_def("Async") == Some(effect) {
         return false;
@@ -837,13 +844,15 @@ pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     }
 }
 
-/// 名前付き型の宣言の型引数ごとの集合の種類（集合でなければ `None`）．type / enum の定義で引く．
+/// The set kind of each type parameter of a named type declaration (`None` if not a set). Keyed
+/// by type and enum definitions.
 pub(crate) type DeclSets = ArenaMap<DefId, Vec<Option<SetKind>>>;
 
-/// 型引数の種類を，使われた位置から決める（9.2）．`fails` 節か `use` 節にだけ書いた型引数は
-/// 集合，それ以外はふつうの型（値の型と `fails` の両方に書けば1つのエラーの型，7.2）．
-/// 名前付き型の集合の型引数の位置（`Handler[E, R]` の `E`）に書いた型引数も集合．
-/// `types` は型引数が現れうる型の書き方（引数，戻り値，フィールドの型）．
+/// Decides type parameter kinds from where they are used (spec 9.2). A type parameter written only
+/// in `fails` or `use` clauses is a set; otherwise an ordinary type (written both as a value type
+/// and in `fails`, it is the type of a single error, spec 7.2). Type parameters written as set
+/// type arguments of named types (the `E` of `Handler[E, R]`) are sets too. `types` are the type
+/// expressions where type parameters may occur (parameters, return type, field types).
 pub(crate) fn classify_params(
     program: &Program,
     decls: &DeclSets,
@@ -859,8 +868,8 @@ pub(crate) fn classify_params(
         .collect()
 }
 
-/// [`classify_params`] と同じく決め，集合ならその種類（エラーの集合か効果の集合か）を返す．
-/// 両方に書いた型引数は，先に見つけた方にする．
+/// Decides like [`classify_params`], returning the set kind (error or effect set) for sets. A type
+/// parameter written in both is given the kind found first.
 pub(crate) fn classify_sets(
     program: &Program,
     decls: &DeclSets,
@@ -914,7 +923,7 @@ fn mark_params(
                 _ => None,
             };
             for (j, &a) in args.iter().enumerate() {
-                // 集合の型引数の位置に書いた型引数は集合．
+                // A type parameter written as a set type argument is a set.
                 if let Some(kind) = sets.and_then(|s| s.get(j).copied().flatten())
                     && let TypeKind::Path { res, args } = &program.types[a].kind
                     && args.is_empty()
@@ -968,7 +977,8 @@ fn mark_params(
     }
 }
 
-/// 効果の集合の要素．型引数そのものは集合，エフェクトの型引数（`State[S]` の `S`，8.1）はふつうの型．
+/// Elements of an effect set. A type parameter itself is a set; an effect's type arguments (the
+/// `S` of `State[S]`, spec 8.1) are ordinary types.
 pub(crate) fn mark_effect(
     program: &Program,
     decls: &DeclSets,
@@ -986,9 +996,9 @@ pub(crate) fn mark_effect(
     }
 }
 
-/// type / enum の宣言の型引数の集合の種類を決める．フィールドの型から決め，名前付き型の
-/// 集合の型引数の位置に渡したもの（`type Server[E](h: Handler[E, {}])`）も集合なので，
-/// 変わらなくなるまで繰り返す．
+/// Decides the set kinds of type and enum type parameters. Starts from field types; a parameter
+/// passed as a set type argument of a named type (`type Server[E](h: Handler[E, {}])`) is a set
+/// too, so this repeats until nothing changes.
 fn decl_sets(program: &Program) -> DeclSets {
     let decls: Vec<(DefId, Vec<DefId>, Vec<TypeId>)> = program
         .defs
@@ -1018,7 +1028,7 @@ fn decl_sets(program: &Program) -> DeclSets {
     }
 }
 
-/// type / enum の構成子のフィールドの型の書き方．
+/// The field type expressions of a type or enum's constructors.
 fn field_types(program: &Program, def: DefId) -> Vec<TypeId> {
     let fields = |f: &Fields| -> Vec<TypeId> {
         match f {
@@ -1038,8 +1048,8 @@ fn field_types(program: &Program, def: DefId) -> Vec<TypeId> {
     }
 }
 
-/// 型の書き方の中に，`fails` 節を省略した関数型があるか．戻り値の型にあれば，
-/// その E は本体から推論する（9.2）．
+/// Whether the type expression contains a function type with `fails` omitted. If the return type
+/// does, its E is inferred from the body (spec 9.2).
 pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
     match &program.types[ty].kind {
         TypeKind::Path { args, .. } => args.iter().any(|&a| has_omitted_fails(program, a)),
@@ -1057,8 +1067,8 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
     }
 }
 
-/// 型の書き方の中に，`use` 節を省略した関数型があるか．戻り値の型にあれば，
-/// その R は本体から推論する（9.2）．
+/// Whether the type expression contains a function type with `use` omitted. If the return type
+/// does, its R is inferred from the body (spec 9.2).
 pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
     match &program.types[ty].kind {
         TypeKind::Path { args, .. } => args.iter().any(|&a| has_omitted_uses(program, a)),
