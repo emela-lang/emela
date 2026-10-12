@@ -307,6 +307,7 @@ dependencies = [
  "line-index",
  "lsp-server",
  "lsp-types",
+ "serde",
  "serde_json",
 ]
 

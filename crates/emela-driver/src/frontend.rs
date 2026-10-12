@@ -10,6 +10,7 @@ use la_arena::ArenaMap;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
 use crate::internal::check_internal;
+use crate::nav::NavTarget;
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
@@ -229,6 +230,25 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 
     fn has_entry_main(&self) -> Option<bool> {
         self.entry_main
+    }
+
+    fn definition(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Option<NavTarget> {
+        crate::nav::definition(program, analysis, file, offset)
+    }
+
+    fn references(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+        declaration: bool,
+    ) -> Vec<NavTarget> {
+        crate::nav::references(program, analysis, file, offset, declaration)
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {

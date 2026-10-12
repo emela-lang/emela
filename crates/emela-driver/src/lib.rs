@@ -9,6 +9,7 @@ mod frontend;
 mod hover;
 mod internal;
 mod js;
+mod nav;
 mod output;
 mod pipeline;
 mod render;
@@ -25,6 +26,7 @@ pub use fmt::{
 pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
+pub use nav::{DocumentSymbol, NavTarget, SymbolKind, document_symbols};
 pub use output::{JsOutput, OutputFile, write_output};
 pub use pipeline::{
     Analysis, CORE_DIR, Checked, CoreSource, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend,

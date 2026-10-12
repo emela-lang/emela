@@ -10,7 +10,10 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Initialized, Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{Formatting, HoverRequest, Initialize, Request as _, Shutdown};
+use lsp_types::request::{
+    DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize, References,
+    Request as _, Shutdown,
+};
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
 
@@ -170,6 +173,66 @@ impl Client {
             }),
         );
         serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap()
+    }
+
+    /// 定義の位置を求め，結果（`null` なら `None`）を返す．
+    fn definition(&mut self, path: &str, line: u32, character: u32) -> Option<lsp::Location> {
+        let id = self.request(
+            GotoDefinition::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "position": { "line": line, "character": character },
+            }),
+        );
+        let result: Option<lsp::GotoDefinitionResponse> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        match result? {
+            lsp::GotoDefinitionResponse::Scalar(location) => Some(location),
+            other => panic!("位置が1つでない: {other:?}"),
+        }
+    }
+
+    /// 参照を求め，（パス，範囲）をパスと位置の順に並べて返す．`null` なら `None`．
+    fn references(
+        &mut self,
+        path: &str,
+        line: u32,
+        character: u32,
+        declaration: bool,
+    ) -> Option<Vec<(String, lsp::Range)>> {
+        let id = self.request(
+            References::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "position": { "line": line, "character": character },
+                "context": { "includeDeclaration": declaration },
+            }),
+        );
+        let result: Option<Vec<lsp::Location>> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        let mut found: Vec<(String, lsp::Range)> = result?
+            .into_iter()
+            .map(|l| {
+                let path = l.uri.as_str().strip_prefix("file://").unwrap().to_owned();
+                (path, l.range)
+            })
+            .collect();
+        found.sort_by_key(|(path, r)| (path.clone(), r.start.line, r.start.character));
+        Some(found)
+    }
+
+    /// 文書のシンボルを求める．`null` なら `None`．
+    fn document_symbols(&mut self, path: &str) -> Option<Vec<lsp::DocumentSymbol>> {
+        let id = self.request(
+            DocumentSymbolRequest::METHOD,
+            json!({ "textDocument": { "uri": uri(path) } }),
+        );
+        let result: Option<lsp::DocumentSymbolResponse> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        match result? {
+            lsp::DocumentSymbolResponse::Nested(symbols) => Some(symbols),
+            other => panic!("入れ子でない: {other:?}"),
+        }
     }
 
     /// 次の publishDiagnostics．
@@ -643,5 +706,273 @@ fn hover_shows_mixed_effect_sets() {
         text(client.hover("/app/src/main.emel", 9, 3)),
         "```emela\n()\nfails E(f)\nuse R\n```"
     );
+    client.shutdown();
+}
+
+/// 定義へ移動，参照の検索，文書のシンボルを確かめるプロジェクト．
+const NAV_MAIN: &str = "import Util.Log
+import Shapes.{Shape, area}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet implements Logger {
+  fn info(msg) { () }
+}
+
+fn greet(name: String) {
+  log = use Logger
+  log.info(Log.prefix(name))
+}
+
+fn main() {
+  s = Shape(w: 1, h: 2)
+  with Quiet { greet(\"a\") }
+  area(s)
+}
+";
+const NAV_SHAPES: &str =
+    "pub type Shape(w: Int, h: Int)\n\npub fn area(s: Shape) -> Int {\n  s.w * s.h\n}\n";
+const NAV_LOG: &str = "pub fn prefix(s: String) -> String {\n  s\n}\n";
+
+fn nav_files() -> [(&'static str, &'static str); 4] {
+    [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", NAV_MAIN),
+        ("/app/src/shapes.emel", NAV_SHAPES),
+        ("/app/src/util/log.emel", NAV_LOG),
+    ]
+}
+
+fn location(path: &str, start: (u32, u32), end: (u32, u32)) -> Option<lsp::Location> {
+    Some(lsp::Location {
+        uri: uri(path),
+        range: range(start, end),
+    })
+}
+
+const MAIN: &str = "/app/src/main.emel";
+const SHAPES: &str = "/app/src/shapes.emel";
+const LOG: &str = "/app/src/util/log.emel";
+
+#[test]
+fn definition_of_names() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    assert_eq!(
+        emela_lsp::capabilities().definition_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    // エフェクトの操作（`log.info` の info）．
+    assert_eq!(
+        client.definition(MAIN, 13, 7),
+        location(MAIN, (4, 5), (4, 9))
+    );
+    // handler の操作の名前から effect の操作へ．
+    assert_eq!(
+        client.definition(MAIN, 8, 6),
+        location(MAIN, (4, 5), (4, 9))
+    );
+    // 局所変数．
+    assert_eq!(
+        client.definition(MAIN, 13, 3),
+        location(MAIN, (12, 2), (12, 5))
+    );
+    assert_eq!(
+        client.definition(MAIN, 13, 23),
+        location(MAIN, (11, 9), (11, 13))
+    );
+    // `.` の左のモジュールはファイルの先頭，その右の関数は定義．
+    assert_eq!(
+        client.definition(MAIN, 13, 12),
+        location(LOG, (0, 0), (0, 0))
+    );
+    assert_eq!(
+        client.definition(MAIN, 13, 17),
+        location(LOG, (0, 7), (0, 13))
+    );
+    // import のパスと取り込んだ名前．`Util` はモジュールでないので null．
+    assert_eq!(
+        client.definition(MAIN, 0, 13),
+        location(LOG, (0, 0), (0, 0))
+    );
+    assert_eq!(client.definition(MAIN, 0, 8), None);
+    assert_eq!(
+        client.definition(MAIN, 1, 16),
+        location(SHAPES, (0, 9), (0, 14))
+    );
+    assert_eq!(
+        client.definition(MAIN, 1, 23),
+        location(SHAPES, (2, 7), (2, 11))
+    );
+    // エフェクト，handler，構成子，関数．名前の直後の位置も名前とみなす．
+    assert_eq!(
+        client.definition(MAIN, 12, 12),
+        location(MAIN, (3, 7), (3, 13))
+    );
+    assert_eq!(
+        client.definition(MAIN, 7, 25),
+        location(MAIN, (3, 7), (3, 13))
+    );
+    assert_eq!(
+        client.definition(MAIN, 18, 9),
+        location(MAIN, (7, 8), (7, 13))
+    );
+    assert_eq!(
+        client.definition(MAIN, 17, 6),
+        location(SHAPES, (0, 9), (0, 14))
+    );
+    assert_eq!(
+        client.definition(MAIN, 18, 20),
+        location(MAIN, (11, 3), (11, 8))
+    );
+    assert_eq!(
+        client.definition(MAIN, 19, 6),
+        location(SHAPES, (2, 7), (2, 11))
+    );
+    // 定義の名前は自分自身．
+    assert_eq!(
+        client.definition(MAIN, 11, 4),
+        location(MAIN, (11, 3), (11, 8))
+    );
+    // 型の位置．
+    assert_eq!(
+        client.definition(SHAPES, 2, 16),
+        location(SHAPES, (0, 9), (0, 14))
+    );
+    // 何もない位置．
+    assert_eq!(client.definition(MAIN, 2, 0), None);
+    client.shutdown();
+}
+
+/// 同梱の core の定義には移動先がない．
+#[test]
+fn definition_of_core_is_null() {
+    let src = "fn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let files = [("/tmp/main.emel", src)];
+    let mut client = Client::initialize(&files, None, Typecheck::default);
+    assert_eq!(client.definition("/tmp/main.emel", 1, 3), None);
+    assert_eq!(client.definition("/tmp/main.emel", 1, 8), None);
+    // 単独ファイルの局所変数には移動できる．
+    assert_eq!(
+        client.definition("/tmp/main.emel", 1, 24),
+        location("/tmp/main.emel", (1, 19), (1, 20))
+    );
+    // 名前を解決しないフロントエンドは null．
+    client.shutdown();
+    let mut client = Client::initialize(&files, None, ParseOnly::new);
+    assert_eq!(client.definition("/tmp/main.emel", 1, 24), None);
+    client.shutdown();
+}
+
+#[test]
+fn references_in_the_project() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    assert_eq!(
+        emela_lsp::capabilities().references_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    let main = |s, e| (MAIN.to_owned(), range(s, e));
+    let shapes = |s, e| (SHAPES.to_owned(), range(s, e));
+    // 型と同じ名前の構成子は同じものとみなす．定義を含める．
+    assert_eq!(
+        client.references(SHAPES, 0, 10, true),
+        Some(vec![
+            main((1, 15), (1, 20)),
+            main((17, 6), (17, 11)),
+            shapes((0, 9), (0, 14)),
+            shapes((2, 15), (2, 20)),
+        ])
+    );
+    // 参照の位置から引いても同じ．定義を含めない．
+    assert_eq!(
+        client.references(MAIN, 17, 7, false),
+        Some(vec![
+            main((1, 15), (1, 20)),
+            main((17, 6), (17, 11)),
+            shapes((2, 15), (2, 20)),
+        ])
+    );
+    // エフェクトの操作．handler の実装と能力の値の呼び出し．
+    assert_eq!(
+        client.references(MAIN, 4, 6, false),
+        Some(vec![main((8, 5), (8, 9)), main((13, 6), (13, 10))])
+    );
+    // 局所変数．
+    assert_eq!(
+        client.references(MAIN, 12, 3, true),
+        Some(vec![main((12, 2), (12, 5)), main((13, 2), (13, 5))])
+    );
+    // モジュール．import のパスと `.` の左．
+    assert_eq!(
+        client.references(MAIN, 13, 12, true),
+        Some(vec![main((0, 12), (0, 15)), main((13, 11), (13, 14))])
+    );
+    // 何もない位置．
+    assert_eq!(client.references(MAIN, 2, 0, true), None);
+    client.shutdown();
+}
+
+#[test]
+fn document_symbols_list_declarations() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), ParseOnly::new);
+    assert_eq!(
+        emela_lsp::capabilities().document_symbol_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    fn outline(symbols: &[lsp::DocumentSymbol]) -> Vec<String> {
+        symbols
+            .iter()
+            .map(|s| {
+                let children = outline(s.children.as_deref().unwrap_or_default());
+                let kind = format!("{:?}", s.kind);
+                if children.is_empty() {
+                    format!("{} {kind}", s.name)
+                } else {
+                    format!("{} {kind} [{}]", s.name, children.join(", "))
+                }
+            })
+            .collect()
+    }
+    let symbols = client.document_symbols(MAIN).unwrap();
+    assert_eq!(
+        outline(&symbols),
+        [
+            "Logger Interface [info Method]",
+            "Quiet Class [info Method]",
+            "greet Function",
+            "main Function",
+        ]
+    );
+    // 範囲は宣言の全体，選ぶ範囲は名前．
+    assert_eq!(symbols[0].range, range((3, 0), (5, 1)));
+    assert_eq!(symbols[0].selection_range, range((3, 7), (3, 13)));
+    let symbols = client.document_symbols(SHAPES).unwrap();
+    assert_eq!(
+        outline(&symbols),
+        ["Shape Struct [w Field, h Field]", "area Function"]
+    );
+    // 開いた文書は未保存の内容．構文の誤りがあっても読めた宣言は出す．
+    let src = "enum Color { Red\n Green }\n\nconst MAX: Int = 3\n\ntrait Named {\n  fn name(self) -> String\n}\n\nimpl Named for Color {\n  fn name(self) { \"c\" }\n}\n\nfn broken( {\n";
+    client.open("/app/src/other.emel", 1, src);
+    assert_eq!(
+        outline(&client.document_symbols("/app/src/other.emel").unwrap()),
+        [
+            "Color Enum [Red EnumMember, Green EnumMember]",
+            "MAX Constant",
+            "Named Interface [name Method]",
+            "impl Named for Color Namespace [name Method]",
+            "broken Function",
+        ]
+    );
+    // 読めないファイルは null．
+    assert_eq!(client.document_symbols("/app/src/nowhere.emel"), None);
+    while let Ok(message) = client
+        .connection
+        .receiver
+        .recv_timeout(Duration::from_millis(200))
+    {
+        assert!(matches!(message, Message::Notification(_)), "{message:?}");
+    }
     client.shutdown();
 }

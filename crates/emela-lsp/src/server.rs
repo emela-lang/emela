@@ -6,13 +6,15 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use emela_driver::{Diagnostic, FileSystem, Frontend, Input};
+use emela_driver::{Analysis, Diagnostic, FileId, FileSystem, Frontend, Input, NavTarget};
 use lsp_server::{Connection, ErrorCode, Message, Notification, ProtocolError, Request, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{Formatting, HoverRequest, Request as _};
+use lsp_types::request::{
+    DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, References, Request as _,
+};
 use lsp_types::{self as lsp, Uri};
 
 use crate::convert::{self, path_to_uri, uri_to_path};
@@ -21,7 +23,8 @@ use crate::overlay::Overlay;
 /// プロジェクトの目印のファイル（仕様 4.1）．位置のない診断をプロジェクトに付けるときに使う．
 const PROJECT_FILE: &str = "Pome.toml";
 
-/// サーバーの能力．テキストは全文で同期する．文書全体の整形とホバーを受ける．
+/// サーバーの能力．テキストは全文で同期する．文書全体の整形，ホバー，定義へ移動，参照の検索，
+/// 文書のシンボルを受ける．
 pub fn capabilities() -> lsp::ServerCapabilities {
     lsp::ServerCapabilities {
         text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
@@ -38,6 +41,9 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         )),
         document_formatting_provider: Some(lsp::OneOf::Left(true)),
         hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
+        definition_provider: Some(lsp::OneOf::Left(true)),
+        references_provider: Some(lsp::OneOf::Left(true)),
+        document_symbol_provider: Some(lsp::OneOf::Left(true)),
         ..lsp::ServerCapabilities::default()
     }
 }
@@ -191,22 +197,13 @@ where
             return Ok(Step::Exit);
         }
         let response = match request.method.as_str() {
-            Formatting::METHOD => match serde_json::from_value(request.params) {
-                Ok(params) => Response::new_ok(request.id, self.format(&params)),
-                Err(err) => Response::new_err(
-                    request.id,
-                    ErrorCode::InvalidParams as i32,
-                    format!("invalid params: {err}"),
-                ),
-            },
-            HoverRequest::METHOD => match serde_json::from_value(request.params) {
-                Ok(params) => Response::new_ok(request.id, self.hover(&params)),
-                Err(err) => Response::new_err(
-                    request.id,
-                    ErrorCode::InvalidParams as i32,
-                    format!("invalid params: {err}"),
-                ),
-            },
+            Formatting::METHOD => respond(request, |params| self.format(&params)),
+            HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
+            GotoDefinition::METHOD => respond(request, |params| self.definition(&params)),
+            References::METHOD => respond(request, |params| self.references(&params)),
+            DocumentSymbolRequest::METHOD => {
+                respond(request, |params| self.document_symbols(&params))
+            }
             _ => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,
@@ -240,12 +237,69 @@ where
     /// カーソルの下の名前や式の型（と E）．ファイルを含むプロジェクトをその場で検査し直す．
     /// 型を持たないフロントエンド，検査できないファイル，何もない位置では `null`．
     fn hover(&mut self, params: &lsp::HoverParams) -> Option<lsp::Hover> {
-        let position = &params.text_document_position_params;
-        let uri = &position.text_document.uri;
-        let path = match self.documents.get(uri) {
-            Some(document) => document.path.clone(),
-            None => self.fs.normalize(&uri_to_path(uri)?),
-        };
+        let at = self.check_at(&params.text_document_position_params)?;
+        let index = at.analysis.sources[at.file].line_index();
+        let info = F::hover(&at.program, &at.analysis, at.file, at.offset)?;
+        Some(lsp::Hover {
+            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                kind: lsp::MarkupKind::Markdown,
+                value: info.contents,
+            }),
+            range: Some(convert::range(index, info.range)),
+        })
+    }
+
+    /// カーソルの下の名前の定義．ホバーと同じくその場で検査し直す．
+    /// 同梱の core やソースのない定義，名前のない位置では `null`．
+    fn definition(
+        &mut self,
+        params: &lsp::GotoDefinitionParams,
+    ) -> Option<lsp::GotoDefinitionResponse> {
+        let at = self.check_at(&params.text_document_position_params)?;
+        let target = F::definition(&at.program, &at.analysis, at.file, at.offset)?;
+        let location = self.location(&at.analysis, target)?;
+        Some(lsp::GotoDefinitionResponse::Scalar(location))
+    }
+
+    /// カーソルの下の名前の参照．検査したプロジェクト（単独ファイルならエントリからたどれるファイル）の中だけ．
+    /// 名前のない位置では `null`．
+    fn references(&mut self, params: &lsp::ReferenceParams) -> Option<Vec<lsp::Location>> {
+        let at = self.check_at(&params.text_document_position)?;
+        let declaration = params.context.include_declaration;
+        let targets = F::references(&at.program, &at.analysis, at.file, at.offset, declaration);
+        if targets.is_empty() {
+            return None;
+        }
+        Some(
+            targets
+                .into_iter()
+                .filter_map(|target| self.location(&at.analysis, target))
+                .collect(),
+        )
+    }
+
+    /// ファイルの中の宣言．構文木だけから作るので検査はしない．開いていれば未保存の内容を使う．
+    fn document_symbols(
+        &self,
+        params: &lsp::DocumentSymbolParams,
+    ) -> Option<lsp::DocumentSymbolResponse> {
+        let uri = &params.text_document.uri;
+        let path = self.path_of(uri)?;
+        let text = self.fs.read_to_string(&path).ok()?;
+        let index = line_index::LineIndex::new(&text);
+        let symbols = emela_driver::document_symbols(&text)
+            .iter()
+            .map(|symbol| convert::document_symbol(&index, symbol))
+            .collect();
+        Some(lsp::DocumentSymbolResponse::Nested(symbols))
+    }
+
+    /// 位置のあるファイルを含むプロジェクト（単独ファイルならそのファイル）を検査する．
+    fn check_at(
+        &mut self,
+        position: &lsp::TextDocumentPositionParams,
+    ) -> Option<CheckedAt<F::Program>> {
+        let path = self.path_of(&position.text_document.uri)?;
         let input = match Input::resolve(&self.fs, &path).ok()? {
             input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
             input => input,
@@ -254,18 +308,28 @@ where
             emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
         let program = program?;
         let file = analysis.sources.file_id(&path)?;
-        let index = analysis.sources[file].line_index();
-        let offset = convert::offset(index, position.position)?;
-        let info = F::hover(&program, &analysis, file, offset)?;
-        Some(lsp::Hover {
-            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
-                kind: lsp::MarkupKind::Markdown,
-                value: info.contents,
-            }),
-            range: Some(lsp::Range {
-                start: convert::position(index, info.range.start()),
-                end: convert::position(index, info.range.end()),
-            }),
+        let offset = convert::offset(analysis.sources[file].line_index(), position.position)?;
+        Some(CheckedAt {
+            analysis,
+            program,
+            file,
+            offset,
+        })
+    }
+
+    /// URI のファイルの，driver が使う絶対パス．
+    fn path_of(&self, uri: &Uri) -> Option<PathBuf> {
+        match self.documents.get(uri) {
+            Some(document) => Some(document.path.clone()),
+            None => Some(self.fs.normalize(&uri_to_path(uri)?)),
+        }
+    }
+
+    fn location(&self, analysis: &Analysis, target: NavTarget) -> Option<lsp::Location> {
+        let source = &analysis.sources[target.file];
+        Some(lsp::Location {
+            uri: self.uri_of(source.path())?,
+            range: convert::range(source.line_index(), target.range),
         })
     }
 
@@ -450,6 +514,30 @@ where
     fn send(&self, message: Message) {
         // 相手が切れていたら，次の recv で終わる．
         let _ = self.connection.sender.send(message);
+    }
+}
+
+/// 位置の要求のために検査した結果．
+struct CheckedAt<P> {
+    analysis: Analysis,
+    program: P,
+    file: FileId,
+    offset: line_index::TextSize,
+}
+
+/// 要求の引数を読んで応答を作る．読めなければ InvalidParams の誤り．
+fn respond<P, R>(request: Request, f: impl FnOnce(P) -> R) -> Response
+where
+    P: serde::de::DeserializeOwned,
+    R: serde::Serialize,
+{
+    match serde_json::from_value(request.params) {
+        Ok(params) => Response::new_ok(request.id, f(params)),
+        Err(err) => Response::new_err(
+            request.id,
+            ErrorCode::InvalidParams as i32,
+            format!("invalid params: {err}"),
+        ),
     }
 }
 

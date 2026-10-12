@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use emela_driver::{Diagnostic, Location, Severity, SourceDb, Span};
-use line_index::{LineIndex, TextSize, WideEncoding};
+use emela_driver::{Diagnostic, Location, Severity, SourceDb, Span, SymbolKind};
+use line_index::{LineIndex, TextRange, TextSize, WideEncoding};
 use lsp_types as lsp;
 
 /// 診断に付ける `source`．
@@ -62,10 +62,54 @@ pub fn diagnostic(
 }
 
 fn span_range(sources: &SourceDb, span: &Span) -> lsp::Range {
-    let index = sources[span.file].line_index();
+    range(sources[span.file].line_index(), span.range)
+}
+
+/// 文書のシンボルを LSP の形にする．
+#[allow(deprecated)] // `deprecated` は必須のフィールド．
+pub fn document_symbol(
+    index: &LineIndex,
+    symbol: &emela_driver::DocumentSymbol,
+) -> lsp::DocumentSymbol {
+    lsp::DocumentSymbol {
+        name: symbol.name.clone(),
+        detail: None,
+        kind: symbol_kind(symbol.kind),
+        tags: None,
+        deprecated: None,
+        range: range(index, symbol.range),
+        selection_range: range(index, symbol.selection),
+        children: (!symbol.children.is_empty()).then(|| {
+            symbol
+                .children
+                .iter()
+                .map(|child| document_symbol(index, child))
+                .collect()
+        }),
+    }
+}
+
+/// 宣言の種類を LSP のシンボルの種類にする．
+fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
+    match kind {
+        SymbolKind::Fn => lsp::SymbolKind::FUNCTION,
+        SymbolKind::Type | SymbolKind::Error => lsp::SymbolKind::STRUCT,
+        SymbolKind::Enum => lsp::SymbolKind::ENUM,
+        SymbolKind::Variant => lsp::SymbolKind::ENUM_MEMBER,
+        SymbolKind::Const => lsp::SymbolKind::CONSTANT,
+        SymbolKind::Effect | SymbolKind::Trait => lsp::SymbolKind::INTERFACE,
+        SymbolKind::Op | SymbolKind::Method => lsp::SymbolKind::METHOD,
+        SymbolKind::Handler => lsp::SymbolKind::CLASS,
+        SymbolKind::Layer | SymbolKind::Impl => lsp::SymbolKind::NAMESPACE,
+        SymbolKind::Field => lsp::SymbolKind::FIELD,
+    }
+}
+
+/// バイトの範囲を LSP の範囲にする．
+pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {
-        start: position(index, span.range.start()),
-        end: position(index, span.range.end()),
+        start: position(index, range.start()),
+        end: position(index, range.end()),
     }
 }
 

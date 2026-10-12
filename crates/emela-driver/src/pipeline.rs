@@ -15,6 +15,7 @@ use la_arena::ArenaMap;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
+use crate::nav::NavTarget;
 use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -207,6 +208,27 @@ pub trait Frontend {
     /// （`run` は確かめずに進む）．
     fn has_entry_main(&self) -> Option<bool> {
         None
+    }
+
+    /// `file` の `offset` の名前の定義（LSP の定義へ移動）．名前を解決するフロントエンドだけが返す．
+    fn definition(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Option<NavTarget> {
+        None
+    }
+
+    /// `file` の `offset` の名前の参照（LSP の参照の検索）．`declaration` なら定義の名前も含める．
+    fn references(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+        _declaration: bool,
+    ) -> Vec<NavTarget> {
+        Vec::new()
     }
 }
 
