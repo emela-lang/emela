@@ -647,37 +647,36 @@ fn run() {  # 補．ConsoleLogger だけでは Clock が残る
 }
 
 /// 8.3 with と見えない効果の集合．with は引数の関数の見えない集合からは消さない．
-/// `use { Quiet, R }` と書き出せば，Quiet は with で消えて `-> () use R` で通る．
-/// 仕様の例は handler とエフェクトを同じ名前 Quiet で書いているが，同じ名前は名前解決で
-/// 重複になるので，handler を QuietHandler とした．
+/// `use { Logger, R }` と書き出せば，Logger は with で消えて `-> () use R` で通る．
 #[test]
 fn spec_8_3_with_and_set_variables() {
     insta::assert_snapshot!(render_bodies(
         r#"
-effect Quiet {  # 補
-  fn hush() -> ()
-}
-
 effect Logger {  # 補
   fn info(msg: String) -> ()
 }
 
-handler QuietHandler implements Quiet {  # 補
-  fn hush() { () }
+effect Clock {  # 補
+  fn now() -> Int
 }
 
-fn run_hidden(f: fn() -> ()) { with QuietHandler { f() } }  # 補．仕様の `run(f: fn() -> ())`
+handler ConsoleLogger implements Logger {  # 補
+  fn info(msg) { () }
+}
 
-fn run[R](f: fn() -> () use { Quiet, R }) -> () use R {
-  with QuietHandler { f() }      # R は R だけ。Quiet は消える
+fn run_hidden(f: fn() -> ()) { with ConsoleLogger { f() } }  # 補．仕様の `run(f: fn() -> ())`
+
+fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
+  with ConsoleLogger { f() }      # R は R だけ。Logger は消える
 }
 
 fn callers() {  # 補
   a = run(fn() {
-    (use Quiet).hush()
     (use Logger).info("x")
+    (use Clock).now()
+    ()
   })
-  b = run_hidden(fn() { (use Quiet).hush() })
+  b = run_hidden(fn() { (use Logger).info("y") })
 }
 "#
     ));
