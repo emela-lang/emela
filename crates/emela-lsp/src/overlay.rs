@@ -1,7 +1,7 @@
-//! エディタで開いているファイルの未保存の内容を，ファイルシステムに重ねる．
+//! Overlays the unsaved contents of files open in the editor on the file system.
 //!
-//! driver の `check` はファイルを [`FileSystem`] から読むので，ここで差し替えれば
-//! 未保存の内容がそのまま解析にのる．ディスクにまだないファイルも一覧に足す．
+//! The driver's `check` reads files through [`FileSystem`], so swapping contents here feeds unsaved
+//! edits straight into analysis. Files not yet on disk are added to the listing too.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use emela_driver::FileSystem;
 use emela_resolve::{DirEntry, SourceFs};
 
-/// 下のファイルシステムに，開いているファイルの内容を重ねたもの．パスは絶対パス．
+/// Paths are absolute.
 #[derive(Debug)]
 pub struct Overlay<Fs> {
     inner: Fs,
@@ -25,20 +25,20 @@ impl<Fs: FileSystem> Overlay<Fs> {
         }
     }
 
-    /// 開いたか書き換えたファイルの内容を重ねる．同じパスなら差し替える．
+    /// Replaces any previous contents for the same path.
     pub fn set(&mut self, path: PathBuf, text: String) {
         self.files.insert(path, text);
     }
 
-    /// 閉じたファイルをディスクの内容に戻す．
+    /// Falls back to the contents on disk.
     pub fn remove(&mut self, path: &Path) {
         self.files.remove(path);
     }
 
-    /// エディタから来たパスを，driver が使う絶対パスにそろえる．
+    /// Normalizes a path from the editor into the absolute path the driver uses.
     ///
-    /// 下のファイルシステムで絶対パスにできればそれを使う（`OsFs` ならシンボリックリンクも解く）．
-    /// ディスクにまだないファイルは，親のディレクトリだけを直して名前をつなぐ．
+    /// Uses the inner file system's absolute path when it can (`OsFs` also resolves symlinks).
+    /// For a file not yet on disk, only the parent directory is normalized and the name appended.
     pub fn normalize(&self, path: &Path) -> PathBuf {
         if let Ok(absolute) = self.inner.absolute(path) {
             return absolute;

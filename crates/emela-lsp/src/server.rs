@@ -1,6 +1,7 @@
-//! 言語サーバーの本体．メッセージを受けて開いているファイルを更新し，診断を出し直す．
+//! The server loop: handles messages, updates open files and republishes diagnostics.
 
-// `Uri` は内部に `Cell` を持つが，比較とハッシュは文字列（`as_str`）だけで決まるので，鍵にしてよい．
+// `Uri` holds a `Cell` internally, but equality and hashing depend only on the string (`as_str`),
+// so it is safe as a key.
 #![allow(clippy::mutable_key_type)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -21,11 +22,10 @@ use lsp_types::{self as lsp, Uri};
 use crate::convert::{self, path_to_uri, uri_to_path};
 use crate::overlay::Overlay;
 
-/// プロジェクトの目印のファイル（仕様 4.1）．位置のない診断をプロジェクトに付けるときに使う．
+/// The project marker file (spec 4.1). Diagnostics without a location attach to it.
 const PROJECT_FILE: &str = "Pome.toml";
 
-/// サーバーの能力．テキストは全文で同期する．文書全体の整形，ホバー，定義へ移動，参照の検索，
-/// 文書のシンボルを受ける．
+/// Text is synced in full.
 pub fn capabilities() -> lsp::ServerCapabilities {
     lsp::ServerCapabilities {
         text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
@@ -68,9 +68,10 @@ pub fn capabilities() -> lsp::ServerCapabilities {
     }
 }
 
-/// initialize の握手をしてから，exit まで診断を出し続ける．
+/// Performs the initialize handshake, then keeps publishing diagnostics until `exit`.
 ///
-/// `frontend` は解析のたびに呼んで，新しいフロントエンドを作る（`emela check` と同じものを渡す）．
+/// `frontend` is called for every analysis to make a fresh frontend (pass the same one as
+/// `emela check`).
 pub fn serve<Fs, F>(
     connection: &Connection,
     fs: Fs,
@@ -80,7 +81,8 @@ where
     Fs: FileSystem,
     F: Frontend,
 {
-    let capabilities = serde_json::to_value(capabilities()).expect("能力は JSON にできる");
+    let capabilities =
+        serde_json::to_value(capabilities()).expect("capabilities serialize to JSON");
     let params = connection.initialize(capabilities)?;
     let params: lsp::InitializeParams = serde_json::from_value(params)?;
     let mut server = Server::new(connection, Overlay::new(fs), frontend);
@@ -88,28 +90,26 @@ where
     Ok(server.run()?)
 }
 
-/// サーバーを止めた誤り（プロトコルの誤り，initialize の引数の誤り，入出力の誤り）．
+/// Errors that stop the server: protocol errors, bad initialize params, I/O errors.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-/// 1つのメッセージを処理した結果．
 enum Step {
-    /// 開いているファイルが変わった．診断を出し直す．
+    /// An open file changed, so diagnostics must be republished.
     Changed,
     Unchanged,
     Exit,
 }
 
 struct Document {
-    /// driver が使う絶対パス．
+    /// The absolute path the driver uses.
     path: PathBuf,
     version: i32,
 }
 
-/// ワークスペースのフォルダ．
 struct Folder {
-    /// エディタから来たパス．
+    /// The path as it came from the editor.
     original: PathBuf,
-    /// driver が使う絶対パス（シンボリックリンクを解いたもの）．
+    /// The absolute path the driver uses (symlinks resolved).
     path: PathBuf,
 }
 
@@ -117,11 +117,12 @@ struct Server<'c, Fs, M> {
     connection: &'c Connection,
     fs: Overlay<Fs>,
     make_frontend: M,
-    /// ワークスペースのフォルダ．`Pome.toml` があれば，ファイルを開かなくても解析する．
+    /// Folders with a `Pome.toml` are analyzed even if no file is open.
     workspace: Vec<Folder>,
     documents: HashMap<Uri, Document>,
-    /// 前回に診断を送ったファイルのパスと，送った URI．診断がなくなったら空の配列を送る．
-    /// 同じファイルでも URI の書き方（`%` の符号化）が変わることがあるので，パスで比べる．
+    /// Paths that diagnostics were last published for, with the URI used. When a file's
+    /// diagnostics go away, an empty array is sent. Compared by path because the same file can
+    /// come with differently encoded URIs (`%` escapes).
     published: HashMap<PathBuf, Uri>,
 }
 
@@ -143,7 +144,7 @@ where
     }
 
     fn set_workspace(&mut self, params: &lsp::InitializeParams) {
-        #[allow(deprecated)] // workspaceFolders を送らない古いクライアントのために rootUri も見る．
+        #[allow(deprecated)] // Also read rootUri for old clients that do not send workspaceFolders.
         let uris: Vec<&Uri> = match (&params.workspace_folders, &params.root_uri) {
             (Some(folders), _) if !folders.is_empty() => folders.iter().map(|f| &f.uri).collect(),
             (_, Some(root)) => vec![root],
@@ -160,10 +161,10 @@ where
     }
 
     fn run(&mut self) -> Result<(), ProtocolError> {
-        // ワークスペースのプロジェクトは，ファイルを開く前から診断を出す．
+        // Workspace projects get diagnostics before any file is opened.
         let mut dirty = true;
         loop {
-            // 溜まっているメッセージを全部読んでから解析する（続けて来た didChange は1回にまとめる）．
+            // Drain all pending messages before analyzing, so a burst of didChange is analyzed once.
             match self.drain()? {
                 Step::Exit => return Ok(()),
                 Step::Changed => dirty = true,
@@ -171,7 +172,7 @@ where
             }
             while dirty {
                 let diagnostics = self.analyze();
-                // 解析の間に書き換えが届いていたら，この結果は古いので捨てて解析し直す．
+                // If an edit arrived during analysis, the result is stale: discard it and redo.
                 match self.drain()? {
                     Step::Exit => return Ok(()),
                     Step::Changed => continue,
@@ -191,7 +192,7 @@ where
         }
     }
 
-    /// すでに届いているメッセージを待たずに全部処理する．
+    /// Handles every message already received, without waiting.
     fn drain(&mut self) -> Result<Step, ProtocolError> {
         let mut step = Step::Unchanged;
         while let Ok(message) = self.connection.receiver.try_recv() {
@@ -252,9 +253,11 @@ where
         Ok(Step::Unchanged)
     }
 
-    /// 文書全体を整形する（`emela fmt` と同じ）．開いていれば未保存の内容を，開いていなければディスクの内容を使う．
-    /// 整っていれば空の配列，変わるなら全体を置き換える編集1つ．構文エラーなどで整形できなければ `null`
-    /// （誤りの応答にはしない．診断は publishDiagnostics で出ている）．幅と字下げは `options` を見ずに既定のもの．
+    /// Same as `emela fmt`. Uses the unsaved contents if the file is open, otherwise the file on
+    /// disk. Returns an empty array if already formatted, or one edit replacing the whole text.
+    /// Returns `null` if the file cannot be formatted (e.g. syntax errors) rather than an error
+    /// response, since the diagnostics are already published. Width and indentation use the
+    /// defaults, ignoring `options`.
     fn format(&self, params: &lsp::DocumentFormattingParams) -> Option<Vec<lsp::TextEdit>> {
         let uri = &params.text_document.uri;
         let path = match self.documents.get(uri) {
@@ -272,8 +275,9 @@ where
         })
     }
 
-    /// カーソルの下の名前や式の型（と E）．ファイルを含むプロジェクトをその場で検査し直す．
-    /// 型を持たないフロントエンド，検査できないファイル，何もない位置では `null`．
+    /// The type (and E) of the name or expression under the cursor. Rechecks the project
+    /// containing the file on the spot. `null` for frontends without types, files that cannot be
+    /// checked, and positions with nothing there.
     fn hover(&mut self, params: &lsp::HoverParams) -> Option<lsp::Hover> {
         let at = self.check_at(&params.text_document_position_params)?;
         let index = at.analysis.sources[at.file].line_index();
@@ -287,12 +291,13 @@ where
         })
     }
 
-    /// 範囲の中のインレイヒント（書かない型と E，R を見せる，9.3）．検査できないファイルでは `null`．
+    /// Shows the types, E and R left unwritten (spec 9.3). `null` for files that cannot be
+    /// checked.
     fn inlay_hints(&mut self, params: &lsp::InlayHintParams) -> Option<Vec<lsp::InlayHint>> {
         let (analysis, program, file) = self.check_file(&params.text_document.uri)?;
         let index = analysis.sources[file].line_index();
         let start = convert::offset(index, params.range.start)?;
-        // 範囲の終わりがファイルの外（最終行の先）なら，ファイルの終わりまで．
+        // If the range ends past the file (beyond the last line), clamp to the end of the file.
         let end = convert::offset(index, params.range.end)
             .unwrap_or(index.len())
             .max(start);
@@ -304,7 +309,8 @@ where
         Some(hints)
     }
 
-    /// 範囲に掛かるコードアクション（省いた注釈に推論結果を挿入する，4.5）．検査できないファイルでは `null`．
+    /// Actions that insert inferred results into omitted annotations (spec 4.5). `null` for files
+    /// that cannot be checked.
     fn code_actions(
         &mut self,
         params: &lsp::CodeActionParams,
@@ -340,8 +346,8 @@ where
         Some(actions)
     }
 
-    /// カーソルの位置の補完の候補．ホバーと同じくその場で検査し直す．書きかけの名前での絞り込みは
-    /// エディタに任せる．検査できないファイルでは `null`．
+    /// Rechecks on the spot, like hover. Filtering by the partially typed name is left to the
+    /// editor. `null` for files that cannot be checked.
     fn complete(&mut self, params: &lsp::CompletionParams) -> Option<lsp::CompletionResponse> {
         let at = self.check_at(&params.text_document_position)?;
         let items = F::complete(&at.program, &at.analysis, at.file, at.offset)
@@ -352,14 +358,15 @@ where
         Some(lsp::CompletionResponse::Array(items))
     }
 
-    /// カーソルを括弧の中に含む呼び出しのシグネチャ．呼び出しの外や，呼ぶ先の型が分からなければ `null`．
+    /// The signature of the call whose parentheses contain the cursor. `null` outside a call or
+    /// when the callee's type is unknown.
     fn signature_help(&mut self, params: &lsp::SignatureHelpParams) -> Option<lsp::SignatureHelp> {
         let at = self.check_at(&params.text_document_position_params)?;
         let info = F::signature_help(&at.program, &at.analysis, at.file, at.offset)?;
         Some(convert::signature_help(&info))
     }
 
-    /// 名前を変えられる位置なら，その名前の範囲．変えられなければ `null`．
+    /// The range of the name if it can be renamed, otherwise `null`.
     fn prepare_rename(
         &mut self,
         params: &lsp::TextDocumentPositionParams,
@@ -372,7 +379,8 @@ where
         )))
     }
 
-    /// 名前を変える編集．変えられない名前や字句クラスの合わない新しい名前は誤りの応答にする．
+    /// Names that cannot be renamed, and new names of the wrong lexical class, are error
+    /// responses.
     fn rename(&mut self, params: &lsp::RenameParams) -> Result<lsp::WorkspaceEdit, String> {
         let not_renamable = || emela_driver::RenameError::NotRenamable.to_string();
         let at = self
@@ -405,8 +413,8 @@ where
         })
     }
 
-    /// カーソルの下の名前の定義．ホバーと同じくその場で検査し直す．
-    /// 同梱の core やソースのない定義，名前のない位置では `null`．
+    /// Rechecks on the spot, like hover. `null` for definitions in the bundled core or without
+    /// source, and for positions without a name.
     fn definition(
         &mut self,
         params: &lsp::GotoDefinitionParams,
@@ -417,8 +425,8 @@ where
         Some(lsp::GotoDefinitionResponse::Scalar(location))
     }
 
-    /// カーソルの下の名前の参照．検査したプロジェクト（単独ファイルならエントリからたどれるファイル）の中だけ．
-    /// 名前のない位置では `null`．
+    /// Only within the checked project (for a single file, the files reachable from the entry).
+    /// `null` for positions without a name.
     fn references(&mut self, params: &lsp::ReferenceParams) -> Option<Vec<lsp::Location>> {
         let at = self.check_at(&params.text_document_position)?;
         let declaration = params.context.include_declaration;
@@ -434,7 +442,8 @@ where
         )
     }
 
-    /// ファイルの中の宣言．構文木だけから作るので検査はしない．開いていれば未保存の内容を使う．
+    /// Built from the syntax tree alone, without checking. Uses the unsaved contents if the file
+    /// is open.
     fn document_symbols(
         &self,
         params: &lsp::DocumentSymbolParams,
@@ -450,7 +459,7 @@ where
         Some(lsp::DocumentSymbolResponse::Nested(symbols))
     }
 
-    /// 位置のあるファイルを含むプロジェクト（単独ファイルならそのファイル）を検査する．
+    /// Checks the project containing the file (or just the file if it is standalone).
     fn check_at(
         &mut self,
         position: &lsp::TextDocumentPositionParams,
@@ -465,7 +474,7 @@ where
         })
     }
 
-    /// ファイルを含むプロジェクト（単独ファイルならそのファイル）を検査する．
+    /// Checks the project containing the file (or just the file if it is standalone).
     fn check_file(&mut self, uri: &Uri) -> Option<(Analysis, F::Program, FileId)> {
         let path = self.path_of(uri)?;
         let input = match Input::resolve(&self.fs, &path).ok()? {
@@ -479,7 +488,7 @@ where
         Some((analysis, program, file))
     }
 
-    /// URI のファイルの，driver が使う絶対パス．
+    /// The absolute path the driver uses.
     fn path_of(&self, uri: &Uri) -> Option<PathBuf> {
         match self.documents.get(uri) {
             Some(document) => Some(document.path.clone()),
@@ -509,7 +518,7 @@ where
                 let Some(params) = parse::<DidChangeTextDocument>(notification) else {
                     return Step::Unchanged;
                 };
-                // 全文の同期なので，最後の変更が新しい全文．
+                // Full sync, so the last change is the whole new text.
                 let Some(change) = params.content_changes.into_iter().last() else {
                     return Step::Unchanged;
                 };
@@ -526,7 +535,8 @@ where
                         let version = document.version;
                         self.open(uri, version, text)
                     }
-                    // 開いている内容はもう重ねてある．ディスクの他のファイルが変わったかもしれないので解析し直す．
+                    // Open contents are already overlaid, but other files on disk may have
+                    // changed, so reanalyze.
                     _ => Step::Changed,
                 }
             }
@@ -546,7 +556,7 @@ where
         }
     }
 
-    /// 開いたか書き換えたファイルを重ねる．`file:` でない URI は扱わない．
+    /// URIs other than `file:` are ignored.
     fn open(&mut self, uri: Uri, version: i32, text: String) -> Step {
         let Some(path) = uri_to_path(&uri) else {
             return Step::Unchanged;
@@ -560,13 +570,13 @@ where
         Step::Changed
     }
 
-    /// 開いているファイルのプロジェクトと，ワークスペースのプロジェクトを全部検査する．
-    /// 結果はファイルのパスごとの診断．
+    /// Checks the projects of all open files and all workspace projects. Returns diagnostics
+    /// per file path.
     fn analyze(&mut self) -> BTreeMap<PathBuf, Vec<lsp::Diagnostic>> {
         let mut result: BTreeMap<PathBuf, Vec<lsp::Diagnostic>> = BTreeMap::new();
         let mut inputs: Vec<Input> = Vec::new();
         for folder in &self.workspace {
-            // `Pome.toml` のないフォルダは，開いたファイルごとに単独ファイルとして扱う．
+            // A folder without `Pome.toml` is handled per open file, as standalone files.
             if let Ok(input) = Input::resolve(&self.fs, &folder.path) {
                 inputs.push(input);
             }
@@ -575,7 +585,7 @@ where
         paths.sort();
         for path in paths {
             let input = match Input::resolve(&self.fs, path) {
-                // プロジェクトは `emela check <プロジェクト>` と同じく，ディレクトリから検査する．
+                // Check a project from its directory, like `emela check <project>`.
                 Ok(input) if !input.single_file => Input::resolve(&self.fs, &input.base),
                 other => other,
             };
@@ -586,7 +596,7 @@ where
                     }
                 }
                 Err(diagnostic) => {
-                    // ソースのルートの外など．開いたファイルの先頭に付ける．
+                    // E.g. outside the source root. Attach to the start of the open file.
                     let lsp = self.convert(&diagnostic, &Default::default(), path).1;
                     result.entry(path.clone()).or_default().push(lsp);
                 }
@@ -595,14 +605,15 @@ where
 
         for input in &inputs {
             let (analysis, _) = emela_driver::check(&self.fs, input, &mut (self.make_frontend)());
-            // 位置のない診断は，エントリか，なければ `Pome.toml` に付ける．
+            // Diagnostics without a location attach to the entry, or to `Pome.toml` if none.
             let anchor = input
                 .entry
                 .clone()
                 .unwrap_or_else(|| input.base.join(PROJECT_FILE));
             for diagnostic in &analysis.diagnostics {
                 let (path, lsp) = self.convert(diagnostic, &analysis.sources, &anchor);
-                // 単独ファイルが同じディレクトリにいくつか開いていると，同じ診断が重なる．
+                // Several standalone files open in the same directory would duplicate the
+                // diagnostic.
                 let entry = result.entry(path).or_default();
                 if !entry.contains(&lsp) {
                     entry.push(lsp);
@@ -621,9 +632,9 @@ where
         convert::diagnostic(diagnostic, sources, anchor, &|path| self.uri_of(path))
     }
 
-    /// パスの URI．開いているファイルならエディタから来た URI をそのまま使う．
-    /// 開いていなければ，ワークスペースのフォルダの下はエディタから来たフォルダのパスでつなぐ
-    /// （シンボリックリンクを解いたパスで送ると，エディタが別のファイルとみなす）．
+    /// Uses the editor's URI for open files. Otherwise, a path under a workspace folder is joined
+    /// onto the folder path as the editor sent it: sending a symlink-resolved path would make the
+    /// editor treat it as a different file.
     fn uri_of(&self, path: &Path) -> Option<Uri> {
         if let Some((uri, _)) = self.documents.iter().find(|(_, d)| d.path == path) {
             return Some(uri.clone());
@@ -642,9 +653,9 @@ where
                 published.insert(path.clone(), uri);
             }
         }
-        // 前に送ったのに今回は診断のないファイルと，URI の書き方が変わったファイルの古い URI には，
-        // 空の配列を送って消す．エディタが2つの書き方を同じファイルとみなしても新しい診断が残るように，
-        // 消す方を先に送る．
+        // Send an empty array to clear files that had diagnostics before but have none now, and
+        // the old URI of files whose URI spelling changed. Clearing goes first so that new
+        // diagnostics survive even if the editor treats both spellings as the same file.
         let mut cleared: Vec<Uri> = self
             .published
             .iter()
@@ -674,12 +685,11 @@ where
     }
 
     fn send(&self, message: Message) {
-        // 相手が切れていたら，次の recv で終わる．
+        // If the peer is gone, the next recv ends the loop.
         let _ = self.connection.sender.send(message);
     }
 }
 
-/// 位置の要求のために検査した結果．
 struct CheckedAt<P> {
     analysis: Analysis,
     program: P,
@@ -687,7 +697,7 @@ struct CheckedAt<P> {
     offset: line_index::TextSize,
 }
 
-/// 要求の引数を読んで応答を作る．読めなければ InvalidParams の誤り．
+/// Reads the request's params and builds the response; InvalidParams if they cannot be read.
 fn respond<P, R>(request: Request, f: impl FnOnce(P) -> R) -> Response
 where
     P: serde::de::DeserializeOwned,
