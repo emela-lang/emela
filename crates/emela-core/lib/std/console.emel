@@ -1,0 +1,39 @@
+# The Console effect and its handlers (the platform and test layers of spec 15.2).
+#
+# Use it as `(use Console).print_line("hi")` and provide it with `with SystemConsole { ... }`, or
+# with `with Platform { ... }` from `Std.Platform`.
+
+import Std.State.{State}
+
+## Writes a line to standard output (`print_line`) or standard error (`print_error_line`).
+pub effect Console {
+  fn print_line(text: String) -> ()
+  fn print_error_line(text: String) -> ()
+}
+
+@external(js, "console.log")
+fn console_log(text: String) -> ()
+
+@external(js, "console.error")
+fn console_error(text: String) -> ()
+
+## Writes to the host's standard output and standard error (JS `console.log` and `console.error`).
+## Stateless.
+pub handler SystemConsole implements Console {
+  fn print_line(text) { console_log(text) }
+  fn print_error_line(text) { console_error(text) }
+}
+
+## The test handler (spec 8.8). It keeps the printed lines in `State[List[String]]`, so use it
+## inside `State.run`:
+##
+##   (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+##   assert lines == ["Hello, alice!"]
+##
+## `print_line` appends the line in the printed order. `print_error_line` drops the line.
+pub handler TestConsole implements Console {
+  fn print_line(text) {
+    (use State[List[String]]).update(fn(lines) { List.append(lines, [text]) })
+  }
+  fn print_error_line(text) { () }
+}

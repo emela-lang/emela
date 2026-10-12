@@ -651,14 +651,16 @@ fn console_runs_through_handlers() {
     // 同梱の Console を JsConsole で供給する（8.3，15.2）．`Option.or_fail` の失敗も一緒に通す．
     let output = run_source(
         "console",
-        r#"error NotFound(id: Int)
+        r#"import Std.Console.{Console, SystemConsole}
+
+error NotFound(id: Int)
 
 fn name(id: Int) -> String fails NotFound {
   List.get(["alice"], id) |> Option.or_fail(NotFound(id:))
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     console = use Console
     console.print_line(name(0))
     console.print_line(name(1) escape { NotFound(id:) -> "no #{id}" })
@@ -675,7 +677,10 @@ fn main() {
 
 /// 状態のあるハンドラと layer のエンドツーエンドの確かめに使う宣言（8.4，8.5）．`Pool` は init と
 /// release で `Console` に出す．`Fragile` は release で panic する．
-const STATEFUL: &str = r#"error DbDown
+const STATEFUL: &str = r#"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+
+error DbDown
 
 effect Users {
   fn find(id: Int) -> String
@@ -749,10 +754,10 @@ fn stateful_handlers_and_layers_run() {
     let output = run_stateful(
         "stateful",
         r#"fn main() {
-  with JsConsole, AppLive {
+  with SystemConsole, AppLive {
     (use Console).print_line((use Users).find(1))
   }
-  with JsConsole, AppLive, Spare {
+  with SystemConsole, AppLive, Spare {
     (use Console).print_line((use Users).find(2))
   }
 }
@@ -785,7 +790,7 @@ fn failing_init_releases_what_was_initialized() {
 }
 
 fn main() {
-  with JsConsole, SpareFirst, Pool {
+  with SystemConsole, SpareFirst, Pool {
     (use Console).print_line("body")
   }
 }
@@ -803,7 +808,7 @@ fn release_defects_follow_the_body() {
     let output = run_stateful(
         "stateful-release-defect",
         r#"fn main() {
-  with JsConsole, EnvConfig, Pool, Fragile {
+  with SystemConsole, EnvConfig, Pool, Fragile {
     (use Wait).forever()
   }
 }
@@ -822,7 +827,7 @@ fn release_defects_follow_the_body() {
     let output = run_stateful(
         "stateful-release-note",
         r#"fn main() {
-  with JsConsole, Fragile { panic("boom") }
+  with SystemConsole, Fragile { panic("boom") }
 }
 "#,
     );
@@ -841,7 +846,7 @@ fn released_handlers_are_defects_when_used() {
     let output = run_stateful(
         "stateful-used-after-release",
         r#"fn main() {
-  with JsConsole, EnvConfig {
+  with SystemConsole, EnvConfig {
     f = with Pool {
       users = use Users
       fn() { users.find(1) }
@@ -868,11 +873,11 @@ fn interrupted_main_releases_first() {
     for (name, main) in [
         (
             "stateful-interrupted",
-            "fn main() {\n  with JsConsole, AppLive, Stuck { (use Wait).forever() }\n}\n",
+            "fn main() {\n  with SystemConsole, AppLive, Stuck { (use Wait).forever() }\n}\n",
         ),
         (
             "stateful-interrupted-async",
-            "fn main() {\n  with JsConsole, JsClock, AppLive, Stuck {\n    (use Clock).sleep(1)\n    (use Wait).forever()\n  }\n}\n",
+            "fn main() {\n  with SystemConsole, SystemClock, AppLive, Stuck {\n    (use Clock).sleep(1)\n    (use Wait).forever()\n  }\n}\n",
         ),
     ] {
         let output = run_stateful(name, main);
@@ -893,7 +898,11 @@ fn time_values_run_through_core() {
     // Instant は Unix エポックからのミリ秒で作れる（15.2）．
     let output = run_source(
         "time",
-        r#"fn show(o: Ordering) -> String {
+        r#"import Std.Console.{Console, SystemConsole}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
+fn show(o: Ordering) -> String {
   match o {
     Less -> "Less"
     Equal -> "Equal"
@@ -902,7 +911,7 @@ fn time_values_run_through_core() {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     c = use Console
     d = Duration.add(Duration.minutes(2), Duration.seconds(3))
     c.print_line(Duration.to_string(d))
@@ -1054,7 +1063,10 @@ fn random_runs_through_handlers() {
     // 同梱の Random を JsRandom で供給する（15.2）．値は毎回変わるので範囲だけを見る．
     let output = run_source(
         "random",
-        r##"fn draw(n: Int) {
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Random.{Random, SystemRandom}
+
+fn draw(n: Int) {
   if n > 0 {
     random = use Random
     console = use Console
@@ -1064,7 +1076,7 @@ fn random_runs_through_handlers() {
 }
 
 fn main() {
-  with JsConsole, JsRandom {
+  with SystemConsole, SystemRandom {
     draw(100)
   }
 }
@@ -1112,7 +1124,10 @@ fn env_runs_through_handlers() {
     );
     let output = run_source_in(
         "env",
-        r##"fn show(name: String) -> String {
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Env.{Env, SystemEnv}
+
+fn show(name: String) -> String {
   match (use Env).get(name) {
     Some(value) -> "#{name}=#{value}"
     None -> "#{name} is unset"
@@ -1124,13 +1139,13 @@ handler FixedEnv implements Env {
 }
 
 fn main() {
-  with JsConsole, JsEnv {
+  with SystemConsole, SystemEnv {
     console = use Console
     console.print_line(show("EMELA_TEST_SET"))
     console.print_line(show("EMELA_TEST_EMPTY"))
     console.print_line(show("EMELA_TEST_UNSET"))
   }
-  with JsConsole, FixedEnv {
+  with SystemConsole, FixedEnv {
     (use Console).print_line(show("EMELA_TEST_UNSET"))
   }
 }
@@ -1155,12 +1170,17 @@ fn clock_runs_through_js_clock() {
     // 時刻は実行ごとに変わるので，向きと範囲だけを見る．
     let output = run_source(
         "clock",
-        r#"fn elapsed(start: Instant) -> Duration use { Clock } {
+        r#"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
+fn elapsed(start: Instant) -> Duration use { Clock } {
   (use Clock).now() |> Instant.since(start)
 }
 
 fn main() {
-  with JsConsole, JsClock {
+  with SystemConsole, SystemClock {
     c = use Console
     start = (use Clock).now()
     d = elapsed(start)
@@ -1183,7 +1203,12 @@ fn clock_sleeps_through_js_clock() {
     // 中断しうる関数を渡した List.map（中断用の写し）の中でも待つ．
     let output = run_source(
         "clock-sleep",
-        r##"fn nap(clock_name: String, ms: Int) -> String use { Clock } {
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
+fn nap(clock_name: String, ms: Int) -> String use { Clock } {
   clock = use Clock
   start = clock.now()
   clock.sleep(ms)
@@ -1192,7 +1217,7 @@ fn clock_sleeps_through_js_clock() {
 }
 
 fn main() {
-  with JsConsole, JsClock {
+  with SystemConsole, SystemClock {
     c = use Console
     c.print_line(nap("js", 50))
     List.map([30, 10, 20], fn(ms) { nap("js #{ms}", ms) }) |> List.map(c.print_line)
@@ -1218,7 +1243,10 @@ fn state_run_returns_value_and_final_state() {
     // 状態は捨ててエラーだけが伝わる．update に渡す関数は一息に実行される．
     let output = run_source(
         "state-run",
-        r##"error Boom
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.State.{State}
+
+error Boom
 
 fn count() -> Int use { State[Int] } {
   st = use State[Int]
@@ -1253,7 +1281,7 @@ fn failing() -> Int fails Boom {
 }
 
 fn main() {
-  with JsConsole {
+  with SystemConsole {
     c = use Console
     (n, last) = State.run(0, fn() { count() + count() })
     c.print_line("#{n} #{last}")
@@ -1281,7 +1309,13 @@ fn test_handlers_record_output_and_move_the_clock() {
     // State[Instant] の時刻を sleep で進めてその場で resume する（15.2）．
     let output = run_source(
         "state-test-handlers",
-        r##"fn greet(name: String) -> () use { Console } {
+        r##"import Std.Console.{Console, SystemConsole, TestConsole}
+import Std.Clock.{Clock, TestClock}
+import Std.State.{State}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
+fn greet(name: String) -> () use { Console } {
   (use Console).print_line("Hello, #{name}!")
   (use Console).print_error_line("dropped")
 }
@@ -1303,7 +1337,7 @@ fn main() {
   })
   start = Instant.from_unix_milliseconds(Int.to_int64(1000))
   (d, end) = State.run(start, fn() { with TestClock { elapsed() } })
-  with JsConsole {
+  with SystemConsole {
     c = use Console
     c.print_line(String.join(lines, "|"))
     c.print_line("#{Duration.to_milliseconds(d)} #{Instant.to_unix_milliseconds(end)}")
@@ -1322,25 +1356,61 @@ fn state_run_keeps_the_state_across_suspension() {
     // body が JsClock で中断しても（8.7，14.5），State.run の状態は再開の後に引き継がれる．
     let output = run_source(
         "state-suspend",
-        r##"fn tick() -> () use { State[Int], Clock } {
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+import Std.State.{State}
+
+fn tick() -> () use { State[Int], Clock } {
   (use Clock).sleep(10)
   (use State[Int]).update(fn(n) { n + 1 })
 }
 
 fn main() {
   (_, n) = State.run(0, fn() {
-    with JsClock {
+    with SystemClock {
       tick()
       tick()
       List.map([1, 2, 3], fn(x) { tick() })
     }
   })
-  with JsConsole { (use Console).print_line("#{n}") }
+  with SystemConsole { (use Console).print_line("#{n}") }
 }
 "##,
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "5\n", "")
+    );
+}
+
+#[test]
+fn platform_layer_provides_system_handlers() {
+    // `Std.Platform.Platform` は System のハンドラを束ねた layer（15.2）．後ろに並べた Test の
+    // ハンドラで一部を差し替えられる（8.3）．std のモジュールは import して使う．
+    let output = run_source(
+        "platform",
+        r##"import Std.Platform.{Platform}
+import Std.Console.{Console, TestConsole}
+import Std.Clock.{Clock, TestClock}
+import Std.Instant
+import Std.State.{State}
+
+fn main() {
+  with Platform {
+    now = Instant.to_unix_milliseconds((use Clock).now())
+    (use Console).print_line("now > 0: #{now > Int64.from_int(0)}")
+  }
+  start = Instant.from_unix_milliseconds(Int64.from_int(5))
+  (_, end) = State.run(start, fn() { with Platform, TestClock { (use Clock).sleep(10) } })
+  (_, lines) = State.run([], fn() { with Platform, TestConsole { (use Console).print_line("x") } })
+  with Platform {
+    (use Console).print_line("#{Instant.to_unix_milliseconds(end)} #{lines}")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "now > 0: True\n15 [\"x\"]\n", "")
     );
 }

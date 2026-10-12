@@ -736,7 +736,10 @@ impl<'a> Lowerer<'a> {
             if args.len() == 2 && (args[0].starts_with("./") || args[0].starts_with("../")) {
                 if is_core {
                     if e.target == "js" {
-                        args[0] = self.core_js_file(&args[0], self.hir.defs[def].span);
+                        let lib_dir = module
+                            .map(|m| crate::lib_dir(&self.modules[m].name.to_string()))
+                            .unwrap_or("core");
+                        args[0] = self.core_js_file(lib_dir, &args[0], self.hir.defs[def].span);
                     }
                 } else if let Some(dir) = dir {
                     args[0] = normalize(&dir.join(&args[0]));
@@ -759,11 +762,11 @@ impl<'a> Lowerer<'a> {
     }
 
     /// 同梱の core の JS のファイルの指定（`./x.mjs`）を，出力先の [`crate::CORE_JS_DIR`] に
-    /// 書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）にする．
-    /// core のソースは `lib/` の直下にあるとみなし，`lib/` からの相対パスで同梱のファイルを引く．
-    fn core_js_file(&mut self, spec: &str, span: Option<Span>) -> String {
-        let found =
-            lib_relative(spec).filter(|path| self.core_js_files.iter().any(|(p, _)| p == path));
+    /// 書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/std/x.mjs`）にする．
+    /// `spec` はソースを置いた `lib/` の中のディレクトリ（`lib_dir`．`std` か `core`）からの相対パス．
+    fn core_js_file(&mut self, lib_dir: &str, spec: &str, span: Option<Span>) -> String {
+        let found = lib_relative(&format!("{lib_dir}/{spec}"))
+            .filter(|path| self.core_js_files.iter().any(|(p, _)| p == path));
         match found {
             Some(path) => {
                 self.uses_core_js = true;

@@ -525,7 +525,7 @@ fn tests_provide_effects_with_handlers() {
         (
             "app/src/main.emel",
             "\
-error Down(reason: String)
+import Std.Console.{Console, SystemConsole}\n\nerror Down(reason: String)
 
 effect Store {
   fn get(key: String) -> Int fails Down
@@ -557,7 +557,7 @@ fn down() {
 
 @test
 fn printed() {
-  with JsConsole { (use Console).print_line(\"from test\") }
+  with SystemConsole { (use Console).print_line(\"from test\") }
 }
 ",
         ),
@@ -674,7 +674,7 @@ fn tests_can_use_js_clock() {
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            "fn main() {}\n\n@test\nfn clock_moves_forward() {\n  with JsClock {\n    start = (use Clock).now()\n    (use Clock).sleep(20)\n    d = (use Clock).now() |> Instant.since(start)\n    assert Duration.to_milliseconds(d) >= 15\n  }\n}\n",
+            "import Std.Clock.{Clock, SystemClock}\nimport Std.Instant.{Instant}\nimport Std.Duration.{Duration}\n\nfn main() {}\n\n@test\nfn clock_moves_forward() {\n  with SystemClock {\n    start = (use Clock).now()\n    (use Clock).sleep(20)\n    d = (use Clock).now() |> Instant.since(start)\n    assert Duration.to_milliseconds(d) >= 15\n  }\n}\n",
         ),
     ];
     let (analysis, report, _) = run_tests(
@@ -700,7 +700,9 @@ fn tests_run_stateful_handlers() {
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            r##"error Down
+            r##"import Std.Console.{Console, SystemConsole}
+
+error Down
 
 effect Users {
   fn find(id: Int) -> String
@@ -732,17 +734,17 @@ fn main() {}
 
 @test
 fn finds() {
-  with JsConsole, Pool { assert (use Users).find(1) == "pool 1" }
+  with SystemConsole, Pool { assert (use Users).find(1) == "pool 1" }
 }
 
 @test
 fn init_fails() {
-  with JsConsole, Pool, Broken { (use Users).find(1) }
+  with SystemConsole, Pool, Broken { (use Users).find(1) }
 }
 
 @test
 fn stuck() {
-  with JsConsole, Pool, Stuck { (use Wait).forever() }
+  with SystemConsole, Pool, Stuck { (use Wait).forever() }
 }
 "##,
         ),
@@ -791,7 +793,13 @@ fn state_and_test_handlers_in_tests() {
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            r##"error Boom
+            r##"import Std.Console.{Console, TestConsole}
+import Std.Clock.{Clock, TestClock}
+import Std.State.{State}
+import Std.Instant.{Instant}
+import Std.Duration.{Duration}
+
+error Boom
 
 fn greet(id: Int) -> () use { Console } {
   (use Console).print_line("Hello, #{id}!")

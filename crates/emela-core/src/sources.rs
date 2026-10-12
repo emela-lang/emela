@@ -1,43 +1,52 @@
-//! コンパイラに同梱する Prelude と core のソース（仕様 15.2）．
+//! コンパイラに同梱する Prelude と core と std のソース（仕様 15.2）．
 //!
-//! ソースは `lib/` の `.emel` で，`include_str!` で埋め込む．Emela で書けない関数は
+//! ソースは `lib/core/` と `lib/std/` の `.emel` で，`include_str!` で埋め込む．Emela で書けない関数は
 //! `@intrinsic` を付けた本体のない fn として宣言し，実装は `Builtin::lookup_intrinsic` で
 //! 組み込み関数の表から引く．
 
 /// Prelude のソースのモジュール名．`prelude.emel` はソースのルートに置けない予約名（4.1）．
 pub const PRELUDE: &str = "Prelude";
 
-/// 同梱のソース．モジュール名とソースの組で，Prelude が先頭．
+/// std のモジュールを置く名前空間（15.2）．std のモジュールは `Std.Console` のように2区切りの名前で，
+/// import して使う．ソースのルート直下の `std.emel` と `std/` は予約名（4.1）．
+pub const STD: &str = "Std";
+
+/// 同梱のソース．モジュール名とソースの組で，Prelude が先頭．core（`lib/core/`．短い名前で import
+/// なしで使える）の後に std（`lib/std/`．`Std` の下）を並べる．
 const SOURCES: &[(&str, &str)] = &[
-    (PRELUDE, include_str!("../lib/prelude.emel")),
-    ("List", include_str!("../lib/list.emel")),
-    ("Option", include_str!("../lib/option.emel")),
-    ("String", include_str!("../lib/string.emel")),
-    ("Int", include_str!("../lib/int.emel")),
-    ("Int64", include_str!("../lib/int64.emel")),
-    ("Float", include_str!("../lib/float.emel")),
-    ("Duration", include_str!("../lib/duration.emel")),
-    ("Instant", include_str!("../lib/instant.emel")),
-    ("Console", include_str!("../lib/console.emel")),
-    ("JsConsole", include_str!("../lib/js_console.emel")),
-    ("Random", include_str!("../lib/random.emel")),
-    ("JsRandom", include_str!("../lib/js_random.emel")),
-    ("Env", include_str!("../lib/env.emel")),
-    ("JsEnv", include_str!("../lib/js_env.emel")),
-    ("Clock", include_str!("../lib/clock.emel")),
-    ("JsClock", include_str!("../lib/js_clock.emel")),
-    ("State", include_str!("../lib/state.emel")),
-    ("TestConsole", include_str!("../lib/test_console.emel")),
-    ("TestClock", include_str!("../lib/test_clock.emel")),
+    (PRELUDE, include_str!("../lib/core/prelude.emel")),
+    ("List", include_str!("../lib/core/list.emel")),
+    ("Option", include_str!("../lib/core/option.emel")),
+    ("String", include_str!("../lib/core/string.emel")),
+    ("Int", include_str!("../lib/core/int.emel")),
+    ("Int64", include_str!("../lib/core/int64.emel")),
+    ("Float", include_str!("../lib/core/float.emel")),
+    ("Std.Duration", include_str!("../lib/std/duration.emel")),
+    ("Std.Instant", include_str!("../lib/std/instant.emel")),
+    ("Std.State", include_str!("../lib/std/state.emel")),
+    ("Std.Console", include_str!("../lib/std/console.emel")),
+    ("Std.Random", include_str!("../lib/std/random.emel")),
+    ("Std.Env", include_str!("../lib/std/env.emel")),
+    ("Std.Clock", include_str!("../lib/std/clock.emel")),
+    ("Std.Platform", include_str!("../lib/std/platform.emel")),
 ];
 
-/// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．core の `@external(js, "./x.mjs", …)`
+/// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．同梱のソースの `@external(js, "./x.mjs", …)`
 /// が指すファイルで，`.emel` と同じく `include_str!` で埋め込む（手順は `lib/README.md`）．
 const JS_FILES: &[(&str, &str)] = &[
-    ("js_random.mjs", include_str!("../lib/js_random.mjs")),
-    ("js_env.mjs", include_str!("../lib/js_env.mjs")),
-    ("js_clock.mjs", include_str!("../lib/js_clock.mjs")),
+    ("std/random.mjs", include_str!("../lib/std/random.mjs")),
+    ("std/env.mjs", include_str!("../lib/std/env.mjs")),
+    ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
 ];
+
+/// 同梱のソースを置いた `lib/` の中のディレクトリ．std のモジュールは `std`，それ以外は `core`．
+/// `@external` のファイルの指定は，このディレクトリからの相対パスとして引く．
+pub fn lib_dir(module: &str) -> &'static str {
+    match module.split_once('.') {
+        Some((STD, _)) => "std",
+        _ => "core",
+    }
+}
 
 /// 同梱の JS のファイルを書き出す，JS の出力先の中のディレクトリ．core の `@external` の
 /// ファイルの指定は，lowering がエントリの出力（出力先の直下）からの相対パス
@@ -200,31 +209,38 @@ mod tests {
     fn platform_effects_are_bundled() {
         let modules: Vec<_> = core_sources().iter().map(|(m, _)| *m).collect();
         for module in [
-            "Console",
-            "JsConsole",
-            "Random",
-            "JsRandom",
-            "Env",
-            "JsEnv",
-            "Clock",
-            "JsClock",
-            "State",
-            "TestConsole",
-            "TestClock",
+            "Std.Console",
+            "Std.Random",
+            "Std.Env",
+            "Std.Clock",
+            "Std.State",
+            "Std.Platform",
         ] {
             assert!(modules.contains(&module), "{module} が同梱されていない");
         }
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
+        for (module, handlers) in [
+            ("Std.Console", &["SystemConsole", "TestConsole"][..]),
+            ("Std.Clock", &["SystemClock", "TestClock"]),
+            ("Std.Random", &["SystemRandom"]),
+            ("Std.Env", &["SystemEnv"]),
+        ] {
+            for h in handlers {
+                assert!(
+                    core_source(module)
+                        .unwrap()
+                        .contains(&format!("pub handler {h} ")),
+                    "{module} に {h} がない"
+                );
+            }
+        }
         assert!(
-            core_source("JsConsole")
+            core_source("Std.Platform")
                 .unwrap()
-                .contains("pub handler JsConsole")
+                .contains("pub layer Platform")
         );
-        assert!(
-            core_source("JsClock")
-                .unwrap()
-                .contains("pub handler JsClock")
-        );
+        assert_eq!(lib_dir("Std.Clock"), "std");
+        assert_eq!(lib_dir("List"), "core");
     }
 
     #[test]
@@ -239,7 +255,10 @@ mod tests {
         );
         assert_eq!(Builtin::lookup_intrinsic("String", "panic"), None);
         assert_eq!(Builtin::lookup_intrinsic(PRELUDE, "length"), None);
-        assert_eq!(core_source("List"), Some(include_str!("../lib/list.emel")));
+        assert_eq!(
+            core_source("List"),
+            Some(include_str!("../lib/core/list.emel"))
+        );
         assert_eq!(core_source("Map"), None);
     }
 }

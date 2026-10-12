@@ -1,5 +1,7 @@
 # Typed errors and effects. `fails` and `use` are inferred unless written.
 
+import Std.Console.{Console, SystemConsole}
+
 error NotFound(id: Int)
 error Invalid(reason: String)
 
@@ -35,7 +37,7 @@ fn greeting_or_guest(id: Int) {
 }
 
 fn main() {
-  with JsConsole, SampleUsers {
+  with SystemConsole, SampleUsers {
     console = use Console
     console.print_line(greeting_or_guest(1))
     console.print_line(greeting_or_guest(3))

@@ -23,11 +23,11 @@ enum Prelude.Ordering {
   Greater
 }
 
-enum Duration.Duration {
+enum Std.Duration.Duration {
   Duration(milliseconds: Int64)
 }
 
-enum Instant.Instant {
+enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 

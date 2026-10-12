@@ -1,0 +1,14 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0203]: module name `Std` is reserved
+   ─[ src/std ]
+
+error[E0203]: module name `Std` is reserved
+   ─[ src/std.emel ]
+
+error[E0203]: module name `List` is reserved
+   ─[ src/list.emel ]
+
+3 errors

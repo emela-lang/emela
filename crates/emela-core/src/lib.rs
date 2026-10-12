@@ -19,4 +19,4 @@ pub use dump::dump;
 pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
 pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
-pub use sources::{CORE_JS_DIR, PRELUDE, core_js_files, core_source, core_sources};
+pub use sources::{CORE_JS_DIR, PRELUDE, STD, core_js_files, core_source, core_sources, lib_dir};

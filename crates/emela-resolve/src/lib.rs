@@ -30,3 +30,7 @@ pub use source::{
 /// The implicitly visible module. It cannot be placed directly under the source root (spec 4.1).
 /// Its contents are [`hir::Prelude`].
 pub const PRELUDE: &str = "Prelude";
+
+/// The namespace of the bundled std modules (`Std.Console`, spec 15.2). `std.emel` and `std/`
+/// cannot be placed directly under the source root (spec 4.1).
+pub const STD: &str = "Std";

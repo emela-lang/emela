@@ -55,16 +55,25 @@ impl CoreSource {
             .collect()
     }
 
-    /// ソースの表に載せる仮のパス．`List` なら `<core>/list.emel`，`Int64` なら `<core>/int64.emel`．
+    /// ソースの表に載せる仮のパス．`List` なら `<core>/list.emel`，`Int64` なら `<core>/int64.emel`，
+    /// `Std.Console` なら `<core>/std/console.emel`（モジュール名の区切りをディレクトリにする）．
     fn path(&self) -> PathBuf {
-        let mut file = String::new();
-        for (i, c) in self.module.chars().enumerate() {
-            if c.is_ascii_uppercase() && i > 0 {
-                file.push('_');
+        let mut path = PathBuf::from(CORE_DIR);
+        let segments: Vec<&str> = self.module.split('.').collect();
+        for (i, segment) in segments.iter().enumerate() {
+            let mut file = String::new();
+            for (j, c) in segment.chars().enumerate() {
+                if c.is_ascii_uppercase() && j > 0 {
+                    file.push('_');
+                }
+                file.push(c.to_ascii_lowercase());
             }
-            file.push(c.to_ascii_lowercase());
+            if i + 1 == segments.len() {
+                file.push_str(".emel");
+            }
+            path.push(file);
         }
-        Path::new(CORE_DIR).join(format!("{file}.emel"))
+        path
     }
 }
 
