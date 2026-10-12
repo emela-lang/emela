@@ -1,6 +1,6 @@
 [package]
 name = "emela-fmt"
-description = "構文木を整形して出力する"
+description = "Formats the lossless syntax tree"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
