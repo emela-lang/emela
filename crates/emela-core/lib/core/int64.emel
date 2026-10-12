@@ -1,6 +1,5 @@
 # Functions on Int64 (64-bit signed). Overflow wraps in two's complement (spec 16.1).
 
-## Same as `Int.to_int64`.
 @intrinsic
 pub fn from_int(n: Int) -> Int64
 

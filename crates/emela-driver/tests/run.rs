@@ -1213,7 +1213,7 @@ fn nap(clock_name: String, ms: Int) -> String use { Clock } {
   start = clock.now()
   clock.sleep(ms)
   waited = Duration.to_milliseconds(clock.now() |> Instant.since(start))
-  if waited >= Int.to_int64(ms - 5) { "#{clock_name} waited" } else { "#{clock_name} did not wait" }
+  if waited >= Int64.from_int(ms - 5) { "#{clock_name} waited" } else { "#{clock_name} did not wait" }
 }
 
 fn main() {
@@ -1267,7 +1267,7 @@ fn twice[T](f: fn(T) -> T fails {} use {}) -> T use State[T] {
 fn both() -> String use { State[Int], State[String] } {
   n = modify(fn(n) { n + 1 })
   (use State[String]).set("n=#{n}")
-  twice(fn(s) { String.concat(s, "!") })
+  twice(fn(s) { String.append(s, "!") })
 }
 
 fn peek() { modify(fn(x) { x }) }
@@ -1335,7 +1335,7 @@ fn main() {
       greet("bob")
     }
   })
-  start = Instant.from_unix_milliseconds(Int.to_int64(1000))
+  start = Instant.from_unix_milliseconds(Int64.from_int(1000))
   (d, end) = State.run(start, fn() { with TestClock { elapsed() } })
   with SystemConsole {
     c = use Console
@@ -1412,5 +1412,51 @@ fn main() {
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
         (0, "now > 0: True\n15 [\"x\"]\n", "")
+    );
+}
+
+#[test]
+fn parse_and_conversions() {
+    // 15.3 の API: 形の誤りは ParseError で fail する parse，平らにする String.concat と
+    // List.flatten，2つをつなぐ String.append，変換は依存する側（Float.from_int，Int64.from_int）．
+    let output = run_source(
+        "parse",
+        r##"import Std.Console.{Console, SystemConsole}
+
+fn int(s: String) -> String {
+  Int.to_string(Int.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn float(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  with SystemConsole {
+    c = use Console
+    c.print_line(String.join(List.map(["42", "-7", "+3", "2147483647", "-2147483648"], int), " "))
+    c.print_line(String.join(List.map(["", " 1", "1.0", "2147483648", "0x10", "-"], int), "|"))
+    c.print_line(String.join(List.map(["1.5", "-0.25", "3", "1e+21", "Infinity", "NaN"], float), " "))
+    c.print_line(String.join(List.map(["", "1.", ".5", "1e", "inf"], float), "|"))
+    c.print_line(String.concat(["a", "b", "c"]))
+    c.print_line(String.append("ab", "cd"))
+    c.print_line("#{List.flatten([[1], [], [2, 3]])}")
+    c.print_line("#{Float.from_int(7)} #{Int64.from_int(-1)}")
+    c.print_line("#{Option.or(None, 5)} #{List.fold([1, 2, 3], from: 10, f: fn(a, b) { a + b })}")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            "42 -7 3 2147483647 -2147483648\n\
+             bad |bad  1|bad 1.0|bad 2147483648|bad 0x10|bad -\n\
+             1.5 -0.25 3.0 1e+21 Infinity NaN\n\
+             bad |bad 1.|bad .5|bad 1e|bad inf\n\
+             abc\nabcd\n[1, 2, 3]\n7.0 -1\n5 16\n",
+            ""
+        )
     );
 }

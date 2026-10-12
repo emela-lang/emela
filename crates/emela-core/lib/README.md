@@ -6,7 +6,7 @@
 - std（`lib/std/`）: `Std` の下のモジュール．`import Std.Console.{Console, SystemConsole}` のように import して使う
 - 「実装」の列: `intrinsic` は本体のない宣言で，組み込み関数の表（`src/intrinsics.rs`）の実装を使う．`Emela` はソースに本体を書いたもの
 - 対象を第1引数に置くので，`xs |> List.map(f)` のようにパイプで書ける
-- 引数名は名前付き引数のラベルになる（6.2）．`List.fold(init: 0, f: add)` のように書ける
+- 引数名は名前付き引数のラベルになる（6.2）．`List.fold(xs, from: 0, f: add)` のように書ける．名前は 15.3 の約束に従う（畳み込みの初期値は `from`，2つをつなぐのは `append`，平らにするのは `flatten` と `concat`）
 
 ## 同梱のソースに JS のファイルを足す
 
@@ -30,6 +30,7 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 | `panic` | `panic(message: String) -> Never` | intrinsic | defect を起こす |
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
 | `dbg` | `dbg[A: Show](value: A) -> A` | intrinsic | 表示を標準エラーに出して値を返す |
+| `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse` と `Float.parse` の形の誤り．`input` は入力の全体 |
 
 ## List（`core/list.emel`）
 
@@ -37,7 +38,7 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 |---|---|---|---|
 | `map` | `map[A, B](xs: List[A], f: fn(A) -> B) -> List[B]` | Emela | 各要素に `f` を適用 |
 | `filter` | `filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A]` | Emela | `f` が True の要素だけ残す |
-| `fold` | `fold[A, B](xs: List[A], init: B, f: fn(B, A) -> B) -> B` | Emela | 先頭から畳み込む |
+| `fold` | `fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B` | Emela | 先頭から畳み込む |
 | `length` | `length[A](xs: List[A]) -> Int` | Emela | 要素の数 |
 | `is_empty` | `is_empty[A](xs: List[A]) -> Bool` | Emela | 空か |
 | `get` | `get[A](xs: List[A], index: Int) -> Option[A]` | Emela | `index` 番目（0 始まり）．範囲外と負は `None` |
@@ -45,7 +46,7 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 | `tail` | `tail[A](xs: List[A]) -> List[A]` | Emela | 先頭を除いた残り．空なら空 |
 | `reverse` | `reverse[A](xs: List[A]) -> List[A]` | Emela | 逆順 |
 | `append` | `append[A](xs: List[A], ys: List[A]) -> List[A]` | Emela | 2つのリストをつなぐ |
-| `concat` | `concat[A](xss: List[List[A]]) -> List[A]` | Emela | リストのリストを平らにする |
+| `flatten` | `flatten[A](xss: List[List[A]]) -> List[A]` | Emela | リストのリストを平らにする |
 | `partition` | `partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A])` | Emela | True と False の要素に分ける |
 | `any` | `any[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | True になる要素があるか（見つけたら止める） |
 | `all` | `all[A](xs: List[A], f: fn(A) -> Bool) -> Bool` | Emela | すべて True か（False で止める） |
@@ -59,7 +60,7 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 |---|---|---|---|
 | `map` | `map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B]` | Emela | 中身に `f` を適用 |
 | `and_then` | `and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B]` | Emela | Option を返す `f` を適用して平らにする |
-| `unwrap_or` | `unwrap_or[A](opt: Option[A], default: A) -> A` | Emela | 中身か，`None` なら `default` |
+| `or` | `or[A](opt: Option[A], default: A) -> A` | Emela | 中身か，`None` なら `default` |
 | `is_some` | `is_some[A](opt: Option[A]) -> Bool` | Emela | `Some` か |
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
 | `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
@@ -70,7 +71,8 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 |---|---|---|---|
 | `length` | `length(s: String) -> Int` | intrinsic | 書記素クラスタの数 |
 | `byte_size` | `byte_size(s: String) -> Int` | intrinsic | UTF-8 のバイト数 |
-| `concat` | `concat(a: String, b: String) -> String` | intrinsic | 2つをつなぐ |
+| `append` | `append(a: String, b: String) -> String` | intrinsic | 2つをつなぐ |
+| `concat` | `concat(parts: List[String]) -> String` | Emela | 全部を順につなぐ（`join(parts, "")`） |
 | `contains` | `contains(s: String, sub: String) -> Bool` | intrinsic | `sub` を含むか |
 | `starts_with` | `starts_with(s: String, prefix: String) -> Bool` | intrinsic | `prefix` で始まるか |
 | `ends_with` | `ends_with(s: String, suffix: String) -> Bool` | intrinsic | `suffix` で終わるか |
@@ -78,7 +80,6 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 | `chars` | `chars(s: String) -> List[String]` | intrinsic | 書記素クラスタごとのリスト |
 | `join` | `join(parts: List[String], sep: String) -> String` | intrinsic | `sep` を挟んでつなぐ |
 | `trim` | `trim(s: String) -> String` | intrinsic | 前後の White_Space を取り除く |
-| `from_int` | `from_int(n: Int) -> String` | intrinsic | 10進の文字列（`Int.to_string` と同じ） |
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | コードポイントの値のリスト |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | スカラー値でなければ `None` |
 
@@ -87,8 +88,7 @@ build，run，test では，lowering がその指定を `./emela_core/std/x.mjs`
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
 | `to_string` | `to_string(n: Int) -> String` | intrinsic | 10進の文字列 |
-| `to_float` | `to_float(n: Int) -> Float` | intrinsic | Float にする |
-| `to_int64` | `to_int64(n: Int) -> Int64` | intrinsic | Int64 にする |
+| `parse` | `parse(s: String) -> Int fails ParseError` | Emela（中は intrinsic） | 10進の数字と先頭の `-` か `+`．それ以外と範囲外は `ParseError` |
 | `checked_add` | `checked_add(a: Int, b: Int) -> Option[Int]` | intrinsic | あふれたら `None` |
 | `bit_and` | `bit_and(a: Int, b: Int) -> Int` | intrinsic | ビットごとの論理積 |
 | `bit_or` | `bit_or(a: Int, b: Int) -> Int` | intrinsic | ビットごとの論理和 |
@@ -117,6 +117,8 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 
 | 関数 | シグネチャ | 実装 | 説明 |
 |---|---|---|---|
+| `from_int` | `from_int(n: Int) -> Float` | intrinsic | Float にする（どの Int も正確に表せる） |
+| `parse` | `parse(s: String) -> Float fails ParseError` | Emela（中は intrinsic） | `to_string` の書く形（`1.5`，`1e+21`，`Infinity`，`NaN`，先頭の符号）．それ以外は `ParseError` |
 | `to_string` | `to_string(x: Float) -> String` | intrinsic | 最短で往復できる桁数．整数値なら `.0` を付ける |
 | `floor` | `floor(x: Float) -> Int` | intrinsic | 負の無限大の方向へ丸める |
 | `ceil` | `ceil(x: Float) -> Int` | intrinsic | 正の無限大の方向へ丸める |
@@ -262,7 +264,6 @@ fn waits() {
 
 ## 確認してほしい点
 
-- `List.append(xs, ys)` / `List.concat(xss)` の組（Elm，Gleam と同じ）にした．`String.concat(a, b)` と形が違うので，`List.concat(xs, ys)` / `List.flatten(xss)` にそろえる案もある
 - `List.tail([])` は `[]` を返す（仕様 17.5 の例 `[x, ..List.tail(xs)]` に合わせた）．`head` と `get` は Option
 - 高階関数の引数名はすべて `f`．`List.filter(xs, keep: …)` のような意味のある名前にする案もある
 - シフト量が負なら defect，幅以上は全部のビットを押し出した値．JS や WASM のように幅で剰余を取る方式は採らなかった

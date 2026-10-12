@@ -1,24 +1,24 @@
 # Functions on List. Collections are immutable (spec 15.2).
 #
 # - The list comes first as `xs`, so calls read as `xs |> List.map(f)`.
-# - Parameter names match the spec's examples (`List.fold(init: 0, f: add)`, spec 6.7).
+# - The initial value of a fold is `from` (spec 15.3): `List.fold(xs, from: 0, f: add)`.
 # - Loops are self tail calls (spec 6.8), so long lists do not use the stack. Functions that build
 #   a result from the front accumulate it in reverse and then `reverse` it.
 
 pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
-  reverse(fold(xs, init: [], f: fn(acc, x) { [f(x), ..acc] }))
+  reverse(fold(xs, from: [], f: fn(acc, x) { [f(x), ..acc] }))
 }
 
 ## Keeps the order.
 pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
-  reverse(fold(xs, init: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }))
+  reverse(fold(xs, from: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }))
 }
 
-## Folds from the front: `f(f(f(init, x0), x1), x2)`.
-pub fn fold[A, B](xs: List[A], init: B, f: fn(B, A) -> B) -> B {
+## Folds from the front: `f(f(f(from, x0), x1), x2)`.
+pub fn fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B {
   match xs {
-    [] -> init
-    [x, ..rest] -> fold(rest, f(init, x), f)
+    [] -> from
+    [x, ..rest] -> fold(rest, f(from, x), f)
   }
 }
 
@@ -81,14 +81,15 @@ pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
   reverse_onto(reverse(xs), ys)
 }
 
-pub fn concat[A](xss: List[List[A]]) -> List[A] {
-  fold(reverse(xss), init: [], f: fn(acc, xs) { append(xs, acc) })
+## Flattens a list of lists, keeping the order.
+pub fn flatten[A](xss: List[List[A]]) -> List[A] {
+  fold(reverse(xss), from: [], f: fn(acc, xs) { append(xs, acc) })
 }
 
 ## Splits into the elements where `f` is True and those where it is False, both in order.
 ## `(evens, odds) = List.partition(xs, is_even)`．
 pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
-  (yes, no) = fold(xs, init: ([], []), f: fn(acc, x) {
+  (yes, no) = fold(xs, from: ([], []), f: fn(acc, x) {
     (ys, ns) = acc
     if f(x) { ([x, ..ys], ns) } else { (ys, [x, ..ns]) }
   })

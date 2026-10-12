@@ -161,7 +161,7 @@ import Std.Duration.{Duration}
 
 handler TestClock implements Clock {
   suspend fn sleep(ms, resume) {
-    (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int.to_int64(ms))) })
+    (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) })
     resume(())
   }
   fn now() { (use State[Instant]).get() }
@@ -175,9 +175,9 @@ fn elapsed() -> Duration use { Clock } {
 }
 
 fn test_elapsed() {
-  start = Instant.from_unix_milliseconds(Int.to_int64(0))
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (d, last) = State.run(start, fn() { with TestClock { elapsed() } })
-  assert Duration.to_milliseconds(d) == Int.to_int64(1500)
+  assert Duration.to_milliseconds(d) == Int64.from_int(1500)
 }
 "#
     ));
@@ -253,7 +253,7 @@ fn bump() { modify(fn(n) { n + 1 }) }
 
 fn run_bump() { State.run(41, fn() { bump() }) }
 
-fn shout() { State.run("a", fn() { modify(fn(s) { String.concat(s, "!") }) }) }
+fn shout() { State.run("a", fn() { modify(fn(s) { String.append(s, "!") }) }) }
 
 fn peek() { modify(fn(x) { x }) }
 

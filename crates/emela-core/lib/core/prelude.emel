@@ -34,3 +34,6 @@ pub fn todo() -> Never
 ## Prints the value's `Show` to stderr on one line and returns the value. For debugging.
 @intrinsic
 pub fn dbg[A: Show](value: A) -> A
+
+## The input of a `parse` was not in the expected form (spec 15.3). `input` is the whole input.
+pub error ParseError(input: String)

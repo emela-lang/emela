@@ -190,7 +190,7 @@ fn area(shape: Shape) -> Float {
     ));
 }
 
-/// 6.7 Pipes. The named arguments of `List.fold(init: 0, f: add)` follow the pipe's left side.
+/// 6.7 Pipes. The named arguments of `List.fold(from: 0, f: add)` follow the pipe's left side.
 #[test]
 fn spec_6_7_pipe() {
     insta::assert_snapshot!(render_bodies(
@@ -201,7 +201,7 @@ fn add(acc: Int, n: Int) -> Int { acc + n }  # 補
 fn total(scores: List[Int]) -> Int {
   scores
     |> List.filter(is_valid)
-    |> List.fold(init: 0, f: add)
+    |> List.fold(from: 0, f: add)
 }
 "#
     ));
@@ -718,8 +718,8 @@ fn callers() {  # 補
 }
 
 /// 8.1 suspend fn operations, 8.4 suspend fn implementations (resume as the last parameter), 8.7
-/// Async. JsClock captures resume in a closure, so it depends on Async, and Async remains in the R
-/// of `with JsClock`. InstantClock, which resumes immediately, does not require Async.
+/// Async. SystemClock captures resume in a closure, so it depends on Async, and Async remains in the R
+/// of `with SystemClock`. InstantClock, which resumes immediately, does not require Async.
 #[test]
 fn spec_8_4_suspend_and_async() {
     insta::assert_snapshot!(render_bodies(
@@ -737,7 +737,7 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> ()
 @external(js, "Date.now")  # 補
 fn date_now() -> Instant
 
-handler JsClock implements Clock {
+handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
@@ -754,7 +754,7 @@ fn nap() {  # 補
   (use Clock).now()
 }
 
-fn real() { with JsClock { nap() } }  # 補
+fn real() { with SystemClock { nap() } }  # 補
 
 fn instant() { with InstantClock { nap() } }  # 補
 "#

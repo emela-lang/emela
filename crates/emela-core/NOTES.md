@@ -49,14 +49,18 @@
 - （補）std のモジュールを足しても，利用者のファイル名は予約名にならない．予約名は core のモジュール名と `std.emel`，`std/`（4.1．emela-resolve の NOTES）
 - （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引き，出力先の `emela_core/std/clock.mjs` に書き出す
 - （補）`@intrinsic` の宣言は `Builtin::lookup_intrinsic(モジュール名, 関数名)` で表を引く．`"Prelude"` は表の `module: None`（修飾せずに呼ぶ関数）に当たる．
-- （補）`@intrinsic` の宣言は `pub` で，引数と戻り値の型，型引数の数を表と一致させる．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
+- （補）`@intrinsic` の宣言は，引数と戻り値の型，型引数の数を表と一致させる．公開しない補助（`Int.parse` の中身の `parse_or_none`）は `pub` を付けない．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
 - （補）Prelude の `Bool` は `False`，`True` の順に宣言する．導出する Ord で `False < True` にするため．IR では Bool は `Lit::Bool` の組み込みのまま（上の Bool の項）．
 - （補）Prelude の enum（Bool，Option，Ordering）には `derive Eq, Ord, Show, Hash` を書く．Option の型引数の制約の扱いは導出の側で決める．
 - （補）`dbg` は `dbg[A: Show](value: A) -> A` と書く．表の `ty_params` は制約を持たないので，制約は型推論の側でソースから読む．
-- （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，関数の引数は `f`，畳み込みの初期値は `init`（6.7 の `List.fold(init: 0, f: add)`）．
+- （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
+- （補）高階関数の関数の引数名は `f`（位置で渡す）．15.3 の `with` と `where` のラベルは，`with` が予約語（3.1），`where` が将来のための予約（3.3）で仮引数の名前にできないため取りやめになった（2026-10-12 本人の決定．仕様 15.3 と 6.7 も改めた）．畳み込みの初期値の `from` は残す
 - （補）繰り返しは自己末尾呼び出しで書き，先頭から結果を積むものは逆順に積んで `reverse` する．補助の関数は非公開の `*_onto`（`reverse_onto` など）．
-- （補）`List.append(xs, ys)` は2つのリストをつなぎ，`List.concat(xss)` はリストのリストを平らにする（Elm，Gleam と同じ）．`String.concat(a, b)` とは引数の形が違う．
+- （補）15.3 のとおり，2つをつなぐのは `List.append(xs, ys)` と `String.append(a, b)`，平らにするのは `List.flatten(xss)` と `String.concat(parts)`．`String.concat` は Emela で書いた（`join(parts, "")`）
+- （補）変換は依存する側のモジュールに行きと帰りをまとめる（15.3）．`Int.to_float` は `Float.from_int` に（Float は `floor` などの Int への変換も持つので），`Int.to_int64` は消して `Int64.from_int` だけにした．`String.from_int` は消した（`Int.to_string`）．`String.code_points` と `String.from_code_point` は String の側のまま
+- （補）`Int.parse(s) -> Int fails ParseError` は10進の数字と先頭の `-` か `+` だけを読む．空白，`_`，16進，範囲外は `ParseError`．`Float.parse(s) -> Float fails ParseError` は `Float.to_string` の書く形（数字，`.` と小数部，`e` と指数，先頭の符号，`Infinity`，`-Infinity`，`NaN`）を読む．`1.`，`.5`，`inf` は読まない．どちらも本体は Emela で，中身は公開しない `@intrinsic fn parse_or_none(s) -> Option[...]`（組み込み関数は失敗できないため）
+- （補）`ParseError` は Prelude の `pub error ParseError(input: String)` にした．15.3 の例が修飾なしの `fails ParseError` で書いているのと，Int と Float で同じエラーを受けられるようにするため．`input` は入力の全体
 - （補）`List.tail([])` は `[]`（17.5 の例 `[x, ..List.tail(xs)]` が List を受けるため Option にしない）．`List.head` と `List.get` は Option．`List.get` の負の添字は `None`．
 - （補）`List.range(from, to)` は `from` 以上 `to` 未満．`List.zip` は短い方に合わせる．
 - （補）`Option.or_fail[A, E](opt: Option[A], err: E) -> A fails E` の引数名は仕様 7.2 の例に合わせて `err`．本体も 7.2 のとおり（`None -> fail err`）．E が入ったので `option.emel` に同梱した（2026-10-12）．

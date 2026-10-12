@@ -821,10 +821,10 @@ fn greets() {
 
 @test
 fn clock_moves() {
-  start = Instant.from_unix_milliseconds(Int.to_int64(0))
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (d, end) = State.run(start, fn() { with TestClock { wait_twice() } })
-  assert Duration.to_milliseconds(d) == Int.to_int64(1000)
-  assert Instant.to_unix_milliseconds(end) == Int.to_int64(1000)
+  assert Duration.to_milliseconds(d) == Int64.from_int(1000)
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(1000)
 }
 
 @test
@@ -832,7 +832,7 @@ fn two_states() {
   ((_, s), n) = State.run(1, fn() {
     State.run("a", fn() {
       (use State[Int]).update(fn(n) { n + 41 })
-      (use State[String]).update(fn(s) { String.concat(s, "b") })
+      (use State[String]).update(fn(s) { String.append(s, "b") })
     })
   })
   assert n == 42

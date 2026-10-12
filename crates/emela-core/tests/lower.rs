@@ -415,7 +415,7 @@ type Pair[A, B](first: A, second: B)
 
 fn main() {
   u = User(id: 1, name: \"a\", tags: [])
-  renamed = User(tags: [\"x\"], name: String.concat(u.name, \"!\"), ..u)
+  renamed = User(tags: [\"x\"], name: String.append(u.name, \"!\"), ..u)
   p = Pair(first: 1, second: True)
   q = Pair(first: \"s\", ..p)
   \"#{renamed.name} has #{renamed.tags} and #{q}, id #{u.id}\"

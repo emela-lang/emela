@@ -648,6 +648,20 @@ function $showBool(b) {
   return b ? "True" : "False";
 }
 
+// `Int.parse` (spec 15.3): decimal digits with an optional sign, within the Int range. `None` otherwise.
+function $iparse(s) {
+  if (!/^[+-]?[0-9]+$/.test(s)) return $None;
+  const n = Number(s);
+  if (n < -2147483648 || n > 2147483647) return $None;
+  return { $tag: 0, $0: n | 0 };
+}
+
+// `Float.parse` (spec 15.3): the forms `Float.to_string` writes. `None` otherwise.
+function $fparse(s) {
+  if (!/^[+-]?([0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|Infinity)$|^NaN$/.test(s)) return $None;
+  return { $tag: 0, $0: Number(s) };
+}
+
 // A finite Float with an integral value gets a decimal point, like `1.0`, so it can be told apart from an Int.
 function $showFloat(x) {
   const s = String(x);
