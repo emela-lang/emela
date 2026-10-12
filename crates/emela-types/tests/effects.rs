@@ -793,3 +793,55 @@ fn tickers() {
 "#
     ));
 }
+
+/// 型引数の位置に書く集合（9.2）．エラーの集合は `|` でつなぎ，効果の集合は波括弧で囲む．
+/// 空の `{}` はどちらの位置にも書ける．集合でない型引数の位置に集合を書けば E0324．
+#[test]
+fn declaration_set_args() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+type Request(path: String)
+type Response(body: String)
+
+error NotFound
+error Timeout
+
+effect Db {
+  fn query(q: String) -> String
+}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+type Handler[E, R](run: fn(Request) -> Response fails E use R)
+
+fn both() -> Handler[NotFound | Timeout, { Db, Log }] {
+  Handler(run: fn(req) {
+    (use Log).info(req.path)
+    if req.path == "/" { fail Timeout }
+    body = (use Db).query(req.path)
+    if body == "" { fail NotFound }
+    Response(body:)
+  })
+}
+
+fn pure() -> Handler[{}, {}] {
+  Handler(run: fn(req) { Response(body: req.path) })
+}
+
+fn too_much() -> Handler[{}, {}] {
+  Handler(run: fn(req) { fail NotFound })
+}
+
+fn wrap[E, R](h: Handler[E, R]) -> Handler[E | Timeout, { R, Log }] {
+  Handler(run: fn(req) {
+    (use Log).info("wrap")
+    h.run(req)
+  })
+}
+
+fn misplaced(a: Handler[{ Db }, Db], b: Handler[NotFound, NotFound | Timeout], c: List[{}], d: Handler[NotFound | Db, {}]) { () }
+"#
+    ));
+}

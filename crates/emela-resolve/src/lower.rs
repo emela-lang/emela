@@ -666,6 +666,15 @@ impl Lower<'_, '_> {
                 TypeKind::Missing
             }
             UNIT_TYPE => TypeKind::Unit,
+            // 型引数の位置の集合（9.2）．パーサは型引数の位置でだけ作る．
+            ERROR_SET => TypeKind::ErrorSet(ErrorSet {
+                items: self.set_node_items(node, Expected::Error),
+                span: self.span(range),
+            }),
+            EFFECT_SET => TypeKind::EffectSet(EffectSet {
+                items: self.set_node_items(node, Expected::Effect),
+                span: self.span(range),
+            }),
             TUPLE_TYPE => TypeKind::Tuple(node.children().map(|t| self.lower_type(&t)).collect()),
             FN_TYPE => {
                 let params = node
@@ -748,6 +757,11 @@ impl Lower<'_, '_> {
         else {
             return Vec::new();
         };
+        self.set_node_items(&set, expected)
+    }
+
+    /// 集合（ERROR_SET か EFFECT_SET）の要素．
+    fn set_node_items(&mut self, set: &SyntaxNode, expected: Expected) -> Vec<(Res, Span)> {
         set.children()
             .filter_map(|n| {
                 let res = match n.kind() {

@@ -136,7 +136,8 @@
 
 - （補）名前付き型の型引数に渡す集合は `Ty::Set(SetKind, Row)` で持つ．`Ty::Named` の型引数の位置にだけ現れ，値の型ではない．`SetKind` で表示の形（エラーの集合は `A | B`，効果の集合は `{ A, B }`）を決める．単一化では同じ種類の `Set` どうしを包含の制約にする（名前付き型の型引数の中なので両方向，つまり一致）．置き換え（`substitute`，`substitute_bound`），汎化，集合を解いた後の辿り方は関数型の E と R と同じに扱う．汎化では名前付き型の型引数の中の集合変数を負の位置とみなす（両方の位置）．
 - （補）type・enum の型引数の種類は，フィールドの型の中で使われた位置から決める（9.2）．`fails` にだけ書けばエラーの集合，`use` にだけ書けば効果の集合，値の型にも書けばふつうの型．別の名前付き型の集合の型引数の位置に渡した型引数（`type Server[E](inner: Handler[E, Db])` の `E`）も集合なので，宣言全体で変わらなくなるまで繰り返して決める（`lower.rs` の `decl_sets`）．`fails` と `use` の両方に書いた型引数は，先に見つけた方の種類にする．fn の型引数の種類も，名前付き型の集合の型引数の位置に書けば集合（`fn serve[E, R](h: Handler[E, R])`）．
-- （補）集合の型引数の位置に書けるのは，その種類のタグ1つ（error か effect の名前）と，集合の型引数．それ以外（ふつうの型，違う種類のタグ，ふつうの型の型引数）は E0323 で，空の集合として続ける．2つ以上の要素や空の集合（`Handler[NotFound | Timeout, { Db, Log }]`，`Handler[{}, {}]`）は，17.4 の型の文法の `type` に集合の書き方がないので書けない．集合の型引数を経由するか，構成子から推論させる．
+- （補）集合の型引数の位置には集合を書ける（17.4 に足した `type_arg`）．エラーの集合は `|` でつなぎ（`Handler[NotFound | Timeout, R]`），効果の集合は波括弧で囲む（`Handler[E, { Db, Log }]`）．要素1つなら囲まずに書ける（`Handler[NotFound, Db]`）．空の `{}` はどちらの位置にも書ける（エラーの集合の空も `fails {}` と同じ書き方なので）．要素に書けるのは，その種類のタグ（error か effect の名前）と集合の型引数で，それ以外（ふつうの型，違う種類のタグや集合の書き方，ふつうの型の型引数）は E0323 で，その要素を除いて続ける．
+- （補）集合でない型引数の位置（`List[{}]`，ふつうの型の型引数）に集合の書き方を書いたら E0324．
 - （補）名前解決は，名前付き型の型引数の位置ではエフェクトの名前も通す（emela-resolve の `type_arg`）．集合でない型引数の位置（`List[Db]` など）にエフェクトを書いたときは，型推論が名前解決と同じ E0221 を出す．
 - （補）宣言の中なので，フィールドの関数型で `fails` と `use` を省略すれば空のまま（9.2）．効果を持たせたいときに型引数で明示するのは仕様どおり．
 - （補）構成子 `Handler(run: f)` は，フィールドの関数型の E と R を集合変数に具体化し，渡した関数の E と R がそれに含まれる制約から推論する（`fn db_handler()` は `fn() -> Handler[{}, Db]`）．フィールドの関数を呼ぶ（`h.run(req)`）と，その E と R が呼んだ側に載る．
@@ -203,6 +204,7 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``
 - E0416 `NotImmediate`: ``effect `Clock` may suspend, but `R` of `update` must be `Immediate` ``．集合の型引数なら ``effect set `R(f)` may suspend, ...``，注記 ``= help: constrain the effect set with `: Immediate` ``．外部関数のコールバックは ``effect `Async` may suspend, but callbacks passed to external function `set_timeout` must be `Immediate` ``
 - E0323 `SetArgMismatch`: ``` `E` of `Handler` is an error set, found type `Int` ```（`found` は ``effect `Clock` ``，``error `NotFound` ``，``type parameter `A` `` など）．注記 ``= help: write an error or an error set type parameter``（効果の集合なら ``an effect or an effect set type parameter``）
+- E0324 `SetAsType`: ``expected a type, found a set: sets can only be passed to set type parameters``
 - E0221 `EffectAsType`（型推論から）: ``effect `Db` cannot be used as a type``．注記は名前解決の E0221 と同じ
 - E0322 `ImmediateOnNonEffect`: ``` `Immediate` can only constrain effect sets, but `A` is not used in `use` ```
 - （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．

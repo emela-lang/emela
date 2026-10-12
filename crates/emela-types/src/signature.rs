@@ -228,7 +228,11 @@ fn check_bounds(
                     walk(program, *r, constrained, effects, sets);
                 }
             }
-            TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
+            TypeKind::SelfType
+            | TypeKind::Unit
+            | TypeKind::Missing
+            | TypeKind::ErrorSet(_)
+            | TypeKind::EffectSet(_) => {}
         }
     }
     for p in &sig.params {

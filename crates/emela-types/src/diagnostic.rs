@@ -142,6 +142,8 @@ pub enum DiagnosticKind {
     },
     /// `Immediate` を，効果の集合でない型引数に付けた（E0322，9.5）．
     ImmediateOnNonEffect { param: SmolStr },
+    /// 集合でない型引数の位置に集合（`{ Db }`，`A | B`）を書いた（E0324，9.2）．
+    SetAsType,
     /// 集合でない型引数の位置にエフェクトの名前を書いた（E0221，8.2）．名前解決は型引数の位置の
     /// エフェクトの名前を通すので，型推論が確かめる．
     EffectAsType { name: SmolStr },

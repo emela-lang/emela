@@ -30,7 +30,7 @@ error[E0322]: `Immediate` can only constrain effect sets, but `A` is not used in
 error[E0323]: `E` of `Handler` is an error set, found type `Int`
     ╭─[ main.emel:28:24 ]
     │
- 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock]) { () }
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
     │                        ─┬─  
     │                         ╰─── 
 ────╯
@@ -39,7 +39,7 @@ error[E0323]: `E` of `Handler` is an error set, found type `Int`
 error[E0323]: `E` of `Handler` is an error set, found effect `Clock`
     ╭─[ main.emel:28:48 ]
     │
- 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock]) { () }
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
     │                                                ──┬──  
     │                                                  ╰──── 
 ────╯
@@ -48,11 +48,19 @@ error[E0323]: `E` of `Handler` is an error set, found effect `Clock`
 error[E0221]: effect `Clock` cannot be used as a type
     ╭─[ main.emel:28:71 ]
     │
- 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock]) { () }
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
     │                                                                       ──┬──  
     │                                                                         ╰──── 
 ────╯
    = help: a capability cannot be passed around; take `use Clock` where it is needed, or pass a closure that captures it
+
+error[E0324]: expected a type, found a set: sets can only be passed to set type parameters
+    ╭─[ main.emel:28:87 ]
+    │
+ 28 │ fn handlers(a: Handler[Int, Clock], b: Handler[Clock, Clock], c: List[Clock], d: List[{}]) { () }
+    │                                                                                       ─┬  
+    │                                                                                        ╰── 
+────╯
 
 error[E0414]: `Async` has no operations and cannot be used with `use`
     ╭─[ main.emel:31:3 ]
@@ -87,4 +95,4 @@ error[E0416]: effect set `R(g)` may suspend, but `R` of `update` must be `Immedi
 ────╯
    = help: constrain the effect set with `: Immediate`
 
-10 errors
+11 errors

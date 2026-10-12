@@ -784,6 +784,12 @@ impl Diagnostic {
                 };
                 (Severity::Error, Some(code::NOT_IMMEDIATE), message)
             }
+            TypeDiagnosticKind::SetAsType => (
+                Severity::Error,
+                Some(code::SET_AS_TYPE),
+                "expected a type, found a set: sets can only be passed to set type parameters"
+                    .to_owned(),
+            ),
             TypeDiagnosticKind::EffectAsType { name } => {
                 help = Some(format!(
                     "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"

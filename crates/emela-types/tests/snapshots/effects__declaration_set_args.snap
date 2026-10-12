@@ -1,0 +1,27 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\ntype Request(path: String)\ntype Response(body: String)\n\nerror NotFound\nerror Timeout\n\neffect Db {\n  fn query(q: String) -> String\n}\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\ntype Handler[E, R](run: fn(Request) -> Response fails E use R)\n\nfn both() -> Handler[NotFound | Timeout, { Db, Log }] {\n  Handler(run: fn(req) {\n    (use Log).info(req.path)\n    if req.path == \"/\" { fail Timeout }\n    body = (use Db).query(req.path)\n    if body == \"\" { fail NotFound }\n    Response(body:)\n  })\n}\n\nfn pure() -> Handler[{}, {}] {\n  Handler(run: fn(req) { Response(body: req.path) })\n}\n\nfn too_much() -> Handler[{}, {}] {\n  Handler(run: fn(req) { fail NotFound })\n}\n\nfn wrap[E, R](h: Handler[E, R]) -> Handler[E | Timeout, { R, Log }] {\n  Handler(run: fn(req) {\n    (use Log).info(\"wrap\")\n    h.run(req)\n  })\n}\n\nfn misplaced(a: Handler[{ Db }, Db], b: Handler[NotFound, NotFound | Timeout], c: List[{}], d: Handler[NotFound | Db, {}]) { () }\n\"#)"
+---
+both: fn() -> Handler[NotFound | Timeout, { Db, Log }]
+pure: fn() -> Handler[{}, {}]
+too_much: fn() -> Handler[{}, {}]
+wrap: ∀ E, R. fn(Handler[E, R]) -> Handler[Timeout | E, { Log, R }]
+misplaced: fn(Handler[{}, Db], Handler[NotFound, {}], List[{unknown}], Handler[NotFound, {}]) -> ()
+resolve: `Db` は effect で，エラーではない
+`Handler(run: fn(req) { fail NotFound })` error set mismatch: expected `fails {}`, found `fails NotFound`
+`{ Db }` SetArgMismatch { param: "E", ty: "Handler", effects: false, found: "an effect set" }
+`NotFound | Timeout` SetArgMismatch { param: "R", ty: "Handler", effects: true, found: "an error set" }
+`{}` SetAsType
+--- R
+{     (use Log).info(req.path)     if req.path == "/" { fail Timeout }     body = (use Db).query(req.path)     if body == "" { fail NotFound }     Response(body:)   }: { Db, Log }
+(use Log).info(req.path): Log
+(use Log).info: Log
+use Log: Log
+(use Db).query(req.path): Db
+(use Db).query: Db
+use Db: Db
+{     (use Log).info("wrap")     h.run(req)   }: { Log, '1 }
+(use Log).info("wrap"): Log
+(use Log).info: Log
+use Log: Log
+h.run(req): '1

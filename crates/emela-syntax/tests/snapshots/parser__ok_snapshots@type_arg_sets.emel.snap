@@ -1,0 +1,229 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/type_arg_sets.emel
+---
+ROOT@0..336
+  COMMENT@0..62 "# 名前付き型の集合の型引数に渡す集合（9.2）"
+  NEWLINE@62..63 "\n"
+  TYPE_DECL@63..125
+    TYPE_KW@63..67 "type"
+    WHITESPACE@67..68 " "
+    TYPE_NAME@68..75 "Handler"
+    TYPE_PARAM_LIST@75..81
+      L_BRACK@75..76 "["
+      TYPE_PARAM@76..77
+        UPPER_NAME@76..77 "E"
+      COMMA@77..78 ","
+      WHITESPACE@78..79 " "
+      TYPE_PARAM@79..80
+        UPPER_NAME@79..80 "R"
+      R_BRACK@80..81 "]"
+    FIELD_LIST@81..125
+      L_PAREN@81..82 "("
+      FIELD@82..124
+        LOWER_NAME@82..85 "run"
+        COLON@85..86 ":"
+        WHITESPACE@86..87 " "
+        FN_TYPE@87..124
+          FN_KW@87..89 "fn"
+          PARAM_TYPE_LIST@89..98
+            L_PAREN@89..90 "("
+            PATH_TYPE@90..97
+              PATH@90..97
+                TYPE_NAME@90..97 "Request"
+            R_PAREN@97..98 ")"
+          WHITESPACE@98..99 " "
+          RET_TYPE@99..110
+            THIN_ARROW@99..101 "->"
+            WHITESPACE@101..102 " "
+            PATH_TYPE@102..110
+              PATH@102..110
+                TYPE_NAME@102..110 "Response"
+          WHITESPACE@110..111 " "
+          FAILS_CLAUSE@111..118
+            LOWER_NAME@111..116 "fails"
+            WHITESPACE@116..117 " "
+            ERROR_SET@117..118
+              TYPE_VAR@117..118
+                UPPER_NAME@117..118 "E"
+          WHITESPACE@118..119 " "
+          USE_CLAUSE@119..124
+            USE_KW@119..122 "use"
+            WHITESPACE@122..123 " "
+            EFFECT_SET@123..124
+              TYPE_VAR@123..124
+                UPPER_NAME@123..124 "R"
+      R_PAREN@124..125 ")"
+  NEWLINE@125..126 "\n"
+  NEWLINE@126..127 "\n"
+  FN_DECL@127..335
+    FN_KW@127..129 "fn"
+    WHITESPACE@129..130 " "
+    LOWER_NAME@130..135 "serve"
+    PARAM_LIST@135..322
+      L_PAREN@135..136 "("
+      NEWLINE_CONT@136..137 "\n"
+      WHITESPACE@137..139 "  "
+      PARAM@139..182
+        LOWER_NAME@139..140 "a"
+        COLON@140..141 ":"
+        WHITESPACE@141..142 " "
+        PATH_TYPE@142..182
+          PATH@142..149
+            TYPE_NAME@142..149 "Handler"
+          TYPE_ARG_LIST@149..182
+            L_BRACK@149..150 "["
+            ERROR_SET@150..168
+              PATH@150..158
+                TYPE_NAME@150..158 "NotFound"
+              WHITESPACE@158..159 " "
+              PIPE@159..160 "|"
+              WHITESPACE@160..161 " "
+              PATH@161..168
+                TYPE_NAME@161..168 "Timeout"
+            COMMA@168..169 ","
+            WHITESPACE@169..170 " "
+            EFFECT_SET@170..181
+              L_BRACE@170..171 "{"
+              WHITESPACE@171..172 " "
+              PATH@172..174
+                TYPE_NAME@172..174 "Db"
+              COMMA@174..175 ","
+              WHITESPACE@175..176 " "
+              PATH@176..179
+                TYPE_NAME@176..179 "Log"
+              WHITESPACE@179..180 " "
+              R_BRACE@180..181 "}"
+            R_BRACK@181..182 "]"
+      COMMA@182..183 ","
+      NEWLINE_CONT@183..184 "\n"
+      WHITESPACE@184..186 "  "
+      PARAM@186..204
+        LOWER_NAME@186..187 "b"
+        COLON@187..188 ":"
+        WHITESPACE@188..189 " "
+        PATH_TYPE@189..204
+          PATH@189..196
+            TYPE_NAME@189..196 "Handler"
+          TYPE_ARG_LIST@196..204
+            L_BRACK@196..197 "["
+            EFFECT_SET@197..199
+              L_BRACE@197..198 "{"
+              R_BRACE@198..199 "}"
+            COMMA@199..200 ","
+            WHITESPACE@200..201 " "
+            EFFECT_SET@201..203
+              L_BRACE@201..202 "{"
+              R_BRACE@202..203 "}"
+            R_BRACK@203..204 "]"
+      COMMA@204..205 ","
+      NEWLINE_CONT@205..206 "\n"
+      WHITESPACE@206..208 "  "
+      PARAM@208..232
+        LOWER_NAME@208..209 "c"
+        COLON@209..210 ":"
+        WHITESPACE@210..211 " "
+        PATH_TYPE@211..232
+          PATH@211..218
+            TYPE_NAME@211..218 "Handler"
+          TYPE_ARG_LIST@218..232
+            L_BRACK@218..219 "["
+            PATH_TYPE@219..227
+              PATH@219..227
+                TYPE_NAME@219..227 "NotFound"
+            COMMA@227..228 ","
+            WHITESPACE@228..229 " "
+            PATH_TYPE@229..231
+              PATH@229..231
+                TYPE_NAME@229..231 "Db"
+            R_BRACK@231..232 "]"
+      COMMA@232..233 ","
+      NEWLINE_CONT@233..234 "\n"
+      WHITESPACE@234..236 "  "
+      PARAM@236..282
+        LOWER_NAME@236..237 "d"
+        COLON@237..238 ":"
+        WHITESPACE@238..239 " "
+        PATH_TYPE@239..282
+          PATH@239..246
+            TYPE_NAME@239..246 "Handler"
+          TYPE_ARG_LIST@246..282
+            L_BRACK@246..247 "["
+            ERROR_SET@247..261
+              PATH@247..257
+                TYPE_NAME@247..251 "Http"
+                DOT@251..252 "."
+                TYPE_NAME@252..257 "Error"
+              WHITESPACE@257..258 " "
+              PIPE@258..259 "|"
+              WHITESPACE@259..260 " "
+              TYPE_VAR@260..261
+                UPPER_NAME@260..261 "E"
+            COMMA@261..262 ","
+            WHITESPACE@262..263 " "
+            EFFECT_SET@263..281
+              L_BRACE@263..264 "{"
+              WHITESPACE@264..265 " "
+              TYPE_VAR@265..266
+                UPPER_NAME@265..266 "R"
+              COMMA@266..267 ","
+              WHITESPACE@267..268 " "
+              PATH@268..279
+                TYPE_NAME@268..272 "Http"
+                DOT@272..273 "."
+                TYPE_NAME@273..279 "Client"
+              WHITESPACE@279..280 " "
+              R_BRACE@280..281 "}"
+            R_BRACK@281..282 "]"
+      COMMA@282..283 ","
+      NEWLINE_CONT@283..284 "\n"
+      WHITESPACE@284..286 "  "
+      PARAM@286..319
+        LOWER_NAME@286..287 "e"
+        COLON@287..288 ":"
+        WHITESPACE@288..289 " "
+        PATH_TYPE@289..319
+          PATH@289..293
+            TYPE_NAME@289..293 "List"
+          TYPE_ARG_LIST@293..319
+            L_BRACK@293..294 "["
+            PATH_TYPE@294..318
+              PATH@294..301
+                TYPE_NAME@294..301 "Handler"
+              TYPE_ARG_LIST@301..318
+                L_BRACK@301..302 "["
+                ERROR_SET@302..314
+                  TYPE_VAR@302..303
+                    UPPER_NAME@302..303 "E"
+                  WHITESPACE@303..304 " "
+                  PIPE@304..305 "|"
+                  WHITESPACE@305..306 " "
+                  PATH@306..314
+                    TYPE_NAME@306..314 "NotFound"
+                COMMA@314..315 ","
+                WHITESPACE@315..316 " "
+                TYPE_VAR@316..317
+                  UPPER_NAME@316..317 "R"
+                R_BRACK@317..318 "]"
+            R_BRACK@318..319 "]"
+      COMMA@319..320 ","
+      NEWLINE_CONT@320..321 "\n"
+      R_PAREN@321..322 ")"
+    WHITESPACE@322..323 " "
+    RET_TYPE@323..328
+      THIN_ARROW@323..325 "->"
+      WHITESPACE@325..326 " "
+      UNIT_TYPE@326..328
+        L_PAREN@326..327 "("
+        R_PAREN@327..328 ")"
+    WHITESPACE@328..329 " "
+    BLOCK_EXPR@329..335
+      L_BRACE@329..330 "{"
+      WHITESPACE@330..331 " "
+      UNIT_EXPR@331..333
+        L_PAREN@331..332 "("
+        R_PAREN@332..333 ")"
+      WHITESPACE@333..334 " "
+      R_BRACE@334..335 "}"
+  NEWLINE@335..336 "\n"

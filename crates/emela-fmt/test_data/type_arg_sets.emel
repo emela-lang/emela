@@ -1,0 +1,6 @@
+# 名前付き型の集合の型引数に渡す集合（9.2）
+type Handler[E,R](run: fn(Request) -> Response fails E use R)
+
+fn serve(a: Handler[NotFound|Timeout,{Db,Log}], b: Handler[ {} , {}], c: Handler[ NotFound , Db ]) -> () { () }
+
+fn long(h: Handler[NotFound | Timeout | Http.Error | Json.DecodeError, { Db, Logger, Clock, Random, Http.Client }]) -> () { () }

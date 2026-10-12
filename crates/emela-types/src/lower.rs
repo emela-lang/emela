@@ -238,6 +238,14 @@ impl TyTable {
         let type_ref = &program.types[ty];
         match &type_ref.kind {
             TypeKind::Missing => Ty::Error,
+            // 集合は名前付き型の集合の型引数の位置にだけ書ける（`lower_set_arg`）．
+            TypeKind::ErrorSet(_) | TypeKind::EffectSet(_) => {
+                diags.push(Diagnostic {
+                    span: type_ref.span,
+                    kind: DiagnosticKind::SetAsType,
+                });
+                Ty::Error
+            }
             TypeKind::Unit => Ty::UNIT,
             TypeKind::SelfType => {
                 diags.push(Diagnostic {
@@ -498,10 +506,15 @@ impl TyTable {
     }
 }
 
+/// 集合の型引数に合わないものを書いたときの診断（E0323）を積む．位置と，書いたものの説明を受ける．
+type ReportMismatch<'a> = dyn Fn(Option<Span>, SmolStr, &mut Vec<Diagnostic>) + 'a;
+
 impl TyTable {
-    /// 名前付き型の集合の型引数に書いた型の書き方を集合にする（`Handler[NotFound, Db]`，
-    /// `Handler[E, R]`）．書けるのは，その種類のタグ1つ（error か effect の名前）か，集合の
-    /// 型引数．それ以外は E0323．
+    /// 名前付き型の集合の型引数に書いたものを集合にする（`Handler[NotFound, Db]`，
+    /// `Handler[NotFound | Timeout, { Db, Log }]`，`Handler[E, R]`，`Handler[{}, {}]`）．
+    /// 要素に書けるのは，その種類のタグ（error か effect の名前）と集合の型引数．エラーの集合は
+    /// `|` でつなぎ，効果の集合は波括弧で囲む．空の `{}` はどちらの位置にも書ける．
+    /// それ以外は E0323 で，その要素を除いて続ける．
     #[allow(clippy::too_many_arguments)]
     fn lower_set_arg(
         &self,
@@ -513,10 +526,9 @@ impl TyTable {
         arg: TypeId,
         diags: &mut Vec<Diagnostic>,
     ) -> Ty {
-        let type_ref = &program.types[arg];
-        let mismatch = |found: SmolStr, diags: &mut Vec<Diagnostic>| {
+        let mismatch = |span: Option<Span>, found: SmolStr, diags: &mut Vec<Diagnostic>| {
             diags.push(Diagnostic {
-                span: type_ref.span,
+                span,
                 kind: DiagnosticKind::SetArgMismatch {
                     param: type_param_defs(program, decl)
                         .get(index)
@@ -527,49 +539,105 @@ impl TyTable {
                     found,
                 },
             });
-            Ty::Set(kind, Row::empty())
         };
-        let TypeKind::Path {
-            res: Res::Def(def),
-            args,
-        } = &type_ref.kind
-        else {
-            return match type_ref.kind {
-                TypeKind::Missing | TypeKind::Path { .. } => Ty::Set(kind, Row::empty()),
-                _ => mismatch("a type".into(), diags),
-            };
+        let type_ref = &program.types[arg];
+        let items: &[(Res, Span)] = match (&type_ref.kind, kind) {
+            (TypeKind::ErrorSet(set), SetKind::Errors) => &set.items,
+            (TypeKind::EffectSet(set), SetKind::Effects) => &set.items,
+            (TypeKind::EffectSet(set), SetKind::Errors) if set.items.is_empty() => &[],
+            (TypeKind::ErrorSet(_), SetKind::Effects) => {
+                mismatch(type_ref.span, "an error set".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            (TypeKind::EffectSet(_), SetKind::Errors) => {
+                mismatch(type_ref.span, "an effect set".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            (TypeKind::Missing, _) => return Ty::Set(kind, Row::empty()),
+            (TypeKind::Path { res, args }, _) if args.is_empty() => {
+                return Ty::Set(
+                    kind,
+                    self.set_elem(program, scope, kind, *res, type_ref.span, &mismatch, diags),
+                );
+            }
+            (
+                TypeKind::Path {
+                    res: Res::Def(def), ..
+                },
+                _,
+            ) => {
+                let found = format!("type `{}`", program.defs[*def].name);
+                mismatch(type_ref.span, found.into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
+            _ => {
+                mismatch(type_ref.span, "a type".into(), diags);
+                return Ty::Set(kind, Row::empty());
+            }
         };
-        let data = &program.defs[*def];
-        let row = match (data.kind, kind) {
-            (DefKind::Error, SetKind::Errors) | (DefKind::Effect, SetKind::Effects)
-                if args.is_empty() =>
-            {
-                Row::tag(*def)
-            }
-            (DefKind::TypeParam, _) if args.is_empty() => {
-                match scope.params.iter().position(|p| p == def) {
-                    Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) && scope.sets => {
-                        Row::from_elems([RowElem::Bound(i as u32)])
-                    }
-                    Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) => {
-                        diags.push(Diagnostic {
-                            span: type_ref.span,
-                            kind: DiagnosticKind::Unsupported {
-                                what: "set type parameters here",
-                            },
-                        });
-                        Row::empty()
-                    }
-                    _ => return mismatch(format!("type parameter `{}`", data.name).into(), diags),
-                }
-            }
-            (DefKind::Effect, _) => {
-                return mismatch(format!("effect `{}`", data.name).into(), diags);
-            }
-            (DefKind::Error, _) => return mismatch(format!("error `{}`", data.name).into(), diags),
-            _ => return mismatch(format!("type `{}`", data.name).into(), diags),
-        };
+        let mut row = Row::empty();
+        for &(res, span) in items {
+            row.extend(&self.set_elem(program, scope, kind, res, Some(span), &mismatch, diags));
+        }
         Ty::Set(kind, row)
+    }
+
+    /// 集合の要素1つ．その種類のタグか集合の型引数．
+    #[allow(clippy::too_many_arguments)]
+    fn set_elem(
+        &self,
+        program: &Program,
+        scope: &Scope<'_>,
+        kind: SetKind,
+        res: Res,
+        span: Option<Span>,
+        mismatch: &ReportMismatch<'_>,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Row {
+        // 名前解決が誤りを出している．
+        let Res::Def(def) = res else {
+            return Row::empty();
+        };
+        let data = &program.defs[def];
+        match (data.kind, kind) {
+            (DefKind::Error, SetKind::Errors) | (DefKind::Effect, SetKind::Effects) => {
+                Row::tag(def)
+            }
+            (DefKind::TypeParam, _) => match scope.params.iter().position(|p| *p == def) {
+                Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) && scope.sets => {
+                    Row::from_elems([RowElem::Bound(i as u32)])
+                }
+                Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) => {
+                    diags.push(Diagnostic {
+                        span,
+                        kind: DiagnosticKind::Unsupported {
+                            what: "set type parameters here",
+                        },
+                    });
+                    Row::empty()
+                }
+                _ => {
+                    mismatch(
+                        span,
+                        format!("type parameter `{}`", data.name).into(),
+                        diags,
+                    );
+                    Row::empty()
+                }
+            },
+            (DefKind::Effect, _) => {
+                mismatch(span, format!("effect `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+            (DefKind::Error, _) => {
+                mismatch(span, format!("error `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+            _ => {
+                mismatch(span, format!("type `{}`", data.name).into(), diags);
+                Row::empty()
+            }
+        }
     }
 }
 
@@ -785,6 +853,20 @@ fn mark_params(
                 }
             }
         }
+        TypeKind::ErrorSet(set) => {
+            for (res, _) in &set.items {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Errors);
+                }
+            }
+        }
+        TypeKind::EffectSet(set) => {
+            for (res, _) in &set.items {
+                if let Some(i) = position(res) {
+                    marks.set(i, SetKind::Effects);
+                }
+            }
+        }
         TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
     }
 }
@@ -852,7 +934,11 @@ pub(crate) fn has_omitted_fails(program: &Program, ty: TypeId) -> bool {
             params.iter().any(|&p| has_omitted_fails(program, p))
                 || ret.is_some_and(|r| has_omitted_fails(program, r))
         }
-        TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+        TypeKind::SelfType
+        | TypeKind::Unit
+        | TypeKind::Missing
+        | TypeKind::ErrorSet(_)
+        | TypeKind::EffectSet(_) => false,
     }
 }
 
@@ -867,6 +953,10 @@ pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
             params.iter().any(|&p| has_omitted_uses(program, p))
                 || ret.is_some_and(|r| has_omitted_uses(program, r))
         }
-        TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+        TypeKind::SelfType
+        | TypeKind::Unit
+        | TypeKind::Missing
+        | TypeKind::ErrorSet(_)
+        | TypeKind::EffectSet(_) => false,
     }
 }
