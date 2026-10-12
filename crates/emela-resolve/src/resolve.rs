@@ -19,7 +19,7 @@ use smol_str::SmolStr;
 
 use crate::builtins::{BuiltinKind, BuiltinModules, build_prelude};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, Expected};
-use crate::hir::{DefData, DefId, DefKind, DefModule, Program, Span};
+use crate::hir::{DefData, DefId, DefKind, DefModule, NameRef, Program, RefTarget, Span};
 use crate::source::{ModuleId, ModuleMap};
 use crate::suggest::best_match;
 use crate::{Import, ModuleName};
@@ -209,6 +209,12 @@ impl<'a> Resolver<'a> {
             range: Some(range),
             kind,
         });
+    }
+
+    /// 名前の参照を記録する（[`Program::refs`]）．
+    pub(crate) fn refer(&mut self, module: ModuleId, range: TextRange, target: RefTarget) {
+        let span = Span { module, range };
+        self.program.refs.push(NameRef { span, target });
     }
 
     pub(crate) fn alloc_def(
@@ -451,6 +457,14 @@ impl<'a> Resolver<'a> {
             let Some(target) = self.modules.lookup(&name) else {
                 continue;
             };
+            // パスの区切りごとに，そこまでの名前のモジュールを指す（`import Http.Client` の `Http`）．
+            for (i, segment) in segments.iter().enumerate() {
+                let prefix =
+                    ModuleName::new(segments[..=i].iter().map(|t| SmolStr::from(t.text())));
+                if let Some(m) = self.modules.lookup(&prefix) {
+                    self.refer(module, segment.text_range(), RefTarget::Module(m));
+                }
+            }
             let (alias, alias_range) = token_name(last);
             let scope = &mut self.scopes[module];
             match scope.modules.get(&alias) {
@@ -526,6 +540,7 @@ impl<'a> Resolver<'a> {
             return;
         }
         for (ns, def) in public {
+            self.refer(module, range, RefTarget::Def(def));
             self.insert(
                 module,
                 ns,

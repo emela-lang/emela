@@ -8,6 +8,8 @@
 - 開く，書き換える，保存する，閉じるのたびに，プロジェクト全体を `emela check` と同じフロントエンドで検査し直し，`publishDiagnostics` で送る
 - `textDocument/formatting` で文書全体を `emela fmt` と同じく整形する
 - `textDocument/hover` でカーソルの下の名前や式の型と E（エラーの集合）を出す（仕様 9.3「E と R は LSP が表示する」）
+- `textDocument/definition` で名前の定義へ，`textDocument/references` で名前の参照へ移動する
+- `textDocument/documentSymbol` でファイルの中の宣言を入れ子で返す
 - 補完，コードアクションはまだない（`MethodNotFound` を返す）
 
 ## しくみ
@@ -34,6 +36,11 @@
 - （補）整形できない文書（構文エラー，formatter の検証の失敗，読めないファイル，`file:` でない URI）は `null` を返し，誤りの応答にはしない．構文エラーは publishDiagnostics で出ている
 - （補）ホバーは要求のたびに，そのファイルを含むプロジェクト（単独ファイルならそのファイル）を検査し直して引く．診断の解析の結果は持ち回らない．位置を引くのは driver の `Frontend::hover`（`Typecheck` だけが返す．型を持たないフロントエンドでは `null`）
 - （補）ホバーの中身は Markdown の `emela` のコードブロック．定義の名前と定義の参照は `名前: 型`（宣言の型．推論したものは汎化した型），局所変数（束縛した位置と参照）は `名前: 型`，それ以外の式は型と，E が空でなければ次の行に `fails E`．位置を含むもののうち一番内側（範囲の短いもの）を選ぶ．範囲の終わりは含めない
+- （補）定義へ移動と参照の検索は，ホバーと同じく要求のたびに検査し直して引く（driver の `Frontend::definition` と `Frontend::references`）．定義へ移動は位置を1つ（`Location`）返し，移動先がなければ `null`
+- （補）同梱の core の定義（`List.map` など）は仮のパス（`<core>/list.emel`）にしかないので，定義へ移動は `null` にする．参照の検索も core の中の参照を返さない
+- （補）参照の検索は検査したプロジェクトの中だけ（単独ファイルならエントリから import でたどれるファイル）．参照が1つもなければ `null`．`includeDeclaration` が立っていれば定義の名前も含める
+- （補）文書のシンボルは検査せず，開いていれば未保存の内容を，開いていなければディスクの内容を構文解析して作る（`DocumentSymbol` の入れ子）．読めないファイルは `null`
+- （補）シンボルの種類は fn → Function，type と error → Struct，enum → Enum，バリアント → EnumMember，const → Constant，effect と trait → Interface，effect の操作と trait・impl・handler の fn → Method，handler → Class，layer と impl → Namespace，フィールド → Field
 - （補）整形の `options`（`tabSize`，`insertSpaces`）は見ない．字下げは空白2つ，幅は 100 のまま（仕様の整形の規則に揃える）
 - （補）`publishDiagnostics` の `version` は，開いているファイルなら最後に受けた版，開いていなければ付けない
 - （補）毎回の解析で，診断のあるファイルは全部送り直す（変わっていなくても）．前回に送って今回ないファイルには空の配列を送る

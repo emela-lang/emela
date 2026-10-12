@@ -148,6 +148,11 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
 - （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．suspend fn（エフェクトの操作と `@external suspend fn`，能力の値の操作の参照）は型の前に `suspend` を付ける．handler の名前は `handler H implements E` と，依存（`ProgramTypes::handler_uses`）が空でなければ `use R` の行（Async が残るかが分かる）．
+- （補）定義へ移動と参照の検索（LSP）は `Frontend::definition` と `Frontend::references` で引く（トレイトの既定は `None` と空）．`Typecheck` は名前解決の参照の表（`Program::refs`），型推論の操作の表（`ProgramTypes::ops`），定義と局所変数の位置から作る（`nav.rs`）．返すのは `NavTarget`（ファイルと範囲）
+- （補）位置の名前は，参照，effect の操作の参照，定義の名前，局所変数を束縛した位置から探す．範囲の終わりの位置（名前の直後のカーソル）も含め，範囲の中にあるものを先に選ぶ
+- （補）モジュールの定義の位置はファイルの先頭（空の範囲）．同梱の core の定義と，ソースのない定義（組み込みのモジュールの関数と型，組み込みの Prelude）は移動先がないので `None`
+- （補）参照の検索では，名前の位置が同じ定義（type とその構成子，error のタグと構成子）を同じものとみなす．同梱の core の中の参照は含めない．順はファイル（`FileId`）と位置の順．モジュールの参照に定義の位置は含めない
+- （補）文書のシンボル（`document_symbols`）は検査せず構文木だけから作る．構文の誤りがあっても読めた宣言は返し，名前のない宣言は飛ばす．子は enum のバリアント，type・error・バリアント・handler のフィールド，effect の操作，trait・impl・handler の fn．impl は名前の字句がないので `impl Show for User` を名前にし，Trait の名前を選ぶ範囲にする
 - （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
 - （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む

@@ -130,6 +130,23 @@ pub enum Res {
     Err,
 }
 
+/// ソースに書いた名前の参照（LSP の定義へ移動と参照の検索に使う）．
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NameRef {
+    /// 名前の字句の位置．`Http.Client.get` なら区切りごとに別の参照になる．
+    pub span: Span,
+    pub target: RefTarget,
+}
+
+/// 名前の参照の指す先．
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RefTarget {
+    Def(DefId),
+    Local(LocalId),
+    /// ソースのモジュール（import のパスと `.` の左）．
+    Module(ModuleId),
+}
+
 // ---------------------------------------------------------------------------
 // 型
 
@@ -597,6 +614,10 @@ pub struct Program {
     pub modules: ArenaMap<ModuleId, ModuleItems>,
     /// Prelude の定義．名前から引ける．
     pub prelude: Prelude,
+    /// 解決できた名前の参照．書いた順（モジュールの順ではない）．定義の名前と局所変数を
+    /// 束縛した位置は入らない（[`DefData::span`] と [`LocalData::span`] にある）．
+    /// effect の操作（`log.info`）は型推論が引くのでここにはない．
+    pub refs: Vec<NameRef>,
 }
 
 /// Prelude の定義の ID．型推論が組み込みの型と構成子を引くのに使う．

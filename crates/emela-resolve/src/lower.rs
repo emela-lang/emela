@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{DiagnosticKind, Expected};
 use crate::hir::*;
-use crate::resolve::{DotLeft, Ns, Pending, Resolver, child_token, token_name};
+use crate::resolve::{DotLeft, ModRef, Ns, Pending, Resolver, child_token, token_name};
 use crate::source::ModuleId;
 use crate::suggest::best_match;
 
@@ -95,6 +95,12 @@ impl Lower<'_, '_> {
 
     fn error(&mut self, range: TextRange, kind: DiagnosticKind) {
         self.r.error(self.module, range, kind);
+    }
+
+    /// 名前の参照を記録する（[`Program::refs`]）．
+    fn refer(&mut self, range: TextRange, target: RefTarget) {
+        let span = self.span(range);
+        self.r.program.refs.push(NameRef { span, target });
     }
 
     fn alloc_expr(&mut self, kind: ExprKind, range: TextRange) -> ExprId {
@@ -534,6 +540,7 @@ impl Lower<'_, '_> {
             return Res::Err;
         };
         if let Some(def) = self.r.member(owner, name) {
+            self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
         let data = &self.r.program.defs[owner];
@@ -714,6 +721,7 @@ impl Lower<'_, '_> {
         };
         let (name, range) = token_name(&token);
         if let Some(def) = self.lookup_type_param(&name) {
+            self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
         let candidates: Vec<SmolStr> = self
@@ -841,6 +849,7 @@ impl Lower<'_, '_> {
             );
             return Res::Err;
         }
+        self.refer(range, RefTarget::Def(def));
         Res::Def(def)
     }
 
@@ -875,6 +884,11 @@ impl Lower<'_, '_> {
         let (first, rest) = prefix.split_first()?;
         let (name, range) = token_name(first);
         let mut left = self.r.lookup_dot_left(self.module, &name, range)?;
+        match &left {
+            DotLeft::Module(ModRef::Source(m)) => self.refer(range, RefTarget::Module(*m)),
+            DotLeft::Module(ModRef::Builtin(_)) => {}
+            DotLeft::Trait(t) => self.refer(range, RefTarget::Def(*t)),
+        }
         for segment in rest {
             let (name, range) = token_name(segment);
             let def = self.member_of_left(&left, Ns::Type, &name, range)?;
@@ -890,6 +904,7 @@ impl Lower<'_, '_> {
                 );
                 return None;
             }
+            self.refer(range, RefTarget::Def(def));
             left = DotLeft::Trait(def);
         }
         Some(left)
@@ -1193,7 +1208,10 @@ impl Lower<'_, '_> {
     fn value(&mut self, name: &SmolStr, range: TextRange, kind: SyntaxKind) -> Res {
         if kind == SELF_KW {
             return match self.lookup_local("self") {
-                Some(local) => Res::Local(local),
+                Some(local) => {
+                    self.refer(range, RefTarget::Local(local));
+                    Res::Local(local)
+                }
                 None => {
                     self.error(range, DiagnosticKind::SelfOutside { self_type: false });
                     Res::Err
@@ -1201,9 +1219,11 @@ impl Lower<'_, '_> {
             };
         }
         if let Some(local) = self.lookup_local(name) {
+            self.refer(range, RefTarget::Local(local));
             return Res::Local(local);
         }
         if let Some(def) = self.r.lookup(self.module, Ns::Value, name) {
+            self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
         // 大文字名の型引数は型の位置でしか使えない（2.3）．
@@ -1269,6 +1289,7 @@ impl Lower<'_, '_> {
             };
             self.error(range, kind);
         }
+        self.refer(range, RefTarget::Def(def));
         Res::Def(def)
     }
 
@@ -1441,7 +1462,10 @@ impl Lower<'_, '_> {
             let segments: Vec<SyntaxToken> = path.segments().collect();
             let res = match self.resolve_prefix(&segments) {
                 Some(left) => match self.member_of_left(&left, Ns::Value, &name, range) {
-                    Some(def) => Res::Def(def),
+                    Some(def) => {
+                        self.refer(range, RefTarget::Def(def));
+                        Res::Def(def)
+                    }
                     None => Res::Err,
                 },
                 None => Res::Err,
