@@ -8,6 +8,7 @@ mod complete;
 mod diagnostic;
 mod fmt;
 mod frontend;
+mod hints;
 mod hover;
 mod internal;
 mod js;
@@ -29,6 +30,7 @@ pub use fmt::{
     format_source,
 };
 pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
+pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};

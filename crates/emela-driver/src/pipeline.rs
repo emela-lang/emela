@@ -16,6 +16,7 @@ use crate::actions::CodeAction;
 use crate::code;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
+use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{JsOutput, write_output};
@@ -230,6 +231,16 @@ pub trait Frontend {
         _file: FileId,
         _offset: line_index::TextSize,
     ) -> Vec<Completion> {
+        Vec::new()
+    }
+
+    /// `file` の `range` の中のインレイヒント（LSP のインレイヒント）．
+    fn inlay_hints(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _range: line_index::TextRange,
+    ) -> Vec<InlayHint> {
         Vec::new()
     }
 

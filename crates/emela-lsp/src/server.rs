@@ -14,7 +14,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    PrepareRenameRequest, References, Rename, Request as _, SignatureHelpRequest,
+    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -53,6 +53,7 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             prepare_provider: Some(true),
             work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
         })),
+        inlay_hint_provider: Some(lsp::OneOf::Left(true)),
         code_action_provider: Some(lsp::CodeActionProviderCapability::Options(
             lsp::CodeActionOptions {
                 code_action_kinds: Some(vec![lsp::CodeActionKind::REFACTOR_REWRITE]),
@@ -218,6 +219,7 @@ where
         let response = match request.method.as_str() {
             Formatting::METHOD => respond(request, |params| self.format(&params)),
             HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
+            InlayHintRequest::METHOD => respond(request, |params| self.inlay_hints(&params)),
             CodeActionRequest::METHOD => respond(request, |params| self.code_actions(&params)),
             Completion::METHOD => respond(request, |params| self.complete(&params)),
             SignatureHelpRequest::METHOD => respond(request, |params| self.signature_help(&params)),
@@ -283,6 +285,23 @@ where
             }),
             range: Some(convert::range(index, info.range)),
         })
+    }
+
+    /// 範囲の中のインレイヒント（書かない型と E，R を見せる，9.3）．検査できないファイルでは `null`．
+    fn inlay_hints(&mut self, params: &lsp::InlayHintParams) -> Option<Vec<lsp::InlayHint>> {
+        let (analysis, program, file) = self.check_file(&params.text_document.uri)?;
+        let index = analysis.sources[file].line_index();
+        let start = convert::offset(index, params.range.start)?;
+        // 範囲の終わりがファイルの外（最終行の先）なら，ファイルの終わりまで．
+        let end = convert::offset(index, params.range.end)
+            .unwrap_or(index.len())
+            .max(start);
+        let range = line_index::TextRange::new(start, end);
+        let hints = F::inlay_hints(&program, &analysis, file, range)
+            .iter()
+            .map(|hint| convert::inlay_hint(index, hint))
+            .collect();
+        Some(hints)
     }
 
     /// 範囲に掛かるコードアクション（省いた注釈に推論結果を挿入する，4.5）．検査できないファイルでは `null`．

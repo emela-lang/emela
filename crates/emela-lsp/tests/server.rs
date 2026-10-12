@@ -12,7 +12,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    Initialize, PrepareRenameRequest, References, Rename, Request as _, Shutdown,
+    Initialize, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _, Shutdown,
     SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
@@ -387,6 +387,35 @@ impl Client {
                         (a.title, edits)
                     }
                     other => panic!("コマンドでなくアクション: {other:?}"),
+                })
+                .collect(),
+        )
+    }
+
+    /// ファイル全体のインレイヒントを（行，列，ラベル，左の空白）で返す．
+    fn inlay_hints(&mut self, path: &str) -> Option<Vec<(u32, u32, String, bool)>> {
+        let id = self.request(
+            InlayHintRequest::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "range": range((0, 0), (10_000, 0)),
+            }),
+        );
+        let result: Option<Vec<lsp::InlayHint>> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        Some(
+            result?
+                .into_iter()
+                .map(|h| {
+                    let lsp::InlayHintLabel::String(label) = h.label else {
+                        panic!("文字列でない");
+                    };
+                    (
+                        h.position.line,
+                        h.position.character,
+                        label,
+                        h.padding_left == Some(true),
+                    )
                 })
                 .collect(),
         )
@@ -1497,5 +1526,66 @@ fn apply[A](f: fn() -> A) {
     );
     // 本体の中では出さない．
     assert_eq!(client.code_actions(MAIN, (8, 4), (8, 4)), Some(vec![]));
+    client.shutdown();
+}
+
+/// 書かない型と E，R を行の中に見せる（9.3）．
+#[test]
+fn inlay_hints_show_types_errors_and_effects() {
+    let src = "error NotFound(id: Int)
+
+fn find(id: Int) -> Int fails NotFound {
+  if id > 0 { id } else { fail NotFound(id:) }
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet implements Logger {
+  fn info(msg) { () }
+}
+
+fn greet() {
+  log = use Logger
+  log.info(\"hi\")
+  n = find(1)
+  List.map([n], fn(x) { x })
+}
+
+fn main() {
+  with Quiet { greet() }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        emela_lsp::capabilities().inlay_hint_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    let hint = |line, col, label: &str, padding| (line, col, label.to_owned(), padding);
+    assert_eq!(
+        client.inlay_hints(MAIN).unwrap(),
+        [
+            // handler の操作の引数の型．
+            hint(11, 13, ": String", false),
+            // 省いた注釈．見えない集合も出す．
+            hint(14, 10, "-> List[Int] fails NotFound use Logger", true),
+            // 文の位置の呼び出しの E と R．
+            hint(16, 16, "use Logger", true),
+            // 束縛の型（能力の値の `log` には出さない）．
+            hint(17, 3, ": Int", false),
+            hint(17, 13, "fails NotFound", true),
+            // ラムダの引数．E も R もない呼び出しには出さない．
+            hint(18, 20, ": Int", false),
+            hint(21, 9, "-> List[Int] fails NotFound", true),
+            // with の中の呼び出しには R が出る．
+            hint(22, 22, "fails NotFound use Logger", true),
+        ]
+    );
+    // 書いた注釈には出さない．型を持たないフロントエンドは空．
+    client.shutdown();
+    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    assert_eq!(client.inlay_hints(MAIN), Some(vec![]));
     client.shutdown();
 }
