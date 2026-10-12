@@ -757,3 +757,53 @@ fn main() {
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
+
+/// fn の操作の実装は，本体の中の呼び出しで中断しうるかを決める（E0417，8.1）．本体の R に
+/// suspend fn を持つ Clock があっても，fn の操作 `now` しか呼ばなければジェネレータにしない．
+/// `now` の呼び出しにも中断の印は付かない．
+#[test]
+fn fn_op_calling_fn_ops_is_not_a_generator() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Clock {
+  suspend fn sleep(ms: Int) -> Int
+  fn now() -> Int
+}
+
+@external(js, \"setTimeout\")
+fn after(ms: Int, f: fn() -> ()) -> ()
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
+  fn now() { 42 }
+}
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(0) }
+  fn now() { (use Clock).now() + 1 }
+}
+
+handler CapturedClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(0) }
+  fn now() {
+    clock = use Clock
+    clock.now()
+  }
+}
+
+fn main() {
+  with JsClock {
+    with InstantClock { dbg((use Clock).now()) }
+    with CapturedClock { dbg((use Clock).now()) }
+  }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| f.contains("fn InstantClock(") || f.contains("fn CapturedClock("))
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}

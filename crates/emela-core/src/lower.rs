@@ -646,17 +646,23 @@ impl<'a> Lowerer<'a> {
             // suspend fn の実装の引数は，操作の引数と最後の resume（8.4）．resume は普通の
             // 関数の値で，呼んでも中断も失敗もしない（型が `fn(T) -> ()`）．
             let ps = op.params.iter().map(|p| self.local(p.local)).collect();
-            // 本体が中断しうる（`@external suspend fn` を待つなど）なら，実装もジェネレータにする．
-            // resume を後から呼ぶだけの Async（8.7）は本体の R に載らないので，中断しない．
-            let suspends = self
-                .types
-                .effects
-                .get(body)
-                .is_some_and(|r| self.row_suspends(r));
+            let lowered = self.expr(body);
+            // suspend fn の実装は，本体の R が中断しうる（`@external suspend fn` を待つなど）なら
+            // ジェネレータにする．resume を後から呼ぶだけの Async（8.7）は本体の R に載らないので，
+            // 中断しない．fn の操作の実装は，型検査（E0417）と同じく本体の中の呼び出しで決める．
+            // 本体の R に Clock があっても，`clock.now()` しか呼ばなければジェネレータにしない．
+            let suspends = if op.is_suspend {
+                self.types
+                    .effects
+                    .get(body)
+                    .is_some_and(|r| self.row_suspends(r))
+            } else {
+                suspend::has_suspending_call(&lowered)
+            };
             // 操作の本体の失敗は戻り値として操作の呼び出し元へ返る（ラムダと同じ）．
             ops[index] = Some(Expr::Lambda {
                 params: ps,
-                body: Box::new(self.expr(body)),
+                body: Box::new(lowered),
                 suspends,
             });
         }

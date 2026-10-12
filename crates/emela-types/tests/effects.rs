@@ -644,6 +644,83 @@ fn main() {
     ));
 }
 
+/// fn の操作の実装の本体は，中断しうる呼び出しを含めない（E0417，8.1）．判定は本体の R ではなく
+/// 呼び出しごと．操作の呼び出しは操作の宣言で決まるので，suspend fn を持つ Clock の fn の操作
+/// `now` は呼べる（本体の R には Clock が載り，ハンドラの依存になる）．関数と関数の値の呼び出しは
+/// 型の R で決まるので，fn の操作しか呼ばない関数，能力を捕まえたクロージャ，値として取り出した
+/// 操作を挟むと E0417 のまま．suspend fn の操作の呼び出しも E0417．
+#[test]
+fn fn_op_bodies_are_checked_per_call() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Int
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { (use Clock).now() }
+}
+
+handler CapturedClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() {
+    clock = use Clock
+    (use Logger).info("now")
+    clock.now() + (clock.now() |> fn(x) { x })
+  }
+}
+
+handler LazyClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() {
+    clock = use Clock
+    later = fn() { clock.sleep(1) }
+    1
+  }
+}
+
+fn stamp() -> Int use { Clock } { (use Clock).now() }
+
+handler ViaFn implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { stamp() }
+}
+
+handler ViaClosure implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() {
+    clock = use Clock
+    f = fn() { clock.now() }
+    f()
+  }
+}
+
+handler ViaValue implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() {
+    clock = use Clock
+    g = clock.now
+    g()
+  }
+}
+
+handler Sleeping implements Clock {
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() {
+    (use Clock).sleep(1)
+    0
+  }
+}
+"#
+    ));
+}
+
 /// `R: Immediate`（9.5）．エフェクトは suspend fn がなく Async でもないとき Immediate．
 /// 集合の型引数は制約を持つときだけ．外部関数に渡すコールバックも Immediate でなければならない．
 #[test]

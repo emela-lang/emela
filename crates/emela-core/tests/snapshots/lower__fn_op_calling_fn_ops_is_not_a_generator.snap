@@ -1,0 +1,26 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+fn InstantClock(ev%11) {
+  handler InstantClock: Clock {
+    sleep: fn(ms%12, resume%13) {
+      (resume%13)(0)
+    }
+    now: fn() {
+      ((use[Clock](ev%11)).Clock#now() +[Int] 1)
+    }
+  }
+}
+
+fn CapturedClock(ev%7) {
+  handler CapturedClock: Clock {
+    sleep: fn(ms%8, resume%9) {
+      (resume%9)(0)
+    }
+    now: fn() {
+      let clock%10 = use[Clock](ev%7)
+      clock%10.Clock#now()
+    }
+  }
+}
