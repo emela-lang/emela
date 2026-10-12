@@ -201,6 +201,13 @@ pub trait Frontend {
     ) -> Option<HoverInfo> {
         None
     }
+
+    /// 直前の [`Frontend::check`] で，エントリのモジュールに `main` という名前の fn があったか
+    /// （8.3）．`emela run` が E0230 に使う．分からないフロントエンドとエントリのないときは `None`
+    /// （`run` は確かめずに進む）．
+    fn has_entry_main(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// 型検査の結果．診断にエラーがあっても，続けられる限りプログラムを返してよい．
@@ -439,12 +446,25 @@ fn concerns_reached(
 }
 
 /// `emela build` の段．検査を通ったら JS を出し，`out_dir` に書く．書いたエントリのパスを返す．
+/// エントリに main がなくても出力する（8.3）．
 pub fn build<F: Frontend, B: JsBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
     frontend: &mut F,
     backend: &mut B,
     out_dir: &Path,
+) -> (Analysis, Option<PathBuf>) {
+    build_with(fs, input, frontend, backend, out_dir, false)
+}
+
+/// `require_main` なら，エントリに main がないとき E0230 にして出力しない（`emela run`，8.3）．
+fn build_with<F: Frontend, B: JsBackend<F::Program>>(
+    fs: &dyn FileSystem,
+    input: &Input,
+    frontend: &mut F,
+    backend: &mut B,
+    out_dir: &Path,
+    require_main: bool,
 ) -> (Analysis, Option<PathBuf>) {
     let (mut analysis, program) = check(fs, input, frontend);
     if input.entry.is_none() {
@@ -460,6 +480,21 @@ pub fn build<F: Frontend, B: JsBackend<F::Program>>(
         );
     }
     if analysis.has_errors() {
+        return (analysis, None);
+    }
+    // ほかの誤りがあれば出さない．構文の誤りで main を読めなかっただけかもしれないため．
+    if require_main
+        && frontend.has_entry_main() == Some(false)
+        && let Some(entry) = &input.entry
+    {
+        analysis.diagnostics.push(
+            Diagnostic::error(format!(
+                "entry `{}` has no `main` function",
+                analysis.sources.display_path(entry).display()
+            ))
+            .with_code(code::ENTRY_WITHOUT_MAIN)
+            .at(Location::Path(entry.clone())),
+        );
         return (analysis, None);
     }
     let Some(program) = program else {
@@ -496,7 +531,8 @@ pub struct RunOptions {
     pub output: Output,
 }
 
-/// `emela run` の段．ビルドして，エントリを node で実行する．
+/// `emela run` の段．ビルドして，エントリを node で実行する．エントリに main がなければ
+/// E0230 にして node を起動しない（8.3）．
 ///
 /// `before_node` はビルドの後，node を起動する前に1度だけ呼ぶ（ビルドが失敗しても呼ぶ）．
 /// CLI はここで診断を出す．終わらないプログラム（サーバー）でも警告が先に見えるように．
@@ -510,7 +546,7 @@ pub fn run<F: Frontend, B: JsBackend<F::Program>>(
     options: &RunOptions,
     before_node: impl FnOnce(&Analysis),
 ) -> (Analysis, Option<RunOutput>) {
-    let (mut analysis, entry) = build(fs, input, frontend, backend, &options.out_dir);
+    let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
     before_node(&analysis);
     let Some(entry) = entry else {
         return (analysis, None);

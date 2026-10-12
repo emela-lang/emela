@@ -7,7 +7,7 @@ use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type};
 use emela_driver::{
     Analysis, Checked, CoreJs, CoreSource, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
     INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
-    OutputFile, Parsed, Resolve, RunOptions, RunOutput, SourceFile, Typecheck, run,
+    OutputFile, Parsed, Resolve, RunOptions, RunOutput, SourceFile, Typecheck, build, run,
 };
 use emela_resolve::ModuleId;
 
@@ -376,6 +376,62 @@ fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
         analysis.diagnostics
     );
     output.unwrap()
+}
+
+#[test]
+fn run_without_main_stops_before_node() {
+    // エントリに main がなければ run は E0230 で止まり，node を起動しない（8.3）．
+    // 起動すれば「node が見つからない」の診断が足されるので，ない node を渡して確かめる．
+    let sources = [
+        ("app/Pome.toml", ""),
+        ("app/src/main.emel", "fn helper() { 1 }\n"),
+    ];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let options = RunOptions {
+        out_dir: out_dir("no-main"),
+        node: PathBuf::from("/nonexistent/node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (analysis, output) = run(
+        &fs,
+        &input,
+        &mut Lower::default(),
+        &mut CoreJs,
+        &options,
+        |_| {},
+    );
+    assert!(output.is_none());
+    assert!(!options.out_dir.exists());
+    let diagnostics: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .map(|d| (d.code, d.message.as_str()))
+        .collect();
+    assert_eq!(
+        diagnostics,
+        [(
+            Some("E0230"),
+            "entry `src/main.emel` has no `main` function"
+        )]
+    );
+
+    // build は main がなくても出力する．
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default(),
+        &mut CoreJs,
+        &options.out_dir,
+    );
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some_and(|entry| entry.exists()));
+    let _ = std::fs::remove_dir_all(&options.out_dir);
 }
 
 #[test]
