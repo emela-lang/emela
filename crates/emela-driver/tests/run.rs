@@ -307,6 +307,52 @@ fn core_ir_runs_through_codegen_js() {
     );
 }
 
+/// 同梱の JS のファイル（`Module::js_files`）は出力先の `emela_core/` に並べて書き出し，
+/// エントリの出力から相対で import する．同梱のファイルどうしの相対の import も動く．
+#[test]
+fn core_js_files_are_written_next_to_the_output() {
+    let mut m = emela_core::Module::new();
+    let now = m.declare("HostTest.now", false);
+    m.define_external(
+        now,
+        vec![],
+        emela_core::External {
+            bindings: vec![emela_core::ExternalBinding {
+                target: "js".into(),
+                args: vec!["./emela_core/host/now.mjs".into(), "now".into()],
+            }],
+            params: vec![],
+            ret: emela_core::Boundary::Plain,
+        },
+    );
+    let main = m.declare("main", true);
+    m.define(
+        main,
+        vec![],
+        builtin(
+            Builtin::Panic,
+            vec![Expr::Concat(vec![
+                lit_part("now = "),
+                value_part(call(now, vec![]), Type::Int),
+            ])],
+        ),
+    );
+    m.js_files = vec![
+        emela_core::JsFile {
+            path: "host/now.mjs".into(),
+            contents: "import { base } from \"../base.mjs\";\nexport const now = () => base + 1;\n"
+                .into(),
+        },
+        emela_core::JsFile {
+            path: "base.mjs".into(),
+            contents: "export const base = 41;\n".into(),
+        },
+    ];
+    let output = run_ir("core-js-files", m);
+    assert_eq!(text(&output.stderr), "defect: now = 42\n");
+    assert_eq!(output.code, DEFECT_EXIT_CODE);
+}
+
 /// ソースを `Lower`（名前解決，型検査，lowering）と `CoreJs` で `emela run` の経路に通す．
 fn run_source(name: &str, main: &str) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];

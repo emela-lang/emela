@@ -18,7 +18,7 @@ use la_arena::ArenaMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FnId, Lit, Local, Module, OpTy, Pat, StrPart, Type, UnOp,
+    External, ExternalBinding, FnId, JsFile, Lit, Local, Module, OpTy, Pat, StrPart, Type, UnOp,
     VariantDef, VariantFields,
 };
 use crate::named;
@@ -35,6 +35,9 @@ pub enum LowerError {
         target: String,
         span: Option<Span>,
     },
+    /// 同梱の core の `@external(js, "./x.mjs", …)` の指すファイルが，同梱の JS のファイル
+    /// （`LowerInput::core_js_files`）にない．同梱のソースの誤り．`path` は書かれたままの指定．
+    MissingCoreFile { path: String, span: Option<Span> },
 }
 
 /// どの fn から写し始めるか．
@@ -72,6 +75,10 @@ pub struct LowerInput<'a> {
     /// モジュールのソースのファイルのパス．`@external` のファイルを指すモジュール（`"./ffi.mjs"`）を
     /// 宣言を含むソースの隣のファイルに直すのに使う（12.1）．ないモジュールは直さない．
     pub paths: ArenaMap<ModuleId, &'a Path>,
+    /// 同梱の JS のファイル（`lib/` からの相対パスと中身．`crate::core_js_files`）．core の
+    /// モジュールのファイルの指定はソースの隣でなくここから引き，出力先の
+    /// [`crate::CORE_JS_DIR`] の下に書き出すものとして `Module::js_files` に入れる．
+    pub core_js_files: &'a [(&'a str, &'a str)],
     /// ビルド対象のターゲット（`"js"`）．`Some` なら，エントリ（`Roots::Exported` では main，
     /// `Roots::Tests` ではテスト関数）からたどれる外部関数にそのターゲットの `@external` が
     /// あることを確かめる（12.1）．check と LSP はターゲットを決めないので `None`．
@@ -101,6 +108,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         ev: None,
         bound: Vec::new(),
         paths: &input.paths,
+        core_js_files: input.core_js_files,
+        uses_core_js: false,
         errors: Vec::new(),
     };
     cx.declare_enums();
@@ -132,6 +141,17 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
             Roots::All => Vec::new(),
         };
         cx.check_target(&entries, target);
+    }
+    if cx.uses_core_js {
+        // 同梱のファイルが相対で import し合っても動くよう，1つでも使えば全部を並べて書き出す．
+        cx.module.js_files = input
+            .core_js_files
+            .iter()
+            .map(|(path, contents)| JsFile {
+                path: (*path).to_owned(),
+                contents: (*contents).to_owned(),
+            })
+            .collect();
     }
     if cx.errors.is_empty() {
         Ok(Lowered {
@@ -177,6 +197,9 @@ struct Lowerer<'a> {
     /// handler の操作）の中の with だけで，ラムダの中にも引き継ぐ．`use X` は後ろから探す（8.3）．
     bound: Vec<(DefId, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
+    core_js_files: &'a [(&'a str, &'a str)],
+    /// 写した外部関数が同梱の JS のファイルを指したか．
+    uses_core_js: bool,
     errors: Vec<LowerError>,
 }
 
@@ -464,28 +487,33 @@ impl<'a> Lowerer<'a> {
     }
 
     /// 外部関数の指定．ファイルを指すモジュールは宣言を含むソースの隣のファイルに直す（12.1）．
-    fn external(&self, def: DefId, f: &emela_resolve::hir::FnItem) -> External {
-        let dir = match &self.hir.defs[def].module {
-            DefModule::Source(m) => self.paths.get(*m).and_then(|p| p.parent()),
+    /// 同梱の core の JS の指定は，同梱の JS のファイルを出力先に書き出した場所に直す．
+    fn external(&mut self, def: DefId, f: &emela_resolve::hir::FnItem) -> External {
+        let module = match &self.hir.defs[def].module {
+            DefModule::Source(m) => Some(*m),
             _ => None,
         };
-        let bindings = f
-            .externals
-            .iter()
-            .map(|e| {
-                let mut args = e.args.clone();
-                if args.len() == 2
-                    && (args[0].starts_with("./") || args[0].starts_with("../"))
-                    && let Some(dir) = dir
-                {
+        let is_core = module.is_some_and(|m| self.modules.is_core(m));
+        let dir = module
+            .and_then(|m| self.paths.get(m))
+            .and_then(|p| p.parent());
+        let mut bindings = Vec::new();
+        for e in &f.externals {
+            let mut args = e.args.clone();
+            if args.len() == 2 && (args[0].starts_with("./") || args[0].starts_with("../")) {
+                if is_core {
+                    if e.target == "js" {
+                        args[0] = self.core_js_file(&args[0], self.hir.defs[def].span);
+                    }
+                } else if let Some(dir) = dir {
                     args[0] = normalize(&dir.join(&args[0]));
                 }
-                ExternalBinding {
-                    target: e.target.to_string(),
-                    args,
-                }
-            })
-            .collect();
+            }
+            bindings.push(ExternalBinding {
+                target: e.target.to_string(),
+                args,
+            });
+        }
         let (params, ret) = match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
             Some(Ty::Fn(f)) => (f.params.iter().map(boundary).collect(), boundary(&f.ret)),
             _ => (Vec::new(), Boundary::Plain),
@@ -494,6 +522,27 @@ impl<'a> Lowerer<'a> {
             bindings,
             params,
             ret,
+        }
+    }
+
+    /// 同梱の core の JS のファイルの指定（`./x.mjs`）を，出力先の [`crate::CORE_JS_DIR`] に
+    /// 書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）にする．
+    /// core のソースは `lib/` の直下にあるとみなし，`lib/` からの相対パスで同梱のファイルを引く．
+    fn core_js_file(&mut self, spec: &str, span: Option<Span>) -> String {
+        let found =
+            lib_relative(spec).filter(|path| self.core_js_files.iter().any(|(p, _)| p == path));
+        match found {
+            Some(path) => {
+                self.uses_core_js = true;
+                format!("./{}/{path}", crate::CORE_JS_DIR)
+            }
+            None => {
+                self.errors.push(LowerError::MissingCoreFile {
+                    path: spec.to_owned(),
+                    span,
+                });
+                spec.to_owned()
+            }
         }
     }
 
@@ -1533,6 +1582,22 @@ fn normalize(path: &Path) -> String {
         }
     }
     out.to_string_lossy().into_owned()
+}
+
+/// `lib/` の直下からの相対の指定（`./a/../b.mjs`）を，`.` と `..` を畳んだ `lib/` からの
+/// パス（`b.mjs`）にする．`lib/` の外へ出るなら `None`．
+fn lib_relative(spec: &str) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in spec.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            part => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 /// 式が局所変数 `l` を参照するか．

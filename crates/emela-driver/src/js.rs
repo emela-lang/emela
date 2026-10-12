@@ -27,12 +27,26 @@ impl JsBackend<emela_core::Module> for CoreJs {
         let options = Options {
             runtime: RuntimeMode::Import(None),
         };
+        let mut files = vec![
+            OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
+            OutputFile::new(RUNTIME_FILE, RUNTIME),
+        ];
+        files.extend(core_js_outputs(&module));
         Ok(JsOutput {
-            files: vec![
-                OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
-                OutputFile::new(RUNTIME_FILE, RUNTIME),
-            ],
+            files,
             entry: JS_ENTRY_FILE.into(),
         })
     }
+}
+
+/// IR の持つ同梱の JS のファイル（`Module::js_files`）を，出力先の
+/// [`emela_core::CORE_JS_DIR`] の下のファイルにする．エントリの出力（出力先の直下）は
+/// `./emela_core/x.mjs` で import する．
+pub(crate) fn core_js_outputs(module: &emela_core::Module) -> impl Iterator<Item = OutputFile> {
+    module.js_files.iter().map(|file| {
+        OutputFile::new(
+            format!("{}/{}", emela_core::CORE_JS_DIR, file.path),
+            file.contents.clone(),
+        )
+    })
 }

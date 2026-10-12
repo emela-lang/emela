@@ -20,9 +20,23 @@ const SOURCES: &[(&str, &str)] = &[
     ("JsConsole", include_str!("../lib/js_console.emel")),
 ];
 
+/// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．core の `@external(js, "./x.mjs", …)`
+/// が指すファイルで，`.emel` と同じく `include_str!` で埋め込む（手順は `lib/README.md`）．
+const JS_FILES: &[(&str, &str)] = &[];
+
+/// 同梱の JS のファイルを書き出す，JS の出力先の中のディレクトリ．core の `@external` の
+/// ファイルの指定は，lowering がエントリの出力（出力先の直下）からの相対パス
+/// （`./emela_core/x.mjs`）に直す．
+pub const CORE_JS_DIR: &str = "emela_core";
+
 /// 同梱する Prelude と core のソースを，モジュール名とソースの組で返す．Prelude が先頭．
 pub fn core_sources() -> &'static [(&'static str, &'static str)] {
     SOURCES
+}
+
+/// 同梱の JS のファイルを，`lib/` からの相対パスと中身の組で返す．
+pub fn core_js_files() -> &'static [(&'static str, &'static str)] {
+    JS_FILES
 }
 
 /// モジュール名で同梱のソースを引く．
@@ -138,6 +152,29 @@ mod tests {
             let n = declared.iter().filter(|d| *d == op).count();
             assert_eq!(n, 1, "{} の @intrinsic の宣言が {n} 個", op.info().path());
         }
+    }
+
+    /// `lib/` の `.mjs` は全部 `JS_FILES` に載せる（載せ忘れるとインストールした emela から読めない）．
+    #[test]
+    fn js_files_match_lib_dir() {
+        let lib = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib");
+        let mut on_disk = Vec::new();
+        let mut dirs = vec![lib.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "mjs") {
+                    let rel = path.strip_prefix(&lib).unwrap();
+                    on_disk.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        on_disk.sort();
+        let mut listed: Vec<String> = core_js_files().iter().map(|(p, _)| p.to_string()).collect();
+        listed.sort();
+        assert_eq!(listed, on_disk, "lib/ の .mjs と JS_FILES が食い違う");
     }
 
     #[test]

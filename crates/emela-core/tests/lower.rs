@@ -17,6 +17,7 @@ use la_arena::ArenaMap;
 /// 先頭のファイルをエントリにする．構文と名前解決の誤りは許さない．
 fn resolve_files<'s>(
     files: &[(&str, &'s str)],
+    core: &[(&str, &'s str)],
 ) -> (Program, ModuleMap, ModuleId, ArenaMap<ModuleId, &'s str>) {
     let fs = MemoryFs::new(files.iter().map(|(path, _)| format!("src/{path}")));
     let (mut modules, diagnostics) = collect_modules(&fs, Path::new("src"));
@@ -34,7 +35,7 @@ fn resolve_files<'s>(
         .find(|(_, m)| m.file == Path::new("src").join(files[0].0))
         .unwrap()
         .0;
-    for (name, text) in emela_core::core_sources() {
+    for (name, text) in core {
         let (id, shadowed) =
             modules.add_core(ModuleName::parse(name), Path::new("<core>").join(name));
         assert_eq!(shadowed, None);
@@ -67,7 +68,22 @@ fn lower_files(files: &[(&str, &str)]) -> Module {
 
 /// 型検査まで通してから lowering する．誤りは `` `ソースの字面` what `` の形にする．
 fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>> {
-    let (program, modules, entry, texts) = resolve_files(files);
+    try_lower_with(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::core_js_files(),
+    )
+}
+
+/// 同梱の core のソース（`core`）と JS のファイル（`core_js_files`）を差し替えた [`try_lower`]．
+fn try_lower_with(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    core_js_files: &[(&str, &str)],
+) -> Result<Module, Vec<String>> {
+    let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     assert!(types.diags.is_empty(), "{:?}", types.diags);
     let input = LowerInput {
@@ -78,6 +94,7 @@ fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>
         entry,
         tests: Vec::new(),
         paths: Default::default(),
+        core_js_files,
         target: None,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
@@ -89,6 +106,9 @@ fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>
                     LowerError::Unsupported { what, span } => (what.clone(), span),
                     LowerError::MissingExternal { name, target, span } => {
                         (format!("missing {target} external {name}"), span)
+                    }
+                    LowerError::MissingCoreFile { path, span } => {
+                        (format!("missing core file {path}"), span)
                     }
                 };
                 let Some(span) = span else {
@@ -604,4 +624,68 @@ fn main() {
         ext[0].trim(),
         "external fn host_get() = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
     );
+}
+
+/// 試験用の core のモジュール `HostTest`．同梱の JS のファイルを指す外部関数を持つ．
+const HOST_TEST: &str = "\
+@external(js, \"./host/../host_test.mjs\", \"now\")
+@external(wasm, \"env\", \"now\")
+pub fn now() -> Int use {}
+
+@external(js, \"./missing.mjs\", \"gone\")
+pub fn gone() -> Int use {}
+";
+
+/// 同梱の JS のファイル．`host_test.mjs` が `helper.mjs` を相対で import する．
+const HOST_TEST_JS: &[(&str, &str)] = &[
+    (
+        "host_test.mjs",
+        "import { base } from \"./helper.mjs\";\nexport const now = () => base;\n",
+    ),
+    ("helper.mjs", "export const base = 42;\n"),
+];
+
+/// 同梱の core に `HostTest` を足して lowering する．
+fn lower_with_host_test(main: &str) -> Result<Module, Vec<String>> {
+    let mut core = emela_core::core_sources().to_vec();
+    core.push(("HostTest", HOST_TEST));
+    try_lower_with(&[("main.emel", main)], Roots::Exported, &core, HOST_TEST_JS)
+}
+
+/// 同梱の core の外部関数のファイルの指定は，出力先の `emela_core/` に書き出す同梱の
+/// ファイルを指す．使ったら同梱のファイルを全部 `js_files` に入れる（相対の import のため）．
+#[test]
+fn core_external_points_to_bundled_js_file() {
+    let m = lower_with_host_test("fn main() { dbg(HostTest.now()) }\n")
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let out = dump(&m);
+    let ext: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| f.contains("external fn HostTest.now"))
+        .collect();
+    assert_eq!(ext.len(), 1, "{out}");
+    assert_eq!(
+        ext[0].trim(),
+        "external fn HostTest.now() = js[\"./emela_core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
+    );
+    let files: Vec<(&str, &str)> = m
+        .js_files
+        .iter()
+        .map(|f| (f.path.as_str(), f.contents.as_str()))
+        .collect();
+    assert_eq!(files, HOST_TEST_JS);
+}
+
+/// 同梱のファイルを指す外部関数を使わなければ，同梱のファイルを書き出さない．
+#[test]
+fn unused_core_js_files_are_not_output() {
+    let m = lower_with_host_test("fn main() { dbg(1) }\n").unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(m.js_files, []);
+}
+
+/// 同梱のファイルにない指定は同梱のソースの誤り．
+#[test]
+fn missing_core_js_file_is_an_error() {
+    let errors = lower_with_host_test("fn main() { dbg(HostTest.gone()) }\n").unwrap_err();
+    assert_eq!(errors, ["HostTest: `gone` missing core file ./missing.mjs"]);
 }

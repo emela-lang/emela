@@ -23,6 +23,17 @@ pub struct Module {
     pub effects: Arena<EffectDef>,
     /// Prelude の `Option` を入れたなら，その ID（`option_enum`）．
     pub option: Option<EnumId>,
+    /// 出力先の [`crate::CORE_JS_DIR`] の下に書き出す，同梱の JS のファイル．外部関数が同梱の
+    /// ファイルを指すときだけ入る．
+    pub js_files: Vec<JsFile>,
+}
+
+/// 出力に添える JS のファイル．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsFile {
+    /// [`crate::CORE_JS_DIR`] からの相対パス（`/` 区切り）．
+    pub path: String,
+    pub contents: String,
 }
 
 impl Module {
