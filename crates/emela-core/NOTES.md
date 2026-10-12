@@ -171,6 +171,7 @@ alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn`
 - （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `JsConsole` を写せることを `every_core_function_lowers` で見る）．
 - （補）同梱の core のソースはディスク上のパスを持たないので，core の `@external(js, "./x.mjs", …)` はソースの隣でなく，同梱の JS のファイル（`lib/` の `.mjs` を `include_str!` で埋め込んだ `core_js_files()`，`LowerInput::core_js_files`）から引く．core のソースは `lib/` の直下にあるとみなし，指定の `.` と `..` を畳んだ `lib/` からのパスで引く．`lib/` の外へ出る指定と表にない指定は `LowerError::MissingCoreFile`（同梱のソースの誤り．driver は内部の誤りの診断にする）．
 - （補）引いた指定は，出力先の `emela_core/`（`CORE_JS_DIR`）に書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）に直す．JS 出力は `./` で始まる指定を書かれたまま import する．利用者のソースのファイルの指定（絶対パスにして `file://` で読む）とは扱いを分ける．
+- （補）`lib/` の `.mjs` は出力先へそのまま書き出すので，コメントを英語で書く（`.emel` のコメントは出力に入らないので日本語のまま）
 - （補）写した外部関数が同梱のファイルを1つでも指したら，同梱の JS のファイルを全部 `Module::js_files` に入れる（どのファイルがどれを import するかを JS を読まずに済ませるため，`lib/` と同じ並びで全部書き出す）．1つも指さなければ空で，何も書き出さない．
 - （補）core の WASM の `@external` のファイルの指定は直さない（WASM は範囲外）．
 

@@ -8,6 +8,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+/// Compile, run, test, and format Emela programs.
 #[derive(Parser)]
 #[command(name = "emela", version)]
 struct Cli {
@@ -17,45 +18,50 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// 診断だけを出す
+    /// Report diagnostics without compiling
     Check {
-        /// エントリのファイルか，プロジェクトのディレクトリ（既定は `.`）
+        /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
     },
-    /// JS へコンパイルする
+    /// Compile to JavaScript under `target/emela/js`
     Build {
+        /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
-        /// 出力先（既定は `<プロジェクト>/target/emela/js`）
+        /// Output directory [default: <project>/target/emela/js]
         #[arg(long)]
         out_dir: Option<PathBuf>,
     },
-    /// コンパイルして node で実行する
+    /// Compile to JavaScript and run it with Node.js
     Run {
+        /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
+        /// Output directory [default: <project>/target/emela/js]
         #[arg(long)]
         out_dir: Option<PathBuf>,
-        /// プログラムへの引数（`--` の後に書く）
+        /// Arguments passed to the program (write them after `--`)
         #[arg(last = true)]
         args: Vec<OsString>,
     },
-    /// `@test` の付いた関数を実行する
+    /// Run the functions marked `@test`
     Test {
+        /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
-        /// テストの名前の部分文字列．合うテストだけを実行する
+        /// Run only the tests whose name contains this string
         filter: Option<String>,
-        /// 出力先（既定は `<プロジェクト>/target/emela/test`）
+        /// Output directory [default: <project>/target/emela/test]
         #[arg(long)]
         out_dir: Option<PathBuf>,
     },
-    /// ソースを整形して上書きする
+    /// Format the sources in place
     Fmt {
-        /// 整形するファイルかディレクトリ（既定は `.` のプロジェクトの `src`）．`-` なら標準入力から読んで標準出力に書く
+        /// Files or directories to format [default: `src` of the project at `.`].
+        /// `-` reads standard input and writes standard output
         paths: Vec<PathBuf>,
-        /// 書き換えず，整形が要るファイルを標準出力に並べる．1つでもあれば終了コード 1
+        /// Do not write; list the files that need formatting on standard output and exit with 1 if any
         #[arg(long)]
         check: bool,
     },
-    /// 言語サーバーを標準入出力で起動する
+    /// Start the language server over standard input and output
     Lsp,
 }
 

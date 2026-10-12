@@ -1,10 +1,10 @@
-// Emela の JS ランタイム（0.20 の純粋なサブセット）．
+// The Emela JS runtime (the pure subset of 0.20).
 //
-// 生成コードは `$` で始まる名前だけを使う．Emela の識別子は `$` を含まないので衝突しない．
-// 値の表現は crates/emela-codegen-js/NOTES.md を参照．
-// インラインで埋め込むときは行頭の `export ` を取り除くので，`export` は行頭にだけ書く．
+// Generated code only uses names starting with `$`. Emela identifiers never contain `$`, so they cannot clash.
+// For the value representation, see crates/emela-codegen-js/NOTES.md.
+// When inlined, the leading `export ` of each line is stripped, so write `export` only at the start of a line.
 
-// defect（仕様 16.5）．回復できない誤りで，専用のクラスで投げる．
+// A defect (spec 16.5). An unrecoverable error, thrown with its own class.
 export class $Defect extends Error {
   constructor(message) {
     super(message);
@@ -20,12 +20,12 @@ export function $unreachable() {
   throw new $Defect("unreachable: no match arm matched");
 }
 
-// 失敗（仕様 7章）．エラーは戻り値として返す（16.5）．`fail e` は `new $Fail(e)` を返し，
-// 失敗しうる呼び出しの結果が `$Fail` なら，それを呼び出し元か escape へ渡す．
-// `error` は error の値で，`$tag` に error ごとの印（`{ show }`）を持つ．
+// A failure (spec chapter 7). Errors are returned as values (16.5). `fail e` returns `new $Fail(e)`,
+// and if the result of a fallible call is a `$Fail`, it is passed on to the caller or to an escape.
+// `error` is the error value, and its `$tag` holds a per-error marker (`{ show }`).
 //
-// 起動用モジュールとテストランナーは $Fail のクラスを読み込まないので，`Symbol.for` の鍵で見分ける．
-// 鍵の関数は，処理されなかったエラーの表示（`NotFound(id: 1)`）を返す．
+// The entry module and the test runner do not load the $Fail class, so they recognize it by a `Symbol.for` key.
+// The function under the key returns the display of an unhandled error (`NotFound(id: 1)`).
 export class $Fail {
   constructor(error) {
     this.error = error;
@@ -36,8 +36,8 @@ export class $Fail {
   }
 }
 
-// 外部関数（仕様 12.5）が投げた例外を defect にする．defect（Emela のコールバックの中で起きたもの）は
-// そのまま．メッセージは例外の名前を前に付ける（`TypeError: …`）．
+// Turns an exception thrown by an external function (spec 12.5) into a defect. A defect (raised inside an Emela
+// callback) is kept as is. The message is prefixed with the exception's name (`TypeError: …`).
 export function $foreign(error) {
   if (error instanceof Error) {
     return error.name === "Defect" ? error : new $Defect(`${error.name}: ${error.message}`);
@@ -45,25 +45,25 @@ export function $foreign(error) {
   return new $Defect(`uncaught exception: ${String(error)}`);
 }
 
-// ビルド対象のターゲットの `@external` がない外部関数（エントリからたどれないもの）を呼んだ．
+// Called an external function with no `@external` for the build target (one not reachable from the entry).
 export function $noExternal(name) {
   throw new $Defect(`external function \`${name}\` is not available on this target`);
 }
 
-// ホストから受け取った文字列の，対になっていないサロゲートを置換文字にする（仕様 12.5）．
+// Replaces unpaired surrogates in a string received from the host with the replacement character (spec 12.5).
 export function $wellFormed(s) {
   if (typeof s !== "string") return s;
   if (typeof s.toWellFormed === "function") return s.toWellFormed();
   return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
 }
 
-// ---- 中断と再開（仕様 8.4，14.5，16.5）----
+// ---- Suspension and resumption (spec 8.4, 14.5, 16.5) ----
 //
-// 中断しうる関数はジェネレータで，中断しうる呼び出しは `yield*` でつなぐ．suspend fn の操作の呼び出しは
-// `yield $perform(op, args)`，`@external suspend fn` は `yield $await(promise)` で，要求を最も外側の
-// ジェネレータを進める駆動（$start）まで送る．駆動は要求ごとに resume を作って操作の実装を呼ぶ．
-// resume が操作の実装の中でその場で呼ばれれば，中断せずにそのまま続ける（14.5 の3）．後から呼ばれれば，
-// その呼び出しの中で継続を進める．
+// Suspending functions are generators, and suspending calls are chained with `yield*`. A call to a suspend fn
+// operation is `yield $perform(op, args)` and an `@external suspend fn` is `yield $await(promise)`; the request is
+// sent up to the driver ($start) that runs the outermost generator. The driver makes a resume per request and calls the operation's implementation.
+// If resume is called right away inside the implementation, execution continues without suspending (14.5, item 3). If it is called later,
+// the continuation runs inside that call.
 
 class $Perform {
   constructor(op, args) {
@@ -86,7 +86,7 @@ export function $await(promise) {
   return new $Await(promise);
 }
 
-// suspend fn の操作の実装 `f` に，ハンドラと操作の名前を付ける（2回目の resume の defect の文面に使う）．
+// Attaches the handler and operation names to a suspend fn operation implementation `f` (used in the defect message for a second resume).
 export function $suspendOp(handler, op, f) {
   f.$where = `operation \`${op}\` of handler \`${handler}\``;
   return f;
@@ -98,13 +98,13 @@ function $isGenerator(x) {
   return typeof x === "object" && x !== null && $GeneratorPrototype.isPrototypeOf(x);
 }
 
-// 中断しうる呼び出しで呼んだ関数の値（か fn の操作）が中断しないものだったときは，値をそのまま返す．
+// When a suspending call turns out to call a non-suspending function (or fn operation), return its value as is.
 export function* $maybe(result) {
   return $isGenerator(result) ? yield* result : result;
 }
 
-// 1つの起動（main か，テスト関数）．`done(ok, value)` を1回だけ呼ぶ．
-// 終わった後に残った継続（resume されずに捨てられたものや，後から resume されたもの）は進めない（14.5）．
+// One run (main or a test function). Calls `done(ok, value)` exactly once.
+// Continuations left after it ends (discarded without resume, or resumed later) are not run (14.5).
 class $Root {
   constructor(done) {
     this.done = done;
@@ -118,9 +118,9 @@ class $Root {
   }
 }
 
-// 中断しうる関数を呼んだジェネレータ `gen` を最後まで進める．`done(ok, value)` は，終われば
-// `(true, 戻り値)`，defect なら `(false, 例外)` で呼ばれる．中断したまま resume されなければ呼ばれない．
-// 返り値は止める関数で，呼ぶとそれ以降の継続を捨てる．
+// Runs the generator `gen` that called a suspending function to completion. `done(ok, value)` is called with
+// `(true, return value)` when it finishes and `(false, exception)` on a defect. It is not called if it stays suspended without resume.
+// Returns a stop function; calling it discards all later continuations.
 export function $start(gen, done) {
   const root = new $Root(done);
   $step(root, gen, (ok, value) => root.finish(ok, value), "next", undefined);
@@ -129,8 +129,8 @@ export function $start(gen, done) {
   };
 }
 
-// `gen` を `mode`（"next" か "throw"）と `input` で進め，次に中断するか終わるまで続ける．
-// 終われば `end(ok, value)` を呼ぶ．
+// Advances `gen` with `mode` ("next" or "throw") and `input` until it next suspends or finishes.
+// When it finishes, calls `end(ok, value)`.
 function $step(root, gen, end, mode, input) {
   for (;;) {
     if (root.over) return;
@@ -147,7 +147,7 @@ function $step(root, gen, end, mode, input) {
     }
     const request = r.value;
     if (request instanceof $Await) {
-      // ホストの例外（拒否）は defect にして，待っていた位置へ投げる（12.5）．
+      // A host exception (rejection) becomes a defect and is thrown at the waiting point (12.5).
       Promise.resolve(request.promise).then(
         (value) => $step(root, gen, end, "next", value),
         (error) => $step(root, gen, end, "throw", $foreign(error)),
@@ -161,11 +161,11 @@ function $step(root, gen, end, mode, input) {
   }
 }
 
-// suspend fn の操作の実装を，作った resume を最後の引数にして呼ぶ．その場で継続へ渡すもの
-// （`{ mode, value }`）があれば返し，中断したなら undefined を返す．
+// Calls a suspend fn operation's implementation with a fresh resume as the last argument. Returns what to pass to the continuation
+// right away (`{ mode, value }`) if any, or undefined if it suspended.
 //
-// 継続へ渡すのは，resume された値か，操作の実装の失敗（`$Fail`，操作の呼び出しの値になる）か defect の
-// どれか1つで，先に起きたもの．resume した後に実装が失敗したら defect にする．
+// What is passed to the continuation is exactly one of: the resumed value, a failure of the implementation (`$Fail`, which becomes the
+// value of the operation call), or a defect, whichever comes first. A failure of the implementation after resume becomes a defect.
 function $performOp(root, gen, end, request) {
   const where = request.op?.$where ?? "a suspend operation";
   let sync = true;
@@ -193,7 +193,7 @@ function $performOp(root, gen, end, request) {
   };
   try {
     const result = request.op(...request.args, resume);
-    // 中断しうる実装（ジェネレータ）は，別の継続として同じ起動の中で進める．
+    // A suspending implementation (a generator) runs as a separate continuation within the same run.
     if ($isGenerator(result)) $step(root, result, settled, "next", undefined);
     else settled(true, result);
   } catch (error) {
@@ -203,19 +203,19 @@ function $performOp(root, gen, end, request) {
   return now;
 }
 
-// assert（仕様 13.2）の失敗．`text` はソースの式の字面で，空でもよい．
+// A failed assert (spec 13.2). `text` is the source text of the expression and may be empty.
 export function $assertFail(text) {
   throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);
 }
 
-// 比較の assert の失敗．両辺は表示した文字列で受ける（失敗したときだけ表示する）．
+// A failed comparison assert. Both sides are received as displayed strings (displayed only on failure).
 export function $assertCmp(text, op, left, right) {
   const head = text === "" ? `left ${op} right` : text;
   throw new $Defect(`assertion failed: ${head}\n  left: ${left}\n right: ${right}`);
 }
 
-// Int（32bit）の除算と剰余．0方向へ切り捨て，剰余は被除数の符号に従う．
-// `| 0` で 2^31 / -1 のあふれを巻き戻し，-0 を 0 にする．
+// Division and remainder on Int (32-bit). Truncates toward zero; the remainder takes the sign of the dividend.
+// `| 0` wraps the 2^31 / -1 overflow and turns -0 into 0.
 export function $idiv(a, b) {
   if (b === 0) throw new $Defect("division by zero");
   return (a / b) | 0;
@@ -226,7 +226,7 @@ export function $irem(a, b) {
   return (a % b) | 0;
 }
 
-// Int64（BigInt）の除算と剰余．BigInt の `/` は0方向へ切り捨てる．
+// Division and remainder on Int64 (BigInt). BigInt `/` truncates toward zero.
 export function $ldiv(a, b) {
   if (b === 0n) throw new $Defect("division by zero");
   return BigInt.asIntN(64, a / b);
@@ -237,14 +237,14 @@ export function $lrem(a, b) {
   return a % b;
 }
 
-// List は cons セル `{ h, t }` の連なりで，空リストは `null`．
+// A List is a chain of cons cells `{ h, t }`, and the empty list is `null`.
 export function $list(items, tail = null) {
   let list = tail;
   for (let i = items.length - 1; i >= 0; i--) list = { h: items[i], t: list };
   return list;
 }
 
-// 構造の等値比較．長いリストでスタックを使わないよう，明示的なスタックで辿る．
+// Structural equality. Walks with an explicit stack so long lists do not use up the call stack.
 export function $eq(a, b) {
   const stack = [a, b];
   while (stack.length > 0) {
@@ -252,7 +252,7 @@ export function $eq(a, b) {
     const x = stack.pop();
     if (x === y) continue;
     if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) {
-      // NaN 同士は等しくない（IEEE のとおり）．
+      // NaN is not equal to NaN (as in IEEE).
       return false;
     }
     if (Array.isArray(x)) {
@@ -270,7 +270,7 @@ export function $eq(a, b) {
   return true;
 }
 
-// 文字列の順序はコードポイントの辞書順．返り値は負・0・正．
+// Strings are ordered lexicographically by code point. Returns a negative number, 0, or a positive number.
 export function $scmp(a, b) {
   const xs = a[Symbol.iterator]();
   const ys = b[Symbol.iterator]();
@@ -283,21 +283,21 @@ export function $scmp(a, b) {
   }
 }
 
-// Prelude の `todo()`．
+// The Prelude's `todo()`.
 export function $todo() {
   throw new $Defect("not yet implemented");
 }
 
-// Prelude の `dbg(value)`．`show` は値の型から生成コードが作った表示関数．
+// The Prelude's `dbg(value)`. `show` is the display function generated from the value's type.
 export function $dbg(value, show) {
   console.error(show(value));
   return value;
 }
 
-// Prelude の Option（`Some(A)` が添字 0，`None` が添字 1）．
+// The Prelude's Option (`Some(A)` is index 0, `None` is index 1).
 export const $None = Object.freeze({ $tag: 1 });
 
-// ---- String（仕様 16.2）----
+// ---- String (spec 16.2) ----
 
 let $segmenter;
 
@@ -306,14 +306,14 @@ function $graphemes(s) {
   return $segmenter.segment(s);
 }
 
-// String.length は書記素クラスタの数．
+// String.length is the number of grapheme clusters.
 export function $strlen(s) {
   let n = 0;
   for (const _ of $graphemes(s)) n++;
   return n;
 }
 
-// String.byte_size は UTF-8 で符号化したときのバイト数．
+// String.byte_size is the number of bytes when encoded as UTF-8.
 export function $strbytes(s) {
   let n = 0;
   for (const c of s) {
@@ -327,7 +327,7 @@ export function $strcat(a, b) {
   return a + b;
 }
 
-// 部分文字列の照合はコードポイントの列で行う（書記素の境界は見ない）．
+// Substring matching works on sequences of code points (grapheme boundaries are ignored).
 export function $strhas(s, sub) {
   return s.includes(sub);
 }
@@ -340,14 +340,14 @@ export function $strends(s, suffix) {
   return s.endsWith(suffix);
 }
 
-// String.chars は書記素クラスタごとの文字列のリスト．
+// String.chars is a list of strings, one per grapheme cluster.
 export function $strchars(s) {
   const items = [];
   for (const { segment } of $graphemes(s)) items.push(segment);
   return $list(items);
 }
 
-// 空の区切りでは書記素ごとに分ける（chars と同じ）．JS の split("") は UTF-16 の単位で分けるため使わない．
+// An empty separator splits per grapheme (like chars). JS split("") splits per UTF-16 unit, so it is not used.
 export function $strsplit(s, sep) {
   if (sep === "") return $strchars(s);
   return $list(s.split(sep));
@@ -362,7 +362,7 @@ export function $strjoin(parts, sep) {
   return out;
 }
 
-// 空白は Unicode の White_Space 特性の 25 文字．JS の trim は U+FEFF を含み U+0085 を含まないので使わない．
+// Whitespace is the 25 characters with the Unicode White_Space property. JS trim includes U+FEFF and excludes U+0085, so it is not used.
 const $ws = "[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]";
 const $trimRe = new RegExp(`^${$ws}+|${$ws}+$`, "g");
 
@@ -370,20 +370,20 @@ export function $strtrim(s) {
   return s.replace($trimRe, "");
 }
 
-// String.code_points はコードポイントの値のリスト．文字列の反復はコードポイントごとに進む．
+// String.code_points is a list of code point values. Iterating over a string advances per code point.
 export function $strcodepoints(s) {
   const items = [];
   for (const c of s) items.push(c.codePointAt(0));
   return $list(items);
 }
 
-// Unicode のスカラー値（0〜10FFFF でサロゲートを除く）でなければ None．
+// None unless it is a Unicode scalar value (0 to 10FFFF, excluding surrogates).
 export function $strfromcodepoint(n) {
   if (n < 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return $None;
   return { $tag: 0, $0: String.fromCodePoint(n) };
 }
 
-// ---- 数値の変換（仕様 16.1）----
+// ---- Numeric conversions (spec 16.1) ----
 
 export function $itof(n) {
   return n;
@@ -393,7 +393,7 @@ export function $itol(n) {
   return BigInt(n);
 }
 
-// Int64 から Int へは下位 32bit に巻き戻す．
+// Int64 to Int wraps to the low 32 bits.
 export function $ltoi(n) {
   return Number(BigInt.asIntN(32, n));
 }
@@ -403,7 +403,7 @@ export function $icheckedAdd(a, b) {
   return r > 2147483647 || r < -2147483648 ? $None : { $tag: 0, $0: r };
 }
 
-// Float から Int へ．丸めた結果が Int の範囲外か NaN なら defect．`| 0` で -0 を 0 にする．
+// Float to Int. A defect if the rounded result is out of Int range or NaN. `| 0` turns -0 into 0.
 function $ftoi(x, r) {
   if (!(r >= -2147483648 && r <= 2147483647)) {
     throw new $Defect(`cannot convert ${$showFloat(x)} to Int`);
@@ -419,7 +419,7 @@ export function $fceil(x) {
   return $ftoi(x, Math.ceil(x));
 }
 
-// 0.5 は 0 から遠い方へ丸める．Math.round は正の向きへ丸めるので，負の数は符号を外して丸める．
+// 0.5 rounds away from zero. Math.round rounds toward positive infinity, so negative numbers are rounded without their sign.
 export function $fround(x) {
   return $ftoi(x, x < 0 ? -Math.round(-x) : Math.round(x));
 }
@@ -428,9 +428,9 @@ export function $ftrunc(x) {
   return $ftoi(x, Math.trunc(x));
 }
 
-// ---- ビット演算（仕様 6.6）----
-// シフト量が負なら defect，幅（32 か 64）以上なら全部のビットを押し出した値にする．
-// JS の `<<` などはシフト量の下位 5bit しか見ないので，範囲外を先に処理する．
+// ---- Bitwise operations (spec 6.6) ----
+// A negative shift amount is a defect; an amount at or above the width (32 or 64) shifts out every bit.
+// JS `<<` and friends only look at the low 5 bits of the shift amount, so out-of-range amounts are handled first.
 
 function $shiftBy(by) {
   if (by < 0) throw new $Defect(`negative shift amount: ${by}`);
@@ -465,7 +465,7 @@ export function $iushr(a, by) {
   return $shiftBy(by) >= 32 ? 0 : (a >>> by) | 0;
 }
 
-// Int64 は BigInt．and / or / xor / not は2の補数として働くので巻き戻しは要らない．
+// Int64 is a BigInt. and / or / xor / not act on two's complement, so no wrapping is needed.
 export function $land(a, b) {
   return a & b;
 }
@@ -494,8 +494,8 @@ export function $lushr(a, by) {
   return $shiftBy(by) >= 64 ? 0n : BigInt.asIntN(64, BigInt.asUintN(64, a) >> BigInt(by));
 }
 
-// ---- 表示（Show の仮実装．仕様 10.6）----
-// 型から決まる表示関数は生成コードが組み立てる．ここには基本型とリスト，タプルのものを置く．
+// ---- Display (a provisional Show implementation, spec 10.6) ----
+// Display functions determined by type are built by the generated code. This holds the ones for primitive types, lists, and tuples.
 
 export function $showInt(n) {
   return String(n);
@@ -509,7 +509,7 @@ export function $showBool(b) {
   return b ? "True" : "False";
 }
 
-// 整数値の有限な Float は `1.0` のように小数点を付けて，Int と見分けられるようにする．
+// A finite Float with an integral value gets a decimal point, like `1.0`, so it can be told apart from an Int.
 export function $showFloat(x) {
   const s = String(x);
   return Number.isFinite(x) && /^-?\d+$/.test(s) ? s + ".0" : s;
@@ -519,8 +519,8 @@ export function $showUnit(_) {
   return "()";
 }
 
-// 文字列はソースの書き方で表す．エスケープは `\"`，`\\`，`\n`，`\#`（`#{` の前だけ）．
-// 言語にエスケープのない制御文字は `\t`，`\r`，`\u{…}` と出す（仕様 18.1 #11 で未決）．
+// Strings are shown as written in source. Escapes are `\"`, `\\`, `\n`, and `\#` (only before `#{`).
+// Control characters with no escape in the language are shown as `\t`, `\r`, or `\u{…}` (undecided in spec 18.1 #11).
 const $strEscRe = /["\\]|#(?=\{)|[\u0000-\u001f\u007f]/g;
 
 export function $showString(s) {
