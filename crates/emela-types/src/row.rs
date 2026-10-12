@@ -13,6 +13,13 @@ use emela_resolve::hir::DefId;
 
 use crate::ty::Ty;
 
+/// 集合の種類．エラーの集合 E か効果の集合 R か．
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SetKind {
+    Errors,
+    Effects,
+}
+
 /// 推論の集合変数．表示は `?e0`．
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RowVar(pub(crate) u32);

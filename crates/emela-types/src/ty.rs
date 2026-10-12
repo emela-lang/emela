@@ -10,7 +10,7 @@ use ena::unify::{NoError, UnifyKey, UnifyValue};
 use la_arena::{Arena, ArenaMap, Idx};
 use smol_str::SmolStr;
 
-pub use crate::row::{Row, RowElem, RowVar};
+pub use crate::row::{Row, RowElem, RowVar, SetKind};
 
 /// 組み込みの基本型．
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -214,6 +214,9 @@ pub enum Ty {
     List(Box<Ty>),
     /// 名前付き型の適用（`Pair[A, B]`，`Option[A]`）．
     Named(TyConId, Vec<Ty>),
+    /// 名前付き型の集合の型引数に渡した集合（9.2 の `Handler[E, R]` の `E` と `R`）．
+    /// 名前付き型の型引数の位置にだけ現れる．値の型ではない．
+    Set(SetKind, Row),
     /// エフェクトの能力の値の型（8.2）．`use X` が返す．中身は effect の定義．
     /// ソースには書けず，引数に渡す，データ構造に入れる，返すことはできない．
     Cap(DefId),
@@ -273,6 +276,7 @@ impl Ty {
                 f(&fun.ret);
                 fun.fails.for_each_ty(f);
             }
+            Ty::Set(_, row) => row.for_each_ty(f),
             Ty::Tuple(elems) | Ty::Named(_, elems) => elems.iter().for_each(f),
             Ty::List(elem) => f(elem),
         }
@@ -291,6 +295,7 @@ impl Ty {
                 fails: fun.fails.map_tys(&mut f),
                 uses: fun.uses.clone(),
             })),
+            Ty::Set(kind, row) => Ty::Set(*kind, row.map_tys(f)),
             Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(f).collect()),
             Ty::Named(id, args) => Ty::Named(*id, args.iter().map(f).collect()),
             Ty::List(elem) => Ty::List(Box::new(f(elem))),

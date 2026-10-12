@@ -13,7 +13,7 @@
 
 use std::fmt;
 
-use crate::row::{Row, RowElem};
+use crate::row::{Row, RowElem, SetKind};
 use crate::scheme::Scheme;
 use crate::ty::{Ty, TyCons, TyParam};
 
@@ -217,6 +217,15 @@ impl fmt::Display for TyDisplay<'_> {
                     write!(f, " use {row}")?;
                 }
                 Ok(())
+            }
+            // 名前付き型の集合の型引数（`Handler[NotFound | Timeout, { Db, Logger }]`）．
+            Ty::Set(kind, row) => {
+                let row = RowDisplay {
+                    row,
+                    effects: *kind == SetKind::Effects,
+                    ty: self.child(self.ty),
+                };
+                write!(f, "{row}")
             }
             Ty::Tuple(elems) => {
                 f.write_str("(")?;

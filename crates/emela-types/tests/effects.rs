@@ -699,3 +699,97 @@ handler Ticking implements Logger {
 "#
     ));
 }
+
+/// 宣言の型引数を fails と use に使う形（9.2 の `type Handler[E, R]`）．型引数の種類は使われた
+/// 位置から決める．型引数の位置には，その種類のタグ1つか集合の型引数を書ける．構成子の呼び出しは
+/// フィールドの関数から E と R を推論し，フィールドの関数を呼ぶと E と R が呼んだ側に載る．
+#[test]
+fn declaration_sets() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+type Request(path: String)
+type Response(body: String)
+
+error NotFound
+error Timeout
+
+effect Db {
+  fn query(q: String) -> String
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+type Handler[E, R](run: fn(Request) -> Response fails E use R)
+
+enum Step[E] {
+  Done,
+  Next(fn() -> Int fails E),
+}
+
+type Server[E](inner: Handler[E, Db])
+
+type Ticker[R: Immediate](tick: fn() -> () use R)
+
+handler MemDb implements Db {
+  fn query(q) { q }
+}
+
+fn db_handler() {
+  Handler(run: fn(req) {
+    body = (use Db).query(req.path)
+    Response(body:)
+  })
+}
+
+fn failing() -> Handler[NotFound, Db] {
+  Handler(run: fn(req) { fail NotFound })
+}
+
+fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {
+  h.run(req)
+}
+
+fn served() -> Response {
+  with MemDb {
+    serve(failing(), Request(path: "/")) escape {
+      NotFound -> Response(body: "404")
+    }
+  }
+}
+
+fn inferred(req: Request) {
+  serve(db_handler(), req)
+}
+
+fn too_much() -> Handler[NotFound, Db] {
+  Handler(run: fn(req) {
+    (use Clock).sleep(1)
+    fail Timeout
+  })
+}
+
+fn bad_args(a: Handler[Int, Db], b: Handler[NotFound, NotFound], c: List[Db]) { () }
+
+fn steps(s: Step[Timeout]) -> Int fails Timeout {
+  match s {
+    Done -> 0
+    Next(f) -> f()
+  }
+}
+
+fn server(s: Server[NotFound], req: Request) -> Response fails NotFound use Db {
+  s.inner.run(req)
+}
+
+fn tickers() {
+  a = Ticker(tick: fn() {
+    (use Db).query("x")
+    ()
+  })
+  b = Ticker(tick: fn() { (use Clock).sleep(1) })
+}
+"#
+    ));
+}

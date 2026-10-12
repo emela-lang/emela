@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype Request(path: String)  # 補\ntype Response(body: String)  # 補\nerror NotFound  # 補\n\ntype Handler[E, R](run: fn(Request) -> Response fails E use R)\n\nfn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E use R {  # 補\n  h.run(req)\n}\n\nfn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E0323\n  Handler(run: fn(req) { fail NotFound })\n}\n\"#)"
+---
+serve: ∀ E, R. fn(Handler[E, R], Request) -> Response fails E use R
+  h: Handler['0, '1]
+  req: Request
+not_found: fn() -> Handler[NotFound, {}]
+  req: Request
+`Never` SetArgMismatch { param: "R", ty: "Handler", effects: true, found: "type `Never`" }

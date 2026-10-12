@@ -485,6 +485,14 @@ impl BodyInfer<'_> {
                     self.negative_row_vars(a, true, out);
                 }
             }
+            // 名前付き型の集合の型引数は両方の位置とみなす（上で両方から呼ぶ）．
+            Ty::Set(_, row) if !positive => {
+                for v in row.vars() {
+                    if !out.contains(&v) {
+                        out.push(v);
+                    }
+                }
+            }
             Ty::List(elem) => self.negative_row_vars(&elem, positive, out),
             Ty::Tuple(elems) => {
                 for e in &elems {

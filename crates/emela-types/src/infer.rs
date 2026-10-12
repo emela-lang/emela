@@ -14,12 +14,7 @@ use crate::row::{Row, RowElem, RowVar};
 use crate::scheme::{Scheme, param_name, set_param_name};
 use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
 
-/// 集合の種類．エラーの集合 E か効果の集合 R か．
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum SetKind {
-    Errors,
-    Effects,
-}
+pub use crate::row::SetKind;
 
 /// 集合の包含の制約 `sub ⊆ sup`．
 #[derive(Clone, Debug)]
@@ -194,6 +189,7 @@ impl InferCtx {
                 self.resolve_row(&f.fails),
                 self.resolve_row(&f.uses),
             ),
+            Ty::Set(kind, row) => Ty::Set(kind, self.resolve_row(&row)),
             ty => ty.map_children(|child| self.resolve(child)),
         }
     }
@@ -286,6 +282,15 @@ impl InferCtx {
                     uses,
                 )
             }
+            Ty::Set(kind, row) => Ty::Set(
+                kind,
+                Row::from_elems(
+                    row.elems()
+                        .iter()
+                        .filter(|e| !matches!(e, RowElem::Var(_)))
+                        .cloned(),
+                ),
+            ),
             ty => ty.map_children(|child| self.resolve_for_report(child)),
         }
     }
@@ -393,6 +398,11 @@ impl InferCtx {
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
             (Ty::Cap(x), Ty::Cap(y)) if x == y => Ok(()),
+            // 名前付き型の集合の型引数．型引数の中なので，ふつうは両方向の包含になる．
+            (Ty::Set(k, x), Ty::Set(l, y)) if k == l => {
+                self.buffer_rows(*k, x, y, variance);
+                Ok(())
+            }
             (Ty::Fn(f), Ty::Fn(g)) if f.params.len() == g.params.len() => {
                 for (p, q) in f.params.iter().zip(&g.params) {
                     self.unify_inner(p, q, variance.flip())?;
@@ -592,12 +602,15 @@ pub(crate) fn free_row_vars(ty: &Ty) -> Vec<(RowVar, SetKind)> {
 }
 
 fn collect_row_vars(ty: &Ty, out: &mut Vec<(RowVar, SetKind)>) {
-    if let Ty::Fn(f) = ty {
-        for (row, kind) in [(&f.fails, SetKind::Errors), (&f.uses, SetKind::Effects)] {
-            for v in row.vars() {
-                if !out.iter().any(|(w, _)| *w == v) {
-                    out.push((v, kind));
-                }
+    let rows: Vec<(&Row, SetKind)> = match ty {
+        Ty::Fn(f) => vec![(&f.fails, SetKind::Errors), (&f.uses, SetKind::Effects)],
+        Ty::Set(kind, row) => vec![(row, *kind)],
+        _ => Vec::new(),
+    };
+    for (row, kind) in rows {
+        for v in row.vars() {
+            if !out.iter().any(|(w, _)| *w == v) {
+                out.push((v, kind));
             }
         }
     }
@@ -605,36 +618,45 @@ fn collect_row_vars(ty: &Ty, out: &mut Vec<(RowVar, SetKind)>) {
 }
 
 fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u32>) -> Ty {
+    let replace_row = |row: &Row| {
+        row.flat_map(|e| match e {
+            RowElem::Var(v) => match rows.get(v) {
+                Some(i) => Row::from_elems([RowElem::Bound(*i)]),
+                None => Row::var(*v),
+            },
+            RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
+            e => Row::from_elems([e.clone()]),
+        })
+    };
     match ty {
         Ty::Var(v) => map.get(v).map_or_else(|| ty.clone(), |i| Ty::Bound(*i)),
-        Ty::Fn(f) => {
-            let replace_row = |row: &Row| {
-                row.flat_map(|e| match e {
-                    RowElem::Var(v) => match rows.get(v) {
-                        Some(i) => Row::from_elems([RowElem::Bound(*i)]),
-                        None => Row::var(*v),
-                    },
-                    RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
-                    e => Row::from_elems([e.clone()]),
-                })
-            };
-            Ty::func_sets(
-                f.params
-                    .iter()
-                    .map(|p| replace_vars(p, map, rows))
-                    .collect::<Vec<_>>(),
-                replace_vars(&f.ret, map, rows),
-                replace_row(&f.fails),
-                replace_row(&f.uses),
-            )
-        }
+        Ty::Set(kind, row) => Ty::Set(*kind, replace_row(row)),
+        Ty::Fn(f) => Ty::func_sets(
+            f.params
+                .iter()
+                .map(|p| replace_vars(p, map, rows))
+                .collect::<Vec<_>>(),
+            replace_vars(&f.ret, map, rows),
+            replace_row(&f.fails),
+            replace_row(&f.uses),
+        ),
         _ => ty.map_children(|child| replace_vars(child, map, rows)),
     }
 }
 
-/// `Ty::Bound(i)` を `args[i]` に置き換える．集合の型引数（`RowElem::Bound`）はそのまま残す．
+/// `Ty::Bound(i)` を `args[i]` に置き換える．名前付き型の型引数を代入するのに使う．
+/// 集合の型引数（`RowElem::Bound(i)`）は，`args[i]` が集合（`Ty::Set`）ならその集合に置き換え，
+/// そうでなければそのまま残す．
 pub fn substitute_bound(ty: &Ty, args: &[Ty]) -> Ty {
-    substitute(ty, args, &[])
+    let rows: Vec<Row> = args
+        .iter()
+        .enumerate()
+        .map(|(i, a)| match a {
+            Ty::Set(_, row) => row.clone(),
+            _ => Row::from_elems([RowElem::Bound(i as u32)]),
+        })
+        .collect();
+    substitute(ty, args, &rows)
 }
 
 /// `Ty::Bound(i)` を `tys[i]` に，集合の中の `RowElem::Bound(i)` を `rows[i]` に置き換える．
@@ -651,6 +673,7 @@ pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
             substitute_row(&f.fails, tys, rows),
             substitute_row(&f.uses, tys, rows),
         ),
+        Ty::Set(kind, row) => Ty::Set(*kind, substitute_row(row, tys, rows)),
         _ => ty.map_children(|child| substitute(child, tys, rows)),
     }
 }
