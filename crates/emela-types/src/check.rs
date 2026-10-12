@@ -18,7 +18,7 @@ use crate::layer::{self, LayerInfo};
 use crate::lower::TyTable;
 use crate::row::{Row, RowVar};
 use crate::signature::Signatures;
-use crate::ty::Ty;
+use crate::ty::{Ty, TyVar};
 
 /// プログラム全体の型検査の結果．HIR の番号をキーにした表を並べたもの．
 ///
@@ -49,6 +49,10 @@ pub struct ProgramTypes {
     /// 宣言の型のなかった定義の本体の中の，汎化した集合変数 → 宣言の型（`sigs`）の型引数の添字．
     /// 本体の式の型と集合（`exprs`，`effects`）には，汎化した集合変数が `RowElem::Var` のまま残る．
     pub generalized_rows: ArenaMap<DefId, Vec<(RowVar, u32)>>,
+    /// 宣言の型のなかった定義の本体の中の，汎化した型変数 → 宣言の型の型引数の添字．本体の式の型には
+    /// 汎化した型変数が `Ty::Var` のまま残る．lowering が，本体の中の `use State[A]` の `A` を
+    /// 型引数として扱うのに使う（証拠の表の鍵，8.1）．
+    pub generalized_tys: ArenaMap<DefId, Vec<(TyVar, u32)>>,
     /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．省いたフィールドは `None`．
     pub pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     /// 各式のエラーの集合 E（9.4）．集合変数は解に置き換えてある．汎化した定義の本体の中では，
@@ -111,6 +115,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         type_args: ArenaMap::default(),
         type_rows: ArenaMap::default(),
         generalized_rows: ArenaMap::default(),
+        generalized_tys: ArenaMap::default(),
         pat_fields: ArenaMap::default(),
         errors: ArenaMap::default(),
         effects: ArenaMap::default(),
@@ -170,6 +175,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .type_rows
             .extend(body.type_rows.iter().map(|(id, rows)| (id, rows.clone())));
         types.generalized_rows.extend(body.generalized_rows);
+        types.generalized_tys.extend(body.generalized_tys);
         types
             .pat_fields
             .extend(body.pat_fields.iter().map(|(id, pats)| (id, pats.clone())));

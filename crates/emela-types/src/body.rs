@@ -44,6 +44,8 @@ pub(crate) struct BodyTypes {
     pub(crate) type_rows: ArenaMap<ExprId, Vec<Row>>,
     /// 宣言の型のなかった定義の，汎化した集合変数と型引数の添字．
     pub(crate) generalized_rows: Vec<(DefId, Vec<(RowVar, u32)>)>,
+    /// 宣言の型のなかった定義の，汎化した型変数と型引数の添字．
+    pub(crate) generalized_tys: Vec<(DefId, Vec<(TyVar, u32)>)>,
     pub(crate) pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     pub(crate) diags: Vec<Diagnostic>,
     /// 宣言の型のなかった定義の，汎化した宣言の型．
@@ -653,17 +655,19 @@ impl<'a> BodyInfer<'a> {
         let program = self.program;
         let mut inferred = Vec::new();
         let mut generalized_rows = Vec::new();
+        let mut generalized_tys = Vec::new();
         for (def, ty, params) in std::mem::take(&mut self.pending) {
             let labels = match program.item(def) {
                 Some(Item::Fn(item)) => param_labels(program, &item.sig.params),
                 _ => Vec::new(),
             };
             // トップレベルなので環境の型変数はない．
-            let (scheme, rows) =
+            let (scheme, rows, tys) =
                 self.ctx
                     .generalize_bounded(&ty, params, &[], &self.immediate_vars);
             inferred.push((def, Signature { scheme, labels }));
             generalized_rows.push((def, rows));
+            generalized_tys.push((def, tys));
         }
 
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
@@ -706,6 +710,7 @@ impl<'a> BodyInfer<'a> {
             type_args,
             type_rows,
             generalized_rows,
+            generalized_tys,
             pat_fields: self.pat_fields,
             diags: self.diags,
             inferred,

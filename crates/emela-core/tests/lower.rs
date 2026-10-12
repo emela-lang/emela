@@ -651,6 +651,37 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// State.run（8.8）と型引数のあるエフェクト（8.1）．State.run は入れ物と，それを読み書きする
+/// ハンドラの値を作り，`State[S]` の鍵で表に足して body を呼ぶ．汎用の fn の本体は自分の型引数の鍵
+/// （`State[$modify.0]`）で引き，呼ぶ側が具体化した鍵（`State[Int]`）のハンドラをその鍵に足す．
+#[test]
+fn state_run_and_effect_type_args() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+  (use State[S]).update(f)
+  (use State[S]).get()
+}
+
+fn main() {
+  dbg(State.run(\"\", fn() {
+    State.run(1, fn() {
+      (use State[String]).set(\"x\")
+      modify(fn(n) { n + 1 })
+    })
+  }))
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| ["fn main(", "fn modify("].iter().any(|k| f.contains(k)))
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// 外部関数（12章）．ファイルを指すモジュールはソースの隣のパスに直す．
 #[test]
 fn external_functions() {

@@ -415,6 +415,19 @@ export function $dbg(value, show) {
   return value;
 }
 
+// The cell that holds the state of `State.run` (spec 8.8). Only the lowering creates and reads it.
+export function $cellNew(value) {
+  return { value };
+}
+
+export function $cellGet(cell) {
+  return cell.value;
+}
+
+export function $cellSet(cell, value) {
+  cell.value = value;
+}
+
 // The Prelude's Option (`Some(A)` is index 0, `None` is index 1).
 export const $None = Object.freeze({ $tag: 1 });
 

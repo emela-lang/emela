@@ -782,3 +782,89 @@ fn stuck() {
         "{out}"
     );
 }
+
+#[test]
+fn state_and_test_handlers_in_tests() {
+    // テストの中で State.run と同梱の TestConsole，TestClock を使う（8.8，13章，15.2）．
+    // State を Async なしで供給するので，テスト関数の R は空になる．
+    let sources = &[
+        ("app/Pome.toml", ""),
+        (
+            "app/src/main.emel",
+            r##"error Boom
+
+fn greet(id: Int) -> () use { Console } {
+  (use Console).print_line("Hello, #{id}!")
+}
+
+fn wait_twice() -> Duration use { Clock } {
+  clock = use Clock
+  start = clock.now()
+  clock.sleep(250)
+  clock.sleep(750)
+  clock.now() |> Instant.since(start)
+}
+
+@test
+fn greets() {
+  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+  assert lines == ["Hello, 1!"]
+}
+
+@test
+fn clock_moves() {
+  start = Instant.from_unix_milliseconds(Int.to_int64(0))
+  (d, end) = State.run(start, fn() { with TestClock { wait_twice() } })
+  assert Duration.to_milliseconds(d) == Int.to_int64(1000)
+  assert Instant.to_unix_milliseconds(end) == Int.to_int64(1000)
+}
+
+@test
+fn two_states() {
+  ((_, s), n) = State.run(1, fn() {
+    State.run("a", fn() {
+      (use State[Int]).update(fn(n) { n + 41 })
+      (use State[String]).update(fn(s) { String.concat(s, "b") })
+    })
+  })
+  assert n == 42
+  assert s == "ab"
+}
+
+@test
+fn failure_drops_the_state() {
+  State.run(0, fn() {
+    (use State[Int]).set(1)
+    fail Boom
+  })
+}
+"##,
+        ),
+    ];
+    let (analysis, report, _) = run_tests(
+        "state",
+        sources,
+        &mut LowerTests::default(),
+        &mut CoreJs,
+        None,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let outcomes: Vec<_> = report
+        .unwrap()
+        .results
+        .iter()
+        .map(|r| (r.name.clone(), r.outcome.clone()))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            ("greets".to_owned(), TestOutcome::Passed),
+            ("clock_moves".to_owned(), TestOutcome::Passed),
+            ("two_states".to_owned(), TestOutcome::Passed),
+            (
+                "failure_drops_the_state".to_owned(),
+                TestOutcome::Error("Boom".into())
+            ),
+        ]
+    );
+}

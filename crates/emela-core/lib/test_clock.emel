@@ -1,0 +1,19 @@
+# The test handler for Clock (spec 15.2). The current time is `State[Instant]`, so use it inside
+# `State.run` with the starting time:
+#
+#   start = Instant.from_unix_milliseconds(Int.to_int64(0))
+#   (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+
+import Clock.{Clock}
+import State.{State}
+
+## `sleep` moves the time forward by `ms` and resumes at once (a negative `ms` is the same as 0).
+## `now` returns the time in `State[Instant]`.
+pub handler TestClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    by = Duration.milliseconds(Int.to_int64(if ms < 0 { 0 } else { ms }))
+    (use State[Instant]).update(fn(t) { Instant.add(t, by) })
+    resume(())
+  }
+  fn now() { (use State[Instant]).get() }
+}

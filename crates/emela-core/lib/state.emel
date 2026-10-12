@@ -4,8 +4,8 @@
 # Use it as `(use State[Int]).get()` and provide the state with `State.run(0, fn() { ... })`.
 # To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
 #
-# Not bundled yet (not in SOURCES in `src/sources.rs`). It will be bundled together with the
-# implementation of `run` (a built-in handler provided by the runtime) and its lowering (NOTES.md).
+# `run` is a built-in handler provided by the runtime: the lowering writes it in place instead of
+# calling a function (NOTES.md).
 
 ## Reads and writes a state of type `S`.
 pub effect State[S] {
