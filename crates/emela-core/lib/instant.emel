@@ -6,9 +6,7 @@
 ## ある時点．
 pub opaque type Instant(milliseconds: Int64)
 
-## Unix エポックから `ms` ミリ秒の時点．Clock のハンドラが Instant を作るためのもので，
-## 同梱の core の中からしか呼べない（E0228）．
-@internal
+## Unix エポックから `ms` ミリ秒の時点．負ならエポックより前．
 pub fn from_unix_milliseconds(ms: Int64) -> Instant {
   Instant(milliseconds: ms)
 }

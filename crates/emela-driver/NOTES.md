@@ -75,10 +75,10 @@ pub trait TestBackend<P> {
 
 ## core の中からだけ参照できる fn（`@internal`，`internal.rs`）
 
-alpha.3 で Instant を Clock のハンドラが作るために足した（2026-10-12）．仕様にない注釈なので，仕様 3.5 と付録 A への反映を待つ．
+alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Instant.from_unix_milliseconds`）を Clock のハンドラだけに使わせるためだったが，Instant は公開することにしたので，今の同梱の core に `@internal` の fn はない．core の中でだけ使わせたい fn のための仕組みとして残す（本人の決定）．仕様にない注釈なので，仕様 3.5 と付録 A への反映を待つ．
 
 - （補）`@internal` は同梱の core のソースのトップレベルの fn にだけ付けられる．ソースのモジュールに書いたもの，トップレベルの fn 以外に付けたものは E0229（``` `@internal` can only be used in the bundled core library ``` / ``` `@internal` can only be used on top-level functions ```）
-- （補）`@internal` の fn を core のモジュールの外（fn，const，handler の本体）から参照すると E0228（``function `Instant.from_unix_milliseconds` can only be used from the bundled core library``，注記 ``= note: it is marked `@internal` ``）．呼び出しも値としての参照も数える．import の一覧に書くだけでは出ない（E0227 と同じく本体の参照だけを見る）
+- （補）`@internal` の fn を core のモジュールの外（fn，const，handler の本体）から参照すると E0228（``function `Secret.key` can only be used from the bundled core library``，注記 ``= note: it is marked `@internal` ``）．呼び出しも値としての参照も数える．import の一覧に書くだけでは出ない（E0227 と同じく本体の参照だけを見る）
 - （補）検査は E0227 と同じく型検査のフロントエンド（`Typecheck::check`）で，名前解決の後に HIR の本体の参照（`emela_types::body_refs`）をたどって行う．名前解決の可視性（pub）とは別の検査にして，名前解決には手を入れない．check と LSP の両方で出る
 
 ## 整形（`emela fmt`）

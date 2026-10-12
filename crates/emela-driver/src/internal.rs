@@ -1,9 +1,8 @@
 //! 同梱の core の中からだけ参照できる fn（`@internal`）の検査．
 //!
 //! `@internal` は同梱の core のソースのトップレベルの fn にだけ付けられ（E0229），付いた fn は
-//! core のモジュールの外から参照できない（E0228）．Clock のハンドラが Instant を作る関数
-//! （`Instant.from_unix_milliseconds`）のように，opaque な型の中身を別の core のモジュールへ
-//! 渡すためのもの．
+//! core のモジュールの外から参照できない（E0228）．opaque な型の中身を別の core のモジュールへ
+//! 渡すときのように，core の中でだけ使わせたい fn に付ける．今の同梱の core に使う fn はない．
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, DefModule, Program};

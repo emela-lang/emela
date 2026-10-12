@@ -78,7 +78,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）Instant は `to_unix_milliseconds`，`add` / `subtract`（Duration だけずらす），`since(t, earlier)`（`earlier` から `t` までの Duration．`now |> Instant.since(start)`），`compare`，`to_string`．
 - （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
-- （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`，次の段）．Instant を作れるのは `Instant.from_unix_milliseconds(ms: Int64) -> Instant` だけで，これは `@internal`（同梱の core の中からだけ参照できる．E0228，emela-driver の NOTES）．Clock のハンドラ（`JsClock`，`TestClock`）が使う．利用者のコードは Clock から Instant を受け取るだけで，時点を作り出せない．
+- （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
 - （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` は構造の比較で使える．`dbg` と補間では中身がそのまま見える（`Instant(milliseconds: …)`．Show を Trait にする 0.21 で `to_string` に揃える）．
 - （補）Instant は Duration を import せずに使う（名前が1区切りの core のモジュールなので `.` の左と型の位置で見える，4.6）．
 - （補）`Instant` と `Duration` を同梱したので，ソースのルート直下の `instant.emel` と `duration.emel` は予約名（E0203）になる（4.1，15.2．本人の決定）．

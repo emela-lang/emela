@@ -677,11 +677,17 @@ fn reachable_external_without_target() {
 #[test]
 fn internal_fns_are_core_only() {
     // `@internal` の fn は core のモジュールからは呼べ，ソースのモジュールからは呼べない（E0228）．
-    // `@internal` はソースのモジュールには書けない（E0229）．
+    // `@internal` はソースのモジュールには書けない（E0229）．今の同梱の core には `@internal` の
+    // fn がないので，テスト用の core のモジュールを足す．
     let mut core = CoreSource::bundled();
     core.push(CoreSource {
-        module: "FixedClock".into(),
-        text: "pub fn at(ms: Int64) -> Instant {\n  Instant.from_unix_milliseconds(ms)\n}\n".into(),
+        module: "Secret".into(),
+        text: "@internal\npub fn key() -> Int { 42 }\n\npub fn hint() -> Int { key() - 1 }\n"
+            .into(),
+    });
+    core.push(CoreSource {
+        module: "Friend".into(),
+        text: "pub fn peek() -> Int { Secret.key() }\n".into(),
     });
     let mut frontend = Typecheck::new(Resolve::default().with_core(core));
     let analysis = check_files(
@@ -689,10 +695,9 @@ fn internal_fns_are_core_only() {
             "home/main.emel",
             "\
 fn main() {
-  t = Instant.from_unix_milliseconds(0)
-  f = Instant.from_unix_milliseconds
-  u = FixedClock.at(1)
-  dbg(Instant.to_unix_milliseconds(Instant.add(t, Duration.seconds(1))))
+  k = Secret.key()
+  f = Secret.key
+  dbg(Secret.hint() + Friend.peek())
 }
 
 @internal
