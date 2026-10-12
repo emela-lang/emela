@@ -317,12 +317,17 @@ impl Context<'_> {
             Some(Ty::Named(con, _)) => {
                 let def = types.ty_table.def(*con);
                 let fields = match hir.item(def) {
-                    Some(Item::Type(t)) => &t.fields,
-                    Some(Item::Error(e)) => &e.fields,
+                    Some(Item::Type(t)) => match &t.fields {
+                        Fields::Named(fields) => fields,
+                        _ => return Vec::new(),
+                    },
+                    Some(Item::Error(e)) => match &e.fields {
+                        Fields::Named(fields) => fields,
+                        _ => return Vec::new(),
+                    },
+                    // ハンドラの値（`self.`，8.4）．
+                    Some(Item::Handler(h)) => &h.fields,
                     _ => return Vec::new(),
-                };
-                let Fields::Named(fields) = fields else {
-                    return Vec::new();
                 };
                 fields
                     .iter()
@@ -376,6 +381,7 @@ impl Context<'_> {
         let ctor = match hir.item(def)? {
             Item::Type(t) => t.ctor?,
             Item::Error(_) => def,
+            Item::Handler(h) => h.ctor?,
             _ => return None,
         };
         let sig = self.program.types.sigs.get(ctor)?;

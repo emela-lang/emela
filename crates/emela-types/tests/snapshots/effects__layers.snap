@@ -1,0 +1,82 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect Config {\n  fn db_url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  fn now() -> Int\n}\n\neffect Ping {\n  fn ping() -> ()\n}\n\neffect Pong {\n  fn pong() -> ()\n}\n\nhandler EnvConfig implements Config {\n  fn db_url() { \"x\" }\n}\n\nhandler ConsoleLogger implements Logger {\n  fn info(msg) { () }\n}\n\nhandler SilentLogger implements Logger {\n  fn info(msg) { () }\n}\n\nhandler FixedClock implements Clock {\n  fn now() { 0 }\n}\n\nhandler RealClock implements Clock {\n  fn now() {\n    (use Logger).info(\"now\")\n    1\n  }\n}\n\nhandler DbUsers(url: String) implements Users {\n  init { DbUsers(url: (use Config).db_url()) }\n  fn find(id) {\n    (use Logger).info(self.url)\n    self.url\n  }\n}\n\nhandler HPing implements Ping {\n  fn ping() { (use Pong).pong() }\n}\n\nhandler HPong implements Pong {\n  fn pong() { (use Ping).ping() }\n}\n\nlayer Base {\n  ConsoleLogger\n  RealClock\n}\n\nlayer AppLive {\n  DbUsers\n  Base\n  EnvConfig\n}\n\nlayer Partial {\n  DbUsers\n  ConsoleLogger\n}\n\nlayer Dup {\n  ConsoleLogger\n  SilentLogger\n}\n\nlayer DupNested {\n  Dup\n  Base\n}\n\nlayer Twice { ConsoleLogger, ConsoleLogger }\n\nlayer LoopA { LoopB }\n\nlayer LoopB { LoopA }\n\nlayer PingPong {\n  HPing\n  HPong\n}\n\nfn main() {\n  with AppLive { (use Users).find(1) }\n}\n\nfn partial() {\n  with Partial { (use Users).find(1) }\n}\n\nfn test_override() {\n  with AppLive, FixedClock { (use Clock).now() }\n}\n\nfn later_wins() {\n  with ConsoleLogger, SilentLogger { (use Logger).info(\"x\") }\n}\n\nfn ping_pong() {\n  with PingPong { (use Ping).ping() }\n}\n\nfn loops() {\n  with LoopA { () }\n}\n\"#)"
+---
+main: fn() -> String
+partial: fn() -> String use Config
+test_override: fn() -> Int
+later_wins: fn() -> ()
+ping_pong: fn() -> ()
+loops: fn() -> ()
+handler EnvConfig: use {}
+handler ConsoleLogger: use {}
+handler SilentLogger: use {}
+handler FixedClock: use {}
+handler RealClock: use Logger
+handler DbUsers: use { Config, Logger }
+handler HPing: use Pong
+handler HPong: use Ping
+layer Base: [ConsoleLogger, RealClock] use {}
+layer AppLive: [ConsoleLogger, RealClock, EnvConfig, DbUsers] use {}
+layer Partial: [ConsoleLogger, DbUsers] use Config
+layer Dup: [ConsoleLogger] use {}
+layer DupNested: [ConsoleLogger, RealClock] use {}
+layer Twice: [ConsoleLogger] use {}
+layer LoopA: [] use {}
+layer LoopB: [] use {}
+layer PingPong: [HPing, HPong] use {}
+with AppLive: init [ConsoleLogger, RealClock, EnvConfig, DbUsers]
+with Partial: init [ConsoleLogger, DbUsers]
+with AppLive, FixedClock: init [ConsoleLogger, EnvConfig, DbUsers, FixedClock]
+with ConsoleLogger, SilentLogger: init [SilentLogger]
+with PingPong: init [HPing, HPong]
+with LoopA: init []
+`SilentLogger` DuplicateLayerEffect { layer: "Dup", effect: "Logger", first: "ConsoleLogger", second: "SilentLogger" }
+`Base` DuplicateLayerEffect { layer: "DupNested", effect: "Logger", first: "ConsoleLogger", second: "ConsoleLogger" }
+`ConsoleLogger` DuplicateLayerEffect { layer: "Twice", effect: "Logger", first: "ConsoleLogger", second: "ConsoleLogger" }
+`LoopA` LayerCycle { cycle: ["LoopA", "LoopB", "LoopA"] }
+`HPing` HandlerCycle { cycle: ["HPing", "HPong", "HPing"] }
+--- R
+{     (use Logger).info("now")     1   }: Logger
+(use Logger).info("now"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ DbUsers(url: (use Config).db_url()) }: Config
+DbUsers(url: (use Config).db_url()): Config
+(use Config).db_url(): Config
+(use Config).db_url: Config
+use Config: Config
+{     (use Logger).info(self.url)     self.url   }: Logger
+(use Logger).info(self.url): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ (use Pong).pong() }: Pong
+(use Pong).pong(): Pong
+(use Pong).pong: Pong
+use Pong: Pong
+{ (use Ping).ping() }: Ping
+(use Ping).ping(): Ping
+(use Ping).ping: Ping
+use Ping: Ping
+{ (use Users).find(1) }: Users
+(use Users).find(1): Users
+(use Users).find: Users
+use Users: Users
+{   with Partial { (use Users).find(1) } }: Config
+with Partial { (use Users).find(1) }: Config
+{ (use Users).find(1) }: Users
+(use Users).find(1): Users
+(use Users).find: Users
+use Users: Users
+{ (use Clock).now() }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{ (use Logger).info("x") }: Logger
+(use Logger).info("x"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{ (use Ping).ping() }: Ping
+(use Ping).ping(): Ping
+(use Ping).ping: Ping
+use Ping: Ping

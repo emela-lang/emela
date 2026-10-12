@@ -152,6 +152,7 @@ impl TyTable {
                     cons.set_tag_name(def, data.name.clone());
                     continue;
                 }
+                DefKind::Handler => TyConKind::Handler,
                 _ => continue,
             };
             if bool_def == Some(def) {
@@ -187,7 +188,7 @@ impl TyTable {
         self.sets.get(def).and_then(|s| s.get(i).copied().flatten())
     }
 
-    /// type / enum / error の定義を登録した宣言．Bool と，それ以外の定義には `None`．
+    /// type / enum / error / handler の定義を登録した宣言．Bool と，それ以外の定義には `None`．
     pub fn con(&self, def: DefId) -> Option<TyConId> {
         self.by_def.get(def).copied()
     }
@@ -401,8 +402,8 @@ impl TyTable {
         }
     }
 
-    /// type / enum / error の定義が名指す型．型引数は `Bound(0)`，`Bound(1)`，… で埋める．
-    /// Bool は `Ty::BOOL`．それ以外の定義（handler など）は `None`．
+    /// type / enum / error / handler の定義が名指す型．型引数は `Bound(0)`，`Bound(1)`，… で埋める．
+    /// Bool は `Ty::BOOL`．それ以外の定義は `None`．
     pub fn self_ty(&self, def: DefId) -> Option<Ty> {
         if self.bool_def == Some(def) {
             return Some(Ty::BOOL);

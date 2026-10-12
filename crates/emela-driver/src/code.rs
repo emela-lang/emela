@@ -93,6 +93,12 @@ pub const USE_ASYNC: &str = "E0414";
 pub const SUSPEND_MISMATCH: &str = "E0415";
 pub const NOT_IMMEDIATE: &str = "E0416";
 pub const SUSPENDING_FN_OP: &str = "E0417";
+// 状態のあるハンドラと layer（8.4，8.5）
+pub const HANDLER_CTOR_OUTSIDE_INIT: &str = "E0418";
+pub const MISSING_INIT: &str = "E0419";
+pub const RELEASE_FAILS: &str = "E0420";
+pub const DUPLICATE_LAYER_EFFECT: &str = "E0421";
+pub const LAYER_CYCLE: &str = "E0422";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

@@ -21,7 +21,9 @@ pub struct HoverInfo {
 ///
 /// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）．
 ///   suspend fn（エフェクトの操作と外部関数）は型の前に `suspend` を付ける
-/// - handler の名前: `handler H implements E` と，依存があれば `use R`（Async が残るか）
+/// - handler の名前: `handler H(フィールド) implements E` と，init の E があれば `init fails E`，
+///   依存があれば `use R`（Async が残るか）
+/// - layer の名前: `layer L { 初期化の順のハンドラ }` と，layer の中で満たされない依存があれば `use R`
 /// - 定義か局所変数の参照: 同じく `名前: 型`
 /// - それ以外の式: 型と，E が空でなければ `fails E`，R が空でなければ `use R`
 ///
@@ -60,18 +62,55 @@ pub(crate) fn hover(
             )),
         });
     }
-    // handler の名前: 実装するエフェクトと依存（8.4．Async が残るかが分かる，8.7）．
+    // handler の名前: フィールド，実装するエフェクト，依存（8.4．Async が残るかが分かる，8.7），
+    // init の E（with の E に入る，9.4）．
     if let Some((def, data)) = def
         && let Some(Item::Handler(item)) = hir.item(def)
     {
         let mut text = format!("handler {}", data.name);
+        let ctor_ty = item
+            .ctor
+            .and_then(|ctor| types.sigs.get(ctor))
+            .map(|sig| &sig.scheme.ty);
+        if let (Some(ctor), Some(emela_types::Ty::Fn(f))) = (item.ctor, ctor_ty) {
+            let labels = &types.sigs.get(ctor)?.labels;
+            let fields: Vec<String> = labels
+                .iter()
+                .zip(&f.params)
+                .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
+                .collect();
+            text.push_str(&format!("({})", fields.join(", ")));
+        }
         if let Res::Def(effect) = item.effect {
             text.push_str(&format!(" implements {}", hir.defs[effect].name));
+        }
+        if let Some(fails) = types.handler_fails.get(def)
+            && !fails.is_empty()
+        {
+            text.push_str(&format!("\ninit fails {}", fails.display(cons)));
         }
         if let Some(deps) = types.handler_uses.get(def)
             && !deps.is_empty()
         {
             text.push_str(&format!("\nuse {}", deps.display_effects(cons, &[])));
+        }
+        return Some(HoverInfo {
+            range: data.span?.range,
+            contents: code(&text),
+        });
+    }
+    // layer の名前: 初期化の順のハンドラと，layer の中で満たされない依存（8.5）．
+    if let Some((def, data)) = def
+        && let Some(layer) = types.layers.get(def)
+    {
+        let names: Vec<&str> = layer
+            .handlers
+            .iter()
+            .map(|&h| hir.defs[h].name.as_str())
+            .collect();
+        let mut text = format!("layer {} {{ {} }}", data.name, names.join(", "));
+        if !layer.uses.is_empty() {
+            text.push_str(&format!("\nuse {}", layer.uses.display_effects(cons, &[])));
         }
         return Some(HoverInfo {
             range: data.span?.range,

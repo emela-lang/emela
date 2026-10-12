@@ -460,16 +460,22 @@ impl Lower<'_, '_> {
     }
 
     fn handler_item(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
-        let fields = self.named_fields(h.field_list()).unwrap_or_default();
+        let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
+            // フィールドを書いていない handler の構成子は値（`ConsoleLogger`）．
+            let ctor_fields = match &fields {
+                Some(fields) => Fields::Named(fields.clone()),
+                None => Fields::None,
+            };
             self.r.program.items.insert(
                 ctor,
                 Item::Ctor(CtorItem {
                     owner: def,
-                    fields: Fields::Named(fields.clone()),
+                    fields: ctor_fields,
                 }),
             );
         }
+        let fields = fields.unwrap_or_default();
         let effect = match h.effect() {
             Some(p) => self.resolve_type_ns(&p, Expected::Effect),
             None => Res::Err,

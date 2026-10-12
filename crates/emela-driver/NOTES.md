@@ -147,7 +147,7 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）ariadne 0.6 は `ReportKind::Custom` の色を `with_color(false)` でも付けるので，色なしのときは出力から ANSI の色指定を取り除く
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
-- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．suspend fn（エフェクトの操作と `@external suspend fn`，能力の値の操作の参照）は型の前に `suspend` を付ける．handler の名前は `handler H implements E` と，依存（`ProgramTypes::handler_uses`）が空でなければ `use R` の行（Async が残るかが分かる）．
+- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．suspend fn（エフェクトの操作と `@external suspend fn`，能力の値の操作の参照）は型の前に `suspend` を付ける．handler の名前は `handler H(conn: Connection) implements E`（フィールドは構成子のシグネチャから．フィールドのない handler は括弧なし）と，init の E（`ProgramTypes::handler_fails`）が空でなければ `init fails E` の行，依存（`ProgramTypes::handler_uses`）が空でなければ `use R` の行（Async が残るかが分かる）．layer の名前は `layer L { H1, H2 }`（初期化の順，`ProgramTypes::layers`）と，layer の中で満たされない依存があれば `use R` の行．
 - （補）定義へ移動と参照の検索（LSP）は `Frontend::definition` と `Frontend::references` で引く（トレイトの既定は `None` と空）．`Typecheck` は名前解決の参照の表（`Program::refs`），型推論の操作の表（`ProgramTypes::ops`），定義と局所変数の位置から作る（`nav.rs`）．返すのは `NavTarget`（ファイルと範囲）
 - （補）位置の名前は，参照，effect の操作の参照，定義の名前，局所変数を束縛した位置から探す．範囲の終わりの位置（名前の直後のカーソル）も含め，範囲の中にあるものを先に選ぶ
 - （補）モジュールの定義の位置はファイルの先頭（空の範囲）．同梱の core の定義と，ソースのない定義（組み込みのモジュールの関数と型，組み込みの Prelude）は移動先がないので `None`
@@ -188,6 +188,6 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）助言 `= help: …` は，`Diagnostic` に欄を足さずに注記の頭 `help: `（`HELP_PREFIX`）で表す．`Diagnostic` は `Result` の誤りの側に置くので，大きくすると clippy の `result_large_err` に掛かる
 - （補）`SourceDb` に同じパスを足すと，テキストを差し替えて同じ ID を返す（LSP の未保存バッファ向け）
 - （補）`Typecheck` は名前解決に誤りがあっても型検査をする．解決できなかった名前は型推論が `Ty::Error` として扱い，誤りを重ねない（仕様の「誤りを全部集める」方針）
-- （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0417）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文（状態を持つ handler，layer，suspend など）はコードなしのエラー `not supported yet: …` にする
+- （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0422）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文はコードなしのエラー `not supported yet: …` にする
 - （補）`Typecheck` は，エントリのモジュールの `main` という名前の fn と，`@test` のテスト関数を `CheckOptions` で型推論に渡す．型推論はそれらの R が空であることを確かめる（E0402，8.3，13.3）．そのためテスト関数の収集（`collect_tests`，`resolve_tests`）を型検査の前に行う．エントリのないとき（`check` にディレクトリを渡してエントリがないなど）は main を確かめない
 - （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く

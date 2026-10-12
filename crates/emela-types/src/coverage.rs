@@ -44,6 +44,10 @@ impl CtorTable for Shapes<'_> {
                         None => TyShape::Opaque,
                     },
                     Some(Item::Error(_)) => TyShape::Enum(vec![self.variant(def, args)]),
+                    Some(Item::Handler(item)) => match item.ctor {
+                        Some(ctor) => TyShape::Enum(vec![self.variant(ctor, args)]),
+                        None => TyShape::Opaque,
+                    },
                     _ => TyShape::Opaque,
                 }
             }

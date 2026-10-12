@@ -158,7 +158,7 @@ alpha.2 の lowering（2026-10-12）．失敗は戻り値として返す（16.5�
 
 ## エフェクト（8章，16.5）
 
-alpha.2 の lowering（2026-10-12）．ハンドラは引数で渡して直接呼ぶ（evidence passing，16.5）．状態を持つ handler（フィールド，init，release），layer，suspend，capture set は範囲外で，型検査の「まだ扱えない」のまま（lowering に来ても `Unsupported` にして panic しない）．
+alpha.2 の lowering（2026-10-12）．ハンドラは引数で渡して直接呼ぶ（evidence passing，16.5）．状態を持つ handler（フィールド，init，release），layer，suspend，capture set は範囲外で，型検査の「まだ扱えない」のまま（lowering に来ても `Unsupported` にして panic しない）．alpha.4 の第1段で型検査は状態を持つ handler，layer，`self` を通すようになった．lowering は第3段まで，それらと状態のない handler の `self` を `Unsupported` にする（ハンドラの値の型 `TyConKind::Handler` は IR の型に写さない）．
 alpha.3 の第1段（型検査）で suspend の実装と `@external suspend fn` は型検査を通るようになった．lowering はまだ扱わず，suspend の実装を持つ handler を with に書いたときと，`@external suspend fn` を出力に含めるときに `Unsupported` にする．
 
 - （補）証拠の表（evidence）は，エフェクトからハンドラの値への表．宣言の型の R が空でない fn と，型の R が空でないラムダは，証拠の表を最後の引数（`ev`）に受ける．R が空の関数の IR と出力は変わらない．R が見えない集合（`R(f)`）や汎化した集合だけの関数（`List.map`）も受ける（引数の関数へ渡すため）．

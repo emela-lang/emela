@@ -57,7 +57,7 @@
 - （補）束縛 `p = e` は右辺を先に解決し，後でパターンの名前を入れる（`count = count + 1`）．束縛し直すと新しい `LocalId` になる
 - （補）match と escape の腕はそれぞれスコープを積む．パターンの名前はガードと本体から見える．腕の変数は `LocalKind::ArmBinding`
 - （補）1つのパターンか引数の並びで同じ名前を2回束縛したら E0220
-- （補）handler の操作と release には暗黙の `self`（`LocalKind::SelfParam`）を入れる．init には入れない（値を作る前なので）．init でハンドラの値を作れるよう，フィールドのある handler には同じ名前の構成子を作る
+- （補）handler の操作と release には暗黙の `self`（`LocalKind::SelfParam`）を入れる．init には入れない（値を作る前なので）．init でハンドラの値を作れるよう，フィールドのある handler には同じ名前の構成子を作る．フィールドを書いていない（括弧のない）handler も，init があれば同じ名前の値の構成子（`ConsoleLogger`）を作る（8.4 の「フィールドのないハンドラにも init を書ける」）．構成子を init の外で使ったかは型検査が見る（E0418）
 - （補）impl と trait の `self` は引数として書く．それ以外の `self` と，trait と impl の外の `Self` は E0219
 - （補）名前付き引数のラベルは解決しない（呼び出し先のシグネチャが要る）．名前と位置だけを `Arg::label` に残す．`NotFound(id:)` は値の `id` を解決して `punned` を立てる．パターンの `User(name:)` は `name` を束縛する
 - （補）型引数は付いている宣言（fn，type，enum，trait の fn）を親に持つ `DefId`．制約は全部の型引数を入れてから引く

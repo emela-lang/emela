@@ -635,6 +635,76 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// 状態のあるハンドラと layer の診断（E0411，E0418〜E0422）の文面（8.4，8.5）．
+#[test]
+fn stateful_handler_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Ping {
+  fn ping() -> ()
+}
+
+effect Pong {
+  fn pong() -> ()
+}
+
+fn risky() -> () fails Boom { fail Boom }
+
+handler Counter(n: Int) implements Logger {
+  init { Counter(n: 0) }
+  release { risky() }
+  fn info(msg) { () }
+}
+
+handler NoInit(n: Int) implements Logger {
+  fn info(msg) { () }
+}
+
+handler Quiet implements Logger {
+  fn info(msg) { () }
+}
+
+handler HPing implements Ping {
+  fn ping() { (use Pong).pong() }
+}
+
+handler HPong implements Pong {
+  fn pong() { (use Ping).ping() }
+}
+
+layer Loud {
+  Counter
+  Quiet
+}
+
+layer Twice { Quiet, Quiet }
+
+layer LoopA { LoopB }
+
+layer LoopB { LoopA }
+
+layer PingPong {
+  HPing
+  HPong
+}
+
+fn make() { Counter(n: 1) }
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 #[test]
 fn bundled_console_checks_cleanly() {
     // 同梱の Console と JsConsole は import なしで使える（15.2）．

@@ -426,8 +426,8 @@ impl FnParams {
     }
 }
 
-/// 構成子の型とラベル．`owner` は構成子が作る型（type / enum / error）．
-/// handler の構成子は `None`（alpha.2）．
+/// 構成子の型とラベル．`owner` は構成子が作る型（type / enum / error / handler）．
+/// handler の構成子はハンドラの値を作る（8.4）．使えるのはその handler の init の中だけ（E0418）．
 ///
 /// フィールドのない構成子（`None`，`Empty`）は関数でなく値なので，型は作る型そのものになる．
 fn ctor_signature(

@@ -11,6 +11,7 @@ mod display;
 mod error;
 mod exhaustiveness;
 mod infer;
+mod layer;
 mod lower;
 mod row;
 mod scheme;
@@ -29,6 +30,7 @@ pub use exhaustiveness::{
     check_match,
 };
 pub use infer::{InferCtx, substitute_bound};
+pub use layer::LayerInfo;
 pub use lower::TyTable;
 pub use scheme::Scheme;
 pub use signature::{Signature, Signatures};
