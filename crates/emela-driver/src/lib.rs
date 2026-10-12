@@ -2,6 +2,7 @@
 //!
 //! ソースの表を持ち，各段の診断を集めて表示し，出力した JS を node で実行する．
 
+mod actions;
 pub mod code;
 mod complete;
 mod diagnostic;
@@ -19,6 +20,7 @@ mod signature;
 mod source;
 mod testing;
 
+pub use actions::CodeAction;
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use emela_resolve::OsFs;

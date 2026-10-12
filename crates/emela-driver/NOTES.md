@@ -167,6 +167,12 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）名前の変更（LSP）は `Frontend::prepare_rename` と `Frontend::rename`（`nav.rs`）．変える位置は参照の検索（定義を含む）と同じ．type とその構成子，effect の操作と handler の実装，import の `{x}` もまとめて変わる
 - （補）変えられない名前: モジュール（ファイル名を変えることになる），`self`，同梱の core とソースのない定義，impl．新しい名前は元の名前と同じ字句クラス（2.3．小文字名，型名，大文字名）の字句1つでなければならない（予約語は別の字句なので通らない）．同じスコープの名前との衝突はまだ見ない
 - （補）省略形の名前付き引数（`NotFound(id:)`）とフィールドのパターン（`User(name:)`）の名前は，ラベル（フィールドの名前）を残して `id: 新しい名前` に置き換える
+- （補）コードアクション（LSP）は `Frontend::code_actions`（`actions.rs`）．今あるのは，トップレベルの fn（本体のあるもの）の省いた注釈に推論結果を挿入するものだけ（4.5）．範囲が fn の見出し（`fn` から本体の `{` の前まで）に掛かるときに出す．仕様は公開関数について書いているが，pub でない fn にも出す
+  - 戻り値の型を省いていれば `-> T` と，推論した E が空でなければ `fails E` を一緒に足す．戻り値の型を書くと E は書いた fails 節に固定されるため（7.4）．戻り値の型があって fails を省いた fn は E が固定済みなので足さない
+  - `use` 節を省いていれば，推論した R が空でなければ `use R` を足す（R は戻り値の型と別に推論する）．位置は fails 節か戻り値の型の後ろ
+  - 引数の関数型の見えない集合（`E(f)`）は書けず，書いた節に暗に足される（9.2）ので，E と R から除く．戻り値の型に見えない集合が現れるときは戻り値の型（と fails）を足さない
+  - このファイルで修飾なしに書けない定義（import で列挙していない他のモジュールの型とエラー）が現れる節は足さない．修飾した名前（`Other.Hidden`）を作るのは後回し
+  - 題は `Add inferred `-> Int fails NotFound`` の形
 - （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
 - （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む

@@ -12,6 +12,7 @@ use emela_resolve::{
 };
 use la_arena::ArenaMap;
 
+use crate::actions::CodeAction;
 use crate::code;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
@@ -229,6 +230,16 @@ pub trait Frontend {
         _file: FileId,
         _offset: line_index::TextSize,
     ) -> Vec<Completion> {
+        Vec::new()
+    }
+
+    /// `file` の `range` に掛かるコードアクション（LSP のコードアクション）．
+    fn code_actions(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _range: line_index::TextRange,
+    ) -> Vec<CodeAction> {
         Vec::new()
     }
 
