@@ -113,7 +113,7 @@ alpha.3 で同梱した（2026-10-12）．Console と同じ形（エフェクト
 - （補）`JsClock` の `sleep` は `js_clock.mjs` の `after(ms, f)`（`setTimeout(f, ms)`．引数の順を Emela の慣習の「対象が先」に合わせた）のコールバックから `resume(())` を呼ぶ（8.4 の例のとおり）．resume をクロージャで捕まえるので，JsClock は Async に依存し，`with JsClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
 - （補）`sleep` の負の `ms` は 0 と同じ（`setTimeout` に従う）．defect にしない．待つ時間はタイマーの精度に従い，正確さは保証しない．
 - （補）Clock が中断しうるので，Clock を使う関数はすべて中断しうる関数になる（`now` しか呼ばなくても．印は R で決まる，下の「lowering の印」）．
-- （補）Clock を実装する利用者のハンドラは `now` を書けない．Instant を作る関数が `@internal` で，外側の Clock の `now` を呼ぶと Clock が中断しうるので E0417 になる．テスト用の時計（15.2 の TestClock，8.7 の InstantClock）は core に置く前提で，時刻を進める TestClock は状態を持つハンドラ（alpha.4）の段で足す．
+- （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を進めるのに状態を持つハンドラ（alpha.4）が要るので，その段で core に足す．
 - （補）`Clock` と `JsClock` を同梱したので，ソースのルート直下の `clock.emel` と `js_clock.emel` は予約名（E0203）になる（4.1，15.2）．
 
 ## lowering（`lower.rs`）

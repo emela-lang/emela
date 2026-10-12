@@ -248,7 +248,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
-- 利用者は Clock のハンドラの `now` を書けない（`Instant.from_unix_milliseconds` が `@internal` で，外側の Clock は中断しうるので呼べない．E0417）．テスト用の時計を core に置くか，`from_unix_milliseconds` を公開するかを決めたい
+- 利用者の書く Clock のハンドラの `now` は，`Instant.from_unix_milliseconds`（#172）か外側の Clock の `now`（#173）で書く．時刻を進める TestClock は状態を持つハンドラの段で足す
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない
