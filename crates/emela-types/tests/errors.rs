@@ -217,6 +217,53 @@ fn guarded() -> Int {
     ));
 }
 
+/// escape で E からタグが消えるのは，腕がそのエラーの値をすべて受けるときだけ（7.3）．
+/// 一部の値しか受けない腕（フィールドの値，ガード）だけなら，タグは E に残る．
+#[test]
+fn escape_partial_arms_keep_tags() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error NotFound(id: Int)
+error Flag(on: Bool)
+
+fn find(id: Int) -> Int fails NotFound { fail NotFound(id:) }
+fn flag(on: Bool) -> Int fails Flag { fail Flag(on:) }
+
+fn by_value() -> Int {
+  find(1) escape { NotFound(id: 1) -> 0 }
+}
+
+fn by_guard() -> Int {
+  find(1) escape { NotFound(id:) if id > 0 -> id }
+}
+
+fn inferred() {
+  find(1) escape { NotFound(id: 1) -> 0 }
+}
+
+fn total_after_partial() -> Int {
+  find(1) escape {
+    NotFound(id: 1) -> 0
+    NotFound(id:) if id > 0 -> id
+    NotFound(_) -> 2
+  }
+}
+
+fn total_by_fields() -> Int {
+  flag(True) escape {
+    Flag(on: True) -> 1
+    Flag(on: False) -> 0
+  }
+}
+
+fn local() -> Int {
+  f = fn() { find(2) }
+  f() escape { NotFound(id: 2) -> 0 }
+}
+"#
+    ));
+}
+
 /// パイプの右辺の呼び出しの E と，エラーの型の型引数（`or_fail`）．
 #[test]
 fn pipes_and_error_type_params() {

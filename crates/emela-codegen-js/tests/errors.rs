@@ -162,9 +162,9 @@ fn escape_catches_listed_errors_and_passes_others() {
 }
 
 #[test]
-fn escape_arm_without_match_is_a_defect() {
+fn escape_arm_without_match_propagates() {
     let (mut m, find, not_found, _) = find_module();
-    // 腕に書かれた error でも，パターンとガードに合わなければ defect（match と同じ）．
+    // 腕に書かれた error でも，パターンとガードに合わなければ，エラーのまま外側へ伝わる（7.3）．
     let id = m.local("id");
     main_fn(
         &mut m,
@@ -180,10 +180,7 @@ fn escape_arm_without_match_is_a_defect() {
             ],
         ),
     );
-    assert_eq!(
-        run("unmatched_escape", m),
-        "defect: unreachable: no escape arm matched\n"
-    );
+    assert_eq!(run("partial_escape", m), "error: NotFound(id: 0)\n");
 }
 
 #[test]

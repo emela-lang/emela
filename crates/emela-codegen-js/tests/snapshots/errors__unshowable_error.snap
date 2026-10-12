@@ -25,11 +25,6 @@ function $unreachable() {
   throw new $Defect("unreachable: no match arm matched");
 }
 
-// escape の腕に書かれた error なのに，どの腕のパターンとガードにも合わなかった．
-function $unmatchedEscape() {
-  throw new $Defect("unreachable: no escape arm matched");
-}
-
 // 失敗（仕様 7章）．エラーは戻り値として返す（16.5）．`fail e` は `new $Fail(e)` を返し，
 // 失敗しうる呼び出しの結果が `$Fail` なら，それを呼び出し元か escape へ渡す．
 // `error` は error の値で，`$tag` に error ごとの印（`{ show }`）を持つ．

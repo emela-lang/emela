@@ -477,6 +477,48 @@ error: NotFound(id: 0)
 }
 
 #[test]
+fn partial_escape_arms_propagate_unmatched_errors() {
+    // 一部の値しか受けない腕（フィールドの値，ガード）に合わなかったエラーは，defect でなく
+    // エラーのまま伝わる（7.3）．main まで達すれば `error: ...` で終了コード 1（14.3）．
+    let source = |last: &str| {
+        format!(
+            "\
+error NotFound(id: Int)
+
+fn find(id: Int) -> Int fails NotFound {{
+  fail NotFound(id:)
+}}
+
+fn by_value(id: Int) {{
+  find(id) escape {{ NotFound(id: 1) -> 10 }}
+}}
+
+fn by_guard(id: Int) {{
+  find(id) escape {{ NotFound(id:) if id > 5 -> id * 10 }}
+}}
+
+fn main() {{
+  dbg(by_value(1))
+  dbg(by_guard(6))
+  dbg(by_value(2) escape {{ NotFound(id:) -> id + 100 }})
+  {last}
+}}
+"
+        )
+    };
+    let output = run_source("lower-partial-escape-value", &source("by_value(2)"));
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (1, "", "10\n60\n102\nerror: NotFound(id: 2)\n")
+    );
+    let output = run_source("lower-partial-escape-guard", &source("by_guard(3)"));
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (1, "", "10\n60\n102\nerror: NotFound(id: 3)\n")
+    );
+}
+
+#[test]
 fn failing_tail_calls_do_not_grow_stack() {
     // 失敗しうる自己末尾呼び出しもループになる（16.3）．escape の対象の中の呼び出しは末尾位置でない．
     let output = run_source(

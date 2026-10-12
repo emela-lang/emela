@@ -15,7 +15,7 @@
 //!   }
 //!   const $t2 = $t1.error;
 //!   if ($t2.$tag === $err$NotFound) { ...; $t0 = 腕の値; break $x0; }
-//!   return $t1;          // 腕に書かれていない error は外側へ伝える
+//!   return $t1;          // どの腕にも合わなかった失敗は外側へ伝える
 //! }
 //! ```
 //!
@@ -130,8 +130,7 @@ impl Emitter<'_> {
         // 腕は対象の式の外なので，腕の中の失敗は外側の行き先へ伝わる．
         let error = self.tmp();
         self.line(&format!("const {error} = {cell}.error;"));
-        // パターンかガードで合わないことのある error．どの腕にも合わなければ defect．
-        let mut partial: Vec<EnumId> = Vec::new();
+        // 上の腕が全部受けている error．その下の同じ error の腕には来ない．
         let mut total: Vec<EnumId> = Vec::new();
         for arm in arms {
             let Pat::Ctor { ctor, .. } = &arm.pat else {
@@ -141,22 +140,17 @@ impl Emitter<'_> {
                 self.m.enums[ctor.enum_id].error,
                 "不正な IR: escape の腕のパターンが error の構成子でない"
             );
+            if total.contains(&ctor.enum_id) {
+                continue;
+            }
             let mut conds = vec![format!(
                 "{error}.$tag === {}",
                 self.tag(ctor.enum_id, ctor.variant)
             )];
             let mut binds = Vec::new();
             self.pattern(&arm.pat, error.clone(), &mut conds, &mut binds);
-            let unconditional = conds.len() == 1 && arm.guard.is_none();
-            if total.contains(&ctor.enum_id) {
-                // 上の腕が全部受けている．
-                continue;
-            }
-            if unconditional {
+            if conds.len() == 1 && arm.guard.is_none() {
                 total.push(ctor.enum_id);
-                partial.retain(|&e| e != ctor.enum_id);
-            } else if !partial.contains(&ctor.enum_id) {
-                partial.push(ctor.enum_id);
             }
             self.line(&format!("if ({}) {{", conds.join(" && ")));
             self.indent += 1;
@@ -180,14 +174,8 @@ impl Emitter<'_> {
             self.indent -= 1;
             self.line("}");
         }
-        if !partial.is_empty() {
-            let tests: Vec<String> = partial
-                .iter()
-                .map(|&id| format!("{error}.$tag === {}", self.tag(id, 0)))
-                .collect();
-            let u = self.rt("$unmatchedEscape");
-            self.line(&format!("if ({}) {u}();", tests.join(" || ")));
-        }
+        // どの腕にも合わなかった失敗（腕に書かれていない error と，一部の値しか受けない腕に
+        // 合わなかった値）は外側へ伝える（7.3）．
         let propagate = self.propagate_stmt(&cell);
         self.line(&propagate);
 
