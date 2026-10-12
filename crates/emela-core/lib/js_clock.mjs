@@ -4,3 +4,8 @@
 export function nowMilliseconds() {
   return BigInt(Date.now());
 }
+
+/** `ms` ミリ秒後に `f` を1回呼ぶ．`setTimeout` と引数の順が逆．負の `ms` は 0 と同じ． */
+export function after(ms, f) {
+  setTimeout(f, ms);
+}

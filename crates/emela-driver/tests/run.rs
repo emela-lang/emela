@@ -939,3 +939,37 @@ fn main() {
         (0, "after 2023\nforward\niso\n", "")
     );
 }
+
+#[test]
+fn clock_sleeps_through_js_clock() {
+    // JsClock の sleep は setTimeout の後で resume する（8.4，8.7）．main は再開を待って終わる．
+    // 中断しうる関数を渡した List.map（中断用の写し）の中でも待つ．
+    let output = run_source(
+        "clock-sleep",
+        r##"fn nap(clock_name: String, ms: Int) -> String use { Clock } {
+  clock = use Clock
+  start = clock.now()
+  clock.sleep(ms)
+  waited = Duration.to_milliseconds(clock.now() |> Instant.since(start))
+  if waited >= Int.to_int64(ms - 5) { "#{clock_name} waited" } else { "#{clock_name} did not wait" }
+}
+
+fn main() {
+  with JsConsole, JsClock {
+    c = use Console
+    c.print_line(nap("js", 50))
+    List.map([30, 10, 20], fn(ms) { nap("js #{ms}", ms) }) |> List.map(c.print_line)
+    c.print_line("done")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            "js waited\njs 30 waited\njs 10 waited\njs 20 waited\ndone\n",
+            ""
+        )
+    );
+}
