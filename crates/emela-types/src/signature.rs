@@ -12,10 +12,11 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
 use crate::lower::{
-    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, classify_sets, has_omitted_fails,
-    has_omitted_uses, immediate_bounds, is_immediate_effect, ty_params, type_param_defs,
+    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, classify_sets, effect_params,
+    has_omitted_fails, has_omitted_uses, immediate_bounds, is_immediate_effect, ty_params,
+    type_param_defs,
 };
-use crate::row::{Row, RowElem, SetKind};
+use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
 use crate::ty::{ParamKind, Ty, TyParam};
 
@@ -26,16 +27,25 @@ pub struct Signature {
     pub labels: Vec<Option<SmolStr>>,
 }
 
-/// fn・構成子・const の型の表．
+/// fn・構成子・const の型の表．handler が実装するエフェクトのタグも持つ．
 pub struct Signatures {
     by_def: ArenaMap<DefId, Signature>,
+    /// handler → 実装するエフェクトとその型引数（`implements State[Int]`，8.1）．Async のハンドラ
+    /// （E0413）とエフェクトの分からない handler は持たない．
+    handler_effects: ArenaMap<DefId, Tag>,
 }
 
 impl Signatures {
     pub fn new() -> Self {
         Signatures {
             by_def: ArenaMap::default(),
+            handler_effects: ArenaMap::default(),
         }
+    }
+
+    /// handler が実装するエフェクトとその型引数．
+    pub fn handler_effect(&self, handler: DefId) -> Option<&Tag> {
+        self.handler_effects.get(handler)
     }
 
     pub fn insert(&mut self, def: DefId, signature: Signature) {
@@ -66,7 +76,41 @@ impl Signatures {
                     scheme: Scheme::mono(ty_table.lower(program, &[], ty, diags)),
                     labels: Vec::new(),
                 }),
-                Some(Item::Op(item)) => Some(op_signature(program, ty_table, &item.sig, diags)),
+                Some(Item::Op(item)) => {
+                    let effect = program.defs[def].parent;
+                    Some(op_signature(program, ty_table, effect, &item.sig, diags))
+                }
+                Some(Item::Effect(_)) => {
+                    check_effect_params(program, ty_table, def, diags);
+                    None
+                }
+                Some(Item::Handler(item)) => {
+                    if let Res::Def(effect) = item.effect
+                        && program.prelude_def("Async") != Some(effect)
+                    {
+                        let scope = Scope {
+                            params: &[],
+                            kinds: &[],
+                            omitted: Omitted::Empty,
+                            sets: false,
+                        };
+                        // 型引数の残る汎用のハンドラは持たない（8.1）．省けば E0423．
+                        let span = program.defs[def].span;
+                        let name = program.defs[def].name.clone();
+                        if let Some(tag) = ty_table.effect_tag(
+                            program,
+                            &scope,
+                            effect,
+                            &item.effect_args,
+                            span,
+                            Some(name),
+                            diags,
+                        ) {
+                            sigs.handler_effects.insert(def, tag);
+                        }
+                    }
+                    None
+                }
                 _ => None,
             };
 
@@ -112,7 +156,7 @@ fn fn_signature(
     if item.sig.is_suspend
         && let Some(async_) = program.prelude_def("Async")
     {
-        uses.insert(RowElem::Tag(async_));
+        uses.insert(RowElem::Tag(Tag::new(async_)));
     }
 
     Some(Signature {
@@ -155,7 +199,7 @@ fn check_bounds(
                 .uses
                 .iter()
                 .flat_map(|u| &u.items)
-                .any(|(res, _)| *res == Res::Def(tp.def));
+                .any(|item| item.res == Res::Def(tp.def));
         let spans = immediate_bounds(program, tp);
         if !in_uses {
             for span in spans {
@@ -207,8 +251,8 @@ fn check_bounds(
             TypeKind::Fn {
                 params, ret, uses, ..
             } => {
-                for &(res, _) in uses.iter().flat_map(|u| &u.items) {
-                    let Res::Def(d) = res else {
+                for item in uses.iter().flat_map(|u| &u.items) {
+                    let Res::Def(d) = item.res else {
                         continue;
                     };
                     let name = program.defs[d].name.clone();
@@ -260,24 +304,34 @@ fn check_bounds(
 /// effect の操作の型とラベル（8.1）．宣言の中なので，引数の関数型の `fails` と `use` を
 /// 省略すれば空（9.2）．操作の `fails` 節はその操作の E．操作の型の R は空で，能力の値を通して
 /// 呼ぶときにそのエフェクトを足す．操作に `use` 節は書けない（構文の段の E0137）．
+///
+/// エフェクトの型引数（`effect State[S]` の `S`）は `Bound(i)` で，スキームの型引数にする．
+/// 能力の値と handler の実装では，タグの型引数で置き換えて使う．
 fn op_signature(
     program: &Program,
     ty_table: &TyTable,
+    effect: Option<DefId>,
     sig: &FnSig,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
+    let defs: Vec<DefId> = effect
+        .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
+        .unwrap_or_default();
+    // 集合として使った型引数は E0424（`check_effect_params`）．ここでは集合として読み，誤りを重ねない．
+    let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
+    let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
     let mut scope = Scope {
-        params: &[],
-        kinds: &[],
+        params: &defs,
+        kinds: &kinds,
         omitted: Omitted::Empty,
-        sets: false,
+        sets: true,
     };
     let params: Vec<Ty> = sig
         .params
         .iter()
         .map(|p| match p.ty {
             Some(ty) => ty_table.lower_in(program, &mut scope, ty, true, diags),
-            None => param_ty(program, ty_table, &[], p, diags),
+            None => param_ty(program, ty_table, &defs, p, diags),
         })
         .collect();
     let ret = match sig.ret {
@@ -290,8 +344,52 @@ fn op_signature(
     };
     // 操作の `use` 節は構文の段の E0137（8.1）．ここでは読まない．
     Signature {
-        scheme: Scheme::mono(Ty::func_fails(params, ret, fails)),
+        scheme: Scheme::new(
+            ty_params(program, &defs),
+            Ty::func_fails(params, ret, fails),
+        ),
         labels: param_labels(program, &sig.params),
+    }
+}
+
+/// エフェクトの型引数はふつうの型だけ（8.1）．操作の引数と戻り値の関数型の `fails` か `use` に
+/// だけ書いた型引数は集合になるので E0424．
+fn check_effect_params(
+    program: &Program,
+    ty_table: &TyTable,
+    effect: DefId,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let params = effect_params(program, effect);
+    if params.is_empty() {
+        return;
+    }
+    let defs: Vec<DefId> = params.iter().map(|tp| tp.def).collect();
+    let ops: &[DefId] = match program.item(effect) {
+        Some(Item::Effect(e)) => &e.ops,
+        _ => &[],
+    };
+    let types = ops.iter().flat_map(|&op| match program.item(op) {
+        Some(Item::Op(o)) => o
+            .sig
+            .params
+            .iter()
+            .filter_map(|p| p.ty)
+            .chain(o.sig.ret)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    });
+    let sets = classify_sets(program, ty_table.decl_sets(), &defs, types);
+    for (tp, set) in params.iter().zip(sets) {
+        if set.is_some() {
+            diags.push(Diagnostic {
+                span: program.defs[tp.def].span,
+                kind: DiagnosticKind::EffectParamNotType {
+                    effect: program.defs[effect].name.clone(),
+                    param: program.defs[tp.def].name.clone(),
+                },
+            });
+        }
     }
 }
 

@@ -93,9 +93,11 @@ impl Printer {
             VARIANT => self.seq(node, |_, _| false),
             FIELD => self.seq(node, |_, cur| cur != COLON),
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
-            IMPLEMENTS_CLAUSE => self.seq(node, |_, _| true),
-            RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | USE_EXPR | FAIL_EXPR | ASSERT_EXPR
-            | MATCH_GUARD => self.seq(node, |_, _| true),
+            // Effect type arguments (`implements State[Int]`, `use State[Int]`) attach to the name.
+            IMPLEMENTS_CLAUSE | USE_EXPR => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
+            RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
+                self.seq(node, |_, _| true)
+            }
             // No space before `:`.
             PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
                 self.seq(node, |_, cur| cur != COLON)

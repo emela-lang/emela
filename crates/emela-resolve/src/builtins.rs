@@ -195,9 +195,13 @@ pub(crate) fn build_prelude(program: &mut Program) {
     }
     for name in PRELUDE_EFFECTS {
         let def = add(program, name, DefKind::Effect, None);
-        program
-            .items
-            .insert(def, Item::Effect(EffectItem { ops: Vec::new() }));
+        program.items.insert(
+            def,
+            Item::Effect(EffectItem {
+                type_params: Vec::new(),
+                ops: Vec::new(),
+            }),
+        );
     }
     for name in PRELUDE_FNS {
         add(program, name, DefKind::Fn, None);

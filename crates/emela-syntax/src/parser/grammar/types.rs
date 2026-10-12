@@ -70,6 +70,16 @@ fn type_arg(p: &mut Parser<'_>) {
     }
 }
 
+/// Effect type arguments `[Int]` (`implements State[Int]` in spec 8.1, `use State[Int]` in 17.5).
+/// Becomes a TYPE_ARG_LIST sibling of the preceding type_ref. Does nothing without `[`.
+pub(crate) fn effect_type_args(p: &mut Parser<'_>) {
+    if p.at(L_BRACK) {
+        let args = p.start();
+        delimited(p, L_BRACK, R_BRACK, type_arg);
+        args.complete(p, TYPE_ARG_LIST);
+    }
+}
+
 /// `type_ref = [ module_path "." ] type_name`. The caller checks that it is at TYPE_NAME.
 pub(crate) fn path(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
@@ -183,8 +193,8 @@ fn error_set(p: &mut Parser<'_>) {
     m.complete(p, ERROR_SET);
 }
 
-/// `"{" [ effect_item { "," effect_item } ] "}" | type_ref | upper_name`．
-/// `effect_item = type_ref | upper_name`
+/// `"{" [ effect_item { "," effect_item } ] "}" | effect_item`．
+/// `effect_item = type_ref [ "[" type { "," type } "]" ] | upper_name`
 ///
 /// Effects (`Quiet`) and set type parameters (`R`) may be mixed (`{ Quiet, R }`, spec 8.3).
 /// Newlines inside braces remain as separators in the token stream, so they are skipped here.
@@ -208,11 +218,17 @@ fn effect_set(p: &mut Parser<'_>) {
     m.complete(p, EFFECT_SET);
 }
 
-/// A type_ref or an uppercase name.
+/// A type_ref or an uppercase name. An effect with type arguments (`State[Int]`, spec 8.1)
+/// wraps the type_ref and the TYPE_ARG_LIST in a PATH_TYPE.
 fn set_element(p: &mut Parser<'_>) {
     match p.current() {
         TYPE_NAME => {
-            path(p);
+            let path = path(p);
+            if p.at(L_BRACK) {
+                let m = path.precede(p);
+                effect_type_args(p);
+                m.complete(p, PATH_TYPE);
+            }
         }
         UPPER_NAME => {
             type_var(p);

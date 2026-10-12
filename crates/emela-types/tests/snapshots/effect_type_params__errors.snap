@@ -1,0 +1,39 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: "render(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Raise[E] {\n  fn guard(f: fn() -> () fails E) -> ()\n}\n\nhandler Generic implements State {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler TooMany implements State[Int, String] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn omitted() { (use State).get() }\n\nfn clause() -> () use State { () }\n\nfn logger() { (use Logger[Int]).info(\"a\") }\n\nfn wrong_value() { (use State[Int]).set(\"a\") }\n\nfn undeclared() -> () use State[Int] {\n  (use State[String]).set(\"a\")\n}\n\nfn as_type(x: State[Int]) { () }\n\"#)"
+---
+omitted: fn() -> {unknown} use State[{unknown}]
+clause: fn() -> () use State[{unknown}]
+logger: fn() -> () use Logger
+wrong_value: fn() -> () use State[Int]
+undeclared: fn() -> () use State[Int]
+as_type: fn({unknown}) -> ()
+  x: {unknown}
+handler Generic: use {}
+handler TooMany: use {}
+resolve: エフェクト `State` は型として使えない
+`E` EffectParamNotType { effect: "Raise", param: "E" }
+`Generic` MissingEffectTypeArgs { effect: "State", params: ["S"], handler: Some("Generic") }
+`TooMany` WrongTypeArgCount { name: "State", expected: 1, found: 2 }
+`use State` MissingEffectTypeArgs { effect: "State", params: ["S"], handler: None }
+`State` MissingEffectTypeArgs { effect: "State", params: ["S"], handler: None }
+`use Logger[Int]` WrongTypeArgCount { name: "Logger", expected: 0, found: 1 }
+`"a"` mismatch: expected `Int`, found `String`
+`use State[String]` unhandled effects State[String] (Declared)
+--- R
+{ (use State).get() }: State[{unknown}]
+(use State).get(): State[{unknown}]
+(use State).get: State[{unknown}]
+use State: State[{unknown}]
+{ (use Logger[Int]).info("a") }: Logger
+(use Logger[Int]).info("a"): Logger
+(use Logger[Int]).info: Logger
+use Logger[Int]: Logger
+{ (use State[Int]).set("a") }: State[Int]
+(use State[Int]).set("a"): State[Int]
+(use State[Int]).set: State[Int]
+use State[Int]: State[Int]
+{   (use State[String]).set("a") }: State[String]
+(use State[String]).set("a"): State[String]
+(use State[String]).set: State[String]
+use State[String]: State[String]

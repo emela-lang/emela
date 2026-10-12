@@ -896,6 +896,32 @@ fn hover_shows_stateful_handlers_and_layers() {
     client.shutdown();
 }
 
+/// Effects with type arguments (spec 8.1). The handler name shows `implements Cell[Int]`, a
+/// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
+#[test]
+fn hover_shows_effect_type_args() {
+    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero implements Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 4, 9)),
+        "```emela\nhandler Zero implements Cell[Int]\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 9, 3)),
+        "```emela\ncell: use Cell[Int]\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 10, 8)),
+        "```emela\nfn() -> Int use Cell[Int]\n```"
+    );
+    client.shutdown();
+}
+
 /// A use clause mixing effects and set type parameters (spec 8.3). Inside `with` the listed effect
 /// is visible; outside it only the set type parameter remains.
 #[test]

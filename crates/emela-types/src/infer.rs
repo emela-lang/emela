@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
 use crate::error::{TypeError, TypeErrorKind};
-use crate::row::{Row, RowElem, RowVar};
+use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::scheme::{Scheme, param_name, set_param_name};
 use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
 
@@ -210,12 +210,57 @@ impl InferCtx {
                 ty @ (Ty::Bound(_) | Ty::Var(_)) => Row::from_elems([RowElem::Of(ty)]),
                 _ => Row::empty(),
             },
+            // 解のタグの型引数は，解を求めた後に単一化で決まったものがありうるので辿る（8.1）．
             RowElem::Var(v) => match &self.row_solution {
-                Some(solution) => solution.get(v).cloned().unwrap_or_default(),
+                Some(solution) => {
+                    let row = solution.get(v).cloned().unwrap_or_default();
+                    row.map_tys(|t| self.resolve(t))
+                }
                 None => Row::var(*v),
             },
+            RowElem::Tag(t) => Row::of_tag(t.map_args(|a| self.resolve(a))),
             e => Row::from_elems([e.clone()]),
         })
+    }
+
+    /// 2つのタグが同じエフェクト（かエラー）か（8.1）．型引数の違うエフェクトは別のタグなので，
+    /// 定義と型引数を比べる．型引数がまだ決まっていなければ単一化を試し，できれば型変数を束縛して
+    /// 同じとみなす（`State.run(initial, body)` の `State[S]` の `S` を body の R から決める）．
+    /// できなければ何も変えずに false．
+    pub(crate) fn same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
+        if a.def != b.def || a.args.len() != b.args.len() {
+            return false;
+        }
+        if a.args.is_empty() {
+            return true;
+        }
+        let snapshot = self.table.snapshot();
+        self.row_buffer.clear();
+        let ok = a
+            .args
+            .iter()
+            .zip(&b.args)
+            .all(|(x, y)| self.unify_inner(x, y, Variance::Inv).is_ok());
+        if ok {
+            self.table.commit(snapshot);
+            let origin = Origin::Coerce {
+                span: self.origin.0,
+                def: self.origin.1,
+            };
+            for (sub, sup, kind) in std::mem::take(&mut self.row_buffer) {
+                self.add_subset_of(kind, sub, sup, origin.clone());
+            }
+        } else {
+            self.row_buffer.clear();
+            self.table.rollback_to(snapshot);
+        }
+        ok
+    }
+
+    /// `row` のタグのうち `tag` と同じもの（[`Self::same_tag`]）があるか．
+    pub(crate) fn row_has_tag(&mut self, row: &Row, tag: &Tag) -> bool {
+        let tags: Vec<Tag> = row.tags().cloned().collect();
+        tags.iter().any(|t| t == tag) || tags.iter().any(|t| self.same_tag(t, tag))
     }
 
     /// `expected` と `actual` を単一化する．失敗したら表は呼ぶ前の状態に戻る．
@@ -276,7 +321,7 @@ impl InferCtx {
                     )
                 };
                 let fails = known(&f.fails);
-                let uses = known(&f.uses);
+                let uses = known(&f.uses).map_tys(|t| self.resolve_for_report(t));
                 Ty::func_sets(
                     f.params
                         .iter()
@@ -402,7 +447,10 @@ impl InferCtx {
             (Ty::Prim(p), Ty::Prim(q)) if p == q => Ok(()),
             (Ty::Never, Ty::Never) => Ok(()),
             (Ty::Bound(i), Ty::Bound(j)) if i == j => Ok(()),
-            (Ty::Cap(x), Ty::Cap(y)) if x == y => Ok(()),
+            // 能力の値は，エフェクトと型引数の組が同じものどうしだけが一致する（8.1）．
+            (Ty::Cap(x), Ty::Cap(y)) if x.def == y.def && x.args.len() == y.args.len() => {
+                self.unify_all(&x.args, &y.args, Variance::Inv)
+            }
             // 名前付き型の集合の型引数．型引数の中なので，ふつうは両方向の包含になる．
             (Ty::Set(k, x), Ty::Set(l, y)) if k == l => {
                 self.buffer_rows(*k, x, y, variance);
@@ -636,6 +684,7 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
                 None => Row::var(*v),
             },
             RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
+            RowElem::Tag(t) => Row::of_tag(t.map_args(|a| replace_vars(a, map, rows))),
             e => Row::from_elems([e.clone()]),
         })
     };
@@ -697,6 +746,7 @@ pub(crate) fn substitute_row(row: &Row, tys: &[Ty], rows: &[Row]) -> Row {
             .cloned()
             .unwrap_or_else(|| Row::from_elems([e.clone()])),
         RowElem::Of(t) => Row::from_elems([RowElem::Of(substitute(t, tys, rows))]),
+        RowElem::Tag(t) => Row::of_tag(t.map_args(|a| substitute(a, tys, rows))),
         e => Row::from_elems([e.clone()]),
     })
 }

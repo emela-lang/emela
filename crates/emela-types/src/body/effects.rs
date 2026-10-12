@@ -17,12 +17,12 @@
 //!   Async も依存に足す（8.7，`body/suspend.rs`）．
 //! - main とテスト関数の本体の R は Async だけを含んでよい（Async はランタイムが供給する）．
 
-use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, Res, Span};
+use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Span};
 
 use super::BodyInfer;
 use crate::infer::{Origin, SetKind};
 use crate::layer;
-use crate::row::{Row, RowElem};
+use crate::row::{Row, RowElem, Tag};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {
@@ -78,7 +78,7 @@ impl BodyInfer<'_> {
                         let mut row = self.expr_effects(body);
                         // resume を後から呼びうる suspend fn の実装は Async を要求する（8.7）．
                         if resume_later && let Some(async_) = program.prelude_def("Async") {
-                            row.insert(RowElem::Tag(async_));
+                            row.insert(RowElem::Tag(Tag::new(async_)));
                         }
                         self.ctx.add_subset_of(
                             SetKind::Effects,
@@ -120,10 +120,13 @@ impl BodyInfer<'_> {
             // `use Async` は誤り（E0414）．R には足さない．
             ExprKind::Use {
                 effect: Res::Def(effect),
+                ..
             } if program.prelude_def("Async") == Some(*effect) => Row::empty(),
-            ExprKind::Use {
-                effect: Res::Def(effect),
-            } => Row::tag(*effect),
+            // 能力の値の型のタグ（型引数のあるエフェクトは `State[Int]`，8.1）．
+            ExprKind::Use { .. } => match self.exprs.get(expr) {
+                Some(Ty::Cap(tag)) => Row::of_tag(tag.clone()),
+                _ => Row::empty(),
+            },
             // 本体の R はラムダの型の R に閉じ込める．表に出るのは呼んだとき（9.4）．
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_effects(*body);
@@ -180,20 +183,20 @@ impl BodyInfer<'_> {
     fn with_effects(&mut self, expr: ExprId, handlers: &[(Res, Span)], body: ExprId) -> Row {
         let program = self.program;
         let body_row = self.expr_effects(body);
-        let entries = layer::with_entries(program, handlers);
+        let entries = layer::with_entries(program, self.sigs, handlers);
         let deps: Vec<Row> = entries
             .iter()
             .map(|e| self.handler_deps(e.handler))
             .collect();
-        let provided: Vec<DefId> = entries.iter().map(|e| e.effect).collect();
+        let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
         let mut row = self.subtract(&body_row, &provided);
         // ハンドラの依存は，同じ with で別のエフェクトを供給するハンドラが満たしてよい（14.2）．
         // 自分と同じエフェクトは外側のハンドラが満たす．layer の中で満たされない依存も残る（8.5）．
         for (entry, deps) in entries.iter().zip(&deps) {
-            let others: Vec<DefId> = provided
+            let others: Vec<Tag> = provided
                 .iter()
-                .copied()
-                .filter(|e| *e != entry.effect)
+                .filter(|e| **e != entry.effect)
+                .cloned()
                 .collect();
             row.extend(&self.subtract(deps, &others));
         }
@@ -202,12 +205,13 @@ impl BodyInfer<'_> {
     }
 
     /// 集合 `row` から，タグ `tags` を消す．推論の集合変数は，消すタグを除いた解を持つ新しい
-    /// 集合変数に置き換える．集合の型引数からは消さない．
-    fn subtract(&mut self, row: &Row, tags: &[DefId]) -> Row {
+    /// 集合変数に置き換える．集合の型引数からは消さない．型引数のあるエフェクトは型引数まで同じ
+    /// ものを消す（8.1）．型引数がまだ決まっていなければ単一化して消す（`InferCtx::same_tag`）．
+    fn subtract(&mut self, row: &Row, tags: &[Tag]) -> Row {
         let mut out = Row::empty();
         for e in self.ctx.resolve_row(row).elems() {
             match e {
-                RowElem::Tag(t) if tags.contains(t) => {}
+                RowElem::Tag(t) if tags.iter().any(|p| self.ctx.same_tag(p, t)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
                     let d = self.ctx.new_row_var();
                     self.row_diffs.push((d, *v, tags.to_vec()));

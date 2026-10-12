@@ -705,6 +705,88 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// エフェクトの型引数の診断（E0423，E0424，E0304，E0402）の文面（8.1）．
+#[test]
+fn effect_type_param_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Cell[S] {
+  fn get() -> S
+}
+
+effect Raise[E] {
+  fn guard(f: fn() -> () fails E) -> ()
+}
+
+handler Generic implements Cell {
+  fn get() { 0 }
+}
+
+handler Zero implements Cell[Int] {
+  fn get() { 0 }
+}
+
+fn omitted() { (use Cell).get() }
+
+fn too_many() { (use Cell[Int, Int]).get() }
+
+handler One implements Cell[Int] {
+  fn get() { 1 }
+}
+
+handler Empty implements Cell[String] {
+  fn get() { "" }
+}
+
+fn leftover() -> Int use {} {
+  with Zero {
+    (use Cell[String]).get()
+    (use Cell[Int]).get()
+  }
+}
+
+layer Both {
+  Zero
+  Empty
+}
+
+layer Twice {
+  Zero
+  One
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// 型引数のあるエフェクトの lowering は第3段．`emela build` は panic せず not supported yet にする．
+#[test]
+fn effect_type_params_are_not_lowered_yet() {
+    let src = r#"effect Cell[S] {
+  fn get() -> S
+}
+
+handler Zero implements Cell[Int] {
+  fn get() { 0 }
+}
+
+fn main() -> Int {
+  with Zero { (use Cell[Int]).get() }
+}
+"#;
+    let analysis = check_files(
+        &[("home/main.emel", src)],
+        "home/main.emel",
+        &mut Lower::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 #[test]
 fn bundled_console_checks_cleanly() {
     // 同梱の Console と JsConsole は import なしで使える（15.2）．

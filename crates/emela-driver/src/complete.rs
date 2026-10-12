@@ -310,7 +310,7 @@ impl Context<'_> {
         };
         let ty = self.expr_ty(expr);
         match ty.as_ref() {
-            Some(Ty::Cap(effect)) => match hir.item(*effect) {
+            Some(Ty::Cap(effect)) => match hir.item(effect.def) {
                 Some(Item::Effect(e)) => e.ops.iter().filter_map(|&op| self.def_item(op)).collect(),
                 _ => Vec::new(),
             },
@@ -357,11 +357,15 @@ impl Context<'_> {
             ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
             ExprKind::Field { base, name } => match self.expr_ty(*base)? {
                 Ty::Cap(effect) => {
-                    let Some(Item::Effect(e)) = hir.item(effect) else {
+                    let Some(Item::Effect(e)) = hir.item(effect.def) else {
                         return None;
                     };
                     let op = e.ops.iter().find(|&&op| hir.defs[op].name == name.name)?;
-                    types.sigs.get(*op).map(|sig| sig.scheme.ty.clone())
+                    // エフェクトの型引数は能力の値の型引数で置き換える（8.1）．
+                    types
+                        .sigs
+                        .get(*op)
+                        .map(|sig| emela_types::substitute_bound(&sig.scheme.ty, &effect.args))
                 }
                 Ty::Named(con, args) => self.field_ty(types.ty_table.def(con), &args, &name.name),
                 _ => None,

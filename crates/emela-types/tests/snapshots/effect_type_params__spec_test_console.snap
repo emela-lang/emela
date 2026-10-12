@@ -1,0 +1,28 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: "render(r#\"\nfn greet(id: Int) -> () use { Console } {\n  (use Console).print_line(\"Hello, alice!\")\n}\n\nhandler TestConsole implements Console {\n  fn print_line(text) {\n    st = use State[List[String]]\n    st.set([text, ..st.get()])\n  }\n  fn print_error_line(text) { () }\n}\n\nfn test_greets() {\n  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })\n  assert lines == [\"Hello, alice!\"]\n}\n\nfn captured() {\n  State.run([], fn() { with TestConsole { greet(1) } })\n}\n\"#)"
+---
+greet: fn(Int) -> () use Console
+  id: Int
+test_greets: fn() -> ()
+  lines: List[String]
+captured: fn() -> ((), List[String])
+handler TestConsole: use State[List[String]]
+--- R
+{   (use Console).print_line("Hello, alice!") }: Console
+(use Console).print_line("Hello, alice!"): Console
+(use Console).print_line: Console
+use Console: Console
+{     st = use State[List[String]]     st.set([text, ..st.get()])   }: State[List[String]]
+use State[List[String]]: State[List[String]]
+st.set([text, ..st.get()]): State[List[String]]
+[text, ..st.get()]: State[List[String]]
+st.get(): State[List[String]]
+{ with TestConsole { greet(1) } }: State[List[String]]
+with TestConsole { greet(1) }: State[List[String]]
+{ greet(1) }: Console
+greet(1): Console
+{ with TestConsole { greet(1) } }: State[List[String]]
+with TestConsole { greet(1) }: State[List[String]]
+{ greet(1) }: Console
+greet(1): Console

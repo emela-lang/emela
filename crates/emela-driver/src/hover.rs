@@ -21,7 +21,7 @@ pub struct HoverInfo {
 ///
 /// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）．
 ///   suspend fn（エフェクトの操作と外部関数）は型の前に `suspend` を付ける
-/// - handler の名前: `handler H(フィールド) implements E` と，init の E があれば `init fails E`，
+/// - handler の名前: `handler H(フィールド) implements E`（型引数があれば `E[Int]`）と，init の E があれば `init fails E`，
 ///   依存があれば `use R`（Async が残るか）
 /// - layer の名前: `layer L { 初期化の順のハンドラ }` と，layer の中で満たされない依存があれば `use R`
 /// - 定義か局所変数の参照: 同じく `名前: 型`
@@ -81,8 +81,20 @@ pub(crate) fn hover(
                 .collect();
             text.push_str(&format!("({})", fields.join(", ")));
         }
-        if let Res::Def(effect) = item.effect {
-            text.push_str(&format!(" implements {}", hir.defs[effect].name));
+        // 型引数のあるエフェクトは `implements State[Int]` の形（8.1）．
+        match types.sigs.handler_effect(def) {
+            Some(tag) => {
+                let effect = Row::of_tag(tag.clone());
+                text.push_str(&format!(
+                    " implements {}",
+                    effect.display_effects(cons, &[])
+                ));
+            }
+            None => {
+                if let Res::Def(effect) = item.effect {
+                    text.push_str(&format!(" implements {}", hir.defs[effect].name));
+                }
+            }
         }
         if let Some(fails) = types.handler_fails.get(def)
             && !fails.is_empty()

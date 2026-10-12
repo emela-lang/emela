@@ -21,7 +21,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
 use crate::exhaustiveness::{self, Witness, check_match};
 use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
 use crate::lower::{Omitted, Scope, TyTable, has_omitted_fails};
-use crate::row::{Row, RowVar};
+use crate::row::{Row, RowVar, Tag};
 use crate::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 
@@ -151,7 +151,7 @@ pub(crate) struct BodyInfer<'a> {
     /// 各式のエラーの集合．本体の推論が終わってから求める（`body/errors.rs`）．
     expr_rows: ArenaMap<ExprId, Row>,
     /// escape で受けたタグを集合変数の解から除くための集合変数（`δ ⊇ v ∖ tags`）．
-    row_diffs: Vec<(RowVar, RowVar, Vec<DefId>)>,
+    row_diffs: Vec<(RowVar, RowVar, Vec<Tag>)>,
     /// escape の元の式と，腕が受けるエラー（腕のパターンとタグ）．W0302 を確かめるのに使う．
     escapes: Vec<(ExprId, Vec<(PatId, DefId)>)>,
     /// 各式の効果の集合．本体の推論が終わってから求める（`body/effects.rs`）．
@@ -364,6 +364,11 @@ impl<'a> BodyInfer<'a> {
             return;
         }
         let handler_ty = self.ty_table.self_ty(def).unwrap_or(Ty::Error);
+        let effect_args = self
+            .sigs
+            .handler_effect(def)
+            .map(|t| t.args.clone())
+            .unwrap_or_default();
         match item.init {
             Some(init) => {
                 self.in_init = Some(def);
@@ -444,8 +449,12 @@ impl<'a> BodyInfer<'a> {
                 });
             }
             let suspend = hop.is_suspend;
-            let f = match op.and_then(|op| self.sigs.get(op)).map(|s| &s.scheme.ty) {
-                Some(Ty::Fn(f)) => Some(f.as_ref().clone()),
+            // エフェクトの型引数は implements に書いた型で置き換える（8.1）．
+            let f = match op
+                .and_then(|op| self.sigs.get(op))
+                .map(|s| substitute_bound(&s.scheme.ty, &effect_args))
+            {
+                Some(Ty::Fn(f)) => Some(*f),
                 _ => None,
             };
             let Some(f) = f else {
@@ -802,6 +811,7 @@ impl<'a> BodyInfer<'a> {
             // Async は操作を持たず，供給するのはランタイムだけ（8.7）．
             ExprKind::Use {
                 effect: Res::Def(effect),
+                ..
             } if program.prelude_def("Async") == Some(*effect) => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
@@ -809,9 +819,30 @@ impl<'a> BodyInfer<'a> {
                 });
                 Ty::Error
             }
+            // 型引数のあるエフェクトは型引数まで書く（`use State[Int]`，8.1）．省けば E0423．
             ExprKind::Use {
                 effect: Res::Def(effect),
-            } => Ty::Cap(*effect),
+                args,
+            } => {
+                let scope = Scope {
+                    params: &self.type_params,
+                    kinds: &self.param_kinds,
+                    omitted: Omitted::Empty,
+                    sets: true,
+                };
+                match self.ty_table.effect_tag(
+                    program,
+                    &scope,
+                    *effect,
+                    args,
+                    Some(e.span),
+                    None,
+                    &mut self.diags,
+                ) {
+                    Some(tag) => Ty::Cap(tag),
+                    None => Ty::Error,
+                }
+            }
             ExprKind::Use { .. } => Ty::Error,
             ExprKind::With { body, .. } => match expected {
                 Some(expected) => {
@@ -1246,7 +1277,7 @@ impl<'a> BodyInfer<'a> {
         let base_ty = self.ctx.shallow_resolve(&base_ty);
         let (id, args) = match &base_ty {
             Ty::Named(id, args) => (*id, args),
-            Ty::Cap(effect) => return self.infer_op(expr, *effect, name),
+            Ty::Cap(effect) => return self.infer_op(expr, effect, name),
             Ty::Error | Ty::Never => return Ty::Error,
             Ty::Var(_) => {
                 return self.field_error(
@@ -1311,8 +1342,10 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// 能力の値の操作 `log.info` の型（8.2）．操作の宣言の型に，R としてそのエフェクトを足す．
-    fn infer_op(&mut self, expr: ExprId, effect: DefId, name: &Label) -> Ty {
+    /// エフェクトの型引数は能力の値の型引数で置き換える（`use State[Int]` の `get` は `fn() -> Int`，8.1）．
+    fn infer_op(&mut self, expr: ExprId, tag: &Tag, name: &Label) -> Ty {
         let program = self.program;
+        let effect = tag.def;
         let op = match program.item(effect) {
             Some(Item::Effect(e)) => e
                 .ops
@@ -1331,13 +1364,12 @@ impl<'a> BodyInfer<'a> {
             );
         };
         self.ops.insert(expr, op);
-        match self.sigs.get(op).map(|sig| &sig.scheme.ty) {
-            Some(Ty::Fn(f)) => Ty::func_sets(
-                f.params.clone(),
-                f.ret.clone(),
-                f.fails.clone(),
-                Row::tag(effect),
-            ),
+        let ty = self
+            .sigs
+            .get(op)
+            .map(|sig| substitute_bound(&sig.scheme.ty, &tag.args));
+        match ty {
+            Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, Row::of_tag(tag.clone())),
             _ => Ty::Error,
         }
     }

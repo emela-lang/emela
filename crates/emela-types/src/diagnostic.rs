@@ -170,6 +170,15 @@ pub enum DiagnosticKind {
     /// 集合でない型引数の位置にエフェクトの名前を書いた（E0221，8.2）．名前解決は型引数の位置の
     /// エフェクトの名前を通すので，型推論が確かめる．
     EffectAsType { name: SmolStr },
+    /// 型引数のあるエフェクトの型引数を書いていない（E0423，8.1）．`use State` と，`implements State`．
+    /// `handler` は implements に書いたときのハンドラの名前．`params` はエフェクトの型引数の名前．
+    MissingEffectTypeArgs {
+        effect: SmolStr,
+        params: Vec<SmolStr>,
+        handler: Option<SmolStr>,
+    },
+    /// エフェクトの型引数を集合として使った（E0424，8.1）．エフェクトの型引数はふつうの型だけ．
+    EffectParamNotType { effect: SmolStr, param: SmolStr },
     /// 名前付き型の集合の型引数（`Handler[E, R]` の `E`）に，その種類のタグか集合の型引数でない
     /// ものを書いた（E0323，9.2）．`effects` は効果の集合の位置か．`found` は書いたものの説明．
     SetArgMismatch {

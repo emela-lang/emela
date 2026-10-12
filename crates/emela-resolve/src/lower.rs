@@ -47,7 +47,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
             let value = lower.opt_expr(c.value(), c.syntax().text_range());
             Item::Const(ConstItem { ty, value })
         }
-        ast::Item::Effect(e) => lower.effect_item(&pending.children, e),
+        ast::Item::Effect(e) => lower.effect_item(pending.def, &pending.children, e),
         ast::Item::Handler(h) => lower.handler_item(pending.def, pending.ctor, h),
         ast::Item::Layer(l) => {
             let members = l
@@ -438,7 +438,9 @@ impl Lower<'_, '_> {
         })
     }
 
-    fn effect_item(&mut self, ops: &[DefId], e: &ast::EffectDecl) -> Item {
+    fn effect_item(&mut self, def: DefId, ops: &[DefId], e: &ast::EffectDecl) -> Item {
+        // エフェクトの型引数（8.1）は操作のシグネチャの中で使える．
+        let type_params = self.type_params(def, e.type_params());
         // 重複した操作は収集で飛ばしたので，名前で対応させる．
         for op in e.ops() {
             let Some(name) = op.name() else { continue };
@@ -456,7 +458,11 @@ impl Lower<'_, '_> {
             self.pop_scope();
             self.r.program.items.insert(def, Item::Op(OpItem { sig }));
         }
-        Item::Effect(EffectItem { ops: ops.to_vec() })
+        self.pop_type_params();
+        Item::Effect(EffectItem {
+            type_params,
+            ops: ops.to_vec(),
+        })
     }
 
     fn handler_item(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
@@ -480,6 +486,7 @@ impl Lower<'_, '_> {
             Some(p) => self.resolve_type_ns(&p, Expected::Effect),
             None => Res::Err,
         };
+        let effect_args = self.type_arg_list(h.effect_type_args());
         // init は with に入るときに走り，ハンドラの値を作る．`self` はまだない．
         let init = h.init().map(|b| self.block(&b));
         let release = h.release().map(|b| {
@@ -519,6 +526,7 @@ impl Lower<'_, '_> {
             .collect();
         Item::Handler(HandlerItem {
             effect,
+            effect_args,
             fields,
             ctor,
             init,
@@ -685,7 +693,7 @@ impl Lower<'_, '_> {
                 span: self.span(range),
             }),
             EFFECT_SET => TypeKind::EffectSet(EffectSet {
-                items: self.set_node_items(node, Expected::Effect),
+                items: self.effect_set_items(node),
                 span: self.span(range),
             }),
             TUPLE_TYPE => TypeKind::Tuple(node.children().map(|t| self.lower_type(&t)).collect()),
@@ -757,11 +765,50 @@ impl Lower<'_, '_> {
     }
 
     fn effect_set(&mut self, clause: &SyntaxNode) -> EffectSet {
-        let items = self.set_items(clause, Expected::Effect);
+        let items = match clause.children().find(|n| n.kind() == EFFECT_SET) {
+            Some(set) => self.effect_set_items(&set),
+            None => Vec::new(),
+        };
         EffectSet {
             items,
             span: self.span(clause.text_range()),
         }
+    }
+
+    /// 効果の集合（EFFECT_SET）の要素．型引数のあるエフェクト（`State[Int]`，8.1）は PATH_TYPE．
+    fn effect_set_items(&mut self, set: &SyntaxNode) -> Vec<EffectRef> {
+        set.children()
+            .filter_map(|n| {
+                let (res, args) = match n.kind() {
+                    PATH => (
+                        self.resolve_type_ns(&ast::Path::cast(n.clone())?, Expected::Effect),
+                        Vec::new(),
+                    ),
+                    PATH_TYPE => {
+                        let path = n.children().find_map(ast::Path::cast)?;
+                        let res = self.resolve_type_ns(&path, Expected::Effect);
+                        let args =
+                            self.type_arg_list(n.children().find(|c| c.kind() == TYPE_ARG_LIST));
+                        (res, args)
+                    }
+                    TYPE_VAR => (self.type_var(&n), Vec::new()),
+                    _ => return None,
+                };
+                Some(EffectRef {
+                    res,
+                    args,
+                    span: self.span(n.text_range()),
+                })
+            })
+            .collect()
+    }
+
+    /// 型引数の並び（TYPE_ARG_LIST）の型．並びがなければ空．
+    fn type_arg_list(&mut self, list: Option<SyntaxNode>) -> Vec<TypeId> {
+        let Some(list) = list else {
+            return Vec::new();
+        };
+        list.children().map(|t| self.lower_type(&t)).collect()
     }
 
     fn set_items(&mut self, clause: &SyntaxNode, expected: Expected) -> Vec<(Res, Span)> {
@@ -1035,7 +1082,8 @@ impl Lower<'_, '_> {
                     Some(path) => self.resolve_type_ns(&path, Expected::Effect),
                     None => Res::Err,
                 };
-                ExprKind::Use { effect }
+                let args = self.type_arg_list(node.children().find(|n| n.kind() == TYPE_ARG_LIST));
+                ExprKind::Use { effect, args }
             }
             FAIL_EXPR => {
                 // `fail e` の e は普通の式（エラーの型の値）．型は型推論が確かめる（7.2）．

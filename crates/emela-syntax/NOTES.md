@@ -50,3 +50,5 @@
 - （補）1つの fn の同じターゲットの `@external` は，2つ目以降のターゲットの名前に E0139．知らないターゲットは E0140 だけを出し，重複は数えない
 - （補）`@external type` の注釈に引数の並びがあれば，空の `()` でも E0141（12.3）．同じ type に引数のない `@external` が2つあっても診断しない
 - （補）引数の読めなかった注釈（中に ERROR があるもの）は，構文の診断が出ているので `@external` の形を見ない
+- （補）エフェクトの型引数（8.1）．`effect State[S]` の型引数は type や enum と同じ TYPE_PARAM_LIST．`implements State[Int]` と `use State[Int]` の型引数は，PATH の後ろの兄弟の TYPE_ARG_LIST にする（IMPLEMENTS_CLAUSE と USE_EXPR の PATH の親は今までどおり）．効果の集合の要素の `State[Int]`（`use { State[Int], Log }`）は，PATH と TYPE_ARG_LIST を PATH_TYPE で包む．集合の中では要素ごとに型引数を対応させるため．型引数を書かなければ今までどおり PATH だけ
+- （補）17.4 の `effect_item = type_ref | upper_name` を `type_ref [ "[" type { "," type } "]" ] | upper_name` に広げた（指示書の `use { State[Int], Log }`）．17.3 の handler_decl と 17.5 の `use` は仕様の文法どおり．並びの中身は名前付き型の型引数と同じ type_arg で読み，集合を書いたら型推論が E0324 にする．空の `[]` も読む（fn の型引数の `[]` と同じ）

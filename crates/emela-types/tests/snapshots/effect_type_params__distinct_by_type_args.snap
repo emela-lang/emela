@@ -1,0 +1,56 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: "render(r#\"\nhandler Zero implements State[Int] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Empty implements State[String] {\n  fn get() { \"\" }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn both() -> () use { State[Int], State[String] } {\n  n = (use State[Int]).get()\n  s = (use State[String]).get()\n  ()\n}\n\nfn inferred() {\n  (use State[Int]).update(fn(n) { n + 1 })\n  (use State[String]).get()\n}\n\nfn only_int() { with Zero { both() } }\n\nfn both_provided() { with Zero, Empty { both() } }\n\nfn counted() {\n  State.run(0, fn() {\n    (use State[Int]).update(fn(n) { n + 1 })\n    (use State[String]).get()\n  })\n}\n\nfn nested() {\n  State.run(0, fn() {\n    State.run(\"\", fn() { inferred() })\n  })\n}\n\nfn test_leftover() { with Zero { both() } }\n\"#)"
+---
+both: fn() -> () use { State[Int], State[String] }
+  n: Int
+  s: String
+inferred: fn() -> String use { State[Int], State[String] }
+  n: Int
+only_int: fn() -> () use State[String]
+both_provided: fn() -> ()
+counted: fn() -> (String, Int) use State[String]
+  n: Int
+nested: fn() -> ((String, String), Int)
+test_leftover: fn() -> () use State[String]
+handler Zero: use {}
+handler Empty: use {}
+`both()` unhandled effects State[String] (Test { name: "test_leftover" })
+--- R
+{   n = (use State[Int]).get()   s = (use State[String]).get()   () }: { State[Int], State[String] }
+(use State[Int]).get(): State[Int]
+(use State[Int]).get: State[Int]
+use State[Int]: State[Int]
+(use State[String]).get(): State[String]
+(use State[String]).get: State[String]
+use State[String]: State[String]
+{   (use State[Int]).update(fn(n) { n + 1 })   (use State[String]).get() }: { State[Int], State[String] }
+(use State[Int]).update(fn(n) { n + 1 }): State[Int]
+(use State[Int]).update: State[Int]
+use State[Int]: State[Int]
+(use State[String]).get(): State[String]
+(use State[String]).get: State[String]
+use State[String]: State[String]
+{ with Zero { both() } }: State[String]
+with Zero { both() }: State[String]
+{ both() }: { State[Int], State[String] }
+both(): { State[Int], State[String] }
+{ both() }: { State[Int], State[String] }
+both(): { State[Int], State[String] }
+{   State.run(0, fn() {     (use State[Int]).update(fn(n) { n + 1 })     (use State[String]).get()   }) }: State[String]
+State.run(0, fn() {     (use State[Int]).update(fn(n) { n + 1 })     (use State[String]).get()   }): State[String]
+{     (use State[Int]).update(fn(n) { n + 1 })     (use State[String]).get()   }: { State[Int], State[String] }
+(use State[Int]).update(fn(n) { n + 1 }): State[Int]
+(use State[Int]).update: State[Int]
+use State[Int]: State[Int]
+(use State[String]).get(): State[String]
+(use State[String]).get: State[String]
+use State[String]: State[String]
+{     State.run("", fn() { inferred() })   }: State[Int]
+State.run("", fn() { inferred() }): State[Int]
+{ inferred() }: { State[Int], State[String] }
+inferred(): { State[Int], State[String] }
+{ with Zero { both() } }: State[String]
+with Zero { both() }: State[String]
+{ both() }: { State[Int], State[String] }
+both(): { State[Int], State[String] }

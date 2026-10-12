@@ -1,0 +1,8 @@
+---
+source: crates/emela-types/tests/effect_type_params.rs
+expression: out
+---
+get: ∀ S. fn() -> S
+set: ∀ S. fn(S) -> ()
+update: ∀ S. fn(fn(S) -> S fails {} use {}) -> ()
+run: ∀ S, A, E, R. fn(S, fn() -> A fails E use { State[S], R }) -> (A, S) fails E use R

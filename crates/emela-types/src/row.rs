@@ -1,6 +1,7 @@
 //! 集合の型．エラーの集合 E（7章）と効果の集合 R（8章）を同じ形で持つ．
 //!
-//! 集合は，タグ（error か effect の定義の [`DefId`]）と，中身の決まっていない集合の和で表す（9.4）．
+//! 集合は，タグ（[`Tag`]．error の定義か，effect の定義とその型引数の組）と，中身の決まっていない
+//! 集合の和で表す（9.4）．
 //! 中身の決まっていない集合は3通りある．
 //!
 //! - 推論の集合変数（[`RowVar`]）．本体の推論が終わったところで，下界の和（最小の解）に決める．
@@ -30,11 +31,44 @@ impl RowVar {
     }
 }
 
+/// 集合のタグ．E なら error の定義，R なら effect の定義とその型引数（8.1）．
+///
+/// 型引数の違うエフェクトは別のタグ（`State[Int]` と `State[String]`）．型引数のないエフェクトと
+/// エラーの `args` は空．型引数には推論の型変数が残りうるので，比べる前に
+/// `InferCtx::resolve_row` で辿る．
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Tag {
+    pub def: DefId,
+    pub args: Vec<Ty>,
+}
+
+impl Tag {
+    /// 型引数のないタグ．
+    pub fn new(def: DefId) -> Self {
+        Tag {
+            def,
+            args: Vec::new(),
+        }
+    }
+
+    pub fn with_args(def: DefId, args: Vec<Ty>) -> Self {
+        Tag { def, args }
+    }
+
+    /// 型引数を `f` で置き換えたタグ．
+    pub fn map_args(&self, f: impl FnMut(&Ty) -> Ty) -> Tag {
+        Tag {
+            def: self.def,
+            args: self.args.iter().map(f).collect(),
+        }
+    }
+}
+
 /// 集合の要素．
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RowElem {
-    /// タグ．E なら error の定義，R なら effect の定義．
-    Tag(DefId),
+    /// タグ．E なら error の定義，R なら effect の定義とその型引数．
+    Tag(Tag),
     /// 型スキームの集合の型引数（[`crate::ParamKind::Set`]）．`Scheme::params` の添字．
     Bound(u32),
     /// エラーの型 `ty` のタグ．型が error の名前付き型に決まればそのタグになる．
@@ -56,8 +90,14 @@ impl Row {
         Row::default()
     }
 
+    /// 型引数のないタグ1つの集合．
     pub fn tag(def: DefId) -> Self {
-        Row::from_elems([RowElem::Tag(def)])
+        Row::from_elems([RowElem::Tag(Tag::new(def))])
+    }
+
+    /// タグ1つの集合．
+    pub fn of_tag(tag: Tag) -> Self {
+        Row::from_elems([RowElem::Tag(tag)])
     }
 
     pub fn var(v: RowVar) -> Self {
@@ -111,9 +151,9 @@ impl Row {
     }
 
     /// タグ．
-    pub fn tags(&self) -> impl Iterator<Item = DefId> + '_ {
+    pub fn tags(&self) -> impl Iterator<Item = &Tag> + '_ {
         self.elems.iter().filter_map(|e| match e {
-            RowElem::Tag(t) => Some(*t),
+            RowElem::Tag(t) => Some(t),
             _ => None,
         })
     }
@@ -126,19 +166,22 @@ impl Row {
         })
     }
 
-    /// 要素の中の型（`RowElem::Of`）を順に渡す．
+    /// 要素の中の型（`RowElem::Of` と，タグの型引数）を順に渡す．
     pub fn for_each_ty(&self, mut f: impl FnMut(&Ty)) {
         for e in &self.elems {
-            if let RowElem::Of(ty) = e {
-                f(ty);
+            match e {
+                RowElem::Of(ty) => f(ty),
+                RowElem::Tag(t) => t.args.iter().for_each(&mut f),
+                _ => {}
             }
         }
     }
 
-    /// 要素の中の型を `f` で置き換えた集合．
+    /// 要素の中の型（`RowElem::Of` と，タグの型引数）を `f` で置き換えた集合．
     pub fn map_tys(&self, mut f: impl FnMut(&Ty) -> Ty) -> Row {
         Row::from_elems(self.elems.iter().map(|e| match e {
             RowElem::Of(ty) => RowElem::Of(f(ty)),
+            RowElem::Tag(t) => RowElem::Tag(t.map_args(&mut f)),
             e => e.clone(),
         }))
     }
@@ -153,10 +196,10 @@ impl Row {
     }
 }
 
-/// 並べる順の鍵．`Of` の中の型どうしは足した順のまま．
+/// 並べる順の鍵．`Of` の中の型どうしと，同じ定義の型引数の違うタグどうしは足した順のまま．
 fn order(e: &RowElem) -> (u8, u32) {
     match e {
-        RowElem::Tag(def) => (0, def.into_raw().into_u32()),
+        RowElem::Tag(t) => (0, t.def.into_raw().into_u32()),
         RowElem::Bound(i) => (1, *i),
         RowElem::Of(_) => (2, 0),
         RowElem::Var(v) => (3, v.0),

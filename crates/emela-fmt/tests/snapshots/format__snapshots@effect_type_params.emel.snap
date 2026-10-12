@@ -1,0 +1,20 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/effect_type_params.emel
+---
+pub effect State[S] {
+  fn get() -> S
+  fn update(f: fn(S) -> S) -> ()
+}
+
+handler Fixed implements State[Int] {
+  fn get() { 0 }
+  fn update(f) { () }
+}
+
+fn count() -> Int use { State[Int], Log } {
+  st = use State[Int]
+  (use State[Int]).update(fn(n) { n + 1 })
+  st.get()
+}

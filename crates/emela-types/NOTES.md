@@ -91,7 +91,7 @@
 
 表現と解き方は `body/effects.rs` と `body/capabilities.rs` の冒頭に書いた．R の制約は E と同じ表（`InferCtx::subsets`，種類は `SetKind`）に溜めて `body/errors.rs` で一緒に解く．ここには仕様にない判断を残す．
 
-- （補）能力の値の型は `Ty::Cap(effect)`．ソースには書けない（E0221）．単一化では同じエフェクトの `Cap` どうしだけが一致する．表示はそれを作る式の形で `use Logger`（ホバーで `log: use Logger`）．
+- （補）能力の値の型は `Ty::Cap(tag)`（エフェクトと型引数の組，下の「エフェクトの型引数と State」）．ソースには書けない（E0221）．単一化では同じエフェクトの `Cap` どうしだけが一致し，型引数は両方向に単一化する．表示はそれを作る式の形で `use Logger`（ホバーで `log: use Logger`）．
 - （補）能力の値の操作 `log.info` の型は，エフェクトの操作の宣言の型に，R としてそのエフェクトを足した関数型．呼べば R にそのエフェクトが載る．能力を捕まえたクロージャの型の R にもそのエフェクトが載るので，8.2 の `copy(read: fn() -> Rows use { Db }, ...)` に渡せる．操作の `fails` はその呼び出しの E に足す（8.1）．名前付き引数は操作の宣言の引数の名前で引ける．ない操作は E0401．
 - （補）エフェクトの操作の宣言は「宣言の中」なので，引数の関数型の `fails` と `use` を省略すれば空（9.2）．戻り値の型を省略すれば `()`．操作の `use` 節は構文の段の E0137（8.1）なので，型推論では読まない．
 - （補）`use` 節を書いていない本体のある fn は，戻り値の型を書いていても宣言の型のない定義として扱う（9.3 の「常に R を推論する」）．まとまりの中では単相の型で参照し，推論し終えてから汎化する．T と E は宣言のとおりで，R だけが集合変数．そのため同じまとまりの中では多相再帰にならない（書いた型引数のある fn を，まとまりの中の他の定義から参照するときは，既存の `deferred` の照合を使う）．
@@ -129,6 +129,20 @@
 - （補）layer の中で満たされない依存（`LayerInfo::uses`）は，展開したハンドラの依存のうち，layer の中の別のエフェクトのハンドラが供給しないもの．with の R に残る（8.5）．
 - （補）型の表示: ハンドラの値は名前だけ（`DbUsers`）．ホバーは handler の名前にフィールドと init の E を足し，layer の名前に初期化の順のハンドラと満たされない依存を出す（emela-driver の NOTES）．
 - （補）lowering は第3段．`emela build` は状態のある handler，layer，`self` を `Unsupported` にして panic しない（emela-core）．
+
+## エフェクトの型引数と State（8.1，8.8）
+
+- （補）R のタグは，エフェクトとその型引数の組（`Tag { def, args }`）．型引数の違うエフェクトは別のタグで，`State[Int]` と `State[String]` は R の中で区別される．E のタグ（error）と型引数のないエフェクトの `args` は空．能力の値の型も `Ty::Cap(Tag)` で，表示は `use State[Int]`．集合の中の表示も `State[Int]`
+- （補）タグの型引数には推論の型変数が残りうる（型引数のある fn の呼び出しを具体化した `State[?0]`）．置き換え，辿り方，汎化は関数型の E の中の型と同じに扱う（`Row::map_tys` と `Ty::for_each_child` は関数型の R のタグの型引数も辿る）．R に残った型変数は汎化する（`fn peek() { modify(fn(x) { x }) }` は `∀ A. fn() -> A use State[A]`）
+- （補）2つのタグが同じかは，型引数を辿って比べ，違えば単一化を試す（`InferCtx::same_tag`．全部の型引数を単一化できたときだけ束縛を残す）．with で消すエフェクト，包含の制約の下界から除くタグ，制約の検査（E0402，E0403）のどれもこれで比べる．そのため `State.run([], fn() { with TestConsole { greet(1) } })` の `S` は，初期値の `[]` からは `List[?]` までしか決まらなくても，body の R の `State[List[String]]`（TestConsole の依存）から決まる．同じエフェクトのタグが集合に2つ以上あるときは最初に単一化できたものを選ぶ（近似）．制約を解いている間の単一化で関数型の集合の制約が増えても，その回の解には入らない（型引数に関数型を書いたときだけ起きる）
+- （補）型引数は省略できない（8.1）．`use State`，`use State` の節，`implements State` は E0423 で，型引数を `Ty::Error` で埋めたタグにして続ける（`Ty::Error` はどの型とも単一化できるので誤りを重ねない）．数が違えば E0304（型引数のないエフェクトに書いた `Logger[Int]` も）
+- （補）エフェクトの型引数の中の関数型の `fails` と `use` を省略すれば空（宣言の中と同じ，9.2）．`State[fn(Int) -> Int]` の状態は純粋な関数
+- （補）エフェクトの型引数はふつうの型だけ（8.1）．操作の引数と戻り値の関数型の `fails` か `use` にだけ書いた型引数は集合になるので E0424（型引数の宣言の位置）．操作自身の `fails S` は fn と同じく1つのエラーの型（7.2）で，ふつうの型として通す
+- （補）操作の型（`Signatures` の操作の定義）は，エフェクトの型引数を `Bound(i)` にしたスキーム（`get: ∀ S. fn() -> S`）．能力の値の操作は能力の値の型引数で，handler の操作の実装は implements に書いた型で置き換える
+- （補）handler は型引数を持たないので，implements の型引数は型引数のない文脈で読む（汎用のハンドラはない．8.1）．読んだタグは `Signatures::handler_effect` に持ち，with と layer の供給（`layer::Entry::effect`）に使う．with の「同じエフェクトは後ろが優先」と layer の重複（E0421）は型引数まで同じものだけを数える．E0421 の文面のエフェクトは `State[Int]` の形
+- （補）`use State[S]` は，囲む fn の型引数を型引数に書ける．型引数の種類を決めるとき，エフェクトの型引数の位置はふつうの型の位置として数える（`fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S]`）
+- （補）Immediate はエフェクトの定義で決める（型引数に左右されない）．State は suspend fn を持たないので Immediate
+- （補）同梱の core の State（`emela-core/lib/state.emel`）はまだ同梱しない（emela-core の NOTES）．`State.run` は型検査の上ではふつうの型引数のある fn で，body の R の `State[S]` は書き出したエフェクトなので消える（8.3 の `use { Logger, R }` と同じ）
 
 ## suspend，Async，Immediate（8.1，8.4，8.7，9.5，12.2）
 
@@ -224,6 +238,8 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0420 `ReleaseFails`: ``` `release` of handler `Counter` cannot fail, but this may fail with error `Boom` ```．注記 ``= help: handle it with `escape`, or turn it into a defect with `panic` ``
 - E0421 `DuplicateLayerEffect`: ``effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud` ``．注記 ``= help: keep one of them, or override it with `with Loud, Quiet { ... }` ``．同じハンドラなら ``handler `Quiet` appears more than once in layer `Twice` ``（注記なし）
 - E0422 `LayerCycle`: ``layers include each other: `LoopA` -> `LoopB` -> `LoopA` ``
+- E0423 `MissingEffectTypeArgs`: ``missing type arguments for effect `State[S]` ``．注記 ``= help: write the types, like `State[...]` ``．implements なら ``handler `Fixed` must implement `State[S]` with concrete types``．注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``
+- E0424 `EffectParamNotType`: ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``
 - E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
 - E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``

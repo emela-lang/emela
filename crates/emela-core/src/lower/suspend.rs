@@ -45,7 +45,7 @@ impl Lowerer<'_> {
     /// 変数）は，写している関数（元の関数か，どの中断用の写しか）で決まる．
     pub(super) fn row_suspends(&self, row: &Row) -> bool {
         row.elems().iter().any(|e| match e {
-            RowElem::Tag(effect) => !self.is_immediate_effect(*effect),
+            RowElem::Tag(effect) => !self.is_immediate_effect(effect.def),
             RowElem::Bound(i) => spec_has(self.spec, *i),
             RowElem::Var(v) => self
                 .current_def
@@ -68,7 +68,7 @@ impl Lowerer<'_> {
             return false;
         };
         f.uses.elems().iter().any(|e| match e {
-            RowElem::Tag(effect) => !self.is_immediate_effect(*effect),
+            RowElem::Tag(effect) => !self.is_immediate_effect(effect.def),
             RowElem::Bound(i) => spec_has(spec, *i),
             _ => false,
         })

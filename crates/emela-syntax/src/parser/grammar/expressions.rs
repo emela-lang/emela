@@ -1,7 +1,7 @@
 //! Expressions (spec 17.5).
 
 use super::patterns::pattern;
-use super::types::{path, type_};
+use super::types::{effect_type_args, path, type_};
 use super::{literal, param_list};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
@@ -236,7 +236,7 @@ fn expr_bp(p: &mut Parser<'_>, min: u8) -> Option<CompletedMarker> {
     Some(lhs)
 }
 
-/// `( "!" | "-" ) unary | "use" type_ref | postfix`
+/// `( "!" | "-" ) unary | "use" type_ref [ "[" type { "," type } "]" ] | postfix`
 fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.current() {
         BANG | MINUS => {
@@ -250,6 +250,7 @@ fn unary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             p.bump();
             if p.at(TYPE_NAME) {
                 path(p);
+                effect_type_args(p);
             } else {
                 p.expect(TYPE_NAME);
             }

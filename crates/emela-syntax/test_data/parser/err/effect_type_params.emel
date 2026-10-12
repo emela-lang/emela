@@ -1,0 +1,10 @@
+effect State[] {
+  fn get() -> Int
+}
+
+handler H implements State[ {
+}
+
+fn f() {
+  use State[Int
+}

@@ -6,8 +6,8 @@
 //! [`TypeRef`]: emela_resolve::hir::TypeRef
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectSet, EnumItem, ErrorSet, Fields, Item, Program, Res, Span, TypeId,
-    TypeItem, TypeKind, TypeParam, TypeRef,
+    DefId, DefKind, EffectRef, EffectSet, EnumItem, ErrorSet, Fields, Item, Program, Res, Span,
+    TypeId, TypeItem, TypeKind, TypeParam, TypeRef,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -15,7 +15,7 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
-use crate::row::{Row, RowElem, SetKind};
+use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
 /// 関数型の `fails` 節と `use` 節を省略したときの意味．書いた位置で決まる（9.2）．
@@ -308,7 +308,7 @@ impl TyTable {
                 continue;
             };
             match program.defs[def].kind {
-                DefKind::Error => row.insert(RowElem::Tag(def)),
+                DefKind::Error => row.insert(RowElem::Tag(Tag::new(def))),
                 DefKind::TypeParam => {
                     let Some(i) = scope.params.iter().position(|&p| p == def) else {
                         continue;
@@ -342,12 +342,19 @@ impl TyTable {
         diags: &mut Vec<Diagnostic>,
     ) -> Row {
         let mut row = Row::empty();
-        for &(res, span) in &set.items {
+        for item in &set.items {
+            let (res, span) = (item.res, item.span);
             let Res::Def(def) = res else {
                 continue;
             };
             match program.defs[def].kind {
-                DefKind::Effect => row.insert(RowElem::Tag(def)),
+                DefKind::Effect => {
+                    if let Some(tag) =
+                        self.effect_tag(program, scope, def, &item.args, Some(span), None, diags)
+                    {
+                        row.insert(RowElem::Tag(tag));
+                    }
+                }
                 DefKind::TypeParam => {
                     let Some(i) = scope.params.iter().position(|&p| p == def) else {
                         continue;
@@ -373,6 +380,58 @@ impl TyTable {
             }
         }
         row
+    }
+
+    /// エフェクトとその型引数のタグ（8.1）．型引数はふつうの型として読む．書いていない型引数の
+    /// 関数型の `fails` と `use` は空（宣言の中と同じ）．
+    ///
+    /// 型引数のあるエフェクトで型引数を書いていなければ E0423（`handler` は implements に書いた
+    /// ハンドラの名前），数が違えば E0304．どちらも型引数を `Ty::Error` で埋めたタグを返す
+    /// （`Ty::Error` はどの型とも単一化できるので，誤りを重ねない）．
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn effect_tag(
+        &self,
+        program: &Program,
+        scope: &Scope<'_>,
+        effect: DefId,
+        args: &[TypeId],
+        span: Option<Span>,
+        handler: Option<SmolStr>,
+        diags: &mut Vec<Diagnostic>,
+    ) -> Option<Tag> {
+        let params = effect_params(program, effect);
+        if params.is_empty() && args.is_empty() {
+            return Some(Tag::new(effect));
+        }
+        let name = &program.defs[effect].name;
+        if args.is_empty() {
+            diags.push(Diagnostic {
+                span,
+                kind: DiagnosticKind::MissingEffectTypeArgs {
+                    effect: name.clone(),
+                    params: params
+                        .iter()
+                        .map(|tp| program.defs[tp.def].name.clone())
+                        .collect(),
+                    handler,
+                },
+            });
+            return Some(Tag::with_args(effect, vec![Ty::Error; params.len()]));
+        }
+        if !check_arity(name, params.len(), args, span, diags) {
+            return Some(Tag::with_args(effect, vec![Ty::Error; params.len()]));
+        }
+        let mut inner = Scope {
+            params: scope.params,
+            kinds: scope.kinds,
+            omitted: Omitted::Empty,
+            sets: scope.sets,
+        };
+        let args = args
+            .iter()
+            .map(|&a| self.lower_in(program, &mut inner, a, true, diags))
+            .collect();
+        Some(Tag::with_args(effect, args))
     }
 
     /// 型の書き方の並びを順に Ty にする．
@@ -542,10 +601,18 @@ impl TyTable {
             });
         };
         let type_ref = &program.types[arg];
-        let items: &[(Res, Span)] = match (&type_ref.kind, kind) {
-            (TypeKind::ErrorSet(set), SetKind::Errors) => &set.items,
-            (TypeKind::EffectSet(set), SetKind::Effects) => &set.items,
-            (TypeKind::EffectSet(set), SetKind::Errors) if set.items.is_empty() => &[],
+        let items: Vec<(Res, &[TypeId], Span)> = match (&type_ref.kind, kind) {
+            (TypeKind::ErrorSet(set), SetKind::Errors) => set
+                .items
+                .iter()
+                .map(|&(res, span)| (res, &[][..], span))
+                .collect(),
+            (TypeKind::EffectSet(set), SetKind::Effects) => set
+                .items
+                .iter()
+                .map(|item| (item.res, item.args.as_slice(), item.span))
+                .collect(),
+            (TypeKind::EffectSet(set), SetKind::Errors) if set.items.is_empty() => Vec::new(),
             (TypeKind::ErrorSet(_), SetKind::Effects) => {
                 mismatch(type_ref.span, "an error set".into(), diags);
                 return Ty::Set(kind, Row::empty());
@@ -555,10 +622,22 @@ impl TyTable {
                 return Ty::Set(kind, Row::empty());
             }
             (TypeKind::Missing, _) => return Ty::Set(kind, Row::empty()),
-            (TypeKind::Path { res, args }, _) if args.is_empty() => {
+            (TypeKind::Path { res, args }, _)
+                if args.is_empty()
+                    || (kind == SetKind::Effects
+                        && matches!(res, Res::Def(d) if program.defs[*d].kind == DefKind::Effect)) =>
+            {
                 return Ty::Set(
                     kind,
-                    self.set_elem(program, scope, kind, *res, type_ref.span, &mismatch, diags),
+                    self.set_elem(
+                        program,
+                        scope,
+                        kind,
+                        (*res, args),
+                        type_ref.span,
+                        &mismatch,
+                        diags,
+                    ),
                 );
             }
             (
@@ -577,32 +656,45 @@ impl TyTable {
             }
         };
         let mut row = Row::empty();
-        for &(res, span) in items {
-            row.extend(&self.set_elem(program, scope, kind, res, Some(span), &mismatch, diags));
+        for (res, args, span) in items {
+            row.extend(&self.set_elem(
+                program,
+                scope,
+                kind,
+                (res, args),
+                Some(span),
+                &mismatch,
+                diags,
+            ));
         }
         Ty::Set(kind, row)
     }
 
-    /// 集合の要素1つ．その種類のタグか集合の型引数．
+    /// 集合の要素1つ．その種類のタグか集合の型引数．`elem` は書いた名前と，エフェクトの型引数．
     #[allow(clippy::too_many_arguments)]
     fn set_elem(
         &self,
         program: &Program,
         scope: &Scope<'_>,
         kind: SetKind,
-        res: Res,
+        elem: (Res, &[TypeId]),
         span: Option<Span>,
         mismatch: &ReportMismatch<'_>,
         diags: &mut Vec<Diagnostic>,
     ) -> Row {
+        let (res, args) = elem;
         // 名前解決が誤りを出している．
         let Res::Def(def) = res else {
             return Row::empty();
         };
         let data = &program.defs[def];
         match (data.kind, kind) {
-            (DefKind::Error, SetKind::Errors) | (DefKind::Effect, SetKind::Effects) => {
-                Row::tag(def)
+            (DefKind::Error, SetKind::Errors) => Row::tag(def),
+            (DefKind::Effect, SetKind::Effects) => {
+                match self.effect_tag(program, scope, def, args, span, None, diags) {
+                    Some(tag) => Row::of_tag(tag),
+                    None => Row::empty(),
+                }
             }
             (DefKind::TypeParam, _) => match scope.params.iter().position(|p| *p == def) {
                 Some(i) if scope.kinds.get(i) == Some(&ParamKind::Set) && scope.sets => {
@@ -706,6 +798,14 @@ pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
 /// 組み込みの制約 Immediate の名前（9.5）．
 pub(crate) const IMMEDIATE: &str = "Immediate";
 
+/// エフェクトの型引数（8.1）．型引数のないエフェクトと，エフェクトでない定義は空．
+pub(crate) fn effect_params(program: &Program, effect: DefId) -> &[TypeParam] {
+    match program.item(effect) {
+        Some(Item::Effect(e)) => &e.type_params,
+        _ => &[],
+    }
+}
+
 /// 型引数の定義の並びから，スキームと型の宣言に付ける名前の並びを作る．
 pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
     defs.iter()
@@ -782,7 +882,7 @@ pub(crate) fn classify_sets(
         .collect()
 }
 
-struct Marks {
+pub(crate) struct Marks {
     in_type: Vec<bool>,
     in_set: Vec<Option<SetKind>>,
 }
@@ -848,10 +948,8 @@ fn mark_params(
                     marks.set(i, SetKind::Errors);
                 }
             }
-            for (res, _) in uses.iter().flat_map(|u| &u.items) {
-                if let Some(i) = position(res) {
-                    marks.set(i, SetKind::Effects);
-                }
+            for item in uses.iter().flat_map(|u| &u.items) {
+                mark_effect(program, decls, params, item, marks);
             }
         }
         TypeKind::ErrorSet(set) => {
@@ -862,13 +960,29 @@ fn mark_params(
             }
         }
         TypeKind::EffectSet(set) => {
-            for (res, _) in &set.items {
-                if let Some(i) = position(res) {
-                    marks.set(i, SetKind::Effects);
-                }
+            for item in &set.items {
+                mark_effect(program, decls, params, item, marks);
             }
         }
         TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => {}
+    }
+}
+
+/// 効果の集合の要素．型引数そのものは集合，エフェクトの型引数（`State[S]` の `S`，8.1）はふつうの型．
+pub(crate) fn mark_effect(
+    program: &Program,
+    decls: &DeclSets,
+    params: &[DefId],
+    item: &EffectRef,
+    marks: &mut Marks,
+) {
+    if let Res::Def(def) = item.res
+        && let Some(i) = params.iter().position(|p| *p == def)
+    {
+        marks.set(i, SetKind::Effects);
+    }
+    for &a in &item.args {
+        mark_params(program, decls, params, a, marks);
     }
 }
 

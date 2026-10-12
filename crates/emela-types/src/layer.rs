@@ -16,14 +16,16 @@ use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::row::{Row, RowElem};
+use crate::row::{Row, RowElem, Tag};
+use crate::signature::Signatures;
+use crate::ty::TyCons;
 
 /// with（か layer）に並べたハンドラの1つ．
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
     pub(crate) handler: DefId,
-    /// 供給するエフェクト．
-    pub(crate) effect: DefId,
+    /// 供給するエフェクトとその型引数．型引数の違うエフェクトは別のエフェクト（8.1）．
+    pub(crate) effect: Tag,
     /// with（layer）に書いた位置．layer から展開したものは layer の名前を書いた位置．
     pub(crate) span: Span,
     /// with（layer）に書いた何番目の名前から来たか．
@@ -84,20 +86,19 @@ pub(crate) fn flatten(program: &Program, layer: DefId) -> Vec<(DefId, usize)> {
     out
 }
 
-/// ハンドラが実装するエフェクト．Async のハンドラ（E0413）と，エフェクトの分からないものは `None`．
-pub(crate) fn handler_effect(program: &Program, handler: DefId) -> Option<DefId> {
-    let Some(Item::Handler(item)) = program.item(handler) else {
-        return None;
-    };
-    let Res::Def(effect) = item.effect else {
-        return None;
-    };
-    (program.prelude_def("Async") != Some(effect)).then_some(effect)
+/// ハンドラが実装するエフェクトとその型引数．Async のハンドラ（E0413）と，エフェクトの分からない
+/// ものは `None`．
+pub(crate) fn handler_effect(sigs: &Signatures, handler: DefId) -> Option<Tag> {
+    sigs.handler_effect(handler).cloned()
 }
 
 /// with に並べた名前（ハンドラか layer）を，ハンドラの並びに展開する．同じエフェクトのハンドラは
 /// 後ろを残す（8.3）．
-pub(crate) fn with_entries(program: &Program, handlers: &[(Res, Span)]) -> Vec<Entry> {
+pub(crate) fn with_entries(
+    program: &Program,
+    sigs: &Signatures,
+    handlers: &[(Res, Span)],
+) -> Vec<Entry> {
     let mut all = Vec::new();
     for (origin, &(res, span)) in handlers.iter().enumerate() {
         let Res::Def(def) = res else {
@@ -112,7 +113,7 @@ pub(crate) fn with_entries(program: &Program, handlers: &[(Res, Span)]) -> Vec<E
             _ => continue,
         };
         for handler in members {
-            let Some(effect) = handler_effect(program, handler) else {
+            let Some(effect) = handler_effect(sigs, handler) else {
                 continue;
             };
             all.push(Entry {
@@ -145,7 +146,7 @@ fn keep_last(entries: Vec<Entry>) -> Vec<Entry> {
 fn depends(entries: &[Entry], deps: &[Row], i: usize, j: usize) -> bool {
     j != i
         && entries[j].effect != entries[i].effect
-        && deps[i].contains(&RowElem::Tag(entries[j].effect))
+        && deps[i].contains(&RowElem::Tag(entries[j].effect.clone()))
 }
 
 /// 初期化の順（`entries` の添字）．依存されるハンドラが先．依存が循環すれば，循環をたどる添字を
@@ -202,6 +203,8 @@ pub struct LayerInfo {
 /// layer の宣言を確かめ，展開した中身を返す．`handler_uses` は推論し終えたハンドラの依存．
 pub(crate) fn check_layers(
     program: &Program,
+    sigs: &Signatures,
+    cons: &TyCons,
     handler_uses: &ArenaMap<DefId, Row>,
     diags: &mut Vec<Diagnostic>,
 ) -> ArenaMap<DefId, LayerInfo> {
@@ -231,7 +234,7 @@ pub(crate) fn check_layers(
         let flat = flatten(program, layer);
         let mut entries: Vec<Entry> = Vec::new();
         for (handler, origin) in flat {
-            let Some(effect) = handler_effect(program, handler) else {
+            let Some(effect) = handler_effect(sigs, handler) else {
                 continue;
             };
             let (member, span) = item.members[origin];
@@ -244,7 +247,7 @@ pub(crate) fn check_layers(
                         span: Some(span),
                         kind: DiagnosticKind::DuplicateLayerEffect {
                             layer: data.name.clone(),
-                            effect: program.defs[effect].name.clone(),
+                            effect: effect_name(cons, &effect),
                             first: program.defs[first.handler].name.clone(),
                             second: program.defs[handler].name.clone(),
                         },
@@ -275,7 +278,7 @@ pub(crate) fn check_layers(
                 (0..entries.len()).collect()
             }
         };
-        let provided: Vec<DefId> = entries.iter().map(|e| e.effect).collect();
+        let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
         let mut uses = Row::empty();
         for (e, d) in entries.iter().zip(&deps) {
             // 自分と同じエフェクトへの依存は外側が満たす（8.3）．
@@ -295,6 +298,14 @@ pub(crate) fn check_layers(
         );
     }
     out
+}
+
+/// 診断に出すエフェクトの名前．型引数があれば `State[Int]` の形．
+fn effect_name(cons: &TyCons, effect: &Tag) -> SmolStr {
+    Row::of_tag(effect.clone())
+        .display_effects(cons, &[])
+        .to_string()
+        .into()
 }
 
 /// 循環をたどるハンドラが，どれも同じ入れ子の layer から来たか（その layer で報告済み）．

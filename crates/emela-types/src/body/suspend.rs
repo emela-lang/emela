@@ -71,8 +71,8 @@ impl BodyInfer<'_> {
             let mut sets: Vec<SmolStr> = Vec::new();
             for e in row.elems() {
                 match e {
-                    RowElem::Tag(effect) if !is_immediate_effect(program, *effect) => {
-                        effects.push(program.defs[*effect].name.clone());
+                    RowElem::Tag(effect) if !is_immediate_effect(program, effect.def) => {
+                        effects.push(program.defs[effect.def].name.clone());
                     }
                     RowElem::Bound(i) => match params.get(*i as usize) {
                         Some(p) if p.bounds.iter().any(|b| b == IMMEDIATE) => {}
@@ -131,7 +131,7 @@ impl BodyInfer<'_> {
                 .map(|r| self.ctx.resolve_row(&r));
             let immediate = row.is_some_and(|r| {
                 r.elems().iter().all(|e| match e {
-                    RowElem::Tag(effect) => is_immediate_effect(program, *effect),
+                    RowElem::Tag(effect) => is_immediate_effect(program, effect.def),
                     _ => true,
                 })
             });
@@ -213,8 +213,8 @@ impl BodyInfer<'_> {
             .elems()
             .iter()
             .filter_map(|e| match e {
-                RowElem::Tag(effect) if !is_immediate_effect(program, *effect) => {
-                    Some(program.defs[*effect].name.clone())
+                RowElem::Tag(effect) if !is_immediate_effect(program, effect.def) => {
+                    Some(program.defs[effect.def].name.clone())
                 }
                 _ => None,
             })
