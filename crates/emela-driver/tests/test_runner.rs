@@ -656,12 +656,12 @@ fn suspended_tests_are_awaited_or_interrupted() {
 
 #[test]
 fn tests_can_use_js_clock() {
-    // テストの出力にも同梱の `js_clock.mjs` を書き出す（`emela_core/` の下）．
+    // テストの出力にも同梱の `js_clock.mjs` を書き出す（`emela_core/` の下）．sleep するテストは再開を待つ．
     let sources = &[
         ("app/Pome.toml", ""),
         (
             "app/src/main.emel",
-            "fn main() {}\n\n@test\nfn clock_moves_forward() {\n  with JsClock {\n    start = (use Clock).now()\n    d = (use Clock).now() |> Instant.since(start)\n    assert Duration.to_milliseconds(d) >= 0\n  }\n}\n",
+            "fn main() {}\n\n@test\nfn clock_moves_forward() {\n  with JsClock {\n    start = (use Clock).now()\n    (use Clock).sleep(20)\n    d = (use Clock).now() |> Instant.since(start)\n    assert Duration.to_milliseconds(d) >= 15\n  }\n}\n",
         ),
     ];
     let (analysis, report, _) = run_tests(

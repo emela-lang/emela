@@ -123,22 +123,25 @@ fn main() {
 
 ## Clock（`clock.emel`）
 
-platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．`suspend fn sleep(ms: Int) -> ()`（8.1）は suspend が入ってから足す．
+platform 層（15.2）のエフェクト．宣言だけで，ハンドラはターゲットごとのモジュールに置く．
 
 | 操作 | シグネチャ | 説明 |
 |---|---|---|
+| `sleep` | `suspend fn sleep(ms: Int) -> ()` | `ms` ミリ秒待つ．負なら 0 と同じ |
 | `now` | `fn now() -> Instant` | 現在の時点 |
 
 ## JsClock（`js_clock.emel`，`js_clock.mjs`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
-| `JsClock` | `handler JsClock implements Clock` | JS の `Date.now()` で現在の時点を返す．状態を持たない |
+| `JsClock` | `handler JsClock implements Clock` | `sleep` は `setTimeout`，`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
 
 ```emel
 fn main() {
   with JsConsole, JsClock {
-    start = (use Clock).now()
+    clock = use Clock
+    start = clock.now()
+    clock.sleep(100)
     (use Console).print_line(Instant.to_string(start))
   }
 }
@@ -245,7 +248,7 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 - エフェクトとハンドラのモジュールは `Console` と `JsConsole` に分けた（ターゲットの名前を前に付ける）．`Js` 1つに JS 用のハンドラを全部まとめる案もある
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
-- Clock の操作は今は `now` だけ．`sleep` を足すと，Clock を実装するハンドラはそれも書く必要がある
+- 利用者の書く Clock のハンドラの `now` は，`Instant.from_unix_milliseconds`（#172）か外側の Clock の `now`（#173）で書く．時刻を進める TestClock は状態を持つハンドラの段で足す
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない

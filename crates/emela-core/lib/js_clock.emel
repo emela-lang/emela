@@ -1,11 +1,17 @@
 # Clock の JS 用のハンドラ（仕様 8.4，15.2）．状態を持たない．
+# `sleep` は resume をタイマーのコールバックから後で呼ぶので，JsClock は Async に依存する（8.7）．
 
 import Clock.{Clock}
 
 @external(js, "./js_clock.mjs", "nowMilliseconds")
 fn now_milliseconds() -> Int64
 
-## Clock を JS の `Date.now()`（Unix エポックからのミリ秒）で実装する．
+@external(js, "./js_clock.mjs", "after")
+fn after(ms: Int, f: fn() -> ()) -> ()
+
+## Clock を JS の `setTimeout`（`sleep`）と `Date.now()`（`now`．Unix エポックからのミリ秒）で
+## 実装する．
 pub handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) { after(ms, fn() { resume(()) }) }
   fn now() { Instant.from_unix_milliseconds(now_milliseconds()) }
 }
