@@ -13,7 +13,8 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, References, Request as _,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, References,
+    Request as _,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -44,6 +45,10 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         definition_provider: Some(lsp::OneOf::Left(true)),
         references_provider: Some(lsp::OneOf::Left(true)),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
+        completion_provider: Some(lsp::CompletionOptions {
+            trigger_characters: Some(vec![".".to_owned()]),
+            ..lsp::CompletionOptions::default()
+        }),
         ..lsp::ServerCapabilities::default()
     }
 }
@@ -199,6 +204,7 @@ where
         let response = match request.method.as_str() {
             Formatting::METHOD => respond(request, |params| self.format(&params)),
             HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
+            Completion::METHOD => respond(request, |params| self.complete(&params)),
             GotoDefinition::METHOD => respond(request, |params| self.definition(&params)),
             References::METHOD => respond(request, |params| self.references(&params)),
             DocumentSymbolRequest::METHOD => {
@@ -247,6 +253,18 @@ where
             }),
             range: Some(convert::range(index, info.range)),
         })
+    }
+
+    /// カーソルの位置の補完の候補．ホバーと同じくその場で検査し直す．書きかけの名前での絞り込みは
+    /// エディタに任せる．検査できないファイルでは `null`．
+    fn complete(&mut self, params: &lsp::CompletionParams) -> Option<lsp::CompletionResponse> {
+        let at = self.check_at(&params.text_document_position)?;
+        let items = F::complete(&at.program, &at.analysis, at.file, at.offset)
+            .iter()
+            .enumerate()
+            .map(|(i, item)| convert::completion_item(i, item))
+            .collect();
+        Some(lsp::CompletionResponse::Array(items))
     }
 
     /// カーソルの下の名前の定義．ホバーと同じくその場で検査し直す．

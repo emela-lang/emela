@@ -160,7 +160,7 @@ pub(crate) fn hover(
 }
 
 /// `offset` を本体に含むトップレベルの定義（fn と const）．
-fn enclosing_def(
+pub(crate) fn enclosing_def(
     program: &TypedProgram,
     module: emela_resolve::ModuleId,
     offset: TextSize,

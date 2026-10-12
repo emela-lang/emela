@@ -13,6 +13,7 @@ use emela_resolve::{
 use la_arena::ArenaMap;
 
 use crate::code;
+use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hover::HoverInfo;
 use crate::nav::NavTarget;
@@ -218,6 +219,16 @@ pub trait Frontend {
         _offset: line_index::TextSize,
     ) -> Option<NavTarget> {
         None
+    }
+
+    /// `file` の `offset` の位置の補完の候補（LSP の補完）．型を持つフロントエンドだけが返す．
+    fn complete(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Vec<Completion> {
+        Vec::new()
     }
 
     /// `file` の `offset` の名前の参照（LSP の参照の検索）．`declaration` なら定義の名前も含める．

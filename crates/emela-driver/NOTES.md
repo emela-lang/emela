@@ -153,6 +153,15 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
 - （補）モジュールの定義の位置はファイルの先頭（空の範囲）．同梱の core の定義と，ソースのない定義（組み込みのモジュールの関数と型，組み込みの Prelude）は移動先がないので `None`
 - （補）参照の検索では，名前の位置が同じ定義（type とその構成子，error のタグと構成子）を同じものとみなす．同梱の core の中の参照は含めない．順はファイル（`FileId`）と位置の順．モジュールの参照に定義の位置は含めない
 - （補）文書のシンボル（`document_symbols`）は検査せず構文木だけから作る．構文の誤りがあっても読めた宣言は返し，名前のない宣言は飛ばす．子は enum のバリアント，type・error・バリアント・handler のフィールド，effect の操作，trait・impl・handler の fn．impl は名前の字句がないので `impl Show for User` を名前にし，Trait の名前を選ぶ範囲にする
+- （補）補完（LSP）は `Frontend::complete` で引く（トレイトの既定は空）．`Typecheck` は `complete.rs`．書きかけのソースは構文が崩れているので，文脈はカーソルの前のテキストで決め，候補は名前解決と型推論の結果から引く
+  - `import` の行で `{` の前: モジュール名の次の区切り（`import Util.` なら `Log`）．関数や型の名前は出さない．自分のモジュールは出さない
+  - `import A.{` の中: モジュール A の pub な定義（enum のバリアントも）
+  - `.` の後ろで，左が大文字名の並び: `.` の左の解決（4.6）と同じく import したモジュール，core のモジュール，Trait の順に引き，モジュールなら pub な定義，Trait なら関数
+  - `.` の後ろで，それ以外: 左の式の型が能力の値なら effect の操作，type か error ならフィールド（説明は書いた型のテキスト）．それ以外の型は空
+  - `use` の直後: エフェクトだけ．`with` の直後: handler と layer だけ
+  - それ以外: 見える局所変数（内側が先），このモジュールの定義（バリアントも），import で列挙した名前，import したモジュール，名前が1区切りの core のモジュール（`Prelude` は除く），Prelude の定義，予約語（3.1．`as` は除く）の順．同じ名前は先のものだけ
+- （補）局所変数の見える範囲は HIR から作る．引数は本体，束縛は右辺の後ろからブロックの終わり，ラムダの引数は本体，腕の変数はパターンから腕の本体の終わり．書きかけで位置がずれても困らないよう，範囲の終わりの位置も含める
+- （補）行末の `.`（`log.`）は名前のない `.` で，名前解決が `Missing` にするので左の式は型推論に回らない．左が局所変数か定義の参照なら，その宣言の型を使う．`a.b.` のような左が `.` の式は型がないので空
 - （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
 - （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
