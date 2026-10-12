@@ -1,6 +1,6 @@
-//! テストの共通の準備．ソース1つを名前解決して `Program` を作る．
+//! Shared test setup: resolves a single source into a `Program`.
 //!
-//! テストのファイルごとに使う関数が違うので，使わない関数の警告は止める．
+//! Each test file uses different functions, so unused-function warnings are silenced.
 
 #![allow(dead_code)]
 
@@ -17,14 +17,14 @@ use emela_types::{
 };
 use la_arena::ArenaMap;
 
-/// `main.emel` を，同梱の Prelude と core のソースと一緒に名前解決する．構文の誤りは許さない．
-/// 返すモジュールは `main.emel` のもの．
+/// Resolves `main.emel` together with the bundled Prelude and core sources. Syntax errors are not
+/// allowed. Returns the module of `main.emel`.
 pub fn resolve_main(src: &str) -> (Program, ModuleId, Vec<Diagnostic>) {
     resolve_main_with(src, &[])
 }
 
-/// [`resolve_main`] に，同梱の core のモジュールとして `extra`（モジュール名とソース）を足したもの．
-/// まだ同梱していない core のソース（`State`）を確かめるのに使う．
+/// [`resolve_main`] with `extra` (module name and source) added as bundled core modules. Used to
+/// check core sources not bundled yet (`State`).
 pub fn resolve_main_with(
     src: &str,
     extra: &[(&str, &str)],
@@ -61,8 +61,8 @@ pub fn resolve_main_with(
     (program, main, diagnostics)
 }
 
-/// 型の診断を `` `List[Int, Int]` WrongTypeArgCount { ... } `` の形にする．
-/// 型が合わない診断は `` `"a"` mismatch: expected `Int`, found `String` `` の形にする．
+/// Formats type diagnostics as `` `List[Int, Int]` WrongTypeArgCount { ... } ``, and mismatches
+/// as `` `"a"` mismatch: expected `Int`, found `String` ``.
 pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
     let text = d.span.map_or("<no span>", |s| {
         let range = s.range;
@@ -145,10 +145,11 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
     }
 }
 
-/// `main.emel` の宣言の型を集め，`include` が選んだ定義の型と診断を文字列にする．
+/// Collects the declared types of `main.emel` and renders the types and diagnostics of the
+/// definitions `include` selects.
 ///
-/// 1行に1つ，`名前: 型` と出す．`show_labels` なら，ラベルを後ろに `(id:, name:)` の形で添える．
-/// 位置だけのフィールドのラベルは `_`．
+/// One `name: type` per line. With `show_labels`, labels follow as `(id:, name:)`; positional
+/// fields are labelled `_`.
 pub fn render_signatures(
     src: &str,
     show_labels: bool,
@@ -187,8 +188,8 @@ pub fn render_signatures(
     out
 }
 
-/// `main.emel` をプログラム全体の型検査にかけ，fn ごとの宣言の型と局所変数の型，
-/// `main.emel` の型の診断（位置の順）を文字列にする．
+/// Type-checks the whole program for `main.emel` and renders each fn's declared type, its local
+/// variables' types, and the type diagnostics of `main.emel` in source order.
 pub fn render_bodies(src: &str) -> String {
     let (program, module, resolve_diagnostics) = resolve_main(src);
     let types = check_program(&program);

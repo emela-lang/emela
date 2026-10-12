@@ -1,7 +1,7 @@
-//! 型の書き方の変換（`TyTable::lower`）をスナップショットで確かめる．
+//! Snapshot tests for converting type expressions (`TyTable::lower`).
 //!
-//! 1つのモジュール（`main.emel`）のトップレベルの fn ごとに，宣言の型（`Signatures`）を
-//! `∀ A. fn(List[A]) -> Option[A]` の形で出す．型引数は fn の型引数．
+//! For each top-level fn of one module (`main.emel`), prints the declared type (`Signatures`) as
+//! `∀ A. fn(List[A]) -> Option[A]`, quantifying the fn's type parameters.
 
 mod common;
 
@@ -9,8 +9,8 @@ use emela_resolve::hir::DefKind;
 
 use common::render_signatures;
 
-/// `main.emel` のトップレベルの fn ごとに，引数と戻り値の型の変換結果と診断を返す．
-/// テストの fn は戻り値の型と `use {}` を書く（書かない fn は宣言の型を作らないので出ない．9.3）．
+/// Test fns write a return type and `use {}`; fns without them get no declared type and are not
+/// shown (spec 9.3).
 fn run(src: &str) -> String {
     render_signatures(src, false, |program, def| {
         program.defs[def].kind == DefKind::Fn

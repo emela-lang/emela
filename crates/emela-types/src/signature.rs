@@ -1,8 +1,9 @@
-//! 宣言の型．fn・構成子・const の型（[`Scheme`]）と，引数のラベル．
+//! Declared types: the types ([`Scheme`]) of fns, constructors and consts, and parameter labels.
 //!
-//! 呼び出しの推論が，呼ばれる側の型とラベルをここから引く．戻り値の型を書いていない fn と，
-//! `use` 節を書いていない本体のある fn と，型を書いていない const は，本体を推論した後に足す．
-//! effect の操作の型もここに置く（能力の値を通した呼び出しが引く）．
+//! Call inference looks up the callee's type and labels here. Fns without a written return type,
+//! fns with a body but no `use` clause, and consts without a written type are added after their
+//! bodies are inferred. Effect operation types also live here, for calls through capability
+//! values.
 
 use emela_resolve::hir::{
     DefId, DefKind, Fields, FnItem, FnSig, Item, Param, Program, Res, TypeId, TypeKind,
@@ -20,18 +21,17 @@ use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
 use crate::ty::{ParamKind, Ty, TyParam};
 
-/// 定義1つの型と引数のラベル．
 pub struct Signature {
     pub scheme: Scheme,
-    /// 引数ごとのラベル．位置だけのフィールドは `None`．関数でない定義では空．
+    /// One label per parameter; `None` for positional-only fields. Empty for non-functions.
     pub labels: Vec<Option<SmolStr>>,
 }
 
-/// fn・構成子・const の型の表．handler が実装するエフェクトのタグも持つ．
+/// Also holds the effect tags that handlers implement.
 pub struct Signatures {
     by_def: ArenaMap<DefId, Signature>,
-    /// handler → 実装するエフェクトとその型引数（`implements State[Int]`，8.1）．Async のハンドラ
-    /// （E0413）とエフェクトの分からない handler は持たない．
+    /// Handler → the effect it implements and its type arguments (`implements State[Int]`, spec
+    /// 8.1). Async handlers (E0413) and handlers whose effect is unknown are absent.
     handler_effects: ArenaMap<DefId, Tag>,
 }
 
@@ -43,7 +43,6 @@ impl Signatures {
         }
     }
 
-    /// handler が実装するエフェクトとその型引数．
     pub fn handler_effect(&self, handler: DefId) -> Option<&Tag> {
         self.handler_effects.get(handler)
     }
@@ -56,7 +55,7 @@ impl Signatures {
         self.by_def.get(def)
     }
 
-    /// fn・構成子・const・effect の操作の宣言の型を集める．
+    /// Collects the declared types of fns, constructors, consts and effect operations.
     pub fn collect(program: &Program, ty_table: &TyTable, diags: &mut Vec<Diagnostic>) -> Self {
         let mut sigs = Signatures::new();
 
@@ -94,7 +93,8 @@ impl Signatures {
                             omitted: Omitted::Empty,
                             sets: false,
                         };
-                        // 型引数の残る汎用のハンドラは持たない（8.1）．省けば E0423．
+                        // Generic handlers with type parameters left over are not kept
+                        // (spec 8.1); omitting them is E0423.
                         let span = program.defs[def].span;
                         let name = program.defs[def].name.clone();
                         if let Some(tag) = ty_table.effect_tag(
@@ -128,10 +128,11 @@ impl Default for Signatures {
         Self::new()
     }
 }
-/// fn の型とラベル．戻り値の型を書いていなければ `None`（本体から推論する）．
-/// 戻り値の型の中に `fails` か `use` を省略した関数型があるときも，その E と R を本体から
-/// 推論するので `None`．本体のある fn で `use` 節を書いていなければ，R を推論するので `None`
-/// （9.3）．本体のない fn（`@external`，`@intrinsic`）の `use` を省略すれば R は空．
+/// `None` if no return type is written (it is inferred from the body). Also `None` if the
+/// return type contains a function type with `fails` or `use` omitted, since that E and R are
+/// inferred from the body. A fn with a body and no `use` clause is `None` too, since R is
+/// inferred (spec 9.3). For a fn without a body (`@external`, `@intrinsic`), an omitted `use`
+/// means an empty R.
 fn fn_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -152,7 +153,7 @@ fn fn_signature(
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
     let mut uses = params.declared_uses(program, ty_table, &item.sig, diags);
-    // `@external suspend fn` は Async を要求する（12.2）．
+    // `@external suspend fn` requires Async (spec 12.2).
     if item.sig.is_suspend
         && let Some(async_) = program.prelude_def("Async")
     {
@@ -168,13 +169,15 @@ fn fn_signature(
     })
 }
 
-/// fn の型引数の制約を確かめる（9.5）．制約は Immediate だけを扱う．
+/// Checks the bounds on a fn's type parameters (spec 9.5). Only Immediate is handled.
 ///
-/// - Immediate は効果の集合（`use` 節に書いた型引数）にだけ付けられる（E0322）．
-/// - 効果の集合に Immediate 以外の制約（Trait）を付けたら「まだ扱えない」．ふつうの型の型引数の
-///   Trait の制約は 0.21 まで検査しない（Prelude の `dbg[A: Show]`）．
-/// - 外部関数の引数の関数型に書いた `use` 節は Immediate でなければならない（E0416）．省略した
-///   `use` 節は見えない集合で，Immediate の制約を付ける（[`FnParams::new`]）．
+/// - Immediate can only be put on effect sets (type parameters written in a `use` clause)
+///   (E0322).
+/// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
+///   on ordinary type parameters are not checked until 0.21 (Prelude's `dbg[A: Show]`).
+/// - A `use` clause written in a function-typed parameter of an external function must be
+///   Immediate (E0416). An omitted `use` clause is an invisible set and gets the Immediate bound
+///   ([`FnParams::new`]).
 fn check_bounds(
     program: &Program,
     ty_table: &TyTable,
@@ -229,7 +232,7 @@ fn check_bounds(
     if !item.is_external {
         return;
     }
-    // 外部関数のコールバックの `use` 節．
+    // The `use` clauses of an external function's callbacks.
     fn walk(
         program: &Program,
         ty: TypeId,
@@ -301,12 +304,14 @@ fn check_bounds(
     }
 }
 
-/// effect の操作の型とラベル（8.1）．宣言の中なので，引数の関数型の `fails` と `use` を
-/// 省略すれば空（9.2）．操作の `fails` 節はその操作の E．操作の型の R は空で，能力の値を通して
-/// 呼ぶときにそのエフェクトを足す．操作に `use` 節は書けない（構文の段の E0137）．
+/// The type and labels of an effect operation (spec 8.1). Being inside a declaration, omitted
+/// `fails` and `use` in function-typed parameters mean empty (spec 9.2). The operation's `fails`
+/// clause is its E. The operation type's R is empty; calls through a capability value add the
+/// effect. Operations cannot have a `use` clause (E0137 in the syntax stage).
 ///
-/// エフェクトの型引数（`effect State[S]` の `S`）は `Bound(i)` で，スキームの型引数にする．
-/// 能力の値と handler の実装では，タグの型引数で置き換えて使う．
+/// Effect type parameters (the `S` of `effect State[S]`) become scheme type parameters as
+/// `Bound(i)`. Capability values and handler implementations substitute the tag's type
+/// arguments.
 fn op_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -317,7 +322,8 @@ fn op_signature(
     let defs: Vec<DefId> = effect
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
-    // 集合として使った型引数は E0424（`check_effect_params`）．ここでは集合として読み，誤りを重ねない．
+    // A type parameter used as a set is E0424 (`check_effect_params`). Read it as a set here so
+    // errors do not cascade.
     let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
     let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
     let mut scope = Scope {
@@ -342,7 +348,7 @@ fn op_signature(
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
-    // 操作の `use` 節は構文の段の E0137（8.1）．ここでは読まない．
+    // An operation's `use` clause is E0137 in the syntax stage (spec 8.1); not read here.
     Signature {
         scheme: Scheme::new(
             ty_params(program, &defs),
@@ -352,8 +358,9 @@ fn op_signature(
     }
 }
 
-/// エフェクトの型引数はふつうの型だけ（8.1）．操作の引数と戻り値の関数型の `fails` か `use` に
-/// だけ書いた型引数は集合になるので E0424．
+/// Effect type parameters are ordinary types only (spec 8.1). A type parameter written only in
+/// the `fails` or `use` of function types in an operation's parameters and return type becomes
+/// a set, so it is E0424.
 fn check_effect_params(
     program: &Program,
     ty_table: &TyTable,
@@ -393,7 +400,6 @@ fn check_effect_params(
     }
 }
 
-/// 引数の名前のラベル．
 pub(crate) fn param_labels(program: &Program, params: &[Param]) -> Vec<Option<SmolStr>> {
     params
         .iter()
@@ -401,26 +407,25 @@ pub(crate) fn param_labels(program: &Program, params: &[Param]) -> Vec<Option<Sm
         .collect()
 }
 
-/// fn の型引数．書いた型引数（種類は使われた位置で決める）と，引数の型の中の見えない集合の型引数．
+/// A fn's type parameters: those written (their kind decided by where they are used) and the
+/// invisible set type parameters inside parameter types.
 pub(crate) struct FnParams {
-    /// 書いた型引数の定義．
     pub(crate) defs: Vec<DefId>,
     pub(crate) kinds: Vec<ParamKind>,
-    /// 書いた型引数．
     declared: Vec<TyParam>,
     pub(crate) hidden: Hidden,
 }
 
 impl FnParams {
-    /// fn の型引数．外部関数なら，引数の型の中の見えない効果の集合に `Immediate` の制約を付ける
-    /// （コールバックは Immediate でなければならない，9.5）．
+    /// For an external function, invisible effect sets in parameter types get an `Immediate`
+    /// bound (callbacks must be Immediate, spec 9.5).
     pub(crate) fn new(program: &Program, ty_table: &TyTable, item: &FnItem) -> Self {
         let sig = &item.sig;
         let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
         let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
-        // 制約は Immediate だけを持つ（Trait は 0.21．名前も持たない）．効果の集合でない型引数に
-        // 付けた Immediate は [`check_bounds`] が E0322 にする．
+        // Only Immediate bounds are kept (traits come in 0.21; not even their names). Immediate
+        // on a non-effect-set type parameter is made E0322 by [`check_bounds`].
         let declared = ty_params(program, &defs)
             .into_iter()
             .zip(&kinds)
@@ -452,8 +457,8 @@ impl FnParams {
         }
     }
 
-    /// 引数の型．`fails` を省略した関数型には見えない集合の型引数を置く．
-    /// 型を書いていない引数は E0316（6.1）を積んで `Ty::Error`．
+    /// Function types with `fails` omitted get an invisible set type parameter. Parameters
+    /// without a type push E0316 (spec 6.1) and become `Ty::Error`.
     pub(crate) fn lower_params(
         &mut self,
         program: &Program,
@@ -480,8 +485,9 @@ impl FnParams {
             .collect()
     }
 
-    /// 宣言の E．書いた `fails` 節（なければ空）と，引数の型の中の正の位置の見えない集合の和．
-    /// 見えない集合は書けないので，引数の関数を呼んだときのエラーはいつも伝えてよい（9.2）．
+    /// The declared E: the written `fails` clause (empty if none) united with the invisible sets
+    /// in positive positions of the parameter types. Invisible sets cannot be written, so errors
+    /// from calling a function parameter may always propagate (spec 9.2).
     pub(crate) fn declared_fails(
         &self,
         program: &Program,
@@ -496,8 +502,9 @@ impl FnParams {
         written.union(&self.hidden.positive)
     }
 
-    /// 宣言の R．書いた `use` 節と，引数の型の中の正の位置の見えない効果の集合の和．
-    /// `use` 節を書いていなければ R は本体から推論するので，これは使わない．
+    /// The declared R: the written `use` clause united with the invisible effect sets in positive
+    /// positions of the parameter types. Unused when no `use` clause is written, since R is then
+    /// inferred from the body.
     pub(crate) fn declared_uses(
         &self,
         program: &Program,
@@ -514,7 +521,7 @@ impl FnParams {
         written.union(&self.hidden.positive_uses)
     }
 
-    /// 書いた型引数と見えない集合の型引数を並べたもの．
+    /// The written type parameters followed by the invisible set type parameters.
     pub(crate) fn all_params(&self) -> Vec<TyParam> {
         self.declared
             .iter()
@@ -524,10 +531,12 @@ impl FnParams {
     }
 }
 
-/// 構成子の型とラベル．`owner` は構成子が作る型（type / enum / error / handler）．
-/// handler の構成子はハンドラの値を作る（8.4）．使えるのはその handler の init の中だけ（E0418）．
+/// The type and labels of a constructor. `owner` is the type it constructs (type, enum, error or
+/// handler). A handler's constructor makes a handler value (spec 8.4) and may only be used in
+/// that handler's `init` (E0418).
 ///
-/// フィールドのない構成子（`None`，`Empty`）は関数でなく値なので，型は作る型そのものになる．
+/// A constructor without fields (`None`, `Empty`) is a value, not a function, so its type is the
+/// constructed type itself.
 fn ctor_signature(
     program: &Program,
     ty_table: &TyTable,
@@ -538,14 +547,13 @@ fn ctor_signature(
     let ret_ty = ty_table.self_ty(owner)?;
     let defs = type_param_defs(program, owner);
 
-    // フィールドの型と，そのラベル．
     let (field_tys, labels): (Vec<TypeId>, Vec<Option<SmolStr>>) = match fields {
         Fields::None => (Vec::new(), Vec::new()),
         Fields::Positional(tys) => (tys.clone(), vec![None; tys.len()]),
         Fields::Named(fs) => fs.iter().map(|f| (f.ty, Some(f.name.clone()))).unzip(),
     };
-    // フィールドの関数型の `fails` と `use` を省略すれば空（9.2）．型引数の種類（集合か）は
-    // 型の表が決めたもの（`type Handler[E, R]`）．
+    // Omitted `fails` and `use` in fields' function types mean empty (spec 9.2). The kinds of
+    // type parameters (whether sets) are as the type table decided (`type Handler[E, R]`).
     let params: Vec<TyParam> = match ty_table.con(owner) {
         Some(id) => ty_table.cons[id].params.clone(),
         None => ty_params(program, &defs),
@@ -574,7 +582,8 @@ fn ctor_signature(
     })
 }
 
-/// トップレベルの fn の引数の型．書いていなければ E0316（6.1）を積んで `Ty::Error`．
+/// The type of a top-level fn parameter. If none is written, pushes E0316 (spec 6.1) and returns
+/// `Ty::Error`.
 pub(crate) fn param_ty(
     program: &Program,
     ty_table: &TyTable,

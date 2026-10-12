@@ -21,8 +21,6 @@ fn show(cx: &mut InferCtx, cons: &TyCons, ty: &Ty) -> String {
     cx.resolve(ty).display(cons).to_string()
 }
 
-// 単一化の成功
-
 #[test]
 fn unify_var_with_concrete() {
     let (cons, _, _) = cons();
@@ -64,8 +62,6 @@ fn unify_var_chain() {
     assert_eq!(show(&mut cx, &cons, &a), "Float");
 }
 
-// 単一化の失敗
-
 #[test]
 fn mismatch_reports_expected_and_actual() {
     let mut cx = InferCtx::new();
@@ -91,7 +87,7 @@ fn mismatch_reports_inner_part() {
     assert_eq!(err.expected.display(&cons).to_string(), "List[Int]");
     assert_eq!(err.actual.display(&cons).to_string(), "List[Bool]");
     let TypeErrorKind::Mismatch { expected, actual } = *err.kind else {
-        panic!("Mismatch でない")
+        panic!("expected Mismatch")
     };
     assert_eq!((expected, actual), (Ty::INT, Ty::BOOL));
 }
@@ -103,7 +99,7 @@ fn nominal_types_differ_by_name() {
     let p = Ty::named(pair, [Ty::INT, Ty::INT]);
     let o = Ty::named(option, [Ty::INT]);
     assert!(cx.unify(&p, &o).is_err());
-    // タプルと同じ形でも名前付き型とは別．
+    // A named type differs from a tuple of the same shape.
     assert!(cx.unify(&p, &Ty::tuple([Ty::INT, Ty::INT])).is_err());
 }
 
@@ -123,7 +119,7 @@ fn failed_unify_rolls_back_bindings() {
     let (cons, _, _) = cons();
     let mut cx = InferCtx::new();
     let a = cx.new_var();
-    // 先頭の要素で ?a = Int まで進んでから，2つ目で失敗する．
+    // Gets as far as ?a = Int on the first element, then fails on the second.
     let lhs = Ty::tuple([a.clone(), Ty::INT]);
     let rhs = Ty::tuple([Ty::INT, Ty::BOOL]);
     let err = cx.unify(&lhs, &rhs).unwrap_err();
@@ -144,8 +140,6 @@ fn errors_are_collected() {
     assert!(cx.errors().is_empty());
 }
 
-// 出現検査
-
 #[test]
 fn occurs_check_rejects_infinite_type() {
     let (cons, _, _) = cons();
@@ -153,11 +147,11 @@ fn occurs_check_rejects_infinite_type() {
     let a = cx.new_var();
     let err = cx.unify(&a, &Ty::list(a.clone())).unwrap_err();
     let TypeErrorKind::InfiniteType { var, ty } = &*err.kind else {
-        panic!("InfiniteType でない: {err:?}")
+        panic!("expected InfiniteType: {err:?}")
     };
     assert_eq!(Ty::Var(*var), a);
     assert_eq!(ty.display(&cons).to_string(), "List[?0]");
-    // 失敗の後も ?0 は未束縛のまま．
+    // ?0 stays unbound after the failure.
     assert_eq!(show(&mut cx, &cons, &a), "?0");
 }
 
@@ -166,7 +160,7 @@ fn occurs_check_through_bound_var() {
     let mut cx = InferCtx::new();
     let (a, b) = (cx.new_var(), cx.new_var());
     cx.unify(&b, &Ty::func([a.clone()], Ty::INT)).unwrap();
-    // ?a ~ (?b, Int) は ?b = fn(?a) -> Int を辿ると ?a が現れる．
+    // For ?a ~ (?b, Int), following ?b = fn(?a) -> Int reaches ?a.
     let err = cx.unify(&a, &Ty::tuple([b, Ty::INT])).unwrap_err();
     assert!(matches!(*err.kind, TypeErrorKind::InfiniteType { .. }));
 }
@@ -187,7 +181,7 @@ fn join_with_never_takes_other_side() {
     assert_eq!(cx.join(&Ty::Never, &Ty::INT).unwrap(), Ty::INT);
     assert_eq!(cx.join(&Ty::STRING, &Ty::Never).unwrap(), Ty::STRING);
     assert_eq!(cx.join(&Ty::Never, &Ty::Never).unwrap(), Ty::Never);
-    // 型変数は Never に束縛しない（後で分かる型を残す）．
+    // Type variables are not bound to Never, so a type found later is kept.
     let a = cx.new_var();
     let j = cx.join(&a, &Ty::Never).unwrap();
     assert_eq!(show(&mut cx, &cons, &j), "?0");
@@ -212,14 +206,12 @@ fn join_unifies_both_branches() {
 #[test]
 fn never_is_not_equal_to_other_types() {
     let mut cx = InferCtx::new();
-    // 部分型はないので，単一化では Never と Int は別の型．
+    // There is no subtyping, so unification treats Never and Int as different types.
     assert!(cx.unify(&Ty::INT, &Ty::Never).is_err());
-    // 期待した型の位置に置くときだけ，Never はどの型にもなれる．
+    // Only when placed where a type is expected can Never become any type.
     assert!(cx.coerce(&Ty::INT, &Ty::Never).is_ok());
     assert!(cx.coerce(&Ty::Never, &Ty::INT).is_err());
 }
-
-// 汎化と具体化
 
 #[test]
 fn generalize_identity() {
@@ -245,7 +237,8 @@ fn generalize_skips_env_vars() {
 
 #[test]
 fn generalize_skips_vars_reached_from_bound_env_vars() {
-    // 環境の ?0 が List[?1] に束縛されていれば，?1 も環境の型変数なので量化しない．
+    // If the environment's ?0 is bound to List[?1], ?1 is an environment variable too and is not
+    // quantified.
     let (cons, _, _) = cons();
     let mut cx = InferCtx::new();
     let (a, b) = (cx.new_var(), cx.new_var());
@@ -286,7 +279,7 @@ fn instantiate_gives_fresh_vars() {
     let t2 = cx.instantiate(&scheme);
     assert_eq!(show(&mut cx, &cons, &t1), "fn(?0, ?1) -> (?1, ?0)");
     assert_eq!(show(&mut cx, &cons, &t2), "fn(?2, ?3) -> (?3, ?2)");
-    // 具体化した型は互いに独立に単一化できる．
+    // Instantiated types unify independently of each other.
     cx.unify(
         &t1,
         &Ty::func([Ty::INT, Ty::BOOL], Ty::tuple([Ty::BOOL, Ty::INT])),
@@ -325,8 +318,6 @@ fn mono_scheme_instantiates_to_itself() {
     assert_eq!(scheme.display(&cons).to_string(), "List[Int]");
 }
 
-// 表示
-
 #[test]
 fn display_types() {
     let (cons, pair, option) = cons();
@@ -357,7 +348,7 @@ fn display_types() {
     assert_eq!(d(Ty::Bound(0)), "'0");
 }
 
-/// 集合のタグ（error の定義）を作る．名前は表示用に登録する．
+/// Makes a set tag (an error definition), registering its name for display.
 fn tag(cons: &mut TyCons, i: u32, name: &str) -> emela_resolve::hir::DefId {
     let def = la_arena::Idx::from_raw(la_arena::RawIdx::from_u32(i));
     cons.set_tag_name(def, name.into());
@@ -378,7 +369,7 @@ fn display_fails() {
         d(Ty::func_fails([Ty::INT], Ty::BOOL, row.clone()), &cons),
         "fn(Int) -> Bool fails NotFound | DbError"
     );
-    // 戻り値の関数型は，外側に fails 節があれば括弧で囲む．
+    // A function return type is parenthesized if the outer type has a fails clause.
     assert_eq!(
         d(
             Ty::func_fails(
@@ -397,7 +388,7 @@ fn display_fails() {
         ),
         "fn() -> fn() -> Int fails DbError"
     );
-    // 集合の型引数とエラーの型．
+    // Set type parameters and error types.
     let scheme = Scheme::new(
         vec![TyParam::new("A"), TyParam::set("E")],
         Ty::func_fails(
@@ -424,7 +415,7 @@ fn display_uses() {
     let clock = tag(&mut cons, 1, "Clock");
     let boom = tag(&mut cons, 2, "Boom");
     let d = |ty: Ty, cons: &TyCons| ty.display(cons).to_string();
-    // 効果の集合は1つならそのまま，2つ以上なら波括弧で囲む（17.4）．fails の後に出す．
+    // One effect is shown bare, two or more in braces (spec 17.4), after fails.
     assert_eq!(
         d(
             Ty::func_sets([], Ty::UNIT, Row::empty(), Row::tag(logger)),
@@ -447,7 +438,7 @@ fn display_uses() {
         ),
         "fn() -> () fails Boom use { Logger, Clock }"
     );
-    // 戻り値の関数型は，外側に use 節があれば括弧で囲む．
+    // A function return type is parenthesized if the outer type has a use clause.
     assert_eq!(
         d(
             Ty::func_sets([], Ty::func([], Ty::INT), Row::empty(), Row::tag(logger)),
@@ -455,7 +446,7 @@ fn display_uses() {
         ),
         "fn() -> (fn() -> Int) use Logger"
     );
-    // 集合の型引数．
+    // Set type parameters.
     let scheme = Scheme::new(
         vec![TyParam::set("R")],
         Ty::func_sets(
@@ -474,11 +465,12 @@ fn display_uses() {
         scheme.display(&cons).to_string(),
         "∀ R. fn(fn() -> Int fails {} use R) -> Int use { Clock, R }"
     );
-    // 能力の値の型は，それを作る式の形．
+    // A capability value's type is shown as the expression that creates it.
     assert_eq!(d(Ty::Cap(Tag::new(logger)), &cons), "use Logger");
 }
 
-/// 関数型の E は単一化で等しくせず，包含の制約にする．引数の中は逆向き．
+/// Function types' E is not equated by unification but turned into inclusion constraints,
+/// reversed inside parameters.
 #[test]
 fn unify_relates_fails_by_variance() {
     let (mut cons, _, _) = cons();
@@ -501,7 +493,7 @@ fn unify_relates_fails_by_variance() {
     assert_eq!(shown, ["?e1 <= {}", "X <= ?e0"]);
 }
 
-/// 単一化に失敗したら，途中で作った包含の制約は溜めない．
+/// When unification fails, the constraints created along the way are dropped.
 #[test]
 fn failed_unify_drops_row_constraints() {
     let (mut cons, _, _) = cons();

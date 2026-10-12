@@ -1,7 +1,7 @@
-//! エラーの集合 E の推論（7章，9.2，9.4）をスナップショットで確かめる．
+//! Snapshot tests for error set inference (spec chapter 7, 9.2, 9.4).
 //!
-//! `render_bodies` の出力（宣言の型と診断）に加え，`render_errors` は `main.emel` の式のうち
-//! E が空でないものを，位置の順に `式: E` の形で出す．
+//! Besides the `render_bodies` output (declared types and diagnostics), `render_errors` prints the
+//! expressions of `main.emel` with a non-empty E, in source order, as `expr: E`.
 
 mod common;
 
@@ -12,7 +12,7 @@ use emela_types::check_program;
 
 use common::{render_bodies, resolve_main};
 
-/// 式ごとの E．同じ位置の式（パイプの右辺の呼び出しなど）は1つにまとめない．
+/// Expressions at the same span (such as the call on the right of a pipe) are not merged.
 fn render_errors(src: &str) -> String {
     let (program, module, _) = resolve_main(src);
     let types = check_program(&program);
@@ -38,7 +38,7 @@ fn render_errors(src: &str) -> String {
     out
 }
 
-/// 無名関数は本体の E を関数型に閉じ込める．呼んだときに表に出る．
+/// A lambda encloses its body's E in its function type; it surfaces when called.
 #[test]
 fn lambdas_close_over_errors() {
     insta::assert_snapshot!(render_errors(
@@ -61,7 +61,8 @@ fn call_made() {
     ));
 }
 
-/// 汎化で集合変数も一般化する．引数の関数の E は，呼んだ側の E に出る．
+/// Generalization also generalizes set variables. A parameter function's E shows up at the
+/// caller.
 #[test]
 fn generalizes_set_variables() {
     insta::assert_snapshot!(render_errors(
@@ -86,7 +87,7 @@ fn use_it() {
     ));
 }
 
-/// E の違う関数を分岐の合流とリストで並べられる．
+/// Functions with different E can be joined in branches and lists.
 #[test]
 fn functions_with_different_errors_join() {
     insta::assert_snapshot!(render_errors(
@@ -115,7 +116,8 @@ fn annotated() {
     ));
 }
 
-/// 互いに呼び合う定義の E．escape は推論中の集合変数の解からも受けたタグを消す．
+/// E of mutually recursive definitions. `escape` also removes caught tags from the solutions of
+/// set variables still being inferred.
 #[test]
 fn recursive_groups() {
     insta::assert_snapshot!(render_errors(
@@ -133,8 +135,8 @@ fn b(n: Int) {
     ));
 }
 
-/// 宣言の E．`fails {}` を書けば失敗しない．引数の関数を呼ぶ fn は，その関数の E を
-/// 書かなくても伝えてよい（見えない集合は書けないので）．
+/// Declared E. Writing `fails {}` means the fn cannot fail. A fn calling a parameter function may
+/// propagate its E without writing it (invisible sets cannot be written).
 #[test]
 fn declared_errors() {
     insta::assert_snapshot!(render_errors(
@@ -162,7 +164,8 @@ fn use_apply() {
     ));
 }
 
-/// 引数の関数が受け取る関数（負の位置）の見えない集合は，本体からは中身の分からない集合．
+/// The invisible set of a function received by a parameter function (a negative position) has
+/// unknown contents from the body's point of view.
 #[test]
 fn callbacks_in_negative_position() {
     insta::assert_snapshot!(render_errors(
@@ -180,8 +183,8 @@ fn bad_callback(f: fn(fn() -> Int) -> Int) -> Int {
     ));
 }
 
-/// escape の腕が受けるエラーが起きないなら警告する（W0302）．中身の分からない集合が
-/// あれば警告しない．同じエラーの冗長な腕は W0301．
+/// W0302 when an `escape` arm catches an error that cannot occur, unless a set with unknown
+/// contents is present. Redundant arms for the same error are W0301.
 #[test]
 fn escape_warnings() {
     insta::assert_snapshot!(render_errors(
@@ -217,8 +220,8 @@ fn guarded() -> Int {
     ));
 }
 
-/// escape で E からタグが消えるのは，腕がそのエラーの値をすべて受けるときだけ（7.3）．
-/// 一部の値しか受けない腕（フィールドの値，ガード）だけなら，タグは E に残る．
+/// `escape` removes a tag from E only when the arms catch every value of that error (spec 7.3). If
+/// the arms catch only some values (field values, guards), the tag stays in E.
 #[test]
 fn escape_partial_arms_keep_tags() {
     insta::assert_snapshot!(render_errors(
@@ -264,7 +267,7 @@ fn local() -> Int {
     ));
 }
 
-/// パイプの右辺の呼び出しの E と，エラーの型の型引数（`or_fail`）．
+/// E of calls on the right of a pipe, and error type parameters (`or_fail`).
 #[test]
 fn pipes_and_error_type_params() {
     insta::assert_snapshot!(render_errors(

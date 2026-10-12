@@ -1,7 +1,8 @@
-//! 定義の本体の推論（`check_program`）をスナップショットで確かめる．
+//! Snapshot tests for body inference (`check_program`).
 //!
-//! `main.emel` の fn ごとに，宣言の型（書いていなければ推論して汎化した型）と，
-//! 引数と束縛した変数の型を出す．その下に `main.emel` の型の診断を位置の順に出す．
+//! For each fn in `main.emel`, prints the declared type (or the inferred, generalized type if none
+//! is written) and the types of parameters and bound variables, followed by the type diagnostics
+//! of `main.emel` in source order.
 
 mod common;
 
@@ -15,7 +16,7 @@ fn run(src: &str) -> String {
     render_bodies(src)
 }
 
-/// 同梱の Prelude と core のソースは，型の診断なしに検査を通る．
+/// The bundled Prelude and core sources type-check without diagnostics.
 #[test]
 fn core_sources_typecheck() {
     let (program, module, _) = resolve_main("");

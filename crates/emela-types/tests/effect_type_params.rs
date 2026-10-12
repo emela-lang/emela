@@ -1,8 +1,10 @@
-//! エフェクトの型引数（8.1）と State（8.8）．型引数の違うエフェクトを R の中で区別すること，
-//! with と `State.run` が型引数まで同じエフェクトを消すこと，型引数の省略と数の誤りを確かめる．
+//! Effect type parameters (spec 8.1) and State (spec 8.8). Checks that effects with different type
+//! arguments are distinct in R, that `with` and `State.run` remove only effects with the same type
+//! arguments, and errors for omitted or miscounted type arguments.
 //!
-//! State は同梱の core のモジュール（`emela-core/lib/state.emel`）．出力は宣言の型，局所変数の型，
-//! handler の依存，`main.emel` の診断，R が空でない式．
+//! State is a bundled core module (`emela-core/lib/state.emel`). The output shows declared types,
+//! local variable types, handler dependencies, diagnostics of `main.emel`, and expressions with a
+//! non-empty R.
 
 mod common;
 
@@ -85,7 +87,8 @@ fn render(src: &str) -> String {
     out
 }
 
-/// 同梱の State のソースは，core と一緒に誤りなく型検査を通る．`run` の型は仕様 8.8 のとおり．
+/// The bundled State source type-checks with core without errors, and `run` has the type of
+/// spec 8.8.
 #[test]
 fn state_source_typechecks() {
     let (program, _, resolve_diagnostics) = resolve_main("fn unused() { () }\n");
@@ -98,7 +101,7 @@ fn state_source_typechecks() {
         .iter()
         .find(|(_, d)| d.kind == DefKind::Effect && d.name == "State")
         .map(|(def, d)| (def, d.module.clone()))
-        .expect("State のエフェクトがある");
+        .expect("the State effect exists");
     let mut out = String::new();
     for (def, data) in program.defs.iter() {
         let in_state = data.module == state.1 && data.kind == DefKind::Fn;
@@ -112,8 +115,9 @@ fn state_source_typechecks() {
     insta::assert_snapshot!(out);
 }
 
-/// 仕様 8.8 の例．TestConsole は State[List[String]] に依存するハンドラで，`State.run` がそれを
-/// 供給する．`State.run` の `S` は初期値の `[]` だけでは決まらず，body の R から決まる．
+/// The example of spec 8.8. TestConsole is a handler depending on State[List[String]], provided by
+/// `State.run`. The `S` of `State.run` is not determined by the initial `[]` alone but by the
+/// body's R.
 #[test]
 fn spec_test_console() {
     insta::assert_snapshot!(render(
@@ -142,7 +146,7 @@ fn captured() {
     ));
 }
 
-/// 時刻を進める TestClock．State[Instant] に依存し，sleep はその場で resume する．
+/// A TestClock that advances time. Depends on State[Instant]; sleep resumes immediately.
 #[test]
 fn test_clock() {
     insta::assert_snapshot!(render(
@@ -171,7 +175,8 @@ fn test_elapsed() {
     ));
 }
 
-/// 型引数の違うエフェクトは別のエフェクト．with は型引数まで同じものだけを消す．
+/// Effects with different type arguments are different effects; `with` removes only those with
+/// the same type arguments.
 #[test]
 fn distinct_by_type_args() {
     insta::assert_snapshot!(render(
@@ -221,7 +226,7 @@ fn test_leftover() { with Zero { both() } }
     ));
 }
 
-/// 型引数のある fn は，型引数を `use State[S]` に書ける．呼ぶ側で型引数が決まる．
+/// A fn with type parameters can write them in `use State[S]`; the caller decides them.
 #[test]
 fn generic_state() {
     insta::assert_snapshot!(render(
@@ -245,7 +250,8 @@ fn peek_int() { State.run(1, fn() { peek() }) }
     ));
 }
 
-/// 型引数の省略（E0423），数の誤り（E0304），集合として使った型引数（E0424），型の合わない操作．
+/// Omitted type arguments (E0423), wrong counts (E0304), type parameters used as sets (E0424),
+/// and operations with mismatched types.
 #[test]
 fn errors() {
     insta::assert_snapshot!(render(
@@ -287,8 +293,9 @@ fn as_type(x: State[Int]) { () }
     ));
 }
 
-/// layer と with に型引数の違う State のハンドラを並べる．型引数まで同じものだけが重複（E0421）で，
-/// 後ろが優先される．ハンドラの操作の実装は implements の型で検査する．
+/// State handlers with different type arguments in layers and `with`. Only those with the same
+/// type arguments are duplicates (E0421), and the later one wins. Handler operation
+/// implementations are checked against the `implements` types.
 #[test]
 fn handlers_and_layers() {
     insta::assert_snapshot!(render(

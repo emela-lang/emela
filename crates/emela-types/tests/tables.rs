@@ -1,7 +1,7 @@
-//! lowering に渡す表（フィールドの添字，並べ直した引数，具体化した型引数，
-//! 構成子のパターンのフィールド）をスナップショットで確かめる．
+//! Snapshot tests for the tables handed to lowering (field indices, reordered arguments,
+//! instantiated type arguments, constructor pattern fields).
 //!
-//! `main.emel` の式とパターンだけを，ソースの位置の順に出す．
+//! Prints only the expressions and patterns of `main.emel`, in source order.
 
 mod common;
 

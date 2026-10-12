@@ -1,6 +1,6 @@
 use super::*;
 
-/// テスト用の型．`CtorTable` を通してだけ形を見せる．
+/// A test type whose shape is visible only through `CtorTable`.
 #[derive(Clone, Debug)]
 enum T {
     Int,
@@ -8,9 +8,9 @@ enum T {
     Str,
     Bool,
     Unit,
-    /// 構成子のない enum．
+    /// An enum with no constructors.
     Never,
-    /// `enum Shape { Circle(radius: Float), Rect(w: Float, h: Float), Empty }`（仕様 6.5）．
+    /// `enum Shape { Circle(radius: Float), Rect(w: Float, h: Float), Empty }` (spec 6.5).
     Shape,
     Option(Box<T>),
     Tuple(Vec<T>),
@@ -70,8 +70,7 @@ fn list(t: T) -> T {
     T::List(Box::new(t))
 }
 
-// パターンの組み立て．構成子の番号は `Table` の並び順．
-
+// Constructor indices follow the order in `Table`.
 const W: Pat = Pat::Wild;
 
 fn int(n: i64) -> Pat {
@@ -145,7 +144,7 @@ fn guarded(pat: Pat) -> Arm {
     Arm { pat, guarded: true }
 }
 
-/// 足りない値の例を表示した文字列と，冗長な腕の添字．
+/// The displayed missing-value examples, and the indices of redundant arms.
 fn check(ty: T, arms: Vec<Arm>) -> (Vec<String>, Vec<usize>) {
     let r = check_match(&Table, &ty, &arms);
     (
@@ -156,17 +155,15 @@ fn check(ty: T, arms: Vec<Arm>) -> (Vec<String>, Vec<usize>) {
 
 fn missing(ty: T, arms: Vec<Arm>) -> Vec<String> {
     let (missing, redundant) = check(ty, arms);
-    assert!(redundant.is_empty(), "冗長な腕がある: {redundant:?}");
+    assert!(redundant.is_empty(), "redundant arms: {redundant:?}");
     missing
 }
 
 fn redundant(ty: T, arms: Vec<Arm>) -> Vec<usize> {
     let (missing, redundant) = check(ty, arms);
-    assert!(missing.is_empty(), "網羅していない: {missing:?}");
+    assert!(missing.is_empty(), "not exhaustive: {missing:?}");
     redundant
 }
-
-// 仕様 6.5 の Shape
 
 #[test]
 fn shape_spec_example() {
@@ -199,7 +196,7 @@ fn shape_missing_several() {
 
 #[test]
 fn shape_named_fields_rest() {
-    // Rect(h: 0.0, ..) は w をワイルドカードとして扱う．
+    // `Rect(h: 0.0, ..)` treats `w` as a wildcard.
     let rect_h0 = Pat::Variant {
         variant: 1,
         fields: vec![(1, float(0.0))],
@@ -219,7 +216,7 @@ fn shape_named_fields_rest() {
 fn no_arms() {
     assert_eq!(missing(T::Shape, vec![]), ["_"]);
     assert_eq!(missing(T::Int, vec![]), ["_"]);
-    // 構成子のない enum は腕がなくても網羅している．
+    // An enum with no constructors is exhaustive with no arms.
     assert_eq!(missing(T::Never, vec![]), Vec::<String>::new());
 }
 
@@ -237,8 +234,6 @@ fn bool_exhaustive() {
 fn bool_missing_false() {
     assert_eq!(missing(T::Bool, vec![arm(tru())]), ["False"]);
 }
-
-// Option の入れ子
 
 #[test]
 fn nested_option_missing_some_none() {
@@ -269,8 +264,6 @@ fn nested_option_exhaustive() {
     assert_eq!(check(ty, arms), (vec![], vec![]));
 }
 
-// タプル
-
 #[test]
 fn tuple_of_bools() {
     let ty = T::Tuple(vec![T::Bool, T::Bool]);
@@ -295,8 +288,6 @@ fn unit() {
     assert_eq!(check(T::Unit, vec![arm(tuple(vec![]))]), (vec![], vec![]));
     assert_eq!(missing(T::Unit, vec![]), ["_"]);
 }
-
-// リスト
 
 #[test]
 fn list_empty_and_cons_exhaustive() {
@@ -333,7 +324,7 @@ fn list_fixed_lengths_only() {
 
 #[test]
 fn list_gap_between_fixed_and_rest() {
-    // `[]` と `[_, _, ..]` では長さ1が抜ける．
+    // `[]` and `[_, _, ..]` leave out length 1.
     let arms = vec![arm(Pat::list(vec![])), arm(Pat::list_rest(vec![W, W]))];
     assert_eq!(missing(list(T::Int), arms), ["[_]"]);
 }
@@ -355,8 +346,6 @@ fn list_redundant() {
     assert_eq!(redundant(list(T::Int), arms), [2, 3]);
 }
 
-// リテラルとワイルドカード
-
 #[test]
 fn literals_need_wildcard() {
     assert_eq!(missing(T::Int, vec![arm(int(0)), arm(int(1))]), ["_"]);
@@ -374,12 +363,12 @@ fn literals_redundant() {
         redundant(T::Str, vec![arm(string("a")), arm(W), arm(string("b"))]),
         [2]
     );
-    // 浮動小数点は値で比べる．
+    // Floats are compared by value.
     assert_eq!(
         redundant(T::Float, vec![arm(float(0.0)), arm(float(-0.0)), arm(W)]),
         [1]
     );
-    // NaN の定数は自分自身と一致する．2つ目だけが冗長．
+    // A NaN constant matches itself, so only the second arm is redundant.
     let nan = || arm(float(f64::NAN));
     assert_eq!(redundant(T::Float, vec![nan(), nan(), arm(W)]), [1]);
 }
@@ -397,8 +386,6 @@ fn literal_and_enum_columns() {
     let arms = vec![arm(tuple(vec![int(0), tru()])), arm(tuple(vec![W, fals()]))];
     assert_eq!(missing(ty, arms), ["(_, True)"]);
 }
-
-// ガード
 
 #[test]
 fn guarded_arm_not_counted_for_exhaustiveness() {
@@ -422,8 +409,6 @@ fn guarded_arm_can_itself_be_redundant() {
     assert_eq!(redundant(T::Bool, arms), [1]);
 }
 
-// 冗長な腕
-
 #[test]
 fn redundant_after_wildcard() {
     assert_eq!(redundant(T::Shape, vec![arm(W), arm(empty())]), [1]);
@@ -434,8 +419,6 @@ fn redundant_covered_by_several_arms() {
     let arms = vec![arm(circle(W)), arm(rect(W, W)), arm(empty()), arm(W)];
     assert_eq!(redundant(T::Shape, arms), [3]);
 }
-
-// 再帰的な型
 
 #[test]
 fn recursive_tree() {
@@ -469,8 +452,6 @@ fn recursive_wildcard_only() {
     assert_eq!(check(T::Json, vec![arm(W)]), (vec![], vec![]));
     assert_eq!(missing(list(T::Json), vec![]), ["_"]);
 }
-
-// witness の表示と上限
 
 #[test]
 fn witness_display() {
@@ -515,7 +496,7 @@ fn witness_display() {
 
 #[test]
 fn witnesses_are_limited() {
-    // `(0, True)` から `(99, True)` までだと，`(k, False)` が 100 通り足りない．
+    // Arms from `(0, True)` to `(99, True)` leave 100 values `(k, False)` missing.
     let ty = T::Tuple(vec![T::Int, T::Bool]);
     let arms = (0..100)
         .map(|k| arm(tuple(vec![int(k), tru()])))
@@ -528,7 +509,7 @@ fn witnesses_are_limited() {
 
 #[test]
 fn compact_witnesses_for_wide_tuple() {
-    // 足りない値は 7 通りあるが，`_` でまとめて 3 個で示す．
+    // Seven values are missing, but `_` groups them into three.
     let ty = T::Tuple(vec![T::Bool; 3]);
     let arms = vec![arm(tuple(vec![tru(); 3]))];
     assert_eq!(

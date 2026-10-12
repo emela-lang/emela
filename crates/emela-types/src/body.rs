@@ -1,10 +1,12 @@
-//! 関数と const の本体の推論．式とパターンに型を付ける．
+//! Inference of fn and const bodies: assigns types to expressions and patterns.
 //!
-//! 互いに参照し合う定義のまとまり（呼び出しグラフの強連結成分）ごとに [`BodyInfer`] を作り，
-//! 式を下から順に推論する．型が合わなければ式の位置を付けた診断を積んで続ける．
-//! 宣言の型のない定義（戻り値の型か `use` 節を書いていない fn，型を書いていない const）は，
-//! まとまりの中では単相の型で参照し，まとまりを推論し終えてから汎化する（[`crate::check`]）．
-//! handler もまとまりの中の定義で，操作の本体を推論し，依存（操作の本体の R）を求める．
+//! A [`BodyInfer`] is created per group of mutually referring definitions (a strongly connected
+//! component of the call graph), and expressions are inferred bottom-up. On a type mismatch, a
+//! diagnostic with the expression's span is pushed and inference continues. Definitions without
+//! a declared type (fns without a return type or `use` clause, consts without a type) are
+//! referred to monomorphically within the group and generalized once the group is inferred
+//! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
+//! inferred and their dependencies (the R of the operation bodies) computed.
 
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnItem, HandlerItem,
@@ -30,149 +32,158 @@ mod effects;
 mod errors;
 mod suspend;
 
-/// 定義のまとまり1つの推論の結果．型は単一化の束縛を辿った形．
+/// The result of inferring one group of definitions. Types have unification bindings followed.
 pub(crate) struct BodyTypes {
     pub(crate) exprs: ArenaMap<ExprId, Ty>,
     pub(crate) pats: ArenaMap<PatId, Ty>,
     pub(crate) locals: ArenaMap<LocalId, Ty>,
-    /// 局所変数がどの定義の本体のものか．
+    /// The definition whose body a local variable belongs to.
     pub(crate) local_owner: ArenaMap<LocalId, DefId>,
     pub(crate) fields: ArenaMap<ExprId, usize>,
     pub(crate) calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     pub(crate) type_args: ArenaMap<ExprId, Vec<Ty>>,
-    /// 汎用の定義の参照の式 → 集合の型引数を具体化した集合．
+    /// References to generic definitions → the sets instantiating set type parameters.
     pub(crate) type_rows: ArenaMap<ExprId, Vec<Row>>,
-    /// 宣言の型のなかった定義の，汎化した集合変数と型引数の添字．
+    /// For definitions without a declared type: generalized set variables and the indices of
+    /// their type parameters.
     pub(crate) generalized_rows: Vec<(DefId, Vec<(RowVar, u32)>)>,
-    /// 宣言の型のなかった定義の，汎化した型変数と型引数の添字．
+    /// For definitions without a declared type: generalized type variables and the indices of
+    /// their type parameters.
     pub(crate) generalized_tys: Vec<(DefId, Vec<(TyVar, u32)>)>,
     pub(crate) pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     pub(crate) diags: Vec<Diagnostic>,
-    /// 宣言の型のなかった定義の，汎化した宣言の型．
+    /// The generalized declared types of definitions that had none.
     pub(crate) inferred: Vec<(DefId, Signature)>,
-    /// 各式のエラーの集合 E（9.4）．
+    /// The error set E of each expression (spec 9.4).
     pub(crate) errors: ArenaMap<ExprId, Row>,
-    /// 各式の効果の集合 R（9.4）．
+    /// The effect set R of each expression (spec 9.4).
     pub(crate) effects: ArenaMap<ExprId, Row>,
-    /// 能力の値の操作の参照（`log.info` の `Field` の式）→ effect の操作の定義．
+    /// References to capability operations (the `Field` expression of `log.info`) → the effect
+    /// operation's definition.
     pub(crate) ops: ArenaMap<ExprId, DefId>,
-    /// まとまりの中の handler の依存（init，release，操作の本体の R の和）．
+    /// Dependencies of the group's handlers (the union of the R of init, release and the
+    /// operation bodies).
     pub(crate) handler_uses: Vec<(DefId, Row)>,
-    /// まとまりの中の handler の init の E．
+    /// The init E of the group's handlers.
     pub(crate) handler_fails: Vec<(DefId, Row)>,
-    /// with の式 → 初期化の順に並べたハンドラ（layer を展開し，後ろに並べたもので上書きしたもの）．
+    /// `with` expressions → handlers in initialization order (layers expanded, later handlers
+    /// overriding earlier ones).
     pub(crate) with_handlers: ArenaMap<ExprId, Vec<DefId>>,
 }
 
-/// handler の操作の本体（[`BodyInfer::infer_handler`]）．E と R を求めるときに使う．
+/// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
 struct HandlerBody {
     handler: DefId,
-    /// handler の中の操作の添字（`HandlerItem::ops`）．
+    /// The operation's index within the handler (`HandlerItem::ops`).
     index: usize,
     body: ExprId,
-    /// エフェクトの操作の宣言の E．
+    /// The E of the effect operation's declaration.
     fails: Row,
-    /// suspend fn の実装で，`resume` を直接呼ぶ以外の使い方をしている（8.7）．依存に Async を足す．
+    /// A suspend fn implementation that uses `resume` other than by calling it directly (spec
+    /// 8.7). Async is added to the dependencies.
     resume_later: bool,
-    /// suspend fn の実装か．fn の操作の本体は中断できない（E0417）．
+    /// Whether it implements a suspend fn. fn operation bodies cannot suspend (E0417).
     suspend: bool,
 }
 
-/// handler の init か release の本体．E と R を求めるときに使う．
+/// A handler's init or release body, used when computing E and R.
 struct HandlerPart {
     handler: DefId,
     body: ExprId,
-    /// release か（でなければ init）．release の E は空でなければならない（8.4）．
+    /// Otherwise init. release's E must be empty (spec 8.4).
     release: bool,
 }
 
-/// 前のまとまりで求めた handler の情報．
+/// Handler facts computed in earlier groups.
 pub(crate) struct HandlerFacts<'a> {
-    /// 依存（init，release，操作の本体の R の和）．
+    /// Dependencies (the union of the R of init, release and the operation bodies).
     pub(crate) uses: &'a ArenaMap<DefId, Row>,
-    /// init の E．with の E に入る（9.4）．
+    /// init's E, which goes into the E of `with` (spec 9.4).
     pub(crate) fails: &'a ArenaMap<DefId, Row>,
 }
 
-/// 定義のまとまり1つを推論する間の状態．
+/// State while inferring one group of definitions.
 pub(crate) struct BodyInfer<'a> {
     program: &'a Program,
     ty_table: &'a TyTable,
     sigs: &'a Signatures,
-    /// 前のまとまりで求めた handler の依存と init の E．
+    /// Handler dependencies and init E computed in earlier groups.
     handler_facts: HandlerFacts<'a>,
-    /// R が空でなければならない定義（main とテスト関数）．
+    /// Definitions whose R must be empty (`main` and test functions).
     closed: &'a FxHashMap<DefId, EffectContext>,
-    /// 推論している定義．
     current: Option<DefId>,
-    /// 推論している定義のモジュール．opaque な型のフィールドを引けるかの判定に使う．
+    /// The module of the definition being inferred, for deciding whether opaque fields are
+    /// accessible.
     module: DefModule,
-    /// 推論している fn の型引数．
+    /// Type parameters of the fn being inferred.
     type_params: Vec<DefId>,
-    /// 推論している fn の型引数の種類（`type_params` と同じ並び）．
+    /// Kinds of the fn's type parameters, in the same order as `type_params`.
     param_kinds: Vec<ParamKind>,
     ctx: InferCtx,
-    /// まとまりの中の，宣言の型のない定義の単相の型と，型引数（書いた型引数と見えない集合の型引数）．
-    /// 推論し終えてから汎化する．
+    /// Monomorphic types and type parameters (written and invisible set ones) of the group's
+    /// definitions without declared types. Generalized once the group is inferred.
     pending: Vec<(DefId, Ty, Vec<TyParam>)>,
-    /// 推論した定義（本体のある fn と const）．推論した順．
+    /// Inferred definitions (fns with bodies and consts), in inference order.
     defs: Vec<DefId>,
-    /// ラムダの式 → その型のエラーの集合と効果の集合の集合変数．本体の E と R を含める
-    /// （`body/errors.rs`，`body/effects.rs`）．
+    /// Lambda expressions → the set variables of their type's error and effect sets, which
+    /// include the body's E and R (`body/errors.rs`, `body/effects.rs`).
     lambda_rows: ArenaMap<ExprId, (RowVar, RowVar)>,
-    /// まとまりの中の handler の依存の集合変数と，init の E の集合変数．
+    /// Set variables for the dependencies and the init E of the group's handlers.
     pending_handlers: Vec<(DefId, RowVar, RowVar)>,
-    /// 推論した handler の操作の本体．
     handler_bodies: Vec<HandlerBody>,
-    /// 推論した handler の init と release の本体．
     handler_parts: Vec<HandlerPart>,
-    /// 推論している init の handler．ハンドラの値の構成子はその init の中でだけ使える（E0418）．
+    /// The handler whose init is being inferred. A handler value's constructor can only be used
+    /// in its own init (E0418).
     in_init: Option<DefId>,
-    /// 書いた型引数のある `pending` の定義を，まとまりの中の他の定義から参照したもの．
-    /// 推論し終えてから，その定義の最終的な型と照合する（[`Self::finish`]）．
+    /// References from other definitions in the group to `pending` definitions with written type
+    /// parameters. Checked against the definitions' final types once the group is inferred
+    /// ([`Self::finish`]).
     deferred: Vec<DeferredRef>,
     locals: ArenaMap<LocalId, Ty>,
     local_owner: ArenaMap<LocalId, DefId>,
-    /// フィールドの参照の式 → フィールドの添字．
+    /// Field access expressions → field indices.
     fields: ArenaMap<ExprId, usize>,
-    /// 呼び出し・パイプ・部分更新の式 → 位置の順に並べ直した引数．
+    /// Call, pipe and update expressions → the arguments reordered by position.
     calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
-    /// 汎用の定義の参照の式 → 具体化した型引数．
+    /// References to generic definitions → instantiated type arguments.
     type_args: ArenaMap<ExprId, Vec<Ty>>,
-    /// 汎用の定義の参照の式 → 集合の型引数を具体化した集合．
+    /// References to generic definitions → the sets instantiating set type parameters.
     type_rows: ArenaMap<ExprId, Vec<Row>>,
-    /// 構成子のパターン → フィールドの位置の順に並べ直したパターン．
+    /// Constructor patterns → the patterns reordered by field position.
     pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
     exprs: ArenaMap<ExprId, Ty>,
     pats: ArenaMap<PatId, Ty>,
     diags: Vec<Diagnostic>,
-    /// 数の型の制約．本体を推論し終えたときに確かめる（[`Self::check_numbers`]）．
+    /// Numeric type constraints, checked when the body is done ([`Self::check_numbers`]).
     numbers: Vec<NumConstraint>,
-    /// 網羅性を確かめる match と束縛．型が決まってから確かめる（[`Self::check_coverage`]）．
+    /// Matches and bindings to check for coverage once types are settled
+    /// ([`Self::check_coverage`]).
     coverage: Vec<CoverageSite>,
-    /// 各式のエラーの集合．本体の推論が終わってから求める（`body/errors.rs`）．
+    /// Each expression's error set, computed after body inference (`body/errors.rs`).
     expr_rows: ArenaMap<ExprId, Row>,
-    /// escape で受けたタグを集合変数の解から除くための集合変数（`δ ⊇ v ∖ tags`）．
+    /// Set variables that remove tags caught by `escape` from a set variable's solution
+    /// (`δ ⊇ v ∖ tags`).
     row_diffs: Vec<(RowVar, RowVar, Vec<Tag>)>,
-    /// escape の元の式と，腕が受けるエラー（腕のパターンとタグ）．W0302 を確かめるのに使う．
+    /// `escape` inner expressions and the errors their arms catch (arm pattern and tag), for the
+    /// W0302 check.
     escapes: Vec<(ExprId, Vec<(PatId, DefId)>)>,
-    /// 各式の効果の集合．本体の推論が終わってから求める（`body/effects.rs`）．
+    /// Each expression's effect set, computed after body inference (`body/effects.rs`).
     expr_effects: ArenaMap<ExprId, Row>,
-    /// 能力の値の操作の参照 → effect の操作．
+    /// References to capability operations → effect operations.
     ops: ArenaMap<ExprId, DefId>,
-    /// with の式と，並べたハンドラ（layer を展開したもの）とその依存．初期化の順と依存の循環を，
-    /// 集合を解いた後に決める（`body/effects.rs`）．
+    /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
+    /// initialization order and dependency cycles are decided after sets are solved
+    /// (`body/effects.rs`).
     withs: Vec<(ExprId, Vec<crate::layer::Entry>, Vec<Row>)>,
-    /// with の式 → 初期化の順に並べたハンドラ．
+    /// `with` expressions → handlers in initialization order.
     with_handlers: ArenaMap<ExprId, Vec<DefId>>,
-    /// `Immediate` を求める効果の集合（`body/suspend.rs`）．
+    /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
-    /// 汎化するときに `Immediate` の制約を付ける集合変数．
+    /// Set variables that get an `Immediate` bound when generalized.
     immediate_vars: rustc_hash::FxHashSet<RowVar>,
 }
 
 impl<'a> BodyInfer<'a> {
-    /// 空の状態で始める．
     pub(crate) fn new(
         program: &'a Program,
         ty_table: &'a TyTable,
@@ -225,7 +236,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// これから推論する定義に切り替える．モジュールと型引数をその定義のものにする．
+    /// Switches to the definition about to be inferred, taking its module and type parameters.
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
         self.module = self.program.defs[def].module.clone();
@@ -238,9 +249,10 @@ impl<'a> BodyInfer<'a> {
         };
     }
 
-    /// 宣言の型のない定義に，まとまりの中で使う単相の型を付ける．fn は書いた引数の型と，
-    /// 戻り値の型（書いていなければ型変数）と，E と R（書いていなければ集合変数）．const は型変数．
-    /// handler は依存と init の E の集合変数．
+    /// Gives a definition without a declared type the monomorphic type used within the group: for
+    /// a fn, the written parameter types, the return type (a type variable if not written), and E
+    /// and R (set variables if not written); for a const, a type variable; for a handler, set
+    /// variables for its dependencies and init E.
     pub(crate) fn declare(&mut self, def: DefId) {
         self.enter(def);
         let program = self.program;
@@ -276,21 +288,22 @@ impl<'a> BodyInfer<'a> {
                             &mut self.diags,
                         );
                         if has_omitted_fails(program, ret_ref) {
-                            // E は本体から推論し，宣言の E（書いた fails 節と見えない集合）に
-                            // 含まれることを確かめる．返す関数が引数の関数を呼ぶだけなら，この fn
-                            // 自身は失敗しない（9.2 の compose）．
+                            // E is inferred from the body and checked to be contained in the
+                            // declared E (the written fails clause and invisible sets). If the
+                            // returned function only calls a parameter function, this fn itself
+                            // does not fail (compose in spec 9.2).
                             let fails = Row::var(self.ctx.new_row_var());
                             self.ctx
                                 .add_subset(fails.clone(), declared, Origin::Body(def));
                             (ret, fails)
                         } else {
-                            // 戻り値の型と E は宣言のとおり．R だけを推論する．
+                            // Return type and E as declared; only R is inferred.
                             (ret, declared)
                         }
                     }
                     None => (self.ctx.new_var(), Row::var(self.ctx.new_row_var())),
                 };
-                // `use` 節を書いていなければ R は本体から推論する（9.3）．
+                // Without a `use` clause, R is inferred from the body (spec 9.3).
                 let uses = match item.sig.uses {
                     Some(_) => {
                         fn_params.declared_uses(program, self.ty_table, &item.sig, &mut self.diags)
@@ -307,7 +320,7 @@ impl<'a> BodyInfer<'a> {
         self.pending.push((def, ty, params));
     }
 
-    /// 定義の本体を推論する．宣言の型（なければ [`Self::declare`] で付けた型）の位置に置く．
+    /// Places the body at the declared type (or the type given by [`Self::declare`]).
     pub(crate) fn infer_def(&mut self, def: DefId) {
         self.enter(def);
         self.defs.push(def);
@@ -330,7 +343,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// fn の本体を推論する．`declared` は fn の型．
+    /// `declared` is the fn's type.
     fn infer_fn(&mut self, item: &FnItem, declared: &Ty) {
         let Ty::Fn(f) = declared else {
             return;
@@ -343,13 +356,14 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// handler の init，release，操作の本体を推論する（8.4）．
+    /// Infers a handler's init, release and operation bodies (spec 8.4).
     ///
-    /// - init の値はハンドラの値．フィールドがあれば init は必須（E0419）．
-    /// - release と操作の本体の `self` はハンドラの値．release の値は捨てる．
-    /// - 操作の引数と戻り値の型はエフェクトの操作の宣言から決まる．suspend fn の実装は最後の引数に
-    ///   `resume` を受ける．`resume` は操作の戻り値の型の値を受けて `()` を返す関数で，本体の値は `()`．
-    /// - Async のハンドラは書けない（8.7）．
+    /// - init's value is the handler value. If the handler has fields, init is required (E0419).
+    /// - `self` in release and operation bodies is the handler value. release's value is dropped.
+    /// - Operation parameter and return types come from the effect operation's declaration. A
+    ///   suspend fn implementation takes `resume` as its last parameter: a function taking a value
+    ///   of the operation's return type and returning `()`. The body's value is `()`.
+    /// - Handlers for Async cannot be written (spec 8.7).
     fn infer_handler(&mut self, def: DefId, item: &HandlerItem) {
         let program = self.program;
         let span = program.defs[def].span;
@@ -431,11 +445,12 @@ impl<'a> BodyInfer<'a> {
                     None
                 }
                 Res::Def(op) => Some(op),
-                // 名前解決が誤りを出している．
+                // Name resolution has reported this.
                 _ => None,
             };
-            // 実装の `suspend` がエフェクトの宣言と違えば E0415．誤りを重ねないよう，引数と本体は
-            // 実装の書き方に従って検査する．
+            // If the implementation's `suspend` differs from the effect's declaration, E0415. The
+            // parameters and body are checked as the implementation is written, so errors do not
+            // cascade.
             let declared_suspend =
                 op.map(|op| matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend));
             if let Some(declared) = declared_suspend
@@ -451,7 +466,8 @@ impl<'a> BodyInfer<'a> {
                 });
             }
             let suspend = hop.is_suspend;
-            // エフェクトの型引数は implements に書いた型で置き換える（8.1）．
+            // Effect type parameters are replaced with the types written in `implements`
+            // (spec 8.1).
             let f = match op
                 .and_then(|op| self.sigs.get(op))
                 .map(|s| substitute_bound(&s.scheme.ty, &effect_args))
@@ -460,7 +476,8 @@ impl<'a> BodyInfer<'a> {
                 _ => None,
             };
             let Some(f) = f else {
-                // 型を決められない操作も，中の式は推論して型を記録しておく．
+                // Operations whose type cannot be determined still have their expressions
+                // inferred and types recorded.
                 for p in &hop.params {
                     self.set_local(p.local, Ty::Error);
                 }
@@ -469,7 +486,7 @@ impl<'a> BodyInfer<'a> {
                 }
                 continue;
             };
-            // suspend fn の実装の引数は，操作の引数と `resume`．
+            // A suspend fn implementation's parameters are the operation's plus `resume`.
             let mut params = f.params.clone();
             if suspend {
                 params.push(Ty::func(vec![f.ret.clone()], Ty::UNIT));
@@ -491,7 +508,8 @@ impl<'a> BodyInfer<'a> {
             let Some(body) = hop.body else {
                 continue;
             };
-            // suspend fn の実装の値は捨てる．操作の値は `resume` に渡したもの．
+            // A suspend fn implementation's value is dropped; the operation's value is what is
+            // passed to `resume`.
             let ret = if suspend { Ty::UNIT } else { f.ret.clone() };
             self.check_expr(body, &ret);
             let resume_later = suspend
@@ -511,8 +529,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// handler の依存（init，release，操作の本体の R の和）．前のまとまりで求めたものか，
-    /// まとまりの中の集合変数．推論しなかった handler（Async のハンドラ）は空．
+    /// A handler's dependencies (the union of the R of init, release and the operation bodies):
+    /// computed in an earlier group, or a set variable within this group. Empty for handlers not
+    /// inferred (Async handlers).
     fn handler_deps(&self, handler: DefId) -> Row {
         if let Some(row) = self.handler_facts.uses.get(handler) {
             return row.clone();
@@ -523,7 +542,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// handler の init の E．with の E に入る（9.4）．
+    /// A handler's init E, which goes into the E of `with` (spec 9.4).
     fn handler_init_fails(&self, handler: DefId) -> Row {
         if let Some(row) = self.handler_facts.fails.get(handler) {
             return row.clone();
@@ -534,13 +553,15 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 推論している定義が handler か（`@external` の fn を使えるか，12.2）．
+    /// Whether the definition being inferred is a handler (where `@external` fns may be used,
+    /// spec 12.2).
     fn in_handler(&self) -> bool {
         self.current
             .is_some_and(|def| self.program.defs[def].kind == DefKind::Handler)
     }
 
-    /// まとまりの中の，宣言の型のない定義の単相の型と，型引数．
+    /// The monomorphic type and type parameters of a definition without a declared type in this
+    /// group.
     fn pending_ty(&self, def: DefId) -> Option<(Ty, Vec<TyParam>)> {
         self.pending
             .iter()
@@ -548,8 +569,9 @@ impl<'a> BodyInfer<'a> {
             .map(|(_, ty, params)| (ty.clone(), params.clone()))
     }
 
-    /// match の網羅性と冗長な腕，束縛のパターンが必ず成功するかを確かめる（6.3，6.5）．
-    /// 対象の型が `Ty::Error` なら，別の誤りが出ているので確かめない．
+    /// Checks match exhaustiveness, redundant arms, and that binding patterns always succeed
+    /// (spec 6.3, 6.5). Skipped when the scrutinee type is `Ty::Error`, since another error has
+    /// been reported.
     fn check_coverage(&mut self) {
         let shapes = Shapes {
             program: self.program,
@@ -616,7 +638,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 型の中のまだ決まっていない型変数を，新しい型変数に置き換える．同じ型変数は同じものにする．
+    /// Replaces undetermined type variables in the type with fresh ones, consistently.
     fn freshen(&mut self, ty: &Ty, fresh: &mut FxHashMap<TyVar, Ty>) -> Ty {
         match self.ctx.shallow_resolve(ty) {
             Ty::Var(v) => fresh.entry(v).or_insert_with(|| self.ctx.new_var()).clone(),
@@ -624,7 +646,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 局所変数に型を付ける．どの定義の本体のものかも覚える．
+    /// Also records which definition's body the local belongs to.
     fn set_local(&mut self, local: LocalId, ty: Ty) {
         self.locals.insert(local, ty);
         if let Some(def) = self.current {
@@ -632,7 +654,8 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 推論を終える．数の型を確かめ，宣言の型のなかった定義を汎化して，型を辿った形にして返す．
+    /// Finishes inference: checks numeric types, generalizes definitions without declared types,
+    /// and returns the types with bindings followed.
     pub(crate) fn finish(mut self) -> BodyTypes {
         for r in std::mem::take(&mut self.deferred) {
             if let Some((ty, _)) = self.pending_ty(r.def) {
@@ -642,7 +665,7 @@ impl<'a> BodyInfer<'a> {
             }
         }
         self.check_numbers();
-        // エラーの集合と効果の集合を求めて解く（`body/errors.rs`，`body/effects.rs`）．
+        // Compute and solve the error and effect sets (`body/errors.rs`, `body/effects.rs`).
         self.infer_errors();
         self.infer_effects();
         self.solve_errors();
@@ -661,7 +684,7 @@ impl<'a> BodyInfer<'a> {
                 Some(Item::Fn(item)) => param_labels(program, &item.sig.params),
                 _ => Vec::new(),
             };
-            // トップレベルなので環境の型変数はない．
+            // Top level, so no environment type variables.
             let (scheme, rows, tys) =
                 self.ctx
                     .generalize_bounded(&ty, params, &[], &self.immediate_vars);
@@ -723,7 +746,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// `actual` を `expected` の位置に置く．合わなければ `span` の位置で診断を積む．
+    /// Places `actual` where `expected` is expected; pushes a diagnostic at `span` on mismatch.
     fn coerce_at(&mut self, span: Span, expected: &Ty, actual: &Ty) {
         self.ctx.set_origin(Some(span), self.current);
         let result = self.ctx.coerce(expected, actual);
@@ -736,17 +759,16 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 式の型を推論し，記録して返す．
+    /// Infers, records and returns the expression's type.
     fn infer_expr(&mut self, expr: ExprId) -> Ty {
         let ty = self.infer_expr_kind(expr, None);
         self.exprs.insert(expr, ty.clone());
         ty
     }
 
-    /// 式の種類ごとの推論．
-    ///
-    /// `expected` は期待する型．ブロック，if，match，with は最後の式や各分岐（with は本体）まで
-    /// 渡し，ラムダとリストは引数や要素に先に渡す（[`Self::check_expr`]）．それ以外の式は無視する．
+    /// `expected` is the expected type. Blocks, if, match and with pass it down to their last
+    /// expression or each branch (the body for with); lambdas and lists pass it to their
+    /// parameters or elements first ([`Self::check_expr`]). Other expressions ignore it.
     fn infer_expr_kind(&mut self, expr: ExprId, expected: Option<&Ty>) -> Ty {
         let program = self.program;
         let e = &program.exprs[expr];
@@ -793,7 +815,7 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Interpolated(parts) => {
                 for part in parts {
                     if let StrPart::Interp(expr) = part {
-                        // Show を満たすかは Trait の段で見る．
+                        // Whether it satisfies Show is checked in the trait stage.
                         self.infer_expr(*expr);
                     }
                 }
@@ -806,14 +828,15 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Update { ctor, fields, base } => {
                 self.infer_update(expr, *ctor, fields, *base)
             }
-            // `fail e` は Never．e の型のタグを E に足すのは本体の E を求めるとき（7.2）．
+            // `fail e` is Never. The tag of e's type is added to E when the body's E is computed
+            // (spec 7.2).
             ExprKind::Fail(inner) => {
                 self.infer_expr(*inner);
                 Ty::Never
             }
             ExprKind::Escape { expr: inner, arms } => self.infer_escape(*inner, arms),
-            // `use X` は X の能力の値（8.2）．R に X を足すのは本体の R を求めるとき．
-            // Async は操作を持たず，供給するのはランタイムだけ（8.7）．
+            // `use X` is X's capability value (spec 8.2). X is added to R when the body's R is
+            // computed. Async has no operations; only the runtime provides it (spec 8.7).
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
@@ -824,7 +847,8 @@ impl<'a> BodyInfer<'a> {
                 });
                 Ty::Error
             }
-            // 型引数のあるエフェクトは型引数まで書く（`use State[Int]`，8.1）．省けば E0423．
+            // Effects with type parameters need their type arguments (`use State[Int]`, spec 8.1);
+            // omitting them is E0423.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 args,
@@ -859,8 +883,8 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// ハンドラの値の構成子は，そのハンドラの init の中でだけ使える（E0418，8.4）．外で作れると
-    /// init と release を飛ばせるため．
+    /// A handler value's constructor can only be used inside that handler's init (E0418, spec
+    /// 8.4), since constructing it elsewhere would skip init and release.
     fn check_handler_ctor(&mut self, def: DefId, span: Span) {
         let program = self.program;
         let Some(Item::Ctor(ctor)) = program.item(def) else {
@@ -877,8 +901,9 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// `use` を省略した `@external` の fn と `@external suspend fn` は，ハンドラの操作の本体の中で
-    /// しか使えない（12.2）．呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．
+    /// An `@external` fn with `use` omitted and an `@external suspend fn` can only be used inside
+    /// handler operation bodies (spec 12.2). Checked on every reference, not only calls, so they
+    /// cannot be smuggled out as function values.
     fn check_external(&mut self, def: DefId, span: Span) {
         let Some(Item::Fn(item)) = self.program.item(def) else {
             return;
@@ -897,8 +922,8 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// ブロックの型．最後が束縛か空なら `()`．
-    /// 期待する型があれば最後の式に渡し，ブロックの型はその型にする．
+    /// `()` if the block ends with a binding or is empty. With an expected type, it is passed to
+    /// the last expression and becomes the block's type.
     fn infer_block(&mut self, block: &Block, span: Span, expected: Option<&Ty>) -> Ty {
         for stmt in &block.stmts {
             match stmt {
@@ -932,8 +957,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 関数の値の参照の型．E と R に新しい集合変数を足す．E（R）が小さい関数は，それより
-    /// 大きい関数として使ってよいので（分岐の合流やリストの要素で E の違う関数を並べられるように）．
+    /// The type of a reference to a function value, with fresh set variables added to E and R. A
+    /// function with a smaller E (R) may be used as one with a larger E (R), so functions with
+    /// different E can be combined in merged branches or list elements.
     fn open_fails(&mut self, ty: Ty) -> Ty {
         match self.ctx.shallow_resolve(&ty) {
             Ty::Fn(f) => {
@@ -947,7 +973,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 値が `()` の式の型．期待する型があれば `()` をその位置に置く．
+    /// With an expected type, `()` is placed at it.
     fn unit_at(&mut self, span: Span, expected: Option<&Ty>) -> Ty {
         if let Some(expected) = expected {
             self.coerce_at(span, expected, &Ty::UNIT);
@@ -955,17 +981,18 @@ impl<'a> BodyInfer<'a> {
         Ty::UNIT
     }
 
-    /// 定義の参照の型．宣言の型の型引数を新しい型変数に置き換える．
+    /// Replaces the declared type's type parameters with fresh type variables.
     ///
-    /// 同じまとまりの中の，宣言の型のない定義は単相の型をそのまま使う（具体化しない）．
+    /// Definitions in the same group without a declared type use their monomorphic type as is
+    /// (not instantiated).
     fn infer_def_ref(&mut self, def: DefId, span: Span) -> Ty {
         self.instantiate_def(def, span).0
     }
 
-    /// [`Self::infer_def_ref`] と同じく型を付け，型引数に置いた型も返す．
-    /// 書いた型引数を持たない参照（単相の参照を含む）は空．
-    /// 定義の参照の型と，具体化した型引数と集合（どちらも宣言の型引数の順．集合の型引数でない位置の
-    /// 集合は空）．同じ定義の中の自分自身の参照は具体化しない（どちらも空）．
+    /// Types like [`Self::infer_def_ref`], also returning the instantiated type arguments and sets
+    /// (both in the declaration's type parameter order; sets are empty at positions that are not
+    /// set parameters). References without written type parameters (including monomorphic ones)
+    /// and a definition's references to itself are not instantiated (both empty).
     fn instantiate_def(&mut self, def: DefId, span: Span) -> (Ty, Vec<Ty>, Vec<Row>) {
         let sigs = self.sigs;
         if let Some(sig) = sigs.get(def) {
@@ -977,10 +1004,11 @@ impl<'a> BodyInfer<'a> {
             if self.current == Some(def) || params.is_empty() {
                 return (ty, Vec::new(), Vec::new());
             }
-            // 書いた型引数（`Ty::Bound(i)`）と見えない集合の型引数はその定義の中でだけ意味を
-            // 持つので，他の定義から参照するときは新しい型変数と集合変数に置き換える．まだ
-            // 決まっていない部分（戻り値の型など）は，後でその定義の型引数に決まることがあるので，
-            // ここでは新しい型変数にしておき，まとまりを推論し終えてから照合する．
+            // Written type parameters (`Ty::Bound(i)`) and invisible set type parameters only mean
+            // something inside their definition, so references from other definitions replace
+            // them with fresh type and set variables. Undetermined parts (such as the return type)
+            // may later turn out to be that definition's type parameters, so they get fresh type
+            // variables here and are checked once the group is inferred.
             let ty = self.ctx.resolve(&ty);
             let (args, rows) = self.ctx.fresh_args(&params);
             self.require_immediate(def, &params, &rows, span);
@@ -995,7 +1023,7 @@ impl<'a> BodyInfer<'a> {
             });
             return (instance, args, rows);
         }
-        // 型を付けない種類の定義（trait の関数，effect の操作など．alpha.2 以降）．
+        // Kinds of definitions not typed yet (trait functions, effect operations, ...).
         self.diags.push(Diagnostic {
             span: Some(span),
             kind: DiagnosticKind::Unsupported {
@@ -1005,8 +1033,8 @@ impl<'a> BodyInfer<'a> {
         (Ty::Error, Vec::new(), Vec::new())
     }
 
-    /// 呼び出しの型．引数を仮引数の位置に並べ直してから，型を照合する（6.2）．
-    /// `expr` は並べ直した引数を記録する式（呼び出しの式か，パイプの式）．
+    /// Reorders the arguments by parameter position, then checks types (spec 6.2). `expr` is
+    /// where the reordered arguments are recorded (the call or the pipe expression).
     fn infer_call(&mut self, expr: ExprId, callee: ExprId, args: &[Arg], span: Span) -> Ty {
         let program = self.program;
         let sigs = self.sigs;
@@ -1019,7 +1047,8 @@ impl<'a> BodyInfer<'a> {
             _ => (None, None),
         };
         let callee_ty = self.infer_expr(callee);
-        // 能力の値の操作（`log.info(...)`）は，操作の宣言の引数の名前をラベルにする．
+        // Capability operations (`log.info(...)`) use the declared operation's parameter names as
+        // labels.
         let (callee_name, labels) = match (callee_name, self.ops.get(callee)) {
             (None, Some(&op)) => (
                 Some(&program.defs[op].name),
@@ -1085,8 +1114,8 @@ impl<'a> BodyInfer<'a> {
         f.ret
     }
 
-    /// if の型．else がなければ本体は `()` か `Never` で，全体は `()`（6.4）．
-    /// 期待する型があり else もあれば，両方の分岐に期待する型を渡す．
+    /// Without else, the body is `()` or `Never` and the whole is `()` (spec 6.4). With an
+    /// expected type and an else, both branches get the expected type.
     fn infer_if(
         &mut self,
         cond: ExprId,
@@ -1116,7 +1145,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 二項演算子の型（6.6）．パイプは呼び出しに読み替える（6.7）．
+    /// Binary operators (spec 6.6). Pipes are read as calls (spec 6.7).
     fn infer_binary(
         &mut self,
         expr: ExprId,
@@ -1126,14 +1155,15 @@ impl<'a> BodyInfer<'a> {
         span: Span,
     ) -> Ty {
         match op {
-            // 算術: 両辺は同じ数の型．
+            // Arithmetic: both sides have the same numeric type.
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 let ty = self.infer_expr(lhs);
                 self.check_expr(rhs, &ty);
                 self.require_numeric(&ty, span);
                 ty
             }
-            // 比較: 両辺は同じ型．Eq と Ord の検査は Trait の段で行う．
+            // Comparison: both sides have the same type. Eq and Ord are checked in the trait
+            // stage.
             BinaryOp::Eq
             | BinaryOp::Ne
             | BinaryOp::Lt
@@ -1144,7 +1174,7 @@ impl<'a> BodyInfer<'a> {
                 self.check_expr(rhs, &ty);
                 Ty::BOOL
             }
-            // 論理: 両辺は Bool．
+            // Logical: both sides are Bool.
             BinaryOp::And | BinaryOp::Or => {
                 self.check_expr(lhs, &Ty::BOOL);
                 self.check_expr(rhs, &Ty::BOOL);
@@ -1154,9 +1184,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// `x |> f(a)` は `f(x, a)`，`x |> f` は `f(x)` として推論する（6.7）．
-    /// 並べ直した引数（左辺を含む）はパイプの式 `expr` に記録する．呼ばれる側は，右辺が
-    /// 呼び出しならその呼ばれる側，そうでなければ右辺そのもの．
+    /// Infers `x |> f(a)` as `f(x, a)` and `x |> f` as `f(x)` (spec 6.7). The reordered arguments
+    /// (including the left side) are recorded on the pipe expression `expr`. The callee is the
+    /// right side's callee if it is a call, otherwise the right side itself.
     fn infer_pipe(&mut self, expr: ExprId, lhs: ExprId, rhs: ExprId, span: Span) -> Ty {
         let program = self.program;
         let piped = Arg {
@@ -1171,17 +1201,18 @@ impl<'a> BodyInfer<'a> {
             }
             _ => self.infer_call(expr, rhs, &[piped], span),
         };
-        // 右辺の呼び出しの式にも，読み替えた呼び出しの型を記録しておく．
+        // Also record the rewritten call's type on the right side's call expression.
         if matches!(program.exprs[rhs].kind, ExprKind::Call { .. }) {
             self.exprs.insert(rhs, ty.clone());
         }
         ty
     }
 
-    /// ラムダの型．期待する型が同じ数の引数の関数型なら，その引数の型をラムダの引数に先に渡す．
-    /// 本体の E と R は外へ出さず，関数型の E と R（新しい集合変数）に閉じ込める（9.4）．本体の
-    /// E と R をその集合変数に含める制約は，本体の E と R を求めるときに足す
-    /// （`body/errors.rs`，`body/effects.rs`）．
+    /// If the expected type is a function type with the same number of parameters, its parameter
+    /// types are passed to the lambda's parameters first. The body's E and R do not escape; they
+    /// are enclosed in the function type's E and R (fresh set variables) (spec 9.4). The
+    /// constraints putting the body's E and R into those set variables are added when the body's
+    /// E and R are computed (`body/errors.rs`, `body/effects.rs`).
     fn infer_lambda(
         &mut self,
         expr: ExprId,
@@ -1231,22 +1262,23 @@ impl<'a> BodyInfer<'a> {
             def: self.current,
         };
         match (expected, &expected_fn) {
-            // 期待する型の E と R に，ラムダの E と R が含まれる．
+            // The lambda's E and R are contained in the expected type's E and R.
             (_, Some(f)) => {
                 self.ctx
                     .add_subset(Row::var(row), f.fails.clone(), origin.clone());
                 self.ctx
                     .add_subset_of(SetKind::Effects, Row::var(uses), f.uses.clone(), origin);
             }
-            // 期待する型が関数型でなかった（か引数の数が違った）ときは，ここで照合して誤りを出す．
+            // If the expected type was not a function type (or had a different parameter count),
+            // check here to report the error.
             (Some(expected), None) => self.coerce_at(span, expected, &ty),
             (None, None) => {}
         }
         ty
     }
 
-    /// リストの型．要素は全部同じ型で，`..rest` はその型のリスト（2.4，17.5）．
-    /// 期待する型がリストなら，その要素の型を各要素に先に渡す．
+    /// All elements have the same type, and `..rest` is a list of that type (spec 2.4, 17.5). If
+    /// the expected type is a list, its element type is passed to each element first.
     fn infer_list(
         &mut self,
         elems: &[ExprId],
@@ -1275,8 +1307,8 @@ impl<'a> BodyInfer<'a> {
         ty
     }
 
-    /// フィールドの参照 `x.name` の型．対象の型（type か error）の宣言からフィールドの型を引く．
-    /// 対象の型はこの時点でわかっている必要がある（名前からの逆算はしない）．
+    /// The type of field access `x.name`, looked up in the declaration of the base type (type or
+    /// error). The base type must be known by now; it is not inferred backwards from the name.
     fn infer_field(&mut self, expr: ExprId, base: ExprId, name: &Label) -> Ty {
         let base_ty = self.infer_expr(base);
         let base_ty = self.ctx.shallow_resolve(&base_ty);
@@ -1346,8 +1378,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 能力の値の操作 `log.info` の型（8.2）．操作の宣言の型に，R としてそのエフェクトを足す．
-    /// エフェクトの型引数は能力の値の型引数で置き換える（`use State[Int]` の `get` は `fn() -> Int`，8.1）．
+    /// The type of a capability operation `log.info` (spec 8.2): the declared operation type with
+    /// the effect added to R. Effect type parameters are replaced with the capability value's
+    /// type arguments (`get` of `use State[Int]` is `fn() -> Int`, spec 8.1).
     fn infer_op(&mut self, expr: ExprId, tag: &Tag, name: &Label) -> Ty {
         let program = self.program;
         let effect = tag.def;
@@ -1379,8 +1412,8 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 型の定義 `type_def` を型引数 `args` で適用した型の，フィールド `field` の型．
-    /// フィールドは構成子の宣言の型（ラベルと引数の型）から引く．
+    /// The type of field `field` of type definition `type_def` applied to `args`. Fields come from
+    /// the constructor's declared type (labels and parameter types).
     fn field_ty(&mut self, type_def: DefId, args: &[Ty], field: &SmolStr) -> FieldTy {
         let program = self.program;
         let ctor = match program.item(type_def) {
@@ -1388,9 +1421,9 @@ impl<'a> BodyInfer<'a> {
                 Some(ctor) => ctor,
                 None => return FieldTy::NotARecord,
             },
-            // error は自分自身が構成子．
+            // An error is its own constructor.
             Some(Item::Error(_)) => type_def,
-            // ハンドラの値のフィールド（`self.conn`，8.4）．
+            // A handler value's fields (`self.conn`, spec 8.4).
             Some(Item::Handler(item)) => match item.ctor {
                 Some(ctor) => ctor,
                 None => return FieldTy::NoSuchField,
@@ -1401,7 +1434,7 @@ impl<'a> BodyInfer<'a> {
             return FieldTy::NotARecord;
         };
         let Ty::Fn(f) = &sig.scheme.ty else {
-            // フィールドのない type と error．
+            // A type or error without fields.
             return FieldTy::NoSuchField;
         };
         match sig.labels.iter().position(|l| l.as_ref() == Some(field)) {
@@ -1410,7 +1443,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// フィールドの誤りの診断をフィールド名の位置に積み，`Ty::Error` を返す．
+    /// Pushes a field diagnostic at the field name and returns `Ty::Error`.
     fn field_error(&mut self, name: &Label, kind: DiagnosticKind) -> Ty {
         self.diags.push(Diagnostic {
             span: Some(name.span),
@@ -1419,20 +1452,21 @@ impl<'a> BodyInfer<'a> {
         Ty::Error
     }
 
-    /// 部分更新 `C(f: e, ..base)` の型（5.3）．
+    /// The type of an update `C(f: e, ..base)` (spec 5.3).
     ///
-    /// 構成子の型を2回具体化する．1つ目が作る値の型，2つ目が `base` の型で，型引数は違ってよい．
-    /// 書いたフィールドは1つ目の型で検査し，書いていないフィールドは `base` から引き継ぐので，
-    /// 2つの型のそのフィールドの型を単一化する．
+    /// The constructor's type is instantiated twice: once for the value being built and once for
+    /// `base`, and the type arguments may differ. Written fields are checked against the first;
+    /// unwritten fields are carried over from `base`, so their types in the two instances are
+    /// unified.
     ///
-    /// 並べ直した引数は，書いたフィールドだけが `Some` で，書いていないフィールドは `None`
-    /// （`base` から引き継ぐ）．
+    /// In the reordered arguments, only written fields are `Some`; unwritten ones are `None`
+    /// (carried over from `base`).
     fn infer_update(&mut self, expr: ExprId, ctor: ExprId, fields: &[Arg], base: ExprId) -> Ty {
         let program = self.program;
         let sigs = self.sigs;
         let ctor_ty = self.infer_expr(ctor);
         let ExprKind::Path(Res::Def(ctor_def)) = program.exprs[ctor].kind else {
-            // 構成子でないものは名前解決が誤りを出している．
+            // Name resolution has reported non-constructors.
             for field in fields {
                 self.infer_expr(field.value);
             }
@@ -1440,7 +1474,7 @@ impl<'a> BodyInfer<'a> {
             return Ty::Error;
         };
         let Ty::Fn(made) = self.ctx.shallow_resolve(&ctor_ty) else {
-            // フィールドのない構成子（か宣言の型のないもの）．
+            // A constructor without fields (or without a declared type).
             self.check_expr(base, &ctor_ty);
             for field in fields {
                 self.infer_expr(field.value);
@@ -1460,7 +1494,7 @@ impl<'a> BodyInfer<'a> {
         let mut slots: Vec<Option<ExprId>> = vec![None; made.params.len()];
         for field in fields {
             let Some(label) = &field.label else {
-                // 位置で書いたフィールドは名前解決が誤りを出している．
+                // Name resolution has reported fields written by position.
                 self.infer_expr(field.value);
                 continue;
             };
@@ -1497,7 +1531,7 @@ impl<'a> BodyInfer<'a> {
             }
         }
 
-        // 書いていないフィールドは base から引き継ぐ．
+        // Unwritten fields are carried over from base.
         let base_span = program.exprs[base].span;
         for (i, was_written) in written.iter().enumerate() {
             if !was_written {
@@ -1509,7 +1543,7 @@ impl<'a> BodyInfer<'a> {
         made.ret
     }
 
-    /// 単項演算子の型．`!` は Bool，`-` は数の型（6.6）．
+    /// `!` takes Bool, `-` a numeric type (spec 6.6).
     fn infer_unary(&mut self, op: UnaryOp, operand: ExprId, span: Span) -> Ty {
         match op {
             UnaryOp::Not => {
@@ -1524,9 +1558,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// match の型．各腕のパターンに対象の型を渡し，腕の本体の型を合わせる．
-    /// 全体の型は `Never` から始めて腕ごとに `join` する．腕のない match は `Never`．
-    /// 期待する型があれば，各腕の本体に渡す．
+    /// Each arm's pattern gets the scrutinee type and the arm bodies' types are joined, starting
+    /// from `Never`; a match without arms is `Never`. With an expected type, it is passed to each
+    /// arm body.
     fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm], expected: Option<&Ty>) -> Ty {
         let scrutinee_ty = self.infer_expr(scrutinee);
         self.coverage.push(CoverageSite::Match {
@@ -1560,9 +1594,10 @@ impl<'a> BodyInfer<'a> {
         result
     }
 
-    /// escape の型（7.3）．腕のパターンはエラーの構成子で，その型の値に合わせる．
-    /// 腕の結果は元の式と同じ型か Never で，全体は元の式の型．受けるタグと E は本体の E を
-    /// 求めるときに扱う（`body/errors.rs`）．腕が網羅していなくてよい．
+    /// The type of `escape` (spec 7.3). Arm patterns are error constructors matched against values
+    /// of that type. Arm results have the inner expression's type or Never, and the whole has the
+    /// inner expression's type. Caught tags and E are handled when the body's E is computed
+    /// (`body/errors.rs`). Arms need not be exhaustive.
     fn infer_escape(&mut self, inner: ExprId, arms: &[Arm]) -> Ty {
         let program = self.program;
         let inner_ty = self.infer_expr(inner);
@@ -1581,7 +1616,7 @@ impl<'a> BodyInfer<'a> {
                         None => groups.push((*def, ty, vec![arm.clone()])),
                     }
                 }
-                // エラーでない構成子は名前解決が誤りを出している．
+                // Name resolution has reported non-error constructors.
                 PatKind::Ctor { .. } | PatKind::Missing => self.bind_pat(arm.pat, &Ty::Error),
                 _ => {
                     self.diags.push(Diagnostic {
@@ -1604,11 +1639,11 @@ impl<'a> BodyInfer<'a> {
         result
     }
 
-    /// 式を推論し，期待する型の位置に置く．
+    /// Infers the expression and places it at the expected type.
     ///
-    /// ブロック，if，match，with は期待する型を最後の式や各分岐まで渡すので，型が合わないときは
-    /// 一番内側の食い違った式を指す．ラムダとリストは期待する型を引数や要素に先に渡す．
-    /// それ以外の式は推論してから照合する．
+    /// Blocks, if, match and with pass the expected type down to their last expression or each
+    /// branch, so a mismatch points at the innermost differing expression. Lambdas and lists pass
+    /// it to their parameters or elements first. Other expressions are inferred, then checked.
     fn check_expr(&mut self, expr: ExprId, expected: &Ty) {
         let program = self.program;
         let e = &program.exprs[expr];
@@ -1629,9 +1664,10 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 本体の中の型注釈を Ty にする．
+    /// Converts a type annotation inside a body.
     ///
-    /// 束縛の型注釈とラムダの引数の型の関数型の `fails` を省略すれば，本体から推論する（9.2）．
+    /// An omitted `fails` on function types in binding annotations and lambda parameter types is
+    /// inferred from the body (spec 9.2).
     fn lower_type(&mut self, ty: TypeId) -> Ty {
         let mut scope = Scope {
             params: &self.type_params,
@@ -1643,7 +1679,7 @@ impl<'a> BodyInfer<'a> {
             .lower_in(self.program, &mut scope, ty, true, &mut self.diags)
     }
 
-    /// パターンに型を付け，束縛する変数の型を覚える．
+    /// Also records the types of the variables the pattern binds.
     fn bind_pat(&mut self, pat: PatId, ty: &Ty) {
         self.pats.insert(pat, ty.clone());
 
@@ -1697,8 +1733,9 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// 構成子のパターン．構成子の型を具体化し，作る型を `ty` と照合して，フィールドに型を渡す．
-    /// フィールドは呼び出しと同じく並べ直す．`..` なしでフィールドを省けば E0308（6.5）．
+    /// Constructor patterns: instantiates the constructor's type, checks the constructed type
+    /// against `ty`, and passes types to the fields. Fields are reordered like call arguments;
+    /// omitting fields without `..` is E0308 (spec 6.5).
     fn bind_ctor_pat(
         &mut self,
         pat: PatId,
@@ -1739,7 +1776,7 @@ impl<'a> BodyInfer<'a> {
                     },
                 });
             } else if assigned.has_missing() && !rest {
-                // 埋まっていない名前付きフィールドを全部集める．位置だけのフィールドは名前がない．
+                // Collect every unfilled named field; positional fields have no name.
                 let missing_fields: Vec<SmolStr> = assigned
                     .slots
                     .iter()
@@ -1783,11 +1820,13 @@ impl<'a> BodyInfer<'a> {
         self.coerce_at(span, ty, &made_ty);
     }
 
-    /// 引数を仮引数の位置に並べ直す．位置引数は前から，名前付き引数はラベルで置く．
-    /// 呼び出しの引数（`ExprId`）と構成子のパターンの引数（`PatId`）の両方に使う．
+    /// Reorders arguments by parameter position: positional arguments from the front, named
+    /// arguments by label. Used both for call arguments (`ExprId`) and constructor pattern
+    /// arguments (`PatId`).
     ///
-    /// `labels` は呼ばれる側の仮引数のラベル．名前で指していない値（局所変数，ラムダ）なら `None`．
-    /// ラベルの誤りはここで診断を積む．数の誤りは，呼び出しとパターンで規則が違うので呼ぶ側で出す．
+    /// `labels` are the callee's parameter labels, or `None` for a value not referred to by name
+    /// (a local variable, a lambda). Label errors are reported here; count errors are reported by
+    /// the caller, since calls and patterns have different rules.
     fn assign_args<'l, T: Copy>(
         &mut self,
         callee_name: Option<&SmolStr>,
@@ -1833,7 +1872,8 @@ impl<'a> BodyInfer<'a> {
         assigned
     }
 
-    /// 2つの分岐の共通の型．合わなければ `span` の位置で診断を積み，`a` を全体の型にする．
+    /// The common type of two branches. On mismatch, pushes a diagnostic at `span` and takes `a`
+    /// as the overall type.
     fn join_at(&mut self, span: Span, a: &Ty, b: &Ty) -> Ty {
         self.ctx.set_origin(Some(span), self.current);
         let result = self.ctx.join(a, b);
@@ -1850,7 +1890,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// リテラルの型．整数は Int か Int64 の型変数で，どちらかは文脈で決まる（2.4）．
+    /// Integers get an Int-or-Int64 type variable, decided by context (spec 2.4).
     fn lit_ty(&mut self, lit: &Literal, span: Span) -> Ty {
         match lit {
             Literal::Int(text) => {
@@ -1868,8 +1908,8 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// `ty` が Int，Int64，Float のどれかであることを求める（算術演算子，単項マイナス）．
-    /// 確かめるのは本体を推論し終えたとき．
+    /// Requires `ty` to be Int, Int64 or Float (arithmetic operators, unary minus). Checked once
+    /// the body is inferred.
     fn require_numeric(&mut self, ty: &Ty, span: Span) {
         self.numbers.push(NumConstraint {
             ty: ty.clone(),
@@ -1879,13 +1919,13 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// 数の型の制約を確かめる．まだ決まっていない型変数は Int にする（2.4）．
-    /// 整数リテラルは，決まった型の範囲に収まるかも確かめる．
+    /// Checks numeric type constraints. Undetermined type variables become Int (spec 2.4). Integer
+    /// literals are also checked to fit the decided type.
     fn check_numbers(&mut self) {
         for c in std::mem::take(&mut self.numbers) {
             let ty = match self.ctx.shallow_resolve(&c.ty) {
                 Ty::Var(_) => {
-                    // 何にも決まらなかった数は Int．単一化は必ず成功する．
+                    // A number constrained to nothing is Int; unification always succeeds.
                     let _ = self.ctx.unify(&Ty::INT, &c.ty);
                     Ty::INT
                 }
@@ -1919,7 +1959,7 @@ impl<'a> BodyInfer<'a> {
     }
 }
 
-/// 表の型をすべて，単一化の束縛を辿った形にする．
+/// Follows unification bindings for every type in the table.
 fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Idx<T>, Ty> {
     let mut out = ArenaMap::default();
     for (id, ty) in map.iter() {
@@ -1928,26 +1968,25 @@ fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Id
     out
 }
 
-/// 引数を仮引数の位置に並べ直した結果（[`BodyInfer::assign_args`]）．
+/// The result of reordering arguments by parameter position ([`BodyInfer::assign_args`]).
 struct Assigned<T> {
-    /// 位置ごとの引数．埋まらなければ `None`．
+    /// Arguments per position; `None` if unfilled.
     slots: Vec<Option<T>>,
-    /// どこにも置けなかった引数．照合はせず，型を記録するためだけに推論する．
+    /// Arguments that could not be placed. Inferred only to record their types, not checked.
     extra: Vec<T>,
-    /// ラベルの誤りの診断を出したか．出していれば数の誤りは重ねない．
+    /// Whether a label error was reported; if so, count errors are not reported on top.
     reported: bool,
-    /// 位置引数が仮引数より多かったか．
+    /// Whether there were more positional arguments than parameters.
     too_many: bool,
 }
 
 impl<T> Assigned<T> {
-    /// 埋まっていない位置があるか．
     fn has_missing(&self) -> bool {
         self.slots.iter().any(Option::is_none)
     }
 }
 
-/// 名前付き引数を置く位置．置けなければ，その理由の診断の中身．
+/// The position for a named argument, or the diagnostic explaining why it cannot be placed.
 fn label_slot<T>(
     callee_name: Option<&SmolStr>,
     labels: Option<&[Option<SmolStr>]>,
@@ -1975,26 +2014,26 @@ fn label_slot<T>(
     Ok(i)
 }
 
-/// 数の型の制約．
 struct NumConstraint {
     ty: Ty,
-    /// 診断の位置．リテラルか演算子の式．
+    /// The diagnostic span: the literal or the operator expression.
     span: Span,
     kind: NumKind,
-    /// 整数リテラルなら，その数字の列（`_` を除いたもの．`0x`，`0b` の接頭辞は残る）．
+    /// For integer literals, the digits (without `_`; a `0x` or `0b` prefix is kept).
     literal: Option<SmolStr>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NumKind {
-    /// Int か Int64．整数リテラル．
+    /// Int or Int64, for integer literals.
     Integer,
-    /// Int，Int64，Float．算術演算子と単項マイナス．
+    /// Int, Int64 or Float, for arithmetic operators and unary minus.
     Numeric,
 }
 
-/// 整数リテラルが型の範囲に収まるか．負の数は単項マイナスの式なので，ここでは正の数だけを見る．
-/// 2の補数として読み替えない（`0xFFFF_FFFF` は Int に収まらない，2.4）．
+/// Whether an integer literal fits the type. Negative numbers are unary minus expressions, so
+/// only positive values are checked here. Not reinterpreted as two's complement (`0xFFFF_FFFF`
+/// does not fit Int, spec 2.4).
 fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
     let max = match ty {
         Ty::Prim(Prim::Int) => i32::MAX as u128,
@@ -2011,53 +2050,55 @@ fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
     u128::from_str_radix(digits, radix).is_ok_and(|n| n <= max)
 }
 
-/// フィールドの型を引いた結果．
 enum FieldTy {
-    /// フィールドの添字と型．
+    /// The field index and type.
     Found(usize, Ty),
-    /// 型はフィールドを持つが，その名前のフィールドがない．
+    /// The type has fields, but none with that name.
     NoSuchField,
-    /// フィールドを持たない型（enum，フィールドのない `@external` の type）．
+    /// A type without fields (an enum, or an `@external` type without fields).
     NotARecord,
 }
 
-/// まとまりの中の，書いた型引数のある宣言の型のない定義への参照．
-/// `Immediate` を求める効果の集合（9.5）．集合を解いた後に確かめる（`body/suspend.rs`）．
+/// An effect set required to be `Immediate` (spec 9.5), checked after sets are solved
+/// (`body/suspend.rs`).
 struct ImmediateObligation {
-    /// 具体化した集合．
+    /// The instantiated set.
     row: Row,
-    /// 参照の位置．
+    /// The span of the reference.
     span: Span,
-    /// 参照した定義（`row` の中の `RowElem::Bound` はこの定義の型引数）．
+    /// The referenced definition (`RowElem::Bound` in `row` refers to its type parameters).
     owner: Option<DefId>,
     source: crate::diagnostic::ImmediateSource,
 }
 
+/// A reference within the group to a definition without a declared type but with written type
+/// parameters.
 struct DeferredRef {
     def: DefId,
-    /// 型引数に置いた型変数．
+    /// Type variables placed for the type parameters.
     args: Vec<Ty>,
-    /// 集合の型引数に置いた集合変数．
+    /// Set variables placed for the set type parameters.
     rows: Vec<Row>,
-    /// 参照の式に付けた型．
+    /// The type given to the reference expression.
     instance: Ty,
     span: Span,
 }
 
-/// 網羅性を確かめる場所．
+/// Places where coverage is checked.
 enum CoverageSite {
     Match {
         scrutinee: ExprId,
         ty: Ty,
         arms: Vec<Arm>,
     },
-    /// 束縛 `pat = value`．パターンは必ず成功しなければならない（6.3）．
+    /// A binding `pat = value`, whose pattern must always succeed (spec 6.3).
     Binding { pat: PatId, ty: Ty },
-    /// escape の腕．受けるエラーの型ごとに分け，冗長な腕だけを確かめる（網羅は求めない）．
+    /// `escape` arms. Grouped by the caught error type; only redundant arms are checked
+    /// (exhaustiveness is not required).
     Escape { groups: Vec<(Ty, Vec<Arm>)> },
 }
 
-/// 足りない値の例を文字列にする．
+/// Turns missing-value examples into strings.
 fn witnesses(missing: &[Witness]) -> Vec<SmolStr> {
     missing
         .iter()

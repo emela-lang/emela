@@ -1,21 +1,27 @@
-//! 効果の集合 R の推論（8章，9.4）．
+//! Inference of effect sets R (spec chapter 8, 9.4).
 //!
-//! E と同じく，式の型を推論し終えてから HIR をもう一度辿って各式の R を求める．制約は E と同じ
-//! 表に溜め，`body/errors.rs` で一緒に解く．
+//! As with E, after expression types are inferred the HIR is walked again to compute each
+//! expression's R. Constraints go into the same table as E and are solved together in
+//! `body/errors.rs`.
 //!
-//! - `use X` の R は `{X}`．分岐の中に書いても，部分式の R は親の式に合流するので関数全体の R に載る（8.2）．
-//! - 呼び出しの R は，呼ばれる側の関数型の R を足す．能力の値の操作の型の R はそのエフェクト．
-//! - `with H1, ..., Hn { e }` の R は，`e` の R から供給したエフェクトを消し，各ハンドラの依存を
-//!   足したもの（9.4）．layer は中のハンドラに展開する（8.5，`crate::layer`）．ハンドラの依存のうち，同じ with の別のエフェクトを供給するハンドラが
-//!   満たすものは足さない（14.2）．集合変数からは，消すエフェクトを除いた解を持つ新しい集合変数に
-//!   置き換えて消す．集合の型引数（中身の分からない集合）からは消さない．
-//! - 無名関数は本体の R を関数型に閉じ込める．
-//! - 本体の R は宣言の R に含まれる．`use` 節を書いていなければ宣言の R は集合変数で，本体の R が
-//!   そのまま解になる（9.3）．main とテスト関数の本体の R は，Async を除いて空でなければならない
-//!   （8.3，13.3）．
-//! - handler の依存は init，release，操作の本体の R の和（集合変数）．resume を後から呼びうる suspend fn の実装は，
-//!   Async も依存に足す（8.7，`body/suspend.rs`）．
-//! - main とテスト関数の本体の R は Async だけを含んでよい（Async はランタイムが供給する）．
+//! - The R of `use X` is `{X}`. Even inside a branch it lands in the whole function's R, since
+//!   sub-expressions' R flows into the parent (spec 8.2).
+//! - A call adds the callee function type's R. A capability operation's type has that effect as
+//!   its R.
+//! - The R of `with H1, ..., Hn { e }` is `e`'s R minus the provided effects, plus each handler's
+//!   dependencies (spec 9.4). Layers expand into their handlers (spec 8.5, `crate::layer`). A
+//!   handler dependency met by a handler in the same `with` providing another effect is not
+//!   added (spec 14.2). Effects are removed from set variables by replacing them with fresh set
+//!   variables whose solutions exclude those effects; nothing is removed from set type
+//!   parameters (sets with unknown contents).
+//! - A lambda encloses its body's R in its function type.
+//! - A body's R is contained in the declared R. Without a `use` clause the declared R is a set
+//!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
+//!   test functions must have an empty R apart from Async (spec 8.3, 13.3), since the runtime
+//!   provides Async.
+//! - A handler's dependencies are the union of the R of init, release and the operation bodies
+//!   (a set variable). A suspend fn implementation that may call resume later also depends on
+//!   Async (spec 8.7, `body/suspend.rs`).
 
 use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Span};
 
@@ -26,7 +32,8 @@ use crate::row::{Row, RowElem, Tag};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {
-    /// 推論した定義の本体の R を求め，宣言の R に含まれる制約を足す．
+    /// Computes the R of inferred definition bodies and adds constraints that they are contained
+    /// in the declared R.
     pub(super) fn infer_effects(&mut self) {
         let program = self.program;
         for def in self.defs.clone() {
@@ -43,7 +50,7 @@ impl BodyInfer<'_> {
                     let row = self.expr_effects(body);
                     let closed = self.closed.contains_key(&def);
                     if closed {
-                        // Async はランタイムとテストランナーが供給する（8.3，13.3）．
+                        // The runtime and the test runner provide Async (spec 8.3, 13.3).
                         let allowed = program
                             .prelude_def("Async")
                             .map_or_else(Row::empty, Row::tag);
@@ -54,13 +61,14 @@ impl BodyInfer<'_> {
                             Origin::Closed(def),
                         );
                     }
-                    // main とテスト関数で `use` 節を書いていれば，空でないことだけを報告する．
+                    // When `main` or a test function has a `use` clause, only report that it is
+                    // not empty.
                     if !closed || item.sig.uses.is_none() {
                         self.ctx
                             .add_subset_of(SetKind::Effects, row, declared, Origin::Body(def));
                     }
                 }
-                // const の値は効果を持てない（5.6）．
+                // A const's value cannot have effects (spec 5.6).
                 Some(Item::Const(item)) => {
                     let row = self.expr_effects(item.value);
                     self.ctx
@@ -76,7 +84,8 @@ impl BodyInfer<'_> {
                         .collect();
                     for (index, body, resume_later) in bodies {
                         let mut row = self.expr_effects(body);
-                        // resume を後から呼びうる suspend fn の実装は Async を要求する（8.7）．
+                        // A suspend fn implementation that may call resume later requires Async
+                        // (spec 8.7).
                         if resume_later && let Some(async_) = program.prelude_def("Async") {
                             row.insert(RowElem::Tag(Tag::new(async_)));
                         }
@@ -90,8 +99,8 @@ impl BodyInfer<'_> {
                             },
                         );
                     }
-                    // init と release の本体の R も依存（9.4）．release の中で suspend な操作を
-                    // 呼んでよい（8.4）．
+                    // The R of init and release bodies are dependencies too (spec 9.4). release
+                    // may call suspend operations (spec 8.4).
                     let parts: Vec<ExprId> = self
                         .handler_parts
                         .iter()
@@ -113,21 +122,24 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// 式の R．部分式の R は親の式に合流する（9.4）．求めた R は式ごとに記録する．
+    /// Sub-expressions' R flows into the parent (spec 9.4). Records the computed R per
+    /// expression.
     fn expr_effects(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let row = match &program.exprs[expr].kind {
-            // `use Async` は誤り（E0414）．R には足さない．
+            // `use Async` is an error (E0414) and not added to R.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
             } if program.prelude_def("Async") == Some(*effect) => Row::empty(),
-            // 能力の値の型のタグ（型引数のあるエフェクトは `State[Int]`，8.1）．
+            // The capability value type's tag (`State[Int]` for effects with type arguments,
+            // spec 8.1).
             ExprKind::Use { .. } => match self.exprs.get(expr) {
                 Some(Ty::Cap(tag)) => Row::of_tag(tag.clone()),
                 _ => Row::empty(),
             },
-            // 本体の R はラムダの型の R に閉じ込める．表に出るのは呼んだとき（9.4）．
+            // The body's R is enclosed in the lambda type's R; it surfaces when the lambda is
+            // called (spec 9.4).
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_effects(*body);
                 if let Some(&(_, v)) = self.lambda_rows.get(expr) {
@@ -142,7 +154,8 @@ impl BodyInfer<'_> {
                 row.extend(&self.callee_uses(*callee));
                 row
             }
-            // `x |> f(a)` は `f(x, a)`．右辺が呼び出しなら，その呼び出しの式が呼ばれる側の R を足す．
+            // `x |> f(a)` is `f(x, a)`. If the right side is a call, that call expression adds
+            // the callee's R.
             ExprKind::Binary {
                 op: BinaryOp::Pipe,
                 rhs,
@@ -160,7 +173,6 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// 部分式の R の和．
     fn sub_effects(&mut self, expr: ExprId) -> Row {
         let mut row = Row::empty();
         for e in self.sub_exprs(expr) {
@@ -169,7 +181,6 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// 呼ばれる側の関数型の R．
     fn callee_uses(&mut self, callee: ExprId) -> Row {
         let ty = self.exprs.get(callee).cloned().unwrap_or(Ty::Error);
         match self.ctx.shallow_resolve(&ty) {
@@ -178,8 +189,8 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// `with H1, ..., Hn { body }` の R（8.3，8.5，9.4）．layer は展開し，同じエフェクトのハンドラは
-    /// 後ろを残す（`crate::layer::with_entries`）．
+    /// The R of `with H1, ..., Hn { body }` (spec 8.3, 8.5, 9.4). Layers are expanded, and for
+    /// handlers of the same effect the later one is kept (`crate::layer::with_entries`).
     fn with_effects(&mut self, expr: ExprId, handlers: &[(Res, Span)], body: ExprId) -> Row {
         let program = self.program;
         let body_row = self.expr_effects(body);
@@ -190,8 +201,9 @@ impl BodyInfer<'_> {
             .collect();
         let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
         let mut row = self.subtract(&body_row, &provided);
-        // ハンドラの依存は，同じ with で別のエフェクトを供給するハンドラが満たしてよい（14.2）．
-        // 自分と同じエフェクトは外側のハンドラが満たす．layer の中で満たされない依存も残る（8.5）．
+        // Handler dependencies may be met by handlers in the same `with` providing other effects
+        // (spec 14.2). The handler's own effect is met from outside. Dependencies a layer leaves
+        // unmet also remain (spec 8.5).
         for (entry, deps) in entries.iter().zip(&deps) {
             let others: Vec<Tag> = provided
                 .iter()
@@ -204,9 +216,10 @@ impl BodyInfer<'_> {
         row
     }
 
-    /// 集合 `row` から，タグ `tags` を消す．推論の集合変数は，消すタグを除いた解を持つ新しい
-    /// 集合変数に置き換える．集合の型引数からは消さない．型引数のあるエフェクトは型引数まで同じ
-    /// ものを消す（8.1）．型引数がまだ決まっていなければ単一化して消す（`InferCtx::same_tag`）．
+    /// Removes the tags `tags` from `row`. Inference set variables are replaced with fresh ones
+    /// whose solutions exclude those tags; nothing is removed from set type parameters. Effects
+    /// with type arguments are removed only with matching type arguments (spec 8.1); undetermined
+    /// type arguments are unified first (`InferCtx::same_tag`).
     fn subtract(&mut self, row: &Row, tags: &[Tag]) -> Row {
         let mut out = Row::empty();
         for e in self.ctx.resolve_row(row).elems() {
@@ -223,8 +236,9 @@ impl BodyInfer<'_> {
         out
     }
 
-    /// 同じ with に並べたハンドラの初期化の順を決める（14.2）．依存が循環すれば E0411．
-    /// 集合を解いた後に，依存の解で確かめる．layer の中だけの循環は layer の宣言で報告する．
+    /// Decides the initialization order of handlers listed in the same `with` (spec 14.2); a
+    /// dependency cycle is E0411. Checked with the solved dependencies after sets are solved.
+    /// Cycles only inside a layer are reported at the layer declaration.
     pub(super) fn check_handler_cycles(&mut self) {
         let program = self.program;
         for (expr, entries, deps) in std::mem::take(&mut self.withs) {

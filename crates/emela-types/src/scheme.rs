@@ -1,10 +1,10 @@
-//! 型スキーム `∀ A. T`．
+//! Type schemes `∀ A. T`.
 
 use crate::ty::{Ty, TyParam};
 
-/// 型スキーム．`ty` の中の `Ty::Bound(i)` が `params[i]` を指す．
+/// `Ty::Bound(i)` inside `ty` refers to `params[i]`.
 ///
-/// 汎化するのはトップレベルの関数だけで，ブロック内の束縛は単相のまま扱う．
+/// Only top-level functions are generalized; bindings inside blocks stay monomorphic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Scheme {
     pub params: Vec<TyParam>,
@@ -16,7 +16,6 @@ impl Scheme {
         Scheme { params, ty }
     }
 
-    /// 量化しないスキーム．
     pub fn mono(ty: Ty) -> Self {
         Scheme {
             params: Vec::new(),
@@ -29,7 +28,7 @@ impl Scheme {
     }
 }
 
-/// 汎化で付ける型引数の名前．`A` から `Z`，その後は `T26`，`T27`，…
+/// Names for generalized type parameters: `A` to `Z`, then `T26`, `T27`, ...
 pub(crate) fn param_name(i: usize) -> String {
     if i < 26 {
         char::from(b'A' + i as u8).to_string()
@@ -38,7 +37,7 @@ pub(crate) fn param_name(i: usize) -> String {
     }
 }
 
-/// 汎化で付ける集合の型引数の名前．`prefix` が `E` なら `E`，`E1`，`E2`，…
+/// Names for generalized set type parameters: with prefix `E`, `E`, `E1`, `E2`, ...
 pub(crate) fn set_param_name(prefix: &str, i: usize) -> String {
     if i == 0 {
         prefix.to_string()

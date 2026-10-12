@@ -1,7 +1,9 @@
-//! 網羅性の検査（[`crate::exhaustiveness`]）を型推論の結果につなぐ．
+//! Connects the exhaustiveness check ([`crate::exhaustiveness`]) to the results of type
+//! inference.
 //!
-//! HIR のパターンを検査用のパターンに変換し，型から構成子の形を引く表を実装する．
-//! 検査は，定義のまとまりの推論が終わって型が決まった後に行う（[`crate::body`]）．
+//! Converts HIR patterns into the checker's patterns and implements the table that looks up
+//! constructor shapes from types. The check runs after inference of a definition group has
+//! settled the types ([`crate::body`]).
 
 use emela_resolve::hir::{
     Arm, DefId, ExprKind, Item, Literal, PatId, PatKind, Program, Res, UnaryOp,
@@ -16,7 +18,7 @@ use crate::lower::TyTable;
 use crate::signature::Signatures;
 use crate::ty::{Prim, Ty};
 
-/// 型から構成子の形を引く表．型は単一化の束縛を辿った形で渡す．
+/// Types are passed with unification bindings followed.
 pub(crate) struct Shapes<'a> {
     pub(crate) program: &'a Program,
     pub(crate) ty_table: &'a TyTable,
@@ -57,7 +59,7 @@ impl CtorTable for Shapes<'_> {
 }
 
 impl Shapes<'_> {
-    /// 型 `ty` の値に当てる腕の並びを検査する（match と escape の腕）．
+    /// Checks the arms (of `match` or `escape`) applied to a value of type `ty`.
     pub(crate) fn check_arms(&self, ty: &Ty, arms: &[Arm]) -> MatchCheck {
         let arms: Vec<exhaustiveness::Arm> = arms
             .iter()
@@ -69,7 +71,7 @@ impl Shapes<'_> {
         check_match(self, ty, &arms)
     }
 
-    /// enum のバリアントを宣言の順に並べる．
+    /// In declaration order.
     fn variants(&self, enum_def: DefId, args: &[Ty]) -> Vec<VariantShape<Ty>> {
         match self.program.item(enum_def) {
             Some(Item::Enum(item)) => item
@@ -81,7 +83,7 @@ impl Shapes<'_> {
         }
     }
 
-    /// 構成子1つの形．フィールドの型は構成子の宣言の型から引き，型引数を代入する．
+    /// Field types come from the constructor's declared type, with type arguments substituted.
     fn variant(&self, ctor: DefId, args: &[Ty]) -> VariantShape<Ty> {
         let fields = match self.sigs.get(ctor).map(|sig| &sig.scheme.ty) {
             Some(Ty::Fn(f)) => f.params.iter().map(|p| substitute_bound(p, args)).collect(),
@@ -93,9 +95,8 @@ impl Shapes<'_> {
         }
     }
 
-    /// HIR のパターンを，型 `ty` の値に当てる検査用のパターンにする．
-    ///
-    /// 型に合わない部分（型検査が誤りを出している）は，検査が崩れないようワイルドカードにする．
+    /// Parts that do not fit the type (the type checker has reported them) become wildcards so
+    /// that the check does not break down.
     pub(crate) fn pat(&self, pat: PatId, ty: &Ty) -> Pat {
         let program = self.program;
         let shape = self.shape(ty);
@@ -141,7 +142,7 @@ impl Shapes<'_> {
                             labels.iter().position(|l| l.as_ref() == Some(&label.name))
                         }),
                     };
-                    // 置けなかったフィールドは型検査が誤りを出している．
+                    // Fields that could not be placed have been reported by the type checker.
                     if let Some(i) = position
                         && let Some(field_ty) = field_tys.get(i)
                     {
@@ -154,7 +155,7 @@ impl Shapes<'_> {
         }
     }
 
-    /// 型の定義（type，enum，error，Bool の enum）．
+    /// The type definition (type, enum, error, or the Bool enum).
     fn ty_def(&self, ty: &Ty) -> Option<DefId> {
         match ty {
             Ty::Named(id, _) => Some(self.ty_table.def(*id)),
@@ -163,11 +164,11 @@ impl Shapes<'_> {
         }
     }
 
-    /// 構成子が，型 `ty` の構成子の並びの何番目か．構成子が `ty` を作るものでなければ `None`．
+    /// `None` if `ctor` does not construct `ty`.
     fn variant_index(&self, ctor: DefId, ty: &Ty) -> Option<usize> {
         let ty_def = self.ty_def(ty)?;
         match self.program.item(ctor) {
-            // error は自分自身が構成子．
+            // An error is its own constructor.
             Some(Item::Error(_)) => (ctor == ty_def).then_some(0),
             Some(Item::Ctor(item)) if item.owner == ty_def => match self.program.item(ty_def) {
                 Some(Item::Enum(e)) => e.variants.iter().position(|&v| v == ctor),
@@ -177,8 +178,9 @@ impl Shapes<'_> {
         }
     }
 
-    /// const のパターンの値．値がリテラル（か負の数値リテラル）ならその値．
-    /// それ以外の式はコンパイル時の評価がまだないので，その const だけに合う値として扱う．
+    /// The value of a const pattern: the literal's value if it is a literal (or a negative
+    /// numeric literal). Other expressions cannot be evaluated at compile time yet, so they
+    /// become a value that matches only that const.
     fn const_value(&self, def: DefId) -> Lit {
         let program = self.program;
         if let Some(Item::Const(item)) = program.item(def) {
@@ -197,12 +199,13 @@ impl Shapes<'_> {
                 _ => {}
             }
         }
-        // 他のどのリテラルとも違う値．文字列の値には現れない文字で始める．
+        // A value distinct from every literal: it starts with a character that cannot occur in
+        // a string value.
         Lit::Str(SmolStr::new(format!("\u{0}const {}", def.into_raw())))
     }
 }
 
-/// リテラルの値．範囲外の整数（型検査が誤りを出している）は，他と重ならない値にする．
+/// Out-of-range integers (reported by the type checker) become values that overlap nothing.
 fn lit_value(lit: &Literal, negative: bool) -> Lit {
     match lit {
         Literal::Int(text) => {

@@ -1,9 +1,9 @@
-//! 効果の集合 R の推論（8章，9.2〜9.5），handler の検査，`@external` と能力の値の制約を
-//! スナップショットで確かめる．
+//! Snapshot tests for effect set inference (spec chapter 8, 9.2 to 9.5), handler checks, and the
+//! restrictions on `@external` and capability values.
 //!
-//! `render_effects` は `render_bodies` の出力（宣言の型と診断）に加え，`main.emel` の式のうち
-//! R が空でないものを，位置の順に `式: R` の形で出す．`main` という名前の fn は main として
-//! 検査する（R が空でなければならない，8.3）．
+//! `render_effects` prints, besides the `render_bodies` output (declared types and diagnostics),
+//! the expressions of `main.emel` with a non-empty R, in source order, as `expr: R`. A fn named
+//! `main` is checked as `main` (its R must be empty, spec 8.3).
 
 mod common;
 
@@ -18,7 +18,7 @@ fn render_effects(src: &str) -> String {
     render(src, false)
 }
 
-/// `render_effects` に，handler の init の E，with の初期化の順，layer の展開を足したもの．
+/// `render_effects` plus handler init E, `with` initialization orders, and layer expansions.
 fn render_handlers(src: &str) -> String {
     render(src, true)
 }
@@ -136,7 +136,8 @@ fn render(src: &str, handlers: bool) -> String {
     out
 }
 
-/// `use X` は X を R に載せる．分岐の中でも関数全体の R に載る（8.2）．呼び出しは呼ばれる側の R を引き継ぐ．
+/// `use X` puts X in R, even inside a branch, for the whole function's R (spec 8.2). Calls inherit
+/// the callee's R.
 #[test]
 fn use_adds_to_r() {
     insta::assert_snapshot!(render_effects(
@@ -165,8 +166,8 @@ fn both() {
     ));
 }
 
-/// with は供給したエフェクトを R から消し，ハンドラの依存を足す（8.3，9.4）．
-/// ハンドラの依存は，同じ with の別のエフェクトのハンドラが満たしてよい（14.2）．
+/// `with` removes the provided effects from R and adds the handlers' dependencies (spec 8.3, 9.4).
+/// Handler dependencies may be met by handlers for other effects in the same `with` (spec 14.2).
 #[test]
 fn with_provides_effects() {
     insta::assert_snapshot!(render_effects(
@@ -218,7 +219,7 @@ fn main() {
     ));
 }
 
-/// 同じ with のハンドラが互いの効果に依存すると循環になる（E0411）．
+/// Handlers in the same `with` depending on each other's effects form a cycle (E0411).
 #[test]
 fn handler_cycles() {
     insta::assert_snapshot!(render_effects(
@@ -246,8 +247,9 @@ fn f() {
     ));
 }
 
-/// 能力の値の操作の型はエフェクトの宣言から決まる．操作の fails は呼び出しの E に足す（8.1）．
-/// 名前付き引数は操作の引数の名前．ない操作は E0401．
+/// Capability operation types come from the effect declaration, and an operation's fails adds to
+/// the call's E (spec 8.1). Named arguments use the operation's parameter names. Unknown
+/// operations are E0401.
 #[test]
 fn operations() {
     insta::assert_snapshot!(render_effects(
@@ -272,8 +274,8 @@ fn wrong() {
     ));
 }
 
-/// `use` 節を書いたら，ちょうどその集合（9.3）．本体の R が多ければ E0402．
-/// 関数型の `use {}` は効果を持たない関数だけを受け取る（9.2）．
+/// A written `use` clause is exactly that set (spec 9.3); a larger body R is E0402. A function
+/// type with `use {}` accepts only functions without effects (spec 9.2).
 #[test]
 fn declared_uses() {
     insta::assert_snapshot!(render_effects(
@@ -310,8 +312,8 @@ fn callers() {
     ));
 }
 
-/// 引数の関数型で `use` を省略すると見えない集合変数で，呼んだ側の R に加わる（9.2）．
-/// 無名関数は本体の R を閉じ込める．`use R` の型引数（9.5）．
+/// Omitting `use` on a function-typed parameter gives an invisible set variable that joins the
+/// caller's R (spec 9.2). Lambdas enclose their body's R. Type parameters in `use R` (spec 9.5).
 #[test]
 fn hidden_and_named_sets() {
     insta::assert_snapshot!(render_effects(
@@ -343,8 +345,8 @@ fn caller() {
     ));
 }
 
-/// handler の検査（8.4）: 全部の操作を1回ずつ実装する，引数の数はエフェクトから，
-/// 操作の本体の E は宣言の fails を超えない．フィールドのある handler には init が要る．
+/// Handler checks (spec 8.4): every operation implemented exactly once, parameter counts from the
+/// effect, operation body E within the declared fails. A handler with fields needs init.
 #[test]
 fn handler_checks() {
     insta::assert_snapshot!(render_effects(
@@ -392,7 +394,8 @@ handler Sleepy implements Clock {
     ));
 }
 
-/// `use` を省略した `@external` の fn はハンドラの操作の本体の中だけ．`use {}` ならどこでも（12.2）．
+/// An `@external` fn with `use` omitted only inside handler operation bodies; with `use {}`
+/// anywhere (spec 12.2).
 #[test]
 fn external_functions() {
     insta::assert_snapshot!(render_effects(
@@ -423,7 +426,8 @@ fn outside() {
     ));
 }
 
-/// 能力の値は引数に渡せず，データ構造に入れられず，返せない（8.2）．
+/// Capability values cannot be passed as arguments, stored in data structures, or returned
+/// (spec 8.2).
 #[test]
 fn capability_restrictions() {
     insta::assert_snapshot!(render_effects(
@@ -458,7 +462,8 @@ fn h() {
     ));
 }
 
-/// main とテスト関数の R は空でなければならない（8.3，13.3）．const の値は効果を持てない（5.6）．
+/// The R of `main` and test functions must be empty (spec 8.3, 13.3). A const's value cannot have
+/// effects (spec 5.6).
 #[test]
 fn closed_definitions() {
     insta::assert_snapshot!(render_effects(
@@ -488,9 +493,9 @@ fn test_outside() -> () use Logger {
     ));
 }
 
-/// エフェクトと集合の型引数を混ぜた `use { Quiet, R }`（8.3，17.4）．エラーの `fails Timeout | E`
-/// （7.4）と同じ場合分け．書き出したエフェクトは with で消え，集合の型引数は残る．
-/// 引数に渡した関数の R から Quiet を除いたものが R に入る．
+/// `use { Quiet, R }` mixing an effect and a set type parameter (spec 8.3, 17.4), handled like the
+/// error case `fails Timeout | E` (spec 7.4). The listed effect is removed by `with` and the set
+/// type parameter remains. R gets the R of the passed function minus Quiet.
 #[test]
 fn mixed_effect_sets() {
     insta::assert_snapshot!(render_effects(
@@ -552,9 +557,11 @@ fn callers() {
     ));
 }
 
-/// suspend fn の操作と実装（8.1，8.4，8.7）．実装は最後の引数に resume（操作の戻り値の型を受けて
-/// `()` を返す関数）を受ける．resume を直接呼ぶ以外の使い方（変数に入れる，クロージャで捕まえる，
-/// 引数に渡す）をしたら，ハンドラの依存に Async が載る．main とテスト関数の R には Async だけが残ってよい．
+/// suspend fn operations and implementations (spec 8.1, 8.4, 8.7). An implementation takes resume
+/// as its last parameter (a function taking the operation's return type and returning `()`).
+/// Using resume other than by calling it directly (storing it, capturing it in a closure, passing
+/// it) puts Async in the handler's dependencies. Only Async may remain in the R of `main` and test
+/// functions.
 #[test]
 fn suspend_operations() {
     insta::assert_snapshot!(render_effects(
@@ -641,8 +648,8 @@ fn test_waits() {
     ));
 }
 
-/// Async は組み込みのエフェクト（8.7）．ハンドラは書けず（E0413），`use Async` も書けない（E0414）．
-/// use 節には書ける．
+/// Async is a built-in effect (spec 8.7). Handlers for it cannot be written (E0413), nor can
+/// `use Async` (E0414). It may appear in use clauses.
 #[test]
 fn async_effect() {
     insta::assert_snapshot!(render_effects(
@@ -661,8 +668,8 @@ fn main() {
     ));
 }
 
-/// `@external suspend fn` は Async を要求し，ハンドラの中でしか使えない（12.2）．
-/// fn の操作の本体では待てない（E0417）．
+/// `@external suspend fn` requires Async and can only be used inside handlers (spec 12.2). fn
+/// operation bodies cannot wait on it (E0417).
 #[test]
 fn external_suspend_functions() {
     insta::assert_snapshot!(render_effects(
@@ -695,13 +702,15 @@ fn main() {
     ));
 }
 
-/// fn の操作の実装の本体は，R が Immediate か，中断しうる呼び出しを含まないかのどちらかを満たす
-/// （E0417，8.1）．後者の判定は呼び出しごと．操作の呼び出しは操作の宣言で決まるので，suspend fn を持つ Clock の fn の操作
-/// `now` は呼べる（本体の R には Clock が載り，ハンドラの依存になる）．関数と関数の値の呼び出しは
-/// 型の R で決まるので，fn の操作しか呼ばない関数，能力を捕まえたクロージャ，値として取り出した
-/// 操作を挟むと E0417 のまま．suspend fn の操作の呼び出しも E0417．ただし本体の R が Immediate なら
-/// 呼び出しを見ずに通す（その場で resume する PureClock の with の中の sleep）．外側の Clock の now と
-/// 内側の with の sleep を混ぜると，どちらも満たさず E0417．
+/// The body of an fn operation implementation must either have an Immediate R or contain no call
+/// that may suspend (E0417, spec 8.1), the latter judged per call. Operation calls are decided by
+/// the operation's declaration, so the fn operation `now` of Clock (which has a suspend fn) may be
+/// called (Clock lands in the body's R and becomes a handler dependency). Calls of functions and
+/// function values are decided by their type's R, so going through a function that only calls fn
+/// operations, a closure capturing the capability, or an operation taken out as a value stays
+/// E0417. Calls of suspend fn operations are E0417 too. But if the body's R is Immediate, the
+/// calls are not looked at (sleep inside a `with` of PureClock, which resumes immediately). Mixing
+/// the outer Clock's now with sleep inside the inner `with` satisfies neither and is E0417.
 #[test]
 fn fn_op_bodies_are_checked_per_call() {
     insta::assert_snapshot!(render_effects(
@@ -796,8 +805,9 @@ handler MixedSleep implements Clock {
     ));
 }
 
-/// `R: Immediate`（9.5）．エフェクトは suspend fn がなく Async でもないとき Immediate．
-/// 集合の型引数は制約を持つときだけ．外部関数に渡すコールバックも Immediate でなければならない．
+/// `R: Immediate` (spec 9.5). An effect is Immediate when it has no suspend fn and is not Async; a
+/// set type parameter only when it has the bound. Callbacks passed to external functions must be
+/// Immediate too.
 #[test]
 fn immediate_constraint() {
     insta::assert_snapshot!(render_effects(
@@ -861,9 +871,10 @@ handler Ticking implements Logger {
     ));
 }
 
-/// 宣言の型引数を fails と use に使う形（9.2 の `type Handler[E, R]`）．型引数の種類は使われた
-/// 位置から決める．型引数の位置には，その種類のタグ1つか集合の型引数を書ける．構成子の呼び出しは
-/// フィールドの関数から E と R を推論し，フィールドの関数を呼ぶと E と R が呼んだ側に載る．
+/// Declaration type parameters used in fails and use (`type Handler[E, R]` in spec 9.2). The kind
+/// of a type parameter is decided by where it is used. A type argument position takes one tag of
+/// the right kind or a set type parameter. Constructor calls infer E and R from the field
+/// functions, and calling a field function puts its E and R on the caller.
 #[test]
 fn declaration_sets() {
     insta::assert_snapshot!(render_effects(
@@ -955,8 +966,9 @@ fn tickers() {
     ));
 }
 
-/// 型引数の位置に書く集合（9.2）．エラーの集合は `|` でつなぎ，効果の集合は波括弧で囲む．
-/// 空の `{}` はどちらの位置にも書ける．集合でない型引数の位置に集合を書けば E0324．
+/// Sets written in type argument positions (spec 9.2). Error sets are joined with `|`; effect sets
+/// are wrapped in braces. An empty `{}` fits either position. A set in a non-set type argument
+/// position is E0324.
 #[test]
 fn declaration_set_args() {
     insta::assert_snapshot!(render_effects(
@@ -1007,9 +1019,10 @@ fn misplaced(a: Handler[{ Db }, Db], b: Handler[NotFound, NotFound | Timeout], c
     ));
 }
 
-/// 状態のあるハンドラ（8.4）: フィールドの型と `self`，init の値はハンドラの値，init の中の use と
-/// release の中の use は依存，init の E は with の E に入る（9.4）．release の中で suspend な操作を
-/// 呼んでよい．with の初期化の順は依存から決まる（14.2）．
+/// Stateful handlers (spec 8.4): field types and `self`; init's value is the handler value; `use`
+/// inside init and release are dependencies; init's E goes into the E of `with` (spec 9.4).
+/// release may call suspend operations. The initialization order of `with` follows dependencies
+/// (spec 14.2).
 #[test]
 fn stateful_handlers() {
     insta::assert_snapshot!(render_handlers(
@@ -1082,8 +1095,8 @@ fn logged() {
     ));
 }
 
-/// 状態のあるハンドラの誤り: ハンドラの値を init の外で作る（E0418），フィールドがあるのに init が
-/// ない（E0419），release が失敗しうる（E0420），init の値の型，ないフィールド．
+/// Stateful handler errors: building the handler value outside init (E0418), fields without init
+/// (E0419), a release that can fail (E0420), the type of init's value, and unknown fields.
 #[test]
 fn stateful_handler_errors() {
     insta::assert_snapshot!(render_handlers(
@@ -1134,9 +1147,10 @@ fn lambda() { fn() { Counter(n: 1) } }
     ));
 }
 
-/// layer（8.5）: 中身はハンドラか別の layer．初期化の順は依存から決まり，満たされない依存は with の
-/// R に残る．同じエフェクトを2つのハンドラが供給する（E0421），互いを含む（E0422），依存が循環する
-/// （E0411）は layer の宣言で報告する．`with AppLive, FixedClock` は後ろが優先される．
+/// Layers (spec 8.5): contents are handlers or other layers. Initialization order follows
+/// dependencies, and unmet dependencies remain in the R of `with`. Two handlers providing the same
+/// effect (E0421), mutual inclusion (E0422) and dependency cycles (E0411) are reported at the
+/// layer declaration. In `with AppLive, FixedClock` the later one wins.
 #[test]
 fn layers() {
     insta::assert_snapshot!(render_handlers(
