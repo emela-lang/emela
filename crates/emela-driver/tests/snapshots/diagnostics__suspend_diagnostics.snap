@@ -1,0 +1,63 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0415]: operation `now` is not a `suspend fn` in effect `Clock`
+    ╭─[ main.emel:16:14 ]
+    │
+ 16 │   suspend fn now(resume) { resume(0) }
+    │              ─┬─  
+    │               ╰─── 
+────╯
+   = help: remove `suspend`
+
+error[E0413]: handler `Runtime` cannot implement `Async`: only the runtime provides it
+    ╭─[ main.emel:19:9 ]
+    │
+ 19 │ handler Runtime implements Async {
+    │         ───┬───  
+    │            ╰───── 
+────╯
+
+error[E0322]: `Immediate` can only constrain effect sets, but `A` is not used in `use`
+    ╭─[ main.emel:24:18 ]
+    │
+ 24 │ fn not_effect[A: Immediate](x: A) -> A { x }
+    │                  ────┬────  
+    │                      ╰────── 
+────╯
+
+error[E0414]: `Async` has no operations and cannot be used with `use`
+    ╭─[ main.emel:27:3 ]
+    │
+ 27 │   use Async
+    │   ────┬────  
+    │       ╰────── 
+────╯
+
+error[E0407]: external function `fetch_text` can only be used in handlers
+    ╭─[ main.emel:28:3 ]
+    │
+ 28 │   fetch_text("x")
+    │   ─────┬────  
+    │        ╰────── 
+────╯
+
+error[E0416]: effect `Clock` may suspend, but `R` of `update` must be `Immediate`
+    ╭─[ main.emel:29:3 ]
+    │
+ 29 │   update(1, fn(n) {
+    │   ───┬──  
+    │      ╰──── 
+────╯
+
+error[E0416]: effect set `R(g)` may suspend, but `R` of `update` must be `Immediate`
+    ╭─[ main.emel:33:3 ]
+    │
+ 33 │   update(1, g)
+    │   ───┬──  
+    │      ╰──── 
+────╯
+   = help: constrain the effect set with `: Immediate`
+
+7 errors

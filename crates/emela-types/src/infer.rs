@@ -498,6 +498,18 @@ impl InferCtx {
         existing: Vec<TyParam>,
         env_vars: &[TyVar],
     ) -> Scheme {
+        self.generalize_bounded(ty, existing, env_vars, &Default::default())
+    }
+
+    /// [`Self::generalize_with`] と同じく量化する．`immediate` の集合変数を量化した型引数には
+    /// `Immediate` の制約を付ける（9.5）．
+    pub(crate) fn generalize_bounded(
+        &mut self,
+        ty: &Ty,
+        existing: Vec<TyParam>,
+        env_vars: &[TyVar],
+        immediate: &rustc_hash::FxHashSet<RowVar>,
+    ) -> Scheme {
         // 環境の型変数が束縛済みなら，その先に現れる型変数も環境のものとして扱う．
         let mut env = Vec::new();
         for v in env_vars {
@@ -535,7 +547,11 @@ impl InferCtx {
                     break name;
                 }
             };
-            params.push(TyParam::set(SmolStr::new(name)));
+            let mut param = TyParam::set(SmolStr::new(name));
+            if immediate.contains(&v) {
+                param.bounds.push(SmolStr::new(crate::lower::IMMEDIATE));
+            }
+            params.push(param);
         }
         Scheme::new(params, replace_vars(&ty, &map, &row_map))
     }

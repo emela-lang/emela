@@ -559,6 +559,60 @@ fn logs() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// suspend，Async，Immediate の診断（E0322，E0407，E0413〜E0416）の文面．main の R には Async だけが
+/// 残ってよい（8.3）．
+#[test]
+fn suspend_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Int
+}
+
+@external(js, "setTimeout")
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+@external(js, "./ffi.mjs", "fetchText")
+suspend fn fetch_text(url: String) -> String
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    set_timeout(ms, fn() { resume(()) })
+  }
+  suspend fn now(resume) { resume(0) }
+}
+
+handler Runtime implements Async {
+}
+
+fn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }
+
+fn not_effect[A: Immediate](x: A) -> A { x }
+
+fn misuse(g: fn(Int) -> Int) {
+  use Async
+  fetch_text("x")
+  update(1, fn(n) {
+    (use Clock).sleep(n)
+    n
+  })
+  update(1, g)
+}
+
+fn main() {
+  with JsClock { (use Clock).sleep(1) }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 #[test]
 fn bundled_console_checks_cleanly() {
     // 同梱の Console と JsConsole は import なしで使える（15.2）．

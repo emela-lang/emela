@@ -6,6 +6,6 @@ console_log: fn(String) -> ()
 abs: fn(Int) -> Int
 outside: fn() -> Int
 handler JsConsole: use {}
-`console_log` ExternalOutsideHandler { name: "console_log" }
-`console_log` ExternalOutsideHandler { name: "console_log" }
+`console_log` ExternalOutsideHandler { name: "console_log", suspend: false }
+`console_log` ExternalOutsideHandler { name: "console_log", suspend: false }
 --- R

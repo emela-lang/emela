@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use emela_resolve::ModuleId;
 use emela_resolve::{DiagnosticKind, NameError};
 use emela_types::{
-    DiagnosticKind as TypeDiagnosticKind, EffectContext, Ty, TyCons, TypeError, TypeErrorKind,
+    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, Ty, TyCons, TypeError,
+    TypeErrorKind,
 };
 use la_arena::ArenaMap;
 use line_index::TextRange;
@@ -690,8 +691,10 @@ impl Diagnostic {
                     "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
                 ),
             ),
-            TypeDiagnosticKind::ExternalOutsideHandler { name } => {
-                help = Some("declare it with `use {}` if it has no side effects".to_owned());
+            TypeDiagnosticKind::ExternalOutsideHandler { name, suspend } => {
+                if !*suspend {
+                    help = Some("declare it with `use {}` if it has no side effects".to_owned());
+                }
                 (
                     Severity::Error,
                     Some(code::EXTERNAL_OUTSIDE_HANDLER),
@@ -724,6 +727,70 @@ impl Diagnostic {
                     format!("handlers depend on each other: {}", path.join(" -> ")),
                 )
             }
+            TypeDiagnosticKind::AsyncHandler { handler } => (
+                Severity::Error,
+                Some(code::ASYNC_HANDLER),
+                format!(
+                    "handler `{handler}` cannot implement `Async`: only the runtime provides it"
+                ),
+            ),
+            TypeDiagnosticKind::UseAsync => (
+                Severity::Error,
+                Some(code::USE_ASYNC),
+                "`Async` has no operations and cannot be used with `use`".to_owned(),
+            ),
+            TypeDiagnosticKind::SuspendMismatch {
+                op,
+                effect,
+                suspend,
+            } => {
+                if *suspend {
+                    help = Some(format!("implement it with `suspend fn {op}(..., resume)`"));
+                    (
+                        Severity::Error,
+                        Some(code::SUSPEND_MISMATCH),
+                        format!("operation `{op}` is a `suspend fn` in effect `{effect}`"),
+                    )
+                } else {
+                    help = Some("remove `suspend`".to_owned());
+                    (
+                        Severity::Error,
+                        Some(code::SUSPEND_MISMATCH),
+                        format!("operation `{op}` is not a `suspend fn` in effect `{effect}`"),
+                    )
+                }
+            }
+            TypeDiagnosticKind::NotImmediate {
+                effects,
+                sets,
+                required,
+            } => {
+                let mut parts = Vec::new();
+                if !effects.is_empty() {
+                    parts.push(quoted_list("effect", "effects", effects));
+                }
+                if !sets.is_empty() {
+                    parts.push(quoted_list("effect set", "effect sets", sets));
+                    help = Some("constrain the effect set with `: Immediate`".to_owned());
+                }
+                let list = parts.join(" and ");
+                let message = match required {
+                    ImmediateSource::Bound { param, callee } => format!(
+                        "{list} may suspend, but `{param}` of `{callee}` must be `Immediate`"
+                    ),
+                    ImmediateSource::ExternalCallback { callee } => format!(
+                        "{list} may suspend, but callbacks passed to external function `{callee}` must be `Immediate`"
+                    ),
+                };
+                (Severity::Error, Some(code::NOT_IMMEDIATE), message)
+            }
+            TypeDiagnosticKind::ImmediateOnNonEffect { param } => (
+                Severity::Error,
+                Some(code::IMMEDIATE_ON_NON_EFFECT),
+                format!(
+                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `use`"
+                ),
+            ),
         };
         let mut out = Diagnostic::new(severity, message);
         if let Some(code) = code {

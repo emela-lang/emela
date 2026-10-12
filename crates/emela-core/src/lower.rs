@@ -412,6 +412,12 @@ impl<'a> Lowerer<'a> {
         self.bound.clear();
         let (mut params, body) = match hir.item(def) {
             Some(Item::Fn(f)) if f.body.is_none() => {
+                // `@external suspend fn` は Promise を返す関数に写す（12.2）．次の段で扱う．
+                if f.sig.is_suspend
+                    && let Some(span) = hir.defs[def].span
+                {
+                    self.report("suspend external functions", span);
+                }
                 let params = f.sig.params.iter().map(|p| self.local(p.local)).collect();
                 let external = self.external(def, f);
                 self.module.define_external(id, params, external);

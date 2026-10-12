@@ -682,6 +682,74 @@ fn callers() {  # 補
     ));
 }
 
+/// 8.1 suspend fn の操作，8.4 suspend fn の実装（最後の引数に resume），8.7 Async．
+/// JsClock は resume をクロージャで捕まえるので Async に依存し，`with JsClock` の R に Async が残る．
+/// その場で resume する InstantClock は Async を要求しない．
+#[test]
+fn spec_8_4_suspend_and_async() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Instant(ms: Int)  # 補
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Instant
+}
+
+@external(js, "setTimeout")  # 補
+fn set_timeout(ms: Int, f: fn() -> ()) -> ()
+
+@external(js, "Date.now")  # 補
+fn date_now() -> Instant
+
+handler JsClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    set_timeout(ms, fn() { resume(()) })
+  }
+  fn now() { date_now() }
+}
+
+handler InstantClock implements Clock {  # 補
+  suspend fn sleep(ms, resume) { resume(()) }
+  fn now() { Instant(ms: 0) }
+}
+
+fn nap() {  # 補
+  (use Clock).sleep(1000)
+  (use Clock).now()
+}
+
+fn real() { with JsClock { nap() } }  # 補
+
+fn instant() { with InstantClock { nap() } }  # 補
+"#
+    ));
+}
+
+/// 9.5 効果への制約 `R: Immediate`．12.1 の `@external suspend fn` は Async を要求する．
+#[test]
+fn spec_9_5_immediate() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+type Ref[A](value: A)  # 補
+
+fn update[A, R: Immediate](
+  ref: Ref[A],
+  f: fn(A) -> A use R,
+) -> () use R {
+  f(ref.value)  # 補
+  ()
+}
+
+@external(js, "./http_ffi.mjs", "fetchText")
+@external(wasm, "wasi:http/client", "fetch")
+suspend fn fetch_text(url: String) -> String
+
+fn bump(r: Ref[Int]) { update(r, fn(n) { n + 1 }) }  # 補
+"#
+    ));
+}
+
 /// 9.2 `fn(A) -> B use {}` は効果を持たない関数だけを受け取る．省略すれば何でもよく，呼んだ側の R に加わる．
 #[test]
 fn spec_9_2_effect_free_parameter() {

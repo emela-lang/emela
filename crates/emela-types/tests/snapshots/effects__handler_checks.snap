@@ -17,5 +17,4 @@ handler Sleepy: use {}
 `1` mismatch: expected `String`, found `Int`
 `self` not supported yet: `self` in handlers without fields
 `Stateful` not supported yet: handlers with fields, `init` or `release`
-`sleep` not supported yet: suspend operations
 --- R

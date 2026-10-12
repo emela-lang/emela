@@ -582,6 +582,42 @@ fn hover_shows_effects() {
     client.shutdown();
 }
 
+/// suspend な操作と，Async が残るハンドラ（8.4，8.7）．操作の型には `suspend` を付け，
+/// handler の名前には依存を出す．
+#[test]
+fn hover_shows_suspend_and_async() {
+    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 1, 14)),
+        "```emela\nsleep: suspend fn(Int) -> ()\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 7, 10)),
+        "```emela\nhandler JsClock implements Clock\nuse Async\n```"
+    );
+    // resume は操作の戻り値の型を受けて `()` を返す関数．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 24)),
+        "```emela\nresume: fn(()) -> ()\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 31)),
+        "```emela\nsuspend fn(Int) -> () use Clock\nuse Clock\n```"
+    );
+    // main の R には Async が残ってよい（8.3）．
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 13, 4)),
+        "```emela\nmain: fn() -> () use Async\n```"
+    );
+    client.shutdown();
+}
+
 /// エフェクトと集合の型引数を混ぜた use 節（8.3）．with の中では書き出したエフェクトが見え，
 /// with の外では集合の型引数だけが残る．
 #[test]

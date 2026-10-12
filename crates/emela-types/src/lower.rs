@@ -42,6 +42,9 @@ pub(crate) struct Hidden {
     pub(crate) positive: Row,
     /// 同じく，見えない効果の集合．宣言の R に含める．
     pub(crate) positive_uses: Row,
+    /// 見えない効果の集合に `Immediate` の制約を付けるか．外部関数のコールバックは
+    /// Immediate でなければならない（9.5）．
+    pub(crate) immediate: bool,
 }
 
 impl Hidden {
@@ -53,6 +56,7 @@ impl Hidden {
             in_param: [0, 0],
             positive: Row::empty(),
             positive_uses: Row::empty(),
+            immediate: false,
         }
     }
 
@@ -75,7 +79,11 @@ impl Hidden {
             n => format!("{prefix}({}, {n})", self.param),
         };
         let i = (self.base + self.params.len()) as u32;
-        self.params.push(TyParam::set(name));
+        let mut param = TyParam::set(name);
+        if effects && self.immediate {
+            param.bounds.push(SmolStr::new(IMMEDIATE));
+        }
+        self.params.push(param);
         let row = Row::from_elems([RowElem::Bound(i)]);
         if positive {
             if effects {
@@ -491,11 +499,63 @@ pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
     type_params.iter().map(|tp| tp.def).collect()
 }
 
+/// 組み込みの制約 Immediate の名前（9.5）．
+pub(crate) const IMMEDIATE: &str = "Immediate";
+
 /// 型引数の定義の並びから，スキームと型の宣言に付ける名前の並びを作る．
 pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
     defs.iter()
         .map(|&def| TyParam::new(program.defs[def].name.clone()))
         .collect()
+}
+
+/// 型引数の制約のうち，組み込みの Immediate を指す位置．
+pub(crate) fn immediate_bounds(program: &Program, tp: &TypeParam) -> Vec<Span> {
+    let immediate = program.prelude_def(IMMEDIATE);
+    tp.bounds
+        .iter()
+        .filter(|(res, _)| matches!(res, Res::Def(d) if Some(*d) == immediate))
+        .map(|&(_, span)| span)
+        .collect()
+}
+
+/// エフェクトが Immediate か（9.5）．suspend fn を1つも持たず，Async でもないとき．
+pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
+    if program.prelude_def("Async") == Some(effect) {
+        return false;
+    }
+    match program.item(effect) {
+        Some(Item::Effect(e)) => e
+            .ops
+            .iter()
+            .all(|&op| !matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend)),
+        _ => true,
+    }
+}
+
+/// 型引数が，関数型の `use` 節に書かれているか（効果の集合か）．`types` は型引数が現れうる型の書き方．
+pub(crate) fn used_in_uses(
+    program: &Program,
+    param: DefId,
+    types: impl IntoIterator<Item = TypeId>,
+) -> bool {
+    fn go(program: &Program, param: DefId, ty: TypeId) -> bool {
+        match &program.types[ty].kind {
+            TypeKind::Path { args, .. } => args.iter().any(|&a| go(program, param, a)),
+            TypeKind::Tuple(elems) => elems.iter().any(|&e| go(program, param, e)),
+            TypeKind::Fn {
+                params, ret, uses, ..
+            } => {
+                uses.iter()
+                    .flat_map(|u| &u.items)
+                    .any(|(res, _)| *res == Res::Def(param))
+                    || params.iter().any(|&p| go(program, param, p))
+                    || ret.is_some_and(|r| go(program, param, r))
+            }
+            TypeKind::SelfType | TypeKind::Unit | TypeKind::Missing => false,
+        }
+    }
+    types.into_iter().any(|ty| go(program, param, ty))
 }
 
 /// 型引数の種類を，使われた位置から決める（9.2）．`fails` 節か `use` 節にだけ書いた型引数は

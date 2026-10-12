@@ -63,6 +63,8 @@ pub const UNHANDLED_ERRORS: &str = "E0318";
 pub const NOT_AN_ERROR: &str = "E0319";
 pub const ESCAPE_ARM_NOT_ERROR: &str = "E0320";
 pub const ERROR_SET_MISMATCH: &str = "E0321";
+// 効果への制約（9.5）
+pub const IMMEDIATE_ON_NON_EFFECT: &str = "E0322";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 
@@ -80,6 +82,11 @@ pub const CAPABILITY_RETURNED: &str = "E0410";
 pub const HANDLER_CYCLE: &str = "E0411";
 // 外部関数（12.1）．effect と同じく副作用の経路なので E04xx に置く（E05xx〜E08xx は予約）．
 pub const MISSING_EXTERNAL_TARGET: &str = "E0412";
+// suspend と Async（8.7，9.5）
+pub const ASYNC_HANDLER: &str = "E0413";
+pub const USE_ASYNC: &str = "E0414";
+pub const SUSPEND_MISMATCH: &str = "E0415";
+pub const NOT_IMMEDIATE: &str = "E0416";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype Ref[A](value: A)  # 補\n\nfn update[A, R: Immediate](\n  ref: Ref[A],\n  f: fn(A) -> A use R,\n) -> () use R {\n  f(ref.value)  # 補\n  ()\n}\n\n@external(js, \"./http_ffi.mjs\", \"fetchText\")\n@external(wasm, \"wasi:http/client\", \"fetch\")\nsuspend fn fetch_text(url: String) -> String\n\nfn bump(r: Ref[Int]) { update(r, fn(n) { n + 1 }) }  # 補\n\"#)"
+---
+update: ∀ A, R: Immediate, E(f). fn(Ref[A], fn(A) -> A fails E(f) use R) -> () fails E(f) use R
+  ref: Ref['0]
+  f: fn('0) -> '0 fails '2 use '1
+fetch_text: fn(String) -> String use Async
+bump: fn(Ref[Int]) -> ()
+  r: Ref[Int]
+  n: Int

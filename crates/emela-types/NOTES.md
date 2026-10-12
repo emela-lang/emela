@@ -96,7 +96,7 @@
 - （補）エフェクトの操作の宣言は「宣言の中」なので，引数の関数型の `fails` と `use` を省略すれば空（9.2）．戻り値の型を省略すれば `()`．操作の `use` 節は構文の段の E0137（8.1）なので，型推論では読まない．
 - （補）`use` 節を書いていない本体のある fn は，戻り値の型を書いていても宣言の型のない定義として扱う（9.3 の「常に R を推論する」）．まとまりの中では単相の型で参照し，推論し終えてから汎化する．T と E は宣言のとおりで，R だけが集合変数．そのため同じまとまりの中では多相再帰にならない（書いた型引数のある fn を，まとまりの中の他の定義から参照するときは，既存の `deferred` の照合を使う）．
 - （補）`use` 節を書いた fn の宣言の R は，書いた集合と，引数の型の中の正の位置の見えない効果の集合の和（E の 7.4 の規則にそろえた）．本体の R がそれに含まれなければ E0402．
-- （補）本体のない fn（`@external`，`@intrinsic`）で `use` を省略すると，R は空（と正の位置の見えない効果の集合）．`@external` のホストの副作用は R に載せず，呼べる場所の制限（12.2）で扱う．
+- （補）本体のない fn（`@external`，`@intrinsic`）で `use` を省略すると，R は空（と正の位置の見えない効果の集合）．`@external` のホストの副作用は R に載せず，呼べる場所の制限（12.2）で扱う．`@external suspend fn` の R には Async を足す（下の「suspend，Async，Immediate」）．
 - （補）引数の関数型で `use` を省略したときの見えない効果の集合の名前は `R(f)`，`R(f, 2)`．E の `E(f)` と別に数える．汎化した効果の集合の型引数の名前は `R`，`R1`，…．
 - （補）効果の集合にエフェクトと集合の型引数を混ぜて書く（`use { Quiet, R }`，8.3，17.4）のは，E の `fails Timeout | E` と同じ `Row`（タグと `RowElem::Bound` の和）で持つ．with はタグの Quiet を消し，`R` は残す．引数の関数型に書けば，渡した関数の R から Quiet を除いたものが `R` の下界になる（E の 7.4 と同じ規則をそのまま使う）．`use { Quiet, R1, R2 }` のように集合の型引数が2つ以上ある引数に渡すときの近似も E と同じ．
 - （補）効果の集合の表示は書いた順でなく，タグを先，集合の型引数を後に並べる（`use { R, Quiet }` は `use { Quiet, R }` と出す）．要素の順に意味はない．
@@ -104,14 +104,33 @@
 - （補）with で消すのはタグだけ．推論の集合変数は，消すエフェクトを除いた解を持つ新しい集合変数に置き換える（escape と同じ）．集合の型引数（見えない `R(f)` など）からは消さない．`fn run(f: fn() -> ()) { with Quiet { f() } }` の R は `R(f)` のまま（安全側）．
 - （補）handler の依存（9.4 の「依存(H)」）は，操作の本体の R の和．handler もまとまりの中の定義（グラフの頂点）で，with に書いた handler へ辺を張る．まとまりの中では集合変数で，推論し終えてから `ProgramTypes::handler_uses` に入れる．
 - （補）handler の検査: 1つのエフェクトの全部の操作を実装する（足りなければ E0404），同じ操作を2回実装しない（E0405），引数の数はエフェクトの操作の宣言と同じ（E0406）．エフェクトにない操作は名前解決が E0212 を出す．操作の本体の E は操作の宣言の `fails` に含まれる（E0318．文面は fn と同じ）．
-- （補）状態を持つ handler（フィールド，init，release）は「まだ扱えない」．その handler は推論せず，with に書いても依存は空として扱う．状態のない handler の `self` も「まだ扱えない」．suspend な操作の実装と `suspend fn` の外部関数は alpha.3 の範囲なので「まだ扱えない」．with に layer を書くのも「まだ扱えない」．
-- （補）`use` を省略した `@external` の fn は，handler の操作の本体の中でしか使えない（E0407，12.2）．呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．操作の本体の中の無名関数の中も「中」とみなす．
+- （補）状態を持つ handler（フィールド，init，release）は「まだ扱えない」．その handler は推論せず，with に書いても依存は空として扱う．状態のない handler の `self` も「まだ扱えない」．with に layer を書くのも「まだ扱えない」．
+- （補）`use` を省略した `@external` の fn と `@external suspend fn` は，handler の操作の本体の中でしか使えない（E0407，12.2）．`suspend fn` は `use {}` を書いていても同じ．呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．操作の本体の中の無名関数の中も「中」とみなす．
 - （補）能力の値の制約（8.2）は，型が決まった後に値の最上位の型だけを見る．呼び出しの引数は E0408（構成子の引数はデータ構造に入れることなので E0409），リスト・タプル・部分更新のフィールドは E0409，fn・handler の操作・無名関数の本体の値は E0410．無名関数の引数をそのまま返す無名関数は E0410 にしない（能力の値は引数として渡ってきたもので，渡した側が E0408 になる）．with の本体の値は見ない（capture set，8.6 は 0.22）．
-- （補）main（エントリのモジュールの `main` という名前の fn）とテスト関数の本体の R は空でなければならない（E0402，8.3，13.3）．`use` 節を書いていても空を求める．どれが main とテスト関数かは driver が決めて `CheckOptions` で渡す．Async はまだないので，単に空．
+- （補）main（エントリのモジュールの `main` という名前の fn）とテスト関数の本体の R は，Async を除いて空でなければならない（E0402，8.3，13.3）．`use` 節を書いていても同じ．どれが main とテスト関数かは driver が決めて `CheckOptions` で渡す．
 - （補）const の値の R は空（5.6）．空でなければ E0402．
 - （補）E0402 は E0318 と同じく，宣言の R に含まれないエフェクトごとに，それを要求した最初の式（`use` か呼び出し）に出す．
 - （補）型の表示: 関数型の空の R は省く．引数の型の中では `use {}` と出す（E の `fails {}` と同じ理由）．効果の集合は要素が1つならそのまま，2つ以上なら `{ Logger, Clock }`（17.4），空なら `{}`．`fails` 節の後に `use` 節を出す．
 - （補）`ProgramTypes::effects` に各式の R，`ProgramTypes::ops` に能力の値の操作の参照（`Field` の式 → 操作の定義）を持つ．lowering はまだ使わない（次の段の evidence passing で使う）．
+
+## suspend，Async，Immediate（8.1，8.4，8.7，9.5，12.2）
+
+表現と判定は `body/suspend.rs` の冒頭に書いた．ここには仕様にない判断を残す．
+
+- （補）suspend は関数型に持たない（9.2 の関数型に印がない）．中断しうることは R の中のエフェクト（suspend fn を持つエフェクトか Async）で表す．操作の型（`Signatures`）も普通の操作と同じで，suspend の有無は HIR の `OpItem::sig.is_suspend` を見る．呼ぶ側の形は普通の操作と同じ（8.2）．
+- （補）エフェクトが Immediate かは宣言から決める（9.5）: suspend fn を1つも持たず，Async でない．名前解決が誤りを出したエフェクトなど，宣言の分からないものは Immediate とみなす．
+- （補）handler の suspend fn の実装の引数は，操作の引数と，最後の `resume`．`resume` の名前は問わない（最後の引数がそれ）．型は `fn(T) -> ()`（T は操作の戻り値の型，E と R は空）．本体の値は捨てるので `()` を求める（E0301）．本体の E は操作の `fails` に含まれる（普通の操作と同じ）．
+- （補）handler の操作の `suspend` の有無がエフェクトの宣言と違えば E0415．引数の数と本体の検査は実装の書き方に従う（誤りを重ねないため）．引数の数の誤り（E0406）の数には `resume` を含める．
+- （補）resume を後から呼びうるか（8.7）の判定: 操作の本体で，無名関数の外の `resume(v)` と `v |> resume` だけを直接の呼び出しとする．それ以外の参照（束縛の右辺，引数，無名関数の中の参照．無名関数の中の `resume(v)` も含む）が1つでもあれば，その操作の本体の R に Async を足す（ハンドラの依存に載る）．
+- （補）Async は Prelude のエフェクト（emela-resolve が定義する）．handler の `implements Async` は E0413 で，その handler は推論せず，with に書いても何も供給しない（Async を消さない）．`use Async` は E0414 で，R に足さず型は `{unknown}`．use 節には書ける（`fn f() use Async`）．
+- （補）`@external suspend fn` の型の R は，書いた use 節（と見えない集合）と Async の和．呼べる場所はハンドラの中だけ（E0407）．呼んだ側の R に Async が載るので，ハンドラの依存になる（8.7 の「Async を足す」を型で行う）．無名関数の中で呼んでも，その無名関数を呼ぶかコールバックに渡したところで R か Immediate の検査に現れる．
+- （補）型引数の制約は Immediate だけを型に持つ（`TyParam::bounds`）．Immediate は `use` 節に書いた型引数（効果の集合）にだけ付けられる．それ以外（ふつうの型，エラーの集合）に付けたら E0322．効果の集合に Trait の制約を付けたら「まだ扱えない」．ふつうの型の型引数の Trait の制約（Prelude の `dbg[A: Show]`）は今までどおり検査も表示もしない（Trait は 0.21）．
+- （補）`R: Immediate` の制約のある定義を参照したら，具体化した集合変数を覚え，集合を解いた後に要素を確かめる（E0416）．エフェクトは Immediate か，集合の型引数（参照した側の定義のもの）は Immediate の制約を持つか．中身の分からない見えない集合 `R(f)` は制約を持たないので通らない（`R: Immediate` の名前付きの型引数にする）．同じまとまりの中でまだ汎化していない集合変数は，汎化するときにその型引数に Immediate の制約を付ける（`fn inferred() { fn(g) { update(1, g) } }` は `∀ E, R: Immediate. ...`）．
+- （補）外部関数の引数の型の中で `use` を省略した見えない効果の集合（`R(f)`）は Immediate の制約を持つ（9.5 の「外部関数に渡すコールバック」）．渡したコールバックは上と同じ仕組みで確かめ，文面だけを変える．外部関数の宣言の引数の関数型に書いた `use` 節も，Immediate でないエフェクトか制約のない集合の型引数があれば宣言の位置に E0416．
+- （補）E0416 は参照の位置（呼ばれる側の名前）に出す．同じ呼び出しの中の要素はまとめて1つにする．
+- （補）型の表示: `R: Immediate` はスキームの表示に `∀ A, R: Immediate. ...` と出す．ホバーでは suspend fn（操作と `@external suspend fn`）の型の前に `suspend` を付け，handler の名前には `handler H implements E` と依存（`use Async` など）を出す．
+- （補）lowering と JS の出力は次の段．今は suspend の実装を持つ handler を with に書くと，lowering が「まだ扱えない」（`suspend operations`）にする．`@external suspend fn` を出力に含めるときも「まだ扱えない」（`suspend external functions`）．
+- （補）宣言の型引数を fails と use に使う形（9.2 の `type Handler[E, R]`）を入れるときは，`R: Immediate` の制約も type の型引数に付けられるようにする．制約は `TyParam::bounds` に名前で持ち，検査は参照の具体化（`require_immediate`）で行っているので，構成子のスキームに制約を写せば同じ仕組みで確かめられる．
 
 ## 結果の形（lowering に渡すもの）
 
@@ -164,11 +183,16 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0404 `MissingHandlerOps`: ``handler `Half` does not implement operation `warn` ``（複数なら ``operations `a`, `b` ``）
 - E0405 `DuplicateHandlerOp`: ``operation `info` is implemented more than once``
 - E0406 `HandlerOpArgCount`: ``wrong number of parameters: operation `info` takes 1, found 2``
-- E0407 `ExternalOutsideHandler`: ``external function `console_log` can only be used in handlers``．注記 ``= help: declare it with `use {}` if it has no side effects``
+- E0407 `ExternalOutsideHandler`: ``external function `console_log` can only be used in handlers``．注記 ``= help: declare it with `use {}` if it has no side effects``（`suspend fn` では注記なし）
 - E0408 `CapabilityArgument`: ``a capability cannot be passed as an argument``．注記 ``= help: pass a closure that uses the capability instead``
 - E0409 `CapabilityInData`: ``a capability cannot be stored in a data structure``
 - E0410 `CapabilityReturned`: ``a capability cannot be returned from a function``
 - E0411 `HandlerCycle`: ``handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped` ``
+- E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
+- E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
+- E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``
+- E0416 `NotImmediate`: ``effect `Clock` may suspend, but `R` of `update` must be `Immediate` ``．集合の型引数なら ``effect set `R(f)` may suspend, ...``，注記 ``= help: constrain the effect set with `: Immediate` ``．外部関数のコールバックは ``effect `Async` may suspend, but callbacks passed to external function `set_timeout` must be `Immediate` ``
+- E0322 `ImmediateOnNonEffect`: ``` `Immediate` can only constrain effect sets, but `A` is not used in `use` ```
 - （補）期待する型がある位置（戻り値の型，束縛の型注釈，引数）にブロック・if・match を置いたときは，期待する型を最後の式と各分岐まで渡して照合する（双方向の検査）．型が合わないときに一番内側の食い違った式を指すため．その式の型は期待する型として記録する．期待する型がなければ，分岐の型を `join` で合わせる．
 - （補）整数リテラルの型は「整数リテラルの型変数」（`InferCtx::new_int_var`）にする．Int か Int64 にしか束縛できず，他の型と単一化すると，その場で型が合わないエラーになる（エラーには `Int` と出す）．他の型変数と単一化すると，その型変数も同じ制約を持つ．本体を推論し終えても決まらなければ Int にする（2.4）．
 - （補）整数リテラルの範囲は，本体を推論し終えて型が決まった後に確かめる（E0311）．負の数は単項マイナスの式なので，リテラルは正の数として見る．そのため Int の `-2147483648` は書けない（`2147483648` が範囲外）．2の補数として読み替えない（`0xFFFF_FFFF` は Int に収まらない）．
