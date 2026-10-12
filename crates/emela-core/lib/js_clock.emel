@@ -1,0 +1,11 @@
+# Clock の JS 用のハンドラ（仕様 8.4，15.2）．状態を持たない．
+
+import Clock.{Clock}
+
+@external(js, "./js_clock.mjs", "nowMilliseconds")
+fn now_milliseconds() -> Int64
+
+## Clock を JS の `Date.now()`（Unix エポックからのミリ秒）で実装する．
+pub handler JsClock implements Clock {
+  fn now() { Instant.from_unix_milliseconds(now_milliseconds()) }
+}

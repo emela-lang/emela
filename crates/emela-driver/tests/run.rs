@@ -911,3 +911,31 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn clock_runs_through_js_clock() {
+    // 同梱の Clock を JsClock（`Date.now()`，同梱の `js_clock.mjs`）で供給する（8.1，15.2）．
+    // 時刻は実行ごとに変わるので，向きと範囲だけを見る．
+    let output = run_source(
+        "clock",
+        r#"fn elapsed(start: Instant) -> Duration use { Clock } {
+  (use Clock).now() |> Instant.since(start)
+}
+
+fn main() {
+  with JsConsole, JsClock {
+    c = use Console
+    start = (use Clock).now()
+    d = elapsed(start)
+    c.print_line(if Instant.to_unix_milliseconds(start) > 1700000000000 { "after 2023" } else { "before" })
+    c.print_line(if Duration.to_milliseconds(d) >= 0 { "forward" } else { "backward" })
+    c.print_line(if String.ends_with(Instant.to_string(start), "Z") { "iso" } else { "other" })
+  }
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "after 2023\nforward\niso\n", "")
+    );
+}

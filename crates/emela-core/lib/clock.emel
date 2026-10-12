@@ -1,0 +1,10 @@
+# Clock のエフェクト（仕様 8.1，15.2 の platform 層）．宣言だけを置き，ハンドラはターゲットごとの
+# モジュールに置く（JS 用は `JsClock`）．
+#
+# 使うときは `(use Clock).now()` と書き，main などで `with JsClock { ... }` で供給する．
+# `suspend fn sleep(ms: Int) -> ()`（8.1）は suspend を JS の出力で扱えるようになってから足す．
+
+## 現在の時点を返す．
+pub effect Clock {
+  fn now() -> Instant
+}
