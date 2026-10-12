@@ -11,13 +11,13 @@ handler App.ConsoleLogger pub implements Effects.Logger
         call
           App.console_log
           msg#1
-fn App.console_log external
+fn App.console_log external(js, "console.log")
   param msg#2: String
   ret ()
-fn App.pg_connect external
+fn App.pg_connect external(js, "pg.connect")
   param url#3: String
   ret App.Connection
-fn App.pg_close external
+fn App.pg_close external(js, "pg.close")
   param conn#4: App.Connection
   ret ()
 type App.Connection

@@ -437,8 +437,18 @@ pub struct FnItem {
     pub body: Option<ExprId>,
     /// `@external` が付いている．
     pub is_external: bool,
+    /// `@external(js, "console.log")` の引数．書かれた順．引数のない `@external` は入らない．
+    pub externals: Vec<ExternalAttr>,
     /// `@intrinsic` が付いている（同梱の core のソースの組み込み関数）．
     pub is_intrinsic: bool,
+}
+
+/// `@external(target, "a", "b")` の引数（12.1）．`target` は最初の引数の名前（`js`，`wasm`），
+/// `args` は残りの文字列．形の崩れた引数（名前でない最初の引数，文字列でない残り）は入れない．
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalAttr {
+    pub target: SmolStr,
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
