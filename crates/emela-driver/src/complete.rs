@@ -126,10 +126,10 @@ fn labels(
     start: usize,
 ) -> Vec<Completion> {
     let text = analysis.sources[file].text();
-    let Some((callee, open)) = crate::signature::call_at(program, analysis, file, offset) else {
+    let Some(call) = crate::signature::call_at(program, analysis, file, offset) else {
         return Vec::new();
     };
-    let Some(args) = text.get(usize::from(open) + 1..start) else {
+    let Some(args) = text.get(usize::from(call.open) + 1..start) else {
         return Vec::new();
     };
     let parts = crate::signature::split_args(args);
@@ -141,10 +141,13 @@ fn labels(
         .iter()
         .filter_map(|a| crate::signature::arg_label(a))
         .collect();
-    let Some((_, Ty::Fn(f), params, labels)) = crate::signature::callee_type(program, callee)
+    let Some((_, Ty::Fn(mut f), params, labels)) =
+        crate::signature::callee_type(program, call.callee)
     else {
         return Vec::new();
     };
+    // パイプの右辺では第1引数は左辺で埋まるので，そのラベルは出さない．
+    let labels = crate::signature::without_piped(call.piped, &mut f.params, labels);
     let cons = &program.types.ty_table.cons;
     labels
         .iter()

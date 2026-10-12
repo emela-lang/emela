@@ -47,6 +47,7 @@
 - （補）シンボルの種類は fn → Function，type と error → Struct，enum → Enum，バリアント → EnumMember，const → Constant，effect と trait → Interface，effect の操作と trait・impl・handler の fn → Method，handler → Class，layer と impl → Namespace，フィールド → Field
 - （補）補完はホバーと同じく要求のたびに検査し直して引く（driver の `Frontend::complete`）．書きかけの名前での絞り込みはエディタに任せ，候補を全部返す．並びは driver の順で，`sortText` に連番を入れて保つ．起動の文字は `.` だけ
 - （補）補完の種類は局所変数 → Variable，fn → Function，const → Constant，構成子 → Constructor，type と error → Struct，enum → Enum，effect と trait → Interface，handler と layer → Class，effect の操作と trait の関数 → Method，フィールド → Field，モジュール → Module，予約語 → Keyword，名前付き引数のラベル → Property（`insertText` に `x: ` を入れる）
+- （補）パイプの右辺の呼び出し（`x |> f(a)`）では，シグネチャのヘルプも補完のラベルも左辺が入る第1引数を除く（6.7．判定は driver の `signature.rs`，名前付き引数との対応は driver の NOTES）
 - （補）シグネチャのヘルプは1つだけ返す（多重定義はない）．引数の範囲は `ParameterInformation` のラベルの中の UTF-16 の位置．カーソルの引数が引数の数を超えれば `activeParameter` を付けない
 - （補）名前の変更は `WorkspaceEdit` の `changes`（URI ごとの編集）で返す．開いていないファイルも同じく編集に入れる．変えられない名前と字句クラスの合わない新しい名前は `RequestFailed` の誤りの応答にし，文面（`this name cannot be renamed`，`` `figure` is not a valid type name ``）をエディタに出す．`prepareRename` は変えられなければ `null`
 - （補）コードアクションの種類は `refactor.rewrite`．診断に結び付けない（省いた注釈の linter の警告はまだない）．編集は `WorkspaceEdit` の `changes` で，そのファイルだけ
