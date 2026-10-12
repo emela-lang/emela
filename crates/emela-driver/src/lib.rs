@@ -32,8 +32,8 @@ pub use pipeline::{
 };
 pub use render::{render, render_one, summary};
 pub use run::{
-    DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, NODE_ENV, Output, RunOutput,
-    node_program, run_node,
+    DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, NODE_ENV,
+    Output, RunOutput, node_program, run_node,
 };
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use testing::{

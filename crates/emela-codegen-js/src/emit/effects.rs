@@ -7,10 +7,11 @@
 //!
 //! 外部関数は，ホストの関数を呼ぶ包みの関数にする．投げた例外は defect にし（12.5），
 //! ホストから受け取る文字列の対になっていないサロゲートを置換文字に直す（12.5）．
+//! `@external suspend fn` の包みはジェネレータで，ホストの返した Promise を待つ（12.2）．
 
 use emela_core::{Boundary, EffectId, Expr, External, Function, Local, Module};
 
-use super::{Emitter, fn_name, is_identifier_name, js_string, sanitize};
+use super::{Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
 /// 証拠の表の鍵．
 pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
@@ -70,8 +71,9 @@ impl Emitter<'_> {
         s
     }
 
-    /// `{ print_line: (text) => …, … }`．
-    pub(super) fn handler(&mut self, effect: EffectId, ops: &[Expr]) -> String {
+    /// `{ print_line: (text) => …, … }`．suspend fn の操作は `$suspendOp` でハンドラと操作の名前を
+    /// 付ける（2回目の resume の defect の文面に使う，14.5）．
+    pub(super) fn handler(&mut self, handler: &str, effect: EffectId, ops: &[Expr]) -> String {
         let m = self.m;
         let names = &m.effects[effect].ops;
         assert_eq!(
@@ -84,7 +86,19 @@ impl Emitter<'_> {
         let fields: Vec<String> = names
             .iter()
             .zip(vs)
-            .map(|(n, v)| format!("{}: {v}", op_key(n)))
+            .map(|(op, v)| {
+                let v = if op.suspend {
+                    format!(
+                        "{}({}, {}, {v})",
+                        self.rt("$suspendOp"),
+                        js_string(handler),
+                        js_string(&op.name)
+                    )
+                } else {
+                    v
+                };
+                format!("{}: {v}", op_key(&op.name))
+            })
             .collect();
         format!("{{ {} }}", fields.join(", "))
     }
@@ -100,10 +114,15 @@ impl Emitter<'_> {
 
     /// 外部関数の包み．JS の `@external` がなければ，呼ばれたら defect にする（エントリから
     /// たどれる関数は lowering が誤りにしてあるので，ここに来るのはたどれない関数だけ）．
+    ///
+    /// `@external suspend fn`（`Function::suspends`）の包みはジェネレータで，ホストの関数の返した値
+    /// （Promise）を `yield $await(…)` で待ち，解決した値を戻り値と同じ規則で写す．拒否されたら，
+    /// 駆動がその理由を `$foreign` で defect にして待っていた位置へ投げる（12.5）．
     pub(super) fn external_fn(&mut self, f: &Function, ext: &External) {
         let params: Vec<String> = f.params.iter().map(|&p| self.local(p)).collect();
         self.line(&format!(
-            "function {}({}) {{",
+            "{} {}({}) {{",
+            function_keyword(f.suspends),
             fn_name(&f.name),
             params.join(", ")
         ));
@@ -122,6 +141,12 @@ impl Emitter<'_> {
                     .collect();
                 let call = format!("{callee}({})", args.join(", "));
                 let foreign = self.rt("$foreign");
+                if f.suspends {
+                    self.suspending_external(&call, &ext.ret, foreign);
+                    self.indent -= 1;
+                    self.line("}");
+                    return;
+                }
                 self.line("try {");
                 self.indent += 1;
                 match &ext.ret {
@@ -146,6 +171,28 @@ impl Emitter<'_> {
         }
         self.indent -= 1;
         self.line("}");
+    }
+
+    /// `@external suspend fn` の包みの本体．`call` はホストの関数の呼び出し．
+    fn suspending_external(&mut self, call: &str, ret: &Boundary, foreign: &str) {
+        self.line("let $p;");
+        self.line("try {");
+        self.line(&format!("  $p = {call};"));
+        self.line("} catch ($e) {");
+        self.line(&format!("  throw {foreign}($e);"));
+        self.line("}");
+        let wait = format!("(yield {}($p))", self.rt("$await"));
+        match ret {
+            Boundary::Unit => {
+                self.line(&format!("{wait};"));
+                self.line("return undefined;");
+            }
+            ret => {
+                self.line(&format!("const $v = {wait};"));
+                let v = self.convert(ret, "$v", Dir::FromHost, 0);
+                self.line(&format!("return {v};"));
+            }
+        }
     }
 
     /// モジュールの名前を import して，局所名を返す．同じものは1回だけ import する．

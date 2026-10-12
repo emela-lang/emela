@@ -1,0 +1,20 @@
+---
+source: crates/emela-codegen-js/tests/suspend.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $perform, $start, $suspendOp } from "./emela_runtime.mjs";
+
+function TwiceClock() {
+  return { sleep: $suspendOp("TwiceClock", "sleep", ((ms$0, resume$1) => {
+    const _$2 = resume$1(ms$0);
+    return resume$1(ms$0);
+  })) };
+}
+
+function* main() {
+  const h$3 = TwiceClock();
+  return (yield $perform(h$3.sleep, [1]));
+}
+
+export { main, $start };

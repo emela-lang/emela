@@ -16,6 +16,8 @@ pub const DEFECT_NAME: &str = "Defect";
 pub const DEFECT_EXIT_CODE: i32 = 101;
 /// main まで達したエラーで止まったときの終了コード（14.3）．
 pub const ERROR_EXIT_CODE: i32 = 1;
+/// main の継続が中断されたまま巻き戻ったときの終了コード（14.5）．
+pub const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// 失敗の値（emela-codegen-js のランタイムの `$Fail`）を見分ける `Symbol.for` の鍵．
 /// 鍵の関数はエラーの値の表示を返す．
 pub const FAIL_KEY: &str = "emela.fail";
@@ -26,25 +28,54 @@ pub const FAIL_KEY: &str = "emela.fail";
 /// エントリが `main` を export していなければ，読み込むだけにする（読み込みで動く JS 向け）．
 /// `main` の返り値は，失敗（`$Fail`）なら `error: <エラーの値の表示>` を出して終了コード 1，
 /// それ以外は捨てる（14.3）．
+///
+/// 中断しうる main（ジェネレータを返す）は，エントリが公開するランタイムの `$start` で進め，
+/// イベントループで待つ．resume されないままループが空になったら，`interrupted` を出して
+/// 終了コード 130 で終わる（14.5）．defect は，ホストのコールバックの中で起きたものも
+/// `defect: <メッセージ>` を出して終了コード 101 で終わる（7.5）．
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
+let over = false;
+function finish(value) {
+  over = true;
+  const show = value?.[Symbol.for("emela.fail")];
+  if (typeof show === "function") {
+    process.stderr.write(`error: ${show.call(value)}\n`);
+    process.exitCode = 1;
+  }
+}
+function crash(error) {
+  if (over) return;
+  over = true;
+  if (error instanceof Error && error.name === "Defect") {
+    process.exitCode = 101;
+    process.stderr.write(`defect: ${error.message}\n`, () => process.exit(101));
+  } else {
+    process.exitCode = 1;
+    process.stderr.write(`${error?.stack ?? String(error)}\n`, () => process.exit(1));
+  }
+}
+process.on("uncaughtException", crash);
+process.on("beforeExit", () => {
+  if (over) return;
+  over = true;
+  process.stderr.write("interrupted\n");
+  process.exitCode = 130;
+});
 try {
   const entry = await import(pathToFileURL(process.argv[1]).href);
   if (typeof entry.main === "function") {
-    const value = await entry.main();
-    const show = value?.[Symbol.for("emela.fail")];
-    if (typeof show === "function") {
-      process.stderr.write(`error: ${show.call(value)}\n`);
-      process.exitCode = 1;
+    const value = entry.main();
+    if (typeof entry.$start === "function" && Object.prototype.toString.call(value) === "[object Generator]") {
+      entry.$start(value, (ok, result) => (ok ? finish(result) : crash(result)));
+    } else {
+      finish(value);
     }
+  } else {
+    over = true;
   }
 } catch (error) {
-  if (error instanceof Error && error.name === "Defect") {
-    process.stderr.write(`defect: ${error.message}\n`);
-    process.exitCode = 101;
-  } else {
-    throw error;
-  }
+  crash(error);
 }
 "#;
 
@@ -140,6 +171,7 @@ mod tests {
         assert!(LAUNCHER.contains(&format!("\"{DEFECT_NAME}\"")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {DEFECT_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
+        assert!(LAUNCHER.contains(&format!("process.exitCode = {INTERRUPTED_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
         // ランタイムの `$Fail` とテストランナーも同じ鍵を使う．
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");

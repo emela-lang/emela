@@ -1,0 +1,17 @@
+---
+source: crates/emela-codegen-js/tests/suspend.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $perform, $start, $suspendOp } from "./emela_runtime.mjs";
+
+function NeverClock() {
+  return { sleep: $suspendOp("NeverClock", "sleep", ((ms$0, resume$1) => (undefined))) };
+}
+
+function* main() {
+  const h$2 = NeverClock();
+  return (yield $perform(h$2.sleep, [1]));
+}
+
+export { main, $start };

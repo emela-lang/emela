@@ -18,8 +18,8 @@ use la_arena::ArenaMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FnId, JsFile, Lit, Local, Module, OpTy, Pat, StrPart, Type, UnOp,
-    VariantDef, VariantFields,
+    External, ExternalBinding, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat, StrPart, Type,
+    UnOp, VariantDef, VariantFields,
 };
 use crate::named;
 
@@ -241,6 +241,7 @@ impl Target {
                 callee: Callee::Direct(f),
                 args: args.into_iter().chain(ev).collect(),
                 fails,
+                suspends: false,
             },
             Target::Builtin { op, ty_args } => Expr::Builtin { op, ty_args, args },
             Target::Ctor(ctor) => Expr::Ctor { ctor, args },
@@ -248,6 +249,7 @@ impl Target {
                 callee: Callee::Indirect(Box::new(f)),
                 args: args.into_iter().chain(ev).collect(),
                 fails,
+                suspends: false,
             },
             Target::Op {
                 handler,
@@ -262,6 +264,7 @@ impl Target {
                 },
                 args,
                 fails,
+                suspends: false,
             },
         }
     }
@@ -477,7 +480,10 @@ impl<'a> Lowerer<'a> {
             Some(Item::Effect(e)) => e
                 .ops
                 .iter()
-                .map(|&op| self.hir.defs[op].name.to_string())
+                .map(|&op| OpDef {
+                    name: self.hir.defs[op].name.to_string(),
+                    suspend: matches!(self.hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend),
+                })
                 .collect(),
             _ => Vec::new(),
         };
@@ -604,6 +610,7 @@ impl<'a> Lowerer<'a> {
             ops[index] = Some(Expr::Lambda {
                 params: ps,
                 body: Box::new(self.expr(body)),
+                suspends: false,
             });
         }
         if ops.iter().any(Option::is_none) {
@@ -617,6 +624,7 @@ impl<'a> Lowerer<'a> {
         (
             params,
             Expr::Handler {
+                name: hir.defs[def].name.to_string(),
                 effect: effect_id,
                 ops,
             },
@@ -721,6 +729,7 @@ impl<'a> Lowerer<'a> {
                     callee: Callee::Direct(f),
                     args,
                     fails: false,
+                    suspends: false,
                 },
             ));
         }
@@ -781,6 +790,7 @@ impl<'a> Lowerer<'a> {
             return Expr::Lambda {
                 params: ps,
                 body: Box::new(self.expr(body)),
+                suspends: false,
             };
         }
         let outer = self.ev;
@@ -817,6 +827,7 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params: ps,
             body: Box::new(body),
+            suspends: false,
         }
     }
 
@@ -855,7 +866,9 @@ impl<'a> Lowerer<'a> {
                     },
                     args,
                     fails,
+                    suspends: false,
                 }),
+                suspends: false,
             }),
         }
     }
@@ -1075,6 +1088,7 @@ impl<'a> Lowerer<'a> {
                 callee: Callee::Direct(self.fn_id(def)),
                 args: Vec::new(),
                 fails: false,
+                suspends: false,
             },
             _ => self.unsupported("reference to this kind of definition", span),
         }
@@ -1157,6 +1171,7 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params,
             body: Box::new(target.apply(args)),
+            suspends: false,
         }
     }
 
@@ -1514,6 +1529,7 @@ impl<'a> Lowerer<'a> {
                     callee: Callee::Direct(self.fn_id(*def)),
                     args: Vec::new(),
                     fails: false,
+                    suspends: false,
                 };
                 self.pat_guards.push(Expr::Binary {
                     op: BinOp::Eq,

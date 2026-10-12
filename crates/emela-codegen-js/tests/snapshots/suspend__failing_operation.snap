@@ -1,0 +1,46 @@
+---
+source: crates/emela-codegen-js/tests/suspend.rs
+expression: js
+---
+// Emela が生成したコード．
+import { $Fail, $perform, $start, $suspendOp } from "./emela_runtime.mjs";
+
+const $err$Oops = Object.freeze({ show: $show$Oops });
+
+const Oops$Oops = Object.freeze({ $tag: $err$Oops });
+
+function FailingClock() {
+  return { sleep: $suspendOp("FailingClock", "sleep", ((ms$0, resume$1) => {
+    return new $Fail(Oops$Oops);
+  })) };
+}
+
+function* main() {
+  const h$2 = FailingClock();
+  let $t0;
+  let $t1;
+  $x0: {
+    $e1: {
+      const $t2 = (yield $perform(h$2.sleep, [1]));
+      if ($t2 instanceof $Fail) { $t1 = $t2; break $e1; }
+      $t0 = $t2;
+      break $x0;
+    }
+    const $t3 = $t1.error;
+    if ($t3.$tag === $err$Oops) {
+      $t0 = 40;
+      break $x0;
+    }
+    return $t1;
+  }
+  const $t4 = $t0;
+  const $t5 = (yield $perform(h$2.sleep, [1]));
+  if ($t5 instanceof $Fail) return $t5;
+  return (($t4 + $t5) | 0);
+}
+
+function $show$Oops(v) {
+  return "Oops";
+}
+
+export { main, $start };

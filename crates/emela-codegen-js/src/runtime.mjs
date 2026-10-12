@@ -57,6 +57,152 @@ export function $wellFormed(s) {
   return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
 }
 
+// ---- 中断と再開（仕様 8.4，14.5，16.5）----
+//
+// 中断しうる関数はジェネレータで，中断しうる呼び出しは `yield*` でつなぐ．suspend fn の操作の呼び出しは
+// `yield $perform(op, args)`，`@external suspend fn` は `yield $await(promise)` で，要求を最も外側の
+// ジェネレータを進める駆動（$start）まで送る．駆動は要求ごとに resume を作って操作の実装を呼ぶ．
+// resume が操作の実装の中でその場で呼ばれれば，中断せずにそのまま続ける（14.5 の3）．後から呼ばれれば，
+// その呼び出しの中で継続を進める．
+
+class $Perform {
+  constructor(op, args) {
+    this.op = op;
+    this.args = args;
+  }
+}
+
+class $Await {
+  constructor(promise) {
+    this.promise = promise;
+  }
+}
+
+export function $perform(op, args) {
+  return new $Perform(op, args);
+}
+
+export function $await(promise) {
+  return new $Await(promise);
+}
+
+// suspend fn の操作の実装 `f` に，ハンドラと操作の名前を付ける（2回目の resume の defect の文面に使う）．
+export function $suspendOp(handler, op, f) {
+  f.$where = `operation \`${op}\` of handler \`${handler}\``;
+  return f;
+}
+
+const $GeneratorPrototype = Object.getPrototypeOf(function* () {}).prototype;
+
+function $isGenerator(x) {
+  return typeof x === "object" && x !== null && $GeneratorPrototype.isPrototypeOf(x);
+}
+
+// 中断しうる呼び出しで呼んだ関数の値（か fn の操作）が中断しないものだったときは，値をそのまま返す．
+export function* $maybe(result) {
+  return $isGenerator(result) ? yield* result : result;
+}
+
+// 1つの起動（main か，テスト関数）．`done(ok, value)` を1回だけ呼ぶ．
+// 終わった後に残った継続（resume されずに捨てられたものや，後から resume されたもの）は進めない（14.5）．
+class $Root {
+  constructor(done) {
+    this.done = done;
+    this.over = false;
+  }
+
+  finish(ok, value) {
+    if (this.over) return;
+    this.over = true;
+    this.done(ok, value);
+  }
+}
+
+// 中断しうる関数を呼んだジェネレータ `gen` を最後まで進める．`done(ok, value)` は，終われば
+// `(true, 戻り値)`，defect なら `(false, 例外)` で呼ばれる．中断したまま resume されなければ呼ばれない．
+// 返り値は止める関数で，呼ぶとそれ以降の継続を捨てる．
+export function $start(gen, done) {
+  const root = new $Root(done);
+  $step(root, gen, (ok, value) => root.finish(ok, value), "next", undefined);
+  return () => {
+    root.over = true;
+  };
+}
+
+// `gen` を `mode`（"next" か "throw"）と `input` で進め，次に中断するか終わるまで続ける．
+// 終われば `end(ok, value)` を呼ぶ．
+function $step(root, gen, end, mode, input) {
+  for (;;) {
+    if (root.over) return;
+    let r;
+    try {
+      r = mode === "next" ? gen.next(input) : gen.throw(input);
+    } catch (error) {
+      end(false, error);
+      return;
+    }
+    if (r.done) {
+      end(true, r.value);
+      return;
+    }
+    const request = r.value;
+    if (request instanceof $Await) {
+      // ホストの例外（拒否）は defect にして，待っていた位置へ投げる（12.5）．
+      Promise.resolve(request.promise).then(
+        (value) => $step(root, gen, end, "next", value),
+        (error) => $step(root, gen, end, "throw", $foreign(error)),
+      );
+      return;
+    }
+    const now = $performOp(root, gen, end, request);
+    if (now === undefined) return;
+    mode = now.mode;
+    input = now.value;
+  }
+}
+
+// suspend fn の操作の実装を，作った resume を最後の引数にして呼ぶ．その場で継続へ渡すもの
+// （`{ mode, value }`）があれば返し，中断したなら undefined を返す．
+//
+// 継続へ渡すのは，resume された値か，操作の実装の失敗（`$Fail`，操作の呼び出しの値になる）か defect の
+// どれか1つで，先に起きたもの．resume した後に実装が失敗したら defect にする．
+function $performOp(root, gen, end, request) {
+  const where = request.op?.$where ?? "a suspend operation";
+  let sync = true;
+  let now;
+  let used = false;
+  const pass = (mode, value) => {
+    used = true;
+    if (sync) now = { mode, value };
+    else $step(root, gen, end, mode, value);
+  };
+  const resume = (value) => {
+    if (root.over) return undefined;
+    if (used) throw new $Defect(`resume called twice in ${where}`);
+    pass("next", value);
+    return undefined;
+  };
+  const settled = (ok, value) => {
+    if (!ok) {
+      if (used) root.finish(false, value);
+      else pass("throw", value);
+    } else if (value instanceof $Fail) {
+      if (used) root.finish(false, new $Defect(`${where} failed after resume: ${value[Symbol.for("emela.fail")]()}`));
+      else pass("next", value);
+    }
+  };
+  try {
+    const result = request.op(...request.args, resume);
+    // 中断しうる実装（ジェネレータ）は，別の継続として同じ起動の中で進める．
+    if ($isGenerator(result)) $step(root, result, settled, "next", undefined);
+    else settled(true, result);
+  } catch (error) {
+    settled(false, error);
+  }
+  sync = false;
+  return now;
+}
+
 // assert（仕様 13.2）の失敗．`text` はソースの式の字面で，空でもよい．
 export function $assertFail(text) {
   throw new $Defect(text === "" ? "assertion failed" : `assertion failed: ${text}`);

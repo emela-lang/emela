@@ -12,6 +12,8 @@ use emela_driver::{
 };
 use emela_resolve::ModuleId;
 
+mod suspend;
+
 /// 手で組んだテストの IR を型検査の結果の代わりに返すフロントエンド．
 struct HandBuiltTests(TestModule);
 
@@ -577,5 +579,77 @@ fn printed() {
     assert_eq!(
         results,
         [("fixed", true), ("down", true), ("printed", true)]
+    );
+}
+
+#[test]
+fn suspended_tests_are_awaited_or_interrupted() {
+    // 中断しうるテスト関数は再開を待つ．resume されないまま終わったテストと，ホストのコールバックの
+    // 中で defect になったテストは，そのテストの失敗として報告して残りを続ける（14.5）．
+    let mut m = Module::new();
+    let resolve = suspend::resolve(&mut m);
+    let set_timeout = suspend::set_timeout(&mut m);
+    let (never, wait) = suspend::never(&mut m);
+    let mut tests = Vec::new();
+    let mut case = |m: &mut Module, name: &str, suspends: bool, body: Expr| {
+        let f = m.declare(name, false);
+        m.functions[f].suspends = suspends;
+        m.define(f, vec![], body);
+        tests.push(TestCase {
+            name: name.to_owned(),
+            function: f,
+        });
+    };
+    let awaited = Assert::compare(
+        BinOp::Eq,
+        OpTy::Int,
+        Type::Int,
+        call_suspends(resolve, vec![int(1)]),
+        int(1),
+        "resolve(1) == 1",
+    );
+    case(&mut m, "awaits", true, awaited);
+    let h = m.local("h");
+    let forever = Expr::With {
+        binds: vec![(h, call(never, vec![]))],
+        body: Box::new(suspend::forever(wait, h)),
+    };
+    case(&mut m, "waits_forever", true, forever);
+    let (h, x) = (m.local("h"), m.local("_"));
+    let late = Expr::With {
+        binds: vec![(h, call(never, vec![]))],
+        body: Box::new(let_(
+            x,
+            call(
+                set_timeout,
+                vec![
+                    lambda(vec![], builtin(Builtin::Panic, vec![string("late")])),
+                    int(0),
+                ],
+            ),
+            suspend::forever(wait, h),
+        )),
+    };
+    case(&mut m, "panics_later", true, late);
+    case(&mut m, "plain", false, unit());
+
+    let (report, out) = run_ir("suspend", TestModule { module: m, tests }, None);
+    let outcomes: Vec<_> = report
+        .results
+        .iter()
+        .map(|r| (r.name.as_str(), r.outcome.clone()))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            ("awaits", TestOutcome::Passed),
+            ("waits_forever", TestOutcome::Interrupted),
+            ("panics_later", TestOutcome::Defect("late".into())),
+            ("plain", TestOutcome::Passed),
+        ]
+    );
+    assert!(
+        out.contains("---- waits_forever ----\ninterrupted\n"),
+        "{out}"
     );
 }
