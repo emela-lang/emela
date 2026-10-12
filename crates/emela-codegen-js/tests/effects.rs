@@ -1,5 +1,6 @@
-//! エフェクト（仕様 8章）と外部関数（12章）の出力．IR を手で組み立てて JS を出し，node で実行する．
-//! ハンドラは証拠の表で渡して直接呼ぶ（16.5）．出力した JS は insta のスナップショットでも見る．
+//! Effects (spec chapter 8) and external functions (spec chapter 12). Builds IR by hand, emits JS
+//! and runs it on node. Handlers are passed in the evidence table and called directly (spec 16.5).
+//! The emitted JS is also snapshotted with insta.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -8,7 +9,7 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
-/// `main` を呼んで返り値を出力する．defect なら `defect: <メッセージ>` と出す．
+/// Calls `main` and prints its return value, or `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
   process.stdout.write(String(main()) + "\n");
@@ -36,9 +37,9 @@ fn run(name: &str, m: Module) -> String {
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
-        .expect("node を起動できない");
+        .expect("cannot start node");
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.is_empty(), "node が失敗した:\n{stderr}\n{js}");
+    assert!(stderr.is_empty(), "node failed:\n{stderr}\n{js}");
     insta::assert_snapshot!(name, js);
     String::from_utf8(out.stdout).unwrap()
 }
@@ -47,7 +48,7 @@ fn int_op(op: BinOp, a: Expr, b: Expr) -> Expr {
     bin(op, OpTy::Int, a, b)
 }
 
-/// ホストの関数 `path`（グローバルの参照）を呼ぶ外部関数．
+/// An external function calling the host function `path` (a global reference).
 fn external(m: &mut Module, name: &str, path: &str, params: Vec<Boundary>, ret: Boundary) -> FnId {
     let f = m.declare(name, false);
     let ps = (0..params.len()).map(|_| m.local("x")).collect();
@@ -172,7 +173,7 @@ fn handlers_are_passed_as_evidence() {
 
 #[test]
 fn host_strings_are_well_formed() {
-    // `String.fromCharCode(0xD800)` は対になっていないサロゲートを返す（12.5）．
+    // `String.fromCharCode(0xD800)` returns a lone surrogate (spec 12.5).
     let mut m = Module::new();
     let lone = external(
         &mut m,
@@ -187,7 +188,7 @@ fn host_strings_are_well_formed() {
 
 #[test]
 fn host_exceptions_are_defects() {
-    // `JSON.parse("{")` は SyntaxError を投げる（12.5）．
+    // `JSON.parse("{")` throws a SyntaxError (spec 12.5).
     let mut m = Module::new();
     let parse = external(
         &mut m,

@@ -1,6 +1,6 @@
 [package]
 name = "emela-codegen-js"
-description = "Core IR から JS を出力．ジェネレータ変換．JS ランタイムを埋め込んで持つ"
+description = "Emits JS from the Core IR: generator transform, embedded JS runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

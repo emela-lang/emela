@@ -1,14 +1,15 @@
-//! `assert`（仕様 13.2）の出力．
+//! Emits `assert` (spec 13.2).
 //!
-//! 比較の形なら両辺を1回ずつ評価して一時変数に入れ，比較が偽のときだけ両辺を表示関数で
-//! 文字列にして `$assertCmp` で defect を投げる．比較でない形は式の値だけを見る．
+//! For a comparison, each side is evaluated once into a temporary. Only when the comparison is
+//! false are both sides turned into strings with their show functions and a defect thrown with
+//! `$assertCmp`. Other forms only look at the value of the expression.
 
 use emela_core::{Assert, AssertCond, BinOp};
 
 use super::{Emitter, js_string, unparen};
 
 impl Emitter<'_> {
-    /// assert の文を出す．値（`()`）は呼び出し側が出す．
+    /// The value (`()`) is emitted by the caller.
     pub(super) fn assert(&mut self, a: &Assert) {
         let text = js_string(&a.text);
         match &a.cond {
@@ -26,9 +27,9 @@ impl Emitter<'_> {
                     BinOp::Le => "<=",
                     BinOp::Gt => ">",
                     BinOp::Ge => ">=",
-                    _ => panic!("不正な IR: assert の比較に {op:?} は使えない"),
+                    _ => panic!("invalid IR: {op:?} cannot be used in an assert comparison"),
                 };
-                // 両辺は比較と表示の2回使うので，必ず一時変数に入れる．
+                // Both sides are used twice (compare and show), so always bind them to temporaries.
                 let vs = self.values_in_order(&[lhs, rhs]);
                 let mut operands = Vec::with_capacity(2);
                 for v in vs {
