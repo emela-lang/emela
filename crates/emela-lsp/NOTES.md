@@ -13,6 +13,7 @@
 - `textDocument/completion` で文脈に合う名前を出す（`.` で起動する）
 - `textDocument/signatureHelp` で呼び出しの型とラベルを見せる（`(` と `,` で起動する）
 - `textDocument/rename` と `textDocument/prepareRename` で名前をプロジェクト全体で変える
+- `textDocument/inlayHint` で，ソースに書かない型と E，R を行の中に出す（9.3）
 - `textDocument/codeAction` で，トップレベルの fn の省いた注釈に推論結果を挿入する（4.5）
 
 ## しくみ
@@ -49,6 +50,7 @@
 - （補）シグネチャのヘルプは1つだけ返す（多重定義はない）．引数の範囲は `ParameterInformation` のラベルの中の UTF-16 の位置．カーソルの引数が引数の数を超えれば `activeParameter` を付けない
 - （補）名前の変更は `WorkspaceEdit` の `changes`（URI ごとの編集）で返す．開いていないファイルも同じく編集に入れる．変えられない名前と字句クラスの合わない新しい名前は `RequestFailed` の誤りの応答にし，文面（`this name cannot be renamed`，`` `figure` is not a valid type name ``）をエディタに出す．`prepareRename` は変えられなければ `null`
 - （補）コードアクションの種類は `refactor.rewrite`．診断に結び付けない（省いた注釈の linter の警告はまだない）．編集は `WorkspaceEdit` の `changes` で，そのファイルだけ
+- （補）インレイヒントの種類は，型と省いた注釈を `Type`，呼び出しの E と R を `Parameter` にした．型（`: Int`）は名前に続けて出し，ほかは左に空白を入れる．範囲の終わりがファイルの外なら，ファイルの終わりまでとみなす
 - （補）整形の `options`（`tabSize`，`insertSpaces`）は見ない．字下げは空白2つ，幅は 100 のまま（仕様の整形の規則に揃える）
 - （補）`publishDiagnostics` の `version` は，開いているファイルなら最後に受けた版，開いていなければ付けない
 - （補）毎回の解析で，診断のあるファイルは全部送り直す（変わっていなくても）．前回に送って今回ないファイルには空の配列を送る

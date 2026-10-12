@@ -173,6 +173,10 @@ alpha.3 で Instant を Clock のハンドラが作るために足した（2026-
   - 引数の関数型の見えない集合（`E(f)`）は書けず，書いた節に暗に足される（9.2）ので，E と R から除く．戻り値の型に見えない集合が現れるときは戻り値の型（と fails）を足さない
   - このファイルで修飾なしに書けない定義（import で列挙していない他のモジュールの型とエラー）が現れる節は足さない．修飾した名前（`Other.Hidden`）を作るのは後回し
   - 題は `Add inferred `-> Int fails NotFound`` の形
+- （補）インレイヒント（LSP）は `Frontend::inlay_hints`（`hints.rs`）．仕様 9.3「E と R は LSP が表示する」のために，次を出す
+  - トップレベルの fn の省いた注釈: 戻り値の型を省いていれば `-> T fails E use R`（E と R は空でなければ），use 節だけを省いていれば `use R`．見えない集合（`E(f)`）もホバーと同じくそのまま出す．コードアクション（4.5）と違い，書けるかどうかは見ない
+  - 型注釈のない束縛（パターンが変数1つのもの），ラムダの引数，handler の操作と impl の関数の引数の型 `: T`．能力の値（`use X` の値）と，推論の変数や壊れた型を含む型は出さない
+  - 文の位置（文，束縛の右辺，ブロックの末尾）の呼び出しとパイプの E と R（`fails E use R`）．どちらも空なら出さない．入れ子の呼び出しには出さない（行が埋まるため．入れ子の E はホバーで見る）
 - （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
 - （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む

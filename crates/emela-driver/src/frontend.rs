@@ -10,6 +10,7 @@ use la_arena::ArenaMap;
 use crate::actions::CodeAction;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
+use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::internal::check_internal;
 use crate::nav::{NavTarget, RenameError};
@@ -242,6 +243,15 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
         crate::nav::definition(program, analysis, file, offset)
+    }
+
+    fn inlay_hints(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        range: line_index::TextRange,
+    ) -> Vec<InlayHint> {
+        crate::hints::inlay_hints(program, analysis, file, range)
     }
 
     fn code_actions(

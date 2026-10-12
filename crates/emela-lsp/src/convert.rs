@@ -155,6 +155,25 @@ pub fn signature_help(info: &emela_driver::SignatureInfo) -> lsp::SignatureHelp 
     }
 }
 
+/// インレイヒントを LSP の形にする．型は `:` で始まるので左に空白を入れず，ほかは左に空白を入れる．
+pub fn inlay_hint(index: &LineIndex, hint: &emela_driver::InlayHint) -> lsp::InlayHint {
+    use emela_driver::HintKind;
+    let kind = match hint.kind {
+        HintKind::Type | HintKind::Signature => lsp::InlayHintKind::TYPE,
+        HintKind::Effect => lsp::InlayHintKind::PARAMETER,
+    };
+    lsp::InlayHint {
+        position: position(index, hint.offset),
+        label: lsp::InlayHintLabel::String(hint.label.clone()),
+        kind: Some(kind),
+        text_edits: None,
+        tooltip: None,
+        padding_left: Some(hint.kind != HintKind::Type),
+        padding_right: None,
+        data: None,
+    }
+}
+
 /// バイトの範囲を LSP の範囲にする．
 pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {
