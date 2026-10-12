@@ -77,6 +77,22 @@ impl BodyInfer<'_> {
                             },
                         );
                     }
+                    // init の E は with の E に入る（9.4）．release の E は空（8.4）．
+                    let parts: Vec<(ExprId, bool)> = self
+                        .handler_parts
+                        .iter()
+                        .filter(|p| p.handler == def)
+                        .map(|p| (p.body, p.release))
+                        .collect();
+                    for (body, release) in parts {
+                        let row = self.expr_row(body);
+                        if release {
+                            self.ctx.add_subset(row, Row::empty(), Origin::Release(def));
+                        } else {
+                            let fails = self.handler_init_fails(def);
+                            self.ctx.add_subset(row, fails, Origin::HandlerPart);
+                        }
+                    }
                     continue;
                 }
                 _ => continue,
@@ -260,7 +276,14 @@ impl BodyInfer<'_> {
                 row.extend(&self.expr_row(*base));
                 row
             }
-            ExprKind::With { body, .. } => self.expr_row(*body),
+            // with の E は，本体の E と，並べたハンドラの init の E（9.4）．
+            ExprKind::With { handlers, body } => {
+                let mut row = self.expr_row(*body);
+                for entry in crate::layer::with_entries(program, handlers) {
+                    row.extend(&self.handler_init_fails(entry.handler));
+                }
+                row
+            }
             // 本体の E はラムダの型の E に閉じ込める．表に出るのは呼んだとき（9.4）．
             ExprKind::Lambda { body, .. } => {
                 let body_row = self.expr_row(*body);
@@ -427,6 +450,7 @@ impl BodyInfer<'_> {
                 (Origin::HandlerOp { handler, index }, SetKind::Errors) => {
                     self.report_unhandled_op(*handler, *index, &missing)
                 }
+                (Origin::Release(handler), _) => self.report_release_fails(*handler, &missing),
                 (Origin::Body(def), SetKind::Effects) => {
                     let context = match self.program.item(*def) {
                         Some(Item::Const(_)) => EffectContext::Const,
@@ -455,7 +479,8 @@ impl BodyInfer<'_> {
                     self.diags.push(Diagnostic { span: *span, kind });
                 }
                 // ラムダの型の E と R，handler の依存は集合変数なので，必ず満たせる．
-                (Origin::Lambda, _) | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
+                (Origin::Lambda | Origin::HandlerPart, _)
+                | (Origin::HandlerOp { .. }, SetKind::Effects) => {}
             }
         }
 
@@ -532,6 +557,35 @@ impl BodyInfer<'_> {
             _ => false,
         };
         self.push_unhandled(body, declared, missing);
+    }
+
+    /// release が失敗しうる（E0420，8.4）．エラーを起こした式ごとにまとめて積む．
+    fn report_release_fails(&mut self, handler: DefId, missing: &[RowElem]) {
+        let program = self.program;
+        let Some(Item::Handler(item)) = program.item(handler) else {
+            return;
+        };
+        let Some((_, body)) = item.release else {
+            return;
+        };
+        let rows = self.resolved_rows(SetKind::Errors);
+        let cons = &self.ty_table.cons;
+        for (origin, elems) in self.group_by_origin(&rows, body, missing) {
+            let errors = elems
+                .iter()
+                .map(|e| {
+                    let row = Row::from_elems([e.clone()]);
+                    SmolStr::new(row.display_with(cons, &[]).to_string())
+                })
+                .collect();
+            self.diags.push(Diagnostic {
+                span: Some(self.program.exprs[origin].span),
+                kind: DiagnosticKind::ReleaseFails {
+                    handler: program.defs[handler].name.clone(),
+                    errors,
+                },
+            });
+        }
     }
 
     /// E0318 を，エラーを起こした式ごとにまとめて積む．

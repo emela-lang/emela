@@ -90,6 +90,8 @@ pub enum TyConKind {
     Enum,
     /// `error`（7.1）．同じ名前の型も定義する．
     Error,
+    /// handler の値（8.4）．ソースには書けず，handler の init の値と `self` の型にだけ現れる．
+    Handler,
 }
 
 /// 型引数の種類．種を書く構文はなく，使われた位置から決める（9.2）．

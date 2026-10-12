@@ -1,0 +1,20 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\nerror Boom\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn risky() -> () fails Boom { fail Boom }\n\nhandler Counter(n: Int) implements Logger {\n  init { Counter(n: 0) }\n  release { risky() }\n  fn info(msg) {\n    next = Counter(n: self.n + 1)\n    ()\n  }\n}\n\nhandler Careful(n: Int) implements Logger {\n  init { Careful(n: 1) }\n  release { risky() escape { Boom -> () } }\n  fn info(msg) { () }\n}\n\nhandler NoInit(n: Int) implements Logger {\n  fn info(msg) { () }\n}\n\nhandler WrongInit(n: Int) implements Logger {\n  init { 1 }\n  fn info(msg) { self.m }\n}\n\nhandler Plain implements Logger {\n  fn info(msg) {\n    me = self\n    ()\n  }\n}\n\nfn make() { Counter(n: 1) }\n\nfn lambda() { fn() { Counter(n: 1) } }\n\"#)"
+---
+risky: fn() -> () fails Boom
+make: fn() -> Counter
+lambda: fn() -> fn() -> Counter
+handler Counter: use {}
+handler Careful: use {}
+handler NoInit: use {}
+handler WrongInit: use {}
+handler Plain: use {}
+`risky()` ReleaseFails { handler: "Counter", errors: ["Boom"] }
+`Counter` HandlerCtorOutsideInit { handler: "Counter" }
+`NoInit` MissingInit { handler: "NoInit" }
+`1` mismatch: expected `WrongInit`, found `Int`
+`m` no field `m` on type `WrongInit`
+`Counter` HandlerCtorOutsideInit { handler: "Counter" }
+`Counter` HandlerCtorOutsideInit { handler: "Counter" }
+--- R

@@ -727,6 +727,67 @@ impl Diagnostic {
                     format!("handlers depend on each other: {}", path.join(" -> ")),
                 )
             }
+            TypeDiagnosticKind::HandlerCtorOutsideInit { handler } => {
+                help = Some(format!(
+                    "use `with {handler} {{ ... }}`; `init` and `release` run there"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::HANDLER_CTOR_OUTSIDE_INIT),
+                    format!("handler `{handler}` can only be constructed in its own `init`"),
+                )
+            }
+            TypeDiagnosticKind::MissingInit { handler } => {
+                help = Some(format!(
+                    "add `init {{ ... }}` that returns `{handler}(...)`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MISSING_INIT),
+                    format!("handler `{handler}` has fields but no `init`"),
+                )
+            }
+            TypeDiagnosticKind::ReleaseFails { handler, errors } => {
+                help = Some(
+                    "handle it with `escape`, or turn it into a defect with `panic`".to_owned(),
+                );
+                let list = quoted_list("error", "errors", errors);
+                (
+                    Severity::Error,
+                    Some(code::RELEASE_FAILS),
+                    format!(
+                        "`release` of handler `{handler}` cannot fail, but this may fail with {list}"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::DuplicateLayerEffect {
+                layer,
+                effect,
+                first,
+                second,
+            } => {
+                let message = if first == second {
+                    format!("handler `{first}` appears more than once in layer `{layer}`")
+                } else {
+                    format!(
+                        "effect `{effect}` is provided by both `{first}` and `{second}` in layer `{layer}`"
+                    )
+                };
+                if first != second {
+                    help = Some(format!(
+                        "keep one of them, or override it with `with {layer}, {second} {{ ... }}`"
+                    ));
+                }
+                (Severity::Error, Some(code::DUPLICATE_LAYER_EFFECT), message)
+            }
+            TypeDiagnosticKind::LayerCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|l| format!("`{l}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::LAYER_CYCLE),
+                    format!("layers include each other: {}", path.join(" -> ")),
+                )
+            }
             TypeDiagnosticKind::AsyncHandler { handler } => (
                 Severity::Error,
                 Some(code::ASYNC_HANDLER),

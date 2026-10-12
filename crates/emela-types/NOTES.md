@@ -102,9 +102,8 @@
 - （補）効果の集合の表示は書いた順でなく，タグを先，集合の型引数を後に並べる（`use { R, Quiet }` は `use { Quiet, R }` と出す）．要素の順に意味はない．
 - （補）`with H1, ..., Hn { e }` の R は，`e` の R から供給したエフェクトを消し，各ハンドラの依存を足したもの．ハンドラの依存のうち，同じ with の別のエフェクトを供給するハンドラが満たすものは足さない（14.2 の「同じ with で先に初期化されたハンドラ」）．自分と同じエフェクトへの依存は外側のハンドラが満たす．同じ with のハンドラが互いの効果に依存して循環すれば E0411．
 - （補）with で消すのはタグだけ．推論の集合変数は，消すエフェクトを除いた解を持つ新しい集合変数に置き換える（escape と同じ）．集合の型引数（見えない `R(f)` など）からは消さない．`fn run(f: fn() -> ()) { with Quiet { f() } }` の R は `R(f)` のまま（安全側）．
-- （補）handler の依存（9.4 の「依存(H)」）は，操作の本体の R の和．handler もまとまりの中の定義（グラフの頂点）で，with に書いた handler へ辺を張る．まとまりの中では集合変数で，推論し終えてから `ProgramTypes::handler_uses` に入れる．
+- （補）handler の依存（9.4 の「依存(H)」）は，init，release，操作の本体の R の和．handler もまとまりの中の定義（グラフの頂点）で，with に書いた handler へ辺を張る（layer は中のハンドラへの辺にする）．まとまりの中では集合変数で，推論し終えてから `ProgramTypes::handler_uses` に入れる．
 - （補）handler の検査: 1つのエフェクトの全部の操作を実装する（足りなければ E0404），同じ操作を2回実装しない（E0405），引数の数はエフェクトの操作の宣言と同じ（E0406）．エフェクトにない操作は名前解決が E0212 を出す．操作の本体の E は操作の宣言の `fails` に含まれる（E0318．文面は fn と同じ）．
-- （補）状態を持つ handler（フィールド，init，release）は「まだ扱えない」．その handler は推論せず，with に書いても依存は空として扱う．状態のない handler の `self` も「まだ扱えない」．with に layer を書くのも「まだ扱えない」．
 - （補）`use` を省略した `@external` の fn と `@external suspend fn` は，handler の操作の本体の中でしか使えない（E0407，12.2）．`suspend fn` は `use {}` を書いていても同じ．呼び出しに限らず参照で確かめる（関数の値として外へ持ち出せないように）．操作の本体の中の無名関数の中も「中」とみなす．
 - （補）能力の値の制約（8.2）は，型が決まった後に値の最上位の型だけを見る．呼び出しの引数は E0408（構成子の引数はデータ構造に入れることなので E0409），リスト・タプル・部分更新のフィールドは E0409，fn・handler の操作・無名関数の本体の値は E0410．無名関数の引数をそのまま返す無名関数は E0410 にしない（能力の値は引数として渡ってきたもので，渡した側が E0408 になる）．with の本体の値は見ない（capture set，8.6 は 0.22）．
 - （補）main（エントリのモジュールの `main` という名前の fn）とテスト関数の本体の R は，Async を除いて空でなければならない（E0402，8.3，13.3）．`use` 節を書いていても同じ．どれが main とテスト関数かは driver が決めて `CheckOptions` で渡す．
@@ -112,6 +111,24 @@
 - （補）E0402 は E0318 と同じく，宣言の R に含まれないエフェクトごとに，それを要求した最初の式（`use` か呼び出し）に出す．
 - （補）型の表示: 関数型の空の R は省く．引数の型の中では `use {}` と出す（E の `fails {}` と同じ理由）．効果の集合は要素が1つならそのまま，2つ以上なら `{ Logger, Clock }`（17.4），空なら `{}`．`fails` 節の後に `use` 節を出す．
 - （補）`ProgramTypes::effects` に各式の R，`ProgramTypes::ops` に能力の値の操作の参照（`Field` の式 → 操作の定義）を持つ．lowering はまだ使わない（次の段の evidence passing で使う）．
+
+## 状態のあるハンドラと layer（8.4，8.5，9.4，14.2）
+
+表現と展開は `layer.rs` の冒頭に書いた．ここには仕様にない判断を残す．
+
+- （補）ハンドラの値の型は，handler を `TyCons` に `TyConKind::Handler` として登録した名前付き型（型引数なし）．表示はハンドラの名前（`self: PostgresUsers`）．ソースには書けない（名前解決が型の位置の handler を E0217 にする）．init の値，release と操作の本体の `self` の型にだけ現れる．フィールドのない handler の `self` も同じ型で，フィールドを引けば E0312．
+- （補）フィールドは handler の構成子のシグネチャから引く（type と同じ．`self.conn`）．フィールドの関数型の `fails` と `use` を省けば空（9.2 の「宣言の中」）．
+- （補）init の値の型はハンドラの値（期待する型として本体に渡す）．フィールドのある handler で init がなければ E0419．フィールドのない handler の init は，括弧なしなら値の構成子 `ConsoleLogger`，`handler H()` なら `H()` を返す（emela-resolve の NOTES）．
+- （補）ハンドラの値の構成子を使えるのは，その handler の init の中だけ（E0418．init の中の無名関数の中も含む）．参照で確かめるので，部分更新 `H(n: 1, ..self)` も操作の本体の中では E0418．構成子のパターンは値を作らないので許す．
+- （補）release の値は捨てる．型は問わない．release の E は空でなければならない（E0420．起こした式ごとに出す）．release の R は依存に入る．release の中の suspend な操作の呼び出しは E0417 の対象外（release は fn の操作ではない）．
+- （補）init の E は handler ごとの集合変数（`ProgramTypes::handler_fails`）に入れ，with の E に足す（9.4 の `Ee ∪ (init の E)`）．with の E の和は，後ろに並べたもので上書きされずに残ったハンドラの init の E だけ．release の E は空なので足さない．
+- （補）with に並べた名前は，layer を中のハンドラに展開してから扱う（`layer::with_entries`）．同じエフェクトのハンドラが複数あれば，後ろのものだけを残し，前のものは初期化もしない（8.3 の「後ろが優先」）．with の R の引き算，依存の満たし方，init の E の和は，残ったハンドラで求める．
+- （補）初期化の順（`ProgramTypes::with_handlers`，`LayerInfo::handlers`）は依存(H)（init だけでなく release と操作の本体の R も含む）から決める．同じ with の別のエフェクトを供給するハンドラに依存するハンドラはその後．順が決まらないところは書いた順（layer は展開した順）を保つ．仕様 8.5 は「init の依存関係から」だが，14.2 の「操作の本体で使うエフェクトは同じ with で先に初期化されたハンドラが供給する」と，release が逆順に走ることを満たすため，依存(H) 全体にした．
+- （補）layer の誤りは layer の宣言で1回だけ出す（`check_layers`．全部のまとまりを推論し終えてから，依存の解で確かめる）．同じエフェクトを2つのハンドラが供給すれば E0421（2つ目を持ち込んだメンバーの位置．同じハンドラを2回並べても同じ E0421），layer が互いを含めば E0422（循環の中で最初に定義した layer の位置に1回），ハンドラの依存が循環すれば E0411（layer のメンバーの位置）．入れ子の layer の中だけの重複と循環は内側の layer で報告し，外側では繰り返さない．with でも，layer 1つの中だけの循環は報告しない．
+- （補）互いを含む layer は，展開で2回目に出会ったところで止める（中身は空として続ける）．
+- （補）layer の中で満たされない依存（`LayerInfo::uses`）は，展開したハンドラの依存のうち，layer の中の別のエフェクトのハンドラが供給しないもの．with の R に残る（8.5）．
+- （補）型の表示: ハンドラの値は名前だけ（`DbUsers`）．ホバーは handler の名前にフィールドと init の E を足し，layer の名前に初期化の順のハンドラと満たされない依存を出す（emela-driver の NOTES）．
+- （補）lowering は第3段．`emela build` は状態のある handler，layer，`self` を `Unsupported` にして panic しない（emela-core）．
 
 ## suspend，Async，Immediate（8.1，8.4，8.7，9.5，12.2）
 
@@ -201,7 +218,12 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0408 `CapabilityArgument`: ``a capability cannot be passed as an argument``．注記 ``= help: pass a closure that uses the capability instead``
 - E0409 `CapabilityInData`: ``a capability cannot be stored in a data structure``
 - E0410 `CapabilityReturned`: ``a capability cannot be returned from a function``
-- E0411 `HandlerCycle`: ``handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped` ``
+- E0411 `HandlerCycle`: ``handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped` ``（with と layer で同じ）
+- E0418 `HandlerCtorOutsideInit`: ``handler `Counter` can only be constructed in its own `init` ``．注記 ``= help: use `with Counter { ... }`; `init` and `release` run there``
+- E0419 `MissingInit`: ``handler `NoInit` has fields but no `init` ``．注記 ``= help: add `init { ... }` that returns `NoInit(...)` ``
+- E0420 `ReleaseFails`: ``` `release` of handler `Counter` cannot fail, but this may fail with error `Boom` ```．注記 ``= help: handle it with `escape`, or turn it into a defect with `panic` ``
+- E0421 `DuplicateLayerEffect`: ``effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud` ``．注記 ``= help: keep one of them, or override it with `with Loud, Quiet { ... }` ``．同じハンドラなら ``handler `Quiet` appears more than once in layer `Twice` ``（注記なし）
+- E0422 `LayerCycle`: ``layers include each other: `LoopA` -> `LoopB` -> `LoopA` ``
 - E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
 - E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``

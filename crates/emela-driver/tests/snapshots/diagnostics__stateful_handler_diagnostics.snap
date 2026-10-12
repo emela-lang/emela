@@ -1,0 +1,65 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0420]: `release` of handler `Counter` cannot fail, but this may fail with error `Boom`
+    ╭─[ main.emel:19:13 ]
+    │
+ 19 │   release { risky() }
+    │             ───┬───  
+    │                ╰───── 
+────╯
+   = help: handle it with `escape`, or turn it into a defect with `panic`
+
+error[E0419]: handler `NoInit` has fields but no `init`
+    ╭─[ main.emel:23:9 ]
+    │
+ 23 │ handler NoInit(n: Int) implements Logger {
+    │         ───┬──  
+    │            ╰──── 
+────╯
+   = help: add `init { ... }` that returns `NoInit(...)`
+
+error[E0421]: effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud`
+    ╭─[ main.emel:41:3 ]
+    │
+ 41 │   Quiet
+    │   ──┬──  
+    │     ╰──── 
+────╯
+   = help: keep one of them, or override it with `with Loud, Quiet { ... }`
+
+error[E0421]: handler `Quiet` appears more than once in layer `Twice`
+    ╭─[ main.emel:44:22 ]
+    │
+ 44 │ layer Twice { Quiet, Quiet }
+    │                      ──┬──  
+    │                        ╰──── 
+────╯
+
+error[E0422]: layers include each other: `LoopA` -> `LoopB` -> `LoopA`
+    ╭─[ main.emel:46:7 ]
+    │
+ 46 │ layer LoopA { LoopB }
+    │       ──┬──  
+    │         ╰──── 
+────╯
+
+error[E0411]: handlers depend on each other: `HPing` -> `HPong` -> `HPing`
+    ╭─[ main.emel:51:3 ]
+    │
+ 51 │   HPing
+    │   ──┬──  
+    │     ╰──── 
+────╯
+
+error[E0418]: handler `Counter` can only be constructed in its own `init`
+    ╭─[ main.emel:55:13 ]
+    │
+ 55 │ fn make() { Counter(n: 1) }
+    │             ───┬───  
+    │                ╰───── 
+────╯
+   = help: use `with Counter { ... }`; `init` and `release` run there
+
+7 errors

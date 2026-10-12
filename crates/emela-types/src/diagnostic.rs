@@ -118,9 +118,29 @@ pub enum DiagnosticKind {
     CapabilityInData,
     /// 能力の値を関数から返した（E0410，8.2）．
     CapabilityReturned,
-    /// 同じ with に並べたハンドラが，互いの効果に依存して循環している（E0411，8.3，14.2）．
-    /// `cycle` は循環をたどるハンドラの名前（最初のハンドラを最後にもう一度入れる）．
+    /// 同じ with か layer に並べたハンドラが，互いの効果に依存して循環している（E0411，8.3，8.5，
+    /// 14.2）．`cycle` は循環をたどるハンドラの名前（最初のハンドラを最後にもう一度入れる）．
     HandlerCycle { cycle: Vec<SmolStr> },
+    /// ハンドラの値の構成子を，そのハンドラの init の外で使った（E0418，8.4）．
+    HandlerCtorOutsideInit { handler: SmolStr },
+    /// フィールドのあるハンドラに init がない（E0419，8.4）．
+    MissingInit { handler: SmolStr },
+    /// release が失敗しうる（E0420，8.4）．`errors` はその式から起きうるエラー．
+    ReleaseFails {
+        handler: SmolStr,
+        errors: Vec<SmolStr>,
+    },
+    /// layer の中で同じエフェクトを2つのハンドラが供給する（E0421，8.5）．`first` が先に
+    /// 並べたハンドラ．同じハンドラを2回並べたときは `first` と `second` が同じ．
+    DuplicateLayerEffect {
+        layer: SmolStr,
+        effect: SmolStr,
+        first: SmolStr,
+        second: SmolStr,
+    },
+    /// layer が互いを含んで循環している（E0422，8.5）．`cycle` は循環をたどる layer の名前
+    /// （最初の layer を最後にもう一度入れる）．
+    LayerCycle { cycle: Vec<SmolStr> },
     /// 組み込みのエフェクト Async のハンドラを書いた（E0413，8.7）．
     AsyncHandler { handler: SmolStr },
     /// `use Async` を書いた（E0414，8.7）．Async は操作を持たず，供給するのはランタイムだけ．

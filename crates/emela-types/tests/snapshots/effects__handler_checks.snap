@@ -15,6 +15,6 @@ handler Sleepy: use {}
 `msg + 1` mismatch: expected `()`, found `String`
 `msg + 1` not numeric (integer: false): `String`
 `1` mismatch: expected `String`, found `Int`
-`self` not supported yet: `self` in handlers without fields
-`Stateful` not supported yet: handlers with fields, `init` or `release`
+`self` mismatch: expected `()`, found `Typed`
+`Stateful` MissingInit { handler: "Stateful" }
 --- R

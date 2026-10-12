@@ -321,7 +321,8 @@ impl<'a> Resolver<'a> {
                 ast::Item::Type(it) if it.field_list().is_some() => {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
-                ast::Item::Handler(it) if it.field_list().is_some() => {
+                // フィールドのない handler も，init があれば値を作る構成子が要る（8.4）．
+                ast::Item::Handler(it) if it.field_list().is_some() || it.init().is_some() => {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
                 ast::Item::Enum(it) => {

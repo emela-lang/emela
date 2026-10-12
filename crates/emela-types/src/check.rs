@@ -12,8 +12,9 @@ use emela_resolve::hir::{
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
 
-use crate::body::BodyInfer;
+use crate::body::{BodyInfer, HandlerFacts};
 use crate::diagnostic::{Diagnostic, EffectContext};
+use crate::layer::{self, LayerInfo};
 use crate::lower::TyTable;
 use crate::row::{Row, RowVar};
 use crate::signature::Signatures;
@@ -57,8 +58,15 @@ pub struct ProgramTypes {
     pub effects: ArenaMap<ExprId, Row>,
     /// 能力の値の操作の参照（`log.info` の `Field` の式）→ effect の操作の定義．
     pub ops: ArenaMap<ExprId, DefId>,
-    /// handler の依存（操作の本体の R の和．8.4 の「依存」）．推論した handler だけ．
+    /// handler の依存（init，release，操作の本体の R の和．9.4 の「依存(H)」）．推論した handler だけ．
     pub handler_uses: ArenaMap<DefId, Row>,
+    /// handler の init の E．with の E に入る（9.4）．推論した handler だけ．
+    pub handler_fails: ArenaMap<DefId, Row>,
+    /// with の式 → 初期化の順に並べたハンドラ（14.2）．layer は展開し，同じエフェクトのハンドラは
+    /// 後ろに並べたものだけを残す（8.3，8.5）．release はこの逆順．
+    pub with_handlers: ArenaMap<ExprId, Vec<DefId>>,
+    /// layer → 展開した中身（初期化の順のハンドラと，layer の中で満たされない依存）．
+    pub layers: ArenaMap<DefId, LayerInfo>,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -108,6 +116,9 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         effects: ArenaMap::default(),
         ops: ArenaMap::default(),
         handler_uses: ArenaMap::default(),
+        handler_fails: ArenaMap::default(),
+        with_handlers: ArenaMap::default(),
+        layers: ArenaMap::default(),
         diags,
     };
 
@@ -116,7 +127,10 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             program,
             &types.ty_table,
             &sigs,
-            &types.handler_uses,
+            HandlerFacts {
+                uses: &types.handler_uses,
+                fails: &types.handler_fails,
+            },
             &closed,
         );
         for &def in &group {
@@ -167,9 +181,14 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             .extend(body.effects.iter().map(|(id, row)| (id, row.clone())));
         types.ops.extend(body.ops.iter().map(|(id, &op)| (id, op)));
         types.handler_uses.extend(body.handler_uses);
+        types.handler_fails.extend(body.handler_fails);
+        types
+            .with_handlers
+            .extend(body.with_handlers.iter().map(|(id, hs)| (id, hs.clone())));
         types.diags.extend(body.diags);
     }
 
+    types.layers = layer::check_layers(program, &types.handler_uses, &mut types.diags);
     types.sigs = sigs;
     types
 }
@@ -191,9 +210,16 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
 
     let mut edges: FxHashMap<DefId, Vec<DefId>> = FxHashMap::default();
     for &def in &nodes {
+        // with に書いた layer は，中のハンドラへの辺にする（8.5）．
         let mut refs: Vec<DefId> = body_refs(program, def)
             .into_iter()
-            .map(|(r, _)| r)
+            .flat_map(|(r, _)| match program.item(r) {
+                Some(Item::Layer(_)) => layer::flatten(program, r)
+                    .into_iter()
+                    .map(|(h, _)| h)
+                    .collect(),
+                _ => vec![r],
+            })
             .collect();
         refs.retain(|r| is_node.contains_key(r));
         refs.dedup();

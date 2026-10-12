@@ -867,6 +867,32 @@ fn hover_shows_suspend_and_async() {
     client.shutdown();
 }
 
+/// 状態のあるハンドラと layer（8.4，8.5）．handler の名前にはフィールドと init の E と依存，
+/// layer の名前には初期化の順のハンドラと満たされない依存，`self` にはハンドラの値の型を出す．
+#[test]
+fn hover_shows_stateful_handlers_and_layers() {
+    let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String) implements Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 12, 10)),
+        "```emela\nhandler DbUsers(conn: String) implements Users\ninit fails Down\nuse Config\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 16)),
+        "```emela\nself: DbUsers\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 17, 7)),
+        "```emela\nlayer App { DbUsers }\nuse Config\n```"
+    );
+    client.shutdown();
+}
+
 /// エフェクトと集合の型引数を混ぜた use 節（8.3）．with の中では書き出したエフェクトが見え，
 /// with の外では集合の型引数だけが残る．
 #[test]
@@ -1625,6 +1651,18 @@ fn completion_after_dot_chains() {
     // 書きかけの名前があっても同じ．
     client.change(MAIN, 4, &with("l.to.x"));
     assert_eq!(labels(&client.complete(MAIN, 12, 8).unwrap()), ["x", "y"]);
+    drain(&client);
+    client.shutdown();
+}
+
+/// ハンドラの値（`self.`）の後ろにはフィールドを出す（8.4）．
+#[test]
+fn completion_of_handler_fields() {
+    let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int) implements Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let items = client.complete(MAIN, 6, 21).unwrap();
+    assert_eq!(labels(&items), ["url", "port"]);
     drain(&client);
     client.shutdown();
 }

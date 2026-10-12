@@ -15,6 +15,15 @@ use emela_types::{CheckOptions, check_program_with};
 use common::{describe, resolve_main};
 
 fn render_effects(src: &str) -> String {
+    render(src, false)
+}
+
+/// `render_effects` に，handler の init の E，with の初期化の順，layer の展開を足したもの．
+fn render_handlers(src: &str) -> String {
+    render(src, true)
+}
+
+fn render(src: &str, handlers: bool) -> String {
     let (program, module, resolve_diagnostics) = resolve_main(src);
     let in_main =
         |def: emela_resolve::hir::DefId| program.defs[def].module == DefModule::Source(module);
@@ -51,6 +60,48 @@ fn render_effects(src: &str) -> String {
                 row.display_effects(cons, &[])
             )
             .unwrap();
+        }
+    }
+    if handlers {
+        for (def, row) in types.handler_fails.iter() {
+            if in_main(def) && !row.is_empty() {
+                writeln!(
+                    out,
+                    "handler {}: init fails {}",
+                    program.defs[def].name,
+                    row.display(cons)
+                )
+                .unwrap();
+            }
+        }
+        for (def, layer) in types.layers.iter() {
+            if in_main(def) {
+                let names: Vec<&str> = layer
+                    .handlers
+                    .iter()
+                    .map(|&h| program.defs[h].name.as_str())
+                    .collect();
+                writeln!(
+                    out,
+                    "layer {}: [{}] use {}",
+                    program.defs[def].name,
+                    names.join(", "),
+                    layer.uses.display_effects(cons, &[])
+                )
+                .unwrap();
+            }
+        }
+        let mut withs: Vec<_> = types
+            .with_handlers
+            .iter()
+            .map(|(expr, hs)| (program.exprs[expr].span.range, hs))
+            .collect();
+        withs.sort_by_key(|(range, _)| range.start());
+        for (range, hs) in withs {
+            let text = &src[usize::from(range.start())..usize::from(range.end())];
+            let head = text.split('{').next().unwrap_or(text).trim();
+            let names: Vec<&str> = hs.iter().map(|&h| program.defs[h].name.as_str()).collect();
+            writeln!(out, "{head}: init [{}]", names.join(", ")).unwrap();
         }
     }
     for d in &resolve_diagnostics {
@@ -293,7 +344,7 @@ fn caller() {
 }
 
 /// handler の検査（8.4）: 全部の操作を1回ずつ実装する，引数の数はエフェクトから，
-/// 操作の本体の E は宣言の fails を超えない．状態を持つ handler と suspend はまだ扱わない．
+/// 操作の本体の E は宣言の fails を超えない．フィールドのある handler には init が要る．
 #[test]
 fn handler_checks() {
     insta::assert_snapshot!(render_effects(
@@ -952,6 +1003,267 @@ fn wrap[E, R](h: Handler[E, R]) -> Handler[E | Timeout, { R, Log }] {
 }
 
 fn misplaced(a: Handler[{ Db }, Db], b: Handler[NotFound, NotFound | Timeout], c: List[{}], d: Handler[NotFound | Db, {}]) { () }
+"#
+    ));
+}
+
+/// 状態のあるハンドラ（8.4）: フィールドの型と `self`，init の値はハンドラの値，init の中の use と
+/// release の中の use は依存，init の E は with の E に入る（9.4）．release の中で suspend な操作を
+/// 呼んでよい．with の初期化の順は依存から決まる（14.2）．
+#[test]
+fn stateful_handlers() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+error DbDown
+
+type Connection(url: String)
+
+effect Config {
+  fn db_url() -> String
+}
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+fn connect(url: String) -> Connection fails DbDown {
+  if url == "" { fail DbDown } else { Connection(url:) }
+}
+
+handler PostgresUsers(conn: Connection) implements Users {
+  init {
+    config = use Config
+    PostgresUsers(conn: connect(config.db_url()))
+  }
+
+  release {
+    (use Logger).info(self.conn.url)
+    (use Clock).sleep(10)
+  }
+
+  fn find(id) { self.conn.url }
+}
+
+handler EnvConfig implements Config {
+  fn db_url() { "postgres://" }
+}
+
+handler Quiet implements Logger {
+  init { Quiet }
+  release { () }
+  fn info(msg) { () }
+}
+
+handler Unit() implements Logger {
+  init { Unit() }
+  fn info(msg) { () }
+}
+
+fn lookup() {
+  with EnvConfig, PostgresUsers { (use Users).find(1) }
+}
+
+fn reversed() {
+  with PostgresUsers, EnvConfig { (use Users).find(1) }
+}
+
+fn logged() {
+  with Quiet, EnvConfig, PostgresUsers { (use Users).find(1) }
+}
+"#
+    ));
+}
+
+/// 状態のあるハンドラの誤り: ハンドラの値を init の外で作る（E0418），フィールドがあるのに init が
+/// ない（E0419），release が失敗しうる（E0420），init の値の型，ないフィールド．
+#[test]
+fn stateful_handler_errors() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+error Boom
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn risky() -> () fails Boom { fail Boom }
+
+handler Counter(n: Int) implements Logger {
+  init { Counter(n: 0) }
+  release { risky() }
+  fn info(msg) {
+    next = Counter(n: self.n + 1)
+    ()
+  }
+}
+
+handler Careful(n: Int) implements Logger {
+  init { Careful(n: 1) }
+  release { risky() escape { Boom -> () } }
+  fn info(msg) { () }
+}
+
+handler NoInit(n: Int) implements Logger {
+  fn info(msg) { () }
+}
+
+handler WrongInit(n: Int) implements Logger {
+  init { 1 }
+  fn info(msg) { self.m }
+}
+
+handler Plain implements Logger {
+  fn info(msg) {
+    me = self
+    ()
+  }
+}
+
+fn make() { Counter(n: 1) }
+
+fn lambda() { fn() { Counter(n: 1) } }
+"#
+    ));
+}
+
+/// layer（8.5）: 中身はハンドラか別の layer．初期化の順は依存から決まり，満たされない依存は with の
+/// R に残る．同じエフェクトを2つのハンドラが供給する（E0421），互いを含む（E0422），依存が循環する
+/// （E0411）は layer の宣言で報告する．`with AppLive, FixedClock` は後ろが優先される．
+#[test]
+fn layers() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Config {
+  fn db_url() -> String
+}
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+effect Clock {
+  fn now() -> Int
+}
+
+effect Ping {
+  fn ping() -> ()
+}
+
+effect Pong {
+  fn pong() -> ()
+}
+
+handler EnvConfig implements Config {
+  fn db_url() { "x" }
+}
+
+handler ConsoleLogger implements Logger {
+  fn info(msg) { () }
+}
+
+handler SilentLogger implements Logger {
+  fn info(msg) { () }
+}
+
+handler FixedClock implements Clock {
+  fn now() { 0 }
+}
+
+handler RealClock implements Clock {
+  fn now() {
+    (use Logger).info("now")
+    1
+  }
+}
+
+handler DbUsers(url: String) implements Users {
+  init { DbUsers(url: (use Config).db_url()) }
+  fn find(id) {
+    (use Logger).info(self.url)
+    self.url
+  }
+}
+
+handler HPing implements Ping {
+  fn ping() { (use Pong).pong() }
+}
+
+handler HPong implements Pong {
+  fn pong() { (use Ping).ping() }
+}
+
+layer Base {
+  ConsoleLogger
+  RealClock
+}
+
+layer AppLive {
+  DbUsers
+  Base
+  EnvConfig
+}
+
+layer Partial {
+  DbUsers
+  ConsoleLogger
+}
+
+layer Dup {
+  ConsoleLogger
+  SilentLogger
+}
+
+layer DupNested {
+  Dup
+  Base
+}
+
+layer Twice { ConsoleLogger, ConsoleLogger }
+
+layer LoopA { LoopB }
+
+layer LoopB { LoopA }
+
+layer PingPong {
+  HPing
+  HPong
+}
+
+fn main() {
+  with AppLive { (use Users).find(1) }
+}
+
+fn partial() {
+  with Partial { (use Users).find(1) }
+}
+
+fn test_override() {
+  with AppLive, FixedClock { (use Clock).now() }
+}
+
+fn later_wins() {
+  with ConsoleLogger, SilentLogger { (use Logger).info("x") }
+}
+
+fn ping_pong() {
+  with PingPong { (use Ping).ping() }
+}
+
+fn loops() {
+  with LoopA { () }
+}
 "#
     ));
 }

@@ -37,6 +37,11 @@ pub(crate) enum Origin {
     Body(DefId),
     /// handler の `index` 番目の操作の本体の E が，エフェクトの操作の宣言の E に含まれる（8.1）．
     HandlerOp { handler: DefId, index: usize },
+    /// handler の init と release の本体の R が依存に，init の E が init の E の集合変数に
+    /// 含まれる（8.4，9.4）．どちらも集合変数なので必ず満たせる．
+    HandlerPart,
+    /// handler の release の本体の E が空である（8.4）．
+    Release(DefId),
     /// main かテスト関数の本体の R が空である（8.3，13.3）．
     Closed(DefId),
     /// ラムダの本体の E（R）が，ラムダの型の E（R）に含まれる．必ず満たせる．

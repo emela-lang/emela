@@ -6,23 +6,22 @@
 //! - `use X` の R は `{X}`．分岐の中に書いても，部分式の R は親の式に合流するので関数全体の R に載る（8.2）．
 //! - 呼び出しの R は，呼ばれる側の関数型の R を足す．能力の値の操作の型の R はそのエフェクト．
 //! - `with H1, ..., Hn { e }` の R は，`e` の R から供給したエフェクトを消し，各ハンドラの依存を
-//!   足したもの（9.4）．ハンドラの依存のうち，同じ with の別のエフェクトを供給するハンドラが
+//!   足したもの（9.4）．layer は中のハンドラに展開する（8.5，`crate::layer`）．ハンドラの依存のうち，同じ with の別のエフェクトを供給するハンドラが
 //!   満たすものは足さない（14.2）．集合変数からは，消すエフェクトを除いた解を持つ新しい集合変数に
 //!   置き換えて消す．集合の型引数（中身の分からない集合）からは消さない．
 //! - 無名関数は本体の R を関数型に閉じ込める．
 //! - 本体の R は宣言の R に含まれる．`use` 節を書いていなければ宣言の R は集合変数で，本体の R が
 //!   そのまま解になる（9.3）．main とテスト関数の本体の R は，Async を除いて空でなければならない
 //!   （8.3，13.3）．
-//! - handler の依存は操作の本体の R の和（集合変数）．resume を後から呼びうる suspend fn の実装は，
+//! - handler の依存は init，release，操作の本体の R の和（集合変数）．resume を後から呼びうる suspend fn の実装は，
 //!   Async も依存に足す（8.7，`body/suspend.rs`）．
 //! - main とテスト関数の本体の R は Async だけを含んでよい（Async はランタイムが供給する）．
 
 use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, Res, Span};
-use smol_str::SmolStr;
 
 use super::BodyInfer;
-use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
+use crate::layer;
 use crate::row::{Row, RowElem};
 use crate::ty::Ty;
 
@@ -91,6 +90,23 @@ impl BodyInfer<'_> {
                             },
                         );
                     }
+                    // init と release の本体の R も依存（9.4）．release の中で suspend な操作を
+                    // 呼んでよい（8.4）．
+                    let parts: Vec<ExprId> = self
+                        .handler_parts
+                        .iter()
+                        .filter(|p| p.handler == def)
+                        .map(|p| p.body)
+                        .collect();
+                    for body in parts {
+                        let row = self.expr_effects(body);
+                        self.ctx.add_subset_of(
+                            SetKind::Effects,
+                            row,
+                            deps.clone(),
+                            Origin::HandlerPart,
+                        );
+                    }
                 }
                 _ => {}
             }
@@ -117,7 +133,7 @@ impl BodyInfer<'_> {
                 }
                 Row::empty()
             }
-            ExprKind::With { handlers, body } => self.with_effects(handlers, *body),
+            ExprKind::With { handlers, body } => self.with_effects(expr, handlers, *body),
             ExprKind::Call { callee, .. } => {
                 let mut row = self.sub_effects(expr);
                 row.extend(&self.callee_uses(*callee));
@@ -159,39 +175,29 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// `with H1, ..., Hn { body }` の R（8.3，9.4）．
-    fn with_effects(&mut self, handlers: &[(Res, Span)], body: ExprId) -> Row {
+    /// `with H1, ..., Hn { body }` の R（8.3，8.5，9.4）．layer は展開し，同じエフェクトのハンドラは
+    /// 後ろを残す（`crate::layer::with_entries`）．
+    fn with_effects(&mut self, expr: ExprId, handlers: &[(Res, Span)], body: ExprId) -> Row {
         let program = self.program;
         let body_row = self.expr_effects(body);
-        // （handler，供給するエフェクト，依存，位置）．layer はまだ扱わない（推論で診断を出した）．
-        let mut entries: Vec<(DefId, DefId, Row, Span)> = Vec::new();
-        for &(res, span) in handlers {
-            let Res::Def(h) = res else {
-                continue;
-            };
-            let Some(Item::Handler(item)) = program.item(h) else {
-                continue;
-            };
-            let Res::Def(effect) = item.effect else {
-                continue;
-            };
-            // Async のハンドラは誤り（E0413）．Async を消さない．
-            if program.prelude_def("Async") == Some(effect) {
-                continue;
-            }
-            entries.push((h, effect, self.handler_deps(h), span));
-        }
-        let provided: Vec<DefId> = entries.iter().map(|e| e.1).collect();
+        let entries = layer::with_entries(program, handlers);
+        let deps: Vec<Row> = entries
+            .iter()
+            .map(|e| self.handler_deps(e.handler))
+            .collect();
+        let provided: Vec<DefId> = entries.iter().map(|e| e.effect).collect();
         let mut row = self.subtract(&body_row, &provided);
         // ハンドラの依存は，同じ with で別のエフェクトを供給するハンドラが満たしてよい（14.2）．
-        // 自分と同じエフェクトは外側のハンドラが満たす．
-        for (_, effect, deps, _) in &entries {
-            let others: Vec<DefId> = provided.iter().copied().filter(|e| e != effect).collect();
+        // 自分と同じエフェクトは外側のハンドラが満たす．layer の中で満たされない依存も残る（8.5）．
+        for (entry, deps) in entries.iter().zip(&deps) {
+            let others: Vec<DefId> = provided
+                .iter()
+                .copied()
+                .filter(|e| *e != entry.effect)
+                .collect();
             row.extend(&self.subtract(deps, &others));
         }
-        if entries.len() > 1 {
-            self.withs.push(entries);
-        }
+        self.withs.push((expr, entries, deps));
         row
     }
 
@@ -213,77 +219,24 @@ impl BodyInfer<'_> {
         out
     }
 
-    /// 同じ with に並べたハンドラが，互いの効果に依存して循環していないか確かめる（E0411）．
-    /// 集合を解いた後に，依存の解で確かめる．
+    /// 同じ with に並べたハンドラの初期化の順を決める（14.2）．依存が循環すれば E0411．
+    /// 集合を解いた後に，依存の解で確かめる．layer の中だけの循環は layer の宣言で報告する．
     pub(super) fn check_handler_cycles(&mut self) {
         let program = self.program;
-        for entries in std::mem::take(&mut self.withs) {
-            let deps: Vec<Row> = entries
-                .iter()
-                .map(|(_, _, deps, _)| self.ctx.resolve_row(deps))
-                .collect();
-            // i が j に依存する: i の依存に j のエフェクトがあり，j が別のエフェクトを供給する．
-            let edges = |i: usize| -> Vec<usize> {
-                (0..entries.len())
-                    .filter(|&j| {
-                        j != i
-                            && entries[j].1 != entries[i].1
-                            && deps[i].contains(&RowElem::Tag(entries[j].1))
-                    })
-                    .collect()
+        for (expr, entries, deps) in std::mem::take(&mut self.withs) {
+            let deps: Vec<Row> = deps.iter().map(|d| self.ctx.resolve_row(d)).collect();
+            let order = match layer::init_order(&entries, &deps) {
+                Ok(order) => order,
+                Err(cycle) => {
+                    if !layer::same_inner_layer(&entries, &cycle) {
+                        self.diags
+                            .push(layer::cycle_diagnostic(program, &entries, &cycle));
+                    }
+                    (0..entries.len()).collect()
+                }
             };
-            let Some(cycle) = find_cycle(entries.len(), edges) else {
-                continue;
-            };
-            let mut names: Vec<SmolStr> = cycle
-                .iter()
-                .map(|&i| program.defs[entries[i].0].name.clone())
-                .collect();
-            names.push(names[0].clone());
-            self.diags.push(Diagnostic {
-                span: Some(entries[cycle[0]].3),
-                kind: DiagnosticKind::HandlerCycle { cycle: names },
-            });
+            self.with_handlers
+                .insert(expr, order.iter().map(|&i| entries[i].handler).collect());
         }
     }
-}
-
-/// 有向グラフの循環を1つ探す．循環をたどる頂点の並び（最初の頂点は1回だけ）．
-fn find_cycle(n: usize, edges: impl Fn(usize) -> Vec<usize>) -> Option<Vec<usize>> {
-    // 0: 未訪問，1: 訪問中，2: 済み．
-    fn visit(
-        v: usize,
-        edges: &dyn Fn(usize) -> Vec<usize>,
-        state: &mut [u8],
-        path: &mut Vec<usize>,
-    ) -> Option<Vec<usize>> {
-        state[v] = 1;
-        path.push(v);
-        for w in edges(v) {
-            if state[w] == 1 {
-                let start = path
-                    .iter()
-                    .position(|&p| p == w)
-                    .expect("訪問中の頂点は道にある");
-                return Some(path[start..].to_vec());
-            }
-            if state[w] == 0
-                && let Some(cycle) = visit(w, edges, state, path)
-            {
-                return Some(cycle);
-            }
-        }
-        path.pop();
-        state[v] = 2;
-        None
-    }
-    let mut state = vec![0u8; n];
-    for v in 0..n {
-        if state[v] == 0
-            && let Some(cycle) = visit(v, &edges, &mut state, &mut Vec::new())
-        {
-            return Some(cycle);
-        }
-    }
-    None
 }

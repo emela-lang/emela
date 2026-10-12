@@ -9,7 +9,8 @@ use std::path::Path;
 
 use emela_resolve::hir::{
     Arg, Arm as HirArm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Fields, Item,
-    Literal, LocalId, PatId, PatKind, Program, Res, Span, Stmt, StrPart as HirStrPart, UnaryOp,
+    Literal, LocalId, LocalKind, PatId, PatKind, Program, Res, Span, Stmt, StrPart as HirStrPart,
+    UnaryOp,
 };
 use emela_resolve::{ModuleId, ModuleMap};
 use emela_types::{Prim, ProgramTypes, Row, RowElem, Ty};
@@ -1117,6 +1118,10 @@ impl<'a> Lowerer<'a> {
     /// 呼び出しの外に出てくる名前の参照（値としての参照）．
     fn path(&mut self, id: ExprId, res: Res, span: Span) -> Expr {
         let def = match res {
+            // ハンドラの値の lowering はまだない（状態のあるハンドラと一緒に入れる）．
+            Res::Local(l) if self.hir.locals[l].kind == LocalKind::SelfParam => {
+                return self.unsupported("`self` in handlers", span);
+            }
             Res::Local(l) => return Expr::Var(self.local(l)),
             Res::Def(def) => def,
             Res::Err => return self.unsupported("unresolved name", span),
