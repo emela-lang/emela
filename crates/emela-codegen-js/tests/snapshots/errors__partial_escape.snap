@@ -3,7 +3,7 @@ source: crates/emela-codegen-js/tests/errors.rs
 expression: js
 ---
 // Emela が生成したコード．
-import { $Fail, $showInt, $unmatchedEscape } from "./emela_runtime.mjs";
+import { $Fail, $showInt } from "./emela_runtime.mjs";
 
 const $err$NotFound = Object.freeze({ show: $show$NotFound });
 const $err$Denied = Object.freeze({ show: $show$Denied });
@@ -44,7 +44,6 @@ function main() {
         break $x0;
       }
     }
-    if ($t3.$tag === $err$NotFound) $unmatchedEscape();
     return $t1;
   }
   return $t0;

@@ -10,8 +10,8 @@
 //! - 制約 `sub ⊆ sup` の `sup` に集合変数があれば，`sub` の要素のうち `sup` にないものを，
 //!   `sup` の最初の集合変数の下界にする．`sup` のタグは除いて渡す（`fails Timeout | E` の引数に
 //!   関数を渡すと，`E` には Timeout を除いたものが入る．7.4）．
-//! - escape は，元の式の E のタグから受けたタグを消す．集合変数は，受けたタグを除いた解を持つ
-//!   新しい集合変数に置き換える．集合の型引数（中身の分からない集合）からは何も消さない（7.3）．
+//! - escape は，元の式の E のタグから，腕が値をすべて受けるタグを消す．集合変数は，そのタグを
+//!   除いた解を持つ新しい集合変数に置き換える．集合の型引数（中身の分からない集合）からは何も消さない（7.3）．
 //! - 汎化する定義の型で，負の位置（引数の関数型の E）にあり，下界も上界もない集合変数は，
 //!   空にせず集合の型引数として汎化する．それ以外の集合変数は最小の解にする．
 //!
@@ -19,13 +19,14 @@
 //! 別々に作るので混ざらない．
 
 use emela_resolve::hir::{
-    Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
+    Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
 };
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use super::BodyInfer;
+use crate::coverage::Shapes;
 use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
@@ -202,7 +203,9 @@ impl BodyInfer<'_> {
                         _ => None,
                     })
                     .collect();
-                let tags: Vec<DefId> = caught.iter().map(|&(_, def)| def).collect();
+                // E から消すのは，腕がその値をすべて受けるエラーだけ（7.3）．一部の値しか受けない
+                // エラー（`NotFound(id: 1)`，ガード付きの腕）は E に残り，合わなかった値が伝わる．
+                let tags = self.escaped_tags(arms, &caught);
                 // エラーの構成子でない腕（E0320）があれば，誤りを重ねないよう全部受けたとみなす．
                 let broken = arms.iter().any(|arm| {
                     !matches!(
@@ -706,6 +709,34 @@ impl BodyInfer<'_> {
             ExprKind::With { body, .. } => out.push(*body),
         }
         out
+    }
+
+    /// escape の腕がその値をすべて受けるエラー（7.3）．エラーごとに腕を集め，網羅性の検査で
+    /// 足りない値がないものを選ぶ．エラーは型引数を持たないので，型が決まるのを待たなくてよい．
+    fn escaped_tags(&self, arms: &[Arm], caught: &[(PatId, DefId)]) -> Vec<DefId> {
+        let shapes = Shapes {
+            program: self.program,
+            ty_table: self.ty_table,
+            sigs: self.sigs,
+        };
+        let mut tags: Vec<DefId> = Vec::new();
+        for &(_, def) in caught {
+            if tags.contains(&def) {
+                continue;
+            }
+            let Some(ty) = self.ty_table.self_ty(def) else {
+                continue;
+            };
+            let group: Vec<Arm> = arms
+                .iter()
+                .filter(|arm| caught.iter().any(|&(p, d)| p == arm.pat && d == def))
+                .cloned()
+                .collect();
+            if shapes.check_arms(&ty, &group).is_exhaustive() {
+                tags.push(def);
+            }
+        }
+        tags
     }
 
     /// escape の腕が受けるエラーが，元の式から起きないなら警告する（W0302）．元の式の E に

@@ -453,14 +453,7 @@ impl<'a> BodyInfer<'a> {
                     if ty == Ty::Error {
                         continue;
                     }
-                    let check_arms: Vec<exhaustiveness::Arm> = arms
-                        .iter()
-                        .map(|arm| exhaustiveness::Arm {
-                            pat: shapes.pat(arm.pat, &ty),
-                            guarded: arm.guard.is_some(),
-                        })
-                        .collect();
-                    let result = check_match(&shapes, &ty, &check_arms);
+                    let result = shapes.check_arms(&ty, &arms);
                     if !result.missing.is_empty() {
                         self.diags.push(Diagnostic {
                             span: Some(self.program.exprs[scrutinee].span),
@@ -478,14 +471,7 @@ impl<'a> BodyInfer<'a> {
                 }
                 CoverageSite::Escape { groups } => {
                     for (ty, arms) in groups {
-                        let check_arms: Vec<exhaustiveness::Arm> = arms
-                            .iter()
-                            .map(|arm| exhaustiveness::Arm {
-                                pat: shapes.pat(arm.pat, &ty),
-                                guarded: arm.guard.is_some(),
-                            })
-                            .collect();
-                        for i in check_match(&shapes, &ty, &check_arms).redundant {
+                        for i in shapes.check_arms(&ty, &arms).redundant {
                             self.diags.push(Diagnostic {
                                 span: Some(self.program.pats[arms[i].pat].span),
                                 kind: DiagnosticKind::UnreachableArm,

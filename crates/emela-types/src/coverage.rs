@@ -3,10 +3,14 @@
 //! HIR のパターンを検査用のパターンに変換し，型から構成子の形を引く表を実装する．
 //! 検査は，定義のまとまりの推論が終わって型が決まった後に行う（[`crate::body`]）．
 
-use emela_resolve::hir::{DefId, ExprKind, Item, Literal, PatId, PatKind, Program, Res, UnaryOp};
+use emela_resolve::hir::{
+    Arm, DefId, ExprKind, Item, Literal, PatId, PatKind, Program, Res, UnaryOp,
+};
 use smol_str::SmolStr;
 
-use crate::exhaustiveness::{CtorTable, Lit, Pat, TyShape, VariantShape};
+use crate::exhaustiveness::{
+    self, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, check_match,
+};
 use crate::infer::substitute_bound;
 use crate::lower::TyTable;
 use crate::signature::Signatures;
@@ -49,6 +53,18 @@ impl CtorTable for Shapes<'_> {
 }
 
 impl Shapes<'_> {
+    /// 型 `ty` の値に当てる腕の並びを検査する（match と escape の腕）．
+    pub(crate) fn check_arms(&self, ty: &Ty, arms: &[Arm]) -> MatchCheck {
+        let arms: Vec<exhaustiveness::Arm> = arms
+            .iter()
+            .map(|arm| exhaustiveness::Arm {
+                pat: self.pat(arm.pat, ty),
+                guarded: arm.guard.is_some(),
+            })
+            .collect();
+        check_match(self, ty, &arms)
+    }
+
     /// enum のバリアントを宣言の順に並べる．
     fn variants(&self, enum_def: DefId, args: &[Ty]) -> Vec<VariantShape<Ty>> {
         match self.program.item(enum_def) {

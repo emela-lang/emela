@@ -1,0 +1,41 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror NotFound(id: Int)\nerror Flag(on: Bool)\n\nfn find(id: Int) -> Int fails NotFound { fail NotFound(id:) }\nfn flag(on: Bool) -> Int fails Flag { fail Flag(on:) }\n\nfn by_value() -> Int {\n  find(1) escape { NotFound(id: 1) -> 0 }\n}\n\nfn by_guard() -> Int {\n  find(1) escape { NotFound(id:) if id > 0 -> id }\n}\n\nfn inferred() {\n  find(1) escape { NotFound(id: 1) -> 0 }\n}\n\nfn total_after_partial() -> Int {\n  find(1) escape {\n    NotFound(id: 1) -> 0\n    NotFound(id:) if id > 0 -> id\n    NotFound(_) -> 2\n  }\n}\n\nfn total_by_fields() -> Int {\n  flag(True) escape {\n    Flag(on: True) -> 1\n    Flag(on: False) -> 0\n  }\n}\n\nfn local() -> Int {\n  f = fn() { find(2) }\n  f() escape { NotFound(id: 2) -> 0 }\n}\n\"#)"
+---
+find: fn(Int) -> Int fails NotFound
+  id: Int
+flag: fn(Bool) -> Int fails Flag
+  on: Bool
+by_value: fn() -> Int
+by_guard: fn() -> Int
+  id: Int
+inferred: fn() -> Int fails NotFound
+total_after_partial: fn() -> Int
+  id: Int
+total_by_fields: fn() -> Int
+local: fn() -> Int
+  f: fn() -> Int fails NotFound
+`find(1)` unhandled errors NotFound (fails written: false)
+`find(1)` unhandled errors NotFound (fails written: false)
+`f()` unhandled errors NotFound (fails written: false)
+--- E
+{ fail NotFound(id:) }: NotFound
+fail NotFound(id:): NotFound
+{ fail Flag(on:) }: Flag
+fail Flag(on:): Flag
+{   find(1) escape { NotFound(id: 1) -> 0 } }: NotFound
+find(1) escape { NotFound(id: 1) -> 0 }: NotFound
+find(1): NotFound
+{   find(1) escape { NotFound(id:) if id > 0 -> id } }: NotFound
+find(1) escape { NotFound(id:) if id > 0 -> id }: NotFound
+find(1): NotFound
+{   find(1) escape { NotFound(id: 1) -> 0 } }: NotFound
+find(1) escape { NotFound(id: 1) -> 0 }: NotFound
+find(1): NotFound
+find(1): NotFound
+flag(True): Flag
+{   f = fn() { find(2) }   f() escape { NotFound(id: 2) -> 0 } }: NotFound
+{ find(2) }: NotFound
+find(2): NotFound
+f() escape { NotFound(id: 2) -> 0 }: NotFound
+f(): NotFound
