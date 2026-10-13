@@ -9,7 +9,7 @@
 //! An external function becomes a wrapper that calls the host function. Thrown exceptions become
 //! defects (spec 12.5), and lone surrogates in strings received from the host are replaced with
 //! U+FFFD (spec 12.5). The wrapper for an `@external suspend fn` is a generator that awaits the
-//! Promise the host returns (spec 12.2).
+//! Promise the host returns, passing an AbortSignal as the last argument (spec 12.2).
 
 use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, WithBind};
 
@@ -254,14 +254,14 @@ impl Emitter<'_> {
                     .zip(&ext.params)
                     .map(|(p, b)| self.convert(b, p, Dir::ToHost, 0))
                     .collect();
-                let call = format!("{callee}({})", args.join(", "));
                 let foreign = self.rt("$foreign");
                 if f.suspends {
-                    self.suspending_external(&call, &ext.ret, foreign);
+                    self.suspending_external(&callee, &args, &ext.ret, foreign);
                     self.indent -= 1;
                     self.line("}");
                     return;
                 }
+                let call = format!("{callee}({})", args.join(", "));
                 self.line("try {");
                 self.indent += 1;
                 match &ext.ret {
@@ -288,15 +288,27 @@ impl Emitter<'_> {
         self.line("}");
     }
 
-    /// `call` is the call of the host function.
-    fn suspending_external(&mut self, call: &str, ret: &Boundary, foreign: &str) {
+    /// Calls the host function `callee` with `args` (converted JS expressions) and an AbortSignal
+    /// as the last argument (spec 12.2). The runtime aborts it when the waiting fiber is
+    /// interrupted.
+    fn suspending_external(
+        &mut self,
+        callee: &str,
+        args: &[String],
+        ret: &Boundary,
+        foreign: &str,
+    ) {
+        let abortable = self.rt("$abortable");
+        self.line(&format!("const $c = {abortable}();"));
+        let mut args = args.to_vec();
+        args.push("$c.signal".to_owned());
         self.line("let $p;");
         self.line("try {");
-        self.line(&format!("  $p = {call};"));
+        self.line(&format!("  $p = {callee}({});", args.join(", ")));
         self.line("} catch ($e) {");
         self.line(&format!("  throw {foreign}($e);"));
         self.line("}");
-        let wait = format!("(yield {}($p))", self.rt("$await"));
+        let wait = format!("(yield {}($p, $c))", self.rt("$await"));
         match ret {
             Boundary::Unit => {
                 self.line(&format!("{wait};"));

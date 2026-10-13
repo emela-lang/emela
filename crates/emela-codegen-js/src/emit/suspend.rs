@@ -20,6 +20,10 @@
 //! to completion on the spot with `$sync`, and suspend fn operations are called with
 //! `$syncPerform`. If it is never resumed, `$Interrupted` is thrown (spec 14.5).
 //!
+//! Each suspending call in a generator spends the running fiber's budget first and yields to the
+//! other fibers when it runs out (spec 11.1): `($spend() && (yield $pause()), (yield* f(x)))`.
+//! Functions that do not suspend (R is Immediate) get nothing, so they run in one go.
+//!
 //! Functions without suspending calls are emitted unchanged. A `$Fail` comes back as the
 //! generator's return value just the same, and self tail call loops (spec 16.3) need no `yield*`
 //! because `Recur` has replaced the call.
@@ -53,7 +57,7 @@ impl Emitter<'_> {
                 if !self.generator {
                     return format!("{}({call})", self.rt("$sync"));
                 }
-                format!("(yield* {call})")
+                self.paused(format!("(yield* {call})"))
             }
             Callee::Op { effect, op, .. } if self.m.effects[*effect].ops[*op].suspend => {
                 let def = &self.m.effects[*effect];
@@ -67,7 +71,7 @@ impl Emitter<'_> {
                     return format!("{perform}({f}, [{}])", args.join(", "));
                 }
                 let perform = self.rt("$perform");
-                format!("(yield {perform}({f}, [{}]))", args.join(", "))
+                self.paused(format!("(yield {perform}({f}, [{}]))", args.join(", ")))
             }
             // Function values and fn operations may turn out not to suspend; `$maybe` tells them
             // apart.
@@ -79,8 +83,16 @@ impl Emitter<'_> {
                     return format!("{}({call})", self.rt("$sync"));
                 }
                 let maybe = self.rt("$maybe");
-                format!("(yield* {maybe}({call}))")
+                self.paused(format!("(yield* {maybe}({call}))"))
             }
         }
+    }
+
+    /// A suspending call `call` in a generator, preceded by the yield for fairness (spec 11.1):
+    /// the call spends the fiber's budget, and the fiber yields to the others when it runs out.
+    fn paused(&mut self, call: String) -> String {
+        let spend = self.rt("$spend");
+        let pause = self.rt("$pause");
+        format!("({spend}() && (yield {pause}()), {call})")
     }
 }

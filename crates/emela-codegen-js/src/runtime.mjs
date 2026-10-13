@@ -76,10 +76,16 @@ class $Perform {
 }
 
 class $Await {
-  constructor(promise) {
+  constructor(promise, controller) {
     this.promise = promise;
+    // The AbortController whose signal was passed to the external function (12.2); aborted when the waiting
+    // continuation is dropped.
+    this.controller = controller;
   }
 }
+
+// A yield for fairness (11.1): the fiber goes to the end of the queue.
+const $PAUSE = Object.freeze({});
 
 // A request of a fiber operation (chapter 11). `run(fiber, wake)` returns what to pass to the waiting fiber right
 // away (`{ mode, value }`), or undefined to suspend it until `wake(mode, value)` is called. A `closing` request
@@ -95,8 +101,33 @@ export function $perform(op, args) {
   return new $Perform(op, args);
 }
 
-export function $await(promise) {
-  return new $Await(promise);
+export function $await(promise, controller) {
+  return new $Await(promise, controller);
+}
+
+// A controller for the AbortSignal passed as the last argument of a suspend fn external function (12.2).
+export function $abortable() {
+  return new AbortController();
+}
+
+// ---- Fairness (11.1) ----
+//
+// Every suspending call in a suspending function spends one unit of the running fiber's budget
+// (`$spend() && (yield $pause())`). When it runs out, the fiber yields: it goes to the end of the queue, and every
+// `$HOST_EVERY`th yield of a run goes through the host's event loop instead, so host callbacks (timers, I/O) run
+// too. The count does not depend on time, so the order of the fibers is the same on every run.
+const $BUDGET = 1000;
+const $HOST_EVERY = 16;
+
+const $later = typeof setImmediate === "function" ? setImmediate : (f) => setTimeout(f, 0);
+
+export function $spend() {
+  const fiber = $current;
+  return fiber !== null && --fiber.budget <= 0;
+}
+
+export function $pause() {
+  return $PAUSE;
 }
 
 // Attaches the handler and operation names to a suspend fn operation implementation `f` (used in the defect message for a second resume).
@@ -145,12 +176,43 @@ class $Root {
     // The first defect raised while closing a continuation that is not a fiber's main one (an operation's
     // implementation running after resume). It replaces `interrupted` as the result of the run.
     this.orphan = undefined;
+    // A run of `$sync`: it never waits, so yields for fairness continue at once.
+    this.sync = false;
+    // The number of yields for fairness so far.
+    this.pauses = 0;
+    // Waiting for the run to stall (`$whenStalled`): `{ at, seq, resolve }`.
+    this.sleepers = [];
+    this.sleeperSeq = 0;
+  }
+
+  // Called when nothing can go on: no fiber is runnable and the host has nothing pending (the event loop is empty).
+  // Wakes the sleeper with the earliest time (the earliest call among equal times), which is how TestClock moves
+  // its time forward (8.8). With no sleeper, unwinds the run as interrupted.
+  stalled() {
+    if (this.over) return;
+    if (this.sleepers.length === 0) {
+      this.interrupt();
+      return;
+    }
+    let first = 0;
+    for (let i = 1; i < this.sleepers.length; i++) {
+      const a = this.sleepers[i];
+      const b = this.sleepers[first];
+      if (a.at < b.at || (a.at === b.at && a.seq < b.seq)) first = i;
+    }
+    const [sleeper] = this.sleepers.splice(first, 1);
+    // Through a macrotask: the host does not report a stall again after a handler that only settled promises.
+    $later(() => sleeper.resolve());
   }
 
   finish(ok, value) {
     if (this.over) return;
     this.over = true;
     this.queue = [];
+    // Stops what the continuations left behind still wait for (timers, requests), so the host can exit.
+    for (const wait of this.waits) wait.controller?.abort();
+    this.waits.clear();
+    this.sleepers = [];
     this.done(ok, value);
   }
 
@@ -186,13 +248,12 @@ class $Root {
     }
     const waits = [...this.waits].reverse().filter((wait) => !wait.closing);
     for (const wait of waits) {
-      wait.live = false;
-      this.waits.delete(wait);
+      // Dropping a caller also unwinds the implementation it waits for (`onDrop`), which may come later here.
+      if (!wait.live) continue;
+      $drop(this, wait);
       const fiber = wait.fiber;
       let end = wait.end;
-      if (end === fiber.end) {
-        fiber.wait = null;
-      } else {
+      if (end !== fiber.end) {
         end = (ok, value) => {
           if (!ok && !$isInterrupted(value)) this.orphan ??= value;
         };
@@ -229,6 +290,8 @@ class $Fiber {
     this.cause = null;
     // Called once when it ends.
     this.watchers = [];
+    // Suspending calls left before it yields for fairness (11.1).
+    this.budget = $BUDGET;
     this.end = (ok, value) => this.finish(ok, value);
     root.fibers.add(this);
   }
@@ -288,9 +351,7 @@ class $Fiber {
     if (this.holds > 0) return;
     const wait = this.wait;
     if (wait === null || !wait.live) return;
-    wait.live = false;
-    this.root.waits.delete(wait);
-    this.wait = null;
+    $drop(this.root, wait);
     this.root.schedule(() => $step(this.root, this, wait.gen, wait.end, "throw", this.deliver()));
   }
 
@@ -350,14 +411,15 @@ class $Fiber {
 // Runs the generator `gen` that called a suspending function to completion. `done(ok, value)` is called with
 // `(true, return value)` when it finishes and `(false, exception)` on a defect. It is not called while it stays
 // suspended without resume.
-// Returns a cancel function: if the run has not ended, calling it unwinds the run as interrupted, running the
+// Returns the function the launcher calls when the event loop runs dry (`$Root#stalled`). It wakes the earliest
+// TestClock sleeper if any. Otherwise, if the run has not ended, it unwinds the run as interrupted, running the
 // releases of the open withs (`$Root#interrupt`), and then `done(false, …)` is called with `$Interrupted` (or a
-// defect a release raised). The launcher calls it when the event loop runs dry.
+// defect a release raised).
 export function $start(gen, done) {
   const root = new $Root(done);
   const main = new $Fiber(root, null);
   root.schedule(() => $step(root, main, gen, main.end, "next", undefined));
-  return () => root.interrupt();
+  return () => root.stalled();
 }
 
 // A continuation unwound while interrupted (11.4, 14.5). Thrown into a fiber when it is interrupted, by `$sync`
@@ -381,6 +443,7 @@ export function $sync(result) {
   const root = new $Root((ok, value) => {
     out = { ok, value };
   });
+  root.sync = true;
   const fiber = new $Fiber(root, null);
   root.schedule(() => $step(root, fiber, result, fiber.end, "next", undefined));
   // Not resumed in place: unwind it right away, running the releases of its open withs (14.5).
@@ -438,22 +501,44 @@ function $advance(root, fiber, gen, end, mode, input) {
       continue;
     }
     const closing = request instanceof $FiberRequest && request.closing;
-    const wait = { gen, end, fiber, live: true, closing };
+    const wait = { gen, end, fiber, live: true, closing, controller: undefined, onDrop: undefined };
     const suspend = () => {
       root.waits.add(wait);
       if (main) fiber.wait = wait;
+      else end.track?.(wait);
     };
-    // Continues the suspended `gen`, unless it was unwound in the meantime (`$Fiber#interrupt`, `$Root#interrupt`).
-    // Within the same fiber it continues on the spot; otherwise it is queued.
-    const cont = (mode, value) => {
-      if (!wait.live) return;
+    // Takes the suspended `gen` back to continue it, unless it was unwound in the meantime (`$Fiber#interrupt`,
+    // `$Root#interrupt`).
+    const take = () => {
+      if (!wait.live) return false;
       wait.live = false;
       root.waits.delete(wait);
       if (fiber.wait === wait) fiber.wait = null;
+      return true;
+    };
+    // Within the same fiber it continues on the spot; otherwise it is queued.
+    const cont = (mode, value) => {
+      if (!take()) return;
       if ($current === fiber) $step(root, fiber, gen, end, mode, value);
       else root.schedule(() => fiber.resume(gen, end, mode, value));
     };
+    if (request === $PAUSE) {
+      fiber.budget = $BUDGET;
+      if (root.sync) {
+        mode = "next";
+        input = undefined;
+        continue;
+      }
+      suspend();
+      const go = () => {
+        if (take()) fiber.resume(gen, end, "next", undefined);
+      };
+      if (++root.pauses % $HOST_EVERY === 0) $later(() => root.schedule(go));
+      else root.queue.push(go);
+      return;
+    }
     if (request instanceof $Await) {
+      wait.controller = request.controller;
       suspend();
       // A host exception (rejection) becomes a defect and is thrown at the waiting point (12.5).
       Promise.resolve(request.promise).then(
@@ -463,7 +548,7 @@ function $advance(root, fiber, gen, end, mode, input) {
       return;
     }
     const now =
-      request instanceof $FiberRequest ? request.run(fiber, cont) : $performOp(root, fiber, cont, request);
+      request instanceof $FiberRequest ? request.run(fiber, cont) : $performOp(root, fiber, cont, request, wait);
     if (now === undefined) {
       suspend();
       return;
@@ -478,7 +563,7 @@ function $advance(root, fiber, gen, end, mode, input) {
 //
 // What is passed to the continuation is exactly one of: the resumed value, a failure of the implementation (`$Fail`, which becomes the
 // value of the operation call), or a defect, whichever comes first. A failure of the implementation after resume becomes a defect.
-function $performOp(root, fiber, cont, request) {
+function $performOp(root, fiber, cont, request, wait) {
   const where = request.op?.$where ?? "a suspend operation";
   let sync = true;
   let now;
@@ -505,8 +590,23 @@ function $performOp(root, fiber, cont, request) {
   };
   try {
     const result = request.op(...request.args, resume);
-    // A suspending implementation (a generator) runs as a separate continuation of the same fiber.
-    if ($isGenerator(result)) $step(root, fiber, result, settled, "next", undefined);
+    // A suspending implementation (a generator) runs as a separate continuation of the same fiber. If the caller
+    // is dropped (interrupted) before it is resumed, the implementation is unwound too, which aborts what it waits
+    // for (12.2).
+    if ($isGenerator(result)) {
+      let waiting = null;
+      settled.track = (w) => {
+        waiting = w;
+      };
+      wait.onDrop = () => {
+        if (used || waiting === null || !waiting.live) return;
+        const w = waiting;
+        $drop(root, w);
+        // Queued without draining: whoever dropped the caller drains the queue.
+        root.queue.push(() => $step(root, fiber, w.gen, w.end, "throw", new $Interrupted()));
+      };
+      $step(root, fiber, result, settled, "next", undefined);
+    }
     else settled(true, result);
   } catch (error) {
     settled(false, error);
@@ -514,6 +614,38 @@ function $performOp(root, fiber, cont, request) {
   sync = false;
   return now;
 }
+
+// Drops a waiting continuation that is unwound or abandoned: it will not be continued, and what it waits for is
+// stopped (the AbortSignal of an external function, 12.2; the implementation of the operation it called).
+function $drop(root, wait) {
+  wait.live = false;
+  root.waits.delete(wait);
+  if (wait.fiber.wait === wait) wait.fiber.wait = null;
+  wait.controller?.abort();
+  wait.onDrop?.();
+}
+
+// The host function behind TestClock's `sleep` (8.8, std/clock.mjs). Returns a promise resolved when the run of
+// the calling fiber stalls and `at` is the earliest time waited for (`$Root#stalled`). Aborting `signal` (the
+// fiber was interrupted) takes it back.
+function $whenStalled(at, signal) {
+  const root = $current?.root;
+  if (root === undefined) throw new $Defect("TestClock was used outside a run");
+  return new Promise((resolve) => {
+    const sleeper = { at, seq: root.sleeperSeq++, resolve };
+    root.sleepers.push(sleeper);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        root.sleepers = root.sleepers.filter((s) => s !== sleeper);
+      },
+      { once: true },
+    );
+  });
+}
+
+// std/clock.mjs reaches the runtime through this key, since the runtime may be inlined into the output.
+globalThis[Symbol.for("emela.whenStalled")] = $whenStalled;
 
 // ---- Fiber operations (spec chapter 11) ----
 

@@ -1306,7 +1306,8 @@ fn main() {
 #[test]
 fn test_handlers_record_output_and_move_the_clock() {
     // 同梱の TestConsole は出力を State[List[String]] に書いた順に溜め，TestClock は
-    // State[Instant] の時刻を sleep で進めてその場で resume する（15.2）．
+    // State[Instant] の仮の時刻で動く（8.8，15.2）．fiber が1本なので，sleep の分だけ時刻が進んで
+    // そのまま続くのと同じ結果になる．
     let output = run_source(
         "state-test-handlers",
         r##"import Std.Console.{Console, SystemConsole, TestConsole}
