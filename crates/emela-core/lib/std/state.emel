@@ -22,7 +22,6 @@ pub effect State[S] {
 ## the final state. `State[S]` is removed from the R of `body`, so the call looks pure from
 ## outside. If `body` fails, the state is dropped and only the error propagates.
 @intrinsic
-pub fn run[S, A, E, R](
-  initial: S,
-  body: fn() -> A fails E use { State[S], R },
-) -> (A, S) fails E use R
+pub fn run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S)
+  fails E
+  use R
