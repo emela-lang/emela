@@ -20,13 +20,15 @@ use rustc_hash::FxHashMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat, StrPart, Type,
-    UnOp, VariantDef, VariantFields, WithBind,
+    External, ExternalBinding, FiberOp, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat,
+    StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
+mod fiber;
 mod suspend;
 
+use fiber::{AttemptCall, ForkCall, ScopeCall};
 use suspend::Specialization;
 
 /// 型検査を通ったが IR にできなかった理由．
@@ -254,6 +256,14 @@ enum Target {
     },
     /// `State.run(initial, body)`（8.8）．ランタイムが供給する組み込みのハンドラ．
     StateRun(Box<StateRun>),
+    /// 引数をそのまま渡す並行性の操作（11章，`fiber.rs`）．
+    Fiber(FiberOp),
+    /// `Fiber.scope(body)`（11.2）．
+    Scope(Box<ScopeCall>),
+    /// `s.fork(f)`（11.2）．
+    Fork(Box<ForkCall>),
+    /// `Fiber.attempt(f)`（11.5）．
+    Attempt(Box<AttemptCall>),
 }
 
 /// `State.run(initial, body)` を写すのに要るもの．局所変数は先に割り振っておく．
@@ -386,6 +396,10 @@ impl Target {
                 suspends: call.suspends,
             },
             Target::StateRun(run) => run.apply(args),
+            Target::Fiber(op) => Expr::Fiber { op, args },
+            Target::Scope(scope) => scope.apply(args),
+            Target::Fork(fork) => fork.apply(args),
+            Target::Attempt(attempt) => attempt.apply(args),
         }
     }
 }
@@ -1188,6 +1202,23 @@ impl<'a> Lowerer<'a> {
         };
         let handler = self.expr(base);
         let h = self.module.local("h");
+        // Scope の fork は呼ぶ位置と同じく子の関数を包む（`fiber.rs`）．
+        if self.is_fork_op(tag.def, op) {
+            let op_ty = self.expr_ty(id).clone();
+            let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty) else {
+                return self.unsupported("fork", span);
+            };
+            let x = self.module.local("x");
+            return Expr::Let {
+                var: h,
+                value: Box::new(handler),
+                body: Box::new(Expr::Lambda {
+                    params: vec![x],
+                    body: Box::new(fork.apply(vec![Expr::Var(x)])),
+                    suspends: false,
+                }),
+            };
+        }
         let mut params: Vec<Local> = (0..arity).map(|_| self.module.local("x")).collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
         if ev {
@@ -1557,8 +1588,17 @@ impl<'a> Lowerer<'a> {
             && let Some(Ty::Cap(effect)) = self.types.exprs.get(*base).cloned()
             && let Some(index) = self.op_index(effect.def, op)
         {
-            let effect = self.effect_id(&self.key_here(&effect));
+            let tag = effect;
+            let effect = self.effect_id(&self.key_here(&tag));
             let handler = self.expr(*base);
+            // Scope の fork は子の関数を包む（`fiber.rs`）．
+            if self.is_fork_op(tag.def, op) {
+                let op_ty = self.expr_ty(callee).clone();
+                return match self.fork_call(handler, &tag, &op_ty) {
+                    Some(fork) => Ok(Target::Fork(Box::new(fork))),
+                    None => Err(self.unsupported("fork", span)),
+                };
+            }
             // suspend fn の操作の呼び出しは中断しうる（8.1）．fn の操作の本体は中断しない（E0417）．
             let call = Call {
                 suspends: self.module.effects[effect].ops[index].suspend,
@@ -1586,12 +1626,14 @@ impl<'a> Lowerer<'a> {
                 .state_run(callee, span)
                 .map(|r| Target::StateRun(Box::new(r))),
             Some(Item::Fn(f)) if f.is_intrinsic => {
+                if let Some(target) = self.fiber_target(def, callee, call, span) {
+                    return target;
+                }
                 let data = &hir.defs[def];
                 let module = match &data.module {
                     DefModule::Source(m) => self.modules[*m].name.to_string(),
                     _ => String::new(),
                 };
-                // fiber の組み込み（`Fiber.scope` など，11章）は lowering がまだない．
                 let Some(op) = Builtin::lookup_intrinsic(&module, &data.name) else {
                     return Err(self.unsupported(&format!("{module}.{}", data.name), span));
                 };

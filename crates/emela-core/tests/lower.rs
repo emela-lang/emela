@@ -325,18 +325,9 @@ fn show_any[A](x: A) -> String {
 /// ビルドでは写さないので，使われない core の関数の誤りはここでしか見つからない．
 #[test]
 fn every_core_function_lowers() {
-    // fiber の組み込み（11章）は lowering がまだないので，Std.Fiber の組み合わせ関数の
-    // `Fiber.scope` の呼び出しだけは写せない（ランタイムとつなぐ後の PR で外す）．
     let m = match try_lower(&[("main.emel", "fn main() { 0 }\n")], Roots::All) {
         Ok(m) => m,
-        Err(errors) => {
-            let others: Vec<_> = errors
-                .iter()
-                .filter(|e| !(e.starts_with("Std.Fiber:") && e.ends_with("Std.Fiber.scope")))
-                .collect();
-            assert!(others.is_empty(), "{others:#?}");
-            return;
-        }
+        Err(errors) => panic!("{errors:#?}"),
     };
     let names = fn_names(&m);
     assert!(names.contains(&"List.map"));
@@ -689,6 +680,45 @@ fn main() {
     let mine: Vec<&str> = out
         .split("\n\n")
         .filter(|f| ["fn main(", "fn modify("].iter().any(|k| f.contains(k)))
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// 並行性（11章）．`Fiber.scope` はスコープの能力のハンドラ（fork と deferred）を作って本体を呼び，
+/// fork は子の関数を包む．子は Fiber.scope を呼んだ位置の表に，fork した能力の値を Scope として
+/// 足した表で走る（11.2）．attempt は R のある関数を今の表で呼ぶ関数に包む．
+#[test]
+fn fiber_scope_fork_and_attempt() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Fiber.{Fiber, Scope, Exit}
+import Std.Deferred.{Deferred}
+
+effect Log { fn info(msg: String) -> () }
+
+fn main() -> Int use { Log, Async } {
+  Fiber.scope(fn() {
+    s = use Scope
+    a = s.fork(fn() { (use Log).info(\"a\") })
+    b = Fiber.fork(fn() { 2 })
+    d = s.deferred()
+    Deferred.complete(d, 1)
+    Fiber.join(a)
+    e = Fiber.attempt(fn() { (use Log).info(\"e\") })
+    Fiber.join(b) + Deferred.await(d)
+  })
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["fn main(", "fn Std.Fiber.fork("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }

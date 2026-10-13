@@ -131,8 +131,10 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）ランタイムが持つ型のうち，`Fiber[A]` と `Deferred[A]` は `@external pub type`（12.3 のホストの型）で宣言する．Emela からは持ち回るだけで，中身はランタイムが決める
 - （補）`Cause[E]` は `pub opaque type Cause[E](raise: fn() -> Never fails E)` と書く．フィールドのない型では E の種が決まらず（9.2 は使われた位置で決める），ふつうの型になると `Exit[A, E]` と `attempt` の E が1つのエラーの型（7.2）になってしまうため．フィールドは E をエラーの集合にするためだけのもので，読まない（opaque なので外から読めない）．値はランタイムが作る
 - （補）Scope は `@intrinsic pub effect Scope[E, R]` と書く．`@intrinsic` が組み込みのエフェクトの印（emela-types の NOTES の「fiber」）
-- （補）`scope`，`join`，`await`，`interrupt`，`attempt`，`Cause.kind`，`Cause.to_string`，`Cause.raise`，`Deferred.complete`，`Deferred.await`，`Deferred.poll` は `@intrinsic` だが，組み込み関数の表（`intrinsics.rs`）にはまだ行がない．lowering は Core IR とランタイム（並行して作っている js-fiber-runtime）とつなぐ後の PR．それまでは呼び出しが `not supported yet: Std.Fiber.scope` の診断になる（`Lowerer::callee` で表にない `@intrinsic` を `expect` で止めていたのを診断に変えた）．`sources.rs` のテストは `FIBER_INTRINSICS` を表との突き合わせから外す
-- （補）`fork`，`deferred`，`all`，`race`，`both`，`map` は純 Emela．`all` と `map` は `Fiber.fork` で子を起動して順に join する．`race` は 11.3 の例のとおり．`both` は2つを fork して組にする
+- （補）`scope`，`join`，`await`，`interrupt`，`attempt`，`Cause.kind`，`Cause.to_string`，`Cause.raise`，`Deferred.complete`，`Deferred.await`，`Deferred.poll` は `@intrinsic` だが，組み込み関数の表（`intrinsics.rs`）に行を持たない．lowering が `Expr::Fiber` に写す（`lower/fiber.rs` の `FiberFn`．下の「並行性」の「lowering からの接続」）．`sources.rs` のテストは `FIBER_INTRINSICS` を表との突き合わせから外す
+- （補）`fork`，`deferred`，`all`，`race`，`both`，`map`，`timeout` は純 Emela．`all` と `map` は `Fiber.fork` で子を起動して順に join する．`race` は 11.3 の例のとおり．`both` は2つを fork して組にする．`timeout` は Deferred に `Some(f())` を入れる子と，Clock で ms 待ってから `None` を入れる子を fork して，先に入った方を返す（race と同じ形）
+- （補）`timeout` が Clock を使うので，`Std.Fiber` は `Std.Clock` を import する
+- （補）SystemClock の `sleep` の負の `ms`（8.8 では 0 とみなす）は，`clock.mjs` の `after` で 0 に丸めてから `setTimeout` に渡す．Node 24 は負の値に `TimeoutNegativeWarning` を標準エラーへ出すため（`Fiber.map` のテストで見つかった）
 - （補）`await` は 3.3 の予約語から外した（進行役と合意．`Fiber.await` と `Deferred.await` の名前のため．emela-syntax の NOTES）
 
 ## lowering（`lower.rs`）
@@ -269,3 +271,15 @@ alpha.5 の第1段（2026-10-13）．IR とバックエンドとランタイム�
 - （補）Exit と CauseKind は利用者の enum と同じ `EnumDef` で，lowering が同梱の定義から入れる．構成子の並びは `EXIT_SUCCESS`，`EXIT_FAILURE`，`CAUSE_FAIL`，`CAUSE_DIE`，`CAUSE_INTERRUPT` に固定する．`FiberOp::Await`，`Attempt`，`CauseKind` はその `EnumId` を持つ（バックエンドが形を確かめる）．`Deferred.poll` の値は Prelude の Option
 - （補）中断しうる呼び出しを含むか（`lower/suspend.rs` の `has_suspending_call`）は，中断しうる `Expr::Fiber` も数える
 - （補）ダンプでは `fiber#join(h)!` のように `fiber#` の後ろに操作の名前を書き，Exit などの enum を `[Exit]` と添える．中断しうれば `!`，失敗しうれば `?` を後ろに付ける
+
+### lowering からの接続（`lower/fiber.rs`）
+
+alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の IR を作る．
+
+- （補）第1段の想定（Scope の操作を `FiberOp::Fork`，`FiberOp::Deferred` にして能力の値を渡す）を改めた．Scope の能力の値は，`Fiber.scope` を呼んだところで lowering が作るハンドラの値（`Expr::Handler`．名前は `Scope`）にする．操作 fork と deferred の実装は，ランタイムのスコープ（`fiber#scope` が本体に渡す値）を捕まえて `fiber#fork` と `fiber#deferred` を呼ぶラムダ．利用者の `s.fork(f)` と `s.deferred()` は普通の操作の呼び出し（`Callee::Op`）になる．子の証拠の表を作るのに，`Fiber.scope` を呼んだ位置の表を能力の値に結びつけておく要があり，ハンドラの値ならラムダが捕まえるだけで済むため
+- （補）子の証拠の表は「`Fiber.scope` を呼んだ位置の表 + Scope の鍵に fork した能力の値」（11.2）．fork の実装は，呼ぶ側が包んだ関数 `g` を，`Fiber.scope` を呼んだ位置の表で呼ぶ．呼ぶ側は `fn(ev) { f(ev + { Scope: 能力の値 }) }` に包む．`f` の R が表を要らなければ表を渡さない（`f` を受けるかは呼ぶ位置の `f` の型で決まり，スコープの R では決まらないため．スコープの R は本体のエフェクトも含む）
+- （補）スコープの本体の中の with は子に届かない．with の中で作ったクロージャを fork すれば，そのクロージャが自分で with のハンドラを表に足すので内側のハンドラを使う（11.2 の例外のとおり）
+- （補）fork の実装の中の子の関数は，常に中断しうるラムダにして `g` を中断しうる呼び出しで呼ぶ（`g` が中断しない関数でもバックエンドがそのまま進める）．子の関数の失敗の印はスコープの E で決める
+- （補）Scope の鍵は型引数が集合なので，いつも `Std.Fiber.Scope[_, _]`（`key_ty` が集合を `_` にする）．入れ子のスコープでは `use Scope` が最も内側のハンドラを引き，外側で取り出した能力の値は外側のスコープへ fork する
+- （補）`Fiber.attempt(f)` は，`f` の R が表を要るなら今の表で `f` を呼ぶ引数のない関数に包む（ランタイムは `f` を引数なしで呼ぶ）．Exit と CauseKind の `EnumId` は具体化した型の戻り値の型から引く
+- （補）11.2 の「子は兄弟を fork できる」は，型検査（#196 の修正）が fork に渡す関数の型の R に `Scope[E, R]` を載せる．lowering は子の表の Scope を fork した能力の値（子の属すスコープ）にするので，入れ子のスコープでも内側の子の fork は内側のスコープに入る．最初は型検査が E0402 にしていたのを進行役に報告して直してもらった
