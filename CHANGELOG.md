@@ -7,6 +7,17 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.20.1](https://github.com/emela-lang/emela/compare/v0.20.0...v0.20.1) - 2026-10-13
+
+### Added
+
+- パターンの数のリテラルの前に - を書けるようにする（6.5，18.1 #17） ([#210](https://github.com/emela-lang/emela/pull/210))
+- Vim の色付けを直し，emela lsp の semantic tokens で能力の値に下線を引く ([#211](https://github.com/emela-lang/emela/pull/211))
+
+### Fixed
+
+- どのクレートの変更でも release PR が出るよう release-plz をそろえる ([#212](https://github.com/emela-lang/emela/pull/212))
+
 ## [0.20.0](https://github.com/emela-lang/emela/compare/v0.10.0...v0.20.0) - 2026-10-13
 
 0.20 系の作り直しの最初の正式版。0.1x とは別の言語で、互換性はない。0.1x のコンパイラは
