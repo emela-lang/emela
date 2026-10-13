@@ -15,13 +15,20 @@ pub effect Clock {
 @external(js, "./clock.mjs", "nowMilliseconds")
 fn now_milliseconds() -> Int64
 
-@external(js, "./clock.mjs", "after")
-fn after(ms: Int, f: fn() -> ()) -> ()
+@external(js, "./clock.mjs", "sleep")
+suspend fn sleep_milliseconds(ms: Int) -> ()
 
-## The host's clock. `sleep` resumes from a timer callback (JS `setTimeout`), so SystemClock depends
-## on Async (spec 8.7). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
+@external(js, "./clock.mjs", "whenStalled")
+suspend fn when_stalled(at: Int64) -> ()
+
+## The host's clock. `sleep` waits for a timer (JS `setTimeout`) as an `@external suspend fn`, so
+## SystemClock depends on Async (spec 8.7), and interrupting the sleeping fiber clears the timer
+## (spec 12.2). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
 pub handler SystemClock implements Clock {
-  suspend fn sleep(ms, resume) { after(ms, fn() { resume(()) }) }
+  suspend fn sleep(ms, resume) {
+    sleep_milliseconds(ms)
+    resume(())
+  }
   fn now() { Instant.from_unix_milliseconds(now_milliseconds()) }
 }
 
@@ -31,12 +38,22 @@ pub handler SystemClock implements Clock {
 ##   start = Instant.from_unix_milliseconds(Int64.from_int(0))
 ##   (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
 ##
-## `sleep` moves the time forward by `ms` and resumes at once (a negative `ms` is the same as 0).
-## `now` returns the time in `State[Instant]`.
+## The time is virtual (spec 8.8). `sleep` really waits: when no fiber can go on and the host has
+## nothing pending, the time moves forward to the earliest time a sleeper waits for, and that
+## sleeper wakes (sleepers with the same time wake in the order they called `sleep`). With one
+## fiber this is the same as moving the time forward by `ms` at once. A negative `ms` is the same
+## as 0. `now` returns the time in `State[Instant]`. TestClock depends on Async.
 pub handler TestClock implements Clock {
   suspend fn sleep(ms, resume) {
-    by = Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms }))
-    (use State[Instant]).update(fn(t) { Instant.add(t, by) })
+    st = use State[Instant]
+    at = Instant.add(st.get(), Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))
+    when_stalled(Instant.to_unix_milliseconds(at))
+    st.update(fn(t) {
+      match Instant.compare(t, at) {
+        Less -> at
+        _ -> t
+      }
+    })
     resume(())
   }
   fn now() { (use State[Instant]).get() }

@@ -111,7 +111,7 @@ alpha.3 で同梱した（2026-10-12）．
 
 - （補）エフェクト `Clock` の操作は仕様 8.1 のとおり `suspend fn sleep(ms: Int) -> ()` と `fn now() -> Instant` の2つ（宣言の順も 8.1 に合わせた）．
 - （補）`SystemClock` は状態を持たないハンドラ．`now` は `Date.now()` を `BigInt` にして返す同梱の `std/clock.mjs` の `nowMilliseconds` を呼び，`Instant.from_unix_milliseconds` で包む．Int64 は JS では BigInt なので，境界（12.4）はそのまま渡る．`Date.now()` を直接 `@external` にしないのは Number を返すため．
-- （補）`SystemClock` の `sleep` は `std/clock.mjs` の `after(ms, f)`（`setTimeout(f, ms)`．引数の順を Emela の慣習の「対象が先」に合わせた）のコールバックから `resume(())` を呼ぶ（8.4 の例のとおり）．resume をクロージャで捕まえるので，SystemClock は Async に依存し，`with SystemClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
+- （補）`SystemClock` の `sleep` は，`std/clock.mjs` の `sleep(ms, signal)`（Promise を返す `setTimeout`）を `@external suspend fn sleep_milliseconds` として呼んで待ち，その後で `resume(())` を呼ぶ（alpha.5，12.2）．待っている fiber が中断されると，ランタイムが最後の引数の AbortSignal を abort し，タイマーを `clearTimeout` で消す．alpha.3 からのコールバックの形（`after(ms, f)` から resume）は中断で止まらないのでやめた．`@external suspend fn` を呼ぶので SystemClock は Async に依存し，`with SystemClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
 - （補）`sleep` の負の `ms` は 0 と同じ（`setTimeout` に従う）．defect にしない．待つ時間はタイマーの精度に従い，正確さは保証しない．
 - （補）Clock が中断しうるので，Clock を使う関数はすべて中断しうる関数になる（`now` しか呼ばなくても．印は R で決まる，下の「lowering の印」）．
 - （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を State に置くハンドラとして同梱した（下の「State，TestConsole，TestClock」）．
@@ -124,7 +124,8 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）`State.run` は `@intrinsic` の本体のない宣言のまま，組み込み関数の表には載せない（`intrinsics::RUNTIME_HANDLERS`）．body を呼び，証拠の表に State のハンドラを足すので，関数1つの実装にならないため．lowering がその場で写す（下の「エフェクト」の `State.run`）
 - （補）TestConsole は `Std.Console`，TestClock は `Std.Clock` に，エフェクトと一緒に置く（15.2）
 - （補）TestConsole の `print_line` は，行を `State[List[String]]` に書いた順に足す（`List.append`）．仕様 8.8 の例は先頭に足す（`[text, ..st.get()]`）ので，2行以上だと逆順になる．読み出したリストをそのまま比べられるよう，書いた順にした．`print_error_line` は仕様 8.8 の例のとおり捨てる
-- （補）TestClock の `sleep(ms, resume)` は `State[Instant]` を `ms` ミリ秒進めて，その場で resume する（Async に依存しない）．負の `ms` は SystemClock と同じく 0 とみなす．`now` は `State[Instant]` を返す
+- （補）TestClock は仮の時刻で動く（8.8，alpha.5）．`sleep(ms, resume)` は起きる時刻（`State[Instant]` の今の時刻 + `ms`）を求め，`std/clock.mjs` の `whenStalled(at, signal)` を `@external suspend fn when_stalled` として呼んで待つ．起きたら `State[Instant]` をその時刻まで進め（今の時刻の方が後なら進めない），resume する．負の `ms` は SystemClock と同じく 0 とみなす．`now` は `State[Instant]` を返す．`@external suspend fn` を呼ぶので TestClock は Async に依存する
+- （補）「どの fiber も進めず，ホストの処理も待っていない」を知る仕組みはランタイムに置いた（emela-codegen-js の NOTES の「仮の時刻」）．Emela から呼ぶ形は `@intrinsic` でなく，ランタイムを指す `@external suspend fn`（`whenStalled` はランタイムの関数を `globalThis[Symbol.for("emela.whenStalled")]` から呼ぶだけ）にした．中断する `@intrinsic` は lowering と型検査に新しい道が要り，並行して作っている fiber-lowering とぶつかるため．また `@external suspend fn` なら，待っている fiber が中断されたとき AbortSignal で待ちの登録を消せる（12.2 と同じ道）
 
 ## fiber（`std/fiber.emel`，`std/cause.emel`，`std/deferred.emel`，11章）
 
