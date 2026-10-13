@@ -112,7 +112,7 @@ alpha.3 で同梱した（2026-10-12）．
 - （補）エフェクト `Clock` の操作は仕様 8.1 のとおり `suspend fn sleep(ms: Int) -> ()` と `fn now() -> Instant` の2つ（宣言の順も 8.1 に合わせた）．
 - （補）`SystemClock` は状態を持たないハンドラ．`now` は `Date.now()` を `BigInt` にして返す同梱の `std/clock.mjs` の `nowMilliseconds` を呼び，`Instant.from_unix_milliseconds` で包む．Int64 は JS では BigInt なので，境界（12.4）はそのまま渡る．`Date.now()` を直接 `@external` にしないのは Number を返すため．
 - （補）`SystemClock` の `sleep` は，`std/clock.mjs` の `sleep(ms, signal)`（Promise を返す `setTimeout`）を `@external suspend fn sleep_milliseconds` として呼んで待ち，その後で `resume(())` を呼ぶ（alpha.5，12.2）．待っている fiber が中断されると，ランタイムが最後の引数の AbortSignal を abort し，タイマーを `clearTimeout` で消す．alpha.3 からのコールバックの形（`after(ms, f)` から resume）は中断で止まらないのでやめた．`@external suspend fn` を呼ぶので SystemClock は Async に依存し，`with SystemClock { ... }` の R に Async が残る（8.7）．main とテスト関数ではランタイムが供給する．
-- （補）`sleep` の負の `ms` は 0 と同じ（`setTimeout` に従う）．defect にしない．待つ時間はタイマーの精度に従い，正確さは保証しない．
+- （補）`sleep` の負の `ms` は 0 と同じ（8.8）．defect にしない．`clock.mjs` の `sleep` が `setTimeout` に渡す前に 0 に丸める（Node 24 は負の値に TimeoutNegativeWarning を標準エラーに出すため）．待つ時間はタイマーの精度に従い，正確さは保証しない．
 - （補）Clock が中断しうるので，Clock を使う関数はすべて中断しうる関数になる（`now` しか呼ばなくても．印は R で決まる，下の「lowering の印」）．
 - （補）Clock を実装する利用者のハンドラは，`now` で `Instant.from_unix_milliseconds` を呼ぶか（#172 で公開），外側の Clock の `now` を呼べる（#173．fn の操作の本体から fn の操作を呼んでも E0417 にならない）．テスト用の時計（15.2 の TestClock）は，時刻を State に置くハンドラとして同梱した（下の「State，TestConsole，TestClock」）．
 

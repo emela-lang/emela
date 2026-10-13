@@ -4,10 +4,13 @@ export function nowMilliseconds() {
   return BigInt(Date.now());
 }
 
-/** Resolves after `ms` milliseconds (a negative `ms` behaves like 0). Aborting `signal` clears the timer (spec 12.2). */
+/**
+ * Resolves after `ms` milliseconds. A negative `ms` is 0 (spec 8.8); it is clamped here since Node 24 warns about a
+ * negative timeout. Aborting `signal` clears the timer (spec 12.2).
+ */
 export function sleep(ms, signal) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
+    const timer = setTimeout(resolve, Math.max(0, ms));
     signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
   });
 }

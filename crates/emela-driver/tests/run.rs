@@ -1237,6 +1237,29 @@ fn main() {
 }
 
 #[test]
+fn system_clock_sleeps_zero_for_a_negative_ms() {
+    // 負の ms は 0 とみなす（8.8）．SystemClock はホストへ渡す前に丸めるので，Node 24 の
+    // TimeoutNegativeWarning は標準エラーに出ない．
+    let output = run_source(
+        "clock-negative-sleep",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+
+fn main() {
+  with SystemConsole, SystemClock {
+    (use Clock).sleep(-5)
+    (use Console).print_line("woke")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "woke\n", "")
+    );
+}
+
+#[test]
 fn state_run_returns_value_and_final_state() {
     // State.run（8.8）は body の値と最後の状態の組を返す．型引数の違う State は別のエフェクトで，
     // 汎用の fn（`modify[S]`）は呼ぶ側の State[Int] か State[String] を引く（8.1）．body が失敗すれば
