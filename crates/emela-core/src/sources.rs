@@ -28,6 +28,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Random", include_str!("../lib/std/random.emel")),
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
+    ("Std.Http", include_str!("../lib/std/http.emel")),
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
@@ -40,6 +41,7 @@ const JS_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
+    ("std/http.mjs", include_str!("../lib/std/http.mjs")),
 ];
 
 /// 同梱のソースを置いた `lib/` の中のディレクトリ．std のモジュールは `std`，それ以外は `core`．
