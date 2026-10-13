@@ -135,7 +135,7 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）`scope`，`join`，`await`，`interrupt`，`attempt`，`Cause.kind`，`Cause.to_string`，`Cause.raise`，`Deferred.complete`，`Deferred.await`，`Deferred.poll` は `@intrinsic` だが，組み込み関数の表（`intrinsics.rs`）に行を持たない．lowering が `Expr::Fiber` に写す（`lower/fiber.rs` の `FiberFn`．下の「並行性」の「lowering からの接続」）．`sources.rs` のテストは `FIBER_INTRINSICS` を表との突き合わせから外す
 - （補）`fork`，`deferred`，`all`，`race`，`both`，`map`，`timeout` は純 Emela．`all` と `map` は `Fiber.fork` で子を起動して順に join する．`race` は 11.3 の例のとおり．`both` は2つを fork して組にする．`timeout` は Deferred に `Some(f())` を入れる子と，Clock で ms 待ってから `None` を入れる子を fork して，先に入った方を返す（race と同じ形）
 - （補）`timeout` が Clock を使うので，`Std.Fiber` は `Std.Clock` を import する
-- （補）SystemClock の `sleep` の負の `ms`（8.8 では 0 とみなす）は，`clock.mjs` の `after` で 0 に丸めてから `setTimeout` に渡す．Node 24 は負の値に `TimeoutNegativeWarning` を標準エラーへ出すため（`Fiber.map` のテストで見つかった）
+- （補）SystemClock の `sleep` の負の `ms`（8.8 では 0 とみなす）は，`clock.mjs` の `sleep` で 0 に丸めてから `setTimeout` に渡す（#201 で `after` に入れた丸めを，#199 で `sleep` の形に移した）．Node 24 は負の値に `TimeoutNegativeWarning` を標準エラーへ出すため（`Fiber.map` のテストで見つかった）
 - （補）`await` は 3.3 の予約語から外した（進行役と合意．`Fiber.await` と `Deferred.await` の名前のため．emela-syntax の NOTES）
 
 ## lowering（`lower.rs`）
