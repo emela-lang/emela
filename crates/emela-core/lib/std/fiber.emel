@@ -132,7 +132,9 @@ pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B]
 ## Waits for `f` up to `ms` milliseconds. Returns `Some` with its value if it ends in time;
 ## otherwise interrupts it and returns `None`. Wrap it in `Option.or_fail` to fail instead. The
 ## time is measured with `Clock`.
-pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R } {
+pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A]
+  fails E
+  use { Clock, Async, R } {
   scope(fn() {
     s = use Scope
     d = s.deferred()

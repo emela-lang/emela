@@ -28,9 +28,8 @@ pub error UnexpectedStatus(status: Int, body: String)
 
 ## Sends requests. 4xx and 5xx are responses, not failures; fail only when no response is received.
 pub effect Http {
-  suspend fn send(
-    request: Request,
-  ) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText
+  suspend fn send(request: Request) -> Response
+    fails InvalidUrl | ConnectionFailed | ResponseNotText
 }
 
 ## A request with no headers and an empty body.
@@ -49,10 +48,9 @@ pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | Respon
 }
 
 ## Sends a POST request to `url` with `body`.
-pub fn post(
-  url: String,
-  body: String,
-) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http {
+pub fn post(url: String, body: String) -> Response
+  fails InvalidUrl | ConnectionFailed | ResponseNotText
+  use Http {
   (use Http).send(Request(body:, ..request(Post, url)))
 }
 
