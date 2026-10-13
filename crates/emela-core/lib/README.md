@@ -4,7 +4,7 @@
 
 - core（`lib/core/`）: Prelude と `@intrinsic` を持つモジュール．短い名前（`List`，`String`）で import なしで使える（15.2）
 - std（`lib/std/`）: `Std` の下のモジュール．`import Std.Console.{Console, SystemConsole}` のように import して使う
-- 「実装」の列: `intrinsic` は本体のない宣言で，組み込み関数の表（`src/intrinsics.rs`）の実装を使う．`Emela` はソースに本体を書いたもの
+- 「実装」の列: `intrinsic` は本体のない宣言で，組み込み関数の表（`src/intrinsics.rs`）の実装を使う（fiber のものは lowering が Core IR の `Expr::Fiber` に写す）．`ランタイム` は中身をランタイムが持つ型．`Emela` はソースに本体を書いたもの
 - 対象を第1引数に置くので，`xs |> List.map(f)` のようにパイプで書ける
 - 引数名は名前付き引数のラベルになる（6.2）．`List.fold(xs, from: 0, f: add)` のように書ける．名前は 15.3 の約束に従う（畳み込みの初期値は `from`，2つをつなぐのは `append`，平らにするのは `flatten` と `concat`）
 
@@ -222,6 +222,47 @@ fn main() {
 |---|---|---|
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
 | `SystemEnv` | `handler SystemEnv implements Env` | JS の `process.env` を読む．状態を持たない |
+
+## Std.Fiber（`std/fiber.emel`）
+
+並行性（仕様 11章）．`import Std.Fiber.{Fiber, Scope}` で使う．
+
+| 宣言 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `Fiber` | `@external type Fiber[A]` | ランタイム | fiber のハンドル．スコープの外へ持ち出せない（11.8） |
+| `Exit` | `enum Exit[A, E] { Success(A), Failure(Cause[E]) }` | Emela | fiber の終わり方 |
+| `Scope` | `@intrinsic effect Scope[E, R] { fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]; fn deferred[A]() -> Deferred[A] }` | 組み込み | スコープの中で fiber を起動する能力．供給できるのは `scope` だけ |
+| `scope` | `scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A fails E use { Async, R }` | intrinsic | 本体を実行し，すべての子が終わってから値を返す．子は `scope` を呼んだ時点のハンドラを使う |
+| `fork` | `fork[A, E, R](f: fn() -> A fails E use R) -> Fiber[A] use Scope[E, R]` | Emela | `(use Scope).fork(f)` |
+| `deferred` | `deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` | Emela | `(use Scope).deferred()` |
+| `join` | `join[A](fiber: Fiber[A]) -> A use Async` | intrinsic | 子が終わるのを待って値を返す．中断された子なら defect |
+| `await` | `await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async` | intrinsic | 子が終わるのを待って終わり方を返す |
+| `interrupt` | `interrupt[A](fiber: Fiber[A]) -> () use Async` | intrinsic | 子を中断し，巻き戻りが終わるまで待つ |
+| `attempt` | `attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R` | intrinsic | `f` をその場で実行し，Fail と Die を値に変える．自分への中断は受けない |
+| `all` | `all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R }` | Emela | すべてを並行に実行して元の順に集める |
+| `race` | `race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R }` | Emela | 最初に終わったものを採り，残りを中断する |
+| `both` | `both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B) fails E use { Async, R }` | Emela | 2つを並行に実行して組で返す |
+| `map` | `map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }` | Emela | 各要素に `f` を並行に適用する |
+| `timeout` | `timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R }` | Emela | `ms` ミリ秒まで待つ．間に合わなければ `f` を中断して `None` |
+
+## Std.Cause（`std/cause.emel`）
+
+| 宣言 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `Cause` | `opaque type Cause[E]` | ランタイム | fiber が正常に終わらなかった原因．中身のエラーは取り出せない |
+| `CauseKind` | `enum CauseKind { Fail, Die, Interrupt }` | Emela | 原因の種類 |
+| `kind` | `kind[E](c: Cause[E]) -> CauseKind` | intrinsic | 原因の種類 |
+| `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`，`defect: …`，`interrupted` |
+| `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | 起こし直す．Fail は fail，Die は defect，Interrupt は中断の巻き戻し |
+
+## Std.Deferred（`std/deferred.emel`）
+
+| 宣言 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `Deferred` | `@external type Deferred[A]` | ランタイム | 一度だけ値を入れられる入れ物．作れるのは Scope の `deferred` だけ |
+| `complete` | `complete[A](d: Deferred[A], value: A) -> Bool` | intrinsic | 最初の1回だけ値を入れて True．2回目からは False |
+| `await` | `await[A](d: Deferred[A]) -> A use Async` | intrinsic | 値が入るまで待つ |
+| `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | 入っていれば `Some`．待たない |
 
 ## Std.Platform（`std/platform.emel`）
 

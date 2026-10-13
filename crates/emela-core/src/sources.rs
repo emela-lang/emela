@@ -137,8 +137,8 @@ mod tests {
         }
     }
 
-    /// fiber の組み込み（11章）．型検査だけがあり，lowering と組み込み関数の表への登録は
-    /// ランタイムの側（Core IR と JS のランタイム）とつなぐ後の PR で行う．
+    /// fiber の組み込み（11章）．lowering が Core IR の `Expr::Fiber` に写す（`lower/fiber.rs` の
+    /// `FiberFn`）ので，組み込み関数の表に行を持たない．
     const FIBER_INTRINSICS: &[(&str, &str)] = &[
         ("Std.Fiber", "scope"),
         ("Std.Fiber", "join"),
@@ -171,7 +171,7 @@ mod tests {
                     "@intrinsic の {module}.{name} に本体がある"
                 );
                 // ランタイムのハンドラ（`State.run`）は lowering がその場で写すので，表に行を持たない．
-                // fiber の組み込み（11章）は lowering がまだなく，表に行がない．
+                // fiber の組み込み（11章）は lowering が `Expr::Fiber` に写すので，表に行がない．
                 if crate::intrinsics::is_runtime_handler(module, &name)
                     || FIBER_INTRINSICS.contains(&(*module, name.as_str()))
                 {

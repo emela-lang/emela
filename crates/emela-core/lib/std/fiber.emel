@@ -11,10 +11,11 @@
 #   })
 #
 # `Scope`, `scope`, `join`, `await`, `interrupt` and `attempt` are built in (the runtime
-# schedules the fibers, NOTES.md). The combinators `all`, `race`, `both` and `map` are written in
-# Emela on top of them (spec 11.3).
+# schedules the fibers, NOTES.md). The combinators `all`, `race`, `both`, `map` and `timeout` are
+# written in Emela on top of them (spec 11.3).
 
 import Std.Cause.{Cause}
+import Std.Clock.{Clock}
 import Std.Deferred.{Deferred}
 
 ## The handle of a fiber that produces a value of type `A`. Held by the runtime. It cannot leave
@@ -127,5 +128,21 @@ pub fn map[A, B, E, R](
   scope(fn() {
     fibers = List.map(xs, fn(x) { fork(fn() { f(x) }) })
     List.map(fibers, fn(fiber) { join(fiber) })
+  })
+}
+
+## Waits for `f` up to `ms` milliseconds. Returns `Some` with its value if it ends in time;
+## otherwise interrupts it and returns `None`. Wrap it in `Option.or_fail` to fail instead. The
+## time is measured with `Clock`.
+pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R } {
+  scope(fn() {
+    s = use Scope
+    d = s.deferred()
+    s.fork(fn() { Deferred.complete(d, Some(f())) })
+    s.fork(fn() {
+      (use Clock).sleep(ms)
+      Deferred.complete(d, None)
+    })
+    Deferred.await(d)
   })
 }

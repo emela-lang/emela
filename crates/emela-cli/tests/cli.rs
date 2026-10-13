@@ -537,6 +537,34 @@ fn run_and_test_clock_example() {
 }
 
 #[test]
+fn run_and_test_fibers_example() {
+    // The `examples/fibers` example. The children of a scope wait concurrently; the combinators
+    // keep the order of their arguments, and a failing child interrupts its siblings (spec 11.2,
+    // 11.3).
+    let project = Project::new(
+        "fibers",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/fibers/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "fetched 2\nfetched 1\nall: [\"user 1\", \"user 2\"]\nfetched 4\nrace: user 4\n\
+             timeout: None\nfetched -1\nnot found: -1\n",
+            ""
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
 fn run_and_test_resources_example() {
     // The `examples/resources` example. A handler with state opens in `init` and closes in
     // `release`; the layer is ordered by dependencies, and a later handler replaces the layer's
