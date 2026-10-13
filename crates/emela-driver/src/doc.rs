@@ -5,8 +5,10 @@
 //! The HIR does not keep doc comments, so each module is parsed again and its declarations are
 //! joined to their definitions by the span of the name (as in inlay hints).
 
+mod html;
 mod markdown;
 
+pub use html::render_html;
 pub use markdown::render_markdown;
 
 use emela_resolve::ModuleId;

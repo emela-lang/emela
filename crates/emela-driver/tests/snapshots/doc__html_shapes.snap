@@ -1,0 +1,154 @@
+---
+source: crates/emela-driver/tests/doc.rs
+expression: shapes
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shapes · app</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar"><a href="index.html">app</a></header>
+<div class="layout">
+<nav class="sidebar">
+<h2>Modules</h2>
+<ul>
+<li><a href="Main.html">Main</a></li>
+<li><a href="Shapes.html" class="current">Shapes</a></li>
+</ul>
+</nav>
+<main class="content">
+<h1 class="module-name">Shapes</h1>
+<section>
+<h2>Types</h2>
+<article class="item" id="Point">
+<div class="item-head"><h3><a href="#Point">Point</a></h3><span class="kind">type</span></div>
+<pre class="signature"><code><span class="kw">type</span> <a class="ty" href="#Point">Point</a>(x: <span class="ty">Int</span>, y: <span class="ty">Int</span>)</code></pre>
+<div class="doc">
+<p>A point on the plane.</p>
+</div>
+<ul class="children">
+<li id="Point.x"><pre class="signature"><code>x: <span class="ty">Int</span></code></pre>
+<div class="doc">
+<p>Distance from the left.</p>
+</div>
+</li>
+<li id="Point.y"><pre class="signature"><code>y: <span class="ty">Int</span></code></pre>
+</li>
+</ul>
+</article>
+<article class="item" id="Secret">
+<div class="item-head"><h3><a href="#Secret">Secret</a></h3><span class="kind">type</span></div>
+<pre class="signature"><code><span class="kw">opaque</span> <span class="kw">type</span> <a class="ty" href="#Secret">Secret</a></code></pre>
+<div class="doc">
+<p>Hidden fields: only the name is shown.</p>
+</div>
+</article>
+<article class="item" id="Shape">
+<div class="item-head"><h3><a href="#Shape">Shape</a></h3><span class="kind">enum</span></div>
+<pre class="signature"><code><span class="kw">enum</span> <a class="ty" href="#Shape">Shape</a></code></pre>
+<ul class="children">
+<li id="Shape.Circle"><pre class="signature"><code><span class="ty">Circle</span>(radius: <span class="ty">Int</span>)</code></pre>
+<div class="doc">
+<p>A circle around the origin.</p>
+</div>
+</li>
+<li id="Shape.Rect"><pre class="signature"><code><span class="ty">Rect</span>(<span class="ty">Int</span>, <span class="ty">Int</span>)</code></pre>
+</li>
+<li id="Shape.Empty"><pre class="signature"><code><span class="ty">Empty</span></code></pre>
+</li>
+</ul>
+</article>
+<article class="item" id="NotFound">
+<div class="item-head"><h3><a href="#NotFound">NotFound</a></h3><span class="kind">error</span></div>
+<pre class="signature"><code><span class="kw">error</span> <a class="ty" href="#NotFound">NotFound</a>(id: <span class="ty">Int</span>)</code></pre>
+<ul class="children">
+<li id="NotFound.id"><pre class="signature"><code>id: <span class="ty">Int</span></code></pre>
+</li>
+</ul>
+</article>
+<article class="item" id="Timeout">
+<div class="item-head"><h3><a href="#Timeout">Timeout</a></h3><span class="kind">error</span></div>
+<pre class="signature"><code><span class="kw">error</span> <a class="ty" href="#Timeout">Timeout</a></code></pre>
+</article>
+<article class="item" id="Log">
+<div class="item-head"><h3><a href="#Log">Log</a></h3><span class="kind">effect</span></div>
+<pre class="signature"><code><span class="kw">effect</span> <a class="ty" href="#Log">Log</a></code></pre>
+<div class="doc">
+<p>Writes log lines.</p>
+</div>
+<ul class="children">
+<li id="Log.info"><pre class="signature"><code><span class="kw">fn</span> info(msg: <span class="ty">String</span>) -&gt; ()</code></pre>
+<div class="doc">
+<p>One line at the info level.</p>
+</div>
+</li>
+</ul>
+</article>
+<article class="item" id="Prefixed">
+<div class="item-head"><h3><a href="#Prefixed">Prefixed</a></h3><span class="kind">handler</span></div>
+<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Prefixed">Prefixed</a>(prefix: <span class="ty">String</span>) <span class="kw">implements</span> <a class="ty" href="#Log">Log</a></code></pre>
+<div class="doc">
+<p>Prefixes each line.</p>
+</div>
+<ul class="children">
+<li id="Prefixed.prefix"><pre class="signature"><code>prefix: <span class="ty">String</span></code></pre>
+</li>
+</ul>
+</article>
+<article class="item" id="Quiet">
+<div class="item-head"><h3><a href="#Quiet">Quiet</a></h3><span class="kind">handler</span></div>
+<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Quiet">Quiet</a> <span class="kw">implements</span> <a class="ty" href="#Log">Log</a></code></pre>
+</article>
+<article class="item" id="Logging">
+<div class="item-head"><h3><a href="#Logging">Logging</a></h3><span class="kind">layer</span></div>
+<pre class="signature"><code><span class="kw">layer</span> <a class="ty" href="#Logging">Logging</a> { <a class="ty" href="#Quiet">Quiet</a> }</code></pre>
+</article>
+</section>
+<section>
+<h2>Values</h2>
+<article class="item" id="LIMIT">
+<div class="item-head"><h3><a href="#LIMIT">LIMIT</a></h3><span class="kind">const</span></div>
+<pre class="signature"><code><span class="kw">const</span> <span class="ty">LIMIT</span>: <span class="ty">Int</span></code></pre>
+</article>
+<article class="item" id="find">
+<div class="item-head"><h3><a href="#find">find</a></h3><span class="kind">fn</span></div>
+<pre class="signature"><code><span class="kw">fn</span> find(id: <span class="ty">Int</span>) -&gt; <a class="ty" href="#Point">Point</a> <span class="kw">fails</span> <a class="ty" href="#NotFound">NotFound</a> | <a class="ty" href="#Timeout">Timeout</a> <span class="kw">use</span> <a class="ty" href="#Log">Log</a></code></pre>
+<div class="doc">
+<p>Finds a point, or fails.</p>
+<p>Indented lines stay indented:</p>
+<pre><code>find(<span class="num">1</span>)</code></pre>
+</div>
+</article>
+<article class="item" id="apply">
+<div class="item-head"><h3><a href="#apply">apply</a></h3><span class="kind">fn</span></div>
+<pre class="signature"><code><span class="kw">fn</span> apply[<span class="ty">A</span>, <span class="ty">B</span>](x: <span class="ty">A</span>, f: <span class="kw">fn</span>(<span class="ty">A</span>) -&gt; <span class="ty">B</span> <span class="kw">fails</span> <span class="ty">E</span>(f) <span class="kw">use</span> <span class="ty">R</span>(f)) -&gt; <span class="ty">B</span> <span class="kw">fails</span> <span class="ty">E</span>(f) <span class="kw">use</span> <span class="ty">R</span>(f)</code></pre>
+</article>
+</section>
+</main>
+<aside class="toc">
+<h2>Types</h2>
+<ul>
+<li><a href="#Point">Point</a></li>
+<li><a href="#Secret">Secret</a></li>
+<li><a href="#Shape">Shape</a></li>
+<li><a href="#NotFound">NotFound</a></li>
+<li><a href="#Timeout">Timeout</a></li>
+<li><a href="#Log">Log</a></li>
+<li><a href="#Prefixed">Prefixed</a></li>
+<li><a href="#Quiet">Quiet</a></li>
+<li><a href="#Logging">Logging</a></li>
+</ul>
+<h2>Values</h2>
+<ul>
+<li><a href="#LIMIT">LIMIT</a></li>
+<li><a href="#find">find</a></li>
+<li><a href="#apply">apply</a></li>
+</ul>
+</aside>
+</div>
+</body>
+</html>

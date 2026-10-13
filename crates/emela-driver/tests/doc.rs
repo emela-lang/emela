@@ -4,7 +4,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use emela_driver::{
-    DocModule, Input, MemoryFiles, Typecheck, check, collect_docs, render_markdown,
+    DocModule, Input, MemoryFiles, Typecheck, check, collect_docs, render_html, render_markdown,
 };
 
 /// Type checks a project with these files under `app/src` and collects its docs.
@@ -200,4 +200,71 @@ fn markdown_pages() {
     // A module with nothing public gets a page with only its name.
     assert_eq!(files[1].contents, "# Main\n");
     insta::assert_snapshot!("markdown_shapes", files[2].contents);
+}
+
+#[test]
+fn html_pages() {
+    let modules = docs(
+        &[
+            ("main.emel", "import Shapes\n\nfn main() -> Int { 0 }\n"),
+            ("shapes.emel", SHAPES),
+        ],
+        false,
+    );
+    let files = render_html("app", &modules);
+    let paths: Vec<String> = files.iter().map(|f| f.path.display().to_string()).collect();
+    assert_eq!(
+        paths,
+        ["index.html", "style.css", "Main.html", "Shapes.html"]
+    );
+    let shapes = &files[3].contents;
+    // Type names in signatures link to their item on the same page.
+    assert!(
+        shapes.contains(r##"-&gt; <a class="ty" href="#Point">Point</a>"##),
+        "{shapes}"
+    );
+    // Children can be linked to.
+    assert!(shapes.contains(r#"<li id="Shape.Circle">"#), "{shapes}");
+    insta::assert_snapshot!("html_shapes", shapes);
+}
+
+#[test]
+fn html_links_across_modules_and_escapes_raw_html() {
+    let modules = docs(
+        &[
+            ("main.emel", "import Box\n\nfn main() -> Int { 0 }\n"),
+            (
+                "box.emel",
+                "import Std.Duration.{Duration}\n\n\
+                 ## Waits. <script>alert(1)</script>\n\
+                 pub fn wait(d: Duration) -> Option[Int] { None }\n",
+            ),
+        ],
+        false,
+    );
+    let core = docs(&[("main.emel", "fn main() -> Int { 0 }\n")], true);
+    let mut all = core;
+    all.extend(modules);
+    all.sort_by(|a, b| a.name.cmp(&b.name));
+    let files = render_html("app", &all);
+    let page = &files
+        .iter()
+        .find(|f| f.path.to_str() == Some("Box.html"))
+        .unwrap()
+        .contents;
+    // Defined in exactly one other module: linked to that page.
+    assert!(
+        page.contains(r#"<a class="ty" href="Std.Duration.html#Duration">Duration</a>"#),
+        "{page}"
+    );
+    assert!(
+        page.contains(r#"<a class="ty" href="Prelude.html#Option">Option</a>"#),
+        "{page}"
+    );
+    // Raw HTML in a doc stays text.
+    assert!(
+        page.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+        "{page}"
+    );
+    assert!(!page.contains("<script>"), "{page}");
 }
