@@ -1,5 +1,6 @@
 # Fibers (spec chapter 11). Fibers start only inside `Fiber.scope`, and every fiber ends before
-# its scope does. The combinators `Fiber.all`, `Fiber.race` and `Fiber.timeout` are built on it.
+# its scope does. The combinators `Fiber.both`, `Fiber.map`, `Fiber.all`, `Fiber.race` and
+# `Fiber.timeout` are built on it.
 
 import Std.Console.{Console, SystemConsole}
 import Std.Clock.{Clock, SystemClock}
@@ -18,15 +19,17 @@ fn main() {
   with SystemConsole, SystemClock {
     console = use Console
     # The waits overlap: the second fetch ends first.
-    names = Fiber.all([fn() { fetch(1, 200) }, fn() { fetch(2, 100) }])
-    console.print_line("all: #{names}")
-    first = Fiber.race([fn() { fetch(3, 300) }, fn() { fetch(4, 100) }])
+    (a, b) = Fiber.both(fn() { fetch(1, 200) }, fn() { fetch(2, 100) })
+    console.print_line("both: #{a}, #{b}")
+    names = Fiber.map([3, 4, 5], fn(id) { fetch(id, 100 * (6 - id)) })
+    console.print_line("map: #{names}")
+    first = Fiber.race([fn() { fetch(6, 300) }, fn() { fetch(7, 100) }])
     console.print_line("race: #{first}")
-    late = Fiber.timeout(100, fn() { fetch(5, 1000) })
+    late = Fiber.timeout(100, fn() { fetch(8, 1000) })
     console.print_line("timeout: #{late}")
     # A failing child interrupts its siblings, and the error reaches the scope.
     failed = Fiber.scope(fn() {
-      ok = Fiber.fork(fn() { fetch(6, 1000) })
+      ok = Fiber.fork(fn() { fetch(9, 1000) })
       bad = Fiber.fork(fn() { fetch(-1, 100) })
       "#{Fiber.join(ok)} #{Fiber.join(bad)}"
     }) escape {
@@ -43,8 +46,8 @@ handler InstantClock implements Clock {
 }
 
 @test
-fn all_keeps_the_order() {
+fn map_keeps_the_order() {
   with SystemConsole, InstantClock {
-    assert Fiber.all([fn() { fetch(1, 0) }, fn() { fetch(2, 0) }]) == ["user 1", "user 2"]
+    assert Fiber.map([1, 2], fn(id) { fetch(id, 0) }) == ["user 1", "user 2"]
   }
 }
