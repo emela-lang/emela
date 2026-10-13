@@ -5,7 +5,7 @@ JavaScript and WebAssembly.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.5**:
+This branch is the 0.20 rebuild. The current release is **0.20.0**:
 the pure subset, typed errors and effects, suspending effects, handlers with
 state, fibers, files and an HTTP client compile to JavaScript and run on
 Node.js. The 0.11 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
@@ -18,9 +18,11 @@ branch.
 | 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
 | 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`, the `Std` namespace, `Platform`                              |
 | 0.20.0-alpha.5 | Fibers (`Std.Fiber`, `Std.Cause`, `Std.Deferred`), `FileSystem`, `Std.Path`, the `Http` client                             |
+| 0.20.0         | Postfix `match`, `const` evaluated once on first use, E0208 for a directory outside the source root, English diagnostics   |
 | 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, `Semaphore`, `Queue`, an `Http` server, WebAssembly output       |
 
-The 0.20 language specification is still being written. The
+The 0.20 language specification is
+[`docs/spec/emela-0.20.md`](docs/spec/emela-0.20.md) (in Japanese). The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
 repository describes the 0.1x language, not 0.20.
 
@@ -31,11 +33,13 @@ Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
 or later.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.5 sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
 emela --version
 ```
 
-This installs into `$HOME/.emela/bin`; set `EMELA_INSTALL_DIR` to change it.
+This installs the latest release into `$HOME/.emela/bin`; set
+`EMELA_INSTALL_DIR` to change the directory, or `EMELA_VERSION` (for example
+`v0.20.0-alpha.5`) to pick a version.
 
 ## A tour
 
