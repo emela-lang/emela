@@ -7,7 +7,7 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
-## [0.21.0](https://github.com/emela-lang/emela/compare/v0.20.0...v0.21.0) - 2026-10-13
+## [0.20.1](https://github.com/emela-lang/emela/compare/v0.20.0...v0.20.1) - 2026-10-13
 
 ### Added
 
