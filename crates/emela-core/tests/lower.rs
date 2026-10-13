@@ -714,7 +714,11 @@ fn main() -> Int use { Log, Async } {
     let out = dump(&m);
     let mine: Vec<&str> = out
         .split("\n\n")
-        .filter(|f| ["fn main(", "fn Std.Fiber.fork("].iter().any(|k| f.contains(k)))
+        .filter(|f| {
+            ["fn main(", "fn Std.Fiber.fork("]
+                .iter()
+                .any(|k| f.contains(k))
+        })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }

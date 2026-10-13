@@ -12,7 +12,8 @@ use emela_driver::{
 
 /// テストごとの出力先．前の実行の残りは消す．
 fn out_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("emela-driver-fiber-{}-{name}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("emela-driver-fiber-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
@@ -28,7 +29,14 @@ fn run_main(name: &str, main: &str) -> (i32, String, String) {
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(&fs, &input, &mut Lower::default(), &mut CoreJs, &options, |_| {});
+    let (analysis, output) = run(
+        &fs,
+        &input,
+        &mut Lower::default(),
+        &mut CoreJs,
+        &options,
+        |_| {},
+    );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -239,6 +247,55 @@ fn main() {
 }
 
 #[test]
+fn children_fork_siblings_into_their_own_scope() {
+    // 11.2: 子の中の Scope はその子が属すスコープ自身．子は兄弟を fork でき，スコープはそれも待つ．
+    // 入れ子のスコープでは，内側の子の fork は内側のスコープに入り，外側で取り出した能力の値は外側の
+    // スコープへ fork する．内側の子の孫のエラーは内側のスコープに届く．
+    let (code, out, err) = run_main(
+        "siblings",
+        &source(
+            r##"
+fn main() {
+  with SystemConsole, SystemClock {
+    Fiber.scope(fn() {
+      a = Fiber.fork(fn() {
+        b = Fiber.fork(fn() { fetch(2, 10) })
+        say("child")
+        Fiber.join(b)
+      })
+      say("joined #{Fiber.join(a)}")
+    })
+    r = Fiber.scope(fn() {
+      outer = use Scope
+      late = outer.fork(fn() { fetch(9, 50) })
+      inner = Fiber.scope(fn() {
+        Fiber.fork(fn() {
+          h = Fiber.fork(fn() { boom() })
+          Fiber.join(h)
+        })
+        (use Clock).sleep(1000)
+        0
+      }) escape { Boom -> -1 }
+      say("inner #{inner}")
+      Fiber.join(late)
+    })
+    say("outer #{r}")
+  }
+}
+"##,
+        ),
+    );
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (
+            0,
+            "child\nfetched 2\njoined 20\ninner -1\nfetched 9\nouter 90\n",
+            ""
+        )
+    );
+}
+
+#[test]
 fn a_failing_child_interrupts_its_siblings() {
     // 11.2，11.4: 子の失敗は兄弟と本体を中断し，release を走らせてからスコープの失敗になる．
     // 本体が値を返したときも，残った子は中断される．
@@ -310,11 +367,7 @@ fn main() {
             "release { panic(\"second\") }",
         ),
     );
-    assert_eq!(
-        (code, out.as_str()),
-        (101, "init res\n"),
-        "{err}"
-    );
+    assert_eq!((code, out.as_str()), (101, "init res\n"), "{err}");
     assert!(err.contains("first"), "{err}");
     assert!(
         err.contains("note: another fiber also failed: defect: second"),

@@ -20,8 +20,8 @@ use rustc_hash::FxHashMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FiberOp, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat, StrPart, Type,
-    UnOp, VariantDef, VariantFields, WithBind,
+    External, ExternalBinding, FiberOp, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat,
+    StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 

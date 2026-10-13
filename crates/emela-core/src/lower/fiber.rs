@@ -280,7 +280,9 @@ impl Lowerer<'_> {
         };
         let which = FiberFn::lookup(&module, &data.name)?;
         let Ty::Fn(fn_ty) = self.expr_ty(callee).clone() else {
-            return Some(Err(self.unsupported(&format!("{module}.{}", data.name), span)));
+            return Some(Err(
+                self.unsupported(&format!("{module}.{}", data.name), span)
+            ));
         };
         let simple = |op| Some(Ok(Target::Fiber(op)));
         match which {
@@ -305,8 +307,7 @@ impl Lowerer<'_> {
                 None => Some(Err(self.unsupported("Cause.kind", span))),
             },
             FiberFn::Attempt => {
-                let (Some(exit), Some(f_ty)) = (self.ret_enum(&fn_ty), fn_ty.params.first())
-                else {
+                let (Some(exit), Some(f_ty)) = (self.ret_enum(&fn_ty), fn_ty.params.first()) else {
                     return Some(Err(self.unsupported("Fiber.attempt", span)));
                 };
                 let f_call = Call {

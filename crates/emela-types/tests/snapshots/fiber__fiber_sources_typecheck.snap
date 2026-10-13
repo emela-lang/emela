@@ -21,3 +21,4 @@ all: ∀ A, E, R. fn(List[fn() -> A fails E use R]) -> List[A] fails E use { Asy
 race: ∀ A, E, R. fn(List[fn() -> A fails E use R]) -> A fails E use { Async, R }
 both: ∀ A, B, E, R. fn(fn() -> A fails E use R, fn() -> B fails E use R) -> (A, B) fails E use { Async, R }
 map: ∀ A, B, E, R. fn(List[A], fn(A) -> B fails E use R) -> List[B] fails E use { Async, R }
+timeout: ∀ A, E, R. fn(Int, fn() -> A fails E use R) -> Option[A] fails E use { Async, Clock, R }
