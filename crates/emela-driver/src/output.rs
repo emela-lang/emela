@@ -1,11 +1,11 @@
-//! JS を出す段の出力と，その書き出し．
+//! The output of the JS stage, and writing it out.
 
 use std::path::{Component, Path, PathBuf};
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
 
-/// 出力する1ファイル．`path` は出力先からの相対パス．
+/// `path` is relative to the output directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputFile {
     pub path: PathBuf,
@@ -21,14 +21,15 @@ impl OutputFile {
     }
 }
 
-/// JS を出す段が返すもの．`entry` は `files` のどれか（node で実行する `.mjs`）．
+/// `entry` is one of `files` (the `.mjs` run on node).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsOutput {
     pub files: Vec<OutputFile>,
     pub entry: PathBuf,
 }
 
-/// `out_dir` の下に書き出し，エントリのパスを返す．前の出力は消さずに上書きする．
+/// Writes under `out_dir` and returns the entry's path. Earlier output is overwritten, not
+/// removed.
 pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagnostic> {
     for file in &output.files {
         if !is_plain_relative(&file.path) {
@@ -63,7 +64,7 @@ pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagno
     Ok(out_dir.join(&output.entry))
 }
 
-/// `..` や絶対パスを含まない相対パスか．
+/// A relative path with no `..` and not absolute.
 fn is_plain_relative(path: &Path) -> bool {
     path.components().next().is_some()
         && path

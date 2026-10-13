@@ -1,4 +1,4 @@
-//! 診断を端末向けの文字列にする（ariadne）．
+//! Renders diagnostics as terminal text (ariadne).
 
 use std::ops::Range;
 
@@ -7,7 +7,7 @@ use ariadne::{Color, Config, IndexType, Label, Report, ReportKind};
 use crate::diagnostic::{Diagnostic, HELP_PREFIX, Location, Severity, Span};
 use crate::source::SourceDb;
 
-/// 診断を全部並べ，最後に件数をまとめる．診断の間は空行で区切る．
+/// Lists all diagnostics separated by blank lines, followed by a count summary.
 pub fn render(diagnostics: &[Diagnostic], sources: &SourceDb, color: bool) -> String {
     let mut out = String::new();
     for (i, diagnostic) in diagnostics.iter().enumerate() {
@@ -26,7 +26,7 @@ pub fn render(diagnostics: &[Diagnostic], sources: &SourceDb, color: bool) -> St
     out
 }
 
-/// `2 errors, 1 warning`．1件なら単数形．どちらもなければ `None`．
+/// `2 errors, 1 warning`, singular for one. `None` if there are neither.
 pub fn summary(diagnostics: &[Diagnostic]) -> Option<String> {
     let errors = diagnostics.iter().filter(|d| d.is_error()).count();
     let warnings = diagnostics.len() - errors;
@@ -45,9 +45,8 @@ pub fn summary(diagnostics: &[Diagnostic]) -> Option<String> {
     }
 }
 
-/// 1件の診断．
 pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> String {
-    // 見出しは rustc と同じ `error[E0204]`．コードのない診断は `error` だけ．
+    // The heading follows rustc: `error[E0204]`, or just `error` without a code.
     let (word, kind_color) = match diagnostic.severity {
         Severity::Error => ("error", Color::Red),
         Severity::Warning => ("warning", Color::Yellow),
@@ -68,7 +67,7 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
             .to_string();
         (path, span.range.start().into()..span.range.end().into())
     };
-    // ソースの範囲を持たない診断は，ariadne の見出しの後にパスだけを添える．
+    // A diagnostic without a source range gets just its path after ariadne's heading.
     let (report_span, path_only) = match &diagnostic.location {
         Some(Location::Span(s)) => (span(*s), None),
         Some(Location::File(file)) => (
@@ -90,7 +89,8 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
     let mut builder = Report::build(kind, report_span.clone())
         .with_config(config)
         .with_message(&diagnostic.message);
-    // ariadne は渡した順に並べ，位置が戻ると枠を分けるので，ファイルと位置の順に並べて渡す．
+    // ariadne lays labels out in the given order and splits frames when the position goes back,
+    // so pass them sorted by file and position.
     let mut labels: Vec<(Span, Option<&str>)> = Vec::new();
     if let Some(Location::Span(primary)) = diagnostic.location {
         labels.push((primary, None));
@@ -106,7 +106,8 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
         let label = Label::new(span(label_span));
         builder.add_label(match message {
             Some(message) => label.with_message(message).with_color(Color::Blue),
-            // 文言のないラベルは色なしでは見えないので，空の文言を付けて下線を引かせる．
+            // A label without a message is invisible without color, so give it an empty message to
+            // get the underline.
             None => label
                 .with_message("")
                 .with_color(match diagnostic.severity {
@@ -124,16 +125,16 @@ pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> S
     builder
         .finish()
         .write(cache, &mut buf)
-        .expect("Vec への書き込みは失敗しない");
-    let mut out = String::from_utf8(buf).expect("ariadne は UTF-8 を出す");
+        .expect("writing to a Vec does not fail");
+    let mut out = String::from_utf8(buf).expect("ariadne emits UTF-8");
     if !color {
-        // ariadne 0.6 は `ReportKind::Custom` の色を `with_color(false)` でも付けるので取り除く．
+        // ariadne 0.6 colors `ReportKind::Custom` even with `with_color(false)`, so strip it.
         out = strip_ansi(&out);
     }
     if let Some(path) = path_only {
         out = insert_after_first_line(&out, &format!("   ─[ {path} ]\n"));
     }
-    // ariadne は注記をソースの枠の中にしか出さないので，枠の後に自分で並べる．
+    // ariadne only prints notes inside the source frame, so list them after the frame ourselves.
     for note in &diagnostic.notes {
         match note.strip_prefix(HELP_PREFIX) {
             Some(help) => out.push_str(&format!("   = help: {help}\n")),
@@ -150,7 +151,7 @@ fn insert_after_first_line(text: &str, insert: &str) -> String {
     }
 }
 
-/// `ESC [ ... m` の形の色指定を取り除く．
+/// Removes color codes of the form `ESC [ ... m`.
 fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars();

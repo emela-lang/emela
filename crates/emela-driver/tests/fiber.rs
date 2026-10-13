@@ -1,7 +1,9 @@
-//! 並行性（仕様 11章）を `emela run` と `emela test` の経路で流す．ソースから lowering，codegen-js，
-//! node までを通し，11章の例（11.2，11.3，11.5，11.7，11.8）の振る舞いを確かめる．
+//! Concurrency (spec chapter 11) through the `emela run` and `emela test` paths. Runs source
+//! through lowering, codegen-js and node, checking the behavior of the chapter 11 examples
+//! (spec 11.2, 11.3, 11.5, 11.7, 11.8).
 //!
-//! 時刻は SystemClock の本物のタイマーで進める．待ち時間の差を十分に取り，起きる順だけを見る．
+//! Time advances with SystemClock's real timers. Wait times differ widely, and only the order of
+//! events is checked.
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +12,7 @@ use emela_driver::{
     TestOutcome, run, test,
 };
 
-/// テストごとの出力先．前の実行の残りは消す．
+/// A per-test output directory. Leftovers from earlier runs are removed.
 fn out_dir(name: &str) -> PathBuf {
     let dir =
         std::env::temp_dir().join(format!("emela-driver-fiber-{}-{name}", std::process::id()));
@@ -18,7 +20,7 @@ fn out_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// `emela run` で main を走らせ，（終了コード，標準出力，標準エラー）を返す．
+/// Runs main with `emela run`. Returns (exit code, stdout, stderr).
 fn run_main(name: &str, main: &str) -> (i32, String, String) {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -55,7 +57,7 @@ fn run_main(name: &str, main: &str) -> (i32, String, String) {
     )
 }
 
-/// `emela test` で流し，テストごとの（名前，結果）を返す．
+/// Runs with `emela test`. Returns (name, outcome) per test.
 fn run_tests(name: &str, main: &str) -> Vec<(String, TestOutcome)> {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -86,8 +88,8 @@ fn run_tests(name: &str, main: &str) -> Vec<(String, TestOutcome)> {
         .collect()
 }
 
-/// どの例でも使う宣言．`fetch(n, ms)` は ms 待ってから `fetched n` を出して `n * 10` を返す．
-/// `Res` は init と release を出すハンドラ．
+/// Declarations shared by every example. `fetch(n, ms)` waits ms, prints `fetched n` and returns
+/// `n * 10`. `Res` is a handler that prints on init and release.
 const PRELUDE: &str = r##"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{Clock, SystemClock}
 import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
@@ -151,7 +153,8 @@ fn source(main: &str) -> String {
 
 #[test]
 fn children_run_concurrently_and_are_joined() {
-    // 11.2: 子は待ちを重ねて並行に走り，join で値を受ける．能力の値の fork と Fiber.fork のどちらも使える．
+    // spec 11.2: children wait concurrently and their values are received with join. Both the
+    // capability value's fork and Fiber.fork work.
     let (code, out, err) = run_main(
         "scope",
         &source(
@@ -178,7 +181,8 @@ fn main() {
 
 #[test]
 fn combinators() {
-    // 11.3: all，race，both，map，timeout．結果は元の順で，race は最初に終わったものを採る．
+    // spec 11.3: all, race, both, map, timeout. Results keep the original order; race takes the
+    // first to finish.
     let (code, out, err) = run_main(
         "combinators",
         &source(
@@ -217,8 +221,9 @@ fn main() {
 
 #[test]
 fn children_get_the_handlers_where_scope_is_called() {
-    // 11.2: 子が使うハンドラは Fiber.scope を呼んだ時点のもの．スコープの本体の中の with は子に
-    // 届かない．ただし with の中で作ったクロージャは，その with のハンドラを使う．
+    // spec 11.2: a child uses the handlers in effect when Fiber.scope was called. A `with` inside
+    // the scope body does not reach children, but a closure created inside a `with` uses that
+    // `with`'s handler.
     let (code, out, err) = run_main(
         "handlers",
         &source(
@@ -248,9 +253,10 @@ fn main() {
 
 #[test]
 fn children_fork_siblings_into_their_own_scope() {
-    // 11.2: 子の中の Scope はその子が属すスコープ自身．子は兄弟を fork でき，スコープはそれも待つ．
-    // 入れ子のスコープでは，内側の子の fork は内側のスコープに入り，外側で取り出した能力の値は外側の
-    // スコープへ fork する．内側の子の孫のエラーは内側のスコープに届く．
+    // spec 11.2: the Scope inside a child is the scope the child belongs to. A child can fork
+    // siblings, and the scope waits for them too. With nested scopes, an inner child's fork goes
+    // into the inner scope, and a capability value taken outside forks into the outer scope. An
+    // error from an inner child's grandchild reaches the inner scope.
     let (code, out, err) = run_main(
         "siblings",
         &source(
@@ -297,8 +303,9 @@ fn main() {
 
 #[test]
 fn a_failing_child_interrupts_its_siblings() {
-    // 11.2，11.4: 子の失敗は兄弟と本体を中断し，release を走らせてからスコープの失敗になる．
-    // 本体が値を返したときも，残った子は中断される．
+    // spec 11.2, 11.4: a child's failure interrupts its siblings and the body, runs releases, then
+    // becomes the scope's failure. Remaining children are interrupted even when the body returns
+    // a value.
     let (code, out, err) = run_main(
         "child-fails",
         &source(
@@ -339,7 +346,8 @@ fn main() {
 
 #[test]
 fn later_failures_are_notes() {
-    // 11.2: 2つ以上の子が失敗したら，先の失敗が結果で，後の失敗は注記になる．
+    // spec 11.2: if two or more children fail, the first failure is the result and later ones
+    // become notes.
     let (code, out, err) = run_main(
         "notes",
         &source(
@@ -377,8 +385,9 @@ fn main() {
 
 #[test]
 fn attempt_and_await() {
-    // 11.5 の表: attempt は Fail と Die を受け，await は中断を受ける．中断された子の join は defect．
-    // Cause.raise で起こし直したエラーは escape で受けられる．
+    // The table in spec 11.5: attempt catches Fail and Die, and await catches interruption.
+    // Joining an interrupted child is a defect. An error re-raised with Cause.raise can be caught
+    // by escape.
     let (code, out, err) = run_main(
         "attempt-await",
         &source(
@@ -423,7 +432,7 @@ fn main() {
 
 #[test]
 fn deferred() {
-    // 11.7: Deferred は一度だけ値を入れられ，待っている全員が再開する．poll は待たない．
+    // spec 11.7: a Deferred can be completed once, resuming every waiter. poll does not wait.
     let (code, out, err) = run_main(
         "deferred",
         &source(
@@ -455,7 +464,8 @@ fn main() {
 
 #[test]
 fn using_an_ended_scope_is_a_defect() {
-    // 11.8: 型で止まらない持ち出し（クロージャで捕まえて外へ出す）は実行時に defect になる．
+    // spec 11.8: an escape the types do not stop (captured in a closure and taken outside) is a
+    // defect at run time.
     let (code, out, err) = run_main(
         "ended-scope",
         &source(
@@ -499,7 +509,8 @@ fn main() {
 
 #[test]
 fn fibers_in_tests() {
-    // 13章: テスト関数の中でも fiber が動く．子の失敗はそのテストのエラーか defect になる．
+    // spec chapter 13: fibers also run inside test functions. A child's failure becomes that
+    // test's error or defect.
     let outcomes = run_tests(
         "tests",
         &source(
@@ -553,9 +564,10 @@ fn child_defect() {
 
 #[test]
 fn test_clock_runs_on_virtual_time() {
-    // 8.8: TestClock は仮の時刻で動く．どの fiber も進めなくなったときに一番早い予定の時刻まで進め，
-    // 同じ時刻なら sleep を呼んだ順に起こす．1時間の sleep を含む Fiber.timeout と race も
-    // 本当には待たずに終わる（11.3）．
+    // spec 8.8: TestClock runs on virtual time. When no fiber can make progress, it advances to
+    // the earliest scheduled time and wakes sleepers at the same time in the order sleep was
+    // called. Fiber.timeout and race with a one-hour sleep finish without really waiting
+    // (spec 11.3).
     let started = std::time::Instant::now();
     let outcomes = run_tests(
         "virtual-time",

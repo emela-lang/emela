@@ -1,6 +1,7 @@
-//! syntax から codegen までをつなぐパイプライン．
+//! The pipeline from syntax to codegen.
 //!
-//! ソースの表を持ち，各段の診断を集めて表示し，出力した JS を node で実行する．
+//! Holds the source table, collects and renders each stage's diagnostics, and runs the emitted JS
+//! on node.
 
 mod actions;
 pub mod code;

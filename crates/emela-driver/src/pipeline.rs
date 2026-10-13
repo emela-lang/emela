@@ -1,8 +1,7 @@
-//! パイプライン．モジュールを集め，字句解析し，import のグラフを検査する．
+//! The pipeline: collects modules, lexes them, and checks the import graph.
 //!
-//! 構文解析，型検査，JS の出力は [`Frontend`] と [`JsBackend`] で差し込む．
-//! 今の段で使えるのは構文解析までの [`crate::ParseOnly`]，字句解析だけの [`LexOnly`]，
-//! 出力を持たない [`NoJsBackend`]．
+//! Parsing, type checking and JS emission are plugged in through [`Frontend`] and
+//! [`JsBackend`].
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -24,27 +23,30 @@ use crate::run::{Output, RunOutput, run_node};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
 
-/// プロジェクトの目印のファイル（仕様 4.1）．0.20 では有無だけを見る．
+/// The file marking a project (spec 4.1). In 0.20 only its presence matters.
 pub const PROJECT_FILE: &str = "Pome.toml";
-/// プロジェクトの中のソースのルート．
+/// The source root inside a project.
 pub const SOURCE_DIR: &str = "src";
-/// プロジェクトのエントリ（ソースのルートからの相対パス）．
+/// The project entry, relative to the source root.
 pub const ENTRY_FILE: &str = "main.emel";
-/// プロジェクト（単独ファイルならファイルのあるディレクトリ）からの，JS の既定の出力先．
+/// The default JS output directory, relative to the project (or to the file's directory for a
+/// single file).
 pub const JS_OUT_DIR: &str = "target/emela/js";
-/// 同梱の core のソースを載せる仮のディレクトリ．診断のパスに `<core>/list.emel` のように出る．
+/// A virtual directory holding the bundled core sources. Diagnostics show paths like
+/// `<core>/list.emel`.
 pub const CORE_DIR: &str = "<core>";
 
-/// コンパイラに同梱した core のソース（モジュール名と中身）．[`Frontend::core_sources`] で渡す．
+/// Core sources bundled with the compiler (module name and contents), passed through
+/// [`Frontend::core_sources`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreSource {
-    /// モジュール名（`List`，`Prelude`）．`emela_core::core_sources()` の名前をそのまま使う．
+    /// The module name (`List`, `Prelude`), as given by `emela_core::core_sources()`.
     pub module: String,
     pub text: String,
 }
 
 impl CoreSource {
-    /// `emela_core::core_sources()` の全部（Prelude と core のモジュール）．
+    /// All of `emela_core::core_sources()` (the Prelude and core modules).
     pub fn bundled() -> Vec<CoreSource> {
         emela_core::core_sources()
             .iter()
@@ -55,8 +57,9 @@ impl CoreSource {
             .collect()
     }
 
-    /// ソースの表に載せる仮のパス．`List` なら `<core>/list.emel`，`Int64` なら `<core>/int64.emel`，
-    /// `Std.Console` なら `<core>/std/console.emel`（モジュール名の区切りをディレクトリにする）．
+    /// The virtual path in the source table: `<core>/list.emel` for `List`, `<core>/int64.emel`
+    /// for `Int64`, and `<core>/std/console.emel` for `Std.Console` (module name segments become
+    /// directories).
     fn path(&self) -> PathBuf {
         let mut path = PathBuf::from(CORE_DIR);
         let segments: Vec<&str> = self.module.split('.').collect();
@@ -77,26 +80,29 @@ impl CoreSource {
     }
 }
 
-/// コマンドラインの path から決めた，ソースのルートとエントリ（仕様 4.1）．パスはどれも絶対パス．
+/// The source root and entry decided from the command line path (spec 4.1). All paths are
+/// absolute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Input {
-    /// モジュール名はここからの相対パスで決まる．
+    /// Module names are paths relative to this.
     pub root: PathBuf,
-    /// エントリのファイル．ディレクトリを渡して `src/main.emel` がなければ `None`．
+    /// `None` when a directory is passed and it has no `src/main.emel`.
     pub entry: Option<PathBuf>,
-    /// プロジェクトのディレクトリ．単独ファイルならファイルのあるディレクトリ．
-    /// `target/` を置き，診断のパスはここからの相対パスで出す．
+    /// The project directory, or the file's directory for a single file. `target/` goes here,
+    /// and diagnostic paths are relative to it.
     pub base: PathBuf,
-    /// `Pome.toml` のない単独ファイル．モジュールはルートの直下の `.emel` だけになる．
+    /// A single file without `Pome.toml`. Only the `.emel` files directly under the root are
+    /// modules.
     pub single_file: bool,
 }
 
 impl Input {
-    /// 渡されたパスを絶対パスに直し，祖先を上にたどって最初の `Pome.toml` でプロジェクトを決める．
+    /// Makes the given path absolute and walks up its ancestors; the first `Pome.toml` decides
+    /// the project.
     ///
-    /// - ディレクトリで `Pome.toml` がなければエラー．エントリは `<プロジェクト>/src/main.emel`
-    /// - ファイルで `Pome.toml` がなければ単独ファイル．ルートはファイルのあるディレクトリ
-    /// - ファイルで `Pome.toml` があり，ファイルが `<プロジェクト>/src` の外ならエラー
+    /// - A directory without `Pome.toml` is an error. The entry is `<project>/src/main.emel`.
+    /// - A file without `Pome.toml` is a single file, rooted at the file's directory.
+    /// - A file with `Pome.toml` outside `<project>/src` is an error.
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
         let not_found = || {
             Diagnostic::error(format!("`{}` not found", path.display()))
@@ -108,7 +114,7 @@ impl Input {
             return Err(not_found());
         }
         let start = if is_file {
-            absolute.parent().expect("ファイルには親がある")
+            absolute.parent().expect("a file has a parent")
         } else {
             &absolute
         };
@@ -169,7 +175,8 @@ impl Input {
     }
 }
 
-/// 単独ファイルのときの一覧．ルートの直下のファイルだけを見せ，サブディレクトリに潜らせない．
+/// The listing for a single file: shows only files directly under the root, never
+/// subdirectories.
 struct Shallow<'a>(&'a dyn FileSystem);
 
 impl SourceFs for Shallow<'_> {
@@ -180,33 +187,35 @@ impl SourceFs for Shallow<'_> {
     }
 }
 
-/// 構文解析の結果のうち，パイプラインが使うもの．構文木は [`Frontend`] の側で持つ．
+/// The parts of the parse result the pipeline uses. The syntax tree stays in the [`Frontend`].
 #[derive(Debug, Default)]
 pub struct Parsed {
     pub imports: Vec<Import>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// パーサと型検査の差し込み口．
+/// The plug-in point for the parser and type checker.
 pub trait Frontend {
-    /// 型検査まで済んだプログラム．[`JsBackend`] に渡す．
+    /// A type-checked program, passed to [`JsBackend`].
     type Program;
 
-    /// 1つのモジュールを字句解析して構文解析する．字句と構文の診断はどちらもここで返す
-    /// （パイプラインは字句解析をしない）．構文木は `self` に持っておき，[`Frontend::check`] で使う．
+    /// Lexes and parses one module, returning both lexer and parser diagnostics (the pipeline
+    /// does no lexing itself). Keeps the tree in `self` for [`Frontend::check`].
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed;
 
-    /// 読んだ全モジュールの構文解析と import の検査の後に1度だけ呼ぶ．
-    /// `order` は読んだモジュールだけの依存順．import が循環していると依存順がないので呼ばない．
+    /// Called once after all read modules are parsed and imports checked. `order` is the
+    /// dependency order of the read modules only. Not called if imports are cyclic, since there
+    /// is no dependency order.
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program>;
 
-    /// コンパイラに同梱した core のソース．パイプラインはモジュールの対応表に足し，
-    /// ソースのモジュールと同じく（単独ファイルでも必ず）読んで [`Frontend::parse`] に渡す．
+    /// Core sources bundled with the compiler. The pipeline adds them to the module table and,
+    /// like source modules, always reads them (even for a single file) and passes them to
+    /// [`Frontend::parse`].
     fn core_sources(&self) -> Vec<CoreSource> {
         Vec::new()
     }
 
-    /// `file` の `offset` の位置の情報（LSP のホバー）．型を持つフロントエンドだけが返す．
+    /// Information at `offset` in `file` (LSP hover). Only frontends with types return it.
     fn hover(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -216,14 +225,15 @@ pub trait Frontend {
         None
     }
 
-    /// 直前の [`Frontend::check`] で，エントリのモジュールに `main` という名前の fn があったか
-    /// （8.3）．`emela run` が E0230 に使う．分からないフロントエンドとエントリのないときは `None`
-    /// （`run` は確かめずに進む）．
+    /// Whether the entry module had a fn named `main` in the last [`Frontend::check`] (spec 8.3).
+    /// `emela run` uses it for E0230. `None` for frontends that cannot tell and when there is no
+    /// entry (`run` then proceeds without checking).
     fn has_entry_main(&self) -> Option<bool> {
         None
     }
 
-    /// `file` の `offset` の名前の定義（LSP の定義へ移動）．名前を解決するフロントエンドだけが返す．
+    /// The definition of the name at `offset` in `file` (LSP go to definition). Only frontends
+    /// that resolve names return it.
     fn definition(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -233,7 +243,8 @@ pub trait Frontend {
         None
     }
 
-    /// `file` の `offset` の位置の補完の候補（LSP の補完）．型を持つフロントエンドだけが返す．
+    /// Completion candidates at `offset` in `file` (LSP completion). Only frontends with types
+    /// return them.
     fn complete(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -243,7 +254,7 @@ pub trait Frontend {
         Vec::new()
     }
 
-    /// `file` の `range` の中のインレイヒント（LSP のインレイヒント）．
+    /// Inlay hints within `range` of `file` (LSP inlay hints).
     fn inlay_hints(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -253,7 +264,7 @@ pub trait Frontend {
         Vec::new()
     }
 
-    /// `file` の `range` に掛かるコードアクション（LSP のコードアクション）．
+    /// Code actions touching `range` of `file` (LSP code actions).
     fn code_actions(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -263,7 +274,8 @@ pub trait Frontend {
         Vec::new()
     }
 
-    /// `file` の `offset` を括弧の中に含む呼び出しのシグネチャ（LSP のシグネチャのヘルプ）．
+    /// The signature of the call whose parentheses contain `offset` in `file` (LSP signature
+    /// help).
     fn signature_help(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -273,7 +285,7 @@ pub trait Frontend {
         None
     }
 
-    /// `file` の `offset` の名前を変えられるなら，その名前の範囲（LSP の prepareRename）．
+    /// The range of the name at `offset` in `file`, if it can be renamed (LSP prepareRename).
     fn prepare_rename(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -283,7 +295,7 @@ pub trait Frontend {
         None
     }
 
-    /// `file` の `offset` の名前を `new_name` に変える編集（LSP の rename）．
+    /// Edits renaming the name at `offset` in `file` to `new_name` (LSP rename).
     fn rename(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -294,7 +306,8 @@ pub trait Frontend {
         Err(RenameError::NotRenamable)
     }
 
-    /// `file` の `offset` の名前の参照（LSP の参照の検索）．`declaration` なら定義の名前も含める．
+    /// References to the name at `offset` in `file` (LSP find references). With `declaration`,
+    /// the definition's name is included.
     fn references(
         _program: &Self::Program,
         _analysis: &Analysis,
@@ -306,19 +319,20 @@ pub trait Frontend {
     }
 }
 
-/// 型検査の結果．診断にエラーがあっても，続けられる限りプログラムを返してよい．
+/// The type checking result. The program may be returned despite errors, as long as it can
+/// continue.
 #[derive(Debug)]
 pub struct Checked<P> {
     pub program: Option<P>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// JS の出力の差し込み口．エラーが1つもないときだけ呼ぶ．
+/// The plug-in point for JS emission. Called only when there are no errors.
 pub trait JsBackend<P> {
     fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
 }
 
-/// 字句解析だけのフロントエンド．字句の診断だけを返し，import を返さず，型検査もしない．
+/// A lexer-only frontend: returns only lexer diagnostics, no imports, and no type checking.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LexOnly;
 
@@ -345,7 +359,7 @@ impl Frontend for LexOnly {
     }
 }
 
-/// JS の出力がまだないことを診断にする．
+/// Reports, as a diagnostic, that JS emission is unavailable.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoJsBackend;
 
@@ -357,16 +371,16 @@ impl<P> JsBackend<P> for NoJsBackend {
     }
 }
 
-/// 解析の途中経過．診断は段の順に全部たまる．
+/// Analysis in progress. Diagnostics from every stage accumulate in stage order.
 #[derive(Debug, Default)]
 pub struct Analysis {
     pub sources: SourceDb,
     pub modules: ModuleMap,
-    /// 読んだモジュールのファイル．読めなかったファイルと，単独ファイルでエントリから
-    /// たどれないモジュールは入らない．
+    /// Files of read modules. Files that could not be read and, for a single file, modules
+    /// unreachable from the entry are absent.
     pub files: ArenaMap<ModuleId, FileId>,
     pub graph: ImportGraph,
-    /// エントリのモジュール．エントリがないか，モジュールにならなければ `None`．
+    /// `None` if there is no entry or it is not a module.
     pub entry: Option<ModuleId>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -385,10 +399,11 @@ impl Analysis {
     }
 }
 
-/// `emela check` の段．モジュールを集め，字句解析と構文解析をし，import を検査し，型検査する．
+/// The `emela check` stage: collects modules, lexes and parses them, checks imports, and type
+/// checks.
 ///
-/// モジュールの対応表は全部作る．読んで解析するのは，プロジェクトなら全モジュール，
-/// 単独ファイルならエントリから import でたどれるモジュールだけ．
+/// The module table is always complete. A project reads and analyzes every module; a single file
+/// only those reachable from the entry through imports.
 pub fn check<F: Frontend>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -402,7 +417,8 @@ pub fn check<F: Frontend>(
         emela_resolve::collect_modules(fs, &input.root)
     };
     analysis.modules = modules;
-    // 同梱の core のソース．同じ名前のソースのモジュールは隠れ，予約された名前の診断が出る．
+    // Bundled core sources. A source module with the same name is hidden, and a reserved name
+    // diagnostic is reported.
     let mut core_texts: ArenaMap<ModuleId, String> = ArenaMap::default();
     for source in frontend.core_sources() {
         let name = emela_resolve::ModuleName::parse(&source.module);
@@ -418,7 +434,7 @@ pub fn check<F: Frontend>(
             .map(|(id, _)| id);
     }
 
-    // 作業リスト．単独ファイルではエントリから始め，import 先を見つけるたびに足す．
+    // The work list. For a single file it starts at the entry and grows as imports are found.
     let mut work: Vec<ModuleId> = if input.single_file {
         let core = analysis
             .modules
@@ -434,7 +450,7 @@ pub fn check<F: Frontend>(
         queued.insert(id, ());
     }
     let mut imports: ArenaMap<ModuleId, Vec<Import>> = ArenaMap::default();
-    // 診断は読んだ順でなくモジュールの順に並べる．
+    // Diagnostics are ordered by module, not by reading order.
     let mut file_diagnostics: ArenaMap<ModuleId, Vec<Diagnostic>> = ArenaMap::default();
     while let Some(module) = work.pop() {
         let path = &analysis.modules[module].file;
@@ -473,8 +489,8 @@ pub fn check<F: Frontend>(
         imports.insert(module, parsed.imports);
     }
 
-    // 名前解決の診断は，ファイルを表に入れてから写す（ID で指せるように）．
-    // 単独ファイルでは，たどれたモジュールに関わるものだけを出す．
+    // Name resolution diagnostics are converted after files are in the table, so they can point
+    // by ID. For a single file, only those about reached modules are reported.
     let resolve_diagnostics: Vec<Diagnostic> = resolve_diagnostics
         .iter()
         .filter(|d| !input.single_file || concerns_reached(d, input, &analysis, &queued))
@@ -488,7 +504,7 @@ pub fn check<F: Frontend>(
     }
 
     if let (Some(entry), None) = (&input.entry, analysis.entry) {
-        // 名前の誤りなどでモジュールにならなかった．理由の診断は名前解決が出している．
+        // Not a module (a bad name, ...). The resolver has already reported why.
         analysis.diagnostics.push(
             Diagnostic::error(format!(
                 "the entry `{}` is not a module",
@@ -520,8 +536,9 @@ pub fn check<F: Frontend>(
     (analysis, checked.program)
 }
 
-/// 単独ファイルで，名前解決の診断がエントリかたどれたモジュールに関わるか．
-/// 名前の誤りはそのファイルがエントリのときだけ，重複はそのモジュール名をたどったときだけ出す．
+/// For a single file, whether a name resolution diagnostic concerns the entry or a reached
+/// module. Name errors only count for the entry file, and duplicates only when that module name
+/// was reached.
 fn concerns_reached(
     diagnostic: &emela_resolve::Diagnostic,
     input: &Input,
@@ -541,8 +558,8 @@ fn concerns_reached(
         || analysis.sources.file_id(&diagnostic.file).is_some()
 }
 
-/// `emela build` の段．検査を通ったら JS を出し，`out_dir` に書く．書いたエントリのパスを返す．
-/// エントリに main がなくても出力する（8.3）．
+/// The `emela build` stage: emits JS if checks pass and writes it to `out_dir`. Returns the path
+/// of the written entry. Output is produced even without main in the entry (spec 8.3).
 pub fn build<F: Frontend, B: JsBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -553,7 +570,8 @@ pub fn build<F: Frontend, B: JsBackend<F::Program>>(
     build_with(fs, input, frontend, backend, out_dir, false)
 }
 
-/// `require_main` なら，エントリに main がないとき E0230 にして出力しない（`emela run`，8.3）．
+/// With `require_main`, a missing main in the entry is E0230 and nothing is emitted
+/// (`emela run`, spec 8.3).
 fn build_with<F: Frontend, B: JsBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -578,7 +596,7 @@ fn build_with<F: Frontend, B: JsBackend<F::Program>>(
     if analysis.has_errors() {
         return (analysis, None);
     }
-    // ほかの誤りがあれば出さない．構文の誤りで main を読めなかっただけかもしれないため．
+    // Not reported if there are other errors: a syntax error may just have hidden main.
     if require_main
         && frontend.has_entry_main() == Some(false)
         && let Some(entry) = &input.entry
@@ -594,7 +612,7 @@ fn build_with<F: Frontend, B: JsBackend<F::Program>>(
         return (analysis, None);
     }
     let Some(program) = program else {
-        // エラーなしでプログラムがないのはフロントエンドの誤り．
+        // No errors but no program is a frontend bug.
         analysis.diagnostics.push(Diagnostic::error(
             "internal error: the type checker returned no program",
         ));
@@ -616,24 +634,24 @@ fn build_with<F: Frontend, B: JsBackend<F::Program>>(
     }
 }
 
-/// `emela run` の実行のしかた．
+/// How `emela run` runs the program.
 #[derive(Debug, Clone)]
 pub struct RunOptions {
     pub out_dir: PathBuf,
-    /// node の実行ファイル（[`crate::node_program`]）．
+    /// The node executable ([`crate::node_program`]).
     pub node: PathBuf,
-    /// プログラムへの引数．
+    /// Arguments to the program.
     pub args: Vec<OsString>,
     pub output: Output,
 }
 
-/// `emela run` の段．ビルドして，エントリを node で実行する．エントリに main がなければ
-/// E0230 にして node を起動しない（8.3）．
+/// The `emela run` stage: builds and runs the entry on node. Without main in the entry, reports
+/// E0230 and does not start node (spec 8.3).
 ///
-/// `before_node` はビルドの後，node を起動する前に1度だけ呼ぶ（ビルドが失敗しても呼ぶ）．
-/// CLI はここで診断を出す．終わらないプログラム（サーバー）でも警告が先に見えるように．
-/// 診断でエラーになったか node を起動できなかったときは，実行結果が `None`．
-/// node を起動できなかった診断は `before_node` の後に `Analysis` の末尾へ足す．
+/// `before_node` is called once after the build and before node starts (even if the build
+/// fails). The CLI prints diagnostics there, so warnings show first even for programs that never
+/// end (servers). The run result is `None` if diagnostics had errors or node could not start.
+/// A diagnostic about failing to start node is appended to `Analysis` after `before_node`.
 pub fn run<F: Frontend, B: JsBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -656,7 +674,7 @@ pub fn run<F: Frontend, B: JsBackend<F::Program>>(
     }
 }
 
-/// `./src/main.emel` と `src/main.emel` を同じとみなす．
+/// Treats `./src/main.emel` and `src/main.emel` as the same.
 fn same_path(a: &Path, b: &Path) -> bool {
     fn normal(p: &Path) -> impl Iterator<Item = Component<'_>> {
         p.components().filter(|c| !matches!(c, Component::CurDir))
@@ -696,11 +714,11 @@ mod tests {
         ];
         let expected = project("/app/src", Some("/app/src/main.emel"), "/app");
         assert_eq!(input(&files, "/app"), expected);
-        // 相対パスと `./` 付きでも同じ（メモリ上のファイルは `/` を起点にする）．
+        // Same for a relative path and one with `./` (in-memory files are rooted at `/`).
         assert_eq!(input(&files, "./app/"), expected);
-        // プロジェクトの中のディレクトリを渡しても，上にたどって同じプロジェクトになる．
+        // A directory inside the project walks up to the same project.
         assert_eq!(input(&files, "/app/src/http"), expected);
-        // エントリがなくてもプロジェクトにはなる（check はエントリを求めない）．
+        // Without an entry it is still a project (check does not require an entry).
         assert_eq!(
             input(&["/lib/Pome.toml", "/lib/src/util.emel"], "/lib"),
             project("/lib/src", None, "/lib")
@@ -735,7 +753,7 @@ mod tests {
 
     #[test]
     fn nearest_pome_toml_wins() {
-        // 入れ子のプロジェクトは内側が勝つ．
+        // For nested projects, the inner one wins.
         let files = [
             "/outer/Pome.toml",
             "/outer/src/inner/Pome.toml",
@@ -754,7 +772,7 @@ mod tests {
     #[test]
     fn single_file() {
         let files = ["/home/src/proj/main.emel", "/home/src/proj/util.emel"];
-        // 祖先に `src` があっても，Pome.toml がなければ単独ファイル．
+        // An ancestor named `src` without Pome.toml still means a single file.
         assert_eq!(
             input(&files, "/home/src/proj/main.emel"),
             Ok(Input {

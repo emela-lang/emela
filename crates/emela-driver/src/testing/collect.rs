@@ -1,4 +1,4 @@
-//! ソースの `@test` の関数を集める（仕様 13.1）．
+//! Collects `@test` functions from source (spec 13.1).
 
 use emela_resolve::ModuleId;
 use emela_syntax::ast::{self, AstNode, HasAttrs};
@@ -10,27 +10,28 @@ use crate::diagnostic::{Diagnostic, Span};
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// テスト関数の注釈の名前．
+/// The annotation name of test functions.
 pub const TEST_ANNOTATION: &str = "test";
 
-/// ソースの `@test` の関数．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestFn {
     pub module: ModuleId,
-    /// 関数の名前．
     pub name: String,
-    /// 結果の表示とフィルタに使う名前．エントリのモジュールなら関数の名前だけ，
-    /// ほかのモジュールなら `Http.Client.name` のようにモジュール名を前に付ける．
+    /// The name used for display and filtering: just the function name in the entry module, and
+    /// prefixed with the module name elsewhere, like `Http.Client.name`.
     pub display_name: String,
     pub file: FileId,
-    /// 関数の名前のトークンの範囲．名前解決の `DefData::span` と同じ範囲なので，HIR の定義を引ける．
+    /// The range of the function's name token, the same range as the resolver's `DefData::span`,
+    /// so the HIR definition can be looked up.
     pub name_range: TextRange,
 }
 
-/// 読んだモジュールの構文木から `@test` の関数を，モジュールの順，宣言の順に集める．
+/// Collects `@test` functions from the trees of read modules, in module order and then
+/// declaration order.
 ///
-/// `@test` を付けられるのはトップレベルの引数のない fn で，本体を持つもの（`@external` でない）．
-/// それ以外に付いた `@test` と，`@test(...)` のような引数は E0226 にする．誤りのある関数は集めない．
+/// `@test` may only be put on top-level fns without parameters that have a body (not
+/// `@external`). `@test` elsewhere, and arguments like `@test(...)`, are E0226. Functions with
+/// errors are not collected.
 pub fn collect_tests<'p>(
     analysis: &Analysis,
     parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,
@@ -59,7 +60,7 @@ pub fn collect_tests<'p>(
                 continue;
             }
             let range = annotation.syntax().text_range();
-            // `@test()` のように空の括弧でも引数の並びがある．
+            // Even empty parentheses like `@test()` form an argument list.
             if annotation
                 .syntax()
                 .children()
@@ -83,7 +84,7 @@ pub fn collect_tests<'p>(
                 );
                 continue;
             };
-            // 同じ関数に `@test` が2つあっても1回だけ集める．
+            // Two `@test`s on one function collect it once.
             if decl
                 .annotations()
                 .find(|a| a.name().is_some_and(|n| n.text() == TEST_ANNOTATION))
@@ -92,7 +93,7 @@ pub fn collect_tests<'p>(
                 continue;
             }
             let Some(name) = decl.name() else {
-                // 名前のない宣言は構文の診断が出ている．
+                // A declaration without a name already has a syntax diagnostic.
                 continue;
             };
             if let Some(params) = decl.param_list()
@@ -105,7 +106,7 @@ pub fn collect_tests<'p>(
                 continue;
             }
             if decl.body().is_none() {
-                // 本体がないこと自体は構文の段（E0130）か `@external` の扱いになる．
+                // A missing body itself is handled by the syntax stage (E0130) or as `@external`.
                 diagnostics.push(error(
                     format!("test function `{}` needs a body", name.text()),
                     name.text_range(),
@@ -129,7 +130,8 @@ pub fn collect_tests<'p>(
     (tests, diagnostics)
 }
 
-/// fn の宣言に `@test` が付いているか．lowering が通常のビルドでテスト関数を除くのに使う（13.1）．
+/// Whether a fn declaration has `@test`. Lowering uses it to drop test functions from the normal
+/// build (spec 13.1).
 pub fn is_test_fn(decl: &ast::FnDecl) -> bool {
     decl.has_annotation(TEST_ANNOTATION)
 }

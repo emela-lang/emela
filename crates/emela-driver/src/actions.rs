@@ -1,7 +1,7 @@
-//! コードアクション（LSP の `textDocument/codeAction`）．
+//! Code actions (LSP `textDocument/codeAction`).
 //!
-//! 今あるのは，トップレベルの fn で省いた注釈（戻り値の型，fails，use）に推論結果を挿入するもの
-//! だけ（4.5）．
+//! The only one so far inserts inferred annotations omitted on top-level fns (return type,
+//! fails, use; spec 4.5).
 
 use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program};
 use emela_resolve::{ModuleId, ModuleName};
@@ -14,14 +14,13 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// コードアクション．`edits` は同じファイルの中の置き換え（挿入は空の範囲）．
+/// `edits` are replacements within the same file (an insertion has an empty range).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeAction {
     pub title: String,
     pub edits: Vec<(TextRange, String)>,
 }
 
-/// `file` の `range` に掛かるコードアクション．
 pub(crate) fn code_actions(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -41,7 +40,7 @@ pub(crate) fn code_actions(
     let mut actions = Vec::new();
     for item in parse.tree().items() {
         let ast::Item::Fn(f) = item else { continue };
-        // 見出し（`fn` から本体の `{` の前まで）に掛かるときだけ．
+        // Only when the range touches the header (from `fn` up to the body's `{`).
         let Some(body) = f.body() else { continue };
         let header = TextRange::new(
             f.syntax().text_range().start(),
@@ -57,15 +56,18 @@ pub(crate) fn code_actions(
     actions
 }
 
-/// 省いた注釈に推論結果を挿入する（4.5）．
+/// Inserts inferred results for omitted annotations (spec 4.5).
 ///
-/// - 戻り値の型を省いていれば `-> T` と，推論した E が空でなければ `fails E` を足す．戻り値の型を
-///   書くと E は書いた fails 節に固定される（7.4）ので，2つは一緒に足す
-/// - `use` 節を省いていれば，推論した R が空でなければ `use R` を足す（R は E と別に推論する）
-/// - 引数の関数型の見えない集合は書けない．書いた節に暗に足される（9.2）ので E と R から除く．
-///   戻り値の型に見えない集合が現れるときは戻り値の型を足さない
-/// - このファイルで修飾なしに書けない定義（import で列挙していない他のモジュールの型やエラー）が
-///   現れるときは，その節を足さない
+/// - If the return type is omitted, adds `-> T`, plus `fails E` if the inferred E is not empty.
+///   Writing the return type fixes E to the written fails clause (spec 7.4), so both are added
+///   together.
+/// - If the `use` clause is omitted, adds `use R` if the inferred R is not empty (R is inferred
+///   separately from E).
+/// - Hidden sets of parameter function types cannot be written; they are implicitly added to the
+///   written clauses (spec 9.2), so they are removed from E and R. If a hidden set appears in the
+///   return type, the return type is not added.
+/// - A clause mentioning a definition not writable unqualified in this file (a type or error of
+///   another module not listed in an import) is not added.
 fn insert_annotations(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -122,7 +124,8 @@ fn insert_annotations(
     if parts.is_empty() {
         return None;
     }
-    // 挿入する位置．戻り値と fails は引数の並びの後ろ，use は fails 節か戻り値の型の後ろ．
+    // Where to insert: the return type and fails go after the parameter list; use goes after the
+    // fails clause or return type.
     let node = f.syntax();
     let end_of = |kind: SyntaxKind| {
         node.children()
@@ -152,7 +155,7 @@ fn insert_annotations(
     })
 }
 
-/// 集合から見えない集合の型引数（書いた型引数より後ろの `Bound`）を除いたもの．
+/// The set without hidden set type parameters (`Bound`s after the declared type parameters).
 fn visible(row: &Row, declared: u32) -> Row {
     Row::from_elems(
         row.elems()
@@ -162,7 +165,7 @@ fn visible(row: &Row, declared: u32) -> Row {
     )
 }
 
-/// 型に見えない集合の型引数が現れるか．
+/// Whether a hidden set type parameter appears in the type.
 fn mentions_hidden(ty: &Ty, declared: u32) -> bool {
     let row = |row: &Row| {
         row.elems().iter().any(|e| match e {
@@ -186,12 +189,12 @@ fn mentions_hidden(ty: &Ty, declared: u32) -> bool {
     }
 }
 
-/// このファイルで修飾なしに書ける定義．
+/// Definitions writable unqualified in this file.
 struct Names<'a> {
     program: &'a TypedProgram,
     analysis: &'a Analysis,
     module: ModuleId,
-    /// `import A.{x}` で列挙した（モジュール，名前）．
+    /// (module, name) pairs listed in `import A.{x}`.
     imported: Vec<(ModuleId, String)>,
 }
 
@@ -229,8 +232,8 @@ impl<'a> Names<'a> {
         &self.program.hir
     }
 
-    /// 定義を修飾なしに書けるか．このモジュールの定義，Prelude，import で列挙した名前，
-    /// 名前が1区切りの core のモジュールの同じ名前の型（`Map`）．
+    /// Definitions of this module, the Prelude, names listed in imports, and same-named types of
+    /// single-segment core modules (`Map`).
     fn writable(&self, def: DefId) -> bool {
         let data = &self.hir().defs[def];
         match &data.module {

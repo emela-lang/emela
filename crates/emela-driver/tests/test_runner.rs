@@ -1,5 +1,5 @@
-//! `emela test` の経路（仕様 13章）．手で組んだ Core IR のテスト関数を型検査の結果の代わりに差し込み，
-//! codegen-js と node を通して，結果の表示と終了コードを確かめる．
+//! The `emela test` path (spec chapter 13). Hand-built Core IR test functions stand in for the
+//! type checking results, and results and exit codes are checked through codegen-js and node.
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +14,7 @@ use emela_resolve::ModuleId;
 
 mod suspend;
 
-/// 手で組んだテストの IR を型検査の結果の代わりに返すフロントエンド．
+/// A frontend that returns hand-built test IR in place of the type checking results.
 struct HandBuiltTests(TestModule);
 
 impl Frontend for HandBuiltTests {
@@ -34,14 +34,14 @@ impl Frontend for HandBuiltTests {
 
 const PROJECT: &[(&str, &str)] = &[("app/Pome.toml", ""), ("app/src/main.emel", "")];
 
-/// テストごとの出力先．前の実行の残りは消す．
+/// A per-test output directory. Leftovers from earlier runs are removed.
 fn out_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("emela-driver-test-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
 
-/// `emela test` の段を通す．（診断，結果，標準出力に書いた表示）を返す．
+/// Runs the `emela test` stage. Returns (diagnostics, report, what was written to stdout).
 fn run_tests<P, F: Frontend<Program = P>, B: TestBackend<P>>(
     name: &str,
     sources: &[(&str, &str)],
@@ -89,8 +89,8 @@ fn run_ir(name: &str, tests: TestModule, filter: Option<&str>) -> (TestReport, S
     (report.unwrap(), out)
 }
 
-/// `fn add(a, b) = a + b` と，それを使うテスト（成功，assert の失敗，panic，ゼロ除算，
-/// 比較でない assert，JS の予約語の名前の関数）．
+/// `fn add(a, b) = a + b` and tests using it (success, a failing assert, panic, division by zero,
+/// a non-comparison assert, and a function named after a JS reserved word).
 fn sample() -> TestModule {
     let mut m = Module::new();
     let add = m.declare("add", false);
@@ -138,7 +138,7 @@ fn sample() -> TestModule {
             "String.contains(\"abc\", \"b\")",
         ),
     );
-    // JS の予約語と重なる名前は `new$` で出して `new` で export する．
+    // A name clashing with a JS reserved word is emitted as `new$` and exported as `new`.
     case(
         &mut m,
         "new",
@@ -249,7 +249,7 @@ fn stderr_of_tests_is_captured() {
     assert_eq!(String::from_utf8(report.stderr).unwrap(), "[1]\n");
 }
 
-/// 手で書いた JS のテストを出す出力段．
+/// An output stage emitting hand-written JS tests.
 struct HandWrittenTests {
     names: Vec<&'static str>,
     js: &'static str,
@@ -304,7 +304,7 @@ fn foreign_exceptions_are_defects() {
         TestOutcome::Defect(m) if m.starts_with("TypeError: ")
     ));
     assert!(report.results[1].outcome.is_passed());
-    // 結果の行でない標準出力はそのまま流す．
+    // Stdout lines that are not result lines pass through.
     assert!(out.contains("from the test\ntest prints ... ok\n"), "{out}");
 }
 
@@ -389,7 +389,7 @@ fn collects_test_functions_from_source() {
         .iter()
         .map(|t| t.test.display_name.clone())
         .collect();
-    // エントリのモジュールは関数名だけ，ほかはモジュール名を付ける．
+    // Just the function name in the entry module; other modules get the module name.
     assert_eq!(tests, ["Http.Client.gets", "adds"]);
     let rendered = emela_driver::render(&analysis.diagnostics, &analysis.sources, false);
     insta::assert_snapshot!(rendered);
@@ -397,7 +397,7 @@ fn collects_test_functions_from_source() {
 
 #[test]
 fn source_tests_run_through_lowering() {
-    // ソースの `@test` の関数を lowering（`LowerTests`）で写し，node で実行する．
+    // `@test` functions in source are lowered (`LowerTests`) and run on node.
     let sources = &[
         ("app/Pome.toml", ""),
         (
@@ -454,15 +454,15 @@ fn test_functions_cannot_be_used_outside_tests() {
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
-    // テスト関数どうしの参照（`calls_adds`）は許す．
+    // References between test functions (`calls_adds`) are allowed.
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
     assert_eq!(codes, [Some("E0227")]);
 }
 
 #[test]
 fn unhandled_errors_fail_only_that_test() {
-    // 処理されなかったエラーはそのテストの失敗になり，他のテストは続く（13.3）．
-    // テスト関数の E は空でなくてよい．
+    // An unhandled error fails that test, and the other tests continue (spec 13.3). A test
+    // function's E need not be empty.
     let sources = &[
         ("app/Pome.toml", ""),
         (
@@ -518,8 +518,8 @@ fn escapes() {
 
 #[test]
 fn tests_provide_effects_with_handlers() {
-    // テスト関数の R は空なので，ハンドラは with で供給する（13.3）．差し替えたハンドラの操作の
-    // 本体の失敗は，操作の呼び出し元へ伝わる．
+    // A test function's R is empty, so handlers are provided with `with` (spec 13.3). A failure in
+    // the body of a swapped-in handler's operation propagates to the operation's caller.
     let sources = &[
         ("app/Pome.toml", ""),
         (
@@ -584,8 +584,9 @@ fn printed() {
 
 #[test]
 fn suspended_tests_are_awaited_or_interrupted() {
-    // 中断しうるテスト関数は再開を待つ．resume されないまま終わったテストと，ホストのコールバックの
-    // 中で defect になったテストは，そのテストの失敗として報告して残りを続ける（14.5）．
+    // A suspending test function waits to be resumed. A test that ends without a resume, or that
+    // hits a defect inside a host callback, is reported as failed and the rest continue
+    // (spec 14.5).
     let mut m = Module::new();
     let resolve = suspend::resolve(&mut m);
     let set_timeout = suspend::set_timeout(&mut m);
@@ -669,7 +670,8 @@ fn suspended_tests_are_awaited_or_interrupted() {
 
 #[test]
 fn tests_can_use_js_clock() {
-    // テストの出力にも同梱の `js_clock.mjs` を書き出す（`emela_core/` の下）．sleep するテストは再開を待つ．
+    // The bundled Clock's `.mjs` is written into the test output too (under `emela_core/`). A test
+    // that sleeps waits to be resumed.
     let sources = &[
         ("app/Pome.toml", ""),
         (
@@ -694,8 +696,9 @@ fn tests_can_use_js_clock() {
 
 #[test]
 fn tests_run_stateful_handlers() {
-    // テスト関数の中の状態のあるハンドラも，値，エラー（init の失敗），中断のどの終わり方でも
-    // release を走らせる（14.2，14.5）．出力はテストの結果の行より前に出る．
+    // A stateful handler inside a test function also runs its release however it ends: value,
+    // error (init failure), or interruption (spec 14.2, 14.5). Its output comes before the test's
+    // result line.
     let sources = &[
         ("app/Pome.toml", ""),
         (
@@ -787,8 +790,8 @@ fn stuck() {
 
 #[test]
 fn state_and_test_handlers_in_tests() {
-    // テストの中で State.run と同梱の TestConsole，TestClock を使う（8.8，13章，15.2）．
-    // TestClock は仮の時刻で動き Async に依存するので，テスト関数は中断しうる．
+    // Tests use State.run and the bundled TestConsole and TestClock (spec 8.8, chapter 13, 15.2).
+    // TestClock runs on virtual time and depends on Async, so the test function may suspend.
     let sources = &[
         ("app/Pome.toml", ""),
         (

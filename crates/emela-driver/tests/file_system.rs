@@ -1,5 +1,5 @@
-//! 同梱の `Std.FileSystem` と `Std.Path`（仕様 15.2）を `emela test` の経路で確かめる．
-//! テストのソースは `file_system/` の `.emel` で，どのテスト関数も通ることを見る．
+//! The bundled `Std.FileSystem` and `Std.Path` (spec 15.2) through the `emela test` path. The test
+//! sources are the `.emel` files in `file_system/`, and every test function must pass.
 
 use std::path::{Path, PathBuf};
 
@@ -7,14 +7,15 @@ use emela_driver::{
     CoreJs, Input, LowerTests, MemoryFiles, Output, TestOptions, TestOutcome, test,
 };
 
-/// テストごとの一時ディレクトリ．前の実行の残りは消す．
+/// A per-test temporary directory. Leftovers from earlier runs are removed.
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("emela-driver-fs-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
 
-/// `main.emel` を1つ持つプロジェクトのテストを流し，失敗したテストを（名前，結果）で返す．
+/// Runs the tests of a project with a single `main.emel`, returning the failing tests as
+/// (name, outcome).
 fn failures(name: &str, main: &str) -> Vec<(String, TestOutcome)> {
     let fs = MemoryFiles::new([("app/Pome.toml", ""), ("app/src/main.emel", main)]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -58,7 +59,7 @@ fn system_file_system_on_a_temporary_directory() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("invalid.bin"), [0x66, 0xff, 0x6f]).unwrap();
     std::fs::write(root.join("bom.txt"), "\u{feff}x").unwrap();
-    // `/` 区切りにする（Std.Path は `/` だけを扱う）．
+    // Use `/` separators (Std.Path only handles `/`).
     let root_str = root.to_string_lossy().replace('\\', "/");
     let main = include_str!("file_system/system_file_system.emel").replace("__ROOT__", &root_str);
     let result = failures("system-fs", &main);

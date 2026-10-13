@@ -1,7 +1,7 @@
-//! ソースの表．ファイル ID，パス，テキスト，行・列の変換を持つ．
+//! The source table: file IDs, paths, text, and line/column conversion.
 //!
-//! ファイルの読み込みは [`FileSystem`] で差し替える．テストと LSP の未保存バッファは
-//! [`MemoryFiles`] を使う．
+//! File reading goes through [`FileSystem`]. Tests and unsaved LSP buffers use
+//! [`MemoryFiles`].
 
 use std::collections::{BTreeMap, HashMap};
 use std::io;
@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use emela_resolve::{DirEntry, OsFs, SourceFs};
 use line_index::{LineCol, LineIndex, TextSize};
 
-/// ソースの表の中のファイル．追加した順に振る．
+/// Assigned in insertion order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FileId(u32);
 
@@ -40,18 +40,18 @@ impl SourceFile {
         &self.line_index
     }
 
-    /// バイト位置を行・列（どちらも 0 始まり，列は UTF-8 のバイト数）にする．
+    /// Converts a byte offset to a line and column (both 0-based; the column counts UTF-8
+    /// bytes).
     pub fn line_col(&self, offset: TextSize) -> LineCol {
         self.line_index.line_col(offset)
     }
 }
 
-/// ソースの表．
 #[derive(Debug, Clone, Default)]
 pub struct SourceDb {
     files: Vec<SourceFile>,
     by_path: HashMap<PathBuf, FileId>,
-    /// 診断に出すパスの起点（プロジェクトのディレクトリ）．
+    /// The base for paths shown in diagnostics (the project directory).
     base: Option<PathBuf>,
 }
 
@@ -60,7 +60,7 @@ impl SourceDb {
         SourceDb::default()
     }
 
-    /// ファイルを足す．同じパスがすでにあれば，テキストを差し替えて同じ ID を返す．
+    /// If the path is already present, replaces its text and returns the same ID.
     pub fn add(&mut self, path: impl Into<PathBuf>, text: impl Into<String>) -> FileId {
         let path = path.into();
         let text = text.into();
@@ -71,7 +71,7 @@ impl SourceDb {
             file.line_index = line_index;
             return id;
         }
-        let id = FileId(u32::try_from(self.files.len()).expect("ファイルが多すぎる"));
+        let id = FileId(u32::try_from(self.files.len()).expect("too many files"));
         self.by_path.insert(path.clone(), id);
         self.files.push(SourceFile {
             path,
@@ -81,12 +81,12 @@ impl SourceDb {
         id
     }
 
-    /// 診断に出すパスの起点を決める．
+    /// Sets the base for paths shown in diagnostics.
     pub fn set_base(&mut self, base: impl Into<PathBuf>) {
         self.base = Some(base.into());
     }
 
-    /// 診断に出すパス．起点の下ならそこからの相対パス，そうでなければそのまま．
+    /// Relative to the base if under it; otherwise unchanged.
     pub fn display_path<'a>(&self, path: &'a Path) -> &'a Path {
         match &self.base {
             Some(base) => match path.strip_prefix(base) {
@@ -125,9 +125,9 @@ impl std::ops::Index<FileId> for SourceDb {
     }
 }
 
-/// ディレクトリの一覧（[`SourceFs`]）に，ファイルの読み込みと種類の判定を足したもの．
+/// A directory listing ([`SourceFs`]) plus file reading and kind checks.
 pub trait FileSystem: SourceFs {
-    /// 絶対パスに直す．パスがなければエラー．
+    /// Makes the path absolute; an error if it does not exist.
     fn absolute(&self, path: &Path) -> io::Result<PathBuf>;
     fn read_to_string(&self, path: &Path) -> io::Result<String>;
     fn is_file(&self, path: &Path) -> bool;
@@ -152,10 +152,10 @@ impl FileSystem for OsFs {
     }
 }
 
-/// メモリ上のファイル．パスとテキストの組で組み立てる．
+/// In-memory files, built from path and text pairs.
 ///
-/// `/` を起点にする．相対パスは `/` からのパスとみなし，`.` と `..` の区切りは字面で畳む
-/// （`./src/main.emel` と `/src/main.emel` は同じ）．
+/// Rooted at `/`. Relative paths are taken from `/`, and `.` and `..` segments are collapsed
+/// textually (`./src/main.emel` is the same as `/src/main.emel`).
 #[derive(Debug, Default, Clone)]
 pub struct MemoryFiles {
     files: BTreeMap<PathBuf, String>,
@@ -171,7 +171,7 @@ impl MemoryFiles {
     }
 }
 
-/// `/` を起点にした絶対パスにし，`.` と `..` を畳む．
+/// Makes the path absolute from `/` and collapses `.` and `..`.
 fn clean(path: &Path) -> PathBuf {
     let mut out = PathBuf::from("/");
     for component in path.components() {
@@ -202,7 +202,7 @@ impl SourceFs for MemoryFiles {
                 name: first.as_os_str().to_owned(),
                 is_dir: components.next().is_some(),
             };
-            // パスは区切りごとに比べて並ぶので，同じディレクトリの中身は隣り合う．
+            // Paths sort segment by segment, so a directory's entries are adjacent.
             if entries.last() != Some(&entry) {
                 entries.push(entry);
             }
@@ -262,7 +262,7 @@ mod tests {
         let file = &db[id];
         assert_eq!(file.line_col(0.into()), LineCol { line: 0, col: 0 });
         assert_eq!(file.line_col(14.into()), LineCol { line: 1, col: 4 });
-        // 列はバイト数で数える（`あ` は3バイト）．
+        // Columns count bytes (`あ` is 3 bytes).
         assert_eq!(file.line_col(18.into()), LineCol { line: 1, col: 8 });
     }
 

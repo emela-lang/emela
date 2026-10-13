@@ -1,6 +1,8 @@
-//! `emela fmt`．整形する対象を決め，emela-fmt で整形し，構文の診断を集める．
+//! `emela fmt`: decides what to format, formats it with emela-fmt, and collects syntax
+//! diagnostics.
 //!
-//! 対象の決め方は仕様 4.1（[`Input::resolve`]）を使う．ファイルへの書き込みは呼び出し側が渡す．
+//! Targets are decided as in spec 4.1 ([`Input::resolve`]). Writing files is passed in by the
+//! caller.
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
@@ -16,24 +18,24 @@ use crate::pipeline::Input;
 use crate::render::{render_one, summary};
 use crate::source::{FileSystem, SourceDb};
 
-/// 標準入力から読むときに渡すパス．
+/// The path passed to read from stdin.
 pub const STDIN_PATH: &str = "-";
-/// 標準入力のソースを診断に出すときのパス．
+/// The path shown in diagnostics for stdin source.
 pub const STDIN_DISPLAY: &str = "<stdin>";
 
-/// 整形した中身を書き込む関数．引数はファイルの絶対パスと中身．
+/// Writes formatted contents; the arguments are the file's absolute path and contents.
 pub type WriteFile<'a> = &'a mut dyn FnMut(&Path, &str) -> io::Result<()>;
 
-/// 整形する1ファイル．
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FmtTarget {
-    /// 絶対パス．
     pub path: PathBuf,
-    /// 診断と一覧に出すパス．プロジェクト（単独ファイルならファイルのあるディレクトリ）からの相対パス．
+    /// The path shown in diagnostics and listings, relative to the project (or to the file's
+    /// directory for a single file).
     pub display: PathBuf,
 }
 
-/// 整形できなかったファイルの診断．パスの起点がファイルごとに違うので，ソースの表と組にして持つ．
+/// Diagnostics of a file that could not be formatted. Paths are relative to a per-file base, so
+/// each is paired with its own source table.
 #[derive(Debug, Default)]
 pub struct FmtFailure {
     pub sources: SourceDb,
@@ -49,10 +51,9 @@ impl FmtFailure {
     }
 }
 
-/// [`fmt`] の結果．
 #[derive(Debug, Default)]
 pub struct FmtReport {
-    /// 整形で中身が変わるファイル（表示のパス）．書き込みに失敗したものは含まない．
+    /// Files whose contents change (display paths). Files that failed to write are excluded.
     pub changed: Vec<PathBuf>,
     pub failures: Vec<FmtFailure>,
 }
@@ -64,7 +65,7 @@ impl FmtReport {
             .any(|failure| failure.diagnostics.iter().any(Diagnostic::is_error))
     }
 
-    /// 診断を全部並べ，最後に件数をまとめる（[`crate::render`] と同じ形）．
+    /// Lists all diagnostics and summarizes the counts, like [`crate::render`].
     pub fn render(&self, color: bool) -> String {
         let mut out = String::new();
         let mut all = Vec::new();
@@ -86,12 +87,15 @@ impl FmtReport {
     }
 }
 
-/// 渡されたパスから整形する `.emel` を決める．診断は決められなかったパスのもの．
+/// Decides the `.emel` files to format from the given paths. The diagnostics are for paths that
+/// could not be resolved.
 ///
-/// - ファイルは [`Input::resolve`] と同じ規則で扱う（プロジェクトのソースのルートの外なら E0208，
-///   `Pome.toml` がなければ単独ファイル）．単独ファイルでもそのファイルだけを整形し，import はたどらない
-/// - ディレクトリは `Pome.toml` が要る（E0207）．プロジェクトのディレクトリならソースのルートの下を全部，
-///   ソースのルートの中のディレクトリならその下を全部．それ以外の場所なら E0208
+/// - Files follow the same rules as [`Input::resolve`] (E0208 outside the project's source
+///   root; a single file without `Pome.toml`). A single file formats only itself and does not
+///   follow imports.
+/// - Directories need `Pome.toml` (E0207). The project directory means everything under the
+///   source root, and a directory inside the source root means everything under it. Elsewhere is
+///   E0208.
 pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, Vec<FmtFailure>) {
     let mut targets = BTreeSet::new();
     let mut failures = Vec::new();
@@ -109,7 +113,7 @@ pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, V
         };
         let absolute = fs
             .absolute(path)
-            .expect("Input::resolve が絶対パスに直せた");
+            .expect("Input::resolve made the path absolute");
         if fs.is_file(&absolute) {
             targets.insert(target(absolute));
             continue;
@@ -144,8 +148,9 @@ pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, V
     (targets.into_iter().collect(), failures)
 }
 
-/// `dir` の下の `.emel` を全部集める．`.` で始まるファイルとディレクトリは見ない（仕様 4.1）．
-/// モジュール名にならない名前のファイルも整形する（整形は名前を見ないため）．
+/// Collects every `.emel` under `dir`, skipping files and directories starting with `.`
+/// (spec 4.1). Files whose names are not valid module names are formatted too, since formatting
+/// ignores names.
 fn walk(
     fs: &dyn FileSystem,
     dir: &Path,
@@ -174,7 +179,7 @@ fn display_path(base: &Path, path: &Path) -> PathBuf {
     }
 }
 
-/// 1つのソースを整形する．中身が変わらなければ `Ok(None)`．`display` は診断に出すパス．
+/// `Ok(None)` if the contents do not change. `display` is the path shown in diagnostics.
 pub fn format_source(display: &Path, text: &str) -> Result<Option<String>, FmtFailure> {
     match emela_fmt::format(text) {
         Ok(formatted) if formatted == text => Ok(None),
@@ -187,7 +192,7 @@ pub fn format_source(display: &Path, text: &str) -> Result<Option<String>, FmtFa
                     .iter()
                     .map(|diagnostic| Diagnostic::from_syntax(file, diagnostic))
                     .collect(),
-                // formatter の不具合．入力は書き換えない．
+                // A formatter bug; leave the input untouched.
                 FormatError::Internal(message) => vec![
                     Diagnostic::error(format!(
                         "internal error: cannot format this file: {message}"
@@ -204,10 +209,11 @@ pub fn format_source(display: &Path, text: &str) -> Result<Option<String>, FmtFa
     }
 }
 
-/// 渡されたパスの `.emel` を整形する．`write` が `None` なら書き込まない（`--check`）．
+/// Formats the `.emel` files of the given paths. With `write` set to `None`, nothing is written
+/// (`--check`).
 ///
-/// 中身が変わるファイルだけ `write` を呼ぶ（変わらないファイルは書かない）．
-/// 構文エラーのあるファイルは整形せず，診断を集めて次のファイルへ進む．
+/// `write` is called only for files whose contents change. Files with syntax errors are skipped
+/// after collecting their diagnostics.
 pub fn fmt(fs: &dyn FileSystem, paths: &[PathBuf], mut write: Option<WriteFile<'_>>) -> FmtReport {
     let (targets, mut failures) = fmt_targets(fs, paths);
     let mut changed = Vec::new();
@@ -294,7 +300,7 @@ mod tests {
             targets(&files, &["/app/src/http"]),
             (vec!["src/http/client.emel".to_owned()], vec![])
         );
-        // 重ねて渡しても1回だけ．
+        // Overlapping paths count once.
         assert_eq!(
             targets(&files, &["/app/src/http", "/app/src/http/client.emel"]).0,
             vec!["src/http/client.emel".to_owned()]
@@ -320,7 +326,7 @@ mod tests {
     #[test]
     fn single_file_and_missing_paths() {
         let files = [("/tmp/a/main.emel", ""), ("/tmp/a/util.emel", "")];
-        // 単独ファイルはそのファイルだけ．表示のパスはファイルのあるディレクトリから．
+        // A single file formats only itself; display paths are relative to its directory.
         assert_eq!(
             targets(&files, &["/tmp/a/main.emel"]),
             (vec!["main.emel".to_owned()], vec![])
@@ -367,7 +373,7 @@ mod tests {
             "{rendered}"
         );
 
-        // --check は書かずに同じ一覧を返す．
+        // --check writes nothing and returns the same list.
         let report = fmt(&fs, &[PathBuf::from("/app")], None);
         assert_eq!(report.changed.len(), 2);
     }

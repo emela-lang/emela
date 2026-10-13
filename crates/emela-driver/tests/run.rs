@@ -1,4 +1,5 @@
-//! 手で書いた JS を出力段の代わりに差し込み，`emela run` の経路で node を動かす．
+//! Plugs hand-written JS in place of the output stage and runs node through the `emela run`
+//! path.
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +12,7 @@ use emela_driver::{
 };
 use emela_resolve::ModuleId;
 
-/// 決まった JS を返す出力段．
+/// An output stage returning fixed JS.
 struct HandWritten {
     files: Vec<OutputFile>,
 }
@@ -40,7 +41,7 @@ impl JsBackend<()> for HandWritten {
     }
 }
 
-/// テストごとの出力先．前の実行の残りは消す．
+/// A per-test output directory. Leftovers from earlier runs are removed.
 fn out_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("emela-driver-run-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -80,7 +81,7 @@ fn run_with(
         &options,
         |analysis| reported = Some(analysis.diagnostics.len()),
     );
-    // node の前に1度だけ呼ばれる．node を起動できなかった診断はその後に足される．
+    // Called once before node. A diagnostic about failing to start node is added after it.
     assert!(reported.unwrap() <= result.0.diagnostics.len());
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
@@ -191,7 +192,7 @@ fn missing_node_is_a_diagnostic() {
     assert_eq!(messages, ["`/nonexistent/node` not found"]);
 }
 
-/// 手で組んだ Core IR を型検査の結果の代わりに返すフロントエンド．
+/// A frontend that returns hand-built Core IR in place of the type checking results.
 struct HandBuiltIr(emela_core::Module);
 
 impl Frontend for HandBuiltIr {
@@ -209,8 +210,8 @@ impl Frontend for HandBuiltIr {
     }
 }
 
-/// `fn fact(n, acc) = if n == 0 then acc else fact(n - 1, acc * n)` と，
-/// `body` を本体にする `main`．
+/// `fn fact(n, acc) = if n == 0 then acc else fact(n - 1, acc * n)` and a `main` whose body is
+/// `body`.
 fn fact_module(body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
     let mut m = emela_core::Module::new();
     let fact = m.declare("fact", false);
@@ -264,7 +265,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
 
 #[test]
 fn core_ir_runs_through_codegen_js() {
-    // 末尾再帰を 10 万回回してから，結果を panic のメッセージで外に出す（IR にはまだ入出力がない）．
+    // Run the tail recursion 100,000 times, then pass the result out through a panic message.
     let output = run_ir(
         "ir-panic",
         fact_module(|fact| {
@@ -288,7 +289,7 @@ fn core_ir_runs_through_codegen_js() {
     );
     assert_eq!(output.code, DEFECT_EXIT_CODE);
 
-    // ランタイムの defect（ゼロ除算）も同じ扱い．
+    // A runtime defect (division by zero) is handled the same way.
     let output = run_ir(
         "ir-div",
         fact_module(|_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
@@ -296,7 +297,7 @@ fn core_ir_runs_through_codegen_js() {
     assert_eq!(text(&output.stderr), "defect: division by zero\n");
     assert_eq!(output.code, DEFECT_EXIT_CODE);
 
-    // defect がなければ終了コード 0．
+    // Without a defect, the exit code is 0.
     let output = run_ir(
         "ir-ok",
         fact_module(|fact| call(fact, vec![int(10), int(1)])),
@@ -307,8 +308,8 @@ fn core_ir_runs_through_codegen_js() {
     );
 }
 
-/// 同梱の JS のファイル（`Module::js_files`）は出力先の `emela_core/` に並べて書き出し，
-/// エントリの出力から相対で import する．同梱のファイルどうしの相対の import も動く．
+/// Bundled JS files (`Module::js_files`) are written under `emela_core/` in the output directory
+/// and imported relative to the entry output. Relative imports between bundled files work too.
 #[test]
 fn core_js_files_are_written_next_to_the_output() {
     let mut m = emela_core::Module::new();
@@ -353,7 +354,8 @@ fn core_js_files_are_written_next_to_the_output() {
     assert_eq!(output.code, DEFECT_EXIT_CODE);
 }
 
-/// ソースを `Lower`（名前解決，型検査，lowering）と `CoreJs` で `emela run` の経路に通す．
+/// Runs source through `Lower` (name resolution, type checking, lowering) and `CoreJs` on the
+/// `emela run` path.
 fn run_source(name: &str, main: &str) -> RunOutput {
     run_source_with(name, main, &mut Lower::default())
 }
@@ -362,7 +364,7 @@ fn run_source_with(name: &str, main: &str, frontend: &mut Lower) -> RunOutput {
     run_source_in(name, main, frontend, PathBuf::from("node"))
 }
 
-/// `run_source_with` と同じで，node の実行ファイルを指定する．
+/// Like `run_source_with`, with a given node executable.
 fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) -> RunOutput {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
@@ -385,8 +387,8 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) ->
 
 #[test]
 fn run_without_main_stops_before_node() {
-    // エントリに main がなければ run は E0230 で止まり，node を起動しない（8.3）．
-    // 起動すれば「node が見つからない」の診断が足されるので，ない node を渡して確かめる．
+    // Without main in the entry, run stops with E0230 and does not start node (spec 8.3). Starting
+    // it would add a "node not found" diagnostic, so a missing node is passed to check that.
     let sources = [
         ("app/Pome.toml", ""),
         ("app/src/main.emel", "fn helper() { 1 }\n"),
@@ -422,7 +424,7 @@ fn run_without_main_stops_before_node() {
         )]
     );
 
-    // build は main がなくても出力する．
+    // build emits output even without main.
     let (analysis, entry) = build(
         &fs,
         &input,
@@ -450,7 +452,7 @@ fn source_runs_through_lowering() {
 
 #[test]
 fn lowered_calls_reorder_named_args_and_reach_core() {
-    // 名前付き引数は位置の順に並べ替え，core の `List.range` はたどって写す．
+    // Named arguments are reordered by position, and core's `List.range` is followed and lowered.
     let output = run_source(
         "lower-calls",
         "\
@@ -472,7 +474,7 @@ fn scale(n: Int, by: Int) -> Int {
 
 #[test]
 fn lowered_int_arithmetic_wraps() {
-    // Int のあふれは 32bit で折り返す（16.1）．
+    // Int overflow wraps at 32 bits (spec 16.1).
     let output = run_source("lower-wrap", "fn main() {\n  dbg(2147483647 + 1)\n}\n");
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
@@ -482,8 +484,8 @@ fn lowered_int_arithmetic_wraps() {
 
 #[test]
 fn unhandled_error_exits_with_1() {
-    // main まで達したエラーは `error: <エラーの値の表示>` を出して終了コード 1（14.3）．
-    // defect の 101 とは分ける．
+    // An error that reaches main prints `error: <the error shown>` and exits with 1 (spec 14.3),
+    // distinct from 101 for a defect.
     let output = run_source(
         "lower-fail",
         "\
@@ -521,8 +523,9 @@ fn main() {
 
 #[test]
 fn errors_are_values_and_escape_recovers() {
-    // エラーの値は普通の値で，補間と dbg で表示できる（7.1，10.6）．escape で受けたエラーは通常の値に
-    // 戻り，受けないエラーは伝わる．腕の中のエラーも伝わる（7.3，14.3）．
+    // Error values are ordinary values, shown by interpolation and dbg (spec 7.1, 10.6). An error
+    // caught by escape becomes a normal value, and an uncaught one propagates. Errors inside arms
+    // propagate too (spec 7.3, 14.3).
     let output = run_source(
         "lower-escape",
         "\
@@ -582,8 +585,9 @@ error: NotFound(id: 0)
 
 #[test]
 fn partial_escape_arms_propagate_unmatched_errors() {
-    // 一部の値しか受けない腕（フィールドの値，ガード）に合わなかったエラーは，defect でなく
-    // エラーのまま伝わる（7.3）．main まで達すれば `error: ...` で終了コード 1（14.3）．
+    // An error missing arms that catch only some values (field values, guards) propagates as an
+    // error, not a defect (spec 7.3). Reaching main gives `error: ...` and exit code 1
+    // (spec 14.3).
     let source = |last: &str| {
         format!(
             "\
@@ -624,7 +628,8 @@ fn main() {{
 
 #[test]
 fn failing_tail_calls_do_not_grow_stack() {
-    // 失敗しうる自己末尾呼び出しもループになる（16.3）．escape の対象の中の呼び出しは末尾位置でない．
+    // Fallible self tail calls also become loops (spec 16.3). Calls inside an escape's target are
+    // not in tail position.
     let output = run_source(
         "lower-fail-loop",
         "\
@@ -648,7 +653,8 @@ fn main() {
 
 #[test]
 fn console_runs_through_handlers() {
-    // 同梱の Console を JsConsole で供給する（8.3，15.2）．`Option.or_fail` の失敗も一緒に通す．
+    // The bundled Console is provided by SystemConsole (spec 8.3, 15.2). An `Option.or_fail`
+    // failure goes through as well.
     let output = run_source(
         "console",
         r#"import Std.Console.{Console, SystemConsole}
@@ -675,8 +681,8 @@ fn main() {
     );
 }
 
-/// 状態のあるハンドラと layer のエンドツーエンドの確かめに使う宣言（8.4，8.5）．`Pool` は init と
-/// release で `Console` に出す．`Fragile` は release で panic する．
+/// Declarations for end-to-end checks of stateful handlers and layers (spec 8.4, 8.5). `Pool`
+/// prints to `Console` on init and release. `Fragile` panics on release.
 const STATEFUL: &str = r#"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{Clock, SystemClock}
 
@@ -749,8 +755,9 @@ fn run_stateful(name: &str, main: &str) -> RunOutput {
 
 #[test]
 fn stateful_handlers_and_layers_run() {
-    // layer を展開し，依存の順（EnvConfig，Pool）に init，逆の順に release を走らせる（8.5，14.2）．
-    // 後ろに並べたハンドラに上書きされたハンドラ（AppLive の Pool）は初期化しない（8.3）．
+    // The layer is expanded; init runs in dependency order (EnvConfig, Pool) and release in
+    // reverse (spec 8.5, 14.2). A handler overridden by a later one (AppLive's Pool) is not
+    // initialized (spec 8.3).
     let output = run_stateful(
         "stateful",
         r#"fn main() {
@@ -776,8 +783,8 @@ fn stateful_handlers_and_layers_run() {
 
 #[test]
 fn failing_init_releases_what_was_initialized() {
-    // Pool の init が失敗したら，本体は走らず，先に初期化した Spare だけを release する（14.2）．
-    // with はその init のエラーで終わる．
+    // If Pool's init fails, the body does not run and only the already initialized Spare is
+    // released (spec 14.2). The `with` ends with that init error.
     let output = run_stateful(
         "stateful-init-fails",
         r#"handler SpareFirst implements Config {
@@ -804,7 +811,8 @@ fn main() {
 
 #[test]
 fn release_defects_follow_the_body() {
-    // 本体が値なら release の defect が結果．残りの release も走る（14.4）．
+    // If the body is a value, the release defect is the result. The remaining releases still run
+    // (spec 14.4).
     let output = run_stateful(
         "stateful-release-defect",
         r#"fn main() {
@@ -823,7 +831,8 @@ fn release_defects_follow_the_body() {
         )
     );
 
-    // 本体が defect なら，最初の defect が結果で，release の defect は注記になる．
+    // If the body is a defect, the first defect is the result and the release defect becomes a
+    // note.
     let output = run_stateful(
         "stateful-release-note",
         r#"fn main() {
@@ -842,7 +851,7 @@ fn release_defects_follow_the_body() {
 
 #[test]
 fn released_handlers_are_defects_when_used() {
-    // with の外へ持ち出した能力を release の後に呼ぶと defect（8.6）．
+    // Calling a capability taken outside the `with` after its release is a defect (spec 8.6).
     let output = run_stateful(
         "stateful-used-after-release",
         r#"fn main() {
@@ -868,8 +877,9 @@ fn released_handlers_are_defects_when_used() {
 
 #[test]
 fn interrupted_main_releases_first() {
-    // 中断されたまま巻き戻る main も，開いている with の release を内側から走らせてから
-    // `interrupted` で終わる（14.5）．中断しない main（$sync）でも，後から resume されうる main でも同じ．
+    // A main unwound while suspended also runs the releases of open `with`s from the inside out,
+    // then ends as `interrupted` (spec 14.5). The same holds for a non-suspending main ($sync) and
+    // a main that could be resumed later.
     for (name, main) in [
         (
             "stateful-interrupted",
@@ -895,7 +905,7 @@ fn interrupted_main_releases_first() {
 
 #[test]
 fn time_values_run_through_core() {
-    // Instant は Unix エポックからのミリ秒で作れる（15.2）．
+    // An Instant can be made from milliseconds since the Unix epoch (spec 15.2).
     let output = run_source(
         "time",
         r#"import Std.Console.{Console, SystemConsole}
@@ -944,7 +954,7 @@ mod suspend;
 
 #[test]
 fn suspended_main_waits_for_promises() {
-    // 中断した main はイベントループで待ち，再開して終わる．
+    // A suspended main waits on the event loop, resumes and finishes.
     let mut m = emela_core::Module::new();
     let resolve = suspend::resolve(&mut m);
     suspend::main(
@@ -969,7 +979,7 @@ fn suspended_main_waits_for_promises() {
 
 #[test]
 fn dropped_resume_interrupts_main() {
-    // resume されないまま終わった main は `interrupted` と終了コード 130（14.5）．
+    // A main that ends without a resume gives `interrupted` and exit code 130 (spec 14.5).
     let mut m = emela_core::Module::new();
     let (never, wait) = suspend::never(&mut m);
     let h = m.local("h");
@@ -989,7 +999,8 @@ fn dropped_resume_interrupts_main() {
 
 #[test]
 fn dropped_main_releases_before_interrupted() {
-    // 中断されたまま巻き戻る main も，開いている with の release を走らせてから `interrupted` で終わる（14.5）．
+    // A main unwound while suspended also runs the releases of open `with`s, then ends as
+    // `interrupted` (spec 14.5).
     let mut m = emela_core::Module::new();
     let (never, wait) = suspend::never(&mut m);
     let log = suspend::log(&mut m);
@@ -1011,7 +1022,8 @@ fn dropped_main_releases_before_interrupted() {
 
 #[test]
 fn defects_after_resuming_and_in_callbacks() {
-    // 再開した後の defect も，ホストのコールバックの中の defect も，defect として終わる（7.5）．
+    // A defect after resuming and a defect inside a host callback both end as defects
+    // (spec 7.5).
     let mut m = emela_core::Module::new();
     let resolve = suspend::resolve(&mut m);
     let x = m.local("_");
@@ -1029,7 +1041,7 @@ fn defects_after_resuming_and_in_callbacks() {
         (DEFECT_EXIT_CODE, "defect: after\n")
     );
 
-    // main は中断したまま，setTimeout のコールバックが panic する．interrupted にはならない．
+    // main stays suspended while a setTimeout callback panics. This is not `interrupted`.
     let mut m = emela_core::Module::new();
     let set_timeout = suspend::set_timeout(&mut m);
     let (never, wait) = suspend::never(&mut m);
@@ -1060,7 +1072,8 @@ fn defects_after_resuming_and_in_callbacks() {
 
 #[test]
 fn random_runs_through_handlers() {
-    // 同梱の Random を JsRandom で供給する（15.2）．値は毎回変わるので範囲だけを見る．
+    // The bundled Random is provided by its System handler (spec 15.2). Values differ each run, so
+    // only the range is checked.
     let output = run_source(
         "random",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1088,19 +1101,17 @@ fn main() {
         let (int, float) = line.split_once(' ').unwrap();
         ints.push(int.parse::<i32>().unwrap());
         let float: f64 = float.parse().unwrap();
-        assert!(
-            (0.0..1.0).contains(&float),
-            "{float} が 0 以上 1 未満でない"
-        );
+        assert!((0.0..1.0).contains(&float), "{float} is not in [0, 1)");
     }
     assert_eq!(ints.len(), 100);
     ints.sort();
     ints.dedup();
-    assert!(ints.len() > 1, "100 回とも同じ値");
+    assert!(ints.len() > 1, "all 100 values are the same");
 }
 
-/// 環境変数を設定してから node を起動するスクリプトを書き，そのパスを返す．
-/// テストの中で `std::env::set_var` すると並列のテストと競合するので，node の側にだけ渡す．
+/// Writes a script that sets environment variables and then starts node, returning its path.
+/// Calling `std::env::set_var` inside a test would race with parallel tests, so the variables
+/// are passed to node only.
 #[cfg(unix)]
 fn node_with_env(name: &str, exports: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -1116,8 +1127,9 @@ fn node_with_env(name: &str, exports: &str) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn env_runs_through_handlers() {
-    // 同梱の Env を JsEnv で供給する（15.2）．空の値と未設定を区別する．
-    // 後半はハンドラを差し替えるだけで別の値を読ませる（13章の DI）．
+    // The bundled Env is provided by its System handler (spec 15.2). An empty value is
+    // distinguished from an unset one. The second half reads other values just by swapping the
+    // handler (dependency injection, spec chapter 13).
     let node = node_with_env(
         "env",
         "export EMELA_TEST_SET=hello EMELA_TEST_EMPTY=\nunset EMELA_TEST_UNSET",
@@ -1166,8 +1178,8 @@ fn main() {
 
 #[test]
 fn clock_runs_through_js_clock() {
-    // 同梱の Clock を JsClock（`Date.now()`，同梱の `js_clock.mjs`）で供給する（8.1，15.2）．
-    // 時刻は実行ごとに変わるので，向きと範囲だけを見る．
+    // The bundled Clock is provided by SystemClock (`Date.now()`, the bundled `.mjs`) (spec 8.1,
+    // 15.2). The time differs each run, so only direction and range are checked.
     let output = run_source(
         "clock",
         r#"import Std.Console.{Console, SystemConsole}
@@ -1199,8 +1211,9 @@ fn main() {
 
 #[test]
 fn clock_sleeps_through_js_clock() {
-    // JsClock の sleep は setTimeout の後で resume する（8.4，8.7）．main は再開を待って終わる．
-    // 中断しうる関数を渡した List.map（中断用の写し）の中でも待つ．
+    // SystemClock's sleep resumes after setTimeout (spec 8.4, 8.7), and main waits to be resumed
+    // before finishing. It also waits inside List.map given a suspending function (the suspending
+    // copy).
     let output = run_source(
         "clock-sleep",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1238,8 +1251,8 @@ fn main() {
 
 #[test]
 fn system_clock_sleeps_zero_for_a_negative_ms() {
-    // 負の ms は 0 とみなす（8.8）．SystemClock はホストへ渡す前に丸めるので，Node 24 の
-    // TimeoutNegativeWarning は標準エラーに出ない．
+    // A negative ms counts as 0 (spec 8.8). SystemClock clamps before passing it to the host, so
+    // Node 24's TimeoutNegativeWarning does not appear on stderr.
     let output = run_source(
         "clock-negative-sleep",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1261,9 +1274,10 @@ fn main() {
 
 #[test]
 fn state_run_returns_value_and_final_state() {
-    // State.run（8.8）は body の値と最後の状態の組を返す．型引数の違う State は別のエフェクトで，
-    // 汎用の fn（`modify[S]`）は呼ぶ側の State[Int] か State[String] を引く（8.1）．body が失敗すれば
-    // 状態は捨ててエラーだけが伝わる．update に渡す関数は一息に実行される．
+    // State.run (spec 8.8) returns the body's value paired with the final state. States with
+    // different type arguments are different effects, and a generic fn (`modify[S]`) picks the
+    // caller's State[Int] or State[String] (spec 8.1). If the body fails, the state is discarded
+    // and only the error propagates. The function passed to update runs in one step.
     let output = run_source(
         "state-run",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1328,9 +1342,9 @@ fn main() {
 
 #[test]
 fn test_handlers_record_output_and_move_the_clock() {
-    // 同梱の TestConsole は出力を State[List[String]] に書いた順に溜め，TestClock は
-    // State[Instant] の仮の時刻で動く（8.8，15.2）．fiber が1本なので，sleep の分だけ時刻が進んで
-    // そのまま続くのと同じ結果になる．
+    // The bundled TestConsole collects output in State[List[String]] in write order, and TestClock
+    // runs on virtual time in State[Instant] (spec 8.8, 15.2). With one fiber, the result is the
+    // same as advancing time by each sleep and continuing.
     let output = run_source(
         "state-test-handlers",
         r##"import Std.Console.{Console, SystemConsole, TestConsole}
@@ -1377,7 +1391,8 @@ fn main() {
 
 #[test]
 fn state_run_keeps_the_state_across_suspension() {
-    // body が JsClock で中断しても（8.7，14.5），State.run の状態は再開の後に引き継がれる．
+    // Even if the body suspends on SystemClock (spec 8.7, 14.5), State.run's state carries over
+    // after resuming.
     let output = run_source(
         "state-suspend",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1409,8 +1424,8 @@ fn main() {
 
 #[test]
 fn platform_layer_provides_system_handlers() {
-    // `Std.Platform.Platform` は System のハンドラを束ねた layer（15.2）．後ろに並べた Test の
-    // ハンドラで一部を差し替えられる（8.3）．std のモジュールは import して使う．
+    // `Std.Platform.Platform` is a layer bundling the System handlers (spec 15.2). Some can be
+    // replaced by Test handlers listed after it (spec 8.3). std modules are used through imports.
     let output = run_source(
         "platform",
         r##"import Std.Platform.{Platform}
@@ -1441,8 +1456,9 @@ fn main() {
 
 #[test]
 fn parse_and_conversions() {
-    // 15.3 の API: 形の誤りは ParseError で fail する parse，平らにする String.concat と
-    // List.flatten，2つをつなぐ String.append，変換は依存する側（Float.from_int，Int64.from_int）．
+    // The spec 15.3 API: parse fails with ParseError on malformed input; String.concat and
+    // List.flatten flatten; String.append joins two; conversions live on the depending side
+    // (Float.from_int, Int64.from_int).
     let output = run_source(
         "parse",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1487,9 +1503,10 @@ fn main() {
 
 #[test]
 fn test_http_answers_from_the_test_server() {
-    // 同梱の TestHttp は State[TestServer] の respond に要求と何回目か（0 から）を渡して応答を決め，
-    // None なら ConnectionFailed にする．送った要求は sent に順に足す（15.2）．send の上の関数
-    // （get，post，header，headers，require_ok，encode_query）はハンドラなしでも呼べる値の関数．
+    // The bundled TestHttp decides responses by passing the request and its attempt number (from
+    // 0) to the respond of State[TestServer]; `None` becomes ConnectionFailed. Sent requests are
+    // appended to sent in order (spec 15.2). Functions above send (get, post, header, headers,
+    // require_ok, encode_query) are plain value functions callable without a handler.
     let output = run_source(
         "http-test",
         r##"import Std.Console.{Console, SystemConsole}
@@ -1554,12 +1571,12 @@ fn main() {
     );
 }
 
-/// node の `http` で 127.0.0.1 に立てたテスト用のサーバー．落とすと止める．
+/// A test server on 127.0.0.1 using node's `http`. Stopped on drop.
 struct LocalServer {
     child: std::process::Child,
     dir: PathBuf,
     port: u16,
-    /// 開いてすぐ閉じたポート．接続を拒まれる先として使う．
+    /// A port opened and closed immediately, used as a target that refuses connections.
     closed_port: u16,
 }
 
@@ -1598,8 +1615,9 @@ impl Drop for LocalServer {
     }
 }
 
-/// パスごとに決まった応答を返すサーバー．`/echo` は要求のメソッド，content-type，x-one，本文を
-/// 返し，同じ名前のヘッダを複数付ける．起動したら待ち受けのポートと閉じたポートを1行に書く．
+/// A server returning fixed responses per path. `/echo` returns the request's method,
+/// content-type, x-one and body, and sets several headers with the same name. On start it writes
+/// the listening port and the closed port on one line.
 const LOCAL_SERVER: &str = r#"import http from "node:http";
 const closed = http.createServer();
 closed.listen(0, "127.0.0.1", () => {
@@ -1641,10 +1659,11 @@ closed.listen(0, "127.0.0.1", () => {
 
 #[test]
 fn system_http_talks_to_a_local_server() {
-    // 同梱の SystemHttp（fetch，15.2）をローカルのサーバーに当てる．ネットワークの外には出ない．
-    // 応答のヘッダは名前を小文字にして名前の順に並べ，同じ名前は `, ` でつなぎ，set-cookie は
-    // 1つずつ．date などは毎回変わるので名前を選んで見る．4xx は失敗にしない．リダイレクトは辿る．
-    // 接続の失敗の message は Node の版で変わるので，接続を拒まれたときの cause のコードだけを見る．
+    // Points the bundled SystemHttp (fetch, spec 15.2) at the local server; nothing leaves the
+    // machine. Response headers are lowercased and sorted by name, same-named headers are joined
+    // with `, `, and set-cookie stays separate. date and others change every time, so only chosen
+    // names are checked. 4xx is not a failure. Redirects are followed. Connection failure messages
+    // vary across Node versions, so only the cause code on a refused connection is checked.
     let server = LocalServer::start("http-system");
     let base = format!("http://127.0.0.1:{}", server.port);
     let closed = format!("http://127.0.0.1:{}/", server.closed_port);
