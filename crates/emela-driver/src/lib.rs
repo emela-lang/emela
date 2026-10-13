@@ -21,6 +21,7 @@ mod run;
 mod signature;
 mod source;
 mod testing;
+mod tokens;
 
 pub use actions::CodeAction;
 pub use complete::{Completion, CompletionKind};
@@ -52,3 +53,4 @@ pub use testing::{
     TestBackend, TestCase, TestDef, TestFn, TestModule, TestOptions, TestOutcome, TestReport,
     TestResult, collect_tests, default_test_out_dir, is_test_fn, test,
 };
+pub use tokens::{SemanticToken, TokenKind};

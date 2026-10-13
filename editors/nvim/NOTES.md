@@ -9,7 +9,9 @@
 - （補）普通の文字列は行末で終える．閉じていない文字列（E0101）が次の行まで色を引きずらないようにするため．補間の中の改行は継続なので，補間が開いている間は行末で終えない
 - （補）補間の中のコメントは行末まで続き，`}` も含む（字句解析と同じ）．`"a #{ x # }⏎}"` は2行目の `}` で補間を閉じる
 - （補）7つのエスケープと `\u{...}`（1〜6桁）以外の `\` は Error にする．サロゲートや 10FFFF を超える値は桁数しか見ないので，色では分からない
-- （補）`as` と 3.3 の将来の予約語は，構文を持たず，書けば必ず構文エラーになるので Error にする
+- （補）`as` と 3.3 の将来の予約語は，構文を持たず，書けば必ず構文エラーになるので Error にする．`await` は 3.3 から外れた（`Fiber.await`，`Deferred.await` の関数名）ので普通の名前として扱い，`(` が続けば関数呼び出しの色になる
+- （補）宣言のキーワード（`type` `enum` `error` `trait` `effect` `handler` `layer`）と修飾子（`pub` `opaque` `suspend`）は `Keyword` に結び，`fn` と同じ色にする．`Structure` と `StorageClass` は配色によって色が付かない（`handler` が地の色になる）ため．グループ（`emelaStructure` `emelaEffectDecl` `emelaStorageClass`）は分けたままなので，結び直せば色を分けられる
+- （補）match は後置（6.5）になったが，`match` は位置によらず予約語なので色付けは変えない．`x match {`，`f(x) match {`，パイプの後ろの `match` をテストで確かめる
 
 # 位置で見分けるもの（正規表現による近似）
 
@@ -25,3 +27,9 @@
 
 - （補）インデントは空白2つ（emela fmt の `INDENT`）
 - （補）`gf` で import のモジュールのパスを開く．`Http.Client` を `http/client.emel` に，`JsonCodec` を `json_codec.emel` にする（4.1 の逆）．`Http2` のように `_` の後ろの数字はどちらとも取れるので `http2` にする．`Pome.toml` が見つかれば，その隣の `src/` を `path` の先頭に足す
+
+# 能力の値の下線（Neovim）
+
+- （補）能力の値（`x = use X`．8.2）かどうかは名前の解決と型検査が要るので，正規表現の色付けでは扱わない．`emela lsp` の semantic tokens（型 `variable`，独自の修飾子 `capability`）に任せる
+- （補）`plugin/emela.vim` で `@lsp.typemod.variable.capability.emela` を `highlight default` で下線にする．配色を読み込むと消えるので，`ColorScheme` の自動コマンドで掛け直す．`default` なので，利用者や配色が先に決めていればそちらが勝つ
+- （補）Vim には semantic tokens がないので，`plugin/emela.vim` は Neovim でだけ働く

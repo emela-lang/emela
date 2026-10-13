@@ -12,11 +12,14 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    Initialize, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _, Shutdown,
-    SignatureHelpRequest,
+    Initialize, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    SemanticTokensFullRequest, SemanticTokensRangeRequest, Shutdown, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 use serde_json::json;
+
+/// A semantic token as absolute (line, column, length, type, modifiers).
+type Token = (u32, u32, u32, u32, u32);
 
 /// A code action's title and edits (range, inserted text).
 type Action = (String, Vec<(lsp::Range, String)>);
@@ -387,6 +390,39 @@ impl Client {
                         (a.title, edits)
                     }
                     other => panic!("a command, not an action: {other:?}"),
+                })
+                .collect(),
+        )
+    }
+
+    /// Returns semantic tokens in absolute positions. `range` asks for `semanticTokens/range`
+    /// instead of `full`.
+    fn semantic_tokens(&mut self, path: &str, range: Option<lsp::Range>) -> Option<Vec<Token>> {
+        let document = json!({ "uri": uri(path) });
+        let id = match range {
+            None => self.request(
+                SemanticTokensFullRequest::METHOD,
+                json!({ "textDocument": document }),
+            ),
+            Some(range) => self.request(
+                SemanticTokensRangeRequest::METHOD,
+                json!({ "textDocument": document, "range": range }),
+            ),
+        };
+        let result: Option<lsp::SemanticTokens> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        let (mut line, mut col) = (0, 0);
+        Some(
+            result?
+                .data
+                .into_iter()
+                .map(|t| {
+                    if t.delta_line > 0 {
+                        col = 0;
+                    }
+                    line += t.delta_line;
+                    col += t.delta_start;
+                    (line, col, t.length, t.token_type, t.token_modifiers_bitset)
                 })
                 .collect(),
         )
@@ -1737,6 +1773,129 @@ fn main() {
     client.shutdown();
     let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     assert_eq!(client.inlay_hints(MAIN), Some(vec![]));
+    client.shutdown();
+}
+
+const CAPABILITY_MAIN: &str = "effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet implements Logger {
+  fn info(msg) { () }
+}
+
+handler Loud implements Logger {
+  fn info(msg) { () }
+}
+
+fn greet(names: List[String]) {
+  log = use Logger
+  List.each(names, fn(n) { log.info(\"hi #{n}\") })
+  (use Logger).info(\"bye\")
+}
+
+fn main() {
+  with Quiet {
+    outer = use Logger
+    with Loud {
+      inner = use Logger
+      inner.info(\"a\")
+      outer.info(\"b\")
+    }
+    greet([\"x\"])
+  }
+}
+";
+
+/// The variable type with the `capability` modifier (bit 0).
+fn cap(line: u32, col: u32, len: u32) -> Token {
+    (line, col, len, 0, 1)
+}
+
+/// Capability values (spec 8.2) are marked where bound and where used, including inside closures
+/// and nested `with`. Nothing else is marked.
+#[test]
+fn semantic_tokens_mark_capability_values() {
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/main.emel", CAPABILITY_MAIN),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let Some(lsp::SemanticTokensServerCapabilities::SemanticTokensOptions(options)) =
+        emela_lsp::capabilities().semantic_tokens_provider
+    else {
+        panic!("no semantic tokens options");
+    };
+    assert_eq!(
+        options.legend.token_types,
+        [lsp::SemanticTokenType::VARIABLE]
+    );
+    assert_eq!(
+        options.legend.token_modifiers,
+        [lsp::SemanticTokenModifier::new("capability")]
+    );
+    assert_eq!(options.range, Some(true));
+    assert_eq!(
+        client.semantic_tokens(MAIN, None).unwrap(),
+        [
+            // The binding and its use in a closure.
+            cap(13, 2, 3),
+            cap(14, 27, 3),
+            // Nested `with`: both the outer and the inner value.
+            cap(20, 4, 5),
+            cap(22, 6, 5),
+            cap(23, 6, 5),
+            cap(24, 6, 5),
+        ]
+    );
+    // A range gets only the tokens inside it.
+    assert_eq!(
+        client
+            .semantic_tokens(MAIN, Some(range((22, 0), (24, 0))))
+            .unwrap(),
+        [cap(22, 6, 5), cap(23, 6, 5)]
+    );
+    client.shutdown();
+    // Frontends without types give none.
+    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    assert_eq!(client.semantic_tokens(MAIN, None), Some(vec![]));
+    client.shutdown();
+}
+
+/// Errors elsewhere in the file do not hide the capability values that can still be told.
+#[test]
+fn semantic_tokens_survive_errors() {
+    let src = "effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn greet() {
+  log = use Logger
+  n: Int = \"not an int\"
+  log.info(missing)
+  bad = use Nope
+  bad.info(\"x\")
+}
+
+fn broken( {
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    // Syntax, name and type errors.
+    let published = codes(&client.diagnostics());
+    for code in ["E0110", "E0211", "E0301"] {
+        assert!(published.iter().any(|c| c == code), "{published:?}");
+    }
+    assert_eq!(
+        client.semantic_tokens(MAIN, None).unwrap(),
+        [
+            cap(5, 2, 3),
+            cap(7, 2, 3),
+            // `use` of an unknown effect is still a capability value.
+            cap(8, 2, 3),
+            cap(9, 2, 3),
+        ]
+    );
     client.shutdown();
 }
 
