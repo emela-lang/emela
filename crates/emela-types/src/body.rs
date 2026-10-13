@@ -21,9 +21,12 @@ use crate::FnTy;
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
 use crate::exhaustiveness::{self, Witness, check_match};
+use crate::fiber::Fibers;
 use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
-use crate::lower::{Omitted, Scope, TyTable, has_omitted_fails};
-use crate::row::{Row, RowVar, Tag};
+use crate::lower::{
+    Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
+};
+use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 
@@ -111,6 +114,8 @@ pub(crate) struct BodyInfer<'a> {
     handler_facts: HandlerFacts<'a>,
     /// Definitions whose R must be empty (`main` and test functions).
     closed: &'a FxHashMap<DefId, EffectContext>,
+    /// Built-in effects and scope functions (spec chapter 11).
+    fibers: &'a Fibers,
     current: Option<DefId>,
     /// The module of the definition being inferred, for deciding whether opaque fields are
     /// accessible.
@@ -190,6 +195,7 @@ impl<'a> BodyInfer<'a> {
         sigs: &'a Signatures,
         handler_facts: HandlerFacts<'a>,
         closed: &'a FxHashMap<DefId, EffectContext>,
+        fibers: &'a Fibers,
     ) -> Self {
         let mut ctx = InferCtx::new();
         ctx.set_error_tags(ty_table.error_tags());
@@ -199,6 +205,7 @@ impl<'a> BodyInfer<'a> {
             sigs,
             handler_facts,
             closed,
+            fibers,
             current: None,
             module: DefModule::Prelude,
             type_params: Vec::new(),
@@ -375,6 +382,23 @@ impl<'a> BodyInfer<'a> {
                 span,
                 kind: DiagnosticKind::AsyncHandler {
                     handler: program.defs[def].name.clone(),
+                },
+            });
+            return;
+        }
+        // Only the scope function provides a built-in effect (`Scope`, spec 11.2).
+        if is_intrinsic_effect(program, effect) {
+            let name = program.defs[effect].name.clone();
+            self.diags.push(Diagnostic {
+                span,
+                kind: DiagnosticKind::IntrinsicHandler {
+                    handler: program.defs[def].name.clone(),
+                    provider: self
+                        .fibers
+                        .provider(effect)
+                        .cloned()
+                        .unwrap_or(name.clone()),
+                    effect: name,
                 },
             });
             return;
@@ -674,6 +698,7 @@ impl<'a> BodyInfer<'a> {
         self.check_handler_cycles();
         self.check_coverage();
         self.check_capabilities();
+        self.check_scope_values();
 
         let program = self.program;
         let mut inferred = Vec::new();
@@ -846,6 +871,21 @@ impl<'a> BodyInfer<'a> {
                     kind: DiagnosticKind::UseAsync,
                 });
                 Ty::Error
+            }
+            // A built-in effect's type arguments may be omitted (`use Scope`, spec 11.2); they are
+            // inferred.
+            ExprKind::Use {
+                effect: Res::Def(effect),
+                args,
+            } if args.is_empty() && is_intrinsic_effect(program, *effect) => {
+                let params = effect_params(program, *effect).len();
+                let args = (0..params)
+                    .map(|i| match self.ty_table.set_kind(*effect, i) {
+                        Some(kind) => Ty::Set(kind, Row::var(self.ctx.new_row_var())),
+                        None => self.ctx.new_var(),
+                    })
+                    .collect();
+                Ty::Cap(Tag::with_args(*effect, args))
             }
             // Effects with type parameters need their type arguments (`use State[Int]`, spec 8.1);
             // omitting them is E0423.
@@ -1402,10 +1442,27 @@ impl<'a> BodyInfer<'a> {
             );
         };
         self.ops.insert(expr, op);
-        let ty = self
-            .sigs
-            .get(op)
-            .map(|sig| substitute_bound(&sig.scheme.ty, &tag.args));
+        // The effect's type parameters come first in the operation's scheme, followed by the
+        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference.
+        let ty = self.sigs.get(op).map(|sig| {
+            let n = tag.args.len().min(sig.scheme.params.len());
+            let (fresh, fresh_rows) = self.ctx.fresh_args(&sig.scheme.params[n..]);
+            let mut tys = tag.args[..n].to_vec();
+            let mut rows: Vec<Row> = tys
+                .iter()
+                .enumerate()
+                .map(|(i, a)| match a {
+                    Ty::Set(_, row) => row.clone(),
+                    _ => Row::from_elems([RowElem::Bound(i as u32)]),
+                })
+                .collect();
+            if !fresh.is_empty() {
+                self.type_args.insert(expr, fresh.clone());
+            }
+            tys.extend(fresh);
+            rows.extend(fresh_rows);
+            substitute(&sig.scheme.ty, &tys, &rows)
+        });
         match ty {
             Some(Ty::Fn(f)) => Ty::func_sets(f.params, f.ret, f.fails, Row::of_tag(tag.clone())),
             _ => Ty::Error,

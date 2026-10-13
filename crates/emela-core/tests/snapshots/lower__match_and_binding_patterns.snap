@@ -35,6 +35,27 @@ enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 
+enum Std.Cause.Cause[A] {
+  Cause(raise: fn)
+}
+
+enum Std.Cause.CauseKind {
+  Fail
+  Die
+  Interrupt
+}
+
+enum Std.Deferred.Deferred[A] {
+}
+
+enum Std.Fiber.Fiber[A] {
+}
+
+enum Std.Fiber.Exit[A, B] {
+  Success(A)
+  Failure(Std.Cause.Cause[()])
+}
+
 export fn main() {
   let _%0 = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
   let _%1 = @dbg[String](describe([1, 2, 3]))

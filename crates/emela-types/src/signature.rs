@@ -13,9 +13,9 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
 use crate::lower::{
-    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_params, classify_sets, effect_params,
-    has_omitted_fails, has_omitted_uses, immediate_bounds, is_immediate_effect, ty_params,
-    type_param_defs,
+    Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
+    effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
+    is_immediate_effect, is_intrinsic_effect, ty_params, type_param_defs,
 };
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
@@ -86,6 +86,7 @@ impl Signatures {
                 Some(Item::Handler(item)) => {
                     if let Res::Def(effect) = item.effect
                         && program.prelude_def("Async") != Some(effect)
+                        && !is_intrinsic_effect(program, effect)
                     {
                         let scope = Scope {
                             params: &[],
@@ -195,7 +196,13 @@ fn check_bounds(
     let immediate = program.prelude_def(IMMEDIATE);
     let mut constrained = Vec::new();
     let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
-    let sets = classify_sets(program, ty_table.decl_sets(), &defs, types.iter().copied());
+    let sets = classify_fn_sets(
+        program,
+        ty_table.decl_sets(),
+        &defs,
+        types.iter().copied(),
+        sig.uses.as_ref(),
+    );
     for (i, tp) in sig.type_params.iter().enumerate() {
         let in_uses = sets[i] == Some(SetKind::Effects)
             || sig
@@ -319,13 +326,26 @@ fn op_signature(
     sig: &FnSig,
     diags: &mut Vec<Diagnostic>,
 ) -> Signature {
-    let defs: Vec<DefId> = effect
+    let effect_defs: Vec<DefId> = effect
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
-    // A type parameter used as a set is E0424 (`check_effect_params`). Read it as a set here so
+    // The operation's own type parameters (`fork[A]`, spec 8.1) follow the effect's. Only
+    // built-in effects may have them (E0426, `check_effect_params`); they are kept either way so
     // errors do not cascade.
+    let mut defs = effect_defs.clone();
+    defs.extend(sig.type_params.iter().map(|tp| tp.def));
+    // A type parameter of a user effect used as a set is E0424 (`check_effect_params`). Read it
+    // as a set here so errors do not cascade. The set type parameters of a built-in effect
+    // (`Scope[E, R]`) are decided with the whole declaration (`decl_sets`).
     let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
-    let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
+    let mut kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
+    if let Some(e) = effect {
+        for (i, kind) in kinds.iter_mut().enumerate().take(effect_defs.len()) {
+            if ty_table.set_kind(e, i).is_some() {
+                *kind = ParamKind::Set;
+            }
+        }
+    }
     let mut scope = Scope {
         params: &defs,
         kinds: &kinds,
@@ -340,6 +360,21 @@ fn op_signature(
             None => param_ty(program, ty_table, &defs, p, diags),
         })
         .collect();
+    // A child forked through a built-in effect may use the effect itself (to fork a sibling),
+    // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
+    // parameter whose `use` names the effect's set type parameter also gets the effect with its
+    // own type parameters (`fork[A](f: fn() -> A fails E use { Scope[E, R], R })`). Inclusion then
+    // only requires the child's `Scope` arguments to be contained in the scope's.
+    let params = match effect {
+        Some(e) if is_intrinsic_effect(program, e) => {
+            let own = own_tag(ty_table, e, effect_defs.len());
+            params
+                .into_iter()
+                .map(|p| with_own_tag(p, &own, effect_defs.len()))
+                .collect()
+        }
+        _ => params,
+    };
     let ret = match sig.ret {
         Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
         None => Ty::UNIT,
@@ -349,43 +384,86 @@ fn op_signature(
         None => Row::empty(),
     };
     // An operation's `use` clause is E0137 in the syntax stage (spec 8.1); not read here.
+    let ty_params = ty_params(program, &defs)
+        .into_iter()
+        .zip(&kinds)
+        .map(|(p, &kind)| TyParam { kind, ..p })
+        .collect();
     Signature {
-        scheme: Scheme::new(
-            ty_params(program, &defs),
-            Ty::func_fails(params, ret, fails),
-        ),
+        scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
         labels: param_labels(program, &sig.params),
     }
 }
 
+/// A built-in effect applied to its own type parameters (`Scope[E, R]` as `Bound(0)`,
+/// `Bound(1)`).
+fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
+    let args = (0..n)
+        .map(|i| {
+            let bound = i as u32;
+            match ty_table.set_kind(effect, i) {
+                Some(kind) => Ty::Set(kind, Row::from_elems([RowElem::Bound(bound)])),
+                None => Ty::Bound(bound),
+            }
+        })
+        .collect();
+    Tag::with_args(effect, args)
+}
+
+/// Adds `own` to the `use` of a function type that names one of the effect's set type
+/// parameters (the first `n` scheme parameters).
+fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
+    let Ty::Fn(mut f) = ty else {
+        return ty;
+    };
+    let names_param = f
+        .uses
+        .elems()
+        .iter()
+        .any(|e| matches!(e, RowElem::Bound(i) if (*i as usize) < n));
+    if names_param {
+        f.uses.insert(RowElem::Tag(own.clone()));
+    }
+    Ty::Fn(f)
+}
+
 /// Effect type parameters are ordinary types only (spec 8.1). A type parameter written only in
 /// the `fails` or `use` of function types in an operation's parameters and return type becomes
-/// a set, so it is E0424.
+/// a set, so it is E0424. Operations cannot have their own type parameters (E0426).
+///
+/// Built-in effects (`Scope`, spec 11.2) may have both.
 fn check_effect_params(
     program: &Program,
     ty_table: &TyTable,
     effect: DefId,
     diags: &mut Vec<Diagnostic>,
 ) {
+    if is_intrinsic_effect(program, effect) {
+        return;
+    }
+    let ops: &[DefId] = match program.item(effect) {
+        Some(Item::Effect(e)) => &e.ops,
+        _ => &[],
+    };
+    for &op in ops {
+        let Some(Item::Op(o)) = program.item(op) else {
+            continue;
+        };
+        if let Some(first) = o.sig.type_params.first() {
+            diags.push(Diagnostic {
+                span: program.defs[first.def].span,
+                kind: DiagnosticKind::OpTypeParams {
+                    op: program.defs[op].name.clone(),
+                },
+            });
+        }
+    }
     let params = effect_params(program, effect);
     if params.is_empty() {
         return;
     }
     let defs: Vec<DefId> = params.iter().map(|tp| tp.def).collect();
-    let ops: &[DefId] = match program.item(effect) {
-        Some(Item::Effect(e)) => &e.ops,
-        _ => &[],
-    };
-    let types = ops.iter().flat_map(|&op| match program.item(op) {
-        Some(Item::Op(o)) => o
-            .sig
-            .params
-            .iter()
-            .filter_map(|p| p.ty)
-            .chain(o.sig.ret)
-            .collect::<Vec<_>>(),
-        _ => Vec::new(),
-    });
+    let types = effect_op_types(program, effect);
     let sets = classify_sets(program, ty_table.decl_sets(), &defs, types);
     for (tp, set) in params.iter().zip(sets) {
         if set.is_some() {
@@ -423,7 +501,19 @@ impl FnParams {
         let sig = &item.sig;
         let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
-        let kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
+        let kinds = classify_fn_sets(
+            program,
+            ty_table.decl_sets(),
+            &defs,
+            types,
+            sig.uses.as_ref(),
+        )
+        .into_iter()
+        .map(|set| match set {
+            Some(_) => ParamKind::Set,
+            None => ParamKind::Type,
+        })
+        .collect::<Vec<_>>();
         // Only Immediate bounds are kept (traits come in 0.21; not even their names). Immediate
         // on a non-effect-set type parameter is made E0322 by [`check_bounds`].
         let declared = ty_params(program, &defs)

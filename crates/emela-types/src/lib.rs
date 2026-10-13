@@ -11,6 +11,7 @@ mod diagnostic;
 mod display;
 mod error;
 mod exhaustiveness;
+mod fiber;
 mod infer;
 mod layer;
 mod lower;

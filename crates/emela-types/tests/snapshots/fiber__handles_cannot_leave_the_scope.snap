@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nfn handle() {\n  Fiber.scope(fn() { Fiber.fork(fn() { 1 }) })\n}\n\nfn optional() {\n  Fiber.scope(fn() { Some(Fiber.fork(fn() { 1 })) })\n}\n\nfn deferred() {\n  Fiber.scope(fn() { (Fiber.deferred(), 1) })\n}\n\nfn joined() {\n  Fiber.scope(fn() { Fiber.join(Fiber.fork(fn() { 1 })) })\n}\n\nfn piped() {\n  fn() { Fiber.fork(fn() { 1 }) } |> Fiber.scope()\n}\n\"#)"
+---
+handle: fn() -> Fiber[Int] use Async
+optional: fn() -> Option[Fiber[Int]] use Async
+deferred: ∀ A. fn() -> (Deferred[A], Int) use Async
+joined: fn() -> Int use Async
+piped: fn() -> Fiber[Int] use Async
+`Fiber.scope(fn() { Fiber.fork(fn() { 1 }) })` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
+`Fiber.scope(fn() { Some(Fiber.fork(fn() { 1 })) })` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }
+`Fiber.scope(fn() { (Fiber.deferred(), 1) })` EscapingFromScope { ty: "Deferred", scope: "Fiber.scope" }
+`fn() { Fiber.fork(fn() { 1 }) } |> Fiber.scope()` EscapingFromScope { ty: "Fiber", scope: "Fiber.scope" }

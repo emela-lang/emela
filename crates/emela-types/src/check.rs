@@ -140,6 +140,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         diags,
     };
 
+    let fibers = crate::fiber::Fibers::new(program);
     for group in groups(program) {
         let mut infer = BodyInfer::new(
             program,
@@ -150,6 +151,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
                 fails: &types.handler_fails,
             },
             &closed,
+            &fibers,
         );
         for &def in &group {
             if sigs.get(def).is_none() {

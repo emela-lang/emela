@@ -178,6 +178,23 @@
 - （補）構成子 `Handler(run: f)` は，フィールドの関数型の E と R を集合変数に具体化し，渡した関数の E と R がそれに含まれる制約から推論する（`fn db_handler()` は `fn() -> Handler[{}, Db]`）．フィールドの関数を呼ぶ（`h.run(req)`）と，その E と R が呼んだ側に載る．
 - （補）lowering では，集合の型引数は実行時の表現を持たない．IR の型引数の位置をそろえるため `()` にする．evidence passing はフィールドの関数の型の R で決まるので，構成子に渡した関数と，フィールドから取り出して呼ぶ側とで R が一致する（名前付き型の型引数は一致の制約）．
 
+## fiber（11章）
+
+- （補）組み込みのエフェクトは，同梱のソースの `@intrinsic effect`（`Std.Fiber` の `Scope`）で見分ける（`lower::is_intrinsic_effect`）．名前では見ない．`@intrinsic` は同梱のソースの外では E0224 で，その effect は利用者のエフェクトのまま扱う．Async は今までどおり Prelude のエフェクトで，印は付けない
+- （補）組み込みのエフェクトの型引数の種は，type の型引数と同じく操作の引数と戻り値の型から決める（`decl_sets` に effect も入れる）．`Scope[E, R]` の E はエラーの集合，R は効果の集合．タグの型引数の位置に `Ty::Set` を持つ．型引数の集合は名前付き型の集合の型引数と同じ書き方（`Scope[NotFound | Timeout, { Db, Log }]`）で，誤りも同じ E0323
+- （補）fn の use 節に書いた `Scope[E, R]` の E と R も集合として数える（`classify_fn_sets`）．`fn deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` の E と R は引数と戻り値の型に現れないため
+- （補）操作の型引数（`fork[A]`）は，操作のスキームでエフェクトの型引数の後ろに並べる．能力の値の操作を参照するたびに新しい型変数で具体化し，`ProgramTypes::type_args` にその式の操作の型引数を残す（lowering 用）．利用者のエフェクトの操作に書けば E0426 で，スキームには残す（誤りを重ねない）
+- （補）`use Scope` は型引数を省いてよい（11.2）．組み込みのエフェクトの `use` で型引数を省けば，新しい集合変数（ふつうの型引数なら型変数）で埋める．use 節と `implements` では省けない（E0423．State と同じ）
+- （補）11.2 の「子の R は Scope の R と単一化」は包含で実装した．R の中の `Scope[E1, R1]` の要求は `Scope[E2, R2]` で満たされ，E1 ⊆ E2，R1 ⊆ R2 の制約になる（`InferCtx::same_tag` で，集合の型引数どうしだけ共変に単一化する．ふつうの型引数は今までどおり両方向）．等式にすると，fork する補助関数の型が `use Scope[{Boom}, {}]` のような具体的な集合に決まり，別の子が別のエラーを足すスコープで食い違う．進行役と合意し，仕様の 11.2 に反映済み
+- （補）子の R の中の Scope の要求は，そのスコープ自身の `Scope[E, R]` で満たす（11.2．兄弟を fork できるように）．組み込みのエフェクトの操作の引数の関数型の use 節がエフェクトの集合の型引数を含めば，そのエフェクト自身（`Scope[E, R]`）を書き出したタグとして足す（`signature.rs` の `with_own_tag`．`fork[A](f: fn() -> A fails E use { Scope[E, R], R })` と読む）．包含の検査では子の Scope の要求がこのタグに当たり，子の Scope の E と R がスコープの E と R に含まれることだけが残る．足さないと，子の `Scope[?e, ?r]` が ?r 自身の下界になり（外から Scope を求める E0402．型検査でスタックが溢れることもあった），入れ子のスコープでは子の Scope が外側のスコープで満たされて lowering（内側のスコープを指す）と食い違っていた．同梱の `Fiber.fork` のラッパーは引数の型に `use { Scope[E, R], R }` を書き出す（仕様の 11.2 の `use R` から変えた）
+- （補）タグの比較で増えた制約は，集合を解く途中で足される．`solve_errors` は新しい制約が出なくなるまで解き直す（毎回，前の解を捨てて集合変数から解く）．解いている間は同じ制約を二度足さない（`InferCtx::set_solving`）．前は解いている間の制約は捨てていた（「エフェクトの型引数と State」の近似）が，集合の型引数のタグではそれが本体なので拾う
+- （補）11.2「fork は Async を要求する」は，fork の操作の型に Async を載せず，Fiber.scope の R に残る Async で表す．11.2 の `pub fn fork[A, E, R](...) -> Fiber[A] use Scope[E, R]` の use 節に Async がないため．進行役と合意済み
+- （補）Scope の供給元（scope 関数）は，組み込みのエフェクトと同じモジュールの `@intrinsic` の fn のうち，引数の関数型の use 節にそのエフェクトを書いたもの（`Fiber.scope`）．ハンドル（`Fiber`，`Deferred`）は組み込みのエフェクトの操作の戻り値の名前付き型．どちらも宣言から見つける（`fiber.rs`）．診断に出す名前はモジュールの最後の区切りと fn の名前（`Fiber.scope`．そのため resolve の `ModuleItems` にモジュール名を持たせた）
+- （補）Scope のハンドラは E0413（`IntrinsicHandler`）で，その handler は推論しない．`with` に書いても何も供給しない（Async と同じ）
+- （補）E0425 は，scope 関数の呼び出し（パイプの `f |> Fiber.scope()` を含む）の値の型を，集合を解いた後に最後まで辿って見る．型の中のどこかに `Fiber` か `Deferred` があれば，呼び出しの位置に1つ出す
+- （補）E0402 の注記: 足りないエフェクトの出どころの式が scope 関数の呼び出しで，そのエフェクトが本体の引数の関数型の R に（最上位の要素として）ないとき，fork した子から来たとみなして `scope` に scope 関数の名前を入れる．本体が自分で使ったエフェクトには付けない．補助の関数の中で呼んだ Fiber.scope から来たものは出どころが補助の関数の呼び出しになるので付かない（近似）
+- （補）能力の規則（E0408〜E0410）は Scope の能力にそのまま掛かる（`Ty::Cap`）．特別扱いはない
+
 ## 結果の形（lowering に渡すもの）
 
 本人と相談して決めた（2026-10-11）．lowering は HIR を直接辿り，必要な情報を `ProgramTypes` の表から引く．型付きの木（THIR）は作らない．
@@ -242,6 +259,10 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0423 `MissingEffectTypeArgs`: ``missing type arguments for effect `State[S]` ``．注記 ``= help: write the types, like `State[...]` ``．implements なら ``handler `Fixed` must implement `State[S]` with concrete types``．注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``
 - E0424 `EffectParamNotType`: ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``
 - E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
+- E0413 `IntrinsicHandler`: ``handler `MyScope` cannot implement `Scope`: only `Fiber.scope` provides it``
+- E0425 `EscapingFromScope`: ``a `Fiber` cannot leave the `Fiber.scope` that started it``．注記 ``= note: every fiber has ended once `Fiber.scope` returns, so the value would be of no use outside it``
+- E0426 `OpTypeParams`: ``operation `wrap` cannot have type parameters: only built-in effects may declare them``．位置は最初の型引数
+- E0402 の fork の注記（`scope` が `Some`）: ``= note: fibers forked in `Fiber.scope` get their handlers from where `Fiber.scope` is called, so `with` inside it does not reach them``．助言は ``= help: provide it with `with` outside `Fiber.scope` ``（`Declared` なら ``add it to `use` or provide it with `with` outside `Fiber.scope` ``）
 - E0414 `UseAsync`: ``` `Async` has no operations and cannot be used with `use` ```
 - E0415 `SuspendMismatch`: ``operation `sleep` is a `suspend fn` in effect `Clock` ``．注記 ``= help: implement it with `suspend fn sleep(..., resume)` ``．逆は ``operation `now` is not a `suspend fn` in effect `Clock` ``．注記 ``= help: remove `suspend` ``
 - E0417 `SuspendingFnOp`: 呼び出しの理由ごとに ``operation `sleep` of `Clock` is a `suspend fn` and may suspend, but operation `now` is not a `suspend fn` ``，``external function `fetch_text` may suspend, but ...``，``calling `stamp` may suspend because it uses effect `Clock`, but ...``（名前のない呼ばれる側は ``this call may suspend because ...``）．注記 ``= help: declare `now` as a `suspend fn` in the effect ``．関数の呼び出しで，R に Async 以外の中断しうるエフェクトがあるときだけ ``, or call the `fn` operations of `Clock` directly instead of through a function`` を足す

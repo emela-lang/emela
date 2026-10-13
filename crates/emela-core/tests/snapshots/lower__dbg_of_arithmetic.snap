@@ -25,6 +25,27 @@ enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 
+enum Std.Cause.Cause[A] {
+  Cause(raise: fn)
+}
+
+enum Std.Cause.CauseKind {
+  Fail
+  Die
+  Interrupt
+}
+
+enum Std.Deferred.Deferred[A] {
+}
+
+enum Std.Fiber.Fiber[A] {
+}
+
+enum Std.Fiber.Exit[A, B] {
+  Success(A)
+  Failure(Std.Cause.Cause[()])
+}
+
 export fn main() {
   let x%0 = (1 +[Int] (2 *[Int] 3))
   let big%1 = 549755813887i64

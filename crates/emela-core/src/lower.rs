@@ -1591,8 +1591,10 @@ impl<'a> Lowerer<'a> {
                     DefModule::Source(m) => self.modules[*m].name.to_string(),
                     _ => String::new(),
                 };
-                let op = Builtin::lookup_intrinsic(&module, &data.name)
-                    .expect("@intrinsic の宣言は組み込み関数の表と一致する");
+                // fiber の組み込み（`Fiber.scope` など，11章）は lowering がまだない．
+                let Some(op) = Builtin::lookup_intrinsic(&module, &data.name) else {
+                    return Err(self.unsupported(&format!("{module}.{}", data.name), span));
+                };
                 let ty_args = match self.types.type_args.get(callee) {
                     Some(tys) => tys.iter().map(|t| self.ty(t)).collect(),
                     None => Vec::new(),

@@ -95,10 +95,12 @@ pub enum DiagnosticKind {
     UnknownOperation { effect: SmolStr, op: SmolStr },
     /// The body's R not contained in the R allowed by the declaration or context (E0402, spec
     /// 8.3, 9.3, 13.3). `effects` lists the effects not contained (tags or names of set type
-    /// parameters).
+    /// parameters). `scope` names the scope function (`Fiber.scope`) when some of the effects are
+    /// required by fibers forked inside it; those must be provided outside it (spec 11.2).
     UnhandledEffects {
         effects: Vec<SmolStr>,
         context: EffectContext,
+        scope: Option<SmolStr>,
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
@@ -149,6 +151,19 @@ pub enum DiagnosticKind {
     LayerCycle { cycle: Vec<SmolStr> },
     /// A handler written for the built-in Async effect (E0413, spec 8.7).
     AsyncHandler { handler: SmolStr },
+    /// A handler written for a built-in effect such as Scope (E0413, spec 11.2). `provider` names
+    /// the function that provides it (`Fiber.scope`).
+    IntrinsicHandler {
+        handler: SmolStr,
+        effect: SmolStr,
+        provider: SmolStr,
+    },
+    /// The value type of a scope function (`Fiber.scope`) contains a fiber handle or a Deferred
+    /// (E0425, spec 11.8). `ty` names the type (`Fiber`, `Deferred`); `scope` names the function.
+    EscapingFromScope { ty: SmolStr, scope: SmolStr },
+    /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
+    /// may have them.
+    OpTypeParams { op: SmolStr },
     /// `use Async` written (E0414, spec 8.7). Async has no operations; only the runtime provides
     /// it.
     UseAsync,

@@ -1,0 +1,131 @@
+# Fibers and scopes (spec chapter 11). A fiber is a light unit of execution on one thread; it can
+# only be started inside a scope, and every fiber ends before its scope does.
+#
+# Import it with `import Std.Fiber.{Fiber, Scope}`:
+#
+#   (user, orders) = Fiber.both(fn() { fetch_user(1) }, fn() { fetch_orders(1) })
+#
+#   Fiber.scope(fn() {
+#     a = Fiber.fork(fn() { fetch_user(1) })
+#     Fiber.join(a)
+#   })
+#
+# `Scope`, `scope`, `join`, `await`, `interrupt` and `attempt` are built in (the runtime
+# schedules the fibers, NOTES.md). The combinators `all`, `race`, `both` and `map` are written in
+# Emela on top of them (spec 11.3).
+
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+
+## The handle of a fiber that produces a value of type `A`. Held by the runtime. It cannot leave
+## the `Fiber.scope` that started it (spec 11.8).
+@external
+pub type Fiber[A]
+
+## How a fiber ended (spec 11.5).
+pub enum Exit[A, E] {
+  ## Ended with a value.
+  Success(A)
+  ## Ended with an error, a defect or an interruption.
+  Failure(Cause[E])
+}
+
+## The capability to start fibers in a scope. `E` and `R` are the `fails` and `use` of the
+## children. Only `Fiber.scope` provides it: a handler cannot implement it (spec 11.2).
+@intrinsic
+pub effect Scope[E, R] {
+  ## Starts `f` as a child fiber of the scope. `f` may use `Scope` itself to fork siblings; the
+  ## type checker adds `Scope[E, R]` to the `use` of `f`, provided by this scope (spec 11.2).
+  fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
+  ## Makes a `Deferred` that belongs to the scope (spec 11.7).
+  fn deferred[A]() -> Deferred[A]
+}
+
+## Runs `body` with a scope to start fibers in, and returns its value after every child has
+## ended. Children left running when `body` returns are interrupted. If a child fails, its
+## siblings (and `body`) are interrupted and the failure propagates.
+##
+## Children get the handlers in effect where `scope` is called, so the effects they use must be
+## provided outside `scope` (spec 11.2).
+@intrinsic
+pub fn scope[A, E, R](
+  body: fn() -> A fails E use { Scope[E, R], Async, R },
+) -> A fails E use { Async, R }
+
+## Starts `f` as a child fiber of the innermost scope. Same as `(use Scope).fork(f)`.
+##
+## `f` may fork siblings: its `Scope` is the scope it is forked into, so the `Scope[E, R]` in its
+## `use` is provided by that scope and not from outside (spec 11.2).
+pub fn fork[A, E, R](f: fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A] use Scope[E, R] {
+  (use Scope).fork(f)
+}
+
+## Makes a `Deferred` that belongs to the innermost scope. Same as `(use Scope).deferred()`.
+pub fn deferred[A, E, R]() -> Deferred[A] use Scope[E, R] {
+  (use Scope).deferred()
+}
+
+## Waits for the fiber to end and returns its value. Joining a fiber interrupted with `interrupt`
+## is a defect (`fiber was interrupted`).
+@intrinsic
+pub fn join[A](fiber: Fiber[A]) -> A use Async
+
+## Waits for the fiber to end and returns how it ended. Errors and defects of a child go to its
+## scope, so only `Success` or an interruption arrives here.
+@intrinsic
+pub fn await[A](fiber: Fiber[A]) -> Exit[A, {}] use Async
+
+## Interrupts the fiber and waits until it has unwound (including `release`). Does nothing to a
+## fiber that has ended.
+@intrinsic
+pub fn interrupt[A](fiber: Fiber[A]) -> () use Async
+
+## Runs `f` here and turns its errors and defects into values. An interruption of the current
+## fiber is not caught.
+@intrinsic
+pub fn attempt[A, E, R](f: fn() -> A fails E use R) -> Exit[A, E] use R
+
+## Runs all of `fs` concurrently and returns their values in order. If one fails, the others are
+## interrupted and `all` fails.
+pub fn all[A, E, R](fs: List[fn() -> A fails E use R]) -> List[A] fails E use { Async, R } {
+  scope(fn() {
+    fibers = List.map(fs, fn(f) { fork(f) })
+    List.map(fibers, fn(fiber) { join(fiber) })
+  })
+}
+
+## Runs all of `fs` concurrently and takes the first to end; the others are interrupted. If the
+## first to end fails, `race` fails with that error.
+pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async, R } {
+  scope(fn() {
+    s = use Scope
+    d = s.deferred()
+    List.map(fs, fn(f) { s.fork(fn() { Deferred.complete(d, f()) }) })
+    Deferred.await(d)
+  })
+}
+
+## Runs `f` and `g` concurrently and returns both values. If one fails, the other is interrupted
+## and `both` fails.
+pub fn both[A, B, E, R](
+  f: fn() -> A fails E use R,
+  g: fn() -> B fails E use R,
+) -> (A, B) fails E use { Async, R } {
+  scope(fn() {
+    a = fork(f)
+    b = fork(g)
+    (join(a), join(b))
+  })
+}
+
+## Applies `f` to each element of `xs` concurrently and returns the results in order. If one
+## fails, the others are interrupted and `map` fails.
+pub fn map[A, B, E, R](
+  xs: List[A],
+  f: fn(A) -> B fails E use R,
+) -> List[B] fails E use { Async, R } {
+  scope(fn() {
+    fibers = List.map(xs, fn(x) { fork(fn() { f(x) }) })
+    List.map(fibers, fn(fiber) { join(fiber) })
+  })
+}
