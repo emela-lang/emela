@@ -28,13 +28,14 @@ fn loopify_rewrites_tail_self_call() {
     assert!(tail::loopify_function(&mut m, fact));
     let f = &m.functions[fact];
     let Expr::Loop { vars, inits, body } = &f.body else {
-        panic!("Loop になっていない: {:?}", f.body);
+        panic!("not a Loop: {:?}", f.body);
     };
-    // ループの変数は引数と別の新しい変数で，初期値は引数．
+    // Loop variables are fresh, distinct from the parameters, and start from the arguments.
     assert_eq!(vars.len(), 2);
     assert!(vars.iter().all(|v| !f.params.contains(v)));
     assert_eq!(inits, &vec![var(f.params[0]), var(f.params[1])]);
-    // 本体の引数の出現はループの変数に置き換わり，末尾の呼び出しは Recur になる．
+    // Occurrences of the parameters in the body become loop variables, and the tail call becomes
+    // Recur.
     let Expr::If { cond, then, else_ } = &**body else {
         panic!()
     };
@@ -72,8 +73,8 @@ fn loopify_leaves_non_tail_calls() {
 
 #[test]
 fn loopify_ignores_calls_inside_lambda_and_other_functions() {
-    // fn f(n) = (fn() => f(n))   ラムダの中の呼び出しは f の末尾ではない
-    // fn g(n) = f(n)             他の関数への末尾呼び出しは対象外
+    // fn f(n) = (fn() => f(n))   a call inside a lambda is not in f's tail position
+    // fn g(n) = f(n)             tail calls to other functions are out of scope
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
@@ -221,8 +222,6 @@ fn loopify_through_short_circuit() {
     }
 }
 
-// ---- 組み込み関数の表 ----
-
 fn prelude_cons() -> (emela_types::TyCons, emela_types::TyConId) {
     use emela_types::{TyConData, TyConKind, TyCons, TyParam};
     let mut cons = TyCons::new();
@@ -239,15 +238,15 @@ fn builtin_names_are_unique_and_found_by_lookup() {
     for &op in Builtin::ALL {
         let i = op.info();
         assert_eq!(Builtin::lookup(i.module, i.name), Some(op), "{}", i.path());
-        assert!(i.pure, "{} が純粋でない", i.path());
-        assert!(i.js.starts_with('$'), "{} の実装名", i.path());
+        assert!(i.pure, "{} is not pure", i.path());
+        assert!(i.js.starts_with('$'), "implementation name of {}", i.path());
     }
     assert_eq!(
         Builtin::lookup(Some("String"), "length"),
         Some(Builtin::StringLength)
     );
     assert_eq!(Builtin::lookup(None, "dbg"), Some(Builtin::Dbg));
-    // Prelude の関数は修飾しない．
+    // Prelude functions are not qualified.
     assert_eq!(Builtin::lookup(Some("Prelude"), "panic"), None);
     assert_eq!(Builtin::lookup(Some("List"), "map"), None);
 }

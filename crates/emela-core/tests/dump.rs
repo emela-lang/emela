@@ -1,4 +1,5 @@
-//! IR の dump（`emela_core::dump`）の見た目のテスト．IR は `build` のヘルパで手で組む．
+//! Tests for how the IR dump (`emela_core::dump`) looks. The IR is built by hand with the `build`
+//! helpers.
 
 use emela_core::build::*;
 use emela_core::{

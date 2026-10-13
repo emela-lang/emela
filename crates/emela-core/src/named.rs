@@ -1,14 +1,16 @@
-//! 名前付き引数の並べ替え．
+//! Reordering named arguments.
 //!
-//! IR の引数は位置の順に並べるが，評価は書かれた順に行う．書かれた順と位置の順が食い違うときは，
-//! 副作用のありうる引数を書かれた順に `let` で束縛してから，位置の順に並べた変数を渡す．
+//! IR arguments are in positional order, but evaluation follows written order. When the two
+//! differ, arguments that may have side effects are bound with `let` in written order, and the
+//! variables are then passed in positional order.
 
 use crate::ir::*;
 
-/// 書かれた順の `(位置, 式)` から，評価順を保ったまま位置の順の引数で `build` を呼ぶ．
+/// Calls `build` with arguments in positional order, given `(position, expr)` pairs in written
+/// order, preserving evaluation order.
 ///
-/// `build` には位置の順に並んだ引数が渡る（構成子の構築にも呼び出しにも使える）．
-/// 呼び出し先が式なら，それを先に評価する責任は呼び出し側にある．
+/// `build` receives the arguments in positional order (usable for both constructors and calls).
+/// If the callee is an expression, the caller is responsible for evaluating it first.
 pub fn in_written_order(
     module: &mut Module,
     written: Vec<(usize, Expr)>,
@@ -20,7 +22,7 @@ pub fn in_written_order(
             seen.sort_unstable();
             seen.iter().copied().eq(0..written.len())
         },
-        "位置が 0..n の並べ替えになっていない"
+        "positions are not a permutation of 0..n"
     );
     if written.windows(2).all(|w| w[0].0 < w[1].0) {
         return build(written.into_iter().map(|(_, e)| e).collect());
@@ -40,7 +42,7 @@ pub fn in_written_order(
     }
     let args = slots
         .into_iter()
-        .map(|s| s.expect("位置が欠けている"))
+        .map(|s| s.expect("a position is missing"))
         .collect();
     lets.into_iter()
         .rev()
@@ -51,7 +53,7 @@ pub fn in_written_order(
         })
 }
 
-/// 評価しても何も起きない式．並べ替えても観測できない．
+/// Evaluating it has no effect, so reordering it is unobservable.
 fn is_atomic(e: &Expr) -> bool {
     matches!(
         e,

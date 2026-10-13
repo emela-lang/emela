@@ -1,4 +1,4 @@
-//! lowering（`emela_core::lower`）のテスト．
+//! Tests for lowering (`emela_core::lower`).
 
 use std::path::Path;
 
@@ -13,8 +13,8 @@ use emela_resolve::{
 use emela_types::check_program;
 use la_arena::ArenaMap;
 
-/// `files`（`src` からのパスとソース）を，同梱の Prelude と core のソースと一緒に名前解決する．
-/// 先頭のファイルをエントリにする．構文と名前解決の誤りは許さない．
+/// Resolves `files` (paths from `src` and sources) together with the bundled Prelude and core
+/// sources. The first file is the entry. Syntax and resolution errors are not allowed.
 fn resolve_files<'s>(
     files: &[(&str, &'s str)],
     core: &[(&str, &'s str)],
@@ -53,7 +53,7 @@ fn resolve_files<'s>(
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
-    // 同梱のソースの `@intrinsic` には E0130 が出る（emela-core の NOTES）ので，それだけ許す．
+    // `@intrinsic` in bundled sources gets E0130 (see emela-core's NOTES), so only that is allowed.
     let diagnostics: Vec<_> = diagnostics
         .iter()
         .filter(|d| !d.to_string().contains("E0130"))
@@ -66,7 +66,7 @@ fn lower_files(files: &[(&str, &str)]) -> Module {
     try_lower(files, Roots::Exported).unwrap_or_else(|e| panic!("{e:?}"))
 }
 
-/// 型検査まで通してから lowering する．誤りは `` `ソースの字面` what `` の形にする．
+/// Lowers after type checking. Errors are formatted as `` `source text` what ``.
 fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>> {
     try_lower_with(
         files,
@@ -76,7 +76,7 @@ fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>
     )
 }
 
-/// 同梱の core のソース（`core`）と JS のファイル（`core_js_files`）を差し替えた [`try_lower`]．
+/// [`try_lower`] with the bundled core sources (`core`) and JS files (`core_js_files`) replaced.
 fn try_lower_with(
     files: &[(&str, &str)],
     roots: Roots,
@@ -119,7 +119,8 @@ fn try_lower_with(
                 if span.module == entry {
                     format!("`{text}` {what}")
                 } else {
-                    // 他のモジュールの誤りはモジュール名と，式の1行目だけを出す．
+                    // Errors in other modules show the module name and the first line of the
+                    // expression.
                     let first = text.lines().next().unwrap_or_default();
                     format!("{}: `{first}` {what}", modules[span.module].name)
                 }
@@ -128,7 +129,8 @@ fn try_lower_with(
     })
 }
 
-/// enum の定義を `Name[2] { Ctor(first: A, second: B), Unit }` の形にする．型引数は `A`，`B`，… と出す．
+/// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
+/// parameters as `A`, `B`, ….
 fn render_enum(m: &Module, def: &EnumDef) -> String {
     let variants: Vec<String> = def
         .variants
@@ -176,7 +178,7 @@ fn enum_named<'m>(m: &'m Module, name: &str) -> &'m EnumDef {
         .iter()
         .map(|(_, e)| e)
         .find(|e| e.name == name)
-        .unwrap_or_else(|| panic!("enum `{name}` がない"))
+        .unwrap_or_else(|| panic!("no enum `{name}`"))
 }
 
 fn fn_names(m: &Module) -> Vec<&str> {
@@ -199,8 +201,8 @@ fn names_are_qualified_except_in_the_entry() {
             "pub enum Shape { Circle(Float), Square(Float) }\n\npub fn count() -> List[Int] { List.range(0, 2) }\n",
         ),
     ]);
-    // `main` からたどれる fn だけを写す．使われない `unused` と，他の core の関数は写さない．
-    // 非公開の `List.range_onto` にもモジュール名が付く．
+    // Only fns reachable from `main` are lowered: not the unused `unused`, nor other core
+    // functions. The private `List.range_onto` also gets its module name.
     let mut fns = fn_names(&m);
     fns.sort_unstable();
     assert_eq!(
@@ -216,7 +218,7 @@ fn names_are_qualified_except_in_the_entry() {
 
     let enums = enum_names(&m);
     assert!(enums.contains(&"Shapes.Shape"), "{enums:?}");
-    // Option は1つだけ，Bool は IR の enum にしない．
+    // Only one Option, and Bool is not an IR enum.
     assert_eq!(
         enums.iter().filter(|&&e| e == "Option").count(),
         1,
@@ -321,8 +323,8 @@ fn show_any[A](x: A) -> String {
     assert_eq!(errors, ["`x` showing a value of a type parameter"]);
 }
 
-/// 全部の fn を根にして，core の関数が全部写せることを確かめる．たどれない fn は通常の
-/// ビルドでは写さないので，使われない core の関数の誤りはここでしか見つからない．
+/// With every fn as a root, checks that all core functions lower. Unreachable fns are not lowered
+/// in a normal build, so errors in unused core functions are only caught here.
 #[test]
 fn every_core_function_lowers() {
     let m = match try_lower(&[("main.emel", "fn main() { 0 }\n")], Roots::All) {
@@ -331,7 +333,7 @@ fn every_core_function_lowers() {
     };
     let names = fn_names(&m);
     assert!(names.contains(&"List.map"));
-    // handler と外部関数も写す（同梱の SystemConsole）．
+    // Handlers and external functions are lowered too (the bundled SystemConsole).
     assert!(names.contains(&"Std.Console.SystemConsole"), "{names:?}");
     assert!(names.contains(&"Std.Console.console_log"));
 }
@@ -398,7 +400,7 @@ fn apply(x: Int, f: fn(Int) -> Int) -> Int {
 ",
     )]);
     let out = dump(&m);
-    // core の関数は長いので，エントリのモジュールの関数だけを見る．
+    // Core functions are long, so only look at the entry module's functions.
     let mine: Vec<&str> = out
         .split("\n\n")
         .filter(|f| f.contains("fn main(") || f.contains("fn apply("))
@@ -478,7 +480,7 @@ fn is_small(n: Int) -> Bool {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// fail と escape（7.2，7.3）．失敗しうる呼び出しには `?` が付く．error は `error enum` になる．
+/// fail and escape (spec 7.2, 7.3). Fallible calls get `?`, and errors become `error enum`.
 #[test]
 fn fail_and_escape() {
     let m = lower_files(&[(
@@ -524,8 +526,9 @@ fn pure(n: Int) -> Int {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// use，with，handler，能力の値の操作（8.2〜8.4）．R が空でない関数とラムダは証拠の表を最後の
-/// 引数に受け，with は表を延ばす．同じ with の Clock が Stamp の依存を満たす．
+/// use, with, handlers, and operations on capability values (spec 8.2 to 8.4). Functions and
+/// lambdas with a non-empty R take the evidence table as their last argument, and `with` extends
+/// the table. The Clock in the same `with` satisfies Stamp's dependency.
 #[test]
 fn effects_and_handlers() {
     let m = lower_files(&[(
@@ -592,10 +595,11 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// 状態のあるハンドラと layer（8.4，8.5，14.2）．状態のあるハンドラは init（`$init`），ハンドラの値を
-/// 作る関数（状態を最初の引数に受ける），release（`$release`）の3つの関数になる．with は layer を展開して
-/// 依存の順（Env，Pool）に並べ，init の値を release のない束縛に，ハンドラの値を release のある束縛に
-/// する．AppLive の Pool は後ろの Spare に上書きされるので初期化しない．
+/// Stateful handlers and layers (spec 8.4, 8.5, 14.2). A stateful handler becomes three functions:
+/// init (`$init`), one that builds the handler value (taking the state as its first argument), and
+/// release (`$release`). `with` expands the layer and orders it by dependency (Env, Pool), binding
+/// init values without release and handler values with release. AppLive's Pool is overridden by
+/// the later Spare, so it is not initialized.
 #[test]
 fn stateful_handlers_and_layers() {
     let m = lower_files(&[(
@@ -653,9 +657,10 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// State.run（8.8）と型引数のあるエフェクト（8.1）．State.run は入れ物と，それを読み書きする
-/// ハンドラの値を作り，`State[S]` の鍵で表に足して body を呼ぶ．汎用の fn の本体は自分の型引数の鍵
-/// （`State[$modify.0]`）で引き，呼ぶ側が具体化した鍵（`State[Int]`）のハンドラをその鍵に足す．
+/// State.run (spec 8.8) and effects with type arguments (spec 8.1). State.run creates a cell and a
+/// handler value that reads and writes it, adds it to the table under the key `State[S]`, and calls
+/// body. A generic fn body looks it up by its own type parameter's key (`State[$modify.0]`), and
+/// the caller adds the handler for the instantiated key (`State[Int]`) under that key.
 #[test]
 fn state_run_and_effect_type_args() {
     let m = lower_files(&[(
@@ -684,9 +689,10 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// 並行性（11章）．`Fiber.scope` はスコープの能力のハンドラ（fork と deferred）を作って本体を呼び，
-/// fork は子の関数を包む．子は Fiber.scope を呼んだ位置の表に，fork した能力の値を Scope として
-/// 足した表で走る（11.2）．attempt は R のある関数を今の表で呼ぶ関数に包む．
+/// Concurrency (spec chapter 11). `Fiber.scope` builds the scope capability's handler (fork and
+/// deferred) and calls the body, and fork wraps the child function. A child runs with the table at
+/// the `Fiber.scope` call plus the forking capability value as Scope (spec 11.2). attempt wraps a
+/// function with an R into one that calls it with the current table.
 #[test]
 fn fiber_scope_fork_and_attempt() {
     let m = lower_files(&[(
@@ -723,7 +729,8 @@ fn main() -> Int use { Log, Async } {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// 外部関数（12章）．ファイルを指すモジュールはソースの隣のパスに直す．
+/// External functions (spec chapter 12). A module that names a file is rewritten to a path next to
+/// the source.
 #[test]
 fn external_functions() {
     let m = lower_files(&[(
@@ -752,14 +759,14 @@ fn main() {
         .filter(|f| f.contains("external fn host_get"))
         .collect();
     assert_eq!(ext.len(), 1, "{out}");
-    // テストのソースはパスを持たないので，ファイルの指定はそのまま．
+    // Test sources have no path, so the file specifier is left as is.
     assert_eq!(
         ext[0].trim(),
         "external fn host_get() = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
     );
 }
 
-/// 試験用の core のモジュール `HostTest`．同梱の JS のファイルを指す外部関数を持つ．
+/// A test core module `HostTest` with an external function pointing to a bundled JS file.
 const HOST_TEST: &str = "\
 @external(js, \"./host/../host_test.mjs\", \"now\")
 @external(wasm, \"env\", \"now\")
@@ -769,7 +776,7 @@ pub fn now() -> Int use {}
 pub fn gone() -> Int use {}
 ";
 
-/// 同梱の JS のファイル．`host_test.mjs` が `helper.mjs` を相対で import する．
+/// Bundled JS files. `host_test.mjs` imports `helper.mjs` relatively.
 const HOST_TEST_JS: &[(&str, &str)] = &[
     (
         "core/host_test.mjs",
@@ -778,15 +785,16 @@ const HOST_TEST_JS: &[(&str, &str)] = &[
     ("core/helper.mjs", "export const base = 42;\n"),
 ];
 
-/// 同梱の core に `HostTest` を足して lowering する．
+/// Lowers with `HostTest` added to the bundled core.
 fn lower_with_host_test(main: &str) -> Result<Module, Vec<String>> {
     let mut core = emela_core::core_sources().to_vec();
     core.push(("HostTest", HOST_TEST));
     try_lower_with(&[("main.emel", main)], Roots::Exported, &core, HOST_TEST_JS)
 }
 
-/// 同梱の core の外部関数のファイルの指定は，出力先の `emela_core/` に書き出す同梱の
-/// ファイルを指す．使ったら同梱のファイルを全部 `js_files` に入れる（相対の import のため）．
+/// A bundled core external function's file specifier points to the bundled file written under
+/// `emela_core/` in the output. Once used, all bundled files go into `js_files` (for relative
+/// imports).
 #[test]
 fn core_external_points_to_bundled_js_file() {
     let m = lower_with_host_test("fn main() { dbg(HostTest.now()) }\n")
@@ -809,23 +817,24 @@ fn core_external_points_to_bundled_js_file() {
     assert_eq!(files, HOST_TEST_JS);
 }
 
-/// 同梱のファイルを指す外部関数を使わなければ，同梱のファイルを書き出さない．
+/// If no external function pointing to a bundled file is used, no bundled file is written.
 #[test]
 fn unused_core_js_files_are_not_output() {
     let m = lower_with_host_test("fn main() { dbg(1) }\n").unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(m.js_files, []);
 }
 
-/// 同梱のファイルにない指定は同梱のソースの誤り．
+/// A specifier not among the bundled files is an error in the bundled sources.
 #[test]
 fn missing_core_js_file_is_an_error() {
     let errors = lower_with_host_test("fn main() { dbg(HostTest.gone()) }\n").unwrap_err();
     assert_eq!(errors, ["HostTest: `gone` missing core file ./missing.mjs"]);
 }
 
-/// suspend（8.1，8.4，12.2，16.5）．中断しうる関数，ラムダ，呼び出しに印を付ける．多相な R の関数
-/// （`List.map`）は，中断しうる関数を渡したところで中断用の写し（`List.map$suspend…`）を作る．
-/// main の R に残った Async は証拠の表を要らない（ランタイムが供給する）．
+/// suspend (spec 8.1, 8.4, 12.2, 16.5). Suspending functions, lambdas and calls are marked. A
+/// function with a polymorphic R (`List.map`) gets a suspending copy (`List.map$suspend…`) where a
+/// suspending function is passed. Async left in main's R needs no evidence table (the runtime
+/// provides it).
 #[test]
 fn suspend_marks_and_copies() {
     let m = lower_files(&[(
@@ -891,10 +900,11 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// fn の操作の実装は，本体の中の呼び出しで中断しうるかを決める（E0417，8.1）．本体の R に
-/// suspend fn を持つ Clock があっても，fn の操作 `now` しか呼ばなければジェネレータにしない．
-/// `now` の呼び出しにも中断の印は付かない．本体の R が Immediate なら，その場で resume する
-/// PureClock の with の中で sleep を呼んでも（呼び出しには中断の印が付く）ジェネレータにしない．
+/// An fn-operation implementation may suspend depending on the calls in its body (E0417, spec 8.1).
+/// Even with a Clock that has a suspend fn in the body's R, it is not a generator if it only calls
+/// the fn operation `now`, and the `now` call is not marked as suspending. If the body's R is
+/// Immediate, calling sleep inside a `with` of PureClock, which resumes immediately, does not make
+/// it a generator either (the call itself is marked as suspending).
 #[test]
 fn fn_op_calling_fn_ops_is_not_a_generator() {
     let m = lower_files(&[(

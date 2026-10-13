@@ -1,11 +1,12 @@
-//! Core IR を読める形の文字列にする．テストのスナップショットと調べものに使う．
+//! Renders the Core IR as readable text, for test snapshots and investigation.
 //!
-//! 見た目は Emela に寄せるが，ソースと取り違えないように Emela にない印を付ける
-//! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`，
-//! 失敗しうる呼び出しの後ろの `?`，中断しうる呼び出しの後ろの `!`，error の enum の `error enum`，
-//! 証拠の表の `use[X](ctx)` と `provide(..)`，操作の呼び出しの `h.X#op(..)`，並行性の操作の `fiber#op(..)`）．
-//! 中断しうる関数とラムダ，suspend fn の操作には `suspend` を前に付ける．
-//! IR が区別していることは全部書き分ける．読み戻すことは考えない．
+//! It looks like Emela, but uses marks that Emela lacks so it is not mistaken for source: `let`
+//! for bindings, `%n` for locals, `@` for builtins, `[OpTy]` on operators, `?` after fallible
+//! calls, `!` after suspending calls, `error enum` for error enums, `use[X](ctx)` and
+//! `provide(..)` for evidence tables, `h.X#op(..)` for operation calls, and `fiber#op(..)` for
+//! concurrency operations. Suspending functions and lambdas, and suspend fn operations, are
+//! prefixed with `suspend`. Everything the IR distinguishes is written distinctly. It is not
+//! meant to be parsed back.
 //!
 //! ```text
 //! enum Shapes.Shape {
@@ -26,7 +27,7 @@ use crate::ir::{
     StrPart, Type, UnOp, VariantFields,
 };
 
-/// モジュール全体を出す．enum を先に，関数を後に，それぞれ ID の順で並べる．
+/// Enums first, then functions, each in ID order.
 pub fn dump(m: &Module) -> String {
     let mut p = Printer {
         m,
@@ -79,7 +80,6 @@ pub fn dump(m: &Module) -> String {
         p.braced(&f.body);
         p.out.push_str("\n\n");
     }
-    // 最後の空行は要らない．
     p.out.truncate(p.out.trim_end().len());
     p.out.push('\n');
     p.out
@@ -144,7 +144,7 @@ impl Printer<'_> {
         format!("{}%{}", self.m.locals[l].hint, u32::from(l.into_raw()))
     }
 
-    /// `Shapes.Shape.Rect` のように enum とバリアントの名前をつなぐ．
+    /// Joins enum and variant names, as in `Shapes.Shape.Rect`.
     fn ctor_name(&self, c: CtorRef) -> String {
         format!(
             "{}.{}",
@@ -160,7 +160,7 @@ impl Printer<'_> {
         }
     }
 
-    /// `{` と `}` で囲んだブロックとして出す．`let` の入れ子は縦に並べる．
+    /// Prints as a block in `{` and `}`, with nested `let`s stacked vertically.
     fn braced(&mut self, e: &Expr) {
         self.out.push('{');
         self.indent += 1;
@@ -201,13 +201,13 @@ impl Printer<'_> {
             } => {
                 match callee {
                     Callee::Direct(f) => self.out.push_str(&self.m.functions[*f].name),
-                    // 値の呼び出しは呼ばれる側を括弧で囲み，直接の呼び出しと見分ける．
+                    // Calls to values parenthesize the callee to tell them from direct calls.
                     Callee::Indirect(f) => {
                         self.out.push('(');
                         self.expr(f);
                         self.out.push(')');
                     }
-                    // 操作は `ハンドラ.エフェクト#操作` と書く．
+                    // An operation is written `handler.Effect#op`.
                     Callee::Op {
                         handler,
                         effect,
@@ -261,7 +261,7 @@ impl Printer<'_> {
             }
             Expr::Field { base, ctor, index } => {
                 self.atom(base);
-                // 添字が IR の中身．名前はあれば読むために添える．
+                // The index is what the IR holds; the name is added for readability if present.
                 match &self.m.variant(*ctor).fields {
                     VariantFields::Named(names) if *index < names.len() => {
                         write!(self.out, ".{}#{index}", names[*index]).unwrap()
@@ -308,7 +308,7 @@ impl Printer<'_> {
                 self.out.push('}');
             }
             Expr::Binary { op, ty, lhs, rhs } => {
-                // 優先順位で読み違えないように，二項演算は毎回括弧で囲む．
+                // Always parenthesize binary operations so precedence cannot be misread.
                 self.out.push('(');
                 self.expr(lhs);
                 write!(self.out, " {}[{}] ", bin_op(*op), op_ty(*ty)).unwrap();
@@ -475,7 +475,8 @@ impl Printer<'_> {
         }
     }
 
-    /// フィールドの参照の左辺．変数と関数とリテラル以外は括弧で囲む．
+    /// The left side of a field access. Anything but variables, functions and literals is
+    /// parenthesized.
     fn atom(&mut self, e: &Expr) {
         if matches!(e, Expr::Var(_) | Expr::Fn(_) | Expr::Lit(_)) {
             self.expr(e);
@@ -531,13 +532,13 @@ impl Printer<'_> {
     }
 }
 
-/// 型引数の名前．`A`，`B`，… と付ける．
+/// Named `A`, `B`, ….
 fn param_name(i: usize) -> String {
     char::from(b'A' + i as u8).to_string()
 }
 
-/// リテラル．Int64 には `i64` を付け，Float は必ず小数点か指数を持つ形で出す．
-/// Bool は IR の組み込みなので Emela の `True` ではなく `true` と出す．
+/// Int64 gets an `i64` suffix, and Float always has a decimal point or exponent. Bool is an IR
+/// builtin, so it prints as `true`, not Emela's `True`.
 fn lit_text(lit: &Lit) -> String {
     match lit {
         Lit::Int(n) => n.to_string(),
