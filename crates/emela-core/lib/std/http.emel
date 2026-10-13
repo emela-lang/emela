@@ -149,7 +149,7 @@ fn host_header_name(res: HostResponse, index: Int) -> String
 fn host_header_value(res: HostResponse, index: Int) -> String
 
 fn method_name(method: Method) -> String {
-  match method {
+  method match {
     Get     -> "GET"
     Head    -> "HEAD"
     Post    -> "POST"
@@ -171,7 +171,7 @@ pub handler SystemHttp implements Http {
       host_with_header(req, name, value)
     })
     res = host_send(req)
-    match host_outcome(res) {
+    host_outcome(res) match {
       1 -> fail InvalidUrl(url: request.url)
       2 -> fail ConnectionFailed(url: request.url, message: host_message(res))
       3 -> fail ResponseNotText(url: request.url)
@@ -203,7 +203,7 @@ pub handler TestHttp implements Http {
     server = st.get()
     st.set(TestServer(sent: List.append(server.sent, [request]), ..server))
     respond = server.respond
-    match respond(request, List.length(server.sent)) {
+    respond(request, List.length(server.sent)) match {
       Some(res) -> resume(res)
       None -> fail ConnectionFailed(url: request.url, message: "TestServer returned no response")
     }

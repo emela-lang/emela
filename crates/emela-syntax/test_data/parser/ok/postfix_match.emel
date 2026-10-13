@@ -1,0 +1,40 @@
+# Postfix match (spec 6.5): binding, pipe result, escape after it, nesting, line continuation.
+fn name_of(id: Int) -> String {
+  name = users |> List.find(fn(u) { u.id == id }) match {
+    Some(u) -> u.name
+    None -> "guest"
+  }
+  name
+}
+
+fn load_name(id: Int) -> String {
+  load(id) match {
+    Some(user) -> user.name
+    None -> "guest"
+  } escape {
+    DbError(_) -> "unavailable"
+  }
+}
+
+fn nested(o: Option[Option[Int]]) -> Int {
+  o match {
+    Some(inner) -> inner match {
+      Some(n) -> n
+      None -> 0
+    }
+    None -> -1
+  }
+}
+
+fn continued(xs: List[Int]) -> Int {
+  xs
+    |> List.reverse
+    match {
+      [] -> 0
+      [x, ..] -> x
+    }
+}
+
+fn twice(x: Int) -> Int {
+  x match { _ -> 1 } match { _ -> 2 }
+}

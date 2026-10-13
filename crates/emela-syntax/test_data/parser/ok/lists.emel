@@ -1,7 +1,7 @@
 ## リストのパターンと構築（2026-10-08 の改訂）
 fn lists(xs: List[Int]) -> List[Int] {
   [first, ..] = xs
-  match xs {
+  xs match {
     [x, ..] -> [x, x, ..xs]
     _ -> [0, ..List.tail(xs)]
   }

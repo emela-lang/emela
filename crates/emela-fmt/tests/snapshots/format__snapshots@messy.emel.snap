@@ -6,7 +6,7 @@ input_file: crates/emela-fmt/test_data/messy.emel
 pub fn messy(x: Int, y: Int) -> Int {
   a = x + y * 2
   b = if a > 0 { a } else { 0 - a }
-  match b {
+  b match {
     0            -> "zero"
     n if n > 100 -> "big"
     _            -> "other"
@@ -37,7 +37,7 @@ fn trailing_commas(xs: List[Int]) {
   f(a, b)
   [1, 2]
   g(a)
-  match xs {
+  xs match {
     [x, ..rest] -> x
     _           -> 0
   }

@@ -1,5 +1,5 @@
 fn f(x: Int) -> Int {
-  match x {
+  x match {
     0 1
     _ -> 2
   }

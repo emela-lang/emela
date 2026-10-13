@@ -451,6 +451,51 @@ fn source_runs_through_lowering() {
 }
 
 #[test]
+fn postfix_match_runs_after_pipes_and_before_escape() {
+    // Spec 6.5: `x match { ... }` binds weaker than `|>` and chains left to right with escape.
+    let output = run_source(
+        "postfix-match",
+        r#"error Boom(n: Int)
+
+fn load(n: Int) -> Option[Int] fails Boom {
+  if n < 0 { fail Boom(n:) } else { Some(n) }
+}
+
+fn describe(n: Int) -> String {
+  load(n) match {
+    Some(0) -> "zero"
+    Some(_) -> "some"
+    None -> "none"
+  } escape {
+    Boom(_) -> "boom"
+  }
+}
+
+fn main() {
+  first = [3, 1, 2] |> List.reverse |> List.head match {
+    Some(x) -> x
+    None -> 0
+  }
+  dbg(first)
+  dbg(describe(0))
+  dbg(describe(-1))
+  dbg(Some(Some(5)) match {
+    Some(inner) -> inner match {
+      Some(x) -> x * 2
+      None -> 0
+    }
+    None -> -1
+  })
+}
+"#,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "", "2\n\"zero\"\n\"boom\"\n10\n")
+    );
+}
+
+#[test]
 fn lowered_calls_reorder_named_args_and_reach_core() {
     // Named arguments are reordered by position, and core's `List.range` is followed and lowered.
     let output = run_source(
@@ -913,7 +958,7 @@ import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
 fn show(o: Ordering) -> String {
-  match o {
+  o match {
     Less -> "Less"
     Equal -> "Equal"
     Greater -> "Greater"
@@ -1140,7 +1185,7 @@ fn env_runs_through_handlers() {
 import Std.Env.{Env, SystemEnv}
 
 fn show(name: String) -> String {
-  match (use Env).get(name) {
+  (use Env).get(name) match {
     Some(value) -> "#{name}=#{value}"
     None -> "#{name} is unset"
   }
@@ -1522,7 +1567,7 @@ fn reply(req: Request, n: Int) -> Option[Response] {
 }
 
 fn method(req: Request) -> String {
-  match req.method {
+  req.method match {
     Get -> "GET"
     Post -> "POST"
     _ -> "other"

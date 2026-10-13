@@ -77,7 +77,7 @@ fn long_expressions() {
 }
 
 fn long_patterns(value: Shape) {
-  match value {
+  value match {
     Rectangle(
       width: first_width_value,
       height: first_height_value,

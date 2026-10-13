@@ -275,7 +275,7 @@ fn pipes_and_error_type_params() {
 error NotFound(id: Int)
 
 fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
-  match opt {
+  opt match {
     Some(a) -> a
     None -> fail err
   }

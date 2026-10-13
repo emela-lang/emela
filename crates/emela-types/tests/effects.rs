@@ -945,7 +945,7 @@ fn too_much() -> Handler[NotFound, Db] {
 fn bad_args(a: Handler[Int, Db], b: Handler[NotFound, NotFound], c: List[Db]) { () }
 
 fn steps(s: Step[Timeout]) -> Int fails Timeout {
-  match s {
+  s match {
     Done -> 0
     Next(f) -> f()
   }

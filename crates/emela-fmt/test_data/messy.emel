@@ -1,7 +1,7 @@
   pub   fn   messy( x :Int,y:  Int )->Int{
         a=x+y*2
  b   =   if a>0{a}else{0-a}
-            match b{
+            b match{
   0->"zero"
      n if n>100->"big"
    _->"other"
@@ -42,7 +42,7 @@ fn trailing_commas(xs: List[Int],) {
   g(
     a
   )
-  match xs { [x, ..rest,] -> x
+  xs match { [x, ..rest,] -> x
     _ -> 0 }
   user = users.find(id)
   |> Option.or_fail(NotFound(id:))

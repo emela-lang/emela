@@ -112,10 +112,9 @@ impl Printer {
             BIN_EXPR => self.bin_chain(node),
             BLOCK_EXPR => self.block(node).assemble(false).group(),
             IF_EXPR => self.if_chain(node).group(),
-            MATCH_EXPR => self.seq(node, |_, _| true),
+            MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
             MATCH_ARM_LIST => self.arm_list(node),
             WITH_EXPR => self.with_expr(node),
-            ESCAPE_EXPR => self.seq(node, |_, _| true),
             LAMBDA_EXPR => {
                 let (head, block) = self.lambda_parts(node);
                 head.append(block.assemble(false).group())
@@ -129,6 +128,63 @@ impl Printer {
             rowan::NodeOrToken::Token(t) => self.tok(t),
             rowan::NodeOrToken::Node(n) => self.node(n),
         }
+    }
+
+    /// `expr match { ... }` and `expr escape { ... }`. When the left side is a pipe that breaks
+    /// across lines, the keyword starts the next line so the arms do not hang off the last link.
+    fn arms_expr(&mut self, node: &SyntaxNode) -> Doc {
+        let mut children = significant_children(node);
+        let Some(first) = children.next() else {
+            return RcDoc::nil();
+        };
+        let pipe = first.as_node().is_some_and(is_pipe);
+        let lhs = self.element(&first);
+        let mut rest = RcDoc::nil();
+        let mut gap = None;
+        for child in children {
+            let space = self.space();
+            if gap.is_none() {
+                gap = Some(space);
+            } else {
+                rest = rest.append(space);
+            }
+            rest = rest.append(self.element(&child));
+        }
+        let gap = gap.unwrap_or_else(RcDoc::nil);
+        if !pipe {
+            return lhs.append(gap).append(rest);
+        }
+        let keyword = significant_children(node)
+            .nth(1)
+            .and_then(|e| e.into_token())
+            .map_or(String::new(), |t| t.text().to_owned());
+        let inline = lhs.clone().append(gap).append(rest.clone());
+        let broken = lhs
+            .clone()
+            .append(RcDoc::hardline().append(rest).nest(INDENT));
+        let width = self.width();
+        RcDoc::column(move |col| {
+            let (lhs, inline, broken, keyword) =
+                (lhs.clone(), inline.clone(), broken.clone(), keyword.clone());
+            RcDoc::nesting(move |indent| {
+                // Render the left side where it stands, followed by the keyword, and see whether
+                // the pipe breaks.
+                let probe = text(&" ".repeat(col))
+                    .append(lhs.clone())
+                    .append(text(&format!(" {keyword} {{")))
+                    .nest(indent as isize);
+                let link = " ".repeat(indent + INDENT as usize) + "|>";
+                let broke = render(&probe, width)
+                    .lines()
+                    .skip(1)
+                    .any(|l| l.starts_with(&link));
+                if broke {
+                    broken.clone()
+                } else {
+                    inline.clone()
+                }
+            })
+        })
     }
 
     /// Puts a space between children when `space(prev, cur)` is true.
@@ -679,6 +735,11 @@ pub(crate) fn newline_before(token: &SyntaxToken) -> bool {
         }
     }
     false
+}
+
+/// A `|>` chain.
+fn is_pipe(node: &SyntaxNode) -> bool {
+    node.kind() == BIN_EXPR && bin_op(node).is_some_and(|t| t.kind() == PIPE_GT)
 }
 
 /// A lambda with a block, or a named argument whose value is one.

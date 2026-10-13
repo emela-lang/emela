@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  match shape {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, fn(n) { log.info(n) })\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{}\",], block,)"
+expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, fn(n) { log.info(n) })\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{}\",], block,)"
 ---
 === {
   count = 0
@@ -202,7 +202,7 @@ ROOT@0..258
     NEWLINE@256..257 "\n"
     R_BRACE@257..258 "}"
 === {
-  match shape {
+  shape match {
     Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
     Circle(_)                       -> 0.0
     Empty                           -> 0.0
@@ -214,10 +214,10 @@ ROOT@0..171
     NEWLINE@1..2 "\n"
     WHITESPACE@2..4 "  "
     MATCH_EXPR@4..169
-      MATCH_KW@4..9 "match"
+      NAME_REF@4..9
+        LOWER_NAME@4..9 "shape"
       WHITESPACE@9..10 " "
-      NAME_REF@10..15
-        LOWER_NAME@10..15 "shape"
+      MATCH_KW@10..15 "match"
       WHITESPACE@15..16 " "
       MATCH_ARM_LIST@16..169
         L_BRACE@16..17 "{"

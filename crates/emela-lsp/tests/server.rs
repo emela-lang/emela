@@ -1574,7 +1574,7 @@ fn rename_across_files() {
 /// cannot be renamed.
 #[test]
 fn rename_keeps_punned_labels() {
-    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  match u {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
     let path = "/tmp/main.emel";
     let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
     let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());

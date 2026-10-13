@@ -21,7 +21,7 @@ fn types(
 }
 
 fn patterns(x: Value) {
-  match x {
+  x match {
     _                       -> 0
     MAX_SIZE                -> 1
     "text"                  -> 2

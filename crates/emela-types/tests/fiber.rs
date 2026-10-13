@@ -244,14 +244,14 @@ effect Log {
 fn boom() -> Int fails Boom { fail Boom }
 
 fn guarded() -> () use { Log } {
-  match Fiber.attempt(fn() { boom() }) {
+  Fiber.attempt(fn() { boom() }) match {
     Success(_) -> ()
     Failure(cause) -> (use Log).info(Cause.to_string(cause))
   }
 }
 
 fn reraise() {
-  match Fiber.attempt(fn() { boom() }) {
+  Fiber.attempt(fn() { boom() }) match {
     Success(n) -> n
     Failure(cause) -> Cause.raise(cause)
   }
@@ -264,7 +264,7 @@ fn recovered() {
 }
 
 fn kinds(c: Cause[Boom]) -> Bool {
-  match Cause.kind(c) {
+  Cause.kind(c) match {
     Fail -> True
     Die -> False
     Interrupt -> False
@@ -275,7 +275,7 @@ fn watched() {
   Fiber.scope(fn() {
     child = Fiber.fork(fn() { 1 })
     Fiber.interrupt(child)
-    match Fiber.await(child) {
+    Fiber.await(child) match {
       Success(n) -> n
       Failure(_) -> 0
     }

@@ -98,7 +98,7 @@ fn f(u: User, o: Option[Int]) -> Int {
   e = Some("s")
   g = dbg(u)
   User(name: n, ..) = u
-  h = match o {
+  h = o match {
     Some(x) -> x
     None -> 0
   }
