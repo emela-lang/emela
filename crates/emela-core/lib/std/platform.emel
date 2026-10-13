@@ -4,6 +4,7 @@
 import Std.Clock.{SystemClock}
 import Std.Console.{SystemConsole}
 import Std.Env.{SystemEnv}
+import Std.FileSystem.{SystemFileSystem}
 import Std.Http.{SystemHttp}
 import Std.Random.{SystemRandom}
 
@@ -12,5 +13,6 @@ pub layer Platform {
   SystemClock
   SystemRandom
   SystemEnv
+  SystemFileSystem
   SystemHttp
 }

@@ -565,6 +565,34 @@ fn run_and_test_fibers_example() {
 }
 
 #[test]
+fn run_and_test_notes_example() {
+    // The `examples/notes` example. SystemFileSystem (in Platform) writes under the project
+    // directory; the tests use TestFileSystem (spec 15.2).
+    let project = Project::new(
+        "notes",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/notes/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "no notes in notes/monday.txt\n1 note(s)\n[\"monday.txt\"]\n",
+            ""
+        )
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(run.stdout, "buy milk\n2 note(s)\n[\"monday.txt\"]\n");
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
 fn run_and_test_resources_example() {
     // The `examples/resources` example. A handler with state opens in `init` and closes in
     // `release`; the layer is ordered by dependencies, and a later handler replaces the layer's
