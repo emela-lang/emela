@@ -183,6 +183,36 @@ call s:Expect('r = x escape', 'fail', 'emelaException')
 call s:Expect('assert self', 'assert', 'emelaStatement')
 call s:Expect('assert self', 'Self', 'emelaSelf')
 
+" `await` is not reserved (spec 3.3): `Fiber.await` and `Deferred.await` are functions.
+call s:Expect('waited = ', 'await', 'emelaFunctionCall')
+call s:Expect('waited = ', 'await', 'emelaFunctionCall', 2)
+call s:Expect('awaiting = ', 'await', '')
+
+" Postfix match (spec 6.5)
+call s:Expect('greeting = load(id) match', 'load', 'emelaFunctionCall')
+call s:Expect('greeting = load(id) match', 'match', 'emelaConditional')
+call s:Expect('Some(user) ->', 'Some', 'emelaPreludeConstructor')
+call s:Expect('Some(user) ->', '->', 'emelaOperator')
+call s:Expect('None -> "guest"', '"guest"', 'emelaString')
+call s:Expect('first = users', '|>', 'emelaOperator')
+call s:Expect('first = users', 'fn', 'emelaKeyword')
+call s:Expect('first = users', 'match', 'emelaConditional')
+call s:Expect('first = users', 'None', 'emelaPreludeConstructor')
+
+" Declaration keywords and modifiers get the same color as `fn`.
+function! s:ExpectLinked(group, target) abort
+  let s:checked += 1
+  " Read the direct link: under `-u NONE`, Keyword itself links on to Statement.
+  let l:actual = matchstr(execute('highlight ' . a:group), 'links to \zs\w\+')
+  if l:actual !=# a:target
+    call add(s:failures, printf('%s: expected link to %s, got %s', a:group, a:target, l:actual))
+  endif
+endfunction
+
+for s:group in ['emelaKeyword', 'emelaStructure', 'emelaEffectDecl', 'emelaStorageClass']
+  call s:ExpectLinked(s:group, 'Keyword')
+endfor
+
 " ftplugin
 function! s:ExpectEqual(what, actual, expected) abort
   let s:checked += 1
@@ -200,6 +230,20 @@ call s:ExpectEqual('module Http.Client', EmelaModuleToPath('Http.Client'), 'http
 call s:ExpectEqual('module Data.Json.{', EmelaModuleToPath('Data.Json.{Json,'), 'data/json')
 call s:ExpectEqual('module JsonCodec', EmelaModuleToPath('JsonCodec'), 'json_codec')
 call s:ExpectEqual('module Http2Client', EmelaModuleToPath('Http2Client'), 'http2_client')
+
+" plugin: capability values from the language server are underlined in Neovim, also after a
+" color scheme loads. `-u NONE` skips plugin/, so load it here.
+runtime plugin/emela.vim
+function! s:Underlined() abort
+  return execute('highlight @lsp.typemod.variable.capability.emela') =~# 'gui=underline'
+endfunction
+if has('nvim')
+  call s:ExpectEqual('capability underline', s:Underlined(), 1)
+  colorscheme default
+  call s:ExpectEqual('capability underline after colorscheme', s:Underlined(), 1)
+else
+  call s:ExpectEqual('loaded in Vim', exists('g:loaded_emela'), 0)
+endif
 
 " A multiline string in an interpolation in a string, from the formatter's test data.
 call s:Open(s:root . '/crates/emela-fmt/test_data/next_syntax.emel')
