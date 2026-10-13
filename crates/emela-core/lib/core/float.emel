@@ -10,7 +10,7 @@ pub fn from_int(n: Int) -> Float
 ## fraction, an optional exponent (`1e+21`), an optional leading `-` or `+`, and `Infinity`,
 ## `-Infinity`, `NaN`. Fails with `ParseError` otherwise (including spaces).
 pub fn parse(s: String) -> Float fails ParseError {
-  match parse_or_none(s) {
+  parse_or_none(s) match {
     Some(x) -> x
     None    -> fail ParseError(input: s)
   }

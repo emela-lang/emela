@@ -360,7 +360,7 @@ fn main() {
 }
 
 fn area(s: Shape) -> Float {
-  match s {
+  s match {
     Circle(r) -> r * r * 3.0
     Rect(width: w, ..) if w > 10.0 -> 0.0
     Rect(width: w, height: h) -> w * h
@@ -369,7 +369,7 @@ fn area(s: Shape) -> Float {
 }
 
 fn describe(xs: List[Int]) -> String {
-  match xs {
+  xs match {
     [] -> \"empty\"
     [1, ..] -> \"one first\"
     [_, ..rest] -> if rest == [] { \"single\" } else { \"many\" }
@@ -450,7 +450,7 @@ fn main() {
 }
 
 fn classify(n: Int) -> String {
-  match n {
+  n match {
     LIMIT -> \"limit\"
     0 -> \"zero\"
     m if m > 100 -> \"big\"

@@ -468,7 +468,7 @@ enum Shape {
 fn connect(host: String, port: Int) -> Bool { todo() }
 
 fn area(s: Shape) -> Float {
-  match s {
+  s match {
     Circle(radius:) -> radius
     Rect(w, h) -> w * h
     _ -> 0.0

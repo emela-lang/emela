@@ -1,7 +1,7 @@
 //! Code actions (LSP `textDocument/codeAction`).
 //!
-//! The only one so far inserts inferred annotations omitted on top-level fns (return type,
-//! fails, use; spec 4.5).
+//! One inserts inferred annotations omitted on top-level fns (return type, fails, use; spec
+//! 4.5). The other rewrites a prefix `match` (E0142) into postfix (spec 6.5).
 
 use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program};
 use emela_resolve::{ModuleId, ModuleName};
@@ -37,7 +37,7 @@ pub(crate) fn code_actions(
     };
     let text = analysis.sources[file].text();
     let parse = emela_syntax::parse(text);
-    let mut actions = Vec::new();
+    let mut actions = postfix_match(&parse.syntax(), range);
     for item in parse.tree().items() {
         let ast::Item::Fn(f) = item else { continue };
         // Only when the range touches the header (from `fn` up to the body's `{`).
@@ -52,6 +52,46 @@ pub(crate) fn code_actions(
         if let Some(action) = insert_annotations(program, analysis, module, &f) {
             actions.push(action);
         }
+    }
+    actions
+}
+
+/// Rewrites a prefix `match x { ... }` (E0142) under `range` into `x match { ... }` (spec 6.5).
+/// Parenthesized when it is an operand, since postfix `match` binds the weakest.
+fn postfix_match(root: &emela_syntax::SyntaxNode, range: TextRange) -> Vec<CodeAction> {
+    use emela_syntax::SyntaxKind::*;
+    let mut actions = Vec::new();
+    for node in root.descendants().filter(|n| n.kind() == MATCH_EXPR) {
+        let Some(keyword) = node
+            .children_with_tokens()
+            .find(|e| !e.kind().is_trivia())
+            .and_then(|e| e.into_token())
+            .filter(|t| t.kind() == MATCH_KW)
+        else {
+            continue;
+        };
+        let kw = keyword.text_range();
+        if kw.intersect(range).is_none() && !kw.contains_inclusive(range.start()) {
+            continue;
+        }
+        let Some(scrutinee) = node.children().find(|n| n.kind() != MATCH_ARM_LIST) else {
+            continue;
+        };
+        let operand = node.parent().is_some_and(|p| {
+            matches!(p.kind(), BIN_EXPR | CALL_EXPR | FIELD_EXPR | PREFIX_EXPR)
+        });
+        let open = if operand { "(" } else { "" };
+        let mut edits = vec![(
+            TextRange::new(kw.start(), scrutinee.text_range().end()),
+            format!("{open}{} match", scrutinee.text()),
+        )];
+        if operand {
+            edits.push((TextRange::empty(node.text_range().end()), ")".to_owned()));
+        }
+        actions.push(CodeAction {
+            title: "Write `match` after the value".to_owned(),
+            edits,
+        });
     }
     actions
 }

@@ -3,9 +3,9 @@ source: crates/emela-syntax/tests/lexer.rs
 expression: dump(&src)
 input_file: crates/emela-syntax/test_data/lexer/spec_match.emel
 ---
-MATCH_KW@0..5 "match"
+LOWER_NAME@0..5 "shape"
 WHITESPACE@5..6 " "
-LOWER_NAME@6..11 "shape"
+MATCH_KW@6..11 "match"
 WHITESPACE@11..12 " "
 L_BRACE@12..13 "{"
 NEWLINE@13..14 "\n"

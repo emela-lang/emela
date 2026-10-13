@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"{\\n  a b\\n  c\\n}\", \"{\\n  match x {\\n    A 1\\n    B -> 2\\n  }\\n}\",\n\"{\\n  a + b = 1\\n  f(x) = 2\\n  self = 3\\n}\", \"{\\n  f(_)\\n  g([x, ..])\\n}\",\n\"{\\n  if x { 1 } else 2\\n}\", \"{\\n  x = (1\\n  y = 2\\n}\", \"{\\n  a = 1\",],\nblock,)"
+expression: "dump_all(&[\"{\\n  a b\\n  c\\n}\", \"{\\n  x match {\\n    A 1\\n    B -> 2\\n  }\\n}\",\n\"{\\n  a + b = 1\\n  f(x) = 2\\n  self = 3\\n}\", \"{\\n  f(_)\\n  g([x, ..])\\n}\",\n\"{\\n  if x { 1 } else 2\\n}\", \"{\\n  x = (1\\n  y = 2\\n}\", \"{\\n  a = 1\",],\nblock,)"
 ---
 === {
   a b
@@ -24,7 +24,7 @@ ROOT@0..13
     R_BRACE@12..13 "}"
 error[E0122]@6..7: expected newline or `}` after statement
 === {
-  match x {
+  x match {
     A 1
     B -> 2
   }
@@ -35,10 +35,10 @@ ROOT@0..38
     NEWLINE@1..2 "\n"
     WHITESPACE@2..4 "  "
     MATCH_EXPR@4..36
-      MATCH_KW@4..9 "match"
-      WHITESPACE@9..10 " "
-      NAME_REF@10..11
-        LOWER_NAME@10..11 "x"
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "x"
+      WHITESPACE@5..6 " "
+      MATCH_KW@6..11 "match"
       WHITESPACE@11..12 " "
       MATCH_ARM_LIST@12..36
         L_BRACE@12..13 "{"

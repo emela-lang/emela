@@ -68,7 +68,7 @@ enum Shape {
 type Todo(id: Int, title: String, done: Bool)
 
 fn area(shape: Shape) -> Float {
-  match shape {
+  shape match {
     Circle(radius:)       -> 3.14 * radius * radius
     Rect(width:, height:) -> width * height
   }
@@ -76,14 +76,14 @@ fn area(shape: Shape) -> Float {
 
 # Self tail calls compile to loops, so deep recursion is fine.
 fn sum(xs: List[Int], acc: Int) -> Int {
-  match xs {
+  xs match {
     []          -> acc
     [x, ..rest] -> sum(rest, acc + x)
   }
 }
 
 fn fizzbuzz(n: Int) -> String {
-  match (n % 3, n % 5) {
+  (n % 3, n % 5) match {
     (0, 0) -> "FizzBuzz"
     (0, _) -> "Fizz"
     (_, 0) -> "Buzz"
@@ -220,7 +220,7 @@ effect Users {
 
 handler SampleUsers implements Users {
   fn find(id) {
-    match id {
+    id match {
       1 -> User(id: 1, name: "alice")
       2 -> User(id: 2, name: "bob")
       _ -> fail NotFound(id:)

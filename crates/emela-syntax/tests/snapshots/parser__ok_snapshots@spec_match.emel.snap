@@ -31,10 +31,10 @@ ROOT@0..248
       NEWLINE@32..33 "\n"
       WHITESPACE@33..35 "  "
       MATCH_EXPR@35..245
-        MATCH_KW@35..40 "match"
+        NAME_REF@35..40
+          LOWER_NAME@35..40 "shape"
         WHITESPACE@40..41 " "
-        NAME_REF@41..46
-          LOWER_NAME@41..46 "shape"
+        MATCH_KW@41..46 "match"
         WHITESPACE@46..47 " "
         MATCH_ARM_LIST@47..245
           L_BRACE@47..48 "{"

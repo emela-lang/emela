@@ -13,18 +13,23 @@ const RECOVERY: &[SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, NEWLINE, INTERP_END,
 ];
 
-/// `"fail" expr | "assert" expr | pipe_expr { "escape" "{" { arm NL } "}" }`
+/// `"fail" expr | "assert" expr | pipe_expr { ( "escape" | "match" ) "{" { arm NL } "}" }`
 pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let kind = match p.current() {
         FAIL_KW => FAIL_EXPR,
         ASSERT_KW => ASSERT_EXPR,
         _ => {
             let mut lhs = expr_bp(p, 0)?;
-            while p.at(ESCAPE_KW) {
+            loop {
+                let kind = match p.current() {
+                    ESCAPE_KW => ESCAPE_EXPR,
+                    MATCH_KW => MATCH_EXPR,
+                    _ => break,
+                };
                 let m = lhs.precede(p);
                 p.bump();
                 arm_list(p);
-                lhs = m.complete(p, ESCAPE_EXPR);
+                lhs = m.complete(p, kind);
             }
             return Some(lhs);
         }
@@ -324,7 +329,13 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             if_expr(p);
             IF_EXPR
         }
+        // Prefix `match x { ... }` is not in the grammar (spec 6.5). It is read in that shape to
+        // recover, keeping the arms for the later passes.
         MATCH_KW => {
+            p.error(
+                DiagnosticCode::PrefixMatch,
+                "`match` comes after the value: write `value match { ... }`",
+            );
             p.bump();
             expr(p);
             arm_list(p);

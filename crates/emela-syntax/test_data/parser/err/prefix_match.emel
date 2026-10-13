@@ -1,0 +1,18 @@
+# Prefix match is E0142, read in that shape to recover (spec 6.5).
+fn f(x: Int) -> Int {
+  match x {
+    0 -> 1
+    _ -> 2
+  }
+}
+
+fn g(x: Int) -> Int {
+  y = 1
+  match x {
+    _ -> y
+  }
+}
+
+fn h(x: Int) -> Int {
+  1 + match x { _ -> 2 }
+}

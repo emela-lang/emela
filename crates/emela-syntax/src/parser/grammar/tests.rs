@@ -198,7 +198,7 @@ fn ブロックと文() {
     insta::assert_snapshot!(dump_all(
         &[
             "{\n  count = 0\n  count = count + 1\n  (evens, odds) = List.partition(xs, is_even)\n  pairs: List[(String, Int)] = Map.to_list(scores)\n  label = if count > 0 { \"あり\" } else { \"なし\" }\n  if !valid { fail Invalid(input:) }\n  connect(\"localhost\", port: 5432)\n}",
-            "{\n  match shape {\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\n    Circle(_)                       -> 0.0\n    Empty                           -> 0.0\n  }\n}",
+            "{\n  shape match {\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\n    Circle(_)                       -> 0.0\n    Empty                           -> 0.0\n  }\n}",
             "{\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  data = load(id)\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\n}",
             "{\n  with AppTest, FixedClock { greet(1) }\n  List.map(names, fn(n) { log.info(n) })\n  if a { 1 } else if b { 2 } else { 3 }\n}",
             "{\n  [x, ..rest] = xs\n  User(name:, ..) = user\n  [first, ..] = xs\n  _ = run()\n}",
@@ -213,7 +213,7 @@ fn ブロックと文のエラー() {
     insta::assert_snapshot!(dump_all(
         &[
             "{\n  a b\n  c\n}",
-            "{\n  match x {\n    A 1\n    B -> 2\n  }\n}",
+            "{\n  x match {\n    A 1\n    B -> 2\n  }\n}",
             "{\n  a + b = 1\n  f(x) = 2\n  self = 3\n}",
             "{\n  f(_)\n  g([x, ..])\n}",
             "{\n  if x { 1 } else 2\n}",

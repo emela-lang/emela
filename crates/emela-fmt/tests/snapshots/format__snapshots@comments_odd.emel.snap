@@ -54,7 +54,7 @@ fn types(
   xs |> List.map(fn(x) { # 本体の先頭
     x
   })
-  match x {
+  x match {
     A -> 1 # 最後の腕
   }
   h(

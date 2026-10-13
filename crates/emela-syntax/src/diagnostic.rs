@@ -90,6 +90,8 @@ pub enum DiagnosticCode {
     UnknownExternalTarget,
     /// Arguments on `@external type` (spec 12.3).
     ExternalTypeWithArgs,
+    /// `match` written before the value. `match x { ... }` (spec 6.5)
+    PrefixMatch,
 }
 
 impl DiagnosticCode {
@@ -137,6 +139,7 @@ impl DiagnosticCode {
             Self::DuplicateExternalTarget => "E0139",
             Self::UnknownExternalTarget => "E0140",
             Self::ExternalTypeWithArgs => "E0141",
+            Self::PrefixMatch => "E0142",
         }
     }
 }

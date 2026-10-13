@@ -14,7 +14,7 @@ effect Users {
 
 handler SampleUsers implements Users {
   fn find(id) {
-    match id {
+    id match {
       1 -> User(id: 1, name: "alice")
       2 -> User(id: 2, name: "bob")
       _ -> fail NotFound(id:)

@@ -10,7 +10,7 @@ fn h() {
     }
   }
   List.map(names, fn(n) { log.info(n) })
-  match xs {
+  xs match {
     [] -> 0
     [x, ..rest] -> x
     User(name:, ..) -> 1

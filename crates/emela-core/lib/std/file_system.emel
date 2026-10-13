@@ -100,7 +100,7 @@ fn outcome_name_at(o: Outcome, i: Int) -> String use {}
 
 fn check_read(o: Outcome, path: String) -> ()
   fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure {
-  match outcome_error(o) {
+  outcome_error(o) match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
@@ -112,7 +112,7 @@ fn check_read(o: Outcome, path: String) -> ()
 
 fn check_write(o: Outcome, path: String) -> ()
   fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure {
-  match outcome_error(o) {
+  outcome_error(o) match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
@@ -123,7 +123,7 @@ fn check_write(o: Outcome, path: String) -> ()
 
 fn check_list(o: Outcome, path: String) -> ()
   fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure {
-  match outcome_error(o) {
+  outcome_error(o) match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
@@ -134,7 +134,7 @@ fn check_list(o: Outcome, path: String) -> ()
 
 fn check_create(o: Outcome, path: String) -> ()
   fails FileAccessDenied | NotADirectory | FileSystemFailure {
-  match outcome_error(o) {
+  outcome_error(o) match {
     ""                 -> ()
     "FileAccessDenied" -> fail FileAccessDenied(path:)
     "NotADirectory"    -> fail NotADirectory(path:)
@@ -144,7 +144,7 @@ fn check_create(o: Outcome, path: String) -> ()
 
 fn check_remove(o: Outcome, path: String) -> ()
   fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure {
-  match outcome_error(o) {
+  outcome_error(o) match {
     ""                  -> ()
     "FileNotFound"      -> fail FileNotFound(path:)
     "FileAccessDenied"  -> fail FileAccessDenied(path:)
@@ -208,7 +208,7 @@ pub type TestFiles(files: List[(String, String)], directories: List[String])
 pub handler TestFileSystem implements FileSystem {
   suspend fn read_text(path, resume) {
     files = (use State[TestFiles]).get()
-    match file_text(files, path) {
+    file_text(files, path) match {
       Some(text)                  -> resume(text)
       None if is_dir(files, path) -> fail IsADirectory(path:)
       None                        -> fail FileNotFound(path:)
@@ -274,7 +274,7 @@ pub handler TestFileSystem implements FileSystem {
 fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> TestFiles
   fails FileNotFound | IsADirectory {
   if is_dir(files, path) { fail IsADirectory(path:) }
-  match Path.parent(path) {
+  Path.parent(path) match {
     Some(dir) if !is_dir(files, dir) -> fail FileNotFound(path:)
     _                                -> ()
   }
@@ -323,7 +323,7 @@ fn children(files: TestFiles, dir: String) -> List[String] {
   all_paths(files)
     |> List.filter(fn(p) { Path.parent(p) == Some(dir) })
     |> List.fold(from: [], f: fn(names, p) {
-      match Path.file_name(p) {
+      Path.file_name(p) match {
         Some(name) -> insert(names, name)
         None       -> names
       }
@@ -341,7 +341,7 @@ fn ancestors(path: String) -> List[String] {
 }
 
 fn ancestors_onto(path: String, acc: List[String]) -> List[String] {
-  match Path.parent(path) {
+  Path.parent(path) match {
     Some(p) -> ancestors_onto(p, [p, ..acc])
     None    -> acc
   }

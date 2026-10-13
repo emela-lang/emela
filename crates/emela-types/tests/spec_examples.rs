@@ -179,7 +179,7 @@ enum Shape {
 }
 
 fn area(shape: Shape) -> Float {
-  match shape {
+  shape match {
     Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
     Circle(_)                       -> 0.0
     Rect(w, h)                      -> w * h
@@ -256,7 +256,7 @@ fn spec_9_4_never_joins() {
         r#"
 fn pick(c: Bool, n: Int) -> Int {
   a = if c { n } else { panic("no") }
-  b = match c {
+  b = c match {
     True -> todo()
     False -> n
   }
@@ -295,7 +295,7 @@ type User(id: Int, name: String)  # 補
 error NotFound(id: Int)
 
 fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
-  match opt {
+  opt match {
     Some(a) -> a
     None    -> fail err
   }
@@ -519,7 +519,7 @@ enum Shape {
 fn f(shape: Shape, o: Option[Int], u: User) -> Float {
   Some(n) = o
   User(name:) = u
-  match shape {
+  shape match {
     Circle(radius:) if radius > 0.0 -> radius
     Rect(w, h) -> w
     _ -> 0.0
@@ -588,7 +588,7 @@ fn greet(id: Int) {
   log   = use Logger
   users = use Users
 
-  user = match users.find(id) {  # 補: Option.or_fail はまだ同梱していない
+  user = users.find(id) match {  # 補: Option.or_fail はまだ同梱していない
     Some(u) -> u
     None -> fail NotFound(id:)
   }
@@ -842,7 +842,7 @@ fn spec_7_fail_and_escape_errors() {
 error NotFound  # 補
 
 fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {  # 補
-  match opt {
+  opt match {
     Some(a) -> a
     None -> fail err
   }

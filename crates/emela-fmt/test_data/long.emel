@@ -20,7 +20,7 @@ fn long_expressions() {
 }
 
 fn long_patterns(value: Shape) {
-  match value {
+  value match {
     Rectangle(width: first_width_value, height: first_height_value, label: first_label_value) -> width
     Circle(radius:) -> radius
     Triangle(a, b, c) if a + b > c && b + c > a && a + c > b && is_valid_triangle_shape(a, b, c) -> a

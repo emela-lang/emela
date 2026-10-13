@@ -190,7 +190,7 @@ fn make() -> (User, Pair[Int, String], Shape, ()) {
 }
 
 fn retry(n: Int) -> Bool {
-  match n {
+  n match {
     MAX_RETRY -> False
     _         -> True
   }
@@ -208,7 +208,7 @@ fn functions_chapter_6() {
 }
 
 fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
-  match xs {
+  xs match {
     []           -> []
     [x, ..rest]  -> [f(x), ..map(rest, f)]
   }
@@ -244,7 +244,7 @@ enum Shape {
 }
 
 fn area(shape: Shape) -> Float {
-  match shape {
+  shape match {
     Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
     Circle(_)                       -> 0.0
     Rect(w, h)                      -> w * h
@@ -422,7 +422,7 @@ pub trait Compare: Eq {
   fn compare(self, other: Self) -> Ordering
 
   fn max(self, other: Self) -> Self {
-    match Compare.compare(self, other) {
+    Compare.compare(self, other) match {
       Less -> other
       _    -> self
     }
@@ -461,7 +461,7 @@ fn f(count: Int) -> Strng {
   w = List.mapp([], fn(a) { a })
   v = Show.shw(1)
   u = Undefined
-  match x {
+  x match {
     Nothing -> 1
     MISSING -> 2
   }
@@ -486,7 +486,7 @@ effect Log {
 }
 fn g[A, A](x: Int, x: Int) {
   (y, y) = (1, 2)
-  match (1, 2) {
+  (1, 2) match {
     (z, z) -> z
   }
 }
@@ -517,7 +517,7 @@ fn opaque_outside_module() {
         ),
         (
             "main.emel",
-            "import Email\nimport Email.{Email, Raw}\n\nfn f(e: Email) {\n  a = Email(value: \"x\")\n  b = Email.Email(value: \"y\")\n  c = Raw(\"z\")\n  Email(value:) = e\n  match Email.make() {\n    Email(value: v) -> v\n  }\n}\n",
+            "import Email\nimport Email.{Email, Raw}\n\nfn f(e: Email) {\n  a = Email(value: \"x\")\n  b = Email.Email(value: \"y\")\n  c = Raw(\"z\")\n  Email(value:) = e\n  Email.make() match {\n    Email(value: v) -> v\n  }\n}\n",
         ),
     ]));
 }
@@ -682,7 +682,7 @@ const CORE: &[(&str, &str)] = &[
     (
         "option.emel",
         r##"pub fn or[A](o: Option[A], default: A) -> A {
-  match o {
+  o match {
     Some(x) -> x
     None    -> default
   }

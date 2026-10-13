@@ -10,7 +10,7 @@ fn types(f: fn(Int, String) -> Bool fails {} use {}, g: fn() -> (), t: (Int, (St
 }
 
 fn patterns(x: Value) {
-  match x {
+  x match {
     _ -> 0
     MAX_SIZE -> 1
     "text" -> 2

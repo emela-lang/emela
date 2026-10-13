@@ -62,7 +62,7 @@ fn snapshots() {
 
 #[test]
 fn narrow_snapshots() {
-    for name in ["long.emel", "comments.emel", "decls.emel"] {
+    for name in ["long.emel", "comments.emel", "decls.emel", "postfix_match.emel"] {
         let (_, src) = inputs().into_iter().find(|(n, _)| n == name).unwrap();
         insta::assert_snapshot!(format!("{name}_40"), check(name, &src, 40));
     }
@@ -133,8 +133,8 @@ fn 中身のないブロックの行末のコメントの後に空行を入れ�
         "fn a() {\n  f(fn(y) { # d\n  })\n}\n"
     );
     assert_eq!(
-        format("fn a() {\n  match x { # e\n  }\n}\n").unwrap(),
-        "fn a() {\n  match x { # e\n  }\n}\n"
+        format("fn a() {\n  x match { # e\n  }\n}\n").unwrap(),
+        "fn a() {\n  x match { # e\n  }\n}\n"
     );
     assert_eq!(
         format("fn a() {\n  x escape { # e\n  }\n}\n").unwrap(),

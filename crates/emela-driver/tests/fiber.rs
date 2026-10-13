@@ -132,7 +132,7 @@ fn fetch(n: Int, ms: Int) -> Int use { Clock, Console } {
 fn boom() -> Int fails Boom { fail Boom }
 
 fn kind_name(k: CauseKind) -> String {
-  match k {
+  k match {
     Fail -> "Fail"
     Die -> "Die"
     Interrupt -> "Interrupt"
@@ -140,7 +140,7 @@ fn kind_name(k: CauseKind) -> String {
 }
 
 fn show[A, E](e: Exit[A, E]) -> String {
-  match e {
+  e match {
     Success(_) -> "Success"
     Failure(c) -> "#{kind_name(Cause.kind(c))} #{Cause.to_string(c)}"
   }
@@ -407,7 +407,7 @@ fn main() {
       say("await #{show(Fiber.await(ok))}")
     })
     r = Fiber.scope(fn() {
-      match Fiber.attempt(fn() { boom() }) {
+      Fiber.attempt(fn() { boom() }) match {
         Success(v) -> v
         Failure(c) -> Cause.raise(c)
       }

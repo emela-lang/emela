@@ -1574,7 +1574,7 @@ fn rename_across_files() {
 /// cannot be renamed.
 #[test]
 fn rename_keeps_punned_labels() {
-    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  match u {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
+    let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
     let path = "/tmp/main.emel";
     let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
     let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
@@ -1676,6 +1676,48 @@ fn apply[A](f: fn() -> A) {
     );
     // Not offered inside a body.
     assert_eq!(client.code_actions(MAIN, (8, 4), (8, 4)), Some(vec![]));
+    client.shutdown();
+}
+
+/// Prefix `match` (E0142) gets an action that moves `match` after the value (spec 6.5).
+#[test]
+fn code_action_rewrites_prefix_match() {
+    let main = "fn f(x: Int) -> Int {
+  match x {
+    _ -> 1
+  }
+}
+
+fn g(x: Int) -> Int {
+  1 + match x { _ -> 2 }
+}
+
+fn h(x: Int) -> Int {
+  x match { _ -> 3 }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        client.code_actions(MAIN, (1, 3), (1, 3)),
+        Some(vec![(
+            "Write `match` after the value".to_owned(),
+            vec![(range((1, 2), (1, 9)), "x match".to_owned())],
+        )])
+    );
+    // As an operand it is parenthesized, since postfix `match` binds the weakest.
+    assert_eq!(
+        client.code_actions(MAIN, (7, 6), (7, 6)),
+        Some(vec![(
+            "Write `match` after the value".to_owned(),
+            vec![
+                (range((7, 6), (7, 13)), "(x match".to_owned()),
+                (range((7, 24), (7, 24)), ")".to_owned()),
+            ],
+        )])
+    );
+    // Not offered for postfix `match`.
+    assert_eq!(client.code_actions(MAIN, (11, 5), (11, 5)), Some(vec![]));
     client.shutdown();
 }
 

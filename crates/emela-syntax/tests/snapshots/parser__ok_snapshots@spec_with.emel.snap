@@ -185,10 +185,10 @@ ROOT@0..385
       NEWLINE@273..274 "\n"
       WHITESPACE@274..276 "  "
       MATCH_EXPR@276..382
-        MATCH_KW@276..281 "match"
-        WHITESPACE@281..282 " "
-        NAME_REF@282..284
-          LOWER_NAME@282..284 "xs"
+        NAME_REF@276..278
+          LOWER_NAME@276..278 "xs"
+        WHITESPACE@278..279 " "
+        MATCH_KW@279..284 "match"
         WHITESPACE@284..285 " "
         MATCH_ARM_LIST@285..382
           L_BRACE@285..286 "{"

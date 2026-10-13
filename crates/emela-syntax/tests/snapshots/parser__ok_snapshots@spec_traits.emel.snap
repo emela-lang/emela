@@ -106,24 +106,24 @@ ROOT@0..738
           NEWLINE@210..211 "\n"
           WHITESPACE@211..215 "    "
           MATCH_EXPR@215..292
-            MATCH_KW@215..220 "match"
-            WHITESPACE@220..221 " "
-            CALL_EXPR@221..245
-              FIELD_EXPR@221..232
-                PATH_EXPR@221..224
-                  PATH@221..224
-                    TYPE_NAME@221..224 "Ord"
-                DOT@224..225 "."
-                LOWER_NAME@225..232 "compare"
-              ARG_LIST@232..245
-                L_PAREN@232..233 "("
-                NAME_REF@233..237
-                  SELF_KW@233..237 "self"
-                COMMA@237..238 ","
-                WHITESPACE@238..239 " "
-                NAME_REF@239..244
-                  LOWER_NAME@239..244 "other"
-                R_PAREN@244..245 ")"
+            CALL_EXPR@215..239
+              FIELD_EXPR@215..226
+                PATH_EXPR@215..218
+                  PATH@215..218
+                    TYPE_NAME@215..218 "Ord"
+                DOT@218..219 "."
+                LOWER_NAME@219..226 "compare"
+              ARG_LIST@226..239
+                L_PAREN@226..227 "("
+                NAME_REF@227..231
+                  SELF_KW@227..231 "self"
+                COMMA@231..232 ","
+                WHITESPACE@232..233 " "
+                NAME_REF@233..238
+                  LOWER_NAME@233..238 "other"
+                R_PAREN@238..239 ")"
+            WHITESPACE@239..240 " "
+            MATCH_KW@240..245 "match"
             WHITESPACE@245..246 " "
             MATCH_ARM_LIST@246..292
               L_BRACE@246..247 "{"

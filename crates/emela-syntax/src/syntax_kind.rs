@@ -348,7 +348,7 @@ pub enum SyntaxKind {
     BINDING,
     /// `if c { a } else { b }`
     IF_EXPR,
-    /// `match x { ... }`
+    /// `x match { ... }`
     MATCH_EXPR,
     /// The arms of `match` and `escape`. `{ A -> 1⏎ B -> 2 }`
     MATCH_ARM_LIST,

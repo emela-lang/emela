@@ -42,7 +42,7 @@ fn profile() {
 }
 
 fn max(self, other: Self) -> Self { # 既定の実装
-  match Ord.compare(self, other) {
+  Ord.compare(self, other) match {
     Less -> other
     _    -> self
   }

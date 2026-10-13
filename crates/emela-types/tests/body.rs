@@ -312,7 +312,7 @@ enum Shape {
 }
 
 fn area(s: Shape) -> Float {
-  match s {
+  s match {
     Circle(radius:) if True -> radius
     Rect(w, h) -> w
     Empty -> panic("empty")
@@ -320,14 +320,14 @@ fn area(s: Shape) -> Float {
 }
 
 fn first(xs: List[Int]) -> Option[Int] {
-  match xs {
+  xs match {
     [] -> None
     [x, ..] -> Some(x)
   }
 }
 
 fn label(n: Int) -> String {
-  r = match n {
+  r = n match {
     0 -> "zero"
     _ -> "many"
   }
@@ -340,11 +340,11 @@ fn label(n: Int) -> String {
 fn match_errors() {
     insta::assert_snapshot!(run(r#"
 fn f(o: Option[Int]) -> Int {
-  a = match o {
+  a = o match {
     Some(x) -> x
     None -> "none"
   }
-  b = match o {
+  b = o match {
     Some(x) if x -> 1
     "s" -> 2
   }
@@ -360,7 +360,7 @@ fn by_if(c: Bool) -> Int {
   if c { 1 } else { "a" }
 }
 fn by_match(o: Option[Int]) -> Int {
-  match o {
+  o match {
     Some(x) -> x
     None -> "none"
   }
@@ -576,7 +576,7 @@ fn is_odd(n: Int) {
 }
 
 fn length[A](xs: List[A]) -> Int {
-  match xs {
+  xs match {
     [] -> 0
     [_, ..rest] -> 1 + length(rest)
   }
@@ -624,35 +624,35 @@ enum Shape {
 }
 
 fn area(s: Shape) -> Float {
-  match s {
+  s match {
     Circle(radius:) -> radius
     Rect(w, h) -> w * h
   }
 }
 
 fn guarded(o: Option[Int]) -> Int {
-  match o {
+  o match {
     Some(x) if x > 0 -> x
     None -> 0
   }
 }
 
 fn nested(o: Option[Option[Bool]]) -> Int {
-  match o {
+  o match {
     Some(Some(True)) -> 1
     None -> 0
   }
 }
 
 fn lists(xs: List[Int]) -> Int {
-  match xs {
+  xs match {
     [] -> 0
     [x] -> x
   }
 }
 
 fn bools(a: Bool, b: Bool) -> Int {
-  match (a, b) {
+  (a, b) match {
     (True, _) -> 1
     (False, True) -> 2
     (False, False) -> 3
@@ -660,14 +660,14 @@ fn bools(a: Bool, b: Bool) -> Int {
 }
 
 fn literals(n: Int) -> String {
-  match n {
+  n match {
     0 -> "zero"
     1 -> "one"
   }
 }
 
 fn named(u: Option[Shape]) -> Int {
-  match u {
+  u match {
     Some(Circle(radius: _)) -> 1
     Some(Rect(..)) -> 2
     Some(Empty) -> 3
@@ -683,16 +683,16 @@ fn unreachable_arms() {
 const MAX = 10
 
 fn f(o: Option[Int], n: Int) -> Int {
-  a = match o {
+  a = o match {
     _ -> 0
     Some(x) -> x
   }
-  b = match n {
+  b = n match {
     MAX -> 1
     MAX -> 2
     _ -> 3
   }
-  c = match o {
+  c = o match {
     Some(x) if x > 0 -> x
     Some(x) -> x
     None -> 0

@@ -33,7 +33,8 @@ pub(super) fn mark_continuations(src: &str, tokens: &mut [Token]) {
             }
             NEWLINE => {
                 let next = next_significant(tokens, i).copied();
-                let continues = next.is_some_and(|t| starts_continuation(t.kind));
+                let continues = next.is_some_and(|t| starts_continuation(t.kind))
+                    || postfix_match_follows(tokens, i);
                 let in_signature = signature == Some(stack.len());
                 if continues || (in_signature && next.is_some_and(|t| continues_signature(src, t)))
                 {
@@ -52,6 +53,17 @@ fn next_significant(tokens: &[Token], i: usize) -> Option<&Token> {
     tokens[i + 1..]
         .iter()
         .find(|t| !t.kind.is_trivia() && !matches!(t.kind, SyntaxKind::NEWLINE))
+}
+
+/// Rule 1 of spec 2.5 for `match`: a line starting with `match {` continues the previous one.
+/// When something other than `{` follows, the line is a prefix match (E0142); it starts a new
+/// statement so that the parser can report it as such.
+fn postfix_match_follows(tokens: &[Token], i: usize) -> bool {
+    let mut rest = tokens[i + 1..]
+        .iter()
+        .filter(|t| !t.kind.is_trivia() && !matches!(t.kind, SyntaxKind::NEWLINE));
+    rest.next().is_some_and(|t| t.kind == SyntaxKind::MATCH_KW)
+        && rest.next().is_some_and(|t| t.kind == SyntaxKind::L_BRACE)
 }
 
 /// Rule 4 of spec 2.5: inside a signature, a line starting with `fails` or `use` continues it.
@@ -113,6 +125,14 @@ mod tests {
     }
 
     #[test]
+    fn 後置の_match_で始まる行は続き() {
+        assert_eq!(newlines("xs\n  |> f\n  match {\n}"), [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]);
+        assert_eq!(newlines("a\n# c\nmatch {\n}"), [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]);
+        // Prefix `match` (E0142) starts a new statement so the parser can report it.
+        assert_eq!(newlines("a\nmatch x {\n}"), [NEWLINE, NEWLINE]);
+    }
+
+    #[test]
     fn マイナスと括弧で始まる行は新しい文() {
         assert_eq!(newlines("a\n-b"), [NEWLINE]);
         assert_eq!(newlines("foo\n(bar)"), [NEWLINE]);
@@ -153,7 +173,7 @@ mod tests {
     fn 行頭の矢印は続き() {
         assert_eq!(newlines("fn load(id: Int)\n  -> User"), [NEWLINE_CONT]);
         assert_eq!(
-            newlines("match x {\n  A\n    -> 1\n}"),
+            newlines("x match {\n  A\n    -> 1\n}"),
             [NEWLINE, NEWLINE_CONT, NEWLINE]
         );
     }
