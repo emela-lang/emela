@@ -10,7 +10,7 @@ pub fn to_string(n: Int) -> String
 pub fn parse(s: String) -> Int fails ParseError {
   match parse_or_none(s) {
     Some(n) -> n
-    None -> fail ParseError(input: s)
+    None    -> fail ParseError(input: s)
   }
 }
 

@@ -17,7 +17,7 @@ pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
 ## Folds from the front: `f(f(f(from, x0), x1), x2)`.
 pub fn fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B {
   match xs {
-    [] -> from
+    []          -> from
     [x, ..rest] -> fold(rest, f(from, x), f)
   }
 }
@@ -28,7 +28,7 @@ pub fn length[A](xs: List[A]) -> Int {
 
 fn count_onto[A](xs: List[A], n: Int) -> Int {
   match xs {
-    [] -> n
+    []          -> n
     [_, ..rest] -> count_onto(rest, n + 1)
   }
 }
@@ -36,7 +36,7 @@ fn count_onto[A](xs: List[A], n: Int) -> Int {
 pub fn is_empty[A](xs: List[A]) -> Bool {
   match xs {
     [] -> True
-    _ -> False
+    _  -> False
   }
 }
 
@@ -44,15 +44,15 @@ pub fn is_empty[A](xs: List[A]) -> Bool {
 pub fn get[A](xs: List[A], index: Int) -> Option[A] {
   match xs {
     _ if index < 0 -> None
-    [] -> None
-    [x, ..rest] -> if index == 0 { Some(x) } else { get(rest, index - 1) }
+    []             -> None
+    [x, ..rest]    -> if index == 0 { Some(x) } else { get(rest, index - 1) }
   }
 }
 
 ## `None` if empty.
 pub fn head[A](xs: List[A]) -> Option[A] {
   match xs {
-    [] -> None
+    []      -> None
     [x, ..] -> Some(x)
   }
 }
@@ -60,7 +60,7 @@ pub fn head[A](xs: List[A]) -> Option[A] {
 ## Empty if empty.
 pub fn tail[A](xs: List[A]) -> List[A] {
   match xs {
-    [] -> []
+    []          -> []
     [_, ..rest] -> rest
   }
 }
@@ -72,7 +72,7 @@ pub fn reverse[A](xs: List[A]) -> List[A] {
 ## Prepends `xs` reversed to `acc`.
 fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
   match xs {
-    [] -> acc
+    []          -> acc
     [x, ..rest] -> reverse_onto(rest, [x, ..acc])
   }
 }
@@ -99,7 +99,7 @@ pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
 ## Stops at the first match. False if empty.
 pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   match xs {
-    [] -> False
+    []          -> False
     [x, ..rest] -> f(x) || any(rest, f)
   }
 }
@@ -107,7 +107,7 @@ pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
 ## Stops at the first False. True if empty.
 pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
   match xs {
-    [] -> True
+    []          -> True
     [x, ..rest] -> f(x) && all(rest, f)
   }
 }
@@ -115,7 +115,7 @@ pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
 ## The first element where `f` is True.
 pub fn find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A] {
   match xs {
-    [] -> None
+    []          -> None
     [x, ..rest] -> if f(x) { Some(x) } else { find(rest, f) }
   }
 }
@@ -139,6 +139,6 @@ pub fn zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)] {
 fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
   match (xs, ys) {
     ([x, ..xs_rest], [y, ..ys_rest]) -> zip_onto(xs_rest, ys_rest, [(x, y), ..acc])
-    _ -> reverse(acc)
+    _                                -> reverse(acc)
   }
 }

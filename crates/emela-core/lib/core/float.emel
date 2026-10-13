@@ -12,7 +12,7 @@ pub fn from_int(n: Int) -> Float
 pub fn parse(s: String) -> Float fails ParseError {
   match parse_or_none(s) {
     Some(x) -> x
-    None -> fail ParseError(input: s)
+    None    -> fail ParseError(input: s)
   }
 }
 
