@@ -1,8 +1,8 @@
-//! Core IR の定義．
+//! The Core IR.
 //!
-//! 型付き構文木を脱糖した後の形で，バックエンド（JS / WASM）はこれだけを見る．
-//! 名前はすべて ID で持つ．関数は `FnId`，局所変数は `Local`，型は `EnumId`．
-//! 表示用の名前（`name` / `hint`）は出力を読みやすくするためだけに使う．
+//! The typed tree after desugaring; backends (JS / WASM) see only this. Everything is referred to
+//! by ID: functions by `FnId`, locals by `Local`, types by `EnumId`. Display names (`name` /
+//! `hint`) exist only to make output readable.
 
 use la_arena::{Arena, Idx};
 
@@ -13,25 +13,24 @@ pub type EnumId = Idx<EnumDef>;
 pub type Local = Idx<LocalData>;
 pub type EffectId = Idx<EffectDef>;
 
-/// 1つのモジュール．
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub enums: Arena<EnumDef>,
     pub functions: Arena<Function>,
     pub locals: Arena<LocalData>,
-    /// エフェクト（8.1）．証拠の表の鍵とハンドラの操作の名前に使う．
+    /// Effects (spec 8.1), used for evidence table keys and handler operation names.
     pub effects: Arena<EffectDef>,
-    /// Prelude の `Option` を入れたなら，その ID（`option_enum`）．
+    /// The ID of Prelude's `Option`, if added (`option_enum`).
     pub option: Option<EnumId>,
-    /// 出力先の [`crate::CORE_JS_DIR`] の下に書き出す，同梱の JS のファイル．外部関数が同梱の
-    /// ファイルを指すときだけ入る．
+    /// Bundled JS files written under [`crate::CORE_JS_DIR`] in the output. Present only when an
+    /// external function points to a bundled file.
     pub js_files: Vec<JsFile>,
 }
 
-/// 出力に添える JS のファイル．
+/// A JS file shipped alongside the output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsFile {
-    /// [`crate::CORE_JS_DIR`] からの相対パス（`/` 区切り）．
+    /// Relative to [`crate::CORE_JS_DIR`], `/`-separated.
     pub path: String,
     pub contents: String,
 }
@@ -41,7 +40,7 @@ impl Module {
         Self::default()
     }
 
-    /// 新しい局所変数を作る．`hint` は出力での名前の手がかりで，一意でなくてよい．
+    /// `hint` is a naming hint for the output and need not be unique.
     pub fn local(&mut self, hint: &str) -> Local {
         let hint = if hint.is_empty() { "v" } else { hint };
         self.locals.alloc(LocalData {
@@ -49,12 +48,12 @@ impl Module {
         })
     }
 
-    /// 関数を宣言する．本体は `define` で後から入れる（相互再帰のため）．
-    /// `name` はモジュール内で一意でなければならない．
+    /// The body is filled in later with `define` (for mutual recursion). `name` must be unique in
+    /// the module.
     pub fn declare(&mut self, name: &str, exported: bool) -> FnId {
         debug_assert!(
             self.functions.iter().all(|(_, f)| f.name != name),
-            "関数名 `{name}` が重複している"
+            "duplicate function name `{name}`"
         );
         self.functions.alloc(Function {
             name: name.to_owned(),
@@ -66,18 +65,18 @@ impl Module {
         })
     }
 
-    /// 関数を外部関数（12章）にする．本体は使わない．
+    /// Makes the function external (spec chapter 12). The body is unused.
     pub fn define_external(&mut self, f: FnId, params: Vec<Local>, external: External) {
         let func = &mut self.functions[f];
         func.params = params;
         func.external = Some(external);
     }
 
-    /// エフェクトを足す．`name` はモジュール内で一意でなければならない．
+    /// `name` must be unique in the module.
     pub fn add_effect(&mut self, def: EffectDef) -> EffectId {
         debug_assert!(
             self.effects.iter().all(|(_, e)| e.name != def.name),
-            "エフェクト名 `{}` が重複している",
+            "duplicate effect name `{}`",
             def.name
         );
         self.effects.alloc(def)
@@ -93,10 +92,11 @@ impl Module {
         self.enums.alloc(def)
     }
 
-    /// Prelude の `Option[A]`（`Some(A)` / `None` の順）を入れて ID を返す．2回目以降は同じ ID を返す．
+    /// Adds Prelude's `Option[A]` (`Some(A)` then `None`) and returns its ID. Later calls return
+    /// the same ID.
     ///
-    /// `List.get` や `Int.checked_add` のように Option を返す組み込み関数と，利用者の書く
-    /// `Some` / `None` が同じ定義を指すように，モジュールごとに1つだけ持つ．
+    /// One per module, so that builtins returning Option (`List.get`, `Int.checked_add`) and the
+    /// user's `Some` / `None` refer to the same definition.
     pub fn option_enum(&mut self) -> EnumId {
         if let Some(id) = self.option {
             return id;
@@ -132,86 +132,88 @@ pub struct LocalData {
     pub hint: String,
 }
 
-/// トップレベルの関数．
 #[derive(Debug, Clone)]
 pub struct Function {
-    /// モジュール内で一意な名前．公開するときはこの名前で出す．
+    /// Unique in the module; exported under this name.
     pub name: String,
     pub exported: bool,
     pub params: Vec<Local>,
     pub body: Expr,
-    /// 外部関数（12章）なら，ホストの関数の指定．そのとき `body` は使わない．
+    /// For an external function (spec chapter 12), the host function. `body` is then unused.
     pub external: Option<External>,
-    /// 中断しうるか（8.1，16.5）．真なら，本体に中断しうる呼び出し（`Expr::Call::suspends`）を
-    /// 書ける．外部関数なら `@external suspend fn`（12.2）で，ホストの関数は完了を待つ値
-    /// （JS では Promise）を返す．偽の関数の出力は中断を知らない．
+    /// Whether it may suspend (spec 8.1, 16.5). If true, the body may contain suspending calls
+    /// (`Expr::Call::suspends`). For an external function this is `@external suspend fn`
+    /// (spec 12.2), and the host function returns a value to await (a Promise in JS). Output for a
+    /// non-suspending function knows nothing about suspension.
     pub suspends: bool,
 }
 
-/// 外部関数のホストの関数の指定（12.1）．
+/// The host function of an external function (spec 12.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct External {
-    /// ターゲットごとの `@external` の引数．書かれた順．
+    /// The per-target `@external` arguments, in written order.
     pub bindings: Vec<ExternalBinding>,
-    /// 引数の境界での扱い（12.4，12.5）．`Function::params` と同じ順．
+    /// How each parameter crosses the boundary (spec 12.4, 12.5), in `Function::params` order.
     pub params: Vec<Boundary>,
-    /// 戻り値の境界での扱い．
+    /// How the return value crosses the boundary.
     pub ret: Boundary,
 }
 
 impl External {
-    /// ターゲット `target`（`js`，`wasm`）の指定．なければ `None`．同じターゲットが2つあれば先のもの．
+    /// The binding for `target` (`js`, `wasm`), if any. If the target appears twice, the first.
     pub fn binding(&self, target: &str) -> Option<&ExternalBinding> {
         self.bindings.iter().find(|b| b.target == target)
     }
 }
 
-/// `@external(js, "./http_ffi.mjs", "fetchText")` の1つ．
+/// One `@external(js, "./http_ffi.mjs", "fetchText")`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalBinding {
     pub target: String,
-    /// 残りの引数．JS では1つならグローバルの参照（`"console.log"`），2つならモジュールと名前．
-    /// ファイルを指すモジュール（`./` か `../` で始まる）は，lowering が宣言を含むソースの
-    /// ディレクトリからの絶対パスに直してある（12.1）．
+    /// The remaining arguments. In JS, one means a global reference (`"console.log"`), two mean a
+    /// module and a name. A module naming a file (starting with `./` or `../`) has been rewritten
+    /// by lowering to an absolute path from the declaring source's directory (spec 12.1).
     pub args: Vec<String>,
 }
 
-/// 外部関数の引数と戻り値の，境界での扱い（12.4，12.5）．
+/// How an external function's parameters and return value cross the boundary (spec 12.4, 12.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Boundary {
-    /// ホストから受け取るときに，対になっていないサロゲートを置換文字に直す．
+    /// Lone surrogates received from the host are replaced with U+FFFD.
     String,
-    /// ホストの返した値を捨てて `()` にする．
+    /// The host's return value is discarded and becomes `()`.
     Unit,
-    /// コールバック．ホストから呼ばれる引数と，ホストへ返す値を同じ規則で写す．
+    /// A callback. Arguments the host calls it with and values returned to the host are converted
+    /// by the same rules.
     Fn {
         params: Vec<Boundary>,
         ret: Box<Boundary>,
     },
-    /// そのまま渡す．
+    /// Passed as is.
     Plain,
 }
 
-/// エフェクト（8.1）．
+/// An effect (spec 8.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectDef {
-    /// モジュール内で一意な名前．証拠の表の鍵に使う．
+    /// Unique in the module; used as the evidence table key.
     pub name: String,
-    /// 操作．宣言の順．`Callee::Op::op` と `Expr::Handler::ops` の添字．
+    /// In declaration order; indexed by `Callee::Op::op` and `Expr::Handler::ops`.
     pub ops: Vec<OpDef>,
 }
 
-/// エフェクトの操作（8.1）．
+/// An effect operation (spec 8.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpDef {
     pub name: String,
-    /// `suspend fn` か．真なら，ハンドラの実装（`Expr::Handler::ops` のラムダ）は最後の引数に
-    /// resume を受け取り，操作の呼び出し（`Callee::Op`）は中断しうる呼び出しになる（8.4，14.5）．
+    /// Whether it is a `suspend fn`. If true, the handler's implementation (a lambda in
+    /// `Expr::Handler::ops`) takes resume as its last argument, and operation calls
+    /// (`Callee::Op`) are suspending calls (spec 8.4, 14.5).
     pub suspend: bool,
 }
 
 impl OpDef {
-    /// `fn` の操作．
+    /// An `fn` operation.
     pub fn new(name: &str) -> Self {
         OpDef {
             name: name.to_owned(),
@@ -219,7 +221,7 @@ impl OpDef {
         }
     }
 
-    /// `suspend fn` の操作．
+    /// A `suspend fn` operation.
     pub fn suspend(name: &str) -> Self {
         OpDef {
             name: name.to_owned(),
@@ -228,26 +230,26 @@ impl OpDef {
     }
 }
 
-/// enum の定義．`type` は構成子1つの enum として持つ．
+/// An enum definition. A `type` is an enum with one constructor.
 #[derive(Debug, Clone)]
 pub struct EnumDef {
     pub name: String,
-    /// 型引数の数．フィールドの型の `Type::Param(i)` が `i` 番目を指す．
+    /// The number of type parameters. `Type::Param(i)` in field types refers to the `i`th.
     pub params: usize,
     pub variants: Vec<VariantDef>,
-    /// error の宣言（7.1）か．構成子は1つで型引数を持たない．`Expr::Fail` に渡せて，
-    /// `Expr::Escape` の腕のパターンに書ける．バックエンドは実行時にどのエラーかを見分けられる
-    /// 表現にする．
+    /// Whether it is an error declaration (spec 7.1): one constructor, no type parameters. It can
+    /// be passed to `Expr::Fail` and written in `Expr::Escape` arm patterns. Backends must
+    /// represent it so the error can be identified at run time.
     pub error: bool,
 }
 
-/// Prelude の `Option` の `Some` の添字．
+/// The index of `Some` in Prelude's `Option`.
 pub const OPTION_SOME: usize = 0;
-/// Prelude の `Option` の `None` の添字．
+/// The index of `None` in Prelude's `Option`.
 pub const OPTION_NONE: usize = 1;
 
 impl EnumDef {
-    /// Prelude の `enum Option[A] { Some(A), None }`．
+    /// Prelude's `enum Option[A] { Some(A), None }`.
     pub fn option() -> Self {
         EnumDef {
             name: "Option".to_owned(),
@@ -265,7 +267,8 @@ impl EnumDef {
 pub struct VariantDef {
     pub name: String,
     pub fields: VariantFields,
-    /// フィールドの型．`fields` と同じ順に並ぶ．表示関数（Show の仮実装）を型から作るのに使う．
+    /// Field types, in `fields` order. Used to build show functions (the stand-in for Show) from
+    /// types.
     pub tys: Vec<Type>,
 }
 
@@ -296,9 +299,10 @@ impl VariantDef {
     }
 }
 
-/// IR の値の型．表示（Show の仮実装）と，型で振る舞いの変わる組み込み関数に使う．
+/// The type of an IR value. Used for showing (the stand-in for Show) and for builtins whose
+/// behavior depends on the type.
 ///
-/// 型検査の `emela_types::Ty` を，IR の名前（`EnumId`）で書き直したもの．型変数は持たない．
+/// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`). No type variables.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
@@ -308,14 +312,14 @@ pub enum Type {
     String,
     Unit,
     Never,
-    /// 要素は2つ以上．
+    /// Two or more elements.
     Tuple(Vec<Type>),
     List(Box<Type>),
-    /// enum / type の適用．引数の数は `EnumDef::params`．
+    /// An enum / type application. The argument count is `EnumDef::params`.
     Enum(EnumId, Vec<Type>),
-    /// 囲む `EnumDef` の型引数．フィールドの型の中にだけ現れる．
+    /// A type parameter of the enclosing `EnumDef`. Occurs only in field types.
     Param(usize),
-    /// 関数型．表示できない（10.6）ので中身は持たない．
+    /// A function type. It cannot be shown (spec 10.6), so it carries nothing.
     Fn,
 }
 
@@ -324,7 +328,7 @@ impl Type {
         Type::List(Box::new(elem))
     }
 
-    /// `Type::Param(i)` を `args[i]` に置き換える．
+    /// Replaces `Type::Param(i)` with `args[i]`.
     pub fn subst(&self, args: &[Type]) -> Type {
         match self {
             Type::Param(i) => args[*i].clone(),
@@ -336,14 +340,14 @@ impl Type {
     }
 }
 
-/// バリアントの3形式．
+/// The three forms of variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariantFields {
     /// `Red`
     Unit,
-    /// `Some(T)`．値は個数．
+    /// `Some(T)`. The value is the field count.
     Positional(usize),
-    /// `Point { x: Int, y: Int }`．定義の順に並ぶ．
+    /// `Point { x: Int, y: Int }`. In definition order.
     Named(Vec<String>),
 }
 
@@ -361,17 +365,16 @@ impl VariantFields {
     }
 }
 
-/// 構成子の参照．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CtorRef {
     pub enum_id: EnumId,
-    /// `EnumDef::variants` の添字．
+    /// An index into `EnumDef::variants`.
     pub variant: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Lit {
-    /// 32bit 符号付き．
+    /// 32-bit signed.
     Int(i32),
     Int64(i64),
     /// binary64．
@@ -385,7 +388,7 @@ pub enum Lit {
 pub enum Expr {
     Lit(Lit),
     Var(Local),
-    /// トップレベル関数を値として使う．
+    /// A top-level function used as a value.
     Fn(FnId),
     /// `let var = value; body`．
     Let {
@@ -393,46 +396,49 @@ pub enum Expr {
         value: Box<Expr>,
         body: Box<Expr>,
     },
-    /// 引数は位置の順に並ぶ．名前付き引数の並べ替えは `named::call_in_written_order` を使う．
-    /// `fails` は呼ばれる側が失敗しうるか（関数型の E が空でない，7.2）．偽なら呼び出しの結果を
-    /// 確かめなくてよい．真でも失敗するとは限らない．
+    /// Arguments are in positional order; use `named::call_in_written_order` to reorder named
+    /// arguments. `fails` tells whether the callee may fail (the function type's E is not empty,
+    /// spec 7.2). If false, the result need not be checked; if true, it does not always fail.
     ///
-    /// `suspends` は呼び出しが中断しうるか（8.1，14.5）．中断しない関数の本体の中の真の呼び出しは，
-    /// その場で resume するハンドラ（8.7）の with の中にだけ現れる．バックエンドはその場で最後まで
-    /// 進め，resume されなければ中断されたまま巻き戻ったものとする．呼ばれる側ごとの決まり:
+    /// `suspends` tells whether the call may suspend (spec 8.1, 14.5). Inside a non-suspending
+    /// function, a true call occurs only inside a `with` of a handler that resumes immediately
+    /// (spec 8.7). Backends run it to completion on the spot, and if it is not resumed, treat it as
+    /// unwound while suspended. Rules per callee:
     ///
-    /// - `Callee::Direct`: 呼ばれる関数の `Function::suspends` と同じでなければならない．
-    /// - `Callee::Indirect`: 呼ばれる側の式の型の R が中断しうるなら真．真のとき，実際に呼ばれる
-    ///   関数の値は中断しうるものでもしないものでもよい．偽のときは中断しない関数の値でなければならない．
-    /// - `Callee::Op`: suspend fn の操作（`OpDef::suspend`）なら真でなければならない．fn の操作で
-    ///   真なら，`Indirect` と同じく実装が中断しうるものでもしないものでもよい．
+    /// - `Callee::Direct`: must equal the called function's `Function::suspends`.
+    /// - `Callee::Indirect`: true if the R of the callee expression's type may suspend. When true,
+    ///   the function value actually called may or may not suspend; when false, it must not
+    ///   suspend.
+    /// - `Callee::Op`: must be true for a suspend fn operation (`OpDef::suspend`). True for an fn
+    ///   operation means, as with `Indirect`, the implementation may or may not suspend.
     Call {
         callee: Callee,
         args: Vec<Expr>,
         fails: bool,
         suspends: bool,
     },
-    /// 組み込み関数（`intrinsics`）の呼び出し．`ty_args` は型引数の具体的な型で，
-    /// `dbg` のように型で振る舞いの変わるものだけが使う（数は `Builtin::info().ty_params`）．
+    /// A builtin call (`intrinsics`). `ty_args` are the concrete type arguments, used only by
+    /// builtins whose behavior depends on the type, such as `dbg` (the count is
+    /// `Builtin::info().ty_params`).
     Builtin {
         op: Builtin,
         ty_args: Vec<Type>,
         args: Vec<Expr>,
     },
-    /// 構成子の構築．引数はフィールドの定義順．
+    /// Arguments are in field definition order.
     Ctor {
         ctor: CtorRef,
         args: Vec<Expr>,
     },
-    /// フィールドの参照．`base` は `ctor` の値でなければならない（`type` の値を想定）．
+    /// `base` must be a value of `ctor` (intended for `type` values).
     Field {
         base: Box<Expr>,
         ctor: CtorRef,
         index: usize,
     },
-    /// 要素2つ以上のタプル．`()` は `Lit::Unit`．
+    /// Two or more elements; `()` is `Lit::Unit`.
     Tuple(Vec<Expr>),
-    /// `[a, b]` または `[a, b, ..tail]`．
+    /// `[a, b]` or `[a, b, ..tail]`.
     List {
         elems: Vec<Expr>,
         tail: Option<Box<Expr>>,
@@ -442,7 +448,7 @@ pub enum Expr {
         then: Box<Expr>,
         else_: Box<Expr>,
     },
-    /// 対象を1回だけ評価し，腕を上から試す．どの腕にも合わなければ defect．
+    /// Evaluates the scrutinee once and tries arms top to bottom. A defect if no arm matches.
     Match {
         scrutinee: Box<Expr>,
         arms: Vec<Arm>,
@@ -458,79 +464,87 @@ pub enum Expr {
         ty: OpTy,
         operand: Box<Expr>,
     },
-    /// ラムダ．自由変数はそのまま捕捉する（capture set は WASM の段で求める）．
-    /// `suspends` は `Function::suspends` と同じ意味．
+    /// Free variables are captured as is (capture sets are computed at the WASM stage).
+    /// `suspends` means the same as `Function::suspends`.
     Lambda {
         params: Vec<Local>,
         body: Box<Expr>,
         suspends: bool,
     },
-    /// 文字列の補間 `"a#{x}b"`．部品を左から順に評価して連結する．
+    /// String interpolation `"a#{x}b"`. Parts are evaluated left to right and concatenated.
     Concat(Vec<StrPart>),
-    /// 自己末尾呼び出しのループ化（`tail::loopify`）で作る．
-    /// `vars` を `inits` で初期化して `body` を評価する．`vars` は回ごとに新しく束縛する．
+    /// Made by self tail call loopification (`tail::loopify`). Initializes `vars` with `inits`
+    /// and evaluates `body`. `vars` are bound afresh on each iteration.
     Loop {
         vars: Vec<Local>,
         inits: Vec<Expr>,
         body: Box<Expr>,
     },
-    /// 囲む `Loop` の次の回へ進む．`Loop` の本体の末尾位置にだけ現れる．
+    /// Continues with the next iteration of the enclosing `Loop`. Occurs only in tail position of
+    /// a `Loop` body.
     Recur(Vec<Expr>),
-    /// `assert 式`（仕様 13.2）．値は `()`．偽なら defect．
+    /// `assert expr` (spec 13.2). The value is `()`; a defect if false.
     Assert(Box<Assert>),
-    /// `fail e`（7.2）．`e` を評価して，その値（error の enum の値）で現在の計算を終わらせる．
-    /// 失敗は外側へ順に伝わり，最も内側の受ける `Escape` か，関数の呼び出し元へ達する．型は Never．
+    /// `fail e` (spec 7.2). Evaluates `e` and ends the current computation with its value (an error
+    /// enum value). The failure propagates outward until the innermost catching `Escape` or the
+    /// function's caller. The type is Never.
     Fail(Box<Expr>),
-    /// `body escape { arms }`（7.3）．`body` の評価中に起きた失敗を受ける．
+    /// `body escape { arms }` (spec 7.3). Catches failures raised while evaluating `body`.
     ///
-    /// 腕のパターンは error の構成子（`Pat::Ctor`）．失敗したエラーと同じ error の腕を上から試し，
-    /// パターンとガードが合った最初の腕の本体を escape の値にする．どの腕にも書かれていない error は
-    /// そのまま外側へ伝わる．腕に書かれた error なのにどの腕にも合わなければ defect（match と同じ）．
-    /// 腕の中で起きた失敗は外側へ伝わる．`body` は末尾位置でない（6.8）．
+    /// Arm patterns are error constructors (`Pat::Ctor`). Arms for the failed error are tried top
+    /// to bottom, and the body of the first arm whose pattern and guard match is the escape's
+    /// value. Errors named in no arm propagate outward. An error named in an arm that matches no
+    /// arm is a defect (as with match). Failures inside arms propagate outward. `body` is not in
+    /// tail position (spec 6.8).
     Escape {
         body: Box<Expr>,
         arms: Vec<Arm>,
     },
-    /// 証拠の表 `ctx` から，エフェクトの今のハンドラを引く（`use X`，8.2）．
+    /// Looks up the current handler of the effect in the evidence table `ctx` (`use X`, spec 8.2).
     ///
-    /// 証拠の表は，エフェクトからハンドラの値への表で，R が空でない関数とラムダの最後の引数に
-    /// 渡す（evidence passing，16.5）．
+    /// The evidence table maps effects to handler values and is passed as the last argument of
+    /// functions and lambdas whose R is not empty (evidence passing, spec 16.5).
     Use {
         ctx: Box<Expr>,
         effect: EffectId,
     },
-    /// 証拠の表 `base` に `bindings` を足した新しい表．`base` は変えない．同じエフェクトは後ろが優先．
-    /// `base` が `None` なら空の表に足す．
+    /// A new table: `base` plus `bindings`. `base` is unchanged, and later bindings of the same
+    /// effect win. With `base` of `None`, bindings are added to an empty table.
     Provide {
         base: Option<Box<Expr>>,
         bindings: Vec<(EffectId, Expr)>,
     },
-    /// 状態を持たないハンドラの値（8.4）．`ops` はエフェクトの操作の宣言の順のラムダ．
+    /// A stateless handler value (spec 8.4). `ops` are lambdas in the effect's operation
+    /// declaration order.
     ///
-    /// suspend fn の操作（`OpDef::suspend`）のラムダは，宣言の引数の後ろに resume を1つ多く受ける．
-    /// resume は値を1つ取って `()` を返す関数の値で，呼ぶと中断していた呼び出し元が再開する（8.4，14.5）．
-    /// 高々1回しか呼べず，2回目は defect．`name` はハンドラの名前で，その defect の文面に使う．
+    /// Lambdas for suspend fn operations (`OpDef::suspend`) take one extra argument, resume, after
+    /// the declared parameters. resume is a function value taking one value and returning `()`;
+    /// calling it resumes the suspended caller (spec 8.4, 14.5). It may be called at most once; a
+    /// second call is a defect. `name` is the handler's name, used in that defect's message.
     Handler {
         name: String,
         effect: EffectId,
         ops: Vec<Expr>,
     },
-    /// `with`（8.3，14.2）．`binds` を順に評価して束縛し（ハンドラの値と証拠の表），`body` を評価する．
-    /// `Let` と同じ意味だが，`body` は末尾位置でない（6.8）．
+    /// `with` (spec 8.3, 14.2). Evaluates and binds `binds` in order (handler values and evidence
+    /// tables), then evaluates `body`. Same meaning as `Let`, but `body` is not in tail position
+    /// (spec 6.8).
     ///
-    /// release のある束縛（`WithBind::release`，8.4）は，束縛した後で with がどの形で終わっても
-    /// （値，失敗，defect，中断されたまま巻き戻る），その release を評価する．release は束縛と逆の順に
-    /// 評価する．束縛の値の評価が失敗したら，後ろの束縛と `body` は評価せず，それまでに束縛した
-    /// release だけを逆の順に評価してから失敗を伝える（14.2）．release の中の defect は 14.4 の規則で
-    /// with の結果に合わせ，残りの release はすべて評価する．
+    /// For a binding with release (`WithBind::release`, spec 8.4), once bound, its release is
+    /// evaluated however the `with` ends (value, failure, defect, unwinding while suspended).
+    /// Releases run in reverse binding order. If evaluating a binding's value fails, later bindings
+    /// and `body` are not evaluated; only the releases bound so far run, in reverse, before the
+    /// failure propagates (spec 14.2). A defect in a release is merged into the `with`'s result by
+    /// the rules of spec 14.4, and all remaining releases are still evaluated.
     With {
         binds: Vec<WithBind>,
         body: Box<Expr>,
     },
-    /// 並行性の操作（11章）．`args` の数と意味は `FiberOp` ごとに決まる（`FiberOp::arity`）．
-    /// 中断しうるか（`FiberOp::suspends`）と失敗しうるか（`FiberOp::fails`）も操作で決まる．
-    /// 中断しうる操作は，中断しうる関数とラムダの本体の中にだけ現れる（Async を要求するため）．
-    /// ただし `FiberOp::Attempt` は `f` しだいで，`Expr::Call::suspends` と同じ規則に従う．
+    /// A concurrency operation (spec chapter 11). The number and meaning of `args` depend on the
+    /// `FiberOp` (`FiberOp::arity`), as do whether it may suspend (`FiberOp::suspends`) and fail
+    /// (`FiberOp::fails`). Suspending operations occur only in bodies of suspending functions and
+    /// lambdas (they require Async). `FiberOp::Attempt` depends on `f` and follows the same rule as
+    /// `Expr::Call::suspends`.
     Fiber {
         op: FiberOp,
         args: Vec<Expr>,
@@ -538,7 +552,8 @@ pub enum Expr {
 }
 
 impl Expr {
-    /// 直下の部分式すべてに `f` をかける（パターンは除く）．順序は評価の順とは限らない．
+    /// Applies `f` to every direct subexpression (not patterns), not necessarily in evaluation
+    /// order.
     pub fn for_each_child(&self, f: &mut impl FnMut(&Expr)) {
         match self {
             Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) => {}
@@ -628,61 +643,69 @@ impl Expr {
     }
 }
 
-/// 並行性の操作（11章）．`Expr::Fiber` の `args` は各バリアントの説明の順に並ぶ．
+/// Concurrency operations (spec chapter 11). The `args` of `Expr::Fiber` are in the order given
+/// for each variant.
 ///
-/// スコープ（`Scope` の能力の値），fiber のハンドル（`Fiber[A]`），Deferred，原因（`Cause[E]`）は
-/// バックエンドが決める不透明な値．能力の値は `Expr::Provide` で証拠の表に入れてよい．
-/// Exit（`Std.Fiber`）と CauseKind（`Std.Cause`）は利用者の enum と同じ表現の値で，構成子の並びは
-/// `EXIT_SUCCESS`，`EXIT_FAILURE` と `CAUSE_FAIL`，`CAUSE_DIE`，`CAUSE_INTERRUPT` に従う．
+/// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds and causes
+/// (`Cause[E]`) are opaque values chosen by the backend. Capability values may be put in evidence
+/// tables with `Expr::Provide`. Exit (`Std.Fiber`) and CauseKind (`Std.Cause`) are represented like
+/// user enums, with constructor order given by `EXIT_SUCCESS`, `EXIT_FAILURE` and `CAUSE_FAIL`,
+/// `CAUSE_DIE`, `CAUSE_INTERRUPT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberOp {
-    /// `Fiber.scope(body)`（11.2）．`[body]`．`body` はスコープの能力の値を1つ受ける関数の値．
-    /// 本体が値を返したら残りの子を中断し，すべての子が終わってから値を返す．子か本体の最初の
-    /// 失敗（Fail，Die）がスコープの結果になる．`fails` は本体（と子）の E が空でないか．
+    /// `Fiber.scope(body)` (spec 11.2). `[body]`, where `body` is a function value taking the
+    /// scope capability value. When the body returns a value, the remaining children are
+    /// interrupted, and the value is returned after all children finish. The first failure (Fail,
+    /// Die) of a child or the body is the scope's result. `fails` tells whether the body's (and
+    /// children's) E is not empty.
     Scope { fails: bool },
-    /// `s.fork(f)`（11.2）．`[scope, f]`．`f` は引数のない関数の値で，子の fiber として走る．
-    /// 値は fiber のハンドル．中断点ではない（子は親が次に中断したときに走り始める）．
+    /// `s.fork(f)` (spec 11.2). `[scope, f]`, where `f` is a parameterless function value run as
+    /// a child fiber. The value is the fiber handle. Not a suspension point (the child starts when
+    /// the parent next suspends).
     Fork,
-    /// `s.deferred()`（11.7）．`[scope]`．値は空の Deferred．
+    /// `s.deferred()` (spec 11.7). `[scope]`. The value is an empty Deferred.
     Deferred,
-    /// `Fiber.join(h)`（11.5）．`[fiber]`．子の値．中断された子なら defect．
+    /// `Fiber.join(h)` (spec 11.5). `[fiber]`. The child's value; a defect if the child was
+    /// interrupted.
     Join,
-    /// `Fiber.await(h)`（11.5）．`[fiber]`．`exit` の enum の値（`Exit[A, {}]`）．
+    /// `Fiber.await(h)` (spec 11.5). `[fiber]`. A value of the `exit` enum (`Exit[A, {}]`).
     Await { exit: EnumId },
-    /// `Fiber.interrupt(h)`（11.4）．`[fiber]`．子を中断し，巻き戻りが終わるまで待つ．値は `()`．
+    /// `Fiber.interrupt(h)` (spec 11.4). `[fiber]`. Interrupts the child and waits until it has
+    /// unwound. The value is `()`.
     Interrupt,
-    /// `Fiber.attempt(f)`（11.5）．`[f]`．`f` をその場で呼び，Fail と Die を `exit` の enum の
-    /// `Failure` に変える．中断（Interrupt）は受けない．`suspends` は `f` が中断しうるか
-    /// （`Expr::Call::suspends` の `Callee::Indirect` と同じ規則）．
+    /// `Fiber.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
+    /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
+    /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },
-    /// `Deferred.complete(d, value)`（11.7）．`[deferred, value]`．値は Bool．中断点ではない．
+    /// `Deferred.complete(d, value)` (spec 11.7). `[deferred, value]`. The value is a Bool. Not a
+    /// suspension point.
     Complete,
-    /// `Deferred.await(d)`（11.7）．`[deferred]`．値が入るまで待つ．
+    /// `Deferred.await(d)` (spec 11.7). `[deferred]`. Waits until a value is set.
     DeferredAwait,
-    /// `Deferred.poll(d)`（11.7）．`[deferred]`．値は Prelude の Option（`Module::option_enum`）．
+    /// `Deferred.poll(d)` (spec 11.7). `[deferred]`. The value is Prelude's Option
+    /// (`Module::option_enum`).
     Poll,
-    /// `Cause.kind(c)`（11.5）．`[cause]`．値は `kind` の enum（CauseKind）．
+    /// `Cause.kind(c)` (spec 11.5). `[cause]`. The value is of the `kind` enum (CauseKind).
     CauseKind { kind: EnumId },
-    /// `Cause.to_string(c)`（11.5）．`[cause]`．`error: …`，`defect: …`，`interrupted`．
+    /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
     CauseToString,
-    /// `Cause.raise(c)`（11.5）．`[cause]`．Fail は失敗，Die は defect，Interrupt は自分の fiber の
-    /// 中断の巻き戻し．型は Never だが失敗しうる．
+    /// `Cause.raise(c)` (spec 11.5). `[cause]`. Fail becomes a failure, Die a defect, and Interrupt
+    /// unwinds the current fiber's interruption. The type is Never, but it may fail.
     CauseRaise,
 }
 
-/// `Exit` の `Success(A)` の添字．
+/// The index of `Success(A)` in `Exit`.
 pub const EXIT_SUCCESS: usize = 0;
-/// `Exit` の `Failure(Cause[E])` の添字．
+/// The index of `Failure(Cause[E])` in `Exit`.
 pub const EXIT_FAILURE: usize = 1;
-/// `CauseKind` の `Fail` の添字．
+/// The index of `Fail` in `CauseKind`.
 pub const CAUSE_FAIL: usize = 0;
-/// `CauseKind` の `Die` の添字．
+/// The index of `Die` in `CauseKind`.
 pub const CAUSE_DIE: usize = 1;
-/// `CauseKind` の `Interrupt` の添字．
+/// The index of `Interrupt` in `CauseKind`.
 pub const CAUSE_INTERRUPT: usize = 2;
 
 impl FiberOp {
-    /// 引数の数．
     pub fn arity(self) -> usize {
         match self {
             FiberOp::Fork | FiberOp::Complete => 2,
@@ -690,7 +713,6 @@ impl FiberOp {
         }
     }
 
-    /// 中断しうるか．
     pub fn suspends(self) -> bool {
         match self {
             FiberOp::Scope { .. }
@@ -709,7 +731,7 @@ impl FiberOp {
         }
     }
 
-    /// 失敗しうるか（結果を確かめる要があるか）．
+    /// Whether it may fail (whether the result must be checked).
     pub fn fails(self) -> bool {
         match self {
             FiberOp::Scope { fails } => fails,
@@ -718,7 +740,7 @@ impl FiberOp {
         }
     }
 
-    /// ダンプでの名前．
+    /// The name in dumps.
     pub fn name(self) -> &'static str {
         match self {
             FiberOp::Scope { .. } => "scope",
@@ -738,17 +760,18 @@ impl FiberOp {
     }
 }
 
-/// `Expr::With` の束縛の1つ．
+/// One binding of `Expr::With`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithBind {
     pub var: Local,
     pub value: Expr,
-    /// 束縛した値が init と release のあるハンドラの値（8.4）なら，その後始末．`None` なら `Let` と同じ．
+    /// If the bound value is a handler value with init and release (spec 8.4), its cleanup. `None`
+    /// means the same as `Let`.
     pub release: Option<Release>,
 }
 
 impl WithBind {
-    /// release のない束縛（状態を持たないハンドラの値と証拠の表）．
+    /// A binding without release (stateless handler values and evidence tables).
     pub fn new(var: Local, value: Expr) -> Self {
         WithBind {
             var,
@@ -757,7 +780,8 @@ impl WithBind {
         }
     }
 
-    /// init と release のあるハンドラの値の束縛．`value` が init にあたる（失敗も中断もしてよい）．
+    /// A binding of a handler value with init and release. `value` is the init (it may fail or
+    /// suspend).
     pub fn managed(var: Local, value: Expr, handler: &str, release: Expr) -> Self {
         WithBind {
             var,
@@ -770,32 +794,35 @@ impl WithBind {
     }
 }
 
-/// with を抜けるときの後始末（8.4，14.2）．
+/// The cleanup when leaving a `with` (spec 8.4, 14.2).
 ///
-/// `body` を評価して値を捨てた後，束縛したハンドラの値を「release 済み」にする．以後その操作を呼ぶと
-/// defect（`handler <名前> was used after release`，8.6）．`body` は同じ with のその束縛まで（自身を含む）の
-/// 変数を参照してよい．`body` は失敗しない（release の E は空，8.4）が，中断はしてよい．
+/// After evaluating `body` and discarding its value, the bound handler value is marked released.
+/// Calling its operations afterwards is a defect (`handler <name> was used after release`,
+/// spec 8.6). `body` may refer to the variables of the same `with` up to and including this
+/// binding. `body` cannot fail (release's E is empty, spec 8.4) but may suspend.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
-    /// ハンドラの名前（ソースの名前）．release 後の使用の defect の文面に使う．
+    /// The handler's name (as in source), used in the use-after-release defect message.
     pub handler: String,
     pub body: Expr,
 }
 
-/// `assert 式`．
+/// `assert expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Assert {
     pub cond: AssertCond,
-    /// ソースに書かれた式の字面（`user.name == "alice"`）．失敗の表示に使う．空でもよい．
+    /// The source text of the expression (`user.name == "alice"`), shown on failure. May be empty.
     pub text: String,
 }
 
-/// assert の式の形．コンパイラが式の形を見て，比較なら両辺の値を表示する（13.2）．
+/// The shape of an assert expression. The compiler looks at it and, for a comparison, shows both
+/// sides (spec 13.2).
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssertCond {
-    /// `lhs op rhs`．`op` は `Eq`，`Ne`，`Lt`，`Le`，`Gt`，`Ge` のどれか．
-    /// 両辺を左から1回ずつ評価して比べ，偽なら両辺を表示して defect にする．
-    /// `op_ty` は比較の意味（`Expr::Binary` と同じ），`ty` は両辺の型（表示関数を作るのに使う）．
+    /// `lhs op rhs`, where `op` is one of `Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`. Each side is
+    /// evaluated once, left first, and compared; if false, both sides are shown in a defect.
+    /// `op_ty` is the comparison's meaning (as in `Expr::Binary`), and `ty` is the sides' type
+    /// (used to build show functions).
     Compare {
         op: BinOp,
         op_ty: OpTy,
@@ -803,12 +830,12 @@ pub enum AssertCond {
         lhs: Expr,
         rhs: Expr,
     },
-    /// 比較でない式．式の値だけを見る．
+    /// Not a comparison; only the expression's value is checked.
     Bool(Expr),
 }
 
 impl Assert {
-    /// 比較の assert の式．
+    /// A comparison assert.
     pub fn compare(op: BinOp, op_ty: OpTy, ty: Type, lhs: Expr, rhs: Expr, text: &str) -> Expr {
         Expr::Assert(Box::new(Assert {
             cond: AssertCond::Compare {
@@ -822,7 +849,7 @@ impl Assert {
         }))
     }
 
-    /// 比較でない assert の式．
+    /// A non-comparison assert.
     pub fn bool(cond: Expr, text: &str) -> Expr {
         Expr::Assert(Box::new(Assert {
             cond: AssertCond::Bool(cond),
@@ -830,7 +857,7 @@ impl Assert {
         }))
     }
 
-    /// 部分式に評価の順で `f` をかける．
+    /// Applies `f` to subexpressions in evaluation order.
     pub fn for_each_operand_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
         match &mut self.cond {
             AssertCond::Compare { lhs, rhs, .. } => {
@@ -844,12 +871,13 @@ impl Assert {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callee {
-    /// トップレベル関数を直接呼ぶ．
+    /// A direct call to a top-level function.
     Direct(FnId),
-    /// クロージャの値を呼ぶ．
+    /// A call to a closure value.
     Indirect(Box<Expr>),
-    /// ハンドラの値 `handler` の操作を呼ぶ（`log.info(...)`，8.2）．`op` は
-    /// `EffectDef::ops` の添字．証拠の表は渡さない（操作の本体の効果は with で決まっている）．
+    /// A call to an operation of the handler value `handler` (`log.info(...)`, spec 8.2). `op` is
+    /// an index into `EffectDef::ops`. No evidence table is passed (the operation body's effects
+    /// were fixed by `with`).
     Op {
         handler: Box<Expr>,
         effect: EffectId,
@@ -860,7 +888,7 @@ pub enum Callee {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arm {
     pub pat: Pat,
-    /// パターンが合った後に評価する．
+    /// Evaluated after the pattern matches.
     pub guard: Option<Expr>,
     pub body: Expr,
 }
@@ -870,14 +898,14 @@ pub enum Pat {
     Wild,
     Bind(Local),
     Lit(Lit),
-    /// 構成子．`fields` はフィールドの定義順で，省いたフィールドは `Wild` で埋める．
+    /// `fields` are in field definition order, with omitted fields filled with `Wild`.
     Ctor {
         ctor: CtorRef,
         fields: Vec<Pat>,
     },
     Tuple(Vec<Pat>),
     /// `[]`，`[x, y]`，`[x, ..rest]`，`[x, ..]`．
-    /// `rest` が `None` なら長さがちょうど `elems.len()`．
+    /// With `rest` of `None`, the length is exactly `elems.len()`.
     List {
         elems: Vec<Pat>,
         rest: Option<Box<Pat>>,
@@ -887,8 +915,8 @@ pub enum Pat {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StrPart {
     Lit(String),
-    /// 値を文字列にして埋め込む．型から決まる表示関数を使う（Show の仮実装．Trait は 0.21）．
-    /// 型は `Type::Param` を含まない具体的な型でなければならない．
+    /// Embeds the value as a string, using the show function determined by its type (the stand-in
+    /// for Show; traits come in 0.21). The type must be concrete, without `Type::Param`.
     Value(Expr, Type),
 }
 
@@ -905,9 +933,9 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
-    /// 短絡評価．
+    /// Short-circuiting.
     And,
-    /// 短絡評価．
+    /// Short-circuiting.
     Or,
 }
 
@@ -917,7 +945,7 @@ pub enum UnOp {
     Not,
 }
 
-/// 演算の対象の型．バックエンドが意味を選ぶのに使う．
+/// The operand type of an operation, used by backends to pick the meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpTy {
     Int,
@@ -925,6 +953,6 @@ pub enum OpTy {
     Float,
     Bool,
     String,
-    /// 構造の等値比較（`==` / `!=`）だけに使う．
+    /// Only for structural equality (`==` / `!=`).
     Structural,
 }

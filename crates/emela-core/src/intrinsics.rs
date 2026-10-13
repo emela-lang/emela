@@ -1,62 +1,63 @@
-//! 組み込み関数の表．
+//! The builtin function table.
 //!
-//! Emela で書けない core の関数（文字列の操作，数値の変換，表示）と Prelude の関数を，
-//! コンパイラが名前と型を知っている関数として持つ．名前解決と型推論は `Builtin::lookup` と
-//! `BuiltinInfo::scheme` でこの表を引き，バックエンドは `BuiltinInfo::js` などで実装を選ぶ．
+//! Holds core functions that cannot be written in Emela (string operations, numeric conversion,
+//! showing) and the Prelude functions, as functions whose names and types the compiler knows.
+//! Name resolution and type inference look them up via `Builtin::lookup` and
+//! `BuiltinInfo::scheme`; backends pick implementations via `BuiltinInfo::js` and the like.
 //!
-//! `List.map` のように Emela で書ける関数はここに入れない（core を Emela で書く）．
-//! 各行は同梱のソース（`lib/*.emel`）に `@intrinsic` の宣言を1つずつ持ち，
-//! `Builtin::lookup_intrinsic` で宣言から行を引く．
+//! Functions writable in Emela, such as `List.map`, do not belong here (core is written in
+//! Emela). Each row has exactly one `@intrinsic` declaration in the bundled sources (`lib/*.emel`),
+//! and `Builtin::lookup_intrinsic` finds the row from the declaration.
 
 use emela_types::{Scheme, Ty, TyConId, TyParam};
 
-/// 組み込み関数．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Builtin {
-    // String（16.2）．
-    /// `String.length`．書記素クラスタの数．
+    // String (spec 16.2).
+    /// `String.length`: the number of grapheme clusters.
     StringLength,
-    /// `String.byte_size`．UTF-8 で符号化したときのバイト数．
+    /// `String.byte_size`: the number of bytes in UTF-8.
     StringByteSize,
     /// `String.append(a, b)`．
     StringAppend,
     StringContains,
     StringStartsWith,
     StringEndsWith,
-    /// `String.split(s, sep)`．空の区切りでは書記素ごとに分ける．
+    /// `String.split(s, sep)`. An empty separator splits into graphemes.
     StringSplit,
-    /// `String.chars`．書記素クラスタごとの文字列のリスト．
+    /// `String.chars`: one string per grapheme cluster.
     StringChars,
     /// `String.join(parts, sep)`．
     StringJoin,
-    /// `String.trim`．前後の Unicode の White_Space を取り除く．
+    /// `String.trim`: removes leading and trailing Unicode White_Space.
     StringTrim,
-    /// `String.code_points`．コードポイントの値のリスト．
+    /// `String.code_points`.
     StringCodePoints,
-    /// `String.from_code_point`．Unicode のスカラー値でなければ `None`．
+    /// `String.from_code_point`. `None` if not a Unicode scalar value.
     StringFromCodePoint,
 
-    // Int．
+    // Int.
     IntToString,
-    /// `Int.parse` の中身．10進の数字と先頭の符号だけを読み，それ以外と範囲外は `None`．
+    /// The body of `Int.parse`. Reads only decimal digits with an optional leading sign; anything
+    /// else, or out of range, is `None`.
     IntParse,
-    /// `Int.checked_add`．あふれたら `None`．
+    /// `Int.checked_add`. `None` on overflow.
     IntCheckedAdd,
     IntBitAnd,
     IntBitOr,
     IntBitXor,
     IntBitNot,
-    /// `Int.shift_left(n, by)`．シフト量の扱いは `NOTES.md`．
+    /// `Int.shift_left(n, by)`. See `NOTES.md` for how shift amounts are handled.
     IntShiftLeft,
-    /// `Int.shift_right(n, by)`．符号を保つ（算術シフト）．
+    /// `Int.shift_right(n, by)`. Keeps the sign (arithmetic shift).
     IntShiftRight,
-    /// `Int.shift_right_unsigned(n, by)`．上位を 0 で埋める（論理シフト）．
+    /// `Int.shift_right_unsigned(n, by)`. Fills the high bits with 0 (logical shift).
     IntShiftRightUnsigned,
 
-    // Int64．
+    // Int64.
     Int64FromInt,
     Int64ToString,
-    /// `Int64.to_int`．下位 32bit に巻き戻す．
+    /// `Int64.to_int`. Keeps the low 32 bits.
     Int64ToInt,
     Int64BitAnd,
     Int64BitOr,
@@ -66,45 +67,45 @@ pub enum Builtin {
     Int64ShiftRight,
     Int64ShiftRightUnsigned,
 
-    // Float．Int への変換は，結果が Int の範囲外か NaN なら defect．
+    // Float. Converting to Int is a defect if the result is NaN or outside the range of Int.
     FloatToString,
-    /// `Float.from_int`．どの Int も Float で正確に表せる．
+    /// `Float.from_int`. Every Int is exactly representable as a Float.
     FloatFromInt,
-    /// `Float.parse` の中身．`to_string` の書く形だけを読み，それ以外は `None`．
+    /// The body of `Float.parse`. Reads only the forms `to_string` writes; anything else is
+    /// `None`.
     FloatParse,
     FloatFloor,
     FloatCeil,
-    /// 0.5 は 0 から遠い方へ丸める．
+    /// Ties round away from zero.
     FloatRound,
     FloatTruncate,
 
-    // Prelude（15.1）．
-    /// `panic(message)`．defect を起こす．
+    // Prelude (spec 15.1).
+    /// `panic(message)`.
     Panic,
-    /// `todo()`．`not yet implemented` の defect を起こす．
+    /// `todo()`. Raises a `not yet implemented` defect.
     Todo,
-    /// `dbg(value)`．値の表示を標準エラーに1行出して，値をそのまま返す．
+    /// `dbg(value)`. Prints the value's Show to stderr on one line and returns the value.
     Dbg,
 
-    // lowering だけが使う内部の組み込み関数．`ALL` に載せず，ソースからは呼べない．
-    /// 値を1つ入れた入れ物を作る（`State.run` の状態，8.8）．
+    // Internal builtins used only by lowering. Not in `ALL`, so sources cannot call them.
+    /// Makes a cell holding one value (the state of `State.run`, spec 8.8).
     CellNew,
-    /// 入れ物の中身．
     CellGet,
-    /// 入れ物の中身を置き換える．値は `()`．
+    /// Replaces the cell's contents. The value is `()`.
     CellSet,
 }
 
-/// lowering がランタイムのハンドラとして写す `@intrinsic` の宣言（モジュール名と関数名）．
-/// 組み込み関数の表には載せない（`State.run` は body を呼び，証拠の表を足すので，関数1つの実装でない）．
+/// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
+/// They are not in the builtin table: `State.run` calls its body and extends the evidence table,
+/// so it is not a single function's implementation.
 pub const RUNTIME_HANDLERS: &[(&str, &str)] = &[("Std.State", "run")];
 
-/// [`RUNTIME_HANDLERS`] の宣言か．
 pub fn is_runtime_handler(module: &str, name: &str) -> bool {
     RUNTIME_HANDLERS.contains(&(module, name))
 }
 
-/// 組み込み関数の型の簡単な表現．`Sig::to_ty` で型検査の `Ty` に変換する．
+/// A simple representation of builtin types, converted to the type checker's `Ty` by `Sig::to_ty`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sig {
     Int,
@@ -115,14 +116,13 @@ pub enum Sig {
     Unit,
     Never,
     List(&'static Sig),
-    /// Prelude の `Option`．
     Option(&'static Sig),
-    /// 関数の型引数．`Ty::Bound(i)` になる．
+    /// A type parameter of the function; becomes `Ty::Bound(i)`.
     Param(u32),
 }
 
 impl Sig {
-    /// 型検査の型にする．`option` は Prelude の `Option` の `TyConId`．
+    /// `option` is the `TyConId` of Prelude's `Option`.
     pub fn to_ty(self, option: TyConId) -> Ty {
         match self {
             Sig::Int => Ty::INT,
@@ -139,25 +139,24 @@ impl Sig {
     }
 }
 
-/// 表の1行．
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinInfo {
-    /// 修飾に使うモジュール名．Prelude の関数は `None`（修飾せずに呼ぶ）．
+    /// The module name used to qualify. `None` for Prelude functions (called unqualified).
     pub module: Option<&'static str>,
     pub name: &'static str,
-    /// 型引数の数．`params` と `ret` の `Sig::Param(i)` が指す．
+    /// The number of type parameters, referred to by `Sig::Param(i)` in `params` and `ret`.
     pub ty_params: u32,
     pub params: &'static [Sig],
     pub ret: Sig,
-    /// 純粋か．Prelude には純粋なものしか入れない（15.1）ので，今の表はすべて `true`．
-    /// `dbg` は標準エラーに書くが，デバッグ用の例外として純粋に数える．
+    /// The Prelude only holds pure functions (spec 15.1), so every row is `true` today. `dbg`
+    /// writes to stderr but counts as pure as a debugging exception.
     pub pure: bool,
-    /// JS ランタイム（`emela-codegen-js` の `runtime.mjs`）での実装名．
+    /// The implementation name in the JS runtime (`runtime.mjs` of `emela-codegen-js`).
     pub js: &'static str,
 }
 
 impl BuiltinInfo {
-    /// `String.length` のような修飾した名前．Prelude の関数は名前だけ．
+    /// A qualified name like `String.length`; just the name for Prelude functions.
     pub fn path(&self) -> String {
         match self.module {
             Some(m) => format!("{m}.{}", self.name),
@@ -165,7 +164,7 @@ impl BuiltinInfo {
         }
     }
 
-    /// 型推論に渡す型スキーム．型引数は `A`，`B`，… と名付ける．
+    /// The type scheme for type inference, with type parameters named `A`, `B`, ….
     pub fn scheme(&self, option: TyConId) -> Scheme {
         let params = (0..self.ty_params)
             .map(|i| TyParam::new(char::from(b'A' + i as u8).to_string()))
@@ -312,7 +311,8 @@ impl Builtin {
                 ty_params: 1,
                 ..info(None, "dbg", &[Param(0)], Param(0), "$dbg")
             },
-            // 入れ物の型は `Sig` で書けないので型引数で代わりに書く（型推論には渡さない）．
+            // A cell's type cannot be written as a `Sig`, so a type parameter stands in (it is
+            // never passed to type inference).
             Builtin::CellNew => BuiltinInfo {
                 pure: false,
                 ..info(Some("$Cell"), "new", &[Param(0)], Param(0), "$cellNew")
@@ -338,7 +338,7 @@ impl Builtin {
         self.info().params.len()
     }
 
-    /// 名前で引く．Prelude の関数は `module` を `None` にする．
+    /// Prelude functions use `None` for `module`.
     pub fn lookup(module: Option<&str>, name: &str) -> Option<Builtin> {
         Builtin::ALL.iter().copied().find(|b| {
             let i = b.info();
@@ -346,8 +346,9 @@ impl Builtin {
         })
     }
 
-    /// 同梱のソースの `@intrinsic` の宣言から引く．`module` は `crate::core_sources` の
-    /// モジュール名で，Prelude のソース（`crate::PRELUDE`）の宣言は `module` が `None` の行に当たる．
+    /// Looks up from an `@intrinsic` declaration in the bundled sources. `module` is a module name
+    /// from `crate::core_sources`; declarations in the Prelude source (`crate::PRELUDE`) match rows
+    /// whose `module` is `None`.
     pub fn lookup_intrinsic(module: &str, name: &str) -> Option<Builtin> {
         let module = (module != crate::PRELUDE).then_some(module);
         Builtin::lookup(module, name)

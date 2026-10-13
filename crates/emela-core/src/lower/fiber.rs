@@ -1,14 +1,16 @@
-//! 並行性（11章）の写し方．
+//! Lowering concurrency (spec chapter 11).
 //!
-//! `Std.Fiber`，`Std.Cause`，`Std.Deferred` の `@intrinsic` の関数は，Core IR の `Expr::Fiber` に
-//! 写す（[`FiberFn`]）．組み込みのエフェクト Scope の能力の値は，`Fiber.scope` を呼んだところで
-//! lowering が作るハンドラの値（[`ScopeCall`]）．操作 fork と deferred は普通の操作の呼び出しになり，
-//! fork だけは呼ぶ側で子の関数を包む（[`ForkCall`]）．
+//! `@intrinsic` functions of `Std.Fiber`, `Std.Cause` and `Std.Deferred` are lowered to
+//! `Expr::Fiber` in the Core IR ([`FiberFn`]). The capability value of the builtin effect Scope is
+//! a handler value that lowering builds where `Fiber.scope` is called ([`ScopeCall`]). The
+//! operations fork and deferred become ordinary operation calls; only fork wraps the child
+//! function at the call site ([`ForkCall`]).
 //!
-//! 子が使うハンドラは `Fiber.scope` を呼んだ時点のもので，Scope だけはその子が属すスコープ自身を指す
-//! （11.2）．Scope のハンドラの値は，`Fiber.scope` を呼んだ位置の証拠の表を閉じ込めて持ち，fork の
-//! 実装がその表で子を呼ぶ．Scope は fork した能力の値（呼ぶ側が子の関数を包むときに足す）．スコープの
-//! 本体の中の with は子に届かない．
+//! A child uses the handlers in place when `Fiber.scope` was called, except that Scope refers to
+//! the scope the child belongs to (spec 11.2). Scope's handler value captures the evidence table
+//! at the `Fiber.scope` call, and fork's implementation calls the child with that table. Scope is
+//! the capability value that forked the child (added when the call site wraps the child function).
+//! A `with` inside the scope body does not reach children.
 
 use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};
@@ -16,7 +18,7 @@ use emela_types::{FnTy, Tag, Ty};
 use super::{Call, Lowerer, Target};
 use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, Lit, Local};
 
-/// lowering が `Expr::Fiber` に写す `@intrinsic` の関数．
+/// `@intrinsic` functions that lowering maps to `Expr::Fiber`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FiberFn {
     Scope,
@@ -33,7 +35,7 @@ pub(super) enum FiberFn {
 }
 
 impl FiberFn {
-    /// 同梱の宣言（モジュール名と関数名）から引く．
+    /// Looks up from a bundled declaration (module name, function name).
     pub(super) fn lookup(module: &str, name: &str) -> Option<FiberFn> {
         Some(match (module, name) {
             ("Std.Fiber", "scope") => FiberFn::Scope,
@@ -52,7 +54,7 @@ impl FiberFn {
     }
 }
 
-/// `Fiber.scope(body)` を写すのに要るもの．局所変数は先に割り振っておく．
+/// What is needed to lower `Fiber.scope(body)`. Locals are allocated up front.
 ///
 /// ```text
 /// let b = body
@@ -62,18 +64,19 @@ impl FiberFn {
 /// })
 /// ```
 ///
-/// `ev` は `Fiber.scope` を呼んだ位置の証拠の表．fork の実装は子の関数 `g` をその表で呼ぶ（`g` は
-/// 呼ぶ側が [`ForkCall`] で包んだもので，受けた表に Scope を足して子の関数を呼ぶ）．
+/// `ev` is the evidence table at the `Fiber.scope` call. fork's implementation calls the child
+/// function `g` with that table (`g` is wrapped by the call site with [`ForkCall`], and adds Scope
+/// to the table it receives before calling the child function).
 pub(super) struct ScopeCall {
-    /// Scope の IR のエフェクト．
+    /// Scope's IR effect.
     effect: EffectId,
-    /// 操作 fork と deferred の `EffectDef::ops` の添字．
+    /// Indices of the operations fork and deferred in `EffectDef::ops`.
     ops: [usize; 2],
-    /// `Fiber.scope` を呼んだ位置の証拠の表．
+    /// The evidence table at the `Fiber.scope` call.
     ev: Option<Local>,
-    /// スコープ（と子）が失敗しうるか．
+    /// Whether the scope (and its children) may fail.
     fails: bool,
-    /// 本体の呼び出しの印．
+    /// The mark of the body call.
     body_call: Call,
     body: Local,
     scope: Local,
@@ -83,12 +86,13 @@ pub(super) struct ScopeCall {
 
 impl ScopeCall {
     pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let [body]: [Expr; 1] = args.try_into().expect("Fiber.scope の引数は1つ");
+        let [body]: [Expr; 1] = args.try_into().expect("Fiber.scope takes one argument");
         let ev = || match self.ev {
             Some(ev) => Expr::Var(ev),
             None => Expr::Lit(Lit::Unit),
         };
-        // 子は中断しうる関数として走らせる（g が中断しない関数でもランタイムがそのまま進める）．
+        // Children run as suspending functions (the runtime steps g along even if it does not
+        // suspend).
         let child = Expr::Lambda {
             params: Vec::new(),
             body: Box::new(Expr::Call {
@@ -151,7 +155,7 @@ impl ScopeCall {
     }
 }
 
-/// `s.fork(f)` を写すのに要るもの．
+/// What is needed to lower `s.fork(f)`.
 ///
 /// ```text
 /// let c = s
@@ -159,17 +163,17 @@ impl ScopeCall {
 /// c.fork(fn(ev) { x(ev + { Scope: c }) })
 /// ```
 ///
-/// 包んだ関数は，Scope のハンドラの fork の実装（[`ScopeCall`]）が `Fiber.scope` を呼んだ位置の表で
-/// 呼ぶ．子の Scope は fork した能力の値 `c`（子が兄弟を fork できるように，11.2）．`f` の R が表を
-/// 要らなければ表を渡さない．
+/// The wrapped function is called by fork's implementation in Scope's handler ([`ScopeCall`]) with
+/// the table at the `Fiber.scope` call. The child's Scope is the capability value `c` that forked
+/// it, so the child can fork siblings (spec 11.2). If `f`'s R needs no table, none is passed.
 pub(super) struct ForkCall {
-    /// 能力の値の式．
+    /// The capability value expression.
     pub(super) handler: Expr,
     effect: EffectId,
     op: usize,
-    /// 子の関数 `f` の呼び出しの印．
+    /// The mark of calls to the child function `f`.
     f_call: Call,
-    /// `f` が証拠の表を受けるか．
+    /// Whether `f` takes an evidence table.
     f_takes_ev: bool,
     cap: Local,
     f: Local,
@@ -178,7 +182,7 @@ pub(super) struct ForkCall {
 
 impl ForkCall {
     pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let [f]: [Expr; 1] = args.try_into().expect("fork の引数は1つ");
+        let [f]: [Expr; 1] = args.try_into().expect("fork takes one argument");
         let child_args = if self.f_takes_ev {
             vec![Expr::Provide {
                 base: Some(Box::new(Expr::Var(self.ev))),
@@ -218,19 +222,20 @@ impl ForkCall {
     }
 }
 
-/// `Fiber.attempt(f)` を写すのに要るもの．`f` の R が表を要るなら，今の表で `f` を呼ぶ引数のない
-/// 関数に包む（ランタイムは `f` を引数なしで呼ぶ）．
+/// What is needed to lower `Fiber.attempt(f)`. If `f`'s R needs a table, `f` is wrapped in a
+/// parameterless function that calls it with the current table (the runtime calls `f` with no
+/// arguments).
 pub(super) struct AttemptCall {
     exit: EnumId,
     f_call: Call,
-    /// `f` に渡す今の証拠の表．表を要らなければ `None`．
+    /// The current evidence table to pass to `f`; `None` if it needs none.
     ev: Option<Expr>,
     f: Local,
 }
 
 impl AttemptCall {
     pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let [f]: [Expr; 1] = args.try_into().expect("Fiber.attempt の引数は1つ");
+        let [f]: [Expr; 1] = args.try_into().expect("Fiber.attempt takes one argument");
         let op = FiberOp::Attempt {
             exit: self.exit,
             suspends: self.f_call.suspends,
@@ -260,12 +265,13 @@ impl AttemptCall {
 }
 
 impl Lowerer<'_> {
-    /// 組み込みのエフェクト（`@intrinsic effect`．今は Scope だけ）か．
+    /// Whether it is a builtin effect (`@intrinsic effect`; only Scope today).
     pub(super) fn is_intrinsic_effect(&self, effect: DefId) -> bool {
         matches!(self.hir.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
     }
 
-    /// `@intrinsic` の fn `def` が 11章の関数なら，その呼ばれる側．`callee` は参照の式．
+    /// If the `@intrinsic` fn `def` is a chapter 11 function, its callee. `callee` is the
+    /// referencing expression.
     pub(super) fn fiber_target(
         &mut self,
         def: DefId,
@@ -325,7 +331,7 @@ impl Lowerer<'_> {
         }
     }
 
-    /// 戻り値の型の enum（Exit，CauseKind）．
+    /// The enum of the return type (Exit, CauseKind).
     fn ret_enum(&self, fn_ty: &FnTy) -> Option<EnumId> {
         match &fn_ty.ret {
             Ty::Named(con, _) => self.enums.get(self.types.ty_table.def(*con)).copied(),
@@ -333,7 +339,7 @@ impl Lowerer<'_> {
         }
     }
 
-    /// `Fiber.scope` の呼び出しを写す準備．`fn_ty` は具体化した `Fiber.scope` の型．
+    /// `fn_ty` is the instantiated type of `Fiber.scope`.
     fn scope_call(&mut self, fn_ty: &FnTy, call: Call) -> Option<ScopeCall> {
         let Some(Ty::Fn(body)) = fn_ty.params.first() else {
             return None;
@@ -360,7 +366,7 @@ impl Lowerer<'_> {
         })
     }
 
-    /// Scope のタグの IR のエフェクトと，操作 fork と deferred の添字．
+    /// Scope's IR effect for the tag, and the indices of the operations fork and deferred.
     fn scope_effect(&mut self, tag: &Tag) -> Option<(EffectId, [usize; 2])> {
         let effect = self.effect_id(&self.key_here(tag));
         let index = |name: &str| {
@@ -372,8 +378,8 @@ impl Lowerer<'_> {
         Some((effect, [index("fork")?, index("deferred")?]))
     }
 
-    /// 能力の値 `handler`（型の Scope のタグは `tag`）の fork の呼び出しを写す準備．`op_ty` は
-    /// 具体化した fork の型．
+    /// Prepares lowering a fork call on the capability value `handler` (whose type's Scope tag is
+    /// `tag`). `op_ty` is the instantiated type of fork.
     pub(super) fn fork_call(&mut self, handler: Expr, tag: &Tag, op_ty: &Ty) -> Option<ForkCall> {
         let (effect, [fork, _]) = self.scope_effect(tag)?;
         let Ty::Fn(op_ty) = op_ty else {
@@ -395,7 +401,7 @@ impl Lowerer<'_> {
         })
     }
 
-    /// 能力の値の操作 `op` が Scope の fork か．
+    /// Whether operation `op` on a capability value is Scope's fork.
     pub(super) fn is_fork_op(&self, effect: DefId, op: DefId) -> bool {
         self.is_intrinsic_effect(effect) && self.hir.defs[op].name == "fork"
     }

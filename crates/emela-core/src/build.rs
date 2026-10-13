@@ -1,4 +1,4 @@
-//! IR を組み立てる小さな関数．テストと，後で書く変換の両方で使う．
+//! Small helpers for building IR, used by tests and lowering.
 
 use crate::intrinsics::Builtin;
 use crate::ir::*;
@@ -57,7 +57,7 @@ pub fn call_value(callee: Expr, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// 失敗しうる関数の直接呼び出し（`fails: true`）．
+/// A direct call to a fallible function (`fails: true`).
 pub fn call_fails(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Direct(f),
@@ -67,7 +67,7 @@ pub fn call_fails(f: FnId, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// 失敗しうる関数の値の呼び出し（`fails: true`）．
+/// A call to a fallible function value (`fails: true`).
 pub fn call_value_fails(callee: Expr, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Indirect(Box::new(callee)),
@@ -77,7 +77,7 @@ pub fn call_value_fails(callee: Expr, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// 中断しうる関数の直接呼び出し（`suspends: true`）．
+/// A direct call to a suspending function (`suspends: true`).
 pub fn call_suspends(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Direct(f),
@@ -87,7 +87,7 @@ pub fn call_suspends(f: FnId, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// 中断しうる関数の値の呼び出し（`suspends: true`）．
+/// A call to a suspending function value (`suspends: true`).
 pub fn call_value_suspends(callee: Expr, args: Vec<Expr>) -> Expr {
     Expr::Call {
         callee: Callee::Indirect(Box::new(callee)),
@@ -97,7 +97,7 @@ pub fn call_value_suspends(callee: Expr, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// ハンドラの値 `handler` の操作の呼び出し（8.2）．
+/// A call to an operation of the handler value `handler` (spec 8.2).
 pub fn call_op(
     handler: Expr,
     effect: EffectId,
@@ -139,7 +139,7 @@ pub fn builtin(op: Builtin, args: Vec<Expr>) -> Expr {
     }
 }
 
-/// 型引数を取る組み込み関数（`dbg`）の呼び出し．
+/// A call to a builtin that takes type arguments (`dbg`).
 pub fn builtin_ty(op: Builtin, ty_args: Vec<Type>, args: Vec<Expr>) -> Expr {
     Expr::Builtin { op, ty_args, args }
 }
@@ -212,7 +212,7 @@ pub fn lambda(params: Vec<Local>, body: Expr) -> Expr {
     }
 }
 
-/// 中断しうるラムダ（`suspends: true`）．
+/// A suspending lambda (`suspends: true`).
 pub fn suspend_lambda(params: Vec<Local>, body: Expr) -> Expr {
     Expr::Lambda {
         params,
@@ -251,7 +251,7 @@ pub fn p_list(elems: Vec<Pat>, rest: Option<Pat>) -> Pat {
     }
 }
 
-/// 並行性の操作（11章）．
+/// A concurrency operation (spec chapter 11).
 pub fn fiber(op: FiberOp, args: Vec<Expr>) -> Expr {
     Expr::Fiber { op, args }
 }

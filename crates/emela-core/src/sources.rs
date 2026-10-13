@@ -1,18 +1,20 @@
-//! コンパイラに同梱する Prelude と core と std のソース（仕様 15.2）．
+//! The Prelude, core and std sources bundled with the compiler (spec 15.2).
 //!
-//! ソースは `lib/core/` と `lib/std/` の `.emel` で，`include_str!` で埋め込む．Emela で書けない関数は
-//! `@intrinsic` を付けた本体のない fn として宣言し，実装は `Builtin::lookup_intrinsic` で
-//! 組み込み関数の表から引く．
+//! The sources are the `.emel` files under `lib/core/` and `lib/std/`, embedded with
+//! `include_str!`. Functions that cannot be written in Emela are declared as bodiless fns marked
+//! `@intrinsic`, and their implementation is looked up in the builtin table via
+//! `Builtin::lookup_intrinsic`.
 
-/// Prelude のソースのモジュール名．`prelude.emel` はソースのルートに置けない予約名（4.1）．
+/// The module name of the Prelude source. `prelude.emel` is reserved at the source root (spec 4.1).
 pub const PRELUDE: &str = "Prelude";
 
-/// std のモジュールを置く名前空間（15.2）．std のモジュールは `Std.Console` のように2区切りの名前で，
-/// import して使う．ソースのルート直下の `std.emel` と `std/` は予約名（4.1）．
+/// The namespace for std modules (spec 15.2). std modules have two-segment names like
+/// `Std.Console` and are imported. `std.emel` and `std/` directly under the source root are
+/// reserved (spec 4.1).
 pub const STD: &str = "Std";
 
-/// 同梱のソース．モジュール名とソースの組で，Prelude が先頭．core（`lib/core/`．短い名前で import
-/// なしで使える）の後に std（`lib/std/`．`Std` の下）を並べる．
+/// Bundled sources as (module name, source) pairs, Prelude first. core (`lib/core/`, short names
+/// usable without import) comes before std (`lib/std/`, under `Std`).
 const SOURCES: &[(&str, &str)] = &[
     (PRELUDE, include_str!("../lib/core/prelude.emel")),
     ("List", include_str!("../lib/core/list.emel")),
@@ -40,8 +42,9 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
 ];
 
-/// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．同梱のソースの `@external(js, "./x.mjs", …)`
-/// が指すファイルで，`.emel` と同じく `include_str!` で埋め込む（手順は `lib/README.md`）．
+/// Bundled JS files as (path relative to `lib/`, contents) pairs. These are the files that
+/// `@external(js, "./x.mjs", …)` in bundled sources points to, embedded with `include_str!` like
+/// the `.emel` files (see `lib/README.md` for the procedure).
 const JS_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
@@ -53,8 +56,8 @@ const JS_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// 同梱のソースを置いた `lib/` の中のディレクトリ．std のモジュールは `std`，それ以外は `core`．
-/// `@external` のファイルの指定は，このディレクトリからの相対パスとして引く．
+/// The directory under `lib/` holding a bundled source: `std` for std modules, `core` otherwise.
+/// `@external` file specifiers resolve relative to this directory.
 pub fn lib_dir(module: &str) -> &'static str {
     match module.split_once('.') {
         Some((STD, _)) => "std",
@@ -62,22 +65,20 @@ pub fn lib_dir(module: &str) -> &'static str {
     }
 }
 
-/// 同梱の JS のファイルを書き出す，JS の出力先の中のディレクトリ．core の `@external` の
-/// ファイルの指定は，lowering がエントリの出力（出力先の直下）からの相対パス
-/// （`./emela_core/x.mjs`）に直す．
+/// The directory in the JS output where bundled JS files are written. Lowering rewrites core's
+/// `@external` file specifiers relative to the entry's output (at the top of the output
+/// directory), as in `./emela_core/x.mjs`.
 pub const CORE_JS_DIR: &str = "emela_core";
 
-/// 同梱する Prelude と core のソースを，モジュール名とソースの組で返す．Prelude が先頭．
+/// Prelude first.
 pub fn core_sources() -> &'static [(&'static str, &'static str)] {
     SOURCES
 }
 
-/// 同梱の JS のファイルを，`lib/` からの相対パスと中身の組で返す．
 pub fn core_js_files() -> &'static [(&'static str, &'static str)] {
     JS_FILES
 }
 
-/// モジュール名で同梱のソースを引く．
 pub fn core_source(module: &str) -> Option<&'static str> {
     SOURCES.iter().find(|(m, _)| *m == module).map(|(_, s)| *s)
 }
@@ -95,15 +96,15 @@ mod tests {
     }
 
     fn name(f: &FnDecl) -> String {
-        f.name().expect("関数名がある").text().to_owned()
+        f.name().expect("a function has a name").text().to_owned()
     }
 
-    /// 空白を除いた型の書き方．
+    /// The type as written, without whitespace.
     fn text(node: &SyntaxNode) -> String {
         node.text().to_string().split_whitespace().collect()
     }
 
-    /// 組み込み関数の表の型を Emela の書き方にする．型引数は `A`，`B`，…．
+    /// Renders a builtin table type in Emela syntax, with type parameters `A`, `B`, ….
     fn render(sig: Sig) -> String {
         match sig {
             Sig::Int => "Int".into(),
@@ -128,8 +129,9 @@ mod tests {
                 .filter(|f| f.has_annotation("intrinsic"))
                 .map(|f| f.syntax().text_range())
                 .collect();
-            // 今の検査は本体のない fn に `@external` を求める（E0130）．`@intrinsic` の宣言に出る
-            // E0130 だけは検査の側で外す前提で許し，それ以外の診断はすべて誤りとする．
+            // The current check requires `@external` on bodiless fns (E0130). Only E0130 on
+            // `@intrinsic` declarations is allowed, on the assumption the check will exempt them;
+            // any other diagnostic is an error.
             let errors: Vec<_> = parse
                 .diagnostics()
                 .iter()
@@ -138,18 +140,18 @@ mod tests {
                         && intrinsics.iter().any(|r| r.contains_range(d.range)))
                 })
                 .collect();
-            assert!(errors.is_empty(), "{module} の構文エラー: {errors:#?}");
+            assert!(errors.is_empty(), "syntax errors in {module}: {errors:#?}");
             let errors = parse
                 .syntax()
                 .descendants()
                 .filter(|n| n.kind() == SyntaxKind::ERROR)
                 .count();
-            assert_eq!(errors, 0, "{module} に ERROR のノードがある");
+            assert_eq!(errors, 0, "{module} has ERROR nodes");
         }
     }
 
-    /// fiber の組み込み（11章）．lowering が Core IR の `Expr::Fiber` に写す（`lower/fiber.rs` の
-    /// `FiberFn`）ので，組み込み関数の表に行を持たない．
+    /// Fiber intrinsics (spec chapter 11). Lowering maps them to `Expr::Fiber` in the Core IR
+    /// (`FiberFn` in `lower/fiber.rs`), so they have no row in the builtin table.
     const FIBER_INTRINSICS: &[(&str, &str)] = &[
         ("Std.Fiber", "scope"),
         ("Std.Fiber", "join"),
@@ -173,48 +175,54 @@ mod tests {
                 if !f.has_annotation("intrinsic") {
                     assert!(
                         f.body().is_some() || f.has_annotation("external"),
-                        "{module}.{name} に本体がない"
+                        "{module}.{name} has no body"
                     );
                     continue;
                 }
-                assert!(
-                    f.body().is_none(),
-                    "@intrinsic の {module}.{name} に本体がある"
-                );
-                // ランタイムのハンドラ（`State.run`）は lowering がその場で写すので，表に行を持たない．
-                // fiber の組み込み（11章）は lowering が `Expr::Fiber` に写すので，表に行がない．
+                assert!(f.body().is_none(), "@intrinsic {module}.{name} has a body");
+                // Runtime handlers (`State.run`) are mapped by lowering on the spot, and fiber
+                // intrinsics (spec chapter 11) are mapped to `Expr::Fiber`, so neither has a row
+                // in the table.
                 if crate::intrinsics::is_runtime_handler(module, &name)
                     || FIBER_INTRINSICS.contains(&(*module, name.as_str()))
                 {
                     continue;
                 }
                 let op = Builtin::lookup_intrinsic(module, &name)
-                    .unwrap_or_else(|| panic!("{module}.{name} が組み込み関数の表にない"));
+                    .unwrap_or_else(|| panic!("{module}.{name} is not in the builtin table"));
                 let info = op.info();
                 let params: Vec<_> = f
                     .param_list()
                     .into_iter()
                     .flat_map(|l| l.params().collect::<Vec<_>>())
-                    .map(|p| text(&p.ty().expect("引数の型がある")))
+                    .map(|p| text(&p.ty().expect("a parameter has a type")))
                     .collect();
                 let want: Vec<_> = info.params.iter().map(|s| render(*s)).collect();
-                assert_eq!(params, want, "{module}.{name} の引数の型");
+                assert_eq!(params, want, "parameter types of {module}.{name}");
                 let ret = f.ret_type().map(|t| text(&t));
-                assert_eq!(ret, Some(render(info.ret)), "{module}.{name} の戻り値の型");
+                assert_eq!(
+                    ret,
+                    Some(render(info.ret)),
+                    "return type of {module}.{name}"
+                );
                 let ty_params = f
                     .type_params()
                     .map_or(0, |list| list.children().count() as u32);
-                assert_eq!(ty_params, info.ty_params, "{module}.{name} の型引数の数");
+                assert_eq!(
+                    ty_params, info.ty_params,
+                    "type parameter count of {module}.{name}"
+                );
                 declared.push(op);
             }
         }
         for op in Builtin::ALL {
             let n = declared.iter().filter(|d| *d == op).count();
-            assert_eq!(n, 1, "{} の @intrinsic の宣言が {n} 個", op.info().path());
+            assert_eq!(n, 1, "{n} @intrinsic declarations of {}", op.info().path());
         }
     }
 
-    /// `lib/` の `.mjs` は全部 `JS_FILES` に載せる（載せ忘れるとインストールした emela から読めない）．
+    /// Every `.mjs` under `lib/` must be listed in `JS_FILES`; otherwise an installed emela cannot
+    /// read it.
     #[test]
     fn js_files_match_lib_dir() {
         let lib = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib");
@@ -234,7 +242,7 @@ mod tests {
         on_disk.sort();
         let mut listed: Vec<String> = core_js_files().iter().map(|(p, _)| p.to_string()).collect();
         listed.sort();
-        assert_eq!(listed, on_disk, "lib/ の .mjs と JS_FILES が食い違う");
+        assert_eq!(listed, on_disk, "lib/ .mjs files and JS_FILES disagree");
     }
 
     #[test]
@@ -250,7 +258,7 @@ mod tests {
             "Std.State",
             "Std.Platform",
         ] {
-            assert!(modules.contains(&module), "{module} が同梱されていない");
+            assert!(modules.contains(&module), "{module} is not bundled");
         }
         assert!(core_source("Option").unwrap().contains("pub fn or_fail"));
         for (module, handlers) in [
@@ -265,7 +273,7 @@ mod tests {
                     core_source(module)
                         .unwrap()
                         .contains(&format!("pub handler {h} ")),
-                    "{module} に {h} がない"
+                    "{module} has no {h}"
                 );
             }
         }

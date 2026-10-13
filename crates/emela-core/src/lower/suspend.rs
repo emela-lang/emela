@@ -1,16 +1,20 @@
-//! 中断しうるかの印（8.1，9.5，16.5）．
+//! Marking what may suspend (spec 8.1, 9.5, 16.5).
 //!
-//! 関数，ラムダ，呼び出しの印は，型の効果の集合 R が Immediate でないか（中断しうるか）で決める．
-//! R の要素ごとに，エフェクトは suspend fn を持つか Async なら中断しうる（9.5）．操作の呼び出しは
-//! 操作の宣言（`suspend fn` か）で決め，fn の操作の実装は，本体の R が Immediate でなく，本体の中に
-//! 中断しうる呼び出しの印もあるときだけ中断しうるとする（E0417，8.1）．
+//! Functions, lambdas and calls are marked by whether the effect set R of their type is not
+//! Immediate (may suspend). Per element of R, an effect may suspend if it has a suspend fn or is
+//! Async (spec 9.5). An operation call is decided by the operation's declaration (`suspend fn` or
+//! not). An fn-operation implementation may suspend only when its body's R is not Immediate and the
+//! body contains a call marked as suspending (E0417, spec 8.1).
 //!
-//! 集合の型引数（`List.map` の `R(f)` など）は，具体化しだいで中断しうるかが変わる．中断しうる関数は
-//! ジェネレータにし，呼び出しの形も変わるので，そういう関数は，中断しうる集合に具体化した呼び出し用に
-//! 「中断用の写し」を別の IR の関数として作る．どの型引数が中断しうるかは [`Specialization`]（効果の
-//! 集合の型引数のうち，中断しうる集合に具体化したもののビット）で表す．0 は全部が Immediate の場合で，
-//! 元の関数そのもの（今までと同じ出力）．参照ごとに具体化した集合（`ProgramTypes::type_rows`）から
-//! どれを呼ぶかを決める．中断用の写しの本体の中では，集合の型引数が中断しうるかが決まっているので，ラムダや関数の値の呼び出しの印も型から一意に決まる．
+//! Whether a set type parameter (such as `R(f)` of `List.map`) may suspend depends on its
+//! instantiation. A suspending function becomes a generator and is called differently, so such a
+//! function gets "suspending copies" as separate IR functions for calls that instantiate it with
+//! suspending sets. Which type parameters may suspend is encoded as a [`Specialization`] (a bit per
+//! effect-set type parameter instantiated with a suspending set). 0 means all are Immediate and is
+//! the original function (unchanged output). Which one to call is decided per reference from the
+//! instantiated sets (`ProgramTypes::type_rows`). Inside a suspending copy, whether each set type
+//! parameter may suspend is fixed, so marks on lambdas and function value calls follow uniquely
+//! from the types.
 
 use emela_resolve::hir::{DefId, ExprId, Item};
 use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
@@ -18,15 +22,15 @@ use emela_types::{Row, RowElem, Scheme, SetKind, Ty};
 use super::Lowerer;
 use crate::ir::Expr;
 
-/// どの中断用の写しか．効果の集合の型引数のうち，中断しうる集合に具体化したものの添字のビット．
-/// 0 は元の関数（全部 Immediate）．
+/// Which suspending copy: a bit per index of an effect-set type parameter instantiated with a
+/// suspending set. 0 is the original function (all Immediate).
 pub(super) type Specialization = u64;
 
-/// 組み込みの制約 Immediate の名前（9.5）．
+/// The name of the builtin constraint Immediate (spec 9.5).
 const IMMEDIATE: &str = "Immediate";
 
 impl Lowerer<'_> {
-    /// エフェクトが Immediate か（9.5）．suspend fn を1つも持たず，Async でない．
+    /// Whether the effect is Immediate (spec 9.5): it has no suspend fn and is not Async.
     pub(super) fn is_immediate_effect(&self, effect: DefId) -> bool {
         let hir = self.hir;
         if hir.prelude_def("Async") == Some(effect) {
@@ -41,8 +45,9 @@ impl Lowerer<'_> {
         }
     }
 
-    /// 本体を写している関数の中の集合 `row` が中断しうるか．集合の型引数（と，推論で汎化した集合
-    /// 変数）は，写している関数（元の関数か，どの中断用の写しか）で決まる．
+    /// Whether the set `row` inside the function being lowered may suspend. Set type parameters
+    /// (and set variables generalized by inference) are determined by the function being lowered
+    /// (the original or a particular suspending copy).
     pub(super) fn row_suspends(&self, row: &Row) -> bool {
         row.elems().iter().any(|e| match e {
             RowElem::Tag(effect) => !self.is_immediate_effect(effect.def),
@@ -56,13 +61,13 @@ impl Lowerer<'_> {
         })
     }
 
-    /// 本体を写している関数の中の関数型 `ty` の値を呼ぶと中断しうるか．
+    /// Whether calling a value of function type `ty` inside the function being lowered may suspend.
     pub(super) fn ty_suspends(&self, ty: &Ty) -> bool {
         matches!(ty, Ty::Fn(f) if self.row_suspends(&f.uses))
     }
 
-    /// 定義 `def` の写し `spec` が中断しうるか（ジェネレータにするか）．宣言の型の R で
-    /// 決める．
+    /// Whether copy `spec` of definition `def` may suspend (becomes a generator). Decided by the R
+    /// of the declared type.
     pub(super) fn fn_suspends(&self, def: DefId, spec: Specialization) -> bool {
         let Some(Ty::Fn(f)) = self.types.sigs.get(def).map(|s| &s.scheme.ty) else {
             return false;
@@ -74,8 +79,8 @@ impl Lowerer<'_> {
         })
     }
 
-    /// 定義 `def` を式 `expr` で参照したときに呼ぶ写し．`expr` が `None` なら（参照の式がない根）
-    /// 元の関数（0）．
+    /// The copy to call when definition `def` is referenced by expression `expr`. With `expr` of
+    /// `None` (a root with no referencing expression), the original function (0).
     pub(super) fn specialization_of(&self, def: DefId, expr: Option<ExprId>) -> Specialization {
         let Some(sig) = self.types.sigs.get(def) else {
             return 0;
@@ -96,10 +101,11 @@ impl Lowerer<'_> {
                     }
                 }
             }
-            // 自分自身の参照は具体化しない（型検査の `instantiate_def`）ので，今写している関数と同じ．
+            // A self reference is not instantiated (`instantiate_def` in the type checker), so it
+            // is the same as the function being lowered.
             None if self.current_def == Some(def) => return self.spec,
-            // 同じまとまりの中でまだ汎化していない定義の参照も具体化しない．その定義の型引数は，
-            // 汎化した集合変数をそのまま共有している．
+            // References to definitions in the same group not yet generalized are not instantiated
+            // either; their type parameters share the generalized set variables as is.
             None => {
                 for &(v, i) in self.types.generalized_rows.get(def).into_iter().flatten() {
                     if spec_has(candidates, i) && self.row_suspends(&Row::var(v)) {
@@ -112,9 +118,10 @@ impl Lowerer<'_> {
     }
 }
 
-/// 写した式 `e` が，中断しうる呼び出し（`Expr::Call::suspends`）を含むか．無名関数の本体の中は
-/// 見ない（その無名関数を呼んだところで，関数の値の呼び出しの印になる）．呼び出しの印は型検査の
-/// E0417 と同じ判定（操作の呼び出しは操作の宣言，関数の呼び出しは型の R）で付けてある．
+/// Whether the lowered expression `e` contains a suspending call (`Expr::Call::suspends`). Lambda
+/// bodies are not visited (calling the lambda is marked as a function value call). Calls are marked
+/// by the same rule as E0417 in the type checker (operation calls by the operation's declaration,
+/// function calls by the R of the type).
 pub(super) fn has_suspending_call(e: &Expr) -> bool {
     match e {
         Expr::Lambda { .. } => false,
@@ -128,13 +135,13 @@ pub(super) fn has_suspending_call(e: &Expr) -> bool {
     }
 }
 
-/// 写し `spec` で `i` 番目の型引数が中断しうるか．
+/// Whether the `i`th type parameter may suspend in copy `spec`.
 fn spec_has(spec: Specialization, i: u32) -> bool {
     i < Specialization::BITS && spec & (1 << i) != 0
 }
 
-/// スキームの型引数のうち，効果の集合として使われ，Immediate の制約を持たないもの（中断用の
-/// 写しのビットの候補）．
+/// The scheme's type parameters used as effect sets without an Immediate constraint (the candidate
+/// bits for suspending copies).
 fn effect_params(scheme: &Scheme) -> Specialization {
     let mut out = 0;
     collect_effect_params(&scheme.ty, &mut out);
