@@ -4,14 +4,26 @@
 use super::Token;
 use crate::SyntaxKind;
 
-pub(super) fn mark_continuations(tokens: &mut [Token]) {
+pub(super) fn mark_continuations(src: &str, tokens: &mut [Token]) {
     use SyntaxKind::*;
 
     let mut stack = Vec::new();
+    // The bracket depth of the signature being read (rule 4): from `fn name` of a declaration or
+    // an effect operation to the body's `{`, or to the newline that ends a declaration without a
+    // body.
+    let mut signature: Option<usize> = None;
 
     for i in 0..tokens.len() {
         let kind = tokens[i].kind;
         match kind {
+            // `fn name` starts a signature; `fn(` is a lambda or a function type.
+            FN_KW if next_significant(tokens, i).is_some_and(|t| t.kind == LOWER_NAME) => {
+                signature = Some(stack.len());
+            }
+            L_BRACE if signature == Some(stack.len()) => {
+                signature = None;
+                stack.push(kind);
+            }
             L_PAREN | L_BRACK | L_BRACE | INTERP_START => stack.push(kind),
             R_PAREN | R_BRACK | R_BRACE | INTERP_END => {
                 stack.pop();
@@ -20,17 +32,35 @@ pub(super) fn mark_continuations(tokens: &mut [Token]) {
                 tokens[i].kind = NEWLINE_CONT;
             }
             NEWLINE => {
-                let continues = tokens[i + 1..]
-                    .iter()
-                    .map(|t| t.kind)
-                    .find(|&k| !k.is_trivia() && k != NEWLINE)
-                    .is_some_and(starts_continuation);
-                if continues {
+                let next = next_significant(tokens, i).copied();
+                let continues = next.is_some_and(|t| starts_continuation(t.kind));
+                let in_signature = signature == Some(stack.len());
+                if continues || (in_signature && next.is_some_and(|t| continues_signature(src, t)))
+                {
                     tokens[i].kind = NEWLINE_CONT;
+                } else if in_signature {
+                    signature = None;
                 }
             }
             _ => {}
         }
+    }
+}
+
+/// The first token after `tokens[i]` that is not trivia or a newline.
+fn next_significant(tokens: &[Token], i: usize) -> Option<&Token> {
+    tokens[i + 1..]
+        .iter()
+        .find(|t| !t.kind.is_trivia() && !matches!(t.kind, SyntaxKind::NEWLINE))
+}
+
+/// Rule 4 of spec 2.5: inside a signature, a line starting with `fails` or `use` continues it.
+/// `fails` is a contextual word, lexed as a lower name.
+fn continues_signature(src: &str, token: Token) -> bool {
+    match token.kind {
+        SyntaxKind::USE_KW => true,
+        SyntaxKind::LOWER_NAME => &src[token.range] == "fails",
+        _ => false,
     }
 }
 
@@ -134,6 +164,49 @@ mod tests {
             newlines("fn load(id: Int) -> User fails NotFound\n  | DbError"),
             [NEWLINE_CONT]
         );
+    }
+
+    #[test]
+    fn シグネチャの中の_fails_と_use_で始まる行は続き() {
+        // The example of spec 2.5.
+        let src = "pub fn get(url: String) -> Response\n  fails InvalidUrl | ConnectionFailed\n  use Http {\n  x\n}";
+        assert_eq!(
+            newlines(src),
+            [NEWLINE_CONT, NEWLINE_CONT, NEWLINE, NEWLINE]
+        );
+        assert_eq!(
+            newlines("fn f() -> Int\n  use Log {\n  1\n}"),
+            [NEWLINE_CONT, NEWLINE, NEWLINE]
+        );
+        // Effect operations and functions without a body.
+        assert_eq!(
+            newlines("effect E {\n  fn get() -> Int\n    fails Boom\n  fn put() -> ()\n}"),
+            [NEWLINE, NEWLINE_CONT, NEWLINE, NEWLINE]
+        );
+        assert_eq!(
+            newlines("@external(js, \"f\")\nfn f() -> Int\n  use {}\nfn g() { 1 }"),
+            [NEWLINE, NEWLINE_CONT, NEWLINE]
+        );
+    }
+
+    #[test]
+    fn 本体の中の_fails_と_use_で始まる行は新しい文() {
+        assert_eq!(
+            newlines("fn f() {\n  a\n  fails = 1\n  use Log\n}"),
+            [NEWLINE, NEWLINE, NEWLINE, NEWLINE]
+        );
+        // After the signature ends at the body, and in lambdas.
+        assert_eq!(
+            newlines("fn f() -> Int {\n  g(fn() {\n    a\n    use Log\n  })\n}"),
+            [NEWLINE, NEWLINE, NEWLINE, NEWLINE, NEWLINE]
+        );
+        // A declaration without a body ends at its newline.
+        assert_eq!(
+            newlines("effect E {\n  fn get() -> Int\n}\nfails\nuse X"),
+            [NEWLINE, NEWLINE, NEWLINE, NEWLINE]
+        );
+        // `fn(` is a function type, not a signature.
+        assert_eq!(newlines("x = fn(a)\nuse Log"), [NEWLINE]);
     }
 
     #[test]

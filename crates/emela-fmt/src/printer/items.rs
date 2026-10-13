@@ -75,6 +75,18 @@ impl Printer {
                 out = out.append(brk.append(doc).nest(INDENT).group());
                 continue;
             }
+            // A `fails` or `use` clause on its own line in the source stays there, indented
+            // (rule 4 of spec 2.5). Otherwise it follows on the same line and never breaks.
+            if matches!(child.kind(), FAILS_CLAUSE | USE_CLAUSE)
+                && first_significant_token(child.as_node().unwrap())
+                    .is_some_and(|t| newline_before(&t))
+            {
+                let brk = self.brk(true);
+                let doc = unbreakable(&self.node(child.as_node().unwrap()));
+                out = out.append(brk.append(doc).nest(INDENT).group());
+                first = false;
+                continue;
+            }
             if !first && !attached {
                 out = out.append(self.space());
             }
