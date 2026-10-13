@@ -4,14 +4,14 @@
 pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   match opt {
     Some(x) -> Some(f(x))
-    None -> None
+    None    -> None
   }
 }
 
 pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
   match opt {
     Some(x) -> f(x)
-    None -> None
+    None    -> None
   }
 }
 
@@ -19,21 +19,21 @@ pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
 pub fn or[A](opt: Option[A], default: A) -> A {
   match opt {
     Some(x) -> x
-    None -> default
+    None    -> default
   }
 }
 
 pub fn is_some[A](opt: Option[A]) -> Bool {
   match opt {
     Some(_) -> True
-    None -> False
+    None    -> False
   }
 }
 
 pub fn is_none[A](opt: Option[A]) -> Bool {
   match opt {
     Some(_) -> False
-    None -> True
+    None    -> True
   }
 }
 
@@ -42,6 +42,6 @@ pub fn is_none[A](opt: Option[A]) -> Bool {
 pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
   match opt {
     Some(x) -> x
-    None -> fail err
+    None    -> fail err
   }
 }

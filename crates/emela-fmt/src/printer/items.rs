@@ -54,8 +54,33 @@ impl Printer {
     /// to the name.
     pub(crate) fn decl_seq(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
+        // The `fails` and `use` clauses read so far, put into `out` as one group (below).
+        let mut clauses: Option<Doc> = None;
         let mut first = true;
         for child in significant_children(node) {
+            // `fails` and `use` clauses go on their own lines, indented, when they do not fit on
+            // the line (rule 4 of spec 2.5), and stay there if the source had them there, like
+            // `derive`. Both clauses are one group, so they break together. The group comes after
+            // the parameter list, so a signature that does not fit moves its clauses first, and
+            // the parameter list breaks only if the first line is still too long; a parameter
+            // list already broken keeps the clauses on its last line while they fit. The body's
+            // `{` stays on the last line. Each clause itself never breaks.
+            if matches!(child.kind(), FAILS_CLAUSE | USE_CLAUSE) {
+                let on_next_line = first_significant_token(child.as_node().unwrap())
+                    .is_some_and(|t| newline_before(&t));
+                let brk = self.brk(on_next_line);
+                let doc = unbreakable(&self.node(child.as_node().unwrap()));
+                let clause = brk.append(doc).nest(INDENT);
+                clauses = Some(match clauses {
+                    Some(c) => c.append(clause),
+                    None => clause,
+                });
+                first = false;
+                continue;
+            }
+            if let Some(c) = clauses.take() {
+                out = out.append(c.group());
+            }
             if child.kind() == ANNOTATION {
                 let doc = self.element(&child);
                 out = out.append(doc).append(self.hard());
@@ -83,8 +108,8 @@ impl Printer {
                 rowan::NodeOrToken::Token(t) => self.tok(&t),
                 rowan::NodeOrToken::Node(n) => match n.kind() {
                     BLOCK_EXPR => self.block(&n).assemble(false).group(),
-                    // The return type and clauses never break; the parameter list breaks first.
-                    RET_TYPE | FAILS_CLAUSE | USE_CLAUSE => {
+                    // The return type never breaks.
+                    RET_TYPE => {
                         let doc = self.node(&n);
                         unbreakable(&doc)
                     }
@@ -93,6 +118,9 @@ impl Printer {
                 },
             };
             out = out.append(doc);
+        }
+        if let Some(c) = clauses {
+            out = out.append(c.group());
         }
         out
     }

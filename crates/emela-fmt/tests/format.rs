@@ -142,15 +142,33 @@ fn 中身のないブロックの行末のコメントの後に空行を入れ�
     );
 }
 
+/// A signature that does not fit moves its `fails` and `use` clauses to their own lines first
+/// (rule 4 of spec 2.5); the parameter list breaks only if the first line is still too long.
 #[test]
-fn 長い宣言は引数の並びから折る() {
+fn 長い宣言は_fails_と_use_から折る() {
     let src = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String] fails NotFound | DbError use { Io, Clock, Random, Http } {\n  x\n}\n";
-    let expected = "fn longsig(\n  aaaa: Int,\n  bbbb: String,\n) -> Result[Int, String] fails NotFound | DbError use { Io, Clock, Random, Http } {\n  x\n}\n";
+    let expected = "fn longsig(aaaa: Int, bbbb: String) -> Result[Int, String]\n  fails NotFound | DbError\n  use { Io, Clock, Random, Http } {\n  x\n}\n";
     assert_eq!(format(src).unwrap(), expected);
+    // Narrower than the first line: the parameter list breaks too.
     let narrow = format_with_width(src, 40).unwrap();
-    assert!(
-        narrow.contains(") -> Result[Int, String] fails"),
-        "{narrow}"
+    assert_eq!(
+        narrow,
+        "fn longsig(\n  aaaa: Int,\n  bbbb: String,\n) -> Result[Int, String]\n  fails NotFound | DbError\n  use { Io, Clock, Random, Http } {\n  x\n}\n"
+    );
+    // A parameter list that breaks keeps the clauses on its last line while they fit.
+    let params = "fn f(aaaaaaaa: Int, bbbbbbbb: Int, cccccccc: Int) -> Int fails Boom {\n  a\n}\n";
+    assert_eq!(
+        format_with_width(params, 40).unwrap(),
+        "fn f(\n  aaaaaaaa: Int,\n  bbbbbbbb: Int,\n  cccccccc: Int,\n) -> Int fails Boom {\n  a\n}\n"
+    );
+    // One that fits stays on one line; a clause the source put on its own line stays there.
+    assert_eq!(
+        format("fn f() -> Int fails Boom use Log { 1 }\n").unwrap(),
+        "fn f() -> Int fails Boom use Log { 1 }\n"
+    );
+    assert_eq!(
+        format("fn f() -> Int\n  use Log { 1 }\n").unwrap(),
+        "fn f() -> Int\n  use Log { 1 }\n"
     );
 }
 

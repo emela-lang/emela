@@ -49,9 +49,9 @@ pub effect Scope[E, R] {
 ## Children get the handlers in effect where `scope` is called, so the effects they use must be
 ## provided outside `scope` (spec 11.2).
 @intrinsic
-pub fn scope[A, E, R](
-  body: fn() -> A fails E use { Scope[E, R], Async, R },
-) -> A fails E use { Async, R }
+pub fn scope[A, E, R](body: fn() -> A fails E use { Scope[E, R], Async, R }) -> A
+  fails E
+  use { Async, R }
 
 ## Starts `f` as a child fiber of the innermost scope. Same as `(use Scope).fork(f)`.
 ##
@@ -108,10 +108,9 @@ pub fn race[A, E, R](fs: List[fn() -> A fails E use R]) -> A fails E use { Async
 
 ## Runs `f` and `g` concurrently and returns both values. If one fails, the other is interrupted
 ## and `both` fails.
-pub fn both[A, B, E, R](
-  f: fn() -> A fails E use R,
-  g: fn() -> B fails E use R,
-) -> (A, B) fails E use { Async, R } {
+pub fn both[A, B, E, R](f: fn() -> A fails E use R, g: fn() -> B fails E use R) -> (A, B)
+  fails E
+  use { Async, R } {
   scope(fn() {
     a = fork(f)
     b = fork(g)
@@ -121,10 +120,9 @@ pub fn both[A, B, E, R](
 
 ## Applies `f` to each element of `xs` concurrently and returns the results in order. If one
 ## fails, the others are interrupted and `map` fails.
-pub fn map[A, B, E, R](
-  xs: List[A],
-  f: fn(A) -> B fails E use R,
-) -> List[B] fails E use { Async, R } {
+pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E use R) -> List[B]
+  fails E
+  use { Async, R } {
   scope(fn() {
     fibers = List.map(xs, fn(x) { fork(fn() { f(x) }) })
     List.map(fibers, fn(fiber) { join(fiber) })
@@ -134,7 +132,9 @@ pub fn map[A, B, E, R](
 ## Waits for `f` up to `ms` milliseconds. Returns `Some` with its value if it ends in time;
 ## otherwise interrupts it and returns `None`. Wrap it in `Option.or_fail` to fail instead. The
 ## time is measured with `Clock`.
-pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A] fails E use { Clock, Async, R } {
+pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E use R) -> Option[A]
+  fails E
+  use { Clock, Async, R } {
   scope(fn() {
     s = use Scope
     d = s.deferred()

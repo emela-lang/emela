@@ -56,7 +56,7 @@ pub fn lex(src: &str) -> Lexed {
             _ => {}
         }
     }
-    continuation::mark_continuations(&mut lexer.lexed.tokens);
+    continuation::mark_continuations(src, &mut lexer.lexed.tokens);
     // Sort by position, not by emission order. Equal positions keep emission order.
     lexer
         .lexed

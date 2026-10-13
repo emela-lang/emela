@@ -9,12 +9,14 @@ fn types(
     Int,
   ],
 ) # 戻り値の前
--> Int fails NotFound # エラーの間
-| DbError use { # 効果の集合の中
-  Io, # 要素の後ろ
-  # 要素の前
-  Clock,
-} {
+-> Int
+  fails NotFound # エラーの間
+  | DbError
+  use { # 効果の集合の中
+    Io, # 要素の後ろ
+    # 要素の前
+    Clock,
+  } {
   users # ドットの前
   .find(id)
   # 行だけのドットの前
