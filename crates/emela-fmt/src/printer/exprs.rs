@@ -178,7 +178,11 @@ impl Printer {
                     .lines()
                     .skip(1)
                     .any(|l| l.starts_with(&link));
-                if broke { broken.clone() } else { inline.clone() }
+                if broke {
+                    broken.clone()
+                } else {
+                    inline.clone()
+                }
             })
         })
     }

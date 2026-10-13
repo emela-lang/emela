@@ -62,7 +62,12 @@ fn snapshots() {
 
 #[test]
 fn narrow_snapshots() {
-    for name in ["long.emel", "comments.emel", "decls.emel", "postfix_match.emel"] {
+    for name in [
+        "long.emel",
+        "comments.emel",
+        "decls.emel",
+        "postfix_match.emel",
+    ] {
         let (_, src) = inputs().into_iter().find(|(n, _)| n == name).unwrap();
         insta::assert_snapshot!(format!("{name}_40"), check(name, &src, 40));
     }

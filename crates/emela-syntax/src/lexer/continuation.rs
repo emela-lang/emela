@@ -126,8 +126,14 @@ mod tests {
 
     #[test]
     fn 後置の_match_で始まる行は続き() {
-        assert_eq!(newlines("xs\n  |> f\n  match {\n}"), [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]);
-        assert_eq!(newlines("a\n# c\nmatch {\n}"), [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]);
+        assert_eq!(
+            newlines("xs\n  |> f\n  match {\n}"),
+            [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
+        );
+        assert_eq!(
+            newlines("a\n# c\nmatch {\n}"),
+            [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
+        );
         // Prefix `match` (E0142) starts a new statement so the parser can report it.
         assert_eq!(newlines("a\nmatch x {\n}"), [NEWLINE, NEWLINE]);
     }
