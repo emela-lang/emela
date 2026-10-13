@@ -102,7 +102,8 @@ impl Input {
     ///
     /// - A directory without `Pome.toml` is an error. The entry is `<project>/src/main.emel`.
     /// - A file without `Pome.toml` is a single file, rooted at the file's directory.
-    /// - A file with `Pome.toml` outside `<project>/src` is an error.
+    /// - With `Pome.toml`, a file outside `<project>/src`, or a directory that is neither the
+    ///   project directory nor under `<project>/src`, is an error (E0208).
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
         let not_found = || {
             Diagnostic::error(format!("`{}` not found", path.display()))
@@ -126,18 +127,22 @@ impl Input {
         match (project, is_file) {
             (Some(project), _) => {
                 let root = project.join(SOURCE_DIR);
+                // The project directory itself means the whole project. Any other directory
+                // outside the source root would be ignored, so it is rejected rather than
+                // silently checking `src` instead (spec appendix B).
+                let inside = absolute.starts_with(&root) || (!is_file && absolute == project);
+                if !inside {
+                    let kind = if is_file { "file" } else { "directory" };
+                    return Err(Diagnostic::error(format!(
+                        "{kind} `{}` is outside the source root `{SOURCE_DIR}`",
+                        path.display()
+                    ))
+                    .with_code(code::OUTSIDE_SOURCE_ROOT)
+                    .with_note(format!(
+                        "source files of a project (the directory with {PROJECT_FILE}) go under {SOURCE_DIR}/; pass the project directory, or a file or directory under {SOURCE_DIR}/"
+                    )));
+                }
                 let entry = if is_file {
-                    if !absolute.starts_with(&root) {
-                        return Err(Diagnostic::error(format!(
-                            "`{}` is outside the source root `{}`",
-                            path.display(),
-                            root.display()
-                        ))
-                        .with_code(code::OUTSIDE_SOURCE_ROOT)
-                        .with_note(format!(
-                            "source files of a project (the directory with {PROJECT_FILE}) go under {SOURCE_DIR}/"
-                        )));
-                    }
                     Some(absolute)
                 } else {
                     let entry = root.join(ENTRY_FILE);
@@ -747,8 +752,30 @@ mod tests {
         );
         assert_eq!(
             message(input(&files, "/app/scripts/x.emel")),
-            "`/app/scripts/x.emel` is outside the source root `/app/src`"
+            "file `/app/scripts/x.emel` is outside the source root `src`"
         );
+    }
+
+    #[test]
+    fn directory_outside_source_root() {
+        let files = [
+            "/app/Pome.toml",
+            "/app/src/main.emel",
+            "/app/scripts/x.emel",
+        ];
+        assert_eq!(
+            message(input(&files, "/app/scripts")),
+            "directory `/app/scripts` is outside the source root `src`"
+        );
+        assert_eq!(
+            input(&files, "/app/scripts").unwrap_err().code,
+            Some(code::OUTSIDE_SOURCE_ROOT)
+        );
+        // The project directory and directories under the source root still mean the whole
+        // project.
+        let expected = project("/app/src", Some("/app/src/main.emel"), "/app");
+        assert_eq!(input(&files, "/app"), expected);
+        assert_eq!(input(&files, "/app/src"), expected);
     }
 
     #[test]

@@ -235,7 +235,7 @@ fn file_outside_source_root_is_an_error() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .starts_with("error[E0208]: `scripts/x.emel` is outside the source root `"),
+            .starts_with("error[E0208]: file `scripts/x.emel` is outside the source root `src`"),
         "{}",
         run.stderr
     );
