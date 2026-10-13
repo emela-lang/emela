@@ -55,7 +55,10 @@
 - （補）同梱の Prelude と core のソースは，型の診断なしに検査を通る（テスト `core_sources_typecheck`）．
 - （補）網羅性の検査は，定義のまとまりの推論が終わって型が決まった後に行う（`coverage.rs`）．match は E0303（足りない値の例を全部）と W0301（冗長な腕ごと），束縛は E0317（6.3．直し方が match への書き換えなので E0303 と分ける）．対象の型が `Ty::Error` なら確かめない．
 - （補）パターンは対象の型に沿って検査用の形に変換する．型に合わない部分（型検査が誤りを出している）はワイルドカードにして，検査が崩れないようにする．
-- （補）const のパターンは，値がリテラル（か負の数値リテラル）ならその値として検査する．それ以外の式はコンパイル時の評価がまだないので，その const だけに合う値として扱う（網羅したとは見なさず，同じ const を2回書いたときだけ冗長）．
+- （補）const のパターン（5.6，6.5）は，値がリテラル，負の数値リテラル，構成子，タプル，リスト，ほかのそういう const だけでできていれば，その値に展開して検査する（`Shapes::const_pat`）．構成子は名前付きの引数を位置に並べ直し，全部のフィールドに値があるときだけ展開する．リストの `[0, ..REST]` は `REST` が展開できるリストなら連結する．
+- （補）展開できない const（関数の呼び出しや演算を含むもの）は，その位置をワイルドカードにして，腕全体をガード付きの腕と同じに扱う（網羅に数えず，下の腕を覆わない）．入れ子の位置（`Some(LIMIT)`）でも腕全体をそう扱う．ガード付きの腕と同じく，上の腕で覆われていれば冗長の警告は出す．束縛のパターンに書けば，網羅しない束縛（E0317）になる．
+- （補）展開の途中で自分に戻る const（E0231 を出している）は展開できないものとして扱う．
+- （補）名前だけで循環する const は E0231（`const_cycle.rs`）．値を評価すると必ず評価する const への辺を張り，強連結成分ごとに，最初に定義した const から自分に戻る最短の道を示す（位置はその const の名前）．「必ず評価する」は，if の条件，match と escape の対象，`&&` と `||` の左辺，呼び出しの関数と引数，演算の両辺，タプル，リスト，ブロックの文などで，if と match の腕，`&&` と `||` の右辺，ラムダの本体，呼んだ関数の本体の中の参照は数えない．数えないものを通る循環は実行時の defect（`const A refers to itself while being evaluated`）に任せる．`const A = if c { B } else { 0 }` のように実行時に循環しないかもしれないものを誤りにしないため．
 - （補）足りない値の例では，名前付きフィールドの構成子も位置で出す（`Circle(_)`）．
 - （補）式の種類は全部扱っている（`ExprKind` の `match` に `_` の腕はない）．`use` と `with` は効果の段で入れた（下の「効果の集合 R」）．
 - （補）仕様の例（2.4，5章，6章，9章）は `tests/spec_examples.rs` で型検査にかける．仕様の例は断片が多いので，足りない定義を補って完全なプログラムにしてある（補った行に「補」と書く）．
@@ -250,6 +253,7 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0408 `CapabilityArgument`: ``a capability cannot be passed as an argument``．注記 ``= help: pass a closure that uses the capability instead``
 - E0409 `CapabilityInData`: ``a capability cannot be stored in a data structure``
 - E0410 `CapabilityReturned`: ``a capability cannot be returned from a function``
+- E0231 `ConstCycle`: ``constants refer to each other: `A` -> `B` -> `A` ``（自分だけなら `` `C` -> `C` ``）
 - E0411 `HandlerCycle`: ``handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped` ``（with と layer で同じ）
 - E0418 `HandlerCtorOutsideInit`: ``handler `Counter` can only be constructed in its own `init` ``．注記 ``= help: use `with Counter { ... }`; `init` and `release` run there``
 - E0419 `MissingInit`: ``handler `NoInit` has fields but no `init` ``．注記 ``= help: add `init { ... }` that returns `NoInit(...)` ``

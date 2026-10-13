@@ -83,6 +83,11 @@
 - （補）文字列の順序比較はコードポイントの辞書順（`$scmp`）．JS の `<` は UTF-16 の順なので使わない．等値は `===`．仕様 10.6，16.2 に反映済み．
 - （補）基本型以外の `==` は `$eq` で構造を比べる．長いリストでもスタックを使わないよう明示的なスタックで辿る．NaN は自分自身とも等しくない．
 - （補）補間での表示: Bool は `True` / `False`（enum のバリアント名），Float は整数値で有限なら `1.0` のように `.0` を付ける．それ以外の Float は JS の `String`（`1e+21`，`-2.5e-8`，`Infinity`，`NaN`）．桁数は最短で往復できる桁数（JS の Number#toString と同じ規則）で，WASM 側でもこれに合わせる．Int64 は `n` を付けない．仕様 10.6 に反映済み．
+- （補）const（`Function::constant`）は，状態のセル `X$cell`，本体の関数 `X$init`，ランタイムの `$constant` を呼ぶ `X()` の3つにする．`$constant` は最初の呼び出しで `X$init` を呼んで値を覚え，2回目からは覚えた値を返す（5.6）．
+- （補）const の評価の途中の defect は，`while evaluating const X: ` を前に付けた defect にして覚え，次の参照からも同じ defect を投げる（評価し直さない）．値は純粋なので評価し直しても同じ defect になり，覚えておくほうが「1回だけ評価する」に合う．入れ子の const はそれぞれ名前を足す（`while evaluating const A: while evaluating const B: division by zero`）．名前は IR の名前で，ほかのモジュールの const は `Config.DEFAULT` のようにモジュール名が付く．
+- （補）評価の途中の const を参照すると `const X refers to itself while being evaluated` の defect にする．この defect には名前を足さず，通った const のどれも覚えない（評価していない状態に戻す）．通った const が覚えると，最初にどこから参照したかで次の参照の文面が変わるため．どの const も次の参照でまた評価し，同じ defect になる．
+- （補）defect でない例外（JS のスタックのあふれなど）も，const を評価していない状態に戻して投げ直す．
+- （補）テストランナーはテストを同じモジュールで続けて呼ぶので，const の値（と覚えた defect）はテストの間で共有される．
 - （補）defect は `$Defect`（`name` が `"Defect"` の `Error`）を投げる．メッセージは英語で `division by zero`，`unreachable: no match arm matched`，`panic` は渡したメッセージ．
 - （補）match の対象はリテラルか変数でなければ一時変数に1回だけ入れる．腕は `if` の列で，ガードはパターンの束縛の後に評価する．無条件に合う腕があればそれ以降の腕と `$unreachable()` を出さない．
 - （補）評価順: 引数の後ろの方に文を要する式（`let`，`match` など）があると，それより左の引数を先に一時変数へ束縛してから文を出す．リテラル・変数・関数・ラムダは束縛しない．

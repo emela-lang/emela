@@ -129,6 +129,9 @@ pub enum DiagnosticKind {
     /// spec 8.3, 8.5, 14.2). `cycle` names the handlers along the cycle, repeating the first one
     /// at the end.
     HandlerCycle { cycle: Vec<SmolStr> },
+    /// Consts whose values certainly evaluate each other (E0231, spec 5.6). `cycle` names the
+    /// consts along the cycle, repeating the first one at the end.
+    ConstCycle { cycle: Vec<SmolStr> },
     /// A handler value's constructor used outside that handler's `init` (E0418, spec 8.4).
     HandlerCtorOutsideInit { handler: SmolStr },
     /// A handler with fields but no `init` (E0419, spec 8.4).

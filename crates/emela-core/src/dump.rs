@@ -59,6 +59,9 @@ pub fn dump(m: &Module) -> String {
         if f.suspends {
             p.out.push_str("suspend ");
         }
+        if f.constant {
+            p.out.push_str("const ");
+        }
         let params: Vec<String> = f.params.iter().map(|&l| p.local(l)).collect();
         if let Some(ext) = &f.external {
             let bindings: Vec<String> = ext

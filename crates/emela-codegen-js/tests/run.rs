@@ -1568,3 +1568,76 @@ fn showing_type_param_outside_enum_show_panics() {
     );
     emit_module(&m, &Options::default());
 }
+
+/// A const (spec 5.6) is evaluated on the first reference only, and its value is remembered.
+/// A defect while evaluating names the const and is remembered too; a reference to a const while
+/// it is being evaluated is a defect.
+#[test]
+fn constants_are_evaluated_once() {
+    // `ANSWER` traces its evaluation with `dbg`; `main` refers to it twice.
+    let mut m = Module::new();
+    let answer = m.declare("ANSWER", false);
+    m.functions[answer].constant = true;
+    let ignored = m.local("ignored");
+    m.define(
+        answer,
+        vec![],
+        let_(
+            ignored,
+            builtin_ty(
+                Builtin::Dbg,
+                vec![Type::String],
+                vec![string("evaluating ANSWER")],
+            ),
+            int(21),
+        ),
+    );
+    main_fn(
+        &mut m,
+        bin(
+            BinOp::Add,
+            OpTy::Int,
+            call(answer, vec![]),
+            call(answer, vec![]),
+        ),
+    );
+    let (stdout, stderr) = run_stderr("constant_evaluated_once", m);
+    assert_eq!(stdout, "42\n");
+    assert_eq!(stderr, "\"evaluating ANSWER\"\n");
+
+    // `OUTER = INNER + 1` and `INNER = 1 / 0`: each const on the way adds its name.
+    let mut m = Module::new();
+    let inner = m.declare("INNER", false);
+    let outer = m.declare("OUTER", false);
+    m.functions[inner].constant = true;
+    m.functions[outer].constant = true;
+    m.define(inner, vec![], bin(BinOp::Div, OpTy::Int, int(1), int(0)));
+    m.define(
+        outer,
+        vec![],
+        bin(BinOp::Add, OpTy::Int, call(inner, vec![]), int(1)),
+    );
+    main_fn(&mut m, call(outer, vec![]));
+    let r = run_with("constant_defect", &m, RuntimeMode::Import(None));
+    assert_eq!(
+        r.stdout,
+        "defect: while evaluating const OUTER: while evaluating const INNER: division by zero\n",
+        "{}",
+        r.stderr
+    );
+
+    // `SELF = f()` where `f` refers to `SELF`.
+    let mut m = Module::new();
+    let this = m.declare("SELF", false);
+    let f = m.declare("f", false);
+    m.functions[this].constant = true;
+    m.define(this, vec![], call(f, vec![]));
+    m.define(f, vec![], call(this, vec![]));
+    main_fn(&mut m, call(this, vec![]));
+    let r = run_with("constant_self_reference", &m, RuntimeMode::Import(None));
+    assert_eq!(
+        r.stdout, "defect: const SELF refers to itself while being evaluated\n",
+        "{}",
+        r.stderr
+    );
+}

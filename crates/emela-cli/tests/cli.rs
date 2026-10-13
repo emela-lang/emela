@@ -708,3 +708,111 @@ fn run_calls_external_module_next_to_the_source() {
         (Some(101), "", "[97, 65533]\ndefect: TypeError: bad\n")
     );
 }
+
+/// A const is evaluated on its first reference only, and a defect while evaluating it names the
+/// const and is remembered: the tests share the values, and an unused const with a defect does not
+/// get in the way (spec 5.6).
+#[test]
+fn constants_are_evaluated_once() {
+    let project = Project::new(
+        "const-once",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                r#"const ANSWER = traced("ANSWER", 21)
+const BROKEN = traced("BROKEN", 1) / zero()
+const UNUSED = 1 / zero()
+
+fn traced(name: String, n: Int) -> Int {
+  dbg("evaluating #{name}")
+  n
+}
+
+fn zero() -> Int { 0 }
+
+@test
+fn first() {
+  assert ANSWER + ANSWER == 42
+  assert BROKEN == 0
+}
+
+@test
+fn second() {
+  assert ANSWER == 21
+  assert BROKEN == 0
+}
+
+fn main() {
+  dbg(ANSWER + ANSWER)
+  dbg(ANSWER)
+}
+"#,
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "\"evaluating ANSWER\"\n42\n21\n")
+    );
+    let run = project.emela(&["test"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert_eq!(
+        run.stdout
+            .matches("defect: while evaluating const BROKEN: division by zero")
+            .count(),
+        2,
+        "{run:?}"
+    );
+    let traces = format!("{}{}", run.stdout, run.stderr);
+    assert_eq!(traces.matches("evaluating ANSWER").count(), 1, "{run:?}");
+    assert_eq!(
+        traces.matches("\"evaluating BROKEN\"").count(),
+        1,
+        "{run:?}"
+    );
+}
+
+/// Referring to a const while it is being evaluated is a defect, and consts that refer to each
+/// other by name only are an error at compile time (E0231, spec 5.6).
+#[test]
+fn const_cycles() {
+    let project = Project::new(
+        "const-self",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(101),
+            "",
+            "defect: const A refers to itself while being evaluated\n"
+        )
+    );
+
+    let project = Project::new(
+        "const-cycle",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "const A = B\nconst B = A + 1\n\nfn main() {\n  dbg(A)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr
+            .contains("error[E0231]: constants refer to each other: `A` -> `B` -> `A`"),
+        "{run:?}"
+    );
+}

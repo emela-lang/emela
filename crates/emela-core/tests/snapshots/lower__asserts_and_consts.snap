@@ -11,7 +11,7 @@ export fn main() {
   assert(is_small(LIMIT()), text: "is_small(LIMIT)")
 }
 
-fn LIMIT() {
+const fn LIMIT() {
   3
 }
 
@@ -24,11 +24,11 @@ fn classify(n%13) {
   }
 }
 
-fn ORIGIN() {
+const fn ORIGIN() {
   (0, 0)
 }
 
-fn EMPTY() {
+const fn EMPTY() {
   []
 }
 
