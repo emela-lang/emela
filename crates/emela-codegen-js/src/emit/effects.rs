@@ -15,6 +15,20 @@ use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, 
 
 use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
+/// Whether evaluating `e` may suspend (a suspending call or fiber operation outside lambdas).
+fn may_suspend(e: &Expr) -> bool {
+    match e {
+        Expr::Lambda { .. } => false,
+        Expr::Call { suspends: true, .. } => true,
+        Expr::Fiber { op, .. } if op.suspends() => true,
+        _ => {
+            let mut found = false;
+            e.for_each_child(&mut |c| found = found || may_suspend(c));
+            found
+        }
+    }
+}
+
 /// The evidence table key. For an effect with type arguments (`State.State[Int]`, spec 8.1),
 /// turning the name into an identifier could collapse the type argument delimiters and collide,
 /// so the IR effect index is appended to keep keys distinct.
@@ -147,12 +161,14 @@ impl Emitter<'_> {
     ///   $t0 = $e;
     ///   throw $e;
     /// } finally {
+    ///   const $t1 = $hold();           // only when the release may suspend (spec 11.4)
     ///   try {
     ///     …                            // release
-    ///     …                            // release
+    ///   } catch ($e) {
     ///     throw $releaseDefect($t0, $e, "Pool");
     ///   } finally {
     ///     $retire(h$1, "Pool");
+    ///     $unhold($t1);
     ///   }
     /// }
     /// ```
@@ -176,6 +192,13 @@ impl Emitter<'_> {
             self.line("  throw $e;");
             self.line("} finally {");
             self.indent += 1;
+            // A release that may suspend is not interrupted until it ends (spec 11.4).
+            let hold = may_suspend(&r.body).then(|| {
+                let h = self.tmp();
+                let f = self.rt("$hold");
+                self.line(&format!("const {h} = {f}();"));
+                h
+            });
             self.line("try {");
             self.indent += 1;
             // The release value is discarded. It cannot fail (E is empty, spec 8.4), so it needs
@@ -192,6 +215,10 @@ impl Emitter<'_> {
             let retire = self.rt("$retire");
             self.line("} finally {");
             self.line(&format!("  {retire}({name}, {handler});"));
+            if let Some(h) = hold {
+                let f = self.rt("$unhold");
+                self.line(&format!("  {f}({h});"));
+            }
             self.line("}");
             self.indent -= 1;
             self.line("}");

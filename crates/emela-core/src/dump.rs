@@ -3,7 +3,7 @@
 //! 見た目は Emela に寄せるが，ソースと取り違えないように Emela にない印を付ける
 //! （束縛の `let`，局所変数の `%番号`，組み込み関数の `@`，演算子の `[OpTy]`，
 //! 失敗しうる呼び出しの後ろの `?`，中断しうる呼び出しの後ろの `!`，error の enum の `error enum`，
-//! 証拠の表の `use[X](ctx)` と `provide(..)`，操作の呼び出しの `h.X#op(..)`）．
+//! 証拠の表の `use[X](ctx)` と `provide(..)`，操作の呼び出しの `h.X#op(..)`，並行性の操作の `fiber#op(..)`）．
 //! 中断しうる関数とラムダ，suspend fn の操作には `suspend` を前に付ける．
 //! IR が区別していることは全部書き分ける．読み戻すことは考えない．
 //!
@@ -22,8 +22,8 @@
 use std::fmt::Write;
 
 use crate::ir::{
-    Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, Lit, Local, Module, OpTy, Pat, StrPart,
-    Type, UnOp, VariantFields,
+    Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, Lit, Local, Module, OpTy, Pat,
+    StrPart, Type, UnOp, VariantFields,
 };
 
 /// モジュール全体を出す．enum を先に，関数を後に，それぞれ ID の順で並べる．
@@ -450,6 +450,27 @@ impl Printer<'_> {
                 self.newline();
                 self.out.push_str("} ");
                 self.braced(body);
+            }
+            Expr::Fiber { op, args } => {
+                write!(self.out, "fiber#{}", op.name()).unwrap();
+                match op {
+                    FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => {
+                        write!(self.out, "[{}]", self.m.enums[*exit].name).unwrap();
+                    }
+                    FiberOp::CauseKind { kind } => {
+                        write!(self.out, "[{}]", self.m.enums[*kind].name).unwrap();
+                    }
+                    _ => {}
+                }
+                self.out.push('(');
+                self.exprs(args);
+                self.out.push(')');
+                if op.suspends() {
+                    self.out.push('!');
+                }
+                if op.fails() {
+                    self.out.push('?');
+                }
             }
         }
     }

@@ -222,5 +222,6 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             }
             f(body);
         }
+        Expr::Fiber { args, .. } => args.iter_mut().for_each(f),
     }
 }

@@ -119,6 +119,7 @@ pub(super) fn has_suspending_call(e: &Expr) -> bool {
     match e {
         Expr::Lambda { .. } => false,
         Expr::Call { suspends: true, .. } => true,
+        Expr::Fiber { op, .. } if op.suspends() => true,
         _ => {
             let mut found = false;
             e.for_each_child(&mut |c| found = found || has_suspending_call(c));

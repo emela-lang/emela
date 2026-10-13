@@ -250,3 +250,8 @@ pub fn p_list(elems: Vec<Pat>, rest: Option<Pat>) -> Pat {
         rest: rest.map(Box::new),
     }
 }
+
+/// 並行性の操作（11章）．
+pub fn fiber(op: FiberOp, args: Vec<Expr>) -> Expr {
+    Expr::Fiber { op, args }
+}
