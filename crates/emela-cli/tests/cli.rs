@@ -556,7 +556,8 @@ fn run_and_test_fibers_example() {
         (run.code, run.stdout.as_str(), run.stderr.as_str()),
         (
             Some(0),
-            "fetched 2\nfetched 1\nall: [\"user 1\", \"user 2\"]\nfetched 4\nrace: user 4\n\
+            "fetched 2\nfetched 1\nboth: user 1, user 2\nfetched 5\nfetched 4\nfetched 3\n\
+             map: [\"user 3\", \"user 4\", \"user 5\"]\nfetched 7\nrace: user 7\n\
              timeout: None\nfetched -1\nnot found: -1\n",
             ""
         )
@@ -589,6 +590,36 @@ fn run_and_test_notes_example() {
     );
     let run = project.emela(&["run"]);
     assert_eq!(run.stdout, "buy milk\n2 note(s)\n[\"monday.txt\"]\n");
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_http_example() {
+    // The `examples/http` example. TestHttp answers with a function, so neither `run` nor `test`
+    // touches the network; a 404 is a response and a missing answer is ConnectionFailed (spec 15.2).
+    let project = Project::new(
+        "http",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/http/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "Emela: typed errors and effects\nstatus 404\n\
+             unreachable: TestServer returned no response\n\
+             sent https://search.example.com/search?q=emela&page=1\n\
+             sent https://search.example.com/search?q=%E6%9D%B1%E4%BA%AC&page=1\n\
+             sent https://search.example.com/search?q=again&page=1\n",
+            ""
+        )
+    );
     assert_eq!(project.emela(&["test"]).code, Some(0));
 }
 

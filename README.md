@@ -5,10 +5,10 @@ JavaScript and WebAssembly.
 
 ## Status
 
-This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.4**:
-the pure subset, typed errors and effects, suspending effects, and handlers
-with state compile to JavaScript and run on Node.js. The 0.11
-compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
+This branch is the 0.20 rebuild. The current release is **0.20.0-alpha.5**:
+the pure subset, typed errors and effects, suspending effects, handlers with
+state, fibers, files and an HTTP client compile to JavaScript and run on
+Node.js. The 0.11 compiler lives on the [`legacy`](https://github.com/emela-lang/emela/tree/legacy)
 branch.
 
 | Release        | Adds                                                                                                                       |
@@ -17,9 +17,8 @@ branch.
 | 0.20.0-alpha.2 | Typed errors and effects: `error`, `fail`, `escape`, `effect`, `handler`, `use`, `with`, `@external`, `Console`            |
 | 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
 | 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`, the `Std` namespace, `Platform`                              |
-| 0.20.0-alpha.5 | Fibers: `Fiber.scope`, `fork`, interruption                                                                                |
-| Later in 0.20  | `Map`, `Set`, `Array`, `FileSystem`, `Http`                                                                                |
-| 0.21 and later | `trait`, `impl`, `derive`, WebAssembly output                                                                              |
+| 0.20.0-alpha.5 | Fibers (`Std.Fiber`, `Std.Cause`, `Std.Deferred`), `FileSystem`, `Std.Path`, the `Http` client                             |
+| 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, `Semaphore`, `Queue`, an `Http` server, WebAssembly output       |
 
 The 0.20 language specification is still being written. The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
@@ -28,10 +27,11 @@ repository describes the 0.1x language, not 0.20.
 ## Install
 
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
-Running the generated JavaScript (`emela run`, `emela test`) needs Node.js.
+Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
+or later.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.4 sh
+curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | EMELA_VERSION=v0.20.0-alpha.5 sh
 emela --version
 ```
 
@@ -328,11 +328,13 @@ liftoff
 ```
 
 The bundled std lives under `Std` and is imported: the platform effects
-`Std.Console`, `Std.Clock`, `Std.Random` and `Std.Env`, each with its host
-handler (`SystemConsole`, `SystemClock`, `SystemRandom`, `SystemEnv`), the layer
-`Std.Platform.Platform` that bundles them, `Std.State`, `Std.Instant` and
-`Std.Duration`. The test handlers `TestConsole` and `TestClock` keep their state
-in `State`. The core modules (`List`, `Option`, `String`, `Int`, `Int64`,
+`Std.Console`, `Std.Clock`, `Std.Random`, `Std.Env`, `Std.FileSystem` and
+`Std.Http`, each with its host handler (`SystemConsole`, `SystemClock`,
+`SystemRandom`, `SystemEnv`, `SystemFileSystem`, `SystemHttp`), the layer
+`Std.Platform.Platform` that bundles them, `Std.State`, `Std.Fiber`,
+`Std.Cause`, `Std.Deferred`, `Std.Path`, `Std.Instant` and `Std.Duration`. The
+test handlers `TestConsole`, `TestClock`, `TestFileSystem` and `TestHttp` keep
+their state in `State`. The core modules (`List`, `Option`, `String`, `Int`, `Int64`,
 `Float`) need no import.
 
 Handlers can hold state: `init` runs when a `with` is entered and builds the
@@ -363,7 +365,121 @@ recorded.
 # lines == ["hello, a", "hello, b"]
 ```
 
-Not yet supported: fibers.
+Fibers run concurrently on one thread and switch only where a call may
+suspend. They start only inside `Fiber.scope`, and every fiber ends before its
+scope does; a failing fiber interrupts its siblings, and the error reaches the
+scope. `Fiber.both`, `Fiber.map`, `Fiber.all`, `Fiber.race` and `Fiber.timeout`
+are built on the scope, so `Fiber.scope` and `Fiber.fork` are needed only for
+the shapes they do not cover. This is [`examples/fibers`](examples/fibers),
+where `fetch(id, ms)` sleeps for `ms` and prints `fetched <id>`:
+
+```emela
+fn main() {
+  with SystemConsole, SystemClock {
+    console = use Console
+    # The waits overlap: the second fetch ends first.
+    (a, b) = Fiber.both(fn() { fetch(1, 200) }, fn() { fetch(2, 100) })
+    console.print_line("both: #{a}, #{b}")
+    names = Fiber.map([3, 4, 5], fn(id) { fetch(id, 100 * (6 - id)) })
+    console.print_line("map: #{names}")
+    first = Fiber.race([fn() { fetch(6, 300) }, fn() { fetch(7, 100) }])
+    console.print_line("race: #{first}")
+    late = Fiber.timeout(100, fn() { fetch(8, 1000) })
+    console.print_line("timeout: #{late}")
+    # A failing child interrupts its siblings, and the error reaches the scope.
+    failed = Fiber.scope(fn() {
+      ok = Fiber.fork(fn() { fetch(9, 1000) })
+      bad = Fiber.fork(fn() { fetch(-1, 100) })
+      "#{Fiber.join(ok)} #{Fiber.join(bad)}"
+    }) escape {
+      NotFound(id:) -> "not found: #{id}"
+    }
+    console.print_line(failed)
+  }
+}
+```
+
+```console
+$ emela run
+fetched 2
+fetched 1
+both: user 1, user 2
+fetched 5
+fetched 4
+fetched 3
+map: ["user 3", "user 4", "user 5"]
+fetched 7
+race: user 7
+timeout: None
+fetched -1
+not found: -1
+```
+
+`FileSystem` reads and writes text, and each operation fails only with the
+errors it lists, so `escape` handles exactly those. `Std.Path` builds path
+strings. From [`examples/notes`](examples/notes):
+
+```emela
+## Appends `text` as a line to `notes/<day>.txt` and returns the number of lines in it.
+fn note(day: String, text: String) {
+  fs = use FileSystem
+  fs.create_directory(DIR)
+  path = Path.join(DIR, "#{day}.txt")
+  fs.append_text(path, "#{text}\n")
+  String.split(fs.read_text(path), "\n") |> List.filter(fn(l) { l != "" }) |> List.length
+}
+
+## The text of `notes/<day>.txt`, or a message if there is none.
+fn show(day: String) {
+  (use FileSystem).read_text(Path.join(DIR, "#{day}.txt")) escape {
+    FileNotFound(path:) -> "no notes in #{path}"
+  }
+}
+```
+
+`Http` is a client with one operation, `send`; requests and responses are
+values, and a 4xx or 5xx status is a response, not a failure. `TestHttp`
+answers with a function, so tests need no network. From
+[`examples/http`](examples/http):
+
+```emela
+fn search_request(query: String, page: Int) -> Request {
+  query_string = Http.encode_query([("q", query), ("page", Int.to_string(page))])
+  Http.request(Get, "#{BASE}/search?#{query_string}") |> Http.add_header("accept", "text/plain")
+}
+
+fn first_result(query: String) {
+  first_line(query) escape {
+    UnexpectedStatus(status:, body: _) -> "status #{status}"
+    ConnectionFailed(url: _, message:) -> "unreachable: #{message}"
+  }
+}
+
+@test
+fn a_404_is_not_a_failure() {
+  server = TestServer(respond: fn(req, n) { Some(Http.response(404, "")) }, sent: [])
+  (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
+  assert text == "status 404"
+  assert List.length(after.sent) == 1
+}
+```
+
+With `with Platform { ... }`, the same code sends real requests through
+`fetch`. For a deadline, wrap the call in `Fiber.timeout`; interrupting a fiber
+that waits on `send` aborts the request.
+
+## Known limitations
+
+- No binary data: there is no `Bytes`, so `FileSystem` and `Http` handle UTF-8
+  text only.
+- No JSON yet; it comes in 0.21 with traits.
+- The JavaScript target assumes a server host: Node.js 18 or later, Deno, or
+  Bun. Browsers are not supported in 0.20.
+- No limit on how many fibers run at once (`Semaphore`), no `Queue` and no
+  `Http` server yet; they come in 0.21.
+- Some checks that scopes, fiber handles, `Deferred` values and handler
+  capabilities do not escape run at run time in 0.20 (a defect such as
+  `fiber scope was used after it ended`). 0.22 makes them all static.
 
 ## Crates
 
