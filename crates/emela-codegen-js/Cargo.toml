@@ -4,7 +4,6 @@ description = "Emits JS from the Core IR: generator transform, embedded JS runti
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
 
 [dependencies]
 emela-core.workspace = true

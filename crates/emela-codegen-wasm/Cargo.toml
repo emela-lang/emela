@@ -4,7 +4,6 @@ description = "Emits WASM from the Core IR: Perceus reference counting, state-ma
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
 
 [dependencies]
 emela-core.workspace = true

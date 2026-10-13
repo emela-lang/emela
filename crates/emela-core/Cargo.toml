@@ -4,7 +4,6 @@ description = "Core IR definition and lowering from the typed tree: derive expan
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
 
 [dependencies]
 emela-resolve.workspace = true

@@ -4,7 +4,6 @@ description = "Type inference, fails and use inference, trait resolution, match 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
 
 [dependencies]
 emela-resolve.workspace = true
@@ -14,6 +13,8 @@ rustc-hash.workspace = true
 smol_str.workspace = true
 
 [dev-dependencies]
-emela-core.workspace = true
+# No version: emela-core depends on this crate, and a path-only dev-dependency is
+# dropped by `cargo package` instead of being resolved (see release-plz.toml).
+emela-core = { path = "../emela-core" }
 emela-syntax.workspace = true
 insta.workspace = true
