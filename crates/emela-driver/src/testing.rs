@@ -1,8 +1,9 @@
-//! `emela test` の段（仕様 13章）．
+//! The `emela test` stage (spec chapter 13).
 //!
-//! ソースから `@test` の関数を集める部分（[`collect_tests`]，[`resolve_tests`]．型検査
-//! [`Typecheck`] の中で呼ぶ），テスト関数を根にして Core IR へ写すフロントエンド（[`LowerTests`]），
-//! Core IR のテスト関数を JS にして node で1つずつ呼ぶ部分（[`TestBackend`]，[`test`]）からなる．
+//! Consists of collecting `@test` functions from source ([`collect_tests`], [`resolve_tests`];
+//! called inside the [`Typecheck`] type checker), a frontend lowering to Core IR with the test
+//! functions as roots ([`LowerTests`]), and turning the Core IR test functions into JS and calling
+//! them one by one on node ([`TestBackend`], [`test`]).
 
 mod collect;
 mod report;
@@ -34,34 +35,34 @@ use crate::pipeline::{
 use crate::run::{Output, exit_code, spawn_error};
 use crate::source::{FileId, FileSystem, SourceFile};
 
-/// プロジェクト（単独ファイルならファイルのあるディレクトリ）からの，テストの JS の既定の出力先．
-/// 通常のビルド（`target/emela/js`）とは分ける．テスト関数を export した別の出力になるため．
+/// The default JS output directory for tests, relative to the project (or to the file's
+/// directory for a single file). Kept apart from the normal build (`target/emela/js`) because the
+/// output differs: it exports the test functions.
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
 
-/// テストの起動用モジュールの出力ファイル名．node はこれを実行する．
+/// The file name of the test entry module, which node runs.
 pub const JS_TEST_ENTRY_FILE: &str = "emela_test.mjs";
 
-/// `input` のテストの既定の出力先．
 pub fn default_test_out_dir(input: &Input) -> PathBuf {
     input.base.join(JS_TEST_OUT_DIR)
 }
 
-/// 型検査まで通った `@test` の関数．`def` は HIR の定義．
+/// A `@test` function that passed type checking. `def` is its HIR definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestDef {
     pub test: TestFn,
     pub def: DefId,
 }
 
-/// 集めた `@test` の関数に HIR の定義を対応させ，通常のコードからテスト関数を参照している
-/// 箇所を E0227 にする．テスト関数は通常のビルドで取り除かれる（13.1）ので，参照できない．
-/// テスト関数どうしの参照は許す．
+/// Maps collected `@test` functions to HIR definitions, and reports references to test functions
+/// from normal code as E0227. Test functions are removed from the normal build (spec 13.1), so
+/// they cannot be referenced. References between test functions are allowed.
 pub(crate) fn resolve_tests(
     analysis: &Analysis,
     hir: &Program,
     tests: Vec<TestFn>,
 ) -> (Vec<TestDef>, Vec<Diagnostic>) {
-    // `TestFn::name_range` は名前解決の `DefData::span` と同じ範囲．
+    // `TestFn::name_range` is the same range as the resolver's `DefData::span`.
     let tests: Vec<TestDef> = tests
         .into_iter()
         .filter_map(|test| {
@@ -102,8 +103,9 @@ pub(crate) fn resolve_tests(
     (tests, diagnostics)
 }
 
-/// 型検査（[`Typecheck`]）の後に，テスト関数を根にして Core IR へ写すフロントエンド．
-/// `emela test` の既定．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．
+/// A frontend that lowers to Core IR with the test functions as roots, after type checking
+/// ([`Typecheck`]). The default for `emela test`. Lowering is skipped if name resolution or type
+/// checking reported any error.
 pub struct LowerTests<B = NoBuiltins> {
     typecheck: Typecheck<B>,
 }
@@ -153,29 +155,31 @@ impl<B: BuiltinModules> Frontend for LowerTests<B> {
     }
 }
 
-/// テスト関数を含む Core IR．lowering がテスト用に作る（通常のビルドではテスト関数を除く）．
+/// Core IR including test functions. Lowering builds it for tests (the normal build excludes
+/// test functions).
 #[derive(Debug, Clone, Default)]
 pub struct TestModule {
     pub module: emela_core::Module,
-    /// 宣言の順．
+    /// In declaration order.
     pub tests: Vec<TestCase>,
 }
 
-/// テスト関数．`function` は引数のない関数でなければならない．
+/// `function` must take no arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestCase {
-    /// 結果の表示とフィルタに使う名前（[`TestFn::display_name`]）．
+    /// The name used for display and filtering ([`TestFn::display_name`]).
     pub name: String,
     pub function: FnId,
 }
 
-/// テストの JS の出力の差し込み口．エラーが1つもないときだけ呼ぶ．
+/// The plug-in point for test JS emission. Called only when there are no errors.
 pub trait TestBackend<P> {
-    /// `program` のテストの名前．宣言の順．
+    /// In declaration order.
     fn test_names(&self, program: &P) -> Vec<String>;
 
-    /// `selected`（[`TestBackend::test_names`] の添字，昇順）のテストを順に呼ぶ起動用モジュールと，
-    /// それが読むファイルを出す．`entry` が起動用モジュールで，node はこれを直接実行する．
+    /// Emits an entry module that calls the `selected` tests (indices into
+    /// [`TestBackend::test_names`], ascending) in order, plus the files it reads. `entry` is the
+    /// entry module, which node runs directly.
     fn emit_tests(
         &mut self,
         program: &P,
@@ -211,7 +215,8 @@ impl TestBackend<TestModule> for CoreJs {
         _: &Analysis,
     ) -> Result<JsOutput, Vec<Diagnostic>> {
         let mut module = program.module.clone();
-        // 起動用モジュールから呼べるように，選んだテスト関数を Emela の名前で export する．
+        // Export the selected test functions under their Emela names so the entry module can call
+        // them.
         for &i in selected {
             module.functions[program.tests[i].function].exported = true;
         }
@@ -243,24 +248,25 @@ impl TestBackend<TestModule> for CoreJs {
     }
 }
 
-/// `emela test` の実行のしかた．
+/// How `emela test` runs.
 #[derive(Debug, Clone)]
 pub struct TestOptions {
     pub out_dir: PathBuf,
-    /// node の実行ファイル（[`crate::node_program`]）．
+    /// The node executable ([`crate::node_program`]).
     pub node: PathBuf,
-    /// テストの名前の部分文字列．`None` なら全部を実行する．
+    /// A substring of test names; `None` runs all.
     pub filter: Option<String>,
-    /// node の標準エラーの扱い．標準出力は結果を読むためにいつも集める．
+    /// How node's stderr is handled. Stdout is always captured to read results.
     pub output: Output,
 }
 
-/// `emela test` の段．検査し，テストを JS にして書き出し，node で1つずつ実行する．
+/// The `emela test` stage: checks, writes the tests out as JS, and runs them one by one on node.
 ///
-/// 結果は `out` に `cargo test` に近い形で，届いたものから順に書く．`before_node` は
-/// 出力の後，node を起動する前に1度だけ呼ぶ（検査や出力が失敗しても呼ぶ）．CLI はここで診断を出す．
-/// 診断でエラーになったか node を起動できなかったときは，結果が `None`．
-/// node を起動できなかった診断は `before_node` の後に `Analysis` の末尾へ足す．
+/// Results are written to `out` as they arrive, in a format close to `cargo test`. `before_node`
+/// is called once after emission and before node starts (even if checking or emission failed);
+/// the CLI prints diagnostics there. The result is `None` if diagnostics had errors or node could
+/// not start. A diagnostic about failing to start node is appended to `Analysis` after
+/// `before_node`.
 pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -293,7 +299,8 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     }
 }
 
-/// 選んだテストを JS にして書き出す．起動用モジュールのパス，選んだテストの名前，外した数を返す．
+/// Writes the selected tests out as JS. Returns the entry module's path, the selected test names,
+/// and the number filtered out.
 fn prepare<P, B: TestBackend<P>>(
     analysis: &mut Analysis,
     program: Option<P>,
@@ -340,7 +347,7 @@ fn prepare<P, B: TestBackend<P>>(
     Some((entry, selected, filtered_out))
 }
 
-/// テストランナーの書く結果の行（`test_runner.mjs`）．
+/// A result line written by the test runner (`test_runner.mjs`).
 #[derive(Deserialize)]
 #[serde(tag = "event", rename_all = "lowercase")]
 enum Event {
@@ -362,8 +369,8 @@ enum Outcome {
     Interrupted,
 }
 
-/// 起動用モジュールを node で実行し，結果を集めながら `out` に書く．
-/// 結果の行でない標準出力はそのまま `out` に流す．
+/// Runs the entry module on node, writing results to `out` as they are collected. Stdout lines
+/// that are not result lines pass through to `out`.
 fn run_tests(
     node: &Path,
     entry: &Path,
@@ -381,7 +388,7 @@ fn run_tests(
             Output::Capture => Stdio::piped(),
         });
     let mut child = command.spawn().map_err(|err| spawn_error(node, &err))?;
-    // 標準エラーは別のスレッドで読む（パイプが詰まって node が止まらないように）．
+    // Read stderr on another thread so a full pipe cannot stall node.
     let stderr = child.stderr.take().map(|mut pipe| {
         std::thread::spawn(move || {
             let mut buf = Vec::new();
@@ -393,7 +400,7 @@ fn run_tests(
     let _ = report::write_header(out, selected.len());
     let mut results = Vec::new();
     let mut finished = false;
-    let mut stdout = BufReader::new(child.stdout.take().expect("標準出力はパイプにした"));
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -431,8 +438,8 @@ fn run_tests(
         .map(|thread| thread.join().unwrap_or_default())
         .unwrap_or_default();
     if !finished || results.len() < selected.len() {
-        // 途中で node が終わった（外部関数の `process.exit` や，出力の誤り）．
-        // 実行中だったテストを失敗にし，残りは実行しなかった数として添える．
+        // node exited midway (`process.exit` from an external function, or an output error). The
+        // test that was running fails, and the rest are reported as not run.
         let code = exit_code(status);
         if let Some(name) = selected.get(results.len()) {
             let result = TestResult {

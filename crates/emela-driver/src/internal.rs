@@ -1,8 +1,9 @@
-//! 同梱の core の中からだけ参照できる fn（`@internal`）の検査．
+//! Checks for fns visible only inside the bundled core (`@internal`).
 //!
-//! `@internal` は同梱の core のソースのトップレベルの fn にだけ付けられ（E0229），付いた fn は
-//! core のモジュールの外から参照できない（E0228）．opaque な型の中身を別の core のモジュールへ
-//! 渡すときのように，core の中でだけ使わせたい fn に付ける．今の同梱の core に使う fn はない．
+//! `@internal` may only be put on top-level fns in bundled core sources (E0229), and such fns
+//! cannot be referenced from outside core modules (E0228). It is for fns that only core should
+//! use, such as passing the contents of an opaque type to another core module. No fn in the
+//! current bundled core uses it.
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, DefModule, Program};
@@ -14,18 +15,17 @@ use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::pipeline::Analysis;
 
-/// core の中からだけ参照できる fn の注釈の名前．
 pub const INTERNAL_ANNOTATION: &str = "internal";
 
-/// `@internal` の置き場所を確かめ（E0229），core の外から `@internal` の fn を参照している箇所を
-/// E0228 にする．参照には呼び出しだけでなく値としての参照も含む．
+/// Checks where `@internal` is placed (E0229) and reports references to `@internal` fns from
+/// outside core as E0228. References include uses as values, not just calls.
 pub(crate) fn check_internal<'p>(
     analysis: &Analysis,
     hir: &Program,
     parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    // `@internal` の付いた fn の，モジュールと名前の範囲（名前解決の `DefData::span` と同じ）．
+    // Module and name range of each `@internal` fn (same as the resolver's `DefData::span`).
     let mut names: Vec<(ModuleId, TextRange)> = Vec::new();
     for (module, _) in analysis.modules.iter() {
         let (Some(&file), Some(parse)) = (analysis.files.get(module), parse_of(module)) else {

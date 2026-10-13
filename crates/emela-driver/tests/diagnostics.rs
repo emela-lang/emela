@@ -1,4 +1,4 @@
-//! 診断の収集と表示．色なしの出力をスナップショットで見る．
+//! Collecting and rendering diagnostics. Uncolored output is snapshotted.
 
 use std::path::Path;
 
@@ -56,7 +56,8 @@ fn invalid_entry_name() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// 字句解析をして，`import A.B` の行だけを読む仮のパーサ．差し込み口を通して import の検査を確かめる．
+/// A stand-in parser that lexes and reads only `import A.B` lines, to check import checks
+/// through the plug-in point.
 struct ImportLines {
     checked: bool,
 }
@@ -65,7 +66,7 @@ impl Frontend for ImportLines {
     type Program = Vec<ModuleId>;
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
-        // 字句の診断はフロントエンドが出す．
+        // Lexer diagnostics are the frontend's job.
         let mut parsed = LexOnly.parse(module, file, source);
         let mut offset = 0;
         for line in source.text().split_inclusive('\n') {
@@ -103,7 +104,7 @@ fn single_file_sees_only_its_directory() {
             ),
             ("home/src/tools/util.emel", "let x = $\n"),
             ("home/src/tools/Bad.emel", ""),
-            // サブディレクトリと祖先は見ない．
+            // Subdirectories and ancestors are not looked at.
             ("home/src/tools/deep/thing.emel", "let y = $\n"),
             ("home/src/other.emel", "let z = $\n"),
         ],
@@ -132,7 +133,7 @@ fn import_graph_through_frontend() {
         "app",
         &mut frontend,
     );
-    // 循環があると依存順がないので，型検査は呼ばない．
+    // With a cycle there is no dependency order, so the type checker is not called.
     assert!(!frontend.checked);
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
@@ -242,7 +243,7 @@ fn lexical_errors_are_reported_once() {
             "fn main() {\n  \"abc\n}\nconst y = $\n",
         ),
     ];
-    // 字句の診断（E0101〜E0109）だけを取り出す．
+    // Only lexer diagnostics (E0101 to E0109).
     let codes = |analysis: &Analysis| -> Vec<&'static str> {
         analysis
             .diagnostics
@@ -302,7 +303,7 @@ fn single_file_reads_only_what_the_entry_imports() {
             ("tools/main.emel", "import Util\nfn main() { 1 }\n"),
             ("tools/util.emel", "import Strings\nfn f( { 1 }\n"),
             ("tools/strings.emel", "const s = \"x\n"),
-            // どこからも import されないもの．読まず，診断も出さない．
+            // Not imported from anywhere: never read, no diagnostics.
             ("tools/scratch.emel", "fn broken( {\nconst z = $\n"),
             ("tools/Bad.emel", ""),
             ("tools/http_2.emel", ""),
@@ -311,14 +312,14 @@ fn single_file_reads_only_what_the_entry_imports() {
         "tools/main.emel",
         &mut frontend,
     );
-    // 対応表は全部作る．
+    // The module table is always complete.
     let names: Vec<String> = analysis
         .modules
         .iter()
         .map(|(_, m)| m.name.to_string())
         .collect();
     assert_eq!(names, ["Http2", "Main", "Scratch", "Strings", "Util"]);
-    // 読んで構文解析したのはたどれた3つだけ．
+    // Only the three reached modules were read and parsed.
     let read: Vec<String> = analysis
         .modules
         .iter()
@@ -358,7 +359,7 @@ fn project_reads_everything() {
         &mut frontend,
     );
     assert_eq!(analysis.files.iter().count(), 2);
-    // エントリから import されていなくても，プロジェクトなら診断が出る．
+    // In a project, diagnostics are reported even for modules the entry does not import.
     let unused = analysis.sources.file_id("/app/src/unused.emel".as_ref());
     assert!(analysis.has_errors());
     assert!(analysis.diagnostics.iter().all(|d| {
@@ -366,7 +367,7 @@ fn project_reads_everything() {
     }));
 }
 
-/// 同梱の core のソースの代わりに使う小さな core．
+/// A small core used in place of the bundled core sources.
 fn test_core() -> Vec<CoreSource> {
     vec![
         CoreSource {
@@ -390,7 +391,7 @@ fn core_sources_resolve_as_modules() {
                 "app/src/main.emel",
                 "fn main() -> Int {\n  identity(String.length(\"abc\"))\n}\n\n@intrinsic\nfn mine() -> Int\n",
             ),
-            // core と同じ名前のソースのモジュールは隠れ，予約された名前になる．
+            // A source module named like a core module is hidden and gets a reserved name error.
             (
                 "app/src/string.emel",
                 "pub fn length(s: String) -> Int { 0 }\n",
@@ -492,8 +493,8 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// エフェクトの診断（E04xx）の文面．main とテスト関数の R が空でないことも，driver が
-/// main とテスト関数を型推論に渡して確かめる（8.3，13.3）．
+/// The messages of effect diagnostics (E04xx). The driver also passes main and test functions to
+/// inference to check that their R is empty (spec 8.3, 13.3).
 #[test]
 fn effect_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -559,8 +560,8 @@ fn logs() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// suspend，Async，Immediate，宣言の型引数の集合の診断（E0221，E0322〜E0324，E0407，E0413〜E0416）の文面．main の R には Async だけが
-/// 残ってよい（8.3）．
+/// The messages of suspend, Async, Immediate and declaration type argument set diagnostics
+/// (E0221, E0322 to E0324, E0407, E0413 to E0416). Only Async may remain in main's R (spec 8.3).
 #[test]
 fn suspend_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -635,7 +636,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// 状態のあるハンドラと layer の診断（E0411，E0418〜E0422）の文面（8.4，8.5）．
+/// The messages of stateful handler and layer diagnostics (E0411, E0418 to E0422; spec 8.4, 8.5).
 #[test]
 fn stateful_handler_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -705,7 +706,7 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// エフェクトの型引数の診断（E0423，E0424，E0304，E0402）の文面（8.1）．
+/// The messages of effect type parameter diagnostics (E0423, E0424, E0304, E0402; spec 8.1).
 #[test]
 fn effect_type_param_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -766,7 +767,6 @@ layer Twice {
 
 #[test]
 fn bundled_console_checks_cleanly() {
-    // 同梱の Console と JsConsole は import なしで使える（15.2）．
     let main = "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    (use Console).print_line(\"hi\")\n  }\n}\n";
     let files = [("home/main.emel", main)];
     for analysis in [
@@ -778,7 +778,8 @@ fn bundled_console_checks_cleanly() {
     }
 }
 
-/// JS 用の `@external` のない外部関数を，main からハンドラ越しに呼ぶもの．`wasm_unused` は使わない．
+/// An external function without a JS `@external`, called from main through a handler.
+/// `wasm_unused` is never used.
 const WASM_ONLY: &str = r#"effect Clock {
   fn now() -> Int
 }
@@ -804,20 +805,21 @@ fn main() {
 
 #[test]
 fn reachable_external_without_target() {
-    // build，run，test の lowering は，main からたどれる外部関数に JS の注釈を求める（12.1）．
+    // Lowering for build, run and test requires JS annotations on external functions reachable
+    // from main (spec 12.1).
     let files = [("home/main.emel", WASM_ONLY)];
     let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
-    // check と LSP（型検査まで）はターゲットを決めないので検査しない．
+    // check and the LSP (up to type checking) choose no target, so they do not check.
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
 
 #[test]
 fn internal_fns_are_core_only() {
-    // `@internal` の fn は core のモジュールからは呼べ，ソースのモジュールからは呼べない（E0228）．
-    // `@internal` はソースのモジュールには書けない（E0229）．今の同梱の core には `@internal` の
-    // fn がないので，テスト用の core のモジュールを足す．
+    // `@internal` fns can be called from core modules but not from source modules (E0228), and
+    // `@internal` cannot be written in source modules (E0229). The bundled core has no `@internal`
+    // fn, so a test core module is added.
     let mut core = CoreSource::bundled();
     core.push(CoreSource {
         module: "Secret".into(),
@@ -853,8 +855,9 @@ fn mine() -> Int { 1 }
 
 #[test]
 fn std_and_core_module_files_are_reserved() {
-    // core のモジュールと同じ名前のファイルと，`std.emel` と `std/` はソースのルート直下に置けない
-    // （4.1，E0203）．std のモジュールは `Std` の下にあるので，`instant.emel` は置ける（15.2）．
+    // Files named like core modules, and `std.emel` and `std/`, cannot sit directly under the
+    // source root (spec 4.1, E0203). Std modules live under `Std`, so `instant.emel` is allowed
+    // (spec 15.2).
     let analysis = check_files(
         &[
             ("app/Pome.toml", ""),

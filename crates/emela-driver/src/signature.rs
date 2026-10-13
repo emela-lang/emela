@@ -1,8 +1,9 @@
-//! 呼び出しのシグネチャ（LSP の `textDocument/signatureHelp`）．
+//! Call signatures (LSP `textDocument/signatureHelp`).
 //!
-//! カーソルを含む一番内側の呼び出しの，呼ぶ先の型とラベルを見せる．引数の位置はカーソルの前の
-//! テキストのカンマを数えて決める．パイプの右辺の呼び出し（`x |> f(a)`）は左辺が第1引数に入る
-//! ので（6.7），第1引数を除いた形を見せる．
+//! Shows the callee type and labels of the innermost call containing the cursor. The active
+//! argument is found by counting commas in the text before the cursor. For a call on the right of
+//! a pipe (`x |> f(a)`), the left side fills the first argument (spec 6.7), so it is shown
+//! without the first parameter.
 
 use std::ops::Range;
 
@@ -14,13 +15,13 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// 呼び出しのシグネチャ．`label` は `find(id: Int) -> User fails NotFound` の形．
+/// `label` looks like `find(id: Int) -> User fails NotFound`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureInfo {
     pub label: String,
-    /// 引数ごとの `label` の中のバイトの範囲（`id: Int`）．
+    /// The byte range of each parameter within `label` (`id: Int`).
     pub params: Vec<Range<usize>>,
-    /// カーソルのある引数．引数の数を超えれば `None`．
+    /// The argument under the cursor; `None` past the last parameter.
     pub active: Option<usize>,
 }
 
@@ -67,18 +68,17 @@ pub(crate) fn signature_help(
     })
 }
 
-/// カーソルを括弧の中に含む呼び出し．
+/// A call whose parentheses contain the cursor.
 pub(crate) struct CallAt {
-    /// 呼ぶ先の式．
     pub callee: ExprId,
-    /// 開き括弧の位置．
     pub open: TextSize,
-    /// パイプの右辺の呼び出しか．そうなら左辺の値が第1引数に入る（6.7）．
+    /// Whether the call is on the right of a pipe, in which case the left value fills the first
+    /// argument (spec 6.7).
     pub piped: bool,
 }
 
-/// カーソルを括弧の中に含む一番内側の呼び出し．閉じていない呼び出しは範囲の終わりの位置も
-/// 括弧の中とみなす．
+/// The innermost call whose parentheses contain the cursor. For an unclosed call, the end of its
+/// range also counts as inside.
 pub(crate) fn call_at(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -116,16 +116,16 @@ pub(crate) fn call_at(
         })
 }
 
-/// 呼び出しがパイプの右辺か．
 fn is_piped(program: &TypedProgram, call: ExprId) -> bool {
     program.hir.exprs.iter().any(
         |(_, e)| matches!(e.kind, ExprKind::Binary { op: BinaryOp::Pipe, rhs, .. } if rhs == call),
     )
 }
 
-/// パイプの右辺の呼び出しなら，左辺の値が入る第1引数を引数の型とラベルから除く．型検査は左辺を
-/// 位置引数の先頭に足して読むので，名前付き引数をどう書いても左辺は第1引数に入る（6.2，6.7）．
-/// 残りのラベルを返す．ラベルのない呼ぶ先（関数値）は空のまま．
+/// For a call on the right of a pipe, drops the first parameter (filled by the left value) from
+/// the parameter types and labels. The type checker prepends the left side to the positional
+/// arguments, so it fills the first parameter however named arguments are written (spec 6.2,
+/// 6.7). Returns the remaining labels; callees without labels (function values) stay empty.
 pub(crate) fn without_piped<T>(
     piped: bool,
     params: &mut Vec<T>,
@@ -140,7 +140,8 @@ pub(crate) fn without_piped<T>(
     labels
 }
 
-/// 呼ぶ先の名前，型，型引数，ラベル．定義（関数，構成子），effect の操作，それ以外の式の型の順に見る．
+/// The callee's name, type, type parameters and labels. Looks at definitions (functions,
+/// constructors), effect operations, then the type of any other expression.
 pub(crate) type Callee = (String, Ty, Vec<TyParam>, Vec<Option<smol_str::SmolStr>>);
 
 pub(crate) fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Callee> {
@@ -184,8 +185,8 @@ pub(crate) fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Call
     Some((name, ty, params, Vec::new()))
 }
 
-/// 括弧の中の書いたテキストを，括弧の入れ子の外のカンマで引数に分ける（文字列の中は数えない）．
-/// 最後の要素が書きかけの引数．
+/// Splits the text inside the parentheses into arguments at commas outside nested brackets
+/// (ignoring strings). The last element is the argument being written.
 pub(crate) fn split_args(args: &str) -> Vec<&str> {
     let mut depth = 0usize;
     let mut in_string = false;
@@ -215,7 +216,7 @@ pub(crate) fn split_args(args: &str) -> Vec<&str> {
     parts
 }
 
-/// 引数が `ラベル:` で始まれば，そのラベル．
+/// The label if the argument starts with `label:`.
 pub(crate) fn arg_label(arg: &str) -> Option<&str> {
     let arg = arg.trim_start();
     let len = arg
@@ -224,8 +225,9 @@ pub(crate) fn arg_label(arg: &str) -> Option<&str> {
     (len > 0 && arg[len..].trim_start().starts_with(':')).then(|| &arg[..len])
 }
 
-/// カーソルのある引数．書きかけの引数が `ラベル:` で始まればそのラベルの引数（ないラベルなら
-/// なし），そうでなければ括弧の入れ子の外のカンマの数．
+/// The argument under the cursor: if the argument being written starts with `label:`, the
+/// parameter with that label (none if no such label); otherwise the number of commas outside
+/// nested brackets.
 fn active_param(args: &str, labels: &[Option<smol_str::SmolStr>], count: usize) -> Option<usize> {
     let parts = split_args(args);
     let index = parts.len() - 1;

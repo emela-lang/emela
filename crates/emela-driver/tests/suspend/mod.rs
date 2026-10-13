@@ -1,11 +1,12 @@
-//! 中断（14.5）の確かめに使う IR の部品．`run.rs` と `test_runner.rs` で使う．
+//! IR parts for checking suspension (spec 14.5), shared by `run.rs` and `test_runner.rs`.
 
 #![allow(dead_code)]
 
 use emela_core::build::*;
 use emela_core::*;
 
-/// ホストの関数 `path`（グローバルの参照）を呼ぶ外部関数．`suspends` なら `@external suspend fn`．
+/// An external function calling the host function `path` (a global reference). With `suspends`,
+/// it is an `@external suspend fn`.
 pub fn external(
     m: &mut Module,
     name: &str,
@@ -32,7 +33,7 @@ pub fn external(
     f
 }
 
-/// `Promise.resolve(x)` を待つ外部関数．
+/// An external function awaiting `Promise.resolve(x)`.
 pub fn resolve(m: &mut Module) -> FnId {
     external(
         m,
@@ -62,7 +63,8 @@ pub fn set_timeout(m: &mut Module) -> FnId {
     )
 }
 
-/// resume を呼ばずに捨てる suspend fn の操作 `Wait.forever` と，それを実装するハンドラ `Never`．
+/// A suspend fn operation `Wait.forever` that drops resume without calling it, and the handler
+/// `Never` implementing it.
 pub fn never(m: &mut Module) -> (FnId, EffectId) {
     let wait = m.add_effect(EffectDef {
         name: "Wait".into(),
@@ -94,7 +96,7 @@ pub fn main(m: &mut Module, body: Expr) {
     m.define(main, vec![], body);
 }
 
-/// `console.log(x)` を呼ぶ外部関数．
+/// An external function calling `console.log(x)`.
 pub fn log(m: &mut Module) -> FnId {
     external(
         m,
@@ -106,15 +108,15 @@ pub fn log(m: &mut Module) -> FnId {
     )
 }
 
-/// release で `log(message)` を呼ぶハンドラ `name` の束縛．操作は持たない（`Wait` の `forever` を
-/// その場で resume する）．
+/// A binding of handler `name` that calls `log(message)` on release. It has no operations of its
+/// own (it resumes `Wait`'s `forever` immediately).
 pub fn released(m: &mut Module, log: FnId, h: Local, name: &str, message: &str) -> WithBind {
     let wait = m
         .effects
         .iter()
         .find(|(_, e)| e.name == "Wait")
         .map(|(id, _)| id)
-        .expect("先に never で Wait を足しておく");
+        .expect("add Wait with never first");
     let resume = m.local("resume");
     let handler = Expr::Handler {
         name: name.into(),

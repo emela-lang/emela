@@ -1,4 +1,4 @@
-//! 出力した JS を node で実行する．
+//! Runs the emitted JS on node.
 
 use std::ffi::OsString;
 use std::io;
@@ -8,35 +8,38 @@ use std::process::{Command, ExitStatus, Stdio};
 use crate::code;
 use crate::diagnostic::Diagnostic;
 
-/// node の実行ファイルを差し替える環境変数．なければ PATH の `node` を使う．
+/// An environment variable overriding the node executable; `node` on PATH otherwise.
 pub const NODE_ENV: &str = "EMELA_NODE";
-/// defect のクラスの `name`．emela-codegen-js のランタイムの `$Defect` に合わせる．
+/// The `name` of the defect class, matching `$Defect` in emela-codegen-js's runtime.
 pub const DEFECT_NAME: &str = "Defect";
-/// defect で止まったときの終了コード．
+/// The exit code when stopped by a defect.
 pub const DEFECT_EXIT_CODE: i32 = 101;
-/// main まで達したエラーで止まったときの終了コード（14.3）．
+/// The exit code when stopped by an error that reached main (spec 14.3).
 pub const ERROR_EXIT_CODE: i32 = 1;
-/// main の継続が中断されたまま巻き戻ったときの終了コード（14.5）．
+/// The exit code when main's continuation unwound while suspended (spec 14.5).
 pub const INTERRUPTED_EXIT_CODE: i32 = 130;
-/// 失敗の値（emela-codegen-js のランタイムの `$Fail`）を見分ける `Symbol.for` の鍵．
-/// 鍵の関数はエラーの値の表示を返す．
+/// The `Symbol.for` key identifying failure values (`$Fail` in emela-codegen-js's runtime). The
+/// key's function returns the error value shown.
 pub const FAIL_KEY: &str = "emela.fail";
 
-/// エントリを読み込んで `main` を呼び，main まで達したエラーと defect を終了コードに写す
-/// 小さな起動用モジュール．node の `-e` に渡すので，ファイルには書き出さない．
+/// A small launcher module that imports the entry, calls `main`, and maps errors reaching main
+/// and defects to exit codes. Passed to node's `-e`, so it is never written to a file.
 ///
-/// エントリが `main` を export していなければ，読み込むだけにする（読み込みで動く JS 向け）．
-/// `main` の返り値は，失敗（`$Fail`）なら `error: <エラーの値の表示>` を出して終了コード 1，
-/// それ以外は捨てる（14.3）．
+/// If the entry does not export `main`, it is only imported (for JS that runs on import). If
+/// `main` returns a failure (`$Fail`), it prints `error: <the error shown>` and exits with 1;
+/// any other return value is discarded (spec 14.3).
 ///
-/// 中断しうる main（ジェネレータを返す）は，エントリが公開するランタイムの `$start` で進め，
-/// イベントループで待つ．resume されないままループが空になったら，`$start` の返した関数で
-/// 開いている with の release を内側から走らせてから，`interrupted` を出して終了コード 130 で
-/// 終わる（14.5）．release が中断したまま残れば，次にループが空になったときにもう一度呼ぶ．中断しない main の中で resume されずに捨てられた継続
-/// （ランタイムの `$Interrupted`）も同じ．main は起動の根の fiber で，`$start` の `done` に届くのは
-/// 根の fiber の終わり方だけ．子の fiber の中断（11.4，捨てられた継続を含む）はその子の Interrupt として
-/// スコープが受けるので，ここへは届かない（11.5）．ループが空になったときの巻き戻しは子の fiber も含む．defect は，ホストのコールバックの中で起きたものも
-/// `defect: <メッセージ>` を出して終了コード 101 で終わる（7.5）．
+/// A suspending main (one returning a generator) is driven by the runtime's `$start`, which the
+/// entry exports, and waits on the event loop. If the loop empties without a resume, the function
+/// `$start` returned runs the releases of open `with`s from the inside out, then it prints
+/// `interrupted` and exits with 130 (spec 14.5). If a release stays suspended, it is called again
+/// the next time the loop empties. A continuation dropped without a resume inside a
+/// non-suspending main (the runtime's `$Interrupted`) is handled the same way. main is the root
+/// fiber of the run, and only the root fiber's outcome reaches `$start`'s `done`. A child fiber's
+/// interruption (spec 11.4, including dropped continuations) is received by its scope as that
+/// child's Interrupt and never gets here (spec 11.5). Unwinding when the loop empties includes
+/// child fibers. A defect, including one inside a host callback, prints `defect: <message>` and
+/// exits with 101 (spec 7.5).
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
 let over = false;
@@ -91,32 +94,32 @@ try {
 }
 "#;
 
-/// 子プロセスの標準入出力の扱い．
+/// How the child process's stdio is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
-    /// emela の標準入出力をそのまま渡す（CLI）．
+    /// Passes emela's stdio through (the CLI).
     Inherit,
-    /// 標準出力と標準エラーを集める（テスト）．
+    /// Captures stdout and stderr (tests).
     Capture,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutput {
-    /// node の終了コード．シグナルで止まったときは 128 + シグナル番号．
+    /// node's exit code; 128 plus the signal number if stopped by a signal.
     pub code: i32,
-    /// [`Output::Capture`] のときだけ中身が入る．
+    /// Filled only with [`Output::Capture`].
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
 
-/// `EMELA_NODE` があればそれ，なければ `node`．
+/// `EMELA_NODE` if set, otherwise `node`.
 pub fn node_program() -> PathBuf {
     std::env::var_os(NODE_ENV)
         .filter(|v| !v.is_empty())
         .map_or_else(|| PathBuf::from("node"), PathBuf::from)
 }
 
-/// `entry` の `.mjs` を node で実行する．`args` はプログラムへの引数．
+/// Runs the `.mjs` `entry` on node. `args` are passed to the program.
 pub fn run_node(
     node: &Path,
     entry: &Path,
@@ -147,7 +150,7 @@ pub fn run_node(
     result.map_err(|err| spawn_error(node, &err))
 }
 
-/// node を起動できなかった診断．
+/// A diagnostic about failing to start node.
 pub(crate) fn spawn_error(node: &Path, err: &io::Error) -> Diagnostic {
     match err.kind() {
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", node.display()))
@@ -185,7 +188,7 @@ mod tests {
         assert!(LAUNCHER.contains(&format!("process.exitCode = {ERROR_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("process.exitCode = {INTERRUPTED_EXIT_CODE};")));
         assert!(LAUNCHER.contains(&format!("Symbol.for(\"{FAIL_KEY}\")")));
-        // ランタイムの `$Fail` とテストランナーも同じ鍵を使う．
+        // The runtime's `$Fail` and the test runner use the same key.
         let key = format!("Symbol.for(\"{FAIL_KEY}\")");
         assert!(emela_codegen_js::RUNTIME.contains(&key));
         assert!(emela_codegen_js::TEST_RUNNER.contains(&key));

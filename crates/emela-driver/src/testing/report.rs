@@ -1,11 +1,10 @@
-//! テストの結果とその表示．rustc の `cargo test` に近い形にする．
+//! Test results and their output, close to `cargo test`.
 
 use std::io::{self, Write};
 
-/// テストに失敗があったときの終了コード．
+/// The exit code when any test failed.
 pub const TEST_FAILURE_EXIT_CODE: u8 = 1;
 
-/// 1つのテストの結果．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestResult {
     pub name: String,
@@ -15,14 +14,14 @@ pub struct TestResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestOutcome {
     Passed,
-    /// defect で止まった（7.5）．値は defect のメッセージ．
+    /// Stopped by a defect (spec 7.5). The value is the defect message.
     Defect(String),
-    /// 処理されなかったエラーで終わった（13.3）．値はエラーの値の表示．fail が入ってから使う．
+    /// Ended with an unhandled error (spec 13.3). The value is the error shown.
     Error(String),
-    /// 中断したまま resume されずに巻き戻った（14.5）．
+    /// Unwound while suspended without a resume (spec 14.5).
     Interrupted,
-    /// このテストの途中でテストランナー（node）が終わった．`code` は node の終了コード，
-    /// `not_run` はその後ろで実行されなかったテストの数．
+    /// The test runner (node) exited during this test. `code` is node's exit code, and `not_run`
+    /// the number of tests after it that never ran.
     Aborted {
         code: i32,
         not_run: usize,
@@ -35,14 +34,13 @@ impl TestOutcome {
     }
 }
 
-/// `emela test` の結果．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestReport {
-    /// 実行した順．
+    /// In run order.
     pub results: Vec<TestResult>,
-    /// フィルタで外したテストの数．
+    /// Tests excluded by the filter.
     pub filtered_out: usize,
-    /// [`crate::Output::Capture`] のときだけ，node の標準エラー（`dbg` の出力など）が入る．
+    /// node's stderr (`dbg` output and such), only with [`crate::Output::Capture`].
     pub stderr: Vec<u8>,
 }
 
@@ -62,7 +60,7 @@ impl TestReport {
         self.failed() == 0
     }
 
-    /// 失敗がなければ 0，あれば [`TEST_FAILURE_EXIT_CODE`]．
+    /// 0 if nothing failed, otherwise [`TEST_FAILURE_EXIT_CODE`].
     pub fn exit_code(&self) -> u8 {
         if self.is_ok() {
             0
@@ -89,7 +87,7 @@ pub(crate) fn write_result(out: &mut dyn Write, result: &TestResult) -> io::Resu
     out.flush()
 }
 
-/// 失敗の詳細と最後の1行．
+/// Failure details and the final line.
 pub(crate) fn write_summary(out: &mut dyn Write, report: &TestReport) -> io::Result<()> {
     let failures: Vec<&TestResult> = report
         .results

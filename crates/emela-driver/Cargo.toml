@@ -1,6 +1,6 @@
 [package]
 name = "emela-driver"
-description = "パイプライン，診断の収集と表示，ビルド設定（emela.toml）"
+description = "The pipeline, diagnostic collection and rendering, and build configuration (emela.toml)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

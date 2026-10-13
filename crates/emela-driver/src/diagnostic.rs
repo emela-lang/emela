@@ -1,6 +1,7 @@
-//! 各段で共通の診断．字句解析，名前解決，型検査の診断をここへ写してから表示する．
+//! Diagnostics shared by all stages. Lexer, resolver and type checker diagnostics are converted
+//! into these before rendering.
 //!
-//! 元の診断の型はそれぞれのクレートに残し，ここでは変換だけを持つ．
+//! The original diagnostic types stay in their crates; only the conversions live here.
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +18,7 @@ use smol_str::SmolStr;
 use crate::code;
 use crate::source::{FileId, SourceDb};
 
-/// 注記のうち助言を表すものの頭．
+/// The prefix of notes that are help.
 pub const HELP_PREFIX: &str = "help: ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -26,7 +27,6 @@ pub enum Severity {
     Warning,
 }
 
-/// ファイルの中の範囲．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub file: FileId,
@@ -39,18 +39,16 @@ impl Span {
     }
 }
 
-/// 診断の主な位置．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Location {
-    /// ファイルの中の範囲．
     Span(Span),
-    /// ファイル全体（ファイル名の誤りなど）．
+    /// The whole file (a bad file name, ...).
     File(FileId),
-    /// ソースの表にないパス（ディレクトリ，読めなかったファイル）．
+    /// A path not in the source table (a directory, a file that could not be read).
     Path(PathBuf),
 }
 
-/// 主な位置とは別の場所に付ける説明．
+/// An explanation attached somewhere other than the primary location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     pub span: Span,
@@ -60,13 +58,13 @@ pub struct Label {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,
-    /// エラーコード（[`crate::code`]）．まだ振っていない段（字句解析）の診断は `None`．
+    /// The error code ([`crate::code`]); `None` for stages that do not assign one yet (lexing).
     pub code: Option<&'static str>,
     pub message: String,
-    /// 位置がない診断（node が見つからないなど）は `None`．
+    /// `None` for diagnostics without a location (node not found, ...).
     pub location: Option<Location>,
     pub labels: Vec<Label>,
-    /// 注記．[`HELP_PREFIX`] で始まるものは助言（`= help: …`）として出す．
+    /// Notes starting with [`HELP_PREFIX`] are printed as help (`= help: …`).
     pub notes: Vec<String>,
 }
 
@@ -117,8 +115,8 @@ impl Diagnostic {
         self
     }
 
-    /// 直し方の助言．`= help: …` として出す．`Result` の誤りの側に置く型が大きくならないよう，
-    /// 欄を足さずに注記に入れる．
+    /// Printed as `= help: …`. Stored as a note rather than a new field, to keep the error side
+    /// of `Result` small.
     pub fn with_help(self, help: impl AsRef<str>) -> Self {
         self.with_note(format!("{HELP_PREFIX}{}", help.as_ref()))
     }
@@ -127,14 +125,14 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// 字句解析と構文解析の診断．コード（E01xx）と英語の文面は emela-syntax が持つ．
+    /// The code (E01xx) and English message come from emela-syntax.
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
         Diagnostic::error(&diagnostic.message)
             .with_code(diagnostic.code.as_str())
             .with_span(Span::new(file, diagnostic.range))
     }
 
-    /// 名前解決の診断．パスがソースの表にあれば ID で指し，なければパスのまま持つ．
+    /// Points to a file by ID if its path is in the source table, otherwise keeps the path.
     pub fn from_resolve(diagnostic: &emela_resolve::Diagnostic, sources: &SourceDb) -> Self {
         let location = match (sources.file_id(&diagnostic.file), diagnostic.range) {
             (Some(file), Some(range)) => Location::Span(Span::new(file, range)),
@@ -161,7 +159,7 @@ impl Diagnostic {
                 code::RESERVED_MODULE_NAME,
                 format!("module name `{name}` is reserved"),
             ),
-            // 文面のパスも，診断の位置と同じく起点からの相対パスにする．
+            // Paths in the message are relative to the base, like the diagnostic's location.
             DiagnosticKind::DuplicateModule { name, first } => (
                 code::DUPLICATE_MODULE,
                 format!(
@@ -193,7 +191,8 @@ impl Diagnostic {
         Diagnostic::error(message).with_code(code).at(location)
     }
 
-    /// 名前解決（宣言，import，式の中の名前）の診断．E0211〜E0220，W0201〜W0202．
+    /// Name resolution diagnostics (declarations, imports, names in expressions): E0211 to
+    /// E0220, W0201 to W0202.
     fn from_name_resolution(diagnostic: &emela_resolve::Diagnostic, location: Location) -> Self {
         let first_here = |first: &Option<TextRange>| match (&location, first) {
             (Location::Span(span), Some(range)) => Some(Span::new(span.file, *range)),
@@ -347,7 +346,7 @@ impl Diagnostic {
                 code::SHADOWS_PRELUDE,
                 format!("`{name}` shadows the prelude's `{name}`"),
             ),
-            _ => unreachable!("モジュールと import のグラフの診断は from_resolve で扱う"),
+            _ => unreachable!("module and import graph diagnostics are handled by from_resolve"),
         };
         let mut out = Diagnostic::new(severity, message)
             .with_code(code)
@@ -361,12 +360,12 @@ impl Diagnostic {
         out
     }
 
-    /// 型検査の診断．`TypeError` は位置を持たないので，呼び出し側が `span` を渡す．
+    /// `TypeError` has no location, so the caller passes `span`.
     pub fn from_type_error(error: &TypeError, cons: &TyCons, span: Span) -> Self {
         Diagnostic::type_error(error, cons).with_span(span)
     }
 
-    /// 型の不一致の診断（位置なし）．
+    /// A type mismatch diagnostic without a location.
     fn type_error(error: &TypeError, cons: &TyCons) -> Self {
         let show = |ty: &Ty| format!("`{}`", ty.display(cons));
         let diagnostic = match &*error.kind {
@@ -406,8 +405,8 @@ impl Diagnostic {
 }
 
 impl Diagnostic {
-    /// lowering の誤り．型検査は通ったが Core IR にまだできない箇所．文面は型検査の
-    /// `Unsupported` と同じ．位置の引き方は [`Diagnostic::from_type`] と同じ．
+    /// Places that type-checked but cannot be lowered to Core IR yet. The message matches the
+    /// type checker's `Unsupported`, and the location is found as in [`Diagnostic::from_type`].
     pub fn from_lower(error: &emela_core::LowerError, files: &ArenaMap<ModuleId, FileId>) -> Self {
         let (diagnostic, span) = match error {
             emela_core::LowerError::Unsupported { what, span } => (
@@ -437,8 +436,8 @@ impl Diagnostic {
         }
     }
 
-    /// 型検査の診断．位置は HIR の位置（モジュールと範囲）で，モジュールのファイルを
-    /// `files` で引く．ソースのない位置（Prelude の宣言）は位置なしにする．
+    /// The location is a HIR position (module and range), whose file is looked up in `files`.
+    /// Positions without source (Prelude declarations) get no location.
     pub fn from_type(
         diagnostic: &emela_types::Diagnostic,
         cons: &TyCons,
@@ -921,8 +920,9 @@ impl Diagnostic {
                         format!("external function `{callee}` may suspend")
                     }
                     SuspendingCall::Fn { callee, effects } => {
-                        // 関数を挟むと，fn の操作しか呼ばなくても中断しうるとみなす（8.1）．
-                        // Async だけなら操作を直接呼んでも変わらないので案内しない．
+                        // Going through a function counts as possibly suspending even if it only
+                        // calls fn operations (spec 8.1). With only Async, calling the operation
+                        // directly changes nothing, so no hint is given.
                         let ops: Vec<String> = effects
                             .iter()
                             .filter(|e| e.as_str() != "Async")
@@ -1036,7 +1036,8 @@ impl Diagnostic {
     }
 }
 
-/// 名前を `` `a` `` か `` fields `a`, `b` `` の形で並べる．4つ以上なら先頭の3つと `and N more`．
+/// Lists names as `` `a` `` or `` fields `a`, `b` ``. Four or more show the first three and
+/// `and N more`.
 fn quoted_list(one: &str, many: &str, names: &[SmolStr]) -> String {
     match names {
         [only] => format!("{one} `{only}`"),
@@ -1051,7 +1052,7 @@ fn quoted_list(one: &str, many: &str, names: &[SmolStr]) -> String {
     }
 }
 
-/// 名前の誤りの理由（emela-resolve の `NameError` の英語の文面）．
+/// The English message for emela-resolve's `NameError`.
 fn name_error(error: &NameError) -> String {
     match error {
         NameError::NotSnakeCase => "not lower snake_case".to_owned(),
@@ -1061,7 +1062,6 @@ fn name_error(error: &NameError) -> String {
     }
 }
 
-/// エラーの件数．
 pub fn error_count(diagnostics: &[Diagnostic]) -> usize {
     diagnostics.iter().filter(|d| d.is_error()).count()
 }

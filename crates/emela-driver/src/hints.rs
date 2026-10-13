@@ -1,6 +1,7 @@
-//! インレイヒント（LSP の `textDocument/inlayHint`）．
+//! Inlay hints (LSP `textDocument/inlayHint`).
 //!
-//! ソースに書かない型と E（エラーの集合），R（効果の集合）を行の中に見せる（9.3）．
+//! Shows types, E (error sets) and R (effect sets) that are not written in source, inline
+//! (spec 9.3).
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, LocalId, PatKind, Stmt};
@@ -13,7 +14,7 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// インレイヒント．`offset` の位置の後ろに `label` を出す．
+/// Shows `label` after `offset`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlayHint {
     pub offset: TextSize,
@@ -21,18 +22,17 @@ pub struct InlayHint {
     pub kind: HintKind,
 }
 
-/// ヒントの種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HintKind {
-    /// 束縛と引数の型（`: Int`）．
+    /// Types of bindings and parameters (`: Int`).
     Type,
-    /// 呼び出しの E と R（`fails NotFound use Logger`）．
+    /// E and R of calls (`fails NotFound use Logger`).
     Effect,
-    /// fn の省いた注釈（`-> Int fails NotFound`）．
+    /// Omitted annotations of fns (`-> Int fails NotFound`).
     Signature,
 }
 
-/// `file` の `range` の中のヒント．位置の順．
+/// Hints within `range` of `file`, in position order.
 pub(crate) fn inlay_hints(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -67,8 +67,9 @@ struct Hints<'a> {
 }
 
 impl Hints<'_> {
-    /// トップレベルの fn の省いた注釈．戻り値の型を省いていれば `-> T fails E use R`（E と R は
-    /// 空でなければ），use 節だけを省いていれば `use R`．見えない集合もそのまま出す（ホバーと同じ）．
+    /// Omitted annotations of top-level fns: `-> T fails E use R` if the return type is omitted
+    /// (E and R only when not empty), or `use R` if only the use clause is omitted. Hidden sets
+    /// are shown as is (as in hover).
     fn signatures(&mut self, text: &str) {
         let hir = &self.program.hir;
         let types = &self.program.types;
@@ -127,8 +128,9 @@ impl Hints<'_> {
         }
     }
 
-    /// 本体の中．型注釈のない束縛，ラムダの引数，handler の操作と impl の関数の引数の型と，
-    /// 文の位置（文，束縛の右辺，ブロックの末尾）の呼び出しの E と R．
+    /// Inside bodies: types of unannotated bindings, lambda parameters, and parameters of handler
+    /// operations and impl functions; and E and R of calls in statement position (statements,
+    /// right-hand sides of bindings, block tails).
     fn bodies(&mut self) {
         let hir = &self.program.hir;
         let mut locals: Vec<LocalId> = Vec::new();
@@ -160,7 +162,8 @@ impl Hints<'_> {
                 _ => {}
             }
         }
-        // handler の操作と impl の関数の引数は型を省ける（宣言から決まる）．
+        // Parameters of handler operations and impl functions may omit types (the declaration
+        // determines them).
         for (_, item) in hir.items.iter() {
             let params = match item {
                 Item::Handler(h) => h.ops.iter().flat_map(|op| &op.params).collect::<Vec<_>>(),
@@ -182,7 +185,7 @@ impl Hints<'_> {
         }
     }
 
-    /// 局所変数の型．能力の値（`use X` の値）と，型の分からないものは出さない．
+    /// Capability values (values of `use X`) and unknown types are not shown.
     fn local_type(&mut self, local: LocalId) {
         let data = &self.program.hir.locals[local];
         let Some(ty) = self.program.types.locals.get(local) else {
@@ -199,7 +202,7 @@ impl Hints<'_> {
         self.push(data.span.range.end(), label, HintKind::Type);
     }
 
-    /// 呼び出し（パイプを含む）の E と R．どちらも空なら出さない．
+    /// Calls including pipes. Nothing is shown if both are empty.
     fn call_effects(&mut self, expr: ExprId) {
         let hir = &self.program.hir;
         let e = &hir.exprs[expr];
@@ -233,7 +236,8 @@ impl Hints<'_> {
         self.push(e.span.range.end(), parts.join(" "), HintKind::Effect);
     }
 
-    /// 位置を本体に含む定義の型引数（`Bound(i)` の名前）．
+    /// Type parameters of the definition whose body contains the position (names of
+    /// `Bound(i)`).
     fn params(&self, offset: TextSize) -> Vec<TyParam> {
         crate::hover::enclosing_def(self.program, self.module, offset)
             .and_then(|def| self.program.types.sigs.get(def))
@@ -250,14 +254,14 @@ impl Hints<'_> {
     }
 }
 
-/// 型のヒントに出す型か．能力の値，推論の変数，壊れた型を含むものは出さない．
+/// Capability values, inference variables and broken types are not shown.
 fn shows(ty: &Ty) -> bool {
     match ty {
         Ty::Cap(_) | Ty::Var(_) | Ty::Error => false,
         Ty::Fn(f) => f.params.iter().all(shows) && shows(&f.ret),
         Ty::Tuple(tys) | Ty::Named(_, tys) => tys.iter().all(shows),
         Ty::List(t) => shows(t),
-        // 名前付き型の型引数に渡した集合（`Handler[E, R]`）．
+        // Sets passed as type arguments to named types (`Handler[E, R]`).
         Ty::Set(..) => true,
         Ty::Prim(_) | Ty::Never | Ty::Bound(_) => true,
     }

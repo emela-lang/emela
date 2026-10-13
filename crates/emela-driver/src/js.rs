@@ -1,4 +1,4 @@
-//! Core IR を emela-codegen-js で JS にする出力段．
+//! The output stage that turns the Core IR into JS with emela-codegen-js.
 
 use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module};
 
@@ -6,13 +6,12 @@ use crate::diagnostic::Diagnostic;
 use crate::output::{JsOutput, OutputFile};
 use crate::pipeline::{Analysis, JsBackend};
 
-/// エントリのモジュールの出力ファイル名．
 pub const JS_ENTRY_FILE: &str = "main.mjs";
 
-/// Core IR の1モジュールを JS にする．ランタイムは隣のファイルに書き出して import させる．
+/// Turns one Core IR module into JS. The runtime is written to a sibling file and imported.
 ///
-/// 自己末尾呼び出しのループ化はここでかける．モジュールが1つの間だけの形で，
-/// lowering が複数のモジュールを出すようになったら `Program` を変える．
+/// Self tail call loopification happens here. This shape assumes a single module; `Program` must
+/// change once lowering emits several.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CoreJs;
 
@@ -39,9 +38,9 @@ impl JsBackend<emela_core::Module> for CoreJs {
     }
 }
 
-/// IR の持つ同梱の JS のファイル（`Module::js_files`）を，出力先の
-/// [`emela_core::CORE_JS_DIR`] の下のファイルにする．エントリの出力（出力先の直下）は
-/// `./emela_core/x.mjs` で import する．
+/// Maps the IR's bundled JS files (`Module::js_files`) to files under
+/// [`emela_core::CORE_JS_DIR`] in the output directory. The entry output (at the top of the
+/// output directory) imports them as `./emela_core/x.mjs`.
 pub(crate) fn core_js_outputs(module: &emela_core::Module) -> impl Iterator<Item = OutputFile> {
     module.js_files.iter().map(|file| {
         OutputFile::new(

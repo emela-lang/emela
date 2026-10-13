@@ -1,7 +1,8 @@
-//! 補完（LSP の `textDocument/completion`）．
+//! Completion (LSP `textDocument/completion`).
 //!
-//! 書きかけのソースは構文が崩れているので，文脈（import の中か，`.` の後ろか）はカーソルの前の
-//! テキストで決め，候補は名前解決と型推論の結果から引く．
+//! Source being edited is syntactically broken, so the context (inside an import, after a `.`)
+//! is decided from the text before the cursor, and candidates come from the resolver and type
+//! checker results.
 
 use emela_resolve::hir::{
     DefId, DefKind, Expr, ExprId, ExprKind, Fields, Item, LocalId, PatId, PatKind, Program, Res,
@@ -16,25 +17,23 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// 補完の候補．
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Completion {
     pub label: String,
     pub kind: CompletionKind,
-    /// 型やモジュール名など，候補の横に出す説明．
+    /// A description shown beside the candidate, such as a type or module name.
     pub detail: Option<String>,
-    /// 選んだときに入れる文字列．`None` なら `label`．
+    /// Text inserted when chosen; `None` means `label`.
     pub insert_text: Option<String>,
 }
 
-/// 候補の種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompletionKind {
-    /// 局所変数（引数，束縛，パターンの変数）．
+    /// A local (parameter, binding, pattern variable).
     Local,
     Fn,
     Const,
-    /// 構成子（type の構成子，enum のバリアント）．
+    /// A constructor (a type's constructor, an enum variant).
     Ctor,
     Type,
     Enum,
@@ -43,23 +42,24 @@ pub enum CompletionKind {
     Handler,
     Layer,
     Trait,
-    /// effect の操作と trait の関数．
+    /// An effect operation or a trait function.
     Method,
     Field,
     Module,
     Keyword,
-    /// 名前付き引数のラベル（`h: `）．
+    /// A named argument label (`h: `).
     Label,
 }
 
-/// 予約語（3.1）のうち，書き始めに補える語．`as` は構文を持たないので出さない．
+/// Keywords (spec 3.1) offered at the start of a word. `as` has no syntax of its own, so it is
+/// not offered.
 const KEYWORDS: &[&str] = &[
     "fn", "type", "enum", "error", "const", "trait", "impl", "effect", "handler", "layer",
     "import", "pub", "opaque", "suspend", "if", "else", "match", "fail", "escape", "use", "with",
     "assert", "self", "Self",
 ];
 
-/// `file` の `offset` の位置の補完の候補．書きかけの名前で絞り込むのはエディタに任せる．
+/// Filtering by the partially typed name is left to the editor.
 pub(crate) fn complete(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -79,7 +79,7 @@ pub(crate) fn complete(
         module,
         text,
     };
-    // 書きかけの名前の前．
+    // Before the partially typed name.
     let start = before.trim_end_matches(is_name_char).len();
     let line = &before[before[..start].rfind('\n').map_or(0, |i| i + 1)..start];
     let mut items = if let Some(rest) = line.trim_start().strip_prefix("import ") {
@@ -97,7 +97,7 @@ pub(crate) fn complete(
                 matches!(kind, DefKind::Handler | DefKind::Layer)
             }),
             _ => {
-                // 呼び出しの引数の書き始めなら，まだ書いていないラベルを先に出す．
+                // At the start of a call argument, offer labels not yet written first.
                 let mut items = labels(program, analysis, file, offset, start);
                 items.extend(cx.in_scope(offset, |_| true));
                 items.extend(KEYWORDS.iter().map(|k| Completion {
@@ -110,14 +110,15 @@ pub(crate) fn complete(
             }
         }
     };
-    // 同じ名前は先に見つけたもの（内側のもの）を残す．
+    // For duplicate names, keep the first found (the innermost).
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| seen.insert(item.label.clone()));
     items
 }
 
-/// 呼び出しの引数の書き始め（`f(` の後ろかカンマの後ろで，書きかけの名前だけ）なら，呼ぶ先の
-/// ラベルのうちまだ書いていないもの．選ぶと `label: ` を入れる．説明はその引数の型．
+/// At the start of a call argument (after `f(` or a comma, with only a partial name), the
+/// callee's labels not yet written. Choosing one inserts `label: `; the detail is the parameter
+/// type.
 fn labels(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -133,7 +134,7 @@ fn labels(
         return Vec::new();
     };
     let parts = crate::signature::split_args(args);
-    let (current, written) = parts.split_last().expect("1つはある");
+    let (current, written) = parts.split_last().expect("there is at least one part");
     if !current.trim().is_empty() {
         return Vec::new();
     }
@@ -146,7 +147,8 @@ fn labels(
     else {
         return Vec::new();
     };
-    // パイプの右辺では第1引数は左辺で埋まるので，そのラベルは出さない．
+    // On the right of a pipe the first argument is filled by the left side, so its label is not
+    // offered.
     let labels = crate::signature::without_piped(call.piped, &mut f.params, labels);
     let cons = &program.types.ty_table.cons;
     labels
@@ -176,7 +178,8 @@ impl Context<'_> {
         &self.program.hir
     }
 
-    /// `import` の後ろ．`{` の中ならモジュールの pub な名前，その前ならモジュール名の次の区切り．
+    /// After `import`: inside `{`, the module's pub names; before it, the next segment of the
+    /// module name.
     fn import(&self, rest: &str) -> Vec<Completion> {
         if let Some((path, _)) = rest.split_once('{') {
             let name = ModuleName::parse(path.trim().trim_end_matches('.'));
@@ -185,7 +188,7 @@ impl Context<'_> {
             };
             return self.members(target);
         }
-        // `import Http.` なら `Http.` で始まるモジュール名の次の区切り．
+        // For `import Http.`, the next segment of module names starting with `Http.`.
         let typed: Vec<&str> = rest.trim().split('.').collect();
         let typed = &typed[..typed.len() - 1];
         let mut items: Vec<Completion> = self
@@ -211,8 +214,9 @@ impl Context<'_> {
         items
     }
 
-    /// `.` の後ろ．左が大文字名の並びならモジュールか Trait の中身，そうでなければ式の型から
-    /// 能力の値の操作か，type のフィールド．
+    /// After `.`: if the left is a run of uppercase names, the contents of a module or trait;
+    /// otherwise, from the expression's type, operations of a capability value or fields of a
+    /// type.
     fn after_dot(&self, left: &str) -> Vec<Completion> {
         let path = &left[left.trim_end_matches(|c| is_name_char(c) || c == '.').len()..];
         let segments: Vec<&str> = path.split('.').collect();
@@ -229,8 +233,8 @@ impl Context<'_> {
         self.expr_members(TextSize::of(left))
     }
 
-    /// `.` の左の名前（4.6）．import した名前か core のモジュール，なければ Trait．
-    /// 2つ目からはモジュールの pub な Trait．
+    /// The name left of `.` (spec 4.6): an imported name or core module, otherwise a trait. From
+    /// the second segment on, pub traits of the module.
     fn dot_left(&self, segments: &[&str]) -> Option<Left> {
         let (first, rest) = segments.split_first()?;
         let mut left = if let Some(m) = self.imported_module(first) {
@@ -252,7 +256,7 @@ impl Context<'_> {
         Some(left)
     }
 
-    /// このファイルの `import A.B` が入れたモジュール `B`．
+    /// The module `B` brought in by this file's `import A.B`.
     fn imported_module(&self, alias: &str) -> Option<ModuleId> {
         imports(self.text)
             .into_iter()
@@ -260,7 +264,7 @@ impl Context<'_> {
             .and_then(|(path, _)| self.analysis.modules.lookup(&path))
     }
 
-    /// モジュールの Trait か Prelude の Trait．
+    /// A trait of the module or of the Prelude.
     fn trait_named(&self, module: ModuleId, name: &str, public: bool) -> Option<DefId> {
         let hir = self.hir();
         let own = hir.modules.get(module)?.items.iter().copied();
@@ -271,7 +275,7 @@ impl Context<'_> {
         })
     }
 
-    /// モジュールの pub な定義（ほかのモジュールから引ける名前）．enum のバリアントも入れる．
+    /// pub definitions of the module (names other modules can reach), including enum variants.
     fn members(&self, module: ModuleId) -> Vec<Completion> {
         let hir = self.hir();
         let Some(items) = hir.modules.get(module) else {
@@ -297,11 +301,12 @@ impl Context<'_> {
         }
     }
 
-    /// `.` の直前で終わる式の型から，能力の値の操作か type と error のフィールド．
+    /// From the type of the expression ending right before `.`: operations of a capability value
+    /// or fields of a type or error.
     fn expr_members(&self, end: TextSize) -> Vec<Completion> {
         let hir = self.hir();
         let types = &self.program.types;
-        // 同じ位置で終わる式のうち一番外側（`a.b.` なら `a.b`）．
+        // The outermost expression ending at that position (`a.b` for `a.b.`).
         let Some((expr, _)) = hir
             .exprs
             .iter()
@@ -328,7 +333,7 @@ impl Context<'_> {
                         Fields::Named(fields) => fields,
                         _ => return Vec::new(),
                     },
-                    // ハンドラの値（`self.`，8.4）．
+                    // A handler value (`self.`, spec 8.4).
                     Some(Item::Handler(h)) => &h.fields,
                     _ => return Vec::new(),
                 };
@@ -346,9 +351,10 @@ impl Context<'_> {
         }
     }
 
-    /// 式の型．型推論の表になければ（`log.` や `a.b.` の名前のない `.` は名前解決が `Missing` にし，
-    /// 左の式は型推論に回らない），左からたどって求める．局所変数と定義はその宣言の型，
-    /// `x.f` はフィールドの型か能力の値の操作の型，呼び出しは呼ぶ先の関数型の戻り値．
+    /// The expression's type. If it is not in the type table (for `log.` or `a.b.`, the nameless
+    /// `.` is `Missing` in the resolver and the left expression never reaches inference), it is
+    /// computed from the left: locals and definitions use their declared types, `x.f` the field
+    /// type or the capability operation's type, and calls the return type of the callee.
     fn expr_ty(&self, expr: ExprId) -> Option<Ty> {
         let hir = self.hir();
         let types = &self.program.types;
@@ -364,7 +370,8 @@ impl Context<'_> {
                         return None;
                     };
                     let op = e.ops.iter().find(|&&op| hir.defs[op].name == name.name)?;
-                    // エフェクトの型引数は能力の値の型引数で置き換える（8.1）．
+                    // Effect type parameters are replaced by the capability value's type arguments
+                    // (spec 8.1).
                     types
                         .sigs
                         .get(*op)
@@ -381,8 +388,8 @@ impl Context<'_> {
         }
     }
 
-    /// type か error の名前付きのフィールドの型．構成子のシグネチャ（引数がフィールドの型）から引き，
-    /// 型引数を `args` で置き換える．
+    /// The type of a named field of a type or error. Taken from the constructor's signature
+    /// (parameters are field types), with type parameters replaced by `args`.
     fn field_ty(&self, def: DefId, args: &[Ty], name: &str) -> Option<Ty> {
         let hir = self.hir();
         let ctor = match hir.item(def)? {
@@ -399,9 +406,9 @@ impl Context<'_> {
         Some(emela_types::substitute_bound(f.params.get(index)?, args))
     }
 
-    /// 位置から見える名前．局所変数（内側が先），このモジュールの定義，import した名前と
-    /// モジュール，core のモジュール，Prelude の順．`want` で定義の種類を絞る（局所変数と
-    /// モジュールは種類を絞らないときだけ出す）．
+    /// Names visible from the position: locals (innermost first), this module's definitions,
+    /// imported names and modules, core modules, and the Prelude, in that order. `want` filters
+    /// definitions by kind (locals and modules are offered only when nothing is filtered).
     fn in_scope(&self, offset: TextSize, want: impl Fn(DefKind) -> bool) -> Vec<Completion> {
         let hir = self.hir();
         let all = want(DefKind::Fn) && want(DefKind::Type);
@@ -457,7 +464,8 @@ impl Context<'_> {
                 .filter_map(|def| self.def_item(def)),
         );
         if all {
-            // import したモジュールと，import なしで `.` の左に書ける core のモジュール．
+            // Imported modules, and core modules that can be written left of `.` without an
+            // import.
             let modules = imports.iter().map(|(path, _)| path.clone()).chain(
                 self.analysis
                     .modules
@@ -481,8 +489,8 @@ impl Context<'_> {
         items
     }
 
-    /// 定義の候補．種類のない定義（impl，型引数）は出さない．型の名前と同じ名前の構成子は
-    /// 型として出す（名前が同じなので後で1つにまとまる）．
+    /// Definitions without a kind (impls, type parameters) are not offered. A constructor named
+    /// like its type is offered as the type (they merge later since the names match).
     fn def_item(&self, def: DefId) -> Option<Completion> {
         let data = &self.hir().defs[def];
         let kind = match data.kind {
@@ -512,7 +520,8 @@ impl Context<'_> {
         })
     }
 
-    /// 位置を本体に含む定義の型引数（局所変数の型の `Bound(i)` の名前）．
+    /// Type parameters of the definition whose body contains the position (names of `Bound(i)`
+    /// in local types).
     fn enclosing_params(&self, offset: TextSize) -> Vec<TyParam> {
         crate::hover::enclosing_def(self.program, self.module, offset)
             .and_then(|def| self.program.types.sigs.get(def))
@@ -545,7 +554,7 @@ fn module_of(analysis: &Analysis, file: FileId) -> Option<ModuleId> {
         .map(|(m, _)| m)
 }
 
-/// ファイルの import．モジュール名と，波括弧で列挙した名前．
+/// The file's imports: module names and the names listed in braces.
 fn imports(text: &str) -> Vec<(ModuleName, Vec<String>)> {
     emela_syntax::parse(text)
         .tree()
@@ -561,7 +570,8 @@ fn imports(text: &str) -> Vec<(ModuleName, Vec<String>)> {
         .collect()
 }
 
-/// 位置から見える局所変数．内側（後で束縛したもの）が先．同じ名前は内側だけ．
+/// Locals visible from the position, innermost (bound later) first. Only the innermost of each
+/// name.
 fn visible_locals(
     hir: &Program,
     module: emela_resolve::ModuleId,
@@ -612,7 +622,7 @@ fn visible_locals(
             ExprKind::Block(block) => {
                 for stmt in &block.stmts {
                     if let Stmt::Let { pat, value, .. } = stmt {
-                        // 右辺の後ろからブロックの終わりまで（6.3）．
+                        // From after the right-hand side to the end of the block (spec 6.3).
                         let start = span_of(*value).end();
                         if start <= span.range.end() {
                             add(
@@ -642,14 +652,13 @@ fn visible_locals(
         })
         .map(|(local, _)| local)
         .collect();
-    // 内側（後で束縛したもの）を先に．
+    // Innermost (bound later) first.
     visible.sort_by_key(|&l| std::cmp::Reverse(hir.locals[l].span.range.start()));
     let mut seen = std::collections::HashSet::new();
     visible.retain(|&l| seen.insert(hir.locals[l].name.clone()));
     visible
 }
 
-/// パターンが束縛する局所変数．
 fn pat_locals(hir: &Program, pat: PatId) -> Vec<LocalId> {
     let mut locals = Vec::new();
     let mut stack = vec![pat];

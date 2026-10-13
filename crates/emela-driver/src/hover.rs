@@ -1,6 +1,8 @@
-//! 位置の情報（LSP のホバー）．型検査の結果から，カーソルの下の名前や式の型を引く．
+//! Hover information (LSP hover). Looks up the type of the name or expression under the cursor in
+//! the type checking results.
 //!
-//! E（エラーの集合）と R（効果の集合）は普段ソースに現れないので，ここで見せる（9.3）．
+//! E (error sets) and R (effect sets) do not normally appear in source, so they are shown here
+//! (spec 9.3).
 
 use emela_resolve::hir::{DefId, ExprKind, Item, Res};
 use emela_types::{Row, TyParam};
@@ -10,24 +12,28 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// ホバーの中身．`contents` は Markdown．`range` はホバーした名前か式の位置．
+/// `contents` is Markdown. `range` is the position of the hovered name or expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HoverInfo {
     pub range: TextRange,
     pub contents: String,
 }
 
-/// `file` の `offset` の位置の情報．
+/// Information at `offset` in `file`.
 ///
-/// - 定義の名前（fn，const，構成子）: `名前: 型`．型は宣言の型（推論したものは汎化した型）．
-///   suspend fn（エフェクトの操作と外部関数）は型の前に `suspend` を付ける
-/// - handler の名前: `handler H(フィールド) implements E`（型引数があれば `E[Int]`）と，init の E があれば `init fails E`，
-///   依存があれば `use R`（Async が残るか）
-/// - layer の名前: `layer L { 初期化の順のハンドラ }` と，layer の中で満たされない依存があれば `use R`
-/// - 定義か局所変数の参照: 同じく `名前: 型`
-/// - それ以外の式: 型と，E が空でなければ `fails E`，R が空でなければ `use R`
+/// - A definition name (fn, const, constructor): `name: type`, the declared type (generalized if
+///   inferred). Suspend fns (effect operations and external functions) get `suspend` before the
+///   type.
+/// - A handler name: `handler H(fields) implements E` (`E[Int]` with type arguments), plus
+///   `init fails E` if init has an E, and `use R` if it has dependencies (shows whether Async
+///   remains).
+/// - A layer name: `layer L { handlers in initialization order }`, plus `use R` for dependencies
+///   unmet inside the layer.
+/// - A reference to a definition or local: likewise `name: type`.
+/// - Any other expression: its type, plus `fails E` if E is not empty and `use R` if R is not
+///   empty.
 ///
-/// 一番内側の（範囲の短い）ものを選ぶ．
+/// The innermost (shortest) one is chosen.
 pub(crate) fn hover(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -44,7 +50,7 @@ pub(crate) fn hover(
     let cons = &types.ty_table.cons;
     let contains = |range: TextRange| range.contains(offset);
 
-    // 定義の名前．
+    // Definition names.
     let def = hir.defs.iter().find(|(_, data)| {
         data.span
             .is_some_and(|s| s.module == module && contains(s.range))
@@ -62,8 +68,8 @@ pub(crate) fn hover(
             )),
         });
     }
-    // handler の名前: フィールド，実装するエフェクト，依存（8.4．Async が残るかが分かる，8.7），
-    // init の E（with の E に入る，9.4）．
+    // Handler names: fields, implemented effect, dependencies (spec 8.4; shows whether Async
+    // remains, spec 8.7), and the E of init (part of the with's E, spec 9.4).
     if let Some((def, data)) = def
         && let Some(Item::Handler(item)) = hir.item(def)
     {
@@ -81,7 +87,7 @@ pub(crate) fn hover(
                 .collect();
             text.push_str(&format!("({})", fields.join(", ")));
         }
-        // 型引数のあるエフェクトは `implements State[Int]` の形（8.1）．
+        // An effect with type arguments is shown as `implements State[Int]` (spec 8.1).
         match types.sigs.handler_effect(def) {
             Some(tag) => {
                 let effect = Row::of_tag(tag.clone());
@@ -111,7 +117,8 @@ pub(crate) fn hover(
             contents: code(&text),
         });
     }
-    // layer の名前: 初期化の順のハンドラと，layer の中で満たされない依存（8.5）．
+    // Layer names: handlers in initialization order and dependencies unmet inside the layer
+    // (spec 8.5).
     if let Some((def, data)) = def
         && let Some(layer) = types.layers.get(def)
     {
@@ -130,14 +137,14 @@ pub(crate) fn hover(
         });
     }
 
-    // 外側の定義の型引数（本体の中の型の `Bound(i)` の名前）．
+    // Type parameters of the enclosing definition (names of `Bound(i)` in body types).
     let owner = enclosing_def(program, module, offset);
     let params: Vec<TyParam> = owner
         .and_then(|def| types.sigs.get(def))
         .map(|sig| sig.scheme.params.clone())
         .unwrap_or_default();
 
-    // 局所変数を束縛した位置（引数，束縛のパターン）．
+    // Local binding sites (parameters, binding patterns).
     let local = hir
         .locals
         .iter()
@@ -184,7 +191,7 @@ pub(crate) fn hover(
                 }
                 _ => {
                     let ty = types.exprs.get(expr)?;
-                    // 能力の値の suspend な操作（`clock.sleep`）．
+                    // Suspend operations on capability values (`clock.sleep`).
                     let prefix = types
                         .ops
                         .get(expr)
@@ -210,7 +217,7 @@ pub(crate) fn hover(
     }
 }
 
-/// `offset` を本体に含むトップレベルの定義（fn と const）．
+/// The top-level definition (fn or const) whose body contains `offset`.
 pub(crate) fn enclosing_def(
     program: &TypedProgram,
     module: emela_resolve::ModuleId,
@@ -230,7 +237,8 @@ pub(crate) fn enclosing_def(
     })
 }
 
-/// suspend fn（エフェクトの操作と `@external suspend fn`）の型の前に付ける印．
+/// The marker placed before the type of a suspend fn (effect operations and
+/// `@external suspend fn`).
 fn suspend_prefix(hir: &emela_resolve::hir::Program, def: DefId) -> &'static str {
     let suspend = match hir.item(def) {
         Some(Item::Op(op)) => op.sig.is_suspend,
@@ -240,7 +248,7 @@ fn suspend_prefix(hir: &emela_resolve::hir::Program, def: DefId) -> &'static str
     if suspend { "suspend " } else { "" }
 }
 
-/// Emela のコードのブロック．
+/// A block of Emela code.
 fn code(text: &str) -> String {
     format!("```emela\n{text}\n```")
 }

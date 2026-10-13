@@ -1,4 +1,4 @@
-//! emela-syntax のパーサ，名前解決，型検査を差し込むフロントエンド．
+//! Frontends plugging in emela-syntax's parser, name resolution and type checking.
 
 use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
@@ -19,8 +19,8 @@ use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
 
-/// 構文解析までのフロントエンド．構文木をモジュールごとに持ち，import の一覧を返す．
-/// 型検査はまだないので，[`Frontend::check`] は診断なしで `()` を返す．
+/// A frontend up to parsing. Keeps a syntax tree per module and returns the import list.
+/// [`Frontend::check`] returns `()` without diagnostics.
 #[derive(Debug, Default)]
 pub struct ParseOnly {
     parses: ArenaMap<ModuleId, Parse>,
@@ -31,7 +31,7 @@ impl ParseOnly {
         Self::default()
     }
 
-    /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
+    /// `None` for modules that were not read.
     pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
         self.parses.get(module)
     }
@@ -63,17 +63,17 @@ impl Frontend for ParseOnly {
     }
 }
 
-/// 構文解析（[`ParseOnly`]）の後に名前を解決するフロントエンド．型検査はまだないので，
-/// 名前解決の結果（HIR）をそのままプログラムとして返す．
+/// A frontend that resolves names after parsing ([`ParseOnly`]) and returns the resolver's
+/// output (HIR) as the program.
 ///
-/// 組み込みのモジュール（`String`，`List` など）は `B` から引く．
+/// Builtin modules (`String`, `List`, ...) come from `B`.
 pub struct Resolve<B = NoBuiltins> {
     parse: ParseOnly,
     builtins: B,
     core: Vec<CoreSource>,
 }
 
-/// 同梱の core のソース（`emela_core::core_sources()`）を読むフロントエンド．コンパイラの既定．
+/// Reads the bundled core sources (`emela_core::core_sources()`). The compiler's default.
 impl Default for Resolve<NoBuiltins> {
     fn default() -> Self {
         Resolve::new(NoBuiltins).with_core(CoreSource::bundled())
@@ -89,12 +89,12 @@ impl<B: BuiltinModules> Resolve<B> {
         }
     }
 
-    /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
+    /// `None` for modules that were not read.
     pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
         self.parse.parse_of(module)
     }
 
-    /// 同梱の core のソースを渡す（[`Frontend::core_sources`]）．
+    /// Passes the bundled core sources ([`Frontend::core_sources`]).
     pub fn with_core(mut self, core: Vec<CoreSource>) -> Self {
         self.core = core;
         self
@@ -113,7 +113,7 @@ impl<B: BuiltinModules> Frontend for Resolve<B> {
     }
 
     fn check(&mut self, analysis: &Analysis, _: &[ModuleId]) -> Checked<Program> {
-        // 読まなかったモジュール（単独ファイルでエントリからたどれないもの）は空とみなされる．
+        // Modules not read (unreachable from the entry of a single file) count as empty.
         let mut trees = ArenaMap::default();
         for (module, _) in analysis.modules.iter() {
             if let Some(parse) = self.parse.parse_of(module) {
@@ -132,10 +132,10 @@ impl<B: BuiltinModules> Frontend for Resolve<B> {
     }
 }
 
-/// 構文木の import を，モジュール名とパスの範囲の組にする．
+/// Turns the tree's imports into pairs of module name and path range.
 ///
-/// `import A.B` も `import A.B.{x, Y}` もモジュール名は `A.B`．読めない import は飛ばす
-/// （構文の診断が出ている）．
+/// Both `import A.B` and `import A.B.{x, Y}` name the module `A.B`. Unreadable imports are
+/// skipped (a syntax diagnostic has been reported).
 fn imports(parse: &Parse) -> Vec<Import> {
     parse
         .tree()
@@ -151,8 +151,9 @@ fn imports(parse: &Parse) -> Vec<Import> {
         .collect()
 }
 
-/// 構文の誤りで読めない import．中に ERROR がある，`.{` が閉じていない，
-/// または文の直後に読み残しがある（`import A.` の `.` は文の外の ERROR になる）．
+/// An import unreadable due to syntax errors: it contains an ERROR, its `.{` is unclosed, or
+/// something is left right after the statement (the `.` of `import A.` becomes an ERROR outside
+/// the statement).
 fn is_broken(import: &ast::Import) -> bool {
     let node = import.syntax();
     let has_error = node.descendants().any(|n| n.kind() == SyntaxKind::ERROR);
@@ -171,21 +172,25 @@ fn is_broken(import: &ast::Import) -> bool {
     has_error || unclosed || trailing
 }
 
-/// 名前解決（[`Resolve`]）の後に型検査をするフロントエンド．`emela check` などの既定．
+/// A frontend that type-checks after name resolution ([`Resolve`]). The default for
+/// `emela check` and others.
 ///
-/// 型検査は名前解決に誤りがあっても行う（解決できなかった名前は型推論が `Ty::Error` として
-/// 扱い，誤りを重ねない）．プログラムは HIR と型検査の結果の組．
+/// Type checking runs even with resolution errors (inference treats unresolved names as
+/// `Ty::Error` and does not pile up errors). The program pairs the HIR with the type checking
+/// results.
 pub struct Typecheck<B = NoBuiltins> {
     resolve: Resolve<B>,
-    /// 直前の `check` で，エントリのモジュールに `main` の fn があったか．エントリか HIR がなければ `None`．
+    /// Whether the entry module had a `main` fn in the last `check`. `None` without an entry or
+    /// HIR.
     entry_main: Option<bool>,
 }
 
-/// 名前解決と型検査の結果．lowering はこの2つを読む（emela-types の NOTES.md「結果の形」）．
+/// Name resolution and type checking results, which lowering reads (see emela-types'
+/// NOTES.md).
 pub struct TypedProgram {
     pub hir: Program,
     pub types: ProgramTypes,
-    /// ソースの `@test` の関数．モジュールの順，宣言の順．
+    /// `@test` functions in source, in module order and then declaration order.
     pub tests: Vec<TestDef>,
 }
 
@@ -206,7 +211,7 @@ impl<B: BuiltinModules> Typecheck<B> {
         }
     }
 
-    /// 構文解析したモジュールの結果．読まなかったモジュールは `None`．
+    /// `None` for modules that were not read.
     pub fn parse_of(&self, module: ModuleId) -> Option<&Parse> {
         self.resolve.parse_of(module)
     }
@@ -320,13 +325,14 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             };
         };
         let mut diagnostics = resolved.diagnostics;
-        // `@test` の誤り（E0226）とテスト関数の参照の誤り（E0227）も，check と LSP で出すためにここで見る．
+        // `@test` errors (E0226) and test function reference errors (E0227) are checked here too,
+        // so `check` and the LSP report them.
         let (tests, mut test_diagnostics) = collect_tests(analysis, |m| self.parse_of(m));
         let (tests, ref_diagnostics) = resolve_tests(analysis, &hir, tests);
         test_diagnostics.extend(ref_diagnostics);
-        // `@internal` の置き場所（E0229）と core の外からの参照（E0228）．
+        // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
-        // main とテスト関数の R は空でなければならない（8.3，13.3）．
+        // The R of main and test functions must be empty (spec 8.3, 13.3).
         let main = analysis.entry.and_then(|entry| entry_main(&hir, entry));
         self.entry_main = analysis.entry.map(|_| main.is_some());
         let options = CheckOptions {
@@ -334,7 +340,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             tests: tests.iter().map(|t| t.def).collect(),
         };
         let types = check_program_with(&hir, &options);
-        // 型推論は呼び出しの順に進むので，名前解決と同じくファイルと位置の順に並べ直す．
+        // Inference proceeds in call order, so sort by file and position like name resolution.
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
             .iter()
@@ -353,10 +359,11 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
     }
 }
 
-/// 型検査（[`Typecheck`]）の後に Core IR へ写すフロントエンド．`emela build` と `run` の既定．
+/// A frontend that lowers to Core IR after type checking ([`Typecheck`]). The default for
+/// `emela build` and `run`.
 ///
-/// 名前解決か型検査に誤りが1件でもあれば lowering は呼ばない（lowering は誤りのない
-/// プログラムを前提にする）．エントリのモジュールの export する fn からたどれる fn だけを写す．
+/// Lowering is skipped if name resolution or type checking reported any error (lowering assumes
+/// an error-free program). Only fns reachable from the fns the entry module exports are lowered.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
 }
@@ -409,14 +416,16 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
     }
 }
 
-/// build，run，test のターゲット．外部関数の `@external` の検査（12.1）に使う．
+/// The target of build, run and test, used to check `@external` of external functions
+/// (spec 12.1).
 pub const JS_TARGET: &str = "js";
 
-/// 型検査の結果を Core IR にする．`diagnostics` に誤りが1件でもあるか，エントリがなければ
-/// lowering を呼ばずに `None`．lowering の誤りは `diagnostics` に足して `None`．
+/// Lowers type checking results to Core IR. Returns `None` without calling lowering if
+/// `diagnostics` has any error or there is no entry. Lowering errors are added to `diagnostics`,
+/// returning `None`.
 ///
-/// 外部関数の検査（12.1）は JS のターゲット（[`JS_TARGET`]）で行う．lowering を呼ぶのは
-/// build，run，test だけ（check と LSP は呼ばない）．
+/// External functions are checked (spec 12.1) for the JS target ([`JS_TARGET`]). Only build, run
+/// and test call lowering (check and the LSP do not).
 pub(crate) fn lower_typed(
     analysis: &Analysis,
     typed: &TypedProgram,
@@ -457,7 +466,7 @@ pub(crate) fn lower_typed(
     }
 }
 
-/// エントリのモジュールの `main`（トップレベルの fn）．
+/// The entry module's `main` (a top-level fn).
 fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
     hir.modules.get(entry)?.items.iter().copied().find(|&def| {
         let data = &hir.defs[def];
@@ -469,7 +478,7 @@ fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
 mod tests {
     use super::*;
 
-    /// import ごとに（モジュール名，範囲の文字列）．
+    /// (module name, range text) for each import.
     fn imports_of(src: &str) -> Vec<(String, String)> {
         imports(&emela_syntax::parse(src))
             .into_iter()
@@ -498,7 +507,7 @@ mod tests {
 
     #[test]
     fn import_after_declaration_still_counts() {
-        // E0127 は位置の誤りで，import 自体は読める．
+        // E0127 is a placement error; the import itself is readable.
         let src = "let x = 1\nimport Json\n";
         assert_eq!(imports_of(src), [("Json".into(), "Json".into())]);
     }

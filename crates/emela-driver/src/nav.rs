@@ -1,7 +1,8 @@
-//! 名前の移動（LSP の定義へ移動，参照の検索，文書のシンボル）．
+//! Name navigation (LSP go to definition, find references, document symbols).
 //!
-//! 定義へ移動と参照の検索は名前解決の参照の表（`Program::refs`）と型推論の操作の表
-//! （`ProgramTypes::ops`）から引く．文書のシンボルは構文木だけから作る．
+//! Go to definition and find references look up the resolver's reference table
+//! (`Program::refs`) and the type checker's operation table (`ProgramTypes::ops`). Document
+//! symbols come from the syntax tree alone.
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, ExprKind, LocalId, PatKind, RefTarget, Span};
@@ -13,14 +14,13 @@ use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 use crate::source::FileId;
 
-/// ソースの中の位置．移動先と参照の位置．
+/// A position in source: a navigation target or a reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NavTarget {
     pub file: FileId,
     pub range: TextRange,
 }
 
-/// 名前の指すもの．
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Symbol {
     Def(DefId),
@@ -28,8 +28,9 @@ enum Symbol {
     Module(ModuleId),
 }
 
-/// `file` の `offset` の名前の定義．同梱の core の定義，ソースのない定義（組み込みのモジュールの
-/// 関数と型，組み込みの Prelude）は移動先がないので `None`．モジュールはファイルの先頭．
+/// Definitions in the bundled core and definitions without source (builtin module functions and
+/// types, the builtin Prelude) have no target, so `None`. A module's target is the top of its
+/// file.
 pub(crate) fn definition(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -50,8 +51,8 @@ pub(crate) fn definition(
     }
 }
 
-/// `file` の `offset` の名前の参照．`declaration` なら定義の名前も含める．
-/// 同梱の core の中の参照は含めない．ファイルと位置の順．
+/// With `declaration`, the definition's name is included. References inside the bundled core are
+/// excluded. Sorted by file and position.
 pub(crate) fn references(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -75,7 +76,7 @@ pub(crate) fn references(
     targets
 }
 
-/// 名前の現れる位置．`declaration` なら定義の名前も含める．
+/// With `declaration`, the definition's name is included.
 fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec<Span> {
     let hir = &program.hir;
     let same = |other: Symbol| same_symbol(program, symbol, other);
@@ -85,7 +86,7 @@ fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec
         .filter(|r| same(to_symbol(r.target)))
         .map(|r| r.span)
         .collect();
-    // effect の操作（`log.info` の `info`）．
+    // Effect operations (the `info` of `log.info`).
     spans.extend(
         program
             .types
@@ -113,10 +114,9 @@ fn occurrences(program: &TypedProgram, symbol: Symbol, declaration: bool) -> Vec
 }
 
 // ---------------------------------------------------------------------------
-// 名前の変更
 
-/// 名前を変えられる位置．名前の範囲．変えられない名前（モジュール，`self`，同梱の core と
-/// ソースのない定義）は `None`．
+/// The range of the name to rename. `None` for names that cannot be renamed (modules, `self`,
+/// the bundled core, and definitions without source).
 pub(crate) fn prepare_rename(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -126,19 +126,21 @@ pub(crate) fn prepare_rename(
     let module = module_of(analysis, file)?;
     let symbol = symbol_at(program, module, offset)?;
     renamable(program, analysis, symbol)?;
-    // 位置の名前の範囲（参照，定義のどちらでも）．
+    // The range of the name at the position, whether a reference or a definition.
     occurrences(program, symbol, true)
         .into_iter()
         .find(|span| span.module == module && span.range.contains_inclusive(offset))
         .map(|span| span.range)
 }
 
-/// 名前の変更の誤り．文面はエディタに出す．
+/// The message is shown in the editor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenameError {
-    /// 変えられない名前（モジュール，`self`，同梱の core とソースのない定義）か，名前のない位置．
+    /// A name that cannot be renamed (modules, `self`, the bundled core, definitions without
+    /// source), or no name at the position.
     NotRenamable,
-    /// 新しい名前が元の名前と同じ字句クラス（2.3．小文字名，型名，大文字名）でない．
+    /// The new name is not in the same lexical class as the old one (spec 2.3: lowercase name,
+    /// type name, uppercase name).
     InvalidName { name: String, class: &'static str },
 }
 
@@ -153,8 +155,8 @@ impl std::fmt::Display for RenameError {
     }
 }
 
-/// 名前を変える編集．定義と参照の位置ごとに置き換える文字列．省略形の名前付き引数と
-/// フィールドのパターン（`NotFound(id:)`，`User(name:)`）はラベルを残して `id: 新しい名前` にする．
+/// Replacement text for each definition and reference. Punned named arguments and field patterns
+/// (`NotFound(id:)`, `User(name:)`) keep the label and become `id: new_name`.
 pub(crate) fn rename(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -195,7 +197,7 @@ pub(crate) fn rename(
     Ok(edits)
 }
 
-/// 名前を変えられるか．変えられれば元の名前の字句の種類．
+/// If renamable, the lexical kind of the old name.
 fn renamable(program: &TypedProgram, analysis: &Analysis, symbol: Symbol) -> Option<SyntaxKind> {
     let hir = &program.hir;
     let span = match symbol {
@@ -222,7 +224,7 @@ fn renamable(program: &TypedProgram, analysis: &Analysis, symbol: Symbol) -> Opt
     .then_some(kind)
 }
 
-/// 字句が1つだけなら，その種類．
+/// The kind of the token, if the text is exactly one token.
 fn lex_one(text: &str) -> Option<SyntaxKind> {
     let lexed = emela_syntax::lex(text);
     if !lexed.diagnostics.is_empty() {
@@ -236,7 +238,8 @@ fn lex_one(text: &str) -> Option<SyntaxKind> {
     (tokens.next().is_none() && token.range.len() == TextSize::of(text)).then_some(token.kind)
 }
 
-/// 省略形の名前付き引数（`NotFound(id:)`）とフィールドのパターン（`User(name:)`）の名前の位置．
+/// Name positions of punned named arguments (`NotFound(id:)`) and field patterns
+/// (`User(name:)`).
 fn puns(program: &TypedProgram) -> std::collections::HashSet<Span> {
     let hir = &program.hir;
     let mut puns = std::collections::HashSet::new();
@@ -270,9 +273,11 @@ fn puns(program: &TypedProgram) -> std::collections::HashSet<Span> {
     puns
 }
 
-/// 位置にある名前．参照，effect の操作の参照，定義の名前，局所変数を束縛した位置の順に見る．
+/// Looks at references, effect operation references, definition names, and local binding sites,
+/// in that order.
 ///
-/// 範囲の終わりの位置（名前の直後のカーソル）も含める．範囲の中にあるものを先に選ぶ．
+/// The end of a range (a cursor right after the name) counts too. Ranges containing the position
+/// are preferred.
 fn symbol_at(program: &TypedProgram, module: ModuleId, offset: TextSize) -> Option<Symbol> {
     let hir = &program.hir;
     let mut found: Vec<(TextRange, Symbol)> = Vec::new();
@@ -304,7 +309,8 @@ fn symbol_at(program: &TypedProgram, module: ModuleId, offset: TextSize) -> Opti
         .map(|&(_, symbol)| symbol)
 }
 
-/// 同じものを指すか．名前の位置が同じ定義（type とその構成子，error のタグと構成子）は同じとみなす．
+/// Definitions sharing a name position (a type and its constructor, an error tag and its
+/// constructor) count as the same.
 fn same_symbol(program: &TypedProgram, a: Symbol, b: Symbol) -> bool {
     match (a, b) {
         (Symbol::Def(a), Symbol::Def(b)) => {
@@ -323,7 +329,7 @@ fn to_symbol(target: RefTarget) -> Symbol {
     }
 }
 
-/// ソースのモジュールの位置．同梱の core と，読まなかったモジュールは `None`．
+/// `None` for the bundled core and modules that were not read.
 fn target(analysis: &Analysis, span: Span) -> Option<NavTarget> {
     if analysis.modules.is_core(span.module) {
         return None;
@@ -344,10 +350,9 @@ fn module_of(analysis: &Analysis, file: FileId) -> Option<ModuleId> {
 }
 
 // ---------------------------------------------------------------------------
-// 文書のシンボル
 
-/// ファイルの中の宣言．`range` は宣言全体（ドキュメントコメントと注釈を含む），
-/// `selection` は名前．
+/// A declaration in the file. `range` covers the whole declaration (including doc comments and
+/// annotations); `selection` is the name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentSymbol {
     pub name: String,
@@ -357,7 +362,6 @@ pub struct DocumentSymbol {
     pub children: Vec<DocumentSymbol>,
 }
 
-/// 宣言の種類．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
     Fn,
@@ -367,19 +371,19 @@ pub enum SymbolKind {
     Error,
     Const,
     Effect,
-    /// effect の操作．
+    /// An effect operation.
     Op,
     Handler,
     Layer,
     Trait,
     Impl,
-    /// trait，impl，handler の中の fn．
+    /// A fn inside a trait, impl or handler.
     Method,
     Field,
 }
 
-/// ソースの中の宣言を書いた順に並べる．構文の誤りがあっても読めた宣言は返す．
-/// 名前の読めない宣言は飛ばす．
+/// Declarations in source order. Declarations that parsed are returned even with syntax errors;
+/// those whose name cannot be read are skipped.
 pub fn document_symbols(text: &str) -> Vec<DocumentSymbol> {
     let parse = emela_syntax::parse(text);
     parse
@@ -436,7 +440,8 @@ fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {
         Item::Layer(l) => symbol(l.syntax(), l.name()?, SymbolKind::Layer, Vec::new()),
         Item::Trait(t) => symbol(t.syntax(), t.name()?, SymbolKind::Trait, methods(t.fns())),
         Item::Impl(i) => {
-            // 名前の字句がないので，`impl Show for User` の見出しを名前にし，Trait の名前を選ぶ．
+            // There is no name token, so the heading `impl Show for User` is the name and the
+            // trait name is the selection.
             let trait_ref = i.trait_ref()?;
             let mut name = format!("impl {}", trait_ref.syntax().text());
             if let Some(ty) = i.self_ty() {
