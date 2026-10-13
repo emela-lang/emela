@@ -261,11 +261,32 @@ pub struct Label {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Literal {
-    /// Digits with `_` removed. Range checks are left to type inference.
+    /// Digits with `_` removed. Range checks are left to type inference. A pattern's literal may
+    /// start with `-` (`-1`, `-0x10`, spec 6.5); in expressions `-` is unary minus.
     Int(SmolStr),
+    /// May start with `-` in a pattern, like [`Literal::Int`].
     Float(SmolStr),
     /// A string without interpolation, escapes already resolved.
     String(String),
+}
+
+/// The value of an integer literal's text (`42`, `0xFF`, `0b1010`, `-0x10`), or `None` if it does
+/// not fit `i128`. The `-` and the digits are one value (spec 6.5), so `-2147483648` is Int's
+/// minimum.
+pub fn int_literal_value(text: &str) -> Option<i128> {
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (digits, radix) = if let Some(hex) = text.strip_prefix("0x") {
+        (hex, 16)
+    } else if let Some(bin) = text.strip_prefix("0b") {
+        (bin, 2)
+    } else {
+        (text, 10)
+    };
+    let n = i128::from_str_radix(digits, radix).ok()?;
+    Some(if negative { -n } else { n })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

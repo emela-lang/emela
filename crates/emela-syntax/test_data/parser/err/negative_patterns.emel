@@ -1,0 +1,10 @@
+# Only a number literal may follow `-` in a pattern (spec 17.6).
+fn f(n: Int, p: (Int, Int)) -> Int {
+  (-y, z) = p
+  --1 = n
+  n match {
+    -x -> 0
+    -"a" -> 1
+    _ -> 2
+  }
+}

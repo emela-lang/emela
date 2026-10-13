@@ -530,6 +530,70 @@ fn f(shape: Shape, o: Option[Int], u: User) -> Float {
     ));
 }
 
+/// 6.5 A pattern may put `-` before a number literal. The range is checked on the `-` and the
+/// digits as one value, so the minimums of Int and Int64 can be written and anything below is
+/// E0311. `-0.0` is the same value as `0.0`, also for redundancy.
+#[test]
+fn spec_6_5_negative_patterns() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+const MINUS_ONE = -1
+
+fn ints(n: Int) -> Int {
+  n match {
+    -2147483648 -> 0
+    -2147483649 -> 1
+    -0x8000_0000 -> 2
+    -0x8000_0002 -> 3
+    -0b1 -> 4
+    -1 -> 5
+    MINUS_ONE -> 6
+    1 -> 7
+    _ -> 8
+  }
+}
+
+fn longs(n: Int64) -> Int {
+  n match {
+    -9223372036854775808 -> 0
+    -9223372036854775809 -> 1
+    -2147483649 -> 2
+    _ -> 3
+  }
+}
+
+fn floats(x: Float) -> Int {
+  x match {
+    0.0 -> 0
+    -0.0 -> 1
+    -1.5 -> 2
+    -1.5 -> 3
+    _ -> 4
+  }
+}
+
+fn not_exhaustive(n: Int) -> Int {
+  n match {
+    -1 -> 0
+    0 -> 1
+  }
+}
+
+fn not_a_number(s: String) -> Int {
+  s match {
+    -1 -> 0
+    _ -> 1
+  }
+}
+
+fn binding(p: (Int, Int)) -> Int {
+  (-1, x) = p
+  x
+}
+"#
+    ));
+}
+
 /// 6.6 Arithmetic operators apply only to Int, Int64 and Float, with both sides of the same type.
 /// `+` cannot concatenate strings.
 #[test]

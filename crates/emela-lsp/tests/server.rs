@@ -829,6 +829,37 @@ fn hover_shows_types_and_errors() {
     client.shutdown();
 }
 
+/// Hover over a negative number pattern (spec 6.5) and the arm around it.
+#[test]
+fn hover_on_negative_number_pattern() {
+    let src = "fn sign(n: Int) -> Int {\n  n match {\n    -1 -> n\n    1 -> 1\n    _ -> 0\n  }\n}\n\nfn main() {\n  sign(-1)\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| {
+        hover.map(|h| match h.contents {
+            lsp::HoverContents::Markup(m) => (m.value, h.range),
+            other => panic!("{other:?}"),
+        })
+    };
+    // On the `-` and on the digits, the same as a positive literal pattern (`1`).
+    let positive = text(client.hover("/app/src/main.emel", 3, 4));
+    assert_eq!(
+        positive,
+        Some(("```emela\nInt\n```".to_owned(), Some(range((1, 2), (5, 3)))))
+    );
+    assert_eq!(text(client.hover("/app/src/main.emel", 2, 4)), positive);
+    assert_eq!(text(client.hover("/app/src/main.emel", 2, 5)), positive);
+    // The arm's body after the pattern.
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 10)),
+        Some((
+            "```emela\nn: Int\n```".to_owned(),
+            Some(range((2, 10), (2, 11)))
+        ))
+    );
+    client.shutdown();
+}
+
 #[test]
 fn hover_shows_effects() {
     let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nfn greet() {\n  log = use Logger\n  log.info(\"hi\")\n}\n\nfn main() {\n  with Quiet { greet() }\n}\n";

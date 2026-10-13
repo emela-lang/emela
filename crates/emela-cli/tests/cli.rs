@@ -499,6 +499,58 @@ fn run_reports_unhandled_error_with_exit_code_1() {
 }
 
 #[test]
+fn run_matches_negative_number_patterns() {
+    // A pattern's `-` and number are one value, compared with `==` (spec 6.5): the minimums of
+    // Int and Int64, hex and binary, and `-0.0` matching `0.0`.
+    let project = Project::new(
+        "negative-patterns",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                r#"fn int(n: Int) -> Int {
+  n match {
+    -2147483648 -> 1
+    -0x10 -> 2
+    -0b11 -> 3
+    -1 -> 4
+    _ -> 0
+  }
+}
+
+fn long(n: Int64) -> Int {
+  n match {
+    -9223372036854775808 -> 1
+    -5 -> 2
+    _ -> 0
+  }
+}
+
+fn float(x: Float) -> Int {
+  x match {
+    -1.5 -> 1
+    -0.0 -> 2
+    _ -> 0
+  }
+}
+
+fn main() {
+  dbg([int(-2147483647 - 1), int(-16), int(-3), int(-1), int(1)])
+  dbg([long(-9223372036854775807 - 1), long(-5), long(5)])
+  dbg([float(-1.5), float(0.0), float(-0.0), float(1.5)])
+}
+"#,
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "[1, 2, 3, 4, 0]\n[1, 2, 0]\n[1, 2, 2, 0]\n")
+    );
+}
+
+#[test]
 fn run_hello_example() {
     // The README example (`examples/hello`). Console is provided by JsConsole (spec 8.3, 15.2).
     let project = Project::new(

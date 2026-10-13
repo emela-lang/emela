@@ -380,6 +380,45 @@ fn describe(xs: List[Int]) -> String {
     insta::assert_snapshot!(dump(&m));
 }
 
+/// A pattern's `-` and number are one literal value (spec 6.5); Int64 and Float keep their sign.
+#[test]
+fn negative_number_patterns() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+fn main() {
+  dbg(int(-1))
+  dbg(long(-5))
+  dbg(float(-0.0))
+}
+
+fn int(n: Int) -> Int {
+  n match {
+    -2147483648 -> 0
+    -0x10 -> 1
+    _ -> 2
+  }
+}
+
+fn long(n: Int64) -> Int {
+  n match {
+    -9223372036854775808 -> 0
+    _ -> 1
+  }
+}
+
+fn float(x: Float) -> Int {
+  x match {
+    -0.0 -> 0
+    -1.5 -> 1
+    _ -> 2
+  }
+}
+",
+    )]);
+    insta::assert_snapshot!(dump(&m));
+}
+
 #[test]
 fn lambdas_and_wrapped_functions() {
     let m = lower_files(&[(

@@ -1,0 +1,155 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: dump(&m)
+---
+enum Option[A] {
+  Some(A)
+  None
+}
+
+enum Prelude.Ordering {
+  Less
+  Equal
+  Greater
+}
+
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
+enum Std.Duration.Duration {
+  Duration(milliseconds: Int64)
+}
+
+enum Std.Instant.Instant {
+  Instant(milliseconds: Int64)
+}
+
+enum Std.Http.Method {
+  Get
+  Head
+  Post
+  Put
+  Patch
+  Delete
+  Options
+}
+
+enum Std.Http.Request {
+  Request(method: Std.Http.Method, url: String, headers: List[(String, String)], body: String)
+}
+
+enum Std.Http.Response {
+  Response(status: Int, headers: List[(String, String)], body: String)
+}
+
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+error enum Std.Http.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
+enum Std.Http.HostRequest {
+}
+
+enum Std.Http.HostResponse {
+}
+
+enum Std.Http.TestServer {
+  TestServer(respond: fn, sent: List[Std.Http.Request])
+}
+
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
+enum Std.FileSystem.Outcome {
+}
+
+enum Std.FileSystem.TestFiles {
+  TestFiles(files: List[(String, String)], directories: List[String])
+}
+
+enum Std.Cause.Cause[A] {
+  Cause(raise: fn)
+}
+
+enum Std.Cause.CauseKind {
+  Fail
+  Die
+  Interrupt
+}
+
+enum Std.Deferred.Deferred[A] {
+}
+
+enum Std.Fiber.Fiber[A] {
+}
+
+enum Std.Fiber.Exit[A, B] {
+  Success(A)
+  Failure(Std.Cause.Cause[()])
+}
+
+export fn main() {
+  let _%0 = @dbg[Int](int((-[Int] 1)))
+  let _%1 = @dbg[Int](long((-[Int64] 5i64)))
+  @dbg[Int](float((-[Float] 0.0)))
+}
+
+fn int(n%4) {
+  match n%4 {
+    -2147483648 -> 0
+    -16 -> 1
+    _ -> 2
+  }
+}
+
+fn long(n%3) {
+  match n%3 {
+    -9223372036854775808i64 -> 0
+    _ -> 1
+  }
+}
+
+fn float(x%2) {
+  match x%2 {
+    -0.0 -> 0
+    -1.5 -> 1
+    _ -> 2
+  }
+}
