@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests, OsFs, Output, RunOptions,
-    SourceDb, TestOptions, Typecheck,
+    Analysis, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests, MemoryFiles, OsFs, Output,
+    RunOptions, SourceDb, TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -61,8 +61,30 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Generate API documentation under `target/emela/doc`
+    Doc {
+        /// Entry file or project directory [default: .]
+        path: Option<PathBuf>,
+        /// Document the bundled core and std instead of the project
+        #[arg(long, conflicts_with = "path")]
+        std: bool,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = DocFormat::Html)]
+        format: DocFormat,
+        /// Output directory [default: <project>/target/emela/doc]
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+    },
     /// Start the language server over standard input and output
     Lsp,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DocFormat {
+    /// Pages with a sidebar of modules, highlighted signatures and links between types
+    Html,
+    /// `index.md` and one Markdown file per module
+    Md,
 }
 
 const DIAGNOSTIC_FAILURE: u8 = 1;
@@ -82,6 +104,12 @@ fn main() -> ExitCode {
             out_dir,
         } => test(&path_or_current(path), filter, out_dir),
         Command::Fmt { paths, check } => fmt(paths, check),
+        Command::Doc {
+            path,
+            std,
+            format,
+            out_dir,
+        } => doc(path, std, format, out_dir),
         Command::Lsp => lsp(),
     }
 }
@@ -187,6 +215,53 @@ fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCo
             }
         }
     }
+}
+
+/// Documents the project at `path`, or the bundled core and std with `std`. Nothing is written
+/// if there are errors, since broken types would show up in the signatures.
+fn doc(path: Option<PathBuf>, std: bool, format: DocFormat, out_dir: Option<PathBuf>) -> ExitCode {
+    let (analysis, program, title, default_out_dir) = if std {
+        // The core and std modules are read for any input, so an empty single file is enough.
+        let fs = MemoryFiles::new([("std/doc.emel", "")]);
+        let Some(input) = resolve_input(&fs, Path::new("std/doc.emel")) else {
+            return ExitCode::from(DIAGNOSTIC_FAILURE);
+        };
+        let (analysis, program) = emela_driver::check(&fs, &input, &mut Typecheck::default());
+        let title = "Emela core and std".to_string();
+        (
+            analysis,
+            program,
+            title,
+            PathBuf::from(emela_driver::DOC_OUT_DIR),
+        )
+    } else {
+        let Some(input) = resolve_input(&OsFs, &path_or_current(path)) else {
+            return ExitCode::from(DIAGNOSTIC_FAILURE);
+        };
+        let (analysis, program) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
+        // Pome.toml is not read yet, so the project is named after its directory.
+        let title = input.base.file_name().map_or_else(
+            || "docs".to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        (analysis, program, title, input.default_doc_out_dir())
+    };
+    let code = report(&analysis);
+    let Some(program) = program.filter(|_| !analysis.has_errors()) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
+    let modules = emela_driver::collect_docs(&program, &analysis, std);
+    let (files, index) = match format {
+        DocFormat::Html => (emela_driver::render_html(&title, &modules), "index.html"),
+        DocFormat::Md => (emela_driver::render_markdown(&title, &modules), "index.md"),
+    };
+    let out_dir = out_dir.unwrap_or(default_out_dir);
+    if let Err(diagnostic) = emela_driver::write_files(&out_dir, &files) {
+        print_diagnostics(&[diagnostic], &SourceDb::new());
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    }
+    println!("{}", out_dir.join(index).display());
+    code
 }
 
 fn fmt(paths: Vec<PathBuf>, check: bool) -> ExitCode {

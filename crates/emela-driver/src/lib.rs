@@ -38,10 +38,10 @@ pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};
-pub use output::{JsOutput, OutputFile, write_output};
+pub use output::{JsOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, CORE_DIR, Checked, CoreSource, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend,
-    LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
+    Analysis, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, ENTRY_FILE, Frontend, Input, JS_OUT_DIR,
+    JsBackend, LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
 };
 pub use render::{render, render_one, summary};
 pub use run::{
