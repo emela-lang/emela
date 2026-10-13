@@ -16,8 +16,7 @@ fn both[R](f: fn() -> () use { R, Quiet, Http.Client }) -> () use { R, Http.Clie
   with Silent { f() }
 }
 
-fn long[R](
-  f: fn() -> () use { Quiet, Logger, Clock, Random, Http.Client, R },
-) -> () use { Logger, Clock, Random, Http.Client, R } {
+fn long[R](f: fn() -> () use { Quiet, Logger, Clock, Random, Http.Client, R }) -> ()
+  use { Logger, Clock, Random, Http.Client, R } {
   with Silent { f() }
 }
