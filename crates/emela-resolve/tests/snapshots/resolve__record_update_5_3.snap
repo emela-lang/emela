@@ -89,7 +89,7 @@ fn Main.bad
             user#4
       d#9
 == diagnostics
-error src/main.emel@463..469 `Circle`: `Circle` は enum variant で，部分更新できない
-error src/main.emel@498..504 `rename`: `rename` は function で，部分更新できない
-error src/main.emel@535..538 `"c"`: 部分更新では変えるフィールドを名前で書く
-error src/main.emel@554..558 `user`: `user` は local variable で，部分更新できない
+error src/main.emel@463..469 `Circle`: enum variant `Circle` cannot be updated
+error src/main.emel@498..504 `rename`: function `rename` cannot be updated
+error src/main.emel@535..538 `"c"`: fields to update must be named
+error src/main.emel@554..558 `user`: local variable `user` cannot be updated

@@ -50,4 +50,4 @@ fn Util.twice pub
         x#0
         x#0
 == diagnostics
-error src/main.emel@203..207 `Util`: 未定義のモジュールか Trait `Util`
+error src/main.emel@203..207 `Util`: undefined module or trait `Util`

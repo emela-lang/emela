@@ -90,7 +90,7 @@ impl SourceFs for MemoryFs {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("`{}` がない", dir.display()),
+                format!("`{}` does not exist", dir.display()),
             ))
         }
     }
@@ -366,12 +366,12 @@ mod tests {
         assert_eq!(
             diagnostics,
             [
-                "src/Foo.emel: ファイル名 `Foo` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/HTTP: ディレクトリ名 `HTTP` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/_x.emel: ファイル名 `_x` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/a.emel: ファイル名 `a` をモジュール名にできない: 変換後の `A` が型名にならない",
-                "src/a__b.emel: ファイル名 `a__b` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/ok/a-b.emel: ファイル名 `a-b` をモジュール名にできない: 小文字の snake_case ではない",
+                "src/Foo.emel: file name `Foo` cannot be a module name: not lower snake_case",
+                "src/HTTP: directory name `HTTP` cannot be a module name: not lower snake_case",
+                "src/_x.emel: file name `_x` cannot be a module name: not lower snake_case",
+                "src/a.emel: file name `a` cannot be a module name: the converted name `A` is not a valid type name",
+                "src/a__b.emel: file name `a__b` cannot be a module name: not lower snake_case",
+                "src/ok/a-b.emel: file name `a-b` cannot be a module name: not lower snake_case",
             ]
         );
         assert_eq!(names(&map), ["Ok.Fine = src/ok/fine.emel"]);
@@ -390,11 +390,11 @@ mod tests {
         assert_eq!(
             diagnostics,
             [
-                "src/Json_Codec.emel: ファイル名 `Json_Codec` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/UTIL.emel: ファイル名 `UTIL` をモジュール名にできない: 小文字の snake_case ではない",
-                "src/ab_2.emel: モジュール `Ab2` が重複している（先に `src/ab2.emel` がある）",
-                "src/Json_Codec.emel: モジュール `JsonCodec` が重複している（先に `src/json_codec.emel` がある）",
-                "src/UTIL.emel: モジュール `Util` が重複している（先に `src/util.emel` がある）",
+                "src/Json_Codec.emel: file name `Json_Codec` cannot be a module name: not lower snake_case",
+                "src/UTIL.emel: file name `UTIL` cannot be a module name: not lower snake_case",
+                "src/ab_2.emel: duplicate module `Ab2` (already defined by `src/ab2.emel`)",
+                "src/Json_Codec.emel: duplicate module `JsonCodec` (already defined by `src/json_codec.emel`)",
+                "src/UTIL.emel: duplicate module `Util` (already defined by `src/util.emel`)",
             ]
         );
         assert_eq!(
@@ -412,7 +412,7 @@ mod tests {
         let (map, diagnostics) = collect(&["src/prelude.emel", "src/app/prelude.emel"]);
         assert_eq!(
             diagnostics,
-            ["src/prelude.emel: モジュール名 `Prelude` は予約されている"]
+            ["src/prelude.emel: module name `Prelude` is reserved"]
         );
         assert_eq!(names(&map), ["App.Prelude = src/app/prelude.emel"]);
     }
@@ -429,8 +429,8 @@ mod tests {
         assert_eq!(
             diagnostics,
             [
-                "src/std: モジュール名 `Std` は予約されている",
-                "src/std.emel: モジュール名 `Std` は予約されている",
+                "src/std: module name `Std` is reserved",
+                "src/std.emel: module name `Std` is reserved",
             ]
         );
         assert_eq!(
@@ -443,7 +443,10 @@ mod tests {
     fn missing_root() {
         let (map, diagnostics) = collect(&["lib/main.emel"]);
         assert!(map.is_empty());
-        assert_eq!(diagnostics, ["src: ディレクトリを読めない: `src` がない"]);
+        assert_eq!(
+            diagnostics,
+            ["src: cannot read directory: `src` does not exist"]
+        );
     }
 
     #[test]
