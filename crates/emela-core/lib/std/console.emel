@@ -27,8 +27,10 @@ pub handler SystemConsole implements Console {
 ## The test handler (spec 8.8). It keeps the printed lines in `State[List[String]]`, so use it
 ## inside `State.run`:
 ##
-##   (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
-##   assert lines == ["Hello, alice!"]
+## ```emela
+## (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })
+## assert lines == ["Hello, alice!"]
+## ```
 ##
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
 pub handler TestConsole implements Console {

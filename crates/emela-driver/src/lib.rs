@@ -7,6 +7,7 @@ mod actions;
 pub mod code;
 mod complete;
 mod diagnostic;
+mod doc;
 mod fmt;
 mod frontend;
 mod hints;
@@ -26,6 +27,7 @@ mod tokens;
 pub use actions::CodeAction;
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
+pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_html, render_markdown};
 pub use emela_resolve::OsFs;
 pub use fmt::{
     FmtFailure, FmtReport, FmtTarget, STDIN_DISPLAY, STDIN_PATH, WriteFile, fmt, fmt_targets,
@@ -36,10 +38,10 @@ pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};
-pub use output::{JsOutput, OutputFile, write_output};
+pub use output::{JsOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, CORE_DIR, Checked, CoreSource, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, JsBackend,
-    LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
+    Analysis, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, ENTRY_FILE, Frontend, Input, JS_OUT_DIR,
+    JsBackend, LexOnly, NoJsBackend, Parsed, RunOptions, SOURCE_DIR, build, check, run,
 };
 pub use render::{render, render_one, summary};
 pub use run::{

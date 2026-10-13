@@ -68,69 +68,19 @@ pub(crate) fn hover(
             )),
         });
     }
-    // Handler names: fields, implemented effect, dependencies (spec 8.4; shows whether Async
-    // remains, spec 8.7), and the E of init (part of the with's E, spec 9.4).
+    // Handler names (spec 8.4).
     if let Some((def, data)) = def
-        && let Some(Item::Handler(item)) = hir.item(def)
+        && let Some(text) = handler_text(program, def)
     {
-        let mut text = format!("handler {}", data.name);
-        let ctor_ty = item
-            .ctor
-            .and_then(|ctor| types.sigs.get(ctor))
-            .map(|sig| &sig.scheme.ty);
-        if let (Some(ctor), Some(emela_types::Ty::Fn(f))) = (item.ctor, ctor_ty) {
-            let labels = &types.sigs.get(ctor)?.labels;
-            let fields: Vec<String> = labels
-                .iter()
-                .zip(&f.params)
-                .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
-                .collect();
-            text.push_str(&format!("({})", fields.join(", ")));
-        }
-        // An effect with type arguments is shown as `implements State[Int]` (spec 8.1).
-        match types.sigs.handler_effect(def) {
-            Some(tag) => {
-                let effect = Row::of_tag(tag.clone());
-                text.push_str(&format!(
-                    " implements {}",
-                    effect.display_effects(cons, &[])
-                ));
-            }
-            None => {
-                if let Res::Def(effect) = item.effect {
-                    text.push_str(&format!(" implements {}", hir.defs[effect].name));
-                }
-            }
-        }
-        if let Some(fails) = types.handler_fails.get(def)
-            && !fails.is_empty()
-        {
-            text.push_str(&format!("\ninit fails {}", fails.display(cons)));
-        }
-        if let Some(deps) = types.handler_uses.get(def)
-            && !deps.is_empty()
-        {
-            text.push_str(&format!("\nuse {}", deps.display_effects(cons, &[])));
-        }
         return Some(HoverInfo {
             range: data.span?.range,
             contents: code(&text),
         });
     }
-    // Layer names: handlers in initialization order and dependencies unmet inside the layer
-    // (spec 8.5).
+    // Layer names (spec 8.5).
     if let Some((def, data)) = def
-        && let Some(layer) = types.layers.get(def)
+        && let Some(text) = layer_text(program, def)
     {
-        let names: Vec<&str> = layer
-            .handlers
-            .iter()
-            .map(|&h| hir.defs[h].name.as_str())
-            .collect();
-        let mut text = format!("layer {} {{ {} }}", data.name, names.join(", "));
-        if !layer.uses.is_empty() {
-            text.push_str(&format!("\nuse {}", layer.uses.display_effects(cons, &[])));
-        }
         return Some(HoverInfo {
             range: data.span?.range,
             contents: code(&text),
@@ -215,6 +165,79 @@ pub(crate) fn hover(
         }
         _ => None,
     }
+}
+
+/// `handler H(fields) implements E` (`E[Int]` with type arguments), plus `init fails E` if init
+/// has an E (part of the with's E, spec 9.4) and `use R` if it has dependencies (shows whether
+/// Async remains, spec 8.7). `None` if `def` is not a handler.
+pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String> {
+    let hir = &program.hir;
+    let types = &program.types;
+    let cons = &types.ty_table.cons;
+    let Some(Item::Handler(item)) = hir.item(def) else {
+        return None;
+    };
+    let mut text = format!("handler {}", hir.defs[def].name);
+    let ctor_ty = item
+        .ctor
+        .and_then(|ctor| types.sigs.get(ctor))
+        .map(|sig| &sig.scheme.ty);
+    if let (Some(ctor), Some(emela_types::Ty::Fn(f))) = (item.ctor, ctor_ty) {
+        let labels = &types.sigs.get(ctor)?.labels;
+        let fields: Vec<String> = labels
+            .iter()
+            .zip(&f.params)
+            .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
+            .collect();
+        text.push_str(&format!("({})", fields.join(", ")));
+    }
+    // An effect with type arguments is shown as `implements State[Int]` (spec 8.1).
+    match types.sigs.handler_effect(def) {
+        Some(tag) => {
+            let effect = Row::of_tag(tag.clone());
+            text.push_str(&format!(
+                " implements {}",
+                effect.display_effects(cons, &[])
+            ));
+        }
+        None => {
+            if let Res::Def(effect) = item.effect {
+                text.push_str(&format!(" implements {}", hir.defs[effect].name));
+            }
+        }
+    }
+    if let Some(fails) = types.handler_fails.get(def)
+        && !fails.is_empty()
+    {
+        text.push_str(&format!("\ninit fails {}", fails.display(cons)));
+    }
+    if let Some(deps) = types.handler_uses.get(def)
+        && !deps.is_empty()
+    {
+        text.push_str(&format!("\nuse {}", deps.display_effects(cons, &[])));
+    }
+    Some(text)
+}
+
+/// `layer L { handlers in initialization order }`, plus `use R` for dependencies unmet inside
+/// the layer (spec 8.5). `None` if `def` is not a layer.
+pub(crate) fn layer_text(program: &TypedProgram, def: DefId) -> Option<String> {
+    let hir = &program.hir;
+    let types = &program.types;
+    let layer = types.layers.get(def)?;
+    let names: Vec<&str> = layer
+        .handlers
+        .iter()
+        .map(|&h| hir.defs[h].name.as_str())
+        .collect();
+    let mut text = format!("layer {} {{ {} }}", hir.defs[def].name, names.join(", "));
+    if !layer.uses.is_empty() {
+        text.push_str(&format!(
+            "\nuse {}",
+            layer.uses.display_effects(&types.ty_table.cons, &[])
+        ));
+    }
+    Some(text)
 }
 
 /// The top-level definition (fn or const) whose body contains `offset`.

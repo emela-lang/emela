@@ -47,7 +47,14 @@ pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagno
         ))
         .with_code(code::INVALID_JS_OUTPUT));
     }
-    for file in &output.files {
+    write_files(out_dir, &output.files)?;
+    Ok(out_dir.join(&output.entry))
+}
+
+/// Writes each file under `out_dir`, making directories as needed. Earlier output is
+/// overwritten, not removed. The paths must be plain relative paths.
+pub fn write_files(out_dir: &Path, files: &[OutputFile]) -> Result<(), Diagnostic> {
+    for file in files {
         let path = out_dir.join(&file.path);
         let write = || -> std::io::Result<()> {
             if let Some(dir) = path.parent() {
@@ -61,7 +68,7 @@ pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagno
                 .at(Location::Path(path.clone()))
         })?;
     }
-    Ok(out_dir.join(&output.entry))
+    Ok(())
 }
 
 /// A relative path with no `..` and not absolute.

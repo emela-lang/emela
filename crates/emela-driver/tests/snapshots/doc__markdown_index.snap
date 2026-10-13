@@ -1,0 +1,8 @@
+---
+source: crates/emela-driver/tests/doc.rs
+expression: "files[0].contents"
+---
+# app
+
+- [Main](Main.md)
+- [Shapes](Shapes.md)

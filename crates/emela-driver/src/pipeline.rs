@@ -33,6 +33,8 @@ pub const ENTRY_FILE: &str = "main.emel";
 /// The default JS output directory, relative to the project (or to the file's directory for a
 /// single file).
 pub const JS_OUT_DIR: &str = "target/emela/js";
+/// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
+pub const DOC_OUT_DIR: &str = "target/emela/doc";
 /// A virtual directory holding the bundled core sources. Diagnostics show paths like
 /// `<core>/list.emel`.
 pub const CORE_DIR: &str = "<core>";
@@ -178,6 +180,10 @@ impl Input {
 
     pub fn default_out_dir(&self) -> PathBuf {
         self.base.join(JS_OUT_DIR)
+    }
+
+    pub fn default_doc_out_dir(&self) -> PathBuf {
+        self.base.join(DOC_OUT_DIR)
     }
 }
 
