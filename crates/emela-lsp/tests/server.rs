@@ -1790,7 +1790,7 @@ handler Loud implements Logger {
 
 fn greet(names: List[String]) {
   log = use Logger
-  List.each(names, fn(n) { log.info(\"hi #{n}\") })
+  List.map(names, fn(n) { log.info(\"hi #{n}\") })
   (use Logger).info(\"bye\")
 }
 
@@ -1840,7 +1840,7 @@ fn semantic_tokens_mark_capability_values() {
         [
             // The binding and its use in a closure.
             cap(13, 2, 3),
-            cap(14, 27, 3),
+            cap(14, 26, 3),
             // Nested `with`: both the outer and the inner value.
             cap(20, 4, 5),
             cap(22, 6, 5),

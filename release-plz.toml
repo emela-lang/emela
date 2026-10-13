@@ -30,17 +30,78 @@ git_release_enable = false
 # default per-crate tags (`emela-codegen-v…`, `emela-backend-js-v…`, …) keeps
 # exactly one `vX.Y.Z` tag per release, which is what `release.yml` triggers on.
 git_tag_enable = false
+# In git-only mode this pattern is also how every crate finds its last release.
+# With the default `{{ package }}-v{{ version }}` the library crates look for
+# tags that never exist (`emela-lsp-v0.20.0`, …), count as initial releases and
+# keep their current version. Pointing all of them at the shared `vX.Y.Z` tag
+# that emela-cli cuts gives each crate the right previous release.
+git_tag_name = "v{{ version }}"
 # Keep a single changelog at the repo root instead of one per library crate.
 changelog_update = false
 
+# Every crate shares one version (`version.workspace = true`). release-plz only
+# sees a change in a crate whose directory a commit touched, so a commit that
+# only touches emela-lsp would bump nothing for emela-cli, which owns the tag and
+# the changelog. One `version_group` makes a change in any crate bump all of them
+# to the same next version.
+[[package]]
+name = "emela-syntax"
+version_group = "emela"
+
+[[package]]
+name = "emela-resolve"
+version_group = "emela"
+
+[[package]]
+name = "emela-types"
+version_group = "emela"
+
+[[package]]
+name = "emela-core"
+version_group = "emela"
+
+[[package]]
+name = "emela-codegen-js"
+version_group = "emela"
+
+[[package]]
+name = "emela-codegen-wasm"
+version_group = "emela"
+
+[[package]]
+name = "emela-fmt"
+version_group = "emela"
+
+[[package]]
+name = "emela-driver"
+version_group = "emela"
+
+[[package]]
+name = "emela-lsp"
+version_group = "emela"
+
 [[package]]
 name = "emela-cli"
+version_group = "emela"
 # The binary crate (it builds the `emela` binary) cuts the one release tag `release.yml` listens for.
 git_tag_enable = true
-git_tag_name = "v{{ version }}"
 # Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
 git_release_enable = true
 git_release_draft = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
+# The version group decides the version, not the changelog: emela-cli's
+# changelog lists only commits that touched crates/emela-cli. Pull in every other
+# crate's commits so the one root changelog covers the whole release.
+changelog_include = [
+  "emela-syntax",
+  "emela-resolve",
+  "emela-types",
+  "emela-core",
+  "emela-codegen-js",
+  "emela-codegen-wasm",
+  "emela-fmt",
+  "emela-driver",
+  "emela-lsp",
+]
 

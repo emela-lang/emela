@@ -108,6 +108,20 @@ alpha が選ばれる。
 - release-plz（`git_only`）は最新の正式版のタグのコミットで `cargo package` を走らせる。
   そのため workspace の内部の依存には `version` を付け、循環になる dev 依存
   （emela-types → emela-core）は path だけにする。
+- 全部のクレートが `release-plz.toml` で同じ `version_group` に入っている。release-plz は
+  コミットが触ったディレクトリのクレートだけを「変更あり」と見るので、これがないと
+  `emela-cli` 以外だけを触ったコミットでは version が上がらず、タグも出ない。
+  CHANGELOG は `emela-cli` の `changelog_include` でほかのクレートのコミットを拾う。
+- 前のリリースは、どのクレートも `vX.Y.Z` のタグで探す（workspace の `git_tag_name`）。
+  打つのは `emela-cli` だけ（`git_tag_enable`）。
+- release PR の version を手で変えるとき（例: 0.21.0 を 0.20.1 にする）は、PR のブランチで
+  次の3つをそろえる。マージすると release-plz はその version のタグを打つ。
+  1. Cargo.toml の `[workspace.package]` の `version` と、`[workspace.dependencies]` の
+     `emela-*` の `version` 9つ
+  2. Cargo.lock の `emela-*` 10個の `version`（`cargo metadata --locked` が通ること）
+  3. CHANGELOG.md の見出し `## [0.20.1](…/compare/v0.20.0...v0.20.1)`
+  直した後にほかの PR が `main` に入ると、release-plz は手のコミットが入った PR を閉じて、
+  release PR を開き直す（version も元に戻る）。直したらすぐマージする。
 - `release-plz-pr` は `release-plz-release` の後に動く。version を手で上げて `main` に
   入れたときに、先にタグを打たせるため。
 - 0.20.0 の正式版を出すときに `next` を `main` に入れる。Cargo.toml はもう `0.20.0`
