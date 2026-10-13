@@ -249,3 +249,14 @@ alpha.3 の第2段（2026-10-12）．前半で IR とバックエンドを作り
 - （補）fn の操作の実装のラムダは，型検査の E0417 と同じく，本体の式の R が Immediate か，写した本体が中断しうる呼び出し（`Expr::Call::suspends` が真）を無名関数の外に含まない（`has_suspending_call` が偽）ならジェネレータにしない．本体の R に suspend fn を持つ Clock があっても，`clock.now()` しか呼ばなければジェネレータにしない．R が Immediate で中に真の呼び出しがある（その場で resume するハンドラの with の中の suspend fn の操作）ときは，中断しない関数の本体と同じ扱いで，バックエンドがその場で最後まで進める（上の「中断と再開」）．E0417 を通った本体では，どちらかが必ず成り立つのでジェネレータにならない
 - （補）suspend fn の操作の実装は，今までどおり本体の式の R で決める．中断しうる呼び出しがなくても R に suspend fn を持つエフェクトがあればジェネレータになるが，suspend fn の操作の呼び出しは中断しうる形で呼ぶので出力は正しい
 - （補）`@external suspend fn` は，宣言の型の R に Async があるので印の付いた外部関数になる
+
+## 並行性（11章）
+
+alpha.5 の第1段（2026-10-13）．IR とバックエンドとランタイムを先に作り，手で組んだ IR で確かめた（emela-codegen-js の `tests/fiber.rs`）．lowering からの接続は，型検査と同梱の `std/fiber.emel` などがそろってからの別の段．
+
+- （補）11章の操作は `Expr::Fiber { op: FiberOp, args }` の1つの形で持つ．操作ごとの引数の数（`FiberOp::arity`），中断しうるか（`suspends`），失敗しうるか（`fails`）は `FiberOp` が決める．呼び出しのように印を式に持たせないのは，ほとんどの操作で印が操作から決まるため．印が変わるのは `Scope { fails }`（本体の E）と `Attempt { suspends }`（`f` の R）だけ
+- （補）`Fiber.scope(body)` の `body` は，スコープの能力の値を1つ受ける関数の値．lowering は利用者の本体を呼ぶラムダで包み，受けた能力の値を Scope の鍵で証拠の表に足して渡す想定（`Expr::Provide`）．Scope の能力の値と fiber のハンドルと Deferred と原因は，バックエンドが決める不透明な値．Scope の操作（fork，deferred）は `Callee::Op` でなく `FiberOp::Fork`，`FiberOp::Deferred` にして，能力の値を最初の引数に渡す
+- （補）`s.fork(f)` の `f` は引数のない関数の値．子が使う証拠の表は lowering がラムダで閉じ込める（11.2 の「Fiber.scope を呼んだ時点のハンドラ，ただし Scope は子の属すスコープ」）．`f` の R は多相なので，中断用の写し（上の「lowering の印」）がそのまま使える．中断しない関数を渡せば，子の fiber として一息に走る
+- （補）Exit と CauseKind は利用者の enum と同じ `EnumDef` で，lowering が同梱の定義から入れる．構成子の並びは `EXIT_SUCCESS`，`EXIT_FAILURE`，`CAUSE_FAIL`，`CAUSE_DIE`，`CAUSE_INTERRUPT` に固定する．`FiberOp::Await`，`Attempt`，`CauseKind` はその `EnumId` を持つ（バックエンドが形を確かめる）．`Deferred.poll` の値は Prelude の Option
+- （補）中断しうる呼び出しを含むか（`lower/suspend.rs` の `has_suspending_call`）は，中断しうる `Expr::Fiber` も数える
+- （補）ダンプでは `fiber#join(h)!` のように `fiber#` の後ろに操作の名前を書き，Exit などの enum を `[Exit]` と添える．中断しうれば `!`，失敗しうれば `?` を後ろに付ける

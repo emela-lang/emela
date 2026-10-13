@@ -17,6 +17,7 @@ use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 mod assert;
 mod effects;
 mod errors;
+mod fiber;
 mod suspend;
 
 use errors::FailTarget;
@@ -434,6 +435,10 @@ impl Emitter<'_> {
             Expr::Assert(a) => {
                 self.assert(a);
                 lit_js(&Lit::Unit)
+            }
+            Expr::Fiber { op, args } => {
+                let v = self.fiber(*op, args);
+                if op.fails() { self.checked(v) } else { v }
             }
         }
     }
@@ -934,6 +939,7 @@ fn is_simple(e: &Expr) -> bool {
         Expr::Handler { ops, .. } => ops.iter().all(is_simple),
         // A fallible call emits a statement that checks its result.
         Expr::Call { fails: true, .. } => false,
+        Expr::Fiber { op, args } => !op.fails() && args.iter().all(is_simple),
         Expr::Call { callee, args, .. } => {
             let callee_simple = match callee {
                 Callee::Direct(_) => true,

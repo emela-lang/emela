@@ -49,6 +49,8 @@ function $testIsGenerator(value) {
 
 // Calls one test function and returns its result. A suspending test function (one that returns a generator) is driven by `start` (the runtime's
 // `$start`), waiting until it finishes, hits a defect, or unwinds while left suspended.
+// The test function is the root fiber of its run: only how it ends is reported. An interruption of a child fiber
+// (11.4) ends that child as an Interrupt, which its scope receives (11.5), so it never reaches here.
 function $runTest(test, start) {
   return new Promise((resolve) => {
     let over = false;

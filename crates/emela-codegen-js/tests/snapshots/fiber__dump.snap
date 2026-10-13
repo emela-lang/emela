@@ -1,0 +1,13 @@
+---
+source: crates/emela-codegen-js/tests/fiber.rs
+expression: main
+---
+export suspend fn main() {
+  fiber#scope(suspend fn(s%7) {
+    let h%8 = fiber#fork(s%7, suspend fn() {
+      1
+    })
+    let _%9 = fiber#await[Exit](h%8)!
+    fiber#join(h%8)!
+  })!?
+}

@@ -33,7 +33,9 @@ pub const FAIL_KEY: &str = "emela.fail";
 /// イベントループで待つ．resume されないままループが空になったら，`$start` の返した関数で
 /// 開いている with の release を内側から走らせてから，`interrupted` を出して終了コード 130 で
 /// 終わる（14.5）．release が中断したまま残れば，次にループが空になったときにもう一度呼ぶ．中断しない main の中で resume されずに捨てられた継続
-/// （ランタイムの `$Interrupted`）も同じ．defect は，ホストのコールバックの中で起きたものも
+/// （ランタイムの `$Interrupted`）も同じ．main は起動の根の fiber で，`$start` の `done` に届くのは
+/// 根の fiber の終わり方だけ．子の fiber の中断（11.4，捨てられた継続を含む）はその子の Interrupt として
+/// スコープが受けるので，ここへは届かない（11.5）．ループが空になったときの巻き戻しは子の fiber も含む．defect は，ホストのコールバックの中で起きたものも
 /// `defect: <メッセージ>` を出して終了コード 101 で終わる（7.5）．
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";

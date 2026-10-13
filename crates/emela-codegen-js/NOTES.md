@@ -46,6 +46,8 @@
 - （補）証拠の表は `{ __proto__: 外側の表, Console_Console: h }` のオブジェクトで，with ごとに新しく作る．外側の表は書き換えないので，外側で取り出した能力の値や外側の表を捕まえたクロージャに影響しない．外側の表がなければ `__proto__: null`．鍵は IR のエフェクトの名前の `.` を `_` にしたもの（大文字で始まるので `Object.prototype` の名前とぶつからない）．
 - （補）`use X` は表のプロパティの参照 `ev.Console_Console`，操作の呼び出しは `h.print_line(text)`．操作の名前 `__proto__` は `["__proto__"]` と書く．
 - （補）ハンドラの値は，handler ごとの関数（`JsConsole_JsConsole()`）が返すオブジェクトリテラル．操作はアロー関数で，失敗は `$Fail` を返す（ラムダと同じ）．
+- （補）証拠の表の鍵は IR のエフェクトの名前を識別子にしたもの．型引数のあるエフェクト（`State.State[Int]`，8.1）は，名前の `[`，`]`，`,` が `_` に潰れて重なりうるので，IR のエフェクトの番号を足す（`State_State_Int_$3`）．型引数のないエフェクトの鍵は今までどおり
+- （補）`State.run` の状態の入れ物は，ランタイムの `$cellNew`，`$cellGet`，`$cellSet`（`{ value }` のオブジェクト）
 
 ### init と release（仕様 8.4，8.6，14.2，14.4，14.5）
 
@@ -53,9 +55,9 @@
 
 - （補）release のある束縛（`WithBind::release`）ごとに，それより後ろの束縛と本体を `try` で囲み，`finally` で release を評価する．値，失敗（`$Fail` を `return` するか escape へ `break` する），defect（例外）のどれで抜けても `finally` が走る．後ろの束縛（init）の失敗も同じ道で抜けるので，初期化の済んだものだけが逆の順に release される．release のある with を値の位置に書いたときは，本体を `try` の中で評価するため一時変数で受ける
 - （補）`catch` で本体の投げたものを覚えておき，release が投げたら `$releaseDefect(本体の投げたもの, release の投げたもの, 名前)` を投げ直す．本体が値かエラーで終わっていた（投げたものがない）なら release の defect が結果になる．本体が defect なら，それを投げ直して結果のままにし，release の defect は `note: the release of handler <名前> also failed: <メッセージ>` の行としてメッセージに足す（14.4）．外側の release も同じ `try` で囲まれているので，残りの release はすべて走り，注記は起きた順に並ぶ
-- （補）中断されたまま巻き戻るとき（本体が `$Interrupted` を投げたか，ランタイムが `gen.return()` で閉じたとき）の release の defect は，`interrupted` でなくその defect を結果にする．release の中で suspend な操作が resume されないまま捨てられた（`$Interrupted`）ときは，本体が defect ならそれを結果のままにし（注記はしない），そうでなければ `interrupted` を結果にする
+- （補）中断されたまま巻き戻るとき（本体が `$Interrupted` を投げたとき．ランタイムが待っている継続へ投げ込んだものも含む）の release の defect は，`interrupted` でなくその defect を結果にする．release の中で suspend な操作が resume されないまま捨てられた（`$Interrupted`）ときは，本体が defect ならそれを結果のままにし（注記はしない），そうでなければ `interrupted` を結果にする
 - （補）`finally` の最後で `$retire(h, 名前)` を呼び，ハンドラの値の操作をすべて defect（`handler <名前> was used after release`）を投げる関数に置き換える（8.6）．操作の名前が `__proto__` でもよいように `Object.defineProperty` で置き換える．suspend fn の操作も `$perform` が呼んだところで defect になり，呼び出しの位置へ投げられる
-- （補）中断されたまま巻き戻るのは，起動（`$Root`）が待っている継続を `gen.return()` で閉じて行う（14.5）．`$step` は resume か Promise を待っている継続を `root.waits` に入れておき，`$Root#interrupt` が待ち始めた順の逆にすべて閉じる．`yield*` は `return()` を内側のジェネレータへ伝えるので，release は内側から走る．release の中でまた中断したら，resume されれば閉じるのを続け，されないまま残れば次の `interrupt` でもう一度 `return()` してその release を打ち切り，外側へ進む．閉じ終えたら，release の最初の defect か `$Interrupted` で起動を終える
+- （補）中断されたまま巻き戻るのは，起動（`$Root`）が待っている継続へ `$Interrupted` を投げ込んで行う（14.5．alpha.4 では `gen.return()` で閉じていた．fiber 単位にするため投げ込みに替えた．下の「fiber」）．`$step` は resume か Promise か fiber の操作を待っている継続を `root.waits` に入れておき，`$Root#interrupt` が待ち始めた順の逆にすべてへ投げる．`yield*` は投げたものを内側のジェネレータへ伝えるので，release は内側から走る．release の中でまた中断したら，resume されれば巻き戻りを続け，されないまま残れば次の `interrupt` でもう一度投げてその release を打ち切り，外側へ進む．release の最初の defect か `$Interrupted` で起動を終える
 - （補）`$start` の返す関数は，起動が終わっていなければ `interrupt` を呼ぶ（今までは後の継続を捨てるだけだった）．起動用モジュール（emela-driver）とテストランナーは，イベントループが空になったときにこれを呼び，release を走らせてから `interrupted`（130 か，そのテストの interrupted）を報告する．release が Promise を待てばループは続き，中断したまま残れば次にループが空になったときにもう一度呼ぶ
 - （補）中断しない関数の中の `$sync` も，その場で resume されなければ同じ `interrupt` を待つ継続がなくなるまで繰り返し，`$sync` が進めていたジェネレータの中の with の release を走らせてから `$Interrupted` を投げる．呼んだ側の with は例外として `finally` を抜ける
 - （補）起動が値かエラーか defect で終わった後に残った継続（resume の後も走り続ける操作の実装など）の中の with は release しない．alpha.4 の範囲では main の継続が終われば main の with はすべて閉じている
@@ -141,17 +143,28 @@
 - （補）関数の名前の `$`（lowering が作った中断用の写しの `List.map$suspend8`）は JS の名前にそのまま残す（`List_map$suspend8`）．Emela の名前に `$` は現れないので元の関数と重ならない
 - （補）`$start(gen, done)` は `done(true, 戻り値)` か `done(false, 例外)` を1回だけ呼び，巻き戻す関数を返す．中断したまま resume されなければ `done` は呼ばれない．それを見分けるのは呼び出し側（イベントループが空になったか）で，そのとき返された関数を呼ぶと，release を走らせてから `done(false, $Interrupted)` になる（上の「init と release」）
 
-### alpha.5（fiber，11章）への申し送り
+## fiber（仕様 11章，14.5）
 
-2026-10-12 時点の見通し．（補）ではなく，次の段で決めることのメモ．
+alpha.5 の第1段（2026-10-13）．`emit/fiber.rs` とランタイムの `$Root`，`$Fiber`，`$Scope`．IR（`Expr::Fiber`）を手で組んで確かめた（`tests/fiber.rs`）．lowering からの接続は後の段．
 
-- 中断しない関数（R が Immediate）をふつうの JS の関数のままにし，fiber の切り替えをジェネレータの yield でだけ起こすことで，11.1 の「Immediate な関数は他の fiber から見て一息に実行される」が成り立つ．fn の操作の本体で待つのを E0417 で禁じているのはこのためでもある（State の `update` の一息性，8.8）
-- 起動ごとの `$Root` を，fiber の一覧を持つスケジューラに広げる．各 fiber は今の `$step` で進める．join は「子が終わったら resume する suspend な操作」として書ける
-- 中断されたまま巻き戻るのを fiber 単位にする．`$sync` の `$Interrupted` も，その fiber の Interrupt（11.5）としてスコープが受ける．今は起動用モジュールとテストランナーがプログラム全体（かテスト）の `interrupted` にしている
-- 中断された fiber の release（11.4，14.5）は，alpha.4 で入れた `$Root#interrupt`（待っている継続を `return()` で閉じる）を fiber 単位にすればよい．11.4 の「release の実行中は中断されない」は，release の `finally` の中にいる間は中断を待たせる印が要る（今は打ち切るのは resume されないまま残った release だけ）
-- 起動が終わった後に残った継続の中の with（resume の後も走る操作の実装の中など）を，スコープの終わりで閉じる
-- 公平性のための譲渡（11.1）は，中断しうる関数の yield の位置にだけ挟める．中断しない長いループは割り込まれない（11.1 のとおり）
-- fork の引数の関数は R が多相なので，lowering の中断用の写し（emela-core の NOTES の「lowering の印」）をそのまま使える．中断しない関数を渡せば元の関数のまま，子の fiber として一息に走る
-- 決め直すこと: suspend fn の実装の本体が resume の後も走り続けるとき（14.5 の3，4），今は同じ起動の中の別の継続として進めている（`$performOp` の中のジェネレータの実装）．fiber が入ったら，本物の fiber にするか，resume した側の続きの前に一息で走らせるだけに限るかを決める．中断と失敗の扱いを Fiber.scope とそろえるため
-- （補）証拠の表の鍵は IR のエフェクトの名前を識別子にしたもの．型引数のあるエフェクト（`State.State[Int]`，8.1）は，名前の `[`，`]`，`,` が `_` に潰れて重なりうるので，IR のエフェクトの番号を足す（`State_State_Int_$3`）．型引数のないエフェクトの鍵は今までどおり
-- （補）`State.run` の状態の入れ物は，ランタイムの `$cellNew`，`$cellGet`，`$cellSet`（`{ value }` のオブジェクト）
+- （補）起動（`$start`，`$sync`）ごとの `$Root` は fiber のスケジューラ．起動した関数は根の fiber で，fork した子も同じ `$step` で進める．一度に走る fiber は1つで，他の fiber を起こす操作（子の終わり，Deferred の complete，中断）は起こされる側をキューに入れ，走っている fiber が中断してから順に走らせる．キューは入れた順に処理するので，切り替えの順序は実行のたびに同じ
+- （補）ホストのコールバックの中の resume も，継続をキューに入れてその場でキューを空になるまで処理する．resume の中で呼び出し元が再開する（14.5 の4）のはこれまでどおり．同じ fiber の中から呼ばれた resume（中断しうる操作の実装が resume したとき）は，これまでどおりその場で継続を進める．別の fiber から呼ばれた resume（resume を値として受け渡したとき）はキューに入れ，呼んだ側の一息の区間に割り込ませない（11.1）
+- （補）fork は中断点でない．子はキューに入り，親が次に中断したときに走り始める．走り始める前に中断された子は，f を呼ばずに Interrupt で終わる
+- （補）公平性の譲渡（11.1）はまだない．`$step` が中断しうる呼び出しを数え，「fiber をキューの後ろへ戻す」要求を挟めば足せる形にしてある（要求は `$FiberRequest`）
+- （補）fiber の待つ操作（join，await，interrupt，Deferred.await，スコープが子を待つところ）は `yield` で `$FiberRequest` をスケジューラへ送る．すぐ返せるときは中断せずに続ける．`Fiber.scope` は `yield*` で呼ぶランタイムのジェネレータ `$scope`，`attempt` は `f` がジェネレータを返したときだけジェネレータを返す `$attempt`（関数の値の呼び出しと同じく `$maybe` と `$sync` で包む）
+- （補）中断は fiber 単位．中断された fiber には，待っている継続へ `$Interrupted` を投げ込む（alpha.4 の `gen.return()` をやめた）．例外として巻き戻るので，with の `finally` が内側から走り，スコープの枠（`$scope` の `catch`）が途中で受けられる．生成コードの `catch` は with の（投げ直すだけの）ものと attempt だけで，attempt は `$Interrupted` を投げ直す
+- （補）中断の要求には的がある．fiber 全体（null）か，その fiber の上で本体が走っているスコープ（子が失敗したスコープは，自分の本体だけを中断する）．`$Interrupted#scope` に的を入れ，スコープの枠は自分宛てのものを受け止める．まだ届けていない要求が複数あれば，最も外側のもの（fiber 全体か，浅いスコープ）を届ける．fiber 全体の中断を届けた後の要求は無視する
+- （補）中断が届くのは，その fiber が中断点に達したとき（11.4）．待っているところへの要求はすぐ投げ込み，走っている間の要求は次の `yield` で投げる．キューに入って起こされるのを待っている継続にも，走らせる直前に投げる（join の結果などは捨てる）
+- （補）届けた中断は，受け止める枠（fiber 全体なら fiber の終わり，スコープならその枠）に達するまで巻き戻りが続くものとして覚えておく．途中で失敗を受けて普通の処理に戻ったとき（内側のスコープが子の失敗を値で返し，escape がそれを受けたときなど）は，次の中断点でもう一度投げる．巻き戻りの途中の attempt は Die も受けず（release の defect を fiber の結果に残すため，14.4），そのまま投げ直す
+- （補）release の実行中は中断を待たせる（11.4）．中断しうる呼び出しを含む release は `$hold()` と `$unhold()` で囲み，その fiber の `holds` を数える．`holds` が 0 でない間は要求を溜めるだけで，release が終わった後の中断点で届ける．スコープが子を待つところも同じく待たせる．中断しうる呼び出しを含まない release は一息に走るので囲まない
+- （補）スコープは，本体が終わったら（値，失敗，defect，中断のどれでも）閉じて残りの子を中断し，すべての子が終わってから返る．結果は，本体と子の最初の失敗（Fail，Die）があればそれ，なければ本体の終わり方．子の中断は失敗に数えない．本体が中断で終わった後に子が defect で終われば，その defect が結果になる（14.4 の release の defect と同じ向き）
+- （補）最初の失敗の後の失敗（Fail，Die）は，最初のものの表示に `note: another fiber also failed: <Cause.to_string の文面>` を足す．Die はメッセージに足し，Fail は `$Fail#notes` に足してエラーの表示の後ろに出す
+- （補）子が失敗した時点でスコープは閉じる（fork と deferred は defect）．11.8 の「本体が値を返した後」に，兄弟の失敗で巻き戻る途中も含めた
+- （補）join と await に Fail と Die は届かない（11.5）が，release の実行中の fiber は中断を待たせるので，失敗した子を見ることがある．そのとき join はその fiber を中断として巻き戻し（join の型に E がないので失敗にできない），await は `Failure(原因)` をそのまま返す
+- （補）中断された子の join は，中断の起こり方（`Fiber.interrupt`，スコープの終わり，`$sync` の捨てられた継続）によらず defect（`fiber was interrupted`）
+- （補）自分自身への `Fiber.interrupt` は，その場で中断として巻き戻る（release の中なら release の後）．自分の巻き戻りを待つと終わらないため
+- （補）終わったスコープの使用の defect の文面は `fiber scope was used after it ended`（fork，deferred），`fiber was joined after its scope ended`，`fiber was awaited after its scope ended`，`fiber was interrupted after its scope ended`，`deferred was completed after its scope ended`，`deferred was awaited after its scope ended`，`deferred was polled after its scope ended`
+- （補）Exit は `{ $tag: 0, $0: 値 }`（Success）か `{ $tag: 1, $0: 原因 }`（Failure），CauseKind は `{ $tag: 0 | 1 | 2 }`．IR の enum の形はバックエンドが確かめる．原因はランタイムの `$Cause`（種類と，Fail なら `$Fail`，Die なら投げられた例外）．`Cause.raise` は Fail を失敗の値として返し，Die を投げ直し，Interrupt は `$Interrupted` を投げる
+- （補）`$sync` の `$Interrupted` は，その fiber の例外として巻き戻り，子ならその子だけが Interrupt で終わる．根の fiber なら今までどおり起動の `interrupted`
+- （補）起動の中断（`$start` の返す関数．イベントループが空になったとき）は，すべての fiber に中断を要求し，待っているすべての継続へ `$Interrupted` を投げる．このときだけは release の実行中でも打ち切る（alpha.4 と同じ．もう誰も resume しないため）．子を待つスコープだけは待ち続ける（子も巻き戻るので）．根の fiber が終われば起動が終わる
+- （補）中断しうる操作の実装が resume の後も走り続けるとき（14.5 の3，4，NOTES の「決め直すこと」）は，今までどおり同じ fiber の別の継続として進める．fiber の中断はその fiber の本筋の継続だけに届け，実装の継続は止めない．起動の中断ではこれも閉じ，その release の defect は起動の結果にする（`$Root#orphan`）．スコープは実装の継続を待たない

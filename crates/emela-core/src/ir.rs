@@ -527,6 +527,14 @@ pub enum Expr {
         binds: Vec<WithBind>,
         body: Box<Expr>,
     },
+    /// 並行性の操作（11章）．`args` の数と意味は `FiberOp` ごとに決まる（`FiberOp::arity`）．
+    /// 中断しうるか（`FiberOp::suspends`）と失敗しうるか（`FiberOp::fails`）も操作で決まる．
+    /// 中断しうる操作は，中断しうる関数とラムダの本体の中にだけ現れる（Async を要求するため）．
+    /// ただし `FiberOp::Attempt` は `f` しだいで，`Expr::Call::suspends` と同じ規則に従う．
+    Fiber {
+        op: FiberOp,
+        args: Vec<Expr>,
+    },
 }
 
 impl Expr {
@@ -615,6 +623,117 @@ impl Expr {
                 }
                 f(body);
             }
+            Expr::Fiber { args, .. } => args.iter().for_each(f),
+        }
+    }
+}
+
+/// 並行性の操作（11章）．`Expr::Fiber` の `args` は各バリアントの説明の順に並ぶ．
+///
+/// スコープ（`Scope` の能力の値），fiber のハンドル（`Fiber[A]`），Deferred，原因（`Cause[E]`）は
+/// バックエンドが決める不透明な値．能力の値は `Expr::Provide` で証拠の表に入れてよい．
+/// Exit（`Std.Fiber`）と CauseKind（`Std.Cause`）は利用者の enum と同じ表現の値で，構成子の並びは
+/// `EXIT_SUCCESS`，`EXIT_FAILURE` と `CAUSE_FAIL`，`CAUSE_DIE`，`CAUSE_INTERRUPT` に従う．
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FiberOp {
+    /// `Fiber.scope(body)`（11.2）．`[body]`．`body` はスコープの能力の値を1つ受ける関数の値．
+    /// 本体が値を返したら残りの子を中断し，すべての子が終わってから値を返す．子か本体の最初の
+    /// 失敗（Fail，Die）がスコープの結果になる．`fails` は本体（と子）の E が空でないか．
+    Scope { fails: bool },
+    /// `s.fork(f)`（11.2）．`[scope, f]`．`f` は引数のない関数の値で，子の fiber として走る．
+    /// 値は fiber のハンドル．中断点ではない（子は親が次に中断したときに走り始める）．
+    Fork,
+    /// `s.deferred()`（11.7）．`[scope]`．値は空の Deferred．
+    Deferred,
+    /// `Fiber.join(h)`（11.5）．`[fiber]`．子の値．中断された子なら defect．
+    Join,
+    /// `Fiber.await(h)`（11.5）．`[fiber]`．`exit` の enum の値（`Exit[A, {}]`）．
+    Await { exit: EnumId },
+    /// `Fiber.interrupt(h)`（11.4）．`[fiber]`．子を中断し，巻き戻りが終わるまで待つ．値は `()`．
+    Interrupt,
+    /// `Fiber.attempt(f)`（11.5）．`[f]`．`f` をその場で呼び，Fail と Die を `exit` の enum の
+    /// `Failure` に変える．中断（Interrupt）は受けない．`suspends` は `f` が中断しうるか
+    /// （`Expr::Call::suspends` の `Callee::Indirect` と同じ規則）．
+    Attempt { exit: EnumId, suspends: bool },
+    /// `Deferred.complete(d, value)`（11.7）．`[deferred, value]`．値は Bool．中断点ではない．
+    Complete,
+    /// `Deferred.await(d)`（11.7）．`[deferred]`．値が入るまで待つ．
+    DeferredAwait,
+    /// `Deferred.poll(d)`（11.7）．`[deferred]`．値は Prelude の Option（`Module::option_enum`）．
+    Poll,
+    /// `Cause.kind(c)`（11.5）．`[cause]`．値は `kind` の enum（CauseKind）．
+    CauseKind { kind: EnumId },
+    /// `Cause.to_string(c)`（11.5）．`[cause]`．`error: …`，`defect: …`，`interrupted`．
+    CauseToString,
+    /// `Cause.raise(c)`（11.5）．`[cause]`．Fail は失敗，Die は defect，Interrupt は自分の fiber の
+    /// 中断の巻き戻し．型は Never だが失敗しうる．
+    CauseRaise,
+}
+
+/// `Exit` の `Success(A)` の添字．
+pub const EXIT_SUCCESS: usize = 0;
+/// `Exit` の `Failure(Cause[E])` の添字．
+pub const EXIT_FAILURE: usize = 1;
+/// `CauseKind` の `Fail` の添字．
+pub const CAUSE_FAIL: usize = 0;
+/// `CauseKind` の `Die` の添字．
+pub const CAUSE_DIE: usize = 1;
+/// `CauseKind` の `Interrupt` の添字．
+pub const CAUSE_INTERRUPT: usize = 2;
+
+impl FiberOp {
+    /// 引数の数．
+    pub fn arity(self) -> usize {
+        match self {
+            FiberOp::Fork | FiberOp::Complete => 2,
+            _ => 1,
+        }
+    }
+
+    /// 中断しうるか．
+    pub fn suspends(self) -> bool {
+        match self {
+            FiberOp::Scope { .. }
+            | FiberOp::Join
+            | FiberOp::Await { .. }
+            | FiberOp::Interrupt
+            | FiberOp::DeferredAwait => true,
+            FiberOp::Attempt { suspends, .. } => suspends,
+            FiberOp::Fork
+            | FiberOp::Deferred
+            | FiberOp::Complete
+            | FiberOp::Poll
+            | FiberOp::CauseKind { .. }
+            | FiberOp::CauseToString
+            | FiberOp::CauseRaise => false,
+        }
+    }
+
+    /// 失敗しうるか（結果を確かめる要があるか）．
+    pub fn fails(self) -> bool {
+        match self {
+            FiberOp::Scope { fails } => fails,
+            FiberOp::CauseRaise => true,
+            _ => false,
+        }
+    }
+
+    /// ダンプでの名前．
+    pub fn name(self) -> &'static str {
+        match self {
+            FiberOp::Scope { .. } => "scope",
+            FiberOp::Fork => "fork",
+            FiberOp::Deferred => "deferred",
+            FiberOp::Join => "join",
+            FiberOp::Await { .. } => "await",
+            FiberOp::Interrupt => "interrupt",
+            FiberOp::Attempt { .. } => "attempt",
+            FiberOp::Complete => "complete",
+            FiberOp::DeferredAwait => "deferred_await",
+            FiberOp::Poll => "poll",
+            FiberOp::CauseKind { .. } => "cause_kind",
+            FiberOp::CauseToString => "cause_to_string",
+            FiberOp::CauseRaise => "cause_raise",
         }
     }
 }
