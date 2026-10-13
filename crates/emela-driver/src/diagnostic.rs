@@ -449,6 +449,7 @@ impl Diagnostic {
             .and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range)));
         let show = |ty: &Ty| format!("`{}`", ty.display(cons));
         let mut help = None;
+        let mut note = None;
         let (severity, code, message) = match &diagnostic.kind {
             TypeDiagnosticKind::Mismatch(error) => {
                 let out = Diagnostic::type_error(error, cons);
@@ -642,21 +643,41 @@ impl Diagnostic {
                 Some(code::UNKNOWN_OPERATION),
                 format!("effect `{effect}` has no operation `{op}`"),
             ),
-            TypeDiagnosticKind::UnhandledEffects { effects, context } => {
+            TypeDiagnosticKind::UnhandledEffects {
+                effects,
+                context,
+                scope,
+            } => {
+                if let Some(scope) = scope {
+                    note = Some(format!(
+                        "fibers forked in `{scope}` get their handlers from where `{scope}` is called, so `with` inside it does not reach them"
+                    ));
+                }
                 let list = quoted_list("effect", "effects", effects);
                 let verb = if effects.len() == 1 { "is" } else { "are" };
                 let message = match context {
                     EffectContext::Declared => {
-                        help = Some("add it to `use` or provide it with `with`".to_owned());
+                        help = Some(match scope {
+                            Some(scope) => format!(
+                                "add it to `use` or provide it with `with` outside `{scope}`"
+                            ),
+                            None => "add it to `use` or provide it with `with`".to_owned(),
+                        });
                         format!("{list} {verb} not declared in `use`")
                     }
                     EffectContext::Const => format!("constant values cannot use {list}"),
                     EffectContext::Main => {
-                        help = Some("provide it with `with`".to_owned());
+                        help = Some(match scope {
+                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
+                            None => "provide it with `with`".to_owned(),
+                        });
                         format!("{list} {verb} not provided in `main`")
                     }
                     EffectContext::Test { name } => {
-                        help = Some("provide it with `with`".to_owned());
+                        help = Some(match scope {
+                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
+                            None => "provide it with `with`".to_owned(),
+                        });
                         format!("{list} {verb} not provided in test function `{name}`")
                     }
                 };
@@ -832,6 +853,34 @@ impl Diagnostic {
                     "handler `{handler}` cannot implement `Async`: only the runtime provides it"
                 ),
             ),
+            TypeDiagnosticKind::IntrinsicHandler {
+                handler,
+                effect,
+                provider,
+            } => (
+                Severity::Error,
+                Some(code::ASYNC_HANDLER),
+                format!(
+                    "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
+                ),
+            ),
+            TypeDiagnosticKind::EscapingFromScope { ty, scope } => {
+                note = Some(format!(
+                    "every fiber has ended once `{scope}` returns, so the value would be of no use outside it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::ESCAPING_FROM_SCOPE),
+                    format!("a `{ty}` cannot leave the `{scope}` that started it"),
+                )
+            }
+            TypeDiagnosticKind::OpTypeParams { op } => (
+                Severity::Error,
+                Some(code::OP_TYPE_PARAMS),
+                format!(
+                    "operation `{op}` cannot have type parameters: only built-in effects may declare them"
+                ),
+            ),
             TypeDiagnosticKind::UseAsync => (
                 Severity::Error,
                 Some(code::USE_ASYNC),
@@ -976,6 +1025,9 @@ impl Diagnostic {
         }
         if let Some(span) = span {
             out = out.with_span(span);
+        }
+        if let Some(note) = note {
+            out = out.with_note(note);
         }
         if let Some(help) = help {
             out = out.with_help(help);

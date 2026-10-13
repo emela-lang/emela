@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nerror Boom\nerror Bust\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn bust() -> Int fails Bust { fail Bust }\n\nfn spawn_boom() {\n  Fiber.fork(fn() { boom() })\n}\n\nfn spawn_log() {\n  (use Scope).fork(fn() { (use Log).info(\"hi\") })\n}\n\nfn declared() -> Fiber[Int] use Scope[Bust, {}] {\n  Fiber.fork(fn() { bust() })\n}\n\nfn both_helpers() {\n  Fiber.scope(fn() {\n    a = spawn_boom()\n    b = spawn_log()\n    c = declared()\n    Fiber.join(a)\n  })\n}\n\nfn outer_scope() {\n  Fiber.scope(fn() {\n    outer = use Scope\n    Fiber.scope(fn() {\n      outer.fork(fn() { boom() })\n      Fiber.fork(fn() { (use Log).info(\"inner\") })\n      ()\n    })\n  })\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+bust: fn() -> Int fails Bust
+spawn_boom: fn() -> Fiber[Int] use Scope[Boom, {}]
+spawn_log: fn() -> Fiber[()] use Scope[{}, Log]
+declared: fn() -> Fiber[Int] use Scope[Bust, {}]
+both_helpers: fn() -> Int fails Boom | Bust use { Async, Log }
+  a: Fiber[Int]
+  b: Fiber[()]
+  c: Fiber[Int]
+outer_scope: fn() -> () fails Boom use { Async, Log }
+  outer: use Scope[Boom, {}]

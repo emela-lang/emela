@@ -126,6 +126,15 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）TestConsole の `print_line` は，行を `State[List[String]]` に書いた順に足す（`List.append`）．仕様 8.8 の例は先頭に足す（`[text, ..st.get()]`）ので，2行以上だと逆順になる．読み出したリストをそのまま比べられるよう，書いた順にした．`print_error_line` は仕様 8.8 の例のとおり捨てる
 - （補）TestClock の `sleep(ms, resume)` は `State[Instant]` を `ms` ミリ秒進めて，その場で resume する（Async に依存しない）．負の `ms` は SystemClock と同じく 0 とみなす．`now` は `State[Instant]` を返す
 
+## fiber（`std/fiber.emel`，`std/cause.emel`，`std/deferred.emel`，11章）
+
+- （補）ランタイムが持つ型のうち，`Fiber[A]` と `Deferred[A]` は `@external pub type`（12.3 のホストの型）で宣言する．Emela からは持ち回るだけで，中身はランタイムが決める
+- （補）`Cause[E]` は `pub opaque type Cause[E](raise: fn() -> Never fails E)` と書く．フィールドのない型では E の種が決まらず（9.2 は使われた位置で決める），ふつうの型になると `Exit[A, E]` と `attempt` の E が1つのエラーの型（7.2）になってしまうため．フィールドは E をエラーの集合にするためだけのもので，読まない（opaque なので外から読めない）．値はランタイムが作る
+- （補）Scope は `@intrinsic pub effect Scope[E, R]` と書く．`@intrinsic` が組み込みのエフェクトの印（emela-types の NOTES の「fiber」）
+- （補）`scope`，`join`，`await`，`interrupt`，`attempt`，`Cause.kind`，`Cause.to_string`，`Cause.raise`，`Deferred.complete`，`Deferred.await`，`Deferred.poll` は `@intrinsic` だが，組み込み関数の表（`intrinsics.rs`）にはまだ行がない．lowering は Core IR とランタイム（並行して作っている js-fiber-runtime）とつなぐ後の PR．それまでは呼び出しが `not supported yet: Std.Fiber.scope` の診断になる（`Lowerer::callee` で表にない `@intrinsic` を `expect` で止めていたのを診断に変えた）．`sources.rs` のテストは `FIBER_INTRINSICS` を表との突き合わせから外す
+- （補）`fork`，`deferred`，`all`，`race`，`both`，`map` は純 Emela．`all` と `map` は `Fiber.fork` で子を起動して順に join する．`race` は 11.3 の例のとおり．`both` は2つを fork して組にする
+- （補）`await` は 3.3 の予約語から外した（進行役と合意．`Fiber.await` と `Deferred.await` の名前のため．emela-syntax の NOTES）
+
 ## lowering（`lower.rs`）
 
 本人と相談して決めた（2026-10-11）．型検査の結果（emela-driver の `TypedProgram`．HIR と `ProgramTypes` の組）から Core IR を作る．

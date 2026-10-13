@@ -9,6 +9,7 @@
 //! Escaping a `with` (capture sets, spec 8.6) is in scope for 0.22 and not checked here.
 
 use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, Res};
+use smol_str::SmolStr;
 
 use super::BodyInfer;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
@@ -88,6 +89,48 @@ impl BodyInfer<'_> {
                 self.reject_cap(tail(program, body), DiagnosticKind::CapabilityReturned);
             }
         }
+    }
+
+    /// The value of a scope function (`Fiber.scope`) cannot contain a fiber handle or a Deferred
+    /// (E0425, spec 11.8): every child has ended once the scope returns. Looks anywhere in the
+    /// type (`Option[Fiber[User]]` too).
+    pub(super) fn check_scope_values(&mut self) {
+        if self.fibers.scope_fns.is_empty() {
+            return;
+        }
+        let exprs: Vec<ExprId> = self.exprs.iter().map(|(e, _)| e).collect();
+        for expr in exprs {
+            let Some((scope, _)) = self.scope_call(expr) else {
+                continue;
+            };
+            let Some(ty) = self.exprs.get(expr).cloned() else {
+                continue;
+            };
+            let ty = self.ctx.resolve(&ty);
+            if let Some(handle) = self.handle_in(&ty) {
+                self.diags.push(Diagnostic {
+                    span: Some(self.program.exprs[expr].span),
+                    kind: DiagnosticKind::EscapingFromScope { ty: handle, scope },
+                });
+            }
+        }
+    }
+
+    /// The name of the first fiber handle or Deferred type found in `ty`.
+    fn handle_in(&self, ty: &Ty) -> Option<SmolStr> {
+        if let Ty::Named(con, _) = ty {
+            let def = self.ty_table.def(*con);
+            if self.fibers.handles.contains(&def) {
+                return Some(self.program.defs[def].name.clone());
+            }
+        }
+        let mut found = None;
+        ty.for_each_child(|child| {
+            if found.is_none() {
+                found = self.handle_in(child);
+            }
+        });
+        found
     }
 
     /// Whether the callee is a constructor (its arguments go into a data structure).

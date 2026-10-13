@@ -6,8 +6,8 @@
 //! [`TypeRef`]: emela_resolve::hir::TypeRef
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectRef, EffectSet, EnumItem, ErrorSet, Fields, Item, Program, Res, Span,
-    TypeId, TypeItem, TypeKind, TypeParam, TypeRef,
+    DefId, DefKind, EffectItem, EffectRef, EffectSet, EnumItem, ErrorSet, Fields, Item, Program,
+    Res, Span, TypeId, TypeItem, TypeKind, TypeParam, TypeRef,
 };
 use la_arena::ArenaMap;
 use rustc_hash::FxHashMap;
@@ -185,8 +185,9 @@ impl TyTable {
         &self.sets
     }
 
-    /// The set kind of the `i`-th type parameter of a type or enum, if it is a set.
-    fn set_kind(&self, def: DefId, i: usize) -> Option<SetKind> {
+    /// The set kind of the `i`-th type parameter of a type, enum or built-in effect, if it is a
+    /// set.
+    pub(crate) fn set_kind(&self, def: DefId, i: usize) -> Option<SetKind> {
         self.sets.get(def).and_then(|s| s.get(i).copied().flatten())
     }
 
@@ -432,9 +433,15 @@ impl TyTable {
             omitted: Omitted::Empty,
             sets: scope.sets,
         };
+        // Set type parameters of built-in effects (the `E` and `R` of `Scope[E, R]`) take sets,
+        // written like set type arguments of named types (spec 8.1, 9.2).
         let args = args
             .iter()
-            .map(|&a| self.lower_in(program, &mut inner, a, true, diags))
+            .enumerate()
+            .map(|(i, &a)| match self.set_kind(effect, i) {
+                Some(kind) => self.lower_set_arg(program, &inner, effect, i, kind, a, diags),
+                None => self.lower_in(program, &mut inner, a, true, diags),
+            })
             .collect();
         Some(Tag::with_args(effect, args))
     }
@@ -791,11 +798,12 @@ fn check_arity(
     }
 }
 
-/// Type parameter definitions of a type or enum; empty for anything else.
+/// Type parameter definitions of a type, enum or effect; empty for anything else.
 pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
     let type_params: &[TypeParam] = match program.item(def) {
         Some(Item::Type(TypeItem { type_params, .. }))
-        | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
+        | Some(Item::Enum(EnumItem { type_params, .. }))
+        | Some(Item::Effect(EffectItem { type_params, .. })) => type_params,
         _ => &[],
     };
 
@@ -828,6 +836,13 @@ pub(crate) fn immediate_bounds(program: &Program, tp: &TypeParam) -> Vec<Span> {
         .filter(|(res, _)| matches!(res, Res::Def(d) if Some(*d) == immediate))
         .map(|&(_, span)| span)
         .collect()
+}
+
+/// Whether an effect is a built-in effect of the bundled sources (`@intrinsic effect Scope`,
+/// spec 11.2). Only built-in effects may have set type parameters and operation type parameters,
+/// and no handler may implement them (spec 8.1).
+pub(crate) fn is_intrinsic_effect(program: &Program, effect: DefId) -> bool {
+    matches!(program.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
 }
 
 /// Whether an effect is Immediate (spec 9.5): it has no suspend fn and is not Async.
@@ -876,12 +891,42 @@ pub(crate) fn classify_sets(
     params: &[DefId],
     types: impl IntoIterator<Item = TypeId>,
 ) -> Vec<Option<SetKind>> {
+    classify_fn_sets(program, decls, params, types, None)
+}
+
+/// Decides like [`classify_sets`], also counting the set type arguments of built-in effects in a
+/// fn's own `use` clause (the `E` and `R` of `fn deferred[A, E, R]() -> Deferred[A] use
+/// Scope[E, R]`, spec 11.2).
+pub(crate) fn classify_fn_sets(
+    program: &Program,
+    decls: &DeclSets,
+    params: &[DefId],
+    types: impl IntoIterator<Item = TypeId>,
+    uses: Option<&EffectSet>,
+) -> Vec<Option<SetKind>> {
     let mut marks = Marks {
         in_type: vec![false; params.len()],
         in_set: vec![None; params.len()],
     };
     for ty in types {
         mark_params(program, decls, params, ty, &mut marks);
+    }
+    let position = |res: &Res| match res {
+        Res::Def(def) => params.iter().position(|p| p == def),
+        _ => None,
+    };
+    for item in uses.iter().flat_map(|u| &u.items) {
+        let Res::Def(effect) = item.res else {
+            continue;
+        };
+        let Some(sets) = decls.get(effect) else {
+            continue;
+        };
+        for (j, &a) in item.args.iter().enumerate() {
+            if let Some(kind) = sets.get(j).copied().flatten() {
+                mark_set_arg(program, &position, kind, a, &mut marks);
+            }
+        }
     }
     marks
         .in_type
@@ -978,7 +1023,8 @@ fn mark_params(
 }
 
 /// Elements of an effect set. A type parameter itself is a set; an effect's type arguments (the
-/// `S` of `State[S]`, spec 8.1) are ordinary types.
+/// `S` of `State[S]`, spec 8.1) are ordinary types, except at the set type parameters of a
+/// built-in effect (the `E` and `R` of `Scope[E, R]`).
 pub(crate) fn mark_effect(
     program: &Program,
     decls: &DeclSets,
@@ -986,13 +1032,56 @@ pub(crate) fn mark_effect(
     item: &EffectRef,
     marks: &mut Marks,
 ) {
-    if let Res::Def(def) = item.res
-        && let Some(i) = params.iter().position(|p| *p == def)
-    {
+    let position = |res: &Res| match res {
+        Res::Def(def) => params.iter().position(|p| p == def),
+        _ => None,
+    };
+    if let Some(i) = position(&item.res) {
         marks.set(i, SetKind::Effects);
     }
-    for &a in &item.args {
+    let sets = match item.res {
+        Res::Def(def) => decls.get(def),
+        _ => None,
+    };
+    for (j, &a) in item.args.iter().enumerate() {
+        if let Some(kind) = sets.and_then(|s| s.get(j).copied().flatten()) {
+            mark_set_arg(program, &position, kind, a, marks);
+            continue;
+        }
         mark_params(program, decls, params, a, marks);
+    }
+}
+
+/// Type parameters written in a set type argument of a built-in effect (`Scope[E, R]`,
+/// `Scope[E | Timeout, { R, Log }]`) are sets of that kind.
+fn mark_set_arg(
+    program: &Program,
+    position: &dyn Fn(&Res) -> Option<usize>,
+    kind: SetKind,
+    arg: TypeId,
+    marks: &mut Marks,
+) {
+    match &program.types[arg].kind {
+        TypeKind::Path { res, args } if args.is_empty() => {
+            if let Some(i) = position(res) {
+                marks.set(i, kind);
+            }
+        }
+        TypeKind::ErrorSet(set) => {
+            for (res, _) in &set.items {
+                if let Some(i) = position(res) {
+                    marks.set(i, kind);
+                }
+            }
+        }
+        TypeKind::EffectSet(set) => {
+            for item in &set.items {
+                if let Some(i) = position(&item.res) {
+                    marks.set(i, kind);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1013,6 +1102,18 @@ fn decl_sets(program: &Program) -> DeclSets {
         })
         .collect();
     let mut sets = DeclSets::default();
+    // Built-in effects decide the kinds of their type parameters from the operation signatures,
+    // like the field types of a type (`Scope[E, R]`, spec 11.2). Other effects take ordinary
+    // types only (E0424, spec 8.1).
+    for (def, _) in program.defs.iter() {
+        if !is_intrinsic_effect(program, def) {
+            continue;
+        }
+        let params = type_param_defs(program, def);
+        let types = effect_op_types(program, def);
+        let kinds = classify_sets(program, &sets, &params, types);
+        sets.insert(def, kinds);
+    }
     loop {
         let mut changed = false;
         for (def, params, types) in &decls {
@@ -1026,6 +1127,26 @@ fn decl_sets(program: &Program) -> DeclSets {
             return sets;
         }
     }
+}
+
+/// The parameter and return type expressions of an effect's operations.
+pub(crate) fn effect_op_types(program: &Program, effect: DefId) -> Vec<TypeId> {
+    let ops: &[DefId] = match program.item(effect) {
+        Some(Item::Effect(e)) => &e.ops,
+        _ => &[],
+    };
+    ops.iter()
+        .flat_map(|&op| match program.item(op) {
+            Some(Item::Op(o)) => o
+                .sig
+                .params
+                .iter()
+                .filter_map(|p| p.ty)
+                .chain(o.sig.ret)
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect()
 }
 
 /// The field type expressions of a type or enum's constructors.

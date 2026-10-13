@@ -34,7 +34,7 @@ use super::BodyInfer;
 use crate::coverage::Shapes;
 use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::{Origin, SetKind};
+use crate::infer::{Origin, SetKind, Subset};
 use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 
@@ -382,11 +382,31 @@ impl BodyInfer<'_> {
     /// Solves the inclusion constraints and pushes diagnostics for unsatisfied ones. Later
     /// `resolve` calls use the solution.
     pub(super) fn solve_errors(&mut self) {
+        // Comparing tags with set type arguments (`Scope[E, R]`, spec 11.2) adds constraints
+        // while solving, so solve again until no new constraint appears.
+        self.ctx.set_solving(true);
+        let row_diffs = std::mem::take(&mut self.row_diffs);
+        loop {
+            let count = self.ctx.subsets().len();
+            self.solve_round(&row_diffs);
+            if self.ctx.subsets().len() == count {
+                break;
+            }
+        }
+        self.ctx.set_solving(false);
+        let subsets = self.ctx.subsets().to_vec();
+        self.check_subsets(&subsets);
+    }
+
+    /// Computes the least solution of the constraints collected so far.
+    fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<Tag>)]) {
+        // Start from the set variables, not from the previous round's solution.
+        self.ctx.clear_row_solution();
         let subsets = self.ctx.subsets().to_vec();
 
         // Lower bounds of set variables.
         let mut lowers: FxHashMap<RowVar, Vec<Lower>> = FxHashMap::default();
-        for (d, v, minus) in std::mem::take(&mut self.row_diffs) {
+        for (d, v, minus) in row_diffs.iter().cloned() {
             lowers.entry(d).or_default().push(Lower {
                 elem: RowElem::Var(v),
                 minus,
@@ -454,9 +474,11 @@ impl BodyInfer<'_> {
             }
         }
         self.ctx.set_row_solution(solution);
+    }
 
-        // Check the constraints.
-        for c in &subsets {
+    /// Pushes diagnostics for constraints the solution does not satisfy.
+    fn check_subsets(&mut self, subsets: &[Subset]) {
+        for c in subsets {
             let sub = self.ctx.resolve_row(&c.sub);
             let sup = self.ctx.resolve_row(&c.sup);
             let missing: Vec<RowElem> = sub
@@ -664,14 +686,51 @@ impl BodyInfer<'_> {
                     SmolStr::new(row.display_effects(cons, &params).to_string())
                 })
                 .collect();
+            let scope = self.forked_from(origin, &elems);
             self.diags.push(Diagnostic {
                 span: Some(self.program.exprs[origin].span),
                 kind: DiagnosticKind::UnhandledEffects {
                     effects,
                     context: context.clone(),
+                    scope,
                 },
             });
         }
+    }
+
+    /// If `origin` calls a scope function (`Fiber.scope`) and some of `elems` are not required by
+    /// its body itself, they come from fibers forked in it (through the `R` of `Scope[E, R]`,
+    /// spec 11.2): returns the scope function's name for the note that they must be provided
+    /// outside it.
+    fn forked_from(&mut self, origin: ExprId, elems: &[RowElem]) -> Option<SmolStr> {
+        let (scope, body) = self.scope_call(origin)?;
+        let ty = self.exprs.get(body).cloned()?;
+        let Ty::Fn(f) = self.ctx.resolve(&ty) else {
+            return None;
+        };
+        elems.iter().any(|e| !f.uses.contains(e)).then_some(scope)
+    }
+
+    /// The scope function's name and the body argument, if `expr` calls a scope function.
+    pub(super) fn scope_call(&self, expr: ExprId) -> Option<(SmolStr, ExprId)> {
+        let program = self.program;
+        let (callee, body) = match &program.exprs[expr].kind {
+            ExprKind::Call { callee, args } => (*callee, args.first()?.value),
+            ExprKind::Binary {
+                op: emela_resolve::hir::BinaryOp::Pipe,
+                lhs,
+                rhs,
+            } => match &program.exprs[*rhs].kind {
+                ExprKind::Call { callee, .. } => (*callee, *lhs),
+                _ => (*rhs, *lhs),
+            },
+            _ => return None,
+        };
+        let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind else {
+            return None;
+        };
+        let scope = self.fibers.scope_fns.iter().find(|s| s.def == def)?;
+        Some((scope.display.clone(), body))
     }
 
     /// Each expression's E (R if `kind` says so), with set variables solved.

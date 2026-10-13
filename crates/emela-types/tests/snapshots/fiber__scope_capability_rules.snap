@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nfn take[A](x: A) -> () { () }\n\nfn leaks() {\n  Fiber.scope(fn() {\n    s = use Scope\n    take(s)\n    xs = [s]\n    ()\n  })\n}\n\nfn returned() {\n  use Scope\n}\n\nfn closure_is_fine() {\n  Fiber.scope(fn() {\n    s = use Scope\n    run = fn() { s.fork(fn() { 1 }) }\n    Fiber.join(run())\n  })\n}\n\"#)"
+---
+take: ∀ A. fn(A) -> ()
+  x: '0
+leaks: fn() -> () use Async
+  s: use Scope[{}, {}]
+  xs: List[use Scope[{}, {}]]
+returned: fn() -> use Scope[{}, {}] use Scope[{}, {}]
+closure_is_fine: fn() -> Int use Async
+  s: use Scope[{}, {}]
+  run: fn() -> Fiber[Int] use Scope[{}, {}]
+`s` CapabilityArgument
+`s` CapabilityInData
+`use Scope` CapabilityReturned

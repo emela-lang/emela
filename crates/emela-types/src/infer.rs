@@ -90,6 +90,8 @@ pub struct InferCtx {
     error_tags: FxHashMap<TyConId, DefId>,
     /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
+    /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
+    solving: bool,
 }
 
 impl InferCtx {
@@ -133,12 +135,32 @@ impl InferCtx {
         if sub.is_empty() || sub == sup {
             return;
         }
+        // While solving, comparing tags with set type arguments adds the same constraints again
+        // on every round (`body/errors.rs`); keep one of each so the rounds end.
+        if self.solving
+            && self
+                .subsets
+                .iter()
+                .any(|c| c.kind == kind && c.sub == sub && c.sup == sup)
+        {
+            return;
+        }
         self.subsets.push(Subset {
             sub,
             sup,
             origin,
             kind,
         });
+    }
+
+    /// Forgets the solution of a previous round of solving.
+    pub(crate) fn clear_row_solution(&mut self) {
+        self.row_solution = None;
+    }
+
+    /// While set, constraints that are already recorded are not added again.
+    pub(crate) fn set_solving(&mut self, solving: bool) {
+        self.solving = solving;
     }
 
     pub(crate) fn subsets(&self) -> &[Subset] {
@@ -228,6 +250,12 @@ impl InferCtx {
     /// type arguments are not determined yet, tries unification and treats them as the same if it
     /// succeeds, binding the type variables (deciding the `S` of `State[S]` in
     /// `State.run(initial, body)` from the body's R). Otherwise changes nothing and returns false.
+    ///
+    /// `a` is on the containing side (the declared or provided set) and `b` on the contained side
+    /// (the required one). Set type arguments (the `E` and `R` of `Scope[E, R]`, spec 11.2) only
+    /// need `b`'s sets to be contained in `a`'s: a scope whose children may fail with more errors
+    /// or use more effects serves code that forks fewer. The constraints are recorded and solved
+    /// with the others.
     pub(crate) fn same_tag(&mut self, a: &Tag, b: &Tag) -> bool {
         if a.def != b.def || a.args.len() != b.args.len() {
             return false;
@@ -237,11 +265,13 @@ impl InferCtx {
         }
         let snapshot = self.table.snapshot();
         self.row_buffer.clear();
-        let ok = a
-            .args
-            .iter()
-            .zip(&b.args)
-            .all(|(x, y)| self.unify_inner(x, y, Variance::Inv).is_ok());
+        let ok = a.args.iter().zip(&b.args).all(|(x, y)| {
+            let variance = match (x, y) {
+                (Ty::Set(..), Ty::Set(..)) => Variance::Co,
+                _ => Variance::Inv,
+            };
+            self.unify_inner(x, y, variance).is_ok()
+        });
         if ok {
             self.table.commit(snapshot);
             let origin = Origin::Coerce {

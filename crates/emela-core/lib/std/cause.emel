@@ -1,0 +1,37 @@
+# Why a fiber did not end normally (spec 11.5): an error (`Fail`), a defect (`Die`) or an
+# interruption (`Interrupt`).
+#
+# A value of "one of the errors in E" cannot be written (spec 7.1), so a `Cause[E]` does not give
+# out its error. Look at its kind, show it, or raise it again with `Cause.raise` and catch the
+# error with `escape`.
+#
+# The functions are built in: the runtime makes and reads causes (NOTES.md).
+
+## The cause of a fiber's failure. `E` is the error set it can fail with.
+##
+## The runtime holds the value. The field only makes `E` an error set (spec 9.2); it is never
+## read.
+pub opaque type Cause[E](raise: fn() -> Never fails E)
+
+## The three kinds of causes.
+pub enum CauseKind {
+  ## An error raised with `fail`. Shows up in `E`.
+  Fail
+  ## A defect (spec 7.5). Does not show up in the type.
+  Die
+  ## An interruption (spec 11.4). Does not show up in the type.
+  Interrupt
+}
+
+## The kind of the cause.
+@intrinsic
+pub fn kind[E](c: Cause[E]) -> CauseKind
+
+## The cause as text: `error: ...`, `defect: ...` or `interrupted`.
+@intrinsic
+pub fn to_string[E](c: Cause[E]) -> String
+
+## Raises the cause again: `Fail` fails with the error, `Die` is a defect, and `Interrupt`
+## unwinds as an interruption.
+@intrinsic
+pub fn raise[A, E](c: Cause[E]) -> A fails E

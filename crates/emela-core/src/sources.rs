@@ -29,6 +29,9 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
+    ("Std.Cause", include_str!("../lib/std/cause.emel")),
+    ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
+    ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
 ];
 
 /// 同梱の JS のファイル．`lib/` からの相対パスと中身の組．同梱のソースの `@external(js, "./x.mjs", …)`
@@ -134,6 +137,22 @@ mod tests {
         }
     }
 
+    /// fiber の組み込み（11章）．型検査だけがあり，lowering と組み込み関数の表への登録は
+    /// ランタイムの側（Core IR と JS のランタイム）とつなぐ後の PR で行う．
+    const FIBER_INTRINSICS: &[(&str, &str)] = &[
+        ("Std.Fiber", "scope"),
+        ("Std.Fiber", "join"),
+        ("Std.Fiber", "await"),
+        ("Std.Fiber", "interrupt"),
+        ("Std.Fiber", "attempt"),
+        ("Std.Cause", "kind"),
+        ("Std.Cause", "to_string"),
+        ("Std.Cause", "raise"),
+        ("Std.Deferred", "complete"),
+        ("Std.Deferred", "await"),
+        ("Std.Deferred", "poll"),
+    ];
+
     #[test]
     fn intrinsics_match_the_table() {
         let mut declared = Vec::new();
@@ -152,7 +171,10 @@ mod tests {
                     "@intrinsic の {module}.{name} に本体がある"
                 );
                 // ランタイムのハンドラ（`State.run`）は lowering がその場で写すので，表に行を持たない．
-                if crate::intrinsics::is_runtime_handler(module, &name) {
+                // fiber の組み込み（11章）は lowering がまだなく，表に行がない．
+                if crate::intrinsics::is_runtime_handler(module, &name)
+                    || FIBER_INTRINSICS.contains(&(*module, name.as_str()))
+                {
                     continue;
                 }
                 let op = Builtin::lookup_intrinsic(module, &name)

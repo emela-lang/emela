@@ -102,6 +102,9 @@ pub const LAYER_CYCLE: &str = "E0422";
 // エフェクトの型引数（8.1）
 pub const MISSING_EFFECT_TYPE_ARGS: &str = "E0423";
 pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
+// fiber（11.2，11.8）
+pub const ESCAPING_FROM_SCOPE: &str = "E0425";
+pub const OP_TYPE_PARAMS: &str = "E0426";
 
 // E09xx: ツール
 pub const PATH_NOT_FOUND: &str = "E0901";

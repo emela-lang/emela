@@ -1,0 +1,25 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Deferred.{Deferred}\n\nerror NotFound(id: Int)\n\ntype User(name: String)\ntype Order(id: Int)\ntype Profile(user: User, orders: List[Order])\n\neffect Users {\n  suspend fn find(id: Int) -> User fails NotFound\n}\n\nfn fetch_user(id: Int) -> User fails NotFound use Users {\n  (use Users).find(id)\n}\n\nfn fetch_orders(id: Int) -> List[Order] {\n  [Order(id:)]\n}\n\nfn profile() {\n  Fiber.scope(fn() {\n    s = use Scope\n    a = s.fork(fn() { fetch_user(1) })\n    b = s.fork(fn() { fetch_orders(1) })\n    Profile(user: Fiber.join(a), orders: Fiber.join(b))\n  })\n}\n\nfn wrapped() {\n  Fiber.scope(fn() {\n    a = Fiber.fork(fn() { fetch_user(1) })\n    Fiber.join(a)\n  })\n}\n\nfn pairs() {\n  (user, orders) = Fiber.both(fn() { fetch_user(1) }, fn() { fetch_orders(1) })\n  users = Fiber.map([1, 2], fn(id) { fetch_user(id) })\n  firsts = Fiber.all([fn() { fetch_user(1) }, fn() { fetch_user(2) }])\n  fastest = Fiber.race([fn() { fetch_user(1) }, fn() { fetch_user(2) }])\n  (user, users)\n}\n\nfn signal() -> Int use { Async } {\n  Fiber.scope(fn() {\n    ready = Fiber.deferred()\n    Fiber.fork(fn() { Deferred.complete(ready, 1) })\n    n = Deferred.await(ready)\n    peek = Deferred.poll(ready)\n    n\n  })\n}\n\"#)"
+---
+fetch_user: fn(Int) -> User fails NotFound use Users
+  id: Int
+fetch_orders: fn(Int) -> List[Order]
+  id: Int
+profile: fn() -> Profile fails NotFound use { Async, Users }
+  s: use Scope[NotFound, Users]
+  a: Fiber[User]
+  b: Fiber[List[Order]]
+wrapped: fn() -> User fails NotFound use { Async, Users }
+  a: Fiber[User]
+pairs: fn() -> (User, List[User]) fails NotFound use { Async, Users }
+  user: User
+  orders: List[Order]
+  id: Int
+  users: List[User]
+  firsts: List[User]
+  fastest: User
+signal: fn() -> Int use Async
+  ready: Deferred[Int]
+  n: Int
+  peek: Option[Int]
