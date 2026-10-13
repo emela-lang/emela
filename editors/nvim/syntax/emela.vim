@@ -70,7 +70,7 @@ syntax keyword emelaSelf        self Self
 " `as` is reserved without syntax in 0.20, and the words of spec 3.3 have no syntax at all.
 " Writing any of them is an error.
 syntax keyword emelaReserved as var return while loop let mut in where do try catch throw async
-      \ await yield defer macro mod
+      \ yield defer macro mod
 
 " Contextual words (spec 3.2). They are keywords only in the position shown; elsewhere they are
 " ordinary names. In each pattern, the word would be a syntax error as a name.
@@ -163,10 +163,12 @@ highlight default link emelaConstructor        Function
 highlight default link emelaFunctionCall       Function
 
 highlight default link emelaInclude            Include
-highlight default link emelaStorageClass       StorageClass
+" Declarations and modifiers share `fn`'s color: some color schemes leave Structure and
+" StorageClass uncolored.
+highlight default link emelaStorageClass       Keyword
 highlight default link emelaKeyword            Keyword
-highlight default link emelaStructure          Structure
-highlight default link emelaEffectDecl         Structure
+highlight default link emelaStructure          Keyword
+highlight default link emelaEffectDecl         Keyword
 highlight default link emelaModulePath         Type
 highlight default link emelaFuncDecl           Function
 highlight default link emelaConstDecl          Constant

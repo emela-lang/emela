@@ -18,6 +18,7 @@ use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
 use crate::testing::{TestDef, collect_tests, resolve_tests};
+use crate::tokens::SemanticToken;
 
 /// A frontend up to parsing. Keeps a syntax tree per module and returns the import list.
 /// [`Frontend::check`] returns `()` without diagnostics.
@@ -257,6 +258,15 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         range: line_index::TextRange,
     ) -> Vec<InlayHint> {
         crate::hints::inlay_hints(program, analysis, file, range)
+    }
+
+    fn semantic_tokens(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        range: line_index::TextRange,
+    ) -> Vec<SemanticToken> {
+        crate::tokens::semantic_tokens(program, analysis, file, range)
     }
 
     fn code_actions(

@@ -7,6 +7,8 @@ the same files work in Vim 9 and Neovim. No Tree-sitter.
 - `syntax/emela.vim`: highlighting
 - `ftplugin/emela.vim`: `#` comments, two-space indentation as `emela fmt` writes it, and `gf` on
   a module path (`Http.Client` opens `src/http/client.emel`)
+- `plugin/emela.vim`: in Neovim, underlines capability values reported by the language server
+  (see below)
 
 ## Install
 
@@ -52,10 +54,10 @@ override any of them. The groups are split by meaning:
 | Group | Words | Linked to |
 |---|---|---|
 | `emelaKeyword` | `fn` `const` `impl` | `Keyword` |
-| `emelaStructure` | `type` `enum` `error` `trait` | `Structure` |
-| `emelaEffectDecl` | `effect` `handler` `layer` | `Structure` |
+| `emelaStructure` | `type` `enum` `error` `trait` | `Keyword` |
+| `emelaEffectDecl` | `effect` `handler` `layer` | `Keyword` |
 | `emelaEffect` | `use` `with` | `Statement` |
-| `emelaStorageClass` | `pub` `opaque` `suspend` | `StorageClass` |
+| `emelaStorageClass` | `pub` `opaque` `suspend` | `Keyword` |
 | `emelaInclude` | `import` | `Include` |
 | `emelaConditional` | `if` `else` `match` | `Conditional` |
 | `emelaException` | `fail` `escape` | `Exception` |
@@ -73,8 +75,53 @@ override any of them. The groups are split by meaning:
 | `emelaConstant` / `emelaTypeParam` | upper names / single capitals and declared type parameters | `Constant` / `Identifier` |
 | `emelaOperator` | `\|>` `->` `..` `==` `&&` `\|` ... | `Operator` |
 
+Declarations and modifiers are linked to `Keyword`, so they get the same color as `fn` (some
+color schemes leave `Structure` and `StorageClass` uncolored). To tell them apart again, link
+the groups yourself:
+
+```vim
+highlight link emelaEffectDecl Structure
+```
+
 The inside of `#{ ... }` is highlighted as ordinary code. Lexical errors (`1e9`, `0XFF`,
 `Http_client`, an unknown escape `\q`) are linked to `Error`.
+
+## Capability values (Neovim and the language server)
+
+A capability value is a variable bound to `use X` (`log = use Logger`). Neovim underlines it
+where it is bound and wherever it is used, including inside closures. Which names hold a
+capability is only known after name resolution and type checking, so this needs `emela lsp`;
+the regex-based syntax file cannot tell. Vim gets no underline.
+
+Start the server for `.emel` buffers:
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "emela",
+  callback = function(args)
+    vim.lsp.start({
+      name = "emela",
+      cmd = { "emela", "lsp" },
+      root_dir = vim.fs.root(args.buf, { "Pome.toml" }),
+    })
+  end,
+})
+```
+
+The server sends semantic tokens of type `variable` with the modifier `capability`, and only
+those, so the rest of the highlighting stays with the syntax file. Neovim shows them through
+the group `@lsp.typemod.variable.capability.emela`, which `plugin/emela.vim` sets to underline
+with `highlight default`. Override it in your config or color scheme:
+
+```lua
+-- A color instead of an underline.
+vim.api.nvim_set_hl(0, "@lsp.typemod.variable.capability.emela", { fg = "#d7875f", bold = true })
+-- No highlighting at all.
+vim.api.nvim_set_hl(0, "@lsp.typemod.variable.capability.emela", {})
+```
+
+Set it after your color scheme loads (or from a `ColorScheme` autocommand), since loading a
+color scheme clears it.
 
 ## Test
 
@@ -86,3 +133,5 @@ EMELA_SPEC=path/to/emela-0.20-spec.md editors/nvim/test/run.sh   # also the spec
 
 The script opens `test/fixture.emel` and checks the syntax group at chosen positions, then
 checks that nothing in `examples/` and `crates/emela-fmt/test_data/` is highlighted as an error.
+It also checks the links of the declaration keywords and, in Neovim, the capability underline.
+The semantic tokens themselves are tested in `crates/emela-lsp/tests/server.rs`.

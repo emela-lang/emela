@@ -65,4 +65,11 @@ fn literals() {
   fails = for
   r = x escape { NotFound(_) -> fail Other }
   assert self == Self
+  waited = Fiber.await(fiber) + d.await()
+  awaiting = Deferred.await
+  greeting = load(id) match {
+    Some(user) -> user.name
+    None -> "guest"
+  }
+  first = users |> List.find(fn(u) { u.id == id }) match { Some(u) -> u None -> guest }
 }

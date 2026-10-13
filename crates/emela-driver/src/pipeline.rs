@@ -22,6 +22,7 @@ use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
+use crate::tokens::SemanticToken;
 
 /// The file marking a project (spec 4.1). In 0.20 only its presence matters.
 pub const PROJECT_FILE: &str = "Pome.toml";
@@ -266,6 +267,16 @@ pub trait Frontend {
         _file: FileId,
         _range: line_index::TextRange,
     ) -> Vec<InlayHint> {
+        Vec::new()
+    }
+
+    /// Semantic tokens of `file` overlapping `range` (LSP semantic tokens).
+    fn semantic_tokens(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _range: line_index::TextRange,
+    ) -> Vec<SemanticToken> {
         Vec::new()
     }
 

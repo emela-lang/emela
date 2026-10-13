@@ -174,6 +174,54 @@ pub fn inlay_hint(index: &LineIndex, hint: &emela_driver::InlayHint) -> lsp::Inl
     }
 }
 
+/// The modifier on capability values. Not one of LSP's predefined modifiers.
+pub const CAPABILITY_MODIFIER: &str = "capability";
+
+/// Token types and modifiers, indexed by [`semantic_tokens`].
+pub fn semantic_tokens_legend() -> lsp::SemanticTokensLegend {
+    lsp::SemanticTokensLegend {
+        token_types: vec![lsp::SemanticTokenType::VARIABLE],
+        token_modifiers: vec![lsp::SemanticTokenModifier::new(CAPABILITY_MODIFIER)],
+    }
+}
+
+/// Encodes tokens in position order as relative positions (UTF-16). A token does not span lines,
+/// since each is a name.
+pub fn semantic_tokens(
+    index: &LineIndex,
+    tokens: &[emela_driver::SemanticToken],
+) -> lsp::SemanticTokens {
+    use emela_driver::TokenKind;
+    let mut data = Vec::with_capacity(tokens.len());
+    let mut last = lsp::Position::new(0, 0);
+    for token in tokens {
+        let start = position(index, token.range.start());
+        let end = position(index, token.range.end());
+        if end.line != start.line {
+            continue;
+        }
+        let (token_type, token_modifiers_bitset) = match token.kind {
+            TokenKind::Capability => (0, 1),
+        };
+        data.push(lsp::SemanticToken {
+            delta_line: start.line - last.line,
+            delta_start: if start.line == last.line {
+                start.character - last.character
+            } else {
+                start.character
+            },
+            length: end.character - start.character,
+            token_type,
+            token_modifiers_bitset,
+        });
+        last = start;
+    }
+    lsp::SemanticTokens {
+        result_id: None,
+        data,
+    }
+}
+
 pub fn range(index: &LineIndex, range: TextRange) -> lsp::Range {
     lsp::Range {
         start: position(index, range.start()),

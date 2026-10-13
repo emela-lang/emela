@@ -15,7 +15,8 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _, SignatureHelpRequest,
+    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -54,6 +55,15 @@ pub fn capabilities() -> lsp::ServerCapabilities {
             work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
         })),
         inlay_hint_provider: Some(lsp::OneOf::Left(true)),
+        semantic_tokens_provider: Some(
+            lsp::SemanticTokensOptions {
+                legend: convert::semantic_tokens_legend(),
+                range: Some(true),
+                full: Some(lsp::SemanticTokensFullOptions::Bool(true)),
+                ..lsp::SemanticTokensOptions::default()
+            }
+            .into(),
+        ),
         code_action_provider: Some(lsp::CodeActionProviderCapability::Options(
             lsp::CodeActionOptions {
                 code_action_kinds: Some(vec![lsp::CodeActionKind::REFACTOR_REWRITE]),
@@ -221,6 +231,12 @@ where
             Formatting::METHOD => respond(request, |params| self.format(&params)),
             HoverRequest::METHOD => respond(request, |params| self.hover(&params)),
             InlayHintRequest::METHOD => respond(request, |params| self.inlay_hints(&params)),
+            SemanticTokensFullRequest::METHOD => {
+                respond(request, |params| self.semantic_tokens_full(&params))
+            }
+            SemanticTokensRangeRequest::METHOD => {
+                respond(request, |params| self.semantic_tokens_range(&params))
+            }
             CodeActionRequest::METHOD => respond(request, |params| self.code_actions(&params)),
             Completion::METHOD => respond(request, |params| self.complete(&params)),
             SignatureHelpRequest::METHOD => respond(request, |params| self.signature_help(&params)),
@@ -307,6 +323,45 @@ where
             .map(|hint| convert::inlay_hint(index, hint))
             .collect();
         Some(hints)
+    }
+
+    /// Marks capability values (spec 8.2) for the whole file. `null` for files that cannot be
+    /// checked.
+    fn semantic_tokens_full(
+        &mut self,
+        params: &lsp::SemanticTokensParams,
+    ) -> Option<lsp::SemanticTokensResult> {
+        self.semantic_tokens(&params.text_document.uri, None)
+            .map(lsp::SemanticTokensResult::Tokens)
+    }
+
+    fn semantic_tokens_range(
+        &mut self,
+        params: &lsp::SemanticTokensRangeParams,
+    ) -> Option<lsp::SemanticTokensRangeResult> {
+        self.semantic_tokens(&params.text_document.uri, Some(params.range))
+            .map(lsp::SemanticTokensRangeResult::Tokens)
+    }
+
+    fn semantic_tokens(
+        &mut self,
+        uri: &Uri,
+        range: Option<lsp::Range>,
+    ) -> Option<lsp::SemanticTokens> {
+        let (analysis, program, file) = self.check_file(uri)?;
+        let index = analysis.sources[file].line_index();
+        let range = match range {
+            None => line_index::TextRange::up_to(index.len()),
+            Some(range) => {
+                let start = convert::offset(index, range.start)?;
+                let end = convert::offset(index, range.end)
+                    .unwrap_or(index.len())
+                    .max(start);
+                line_index::TextRange::new(start, end)
+            }
+        };
+        let tokens = F::semantic_tokens(&program, &analysis, file, range);
+        Some(convert::semantic_tokens(index, &tokens))
     }
 
     /// Actions that insert inferred results into omitted annotations (spec 4.5). `null` for files
