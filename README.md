@@ -18,8 +18,7 @@ branch.
 | 0.20.0-alpha.3 | `suspend fn`, `Async`, `Immediate`, `Clock`, `Random`, `Env`, `Instant` / `Duration`                                       |
 | 0.20.0-alpha.4 | Handlers with fields, `init` and `release`, `layer`, `State`, the `Std` namespace, `Platform`                              |
 | 0.20.0-alpha.5 | Fibers (`Std.Fiber`, `Std.Cause`, `Std.Deferred`), `FileSystem`, `Std.Path`, the `Http` client                             |
-| Later          | A limit on how many fibers run at once (`Semaphore`), `Queue`, an `Http` server                                            |
-| 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, WebAssembly output                                               |
+| 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, `Semaphore`, `Queue`, an `Http` server, WebAssembly output       |
 
 The 0.20 language specification is still being written. The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
@@ -476,8 +475,8 @@ that waits on `send` aborts the request.
 - No JSON yet; it comes in 0.21 with traits.
 - The JavaScript target assumes a server host: Node.js 18 or later, Deno, or
   Bun. Browsers are not supported in 0.20.
-- No limit on how many fibers run at once (`Semaphore`) and no `Queue` yet;
-  they come in a later release.
+- No limit on how many fibers run at once (`Semaphore`), no `Queue` and no
+  `Http` server yet; they come in 0.21.
 - Some checks that scopes, fiber handles, `Deferred` values and handler
   capabilities do not escape run at run time in 0.20 (a defect such as
   `fiber scope was used after it ended`). 0.22 makes them all static.
