@@ -12,9 +12,8 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.20.0-alpha.5"
+version = "0.20.0"
 license = "Apache-2.0"
-publish = false
 
 [workspace.dependencies]
 # 無損失構文木（rust-analyzer と同じ green/red tree）．空白とコメントも木に残るので，
@@ -52,15 +51,17 @@ insta = { version = "1", features = ["glob"] }
 # 性質テスト（字句解析の無損失性などを任意の入力で検査する）．
 proptest = "1"
 
-emela-syntax = { path = "crates/emela-syntax" }
-emela-fmt = { path = "crates/emela-fmt" }
-emela-resolve = { path = "crates/emela-resolve" }
-emela-types = { path = "crates/emela-types" }
-emela-core = { path = "crates/emela-core" }
-emela-codegen-js = { path = "crates/emela-codegen-js" }
-emela-codegen-wasm = { path = "crates/emela-codegen-wasm" }
-emela-driver = { path = "crates/emela-driver" }
-emela-lsp = { path = "crates/emela-lsp" }
+# The version lets `cargo package` (run by release-plz in git_only mode) verify
+# each crate; release-plz bumps it together with the workspace version.
+emela-syntax = { path = "crates/emela-syntax", version = "0.20.0" }
+emela-fmt = { path = "crates/emela-fmt", version = "0.20.0" }
+emela-resolve = { path = "crates/emela-resolve", version = "0.20.0" }
+emela-types = { path = "crates/emela-types", version = "0.20.0" }
+emela-core = { path = "crates/emela-core", version = "0.20.0" }
+emela-codegen-js = { path = "crates/emela-codegen-js", version = "0.20.0" }
+emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.20.0" }
+emela-driver = { path = "crates/emela-driver", version = "0.20.0" }
+emela-lsp = { path = "crates/emela-lsp", version = "0.20.0" }
 
 [profile.dev.package.insta]
 opt-level = 3

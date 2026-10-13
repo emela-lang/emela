@@ -128,6 +128,9 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
+    # After the release job, so a version bumped by hand (or merged from a
+    # release PR) is tagged before this job looks for the latest tag.
+    needs: release-plz-release
     if: ${{ github.repository_owner == 'emela-lang' }}
     permissions:
       pull-requests: write

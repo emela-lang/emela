@@ -4,7 +4,6 @@ description = "Module loading, imports, name resolution, pub / opaque, and namin
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
 
 [dependencies]
 emela-syntax.workspace = true

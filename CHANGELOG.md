@@ -7,6 +7,28 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/emela-lang/emela/compare/v0.10.0...v0.20.0) - 2026-10-13
+
+0.20 系の作り直しの最初の正式版。0.1x とは別の言語で、互換性はない。0.1x のコンパイラは
+`legacy` ブランチにある。言語仕様は `docs/spec/emela-0.20.md`。
+
+### Added
+
+- 純粋な部分: 関数、レコード、enum、`opaque` 型、パターンマッチ、末尾呼び出し、パイプ、
+  `List` / `Option`、モジュール、`@test`、`dbg`（alpha.1）
+- 型付きのエラーとエフェクト: `error`、`fail`、`escape`、`effect`、`handler`、`use`、`with`、
+  `@external`、`Console`（alpha.2）
+- `suspend fn`、`Async`、`Immediate`、`Clock`、`Random`、`Env`、`Instant` / `Duration`（alpha.3）
+- フィールドを持つハンドラ、`init` と `release`、`layer`、`State`、`Std` 名前空間、`Platform`（alpha.4）
+- ファイバー（`Std.Fiber`、`Std.Cause`、`Std.Deferred`）、`FileSystem`、`Std.Path`、`Http` クライアント（alpha.5）
+
+### Changed
+
+- **破壊的変更**: `match` を後置にした（`x match { ... }`）。前置の `match x { ... }` は E0142
+- `const` は最初に参照したときに1回だけ評価する。名前だけの循環は E0231
+- ソースのルートの外のディレクトリを `check`、`build`、`run`、`test` に渡すと E0208
+- 診断とコンパイラの出力を英語にした
+
 ## [0.10.0](https://github.com/emela-lang/emela/compare/v0.9.1...v0.10.0) - 2026-07-26
 
 ### Added

@@ -102,6 +102,14 @@ alpha が選ばれる。
 
 ## 補足
 
-- crates.io へは publish しない（`publish = false`）。配布物は `emela` バイナリの
-  tarball のみ。
-- 0.20.0 の正式版を出すときに `next` を `main` に入れる。
+- crates.io へは publish しない（`release-plz.toml` の `publish = false`）。配布物は
+  `emela` バイナリの tarball のみ。Cargo.toml には `publish = false` を書かない。
+  書くと release-plz がそのパッケージを丸ごと飛ばし、`emela-cli` のタグも打たれない。
+- release-plz（`git_only`）は最新の正式版のタグのコミットで `cargo package` を走らせる。
+  そのため workspace の内部の依存には `version` を付け、循環になる dev 依存
+  （emela-types → emela-core）は path だけにする。
+- `release-plz-pr` は `release-plz-release` の後に動く。version を手で上げて `main` に
+  入れたときに、先にタグを打たせるため。
+- 0.20.0 の正式版を出すときに `next` を `main` に入れる。Cargo.toml はもう `0.20.0`
+  なので、release-plz は release PR を作らずに、その push で `v0.20.0` を打つ。
+  古い `release v0.11.0` の PR（#108）は、入れる前に閉じる。
