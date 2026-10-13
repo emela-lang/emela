@@ -7,6 +7,7 @@ mod actions;
 pub mod code;
 mod complete;
 mod diagnostic;
+mod doc;
 mod fmt;
 mod frontend;
 mod hints;
@@ -26,6 +27,7 @@ mod tokens;
 pub use actions::CodeAction;
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
+pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_markdown};
 pub use emela_resolve::OsFs;
 pub use fmt::{
     FmtFailure, FmtReport, FmtTarget, STDIN_DISPLAY, STDIN_PATH, WriteFile, fmt, fmt_targets,

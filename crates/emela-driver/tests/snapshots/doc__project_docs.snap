@@ -1,0 +1,38 @@
+---
+source: crates/emela-driver/tests/doc.rs
+expression: dump(&modules)
+---
+== Main
+== Shapes
+[Type] type Point(x: Int, y: Int)
+  | A point on the plane.
+  - x: Int
+    | Distance from the left.
+  - y: Int
+[Type] opaque type Secret
+  | Hidden fields: only the name is shown.
+[Enum] enum Shape
+  - Circle(radius: Int)
+    | A circle around the origin.
+  - Rect(Int, Int)
+  - Empty
+[Error] error NotFound(id: Int)
+  - id: Int
+[Error] error Timeout
+[Effect] effect Log
+  | Writes log lines.
+  - fn info(msg: String) -> ()
+    | One line at the info level.
+[Handler] handler Prefixed(prefix: String) implements Log
+  | Prefixes each line.
+  - prefix: String
+[Handler] handler Quiet implements Log
+[Layer] layer Logging { Quiet }
+[Const] const LIMIT: Int
+[Fn] fn find(id: Int) -> Point fails NotFound | Timeout use Log
+  | Finds a point, or fails.
+  |
+  | Indented lines stay indented:
+  |
+  |     find(1)
+[Fn] fn apply[A, B](x: A, f: fn(A) -> B fails E(f) use R(f)) -> B fails E(f) use R(f)
