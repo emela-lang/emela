@@ -335,6 +335,10 @@ impl OpSig {
     pub fn name(&self) -> Option<SyntaxToken> {
         token(&self.0, LOWER_NAME)
     }
+    /// The type parameter list (`[A]` in `fn fork[A](...)`, spec 8.1, 17.3).
+    pub fn type_params(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_PARAM_LIST)
+    }
     pub fn param_list(&self) -> Option<ParamList> {
         child(&self.0)
     }

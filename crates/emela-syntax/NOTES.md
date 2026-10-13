@@ -52,3 +52,5 @@
 - （補）引数の読めなかった注釈（中に ERROR があるもの）は，構文の診断が出ているので `@external` の形を見ない
 - （補）エフェクトの型引数（8.1）．`effect State[S]` の型引数は type や enum と同じ TYPE_PARAM_LIST．`implements State[Int]` と `use State[Int]` の型引数は，PATH の後ろの兄弟の TYPE_ARG_LIST にする（IMPLEMENTS_CLAUSE と USE_EXPR の PATH の親は今までどおり）．効果の集合の要素の `State[Int]`（`use { State[Int], Log }`）は，PATH と TYPE_ARG_LIST を PATH_TYPE で包む．集合の中では要素ごとに型引数を対応させるため．型引数を書かなければ今までどおり PATH だけ
 - （補）17.4 の `effect_item = type_ref | upper_name` を `type_ref [ "[" type { "," type } "]" ] | upper_name` に広げた（指示書の `use { State[Int], Log }`）．17.3 の handler_decl と 17.5 の `use` は仕様の文法どおり．並びの中身は名前付き型の型引数と同じ type_arg で読み，集合を書いたら型推論が E0324 にする．空の `[]` も読む（fn の型引数の `[]` と同じ）
+- （補）エフェクトの操作の型引数（17.3 の op_sig の `[ type_params ]`）は，fn の宣言と同じ TYPE_PARAM_LIST として名前の直後に読む．組み込みのエフェクトだけに許すことは型検査が見る（E0426）
+- （補）`await` を将来のための予約語（3.3）から外した．11.5 の `Fiber.await` と 11.7 の `Deferred.await` が関数名に使うため（進行役と合意．仕様の 3.3 の更新は進行役が持つ）

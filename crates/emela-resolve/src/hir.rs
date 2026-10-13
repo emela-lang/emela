@@ -10,6 +10,7 @@ use la_arena::{Arena, ArenaMap, Idx};
 use rowan::TextRange;
 use smol_str::SmolStr;
 
+use crate::module_name::ModuleName;
 use crate::source::ModuleId;
 
 pub type DefId = Idx<DefData>;
@@ -518,6 +519,10 @@ pub struct EffectItem {
     /// Type parameters (the `S` of `effect State[S]`, spec 8.1), usable in operation signatures.
     pub type_params: Vec<TypeParam>,
     pub ops: Vec<DefId>,
+    /// A built-in effect of the bundled sources, marked with `@intrinsic` (`Scope`, spec 11.2).
+    /// Only built-in effects may have set type parameters and operation type parameters
+    /// (spec 8.1).
+    pub is_intrinsic: bool,
 }
 
 /// No body.
@@ -603,9 +608,11 @@ pub enum Item {
     Impl(ImplItem),
 }
 
-/// In source order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleItems {
+    /// The module's name (`Std.Fiber`). Used to name definitions in diagnostics (`Fiber.scope`).
+    pub name: ModuleName,
+    /// In source order.
     pub items: Vec<DefId>,
 }
 

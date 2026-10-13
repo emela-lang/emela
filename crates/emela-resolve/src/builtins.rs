@@ -196,6 +196,7 @@ pub(crate) fn build_prelude(program: &mut Program) {
             Item::Effect(EffectItem {
                 type_params: Vec::new(),
                 ops: Vec::new(),
+                is_intrinsic: false,
             }),
         );
     }

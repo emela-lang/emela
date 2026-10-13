@@ -5,7 +5,7 @@ use std::fmt;
 use smol_str::SmolStr;
 
 /// Each segment matches the lexical class of type names.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName(Vec<SmolStr>);
 
 impl ModuleName {

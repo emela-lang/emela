@@ -13,3 +13,8 @@ fn count() -> Int use { State[Int],Log } {
   (use State[Int]).update(fn(n) { n + 1 })
   st.get()
 }
+
+pub effect Scope[E, R] {
+  fn fork[ A ](f: fn() -> A fails E use R) -> Fiber[A]
+  fn deferred[A,B]() -> Deferred[A]
+}

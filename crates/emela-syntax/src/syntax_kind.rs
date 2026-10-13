@@ -106,7 +106,7 @@ pub enum SyntaxKind {
     /// Words reserved for the future (spec 3.3). They have no syntax, so they share one kind.
     ///
     /// `var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw`
-    /// `async` `await` `yield` `defer` `macro` `mod`
+    /// `async` `yield` `defer` `macro` `mod`
     RESERVED_KW,
 
     // Punctuation
