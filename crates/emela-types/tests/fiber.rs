@@ -453,3 +453,104 @@ fn wrapped() -> List[Int] use { Wrap } {
 "#
     ));
 }
+
+/// A child may fork its siblings (spec 11.2): the `Scope` in the child's R is provided by the
+/// scope it is forked into, not from outside, through `Fiber.fork` and through the capability.
+/// The errors and effects of the grandchildren still reach the scope.
+#[test]
+fn children_fork_siblings() {
+    insta::assert_snapshot!(render(
+        r#"
+import Std.Fiber.{Fiber, Scope}
+import Std.Console.{Console, SystemConsole}
+
+error Boom
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() {
+  with SystemConsole {
+    Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        Fiber.fork(fn() { (use Console).print_line("x") })
+        ()
+      })
+      ()
+    })
+  }
+}
+
+fn through_capability() {
+  Fiber.scope(fn() {
+    s = use Scope
+    s.fork(fn() {
+      s.fork(fn() { boom() })
+      ()
+    })
+    ()
+  })
+}
+
+fn spawn_tree(depth: Int) -> () use { Scope[Boom, {}] } {
+  if depth > 0 {
+    Fiber.fork(fn() {
+      spawn_tree(depth - 1)
+      boom()
+    })
+    ()
+  } else {
+    ()
+  }
+}
+
+fn recursive() {
+  Fiber.scope(fn() { spawn_tree(3) })
+}
+"#
+    ));
+}
+
+/// In nested scopes, a child's `Scope` is provided by the scope it belongs to (spec 11.2): a
+/// child of the inner scope forking a sibling stays in the inner scope, and the outer scope's R
+/// does not get `Scope`.
+#[test]
+fn nested_scopes() {
+    insta::assert_snapshot!(render(
+        r#"
+import Std.Fiber.{Fiber, Scope}
+
+error Boom
+error Bust
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn bust() -> Int fails Bust { fail Bust }
+
+fn nested() {
+  Fiber.scope(fn() {
+    Fiber.fork(fn() { boom() })
+    inner = Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        Fiber.fork(fn() { bust() })
+        ()
+      })
+      1
+    })
+    inner
+  })
+}
+
+fn test_nested() {
+  Fiber.scope(fn() {
+    Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        Fiber.fork(fn() { () })
+        ()
+      })
+      ()
+    })
+  })
+}
+"#
+    ));
+}

@@ -360,6 +360,21 @@ fn op_signature(
             None => param_ty(program, ty_table, &defs, p, diags),
         })
         .collect();
+    // A child forked through a built-in effect may use the effect itself (to fork a sibling),
+    // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
+    // parameter whose `use` names the effect's set type parameter also gets the effect with its
+    // own type parameters (`fork[A](f: fn() -> A fails E use { Scope[E, R], R })`). Inclusion then
+    // only requires the child's `Scope` arguments to be contained in the scope's.
+    let params = match effect {
+        Some(e) if is_intrinsic_effect(program, e) => {
+            let own = own_tag(ty_table, e, effect_defs.len());
+            params
+                .into_iter()
+                .map(|p| with_own_tag(p, &own, effect_defs.len()))
+                .collect()
+        }
+        _ => params,
+    };
     let ret = match sig.ret {
         Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
         None => Ty::UNIT,
@@ -378,6 +393,38 @@ fn op_signature(
         scheme: Scheme::new(ty_params, Ty::func_fails(params, ret, fails)),
         labels: param_labels(program, &sig.params),
     }
+}
+
+/// A built-in effect applied to its own type parameters (`Scope[E, R]` as `Bound(0)`,
+/// `Bound(1)`).
+fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
+    let args = (0..n)
+        .map(|i| {
+            let bound = i as u32;
+            match ty_table.set_kind(effect, i) {
+                Some(kind) => Ty::Set(kind, Row::from_elems([RowElem::Bound(bound)])),
+                None => Ty::Bound(bound),
+            }
+        })
+        .collect();
+    Tag::with_args(effect, args)
+}
+
+/// Adds `own` to the `use` of a function type that names one of the effect's set type
+/// parameters (the first `n` scheme parameters).
+fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
+    let Ty::Fn(mut f) = ty else {
+        return ty;
+    };
+    let names_param = f
+        .uses
+        .elems()
+        .iter()
+        .any(|e| matches!(e, RowElem::Bound(i) if (*i as usize) < n));
+    if names_param {
+        f.uses.insert(RowElem::Tag(own.clone()));
+    }
+    Ty::Fn(f)
 }
 
 /// Effect type parameters are ordinary types only (spec 8.1). A type parameter written only in

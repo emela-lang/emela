@@ -8,10 +8,10 @@ raise: ∀ A, E. fn(Cause[E]) -> A fails E
 complete: ∀ A. fn(Deferred[A], A) -> Bool
 await: ∀ A. fn(Deferred[A]) -> A use Async
 poll: ∀ A. fn(Deferred[A]) -> Option[A]
-fork: ∀ E, R, A. fn(fn() -> A fails E use R) -> Fiber[A]
+fork: ∀ E, R, A. fn(fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A]
 deferred: ∀ E, R, A. fn() -> Deferred[A]
 scope: ∀ A, E, R. fn(fn() -> A fails E use { Async, Scope[E, R], R }) -> A fails E use { Async, R }
-fork: ∀ A, E, R. fn(fn() -> A fails E use R) -> Fiber[A] use Scope[E, R]
+fork: ∀ A, E, R. fn(fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A] use Scope[E, R]
 deferred: ∀ A, E, R. fn() -> Deferred[A] use Scope[E, R]
 join: ∀ A. fn(Fiber[A]) -> A use Async
 await: ∀ A. fn(Fiber[A]) -> Exit[A, {}] use Async

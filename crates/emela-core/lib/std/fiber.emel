@@ -34,7 +34,8 @@ pub enum Exit[A, E] {
 ## children. Only `Fiber.scope` provides it: a handler cannot implement it (spec 11.2).
 @intrinsic
 pub effect Scope[E, R] {
-  ## Starts `f` as a child fiber of the scope.
+  ## Starts `f` as a child fiber of the scope. `f` may use `Scope` itself to fork siblings; the
+  ## type checker adds `Scope[E, R]` to the `use` of `f`, provided by this scope (spec 11.2).
   fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
   ## Makes a `Deferred` that belongs to the scope (spec 11.7).
   fn deferred[A]() -> Deferred[A]
@@ -52,7 +53,10 @@ pub fn scope[A, E, R](
 ) -> A fails E use { Async, R }
 
 ## Starts `f` as a child fiber of the innermost scope. Same as `(use Scope).fork(f)`.
-pub fn fork[A, E, R](f: fn() -> A fails E use R) -> Fiber[A] use Scope[E, R] {
+##
+## `f` may fork siblings: its `Scope` is the scope it is forked into, so the `Scope[E, R]` in its
+## `use` is provided by that scope and not from outside (spec 11.2).
+pub fn fork[A, E, R](f: fn() -> A fails E use { Scope[E, R], R }) -> Fiber[A] use Scope[E, R] {
   (use Scope).fork(f)
 }
 
