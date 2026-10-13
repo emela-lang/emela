@@ -30,6 +30,34 @@ error enum Std.Http.UnexpectedStatus {
   UnexpectedStatus(status: Int, body: String)
 }
 
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
 export fn main() {
   let a%1 = {
     find(1)?

@@ -1,0 +1,358 @@
+# The FileSystem effect and its handlers (the platform and test layers of spec 15.2).
+#
+# Text (UTF-8) only. Use it as `(use FileSystem).read_text("notes.txt")` and provide it with
+# `with SystemFileSystem { ... }`, or with `with Platform { ... }` from `Std.Platform`.
+# Relative paths are resolved from the current directory of the process. Paths are not
+# normalized (no `..` resolution, no `~` expansion).
+
+import Std.Path
+import Std.State.{State}
+
+pub error FileNotFound(path: String)
+pub error FileAccessDenied(path: String)
+pub error NotADirectory(path: String)
+pub error IsADirectory(path: String)
+pub error DirectoryNotEmpty(path: String)
+## The file is not valid UTF-8. It is never read with replacement characters, so that writing
+## the text back does not change the file.
+pub error InvalidText(path: String)
+## Any other error of the host. `message` is the host's description.
+pub error FileSystemFailure(path: String, message: String)
+
+pub effect FileSystem {
+  suspend fn read_text(path: String) -> String
+    fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure
+  ## Creates the file or replaces its text. FileNotFound if the parent directory does not exist.
+  suspend fn write_text(path: String, text: String) -> ()
+    fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
+  ## Creates the file if it does not exist. FileNotFound if the parent directory does not exist.
+  suspend fn append_text(path: String, text: String) -> ()
+    fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
+  ## False if the path cannot be seen, including for lack of permission.
+  suspend fn exists(path: String) -> Bool
+  ## False if the path is not a directory or cannot be seen.
+  suspend fn is_directory(path: String) -> Bool
+  ## The names (not paths) of the entries, in name order.
+  suspend fn list_directory(path: String) -> List[String]
+    fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure
+  ## Creates the parents too. Does nothing if the directory exists. NotADirectory if a file is
+  ## at the path or in the middle of it.
+  suspend fn create_directory(path: String) -> ()
+    fails FileAccessDenied | NotADirectory | FileSystemFailure
+  ## Removes a file or an empty directory.
+  suspend fn remove(path: String) -> ()
+    fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure
+}
+
+# ---- SystemFileSystem ----
+
+## The result of a host operation. An external function cannot fail or return a List (spec 12.4,
+## 12.5), so the host returns this object and the handler takes it apart.
+@external
+type Outcome
+
+@external(js, "./file_system.mjs", "readText")
+suspend fn host_read_text(path: String) -> Outcome
+
+@external(js, "./file_system.mjs", "writeText")
+suspend fn host_write_text(path: String, text: String) -> Outcome
+
+@external(js, "./file_system.mjs", "appendText")
+suspend fn host_append_text(path: String, text: String) -> Outcome
+
+@external(js, "./file_system.mjs", "exists")
+suspend fn host_exists(path: String) -> Bool
+
+@external(js, "./file_system.mjs", "isDirectory")
+suspend fn host_is_directory(path: String) -> Bool
+
+@external(js, "./file_system.mjs", "listDirectory")
+suspend fn host_list_directory(path: String) -> Outcome
+
+@external(js, "./file_system.mjs", "createDirectory")
+suspend fn host_create_directory(path: String) -> Outcome
+
+@external(js, "./file_system.mjs", "remove")
+suspend fn host_remove(path: String) -> Outcome
+
+## The name of the error to fail with, or `""` on success.
+@external(js, "./file_system.mjs", "error")
+fn outcome_error(o: Outcome) -> String use {}
+
+## The host's message for FileSystemFailure.
+@external(js, "./file_system.mjs", "message")
+fn outcome_message(o: Outcome) -> String use {}
+
+## The text read by `host_read_text`.
+@external(js, "./file_system.mjs", "text")
+fn outcome_text(o: Outcome) -> String use {}
+
+## The number of names listed by `host_list_directory`.
+@external(js, "./file_system.mjs", "nameCount")
+fn outcome_name_count(o: Outcome) -> Int use {}
+
+## The `i`-th name listed by `host_list_directory`.
+@external(js, "./file_system.mjs", "nameAt")
+fn outcome_name_at(o: Outcome, i: Int) -> String use {}
+
+# Each `check_*` fails with the error named in the outcome. The host only names the errors that
+# the operation's `fails` lists; anything else is FileSystemFailure.
+
+fn check_read(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure {
+  match outcome_error(o) {
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
+    "FileAccessDenied" -> fail FileAccessDenied(path:)
+    "IsADirectory"     -> fail IsADirectory(path:)
+    "InvalidText"      -> fail InvalidText(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+  }
+}
+
+fn check_write(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure {
+  match outcome_error(o) {
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
+    "FileAccessDenied" -> fail FileAccessDenied(path:)
+    "IsADirectory"     -> fail IsADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+  }
+}
+
+fn check_list(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure {
+  match outcome_error(o) {
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
+    "FileAccessDenied" -> fail FileAccessDenied(path:)
+    "NotADirectory"    -> fail NotADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+  }
+}
+
+fn check_create(o: Outcome, path: String) -> ()
+  fails FileAccessDenied | NotADirectory | FileSystemFailure {
+  match outcome_error(o) {
+    ""                 -> ()
+    "FileAccessDenied" -> fail FileAccessDenied(path:)
+    "NotADirectory"    -> fail NotADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+  }
+}
+
+fn check_remove(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure {
+  match outcome_error(o) {
+    ""                  -> ()
+    "FileNotFound"      -> fail FileNotFound(path:)
+    "FileAccessDenied"  -> fail FileAccessDenied(path:)
+    "DirectoryNotEmpty" -> fail DirectoryNotEmpty(path:)
+    _                   -> fail FileSystemFailure(path:, message: outcome_message(o))
+  }
+}
+
+## The names in `o`, from index `i` down to 0, prepended to `acc`.
+fn names_onto(o: Outcome, i: Int, acc: List[String]) -> List[String] {
+  if i < 0 { acc } else { names_onto(o, i - 1, [outcome_name_at(o, i), ..acc]) }
+}
+
+## The host's file system (JS `node:fs/promises`). Stateless.
+pub handler SystemFileSystem implements FileSystem {
+  suspend fn read_text(path, resume) {
+    o = host_read_text(path)
+    check_read(o, path)
+    resume(outcome_text(o))
+  }
+  suspend fn write_text(path, text, resume) {
+    check_write(host_write_text(path, text), path)
+    resume(())
+  }
+  suspend fn append_text(path, text, resume) {
+    check_write(host_append_text(path, text), path)
+    resume(())
+  }
+  suspend fn exists(path, resume) { resume(host_exists(path)) }
+  suspend fn is_directory(path, resume) { resume(host_is_directory(path)) }
+  suspend fn list_directory(path, resume) {
+    o = host_list_directory(path)
+    check_list(o, path)
+    resume(names_onto(o, outcome_name_count(o) - 1, []))
+  }
+  suspend fn create_directory(path, resume) {
+    check_create(host_create_directory(path), path)
+    resume(())
+  }
+  suspend fn remove(path, resume) {
+    check_remove(host_remove(path), path)
+    resume(())
+  }
+}
+
+# ---- TestFileSystem ----
+
+## The files and directories of TestFileSystem. `files` pairs each path with its text, in path
+## order. A directory exists if it is in `directories`, or is an ancestor of a path in `files` or
+## `directories`. Paths are compared as strings, so `a/b` and `./a/b` are different paths.
+pub type TestFiles(files: List[(String, String)], directories: List[String])
+
+## The test handler. It keeps the files in `State[TestFiles]` and resumes at once, so use it
+## inside `State.run`:
+##
+##   start = TestFiles(files: [("notes.txt", "hi")], directories: [])
+##   (text, _) = State.run(start, fn() { with TestFileSystem { (use FileSystem).read_text("notes.txt") } })
+##
+## The errors follow the rules of SystemFileSystem. It never fails with FileAccessDenied,
+## InvalidText or FileSystemFailure; to test those, write a small handler.
+pub handler TestFileSystem implements FileSystem {
+  suspend fn read_text(path, resume) {
+    files = (use State[TestFiles]).get()
+    match file_text(files, path) {
+      Some(text)                  -> resume(text)
+      None if is_dir(files, path) -> fail IsADirectory(path:)
+      None                        -> fail FileNotFound(path:)
+    }
+  }
+  suspend fn write_text(path, text, resume) {
+    st = use State[TestFiles]
+    st.set(put_file(st.get(), path, fn(old) { text }))
+    resume(())
+  }
+  suspend fn append_text(path, text, resume) {
+    st = use State[TestFiles]
+    st.set(put_file(st.get(), path, fn(old) { String.append(Option.or(old, ""), text) }))
+    resume(())
+  }
+  suspend fn exists(path, resume) {
+    files = (use State[TestFiles]).get()
+    resume(Option.is_some(file_text(files, path)) || is_dir(files, path))
+  }
+  suspend fn is_directory(path, resume) { resume(is_dir((use State[TestFiles]).get(), path)) }
+  suspend fn list_directory(path, resume) {
+    files = (use State[TestFiles]).get()
+    if is_dir(files, path) {
+      resume(children(files, path))
+    } else if Option.is_some(file_text(files, path)) || has_file_ancestor(files, path) {
+      fail NotADirectory(path:)
+    } else {
+      fail FileNotFound(path:)
+    }
+  }
+  suspend fn create_directory(path, resume) {
+    st = use State[TestFiles]
+    files = st.get()
+    if Option.is_some(file_text(files, path)) || has_file_ancestor(files, path) {
+      fail NotADirectory(path:)
+    }
+    TestFiles(files: fs, directories: dirs) = files
+    # Only the missing ones, so that creating an existing directory changes nothing.
+    missing = List.filter(lineage(path), fn(d) { !is_dir(files, d) })
+    st.set(TestFiles(files: fs, directories: List.fold(missing, from: dirs, f: insert)))
+    resume(())
+  }
+  suspend fn remove(path, resume) {
+    st = use State[TestFiles]
+    files = st.get()
+    TestFiles(files: fs, directories: dirs) = files
+    # The ancestors stay, as they would on a real file system.
+    kept = List.fold(ancestors(path), from: dirs, f: insert)
+    if Option.is_some(file_text(files, path)) {
+      st.set(TestFiles(files: List.filter(fs, fn(e) { path_of(e) != path }), directories: kept))
+    } else if is_dir(files, path) {
+      if !List.is_empty(children(files, path)) { fail DirectoryNotEmpty(path:) }
+      st.set(TestFiles(files: fs, directories: List.filter(kept, fn(d) { d != path })))
+    } else {
+      fail FileNotFound(path:)
+    }
+    resume(())
+  }
+}
+
+## Writes the file at `path` with `f(old text)`, keeping `files` in path order. Fails like
+## SystemFileSystem: IsADirectory on a directory, FileNotFound if the parent is not a directory.
+fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> TestFiles
+  fails FileNotFound | IsADirectory {
+  if is_dir(files, path) { fail IsADirectory(path:) }
+  match Path.parent(path) {
+    Some(dir) if !is_dir(files, dir) -> fail FileNotFound(path:)
+    _                                -> ()
+  }
+  TestFiles(files: fs, directories:) = files
+  text = f(file_text(files, path))
+  others = List.filter(fs, fn(e) { path_of(e) != path })
+  (before, after) = List.partition(others, fn(e) { path_of(e) < path })
+  TestFiles(files: List.flatten([before, [(path, text)], after]), directories:)
+}
+
+fn file_text(files: TestFiles, path: String) -> Option[String] {
+  TestFiles(files: fs, ..) = files
+  List.find(fs, fn(e) { path_of(e) == path }) |> Option.map(fn(e) {
+    (_, text) = e
+    text
+  })
+}
+
+fn path_of(entry: (String, String)) -> String {
+  (path, _) = entry
+  path
+}
+
+## Every path in `files` and `directories`, with all its ancestors.
+fn all_paths(files: TestFiles) -> List[String] {
+  TestFiles(files: fs, directories:) = files
+  List.append(List.map(fs, path_of), directories)
+    |> List.map(lineage)
+    |> List.flatten
+}
+
+fn is_dir(files: TestFiles, path: String) -> Bool {
+  TestFiles(files: fs, directories:) = files
+  path == "/"
+    || List.any(directories, fn(d) { d == path })
+    || List.any(all_paths(files), fn(p) { Path.parent(p) == Some(path) })
+}
+
+## Whether a file is at one of the ancestors of `path`.
+fn has_file_ancestor(files: TestFiles, path: String) -> Bool {
+  List.any(ancestors(path), fn(a) { Option.is_some(file_text(files, a)) })
+}
+
+## The names of the entries directly in `dir`, in name order without duplicates.
+fn children(files: TestFiles, dir: String) -> List[String] {
+  all_paths(files)
+    |> List.filter(fn(p) { Path.parent(p) == Some(dir) })
+    |> List.fold(from: [], f: fn(names, p) {
+      match Path.file_name(p) {
+        Some(name) -> insert(names, name)
+        None       -> names
+      }
+    })
+}
+
+## `path` and its ancestors.
+fn lineage(path: String) -> List[String] {
+  [path, ..ancestors(path)]
+}
+
+## The ancestors of `path`, nearest first.
+fn ancestors(path: String) -> List[String] {
+  List.reverse(ancestors_onto(path, []))
+}
+
+fn ancestors_onto(path: String, acc: List[String]) -> List[String] {
+  match Path.parent(path) {
+    Some(p) -> ancestors_onto(p, [p, ..acc])
+    None    -> acc
+  }
+}
+
+## Inserts `x` into the sorted `xs`, unless it is already there.
+fn insert(xs: List[String], x: String) -> List[String] {
+  if List.any(xs, fn(y) { y == x }) {
+    xs
+  } else {
+    (before, after) = List.partition(xs, fn(y) { y < x })
+    List.flatten([before, [x], after])
+  }
+}

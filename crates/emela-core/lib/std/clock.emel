@@ -51,7 +51,7 @@ pub handler TestClock implements Clock {
     st.update(fn(t) {
       match Instant.compare(t, at) {
         Less -> at
-        _ -> t
+        _    -> t
       }
     })
     resume(())

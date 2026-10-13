@@ -29,6 +29,11 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Env", include_str!("../lib/std/env.emel")),
     ("Std.Clock", include_str!("../lib/std/clock.emel")),
     ("Std.Http", include_str!("../lib/std/http.emel")),
+    ("Std.Path", include_str!("../lib/std/path.emel")),
+    (
+        "Std.FileSystem",
+        include_str!("../lib/std/file_system.emel"),
+    ),
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
@@ -42,6 +47,10 @@ const JS_FILES: &[(&str, &str)] = &[
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
     ("std/http.mjs", include_str!("../lib/std/http.mjs")),
+    (
+        "std/file_system.mjs",
+        include_str!("../lib/std/file_system.mjs"),
+    ),
 ];
 
 /// 同梱のソースを置いた `lib/` の中のディレクトリ．std のモジュールは `std`，それ以外は `core`．
@@ -236,6 +245,8 @@ mod tests {
             "Std.Random",
             "Std.Env",
             "Std.Clock",
+            "Std.FileSystem",
+            "Std.Path",
             "Std.State",
             "Std.Platform",
         ] {
@@ -247,6 +258,7 @@ mod tests {
             ("Std.Clock", &["SystemClock", "TestClock"]),
             ("Std.Random", &["SystemRandom"]),
             ("Std.Env", &["SystemEnv"]),
+            ("Std.FileSystem", &["SystemFileSystem", "TestFileSystem"]),
         ] {
             for h in handlers {
                 assert!(

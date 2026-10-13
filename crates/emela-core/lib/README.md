@@ -304,11 +304,51 @@ fn fetches() {
 }
 ```
 
+## Std.FileSystem（`std/file_system.emel`，`std/file_system.mjs`）
+
+platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．操作はすべて `suspend fn`．パスは String のままで，正規化しない．
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| error | `FileNotFound(path)`，`FileAccessDenied(path)`，`NotADirectory(path)`，`IsADirectory(path)`，`DirectoryNotEmpty(path)`，`InvalidText(path)`，`FileSystemFailure(path, message)` | 種類ごとの error．操作ごとに起こりうるものだけを `fails` に書く |
+| `read_text` | `suspend fn read_text(path: String) -> String fails FileNotFound \| FileAccessDenied \| IsADirectory \| InvalidText \| FileSystemFailure` | UTF-8 として読めなければ InvalidText（置換文字にしない．先頭の BOM は残す） |
+| `write_text` | `suspend fn write_text(path: String, text: String) -> () fails FileNotFound \| FileAccessDenied \| IsADirectory \| FileSystemFailure` | 作るか上書きする．親のディレクトリがなければ FileNotFound |
+| `append_text` | `suspend fn append_text(path: String, text: String) -> ()`（`fails` は write_text と同じ） | なければ作る |
+| `exists` | `suspend fn exists(path: String) -> Bool` | 失敗しない．見えなければ False |
+| `is_directory` | `suspend fn is_directory(path: String) -> Bool` | 失敗しない |
+| `list_directory` | `suspend fn list_directory(path: String) -> List[String] fails FileNotFound \| FileAccessDenied \| NotADirectory \| FileSystemFailure` | 名前だけを名前の順（コードポイントの辞書順）に並べる |
+| `create_directory` | `suspend fn create_directory(path: String) -> () fails FileAccessDenied \| NotADirectory \| FileSystemFailure` | 親もまとめて作る．既にあれば何もしない．そのパスか途中にファイルがあれば NotADirectory |
+| `remove` | `suspend fn remove(path: String) -> () fails FileNotFound \| FileAccessDenied \| DirectoryNotEmpty \| FileSystemFailure` | ファイルか空のディレクトリを消す |
+| `SystemFileSystem` | `handler SystemFileSystem implements FileSystem` | JS の `node:fs/promises`．状態を持たない |
+| `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
+| `TestFileSystem` | `handler TestFileSystem implements FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
+
+```emel
+import Std.FileSystem.{FileSystem, FileNotFound}
+
+fn show(path: String) {
+  (use FileSystem).read_text(path) escape {
+    FileNotFound(..) -> ""
+  }
+}
+```
+
+## Std.Path（`std/path.emel`）
+
+値の層（15.2）．パスの文字列を組み立てる純粋な関数．区切りは `/` だけ．正規化しない．末尾の `/` は無視する．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `join` | `join(a: String, b: String) -> String` | Emela | `/` を1つ挟んでつなぐ．`b` が `/` で始まれば `b`．片方が空ならもう片方 |
+| `parent` | `parent(path: String) -> Option[String]` | Emela | 最後の要素を除いたもの．`parent("/a")` は `Some("/")`．要素が1つ，`/`，空は `None` |
+| `file_name` | `file_name(path: String) -> Option[String]` | Emela | 最後の要素．`/`，空，`.` と `..` で終わるものは `None` |
+| `extension` | `extension(path: String) -> Option[String]` | Emela | ファイル名の最後の `.` より後．`.` がない，先頭の `.` だけ（`.bashrc`），`.` で終わるものは `None` |
+
 ## Std.Platform（`std/platform.emel`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv, SystemHttp }` | System のハンドラの束．一部を差し替えるときは `with Platform, TestClock { ... }` と後ろに並べる |
+| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv, SystemHttp, SystemFileSystem }` | System のハンドラの束．一部を差し替えるときは `with Platform, TestClock { ... }` と後ろに並べる |
 
 ```emel
 import Std.Platform.{Platform}
@@ -358,3 +398,6 @@ fn waits() {
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない
 - Http の `header` と `headers` は名前を ASCII の範囲だけで大文字小文字を区別せずに比べる．`String` に小文字にする関数はまだない
 - GET と HEAD の空の本文は本文なしで送る．GET と HEAD に空でない本文を書くと ConnectionFailed（fetch が受け付けない）
+- FileSystem の外部関数は List も失敗も返せない（12.4，12.5）ので，ホストは結果を `@external type Outcome` で返し，ハンドラが取り出して fail に変える．取り出す関数は `use {}`（純粋）にした
+- `Path.join(a, b)` は `b` が絶対パスなら `b` にした（Rust の `Path::join` と Python と同じ．Node の `path.join` は単につなぐ）
+- `Path.extension("b.")` は `None` にした（Rust は `Some("")`）

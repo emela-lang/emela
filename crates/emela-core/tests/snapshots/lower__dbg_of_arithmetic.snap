@@ -69,6 +69,41 @@ enum Std.Http.TestServer {
   TestServer(respond: fn, sent: List[Std.Http.Request])
 }
 
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
+enum Std.FileSystem.Outcome {
+}
+
+enum Std.FileSystem.TestFiles {
+  TestFiles(files: List[(String, String)], directories: List[String])
+}
+
 enum Std.Cause.Cause[A] {
   Cause(raise: fn)
 }

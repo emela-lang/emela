@@ -44,7 +44,7 @@
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
-- （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Http`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
+- （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Http`，`Std.Path`，`Std.FileSystem`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
 - （補）std のモジュールは `Std` の下の2区切りの名前で，import して使う（`import Std.Console.{Console, SystemConsole}`）．名前が1区切りでないので，import なしで `.` の左に書く規則と，型の位置の名前をモジュールと同じ名前の型に解決する規則（4.6）は当たらない．std のモジュールどうしも import でつなぐ（`Std.Instant` は `import Std.Duration.{Duration}`）
 - （補）std のモジュールを足しても，利用者のファイル名は予約名にならない．予約名は core のモジュール名と `std.emel`，`std/`（4.1．emela-resolve の NOTES）
 - （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引き，出力先の `emela_core/std/clock.mjs` に書き出す
@@ -70,9 +70,28 @@
 alpha.2〜alpha.3 で JS 用のハンドラ（`JsConsole` など）を別のモジュールに置いて同梱し，alpha.4 で仕様 15.2，18.1 #33 の形に移した（2026-10-12）．
 
 - （補）ホストを使うハンドラは `System*`（`SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`），テスト用は `Test*`（`TestConsole`，`TestClock`）で，どちらもエフェクトと同じモジュールに置く．外部関数はハンドラと同じモジュールの非公開の fn．今の外部関数は JS の `@external` だけを持つ（WASM の注釈は WASM の出力を入れる段で並べる，12.1）
-- （補）`Std.Platform` の layer `Platform` は `SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`，`SystemHttp` の5つ（`SystemHttp` は alpha.5 で足した）．並び順は意味を持たない（8.5）．SystemClock と SystemHttp が Async に依存するので，`with Platform { ... }` の R には Async が残る（main とテスト関数ではランタイムが供給する）
+- （補）`Std.Platform` の layer `Platform` は `SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`，`SystemHttp`，`SystemFileSystem` の6つ（`SystemHttp` と `SystemFileSystem` は alpha.5 で足した）．並び順は意味を持たない（8.5）．SystemClock，SystemHttp，SystemFileSystem が Async に依存するので，`with Platform { ... }` の R には Async が残る（main とテスト関数ではランタイムが供給する）
 - （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書き，失敗しない．`SystemConsole` は `console.log` と `console.error` を呼ぶ．状態を持たない
 - （補）ホストの関数は `use` を書かない `@external` の fn（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）
+
+## FileSystem と Path（`std/file_system.emel`，`std/file_system.mjs`，`std/path.emel`）
+
+alpha.5 で同梱した（2026-10-13）．仕様 15.2 の宣言と規則に従い，仕様にない点をここで決めた．
+
+- （補）長い `fails` は次の行に折り返す（2.5 の規則4，`emela fmt` の折り返し）．規則4が入るまでは1行に書いていた
+- （補）error 7つは `pub error`（利用者が escape の腕に名前で書くため）
+- （補）外部関数は List も失敗も返せない（12.4，12.5）ので，SystemFileSystem の外部関数（`@external suspend fn host_*`）はホストの結果を `@external type Outcome` で返す．中身は `{ error, message, text, names }` で，`error` は成功なら `""`，失敗なら fail する error の名前．取り出す関数（`outcome_error` など）は `use {}` の純粋な外部関数にした（不変のオブジェクトを読むだけなので）．非公開の `check_*`（操作ごとの `fails` と同じ集合）が名前を fail に変える．名前のリストは件数と添字で取り出し，末尾から積む
+- （補）ホストのエラーの写し方は操作ごとに `file_system.mjs` で決める．`ENOENT` と `ENOTDIR`（途中にファイルがある）は FileNotFound，`EACCES` と `EPERM` は FileAccessDenied，それ以外は FileSystemFailure（`message` はホストの例外のメッセージ）．例外: read_text，write_text，append_text の `EISDIR` は IsADirectory．list_directory の `ENOTDIR`（そのパスか途中がファイル）は NotADirectory．create_directory の `ENOTDIR` と `EEXIST`（そのパスがファイル）は NotADirectory．remove の `ENOTEMPTY`（と `EEXIST`）は DirectoryNotEmpty
+- （補）read_text は `TextDecoder("utf-8", { fatal: true, ignoreBOM: true })` で読む．`ignoreBOM` で先頭の BOM（U+FEFF）を本文に残す．読んで書き戻したときに中身が変わらないようにするため（15.2 の InvalidText と同じ考え方）
+- （補）exists と is_directory は `stat`（シンボリックリンクを辿る）で見て，どのエラーでも False．remove は `lstat` で見て，シンボリックリンクはリンクそのものを消す
+- （補）list_directory の「名前の順」はコードポイントの辞書順（String の `<`，10.6）．JS の既定の `sort`（UTF-16 の単位の順）と違うので比較の関数を書いた
+- （補）create_directory は `mkdir(path, { recursive: true })` の後に `stat` で確かめる．そのパスがファイルのとき `recursive` の mkdir がエラーにしないホストがあるため
+- （補）FileSystem の操作は中断（AbortSignal）で止めない（読み書きは短いため．TASK_BRIEF の範囲）
+- （補）TestFileSystem: パスは文字列のまま比べ，正規化しない（`a/b` と `./a/b` は別）．ディレクトリは `directories` にあるか，`files` か `directories` のパスの祖先（`Path.parent` を辿ったもの）．`/` はいつもディレクトリ．親のないパス（`a.txt`）の親は問わない（いつも書ける）
+- （補）TestFileSystem の create_directory は，まだディレクトリでない祖先とそのパスを `directories` に足す（既にあれば状態を変えない）．remove は消したパスの祖先を `directories` に足す．祖先が「ファイルの祖先」としてだけあったとき，最後のファイルを消しても本物のファイルシステムと同じくディレクトリが残るようにするため．`directories` も名前の順に保つ
+- （補）TestFileSystem のエラーは SystemFileSystem の写し方にそろえる: 祖先にファイルがあるパスは，read_text，write_text，append_text，remove では FileNotFound，list_directory と create_directory では NotADirectory
+- （補）`Path` は要素（`/` で分けた空でない部分）で考える．末尾と重なった `/` は無視する（`parent("a//b/")` は `Some("a")`）．`join(a, b)` は `b` が `/` で始まれば `b`（Rust の `Path::join`，Python と同じ．Node の `path.join` は単につなぐ），片方が空ならもう片方，`a` が `/` で終わればそのままつなぐ．`file_name` は最後の要素が `.` か `..` なら `None`．`extension` はファイル名の最後の `.` より後で，`.` がない，先頭の `.` だけ（`.bashrc`），`.` で終わる（`b.`）ものは `None`（Rust は `b.` に `Some("")` を返す）
+
 ## Instant と Duration（`std/instant.emel`，`std/duration.emel`）
 
 alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque な型」だけを決めている（15.2）ので，単位と関数の名前と数はここで決めた．

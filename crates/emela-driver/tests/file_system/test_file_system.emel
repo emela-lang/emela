@@ -1,0 +1,206 @@
+import Std.FileSystem.{
+  FileSystem,
+  TestFileSystem,
+  TestFiles,
+  FileNotFound,
+  IsADirectory,
+  NotADirectory,
+  DirectoryNotEmpty,
+}
+import Std.State.{State}
+
+fn main() {}
+
+fn start() -> TestFiles {
+  TestFiles(
+    files: [("docs/a.txt", "a"), ("docs/sub/b.txt", "b"), ("top.txt", "top")],
+    directories: ["empty"],
+  )
+}
+
+## Runs `body` with TestFileSystem over `start()`.
+fn on_files[A](body: fn() -> A use { FileSystem }) -> (A, TestFiles) {
+  State.run(start(), fn() { with TestFileSystem { body() } })
+}
+
+## The name of the error that `body` failed with, or "ok".
+fn outcome[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use { FileSystem } {
+  {
+    body()
+    "ok"
+  } escape {
+    FileNotFound(path:)      -> "FileNotFound(#{path})"
+    IsADirectory(path:)      -> "IsADirectory(#{path})"
+    NotADirectory(path:)     -> "NotADirectory(#{path})"
+    DirectoryNotEmpty(path:) -> "DirectoryNotEmpty(#{path})"
+  }
+}
+
+@test
+fn reads_text() {
+  (text, _) = on_files(fn() { (use FileSystem).read_text("docs/sub/b.txt") })
+  assert text == "b"
+}
+
+@test
+fn read_errors() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    [
+      outcome(fn() { _ = fs.read_text("missing.txt") }),
+      outcome(fn() { _ = fs.read_text("docs") }),
+      outcome(fn() { _ = fs.read_text("empty") }),
+    ]
+  })
+  assert r == ["FileNotFound(missing.txt)", "IsADirectory(docs)", "IsADirectory(empty)"]
+}
+
+@test
+fn writes_and_overwrites_in_path_order() {
+  (_, TestFiles(files:, ..)) = on_files(fn() {
+    fs = use FileSystem
+    fs.write_text("docs/new.txt", "n")
+    fs.write_text("top.txt", "replaced")
+    fs.write_text("empty/e.txt", "e")
+  })
+  assert files
+    == [
+      ("docs/a.txt", "a"),
+      ("docs/new.txt", "n"),
+      ("docs/sub/b.txt", "b"),
+      ("empty/e.txt", "e"),
+      ("top.txt", "replaced"),
+    ]
+}
+
+@test
+fn appends_and_creates() {
+  ((a, n), _) = on_files(fn() {
+    fs = use FileSystem
+    fs.append_text("docs/a.txt", "+")
+    fs.append_text("new.txt", "first")
+    (fs.read_text("docs/a.txt"), fs.read_text("new.txt"))
+  })
+  assert a == "a+"
+  assert n == "first"
+}
+
+@test
+fn write_errors() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    [
+      outcome(fn() { fs.write_text("nowhere/x.txt", "x") }),
+      outcome(fn() { fs.write_text("top.txt/x.txt", "x") }),
+      outcome(fn() { fs.write_text("docs", "x") }),
+      outcome(fn() { fs.append_text("nowhere/x.txt", "x") }),
+      outcome(fn() { fs.append_text("empty", "x") }),
+    ]
+  })
+  assert r
+    == [
+      "FileNotFound(nowhere/x.txt)",
+      "FileNotFound(top.txt/x.txt)",
+      "IsADirectory(docs)",
+      "FileNotFound(nowhere/x.txt)",
+      "IsADirectory(empty)",
+    ]
+}
+
+@test
+fn exists_and_is_directory() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    List.map(["top.txt", "docs", "docs/sub", "empty", "missing", "top.txt/x"], fn(p) {
+      (fs.exists(p), fs.is_directory(p))
+    })
+  })
+  assert r
+    == [(True, False), (True, True), (True, True), (True, True), (False, False), (False, False)]
+}
+
+@test
+fn lists_names_in_order() {
+  ((docs, empty), _) = on_files(fn() {
+    fs = use FileSystem
+    fs.write_text("docs/0.txt", "")
+    (fs.list_directory("docs"), fs.list_directory("empty"))
+  })
+  assert docs == ["0.txt", "a.txt", "sub"]
+  assert empty == []
+}
+
+@test
+fn list_errors() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    [
+      outcome(fn() { _ = fs.list_directory("missing") }),
+      outcome(fn() { _ = fs.list_directory("top.txt") }),
+      outcome(fn() { _ = fs.list_directory("top.txt/x") }),
+    ]
+  })
+  assert r == ["FileNotFound(missing)", "NotADirectory(top.txt)", "NotADirectory(top.txt/x)"]
+}
+
+@test
+fn creates_directories_with_parents() {
+  ((r, listed), TestFiles(directories:, ..)) = on_files(fn() {
+    fs = use FileSystem
+    fs.create_directory("x/y/z")
+    fs.create_directory("x/y")
+    fs.create_directory("docs")
+    (fs.is_directory("x/y/z"), fs.list_directory("x"))
+  })
+  assert r
+  assert listed == ["y"]
+  assert directories == ["empty", "x", "x/y", "x/y/z"]
+}
+
+@test
+fn create_errors() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    [
+      outcome(fn() { fs.create_directory("top.txt") }),
+      outcome(fn() { fs.create_directory("top.txt/x/y") }),
+    ]
+  })
+  assert r == ["NotADirectory(top.txt)", "NotADirectory(top.txt/x/y)"]
+}
+
+@test
+fn removes_files_and_empty_directories() {
+  ((before, after), TestFiles(files:, directories:)) = on_files(fn() {
+    fs = use FileSystem
+    fs.remove("docs/sub/b.txt")
+    before = fs.is_directory("docs/sub")
+    fs.remove("docs/sub")
+    fs.remove("empty")
+    (before, fs.list_directory("docs"))
+  })
+  assert before
+  assert after == ["a.txt"]
+  assert files == [("docs/a.txt", "a"), ("top.txt", "top")]
+  assert directories == ["docs"]
+}
+
+@test
+fn remove_errors() {
+  (r, _) = on_files(fn() {
+    fs = use FileSystem
+    [outcome(fn() { fs.remove("missing") }), outcome(fn() { fs.remove("docs") })]
+  })
+  assert r == ["FileNotFound(missing)", "DirectoryNotEmpty(docs)"]
+}
+
+@test
+fn absolute_paths_have_the_root() {
+  (r, _) = State.run(TestFiles(files: [("/tmp/a.txt", "a")], directories: []), fn() {
+    with TestFileSystem {
+      fs = use FileSystem
+      (fs.is_directory("/"), fs.list_directory("/"), fs.list_directory("/tmp"))
+    }
+  })
+  assert r == (True, ["tmp"], ["a.txt"])
+}
