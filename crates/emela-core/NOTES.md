@@ -44,7 +44,7 @@
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
-- （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
+- （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Http`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
 - （補）std のモジュールは `Std` の下の2区切りの名前で，import して使う（`import Std.Console.{Console, SystemConsole}`）．名前が1区切りでないので，import なしで `.` の左に書く規則と，型の位置の名前をモジュールと同じ名前の型に解決する規則（4.6）は当たらない．std のモジュールどうしも import でつなぐ（`Std.Instant` は `import Std.Duration.{Duration}`）
 - （補）std のモジュールを足しても，利用者のファイル名は予約名にならない．予約名は core のモジュール名と `std.emel`，`std/`（4.1．emela-resolve の NOTES）
 - （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引き，出力先の `emela_core/std/clock.mjs` に書き出す
@@ -70,7 +70,7 @@
 alpha.2〜alpha.3 で JS 用のハンドラ（`JsConsole` など）を別のモジュールに置いて同梱し，alpha.4 で仕様 15.2，18.1 #33 の形に移した（2026-10-12）．
 
 - （補）ホストを使うハンドラは `System*`（`SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`），テスト用は `Test*`（`TestConsole`，`TestClock`）で，どちらもエフェクトと同じモジュールに置く．外部関数はハンドラと同じモジュールの非公開の fn．今の外部関数は JS の `@external` だけを持つ（WASM の注釈は WASM の出力を入れる段で並べる，12.1）
-- （補）`Std.Platform` の layer `Platform` は `SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv` の4つ．並び順は意味を持たない（8.5）．SystemClock が Async に依存するので，`with Platform { ... }` の R には Async が残る（main とテスト関数ではランタイムが供給する）
+- （補）`Std.Platform` の layer `Platform` は `SystemConsole`，`SystemClock`，`SystemRandom`，`SystemEnv`，`SystemHttp` の5つ（`SystemHttp` は alpha.5 で足した）．並び順は意味を持たない（8.5）．SystemClock と SystemHttp が Async に依存するので，`with Platform { ... }` の R には Async が残る（main とテスト関数ではランタイムが供給する）
 - （補）エフェクト `Console` の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つ．どちらも改行を付けて書き，失敗しない．`SystemConsole` は `console.log` と `console.error` を呼ぶ．状態を持たない
 - （補）ホストの関数は `use` を書かない `@external` の fn（ホストの副作用を持つので，ハンドラの操作の本体からしか呼べない．12.2）
 ## Instant と Duration（`std/instant.emel`，`std/duration.emel`）
@@ -95,6 +95,23 @@ alpha.3 で同梱した（2026-10-12）．
 - （補）`SystemRandom` は `crypto.getRandomValues` で引く（暗号論的に安全）．`Math.random` は使わない．関数のパスひとつで書けないので補助の `lib/std/random.mjs` を置く（#155）．
 - （補）`int` は `Int32Array` で受ける．符号付き 32 ビットになるので，Int（16.1）へそのまま渡せる．
 - （補）`float` は 32 ビットを2つ引き，上位 27 ビットと 26 ビットから 53 ビットの整数を作って 2^53 で割る．0 以上 1 未満で，Float で表せる 2^-53 刻みの値が一様に出る．
+
+## Http（`std/http.emel`，`std/http.mjs`）
+
+alpha.5 で同梱した（2026-10-13）．宣言とシグネチャは仕様 15.2 のとおり．
+
+- （補）error 4つ（`InvalidUrl`，`ConnectionFailed`，`ResponseNotText`，`UnexpectedStatus`）は `pub error` にした．仕様 15.2 の宣言は `pub` を省いているが，利用者が escape で受けるには import できなければならない
+- （補）`header` と `headers` の名前の比べ方は ASCII の A〜Z だけを小文字にして比べる．HTTP のヘッダの名前は ASCII のトークンなので足りる．core の String に小文字にする関数がないので，非公開の `ascii_lower` を `String.code_points` の上に書いた
+- （補）`SystemHttp` は `@external type` の `HostRequest` と `HostResponse` で境界を越える（12.4）．要求は `newRequest(method, url, body)` に `withHeader` を畳み込んで作り（ヘッダは足すたびに写しを返すので，`List.fold` で純粋な形に書ける），応答は種類（0 が応答，1〜3 が失敗の種類）と，status，本文，添字で引くヘッダの名前と値を関数で取り出す．`send` は Promise を拒否せず，失敗も値で返す（拒否は defect になる．12.5）
+- （補）`http.mjs` の `send(req, signal)` は最後の引数の `signal` を `fetch` に渡す．今のランタイムは signal を足さないので `undefined` が来て，そのまま動く（12.2 の規則は js-fiber-runtime の2本目が入れる）．中断で abort したときの結果は ConnectionFailed（`This operation was aborted`）の値になるが，中断した fiber はその結果を捨てる
+- （補）InvalidUrl は `new URL(url)` で読めないときと，scheme が `http:` と `https:` 以外のときにした．fetch は `ftp:` や `file:` を URL としては読めても送れず，ConnectionFailed にすると「送ってみて届かなかった」と区別できないため．利用者が書いた URL の誤りとして扱う
+- （補）ConnectionFailed の message は fetch の例外の message に，`cause` があれば `: ` の後に cause の `code` と `message` を空白でつないで足す（Node では `fetch failed: ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1234`）．応答の本文を読む途中の失敗も ConnectionFailed．GET と HEAD に空でない本文を書いたとき（fetch が受け付けない）と，ヘッダの名前や値が正しくないとき（`Headers.append` の例外）も ConnectionFailed にした．どちらも利用者の誤りだが，要求の値は組み立てられてしまうので defect にはしない．GET と HEAD の空の本文は本文なしで送る
+- （補）content-type の既定は fetch に任せる．文字列の本文には fetch が `text/plain;charset=UTF-8` を付けるので仕様の既定と一致する．GET と HEAD（本文なし）には付かない
+- （補）応答のヘッダは fetch の Headers を回して `set-cookie` 以外を取り（名前は小文字，同じ名前は `, ` でつながれている），`set-cookie` は `getSetCookie()`（ない古い Node では `get("set-cookie")` の1つ）で1つずつ足し，名前で安定に並べ替える．set-cookie どうしは受けた順のまま
+- （補）本文は `TextDecoder("utf-8", { fatal: true })` で読む．先頭の BOM は TextDecoder の既定のとおり取り除く
+- （補）リダイレクトは fetch の既定（20 回まで）で辿り，超えたら ConnectionFailed．Cookie は fetch が覚えない．プロキシの環境変数は Node の fetch が既定で読まない（Node 24 の `NODE_USE_ENV_PROXY` を設定したときだけ読むが，それは利用者が選んだものとして止めない）
+- （補）TestHttp は，状態の `sent` に要求を足してから `respond(request, n)` を呼ぶ（`n` は足す前の `sent` の長さ）．`None` の ConnectionFailed の message は `TestServer returned no response`．`respond` が `sent` を見られないので，要求を足す順と呼ぶ順はどちらでも結果は同じ
+- （補）`TestServer` の `respond` の型 `fn(Request, Int) -> Option[Response]` は型宣言の中の関数型なので純粋（9.2）
 
 ## Env（`std/env.emel`，`std/env.mjs`）
 

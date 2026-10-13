@@ -264,11 +264,51 @@ fn main() {
 | `await` | `await[A](d: Deferred[A]) -> A use Async` | intrinsic | 値が入るまで待つ |
 | `poll` | `poll[A](d: Deferred[A]) -> Option[A]` | intrinsic | 入っていれば `Some`．待たない |
 
+## Std.Http（`std/http.emel`，`std/http.mjs`）
+
+クライアントだけを持つ．要求と応答は値で，send の上の関数はハンドラなしでも試せる．
+
+| 宣言 | 内容 | 説明 |
+|---|---|---|
+| `Method` | `enum Method { Get, Head, Post, Put, Patch, Delete, Options }` | 送れるメソッド |
+| `Request` | `type Request(method: Method, url: String, headers: List[(String, String)], body: String)` | 要求．ヘッダは書いた順に送る．本文は UTF-8 で送る |
+| `Response` | `type Response(status: Int, headers: List[(String, String)], body: String)` | 応答．ヘッダの名前は小文字で名前の順，同じ名前は `, ` でつなぐ（`set-cookie` だけは1つずつ） |
+| `InvalidUrl` | `error InvalidUrl(url: String)` | URL として読めない．`http:` と `https:` 以外も |
+| `ConnectionFailed` | `error ConnectionFailed(url: String, message: String)` | 応答を受け取れなかった（名前解決，接続，TLS，リダイレクトの回数超え）．`message` に原因 |
+| `ResponseNotText` | `error ResponseNotText(url: String)` | 応答の本文が UTF-8 として読めない |
+| `UnexpectedStatus` | `error UnexpectedStatus(status: Int, body: String)` | `require_ok` で 2xx でない |
+| `Http` | `effect Http { suspend fn send(request: Request) -> Response fails InvalidUrl \| ConnectionFailed \| ResponseNotText }` | 要求を送る．4xx と 5xx は失敗にしない |
+| `request` | `request(method: Method, url: String) -> Request` | ヘッダなし，本文なしの要求 |
+| `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | ヘッダを末尾に足す |
+| `get` | `get(url: String) -> Response fails ... use Http` | GET を送る |
+| `post` | `post(url: String, body: String) -> Response fails ... use Http` | 本文つきの POST を送る |
+| `header` | `header(res: Response, name: String) -> Option[String]` | 名前の合う最初の値．大文字小文字（ASCII）を区別しない |
+| `headers` | `headers(res: Response, name: String) -> List[String]` | 名前の合うすべての値 |
+| `encode_query` | `encode_query(pairs: List[(String, String)]) -> String` | `encodeURIComponent` でつないだクエリ（`q=%E6%9D%B1&page=2`） |
+| `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | 2xx 以外を失敗にする |
+| `response` | `response(status: Int, body: String) -> Response` | ヘッダなしの応答 |
+| `SystemHttp` | `handler SystemHttp implements Http` | JS の `fetch`．リダイレクトを辿り，Cookie を覚えない．Async に依存する |
+| `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | TestHttp の相手．`respond` は要求と何回目か（0 から）を受ける |
+| `TestHttp` | `handler TestHttp implements Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
+
+```emel
+import Std.Http.{Http, Request, Response, TestServer, TestHttp}
+import Std.State.{State}
+
+@test
+fn fetches() {
+  server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
+  (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+  assert res.body == "ok"
+  assert List.length(after.sent) == 1
+}
+```
+
 ## Std.Platform（`std/platform.emel`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
-| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv }` | System のハンドラの束．一部を差し替えるときは `with Platform, TestClock { ... }` と後ろに並べる |
+| `Platform` | `layer Platform { SystemConsole, SystemClock, SystemRandom, SystemEnv, SystemHttp }` | System のハンドラの束．一部を差し替えるときは `with Platform, TestClock { ... }` と後ろに並べる |
 
 ```emel
 import Std.Platform.{Platform}
@@ -316,3 +356,5 @@ fn waits() {
 - `Duration.to_string` は `1500ms` の形にした．`1.5s` や `1h2m3s` のような形にする案もある
 - Random の操作は `int()` と `float()` の2つにした．範囲つきの `between(min, max)` や種を渡せる PRNG はまだ入れていない
 - Env の操作は `get` だけにした．全部の変数を返す操作はまだ入れていない
+- Http の `header` と `headers` は名前を ASCII の範囲だけで大文字小文字を区別せずに比べる．`String` に小文字にする関数はまだない
+- GET と HEAD の空の本文は本文なしで送る．GET と HEAD に空でない本文を書くと ConnectionFailed（fetch が受け付けない）

@@ -1460,3 +1460,234 @@ fn main() {
         )
     );
 }
+
+#[test]
+fn test_http_answers_from_the_test_server() {
+    // 同梱の TestHttp は State[TestServer] の respond に要求と何回目か（0 から）を渡して応答を決め，
+    // None なら ConnectionFailed にする．送った要求は sent に順に足す（15.2）．send の上の関数
+    // （get，post，header，headers，require_ok，encode_query）はハンドラなしでも呼べる値の関数．
+    let output = run_source(
+        "http-test",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Http.{Http, Get, Post, Delete, Request, Response, TestServer, TestHttp, ConnectionFailed, UnexpectedStatus}
+import Std.State.{State}
+
+fn reply(req: Request, n: Int) -> Option[Response] {
+  if n >= 2 {
+    None
+  } else {
+    Some(Response(status: 200 + n, headers: [("X-A", "1"), ("x-a", "2")], body: "#{n}:#{req.body}"))
+  }
+}
+
+fn method(req: Request) -> String {
+  match req.method {
+    Get -> "GET"
+    Post -> "POST"
+    _ -> "other"
+  }
+}
+
+fn main() {
+  server = TestServer(respond: reply, sent: [])
+  (out, after) = State.run(server, fn() {
+    with TestHttp {
+      a = Http.get("https://example.com/a")
+      b = Http.post("https://example.com/b", "body")
+      c = "#{Http.get("https://example.com/c").status}" escape {
+        ConnectionFailed(url:, message:) -> "failed #{url}"
+      }
+      "#{a.status} #{a.body} | #{b.status} #{b.body} | #{c} | #{Http.header(a, "x-A")} #{Http.headers(b, "X-a")} #{Http.header(a, "none")}"
+    }
+  })
+  with SystemConsole {
+    c = use Console
+    c.print_line(out)
+    c.print_line(String.join(List.map(after.sent, fn(req) { "#{method(req)} #{req.url} #{req.body}" }), ", "))
+    c.print_line(Http.encode_query([("q", "東 京"), ("a&b", "c=d"), ("page", "2")]))
+    c.print_line("#{Http.require_ok(Http.response(204, "")).status}")
+    c.print_line("#{Http.require_ok(Http.response(404, "nf")).status}" escape {
+      UnexpectedStatus(status:, body:) -> "unexpected #{status} #{body}"
+    })
+    r = Http.request(Delete, "u") |> Http.add_header("a", "1") |> Http.add_header("a", "2")
+    c.print_line("#{r.headers} #{r.body == ""}")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            "200 0: | 201 1:body | failed https://example.com/c | Some(\"1\") [\"1\", \"2\"] None\n\
+             GET https://example.com/a , POST https://example.com/b body, GET https://example.com/c \n\
+             q=%E6%9D%B1%20%E4%BA%AC&a%26b=c%3Dd&page=2\n\
+             204\n\
+             unexpected 404 nf\n\
+             [(\"a\", \"1\"), (\"a\", \"2\")] True\n",
+            ""
+        )
+    );
+}
+
+/// node の `http` で 127.0.0.1 に立てたテスト用のサーバー．落とすと止める．
+struct LocalServer {
+    child: std::process::Child,
+    dir: PathBuf,
+    port: u16,
+    /// 開いてすぐ閉じたポート．接続を拒まれる先として使う．
+    closed_port: u16,
+}
+
+impl LocalServer {
+    fn start(name: &str) -> Self {
+        use std::io::BufRead;
+
+        let dir = out_dir(&format!("{name}-server"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("server.mjs");
+        std::fs::write(&script, LOCAL_SERVER).unwrap();
+        let mut child = std::process::Command::new("node")
+            .arg(&script)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let (port, closed_port) = line.trim().split_once(' ').unwrap();
+        LocalServer {
+            child,
+            dir,
+            port: port.parse().unwrap(),
+            closed_port: closed_port.parse().unwrap(),
+        }
+    }
+}
+
+impl Drop for LocalServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// パスごとに決まった応答を返すサーバー．`/echo` は要求のメソッド，content-type，x-one，本文を
+/// 返し，同じ名前のヘッダを複数付ける．起動したら待ち受けのポートと閉じたポートを1行に書く．
+const LOCAL_SERVER: &str = r#"import http from "node:http";
+const closed = http.createServer();
+closed.listen(0, "127.0.0.1", () => {
+  const closedPort = closed.address().port;
+  closed.close(() => {
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        switch (req.url) {
+          case "/echo":
+            res.setHeader("Set-Cookie", ["a=1", "b=2"]);
+            res.setHeader("X-Multi", ["p", "q"]);
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end(`${req.method} ${req.headers["content-type"] ?? "-"} ${req.headers["x-one"] ?? "-"} ${body}`);
+            break;
+          case "/binary":
+            res.end(Buffer.from([0xff, 0xfe, 0x00]));
+            break;
+          case "/redirect":
+            res.writeHead(302, { Location: "/echo" });
+            res.end();
+            break;
+          case "/loop":
+            res.writeHead(302, { Location: "/loop" });
+            res.end();
+            break;
+          default:
+            res.writeHead(404);
+            res.end("not found 東");
+        }
+      });
+    });
+    server.listen(0, "127.0.0.1", () => console.log(`${server.address().port} ${closedPort}`));
+  });
+});
+"#;
+
+#[test]
+fn system_http_talks_to_a_local_server() {
+    // 同梱の SystemHttp（fetch，15.2）をローカルのサーバーに当てる．ネットワークの外には出ない．
+    // 応答のヘッダは名前を小文字にして名前の順に並べ，同じ名前は `, ` でつなぎ，set-cookie は
+    // 1つずつ．date などは毎回変わるので名前を選んで見る．4xx は失敗にしない．リダイレクトは辿る．
+    // 接続の失敗の message は Node の版で変わるので，接続を拒まれたときの cause のコードだけを見る．
+    let server = LocalServer::start("http-system");
+    let base = format!("http://127.0.0.1:{}", server.port);
+    let closed = format!("http://127.0.0.1:{}/", server.closed_port);
+    let main = r##"import Std.Console.{Console}
+import Std.Platform.{Platform}
+import Std.Http.{Http, Get, Head, Post, Request, InvalidUrl, ConnectionFailed, ResponseNotText}
+
+fn picked(headers: List[(String, String)]) -> List[(String, String)] {
+  List.filter(headers, fn(pair) {
+    (name, _) = pair
+    name == "content-type" || name == "set-cookie" || name == "x-multi"
+  })
+}
+
+fn show(req: Request) -> String fails InvalidUrl | ConnectionFailed | ResponseNotText use { Http } {
+  res = (use Http).send(req)
+  "#{res.status} #{picked(res.headers)} #{res.body}"
+}
+
+fn attempt(req: Request) -> String use { Http } {
+  show(req) escape {
+    InvalidUrl(url:) -> "invalid #{url}"
+    ConnectionFailed(url:, message:) -> if String.contains(message, "ECONNREFUSED") { "refused" } else { "failed" }
+    ResponseNotText(url:) -> "not text"
+  }
+}
+
+fn main() {
+  base = "BASE"
+  with Platform {
+    c = use Console
+    c.print_line(attempt(Http.request(Get, "#{base}/echo")))
+    c.print_line(attempt(Request(body: "東京", ..Http.request(Post, "#{base}/echo")) |> Http.add_header("X-One", "1")))
+    c.print_line(attempt(Http.request(Head, "#{base}/echo")))
+    c.print_line(attempt(Http.request(Get, "#{base}/redirect")))
+    c.print_line(attempt(Http.request(Get, "#{base}/missing")))
+    c.print_line(attempt(Http.request(Get, "#{base}/binary")))
+    c.print_line(attempt(Http.request(Get, "#{base}/loop")))
+    c.print_line(attempt(Http.request(Get, "not a url")))
+    c.print_line(attempt(Http.request(Get, "ftp://127.0.0.1/")))
+    c.print_line(attempt(Http.request(Get, "CLOSED")))
+  }
+}
+"##
+    .replace("BASE", &base)
+    .replace("CLOSED", &closed);
+    let output = run_source("http-system", &main);
+    drop(server);
+    let echo = "[(\"content-type\", \"text/plain; charset=utf-8\"), (\"set-cookie\", \"a=1\"), (\"set-cookie\", \"b=2\"), (\"x-multi\", \"p, q\")]";
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (
+            0,
+            format!(
+                "200 {echo} GET - - \n\
+                 200 {echo} POST text/plain;charset=UTF-8 1 東京\n\
+                 200 {echo} \n\
+                 200 {echo} GET - - \n\
+                 404 [] not found 東\n\
+                 not text\n\
+                 failed\n\
+                 invalid not a url\n\
+                 invalid ftp://127.0.0.1/\n\
+                 refused\n"
+            )
+            .as_str(),
+            ""
+        )
+    );
+}

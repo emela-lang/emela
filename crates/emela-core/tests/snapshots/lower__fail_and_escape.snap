@@ -14,6 +14,22 @@ error enum Prelude.ParseError {
   ParseError(input: String)
 }
 
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+error enum Std.Http.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
 export fn main() {
   let a%1 = {
     find(1)?

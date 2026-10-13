@@ -35,6 +35,50 @@ enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 
+enum Std.Http.Method {
+  Get
+  Head
+  Post
+  Put
+  Patch
+  Delete
+  Options
+}
+
+enum Std.Http.Request {
+  Request(method: Std.Http.Method, url: String, headers: List[(String, String)], body: String)
+}
+
+enum Std.Http.Response {
+  Response(status: Int, headers: List[(String, String)], body: String)
+}
+
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+error enum Std.Http.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
+enum Std.Http.HostRequest {
+}
+
+enum Std.Http.HostResponse {
+}
+
+enum Std.Http.TestServer {
+  TestServer(respond: fn, sent: List[Std.Http.Request])
+}
+
 enum Std.Cause.Cause[A] {
   Cause(raise: fn)
 }
