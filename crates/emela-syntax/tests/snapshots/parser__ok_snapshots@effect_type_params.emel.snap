@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/effect_type_params.emel
 ---
-ROOT@0..666
+ROOT@0..957
   COMMENT@0..47 "# エフェクトの型引数（8.1，8.8）．"
   NEWLINE@47..48 "\n"
   EFFECT_DECL@48..145
@@ -549,3 +549,155 @@ ROOT@0..666
       NEWLINE@663..664 "\n"
       R_BRACE@664..665 "}"
   NEWLINE@665..666 "\n"
+  NEWLINE@666..667 "\n"
+  COMMENT@667..796 "# 操作の型引数（8.1，11.2，17.3 の op_sig）．組み込みのエフェクトだけに許すのは型検査で見る．"
+  NEWLINE@796..797 "\n"
+  EFFECT_DECL@797..956
+    PUB_KW@797..800 "pub"
+    WHITESPACE@800..801 " "
+    EFFECT_KW@801..807 "effect"
+    WHITESPACE@807..808 " "
+    TYPE_NAME@808..813 "Scope"
+    TYPE_PARAM_LIST@813..819
+      L_BRACK@813..814 "["
+      TYPE_PARAM@814..815
+        UPPER_NAME@814..815 "E"
+      COMMA@815..816 ","
+      WHITESPACE@816..817 " "
+      TYPE_PARAM@817..818
+        UPPER_NAME@817..818 "R"
+      R_BRACK@818..819 "]"
+    WHITESPACE@819..820 " "
+    ITEM_LIST@820..956
+      L_BRACE@820..821 "{"
+      NEWLINE@821..822 "\n"
+      WHITESPACE@822..824 "  "
+      OP_SIG@824..874
+        FN_KW@824..826 "fn"
+        WHITESPACE@826..827 " "
+        LOWER_NAME@827..831 "fork"
+        TYPE_PARAM_LIST@831..834
+          L_BRACK@831..832 "["
+          TYPE_PARAM@832..833
+            UPPER_NAME@832..833 "A"
+          R_BRACK@833..834 "]"
+        PARAM_LIST@834..862
+          L_PAREN@834..835 "("
+          PARAM@835..861
+            LOWER_NAME@835..836 "f"
+            COLON@836..837 ":"
+            WHITESPACE@837..838 " "
+            FN_TYPE@838..861
+              FN_KW@838..840 "fn"
+              PARAM_TYPE_LIST@840..842
+                L_PAREN@840..841 "("
+                R_PAREN@841..842 ")"
+              WHITESPACE@842..843 " "
+              RET_TYPE@843..847
+                THIN_ARROW@843..845 "->"
+                WHITESPACE@845..846 " "
+                TYPE_VAR@846..847
+                  UPPER_NAME@846..847 "A"
+              WHITESPACE@847..848 " "
+              FAILS_CLAUSE@848..855
+                LOWER_NAME@848..853 "fails"
+                WHITESPACE@853..854 " "
+                ERROR_SET@854..855
+                  TYPE_VAR@854..855
+                    UPPER_NAME@854..855 "E"
+              WHITESPACE@855..856 " "
+              USE_CLAUSE@856..861
+                USE_KW@856..859 "use"
+                WHITESPACE@859..860 " "
+                EFFECT_SET@860..861
+                  TYPE_VAR@860..861
+                    UPPER_NAME@860..861 "R"
+          R_PAREN@861..862 ")"
+        WHITESPACE@862..863 " "
+        RET_TYPE@863..874
+          THIN_ARROW@863..865 "->"
+          WHITESPACE@865..866 " "
+          PATH_TYPE@866..874
+            PATH@866..871
+              TYPE_NAME@866..871 "Fiber"
+            TYPE_ARG_LIST@871..874
+              L_BRACK@871..872 "["
+              TYPE_VAR@872..873
+                UPPER_NAME@872..873 "A"
+              R_BRACK@873..874 "]"
+      NEWLINE@874..875 "\n"
+      WHITESPACE@875..877 "  "
+      OP_SIG@877..908
+        FN_KW@877..879 "fn"
+        WHITESPACE@879..880 " "
+        LOWER_NAME@880..888 "deferred"
+        TYPE_PARAM_LIST@888..891
+          L_BRACK@888..889 "["
+          TYPE_PARAM@889..890
+            UPPER_NAME@889..890 "A"
+          R_BRACK@890..891 "]"
+        PARAM_LIST@891..893
+          L_PAREN@891..892 "("
+          R_PAREN@892..893 ")"
+        WHITESPACE@893..894 " "
+        RET_TYPE@894..908
+          THIN_ARROW@894..896 "->"
+          WHITESPACE@896..897 " "
+          PATH_TYPE@897..908
+            PATH@897..905
+              TYPE_NAME@897..905 "Deferred"
+            TYPE_ARG_LIST@905..908
+              L_BRACK@905..906 "["
+              TYPE_VAR@906..907
+                UPPER_NAME@906..907 "A"
+              R_BRACK@907..908 "]"
+      NEWLINE@908..909 "\n"
+      WHITESPACE@909..911 "  "
+      OP_SIG@911..954
+        SUSPEND_KW@911..918 "suspend"
+        WHITESPACE@918..919 " "
+        FN_KW@919..921 "fn"
+        WHITESPACE@921..922 " "
+        LOWER_NAME@922..926 "both"
+        TYPE_PARAM_LIST@926..932
+          L_BRACK@926..927 "["
+          TYPE_PARAM@927..928
+            UPPER_NAME@927..928 "A"
+          COMMA@928..929 ","
+          WHITESPACE@929..930 " "
+          TYPE_PARAM@930..931
+            UPPER_NAME@930..931 "B"
+          R_BRACK@931..932 "]"
+        PARAM_LIST@932..944
+          L_PAREN@932..933 "("
+          PARAM@933..937
+            LOWER_NAME@933..934 "a"
+            COLON@934..935 ":"
+            WHITESPACE@935..936 " "
+            TYPE_VAR@936..937
+              UPPER_NAME@936..937 "A"
+          COMMA@937..938 ","
+          WHITESPACE@938..939 " "
+          PARAM@939..943
+            LOWER_NAME@939..940 "b"
+            COLON@940..941 ":"
+            WHITESPACE@941..942 " "
+            TYPE_VAR@942..943
+              UPPER_NAME@942..943 "B"
+          R_PAREN@943..944 ")"
+        WHITESPACE@944..945 " "
+        RET_TYPE@945..954
+          THIN_ARROW@945..947 "->"
+          WHITESPACE@947..948 " "
+          TUPLE_TYPE@948..954
+            L_PAREN@948..949 "("
+            TYPE_VAR@949..950
+              UPPER_NAME@949..950 "A"
+            COMMA@950..951 ","
+            WHITESPACE@951..952 " "
+            TYPE_VAR@952..953
+              UPPER_NAME@952..953 "B"
+            R_PAREN@953..954 ")"
+      NEWLINE@954..955 "\n"
+      R_BRACE@955..956 "}"
+  NEWLINE@956..957 "\n"

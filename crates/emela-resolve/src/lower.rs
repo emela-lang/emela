@@ -449,10 +449,12 @@ impl Lower<'_, '_> {
             }) else {
                 continue;
             };
+            // An operation's own type parameters (`fork[A]`, spec 8.1, 11.2). Only built-in
+            // effects may have them; type inference reports E0426 otherwise.
+            let op_params = self.type_params(def, op.type_params());
             self.push_scope();
-            self.type_params.push(FxHashMap::default());
             let params = self.params(op.param_list(), LocalKind::Param);
-            let sig = self.signature(op.syntax(), Vec::new(), params, op.is_suspend());
+            let sig = self.signature(op.syntax(), op_params, params, op.is_suspend());
             self.pop_type_params();
             self.pop_scope();
             self.r.program.items.insert(def, Item::Op(OpItem { sig }));
@@ -461,6 +463,9 @@ impl Lower<'_, '_> {
         Item::Effect(EffectItem {
             type_params,
             ops: ops.to_vec(),
+            // Outside the bundled sources, `@intrinsic` is E0224 and the effect stays a user
+            // effect.
+            is_intrinsic: e.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
     }
 

@@ -514,11 +514,16 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, EFFECT_DECL);
 }
 
-/// `[ "suspend" ] "fn" lower_name "(" [ params ] ")" "->" type [ "fails" error_set ]`
+/// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
+///
+/// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E0426.
 fn op_sig(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
     decl_name(p, LOWER_NAME);
+    if p.at(L_BRACK) {
+        type_param_list(p);
+    }
     if p.at(L_PAREN) {
         param_list(p);
     } else {

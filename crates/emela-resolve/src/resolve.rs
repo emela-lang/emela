@@ -22,7 +22,9 @@ use smol_str::SmolStr;
 
 use crate::builtins::{BuiltinKind, BuiltinModules, build_prelude};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, Expected};
-use crate::hir::{DefData, DefId, DefKind, DefModule, NameRef, Program, RefTarget, Span};
+use crate::hir::{
+    DefData, DefId, DefKind, DefModule, ModuleItems, NameRef, Program, RefTarget, Span,
+};
 use crate::source::{ModuleId, ModuleMap};
 use crate::suggest::best_match;
 use crate::{Import, ModuleName};
@@ -114,9 +116,15 @@ pub fn resolve(
 ) -> (Program, Vec<Diagnostic>) {
     let mut resolver = Resolver::new(modules, builtins);
     let mut pending = Vec::new();
-    for (module, _) in modules.iter() {
+    for (module, data) in modules.iter() {
         resolver.scopes.insert(module, ModuleScope::default());
-        resolver.program.modules.insert(module, Default::default());
+        resolver.program.modules.insert(
+            module,
+            ModuleItems {
+                name: data.name.clone(),
+                items: Vec::new(),
+            },
+        );
         if let Some(file) = files.get(module) {
             pending.extend(resolver.collect(module, file));
         }
@@ -285,7 +293,9 @@ impl<'a> Resolver<'a> {
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
             if !matches!(item, ast::Item::Fn(_)) {
-                self.check_intrinsic(module, &syntax, false);
+                // A built-in effect (`Scope`, spec 11.2) is marked with `@intrinsic`.
+                let allowed = matches!(item, ast::Item::Effect(_));
+                self.check_intrinsic(module, &syntax, allowed);
             }
             let (name, range) = match &name_token {
                 Some(token) => token_name(token),
@@ -371,13 +381,10 @@ impl<'a> Resolver<'a> {
         pending
     }
 
-    /// `@intrinsic` is allowed only on fns without a body in the bundled core sources.
-    pub(crate) fn check_intrinsic(
-        &mut self,
-        module: ModuleId,
-        node: &SyntaxNode,
-        bodyless_fn: bool,
-    ) {
+    /// `@intrinsic` is allowed only on fns without a body and on effects (built-in effects such
+    /// as `Scope`, spec 8.1) in the bundled core sources. `allowed` tells whether `node` is one of
+    /// those.
+    pub(crate) fn check_intrinsic(&mut self, module: ModuleId, node: &SyntaxNode, allowed: bool) {
         let Some(annotation) = node
             .children()
             .filter_map(ast::Annotation::cast)
@@ -386,7 +393,7 @@ impl<'a> Resolver<'a> {
             return;
         };
         let range = annotation.syntax().text_range();
-        if !bodyless_fn {
+        if !allowed {
             self.error(module, range, DiagnosticKind::MisplacedIntrinsic);
         } else if !self.modules.is_core(module) {
             self.error(module, range, DiagnosticKind::IntrinsicOutsideCore);

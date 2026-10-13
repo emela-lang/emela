@@ -33,3 +33,10 @@ pub fn run[S, A, E, R](
 ) -> (A, S) fails E use R {
   todo()
 }
+
+# 操作の型引数（8.1，11.2，17.3 の op_sig）．組み込みのエフェクトだけに許すのは型検査で見る．
+pub effect Scope[E, R] {
+  fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
+  fn deferred[A]() -> Deferred[A]
+  suspend fn both[A, B](a: A, b: B) -> (A, B)
+}

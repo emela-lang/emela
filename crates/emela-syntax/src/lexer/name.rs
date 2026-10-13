@@ -61,9 +61,7 @@ fn keyword(word: &str) -> Option<SyntaxKind> {
         "Self" => SELF_TYPE_KW,
         "as" => AS_KW,
         "var" | "return" | "while" | "loop" | "let" | "mut" | "in" | "where" | "do" | "try"
-        | "catch" | "throw" | "async" | "await" | "yield" | "defer" | "macro" | "mod" => {
-            RESERVED_KW
-        }
+        | "catch" | "throw" | "async" | "yield" | "defer" | "macro" | "mod" => RESERVED_KW,
         _ => return None,
     };
     Some(kind)
