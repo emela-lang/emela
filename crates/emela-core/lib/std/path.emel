@@ -22,8 +22,8 @@ pub fn join(a: String, b: String) -> String {
 ## `Some("/")`. `None` for a single component (`"a.txt"`), the root `"/"`, and `""`.
 pub fn parent(path: String) -> Option[String] {
   match drop_last(components(path)) {
-    None -> None
-    Some([]) -> if String.starts_with(path, "/") { Some("/") } else { None }
+    None       -> None
+    Some([])   -> if String.starts_with(path, "/") { Some("/") } else { None }
     Some(rest) -> Some(from_components(path, rest))
   }
 }
@@ -32,9 +32,9 @@ pub fn parent(path: String) -> Option[String] {
 ## `""`, and a path ending in `.` or `..`.
 pub fn file_name(path: String) -> Option[String] {
   match List.head(List.reverse(components(path))) {
-    Some(".") -> None
+    Some(".")  -> None
     Some("..") -> None
-    name -> name
+    name       -> name
   }
 }
 
@@ -44,12 +44,12 @@ pub fn file_name(path: String) -> Option[String] {
 pub fn extension(path: String) -> Option[String] {
   file_name(path) |> Option.and_then(fn(name) {
     match String.split(name, ".") {
-      [] -> None
-      [_] -> None
+      []      -> None
+      [_]     -> None
       ["", _] -> None
       parts -> match List.head(List.reverse(parts)) {
         Some("") -> None
-        ext -> ext
+        ext      -> ext
       }
     }
   })
@@ -70,7 +70,7 @@ fn from_components(path: String, parts: List[String]) -> String {
 ## `xs` without its last element. `None` if `xs` is empty.
 fn drop_last(xs: List[String]) -> Option[List[String]] {
   match List.reverse(xs) {
-    [] -> None
+    []          -> None
     [_, ..rest] -> Some(List.reverse(rest))
   }
 }

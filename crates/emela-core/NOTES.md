@@ -78,7 +78,7 @@ alpha.2〜alpha.3 で JS 用のハンドラ（`JsConsole` など）を別のモ�
 
 alpha.5 で同梱した（2026-10-13）．仕様 15.2 の宣言と規則に従い，仕様にない点をここで決めた．
 
-- （補）仕様 15.2 の effect の例は `fails` を次の行に書いているが，2.5 の継続規則では `fails` で始まる行は前の行に続かない（今のパーサーも E0110 にする）．同梱のソースでは `fails` を同じ行に書いた．進行役の判断で 2.5 に規則4（シグネチャの中では `fails` と `use` で始まる行を続ける）が足され，パーサーと fmt は別の PR で直す．折り返すのはその後で fmt に任せる
+- （補）長い `fails` は次の行に折り返す（2.5 の規則4，`emela fmt` の折り返し）．規則4が入るまでは1行に書いていた
 - （補）error 7つは `pub error`（利用者が escape の腕に名前で書くため）
 - （補）外部関数は List も失敗も返せない（12.4，12.5）ので，SystemFileSystem の外部関数（`@external suspend fn host_*`）はホストの結果を `@external type Outcome` で返す．中身は `{ error, message, text, names }` で，`error` は成功なら `""`，失敗なら fail する error の名前．取り出す関数（`outcome_error` など）は `use {}` の純粋な外部関数にした（不変のオブジェクトを読むだけなので）．非公開の `check_*`（操作ごとの `fails` と同じ集合）が名前を fail に変える．名前のリストは件数と添字で取り出し，末尾から積む
 - （補）ホストのエラーの写し方は操作ごとに `file_system.mjs` で決める．`ENOENT` と `ENOTDIR`（途中にファイルがある）は FileNotFound，`EACCES` と `EPERM` は FileAccessDenied，それ以外は FileSystemFailure（`message` はホストの例外のメッセージ）．例外: read_text，write_text，append_text の `EISDIR` は IsADirectory．list_directory の `ENOTDIR`（そのパスか途中がファイル）は NotADirectory．create_directory の `ENOTDIR` と `EEXIST`（そのパスがファイル）は NotADirectory．remove の `ENOTEMPTY`（と `EEXIST`）は DirectoryNotEmpty

@@ -1,4 +1,12 @@
-import Std.FileSystem.{FileSystem, SystemFileSystem, FileNotFound, IsADirectory, NotADirectory, DirectoryNotEmpty, InvalidText}
+import Std.FileSystem.{
+  FileSystem,
+  SystemFileSystem,
+  FileNotFound,
+  IsADirectory,
+  NotADirectory,
+  DirectoryNotEmpty,
+  InvalidText,
+}
 import Std.Path
 
 # The test fills in the temporary directory, which the test creates and removes.
@@ -16,11 +24,11 @@ fn outcome[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use
     body()
     "ok"
   } escape {
-    FileNotFound(..) -> "FileNotFound"
-    IsADirectory(..) -> "IsADirectory"
-    NotADirectory(..) -> "NotADirectory"
+    FileNotFound(..)      -> "FileNotFound"
+    IsADirectory(..)      -> "IsADirectory"
+    NotADirectory(..)     -> "NotADirectory"
     DirectoryNotEmpty(..) -> "DirectoryNotEmpty"
-    InvalidText(..) -> "InvalidText"
+    InvalidText(..)       -> "InvalidText"
   }
 }
 
@@ -78,7 +86,21 @@ fn errors() {
       outcome(fn() { fs.remove(at("e/missing")) }),
       outcome(fn() { fs.remove(at("e")) }),
     ]
-    assert r == ["FileNotFound", "IsADirectory", "FileNotFound", "FileNotFound", "IsADirectory", "FileNotFound", "FileNotFound", "NotADirectory", "NotADirectory", "NotADirectory", "FileNotFound", "DirectoryNotEmpty"]
+    assert r
+      == [
+        "FileNotFound",
+        "IsADirectory",
+        "FileNotFound",
+        "FileNotFound",
+        "IsADirectory",
+        "FileNotFound",
+        "FileNotFound",
+        "NotADirectory",
+        "NotADirectory",
+        "NotADirectory",
+        "FileNotFound",
+        "DirectoryNotEmpty",
+      ]
   }
 }
 

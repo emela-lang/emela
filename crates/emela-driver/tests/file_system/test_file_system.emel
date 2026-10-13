@@ -1,10 +1,21 @@
-import Std.FileSystem.{FileSystem, TestFileSystem, TestFiles, FileNotFound, IsADirectory, NotADirectory, DirectoryNotEmpty}
+import Std.FileSystem.{
+  FileSystem,
+  TestFileSystem,
+  TestFiles,
+  FileNotFound,
+  IsADirectory,
+  NotADirectory,
+  DirectoryNotEmpty,
+}
 import Std.State.{State}
 
 fn main() {}
 
 fn start() -> TestFiles {
-  TestFiles(files: [("docs/a.txt", "a"), ("docs/sub/b.txt", "b"), ("top.txt", "top")], directories: ["empty"])
+  TestFiles(
+    files: [("docs/a.txt", "a"), ("docs/sub/b.txt", "b"), ("top.txt", "top")],
+    directories: ["empty"],
+  )
 }
 
 ## Runs `body` with TestFileSystem over `start()`.
@@ -18,9 +29,9 @@ fn outcome[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use
     body()
     "ok"
   } escape {
-    FileNotFound(path:) -> "FileNotFound(#{path})"
-    IsADirectory(path:) -> "IsADirectory(#{path})"
-    NotADirectory(path:) -> "NotADirectory(#{path})"
+    FileNotFound(path:)      -> "FileNotFound(#{path})"
+    IsADirectory(path:)      -> "IsADirectory(#{path})"
+    NotADirectory(path:)     -> "NotADirectory(#{path})"
     DirectoryNotEmpty(path:) -> "DirectoryNotEmpty(#{path})"
   }
 }
@@ -52,7 +63,14 @@ fn writes_and_overwrites_in_path_order() {
     fs.write_text("top.txt", "replaced")
     fs.write_text("empty/e.txt", "e")
   })
-  assert files == [("docs/a.txt", "a"), ("docs/new.txt", "n"), ("docs/sub/b.txt", "b"), ("empty/e.txt", "e"), ("top.txt", "replaced")]
+  assert files
+    == [
+      ("docs/a.txt", "a"),
+      ("docs/new.txt", "n"),
+      ("docs/sub/b.txt", "b"),
+      ("empty/e.txt", "e"),
+      ("top.txt", "replaced"),
+    ]
 }
 
 @test
@@ -79,16 +97,26 @@ fn write_errors() {
       outcome(fn() { fs.append_text("empty", "x") }),
     ]
   })
-  assert r == ["FileNotFound(nowhere/x.txt)", "FileNotFound(top.txt/x.txt)", "IsADirectory(docs)", "FileNotFound(nowhere/x.txt)", "IsADirectory(empty)"]
+  assert r
+    == [
+      "FileNotFound(nowhere/x.txt)",
+      "FileNotFound(top.txt/x.txt)",
+      "IsADirectory(docs)",
+      "FileNotFound(nowhere/x.txt)",
+      "IsADirectory(empty)",
+    ]
 }
 
 @test
 fn exists_and_is_directory() {
   (r, _) = on_files(fn() {
     fs = use FileSystem
-    List.map(["top.txt", "docs", "docs/sub", "empty", "missing", "top.txt/x"], fn(p) { (fs.exists(p), fs.is_directory(p)) })
+    List.map(["top.txt", "docs", "docs/sub", "empty", "missing", "top.txt/x"], fn(p) {
+      (fs.exists(p), fs.is_directory(p))
+    })
   })
-  assert r == [(True, False), (True, True), (True, True), (True, True), (False, False), (False, False)]
+  assert r
+    == [(True, False), (True, True), (True, True), (True, True), (False, False), (False, False)]
 }
 
 @test
@@ -161,10 +189,7 @@ fn removes_files_and_empty_directories() {
 fn remove_errors() {
   (r, _) = on_files(fn() {
     fs = use FileSystem
-    [
-      outcome(fn() { fs.remove("missing") }),
-      outcome(fn() { fs.remove("docs") }),
-    ]
+    [outcome(fn() { fs.remove("missing") }), outcome(fn() { fs.remove("docs") })]
   })
   assert r == ["FileNotFound(missing)", "DirectoryNotEmpty(docs)"]
 }

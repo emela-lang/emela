@@ -20,22 +20,28 @@ pub error InvalidText(path: String)
 pub error FileSystemFailure(path: String, message: String)
 
 pub effect FileSystem {
-  suspend fn read_text(path: String) -> String fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure
+  suspend fn read_text(path: String) -> String
+    fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure
   ## Creates the file or replaces its text. FileNotFound if the parent directory does not exist.
-  suspend fn write_text(path: String, text: String) -> () fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
+  suspend fn write_text(path: String, text: String) -> ()
+    fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
   ## Creates the file if it does not exist. FileNotFound if the parent directory does not exist.
-  suspend fn append_text(path: String, text: String) -> () fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
+  suspend fn append_text(path: String, text: String) -> ()
+    fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure
   ## False if the path cannot be seen, including for lack of permission.
   suspend fn exists(path: String) -> Bool
   ## False if the path is not a directory or cannot be seen.
   suspend fn is_directory(path: String) -> Bool
   ## The names (not paths) of the entries, in name order.
-  suspend fn list_directory(path: String) -> List[String] fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure
+  suspend fn list_directory(path: String) -> List[String]
+    fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure
   ## Creates the parents too. Does nothing if the directory exists. NotADirectory if a file is
   ## at the path or in the middle of it.
-  suspend fn create_directory(path: String) -> () fails FileAccessDenied | NotADirectory | FileSystemFailure
+  suspend fn create_directory(path: String) -> ()
+    fails FileAccessDenied | NotADirectory | FileSystemFailure
   ## Removes a file or an empty directory.
-  suspend fn remove(path: String) -> () fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure
+  suspend fn remove(path: String) -> ()
+    fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure
 }
 
 # ---- SystemFileSystem ----
@@ -92,53 +98,58 @@ fn outcome_name_at(o: Outcome, i: Int) -> String use {}
 # Each `check_*` fails with the error named in the outcome. The host only names the errors that
 # the operation's `fails` lists; anything else is FileSystemFailure.
 
-fn check_read(o: Outcome, path: String) -> () fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure {
+fn check_read(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure {
   match outcome_error(o) {
-    "" -> ()
-    "FileNotFound" -> fail FileNotFound(path:)
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
-    "IsADirectory" -> fail IsADirectory(path:)
-    "InvalidText" -> fail InvalidText(path:)
-    _ -> fail FileSystemFailure(path:, message: outcome_message(o))
+    "IsADirectory"     -> fail IsADirectory(path:)
+    "InvalidText"      -> fail InvalidText(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
   }
 }
 
-fn check_write(o: Outcome, path: String) -> () fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure {
+fn check_write(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure {
   match outcome_error(o) {
-    "" -> ()
-    "FileNotFound" -> fail FileNotFound(path:)
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
-    "IsADirectory" -> fail IsADirectory(path:)
-    _ -> fail FileSystemFailure(path:, message: outcome_message(o))
+    "IsADirectory"     -> fail IsADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
   }
 }
 
-fn check_list(o: Outcome, path: String) -> () fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure {
+fn check_list(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure {
   match outcome_error(o) {
-    "" -> ()
-    "FileNotFound" -> fail FileNotFound(path:)
+    ""                 -> ()
+    "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
-    "NotADirectory" -> fail NotADirectory(path:)
-    _ -> fail FileSystemFailure(path:, message: outcome_message(o))
+    "NotADirectory"    -> fail NotADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
   }
 }
 
-fn check_create(o: Outcome, path: String) -> () fails FileAccessDenied | NotADirectory | FileSystemFailure {
+fn check_create(o: Outcome, path: String) -> ()
+  fails FileAccessDenied | NotADirectory | FileSystemFailure {
   match outcome_error(o) {
-    "" -> ()
+    ""                 -> ()
     "FileAccessDenied" -> fail FileAccessDenied(path:)
-    "NotADirectory" -> fail NotADirectory(path:)
-    _ -> fail FileSystemFailure(path:, message: outcome_message(o))
+    "NotADirectory"    -> fail NotADirectory(path:)
+    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
   }
 }
 
-fn check_remove(o: Outcome, path: String) -> () fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure {
+fn check_remove(o: Outcome, path: String) -> ()
+  fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure {
   match outcome_error(o) {
-    "" -> ()
-    "FileNotFound" -> fail FileNotFound(path:)
-    "FileAccessDenied" -> fail FileAccessDenied(path:)
+    ""                  -> ()
+    "FileNotFound"      -> fail FileNotFound(path:)
+    "FileAccessDenied"  -> fail FileAccessDenied(path:)
     "DirectoryNotEmpty" -> fail DirectoryNotEmpty(path:)
-    _ -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                   -> fail FileSystemFailure(path:, message: outcome_message(o))
   }
 }
 
@@ -198,9 +209,9 @@ pub handler TestFileSystem implements FileSystem {
   suspend fn read_text(path, resume) {
     files = (use State[TestFiles]).get()
     match file_text(files, path) {
-      Some(text) -> resume(text)
+      Some(text)                  -> resume(text)
       None if is_dir(files, path) -> fail IsADirectory(path:)
-      None -> fail FileNotFound(path:)
+      None                        -> fail FileNotFound(path:)
     }
   }
   suspend fn write_text(path, text, resume) {
@@ -260,11 +271,12 @@ pub handler TestFileSystem implements FileSystem {
 
 ## Writes the file at `path` with `f(old text)`, keeping `files` in path order. Fails like
 ## SystemFileSystem: IsADirectory on a directory, FileNotFound if the parent is not a directory.
-fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> TestFiles fails FileNotFound | IsADirectory {
+fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> TestFiles
+  fails FileNotFound | IsADirectory {
   if is_dir(files, path) { fail IsADirectory(path:) }
   match Path.parent(path) {
     Some(dir) if !is_dir(files, dir) -> fail FileNotFound(path:)
-    _ -> ()
+    _                                -> ()
   }
   TestFiles(files: fs, directories:) = files
   text = f(file_text(files, path))
@@ -313,7 +325,7 @@ fn children(files: TestFiles, dir: String) -> List[String] {
     |> List.fold(from: [], f: fn(names, p) {
       match Path.file_name(p) {
         Some(name) -> insert(names, name)
-        None -> names
+        None       -> names
       }
     })
 }
@@ -331,7 +343,7 @@ fn ancestors(path: String) -> List[String] {
 fn ancestors_onto(path: String, acc: List[String]) -> List[String] {
   match Path.parent(path) {
     Some(p) -> ancestors_onto(p, [p, ..acc])
-    None -> acc
+    None    -> acc
   }
 }
 
