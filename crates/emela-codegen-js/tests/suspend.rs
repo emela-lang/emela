@@ -195,9 +195,10 @@ fn suspend_main(m: &mut Module, handler: FnId, body: impl FnOnce(&mut Module, Lo
 
 #[test]
 fn immediate_resume_continues_without_suspending() {
-    // A handler that resumes immediately does not suspend (spec 14.5, item 3) and finishes before
-    // `$start` returns. Suspending calls inside a 100,000-iteration self tail call loop do not
-    // grow the stack.
+    // A handler that resumes immediately does not suspend (spec 14.5, item 3). Suspending calls
+    // inside a 100,000-iteration self tail call loop do not grow the stack. The loop yields for
+    // fairness now and then, through the host's event loop too (spec 11.1), so it finishes after
+    // `$start` returns.
     let mut m = Module::new();
     let clock = clock(&mut m);
     let instant = clock_handler(&mut m, clock, "InstantClock", |_, ms, resume| {
@@ -227,7 +228,7 @@ fn immediate_resume_continues_without_suspending() {
     suspend_main(&mut m, instant, |_, h| {
         call_suspends(count, vec![var(h), int(100_000), int(0)])
     });
-    assert_eq!(run("immediate_resume", m), "sync 100000\n");
+    assert_eq!(run("immediate_resume", m), "async 100000\n");
 }
 
 #[test]

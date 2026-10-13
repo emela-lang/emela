@@ -1237,6 +1237,29 @@ fn main() {
 }
 
 #[test]
+fn system_clock_sleeps_zero_for_a_negative_ms() {
+    // 負の ms は 0 とみなす（8.8）．SystemClock はホストへ渡す前に丸めるので，Node 24 の
+    // TimeoutNegativeWarning は標準エラーに出ない．
+    let output = run_source(
+        "clock-negative-sleep",
+        r##"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{Clock, SystemClock}
+
+fn main() {
+  with SystemConsole, SystemClock {
+    (use Clock).sleep(-5)
+    (use Console).print_line("woke")
+  }
+}
+"##,
+    );
+    assert_eq!(
+        (output.code, text(&output.stdout), text(&output.stderr)),
+        (0, "woke\n", "")
+    );
+}
+
+#[test]
 fn state_run_returns_value_and_final_state() {
     // State.run（8.8）は body の値と最後の状態の組を返す．型引数の違う State は別のエフェクトで，
     // 汎用の fn（`modify[S]`）は呼ぶ側の State[Int] か State[String] を引く（8.1）．body が失敗すれば
@@ -1306,7 +1329,8 @@ fn main() {
 #[test]
 fn test_handlers_record_output_and_move_the_clock() {
     // 同梱の TestConsole は出力を State[List[String]] に書いた順に溜め，TestClock は
-    // State[Instant] の時刻を sleep で進めてその場で resume する（15.2）．
+    // State[Instant] の仮の時刻で動く（8.8，15.2）．fiber が1本なので，sleep の分だけ時刻が進んで
+    // そのまま続くのと同じ結果になる．
     let output = run_source(
         "state-test-handlers",
         r##"import Std.Console.{Console, SystemConsole, TestConsole}

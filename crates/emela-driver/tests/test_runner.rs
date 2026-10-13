@@ -788,7 +788,7 @@ fn stuck() {
 #[test]
 fn state_and_test_handlers_in_tests() {
     // テストの中で State.run と同梱の TestConsole，TestClock を使う（8.8，13章，15.2）．
-    // State を Async なしで供給するので，テスト関数の R は空になる．
+    // TestClock は仮の時刻で動き Async に依存するので，テスト関数は中断しうる．
     let sources = &[
         ("app/Pome.toml", ""),
         (

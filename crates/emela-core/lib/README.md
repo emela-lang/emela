@@ -206,8 +206,8 @@ fn main() {
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | 待つ（負なら 0 と同じ）．現在の時点 |
-| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout`，`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
-| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]`．`sleep(ms)` は時刻を進めてその場で再開する（負なら 0）．`now` はその時刻 |
+| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
+| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する |
 
 ## Std.Random（`std/random.emel`，`std/random.mjs`）
 

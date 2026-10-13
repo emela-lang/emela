@@ -550,3 +550,119 @@ fn child_defect() {
         ]
     );
 }
+
+#[test]
+fn test_clock_runs_on_virtual_time() {
+    // 8.8: TestClock は仮の時刻で動く．どの fiber も進めなくなったときに一番早い予定の時刻まで進め，
+    // 同じ時刻なら sleep を呼んだ順に起こす．1時間の sleep を含む Fiber.timeout と race も
+    // 本当には待たずに終わる（11.3）．
+    let started = std::time::Instant::now();
+    let outcomes = run_tests(
+        "virtual-time",
+        &format!(
+            "{}{PRELUDE}{}",
+            "import Std.Clock.{TestClock}\nimport Std.Console.{TestConsole}\n\
+             import Std.State.{State}\nimport Std.Instant.{Instant}\n",
+            r##"
+fn at(text: String) -> () use { Clock, Console } {
+  ms = Instant.to_unix_milliseconds((use Clock).now())
+  say("#{text} at #{ms}")
+}
+
+fn zero() -> Instant {
+  Instant.from_unix_milliseconds(Int64.from_int(0))
+}
+
+@test
+fn wakes_in_time_order() {
+  ((_, lines), end) = State.run(zero(), fn() {
+    State.run([], fn() {
+      with TestConsole, TestClock {
+        Fiber.scope(fn() {
+          Fiber.fork(fn() {
+            (use Clock).sleep(30)
+            at("a")
+          })
+          Fiber.fork(fn() {
+            (use Clock).sleep(10)
+            at("b")
+          })
+          Fiber.fork(fn() {
+            (use Clock).sleep(10)
+            at("c")
+          })
+          (use Clock).sleep(40)
+          at("body")
+        })
+      }
+    })
+  })
+  assert lines == ["b at 10", "c at 10", "a at 30", "body at 40"]
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(40)
+}
+
+@test
+fn timeout_gives_up_at_once() {
+  (r, end) = State.run(zero(), fn() {
+    with TestClock {
+      Fiber.timeout(60000, fn() {
+        (use Clock).sleep(3600000)
+        1
+      })
+    }
+  })
+  assert r == None
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(60000)
+}
+
+@test
+fn timeout_returns_in_time() {
+  (r, end) = State.run(zero(), fn() {
+    with TestClock {
+      Fiber.timeout(60000, fn() {
+        (use Clock).sleep(10)
+        5
+      })
+    }
+  })
+  assert r == Some(5)
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(10)
+}
+
+@test
+fn race_takes_the_earliest() {
+  (r, end) = State.run(zero(), fn() {
+    with TestClock {
+      Fiber.race([
+        fn() {
+          (use Clock).sleep(3600000)
+          1
+        },
+        fn() {
+          (use Clock).sleep(10)
+          2
+        },
+      ])
+    }
+  })
+  assert r == 2
+  assert Instant.to_unix_milliseconds(end) == Int64.from_int(10)
+}
+"##,
+        ),
+    );
+    assert_eq!(
+        outcomes,
+        [
+            ("wakes_in_time_order".to_owned(), TestOutcome::Passed),
+            ("timeout_gives_up_at_once".to_owned(), TestOutcome::Passed),
+            ("timeout_returns_in_time".to_owned(), TestOutcome::Passed),
+            ("race_takes_the_earliest".to_owned(), TestOutcome::Passed),
+        ]
+    );
+    assert!(
+        started.elapsed().as_secs() < 30,
+        "took {:?}",
+        started.elapsed()
+    );
+}

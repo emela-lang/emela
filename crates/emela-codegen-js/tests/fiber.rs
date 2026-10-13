@@ -64,7 +64,25 @@ try {
 sync = false;
 "#;
 
-fn run(name: &str, mut m: Module) -> String {
+/// A host function for the tests: resolves after `ms` milliseconds, and clears its timer when
+/// `signal` aborts (spec 12.2). It prints `timer cleared` then.
+const TIMER: &str = r#"export function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      process.stdout.write("timer cleared\n");
+    }, { once: true });
+  });
+}
+"#;
+
+fn run(name: &str, m: Module) -> String {
+    run_timed(name, m).0
+}
+
+/// Also returns how long node ran.
+fn run_timed(name: &str, mut m: Module) -> (String, std::time::Duration) {
     tail::loopify(&mut m);
     let js = emit_module(
         &m,
@@ -79,15 +97,24 @@ fn run(name: &str, mut m: Module) -> String {
     std::fs::write(dir.join("main.mjs"), &js).unwrap();
     std::fs::write(dir.join(RUNTIME_FILE), RUNTIME).unwrap();
     std::fs::write(dir.join("harness.mjs"), HARNESS).unwrap();
+    std::fs::write(dir.join("timer.mjs"), TIMER).unwrap();
+    let clock = core_js_files()
+        .iter()
+        .find(|(path, _)| *path == "std/clock.mjs")
+        .unwrap()
+        .1;
+    std::fs::write(dir.join("clock.mjs"), clock).unwrap();
+    let started = std::time::Instant::now();
     let out = Command::new("node")
         .arg("harness.mjs")
         .current_dir(&dir)
         .output()
         .expect("cannot start node");
+    let elapsed = started.elapsed();
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.is_empty(), "node failed:\n{stderr}\n{js}");
     insta::assert_snapshot!(name, js);
-    String::from_utf8(out.stdout).unwrap()
+    (String::from_utf8(out.stdout).unwrap(), elapsed)
 }
 
 /// Parts for building IR by hand.
@@ -921,5 +948,229 @@ fn a_fiber_that_catches_a_failure_while_unwinding_is_unwound_again() {
     assert_eq!(
         run("unwound_again", m),
         "release R\nreleased R\ncaught\nafter escape\nasync 0\n"
+    );
+}
+
+/// An external function `name` exported by the module `module` (next to main.mjs). With
+/// `suspends`, it is an `@external suspend fn`.
+fn module_external(
+    m: &mut Module,
+    name: &str,
+    module: &str,
+    export: &str,
+    params: Vec<Boundary>,
+    suspends: bool,
+) -> FnId {
+    let f = m.declare(name, false);
+    let ps = (0..params.len()).map(|_| m.local("x")).collect();
+    m.define_external(
+        f,
+        ps,
+        External {
+            bindings: vec![ExternalBinding {
+                target: "js".into(),
+                args: vec![module.into(), export.into()],
+            }],
+            params,
+            ret: Boundary::Unit,
+        },
+    );
+    m.functions[f].suspends = suspends;
+    f
+}
+
+/// A handler of `Clock` whose `sleep(ms)` calls the suspending external function `wait(ms)` and
+/// then resumes, the form of SystemClock and TestClock (spec 12.2).
+fn waiting_clock(m: &mut Module, k: &Kit, name: &str, wait: FnId) -> FnId {
+    let f = m.declare(name, false);
+    let (ms, resume) = (m.local("ms"), m.local("resume"));
+    let body = k.then(
+        m,
+        call_suspends(wait, vec![var(ms)]),
+        call_value(var(resume), vec![unit()]),
+    );
+    m.define(
+        f,
+        vec![],
+        Expr::Handler {
+            name: name.into(),
+            effect: k.clock,
+            ops: vec![suspend_lambda(vec![ms, resume], body)],
+        },
+    );
+    f
+}
+
+#[test]
+fn a_busy_fiber_yields_to_the_others() {
+    // A fiber running a long suspending loop that never really suspends (its clock resumes at
+    // once) yields for fairness, so the heartbeat fiber and its host timer keep going (11.1).
+    let mut m = Module::new();
+    let k = Kit::new(&mut m);
+    let instant = m.declare("InstantClock", false);
+    let (ms, resume) = (m.local("ms"), m.local("resume"));
+    m.define(
+        instant,
+        vec![],
+        Expr::Handler {
+            name: "InstantClock".into(),
+            effect: k.clock,
+            ops: vec![lambda(
+                vec![ms, resume],
+                call_value(var(resume), vec![unit()]),
+            )],
+        },
+    );
+    // suspend fn spin(h, n) = if n == 0 { () } else { h.sleep(0); spin(h, n - 1) }
+    let spin = m.declare("spin", false);
+    m.functions[spin].suspends = true;
+    let (h, n) = (m.local("h"), m.local("n"));
+    let again = k.then(
+        &mut m,
+        k.sleep(h, 0),
+        call_suspends(
+            spin,
+            vec![var(h), bin(BinOp::Sub, OpTy::Int, var(n), int(1))],
+        ),
+    );
+    m.define(
+        spin,
+        vec![h, n],
+        if_(bin(BinOp::Eq, OpTy::Int, var(n), int(0)), unit(), again),
+    );
+    // suspend fn beat(c, n) = if n == 0 { () } else { c.sleep(1); log("beat"); beat(c, n - 1) }
+    let beat = m.declare("beat", false);
+    m.functions[beat].suspends = true;
+    let (c2, n2) = (m.local("c"), m.local("n"));
+    let next = seq(
+        &k,
+        &mut m,
+        vec![
+            k.sleep(c2, 1),
+            k.log("beat"),
+            call_suspends(
+                beat,
+                vec![var(c2), bin(BinOp::Sub, OpTy::Int, var(n2), int(1))],
+            ),
+        ],
+    );
+    m.define(
+        beat,
+        vec![c2, n2],
+        if_(bin(BinOp::Eq, OpTy::Int, var(n2), int(0)), unit(), next),
+    );
+    let (c, n, s, i, b) = (
+        m.local("c"),
+        m.local("n"),
+        m.local("s"),
+        m.local("i"),
+        m.local("b"),
+    );
+    let busy = with(
+        vec![WithBind::new(i, call(instant, vec![]))],
+        seq(
+            &k,
+            &mut m,
+            vec![
+                call_suspends(spin, vec![var(i), int(2_000_000)]),
+                k.log("busy done"),
+                unit(),
+            ],
+        ),
+    );
+    let body = let_(
+        b,
+        k.fork(s, busy),
+        seq(
+            &k,
+            &mut m,
+            vec![
+                k.fork(s, call_suspends(beat, vec![var(c), int(3)])),
+                fiber(FiberOp::Join, vec![var(b)]),
+                int(0),
+            ],
+        ),
+    );
+    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    assert_eq!(run("fairness", m), "beat\nbeat\nbeat\nbusy done\nasync 0\n");
+}
+
+#[test]
+fn interrupting_a_sleeper_clears_its_timer() {
+    // A child sleeps 10 s in a handler that waits for a host timer. When the scope ends, the
+    // child is interrupted, the AbortSignal passed to the host function aborts, and node exits at
+    // once (12.2).
+    let mut m = Module::new();
+    let k = Kit::new(&mut m);
+    let wait = module_external(
+        &mut m,
+        "wait",
+        "./timer.mjs",
+        "sleep",
+        vec![Boundary::Plain],
+        true,
+    );
+    let host_clock = waiting_clock(&mut m, &k, "HostClock", wait);
+    let (c, s) = (m.local("c"), m.local("s"));
+    let sleeper = k.managed(&mut m, "A", k.sleep(c, 10_000));
+    let body = seq(&k, &mut m, vec![k.fork(s, sleeper), k.sleep(c, 1), int(0)]);
+    let main = with(
+        vec![WithBind::new(c, call(host_clock, vec![]))],
+        k.scope(s, false, body),
+    );
+    main_fn(&mut m, true, main);
+    let (out, elapsed) = run_timed("abort", m);
+    assert_eq!(out, "init A\ntimer cleared\nrelease A\nasync 0\n");
+    assert!(elapsed.as_secs() < 5, "node ran for {elapsed:?}");
+}
+
+#[test]
+fn stalled_sleepers_wake_in_time_order() {
+    // The form of TestClock (8.8): each sleeper waits until the run stalls, and the earliest time
+    // wakes first; equal times wake in the order of the calls. An interrupted sleeper is taken
+    // back. Here `sleep(ms)` waits for the time `ms` itself.
+    let mut m = Module::new();
+    let k = Kit::new(&mut m);
+    let stalled = module_external(
+        &mut m,
+        "when_stalled",
+        "./clock.mjs",
+        "whenStalled",
+        vec![Boundary::Plain],
+        true,
+    );
+    let virtual_clock = waiting_clock(&mut m, &k, "VirtualClock", stalled);
+    let (c, s, d) = (m.local("c"), m.local("s"), m.local("d"));
+    let sleeper = |k: &Kit, m: &mut Module, at: i32, text: &str| {
+        let body = seq(k, m, vec![k.sleep(c, at), k.log(text), unit()]);
+        k.fork(s, body)
+    };
+    let a = sleeper(&k, &mut m, 30, "A at 30");
+    let b = sleeper(&k, &mut m, 10, "B at 10");
+    let cc = sleeper(&k, &mut m, 10, "C at 10");
+    let dropped = sleeper(&k, &mut m, 5, "D at 5");
+    let body = seq(
+        &k,
+        &mut m,
+        vec![
+            a,
+            b,
+            cc,
+            k.sleep(c, 1),
+            fiber(FiberOp::Interrupt, vec![var(d)]),
+            k.sleep(c, 40),
+            k.log("body at 40"),
+            int(0),
+        ],
+    );
+    let body = let_(d, dropped, body);
+    let main = with(
+        vec![WithBind::new(c, call(virtual_clock, vec![]))],
+        k.scope(s, false, body),
+    );
+    main_fn(&mut m, true, main);
+    assert_eq!(
+        run("stalled", m),
+        "B at 10\nC at 10\nA at 30\nbody at 40\nasync 0\n"
     );
 }
