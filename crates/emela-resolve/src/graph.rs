@@ -311,9 +311,9 @@ mod tests {
         assert_eq!(
             diagnostics,
             [
-                "src/http/client.emel@0..5: 未定義のモジュール `Http.Missing`",
-                "src/main.emel@10..15: 未定義のモジュール `Http`",
-                "src/main.emel@20..25: 未定義のモジュール `Missing`",
+                "src/http/client.emel@0..5: undefined module `Http.Missing`",
+                "src/main.emel@10..15: undefined module `Http`",
+                "src/main.emel@20..25: undefined module `Missing`",
             ]
         );
         // Undefined imports are not edges, so there is still an order.
@@ -325,7 +325,7 @@ mod tests {
         let (order, diagnostics) = run(&[("main.emel", &["Json", "Main"]), ("json.emel", &[])]);
         assert_eq!(
             diagnostics,
-            ["src/main.emel@10..15: モジュール `Main` が自分自身を import している"]
+            ["src/main.emel@10..15: module `Main` imports itself"]
         );
         assert_eq!(order, None);
     }
@@ -348,8 +348,8 @@ mod tests {
         assert_eq!(
             diagnostics,
             [
-                "src/a2a.emel@0..5: import が循環している: A2a → Bb → A2a",
-                "src/cc.emel@10..15: import が循環している: Cc → Ee → Cc",
+                "src/a2a.emel@0..5: import cycle: A2a → Bb → A2a",
+                "src/cc.emel@10..15: import cycle: Cc → Ee → Cc",
             ]
         );
         assert_eq!(order, None);
@@ -366,7 +366,7 @@ mod tests {
         // Module IDs are assigned in name order (Four, One, Three, Two).
         assert_eq!(
             diagnostics,
-            ["src/four.emel@0..5: import が循環している: Four → One → Two → Three → Four"]
+            ["src/four.emel@0..5: import cycle: Four → One → Two → Three → Four"]
         );
     }
 

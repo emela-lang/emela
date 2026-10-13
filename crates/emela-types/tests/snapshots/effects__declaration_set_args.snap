@@ -7,7 +7,7 @@ pure: fn() -> Handler[{}, {}]
 too_much: fn() -> Handler[{}, {}]
 wrap: ∀ E, R. fn(Handler[E, R]) -> Handler[Timeout | E, { Log, R }]
 misplaced: fn(Handler[{}, Db], Handler[NotFound, {}], List[{unknown}], Handler[NotFound, {}]) -> ()
-resolve: `Db` は effect で，エラーではない
+resolve: expected error, found effect `Db`
 `Handler(run: fn(req) { fail NotFound })` error set mismatch: expected `fails {}`, found `fails NotFound`
 `{ Db }` SetArgMismatch { param: "E", ty: "Handler", effects: false, found: "an effect set" }
 `NotFound | Timeout` SetArgMismatch { param: "R", ty: "Handler", effects: true, found: "an error set" }

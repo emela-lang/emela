@@ -137,21 +137,6 @@ impl Expected {
             Expected::Const => "constant",
         }
     }
-
-    fn describe_ja(self) -> &'static str {
-        match self {
-            Expected::Value => "値",
-            Expected::Constructor => "構成子",
-            Expected::Type => "型",
-            Expected::TypeParam => "型引数",
-            Expected::ModuleOrTrait => "モジュールか Trait",
-            Expected::Effect => "エフェクト",
-            Expected::HandlerOrLayer => "ハンドラか layer",
-            Expected::Error => "エラー",
-            Expected::Trait => "Trait",
-            Expected::Const => "const",
-        }
-    }
 }
 
 impl DiagnosticKind {
@@ -172,7 +157,7 @@ impl fmt::Display for Diagnostic {
 
 fn suggest(f: &mut fmt::Formatter<'_>, suggestion: &Option<SmolStr>) -> fmt::Result {
     match suggestion {
-        Some(s) => write!(f, "（もしかして `{s}`）"),
+        Some(s) => write!(f, " (did you mean `{s}`?)"),
         None => Ok(()),
     }
 }
@@ -181,42 +166,42 @@ impl fmt::Display for DiagnosticKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DiagnosticKind::InvalidFileName { name, error } => {
-                write!(f, "ファイル名 `{name}` をモジュール名にできない: {error}")
+                write!(f, "file name `{name}` cannot be a module name: {error}")
             }
             DiagnosticKind::InvalidDirName { name, error } => {
                 write!(
                     f,
-                    "ディレクトリ名 `{name}` をモジュール名にできない: {error}"
+                    "directory name `{name}` cannot be a module name: {error}"
                 )
             }
             DiagnosticKind::ReservedModuleName { name } => {
-                write!(f, "モジュール名 `{name}` は予約されている")
+                write!(f, "module name `{name}` is reserved")
             }
             DiagnosticKind::DuplicateModule { name, first } => write!(
                 f,
-                "モジュール `{name}` が重複している（先に `{}` がある）",
+                "duplicate module `{name}` (already defined by `{}`)",
                 first.display()
             ),
             DiagnosticKind::UndefinedModule { name } => {
-                write!(f, "未定義のモジュール `{name}`")
+                write!(f, "undefined module `{name}`")
             }
             DiagnosticKind::ImportCycle { modules } => {
                 if let [only] = modules.as_slice() {
-                    return write!(f, "モジュール `{only}` が自分自身を import している");
+                    return write!(f, "module `{only}` imports itself");
                 }
-                f.write_str("import が循環している: ")?;
+                f.write_str("import cycle: ")?;
                 for module in modules {
                     write!(f, "{module} → ")?;
                 }
                 write!(f, "{}", modules[0])
             }
-            DiagnosticKind::Io { message } => write!(f, "ディレクトリを読めない: {message}"),
+            DiagnosticKind::Io { message } => write!(f, "cannot read directory: {message}"),
             DiagnosticKind::UndefinedName {
                 name,
                 expected,
                 suggestion,
             } => {
-                write!(f, "未定義の{} `{name}`", expected.describe_ja())?;
+                write!(f, "undefined {} `{name}`", expected.describe())?;
                 suggest(f, suggestion)
             }
             DiagnosticKind::UndefinedMember {
@@ -225,19 +210,22 @@ impl fmt::Display for DiagnosticKind {
                 suggestion,
                 ..
             } => {
-                write!(f, "`{owner}` に `{name}` がない")?;
+                write!(f, "`{owner}` has no `{name}`")?;
                 suggest(f, suggestion)
             }
-            DiagnosticKind::Duplicate { name, .. } => write!(f, "`{name}` が重複している"),
+            DiagnosticKind::Duplicate { name, .. } => write!(f, "duplicate `{name}`"),
             DiagnosticKind::Private { name, module } => {
-                write!(f, "`{module}` の `{name}` は pub でない")
+                write!(f, "`{name}` is private to module `{module}`")
             }
             DiagnosticKind::OpaqueConstruction { name, module } => {
-                write!(f, "opaque な `{name}` は `{module}` の外で構築できない")
+                write!(
+                    f,
+                    "cannot construct opaque `{name}` outside module `{module}`"
+                )
             }
             DiagnosticKind::OpaquePattern { name, module } => write!(
                 f,
-                "opaque な `{name}` は `{module}` の外でパターンに書けない"
+                "cannot match on opaque `{name}` outside module `{module}`"
             ),
             DiagnosticKind::WrongKind {
                 name,
@@ -245,42 +233,40 @@ impl fmt::Display for DiagnosticKind {
                 found,
             } => write!(
                 f,
-                "`{name}` は {found} で，{}ではない",
-                expected.describe_ja()
+                "expected {}, found {found} `{name}`",
+                expected.describe()
             ),
             DiagnosticKind::Ambiguous { name } => {
-                write!(f, "`{name}` がモジュールと Trait の両方を指す")
+                write!(f, "`{name}` refers to both a module and a trait")
             }
             DiagnosticKind::SelfOutside { self_type: false } => {
-                f.write_str("`self` は handler，impl，trait の中でしか使えない")
+                f.write_str("`self` can only be used in handlers, impls, and traits")
             }
             DiagnosticKind::SelfOutside { self_type: true } => {
-                f.write_str("`Self` は impl と trait の中でしか使えない")
+                f.write_str("`Self` can only be used in traits and impls")
             }
             DiagnosticKind::EffectAsType { name } => {
-                write!(f, "エフェクト `{name}` は型として使えない")
+                write!(f, "effect `{name}` cannot be used as a type")
             }
             DiagnosticKind::DuplicateBinding { name, .. } => {
-                write!(f, "`{name}` を2回束縛している")
+                write!(f, "`{name}` is bound twice")
             }
             DiagnosticKind::InvalidUpdateTarget { name, found } => match name {
-                Some(name) => write!(f, "`{name}` は {found} で，部分更新できない"),
-                None => write!(f, "{found} は部分更新できない"),
+                Some(name) => write!(f, "{found} `{name}` cannot be updated"),
+                None => write!(f, "{found} cannot be updated"),
             },
-            DiagnosticKind::PositionalInUpdate => {
-                f.write_str("部分更新では変えるフィールドを名前で書く")
-            }
+            DiagnosticKind::PositionalInUpdate => f.write_str("fields to update must be named"),
             DiagnosticKind::IntrinsicOutsideCore => {
-                f.write_str("`@intrinsic` は同梱の core のソースの中でしか使えない")
+                f.write_str("`@intrinsic` can only be used in the bundled core sources")
             }
             DiagnosticKind::MisplacedIntrinsic => {
-                f.write_str("`@intrinsic` は本体のない fn にしか付けられない")
+                f.write_str("`@intrinsic` can only be used on a function without a body")
             }
             DiagnosticKind::ShadowedByTypeParam { name } => {
-                write!(f, "型引数 `{name}` が外側の同じ名前の定義を隠す")
+                write!(f, "type parameter `{name}` shadows an outer definition")
             }
             DiagnosticKind::ShadowsPrelude { name } => {
-                write!(f, "`{name}` が Prelude の同じ名前を隠す")
+                write!(f, "`{name}` shadows the prelude's `{name}`")
             }
         }
     }

@@ -20,5 +20,5 @@ type Main.Box
   field value: Main.Box.String
   ctor Main.Box.Box
 == diagnostics
-warning src/main.emel@29..33 `Item`: 型引数 `Item` が外側の同じ名前の定義を隠す
-warning src/main.emel@91..97 `String`: 型引数 `String` が外側の同じ名前の定義を隠す
+warning src/main.emel@29..33 `Item`: type parameter `Item` shadows an outer definition
+warning src/main.emel@91..97 `String`: type parameter `String` shadows an outer definition

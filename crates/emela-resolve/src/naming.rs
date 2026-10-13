@@ -20,9 +20,12 @@ pub enum NameError {
 impl fmt::Display for NameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NameError::NotSnakeCase => f.write_str("小文字の snake_case ではない"),
+            NameError::NotSnakeCase => f.write_str("not lower snake_case"),
             NameError::NotTypeName { converted } => {
-                write!(f, "変換後の `{converted}` が型名にならない")
+                write!(
+                    f,
+                    "the converted name `{converted}` is not a valid type name"
+                )
             }
         }
     }

@@ -11,7 +11,7 @@ as_type: fn({unknown}) -> ()
   x: {unknown}
 handler Generic: use {}
 handler TooMany: use {}
-resolve: エフェクト `State` は型として使えない
+resolve: effect `State` cannot be used as a type
 `E` EffectParamNotType { effect: "Raise", param: "E" }
 `Generic` MissingEffectTypeArgs { effect: "State", params: ["S"], handler: Some("Generic") }
 `TooMany` WrongTypeArgCount { name: "State", expected: 1, found: 2 }
