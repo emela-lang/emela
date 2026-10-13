@@ -119,21 +119,12 @@ pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, V
             continue;
         }
         let dir = absolute;
+        // `Input::resolve` has rejected directories outside the source root, so `dir` is either
+        // under it or the project directory.
         let walk_from = if dir.starts_with(&input.root) {
             dir
-        } else if input.root.starts_with(&dir) {
-            input.root.clone()
         } else {
-            failures.push(FmtFailure::new(
-                Diagnostic::error(format!(
-                    "`{}` is outside the source root `{}`",
-                    path.display(),
-                    input.root.display()
-                ))
-                .with_code(code::OUTSIDE_SOURCE_ROOT)
-                .with_note("only files under the source root of a project are formatted"),
-            ));
-            continue;
+            input.root.clone()
         };
         let mut files = Vec::new();
         if let Err((dir, err)) = walk(fs, &walk_from, &mut files) {

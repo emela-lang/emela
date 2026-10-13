@@ -271,10 +271,40 @@ fn file_outside_source_root() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .starts_with("error[E0208]: `scripts/x.emel` is outside the source root `"),
+            .starts_with("error[E0208]: file `scripts/x.emel` is outside the source root `src`"),
         "{}",
         run.stderr
     );
+}
+
+/// check, build, run and test reject a directory outside the source root like fmt does
+/// (spec appendix B). The project directory and directories under the source root still mean the
+/// whole project.
+#[test]
+fn directory_outside_source_root() {
+    let project = Project::new(
+        "outside-dir",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() { () }\n"),
+            ("src/http/client.emel", ""),
+            ("scripts/x.emel", ""),
+        ],
+    );
+    for command in ["check", "build", "run", "test"] {
+        let run = project.emela(&[command, "scripts"]);
+        assert_eq!(run.code, Some(1), "{command}: {}", run.stderr);
+        assert!(
+            run.stderr
+                .starts_with("error[E0208]: directory `scripts` is outside the source root `src`"),
+            "{command}: {}",
+            run.stderr
+        );
+        for inside in [".", "src", "src/http"] {
+            let run = project.emela(&[command, inside]);
+            assert_eq!(run.code, Some(0), "{command} {inside}: {}", run.stderr);
+        }
+    }
 }
 
 #[test]
