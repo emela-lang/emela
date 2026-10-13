@@ -613,9 +613,11 @@ impl<'a> Lowerer<'a> {
                 f.sig.params.iter().map(|p| self.local(p.local)).collect(),
                 f.body.expect("a fn with a body"),
             ),
-            // A const's value is a pure expression (spec 5.6), so calling it at every reference
-            // gives the same result.
-            Some(Item::Const(c)) => (Vec::new(), c.value),
+            // A const's value is evaluated once, at the first reference (spec 5.6).
+            Some(Item::Const(c)) => {
+                self.module.functions[id].constant = true;
+                (Vec::new(), c.value)
+            }
             Some(Item::Handler(_)) => {
                 let (params, body) = self.handler(def);
                 self.module.define(id, params, body);

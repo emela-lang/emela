@@ -20,7 +20,7 @@ use smol_str::SmolStr;
 use crate::FnTy;
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
-use crate::exhaustiveness::{self, Witness, check_match};
+use crate::exhaustiveness::{Witness, check_match};
 use crate::fiber::Fibers;
 use crate::infer::{InferCtx, Origin, SetKind, substitute, substitute_bound};
 use crate::lower::{
@@ -644,10 +644,7 @@ impl<'a> BodyInfer<'a> {
                     if ty == Ty::Error {
                         continue;
                     }
-                    let arm = exhaustiveness::Arm {
-                        pat: shapes.pat(pat, &ty),
-                        guarded: false,
-                    };
+                    let arm = shapes.arm(pat, &ty, false);
                     let result = check_match(&shapes, &ty, &[arm]);
                     if !result.missing.is_empty() {
                         self.diags.push(Diagnostic {

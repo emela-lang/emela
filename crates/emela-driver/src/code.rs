@@ -40,6 +40,8 @@ pub const INTERNAL_FN_OUTSIDE_CORE: &str = "E0228";
 pub const MISPLACED_INTERNAL: &str = "E0229";
 // The `emela run` entry has no main (spec 8.3)
 pub const ENTRY_WITHOUT_MAIN: &str = "E0230";
+// Consts refer to each other by name only (spec 5.6)
+pub const CONST_CYCLE: &str = "E0231";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 

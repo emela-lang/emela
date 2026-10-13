@@ -6,6 +6,7 @@
 
 mod body;
 mod check;
+mod const_cycle;
 mod coverage;
 mod diagnostic;
 mod display;

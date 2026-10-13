@@ -747,6 +747,14 @@ impl Diagnostic {
                     format!("handlers depend on each other: {}", path.join(" -> ")),
                 )
             }
+            TypeDiagnosticKind::ConstCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|c| format!("`{c}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::CONST_CYCLE),
+                    format!("constants refer to each other: {}", path.join(" -> ")),
+                )
+            }
             TypeDiagnosticKind::HandlerCtorOutsideInit { handler } => {
                 help = Some(format!(
                     "use `with {handler} {{ ... }}`; `init` and `release` run there"

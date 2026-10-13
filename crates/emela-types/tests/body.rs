@@ -718,3 +718,130 @@ fn f(o: Option[Int], xs: List[Int], u: User, p: (Int, Bool)) -> Int {
 }
 "#));
 }
+
+/// Consts whose values certainly evaluate each other are an error (E0231, spec 5.6). References
+/// in a branch, on the right of `&&`, in a lambda, or through a function are left to the defect
+/// at run time.
+#[test]
+fn const_cycles() {
+    insta::assert_snapshot!(run(r#"
+const A = B + 1
+const B = {
+  x = C
+  x * A
+}
+const C = 1
+const SELF = SELF
+const P = (Q, 1)
+const Q = [P]
+const BRANCH = if True { OTHER } else { 0 }
+const OTHER = BRANCH
+const LAZY = False && LAZY2
+const LAZY2 = LAZY
+const LAMBDA = fn() { LAMBDA2() }
+const LAMBDA2 = LAMBDA
+const CALL = f()
+
+fn f() -> Int { CALL }
+"#));
+}
+
+/// A const in a pattern stands for its value in the exhaustiveness and redundancy checks when the
+/// value is made only of literals, negated numeric literals, constructors, tuples, lists and other
+/// such consts. Otherwise its arm counts like a guarded arm (spec 5.6, 6.5).
+#[test]
+fn const_patterns() {
+    insta::assert_snapshot!(run(r#"
+enum Shape {
+  Circle(Int)
+  Rect(w: Int, h: Int)
+  Empty
+}
+
+const NOTHING = Empty
+const ORIGIN = Circle(0)
+const SQUARE = Rect(h: 1, w: 1)
+const PAIR = (NOTHING, -1)
+const MINUS_ONE = -1
+const ALSO_MINUS_ONE = MINUS_ONE
+const DIGITS = [1, 2]
+const MORE = [0, ..DIGITS]
+const COMPUTED = Circle(zero())
+const LIMIT = zero() + 10
+
+fn zero() -> Int { 0 }
+
+fn known(s: Shape) -> Int {
+  s match {
+    NOTHING -> 0
+    Circle(_) -> 1
+    Rect(..) -> 2
+  }
+}
+
+fn known_redundant(s: Shape) -> Int {
+  s match {
+    Circle(_) -> 1
+    Rect(w: 1, h: 1) -> 2
+    SQUARE -> 3
+    ORIGIN -> 4
+    _ -> 5
+  }
+}
+
+fn tuples(p: (Shape, Int)) -> Int {
+  p match {
+    (Circle(_), _) -> 0
+    (Rect(..), _) -> 1
+    (Empty, 0) -> 2
+    PAIR -> 3
+    (Empty, _) -> 4
+    (NOTHING, _) -> 5
+  }
+}
+
+fn negatives(n: Int) -> Int {
+  n match {
+    MINUS_ONE -> 0
+    ALSO_MINUS_ONE -> 1
+    _ -> 2
+  }
+}
+
+fn lists(xs: List[Int]) -> Int {
+  xs match {
+    MORE -> 0
+    [0, 1, 2] -> 1
+    _ -> 2
+  }
+}
+
+fn computed_not_counted(s: Shape) -> Int {
+  s match {
+    COMPUTED -> 0
+    Rect(..) -> 1
+  }
+}
+
+fn computed_covers_nothing(s: Shape) -> Int {
+  s match {
+    COMPUTED -> 0
+    Circle(_) -> 1
+    Rect(..) -> 2
+    Empty -> 3
+  }
+}
+
+fn computed_redundant(n: Int) -> Int {
+  n match {
+    _ -> 0
+    LIMIT -> 1
+  }
+}
+
+fn computed_binding(s: Shape) -> Int {
+  COMPUTED = s
+  0
+}
+"#));
+}

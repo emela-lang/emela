@@ -62,6 +62,7 @@ impl Module {
             body: Expr::Lit(Lit::Unit),
             external: None,
             suspends: false,
+            constant: false,
         })
     }
 
@@ -146,6 +147,10 @@ pub struct Function {
     /// (spec 12.2), and the host function returns a value to await (a Promise in JS). Output for a
     /// non-suspending function knows nothing about suspension.
     pub suspends: bool,
+    /// The value of a const (spec 5.6). Takes no arguments; the body is evaluated once, on the
+    /// first call, and the value is remembered. A defect while evaluating carries the const's name
+    /// (`name`), and a reference to the const while it is being evaluated is a defect.
+    pub constant: bool,
 }
 
 /// The host function of an external function (spec 12.1).

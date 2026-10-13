@@ -115,6 +115,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
+    crate::const_cycle::check(program, &mut diags);
 
     let mut types = ProgramTypes {
         ty_table,
@@ -253,8 +254,17 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
         edges.insert(def, refs);
     }
 
+    strongly_connected(&nodes, &edges)
+}
+
+/// The strongly connected components of the graph, each sorted in definition order. A component
+/// comes after every component reachable from it.
+pub(crate) fn strongly_connected(
+    nodes: &[DefId],
+    edges: &FxHashMap<DefId, Vec<DefId>>,
+) -> Vec<Vec<DefId>> {
     let mut tarjan = Tarjan {
-        edges: &edges,
+        edges,
         index: FxHashMap::default(),
         low: FxHashMap::default(),
         on_stack: FxHashMap::default(),
@@ -262,7 +272,7 @@ fn groups(program: &Program) -> Vec<Vec<DefId>> {
         next: 0,
         groups: Vec::new(),
     };
-    for &def in &nodes {
+    for &def in nodes {
         if !tarjan.index.contains_key(&def) {
             tarjan.visit(def);
         }

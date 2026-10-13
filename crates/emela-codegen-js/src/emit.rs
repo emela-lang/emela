@@ -110,11 +110,28 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
             e.line("");
             continue;
         }
+        let name = fn_name(&m.functions[id].name);
+        if f.constant {
+            // The function returns the remembered value and evaluates the body (`X$init`) only on the
+            // first call (spec 5.6).
+            let constant = e.rt("$constant");
+            e.line(&format!(
+                "const {name}$cell = {{ state: 0, value: undefined }};"
+            ));
+            e.line(&format!("function {name}() {{"));
+            e.line(&format!(
+                "  return {constant}({name}$cell, {}, {name}$init);",
+                js_string(&f.name)
+            ));
+            e.line("}");
+            e.line("");
+        }
         let params: Vec<String> = f.params.iter().map(|&p| e.local(p)).collect();
         e.line(&format!(
-            "{} {}({}) {{",
+            "{} {}{}({}) {{",
             function_keyword(f.suspends),
-            fn_name(&m.functions[id].name),
+            name,
+            if f.constant { "$init" } else { "" },
             params.join(", ")
         ));
         e.indent += 1;

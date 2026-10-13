@@ -25,6 +25,41 @@ function $unreachable() {
   throw new $Defect("unreachable: no match arm matched");
 }
 
+// The value of a const (spec 5.6), evaluated by `init` on the first reference and remembered. `cell.state` is 0 (not
+// evaluated yet), 1 (being evaluated), 2 (`cell.value` is the value) or 3 (`cell.value` is the defect the evaluation
+// raised). A defect is remembered like a value: the value is pure, so evaluating again would raise it again. Its
+// message names the const. Referring to a const while it is being evaluated is a defect; that defect keeps its
+// message and is not remembered by any const it passes through (each of them would raise it again anyway).
+function $constant(cell, name, init) {
+  switch (cell.state) {
+    case 2:
+      return cell.value;
+    case 3:
+      throw cell.value;
+    case 1: {
+      const defect = new $Defect(`const ${name} refers to itself while being evaluated`);
+      defect.$selfReference = true;
+      throw defect;
+    }
+  }
+  cell.state = 1;
+  try {
+    const value = init();
+    cell.value = value;
+    cell.state = 2;
+    return value;
+  } catch (error) {
+    if (error?.name !== "Defect" || error.$selfReference) {
+      cell.state = 0;
+      throw error;
+    }
+    const defect = new $Defect(`while evaluating const ${name}: ${error.message}`);
+    cell.value = defect;
+    cell.state = 3;
+    throw defect;
+  }
+}
+
 // A failure (spec chapter 7). Errors are returned as values (16.5). `fail e` returns `new $Fail(e)`,
 // and if the result of a fallible call is a `$Fail`, it is passed on to the caller or to an escape.
 // `error` is the error value, and its `$tag` holds a per-error marker (`{ show }`).
