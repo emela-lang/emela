@@ -192,8 +192,10 @@ pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Re
 
 ## The test handler. The server is `State[TestServer]`, so use it inside `State.run`:
 ##
-##   server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
-##   (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+## ```emela
+## server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
+## (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+## ```
 ##
 ## `send` adds the request to `sent` and resumes at once. It never fails with InvalidUrl or
 ## ResponseNotText.

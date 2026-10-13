@@ -200,8 +200,10 @@ pub type TestFiles(files: List[(String, String)], directories: List[String])
 ## The test handler. It keeps the files in `State[TestFiles]` and resumes at once, so use it
 ## inside `State.run`:
 ##
-##   start = TestFiles(files: [("notes.txt", "hi")], directories: [])
-##   (text, _) = State.run(start, fn() { with TestFileSystem { (use FileSystem).read_text("notes.txt") } })
+## ```emela
+## start = TestFiles(files: [("notes.txt", "hi")], directories: [])
+## (text, _) = State.run(start, fn() { with TestFileSystem { (use FileSystem).read_text("notes.txt") } })
+## ```
 ##
 ## The errors follow the rules of SystemFileSystem. It never fails with FileAccessDenied,
 ## InvalidText or FileSystemFailure; to test those, write a small handler.

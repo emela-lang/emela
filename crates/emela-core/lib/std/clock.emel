@@ -35,8 +35,10 @@ pub handler SystemClock implements Clock {
 ## The test handler. The current time is `State[Instant]`, so use it inside `State.run` with the
 ## starting time:
 ##
-##   start = Instant.from_unix_milliseconds(Int64.from_int(0))
-##   (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+## ```emela
+## start = Instant.from_unix_milliseconds(Int64.from_int(0))
+## (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+## ```
 ##
 ## The time is virtual (spec 8.8). `sleep` really waits: when no fiber can go on and the host has
 ## nothing pending, the time moves forward to the earliest time a sleeper waits for, and that
