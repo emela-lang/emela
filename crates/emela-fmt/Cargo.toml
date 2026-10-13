@@ -1,0 +1,15 @@
+[package]
+name = "emela-fmt"
+description = "Formats the lossless syntax tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-syntax.workspace = true
+pretty.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true

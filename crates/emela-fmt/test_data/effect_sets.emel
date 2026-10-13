@@ -1,0 +1,16 @@
+# エフェクトと集合の型引数を混ぜた use 節（8.3）
+effect Quiet {
+  fn hush() -> ()
+}
+
+fn run[R](f: fn() -> () use {Quiet,R}) -> () use R {
+  with Silent { f() }
+}
+
+fn both[R](f: fn() -> () use {   R, Quiet, Http.Client }) -> () use { R,Http.Client } {
+  with Silent { f() }
+}
+
+fn long[R](f: fn() -> () use { Quiet, Logger, Clock, Random, Http.Client, R }) -> () use { Logger, Clock, Random, Http.Client, R } {
+  with Silent { f() }
+}

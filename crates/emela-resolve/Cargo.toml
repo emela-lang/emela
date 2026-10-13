@@ -1,0 +1,17 @@
+[package]
+name = "emela-resolve"
+description = "Module loading, imports, name resolution, pub / opaque, and naming-rule checks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-syntax.workspace = true
+rowan.workspace = true
+la-arena.workspace = true
+smol_str.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

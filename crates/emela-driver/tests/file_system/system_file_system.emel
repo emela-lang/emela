@@ -1,0 +1,116 @@
+import Std.FileSystem.{
+  FileSystem,
+  SystemFileSystem,
+  FileNotFound,
+  IsADirectory,
+  NotADirectory,
+  DirectoryNotEmpty,
+  InvalidText,
+}
+import Std.Path
+
+# The test fills in the temporary directory, which the test creates and removes.
+const ROOT: String = "__ROOT__"
+
+fn main() {}
+
+fn at(name: String) -> String {
+  Path.join(ROOT, name)
+}
+
+## The name of the error that `body` failed with, or "ok".
+fn outcome[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use { FileSystem } {
+  {
+    body()
+    "ok"
+  } escape {
+    FileNotFound(..)      -> "FileNotFound"
+    IsADirectory(..)      -> "IsADirectory"
+    NotADirectory(..)     -> "NotADirectory"
+    DirectoryNotEmpty(..) -> "DirectoryNotEmpty"
+    InvalidText(..)       -> "InvalidText"
+  }
+}
+
+@test
+fn writes_reads_and_appends() {
+  with SystemFileSystem {
+    fs = use FileSystem
+    fs.write_text(at("a.txt"), "héllo 👍")
+    fs.append_text(at("a.txt"), "!")
+    fs.append_text(at("b.txt"), "new")
+    assert fs.read_text(at("a.txt")) == "héllo 👍!"
+    assert fs.read_text(at("b.txt")) == "new"
+    fs.write_text(at("b.txt"), "replaced")
+    assert fs.read_text(at("b.txt")) == "replaced"
+  }
+}
+
+@test
+fn directories() {
+  with SystemFileSystem {
+    fs = use FileSystem
+    fs.create_directory(at("d/x/y"))
+    fs.create_directory(at("d/x/y"))
+    fs.write_text(at("d/b.txt"), "")
+    fs.write_text(at("d/a.txt"), "")
+    assert fs.list_directory(at("d")) == ["a.txt", "b.txt", "x"]
+    assert fs.exists(at("d/x"))
+    assert fs.is_directory(at("d/x"))
+    assert !fs.is_directory(at("d/a.txt"))
+    assert !fs.exists(at("d/missing"))
+    assert !fs.is_directory(at("d/missing"))
+    fs.remove(at("d/x/y"))
+    fs.remove(at("d/a.txt"))
+    assert fs.list_directory(at("d")) == ["b.txt", "x"]
+  }
+}
+
+@test
+fn errors() {
+  with SystemFileSystem {
+    fs = use FileSystem
+    fs.create_directory(at("e/sub"))
+    fs.write_text(at("e/f.txt"), "f")
+    r = [
+      outcome(fn() { _ = fs.read_text(at("e/missing.txt")) }),
+      outcome(fn() { _ = fs.read_text(at("e/sub")) }),
+      outcome(fn() { _ = fs.read_text(at("e/f.txt/x")) }),
+      outcome(fn() { fs.write_text(at("e/nowhere/x.txt"), "x") }),
+      outcome(fn() { fs.write_text(at("e/sub"), "x") }),
+      outcome(fn() { fs.append_text(at("e/nowhere/x.txt"), "x") }),
+      outcome(fn() { _ = fs.list_directory(at("e/missing")) }),
+      outcome(fn() { _ = fs.list_directory(at("e/f.txt")) }),
+      outcome(fn() { fs.create_directory(at("e/f.txt")) }),
+      outcome(fn() { fs.create_directory(at("e/f.txt/x")) }),
+      outcome(fn() { fs.remove(at("e/missing")) }),
+      outcome(fn() { fs.remove(at("e")) }),
+    ]
+    assert r
+      == [
+        "FileNotFound",
+        "IsADirectory",
+        "FileNotFound",
+        "FileNotFound",
+        "IsADirectory",
+        "FileNotFound",
+        "FileNotFound",
+        "NotADirectory",
+        "NotADirectory",
+        "NotADirectory",
+        "FileNotFound",
+        "DirectoryNotEmpty",
+      ]
+  }
+}
+
+## `invalid.bin` (not UTF-8) and `bom.txt` (a UTF-8 BOM) are written by the test beforehand.
+@test
+fn invalid_text_and_bom() {
+  with SystemFileSystem {
+    fs = use FileSystem
+    assert outcome(fn() { _ = fs.read_text(at("invalid.bin")) }) == "InvalidText"
+    text = fs.read_text(at("bom.txt"))
+    assert String.code_points(text) == [65279, 120]
+  }
+}

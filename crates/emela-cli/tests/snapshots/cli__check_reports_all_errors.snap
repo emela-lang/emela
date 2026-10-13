@@ -1,0 +1,48 @@
+---
+source: crates/emela-cli/tests/cli.rs
+expression: run.stderr
+---
+error[E0201]: file name `Util` cannot be a module name: not lower snake_case
+   ─[ src/Util.emel ]
+
+error[E0104]: invalid number literal `3px`
+   ╭─[ src/http/client.emel:1:11 ]
+   │
+ 1 │ const N = 3px
+   │           ─┬─  
+   │            ╰─── 
+───╯
+
+error[E0118]: expected expression
+   ╭─[ src/http/client.emel:1:11 ]
+   │
+ 1 │ const N = 3px
+   │           ─┬─  
+   │            ╰─── 
+───╯
+
+error[E0101]: unterminated string literal
+   ╭─[ src/main.emel:2:3 ]
+   │
+ 2 │   "abc
+   │   ──┬─  
+   │     ╰─── 
+───╯
+
+error[E0105]: unrecognized character `$`
+   ╭─[ src/main.emel:4:11 ]
+   │
+ 4 │ const Y = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+error[E0118]: expected expression
+   ╭─[ src/main.emel:4:11 ]
+   │
+ 4 │ const Y = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+6 errors

@@ -1,0 +1,59 @@
+---
+source: crates/emela-syntax/tests/lexer.rs
+expression: dump(&src)
+input_file: crates/emela-syntax/test_data/lexer/error_names_numbers.emel
+---
+ERROR_TOKEN@0..11 "Http_client"
+WHITESPACE@11..12 " "
+EQ@12..13 "="
+WHITESPACE@13..14 " "
+INT@14..15 "1"
+NEWLINE@15..16 "\n"
+ERROR_TOKEN@16..24 "Max_SIZE"
+NEWLINE@24..25 "\n"
+LOWER_NAME@25..26 "x"
+WHITESPACE@26..27 " "
+EQ@27..28 "="
+WHITESPACE@28..29 " "
+ERROR_TOKEN@29..32 "1e9"
+WHITESPACE@32..33 " "
+PLUS@33..34 "+"
+WHITESPACE@34..35 " "
+ERROR_TOKEN@35..39 "1.0e"
+WHITESPACE@39..40 " "
+PLUS@40..41 "+"
+WHITESPACE@41..42 " "
+ERROR_TOKEN@42..45 "3px"
+NEWLINE@45..46 "\n"
+LOWER_NAME@46..47 "y"
+WHITESPACE@47..48 " "
+EQ@48..49 "="
+WHITESPACE@49..50 " "
+INT@50..51 "1"
+DOT2@51..53 ".."
+INT@53..54 "2"
+NEWLINE@54..55 "\n"
+LOWER_NAME@55..56 "z"
+WHITESPACE@56..57 " "
+EQ@57..58 "="
+WHITESPACE@58..59 " "
+LOWER_NAME@59..60 "a"
+WHITESPACE@60..61 " "
+ERROR_TOKEN@61..62 "&"
+WHITESPACE@62..63 " "
+LOWER_NAME@63..64 "b"
+NEWLINE@64..65 "\n"
+LOWER_NAME@65..66 "w"
+WHITESPACE@66..67 " "
+EQ@67..68 "="
+WHITESPACE@68..69 " "
+LOWER_NAME@69..72 "caf"
+ERROR_TOKEN@72..74 "é"
+NEWLINE@74..75 "\n"
+error[E0103]@0..11: invalid name `Http_client`: not a lower, type, or upper name
+error[E0103]@16..24: invalid name `Max_SIZE`: not a lower, type, or upper name
+error[E0104]@29..32: invalid number literal `1e9`
+error[E0104]@35..39: invalid number literal `1.0e`
+error[E0104]@42..45: invalid number literal `3px`
+error[E0105]@61..62: unrecognized character `&`
+error[E0105]@72..74: unrecognized character `é`

@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn take64(n: Int64) -> Int64 { n }\n\nfn f() -> Int {\n  a = 1\n  b: Int64 = 3_000_000_000\n  c = take64(42)\n  d: Int = 2147483647\n  e: Int = 2147483648\n  g: Int = 0xFFFF_FFFF\n  h: Int64 = 0xFFFF_FFFF\n  i: Int = 0b1010\n  j: Float = 1\n  k: String = 2\n  a\n}\n\"#)"
+---
+take64: fn(Int64) -> Int64
+  n: Int64
+f: fn() -> Int
+  a: Int
+  b: Int64
+  c: Int64
+  d: Int
+  e: Int
+  g: Int
+  h: Int64
+  i: Int
+  j: Float
+  k: String
+`2147483648` integer literal `2147483648` out of range for `Int`
+`0xFFFF_FFFF` integer literal `0xFFFFFFFF` out of range for `Int`
+`1` mismatch: expected `Float`, found `Int`
+`2` mismatch: expected `String`, found `Int`

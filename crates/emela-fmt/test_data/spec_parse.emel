@@ -1,0 +1,12 @@
+# src/email.emel（4.4）．type と error の宣言はまだ読めないので fn だけ
+pub fn parse(input: String) -> Email fails InvalidEmail {
+  if String.contains(input, "@") {
+    Email(value: input)
+  } else {
+    fail InvalidEmail(input:)
+  }
+}
+
+pub fn to_string(email: Email) -> String {
+  email.value
+}

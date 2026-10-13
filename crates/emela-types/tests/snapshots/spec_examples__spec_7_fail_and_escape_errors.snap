@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 577
+expression: "render_bodies(r#\"\nerror NotFound  # 補\n\nfn or_fail[A, E](opt: Option[A], err: E) -> A fails E {  # 補\n  match opt {\n    Some(a) -> a\n    None -> fail err\n  }\n}\n\nfn not_error() {\n  fail 1\n}\n\nfn not_error_type() {\n  or_fail(Some(1), \"no\")\n}\n\nfn catch_all() -> Int {\n  0 escape { _ -> 1 }\n}\n\"#)"
+---
+or_fail: ∀ A, E. fn(Option[A], E) -> A fails E
+  opt: Option['0]
+  err: '1
+  a: '0
+not_error: ∀ A. fn() -> A
+not_error_type: fn() -> Int
+catch_all: fn() -> Int
+`1` not an error type: `Int`
+`or_fail(Some(1), "no")` not an error type: `String`
+`_` escape arm is not an error

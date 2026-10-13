@@ -1,0 +1,19 @@
+# Side effects go through effects. `Console` is declared in the bundled std
+# (`Std.Console`), and `SystemConsole` provides it on the host the program runs on.
+
+import Std.Console.{Console, SystemConsole}
+
+# `greet` uses Console, so its caller has to provide one with `with`.
+fn greet(name: String) {
+  console = use Console
+  console.print_line("Hello, #{name}!")
+}
+
+fn main() {
+  with SystemConsole {
+    console = use Console
+    console.print_line("hi")
+    List.map(["Emela", "world"], greet)
+    console.print_error_line("done")
+  }
+}

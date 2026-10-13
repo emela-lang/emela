@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\ntype Pair[A, B](first: A, second: B)\n\nfn f(u: User, p: Pair[Int, Bool]) -> Int {\n  a = User(name: \"b\", ..u)\n  b = Pair(first: \"s\", ..p)\n  c = User(name: 1, ..u)\n  d = User(nmae: \"x\", ..u)\n  g = User(name: \"x\", ..p)\n  1\n}\n\"#)"
+---
+f: fn(User, Pair[Int, Bool]) -> Int
+  u: User
+  p: Pair[Int, Bool]
+  a: User
+  b: Pair[String, Bool]
+  c: User
+  d: User
+  g: User
+`1` mismatch: expected `String`, found `Int`
+`nmae` no field `nmae` on type `User`
+`p` mismatch: expected `User`, found `Pair[Int, Bool]`

@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn area(s: Shape) -> Float {\n  match s {\n    Circle(radius:) if True -> radius\n    Rect(w, h) -> w\n    Empty -> panic(\"empty\")\n  }\n}\n\nfn first(xs: List[Int]) -> Option[Int] {\n  match xs {\n    [] -> None\n    [x, ..] -> Some(x)\n  }\n}\n\nfn label(n: Int) -> String {\n  r = match n {\n    0 -> \"zero\"\n    _ -> \"many\"\n  }\n  r\n}\n\"#)"
+---
+area: fn(Shape) -> Float
+  s: Shape
+  radius: Float
+  w: Float
+  h: Float
+first: fn(List[Int]) -> Option[Int]
+  xs: List[Int]
+  x: Int
+label: fn(Int) -> String
+  n: Int
+  r: String
+`s` non-exhaustive match: Circle(_) not covered

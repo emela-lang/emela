@@ -1,0 +1,24 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn f(u: User, s: Shape) -> Int {\n  User(name:) = u\n  Rect(w) = s\n  Rect(w2, h2, d2) = s\n  Circle(r: r) = s\n  Some(v) = u\n  [q] = u\n  1\n}\n\"#)"
+---
+f: fn(User, Shape) -> Int
+  u: User
+  s: Shape
+  name: String
+  w: Float
+  w2: Float
+  h2: Float
+  d2: {unknown}
+  r: {unknown}
+  v: ?0
+  q: ?1
+`User(name:)` pattern `User` does not mention id
+`Rect(w)` pattern `Rect` has 2 fields, found 1
+`Rect(w)` refutable pattern in binding: Circle(_), Empty not covered
+`Rect(w2, h2, d2)` pattern `Rect` has 2 fields, found 3
+`Rect(w2, h2, d2)` refutable pattern in binding: Circle(_), Empty not covered
+`Circle(r: r)` refutable pattern in binding: Rect(_, _), Empty not covered
+`r` UnknownLabel { callee: "Circle", label: "r" }
+`Some(v)` mismatch: expected `User`, found `Option[?0]`
+`[q]` mismatch: expected `User`, found `List[?1]`

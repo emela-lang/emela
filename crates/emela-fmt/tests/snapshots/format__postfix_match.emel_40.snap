@@ -1,0 +1,47 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(name, &src, 40)"
+---
+# Postfix match and escape (spec 6.5). A broken pipe puts the keyword on its own line.
+fn f(id: Int) -> String {
+  name = users
+    |> List.filter(fn(u) { u.active })
+    |> List.find(fn(u) { u.id == id })
+    |> Option.map(fn(u) { u.name })
+    escape {
+      NotFound(_) -> "guest"
+    }
+  short = users
+    |> List.find(fn(u) { u.id == id })
+    match {
+      Some(u) -> u.name
+      None    -> "guest"
+    }
+  name2 = users
+    |> List.filter(fn(u) { u.active })
+    |> List.find(fn(u) { u.id == id })
+    |> Option.map(fn(u) { u.name })
+    match {
+      Some(u) -> u
+      None    -> "guest"
+    }
+  load(id) match {
+    Some(user) -> user.name
+    None       -> "guest"
+  } escape {
+    DbError(_) -> "unavailable"
+  }
+}
+
+fn g(xs: List[Int]) -> Int {
+  xs |> List.map(fn(x) {
+    y = x + 1
+    y * 2
+  }) match {
+    [] -> 0
+    _  -> 1
+  }
+  xs
+    |> List.map(f)
+    match { _ -> 1 }
+}

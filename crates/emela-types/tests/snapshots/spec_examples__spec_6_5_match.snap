@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nfn area(shape: Shape) -> Float {\n  match shape {\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\n    Circle(_)                       -> 0.0\n    Rect(w, h)                      -> w * h\n    Empty                           -> 0.0\n  }\n}\n\"#)"
+---
+area: fn(Shape) -> Float
+  shape: Shape
+  radius: Float
+  w: Float
+  h: Float

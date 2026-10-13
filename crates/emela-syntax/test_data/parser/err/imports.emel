@@ -1,0 +1,6 @@
+import Http.Client
+fn f() { 1 }
+import Data.Json
+import lower
+@ fn g() { 2 }
+@test fn h() { 3 }

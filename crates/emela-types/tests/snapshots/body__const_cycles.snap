@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nconst A = B + 1\nconst B = {\n  x = C\n  x * A\n}\nconst C = 1\nconst SELF = SELF\nconst P = (Q, 1)\nconst Q = [P]\nconst BRANCH = if True { OTHER } else { 0 }\nconst OTHER = BRANCH\nconst LAZY = False && LAZY2\nconst LAZY2 = LAZY\nconst LAMBDA = fn() { LAMBDA2() }\nconst LAMBDA2 = LAMBDA\nconst CALL = f()\n\nfn f() -> Int { CALL }\n\"#)"
+---
+f: fn() -> Int
+`A` ConstCycle { cycle: ["A", "B", "A"] }
+`SELF` ConstCycle { cycle: ["SELF", "SELF"] }
+`P` ConstCycle { cycle: ["P", "Q", "P"] }
+`[P]` mismatch: expected `?1`, found `List[(?1, Int)]`

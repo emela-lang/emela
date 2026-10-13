@@ -1,0 +1,80 @@
+# An HTTP client. Requests and responses are values, `send` is the only operation, and 4xx and
+# 5xx are responses, not failures. This example never touches the network: `main` replaces
+# `SystemHttp` from `Platform` with `TestHttp`, which answers with a function.
+
+import Std.Platform.{Platform}
+import Std.Console.{Console}
+import Std.Http
+import Std.Http.{
+  Http,
+  Get,
+  Request,
+  Response,
+  ConnectionFailed,
+  UnexpectedStatus,
+  TestHttp,
+  TestServer,
+}
+import Std.State.{State}
+
+const BASE: String = "https://search.example.com"
+
+## The request for page `page` of the results for `query`.
+fn search_request(query: String, page: Int) -> Request {
+  query_string = Http.encode_query([("q", query), ("page", Int.to_string(page))])
+  Http.request(Get, "#{BASE}/search?#{query_string}") |> Http.add_header("accept", "text/plain")
+}
+
+## The first line of the results for `query`. Fails unless the status is 2xx.
+fn first_line(query: String) {
+  res = (use Http).send(search_request(query, 1)) |> Http.require_ok
+  Option.or(List.head(String.split(res.body, "\n")), "")
+}
+
+## The first line of the results for `query`, or why there is none.
+fn first_result(query: String) {
+  first_line(query) escape {
+    UnexpectedStatus(status:, body: _) -> "status #{status}"
+    ConnectionFailed(url: _, message:) -> "unreachable: #{message}"
+  }
+}
+
+## A fake server: one result for "emela", 404 for anything else, and no answer after 2 requests.
+fn respond(req: Request, n: Int) -> Option[Response] {
+  if n >= 2 {
+    None
+  } else if String.contains(req.url, "q=emela") {
+    Some(Http.response(200, "Emela: typed errors and effects\nEmela on GitHub"))
+  } else {
+    Some(Http.response(404, "no results"))
+  }
+}
+
+fn main() {
+  with Platform {
+    console = use Console
+    (_, server) = State.run(TestServer(respond:, sent: []), fn() {
+      with TestHttp {
+        console.print_line(first_result("emela"))
+        console.print_line(first_result("東京"))
+        console.print_line(first_result("again"))
+      }
+    })
+    List.map(server.sent, fn(req) { console.print_line("sent #{req.url}") })
+  }
+}
+
+@test
+fn the_query_is_encoded() {
+  req = search_request("東京", 2)
+  assert req.url == "https://search.example.com/search?q=%E6%9D%B1%E4%BA%AC&page=2"
+  assert req.headers == [("accept", "text/plain")]
+}
+
+@test
+fn a_404_is_not_a_failure() {
+  server = TestServer(respond: fn(req, n) { Some(Http.response(404, "")) }, sent: [])
+  (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
+  assert text == "status 404"
+  assert List.length(after.sent) == 1
+}

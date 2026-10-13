@@ -1,0 +1,70 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"email.emel\",\nr##\"pub opaque type Email(value: String)\n\npub error InvalidEmail(input: String)\n\npub fn parse(input: String) -> Email fails InvalidEmail {\n  if String.contains(input, \"@\") {\n    Email(value: input)\n  } else {\n    fail InvalidEmail(input:)\n  }\n}\n\npub fn to_string(email: Email) -> String {\n  email.value\n}\n\"##,),\n(\"main.emel\",\nr##\"import Email\nimport Email.{Email, InvalidEmail}\n\nfn register(input: String) -> Email.Email fails InvalidEmail {\n  Email.parse(input)\n}\n\nfn show(email: Email) -> String {\n  Email.to_string(email)\n}\n\nfn safe(input: String) -> Option[Email] {\n  Some(Email.parse(input)) escape {\n    InvalidEmail(input: _) -> None\n  }\n}\n\"##,),])"
+---
+== Email (src/email.emel)
+type Email.Email pub opaque
+  field value: String
+  ctor Email.Email.Email
+error Email.InvalidEmail(input: String) pub
+fn Email.parse pub
+  param input#0: String
+  ret Email.Email
+  fails {Email.InvalidEmail}
+  body
+    block
+      if
+        call
+          @String.contains
+          input#0
+          "@"
+        block
+          call
+            Email.Email.Email
+            value:
+              input#0
+      else
+        block
+          fail
+            call
+              Email.InvalidEmail
+              input: (punned)
+                input#0
+fn Email.to_string pub
+  param email#1: Email.Email
+  ret String
+  body
+    block
+      field .value
+        email#1
+== Main (src/main.emel)
+fn Main.register
+  param input#0: String
+  ret Email.Email
+  fails {Email.InvalidEmail}
+  body
+    block
+      call
+        Email.parse
+        input#0
+fn Main.show
+  param email#1: Email.Email
+  ret String
+  body
+    block
+      call
+        Email.to_string
+        email#1
+fn Main.safe
+  param input#2: String
+  ret Option[Email.Email]
+  body
+    block
+      escape
+        call
+          Option.Some
+          call
+            Email.parse
+            input#2
+        arm Email.InvalidEmail(input: _)
+          Option.None

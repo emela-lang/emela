@@ -1,0 +1,20 @@
+[package]
+name = "emela-types"
+description = "Type inference, fails and use inference, trait resolution, match exhaustiveness, capture sets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-resolve.workspace = true
+ena.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true
+smol_str.workspace = true
+
+[dev-dependencies]
+# No version: emela-core depends on this crate, and a path-only dev-dependency is
+# dropped by `cargo package` instead of being resolved (see release-plz.toml).
+emela-core = { path = "../emela-core" }
+emela-syntax.workspace = true
+insta.workspace = true

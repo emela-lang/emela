@@ -1,0 +1,25 @@
+[package]
+name = "emela-driver"
+description = "The pipeline, diagnostic collection and rendering, and build configuration (emela.toml)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-syntax.workspace = true
+emela-fmt.workspace = true
+emela-resolve.workspace = true
+emela-types.workspace = true
+emela-core.workspace = true
+emela-codegen-js.workspace = true
+emela-codegen-wasm.workspace = true
+la-arena.workspace = true
+smol_str.workspace = true
+line-index.workspace = true
+ariadne.workspace = true
+serde.workspace = true
+toml.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

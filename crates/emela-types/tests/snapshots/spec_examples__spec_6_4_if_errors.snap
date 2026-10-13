@@ -1,0 +1,10 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn f(count: Int) -> Int {\n  a = if count > 0 { 1 }\n  b = if count { 1 } else { 2 }\n  count\n}\n\"#)"
+---
+f: fn(Int) -> Int
+  count: Int
+  a: ()
+  b: Int
+`1` mismatch: expected `()`, found `Int`
+`count` mismatch: expected `Bool`, found `Int`

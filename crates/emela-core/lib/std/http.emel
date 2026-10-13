@@ -1,0 +1,211 @@
+# The Http effect (a client only), its handlers and the functions over `send` (the platform and
+# test layers of spec 15.2).
+#
+# Use it as `Http.get(url)` and provide it with `with SystemHttp { ... }`, or with
+# `with Platform { ... }` from `Std.Platform`. Requests and responses are values, so building a
+# request is an ordinary function that tests can call without a handler.
+
+import Std.State.{State}
+
+## The request methods. A method not in this list cannot be sent.
+pub enum Method { Get, Head, Post, Put, Patch, Delete, Options }
+
+## A request. `headers` are sent in the written order. The body is text, sent as UTF-8.
+pub type Request(method: Method, url: String, headers: List[(String, String)], body: String)
+
+## A response. Header names are lower case and sorted by name; values of the same name are joined
+## with `, `, except that each `set-cookie` is its own pair.
+pub type Response(status: Int, headers: List[(String, String)], body: String)
+
+## The URL cannot be read as a URL.
+pub error InvalidUrl(url: String)
+## No response was received (name resolution, connection, TLS, too many redirects). `message` says why.
+pub error ConnectionFailed(url: String, message: String)
+## The response body is not valid UTF-8.
+pub error ResponseNotText(url: String)
+## The status is not 2xx (`require_ok`).
+pub error UnexpectedStatus(status: Int, body: String)
+
+## Sends requests. 4xx and 5xx are responses, not failures; fail only when no response is received.
+pub effect Http {
+  suspend fn send(request: Request) -> Response
+    fails InvalidUrl | ConnectionFailed | ResponseNotText
+}
+
+## A request with no headers and an empty body.
+pub fn request(method: Method, url: String) -> Request {
+  Request(method:, url:, headers: [], body: "")
+}
+
+## Adds a header after the ones already in `req`.
+pub fn add_header(req: Request, name: String, value: String) -> Request {
+  Request(headers: List.append(req.headers, [(name, value)]), ..req)
+}
+
+## Sends a GET request to `url`.
+pub fn get(url: String) -> Response fails InvalidUrl | ConnectionFailed | ResponseNotText use Http {
+  (use Http).send(request(Get, url))
+}
+
+## Sends a POST request to `url` with `body`.
+pub fn post(url: String, body: String) -> Response
+  fails InvalidUrl | ConnectionFailed | ResponseNotText
+  use Http {
+  (use Http).send(Request(body:, ..request(Post, url)))
+}
+
+## The first value of the header `name`, compared without case.
+pub fn header(res: Response, name: String) -> Option[String] {
+  List.head(headers(res, name))
+}
+
+## All values of the header `name` in order, compared without case.
+pub fn headers(res: Response, name: String) -> List[String] {
+  key = ascii_lower(name)
+  res.headers
+    |> List.filter(fn(pair) {
+      (n, _) = pair
+      ascii_lower(n) == key
+    })
+    |> List.map(fn(pair) {
+      (_, value) = pair
+      value
+    })
+}
+
+## `s` with A to Z changed to a to z. Header names are ASCII, so other letters are left as they are.
+fn ascii_lower(s: String) -> String {
+  lower = List.map(String.code_points(s), fn(c) {
+    Option.or(String.from_code_point(if c >= 65 && c <= 90 { c + 32 } else { c }), "")
+  })
+  String.concat(lower)
+}
+
+## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`).
+pub fn encode_query(pairs: List[(String, String)]) -> String {
+  pairs
+    |> List.map(fn(pair) {
+      (name, value) = pair
+      "#{encode_uri_component(name)}=#{encode_uri_component(value)}"
+    })
+    |> String.join("&")
+}
+
+## `res` if its status is 2xx, otherwise fails with UnexpectedStatus.
+pub fn require_ok(res: Response) -> Response fails UnexpectedStatus {
+  if res.status >= 200 && res.status < 300 {
+    res
+  } else {
+    fail UnexpectedStatus(status: res.status, body: res.body)
+  }
+}
+
+## A response with no headers.
+pub fn response(status: Int, body: String) -> Response {
+  Response(status:, headers: [], body:)
+}
+
+@external(js, "encodeURIComponent")
+fn encode_uri_component(s: String) -> String use {}
+
+## The request being built on the host (a JS object). `List` cannot cross the external function
+## boundary (spec 12.4), so the headers are added one by one.
+@external
+type HostRequest
+
+## The outcome of a send on the host: a response, or the kind of failure and its message.
+@external
+type HostResponse
+
+@external(js, "./http.mjs", "newRequest")
+fn host_request(method: String, url: String, body: String) -> HostRequest
+
+@external(js, "./http.mjs", "withHeader")
+fn host_with_header(req: HostRequest, name: String, value: String) -> HostRequest
+
+@external(js, "./http.mjs", "send")
+suspend fn host_send(req: HostRequest) -> HostResponse
+
+## 0 for a response, 1 for InvalidUrl, 2 for ConnectionFailed, 3 for ResponseNotText.
+@external(js, "./http.mjs", "outcome")
+fn host_outcome(res: HostResponse) -> Int
+
+@external(js, "./http.mjs", "message")
+fn host_message(res: HostResponse) -> String
+
+@external(js, "./http.mjs", "status")
+fn host_status(res: HostResponse) -> Int
+
+@external(js, "./http.mjs", "body")
+fn host_body(res: HostResponse) -> String
+
+@external(js, "./http.mjs", "headerCount")
+fn host_header_count(res: HostResponse) -> Int
+
+@external(js, "./http.mjs", "headerName")
+fn host_header_name(res: HostResponse, index: Int) -> String
+
+@external(js, "./http.mjs", "headerValue")
+fn host_header_value(res: HostResponse, index: Int) -> String
+
+fn method_name(method: Method) -> String {
+  method match {
+    Get     -> "GET"
+    Head    -> "HEAD"
+    Post    -> "POST"
+    Put     -> "PUT"
+    Patch   -> "PATCH"
+    Delete  -> "DELETE"
+    Options -> "OPTIONS"
+  }
+}
+
+## The host's HTTP client (JS `fetch`). It follows redirects, keeps no cookies and ignores the
+## proxy environment variables. Interrupting the fiber waiting on `send` aborts the request
+## (spec 12.2).
+pub handler SystemHttp implements Http {
+  suspend fn send(request, resume) {
+    start = host_request(method_name(request.method), request.url, request.body)
+    req = List.fold(request.headers, from: start, f: fn(req, pair) {
+      (name, value) = pair
+      host_with_header(req, name, value)
+    })
+    res = host_send(req)
+    host_outcome(res) match {
+      1 -> fail InvalidUrl(url: request.url)
+      2 -> fail ConnectionFailed(url: request.url, message: host_message(res))
+      3 -> fail ResponseNotText(url: request.url)
+      _ -> {
+        headers = List.map(List.range(0, host_header_count(res)), fn(i) {
+          (host_header_name(res, i), host_header_value(res, i))
+        })
+        resume(Response(status: host_status(res), headers:, body: host_body(res)))
+      }
+    }
+  }
+}
+
+## The server that TestHttp sends to. `respond` gets the request and how many requests were sent
+## before it (from 0), and returns the response, or `None` for ConnectionFailed. `sent` holds the
+## sent requests in order.
+pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])
+
+## The test handler. The server is `State[TestServer]`, so use it inside `State.run`:
+##
+##   server = TestServer(respond: fn(req, n) { Some(Http.response(200, "ok")) }, sent: [])
+##   (res, after) = State.run(server, fn() { with TestHttp { Http.get("https://example.com") } })
+##
+## `send` adds the request to `sent` and resumes at once. It never fails with InvalidUrl or
+## ResponseNotText.
+pub handler TestHttp implements Http {
+  suspend fn send(request, resume) {
+    st = use State[TestServer]
+    server = st.get()
+    st.set(TestServer(sent: List.append(server.sent, [request]), ..server))
+    respond = server.respond
+    respond(request, List.length(server.sent)) match {
+      Some(res) -> resume(res)
+      None -> fail ConnectionFailed(url: request.url, message: "TestServer returned no response")
+    }
+  }
+}

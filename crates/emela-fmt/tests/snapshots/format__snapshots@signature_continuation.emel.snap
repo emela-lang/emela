@@ -1,0 +1,54 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/signature_continuation.emel
+---
+pub fn get(url: String) -> Response
+  fails InvalidUrl | ConnectionFailed | ResponseNotText
+  use Http {
+  fails = 1
+  x
+}
+
+fn short() -> Int fails Boom use Log { 1 }
+
+effect Store {
+  fn load(id: Int) -> Item
+    fails NotFound
+  fn save(item: Item) -> ()
+}
+
+@external(js, "./x.mjs", "now")
+fn now() -> Int
+  use {}
+
+fn long_params(first_argument: String, second_argument: String, third_argument: Int) -> Int
+  fails Boom {
+  1
+}
+
+pub fn fetch_profile(user_id: Int, token: String) -> Profile
+  fails NotFound | Unauthorized
+  use { Http, Log } {
+  todo()
+}
+
+pub fn fetch_everything(
+  first_identifier: Int,
+  second_identifier: Int,
+  authorization_token: String,
+) -> Profile fails NotFound | Unauthorized | Timeout use { Http, Log, Clock } {
+  todo()
+}
+
+fn exactly_fits_on_one_line_with_the_brace(user_id: Int) -> Profile fails NotFound use Http { 1 }
+
+effect Remote {
+  fn fetch_remote_document(identifier: Int, revision: Int) -> Document
+    fails NotFound | Unauthorized | Timeout
+}
+
+@external(js, "./x.mjs", "load")
+fn load_external(path: String, options: String) -> String
+  fails LoadFailed | ParseFailed
+  use { Async }

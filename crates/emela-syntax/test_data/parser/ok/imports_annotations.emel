@@ -1,0 +1,31 @@
+import Http.Client
+import Data.Json.{Json, decode}
+import Std.List.{
+  map,
+  filter,
+}
+
+## コンソールに出す
+## 2行目
+@external(js, "console.log")
+fn console_log(msg: String) -> ()
+
+@external(js, "Math.sin")
+@external(wasm, "env", "sin")
+fn sin(x: Float) -> Float use {}
+
+@external(js, "./http_ffi.mjs", "fetchText")
+@external(wasm, "wasi:http/client", "fetch")
+suspend fn fetch_text(url: String) -> String
+
+## テスト
+@test
+fn greet_returns_user() {
+  with AppTest {
+    user = greet(1)
+    assert user.name == "alice"
+  }
+}
+
+@bench(iterations: 100, name: "x")
+pub fn fast() { 1 }

@@ -1,0 +1,9 @@
+type User(id Int, name: String)
+enum Shape {
+  Circle(radius: Float, Float)
+  rect(Float)
+  A B
+}
+type
+error 42
+type Ok(x: Int)

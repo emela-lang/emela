@@ -1,0 +1,818 @@
+//! Integration tests that run `emela` as a process.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// A per-test project. Leftovers are removed on creation, and the directory on drop.
+struct Project {
+    dir: PathBuf,
+}
+
+impl Project {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("emela-cli-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, text) in files {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        Project { dir }
+    }
+
+    fn emela(&self, args: &[&str]) -> Run {
+        let output = Command::new(env!("CARGO_BIN_EXE_emela"))
+            .args(args)
+            .current_dir(&self.dir)
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap();
+        Run {
+            code: output.status.code(),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl Drop for Project {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[derive(Debug)]
+struct Run {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+const BROKEN: &[(&str, &str)] = &[
+    ("Pome.toml", ""),
+    ("src/main.emel", "fn main() {\n  \"abc\n}\nconst Y = $\n"),
+    ("src/http/client.emel", "const N = 3px\n"),
+    ("src/Util.emel", ""),
+];
+
+/// `--help` is written in English, using the same words as the Commands table in the README.
+#[test]
+fn help_is_english() {
+    let project = Project::new("help", &[]);
+    for command in ["", "check", "build", "run", "test", "fmt", "lsp"] {
+        let args: Vec<&str> = [command, "--help"]
+            .into_iter()
+            .filter(|a| !a.is_empty())
+            .collect();
+        let run = project.emela(&args);
+        assert_eq!(run.code, Some(0), "{command}: {run:?}");
+        assert!(run.stdout.is_ascii(), "{command}: {}", run.stdout);
+    }
+}
+
+#[test]
+fn check_reports_all_errors() {
+    let project = Project::new("broken", BROKEN);
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
+
+#[test]
+fn check_file_and_directory_agree() {
+    let project = Project::new("agree", BROKEN);
+    let by_dir = project.emela(&["check", "."]);
+    let by_file = project.emela(&["check", "src/main.emel"]);
+    assert_eq!(by_dir.stderr, by_file.stderr);
+    assert_eq!(by_file.code, Some(1));
+}
+
+#[test]
+fn check_clean_project() {
+    let project = Project::new(
+        "clean",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "import Json\n\nfn main() { 1 }\n"),
+            ("src/json.emel", ""),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "")
+    );
+    // Same when the directory is passed from outside the project.
+    let parent = project.path().parent().unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(project.path())
+        .current_dir(parent)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(0));
+}
+
+#[test]
+fn check_missing_path() {
+    let project = Project::new("missing", &[]);
+    let run = project.emela(&["check", "nowhere.emel"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr, @"
+    error[E0901]: `nowhere.emel` not found
+
+    1 error
+    ");
+}
+
+#[test]
+fn build_writes_js() {
+    let project = Project::new(
+        "build-js",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() {\n  dbg(1 + 2)\n}\n"),
+        ],
+    );
+    let run = project.emela(&["build"]);
+    assert_eq!((run.code, run.stderr.as_str()), (Some(0), ""));
+    let js = std::fs::read_to_string(project.path().join("target/emela/js/main.mjs")).unwrap();
+    assert!(js.contains("function main()"), "{js}");
+    assert!(js.contains("export { main };"), "{js}");
+}
+
+#[test]
+fn build_reports_unsupported_expressions() {
+    let project = Project::new(
+        "unsupported",
+        &[
+            ("Pome.toml", ""),
+            // Showing a type parameter's value needs Show dictionary passing or monomorphization,
+            // which comes in 0.21.
+            (
+                "src/main.emel",
+                "fn main() {\n  show(1)\n}\n\nfn show[A](x: A) -> String {\n  \"#{x}\"\n}\n",
+            ),
+        ],
+    );
+    for command in ["build", "run"] {
+        let run = project.emela(&[command]);
+        assert_eq!(run.code, Some(1), "{command}");
+        assert!(
+            run.stderr
+                .starts_with("error: not supported yet: showing a value of a type parameter\n"),
+            "{command}: {}",
+            run.stderr
+        );
+    }
+}
+
+#[test]
+fn build_reports_missing_entry() {
+    let project = Project::new("no-entry", &[("Pome.toml", ""), ("src/util.emel", "")]);
+    let run = project.emela(&["build"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(
+        run.stderr,
+        "error[E0209]: the entry `src/main.emel` does not exist\n\n1 error\n"
+    );
+    // `check` does not require the entry.
+    assert_eq!(project.emela(&["check"]).code, Some(0));
+}
+
+#[test]
+fn run_without_main_is_an_error() {
+    // `run` requires `main` in the entry (spec 8.3); `build` emits output without one.
+    let project = Project::new(
+        "no-main",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn helper() {\n  dbg(1)\n}\n"),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
+    insta::assert_snapshot!(run.stderr, @"
+    error[E0230]: entry `src/main.emel` has no `main` function
+       ─[ src/main.emel ]
+
+    1 error
+    ");
+    let build = project.emela(&["build"]);
+    assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));
+    assert!(project.path().join("target/emela/js/main.mjs").exists());
+}
+
+#[test]
+fn run_single_file_without_main_is_an_error() {
+    let project = Project::new("no-main-file", &[("lone.emel", "const N = 1\n")]);
+    let run = project.emela(&["run", "lone.emel"]);
+    assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
+    insta::assert_snapshot!(run.stderr, @"
+    error[E0230]: entry `lone.emel` has no `main` function
+       ─[ lone.emel ]
+
+    1 error
+    ");
+    let build = project.emela(&["build", "lone.emel"]);
+    assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));
+}
+
+#[test]
+fn check_with_absolute_path_from_elsewhere() {
+    let project = Project::new("absolute", BROKEN);
+    let inside = project.emela(&["check"]);
+    // A path given as absolute from another directory is still reported relative to the
+    // project.
+    let entry = project.path().join("src/main.emel");
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("check")
+        .arg(&entry)
+        .current_dir(std::env::temp_dir())
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(run.stderr).unwrap(), inside.stderr);
+    // Same from a directory inside the project.
+    let run = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .args(["check", "main.emel"])
+        .current_dir(project.path().join("src"))
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(run.stderr).unwrap(), inside.stderr);
+}
+
+#[test]
+fn directory_needs_pome_toml() {
+    let project = Project::new("no-pome", &[("src/main.emel", "")]);
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
+}
+
+#[test]
+fn file_outside_source_root() {
+    let project = Project::new(
+        "outside",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", ""),
+            ("scripts/x.emel", ""),
+        ],
+    );
+    let run = project.emela(&["check", "scripts/x.emel"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr
+            .starts_with("error[E0208]: file `scripts/x.emel` is outside the source root `src`"),
+        "{}",
+        run.stderr
+    );
+}
+
+/// check, build, run and test reject a directory outside the source root like fmt does
+/// (spec appendix B). The project directory and directories under the source root still mean the
+/// whole project.
+#[test]
+fn directory_outside_source_root() {
+    let project = Project::new(
+        "outside-dir",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() { () }\n"),
+            ("src/http/client.emel", ""),
+            ("scripts/x.emel", ""),
+        ],
+    );
+    for command in ["check", "build", "run", "test"] {
+        let run = project.emela(&[command, "scripts"]);
+        assert_eq!(run.code, Some(1), "{command}: {}", run.stderr);
+        assert!(
+            run.stderr
+                .starts_with("error[E0208]: directory `scripts` is outside the source root `src`"),
+            "{command}: {}",
+            run.stderr
+        );
+        for inside in [".", "src", "src/http"] {
+            let run = project.emela(&[command, inside]);
+            assert_eq!(run.code, Some(0), "{command} {inside}: {}", run.stderr);
+        }
+    }
+}
+
+#[test]
+fn single_file_reads_only_imported_files() {
+    let project = Project::new(
+        "single",
+        &[
+            ("main.emel", "import Util\n\nfn main() { 1 }\n"),
+            ("util.emel", "const Y = $\n"),
+            // Not reachable from the entry, so never read.
+            ("scratch.emel", "fn broken( {\n"),
+            ("Bad.emel", ""),
+            ("deep/broken.emel", "const Z = $\n"),
+            ("Not-A-Dir/x.emel", ""),
+        ],
+    );
+    let run = project.emela(&["check", "main.emel"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
+    // Passes as long as the broken file is not imported.
+    let clean = Project::new(
+        "single-clean",
+        &[
+            ("main.emel", "fn main() { 1 }\n"),
+            ("scratch.emel", "fn broken( {\n"),
+        ],
+    );
+    let run = clean.emela(&["check", "main.emel"]);
+    assert_eq!((run.code, run.stderr.as_str()), (Some(0), ""));
+}
+
+#[test]
+fn check_reports_syntax_and_import_errors() {
+    let project = Project::new(
+        "imports",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "import Http.Client.{get}\nimport Missing\n\nfn main() {\n  get(\n}\n",
+            ),
+            (
+                "src/http/client.emel",
+                "import Json\n\npub fn get(url: String) { url }\n",
+            ),
+            ("src/json.emel", "import Http.Client\n\nconst Z: = 1\n"),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    insta::assert_snapshot!(run.stderr);
+}
+
+/// Runs `emela lsp`, waits for workspace diagnostics, then exits with 0 after shutdown and exit.
+#[test]
+fn lsp_over_stdio() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::Stdio;
+
+    let project = Project::new(
+        "lsp",
+        &[("Pome.toml", ""), ("src/main.emel", "const X = $\n")],
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_emela"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut send = |body: String| {
+        write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        stdin.flush().unwrap();
+    };
+    let mut recv = || {
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            stdout.read_line(&mut line).unwrap();
+            let line = line.trim();
+            if line.is_empty() {
+                break;
+            }
+            if let Some(n) = line.strip_prefix("Content-Length: ") {
+                length = n.parse().unwrap();
+            }
+        }
+        let mut body = vec![0; length];
+        stdout.read_exact(&mut body).unwrap();
+        String::from_utf8(body).unwrap()
+    };
+    let root = format!("file://{}", project.path().display());
+    send(format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"capabilities":{{}},"rootUri":"{root}"}}}}"#
+    ));
+    assert!(recv().contains(r#""textDocumentSync""#));
+    send(r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#.to_owned());
+    let published = recv();
+    assert!(
+        published.contains("textDocument/publishDiagnostics"),
+        "{published}"
+    );
+    assert!(published.contains(r#""code":"E0105""#), "{published}");
+    assert!(published.contains("src/main.emel"), "{published}");
+    send(r#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#.to_owned());
+    assert!(recv().contains(r#""id":2"#));
+    send(r#"{"jsonrpc":"2.0","method":"exit"}"#.to_owned());
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
+
+#[test]
+fn check_reports_name_resolution_errors() {
+    let project = Project::new(
+        "resolve",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/email.emel",
+                "pub opaque type Email(value: String)\n\npub fn parse(input: String) -> Email {\n  Email(value: input)\n}\n\nfn secret() { 1 }\n",
+            ),
+            (
+                "src/main.emel",
+                "import Email\nimport Email.{Email, secret}\n\nfn main() {\n  count = 1\n  e = Email(value: \"a\")\n  Email.parse(cout)\n}\n\nfn first[Email](e: Email) -> Email { e }\n\nfn twice() { 1 }\nfn twice() { 2 }\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
+
+#[test]
+fn check_resolves_bundled_core() {
+    let project = Project::new(
+        "core",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "fn main() -> Int {\n  xs = List.map([1, 2], fn(x) { x * 2 })\n  Option.or(List.head(xs), 0) + String.length(\"abc\")\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "")
+    );
+}
+
+#[test]
+fn check_reports_error_set_errors() {
+    let project = Project::new(
+        "errors",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "error NotFound(id: Int)\nerror Timeout\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn strict() -> Int {\n  find(1)\n}\n\nfn wrong() -> Int fails Timeout {\n  find(1)\n}\n\nfn run(f: fn() -> Int fails {}) -> Int { f() }\n\nfn bad() -> Int { run(fn() { fail Timeout }) }\n\nfn never() -> Int { strict() escape { Timeout -> 0 } }\n\nfn not_error() { fail 1 }\n\nfn catch_all() -> Int { find(1) escape { _ -> 0 } }\n\n# main の E は空でなくてよい（14.3）\nfn main() {\n  find(1)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stdout, "");
+    insta::assert_snapshot!(run.stderr);
+}
+
+/// An error that reaches `main` prints `error: <the error's Show>` and exits with 1 (spec 14.3),
+/// distinct from 101 for a defect. An error caught by `escape` becomes a normal value (spec 7.3).
+#[test]
+fn run_reports_unhandled_error_with_exit_code_1() {
+    let project = Project::new(
+        "fail-run",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
+            ),
+        ],
+    );
+    assert_eq!(project.emela(&["check"]).code, Some(0));
+    assert_eq!(project.emela(&["build"]).code, Some(0));
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(1), "", "0\nerror: NotFound(id: -1)\n")
+    );
+}
+
+#[test]
+fn run_hello_example() {
+    // The README example (`examples/hello`). Console is provided by JsConsole (spec 8.3, 15.2).
+    let project = Project::new(
+        "hello",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/hello/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "hi\nHello, Emela!\nHello, world!\n", "done\n")
+    );
+}
+
+#[test]
+fn run_and_test_errors_example() {
+    // The README example (`examples/errors`). An error not caught by `escape` reaches `main` and
+    // exits with 1 (spec 14.3); tests swap the handler (spec chapter 13).
+    let project = Project::new(
+        "errors",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/errors/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(1),
+            "Hello, alice!\nHello, guest!\n",
+            "error: Invalid(reason: \"negative id\")\n"
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_clock_example() {
+    // The README example (`examples/clock`). JsClock resumes later; the test's InstantClock resumes
+    // immediately (spec 8.4, 8.7).
+    let project = Project::new(
+        "clock",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/clock/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "3\n2\n1\nliftoff\n", "")
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_fibers_example() {
+    // The `examples/fibers` example. The children of a scope wait concurrently; the combinators
+    // keep the order of their arguments, and a failing child interrupts its siblings (spec 11.2,
+    // 11.3).
+    let project = Project::new(
+        "fibers",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/fibers/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "fetched 2\nfetched 1\nboth: user 1, user 2\nfetched 5\nfetched 4\nfetched 3\n\
+             map: [\"user 3\", \"user 4\", \"user 5\"]\nfetched 7\nrace: user 7\n\
+             timeout: None\nfetched -1\nnot found: -1\n",
+            ""
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_notes_example() {
+    // The `examples/notes` example. SystemFileSystem (in Platform) writes under the project
+    // directory; the tests use TestFileSystem (spec 15.2).
+    let project = Project::new(
+        "notes",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/notes/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "no notes in notes/monday.txt\n1 note(s)\n[\"monday.txt\"]\n",
+            ""
+        )
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(run.stdout, "buy milk\n2 note(s)\n[\"monday.txt\"]\n");
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_http_example() {
+    // The `examples/http` example. TestHttp answers with a function, so neither `run` nor `test`
+    // touches the network; a 404 is a response and a missing answer is ConnectionFailed (spec 15.2).
+    let project = Project::new(
+        "http",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/http/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "Emela: typed errors and effects\nstatus 404\n\
+             unreachable: TestServer returned no response\n\
+             sent https://search.example.com/search?q=emela&page=1\n\
+             sent https://search.example.com/search?q=%E6%9D%B1%E4%BA%AC&page=1\n\
+             sent https://search.example.com/search?q=again&page=1\n",
+            ""
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_and_test_resources_example() {
+    // The `examples/resources` example. A handler with state opens in `init` and closes in
+    // `release`; the layer is ordered by dependencies, and a later handler replaces the layer's
+    // one for the same effect (spec 8.3, 8.4, 8.5, 14.2).
+    let project = Project::new(
+        "resources",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                include_str!("../../../examples/resources/src/main.emel"),
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(0),
+            "open store v1\nv1/alice\nv1/bob\nclose store v1\n",
+            ""
+        )
+    );
+    assert_eq!(project.emela(&["test"]).code, Some(0));
+}
+
+#[test]
+fn run_calls_external_module_next_to_the_source() {
+    // An `@external` pointing to a file resolves next to the declaring source (spec 12.1). A thrown
+    // exception is a defect, and a lone surrogate in a received string becomes U+FFFD (spec 12.5).
+    let project = Project::new(
+        "ffi",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/host/ffi.mjs",
+                "export function lone() { return \"a\\uD800\"; }\nexport function boom() { throw new TypeError(\"bad\"); }\n",
+            ),
+            (
+                "src/host/host.emel",
+                "pub effect Host {\n  fn lone() -> String\n  fn boom() -> ()\n}\n\n@external(js, \"./ffi.mjs\", \"lone\")\nfn js_lone() -> String\n\n@external(js, \"./ffi.mjs\", \"boom\")\nfn js_boom() -> ()\n\npub handler NodeHost implements Host {\n  fn lone() { js_lone() }\n  fn boom() { js_boom() }\n}\n",
+            ),
+            (
+                "src/main.emel",
+                "import Host.Host.{Host, NodeHost}\n\nfn main() {\n  with NodeHost {\n    h = use Host\n    dbg(String.code_points(h.lone()))\n    h.boom()\n  }\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(101), "", "[97, 65533]\ndefect: TypeError: bad\n")
+    );
+}
+
+/// A const is evaluated on its first reference only, and a defect while evaluating it names the
+/// const and is remembered: the tests share the values, and an unused const with a defect does not
+/// get in the way (spec 5.6).
+#[test]
+fn constants_are_evaluated_once() {
+    let project = Project::new(
+        "const-once",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                r#"const ANSWER = traced("ANSWER", 21)
+const BROKEN = traced("BROKEN", 1) / zero()
+const UNUSED = 1 / zero()
+
+fn traced(name: String, n: Int) -> Int {
+  dbg("evaluating #{name}")
+  n
+}
+
+fn zero() -> Int { 0 }
+
+@test
+fn first() {
+  assert ANSWER + ANSWER == 42
+  assert BROKEN == 0
+}
+
+@test
+fn second() {
+  assert ANSWER == 21
+  assert BROKEN == 0
+}
+
+fn main() {
+  dbg(ANSWER + ANSWER)
+  dbg(ANSWER)
+}
+"#,
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (Some(0), "", "\"evaluating ANSWER\"\n42\n21\n")
+    );
+    let run = project.emela(&["test"]);
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert_eq!(
+        run.stdout
+            .matches("defect: while evaluating const BROKEN: division by zero")
+            .count(),
+        2,
+        "{run:?}"
+    );
+    let traces = format!("{}{}", run.stdout, run.stderr);
+    assert_eq!(traces.matches("evaluating ANSWER").count(), 1, "{run:?}");
+    assert_eq!(
+        traces.matches("\"evaluating BROKEN\"").count(),
+        1,
+        "{run:?}"
+    );
+}
+
+/// Referring to a const while it is being evaluated is a defect, and consts that refer to each
+/// other by name only are an error at compile time (E0231, spec 5.6).
+#[test]
+fn const_cycles() {
+    let project = Project::new(
+        "const-self",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "const A = f()\n\nfn f() -> Int { A + 1 }\n\nfn main() {\n  dbg(A)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["run"]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            Some(101),
+            "",
+            "defect: const A refers to itself while being evaluated\n"
+        )
+    );
+
+    let project = Project::new(
+        "const-cycle",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "const A = B\nconst B = A + 1\n\nfn main() {\n  dbg(A)\n}\n",
+            ),
+        ],
+    );
+    let run = project.emela(&["check"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr
+            .contains("error[E0231]: constants refer to each other: `A` -> `B` -> `A`"),
+        "{run:?}"
+    );
+}

@@ -1,0 +1,16 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nerror NotFound(id: Int)\n\nfn f(count: Int) -> Strng {\n  x = cout + 1\n  y = Usr(id: 1)\n  z = Lisst.map([], fn(a) { a })\n  w = List.mapp([], fn(a) { a })\n  v = Show.shw(1)\n  u = Undefined\n  match x {\n    Nothing -> 1\n    MISSING -> 2\n  }\n}\n\nfn g[A](a: B) -> A fails NotFonud use Loger { a }\n\"##,)])"
+---
+error src/main.emel@64..69 `Strng`: undefined type `Strng` (did you mean `String`?)
+error src/main.emel@78..82 `cout`: undefined value `cout` (did you mean `count`?)
+error src/main.emel@93..96 `Usr`: undefined constructor `Usr` (did you mean `User`?)
+error src/main.emel@110..115 `Lisst`: undefined module or trait `Lisst` (did you mean `List`?)
+error src/main.emel@148..152 `mapp`: `List` has no `mapp` (did you mean `map`?)
+error src/main.emel@181..184 `shw`: `Show` has no `shw` (did you mean `show`?)
+error src/main.emel@194..203 `Undefined`: undefined constructor `Undefined`
+error src/main.emel@220..227 `Nothing`: undefined constructor `Nothing`
+error src/main.emel@237..244 `MISSING`: undefined value `MISSING`
+error src/main.emel@268..269 `B`: undefined type parameter `B` (did you mean `A`?)
+error src/main.emel@282..290 `NotFonud`: undefined error `NotFonud` (did you mean `NotFound`?)
+error src/main.emel@295..300 `Loger`: undefined effect `Loger`

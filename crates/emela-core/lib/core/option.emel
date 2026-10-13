@@ -1,0 +1,47 @@
+# Functions on Option. Option itself is the Prelude enum (prelude.emel).
+# The Option comes first as `opt`, so calls read as `opt |> Option.map(f)`.
+
+pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
+  opt match {
+    Some(x) -> Some(f(x))
+    None    -> None
+  }
+}
+
+pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
+  opt match {
+    Some(x) -> f(x)
+    None    -> None
+  }
+}
+
+## The value, or `default` if `None`.
+pub fn or[A](opt: Option[A], default: A) -> A {
+  opt match {
+    Some(x) -> x
+    None    -> default
+  }
+}
+
+pub fn is_some[A](opt: Option[A]) -> Bool {
+  opt match {
+    Some(_) -> True
+    None    -> False
+  }
+}
+
+pub fn is_none[A](opt: Option[A]) -> Bool {
+  opt match {
+    Some(_) -> False
+    None    -> True
+  }
+}
+
+## Fails with `err` if `None` (spec 7.2). Turns an Option into a failure, as in
+## `users.find(id) |> Option.or_fail(NotFound(id:))`.
+pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
+  opt match {
+    Some(x) -> x
+    None    -> fail err
+  }
+}

@@ -1,0 +1,194 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_external.emel
+---
+ROOT@0..316
+  FN_DECL@0..62
+    ANNOTATION@0..28
+      AT@0..1 "@"
+      LOWER_NAME@1..9 "external"
+      ANNOT_ARG_LIST@9..28
+        L_PAREN@9..10 "("
+        ANNOT_ARG@10..12
+          LOWER_NAME@10..12 "js"
+        COMMA@12..13 ","
+        WHITESPACE@13..14 " "
+        ANNOT_ARG@14..27
+          STRING@14..27
+            STRING_QUOTE@14..15 "\""
+            STRING_TEXT@15..26 "console.log"
+            STRING_QUOTE@26..27 "\""
+        R_PAREN@27..28 ")"
+    NEWLINE@28..29 "\n"
+    FN_KW@29..31 "fn"
+    WHITESPACE@31..32 " "
+    LOWER_NAME@32..43 "console_log"
+    PARAM_LIST@43..56
+      L_PAREN@43..44 "("
+      PARAM@44..55
+        LOWER_NAME@44..47 "msg"
+        COLON@47..48 ":"
+        WHITESPACE@48..49 " "
+        PATH_TYPE@49..55
+          PATH@49..55
+            TYPE_NAME@49..55 "String"
+      R_PAREN@55..56 ")"
+    WHITESPACE@56..57 " "
+    RET_TYPE@57..62
+      THIN_ARROW@57..59 "->"
+      WHITESPACE@59..60 " "
+      UNIT_TYPE@60..62
+        L_PAREN@60..61 "("
+        R_PAREN@61..62 ")"
+  NEWLINE@62..63 "\n"
+  NEWLINE@63..64 "\n"
+  FN_DECL@64..152
+    ANNOTATION@64..89
+      AT@64..65 "@"
+      LOWER_NAME@65..73 "external"
+      ANNOT_ARG_LIST@73..89
+        L_PAREN@73..74 "("
+        ANNOT_ARG@74..76
+          LOWER_NAME@74..76 "js"
+        COMMA@76..77 ","
+        WHITESPACE@77..78 " "
+        ANNOT_ARG@78..88
+          STRING@78..88
+            STRING_QUOTE@78..79 "\""
+            STRING_TEXT@79..87 "Math.sin"
+            STRING_QUOTE@87..88 "\""
+        R_PAREN@88..89 ")"
+    NEWLINE@89..90 "\n"
+    ANNOTATION@90..119
+      AT@90..91 "@"
+      LOWER_NAME@91..99 "external"
+      ANNOT_ARG_LIST@99..119
+        L_PAREN@99..100 "("
+        ANNOT_ARG@100..104
+          LOWER_NAME@100..104 "wasm"
+        COMMA@104..105 ","
+        WHITESPACE@105..106 " "
+        ANNOT_ARG@106..111
+          STRING@106..111
+            STRING_QUOTE@106..107 "\""
+            STRING_TEXT@107..110 "env"
+            STRING_QUOTE@110..111 "\""
+        COMMA@111..112 ","
+        WHITESPACE@112..113 " "
+        ANNOT_ARG@113..118
+          STRING@113..118
+            STRING_QUOTE@113..114 "\""
+            STRING_TEXT@114..117 "sin"
+            STRING_QUOTE@117..118 "\""
+        R_PAREN@118..119 ")"
+    NEWLINE@119..120 "\n"
+    FN_KW@120..122 "fn"
+    WHITESPACE@122..123 " "
+    LOWER_NAME@123..126 "sin"
+    PARAM_LIST@126..136
+      L_PAREN@126..127 "("
+      PARAM@127..135
+        LOWER_NAME@127..128 "x"
+        COLON@128..129 ":"
+        WHITESPACE@129..130 " "
+        PATH_TYPE@130..135
+          PATH@130..135
+            TYPE_NAME@130..135 "Float"
+      R_PAREN@135..136 ")"
+    WHITESPACE@136..137 " "
+    RET_TYPE@137..145
+      THIN_ARROW@137..139 "->"
+      WHITESPACE@139..140 " "
+      PATH_TYPE@140..145
+        PATH@140..145
+          TYPE_NAME@140..145 "Float"
+    WHITESPACE@145..146 " "
+    USE_CLAUSE@146..152
+      USE_KW@146..149 "use"
+      WHITESPACE@149..150 " "
+      EFFECT_SET@150..152
+        L_BRACE@150..151 "{"
+        R_BRACE@151..152 "}"
+  NEWLINE@152..153 "\n"
+  NEWLINE@153..154 "\n"
+  FN_DECL@154..288
+    ANNOTATION@154..198
+      AT@154..155 "@"
+      LOWER_NAME@155..163 "external"
+      ANNOT_ARG_LIST@163..198
+        L_PAREN@163..164 "("
+        ANNOT_ARG@164..166
+          LOWER_NAME@164..166 "js"
+        COMMA@166..167 ","
+        WHITESPACE@167..168 " "
+        ANNOT_ARG@168..184
+          STRING@168..184
+            STRING_QUOTE@168..169 "\""
+            STRING_TEXT@169..183 "./http_ffi.mjs"
+            STRING_QUOTE@183..184 "\""
+        COMMA@184..185 ","
+        WHITESPACE@185..186 " "
+        ANNOT_ARG@186..197
+          STRING@186..197
+            STRING_QUOTE@186..187 "\""
+            STRING_TEXT@187..196 "fetchText"
+            STRING_QUOTE@196..197 "\""
+        R_PAREN@197..198 ")"
+    NEWLINE@198..199 "\n"
+    ANNOTATION@199..243
+      AT@199..200 "@"
+      LOWER_NAME@200..208 "external"
+      ANNOT_ARG_LIST@208..243
+        L_PAREN@208..209 "("
+        ANNOT_ARG@209..213
+          LOWER_NAME@209..213 "wasm"
+        COMMA@213..214 ","
+        WHITESPACE@214..215 " "
+        ANNOT_ARG@215..233
+          STRING@215..233
+            STRING_QUOTE@215..216 "\""
+            STRING_TEXT@216..232 "wasi:http/client"
+            STRING_QUOTE@232..233 "\""
+        COMMA@233..234 ","
+        WHITESPACE@234..235 " "
+        ANNOT_ARG@235..242
+          STRING@235..242
+            STRING_QUOTE@235..236 "\""
+            STRING_TEXT@236..241 "fetch"
+            STRING_QUOTE@241..242 "\""
+        R_PAREN@242..243 ")"
+    NEWLINE@243..244 "\n"
+    SUSPEND_KW@244..251 "suspend"
+    WHITESPACE@251..252 " "
+    FN_KW@252..254 "fn"
+    WHITESPACE@254..255 " "
+    LOWER_NAME@255..265 "fetch_text"
+    PARAM_LIST@265..278
+      L_PAREN@265..266 "("
+      PARAM@266..277
+        LOWER_NAME@266..269 "url"
+        COLON@269..270 ":"
+        WHITESPACE@270..271 " "
+        PATH_TYPE@271..277
+          PATH@271..277
+            TYPE_NAME@271..277 "String"
+      R_PAREN@277..278 ")"
+    WHITESPACE@278..279 " "
+    RET_TYPE@279..288
+      THIN_ARROW@279..281 "->"
+      WHITESPACE@281..282 " "
+      PATH_TYPE@282..288
+        PATH@282..288
+          TYPE_NAME@282..288 "String"
+  NEWLINE@288..289 "\n"
+  NEWLINE@289..290 "\n"
+  TYPE_DECL@290..315
+    ANNOTATION@290..299
+      AT@290..291 "@"
+      LOWER_NAME@291..299 "external"
+    NEWLINE@299..300 "\n"
+    TYPE_KW@300..304 "type"
+    WHITESPACE@304..305 " "
+    TYPE_NAME@305..315 "Connection"
+  NEWLINE@315..316 "\n"

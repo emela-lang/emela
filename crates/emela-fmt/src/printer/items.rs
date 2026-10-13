@@ -1,0 +1,211 @@
+//! Files and declarations (spec 17.3).
+
+use emela_syntax::SyntaxKind::*;
+use emela_syntax::SyntaxNode;
+use pretty::RcDoc;
+
+use super::exprs::{newline_before, unbreakable};
+use super::{
+    Doc, INDENT, Printer, child_token, first_significant_token, has_newline_child,
+    significant_children, text,
+};
+use crate::comments::Leading;
+
+impl Printer {
+    /// Keeps at most one blank line between declarations and ends with a newline.
+    pub(crate) fn root(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        let mut started = false;
+        for decl in node.children() {
+            if started {
+                out = out.append(self.hard());
+            }
+            if let Some(first) = first_significant_token(&decl) {
+                out = out.append(self.leading_lines(&first, !started));
+            }
+            out = out.append(self.decl(&decl));
+            started = true;
+        }
+        let items = self.take_leading_eof();
+        let has_comments = items
+            .iter()
+            .any(|l| matches!(l, crate::comments::Leading::Comment(_)));
+        out = out.append(self.closing_comments(items, started));
+        if started || has_comments {
+            out = out.append(self.hard());
+        }
+        out
+    }
+
+    fn decl(&mut self, node: &SyntaxNode) -> Doc {
+        match node.kind() {
+            FN_DECL | TYPE_DECL | ERROR_DECL | ENUM_DECL | CONST_DECL | EFFECT_DECL
+            | HANDLER_DECL | LAYER_DECL | TRAIT_DECL | IMPL_DECL | IMPORT => self.decl_seq(node),
+            _ => self.verbatim(node),
+        }
+    }
+
+    /// Also prints effect operations and handler `init` and `release`.
+    ///
+    /// `@external(...)⏎ [pub] [opaque] type Name[A](x: Int) derive Eq`
+    /// `[pub] [suspend] fn name[A](x: Int) -> T fails E use R { ... }`
+    ///
+    /// Each annotation goes on its own line. Type parameter, parameter and field lists attach
+    /// to the name.
+    pub(crate) fn decl_seq(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        // The `fails` and `use` clauses read so far, put into `out` as one group (below).
+        let mut clauses: Option<Doc> = None;
+        let mut first = true;
+        for child in significant_children(node) {
+            // `fails` and `use` clauses go on their own lines, indented, when they do not fit on
+            // the line (rule 4 of spec 2.5), and stay there if the source had them there, like
+            // `derive`. Both clauses are one group, so they break together. The group comes after
+            // the parameter list, so a signature that does not fit moves its clauses first, and
+            // the parameter list breaks only if the first line is still too long; a parameter
+            // list already broken keeps the clauses on its last line while they fit. The body's
+            // `{` stays on the last line. Each clause itself never breaks.
+            if matches!(child.kind(), FAILS_CLAUSE | USE_CLAUSE) {
+                let on_next_line = first_significant_token(child.as_node().unwrap())
+                    .is_some_and(|t| newline_before(&t));
+                let brk = self.brk(on_next_line);
+                let doc = unbreakable(&self.node(child.as_node().unwrap()));
+                let clause = brk.append(doc).nest(INDENT);
+                clauses = Some(match clauses {
+                    Some(c) => c.append(clause),
+                    None => clause,
+                });
+                first = false;
+                continue;
+            }
+            if let Some(c) = clauses.take() {
+                out = out.append(c.group());
+            }
+            if child.kind() == ANNOTATION {
+                let doc = self.element(&child);
+                out = out.append(doc).append(self.hard());
+                continue;
+            }
+            let attached = matches!(
+                child.kind(),
+                TYPE_PARAM_LIST | PARAM_LIST | FIELD_LIST | TUPLE_FIELD_LIST | IMPORT_LIST | COLON
+            );
+            if child.kind() == DERIVE_CLAUSE {
+                // Keep `derive` on the next line if the source had it there; it also moves to
+                // the next line when it does not fit.
+                let on_next_line = first_significant_token(child.as_node().unwrap())
+                    .is_some_and(|t| newline_before(&t));
+                let brk = self.brk(on_next_line);
+                let doc = self.element(&child);
+                out = out.append(brk.append(doc).nest(INDENT).group());
+                continue;
+            }
+            if !first && !attached {
+                out = out.append(self.space());
+            }
+            first = false;
+            let doc = match child {
+                rowan::NodeOrToken::Token(t) => self.tok(&t),
+                rowan::NodeOrToken::Node(n) => match n.kind() {
+                    BLOCK_EXPR => self.block(&n).assemble(false).group(),
+                    // The return type never breaks.
+                    RET_TYPE => {
+                        let doc = self.node(&n);
+                        unbreakable(&doc)
+                    }
+                    ITEM_LIST | VARIANT_LIST => self.item_list(&n),
+                    _ => self.node(&n),
+                },
+            };
+            out = out.append(doc);
+        }
+        if let Some(c) = clauses {
+            out = out.append(c.group());
+        }
+        out
+    }
+
+    /// A declaration body `{ ... }`: enum variants, layer handlers, and the items of effects,
+    /// handlers, traits and impls.
+    ///
+    /// A multiline source gets one item per line with the separating commas removed
+    /// (`enum Shape {⏎  Circle⏎  Empty⏎}`). A one-line source stays as `{ Red, Green }` while it
+    /// fits, and becomes multiline otherwise.
+    fn item_list(&mut self, node: &SyntaxNode) -> Doc {
+        let multi = has_newline_child(node);
+        let open = match child_token(node, L_BRACE) {
+            Some(t) => self.tok(&t),
+            None => RcDoc::nil(),
+        };
+        let forced = self.pending;
+        let first_break = self.brk(multi);
+        let mut body = RcDoc::nil();
+        let mut count = 0;
+        let mut close_token = None;
+        let children: Vec<_> = significant_children(node).collect();
+        for child in &children {
+            match child {
+                rowan::NodeOrToken::Token(t) if t.kind() == COMMA => {
+                    // The comma is printed only when the list stays flat on one line.
+                    let last = children
+                        .iter()
+                        .skip_while(|c| c.as_token() != Some(t))
+                        .skip(1)
+                        .all(|c| c.kind() == R_BRACE);
+                    let doc = if multi || last {
+                        RcDoc::nil()
+                    } else {
+                        RcDoc::nil().flat_alt(text(","))
+                    };
+                    body = body.append(self.tok_as(t, doc));
+                }
+                rowan::NodeOrToken::Token(t) if t.kind() == R_BRACE => {
+                    close_token = Some(t.clone())
+                }
+                rowan::NodeOrToken::Token(t) if t.kind() == L_BRACE => {}
+                rowan::NodeOrToken::Token(t) => body = body.append(self.tok(t)),
+                rowan::NodeOrToken::Node(n) => {
+                    if count > 0 {
+                        body = body.append(self.brk(multi));
+                    }
+                    if let Some(first) = first_significant_token(n) {
+                        body = body.append(self.leading_lines(&first, count == 0));
+                    }
+                    let doc = self.item(n);
+                    body = body.append(doc);
+                    count += 1;
+                }
+            }
+        }
+        let mut has_closing = false;
+        if let Some(t) = &close_token {
+            let items = self.take_leading(t);
+            has_closing = items.iter().any(|l| matches!(l, Leading::Comment(_)));
+            body = body.append(self.closing_comments(items, count > 0));
+        }
+        let last_break = self.brk(multi);
+        let close = match &close_token {
+            Some(t) => self.tok(t),
+            None => RcDoc::nil(),
+        };
+        if count == 0 && !has_closing {
+            let inner = if forced {
+                RcDoc::hardline()
+            } else {
+                RcDoc::nil()
+            };
+            return open.append(inner).append(close);
+        }
+        open.append(first_break.append(body).nest(INDENT))
+            .append(last_break)
+            .append(close)
+            .group()
+    }
+
+    fn item(&mut self, node: &SyntaxNode) -> Doc {
+        match node.kind() {
+            FN_DECL | OP_SIG | HANDLER_INIT | HANDLER_RELEASE => self.decl_seq(node),
+            _ => self.node(node),
+        }
+    }
+}

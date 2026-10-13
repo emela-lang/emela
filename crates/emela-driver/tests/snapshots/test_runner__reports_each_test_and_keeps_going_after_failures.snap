@@ -1,0 +1,37 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+expression: out
+---
+running 6 tests
+test adds ... ok
+test adds_wrong ... FAILED
+test panics ... FAILED
+test divides_by_zero ... FAILED
+test Util.contains ... ok
+test Util.new ... FAILED
+
+failures:
+
+---- adds_wrong ----
+defect: assertion failed: add(1, 2) == 4
+  left: 3
+ right: 4
+
+---- panics ----
+defect: boom
+
+---- divides_by_zero ----
+defect: division by zero
+
+---- Util.new ----
+defect: assertion failed: left != right
+  left: "a"
+ right: "a"
+
+failures:
+    adds_wrong
+    panics
+    divides_by_zero
+    Util.new
+
+test result: FAILED. 2 passed; 4 failed; 0 filtered out

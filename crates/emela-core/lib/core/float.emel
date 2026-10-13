@@ -1,0 +1,41 @@
+# Functions on Float (IEEE 754 binary64).
+# Converting to Int is a defect if the result is NaN, ±Infinity or outside the range of Int
+# (spec 16.1).
+
+## Every Int is exactly representable as a Float.
+@intrinsic
+pub fn from_int(n: Int) -> Float
+
+## Reads a decimal number in the forms that `to_string` writes: digits with an optional `.` and
+## fraction, an optional exponent (`1e+21`), an optional leading `-` or `+`, and `Infinity`,
+## `-Infinity`, `NaN`. Fails with `ParseError` otherwise (including spaces).
+pub fn parse(s: String) -> Float fails ParseError {
+  parse_or_none(s) match {
+    Some(x) -> x
+    None    -> fail ParseError(input: s)
+  }
+}
+
+@intrinsic
+fn parse_or_none(s: String) -> Option[Float]
+
+## The shortest digits that round-trip. A finite integral value gets a `.0` suffix, as in `1.0`
+## (spec 10.6).
+@intrinsic
+pub fn to_string(x: Float) -> String
+
+## Rounds toward negative infinity.
+@intrinsic
+pub fn floor(x: Float) -> Int
+
+## Rounds toward positive infinity.
+@intrinsic
+pub fn ceil(x: Float) -> Int
+
+## Rounds to the nearest integer, with ties away from zero (`2.5` is 3, `-2.5` is -3).
+@intrinsic
+pub fn round(x: Float) -> Int
+
+## Rounds toward zero.
+@intrinsic
+pub fn truncate(x: Float) -> Int

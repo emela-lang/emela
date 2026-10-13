@@ -1,0 +1,254 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/spec_statements.emel
+---
+ROOT@0..338
+  FN_DECL@0..337
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..4 "f"
+    PARAM_LIST@4..6
+      L_PAREN@4..5 "("
+      R_PAREN@5..6 ")"
+    WHITESPACE@6..7 " "
+    BLOCK_EXPR@7..337
+      L_BRACE@7..8 "{"
+      NEWLINE@8..9 "\n"
+      WHITESPACE@9..11 "  "
+      BINDING@11..20
+        NAME_REF@11..16
+          LOWER_NAME@11..16 "count"
+        WHITESPACE@16..17 " "
+        EQ@17..18 "="
+        WHITESPACE@18..19 " "
+        LITERAL@19..20
+          INT@19..20 "0"
+      NEWLINE@20..21 "\n"
+      WHITESPACE@21..23 "  "
+      BINDING@23..40
+        NAME_REF@23..28
+          LOWER_NAME@23..28 "count"
+        WHITESPACE@28..29 " "
+        EQ@29..30 "="
+        WHITESPACE@30..31 " "
+        BIN_EXPR@31..40
+          NAME_REF@31..36
+            LOWER_NAME@31..36 "count"
+          WHITESPACE@36..37 " "
+          PLUS@37..38 "+"
+          WHITESPACE@38..39 " "
+          LITERAL@39..40
+            INT@39..40 "1"
+      NEWLINE@40..41 "\n"
+      WHITESPACE@41..43 "  "
+      BINDING@43..86
+        TUPLE_EXPR@43..56
+          L_PAREN@43..44 "("
+          NAME_REF@44..49
+            LOWER_NAME@44..49 "evens"
+          COMMA@49..50 ","
+          WHITESPACE@50..51 " "
+          NAME_REF@51..55
+            LOWER_NAME@51..55 "odds"
+          R_PAREN@55..56 ")"
+        WHITESPACE@56..57 " "
+        EQ@57..58 "="
+        WHITESPACE@58..59 " "
+        CALL_EXPR@59..86
+          FIELD_EXPR@59..73
+            PATH_EXPR@59..63
+              PATH@59..63
+                TYPE_NAME@59..63 "List"
+            DOT@63..64 "."
+            LOWER_NAME@64..73 "partition"
+          ARG_LIST@73..86
+            L_PAREN@73..74 "("
+            NAME_REF@74..76
+              LOWER_NAME@74..76 "xs"
+            COMMA@76..77 ","
+            WHITESPACE@77..78 " "
+            NAME_REF@78..85
+              LOWER_NAME@78..85 "is_even"
+            R_PAREN@85..86 ")"
+      NEWLINE@86..87 "\n"
+      WHITESPACE@87..89 "  "
+      BINDING@89..137
+        NAME_REF@89..94
+          LOWER_NAME@89..94 "pairs"
+        COLON@94..95 ":"
+        WHITESPACE@95..96 " "
+        PATH_TYPE@96..115
+          PATH@96..100
+            TYPE_NAME@96..100 "List"
+          TYPE_ARG_LIST@100..115
+            L_BRACK@100..101 "["
+            TUPLE_TYPE@101..114
+              L_PAREN@101..102 "("
+              PATH_TYPE@102..108
+                PATH@102..108
+                  TYPE_NAME@102..108 "String"
+              COMMA@108..109 ","
+              WHITESPACE@109..110 " "
+              PATH_TYPE@110..113
+                PATH@110..113
+                  TYPE_NAME@110..113 "Int"
+              R_PAREN@113..114 ")"
+            R_BRACK@114..115 "]"
+        WHITESPACE@115..116 " "
+        EQ@116..117 "="
+        WHITESPACE@117..118 " "
+        CALL_EXPR@118..137
+          FIELD_EXPR@118..129
+            PATH_EXPR@118..121
+              PATH@118..121
+                TYPE_NAME@118..121 "Map"
+            DOT@121..122 "."
+            LOWER_NAME@122..129 "to_list"
+          ARG_LIST@129..137
+            L_PAREN@129..130 "("
+            NAME_REF@130..136
+              LOWER_NAME@130..136 "scores"
+            R_PAREN@136..137 ")"
+      NEWLINE@137..138 "\n"
+      WHITESPACE@138..140 "  "
+      BINDING@140..191
+        NAME_REF@140..145
+          LOWER_NAME@140..145 "label"
+        WHITESPACE@145..146 " "
+        EQ@146..147 "="
+        WHITESPACE@147..148 " "
+        IF_EXPR@148..191
+          IF_KW@148..150 "if"
+          WHITESPACE@150..151 " "
+          BIN_EXPR@151..160
+            NAME_REF@151..156
+              LOWER_NAME@151..156 "count"
+            WHITESPACE@156..157 " "
+            GT@157..158 ">"
+            WHITESPACE@158..159 " "
+            LITERAL@159..160
+              INT@159..160 "0"
+          WHITESPACE@160..161 " "
+          BLOCK_EXPR@161..173
+            L_BRACE@161..162 "{"
+            WHITESPACE@162..163 " "
+            STRING@163..171
+              STRING_QUOTE@163..164 "\""
+              STRING_TEXT@164..170 "あり"
+              STRING_QUOTE@170..171 "\""
+            WHITESPACE@171..172 " "
+            R_BRACE@172..173 "}"
+          WHITESPACE@173..174 " "
+          ELSE_KW@174..178 "else"
+          WHITESPACE@178..179 " "
+          BLOCK_EXPR@179..191
+            L_BRACE@179..180 "{"
+            WHITESPACE@180..181 " "
+            STRING@181..189
+              STRING_QUOTE@181..182 "\""
+              STRING_TEXT@182..188 "なし"
+              STRING_QUOTE@188..189 "\""
+            WHITESPACE@189..190 " "
+            R_BRACE@190..191 "}"
+      NEWLINE@191..192 "\n"
+      WHITESPACE@192..194 "  "
+      IF_EXPR@194..228
+        IF_KW@194..196 "if"
+        WHITESPACE@196..197 " "
+        PREFIX_EXPR@197..203
+          BANG@197..198 "!"
+          NAME_REF@198..203
+            LOWER_NAME@198..203 "valid"
+        WHITESPACE@203..204 " "
+        BLOCK_EXPR@204..228
+          L_BRACE@204..205 "{"
+          WHITESPACE@205..206 " "
+          FAIL_EXPR@206..226
+            FAIL_KW@206..210 "fail"
+            WHITESPACE@210..211 " "
+            CALL_EXPR@211..226
+              PATH_EXPR@211..218
+                PATH@211..218
+                  TYPE_NAME@211..218 "Invalid"
+              ARG_LIST@218..226
+                L_PAREN@218..219 "("
+                NAMED_ARG@219..225
+                  LOWER_NAME@219..224 "input"
+                  COLON@224..225 ":"
+                R_PAREN@225..226 ")"
+          WHITESPACE@226..227 " "
+          R_BRACE@227..228 "}"
+      NEWLINE@228..229 "\n"
+      WHITESPACE@229..231 "  "
+      CALL_EXPR@231..263
+        NAME_REF@231..238
+          LOWER_NAME@231..238 "connect"
+        ARG_LIST@238..263
+          L_PAREN@238..239 "("
+          STRING@239..250
+            STRING_QUOTE@239..240 "\""
+            STRING_TEXT@240..249 "localhost"
+            STRING_QUOTE@249..250 "\""
+          COMMA@250..251 ","
+          WHITESPACE@251..252 " "
+          NAMED_ARG@252..262
+            LOWER_NAME@252..256 "port"
+            COLON@256..257 ":"
+            WHITESPACE@257..258 " "
+            LITERAL@258..262
+              INT@258..262 "5432"
+          R_PAREN@262..263 ")"
+      NEWLINE@263..264 "\n"
+      WHITESPACE@264..266 "  "
+      BIN_EXPR@266..335
+        BIN_EXPR@266..301
+          NAME_REF@266..272
+            LOWER_NAME@266..272 "scores"
+          NEWLINE_CONT@272..273 "\n"
+          WHITESPACE@273..277 "    "
+          PIPE_GT@277..279 "|>"
+          WHITESPACE@279..280 " "
+          CALL_EXPR@280..301
+            FIELD_EXPR@280..291
+              PATH_EXPR@280..284
+                PATH@280..284
+                  TYPE_NAME@280..284 "List"
+              DOT@284..285 "."
+              LOWER_NAME@285..291 "filter"
+            ARG_LIST@291..301
+              L_PAREN@291..292 "("
+              NAME_REF@292..300
+                LOWER_NAME@292..300 "is_valid"
+              R_PAREN@300..301 ")"
+        NEWLINE_CONT@301..302 "\n"
+        WHITESPACE@302..306 "    "
+        PIPE_GT@306..308 "|>"
+        WHITESPACE@308..309 " "
+        CALL_EXPR@309..335
+          FIELD_EXPR@309..318
+            PATH_EXPR@309..313
+              PATH@309..313
+                TYPE_NAME@309..313 "List"
+            DOT@313..314 "."
+            LOWER_NAME@314..318 "fold"
+          ARG_LIST@318..335
+            L_PAREN@318..319 "("
+            NAMED_ARG@319..326
+              LOWER_NAME@319..323 "init"
+              COLON@323..324 ":"
+              WHITESPACE@324..325 " "
+              LITERAL@325..326
+                INT@325..326 "0"
+            COMMA@326..327 ","
+            WHITESPACE@327..328 " "
+            NAMED_ARG@328..334
+              LOWER_NAME@328..329 "f"
+              COLON@329..330 ":"
+              WHITESPACE@330..331 " "
+              NAME_REF@331..334
+                LOWER_NAME@331..334 "add"
+            R_PAREN@334..335 ")"
+      NEWLINE@335..336 "\n"
+      R_BRACE@336..337 "}"
+  NEWLINE@337..338 "\n"

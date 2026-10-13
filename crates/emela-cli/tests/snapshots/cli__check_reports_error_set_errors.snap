@@ -1,0 +1,56 @@
+---
+source: crates/emela-cli/tests/cli.rs
+assertion_line: 390
+expression: run.stderr
+---
+error[E0318]: unhandled error `NotFound`
+   ╭─[ src/main.emel:9:3 ]
+   │
+ 9 │   find(1)
+   │   ───┬───  
+   │      ╰───── 
+───╯
+   = help: handle it with `escape`, or declare it with `fails`
+
+error[E0318]: error `NotFound` is not declared in `fails`
+    ╭─[ src/main.emel:13:3 ]
+    │
+ 13 │   find(1)
+    │   ───┬───  
+    │      ╰───── 
+────╯
+   = help: add it to `fails` or handle it with `escape`
+
+error[E0321]: error set mismatch: expected `fails {}`, found `fails Timeout`
+    ╭─[ src/main.emel:18:23 ]
+    │
+ 18 │ fn bad() -> Int { run(fn() { fail Timeout }) }
+    │                       ──────────┬──────────  
+    │                                 ╰──────────── 
+────╯
+
+warning[W0302]: error `Timeout` is never raised here
+    ╭─[ src/main.emel:20:39 ]
+    │
+ 20 │ fn never() -> Int { strict() escape { Timeout -> 0 } }
+    │                                       ───┬───  
+    │                                          ╰───── 
+────╯
+
+error[E0319]: expected an error value, found `Int`
+    ╭─[ src/main.emel:22:23 ]
+    │
+ 22 │ fn not_error() { fail 1 }
+    │                       ┬  
+    │                       ╰── 
+────╯
+
+error[E0320]: escape arms must match an error constructor
+    ╭─[ src/main.emel:24:42 ]
+    │
+ 24 │ fn catch_all() -> Int { find(1) escape { _ -> 0 } }
+    │                                          ┬  
+    │                                          ╰── 
+────╯
+
+5 errors, 1 warning

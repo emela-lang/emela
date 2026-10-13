@@ -1,0 +1,94 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+error enum NotFound {
+  NotFound(id: Int)
+}
+
+error enum Unauthorized {
+  Unauthorized
+}
+
+error enum Prelude.ParseError {
+  ParseError(input: String)
+}
+
+error enum Std.Http.InvalidUrl {
+  InvalidUrl(url: String)
+}
+
+error enum Std.Http.ConnectionFailed {
+  ConnectionFailed(url: String, message: String)
+}
+
+error enum Std.Http.ResponseNotText {
+  ResponseNotText(url: String)
+}
+
+error enum Std.Http.UnexpectedStatus {
+  UnexpectedStatus(status: Int, body: String)
+}
+
+error enum Std.FileSystem.FileNotFound {
+  FileNotFound(path: String)
+}
+
+error enum Std.FileSystem.FileAccessDenied {
+  FileAccessDenied(path: String)
+}
+
+error enum Std.FileSystem.NotADirectory {
+  NotADirectory(path: String)
+}
+
+error enum Std.FileSystem.IsADirectory {
+  IsADirectory(path: String)
+}
+
+error enum Std.FileSystem.DirectoryNotEmpty {
+  DirectoryNotEmpty(path: String)
+}
+
+error enum Std.FileSystem.InvalidText {
+  InvalidText(path: String)
+}
+
+error enum Std.FileSystem.FileSystemFailure {
+  FileSystemFailure(path: String, message: String)
+}
+
+export fn main() {
+  let a%1 = {
+    find(1)?
+  } escape {
+    NotFound.NotFound(id: id%0) if (id%0 >[Int] 5) -> id%0
+    Unauthorized.Unauthorized -> fail NotFound.NotFound(id: 0)
+  }
+  let b%2 = Option.or_fail(Option.Some(1), Unauthorized.Unauthorized)?
+  let c%3 = (pure(a%1) +[Int] b%2)
+  @dbg[Int](c%3)
+}
+
+fn find(id%8) {
+  if (id%8 >[Int] 0) {
+    id%8
+  } else {
+    if (id%8 ==[Int] 0) {
+      fail NotFound.NotFound(id: id%8)
+    } else {
+      fail Unauthorized.Unauthorized
+    }
+  }
+}
+
+fn Option.or_fail(opt%5, err%6) {
+  match opt%5 {
+    Option.Some(x%7) -> x%7
+    Option.None -> fail err%6
+  }
+}
+
+fn pure(n%4) {
+  (n%4 +[Int] 1)
+}

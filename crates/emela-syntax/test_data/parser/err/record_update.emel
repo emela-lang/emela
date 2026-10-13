@@ -1,0 +1,7 @@
+fn f(user: User) {
+  a = User(..user, name: "b")
+  b = User(name: "b", ..user, ..other)
+  c = User(name: "b", ..)
+  User(name:, ..user) = a
+  d = f(..)
+}

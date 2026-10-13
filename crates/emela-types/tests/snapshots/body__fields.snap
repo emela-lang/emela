@@ -1,0 +1,19 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\ntype Pair[A, B](first: A, second: B)\nerror NotFound(id: Int)\nenum Shape {\n  Circle(radius: Float)\n}\n\nfn f(u: User, p: Pair[Int, String], e: NotFound, s: Shape, n: Int) -> String {\n  a = u.id\n  b = p.second\n  c = e.id\n  d = u.nmae\n  g = s.radius\n  h = n.name\n  u.name\n}\n\"#)"
+---
+f: fn(User, Pair[Int, String], NotFound, Shape, Int) -> String
+  u: User
+  p: Pair[Int, String]
+  e: NotFound
+  s: Shape
+  n: Int
+  a: Int
+  b: String
+  c: Int
+  d: {unknown}
+  g: {unknown}
+  h: {unknown}
+`nmae` no field `nmae` on type `User`
+`radius` type `Shape` has no fields (`radius`)
+`name` type `Int` has no fields (`name`)

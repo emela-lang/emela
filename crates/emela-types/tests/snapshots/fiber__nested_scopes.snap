@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nerror Boom\nerror Bust\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn bust() -> Int fails Bust { fail Bust }\n\nfn nested() {\n  Fiber.scope(fn() {\n    Fiber.fork(fn() { boom() })\n    inner = Fiber.scope(fn() {\n      Fiber.fork(fn() {\n        Fiber.fork(fn() { bust() })\n        ()\n      })\n      1\n    })\n    inner\n  })\n}\n\nfn test_nested() {\n  Fiber.scope(fn() {\n    Fiber.scope(fn() {\n      Fiber.fork(fn() {\n        Fiber.fork(fn() { () })\n        ()\n      })\n      ()\n    })\n  })\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+bust: fn() -> Int fails Bust
+nested: fn() -> Int fails Boom | Bust use Async
+  inner: Int
+test_nested: fn() -> () use Async

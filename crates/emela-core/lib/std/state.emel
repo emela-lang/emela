@@ -1,0 +1,27 @@
+# The State effect (spec 8.8). Represents mutable state. The state lives in the frame of
+# `State.run`; the values themselves stay immutable.
+#
+# Import it with `import Std.State.{State}`. Use it as `(use State[Int]).get()` and provide the
+# state with `State.run(0, fn() { ... })`.
+# To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
+#
+# `run` is a built-in handler provided by the runtime: the lowering writes it in place instead of
+# calling a function (NOTES.md).
+
+## Reads and writes a state of type `S`.
+pub effect State[S] {
+  ## The current state.
+  fn get() -> S
+  ## Sets the state to `value`.
+  fn set(value: S) -> ()
+  ## Applies `f` to the state. `f` is pure, so the update runs at once (spec 11.1).
+  fn update(f: fn(S) -> S) -> ()
+}
+
+## Runs `body` with a state starting at `initial`, and returns the value of `body` paired with
+## the final state. `State[S]` is removed from the R of `body`, so the call looks pure from
+## outside. If `body` fails, the state is dropped and only the error propagates.
+@intrinsic
+pub fn run[S, A, E, R](initial: S, body: fn() -> A fails E use { State[S], R }) -> (A, S)
+  fails E
+  use R

@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn f(c: Bool, n: Int) -> String {\n  a = if c { 1 } else { 2 }\n  b = if c { \"x\" } else { panic(\"no\") }\n  d = if c { todo() } else { (n, \"y\") }\n  e = if c { () }\n  g = if c { panic(\"stop\") }\n  \"ok\"\n}\n\"#)"
+---
+f: fn(Bool, Int) -> String
+  c: Bool
+  n: Int
+  a: Int
+  b: String
+  d: (Int, String)
+  e: ()
+  g: ()

@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\n\nfn f() -> Option[User] {\n  u = User(1, \"a\")\n  s = Some(1)\n  t = Some(\"x\")\n  n = None\n  Some(u)\n}\n\"#)"
+---
+f: fn() -> Option[User]
+  u: User
+  s: Option[Int]
+  t: Option[String]
+  n: Option[?4]

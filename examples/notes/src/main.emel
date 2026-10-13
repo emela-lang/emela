@@ -1,0 +1,56 @@
+# Files. FileSystem reads and writes text; its operations are `suspend fn`s, and each one
+# fails only with the errors it lists, so `escape` can handle exactly those.
+
+import Std.Platform.{Platform}
+import Std.Console.{Console}
+import Std.FileSystem.{FileSystem, FileNotFound, TestFileSystem, TestFiles}
+import Std.Path
+import Std.State.{State}
+
+const DIR: String = "notes"
+
+## Appends `text` as a line to `notes/<day>.txt` and returns the number of lines in it.
+fn note(day: String, text: String) {
+  fs = use FileSystem
+  fs.create_directory(DIR)
+  path = Path.join(DIR, "#{day}.txt")
+  fs.append_text(path, "#{text}\n")
+  String.split(fs.read_text(path), "\n") |> List.filter(fn(l) { l != "" }) |> List.length
+}
+
+## The text of `notes/<day>.txt`, or a message if there is none.
+fn show(day: String) {
+  (use FileSystem).read_text(Path.join(DIR, "#{day}.txt")) escape {
+    FileNotFound(path:) -> "no notes in #{path}"
+  }
+}
+
+fn main() {
+  with Platform {
+    console = use Console
+    console.print_line(String.trim(show("monday")))
+    n = note("monday", "buy milk")
+    console.print_line("#{n} note(s)")
+    console.print_line("#{(use FileSystem).list_directory(DIR)}")
+  }
+}
+
+@test
+fn notes_are_appended() {
+  (n, TestFiles(files:, ..)) = State.run(TestFiles(files: [], directories: []), fn() {
+    with TestFileSystem {
+      note("monday", "a")
+      note("monday", "b")
+    }
+  })
+  assert n == 2
+  assert files == [("notes/monday.txt", "a\nb\n")]
+}
+
+@test
+fn missing_notes_are_reported() {
+  (text, _) = State.run(TestFiles(files: [], directories: []), fn() {
+    with TestFileSystem { show("sunday") }
+  })
+  assert text == "no notes in notes/sunday.txt"
+}

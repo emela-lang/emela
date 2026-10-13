@@ -1,0 +1,18 @@
+# The layer of all System handlers (spec 15.2). `main` usually runs inside `with Platform { ... }`;
+# to replace some of them, list the replacements after it (`with Platform, TestClock { ... }`).
+
+import Std.Clock.{SystemClock}
+import Std.Console.{SystemConsole}
+import Std.Env.{SystemEnv}
+import Std.FileSystem.{SystemFileSystem}
+import Std.Http.{SystemHttp}
+import Std.Random.{SystemRandom}
+
+pub layer Platform {
+  SystemConsole
+  SystemClock
+  SystemRandom
+  SystemEnv
+  SystemFileSystem
+  SystemHttp
+}

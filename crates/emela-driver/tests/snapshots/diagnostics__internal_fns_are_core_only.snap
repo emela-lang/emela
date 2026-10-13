@@ -1,0 +1,31 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0228]: function `Secret.key` can only be used from the bundled core library
+   ╭─[ main.emel:2:7 ]
+   │
+ 2 │   k = Secret.key()
+   │       ─────┬────  
+   │            ╰────── 
+───╯
+   = note: it is marked `@internal`
+
+error[E0228]: function `Secret.key` can only be used from the bundled core library
+   ╭─[ main.emel:3:7 ]
+   │
+ 3 │   f = Secret.key
+   │       ─────┬────  
+   │            ╰────── 
+───╯
+   = note: it is marked `@internal`
+
+error[E0229]: `@internal` can only be used in the bundled core library
+   ╭─[ main.emel:7:1 ]
+   │
+ 7 │ @internal
+   │ ────┬────  
+   │     ╰────── 
+───╯
+
+3 errors

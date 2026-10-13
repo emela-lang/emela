@@ -1,0 +1,45 @@
+---
+source: crates/emela-cli/tests/fmt_command.rs
+expression: run.stderr
+---
+error[E0110]: expected parameter name
+   ╭─[ src/broken.emel:1:12 ]
+   │
+ 1 │ fn broken( {
+   │            ┬  
+   │            ╰── 
+───╯
+
+error[E0110]: expected `)`
+   ╭─[ src/broken.emel:1:12 ]
+   │
+ 1 │ fn broken( {
+   │            ┬  
+   │            ╰── 
+───╯
+
+error[E0110]: expected `}`
+   ╭─[ src/broken.emel:1:14 ]
+   │
+ 1 │ fn broken( {
+   │              │ 
+   │              ╰─ 
+───╯
+
+error[E0105]: unrecognized character `$`
+   ╭─[ src/z.emel:1:11 ]
+   │
+ 1 │ const X = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+error[E0118]: expected expression
+   ╭─[ src/z.emel:1:11 ]
+   │
+ 1 │ const X = $
+   │           ┬  
+   │           ╰── 
+───╯
+
+5 errors

@@ -1,0 +1,36 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/spec_errors.emel
+---
+# 7章の escape と fail
+fn recover(id: Int) {
+  # 復帰: 通常の値に戻す
+  user = find_user(id) escape {
+    NotFound(_) -> guest_user()
+  }
+
+  # 一部だけ受ける: DbError は呼び出し元へ伝わる
+  data = load(id) escape {
+    NotFound(_) -> default_data()
+  }
+
+  # 別のエラーに変える
+  data = load(id) escape {
+    DbError(message:) -> fail Unavailable(reason: message)
+  }
+
+  # 値として扱う
+  found = Some(find_user(id)) escape {
+    NotFound(_) -> None
+  }
+}
+
+fn load(id: Int) -> User fails NotFound | DbError { todo() }
+
+fn greet_fails_for_unknown_id() {
+  with AppTest {
+    result = Some(greet(999)) escape { NotFound(_) -> None }
+    assert result == None
+  }
+}

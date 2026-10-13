@@ -1,0 +1,68 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n  fn now() -> Int\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler InstantClock implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() { (use Clock).now() }\n}\n\nhandler CapturedClock implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    clock = use Clock\n    (use Logger).info(\"now\")\n    clock.now() + (clock.now() |> fn(x) { x })\n  }\n}\n\nhandler LazyClock implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    clock = use Clock\n    later = fn() { clock.sleep(1) }\n    1\n  }\n}\n\nfn stamp() -> Int use { Clock } { (use Clock).now() }\n\nhandler ViaFn implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() { stamp() }\n}\n\nhandler ViaClosure implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    clock = use Clock\n    f = fn() { clock.now() }\n    f()\n  }\n}\n\nhandler ViaValue implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    clock = use Clock\n    g = clock.now\n    g()\n  }\n}\n\nhandler Sleeping implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    (use Clock).sleep(1)\n    0\n  }\n}\n\nhandler PureClock implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() { 0 }\n}\n\nhandler LocalSleep implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    with PureClock { (use Clock).sleep(1) }\n    0\n  }\n}\n\nhandler MixedSleep implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n  fn now() {\n    t = (use Clock).now()\n    with PureClock { (use Clock).sleep(1) }\n    t\n  }\n}\n\"#)"
+---
+stamp: fn() -> Int use Clock
+handler InstantClock: use Clock
+handler CapturedClock: use { Clock, Logger }
+handler LazyClock: use Clock
+handler ViaFn: use Clock
+handler ViaClosure: use Clock
+handler ViaValue: use Clock
+handler Sleeping: use Clock
+handler PureClock: use {}
+handler LocalSleep: use {}
+handler MixedSleep: use Clock
+`stamp()` SuspendingFnOp { op: "now", call: Fn { callee: Some("stamp"), effects: ["Clock"] } }
+`f()` SuspendingFnOp { op: "now", call: Fn { callee: Some("f"), effects: ["Clock"] } }
+`g()` SuspendingFnOp { op: "now", call: Fn { callee: Some("g"), effects: ["Clock"] } }
+`(use Clock).sleep(1)` SuspendingFnOp { op: "now", call: Op { effect: "Clock", op: "sleep" } }
+`(use Clock).sleep(1)` SuspendingFnOp { op: "now", call: Op { effect: "Clock", op: "sleep" } }
+--- R
+{ (use Clock).now() }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{     clock = use Clock     (use Logger).info("now")     clock.now() + (clock.now() |> fn(x) { x })   }: { Clock, Logger }
+use Clock: Clock
+(use Logger).info("now"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+clock.now() + (clock.now() |> fn(x) { x }): Clock
+clock.now(): Clock
+clock.now() |> fn(x) { x }: Clock
+clock.now(): Clock
+{     clock = use Clock     later = fn() { clock.sleep(1) }     1   }: Clock
+use Clock: Clock
+{ clock.sleep(1) }: Clock
+clock.sleep(1): Clock
+{ (use Clock).now() }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{ stamp() }: Clock
+stamp(): Clock
+{     clock = use Clock     f = fn() { clock.now() }     f()   }: Clock
+use Clock: Clock
+{ clock.now() }: Clock
+clock.now(): Clock
+f(): Clock
+{     clock = use Clock     g = clock.now     g()   }: Clock
+use Clock: Clock
+g(): Clock
+{     (use Clock).sleep(1)     0   }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
+{ (use Clock).sleep(1) }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
+{     t = (use Clock).now()     with PureClock { (use Clock).sleep(1) }     t   }: Clock
+(use Clock).now(): Clock
+(use Clock).now: Clock
+use Clock: Clock
+{ (use Clock).sleep(1) }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock

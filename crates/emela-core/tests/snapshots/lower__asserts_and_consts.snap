@@ -1,0 +1,38 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+export fn main() {
+  let _%0 = assert(LIMIT() ==[Int] 3, ty: Int, text: "LIMIT == 3")
+  let _%1 = assert(classify(2) !=[String] "big", ty: String, text: "classify(2) != \"big\"")
+  let _%2 = assert(ORIGIN() ==[Structural] (0, 0), ty: (Int, Int), text: "ORIGIN == (0, 0)")
+  let _%3 = assert(List.length(EMPTY()) ==[Int] 0, ty: Int, text: "List.length(EMPTY) == 0")
+  let _%4 = assert(same(1, 1), text: "same(1, 1)")
+  assert(is_small(LIMIT()), text: "is_small(LIMIT)")
+}
+
+const fn LIMIT() {
+  3
+}
+
+fn classify(n%13) {
+  match n%13 {
+    c%14 if (c%14 ==[Int] LIMIT()) -> "limit"
+    0 -> "zero"
+    m%15 if (m%15 >[Int] 100) -> "big"
+    _ -> "other"
+  }
+}
+
+const fn ORIGIN() {
+  (0, 0)
+}
+
+const fn EMPTY() {
+  []
+}
+
+fn same(a%6, b%7) {
+  let _%8 = assert((a%6 ==[Structural] b%7), text: "a == b")
+  true
+}

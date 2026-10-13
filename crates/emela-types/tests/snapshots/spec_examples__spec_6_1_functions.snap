@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nfn add(x: Int, y: Int) -> Int {\n  x + y\n}\n\nfn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { List.map(xs, f) }\n\nfn inc() -> fn(Int) -> Int {\n  fn(x) { x + 1 }\n}\n\"#)"
+---
+add: fn(Int, Int) -> Int
+  x: Int
+  y: Int
+map: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) use R(f)) -> List[B] fails E(f) use R(f)
+  xs: List['0]
+  f: fn('0) -> '1 fails '2 use '3
+inc: fn() -> fn(Int) -> Int
+  x: Int

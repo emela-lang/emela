@@ -1,0 +1,20 @@
+---
+source: crates/emela-driver/tests/test_runner.rs
+expression: out
+---
+running 3 tests
+test adds ... ok
+test fails ... FAILED
+test Util.in_util ... ok
+
+failures:
+
+---- fails ----
+defect: assertion failed: add(1, 2) == 4
+  left: 3
+ right: 4
+
+failures:
+    fails
+
+test result: FAILED. 2 passed; 1 failed; 0 filtered out

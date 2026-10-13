@@ -1,0 +1,14 @@
+[package]
+name = "emela-codegen-wasm"
+description = "Emits WASM from the Core IR: Perceus reference counting, state-machine transform, embedded WASM runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+wasm-encoder.workspace = true
+
+[dev-dependencies]
+wasmparser.workspace = true
+insta.workspace = true

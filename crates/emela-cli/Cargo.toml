@@ -1,0 +1,18 @@
+[package]
+name = "emela-cli"
+description = "The emela binary: argument parsing, running run and test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-driver.workspace = true
+emela-lsp.workspace = true
+clap.workspace = true
+
+[[bin]]
+name = "emela"
+path = "src/main.rs"
+
+[dev-dependencies]
+insta.workspace = true

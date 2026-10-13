@@ -1,0 +1,50 @@
+import Std.Path
+
+fn main() {}
+
+@test
+fn joins() {
+  assert Path.join("a", "b.txt") == "a/b.txt"
+  assert Path.join("a/", "b.txt") == "a/b.txt"
+  assert Path.join("/a", "b/c") == "/a/b/c"
+  assert Path.join("a", "/b") == "/b"
+  assert Path.join("", "b") == "b"
+  assert Path.join("a", "") == "a"
+  assert Path.join("a", "../b") == "a/../b"
+}
+
+@test
+fn parents() {
+  assert Path.parent("a/b.txt") == Some("a")
+  assert Path.parent("a/b/c") == Some("a/b")
+  assert Path.parent("a/b/") == Some("a")
+  assert Path.parent("a//b") == Some("a")
+  assert Path.parent("/a") == Some("/")
+  assert Path.parent("/a/b") == Some("/a")
+  assert Path.parent("./a") == Some(".")
+  assert Path.parent("a.txt") == None
+  assert Path.parent("/") == None
+  assert Path.parent("") == None
+}
+
+@test
+fn file_names() {
+  assert Path.file_name("a/b.txt") == Some("b.txt")
+  assert Path.file_name("b.txt") == Some("b.txt")
+  assert Path.file_name("a/b/") == Some("b")
+  assert Path.file_name("/") == None
+  assert Path.file_name("") == None
+  assert Path.file_name("a/..") == None
+  assert Path.file_name(".") == None
+}
+
+@test
+fn extensions() {
+  assert Path.extension("a/b.txt") == Some("txt")
+  assert Path.extension("b.tar.gz") == Some("gz")
+  assert Path.extension("a.d/b") == None
+  assert Path.extension(".bashrc") == None
+  assert Path.extension("b.") == None
+  assert Path.extension("b") == None
+  assert Path.extension("") == None
+}

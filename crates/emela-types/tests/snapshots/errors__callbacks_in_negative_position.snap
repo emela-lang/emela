@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror Boom\n\nfn with_callback(f: fn(fn() -> Int) -> Int) -> Int {\n  f(fn() { 1 })\n}\n\nfn bad_callback(f: fn(fn() -> Int) -> Int) -> Int {\n  f(fn() { fail Boom })\n}\n\"#)"
+---
+with_callback: ∀ E(f), R(f), E(f, 2), R(f, 2). fn(fn(fn() -> Int fails E(f, 2) use R(f, 2)) -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
+  f: fn(fn() -> Int fails '2 use '3) -> Int fails '0 use '1
+bad_callback: ∀ E(f), R(f), E(f, 2), R(f, 2). fn(fn(fn() -> Int fails E(f, 2) use R(f, 2)) -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
+  f: fn(fn() -> Int fails '2 use '3) -> Int fails '0 use '1
+`fn() { fail Boom }` error set mismatch: expected `fails E(f, 2)`, found `fails Boom`
+--- E
+{   f(fn() { 1 }) }: '0
+f(fn() { 1 }): '0
+{   f(fn() { fail Boom }) }: '0
+f(fn() { fail Boom }): '0
+{ fail Boom }: Boom
+fail Boom: Boom

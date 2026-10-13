@@ -1,0 +1,22 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+export fn main() {
+  let k%0 = 10
+  let add_k%2 = fn(x%1) {
+    (x%1 +[Int] k%0)
+  }
+  let _%3 = @dbg[Int]((add_k%2)(1))
+  let _%5 = @dbg[List[Option[Int]]](List.map([1, 2], fn(x%4) {
+    Option.Some(x%4)
+  }, ()))
+  let _%7 = @dbg[List[Int]](List.map(["a", "bc"], fn(x%6) {
+    @String.length(x%6)
+  }, ()))
+  @dbg[Int](apply(2, add_k%2, ()))
+}
+
+fn apply(x%8, f%9, ev%10) {
+  (f%9)(x%8, ev%10)?
+}

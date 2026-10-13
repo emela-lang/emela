@@ -1,0 +1,31 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nenum Shape {\n  Circle(Int)\n  Rect(w: Int, h: Int)\n  Empty\n}\n\nconst NOTHING = Empty\nconst ORIGIN = Circle(0)\nconst SQUARE = Rect(h: 1, w: 1)\nconst PAIR = (NOTHING, -1)\nconst MINUS_ONE = -1\nconst ALSO_MINUS_ONE = MINUS_ONE\nconst DIGITS = [1, 2]\nconst MORE = [0, ..DIGITS]\nconst COMPUTED = Circle(zero())\nconst LIMIT = zero() + 10\n\nfn zero() -> Int { 0 }\n\nfn known(s: Shape) -> Int {\n  s match {\n    NOTHING -> 0\n    Circle(_) -> 1\n    Rect(..) -> 2\n  }\n}\n\nfn known_redundant(s: Shape) -> Int {\n  s match {\n    Circle(_) -> 1\n    Rect(w: 1, h: 1) -> 2\n    SQUARE -> 3\n    ORIGIN -> 4\n    _ -> 5\n  }\n}\n\nfn tuples(p: (Shape, Int)) -> Int {\n  p match {\n    (Circle(_), _) -> 0\n    (Rect(..), _) -> 1\n    (Empty, 0) -> 2\n    PAIR -> 3\n    (Empty, _) -> 4\n    (NOTHING, _) -> 5\n  }\n}\n\nfn negatives(n: Int) -> Int {\n  n match {\n    MINUS_ONE -> 0\n    ALSO_MINUS_ONE -> 1\n    _ -> 2\n  }\n}\n\nfn lists(xs: List[Int]) -> Int {\n  xs match {\n    MORE -> 0\n    [0, 1, 2] -> 1\n    _ -> 2\n  }\n}\n\nfn computed_not_counted(s: Shape) -> Int {\n  s match {\n    COMPUTED -> 0\n    Rect(..) -> 1\n  }\n}\n\nfn computed_covers_nothing(s: Shape) -> Int {\n  s match {\n    COMPUTED -> 0\n    Circle(_) -> 1\n    Rect(..) -> 2\n    Empty -> 3\n  }\n}\n\nfn computed_redundant(n: Int) -> Int {\n  n match {\n    _ -> 0\n    LIMIT -> 1\n  }\n}\n\nfn computed_binding(s: Shape) -> Int {\n  COMPUTED = s\n  0\n}\n\"#)"
+---
+zero: fn() -> Int
+known: fn(Shape) -> Int
+  s: Shape
+known_redundant: fn(Shape) -> Int
+  s: Shape
+tuples: fn((Shape, Int)) -> Int
+  p: (Shape, Int)
+negatives: fn(Int) -> Int
+  n: Int
+lists: fn(List[Int]) -> Int
+  xs: List[Int]
+computed_not_counted: fn(Shape) -> Int
+  s: Shape
+computed_covers_nothing: fn(Shape) -> Int
+  s: Shape
+computed_redundant: fn(Int) -> Int
+  n: Int
+computed_binding: fn(Shape) -> Int
+  s: Shape
+`SQUARE` warning: unreachable match arm
+`ORIGIN` warning: unreachable match arm
+`(NOTHING, _)` warning: unreachable match arm
+`ALSO_MINUS_ONE` warning: unreachable match arm
+`[0, 1, 2]` warning: unreachable match arm
+`s` non-exhaustive match: Circle(_), Empty not covered
+`LIMIT` warning: unreachable match arm
+`COMPUTED` refutable pattern in binding: _ not covered

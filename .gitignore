@@ -2,3 +2,4 @@
 /out
 /out.js
 .claude/*.local.json
+/examples/*/target

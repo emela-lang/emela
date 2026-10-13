@@ -1,0 +1,24 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 291
+expression: "render_bodies(r#\"\ntype User(name: String)  # 補\ntype Data(n: Int)  # 補\nerror NotFound(id: Int)  # 補\nerror DbError(message: String)  # 補\nerror Unavailable(reason: String)  # 補\n\nfn find_user(id: Int) -> User fails NotFound { fail NotFound(id:) }  # 補\nfn guest_user() -> User { User(name: \"guest\") }  # 補\nfn load(id: Int) -> Data fails NotFound | DbError { fail DbError(message: \"down\") }  # 補\nfn default_data() -> Data { Data(n: 0) }  # 補\n\nfn recover(id: Int) {\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  user\n}\n\nfn partial(id: Int) {\n  data = load(id) escape {\n    NotFound(_) -> default_data()\n  }\n  data\n}\n\nfn convert(id: Int) {\n  data = load(id) escape {\n    DbError(message:) -> fail Unavailable(reason: message)\n  }\n  data\n}\n\nfn as_value(id: Int) {\n  found = Some(find_user(id)) escape {\n    NotFound(_) -> None\n  }\n  found\n}\n\"#)"
+---
+find_user: fn(Int) -> User fails NotFound
+  id: Int
+guest_user: fn() -> User
+load: fn(Int) -> Data fails NotFound | DbError
+  id: Int
+default_data: fn() -> Data
+recover: fn(Int) -> User
+  id: Int
+  user: User
+partial: fn(Int) -> Data fails DbError
+  id: Int
+  data: Data
+convert: fn(Int) -> Data fails NotFound | Unavailable
+  id: Int
+  message: String
+  data: Data
+as_value: fn(Int) -> Option[User]
+  id: Int
+  found: Option[User]

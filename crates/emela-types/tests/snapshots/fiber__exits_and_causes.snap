@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Exit, Success, Failure}\nimport Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}\n\nerror Boom\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn guarded() -> () use { Log } {\n  match Fiber.attempt(fn() { boom() }) {\n    Success(_) -> ()\n    Failure(cause) -> (use Log).info(Cause.to_string(cause))\n  }\n}\n\nfn reraise() {\n  match Fiber.attempt(fn() { boom() }) {\n    Success(n) -> n\n    Failure(cause) -> Cause.raise(cause)\n  }\n}\n\nfn recovered() {\n  reraise() escape {\n    Boom -> 0\n  }\n}\n\nfn kinds(c: Cause[Boom]) -> Bool {\n  match Cause.kind(c) {\n    Fail -> True\n    Die -> False\n    Interrupt -> False\n  }\n}\n\nfn watched() {\n  Fiber.scope(fn() {\n    child = Fiber.fork(fn() { 1 })\n    Fiber.interrupt(child)\n    match Fiber.await(child) {\n      Success(n) -> n\n      Failure(_) -> 0\n    }\n  })\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+guarded: fn() -> () use Log
+  cause: Cause[Boom]
+reraise: fn() -> Int fails Boom
+  n: Int
+  cause: Cause[Boom]
+recovered: fn() -> Int
+kinds: fn(Cause[Boom]) -> Bool
+  c: Cause[Boom]
+watched: fn() -> Int use Async
+  child: Fiber[Int]
+  n: Int

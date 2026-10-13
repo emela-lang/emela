@@ -1,0 +1,11 @@
+fn query(id: Int) -> String {
+  sql = """
+    SELECT *
+    FROM users
+    WHERE id = #{id}
+    """
+  log("""
+    done: #{sql}
+    """)
+  sql
+}

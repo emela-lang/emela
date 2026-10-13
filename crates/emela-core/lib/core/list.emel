@@ -1,0 +1,144 @@
+# Functions on List. Collections are immutable (spec 15.2).
+#
+# - The list comes first as `xs`, so calls read as `xs |> List.map(f)`.
+# - The initial value of a fold is `from` (spec 15.3): `List.fold(xs, from: 0, f: add)`.
+# - Loops are self tail calls (spec 6.8), so long lists do not use the stack. Functions that build
+#   a result from the front accumulate it in reverse and then `reverse` it.
+
+pub fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] {
+  reverse(fold(xs, from: [], f: fn(acc, x) { [f(x), ..acc] }))
+}
+
+## Keeps the order.
+pub fn filter[A](xs: List[A], f: fn(A) -> Bool) -> List[A] {
+  reverse(fold(xs, from: [], f: fn(acc, x) { if f(x) { [x, ..acc] } else { acc } }))
+}
+
+## Folds from the front: `f(f(f(from, x0), x1), x2)`.
+pub fn fold[A, B](xs: List[A], from: B, f: fn(B, A) -> B) -> B {
+  xs match {
+    []          -> from
+    [x, ..rest] -> fold(rest, f(from, x), f)
+  }
+}
+
+pub fn length[A](xs: List[A]) -> Int {
+  count_onto(xs, 0)
+}
+
+fn count_onto[A](xs: List[A], n: Int) -> Int {
+  xs match {
+    []          -> n
+    [_, ..rest] -> count_onto(rest, n + 1)
+  }
+}
+
+pub fn is_empty[A](xs: List[A]) -> Bool {
+  xs match {
+    [] -> True
+    _  -> False
+  }
+}
+
+## Zero-based. `None` if out of range or negative.
+pub fn get[A](xs: List[A], index: Int) -> Option[A] {
+  xs match {
+    _ if index < 0 -> None
+    []             -> None
+    [x, ..rest]    -> if index == 0 { Some(x) } else { get(rest, index - 1) }
+  }
+}
+
+## `None` if empty.
+pub fn head[A](xs: List[A]) -> Option[A] {
+  xs match {
+    []      -> None
+    [x, ..] -> Some(x)
+  }
+}
+
+## Empty if empty.
+pub fn tail[A](xs: List[A]) -> List[A] {
+  xs match {
+    []          -> []
+    [_, ..rest] -> rest
+  }
+}
+
+pub fn reverse[A](xs: List[A]) -> List[A] {
+  reverse_onto(xs, [])
+}
+
+## Prepends `xs` reversed to `acc`.
+fn reverse_onto[A](xs: List[A], acc: List[A]) -> List[A] {
+  xs match {
+    []          -> acc
+    [x, ..rest] -> reverse_onto(rest, [x, ..acc])
+  }
+}
+
+pub fn append[A](xs: List[A], ys: List[A]) -> List[A] {
+  reverse_onto(reverse(xs), ys)
+}
+
+## Flattens a list of lists, keeping the order.
+pub fn flatten[A](xss: List[List[A]]) -> List[A] {
+  fold(reverse(xss), from: [], f: fn(acc, xs) { append(xs, acc) })
+}
+
+## Splits into the elements where `f` is True and those where it is False, both in order.
+## `(evens, odds) = List.partition(xs, is_even)`．
+pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
+  (yes, no) = fold(xs, from: ([], []), f: fn(acc, x) {
+    (ys, ns) = acc
+    if f(x) { ([x, ..ys], ns) } else { (ys, [x, ..ns]) }
+  })
+  (reverse(yes), reverse(no))
+}
+
+## Stops at the first match. False if empty.
+pub fn any[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
+  xs match {
+    []          -> False
+    [x, ..rest] -> f(x) || any(rest, f)
+  }
+}
+
+## Stops at the first False. True if empty.
+pub fn all[A](xs: List[A], f: fn(A) -> Bool) -> Bool {
+  xs match {
+    []          -> True
+    [x, ..rest] -> f(x) && all(rest, f)
+  }
+}
+
+## The first element where `f` is True.
+pub fn find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A] {
+  xs match {
+    []          -> None
+    [x, ..rest] -> if f(x) { Some(x) } else { find(rest, f) }
+  }
+}
+
+## The integers from `from` up to but excluding `to`, ascending. Empty if `to <= from`.
+pub fn range(from: Int, to: Int) -> List[Int] {
+  range_onto(from, to, [])
+}
+
+## Builds from the back, so `to - 1` cannot overflow.
+fn range_onto(from: Int, to: Int, acc: List[Int]) -> List[Int] {
+  if to <= from { acc } else { range_onto(from, to - 1, [to - 1, ..acc]) }
+}
+
+## Pairs elements at the same position. As long as the shorter list.
+pub fn zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)] {
+  zip_onto(xs, ys, [])
+}
+
+## Prepends the pairs to `acc` in reverse, then reverses at the end.
+fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
+  (xs, ys) match {
+    ([x, ..xs_rest], [y, ..ys_rest]) -> zip_onto(xs_rest, ys_rest, [(x, y), ..acc])
+    _                                -> reverse(acc)
+  }
+}

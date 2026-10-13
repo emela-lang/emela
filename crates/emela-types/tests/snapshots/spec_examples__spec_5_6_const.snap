@@ -1,0 +1,5 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype Config(port: Int)  # 補\n\nconst MAX_RETRY = 3\nconst DEFAULT_CONFIG = Config(port: 8080)\n\nfn port() -> Int {\n  DEFAULT_CONFIG.port + MAX_RETRY\n}\n\"#)"
+---
+port: fn() -> Int

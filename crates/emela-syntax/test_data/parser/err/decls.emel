@@ -1,0 +1,22 @@
+trait Encode {
+  fn encode(self) -> Json
+  derive fold {
+    record(name, fields) { Json.object(fields) }
+    variant(name, tag, payload) {
+      Json.object([("tag", Json.string(tag)), ("value", payload)])
+    }
+  }
+}
+effect Broken {
+  fn a(x: Int)
+  val b
+  fn c() -> Int
+}
+handler H Logger {
+  fn info(msg) { 1 }
+}
+impl Show User { fn show(self) { "" } }
+const lower = 1
+const MAX 2
+layer L { A b C }
+fn after() { 1 }

@@ -1,0 +1,69 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"type User(id: Int, name: String)\n\ntype Pair[A, B](first: A, second: B)\n\ntype Todo(\n  id:        Int,\n  title:     String,\n  completed: Bool,\n)\n\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\n\nenum Tree[Item] {\n  Leaf\n  Node(Tree[Item], Item, Tree[Item])\n}\n\ntype Config(port: Int)\n\nconst MAX_RETRY = 3\nconst DEFAULT_CONFIG = Config(port: 8080)\n\nfn make() -> (User, Pair[Int, String], Shape, ()) {\n  (User(id: 1, name: \"a\"), Pair(1, second: \"b\"), Circle(1.0), ())\n}\n\nfn retry(n: Int) -> Bool {\n  match n {\n    MAX_RETRY -> False\n    _         -> True\n  }\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+type Main.User
+  field id: Int
+  field name: String
+  ctor Main.User.User
+type Main.Pair
+  type-param Main.Pair.A
+  type-param Main.Pair.B
+  field first: Main.Pair.A
+  field second: Main.Pair.B
+  ctor Main.Pair.Pair
+type Main.Todo
+  field id: Int
+  field title: String
+  field completed: Bool
+  ctor Main.Todo.Todo
+enum Main.Shape
+  variant Main.Shape.Circle(radius: Float)
+  variant Main.Shape.Rect(Float, Float)
+  variant Main.Shape.Empty
+enum Main.Tree
+  type-param Main.Tree.Item
+  variant Main.Tree.Leaf
+  variant Main.Tree.Node(Main.Tree[Main.Tree.Item], Main.Tree.Item, Main.Tree[Main.Tree.Item])
+type Main.Config
+  field port: Int
+  ctor Main.Config.Config
+const Main.MAX_RETRY
+  3
+const Main.DEFAULT_CONFIG
+  call
+    Main.Config.Config
+    port:
+      8080
+fn Main.make
+  ret (Main.User, Main.Pair[Int, String], Main.Shape, ())
+  body
+    block
+      tuple
+        call
+          Main.User.User
+          id:
+            1
+          name:
+            "a"
+        call
+          Main.Pair.Pair
+          1
+          second:
+            "b"
+        call
+          Main.Shape.Circle
+          1.0
+        ()
+fn Main.retry
+  param n#0: Int
+  ret Bool
+  body
+    block
+      match
+        n#0
+        arm const Main.MAX_RETRY
+          Bool.False
+        arm _
+          Bool.True

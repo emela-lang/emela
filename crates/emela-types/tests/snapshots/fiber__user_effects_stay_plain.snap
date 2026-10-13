@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\neffect Wrap {\n  fn wrap[A](x: A) -> List[A]\n}\n\neffect Raise[E] {\n  fn run(f: fn() -> () fails E) -> ()\n}\n\n@intrinsic\neffect Mine[E] {\n  fn go(f: fn() -> () fails E) -> ()\n}\n\nfn wrapped() -> List[Int] use { Wrap } {\n  (use Wrap).wrap(1)\n}\n\"#)"
+---
+wrapped: fn() -> List[Int] use Wrap
+resolve: `@intrinsic` can only be used in the bundled core sources
+`A` OpTypeParams { op: "wrap" }
+`E` EffectParamNotType { effect: "Raise", param: "E" }
+`E` EffectParamNotType { effect: "Mine", param: "E" }

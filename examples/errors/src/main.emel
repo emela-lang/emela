@@ -1,0 +1,58 @@
+# Typed errors and effects. `fails` and `use` are inferred unless written.
+
+import Std.Console.{Console, SystemConsole}
+
+error NotFound(id: Int)
+error Invalid(reason: String)
+
+type User(id: Int, name: String)
+
+# An effect declares operations; handlers implement them.
+effect Users {
+  fn find(id: Int) -> User fails NotFound
+}
+
+handler SampleUsers implements Users {
+  fn find(id) {
+    id match {
+      1 -> User(id: 1, name: "alice")
+      2 -> User(id: 2, name: "bob")
+      _ -> fail NotFound(id:)
+    }
+  }
+}
+
+# Inferred: fails NotFound | Invalid, use Users.
+fn greeting(id: Int) {
+  if id < 0 { fail Invalid(reason: "negative id") }
+  user = (use Users).find(id)
+  "Hello, #{user.name}!"
+}
+
+# `escape` handles NotFound; Invalid still propagates.
+fn greeting_or_guest(id: Int) {
+  greeting(id) escape {
+    NotFound(_) -> "Hello, guest!"
+  }
+}
+
+fn main() {
+  with SystemConsole, SampleUsers {
+    console = use Console
+    console.print_line(greeting_or_guest(1))
+    console.print_line(greeting_or_guest(3))
+    console.print_line(greeting_or_guest(-1))
+  }
+}
+
+# Tests swap the handler instead of mocking.
+handler NoUsers implements Users {
+  fn find(id) { fail NotFound(id:) }
+}
+
+@test
+fn unknown_users_get_the_guest_greeting() {
+  with NoUsers {
+    assert greeting_or_guest(1) == "Hello, guest!"
+  }
+}

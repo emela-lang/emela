@@ -1,0 +1,19 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: main
+---
+export fn main() {
+  let u%0 = User.User(id: 1, name: "a", tags: [])
+  let renamed%4 = {
+    let arg%1 = ["x"]
+    let arg%2 = @String.append(u%0.name#1, "!")
+    let base%3 = u%0
+    User.User(id: base%3.id#0, name: arg%2, tags: arg%1)
+  }
+  let p%5 = Pair.Pair(first: 1, second: true)
+  let q%7 = {
+    let base%6 = p%5
+    Pair.Pair(first: "s", second: base%6.second#1)
+  }
+  concat(renamed%4.name#1 as String, " has ", renamed%4.tags#2 as List[String], " and ", q%7 as Pair[String, Bool], ", id ", u%0.id#0 as Int)
+}

@@ -1,0 +1,16 @@
+[package]
+name = "emela-core"
+description = "Core IR definition and lowering from the typed tree: derive expansion, tail-call loopification, layer wiring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-resolve.workspace = true
+emela-types.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+emela-syntax.workspace = true
+insta.workspace = true

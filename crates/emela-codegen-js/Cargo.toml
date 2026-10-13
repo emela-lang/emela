@@ -1,0 +1,12 @@
+[package]
+name = "emela-codegen-js"
+description = "Emits JS from the Core IR: generator transform, embedded JS runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

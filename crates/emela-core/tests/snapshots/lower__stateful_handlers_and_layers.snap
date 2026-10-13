@@ -1,0 +1,80 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+enum Pool {
+  Pool(url: String, n: Int)
+}
+
+enum Spare {
+  Spare
+}
+
+export fn main() {
+  let _%5 = @dbg[String]({
+    with {
+      let h%0 = Env()
+      let ev%2 = provide(; Config = h%0)
+      let self%3 = Pool$init(ev%2)?
+      let h%1 = Pool(self%3, ev%2) release Pool {
+        Pool$release(self%3, ev%2)
+      }
+    } {
+      h%1.Users#find(1)
+    }
+  } escape {
+    Down.Down -> "down"
+  })
+  with {
+    let h%6 = Env()
+    let self%8 = Spare$init()
+    let h%7 = Spare(self%8) release Spare {
+      ()
+    }
+  } {
+    @dbg[String](h%7.Users#find(2))
+  }
+}
+
+fn Env() {
+  handler Env: Config {
+    url: fn() {
+      "db"
+    }
+  }
+}
+
+fn Pool(self%18, ev%19) {
+  handler Pool: Users {
+    find: fn(id%20) {
+      self%18.url#0
+    }
+  }
+}
+
+fn Pool$init(ev%12) {
+  let u%13 = (use[Config](ev%12)).Config#url()
+  let _%14 = if (u%13 ==[String] "") {
+    fail Down.Down
+  } else {
+    ()
+  }
+  let base%15 = Pool.Pool(url: u%13, n: 0)
+  Pool.Pool(url: base%15.url#0, n: 1)
+}
+
+fn Pool$release(self%16, ev%17) {
+  @dbg[String](self%16.url#0)
+}
+
+fn Spare(self%10) {
+  handler Spare: Users {
+    find: fn(id%11) {
+      "spare"
+    }
+  }
+}
+
+fn Spare$init() {
+  Spare.Spare
+}

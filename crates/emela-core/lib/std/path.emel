@@ -1,0 +1,76 @@
+# Functions that build path strings (spec 15.2). Pure: they never touch the file system.
+#
+# The separator is `/` only (Node accepts `/` on Windows too). Paths are not normalized: `..` is
+# not resolved, and nothing is made absolute. Trailing slashes are ignored, so `a/b/` is `a/b`.
+# Use it as `Path.join(dir, "notes.txt")` after `import Std.Path`.
+
+## `b` under `a`, with one `/` between them. If `b` is absolute (starts with `/`), it is `b`
+## itself. An empty side gives the other side.
+pub fn join(a: String, b: String) -> String {
+  if a == "" || String.starts_with(b, "/") {
+    b
+  } else if b == "" {
+    a
+  } else if String.ends_with(a, "/") {
+    String.append(a, b)
+  } else {
+    "#{a}/#{b}"
+  }
+}
+
+## The path without its last component: `parent("a/b.txt")` is `Some("a")`, `parent("/a")` is
+## `Some("/")`. `None` for a single component (`"a.txt"`), the root `"/"`, and `""`.
+pub fn parent(path: String) -> Option[String] {
+  drop_last(components(path)) match {
+    None       -> None
+    Some([])   -> if String.starts_with(path, "/") { Some("/") } else { None }
+    Some(rest) -> Some(from_components(path, rest))
+  }
+}
+
+## The last component: `file_name("a/b.txt")` is `Some("b.txt")`. `None` for the root `"/"`,
+## `""`, and a path ending in `.` or `..`.
+pub fn file_name(path: String) -> Option[String] {
+  List.head(List.reverse(components(path))) match {
+    Some(".")  -> None
+    Some("..") -> None
+    name       -> name
+  }
+}
+
+## The part of the file name after its last `.`, without the `.`: `extension("a/b.tar.gz")` is
+## `Some("gz")`. `None` if the file name has no `.`, only a leading one (`".bashrc"`), or ends
+## in `.` (`"b."`).
+pub fn extension(path: String) -> Option[String] {
+  file_name(path) |> Option.and_then(fn(name) {
+    String.split(name, ".") match {
+      []      -> None
+      [_]     -> None
+      ["", _] -> None
+      parts -> List.head(List.reverse(parts)) match {
+        Some("") -> None
+        ext      -> ext
+      }
+    }
+  })
+}
+
+## The non-empty components, so that repeated and trailing slashes do not count.
+## `"/a//b/"` is `["a", "b"]`.
+fn components(path: String) -> List[String] {
+  String.split(path, "/") |> List.filter(fn(c) { c != "" })
+}
+
+## Joins the components back, keeping the leading `/` of an absolute `path`.
+fn from_components(path: String, parts: List[String]) -> String {
+  joined = String.join(parts, "/")
+  if String.starts_with(path, "/") { "/#{joined}" } else { joined }
+}
+
+## `xs` without its last element. `None` if `xs` is empty.
+fn drop_last(xs: List[String]) -> Option[List[String]] {
+  List.reverse(xs) match {
+    []          -> None
+    [_, ..rest] -> Some(List.reverse(rest))
+  }
+}

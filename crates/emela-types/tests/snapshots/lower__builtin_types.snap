@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(r#\"\nfn prims(a: Int, b: Int64, c: Float, d: String, e: Bool) -> () use {} { todo() }\nfn never() -> Never use {} { todo() }\nfn tuple(p: (Int, String)) -> (Int, (Bool, Float)) use {} { todo() }\nfn func(f: fn(Int, String) -> Bool) -> fn() -> () fails {} use {} use {} { todo() }\nfn list(xs: List[Int]) -> List[List[String]] use {} { todo() }\n\"#)"
+---
+prims: fn(Int, Int64, Float, String, Bool) -> ()
+never: fn() -> Never
+tuple: fn((Int, String)) -> (Int, (Bool, Float))
+func: ∀ E(f), R(f). fn(fn(Int, String) -> Bool fails E(f) use R(f)) -> (fn() -> ()) fails E(f) use R(f)
+list: fn(List[Int]) -> List[List[String]]

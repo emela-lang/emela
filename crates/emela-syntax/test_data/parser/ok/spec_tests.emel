@@ -1,0 +1,15 @@
+@test
+fn greet_returns_user() {
+  with AppTest {
+    user = greet(1)
+    assert user.name == "alice"
+  }
+}
+
+@test
+fn greet_fails_for_unknown_id() {
+  with AppTest {
+    result = Some(greet(999)) escape { NotFound(_) -> None }
+    assert result == None
+  }
+}

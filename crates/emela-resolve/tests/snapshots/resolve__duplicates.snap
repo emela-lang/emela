@@ -1,0 +1,12 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int, id: Int)\nenum User { Admin }\nfn f() { 1 }\nfn f() { 2 }\neffect Log {\n  fn info() -> ()\n  fn info() -> ()\n}\nfn g[A, A](x: Int, x: Int) {\n  (y, y) = (1, 2)\n  match (1, 2) {\n    (z, z) -> z\n  }\n}\n\"##,)])"
+---
+error src/main.emel@19..21 `id`: duplicate `id`
+error src/main.emel@33..37 `User`: duplicate `User`
+error src/main.emel@64..65 `f`: duplicate `f`
+error src/main.emel@110..114 `info`: duplicate `info`
+error src/main.emel@133..134 `A`: duplicate `A`
+error src/main.emel@144..145 `x`: `x` is bound twice
+error src/main.emel@160..161 `y`: `y` is bound twice
+error src/main.emel@197..198 `z`: `z` is bound twice

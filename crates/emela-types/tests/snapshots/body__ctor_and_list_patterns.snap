@@ -1,0 +1,25 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\ntype Pair[A, B](first: A, second: B)\n\nfn f(u: User, p: Pair[Int, String], o: Option[Bool], xs: List[Int]) -> Int {\n  User(id:, name:) = u\n  User(name: n, ..) = u\n  User(i, s) = u\n  Pair(a, b) = p\n  Some(flag) = o\n  [x, y, ..rest] = xs\n  [z, ..] = xs\n  [] = xs\n  id\n}\n\"#)"
+---
+f: fn(User, Pair[Int, String], Option[Bool], List[Int]) -> Int
+  u: User
+  p: Pair[Int, String]
+  o: Option[Bool]
+  xs: List[Int]
+  id: Int
+  name: String
+  n: String
+  i: Int
+  s: String
+  a: Int
+  b: String
+  flag: Bool
+  x: Int
+  y: Int
+  rest: List[Int]
+  z: Int
+`Some(flag)` refutable pattern in binding: None not covered
+`[x, y, ..rest]` refutable pattern in binding: [], [_] not covered
+`[z, ..]` refutable pattern in binding: [] not covered
+`[]` refutable pattern in binding: [_, ..] not covered

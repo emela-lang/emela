@@ -1,0 +1,60 @@
+# The Clock effect and its handlers (spec 8.1; the platform and test layers of spec 15.2).
+#
+# Use it as `(use Clock).now()` and provide it with `with SystemClock { ... }`, or with
+# `with Platform { ... }` from `Std.Platform`.
+
+import Std.Duration.{Duration}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+pub effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+  fn now() -> Instant
+}
+
+@external(js, "./clock.mjs", "nowMilliseconds")
+fn now_milliseconds() -> Int64
+
+@external(js, "./clock.mjs", "sleep")
+suspend fn sleep_milliseconds(ms: Int) -> ()
+
+@external(js, "./clock.mjs", "whenStalled")
+suspend fn when_stalled(at: Int64) -> ()
+
+## The host's clock. `sleep` waits for a timer (JS `setTimeout`) as an `@external suspend fn`, so
+## SystemClock depends on Async (spec 8.7), and interrupting the sleeping fiber clears the timer
+## (spec 12.2). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
+pub handler SystemClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    sleep_milliseconds(ms)
+    resume(())
+  }
+  fn now() { Instant.from_unix_milliseconds(now_milliseconds()) }
+}
+
+## The test handler. The current time is `State[Instant]`, so use it inside `State.run` with the
+## starting time:
+##
+##   start = Instant.from_unix_milliseconds(Int64.from_int(0))
+##   (_, end) = State.run(start, fn() { with TestClock { (use Clock).sleep(1000) } })
+##
+## The time is virtual (spec 8.8). `sleep` really waits: when no fiber can go on and the host has
+## nothing pending, the time moves forward to the earliest time a sleeper waits for, and that
+## sleeper wakes (sleepers with the same time wake in the order they called `sleep`). With one
+## fiber this is the same as moving the time forward by `ms` at once. A negative `ms` is the same
+## as 0. `now` returns the time in `State[Instant]`. TestClock depends on Async.
+pub handler TestClock implements Clock {
+  suspend fn sleep(ms, resume) {
+    st = use State[Instant]
+    at = Instant.add(st.get(), Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))
+    when_stalled(Instant.to_unix_milliseconds(at))
+    st.update(fn(t) {
+      Instant.compare(t, at) match {
+        Less -> at
+        _    -> t
+      }
+    })
+    resume(())
+  }
+  fn now() { (use State[Instant]).get() }
+}

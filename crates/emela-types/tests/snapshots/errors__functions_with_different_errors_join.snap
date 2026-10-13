@@ -1,0 +1,23 @@
+---
+source: crates/emela-types/tests/errors.rs
+assertion_line: 92
+expression: "render_errors(r#\"\nerror Boom\nerror Bad\n\nfn fx() -> Int fails Boom { fail Boom }\nfn fy() -> Int fails Bad { fail Bad }\n\nfn pick(c: Bool) {\n  f = if c { fx } else { fy }\n  f()\n}\n\nfn all() {\n  fs = [fx, fy]\n  fs\n}\n\nfn annotated() {\n  h: fn() -> Int = fx\n  h()\n}\n\"#)"
+---
+fx: fn() -> Int fails Boom
+fy: fn() -> Int fails Bad
+pick: fn(Bool) -> Int fails Boom | Bad
+  c: Bool
+  f: fn() -> Int fails Boom | Bad
+all: fn() -> List[fn() -> Int fails Boom | Bad]
+  fs: List[fn() -> Int fails Boom | Bad]
+annotated: fn() -> Int fails Boom
+  h: fn() -> Int fails Boom
+--- E
+{ fail Boom }: Boom
+fail Boom: Boom
+{ fail Bad }: Bad
+fail Bad: Bad
+{   f = if c { fx } else { fy }   f() }: Boom | Bad
+f(): Boom | Bad
+{   h: fn() -> Int = fx   h() }: Boom
+h(): Boom

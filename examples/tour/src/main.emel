@@ -1,0 +1,60 @@
+# A tour of the pure part of the language. `dbg` prints to stderr.
+import Email
+
+# Variants carry labelled fields.
+enum Shape {
+  Circle(radius: Float)
+  Rect(width: Float, height: Float)
+}
+
+# A record type.
+type Todo(id: Int, title: String, done: Bool)
+
+fn area(shape: Shape) -> Float {
+  shape match {
+    Circle(radius:)       -> 3.14 * radius * radius
+    Rect(width:, height:) -> width * height
+  }
+}
+
+# Self tail calls compile to loops, so deep recursion is fine.
+fn sum(xs: List[Int], acc: Int) -> Int {
+  xs match {
+    []          -> acc
+    [x, ..rest] -> sum(rest, acc + x)
+  }
+}
+
+fn fizzbuzz(n: Int) -> String {
+  (n % 3, n % 5) match {
+    (0, 0) -> "FizzBuzz"
+    (0, _) -> "Fizz"
+    (_, 0) -> "Buzz"
+    _      -> Int.to_string(n)
+  }
+}
+
+fn main() {
+  todo = Todo(id: 1, title: "Write docs", done: False)
+  finished = Todo(done: True, ..todo)
+  dbg(finished) # Todo(id: 1, title: "Write docs", done: True)
+
+  dbg(area(Rect(width: 2.0, height: 3.0))) # 6.0
+
+  dbg(sum(List.range(1, 10001), 0)) # 50005000
+
+  # "1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz"
+  List.range(1, 16)
+    |> List.map(fizzbuzz)
+    |> String.join(" ")
+    |> dbg
+
+  dbg(Email.parse("alice@example.com") |> Option.map(Email.to_string)) # Some("alice@example.com")
+  dbg(Email.parse("not an email")) # None
+}
+
+# Run with `emela test`.
+@test
+fn fizzbuzz_of_15() {
+  assert fizzbuzz(15) == "FizzBuzz"
+}

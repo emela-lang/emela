@@ -1,0 +1,74 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/type_arg_sets.emel
+---
+ROOT@0..71
+  FN_DECL@0..55
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..6 "bad"
+    PARAM_LIST@6..55
+      L_PAREN@6..7 "("
+      PARAM@7..38
+        LOWER_NAME@7..8 "a"
+        COLON@8..9 ":"
+        WHITESPACE@9..10 " "
+        PATH_TYPE@10..38
+          PATH@10..17
+            TYPE_NAME@10..17 "Handler"
+          TYPE_ARG_LIST@17..38
+            L_BRACK@17..18 "["
+            ERROR_SET@18..28
+              PATH@18..26
+                TYPE_NAME@18..26 "NotFound"
+              WHITESPACE@26..27 " "
+              PIPE@27..28 "|"
+            COMMA@28..29 ","
+            WHITESPACE@29..30 " "
+            EFFECT_SET@30..37
+              L_BRACE@30..31 "{"
+              WHITESPACE@31..32 " "
+              PATH@32..34
+                TYPE_NAME@32..34 "Db"
+              COMMA@34..35 ","
+              WHITESPACE@35..36 " "
+              R_BRACE@36..37 "}"
+            R_BRACK@37..38 "]"
+      COMMA@38..39 ","
+      WHITESPACE@39..40 " "
+      PARAM@40..55
+        LOWER_NAME@40..41 "b"
+        COLON@41..42 ":"
+        WHITESPACE@42..43 " "
+        PATH_TYPE@43..55
+          PATH@43..50
+            TYPE_NAME@43..50 "Handler"
+          TYPE_ARG_LIST@50..55
+            L_BRACK@50..51 "["
+            EFFECT_SET@51..55
+              L_BRACE@51..52 "{"
+              WHITESPACE@52..53 " "
+              PATH@53..55
+                TYPE_NAME@53..55 "Db"
+  WHITESPACE@55..56 " "
+  ERROR@56..71
+    TYPE_NAME@56..59 "Log"
+    WHITESPACE@59..60 " "
+    R_BRACE@60..61 "}"
+    R_BRACK@61..62 "]"
+    R_PAREN@62..63 ")"
+    WHITESPACE@63..64 " "
+    L_BRACE@64..65 "{"
+    WHITESPACE@65..66 " "
+    L_PAREN@66..67 "("
+    R_PAREN@67..68 ")"
+    WHITESPACE@68..69 " "
+    R_BRACE@69..70 "}"
+    NEWLINE@70..71 "\n"
+error[E0130]@3..6: a function without a body must be `@external`
+error[E0111]@28..29: expected type
+error[E0110]@56..59: expected `}`
+error[E0110]@56..59: expected `]`
+error[E0110]@56..59: expected `)`
+error[E0122]@56..59: expected newline after declaration

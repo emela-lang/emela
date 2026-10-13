@@ -1,0 +1,12 @@
+## レコードの一部だけを変えた値（5.3）
+fn rename(user: User, todo: Todo, v: String) {
+  renamed = User(name: "b", ..user)
+  fixed   = Todo(title: "Buy milk", completed: True, ..todo)
+  nested  = User(email: Email(value: v, ..user.email), ..user)
+  same    = User(..user)
+  wide    = Pair(
+    first: "s",
+    ..p,
+  )
+  User(name:, ..) = renamed
+}

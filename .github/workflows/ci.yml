@@ -6,7 +6,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [main, dev, next]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,8 +21,6 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Emela format
-        run: cargo run --locked -- fmt --check examples crates/emela/src/std
 
   test:
     strategy:
@@ -32,5 +30,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # `emela run` and the JS backend tests execute the generated code with node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Test
         run: cargo test --workspace --locked
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `emela run` and `emela test` execute the generated JS with node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: cargo build --bin emela --locked
+      - name: Check, test and fmt every example
+        run: |
+          emela="$PWD/target/debug/emela"
+          for dir in examples/*/; do
+            echo "::group::$dir"
+            (cd "$dir" && "$emela" check && "$emela" test && "$emela" fmt --check)
+            echo "::endgroup::"
+          done

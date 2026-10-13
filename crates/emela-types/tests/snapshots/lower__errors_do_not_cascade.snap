@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/lower.rs
+expression: "run(r#\"\nfn undefined(x: Nope) -> List[Nope] use {} { todo() }\n\"#)"
+---
+undefined: fn({unknown}) -> List[{unknown}]
+resolve: undefined type `Nope`
+resolve: undefined type `Nope`

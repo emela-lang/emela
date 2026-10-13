@@ -1,0 +1,12 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nconst ORIGIN: (Int, Int) = (0, 0)\n\nfn f(p: (Int, String)) -> Int {\n  (n, s) = p\n  ((a, b), c) = ((1, \"x\"), 2.0)\n  () = ()\n  (_, t) = p\n  n\n}\n\"#)"
+---
+f: fn((Int, String)) -> Int
+  p: (Int, String)
+  n: Int
+  s: String
+  a: Int
+  b: String
+  c: Float
+  t: String

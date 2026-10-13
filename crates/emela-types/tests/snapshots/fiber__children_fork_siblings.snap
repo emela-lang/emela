@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/fiber.rs
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\nimport Std.Console.{Console, SystemConsole}\n\nerror Boom\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn main() {\n  with SystemConsole {\n    Fiber.scope(fn() {\n      Fiber.fork(fn() {\n        Fiber.fork(fn() { (use Console).print_line(\"x\") })\n        ()\n      })\n      ()\n    })\n  }\n}\n\nfn through_capability() {\n  Fiber.scope(fn() {\n    s = use Scope\n    s.fork(fn() {\n      s.fork(fn() { boom() })\n      ()\n    })\n    ()\n  })\n}\n\nfn spawn_tree(depth: Int) -> () use { Scope[Boom, {}] } {\n  if depth > 0 {\n    Fiber.fork(fn() {\n      spawn_tree(depth - 1)\n      boom()\n    })\n    ()\n  } else {\n    ()\n  }\n}\n\nfn recursive() {\n  Fiber.scope(fn() { spawn_tree(3) })\n}\n\"#)"
+---
+boom: fn() -> Int fails Boom
+main: fn() -> () use Async
+through_capability: fn() -> () fails Boom use Async
+  s: use Scope[Boom, {}]
+spawn_tree: fn(Int) -> () use Scope[Boom, {}]
+  depth: Int
+recursive: fn() -> () fails Boom use Async

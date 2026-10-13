@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\ntype User(id: Int, name: String)\n\ntype Pair[A, B](first: A, second: B)\n\ntype Todo(\n  id:        Int,\n  title:     String,\n  completed: Bool,\n)\n\nfn update(user: User, todo: Todo, p: Pair[Int, Bool]) -> Pair[String, Bool] {\n  renamed = User(name: \"b\", ..user)\n  fixed   = Todo(title: \"Buy milk\", completed: True, ..todo)\n  name = renamed.name\n  Pair(first: \"s\", ..p)\n}\n\"#)"
+---
+update: fn(User, Todo, Pair[Int, Bool]) -> Pair[String, Bool]
+  user: User
+  todo: Todo
+  p: Pair[Int, Bool]
+  renamed: User
+  fixed: Todo
+  name: String

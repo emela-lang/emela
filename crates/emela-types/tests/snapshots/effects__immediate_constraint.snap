@@ -1,0 +1,69 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\n@external(js, \"./ffi.mjs\", \"fetchText\")\nsuspend fn fetch_text(url: String) -> String\n\n@external(js, \"onTick\")\nfn on_tick(f: fn() -> () use { Clock }) -> ()\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R { f(x) }\n\nfn logs() -> Int {\n  update(1, fn(x) {\n    (use Logger).info(\"x\")\n    x\n  })\n}\n\nfn sleeps() -> Int {\n  update(1, fn(x) {\n    (use Clock).sleep(1)\n    x\n  })\n}\n\nfn hidden(f: fn(Int) -> Int) -> Int { update(1, f) }\n\nfn named[R: Immediate](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }\n\nfn unnamed[R](f: fn(Int) -> Int use R) -> Int use R { update(1, f) }\n\nfn inferred() { fn(g) { update(1, g) } }\n\nfn not_effect[A: Immediate](x: A) -> A { x }\n\nfn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }\n\nhandler Ticking implements Logger {\n  fn info(msg) {\n    set_timeout(1, fn() { (use Logger).info(msg) })\n    set_timeout(1, fn() { (use Clock).sleep(1) })\n    set_timeout(1, fn() {\n      fetch_text(msg)\n      ()\n    })\n  }\n}\n\"#)"
+---
+set_timeout: ∀ E(f), R(f): Immediate. fn(Int, fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
+fetch_text: fn(String) -> String use Async
+on_tick: ∀ E(f). fn(fn() -> () fails E(f) use Clock) -> () fails E(f)
+update: ∀ A, R: Immediate, E(f). fn(A, fn(A) -> A fails E(f) use R) -> A fails E(f) use R
+logs: fn() -> Int use Logger
+sleeps: fn() -> Int use Clock
+hidden: ∀ E(f), R(f). fn(fn(Int) -> Int fails E(f) use R(f)) -> Int fails E(f) use R(f)
+named: ∀ R: Immediate, E(f). fn(fn(Int) -> Int fails E(f) use R) -> Int fails E(f) use R
+unnamed: ∀ R, E(f). fn(fn(Int) -> Int fails E(f) use R) -> Int fails E(f) use R
+inferred: ∀ E, R: Immediate. fn() -> fn(fn(Int) -> Int fails E use R) -> Int fails E use R
+not_effect: ∀ A. fn(A) -> A
+trait_bound: ∀ R, E(f). fn(fn() -> () fails E(f) use R) -> () fails E(f) use R
+handler Ticking: use { Async, Logger, Clock }
+`fn() -> () use { Clock }` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "on_tick" } }
+`update` NotImmediate { effects: ["Clock"], sets: [], required: Bound { param: "R", callee: "update" } }
+`update` NotImmediate { effects: [], sets: ["R(f)"], required: Bound { param: "R", callee: "update" } }
+`update` NotImmediate { effects: [], sets: ["R"], required: Bound { param: "R", callee: "update" } }
+`Immediate` ImmediateOnNonEffect { param: "A" }
+`Show` not supported yet: trait bounds on effect sets
+`set_timeout` NotImmediate { effects: ["Clock"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
+`set_timeout(1, fn() { (use Clock).sleep(1) })` SuspendingFnOp { op: "info", call: Fn { callee: Some("set_timeout"), effects: ["Clock"] } }
+`set_timeout` NotImmediate { effects: ["Async"], sets: [], required: ExternalCallback { callee: "set_timeout" } }
+`set_timeout(1, fn() {
+      fetch_text(msg)
+      ()
+    })` SuspendingFnOp { op: "info", call: Fn { callee: Some("set_timeout"), effects: ["Async"] } }
+--- R
+{ f(x) }: '1
+f(x): '1
+{   update(1, fn(x) {     (use Logger).info("x")     x   }) }: Logger
+update(1, fn(x) {     (use Logger).info("x")     x   }): Logger
+{     (use Logger).info("x")     x   }: Logger
+(use Logger).info("x"): Logger
+(use Logger).info: Logger
+use Logger: Logger
+{   update(1, fn(x) {     (use Clock).sleep(1)     x   }) }: Clock
+update(1, fn(x) {     (use Clock).sleep(1)     x   }): Clock
+{     (use Clock).sleep(1)     x   }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
+{ update(1, f) }: '1
+update(1, f): '1
+{ update(1, f) }: '0
+update(1, f): '0
+{ update(1, f) }: '0
+update(1, f): '0
+{ update(1, g) }: ?e2
+update(1, g): ?e2
+{ f() }: '0
+f(): '0
+{     set_timeout(1, fn() { (use Logger).info(msg) })     set_timeout(1, fn() { (use Clock).sleep(1) })     set_timeout(1, fn() {       fetch_text(msg)       ()     })   }: { Async, Logger, Clock }
+set_timeout(1, fn() { (use Logger).info(msg) }): Logger
+{ (use Logger).info(msg) }: Logger
+(use Logger).info(msg): Logger
+(use Logger).info: Logger
+use Logger: Logger
+set_timeout(1, fn() { (use Clock).sleep(1) }): Clock
+{ (use Clock).sleep(1) }: Clock
+(use Clock).sleep(1): Clock
+(use Clock).sleep: Clock
+use Clock: Clock
+set_timeout(1, fn() {       fetch_text(msg)       ()     }): Async
+{       fetch_text(msg)       ()     }: Async
+fetch_text(msg): Async

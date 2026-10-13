@@ -1,0 +1,38 @@
+# Functions on Int64 (64-bit signed). Overflow wraps in two's complement (spec 16.1).
+
+@intrinsic
+pub fn from_int(n: Int) -> Int64
+
+## No suffix is added.
+@intrinsic
+pub fn to_string(n: Int64) -> String
+
+## Keeps the low 32 bits (wraps).
+@intrinsic
+pub fn to_int(n: Int64) -> Int
+
+@intrinsic
+pub fn bit_and(a: Int64, b: Int64) -> Int64
+
+@intrinsic
+pub fn bit_or(a: Int64, b: Int64) -> Int64
+
+@intrinsic
+pub fn bit_xor(a: Int64, b: Int64) -> Int64
+
+@intrinsic
+pub fn bit_not(n: Int64) -> Int64
+
+## 0 if `by` is 64 or more; a defect if `by` is negative.
+@intrinsic
+pub fn shift_left(n: Int64, by: Int) -> Int64
+
+## Arithmetic shift: fills the high bits with the sign.
+## 0 or -1 if `by` is 64 or more; a defect if `by` is negative.
+@intrinsic
+pub fn shift_right(n: Int64, by: Int) -> Int64
+
+## Logical shift: fills the high bits with 0. 0 if `by` is 64 or more; a defect if `by` is
+## negative.
+@intrinsic
+pub fn shift_right_unsigned(n: Int64, by: Int) -> Int64

@@ -1,0 +1,22 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn use_them() -> Int {\n  a = wrap(1)\n  b = wrap(\"s\")\n  c = empty(0)\n  d: List[String] = empty(1)\n  e = one()\n  a_len()\n}\n\nfn wrap[A](x: A) { [x] }\nfn untyped(x) { x }\nfn empty(n: Int) { [] }\nfn one() { 1 }\nfn keep[A](x: A, n: Int) { (x, n) }\nconst LIMIT = 10\nfn a_len() { LIMIT }\n\"#)"
+---
+use_them: fn() -> Int
+  a: List[Int]
+  b: List[String]
+  c: List[?3]
+  d: List[String]
+  e: Int
+wrap: ∀ A. fn(A) -> List[A]
+  x: '0
+untyped: fn({unknown}) -> {unknown}
+  x: {unknown}
+empty: ∀ A. fn(Int) -> List[A]
+  n: Int
+one: fn() -> Int
+keep: ∀ A. fn(A, Int) -> (A, Int)
+  x: '0
+  n: Int
+a_len: fn() -> Int
+`x` MissingParamType { param: "x" }

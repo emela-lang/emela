@@ -1,0 +1,42 @@
+# エフェクトの型引数（8.1，8.8）．
+pub effect State[S] {
+  fn get() -> S
+  fn set(value: S) -> ()
+  fn update(f: fn(S) -> S) -> ()
+}
+
+handler Fixed implements State[Int] {
+  fn get() { 0 }
+  fn set(value) { () }
+  fn update(f) { () }
+}
+
+handler Lines implements Core.State[List[String]] {
+  fn get() { [] }
+  fn set(value) { () }
+  fn update(f) { () }
+}
+
+fn count() -> Int use State[Int] {
+  st = use State[Int]
+  (use State[Int]).set(st.get() + 1)
+  st.get()
+}
+
+fn both() use { State[Int], Log, State[(Int, String)] } {
+  ()
+}
+
+pub fn run[S, A, E, R](
+  initial: S,
+  body: fn() -> A fails E use { State[S], R },
+) -> (A, S) fails E use R {
+  todo()
+}
+
+# 操作の型引数（8.1，11.2，17.3 の op_sig）．組み込みのエフェクトだけに許すのは型検査で見る．
+pub effect Scope[E, R] {
+  fn fork[A](f: fn() -> A fails E use R) -> Fiber[A]
+  fn deferred[A]() -> Deferred[A]
+  suspend fn both[A, B](a: A, b: B) -> (A, B)
+}

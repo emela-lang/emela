@@ -1,0 +1,39 @@
+# Prelude (spec 15.1). Visible from every module without an import. Only pure items go here.
+#
+# Int, Int64, Float, String, Never and List are built into the compiler, so they are not declared
+# here. So are the traits Eq, Ord, Show and Hash (spec 10.6).
+
+## `False` comes first so that the derived Ord gives `False < True`.
+pub enum Bool {
+  False
+  True
+}
+  derive Eq, Ord, Show, Hash
+
+pub enum Option[A] {
+  Some(A)
+  None
+}
+  derive Eq, Ord, Show, Hash
+
+pub enum Ordering {
+  Less
+  Equal
+  Greater
+}
+  derive Eq, Ord, Show, Hash
+
+## Raises a defect whose description is `message`.
+@intrinsic
+pub fn panic(message: String) -> Never
+
+## A placeholder for unwritten code. Raises a `not yet implemented` defect.
+@intrinsic
+pub fn todo() -> Never
+
+## Prints the value's `Show` to stderr on one line and returns the value. For debugging.
+@intrinsic
+pub fn dbg[A: Show](value: A) -> A
+
+## The input of a `parse` was not in the expected form (spec 15.3). `input` is the whole input.
+pub error ParseError(input: String)

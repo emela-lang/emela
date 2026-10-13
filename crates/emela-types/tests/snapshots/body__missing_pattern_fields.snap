@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype Account(id: Int, name: String, email: String)\n\nfn f(a: Account) -> Int {\n  Account(name:) = a\n  Account(name:, ..) = a\n  1\n}\n\"#)"
+---
+f: fn(Account) -> Int
+  a: Account
+  name: String
+  name: String
+`Account(name:)` pattern `Account` does not mention id, email

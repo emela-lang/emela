@@ -1,0 +1,55 @@
+# A Duration is an opaque Int64 of milliseconds (spec 15.2, 4.4). Values are made and taken apart
+# only through this module, and may be negative. Unit conversion and addition wrap on overflow
+# like Int64 (spec 16.1).
+
+## Made with constructors like `Duration.seconds(5)`.
+pub opaque type Duration(milliseconds: Int64)
+
+pub fn milliseconds(n: Int64) -> Duration {
+  Duration(milliseconds: n)
+}
+
+pub fn seconds(n: Int64) -> Duration {
+  Duration(milliseconds: n * 1000)
+}
+
+pub fn minutes(n: Int64) -> Duration {
+  Duration(milliseconds: n * 60000)
+}
+
+pub fn hours(n: Int64) -> Duration {
+  Duration(milliseconds: n * 3600000)
+}
+
+pub fn to_milliseconds(d: Duration) -> Int64 {
+  d.milliseconds
+}
+
+## Truncates toward zero.
+pub fn to_seconds(d: Duration) -> Int64 {
+  d.milliseconds / 1000
+}
+
+pub fn add(d: Duration, other: Duration) -> Duration {
+  Duration(milliseconds: d.milliseconds + other.milliseconds)
+}
+
+## May be negative.
+pub fn subtract(d: Duration, other: Duration) -> Duration {
+  Duration(milliseconds: d.milliseconds - other.milliseconds)
+}
+
+pub fn compare(d: Duration, other: Duration) -> Ordering {
+  if d.milliseconds < other.milliseconds {
+    Less
+  } else if d.milliseconds > other.milliseconds {
+    Greater
+  } else {
+    Equal
+  }
+}
+
+## Milliseconds with an `ms` suffix (`1500ms`).
+pub fn to_string(d: Duration) -> String {
+  "#{Int64.to_string(d.milliseconds)}ms"
+}
