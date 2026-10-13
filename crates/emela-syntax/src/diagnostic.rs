@@ -40,8 +40,6 @@ pub enum DiagnosticCode {
     RestNotLast,
     /// No element before `..` in a list. `[..rest]`
     RestWithoutElements,
-    /// Negative numbers in patterns are undecided (spec 18.1 #17).
-    NegativeNumberPattern,
     InterpolationInPattern,
     ExpectedExpression,
     /// `a < b < c`
@@ -113,7 +111,6 @@ impl DiagnosticCode {
             Self::ExpectedPattern => "E0113",
             Self::RestNotLast => "E0114",
             Self::RestWithoutElements => "E0115",
-            Self::NegativeNumberPattern => "E0116",
             Self::InterpolationInPattern => "E0117",
             Self::ExpectedExpression => "E0118",
             Self::ChainedComparison => "E0119",

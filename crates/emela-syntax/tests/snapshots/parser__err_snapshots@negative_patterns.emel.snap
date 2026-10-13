@@ -1,0 +1,142 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/negative_patterns.emel
+---
+ROOT@0..181
+  COMMENT@0..64 "# Only a number literal may follow `-` in a pattern (spec 17.6)."
+  NEWLINE@64..65 "\n"
+  FN_DECL@65..180
+    FN_KW@65..67 "fn"
+    WHITESPACE@67..68 " "
+    LOWER_NAME@68..69 "f"
+    PARAM_LIST@69..92
+      L_PAREN@69..70 "("
+      PARAM@70..76
+        LOWER_NAME@70..71 "n"
+        COLON@71..72 ":"
+        WHITESPACE@72..73 " "
+        PATH_TYPE@73..76
+          PATH@73..76
+            TYPE_NAME@73..76 "Int"
+      COMMA@76..77 ","
+      WHITESPACE@77..78 " "
+      PARAM@78..91
+        LOWER_NAME@78..79 "p"
+        COLON@79..80 ":"
+        WHITESPACE@80..81 " "
+        TUPLE_TYPE@81..91
+          L_PAREN@81..82 "("
+          PATH_TYPE@82..85
+            PATH@82..85
+              TYPE_NAME@82..85 "Int"
+          COMMA@85..86 ","
+          WHITESPACE@86..87 " "
+          PATH_TYPE@87..90
+            PATH@87..90
+              TYPE_NAME@87..90 "Int"
+          R_PAREN@90..91 ")"
+      R_PAREN@91..92 ")"
+    WHITESPACE@92..93 " "
+    RET_TYPE@93..99
+      THIN_ARROW@93..95 "->"
+      WHITESPACE@95..96 " "
+      PATH_TYPE@96..99
+        PATH@96..99
+          TYPE_NAME@96..99 "Int"
+    WHITESPACE@99..100 " "
+    BLOCK_EXPR@100..180
+      L_BRACE@100..101 "{"
+      NEWLINE@101..102 "\n"
+      WHITESPACE@102..104 "  "
+      BINDING@104..115
+        TUPLE_EXPR@104..111
+          L_PAREN@104..105 "("
+          PREFIX_EXPR@105..107
+            MINUS@105..106 "-"
+            NAME_REF@106..107
+              LOWER_NAME@106..107 "y"
+          COMMA@107..108 ","
+          WHITESPACE@108..109 " "
+          NAME_REF@109..110
+            LOWER_NAME@109..110 "z"
+          R_PAREN@110..111 ")"
+        WHITESPACE@111..112 " "
+        EQ@112..113 "="
+        WHITESPACE@113..114 " "
+        NAME_REF@114..115
+          LOWER_NAME@114..115 "p"
+      NEWLINE@115..116 "\n"
+      WHITESPACE@116..118 "  "
+      BINDING@118..125
+        PREFIX_EXPR@118..121
+          MINUS@118..119 "-"
+          PREFIX_EXPR@119..121
+            MINUS@119..120 "-"
+            LITERAL@120..121
+              INT@120..121 "1"
+        WHITESPACE@121..122 " "
+        EQ@122..123 "="
+        WHITESPACE@123..124 " "
+        NAME_REF@124..125
+          LOWER_NAME@124..125 "n"
+      NEWLINE@125..126 "\n"
+      WHITESPACE@126..128 "  "
+      MATCH_EXPR@128..178
+        NAME_REF@128..129
+          LOWER_NAME@128..129 "n"
+        WHITESPACE@129..130 " "
+        MATCH_KW@130..135 "match"
+        WHITESPACE@135..136 " "
+        MATCH_ARM_LIST@136..178
+          L_BRACE@136..137 "{"
+          NEWLINE@137..138 "\n"
+          WHITESPACE@138..142 "    "
+          MATCH_ARM@142..144
+            ERROR@142..143
+              MINUS@142..143 "-"
+            NAME_REF@143..144
+              LOWER_NAME@143..144 "x"
+          WHITESPACE@144..145 " "
+          ERROR@145..149
+            THIN_ARROW@145..147 "->"
+            WHITESPACE@147..148 " "
+            INT@148..149 "0"
+          NEWLINE@149..150 "\n"
+          WHITESPACE@150..154 "    "
+          MATCH_ARM@154..158
+            ERROR@154..155
+              MINUS@154..155 "-"
+            STRING@155..158
+              STRING_QUOTE@155..156 "\""
+              STRING_TEXT@156..157 "a"
+              STRING_QUOTE@157..158 "\""
+          WHITESPACE@158..159 " "
+          ERROR@159..163
+            THIN_ARROW@159..161 "->"
+            WHITESPACE@161..162 " "
+            INT@162..163 "1"
+          NEWLINE@163..164 "\n"
+          WHITESPACE@164..168 "    "
+          MATCH_ARM@168..174
+            WILDCARD_PAT@168..169
+              UNDERSCORE@168..169 "_"
+            WHITESPACE@169..170 " "
+            THIN_ARROW@170..172 "->"
+            WHITESPACE@172..173 " "
+            LITERAL@173..174
+              INT@173..174 "2"
+          NEWLINE@174..175 "\n"
+          WHITESPACE@175..177 "  "
+          R_BRACE@177..178 "}"
+      NEWLINE@178..179 "\n"
+      R_BRACE@179..180 "}"
+  NEWLINE@180..181 "\n"
+error[E0125]@105..107: invalid left-hand side of binding: expected a pattern
+error[E0125]@118..121: invalid left-hand side of binding: expected a pattern
+error[E0113]@142..143: expected pattern
+error[E0110]@143..144: expected `->`
+error[E0122]@145..147: expected newline or `}` after match arm
+error[E0113]@154..155: expected pattern
+error[E0110]@155..156: expected `->`
+error[E0122]@159..161: expected newline or `}` after match arm

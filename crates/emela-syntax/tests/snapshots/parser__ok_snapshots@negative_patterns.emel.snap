@@ -1,0 +1,226 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/negative_patterns.emel
+---
+ROOT@0..300
+  COMMENT@0..64 "# Spec 6.5, 17.6: `-` before a number literal, in patterns only."
+  NEWLINE@64..65 "\n"
+  FN_DECL@65..217
+    FN_KW@65..67 "fn"
+    WHITESPACE@67..68 " "
+    LOWER_NAME@68..69 "f"
+    PARAM_LIST@69..102
+      L_PAREN@69..70 "("
+      PARAM@70..76
+        LOWER_NAME@70..71 "n"
+        COLON@71..72 ":"
+        WHITESPACE@72..73 " "
+        PATH_TYPE@73..76
+          PATH@73..76
+            TYPE_NAME@73..76 "Int"
+      COMMA@76..77 ","
+      WHITESPACE@77..78 " "
+      PARAM@78..86
+        LOWER_NAME@78..79 "x"
+        COLON@79..80 ":"
+        WHITESPACE@80..81 " "
+        PATH_TYPE@81..86
+          PATH@81..86
+            TYPE_NAME@81..86 "Float"
+      COMMA@86..87 ","
+      WHITESPACE@87..88 " "
+      PARAM@88..101
+        LOWER_NAME@88..89 "p"
+        COLON@89..90 ":"
+        WHITESPACE@90..91 " "
+        TUPLE_TYPE@91..101
+          L_PAREN@91..92 "("
+          PATH_TYPE@92..95
+            PATH@92..95
+              TYPE_NAME@92..95 "Int"
+          COMMA@95..96 ","
+          WHITESPACE@96..97 " "
+          PATH_TYPE@97..100
+            PATH@97..100
+              TYPE_NAME@97..100 "Int"
+          R_PAREN@100..101 ")"
+      R_PAREN@101..102 ")"
+    WHITESPACE@102..103 " "
+    RET_TYPE@103..109
+      THIN_ARROW@103..105 "->"
+      WHITESPACE@105..106 " "
+      PATH_TYPE@106..109
+        PATH@106..109
+          TYPE_NAME@106..109 "Int"
+    WHITESPACE@109..110 " "
+    BLOCK_EXPR@110..217
+      L_BRACE@110..111 "{"
+      NEWLINE@111..112 "\n"
+      WHITESPACE@112..114 "  "
+      BINDING@114..125
+        TUPLE_EXPR@114..121
+          L_PAREN@114..115 "("
+          PREFIX_EXPR@115..117
+            MINUS@115..116 "-"
+            LITERAL@116..117
+              INT@116..117 "1"
+          COMMA@117..118 ","
+          WHITESPACE@118..119 " "
+          NAME_REF@119..120
+            LOWER_NAME@119..120 "y"
+          R_PAREN@120..121 ")"
+        WHITESPACE@121..122 " "
+        EQ@122..123 "="
+        WHITESPACE@123..124 " "
+        NAME_REF@124..125
+          LOWER_NAME@124..125 "p"
+      NEWLINE@125..126 "\n"
+      WHITESPACE@126..128 "  "
+      MATCH_EXPR@128..215
+        NAME_REF@128..129
+          LOWER_NAME@128..129 "n"
+        WHITESPACE@129..130 " "
+        MATCH_KW@130..135 "match"
+        WHITESPACE@135..136 " "
+        MATCH_ARM_LIST@136..215
+          L_BRACE@136..137 "{"
+          NEWLINE@137..138 "\n"
+          WHITESPACE@138..142 "    "
+          MATCH_ARM@142..158
+            LITERAL_PAT@142..153
+              MINUS@142..143 "-"
+              LITERAL@143..153
+                INT@143..153 "2147483648"
+            WHITESPACE@153..154 " "
+            THIN_ARROW@154..156 "->"
+            WHITESPACE@156..157 " "
+            LITERAL@157..158
+              INT@157..158 "0"
+          NEWLINE@158..159 "\n"
+          WHITESPACE@159..163 "    "
+          MATCH_ARM@163..173
+            LITERAL_PAT@163..168
+              MINUS@163..164 "-"
+              LITERAL@164..168
+                INT@164..168 "0x10"
+            WHITESPACE@168..169 " "
+            THIN_ARROW@169..171 "->"
+            WHITESPACE@171..172 " "
+            LITERAL@172..173
+              INT@172..173 "1"
+          NEWLINE@173..174 "\n"
+          WHITESPACE@174..178 "    "
+          MATCH_ARM@178..188
+            LITERAL_PAT@178..183
+              MINUS@178..179 "-"
+              LITERAL@179..183
+                INT@179..183 "0b11"
+            WHITESPACE@183..184 " "
+            THIN_ARROW@184..186 "->"
+            WHITESPACE@186..187 " "
+            LITERAL@187..188
+              INT@187..188 "2"
+          NEWLINE@188..189 "\n"
+          WHITESPACE@189..193 "    "
+          MATCH_ARM@193..200
+            LITERAL_PAT@193..195
+              MINUS@193..194 "-"
+              LITERAL@194..195
+                INT@194..195 "1"
+            WHITESPACE@195..196 " "
+            THIN_ARROW@196..198 "->"
+            WHITESPACE@198..199 " "
+            NAME_REF@199..200
+              LOWER_NAME@199..200 "y"
+          NEWLINE@200..201 "\n"
+          WHITESPACE@201..205 "    "
+          MATCH_ARM@205..211
+            WILDCARD_PAT@205..206
+              UNDERSCORE@205..206 "_"
+            WHITESPACE@206..207 " "
+            THIN_ARROW@207..209 "->"
+            WHITESPACE@209..210 " "
+            LITERAL@210..211
+              INT@210..211 "3"
+          NEWLINE@211..212 "\n"
+          WHITESPACE@212..214 "  "
+          R_BRACE@214..215 "}"
+      NEWLINE@215..216 "\n"
+      R_BRACE@216..217 "}"
+  NEWLINE@217..218 "\n"
+  NEWLINE@218..219 "\n"
+  FN_DECL@219..299
+    FN_KW@219..221 "fn"
+    WHITESPACE@221..222 " "
+    LOWER_NAME@222..223 "g"
+    PARAM_LIST@223..233
+      L_PAREN@223..224 "("
+      PARAM@224..232
+        LOWER_NAME@224..225 "x"
+        COLON@225..226 ":"
+        WHITESPACE@226..227 " "
+        PATH_TYPE@227..232
+          PATH@227..232
+            TYPE_NAME@227..232 "Float"
+      R_PAREN@232..233 ")"
+    WHITESPACE@233..234 " "
+    RET_TYPE@234..240
+      THIN_ARROW@234..236 "->"
+      WHITESPACE@236..237 " "
+      PATH_TYPE@237..240
+        PATH@237..240
+          TYPE_NAME@237..240 "Int"
+    WHITESPACE@240..241 " "
+    BLOCK_EXPR@241..299
+      L_BRACE@241..242 "{"
+      NEWLINE@242..243 "\n"
+      WHITESPACE@243..245 "  "
+      MATCH_EXPR@245..297
+        NAME_REF@245..246
+          LOWER_NAME@245..246 "x"
+        WHITESPACE@246..247 " "
+        MATCH_KW@247..252 "match"
+        WHITESPACE@252..253 " "
+        MATCH_ARM_LIST@253..297
+          L_BRACE@253..254 "{"
+          NEWLINE@254..255 "\n"
+          WHITESPACE@255..259 "    "
+          MATCH_ARM@259..268
+            LITERAL_PAT@259..263
+              MINUS@259..260 "-"
+              LITERAL@260..263
+                FLOAT@260..263 "1.5"
+            WHITESPACE@263..264 " "
+            THIN_ARROW@264..266 "->"
+            WHITESPACE@266..267 " "
+            LITERAL@267..268
+              INT@267..268 "0"
+          NEWLINE@268..269 "\n"
+          WHITESPACE@269..273 "    "
+          MATCH_ARM@273..282
+            LITERAL_PAT@273..277
+              MINUS@273..274 "-"
+              LITERAL@274..277
+                FLOAT@274..277 "0.0"
+            WHITESPACE@277..278 " "
+            THIN_ARROW@278..280 "->"
+            WHITESPACE@280..281 " "
+            LITERAL@281..282
+              INT@281..282 "1"
+          NEWLINE@282..283 "\n"
+          WHITESPACE@283..287 "    "
+          MATCH_ARM@287..293
+            WILDCARD_PAT@287..288
+              UNDERSCORE@287..288 "_"
+            WHITESPACE@288..289 " "
+            THIN_ARROW@289..291 "->"
+            WHITESPACE@291..292 " "
+            LITERAL@292..293
+              INT@292..293 "3"
+          NEWLINE@293..294 "\n"
+          WHITESPACE@294..296 "  "
+          R_BRACE@296..297 "}"
+      NEWLINE@297..298 "\n"
+      R_BRACE@298..299 "}"
+  NEWLINE@299..300 "\n"

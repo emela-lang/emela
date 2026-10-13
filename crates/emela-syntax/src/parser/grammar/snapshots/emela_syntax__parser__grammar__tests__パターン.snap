@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"_\", \"x\", \"MAX_SIZE\", \"42\", \"\\\"abc\\\"\", \"Empty\", \"Circle(radius:)\",\n\"Circle(_)\", \"Rect(w, h)\", \"User(name:, ..)\", \"User(name: n, age: 0)\",\n\"Option.Some(..)\", \"()\", \"(a, b,)\", \"[]\", \"[x, ..rest]\", \"[x, ..]\",\n\"[[a, b], (c, d)]\",], patterns::pattern,)"
+expression: "dump_all(&[\"_\", \"x\", \"MAX_SIZE\", \"42\", \"-1\", \"-0x10\", \"-0b11\", \"-1.5\", \"- 1\",\n\"\\\"abc\\\"\", \"Empty\", \"Circle(radius:)\", \"Circle(_)\", \"Rect(w, h)\",\n\"User(name:, ..)\", \"User(name: n, age: 0)\", \"Option.Some(..)\", \"()\",\n\"(a, b,)\", \"[]\", \"[x, ..rest]\", \"[x, ..]\", \"[[a, b], (c, d)]\",],\npatterns::pattern,)"
 ---
 === _
 ROOT@0..1
@@ -19,6 +19,37 @@ ROOT@0..2
   LITERAL_PAT@0..2
     LITERAL@0..2
       INT@0..2 "42"
+=== -1
+ROOT@0..2
+  LITERAL_PAT@0..2
+    MINUS@0..1 "-"
+    LITERAL@1..2
+      INT@1..2 "1"
+=== -0x10
+ROOT@0..5
+  LITERAL_PAT@0..5
+    MINUS@0..1 "-"
+    LITERAL@1..5
+      INT@1..5 "0x10"
+=== -0b11
+ROOT@0..5
+  LITERAL_PAT@0..5
+    MINUS@0..1 "-"
+    LITERAL@1..5
+      INT@1..5 "0b11"
+=== -1.5
+ROOT@0..4
+  LITERAL_PAT@0..4
+    MINUS@0..1 "-"
+    LITERAL@1..4
+      FLOAT@1..4 "1.5"
+=== - 1
+ROOT@0..3
+  LITERAL_PAT@0..3
+    MINUS@0..1 "-"
+    WHITESPACE@1..2 " "
+    LITERAL@2..3
+      INT@2..3 "1"
 === "abc"
 ROOT@0..5
   LITERAL_PAT@0..5

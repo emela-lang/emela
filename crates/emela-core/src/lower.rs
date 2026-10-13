@@ -10,7 +10,7 @@ use std::path::Path;
 use emela_resolve::hir::{
     Arg, Arm as HirArm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Fields, Item,
     Literal, LocalId, LocalKind, PatId, PatKind, Program, Res, Span, Stmt, StrPart as HirStrPart,
-    UnaryOp,
+    UnaryOp, int_literal_value,
 };
 use emela_resolve::{ModuleId, ModuleMap};
 use emela_types::{Prim, ProgramTypes, Row, RowElem, Tag, Ty};
@@ -1469,7 +1469,8 @@ impl<'a> Lowerer<'a> {
     fn lit_value(&self, ty: &Ty, lit: &Literal) -> Lit {
         match lit {
             Literal::Int(text) => {
-                let n = parse_int(text);
+                let n = int_literal_value(text)
+                    .expect("an integer whose range the type checker checked");
                 if *ty == Ty::INT64 {
                     Lit::Int64(n as i64)
                 } else {
@@ -2351,18 +2352,6 @@ fn unshowable(ty: &Type) -> Option<&'static str> {
         Type::List(t) => unshowable(t),
         _ => None,
     }
-}
-
-/// The value of an integer literal with `_` removed (`42`, `0xFF`, `0b1010`).
-fn parse_int(text: &str) -> u64 {
-    let (digits, radix) = if let Some(hex) = text.strip_prefix("0x") {
-        (hex, 16)
-    } else if let Some(bin) = text.strip_prefix("0b") {
-        (bin, 2)
-    } else {
-        (text, 10)
-    };
-    u64::from_str_radix(digits, radix).expect("an integer whose range the type checker checked")
 }
 
 /// Whether the type contains type parameters (`Ty::Bound`).

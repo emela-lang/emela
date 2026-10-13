@@ -22,13 +22,9 @@ pub(crate) fn pattern(p: &mut Parser<'_>) {
             literal(p, interp_in_pattern);
             m.complete(p, LITERAL_PAT);
         }
-        // Negative numbers are undecided (spec 18.1 #17). Report it and keep the `-` in the tree.
+        // A negative number is a pattern-only form (spec 6.5): the `-` belongs to the literal.
         MINUS if matches!(p.nth(1), INT | FLOAT) => {
             let m = p.start();
-            p.error(
-                DiagnosticCode::NegativeNumberPattern,
-                "negative numbers are not supported in patterns yet",
-            );
             p.bump();
             literal(p, interp_in_pattern);
             m.complete(p, LITERAL_PAT);

@@ -1746,6 +1746,17 @@ impl Lower<'_, '_> {
                     _ => PatKind::Missing,
                 }
             }
+            // `-1`: the syntax checks accept only `-` before a number literal.
+            PREFIX_EXPR
+                if child_token(node, MINUS).is_some()
+                    && node.children().count() == 1
+                    && node.first_child().is_some_and(|c| {
+                        c.kind() == LITERAL
+                            && (child_token(&c, INT).is_some() || child_token(&c, FLOAT).is_some())
+                    }) =>
+            {
+                pat_literal(node)
+            }
             UNIT_EXPR => PatKind::Unit,
             PAREN_EXPR => {
                 return match node.children().find(|c| is_expr(c.kind())) {

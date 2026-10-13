@@ -11,7 +11,7 @@
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnItem, HandlerItem,
     Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
-    Stmt, StrPart, TypeId, UnaryOp,
+    Stmt, StrPart, TypeId, UnaryOp, int_literal_value,
 };
 use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -2085,23 +2085,16 @@ enum NumKind {
     Numeric,
 }
 
-/// Whether an integer literal fits the type. Negative numbers are unary minus expressions, so
-/// only positive values are checked here. Not reinterpreted as two's complement (`0xFFFF_FFFF`
-/// does not fit Int, spec 2.4).
+/// Whether an integer literal fits the type. In expressions negative numbers are unary minus, so
+/// only a pattern's literal can be negative (spec 6.5). Not reinterpreted as two's complement
+/// (`0xFFFF_FFFF` does not fit Int, spec 2.4).
 fn int_literal_fits(literal: &str, ty: &Ty) -> bool {
-    let max = match ty {
-        Ty::Prim(Prim::Int) => i32::MAX as u128,
-        Ty::Prim(Prim::Int64) => i64::MAX as u128,
+    let range = match ty {
+        Ty::Prim(Prim::Int) => i32::MIN as i128..=i32::MAX as i128,
+        Ty::Prim(Prim::Int64) => i64::MIN as i128..=i64::MAX as i128,
         _ => return true,
     };
-    let (digits, radix) = if let Some(hex) = literal.strip_prefix("0x") {
-        (hex, 16)
-    } else if let Some(bin) = literal.strip_prefix("0b") {
-        (bin, 2)
-    } else {
-        (literal, 10)
-    };
-    u128::from_str_radix(digits, radix).is_ok_and(|n| n <= max)
+    int_literal_value(literal).is_some_and(|n| range.contains(&n))
 }
 
 enum FieldTy {

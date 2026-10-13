@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"[..rest]\", \"[..]\", \"[x, ..r, y]\", \"User(.., name:)\", \"-1\",\n\"\\\"a#{x}b\\\"\", \"(a)\", \"Some(\", \"[1 2]\", \"+\",], patterns::pattern,)"
+expression: "dump_all(&[\"[..rest]\", \"[..]\", \"[x, ..r, y]\", \"User(.., name:)\", \"-x\",\n\"\\\"a#{x}b\\\"\", \"(a)\", \"Some(\", \"[1 2]\", \"+\",], patterns::pattern,)"
 ---
 === [..rest]
 ROOT@0..8
@@ -52,13 +52,13 @@ ROOT@0..15
         COLON@13..14 ":"
       R_PAREN@14..15 ")"
 error[E0114]@9..13: `..` must come last
-=== -1
+=== -x
 ROOT@0..2
-  LITERAL_PAT@0..2
+  ERROR@0..1
     MINUS@0..1 "-"
-    LITERAL@1..2
-      INT@1..2 "1"
-error[E0116]@0..1: negative numbers are not supported in patterns yet
+  ERROR@1..2
+    LOWER_NAME@1..2 "x"
+error[E0113]@0..1: expected pattern
 === "a#{x}b"
 ROOT@0..8
   LITERAL_PAT@0..8

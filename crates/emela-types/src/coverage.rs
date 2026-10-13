@@ -7,6 +7,7 @@
 
 use emela_resolve::hir::{
     Arg, Arm, DefId, ExprId, ExprKind, Item, Literal, PatId, PatKind, Program, Res, UnaryOp,
+    int_literal_value,
 };
 use smol_str::SmolStr;
 
@@ -306,19 +307,14 @@ impl Shapes<'_> {
 }
 
 /// Out-of-range integers (reported by the type checker) become values that overlap nothing.
+/// `negative` is for a const's unary minus; a pattern's literal carries its own `-` (spec 6.5).
 fn lit_value(lit: &Literal, negative: bool) -> Lit {
     match lit {
         Literal::Int(text) => {
-            let (digits, radix) = if let Some(hex) = text.strip_prefix("0x") {
-                (hex, 16)
-            } else if let Some(bin) = text.strip_prefix("0b") {
-                (bin, 2)
-            } else {
-                (text.as_str(), 10)
-            };
-            match i64::from_str_radix(digits, radix) {
-                Ok(n) => Lit::Int(if negative { -n } else { n }),
-                Err(_) => Lit::Str(SmolStr::new(format!("\u{0}int {text}"))),
+            let n = int_literal_value(text).map(|n| if negative { -n } else { n });
+            match n.and_then(|n| i64::try_from(n).ok()) {
+                Some(n) => Lit::Int(n),
+                None => Lit::Str(SmolStr::new(format!("\u{0}int {text}"))),
             }
         }
         Literal::Float(text) => match text.parse::<f64>() {

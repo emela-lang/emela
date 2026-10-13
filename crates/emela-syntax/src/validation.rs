@@ -101,6 +101,14 @@ fn binding_target(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let ok = match node.kind() {
         UNDERSCORE_EXPR | PATH_EXPR | UNIT_EXPR | LITERAL => true,
         NAME_REF => !has_token(node, SELF_KW),
+        // `-1` `-1.5`: a negative number is a pattern (spec 17.6).
+        PREFIX_EXPR => {
+            has_token(node, MINUS)
+                && node.children().count() == 1
+                && node.first_child().is_some_and(|c| {
+                    c.kind() == LITERAL && (has_token(&c, INT) || has_token(&c, FLOAT))
+                })
+        }
         STRING => node.children().all(|c| c.kind() != INTERP),
         TUPLE_EXPR | LIST_EXPR => {
             node.children().for_each(|c| binding_target(&c, out));

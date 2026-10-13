@@ -1,0 +1,28 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+expression: "render_bodies(r#\"\nconst MINUS_ONE = -1\n\nfn ints(n: Int) -> Int {\n  n match {\n    -2147483648 -> 0\n    -2147483649 -> 1\n    -0x8000_0000 -> 2\n    -0x8000_0002 -> 3\n    -0b1 -> 4\n    -1 -> 5\n    MINUS_ONE -> 6\n    1 -> 7\n    _ -> 8\n  }\n}\n\nfn longs(n: Int64) -> Int {\n  n match {\n    -9223372036854775808 -> 0\n    -9223372036854775809 -> 1\n    -2147483649 -> 2\n    _ -> 3\n  }\n}\n\nfn floats(x: Float) -> Int {\n  x match {\n    0.0 -> 0\n    -0.0 -> 1\n    -1.5 -> 2\n    -1.5 -> 3\n    _ -> 4\n  }\n}\n\nfn not_exhaustive(n: Int) -> Int {\n  n match {\n    -1 -> 0\n    0 -> 1\n  }\n}\n\nfn not_a_number(s: String) -> Int {\n  s match {\n    -1 -> 0\n    _ -> 1\n  }\n}\n\nfn binding(p: (Int, Int)) -> Int {\n  (-1, x) = p\n  x\n}\n\"#)"
+---
+ints: fn(Int) -> Int
+  n: Int
+longs: fn(Int64) -> Int
+  n: Int64
+floats: fn(Float) -> Int
+  x: Float
+not_exhaustive: fn(Int) -> Int
+  n: Int
+not_a_number: fn(String) -> Int
+  s: String
+binding: fn((Int, Int)) -> Int
+  p: (Int, Int)
+  x: Int
+`-2147483649` integer literal `-2147483649` out of range for `Int`
+`-0x8000_0000` warning: unreachable match arm
+`-0x8000_0002` integer literal `-0x80000002` out of range for `Int`
+`-1` warning: unreachable match arm
+`MINUS_ONE` warning: unreachable match arm
+`-9223372036854775809` integer literal `-9223372036854775809` out of range for `Int64`
+`-0.0` warning: unreachable match arm
+`-1.5` warning: unreachable match arm
+`n` non-exhaustive match: _ not covered
+`-1` mismatch: expected `String`, found `Int`
+`(-1, x)` refutable pattern in binding: (_, _) not covered
