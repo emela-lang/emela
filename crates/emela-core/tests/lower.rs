@@ -801,7 +801,7 @@ fn main() {
     // Test sources have no path, so the file specifier is left as is.
     assert_eq!(
         ext[0].trim(),
-        "external fn host_get() = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
+        "external fn host_get() -> String = js[\"./ffi.mjs\", \"get\"] wasm[\"env\", \"get\"]"
     );
 }
 
@@ -845,7 +845,7 @@ fn core_external_points_to_bundled_file() {
     assert_eq!(ext.len(), 1, "{out}");
     assert_eq!(
         ext[0].trim(),
-        "external fn HostTest.now() = js[bundled \"core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
+        "external fn HostTest.now() -> Int = js[bundled \"core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
     );
     let files: Vec<(&str, &str)> = m
         .bundled_files

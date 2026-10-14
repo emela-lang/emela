@@ -533,6 +533,9 @@ impl Emitter<'_> {
             }
             Type::Fn(_) => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
             Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
+            Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any => {
+                panic!("invalid IR: {ty:?} values cannot be shown")
+            }
         }
     }
 

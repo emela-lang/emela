@@ -11,22 +11,21 @@ pub fn external(
     m: &mut Module,
     name: &str,
     path: &str,
-    params: Vec<Boundary>,
-    ret: Boundary,
+    params: Vec<Type>,
+    ret: Type,
     suspends: bool,
 ) -> FnId {
     let f = m.declare(name, false);
-    let ps = (0..params.len()).map(|_| m.local("x")).collect();
+    let ps = params.into_iter().map(|t| m.local("x", t)).collect();
     m.define_external(
         f,
         ps,
+        ret,
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
                 host: HostRef::Global(path.into()),
             }],
-            params,
-            ret,
         },
     );
     m.functions[f].suspends = suspends;
@@ -39,8 +38,8 @@ pub fn resolve(m: &mut Module) -> FnId {
         m,
         "resolve",
         "Promise.resolve",
-        vec![Boundary::Plain],
-        Boundary::Plain,
+        vec![Type::Int],
+        Type::Int,
         true,
     )
 }
@@ -51,14 +50,8 @@ pub fn set_timeout(m: &mut Module) -> FnId {
         m,
         "set_timeout",
         "setTimeout",
-        vec![
-            Boundary::Fn {
-                params: vec![],
-                ret: Box::new(Boundary::Unit),
-            },
-            Boundary::Plain,
-        ],
-        Boundary::Unit,
+        vec![fn_type(vec![], Type::Unit), Type::Int],
+        Type::Unit,
         false,
     )
 }
@@ -71,10 +64,11 @@ pub fn never(m: &mut Module) -> (FnId, EffectId) {
         ops: vec![OpDef::suspend("forever")],
     });
     let f = m.declare("Never", false);
-    let resume = m.local("resume");
+    let resume = m.local("resume", resume_type());
     m.define(
         f,
         vec![],
+        Type::Handler(wait),
         Expr::Handler {
             name: "Never".into(),
             effect: wait,
@@ -89,11 +83,11 @@ pub fn forever(wait: EffectId, h: Local) -> Expr {
     call_op(var(h), wait, 0, vec![], false, true)
 }
 
-/// `export suspend fn main() { body }`．
-pub fn main(m: &mut Module, body: Expr) {
+/// `export suspend fn main() -> ret { body }`．
+pub fn main(m: &mut Module, ret: Type, body: Expr) {
     let main = m.declare("main", true);
     m.functions[main].suspends = true;
-    m.define(main, vec![], body);
+    m.define(main, vec![], ret, body);
 }
 
 /// An external function calling `console.log(x)`.
@@ -102,8 +96,8 @@ pub fn log(m: &mut Module) -> FnId {
         m,
         "log",
         "console.log",
-        vec![Boundary::Plain],
-        Boundary::Unit,
+        vec![Type::String],
+        Type::Unit,
         false,
     )
 }
@@ -117,11 +111,27 @@ pub fn released(m: &mut Module, log: FnId, h: Local, name: &str, message: &str) 
         .find(|(_, e)| e.name == "Wait")
         .map(|(id, _)| id)
         .expect("add Wait with never first");
-    let resume = m.local("resume");
+    let resume = m.local("resume", resume_type());
     let handler = Expr::Handler {
         name: name.into(),
         effect: wait,
         ops: vec![lambda(vec![resume], call_value(var(resume), vec![unit()]))],
     };
     WithBind::managed(h, handler, name, call(log, vec![string(message)]))
+}
+
+/// A non-failing, non-suspending function type without an evidence table.
+pub fn fn_type(params: Vec<Type>, ret: Type) -> Type {
+    Type::func(FnType {
+        params,
+        ret,
+        fails: false,
+        suspends: false,
+        ev: false,
+    })
+}
+
+/// The type of `forever`'s resume: `fn(()) -> ()`.
+pub fn resume_type() -> Type {
+    fn_type(vec![Type::Unit], Type::Unit)
 }

@@ -2,9 +2,9 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
-fn InstantClock(ev%20) {
+fn InstantClock(ev%20: evidence) -> handler Clock {
   handler InstantClock: Clock {
-    sleep: fn(ms%21, resume%22) {
+    sleep: fn(ms%21: Int, resume%22: fn(Int) -> ()) {
       (resume%22)(0)
     }
     now: fn() {
@@ -13,26 +13,26 @@ fn InstantClock(ev%20) {
   }
 }
 
-fn CapturedClock(ev%16) {
+fn CapturedClock(ev%16: evidence) -> handler Clock {
   handler CapturedClock: Clock {
-    sleep: fn(ms%17, resume%18) {
+    sleep: fn(ms%17: Int, resume%18: fn(Int) -> ()) {
       (resume%18)(0)
     }
     now: fn() {
-      let clock%19 = use[Clock](ev%16)
+      let clock%19: handler Clock = use[Clock](ev%16)
       clock%19.Clock#now()
     }
   }
 }
 
-fn LocalSleep() {
+fn LocalSleep() -> handler Clock {
   handler LocalSleep: Clock {
-    sleep: fn(ms%10, resume%11) {
+    sleep: fn(ms%10: Int, resume%11: fn(Int) -> ()) {
       (resume%11)(0)
     }
     now: fn() {
       with {
-        let h%12 = PureClock()
+        let h%12: handler Clock = PureClock()
       } {
         h%12.Clock#sleep(1)!
       }
