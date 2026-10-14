@@ -1547,18 +1547,6 @@ fn option_from_builtin_matches_user_patterns() {
 }
 
 #[test]
-fn runtime_implements_every_builtin() {
-    for &op in Builtin::ALL {
-        let js = op.info().js;
-        let decl = format!("export function {js}(");
-        assert!(
-            RUNTIME.contains(&decl),
-            "the runtime has no implementation {js} for {op:?}"
-        );
-    }
-}
-
-#[test]
 #[should_panic(expected = "is only valid inside an enum show function")]
 fn showing_type_param_outside_enum_show_panics() {
     let mut m = Module::new();

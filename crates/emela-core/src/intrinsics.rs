@@ -3,7 +3,7 @@
 //! Holds core functions that cannot be written in Emela (string operations, numeric conversion,
 //! showing) and the Prelude functions, as functions whose names and types the compiler knows.
 //! Name resolution and type inference look them up via `Builtin::lookup` and
-//! `BuiltinInfo::scheme`; backends pick implementations via `BuiltinInfo::js` and the like.
+//! `BuiltinInfo::scheme`; each backend maps `Builtin` to its own implementation.
 //!
 //! Functions writable in Emela, such as `List.map`, do not belong here (core is written in
 //! Emela). Each row has exactly one `@intrinsic` declaration in the bundled sources (`lib/*.emel`),
@@ -151,8 +151,6 @@ pub struct BuiltinInfo {
     /// The Prelude only holds pure functions (spec 15.1), so every row is `true` today. `dbg`
     /// writes to stderr but counts as pure as a debugging exception.
     pub pure: bool,
-    /// The implementation name in the JS runtime (`runtime.mjs` of `emela-codegen-js`).
-    pub js: &'static str,
 }
 
 impl BuiltinInfo {
@@ -182,7 +180,6 @@ const fn info(
     name: &'static str,
     params: &'static [Sig],
     ret: Sig,
-    js: &'static str,
 ) -> BuiltinInfo {
     BuiltinInfo {
         module,
@@ -191,7 +188,6 @@ const fn info(
         params,
         ret,
         pure: true,
-        js,
     }
 }
 
@@ -250,86 +246,66 @@ impl Builtin {
         use Sig::*;
         const STRS: Sig = List(&String);
         match self {
-            Builtin::StringLength => info(S, "length", &[String], Int, "$strlen"),
-            Builtin::StringByteSize => info(S, "byte_size", &[String], Int, "$strbytes"),
-            Builtin::StringAppend => info(S, "append", &[String, String], String, "$strcat"),
-            Builtin::StringContains => info(S, "contains", &[String, String], Bool, "$strhas"),
-            Builtin::StringStartsWith => {
-                info(S, "starts_with", &[String, String], Bool, "$strstarts")
-            }
-            Builtin::StringEndsWith => info(S, "ends_with", &[String, String], Bool, "$strends"),
-            Builtin::StringSplit => info(S, "split", &[String, String], STRS, "$strsplit"),
-            Builtin::StringChars => info(S, "chars", &[String], STRS, "$strchars"),
-            Builtin::StringJoin => info(S, "join", &[STRS, String], String, "$strjoin"),
-            Builtin::StringTrim => info(S, "trim", &[String], String, "$strtrim"),
-            Builtin::StringCodePoints => {
-                info(S, "code_points", &[String], List(&Int), "$strcodepoints")
-            }
-            Builtin::StringFromCodePoint => info(
-                S,
-                "from_code_point",
-                &[Int],
-                Option(&String),
-                "$strfromcodepoint",
-            ),
-            Builtin::IntToString => info(I, "to_string", &[Int], String, "$showInt"),
-            Builtin::IntParse => info(I, "parse_or_none", &[String], Option(&Int), "$iparse"),
-            Builtin::IntCheckedAdd => {
-                info(I, "checked_add", &[Int, Int], Option(&Int), "$icheckedAdd")
-            }
-            Builtin::IntBitAnd => info(I, "bit_and", &[Int, Int], Int, "$iand"),
-            Builtin::IntBitOr => info(I, "bit_or", &[Int, Int], Int, "$ior"),
-            Builtin::IntBitXor => info(I, "bit_xor", &[Int, Int], Int, "$ixor"),
-            Builtin::IntBitNot => info(I, "bit_not", &[Int], Int, "$inot"),
-            Builtin::IntShiftLeft => info(I, "shift_left", &[Int, Int], Int, "$ishl"),
-            Builtin::IntShiftRight => info(I, "shift_right", &[Int, Int], Int, "$ishr"),
-            Builtin::IntShiftRightUnsigned => {
-                info(I, "shift_right_unsigned", &[Int, Int], Int, "$iushr")
-            }
-            Builtin::Int64FromInt => info(L, "from_int", &[Int], Int64, "$itol"),
-            Builtin::Int64ToString => info(L, "to_string", &[Int64], String, "$showInt64"),
-            Builtin::Int64ToInt => info(L, "to_int", &[Int64], Int, "$ltoi"),
-            Builtin::Int64BitAnd => info(L, "bit_and", &[Int64, Int64], Int64, "$land"),
-            Builtin::Int64BitOr => info(L, "bit_or", &[Int64, Int64], Int64, "$lor"),
-            Builtin::Int64BitXor => info(L, "bit_xor", &[Int64, Int64], Int64, "$lxor"),
-            Builtin::Int64BitNot => info(L, "bit_not", &[Int64], Int64, "$lnot"),
-            Builtin::Int64ShiftLeft => info(L, "shift_left", &[Int64, Int], Int64, "$lshl"),
-            Builtin::Int64ShiftRight => info(L, "shift_right", &[Int64, Int], Int64, "$lshr"),
+            Builtin::StringLength => info(S, "length", &[String], Int),
+            Builtin::StringByteSize => info(S, "byte_size", &[String], Int),
+            Builtin::StringAppend => info(S, "append", &[String, String], String),
+            Builtin::StringContains => info(S, "contains", &[String, String], Bool),
+            Builtin::StringStartsWith => info(S, "starts_with", &[String, String], Bool),
+            Builtin::StringEndsWith => info(S, "ends_with", &[String, String], Bool),
+            Builtin::StringSplit => info(S, "split", &[String, String], STRS),
+            Builtin::StringChars => info(S, "chars", &[String], STRS),
+            Builtin::StringJoin => info(S, "join", &[STRS, String], String),
+            Builtin::StringTrim => info(S, "trim", &[String], String),
+            Builtin::StringCodePoints => info(S, "code_points", &[String], List(&Int)),
+            Builtin::StringFromCodePoint => info(S, "from_code_point", &[Int], Option(&String)),
+            Builtin::IntToString => info(I, "to_string", &[Int], String),
+            Builtin::IntParse => info(I, "parse_or_none", &[String], Option(&Int)),
+            Builtin::IntCheckedAdd => info(I, "checked_add", &[Int, Int], Option(&Int)),
+            Builtin::IntBitAnd => info(I, "bit_and", &[Int, Int], Int),
+            Builtin::IntBitOr => info(I, "bit_or", &[Int, Int], Int),
+            Builtin::IntBitXor => info(I, "bit_xor", &[Int, Int], Int),
+            Builtin::IntBitNot => info(I, "bit_not", &[Int], Int),
+            Builtin::IntShiftLeft => info(I, "shift_left", &[Int, Int], Int),
+            Builtin::IntShiftRight => info(I, "shift_right", &[Int, Int], Int),
+            Builtin::IntShiftRightUnsigned => info(I, "shift_right_unsigned", &[Int, Int], Int),
+            Builtin::Int64FromInt => info(L, "from_int", &[Int], Int64),
+            Builtin::Int64ToString => info(L, "to_string", &[Int64], String),
+            Builtin::Int64ToInt => info(L, "to_int", &[Int64], Int),
+            Builtin::Int64BitAnd => info(L, "bit_and", &[Int64, Int64], Int64),
+            Builtin::Int64BitOr => info(L, "bit_or", &[Int64, Int64], Int64),
+            Builtin::Int64BitXor => info(L, "bit_xor", &[Int64, Int64], Int64),
+            Builtin::Int64BitNot => info(L, "bit_not", &[Int64], Int64),
+            Builtin::Int64ShiftLeft => info(L, "shift_left", &[Int64, Int], Int64),
+            Builtin::Int64ShiftRight => info(L, "shift_right", &[Int64, Int], Int64),
             Builtin::Int64ShiftRightUnsigned => {
-                info(L, "shift_right_unsigned", &[Int64, Int], Int64, "$lushr")
+                info(L, "shift_right_unsigned", &[Int64, Int], Int64)
             }
-            Builtin::FloatToString => info(F, "to_string", &[Float], String, "$showFloat"),
-            Builtin::FloatFromInt => info(F, "from_int", &[Int], Float, "$itof"),
-            Builtin::FloatParse => info(F, "parse_or_none", &[String], Option(&Float), "$fparse"),
-            Builtin::FloatFloor => info(F, "floor", &[Float], Int, "$ffloor"),
-            Builtin::FloatCeil => info(F, "ceil", &[Float], Int, "$fceil"),
-            Builtin::FloatRound => info(F, "round", &[Float], Int, "$fround"),
-            Builtin::FloatTruncate => info(F, "truncate", &[Float], Int, "$ftrunc"),
-            Builtin::Panic => info(None, "panic", &[String], Never, "$panic"),
-            Builtin::Todo => info(None, "todo", &[], Never, "$todo"),
+            Builtin::FloatToString => info(F, "to_string", &[Float], String),
+            Builtin::FloatFromInt => info(F, "from_int", &[Int], Float),
+            Builtin::FloatParse => info(F, "parse_or_none", &[String], Option(&Float)),
+            Builtin::FloatFloor => info(F, "floor", &[Float], Int),
+            Builtin::FloatCeil => info(F, "ceil", &[Float], Int),
+            Builtin::FloatRound => info(F, "round", &[Float], Int),
+            Builtin::FloatTruncate => info(F, "truncate", &[Float], Int),
+            Builtin::Panic => info(None, "panic", &[String], Never),
+            Builtin::Todo => info(None, "todo", &[], Never),
             Builtin::Dbg => BuiltinInfo {
                 ty_params: 1,
-                ..info(None, "dbg", &[Param(0)], Param(0), "$dbg")
+                ..info(None, "dbg", &[Param(0)], Param(0))
             },
             // A cell's type cannot be written as a `Sig`, so a type parameter stands in (it is
             // never passed to type inference).
             Builtin::CellNew => BuiltinInfo {
                 pure: false,
-                ..info(Some("$Cell"), "new", &[Param(0)], Param(0), "$cellNew")
+                ..info(Some("$Cell"), "new", &[Param(0)], Param(0))
             },
             Builtin::CellGet => BuiltinInfo {
                 pure: false,
-                ..info(Some("$Cell"), "get", &[Param(0)], Param(0), "$cellGet")
+                ..info(Some("$Cell"), "get", &[Param(0)], Param(0))
             },
             Builtin::CellSet => BuiltinInfo {
                 pure: false,
-                ..info(
-                    Some("$Cell"),
-                    "set",
-                    &[Param(0), Param(0)],
-                    Unit,
-                    "$cellSet",
-                )
+                ..info(Some("$Cell"), "set", &[Param(0), Param(0)], Unit)
             },
         }
     }
