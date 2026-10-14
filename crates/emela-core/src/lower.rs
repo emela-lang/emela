@@ -19,9 +19,9 @@ use rustc_hash::FxHashMap;
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
-    Arm, Assert, BinOp, Boundary, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef,
-    EnumId, Expr, External, ExternalBinding, FiberOp, FnId, HostModule, HostRef, Lit, Local,
-    Module, OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
+    Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
+    External, ExternalBinding, FiberOp, FnId, FnType, HostModule, HostRef, Lit, Local, Module,
+    OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
@@ -490,7 +490,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn variant_def(&self, ctor: DefId) -> VariantDef {
+    fn variant_def(&mut self, ctor: DefId) -> VariantDef {
         let fields = match self.hir.item(ctor) {
             Some(Item::Ctor(c)) => &c.fields,
             Some(Item::Error(e)) => &e.fields,
@@ -504,7 +504,8 @@ impl<'a> Lowerer<'a> {
             }
         };
         // A constructor without fields has the constructed type itself, not a function type.
-        let tys = match self.types.sigs.get(ctor).map(|sig| &sig.scheme.ty) {
+        let types = self.types;
+        let tys = match types.sigs.get(ctor).map(|sig| &sig.scheme.ty) {
             Some(Ty::Fn(f)) => f.params.iter().map(|t| self.ty(t)).collect(),
             _ => Vec::new(),
         };
@@ -516,7 +517,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Converts a type checker type to an IR type.
-    fn ty(&self, ty: &Ty) -> Type {
+    fn ty(&mut self, ty: &Ty) -> Type {
         match ty {
             Ty::Prim(p) => match p {
                 Prim::Int => Type::Int,
@@ -527,18 +528,35 @@ impl<'a> Lowerer<'a> {
                 Prim::Unit => Type::Unit,
             },
             Ty::Never => Type::Never,
-            // A type variable left undetermined (an unused `None`'s `Option[?]` and the like). Any
-            // representation behaves the same. `Ty::Error` only appears when there are type
-            // errors, and then lowering is not called.
-            Ty::Var(_) | Ty::Error => Type::Unit,
+            // A type variable generalized in the definition being lowered is its type parameter.
+            // One left undetermined (an unused `None`'s `Option[?]` and the like) can take any
+            // representation. `Ty::Error` only appears when there are type errors, and then
+            // lowering is not called.
+            Ty::Var(v) => self
+                .current_def
+                .and_then(|def| self.types.generalized_tys.get(def))
+                .and_then(|vars| vars.iter().find(|(w, _)| w == v))
+                .map_or(Type::Unit, |&(_, i)| Type::Param(i as usize)),
+            Ty::Error => Type::Unit,
             // Set type arguments of named types (`Handler[E, R]`) have no run-time representation;
             // `()` keeps the type argument positions aligned.
             Ty::Set(..) => Type::Unit,
-            // A capability value is a handler value (`Expr::Handler`). It can be neither shown nor
-            // compared (spec 8.2), so its type is never used to build show functions.
-            Ty::Cap(_) => Type::Fn,
+            Ty::Cap(tag) => {
+                let key = self.key_here(tag);
+                Type::Handler(self.effect_id(&key))
+            }
             Ty::Bound(i) => Type::Param(*i as usize),
-            Ty::Fn(_) => Type::Fn,
+            Ty::Fn(f) => {
+                let params = f.params.iter().map(|t| self.ty(t)).collect();
+                let ret = self.ty(&f.ret);
+                Type::func(FnType {
+                    params,
+                    ret,
+                    fails: !f.fails.is_empty(),
+                    suspends: self.row_suspends(&f.uses),
+                    ev: self.row_needs_ev(&f.uses),
+                })
+            }
             Ty::Tuple(ts) => Type::Tuple(ts.iter().map(|t| self.ty(t)).collect()),
             Ty::List(t) => Type::list(self.ty(t)),
             Ty::Named(con, args) => {
@@ -584,9 +602,34 @@ impl<'a> Lowerer<'a> {
         if let Some(&l) = self.locals.get(id) {
             return l;
         }
-        let l = self.module.local(&self.hir.locals[id].name);
+        let types = self.types;
+        let ty = match types.locals.get(id) {
+            Some(t) => self.ty(t),
+            None => Type::Unit,
+        };
+        let l = self.module.local(&self.hir.locals[id].name, ty);
         self.locals.insert(id, l);
         l
+    }
+
+    /// A fresh evidence table parameter or variable.
+    fn ev_local(&mut self) -> Local {
+        self.module.local("ev", Type::Evidence)
+    }
+
+    /// The IR return type and type parameter count of a definition's declared (or generalized)
+    /// type. Non-functions (consts) have no type parameters and return their own type.
+    fn signature(&mut self, def: DefId) -> (Type, usize) {
+        let types = self.types;
+        match types
+            .sigs
+            .get(def)
+            .map(|s| (&s.scheme.ty, s.scheme.params.len()))
+        {
+            Some((Ty::Fn(f), n)) => (self.ty(&f.ret), n),
+            Some((ty, n)) => (self.ty(ty), n),
+            None => (Type::Unit, 0),
+        }
     }
 
     fn define_fn(&mut self, def: DefId, spec: Specialization) {
@@ -604,9 +647,19 @@ impl<'a> Lowerer<'a> {
             // An `@external suspend fn` has Async in its declared R, so it becomes a suspending
             // function that awaits the Promise the host function returns (spec 12.2, `fn_id`).
             Some(Item::Fn(f)) if f.body.is_none() => {
-                let params = f.sig.params.iter().map(|p| self.local(p.local)).collect();
+                let params: Vec<Local> = f.sig.params.iter().map(|p| self.local(p.local)).collect();
+                // A bodiless fn's parameters are not in `types.locals`; their types come from the
+                // declared type. Backends decide how they cross the boundary from these types.
+                let types = self.types;
+                if let Some(Ty::Fn(sig)) = types.sigs.get(def).map(|s| &s.scheme.ty) {
+                    for (&l, t) in params.iter().zip(&sig.params) {
+                        self.module.locals[l].ty = self.ty(t);
+                    }
+                }
                 let external = self.external(def, f);
-                self.module.define_external(id, params, external);
+                let (ret, type_params) = self.signature(def);
+                self.module.define_external(id, params, ret, external);
+                self.module.functions[id].type_params = type_params;
                 return;
             }
             Some(Item::Fn(f)) => (
@@ -619,19 +672,21 @@ impl<'a> Lowerer<'a> {
                 (Vec::new(), c.value)
             }
             Some(Item::Handler(_)) => {
-                let (params, body) = self.handler(def);
-                self.module.define(id, params, body);
+                let (params, ret, body) = self.handler(def);
+                self.module.define(id, params, ret, body);
                 return;
             }
             _ => unreachable!("fn_id got a definition that is not a fn, const or handler"),
         };
         if self.takes_ev(def) {
-            let ev = self.module.local("ev");
+            let ev = self.ev_local();
             params.push(ev);
             self.ev = Some(ev);
         }
         let body = self.expr(body);
-        self.module.define(id, params, body);
+        let (ret, type_params) = self.signature(def);
+        self.module.define(id, params, ret, body);
+        self.module.functions[id].type_params = type_params;
     }
 
     /// Whether a fn takes the evidence table as its last argument: yes if the R of its declared
@@ -806,15 +861,7 @@ impl<'a> Lowerer<'a> {
                 host,
             });
         }
-        let (params, ret) = match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
-            Some(Ty::Fn(f)) => (f.params.iter().map(boundary).collect(), boundary(&f.ret)),
-            _ => (Vec::new(), Boundary::Plain),
-        };
-        External {
-            bindings,
-            params,
-            ret,
-        }
+        External { bindings }
     }
 
     /// Resolves a bundled core file specifier (`./x.mjs`) to its path relative to `lib/`
@@ -851,7 +898,7 @@ impl<'a> Lowerer<'a> {
     /// function (`name$release`) takes the state and evaluates the release body. All three take the
     /// same evidence table as their last argument (dependencies(H) is the union of the R of init,
     /// release and operation bodies).
-    fn handler(&mut self, def: DefId) -> (Vec<Local>, Expr) {
+    fn handler(&mut self, def: DefId) -> (Vec<Local>, Type, Expr) {
         let hir = self.hir;
         let Some(Item::Handler(h)) = hir.item(def) else {
             unreachable!("a handler definition");
@@ -860,16 +907,19 @@ impl<'a> Lowerer<'a> {
         let Res::Def(effect) = h.effect else {
             return (
                 Vec::new(),
+                Type::Unit,
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
         let Some(tag) = self.types.sigs.handler_effect(def) else {
             return (
                 Vec::new(),
+                Type::Unit,
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
         let effect_id = self.effect_id(&self.tag_key(tag, None));
+        let ret = Type::Handler(effect_id);
         let takes_ev = self
             .types
             .handler_uses
@@ -883,7 +933,8 @@ impl<'a> Lowerer<'a> {
         let mut params = Vec::new();
         if stateful {
             // Every operation's implicit self refers to this parameter.
-            let state = self.module.local("self");
+            let state_ty = self.handler_state_ty(def, h);
+            let state = self.module.local("self", state_ty);
             for op in &h.ops {
                 self.locals.insert(op.self_local, state);
             }
@@ -891,7 +942,7 @@ impl<'a> Lowerer<'a> {
         }
         self.ev = None;
         if takes_ev {
-            let ev = self.module.local("ev");
+            let ev = self.ev_local();
             params.push(ev);
             self.ev = Some(ev);
         }
@@ -939,12 +990,14 @@ impl<'a> Lowerer<'a> {
             // Missing operations have already been reported by the type checker (E0404).
             return (
                 params,
+                ret,
                 self.unsupported_at("handler with missing operations", span),
             );
         }
         let ops = ops.into_iter().map(Option::unwrap).collect();
         (
             params,
+            ret,
             Expr::Handler {
                 name: hir.defs[def].name.to_string(),
                 effect: effect_id,
@@ -959,11 +1012,12 @@ impl<'a> Lowerer<'a> {
         let ev_param = |cx: &mut Self| {
             cx.ev = None;
             takes_ev.then(|| {
-                let ev = cx.module.local("ev");
+                let ev = cx.ev_local();
                 cx.ev = Some(ev);
                 ev
             })
         };
+        let state_ty = self.handler_state_ty(def, h);
 
         // init's value is the handler's state. For a handler without init (no fields), the state
         // is its constructor's value if it has one (`ConsoleLogger`), otherwise `()`.
@@ -976,14 +1030,27 @@ impl<'a> Lowerer<'a> {
             },
             (None, None) => Expr::Lit(Lit::Unit),
         };
-        self.module.define(init, params, body);
+        self.module.define(init, params, state_ty, body);
 
         if let (Some(f), Some((self_local, body))) = (release, h.release) {
             let state = self.local(self_local);
             let mut params = vec![state];
             params.extend(ev_param(self));
             let body = self.expr(body);
-            self.module.define(f, params, body);
+            self.module.define(f, params, Type::Unit, body);
+        }
+    }
+
+    /// The type of a stateful handler's state (self, spec 8.4): init's value, else the handler's
+    /// constructor value, else `()` (as built by `handler_parts`).
+    fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> Type {
+        match (h.init, self.enums.get(def)) {
+            (Some(body), _) => {
+                let ty = self.expr_ty(body);
+                self.ty(ty)
+            }
+            (None, Some(&id)) if h.ctor.is_some() => Type::Enum(id, Vec::new()),
+            _ => Type::Unit,
         }
     }
 
@@ -1093,7 +1160,8 @@ impl<'a> Lowerer<'a> {
             } else {
                 None
             };
-            let l = self.module.local("h");
+            let handler_ty = Type::Handler(self.effect_id(own));
+            let l = self.module.local("h", handler_ty);
             locals.push(l);
             let Some(Item::Handler(item)) = hir.item(h) else {
                 unreachable!("a handler definition");
@@ -1109,13 +1177,14 @@ impl<'a> Lowerer<'a> {
             let ctx = ctx.map(|c| match c {
                 Expr::Var(_) | Expr::Lit(_) => c,
                 c => {
-                    let v = self.module.local("ev");
+                    let v = self.ev_local();
                     binds.push(WithBind::new(v, c));
                     Expr::Var(v)
                 }
             });
             let (init, release) = self.handler_fns(h);
-            let state = self.module.local("self");
+            let state_ty = self.handler_state_ty(h, item);
+            let state = self.module.local("self", state_ty);
             let init_fails = self
                 .types
                 .handler_fails
@@ -1146,7 +1215,7 @@ impl<'a> Lowerer<'a> {
                 release,
             ));
         }
-        let ctx = self.module.local("ev");
+        let ctx = self.ev_local();
         let depth = self.bound.len();
         for ((_, effect), &l) in hs.iter().zip(&locals) {
             self.bound.push((effect.clone(), l));
@@ -1206,12 +1275,12 @@ impl<'a> Lowerer<'a> {
             };
         }
         let outer = self.ev;
-        let p = self.module.local("ev");
+        let p = self.ev_local();
         ps.push(p);
         let (ctx, prelude) = if self.bound.is_empty() {
             (p, None)
         } else {
-            let c = self.module.local("ev");
+            let c = self.ev_local();
             let bindings = self
                 .bound
                 .clone()
@@ -1256,19 +1325,21 @@ impl<'a> Lowerer<'a> {
         let effect_id = self.effect_id(&self.key_here(&tag));
         let fails = self.callee_fails(id);
         let suspends = self.module.effects[effect_id].ops[index].suspend;
-        let (arity, ev) = match self.expr_ty(id) {
-            Ty::Fn(f) => (f.params.len(), self.row_needs_ev(&f.uses)),
+        let (param_tys, ev) = match self.expr_ty(id) {
+            Ty::Fn(f) => (f.params.clone(), self.row_needs_ev(&f.uses)),
             _ => unreachable!("an operation reference has a function type"),
         };
+        let param_tys: Vec<Type> = param_tys.iter().map(|t| self.ty(t)).collect();
         let handler = self.expr(base);
-        let h = self.module.local("h");
+        let h = self.module.local("h", Type::Handler(effect_id));
         // Scope's fork wraps the child function, as at a call (`fiber.rs`).
         if self.is_fork_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
             let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty) else {
                 return self.unsupported("fork", span);
             };
-            let x = self.module.local("x");
+            let x_ty = param_tys.first().cloned().unwrap_or(Type::Unit);
+            let x = self.module.local("x", x_ty);
             return Expr::Let {
                 var: h,
                 value: Box::new(handler),
@@ -1279,10 +1350,13 @@ impl<'a> Lowerer<'a> {
                 }),
             };
         }
-        let mut params: Vec<Local> = (0..arity).map(|_| self.module.local("x")).collect();
+        let mut params: Vec<Local> = param_tys
+            .into_iter()
+            .map(|t| self.module.local("x", t))
+            .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
         if ev {
-            params.push(self.module.local("ev"));
+            params.push(self.ev_local());
         }
         Expr::Let {
             var: h,
@@ -1384,7 +1458,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The type checker has typed every expression.
-    fn expr_ty(&self, id: ExprId) -> &Ty {
+    fn expr_ty(&self, id: ExprId) -> &'a Ty {
         &self.types.exprs[id]
     }
 
@@ -1563,16 +1637,22 @@ impl<'a> Lowerer<'a> {
             Ok(t) => t,
             Err(e) => return e,
         };
-        let args: Vec<(usize, Expr)> = positions
+        let args: Vec<(usize, Expr, Type)> = positions
             .into_iter()
             .zip(written)
-            .map(|(pos, arg)| (pos, self.expr(arg)))
+            .map(|(pos, arg)| {
+                let ty = self.expr_ty(arg);
+                let ty = self.ty(ty);
+                (pos, self.expr(arg), ty)
+            })
             .collect();
         let (target, binding) = match target {
             Target::Value(f, call, ev) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
                 // Reordering arguments and binding them with `let` would evaluate them before the
                 // callee, so bind the callee first.
-                let l = self.module.local("f");
+                let ty = self.expr_ty(callee);
+                let ty = self.ty(ty);
+                let l = self.module.local("f", ty);
                 (Target::Value(Expr::Var(l), call, ev), Some((l, f)))
             }
             Target::Op {
@@ -1583,7 +1663,7 @@ impl<'a> Lowerer<'a> {
             } if !matches!(handler, Expr::Var(_) | Expr::Use { .. }) => {
                 // An expression that only looks up the evidence table (`(use X).op()`) has no
                 // side effects, so it is not bound.
-                let l = self.module.local("h");
+                let l = self.module.local("h", Type::Handler(effect));
                 let t = Target::Op {
                     handler: Expr::Var(l),
                     effect,
@@ -1613,9 +1693,7 @@ impl<'a> Lowerer<'a> {
     /// argument and uses it as the caller's table (`State.run`, and generic fns with effects with
     /// type arguments in their R).
     fn wrap_in_lambda(&mut self, id: ExprId, span: Span) -> Expr {
-        let ev = self
-            .ty_takes_ev(self.expr_ty(id))
-            .then(|| self.module.local("ev"));
+        let ev = self.ty_takes_ev(self.expr_ty(id)).then(|| self.ev_local());
         let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
         if ev.is_some() {
             self.ev = ev;
@@ -1627,11 +1705,17 @@ impl<'a> Lowerer<'a> {
             Ok(t) => t,
             Err(e) => return e,
         };
-        let arity = match self.expr_ty(id) {
-            Ty::Fn(f) => f.params.len(),
+        let param_tys = match self.expr_ty(id) {
+            Ty::Fn(f) => &f.params,
             _ => unreachable!("a reference to a callable definition has a function type"),
         };
-        let mut params: Vec<Local> = (0..arity).map(|_| self.module.local("x")).collect();
+        let mut params: Vec<Local> = param_tys
+            .iter()
+            .map(|t| {
+                let ty = self.ty(t);
+                self.module.local("x", ty)
+            })
+            .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
         params.extend(ev);
         Expr::Lambda {
@@ -1833,16 +1917,31 @@ impl<'a> Lowerer<'a> {
             suspends: self.row_suspends(&body.uses),
         };
         let base = self.ev.map(Expr::Var);
+        // `State.run(initial: S, body: fn() -> A use { State[S] }) -> (A, S)` (spec 8.8).
+        let state = match f.params.first() {
+            Some(s) => self.ty(s),
+            None => Type::Unit,
+        };
+        let result = self.ty(&body.ret);
+        let update_ty = Type::func(FnType {
+            params: vec![state.clone()],
+            ret: state.clone(),
+            fails: false,
+            suspends: false,
+            ev: false,
+        });
         Ok(StateRun {
             effect,
             ops: [get, set, update],
             base,
             call,
-            cell: self.module.local("cell"),
-            handler: self.module.local("state"),
-            value: self.module.local("value"),
-            f: self.module.local("f"),
-            result: self.module.local("result"),
+            cell: self
+                .module
+                .local("cell", Type::Cell(Box::new(state.clone()))),
+            handler: self.module.local("state", Type::Handler(effect)),
+            value: self.module.local("value", state),
+            f: self.module.local("f", update_ty),
+            result: self.module.local("result", result),
         })
     }
 
@@ -2001,12 +2100,16 @@ impl<'a> Lowerer<'a> {
             args[pos] = Some(if is_atomic(&value) {
                 value
             } else {
-                let l = self.module.local("arg");
+                let ty = self.expr_ty(field.value);
+                let ty = self.ty(ty);
+                let l = self.module.local("arg", ty);
                 lets.push((l, value));
                 Expr::Var(l)
             });
         }
-        let b = self.module.local("base");
+        let base_ty = self.expr_ty(base);
+        let base_ty = self.ty(base_ty);
+        let b = self.module.local("base", base_ty);
         let base = self.expr(base);
         lets.push((b, base));
         let args = args
@@ -2060,9 +2163,13 @@ impl<'a> Lowerer<'a> {
                 Stmt::Let { pat, value, .. } => (Some(*pat), *value),
                 Stmt::Expr(e) => (None, *e),
             };
+            let value_ty = self.expr_ty(value);
+            let value_ty = self.ty(value_ty);
             let value = self.expr(value);
             let bind = match pat.map(|p| (p, &hir.pats[p].kind)) {
-                None | Some((_, PatKind::Wild)) => Bind::Var(self.module.local("_"), value),
+                None | Some((_, PatKind::Wild)) => {
+                    Bind::Var(self.module.local("_", value_ty), value)
+                }
                 Some((_, PatKind::Bind(l))) => Bind::Var(self.local(*l), value),
                 Some((p, _)) => {
                     let pat = self.pat(p);
@@ -2167,8 +2274,10 @@ impl<'a> Lowerer<'a> {
             // A const pattern binds a fresh variable and compares it with the const's value in a
             // guard.
             PatKind::Const(Res::Def(def)) => {
-                let x = self.module.local("c");
-                let ty = prim_op_ty(&self.types.pats[id]).unwrap_or(OpTy::Structural);
+                let types = self.types;
+                let x_ty = self.ty(&types.pats[id]);
+                let x = self.module.local("c", x_ty);
+                let ty = prim_op_ty(&types.pats[id]).unwrap_or(OpTy::Structural);
                 let value = Expr::Call {
                     callee: Callee::Direct(self.fn_id(*def, 0)),
                     args: Vec::new(),
@@ -2220,19 +2329,6 @@ impl<'a> Lowerer<'a> {
             && data.module == DefModule::Source(self.entry)
             && (data.is_pub || data.name == "main")
             && !self.tests.contains(&def)
-    }
-}
-
-/// How an external function's parameter and return types cross the boundary (spec 12.4, 12.5).
-fn boundary(ty: &Ty) -> Boundary {
-    match ty {
-        Ty::Prim(Prim::String) => Boundary::String,
-        Ty::Prim(Prim::Unit) => Boundary::Unit,
-        Ty::Fn(f) => Boundary::Fn {
-            params: f.params.iter().map(boundary).collect(),
-            ret: Box::new(boundary(&f.ret)),
-        },
-        _ => Boundary::Plain,
     }
 }
 
@@ -2357,7 +2453,8 @@ fn is_atomic(e: &Expr) -> bool {
 fn unshowable(ty: &Type) -> Option<&'static str> {
     match ty {
         Type::Param(_) => Some("showing a value of a type parameter"),
-        Type::Fn => Some("showing a function"),
+        Type::Fn(_) => Some("showing a function"),
+        Type::Handler(_) => Some("showing a capability value"),
         Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(unshowable),
         Type::List(t) => unshowable(t),
         _ => None,

@@ -3,7 +3,8 @@
 
 use emela_core::build::*;
 use emela_core::{
-    Assert, BinOp, Builtin, CtorRef, EnumDef, Module, OpTy, Pat, Type, UnOp, VariantDef, dump,
+    Assert, BinOp, Builtin, CtorRef, EnumDef, FnType, Module, OpTy, Pat, Type, UnOp, VariantDef,
+    dump,
 };
 
 #[test]
@@ -49,9 +50,10 @@ fn every_kind_of_expression() {
 
     // fn area(s) { match s { Circle(r) -> r * r * 2.5, Rect(width: w, height: _) if w > 0.0 -> w, _ -> 0.0 } }
     let area = m.declare("Shapes.area", false);
-    let s = m.local("s");
-    let r = m.local("r");
-    let w = m.local("w");
+    let shape_ty = Type::Enum(shape, vec![]);
+    let s = m.local("s", shape_ty.clone());
+    let r = m.local("r", Type::Float);
+    let w = m.local("w", Type::Float);
     let body = match_(
         var(s),
         vec![
@@ -72,12 +74,14 @@ fn every_kind_of_expression() {
             arm(Pat::Wild, float(0.0)),
         ],
     );
-    m.define(area, vec![s], body);
+    m.define(area, vec![s], Type::Float, body);
 
     // fn sum(xs, acc) { loop(...) { match xs { [] -> acc, [x, ..rest] -> recur(rest, acc + x) } } }
     let sum = m.declare("sum", false);
-    let (xs, acc) = (m.local("xs"), m.local("acc"));
-    let (lxs, lacc, x, rest) = (m.local("xs"), m.local("acc"), m.local("x"), m.local("rest"));
+    let ints = Type::list(Type::Int);
+    let (xs, acc) = (m.local("xs", ints.clone()), m.local("acc", Type::Int));
+    let (lxs, lacc) = (m.local("xs", ints.clone()), m.local("acc", Type::Int));
+    let (x, rest) = (m.local("x", Type::Int), m.local("rest", ints));
     let body = emela_core::Expr::Loop {
         vars: vec![lxs, lacc],
         inits: vec![var(xs), var(acc)],
@@ -95,11 +99,44 @@ fn every_kind_of_expression() {
             ],
         )),
     };
-    m.define(sum, vec![xs, acc], body);
+    m.define(sum, vec![xs, acc], Type::Int, body);
 
     let main = m.declare("main", true);
-    let (p, f, y, name) = (m.local("p"), m.local("f"), m.local("y"), m.local("name"));
-    let z = m.local("z");
+    let pair_ty = Type::Enum(pair, vec![Type::Int, Type::String]);
+    let inc_ty = Type::func(FnType {
+        params: vec![Type::Int64],
+        ret: Type::Int64,
+        fails: false,
+        suspends: false,
+        ev: false,
+    });
+    let area_ty = Type::func(FnType {
+        params: vec![shape_ty],
+        ret: Type::Float,
+        fails: false,
+        suspends: false,
+        ev: false,
+    });
+    let p = m.local("p", pair_ty.clone());
+    let f = m.local("f", inc_ty);
+    let y = m.local("y", Type::Int64);
+    let name = m.local("name", Type::String);
+    let z = m.local("z", Type::Unit);
+    let option_int = Type::Enum(some.enum_id, vec![Type::Int]);
+    let main_ret = Type::Tuple(vec![
+        Type::Int,
+        Type::Int64,
+        Type::Int,
+        Type::Float,
+        area_ty,
+        pair_ty,
+        Type::Int,
+        Type::String,
+        option_int.clone(),
+        option_int,
+        Type::Unit,
+        Type::Unit,
+    ]);
     let body = let_(
         p,
         ctor(pair_ctor, vec![int(1), string("a")]),
@@ -158,7 +195,7 @@ fn every_kind_of_expression() {
             ),
         ),
     );
-    m.define(main, vec![], body);
+    m.define(main, vec![], main_ret, body);
 
     insta::assert_snapshot!(dump(&m));
 }

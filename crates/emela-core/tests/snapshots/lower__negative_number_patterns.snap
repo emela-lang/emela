@@ -66,7 +66,7 @@ enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn, sent: List[Std.Http.Request])
+  TestServer(respond: fn(Std.Http.Request, Int) -> Option[Std.Http.Response], sent: List[Std.Http.Request])
 }
 
 error enum Std.FileSystem.FileNotFound {
@@ -105,7 +105,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn)
+  Cause(raise: fn() -> Never fails)
 }
 
 enum Std.Cause.CauseKind {
@@ -125,13 +125,13 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[()])
 }
 
-export fn main() {
-  let _%0 = @dbg[Int](int((-[Int] 1)))
-  let _%1 = @dbg[Int](long((-[Int64] 5i64)))
+export fn main() -> Int {
+  let _%0: Int = @dbg[Int](int((-[Int] 1)))
+  let _%1: Int = @dbg[Int](long((-[Int64] 5i64)))
   @dbg[Int](float((-[Float] 0.0)))
 }
 
-fn int(n%4) {
+fn int(n%4: Int) -> Int {
   match n%4 {
     -2147483648 -> 0
     -16 -> 1
@@ -139,14 +139,14 @@ fn int(n%4) {
   }
 }
 
-fn long(n%3) {
+fn long(n%3: Int64) -> Int {
   match n%3 {
     -9223372036854775808i64 -> 0
     _ -> 1
   }
 }
 
-fn float(x%2) {
+fn float(x%2: Float) -> Int {
   match x%2 {
     -0.0 -> 0
     -1.5 -> 1

@@ -66,7 +66,7 @@ enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn, sent: List[Std.Http.Request])
+  TestServer(respond: fn(Std.Http.Request, Int) -> Option[Std.Http.Response], sent: List[Std.Http.Request])
 }
 
 error enum Std.FileSystem.FileNotFound {
@@ -105,7 +105,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn)
+  Cause(raise: fn() -> Never fails)
 }
 
 enum Std.Cause.CauseKind {
@@ -125,15 +125,15 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[()])
 }
 
-export fn main() {
-  let x%0 = (1 +[Int] (2 *[Int] 3))
-  let big%1 = 549755813887i64
-  let _%2 = @dbg[Int](x%0)
-  let _%3 = @dbg[Int64]((-[Int64] big%1))
+export fn main() -> Bool {
+  let x%0: Int = (1 +[Int] (2 *[Int] 3))
+  let big%1: Int64 = 549755813887i64
+  let _%2: Int = @dbg[Int](x%0)
+  let _%3: Int64 = @dbg[Int64]((-[Int64] big%1))
   greet(2, "emela")
 }
 
-fn greet(times%4, name%5) {
+fn greet(times%4: Int, name%5: String) -> Bool {
   if ((times%4 >[Int] 0) &&[Bool] (@String.length(name%5) !=[Int] 0)) {
     true
   } else {

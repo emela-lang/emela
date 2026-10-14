@@ -23,12 +23,12 @@ struct Run {
     stderr: String,
 }
 
-/// Emits and runs a `main` whose body is `body`.
+/// Emits and runs a `main` whose body is `body` (a String).
 fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
     let mut m = Module::new();
     let body = build(&mut m);
     let main = m.declare("main", true);
-    m.define(main, vec![], body);
+    m.define(main, vec![], Type::String, body);
     let js = emit_module(
         &m,
         &Options {
@@ -56,7 +56,7 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
 
 /// A body that returns `"ok"` after the assert.
 fn then_ok(m: &mut Module, assert: Expr) -> Expr {
-    let unit = m.local("unit");
+    let unit = m.local("unit", Type::Unit);
     let_(unit, assert, string("ok"))
 }
 
@@ -77,7 +77,7 @@ fn passing_comparison_continues() {
             "",
         );
         let c = Assert::bool(bool(true), "True");
-        let (u, v) = (m.local("u"), m.local("v"));
+        let (u, v) = (m.local("u", Type::Unit), m.local("v", Type::Unit));
         let body = then_ok(m, c);
         let_(u, a, let_(v, b, body))
     });
@@ -170,7 +170,7 @@ fn assert_as_an_argument_keeps_evaluation_order() {
             dbg(1),
             eq(Type::Int, OpTy::Int, dbg(2), int(2), "dbg(2) == 2"),
         ]);
-        let pair = m.local("pair");
+        let pair = m.local("pair", Type::Tuple(vec![Type::Int, Type::Unit]));
         let_(pair, t, string("ok"))
     });
     assert_eq!(r.stderr, "1\n2\n");

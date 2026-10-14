@@ -49,27 +49,26 @@ fn int_op(op: BinOp, a: Expr, b: Expr) -> Expr {
 }
 
 /// An external function calling the host function `path` (a global reference).
-fn external(m: &mut Module, name: &str, path: &str, params: Vec<Boundary>, ret: Boundary) -> FnId {
+fn external(m: &mut Module, name: &str, path: &str, params: Vec<Type>, ret: Type) -> FnId {
     let f = m.declare(name, false);
-    let ps = (0..params.len()).map(|_| m.local("x")).collect();
+    let ps = params.into_iter().map(|t| m.local("x", t)).collect();
     m.define_external(
         f,
         ps,
+        ret,
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
                 host: HostRef::Global(path.into()),
             }],
-            params,
-            ret,
         },
     );
     f
 }
 
-fn main_fn(m: &mut Module, body: Expr) {
+fn main_fn(m: &mut Module, ret: Type, body: Expr) {
     let main = m.declare("main", true);
-    m.define(main, vec![], body);
+    m.define(main, vec![], ret, body);
 }
 
 #[test]
@@ -93,13 +92,13 @@ fn handlers_are_passed_as_evidence() {
         &mut m,
         "js_max",
         "Math.max",
-        vec![Boundary::Plain, Boundary::Plain],
-        Boundary::Plain,
+        vec![Type::Int, Type::Int],
+        Type::Int,
     );
 
     // handler Doubler { add(n) = n * 2, boom() = fail Oops }
     let doubler = m.declare("Doubler", false);
-    let n = m.local("n");
+    let n = m.local("n", Type::Int);
     let handler = Expr::Handler {
         name: "Doubler".into(),
         effect: counter,
@@ -108,11 +107,11 @@ fn handlers_are_passed_as_evidence() {
             lambda(vec![], fail(ctor(oops, vec![]))),
         ],
     };
-    m.define(doubler, vec![], handler);
+    m.define(doubler, vec![], Type::Handler(counter), handler);
 
     // fn use_it(ev) = (use Counter).add(21)
     let use_it = m.declare("use_it", false);
-    let ev = m.local("ev");
+    let ev = m.local("ev", Type::Evidence);
     let op = |h: Expr, op: usize, args: Vec<Expr>, fails: bool| Expr::Call {
         callee: Callee::Op {
             handler: Box::new(h),
@@ -126,6 +125,7 @@ fn handlers_are_passed_as_evidence() {
     m.define(
         use_it,
         vec![ev],
+        Type::Int,
         op(
             Expr::Use {
                 ctx: Box::new(var(ev)),
@@ -138,8 +138,8 @@ fn handlers_are_passed_as_evidence() {
     );
 
     // with Doubler { use_it() + (h.boom() escape { Oops -> 1 }) + js_max(1, 2) }
-    let h = m.local("h");
-    let ctx = m.local("ev");
+    let h = m.local("h", Type::Handler(counter));
+    let ctx = m.local("ev", Type::Evidence);
     let body = int_op(
         BinOp::Add,
         int_op(
@@ -154,6 +154,7 @@ fn handlers_are_passed_as_evidence() {
     );
     main_fn(
         &mut m,
+        Type::Int,
         Expr::With {
             binds: vec![
                 WithBind::new(h, call(doubler, vec![])),
@@ -179,10 +180,10 @@ fn host_strings_are_well_formed() {
         &mut m,
         "lone",
         "String.fromCharCode",
-        vec![Boundary::Plain],
-        Boundary::String,
+        vec![Type::Int],
+        Type::String,
     );
-    main_fn(&mut m, call(lone, vec![int(0xD800)]));
+    main_fn(&mut m, Type::String, call(lone, vec![int(0xD800)]));
     assert_eq!(run("well_formed", m), "\u{FFFD}\n");
 }
 
@@ -190,14 +191,8 @@ fn host_strings_are_well_formed() {
 fn host_exceptions_are_defects() {
     // `JSON.parse("{")` throws a SyntaxError (spec 12.5).
     let mut m = Module::new();
-    let parse = external(
-        &mut m,
-        "parse",
-        "JSON.parse",
-        vec![Boundary::String],
-        Boundary::Plain,
-    );
-    main_fn(&mut m, call(parse, vec![string("{")]));
+    let parse = external(&mut m, "parse", "JSON.parse", vec![Type::String], Type::Int);
+    main_fn(&mut m, Type::Int, call(parse, vec![string("{")]));
     let out = run("foreign_defect", m);
     assert!(out.starts_with("defect: SyntaxError: "), "{out}");
 }

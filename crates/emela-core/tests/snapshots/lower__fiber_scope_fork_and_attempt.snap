@@ -2,26 +2,26 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
-export suspend fn main(ev%0) {
-  let body%1 = suspend fn(ev%5) {
-    let s%6 = use[Std.Fiber.Scope[_, _]](ev%5)
-    let a%11 = {
-      let scope%7 = s%6
-      let f%8 = fn(ev%10) {
+export suspend fn main(ev%0: evidence) -> Int {
+  let body%1: fn() -> Int suspends ev = suspend fn(ev%5: evidence) {
+    let s%6: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%5)
+    let a%11: Std.Fiber.Fiber[()] = {
+      let scope%7: handler Std.Fiber.Scope[_, _] = s%6
+      let f%8: fn() -> () ev = fn(ev%10: evidence) {
         (use[Log](ev%10)).Log#info("a")
       }
-      scope%7.Std.Fiber.Scope[_, _]#fork(fn(ev%9) {
+      scope%7.Std.Fiber.Scope[_, _]#fork(fn(ev%9: evidence) {
         (f%8)(provide(ev%9; Std.Fiber.Scope[_, _] = scope%7))
       })
     }
-    let b%12 = Std.Fiber.fork(fn() {
+    let b%12: Std.Fiber.Fiber[Int] = Std.Fiber.fork(fn() {
       2
     }, ev%5)
-    let d%13 = s%6.Std.Fiber.Scope[_, _]#deferred()
-    let _%14 = fiber#complete(d%13, 1)
-    let _%15 = fiber#join(a%11)!
-    let e%18 = {
-      let f%16 = fn(ev%17) {
+    let d%13: Std.Deferred.Deferred[Int] = s%6.Std.Fiber.Scope[_, _]#deferred()
+    let _%14: Bool = fiber#complete(d%13, 1)
+    let _%15: () = fiber#join(a%11)!
+    let e%18: Std.Fiber.Exit[(), ()] = {
+      let f%16: fn() -> () ev = fn(ev%17: evidence) {
         (use[Log](ev%17)).Log#info("e")
       }
       fiber#attempt[Std.Fiber.Exit](fn() {
@@ -30,9 +30,9 @@ export suspend fn main(ev%0) {
     }
     (fiber#join(b%12)! +[Int] fiber#deferred_await(d%13)!)
   }
-  fiber#scope(suspend fn(s%2) {
-    let scope%3 = handler Scope: Std.Fiber.Scope[_, _] {
-      fork: fn(g%4) {
+  fiber#scope(suspend fn(s%2: fiber_scope) {
+    let scope%3: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%4: fn(evidence) -> any suspends) {
         fiber#fork(s%2, suspend fn() {
           (g%4)(ev%0)!
         })
@@ -43,12 +43,4 @@ export suspend fn main(ev%0) {
     }
     (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%3))!
   })!
-}
-
-fn Std.Fiber.fork(f%19, ev%20) {
-  let scope%21 = use[Std.Fiber.Scope[_, _]](ev%20)
-  let f%22 = f%19
-  scope%21.Std.Fiber.Scope[_, _]#fork(fn(ev%23) {
-    (f%22)(provide(ev%23; Std.Fiber.Scope[_, _] = scope%21))?
-  })
 }

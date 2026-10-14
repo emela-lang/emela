@@ -33,8 +33,8 @@ pub fn loopify_function(module: &mut Module, f: FnId) -> bool {
     let vars: Vec<Local> = params
         .iter()
         .map(|&p| {
-            let hint = module.locals[p].hint.clone();
-            module.local(&hint)
+            let data = module.locals[p].clone();
+            module.local(&data.hint, data.ty)
         })
         .collect();
     let subst: FxHashMap<Local, Local> = params.iter().copied().zip(vars.iter().copied()).collect();

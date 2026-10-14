@@ -1,7 +1,7 @@
 //! Renders the Core IR as readable text, for test snapshots and investigation.
 //!
 //! It looks like Emela, but uses marks that Emela lacks so it is not mistaken for source: `let`
-//! for bindings, `%n` for locals, `@` for builtins, `[OpTy]` on operators, `?` after fallible
+//! for bindings, `%n` for locals (with their types where bound, as in `x%0: Int`), `@` for builtins, `[OpTy]` on operators, `?` after fallible
 //! calls, `!` after suspending calls, `error enum` for error enums, `use[X](ctx)` and
 //! `provide(..)` for evidence tables, `h.X#op(..)` for operation calls, and `fiber#op(..)` for
 //! concurrency operations. Suspending functions and lambdas, and suspend fn operations, are
@@ -14,8 +14,8 @@
 //!   Rect(width: Float, height: Float)
 //! }
 //!
-//! export fn main() {
-//!   let x%0 = (1 +[Int] 2)
+//! export fn main() -> Int {
+//!   let x%0: Int = (1 +[Int] 2)
 //!   @dbg[Int](x%0)
 //! }
 //! ```
@@ -62,7 +62,14 @@ pub fn dump(m: &Module) -> String {
         if f.constant {
             p.out.push_str("const ");
         }
-        let params: Vec<String> = f.params.iter().map(|&l| p.local(l)).collect();
+        let params: Vec<String> = f.params.iter().map(|&l| p.binder(l)).collect();
+        let ty_params = if f.type_params == 0 {
+            String::new()
+        } else {
+            let names: Vec<String> = (0..f.type_params).map(param_name).collect();
+            format!("[{}]", names.join(", "))
+        };
+        let ret = p.ty(&f.ret);
         if let Some(ext) = &f.external {
             let bindings: Vec<String> = ext
                 .bindings
@@ -71,7 +78,7 @@ pub fn dump(m: &Module) -> String {
                 .collect();
             writeln!(
                 p.out,
-                "external fn {}({}) = {}\n",
+                "external fn {}{ty_params}({}) -> {ret} = {}\n",
                 f.name,
                 params.join(", "),
                 bindings.join(" ")
@@ -79,7 +86,13 @@ pub fn dump(m: &Module) -> String {
             .unwrap();
             continue;
         }
-        write!(p.out, "fn {}({}) ", f.name, params.join(", ")).unwrap();
+        write!(
+            p.out,
+            "fn {}{ty_params}({}) -> {ret} ",
+            f.name,
+            params.join(", ")
+        )
+        .unwrap();
         p.braced(&f.body);
         p.out.push_str("\n\n");
     }
@@ -139,12 +152,34 @@ impl Printer<'_> {
             Type::Enum(id, ts) if ts.is_empty() => self.m.enums[*id].name.clone(),
             Type::Enum(id, ts) => format!("{}[{}]", self.m.enums[*id].name, list(ts)),
             Type::Param(i) => param_name(*i),
-            Type::Fn => "fn".into(),
+            Type::Fn(f) => {
+                let mut s = format!("fn({}) -> {}", list(&f.params), self.ty(&f.ret));
+                for (flag, name) in [
+                    (f.fails, " fails"),
+                    (f.suspends, " suspends"),
+                    (f.ev, " ev"),
+                ] {
+                    if flag {
+                        s.push_str(name);
+                    }
+                }
+                s
+            }
+            Type::Handler(e) => format!("handler {}", self.m.effects[*e].name),
+            Type::Evidence => "evidence".into(),
+            Type::Cell(t) => format!("cell {}", self.ty(t)),
+            Type::FiberScope => "fiber_scope".into(),
+            Type::Any => "any".into(),
         }
     }
 
     fn local(&self, l: Local) -> String {
         format!("{}%{}", self.m.locals[l].hint, u32::from(l.into_raw()))
+    }
+
+    /// A local where it is bound, with its type.
+    fn binder(&self, l: Local) -> String {
+        format!("{}: {}", self.local(l), self.ty(&self.m.locals[l].ty))
     }
 
     /// Joins enum and variant names, as in `Shapes.Shape.Rect`.
@@ -170,7 +205,7 @@ impl Printer<'_> {
         let mut e = e;
         while let Expr::Let { var, value, body } = e {
             self.newline();
-            write!(self.out, "let {} = ", self.local(*var)).unwrap();
+            write!(self.out, "let {} = ", self.binder(*var)).unwrap();
             self.expr(value);
             e = body;
         }
@@ -332,7 +367,7 @@ impl Printer<'_> {
                 body,
                 suspends,
             } => {
-                let params: Vec<String> = params.iter().map(|&l| self.local(l)).collect();
+                let params: Vec<String> = params.iter().map(|&l| self.binder(l)).collect();
                 if *suspends {
                     self.out.push_str("suspend ");
                 }
@@ -361,7 +396,7 @@ impl Printer<'_> {
                     if i > 0 {
                         self.out.push_str(", ");
                     }
-                    write!(self.out, "{} = ", self.local(*v)).unwrap();
+                    write!(self.out, "{} = ", self.binder(*v)).unwrap();
                     self.expr(init);
                 }
                 self.out.push_str(") ");
@@ -442,7 +477,7 @@ impl Printer<'_> {
                 self.indent += 1;
                 for b in binds {
                     self.newline();
-                    write!(self.out, "let {} = ", self.local(b.var)).unwrap();
+                    write!(self.out, "let {} = ", self.binder(b.var)).unwrap();
                     self.expr(&b.value);
                     if let Some(r) = &b.release {
                         write!(self.out, " release {} ", r.handler).unwrap();

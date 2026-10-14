@@ -44,10 +44,11 @@ impl Module {
     }
 
     /// `hint` is a naming hint for the output and need not be unique.
-    pub fn local(&mut self, hint: &str) -> Local {
+    pub fn local(&mut self, hint: &str, ty: Type) -> Local {
         let hint = if hint.is_empty() { "v" } else { hint };
         self.locals.alloc(LocalData {
             hint: hint.to_owned(),
+            ty,
         })
     }
 
@@ -62,6 +63,8 @@ impl Module {
             name: name.to_owned(),
             exported,
             params: Vec::new(),
+            ret: Type::Unit,
+            type_params: 0,
             body: Expr::Lit(Lit::Unit),
             external: None,
             suspends: false,
@@ -70,9 +73,10 @@ impl Module {
     }
 
     /// Makes the function external (spec chapter 12). The body is unused.
-    pub fn define_external(&mut self, f: FnId, params: Vec<Local>, external: External) {
+    pub fn define_external(&mut self, f: FnId, params: Vec<Local>, ret: Type, external: External) {
         let func = &mut self.functions[f];
         func.params = params;
+        func.ret = ret;
         func.external = Some(external);
     }
 
@@ -86,9 +90,10 @@ impl Module {
         self.effects.alloc(def)
     }
 
-    pub fn define(&mut self, f: FnId, params: Vec<Local>, body: Expr) {
+    pub fn define(&mut self, f: FnId, params: Vec<Local>, ret: Type, body: Expr) {
         let func = &mut self.functions[f];
         func.params = params;
+        func.ret = ret;
         func.body = body;
     }
 
@@ -134,6 +139,7 @@ impl Module {
 #[derive(Debug, Clone)]
 pub struct LocalData {
     pub hint: String,
+    pub ty: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -141,7 +147,13 @@ pub struct Function {
     /// Unique in the module; exported under this name.
     pub name: String,
     pub exported: bool,
+    /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last.
     pub params: Vec<Local>,
+    pub ret: Type,
+    /// The number of type parameters, referred to by `Type::Param(i)` in the types of the
+    /// parameters, the return value and the locals of the body. Includes set parameters (`R(f)`),
+    /// which no type refers to, so that indices match the type checker's.
+    pub type_params: usize,
     pub body: Expr,
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
     pub external: Option<External>,
@@ -156,15 +168,12 @@ pub struct Function {
     pub constant: bool,
 }
 
-/// The host function of an external function (spec 12.1).
+/// The host function of an external function (spec 12.1). How the parameters and the return value
+/// cross the boundary (spec 12.4, 12.5) is decided by each backend from their types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct External {
     /// The per-target `@external` arguments, in written order.
     pub bindings: Vec<ExternalBinding>,
-    /// How each parameter crosses the boundary (spec 12.4, 12.5), in `Function::params` order.
-    pub params: Vec<Boundary>,
-    /// How the return value crosses the boundary.
-    pub ret: Boundary,
 }
 
 impl External {
@@ -203,23 +212,6 @@ pub enum HostModule {
     /// A file bundled with the compiler (written in a bundled source starting with `./` or `../`),
     /// relative to `lib/` (`std/clock.mjs`). Its contents are in [`Module::bundled_files`].
     Bundled(String),
-}
-
-/// How an external function's parameters and return value cross the boundary (spec 12.4, 12.5).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Boundary {
-    /// Lone surrogates received from the host are replaced with U+FFFD.
-    String,
-    /// The host's return value is discarded and becomes `()`.
-    Unit,
-    /// A callback. Arguments the host calls it with and values returned to the host are converted
-    /// by the same rules.
-    Fn {
-        params: Vec<Boundary>,
-        ret: Box<Boundary>,
-    },
-    /// Passed as is.
-    Plain,
 }
 
 /// An effect (spec 8.1).
@@ -328,10 +320,12 @@ impl VariantDef {
     }
 }
 
-/// The type of an IR value. Used for showing (the stand-in for Show) and for builtins whose
-/// behavior depends on the type.
+/// The type of an IR value. Used for showing (the stand-in for Show), for builtins whose behavior
+/// depends on the type, and by backends that need value representations.
 ///
-/// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`). No type variables.
+/// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`, `EffectId`). No type
+/// variables: a type variable left undetermined (an unused `None`'s `Option[?]`) becomes `Unit`,
+/// as any representation behaves the same.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
@@ -346,15 +340,51 @@ pub enum Type {
     List(Box<Type>),
     /// An enum / type application. The argument count is `EnumDef::params`.
     Enum(EnumId, Vec<Type>),
-    /// A type parameter of the enclosing `EnumDef`. Occurs only in field types.
+    /// The `i`th type parameter of the enclosing definition: the `EnumDef` in field types, the
+    /// function otherwise.
     Param(usize),
-    /// A function type. It cannot be shown (spec 10.6), so it carries nothing.
-    Fn,
+    /// A function value (spec 10.6: cannot be shown).
+    Fn(Box<FnType>),
+    /// A capability value (spec 8.2): the handler value of the effect, returned by `use X`
+    /// (`Expr::Use`). Cannot be shown or compared.
+    Handler(EffectId),
+    /// An evidence table (`Expr::Provide`, spec 16.5).
+    Evidence,
+    /// A mutable cell holding a value of the type (the state of `State.run`, `Builtin::CellNew`).
+    Cell(Box<Type>),
+    /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` and
+    /// `FiberOp::Deferred` take (spec 11.2). Not Scope's capability value, which is a `Handler`.
+    FiberScope,
+    /// A value whose type differs per use and is not tracked: inside Scope's handler, the child
+    /// function that fork receives (the `A` of `fork[A]`, spec 11.2). Only built-in effects have
+    /// generic operations (spec 8.1), and lowering builds their handlers. Backends give it a
+    /// uniform representation.
+    Any,
+}
+
+/// A function type, with what decides how a value of it is called.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FnType {
+    /// The declared parameters, without the evidence table.
+    pub params: Vec<Type>,
+    pub ret: Type,
+    /// Whether a call may fail (the E is not empty, spec 7.2); the same as `Expr::Call::fails`.
+    pub fails: bool,
+    /// Whether a call may suspend (the R is not Immediate, spec 9.5); the same as
+    /// `Expr::Call::suspends` for `Callee::Indirect`.
+    pub suspends: bool,
+    /// Whether the function takes the evidence table as its last argument (the R has effects
+    /// other than Async, spec 16.5).
+    pub ev: bool,
 }
 
 impl Type {
     pub fn list(elem: Type) -> Type {
         Type::List(Box::new(elem))
+    }
+
+    pub fn func(f: FnType) -> Type {
+        Type::Fn(Box::new(f))
     }
 
     /// Replaces `Type::Param(i)` with `args[i]`.
@@ -364,6 +394,12 @@ impl Type {
             Type::Tuple(ts) => Type::Tuple(ts.iter().map(|t| t.subst(args)).collect()),
             Type::List(t) => Type::list(t.subst(args)),
             Type::Enum(id, ts) => Type::Enum(*id, ts.iter().map(|t| t.subst(args)).collect()),
+            Type::Cell(t) => Type::Cell(Box::new(t.subst(args))),
+            Type::Fn(f) => Type::func(FnType {
+                params: f.params.iter().map(|t| t.subst(args)).collect(),
+                ret: f.ret.subst(args),
+                ..**f
+            }),
             _ => self.clone(),
         }
     }

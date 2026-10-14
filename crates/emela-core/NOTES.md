@@ -186,7 +186,7 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）HIR の `LocalId` はプログラム全体で一意なので，IR の `Local` へ表で1対1に写す．添字は使い回さない．IR の側では名前付き引数の並べ替えやループ化で `Local` が増える．
 - （補）`lower` は `LowerInput`（HIR，型検査の結果，モジュール名の表，モジュールのソース，エントリ）と根（`Roots`）を受け，`Result<Module, Vec<LowerError>>` を返す．型検査を通っても IR にできない場面（汎用の fn の中での型引数の値の補間など）を「まだ扱えない」の診断にする．見つけた分を全部集める．driver が `Diagnostic` に写す．ソースは assert の失敗に出す式の字面を切り出すのに使う．
 - （補）`error` の宣言も IR の enum にする（構成子1つ，型引数なし）．type と同じく同じ名前の型と構成子を定義し，普通の値として扱える（7.1）．error の構成子は宣言の `DefId` そのもの．
-- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換で `Ty::Var`（決まらずに残った型変数）は `Type::Unit` にする．能力の値の型（`Ty::Cap`）は `Type::Fn`（表示も比較もできない値）にする．
+- （補）構成子のフィールドの型は型検査の構成子の宣言の型（`sigs`）から引く．構成子の型引数は作る型の型引数と同じ順なので，`Ty::Bound(i)` を `Type::Param(i)` に写せばよい．型の変換では，写している定義で汎化された `Ty::Var` はその型引数（`Type::Param`，`generalized_tys`）に，決まらずに残った `Ty::Var` は `Type::Unit` にする．関数型は `Type::Fn(FnType)` で，引数と戻り値の型に加え，呼び方を決める fails，suspends，証拠の表を取るか（ev）を持つ（それぞれ `Expr::Call` の印と同じ判定）．能力の値の型（`Ty::Cap`）は `Type::Handler(EffectId)`（表示も比較もできない値）にする．
 - （補）JS で export するのは，エントリのモジュールの `pub` の fn と `main`（`emela run` の起動用モジュールが `entry.main` を呼ぶ）．
 - （補）呼び出しの引数は，型検査が並べ直した仮引数の順（`ProgramTypes::calls`）から各引数の位置を引き，`named::in_written_order` で書かれた順に評価する．呼ばれる側が変数か関数でない式なら，引数より先に `let` で束縛する．パイプ `x |> f(a)` は左辺を先頭の引数とする呼び出しとして写す．
 - （補）`@intrinsic` の fn の呼び出しは `Expr::Builtin` にする．型引数は `ProgramTypes::type_args` から引く．`@intrinsic` の fn とフィールドのある構成子を値として使うとき（`List.map(xs, String.length)`，`List.map(xs, Some)`）は，それを呼ぶだけのラムダで包む（`fn(x) { Some(x) }`）．引数の数は参照の式の型（関数型）から取る．
@@ -263,7 +263,8 @@ alpha.4 の第3段の前半（2026-10-12）．
 
 - （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．引数の数で `HostRef` に分ける（1つは `Global`，2つは `Import`）．`Import` のモジュールは，`./` か `../` で始まらなければ `HostModule::Named`，利用者のソースの隣のファイルなら `File`（絶対パス），同梱のソースなら `Bundled`．名前の意味（JS のグローバル参照，WASM の import の名前）はバックエンドが決める．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
 - （補）ファイルを指すモジュール（`./` か `../` で始まる，引数が2つのときの1つ目）は，宣言を含むソースのディレクトリからの絶対パスに直す（12.1）．`.` と `..` は字面で畳む．パスは `LowerInput::paths`（driver がソースの表から渡す）．
-- （補）引数と戻り値の境界での扱い（`Boundary`）は型から決める．String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む（12.4，12.5）．
+- （補）引数と戻り値の境界での扱い（12.4，12.5）は IR に書かない．引数の局所変数の型（`LocalData::ty`）と `Function::ret` から，各 backend が決める．JS では，String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む．
+- （補）IR の局所変数はすべて型を持つ（`LocalData::ty`）．関数は戻り値の型（`Function::ret`）と型引数の数（`Function::type_params`．型検査の型スキームの引数の数で，集合の引数も数える）を持つ．引数の型は引数の局所変数の型．lowering が作る一時変数のうち，型検査の型に対応しないものには IR だけの型を使う．証拠の表は `Type::Evidence`，`State.run` のセルは `Type::Cell(S)`，fiber のスコープは `Type::FiberScope`，Scope のハンドラの中で fork が受け取る子の関数の戻り値は `Type::Any`（`fork[A]` の A は呼ぶたびに違い，多相な操作を持てるのは組み込みのエフェクトだけ．8.1）
 - （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
 - （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
 - （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `SystemConsole` を写せることを `every_core_function_lowers` で見る）．

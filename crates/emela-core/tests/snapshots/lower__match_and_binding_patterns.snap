@@ -76,7 +76,7 @@ enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn, sent: List[Std.Http.Request])
+  TestServer(respond: fn(Std.Http.Request, Int) -> Option[Std.Http.Response], sent: List[Std.Http.Request])
 }
 
 error enum Std.FileSystem.FileNotFound {
@@ -115,7 +115,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn)
+  Cause(raise: fn() -> Never fails)
 }
 
 enum Std.Cause.CauseKind {
@@ -135,9 +135,9 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[()])
 }
 
-export fn main() {
-  let _%0 = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
-  let _%1 = @dbg[String](describe([1, 2, 3]))
+export fn main() -> String {
+  let _%0: Float = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
+  let _%1: String = @dbg[String](describe([1, 2, 3]))
   match (1, "x") {
     (a%2, b%3) -> match Pair.Pair(first: a%2, second: b%3) {
       Pair.Pair(first: _, second: second%4) -> @dbg[String](second%4)
@@ -145,7 +145,7 @@ export fn main() {
   }
 }
 
-fn area(s%7) {
+fn area(s%7: Shape) -> Float {
   match s%7 {
     Shape.Circle(r%8) -> ((r%8 *[Float] r%8) *[Float] 3.0)
     Shape.Rect(width: w%9, height: _) if (w%9 >[Float] 10.0) -> 0.0
@@ -154,7 +154,7 @@ fn area(s%7) {
   }
 }
 
-fn describe(xs%5) {
+fn describe(xs%5: List[Int]) -> String {
   match xs%5 {
     [] -> "empty"
     [1, .._] -> "one first"

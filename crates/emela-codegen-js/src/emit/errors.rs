@@ -195,11 +195,11 @@ fn descriptor_name(error: &str) -> String {
     format!("$err${}", sanitize(error))
 }
 
-/// Whether the type contains a function type (not showable, spec 10.6). Errors have no type
-/// parameters, so `Type::Param` never occurs.
+/// Whether the type contains a function type or a capability value (not showable, spec 10.6,
+/// 8.2). Errors have no type parameters, so `Type::Param` never occurs.
 fn contains_fn(ty: &Type) -> bool {
     match ty {
-        Type::Fn => true,
+        Type::Fn(_) | Type::Handler(_) => true,
         Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(contains_fn),
         Type::List(t) => contains_fn(t),
         _ => false,

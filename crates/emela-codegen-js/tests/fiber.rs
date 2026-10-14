@@ -135,17 +135,17 @@ struct Kit {
     exit: EnumId,
     /// `enum CauseKind { Fail, Die, Interrupt }`．
     kind: EnumId,
+    /// `@external type Cause[E]`．
+    cause: EnumId,
+    /// `@external type Fiber[A]`．
+    fiber: EnumId,
+    /// `@external type Deferred[A]`．
+    deferred: EnumId,
 }
 
 impl Kit {
     fn new(m: &mut Module) -> Kit {
-        let log = external(
-            m,
-            "log",
-            "console.log",
-            vec![Boundary::Plain],
-            Boundary::Unit,
-        );
+        let log = external(m, "log", "console.log", vec![Type::String], Type::Unit);
         let res = m.add_effect(EffectDef {
             name: "Res".into(),
             ops: vec![OpDef::new("name")],
@@ -158,17 +158,11 @@ impl Kit {
             m,
             "set_timeout",
             "setTimeout",
-            vec![
-                Boundary::Fn {
-                    params: vec![],
-                    ret: Box::new(Boundary::Unit),
-                },
-                Boundary::Plain,
-            ],
-            Boundary::Unit,
+            vec![fn_ty(vec![], Type::Unit, false), Type::Int],
+            Type::Unit,
         );
         let js_clock = m.declare("JsClock", false);
-        let (ms, resume) = (m.local("ms"), m.local("resume"));
+        let (ms, resume) = sleep_params(m);
         let body = call(
             set_timeout,
             vec![
@@ -179,6 +173,7 @@ impl Kit {
         m.define(
             js_clock,
             vec![],
+            Type::Handler(clock),
             Expr::Handler {
                 name: "JsClock".into(),
                 effect: clock,
@@ -186,10 +181,11 @@ impl Kit {
             },
         );
         let never_clock = m.declare("NeverClock", false);
-        let (ms, resume) = (m.local("ms"), m.local("resume"));
+        let (ms, resume) = sleep_params(m);
         m.define(
             never_clock,
             vec![],
+            Type::Handler(clock),
             Expr::Handler {
                 name: "NeverClock".into(),
                 effect: clock,
@@ -202,13 +198,20 @@ impl Kit {
             variants: vec![VariantDef::unit("Oops")],
             error: true,
         });
-        // A Cause is opaque; its field type is never shown here.
+        // A Cause is opaque (an `@external type`, an enum without constructors); its field type
+        // is never shown here.
+        let cause = m.add_enum(EnumDef {
+            name: "Cause".into(),
+            params: 1,
+            variants: vec![],
+            error: false,
+        });
         let exit = m.add_enum(EnumDef {
             name: "Exit".into(),
             params: 2,
             variants: vec![
                 VariantDef::positional("Success", vec![Type::Param(0)]),
-                VariantDef::positional("Failure", vec![Type::Fn]),
+                VariantDef::positional("Failure", vec![Type::Enum(cause, vec![Type::Param(1)])]),
             ],
             error: false,
         });
@@ -222,6 +225,16 @@ impl Kit {
             ],
             error: false,
         });
+        let opaque = |m: &mut Module, name: &str| {
+            m.add_enum(EnumDef {
+                name: name.into(),
+                params: 1,
+                variants: vec![],
+                error: false,
+            })
+        };
+        let fiber = opaque(m, "Fiber");
+        let deferred = opaque(m, "Deferred");
         Kit {
             log,
             res,
@@ -234,7 +247,50 @@ impl Kit {
             },
             exit,
             kind,
+            cause,
+            fiber,
+            deferred,
         }
+    }
+
+    /// A Clock handler value.
+    fn clock_ty(&self) -> Type {
+        Type::Handler(self.clock)
+    }
+
+    /// A Res handler value.
+    fn res_ty(&self) -> Type {
+        Type::Handler(self.res)
+    }
+
+    /// `Fiber[a]`．
+    fn fiber_ty(&self, a: Type) -> Type {
+        Type::Enum(self.fiber, vec![a])
+    }
+
+    /// `Deferred[a]`．
+    fn deferred_ty(&self, a: Type) -> Type {
+        Type::Enum(self.deferred, vec![a])
+    }
+
+    /// `Exit[a, E]`. The error set argument has no run-time representation (`()`).
+    fn exit_ty(&self, a: Type) -> Type {
+        Type::Enum(self.exit, vec![a, Type::Unit])
+    }
+
+    /// `Cause[E]`．
+    fn cause_ty(&self) -> Type {
+        Type::Enum(self.cause, vec![Type::Unit])
+    }
+
+    /// A Clock handler local.
+    fn clock_local(&self, m: &mut Module, hint: &str) -> Local {
+        m.local(hint, self.clock_ty())
+    }
+
+    /// A local for the run-time scope a `Fiber.scope` body receives.
+    fn scope_local(&self, m: &mut Module, hint: &str) -> Local {
+        m.local(hint, Type::FiberScope)
     }
 
     /// `log(text)`．
@@ -247,9 +303,14 @@ impl Kit {
         self.then(m, self.log(text), then)
     }
 
-    /// `first; then`．
+    /// `first; then`, where `first` is `()`.
     fn then(&self, m: &mut Module, first: Expr, then: Expr) -> Expr {
-        let x = m.local("_");
+        self.then_ty(m, first, Type::Unit, then)
+    }
+
+    /// `first; then`, where `first` is of type `ty`.
+    fn then_ty(&self, m: &mut Module, first: Expr, ty: Type, then: Expr) -> Expr {
+        let x = m.local("_", ty);
         let_(x, first, then)
     }
 
@@ -280,7 +341,7 @@ impl Kit {
 
     /// `with` a handler that prints `init <name>` on init and `release <name>` on release.
     fn managed(&self, m: &mut Module, name: &str, body: Expr) -> Expr {
-        let h = m.local("h");
+        let h = m.local("h", self.res_ty());
         let init = self.log_then(m, &format!("init {name}"), self.handler(name));
         let bind = WithBind::managed(h, init, name, self.log(&format!("release {name}")));
         with(vec![bind], body)
@@ -288,7 +349,7 @@ impl Kit {
 
     /// `with` a handler whose release prints `release <name>` and then calls `panic(message)`.
     fn breaking(&self, m: &mut Module, name: &str, message: &str, body: Expr) -> Expr {
-        let h = m.local("h");
+        let h = m.local("h", self.res_ty());
         let release = self.log_then(
             m,
             &format!("release {name}"),
@@ -340,7 +401,7 @@ impl Kit {
 
     /// Describes an Exit: `Success <value>` (an Int) or `<kind> <Cause.to_string>`.
     fn describe(&self, m: &mut Module, exit: Expr) -> Expr {
-        let (v, c) = (m.local("v"), m.local("c"));
+        let (v, c) = (m.local("v", Type::Int), m.local("c", self.cause_ty()));
         let kind = |k: usize| CtorRef {
             enum_id: self.kind,
             variant: k,
@@ -384,22 +445,38 @@ impl Kit {
 }
 
 /// An external function calling the host function `path` (a global reference).
-fn external(m: &mut Module, name: &str, path: &str, params: Vec<Boundary>, ret: Boundary) -> FnId {
+fn external(m: &mut Module, name: &str, path: &str, params: Vec<Type>, ret: Type) -> FnId {
     let f = m.declare(name, false);
-    let ps = (0..params.len()).map(|_| m.local("x")).collect();
+    let ps = params.into_iter().map(|t| m.local("x", t)).collect();
     m.define_external(
         f,
         ps,
+        ret,
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
                 host: HostRef::Global(path.into()),
             }],
-            params,
-            ret,
         },
     );
     f
+}
+
+/// A function type that neither fails nor takes an evidence table.
+fn fn_ty(params: Vec<Type>, ret: Type, suspends: bool) -> Type {
+    Type::func(FnType {
+        params,
+        ret,
+        fails: false,
+        suspends,
+        ev: false,
+    })
+}
+
+/// The `ms` and `resume` parameters of Clock's `sleep`.
+fn sleep_params(m: &mut Module) -> (Local, Local) {
+    let resume = fn_ty(vec![Type::Unit], Type::Unit, false);
+    (m.local("ms", Type::Int), m.local("resume", resume))
 }
 
 fn with(binds: Vec<WithBind>, body: Expr) -> Expr {
@@ -409,17 +486,22 @@ fn with(binds: Vec<WithBind>, body: Expr) -> Expr {
     }
 }
 
-fn main_fn(m: &mut Module, suspends: bool, body: Expr) {
+fn main_fn(m: &mut Module, suspends: bool, ret: Type, body: Expr) {
     let main = m.declare("main", true);
     m.functions[main].suspends = suspends;
-    m.define(main, vec![], body);
+    m.define(main, vec![], ret, body);
 }
 
-/// Statements in order: `a; b; …; last`.
-fn seq(k: &Kit, m: &mut Module, mut es: Vec<Expr>) -> Expr {
-    let mut body = es.pop().unwrap();
-    while let Some(e) = es.pop() {
-        body = k.then(m, e, body);
+/// Statements in order: `a; b; …; last`, where all but `last` are `()`.
+fn seq(k: &Kit, m: &mut Module, es: Vec<Expr>) -> Expr {
+    seq_ty(k, m, es.into_iter().map(|e| (e, Type::Unit)).collect())
+}
+
+/// Like `seq`, with the type of each statement's discarded value (the last type is unused).
+fn seq_ty(k: &Kit, m: &mut Module, mut es: Vec<(Expr, Type)>) -> Expr {
+    let mut body = es.pop().unwrap().0;
+    while let Some((e, ty)) = es.pop() {
+        body = k.then_ty(m, e, ty, body);
     }
     body
 }
@@ -433,9 +515,16 @@ fn children_run_concurrently_and_are_joined() {
     // The scope waits only where the fibers wait: b's shorter sleep ends first (11.1, 11.2).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s) = (m.local("c"), m.local("n"), m.local("s"));
-    let (a, b) = (m.local("a"), m.local("b"));
-    let (x, y) = (m.local("x"), m.local("y"));
+    let (c, n, s) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+    );
+    let (a, b) = (
+        m.local("a", k.fiber_ty(Type::Int)),
+        m.local("b", k.fiber_ty(Type::Int)),
+    );
+    let (x, y) = (m.local("x", Type::Int), m.local("y", Type::Int));
     let child_a = seq(&k, &mut m, vec![k.sleep(c, 20), k.log("a"), int(1)]);
     let child_b = seq(&k, &mut m, vec![k.sleep(c, 10), k.log("b"), int(2)]);
     let joined = k.log_then(&mut m, "joined", add(var(x), var(y)));
@@ -452,7 +541,12 @@ fn children_run_concurrently_and_are_joined() {
             ),
         ),
     );
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::Int,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(run("join", m), "b\na\njoined\nasync 3\n");
 }
 
@@ -462,27 +556,31 @@ fn the_body_value_interrupts_the_remaining_children() {
     // after their releases (11.2, 11.4).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s) = (m.local("c"), m.local("n"), m.local("s"));
+    let (c, n, s) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+    );
     let stuck = k.managed(&mut m, "A", k.sleep(n, 1));
     let quick = k.log("quick");
-    let body = seq(
+    let body = seq_ty(
         &k,
         &mut m,
         vec![
-            k.fork(s, stuck),
-            k.fork(s, quick),
-            k.sleep(c, 10),
-            k.log("body done"),
-            int(7),
+            (k.fork(s, stuck), k.fiber_ty(Type::Unit)),
+            (k.fork(s, quick), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 10), Type::Unit),
+            (k.log("body done"), Type::Unit),
+            (int(7), Type::Int),
         ],
     );
-    let r = m.local("r");
+    let r = m.local("r", Type::Int);
     let main = let_(
         r,
         k.scope(s, false, body),
         k.log_then(&mut m, "after", var(r)),
     );
-    main_fn(&mut m, true, k.clocks(c, n, main));
+    main_fn(&mut m, true, Type::Int, k.clocks(c, n, main));
     assert_eq!(
         run("body_value", m),
         "init A\nquick\nbody done\nrelease A\nafter\nasync 7\n"
@@ -494,16 +592,30 @@ fn a_failing_child_interrupts_its_siblings_and_the_body() {
     // A child's error interrupts the siblings and the body, and becomes the scope's error (11.2).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s) = (m.local("c"), m.local("n"), m.local("s"));
+    let (c, n, s) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+    );
     let failing = seq(&k, &mut m, vec![k.sleep(c, 10), k.oops()]);
     let stuck = k.managed(&mut m, "A", k.sleep(n, 1));
-    let inner = seq(
+    let inner = seq_ty(
         &k,
         &mut m,
-        vec![k.fork(s, failing), k.fork(s, stuck), k.sleep(c, 50), int(1)],
+        vec![
+            (k.fork(s, failing), k.fiber_ty(Type::Never)),
+            (k.fork(s, stuck), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 50), Type::Unit),
+            (int(1), Type::Int),
+        ],
     );
     let body = k.managed(&mut m, "B", inner);
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, true, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::Int,
+        k.clocks(c, n, k.scope(s, true, body)),
+    );
     assert_eq!(
         run("child_fails", m),
         "init B\ninit A\nrelease A\nrelease B\nasync error: Oops\n"
@@ -527,7 +639,11 @@ fn later_failures_are_added_as_notes() {
     ] {
         let mut m = Module::new();
         let k = Kit::new(&mut m);
-        let (c, n, s) = (m.local("c"), m.local("n"), m.local("s"));
+        let (c, n, s) = (
+            k.clock_local(&mut m, "c"),
+            k.clock_local(&mut m, "n"),
+            k.scope_local(&mut m, "s"),
+        );
         let failure = if first {
             k.oops()
         } else {
@@ -535,17 +651,22 @@ fn later_failures_are_added_as_notes() {
         };
         let failing = seq(&k, &mut m, vec![k.sleep(c, 10), failure]);
         let breaking = k.breaking(&mut m, "B", "second", k.sleep(n, 1));
-        let body = seq(
+        let body = seq_ty(
             &k,
             &mut m,
             vec![
-                k.fork(s, failing),
-                k.fork(s, breaking),
-                k.sleep(c, 50),
-                int(1),
+                (k.fork(s, failing), k.fiber_ty(Type::Never)),
+                (k.fork(s, breaking), k.fiber_ty(Type::Unit)),
+                (k.sleep(c, 50), Type::Unit),
+                (int(1), Type::Int),
             ],
         );
-        main_fn(&mut m, true, k.clocks(c, n, k.scope(s, true, body)));
+        main_fn(
+            &mut m,
+            true,
+            Type::Int,
+            k.clocks(c, n, k.scope(s, true, body)),
+        );
         assert_eq!(run(name, m), expected);
     }
 }
@@ -556,7 +677,12 @@ fn interrupt_waits_for_the_unwinding_and_join_is_a_defect() {
     // join of an interrupted child is a defect (11.5).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s, h) = (m.local("c"), m.local("n"), m.local("s"), m.local("h"));
+    let (c, n, s, h) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        m.local("h", k.fiber_ty(Type::Unit)),
+    );
     let stuck = k.managed(&mut m, "A", k.sleep(n, 1));
     let awaited = k.log_exit(&mut m, k.await_(var(h)));
     let rest = seq(
@@ -572,7 +698,12 @@ fn interrupt_waits_for_the_unwinding_and_join_is_a_defect() {
         ],
     );
     let body = let_(h, k.fork(s, stuck), rest);
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::Unit,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(
         run("interrupt", m),
         "init A\nrelease A\ninterrupt returned\nInterrupt interrupted\n\
@@ -589,7 +720,10 @@ fn attempt_turns_failures_into_values() {
     let fails = k.attempt(false, k.oops());
     let dies = k.attempt(false, builtin(Builtin::Panic, vec![string("boom")]));
     let ok = k.attempt(false, int(5));
-    let (e, cause) = (m.local("e"), m.local("cause"));
+    let (e, cause) = (
+        m.local("e", k.exit_ty(Type::Never)),
+        m.local("cause", k.cause_ty()),
+    );
     let raised = escape(
         fiber(FiberOp::CauseRaise, vec![var(cause)]),
         vec![arm(p_ctor(k.oops, vec![]), k.log("caught Oops"))],
@@ -617,7 +751,7 @@ fn attempt_turns_failures_into_values() {
         int(0),
     ];
     let body = seq(&k, &mut m, lines);
-    main_fn(&mut m, false, body);
+    main_fn(&mut m, false, Type::Int, body);
     assert_eq!(
         run("attempt", m),
         "Fail error: Oops\nDie defect: boom\nSuccess 5\ncaught Oops\n0\n"
@@ -629,19 +763,37 @@ fn attempt_does_not_catch_its_own_interruption() {
     // A child inside attempt is still interrupted when the scope ends (11.5).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s) = (m.local("c"), m.local("n"), m.local("s"));
+    let (c, n, s) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+    );
     let attempted = k.attempt(true, k.sleep(n, 1));
-    let child = seq(
+    let child = seq_ty(
         &k,
         &mut m,
-        vec![attempted, k.log("attempt returned"), unit()],
+        vec![
+            (attempted, k.exit_ty(Type::Unit)),
+            (k.log("attempt returned"), Type::Unit),
+            (unit(), Type::Unit),
+        ],
     );
-    let body = seq(
+    let body = seq_ty(
         &k,
         &mut m,
-        vec![k.fork(s, child), k.sleep(c, 1), k.log("body done"), int(0)],
+        vec![
+            (k.fork(s, child), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 1), Type::Unit),
+            (k.log("body done"), Type::Unit),
+            (int(0), Type::Int),
+        ],
     );
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::Int,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(run("attempt_interrupt", m), "body done\nasync 0\n");
 }
 
@@ -650,12 +802,21 @@ fn deferred_takes_the_first_value() {
     // The first complete wins and wakes the waiting body; later ones return False (11.7).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s, d) = (m.local("c"), m.local("n"), m.local("s"), m.local("d"));
-    let (r, v, again) = (m.local("r"), m.local("v"), m.local("again"));
+    let (c, n, s, d) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        m.local("d", k.deferred_ty(Type::String)),
+    );
+    let (r, v, again) = (
+        m.local("r", Type::Bool),
+        m.local("v", Type::String),
+        m.local("again", Type::Bool),
+    );
     let complete = |d: Local, text: &str| fiber(FiberOp::Complete, vec![var(d), string(text)]);
     let report =
         |label: &str, r: Local| Expr::Concat(vec![lit_part(label), value_part(var(r), Type::Bool)]);
-    let r2 = m.local("r");
+    let r2 = m.local("r", Type::Bool);
     let slow = let_(
         r2,
         complete(d, "slow"),
@@ -705,18 +866,23 @@ fn deferred_takes_the_first_value() {
     let body = let_(
         d,
         fiber(FiberOp::Deferred, vec![var(s)]),
-        seq(
+        seq_ty(
             &k,
             &mut m,
             vec![
-                k.fork(s, slow),
-                k.fork(s, fast),
-                call(k.log, vec![empty]),
-                after,
+                (k.fork(s, slow), k.fiber_ty(Type::Unit)),
+                (k.fork(s, fast), k.fiber_ty(Type::Unit)),
+                (call(k.log, vec![empty]), Type::Unit),
+                (after, Type::String),
             ],
         ),
     );
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::String,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(
         run("deferred", m),
         "empty\nfast True\nfast\nagain False\nasync fast\n"
@@ -728,8 +894,16 @@ fn using_a_scope_after_it_ended_is_a_defect() {
     // What escapes a scope at run time cannot be used after it ended (11.8).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (s1, s2, s3) = (m.local("s"), m.local("s"), m.local("s"));
-    let (x, h, d) = (m.local("x"), m.local("h"), m.local("d"));
+    let (s1, s2, s3) = (
+        k.scope_local(&mut m, "s"),
+        k.scope_local(&mut m, "s"),
+        k.scope_local(&mut m, "s"),
+    );
+    let (x, h, d) = (
+        k.scope_local(&mut m, "x"),
+        m.local("h", k.fiber_ty(Type::Int)),
+        m.local("d", k.deferred_ty(Type::Int)),
+    );
     let fork_after = let_(x, k.scope(s1, false, var(s1)), k.fork(x, int(1)));
     let join_after = let_(
         h,
@@ -741,11 +915,17 @@ fn using_a_scope_after_it_ended_is_a_defect() {
         k.scope(s3, false, fiber(FiberOp::Deferred, vec![var(s3)])),
         fiber(FiberOp::Complete, vec![var(d), int(1)]),
     );
-    let (s4, d2) = (m.local("s"), m.local("d"));
+    let (s4, d2) = (
+        k.scope_local(&mut m, "s"),
+        m.local("d", k.deferred_ty(Type::Int)),
+    );
+    // The poll result is an `Option[Int]`, but adding Option to this module (`option_enum`)
+    // would change the output, so the discarded value is typed `()` here.
+    let polled = m.local("_", Type::Unit);
     let poll_after = let_(
         d2,
         k.scope(s4, false, fiber(FiberOp::Deferred, vec![var(s4)])),
-        let_(m.local("_"), fiber(FiberOp::Poll, vec![var(d2)]), int(1)),
+        let_(polled, fiber(FiberOp::Poll, vec![var(d2)]), int(1)),
     );
     let lines = vec![
         k.log_exit(&mut m, k.attempt(true, fork_after)),
@@ -755,7 +935,7 @@ fn using_a_scope_after_it_ended_is_a_defect() {
         int(0),
     ];
     let body = seq(&k, &mut m, lines);
-    main_fn(&mut m, true, body);
+    main_fn(&mut m, true, Type::Int, body);
     assert_eq!(
         run("after_scope", m),
         "Die defect: fiber scope was used after it ended\n\
@@ -772,14 +952,18 @@ fn a_dropped_continuation_in_a_child_interrupts_only_that_child() {
     // as interrupted; the scope goes on (11.5, 14.5).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (n, s, h) = (m.local("n"), m.local("s"), m.local("h"));
+    let (n, s, h) = (
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        m.local("h", k.fiber_ty(Type::Unit)),
+    );
     let inner = m.declare("inner", false);
-    let n2 = m.local("n");
+    let n2 = k.clock_local(&mut m, "n");
     let inner_body = with(
         vec![WithBind::new(n2, call(k.never_clock, vec![]))],
         k.sleep(n2, 1),
     );
-    m.define(inner, vec![], inner_body);
+    m.define(inner, vec![], Type::Unit, inner_body);
     let child = fiber(
         FiberOp::Fork,
         vec![var(s), lambda(vec![], call(inner, vec![]))],
@@ -790,7 +974,7 @@ fn a_dropped_continuation_in_a_child_interrupts_only_that_child() {
         vec![WithBind::new(n, call(k.never_clock, vec![]))],
         k.scope(s, false, body),
     );
-    main_fn(&mut m, true, main);
+    main_fn(&mut m, true, Type::Int, main);
     assert_eq!(run("sync_child", m), "Interrupt interrupted\nsync 0\n");
 }
 
@@ -800,7 +984,12 @@ fn a_running_release_is_not_interrupted() {
     // (11.4).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s, a) = (m.local("c"), m.local("n"), m.local("s"), m.local("a"));
+    let (c, n, s, a) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        m.local("a", k.res_ty()),
+    );
     let release = seq(
         &k,
         &mut m,
@@ -811,14 +1000,22 @@ fn a_running_release_is_not_interrupted() {
         vec![WithBind::managed(a, k.handler("A"), "A", release)],
         child_body,
     );
-    let body = seq(&k, &mut m, vec![k.fork(s, child), k.sleep(c, 10), int(0)]);
-    let r = m.local("r");
+    let body = seq_ty(
+        &k,
+        &mut m,
+        vec![
+            (k.fork(s, child), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 10), Type::Unit),
+            (int(0), Type::Int),
+        ],
+    );
+    let r = m.local("r", Type::Int);
     let main = let_(
         r,
         k.scope(s, false, body),
         k.log_then(&mut m, "after scope", var(r)),
     );
-    main_fn(&mut m, true, k.clocks(c, n, main));
+    main_fn(&mut m, true, Type::Int, k.clocks(c, n, main));
     assert_eq!(
         run("release_hold", m),
         "child done\nrelease A\nreleased A\nafter scope\nasync 0\n"
@@ -831,11 +1028,11 @@ fn an_inner_scope_failure_only_unwinds_its_body() {
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (c, n, s, s2, o) = (
-        m.local("c"),
-        m.local("n"),
-        m.local("s"),
-        m.local("s2"),
-        m.local("o"),
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        k.scope_local(&mut m, "s2"),
+        m.local("o", k.fiber_ty(Type::Unit)),
     );
     let outer_child_body = seq(
         &k,
@@ -845,7 +1042,14 @@ fn an_inner_scope_failure_only_unwinds_its_body() {
     let outer_child = k.managed(&mut m, "O", outer_child_body);
     let failing = seq(&k, &mut m, vec![k.sleep(c, 5), k.oops()]);
     let inner_body = k.managed(&mut m, "I", k.sleep(c, 100));
-    let inner = seq(&k, &mut m, vec![k.fork(s2, failing), inner_body]);
+    let inner = seq_ty(
+        &k,
+        &mut m,
+        vec![
+            (k.fork(s2, failing), k.fiber_ty(Type::Never)),
+            (inner_body, Type::Unit),
+        ],
+    );
     let attempted = k.attempt(true, k.scope(s2, true, inner));
     let logged = k.log_exit(&mut m, attempted);
     let rest = seq(
@@ -854,7 +1058,12 @@ fn an_inner_scope_failure_only_unwinds_its_body() {
         vec![logged, fiber(FiberOp::Join, vec![var(o)]), string("end")],
     );
     let body = let_(o, k.fork(s, outer_child), rest);
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::String,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(
         run("nested", m),
         "init I\ninit O\nrelease I\nFail error: Oops\nouter child done\nrelease O\nasync end\n"
@@ -867,11 +1076,16 @@ fn a_dropped_main_unwinds_its_children() {
     // (14.5).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (c, n, s, h) = (m.local("c"), m.local("n"), m.local("s"), m.local("h"));
+    let (c, n, s, h) = (
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        m.local("h", k.fiber_ty(Type::Unit)),
+    );
     let stuck = k.managed(&mut m, "A", k.sleep(n, 1));
     let body = let_(h, k.fork(s, stuck), fiber(FiberOp::Join, vec![var(h)]));
     let main = k.managed(&mut m, "M", k.scope(s, false, body));
-    main_fn(&mut m, true, k.clocks(c, n, main));
+    main_fn(&mut m, true, Type::Unit, k.clocks(c, n, main));
     assert_eq!(
         run("dropped_main", m),
         "init M\ninit A\nrelease A\nrelease M\nasync interrupted\n"
@@ -882,17 +1096,21 @@ fn a_dropped_main_unwinds_its_children() {
 fn fiber_operations_are_dumped() {
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (s, h) = (m.local("s"), m.local("h"));
+    let (s, h) = (
+        k.scope_local(&mut m, "s"),
+        m.local("h", k.fiber_ty(Type::Int)),
+    );
+    let awaited = m.local("_", k.exit_ty(Type::Int));
     let body = let_(
         h,
         k.fork(s, int(1)),
         let_(
-            m.local("_"),
+            awaited,
             k.await_(var(h)),
             fiber(FiberOp::Join, vec![var(h)]),
         ),
     );
-    main_fn(&mut m, true, k.scope(s, true, body));
+    main_fn(&mut m, true, Type::Int, k.scope(s, true, body));
     let text = dump(&m);
     let main = &text[text.find("export suspend fn main").unwrap()..];
     insta::assert_snapshot!("dump", main);
@@ -906,11 +1124,11 @@ fn a_fiber_that_catches_a_failure_while_unwinding_is_unwound_again() {
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let (c, n, s, s2, r) = (
-        m.local("c"),
-        m.local("n"),
-        m.local("s"),
-        m.local("s2"),
-        m.local("r"),
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        k.scope_local(&mut m, "s2"),
+        m.local("r", k.res_ty()),
     );
     let release = seq(
         &k,
@@ -925,10 +1143,14 @@ fn a_fiber_that_catches_a_failure_while_unwinding_is_unwound_again() {
     let inner = k.scope(
         s2,
         true,
-        seq(
+        seq_ty(
             &k,
             &mut m,
-            vec![k.fork(s2, inner_child), k.sleep(c, 100), unit()],
+            vec![
+                (k.fork(s2, inner_child), k.fiber_ty(Type::Never)),
+                (k.sleep(c, 100), Type::Unit),
+                (unit(), Type::Unit),
+            ],
         ),
     );
     let caught = escape(inner, vec![arm(p_ctor(k.oops, vec![]), k.log("caught"))]);
@@ -943,8 +1165,21 @@ fn a_fiber_that_catches_a_failure_while_unwinding_is_unwound_again() {
             unit(),
         ],
     );
-    let body = seq(&k, &mut m, vec![k.fork(s, child), k.sleep(c, 10), int(0)]);
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    let body = seq_ty(
+        &k,
+        &mut m,
+        vec![
+            (k.fork(s, child), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 10), Type::Unit),
+            (int(0), Type::Int),
+        ],
+    );
+    main_fn(
+        &mut m,
+        true,
+        Type::Int,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(
         run("unwound_again", m),
         "release R\nreleased R\ncaught\nafter escape\nasync 0\n"
@@ -958,14 +1193,15 @@ fn module_external(
     name: &str,
     module: &str,
     export: &str,
-    params: Vec<Boundary>,
+    params: Vec<Type>,
     suspends: bool,
 ) -> FnId {
     let f = m.declare(name, false);
-    let ps = (0..params.len()).map(|_| m.local("x")).collect();
+    let ps = params.into_iter().map(|t| m.local("x", t)).collect();
     m.define_external(
         f,
         ps,
+        Type::Unit,
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
@@ -974,8 +1210,6 @@ fn module_external(
                     name: export.into(),
                 },
             }],
-            params,
-            ret: Boundary::Unit,
         },
     );
     m.functions[f].suspends = suspends;
@@ -986,7 +1220,7 @@ fn module_external(
 /// then resumes, the form of SystemClock and TestClock (spec 12.2).
 fn waiting_clock(m: &mut Module, k: &Kit, name: &str, wait: FnId) -> FnId {
     let f = m.declare(name, false);
-    let (ms, resume) = (m.local("ms"), m.local("resume"));
+    let (ms, resume) = sleep_params(m);
     let body = k.then(
         m,
         call_suspends(wait, vec![var(ms)]),
@@ -995,6 +1229,7 @@ fn waiting_clock(m: &mut Module, k: &Kit, name: &str, wait: FnId) -> FnId {
     m.define(
         f,
         vec![],
+        k.clock_ty(),
         Expr::Handler {
             name: name.into(),
             effect: k.clock,
@@ -1011,10 +1246,11 @@ fn a_busy_fiber_yields_to_the_others() {
     let mut m = Module::new();
     let k = Kit::new(&mut m);
     let instant = m.declare("InstantClock", false);
-    let (ms, resume) = (m.local("ms"), m.local("resume"));
+    let (ms, resume) = sleep_params(&mut m);
     m.define(
         instant,
         vec![],
+        k.clock_ty(),
         Expr::Handler {
             name: "InstantClock".into(),
             effect: k.clock,
@@ -1027,7 +1263,7 @@ fn a_busy_fiber_yields_to_the_others() {
     // suspend fn spin(h, n) = if n == 0 { () } else { h.sleep(0); spin(h, n - 1) }
     let spin = m.declare("spin", false);
     m.functions[spin].suspends = true;
-    let (h, n) = (m.local("h"), m.local("n"));
+    let (h, n) = (k.clock_local(&mut m, "h"), m.local("n", Type::Int));
     let again = k.then(
         &mut m,
         k.sleep(h, 0),
@@ -1039,12 +1275,13 @@ fn a_busy_fiber_yields_to_the_others() {
     m.define(
         spin,
         vec![h, n],
+        Type::Unit,
         if_(bin(BinOp::Eq, OpTy::Int, var(n), int(0)), unit(), again),
     );
     // suspend fn beat(c, n) = if n == 0 { () } else { c.sleep(1); log("beat"); beat(c, n - 1) }
     let beat = m.declare("beat", false);
     m.functions[beat].suspends = true;
-    let (c2, n2) = (m.local("c"), m.local("n"));
+    let (c2, n2) = (k.clock_local(&mut m, "c"), m.local("n", Type::Int));
     let next = seq(
         &k,
         &mut m,
@@ -1060,14 +1297,15 @@ fn a_busy_fiber_yields_to_the_others() {
     m.define(
         beat,
         vec![c2, n2],
+        Type::Unit,
         if_(bin(BinOp::Eq, OpTy::Int, var(n2), int(0)), unit(), next),
     );
     let (c, n, s, i, b) = (
-        m.local("c"),
-        m.local("n"),
-        m.local("s"),
-        m.local("i"),
-        m.local("b"),
+        k.clock_local(&mut m, "c"),
+        k.clock_local(&mut m, "n"),
+        k.scope_local(&mut m, "s"),
+        k.clock_local(&mut m, "i"),
+        m.local("b", k.fiber_ty(Type::Unit)),
     );
     let busy = with(
         vec![WithBind::new(i, call(instant, vec![]))],
@@ -1084,17 +1322,25 @@ fn a_busy_fiber_yields_to_the_others() {
     let body = let_(
         b,
         k.fork(s, busy),
-        seq(
+        seq_ty(
             &k,
             &mut m,
             vec![
-                k.fork(s, call_suspends(beat, vec![var(c), int(3)])),
-                fiber(FiberOp::Join, vec![var(b)]),
-                int(0),
+                (
+                    k.fork(s, call_suspends(beat, vec![var(c), int(3)])),
+                    k.fiber_ty(Type::Unit),
+                ),
+                (fiber(FiberOp::Join, vec![var(b)]), Type::Unit),
+                (int(0), Type::Int),
             ],
         ),
     );
-    main_fn(&mut m, true, k.clocks(c, n, k.scope(s, false, body)));
+    main_fn(
+        &mut m,
+        true,
+        Type::Int,
+        k.clocks(c, n, k.scope(s, false, body)),
+    );
     assert_eq!(run("fairness", m), "beat\nbeat\nbeat\nbusy done\nasync 0\n");
 }
 
@@ -1110,18 +1356,26 @@ fn interrupting_a_sleeper_clears_its_timer() {
         "wait",
         "./timer.mjs",
         "sleep",
-        vec![Boundary::Plain],
+        vec![Type::Int],
         true,
     );
     let host_clock = waiting_clock(&mut m, &k, "HostClock", wait);
-    let (c, s) = (m.local("c"), m.local("s"));
+    let (c, s) = (k.clock_local(&mut m, "c"), k.scope_local(&mut m, "s"));
     let sleeper = k.managed(&mut m, "A", k.sleep(c, 10_000));
-    let body = seq(&k, &mut m, vec![k.fork(s, sleeper), k.sleep(c, 1), int(0)]);
+    let body = seq_ty(
+        &k,
+        &mut m,
+        vec![
+            (k.fork(s, sleeper), k.fiber_ty(Type::Unit)),
+            (k.sleep(c, 1), Type::Unit),
+            (int(0), Type::Int),
+        ],
+    );
     let main = with(
         vec![WithBind::new(c, call(host_clock, vec![]))],
         k.scope(s, false, body),
     );
-    main_fn(&mut m, true, main);
+    main_fn(&mut m, true, Type::Int, main);
     let (out, elapsed) = run_timed("abort", m);
     assert_eq!(out, "init A\ntimer cleared\nrelease A\nasync 0\n");
     assert!(elapsed.as_secs() < 5, "node ran for {elapsed:?}");
@@ -1139,11 +1393,15 @@ fn stalled_sleepers_wake_in_time_order() {
         "when_stalled",
         "./clock.mjs",
         "whenStalled",
-        vec![Boundary::Plain],
+        vec![Type::Int],
         true,
     );
     let virtual_clock = waiting_clock(&mut m, &k, "VirtualClock", stalled);
-    let (c, s, d) = (m.local("c"), m.local("s"), m.local("d"));
+    let (c, s, d) = (
+        k.clock_local(&mut m, "c"),
+        k.scope_local(&mut m, "s"),
+        m.local("d", k.fiber_ty(Type::Unit)),
+    );
     let sleeper = |k: &Kit, m: &mut Module, at: i32, text: &str| {
         let body = seq(k, m, vec![k.sleep(c, at), k.log(text), unit()]);
         k.fork(s, body)
@@ -1152,18 +1410,19 @@ fn stalled_sleepers_wake_in_time_order() {
     let b = sleeper(&k, &mut m, 10, "B at 10");
     let cc = sleeper(&k, &mut m, 10, "C at 10");
     let dropped = sleeper(&k, &mut m, 5, "D at 5");
-    let body = seq(
+    let sleeper_ty = k.fiber_ty(Type::Unit);
+    let body = seq_ty(
         &k,
         &mut m,
         vec![
-            a,
-            b,
-            cc,
-            k.sleep(c, 1),
-            fiber(FiberOp::Interrupt, vec![var(d)]),
-            k.sleep(c, 40),
-            k.log("body at 40"),
-            int(0),
+            (a, sleeper_ty.clone()),
+            (b, sleeper_ty.clone()),
+            (cc, sleeper_ty),
+            (k.sleep(c, 1), Type::Unit),
+            (fiber(FiberOp::Interrupt, vec![var(d)]), Type::Unit),
+            (k.sleep(c, 40), Type::Unit),
+            (k.log("body at 40"), Type::Unit),
+            (int(0), Type::Int),
         ],
     );
     let body = let_(d, dropped, body);
@@ -1171,7 +1430,7 @@ fn stalled_sleepers_wake_in_time_order() {
         vec![WithBind::new(c, call(virtual_clock, vec![]))],
         k.scope(s, false, body),
     );
-    main_fn(&mut m, true, main);
+    main_fn(&mut m, true, Type::Int, main);
     assert_eq!(
         run("stalled", m),
         "B at 10\nC at 10\nA at 30\nbody at 40\nasync 0\n"
