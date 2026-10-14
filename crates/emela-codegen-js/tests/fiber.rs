@@ -98,7 +98,7 @@ fn run_timed(name: &str, mut m: Module) -> (String, std::time::Duration) {
     std::fs::write(dir.join(RUNTIME_FILE), RUNTIME).unwrap();
     std::fs::write(dir.join("harness.mjs"), HARNESS).unwrap();
     std::fs::write(dir.join("timer.mjs"), TIMER).unwrap();
-    let clock = core_js_files()
+    let clock = bundled_files()
         .iter()
         .find(|(path, _)| *path == "std/clock.mjs")
         .unwrap()
@@ -393,7 +393,7 @@ fn external(m: &mut Module, name: &str, path: &str, params: Vec<Boundary>, ret: 
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
-                args: vec![path.into()],
+                host: HostRef::Global(path.into()),
             }],
             params,
             ret,
@@ -969,7 +969,10 @@ fn module_external(
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
-                args: vec![module.into(), export.into()],
+                host: HostRef::Import {
+                    module: HostModule::File(module.into()),
+                    name: export.into(),
+                },
             }],
             params,
             ret: Boundary::Unit,

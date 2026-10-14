@@ -308,10 +308,11 @@ fn core_ir_runs_through_codegen_js() {
     );
 }
 
-/// Bundled JS files (`Module::js_files`) are written under `emela_core/` in the output directory
-/// and imported relative to the entry output. Relative imports between bundled files work too.
+/// Bundled host files (`Module::bundled_files`) are written under `emela_core/` in the output
+/// directory and imported relative to the entry output. Relative imports between bundled files
+/// work too.
 #[test]
-fn core_js_files_are_written_next_to_the_output() {
+fn bundled_files_are_written_next_to_the_output() {
     let mut m = emela_core::Module::new();
     let now = m.declare("HostTest.now", false);
     m.define_external(
@@ -320,7 +321,10 @@ fn core_js_files_are_written_next_to_the_output() {
         emela_core::External {
             bindings: vec![emela_core::ExternalBinding {
                 target: "js".into(),
-                args: vec!["./emela_core/host/now.mjs".into(), "now".into()],
+                host: emela_core::HostRef::Import {
+                    module: emela_core::HostModule::Bundled("host/now.mjs".into()),
+                    name: "now".into(),
+                },
             }],
             params: vec![],
             ret: emela_core::Boundary::Plain,
@@ -338,13 +342,13 @@ fn core_js_files_are_written_next_to_the_output() {
             ])],
         ),
     );
-    m.js_files = vec![
-        emela_core::JsFile {
+    m.bundled_files = vec![
+        emela_core::BundledFile {
             path: "host/now.mjs".into(),
             contents: "import { base } from \"../base.mjs\";\nexport const now = () => base + 1;\n"
                 .into(),
         },
-        emela_core::JsFile {
+        emela_core::BundledFile {
             path: "base.mjs".into(),
             contents: "export const base = 41;\n".into(),
         },

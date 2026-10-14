@@ -13,10 +13,10 @@
 同梱の `.emel` から `@external(js, "./x.mjs", "name")` でホストの関数を呼ぶときは，`.mjs` をそのソースと同じディレクトリ（`lib/std/` など）に置いて埋め込む．
 
 1. `lib/std/x.mjs` を書く．別の `.mjs` を `./y.mjs` のように相対で import してよい
-2. `src/sources.rs` の `JS_FILES` に `("std/x.mjs", include_str!("../lib/std/x.mjs"))` を足す．パスは `lib/` からの相対で `/` 区切り．載せ忘れはテスト `js_files_match_lib_dir` が見つける
+2. `src/sources.rs` の `HOST_FILES` に `("std/x.mjs", include_str!("../lib/std/x.mjs"))` を足す．パスは `lib/` からの相対で `/` 区切り．載せ忘れはテスト `host_files_match_lib_dir` が見つける
 3. `.emel` に `@external(js, "./x.mjs", "name")` を書く．パスはそのソースのディレクトリからの相対
 
-build，run，test では，lowering がその指定を `./emela_core/std/x.mjs` に直し，出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
+build，run，test では，lowering がその指定を `lib/` からのパス（`std/x.mjs`）にし，JS の出力はそれを `./emela_core/std/x.mjs` として import する．出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
 
 # core
 

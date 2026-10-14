@@ -19,9 +19,9 @@ use rustc_hash::FxHashMap;
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
-    Arm, Assert, BinOp, Boundary, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FiberOp, FnId, JsFile, Lit, Local, Module, OpDef, OpTy, Pat,
-    StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
+    Arm, Assert, BinOp, Boundary, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef,
+    EnumId, Expr, External, ExternalBinding, FiberOp, FnId, HostModule, HostRef, Lit, Local,
+    Module, OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
@@ -43,8 +43,8 @@ pub enum LowerError {
         target: String,
         span: Option<Span>,
     },
-    /// The file named by `@external(js, "./x.mjs", …)` in bundled core is not among the bundled JS
-    /// files (`LowerInput::core_js_files`). An error in the bundled sources. `path` is the
+    /// The file named by `@external(js, "./x.mjs", …)` in bundled core is not among the bundled
+    /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
 }
@@ -85,10 +85,10 @@ pub struct LowerInput<'a> {
     /// (`"./ffi.mjs"`) to the file next to the declaring source (spec 12.1). Modules without a
     /// path are left alone.
     pub paths: ArenaMap<ModuleId, &'a Path>,
-    /// Bundled JS files (paths relative to `lib/` and contents; `crate::core_js_files`). File
-    /// specifiers of core modules are looked up here instead of next to the source, and put in
-    /// `Module::js_files` to be written under [`crate::CORE_JS_DIR`] in the output.
-    pub core_js_files: &'a [(&'a str, &'a str)],
+    /// Bundled host files (paths relative to `lib/` and contents; `crate::bundled_files`). File
+    /// specifiers of core modules are looked up here instead of next to the source, become
+    /// `HostModule::Bundled`, and the files are put in `Module::bundled_files`.
+    pub bundled_files: &'a [(&'a str, &'a str)],
     /// The build target (`"js"`). With `Some`, checks that external functions reachable from the
     /// entry (main for `Roots::Exported`, the test functions for `Roots::Tests`) have an
     /// `@external` for that target (spec 12.1). check and the LSP pick no target, so `None`.
@@ -121,8 +121,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         ev: None,
         bound: Vec::new(),
         paths: &input.paths,
-        core_js_files: input.core_js_files,
-        uses_core_js: false,
+        bundled_files: input.bundled_files,
+        uses_bundled: false,
         errors: Vec::new(),
     };
     cx.declare_enums();
@@ -155,12 +155,12 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         };
         cx.check_target(&entries, target);
     }
-    if cx.uses_core_js {
-        // If any bundled file is used, write them all, so relative imports between them work.
-        cx.module.js_files = input
-            .core_js_files
+    if cx.uses_bundled {
+        // If any bundled file is used, ship them all, so relative imports between them work.
+        cx.module.bundled_files = input
+            .bundled_files
             .iter()
-            .map(|(path, contents)| JsFile {
+            .map(|(path, contents)| BundledFile {
                 path: (*path).to_owned(),
                 contents: (*contents).to_owned(),
             })
@@ -221,9 +221,9 @@ struct Lowerer<'a> {
     /// searches from the back (spec 8.3).
     bound: Vec<(EffectKey, Local)>,
     paths: &'a ArenaMap<ModuleId, &'a Path>,
-    core_js_files: &'a [(&'a str, &'a str)],
-    /// Whether a lowered external function pointed to a bundled JS file.
-    uses_core_js: bool,
+    bundled_files: &'a [(&'a str, &'a str)],
+    /// Whether a lowered external function pointed to a bundled host file.
+    uses_bundled: bool,
     errors: Vec<LowerError>,
 }
 
@@ -764,36 +764,46 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// The external function's binding. A module naming a file is rewritten to the file next to the
-    /// declaring source (spec 12.1). Bundled core JS specifiers are rewritten to where the bundled
-    /// JS files are written in the output.
+    /// The external function's bindings. A module naming a file becomes the file next to the
+    /// declaring source (spec 12.1), or the bundled file for bundled sources.
     fn external(&mut self, def: DefId, f: &emela_resolve::hir::FnItem) -> External {
-        let module = match &self.hir.defs[def].module {
+        let module_id = match &self.hir.defs[def].module {
             DefModule::Source(m) => Some(*m),
             _ => None,
         };
-        let is_core = module.is_some_and(|m| self.modules.is_core(m));
-        let dir = module
+        let is_core = module_id.is_some_and(|m| self.modules.is_core(m));
+        let dir = module_id
             .and_then(|m| self.paths.get(m))
             .and_then(|p| p.parent());
+        let span = self.hir.defs[def].span;
         let mut bindings = Vec::new();
         for e in &f.externals {
-            let mut args = e.args.clone();
-            if args.len() == 2 && (args[0].starts_with("./") || args[0].starts_with("../")) {
-                if is_core {
-                    if e.target == "js" {
-                        let lib_dir = module
+            let host = match e.args.as_slice() {
+                [name] => HostRef::Global(name.clone()),
+                [module, name] => {
+                    let module = if !(module.starts_with("./") || module.starts_with("../")) {
+                        HostModule::Named(module.clone())
+                    } else if is_core {
+                        let lib_dir = module_id
                             .map(|m| crate::lib_dir(&self.modules[m].name.to_string()))
                             .unwrap_or("core");
-                        args[0] = self.core_js_file(lib_dir, &args[0], self.hir.defs[def].span);
+                        HostModule::Bundled(self.bundled_file(lib_dir, module, span))
+                    } else if let Some(dir) = dir {
+                        HostModule::File(normalize(&dir.join(module)))
+                    } else {
+                        HostModule::Named(module.clone())
+                    };
+                    HostRef::Import {
+                        module,
+                        name: name.clone(),
                     }
-                } else if let Some(dir) = dir {
-                    args[0] = normalize(&dir.join(&args[0]));
                 }
-            }
+                // The parser reported the malformed attribute (E0138).
+                _ => continue,
+            };
             bindings.push(ExternalBinding {
                 target: e.target.to_string(),
-                args,
+                host,
             });
         }
         let (params, ret) = match self.types.sigs.get(def).map(|s| &s.scheme.ty) {
@@ -807,16 +817,16 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// Rewrites a bundled core JS specifier (`./x.mjs`) to a path relative to the entry's output
-    /// for the file written under [`crate::CORE_JS_DIR`] (`./emela_core/std/x.mjs`). `spec` is
-    /// relative to the source's directory under `lib/` (`lib_dir`: `std` or `core`).
-    fn core_js_file(&mut self, lib_dir: &str, spec: &str, span: Option<Span>) -> String {
+    /// Resolves a bundled core file specifier (`./x.mjs`) to its path relative to `lib/`
+    /// (`std/x.mjs`). `spec` is relative to the source's directory under `lib/` (`lib_dir`: `std`
+    /// or `core`).
+    fn bundled_file(&mut self, lib_dir: &str, spec: &str, span: Option<Span>) -> String {
         let found = lib_relative(&format!("{lib_dir}/{spec}"))
-            .filter(|path| self.core_js_files.iter().any(|(p, _)| p == path));
+            .filter(|path| self.bundled_files.iter().any(|(p, _)| p == path));
         match found {
             Some(path) => {
-                self.uses_core_js = true;
-                format!("./{}/{path}", crate::CORE_JS_DIR)
+                self.uses_bundled = true;
+                path
             }
             None => {
                 self.errors.push(LowerError::MissingCoreFile {

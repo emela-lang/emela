@@ -42,10 +42,10 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
 ];
 
-/// Bundled JS files as (path relative to `lib/`, contents) pairs. These are the files that
+/// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
 /// `@external(js, "./x.mjs", …)` in bundled sources points to, embedded with `include_str!` like
-/// the `.emel` files (see `lib/README.md` for the procedure).
-const JS_FILES: &[(&str, &str)] = &[
+/// the `.emel` files (see `lib/README.md` for the procedure). Only JS files so far.
+const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
     ("std/clock.mjs", include_str!("../lib/std/clock.mjs")),
@@ -65,18 +65,14 @@ pub fn lib_dir(module: &str) -> &'static str {
     }
 }
 
-/// The directory in the JS output where bundled JS files are written. Lowering rewrites core's
-/// `@external` file specifiers relative to the entry's output (at the top of the output
-/// directory), as in `./emela_core/x.mjs`.
-pub const CORE_JS_DIR: &str = "emela_core";
-
 /// Prelude first.
 pub fn core_sources() -> &'static [(&'static str, &'static str)] {
     SOURCES
 }
 
-pub fn core_js_files() -> &'static [(&'static str, &'static str)] {
-    JS_FILES
+/// Bundled host files as (path relative to `lib/`, contents) pairs.
+pub fn bundled_files() -> &'static [(&'static str, &'static str)] {
+    HOST_FILES
 }
 
 pub fn core_source(module: &str) -> Option<&'static str> {
@@ -221,10 +217,10 @@ mod tests {
         }
     }
 
-    /// Every `.mjs` under `lib/` must be listed in `JS_FILES`; otherwise an installed emela cannot
-    /// read it.
+    /// Every `.mjs` under `lib/` must be listed in `HOST_FILES`; otherwise an installed emela
+    /// cannot read it.
     #[test]
-    fn js_files_match_lib_dir() {
+    fn host_files_match_lib_dir() {
         let lib = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib");
         let mut on_disk = Vec::new();
         let mut dirs = vec![lib.clone()];
@@ -240,9 +236,9 @@ mod tests {
             }
         }
         on_disk.sort();
-        let mut listed: Vec<String> = core_js_files().iter().map(|(p, _)| p.to_string()).collect();
+        let mut listed: Vec<String> = bundled_files().iter().map(|(p, _)| p.to_string()).collect();
         listed.sort();
-        assert_eq!(listed, on_disk, "lib/ .mjs files and JS_FILES disagree");
+        assert_eq!(listed, on_disk, "lib/ .mjs files and HOST_FILES disagree");
     }
 
     #[test]

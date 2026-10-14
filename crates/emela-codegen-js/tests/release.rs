@@ -190,7 +190,7 @@ fn external(
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
-                args: vec![path.into()],
+                host: HostRef::Global(path.into()),
             }],
             params,
             ret,

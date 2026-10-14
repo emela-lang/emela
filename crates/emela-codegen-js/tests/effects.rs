@@ -58,7 +58,7 @@ fn external(m: &mut Module, name: &str, path: &str, params: Vec<Boundary>, ret: 
         External {
             bindings: vec![ExternalBinding {
                 target: "js".into(),
-                args: vec![path.into()],
+                host: HostRef::Global(path.into()),
             }],
             params,
             ret,
