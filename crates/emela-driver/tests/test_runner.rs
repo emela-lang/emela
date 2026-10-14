@@ -94,12 +94,18 @@ fn run_ir(name: &str, tests: TestModule, filter: Option<&str>) -> (TestReport, S
 fn sample() -> TestModule {
     let mut m = Module::new();
     let add = m.declare("add", false);
-    let (a, b) = (m.local("a"), m.local("b"));
-    m.define(add, vec![a, b], bin(BinOp::Add, OpTy::Int, var(a), var(b)));
+    let (a, b) = (m.local("a", Type::Int), m.local("b", Type::Int));
+    m.define(
+        add,
+        vec![a, b],
+        Type::Int,
+        bin(BinOp::Add, OpTy::Int, var(a), var(b)),
+    );
     let mut tests = Vec::new();
     let mut case = |m: &mut Module, fn_name: &str, name: &str, body: Expr| {
+        // Test functions return `()` (spec 13.1).
         let f = m.declare(fn_name, false);
-        m.define(f, vec![], body);
+        m.define(f, vec![], Type::Unit, body);
         tests.push(TestCase {
             name: name.to_owned(),
             function: f,
@@ -231,6 +237,7 @@ fn stderr_of_tests_is_captured() {
     m.define(
         f,
         vec![],
+        Type::list(Type::Int),
         builtin_ty(
             Builtin::Dbg,
             vec![Type::list(Type::Int)],
@@ -595,7 +602,7 @@ fn suspended_tests_are_awaited_or_interrupted() {
     let mut case = |m: &mut Module, name: &str, suspends: bool, body: Expr| {
         let f = m.declare(name, false);
         m.functions[f].suspends = suspends;
-        m.define(f, vec![], body);
+        m.define(f, vec![], Type::Unit, body);
         tests.push(TestCase {
             name: name.to_owned(),
             function: f,
@@ -610,13 +617,13 @@ fn suspended_tests_are_awaited_or_interrupted() {
         "resolve(1) == 1",
     );
     case(&mut m, "awaits", true, awaited);
-    let h = m.local("h");
+    let h = m.local("h", Type::Handler(wait));
     let forever = Expr::With {
         binds: vec![WithBind::new(h, call(never, vec![]))],
         body: Box::new(suspend::forever(wait, h)),
     };
     case(&mut m, "waits_forever", true, forever);
-    let (h, x) = (m.local("h"), m.local("_"));
+    let (h, x) = (m.local("h", Type::Handler(wait)), m.local("_", Type::Unit));
     let late = Expr::With {
         binds: vec![WithBind::new(h, call(never, vec![]))],
         body: Box::new(let_(
@@ -634,7 +641,10 @@ fn suspended_tests_are_awaited_or_interrupted() {
     case(&mut m, "panics_later", true, late);
     case(&mut m, "plain", false, unit());
     let log = suspend::log(&mut m);
-    let (h, r) = (m.local("h"), m.local("r"));
+    let (h, r) = (
+        m.local("h", Type::Handler(wait)),
+        m.local("r", Type::Handler(wait)),
+    );
     let pool = suspend::released(&mut m, log, r, "Pool", "released");
     let releasing = Expr::With {
         binds: vec![pool, WithBind::new(h, call(never, vec![]))],

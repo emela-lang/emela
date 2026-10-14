@@ -10,13 +10,13 @@ enum Spare {
   Spare
 }
 
-export fn main() {
-  let _%5 = @dbg[String]({
+export fn main() -> String {
+  let _%5: String = @dbg[String]({
     with {
-      let h%0 = Env()
-      let ev%2 = provide(; Config = h%0)
-      let self%3 = Pool$init(ev%2)?
-      let h%1 = Pool(self%3, ev%2) release Pool {
+      let h%0: handler Config = Env()
+      let ev%2: evidence = provide(; Config = h%0)
+      let self%3: Pool = Pool$init(ev%2)?
+      let h%1: handler Users = Pool(self%3, ev%2) release Pool {
         Pool$release(self%3, ev%2)
       }
     } {
@@ -26,9 +26,9 @@ export fn main() {
     Down.Down -> "down"
   })
   with {
-    let h%6 = Env()
-    let self%8 = Spare$init()
-    let h%7 = Spare(self%8) release Spare {
+    let h%6: handler Config = Env()
+    let self%8: Spare = Spare$init()
+    let h%7: handler Users = Spare(self%8) release Spare {
       ()
     }
   } {
@@ -36,7 +36,7 @@ export fn main() {
   }
 }
 
-fn Env() {
+fn Env() -> handler Config {
   handler Env: Config {
     url: fn() {
       "db"
@@ -44,37 +44,37 @@ fn Env() {
   }
 }
 
-fn Pool(self%18, ev%19) {
+fn Pool(self%18: Pool, ev%19: evidence) -> handler Users {
   handler Pool: Users {
-    find: fn(id%20) {
+    find: fn(id%20: Int) {
       self%18.url#0
     }
   }
 }
 
-fn Pool$init(ev%12) {
-  let u%13 = (use[Config](ev%12)).Config#url()
-  let _%14 = if (u%13 ==[String] "") {
+fn Pool$init(ev%12: evidence) -> Pool {
+  let u%13: String = (use[Config](ev%12)).Config#url()
+  let _%14: () = if (u%13 ==[String] "") {
     fail Down.Down
   } else {
     ()
   }
-  let base%15 = Pool.Pool(url: u%13, n: 0)
+  let base%15: Pool = Pool.Pool(url: u%13, n: 0)
   Pool.Pool(url: base%15.url#0, n: 1)
 }
 
-fn Pool$release(self%16, ev%17) {
+fn Pool$release(self%16: Pool, ev%17: evidence) -> () {
   @dbg[String](self%16.url#0)
 }
 
-fn Spare(self%10) {
+fn Spare(self%10: Spare) -> handler Users {
   handler Spare: Users {
-    find: fn(id%11) {
+    find: fn(id%11: Int) {
       "spare"
     }
   }
 }
 
-fn Spare$init() {
+fn Spare$init() -> Spare {
   Spare.Spare
 }

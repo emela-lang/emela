@@ -5,8 +5,8 @@ use crate::*;
 fn fact_module() -> (Module, FnId) {
     let mut m = Module::new();
     let fact = m.declare("fact", true);
-    let n = m.local("n");
-    let acc = m.local("acc");
+    let n = m.local("n", Type::Int);
+    let acc = m.local("acc", Type::Int);
     let body = if_(
         bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
         var(acc),
@@ -18,7 +18,7 @@ fn fact_module() -> (Module, FnId) {
             ],
         ),
     );
-    m.define(fact, vec![n, acc], body);
+    m.define(fact, vec![n, acc], Type::Int, body);
     (m, fact)
 }
 
@@ -55,7 +55,7 @@ fn loopify_leaves_non_tail_calls() {
     // fn sum(n) = if n == 0 then 0 else n + sum(n - 1)
     let mut m = Module::new();
     let sum = m.declare("sum", false);
-    let n = m.local("n");
+    let n = m.local("n", Type::Int);
     let body = if_(
         bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
         int(0),
@@ -66,7 +66,7 @@ fn loopify_leaves_non_tail_calls() {
             call(sum, vec![bin(BinOp::Sub, OpTy::Int, var(n), int(1))]),
         ),
     );
-    m.define(sum, vec![n], body.clone());
+    m.define(sum, vec![n], Type::Int, body.clone());
     tail::loopify(&mut m);
     assert_eq!(m.functions[sum].body, body);
 }
@@ -78,11 +78,18 @@ fn loopify_ignores_calls_inside_lambda_and_other_functions() {
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
-    let n = m.local("n");
-    let n2 = m.local("n");
+    let n = m.local("n", Type::Int);
+    let n2 = m.local("n", Type::Int);
+    let thunk = Type::func(FnType {
+        params: vec![],
+        ret: Type::Unit,
+        fails: false,
+        suspends: false,
+        ev: false,
+    });
     let fb = lambda(vec![], call(f, vec![var(n)]));
-    m.define(f, vec![n], fb.clone());
-    m.define(g, vec![n2], call(f, vec![var(n2)]));
+    m.define(f, vec![n], thunk.clone(), fb.clone());
+    m.define(g, vec![n2], thunk, call(f, vec![var(n2)]));
     tail::loopify(&mut m);
     assert_eq!(m.functions[f].body, fb);
     assert_eq!(m.functions[g].body, call(f, vec![var(n2)]));
@@ -93,10 +100,10 @@ fn loopify_through_let_and_match() {
     // fn len(xs, acc) = let ys = xs; match ys { [] => acc, [_, ..rest] => len(rest, acc + 1) }
     let mut m = Module::new();
     let len = m.declare("len", false);
-    let xs = m.local("xs");
-    let acc = m.local("acc");
-    let ys = m.local("ys");
-    let rest = m.local("rest");
+    let xs = m.local("xs", Type::list(Type::Int));
+    let acc = m.local("acc", Type::Int);
+    let ys = m.local("ys", Type::list(Type::Int));
+    let rest = m.local("rest", Type::list(Type::Int));
     let body = let_(
         ys,
         var(xs),
@@ -114,7 +121,7 @@ fn loopify_through_let_and_match() {
             ],
         ),
     );
-    m.define(len, vec![xs, acc], body);
+    m.define(len, vec![xs, acc], Type::Int, body);
     assert!(tail::loopify_function(&mut m, len));
     let Expr::Loop { vars, body, .. } = &m.functions[len].body else {
         panic!()
@@ -139,7 +146,11 @@ fn loopify_through_let_and_match() {
 fn named_args_in_positional_order_are_untouched() {
     let mut m = Module::new();
     let f = m.declare("f", false);
-    let e = named::in_written_order(&mut m, vec![(0, int(1)), (1, int(2))], |args| call(f, args));
+    let e = named::in_written_order(
+        &mut m,
+        vec![(0, int(1), Type::Int), (1, int(2), Type::Int)],
+        |args| call(f, args),
+    );
     assert_eq!(e, call(f, vec![int(1), int(2)]));
 }
 
@@ -149,13 +160,20 @@ fn named_args_keep_written_evaluation_order() {
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
-    let h = m.local("h");
+    let h_ty = Type::func(FnType {
+        params: vec![],
+        ret: Type::Int,
+        fails: false,
+        suspends: false,
+        ev: false,
+    });
+    let h = m.local("h", h_ty);
     let e = named::in_written_order(
         &mut m,
         vec![
-            (1, call(g, vec![])),
-            (0, int(1)),
-            (2, call_value(var(h), vec![])),
+            (1, call(g, vec![]), Type::Int),
+            (0, int(1), Type::Int),
+            (2, call_value(var(h), vec![]), Type::Int),
         ],
         |args| call(f, args),
     );
@@ -187,13 +205,14 @@ fn loopify_through_short_circuit() {
     let mut m = Module::new();
     for (name, op) in [("all_pos", BinOp::And), ("any_zero", BinOp::Or)] {
         let f = m.declare(name, false);
-        let xs = m.local("xs");
-        let x = m.local("x");
-        let rest = m.local("rest");
+        let xs = m.local("xs", Type::list(Type::Int));
+        let x = m.local("x", Type::Int);
+        let rest = m.local("rest", Type::list(Type::Int));
         let test = bin(BinOp::Gt, OpTy::Int, var(x), int(0));
         m.define(
             f,
             vec![xs],
+            Type::Bool,
             match_(
                 var(xs),
                 vec![

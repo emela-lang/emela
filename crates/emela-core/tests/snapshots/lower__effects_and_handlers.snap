@@ -6,27 +6,27 @@ effect Clock { now }
 
 effect Stamp { stamp }
 
-export fn main() {
+export fn main() -> Int {
   with {
-    let h%0 = Fixed()
-    let h%1 = ClockStamp(provide(; Clock = h%0))
-    let ev%2 = provide(; Clock = h%0 Stamp = h%1)
+    let h%0: handler Clock = Fixed()
+    let h%1: handler Stamp = ClockStamp(provide(; Clock = h%0))
+    let ev%2: evidence = provide(; Clock = h%0 Stamp = h%1)
   } {
-    let clock%3 = h%0
-    let _%4 = @dbg[String]({
+    let clock%3: handler Clock = h%0
+    let _%4: String = @dbg[String]({
       stamped("a", ev%2)?
     } escape {
       Late.Late -> "late"
     })
-    let _%7 = @dbg[Int](apply(fn(ev%5) {
+    let _%7: Int = @dbg[Int](apply(fn(ev%5: evidence) {
       (clock%3.Clock#now() +[Int] h%0.Clock#now())
     }, ev%2))
-    let _%11 = @dbg[List[Int]](List.map([1], fn(x%8, ev%9) {
+    let _%11: List[Int] = @dbg[List[Int]](List.map([1], fn(x%8: Int, ev%9: evidence) {
       (x%8 +[Int] h%0.Clock#now())
     }, ev%2))
-    let f%14 = {
-      let h%12 = clock%3
-      fn(ev%13) {
+    let f%14: fn() -> Int ev = {
+      let h%12: handler Clock = clock%3
+      fn(ev%13: evidence) {
         h%12.Clock#now()
       }
     }
@@ -34,7 +34,7 @@ export fn main() {
   }
 }
 
-fn Fixed() {
+fn Fixed() -> handler Clock {
   handler Fixed: Clock {
     now: fn() {
       42
@@ -42,11 +42,11 @@ fn Fixed() {
   }
 }
 
-fn ClockStamp(ev%36) {
+fn ClockStamp(ev%36: evidence) -> handler Stamp {
   handler ClockStamp: Stamp {
-    stamp: fn(s%37) {
-      let t%38 = (use[Clock](ev%36)).Clock#now()
-      let _%39 = if (t%38 >[Int] 100) {
+    stamp: fn(s%37: String) {
+      let t%38: Int = (use[Clock](ev%36)).Clock#now()
+      let _%39: () = if (t%38 >[Int] 100) {
         fail Late.Late
       } else {
         ()
@@ -56,10 +56,6 @@ fn ClockStamp(ev%36) {
   }
 }
 
-fn stamped(s%34, ev%35) {
+fn stamped(s%34: String, ev%35: evidence) -> String {
   (use[Stamp](ev%35)).Stamp#stamp(s%34)?
-}
-
-fn apply(f%32, ev%33) {
-  (f%32)(ev%33)?
 }

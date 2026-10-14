@@ -263,7 +263,8 @@ alpha.4 の第3段の前半（2026-10-12）．
 
 - （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．引数の数で `HostRef` に分ける（1つは `Global`，2つは `Import`）．`Import` のモジュールは，`./` か `../` で始まらなければ `HostModule::Named`，利用者のソースの隣のファイルなら `File`（絶対パス），同梱のソースなら `Bundled`．名前の意味（JS のグローバル参照，WASM の import の名前）はバックエンドが決める．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
 - （補）ファイルを指すモジュール（`./` か `../` で始まる，引数が2つのときの1つ目）は，宣言を含むソースのディレクトリからの絶対パスに直す（12.1）．`.` と `..` は字面で畳む．パスは `LowerInput::paths`（driver がソースの表から渡す）．
-- （補）引数と戻り値の境界での扱い（`Boundary`）は型から決める．String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む（12.4，12.5）．
+- （補）引数と戻り値の境界での扱い（12.4，12.5）は IR に書かない．引数の局所変数の型（`LocalData::ty`）と `Function::ret` から，各 backend が決める．JS では，String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む．
+- （補）IR の局所変数はすべて型を持つ（`LocalData::ty`）．関数は戻り値の型（`Function::ret`）と型引数の数（`Function::type_params`．型検査の型スキームの引数の数で，集合の引数も数える）を持つ．引数の型は引数の局所変数の型．lowering が作る一時変数のうち，型検査の型に対応しないものには IR だけの型を使う．証拠の表は `Type::Evidence`，`State.run` のセルは `Type::Cell(S)`，fiber のスコープは `Type::FiberScope`，Scope のハンドラの中で fork が受け取る子の関数の戻り値は `Type::Any`（`fork[A]` の A は呼ぶたびに違い，多相な操作を持てるのは組み込みのエフェクトだけ．8.1）
 - （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
 - （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
 - （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `SystemConsole` を写せることを `every_core_function_lowers` で見る）．

@@ -16,7 +16,7 @@ use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};
 
 use super::{Call, Lowerer, Target};
-use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, Lit, Local};
+use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, Type};
 
 /// `@intrinsic` functions that lowering maps to `Expr::Fiber`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -321,11 +321,12 @@ impl Lowerer<'_> {
                     suspends: self.ty_suspends(f_ty),
                 };
                 let ev = self.ty_takes_ev(f_ty).then(|| self.ev_arg());
+                let f_ty = self.ty(f_ty);
                 Some(Ok(Target::Attempt(Box::new(AttemptCall {
                     exit,
                     f_call,
                     ev,
-                    f: self.module.local("f"),
+                    f: self.module.local("f", f_ty),
                 }))))
             }
         }
@@ -350,6 +351,16 @@ impl Lowerer<'_> {
             .find(|t| self.is_intrinsic_effect(t.def))?
             .clone();
         let (effect, ops) = self.scope_effect(&tag)?;
+        let body_ty = self.ty(&fn_ty.params[0]);
+        // The child function as wrapped by `ForkCall`: it takes the table at the `Fiber.scope`
+        // call and returns the child's value, whose type each fork chooses.
+        let g_ty = Type::func(FnType {
+            params: vec![Type::Evidence],
+            ret: Type::Any,
+            fails: call.fails,
+            suspends: true,
+            ev: false,
+        });
         Some(ScopeCall {
             effect,
             ops,
@@ -359,10 +370,10 @@ impl Lowerer<'_> {
                 fails: !body.fails.is_empty(),
                 suspends: self.row_suspends(&body.uses),
             },
-            body: self.module.local("body"),
-            scope: self.module.local("s"),
-            handler: self.module.local("scope"),
-            g: self.module.local("g"),
+            body: self.module.local("body", body_ty),
+            scope: self.module.local("s", Type::FiberScope),
+            handler: self.module.local("scope", Type::Handler(effect)),
+            g: self.module.local("g", g_ty),
         })
     }
 
@@ -386,6 +397,7 @@ impl Lowerer<'_> {
             return None;
         };
         let f_ty = op_ty.params.first()?;
+        let f_ir_ty = self.ty(f_ty);
         Some(ForkCall {
             handler,
             effect,
@@ -395,9 +407,9 @@ impl Lowerer<'_> {
                 suspends: self.ty_suspends(f_ty),
             },
             f_takes_ev: self.ty_takes_ev(f_ty),
-            cap: self.module.local("scope"),
-            f: self.module.local("f"),
-            ev: self.module.local("ev"),
+            cap: self.module.local("scope", Type::Handler(effect)),
+            f: self.module.local("f", f_ir_ty),
+            ev: self.ev_local(),
         })
     }
 

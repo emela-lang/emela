@@ -4,31 +4,31 @@ expression: "mine.join(\"\\n\\n\")"
 ---
 effect Clock { suspend sleep, now }
 
-export suspend fn main() {
-  let _%2 = with {
-    let h%0 = SystemClock()
-    let ev%1 = provide(; Clock = h%0)
+export suspend fn main() -> List[Int] {
+  let _%2: List[Int] = with {
+    let h%0: handler Clock = SystemClock()
+    let ev%1: evidence = provide(; Clock = h%0)
   } {
     @dbg[List[Int]](naps([1, 2], ev%1)!)
   }
-  let _%5 = with {
-    let h%3 = InstantClock()
+  let _%5: Int = with {
+    let h%3: handler Clock = InstantClock()
   } {
     @dbg[Int](h%3.Clock#sleep(1)!)
   }
-  let _%8 = with {
-    let h%6 = FetchingClock()
+  let _%8: Int = with {
+    let h%6: handler Clock = FetchingClock()
   } {
     @dbg[Int](h%6.Clock#sleep(1)!)
   }
-  @dbg[List[Int]](List.map([1], fn(x%9) {
+  @dbg[List[Int]](List.map([1], fn(x%9: Int) {
     x%9
   }, ()))
 }
 
-fn SystemClock() {
+fn SystemClock() -> handler Clock {
   handler SystemClock: Clock {
-    sleep: fn(ms%49, resume%50) {
+    sleep: fn(ms%49: Int, resume%50: fn(Int) -> ()) {
       after(ms%49, fn() {
         (resume%50)(ms%49)
       })
@@ -39,16 +39,16 @@ fn SystemClock() {
   }
 }
 
-suspend fn naps(xs%32, ev%33) {
-  let clock%34 = use[Clock](ev%33)
-  List.map$suspend8(xs%32, suspend fn(ms%35, ev%36) {
+suspend fn naps(xs%32: List[Int], ev%33: evidence) -> List[Int] {
+  let clock%34: handler Clock = use[Clock](ev%33)
+  List.map$suspend8(xs%32, suspend fn(ms%35: Int, ev%36: evidence) {
     (clock%34.Clock#sleep(ms%35)! +[Int] clock%34.Clock#now())
   }, ev%33)!
 }
 
-fn InstantClock() {
+fn InstantClock() -> handler Clock {
   handler InstantClock: Clock {
-    sleep: fn(ms%30, resume%31) {
+    sleep: fn(ms%30: Int, resume%31: fn(Int) -> ()) {
       (resume%31)(0)
     }
     now: fn() {
@@ -57,9 +57,9 @@ fn InstantClock() {
   }
 }
 
-fn FetchingClock() {
+fn FetchingClock() -> handler Clock {
   handler FetchingClock: Clock {
-    sleep: suspend fn(ms%27, resume%28) {
+    sleep: suspend fn(ms%27: Int, resume%28: fn(Int) -> ()) {
       (resume%28)(@String.length(fetch_text("x")!))
     }
     now: fn() {
@@ -68,16 +68,16 @@ fn FetchingClock() {
   }
 }
 
-fn List.map(xs%10, f%11, ev%12) {
-  List.reverse(List.fold(xs%10, [], fn(acc%13, x%14, ev%15) {
+fn List.map[A, B, C, D](xs%10: List[A], f%11: fn(A) -> B fails ev, ev%12: evidence) -> List[B] {
+  List.reverse(List.fold(xs%10, [], fn(acc%13: List[B], x%14: A, ev%15: evidence) {
     [(f%11)(x%14, ev%15)?, ..acc%13]
   }, ev%12)?)
 }
 
-suspend external fn fetch_text(url%29) = js["./ffi.mjs", "fetchText"]
+suspend external fn fetch_text(url%29: String) -> String = js["./ffi.mjs", "fetchText"]
 
-suspend fn List.map$suspend8(xs%37, f%38, ev%39) {
-  List.reverse(List.fold$suspend8(xs%37, [], suspend fn(acc%40, x%41, ev%42) {
+suspend fn List.map$suspend8[A, B, C, D](xs%37: List[A], f%38: fn(A) -> B fails suspends ev, ev%39: evidence) -> List[B] {
+  List.reverse(List.fold$suspend8(xs%37, [], suspend fn(acc%40: List[B], x%41: A, ev%42: evidence) {
     [(f%38)(x%41, ev%42)!?, ..acc%40]
   }, ev%39)!?)
 }

@@ -211,15 +211,16 @@ impl Frontend for HandBuiltIr {
 }
 
 /// `fn fact(n, acc) = if n == 0 then acc else fact(n - 1, acc * n)` and a `main` whose body is
-/// `body`.
-fn fact_module(body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
+/// `body`, of type `ret`.
+fn fact_module(ret: Type, body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
     let mut m = emela_core::Module::new();
     let fact = m.declare("fact", false);
-    let n = m.local("n");
-    let acc = m.local("acc");
+    let n = m.local("n", Type::Int);
+    let acc = m.local("acc", Type::Int);
     m.define(
         fact,
         vec![n, acc],
+        Type::Int,
         if_(
             bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
             var(acc),
@@ -233,7 +234,7 @@ fn fact_module(body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
         ),
     );
     let main = m.declare("main", true);
-    m.define(main, vec![], body(fact));
+    m.define(main, vec![], ret, body(fact));
     m
 }
 
@@ -268,7 +269,7 @@ fn core_ir_runs_through_codegen_js() {
     // Run the tail recursion 100,000 times, then pass the result out through a panic message.
     let output = run_ir(
         "ir-panic",
-        fact_module(|fact| {
+        fact_module(Type::Never, |fact| {
             let big = call(fact, vec![int(100000), int(1)]);
             let small = call(fact, vec![int(5), int(1)]);
             builtin(
@@ -292,7 +293,7 @@ fn core_ir_runs_through_codegen_js() {
     // A runtime defect (division by zero) is handled the same way.
     let output = run_ir(
         "ir-div",
-        fact_module(|_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
+        fact_module(Type::Int, |_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
     );
     assert_eq!(text(&output.stderr), "defect: division by zero\n");
     assert_eq!(output.code, DEFECT_EXIT_CODE);
@@ -300,7 +301,7 @@ fn core_ir_runs_through_codegen_js() {
     // Without a defect, the exit code is 0.
     let output = run_ir(
         "ir-ok",
-        fact_module(|fact| call(fact, vec![int(10), int(1)])),
+        fact_module(Type::Int, |fact| call(fact, vec![int(10), int(1)])),
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
@@ -318,6 +319,7 @@ fn bundled_files_are_written_next_to_the_output() {
     m.define_external(
         now,
         vec![],
+        Type::Int,
         emela_core::External {
             bindings: vec![emela_core::ExternalBinding {
                 target: "js".into(),
@@ -326,14 +328,13 @@ fn bundled_files_are_written_next_to_the_output() {
                     name: "now".into(),
                 },
             }],
-            params: vec![],
-            ret: emela_core::Boundary::Plain,
         },
     );
     let main = m.declare("main", true);
     m.define(
         main,
         vec![],
+        Type::Never,
         builtin(
             Builtin::Panic,
             vec![Expr::Concat(vec![
@@ -1008,6 +1009,7 @@ fn suspended_main_waits_for_promises() {
     let resolve = suspend::resolve(&mut m);
     suspend::main(
         &mut m,
+        Type::Int,
         builtin_ty(
             Builtin::Dbg,
             vec![Type::Int],
@@ -1031,9 +1033,10 @@ fn dropped_resume_interrupts_main() {
     // A main that ends without a resume gives `interrupted` and exit code 130 (spec 14.5).
     let mut m = emela_core::Module::new();
     let (never, wait) = suspend::never(&mut m);
-    let h = m.local("h");
+    let h = m.local("h", Type::Handler(wait));
     suspend::main(
         &mut m,
+        Type::Unit,
         Expr::With {
             binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(suspend::forever(wait, h)),
@@ -1053,10 +1056,14 @@ fn dropped_main_releases_before_interrupted() {
     let mut m = emela_core::Module::new();
     let (never, wait) = suspend::never(&mut m);
     let log = suspend::log(&mut m);
-    let (h, r) = (m.local("h"), m.local("r"));
+    let (h, r) = (
+        m.local("h", Type::Handler(wait)),
+        m.local("r", Type::Handler(wait)),
+    );
     let pool = suspend::released(&mut m, log, r, "Pool", "released");
     suspend::main(
         &mut m,
+        Type::Unit,
         Expr::With {
             binds: vec![pool, WithBind::new(h, call(never, vec![]))],
             body: Box::new(suspend::forever(wait, h)),
@@ -1075,9 +1082,10 @@ fn defects_after_resuming_and_in_callbacks() {
     // (spec 7.5).
     let mut m = emela_core::Module::new();
     let resolve = suspend::resolve(&mut m);
-    let x = m.local("_");
+    let x = m.local("_", Type::Int);
     suspend::main(
         &mut m,
+        Type::Never,
         let_(
             x,
             call_suspends(resolve, vec![int(1)]),
@@ -1094,9 +1102,10 @@ fn defects_after_resuming_and_in_callbacks() {
     let mut m = emela_core::Module::new();
     let set_timeout = suspend::set_timeout(&mut m);
     let (never, wait) = suspend::never(&mut m);
-    let (h, x) = (m.local("h"), m.local("_"));
+    let (h, x) = (m.local("h", Type::Handler(wait)), m.local("_", Type::Unit));
     suspend::main(
         &mut m,
+        Type::Unit,
         Expr::With {
             binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(let_(
