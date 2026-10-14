@@ -1,6 +1,6 @@
 //! The output stage that turns the Core IR into JS with emela-codegen-js.
 
-use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module};
+use emela_codegen_js::{BUNDLED_DIR, Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module};
 
 use crate::diagnostic::Diagnostic;
 use crate::output::{JsOutput, OutputFile};
@@ -30,7 +30,7 @@ impl JsBackend<emela_core::Module> for CoreJs {
             OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
             OutputFile::new(RUNTIME_FILE, RUNTIME),
         ];
-        files.extend(core_js_outputs(&module));
+        files.extend(bundled_outputs(&module));
         Ok(JsOutput {
             files,
             entry: JS_ENTRY_FILE.into(),
@@ -38,13 +38,13 @@ impl JsBackend<emela_core::Module> for CoreJs {
     }
 }
 
-/// Maps the IR's bundled JS files (`Module::js_files`) to files under
-/// [`emela_core::CORE_JS_DIR`] in the output directory. The entry output (at the top of the
-/// output directory) imports them as `./emela_core/x.mjs`.
-pub(crate) fn core_js_outputs(module: &emela_core::Module) -> impl Iterator<Item = OutputFile> {
-    module.js_files.iter().map(|file| {
+/// Maps the IR's bundled host files (`Module::bundled_files`) to files under [`BUNDLED_DIR`] in
+/// the output directory. The entry output (at the top of the output directory) imports them as
+/// `./emela_core/x.mjs`.
+pub(crate) fn bundled_outputs(module: &emela_core::Module) -> impl Iterator<Item = OutputFile> {
+    module.bundled_files.iter().map(|file| {
         OutputFile::new(
-            format!("{}/{}", emela_core::CORE_JS_DIR, file.path),
+            format!("{BUNDLED_DIR}/{}", file.path),
             file.contents.clone(),
         )
     })

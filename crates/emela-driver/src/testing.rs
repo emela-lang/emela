@@ -27,7 +27,7 @@ pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
 use crate::code;
 use crate::diagnostic::Diagnostic;
 use crate::frontend::{Typecheck, lower_typed};
-use crate::js::{CoreJs, JS_ENTRY_FILE, core_js_outputs};
+use crate::js::{CoreJs, JS_ENTRY_FILE, bundled_outputs};
 use crate::output::{JsOutput, OutputFile, write_output};
 use crate::pipeline::{
     Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, check,
@@ -240,7 +240,7 @@ impl TestBackend<TestModule> for CoreJs {
             OutputFile::new(RUNTIME_FILE, RUNTIME),
             OutputFile::new(JS_TEST_ENTRY_FILE, main),
         ];
-        files.extend(core_js_outputs(&module));
+        files.extend(bundled_outputs(&module));
         Ok(JsOutput {
             files,
             entry: JS_TEST_ENTRY_FILE.into(),

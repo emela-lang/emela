@@ -11,7 +11,9 @@
 //! U+FFFD (spec 12.5). The wrapper for an `@external suspend fn` is a generator that awaits the
 //! Promise the host returns, passing an AbortSignal as the last argument (spec 12.2).
 
-use emela_core::{Boundary, EffectId, Expr, External, Function, Module, Release, WithBind};
+use emela_core::{
+    Boundary, EffectId, Expr, External, Function, HostModule, HostRef, Module, Release, WithBind,
+};
 
 use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
 
@@ -242,10 +244,15 @@ impl Emitter<'_> {
             params.join(", ")
         ));
         self.indent += 1;
-        let callee = ext.binding("js").and_then(|b| match b.args.as_slice() {
-            [path] => Some(global_ref(path)),
-            [module, name] => Some(self.import(module, name)),
-            _ => None,
+        let callee = ext.binding("js").map(|b| match &b.host {
+            HostRef::Global(path) => global_ref(path),
+            HostRef::Import { module, name } => {
+                let specifier = match module {
+                    HostModule::Named(m) | HostModule::File(m) => m.clone(),
+                    HostModule::Bundled(path) => format!("./{}/{path}", crate::BUNDLED_DIR),
+                };
+                self.import(&specifier, name)
+            }
         });
         match callee {
             Some(callee) => {

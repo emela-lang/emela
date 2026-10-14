@@ -47,7 +47,7 @@
 - （補）同梱のソースは `lib/core/`（core．Prelude と `@intrinsic` を持つモジュール: `Prelude`，`List`，`Option`，`String`，`Int`，`Int64`，`Float`）と `lib/std/`（std．`Std.Duration`，`Std.Instant`，`Std.State`，`Std.Console`，`Std.Random`，`Std.Env`，`Std.Clock`，`Std.Http`，`Std.Path`，`Std.FileSystem`，`Std.Platform`）に分ける（15.2）．`core_sources()` がモジュール名とソースの組を返し，Prelude が先頭．ファイル名はモジュール名の最後の区切り（`std/console.emel` が `Std.Console`）
 - （補）std のモジュールは `Std` の下の2区切りの名前で，import して使う（`import Std.Console.{Console, SystemConsole}`）．名前が1区切りでないので，import なしで `.` の左に書く規則と，型の位置の名前をモジュールと同じ名前の型に解決する規則（4.6）は当たらない．std のモジュールどうしも import でつなぐ（`Std.Instant` は `import Std.Duration.{Duration}`）
 - （補）std のモジュールを足しても，利用者のファイル名は予約名にならない．予約名は core のモジュール名と `std.emel`，`std/`（4.1．emela-resolve の NOTES）
-- （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引き，出力先の `emela_core/std/clock.mjs` に書き出す
+- （補）同梱の JS のファイルは，それを指すソースと同じディレクトリに置く（`lib/std/clock.mjs`）．`@external(js, "./clock.mjs", …)` はソースのディレクトリ（`lib_dir`．std のモジュールは `std`，それ以外は `core`）からの相対パスとして引く．IR では `lib/` からのパス（`HostModule::Bundled("std/clock.mjs")`）で持ち，出力先のどこに置くかは backend が決める（JS は `emela_core/std/clock.mjs`）
 - （補）`@intrinsic` の宣言は `Builtin::lookup_intrinsic(モジュール名, 関数名)` で表を引く．`"Prelude"` は表の `module: None`（修飾せずに呼ぶ関数）に当たる．
 - （補）`@intrinsic` の宣言は，引数と戻り値の型，型引数の数を表と一致させる．公開しない補助（`Int.parse` の中身の `parse_or_none`）は `pub` を付けない．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
@@ -261,16 +261,16 @@ alpha.4 の第3段の前半（2026-10-12）．
 
 ## 外部関数（12章）
 
-- （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
+- （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．引数の数で `HostRef` に分ける（1つは `Global`，2つは `Import`）．`Import` のモジュールは，`./` か `../` で始まらなければ `HostModule::Named`，利用者のソースの隣のファイルなら `File`（絶対パス），同梱のソースなら `Bundled`．名前の意味（JS のグローバル参照，WASM の import の名前）はバックエンドが決める．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
 - （補）ファイルを指すモジュール（`./` か `../` で始まる，引数が2つのときの1つ目）は，宣言を含むソースのディレクトリからの絶対パスに直す（12.1）．`.` と `..` は字面で畳む．パスは `LowerInput::paths`（driver がソースの表から渡す）．
 - （補）引数と戻り値の境界での扱い（`Boundary`）は型から決める．String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む（12.4，12.5）．
 - （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
 - （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
 - （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `SystemConsole` を写せることを `every_core_function_lowers` で見る）．
-- （補）同梱の core のソースはディスク上のパスを持たないので，core の `@external(js, "./x.mjs", …)` はソースの隣でなく，同梱の JS のファイル（`lib/` の `.mjs` を `include_str!` で埋め込んだ `core_js_files()`，`LowerInput::core_js_files`）から引く．指定はソースを置いた `lib/` の中のディレクトリ（`lib_dir`）からの相対パスとみなし，`.` と `..` を畳んだ `lib/` からのパスで引く．`lib/` の外へ出る指定と表にない指定は `LowerError::MissingCoreFile`（同梱のソースの誤り．driver は内部の誤りの診断にする）．
-- （補）引いた指定は，出力先の `emela_core/`（`CORE_JS_DIR`）に書き出したファイルへの，エントリの出力からの相対パス（`./emela_core/x.mjs`）に直す．JS 出力は `./` で始まる指定を書かれたまま import する．利用者のソースのファイルの指定（絶対パスにして `file://` で読む）とは扱いを分ける．
+- （補）同梱の core のソースはディスク上のパスを持たないので，core の `@external(js, "./x.mjs", …)` はソースの隣でなく，同梱のホストのファイル（`lib/` の `.mjs` を `include_str!` で埋め込んだ `bundled_files()`，`LowerInput::bundled_files`）から引く．ターゲットは問わない．指定はソースを置いた `lib/` の中のディレクトリ（`lib_dir`）からの相対パスとみなし，`.` と `..` を畳んだ `lib/` からのパスで引く．`lib/` の外へ出る指定と表にない指定は `LowerError::MissingCoreFile`（同梱のソースの誤り．driver は内部の誤りの診断にする）．
+- （補）引いた指定は `HostModule::Bundled`（`lib/` からのパス）にする．出力先の配置は IR に書かない．JS 出力は `emela_core/`（`emela_codegen_js::BUNDLED_DIR`）の下に置いたファイルを，エントリの出力からの相対パス（`./emela_core/x.mjs`）で import する．利用者のソースのファイルの指定（`HostModule::File`，絶対パス）とは扱いを分ける．
 - （補）`lib/` の `.mjs` は出力先へそのまま書き出すので，コメントを英語で書く（`.emel` のコメントは出力に入らないので日本語のまま）
-- （補）写した外部関数が同梱のファイルを1つでも指したら，同梱の JS のファイルを全部 `Module::js_files` に入れる（どのファイルがどれを import するかを JS を読まずに済ませるため，`lib/` と同じ並びで全部書き出す）．1つも指さなければ空で，何も書き出さない．
+- （補）写した外部関数が同梱のファイルを1つでも指したら，同梱のホストのファイルを全部 `Module::bundled_files` に入れる（どのファイルがどれを import するかを JS を読まずに済ませるため，`lib/` と同じ並びで全部書き出す）．1つも指さなければ空で，何も書き出さない．
 - （補）core の WASM の `@external` のファイルの指定は直さない（WASM は範囲外）．
 
 ## 中断と再開（8.4，8.7，14.5，16.5）

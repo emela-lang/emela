@@ -18,6 +18,11 @@ pub const RUNTIME: &str = include_str!("runtime.mjs");
 /// Default file name when the runtime is written next to the output.
 pub const RUNTIME_FILE: &str = "emela_runtime.mjs";
 
+/// The directory, next to the output, where the caller writes the bundled host files
+/// (`Module::bundled_files`) under their paths. The output imports a `HostModule::Bundled` file
+/// as `./emela_core/<path>`.
+pub const BUNDLED_DIR: &str = "emela_core";
+
 #[derive(Debug, Clone)]
 pub enum RuntimeMode {
     /// Embeds the runtime at the top of the output, so it is self-contained in one file.

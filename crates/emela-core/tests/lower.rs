@@ -72,16 +72,16 @@ fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>
         files,
         roots,
         emela_core::core_sources(),
-        emela_core::core_js_files(),
+        emela_core::bundled_files(),
     )
 }
 
-/// [`try_lower`] with the bundled core sources (`core`) and JS files (`core_js_files`) replaced.
+/// [`try_lower`] with the bundled core sources (`core`) and host files (`bundled_files`) replaced.
 fn try_lower_with(
     files: &[(&str, &str)],
     roots: Roots,
     core: &[(&str, &str)],
-    core_js_files: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
 ) -> Result<Module, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
@@ -94,7 +94,7 @@ fn try_lower_with(
         entry,
         tests: Vec::new(),
         paths: Default::default(),
-        core_js_files,
+        bundled_files,
         target: None,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
@@ -831,11 +831,10 @@ fn lower_with_host_test(main: &str) -> Result<Module, Vec<String>> {
     try_lower_with(&[("main.emel", main)], Roots::Exported, &core, HOST_TEST_JS)
 }
 
-/// A bundled core external function's file specifier points to the bundled file written under
-/// `emela_core/` in the output. Once used, all bundled files go into `js_files` (for relative
-/// imports).
+/// A bundled core external function's file specifier points to the bundled file, by its path
+/// relative to `lib/`. Once used, all bundled files go into `bundled_files` (for relative imports).
 #[test]
-fn core_external_points_to_bundled_js_file() {
+fn core_external_points_to_bundled_file() {
     let m = lower_with_host_test("fn main() { dbg(HostTest.now()) }\n")
         .unwrap_or_else(|e| panic!("{e:?}"));
     let out = dump(&m);
@@ -846,10 +845,10 @@ fn core_external_points_to_bundled_js_file() {
     assert_eq!(ext.len(), 1, "{out}");
     assert_eq!(
         ext[0].trim(),
-        "external fn HostTest.now() = js[\"./emela_core/core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
+        "external fn HostTest.now() = js[bundled \"core/host_test.mjs\", \"now\"] wasm[\"env\", \"now\"]"
     );
     let files: Vec<(&str, &str)> = m
-        .js_files
+        .bundled_files
         .iter()
         .map(|f| (f.path.as_str(), f.contents.as_str()))
         .collect();
@@ -858,9 +857,9 @@ fn core_external_points_to_bundled_js_file() {
 
 /// If no external function pointing to a bundled file is used, no bundled file is written.
 #[test]
-fn unused_core_js_files_are_not_output() {
+fn unused_bundled_files_are_not_output() {
     let m = lower_with_host_test("fn main() { dbg(1) }\n").unwrap_or_else(|e| panic!("{e:?}"));
-    assert_eq!(m.js_files, []);
+    assert_eq!(m.bundled_files, []);
 }
 
 /// A specifier not among the bundled files is an error in the bundled sources.

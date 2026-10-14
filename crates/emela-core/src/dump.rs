@@ -23,8 +23,8 @@
 use std::fmt::Write;
 
 use crate::ir::{
-    Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, Lit, Local, Module, OpTy, Pat,
-    StrPart, Type, UnOp, VariantFields,
+    Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, HostModule, HostRef, Lit,
+    Local, Module, OpTy, Pat, StrPart, Type, UnOp, VariantFields,
 };
 
 /// Enums first, then functions, each in ID order.
@@ -67,7 +67,7 @@ pub fn dump(m: &Module) -> String {
             let bindings: Vec<String> = ext
                 .bindings
                 .iter()
-                .map(|b| format!("{}{:?}", b.target, b.args))
+                .map(|b| format!("{}[{}]", b.target, host_ref(&b.host)))
                 .collect();
             writeln!(
                 p.out,
@@ -579,5 +579,20 @@ fn op_ty(ty: OpTy) -> &'static str {
         OpTy::Bool => "Bool",
         OpTy::String => "String",
         OpTy::Structural => "Structural",
+    }
+}
+
+/// `"console.log"`, `"env", "sin"`, `bundled "std/clock.mjs", "now"`, `file "/app/x.mjs", "f"`.
+fn host_ref(host: &HostRef) -> String {
+    match host {
+        HostRef::Global(name) => format!("{name:?}"),
+        HostRef::Import { module, name } => {
+            let module = match module {
+                HostModule::Named(m) => format!("{m:?}"),
+                HostModule::File(path) => format!("file {path:?}"),
+                HostModule::Bundled(path) => format!("bundled {path:?}"),
+            };
+            format!("{module}, {name:?}")
+        }
     }
 }

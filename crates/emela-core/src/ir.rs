@@ -22,15 +22,18 @@ pub struct Module {
     pub effects: Arena<EffectDef>,
     /// The ID of Prelude's `Option`, if added (`option_enum`).
     pub option: Option<EnumId>,
-    /// Bundled JS files written under [`crate::CORE_JS_DIR`] in the output. Present only when an
-    /// external function points to a bundled file.
-    pub js_files: Vec<JsFile>,
+    /// Host files bundled with the compiler that the output needs (`.mjs` for JS). Present only
+    /// when an external function points to a bundled file ([`HostModule::Bundled`]); then all of
+    /// them are here, so relative imports between them work. Where they go in the output is up to
+    /// the backend.
+    pub bundled_files: Vec<BundledFile>,
 }
 
-/// A JS file shipped alongside the output.
+/// A host file bundled with the compiler (under `lib/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsFile {
-    /// Relative to [`crate::CORE_JS_DIR`], `/`-separated.
+pub struct BundledFile {
+    /// Relative to `lib/`, `/`-separated (`std/clock.mjs`). [`HostModule::Bundled`] uses the same
+    /// path.
     pub path: String,
     pub contents: String,
 }
@@ -175,10 +178,31 @@ impl External {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalBinding {
     pub target: String,
-    /// The remaining arguments. In JS, one means a global reference (`"console.log"`), two mean a
-    /// module and a name. A module naming a file (starting with `./` or `../`) has been rewritten
-    /// by lowering to an absolute path from the declaring source's directory (spec 12.1).
-    pub args: Vec<String>,
+    pub host: HostRef,
+}
+
+/// What an `@external` points to in the host (spec 12.1). What a name means is up to the target's
+/// backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostRef {
+    /// One argument, `@external(js, "console.log")`: a name the host resolves on its own (a global
+    /// reference in JS).
+    Global(String),
+    /// Two arguments, `@external(wasm, "env", "sin")`: `name` exported by `module`.
+    Import { module: HostModule, name: String },
+}
+
+/// The module of [`HostRef::Import`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostModule {
+    /// A module the host finds by name (`node:fs`, `env`, `wasi:http/client`).
+    Named(String),
+    /// A file next to a project source (written starting with `./` or `../`), as an absolute path
+    /// resolved from the declaring source's directory.
+    File(String),
+    /// A file bundled with the compiler (written in a bundled source starting with `./` or `../`),
+    /// relative to `lib/` (`std/clock.mjs`). Its contents are in [`Module::bundled_files`].
+    Bundled(String),
 }
 
 /// How an external function's parameters and return value cross the boundary (spec 12.4, 12.5).
