@@ -15,6 +15,7 @@ use emela_core::*;
 use crate::{Options, RUNTIME_FILE, RuntimeMode, inline_runtime};
 
 mod assert;
+mod builtins;
 mod effects;
 mod errors;
 mod fiber;
@@ -326,7 +327,7 @@ impl Emitter<'_> {
                 if *op == Builtin::Dbg {
                     vs.push(self.show_fn(&ty_args[0]));
                 }
-                let f = self.rt(info.js);
+                let f = self.rt(builtins::runtime_name(*op));
                 format!("{f}({})", vs.join(", "))
             }
             Expr::Ctor { ctor, args } => {

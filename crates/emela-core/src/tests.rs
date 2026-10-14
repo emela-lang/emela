@@ -239,7 +239,6 @@ fn builtin_names_are_unique_and_found_by_lookup() {
         let i = op.info();
         assert_eq!(Builtin::lookup(i.module, i.name), Some(op), "{}", i.path());
         assert!(i.pure, "{} is not pure", i.path());
-        assert!(i.js.starts_with('$'), "implementation name of {}", i.path());
     }
     assert_eq!(
         Builtin::lookup(Some("String"), "length"),
