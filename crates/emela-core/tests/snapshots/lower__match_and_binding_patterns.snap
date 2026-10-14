@@ -76,7 +76,7 @@ enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn, sent: List[Std.Http.Request])
+  TestServer(respond: fn(Std.Http.Request, Int) -> Option[Std.Http.Response], sent: List[Std.Http.Request])
 }
 
 error enum Std.FileSystem.FileNotFound {
@@ -115,7 +115,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn)
+  Cause(raise: fn() -> Never fails)
 }
 
 enum Std.Cause.CauseKind {

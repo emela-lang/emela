@@ -202,13 +202,20 @@ impl Kit {
             variants: vec![VariantDef::unit("Oops")],
             error: true,
         });
-        // A Cause is opaque; its field type is never shown here.
+        // A Cause is opaque (an `@external type`, an enum without constructors); its field type
+        // is never shown here.
+        let cause = m.add_enum(EnumDef {
+            name: "Cause".into(),
+            params: 1,
+            variants: vec![],
+            error: false,
+        });
         let exit = m.add_enum(EnumDef {
             name: "Exit".into(),
             params: 2,
             variants: vec![
                 VariantDef::positional("Success", vec![Type::Param(0)]),
-                VariantDef::positional("Failure", vec![Type::Fn]),
+                VariantDef::positional("Failure", vec![Type::Enum(cause, vec![Type::Param(1)])]),
             ],
             error: false,
         });

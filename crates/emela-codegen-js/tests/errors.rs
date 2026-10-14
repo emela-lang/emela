@@ -277,7 +277,14 @@ fn unshowable_error_shows_its_name() {
     // its name. Even with the runtime inlined, the entry tells failures apart by the `Symbol.for`
     // key.
     let mut m = Module::new();
-    let callback = error(&mut m, "Callback", vec![("f", Type::Fn)]);
+    let f = Type::func(FnType {
+        params: vec![],
+        ret: Type::Int,
+        fails: false,
+        suspends: false,
+        ev: false,
+    });
+    let callback = error(&mut m, "Callback", vec![("f", f)]);
     main_fn(&mut m, fail(ctor(callback, vec![lambda(vec![], int(1))])));
     assert_eq!(
         run_mode("unshowable_error", m, RuntimeMode::Inline),

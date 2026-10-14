@@ -328,10 +328,12 @@ impl VariantDef {
     }
 }
 
-/// The type of an IR value. Used for showing (the stand-in for Show) and for builtins whose
-/// behavior depends on the type.
+/// The type of an IR value. Used for showing (the stand-in for Show), for builtins whose behavior
+/// depends on the type, and by backends that need value representations.
 ///
-/// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`). No type variables.
+/// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`, `EffectId`). No type
+/// variables: a type variable left undetermined (an unused `None`'s `Option[?]`) becomes `Unit`,
+/// as any representation behaves the same.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
@@ -346,15 +348,39 @@ pub enum Type {
     List(Box<Type>),
     /// An enum / type application. The argument count is `EnumDef::params`.
     Enum(EnumId, Vec<Type>),
-    /// A type parameter of the enclosing `EnumDef`. Occurs only in field types.
+    /// The `i`th type parameter of the enclosing definition: the `EnumDef` in field types, the
+    /// function otherwise.
     Param(usize),
-    /// A function type. It cannot be shown (spec 10.6), so it carries nothing.
-    Fn,
+    /// A function value (spec 10.6: cannot be shown).
+    Fn(Box<FnType>),
+    /// A capability value (spec 8.2): the handler value of the effect, returned by `use X`
+    /// (`Expr::Use`). Cannot be shown or compared.
+    Handler(EffectId),
+}
+
+/// A function type, with what decides how a value of it is called.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FnType {
+    /// The declared parameters, without the evidence table.
+    pub params: Vec<Type>,
+    pub ret: Type,
+    /// Whether a call may fail (the E is not empty, spec 7.2); the same as `Expr::Call::fails`.
+    pub fails: bool,
+    /// Whether a call may suspend (the R is not Immediate, spec 9.5); the same as
+    /// `Expr::Call::suspends` for `Callee::Indirect`.
+    pub suspends: bool,
+    /// Whether the function takes the evidence table as its last argument (the R has effects
+    /// other than Async, spec 16.5).
+    pub ev: bool,
 }
 
 impl Type {
     pub fn list(elem: Type) -> Type {
         Type::List(Box::new(elem))
+    }
+
+    pub fn func(f: FnType) -> Type {
+        Type::Fn(Box::new(f))
     }
 
     /// Replaces `Type::Param(i)` with `args[i]`.
@@ -364,6 +390,11 @@ impl Type {
             Type::Tuple(ts) => Type::Tuple(ts.iter().map(|t| t.subst(args)).collect()),
             Type::List(t) => Type::list(t.subst(args)),
             Type::Enum(id, ts) => Type::Enum(*id, ts.iter().map(|t| t.subst(args)).collect()),
+            Type::Fn(f) => Type::func(FnType {
+                params: f.params.iter().map(|t| t.subst(args)).collect(),
+                ret: f.ret.subst(args),
+                ..**f
+            }),
             _ => self.clone(),
         }
     }

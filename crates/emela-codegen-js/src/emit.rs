@@ -531,7 +531,8 @@ impl Emitter<'_> {
                 let body = self.show_call(ty, "$x");
                 format!("(($x) => {body})")
             }
-            Type::Fn => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
+            Type::Fn(_) => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
+            Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
         }
     }
 

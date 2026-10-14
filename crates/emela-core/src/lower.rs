@@ -20,8 +20,8 @@ use rustc_hash::FxHashMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, Boundary, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef,
-    EnumId, Expr, External, ExternalBinding, FiberOp, FnId, HostModule, HostRef, Lit, Local,
-    Module, OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
+    EnumId, Expr, External, ExternalBinding, FiberOp, FnId, FnType, HostModule, HostRef, Lit,
+    Local, Module, OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
@@ -490,7 +490,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn variant_def(&self, ctor: DefId) -> VariantDef {
+    fn variant_def(&mut self, ctor: DefId) -> VariantDef {
         let fields = match self.hir.item(ctor) {
             Some(Item::Ctor(c)) => &c.fields,
             Some(Item::Error(e)) => &e.fields,
@@ -504,7 +504,8 @@ impl<'a> Lowerer<'a> {
             }
         };
         // A constructor without fields has the constructed type itself, not a function type.
-        let tys = match self.types.sigs.get(ctor).map(|sig| &sig.scheme.ty) {
+        let types = self.types;
+        let tys = match types.sigs.get(ctor).map(|sig| &sig.scheme.ty) {
             Some(Ty::Fn(f)) => f.params.iter().map(|t| self.ty(t)).collect(),
             _ => Vec::new(),
         };
@@ -516,7 +517,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Converts a type checker type to an IR type.
-    fn ty(&self, ty: &Ty) -> Type {
+    fn ty(&mut self, ty: &Ty) -> Type {
         match ty {
             Ty::Prim(p) => match p {
                 Prim::Int => Type::Int,
@@ -527,18 +528,35 @@ impl<'a> Lowerer<'a> {
                 Prim::Unit => Type::Unit,
             },
             Ty::Never => Type::Never,
-            // A type variable left undetermined (an unused `None`'s `Option[?]` and the like). Any
-            // representation behaves the same. `Ty::Error` only appears when there are type
-            // errors, and then lowering is not called.
-            Ty::Var(_) | Ty::Error => Type::Unit,
+            // A type variable generalized in the definition being lowered is its type parameter.
+            // One left undetermined (an unused `None`'s `Option[?]` and the like) can take any
+            // representation. `Ty::Error` only appears when there are type errors, and then
+            // lowering is not called.
+            Ty::Var(v) => self
+                .current_def
+                .and_then(|def| self.types.generalized_tys.get(def))
+                .and_then(|vars| vars.iter().find(|(w, _)| w == v))
+                .map_or(Type::Unit, |&(_, i)| Type::Param(i as usize)),
+            Ty::Error => Type::Unit,
             // Set type arguments of named types (`Handler[E, R]`) have no run-time representation;
             // `()` keeps the type argument positions aligned.
             Ty::Set(..) => Type::Unit,
-            // A capability value is a handler value (`Expr::Handler`). It can be neither shown nor
-            // compared (spec 8.2), so its type is never used to build show functions.
-            Ty::Cap(_) => Type::Fn,
+            Ty::Cap(tag) => {
+                let key = self.key_here(tag);
+                Type::Handler(self.effect_id(&key))
+            }
             Ty::Bound(i) => Type::Param(*i as usize),
-            Ty::Fn(_) => Type::Fn,
+            Ty::Fn(f) => {
+                let params = f.params.iter().map(|t| self.ty(t)).collect();
+                let ret = self.ty(&f.ret);
+                Type::func(FnType {
+                    params,
+                    ret,
+                    fails: !f.fails.is_empty(),
+                    suspends: self.row_suspends(&f.uses),
+                    ev: self.row_needs_ev(&f.uses),
+                })
+            }
             Ty::Tuple(ts) => Type::Tuple(ts.iter().map(|t| self.ty(t)).collect()),
             Ty::List(t) => Type::list(self.ty(t)),
             Ty::Named(con, args) => {
@@ -1384,7 +1402,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The type checker has typed every expression.
-    fn expr_ty(&self, id: ExprId) -> &Ty {
+    fn expr_ty(&self, id: ExprId) -> &'a Ty {
         &self.types.exprs[id]
     }
 
@@ -2357,7 +2375,8 @@ fn is_atomic(e: &Expr) -> bool {
 fn unshowable(ty: &Type) -> Option<&'static str> {
     match ty {
         Type::Param(_) => Some("showing a value of a type parameter"),
-        Type::Fn => Some("showing a function"),
+        Type::Fn(_) => Some("showing a function"),
+        Type::Handler(_) => Some("showing a capability value"),
         Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(unshowable),
         Type::List(t) => unshowable(t),
         _ => None,

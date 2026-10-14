@@ -139,7 +139,20 @@ impl Printer<'_> {
             Type::Enum(id, ts) if ts.is_empty() => self.m.enums[*id].name.clone(),
             Type::Enum(id, ts) => format!("{}[{}]", self.m.enums[*id].name, list(ts)),
             Type::Param(i) => param_name(*i),
-            Type::Fn => "fn".into(),
+            Type::Fn(f) => {
+                let mut s = format!("fn({}) -> {}", list(&f.params), self.ty(&f.ret));
+                for (flag, name) in [
+                    (f.fails, " fails"),
+                    (f.suspends, " suspends"),
+                    (f.ev, " ev"),
+                ] {
+                    if flag {
+                        s.push_str(name);
+                    }
+                }
+                s
+            }
+            Type::Handler(e) => format!("handler {}", self.m.effects[*e].name),
         }
     }
 
