@@ -1,7 +1,7 @@
 //! The Core IR and lowering from the typed tree.
 //!
-//! Derive expansion, self tail call loopification (spec 6.8) and layer wiring (spec 8.5) are done
-//! here, so backends only see desugared IR.
+//! Derive expansion, self tail call loopification (spec 6.8, applied once at the end of `lower`)
+//! and layer wiring (spec 8.5) are done here, so backends only see desugared IR.
 
 pub mod build;
 mod dump;

@@ -27,7 +27,7 @@ pub trait JsBackend<P> {
 - `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli の `check` と LSP はこれを使う
 - `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．自己末尾呼び出しのループ化をかけて emela-codegen-js で出す．cli の `build` と `run` は `Lower` と組み合わせて使う
+- `CoreJs` は `JsBackend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
 
 ## テスト（`emela test`，仕様 13章）
 
@@ -63,7 +63,7 @@ pub trait TestBackend<P> {
 - （補）テストの表示名は，エントリのモジュールなら関数名だけ（`greet_returns_user`），ほかのモジュールならモジュール名を付ける（`Http.Client.gets`）．`cargo test` がクレートのルートだけ前置きを付けないのに合わせた．フィルタはこの表示名の部分一致（大文字小文字を区別する）
 - （補）単独ファイルでは，エントリから import でたどれるモジュールのテストだけを実行する（読むモジュールの規則と同じ）
 - （補）テストの JS の出力先は `target/emela/test`（`--out-dir` で変えられる）．テスト関数を export した別の出力なので，通常のビルドの `target/emela/js` を上書きしない
-- （補）`CoreJs` のテストの出力は `main.mjs`（選んだテスト関数を Emela の名前で export する），ランタイム，起動用モジュール `emela_test.mjs` の3つ．node は起動用モジュールを直接実行する（`run` の起動用モジュールは使わない）
+- （補）`CoreJs` のテストの出力は `main.mjs`（選んだテスト関数を Emela の名前で export する．IR の `exported` は書き換えず，`emit_module_exporting` に渡す），ランタイム，起動用モジュール `emela_test.mjs` の3つ．node は起動用モジュールを直接実行する（`run` の起動用モジュールは使わない）
 - （補）テストランナーは結果を標準出力に1行ずつ `\x1eemela-test ` + JSON で書き，driver が読みながら表示する．結果の行でない標準出力はそのまま流す．node の標準エラーは `Output::Inherit` なら素通し，`Capture` なら `TestReport::stderr` に集める．標準入力は渡さない
 - （補）結果の表示は `cargo test` に近い形: `running 3 tests`，`test name ... ok` / `FAILED`，失敗の詳細（`---- name ----` の後に `defect: <message>` か `error: <エラーの表示>`），失敗の一覧，`test result: ok. 3 passed; 0 failed; 0 filtered out`．かかった時間は出さない（出力を比べるテストのため）
 - （補）中断しうるテスト関数（返り値がジェネレータ）は，`main.mjs` が公開する `$start` で進めて終わるまで待つ．resume されないままイベントループが空になったら（`beforeExit`），そのテストの結果を `interrupted`（`TestOutcome::Interrupted`）にして次のテストへ進む（14.5）．失敗の詳細は `interrupted` の1行

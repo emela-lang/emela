@@ -192,7 +192,8 @@ fn missing_node_is_a_diagnostic() {
     assert_eq!(messages, ["`/nonexistent/node` not found"]);
 }
 
-/// A frontend that returns hand-built Core IR in place of the type checking results.
+/// A frontend that returns hand-built Core IR in place of the type checking results. Like
+/// `emela_core::lower`, it hands the IR on loopified.
 struct HandBuiltIr(emela_core::Module);
 
 impl Frontend for HandBuiltIr {
@@ -203,8 +204,10 @@ impl Frontend for HandBuiltIr {
     }
 
     fn check(&mut self, _: &Analysis, _: &[ModuleId]) -> Checked<emela_core::Module> {
+        let mut module = self.0.clone();
+        emela_core::tail::loopify(&mut module);
         Checked {
-            program: Some(self.0.clone()),
+            program: Some(module),
             diagnostics: Vec::new(),
         }
     }
