@@ -1,0 +1,9 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+fn main() {
+  print("#{Float.round(1.0e9)}")
+  print("#{Int.shift_left(1, 3)}")
+  print("#{Float.floor(3.0e10)}")
+}

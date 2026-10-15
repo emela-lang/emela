@@ -1,0 +1,74 @@
+import Std.State.{State}
+
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Store {
+  fn get(key: String) -> String
+}
+
+handler PrintLog implements Log {
+  fn log(msg) { print("log: #{msg}") }
+}
+
+handler Prefixed(prefix: String) implements Store {
+  init {
+    (use Log).log("open")
+    Prefixed(prefix: "p")
+  }
+
+  release {
+    (use Log).log("close #{self.prefix}")
+  }
+
+  fn get(key) { "#{self.prefix}/#{key}" }
+}
+
+handler Counter(start: Int) implements Store {
+  init { Counter(start: 10) }
+  fn get(key) { "#{key}=#{self.start}" }
+}
+
+fn lookup(keys: List[String]) -> List[String] {
+  store = use Store
+  List.map(keys, fn(k) { store.get(k) })
+}
+
+fn count(n: Int) -> Int {
+  st = use State[Int]
+  if n == 0 {
+    st.get()
+  } else {
+    st.update(fn(x) { x + n })
+    count(n - 1)
+  }
+}
+
+fn main() {
+  with PrintLog, Prefixed {
+    print("#{lookup(["a", "b"])}")
+    with Counter {
+      print("#{lookup(["c"])}")
+    }
+    print((use Store).get("d"))
+  }
+  (total, final) = State.run(0, fn() { count(100) })
+  print("#{total} #{final}")
+  (lines, kept) = State.run(["start"], fn() {
+    st = use State[List[String]]
+    st.set(List.append(st.get(), ["more"]))
+    st.update(fn(xs) { [List.length(xs) |> Int.to_string, ..xs] })
+    st.get()
+  })
+  print("#{lines} #{kept}")
+  adders = List.map([1, 2, 3], fn(n) { fn(x) { x + n } })
+  print("#{List.map(adders, fn(f) { f(10) })}")
+  compose = fn(f, g) { fn(x) { g(f(x)) } }
+  twice = compose(fn(x) { x * 2 }, fn(x) { "#{x}!" })
+  print(twice(21))
+}

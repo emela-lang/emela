@@ -1,0 +1,15 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Rejected(reason: String, score: Float, tags: List[String])
+
+fn judge(n: Int) -> Int fails Rejected {
+  if n > 1 { fail Rejected(reason: "too \"big\"", score: 2.5, tags: ["x", "y"]) }
+  n
+}
+
+fn main() {
+  print("#{judge(1)}")
+  print("#{judge(2)}")
+}

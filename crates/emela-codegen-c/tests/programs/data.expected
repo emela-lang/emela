@@ -1,0 +1,16 @@
+exit: 0
+--- stdout
+[3.0, 6.0, 1.0, 0.0]
+[Circle(radius: 1.0), Rect(2.0, 3.0), Group([Rect(1.0, 1.0), Empty]), Empty]
+["red", "green", "blue"] [Red, Blue] True False
+Point(x: 1, y: 2) Point(x: 1, y: 5) True False 6
+[1, 2, 3, 4, 5, 6, 7, 8, 9]
+Node(Node(Leaf, 1, Leaf), 2, Leaf)
+empty one 7 starts 1 2 then [3, 4] down other
+[4, 3, 2, 1, 0] [0, 2, 4, 6, 8]
+[(1, "a"), (2, "b")] ([3, 4], [1, 2])
+Some(2) None Some("x") None
+True False True [(1, 2.5)]
+Some(Some(1)) Some(20) 3 [Some("s"), None]
+[1, 2, 3] [1, 2] True True
+--- stderr

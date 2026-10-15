@@ -1,0 +1,12 @@
+exit: 0
+--- stdout
+log: open
+["p/a", "p/b"]
+["c=10"]
+p/d
+log: close p
+5050 5050
+["2", "start", "more"] ["2", "start", "more"]
+[11, 12, 13]
+42!
+--- stderr

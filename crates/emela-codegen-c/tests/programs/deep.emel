@@ -1,0 +1,32 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+enum Chain {
+  End
+  Link(Int, Chain)
+}
+
+fn build(n: Int, acc: Chain) -> Chain {
+  if n == 0 { acc } else { build(n - 1, Link(n, acc)) }
+}
+
+fn sum_chain(c: Chain, acc: Int) -> Int {
+  c match {
+    End -> acc
+    Link(x, rest) -> sum_chain(rest, acc + x)
+  }
+}
+
+fn count_up(i: Int, n: Int) -> Int {
+  if i >= n { i } else { count_up(i + 1, n) }
+}
+
+fn main() {
+  # A long list and a deep enum: building, walking and freeing them must not use the stack.
+  xs = List.range(0, 1000000)
+  print("#{List.length(xs)} #{List.fold(xs, from: 0, f: fn(a, x) { Int.bit_xor(a, x) })}")
+  c = build(1000000, End)
+  print("#{sum_chain(c, 0)}")
+  print("#{count_up(0, 10000000)}")
+}

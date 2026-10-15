@@ -79,6 +79,12 @@ name = "emela-codegen-wasm"
 version_group = "emela"
 
 [[package]]
+name = "emela-codegen-c"
+version_group = "emela"
+# Added after the last release; see emela-lir above.
+git_tag_name = "emela-codegen-c-v{{ version }}"
+
+[[package]]
 name = "emela-fmt"
 version_group = "emela"
 
@@ -111,6 +117,7 @@ changelog_include = [
   "emela-lir",
   "emela-codegen-js",
   "emela-codegen-wasm",
+  "emela-codegen-c",
   "emela-fmt",
   "emela-driver",
   "emela-lsp",

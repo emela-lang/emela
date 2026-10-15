@@ -1,0 +1,10 @@
+exit: 1
+--- stdout
+user 1
+missing 3
+far 9
+invalid: negative
+empty
+nf
+--- stderr
+error: Invalid(reason: "negative", codes: [-7, 0])

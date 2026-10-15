@@ -1,0 +1,9 @@
+exit: 101
+--- stdout
+inner 1
+release inner
+total 6
+release outer
+--- stderr
+defect: division by zero
+note: the release of handler Outer also failed: outer release failed

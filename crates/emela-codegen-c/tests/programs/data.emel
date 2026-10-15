@@ -1,0 +1,81 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Group(List[Shape])
+  Empty
+}
+
+enum Color { Red, Green, Blue }
+
+type Point(x: Int, y: Int)
+
+enum Tree {
+  Leaf
+  Node(Tree, Int, Tree)
+}
+
+fn area(s: Shape) -> Float {
+  s match {
+    Circle(radius:) -> 3.0 * radius * radius
+    Rect(w, h) -> w * h
+    Group(items) -> List.fold(items, from: 0.0, f: fn(acc, i) { acc + area(i) })
+    Empty -> 0.0
+  }
+}
+
+fn insert(t: Tree, v: Int) -> Tree {
+  t match {
+    Leaf -> Node(Leaf, v, Leaf)
+    Node(l, x, r) if v < x -> Node(insert(l, v), x, r)
+    Node(l, x, r) -> Node(l, x, insert(r, v))
+  }
+}
+
+fn to_list(t: Tree, acc: List[Int]) -> List[Int] {
+  t match {
+    Leaf -> acc
+    Node(l, x, r) -> to_list(l, [x, ..to_list(r, acc)])
+  }
+}
+
+fn name(c: Color) -> String {
+  c match {
+    Red -> "red"
+    Green -> "green"
+    Blue -> "blue"
+  }
+}
+
+fn classify(xs: List[Int]) -> String {
+  xs match {
+    [] -> "empty"
+    [x] -> "one #{x}"
+    [1, 2, ..rest] -> "starts 1 2 then #{rest}"
+    [x, y, ..] if x > y -> "down"
+    _ -> "other"
+  }
+}
+
+fn main() {
+  shapes = [Circle(radius: 1.0), Rect(2.0, 3.0), Group([Rect(1.0, 1.0), Empty]), Empty]
+  print("#{List.map(shapes, area)}")
+  print("#{shapes}")
+  print("#{List.map([Red, Green, Blue], name)} #{[Red, Blue]} #{Green == Green} #{Red == Blue}")
+  p = Point(x: 1, y: 2)
+  q = Point(y: 5, ..p)
+  print("#{p} #{q} #{p == Point(x: 1, y: 2)} #{p == q} #{p.x + q.y}")
+  t = List.fold([5, 3, 8, 1, 4, 7, 9, 2, 6], from: Leaf, f: insert)
+  print("#{to_list(t, [])}")
+  print("#{insert(insert(Leaf, 2), 1)}")
+  print("#{classify([])} #{classify([7])} #{classify([1, 2, 3, 4])} #{classify([3, 1])} #{classify([1, 5])}")
+  print("#{List.reverse(List.range(0, 5))} #{List.filter(List.range(0, 10), fn(x) { x % 2 == 0 })}")
+  print("#{List.zip([1, 2, 3], ["a", "b"])} #{List.partition([1, 2, 3, 4], fn(x) { x > 2 })}")
+  print("#{List.get([1, 2, 3], 1)} #{List.get([1, 2, 3], 5)} #{List.head(["x"])} #{List.find([1, 2, 3], fn(x) { x > 5 })}")
+  print("#{[[1, 2], [3]] == [[1, 2], [3]]} #{[[1, 2], [3]] == [[1, 2], [4]]} #{(1, "a") == (1, "a")} #{[(1, 2.5)]}")
+  print("#{Some(Some(1))} #{Option.map(Some(2), fn(x) { x * 10 })} #{Option.or(None, 3)} #{[Some("s"), None]}")
+  print("#{List.flatten([[1], [], [2, 3]])} #{List.append([1], [2])} #{List.any([1, 2], fn(x) { x == 2 })} #{List.all([], fn(x) { x == 2 })}")
+}
