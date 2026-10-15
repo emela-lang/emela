@@ -304,6 +304,9 @@ name = "emela-lir"
 version = "0.20.1"
 dependencies = [
  "emela-core",
+ "emela-resolve",
+ "emela-syntax",
+ "emela-types",
  "insta",
  "la-arena",
  "rustc-hash 2.1.3",

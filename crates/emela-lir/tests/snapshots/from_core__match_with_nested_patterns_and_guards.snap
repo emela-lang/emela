@@ -1,0 +1,106 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"describe\", \"word\", \"units\"])"
+---
+fn describe(s%0: ref (Shape), n%1: i32 (Int)) -> ref (String) {
+  t%2: ref ((Shape, Int)) = tuple(s%0, n%1)
+  t%13: ref (String) = block 'match%0 {
+    x%3: ref (Shape) = tuple_get t%2#0
+    x%4: i32 (Int) = tuple_get t%2#1
+    block 'next%1 {
+      switch tag(x%3) {
+        case Shape.Circle {
+          x%5: f64 (Float) = field x%3 Shape.Circle.radius#0
+          t%6: i32 (Bool) = x%5 >[f64] 10.0
+          if t%6 {
+            break 'match%0("big circle")
+          } else {}
+          switch x%4 {
+            case 0 {
+              break 'match%0("circle zero")
+            }
+            default {
+              break 'next%1
+            }
+          }
+          unreachable
+        }
+        case Shape.Group {
+          x%7: ref (List[Shape]) = field x%3 Shape.Group#0
+          t%8: i32 (Bool) = list_is_empty x%7
+          if t%8 {
+            break 'match%0("empty group")
+          } else {
+            head%9: ref (Shape) = list_head x%7
+            tail%10: ref (List[Shape]) = list_tail x%7
+            switch tag(head%9) {
+              case Shape.Rect {
+                x%11: f64 (Float) = field head%9 Shape.Rect#0
+                t%12: i32 (Bool) = x%4 >[i32] 1
+                if t%12 {
+                  break 'match%0("group of rect")
+                } else {}
+                break 'next%1
+              }
+              default {
+                break 'next%1
+              }
+            }
+            unreachable
+          }
+          unreachable
+        }
+        default {
+          break 'next%1
+        }
+      }
+      unreachable
+    }
+    block 'next%2 {
+      switch x%4 {
+        case 1 {
+          break 'match%0("one")
+        }
+        default {
+          break 'next%2
+        }
+      }
+      unreachable
+    }
+    break 'match%0("other")
+  }
+  return t%13
+}
+
+fn word(s%0: ref (String)) -> i32 (Int) {
+  t%3: i32 (Int) = block 'match%0 {
+    block 'next%1 {
+      t%1: i32 (Bool) = s%0 ==[string] "a"
+      if t%1 {
+        break 'match%0(1)
+      } else {}
+      t%2: i32 (Bool) = s%0 ==[string] "b"
+      if t%2 {
+        break 'match%0(2)
+      } else {}
+      break 'next%1
+    }
+    break 'match%0(0)
+  }
+  return t%3
+}
+
+fn units(xs%0: ref (List[()])) -> i32 (Int) {
+  t%4: i32 (Int) = block 'match%0 {
+    t%1: i32 (Bool) = list_is_empty xs%0
+    if t%1 {
+      break 'match%0(0)
+    } else {
+      tail%2: ref (List[()]) = list_tail xs%0
+      t%3: i32 (Int) = call List.length[()](tail%2)
+      break 'match%0(t%3)
+    }
+    unreachable
+  }
+  return t%4
+}

@@ -1,0 +1,28 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\", \"nap\", \"InstantClock\"])"
+---
+export fn main() -> i32 (Int) {
+  h%0: ref (handler Clock) = call InstantClock()
+  ev%1: ref (evidence) = ev_extend([Clock: h%0])
+  t%2: i32 (Int) = call nap(1, ev%1)!
+  s%3: ref (String) = builtin Int.to_string(t%2)
+  runtime debug_print(s%3)
+  return t%2
+}
+
+fn InstantClock() -> ref (handler Clock) {
+  f%2: ref (fn(Int, fn(Int) -> ()) -> ()) = closure(ms%0: i32 (Int), resume%1: ref (fn(Int) -> ())) [] {
+    call_indirect resume%1(ms%0)
+    return
+  }
+  t%3: ref (handler Clock) = handler InstantClock: Clock { sleep: f%2 }
+  return t%3
+}
+
+suspend fn nap(ms%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) {
+  t%2: ref (handler Clock) = ev_lookup(ev%1, Clock)
+  t%3: i32 (Int) = call_op t%2.Clock#sleep(ms%0)!
+  t%4: i32 (Int) = t%3 +[i32] 1
+  return t%4
+}

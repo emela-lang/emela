@@ -1,0 +1,50 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\", \"work\", \"Counted\"])"
+---
+export fn main() -> i32 (Int) {
+  self%0: ref (Counted) = call Counted$init()
+  h%1: ref (handler Pool) = call Counted(self%0)
+  t%6: i32 (Int) = protect {
+    ev%2: ref (evidence) = ev_extend([Pool: h%1])
+    t%3: i32 (Int) = call work(ev%2)
+    s%4: ref (String) = builtin Int.to_string(t%3)
+    runtime debug_print(s%4)
+    yield t%3
+  } cleanup {
+    protect {
+      t%5: i32 (Int) = call Counted$release(self%0)
+    } cleanup {
+      runtime retire(h%1, "Counted")
+    }
+  }
+  return t%6
+}
+
+fn Counted$init() -> ref (Counted) {
+  t%0: ref (Counted) = make Counted.Counted(1)
+  return t%0
+}
+
+fn Counted(self%0: ref (Counted)) -> ref (handler Pool) {
+  f%2: ref (fn() -> Int) = closure() [self%0] {
+    t%1: i32 (Int) = field self%0 Counted.Counted.n#0
+    return t%1
+  }
+  t%3: ref (handler Pool) = handler Counted: Pool { get: f%2 }
+  return t%3
+}
+
+fn Counted$release(self%0: ref (Counted)) -> i32 (Int) {
+  t%1: i32 (Int) = field self%0 Counted.Counted.n#0
+  s%2: ref (String) = builtin Int.to_string(t%1)
+  runtime debug_print(s%2)
+  return t%1
+}
+
+fn work(ev%0: ref (evidence)) -> i32 (Int) {
+  t%1: ref (handler Pool) = ev_lookup(ev%0, Pool)
+  t%2: i32 (Int) = call_op t%1.Pool#get()
+  t%3: i32 (Int) = t%2 +[i32] 1
+  return t%3
+}

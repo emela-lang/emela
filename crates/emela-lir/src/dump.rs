@@ -7,7 +7,9 @@
 //! destination; a sequence ends with its terminator, except that a `yield` without value is not
 //! written. The keywords are those of the LIR design (`call`, `call_indirect`, `call_op`,
 //! `builtin`, `make`, `field`, `tag`, `closure`, `ev_lookup`, `ev_extend`, `handler`, `fiber`,
-//! `block`, `break`, `loop`, `recur`, `protect`, `cleanup`). Functions are printed in ID order.
+//! `block`, `break`, `loop`, `recur`, `protect`, `cleanup`), plus `is_error`, `as_error`,
+//! `runtime` and `coerce`; the placeholder of `()` in a container is `()`. Functions are printed
+//! in ID order.
 //! The output is deterministic and not meant to be parsed back.
 //!
 //! ```text
@@ -422,6 +424,20 @@ impl Printer<'_> {
                 if op.suspends() { "!" } else { "" },
                 self.on_fail(on_fail)
             ),
+            Value::IsError { error, enum_id } => format!(
+                "is_error {} {}",
+                self.var(*error),
+                self.m.core.enums[*enum_id].name
+            ),
+            Value::AsError { error, enum_id } => format!(
+                "as_error {} {}",
+                self.var(*error),
+                self.m.core.enums[*enum_id].name
+            ),
+            Value::Runtime { op, args } => {
+                format!("runtime {}({})", op.name(), self.operands(args))
+            }
+            Value::Coerce(v) => format!("coerce {}", self.var(*v)),
         };
         self.out.push_str(&text);
     }
@@ -490,6 +506,7 @@ fn const_text(c: &Const) -> String {
         Const::Float(x) => format!("{x:?}"),
         Const::Bool(b) => b.to_string(),
         Const::String(s) => format!("{s:?}"),
+        Const::Unit => "()".to_owned(),
     }
 }
 

@@ -522,8 +522,8 @@ fn shared_node() {
 #[test]
 fn make_checks_fields_with_type_arguments() {
     let (fx, mut m) = module();
-    // `type Box[A](value: A, tag: ())`: the `()` field takes no argument, the `A` field one of
-    // the type argument's representation.
+    // `type Box[A](value: A, tag: ())`: the `()` field takes the placeholder `()`, the `A` field
+    // a value of the type argument's representation.
     let a = m.core.type_param(0);
     let boxed = m.core.add_enum(emela_core::EnumDef {
         name: "Box".into(),
@@ -539,7 +539,10 @@ fn make_checks_fields_with_type_arguments() {
         box_float,
         Value::Make {
             ctor: fx.ctor(boxed, 0),
-            args: vec![Operand::Const(emela_lir::Const::Float(1.0))],
+            args: vec![
+                Operand::Const(emela_lir::Const::Float(1.0)),
+                Operand::Const(emela_lir::Const::Unit),
+            ],
         },
     );
     b.assign(
@@ -547,11 +550,23 @@ fn make_checks_fields_with_type_arguments() {
         box_float,
         Value::Make {
             ctor: fx.ctor(boxed, 0),
-            args: vec![int(1)],
+            args: vec![int(1), Operand::Const(emela_lir::Const::Unit)],
+        },
+    );
+    // The `()` field still has its slot.
+    b.assign(
+        "short",
+        box_float,
+        Value::Make {
+            ctor: fx.ctor(boxed, 0),
+            args: vec![Operand::Const(emela_lir::Const::Float(1.0))],
         },
     );
     b.term(Term::Return(None));
-    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::ReprMismatch]);
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::ReprMismatch, ErrorKind::Arity]
+    );
 }
 
 #[test]
