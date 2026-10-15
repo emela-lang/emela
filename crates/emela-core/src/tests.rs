@@ -5,8 +5,8 @@ use crate::*;
 fn fact_module() -> (Module, FnId) {
     let mut m = Module::new();
     let fact = m.declare("fact", true);
-    let n = m.local("n", Type::Int);
-    let acc = m.local("acc", Type::Int);
+    let n = m.local("n", TypeId::INT);
+    let acc = m.local("acc", TypeId::INT);
     let body = if_(
         bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
         var(acc),
@@ -18,7 +18,7 @@ fn fact_module() -> (Module, FnId) {
             ],
         ),
     );
-    m.define(fact, vec![n, acc], Type::Int, body);
+    m.define(fact, vec![n, acc], TypeId::INT, body);
     (m, fact)
 }
 
@@ -55,7 +55,7 @@ fn loopify_leaves_non_tail_calls() {
     // fn sum(n) = if n == 0 then 0 else n + sum(n - 1)
     let mut m = Module::new();
     let sum = m.declare("sum", false);
-    let n = m.local("n", Type::Int);
+    let n = m.local("n", TypeId::INT);
     let body = if_(
         bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
         int(0),
@@ -66,7 +66,7 @@ fn loopify_leaves_non_tail_calls() {
             call(sum, vec![bin(BinOp::Sub, OpTy::Int, var(n), int(1))]),
         ),
     );
-    m.define(sum, vec![n], Type::Int, body.clone());
+    m.define(sum, vec![n], TypeId::INT, body.clone());
     tail::loopify(&mut m);
     assert_eq!(m.functions[sum].body, body);
 }
@@ -78,17 +78,17 @@ fn loopify_ignores_calls_inside_lambda_and_other_functions() {
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
-    let n = m.local("n", Type::Int);
-    let n2 = m.local("n", Type::Int);
-    let thunk = Type::func(FnType {
+    let n = m.local("n", TypeId::INT);
+    let n2 = m.local("n", TypeId::INT);
+    let thunk = m.func(FnType {
         params: vec![],
-        ret: Type::Unit,
+        ret: TypeId::UNIT,
         fails: false,
         suspends: false,
         ev: false,
     });
     let fb = lambda(vec![], call(f, vec![var(n)]));
-    m.define(f, vec![n], thunk.clone(), fb.clone());
+    m.define(f, vec![n], thunk, fb.clone());
     m.define(g, vec![n2], thunk, call(f, vec![var(n2)]));
     tail::loopify(&mut m);
     assert_eq!(m.functions[f].body, fb);
@@ -100,10 +100,11 @@ fn loopify_through_let_and_match() {
     // fn len(xs, acc) = let ys = xs; match ys { [] => acc, [_, ..rest] => len(rest, acc + 1) }
     let mut m = Module::new();
     let len = m.declare("len", false);
-    let xs = m.local("xs", Type::list(Type::Int));
-    let acc = m.local("acc", Type::Int);
-    let ys = m.local("ys", Type::list(Type::Int));
-    let rest = m.local("rest", Type::list(Type::Int));
+    let ints = m.list(TypeId::INT);
+    let xs = m.local("xs", ints);
+    let acc = m.local("acc", TypeId::INT);
+    let ys = m.local("ys", ints);
+    let rest = m.local("rest", ints);
     let body = let_(
         ys,
         var(xs),
@@ -121,7 +122,7 @@ fn loopify_through_let_and_match() {
             ],
         ),
     );
-    m.define(len, vec![xs, acc], Type::Int, body);
+    m.define(len, vec![xs, acc], TypeId::INT, body);
     assert!(tail::loopify_function(&mut m, len));
     let Expr::Loop { vars, body, .. } = &m.functions[len].body else {
         panic!()
@@ -148,7 +149,7 @@ fn named_args_in_positional_order_are_untouched() {
     let f = m.declare("f", false);
     let e = named::in_written_order(
         &mut m,
-        vec![(0, int(1), Type::Int), (1, int(2), Type::Int)],
+        vec![(0, int(1), TypeId::INT), (1, int(2), TypeId::INT)],
         |args| call(f, args),
     );
     assert_eq!(e, call(f, vec![int(1), int(2)]));
@@ -160,9 +161,9 @@ fn named_args_keep_written_evaluation_order() {
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
-    let h_ty = Type::func(FnType {
+    let h_ty = m.func(FnType {
         params: vec![],
-        ret: Type::Int,
+        ret: TypeId::INT,
         fails: false,
         suspends: false,
         ev: false,
@@ -171,9 +172,9 @@ fn named_args_keep_written_evaluation_order() {
     let e = named::in_written_order(
         &mut m,
         vec![
-            (1, call(g, vec![]), Type::Int),
-            (0, int(1), Type::Int),
-            (2, call_value(var(h), vec![]), Type::Int),
+            (1, call(g, vec![]), TypeId::INT),
+            (0, int(1), TypeId::INT),
+            (2, call_value(var(h), vec![]), TypeId::INT),
         ],
         |args| call(f, args),
     );
@@ -205,14 +206,15 @@ fn loopify_through_short_circuit() {
     let mut m = Module::new();
     for (name, op) in [("all_pos", BinOp::And), ("any_zero", BinOp::Or)] {
         let f = m.declare(name, false);
-        let xs = m.local("xs", Type::list(Type::Int));
-        let x = m.local("x", Type::Int);
-        let rest = m.local("rest", Type::list(Type::Int));
+        let ints = m.list(TypeId::INT);
+        let xs = m.local("xs", ints);
+        let x = m.local("x", TypeId::INT);
+        let rest = m.local("rest", ints);
         let test = bin(BinOp::Gt, OpTy::Int, var(x), int(0));
         m.define(
             f,
             vec![xs],
-            Type::Bool,
+            TypeId::BOOL,
             match_(
                 var(xs),
                 vec![
@@ -301,19 +303,48 @@ fn option_enum_is_shared() {
     assert_eq!(m.some_ctor().variant, OPTION_SOME);
     let none = m.none_ctor();
     assert_eq!(m.variant(none).name, "None");
-    assert_eq!(m.enums[a].variants[OPTION_SOME].tys, vec![Type::Param(0)]);
+    let a0 = m.type_param(0);
+    assert_eq!(m.enums[a].variants[OPTION_SOME].tys, vec![a0]);
 }
 
 #[test]
 fn type_subst_replaces_params() {
     let mut m = Module::new();
     let opt = m.option_enum();
-    let t = Type::list(Type::Enum(opt, vec![Type::Param(0)]));
-    assert_eq!(
-        t.subst(&[Type::Tuple(vec![Type::Int, Type::String])]),
-        Type::list(Type::Enum(
-            opt,
-            vec![Type::Tuple(vec![Type::Int, Type::String])]
-        ))
-    );
+    let a = m.type_param(0);
+    let opt_a = m.enum_type(opt, vec![a]);
+    let t = m.list(opt_a);
+    let pair = m.tuple(vec![TypeId::INT, TypeId::STRING]);
+    let opt_pair = m.enum_type(opt, vec![pair]);
+    let expected = m.list(opt_pair);
+    assert_eq!(m.types.subst(t, &[pair]), expected);
+    // A type without parameters is returned as is, and equal types are one ID.
+    assert_eq!(m.types.subst(pair, &[TypeId::BOOL]), pair);
+    assert_eq!(m.tuple(vec![TypeId::INT, TypeId::STRING]), pair);
+    assert!(m.types.has_param(t));
+    assert!(!m.types.has_param(expected));
+}
+
+#[test]
+fn types_are_interned() {
+    let mut m = Module::new();
+    assert_eq!(m.intern(Type::Int), TypeId::INT);
+    assert_eq!(m.intern(Type::Any), TypeId::ANY);
+    assert_eq!(m.ty(TypeId::FIBER_SCOPE), &Type::FiberScope);
+    let f = FnType {
+        params: vec![TypeId::INT],
+        ret: TypeId::BOOL,
+        fails: false,
+        suspends: false,
+        ev: false,
+    };
+    let a = m.func(f.clone());
+    let b = m.func(f.clone());
+    assert_eq!(a, b);
+    let c = m.func(FnType { fails: true, ..f });
+    assert_ne!(a, c);
+    let n = m.types.len();
+    m.list(a);
+    m.list(b);
+    assert_eq!(m.types.len(), n + 1);
 }

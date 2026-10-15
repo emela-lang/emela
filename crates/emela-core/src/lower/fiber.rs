@@ -16,7 +16,7 @@ use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};
 
 use super::{Call, Lowerer, Target};
-use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, Type};
+use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, TypeId};
 
 /// `@intrinsic` functions that lowering maps to `Expr::Fiber`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -354,13 +354,14 @@ impl Lowerer<'_> {
         let body_ty = self.ty(&fn_ty.params[0]);
         // The child function as wrapped by `ForkCall`: it takes the table at the `Fiber.scope`
         // call and returns the child's value, whose type each fork chooses.
-        let g_ty = Type::func(FnType {
-            params: vec![Type::Evidence],
-            ret: Type::Any,
+        let g_ty = self.module.func(FnType {
+            params: vec![TypeId::EVIDENCE],
+            ret: TypeId::ANY,
             fails: call.fails,
             suspends: true,
             ev: false,
         });
+        let handler_ty = self.module.handler(effect);
         Some(ScopeCall {
             effect,
             ops,
@@ -371,8 +372,8 @@ impl Lowerer<'_> {
                 suspends: self.row_suspends(&body.uses),
             },
             body: self.module.local("body", body_ty),
-            scope: self.module.local("s", Type::FiberScope),
-            handler: self.module.local("scope", Type::Handler(effect)),
+            scope: self.module.local("s", TypeId::FIBER_SCOPE),
+            handler: self.module.local("scope", handler_ty),
             g: self.module.local("g", g_ty),
         })
     }
@@ -398,6 +399,7 @@ impl Lowerer<'_> {
         };
         let f_ty = op_ty.params.first()?;
         let f_ir_ty = self.ty(f_ty);
+        let cap_ty = self.module.handler(effect);
         Some(ForkCall {
             handler,
             effect,
@@ -407,7 +409,7 @@ impl Lowerer<'_> {
                 suspends: self.ty_suspends(f_ty),
             },
             f_takes_ev: self.ty_takes_ev(f_ty),
-            cap: self.module.local("scope", Type::Handler(effect)),
+            cap: self.module.local("scope", cap_ty),
             f: self.module.local("f", f_ir_ty),
             ev: self.ev_local(),
         })

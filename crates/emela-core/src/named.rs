@@ -13,7 +13,7 @@ use crate::ir::*;
 /// If the callee is an expression, the caller is responsible for evaluating it first.
 pub fn in_written_order(
     module: &mut Module,
-    written: Vec<(usize, Expr, Type)>,
+    written: Vec<(usize, Expr, TypeId)>,
     build: impl FnOnce(Vec<Expr>) -> Expr,
 ) -> Expr {
     debug_assert!(

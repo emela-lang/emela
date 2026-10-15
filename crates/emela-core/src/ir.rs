@@ -1,10 +1,11 @@
 //! The Core IR.
 //!
 //! The typed tree after desugaring; backends (JS / WASM) see only this. Everything is referred to
-//! by ID: functions by `FnId`, locals by `Local`, types by `EnumId`. Display names (`name` /
+//! by ID: functions by `FnId`, locals by `Local`, enums by `EnumId`, types by `TypeId`. Display names (`name` /
 //! `hint`) exist only to make output readable.
 
 use la_arena::{Arena, Idx};
+use rustc_hash::FxHashMap;
 
 use crate::intrinsics::Builtin;
 
@@ -27,6 +28,8 @@ pub struct Module {
     /// them are here, so relative imports between them work. Where they go in the output is up to
     /// the backend.
     pub bundled_files: Vec<BundledFile>,
+    /// Every type the module mentions, each once.
+    pub types: TypeTable,
 }
 
 /// A host file bundled with the compiler (under `lib/`).
@@ -43,8 +46,47 @@ impl Module {
         Self::default()
     }
 
+    /// The structure of the type.
+    pub fn ty(&self, id: TypeId) -> &Type {
+        &self.types[id]
+    }
+
+    /// The ID of the type (`TypeTable::intern`).
+    pub fn intern(&mut self, ty: Type) -> TypeId {
+        self.types.intern(ty)
+    }
+
+    pub fn list(&mut self, elem: TypeId) -> TypeId {
+        self.types.list(elem)
+    }
+
+    pub fn tuple(&mut self, elems: Vec<TypeId>) -> TypeId {
+        self.types.tuple(elems)
+    }
+
+    pub fn enum_type(&mut self, id: EnumId, args: Vec<TypeId>) -> TypeId {
+        self.types.enum_type(id, args)
+    }
+
+    pub fn func(&mut self, f: FnType) -> TypeId {
+        self.types.func(f)
+    }
+
+    pub fn cell(&mut self, content: TypeId) -> TypeId {
+        self.types.cell(content)
+    }
+
+    pub fn type_param(&mut self, i: usize) -> TypeId {
+        self.types.type_param(i)
+    }
+
+    pub fn handler(&mut self, effect: EffectId) -> TypeId {
+        self.types.handler(effect)
+    }
+
     /// `hint` is a naming hint for the output and need not be unique.
-    pub fn local(&mut self, hint: &str, ty: Type) -> Local {
+    pub fn local(&mut self, hint: &str, ty: impl IntoTypeId) -> Local {
+        let ty = ty.into_type_id(&mut self.types);
         let hint = if hint.is_empty() { "v" } else { hint };
         self.locals.alloc(LocalData {
             hint: hint.to_owned(),
@@ -63,7 +105,7 @@ impl Module {
             name: name.to_owned(),
             exported,
             params: Vec::new(),
-            ret: Type::Unit,
+            ret: TypeId::UNIT,
             type_params: 0,
             body: Expr::Lit(Lit::Unit),
             external: None,
@@ -73,7 +115,14 @@ impl Module {
     }
 
     /// Makes the function external (spec chapter 12). The body is unused.
-    pub fn define_external(&mut self, f: FnId, params: Vec<Local>, ret: Type, external: External) {
+    pub fn define_external(
+        &mut self,
+        f: FnId,
+        params: Vec<Local>,
+        ret: impl IntoTypeId,
+        external: External,
+    ) {
+        let ret = ret.into_type_id(&mut self.types);
         let func = &mut self.functions[f];
         func.params = params;
         func.ret = ret;
@@ -90,7 +139,8 @@ impl Module {
         self.effects.alloc(def)
     }
 
-    pub fn define(&mut self, f: FnId, params: Vec<Local>, ret: Type, body: Expr) {
+    pub fn define(&mut self, f: FnId, params: Vec<Local>, ret: impl IntoTypeId, body: Expr) {
+        let ret = ret.into_type_id(&mut self.types);
         let func = &mut self.functions[f];
         func.params = params;
         func.ret = ret;
@@ -110,7 +160,8 @@ impl Module {
         if let Some(id) = self.option {
             return id;
         }
-        let id = self.enums.alloc(EnumDef::option());
+        let a = self.types.type_param(0);
+        let id = self.enums.alloc(EnumDef::option(a));
         self.option = Some(id);
         id
     }
@@ -139,7 +190,7 @@ impl Module {
 #[derive(Debug, Clone)]
 pub struct LocalData {
     pub hint: String,
-    pub ty: Type,
+    pub ty: TypeId,
 }
 
 #[derive(Debug, Clone)]
@@ -149,7 +200,7 @@ pub struct Function {
     pub exported: bool,
     /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last.
     pub params: Vec<Local>,
-    pub ret: Type,
+    pub ret: TypeId,
     /// The number of type parameters, referred to by `Type::Param(i)` in the types of the
     /// parameters, the return value and the locals of the body. Includes set parameters (`R(f)`),
     /// which no type refers to, so that indices match the type checker's.
@@ -270,13 +321,13 @@ pub const OPTION_SOME: usize = 0;
 pub const OPTION_NONE: usize = 1;
 
 impl EnumDef {
-    /// Prelude's `enum Option[A] { Some(A), None }`.
-    pub fn option() -> Self {
+    /// Prelude's `enum Option[A] { Some(A), None }`. `a` is `Type::Param(0)`.
+    pub fn option(a: TypeId) -> Self {
         EnumDef {
             name: "Option".to_owned(),
             params: 1,
             variants: vec![
-                VariantDef::positional("Some", vec![Type::Param(0)]),
+                VariantDef::positional("Some", vec![a]),
                 VariantDef::unit("None"),
             ],
             error: false,
@@ -290,7 +341,7 @@ pub struct VariantDef {
     pub fields: VariantFields,
     /// Field types, in `fields` order. Used to build show functions (the stand-in for Show) from
     /// types.
-    pub tys: Vec<Type>,
+    pub tys: Vec<TypeId>,
 }
 
 impl VariantDef {
@@ -302,7 +353,7 @@ impl VariantDef {
         }
     }
 
-    pub fn positional(name: &str, tys: Vec<Type>) -> Self {
+    pub fn positional(name: &str, tys: Vec<TypeId>) -> Self {
         VariantDef {
             name: name.to_owned(),
             fields: VariantFields::Positional(tys.len()),
@@ -310,7 +361,7 @@ impl VariantDef {
         }
     }
 
-    pub fn named(name: &str, fields: Vec<(&str, Type)>) -> Self {
+    pub fn named(name: &str, fields: Vec<(&str, TypeId)>) -> Self {
         let (names, tys) = fields.into_iter().map(|(n, t)| (n.to_owned(), t)).unzip();
         VariantDef {
             name: name.to_owned(),
@@ -320,8 +371,41 @@ impl VariantDef {
     }
 }
 
-/// The type of an IR value. Used for showing (the stand-in for Show), for builtins whose behavior
-/// depends on the type, and by backends that need value representations.
+/// The type of an IR value, as an index into the module's type table ([`Module::types`]). Types are
+/// hash-consed: equal types get equal IDs, so comparing IDs compares types. The structure is read
+/// with [`Module::ty`].
+///
+/// The types without components have fixed IDs (`TypeId::INT`, ...), usable without the module.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeId(u32);
+
+impl TypeId {
+    pub const INT: TypeId = TypeId(0);
+    pub const INT64: TypeId = TypeId(1);
+    pub const FLOAT: TypeId = TypeId(2);
+    pub const BOOL: TypeId = TypeId(3);
+    pub const STRING: TypeId = TypeId(4);
+    pub const UNIT: TypeId = TypeId(5);
+    pub const NEVER: TypeId = TypeId(6);
+    pub const EVIDENCE: TypeId = TypeId(7);
+    pub const FIBER_SCOPE: TypeId = TypeId(8);
+    pub const ANY: TypeId = TypeId(9);
+
+    /// The position in the type table.
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl std::fmt::Debug for TypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TypeId({})", self.0)
+    }
+}
+
+/// The structure of an IR type, with components as [`TypeId`]s. Used for showing (the stand-in
+/// for Show), for builtins whose behavior depends on the type, and by backends that need value
+/// representations.
 ///
 /// The type checker's `emela_types::Ty` rewritten with IR names (`EnumId`, `EffectId`). No type
 /// variables: a type variable left undetermined (an unused `None`'s `Option[?]`) becomes `Unit`,
@@ -336,22 +420,22 @@ pub enum Type {
     Unit,
     Never,
     /// Two or more elements.
-    Tuple(Vec<Type>),
-    List(Box<Type>),
+    Tuple(Vec<TypeId>),
+    List(TypeId),
     /// An enum / type application. The argument count is `EnumDef::params`.
-    Enum(EnumId, Vec<Type>),
+    Enum(EnumId, Vec<TypeId>),
     /// The `i`th type parameter of the enclosing definition: the `EnumDef` in field types, the
     /// function otherwise.
     Param(usize),
     /// A function value (spec 10.6: cannot be shown).
-    Fn(Box<FnType>),
+    Fn(FnType),
     /// A capability value (spec 8.2): the handler value of the effect, returned by `use X`
     /// (`Expr::Use`). Cannot be shown or compared.
     Handler(EffectId),
     /// An evidence table (`Expr::Provide`, spec 16.5).
     Evidence,
     /// A mutable cell holding a value of the type (the state of `State.run`, `Builtin::CellNew`).
-    Cell(Box<Type>),
+    Cell(TypeId),
     /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` and
     /// `FiberOp::Deferred` take (spec 11.2). Not Scope's capability value, which is a `Handler`.
     FiberScope,
@@ -366,8 +450,8 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FnType {
     /// The declared parameters, without the evidence table.
-    pub params: Vec<Type>,
-    pub ret: Type,
+    pub params: Vec<TypeId>,
+    pub ret: TypeId,
     /// Whether a call may fail (the E is not empty, spec 7.2); the same as `Expr::Call::fails`.
     pub fails: bool,
     /// Whether a call may suspend (the R is not Immediate, spec 9.5); the same as
@@ -378,30 +462,153 @@ pub struct FnType {
     pub ev: bool,
 }
 
-impl Type {
-    pub fn list(elem: Type) -> Type {
-        Type::List(Box::new(elem))
+/// The types of a module, each stored once ([`Module::types`]).
+#[derive(Debug, Clone)]
+pub struct TypeTable {
+    types: Vec<Type>,
+    /// Whether the type contains a `Type::Param`, by ID (so that `subst` can skip it).
+    has_param: Vec<bool>,
+    ids: FxHashMap<Type, TypeId>,
+}
+
+impl Default for TypeTable {
+    fn default() -> Self {
+        let mut table = TypeTable {
+            types: Vec::new(),
+            has_param: Vec::new(),
+            ids: FxHashMap::default(),
+        };
+        // In the order of the `TypeId` constants.
+        for t in [
+            Type::Int,
+            Type::Int64,
+            Type::Float,
+            Type::Bool,
+            Type::String,
+            Type::Unit,
+            Type::Never,
+            Type::Evidence,
+            Type::FiberScope,
+            Type::Any,
+        ] {
+            table.intern(t);
+        }
+        debug_assert_eq!(table.types[TypeId::ANY.index()], Type::Any);
+        table
+    }
+}
+
+impl TypeTable {
+    /// The ID of the type, adding it if new. Components must be IDs of this table.
+    pub fn intern(&mut self, ty: Type) -> TypeId {
+        if let Some(&id) = self.ids.get(&ty) {
+            return id;
+        }
+        let id = TypeId(u32::try_from(self.types.len()).expect("too many types"));
+        let has_param = match &ty {
+            Type::Param(_) => true,
+            Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| self.has_param(t)),
+            Type::List(t) | Type::Cell(t) => self.has_param(*t),
+            Type::Fn(f) => f.params.iter().any(|&t| self.has_param(t)) || self.has_param(f.ret),
+            _ => false,
+        };
+        self.ids.insert(ty.clone(), id);
+        self.types.push(ty);
+        self.has_param.push(has_param);
+        id
     }
 
-    pub fn func(f: FnType) -> Type {
-        Type::Fn(Box::new(f))
+    /// The number of distinct types.
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+
+    pub fn list(&mut self, elem: TypeId) -> TypeId {
+        self.intern(Type::List(elem))
+    }
+
+    pub fn tuple(&mut self, elems: Vec<TypeId>) -> TypeId {
+        self.intern(Type::Tuple(elems))
+    }
+
+    pub fn enum_type(&mut self, id: EnumId, args: Vec<TypeId>) -> TypeId {
+        self.intern(Type::Enum(id, args))
+    }
+
+    pub fn func(&mut self, f: FnType) -> TypeId {
+        self.intern(Type::Fn(f))
+    }
+
+    pub fn cell(&mut self, content: TypeId) -> TypeId {
+        self.intern(Type::Cell(content))
+    }
+
+    pub fn type_param(&mut self, i: usize) -> TypeId {
+        self.intern(Type::Param(i))
+    }
+
+    pub fn handler(&mut self, effect: EffectId) -> TypeId {
+        self.intern(Type::Handler(effect))
+    }
+
+    /// Whether the type contains a `Type::Param`.
+    pub fn has_param(&self, ty: TypeId) -> bool {
+        self.has_param[ty.index()]
     }
 
     /// Replaces `Type::Param(i)` with `args[i]`.
-    pub fn subst(&self, args: &[Type]) -> Type {
-        match self {
-            Type::Param(i) => args[*i].clone(),
-            Type::Tuple(ts) => Type::Tuple(ts.iter().map(|t| t.subst(args)).collect()),
-            Type::List(t) => Type::list(t.subst(args)),
-            Type::Enum(id, ts) => Type::Enum(*id, ts.iter().map(|t| t.subst(args)).collect()),
-            Type::Cell(t) => Type::Cell(Box::new(t.subst(args))),
-            Type::Fn(f) => Type::func(FnType {
-                params: f.params.iter().map(|t| t.subst(args)).collect(),
-                ret: f.ret.subst(args),
-                ..**f
-            }),
-            _ => self.clone(),
+    pub fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
+        if !self.has_param(ty) {
+            return ty;
         }
+        let new = match self[ty].clone() {
+            Type::Param(i) => return args[i],
+            Type::Tuple(ts) => Type::Tuple(self.subst_all(&ts, args)),
+            Type::List(t) => Type::List(self.subst(t, args)),
+            Type::Enum(id, ts) => Type::Enum(id, self.subst_all(&ts, args)),
+            Type::Cell(t) => Type::Cell(self.subst(t, args)),
+            Type::Fn(f) => Type::Fn(FnType {
+                params: self.subst_all(&f.params, args),
+                ret: self.subst(f.ret, args),
+                ..f
+            }),
+            _ => unreachable!("a type without components has no `Type::Param`"),
+        };
+        self.intern(new)
+    }
+
+    fn subst_all(&mut self, tys: &[TypeId], args: &[TypeId]) -> Vec<TypeId> {
+        tys.iter().map(|&t| self.subst(t, args)).collect()
+    }
+}
+
+/// A type given by ID, or by structure and interned where it is used (`Module::local`,
+/// `Module::define`).
+pub trait IntoTypeId {
+    fn into_type_id(self, types: &mut TypeTable) -> TypeId;
+}
+
+impl IntoTypeId for TypeId {
+    fn into_type_id(self, _: &mut TypeTable) -> TypeId {
+        self
+    }
+}
+
+impl IntoTypeId for Type {
+    fn into_type_id(self, types: &mut TypeTable) -> TypeId {
+        types.intern(self)
+    }
+}
+
+impl std::ops::Index<TypeId> for TypeTable {
+    type Output = Type;
+
+    fn index(&self, id: TypeId) -> &Type {
+        &self.types[id.index()]
     }
 }
 
@@ -487,7 +694,7 @@ pub enum Expr {
     /// `Builtin::info().ty_params`).
     Builtin {
         op: Builtin,
-        ty_args: Vec<Type>,
+        ty_args: Vec<TypeId>,
         args: Vec<Expr>,
     },
     /// Arguments are in field definition order.
@@ -891,7 +1098,7 @@ pub enum AssertCond {
     Compare {
         op: BinOp,
         op_ty: OpTy,
-        ty: Type,
+        ty: TypeId,
         lhs: Expr,
         rhs: Expr,
     },
@@ -901,7 +1108,7 @@ pub enum AssertCond {
 
 impl Assert {
     /// A comparison assert.
-    pub fn compare(op: BinOp, op_ty: OpTy, ty: Type, lhs: Expr, rhs: Expr, text: &str) -> Expr {
+    pub fn compare(op: BinOp, op_ty: OpTy, ty: TypeId, lhs: Expr, rhs: Expr, text: &str) -> Expr {
         Expr::Assert(Box::new(Assert {
             cond: AssertCond::Compare {
                 op,
@@ -982,7 +1189,7 @@ pub enum StrPart {
     Lit(String),
     /// Embeds the value as a string, using the show function determined by its type (the stand-in
     /// for Show; traits come in 0.21). The type must be concrete, without `Type::Param`.
-    Value(Expr, Type),
+    Value(Expr, TypeId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

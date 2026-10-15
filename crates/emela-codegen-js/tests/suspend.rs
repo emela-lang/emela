@@ -91,8 +91,8 @@ fn int_op(op: BinOp, a: Expr, b: Expr) -> Expr {
 }
 
 /// A function type that neither fails nor takes an evidence table.
-fn fn_ty(params: Vec<Type>, ret: Type, suspends: bool) -> Type {
-    Type::func(FnType {
+fn fn_ty(params: Vec<TypeId>, ret: TypeId, suspends: bool) -> Type {
+    Type::Fn(FnType {
         params,
         ret,
         fails: false,
@@ -103,7 +103,7 @@ fn fn_ty(params: Vec<Type>, ret: Type, suspends: bool) -> Type {
 
 /// The type of resume in Clock's `sleep`: `fn(Int) -> ()`.
 fn resume_ty() -> Type {
-    fn_ty(vec![Type::Int], Type::Unit, false)
+    fn_ty(vec![TypeId::INT], TypeId::UNIT, false)
 }
 
 /// `effect Clock { suspend fn sleep(ms: Int) -> Int }`. `sleep` returns the resumed value.
@@ -122,7 +122,7 @@ fn clock_handler(
     body: impl FnOnce(&mut Module, Local, Local) -> Expr,
 ) -> FnId {
     let f = m.declare(name, false);
-    let ms = m.local("ms", Type::Int);
+    let ms = m.local("ms", TypeId::INT);
     let resume = m.local("resume", resume_ty());
     let body = body(m, ms, resume);
     m.define(
@@ -150,12 +150,13 @@ fn sleep(h: Local, clock: EffectId, ms: i32) -> Expr {
 
 /// An external function calling the host's `setTimeout(callback, ms)`.
 fn set_timeout(m: &mut Module) -> FnId {
+    let callback = m.intern(fn_ty(vec![], TypeId::UNIT, false));
     external(
         m,
         "set_timeout",
         "setTimeout",
-        vec![fn_ty(vec![], Type::Unit, false), Type::Int],
-        Type::Unit,
+        vec![callback, TypeId::INT],
+        TypeId::UNIT,
         false,
     )
 }
@@ -166,8 +167,8 @@ fn external(
     m: &mut Module,
     name: &str,
     path: &str,
-    params: Vec<Type>,
-    ret: Type,
+    params: Vec<TypeId>,
+    ret: TypeId,
     suspends: bool,
 ) -> FnId {
     let f = m.declare(name, false);
@@ -201,7 +202,7 @@ fn suspend_main(
     m.define(
         main,
         vec![],
-        Type::Int,
+        TypeId::INT,
         Expr::With {
             binds: vec![WithBind::new(h, call(handler, vec![]))],
             body: Box::new(body),
@@ -226,13 +227,13 @@ fn immediate_resume_continues_without_suspending() {
     m.functions[count].suspends = true;
     let (h, n, acc) = (
         m.local("h", Type::Handler(clock)),
-        m.local("n", Type::Int),
-        m.local("acc", Type::Int),
+        m.local("n", TypeId::INT),
+        m.local("acc", TypeId::INT),
     );
     m.define(
         count,
         vec![h, n, acc],
-        Type::Int,
+        TypeId::INT,
         if_(
             bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
             var(acc),
@@ -269,7 +270,7 @@ fn later_resume_continues_from_the_callback() {
     // suspend fn wait(ev) = (use Clock).sleep(5) + (use Clock).sleep(7)
     let wait = m.declare("wait", false);
     m.functions[wait].suspends = true;
-    let ev = m.local("ev", Type::Evidence);
+    let ev = m.local("ev", TypeId::EVIDENCE);
     let use_clock = || Expr::Use {
         ctx: Box::new(var(ev)),
         effect: clock,
@@ -277,7 +278,7 @@ fn later_resume_continues_from_the_callback() {
     m.define(
         wait,
         vec![ev],
-        Type::Int,
+        TypeId::INT,
         int_op(
             BinOp::Add,
             call_op(use_clock(), clock, 0, vec![int(5)], false, true),
@@ -285,7 +286,7 @@ fn later_resume_continues_from_the_callback() {
         ),
     );
     suspend_main(&mut m, clock, js_clock, |m, h| {
-        let ctx = m.local("ev", Type::Evidence);
+        let ctx = m.local("ev", TypeId::EVIDENCE);
         let_(
             ctx,
             Expr::Provide {
@@ -304,7 +305,7 @@ fn resuming_twice_in_place_is_a_defect() {
     let mut m = Module::new();
     let clock = clock(&mut m);
     let twice = clock_handler(&mut m, clock, "TwiceClock", |m, ms, resume| {
-        let first = m.local("_", Type::Unit);
+        let first = m.local("_", TypeId::UNIT);
         let_(
             first,
             resume_with(resume, var(ms)),
@@ -326,7 +327,7 @@ fn resuming_twice_later_is_a_defect() {
     let clock = clock(&mut m);
     let set_timeout = set_timeout(&mut m);
     let late = clock_handler(&mut m, clock, "LateTwiceClock", |m, ms, resume| {
-        let first = m.local("_", Type::Unit);
+        let first = m.local("_", TypeId::UNIT);
         call(
             set_timeout,
             vec![
@@ -401,8 +402,8 @@ fn external_promises_are_awaited() {
         &mut m,
         "resolve",
         "Promise.resolve",
-        vec![Type::Int],
-        Type::Int,
+        vec![TypeId::INT],
+        TypeId::INT,
         true,
     );
     let main = m.declare("main", true);
@@ -410,7 +411,7 @@ fn external_promises_are_awaited() {
     m.define(
         main,
         vec![],
-        Type::Int,
+        TypeId::INT,
         int_op(BinOp::Add, call_suspends(resolve, vec![int(41)]), int(1)),
     );
     assert_eq!(run("external_promise", m), "async 42\n");
@@ -425,8 +426,8 @@ fn rejected_promises_are_defects() {
         &mut m,
         "reject",
         "Promise.reject",
-        vec![Type::String],
-        Type::Unit,
+        vec![TypeId::STRING],
+        TypeId::UNIT,
         true,
     );
     let main = m.declare("main", true);
@@ -434,7 +435,7 @@ fn rejected_promises_are_defects() {
     m.define(
         main,
         vec![],
-        Type::Unit,
+        TypeId::UNIT,
         call_suspends(reject, vec![string("boom")]),
     );
     assert_eq!(
@@ -453,13 +454,13 @@ fn suspending_function_values() {
         &mut m,
         "resolve",
         "Promise.resolve",
-        vec![Type::Int],
-        Type::Int,
+        vec![TypeId::INT],
+        TypeId::INT,
         true,
     );
     // suspend fn sleep(ms, resume) { resume(resolve(ms) * 10) }
     let awaiting = m.declare("AwaitingClock", false);
-    let (ms, resume) = (m.local("ms", Type::Int), m.local("resume", resume_ty()));
+    let (ms, resume) = (m.local("ms", TypeId::INT), m.local("resume", resume_ty()));
     m.define(
         awaiting,
         vec![],
@@ -480,11 +481,11 @@ fn suspending_function_values() {
     // suspend fn apply(f) = f()
     let apply = m.declare("apply", false);
     m.functions[apply].suspends = true;
-    let f = m.local("f", fn_ty(vec![], Type::Int, true));
+    let f = m.local("f", fn_ty(vec![], TypeId::INT, true));
     m.define(
         apply,
         vec![f],
-        Type::Int,
+        TypeId::INT,
         call_value_suspends(var(f), vec![]),
     );
 
@@ -503,7 +504,7 @@ fn functions_without_the_mark_are_unchanged() {
     // Unmarked functions are not generators, and `$start` is not exported.
     let mut m = Module::new();
     let main = m.declare("main", true);
-    m.define(main, vec![], Type::Int, int(1));
+    m.define(main, vec![], TypeId::INT, int(1));
     let js = emit_module(
         &m,
         &Options {
@@ -532,7 +533,7 @@ fn immediate_contexts_run_suspending_calls_in_place() {
     m.define(
         twice,
         vec![h],
-        Type::Int,
+        TypeId::INT,
         int_op(
             BinOp::Add,
             sleep(h, clock_effect, 20),
@@ -544,7 +545,7 @@ fn immediate_contexts_run_suspending_calls_in_place() {
     m.define(
         main,
         vec![],
-        Type::Int,
+        TypeId::INT,
         Expr::With {
             binds: vec![WithBind::new(h, call(instant, vec![]))],
             body: Box::new(int_op(
@@ -564,7 +565,7 @@ fn immediate_contexts_run_suspending_calls_in_place() {
     m.define(
         main,
         vec![],
-        Type::Int,
+        TypeId::INT,
         Expr::With {
             binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(sleep(h, clock_effect, 1)),

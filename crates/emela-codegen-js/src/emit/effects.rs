@@ -12,7 +12,8 @@
 //! Promise the host returns, passing an AbortSignal as the last argument (spec 12.2).
 
 use emela_core::{
-    EffectId, Expr, External, Function, HostModule, HostRef, Module, Release, Type, WithBind,
+    EffectId, Expr, External, Function, HostModule, HostRef, Module, Release, Type, TypeId,
+    WithBind,
 };
 
 use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
@@ -237,11 +238,7 @@ impl Emitter<'_> {
     /// reason into a defect with `$foreign` and throws it at the waiting point (spec 12.5).
     pub(super) fn external_fn(&mut self, f: &Function, ext: &External) {
         let params: Vec<String> = f.params.iter().map(|&p| self.local(p)).collect();
-        let param_tys: Vec<Type> = f
-            .params
-            .iter()
-            .map(|&p| self.m.locals[p].ty.clone())
-            .collect();
+        let param_tys: Vec<TypeId> = f.params.iter().map(|&p| self.m.locals[p].ty).collect();
         self.line(&format!(
             "{} {}({}) {{",
             function_keyword(f.suspends),
@@ -264,11 +261,11 @@ impl Emitter<'_> {
                 let args: Vec<String> = params
                     .iter()
                     .zip(&param_tys)
-                    .map(|(p, ty)| self.convert(ty, p, Dir::ToHost, 0))
+                    .map(|(p, &ty)| self.convert(ty, p, Dir::ToHost, 0))
                     .collect();
                 let foreign = self.rt("$foreign");
                 if f.suspends {
-                    self.suspending_external(&callee, &args, &f.ret, foreign);
+                    self.suspending_external(&callee, &args, f.ret, foreign);
                     self.indent -= 1;
                     self.line("}");
                     return;
@@ -276,8 +273,8 @@ impl Emitter<'_> {
                 let call = format!("{callee}({})", args.join(", "));
                 self.line("try {");
                 self.indent += 1;
-                match &f.ret {
-                    Type::Unit => {
+                match f.ret {
+                    TypeId::UNIT => {
                         self.line(&format!("{call};"));
                         self.line("return undefined;");
                     }
@@ -303,7 +300,7 @@ impl Emitter<'_> {
     /// Calls the host function `callee` with `args` (converted JS expressions) and an AbortSignal
     /// as the last argument (spec 12.2). The runtime aborts it when the waiting fiber is
     /// interrupted.
-    fn suspending_external(&mut self, callee: &str, args: &[String], ret: &Type, foreign: &str) {
+    fn suspending_external(&mut self, callee: &str, args: &[String], ret: TypeId, foreign: &str) {
         let abortable = self.rt("$abortable");
         self.line(&format!("const $c = {abortable}();"));
         let mut args = args.to_vec();
@@ -316,7 +313,7 @@ impl Emitter<'_> {
         self.line("}");
         let wait = format!("(yield {}($p, $c))", self.rt("$await"));
         match ret {
-            Type::Unit => {
+            TypeId::UNIT => {
                 self.line(&format!("{wait};"));
                 self.line("return undefined;");
             }
@@ -346,11 +343,12 @@ impl Emitter<'_> {
     /// The JS expression converting `v` (a JS expression, used once) of type `ty` across the
     /// boundary in direction `dir` (spec 12.4, 12.5). Strings from the host are made well formed
     /// and callbacks are wrapped to convert their arguments and results; other values pass as is.
-    fn convert(&mut self, ty: &Type, v: &str, dir: Dir, depth: usize) -> String {
-        match (ty, dir) {
+    fn convert(&mut self, ty: TypeId, v: &str, dir: Dir, depth: usize) -> String {
+        let m = self.m;
+        match (m.ty(ty), dir) {
             (Type::String, Dir::FromHost) => format!("{}({v})", self.rt("$wellFormed")),
             (Type::Fn(f), _) => {
-                let (params, ret) = (&f.params, &f.ret);
+                let (params, ret) = (&f.params, f.ret);
                 // Callback arguments convert the opposite way; return values the same way.
                 let names: Vec<String> = (0..params.len())
                     .map(|i| format!("$a{depth}_{i}"))
@@ -358,7 +356,7 @@ impl Emitter<'_> {
                 let args: Vec<String> = params
                     .iter()
                     .zip(&names)
-                    .map(|(p, n)| self.convert(p, n, dir.flip(), depth + 1))
+                    .map(|(&p, n)| self.convert(p, n, dir.flip(), depth + 1))
                     .collect();
                 let call = format!("$f{depth}({})", args.join(", "));
                 let body = self.convert(ret, &call, dir, depth + 1);

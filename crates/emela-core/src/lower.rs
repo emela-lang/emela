@@ -21,7 +21,7 @@ use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
     External, ExternalBinding, FiberOp, FnId, FnType, HostModule, HostRef, Lit, Local, Module,
-    OpDef, OpTy, Pat, StrPart, Type, UnOp, VariantDef, VariantFields, WithBind,
+    OpDef, OpTy, Pat, StrPart, Type, TypeId, UnOp, VariantDef, VariantFields, WithBind,
 };
 use crate::named;
 
@@ -254,7 +254,7 @@ enum Target {
     Direct(FnId, Call, Option<Expr>),
     Builtin {
         op: Builtin,
-        ty_args: Vec<Type>,
+        ty_args: Vec<TypeId>,
     },
     Ctor(CtorRef),
     /// A function value: an evaluated expression that can be referenced any number of times
@@ -431,7 +431,7 @@ impl<'a> Lowerer<'a> {
         for (_, items) in self.hir.modules.iter() {
             for &def in &items.items {
                 match self.hir.item(def) {
-                    // Bool is a builtin type in the IR (`Type::Bool`).
+                    // Bool is a builtin type in the IR (`TypeId::BOOL`).
                     Some(Item::Type(_) | Item::Enum(_)) if Some(def) == bool_def => {}
                     // Prelude's Option refers to the same definition as the builtins
                     // (`Module::option_enum`).
@@ -520,30 +520,35 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Converts a type checker type to an IR type.
-    fn ty(&mut self, ty: &Ty) -> Type {
-        match ty {
-            Ty::Prim(p) => match p {
-                Prim::Int => Type::Int,
-                Prim::Int64 => Type::Int64,
-                Prim::Float => Type::Float,
-                Prim::Bool => Type::Bool,
-                Prim::String => Type::String,
-                Prim::Unit => Type::Unit,
-            },
-            Ty::Never => Type::Never,
+    fn ty(&mut self, ty: &Ty) -> TypeId {
+        let t = match ty {
+            Ty::Prim(p) => {
+                return match p {
+                    Prim::Int => TypeId::INT,
+                    Prim::Int64 => TypeId::INT64,
+                    Prim::Float => TypeId::FLOAT,
+                    Prim::Bool => TypeId::BOOL,
+                    Prim::String => TypeId::STRING,
+                    Prim::Unit => TypeId::UNIT,
+                };
+            }
+            Ty::Never => return TypeId::NEVER,
             // A type variable generalized in the definition being lowered is its type parameter.
             // One left undetermined (an unused `None`'s `Option[?]` and the like) can take any
             // representation. `Ty::Error` only appears when there are type errors, and then
             // lowering is not called.
-            Ty::Var(v) => self
+            Ty::Var(v) => match self
                 .current_def
                 .and_then(|def| self.types.generalized_tys.get(def))
                 .and_then(|vars| vars.iter().find(|(w, _)| w == v))
-                .map_or(Type::Unit, |&(_, i)| Type::Param(i as usize)),
-            Ty::Error => Type::Unit,
+            {
+                Some(&(_, i)) => Type::Param(i as usize),
+                None => return TypeId::UNIT,
+            },
+            Ty::Error => return TypeId::UNIT,
             // Set type arguments of named types (`Handler[E, R]`) have no run-time representation;
             // `()` keeps the type argument positions aligned.
-            Ty::Set(..) => Type::Unit,
+            Ty::Set(..) => return TypeId::UNIT,
             Ty::Cap(tag) => {
                 let key = self.key_here(tag);
                 Type::Handler(self.effect_id(&key))
@@ -552,7 +557,7 @@ impl<'a> Lowerer<'a> {
             Ty::Fn(f) => {
                 let params = f.params.iter().map(|t| self.ty(t)).collect();
                 let ret = self.ty(&f.ret);
-                Type::func(FnType {
+                Type::Fn(FnType {
                     params,
                     ret,
                     fails: !f.fails.is_empty(),
@@ -561,16 +566,17 @@ impl<'a> Lowerer<'a> {
                 })
             }
             Ty::Tuple(ts) => Type::Tuple(ts.iter().map(|t| self.ty(t)).collect()),
-            Ty::List(t) => Type::list(self.ty(t)),
+            Ty::List(t) => Type::List(self.ty(t)),
             Ty::Named(con, args) => {
                 let def = self.types.ty_table.def(*con);
                 match self.enums.get(def) {
                     Some(&id) => Type::Enum(id, args.iter().map(|t| self.ty(t)).collect()),
                     // `self` of a stateless handler. The value is `()` (`Lowerer::path`).
-                    None => Type::Unit,
+                    None => return TypeId::UNIT,
                 }
             }
-        }
+        };
+        self.module.intern(t)
     }
 
     /// The IR ID of copy `spec` of a fn. If none exists yet, allocates one and pushes it on the
@@ -608,7 +614,7 @@ impl<'a> Lowerer<'a> {
         let types = self.types;
         let ty = match types.locals.get(id) {
             Some(t) => self.ty(t),
-            None => Type::Unit,
+            None => TypeId::UNIT,
         };
         let l = self.module.local(&self.hir.locals[id].name, ty);
         self.locals.insert(id, l);
@@ -617,12 +623,12 @@ impl<'a> Lowerer<'a> {
 
     /// A fresh evidence table parameter or variable.
     fn ev_local(&mut self) -> Local {
-        self.module.local("ev", Type::Evidence)
+        self.module.local("ev", TypeId::EVIDENCE)
     }
 
     /// The IR return type and type parameter count of a definition's declared (or generalized)
     /// type. Non-functions (consts) have no type parameters and return their own type.
-    fn signature(&mut self, def: DefId) -> (Type, usize) {
+    fn signature(&mut self, def: DefId) -> (TypeId, usize) {
         let types = self.types;
         match types
             .sigs
@@ -631,7 +637,7 @@ impl<'a> Lowerer<'a> {
         {
             Some((Ty::Fn(f), n)) => (self.ty(&f.ret), n),
             Some((ty, n)) => (self.ty(ty), n),
-            None => (Type::Unit, 0),
+            None => (TypeId::UNIT, 0),
         }
     }
 
@@ -901,7 +907,7 @@ impl<'a> Lowerer<'a> {
     /// function (`name$release`) takes the state and evaluates the release body. All three take the
     /// same evidence table as their last argument (dependencies(H) is the union of the R of init,
     /// release and operation bodies).
-    fn handler(&mut self, def: DefId) -> (Vec<Local>, Type, Expr) {
+    fn handler(&mut self, def: DefId) -> (Vec<Local>, TypeId, Expr) {
         let hir = self.hir;
         let Some(Item::Handler(h)) = hir.item(def) else {
             unreachable!("a handler definition");
@@ -910,19 +916,19 @@ impl<'a> Lowerer<'a> {
         let Res::Def(effect) = h.effect else {
             return (
                 Vec::new(),
-                Type::Unit,
+                TypeId::UNIT,
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
         let Some(tag) = self.types.sigs.handler_effect(def) else {
             return (
                 Vec::new(),
-                Type::Unit,
+                TypeId::UNIT,
                 self.unsupported_at("handler of an unknown effect", span),
             );
         };
         let effect_id = self.effect_id(&self.tag_key(tag, None));
-        let ret = Type::Handler(effect_id);
+        let ret = self.module.handler(effect_id);
         let takes_ev = self
             .types
             .handler_uses
@@ -1040,20 +1046,20 @@ impl<'a> Lowerer<'a> {
             let mut params = vec![state];
             params.extend(ev_param(self));
             let body = self.expr(body);
-            self.module.define(f, params, Type::Unit, body);
+            self.module.define(f, params, TypeId::UNIT, body);
         }
     }
 
     /// The type of a stateful handler's state (self, spec 8.4): init's value, else the handler's
     /// constructor value, else `()` (as built by `handler_parts`).
-    fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> Type {
+    fn handler_state_ty(&mut self, def: DefId, h: &emela_resolve::hir::HandlerItem) -> TypeId {
         match (h.init, self.enums.get(def)) {
             (Some(body), _) => {
                 let ty = self.expr_ty(body);
                 self.ty(ty)
             }
-            (None, Some(&id)) if h.ctor.is_some() => Type::Enum(id, Vec::new()),
-            _ => Type::Unit,
+            (None, Some(&id)) if h.ctor.is_some() => self.module.enum_type(id, Vec::new()),
+            _ => TypeId::UNIT,
         }
     }
 
@@ -1163,7 +1169,8 @@ impl<'a> Lowerer<'a> {
             } else {
                 None
             };
-            let handler_ty = Type::Handler(self.effect_id(own));
+            let handler_ty = self.effect_id(own);
+            let handler_ty = self.module.handler(handler_ty);
             let l = self.module.local("h", handler_ty);
             locals.push(l);
             let Some(Item::Handler(item)) = hir.item(h) else {
@@ -1332,16 +1339,17 @@ impl<'a> Lowerer<'a> {
             Ty::Fn(f) => (f.params.clone(), self.row_needs_ev(&f.uses)),
             _ => unreachable!("an operation reference has a function type"),
         };
-        let param_tys: Vec<Type> = param_tys.iter().map(|t| self.ty(t)).collect();
+        let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
         let handler = self.expr(base);
-        let h = self.module.local("h", Type::Handler(effect_id));
+        let h_ty = self.module.handler(effect_id);
+        let h = self.module.local("h", h_ty);
         // Scope's fork wraps the child function, as at a call (`fiber.rs`).
         if self.is_fork_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
             let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty) else {
                 return self.unsupported("fork", span);
             };
-            let x_ty = param_tys.first().cloned().unwrap_or(Type::Unit);
+            let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
             let x = self.module.local("x", x_ty);
             return Expr::Let {
                 var: h,
@@ -1640,7 +1648,7 @@ impl<'a> Lowerer<'a> {
             Ok(t) => t,
             Err(e) => return e,
         };
-        let args: Vec<(usize, Expr, Type)> = positions
+        let args: Vec<(usize, Expr, TypeId)> = positions
             .into_iter()
             .zip(written)
             .map(|(pos, arg)| {
@@ -1666,7 +1674,8 @@ impl<'a> Lowerer<'a> {
             } if !matches!(handler, Expr::Var(_) | Expr::Use { .. }) => {
                 // An expression that only looks up the evidence table (`(use X).op()`) has no
                 // side effects, so it is not bound.
-                let l = self.module.local("h", Type::Handler(effect));
+                let h_ty = self.module.handler(effect);
+                let l = self.module.local("h", h_ty);
                 let t = Target::Op {
                     handler: Expr::Var(l),
                     effect,
@@ -1923,25 +1932,25 @@ impl<'a> Lowerer<'a> {
         // `State.run(initial: S, body: fn() -> A use { State[S] }) -> (A, S)` (spec 8.8).
         let state = match f.params.first() {
             Some(s) => self.ty(s),
-            None => Type::Unit,
+            None => TypeId::UNIT,
         };
         let result = self.ty(&body.ret);
-        let update_ty = Type::func(FnType {
-            params: vec![state.clone()],
-            ret: state.clone(),
+        let update_ty = self.module.func(FnType {
+            params: vec![state],
+            ret: state,
             fails: false,
             suspends: false,
             ev: false,
         });
+        let cell_ty = self.module.cell(state);
+        let handler_ty = self.module.handler(effect);
         Ok(StateRun {
             effect,
             ops: [get, set, update],
             base,
             call,
-            cell: self
-                .module
-                .local("cell", Type::Cell(Box::new(state.clone()))),
-            handler: self.module.local("state", Type::Handler(effect)),
+            cell: self.module.local("cell", cell_ty),
+            handler: self.module.local("state", handler_ty),
             value: self.module.local("value", state),
             f: self.module.local("f", update_ty),
             result: self.module.local("result", result),
@@ -2026,7 +2035,7 @@ impl<'a> Lowerer<'a> {
                 (None, _) => None,
             };
             if let Some(op_ty) = op_ty
-                && unshowable(&ty).is_none()
+                && unshowable(&self.module, ty).is_none()
             {
                 let (lhs, rhs) = (self.expr(*lhs), self.expr(*rhs));
                 return Assert::compare(bin, op_ty, ty, lhs, rhs, text);
@@ -2144,7 +2153,7 @@ impl<'a> Lowerer<'a> {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&ty) {
+                    if let Some(what) = unshowable(&self.module, ty) {
                         self.report(what, self.hir.exprs[*e].span);
                     }
                     StrPart::Value(self.expr(*e), ty)
@@ -2453,13 +2462,13 @@ fn is_atomic(e: &Expr) -> bool {
 /// Why the type cannot be shown in interpolation, if it cannot. Type parameter values need Show
 /// dictionary passing or monomorphization (traits come in 0.21). Functions cannot be shown
 /// (spec 10.6), but the Show check comes with traits.
-fn unshowable(ty: &Type) -> Option<&'static str> {
-    match ty {
+fn unshowable(m: &Module, ty: TypeId) -> Option<&'static str> {
+    match m.ty(ty) {
         Type::Param(_) => Some("showing a value of a type parameter"),
         Type::Fn(_) => Some("showing a function"),
         Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(unshowable),
-        Type::List(t) => unshowable(t),
+        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t)),
+        Type::List(t) => unshowable(m, *t),
         _ => None,
     }
 }

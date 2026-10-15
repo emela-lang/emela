@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use emela_core::build::*;
-use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, WithBind};
+use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
     Analysis, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, JsOutput, LowerTests,
     MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
@@ -94,18 +94,18 @@ fn run_ir(name: &str, tests: TestModule, filter: Option<&str>) -> (TestReport, S
 fn sample() -> TestModule {
     let mut m = Module::new();
     let add = m.declare("add", false);
-    let (a, b) = (m.local("a", Type::Int), m.local("b", Type::Int));
+    let (a, b) = (m.local("a", TypeId::INT), m.local("b", TypeId::INT));
     m.define(
         add,
         vec![a, b],
-        Type::Int,
+        TypeId::INT,
         bin(BinOp::Add, OpTy::Int, var(a), var(b)),
     );
     let mut tests = Vec::new();
     let mut case = |m: &mut Module, fn_name: &str, name: &str, body: Expr| {
         // Test functions return `()` (spec 13.1).
         let f = m.declare(fn_name, false);
-        m.define(f, vec![], Type::Unit, body);
+        m.define(f, vec![], TypeId::UNIT, body);
         tests.push(TestCase {
             name: name.to_owned(),
             function: f,
@@ -115,7 +115,7 @@ fn sample() -> TestModule {
         Assert::compare(
             BinOp::Eq,
             OpTy::Int,
-            Type::Int,
+            TypeId::INT,
             call(add, vec![int(1), int(n)]),
             int(expected),
             &format!("add(1, {n}) == {expected}"),
@@ -152,7 +152,7 @@ fn sample() -> TestModule {
         Assert::compare(
             BinOp::Ne,
             OpTy::String,
-            Type::String,
+            TypeId::STRING,
             string("a"),
             string("a"),
             "",
@@ -234,15 +234,12 @@ fn no_tests() {
 fn stderr_of_tests_is_captured() {
     let mut m = Module::new();
     let f = m.declare("shows", false);
+    let ints = m.list(TypeId::INT);
     m.define(
         f,
         vec![],
-        Type::list(Type::Int),
-        builtin_ty(
-            Builtin::Dbg,
-            vec![Type::list(Type::Int)],
-            vec![list(vec![int(1)])],
-        ),
+        ints,
+        builtin_ty(Builtin::Dbg, vec![ints], vec![list(vec![int(1)])]),
     );
     let tests = TestModule {
         module: m,
@@ -602,7 +599,7 @@ fn suspended_tests_are_awaited_or_interrupted() {
     let mut case = |m: &mut Module, name: &str, suspends: bool, body: Expr| {
         let f = m.declare(name, false);
         m.functions[f].suspends = suspends;
-        m.define(f, vec![], Type::Unit, body);
+        m.define(f, vec![], TypeId::UNIT, body);
         tests.push(TestCase {
             name: name.to_owned(),
             function: f,
@@ -611,7 +608,7 @@ fn suspended_tests_are_awaited_or_interrupted() {
     let awaited = Assert::compare(
         BinOp::Eq,
         OpTy::Int,
-        Type::Int,
+        TypeId::INT,
         call_suspends(resolve, vec![int(1)]),
         int(1),
         "resolve(1) == 1",
@@ -623,7 +620,10 @@ fn suspended_tests_are_awaited_or_interrupted() {
         body: Box::new(suspend::forever(wait, h)),
     };
     case(&mut m, "waits_forever", true, forever);
-    let (h, x) = (m.local("h", Type::Handler(wait)), m.local("_", Type::Unit));
+    let (h, x) = (
+        m.local("h", Type::Handler(wait)),
+        m.local("_", TypeId::UNIT),
+    );
     let late = Expr::With {
         binds: vec![WithBind::new(h, call(never, vec![]))],
         body: Box::new(let_(

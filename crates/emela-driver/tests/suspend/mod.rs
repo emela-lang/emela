@@ -11,8 +11,8 @@ pub fn external(
     m: &mut Module,
     name: &str,
     path: &str,
-    params: Vec<Type>,
-    ret: Type,
+    params: Vec<TypeId>,
+    ret: TypeId,
     suspends: bool,
 ) -> FnId {
     let f = m.declare(name, false);
@@ -38,20 +38,21 @@ pub fn resolve(m: &mut Module) -> FnId {
         m,
         "resolve",
         "Promise.resolve",
-        vec![Type::Int],
-        Type::Int,
+        vec![TypeId::INT],
+        TypeId::INT,
         true,
     )
 }
 
 /// `setTimeout(callback, ms)`．
 pub fn set_timeout(m: &mut Module) -> FnId {
+    let callback = m.intern(fn_type(vec![], TypeId::UNIT));
     external(
         m,
         "set_timeout",
         "setTimeout",
-        vec![fn_type(vec![], Type::Unit), Type::Int],
-        Type::Unit,
+        vec![callback, TypeId::INT],
+        TypeId::UNIT,
         false,
     )
 }
@@ -84,7 +85,7 @@ pub fn forever(wait: EffectId, h: Local) -> Expr {
 }
 
 /// `export suspend fn main() -> ret { body }`．
-pub fn main(m: &mut Module, ret: Type, body: Expr) {
+pub fn main(m: &mut Module, ret: TypeId, body: Expr) {
     let main = m.declare("main", true);
     m.functions[main].suspends = true;
     m.define(main, vec![], ret, body);
@@ -96,8 +97,8 @@ pub fn log(m: &mut Module) -> FnId {
         m,
         "log",
         "console.log",
-        vec![Type::String],
-        Type::Unit,
+        vec![TypeId::STRING],
+        TypeId::UNIT,
         false,
     )
 }
@@ -121,8 +122,8 @@ pub fn released(m: &mut Module, log: FnId, h: Local, name: &str, message: &str) 
 }
 
 /// A non-failing, non-suspending function type without an evidence table.
-pub fn fn_type(params: Vec<Type>, ret: Type) -> Type {
-    Type::func(FnType {
+pub fn fn_type(params: Vec<TypeId>, ret: TypeId) -> Type {
+    Type::Fn(FnType {
         params,
         ret,
         fails: false,
@@ -133,5 +134,5 @@ pub fn fn_type(params: Vec<Type>, ret: Type) -> Type {
 
 /// The type of `forever`'s resume: `fn(()) -> ()`.
 pub fn resume_type() -> Type {
-    fn_type(vec![Type::Unit], Type::Unit)
+    fn_type(vec![TypeId::UNIT], TypeId::UNIT)
 }
