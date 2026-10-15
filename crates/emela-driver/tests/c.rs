@@ -379,6 +379,43 @@ static void forgotten(em_task *task, void *ctx) {
 
 /* Registers nothing with the event loop and does not complete: the run stalls. */
 void host_forgotten(em_task *task) { em_on_cancel(task, forgotten, NULL); }
+
+/* Late second completions. `host_keep` completes in a callback and keeps the task, which the
+ * runtime frees once it is back in its event loop. */
+static em_task *kept = NULL;
+
+static void keep_and_complete(em_task *task, void *ctx) {
+  (void)ctx;
+  kept = task;
+  em_complete_int(task, 1);
+}
+
+void host_keep(em_task *task) { em_after(1, task, keep_and_complete, NULL); }
+
+/* Completes the kept task again from a callback, turns of the event loop later. */
+static void complete_kept(em_task *task, void *ctx) {
+  (void)ctx;
+  em_complete_int(kept, 2);
+  em_complete_int(task, 0);
+}
+
+void host_again_later(em_task *task) { em_after(1, task, complete_kept, NULL); }
+
+static void *complete_kept_on_thread(void *task) {
+  struct timespec ts = {0, 20 * 1000000};
+  nanosleep(&ts, NULL);
+  em_complete_int(kept, 2);
+  em_complete_int(task, 0);
+  return NULL;
+}
+
+/* The same from another thread. */
+void host_again_threaded(em_task *task) {
+  em_after(60000, task, never, NULL);
+  pthread_t thread;
+  pthread_create(&thread, NULL, complete_kept_on_thread, task);
+  pthread_detach(thread);
+}
 "#;
 
 const HOST_EMEL: &str = r##"import Std.Console.{Console, SystemConsole}
@@ -406,6 +443,15 @@ suspend fn host_broken() -> Int
 @external(c, "./host.c", "host_forgotten")
 suspend fn host_forgotten() -> ()
 
+@external(c, "./host.c", "host_keep")
+suspend fn host_keep() -> Int
+
+@external(c, "./host.c", "host_again_later")
+suspend fn host_again_later() -> Int
+
+@external(c, "./host.c", "host_again_threaded")
+suspend fn host_again_threaded() -> Int
+
 effect Host {
   suspend fn double(n: Int, ms: Int) -> Int
   suspend fn greet(name: String) -> String
@@ -414,6 +460,9 @@ effect Host {
   suspend fn twice_later() -> Int
   suspend fn broken() -> Int
   suspend fn forgotten() -> ()
+  suspend fn keep() -> Int
+  suspend fn again_later() -> Int
+  suspend fn again_threaded() -> Int
 }
 
 handler CHost implements Host {
@@ -424,6 +473,9 @@ handler CHost implements Host {
   suspend fn twice_later(resume) { resume(host_twice_later()) }
   suspend fn broken(resume) { resume(host_broken()) }
   suspend fn forgotten(resume) { resume(host_forgotten()) }
+  suspend fn keep(resume) { resume(host_keep()) }
+  suspend fn again_later(resume) { resume(host_again_later()) }
+  suspend fn again_threaded(resume) { resume(host_again_threaded()) }
 }
 
 fn main() {
@@ -463,6 +515,24 @@ fn abandoned() {
 }
 
 @test
+fn completed_again_from_a_callback() {
+  with CHost {
+    host = use Host
+    assert host.keep() == 1
+    host.again_later()
+  }
+}
+
+@test
+fn completed_again_from_a_thread() {
+  with CHost {
+    host = use Host
+    assert host.keep() == 1
+    host.again_threaded()
+  }
+}
+
+@test
 fn after_the_others() {
   with CHost { assert (use Host).double(2, 1) == 4 }
 }
@@ -484,6 +554,30 @@ fn host_project(name: &str) -> (PathBuf, Input) {
 fn leak_checked() -> CoreC {
     let (cc, mut flags) = cc_command();
     flags.push("-DEMELA_LEAK_CHECK".to_owned());
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    CoreC::with_cc(cc, &flags)
+}
+
+/// [`leak_checked`] with UBSan too, when cc supports it (ASan hangs on some machines).
+fn sanitized() -> CoreC {
+    let (cc, mut flags) = cc_command();
+    flags.push("-DEMELA_LEAK_CHECK".to_owned());
+    let dir = out_dir("ubsan-probe");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("probe.c"), "int main(void) { return 0; }\n").unwrap();
+    let ubsan = ["-fsanitize=undefined", "-fno-sanitize-recover=all"];
+    let ok = Command::new(&cc)
+        .args(&flags)
+        .args(ubsan)
+        .arg(dir.join("probe.c"))
+        .arg("-o")
+        .arg(dir.join("probe"))
+        .output()
+        .is_ok_and(|o| o.status.success());
+    let _ = std::fs::remove_dir_all(&dir);
+    if ok {
+        flags.extend(ubsan.map(str::to_owned));
+    }
     let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
     CoreC::with_cc(cc, &flags)
 }
@@ -539,7 +633,7 @@ fn suspend_externals_misbehaving() {
         &OsFs,
         &input,
         &mut LowerTests::default().with_target(Target::C),
-        &mut leak_checked(),
+        &mut sanitized(),
         &options,
         |_| {},
         &mut out,
@@ -569,6 +663,15 @@ fn suspend_externals_misbehaving() {
                 TestOutcome::Defect("disk on fire".to_owned())
             ),
             ("abandoned".to_owned(), TestOutcome::Interrupted),
+            // The kept task was freed before the second completion (spec 12.6: exactly once).
+            (
+                "completed_again_from_a_callback".to_owned(),
+                TestOutcome::Defect(twice("host_keep"))
+            ),
+            (
+                "completed_again_from_a_thread".to_owned(),
+                TestOutcome::Defect(twice("host_keep"))
+            ),
             ("after_the_others".to_owned(), TestOutcome::Passed),
         ]
     );

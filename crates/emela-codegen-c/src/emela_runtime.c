@@ -1323,6 +1323,8 @@ typedef struct em_root em_root;
 typedef struct em_fiber em_fiber;
 typedef struct em_scope em_scope;
 typedef struct em_perform em_perform;
+/* A task's record (the host sees a handle, `em_task *`; see the event loop's section). */
+typedef struct em_htask em_htask;
 
 /* Who receives a continuation's result: the fiber (its main continuation), the operation call
  * whose implementation it runs, or nobody (an implementation unwound when the run stalls; its
@@ -1351,11 +1353,11 @@ typedef struct em_wait {
   em_perform *on_drop;
   /* EM_WAIT_HOST: the task of the `suspend fn` external function (not counted; the task counts
    * the wait). Cancelled when the wait is dropped. */
-  em_task *task;
+  em_htask *task;
   struct em_wait *prev, *next;
 } em_wait;
 
-static void em_task_cancel(em_task *t);
+static void em_task_cancel(em_htask *t);
 
 /* A fiber operation's waiter (join, await, interrupt) or a Deferred's. */
 enum { EM_VERB_JOIN, EM_VERB_AWAIT, EM_VERB_INTERRUPT, EM_VERB_DEFERRED };
@@ -2099,16 +2101,26 @@ static void em_root_finish(em_root *r, em_input in);
  * (`em_root_interrupt`), which cancels the tasks still waiting (`em_on_cancel`; JS: the
  * AbortSignal).
  *
- * A completed task is freed once the runtime is back in its event loop, so that a second
- * completion inside the same external function call or callback is still seen (a defect). */
+ * The host never sees a task's record (`em_htask`): it gets a handle (`em_task *`, never
+ * dereferenced) that names a slot of a table and the slot's generation. A completed task is freed
+ * once the runtime is back in its event loop (a second completion inside the same external
+ * function call or callback still finds the record: a defect); freeing empties its slot, and the
+ * next task in the slot gets the next generation. A completion through a handle whose slot is
+ * empty or holds a later generation finds no record, so a late second completion is a defect too
+ * and never touches freed memory. Free slots are reused oldest first, so a slot only comes back to
+ * the same generation after 2^32 reuses (2^12 where pointers have 32 bits). The table only grows
+ * to the most tasks alive at once. */
 
 enum { EM_HOST_DEFECT = -1 };
 
 typedef struct em_reg em_reg;
 
-struct em_task {
+struct em_htask {
   /* The external function's name (a static string), for messages. */
   const char *function;
+  /* What the host gets (`em_slot_take`). */
+  em_task *handle;
+  uint32_t slot;
   /* The kind of host value the external function returns (EM_HOST_*). */
   int32_t kind;
   /* Only on the runtime's thread: */
@@ -2122,7 +2134,7 @@ struct em_task {
   /* The registrations with the event loop (`em_after`, ...). */
   em_reg *regs;
   /* Retired (delivered or discarded): freed when the runtime is back in its event loop. */
-  struct em_task *retired_next;
+  struct em_htask *retired_next;
   /* Guarded by `em_inbox_lock`: */
   bool completed;
   /* Completed by another thread: in the inbox until the runtime's thread takes it. */
@@ -2134,7 +2146,7 @@ struct em_task {
   em_word value;
   /* The string of em_complete_string or the message of em_complete_defect (malloc'ed). */
   char *str;
-  struct em_task *inbox_next;
+  struct em_htask *inbox_next;
 };
 
 enum { EM_REG_TIMER, EM_REG_READ, EM_REG_WRITE };
@@ -2144,7 +2156,7 @@ struct em_reg {
   int64_t at;
   uint64_t seq;
   int fd;
-  em_task *task;
+  em_htask *task;
   em_callback callback;
   void *ctx;
   /* The position in the timer heap or in the list of file descriptors. */
@@ -2154,6 +2166,7 @@ struct em_reg {
 
 /* A second completion that happened on another thread (the task may be freed by now). */
 typedef struct em_twice {
+  /* NULL when not known any more (the task's slot was reused). */
   const char *function;
   struct em_twice *next;
 } em_twice;
@@ -2162,7 +2175,7 @@ typedef struct em_twice {
 typedef struct em_sleeper {
   int64_t at;
   uint64_t seq;
-  em_task *task;
+  em_htask *task;
 } em_sleeper;
 
 typedef struct em_regs {
@@ -2176,13 +2189,38 @@ static em_regs em_fds = {NULL, 0, 0};
 static uint64_t em_reg_seq = 0;
 /* The loop's time in milliseconds (a monotonic clock), updated once per turn like libuv's. */
 static int64_t em_loop_now = 0;
-static em_task *em_retired = NULL;
+static em_htask *em_retired = NULL;
 static em_vec em_sleepers = {NULL, 0, 0};
 static uint64_t em_sleeper_seq = 0;
 
 static pthread_mutex_t em_inbox_lock = PTHREAD_MUTEX_INITIALIZER;
-static em_task *em_inbox_head = NULL, *em_inbox_tail = NULL;
+static em_htask *em_inbox_head = NULL, *em_inbox_tail = NULL;
 static em_twice *em_inbox_twice = NULL;
+
+/* The task table (the handles of spec 12.6). Guarded by `em_inbox_lock`: completions look handles
+ * up from any thread. */
+typedef struct em_slot {
+  /* The task, or NULL when the slot is free. */
+  em_htask *task;
+  /* The generation of the task in the slot, or of the last one. */
+  uint32_t gen;
+  /* The external function of the task in the slot, or of the last one (a static string). */
+  const char *function;
+  /* The next free slot (oldest first), or EM_NO_SLOT. */
+  uint32_t next_free;
+} em_slot;
+
+#define EM_NO_SLOT UINT32_MAX
+#if UINTPTR_MAX > 0xFFFFFFFFu
+#define EM_GEN_BITS 32
+#else
+#define EM_GEN_BITS 12
+#endif
+#define EM_GEN_MASK ((uint32_t)((((uint64_t)1) << EM_GEN_BITS) - 1))
+
+static em_slot *em_slots = NULL;
+static uint32_t em_slots_len = 0, em_slots_cap = 0;
+static uint32_t em_free_head = EM_NO_SLOT, em_free_tail = EM_NO_SLOT;
 /* The self-pipe: another thread's completion writes a byte to [1] to wake the poll. */
 static int em_wake_fds[2] = {-1, -1};
 static pthread_t em_runtime_thread;
@@ -2268,7 +2306,7 @@ static void em_reg_unlink(em_reg *g) {
 }
 
 /* Removes every registration of the task. */
-static void em_task_unregister(em_task *t) {
+static void em_task_unregister(em_htask *t) {
   while (t->regs != NULL) {
     em_reg *g = t->regs;
     t->regs = g->task_next;
@@ -2300,18 +2338,73 @@ static void em_loop_init(void) {
   }
 }
 
-static void em_task_retire(em_task *t) {
+static void em_task_retire(em_htask *t) {
   t->retired_next = em_retired;
   em_retired = t;
 }
 
-/* Frees the retired tasks (back in the event loop). */
+/* Gives the task a slot and its handle: the slot's index + 1 above the generation (never NULL). */
+static void em_slot_take(em_htask *t) {
+  pthread_mutex_lock(&em_inbox_lock);
+  uint32_t i = em_free_head;
+  if (i != EM_NO_SLOT) {
+    em_free_head = em_slots[i].next_free;
+    if (em_free_head == EM_NO_SLOT) em_free_tail = EM_NO_SLOT;
+  } else {
+    /* The index + 1 must fit above the generation (and in 32 bits). */
+    uint64_t limit = sizeof(uintptr_t) * 8 - EM_GEN_BITS >= 32
+                         ? (uint64_t)UINT32_MAX
+                         : ((uint64_t)1 << (sizeof(uintptr_t) * 8 - EM_GEN_BITS)) - 1;
+    if ((uint64_t)em_slots_len + 1 >= limit) em_out_of_memory();
+    if (em_slots_len == em_slots_cap) {
+      em_slots_cap = em_slots_cap == 0 ? 16 : em_slots_cap * 2;
+      em_slots = realloc(em_slots, em_slots_cap * sizeof(em_slot));
+      if (em_slots == NULL) em_out_of_memory();
+    }
+    i = em_slots_len++;
+    em_slots[i].gen = 0;
+  }
+  em_slot *s = &em_slots[i];
+  s->gen = (s->gen + 1) & EM_GEN_MASK;
+  s->task = t;
+  s->function = t->function;
+  s->next_free = EM_NO_SLOT;
+  t->slot = i;
+  t->handle = (em_task *)((((uintptr_t)i + 1) << EM_GEN_BITS) | (uintptr_t)s->gen);
+  pthread_mutex_unlock(&em_inbox_lock);
+}
+
+/* The task a handle names, or NULL if it has been freed (`*function` is then its external
+ * function, or NULL if that is not known any more). A handle that never named a task is a bug of
+ * the host: the program aborts. Under `em_inbox_lock`. */
+static em_htask *em_slot_find(em_task *h, const char **function, const char *caller) {
+  uintptr_t bits = (uintptr_t)h;
+  uintptr_t index = bits >> EM_GEN_BITS;
+  uint32_t gen = (uint32_t)(bits & EM_GEN_MASK);
+  if (index == 0 || index > em_slots_len) {
+    fprintf(stderr, "emela: %s was given %p, which is not a task\n", caller, (void *)h);
+    abort();
+  }
+  em_slot *s = &em_slots[index - 1];
+  if (s->gen == gen && s->task != NULL) return s->task;
+  *function = s->gen == gen ? s->function : NULL;
+  return NULL;
+}
+
+/* Frees the retired tasks (back in the event loop). Their slots become free, after the others. */
 static void em_loop_collect(void) {
+  if (em_retired == NULL) return;
+  pthread_mutex_lock(&em_inbox_lock);
   while (em_retired != NULL) {
-    em_task *t = em_retired;
+    em_htask *t = em_retired;
     em_retired = t->retired_next;
+    em_slots[t->slot].task = NULL;
+    if (em_free_tail == EM_NO_SLOT) em_free_head = t->slot;
+    else em_slots[em_free_tail].next_free = t->slot;
+    em_free_tail = t->slot;
     free(t);
   }
+  pthread_mutex_unlock(&em_inbox_lock);
 }
 
 static const char *em_complete_name(int32_t got) {
@@ -2333,8 +2426,13 @@ static const char *em_complete_name(int32_t got) {
   }
 }
 
+/* `function` is NULL when not known any more (a late completion after the slot was reused). */
 static em_ref em_twice_message(const char *function) {
   em_buf b = {NULL, 0, 0};
+  if (function == NULL) {
+    em_buf_puts(&b, "the task of an external function was completed twice");
+    return em_buf_finish(&b);
+  }
   em_buf_puts(&b, "the task of external function `");
   em_buf_puts(&b, function);
   em_buf_puts(&b, "` was completed twice");
@@ -2342,7 +2440,7 @@ static em_ref em_twice_message(const char *function) {
 }
 
 /* What the completion passes to the waiting continuation (on the runtime's thread). */
-static em_input em_task_input(em_task *t) {
+static em_input em_task_input(em_htask *t) {
   em_word w = em_zero();
   if (t->got == EM_HOST_DEFECT) {
     em_ref msg = em_str_cstr(t->str);
@@ -2396,7 +2494,7 @@ static void em_task_fail_run(em_ref msg) {
 
 /* The completion reached the runtime's thread: wakes the waiting fiber, or leaves the value to
  * `em_task_end`, or discards it (the fiber was interrupted). */
-static void em_task_deliver(em_task *t) {
+static void em_task_deliver(em_htask *t) {
   em_task_unregister(t);
   if (t->in_place) return;
   em_wait *w = t->wait;
@@ -2419,21 +2517,26 @@ static void em_wake(void) {
   (void)n;
 }
 
-static void em_complete(em_task *t, int32_t got, em_word value, char *str) {
+static void em_complete(em_task *h, const char *caller, int32_t got, em_word value, char *str) {
   bool here = em_on_runtime_thread();
   pthread_mutex_lock(&em_inbox_lock);
-  if (t->completed) {
+  const char *function = NULL;
+  em_htask *t = em_slot_find(h, &function, caller);
+  /* A second completion: of a task completed before, or freed after its completion was
+   * delivered. */
+  if (t == NULL || t->completed) {
     free(str);
+    if (t != NULL) function = t->function;
     if (here) {
-      bool in_place = t->in_place;
+      bool in_place = t != NULL && t->in_place;
       if (in_place) t->twice = true;
       pthread_mutex_unlock(&em_inbox_lock);
-      if (!in_place) em_task_fail_run(em_twice_message(t->function));
+      if (!in_place) em_task_fail_run(em_twice_message(function));
       return;
     }
     em_twice *tw = malloc(sizeof(em_twice));
     if (tw == NULL) em_out_of_memory();
-    tw->function = t->function;
+    tw->function = function;
     tw->next = em_inbox_twice;
     em_inbox_twice = tw;
     pthread_mutex_unlock(&em_inbox_lock);
@@ -2461,35 +2564,39 @@ static void em_complete(em_task *t, int32_t got, em_word value, char *str) {
 void em_complete_int(em_task *t, int32_t v) {
   em_word w = em_zero();
   w.i = v;
-  em_complete(t, EM_HOST_INT, w, NULL);
+  em_complete(t, "em_complete_int", EM_HOST_INT, w, NULL);
 }
 
 void em_complete_int64(em_task *t, int64_t v) {
   em_word w;
   w.l = v;
-  em_complete(t, EM_HOST_INT64, w, NULL);
+  em_complete(t, "em_complete_int64", EM_HOST_INT64, w, NULL);
 }
 
 void em_complete_float(em_task *t, double v) {
   em_word w;
   w.f = v;
-  em_complete(t, EM_HOST_FLOAT, w, NULL);
+  em_complete(t, "em_complete_float", EM_HOST_FLOAT, w, NULL);
 }
 
 void em_complete_bool(em_task *t, bool v) {
   em_word w = em_zero();
   w.i = v ? 1 : 0;
-  em_complete(t, EM_HOST_BOOL, w, NULL);
+  em_complete(t, "em_complete_bool", EM_HOST_BOOL, w, NULL);
 }
 
-void em_complete_string(em_task *t, char *v) { em_complete(t, EM_HOST_STRING, em_zero(), v); }
+void em_complete_string(em_task *t, char *v) {
+  em_complete(t, "em_complete_string", EM_HOST_STRING, em_zero(), v);
+}
 
-void em_complete_unit(em_task *t) { em_complete(t, EM_HOST_UNIT, em_zero(), NULL); }
+void em_complete_unit(em_task *t) {
+  em_complete(t, "em_complete_unit", EM_HOST_UNIT, em_zero(), NULL);
+}
 
 void em_complete_handle(em_task *t, void *v) {
   em_word w;
   w.h = v;
-  em_complete(t, EM_HOST_HANDLE, w, NULL);
+  em_complete(t, "em_complete_handle", EM_HOST_HANDLE, w, NULL);
 }
 
 void em_complete_defect(em_task *t, const char *message) {
@@ -2498,19 +2605,30 @@ void em_complete_defect(em_task *t, const char *message) {
   char *copy = malloc(n + 1);
   if (copy == NULL) em_out_of_memory();
   memcpy(copy, m, n + 1);
-  em_complete(t, EM_HOST_DEFECT, em_zero(), copy);
+  em_complete(t, "em_complete_defect", EM_HOST_DEFECT, em_zero(), copy);
 }
 
-static bool em_task_done(em_task *t) {
+static bool em_task_done(em_htask *t) {
   pthread_mutex_lock(&em_inbox_lock);
   bool done = t->completed;
   pthread_mutex_unlock(&em_inbox_lock);
   return done;
 }
 
-static void em_register(int kind, int64_t at, int fd, em_task *t, em_callback cb, void *ctx) {
-  /* A completed task has nothing left to wait for. */
-  if (em_task_done(t)) return;
+/* The task of a handle given to a function that runs on the runtime's thread, or NULL if it has
+ * been freed. */
+static em_htask *em_task_of(em_task *h, const char *caller) {
+  em_require_runtime_thread(caller);
+  const char *function = NULL;
+  pthread_mutex_lock(&em_inbox_lock);
+  em_htask *t = em_slot_find(h, &function, caller);
+  pthread_mutex_unlock(&em_inbox_lock);
+  return t;
+}
+
+static void em_register(int kind, int64_t at, int fd, em_htask *t, em_callback cb, void *ctx) {
+  /* A completed (or freed) task has nothing left to wait for. */
+  if (t == NULL || em_task_done(t)) return;
   em_reg *g = malloc(sizeof(em_reg));
   if (g == NULL) em_out_of_memory();
   g->kind = kind;
@@ -2530,25 +2648,24 @@ static void em_register(int kind, int64_t at, int fd, em_task *t, em_callback cb
   }
 }
 
-void em_after(int64_t ms, em_task *t, em_callback cb, void *ctx) {
-  em_require_runtime_thread("em_after");
+void em_after(int64_t ms, em_task *h, em_callback cb, void *ctx) {
+  em_htask *t = em_task_of(h, "em_after");
   em_register(EM_REG_TIMER, em_loop_now + (ms < 0 ? 0 : ms), -1, t, cb, ctx);
 }
 
-void em_on_readable(int fd, em_task *t, em_callback cb, void *ctx) {
-  em_require_runtime_thread("em_on_readable");
-  em_register(EM_REG_READ, 0, fd, t, cb, ctx);
+void em_on_readable(int fd, em_task *h, em_callback cb, void *ctx) {
+  em_register(EM_REG_READ, 0, fd, em_task_of(h, "em_on_readable"), cb, ctx);
 }
 
-void em_on_writable(int fd, em_task *t, em_callback cb, void *ctx) {
-  em_require_runtime_thread("em_on_writable");
-  em_register(EM_REG_WRITE, 0, fd, t, cb, ctx);
+void em_on_writable(int fd, em_task *h, em_callback cb, void *ctx) {
+  em_register(EM_REG_WRITE, 0, fd, em_task_of(h, "em_on_writable"), cb, ctx);
 }
 
-void em_on_cancel(em_task *t, em_callback cb, void *ctx) {
-  em_require_runtime_thread("em_on_cancel");
+void em_on_cancel(em_task *h, em_callback cb, void *ctx) {
+  em_htask *t = em_task_of(h, "em_on_cancel");
+  if (t == NULL) return;
   if (t->cancelled) {
-    if (cb != NULL && !em_task_done(t)) cb(t, ctx);
+    if (cb != NULL && !em_task_done(t)) cb(h, ctx);
     return;
   }
   t->on_cancel = cb;
@@ -2556,7 +2673,7 @@ void em_on_cancel(em_task *t, em_callback cb, void *ctx) {
 }
 
 /* The waiting fiber was interrupted, or the run ended (`AbortController#abort`). */
-static void em_task_cancel(em_task *t) {
+static void em_task_cancel(em_htask *t) {
   if (t->cancelled) return;
   t->cancelled = true;
   em_wait *w = t->wait;
@@ -2567,19 +2684,22 @@ static void em_task_cancel(em_task *t) {
   }
   em_callback cb = t->on_cancel;
   t->on_cancel = NULL;
-  if (cb != NULL) cb(t, t->cancel_ctx);
+  if (cb != NULL) cb(t->handle, t->cancel_ctx);
 }
 
 em_task *em_task_new(int32_t kind, const char *function) {
-  em_task *t = calloc(1, sizeof(em_task));
+  em_htask *t = calloc(1, sizeof(em_htask));
   if (t == NULL) em_out_of_memory();
   t->function = function;
   t->kind = kind;
   t->in_place = true;
-  return t;
+  em_slot_take(t);
+  return t->handle;
 }
 
-em_word em_task_end(em_task *t) {
+em_word em_task_end(em_task *h) {
+  /* Not freed: a task is only retired from here on (a completion in place leaves it alone). */
+  em_htask *t = em_task_of(h, "em_task_end");
   t->in_place = false;
   pthread_mutex_lock(&em_inbox_lock);
   /* Completed in place, on this thread (another thread's completion goes through the inbox). */
@@ -2627,18 +2747,19 @@ static void em_sleeper_cancel(em_task *t, void *ctx) {
 
 /* The host function behind TestClock's `sleep` (std/clock.c): completes the task when the run
  * stalls and `at` is the earliest time waited for (JS `$whenStalled`). */
-void em_when_stalled(int64_t at, em_task *t) {
+void em_when_stalled(int64_t at, em_task *h) {
   if (em_root_cur == NULL) {
-    em_complete_defect(t, "TestClock was used outside a run");
+    em_complete_defect(h, "TestClock was used outside a run");
     return;
   }
+  em_htask *t = em_task_of(h, "em_when_stalled");
   em_sleeper *s = malloc(sizeof(em_sleeper));
   if (s == NULL) em_out_of_memory();
   s->at = at;
   s->seq = em_sleeper_seq++;
   s->task = t;
   em_vec_push(&em_sleepers, s);
-  em_on_cancel(t, em_sleeper_cancel, s);
+  em_on_cancel(h, em_sleeper_cancel, s);
 }
 
 /* The run stalled: wakes the sleeper with the earliest time (the earliest call among equal
@@ -2653,10 +2774,10 @@ static bool em_wake_sleeper(void) {
   }
   em_sleeper *s = em_sleepers.items[first];
   em_vec_remove(&em_sleepers, s);
-  em_task *t = s->task;
+  em_htask *t = s->task;
   free(s);
   t->on_cancel = NULL;
-  em_complete_unit(t);
+  em_complete_unit(t->handle);
   return true;
 }
 
@@ -2678,11 +2799,11 @@ static void em_loop_inbox(void) {
   while (read(em_wake_fds[0], buf, sizeof buf) > 0) {
   }
   pthread_mutex_lock(&em_inbox_lock);
-  em_task *head = em_inbox_head;
+  em_htask *head = em_inbox_head;
   em_twice *tw = em_inbox_twice;
   em_inbox_head = em_inbox_tail = NULL;
   em_inbox_twice = NULL;
-  for (em_task *t = head; t != NULL; t = t->inbox_next) t->queued = false;
+  for (em_htask *t = head; t != NULL; t = t->inbox_next) t->queued = false;
   pthread_mutex_unlock(&em_inbox_lock);
   while (tw != NULL) {
     em_twice *next = tw->next;
@@ -2691,7 +2812,7 @@ static void em_loop_inbox(void) {
     tw = next;
   }
   while (head != NULL) {
-    em_task *t = head;
+    em_htask *t = head;
     head = t->inbox_next;
     t->inbox_next = NULL;
     em_task_deliver(t);
@@ -2700,12 +2821,12 @@ static void em_loop_inbox(void) {
 
 /* Calls the registration's callback once: it is removed first. */
 static void em_reg_fire(em_reg *g) {
-  em_task *t = g->task;
+  em_task *h = g->task->handle;
   em_callback cb = g->callback;
   void *ctx = g->ctx;
   em_reg_unlink(g);
   em_reg_remove(g);
-  cb(t, ctx);
+  cb(h, ctx);
 }
 
 /* One turn of the event loop: waits (unless `block` is false) for the first timer, a file
