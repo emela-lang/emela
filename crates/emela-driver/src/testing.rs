@@ -42,6 +42,9 @@ use crate::target::Target;
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
 /// The default C output directory for tests (`--target c`), relative like [`JS_TEST_OUT_DIR`].
 pub const C_TEST_OUT_DIR: &str = "target/emela/test-c";
+/// The default WASM output directory for tests (`--target wasm`), relative like
+/// [`JS_TEST_OUT_DIR`].
+pub const WASM_TEST_OUT_DIR: &str = "target/emela/test-wasm";
 
 /// The file name of the test entry module, which node runs.
 pub const JS_TEST_ENTRY_FILE: &str = "emela_test.mjs";
@@ -55,6 +58,7 @@ pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
     match target {
         Target::Js => input.base.join(JS_TEST_OUT_DIR),
         Target::C => input.base.join(C_TEST_OUT_DIR),
+        Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
     }
 }
 
@@ -329,6 +333,12 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             (options.node.clone(), command)
         }
         Runner::Native => (entry.clone(), Command::new(&entry)),
+        Runner::Wasmtime => {
+            let wasmtime = crate::run::wasmtime_program();
+            let mut command = Command::new(&wasmtime);
+            command.arg("run").arg(&entry);
+            (wasmtime, command)
+        }
     };
     match run_tests(&program, command, &selected, options.output, out) {
         Ok((results, stderr)) => {

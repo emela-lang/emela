@@ -44,6 +44,15 @@ pub trait Backend<P> {
 - （補）既定の出力先は build と run が `target/emela/c`，test が `target/emela/test-c`（JS の `target/emela/test` と分ける）
 - （補）`emela test --target c` は JS と同じ結果の行（`\x1eemela-test` と JSON）をテストの実行ファイルが標準出力に書くので，結果の読み取りと表示は JS と共通
 
+## WASM のターゲット（`--target wasm`，仕様 16章）
+
+- （補）ターゲットの名前は `js`，`c`，`wasm`．`emela run/build --target wasm` は `emela-codegen-wasm` で `main.wasm`（WASI のコマンド）を書き，`wasmtime`（`EMELA_WASMTIME`，なければ `wasmtime`）で動かす．`Program` は `emela_core::Module`
+- （補）`CoreWasm` は `JsBackend` の WASM 版．`emit` が `main.wasm` をバイト列で返し，`finish` は何もせず（WASM 自体が最終の出力），`runner` が `Runner::Wasmtime`．起動できなければ E0909
+- （補）出力をバイト列にできるよう，`OutputFile::contents` を `Vec<u8>` にした．テキストは `OutputFile::text()` で読む（JS と C は今までどおり）
+- （補）既定の出力先は build と run が `target/emela/wasm`，test が `target/emela/test-wasm`
+- （補）emela-codegen-wasm の「WASM ではまだ使えない」のエラーは診断にする（C と同じくコールバックは E0427，suspend fn の外部関数は E0428，それ以外は番号なし）
+- （補）`emela test --target wasm` はまだ実装していない（テストの行を出力する `_start` を出していない）ので，その旨の診断で止める
+
 ## テスト（`emela test`，仕様 13章）
 
 `src/testing.rs` と `src/testing/` に分けてある．流れは「検査 → テスト関数の IR → JS の出力 → node で1つずつ実行 → 結果の表示」．

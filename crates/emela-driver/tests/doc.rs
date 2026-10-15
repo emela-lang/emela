@@ -196,10 +196,10 @@ fn markdown_pages() {
     let files = render_markdown("app", &modules);
     let paths: Vec<String> = files.iter().map(|f| f.path.display().to_string()).collect();
     assert_eq!(paths, ["index.md", "Main.md", "Shapes.md"]);
-    insta::assert_snapshot!("markdown_index", files[0].contents);
+    insta::assert_snapshot!("markdown_index", files[0].text());
     // A module with nothing public gets a page with only its name.
-    assert_eq!(files[1].contents, "# Main\n");
-    insta::assert_snapshot!("markdown_shapes", files[2].contents);
+    assert_eq!(files[1].text(), "# Main\n");
+    insta::assert_snapshot!("markdown_shapes", files[2].text());
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn html_pages() {
         paths,
         ["index.html", "style.css", "Main.html", "Shapes.html"]
     );
-    let shapes = &files[3].contents;
+    let shapes = files[3].text();
     // Type names in signatures link to their item on the same page.
     assert!(
         shapes.contains(r##"-&gt; <a class="ty" href="#Point">Point</a>"##),
@@ -251,7 +251,7 @@ fn html_links_across_modules_and_escapes_raw_html() {
         .iter()
         .find(|f| f.path.to_str() == Some("Box.html"))
         .unwrap()
-        .contents;
+        .text();
     // Defined in exactly one other module: linked to that page.
     assert!(
         page.contains(r#"<a class="ty" href="Std.Duration.html#Duration">Duration</a>"#),
