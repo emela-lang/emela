@@ -19,6 +19,7 @@ mod lower;
 mod row;
 mod scheme;
 mod signature;
+mod sparse;
 mod ty;
 
 #[cfg(test)]

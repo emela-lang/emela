@@ -8,6 +8,7 @@
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
 
+use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnItem, HandlerItem,
     Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
@@ -37,33 +38,33 @@ mod suspend;
 
 /// The result of inferring one group of definitions. Types have unification bindings followed.
 pub(crate) struct BodyTypes {
-    pub(crate) exprs: ArenaMap<ExprId, Ty>,
-    pub(crate) pats: ArenaMap<PatId, Ty>,
-    pub(crate) locals: ArenaMap<LocalId, Ty>,
+    pub(crate) exprs: SparseMap<ExprId, Ty>,
+    pub(crate) pats: SparseMap<PatId, Ty>,
+    pub(crate) locals: SparseMap<LocalId, Ty>,
     /// The definition whose body a local variable belongs to.
-    pub(crate) local_owner: ArenaMap<LocalId, DefId>,
-    pub(crate) fields: ArenaMap<ExprId, usize>,
-    pub(crate) calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
-    pub(crate) type_args: ArenaMap<ExprId, Vec<Ty>>,
+    pub(crate) local_owner: SparseMap<LocalId, DefId>,
+    pub(crate) fields: SparseMap<ExprId, usize>,
+    pub(crate) calls: SparseMap<ExprId, Vec<Option<ExprId>>>,
+    pub(crate) type_args: SparseMap<ExprId, Vec<Ty>>,
     /// References to generic definitions → the sets instantiating set type parameters.
-    pub(crate) type_rows: ArenaMap<ExprId, Vec<Row>>,
+    pub(crate) type_rows: SparseMap<ExprId, Vec<Row>>,
     /// For definitions without a declared type: generalized set variables and the indices of
     /// their type parameters.
     pub(crate) generalized_rows: Vec<(DefId, Vec<(RowVar, u32)>)>,
     /// For definitions without a declared type: generalized type variables and the indices of
     /// their type parameters.
     pub(crate) generalized_tys: Vec<(DefId, Vec<(TyVar, u32)>)>,
-    pub(crate) pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
+    pub(crate) pat_fields: SparseMap<PatId, Vec<Option<PatId>>>,
     pub(crate) diags: Vec<Diagnostic>,
     /// The generalized declared types of definitions that had none.
     pub(crate) inferred: Vec<(DefId, Signature)>,
     /// The error set E of each expression (spec 9.4).
-    pub(crate) errors: ArenaMap<ExprId, Row>,
+    pub(crate) errors: SparseMap<ExprId, Row>,
     /// The effect set R of each expression (spec 9.4).
-    pub(crate) effects: ArenaMap<ExprId, Row>,
+    pub(crate) effects: SparseMap<ExprId, Row>,
     /// References to capability operations (the `Field` expression of `log.info`) → the effect
     /// operation's definition.
-    pub(crate) ops: ArenaMap<ExprId, DefId>,
+    pub(crate) ops: SparseMap<ExprId, DefId>,
     /// Dependencies of the group's handlers (the union of the R of init, release and the
     /// operation bodies).
     pub(crate) handler_uses: Vec<(DefId, Row)>,
@@ -71,7 +72,7 @@ pub(crate) struct BodyTypes {
     pub(crate) handler_fails: Vec<(DefId, Row)>,
     /// `with` expressions → handlers in initialization order (layers expanded, later handlers
     /// overriding earlier ones).
-    pub(crate) with_handlers: ArenaMap<ExprId, Vec<DefId>>,
+    pub(crate) with_handlers: SparseMap<ExprId, Vec<DefId>>,
 }
 
 /// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
@@ -132,7 +133,7 @@ pub(crate) struct BodyInfer<'a> {
     defs: Vec<DefId>,
     /// Lambda expressions → the set variables of their type's error and effect sets, which
     /// include the body's E and R (`body/errors.rs`, `body/effects.rs`).
-    lambda_rows: ArenaMap<ExprId, (RowVar, RowVar)>,
+    lambda_rows: SparseMap<ExprId, (RowVar, RowVar)>,
     /// Set variables for the dependencies and the init E of the group's handlers.
     pending_handlers: Vec<(DefId, RowVar, RowVar)>,
     handler_bodies: Vec<HandlerBody>,
@@ -144,20 +145,20 @@ pub(crate) struct BodyInfer<'a> {
     /// parameters. Checked against the definitions' final types once the group is inferred
     /// ([`Self::finish`]).
     deferred: Vec<DeferredRef>,
-    locals: ArenaMap<LocalId, Ty>,
-    local_owner: ArenaMap<LocalId, DefId>,
+    locals: SparseMap<LocalId, Ty>,
+    local_owner: SparseMap<LocalId, DefId>,
     /// Field access expressions → field indices.
-    fields: ArenaMap<ExprId, usize>,
+    fields: SparseMap<ExprId, usize>,
     /// Call, pipe and update expressions → the arguments reordered by position.
-    calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
+    calls: SparseMap<ExprId, Vec<Option<ExprId>>>,
     /// References to generic definitions → instantiated type arguments.
-    type_args: ArenaMap<ExprId, Vec<Ty>>,
+    type_args: SparseMap<ExprId, Vec<Ty>>,
     /// References to generic definitions → the sets instantiating set type parameters.
-    type_rows: ArenaMap<ExprId, Vec<Row>>,
+    type_rows: SparseMap<ExprId, Vec<Row>>,
     /// Constructor patterns → the patterns reordered by field position.
-    pat_fields: ArenaMap<PatId, Vec<Option<PatId>>>,
-    exprs: ArenaMap<ExprId, Ty>,
-    pats: ArenaMap<PatId, Ty>,
+    pat_fields: SparseMap<PatId, Vec<Option<PatId>>>,
+    exprs: SparseMap<ExprId, Ty>,
+    pats: SparseMap<PatId, Ty>,
     diags: Vec<Diagnostic>,
     /// Numeric type constraints, checked when the body is done ([`Self::check_numbers`]).
     numbers: Vec<NumConstraint>,
@@ -165,7 +166,7 @@ pub(crate) struct BodyInfer<'a> {
     /// ([`Self::check_coverage`]).
     coverage: Vec<CoverageSite>,
     /// Each expression's error set, computed after body inference (`body/errors.rs`).
-    expr_rows: ArenaMap<ExprId, Row>,
+    expr_rows: SparseMap<ExprId, Row>,
     /// Set variables that remove tags caught by `escape` from a set variable's solution
     /// (`δ ⊇ v ∖ tags`).
     row_diffs: Vec<(RowVar, RowVar, Vec<Tag>)>,
@@ -173,15 +174,15 @@ pub(crate) struct BodyInfer<'a> {
     /// W0302 check.
     escapes: Vec<(ExprId, Vec<(PatId, DefId)>)>,
     /// Each expression's effect set, computed after body inference (`body/effects.rs`).
-    expr_effects: ArenaMap<ExprId, Row>,
+    expr_effects: SparseMap<ExprId, Row>,
     /// References to capability operations → effect operations.
-    ops: ArenaMap<ExprId, DefId>,
+    ops: SparseMap<ExprId, DefId>,
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
     /// initialization order and dependency cycles are decided after sets are solved
     /// (`body/effects.rs`).
     withs: Vec<(ExprId, Vec<crate::layer::Entry>, Vec<Row>)>,
     /// `with` expressions → handlers in initialization order.
-    with_handlers: ArenaMap<ExprId, Vec<DefId>>,
+    with_handlers: SparseMap<ExprId, Vec<DefId>>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
     /// Set variables that get an `Immediate` bound when generalized.
@@ -213,31 +214,31 @@ impl<'a> BodyInfer<'a> {
             ctx,
             pending: Vec::new(),
             defs: Vec::new(),
-            lambda_rows: ArenaMap::new(),
+            lambda_rows: SparseMap::new(),
             pending_handlers: Vec::new(),
             handler_bodies: Vec::new(),
             handler_parts: Vec::new(),
             in_init: None,
             deferred: Vec::new(),
-            locals: ArenaMap::new(),
-            local_owner: ArenaMap::new(),
-            fields: ArenaMap::new(),
-            calls: ArenaMap::new(),
-            type_args: ArenaMap::new(),
-            type_rows: ArenaMap::new(),
-            pat_fields: ArenaMap::new(),
-            exprs: ArenaMap::new(),
-            pats: ArenaMap::new(),
+            locals: SparseMap::new(),
+            local_owner: SparseMap::new(),
+            fields: SparseMap::new(),
+            calls: SparseMap::new(),
+            type_args: SparseMap::new(),
+            type_rows: SparseMap::new(),
+            pat_fields: SparseMap::new(),
+            exprs: SparseMap::new(),
+            pats: SparseMap::new(),
             diags: Vec::new(),
             numbers: Vec::new(),
             coverage: Vec::new(),
-            expr_rows: ArenaMap::new(),
+            expr_rows: SparseMap::new(),
             row_diffs: Vec::new(),
             escapes: Vec::new(),
-            expr_effects: ArenaMap::new(),
-            ops: ArenaMap::new(),
+            expr_effects: SparseMap::new(),
+            ops: SparseMap::new(),
             withs: Vec::new(),
-            with_handlers: ArenaMap::new(),
+            with_handlers: SparseMap::new(),
             immediates: Vec::new(),
             immediate_vars: Default::default(),
         }
@@ -716,11 +717,11 @@ impl<'a> BodyInfer<'a> {
         }
 
         let exprs = resolve_all(&mut self.ctx, &self.exprs);
-        let mut errors = ArenaMap::default();
+        let mut errors = SparseMap::default();
         for (expr, row) in self.expr_rows.iter() {
             errors.insert(expr, self.ctx.resolve_row(row));
         }
-        let mut effects = ArenaMap::default();
+        let mut effects = SparseMap::default();
         for (expr, row) in self.expr_effects.iter() {
             effects.insert(expr, self.ctx.resolve_row(row));
         }
@@ -735,12 +736,12 @@ impl<'a> BodyInfer<'a> {
             .collect();
         let pats = resolve_all(&mut self.ctx, &self.pats);
         let locals = resolve_all(&mut self.ctx, &self.locals);
-        let mut type_args = ArenaMap::default();
+        let mut type_args = SparseMap::default();
         for (expr, args) in self.type_args.iter() {
             let args: Vec<Ty> = args.iter().map(|ty| self.ctx.resolve(ty)).collect();
             type_args.insert(expr, args);
         }
-        let mut type_rows = ArenaMap::default();
+        let mut type_rows = SparseMap::default();
         for (expr, rows) in self.type_rows.iter() {
             let rows: Vec<Row> = rows.iter().map(|row| self.ctx.resolve_row(row)).collect();
             type_rows.insert(expr, rows);
@@ -2014,8 +2015,8 @@ impl<'a> BodyInfer<'a> {
 }
 
 /// Follows unification bindings for every type in the table.
-fn resolve_all<T>(ctx: &mut InferCtx, map: &ArenaMap<Idx<T>, Ty>) -> ArenaMap<Idx<T>, Ty> {
-    let mut out = ArenaMap::default();
+fn resolve_all<T>(ctx: &mut InferCtx, map: &SparseMap<Idx<T>, Ty>) -> SparseMap<Idx<T>, Ty> {
+    let mut out = SparseMap::default();
     for (id, ty) in map.iter() {
         out.insert(id, ctx.resolve(ty));
     }
