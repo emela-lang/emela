@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A per-test project. Leftovers are removed on creation, and the directory on drop.
 struct Project {
@@ -10,7 +11,12 @@ struct Project {
 
 impl Project {
     fn new(name: &str, files: &[(&str, &str)]) -> Self {
-        let dir = std::env::temp_dir().join(format!("emela-cli-{}-{name}", std::process::id()));
+        // A unique directory per project: two tests may pick the same readable `name`, and the
+        // `remove_dir_all` here (and on drop) must not delete another test's files while its
+        // `node` is still running in them (`ENOENT: process.cwd`).
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("emela-cli-{}-{name}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in files {
             let path = dir.join(path);
