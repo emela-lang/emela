@@ -3,7 +3,7 @@
 //! It looks like Emela, but uses marks that Emela lacks so it is not mistaken for source: `let`
 //! for bindings, `%n` for locals (with their types where bound, as in `x%0: Int`), `@` for
 //! builtins, `[OpTy]` on operators, `?` after fallible calls, `!` after suspending calls,
-//! `error enum` for error enums, `use[X](ctx)` and `provide(..)` for evidence tables,
+//! `error enum` for error enums, `external enum` for `@external type`s, `use[X](ctx)` and `provide(..)` for evidence tables,
 //! `h.X#op(..)` for operation calls, and `fiber#op(..)` for concurrency operations. Suspending
 //! functions and lambdas, and suspend fn operations, are prefixed with `suspend`; functions and
 //! lambdas whose calls may fail get `fails` after the return type, and a lambda that does not
@@ -12,8 +12,12 @@
 //!
 //! Type arguments follow the name in brackets: direct calls and function values
 //! (`List.map[Shape, Float](xs%1, f%2)`), constructors (`Option.None[Int]`,
-//! `Option.Some[Int](1)`) and builtins (`@dbg[Int](x%0)`). A list literal is followed by its type
+//! `Option.Some[Int](1)`), builtins (`@dbg[Int](x%0)`) and operation calls
+//! (`s%6.Std.Fiber.Scope[_, _]#deferred[Int]()`). A list literal is followed by its type
 //! (`[1, 2]: List[Int]`), and a lambda by its return type (`fn(x%0: Int) -> Int { .. }`).
+//!
+//! Effects list their operations' types, and an effect with type arguments also what it
+//! instantiates (`effect Std.State.State[$modify.0] = Std.State.State[A] { fn get() -> A .. }`).
 //!
 //! ```text
 //! enum Shapes.Shape {
@@ -31,8 +35,8 @@
 use std::fmt::Write;
 
 use crate::ir::{
-    Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, HostModule, HostRef, Lit,
-    Local, Module, OpTy, Pat, StrPart, Type, TypeId, TypeTable, UnOp, VariantFields,
+    Arm, AssertCond, BinOp, Callee, CtorRef, EffectDef, EnumDef, Expr, FiberOp, HostModule,
+    HostRef, Lit, Local, Module, OpTy, Pat, StrPart, Type, TypeId, TypeTable, UnOp, VariantFields,
 };
 
 /// Enums first, then functions, each in ID order.
@@ -47,18 +51,8 @@ pub fn dump(m: &Module) -> String {
         p.out.push('\n');
     }
     for (_, def) in m.effects.iter() {
-        let ops: Vec<String> = def
-            .ops
-            .iter()
-            .map(|op| {
-                if op.suspend {
-                    format!("suspend {}", op.name)
-                } else {
-                    op.name.clone()
-                }
-            })
-            .collect();
-        writeln!(p.out, "effect {} {{ {} }}\n", def.name, ops.join(", ")).unwrap();
+        p.effect_def(def);
+        p.out.push('\n');
     }
     for (_, f) in m.functions.iter() {
         if f.exported {
@@ -119,8 +113,42 @@ struct Printer<'a> {
 }
 
 impl Printer<'_> {
+    /// `effect Name = Decl[Args] { .. }`, with one operation per line. The instantiation is written
+    /// only for an effect with type arguments.
+    fn effect_def(&mut self, def: &EffectDef) {
+        write!(self.out, "effect {}", def.name).unwrap();
+        if !def.args.is_empty() {
+            let args: Vec<String> = def.args.iter().map(|t| self.ty(t)).collect();
+            write!(self.out, " = {}[{}]", def.decl, args.join(", ")).unwrap();
+        }
+        self.out.push_str(" {");
+        for op in &def.ops {
+            let ty_params = if op.type_params == 0 {
+                String::new()
+            } else {
+                let names: Vec<String> = (0..op.type_params).map(param_name).collect();
+                format!("[{}]", names.join(", "))
+            };
+            let params: Vec<String> = op.params.iter().map(|t| self.ty(t)).collect();
+            write!(
+                self.out,
+                "\n  {}fn {}{ty_params}({}) -> {}{}",
+                if op.suspend { "suspend " } else { "" },
+                op.name,
+                params.join(", "),
+                self.ty(&op.ret),
+                if op.fails { " fails" } else { "" },
+            )
+            .unwrap();
+        }
+        self.out.push_str("\n}\n");
+    }
+
     fn enum_def(&mut self, def: &EnumDef) {
         let params: Vec<String> = (0..def.params).map(param_name).collect();
+        if def.external {
+            self.out.push_str("external ");
+        }
         if def.error {
             self.out.push_str("error ");
         }
@@ -243,10 +271,12 @@ impl Printer<'_> {
                         handler,
                         effect,
                         op,
+                        ty_args,
                     } => {
                         self.atom(handler);
                         let def = &self.m.effects[*effect];
                         write!(self.out, ".{}#{}", def.name, def.ops[*op].name).unwrap();
+                        self.ty_args(ty_args);
                     }
                 }
                 self.out.push('(');

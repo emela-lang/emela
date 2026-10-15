@@ -284,39 +284,89 @@ pub enum HostModule {
     Bundled(String),
 }
 
-/// An effect (spec 8.1).
+/// An effect (spec 8.1). An effect with type arguments is one `EffectDef` per instantiation
+/// (`State[Int]` and `State[String]` are different effects), and the types of its operations are
+/// the instantiated ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectDef {
     /// Unique in the module; used as the evidence table key.
     pub name: String,
+    /// The IR name of the effect declaration this instantiates (`State.State` for
+    /// `State.State[Int]`); the same as `name` for an effect without type parameters.
+    pub decl: String,
+    /// The type arguments of the instantiation, in the declaration's parameter order. Set type
+    /// arguments (`Scope[E, R]`, spec 11.2) have no IR type and are the placeholder `()`. A
+    /// `Type::Param(i)` is a type parameter of the function whose body uses the effect (the key
+    /// `State[$modify.0]` is used only in the body of `modify`), as in that function's local types.
+    pub args: Vec<TypeId>,
     /// In declaration order; indexed by `Callee::Op::op` and `Expr::Handler::ops`.
     pub ops: Vec<OpDef>,
 }
 
-/// An effect operation (spec 8.1).
+impl EffectDef {
+    /// An effect without type parameters.
+    pub fn new(name: &str, ops: Vec<OpDef>) -> Self {
+        EffectDef {
+            name: name.to_owned(),
+            decl: name.to_owned(),
+            args: Vec::new(),
+            ops,
+        }
+    }
+}
+
+/// An effect operation (spec 8.1), with its types for the instantiation of its effect.
+///
+/// An operation may have type parameters of its own only in built-in effects (`fork[A]` and
+/// `deferred[A]` of Scope, spec 8.1, 11.2). They are `Type::Param(0..type_params)` in `params` and
+/// `ret`, instantiated per call by `Callee::Op::ty_args`. The type arguments of built-in effects
+/// are sets (`Scope[E, R]`), so such an operation's types contain no other `Type::Param`. A
+/// handler implements a generic operation for every instantiation at once, so its implementation
+/// sees the operation's own type parameters as `Type::Any`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpDef {
     pub name: String,
     /// Whether it is a `suspend fn`. If true, the handler's implementation (a lambda in
-    /// `Expr::Handler::ops`) takes resume as its last argument, and operation calls
-    /// (`Callee::Op`) are suspending calls (spec 8.4, 14.5).
+    /// `Expr::Handler::ops`) takes resume (`fn(ret) -> ()`) as its last argument and returns `()`,
+    /// and operation calls (`Callee::Op`) are suspending calls (spec 8.4, 14.5).
     pub suspend: bool,
+    /// The number of the operation's own type parameters (see above); 0 outside built-in effects.
+    pub type_params: usize,
+    /// The declared parameters' types. For Scope's fork, the IR passes the child function wrapped
+    /// to take the evidence table as an ordinary parameter (`fn(evidence) -> A`, see
+    /// `lower/fiber.rs`), and the type says so.
+    pub params: Vec<TypeId>,
+    pub ret: TypeId,
+    /// Whether a call may fail: the operation's E is not empty (spec 7.2).
+    pub fails: bool,
 }
 
 impl OpDef {
-    /// An `fn` operation.
-    pub fn new(name: &str) -> Self {
+    /// An `fn` operation that does not fail.
+    pub fn new(name: &str, params: Vec<TypeId>, ret: TypeId) -> Self {
         OpDef {
             name: name.to_owned(),
             suspend: false,
+            type_params: 0,
+            params,
+            ret,
+            fails: false,
         }
     }
 
-    /// A `suspend fn` operation.
-    pub fn suspend(name: &str) -> Self {
+    /// A `suspend fn` operation that does not fail.
+    pub fn suspend(name: &str, params: Vec<TypeId>, ret: TypeId) -> Self {
         OpDef {
-            name: name.to_owned(),
             suspend: true,
+            ..OpDef::new(name, params, ret)
+        }
+    }
+
+    /// The same operation, failing.
+    pub fn failing(self) -> Self {
+        OpDef {
+            fails: true,
+            ..self
         }
     }
 }
@@ -332,6 +382,11 @@ pub struct EnumDef {
     /// be passed to `Expr::Fail` and written in `Expr::Escape` arm patterns. Backends must
     /// represent it so the error can be identified at run time.
     pub error: bool,
+    /// Whether it is an `@external type` (spec 12.3): an opaque host value with no constructors,
+    /// which Emela only passes around (`Std.Fiber.Fiber` is one too, made by the runtime). Backends
+    /// represent its values as host handles. An enum without constructors that is not external
+    /// has no values.
+    pub external: bool,
 }
 
 /// The index of `Some` in Prelude's `Option`.
@@ -350,6 +405,7 @@ impl EnumDef {
                 VariantDef::unit("None"),
             ],
             error: false,
+            external: false,
         }
     }
 }
@@ -462,11 +518,10 @@ pub enum Type {
     /// function that fork receives (the `A` of `fork[A]`, spec 11.2) and the handles that
     /// `FiberOp::Fork` and `FiberOp::Deferred` return. Only built-in effects have generic
     /// operations (spec 8.1), and lowering builds their handlers. Backends give it a uniform
-    /// representation.
+    /// representation. A handler's implementation of a generic operation sees the operation's own
+    /// type parameters as `Any` too (`OpDef`).
     ///
-    /// Until `OpDef` carries types, the value of an operation call (`Callee::Op`) is `Any` too
-    /// (`Typer::type_of`). [`crate::verify`] accepts `Any` where any type is expected and the
-    /// other way round, at the top level of a type only.
+    /// [`crate::verify`] accepts `Any` where any type is expected and the other way round.
     Any,
 }
 
@@ -1211,11 +1266,14 @@ pub enum Callee {
     Indirect(Box<Expr>),
     /// A call to an operation of the handler value `handler` (`log.info(...)`, spec 8.2). `op` is
     /// an index into `EffectDef::ops`. No evidence table is passed (the operation body's effects
-    /// were fixed by `with`).
+    /// were fixed by `with`). `ty_args` instantiate the operation's own type parameters (the count
+    /// is `OpDef::type_params`; empty except for the generic operations of built-in effects, as in
+    /// `s.fork[Int](..)`).
     Op {
         handler: Box<Expr>,
         effect: EffectId,
         op: usize,
+        ty_args: Vec<TypeId>,
     },
 }
 

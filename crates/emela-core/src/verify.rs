@@ -8,14 +8,17 @@
 //! parameters after substituting `ty_args`, a `let` / `with` value against its local, a body
 //! against the function's or lambda's return type, constructor arguments against the field types,
 //! branches of `if` / `match` / `escape` against each other, `loop` initial values and `recur`
-//! arguments against the loop variables, patterns against the scrutinee, and builtins and
-//! concurrency operations against their signatures.
+//! arguments against the loop variables, patterns against the scrutinee, builtins and concurrency
+//! operations against their signatures, operation calls against the `OpDef` after substituting
+//! `ty_args`, the implementations in a handler value against the `OpDef`s (with resume last for a
+//! suspend fn), and a handler provided for an evidence table key against the key's effect.
 //!
 //! A value of type `A` may flow into a slot of type `B` ([`Verifier::compatible`]) when they are
 //! equal, and also when:
 //!
 //! - `A` is `Never` (the value never arrives);
-//! - either is `Any` (Scope's fork and operation call results, `Type::Any`);
+//! - either is `Any` (inside Scope's handler and the handles of `fiber#fork` and `fiber#deferred`,
+//!   `Type::Any`);
 //! - `B` is `Evidence` and `A` is `()`: where there is no evidence table, `()` is passed (the callee
 //!   does not use it, as the type checker has checked R);
 //! - both are function types whose parameters and return types are compatible (parameters the
@@ -27,11 +30,12 @@
 //!   a lambda's parameters against its type's `ev`;
 //! - both are lists, tuples or applications of the same enum with compatible components.
 //!
-//! What is not checked: that locals are bound before use and bound once, the arguments of operation
-//! calls and the operations of handler values (`OpDef` has no types yet), and `Expr::Call::fails`
+//! What is not checked: that locals are bound before use and bound once, and `Expr::Call::fails`
 //! of direct calls (a generic function's `Function::fails` over-approximates its instantiations).
 
 use std::fmt;
+
+use rustc_hash::FxHashMap;
 
 use crate::dump::type_name;
 use crate::ir::*;
@@ -499,11 +503,12 @@ impl<'a> Verifier<'a> {
                     ));
                 }
                 for (i, op) in ops.iter().enumerate() {
-                    let t = self.sub(Seg::Index("op", i), op);
-                    if !matches!(self.t.ty(t), Type::Fn(_)) {
-                        let message = format!("operation {i} is a {}", self.name(t));
-                        self.error(message);
+                    self.path.push(Seg::Index("op", i));
+                    let t = self.expr(op);
+                    if let Some(o) = def.ops.get(i) {
+                        self.implementation(o, t);
                     }
+                    self.path.pop();
                 }
                 self.t.intern(Type::Handler(*effect))
             }
@@ -539,18 +544,20 @@ impl<'a> Verifier<'a> {
     }
 
     /// A handler value of type `t` provided for `effect`. It may be the handler of another
-    /// instantiation of the same effect: a call to a generic function adds the caller's handler
-    /// (`State[Int]`) under the callee's key (`State[$modify.0]`, `generic_ev` in lowering).
-    /// `EffectDef` does not record what it instantiates, so the names are compared (an
-    /// instantiation's name is the effect's followed by `[..]`).
+    /// instantiation of the same effect declaration (`EffectDef::decl`): a call to a generic
+    /// function adds the caller's handler (`State[Int]`) under the callee's key
+    /// (`State[$modify.0]`, `generic_ev` in lowering). The key's type arguments then hold the
+    /// callee's type parameters, which must stand for the handler's type arguments consistently
+    /// ([`instance_of`]).
     fn binding(&mut self, effect: EffectId, t: TypeId, i: usize) {
         let m = self.m();
-        let base = |e: EffectId| {
-            let name = &m.effects[e].name;
-            name.split_once('[').map_or(name.as_str(), |(b, _)| b)
-        };
         let ok = match self.t.ty(t) {
-            Type::Handler(h) => base(*h) == base(effect),
+            Type::Handler(h) => {
+                let (key, handler) = (&m.effects[effect], &m.effects[*h]);
+                *h == effect
+                    || key.decl == handler.decl
+                        && instance_of(self.t.types(), &key.args, &handler.args)
+            }
             _ => matches!(t, TypeId::NEVER | TypeId::ANY),
         };
         if !ok {
@@ -561,6 +568,56 @@ impl<'a> Verifier<'a> {
             );
             self.error(message);
         }
+    }
+
+    /// An implementation of type `t` of operation `o` in a handler value: a function value without
+    /// the evidence table, taking the operation's parameters (and for a suspend fn, resume of type
+    /// `fn(ret) -> ()` last) and returning the operation's result (`()` for a suspend fn, whose
+    /// body's value is discarded, spec 8.4). The operation's own type parameters are `Any` (the
+    /// implementation serves every instantiation, `OpDef`).
+    fn implementation(&mut self, o: &OpDef, t: TypeId) {
+        if matches!(t, TypeId::NEVER | TypeId::ANY) {
+            return;
+        }
+        let Type::Fn(f) = self.t.ty(t).clone() else {
+            let message = format!("operation {} implemented by a {}", o.name, self.name(t));
+            self.error(message);
+            return;
+        };
+        let any = vec![TypeId::ANY; o.type_params];
+        let mut params = self.t.subst_all(&o.params, &any);
+        let ret = self.t.subst(o.ret, &any);
+        let result = if o.suspend {
+            let resume = self
+                .t
+                .intern(Type::Fn(FnType::pure(vec![ret], TypeId::UNIT)));
+            params.push(resume);
+            TypeId::UNIT
+        } else {
+            ret
+        };
+        if f.ev {
+            self.error(format!("operation {} implemented taking evidence", o.name));
+        }
+        if f.fails && !o.fails {
+            self.error(format!(
+                "operation {} that does not fail implemented failing",
+                o.name
+            ));
+        }
+        if f.params.len() != params.len() {
+            self.error(format!(
+                "operation {} with {} parameters implemented with {}",
+                o.name,
+                params.len(),
+                f.params.len()
+            ));
+        }
+        // The operation's arguments flow into the implementation's parameters.
+        for (&p, &q) in params.iter().zip(&f.params) {
+            self.expect(p, q, "parameter");
+        }
+        self.expect(f.ret, result, "result");
     }
 
     /// An evidence table where one must be (`Use::ctx`, `Provide::base`): not `()`.
@@ -640,23 +697,43 @@ impl<'a> Verifier<'a> {
                 handler,
                 effect,
                 op,
+                ty_args,
             } => {
                 let h = self.sub(Seg::Name("handler"), handler);
                 let ty = self.t.intern(Type::Handler(*effect));
                 self.expect(h, ty, "handler");
                 let def = &m.effects[*effect];
-                match def.ops.get(*op) {
-                    Some(o) if o.suspend && !suspends => self.error(format!(
+                let Some(o) = def.ops.get(*op) else {
+                    self.error(format!("no operation {op} in {}", def.name));
+                    for (i, arg) in args.iter().enumerate() {
+                        self.sub(Seg::Index("arg", i), arg);
+                    }
+                    return TypeId::ANY;
+                };
+                if o.suspend && !suspends {
+                    self.error(format!(
                         "a call to suspend fn {}#{} not marked suspends",
                         def.name, o.name
-                    )),
-                    Some(_) => {}
-                    None => self.error(format!("no operation {op} in {}", def.name)),
+                    ));
                 }
-                for (i, arg) in args.iter().enumerate() {
-                    self.sub(Seg::Index("arg", i), arg);
+                if o.fails && !fails {
+                    self.error(format!(
+                        "a call to fallible {}#{} not marked fails",
+                        def.name, o.name
+                    ));
                 }
-                TypeId::ANY
+                if ty_args.len() != o.type_params {
+                    self.error(format!(
+                        "{} type arguments for {}#{} with {}",
+                        ty_args.len(),
+                        def.name,
+                        o.name,
+                        o.type_params
+                    ));
+                }
+                let (params, ret) = self.t.op_sig(*effect, *op, ty_args);
+                self.args(args, &params);
+                ret
             }
         }
     }
@@ -849,4 +926,36 @@ impl<'a> Verifier<'a> {
         }
         self.t.fiber_result(op, first)
     }
+}
+
+/// Whether the type arguments `actual` are an instance of `pattern`: the same, except that each
+/// `Type::Param(i)` of `pattern` stands for one type throughout. Function types are compared by
+/// their parameters and return types only (evidence table keys leave out E and R).
+fn instance_of(types: &TypeTable, pattern: &[TypeId], actual: &[TypeId]) -> bool {
+    fn all(
+        types: &TypeTable,
+        ps: &[TypeId],
+        xs: &[TypeId],
+        bound: &mut FxHashMap<usize, TypeId>,
+    ) -> bool {
+        ps.len() == xs.len() && ps.iter().zip(xs).all(|(&p, &x)| go(types, p, x, bound))
+    }
+    fn go(types: &TypeTable, p: TypeId, x: TypeId, bound: &mut FxHashMap<usize, TypeId>) -> bool {
+        if p == x && !types.has_param(p) {
+            return true;
+        }
+        match (&types[p], &types[x]) {
+            (Type::Param(i), _) => *bound.entry(*i).or_insert(x) == x,
+            (Type::List(q), Type::List(y)) | (Type::Cell(q), Type::Cell(y)) => {
+                go(types, *q, *y, bound)
+            }
+            (Type::Tuple(qs), Type::Tuple(ys)) => all(types, qs, ys, bound),
+            (Type::Enum(i, qs), Type::Enum(j, ys)) => i == j && all(types, qs, ys, bound),
+            (Type::Fn(f), Type::Fn(g)) => {
+                all(types, &f.params, &g.params, bound) && go(types, f.ret, g.ret, bound)
+            }
+            _ => p == x,
+        }
+    }
+    all(types, pattern, actual, &mut FxHashMap::default())
 }

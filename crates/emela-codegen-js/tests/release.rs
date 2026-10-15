@@ -121,15 +121,16 @@ impl Kit {
             TypeId::UNIT,
             false,
         );
-        let res = m.add_effect(EffectDef {
-            name: "Res".into(),
-            ops: vec![OpDef::new("name")],
-        });
+        let res = m.add_effect(EffectDef::new(
+            "Res",
+            vec![OpDef::new("name", vec![], TypeId::STRING)],
+        ));
         let oops = m.add_enum(EnumDef {
             name: "Oops".into(),
             params: 0,
             variants: vec![VariantDef::unit("Oops")],
             error: true,
+            external: false,
         });
         Kit {
             log,
@@ -249,10 +250,10 @@ fn sleep_ty(m: &mut Module) -> TypeId {
 
 /// `effect Clock { suspend fn sleep(ms: Int) -> () }`．
 fn clock(m: &mut Module) -> EffectId {
-    m.add_effect(EffectDef {
-        name: "Clock".into(),
-        ops: vec![OpDef::suspend("sleep")],
-    })
+    m.add_effect(EffectDef::new(
+        "Clock",
+        vec![OpDef::suspend("sleep", vec![TypeId::INT], TypeId::UNIT)],
+    ))
 }
 
 /// A `JsClock` that resumes after `setTimeout`.

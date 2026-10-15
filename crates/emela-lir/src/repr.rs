@@ -40,7 +40,8 @@ impl std::fmt::Display for Repr {
 /// - String, List, tuples, functions, handlers, evidence tables, cells, fiber scopes, Any → `ref`
 /// - An enum whose constructors all take no arguments → `i32` (the tag); other enums → `ref`.
 ///   Error enums are always `ref` (errors of different enums must be told apart at run time), and
-///   so are enums without constructors (`@external type`s are such enums until Core marks them).
+///   so are `@external type`s (host handles, `EnumDef::external`) and other enums without
+///   constructors.
 ///
 /// A type parameter is not expected after monomorphisation; it is treated as `ref` (boxed).
 pub fn repr_of(core: &emela_core::Module, ty: TypeId) -> Repr {
@@ -66,7 +67,11 @@ pub fn repr_of(core: &emela_core::Module, ty: TypeId) -> Repr {
 /// The representation of the values of an enum (see [`repr_of`]).
 pub fn enum_repr(core: &emela_core::Module, id: EnumId) -> Repr {
     let def = &core.enums[id];
-    if !def.error && !def.variants.is_empty() && def.variants.iter().all(|v| v.fields.is_empty()) {
+    if !def.error
+        && !def.external
+        && !def.variants.is_empty()
+        && def.variants.iter().all(|v| v.fields.is_empty())
+    {
         Repr::I32
     } else {
         Repr::Ref

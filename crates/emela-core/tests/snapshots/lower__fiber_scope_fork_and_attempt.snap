@@ -2,6 +2,15 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
+effect Std.Fiber.Scope[_, _] = Std.Fiber.Scope[(), ()] {
+  fn fork[A](fn(evidence) -> A fails suspends) -> Std.Fiber.Fiber[A]
+  fn deferred[A]() -> Std.Deferred.Deferred[A]
+}
+
+effect Log {
+  fn info(String) -> ()
+}
+
 export suspend fn main(ev%0: evidence) -> Int {
   let body%1: fn() -> Int suspends ev = suspend fn(ev%5: evidence) -> Int {
     let s%6: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%5)
@@ -10,14 +19,14 @@ export suspend fn main(ev%0: evidence) -> Int {
       let f%8: fn() -> () ev = fn(ev%10: evidence) -> () {
         (use[Log](ev%10)).Log#info("a")
       }
-      scope%7.Std.Fiber.Scope[_, _]#fork(fn(ev%9: evidence) -> () {
+      scope%7.Std.Fiber.Scope[_, _]#fork[()](fn(ev%9: evidence) -> () {
         (f%8)(provide(ev%9; Std.Fiber.Scope[_, _] = scope%7))
       })
     }
     let b%12: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, (), ()](fn() -> Int {
       2
     }, ev%5)
-    let d%13: Std.Deferred.Deferred[Int] = s%6.Std.Fiber.Scope[_, _]#deferred()
+    let d%13: Std.Deferred.Deferred[Int] = s%6.Std.Fiber.Scope[_, _]#deferred[Int]()
     let _%14: Bool = fiber#complete(d%13, 1)
     let _%15: () = fiber#join(a%11)!
     let e%18: Std.Fiber.Exit[(), ()] = {

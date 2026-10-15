@@ -530,6 +530,7 @@ fn make_checks_fields_with_type_arguments() {
         params: 1,
         variants: vec![VariantDef::positional("Box", vec![a, TypeId::UNIT])],
         error: false,
+        external: false,
     });
     let box_float = m.core.enum_type(boxed, vec![TypeId::FLOAT]);
     let mut b = FnBuilder::new(&m.core, "f");

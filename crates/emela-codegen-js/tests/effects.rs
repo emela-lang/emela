@@ -88,15 +88,19 @@ fn handlers_are_passed_as_evidence() {
         params: 0,
         variants: vec![VariantDef::unit("Oops")],
         error: true,
+        external: false,
     });
     let oops = CtorRef {
         enum_id: oops,
         variant: 0,
     };
-    let counter = m.add_effect(EffectDef {
-        name: "Counter".into(),
-        ops: vec![OpDef::new("add"), OpDef::new("boom")],
-    });
+    let counter = m.add_effect(EffectDef::new(
+        "Counter",
+        vec![
+            OpDef::new("add", vec![TypeId::INT], TypeId::INT),
+            OpDef::new("boom", vec![], TypeId::INT).failing(),
+        ],
+    ));
     let max = external(
         &mut m,
         "js_max",
@@ -131,6 +135,7 @@ fn handlers_are_passed_as_evidence() {
             handler: Box::new(h),
             effect: counter,
             op,
+            ty_args: Vec::new(),
         },
         args,
         fails,

@@ -16,7 +16,7 @@ use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};
 
 use super::{Call, Lowerer, Target};
-use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, TypeId};
+use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, Type, TypeId};
 
 /// `@intrinsic` functions that lowering maps to `Expr::Fiber`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -181,6 +181,8 @@ pub(super) struct ForkCall {
     pub(super) handler: Expr,
     effect: EffectId,
     op: usize,
+    /// The type argument of fork (`A`, the child's value type).
+    ty_args: Vec<TypeId>,
     /// The mark of calls to the child function `f`.
     f_call: Call,
     /// Whether `f` takes an evidence table.
@@ -219,6 +221,7 @@ impl ForkCall {
                 handler: Box::new(Expr::Var(self.cap)),
                 effect: self.effect,
                 op: self.op,
+                ty_args: self.ty_args,
             },
             args: vec![g],
             fails: false,
@@ -432,7 +435,13 @@ impl Lowerer<'_> {
 
     /// Prepares lowering a fork call on the capability value `handler` (whose type's Scope tag is
     /// `tag`). `op_ty` is the instantiated type of fork.
-    pub(super) fn fork_call(&mut self, handler: Expr, tag: &Tag, op_ty: &Ty) -> Option<ForkCall> {
+    pub(super) fn fork_call(
+        &mut self,
+        handler: Expr,
+        tag: &Tag,
+        op_ty: &Ty,
+        expr: ExprId,
+    ) -> Option<ForkCall> {
         let (effect, [fork, _]) = self.scope_effect(tag)?;
         let Ty::Fn(op_ty) = op_ty else {
             return None;
@@ -445,10 +454,12 @@ impl Lowerer<'_> {
             suspends: self.ty_suspends(f_ty),
         };
         let g_ty = self.wrapped_ty(f_ty, vec![TypeId::EVIDENCE], f_call);
+        let ty_args = self.op_ty_args(effect, fork, expr);
         Some(ForkCall {
             handler,
             effect,
             op: fork,
+            ty_args,
             f_call,
             f_takes_ev: self.ty_takes_ev(f_ty),
             g_ty,
@@ -472,6 +483,20 @@ impl Lowerer<'_> {
             suspends: call.suspends,
             ev: false,
         })
+    }
+
+    /// The type of fork's parameter in the IR (`OpDef::params`): the child function `f` as wrapped
+    /// by [`ForkCall`], which takes the evidence table as an ordinary parameter and returns `f`'s
+    /// value.
+    pub(super) fn wrapped_child(&mut self, f: TypeId) -> TypeId {
+        match self.module.ty(f).clone() {
+            Type::Fn(f) => self.module.func(FnType {
+                params: vec![TypeId::EVIDENCE],
+                ev: false,
+                ..f
+            }),
+            _ => f,
+        }
     }
 
     /// Whether operation `op` on a capability value is Scope's fork.

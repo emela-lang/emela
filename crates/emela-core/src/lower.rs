@@ -234,7 +234,32 @@ struct Lowerer<'a> {
 /// type arguments). Effects with different type arguments are different effects (spec 8.1), so each
 /// gets its own IR effect. A type argument `Bound(i)` is written as the owning definition's IR name
 /// and the index (`$modify.0`).
-type EffectKey = (DefId, String);
+///
+/// Equality and hashing look only at the effect and the string. The tag and the definition it was
+/// read in (`Lowerer::tag_key`) are kept to build the IR effect's type arguments
+/// (`Lowerer::effect_id`).
+#[derive(Clone)]
+struct EffectKey {
+    def: DefId,
+    args: String,
+    tag: Tag,
+    ctx: Option<DefId>,
+}
+
+impl PartialEq for EffectKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.def == other.def && self.args == other.args
+    }
+}
+
+impl Eq for EffectKey {}
+
+impl std::hash::Hash for EffectKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.def.hash(state);
+        self.args.hash(state);
+    }
+}
 
 /// A binding from a block statement.
 enum Bind {
@@ -267,6 +292,7 @@ enum Target {
         handler: Expr,
         effect: EffectId,
         op: usize,
+        ty_args: Vec<TypeId>,
         call: Call,
     },
     /// `State.run(initial, body)` (spec 8.8). A builtin handler provided by the runtime.
@@ -414,12 +440,14 @@ impl Target {
                 handler,
                 effect,
                 op,
+                ty_args,
                 call,
             } => Expr::Call {
                 callee: Callee::Op {
                     handler: Box::new(handler),
                     effect,
                     op,
+                    ty_args,
                 },
                 args,
                 fails: call.fails,
@@ -452,6 +480,8 @@ impl<'a> Lowerer<'a> {
                     }
                     Some(Item::Type(t)) => {
                         let id = self.declare_enum(def, t.type_params.len());
+                        // An `@external type` has no constructor (spec 12.3).
+                        self.module.enums[id].external = t.ctor.is_none();
                         self.enums.insert(def, id);
                     }
                     Some(Item::Enum(e)) => {
@@ -787,33 +817,107 @@ impl<'a> Lowerer<'a> {
         if let Some(&id) = self.effects.get(key) {
             return id;
         }
-        let (def, args) = key;
-        let ops = match self.hir.item(*def) {
-            Some(Item::Effect(e)) => e
-                .ops
-                .iter()
-                .map(|&op| OpDef {
-                    name: self.hir.defs[op].name.to_string(),
-                    suspend: matches!(self.hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend),
-                })
-                .collect(),
+        let def = key.def;
+        let decl = self.ir_name(def);
+        let name = if key.args.is_empty() {
+            decl.clone()
+        } else {
+            format!("{decl}[{}]", key.args)
+        };
+        // The type arguments as seen from the definition the key was read in, as in `key_ty`.
+        let outer = std::mem::replace(&mut self.current_def, key.ctx);
+        let args: Vec<TypeId> = key.tag.args.iter().map(|t| self.ty(t)).collect();
+        self.current_def = outer;
+        // Added before its operations, whose types might mention the effect itself.
+        let id = self.module.add_effect(EffectDef {
+            name,
+            decl,
+            args: args.clone(),
+            ops: Vec::new(),
+        });
+        self.effects.insert(key.clone(), id);
+        let op_defs = match self.hir.item(def) {
+            Some(Item::Effect(e)) => e.ops.clone(),
             _ => Vec::new(),
         };
-        let name = if args.is_empty() {
-            self.ir_name(*def)
-        } else {
-            format!("{}[{args}]", self.ir_name(*def))
-        };
-        let id = self.module.add_effect(EffectDef { name, ops });
-        self.effects.insert(key.clone(), id);
+        let ops = op_defs
+            .into_iter()
+            .map(|op| self.op_def(def, op, &args))
+            .collect();
+        self.module.effects[id].ops = ops;
         id
+    }
+
+    /// The operation `op` of `effect` for the effect's IR type arguments `args`: its declared type
+    /// with the effect's type parameters replaced by `args` and the operation's own (`fork[A]`,
+    /// spec 8.1) renumbered from 0.
+    fn op_def(&mut self, effect: DefId, op: DefId, args: &[TypeId]) -> OpDef {
+        let name = self.hir.defs[op].name.to_string();
+        let suspend = matches!(self.hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
+        let types = self.types;
+        let Some((Ty::Fn(f), n)) = types
+            .sigs
+            .get(op)
+            .map(|s| (&s.scheme.ty, s.scheme.params.len()))
+        else {
+            return OpDef {
+                suspend,
+                ..OpDef::new(&name, Vec::new(), TypeId::UNIT)
+            };
+        };
+        // The scheme's parameters are the effect's, then the operation's own. A declared type has
+        // no type variables, and its set parameters are read as possibly suspending (as in a
+        // generic signature).
+        let own = n.saturating_sub(args.len());
+        let mut subst = args.to_vec();
+        subst.extend((0..own).map(|i| self.module.type_param(i)));
+        let outer = (self.current_def.take(), self.spec);
+        self.spec = Specialization::MAX;
+        let mut params: Vec<TypeId> = f.params.iter().map(|t| self.ty(t)).collect();
+        let ret = self.ty(&f.ret);
+        (self.current_def, self.spec) = outer;
+        for p in &mut params {
+            *p = self.module.types.subst(*p, &subst);
+        }
+        let ret = self.module.types.subst(ret, &subst);
+        if self.is_fork_op(effect, op) {
+            params = params.into_iter().map(|p| self.wrapped_child(p)).collect();
+        }
+        OpDef {
+            name,
+            suspend,
+            type_params: own,
+            params,
+            ret,
+            fails: !f.fails.is_empty(),
+        }
+    }
+
+    /// The IR type arguments of the reference `expr` to operation `index` of `effect`
+    /// (`Callee::Op::ty_args`): the type checker's instantiation of the operation's own type
+    /// parameters.
+    fn op_ty_args(&mut self, effect: EffectId, index: usize, expr: ExprId) -> Vec<TypeId> {
+        let n = self.module.effects[effect].ops[index].type_params;
+        if n == 0 {
+            return Vec::new();
+        }
+        let types = self.types;
+        let recorded = types.type_args.get(expr).map_or(&[][..], Vec::as_slice);
+        let mut out: Vec<TypeId> = recorded.iter().map(|t| self.ty(t)).collect();
+        out.resize(n, TypeId::UNIT);
+        out
     }
 
     /// The evidence table key of a tag (spec 8.1). `ctx` is the definition owning type parameters
     /// (`Bound(i)`) and generalized type variables.
     fn tag_key(&self, tag: &Tag, ctx: Option<DefId>) -> EffectKey {
         let args: Vec<String> = tag.args.iter().map(|t| self.key_ty(t, ctx)).collect();
-        (tag.def, args.join(", "))
+        EffectKey {
+            def: tag.def,
+            args: args.join(", "),
+            tag: tag.clone(),
+            ctx,
+        }
     }
 
     /// The key of a tag inside the definition being lowered.
@@ -1421,7 +1525,7 @@ impl<'a> Lowerer<'a> {
         // Scope's fork wraps the child function, as at a call (`fiber.rs`).
         if self.is_fork_op(tag.def, op) {
             let op_ty = self.expr_ty(id).clone();
-            let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty) else {
+            let Some(fork) = self.fork_call(Expr::Var(h), &tag, &op_ty, id) else {
                 return self.unsupported("fork", span);
             };
             let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
@@ -1462,6 +1566,7 @@ impl<'a> Lowerer<'a> {
                         handler: Box::new(Expr::Var(h)),
                         effect: effect_id,
                         op: index,
+                        ty_args: self.op_ty_args(effect_id, index, id),
                     },
                     args,
                     fails,
@@ -1769,6 +1874,7 @@ impl<'a> Lowerer<'a> {
                 handler,
                 effect,
                 op,
+                ty_args,
                 call,
             } if !matches!(handler, Expr::Var(_) | Expr::Use { .. }) => {
                 // An expression that only looks up the evidence table (`(use X).op()`) has no
@@ -1779,6 +1885,7 @@ impl<'a> Lowerer<'a> {
                     handler: Expr::Var(l),
                     effect,
                     op,
+                    ty_args,
                     call,
                 };
                 (t, Some((l, handler)))
@@ -1860,7 +1967,7 @@ impl<'a> Lowerer<'a> {
             // Scope's fork wraps the child function (`fiber.rs`).
             if self.is_fork_op(tag.def, op) {
                 let op_ty = self.expr_ty(callee).clone();
-                return match self.fork_call(handler, &tag, &op_ty) {
+                return match self.fork_call(handler, &tag, &op_ty, callee) {
                     Some(fork) => Ok(Target::Fork(Box::new(fork))),
                     None => Err(self.unsupported("fork", span)),
                 };
@@ -1875,6 +1982,7 @@ impl<'a> Lowerer<'a> {
                 handler,
                 effect,
                 op: index,
+                ty_args: self.op_ty_args(effect, index, callee),
                 call,
             });
         }
@@ -2456,6 +2564,7 @@ impl<'a> Lowerer<'a> {
             params,
             variants: Vec::new(),
             error: false,
+            external: false,
         })
     }
 

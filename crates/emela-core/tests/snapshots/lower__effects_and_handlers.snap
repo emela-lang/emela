@@ -2,9 +2,13 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
-effect Clock { now }
+effect Clock {
+  fn now() -> Int
+}
 
-effect Stamp { stamp }
+effect Stamp {
+  fn stamp(String) -> String fails
+}
 
 export fn main() -> Int {
   with {

@@ -51,6 +51,7 @@ impl Fixture {
                 ),
             ],
             error: false,
+            external: false,
         });
         let color = core.add_enum(EnumDef {
             name: "Color".into(),
@@ -61,6 +62,7 @@ impl Fixture {
                 VariantDef::unit("Blue"),
             ],
             error: false,
+            external: false,
         });
         let parse_error = core.add_enum(EnumDef {
             name: "ParseError".into(),
@@ -70,11 +72,15 @@ impl Fixture {
                 vec![("input", TypeId::STRING)],
             )],
             error: true,
+            external: false,
         });
-        let console = core.add_effect(EffectDef {
-            name: "Console".into(),
-            ops: vec![OpDef::new("print_line"), OpDef::new("print_error_line")],
-        });
+        let console = core.add_effect(EffectDef::new(
+            "Console",
+            vec![
+                OpDef::new("print_line", vec![TypeId::STRING], TypeId::UNIT),
+                OpDef::new("print_error_line", vec![TypeId::STRING], TypeId::UNIT),
+            ],
+        ));
         let shape_ty = core.enum_type(shape, vec![]);
         let color_ty = core.enum_type(color, vec![]);
         let parse_error_ty = core.enum_type(parse_error, vec![]);

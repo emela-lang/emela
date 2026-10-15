@@ -144,6 +144,7 @@ pub fn call_op(
             handler: Box::new(handler),
             effect,
             op,
+            ty_args: Vec::new(),
         },
         args,
         fails,

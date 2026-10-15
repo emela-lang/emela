@@ -754,7 +754,9 @@ fn main() {
     let out = dump(&m);
     let mine: Vec<&str> = out
         .split("\n\n")
-        .filter(|f| ["fn main(", "fn modify("].iter().any(|k| f.contains(k)))
+        .filter(|f| {
+            f.starts_with("effect ") || ["fn main(", "fn modify("].iter().any(|k| f.contains(k))
+        })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
@@ -791,9 +793,10 @@ fn main() -> Int use { Log, Async } {
     let mine: Vec<&str> = out
         .split("\n\n")
         .filter(|f| {
-            ["fn main(", "fn Std.Fiber.fork("]
-                .iter()
-                .any(|k| f.contains(k))
+            f.starts_with("effect ")
+                || ["fn main(", "fn Std.Fiber.fork("]
+                    .iter()
+                    .any(|k| f.contains(k))
         })
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
