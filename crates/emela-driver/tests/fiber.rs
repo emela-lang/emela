@@ -573,10 +573,9 @@ fn main() {
 #[test]
 fn fibers_in_tests() {
     // spec chapter 13: fibers also run inside test functions. A child's failure becomes that
-    // test's error or defect. JS only: `child_defect` infers a type parameter (the child returns
-    // Never), and the C target skips generic test functions (monomorphisation has no
-    // instantiation for them).
-    let outcomes = run_tests_on(
+    // test's error or defect. `child_defect` infers a type parameter (the child returns Never);
+    // the C target instantiates it (with `Never`) instead of skipping the test.
+    let outcomes = run_tests(
         "tests",
         &source(
             r##"
@@ -612,7 +611,6 @@ fn child_defect() {
 }
 "##,
         ),
-        Target::Js,
     );
     assert_eq!(
         outcomes,

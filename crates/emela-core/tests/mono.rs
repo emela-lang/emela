@@ -2,7 +2,7 @@
 
 mod support;
 
-use emela_core::{Module, Roots, dump, monomorphize, monomorphize_from, verify_monomorphic};
+use emela_core::{Module, Roots, Type, dump, monomorphize, monomorphize_from, verify_monomorphic};
 use support::{lower_files, try_lower};
 
 /// Monomorphizes from the exported functions and checks the result with the verifier.
@@ -268,6 +268,46 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", "fn compose["]));
 }
 
+/// Roots that take no arguments and whose inferred types have type parameters are instantiated,
+/// not skipped: `Never` for an ordinary type parameter (a test that joins a child that only
+/// panics). A generic root that takes arguments (`List.map`) has no instantiation.
+#[test]
+fn generic_roots_are_instantiated() {
+    let m = try_lower(
+        &[(
+            "main.emel",
+            "import Std.Fiber.{Fiber, Scope}\n\
+             fn child_defect() {\n\
+               Fiber.scope(fn() {\n\
+                 h = Fiber.fork(fn() { panic(\"child\") })\n\
+                 Fiber.join(h)\n\
+               })\n\
+             }\n\
+             fn main() { 0 }\n",
+        )],
+        Roots::All,
+    )
+    .unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let find = |name: &str| {
+        m.functions
+            .iter()
+            .find(|(_, f)| f.name.ends_with(name))
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| panic!("{name} is lowered"))
+    };
+    let roots = [find("child_defect"), find("List.map")];
+    for &r in &roots {
+        let f = &m.functions[r];
+        assert!(f.type_params > f.set_params.len(), "{} is generic", f.name);
+    }
+    let (out, copies) = monomorphize_from(&m, &roots);
+    assert_monomorphic(&out);
+    assert!(copies[1].is_none(), "List.map takes arguments");
+    let child_defect = &out.functions[copies[0].unwrap()];
+    assert!(child_defect.params.is_empty() && !child_defect.fails);
+    assert_eq!(out.types[child_defect.ret], Type::Never);
+}
+
 /// Every function of the bundled core and std, as roots, monomorphizes to a module the verifier
 /// accepts.
 #[test]
@@ -277,13 +317,15 @@ fn every_core_function_monomorphizes() {
     let roots: Vec<_> = m.functions.iter().map(|(id, _)| id).collect();
     let (out, new_roots) = monomorphize_from(&m, &roots);
     assert_monomorphic(&out);
-    let generic = m
-        .functions
-        .iter()
-        .filter(|(_, f)| f.type_params > 0)
-        .count();
-    assert_eq!(new_roots.iter().filter(|r| r.is_none()).count(), generic);
-    assert!(out.functions.len() >= m.functions.len() - generic);
+    // Generic roots that take arguments have no instantiation; the others (generic or not) get
+    // one each.
+    for (&old, new) in roots.iter().zip(&new_roots) {
+        let f = &m.functions[old];
+        let inputs = f.params.len() - usize::from(m.takes_ev(old));
+        assert_eq!(new.is_none(), f.type_params > 0 && inputs > 0, "{}", f.name);
+    }
+    let distinct: std::collections::HashSet<_> = new_roots.iter().flatten().collect();
+    assert_eq!(distinct.len(), new_roots.iter().flatten().count());
 }
 
 /// Prints function counts and times for lowering and monomorphizing the program at

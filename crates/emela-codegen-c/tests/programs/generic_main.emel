@@ -1,0 +1,15 @@
+import Std.Fiber.{Fiber, Scope}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+# main's inferred type has a type parameter (the child only panics, so joining it returns
+# nothing) and set parameters; the C target instantiates them instead of skipping main.
+fn main() {
+  print("start")
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() { panic("child") })
+    Fiber.join(h)
+  })
+}

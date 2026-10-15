@@ -117,22 +117,36 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
             .collect(),
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
+    // A generic root (a test whose inferred type has type parameters) is instantiated too. One
+    // that cannot be (it takes arguments) is reported rather than skipped.
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
-    // The Flow IR functions are the Core functions in the same order, so a test keeps the index
-    // of its copy.
+    let mut copied = Vec::with_capacity(roots.len());
+    for (&root, copy) in roots.iter().zip(copies) {
+        match copy {
+            // The Flow IR functions are the Core functions in the same order, so a root keeps the
+            // index of its copy.
+            Some(copy) => copied.push(emela_lir::FnId::from_raw(la_arena::RawIdx::from(
+                u32::from(copy.into_raw()),
+            ))),
+            None => {
+                return Err(vec![CError::new(
+                    CErrorKind::Internal,
+                    format!(
+                        "internal error in monomorphisation: the entry `{}` is generic and takes \
+                         arguments, so it has no instantiation",
+                        core.functions[root].name
+                    ),
+                )]);
+            }
+        }
+    }
     let entry = match entry {
-        Entry::Main => emit::Run::Main,
+        Entry::Main => emit::Run::Main(copied.first().copied()),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
                 .iter()
-                .zip(copies)
-                .filter_map(|(t, copy)| {
-                    let index = u32::from(copy?.into_raw());
-                    Some((
-                        t.name.clone(),
-                        emela_lir::FnId::from_raw(la_arena::RawIdx::from(index)),
-                    ))
-                })
+                .zip(copied)
+                .map(|(t, copy)| (t.name.clone(), copy))
                 .collect(),
         ),
     };
