@@ -1,0 +1,93 @@
+---
+source: crates/emela-lir/tests/dump.rs
+expression: checked_dump(&m)
+---
+export fn fact(n%0: i32 (Int)) -> i32 (Int) {
+  r%3: i32 (Int) = loop(i%1: i32 (Int) = n%0, acc%2: i32 (Int) = 1) {
+    z%4: i32 (Bool) = i%1 ==[i32] 0
+    v%5: i32 (Int) = if z%4 {
+      yield acc%2
+    } else {
+      j%6: i32 (Int) = i%1 -[i32] 1
+      a%7: i32 (Int) = acc%2 *[i32] i%1
+      recur(j%6, a%7)
+    }
+    yield v%5
+  }
+  return r%3
+}
+
+fn area(s%0: ref (Shape)) -> f64 (Float) {
+  switch tag(s%0) {
+    case Shape.Circle {
+      r%1: f64 (Float) = field s%0 Shape.Circle#0
+      a%2: f64 (Float) = r%1 *[f64] r%1
+      return a%2
+    }
+    case Shape.Rect {
+      w%3: f64 (Float) = field s%0 Shape.Rect.width#0
+      h%4: f64 (Float) = field s%0 Shape.Rect.height#1
+      a%5: f64 (Float) = w%3 *[f64] h%4
+      return a%5
+    }
+  }
+  unreachable
+}
+
+fn code(n%0: i32 (Int)) -> i32 (Color) {
+  c%1: i32 (Color) = switch n%0 {
+    case 0 {
+      v%2: i32 (Color) = make Color.Red
+      yield v%2
+    }
+    case 2 {
+      v%3: i32 (Color) = make Color.Blue
+      yield v%3
+    }
+    default {
+      defect("no color")
+    }
+  }
+  t%4: i32 (Color) = switch tag(c%1) {
+    case Color.Red {
+      v%5: i32 (Color) = make Color.Green
+      yield v%5
+    }
+    default {
+      yield c%1
+    }
+  }
+  k%6: i32 (Int) = tag t%4
+  big%7: i32 (Bool) = k%6 >[i32] 1
+  if big%7 {
+    return t%4
+  } else {}
+  return c%1
+}
+
+fn first_positive(xs%0: ref (List[Int])) -> i32 (Int) {
+  found%1: i32 (Int) = block 'found%0 {
+    loop(l%2: ref (List[Int]) = xs%0) {
+      e%3: i32 (Bool) = list_is_empty l%2
+      if e%3 {
+        break 'found%0(0)
+      } else {}
+      x%4: i32 (Int) = list_head l%2
+      p%5: i32 (Bool) = x%4 >[i32] 0
+      if p%5 {
+        break 'found%0(x%4)
+      } else {}
+      rest%6: ref (List[Int]) = list_tail l%2
+      recur(rest%6)
+    }
+    unreachable
+  }
+  out%7: i32 (Int) = protect {
+    y%8: i32 (Int) = -[i32] found%1
+    yield y%8
+  } cleanup {
+    msg%9: ref (String) = builtin Int.to_string(found%1)
+    builtin dbg(msg%9)
+  }
+  return out%7
+}

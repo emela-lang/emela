@@ -2,9 +2,12 @@
 #
 # 依存は一方向:
 #
-#   syntax → resolve → types → core → codegen-js / codegen-wasm
-#      ↓                                      ↓
-#     fmt                                  driver → lsp → cli
+#   syntax → resolve → types → core ──────→ codegen-js ───┐
+#      ↓                         └─→ lir → codegen-wasm ──┤
+#     fmt                                                 ↓
+#                                           driver → lsp → cli
+#
+# lir（低い IR）は codegen-wasm が使う予定で，今はまだどこからも使っていない．
 
 [workspace]
 resolver = "3"
@@ -60,6 +63,7 @@ emela-fmt = { path = "crates/emela-fmt", version = "0.20.1" }
 emela-resolve = { path = "crates/emela-resolve", version = "0.20.1" }
 emela-types = { path = "crates/emela-types", version = "0.20.1" }
 emela-core = { path = "crates/emela-core", version = "0.20.1" }
+emela-lir = { path = "crates/emela-lir", version = "0.20.1" }
 emela-codegen-js = { path = "crates/emela-codegen-js", version = "0.20.1" }
 emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.20.1" }
 emela-driver = { path = "crates/emela-driver", version = "0.20.1" }

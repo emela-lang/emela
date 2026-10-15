@@ -1,0 +1,14 @@
+[package]
+name = "emela-lir"
+description = "The low IR below the Core IR: the Flow IR (structured ANF with representation types), its builder, dump and verifier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

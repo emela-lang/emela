@@ -1,0 +1,499 @@
+//! The Flow IR data types.
+//!
+//! A function is a flat store: its variables, statements, statement sequences and labels live in
+//! per-function arenas and refer to each other by ID, so analyses can keep their results in side
+//! tables keyed by those IDs. The tree shape (which sequence a statement belongs to, which
+//! sequences a statement holds) is given by the IDs in [`Seq::stmts`] and in the compound
+//! statements.
+
+use emela_core::{Builtin, CtorRef, EffectId, External, FiberOp, TypeId};
+use la_arena::{Arena, Idx};
+
+use crate::repr::Repr;
+
+pub type FnId = Idx<Function>;
+pub type VarId = Idx<VarData>;
+pub type StmtId = Idx<Stmt>;
+pub type SeqId = Idx<Seq>;
+pub type LabelId = Idx<LabelData>;
+
+/// A LIR module. It owns the Core module it was made from: variables' Core types are IDs of its
+/// type table, and constructors, enums and effects are those of its definitions. The Core
+/// functions are not used (the LIR functions replace them).
+#[derive(Debug, Clone)]
+pub struct Module {
+    pub core: emela_core::Module,
+    pub functions: Arena<Function>,
+}
+
+impl Module {
+    pub fn new(core: emela_core::Module) -> Self {
+        Module {
+            core,
+            functions: Arena::new(),
+        }
+    }
+
+    /// An empty function, defined later with [`Module::define`] (for mutual recursion). `name`
+    /// must be unique in the module.
+    pub fn declare(&mut self, name: &str) -> FnId {
+        debug_assert!(
+            self.functions.iter().all(|(_, f)| f.name != name),
+            "duplicate function name `{name}`"
+        );
+        self.functions.alloc(Function::new(name))
+    }
+
+    /// Replaces the declared function. The names must agree.
+    pub fn define(&mut self, id: FnId, f: Function) {
+        debug_assert_eq!(
+            self.functions[id].name, f.name,
+            "defining a different function"
+        );
+        self.functions[id] = f;
+    }
+
+    /// Declares and defines in one step.
+    pub fn add(&mut self, f: Function) -> FnId {
+        let id = self.declare(&f.name);
+        self.functions[id] = f;
+        id
+    }
+}
+
+/// A function, with its own arenas.
+#[derive(Debug, Clone)]
+pub struct Function {
+    /// Unique in the module.
+    pub name: String,
+    pub exported: bool,
+    /// Only parameters with a representation: a parameter of type `()` or `Never` has no variable
+    /// and no argument. The evidence table, if taken, is an ordinary last parameter (`ref`, Core
+    /// type `Evidence`).
+    pub params: Vec<VarId>,
+    /// The Core type of the return value. The function returns nothing if its representation is
+    /// [`Repr::Void`].
+    pub ret: TypeId,
+    /// Whether it may fail: `fail` and the `on_fail fail` edge are allowed only then, and direct
+    /// calls to it must have a failure edge.
+    pub fails: bool,
+    /// Whether it may suspend (`emela_core::Function::suspends`).
+    pub suspends: bool,
+    /// A const's value (`emela_core::Function::constant`).
+    pub constant: bool,
+    /// For an external function, the host function; `body` is then `None`.
+    pub external: Option<External>,
+    /// The body. Every path ends in a terminator other than [`Term::Yield`].
+    pub body: Option<SeqId>,
+    pub vars: Arena<VarData>,
+    pub stmts: Arena<Stmt>,
+    pub seqs: Arena<Seq>,
+    pub labels: Arena<LabelData>,
+}
+
+impl Function {
+    /// A function without parameters returning `()`, with no body yet.
+    pub fn new(name: &str) -> Self {
+        Function {
+            name: name.to_owned(),
+            exported: false,
+            params: Vec::new(),
+            ret: TypeId::UNIT,
+            fails: false,
+            suspends: false,
+            constant: false,
+            external: None,
+            body: None,
+            vars: Arena::new(),
+            stmts: Arena::new(),
+            seqs: Arena::new(),
+            labels: Arena::new(),
+        }
+    }
+}
+
+/// A variable. Defined exactly once (as a parameter, a statement's destination, a loop variable or
+/// a closure parameter) and never assigned again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VarData {
+    /// A naming hint for output; need not be unique.
+    pub hint: String,
+    /// How the value is held. Never [`Repr::Void`]: values without a representation get no
+    /// variable.
+    pub repr: Repr,
+    /// The Core type, an ID of the module's Core type table. `repr` is `repr_of` this type.
+    pub ty: TypeId,
+}
+
+/// A label of a [`Stmt::Block`], the target of [`Term::Break`] and [`OnFail::Break`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelData {
+    pub hint: String,
+}
+
+/// A sequence of statements run in order, then its terminator.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seq {
+    pub stmts: Vec<StmtId>,
+    pub term: Term,
+}
+
+/// How a sequence ends.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Term {
+    /// Leaves the sequence normally, giving the value of the enclosing compound statement: the
+    /// arm's value for `if` and `switch`, the block's value, the loop's value (leaving the loop),
+    /// the protected body's value. Without a value when the statement has no destination. Not
+    /// allowed at the end of a function or closure body, and a cleanup ends with it without value.
+    Yield(Option<Operand>),
+    /// Returns from the enclosing function or closure. Without a value when it returns nothing.
+    Return(Option<Operand>),
+    /// Fails the enclosing function or closure with the error value (`ref`).
+    Fail(Operand),
+    /// Leaves the enclosing block with the label, giving its value.
+    Break {
+        label: LabelId,
+        value: Option<Operand>,
+    },
+    /// Starts the next iteration of the innermost enclosing loop with new values for its
+    /// variables.
+    Recur(Vec<Operand>),
+    /// Raises a defect with the message (a string). How it unwinds is up to the backend.
+    Defect(Operand),
+    /// Control never gets here (after a call that does not return, such as `panic`).
+    Unreachable,
+}
+
+/// A statement. Each optional `dst` is the variable defined by the statement, visible to the
+/// statements after it in the same sequence (and the sequences nested in those). `None` when the
+/// value has no representation or is unused.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    /// `dst = value`．
+    Let { dst: Option<VarId>, value: Value },
+    /// Runs `then` if `cond` (an `i32`) is not zero, else `else_`.
+    If {
+        dst: Option<VarId>,
+        cond: Operand,
+        then: SeqId,
+        else_: SeqId,
+    },
+    /// Runs the case matching the scrutinee, or `default`. Without a default, a tag switch must
+    /// cover every constructor; a literal switch always has a default.
+    Switch {
+        dst: Option<VarId>,
+        on: SwitchOn,
+        cases: Vec<Case>,
+        default: Option<SeqId>,
+    },
+    /// Binds `vars` to `inits` and runs `body`; [`Term::Recur`] rebinds them and runs it again, and
+    /// [`Term::Yield`] leaves the loop with its value. Made from `emela_core::Expr::Loop`.
+    Loop {
+        dst: Option<VarId>,
+        vars: Vec<VarId>,
+        inits: Vec<Operand>,
+        body: SeqId,
+    },
+    /// Runs `body`; [`Term::Break`] with `label` from inside leaves it early. The receiver of
+    /// `escape` and the target of failure edges.
+    Block {
+        dst: Option<VarId>,
+        label: LabelId,
+        body: SeqId,
+    },
+    /// Runs `body`, then `cleanup` however `body` is left (value, break, return, failure, defect,
+    /// unwinding while suspended). `cleanup` cannot leave by any other way than its end. Made from
+    /// the releases of `with` (spec 14.2).
+    Protect {
+        dst: Option<VarId>,
+        body: SeqId,
+        cleanup: SeqId,
+    },
+}
+
+impl Stmt {
+    /// The variable the statement defines.
+    pub fn dst(&self) -> Option<VarId> {
+        match self {
+            Stmt::Let { dst, .. }
+            | Stmt::If { dst, .. }
+            | Stmt::Switch { dst, .. }
+            | Stmt::Loop { dst, .. }
+            | Stmt::Block { dst, .. }
+            | Stmt::Protect { dst, .. } => *dst,
+        }
+    }
+}
+
+/// What a switch looks at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchOn {
+    /// The constructor of an enum value; cases are [`CaseKey::Variant`].
+    Tag(VarId),
+    /// An `i32` or `i64` value; cases are [`CaseKey::Lit`] of the same representation.
+    Lit(VarId),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Case {
+    pub key: CaseKey,
+    pub body: SeqId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CaseKey {
+    /// An index into the enum's `variants`.
+    Variant(usize),
+    Lit(Const),
+}
+
+/// An argument: a variable or a constant (ANF).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Operand {
+    Var(VarId),
+    Const(Const),
+}
+
+impl From<VarId> for Operand {
+    fn from(v: VarId) -> Self {
+        Operand::Var(v)
+    }
+}
+
+impl From<Const> for Operand {
+    fn from(c: Const) -> Self {
+        Operand::Const(c)
+    }
+}
+
+/// A constant. `()` has no constant: it has no representation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Const {
+    Int(i32),
+    Int64(i64),
+    Float(f64),
+    Bool(bool),
+    String(String),
+}
+
+impl Const {
+    pub fn repr(&self) -> Repr {
+        match self {
+            Const::Int(_) | Const::Bool(_) => Repr::I32,
+            Const::Int64(_) => Repr::I64,
+            Const::Float(_) => Repr::F64,
+            Const::String(_) => Repr::Ref,
+        }
+    }
+}
+
+/// The right-hand side of [`Stmt::Let`]. Arguments are operands, and values that must be
+/// variables (bases, callees, closures' captures) are [`VarId`]s.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Const(Const),
+    /// A numeric operation or comparison.
+    Prim {
+        op: PrimOp,
+        ty: PrimTy,
+        args: Vec<Operand>,
+    },
+    /// A call. Arguments are the callee's parameters that have a representation, with the
+    /// evidence table last if it takes one. `on_fail` is the failure edge, present exactly when
+    /// the callee may fail. `suspends` means the same as `emela_core::Expr::Call::suspends`.
+    Call {
+        callee: Callee,
+        args: Vec<Operand>,
+        suspends: bool,
+        on_fail: Option<OnFail>,
+    },
+    /// A builtin. After monomorphisation, so without type arguments. Builtins do not fail.
+    Builtin {
+        op: Builtin,
+        args: Vec<Operand>,
+    },
+    /// An enum value. Arguments are the constructor's fields that have a representation, in field
+    /// order.
+    Make {
+        ctor: CtorRef,
+        args: Vec<Operand>,
+    },
+    /// Field `index` (in field definition order, counting fields without representation) of
+    /// `base`, which must be a value of `ctor`. The field must have a representation.
+    Field {
+        base: VarId,
+        ctor: CtorRef,
+        index: usize,
+    },
+    /// The constructor index of an enum value (`i32`).
+    Tag(VarId),
+    /// A tuple of the elements that have a representation.
+    Tuple(Vec<Operand>),
+    /// Element `index` of a tuple (counting elements without representation).
+    TupleGet {
+        base: VarId,
+        index: usize,
+    },
+    /// `[a, b]` or `[a, b, ..tail]`.
+    List {
+        elems: Vec<Operand>,
+        tail: Option<Operand>,
+    },
+    /// Whether the list is empty (`i32`).
+    ListIsEmpty(VarId),
+    /// The first element of a non-empty list.
+    ListHead(VarId),
+    /// The rest of a non-empty list.
+    ListTail(VarId),
+    /// A top-level function used as a value.
+    FnRef(FnId),
+    /// A closure. Its body is nested here (closure conversion comes in the Heap IR).
+    Closure(Box<Closure>),
+    /// The current handler of the effect in the evidence table (`emela_core::Expr::Use`).
+    EvLookup {
+        ev: VarId,
+        effect: EffectId,
+    },
+    /// A new evidence table: `base` (or an empty table) plus `bindings`, later bindings winning
+    /// (`emela_core::Expr::Provide`).
+    EvExtend {
+        base: Option<VarId>,
+        bindings: Vec<(EffectId, VarId)>,
+    },
+    /// A handler value (`emela_core::Expr::Handler`): one closure per operation of the effect, in
+    /// declaration order.
+    Handler {
+        name: String,
+        effect: EffectId,
+        ops: Vec<VarId>,
+    },
+    /// A concurrency operation (spec chapter 11), done by the runtime. Arguments are as for
+    /// `emela_core::Expr::Fiber`. `on_fail` is present exactly when the operation may fail
+    /// (`FiberOp::fails`).
+    Fiber {
+        op: FiberOp,
+        args: Vec<Operand>,
+        on_fail: Option<OnFail>,
+    },
+}
+
+/// A closure value. It shares the function's arenas. Its body may use the variables of the
+/// enclosing bodies only if they are listed in `captures`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    /// With the evidence table last if it takes one (the closure's Core type says).
+    pub params: Vec<VarId>,
+    /// The variables of the enclosing bodies the body uses, each once, in first-use order.
+    pub captures: Vec<VarId>,
+    pub body: SeqId,
+    pub suspends: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Callee {
+    /// A top-level function.
+    Direct(FnId),
+    /// A function value (`ref`).
+    Indirect(VarId),
+    /// Operation `op` (an index into `EffectDef::ops`) of the handler value `handler`.
+    Op {
+        handler: VarId,
+        effect: EffectId,
+        op: usize,
+    },
+}
+
+/// Where a failing call goes. The error value (`ref`) goes with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnFail {
+    /// Leaves the enclosing block with the label, giving the error as its value.
+    Break(LabelId),
+    /// Fails the enclosing function or closure (as [`Term::Fail`]).
+    Propagate,
+}
+
+/// Numeric operations and comparisons. Comparisons give an `i32` (0 or 1); the others give the
+/// operand type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimOp {
+    Add,
+    Sub,
+    Mul,
+    /// For `i32` and `i64`, Int's division (spec 16.1): a defect when dividing by zero.
+    Div,
+    Rem,
+    /// Unary.
+    Neg,
+    /// Unary; the logical not of an `i32` truth value (Bool).
+    Not,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl PrimOp {
+    pub fn arity(self) -> usize {
+        match self {
+            PrimOp::Neg | PrimOp::Not => 1,
+            _ => 2,
+        }
+    }
+
+    pub fn is_comparison(self) -> bool {
+        matches!(
+            self,
+            PrimOp::Eq | PrimOp::Ne | PrimOp::Lt | PrimOp::Le | PrimOp::Gt | PrimOp::Ge
+        )
+    }
+
+    pub fn symbol(self) -> &'static str {
+        match self {
+            PrimOp::Add => "+",
+            PrimOp::Sub => "-",
+            PrimOp::Mul => "*",
+            PrimOp::Div => "/",
+            PrimOp::Rem => "%",
+            PrimOp::Neg => "-",
+            PrimOp::Not => "!",
+            PrimOp::Eq => "==",
+            PrimOp::Ne => "!=",
+            PrimOp::Lt => "<",
+            PrimOp::Le => "<=",
+            PrimOp::Gt => ">",
+            PrimOp::Ge => ">=",
+        }
+    }
+}
+
+/// The operand type of a [`PrimOp`]: a representation, plus strings, which are compared by
+/// contents (only comparisons).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimTy {
+    I32,
+    I64,
+    F64,
+    String,
+}
+
+impl PrimTy {
+    pub fn repr(self) -> Repr {
+        match self {
+            PrimTy::I32 => Repr::I32,
+            PrimTy::I64 => Repr::I64,
+            PrimTy::F64 => Repr::F64,
+            PrimTy::String => Repr::Ref,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PrimTy::I32 => "i32",
+            PrimTy::I64 => "i64",
+            PrimTy::F64 => "f64",
+            PrimTy::String => "string",
+        }
+    }
+}
