@@ -105,7 +105,7 @@ fn sites(f: &Function) -> Vec<StmtId> {
                     value: Value::Closure(_) | Value::FnRef(_),
                     ..
                 } => out.push(s),
-                Stmt::Let { .. } => {}
+                Stmt::Let { .. } | Stmt::Dup(_) | Stmt::Drop(_) => {}
                 Stmt::If { then, else_, .. } => {
                     walk(f, *then, out);
                     walk(f, *else_, out);

@@ -16,7 +16,9 @@
 //!   after closure conversion, and closure records only refer to lifted functions whose
 //!   environment matches the captures; no `protect`, `defect` or failure edges without landing
 //!   once defects are explicit, defect landings exactly on the values that may raise a defect,
-//!   `unwind` only in functions that may raise one, and landings that do not yield
+//!   `unwind` only in functions that may raise one, and landings that do not yield; `dup` and
+//!   `drop` only once reference counted, and then every owned reference consumed exactly once on
+//!   every path (`heap::rc_check`)
 //!
 //! ANF is enforced by the data types (arguments are [`Operand`]s), and so is the position of
 //! terminators (each sequence has one, at its end).
@@ -111,6 +113,10 @@ pub enum ErrorKind {
     /// A value that may raise a defect without a defect landing, a defect landing on one that
     /// cannot, or `unwind` in a function that does not raise defects (Heap IR).
     DefectEdge,
+    /// References that do not balance (Heap IR at `Stage::RefCounted`): a reference consumed or
+    /// dropped that is not owned, a borrowed use without a reference, references left at the end
+    /// of a scope, or join points reached with different references.
+    RcImbalance,
 }
 
 /// Checks every function of the module.
@@ -153,7 +159,19 @@ pub fn verify_function(m: &Module, f: &Function) -> Vec<VerifyError> {
         enclosing: Vec::new(),
     };
     c.function();
-    c.errors
+    let mut errors = c.errors;
+    if stage == Stage::RefCounted && errors.is_empty() {
+        errors.extend(
+            crate::heap::rc_check::check(m, f)
+                .into_iter()
+                .map(|message| VerifyError {
+                    function: f.name.clone(),
+                    kind: ErrorKind::RcImbalance,
+                    message,
+                }),
+        );
+    }
+    errors
 }
 
 fn ix<T>(id: la_arena::Idx<T>) -> usize {
@@ -509,6 +527,11 @@ impl Checker<'_> {
                 self.enclosing.push(Encl::Label(*label, r));
                 self.seq(*body, YieldTo::Stmt(r));
                 self.enclosing.pop();
+            }
+            Stmt::Dup(v) | Stmt::Drop(v) => {
+                self.stage_at_least(Stage::RefCounted, "dup and drop");
+                let r = self.use_var(*v);
+                self.expect(r, Repr::Ref, "dup or drop");
             }
             Stmt::Protect { dst, body, cleanup } => {
                 self.stage_at_most(Stage::ClosuresConverted, "protect");

@@ -310,6 +310,8 @@ impl Printer<'_> {
                 write!(self.out, "block {} ", self.label(*label)).unwrap();
                 self.seq(*body);
             }
+            Stmt::Dup(v) => write!(self.out, "dup {}", self.var(*v)).unwrap(),
+            Stmt::Drop(v) => write!(self.out, "drop {}", self.var(*v)).unwrap(),
             Stmt::Protect { body, cleanup, .. } => {
                 self.out.push_str("protect ");
                 self.seq(*body);

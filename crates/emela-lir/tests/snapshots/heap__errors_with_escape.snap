@@ -18,13 +18,17 @@ fn lookup(id%0: i32 (Int), fallback%1: ref (String)) -> ref (String) fails {
   t%6: ref (String) = block 'escape%0 {
     err%4: ref (any) = block 'caught%1 {
       t%3: ref (String) = call find(id%0) on_fail(e%2: ref (any)) { break 'caught%1(e%2) }
+      drop fallback%1
       break 'escape%0(t%3)
     }
     block 'next%2 {
       is%5: i32 (Bool) = is_error err%4 NotFound
       if is%5 {
+        drop err%4
         break 'escape%0(fallback%1)
-      } else {}
+      } else {
+        drop fallback%1
+      }
       break 'next%2
     }
     fail err%4

@@ -114,6 +114,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
                 seq(f, *body, uses, found);
                 uses.defined.extend(*dst);
             }
+            Stmt::Dup(v) | Stmt::Drop(v) => uses.use_(*v),
             Stmt::Protect { dst, body, cleanup } => {
                 seq(f, *body, uses, found);
                 seq(f, *cleanup, uses, found);

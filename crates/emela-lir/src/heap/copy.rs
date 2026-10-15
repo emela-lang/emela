@@ -174,6 +174,8 @@ impl<'a> Copier<'a> {
                     body,
                 }
             }
+            Stmt::Dup(v) => Stmt::Dup(self.var(out, *v)),
+            Stmt::Drop(v) => Stmt::Drop(self.var(out, *v)),
             Stmt::Protect { dst, body, cleanup } => {
                 let body = self.seq(out, *body);
                 let cleanup = self.seq(out, *cleanup);

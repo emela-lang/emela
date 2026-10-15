@@ -1,0 +1,28 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"nap\", \"InstantClock\"])"
+---
+fn InstantClock() -> ref (handler Clock) {
+  f%0: ref (fn(Int, fn(Int) -> ()) -> ()) = make_closure InstantClock$closure0[]
+  t%1: ref (handler Clock) = handler InstantClock: Clock { sleep: f%0 }
+  return t%1
+}
+
+suspend fn nap(ms%0: i32 (Int), label%1: ref (String), ev%2: ref (evidence)) -> i32 (Int) defects {
+  h%3: ref (handler Clock) = call InstantClock()
+  s%4: ref (String) = runtime show_string(label%1)
+  runtime debug_print(s%4)
+  t%5: ref (handler Clock) = ev_lookup(ev%2, Clock)
+  t%6: i32 (Int) = call_op t%5.Clock#sleep(ms%0)!
+  t%7: i32 (Int) = t%6 +[i32] 1
+  return t%7
+}
+
+fn InstantClock$closure0(env%0: ref (fn(Int, fn(Int) -> ()) -> ()), ms%1: i32 (Int), resume%2: ref (fn(Int) -> ())) -> void (()) defects env[] {
+  call_indirect resume%2(ms%1) on_defect {
+    drop resume%2
+    unwind
+  }
+  drop resume%2
+  return
+}

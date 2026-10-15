@@ -725,6 +725,74 @@ fn defects_and_the_stage() {
 }
 
 #[test]
+fn reference_counts() {
+    let (_, mut m) = module();
+    m.stage = Stage::RefCounted;
+    // fn keep(s: String) -> String { return s }
+    let mut b = FnBuilder::new(&m.core, "keep");
+    b.set_ret(TypeId::STRING);
+    let s = b.param("s", TypeId::STRING);
+    b.term(Term::Return(Some(s.into())));
+    let keep = b.finish();
+    let keep = m.add(keep);
+    assert_eq!(verify(&m), Ok(()));
+    let call_keep = |s: emela_lir::VarId| Value::Call {
+        callee: Callee::Direct(keep),
+        args: vec![s.into()],
+        suspends: false,
+        on_fail: None,
+    };
+    // A leak.
+    let mut b = FnBuilder::new(&m.core, "leak");
+    b.param("s", TypeId::STRING);
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    // A second consumption, and a borrowed use after the last reference.
+    let mut b = FnBuilder::new(&m.core, "twice");
+    b.set_ret(TypeId::STRING);
+    let s = b.param("s", TypeId::STRING);
+    let a = b.assign("a", TypeId::STRING, call_keep(s));
+    b.stmt(Stmt::Drop(a));
+    b.assign(
+        "n",
+        TypeId::INT,
+        Value::Builtin {
+            op: emela_core::Builtin::StringLength,
+            args: vec![s.into()],
+        },
+    );
+    b.term(Term::Return(Some(s.into())));
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::RcImbalance, ErrorKind::RcImbalance]
+    );
+    // Different references on the two edges into the end of an `if`.
+    let mut b = FnBuilder::new(&m.core, "join");
+    let c = b.param("c", TypeId::BOOL);
+    let s = b.param("s", TypeId::STRING);
+    b.if_(None, c, |b| b.stmt_drop(s), |_| {});
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    // A dup and drop before the stage.
+    m.stage = Stage::DefectsExplicit;
+    let mut b = FnBuilder::new(&m.core, "early");
+    let s = b.param("s", TypeId::STRING);
+    b.stmt(Stmt::Drop(s));
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::StageViolation]);
+}
+
+trait DropStmt {
+    fn stmt_drop(&mut self, v: emela_lir::VarId);
+}
+
+impl DropStmt for FnBuilder<'_> {
+    fn stmt_drop(&mut self, v: emela_lir::VarId) {
+        self.stmt(Stmt::Drop(v));
+    }
+}
+
+#[test]
 fn environments() {
     let (fx, mut m) = module();
     m.stage = Stage::ClosuresConverted;

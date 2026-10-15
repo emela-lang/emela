@@ -6,6 +6,7 @@ export fn main() -> i32 (Int) defects {
   call Strict$init()
   h%0: ref (handler Pool) = call Strict()
   t%7: i32 (Int) = block 'protect%6 {
+    dup h%0
     ev%1: ref (evidence) = ev_extend([Pool: h%0])
     t%2: ref (List[Int]) = list[1]
     t%5: i32 (Int) = call pick(t%2, ev%1) on_defect {
@@ -16,11 +17,14 @@ export fn main() -> i32 (Int) defects {
             defect%4: ref (any) = runtime defect_take()
             block 'cleanup%1 {
               runtime retire(h%0, "Strict")
+              drop h%0
             }
             runtime defect_resume(defect%4)
             runtime defect_resume(defect%3)
             unwind
           }
+          drop h%0
+          drop defect%3
           unreachable
         }
       }
@@ -33,10 +37,12 @@ export fn main() -> i32 (Int) defects {
           defect%6: ref (any) = runtime defect_take()
           block 'cleanup%4 {
             runtime retire(h%0, "Strict")
+            drop h%0
           }
           runtime defect_resume(defect%6)
           unwind
         }
+        drop h%0
         unreachable
       }
     }
@@ -54,13 +60,22 @@ fn pick(xs%0: ref (List[Int]), ev%1: ref (evidence)) -> i32 (Int) defects {
   t%9: i32 (Int) = block 'match%0 {
     t%2: i32 (Bool) = list_is_empty xs%0
     if t%2 {
+      drop xs%0
+      drop ev%1
       runtime defect("empty")
       unwind
     } else {
       head%3: i32 (Int) = list_head xs%0
       tail%4: ref (List[Int]) = list_tail xs%0
+      drop xs%0
       t%5: ref (handler Pool) = ev_lookup(ev%1, Pool)
-      t%6: i32 (Int) = call_op t%5.Pool#get() on_defect { unwind }
+      dup t%5
+      drop ev%1
+      t%6: i32 (Int) = call_op t%5.Pool#get() on_defect {
+        drop t%5
+        unwind
+      }
+      drop t%5
       zero%7: i32 (Bool) = t%6 ==[i32] 0
       if zero%7 {
         runtime defect("division by zero")

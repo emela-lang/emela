@@ -214,6 +214,7 @@ pub(crate) fn visit(f: &Function, seq: SeqId, visit: &mut dyn FnMut(Option<&Stmt
                 inner(*body);
                 inner(*cleanup);
             }
+            Stmt::Dup(_) | Stmt::Drop(_) => {}
         }
     }
     visit(None, &s.term);
@@ -553,6 +554,8 @@ impl<'a> Explicit<'a> {
                     body,
                 }
             }
+            Stmt::Dup(v) => Stmt::Dup(self.c.var(&mut self.out, *v)),
+            Stmt::Drop(v) => Stmt::Drop(self.c.var(&mut self.out, *v)),
             Stmt::Protect { dst, body, cleanup } => {
                 self.stack.push(Encl::Protect(*cleanup));
                 let body = self.seq(*body, true);

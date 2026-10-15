@@ -49,6 +49,9 @@ pub enum Stage {
     /// out of its body. No [`Stmt::Protect`], [`Term::Defect`], [`OnFail::Break`] or
     /// [`OnFail::Propagate`].
     DefectsExplicit,
+    /// Reference counts explicit: [`Stmt::Dup`] and [`Stmt::Drop`] make every owned reference be
+    /// consumed exactly once on every path (see `heap::rc` for who owns what).
+    RefCounted,
 }
 
 impl Module {
@@ -257,6 +260,12 @@ pub enum Stmt {
         body: SeqId,
         cleanup: SeqId,
     },
+    /// Heap IR: adds a reference to the `ref` variable's value. Backends expand it to a call of
+    /// the runtime (or an inline increment); static data is marked so that it is never counted.
+    Dup(VarId),
+    /// Heap IR: gives up a reference to the `ref` variable's value, freeing it (and dropping what
+    /// it holds) when it was the last one.
+    Drop(VarId),
 }
 
 impl Stmt {
@@ -269,6 +278,7 @@ impl Stmt {
             | Stmt::Loop { dst, .. }
             | Stmt::Block { dst, .. }
             | Stmt::Protect { dst, .. } => *dst,
+            Stmt::Dup(_) | Stmt::Drop(_) => None,
         }
     }
 }

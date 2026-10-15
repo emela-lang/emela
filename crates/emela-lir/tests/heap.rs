@@ -288,6 +288,34 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["main", "report", "Prefixed"]));
 }
 
+/// Suspending functions are only closure-converted (the state machine comes later); the verifier
+/// checks them at `Stage::ClosuresConverted`.
+#[test]
+fn suspending_functions_are_left() {
+    let m = program(
+        "\
+effect Clock {
+  suspend fn sleep(ms: Int) -> Int
+}
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(ms) }
+}
+
+fn nap(ms: Int, label: String) -> Int use Clock {
+  with InstantClock { dbg(label) }
+  (use Clock).sleep(ms) + 1
+}
+
+fn main() {
+  with InstantClock { dbg(nap(1, \"a\")) }
+}
+",
+    );
+    assert!(m.functions.iter().any(|(_, f)| f.suspends));
+    insta::assert_snapshot!(parts(&m, &["nap", "InstantClock"]));
+}
+
 #[test]
 fn interpolation() {
     let m = program(
