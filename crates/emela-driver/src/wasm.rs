@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use emela_codegen_wasm::{Entry, WasmError, WasmErrorKind, compile};
+use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmErrorKind, compile};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -44,14 +44,22 @@ impl TestBackend<TestModule> for CoreWasm {
 
     fn emit_tests(
         &mut self,
-        _program: &TestModule,
-        _selected: &[usize],
+        program: &TestModule,
+        selected: &[usize],
         _: &Analysis,
     ) -> Result<JsOutput, Vec<Diagnostic>> {
-        Err(vec![Diagnostic::error(
-            "`emela test --target wasm` is not implemented yet",
-        )
-        .with_note("the WASM backend does not emit the test protocol into the module yet")])
+        let tests = selected
+            .iter()
+            .map(|&i| TestEntry {
+                name: program.tests[i].name.clone(),
+                function: program.tests[i].function,
+            })
+            .collect();
+        let out = compile(&program.module, &Entry::Tests(tests)).map_err(diagnostics)?;
+        Ok(JsOutput {
+            files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
+            entry: PathBuf::from(WASM_ENTRY_FILE),
+        })
     }
 
     fn runner(&self) -> Runner {

@@ -18,7 +18,7 @@
 
 mod runtime;
 
-use emela_core::{Builtin, HostModule, HostRef, Type, TypeId};
+use emela_core::{Builtin, EnumId, HostModule, HostRef, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     RuntimeOp, SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
@@ -128,6 +128,8 @@ pub(crate) struct Builder<'m> {
     fn_table: Vec<u32>,
     table_funcs: Vec<u32>,
     pub(crate) rt: FxHashMap<&'static str, u32>,
+    /// The `show` function of each error enum (spec 10.6), as a table index for the descriptor.
+    pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
     pub(crate) str_desc: u32,
     pub(crate) data: Vec<u8>,
@@ -152,6 +154,7 @@ impl<'m> Builder<'m> {
             fn_table: vec![0; m.functions.len()],
             table_funcs: Vec::new(),
             rt: FxHashMap::default(),
+            error_shows: FxHashMap::default(),
             entry_index: 0,
             str_desc: 0,
             data: vec![0; 64],
@@ -253,6 +256,15 @@ impl<'m> Builder<'m> {
             self.fn_table[ix(id)] = self.table_funcs.len() as u32;
             self.table_funcs.push(index);
             self.defs.push(ty);
+        }
+        // The error `show` functions, as table indices (their descriptors point at them).
+        for (enum_id, function) in self.m.error_shows.iter().copied() {
+            let slot = if self.imported(function) {
+                u32::MAX
+            } else {
+                self.fn_table[ix(function)]
+            };
+            self.error_shows.insert(enum_id, slot);
         }
         runtime::register(self);
         // One entry (`_start`).
@@ -608,41 +620,55 @@ impl<'m> Builder<'m> {
     }
 
     fn emit_entry(&mut self, entry: &Run) {
-        let main = match entry {
-            Run::Main => self
-                .m
-                .functions
-                .iter()
-                .find(|(_, f)| f.exported && f.name == "main")
-                .map(|(id, _)| id),
-            Run::Tests(_) => None,
-        };
         let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
         {
             let ins = &mut func.instructions();
-            if let Some(id) = main {
-                let index = self.fn_index(id);
-                let ret = self.repr(self.m.functions[id].ret);
-                ins.call(index);
-                if ret != Repr::Void {
-                    ins.drop();
+            match entry {
+                Run::Main => {
+                    let main = self
+                        .m
+                        .functions
+                        .iter()
+                        .find(|(_, f)| f.exported && f.name == "main")
+                        .map(|(id, _)| id);
+                    if let Some(id) = main {
+                        let index = self.fn_index(id);
+                        let ret = self.repr(self.m.functions[id].ret);
+                        ins.call(index);
+                        self.drop_result(ins, ret);
+                    }
+                }
+                Run::Tests(tests) => {
+                    for (name, id) in tests {
+                        let index = self.fn_index(*id);
+                        let ret = self.repr(self.m.functions[*id].ret);
+                        ins.call(index);
+                        self.drop_result(ins, ret);
+                        let name = self.string_literal(name.as_bytes());
+                        ins.i32_const(name as i32);
+                        ins.call(self.rt("test_result"));
+                    }
+                    ins.call(self.rt("test_done"));
                 }
             }
-            // A pending defect or failure at the end of `main`.
-            let exit = self.rt("exit");
-            ins.global_get(G_DEFECT);
-            ins.if_(BlockType::Empty);
-            ins.i32_const(101);
-            ins.call(exit);
-            ins.end();
-            ins.global_get(G_FAILURE);
-            ins.if_(BlockType::Empty);
-            ins.i32_const(1);
-            ins.call(exit);
-            ins.end();
+            ins.call(self.rt("finish"));
             ins.end();
         }
         self.bodies.push(func);
+    }
+
+    /// Gives up a call's result: `drop` for a reference, `drop` for a plain value, nothing for
+    /// `()`.
+    fn drop_result(&mut self, ins: &mut InstructionSink, ret: Repr) {
+        match ret {
+            Repr::Ref => {
+                ins.call(self.rt("drop"));
+            }
+            Repr::Void => {}
+            _ => {
+                ins.drop();
+            }
+        }
     }
 
     fn rt(&mut self, name: &'static str) -> u32 {
@@ -1040,7 +1066,11 @@ impl<'m> Builder<'m> {
                         -1
                     },
                     name: def.variants[ctor.variant].name.clone(),
-                    show: None,
+                    show: if def.error {
+                        self.error_shows.get(&ctor.enum_id).copied()
+                    } else {
+                        None
+                    },
                     refs,
                 };
                 let desc = self.desc(key);

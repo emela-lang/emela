@@ -68,6 +68,16 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   （スクラッチのメモリに桁を作ってから文字列にする），`Int64.to_string` を wasm で書く
 - （補）`debug_print` は stderr に文字列と改行を `fd_write` で書く．iovec と書いたバイト数は
   ヒープの下のスクラッチに置く
+- （補）失敗（error の値）の表示は `show_failure` が記述子の `show`（その enum の `show`
+  関数のテーブルの添字）を `call_indirect` で呼ぶ．`show` が無ければ null を返すので，行から
+  `message` を省く．error の enum の記述子には `m.error_shows` の関数の添字を入れる
+- （補）テスト（13.4）は `_start` が各テストを順に呼び，`test_result` が JS と同じ行
+  （`\x1eemela-test` と JSON）を標準出力に書く．文字列の JSON 化（`json_string`）は `"` と
+  `\` と `\n` を escape し，他の制御文字は `\u00XX` にする．結果は保留の defect / failure を
+  見て `ok` / `defect` / `error` に分け，defect はその文字列を，error は `show_failure` の
+  文字列を `message` にする
+- （補）`finish` はプログラムの終わりに残った defect / failure を見て，`defect: …`（101）や
+  `error: …`（1）を stderr に書いて `proc_exit` する（C の `em_exit` と同じ，14.3，14.4）
 - （補）整数の `/` と `%` の `INT_MIN / -1` の巻き戻し，シフト量の負と幅以上の扱い（16.1，
   6.6 の NOTES）をランタイムの関数にする．シフト量が負なら `negative shift amount: <n>` の
   defect にする
@@ -80,8 +90,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - `String` の `contains` / `starts_with` / `ends_with` / `split` / `join` / `trim` /
   `code_points` / `from_code_point`，`Int.parse` / `Int.checked_add`，`Float` の `to_string` /
   `parse` / `floor` / `ceil` / `round` / `truncate`
-- テストの実行（`Entry::Tests`）と，コールバックを取る外部関数（E0427），suspend fn の外部関数
-  （E0428）
+- コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428）
+- notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない
 
 ## テスト
 
