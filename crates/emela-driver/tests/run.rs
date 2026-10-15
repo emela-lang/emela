@@ -449,6 +449,40 @@ fn run_without_main_stops_before_node() {
     let _ = std::fs::remove_dir_all(&options.out_dir);
 }
 
+/// A generic `pub` fn of the entry is exported to JS callers as its copy for `Any` (lowering
+/// monomorphizes the JS output), under its own name, and works for any JS value.
+#[test]
+fn generic_pub_fns_are_exported_for_any_type() {
+    let main = "pub fn apply[A, B](x: A, f: fn(A) -> B) -> B {\n  f(x)\n}\n\n\
+                pub fn first_or[A](xs: List[A], d: A) -> A {\n  List.head(xs) |> Option.or(d)\n}\n\n\
+                fn main() {\n  dbg(apply(1, fn(n) { n + 1 }))\n}\n";
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let dir = out_dir("generic-exports");
+    let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(entry.is_some());
+    let harness = "import { apply, first_or } from \"./main.mjs\";\n\
+                   console.log(apply(\"a\", (s) => s + \"!\"), apply(2, (n) => n * 3));\n\
+                   console.log(first_or(null, \"none\"), first_or({ h: 7, t: null }, 0));\n";
+    std::fs::write(dir.join("harness.mjs"), harness).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("harness.mjs")
+        .current_dir(&dir)
+        .output()
+        .expect("cannot start node");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        ("a! 6\nnone 7\n", "")
+    );
+}
+
 #[test]
 fn source_runs_through_lowering() {
     let output = run_source("lower-dbg", "fn main() {\n  dbg(1 + 2)\n}\n");

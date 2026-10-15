@@ -54,6 +54,8 @@ pub(crate) struct Emitter<'m> {
     /// Whether the function being emitted (top level or lambda) is a generator (may suspend,
     /// spec 16.5).
     generator: bool,
+    /// JS names of the top-level functions, by `FnId` index ([`function_names`]).
+    fn_names: Vec<String>,
 }
 
 pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) -> String {
@@ -72,6 +74,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
         fail_targets: Vec::new(),
         imports: Vec::new(),
         generator: false,
+        fn_names: function_names(m),
     };
 
     // An error value carries a descriptor in `$tag` that identifies the error at run time.
@@ -108,11 +111,11 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
 
     for (id, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
-            e.external_fn(f, ext);
+            e.external_fn(id, f, ext);
             e.line("");
             continue;
         }
-        let name = fn_name(&m.functions[id].name);
+        let name = e.fn_js(id).to_owned();
         if f.constant {
             // The function returns the remembered value and evaluates the body (`X$init`) only on the
             // first call (spec 5.6).
@@ -123,7 +126,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
             e.line(&format!("function {name}() {{"));
             e.line(&format!(
                 "  return {constant}({name}$cell, {}, {name}$init);",
-                js_string(&f.name)
+                js_string(source_name(&f.name))
             ));
             e.line("}");
             e.line("");
@@ -157,8 +160,8 @@ pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) ->
         .functions
         .iter()
         .filter(|&(id, f)| exported(id, f))
-        .map(|(_, f)| {
-            let js = fn_name(&f.name);
+        .map(|(id, f)| {
+            let js = e.fn_js(id).to_owned();
             if js == f.name {
                 js
             } else if is_identifier_name(&f.name) {
@@ -230,6 +233,11 @@ impl Emitter<'_> {
         self.out.push('\n');
     }
 
+    /// The JS name of a top-level function.
+    fn fn_js(&self, f: FnId) -> &str {
+        &self.fn_names[f.into_raw().into_u32() as usize]
+    }
+
     fn rt(&mut self, name: &'static str) -> &'static str {
         self.used.insert(name);
         name
@@ -298,7 +306,7 @@ impl Emitter<'_> {
         match e {
             Expr::Lit(lit) => lit_js(lit),
             Expr::Var(l) => self.local(*l),
-            Expr::Fn { f, .. } => fn_name(&self.m.functions[*f].name),
+            Expr::Fn { f, .. } => self.fn_js(*f).to_owned(),
             Expr::Let { var, value, body } => {
                 let v = self.value(value);
                 let name = self.local(*var);
@@ -476,7 +484,7 @@ impl Emitter<'_> {
         es.extend(args.iter());
         let mut vs = self.values_in_order(&es);
         let f = match callee {
-            Callee::Direct { f, .. } => fn_name(&self.m.functions[*f].name),
+            Callee::Direct { f, .. } => self.fn_js(*f).to_owned(),
             Callee::Indirect(_) => vs.remove(0),
             Callee::Op { effect, op, .. } => {
                 let h = vs.remove(0);
@@ -1149,6 +1157,60 @@ pub(crate) fn is_identifier_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
+/// The JS names of the module's top-level functions, by `FnId` index, all different (and different
+/// from the shared values of variants without fields).
+///
+/// A copy made by monomorphization (`List.map[Int, String, {}, {}]`, `wrap[Int]#2`) gets the JS
+/// name of the original, a `$`, and the words of its type arguments joined by `_`
+/// (`List_map$Int_String`, `wrap$Int_2`): readable, and the `$` keeps it apart from the names of
+/// functions without type arguments. Names that still clash get `$$2`, `$$3`, …. Locals are
+/// `hint$<digits>` with a hint without `$` ([`Emitter::local`]), so a function name never equals
+/// one: it has no `$`, or a `$` followed by something other than digits, or two `$`s.
+fn function_names(m: &Module) -> Vec<String> {
+    let mut used: std::collections::HashSet<String> = m
+        .enums
+        .iter()
+        .flat_map(|(_, def)| {
+            def.variants
+                .iter()
+                .filter(|v| v.fields.is_empty())
+                .map(|v| unit_variant_name(&def.name, &v.name))
+        })
+        .collect();
+    m.functions
+        .iter()
+        .map(|(_, f)| {
+            let base = match f.name.split_once('[') {
+                None => fn_name(&f.name),
+                Some((name, args)) => {
+                    let words: Vec<&str> = args
+                        .split(|c: char| !c.is_ascii_alphanumeric())
+                        .filter(|w| !w.is_empty())
+                        .collect();
+                    let mut args = words.join("_");
+                    if args.starts_with(|c: char| c.is_ascii_digit()) {
+                        args.insert(0, '_');
+                    }
+                    format!("{}${args}", fn_name(name))
+                }
+            };
+            let mut name = base.clone();
+            let mut k = 2;
+            while !used.insert(name.clone()) {
+                name = format!("{base}$${k}");
+                k += 1;
+            }
+            name
+        })
+        .collect()
+}
+
+/// The Emela name of a function, without the type arguments of a monomorphized copy (for defect
+/// messages, which name what the source wrote).
+pub(crate) fn source_name(name: &str) -> &str {
+    name.split_once('[').map_or(name, |(base, _)| base)
+}
+
 /// The JS name of a top-level function. A `$` is added when it clashes with a reserved word or a
 /// global used by generated code. The `$` in names of suspending copies made by lowering
 /// (`List.map$suspend1`) is kept: it never appears in Emela names, so it cannot clash with the
@@ -1224,3 +1286,45 @@ const RESERVED: &[&str] = &[
     "Array",
     "Error",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monomorphized_names_are_readable_and_distinct() {
+        let mut m = Module::new();
+        let names = [
+            "List.map",
+            "List.map[Int, String, {}, {}]",
+            "List.map$suspend8[Int, Int, {}, {suspends}]",
+            "wrap[Option[Int]]",
+            "wrap[Option[Int]]#2",
+            "new",
+            "new[{}]",
+            "pair[(Int, String)]",
+            "pair_Int[String]",
+            "pair[Int_String]",
+        ];
+        for name in names {
+            let f = m.declare(name, false);
+            m.define(f, Vec::new(), TypeId::UNIT, Expr::Lit(Lit::Unit));
+        }
+        assert_eq!(
+            function_names(&m),
+            [
+                "List_map",
+                "List_map$Int_String",
+                "List_map$suspend8$Int_Int_suspends",
+                "wrap$Option_Int",
+                "wrap$Option_Int_2",
+                "new$",
+                "new$$",
+                "pair$Int_String",
+                "pair_Int$String",
+                // Clashes with `pair[(Int, String)]`.
+                "pair$Int_String$$2",
+            ]
+        );
+    }
+}

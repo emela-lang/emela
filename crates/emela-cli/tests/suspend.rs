@@ -114,7 +114,8 @@ fn main() {
     let js = std::fs::read_to_string(project.dir.join("target/emela/js/main.mjs")).unwrap();
     assert!(js.contains("function* main() {"), "{js}");
     assert!(js.contains("function* List_map$suspend"), "{js}");
-    assert!(js.contains("function List_map("), "{js}");
+    // Monomorphized: the copy for `List.map[Int, Int, {}, {}]`.
+    assert!(js.contains("function List_map$Int_Int("), "{js}");
 }
 
 #[test]

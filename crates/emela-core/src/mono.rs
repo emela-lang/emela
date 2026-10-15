@@ -1,5 +1,5 @@
-//! Monomorphization: a Core IR → Core IR pass that makes every function monomorphic, for the
-//! backends that need concrete types (WASM, later C). The JS backend does not use it.
+//! Monomorphization: a Core IR → Core IR pass that makes every function monomorphic. Lowering runs
+//! it for build, run and test (`LowerInput::target`), so every backend gets monomorphic IR there.
 //!
 //! Starting from the roots, each function is copied once per instantiation it is used with
 //! (worklist-driven, deduplicated by an interned key): the key is the function and its type
@@ -34,22 +34,26 @@
 
 use std::collections::VecDeque;
 
+use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::dump::type_name;
 use crate::ir::*;
 use crate::typing::Typer;
 
-/// Monomorphizes the module from its exported functions that have no type parameters (a generic
-/// function has no single instantiation to export).
+/// Monomorphizes the module from its exported functions, a generic one instantiated at `Any`
+/// ([`monomorphize_traced`]).
 pub fn monomorphize(m: &Module) -> Module {
-    let roots: Vec<FnId> = m
-        .functions
+    monomorphize_traced(m, &exported(m)).module
+}
+
+/// The exported functions of `m`, the roots of a normal build.
+pub(crate) fn exported(m: &Module) -> Vec<FnId> {
+    m.functions
         .iter()
         .filter(|(_, f)| f.exported)
         .map(|(id, _)| id)
-        .collect();
-    monomorphize_from(m, &roots).0
+        .collect()
 }
 
 /// Monomorphizes the module from `roots` (test functions, every function for tests). Returns the
@@ -64,6 +68,38 @@ pub fn monomorphize_from(m: &Module, roots: &[FnId]) -> (Module, Vec<Option<FnId
         mono.define(spec);
     }
     (mono.out, out_roots)
+}
+
+/// What [`monomorphize_traced`] returns.
+pub struct Monomorphized {
+    pub module: Module,
+    /// Per root, its function in `module`.
+    pub roots: Vec<FnId>,
+    /// Per function of `module`, the function of the input it copies.
+    pub origins: ArenaMap<FnId, FnId>,
+}
+
+/// Monomorphizes the module from `roots` (the exported functions or the test functions; lowering
+/// runs it for build, run and test). Also tells which input function each output function copies,
+/// so that what is found in the output can be reported at the source (E0412 in lowering).
+///
+/// Unlike [`monomorphize_from`], a generic root is not skipped. It has no single instantiation, so
+/// it is instantiated for callers that see every value the same way (JS, to which the entry
+/// module's generic `pub` fns are exported): `Type::Any` for each type parameter, and for each set
+/// type parameter a set that fails and needs the evidence table but does not suspend, the flags
+/// polymorphic lowering gives such a function. The copy keeps the original name and whether it is
+/// exported.
+pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
+    let mut mono = Mono::new(m);
+    let out_roots = roots.iter().map(|&f| mono.root(f)).collect();
+    while let Some(spec) = mono.worklist.pop_front() {
+        mono.define(spec);
+    }
+    Monomorphized {
+        module: mono.out,
+        roots: out_roots,
+        origins: mono.origins,
+    }
 }
 
 /// A copy of a function for one instantiation.
@@ -100,6 +136,8 @@ struct Mono<'a> {
     /// Copies by function and type arguments (the key).
     specs: FxHashMap<(FnId, Box<[TypeId]>), Target>,
     worklist: VecDeque<Spec>,
+    /// Output functions → the input functions they copy.
+    origins: ArenaMap<FnId, FnId>,
     names: FxHashSet<String>,
     /// Effect instances in the output, by declaration and erased type arguments.
     effects: FxHashMap<(String, Vec<TypeId>), EffectId>,
@@ -133,6 +171,7 @@ impl<'a> Mono<'a> {
             typer: Typer::new(m),
             specs: FxHashMap::default(),
             worklist: VecDeque::new(),
+            origins: ArenaMap::default(),
             names: FxHashSet::default(),
             effects: FxHashMap::default(),
             plain_effects: FxHashMap::default(),
@@ -306,6 +345,51 @@ impl<'a> Mono<'a> {
 
     // ---- Step 2: call targets ----
 
+    /// The copy of the root `f`: its only instantiation, or for a generic `f` the one at
+    /// [`Mono::uniform_args`], named and exported like `f`.
+    fn root(&mut self, f: FnId) -> FnId {
+        let old = &self.m.functions[f];
+        if old.type_params == 0 {
+            return self.target(f, &[]).f;
+        }
+        let args = self.uniform_args(f);
+        let new = self.target(f, &args).f;
+        let (name, exported) = (old.name.clone(), old.exported);
+        // Other copies of `f` have type arguments in their names, so the plain name is free.
+        self.names.insert(name.clone());
+        let copy = &mut self.out.functions[new];
+        copy.name = name;
+        copy.exported = exported;
+        new
+    }
+
+    /// Type arguments for a generic root ([`monomorphize_from`]): `Any`, or for a set type
+    /// parameter a set that fails and needs the evidence table but does not suspend. That matches
+    /// how lowering's original copy calls the functions it is given; a suspending copy
+    /// (`List.map$suspend8`) is never a root.
+    fn uniform_args(&mut self, f: FnId) -> Vec<TypeId> {
+        let old = &self.m.functions[f];
+        let types = &self.m.types;
+        let mut sets = FxHashSet::default();
+        for &p in &old.params {
+            set_params(types, self.m.locals[p].ty, &mut sets);
+        }
+        set_params(types, old.ret, &mut sets);
+        if let Some(s) = old.sets {
+            set_params(types, s.errors, &mut sets);
+            set_params(types, s.effects, &mut sets);
+        }
+        let set = self.out.intern(Type::Set(SetSummary {
+            fails: true,
+            suspends: false,
+            ev: true,
+            params: Vec::new(),
+        }));
+        (0..old.type_params)
+            .map(|i| if sets.contains(&i) { set } else { TypeId::ANY })
+            .collect()
+    }
+
     /// The copy of `f` for the (already substituted) type arguments `args`, created on first use.
     fn target(&mut self, f: FnId, args: &[TypeId]) -> Target {
         if let Some(&t) = self.specs.get(&(f, args.into())) {
@@ -370,6 +454,7 @@ impl<'a> Mono<'a> {
             constant: old.constant,
             sets: None,
         });
+        self.origins.insert(new, f);
         let t = Target {
             f: new,
             drops_ev,
@@ -1050,5 +1135,35 @@ impl TypeStore for Subst<'_, '_, '_> {
     fn map_effect(&mut self, effect: EffectId) -> EffectId {
         let args = self.args;
         self.mono.effect(effect, args)
+    }
+}
+
+/// Adds the indices of the set type parameters mentioned in `ty` to `out`.
+fn set_params(types: &TypeTable, ty: TypeId, out: &mut FxHashSet<usize>) {
+    if !types.has_param(ty) {
+        return;
+    }
+    match &types[ty] {
+        Type::Set(s) => out.extend(s.params.iter().filter_map(|&p| match types[p] {
+            Type::Param(i) => Some(i),
+            _ => None,
+        })),
+        Type::Tuple(ts) | Type::Enum(_, ts) => {
+            for &t in ts {
+                set_params(types, t, out);
+            }
+        }
+        Type::List(t) | Type::Cell(t) => set_params(types, *t, out),
+        Type::Fn(f) => {
+            for &t in &f.params {
+                set_params(types, t, out);
+            }
+            set_params(types, f.ret, out);
+            if let Some(s) = f.sets {
+                set_params(types, s.errors, out);
+                set_params(types, s.effects, out);
+            }
+        }
+        _ => {}
     }
 }

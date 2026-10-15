@@ -25,9 +25,9 @@ pub trait JsBackend<P> {
 - `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はしないので `Program = ()`
 - `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）
 - `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli の `check` と LSP はこれを使う
-- `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
+- `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．ターゲットを渡すので，返る IR は単相化済み（2026-10-15．汎用の `pub` の fn は型引数を `Any` にした写し）．debug ビルドでは `verify_monomorphic` にかける（多相な IR の `verify` は lowering の中で行う）．`LowerTests` も同じで，`TestCase::function` は単相化した写しを指す．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
+- `CoreJs` は `JsBackend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化と単相化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
 
 ## テスト（`emela test`，仕様 13章）
 
