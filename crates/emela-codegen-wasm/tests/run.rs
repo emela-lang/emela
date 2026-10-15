@@ -221,3 +221,17 @@ fn split_with_an_empty_separator_is_a_defect() {
         run.stderr
     );
 }
+
+#[test]
+fn options_from_builtins() {
+    let Some(out) = stderr(
+        "options",
+        "fn main() {\n  dbg(Int.checked_add(1, 2))\n  dbg(Int.checked_add(2147483647, 1))\n  dbg(Int.checked_add(-2147483647, -2))\n  dbg(String.from_code_point(65))\n  dbg(String.from_code_point(8364))\n  dbg(String.from_code_point(55296))\n  dbg(Int.parse(\"42\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "Some(3)\nNone\nNone\nSome(\"A\")\nSome(\"\u{20AC}\")\nNone\n42\n"
+    );
+}

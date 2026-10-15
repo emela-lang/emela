@@ -84,6 +84,10 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   文字列を `message` にする
 - （補）`finish` はプログラムの終わりに残った defect / failure を見て，`defect: …`（101）や
   `error: …`（1）を stderr に書いて `proc_exit` する（C の `em_exit` と同じ，14.3，14.4）
+- （補）`Int.parse`（本体は `parse_or_none`），`Int.checked_add`，`String.from_code_point` の
+  ように `Option` を返す組み込みは，呼び出し側（emitter）が Prelude の `Option` の `Some` の
+  記述子と静的な `None` のオブジェクトを作ってランタイムに渡す．ランタイムは成功なら `Some` を
+  組んで返し，失敗なら `None` を返す（`Int.parse` の Prelude 側の包みが match で開く）
 - （補）整数の `/` と `%` の `INT_MIN / -1` の巻き戻し，シフト量の負と幅以上の扱い（16.1，
   6.6 の NOTES）をランタイムの関数にする．シフト量が負なら `negative shift amount: <n>` の
   defect にする
@@ -93,8 +97,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - 状態機械（`Stmt::Let` の `on_suspend`）と suspend するコード，`runtime yield` など
 - fiber（11 章の操作すべて）
 - 書記素クラスタの表が要る `String` の操作（`length`，`chars`，空の区切りの `split`）
-- `String.from_code_point`，`Int.parse` / `Int.checked_add`（`Option` をランタイムで組む仕組み
-  がまだない），`Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`
+- `Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`（`to_string` は
+  最短の往復表現に big integer が要るので wasm では重い）
 - コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428）
 - notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない
 

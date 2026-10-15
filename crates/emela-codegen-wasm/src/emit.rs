@@ -18,7 +18,7 @@
 
 mod runtime;
 
-use emela_core::{Builtin, EnumId, HostModule, HostRef, Type, TypeId};
+use emela_core::{Builtin, EnumId, HostModule, HostRef, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     RuntimeOp, SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
@@ -441,6 +441,37 @@ impl<'m> Builder<'m> {
         self.write_u32(o + DESC_NAMELEN, name_len);
         self.descs.insert(key, o);
         o
+    }
+
+    /// If `ty` is Prelude's `Option[A]`, the descriptor of `Some` (its field as a word), the
+    /// static `None` object, and the representation of the `Some` field. The runtime's
+    /// `Int.parse` and friends build the option with these.
+    pub(crate) fn option_parts(&mut self, ty: TypeId) -> Option<(u32, u32, Repr)> {
+        let core = self.core();
+        let option = core.option?;
+        let field = match core.ty(ty) {
+            Type::Enum(id, args) if *id == option && args.len() == 1 => args[0],
+            _ => return None,
+        };
+        let repr = self.repr(field);
+        let some = self.desc(DescKey {
+            kind: 0,
+            tag: OPTION_SOME as u32,
+            enum_id: -1,
+            name: "Some".to_owned(),
+            show: None,
+            refs: vec![repr == Repr::Ref],
+        });
+        let none_desc = self.desc(DescKey {
+            kind: 0,
+            tag: OPTION_NONE as u32,
+            enum_id: -1,
+            name: "None".to_owned(),
+            show: None,
+            refs: Vec::new(),
+        });
+        let none = self.nullary(none_desc);
+        Some((some, none, repr))
     }
 
     /// A static object (rc == 0) of the descriptor, with no fields.
@@ -1773,6 +1804,11 @@ impl<'m> Builder<'m> {
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
+            // The builtins that return `Option[A]`: the runtime builds the `Some` from the
+            // descriptor and gives back the static `None`.
+            IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
+            IntCheckedAdd => self.option_call(cx, ins, dst, args, "int_checked_add"),
+            StringFromCodePoint => self.option_call(cx, ins, dst, args, "from_code_point"),
             IntToString => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("int_to_string");
@@ -1880,6 +1916,37 @@ impl<'m> Builder<'m> {
                 self.internal(format!("builtin {other:?} left in {}", cx.f.name));
             }
         }
+    }
+
+    /// Calls a runtime builtin that returns `Option[A]`: it takes the arguments, then the `Some`
+    /// descriptor and the static `None` object.
+    fn option_call(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        args: &[Operand],
+        name: &'static str,
+    ) {
+        let Some(ty) = dst.map(|d| cx.f.vars[d].ty) else {
+            self.internal(format!("`{name}` without a destination in {}", cx.f.name));
+            return;
+        };
+        let Some((some, none, _)) = self.option_parts(ty) else {
+            self.internal(format!(
+                "`{name}` does not return an Option in {}",
+                cx.f.name
+            ));
+            return;
+        };
+        for a in args {
+            self.operand(cx, ins, a);
+        }
+        ins.i32_const(some as i32);
+        ins.i32_const(none as i32);
+        let f = self.rt(name);
+        ins.call(f);
+        self.assign(cx, ins, dst, Repr::Ref);
     }
 
     fn bit(
