@@ -1,6 +1,8 @@
 //! The low IR (LIR) below the Core IR, for the WASM (and later C) backends.
 //!
-//! This is its first stage, LIR-1: structured ANF. Values are variables or constants; control is
+//! The low IR has two stages: the Flow IR (control made explicit) and the Heap IR (memory made
+//! explicit: closure conversion, the suspend state machine and reference counting). This crate has
+//! the Flow IR so far: structured ANF. Values are variables or constants; control is
 //! explicit through `if`, `switch`, `loop` / `recur`, `block` / `break`, `protect` / `cleanup` and
 //! terminators, with failure edges on fallible calls. Each variable has a representation type
 //! ([`Repr`]) and its Core type (an `emela_core::TypeId` of the Core module the LIR module owns).

@@ -1,6 +1,6 @@
 # emela-lir の補足
 
-低い IR（LIR）の前の段（LIR-1）．設計は `emela-0.20-low-ir-design.md`（作業の分け方の 1）．今あるのはデータ型，組み立て（`FnBuilder`），dump，検証器だけで，Core IR からの変換と LIR-2 のパスはまだない．設計にない判断を「（補）」として残す．
+低い IR（LIR）の前の段，Flow IR（制御を明示した段）．後の段は Heap IR（メモリを明示した段）．設計は `emela-0.20-low-ir-design.md`（作業の分け方の 1）．今あるのはデータ型，組み立て（`FnBuilder`），dump，検証器だけで，Core IR からの変換と Heap IR のパスはまだない．設計にない判断を「（補）」として残す．
 
 ## モジュールと関数
 

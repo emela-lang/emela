@@ -1,4 +1,4 @@
-//! The LIR-1 verifier.
+//! The Flow IR verifier.
 //!
 //! Checks what the data types do not enforce by themselves and reports every violation, not just
 //! the first:

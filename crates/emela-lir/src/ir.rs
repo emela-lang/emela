@@ -1,4 +1,4 @@
-//! The LIR-1 data types.
+//! The Flow IR data types.
 //!
 //! A function is a flat store: its variables, statements, statement sequences and labels live in
 //! per-function arenas and refer to each other by ID, so analyses can keep their results in side
@@ -347,7 +347,7 @@ pub enum Value {
     ListTail(VarId),
     /// A top-level function used as a value.
     FnRef(FnId),
-    /// A closure. Its body is nested here (closure conversion comes in LIR-2).
+    /// A closure. Its body is nested here (closure conversion comes in the Heap IR).
     Closure(Box<Closure>),
     /// The current handler of the effect in the evidence table (`emela_core::Expr::Use`).
     EvLookup {

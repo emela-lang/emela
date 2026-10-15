@@ -1,6 +1,6 @@
 [package]
 name = "emela-lir"
-description = "The low IR (LIR) below the Core IR: structured ANF with representation types, its builder, dump and verifier"
+description = "The low IR below the Core IR: the Flow IR (structured ANF with representation types), its builder, dump and verifier"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
