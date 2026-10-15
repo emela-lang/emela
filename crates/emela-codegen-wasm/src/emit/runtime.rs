@@ -646,7 +646,6 @@ fn str_append(b: &mut Builder, ins: &mut InstructionSink) {
     const LB: u32 = 3;
     const P: u32 = 4;
     const OFF: u32 = 5;
-    const I: u32 = 6;
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.local_set(LA);

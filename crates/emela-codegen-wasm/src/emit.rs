@@ -35,6 +35,7 @@ use crate::check;
 use crate::{WasmError, WasmErrorKind, WasmOutput};
 
 /// What the generated `_start` runs.
+#[allow(dead_code)]
 pub(crate) enum Run {
     Main,
     /// Test functions, with their names.
@@ -97,6 +98,8 @@ const G_HEAP: u32 = 0;
 const G_FREE: u32 = 1;
 const G_DEFECT: u32 = 2;
 const G_FAILURE: u32 = 3;
+/// Set while a suspending function unwinds (used by the state-machine passes; not yet).
+#[allow(dead_code)]
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
 const GLOBALS: u32 = 6;
@@ -1202,6 +1205,23 @@ impl<'m> Builder<'m> {
                     self.internal(format!("evidence without a destination in {}", cx.f.name));
                     return;
                 };
+                let mut refs = vec![true, false];
+                for _ in bindings {
+                    refs.push(false);
+                    refs.push(true);
+                }
+                let desc = self.desc(DescKey {
+                    kind: 0,
+                    tag: 0,
+                    enum_id: -1,
+                    name: "evidence".to_owned(),
+                    show: None,
+                    refs,
+                });
+                let bindings = bindings.clone();
+                self.alloc(cx, ins, d, desc, 2 + 2 * bindings.len());
+                // slot 0: the base table (or 0).
+                ins.local_get(cx.local(d));
                 match base {
                     Some(b) => {
                         ins.local_get(cx.local(*b));
@@ -1210,19 +1230,20 @@ impl<'m> Builder<'m> {
                         ins.i32_const(0);
                     }
                 }
+                ins.i32_store(mem(HDR, 4));
+                // slot 1: the number of bindings.
+                ins.local_get(cx.local(d));
                 ins.i32_const(bindings.len() as i32);
-                let f = self.rt("ev_new");
-                ins.call(f);
-                ins.local_set(cx.local(d));
-                let bindings = bindings.clone();
-                for (i, (effect, h)) in bindings.iter().enumerate() {
+                ins.i32_store(mem(HDR + 8, 4));
+                // slots 2..: the (effect, handler) pairs, most recent last.
+                for (j, (effect, h)) in bindings.iter().enumerate() {
+                    let off = HDR + (2 + 2 * j as u32) * 8;
                     ins.local_get(cx.local(d));
-                    ins.i32_const(bindings.len() as i32);
-                    ins.i32_const(i as i32);
                     ins.i32_const(ix(*effect) as i32);
+                    ins.i32_store(mem(off, 4));
+                    ins.local_get(cx.local(d));
                     ins.local_get(cx.local(*h));
-                    let f = self.rt("ev_set");
-                    ins.call(f);
+                    ins.i32_store(mem(off + 8, 4));
                 }
             }
             Value::Handler { name, ops, .. } => {
@@ -1623,6 +1644,7 @@ impl<'m> Builder<'m> {
         }
         ins.local_get(cx.local(handler));
         ins.i32_load(mem(op_off, 4));
+        ins.i32_load(mem(HDR, 4));
         ins.call_indirect(0, ty);
         self.assign(cx, ins, dst, ret);
         ins.end();
