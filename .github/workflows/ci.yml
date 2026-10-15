@@ -34,6 +34,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # The WASM backend tests execute the generated modules with wasmtime.
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
       - name: Test
         run: cargo test --workspace --locked
 
