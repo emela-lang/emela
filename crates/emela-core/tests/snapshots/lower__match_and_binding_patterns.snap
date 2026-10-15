@@ -137,9 +137,9 @@ enum Std.Fiber.Exit[A, B] {
 
 export fn main() -> String {
   let _%0: Float = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
-  let _%1: String = @dbg[String](describe([1, 2, 3]))
+  let _%1: String = @dbg[String](describe([1, 2, 3]: List[Int]))
   match (1, "x") {
-    (a%2, b%3) -> match Pair.Pair(first: a%2, second: b%3) {
+    (a%2, b%3) -> match Pair.Pair[Int, String](first: a%2, second: b%3) {
       Pair.Pair(first: _, second: second%4) -> @dbg[String](second%4)
     }
   }
@@ -158,7 +158,7 @@ fn describe(xs%5: List[Int]) -> String {
   match xs%5 {
     [] -> "empty"
     [1, .._] -> "one first"
-    [_, ..rest%6] -> if (rest%6 ==[Structural] []) {
+    [_, ..rest%6] -> if (rest%6 ==[Structural] []: List[Int]) {
       "single"
     } else {
       "many"

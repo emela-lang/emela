@@ -9,6 +9,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main`, steps it with `$start` if it is a generator, and prints one result line. Like the
 /// entry module (emela-driver), it also prints whether it finished before `$start` returned
 /// (`sync` / `async`).
@@ -62,6 +70,7 @@ sync = false;
 
 fn run(name: &str, mut m: Module) -> String {
     tail::loopify(&mut m);
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {
@@ -106,6 +115,13 @@ fn resume_ty() -> Type {
     fn_ty(vec![TypeId::INT], TypeId::UNIT, false)
 }
 
+/// The type of an implementation of Clock's `sleep`, which takes resume:
+/// `fn(Int, fn(Int) -> ()) -> ()`.
+fn sleep_ty(m: &mut Module, suspends: bool) -> TypeId {
+    let resume = m.intern(resume_ty());
+    m.intern(fn_ty(vec![TypeId::INT, resume], TypeId::UNIT, suspends))
+}
+
 /// `effect Clock { suspend fn sleep(ms: Int) -> Int }`. `sleep` returns the resumed value.
 fn clock(m: &mut Module) -> EffectId {
     m.add_effect(EffectDef {
@@ -125,6 +141,7 @@ fn clock_handler(
     let ms = m.local("ms", TypeId::INT);
     let resume = m.local("resume", resume_ty());
     let body = body(m, ms, resume);
+    let op_ty = sleep_ty(m, false);
     m.define(
         f,
         vec![],
@@ -132,7 +149,7 @@ fn clock_handler(
         Expr::Handler {
             name: name.into(),
             effect: clock,
-            ops: vec![lambda(vec![ms, resume], body)],
+            ops: vec![lambda(vec![ms, resume], op_ty, body)],
         },
     );
     f
@@ -260,10 +277,14 @@ fn later_resume_continues_from_the_callback() {
     let mut m = Module::new();
     let clock = clock(&mut m);
     let set_timeout = set_timeout(&mut m);
-    let js_clock = clock_handler(&mut m, clock, "JsClock", |_, ms, resume| {
+    let js_clock = clock_handler(&mut m, clock, "JsClock", |m, ms, resume| {
+        let callback = m.fn_type(vec![], TypeId::UNIT);
         call(
             set_timeout,
-            vec![lambda(vec![], resume_with(resume, var(ms))), var(ms)],
+            vec![
+                lambda(vec![], callback, resume_with(resume, var(ms))),
+                var(ms),
+            ],
         )
     });
 
@@ -328,11 +349,13 @@ fn resuming_twice_later_is_a_defect() {
     let set_timeout = set_timeout(&mut m);
     let late = clock_handler(&mut m, clock, "LateTwiceClock", |m, ms, resume| {
         let first = m.local("_", TypeId::UNIT);
+        let callback = m.fn_type(vec![], TypeId::UNIT);
         call(
             set_timeout,
             vec![
                 lambda(
                     vec![],
+                    callback,
                     let_(
                         first,
                         resume_with(resume, var(ms)),
@@ -461,6 +484,7 @@ fn suspending_function_values() {
     // suspend fn sleep(ms, resume) { resume(resolve(ms) * 10) }
     let awaiting = m.declare("AwaitingClock", false);
     let (ms, resume) = (m.local("ms", TypeId::INT), m.local("resume", resume_ty()));
+    let op_ty = sleep_ty(&mut m, true);
     m.define(
         awaiting,
         vec![],
@@ -470,6 +494,7 @@ fn suspending_function_values() {
             effect: clock,
             ops: vec![suspend_lambda(
                 vec![ms, resume],
+                op_ty,
                 resume_with(
                     resume,
                     int_op(BinOp::Mul, call_suspends(resolve, vec![var(ms)]), int(10)),
@@ -489,11 +514,16 @@ fn suspending_function_values() {
         call_value_suspends(var(f), vec![]),
     );
 
-    suspend_main(&mut m, clock, awaiting, |_, h| {
+    suspend_main(&mut m, clock, awaiting, |m, h| {
+        let suspending = m.intern(fn_ty(vec![], TypeId::INT, true));
+        let immediate = m.intern(fn_ty(vec![], TypeId::INT, false));
         int_op(
             BinOp::Add,
-            call_suspends(apply, vec![suspend_lambda(vec![], sleep(h, clock, 4))]),
-            call_suspends(apply, vec![lambda(vec![], int(2))]),
+            call_suspends(
+                apply,
+                vec![suspend_lambda(vec![], suspending, sleep(h, clock, 4))],
+            ),
+            call_suspends(apply, vec![lambda(vec![], immediate, int(2))]),
         )
     });
     assert_eq!(run("function_values", m), "async 42\n");
@@ -505,6 +535,7 @@ fn functions_without_the_mark_are_unchanged() {
     let mut m = Module::new();
     let main = m.declare("main", true);
     m.define(main, vec![], TypeId::INT, int(1));
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {

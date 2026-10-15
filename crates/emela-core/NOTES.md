@@ -41,7 +41,7 @@
 
 - （補）Prelude の `Option` は `Module::option_enum` でモジュールに1つだけ入れる `EnumDef`（`Some(A)` が添字 0，`None` が添字 1．5.4 の宣言の順）．組み込み関数の返す Option と利用者の書く `Some` / `None` が同じ定義を指す．`List.get` も core を Emela で書くときにこの定義を返す．
 - （補）enum は型引数の数（`EnumDef::params`）と，フィールドの型（`VariantDef::tys`，`Type::Param(i)` で型引数を指す）を持つ．表示関数を型から作るのに使う．
-- （補）型引数を取る組み込み関数（`dbg`）は，具体的な型を `Expr::Builtin` の `ty_args` で受ける．
+- （補）組み込み関数の呼び出しは型引数を `Expr::Builtin` の `ty_args` で持つ（数は `Builtin::info().ty_params`）．`dbg` は表示関数を作るのにも使う．セルの組み込み関数（`$Cell.new` など）は中身の型を1つ受ける．`Sig` ではセルの型を書けないので，検証器と `Typer` が特別に扱う
 
 ## 同梱のソース（`lib/`，`sources.rs`）
 
@@ -265,7 +265,14 @@ alpha.4 の第3段の前半（2026-10-12）．
 - （補）`@external` の fn は `Function::external`（`External`）を持つ IR の関数にする．ターゲットごとの指定（`ExternalBinding`）を全部持ち，選ぶのはバックエンド．引数の数で `HostRef` に分ける（1つは `Global`，2つは `Import`）．`Import` のモジュールは，`./` か `../` で始まらなければ `HostModule::Named`，利用者のソースの隣のファイルなら `File`（絶対パス），同梱のソースなら `Bundled`．名前の意味（JS のグローバル参照，WASM の import の名前）はバックエンドが決める．呼び出しは普通の直接の呼び出しで，`fails` はいつも偽（12.5），表も渡さない（R は空，12.2）．
 - （補）ファイルを指すモジュール（`./` か `../` で始まる，引数が2つのときの1つ目）は，宣言を含むソースのディレクトリからの絶対パスに直す（12.1）．`.` と `..` は字面で畳む．パスは `LowerInput::paths`（driver がソースの表から渡す）．
 - （補）引数と戻り値の境界での扱い（12.4，12.5）は IR に書かない．引数の局所変数の型（`LocalData::ty`）と `Function::ret` から，各 backend が決める．JS では，String はホストから受け取るときにサロゲートを直し，`()` はホストの返した値を捨て，関数型はコールバックとして包む．
-- （補）IR の局所変数はすべて型を持つ（`LocalData::ty`）．関数は戻り値の型（`Function::ret`）と型引数の数（`Function::type_params`．型検査の型スキームの引数の数で，集合の引数も数える）を持つ．引数の型は引数の局所変数の型．lowering が作る一時変数のうち，型検査の型に対応しないものには IR だけの型を使う．証拠の表は `Type::Evidence`，`State.run` のセルは `Type::Cell(S)`，fiber のスコープは `Type::FiberScope`，Scope のハンドラの中で fork が受け取る子の関数の戻り値は `Type::Any`（`fork[A]` の A は呼ぶたびに違い，多相な操作を持てるのは組み込みのエフェクトだけ．8.1）
+- （補）IR の局所変数はすべて型を持つ（`LocalData::ty`）．関数は戻り値の型（`Function::ret`），失敗しうるか（`Function::fails`．宣言の E が空でないか．集合の型引数は空でないとみなす）と型引数の数（`Function::type_params`．型検査の型スキームの引数の数で，集合の引数も数える）を持つ．引数の型は引数の局所変数の型．lowering が作る一時変数のうち，型検査の型に対応しないものには IR だけの型を使う．証拠の表は `Type::Evidence`，`State.run` のセルは `Type::Cell(S)`，fiber のスコープは `Type::FiberScope`，Scope のハンドラの中で fork が受け取る子の関数の戻り値は `Type::Any`（`fork[A]` の A は呼ぶたびに違い，多相な操作を持てるのは組み込みのエフェクトだけ．8.1）
+- （補）IR だけで式の型が決まるように，導けないものを IR に持たせる（2026-10-15，ir-type-args）．直接の呼び出し（`Callee::Direct`）と関数の値（`Expr::Fn`）は型引数 `ty_args`（数は `Function::type_params`），構成子（`Expr::Ctor`）は enum の型引数，リスト（`Expr::List`）は要素の型，ラムダ（`Expr::Lambda::ty`）は関数型そのもの．型引数は型検査の `ProgramTypes::type_args` から引く．まとまりの中で具体化されない参照（自分自身の再帰，型がまだ決まっていない定義）は，汎化した型変数を今の定義から見た型にする（自分自身なら自分の型引数をそのまま渡す）．const のパターンは参照の式がないので，const の宣言の型をパターンの型に突き合わせて読む
+- （補）集合の型引数（`R(f)` など）は IR の型を持たないので，`ty_args` のその位置には `()` を置く．そのため関数型の `fails` / `suspends` / `ev` は，汎用の関数の宣言では具体化より広め（真）に出る．汎用の関数から出てくる値は汎用の印のまま．WASM で単相化するときは集合の具体化も要る（中断用の写しが `suspends` について今していることを，`fails` と `ev` にも広げる）
+- （補）式の型は `Typer::type_of`（`typing.rs`）で求める．`let` の値，引数，ガード，ラムダの本体はたどらず，型を決める所（`let` / `with` / `loop` の本体，最初の `Never` でない枝，間接呼び出しの呼ばれる側，フィールドの元，タプルの要素）だけを見る．`let` の連なりは端の型を節ごとに覚えるので，全部の節で聞いても連なりの長さに比例する．型の表にない型（どの局所変数も持たないタプルの型など）は，初めて要るときに表を複製して足す（ID はモジュールの表の続き）．`&Module` だけで使える
+- （補）分岐の型は `Never` でない最初の枝の型．操作の呼び出し（`Callee::Op`）の値は，`OpDef` が型を持つ（ir-op-types）まで `Type::Any`．`FiberOp::Fork` と `FiberOp::Deferred` の返すハンドルも `Any`（型が呼ぶたびに違う）
+- （補）検証器 `verify`（`verify.rs`）は，各関数の本体の型を下から1回たどって求め，値が型の決まった所へ流れ込む所を全部確かめる（引数，`let`，戻り値，構成子のフィールド，分岐どうし，`loop` / `recur`，パターン，組み込み関数，fiber の操作）．`Never` はどこへでも，`Any` は型の一番上の段だけで何とでも，`()` は `Type::Evidence` の所へ（表がない所で渡す `()`）流してよい．関数型どうしは引数と戻り値だけ比べ，印（`fails` / `suspends` / `ev`）は比べない（上の集合の型引数の理由）．呼び出し方を決める印は使う所で確かめる（`Expr::Call` の印と呼ばれる側の型，ラムダの引数と型の `ev`，直接の呼び出しの `suspends`）
+- （補）検証器は，lowering のテストで作った全部のモジュール（`Roots::All` の core と std を含む．ループ化の前と後）と，emela-codegen-js のテストで手で組んだ IR にかける．driver は debug ビルドで lowering の直後にかけ，誤りがあれば panic する（コンパイラの誤り）．emela-codegen-js の出力の中ではかけない
+- （補）検証器が見つけた lowering の誤り：release の関数の戻り値を `()` にしていた（本体の値をそのまま返すので本体の型にした）．init もフィールドもないハンドラの release で，`self` の型がハンドラの型のままだった（状態の型 `()` に揃えた）．型を付けるときに見つけたもの：能力の操作 fork を値として使ったときのラムダが，型は表を受けるのに表の引数を持っていなかった（使わない表の引数を足した）．同じエフェクトの別の具体化のハンドラを足す `generic_ev` は，`EffectDef` が何を具体化したかを持たないので，検証器は名前（`State[..]`）で突き合わせる
 - （補）ターゲットの検査（12.1）は lowering の後で IR をたどって行う（`LowerInput::target`）．根は `Roots::Exported` なら main，`Roots::Tests` ならテスト関数．with に書いたハンドラの関数を呼ぶので，操作の本体から呼ぶ関数もたどれる側に入る．たどれる外部関数にそのターゲットの `@external` がなければ `LowerError::MissingExternal`（driver が E0412 にする）．main のないエントリでは検査しない．`Roots::All` は検査しない．
 - （補）たどれない外部関数でも，エントリの `pub` の fn から写されることはある．そのターゲットの指定がなければ，バックエンドは呼ばれたら defect にする関数を出す．
 - （補）`Roots::All` は本体のある fn と const に加えて，`@external` の fn と handler も根にする（同梱の `SystemConsole` を写せることを `every_core_function_lowers` で見る）．

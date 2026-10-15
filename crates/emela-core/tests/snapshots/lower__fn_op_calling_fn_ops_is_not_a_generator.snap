@@ -4,10 +4,10 @@ expression: "mine.join(\"\\n\\n\")"
 ---
 fn InstantClock(ev%20: evidence) -> handler Clock {
   handler InstantClock: Clock {
-    sleep: fn(ms%21: Int, resume%22: fn(Int) -> ()) {
+    sleep: fn(ms%21: Int, resume%22: fn(Int) -> ()) -> () {
       (resume%22)(0)
     }
-    now: fn() {
+    now: fn() -> Int {
       ((use[Clock](ev%20)).Clock#now() +[Int] 1)
     }
   }
@@ -15,10 +15,10 @@ fn InstantClock(ev%20: evidence) -> handler Clock {
 
 fn CapturedClock(ev%16: evidence) -> handler Clock {
   handler CapturedClock: Clock {
-    sleep: fn(ms%17: Int, resume%18: fn(Int) -> ()) {
+    sleep: fn(ms%17: Int, resume%18: fn(Int) -> ()) -> () {
       (resume%18)(0)
     }
-    now: fn() {
+    now: fn() -> Int {
       let clock%19: handler Clock = use[Clock](ev%16)
       clock%19.Clock#now()
     }
@@ -27,10 +27,10 @@ fn CapturedClock(ev%16: evidence) -> handler Clock {
 
 fn LocalSleep() -> handler Clock {
   handler LocalSleep: Clock {
-    sleep: fn(ms%10: Int, resume%11: fn(Int) -> ()) {
+    sleep: fn(ms%10: Int, resume%11: fn(Int) -> ()) -> () {
       (resume%11)(0)
     }
-    now: fn() {
+    now: fn() -> Int {
       with {
         let h%12: handler Clock = PureClock()
       } {
