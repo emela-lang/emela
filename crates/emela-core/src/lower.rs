@@ -15,7 +15,7 @@ use emela_resolve::hir::{
 use emela_resolve::{ModuleId, ModuleMap};
 use emela_types::{Prim, ProgramTypes, Row, RowElem, Tag, Ty};
 use la_arena::ArenaMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
@@ -1714,23 +1714,7 @@ impl<'a> Lowerer<'a> {
     /// (spec 12.1). Functions called from operation bodies of handlers in `with`s are followed too
     /// (since the function building the handler value is called).
     fn check_target(&mut self, entries: &[FnId], target: &str) {
-        let mut seen = vec![false; self.module.functions.len()];
-        let mut stack: Vec<FnId> = entries.to_vec();
-        let mut missing = Vec::new();
-        while let Some(f) = stack.pop() {
-            let i = f.into_raw().into_u32() as usize;
-            if std::mem::replace(&mut seen[i], true) {
-                continue;
-            }
-            let func = &self.module.functions[f];
-            if let Some(ext) = &func.external {
-                if ext.binding(target).is_none() {
-                    missing.push(f);
-                }
-                continue;
-            }
-            collect_fn_refs(&func.body, &mut stack);
-        }
+        let missing = unannotated_reachable(&self.module, entries, target);
         let mut defs: Vec<DefId> = missing
             .into_iter()
             .map(|f| {
@@ -2791,16 +2775,83 @@ fn mentions(e: &Expr, l: Local) -> bool {
 
 /// Pushes the top-level functions the expression refers to (as values and direct calls) onto
 /// `out`.
-fn collect_fn_refs(e: &Expr, out: &mut Vec<FnId>) {
-    match e {
-        Expr::Fn { f, .. }
-        | Expr::Call {
-            callee: Callee::Direct { f, .. },
-            ..
-        } => out.push(*f),
-        _ => {}
+/// External functions without an `@external` for `target` that are reachable from `entries`
+/// (spec 12.1). A handler operation's implementation (a lambda in `Expr::Handler`) is followed only
+/// once the operation is called or used as a value somewhere reachable; operations of effects with
+/// different type arguments count as the same operation of the same declaration.
+fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId> {
+    #[derive(Default)]
+    struct Walk<'m> {
+        fns: Vec<FnId>,
+        /// (effect declaration, operation index) called or used as a value.
+        used: FxHashSet<(&'m str, usize)>,
+        /// Implementations not followed yet, by (effect declaration, operation index).
+        pending: FxHashMap<(&'m str, usize), Vec<&'m Expr>>,
+        /// Bodies to walk: implementations whose operation became used.
+        ready: Vec<&'m Expr>,
     }
-    e.for_each_child(&mut |c| collect_fn_refs(c, out));
+    impl<'m> Walk<'m> {
+        fn expr(&mut self, m: &'m Module, e: &'m Expr) {
+            match e {
+                Expr::Fn { f, .. }
+                | Expr::Call {
+                    callee: Callee::Direct { f, .. },
+                    ..
+                } => self.fns.push(*f),
+                Expr::Call {
+                    callee: Callee::Op { effect, op, .. },
+                    ..
+                } => {
+                    let key = (m.effects[*effect].decl.as_str(), *op);
+                    if self.used.insert(key)
+                        && let Some(bodies) = self.pending.remove(&key)
+                    {
+                        self.ready.extend(bodies);
+                    }
+                }
+                Expr::Handler { effect, ops, .. } => {
+                    let decl = m.effects[*effect].decl.as_str();
+                    for (i, op) in ops.iter().enumerate() {
+                        if self.used.contains(&(decl, i)) {
+                            self.ready.push(op);
+                        } else {
+                            self.pending.entry((decl, i)).or_default().push(op);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            e.for_each_child(&mut |c| self.expr(m, c));
+        }
+    }
+
+    let mut seen = vec![false; m.functions.len()];
+    let mut walk = Walk {
+        fns: entries.to_vec(),
+        ..Walk::default()
+    };
+    let mut missing = Vec::new();
+    loop {
+        if let Some(body) = walk.ready.pop() {
+            walk.expr(m, body);
+            continue;
+        }
+        let Some(f) = walk.fns.pop() else { break };
+        let i = f.into_raw().into_u32() as usize;
+        if std::mem::replace(&mut seen[i], true) {
+            continue;
+        }
+        let func = &m.functions[f];
+        if let Some(ext) = &func.external {
+            if ext.binding(target).is_none() {
+                missing.push(f);
+            }
+            continue;
+        }
+        walk.expr(m, &func.body);
+    }
+    missing
 }
 
 /// `None` unless it is a primitive type.

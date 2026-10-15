@@ -1133,7 +1133,7 @@ pub enum Expr {
 impl Expr {
     /// Applies `f` to every direct subexpression (not patterns), not necessarily in evaluation
     /// order.
-    pub fn for_each_child(&self, f: &mut impl FnMut(&Expr)) {
+    pub fn for_each_child<'a>(&'a self, f: &mut impl FnMut(&'a Expr)) {
         match self {
             Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } => {}
             Expr::Let { value, body, .. } => {

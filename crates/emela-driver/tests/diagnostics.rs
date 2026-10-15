@@ -815,6 +815,48 @@ fn reachable_external_without_target() {
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
 
+/// A handler whose `sleep` has no JS `@external`. Only operations called somewhere reachable are
+/// checked (spec 12.1), so using only `now` builds, and calling `sleep` reports `wasm_sleep`.
+const PARTIAL_HANDLER: &str = r#"effect Clock {
+  fn now() -> Int
+  fn sleep(ms: Int) -> ()
+}
+
+@external(js, "Date.now")
+fn js_now() -> Int
+
+@external(wasm, "env", "sleep")
+fn wasm_sleep(ms: Int) -> ()
+
+handler HostClock implements Clock {
+  fn now() { js_now() }
+  fn sleep(ms) { wasm_sleep(ms) }
+}
+
+fn main() {
+  with HostClock { dbg(CALL) }
+}
+"#;
+
+#[test]
+fn only_called_operations_are_checked_for_the_target() {
+    let render_main = |call: &str| {
+        let main = PARTIAL_HANDLER.replace("CALL", call);
+        let files = [("home/main.emel", main.as_str())];
+        let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
+        render(&analysis.diagnostics, &analysis.sources, false)
+    };
+    assert_eq!(render_main("(use Clock).now()"), "");
+    let called = render_main("(use Clock).sleep(1)");
+    assert!(
+        called.contains("external function `wasm_sleep` has no `@external` for target `js`"),
+        "{called}"
+    );
+    // An operation used as a value counts as used.
+    let as_value = render_main("List.map([1], (use Clock).sleep)");
+    assert!(as_value.contains("`wasm_sleep`"), "{as_value}");
+}
+
 #[test]
 fn internal_fns_are_core_only() {
     // `@internal` fns can be called from core modules but not from source modules (E0228), and
