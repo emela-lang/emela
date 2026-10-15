@@ -66,6 +66,12 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）文字列の連結，比較（UTF-8 のバイト順はコードポイントの順と同じ），バイト数，
   `show_string`（`"` と `\` だけ escape する．制御文字の escape は後で足す），`Int.to_string`
   （スクラッチのメモリに桁を作ってから文字列にする），`Int64.to_string` を wasm で書く
+- （補）`String.contains` / `starts_with` / `ends_with` は部分文字列のバイト探索で行う
+  （UTF-8 は自己同期なので，バイトの一致はコードポイントの列の一致と同じ．16.2）．`split`
+  は空でない区切りで分け，`List[String]` を組む（前から順に `cons` でつなぐ）．`join` は要素の
+  長さを一度数えてから連結する．`code_points` は UTF-8 を復号して `List[Int]` にする．`trim`
+  は前後を UTF-8 のコードポイントに復号しながら White_Space（25文字）を取り除く．空の区切りの
+  `split` はコンパイル時に止めるが，実行時に空になった区切りは defect にする（無限ループを避ける）
 - （補）`debug_print` は stderr に文字列と改行を `fd_write` で書く．iovec と書いたバイト数は
   ヒープの下のスクラッチに置く
 - （補）失敗（error の値）の表示は `show_failure` が記述子の `show`（その enum の `show`
@@ -87,9 +93,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - 状態機械（`Stmt::Let` の `on_suspend`）と suspend するコード，`runtime yield` など
 - fiber（11 章の操作すべて）
 - 書記素クラスタの表が要る `String` の操作（`length`，`chars`，空の区切りの `split`）
-- `String` の `contains` / `starts_with` / `ends_with` / `split` / `join` / `trim` /
-  `code_points` / `from_code_point`，`Int.parse` / `Int.checked_add`，`Float` の `to_string` /
-  `parse` / `floor` / `ceil` / `round` / `truncate`
+- `String.from_code_point`，`Int.parse` / `Int.checked_add`（`Option` をランタイムで組む仕組み
+  がまだない），`Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`
 - コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428）
 - notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない
 

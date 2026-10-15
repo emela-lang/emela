@@ -132,6 +132,10 @@ pub(crate) struct Builder<'m> {
     pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
     pub(crate) str_desc: u32,
+    /// The descriptors of a list cell whose head is a reference, and one whose head is a word
+    /// (the runtime's `String.split` / `String.code_points` build lists).
+    pub(crate) cons_ref_desc: u32,
+    pub(crate) cons_val_desc: u32,
     pub(crate) data: Vec<u8>,
     descs: FxHashMap<DescKey, u32>,
     strs: FxHashMap<Vec<u8>, u32>,
@@ -157,6 +161,8 @@ impl<'m> Builder<'m> {
             error_shows: FxHashMap::default(),
             entry_index: 0,
             str_desc: 0,
+            cons_ref_desc: 0,
+            cons_val_desc: 0,
             data: vec![0; 64],
             descs: FxHashMap::default(),
             strs: FxHashMap::default(),
@@ -166,6 +172,8 @@ impl<'m> Builder<'m> {
             bodies: Vec::new(),
         };
         b.str_desc = b.string_desc();
+        b.cons_ref_desc = b.list_desc(true);
+        b.cons_val_desc = b.list_desc(false);
         b
     }
 
@@ -386,6 +394,18 @@ impl<'m> Builder<'m> {
             name: "String".to_owned(),
             show: None,
             refs: Vec::new(),
+        })
+    }
+
+    /// The descriptor of a list cell (`{head, tail}`), whose head is a reference or a word.
+    fn list_desc(&mut self, head_ref: bool) -> u32 {
+        self.desc(DescKey {
+            kind: 0,
+            tag: 0,
+            enum_id: -1,
+            name: "list".to_owned(),
+            show: None,
+            refs: vec![head_ref, true],
         })
     }
 
@@ -1136,14 +1156,7 @@ impl<'m> Builder<'m> {
                 let elems = elems.clone();
                 for e in elems.iter().rev() {
                     let head_ref = Self::operand_repr(cx.f, e) == Repr::Ref;
-                    let desc = self.desc(DescKey {
-                        kind: 0,
-                        tag: 0,
-                        enum_id: -1,
-                        name: "list".to_owned(),
-                        show: None,
-                        refs: vec![head_ref, true],
-                    });
+                    let desc = self.list_desc(head_ref);
                     self.alloc(cx, ins, d, desc, 2);
                     self.store_slot(cx, ins, d, 0, e);
                     ins.local_get(cx.local(d));
@@ -1701,6 +1714,62 @@ impl<'m> Builder<'m> {
                     self.operand(cx, ins, a);
                 }
                 let f = self.rt("str_append");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            StringContains => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_contains");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            StringStartsWith => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_starts_with");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            StringEndsWith => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_ends_with");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::I32);
+            }
+            StringSplit => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_split");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            StringJoin => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_join");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            StringTrim => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_trim");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            StringCodePoints => {
+                for a in args {
+                    self.operand(cx, ins, a);
+                }
+                let f = self.rt("str_code_points");
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }

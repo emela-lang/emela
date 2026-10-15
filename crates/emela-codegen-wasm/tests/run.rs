@@ -188,3 +188,36 @@ fn main() {
     };
     assert_eq!(out, "5\n-1\n");
 }
+
+#[test]
+fn strings_extended() {
+    let Some(out) = stderr(
+        "strings2",
+        "fn main() {\n  dbg(String.contains(\"hello world\", \"o w\"))\n  dbg(String.starts_with(\"hello\", \"he\"))\n  dbg(String.ends_with(\"hello\", \"lo\"))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.join([\"a\", \"b\", \"c\"], \"-\"))\n  dbg(String.trim(\"  hi  \"))\n  dbg(String.code_points(\"A\u{20AC}\"))\n  dbg(String.split(\"\", \",\"))\n  dbg(String.trim(\"\u{00A0}hi\u{2003}\"))\n  dbg(String.starts_with(\"h\u{00E9}llo\", \"h\u{00E9}\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "True\nTrue\nTrue\n[\"a\", \"b\", \"c\"]\n\"a-b-c\"\n\"hi\"\n[65, 8364]\n[\"\"]\n\"hi\"\nTrue\n"
+    );
+}
+
+#[test]
+fn split_with_an_empty_separator_is_a_defect() {
+    // The constant empty separator is rejected before the Heap IR; a separator that is empty
+    // only at run time reaches the runtime, which raises the defect instead of splitting.
+    let Some(run) = run(
+        "split-empty",
+        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"ab\", sep))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert!(
+        run.stderr
+            .starts_with("defect: `String.split` with an empty separator"),
+        "{}",
+        run.stderr
+    );
+}
