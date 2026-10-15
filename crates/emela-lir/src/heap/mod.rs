@@ -20,7 +20,7 @@ pub use closures::convert_closures;
 pub(crate) use defects::may_defect;
 pub use defects::{builtin_may_defect, explicit_defects, fiber_may_defect};
 pub use rc::insert_rc;
-pub use suspend::state_machines;
+pub use suspend::{may_suspend, state_machines};
 
 use crate::ir::Module;
 

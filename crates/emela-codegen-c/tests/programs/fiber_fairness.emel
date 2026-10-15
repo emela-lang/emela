@@ -1,0 +1,52 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+## A suspending function that does not suspend: calls of it count for fairness too.
+fn step(n: Int) -> Int use { Tick } { n + 1 }
+
+## Counts to `n` with suspending calls, printing every `every` calls. Fibers that never wait still
+## take turns: each yields every so many suspending calls (spec 11.1), and the order is the same
+## on every target.
+fn count(name: String, i: Int, n: Int, every: Int) -> Int use { Tick } {
+  if i == n { i } else {
+    if i % every == 0 { print("#{name} #{i}") } else { () }
+    j = if i % 2 == 0 {
+      (use Tick).tick()
+      i + 1
+    } else {
+      step(i)
+    }
+    count(name, j, n, every)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    total = Fiber.scope(fn() {
+      a = Fiber.fork(fn() { count("a", 0, 40000, 2500) })
+      b = Fiber.fork(fn() { count("b", 0, 30000, 2500) })
+      c = Fiber.fork(fn() { count("c", 0, 5000, 1000) })
+      d = Fiber.deferred()
+      Fiber.fork(fn() {
+        count("d", 0, 20000, 5000)
+        Deferred.complete(d, "done")
+      })
+      print("body #{Deferred.await(d)}")
+      Fiber.join(a) + Fiber.join(b) + Fiber.join(c)
+    })
+    print("total #{total}")
+    print("deep #{count("deep", 0, 300000, 100000)}")
+  }
+}

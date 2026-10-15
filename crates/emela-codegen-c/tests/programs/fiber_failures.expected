@@ -1,0 +1,24 @@
+exit: 0
+--- stdout
+init res
+release res
+scope -1
+init res
+release res
+value 2
+Fail error: Boom
+Die defect: bad
+fetched 1
+Success
+init res
+release res
+await Interrupt interrupted
+join Die defect: fiber was interrupted
+await Success
+raise -2
+Fail error: NotFound(id: 1)
+Die defect: first
+interrupted waiter Interrupt interrupted
+before self interrupt
+child Success
+--- stderr

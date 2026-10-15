@@ -1,0 +1,9 @@
+exit: 130
+--- stdout
+after wait 7
+now 7
+release res
+not resuming
+release res
+--- stderr
+interrupted

@@ -1,0 +1,12 @@
+exit: 130
+--- stdout
+init res
+body waits
+init slow
+init res
+child waits
+release res
+release slow
+release res
+--- stderr
+interrupted

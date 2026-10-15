@@ -1,0 +1,46 @@
+import Std.Fiber.{Fiber, Scope}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res implements Name {
+  init { Res }
+  fn name() { "res" }
+  release { panic("in release") }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn main() -> () fails Boom use { Async } {
+  with Ticks {
+    Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        spin(1000)
+        fail Boom
+      })
+      Fiber.fork(fn() { with Res { spin(100000) } })
+      print("body")
+      spin(100000)
+    })
+  }
+}

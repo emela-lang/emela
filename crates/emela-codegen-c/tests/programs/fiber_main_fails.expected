@@ -1,0 +1,6 @@
+exit: 1
+--- stdout
+body
+--- stderr
+error: Boom
+note: another fiber also failed: defect: in release

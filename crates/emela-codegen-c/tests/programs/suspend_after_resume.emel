@@ -1,0 +1,40 @@
+import Std.Fiber.{Fiber, Scope}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Nope
+
+effect Late {
+  suspend fn late() -> Int fails Nope
+}
+
+## Fails after it resumed: the caller already went on, so the run ends with a defect (spec 14.5).
+handler FailsLate implements Late {
+  suspend fn late(resume) {
+    resume(1)
+    print("after resume")
+    fail Nope
+  }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res implements Name {
+  init { Res }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn main() -> () use { Async } {
+  Fiber.scope(fn() {
+    with Res, FailsLate {
+      r = (use Late).late() escape { Nope -> -1 }
+      print("got #{r}")
+    }
+  })
+  print("not reached")
+}

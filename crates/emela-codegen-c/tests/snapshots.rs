@@ -91,3 +91,35 @@ fn main() {
 "##
     ));
 }
+
+#[test]
+fn suspending_functions_and_fibers() {
+    let src = r##"
+effect Clock {
+  suspend fn sleep(ms: Int) -> Int
+}
+
+handler Instant implements Clock {
+  suspend fn sleep(ms, resume) { resume(ms + 1) }
+}
+
+fn nap(ms: Int) -> Int use { Clock } {
+  n = (use Clock).sleep(ms)
+  n + ms
+}
+
+fn main() -> () use { Async } {
+  with Instant {
+    total = Fiber.scope(fn() {
+      a = Fiber.fork(fn() { nap(1) })
+      nap(2) + Fiber.join(a)
+    })
+    print("#{total}")
+  }
+}
+"##;
+    let c = to_c(&format!("import Std.Fiber.{{Fiber}}\n{PRELUDE}{src}"))
+        .unwrap_or_else(|e| panic!("{e:#?}"))
+        .main;
+    insta::assert_snapshot!(c);
+}

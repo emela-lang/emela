@@ -2,14 +2,16 @@
 //!
 //! [`compile`] runs the whole pipeline from lowered Core IR: monomorphisation
 //! (`emela_core::monomorphize_from`, from the entry), the Flow IR (`emela_lir::from_core`), the
-//! Heap IR passes (`emela_lir::to_heap`: closure conversion, explicit defects, reference counting)
+//! Heap IR passes (`emela_lir::to_heap`: closure conversion, explicit defects, state machines,
+//! reference counting)
 //! and then this crate's emitter, which follows the Heap IR mechanically. The C runtime
 //! ([`RUNTIME_C`], [`RUNTIME_H`]) is embedded and written next to the output; the caller compiles
 //! both with cc (see `NOTES.md` for the flags).
 //!
-//! The first version supports no programs that suspend (the emitter does not read the state
-//! machines of the Heap IR yet), no fibers, no callbacks to host functions and no builtins that need Unicode
-//! tables; reaching them is a [`CError`].
+//! Suspending functions are emitted from the Heap IR's state machines, and the runtime schedules
+//! fibers the way the JS runtime does (spec chapter 11, 14.5). There are no callbacks to host
+//! functions, no `suspend fn` external functions (no event loop yet) and no builtins that need
+//! Unicode tables; reaching them is a [`CError`].
 
 mod check;
 mod emit;
@@ -75,7 +77,7 @@ pub struct CError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CErrorKind {
-    /// A feature the C target does not support yet (suspending code, fibers, Unicode tables).
+    /// A feature the C target does not support yet (Unicode tables).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,

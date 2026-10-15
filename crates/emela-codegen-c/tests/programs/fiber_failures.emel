@@ -1,0 +1,151 @@
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+error NotFound(id: Int)
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res implements Name {
+  init {
+    print("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn kind_name(k: CauseKind) -> String {
+  k match {
+    Fail -> "Fail"
+    Die -> "Die"
+    Interrupt -> "Interrupt"
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> "#{kind_name(Cause.kind(c))} #{Cause.to_string(c)}"
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    r = Fiber.scope(fn() {
+      Fiber.fork(fn() { with Res { spin(100000) } })
+      Fiber.fork(fn() {
+        spin(1000)
+        boom()
+      })
+      spin(100000)
+      print("not reached")
+      1
+    }) escape { Boom -> -1 }
+    print("scope #{r}")
+    v = Fiber.scope(fn() {
+      Fiber.fork(fn() { with Res { spin(100000) } })
+      spin(1000)
+      2
+    })
+    print("value #{v}")
+    print(show(Fiber.attempt(fn() { boom() })))
+    print(show(Fiber.attempt(fn() { panic("bad") })))
+    print(show(Fiber.attempt(fn() { fetch(1, 1) })))
+    Fiber.scope(fn() {
+      h = Fiber.fork(fn() { with Res { spin(100000) } })
+      spin(1000)
+      Fiber.interrupt(h)
+      print("await #{show(Fiber.await(h))}")
+      print("join #{show(Fiber.attempt(fn() { Fiber.join(h) }))}")
+      ok = Fiber.fork(fn() { 7 })
+      print("await #{show(Fiber.await(ok))}")
+    })
+    raised = Fiber.scope(fn() {
+      Fiber.attempt(fn() { boom() }) match {
+        Success(v) -> v
+        Failure(c) -> Cause.raise(c)
+      }
+    }) escape { Boom -> -2 }
+    print("raise #{raised}")
+    e = Fiber.attempt(fn() {
+      Fiber.scope(fn() {
+        Fiber.fork(fn() {
+          spin(500)
+          fail NotFound(id: 1)
+        })
+        Fiber.fork(fn() {
+          spin(1000)
+          panic("second")
+        })
+        Fiber.fork(fn() {
+          spin(1500)
+          boom()
+        })
+        spin(100000)
+        0
+      })
+    })
+    print(show(e))
+    d = Fiber.attempt(fn() {
+      Fiber.scope(fn() {
+        Fiber.fork(fn() {
+          spin(500)
+          panic("first")
+        })
+        Fiber.fork(fn() { with Res { spin(100000) } })
+        Fiber.fork(fn() {
+          spin(1000)
+          fail NotFound(id: 2)
+        })
+        spin(100000)
+        0
+      })
+    })
+    print(show(d))
+    Fiber.scope(fn() {
+      dd = Fiber.deferred()
+      waiting = Fiber.fork(fn() { Deferred.await(dd) })
+      spin(1000)
+      Fiber.interrupt(waiting)
+      print("interrupted waiter #{show(Fiber.await(waiting))}")
+      me = Fiber.fork(fn() {
+        print("before self interrupt")
+        Fiber.interrupt(Fiber.fork(fn() { 0 }))
+        3
+      })
+      print("child #{show(Fiber.await(me))}")
+    })
+  }
+}

@@ -24,8 +24,9 @@
  * Closures are `{function pointer, captures...}`. Handlers are `{retired flag, operations...}`.
  *
  * Single-threaded: no atomics. Defects and failures are passed back through the pending slots
- * `em_defect` and `em_failure` (one fiber for now), which callers test after each call that may
- * set them. */
+ * `em_defect` and `em_failure`, which callers test after each call that may set them. They hold a
+ * value only while a call returns (never at a suspension point), so one pair serves every fiber.
+ * An interruption is pending as a defect of its own kind (spec 11.4). */
 #ifndef EMELA_RUNTIME_H
 #define EMELA_RUNTIME_H
 
@@ -57,6 +58,9 @@ enum {
   EM_KIND_EVIDENCE = 2,
   /* A host value of an `@external type` (spec 12.3) in slot 0. Never freed by Emela. */
   EM_KIND_HOST = 3,
+  /* An object of the runtime (a fiber, a scope, a Deferred, a resume): `fin` releases what it
+   * holds before it is freed. */
+  EM_KIND_RUNTIME = 4,
 };
 
 typedef struct em_desc {
@@ -72,6 +76,8 @@ typedef struct em_desc {
   em_ref (*show)(em_ref);
   /* Per slot, 1 if it holds a reference. */
   const uint8_t *refs;
+  /* For EM_KIND_RUNTIME: releases what the object holds. */
+  void (*fin)(em_ref);
 } em_desc;
 
 typedef struct em_hdr {
@@ -253,6 +259,74 @@ const char *em_cstr(em_ref s);
 /* A String from a host string (`malloc`ed, freed here); invalid UTF-8 becomes U+FFFD. NULL is a
  * defect naming the external function. */
 em_ref em_from_host_string(char *s, const char *function);
+
+/* ---- Suspension (spec 14.5; the Heap IR's state machines) ----
+ *
+ * A suspending function returns as usual, or comes back suspended: then `em_suspending` is set
+ * and each suspending function on the way out pushes a frame of its own (`em_frame_push`) onto
+ * the continuation being captured, innermost first, and returns. The runtime's driver loop takes
+ * the continuation and later resumes it frame by frame: it pops a frame and calls its resume
+ * function with the input (a value; a failure or defect in the pending slots), so resuming never
+ * nests on the C stack.
+ *
+ * A frame is an object of `3 + n` slots: slot 0 its resume function, slot 1 the state (the
+ * resume point), slot 2 the next (outer) frame, then the n saved variables. */
+
+/* Whether a suspension is bubbling up. */
+extern bool em_suspending;
+
+/* The value representations, for the runtime functions that move values of any type. */
+enum { EM_REPR_VOID = 0, EM_REPR_I32 = 1, EM_REPR_I64 = 2, EM_REPR_F64 = 3, EM_REPR_REF = 4 };
+
+typedef em_word (*em_resume_fn)(em_ref frame, em_word in);
+
+em_ref em_frame_new(const em_desc *desc, em_resume_fn resume, int32_t state, size_t nsaved);
+/* Pushes the frame onto the continuation being captured (as the outermost so far). */
+void em_frame_push(em_ref frame);
+/* Frees a frame whose saved variables were moved out. */
+void em_frame_free(em_ref frame);
+
+/* A suspending call in a non-suspending function (spec 8.7). If it comes back suspended, the
+ * continuation will never be resumed: it is unwound at once as interrupted (spec 14.5), and the
+ * interruption is the pending defect. */
+void em_sync_enter(void);
+void em_sync_leave(void);
+
+/* RuntimeOp::Yield and YieldPerform: the fairness yield before a suspending call (spec 11.1). */
+void em_yield(bool perform);
+/* RuntimeOp::Hold and Unhold: a release that may suspend is not interrupted (spec 11.4). */
+void em_hold(void);
+void em_unhold(void);
+
+/* A call of a `suspend fn` operation: `em_resume_new` makes the resume function value passed as
+ * the implementation's last argument (the caller keeps a second reference), and after the call
+ * `em_perform_end` returns the value to continue with (or a pending failure or defect), or
+ * starts a suspension. Consumes the caller's reference. */
+em_ref em_resume_new(em_ref handler, const char *op, int32_t repr);
+em_word em_perform_end(em_ref resume);
+
+/* ---- Fibers (spec chapter 11) ----
+ *
+ * Arguments are borrowed. `repr` is the representation of the value type `A`. */
+
+em_word em_fiber_scope(em_ref body, int32_t repr);
+em_ref em_fiber_fork(em_ref scope, em_ref f);
+em_ref em_fiber_deferred(em_ref scope);
+em_word em_fiber_join(em_ref fiber, int32_t repr);
+em_ref em_fiber_await(em_ref fiber, int32_t repr);
+void em_fiber_interrupt(em_ref fiber);
+em_ref em_fiber_attempt(em_ref f, int32_t repr);
+int32_t em_deferred_complete(em_ref d, em_word value, int32_t repr);
+em_word em_deferred_await(em_ref d, int32_t repr);
+em_ref em_deferred_poll(em_ref d, int32_t repr);
+int32_t em_cause_kind(em_ref c);
+em_ref em_cause_to_string(em_ref c);
+void em_cause_raise(em_ref c);
+
+/* Runs `entry` (main or a test function, returning a value of representation `repr`) as the
+ * root fiber of a run until the run ends (spec 14.5). Afterwards a failure or defect that ended
+ * it is pending (an interruption is a defect of its own kind). */
+void em_run(em_word (*entry)(void), int32_t repr);
 
 /* ---- The program ---- */
 

@@ -1,0 +1,89 @@
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    Fiber.scope(fn() {
+      d = Fiber.deferred()
+      a = Fiber.fork(fn() { Deferred.await(d) + 1 })
+      b = Fiber.fork(fn() { Deferred.await(d) + 2 })
+      Fiber.fork(fn() {
+        spin(1000)
+        Deferred.complete(d, 40)
+      })
+      print("poll #{Deferred.poll(d)}")
+      print("joined #{Fiber.join(a)} #{Fiber.join(b)}")
+      print("again #{Deferred.complete(d, 1)} #{Deferred.poll(d)}")
+      names = Fiber.deferred()
+      Fiber.fork(fn() { Deferred.complete(names, ["x", "y"]) })
+      print("list #{Deferred.await(names)}")
+      done = Fiber.deferred()
+      Fiber.fork(fn() { Deferred.complete(done, ()) })
+      Deferred.await(done)
+      print("unit #{Deferred.poll(done)}")
+    })
+    xs = Fiber.all([fn() { fetch(1, 60) }, fn() { fetch(2, 10) }])
+    print("all #{xs}")
+    w = Fiber.race([fn() { fetch(3, 200) }, fn() { fetch(4, 10) }])
+    print("race #{w}")
+    (p, q) = Fiber.both(fn() { fetch(5, 10) }, fn() { "x" })
+    print("both #{p} #{q}")
+    ys = Fiber.map([1, 2, 3], fn(i) { fetch(i, 130 - i * 40) })
+    print("map #{ys}")
+    r = Fiber.race([fn() { boom() }, fn() { fetch(8, 1000) }]) escape { Boom -> -1 }
+    print("race failed #{r}")
+    join_later = Fiber.scope(fn() {
+      h = Fiber.fork(fn() { 1 })
+      fn() { Fiber.join(h) }
+    })
+    print(show(Fiber.attempt(fn() { join_later() })))
+    complete_later = Fiber.scope(fn() {
+      d = Fiber.deferred()
+      fn() { Deferred.complete(d, 1) }
+    })
+    print(show(Fiber.attempt(fn() { complete_later() })))
+    poll_later = Fiber.scope(fn() {
+      d = Fiber.deferred()
+      fn() { Deferred.poll(d) }
+    })
+    poll_later()
+    ()
+  }
+}

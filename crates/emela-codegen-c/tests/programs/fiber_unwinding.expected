@@ -1,0 +1,17 @@
+exit: 0
+--- stdout
+init slow
+interrupting
+release slow starts
+release slow ends
+interrupted interrupted
+bad defect: release failed
+init slow
+release slow starts
+slow interrupted
+init slow
+impl resumes 1000
+release slow starts
+slow joined 1000
+deep 300
+--- stderr

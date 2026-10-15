@@ -1,0 +1,6 @@
+exit: 101
+--- stdout
+after resume
+release res
+--- stderr
+defect: operation `late` of handler `FailsLate` failed after resume: Nope

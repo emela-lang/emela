@@ -1,0 +1,17 @@
+exit: 0
+--- stdout
+fetched 2
+fetched 1
+total 30
+body inner
+outer
+inner
+child
+fetched 2
+joined 20
+inner -1
+fetched 9
+outer 90
+unit child
+values 1.5 7
+--- stderr
