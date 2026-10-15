@@ -47,7 +47,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 ## 組み込み関数
 
 - 引数は借用（Heap IR の規則），結果は所有．JS のランタイムと同じ結果と defect の文言にした
-- （補）Unicode の表が要るもので C にまだないもの（書記素クラスタ）は，コンパイル時のエラーにする．`String.length`，`String.chars`，区切りが定数の空文字列の `String.split`．区切りが実行時に空になった `String.split` は，ASCII の文字列なら正確に分けられる（ASCII の書記素は CR LF を除いて 1 文字ずつ）のでそうし，ASCII でなければ `emela: … is not supported on target c yet` で終了コード 70 で止まる（defect ではない．Heap IR は split を defect しうる組み込み関数に数えないため）
+- （補）Unicode の表が要るもので C にまだないもの（書記素クラスタ）は，コンパイル時のエラーにする．`String.length`，`String.chars`，区切りが定数の空文字列の `String.split`．区切りが実行時に空になった `String.split` は，ASCII の文字列なら正確に分けられる（ASCII の書記素は CR LF を除いて 1 文字ずつ）のでそうし，ASCII でなければ defect（`` `String.split` with an empty separator on non-ASCII text needs the Unicode grapheme cluster tables, which target `c` does not support yet ``）にする．Heap IR は split を defect しうる組み込み関数に数えるので，release が走り，`Fiber.attempt` で受けられる
 - `String.trim` の空白は White_Space の 25 文字の固定の表（16.2）で，C でも書ける
 - 文字列の比較は UTF-8 のバイトの辞書順（コードポイントの順と同じ）
 

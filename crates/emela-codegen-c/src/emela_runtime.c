@@ -16,8 +16,6 @@
 #define EM_EXIT_DEFECT 101
 /* A leak found by the check at exit (EMELA_LEAK_CHECK). */
 #define EM_EXIT_LEAK 99
-/* A feature the C target does not support yet was reached at run time. */
-#define EM_EXIT_UNSUPPORTED 70
 /* The run was unwound as interrupted (spec 14.5). */
 #define EM_EXIT_INTERRUPTED 130
 
@@ -350,7 +348,12 @@ em_ref em_string_split(em_ref s, em_ref sep) {
      * exactly: every character is a cluster except CR LF, which is one. */
     for (size_t i = 0; i < n; i++) {
       if ((unsigned char)bytes[i] >= 0x80) {
-        em_unsupported("String.split with an empty separator on non-ASCII text");
+        /* A defect, so that the releases run and attempt can catch it (the Heap IR counts split
+         * among the builtins that may raise one). */
+        em_raise_cstr(
+            "`String.split` with an empty separator on non-ASCII text needs the Unicode grapheme "
+            "cluster tables, which target `c` does not support yet");
+        return NULL;
       }
     }
     for (size_t i = 0; i < n;) {
@@ -773,12 +776,6 @@ _Noreturn void em_unreachable(void) {
   fflush(stdout);
   fputs("emela: internal error: reached unreachable code\n", stderr);
   abort();
-}
-
-_Noreturn void em_unsupported(const char *what) {
-  fflush(stdout);
-  fprintf(stderr, "emela: %s is not supported on target c yet\n", what);
-  exit(EM_EXIT_UNSUPPORTED);
 }
 
 /* ---- Constants ---- */
