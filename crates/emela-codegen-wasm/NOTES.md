@@ -99,7 +99,7 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - 書記素クラスタの表が要る `String` の操作（`length`，`chars`，空の区切りの `split`）
 - `Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`（`to_string` は
   最短の往復表現に big integer が要るので wasm では重い）
-- コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428）
+- コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428 は欠番なので番号なし）
 - notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない
 
 ## テスト

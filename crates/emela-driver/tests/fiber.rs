@@ -75,6 +75,7 @@ fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) 
             &options,
             |_| {},
         ),
+        Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
@@ -140,6 +141,7 @@ fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutc
             |_| {},
             &mut out,
         ),
+        Target::Wasm => unreachable!("the fiber tests run js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert_eq!(analysis.diagnostics, [], "{target}");

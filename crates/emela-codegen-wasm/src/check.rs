@@ -83,8 +83,8 @@ fn list(items: &[String]) -> String {
     out
 }
 
-/// An external function with `@external(wasm, ...)`: E0428 for a `suspend fn`, E0427 for
-/// callbacks.
+/// An external function with `@external(wasm, ...)`: an uncoded diagnostic for a `suspend fn`
+/// (E0428 was retired when the C target learned to run them), E0427 for callbacks.
 fn external(m: &Module, f: &Function, found: &mut Found) {
     let name = display_name(&f.name);
     if f.suspends {

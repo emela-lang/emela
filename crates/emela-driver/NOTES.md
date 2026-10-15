@@ -50,7 +50,7 @@ pub trait Backend<P> {
 - （補）`CoreWasm` は `JsBackend` の WASM 版．`emit` が `main.wasm` をバイト列で返し，`finish` は何もせず（WASM 自体が最終の出力），`runner` が `Runner::Wasmtime`．起動できなければ E0909
 - （補）出力をバイト列にできるよう，`OutputFile::contents` を `Vec<u8>` にした．テキストは `OutputFile::text()` で読む（JS と C は今までどおり）
 - （補）既定の出力先は build と run が `target/emela/wasm`，test が `target/emela/test-wasm`
-- （補）emela-codegen-wasm の「WASM ではまだ使えない」のエラーは診断にする（C と同じくコールバックは E0427，suspend fn の外部関数は E0428，それ以外は番号なし）
+- （補）emela-codegen-wasm の「WASM ではまだ使えない」のエラーは診断にする（コールバックは E0427，それ以外は番号なし．C が suspend fn の外部関数を扱えるようになったので E0428 は欠番）
 - （補）`emela test --target wasm` は `Entry::Tests` でモジュールを出し，`_start` が各テストを順に呼んで結果の行（JS と同じ）を標準出力に書く．読み取りと表示は JS・C と共通
 
 ## テスト（`emela test`，仕様 13章）
