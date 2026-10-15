@@ -52,104 +52,122 @@ pub effect FileSystem {
 type Outcome
 
 @external(js, "./file_system.mjs", "readText")
+@external(c, "./file_system.c", "emela_fs_read_text")
 suspend fn host_read_text(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "writeText")
+@external(c, "./file_system.c", "emela_fs_write_text")
 suspend fn host_write_text(path: String, text: String) -> Outcome
 
 @external(js, "./file_system.mjs", "appendText")
+@external(c, "./file_system.c", "emela_fs_append_text")
 suspend fn host_append_text(path: String, text: String) -> Outcome
 
 @external(js, "./file_system.mjs", "exists")
+@external(c, "./file_system.c", "emela_fs_exists")
 suspend fn host_exists(path: String) -> Bool
 
 @external(js, "./file_system.mjs", "isDirectory")
+@external(c, "./file_system.c", "emela_fs_is_directory")
 suspend fn host_is_directory(path: String) -> Bool
 
 @external(js, "./file_system.mjs", "listDirectory")
+@external(c, "./file_system.c", "emela_fs_list_directory")
 suspend fn host_list_directory(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "createDirectory")
+@external(c, "./file_system.c", "emela_fs_create_directory")
 suspend fn host_create_directory(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "remove")
+@external(c, "./file_system.c", "emela_fs_remove")
 suspend fn host_remove(path: String) -> Outcome
 
 ## The name of the error to fail with, or `""` on success.
 @external(js, "./file_system.mjs", "error")
+@external(c, "./file_system.c", "emela_fs_outcome_error")
 fn outcome_error(o: Outcome) -> String use {}
 
 ## The host's message for FileSystemFailure.
 @external(js, "./file_system.mjs", "message")
+@external(c, "./file_system.c", "emela_fs_outcome_message")
 fn outcome_message(o: Outcome) -> String use {}
 
 ## The text read by `host_read_text`.
 @external(js, "./file_system.mjs", "text")
+@external(c, "./file_system.c", "emela_fs_outcome_text")
 fn outcome_text(o: Outcome) -> String use {}
 
 ## The number of names listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameCount")
+@external(c, "./file_system.c", "emela_fs_outcome_name_count")
 fn outcome_name_count(o: Outcome) -> Int use {}
 
 ## The `i`-th name listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameAt")
+@external(c, "./file_system.c", "emela_fs_outcome_name_at")
 fn outcome_name_at(o: Outcome, i: Int) -> String use {}
+
+# Frees the outcome on C, where Emela does not free host values (spec 12.3). Does nothing on JS.
+@external(js, "./file_system.mjs", "release")
+@external(c, "./file_system.c", "emela_fs_outcome_release")
+fn release_outcome(o: Outcome) -> ()
 
 # Each `check_*` fails with the error named in the outcome. The host only names the errors that
 # the operation's `fails` lists; anything else is FileSystemFailure.
 
-fn check_read(o: Outcome, path: String) -> ()
+fn check_read(code: String, message: String, path: String) -> ()
   fails FileNotFound | FileAccessDenied | IsADirectory | InvalidText | FileSystemFailure {
-  outcome_error(o) match {
+  code match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
     "IsADirectory"     -> fail IsADirectory(path:)
     "InvalidText"      -> fail InvalidText(path:)
-    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                  -> fail FileSystemFailure(path:, message:)
   }
 }
 
-fn check_write(o: Outcome, path: String) -> ()
+fn check_write(code: String, message: String, path: String) -> ()
   fails FileNotFound | FileAccessDenied | IsADirectory | FileSystemFailure {
-  outcome_error(o) match {
+  code match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
     "IsADirectory"     -> fail IsADirectory(path:)
-    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                  -> fail FileSystemFailure(path:, message:)
   }
 }
 
-fn check_list(o: Outcome, path: String) -> ()
+fn check_list(code: String, message: String, path: String) -> ()
   fails FileNotFound | FileAccessDenied | NotADirectory | FileSystemFailure {
-  outcome_error(o) match {
+  code match {
     ""                 -> ()
     "FileNotFound"     -> fail FileNotFound(path:)
     "FileAccessDenied" -> fail FileAccessDenied(path:)
     "NotADirectory"    -> fail NotADirectory(path:)
-    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                  -> fail FileSystemFailure(path:, message:)
   }
 }
 
-fn check_create(o: Outcome, path: String) -> ()
+fn check_create(code: String, message: String, path: String) -> ()
   fails FileAccessDenied | NotADirectory | FileSystemFailure {
-  outcome_error(o) match {
+  code match {
     ""                 -> ()
     "FileAccessDenied" -> fail FileAccessDenied(path:)
     "NotADirectory"    -> fail NotADirectory(path:)
-    _                  -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                  -> fail FileSystemFailure(path:, message:)
   }
 }
 
-fn check_remove(o: Outcome, path: String) -> ()
+fn check_remove(code: String, message: String, path: String) -> ()
   fails FileNotFound | FileAccessDenied | DirectoryNotEmpty | FileSystemFailure {
-  outcome_error(o) match {
+  code match {
     ""                  -> ()
     "FileNotFound"      -> fail FileNotFound(path:)
     "FileAccessDenied"  -> fail FileAccessDenied(path:)
     "DirectoryNotEmpty" -> fail DirectoryNotEmpty(path:)
-    _                   -> fail FileSystemFailure(path:, message: outcome_message(o))
+    _                   -> fail FileSystemFailure(path:, message:)
   }
 }
 
@@ -162,30 +180,54 @@ fn names_onto(o: Outcome, i: Int, acc: List[String]) -> List[String] {
 pub handler SystemFileSystem implements FileSystem {
   suspend fn read_text(path, resume) {
     o = host_read_text(path)
-    check_read(o, path)
-    resume(outcome_text(o))
+    code = outcome_error(o)
+    message = outcome_message(o)
+    text = outcome_text(o)
+    release_outcome(o)
+    check_read(code, message, path)
+    resume(text)
   }
   suspend fn write_text(path, text, resume) {
-    check_write(host_write_text(path, text), path)
+    o = host_write_text(path, text)
+    code = outcome_error(o)
+    message = outcome_message(o)
+    release_outcome(o)
+    check_write(code, message, path)
     resume(())
   }
   suspend fn append_text(path, text, resume) {
-    check_write(host_append_text(path, text), path)
+    o = host_append_text(path, text)
+    code = outcome_error(o)
+    message = outcome_message(o)
+    release_outcome(o)
+    check_write(code, message, path)
     resume(())
   }
   suspend fn exists(path, resume) { resume(host_exists(path)) }
   suspend fn is_directory(path, resume) { resume(host_is_directory(path)) }
   suspend fn list_directory(path, resume) {
     o = host_list_directory(path)
-    check_list(o, path)
-    resume(names_onto(o, outcome_name_count(o) - 1, []))
+    names = names_onto(o, outcome_name_count(o) - 1, [])
+    code = outcome_error(o)
+    message = outcome_message(o)
+    release_outcome(o)
+    check_list(code, message, path)
+    resume(names)
   }
   suspend fn create_directory(path, resume) {
-    check_create(host_create_directory(path), path)
+    o = host_create_directory(path)
+    code = outcome_error(o)
+    message = outcome_message(o)
+    release_outcome(o)
+    check_create(code, message, path)
     resume(())
   }
   suspend fn remove(path, resume) {
-    check_remove(host_remove(path), path)
+    o = host_remove(path)
+    code = outcome_error(o)
+    message = outcome_message(o)
+    release_outcome(o)
+    check_remove(code, message, path)
     resume(())
   }
 }

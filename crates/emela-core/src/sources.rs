@@ -58,6 +58,10 @@ const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.c", include_str!("../lib/std/random.c")),
     ("std/env.c", include_str!("../lib/std/env.c")),
     ("std/clock.c", include_str!("../lib/std/clock.c")),
+    (
+        "std/file_system.c",
+        include_str!("../lib/std/file_system.c"),
+    ),
 ];
 
 /// The directory under `lib/` holding a bundled source: `std` for std modules, `core` otherwise.

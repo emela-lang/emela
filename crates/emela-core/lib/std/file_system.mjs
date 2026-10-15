@@ -129,3 +129,5 @@ export const message = (outcome) => outcome.message;
 export const text = (outcome) => outcome.text;
 export const nameCount = (outcome) => outcome.names.length;
 export const nameAt = (outcome, i) => outcome.names[i];
+// Only C frees outcomes (file_system.c); the garbage collector does it on JS.
+export const release = (_outcome) => {};

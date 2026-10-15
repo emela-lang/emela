@@ -306,7 +306,7 @@ fn fetches() {
 }
 ```
 
-## Std.FileSystem（`std/file_system.emel`，`std/file_system.mjs`）
+## Std.FileSystem（`std/file_system.emel`，`std/file_system.mjs`，`std/file_system.c`）
 
 platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．操作はすべて `suspend fn`．パスは String のままで，正規化しない．
 
@@ -321,7 +321,7 @@ platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．�
 | `list_directory` | `suspend fn list_directory(path: String) -> List[String] fails FileNotFound \| FileAccessDenied \| NotADirectory \| FileSystemFailure` | 名前だけを名前の順（コードポイントの辞書順）に並べる |
 | `create_directory` | `suspend fn create_directory(path: String) -> () fails FileAccessDenied \| NotADirectory \| FileSystemFailure` | 親もまとめて作る．既にあれば何もしない．そのパスか途中にファイルがあれば NotADirectory |
 | `remove` | `suspend fn remove(path: String) -> () fails FileNotFound \| FileAccessDenied \| DirectoryNotEmpty \| FileSystemFailure` | ファイルか空のディレクトリを消す |
-| `SystemFileSystem` | `handler SystemFileSystem implements FileSystem` | JS の `node:fs/promises`．状態を持たない |
+| `SystemFileSystem` | `handler SystemFileSystem implements FileSystem` | JS の `node:fs/promises`．C は POSIX の関数を外部関数の中で同期に呼び，その場で完了する（読み書きの間はほかの fiber も止まる）．状態を持たない |
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
 | `TestFileSystem` | `handler TestFileSystem implements FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
 
@@ -401,5 +401,7 @@ fn waits() {
 - Http の `header` と `headers` は名前を ASCII の範囲だけで大文字小文字を区別せずに比べる．`String` に小文字にする関数はまだない
 - GET と HEAD の空の本文は本文なしで送る．GET と HEAD に空でない本文を書くと ConnectionFailed（fetch が受け付けない）
 - FileSystem の外部関数は List も失敗も返せない（12.4，12.5）ので，ホストは結果を `@external type Outcome` で返し，ハンドラが取り出して fail に変える．取り出す関数は `use {}`（純粋）にした
+- C では Emela がホストの値を解放しない（12.3）ので，ハンドラは Outcome から中身を全部取り出してから `release_outcome` で解放し，それから fail に変える．JS の `release` は何もしない
+- C の FileSystem は JS と同じエラーの名前に写す（`classify` を写した）．FileSystemFailure の message は `EIO: Input/output error, open 'a.txt'` の形で，説明の文言は C ライブラリのもの（Node の文言とは違う）．U+0000 を含むファイルは C の文字列で渡せないので，読むと FileSystemFailure にする
 - `Path.join(a, b)` は `b` が絶対パスなら `b` にした（Rust の `Path::join` と Python と同じ．Node の `path.join` は単につなぐ）
 - `Path.extension("b.")` は `None` にした（Rust は `Some("")`）
