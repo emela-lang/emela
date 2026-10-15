@@ -63,6 +63,12 @@ version_group = "emela"
 [[package]]
 name = "emela-lir"
 version_group = "emela"
+# A crate added after the last release does not exist at that release's `vX.Y.Z`
+# tag, and in git-only mode release-plz fails looking for it there ("Failed to find
+# package"). A tag name that never exists makes it a first release instead; the
+# version group still moves it with the rest. Remove this once a release tag
+# contains emela-lir. Do the same for any new crate.
+git_tag_name = "emela-lir-v{{ version }}"
 
 [[package]]
 name = "emela-codegen-js"
