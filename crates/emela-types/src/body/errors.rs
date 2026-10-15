@@ -23,10 +23,10 @@
 //! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here
 //! together. E and R get separate set variables, so they never mix.
 
+use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arm, Block, DefId, DefKind, ExprId, ExprKind, Item, PatId, PatKind, Res, Span, Stmt, StrPart,
 };
-use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
@@ -734,12 +734,12 @@ impl BodyInfer<'_> {
     }
 
     /// Each expression's E (R if `kind` says so), with set variables solved.
-    fn resolved_rows(&mut self, kind: SetKind) -> ArenaMap<ExprId, Row> {
+    fn resolved_rows(&mut self, kind: SetKind) -> SparseMap<ExprId, Row> {
         let table = match kind {
             SetKind::Errors => self.expr_rows.clone(),
             SetKind::Effects => self.expr_effects.clone(),
         };
-        let mut rows: ArenaMap<ExprId, Row> = ArenaMap::default();
+        let mut rows: SparseMap<ExprId, Row> = SparseMap::default();
         for (expr, row) in table.iter() {
             rows.insert(expr, self.ctx.resolve_row(row));
         }
@@ -749,7 +749,7 @@ impl BodyInfer<'_> {
     /// Groups missing elements by the expression that raised them ([`Self::origin_of`]).
     fn group_by_origin(
         &self,
-        rows: &ArenaMap<ExprId, Row>,
+        rows: &SparseMap<ExprId, Row>,
         body: ExprId,
         missing: &[RowElem],
     ) -> Vec<(ExprId, Vec<RowElem>)> {
@@ -778,7 +778,7 @@ impl BodyInfer<'_> {
     /// The expression that raised error `elem`: follows the first sub-expression in source order
     /// whose E contains `elem`, and returns the one that cannot be followed further (`fail` or a
     /// call).
-    fn origin_of(&self, rows: &ArenaMap<ExprId, Row>, expr: ExprId, elem: &RowElem) -> ExprId {
+    fn origin_of(&self, rows: &SparseMap<ExprId, Row>, expr: ExprId, elem: &RowElem) -> ExprId {
         let mut current = expr;
         loop {
             let next = self
