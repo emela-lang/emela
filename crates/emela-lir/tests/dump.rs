@@ -683,6 +683,7 @@ fn representations() {
         params: 0,
         variants: vec![],
         error: false,
+        external: true,
     });
     let opaque_ty = fx.core.enum_type(opaque, vec![]);
     let not_found = fx.core.add_enum(emela_core::EnumDef {
@@ -690,6 +691,7 @@ fn representations() {
         params: 0,
         variants: vec![emela_core::VariantDef::unit("NotFound")],
         error: true,
+        external: false,
     });
     let not_found_ty = fx.core.enum_type(not_found, vec![]);
     let cases = [

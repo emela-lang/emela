@@ -6,7 +6,7 @@
 
 - （補）LIR の `Module` は元の Core の `Module` を持つ（`Module::core`）．変数の Core の型はその型の表の `TypeId`，構成子と enum とエフェクトはその定義を指す．Core の関数は使わない（変換で LIR の関数に置き換える）．参照で持つと寿命の引数が全体に広がるので，持ち切りにした
 - （補）関数ごとに変数，文，文の並び（`Seq`），ラベルのアリーナを持ち，互いを ID で指す．解析の結果は ID をキーにした表に置ける
-- （補）関数は `fails` を持つ．`fail` と `on_fail fail` はこれが真の関数でだけ書け，この関数への直接呼び出しには失敗の辺が要る．Core の `Function` には同じ印がないので，変換で決める
+- （補）関数は `fails` を持つ．`fail` と `on_fail fail` はこれが真の関数でだけ書け，この関数への直接呼び出しには失敗の辺が要る．変換では Core の `Function::fails` をそのまま使う．Flow IR は単相化の後に作るので，集合の型引数による広めの見積もりは残っていない
 - （補）証拠の表は普通の最後の引数（`ref`，Core の型は `Evidence`）．表はエフェクトをキーにした写像のままにする（設計の未決 2）．`ev_lookup` と `ev_extend` はこの写像を引き，伸ばす
 
 ## 文と制御
@@ -16,7 +16,7 @@
 - （補）`yield` は囲む文に値を渡して並びを抜ける．`loop` の本体の `yield` はループを抜け，`recur` は次の回に進む．値のない `yield` は dump に書かない
 - （補）`recur` は同じ本体の最も内側の `loop` に向かう．`protect` とクロージャをまたげない（Core でも `with` の本体は末尾位置でない）．`break`，`return`，失敗は `protect` の本体から抜けてよく，cleanup が走る．cleanup からは終わりまで流れる以外に抜けられない
 - （補）`switch` はタグ（`SwitchOn::Tag`）と，`i32` / `i64` の値（`SwitchOn::Lit`）の2通り．文字列と Float のリテラルのパターンは比較と `if` に落とす．タグの `switch` は default がなければすべての構成子を覆う．リテラルの `switch` は default を必ず持つ（照合しない場合の defect は default に書く）
-- （補）失敗の辺は `OnFail::Break(l)`（ラベル `l` の `block` をエラーの値で抜ける．その `block` の結果は `ref`）か `OnFail::Propagate`（囲む関数かクロージャを失敗させる）．辺があるのは失敗しうる呼び出しのときだけ．直接呼び出しは呼び出し先の `fails`，関数値の呼び出しは型の `FnType::fails`，fiber の操作は `FiberOp::fails` と照らす．操作の呼び出しは Core の `OpDef` にまだ型がない（ir-op-types）ので照らさない
+- （補）失敗の辺は `OnFail::Break(l)`（ラベル `l` の `block` をエラーの値で抜ける．その `block` の結果は `ref`）か `OnFail::Propagate`（囲む関数かクロージャを失敗させる）．辺があるのは失敗しうる呼び出しのときだけ．直接呼び出しは呼び出し先の `fails`，関数値の呼び出しは型の `FnType::fails`，fiber の操作は `FiberOp::fails` と照らす．操作の呼び出しは，Core の `OpDef` に型が入った（#231）が，検証器ではまだ照らしていない（Core IR からの変換と一緒に足す）
 - （補）`defect` は文字列の operand を取る．`assert` の比較のように実行時に組み立てる文言があるため
 
 ## 値
@@ -31,7 +31,7 @@
 
 - （補）設計の表どおり．引数のない構成子だけの enum は `i32`（タグ，設計の未決 1 をこちらに決めた）
 - （補）error の enum は構成子に引数がなくても `ref`．失敗の値は別々の error の enum が混ざって届き，実行時に見分けるため（Core の `EnumDef::error` の要求）
-- （補）構成子のない enum は `ref`．`@external type` は Core に印がなく（ir-op-types で足す），今は構成子のない enum として届くため
+- （補）`@external type`（`EnumDef::external`，ホストのハンドル）と構成子のない enum は `ref`
 - （補）`Type::Param` は単相化の後には来ない．`repr_of` は `ref`（箱）を返すが，検証器は型引数を含む型の変数を `Polymorphic` として報告する
 - （補）型引数を置き換えた型の表現（`repr_of_subst`）は，置き換えた型を表に登録せずに求める．表現を決めるのは一番外の型だけなので，`Param(i)` なら型引数 `i` の表現，それ以外はその型の表現になる
 
@@ -43,5 +43,4 @@
 
 ## 未決
 
-- Core の関数が失敗しうるかを Core が持っていない（`Function::fails` に当たるもの）．変換では呼び出し側の `Expr::Call::fails` か関数の型から決めることになる
 - `List[()]` のように要素に表現のないリストの作り方（今の `list[..]` は要素の operand を並べるので長さを表せない）
