@@ -494,7 +494,7 @@ that waits on `send` aborts the request.
 | `emela-resolve`      | Module loading, imports, name resolution, `pub` / `opaque`, naming rules |
 | `emela-types`        | Type inference, `fails` / `use` inference, traits, exhaustiveness        |
 | `emela-core`         | Core IR and lowering: `derive`, tail-call loops, `layer` wiring          |
-| `emela-lir`          | Low IR below the Core IR: the Flow IR (structured ANF), later the Heap IR |
+| `emela-lir`          | Low IR below the Core IR: the Flow IR (structured ANF) and the conversion from monomorphized Core, later the Heap IR |
 | `emela-codegen-js`   | JavaScript output and the embedded JS runtime                            |
 | `emela-codegen-wasm` | WebAssembly output and the embedded WASM runtime                         |
 | `emela-driver`       | Pipeline, diagnostics, `Pome.toml`                                       |

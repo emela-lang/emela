@@ -1,0 +1,53 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export suspend fn main() -> i32 (Int) {
+  f%18: ref (fn() -> Int suspends ev) = suspend closure(ev%0: ref (evidence)) [] {
+    s%1: ref (handler Std.Fiber.Scope[_, _]) = ev_lookup(ev%0, Std.Fiber.Scope[_, _])
+    f%3: ref (fn() -> List[Int]) = closure() [] {
+      t%2: ref (List[Int]) = list[1]
+      return t%2
+    }
+    f%6: ref (fn() -> List[Int] ev) = closure(ev%4: ref (evidence)) [f%3] {
+      t%5: ref (List[Int]) = call_indirect f%3()
+      return t%5
+    }
+    f%10: ref (fn(evidence) -> List[Int]) = closure(ev%7: ref (evidence)) [s%1, f%6] {
+      t%8: ref (evidence) = ev_extend(ev%7, [Std.Fiber.Scope[_, _]: s%1])
+      t%9: ref (List[Int]) = call_indirect f%6(t%8)
+      return t%9
+    }
+    a%11: ref (Std.Fiber.Fiber[List[Int]]) = call_op s%1.Std.Fiber.Scope[_, _]#fork(f%10)
+    d%12: ref (Std.Deferred.Deferred[()]) = call_op s%1.Std.Fiber.Scope[_, _]#deferred()
+    _%13: i32 (Bool) = fiber complete(d%12, ())
+    f%14: ref (fn() -> Int) = closure() [] {
+      return 3
+    }
+    e%15: ref (Std.Fiber.Exit[Int, ()]) = fiber attempt(f%14)
+    t%16: ref (List[Int]) = fiber join(a%11)!
+    t%17: i32 (Int) = call List.length[Int](t%16)
+    return t%17
+  }
+  f%31: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%19: ref (fiber_scope)) [f%18] {
+    f%25: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%20: ref (fn(evidence) -> any suspends)) [s%19] {
+      f%23: ref (fn() -> any suspends) = suspend closure() [g%20] {
+        t%21: ref (evidence) = ev_extend([])
+        t%22: ref (any) = call_indirect g%20(t%21)!
+        return t%22
+      }
+      t%24: ref (any) = fiber fork(s%19, f%23)
+      return t%24
+    }
+    f%27: ref (fn() -> any) = closure() [s%19] {
+      t%26: ref (any) = fiber deferred(s%19)
+      return t%26
+    }
+    scope%28: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%25, deferred: f%27 }
+    t%29: ref (evidence) = ev_extend([Std.Fiber.Scope[_, _]: scope%28])
+    t%30: i32 (Int) = call_indirect f%18(t%29)!
+    return t%30
+  }
+  t%32: i32 (Int) = fiber scope(f%31)!
+  return t%32
+}

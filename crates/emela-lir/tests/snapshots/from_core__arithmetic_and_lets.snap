@@ -1,0 +1,33 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"calc\", \"floats\"])"
+---
+fn calc(a%0: i32 (Int), b%1: i32 (Int)) -> i32 (Int) {
+  t%2: i32 (Int) = b%1 *[i32] 2
+  x%3: i32 (Int) = a%0 +[i32] t%2
+  y%4: i32 (Int) = x%3 /[i32] 3
+  t%5: i32 (Bool) = y%4 >[i32] 10
+  t%7: i32 (Bool) = if t%5 {
+    t%6: i32 (Bool) = a%0 !=[i32] b%1
+    yield t%6
+  } else {
+    yield false
+  }
+  t%10: i32 (Int) = if t%7 {
+    t%8: i32 (Int) = y%4 -[i32] 1
+    yield t%8
+  } else {
+    t%9: i32 (Int) = -[i32] y%4
+    yield t%9
+  }
+  return t%10
+}
+
+fn floats(x%0: f64 (Float), n%1: i64 (Int64)) -> f64 (Float) {
+  m%2: i64 (Int64) = n%1 *[i64] 2i64
+  t%3: f64 (Float) = x%0 *[f64] 1.5
+  t%4: i32 (Int) = builtin Int64.to_int(m%2)
+  t%5: f64 (Float) = builtin Float.from_int(t%4)
+  t%6: f64 (Float) = t%3 -[f64] t%5
+  return t%6
+}

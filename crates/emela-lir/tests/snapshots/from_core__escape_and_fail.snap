@@ -1,0 +1,74 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"find\", \"lookup\", \"main\"])"
+---
+export fn main() -> ref (String) {
+  t%6: ref (String) = block 'escape%0 {
+    err%2: ref (any) = block 'caught%1 {
+      t%0: ref (String) = call lookup(1) on_fail 'caught%1
+      s%1: ref (String) = runtime show_string(t%0)
+      runtime debug_print(s%1)
+      break 'escape%0(t%0)
+    }
+    block 'next%2 {
+      is%3: i32 (Bool) = is_error err%2 Invalid
+      if is%3 {
+        e%4: ref (Invalid) = as_error err%2 Invalid
+        x%5: ref (String) = field e%4 Invalid.Invalid.reason#0
+        break 'escape%0(x%5)
+      } else {}
+      break 'next%2
+    }
+    unreachable
+  }
+  return t%6
+}
+
+fn lookup(id%0: i32 (Int)) -> ref (String) fails {
+  t%7: ref (String) = block 'escape%0 {
+    err%2: ref (any) = block 'caught%1 {
+      t%1: ref (String) = call find(id%0) on_fail 'caught%1
+      break 'escape%0(t%1)
+    }
+    block 'next%2 {
+      is%3: i32 (Bool) = is_error err%2 NotFound
+      if is%3 {
+        e%4: ref (NotFound) = as_error err%2 NotFound
+        x%5: i32 (Int) = field e%4 NotFound.NotFound.id#0
+        switch x%5 {
+          case 7 {
+            break 'escape%0("seven")
+          }
+          default {
+            break 'next%2
+          }
+        }
+        unreachable
+      } else {}
+      break 'next%2
+    }
+    block 'next%3 {
+      is%6: i32 (Bool) = is_error err%2 NotFound
+      if is%6 {
+        break 'escape%0("guest")
+      } else {}
+      break 'next%3
+    }
+    fail err%2
+  }
+  return t%7
+}
+
+fn find(id%0: i32 (Int)) -> ref (String) fails {
+  t%1: i32 (Bool) = id%0 <[i32] 0
+  if t%1 {
+    t%2: ref (Invalid) = make Invalid.Invalid("negative")
+    fail t%2
+  } else {}
+  t%3: i32 (Bool) = id%0 ==[i32] 0
+  if t%3 {
+    t%4: ref (NotFound) = make NotFound.NotFound(id%0)
+    fail t%4
+  } else {}
+  return "user"
+}

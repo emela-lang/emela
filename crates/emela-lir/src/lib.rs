@@ -10,17 +10,19 @@
 //! variables, statements, sequences and labels in arenas, so analyses can keep results in side
 //! tables keyed by ID.
 //!
-//! The conversion from (monomorphised) Core IR and the passes of the second stage (closure
-//! conversion, the suspend state machine, reference counting) come later.
+//! [`from_core`] converts monomorphized Core IR to the Flow IR. The passes of the second stage
+//! (closure conversion, the suspend state machine, reference counting) come later.
 
 mod build;
 mod dump;
+mod from_core;
 mod ir;
 mod repr;
 mod verify;
 
 pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
+pub use from_core::{FromCoreError, from_core};
 pub use ir::*;
 pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};
 pub use verify::{ErrorKind, VerifyError, verify, verify_function};

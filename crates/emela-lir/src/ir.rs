@@ -6,7 +6,7 @@
 //! sequences a statement holds) is given by the IDs in [`Seq::stmts`] and in the compound
 //! statements.
 
-use emela_core::{Builtin, CtorRef, EffectId, External, FiberOp, TypeId};
+use emela_core::{Builtin, CtorRef, EffectId, EnumId, External, FiberOp, TypeId};
 use la_arena::{Arena, Idx};
 
 use crate::repr::Repr;
@@ -266,7 +266,7 @@ impl From<Const> for Operand {
     }
 }
 
-/// A constant. `()` has no constant: it has no representation.
+/// A constant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Const {
     Int(i32),
@@ -274,6 +274,12 @@ pub enum Const {
     Float(f64),
     Bool(bool),
     String(String),
+    /// The placeholder for `()` in a slot of a container: a constructor field, a tuple element, a
+    /// list element, a cell's contents or a concurrency operation's argument whose type has no
+    /// representation. It keeps the slot (so `List[()]` keeps its length and field indices stay
+    /// Core's); backends store any word there. Its representation is [`Repr::Void`], so it is
+    /// accepted only in such slots.
+    Unit,
 }
 
 impl Const {
@@ -283,6 +289,7 @@ impl Const {
             Const::Int64(_) => Repr::I64,
             Const::Float(_) => Repr::F64,
             Const::String(_) => Repr::Ref,
+            Const::Unit => Repr::Void,
         }
     }
 }
@@ -312,14 +319,14 @@ pub enum Value {
         op: Builtin,
         args: Vec<Operand>,
     },
-    /// An enum value. Arguments are the constructor's fields that have a representation, in field
-    /// order.
+    /// An enum value. Arguments are the constructor's fields in field order; a field without
+    /// representation gets [`Const::Unit`].
     Make {
         ctor: CtorRef,
         args: Vec<Operand>,
     },
-    /// Field `index` (in field definition order, counting fields without representation) of
-    /// `base`, which must be a value of `ctor`. The field must have a representation.
+    /// Field `index` (in field definition order) of `base`, which must be a value of `ctor`. A
+    /// field without representation has nothing to read (no destination).
     Field {
         base: VarId,
         ctor: CtorRef,
@@ -327,21 +334,22 @@ pub enum Value {
     },
     /// The constructor index of an enum value (`i32`).
     Tag(VarId),
-    /// A tuple of the elements that have a representation.
+    /// A tuple. An element without representation gets [`Const::Unit`].
     Tuple(Vec<Operand>),
-    /// Element `index` of a tuple (counting elements without representation).
+    /// Element `index` of a tuple.
     TupleGet {
         base: VarId,
         index: usize,
     },
-    /// `[a, b]` or `[a, b, ..tail]`.
+    /// `[a, b]` or `[a, b, ..tail]`. Elements without representation are [`Const::Unit`].
     List {
         elems: Vec<Operand>,
         tail: Option<Operand>,
     },
     /// Whether the list is empty (`i32`).
     ListIsEmpty(VarId),
-    /// The first element of a non-empty list.
+    /// The first element of a non-empty list (nothing to read, so no destination, for elements
+    /// without representation).
     ListHead(VarId),
     /// The rest of a non-empty list.
     ListTail(VarId),
@@ -368,13 +376,120 @@ pub enum Value {
         ops: Vec<VarId>,
     },
     /// A concurrency operation (spec chapter 11), done by the runtime. Arguments are as for
-    /// `emela_core::Expr::Fiber`. `on_fail` is present exactly when the operation may fail
-    /// (`FiberOp::fails`).
+    /// `emela_core::Expr::Fiber`, with [`Const::Unit`] for one without representation. `on_fail`
+    /// is present exactly when the operation may fail (`FiberOp::fails`).
     Fiber {
         op: FiberOp,
         args: Vec<Operand>,
         on_fail: Option<OnFail>,
     },
+    /// Whether the caught failure `error` (`ref`) is a value of the error enum (`i32`). Used by the
+    /// arms of `escape`, where failures of different error enums arrive at the same block.
+    IsError {
+        error: VarId,
+        enum_id: EnumId,
+    },
+    /// The caught failure `error` seen as a value of the error enum, after [`Value::IsError`] said
+    /// it is one. Defines a variable of that enum type.
+    AsError {
+        error: VarId,
+        enum_id: EnumId,
+    },
+    /// An operation of the runtime that the language has no builtin for.
+    Runtime {
+        op: RuntimeOp,
+        args: Vec<Operand>,
+    },
+    /// The variable's value at the destination's Core type, which differs from the variable's:
+    /// a function value used at a function type with other `fails` / `suspends` flags (a smaller
+    /// E or R used where a larger one is expected, spec 9.2), or a value entering or leaving
+    /// `Any`. The representations must agree unless one side is `Any` (then the value is boxed or
+    /// unboxed). Made where a `let` binds a value to a local of another type; backends whose
+    /// calling conventions depend on those flags adapt the value here.
+    Coerce(VarId),
+}
+
+impl Value {
+    /// Applies `f` to every variable the value uses, in operand order. A closure uses its
+    /// captures (not the variables of its body).
+    pub fn for_each_var(&self, mut f: impl FnMut(VarId)) {
+        let ops = |os: &[Operand], f: &mut dyn FnMut(VarId)| {
+            for o in os {
+                if let Operand::Var(v) = o {
+                    f(*v);
+                }
+            }
+        };
+        match self {
+            Value::Const(_) | Value::FnRef(_) => {}
+            Value::Prim { args, .. }
+            | Value::Builtin { args, .. }
+            | Value::Make { args, .. }
+            | Value::Tuple(args)
+            | Value::Fiber { args, .. }
+            | Value::Runtime { args, .. } => ops(args, &mut f),
+            Value::Call { callee, args, .. } => {
+                match callee {
+                    Callee::Direct(_) => {}
+                    Callee::Indirect(v) | Callee::Op { handler: v, .. } => f(*v),
+                }
+                ops(args, &mut f);
+            }
+            Value::Field { base: v, .. }
+            | Value::Tag(v)
+            | Value::TupleGet { base: v, .. }
+            | Value::ListIsEmpty(v)
+            | Value::ListHead(v)
+            | Value::ListTail(v)
+            | Value::EvLookup { ev: v, .. }
+            | Value::IsError { error: v, .. }
+            | Value::AsError { error: v, .. }
+            | Value::Coerce(v) => f(*v),
+            Value::List { elems, tail } => {
+                ops(elems, &mut f);
+                ops(tail.as_slice(), &mut f);
+            }
+            Value::Closure(c) => c.captures.iter().for_each(|&v| f(v)),
+            Value::EvExtend { base, bindings } => {
+                base.iter().for_each(|&v| f(v));
+                bindings.iter().for_each(|&(_, v)| f(v));
+            }
+            Value::Handler { ops: hs, .. } => hs.iter().for_each(|&v| f(v)),
+        }
+    }
+}
+
+/// Runtime operations that Core has no builtin for, made by the conversion from Core.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeOp {
+    /// `(String) -> String`: a string shown inside a value or by `dbg` (spec 10.6), in `"` with
+    /// the escapes of `$showString` in the JS runtime.
+    ShowString,
+    /// `(String) -> ()`: writes the line to stderr (`dbg`).
+    DebugPrint,
+    /// `(handler, String) -> ()`: marks the handler value released, so that each of its operations
+    /// is the defect `handler <name> was used after release` from then on (spec 8.6). The string
+    /// is the handler's name.
+    Retire,
+}
+
+impl RuntimeOp {
+    pub fn name(self) -> &'static str {
+        match self {
+            RuntimeOp::ShowString => "show_string",
+            RuntimeOp::DebugPrint => "debug_print",
+            RuntimeOp::Retire => "retire",
+        }
+    }
+
+    /// The representations of the arguments and of the result.
+    pub fn sig(self) -> (&'static [Repr], Repr) {
+        match self {
+            RuntimeOp::ShowString => (&[Repr::Ref], Repr::Ref),
+            RuntimeOp::DebugPrint => (&[Repr::Ref], Repr::Void),
+            RuntimeOp::Retire => (&[Repr::Ref, Repr::Ref], Repr::Void),
+        }
+    }
 }
 
 /// A closure value. It shares the function's arenas. Its body may use the variables of the

@@ -1,0 +1,123 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\", \"show$\"])"
+---
+export fn main() -> ref (String) {
+  t%0: ref (Option[Int]) = make Option.Some(1)
+  t%1: ref (Option[Int]) = make Option.None
+  t%2: ref (List[Option[Int]]) = list[t%0, t%1]
+  s%3: ref (Shape) = make Shape.Named("a\"b", t%2)
+  t%4: ref ((Bool, Float, String)) = tuple(true, 2.5, "x")
+  t%5: ref (List[()]) = list[(), ()]
+  s%6: ref (String) = call show$Shape(s%3)
+  s%7: ref (String) = call show$(Bool, Float, String)(t%4)
+  s%8: ref (String) = call show$List[()](t%5)
+  s%9: ref (String) = builtin Int.to_string(3)
+  s%10: ref (String) = builtin String.append("shape ", s%6)
+  s%11: ref (String) = builtin String.append(s%10, " and ")
+  s%12: ref (String) = builtin String.append(s%11, s%7)
+  s%13: ref (String) = builtin String.append(s%12, " and ")
+  s%14: ref (String) = builtin String.append(s%13, s%8)
+  s%15: ref (String) = builtin String.append(s%14, ": top ")
+  s%16: ref (String) = builtin String.append(s%15, s%9)
+  s%17: ref (String) = runtime show_string(s%16)
+  runtime debug_print(s%17)
+  return s%16
+}
+
+fn show$Shape(x%0: ref (Shape)) -> ref (String) {
+  switch tag(x%0) {
+    case Shape.Circle {
+      f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
+      s%2: ref (String) = builtin Float.to_string(f%1)
+      s%3: ref (String) = builtin String.append("Circle(radius: ", s%2)
+      s%4: ref (String) = builtin String.append(s%3, ")")
+      return s%4
+    }
+    case Shape.Named {
+      f%5: ref (String) = field x%0 Shape.Named#0
+      s%6: ref (String) = runtime show_string(f%5)
+      f%7: ref (List[Option[Int]]) = field x%0 Shape.Named#1
+      s%8: ref (String) = call show$List[Option[Int]](f%7)
+      s%9: ref (String) = builtin String.append("Named(", s%6)
+      s%10: ref (String) = builtin String.append(s%9, ", ")
+      s%11: ref (String) = builtin String.append(s%10, s%8)
+      s%12: ref (String) = builtin String.append(s%11, ")")
+      return s%12
+    }
+    case Shape.Empty {
+      return "Empty"
+    }
+  }
+  unreachable
+}
+
+fn show$(Bool, Float, String)(x%0: ref ((Bool, Float, String))) -> ref (String) {
+  e%1: i32 (Bool) = tuple_get x%0#0
+  s%2: ref (String) = if e%1 {
+    yield "True"
+  } else {
+    yield "False"
+  }
+  e%3: f64 (Float) = tuple_get x%0#1
+  s%4: ref (String) = builtin Float.to_string(e%3)
+  e%5: ref (String) = tuple_get x%0#2
+  s%6: ref (String) = runtime show_string(e%5)
+  s%7: ref (String) = builtin String.append("(", s%2)
+  s%8: ref (String) = builtin String.append(s%7, ", ")
+  s%9: ref (String) = builtin String.append(s%8, s%4)
+  s%10: ref (String) = builtin String.append(s%9, ", ")
+  s%11: ref (String) = builtin String.append(s%10, s%6)
+  s%12: ref (String) = builtin String.append(s%11, ")")
+  return s%12
+}
+
+fn show$List[()](x%0: ref (List[()])) -> ref (String) {
+  joined%4: ref (String) = loop(p%1: ref (List[()]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
+    empty%5: i32 (Bool) = list_is_empty p%1
+    if empty%5 {} else {
+      t%6: ref (List[()]) = list_tail p%1
+      s%7: ref (String) = builtin String.append(acc%2, sep%3)
+      s%8: ref (String) = builtin String.append(s%7, "()")
+      recur(t%6, s%8, ", ")
+    }
+    yield acc%2
+  }
+  s%9: ref (String) = builtin String.append("[", joined%4)
+  s%10: ref (String) = builtin String.append(s%9, "]")
+  return s%10
+}
+
+fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
+  joined%4: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
+    empty%5: i32 (Bool) = list_is_empty p%1
+    if empty%5 {} else {
+      h%6: ref (Option[Int]) = list_head p%1
+      t%7: ref (List[Option[Int]]) = list_tail p%1
+      s%8: ref (String) = call show$Option[Int](h%6)
+      s%9: ref (String) = builtin String.append(acc%2, sep%3)
+      s%10: ref (String) = builtin String.append(s%9, s%8)
+      recur(t%7, s%10, ", ")
+    }
+    yield acc%2
+  }
+  s%11: ref (String) = builtin String.append("[", joined%4)
+  s%12: ref (String) = builtin String.append(s%11, "]")
+  return s%12
+}
+
+fn show$Option[Int](x%0: ref (Option[Int])) -> ref (String) {
+  switch tag(x%0) {
+    case Option.Some {
+      f%1: i32 (Int) = field x%0 Option.Some#0
+      s%2: ref (String) = builtin Int.to_string(f%1)
+      s%3: ref (String) = builtin String.append("Some(", s%2)
+      s%4: ref (String) = builtin String.append(s%3, ")")
+      return s%4
+    }
+    case Option.None {
+      return "None"
+    }
+  }
+  unreachable
+}

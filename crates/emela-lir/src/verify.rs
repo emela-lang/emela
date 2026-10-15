@@ -799,9 +799,7 @@ impl Checker<'_> {
                         let expected: Vec<Option<Repr>> = variant
                             .tys
                             .iter()
-                            .map(|&t| repr_of_subst(self.core, t, ts))
-                            .filter(|&r| r != Repr::Void)
-                            .map(Some)
+                            .map(|&t| Some(repr_of_subst(self.core, t, ts)))
                             .collect();
                         self.args(args, &expected, &format!("make {}", variant.name));
                     }
@@ -814,9 +812,7 @@ impl Checker<'_> {
                         let expected: Vec<Option<Repr>> = variant
                             .tys
                             .iter()
-                            .map(|&t| repr_of(self.core, t))
-                            .filter(|&r| r != Repr::Void)
-                            .map(Some)
+                            .map(|&t| Some(repr_of(self.core, t)))
                             .collect();
                         self.args(args, &expected, &format!("make {}", variant.name));
                     }
@@ -860,12 +856,8 @@ impl Checker<'_> {
             Value::Tuple(es) => {
                 match dst_ty.map(|t| self.core.ty(t)) {
                     Some(Type::Tuple(ts)) => {
-                        let expected: Vec<Option<Repr>> = ts
-                            .iter()
-                            .map(|&t| repr_of(self.core, t))
-                            .filter(|&r| r != Repr::Void)
-                            .map(Some)
-                            .collect();
+                        let expected: Vec<Option<Repr>> =
+                            ts.iter().map(|&t| Some(repr_of(self.core, t))).collect();
                         self.args(es, &expected, "tuple");
                     }
                     _ => {
@@ -1056,6 +1048,44 @@ impl Checker<'_> {
                     }
                 }
             }
+            Value::IsError { error, enum_id } | Value::AsError { error, enum_id } => {
+                let r = self.use_var(*error);
+                self.expect(r, Repr::Ref, "caught failure");
+                let def = &self.core.enums[*enum_id];
+                if !def.error {
+                    return self.wrong_type(format!("{} is not an error", def.name));
+                }
+                if let Value::IsError { .. } = v {
+                    return Expect::Exactly(Repr::I32);
+                }
+                match dst_ty.map(|t| self.core.ty(t)) {
+                    Some(Type::Enum(id, _)) if id == enum_id => {}
+                    None => {}
+                    Some(_) => {
+                        return self.wrong_type(format!(
+                            "as_error {} defines a variable of another type",
+                            def.name
+                        ));
+                    }
+                }
+                Expect::Exactly(Repr::Ref)
+            }
+            Value::Coerce(x) => {
+                let r = self.use_var(*x);
+                let from = self.f.vars[*x].ty;
+                match dst {
+                    Some(d) if from == TypeId::ANY || self.f.vars[d].ty == TypeId::ANY => {
+                        Expect::Unknown
+                    }
+                    _ => Expect::Exactly(r),
+                }
+            }
+            Value::Runtime { op, args } => {
+                let (params, ret) = op.sig();
+                let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
+                self.args(args, &expected, &format!("runtime {}", op.name()));
+                Expect::Exactly(ret)
+            }
         }
     }
 
@@ -1128,9 +1158,6 @@ impl Checker<'_> {
             } => {
                 let r = self.use_var(*handler);
                 self.expect(r, Repr::Ref, "operation handler");
-                for a in args {
-                    self.operand(a);
-                }
                 let def = &self.core.effects[*effect];
                 if self.core.ty(self.f.vars[*handler].ty) != &Type::Handler(*effect) {
                     self.error(
@@ -1138,26 +1165,29 @@ impl Checker<'_> {
                         format!("{} is not a handler of {}", self.name(*handler), def.name),
                     );
                 }
-                match def.ops.get(*op) {
-                    // Operation types are not in Core yet, so arguments, the result and the
-                    // failure edge's presence are not checked.
-                    Some(o) => {
-                        if o.suspend && !suspends {
-                            self.error(
-                                ErrorKind::SuspendMismatch,
-                                format!("operation {} suspends", o.name),
-                            );
-                        }
+                let Some(o) = def.ops.get(*op) else {
+                    for a in args {
+                        self.operand(a);
                     }
-                    None => self.error(
+                    self.error(
                         ErrorKind::BadIndex,
                         format!("operation {op} of {} out of range", def.name),
-                    ),
+                    );
+                    return Expect::Unknown;
+                };
+                // The operation's own type parameters (`fork[A]`) are `ref` (boxed): a handler
+                // implements a generic operation for every instantiation at once.
+                let what = format!("call_op {}#{}", def.name, o.name);
+                let expected = self.fn_params(&o.params, false);
+                self.args(args, &expected, &what);
+                if o.suspend && !suspends {
+                    self.error(
+                        ErrorKind::SuspendMismatch,
+                        format!("operation {} suspends", o.name),
+                    );
                 }
-                if let Some(OnFail::Break(_) | OnFail::Propagate) = on_fail {
-                    self.on_fail(on_fail, true, &format!("operation of {}", def.name));
-                }
-                Expect::Unknown
+                self.on_fail(on_fail, o.fails, &what);
+                Expect::Exactly(repr_of(self.core, o.ret))
             }
         }
     }
