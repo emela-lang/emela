@@ -298,7 +298,7 @@ impl Emitter<'_> {
         match e {
             Expr::Lit(lit) => lit_js(lit),
             Expr::Var(l) => self.local(*l),
-            Expr::Fn(f) => fn_name(&self.m.functions[*f].name),
+            Expr::Fn { f, .. } => fn_name(&self.m.functions[*f].name),
             Expr::Let { var, value, body } => {
                 let v = self.value(value);
                 let name = self.local(*var);
@@ -334,7 +334,7 @@ impl Emitter<'_> {
                 let f = self.rt(builtins::runtime_name(*op));
                 format!("{f}({})", vs.join(", "))
             }
-            Expr::Ctor { ctor, args } => {
+            Expr::Ctor { ctor, args, .. } => {
                 let def = &self.m.enums[ctor.enum_id];
                 let variant = &def.variants[ctor.variant];
                 assert_eq!(
@@ -365,7 +365,7 @@ impl Emitter<'_> {
                 let vs = self.values_in_order(&es);
                 format!("[{}]", vs.join(", "))
             }
-            Expr::List { elems, tail } => {
+            Expr::List { elems, tail, .. } => {
                 let mut es: Vec<&Expr> = elems.iter().collect();
                 es.extend(tail.as_deref());
                 let mut vs = self.values_in_order(&es);
@@ -400,6 +400,7 @@ impl Emitter<'_> {
                 params,
                 body,
                 suspends,
+                ..
             } => self.lambda(params, body, *suspends),
             Expr::Concat(parts) => {
                 let es: Vec<&Expr> = parts
@@ -475,7 +476,7 @@ impl Emitter<'_> {
         es.extend(args.iter());
         let mut vs = self.values_in_order(&es);
         let f = match callee {
-            Callee::Direct(f) => fn_name(&self.m.functions[*f].name),
+            Callee::Direct { f, .. } => fn_name(&self.m.functions[*f].name),
             Callee::Indirect(_) => vs.remove(0),
             Callee::Op { effect, op, .. } => {
                 let h = vs.remove(0);
@@ -952,7 +953,7 @@ impl Pieces {
 /// Whether it can be emitted as a single JS expression with no statements.
 fn is_simple(e: &Expr) -> bool {
     match e {
-        Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. } => true,
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. } => true,
         Expr::Let { .. }
         | Expr::Match { .. }
         | Expr::Loop { .. }
@@ -971,7 +972,7 @@ fn is_simple(e: &Expr) -> bool {
         Expr::Fiber { op, args } => !op.fails() && args.iter().all(is_simple),
         Expr::Call { callee, args, .. } => {
             let callee_simple = match callee {
-                Callee::Direct(_) => true,
+                Callee::Direct { .. } => true,
                 Callee::Indirect(c) | Callee::Op { handler: c, .. } => is_simple(c),
             };
             callee_simple && args.iter().all(is_simple)
@@ -980,7 +981,7 @@ fn is_simple(e: &Expr) -> bool {
             args.iter().all(is_simple)
         }
         Expr::Field { base, .. } => is_simple(base),
-        Expr::List { elems, tail } => {
+        Expr::List { elems, tail, .. } => {
             elems.iter().all(is_simple) && tail.as_deref().is_none_or(is_simple)
         }
         Expr::If { cond, then, else_ } => is_simple(cond) && is_simple(then) && is_simple(else_),
@@ -1002,7 +1003,7 @@ pub(crate) fn function_keyword(suspends: bool) -> &'static str {
 fn is_atom(e: &Expr) -> bool {
     matches!(
         e,
-        Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. }
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
 }
 

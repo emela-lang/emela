@@ -293,18 +293,22 @@ impl Builtin {
                 ty_params: 1,
                 ..info(None, "dbg", &[Param(0)], Param(0))
             },
-            // A cell's type cannot be written as a `Sig`, so a type parameter stands in (it is
-            // never passed to type inference).
+            // A cell's type cannot be written as a `Sig`, so the content type `A` stands in for
+            // `Cell[A]` (it is never passed to type inference). The type argument is the content
+            // type: `new(A) -> Cell[A]`, `get(Cell[A]) -> A`, `set(Cell[A], A) -> ()`.
             Builtin::CellNew => BuiltinInfo {
                 pure: false,
+                ty_params: 1,
                 ..info(Some("$Cell"), "new", &[Param(0)], Param(0))
             },
             Builtin::CellGet => BuiltinInfo {
                 pure: false,
+                ty_params: 1,
                 ..info(Some("$Cell"), "get", &[Param(0)], Param(0))
             },
             Builtin::CellSet => BuiltinInfo {
                 pure: false,
+                ty_params: 1,
                 ..info(Some("$Cell"), "set", &[Param(0), Param(0)], Unit)
             },
         }

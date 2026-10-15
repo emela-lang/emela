@@ -57,6 +57,6 @@ pub fn in_written_order(
 fn is_atomic(e: &Expr) -> bool {
     matches!(
         e,
-        Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. }
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
 }

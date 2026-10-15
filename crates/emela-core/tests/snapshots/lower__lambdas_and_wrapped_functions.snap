@@ -4,15 +4,15 @@ expression: "mine.join(\"\\n\\n\")"
 ---
 export fn main() -> Int {
   let k%0: Int = 10
-  let add_k%2: fn(Int) -> Int = fn(x%1: Int) {
+  let add_k%2: fn(Int) -> Int = fn(x%1: Int) -> Int {
     (x%1 +[Int] k%0)
   }
   let _%3: Int = @dbg[Int]((add_k%2)(1))
-  let _%5: List[Option[Int]] = @dbg[List[Option[Int]]](List.map([1, 2], fn(x%4: Int) {
-    Option.Some(x%4)
+  let _%5: List[Option[Int]] = @dbg[List[Option[Int]]](List.map[Int, Option[Int], (), ()]([1, 2]: List[Int], fn(x%4: Int) -> Option[Int] {
+    Option.Some[Int](x%4)
   }, ()))
-  let _%7: List[Int] = @dbg[List[Int]](List.map(["a", "bc"], fn(x%6: String) {
+  let _%7: List[Int] = @dbg[List[Int]](List.map[String, Int, (), ()](["a", "bc"]: List[String], fn(x%6: String) -> Int {
     @String.length(x%6)
   }, ()))
-  @dbg[Int](apply(2, add_k%2, ()))
+  @dbg[Int](apply[(), ()](2, add_k%2, ()))
 }

@@ -66,6 +66,7 @@ pub fn never(m: &mut Module) -> (FnId, EffectId) {
     });
     let f = m.declare("Never", false);
     let resume = m.local("resume", resume_type());
+    let op_ty = op_type(m);
     m.define(
         f,
         vec![],
@@ -73,7 +74,7 @@ pub fn never(m: &mut Module) -> (FnId, EffectId) {
         Expr::Handler {
             name: "Never".into(),
             effect: wait,
-            ops: vec![lambda(vec![resume], unit())],
+            ops: vec![lambda(vec![resume], op_ty, unit())],
         },
     );
     (f, wait)
@@ -113,12 +114,23 @@ pub fn released(m: &mut Module, log: FnId, h: Local, name: &str, message: &str) 
         .map(|(id, _)| id)
         .expect("add Wait with never first");
     let resume = m.local("resume", resume_type());
+    let op_ty = op_type(m);
     let handler = Expr::Handler {
         name: name.into(),
         effect: wait,
-        ops: vec![lambda(vec![resume], call_value(var(resume), vec![unit()]))],
+        ops: vec![lambda(
+            vec![resume],
+            op_ty,
+            call_value(var(resume), vec![unit()]),
+        )],
     };
     WithBind::managed(h, handler, name, call(log, vec![string(message)]))
+}
+
+/// The type of `forever`'s implementation, which takes resume: `fn(fn(()) -> ()) -> ()`.
+fn op_type(m: &mut Module) -> TypeId {
+    let resume = m.intern(resume_type());
+    m.fn_type(vec![resume], TypeId::UNIT)
 }
 
 /// A non-failing, non-suspending function type without an evidence table.

@@ -464,7 +464,18 @@ pub(crate) fn lower_typed(
         target: Some(JS_TARGET),
     };
     match emela_core::lower(&input, roots) {
-        Ok(lowered) => Some(lowered),
+        Ok(lowered) => {
+            // Ill-typed IR is a lowering bug, not an error in the program.
+            #[cfg(debug_assertions)]
+            if let Err(errors) = emela_core::verify(&lowered.module) {
+                let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+                panic!(
+                    "lowering produced ill-typed IR (a compiler bug):\n{}",
+                    lines.join("\n")
+                );
+            }
+            Some(lowered)
+        }
         Err(errors) => {
             diagnostics.extend(
                 errors

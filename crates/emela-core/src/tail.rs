@@ -52,7 +52,7 @@ pub fn loopify_function(module: &mut Module, f: FnId) -> bool {
 }
 
 fn is_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
-    matches!(e, Expr::Call { callee: Callee::Direct(g), args, .. } if *g == f && args.len() == arity)
+    matches!(e, Expr::Call { callee: Callee::Direct { f: g, .. }, args, .. } if *g == f && args.len() == arity)
 }
 
 fn has_tail_self_call(e: &Expr, f: FnId, arity: usize) -> bool {
@@ -138,14 +138,14 @@ fn rename(e: &mut Expr, subst: &FxHashMap<Local, Local>) {
 /// Applies `f` to every direct subexpression (not patterns).
 pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
     match e {
-        Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) => {}
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } => {}
         Expr::Let { value, body, .. } => {
             f(value);
             f(body);
         }
         Expr::Call { callee, args, .. } => {
             match callee {
-                Callee::Direct(_) => {}
+                Callee::Direct { .. } => {}
                 Callee::Indirect(c) | Callee::Op { handler: c, .. } => f(c),
             }
             args.iter_mut().for_each(f);
@@ -155,7 +155,7 @@ pub fn for_each_child_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | Expr::Tuple(args)
         | Expr::Recur(args) => args.iter_mut().for_each(f),
         Expr::Field { base, .. } => f(base),
-        Expr::List { elems, tail } => {
+        Expr::List { elems, tail, .. } => {
             elems.iter_mut().for_each(&mut *f);
             if let Some(t) = tail {
                 f(t);

@@ -39,9 +39,36 @@ pub fn let_(var: Local, value: Expr, body: Expr) -> Expr {
     }
 }
 
+/// A function used as a value, without type arguments.
+pub fn fn_ref(f: FnId) -> Expr {
+    Expr::Fn {
+        f,
+        ty_args: Vec::new(),
+    }
+}
+
+/// A generic function used as a value, with its type arguments.
+pub fn fn_ref_ty(f: FnId, ty_args: Vec<TypeId>) -> Expr {
+    Expr::Fn { f, ty_args }
+}
+
+/// A direct call to a generic function, with its type arguments.
+pub fn call_ty(f: FnId, ty_args: Vec<TypeId>, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        callee: Callee::Direct { f, ty_args },
+        args,
+        fails: false,
+        suspends: false,
+    }
+}
+
+/// A direct call to a function without type parameters.
 pub fn call(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
-        callee: Callee::Direct(f),
+        callee: Callee::Direct {
+            f,
+            ty_args: Vec::new(),
+        },
         args,
         fails: false,
         suspends: false,
@@ -60,7 +87,10 @@ pub fn call_value(callee: Expr, args: Vec<Expr>) -> Expr {
 /// A direct call to a fallible function (`fails: true`).
 pub fn call_fails(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
-        callee: Callee::Direct(f),
+        callee: Callee::Direct {
+            f,
+            ty_args: Vec::new(),
+        },
         args,
         fails: true,
         suspends: false,
@@ -80,7 +110,10 @@ pub fn call_value_fails(callee: Expr, args: Vec<Expr>) -> Expr {
 /// A direct call to a suspending function (`suspends: true`).
 pub fn call_suspends(f: FnId, args: Vec<Expr>) -> Expr {
     Expr::Call {
-        callee: Callee::Direct(f),
+        callee: Callee::Direct {
+            f,
+            ty_args: Vec::new(),
+        },
         args,
         fails: false,
         suspends: true,
@@ -144,8 +177,22 @@ pub fn builtin_ty(op: Builtin, ty_args: Vec<TypeId>, args: Vec<Expr>) -> Expr {
     Expr::Builtin { op, ty_args, args }
 }
 
+/// A constructor of an enum without type parameters.
 pub fn ctor(ctor: CtorRef, args: Vec<Expr>) -> Expr {
-    Expr::Ctor { ctor, args }
+    Expr::Ctor {
+        ctor,
+        ty_args: Vec::new(),
+        args,
+    }
+}
+
+/// A constructor of a generic enum, with the enum's type arguments.
+pub fn ctor_ty(ctor: CtorRef, ty_args: Vec<TypeId>, args: Vec<Expr>) -> Expr {
+    Expr::Ctor {
+        ctor,
+        ty_args,
+        args,
+    }
 }
 
 pub fn field(base: Expr, ctor: CtorRef, index: usize) -> Expr {
@@ -204,29 +251,39 @@ pub fn unary(op: UnOp, ty: OpTy, operand: Expr) -> Expr {
     }
 }
 
-pub fn lambda(params: Vec<Local>, body: Expr) -> Expr {
+/// A lambda of type `ty` (a `Type::Fn`; `Module::fn_type` makes one that neither fails, suspends
+/// nor takes the evidence table).
+pub fn lambda(params: Vec<Local>, ty: TypeId, body: Expr) -> Expr {
     Expr::Lambda {
         params,
+        ty,
         body: Box::new(body),
         suspends: false,
     }
 }
 
-/// A suspending lambda (`suspends: true`).
-pub fn suspend_lambda(params: Vec<Local>, body: Expr) -> Expr {
+/// A suspending lambda (`suspends: true`). Its type `ty` must say it suspends.
+pub fn suspend_lambda(params: Vec<Local>, ty: TypeId, body: Expr) -> Expr {
     Expr::Lambda {
         params,
+        ty,
         body: Box::new(body),
         suspends: true,
     }
 }
 
-pub fn list(elems: Vec<Expr>) -> Expr {
-    Expr::List { elems, tail: None }
+/// A list of elements of type `elem`.
+pub fn list(elem: TypeId, elems: Vec<Expr>) -> Expr {
+    Expr::List {
+        elem,
+        elems,
+        tail: None,
+    }
 }
 
-pub fn list_with_tail(elems: Vec<Expr>, tail: Expr) -> Expr {
+pub fn list_with_tail(elem: TypeId, elems: Vec<Expr>, tail: Expr) -> Expr {
     Expr::List {
+        elem,
         elems,
         tail: Some(Box::new(tail)),
     }

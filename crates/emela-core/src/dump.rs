@@ -1,12 +1,19 @@
 //! Renders the Core IR as readable text, for test snapshots and investigation.
 //!
 //! It looks like Emela, but uses marks that Emela lacks so it is not mistaken for source: `let`
-//! for bindings, `%n` for locals (with their types where bound, as in `x%0: Int`), `@` for builtins, `[OpTy]` on operators, `?` after fallible
-//! calls, `!` after suspending calls, `error enum` for error enums, `use[X](ctx)` and
-//! `provide(..)` for evidence tables, `h.X#op(..)` for operation calls, and `fiber#op(..)` for
-//! concurrency operations. Suspending functions and lambdas, and suspend fn operations, are
-//! prefixed with `suspend`. Everything the IR distinguishes is written distinctly. It is not
-//! meant to be parsed back.
+//! for bindings, `%n` for locals (with their types where bound, as in `x%0: Int`), `@` for
+//! builtins, `[OpTy]` on operators, `?` after fallible calls, `!` after suspending calls,
+//! `error enum` for error enums, `use[X](ctx)` and `provide(..)` for evidence tables,
+//! `h.X#op(..)` for operation calls, and `fiber#op(..)` for concurrency operations. Suspending
+//! functions and lambdas, and suspend fn operations, are prefixed with `suspend`; functions and
+//! lambdas whose calls may fail get `fails` after the return type, and a lambda that does not
+//! suspend but whose type says a call may gets `may_suspend`. Everything the IR distinguishes is
+//! written distinctly. It is not meant to be parsed back.
+//!
+//! Type arguments follow the name in brackets: direct calls and function values
+//! (`List.map[Shape, Float](xs%1, f%2)`), constructors (`Option.None[Int]`,
+//! `Option.Some[Int](1)`) and builtins (`@dbg[Int](x%0)`). A list literal is followed by its type
+//! (`[1, 2]: List[Int]`), and a lambda by its return type (`fn(x%0: Int) -> Int { .. }`).
 //!
 //! ```text
 //! enum Shapes.Shape {
@@ -16,6 +23,7 @@
 //!
 //! export fn main() -> Int {
 //!   let x%0: Int = (1 +[Int] 2)
+//!   let xs%1: List[Int] = [x%0]: List[Int]
 //!   @dbg[Int](x%0)
 //! }
 //! ```
@@ -24,7 +32,7 @@ use std::fmt::Write;
 
 use crate::ir::{
     Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, HostModule, HostRef, Lit,
-    Local, Module, OpTy, Pat, StrPart, Type, TypeId, UnOp, VariantFields,
+    Local, Module, OpTy, Pat, StrPart, Type, TypeId, TypeTable, UnOp, VariantFields,
 };
 
 /// Enums first, then functions, each in ID order.
@@ -69,7 +77,10 @@ pub fn dump(m: &Module) -> String {
             let names: Vec<String> = (0..f.type_params).map(param_name).collect();
             format!("[{}]", names.join(", "))
         };
-        let ret = p.ty(&f.ret);
+        let mut ret = p.ty(&f.ret);
+        if f.fails {
+            ret.push_str(" fails");
+        }
         if let Some(ext) = &f.external {
             let bindings: Vec<String> = ext
                 .bindings
@@ -138,39 +149,7 @@ impl Printer<'_> {
     }
 
     fn ty(&self, ty: &TypeId) -> String {
-        let list = |ts: &[TypeId]| ts.iter().map(|t| self.ty(t)).collect::<Vec<_>>().join(", ");
-        match self.m.ty(*ty) {
-            Type::Int => "Int".into(),
-            Type::Int64 => "Int64".into(),
-            Type::Float => "Float".into(),
-            Type::Bool => "Bool".into(),
-            Type::String => "String".into(),
-            Type::Unit => "()".into(),
-            Type::Never => "Never".into(),
-            Type::Tuple(ts) => format!("({})", list(ts)),
-            Type::List(t) => format!("List[{}]", self.ty(t)),
-            Type::Enum(id, ts) if ts.is_empty() => self.m.enums[*id].name.clone(),
-            Type::Enum(id, ts) => format!("{}[{}]", self.m.enums[*id].name, list(ts)),
-            Type::Param(i) => param_name(*i),
-            Type::Fn(f) => {
-                let mut s = format!("fn({}) -> {}", list(&f.params), self.ty(&f.ret));
-                for (flag, name) in [
-                    (f.fails, " fails"),
-                    (f.suspends, " suspends"),
-                    (f.ev, " ev"),
-                ] {
-                    if flag {
-                        s.push_str(name);
-                    }
-                }
-                s
-            }
-            Type::Handler(e) => format!("handler {}", self.m.effects[*e].name),
-            Type::Evidence => "evidence".into(),
-            Type::Cell(t) => format!("cell {}", self.ty(t)),
-            Type::FiberScope => "fiber_scope".into(),
-            Type::Any => "any".into(),
-        }
+        type_name(self.m, &self.m.types, *ty)
     }
 
     fn local(&self, l: Local) -> String {
@@ -216,6 +195,14 @@ impl Printer<'_> {
         self.out.push('}');
     }
 
+    /// `[A, B]` after a name; nothing without type arguments.
+    fn ty_args(&mut self, ty_args: &[TypeId]) {
+        if !ty_args.is_empty() {
+            let tys: Vec<String> = ty_args.iter().map(|t| self.ty(t)).collect();
+            write!(self.out, "[{}]", tys.join(", ")).unwrap();
+        }
+    }
+
     fn exprs(&mut self, es: &[Expr]) {
         for (i, e) in es.iter().enumerate() {
             if i > 0 {
@@ -229,7 +216,10 @@ impl Printer<'_> {
         match e {
             Expr::Lit(lit) => self.out.push_str(&lit_text(lit)),
             Expr::Var(l) => self.out.push_str(&self.local(*l)),
-            Expr::Fn(f) => self.out.push_str(&self.m.functions[*f].name),
+            Expr::Fn { f, ty_args } => {
+                self.out.push_str(&self.m.functions[*f].name);
+                self.ty_args(ty_args);
+            }
             Expr::Let { .. } => self.braced(e),
             Expr::Call {
                 callee,
@@ -238,7 +228,10 @@ impl Printer<'_> {
                 suspends,
             } => {
                 match callee {
-                    Callee::Direct(f) => self.out.push_str(&self.m.functions[*f].name),
+                    Callee::Direct { f, ty_args } => {
+                        self.out.push_str(&self.m.functions[*f].name);
+                        self.ty_args(ty_args);
+                    }
                     // Calls to values parenthesize the callee to tell them from direct calls.
                     Callee::Indirect(f) => {
                         self.out.push('(');
@@ -268,16 +261,18 @@ impl Printer<'_> {
             }
             Expr::Builtin { op, ty_args, args } => {
                 write!(self.out, "@{}", op.info().path()).unwrap();
-                if !ty_args.is_empty() {
-                    let tys: Vec<String> = ty_args.iter().map(|t| self.ty(t)).collect();
-                    write!(self.out, "[{}]", tys.join(", ")).unwrap();
-                }
+                self.ty_args(ty_args);
                 self.out.push('(');
                 self.exprs(args);
                 self.out.push(')');
             }
-            Expr::Ctor { ctor, args } => {
+            Expr::Ctor {
+                ctor,
+                ty_args,
+                args,
+            } => {
                 self.out.push_str(&self.ctor_name(*ctor));
+                self.ty_args(ty_args);
                 if args.is_empty() {
                     return;
                 }
@@ -312,7 +307,7 @@ impl Printer<'_> {
                 self.exprs(es);
                 self.out.push(')');
             }
-            Expr::List { elems, tail } => {
+            Expr::List { elem, elems, tail } => {
                 self.out.push('[');
                 self.exprs(elems);
                 if let Some(t) = tail {
@@ -322,7 +317,7 @@ impl Printer<'_> {
                     self.out.push_str("..");
                     self.expr(t);
                 }
-                self.out.push(']');
+                write!(self.out, "]: List[{}]", self.ty(elem)).unwrap();
             }
             Expr::If { cond, then, else_ } => {
                 self.out.push_str("if ");
@@ -364,6 +359,7 @@ impl Printer<'_> {
             }
             Expr::Lambda {
                 params,
+                ty,
                 body,
                 suspends,
             } => {
@@ -371,7 +367,22 @@ impl Printer<'_> {
                 if *suspends {
                     self.out.push_str("suspend ");
                 }
-                write!(self.out, "fn({}) ", params.join(", ")).unwrap();
+                write!(self.out, "fn({}) -> ", params.join(", ")).unwrap();
+                // The parameters show whether it takes the evidence table; the flags are written
+                // only where the type says more than the lambda does.
+                match self.m.ty(*ty) {
+                    Type::Fn(f) => {
+                        self.out.push_str(&self.ty(&f.ret));
+                        if f.fails {
+                            self.out.push_str(" fails");
+                        }
+                        if f.suspends && !*suspends {
+                            self.out.push_str(" may_suspend");
+                        }
+                    }
+                    _ => write!(self.out, "<not a function: {}>", self.ty(ty)).unwrap(),
+                }
+                self.out.push(' ');
                 self.braced(body);
             }
             Expr::Concat(parts) => {
@@ -516,7 +527,7 @@ impl Printer<'_> {
     /// The left side of a field access. Anything but variables, functions and literals is
     /// parenthesized.
     fn atom(&mut self, e: &Expr) {
-        if matches!(e, Expr::Var(_) | Expr::Fn(_) | Expr::Lit(_)) {
+        if matches!(e, Expr::Var(_) | Expr::Fn { .. } | Expr::Lit(_)) {
             self.expr(e);
         } else {
             self.out.push('(');
@@ -567,6 +578,49 @@ impl Printer<'_> {
                 format!("[{}]", ps.join(", "))
             }
         }
+    }
+}
+
+/// The type as the dump writes it. `types` is the module's table or an extension of it
+/// (`Typer::types`).
+pub(crate) fn type_name(m: &Module, types: &TypeTable, ty: TypeId) -> String {
+    let list = |ts: &[TypeId]| {
+        ts.iter()
+            .map(|&t| type_name(m, types, t))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match &types[ty] {
+        Type::Int => "Int".into(),
+        Type::Int64 => "Int64".into(),
+        Type::Float => "Float".into(),
+        Type::Bool => "Bool".into(),
+        Type::String => "String".into(),
+        Type::Unit => "()".into(),
+        Type::Never => "Never".into(),
+        Type::Tuple(ts) => format!("({})", list(ts)),
+        Type::List(t) => format!("List[{}]", type_name(m, types, *t)),
+        Type::Enum(id, ts) if ts.is_empty() => m.enums[*id].name.clone(),
+        Type::Enum(id, ts) => format!("{}[{}]", m.enums[*id].name, list(ts)),
+        Type::Param(i) => param_name(*i),
+        Type::Fn(f) => {
+            let mut s = format!("fn({}) -> {}", list(&f.params), type_name(m, types, f.ret));
+            for (flag, name) in [
+                (f.fails, " fails"),
+                (f.suspends, " suspends"),
+                (f.ev, " ev"),
+            ] {
+                if flag {
+                    s.push_str(name);
+                }
+            }
+            s
+        }
+        Type::Handler(e) => format!("handler {}", m.effects[*e].name),
+        Type::Evidence => "evidence".into(),
+        Type::Cell(t) => format!("cell {}", type_name(m, types, *t)),
+        Type::FiberScope => "fiber_scope".into(),
+        Type::Any => "any".into(),
     }
 }
 

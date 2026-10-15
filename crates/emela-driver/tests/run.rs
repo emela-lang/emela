@@ -1105,6 +1105,7 @@ fn defects_after_resuming_and_in_callbacks() {
     let mut m = emela_core::Module::new();
     let set_timeout = suspend::set_timeout(&mut m);
     let (never, wait) = suspend::never(&mut m);
+    let callback = m.fn_type(vec![], TypeId::UNIT);
     let (h, x) = (
         m.local("h", Type::Handler(wait)),
         m.local("_", TypeId::UNIT),
@@ -1119,7 +1120,11 @@ fn defects_after_resuming_and_in_callbacks() {
                 call(
                     set_timeout,
                     vec![
-                        lambda(vec![], builtin(Builtin::Panic, vec![string("late")])),
+                        lambda(
+                            vec![],
+                            callback,
+                            builtin(Builtin::Panic, vec![string("late")]),
+                        ),
                         int(0),
                     ],
                 ),

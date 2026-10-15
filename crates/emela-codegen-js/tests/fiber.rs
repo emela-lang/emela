@@ -9,6 +9,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main`, steps it with `$start` if it is a generator, and prints one result line. Like the
 /// entry module (emela-driver), when the event loop empties without a resume, it unwinds with the
 /// function `$start` returned.
@@ -84,6 +92,7 @@ fn run(name: &str, m: Module) -> String {
 /// Also returns how long node ran.
 fn run_timed(name: &str, mut m: Module) -> (String, std::time::Duration) {
     tail::loopify(&mut m);
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {
@@ -141,6 +150,14 @@ struct Kit {
     fiber: EnumId,
     /// `@external type Deferred[A]`．
     deferred: EnumId,
+    /// `fn() -> String`, the type of `name`'s implementation.
+    name_ty: TypeId,
+    /// The types of `Fiber.scope` bodies, without and with `fails`. They return `any`: the tests
+    /// build them without tracking the body's type.
+    scope_body_ty: [TypeId; 2],
+    /// The types of fork children and attempted functions (`fn() -> any fails`), not suspending
+    /// and suspending.
+    thunk_ty: [TypeId; 2],
 }
 
 impl Kit {
@@ -164,10 +181,11 @@ impl Kit {
         );
         let js_clock = m.declare("JsClock", false);
         let (ms, resume) = sleep_params(m);
+        let op_ty = sleep_ty(m, false);
         let body = call(
             set_timeout,
             vec![
-                lambda(vec![], call_value(var(resume), vec![unit()])),
+                lambda(vec![], callback, call_value(var(resume), vec![unit()])),
                 var(ms),
             ],
         );
@@ -178,7 +196,7 @@ impl Kit {
             Expr::Handler {
                 name: "JsClock".into(),
                 effect: clock,
-                ops: vec![lambda(vec![ms, resume], body)],
+                ops: vec![lambda(vec![ms, resume], op_ty, body)],
             },
         );
         let never_clock = m.declare("NeverClock", false);
@@ -190,7 +208,7 @@ impl Kit {
             Expr::Handler {
                 name: "NeverClock".into(),
                 effect: clock,
-                ops: vec![lambda(vec![ms, resume], unit())],
+                ops: vec![lambda(vec![ms, resume], op_ty, unit())],
             },
         );
         let oops = m.add_enum(EnumDef {
@@ -253,6 +271,25 @@ impl Kit {
             cause,
             fiber,
             deferred,
+            name_ty: m.fn_type(vec![], TypeId::STRING),
+            scope_body_ty: [false, true].map(|fails| {
+                m.func(FnType {
+                    params: vec![TypeId::FIBER_SCOPE],
+                    ret: TypeId::ANY,
+                    fails,
+                    suspends: true,
+                    ev: false,
+                })
+            }),
+            thunk_ty: [false, true].map(|suspends| {
+                m.func(FnType {
+                    params: vec![],
+                    ret: TypeId::ANY,
+                    fails: true,
+                    suspends,
+                    ev: false,
+                })
+            }),
         }
     }
 
@@ -338,7 +375,7 @@ impl Kit {
         Expr::Handler {
             name: name.into(),
             effect: self.res,
-            ops: vec![lambda(vec![], string(name))],
+            ops: vec![lambda(vec![], self.name_ty, string(name))],
         }
     }
 
@@ -370,23 +407,29 @@ impl Kit {
 
     /// `Fiber.scope(fn(s) { body })`．
     fn scope(&self, s: Local, fails: bool, body: Expr) -> Expr {
+        let ty = self.scope_body_ty[usize::from(fails)];
         fiber(
             FiberOp::Scope { fails },
-            vec![suspend_lambda(vec![s], body)],
+            vec![suspend_lambda(vec![s], ty, body)],
         )
     }
 
     /// `s.fork(fn() { body })`．
     fn fork(&self, s: Local, body: Expr) -> Expr {
-        fiber(FiberOp::Fork, vec![var(s), suspend_lambda(vec![], body)])
+        let ty = self.thunk_ty[1];
+        fiber(
+            FiberOp::Fork,
+            vec![var(s), suspend_lambda(vec![], ty, body)],
+        )
     }
 
     /// `Fiber.attempt(fn() { body })`．
     fn attempt(&self, suspends: bool, body: Expr) -> Expr {
+        let ty = self.thunk_ty[usize::from(suspends)];
         let f = if suspends {
-            suspend_lambda(vec![], body)
+            suspend_lambda(vec![], ty, body)
         } else {
-            lambda(vec![], body)
+            lambda(vec![], ty, body)
         };
         fiber(
             FiberOp::Attempt {
@@ -404,7 +447,8 @@ impl Kit {
 
     /// Describes an Exit: `Success <value>` (an Int) or `<kind> <Cause.to_string>`.
     fn describe(&self, m: &mut Module, exit: Expr) -> Expr {
-        let (v, c) = (m.local("v", TypeId::INT), m.local("c", self.cause_ty()));
+        // Some tests describe the Exit of a `()` fiber that never succeeds, so the value is `any`.
+        let (v, c) = (m.local("v", TypeId::ANY), m.local("c", self.cause_ty()));
         let kind = |k: usize| CtorRef {
             enum_id: self.kind,
             variant: k,
@@ -480,6 +524,13 @@ fn fn_ty(params: Vec<TypeId>, ret: TypeId, suspends: bool) -> Type {
 fn sleep_params(m: &mut Module) -> (Local, Local) {
     let resume = fn_ty(vec![TypeId::UNIT], TypeId::UNIT, false);
     (m.local("ms", TypeId::INT), m.local("resume", resume))
+}
+
+/// The type of an implementation of Clock's `sleep`, which takes resume:
+/// `fn(Int, fn(()) -> ()) -> ()`.
+fn sleep_ty(m: &mut Module, suspends: bool) -> TypeId {
+    let resume = m.intern(fn_ty(vec![TypeId::UNIT], TypeId::UNIT, false));
+    m.intern(fn_ty(vec![TypeId::INT, resume], TypeId::UNIT, suspends))
 }
 
 fn with(binds: Vec<WithBind>, body: Expr) -> Expr {
@@ -970,7 +1021,7 @@ fn a_dropped_continuation_in_a_child_interrupts_only_that_child() {
     m.define(inner, vec![], TypeId::UNIT, inner_body);
     let child = fiber(
         FiberOp::Fork,
-        vec![var(s), lambda(vec![], call(inner, vec![]))],
+        vec![var(s), lambda(vec![], k.thunk_ty[0], call(inner, vec![]))],
     );
     let awaited = k.log_exit(&mut m, k.await_(var(h)));
     let body = let_(h, child, seq(&k, &mut m, vec![awaited, int(0)]));
@@ -1225,6 +1276,7 @@ fn module_external(
 fn waiting_clock(m: &mut Module, k: &Kit, name: &str, wait: FnId) -> FnId {
     let f = m.declare(name, false);
     let (ms, resume) = sleep_params(m);
+    let op_ty = sleep_ty(m, true);
     let body = k.then(
         m,
         call_suspends(wait, vec![var(ms)]),
@@ -1237,7 +1289,7 @@ fn waiting_clock(m: &mut Module, k: &Kit, name: &str, wait: FnId) -> FnId {
         Expr::Handler {
             name: name.into(),
             effect: k.clock,
-            ops: vec![suspend_lambda(vec![ms, resume], body)],
+            ops: vec![suspend_lambda(vec![ms, resume], op_ty, body)],
         },
     );
     f
@@ -1251,6 +1303,7 @@ fn a_busy_fiber_yields_to_the_others() {
     let k = Kit::new(&mut m);
     let instant = m.declare("InstantClock", false);
     let (ms, resume) = sleep_params(&mut m);
+    let op_ty = sleep_ty(&mut m, false);
     m.define(
         instant,
         vec![],
@@ -1260,6 +1313,7 @@ fn a_busy_fiber_yields_to_the_others() {
             effect: k.clock,
             ops: vec![lambda(
                 vec![ms, resume],
+                op_ty,
                 call_value(var(resume), vec![unit()]),
             )],
         },

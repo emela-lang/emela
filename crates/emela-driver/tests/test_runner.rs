@@ -239,7 +239,11 @@ fn stderr_of_tests_is_captured() {
         f,
         vec![],
         ints,
-        builtin_ty(Builtin::Dbg, vec![ints], vec![list(vec![int(1)])]),
+        builtin_ty(
+            Builtin::Dbg,
+            vec![ints],
+            vec![list(TypeId::INT, vec![int(1)])],
+        ),
     );
     let tests = TestModule {
         module: m,
@@ -595,6 +599,7 @@ fn suspended_tests_are_awaited_or_interrupted() {
     let resolve = suspend::resolve(&mut m);
     let set_timeout = suspend::set_timeout(&mut m);
     let (never, wait) = suspend::never(&mut m);
+    let callback = m.fn_type(vec![], TypeId::UNIT);
     let mut tests = Vec::new();
     let mut case = |m: &mut Module, name: &str, suspends: bool, body: Expr| {
         let f = m.declare(name, false);
@@ -631,7 +636,11 @@ fn suspended_tests_are_awaited_or_interrupted() {
             call(
                 set_timeout,
                 vec![
-                    lambda(vec![], builtin(Builtin::Panic, vec![string("late")])),
+                    lambda(
+                        vec![],
+                        callback,
+                        builtin(Builtin::Panic, vec![string("late")]),
+                    ),
                     int(0),
                 ],
             ),

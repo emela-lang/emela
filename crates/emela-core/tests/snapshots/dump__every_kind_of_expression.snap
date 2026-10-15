@@ -33,16 +33,20 @@ fn sum(xs%3: List[Int], acc%4: Int) -> Int {
   }
 }
 
-export fn main() -> (Int, Int64, Int, Float, fn(Shapes.Shape) -> Float, Pair[Int, String], Int, String, Option[Int], Option[Int], (), ()) {
-  let p%9: Pair[Int, String] = Pair.Pair(first: 1, second: "a")
-  let f%10: fn(Int64) -> Int64 = fn(y%11: Int64) {
-    (y%11 +[Int64] 1i64)
+fn id[A](v%9: A) -> A {
+  v%9
+}
+
+export fn main() -> (Int, Int64, Int, Float, fn(Shapes.Shape) -> Float, Pair[Int, String], Int, String, Option[Int], Option[Int], (), (), String, fn(Int) -> Int) {
+  let p%10: Pair[Int, String] = Pair.Pair[Int, String](first: 1, second: "a")
+  let f%11: fn(Int64) -> Int64 = fn(y%12: Int64) -> Int64 {
+    (y%12 +[Int64] 1i64)
   }
-  let name%12: String = if (true &&[Bool] (![Bool] false)) {
+  let name%13: String = if (true &&[Bool] (![Bool] false)) {
     "yes"
   } else {
-    let z%13: () = ()
+    let z%14: () = ()
     "no"
   }
-  (p%9.first#0, (f%10)(41i64), sum([1, 2, ..[]], 0), Shapes.area(Shapes.Shape.Circle((-[Float] 1.5))), Shapes.area, @dbg[Pair[Int, String]](p%9), @String.length(name%12), concat("n = ", name%12 as String), Option.Some(1), Option.None, assert(p%9 ==[Structural] p%9, ty: Pair[Int, String], text: "p == p"), assert(true, text: "True"))
+  (p%10.first#0, (f%11)(41i64), sum([1, 2, ..[]: List[Int]]: List[Int], 0), Shapes.area(Shapes.Shape.Circle((-[Float] 1.5))), Shapes.area, @dbg[Pair[Int, String]](p%10), @String.length(name%13), concat("n = ", name%13 as String), Option.Some[Int](1), Option.None[Int], assert(p%10 ==[Structural] p%10, ty: Pair[Int, String], text: "p == p"), assert(true, text: "True"), id[String]("s"), id[Int])
 }

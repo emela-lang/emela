@@ -73,23 +73,18 @@ fn loopify_leaves_non_tail_calls() {
 
 #[test]
 fn loopify_ignores_calls_inside_lambda_and_other_functions() {
-    // fn f(n) = (fn() => f(n))   a call inside a lambda is not in f's tail position
-    // fn g(n) = f(n)             tail calls to other functions are out of scope
+    // fn f(n) = (fn() => f(n))()   a call inside a lambda is not in f's tail position
+    // fn g(n) = f(n)               tail calls to other functions are out of scope
     let mut m = Module::new();
     let f = m.declare("f", false);
     let g = m.declare("g", false);
     let n = m.local("n", TypeId::INT);
     let n2 = m.local("n", TypeId::INT);
-    let thunk = m.func(FnType {
-        params: vec![],
-        ret: TypeId::UNIT,
-        fails: false,
-        suspends: false,
-        ev: false,
-    });
-    let fb = lambda(vec![], call(f, vec![var(n)]));
-    m.define(f, vec![n], thunk, fb.clone());
-    m.define(g, vec![n2], thunk, call(f, vec![var(n2)]));
+    let thunk = m.fn_type(vec![], TypeId::INT);
+    let fb = call_value(lambda(vec![], thunk, call(f, vec![var(n)])), vec![]);
+    m.define(f, vec![n], TypeId::INT, fb.clone());
+    m.define(g, vec![n2], TypeId::INT, call(f, vec![var(n2)]));
+    assert_eq!(verify(&m), Ok(()));
     tail::loopify(&mut m);
     assert_eq!(m.functions[f].body, fb);
     assert_eq!(m.functions[g].body, call(f, vec![var(n2)]));
@@ -347,4 +342,141 @@ fn types_are_interned() {
     m.list(a);
     m.list(b);
     assert_eq!(m.types.len(), n + 1);
+}
+
+/// `fn id[A](x: A) -> A { x }`.
+fn id_fn(m: &mut Module) -> FnId {
+    let id = m.declare("id", false);
+    let a = m.type_param(0);
+    let x = m.local("x", a);
+    m.define(id, vec![x], a, var(x));
+    m.functions[id].type_params = 1;
+    id
+}
+
+#[test]
+fn type_of_follows_type_arguments() {
+    let mut m = Module::new();
+    let id = id_fn(&mut m);
+    let none = m.none_ctor();
+    let some = m.some_ctor();
+    let opt_int = m.enum_type(none.enum_id, vec![TypeId::INT]);
+    let ints = m.list(TypeId::INT);
+    let id_str = m.fn_type(vec![TypeId::STRING], TypeId::STRING);
+    let exprs = [
+        (call_ty(id, vec![TypeId::INT], vec![int(1)]), TypeId::INT),
+        (fn_ref_ty(id, vec![TypeId::STRING]), id_str),
+        (ctor_ty(none, vec![TypeId::INT], vec![]), opt_int),
+        (ctor_ty(some, vec![TypeId::INT], vec![int(1)]), opt_int),
+        (list(TypeId::INT, vec![]), ints),
+        // The first branch that is not `Never` decides.
+        (if_(bool(true), fail(unit()), string("s")), TypeId::STRING),
+        (builtin(Builtin::IntParse, vec![string("1")]), opt_int),
+        (builtin(Builtin::Todo, vec![]), TypeId::NEVER),
+    ];
+    let mut t = Typer::new(&m);
+    for (e, ty) in &exprs {
+        assert_eq!(t.type_of(e), *ty, "{e:?}");
+    }
+}
+
+#[test]
+fn type_of_remembers_let_chains() {
+    // let x0 = 0; let x1 = 1; ...; "end"
+    let mut m = Module::new();
+    let xs: Vec<Local> = (0..2000).map(|_| m.local("x", TypeId::INT)).collect();
+    let chain = xs
+        .iter()
+        .enumerate()
+        .rev()
+        .fold(string("end"), |body, (i, &x)| let_(x, int(i as i32), body));
+    let mut t = Typer::new(&m);
+    // Asking at every node walks the chain once.
+    let mut e = &chain;
+    while let Expr::Let { value, body, .. } = e {
+        assert_eq!(t.type_of(e), TypeId::STRING);
+        assert_eq!(t.type_of(value), TypeId::INT);
+        e = body;
+    }
+}
+
+#[test]
+fn verify_accepts_well_typed_ir() {
+    let mut m = Module::new();
+    let id = id_fn(&mut m);
+    let main = m.declare("main", true);
+    let none = m.none_ctor();
+    let opt_int = m.enum_type(none.enum_id, vec![TypeId::INT]);
+    let id_str = m.fn_type(vec![TypeId::STRING], TypeId::STRING);
+    let (a, b, c) = (
+        m.local("a", TypeId::INT),
+        m.local("b", id_str),
+        m.local("c", opt_int),
+    );
+    let body = let_(
+        a,
+        call_ty(id, vec![TypeId::INT], vec![int(1)]),
+        let_(
+            b,
+            fn_ref_ty(id, vec![TypeId::STRING]),
+            let_(
+                c,
+                ctor_ty(none, vec![TypeId::INT], vec![]),
+                call_value(var(b), vec![string("s")]),
+            ),
+        ),
+    );
+    m.define(main, vec![], TypeId::STRING, body);
+    assert_eq!(verify(&m), Ok(()));
+}
+
+#[test]
+fn verify_reports_every_ill_typed_place() {
+    let mut m = Module::new();
+    let id = id_fn(&mut m);
+    let main = m.declare("main", true);
+    let some = m.some_ctor();
+    let ints = m.list(TypeId::INT);
+    let int_fn = m.fn_type(vec![], TypeId::INT);
+    let (a, b) = (m.local("a", TypeId::INT), m.local("b", ints));
+    let body = let_(
+        a,
+        // An argument of the wrong type, then a missing type argument.
+        call_ty(id, vec![TypeId::INT], vec![string("s")]),
+        let_(
+            b,
+            list(TypeId::INT, vec![call(id, vec![int(1)])]),
+            tuple(vec![
+                ctor_ty(some, vec![TypeId::INT], vec![string("s")]),
+                if_(bool(true), int(1), string("s")),
+                lambda(vec![], int_fn, string("s")),
+                Expr::Recur(vec![]),
+            ]),
+        ),
+    );
+    m.define(main, vec![], TypeId::UNIT, body);
+    let errors: Vec<String> = verify(&m)
+        .unwrap_err()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "main: let a%1 > arg 0: value: expected Int, found String",
+            // Without type arguments, `A` is left as is.
+            "main: let b%2 > elem 0: 0 type arguments for id with 1",
+            "main: let b%2 > elem 0 > arg 0: value: expected A, found Int",
+            "main: let b%2 > elem 0: value: expected Int, found A",
+            "main: elem 0 > arg 0: value: expected Int, found String",
+            "main: elem 1: branches of types Int and String",
+            "main: elem 2 > lambda: body: expected Int, found String",
+            "main: elem 3: recur outside a loop",
+            "main: body: expected (), found (Option[Int], Int, fn() -> Int, Never)",
+        ]
+    );
+}
+
+fn tuple(es: Vec<Expr>) -> Expr {
+    Expr::Tuple(es)
 }

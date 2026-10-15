@@ -3,17 +3,17 @@ source: crates/emela-core/tests/lower.rs
 expression: main
 ---
 export fn main() -> String {
-  let u%0: User = User.User(id: 1, name: "a", tags: [])
+  let u%0: User = User.User(id: 1, name: "a", tags: []: List[String])
   let renamed%4: User = {
-    let arg%1: List[String] = ["x"]
+    let arg%1: List[String] = ["x"]: List[String]
     let arg%2: String = @String.append(u%0.name#1, "!")
     let base%3: User = u%0
     User.User(id: base%3.id#0, name: arg%2, tags: arg%1)
   }
-  let p%5: Pair[Int, Bool] = Pair.Pair(first: 1, second: true)
+  let p%5: Pair[Int, Bool] = Pair.Pair[Int, Bool](first: 1, second: true)
   let q%7: Pair[String, Bool] = {
     let base%6: Pair[Int, Bool] = p%5
-    Pair.Pair(first: "s", second: base%6.second#1)
+    Pair.Pair[String, Bool](first: "s", second: base%6.second#1)
   }
   concat(renamed%4.name#1 as String, " has ", renamed%4.tags#2 as List[String], " and ", q%7 as Pair[String, Bool], ", id ", u%0.id#0 as Int)
 }

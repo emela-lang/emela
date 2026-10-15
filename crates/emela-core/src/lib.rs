@@ -11,6 +11,8 @@ mod lower;
 pub mod named;
 mod sources;
 pub mod tail;
+mod typing;
+mod verify;
 
 #[cfg(test)]
 mod tests;
@@ -20,3 +22,5 @@ pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
 pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
 pub use sources::{PRELUDE, STD, bundled_files, core_source, core_sources, lib_dir};
+pub use typing::Typer;
+pub use verify::{VerifyError, verify};

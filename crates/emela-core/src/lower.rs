@@ -249,14 +249,15 @@ enum Bind {
 /// `Call` is the call's mark (`fails` is `Expr::Call::fails`, `suspends` is
 /// `Expr::Call::suspends`).
 enum Target {
-    /// The `Option<Expr>` is the evidence table appended as the last argument (when calling a
-    /// function with a non-empty R).
-    Direct(FnId, Call, Option<Expr>),
+    /// The function, its type arguments (`Callee::Direct::ty_args`), the mark, and the evidence
+    /// table appended as the last argument (when calling a function with a non-empty R).
+    Direct(FnId, Vec<TypeId>, Call, Option<Expr>),
     Builtin {
         op: Builtin,
         ty_args: Vec<TypeId>,
     },
-    Ctor(CtorRef),
+    /// The constructor and the enum's type arguments.
+    Ctor(CtorRef, Vec<TypeId>),
     /// A function value: an evaluated expression that can be referenced any number of times
     /// without side effects (a variable or function). `Option<Expr>` is as in `Direct`.
     Value(Expr, Call, Option<Expr>),
@@ -295,6 +296,10 @@ struct StateRun {
     base: Option<Expr>,
     /// The mark of the body call.
     call: Call,
+    /// The state type S.
+    state: TypeId,
+    /// The types of the operation implementations get, set and update.
+    op_tys: [TypeId; 3],
     cell: Local,
     handler: Local,
     value: Local,
@@ -309,16 +314,17 @@ impl StateRun {
         let cell = || Expr::Var(self.cell);
         let get = || Expr::Builtin {
             op: Builtin::CellGet,
-            ty_args: Vec::new(),
+            ty_args: vec![self.state],
             args: vec![cell()],
         };
         let set = |value: Expr| Expr::Builtin {
             op: Builtin::CellSet,
-            ty_args: Vec::new(),
+            ty_args: vec![self.state],
             args: vec![cell(), value],
         };
-        let lambda = |params: Vec<Local>, body: Expr| Expr::Lambda {
+        let lambda = |params: Vec<Local>, ty: TypeId, body: Expr| Expr::Lambda {
             params,
+            ty,
             body: Box::new(body),
             suspends: false,
         };
@@ -331,9 +337,10 @@ impl StateRun {
             suspends: false,
         });
         let mut ops = vec![None, None, None];
-        ops[self.ops[0]] = Some(lambda(Vec::new(), get()));
-        ops[self.ops[1]] = Some(lambda(vec![self.value], set(Expr::Var(self.value))));
-        ops[self.ops[2]] = Some(lambda(vec![self.f], update));
+        let [get_ty, set_ty, update_ty] = self.op_tys;
+        ops[self.ops[0]] = Some(lambda(Vec::new(), get_ty, get()));
+        ops[self.ops[1]] = Some(lambda(vec![self.value], set_ty, set(Expr::Var(self.value))));
+        ops[self.ops[2]] = Some(lambda(vec![self.f], update_ty, update));
         let handler = Expr::Handler {
             name: "State".to_owned(),
             effect: self.effect,
@@ -356,7 +363,7 @@ impl StateRun {
                 self.cell,
                 Expr::Builtin {
                     op: Builtin::CellNew,
-                    ty_args: Vec::new(),
+                    ty_args: vec![self.state],
                     args: vec![initial],
                 },
             ),
@@ -385,14 +392,18 @@ impl Target {
     /// Builds a call with arguments in positional order.
     fn apply(self, args: Vec<Expr>) -> Expr {
         match self {
-            Target::Direct(f, call, ev) => Expr::Call {
-                callee: Callee::Direct(f),
+            Target::Direct(f, ty_args, call, ev) => Expr::Call {
+                callee: Callee::Direct { f, ty_args },
                 args: args.into_iter().chain(ev).collect(),
                 fails: call.fails,
                 suspends: call.suspends,
             },
             Target::Builtin { op, ty_args } => Expr::Builtin { op, ty_args, args },
-            Target::Ctor(ctor) => Expr::Ctor { ctor, args },
+            Target::Ctor(ctor, ty_args) => Expr::Ctor {
+                ctor,
+                ty_args,
+                args,
+            },
             Target::Value(f, call, ev) => Expr::Call {
                 callee: Callee::Indirect(Box::new(f)),
                 args: args.into_iter().chain(ev).collect(),
@@ -695,7 +706,47 @@ impl<'a> Lowerer<'a> {
         let body = self.expr(body);
         let (ret, type_params) = self.signature(def);
         self.module.define(id, params, ret, body);
-        self.module.functions[id].type_params = type_params;
+        let fails = self.declared_fails(def);
+        let func = &mut self.module.functions[id];
+        func.type_params = type_params;
+        // A const's value cannot fail (spec 5.6).
+        func.fails = !func.constant && fails;
+    }
+
+    /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
+    /// parameters, generalized sets) count as not empty.
+    fn declared_fails(&self, def: DefId) -> bool {
+        matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if !f.fails.is_empty())
+    }
+
+    /// The IR type arguments of the reference `expr` to the generic definition `def`
+    /// (`Callee::Direct::ty_args`): the type checker's instantiation (`ProgramTypes::type_args`),
+    /// with set type parameters as the placeholder `()`.
+    ///
+    /// A reference within a group being inferred is not instantiated (a self reference, or a
+    /// reference to a definition whose scheme was not known yet). There the two definitions share
+    /// the type variables that become type parameters, so each parameter of `def` is its generalized
+    /// variable seen from the definition being lowered, and a self reference passes on its own
+    /// parameters.
+    fn ty_args(&mut self, def: DefId, expr: ExprId) -> Vec<TypeId> {
+        let types = self.types;
+        let n = types.sigs.get(def).map_or(0, |s| s.scheme.params.len());
+        if n == 0 {
+            return Vec::new();
+        }
+        let recorded = types.type_args.get(expr).map_or(&[][..], Vec::as_slice);
+        if recorded.is_empty() && self.current_def == Some(def) {
+            return (0..n).map(|i| self.module.type_param(i)).collect();
+        }
+        let mut out: Vec<TypeId> = recorded.iter().map(|t| self.ty(t)).collect();
+        out.resize(n, TypeId::UNIT);
+        for &(v, i) in types.generalized_tys.get(def).into_iter().flatten() {
+            let i = i as usize;
+            if i >= recorded.len() && i < n {
+                out[i] = self.ty(&Ty::Var(v));
+            }
+        }
+        out
     }
 
     /// Whether a fn takes the evidence table as its last argument: yes if the R of its declared
@@ -968,7 +1019,7 @@ impl<'a> Lowerer<'a> {
             // A suspend fn implementation takes the operation's parameters plus resume last
             // (spec 8.4). resume is an ordinary function value; calling it neither suspends nor
             // fails (its type is `fn(T) -> ()`).
-            let ps = op.params.iter().map(|p| self.local(p.local)).collect();
+            let ps: Vec<Local> = op.params.iter().map(|p| self.local(p.local)).collect();
             let lowered = self.expr(body);
             // If the body may suspend (awaiting an `@external suspend fn`, say), the implementation
             // is a generator too. Async that only calls resume later (spec 8.7) is not in the
@@ -989,8 +1040,17 @@ impl<'a> Lowerer<'a> {
                 row_suspends && suspend::has_suspending_call(&lowered)
             };
             // A failure in an operation body returns to the operation's caller (as with lambdas).
+            let ret = self.ty(self.expr_ty(body));
+            let ty = self.module.func(FnType {
+                params: ps.iter().map(|&l| self.module.locals[l].ty).collect(),
+                ret,
+                fails: self.types.errors.get(body).is_some_and(|r| !r.is_empty()),
+                suspends,
+                ev: false,
+            });
             ops[index] = Some(Expr::Lambda {
                 params: ps,
+                ty,
                 body: Box::new(lowered),
                 suspends,
             });
@@ -1035,6 +1095,7 @@ impl<'a> Lowerer<'a> {
             (Some(body), _) => self.expr(body),
             (None, Some(ctor)) => Expr::Ctor {
                 ctor,
+                ty_args: Vec::new(),
                 args: Vec::new(),
             },
             (None, None) => Expr::Lit(Lit::Unit),
@@ -1042,11 +1103,16 @@ impl<'a> Lowerer<'a> {
         self.module.define(init, params, state_ty, body);
 
         if let (Some(f), Some((self_local, body))) = (release, h.release) {
+            // The state's type, which the type checker gives as the handler's type even when the
+            // state is `()` (no fields and no init).
             let state = self.local(self_local);
+            self.module.locals[state].ty = state_ty;
             let mut params = vec![state];
             params.extend(ev_param(self));
+            // The release block's value is discarded (spec 8.4), but the function returns it as is.
+            let ret = self.ty(self.expr_ty(body));
             let body = self.expr(body);
-            self.module.define(f, params, TypeId::UNIT, body);
+            self.module.define(f, params, ret, body);
         }
     }
 
@@ -1086,6 +1152,11 @@ impl<'a> Lowerer<'a> {
         };
         let init = self.module.declare(&format!("{name}$init"), false);
         self.module.functions[init].suspends = h.init.is_some_and(|b| suspends(self, b));
+        self.module.functions[init].fails = self
+            .types
+            .handler_fails
+            .get(def)
+            .is_some_and(|r| !r.is_empty());
         let release = h.release.map(|(_, body)| {
             let f = self.module.declare(&format!("{name}$release"), false);
             self.module.functions[f].suspends = suspends(self, body);
@@ -1277,9 +1348,11 @@ impl<'a> Lowerer<'a> {
     fn lambda(&mut self, id: ExprId, params: &[emela_resolve::hir::Param], body: ExprId) -> Expr {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
         let suspends = self.ty_suspends(self.expr_ty(id));
+        let ty = self.ty(self.expr_ty(id));
         if !self.ty_takes_ev(self.expr_ty(id)) {
             return Expr::Lambda {
                 params: ps,
+                ty,
                 body: Box::new(self.expr(body)),
                 suspends,
             };
@@ -1317,6 +1390,7 @@ impl<'a> Lowerer<'a> {
         }
         Expr::Lambda {
             params: ps,
+            ty,
             body: Box::new(body),
             suspends,
         }
@@ -1340,6 +1414,7 @@ impl<'a> Lowerer<'a> {
             _ => unreachable!("an operation reference has a function type"),
         };
         let param_tys: Vec<TypeId> = param_tys.iter().map(|t| self.ty(t)).collect();
+        let ty = self.ty(self.expr_ty(id));
         let handler = self.expr(base);
         let h_ty = self.module.handler(effect_id);
         let h = self.module.local("h", h_ty);
@@ -1351,11 +1426,18 @@ impl<'a> Lowerer<'a> {
             };
             let x_ty = param_tys.first().copied().unwrap_or(TypeId::UNIT);
             let x = self.module.local("x", x_ty);
+            // The evidence table, if the type takes one, is unused: operation calls take no table
+            // (`Callee::Op`).
+            let mut params = vec![x];
+            if ev {
+                params.push(self.ev_local());
+            }
             return Expr::Let {
                 var: h,
                 value: Box::new(handler),
                 body: Box::new(Expr::Lambda {
-                    params: vec![x],
+                    params,
+                    ty,
                     body: Box::new(fork.apply(vec![Expr::Var(x)])),
                     suspends: false,
                 }),
@@ -1374,6 +1456,7 @@ impl<'a> Lowerer<'a> {
             value: Box::new(handler),
             body: Box::new(Expr::Lambda {
                 params,
+                ty,
                 body: Box::new(Expr::Call {
                     callee: Callee::Op {
                         handler: Box::new(Expr::Var(h)),
@@ -1517,6 +1600,10 @@ impl<'a> Lowerer<'a> {
             ExprKind::Unit => Expr::Lit(Lit::Unit),
             ExprKind::Tuple(es) => Expr::Tuple(es.iter().map(|&e| self.expr(e)).collect()),
             ExprKind::List { elems, rest } => Expr::List {
+                elem: match self.expr_ty(id) {
+                    Ty::List(t) => self.ty(t),
+                    _ => unreachable!("a list expression has a list type"),
+                },
                 elems: elems.iter().map(|&e| self.expr(e)).collect(),
                 tail: rest.map(|r| Box::new(self.expr(r))),
             },
@@ -1604,26 +1691,38 @@ impl<'a> Lowerer<'a> {
             Some(Item::Fn(f)) if f.body.is_some() && self.has_generic_tags(def) => {
                 self.wrap_in_lambda(id, span)
             }
-            Some(Item::Fn(f)) if f.body.is_some() => Expr::Fn(self.fn_ref(def, id)),
+            Some(Item::Fn(f)) if f.body.is_some() => self.fn_value(def, id),
             // Builtins and constructors with fields are not IR values, so they are wrapped in a
             // lambda.
             Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
-            Some(Item::Fn(_)) => Expr::Fn(self.fn_ref(def, id)),
+            Some(Item::Fn(_)) => self.fn_value(def, id),
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
                 Some(&ctor) if self.module.variant(ctor).fields.is_empty() => Expr::Ctor {
                     ctor,
+                    ty_args: self.ty_args(def, id),
                     args: Vec::new(),
                 },
                 _ => self.wrap_in_lambda(id, span),
             },
             // A const's value cannot fail (spec 5.6).
             Some(Item::Const(_)) => Expr::Call {
-                callee: Callee::Direct(self.fn_id(def, 0)),
+                callee: Callee::Direct {
+                    f: self.fn_id(def, 0),
+                    ty_args: self.ty_args(def, id),
+                },
                 args: Vec::new(),
                 fails: false,
                 suspends: false,
             },
             _ => self.unsupported("reference to this kind of definition", span),
+        }
+    }
+
+    /// The fn `def` referenced by `expr` as a value.
+    fn fn_value(&mut self, def: DefId, expr: ExprId) -> Expr {
+        Expr::Fn {
+            f: self.fn_ref(def, expr),
+            ty_args: self.ty_args(def, expr),
         }
     }
 
@@ -1658,7 +1757,7 @@ impl<'a> Lowerer<'a> {
             })
             .collect();
         let (target, binding) = match target {
-            Target::Value(f, call, ev) if !matches!(f, Expr::Var(_) | Expr::Fn(_)) => {
+            Target::Value(f, call, ev) if !matches!(f, Expr::Var(_) | Expr::Fn { .. }) => {
                 // Reordering arguments and binding them with `let` would evaluate them before the
                 // callee, so bind the callee first.
                 let ty = self.expr_ty(callee);
@@ -1732,6 +1831,7 @@ impl<'a> Lowerer<'a> {
         params.extend(ev);
         Expr::Lambda {
             params,
+            ty: self.ty(self.expr_ty(id)),
             body: Box::new(target.apply(args)),
             suspends: self.ty_suspends(self.expr_ty(id)),
         }
@@ -1787,7 +1887,8 @@ impl<'a> Lowerer<'a> {
                     .takes_ev(def)
                     .then(|| self.generic_ev(def, callee, self.ev_arg()));
                 let f = self.fn_ref(def, callee);
-                Ok(Target::Direct(f, self.direct_call(f, call), ev))
+                let ty_args = self.ty_args(def, callee);
+                Ok(Target::Direct(f, ty_args, self.direct_call(f, call), ev))
             }
             Some(Item::Fn(f)) if f.is_intrinsic && self.is_state_run(def) => self
                 .state_run(callee, span)
@@ -1814,14 +1915,15 @@ impl<'a> Lowerer<'a> {
             // (spec 12.2), so no table is passed.
             Some(Item::Fn(_)) => {
                 let f = self.fn_ref(def, callee);
+                let ty_args = self.ty_args(def, callee);
                 let call = Call {
                     fails: false,
                     ..call
                 };
-                Ok(Target::Direct(f, self.direct_call(f, call), None))
+                Ok(Target::Direct(f, ty_args, self.direct_call(f, call), None))
             }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
-                Some(&ctor) => Ok(Target::Ctor(ctor)),
+                Some(&ctor) => Ok(Target::Ctor(ctor, self.ty_args(def, callee))),
                 None => Err(self.unsupported("this constructor", span)),
             },
             _ => Ok(Target::Value(self.expr(callee), call, ev)),
@@ -1944,11 +2046,18 @@ impl<'a> Lowerer<'a> {
         });
         let cell_ty = self.module.cell(state);
         let handler_ty = self.module.handler(effect);
+        let op_tys = [
+            self.module.fn_type(Vec::new(), state),
+            self.module.fn_type(vec![state], TypeId::UNIT),
+            self.module.fn_type(vec![update_ty], TypeId::UNIT),
+        ];
         Ok(StateRun {
             effect,
             ops: [get, set, update],
             base,
             call,
+            state,
+            op_tys,
             cell: self.module.local("cell", cell_ty),
             handler: self.module.local("state", handler_ty),
             value: self.module.local("value", state),
@@ -2135,9 +2244,19 @@ impl<'a> Lowerer<'a> {
                 })
             })
             .collect();
+        // The update has the constructed type, whose arguments are the enum's.
+        let ty_args = match self.expr_ty(id) {
+            Ty::Named(_, tys) => tys.iter().map(|t| self.ty(t)).collect(),
+            _ => Vec::new(),
+        };
+        let value = Expr::Ctor {
+            ctor,
+            ty_args,
+            args,
+        };
         lets.into_iter()
             .rev()
-            .fold(Expr::Ctor { ctor, args }, |body, (var, value)| Expr::Let {
+            .fold(value, |body, (var, value)| Expr::Let {
                 var,
                 value: Box::new(value),
                 body: Box::new(body),
@@ -2291,7 +2410,10 @@ impl<'a> Lowerer<'a> {
                 let x = self.module.local("c", x_ty);
                 let ty = prim_op_ty(&types.pats[id]).unwrap_or(OpTy::Structural);
                 let value = Expr::Call {
-                    callee: Callee::Direct(self.fn_id(*def, 0)),
+                    callee: Callee::Direct {
+                        f: self.fn_id(*def, 0),
+                        ty_args: self.const_ty_args(*def, &types.pats[id]),
+                    },
                     args: Vec::new(),
                     fails: false,
                     suspends: false,
@@ -2309,6 +2431,22 @@ impl<'a> Lowerer<'a> {
                 Pat::Wild
             }
         }
+    }
+
+    /// The type arguments of the const `def` compared with a value of type `ty` (a const pattern
+    /// has no reference expression with recorded type arguments): read off by matching the
+    /// const's declared type against `ty`.
+    fn const_ty_args(&mut self, def: DefId, ty: &Ty) -> Vec<TypeId> {
+        let types = self.types;
+        let Some(sig) = types.sigs.get(def) else {
+            return Vec::new();
+        };
+        let mut found: Vec<Option<&Ty>> = vec![None; sig.scheme.params.len()];
+        match_bound(&sig.scheme.ty, ty, &mut found);
+        found
+            .into_iter()
+            .map(|t| t.map_or(TypeId::UNIT, |t| self.ty(t)))
+            .collect()
     }
 
     fn declare_enum(&mut self, def: DefId, params: usize) -> EnumId {
@@ -2383,20 +2521,26 @@ fn is_stateful(h: &emela_resolve::hir::HandlerItem) -> bool {
     !h.fields.is_empty() || h.init.is_some() || h.release.is_some()
 }
 
-/// A direct call to the non-suspending function `f`.
+/// A direct call to the non-suspending, non-generic function `f`.
 fn direct(f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
     Expr::Call {
-        callee: Callee::Direct(f),
+        callee: Callee::Direct {
+            f,
+            ty_args: Vec::new(),
+        },
         args,
         fails,
         suspends: false,
     }
 }
 
-/// A direct call to `f`, marked as suspending if the function is.
+/// A direct call to the non-generic function `f`, marked as suspending if the function is.
 fn direct_marked(m: &Module, f: FnId, args: Vec<Expr>, fails: bool) -> Expr {
     Expr::Call {
-        callee: Callee::Direct(f),
+        callee: Callee::Direct {
+            f,
+            ty_args: Vec::new(),
+        },
         args,
         fails,
         suspends: m.functions[f].suspends,
@@ -2417,9 +2561,9 @@ fn mentions(e: &Expr, l: Local) -> bool {
 /// `out`.
 fn collect_fn_refs(e: &Expr, out: &mut Vec<FnId>) {
     match e {
-        Expr::Fn(f) => out.push(*f),
-        Expr::Call {
-            callee: Callee::Direct(f),
+        Expr::Fn { f, .. }
+        | Expr::Call {
+            callee: Callee::Direct { f, .. },
             ..
         } => out.push(*f),
         _ => {}
@@ -2455,7 +2599,7 @@ fn comparison(op: BinaryOp) -> Option<BinOp> {
 fn is_atomic(e: &Expr) -> bool {
     matches!(
         e,
-        Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) | Expr::Lambda { .. }
+        Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } | Expr::Lambda { .. }
     )
 }
 
@@ -2470,6 +2614,29 @@ fn unshowable(m: &Module, ty: TypeId) -> Option<&'static str> {
         Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t)),
         Type::List(t) => unshowable(m, *t),
         _ => None,
+    }
+}
+
+/// Records in `out[i]` what `Ty::Bound(i)` in `pattern` corresponds to in `actual`.
+fn match_bound<'t>(pattern: &Ty, actual: &'t Ty, out: &mut [Option<&'t Ty>]) {
+    let all = |xs: &[Ty], ys: &'t [Ty], out: &mut [Option<&'t Ty>]| {
+        for (x, y) in xs.iter().zip(ys) {
+            match_bound(x, y, out);
+        }
+    };
+    match (pattern, actual) {
+        (Ty::Bound(i), _) => {
+            if let Some(slot) = out.get_mut(*i as usize) {
+                slot.get_or_insert(actual);
+            }
+        }
+        (Ty::List(x), Ty::List(y)) => match_bound(x, y, out),
+        (Ty::Tuple(xs), Ty::Tuple(ys)) | (Ty::Named(_, xs), Ty::Named(_, ys)) => all(xs, ys, out),
+        (Ty::Fn(f), Ty::Fn(g)) => {
+            all(&f.params, &g.params, out);
+            match_bound(&f.ret, &g.ret, out);
+        }
+        _ => {}
     }
 }
 

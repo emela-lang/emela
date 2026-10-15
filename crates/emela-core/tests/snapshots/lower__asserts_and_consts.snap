@@ -6,8 +6,8 @@ export fn main() -> () {
   let _%0: () = assert(LIMIT() ==[Int] 3, ty: Int, text: "LIMIT == 3")
   let _%1: () = assert(classify(2) !=[String] "big", ty: String, text: "classify(2) != \"big\"")
   let _%2: () = assert(ORIGIN() ==[Structural] (0, 0), ty: (Int, Int), text: "ORIGIN == (0, 0)")
-  let _%3: () = assert(List.length(EMPTY()) ==[Int] 0, ty: Int, text: "List.length(EMPTY) == 0")
-  let _%4: () = assert(same(1, 1), text: "same(1, 1)")
+  let _%3: () = assert(List.length[()](EMPTY[()]()) ==[Int] 0, ty: Int, text: "List.length(EMPTY) == 0")
+  let _%4: () = assert(same[Int](1, 1), text: "same(1, 1)")
   assert(is_small(LIMIT()), text: "is_small(LIMIT)")
 }
 
