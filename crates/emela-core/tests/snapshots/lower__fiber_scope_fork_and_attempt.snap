@@ -23,13 +23,13 @@ export suspend fn main(ev%0: evidence) -> Int {
         (f%8)(provide(ev%9; Std.Fiber.Scope[_, _] = scope%7))
       })
     }
-    let b%12: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, (), ()](fn() -> Int {
+    let b%12: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}](fn() -> Int {
       2
     }, ev%5)
     let d%13: Std.Deferred.Deferred[Int] = s%6.Std.Fiber.Scope[_, _]#deferred[Int]()
     let _%14: Bool = fiber#complete(d%13, 1)
     let _%15: () = fiber#join(a%11)!
-    let e%18: Std.Fiber.Exit[(), ()] = {
+    let e%18: Std.Fiber.Exit[(), {}] = {
       let f%16: fn() -> () ev = fn(ev%17: evidence) -> () {
         (use[Log](ev%17)).Log#info("e")
       }

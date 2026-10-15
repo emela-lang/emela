@@ -1,0 +1,29 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn swap[\", \"fn wrap[\"])"
+---
+export fn main() -> Pair[List[Option[Bool]], Option[Float]] {
+  let _%0: Option[Pair[Int, List[Int]]] = @dbg[Option[Pair[Int, List[Int]]]](wrap[Int](1))
+  let _%2: Option[Pair[String, List[String]]] = @dbg[Option[Pair[String, List[String]]]](wrap[String]("s"))
+  @dbg[Pair[List[Option[Bool]], Option[Float]]](swap[Option[Float], List[Option[Bool]]](Pair.Pair[Option[Float], List[Option[Bool]]](first: Option.Some[Float](1.5), second: [Option.None[Bool], Option.Some[Bool](true)]: List[Option[Bool]])))
+}
+
+fn wrap[Int](x%1: Int) -> Option[Pair[Int, List[Int]]] {
+  Option.Some[Pair[Int, List[Int]]](swap[List[Int], Int](Pair.Pair[List[Int], Int](first: [x%1]: List[Int], second: x%1)))
+}
+
+fn wrap[String](x%3: String) -> Option[Pair[String, List[String]]] {
+  Option.Some[Pair[String, List[String]]](swap[List[String], String](Pair.Pair[List[String], String](first: [x%3]: List[String], second: x%3)))
+}
+
+fn swap[Option[Float], List[Option[Bool]]](p%4: Pair[Option[Float], List[Option[Bool]]]) -> Pair[List[Option[Bool]], Option[Float]] {
+  Pair.Pair[List[Option[Bool]], Option[Float]](first: p%4.second#1, second: p%4.first#0)
+}
+
+fn swap[List[Int], Int](p%5: Pair[List[Int], Int]) -> Pair[Int, List[Int]] {
+  Pair.Pair[Int, List[Int]](first: p%5.second#1, second: p%5.first#0)
+}
+
+fn swap[List[String], String](p%6: Pair[List[String], String]) -> Pair[String, List[String]] {
+  Pair.Pair[String, List[String]](first: p%6.second#1, second: p%6.first#0)
+}

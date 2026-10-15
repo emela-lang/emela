@@ -466,6 +466,19 @@ pub fn core_ty(core: &emela_core::Module, ty: TypeId) -> String {
         Type::Cell(t) => format!("cell {}", core_ty(core, *t)),
         Type::FiberScope => "fiber_scope".into(),
         Type::Any => "any".into(),
+        Type::Set(set) => {
+            let mut parts: Vec<String> = [
+                (set.fails, "fails"),
+                (set.suspends, "suspends"),
+                (set.ev, "ev"),
+            ]
+            .into_iter()
+            .filter(|(flag, _)| *flag)
+            .map(|(_, name)| name.to_owned())
+            .collect();
+            parts.extend(set.params.iter().map(|&p| core_ty(core, p)));
+            format!("{{{}}}", parts.join(", "))
+        }
     }
 }
 

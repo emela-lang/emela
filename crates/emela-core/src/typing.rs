@@ -86,23 +86,10 @@ impl<'a> Typer<'a> {
     /// Replaces `Type::Param(i)` with `args[i]`. A parameter without an argument is left as is (only
     /// in malformed IR, which [`crate::verify`] reports).
     pub fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
-        if args.is_empty() || !self.types.has_param(ty) {
+        if args.is_empty() {
             return ty;
         }
-        let new = match self.ty(ty).clone() {
-            Type::Param(i) => return args.get(i).copied().unwrap_or(ty),
-            Type::Tuple(ts) => Type::Tuple(self.subst_all(&ts, args)),
-            Type::List(t) => Type::List(self.subst(t, args)),
-            Type::Enum(id, ts) => Type::Enum(id, self.subst_all(&ts, args)),
-            Type::Cell(t) => Type::Cell(self.subst(t, args)),
-            Type::Fn(f) => Type::Fn(FnType {
-                params: self.subst_all(&f.params, args),
-                ret: self.subst(f.ret, args),
-                ..f
-            }),
-            _ => unreachable!("a type without components has no `Type::Param`"),
-        };
-        self.intern(new)
+        subst_type(self, ty, args)
     }
 
     pub fn subst_all(&mut self, tys: &[TypeId], args: &[TypeId]) -> Vec<TypeId> {
@@ -244,6 +231,9 @@ impl<'a> Typer<'a> {
             fails: func.fails,
             suspends: func.suspends,
             ev,
+            // The flags are the function's own: they describe how it is called, which for a
+            // generic function over-approximates the instantiation (`Function::sets`).
+            sets: None,
         };
         self.intern(Type::Fn(fn_ty))
     }
@@ -409,6 +399,16 @@ impl<'a> Typer<'a> {
             *first = a;
         }
         self.intern(Type::Enum(exit, args))
+    }
+}
+
+impl TypeStore for Typer<'_> {
+    fn table(&self) -> &TypeTable {
+        &self.types
+    }
+
+    fn intern_type(&mut self, ty: Type) -> TypeId {
+        self.intern(ty)
     }
 }
 

@@ -1,0 +1,36 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn compose[\"])"
+---
+export fn main() -> Int {
+  let h%0: fn(Int) -> Int = compose[Int, Int, Int, {}, {}, {}, {}](fn(x%3: Int) -> Int {
+    (x%3 +[Int] 1)
+  }, fn(y%4: Int) -> Int {
+    (y%4 *[Int] 2)
+  })
+  let _%5: Int = @dbg[Int]((h%0)(1))
+  with {
+    let h%6: handler Log = Quiet()
+    let ev%7: evidence = provide(; Log = h%6)
+  } {
+    let k%8: fn(Int) -> Int ev = compose[Int, Int, Int, {}, {ev}, {}, {}](fn(x%11: Int, ev%12: evidence) -> Int {
+      let _%13: () = h%6.Log#info("x")
+      x%11
+    }, fn(y%14: Int) -> Int {
+      y%14
+    })
+    @dbg[Int]((k%8)(2, ev%7))
+  }
+}
+
+fn compose[Int, Int, Int, {}, {}, {}, {}](f%1: fn(Int) -> Int, g%2: fn(Int) -> Int) -> fn(Int) -> Int {
+  fn(x%15: Int) -> Int {
+    (g%2)((f%1)(x%15))
+  }
+}
+
+fn compose[Int, Int, Int, {}, {ev}, {}, {}](f%9: fn(Int) -> Int ev, g%10: fn(Int) -> Int) -> fn(Int) -> Int ev {
+  fn(x%17: Int, ev%18: evidence) -> Int {
+    (g%10)((f%9)(x%17, ev%18))
+  }
+}

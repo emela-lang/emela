@@ -93,6 +93,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            sets: None,
         });
         let thunk = core.func(FnType {
             params: vec![],
@@ -100,6 +101,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            sets: None,
         });
         let int_to_int_fails = core.func(FnType {
             params: vec![TypeId::INT],
@@ -107,6 +109,7 @@ impl Fixture {
             fails: true,
             suspends: false,
             ev: false,
+            sets: None,
         });
         let with_unit_ev = core.func(FnType {
             params: vec![TypeId::INT, TypeId::UNIT],
@@ -114,6 +117,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: true,
+            sets: None,
         });
         let some = core.some_ctor();
         let none = core.none_ctor();

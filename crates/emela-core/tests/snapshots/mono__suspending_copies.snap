@@ -1,0 +1,34 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn naps(\", \"fn List.map\"])"
+---
+export fn main() -> List[Int] {
+  let _%0: List[Int] = with {
+    let h%1: handler Clock = InstantClock()
+    let ev%2: evidence = provide(; Clock = h%1)
+  } {
+    @dbg[List[Int]](naps([1, 2]: List[Int], ev%2)!)
+  }
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int) -> Int {
+    x%7
+  }))
+}
+
+suspend fn naps(xs%3: List[Int], ev%4: evidence) -> List[Int] {
+  let clock%10: handler Clock = use[Clock](ev%4)
+  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%3, suspend fn(ms%14: Int, ev%15: evidence) -> Int {
+    clock%10.Clock#sleep(ms%14)!
+  }, ev%4)!
+}
+
+fn List.map[Int, Int, {}, {}](xs%5: List[Int], f%6: fn(Int) -> Int) -> List[Int] {
+  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%5, []: List[Int], fn(acc%20: List[Int], x%21: Int) -> List[Int] {
+    [(f%6)(x%21), ..acc%20]: List[Int]
+  }))
+}
+
+suspend fn List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%11: List[Int], f%12: fn(Int) -> Int suspends ev, ev%13: evidence) -> List[Int] {
+  List.reverse[Int](List.fold$suspend8[Int, List[Int], {}, {suspends, ev}](xs%11, []: List[Int], suspend fn(acc%26: List[Int], x%27: Int, ev%28: evidence) -> List[Int] {
+    [(f%12)(x%27, ev%28)!, ..acc%26]: List[Int]
+  }, ev%13)!)
+}

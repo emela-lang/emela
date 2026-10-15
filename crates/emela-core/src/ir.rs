@@ -117,6 +117,7 @@ impl Module {
             external: None,
             suspends: false,
             constant: false,
+            sets: None,
         })
     }
 
@@ -236,6 +237,11 @@ pub struct Function {
     /// first call, and the value is remembered. A defect while evaluating carries the const's name
     /// (`name`), and a reference to the const while it is being evaluated is a defect.
     pub constant: bool,
+    /// The function's own E and R, when they contain set type parameters (`R(f)` of `List.map`);
+    /// `None` otherwise. Then `fails`, `suspends` and whether it takes the evidence table
+    /// over-approximate its instantiations, as for [`FnType::sets`], and [`crate::mono`] works out
+    /// the exact ones per instantiation.
+    pub sets: Option<FnSets>,
 }
 
 /// The host function of an external function (spec 12.1). How the parameters and the return value
@@ -523,6 +529,58 @@ pub enum Type {
     ///
     /// [`crate::verify`] accepts `Any` where any type is expected and the other way round.
     Any,
+    /// What decides calling conventions about an error or effect set: the argument of a set type
+    /// parameter (`R(f)` of `List.map`) in `ty_args` and in enum type arguments, and the E and R
+    /// of a function type with set type parameters ([`FnSets`]). Not the type of a value.
+    Set(SetSummary),
+}
+
+/// An error or effect set reduced to what decides how a function with it is called
+/// ([`Type::Set`]). The flags are those of the set's elements other than set type parameters,
+/// which are listed in `params` (as `Type::Param`, sorted, each once). With `params` empty, the
+/// set is fully known.
+///
+/// The flags are worked out without knowing whether the set is an E or an R, so only the ones that
+/// matter for its position are read: `fails` for an E, `suspends` and `ev` for an R.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct SetSummary {
+    /// The set is not empty (as an E: a call may fail).
+    pub fails: bool,
+    /// As an R: a call may suspend (not Immediate, spec 9.5).
+    pub suspends: bool,
+    /// As an R: it has an element other than Async, so the function takes the evidence table.
+    pub ev: bool,
+    pub params: Vec<TypeId>,
+}
+
+impl SetSummary {
+    /// The summary of a set whose elements are all unknown: every flag set. What replacing a set
+    /// type parameter with something other than a [`Type::Set`] (the `()` placeholder of effect
+    /// type arguments) gives.
+    pub fn unknown() -> Self {
+        SetSummary {
+            fails: true,
+            suspends: true,
+            ev: true,
+            params: Vec::new(),
+        }
+    }
+
+    /// Adds the elements of `other` (flags and parameters; `params` may need sorting afterwards).
+    pub fn merge(&mut self, other: &SetSummary) {
+        self.fails |= other.fails;
+        self.suspends |= other.suspends;
+        self.ev |= other.ev;
+        self.params.extend_from_slice(&other.params);
+    }
+}
+
+/// The E and R of a function type that contain set type parameters, as [`Type::Set`]s
+/// ([`FnType::sets`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FnSets {
+    pub errors: TypeId,
+    pub effects: TypeId,
 }
 
 /// A function type, with what decides how a value of it is called.
@@ -539,6 +597,12 @@ pub struct FnType {
     /// Whether the function takes the evidence table as its last argument (the R has effects
     /// other than Async, spec 16.5).
     pub ev: bool,
+    /// The E and R when they contain set type parameters of the enclosing definition (`R(f)`),
+    /// `None` otherwise. Then the flags above over-approximate every instantiation (a set type
+    /// parameter counts as failing and needing the evidence table; whether it may suspend follows
+    /// the suspending copy being lowered), and substituting known sets for the parameters
+    /// ([`subst_type`]) makes them exact.
+    pub sets: Option<FnSets>,
 }
 
 impl FnType {
@@ -550,6 +614,7 @@ impl FnType {
             fails: false,
             suspends: false,
             ev: false,
+            sets: None,
         }
     }
 }
@@ -601,7 +666,12 @@ impl TypeTable {
             Type::Param(_) => true,
             Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| self.has_param(t)),
             Type::List(t) | Type::Cell(t) => self.has_param(*t),
-            Type::Fn(f) => f.params.iter().any(|&t| self.has_param(t)) || self.has_param(f.ret),
+            Type::Fn(f) => {
+                f.params.iter().any(|&t| self.has_param(t))
+                    || self.has_param(f.ret)
+                    || f.sets.is_some()
+            }
+            Type::Set(s) => !s.params.is_empty(),
             _ => false,
         };
         self.ids.insert(ty.clone(), id);
@@ -657,29 +727,152 @@ impl TypeTable {
         self.has_param[ty.index()]
     }
 
-    /// Replaces `Type::Param(i)` with `args[i]`.
+    /// Replaces `Type::Param(i)` with `args[i]` ([`subst_type`]).
     pub fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
-        if !self.has_param(ty) {
-            return ty;
-        }
+        subst_type(self, ty, args)
+    }
+
+    /// The type with every [`Type::Set`] inside replaced by `()` and every [`FnType::sets`]
+    /// dropped (keeping the flags). For evidence table keys, which leave out E and R.
+    pub fn erase_sets(&mut self, ty: TypeId) -> TypeId {
         let new = match self[ty].clone() {
-            Type::Param(i) => return args[i],
-            Type::Tuple(ts) => Type::Tuple(self.subst_all(&ts, args)),
-            Type::List(t) => Type::List(self.subst(t, args)),
-            Type::Enum(id, ts) => Type::Enum(id, self.subst_all(&ts, args)),
-            Type::Cell(t) => Type::Cell(self.subst(t, args)),
+            Type::Set(_) => return TypeId::UNIT,
+            Type::Tuple(ts) => Type::Tuple(ts.iter().map(|&t| self.erase_sets(t)).collect()),
+            Type::List(t) => Type::List(self.erase_sets(t)),
+            Type::Enum(id, ts) => Type::Enum(id, ts.iter().map(|&t| self.erase_sets(t)).collect()),
+            Type::Cell(t) => Type::Cell(self.erase_sets(t)),
             Type::Fn(f) => Type::Fn(FnType {
-                params: self.subst_all(&f.params, args),
-                ret: self.subst(f.ret, args),
+                params: f.params.iter().map(|&t| self.erase_sets(t)).collect(),
+                ret: self.erase_sets(f.ret),
+                sets: None,
                 ..f
             }),
-            _ => unreachable!("a type without components has no `Type::Param`"),
+            _ => return ty,
         };
         self.intern(new)
     }
+}
 
-    fn subst_all(&mut self, tys: &[TypeId], args: &[TypeId]) -> Vec<TypeId> {
-        tys.iter().map(|&t| self.subst(t, args)).collect()
+/// A type table that types can be added to, for [`subst_type`]: [`TypeTable`] itself, the
+/// verifier's [`crate::Typer`], and monomorphization, which also maps capability types.
+pub trait TypeStore {
+    fn table(&self) -> &TypeTable;
+    fn intern_type(&mut self, ty: Type) -> TypeId;
+    /// Whether `ty` may change under substitution. By default, whether it contains a
+    /// `Type::Param`.
+    fn may_change(&mut self, ty: TypeId) -> bool {
+        self.table().has_param(ty)
+    }
+    /// The effect that a capability type `Type::Handler(effect)` becomes. By default, the same.
+    fn map_effect(&mut self, effect: EffectId) -> EffectId {
+        effect
+    }
+}
+
+impl TypeStore for TypeTable {
+    fn table(&self) -> &TypeTable {
+        self
+    }
+
+    fn intern_type(&mut self, ty: Type) -> TypeId {
+        self.intern(ty)
+    }
+}
+
+/// Replaces `Type::Param(i)` with `args[i]` in `ty`. A parameter without an argument is left as
+/// is (only in malformed IR, which [`crate::verify`] reports).
+///
+/// Set type parameters are replaced inside [`Type::Set`]s: a parameter whose argument is a set
+/// summary is merged into it, and one whose argument is something else (the `()` placeholder) is
+/// read as an unknown set ([`SetSummary::unknown`]). A function type whose E and R become fully
+/// known gets exact flags from them and no [`FnType::sets`]; one still with set type parameters
+/// keeps its flags, raised by what became known ([`fn_with_sets`]).
+pub fn subst_type<S: TypeStore + ?Sized>(s: &mut S, ty: TypeId, args: &[TypeId]) -> TypeId {
+    if !s.may_change(ty) {
+        return ty;
+    }
+    let new = match s.table()[ty].clone() {
+        Type::Param(i) => return args.get(i).copied().unwrap_or(ty),
+        Type::Tuple(ts) => Type::Tuple(subst_all(s, &ts, args)),
+        Type::List(t) => Type::List(subst_type(s, t, args)),
+        Type::Enum(id, ts) => Type::Enum(id, subst_all(s, &ts, args)),
+        Type::Cell(t) => Type::Cell(subst_type(s, t, args)),
+        Type::Handler(e) => Type::Handler(s.map_effect(e)),
+        Type::Set(set) => Type::Set(subst_set(s.table(), &set, args)),
+        Type::Fn(f) => {
+            let params = subst_all(s, &f.params, args);
+            let ret = subst_type(s, f.ret, args);
+            match f.sets {
+                None => Type::Fn(FnType { params, ret, ..f }),
+                Some(sets) => {
+                    let errors = subst_type(s, sets.errors, args);
+                    let effects = subst_type(s, sets.effects, args);
+                    Type::Fn(fn_with_sets(s.table(), params, ret, &f, errors, effects))
+                }
+            }
+        }
+        _ => return ty,
+    };
+    s.intern_type(new)
+}
+
+fn subst_all<S: TypeStore + ?Sized>(s: &mut S, tys: &[TypeId], args: &[TypeId]) -> Vec<TypeId> {
+    tys.iter().map(|&t| subst_type(s, t, args)).collect()
+}
+
+fn subst_set(types: &TypeTable, set: &SetSummary, args: &[TypeId]) -> SetSummary {
+    let mut out = SetSummary {
+        params: Vec::new(),
+        ..set.clone()
+    };
+    for &p in &set.params {
+        let arg = match types[p] {
+            Type::Param(i) => args.get(i).copied().unwrap_or(p),
+            _ => p,
+        };
+        match &types[arg] {
+            Type::Set(a) => out.merge(a),
+            Type::Param(_) => out.params.push(arg),
+            _ => out.merge(&SetSummary::unknown()),
+        }
+    }
+    out.params.sort();
+    out.params.dedup();
+    out
+}
+
+/// A function type like `old` with parameters `params`, return type `ret`, E `errors` and R
+/// `effects` (both `Type::Set`). If neither set has set type parameters left, the flags come from
+/// them; otherwise `old`'s flags are kept, raised by the known parts.
+pub fn fn_with_sets(
+    types: &TypeTable,
+    params: Vec<TypeId>,
+    ret: TypeId,
+    old: &FnType,
+    errors: TypeId,
+    effects: TypeId,
+) -> FnType {
+    let (Type::Set(e), Type::Set(r)) = (&types[errors], &types[effects]) else {
+        unreachable!("the E and R of a function type are sets");
+    };
+    if e.params.is_empty() && r.params.is_empty() {
+        FnType {
+            params,
+            ret,
+            fails: e.fails,
+            suspends: r.suspends,
+            ev: r.ev,
+            sets: None,
+        }
+    } else {
+        FnType {
+            params,
+            ret,
+            fails: old.fails || e.fails,
+            suspends: old.suspends || r.suspends,
+            ev: old.ev || r.ev,
+            sets: Some(FnSets { errors, effects }),
+        }
     }
 }
 
@@ -1259,8 +1452,9 @@ impl Assert {
 pub enum Callee {
     /// A direct call to a top-level function. `ty_args` instantiate the function's type
     /// parameters (`Type::Param(i)` in its parameter and return types becomes `ty_args[i]`); the
-    /// count is `Function::type_params`. A set type parameter (`R(f)`, spec 9.2) has no IR type, so
-    /// its position holds the placeholder `TypeId::UNIT`.
+    /// count is `Function::type_params`. A set type parameter (`R(f)`, spec 9.2) has no IR type of
+    /// values; its position holds the summary of the instantiating set ([`Type::Set`]), which
+    /// monomorphization uses to make calling conventions exact.
     Direct { f: FnId, ty_args: Vec<TypeId> },
     /// A call to a closure value.
     Indirect(Box<Expr>),

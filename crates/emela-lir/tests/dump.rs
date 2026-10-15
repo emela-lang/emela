@@ -473,6 +473,7 @@ fn closures_effects_fibers() {
         fails: false,
         suspends: true,
         ev: false,
+        sets: None,
     });
     let mut m = Module::new(fx.core.clone());
     let greet = m.declare("greet");

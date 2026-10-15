@@ -644,7 +644,28 @@ pub(crate) fn type_name(m: &Module, types: &TypeTable, ty: TypeId) -> String {
                     s.push_str(name);
                 }
             }
+            if let Some(sets) = f.sets {
+                s.push_str(&format!(
+                    " (E {}, R {})",
+                    type_name(m, types, sets.errors),
+                    type_name(m, types, sets.effects)
+                ));
+            }
             s
+        }
+        // `{ev, suspends, C}`: the flags, then the set type parameters.
+        Type::Set(set) => {
+            let mut parts: Vec<String> = [
+                (set.fails, "fails"),
+                (set.suspends, "suspends"),
+                (set.ev, "ev"),
+            ]
+            .into_iter()
+            .filter(|(flag, _)| *flag)
+            .map(|(_, name)| name.to_owned())
+            .collect();
+            parts.extend(set.params.iter().map(|&p| type_name(m, types, p)));
+            format!("{{{}}}", parts.join(", "))
         }
         Type::Handler(e) => format!("handler {}", m.effects[*e].name),
         Type::Evidence => "evidence".into(),

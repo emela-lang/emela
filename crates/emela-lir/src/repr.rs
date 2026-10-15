@@ -49,7 +49,8 @@ pub fn repr_of(core: &emela_core::Module, ty: TypeId) -> Repr {
         Type::Int | Type::Bool => Repr::I32,
         Type::Int64 => Repr::I64,
         Type::Float => Repr::F64,
-        Type::Unit | Type::Never => Repr::Void,
+        // A set type argument (`Type::Set`) is not the type of a value.
+        Type::Unit | Type::Never | Type::Set(_) => Repr::Void,
         Type::Enum(id, _) => enum_repr(core, *id),
         Type::String
         | Type::Tuple(_)
