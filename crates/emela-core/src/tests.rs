@@ -477,6 +477,87 @@ fn verify_reports_every_ill_typed_place() {
     );
 }
 
+/// Operation calls, handler implementations and evidence bindings are checked against `OpDef`s
+/// and what each `EffectDef` instantiates.
+#[test]
+fn verify_checks_operations() {
+    let mut m = Module::new();
+    let e = m.add_effect(EffectDef::new(
+        "E",
+        vec![
+            OpDef::new("get", vec![TypeId::INT], TypeId::STRING),
+            OpDef::suspend("wait", vec![], TypeId::INT),
+        ],
+    ));
+    // `G[Int]`, `G[$f.0]` (the key in a generic `f`) and an unrelated `H`.
+    let a = m.type_param(0);
+    let generic = |m: &mut Module, name: &str, decl: &str, args: Vec<TypeId>| {
+        let ret = args.first().copied().unwrap_or(TypeId::UNIT);
+        m.add_effect(EffectDef {
+            name: name.to_owned(),
+            decl: decl.to_owned(),
+            args,
+            ops: vec![OpDef::new("get", vec![], ret)],
+        })
+    };
+    let g_int = generic(&mut m, "G[Int]", "G", vec![TypeId::INT]);
+    let g_a = generic(&mut m, "G[$f.0]", "G", vec![a]);
+    let h = generic(&mut m, "H", "H", vec![]);
+    let main = m.declare("main", true);
+    let str_fn = m.fn_type(vec![TypeId::STRING], TypeId::STRING);
+    let unit_fn = m.fn_type(vec![], TypeId::UNIT);
+    let int_fn = m.fn_type(vec![], TypeId::INT);
+    let e_ty = m.handler(e);
+    let (x, hv, r) = (
+        m.local("x", TypeId::STRING),
+        m.local("h", e_ty),
+        m.local("r", TypeId::INT),
+    );
+    let handler = |effect, ops| Expr::Handler {
+        name: "X".into(),
+        effect,
+        ops,
+    };
+    let body = let_(
+        hv,
+        // `get` takes an Int, and `wait`'s implementation lacks resume.
+        handler(
+            e,
+            vec![
+                lambda(vec![x], str_fn, var(x)),
+                lambda(vec![], unit_fn, unit()),
+            ],
+        ),
+        let_(
+            r,
+            call_op(var(hv), e, 0, vec![string("s")], false, false),
+            Expr::Provide {
+                base: None,
+                bindings: vec![
+                    (g_a, handler(g_int, vec![lambda(vec![], int_fn, int(1))])),
+                    (g_int, handler(h, vec![lambda(vec![], unit_fn, unit())])),
+                ],
+            },
+        ),
+    );
+    m.define(main, vec![], TypeId::EVIDENCE, body);
+    let errors: Vec<String> = verify(&m)
+        .unwrap_err()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "main: let h%1 > op 0: parameter: expected String, found Int",
+            "main: let h%1 > op 1: operation wait with 1 parameters implemented with 0",
+            "main: let r%2 > arg 0: value: expected Int, found String",
+            "main: let r%2: value: expected Int, found String",
+            "main: binding 1: expected handler G[Int], found handler H",
+        ]
+    );
+}
+
 fn tuple(es: Vec<Expr>) -> Expr {
     Expr::Tuple(es)
 }

@@ -72,6 +72,7 @@ fn error(m: &mut Module, name: &str, fields: Vec<(&str, TypeId)>) -> CtorRef {
         params: 0,
         variants: vec![variant],
         error: true,
+        external: false,
     });
     CtorRef {
         enum_id,

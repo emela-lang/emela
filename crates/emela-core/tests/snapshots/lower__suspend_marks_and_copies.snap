@@ -2,7 +2,10 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
-effect Clock { suspend sleep, now }
+effect Clock {
+  suspend fn sleep(Int) -> Int
+  fn now() -> Int
+}
 
 export suspend fn main() -> List[Int] {
   let _%2: List[Int] = with {

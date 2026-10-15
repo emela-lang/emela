@@ -163,14 +163,14 @@ struct Kit {
 impl Kit {
     fn new(m: &mut Module) -> Kit {
         let log = external(m, "log", "console.log", vec![TypeId::STRING], TypeId::UNIT);
-        let res = m.add_effect(EffectDef {
-            name: "Res".into(),
-            ops: vec![OpDef::new("name")],
-        });
-        let clock = m.add_effect(EffectDef {
-            name: "Clock".into(),
-            ops: vec![OpDef::suspend("sleep")],
-        });
+        let res = m.add_effect(EffectDef::new(
+            "Res",
+            vec![OpDef::new("name", vec![], TypeId::STRING)],
+        ));
+        let clock = m.add_effect(EffectDef::new(
+            "Clock",
+            vec![OpDef::suspend("sleep", vec![TypeId::INT], TypeId::UNIT)],
+        ));
         let callback = m.intern(fn_ty(vec![], TypeId::UNIT, false));
         let set_timeout = external(
             m,
@@ -216,6 +216,7 @@ impl Kit {
             params: 0,
             variants: vec![VariantDef::unit("Oops")],
             error: true,
+            external: false,
         });
         // A Cause is opaque (an `@external type`, an enum without constructors); its field type
         // is never shown here.
@@ -224,6 +225,7 @@ impl Kit {
             params: 1,
             variants: vec![],
             error: false,
+            external: true,
         });
         let (a, e) = (m.type_param(0), m.type_param(1));
         let cause_e = m.enum_type(cause, vec![e]);
@@ -235,6 +237,7 @@ impl Kit {
                 VariantDef::positional("Failure", vec![cause_e]),
             ],
             error: false,
+            external: false,
         });
         let kind = m.add_enum(EnumDef {
             name: "CauseKind".into(),
@@ -245,6 +248,7 @@ impl Kit {
                 VariantDef::unit("Interrupt"),
             ],
             error: false,
+            external: false,
         });
         let opaque = |m: &mut Module, name: &str| {
             m.add_enum(EnumDef {
@@ -252,6 +256,7 @@ impl Kit {
                 params: 1,
                 variants: vec![],
                 error: false,
+                external: true,
             })
         };
         let fiber = opaque(m, "Fiber");

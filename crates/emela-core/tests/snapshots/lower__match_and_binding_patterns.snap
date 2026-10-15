@@ -69,10 +69,10 @@ error enum Std.Http.UnexpectedStatus {
   UnexpectedStatus(status: Int, body: String)
 }
 
-enum Std.Http.HostRequest {
+external enum Std.Http.HostRequest {
 }
 
-enum Std.Http.HostResponse {
+external enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
@@ -107,7 +107,7 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
-enum Std.FileSystem.Outcome {
+external enum Std.FileSystem.Outcome {
 }
 
 enum Std.FileSystem.TestFiles {
@@ -124,10 +124,10 @@ enum Std.Cause.CauseKind {
   Interrupt
 }
 
-enum Std.Deferred.Deferred[A] {
+external enum Std.Deferred.Deferred[A] {
 }
 
-enum Std.Fiber.Fiber[A] {
+external enum Std.Fiber.Fiber[A] {
 }
 
 enum Std.Fiber.Exit[A, B] {

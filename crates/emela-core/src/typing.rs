@@ -1,14 +1,15 @@
 //! The types of IR expressions ([`Typer::type_of`]).
 //!
 //! Every expression's type follows from the IR alone: locals, functions, lambdas, constructors,
-//! lists and builtins carry what cannot be derived (`LocalData::ty`, `Function::ret`,
-//! `Expr::Lambda::ty`, the `ty_args` of calls, function values, constructors and builtins,
+//! lists, builtins and operations carry what cannot be derived (`LocalData::ty`, `Function::ret`,
+//! `Expr::Lambda::ty`, `OpDef`, the `ty_args` of calls, function values, constructors and builtins,
 //! `Expr::List::elem`), and the rest is computed from them.
 //!
 //! The type of an `if`, `match` or `escape` is that of its first branch that is not `Never` (a
 //! branch that never returns, like `fail` or `recur`, takes any type), and `Never` if all are.
-//! Until `OpDef` carries types, an operation call (`Callee::Op`) is `Type::Any`, and so are the
-//! handles `FiberOp::Fork` and `FiberOp::Deferred` return (their types differ per use).
+//! An operation call (`Callee::Op`) has the operation's return type (`OpDef::ret`) with its
+//! `ty_args` substituted. The handles `FiberOp::Fork` and `FiberOp::Deferred` return are
+//! `Type::Any` (their types differ per use).
 //!
 //! # Cost
 //!
@@ -144,7 +145,12 @@ impl<'a> Typer<'a> {
                     let t = self.type_of(c);
                     self.fn_ret(t)
                 }
-                Callee::Op { .. } => TypeId::ANY,
+                Callee::Op {
+                    effect,
+                    op,
+                    ty_args,
+                    ..
+                } => self.op_sig(*effect, *op, ty_args).1,
             },
             Expr::Builtin { op, ty_args, .. } => self.builtin_sig(*op, ty_args).1,
             Expr::Ctor { ctor, ty_args, .. } => {
@@ -251,6 +257,24 @@ impl<'a> Typer<'a> {
         (
             self.subst_all(&params, ty_args),
             self.subst(func.ret, ty_args),
+        )
+    }
+
+    /// The parameter and return types of a call to operation `op` of `effect` with type arguments
+    /// `ty_args` (`Callee::Op`). `Any` if there is no such operation (only in malformed IR).
+    pub fn op_sig(
+        &mut self,
+        effect: EffectId,
+        op: usize,
+        ty_args: &[TypeId],
+    ) -> (Vec<TypeId>, TypeId) {
+        let m = self.m;
+        let Some(def) = m.effects[effect].ops.get(op) else {
+            return (Vec::new(), TypeId::ANY);
+        };
+        (
+            self.subst_all(&def.params, ty_args),
+            self.subst(def.ret, ty_args),
         )
     }
 

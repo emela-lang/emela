@@ -60,10 +60,10 @@ pub fn set_timeout(m: &mut Module) -> FnId {
 /// A suspend fn operation `Wait.forever` that drops resume without calling it, and the handler
 /// `Never` implementing it.
 pub fn never(m: &mut Module) -> (FnId, EffectId) {
-    let wait = m.add_effect(EffectDef {
-        name: "Wait".into(),
-        ops: vec![OpDef::suspend("forever")],
-    });
+    let wait = m.add_effect(EffectDef::new(
+        "Wait",
+        vec![OpDef::suspend("forever", vec![], TypeId::UNIT)],
+    ));
     let f = m.declare("Never", false);
     let resume = m.local("resume", resume_type());
     let op_ty = op_type(m);

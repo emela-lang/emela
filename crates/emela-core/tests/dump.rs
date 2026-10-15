@@ -21,6 +21,7 @@ fn every_kind_of_expression() {
             ),
         ],
         error: false,
+        external: false,
     });
     let (a, b) = (m.type_param(0), m.type_param(1));
     let pair = m.add_enum(EnumDef {
@@ -28,6 +29,15 @@ fn every_kind_of_expression() {
         params: 2,
         variants: vec![VariantDef::named("Pair", vec![("first", a), ("second", b)])],
         error: false,
+        external: false,
+    });
+    // `@external type Connection` (spec 12.3).
+    m.add_enum(EnumDef {
+        name: "Host.Connection".into(),
+        params: 0,
+        variants: vec![],
+        error: false,
+        external: true,
     });
     let circle = CtorRef {
         enum_id: shape,

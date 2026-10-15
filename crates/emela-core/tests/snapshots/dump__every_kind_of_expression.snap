@@ -11,6 +11,9 @@ enum Pair[A, B] {
   Pair(first: A, second: B)
 }
 
+external enum Host.Connection {
+}
+
 enum Option[A] {
   Some(A)
   None

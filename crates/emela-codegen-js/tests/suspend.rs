@@ -124,10 +124,10 @@ fn sleep_ty(m: &mut Module, suspends: bool) -> TypeId {
 
 /// `effect Clock { suspend fn sleep(ms: Int) -> Int }`. `sleep` returns the resumed value.
 fn clock(m: &mut Module) -> EffectId {
-    m.add_effect(EffectDef {
-        name: "Clock".into(),
-        ops: vec![OpDef::suspend("sleep")],
-    })
+    m.add_effect(EffectDef::new(
+        "Clock",
+        vec![OpDef::suspend("sleep", vec![TypeId::INT], TypeId::INT)],
+    ))
 }
 
 /// The function of `handler name implements Clock { suspend fn sleep(ms, resume) { body(ms, resume) } }`.
@@ -395,6 +395,7 @@ fn failing_operation_fails_at_the_call() {
         params: 0,
         variants: vec![VariantDef::unit("Oops")],
         error: true,
+        external: false,
     });
     let oops = CtorRef {
         enum_id: oops,

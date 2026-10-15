@@ -2,6 +2,24 @@
 source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
+effect Std.State.State[String] = Std.State.State[String] {
+  fn get() -> String
+  fn set(String) -> ()
+  fn update(fn(String) -> String) -> ()
+}
+
+effect Std.State.State[Int] = Std.State.State[Int] {
+  fn get() -> Int
+  fn set(Int) -> ()
+  fn update(fn(Int) -> Int) -> ()
+}
+
+effect Std.State.State[$modify.0] = Std.State.State[A] {
+  fn get() -> A
+  fn set(A) -> ()
+  fn update(fn(A) -> A) -> ()
+}
+
 export fn main() -> ((Int, Int), String) {
   @dbg[((Int, Int), String)]({
     let cell%0: cell String = @$Cell.new[String]("")
