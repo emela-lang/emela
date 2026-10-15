@@ -150,7 +150,7 @@ fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found)
                 | Builtin::FloatCeil
                 | Builtin::FloatRound
                 | Builtin::FloatTruncate => {
-                    format!("`Float` operation, which target `wasm` does not support yet")
+                    "`Float` operation, which target `wasm` does not support yet".to_owned()
                 }
                 _ => return,
             };

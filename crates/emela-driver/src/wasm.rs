@@ -76,7 +76,9 @@ fn diagnostics(errors: Vec<WasmError>) -> Vec<Diagnostic> {
                 WasmErrorKind::Callback => d.with_code(code::CALLBACK_EXTERNAL),
                 // E0428 is retired: the C target now supports `suspend fn` external functions
                 // (12.6). WASM still does not, but there is no code for it any more.
-                WasmErrorKind::SuspendExternal | WasmErrorKind::Unsupported | WasmErrorKind::Internal => d,
+                WasmErrorKind::SuspendExternal
+                | WasmErrorKind::Unsupported
+                | WasmErrorKind::Internal => d,
             }
         })
         .collect()

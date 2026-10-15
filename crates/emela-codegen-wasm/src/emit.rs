@@ -26,9 +26,9 @@ use emela_lir::{
 use rustc_hash::FxHashMap;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
-    ExportKind, ExportSection, Function as WasmFunction, FunctionSection, GlobalSection, GlobalType,
-    ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module as WasmModule,
-    RefType, TableSection, TableType, TypeSection, ValType,
+    ExportKind, ExportSection, Function as WasmFunction, FunctionSection, GlobalSection,
+    GlobalType, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType,
+    Module as WasmModule, RefType, TableSection, TableType, TypeSection, ValType,
 };
 
 use crate::check;
@@ -56,9 +56,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
-    Ok(WasmOutput {
-        module: b.finish(),
-    })
+    Ok(WasmOutput { module: b.finish() })
 }
 
 fn ix<T>(id: la_arena::Idx<T>) -> usize {
@@ -734,7 +732,13 @@ impl<'m> Builder<'m> {
 
     // ---- IR emission ----
 
-    fn assign(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: Option<VarId>, repr: Repr) {
+    fn assign(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        repr: Repr,
+    ) {
         match dst {
             Some(d) => {
                 if repr != Repr::Void {
@@ -835,7 +839,13 @@ impl<'m> Builder<'m> {
         ins.local_set(cx.local(dst));
     }
 
-    fn seq(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, id: SeqId, yield_dst: Option<VarId>) {
+    fn seq(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        id: SeqId,
+        yield_dst: Option<VarId>,
+    ) {
         let stmts = cx.f.seqs[id].stmts.clone();
         for s in stmts {
             self.stmt(cx, ins, s);
@@ -1079,7 +1089,13 @@ impl<'m> Builder<'m> {
         }
     }
 
-    fn value(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: Option<VarId>, value: &Value) {
+    fn value(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        value: &Value,
+    ) {
         match value {
             Value::Const(c) => {
                 self.const_val(ins, c);
@@ -1232,11 +1248,7 @@ impl<'m> Builder<'m> {
                     return;
                 }
                 let mut refs = vec![false];
-                refs.extend(
-                    captures
-                        .iter()
-                        .map(|&c| cx.f.vars[c].repr == Repr::Ref),
-                );
+                refs.extend(captures.iter().map(|&c| cx.f.vars[c].repr == Repr::Ref));
                 let desc = self.desc(DescKey {
                     kind: 0,
                     tag: 0,
@@ -1323,9 +1335,8 @@ impl<'m> Builder<'m> {
             Value::Handler { name, ops, .. } => {
                 let mut refs = vec![false, true];
                 refs.extend(std::iter::repeat_n(true, ops.len()));
-                let defect = self.string_literal(
-                    format!("handler {name} was used after release").as_bytes(),
-                );
+                let defect = self
+                    .string_literal(format!("handler {name} was used after release").as_bytes());
                 let desc = self.desc(DescKey {
                     kind: 0,
                     tag: 0,
@@ -1687,6 +1698,7 @@ impl<'m> Builder<'m> {
         self.assign(cx, ins, dst, ret);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn op_call(
         &mut self,
         cx: &mut FnCtx,

@@ -16,10 +16,7 @@ fn integer_main_validates() {
 
 #[test]
 fn dbg_prints_integers() {
-    let Some(run) = run(
-        "dbg-int",
-        "fn main() {\n  dbg(1 + 2)\n  dbg(-5)\n}\n",
-    ) else {
+    let Some(run) = run("dbg-int", "fn main() {\n  dbg(1 + 2)\n  dbg(-5)\n}\n") else {
         return;
     };
     assert_eq!(run.stdout, "");

@@ -41,23 +41,69 @@ pub(crate) const FUNCS: &[Sig] = &[
     ("str_cmp", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("str_append", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("str_byte_size", &[ValType::I32], &[ValType::I32]),
-    ("str_contains", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("str_starts_with", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("str_ends_with", &[ValType::I32, ValType::I32], &[ValType::I32]),
-    ("str_find", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
-    ("str_slice", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "str_contains",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "str_starts_with",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "str_ends_with",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "str_find",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "str_slice",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("str_split", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("str_join", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("str_trim", &[ValType::I32], &[ValType::I32]),
     ("str_code_points", &[ValType::I32], &[ValType::I32]),
-    ("copy_range", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[]),
-    ("cons", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "copy_range",
+        &[
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+        ],
+        &[],
+    ),
+    (
+        "cons",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("utf8_len", &[ValType::I32], &[ValType::I32]),
     ("utf8_cp", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("is_white_space", &[ValType::I32], &[ValType::I32]),
-    ("int_parse", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
-    ("int_checked_add", &[ValType::I32, ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
-    ("from_code_point", &[ValType::I32, ValType::I32, ValType::I32], &[ValType::I32]),
+    (
+        "int_parse",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "int_checked_add",
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "from_code_point",
+        &[ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
     ("show_string", &[ValType::I32], &[ValType::I32]),
     ("int_to_string", &[ValType::I32], &[ValType::I32]),
     ("int64_to_string", &[ValType::I64], &[ValType::I32]),
@@ -122,30 +168,30 @@ pub(crate) fn emit(b: &mut Builder) {
 
 fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "alloc" => i32s(2, 6),           // need, cur, prev, next, p, pages
-        "dup" => i32s(1, 1),             // rc
-        "drop" => i32s(1, 13),           // rc..size
-        "ev_lookup" => i32s(2, 3),       // count, i, e
-        "str_new" => i32s(1, 1),         // p
-        "str_eq" => i32s(2, 3),          // la, lb, i
-        "str_cmp" => i32s(2, 6),         // la, lb, n, i, x, y
-        "str_append" => i32s(2, 5),      // la, lb, p, off, i
+        "alloc" => i32s(2, 6),      // need, cur, prev, next, p, pages
+        "dup" => i32s(1, 1),        // rc
+        "drop" => i32s(1, 13),      // rc..size
+        "ev_lookup" => i32s(2, 3),  // count, i, e
+        "str_new" => i32s(1, 1),    // p
+        "str_eq" => i32s(2, 3),     // la, lb, i
+        "str_cmp" => i32s(2, 6),    // la, lb, n, i, x, y
+        "str_append" => i32s(2, 5), // la, lb, p, off, i
         "str_starts_with" | "str_ends_with" => i32s(2, 3), // n, m, i
-        "str_find" => i32s(3, 4),        // n, m, i, j
-        "copy_range" => i32s(5, 1),      // i
-        "str_slice" => i32s(3, 1),       // p
-        "str_split" => i32s(2, 8),       // head..cell
-        "str_join" => i32s(2, 7),        // total, p, first, out, pos, len
-        "str_trim" => i32s(1, 6),        // n, start, end, at, cp, len
+        "str_find" => i32s(3, 4),   // n, m, i, j
+        "copy_range" => i32s(5, 1), // i
+        "str_slice" => i32s(3, 1),  // p
+        "str_split" => i32s(2, 8),  // head..cell
+        "str_join" => i32s(2, 7),   // total, p, first, out, pos, len
+        "str_trim" => i32s(1, 6),   // n, start, end, at, cp, len
         "str_code_points" => i32s(1, 6), // head, last, i, n, cp, cell
-        "cons" => i32s(3, 1),            // p
-        "utf8_cp" => i32s(2, 4),         // b0, b1, b2, b3
-        "is_white_space" => i32s(1, 1),  // acc
+        "cons" => i32s(3, 1),       // p
+        "utf8_cp" => i32s(2, 4),    // b0, b1, b2, b3
+        "is_white_space" => i32s(1, 1), // acc
         "int_parse" => vec![(5, ValType::I32), (1, ValType::I64)], // p, n, i, neg, b / v
         "int_checked_add" => vec![(1, ValType::I64), (1, ValType::I32)], // r / p
         "from_code_point" => i32s(3, 4), // p, len, i, cell
-        "show_string" => i32s(1, 5),     // n, i, j, p, b
-        "int_to_string" => i32s(1, 6),   // neg, u, i, p, len, j
+        "show_string" => i32s(1, 5), // n, i, j, p, b
+        "int_to_string" => i32s(1, 6), // neg, u, i, p, len, j
         "int64_to_string" => vec![(5, ValType::I32), (1, ValType::I64)], // neg,i,p,len,j / u
         "defect_take" => i32s(0, 1),
         "show_failure" => i32s(1, 3), // desc, show, result
@@ -1504,7 +1550,6 @@ fn utf8_cp(ins: &mut InstructionSink) {
     ins.i32_or();
 }
 
-
 /// The Unicode White_Space property (the 25 characters of 16.2).
 fn is_white_space(ins: &mut InstructionSink) {
     const ACC: u32 = 1;
@@ -1517,7 +1562,9 @@ fn is_white_space(ins: &mut InstructionSink) {
     ins.i32_le_u();
     ins.i32_and();
     ins.local_set(ACC);
-    for k in [0x20, 0x85, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000] {
+    for k in [
+        0x20, 0x85, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+    ] {
         ins.local_get(ACC);
         ins.local_get(0);
         ins.i32_const(k);
@@ -2691,14 +2738,11 @@ fn from_code_point(b: &mut Builder, ins: &mut InstructionSink) {
 fn encode_byte(ins: &mut InstructionSink, addr: u32, shift: &[u32], high: u32, mask: u32) {
     ins.i32_const(addr as i32);
     ins.local_get(0);
-    match shift {
-        [s] => {
-            if *s > 0 {
-                ins.i32_const(*s as i32);
-                ins.i32_shr_u();
-            }
-        }
-        _ => {}
+    if let [s] = shift
+        && *s > 0
+    {
+        ins.i32_const(*s as i32);
+        ins.i32_shr_u();
     }
     if mask > 0 {
         ins.i32_const(mask as i32);

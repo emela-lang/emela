@@ -85,10 +85,7 @@ fn runs_under_wasmtime() {
     if !have_wasmtime() {
         return;
     }
-    let (analysis, output) = run_wasm(
-        "run",
-        "fn main() {\n  dbg(2 + 3)\n  dbg(\"hi\")\n}\n",
-    );
+    let (analysis, output) = run_wasm("run", "fn main() {\n  dbg(2 + 3)\n  dbg(\"hi\")\n}\n");
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
     let output = output.unwrap();
     assert_eq!(output.code, 0);
@@ -117,12 +114,7 @@ fn test_wasm(name: &str, main: &str) -> (Analysis, Vec<(String, TestOutcome)>) {
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     let results = report
-        .map(|r| {
-            r.results
-                .into_iter()
-                .map(|r| (r.name, r.outcome))
-                .collect()
-        })
+        .map(|r| r.results.into_iter().map(|r| (r.name, r.outcome)).collect())
         .unwrap_or_default();
     (analysis, results)
 }
@@ -205,8 +197,5 @@ fn unsupported_features_are_diagnostics() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert!(
-        messages.iter().any(|m| m.contains("Float")),
-        "{messages:?}"
-    );
+    assert!(messages.iter().any(|m| m.contains("Float")), "{messages:?}");
 }

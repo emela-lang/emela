@@ -198,13 +198,7 @@ fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> Ex
             &mut CoreC::default(),
             &out_dir,
         ),
-        Target::Wasm => emela_driver::build(
-            &OsFs,
-            &input,
-            &mut frontend,
-            &mut CoreWasm,
-            &out_dir,
-        ),
+        Target::Wasm => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreWasm, &out_dir),
     };
     report(&analysis)
 }
