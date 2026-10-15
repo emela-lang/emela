@@ -8,7 +8,7 @@
 mod emit;
 mod test_runner;
 
-use emela_core::Module;
+use emela_core::{FnId, Module};
 
 pub use test_runner::{TEST_EVENT_PREFIX, TEST_RUNNER, TestEntry, emit_test_main};
 
@@ -45,10 +45,16 @@ impl Default for Options {
     }
 }
 
-/// Self tail call loopification (`emela_core::tail::loopify`) must already be done by the caller.
-/// Panics on invalid IR (operator and type mismatches, wrong argument counts, ...).
+/// Self tail call loopification (`emela_core::tail::loopify`) must already be done; `emela_core::lower`
+/// does it. Panics on invalid IR (operator and type mismatches, wrong argument counts, ...).
 pub fn emit_module(module: &Module, options: &Options) -> String {
-    emit::emit_module(module, options)
+    emit::emit_module(module, options, &[])
+}
+
+/// Like [`emit_module`], but also exports `extra` as if they were `exported` (the selected test
+/// functions of `emela test`), without copying the module to flip the flag.
+pub fn emit_module_exporting(module: &Module, options: &Options, extra: &[FnId]) -> String {
+    emit::emit_module(module, options, extra)
 }
 
 /// The runtime with `export`s removed, so it can be embedded in other code.

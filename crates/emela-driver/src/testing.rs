@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use emela_codegen_js::{
-    Options, RUNTIME, RUNTIME_FILE, RuntimeMode, TEST_EVENT_PREFIX, TestEntry, emit_module,
-    emit_test_main,
+    Options, RUNTIME, RUNTIME_FILE, RuntimeMode, TEST_EVENT_PREFIX, TestEntry,
+    emit_module_exporting, emit_test_main,
 };
 use emela_core::{FnId, Roots};
 use emela_resolve::hir::{DefId, DefKind, Program};
@@ -214,13 +214,13 @@ impl TestBackend<TestModule> for CoreJs {
         selected: &[usize],
         _: &Analysis,
     ) -> Result<JsOutput, Vec<Diagnostic>> {
-        let mut module = program.module.clone();
+        let module = &program.module;
         // Export the selected test functions under their Emela names so the entry module can call
         // them.
-        for &i in selected {
-            module.functions[program.tests[i].function].exported = true;
-        }
-        emela_core::tail::loopify(&mut module);
+        let exports: Vec<_> = selected
+            .iter()
+            .map(|&i| program.tests[i].function)
+            .collect();
         let options = Options {
             runtime: RuntimeMode::Import(None),
         };
@@ -236,11 +236,14 @@ impl TestBackend<TestModule> for CoreJs {
             .collect();
         let main = emit_test_main(&format!("./{JS_ENTRY_FILE}"), &entries);
         let mut files = vec![
-            OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
+            OutputFile::new(
+                JS_ENTRY_FILE,
+                emit_module_exporting(module, &options, &exports),
+            ),
             OutputFile::new(RUNTIME_FILE, RUNTIME),
             OutputFile::new(JS_TEST_ENTRY_FILE, main),
         ];
-        files.extend(bundled_outputs(&module));
+        files.extend(bundled_outputs(module));
         Ok(JsOutput {
             files,
             entry: JS_TEST_ENTRY_FILE.into(),

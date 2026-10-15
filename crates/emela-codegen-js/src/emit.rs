@@ -56,7 +56,8 @@ pub(crate) struct Emitter<'m> {
     generator: bool,
 }
 
-pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
+pub(crate) fn emit_module(m: &Module, opts: &Options, extra_exports: &[FnId]) -> String {
+    let exported = |id: FnId, f: &Function| f.exported || extra_exports.contains(&id);
     let mut e = Emitter {
         m,
         out: String::new(),
@@ -155,7 +156,7 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
     let mut exports: Vec<String> = m
         .functions
         .iter()
-        .filter(|(_, f)| f.exported)
+        .filter(|&(id, f)| exported(id, f))
         .map(|(_, f)| {
             let js = fn_name(&f.name);
             if js == f.name {
@@ -171,7 +172,10 @@ pub(crate) fn emit_module(m: &Module, opts: &Options) -> String {
         .collect();
     // When a suspending function is exported, also export the driver that steps generators that
     // call it. The entry module and the test runner use it, since they do not load the runtime.
-    if m.functions.iter().any(|(_, f)| f.exported && f.suspends) {
+    if m.functions
+        .iter()
+        .any(|(id, f)| exported(id, f) && f.suspends)
+    {
         exports.push(e.rt("$start").to_owned());
     }
     if !exports.is_empty() {

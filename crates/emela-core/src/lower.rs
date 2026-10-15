@@ -95,7 +95,8 @@ pub struct LowerInput<'a> {
     pub target: Option<&'a str>,
 }
 
-/// Collects every place that cannot be lowered and returns them all in `Err`.
+/// Collects every place that cannot be lowered and returns them all in `Err`. Self tail calls
+/// come out as `Expr::Loop` / `Expr::Recur` (`tail::loopify`).
 pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerError>> {
     let hir = input.hir;
     let mut cx = Lowerer {
@@ -167,6 +168,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
             .collect();
     }
     if cx.errors.is_empty() {
+        // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
+        crate::tail::loopify(&mut cx.module);
         Ok(Lowered {
             module: cx.module,
             tests,

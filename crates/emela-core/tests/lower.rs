@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use emela_core::{
-    EnumDef, LowerError, LowerInput, Module, Roots, Type, VariantFields, dump, lower,
+    EnumDef, Expr, LowerError, LowerInput, Module, Roots, Type, VariantFields, dump, lower,
 };
 use emela_resolve::hir::Program;
 use emela_resolve::{
@@ -240,6 +240,17 @@ fn entry_exports_pub_fns_and_main() {
         .map(|(_, f)| f.name.as_str())
         .collect();
     assert_eq!(exported, ["main", "api"]);
+}
+
+#[test]
+fn self_tail_calls_come_out_as_loops() {
+    // Lowering loopifies once for every backend (spec 16.3).
+    let m = lower_files(&[(
+        "main.emel",
+        "fn main() -> Int { count(10, 0) }\n\nfn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\n",
+    )]);
+    let (_, count) = m.functions.iter().find(|(_, f)| f.name == "count").unwrap();
+    assert!(matches!(count.body, Expr::Loop { .. }), "{}", dump(&m));
 }
 
 #[test]
