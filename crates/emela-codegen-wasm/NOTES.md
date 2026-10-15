@@ -64,7 +64,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）`dup` は `rc != 0` なら足すだけ．`drop` は `rc != 0` で減らして 0 なら解放．単一
   スレッドなので原子的な操作はしない
 - （補）文字列の連結，比較（UTF-8 のバイト順はコードポイントの順と同じ），バイト数，
-  `show_string`（`"` と `\` だけ escape する．制御文字の escape は後で足す），`Int.to_string`
+  `show_string`（`\"`、`\\`、`\n`、`\t`、`\r` と `#{` の前の `\#`、他の制御文字は `\u{...}`
+  と escape する．10.6），`Int.to_string`
   （スクラッチのメモリに桁を作ってから文字列にする），`Int64.to_string` を wasm で書く
 - （補）`String.contains` / `starts_with` / `ends_with` は部分文字列のバイト探索で行う
   （UTF-8 は自己同期なので，バイトの一致はコードポイントの列の一致と同じ．16.2）．`split`
