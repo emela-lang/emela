@@ -367,7 +367,11 @@ impl<'s> Lower<'s> {
     /// `dst = value`, with a destination if the type has a representation.
     fn let_(&mut self, hint: &str, ty: TypeId, value: Value) -> Option<VarId> {
         let dst = self.new_var(hint, ty);
-        self.push(Stmt::Let { dst, value });
+        self.push(Stmt::Let {
+            dst,
+            value,
+            on_defect: None,
+        });
         dst
     }
 
@@ -394,6 +398,7 @@ impl<'s> Lower<'s> {
         self.push(Stmt::Let {
             dst: Some(v),
             value,
+            on_defect: None,
         });
         v
     }
@@ -989,6 +994,7 @@ impl<'s> Lower<'s> {
                 body,
                 suspends: ft.suspends,
             })),
+            on_defect: None,
         });
         Ok(Val {
             op: Some(Operand::Var(dst)),

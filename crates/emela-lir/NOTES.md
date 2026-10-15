@@ -77,6 +77,17 @@
 - （補）トップレベルの関数を値として使う所（`fn_ref g`）は，`g` を呼ぶだけの包み `g$fn(env, …)` のレコードにする．関数の値の呼び方を1通りにするため．捕獲がないので，backend はこのレコードを静的なデータに置ける
 - （補）持ち上げた関数の名前は `親$closureN`（N は親の中での出現順で 0 から），包みは `g$fn`．入れ子のクロージャは持ち上げた関数からさらに持ち上げるので `f$closure0$closure0` のようになる
 
+### defect の経路（`heap/defects.rs`）
+
+- （補）defect は例外にも巻き戻しの表にもせず，戻り値の側で明示的に伝える（調査の結論 1）．保留中の defect はランタイムが fiber ごとに1つの枠で持つ．defect を起こす関数と，defect を持ち帰った呼び出しの後の関数は `unwind`（`Term::Unwind`）で呼び出し元へ戻る．値は返さない（backend は何か返す）
+- （補）defect を持ち帰りうる呼び出しには，その場の着地点（`on_defect { … }`）を付ける．`Stmt::Let` の欄で，`dst` は見えず，`yield` で抜けられない．C と WASM は呼び出しの後に保留の枠を調べる分岐1つで出せる（`if (pending) { … }`）．失敗の値とは別の経路にしたのは，失敗の型を持たない関数（ほとんど全部）の戻り値の形を変えずに済ませるため
+- （補）失敗の辺も呼び出しごとの着地点（`OnFail::Handle { error, body }`）にする．`break 'l(e)` や `fail e` へ直に飛ばず着地点を通すのは，後の RC が呼び出しごとに違う変数を捨てる場所が要るのと，`protect` の cleanup をそこに写すため．Flow IR の `OnFail::Break` と `OnFail::Propagate` は Heap IR では使わない
+- （補）着地点が要るのは，`Function::defects` の立った関数の直接呼び出し，関数値と操作の呼び出し（呼び先が分からない），`builtin_may_defect` と `fiber_may_defect` の組み込み関数と並行の操作．`defects` は呼び出しのグラフの不動点で求める．外部関数（ホストの例外は defect，12.5）と suspend する関数はいつも立てる．検証器は着地点が「defect を持ち帰りうる値にちょうど付いている」ことを確かめる
+- （補）`defect(msg)` は `runtime defect(msg)` と `unwind` にする．整数の `/` と `%` は，割る数が 0 でない定数でなければ，前に 0 の検査（`division by zero`）を置く．backend は検査なしで割ってよい（`-2147483648 / -1` の巻き戻りは backend の側で 16.1 に合わせる）
+- （補）`protect { body } cleanup { c }` は `body` の block にし，`body` を抜けるすべての所（最後の `yield`，外の block への `break`，`return`，`fail`，失敗の着地点，`unwind`）の直前に `c` の写しを置く．抜け方を表す変数で1か所に集める形より，写すほうが単純で，RC の後の形も素直になる．cleanup は release の呼び出しと `retire` だけなので，大きさの増え方は小さい
+- （補）defect で抜けるときは，写しの前で保留の defect を取り出し（`runtime defect_take()`），後で戻す（`runtime defect_resume(d)`）．cleanup の中の呼び出しが自分の defect を見分けられるようにするため．cleanup の中で起きた defect は `defect_resume` が最初の defect の注記にし，そのまま外へ巻き戻る（14.4 の「最初の defect が結果」「残りの release はすべて実行」）．値や失敗で抜ける途中で cleanup が defect になったときは，その defect が抜け方を置き換える（14.4 の前半）．注記の文面と順はランタイムが決める
+- （補）`Function::defects` は dump の署名の後ろに ` defects` と出す（`Stage::DefectsExplicit` から）
+
 ## 未決
 
 - `Any` をまたぐ値の箱詰めを Flow IR で明示していない．Scope のハンドラの中で，子の関数（`fn(evidence) -> Int`）を `fn(evidence) -> any` の引数として受け，結果の `any` を `Fiber.join` が `Int` として返す．表現が `i32` と `ref` で食い違うので，Heap IR か backend で包み直すか，変換で操作の呼び出しの引数に `coerce` と包み直しのクロージャを入れる

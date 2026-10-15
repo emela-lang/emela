@@ -1,0 +1,75 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"main\", \"pick\", \"Strict$release\"])"
+---
+export fn main() -> i32 (Int) defects {
+  call Strict$init()
+  h%0: ref (handler Pool) = call Strict()
+  t%7: i32 (Int) = block 'protect%6 {
+    ev%1: ref (evidence) = ev_extend([Pool: h%0])
+    t%2: ref (List[Int]) = list[1]
+    t%5: i32 (Int) = call pick(t%2, ev%1) on_defect {
+      defect%3: ref (any) = runtime defect_take()
+      block 'cleanup%0 {
+        block 'protect%2 {
+          call Strict$release() on_defect {
+            defect%4: ref (any) = runtime defect_take()
+            block 'cleanup%1 {
+              runtime retire(h%0, "Strict")
+            }
+            runtime defect_resume(defect%4)
+            runtime defect_resume(defect%3)
+            unwind
+          }
+          unreachable
+        }
+      }
+      runtime defect_resume(defect%3)
+      unwind
+    }
+    block 'cleanup%3 {
+      block 'protect%5 {
+        call Strict$release() on_defect {
+          defect%6: ref (any) = runtime defect_take()
+          block 'cleanup%4 {
+            runtime retire(h%0, "Strict")
+          }
+          runtime defect_resume(defect%6)
+          unwind
+        }
+        unreachable
+      }
+    }
+    yield t%5
+  }
+  return t%7
+}
+
+fn Strict$release() -> void (Never) defects {
+  runtime defect("release failed")
+  unwind
+}
+
+fn pick(xs%0: ref (List[Int]), ev%1: ref (evidence)) -> i32 (Int) defects {
+  t%9: i32 (Int) = block 'match%0 {
+    t%2: i32 (Bool) = list_is_empty xs%0
+    if t%2 {
+      runtime defect("empty")
+      unwind
+    } else {
+      head%3: i32 (Int) = list_head xs%0
+      tail%4: ref (List[Int]) = list_tail xs%0
+      t%5: ref (handler Pool) = ev_lookup(ev%1, Pool)
+      t%6: i32 (Int) = call_op t%5.Pool#get() on_defect { unwind }
+      zero%7: i32 (Bool) = t%6 ==[i32] 0
+      if zero%7 {
+        runtime defect("division by zero")
+        unwind
+      } else {}
+      t%8: i32 (Int) = head%3 /[i32] t%6
+      break 'match%0(t%8)
+    }
+    unreachable
+  }
+  return t%9
+}

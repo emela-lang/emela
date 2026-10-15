@@ -14,7 +14,9 @@
 //! - failure edges are present exactly on fallible calls, and only fallible bodies fail
 //! - the constructs agree with the module's [`Stage`]: no nested closures or function references
 //!   after closure conversion, and closure records only refer to lifted functions whose
-//!   environment matches the captures
+//!   environment matches the captures; no `protect`, `defect` or failure edges without landing
+//!   once defects are explicit, defect landings exactly on the values that may raise a defect,
+//!   `unwind` only in functions that may raise one, and landings that do not yield
 //!
 //! ANF is enforced by the data types (arguments are [`Operand`]s), and so is the position of
 //! terminators (each sequence has one, at its end).
@@ -106,6 +108,9 @@ pub enum ErrorKind {
     /// function or not on its environment parameter, or a closure record of a function that is
     /// not lifted or whose captures differ.
     BadEnvironment,
+    /// A value that may raise a defect without a defect landing, a defect landing on one that
+    /// cannot, or `unwind` in a function that does not raise defects (Heap IR).
+    DefectEdge,
 }
 
 /// Checks every function of the module.
@@ -183,6 +188,8 @@ enum YieldTo {
     Stmt(Repr),
     /// Nowhere: the sequence is a function or closure body.
     Body,
+    /// Nowhere: the sequence is a failure or defect landing.
+    Landing,
 }
 
 /// What a value's representation is expected to be.
@@ -418,8 +425,13 @@ impl Checker<'_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::Let { dst, value } => {
+            Stmt::Let {
+                dst,
+                value,
+                on_defect,
+            } => {
                 let expect = self.value(value, *dst);
+                self.on_defect(value, *on_defect);
                 match (dst, expect) {
                     (Some(d), Expect::Exactly(Repr::Void)) => self.error(
                         ErrorKind::VoidDestination,
@@ -499,6 +511,7 @@ impl Checker<'_> {
                 self.enclosing.pop();
             }
             Stmt::Protect { dst, body, cleanup } => {
+                self.stage_at_most(Stage::ClosuresConverted, "protect");
                 self.enclosing.push(Encl::Protect);
                 self.seq(*body, YieldTo::Stmt(self.dst_repr(*dst)));
                 self.enclosing.pop();
@@ -602,6 +615,10 @@ impl Checker<'_> {
                         ErrorKind::MissingTerminator,
                         "a function or closure body reaches its end".into(),
                     ),
+                    YieldTo::Landing => self.error(
+                        ErrorKind::MissingTerminator,
+                        "a landing reaches its end".into(),
+                    ),
                     YieldTo::Stmt(expected) => self.expect(r, expected, "yield"),
                 }
             }
@@ -651,8 +668,18 @@ impl Checker<'_> {
                 }
             }
             Term::Defect(msg) => {
+                self.stage_at_most(Stage::ClosuresConverted, "defect");
                 let r = self.operand(msg);
                 self.expect(r, Repr::Ref, "defect message");
+            }
+            Term::Unwind => {
+                self.stage_at_least(Stage::DefectsExplicit, "unwind");
+                if !self.f.defects {
+                    self.error(
+                        ErrorKind::DefectEdge,
+                        "unwind in a function that does not raise defects".into(),
+                    );
+                }
             }
             Term::Unreachable => {}
         }
@@ -715,7 +742,23 @@ impl Checker<'_> {
             ),
             _ => {}
         }
+        if matches!(on_fail, Some(OnFail::Break(_) | OnFail::Propagate)) {
+            self.stage_at_most(Stage::ClosuresConverted, "a failure edge without landing");
+        }
         match on_fail {
+            Some(OnFail::Handle { error, body }) => {
+                self.stage_at_least(Stage::DefectsExplicit, "a failure landing");
+                if self.f.vars[*error].repr != Repr::Ref {
+                    self.error(
+                        ErrorKind::ReprMismatch,
+                        format!("failure landing: {} is not ref", self.name(*error)),
+                    );
+                }
+                self.scoped(|c| {
+                    c.define(*error);
+                    c.seq(*body, YieldTo::Landing);
+                });
+            }
             Some(OnFail::Break(l)) => {
                 if let Some(r) = self.label_target(*l, "failure edge") {
                     let what = format!("failure edge to {}", self.label_name(*l));
@@ -1151,6 +1194,33 @@ impl Checker<'_> {
                 self.args(args, &expected, &format!("runtime {}", op.name()));
                 Expect::Exactly(ret)
             }
+        }
+    }
+
+    /// Checks the defect landing of a let against its value.
+    fn on_defect(&mut self, value: &Value, on_defect: Option<SeqId>) {
+        if self.stage < Stage::DefectsExplicit {
+            if on_defect.is_some() {
+                self.error(
+                    ErrorKind::StageViolation,
+                    format!("a defect landing at stage {:?}", self.stage),
+                );
+            }
+        } else {
+            match (crate::heap::may_defect(self.m, value), on_defect) {
+                (true, None) => self.error(
+                    ErrorKind::DefectEdge,
+                    "a value that may raise a defect has no defect landing".into(),
+                ),
+                (false, Some(_)) => self.error(
+                    ErrorKind::DefectEdge,
+                    "a value that cannot raise a defect has a defect landing".into(),
+                ),
+                _ => {}
+            }
+        }
+        if let Some(l) = on_defect {
+            self.seq(l, YieldTo::Landing);
         }
     }
 

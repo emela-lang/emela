@@ -1,0 +1,85 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"main\", \"work\", \"Counted\"])"
+---
+export fn main() -> i32 (Int) defects {
+  self%0: ref (Counted) = call Counted$init()
+  h%1: ref (handler Pool) = call Counted(self%0)
+  t%12: i32 (Int) = block 'protect%9 {
+    ev%2: ref (evidence) = ev_extend([Pool: h%1])
+    t%10: i32 (Int) = block 'escape%0 {
+      err%8: ref (any) = block 'caught%1 {
+        t%6: i32 (Int) = call work(1, ev%2) on_fail(e%3: ref (any)) { break 'caught%1(e%3) } on_defect {
+          defect%4: ref (any) = runtime defect_take()
+          block 'cleanup%2 {
+            block 'protect%4 {
+              t%5: i32 (Int) = call Counted$release(self%0)
+              block 'cleanup%3 {
+                runtime retire(h%1, "Counted")
+              }
+            }
+          }
+          runtime defect_resume(defect%4)
+          unwind
+        }
+        s%7: ref (String) = builtin Int.to_string(t%6)
+        runtime debug_print(s%7)
+        break 'escape%0(t%6)
+      }
+      block 'next%5 {
+        is%9: i32 (Bool) = is_error err%8 Empty
+        if is%9 {
+          break 'escape%0(0)
+        } else {}
+        break 'next%5
+      }
+      unreachable
+    }
+    block 'cleanup%6 {
+      block 'protect%8 {
+        t%11: i32 (Int) = call Counted$release(self%0)
+        block 'cleanup%7 {
+          runtime retire(h%1, "Counted")
+        }
+      }
+    }
+    yield t%10
+  }
+  return t%12
+}
+
+fn Counted$init() -> ref (Counted) {
+  t%0: ref (Counted) = make Counted.Counted(1)
+  return t%0
+}
+
+fn Counted(self%0: ref (Counted)) -> ref (handler Pool) {
+  f%1: ref (fn() -> Int) = make_closure Counted$closure0[self%0]
+  t%2: ref (handler Pool) = handler Counted: Pool { get: f%1 }
+  return t%2
+}
+
+fn Counted$release(self%0: ref (Counted)) -> i32 (Int) {
+  t%1: i32 (Int) = field self%0 Counted.Counted.n#0
+  s%2: ref (String) = builtin Int.to_string(t%1)
+  runtime debug_print(s%2)
+  return t%1
+}
+
+fn work(k%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) fails defects {
+  t%2: i32 (Bool) = k%0 ==[i32] 0
+  if t%2 {
+    t%3: ref (Empty) = make Empty.Empty
+    fail t%3
+  } else {}
+  t%4: ref (handler Pool) = ev_lookup(ev%1, Pool)
+  t%5: i32 (Int) = call_op t%4.Pool#get() on_defect { unwind }
+  t%6: i32 (Int) = t%5 +[i32] k%0
+  return t%6
+}
+
+fn Counted$closure0(env%0: ref (fn() -> Int)) -> i32 (Int) env[Counted] {
+  self%1: ref (Counted) = env_get env%0#0
+  t%2: i32 (Int) = field self%1 Counted.Counted.n#0
+  return t%2
+}

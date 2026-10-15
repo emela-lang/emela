@@ -53,7 +53,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
     let s = &f.seqs[id];
     for &stmt in &s.stmts {
         match &f.stmts[stmt] {
-            Stmt::Let { dst, value } => {
+            Stmt::Let { dst, value, .. } => {
                 if let Value::Closure(c) = value {
                     let mut inner = Uses::default();
                     inner.defined.extend(c.params.iter().copied());
@@ -127,6 +127,6 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
         }
         Term::Fail(o) | Term::Defect(o) => uses.operand(o),
         Term::Recur(args) => args.iter().for_each(|o| uses.operand(o)),
-        Term::Unreachable => {}
+        Term::Unwind | Term::Unreachable => {}
     }
 }

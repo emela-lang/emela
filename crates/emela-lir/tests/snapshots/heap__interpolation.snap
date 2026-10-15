@@ -1,0 +1,54 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"label\", \"show$Shape\", \"show$List\"])"
+---
+fn label(s%0: ref (Shape), n%1: i32 (Int)) -> ref (String) {
+  s%2: ref (String) = call show$Shape(s%0)
+  s%3: ref (String) = builtin Int.to_string(n%1)
+  s%4: ref (String) = builtin String.append("shape ", s%2)
+  s%5: ref (String) = builtin String.append(s%4, " number ")
+  s%6: ref (String) = builtin String.append(s%5, s%3)
+  return s%6
+}
+
+fn show$Shape(x%0: ref (Shape)) -> ref (String) {
+  switch tag(x%0) {
+    case Shape.Circle {
+      f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
+      s%2: ref (String) = builtin Float.to_string(f%1)
+      s%3: ref (String) = builtin String.append("Circle(radius: ", s%2)
+      s%4: ref (String) = builtin String.append(s%3, ")")
+      return s%4
+    }
+    case Shape.Named {
+      f%5: ref (String) = field x%0 Shape.Named#0
+      s%6: ref (String) = runtime show_string(f%5)
+      f%7: ref (List[Option[Int]]) = field x%0 Shape.Named#1
+      s%8: ref (String) = call show$List[Option[Int]](f%7)
+      s%9: ref (String) = builtin String.append("Named(", s%6)
+      s%10: ref (String) = builtin String.append(s%9, ", ")
+      s%11: ref (String) = builtin String.append(s%10, s%8)
+      s%12: ref (String) = builtin String.append(s%11, ")")
+      return s%12
+    }
+  }
+  unreachable
+}
+
+fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
+  joined%10: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
+    empty%4: i32 (Bool) = list_is_empty p%1
+    if empty%4 {} else {
+      h%5: ref (Option[Int]) = list_head p%1
+      t%6: ref (List[Option[Int]]) = list_tail p%1
+      s%7: ref (String) = call show$Option[Int](h%5)
+      s%8: ref (String) = builtin String.append(acc%2, sep%3)
+      s%9: ref (String) = builtin String.append(s%8, s%7)
+      recur(t%6, s%9, ", ")
+    }
+    yield acc%2
+  }
+  s%11: ref (String) = builtin String.append("[", joined%10)
+  s%12: ref (String) = builtin String.append(s%11, "]")
+  return s%12
+}

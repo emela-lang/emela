@@ -12,7 +12,7 @@
 //!
 //! [`from_core`] converts monomorphized Core IR to the Flow IR. [`to_heap`] runs the passes of the
 //! second stage, the Heap IR, on the same data types ([`Stage`] says which have run): closure
-//! conversion so far. The suspend state machine comes later.
+//! conversion and explicit defect paths so far. The suspend state machine comes later.
 
 mod build;
 mod dump;
@@ -25,7 +25,7 @@ mod verify;
 pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
 pub use from_core::{FromCoreError, from_core};
-pub use heap::{convert_closures, to_heap};
+pub use heap::{builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect, to_heap};
 pub use ir::*;
 pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};
 pub use verify::{ErrorKind, VerifyError, verify, verify_function};

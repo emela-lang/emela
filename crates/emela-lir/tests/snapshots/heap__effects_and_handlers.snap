@@ -1,0 +1,67 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"main\", \"report\", \"Prefixed\"])"
+---
+export fn main() -> i32 (Int) defects {
+  self%0: ref (Prefixed) = call Prefixed$init()
+  h%1: ref (handler Log) = call Prefixed(self%0)
+  t%6: i32 (Int) = block 'protect%6 {
+    ev%2: ref (evidence) = ev_extend([Log: h%1])
+    t%4: i32 (Int) = call report(1, ev%2) on_defect {
+      defect%3: ref (any) = runtime defect_take()
+      block 'cleanup%0 {
+        block 'protect%2 {
+          block 'cleanup%1 {
+            runtime retire(h%1, "Prefixed")
+          }
+        }
+      }
+      runtime defect_resume(defect%3)
+      unwind
+    }
+    s%5: ref (String) = builtin Int.to_string(t%4)
+    runtime debug_print(s%5)
+    block 'cleanup%3 {
+      block 'protect%5 {
+        block 'cleanup%4 {
+          runtime retire(h%1, "Prefixed")
+        }
+      }
+    }
+    yield t%4
+  }
+  return t%6
+}
+
+fn Prefixed$init() -> ref (Prefixed) {
+  t%0: ref (Prefixed) = make Prefixed.Prefixed("> ")
+  return t%0
+}
+
+fn Prefixed(self%0: ref (Prefixed)) -> ref (handler Log) {
+  f%1: ref (fn(String) -> ()) = make_closure Prefixed$closure0[self%0]
+  f%2: ref (fn() -> Int) = make_closure Prefixed$closure1[]
+  t%3: ref (handler Log) = handler Prefixed: Log { info: f%1, count: f%2 }
+  return t%3
+}
+
+fn report(x%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) defects {
+  log%2: ref (handler Log) = ev_lookup(ev%1, Log)
+  call_op log%2.Log#info("x") on_defect { unwind }
+  t%3: i32 (Int) = call_op log%2.Log#count() on_defect { unwind }
+  t%4: i32 (Int) = x%0 +[i32] t%3
+  return t%4
+}
+
+fn Prefixed$closure0(env%0: ref (fn(String) -> ()), msg%1: ref (String)) -> void (()) env[Prefixed] {
+  self%2: ref (Prefixed) = env_get env%0#0
+  t%3: ref (String) = field self%2 Prefixed.Prefixed.prefix#0
+  s%4: ref (String) = builtin String.append(t%3, msg%1)
+  s%5: ref (String) = runtime show_string(s%4)
+  runtime debug_print(s%5)
+  return
+}
+
+fn Prefixed$closure1(env%0: ref (fn() -> Int)) -> i32 (Int) env[] {
+  return 0
+}

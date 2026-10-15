@@ -36,7 +36,7 @@ pub fn convert_closures(m: &mut Module) {
         let mut counter = 0;
         let sites = sites(&m.functions[id]);
         for s in sites {
-            let Stmt::Let { dst, value } = &m.functions[id].stmts[s] else {
+            let Stmt::Let { dst, value, .. } = &m.functions[id].stmts[s] else {
                 unreachable!("a site is a let");
             };
             let dst = *dst;
@@ -73,7 +73,11 @@ pub fn convert_closures(m: &mut Module) {
                 }
                 _ => unreachable!("a site is a closure or a function reference"),
             };
-            m.functions[id].stmts[s] = Stmt::Let { dst, value: new };
+            m.functions[id].stmts[s] = Stmt::Let {
+                dst,
+                value: new,
+                on_defect: None,
+            };
         }
         m.functions[id] = compact(&m.functions[id]);
     }
@@ -136,6 +140,7 @@ fn lift(m: &Module, id: FnId, s: StmtId, name: &str) -> (Function, Vec<VarId>) {
     let Stmt::Let {
         dst: Some(dst),
         value: Value::Closure(c),
+        ..
     } = &src.stmts[s]
     else {
         unreachable!("a closure has a destination");
@@ -173,6 +178,7 @@ fn lift(m: &Module, id: FnId, s: StmtId, name: &str) -> (Function, Vec<VarId>) {
             f.stmts.alloc(Stmt::Let {
                 dst: Some(v),
                 value: Value::EnvGet { env, index },
+                on_defect: None,
             })
         })
         .collect();
@@ -223,6 +229,7 @@ fn wrapper(m: &Module, target: FnId, ty: TypeId) -> Function {
             suspends: t.suspends,
             on_fail: t.fails.then_some(OnFail::Propagate),
         },
+        on_defect: None,
     });
     let term = if m.core.ty(t.ret) == &Type::Never {
         Term::Unreachable

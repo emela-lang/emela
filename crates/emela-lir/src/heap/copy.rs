@@ -82,6 +82,7 @@ impl<'a> Copier<'a> {
             },
             Term::Recur(args) => Term::Recur(self.operands(out, args)),
             Term::Defect(msg) => Term::Defect(self.operand(out, msg)),
+            Term::Unwind => Term::Unwind,
             Term::Unreachable => Term::Unreachable,
         }
     }
@@ -89,11 +90,17 @@ impl<'a> Copier<'a> {
     pub fn stmt(&mut self, out: &mut Function, id: StmtId) -> StmtId {
         let src = self.src;
         let stmt = match &src.stmts[id] {
-            Stmt::Let { dst, value } => {
+            Stmt::Let {
+                dst,
+                value,
+                on_defect,
+            } => {
                 let value = self.value(out, value);
+                let on_defect = on_defect.map(|l| self.seq(out, l));
                 Stmt::Let {
                     dst: dst.map(|d| self.fresh(out, d)),
                     value,
+                    on_defect,
                 }
             }
             Stmt::If {
@@ -154,7 +161,12 @@ impl<'a> Copier<'a> {
                 }
             }
             Stmt::Block { dst, label, body } => {
-                let label = self.label(out, *label);
+                // A new label, so that a sequence can be copied twice into one function.
+                let label = {
+                    let n = out.labels.alloc(src.labels[*label].clone());
+                    self.labels.insert(*label, n);
+                    n
+                };
                 let body = self.seq(out, *body);
                 Stmt::Block {
                     dst: dst.map(|d| self.fresh(out, d)),
@@ -179,6 +191,10 @@ impl<'a> Copier<'a> {
         on_fail.map(|o| match o {
             OnFail::Break(l) => OnFail::Break(self.label(out, l)),
             OnFail::Propagate => OnFail::Propagate,
+            OnFail::Handle { error, body } => OnFail::Handle {
+                error: self.fresh(out, error),
+                body: self.seq(out, body),
+            },
         })
     }
 
@@ -311,6 +327,7 @@ pub(crate) fn empty_like(f: &Function) -> Function {
     out.constant = f.constant;
     out.external = f.external.clone();
     out.env = f.env.clone();
+    out.defects = f.defects;
     out
 }
 

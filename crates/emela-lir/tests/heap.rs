@@ -127,3 +127,184 @@ fn main() {
     );
     insta::assert_snapshot!(parts(&m, &["adder", "main", "inc"]));
 }
+
+#[test]
+fn matching_lists_and_enums() {
+    let m = program(
+        "\
+enum Shape {
+  Circle(radius: Float),
+  Rect(Float, Float),
+  Group(List[Shape]),
+}
+
+fn count(s: Shape) -> Int {
+  s match {
+    Circle(_) -> 1
+    Rect(_, _) -> 1
+    Group(items) -> sum(items, 0)
+  }
+}
+
+fn sum(items: List[Shape], acc: Int) -> Int {
+  items match {
+    [] -> acc
+    [first, ..rest] -> sum(rest, acc + count(first))
+  }
+}
+
+fn main() {
+  dbg(count(Group([Circle(radius: 1.0), Rect(1.0, 2.0)])))
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["count", "sum"]));
+}
+
+#[test]
+fn errors_with_escape() {
+    let m = program(
+        "\
+error NotFound(id: Int)
+error Invalid(reason: String)
+
+fn find(id: Int) -> String fails NotFound | Invalid {
+  if id < 0 { fail Invalid(reason: \"negative\") }
+  if id == 0 { fail NotFound(id:) }
+  \"user\"
+}
+
+fn lookup(id: Int, fallback: String) -> String fails Invalid {
+  find(id) escape {
+    NotFound(_) -> fallback
+  }
+}
+
+fn ratio(a: Int, b: Int) -> Int { a / b + a % 2 }
+
+fn main() {
+  dbg(ratio(4, 2))
+  dbg(lookup(1, \"guest\")) escape {
+    Invalid(reason:) -> reason
+  }
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["find", "lookup", "ratio"]));
+}
+
+#[test]
+fn with_and_release() {
+    let m = program(
+        "\
+effect Pool {
+  fn get() -> Int
+}
+
+handler Counted(n: Int) implements Pool {
+  init { Counted(n: 1) }
+  release { dbg(self.n) }
+  fn get() { self.n }
+}
+
+error Empty
+
+fn work(k: Int) -> Int fails Empty use Pool {
+  if k == 0 { fail Empty }
+  (use Pool).get() + k
+}
+
+fn main() {
+  with Counted {
+    dbg(work(1)) escape { Empty -> 0 }
+  }
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main", "work", "Counted"]));
+}
+
+#[test]
+fn defects_through_releases() {
+    let m = program(
+        "\
+effect Pool {
+  fn get() -> Int
+}
+
+handler Strict implements Pool {
+  release { panic(\"release failed\") }
+  fn get() { 1 }
+}
+
+fn pick(xs: List[Int]) -> Int use Pool {
+  xs match {
+    [] -> panic(\"empty\")
+    [x, ..] -> x / (use Pool).get()
+  }
+}
+
+fn main() -> Int {
+  with Strict {
+    pick([1])
+  }
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main", "pick", "Strict$release"]));
+}
+
+#[test]
+fn effects_and_handlers() {
+    let m = program(
+        "\
+effect Log {
+  fn info(msg: String) -> ()
+  fn count() -> Int
+}
+
+handler Prefixed(prefix: String) implements Log {
+  init { Prefixed(prefix: \"> \") }
+  fn info(msg) {
+    dbg(\"#{self.prefix}#{msg}\")
+    ()
+  }
+  fn count() { 0 }
+}
+
+fn report(x: Int) -> Int use Log {
+  log = use Log
+  log.info(\"x\")
+  x + log.count()
+}
+
+fn main() {
+  with Prefixed {
+    dbg(report(1))
+  }
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main", "report", "Prefixed"]));
+}
+
+#[test]
+fn interpolation() {
+    let m = program(
+        "\
+enum Shape {
+  Circle(radius: Float),
+  Named(String, List[Option[Int]]),
+}
+
+fn label(s: Shape, n: Int) -> String {
+  \"shape #{s} number #{n}\"
+}
+
+fn main() {
+  dbg(label(Named(\"a\", [Some(1), None]), 2))
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["label", "show$Shape", "show$List"]));
+}

@@ -1,0 +1,47 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"find\", \"lookup\", \"ratio\"])"
+---
+fn ratio(a%0: i32 (Int), b%1: i32 (Int)) -> i32 (Int) defects {
+  zero%2: i32 (Bool) = b%1 ==[i32] 0
+  if zero%2 {
+    runtime defect("division by zero")
+    unwind
+  } else {}
+  t%3: i32 (Int) = a%0 /[i32] b%1
+  t%4: i32 (Int) = a%0 %[i32] 2
+  t%5: i32 (Int) = t%3 +[i32] t%4
+  return t%5
+}
+
+fn lookup(id%0: i32 (Int), fallback%1: ref (String)) -> ref (String) fails {
+  t%6: ref (String) = block 'escape%0 {
+    err%4: ref (any) = block 'caught%1 {
+      t%3: ref (String) = call find(id%0) on_fail(e%2: ref (any)) { break 'caught%1(e%2) }
+      break 'escape%0(t%3)
+    }
+    block 'next%2 {
+      is%5: i32 (Bool) = is_error err%4 NotFound
+      if is%5 {
+        break 'escape%0(fallback%1)
+      } else {}
+      break 'next%2
+    }
+    fail err%4
+  }
+  return t%6
+}
+
+fn find(id%0: i32 (Int)) -> ref (String) fails {
+  t%1: i32 (Bool) = id%0 <[i32] 0
+  if t%1 {
+    t%2: ref (Invalid) = make Invalid.Invalid("negative")
+    fail t%2
+  } else {}
+  t%3: i32 (Bool) = id%0 ==[i32] 0
+  if t%3 {
+    t%4: ref (NotFound) = make NotFound.NotFound(id%0)
+    fail t%4
+  } else {}
+  return "user"
+}

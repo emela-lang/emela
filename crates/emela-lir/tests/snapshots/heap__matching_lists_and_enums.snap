@@ -1,0 +1,43 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"count\", \"sum\"])"
+---
+fn count(s%0: ref (Shape)) -> i32 (Int) {
+  t%3: i32 (Int) = block 'match%0 {
+    switch tag(s%0) {
+      case Shape.Circle {
+        break 'match%0(1)
+      }
+      case Shape.Rect {
+        break 'match%0(1)
+      }
+      case Shape.Group {
+        x%1: ref (List[Shape]) = field s%0 Shape.Group#0
+        t%2: i32 (Int) = call sum(x%1, 0)
+        break 'match%0(t%2)
+      }
+    }
+    unreachable
+  }
+  return t%3
+}
+
+fn sum(items%0: ref (List[Shape]), acc%1: i32 (Int)) -> i32 (Int) {
+  t%10: i32 (Int) = loop(items%2: ref (List[Shape]) = items%0, acc%3: i32 (Int) = acc%1) {
+    t%9: i32 (Int) = block 'match%0 {
+      t%4: i32 (Bool) = list_is_empty items%2
+      if t%4 {
+        break 'match%0(acc%3)
+      } else {
+        head%5: ref (Shape) = list_head items%2
+        tail%6: ref (List[Shape]) = list_tail items%2
+        t%7: i32 (Int) = call count(head%5)
+        t%8: i32 (Int) = acc%3 +[i32] t%7
+        recur(tail%6, t%8)
+      }
+      unreachable
+    }
+    yield t%9
+  }
+  return t%10
+}

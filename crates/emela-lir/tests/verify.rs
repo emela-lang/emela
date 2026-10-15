@@ -637,6 +637,94 @@ fn closures_and_the_stage() {
 }
 
 #[test]
+fn defects_and_the_stage() {
+    let (fx, mut m) = module();
+    let id = identity(&mut m, "id", |_| {});
+    m.functions[id].defects = true;
+    m.stage = Stage::DefectsExplicit;
+    // Flow IR constructs: protect, a failure edge without landing, defect.
+    let mut b = FnBuilder::new(&m.core, "flow");
+    b.set_fails();
+    let g = b.param("g", fx.int_to_int_fails);
+    b.protect(None, |b| b.term(Term::Yield(None)), |_| {});
+    let landing = b.seq(|b| b.term(Term::Unwind));
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Call {
+            callee: Callee::Indirect(g),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: Some(OnFail::Propagate),
+        },
+        on_defect: Some(landing),
+    });
+    b.term(Term::Defect(string("boom")));
+    let mut f = b.finish();
+    f.defects = true;
+    assert_eq!(
+        kinds(&m, &f),
+        [
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation
+        ]
+    );
+    // A call that may raise a defect without landing; unwind in a function that does not.
+    let mut b = FnBuilder::new(&m.core, "edges");
+    b.let_(
+        None,
+        Value::Call {
+            callee: Callee::Direct(id),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: None,
+        },
+    );
+    b.term(Term::Unwind);
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::DefectEdge, ErrorKind::DefectEdge]
+    );
+    // A landing that yields, and one on a value that cannot raise a defect.
+    let mut b = FnBuilder::new(&m.core, "landings");
+    let yields = b.seq(|_| {});
+    let unwinds = b.seq(|b| b.term(Term::Unwind));
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Call {
+            callee: Callee::Direct(id),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: None,
+        },
+        on_defect: Some(yields),
+    });
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Const(Const::Int(1)),
+        on_defect: Some(unwinds),
+    });
+    b.term(Term::Return(None));
+    let mut f = b.finish();
+    f.defects = true;
+    assert_eq!(
+        kinds(&m, &f),
+        [ErrorKind::MissingTerminator, ErrorKind::DefectEdge]
+    );
+    // Landings are not allowed in the Flow IR.
+    m.stage = Stage::Flow;
+    assert_eq!(
+        kinds(&m, &f),
+        [
+            ErrorKind::StageViolation,
+            ErrorKind::MissingTerminator,
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation,
+        ]
+    );
+}
+
+#[test]
 fn environments() {
     let (fx, mut m) = module();
     m.stage = Stage::ClosuresConverted;

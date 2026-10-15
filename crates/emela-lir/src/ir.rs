@@ -43,6 +43,12 @@ pub enum Stage {
     /// Closures lifted to functions taking their record as the environment
     /// ([`Value::MakeClosure`], [`Value::EnvGet`]); no [`Value::Closure`] or [`Value::FnRef`].
     ClosuresConverted,
+    /// Defects and cleanups made explicit control: calls that may raise a defect have a landing
+    /// (`on_defect`), failure edges have landings ([`OnFail::Handle`]), [`Term::Unwind`] leaves a
+    /// function with the pending defect, and the cleanups of `protect` are copied onto every way
+    /// out of its body. No [`Stmt::Protect`], [`Term::Defect`], [`OnFail::Break`] or
+    /// [`OnFail::Propagate`].
+    DefectsExplicit,
 }
 
 impl Module {
@@ -108,6 +114,10 @@ pub struct Function {
     /// the closure record itself (`ref`, with the closure's function type as its Core type),
     /// borrowed for the call. [`Value::EnvGet`] reads the captures from it.
     pub env: Option<Vec<TypeId>>,
+    /// Heap IR, from [`Stage::DefectsExplicit`]: whether a call may come back with a pending
+    /// defect, so that calls to it need a defect landing. External functions may (a host
+    /// exception is a defect, spec 12.5).
+    pub defects: bool,
     /// The body. Every path ends in a terminator other than [`Term::Yield`].
     pub body: Option<SeqId>,
     pub vars: Arena<VarData>,
@@ -129,6 +139,7 @@ impl Function {
             constant: false,
             external: None,
             env: None,
+            defects: false,
             body: None,
             vars: Arena::new(),
             stmts: Arena::new(),
@@ -184,8 +195,13 @@ pub enum Term {
     /// Starts the next iteration of the innermost enclosing loop with new values for its
     /// variables.
     Recur(Vec<Operand>),
-    /// Raises a defect with the message (a string). How it unwinds is up to the backend.
+    /// Raises a defect with the message (a string), unwinding through the cleanups to the
+    /// caller. Flow IR only: the Heap IR makes the unwinding explicit with
+    /// [`RuntimeOp::Defect`] and [`Term::Unwind`].
     Defect(Operand),
+    /// Heap IR: returns from the function with the pending defect (the caller's defect landing
+    /// runs). The function's result is not given (backends return any value).
+    Unwind,
     /// Control never gets here (after a call that does not return, such as `panic`).
     Unreachable,
 }
@@ -195,8 +211,14 @@ pub enum Term {
 /// value has no representation or is unused.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// `dst = value`．
-    Let { dst: Option<VarId>, value: Value },
+    /// `dst = value`．`on_defect` (Heap IR) is the landing run instead of the rest of the sequence
+    /// when the value (a call, builtin or concurrency operation that may raise a defect) comes
+    /// back with a pending defect. It does not see `dst` and cannot yield.
+    Let {
+        dst: Option<VarId>,
+        value: Value,
+        on_defect: Option<SeqId>,
+    },
     /// Runs `then` if `cond` (an `i32`) is not zero, else `else_`.
     If {
         dst: Option<VarId>,
@@ -515,6 +537,17 @@ pub enum RuntimeOp {
     /// is the defect `handler <name> was used after release` from then on (spec 8.6). The string
     /// is the handler's name.
     Retire,
+    /// `(String) -> ()`: makes the message the pending defect. If a defect is already pending (a
+    /// release failing while unwinding, spec 14.4), the message becomes a note of it instead.
+    /// Heap IR; a [`Term::Unwind`] (through the cleanups) follows.
+    Defect,
+    /// `() -> ref`: takes the pending defect out, so that a cleanup runs with no defect pending.
+    /// Heap IR.
+    DefectTake,
+    /// `(ref) -> ()`: puts back a defect taken by [`RuntimeOp::DefectTake`] as the pending one.
+    /// A defect raised meanwhile (by the cleanup) becomes a note of it (spec 14.4: the first
+    /// defect is the result). Consumes the argument. Heap IR.
+    DefectResume,
 }
 
 impl RuntimeOp {
@@ -523,6 +556,9 @@ impl RuntimeOp {
             RuntimeOp::ShowString => "show_string",
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
+            RuntimeOp::Defect => "defect",
+            RuntimeOp::DefectTake => "defect_take",
+            RuntimeOp::DefectResume => "defect_resume",
         }
     }
 
@@ -532,6 +568,8 @@ impl RuntimeOp {
             RuntimeOp::ShowString => (&[Repr::Ref], Repr::Ref),
             RuntimeOp::DebugPrint => (&[Repr::Ref], Repr::Void),
             RuntimeOp::Retire => (&[Repr::Ref, Repr::Ref], Repr::Void),
+            RuntimeOp::Defect | RuntimeOp::DefectResume => (&[Repr::Ref], Repr::Void),
+            RuntimeOp::DefectTake => (&[], Repr::Ref),
         }
     }
 }
@@ -565,10 +603,14 @@ pub enum Callee {
 /// Where a failing call goes. The error value (`ref`) goes with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnFail {
-    /// Leaves the enclosing block with the label, giving the error as its value.
+    /// Leaves the enclosing block with the label, giving the error as its value. Flow IR only.
     Break(LabelId),
-    /// Fails the enclosing function or closure (as [`Term::Fail`]).
+    /// Fails the enclosing function or closure (as [`Term::Fail`]). Flow IR only.
     Propagate,
+    /// Heap IR: binds the error to `error` and runs the landing `body`, which cannot yield (it
+    /// breaks, fails, returns or unwinds). Each failing call has its own landing, so the
+    /// reference counting pass can release what differs between them.
+    Handle { error: VarId, body: SeqId },
 }
 
 /// Numeric operations and comparisons. Comparisons give an `i32` (0 or 1); the others give the

@@ -99,6 +99,9 @@ impl Printer<'_> {
         if f.fails {
             self.out.push_str(" fails");
         }
+        if self.m.stage >= crate::ir::Stage::DefectsExplicit && f.defects {
+            self.out.push_str(" defects");
+        }
         if let Some(env) = &f.env {
             let tys: Vec<String> = env.iter().map(|&t| core_ty(&self.m.core, t)).collect();
             write!(self.out, " env[{}]", tys.join(", ")).unwrap();
@@ -216,6 +219,7 @@ impl Printer<'_> {
             },
             Term::Recur(args) => format!("recur({})", self.operands(args)),
             Term::Defect(msg) => format!("defect({})", self.operand(msg)),
+            Term::Unwind => "unwind".to_owned(),
             Term::Unreachable => "unreachable".to_owned(),
         };
         self.out.push_str(&text);
@@ -226,7 +230,27 @@ impl Printer<'_> {
             write!(self.out, "{} = ", self.binder(dst)).unwrap();
         }
         match s {
-            Stmt::Let { value, .. } => self.value(value),
+            Stmt::Let {
+                value, on_defect, ..
+            } => {
+                self.value(value);
+                if let Value::Call {
+                    on_fail: Some(OnFail::Handle { body, .. }),
+                    ..
+                }
+                | Value::Fiber {
+                    on_fail: Some(OnFail::Handle { body, .. }),
+                    ..
+                } = value
+                {
+                    self.out.push(' ');
+                    self.landing(*body);
+                }
+                if let Some(l) = on_defect {
+                    self.out.push_str(" on_defect ");
+                    self.landing(*l);
+                }
+            }
             Stmt::If {
                 cond, then, else_, ..
             } => {
@@ -300,6 +324,20 @@ impl Printer<'_> {
             None => String::new(),
             Some(OnFail::Break(l)) => format!(" on_fail {}", self.label(*l)),
             Some(OnFail::Propagate) => " on_fail fail".to_owned(),
+            Some(OnFail::Handle { error, .. }) => format!(" on_fail({})", self.binder(*error)),
+        }
+    }
+
+    /// A landing (`on_fail(e) { … }`, `on_defect { … }`): on one line if it is just its
+    /// terminator.
+    fn landing(&mut self, id: SeqId) {
+        let seq = &self.f.seqs[id];
+        if seq.stmts.is_empty() {
+            self.out.push_str("{ ");
+            self.term(&seq.term);
+            self.out.push_str(" }");
+        } else {
+            self.seq(id);
         }
     }
 
