@@ -9,7 +9,9 @@
 
 use rustc_hash::FxHashMap;
 
-use super::rc::{Mode, borrowed_param, counted, is_view, landings, term_consumes, value_uses};
+use super::rc::{
+    Mode, borrowed_param, counted, is_view, landings, suspend_saved, term_consumes, value_uses,
+};
 use crate::ir::{Function, LabelId, Module, SeqId, Stmt, SwitchOn, Term, VarId};
 
 /// The messages of the imbalances found in the function.
@@ -230,6 +232,19 @@ impl Check<'_> {
                     }
                 }
                 let (fail, defect) = landings(stmt);
+                if let Stmt::Let {
+                    on_suspend: Some(_),
+                    ..
+                } = stmt
+                {
+                    // Suspended: the saved variables move into the frame, and nothing else may
+                    // own a reference.
+                    let mut t = tokens.clone();
+                    for v in suspend_saved(f, stmt) {
+                        self.take(&mut t, v, "a suspension edge saves");
+                    }
+                    self.deliver(None, &t);
+                }
                 if let Some((e, body)) = fail {
                     self.seq_with(body, tokens.clone(), &[(e, 1)], None, head);
                 }

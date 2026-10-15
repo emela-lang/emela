@@ -10,7 +10,8 @@
 //!   values that make a new reference (calls, `make`, `list`, `tuple`, `make_closure`, …).
 //! - Borrowed: the environment parameter of a lifted function (the caller keeps the closure record
 //!   alive for the call). It is never dropped; using it where a reference is consumed needs a
-//!   `dup`.
+//!   `dup`. When a suspension edge saves it, it is owned after a `dup` at the start: a frame may
+//!   keep it after the call returned suspended and the caller let the record go.
 //! - Views: `field`, `tuple_get`, `list_head`, `list_tail`, `env_get`, `ev_lookup`, `as_error`
 //!   and `coerce` of a `ref` read a reference out of a value they borrow. Their destination owns
 //!   nothing until a `dup` right after the statement, which the pass emits when the destination is
@@ -18,9 +19,10 @@
 //! - Consumed (ownership moves): the arguments of calls of functions, closure records and
 //!   operations (their parameters are owned), the fields of `make`, the elements of `tuple` and
 //!   `list`, the captures of `make_closure`, the table and handlers of `ev_extend`, the operations
-//!   of `handler`, the argument of `runtime defect_resume`, the initial values of loops, and the
-//!   values of `yield`, `break`, `return`, `fail` and `recur`. A call consumes its arguments
-//!   however it comes back (value, failure or defect).
+//!   of `handler`, the argument of `runtime defect_resume`, the initial values of loops, the
+//!   values of `yield`, `break`, `return`, `fail` and `recur`, and the variables a suspension edge
+//!   saves (moved into the frame). A call consumes its arguments however it comes back (value,
+//!   failure, defect or suspended).
 //! - Borrowed (the owner keeps it): the callee of `call_indirect` and the handler of `call_op`,
 //!   the arguments of external functions, builtins, `runtime` operations and concurrency
 //!   operations (the runtime dups what it keeps), primitive operations, the base of views, and
@@ -40,7 +42,12 @@
 //!   statement it yields to or breaks out of, at the loop head for `recur`, nothing for `return`,
 //!   `fail` and `unwind`. Every edge into a join point thus brings the same owned variables.
 //!
-//! No drop specialization or reuse yet. Runs last, on functions that do not suspend.
+//! - On a suspension edge, the saved variables are consumed. They are exactly the owned variables
+//!   at that point (the state machine pass saves what is live on and what the value borrows), so
+//!   nothing is dropped there, and the resumed function continues after the value owning what the
+//!   uninterrupted one owns.
+//!
+//! No drop specialization or reuse yet. Runs last.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -199,20 +206,31 @@ pub(crate) fn landings(stmt: &Stmt) -> (Option<(VarId, SeqId)>, Option<SeqId>) {
     }
 }
 
+/// The counted variables a let's suspension edge saves.
+pub(crate) fn suspend_saved(f: &Function, stmt: &Stmt) -> Vec<VarId> {
+    match stmt {
+        Stmt::Let {
+            on_suspend: Some(s),
+            ..
+        } => s.saved.iter().copied().filter(|&v| counted(f, v)).collect(),
+        _ => Vec::new(),
+    }
+}
+
 type Set = FxHashSet<VarId>;
 
-/// Inserts `dup` and `drop` into every function that does not suspend. The module must be at
-/// [`Stage::DefectsExplicit`]; it is at [`Stage::RefCounted`] afterwards.
+/// Inserts `dup` and `drop` into every function. The module must be at
+/// [`Stage::StateMachines`]; it is at [`Stage::RefCounted`] afterwards.
 pub fn insert_rc(m: &mut Module) {
     assert_eq!(
         m.stage,
-        Stage::DefectsExplicit,
-        "reference counting runs after the defect paths are explicit"
+        Stage::StateMachines,
+        "reference counting runs after the state machines are made"
     );
     let ids: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
     for id in ids {
         let f = &m.functions[id];
-        if f.suspends || f.body.is_none() {
+        if f.body.is_none() {
             continue;
         }
         let mut f = f.clone();
@@ -254,14 +272,28 @@ impl<'a> Counter<'a> {
             label_target: FxHashMap::default(),
         };
         let body = f.body.expect("a function with a body");
-        c.live_seq(f, body, &Set::default(), None);
-        let owned: Set = f
+        let live = c.live_seq(f, body, &Set::default(), None);
+        let mut owned: Set = f
             .params
             .iter()
             .copied()
             .filter(|&p| counted(f, p) && !borrowed_param(f, p))
             .collect();
+        // A suspending function owns its environment when a frame may keep it (see the module
+        // documentation).
+        let env = f.params.first().copied().filter(|&p| {
+            borrowed_param(f, p)
+                && live.contains(&p)
+                && f.stmts.iter().any(|(_, s)| {
+                    matches!(s, Stmt::Let { on_suspend: Some(e), .. } if e.saved.contains(&p))
+                })
+        });
+        owned.extend(env);
         c.seq(f, body, owned, &Set::default(), None);
+        if let Some(env) = env {
+            let dup = f.stmts.alloc(Stmt::Dup(env));
+            f.seqs[body].stmts.insert(0, dup);
+        }
     }
 
     // Liveness.
@@ -317,6 +349,7 @@ impl<'a> Counter<'a> {
                     after.extend(self.live_seq(f, l, yield_live, head));
                 }
                 after.extend(self.uses(f, value).into_iter().map(|(v, _)| v));
+                after.extend(suspend_saved(f, stmt));
                 after
             }
             Stmt::Dup(v) | Stmt::Drop(v) => {
@@ -409,6 +442,7 @@ impl<'a> Counter<'a> {
                     after.extend(self.live[ix(l)].iter().copied());
                 }
                 after.extend(self.uses(f, value).into_iter().map(|(v, _)| v));
+                after.extend(suspend_saved(f, stmt));
                 after
             }
             Stmt::Dup(v) | Stmt::Drop(v) => {
@@ -577,6 +611,18 @@ impl<'a> Counter<'a> {
                     out,
                 );
                 out.push(s);
+                // The suspension edge moves exactly the owned variables into the frame.
+                debug_assert!(
+                    !matches!(
+                        &stmt,
+                        Stmt::Let {
+                            on_suspend: Some(_),
+                            ..
+                        }
+                    ) || suspend_saved(f, &stmt).into_iter().collect::<Set>() == *owned,
+                    "a suspension edge of {} saves other variables than the owned ones",
+                    f.name
+                );
                 if let Some((e, body)) = fail {
                     let mut entry = owned.clone();
                     entry.insert(e);

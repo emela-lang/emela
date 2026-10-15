@@ -1,0 +1,60 @@
+---
+source: crates/emela-lir/tests/from_core.rs
+expression: "parts(&m, &[\"main\"])"
+---
+export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
+  self%1: i32 (Later) = call Later$init(ev%0)
+  h%2: ref (handler Wait) = call Later(self%1, ev%0)
+  protect {} cleanup {
+    runtime hold()
+    protect {
+      call Later$release(self%1, ev%0)!
+    } cleanup {
+      runtime retire(h%2, "Later")
+      runtime unhold()
+    }
+  }
+  f%19: ref (fn() -> Int suspends ev) = suspend closure(ev%3: ref (evidence)) [] {
+    s%4: ref (handler Std.Fiber.Scope[_, _]) = ev_lookup(ev%3, Std.Fiber.Scope[_, _])
+    f%5: ref (fn() -> Int) = closure() [] {
+      return 1
+    }
+    f%8: ref (fn() -> Int ev) = closure(ev%6: ref (evidence)) [f%5] {
+      t%7: i32 (Int) = call_indirect f%5()
+      return t%7
+    }
+    f%12: ref (fn(evidence) -> Int) = closure(ev%9: ref (evidence)) [s%4, f%8] {
+      t%10: ref (evidence) = ev_extend(ev%9, [Std.Fiber.Scope[_, _]: s%4])
+      t%11: i32 (Int) = call_indirect f%8(t%10)
+      return t%11
+    }
+    f%16: ref (fn(evidence) -> any) = closure(x%13: ref (evidence)) [f%12] {
+      r%14: i32 (Int) = call_indirect f%12(x%13)
+      a%15: ref (any) = coerce r%14
+      return a%15
+    }
+    a%17: ref (Std.Fiber.Fiber[Int]) = call_op s%4.Std.Fiber.Scope[_, _]#fork(f%16)
+    t%18: i32 (Int) = fiber join(a%17)!
+    return t%18
+  }
+  f%31: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%20: ref (fiber_scope)) [ev%0, f%19] {
+    f%25: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%21: ref (fn(evidence) -> any suspends)) [ev%0, s%20] {
+      f%23: ref (fn() -> any suspends) = suspend closure() [g%21, ev%0] {
+        t%22: ref (any) = call_indirect g%21(ev%0)!
+        return t%22
+      }
+      t%24: ref (any) = fiber fork(s%20, f%23)
+      return t%24
+    }
+    f%27: ref (fn() -> any) = closure() [s%20] {
+      t%26: ref (any) = fiber deferred(s%20)
+      return t%26
+    }
+    scope%28: ref (handler Std.Fiber.Scope[_, _]) = handler Scope: Std.Fiber.Scope[_, _] { fork: f%25, deferred: f%27 }
+    t%29: ref (evidence) = ev_extend(ev%0, [Std.Fiber.Scope[_, _]: scope%28])
+    t%30: i32 (Int) = call_indirect f%19(t%29)!
+    return t%30
+  }
+  t%32: i32 (Int) = fiber scope(f%31)!
+  return t%32
+}

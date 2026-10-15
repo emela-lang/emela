@@ -302,6 +302,37 @@ fn main() -> Int use { Async } {
     insta::assert_snapshot!(parts(&m, &["main"]));
 }
 
+/// fork's type parameter is boxed (`any`): a child whose value is not a reference is wrapped in a
+/// closure that boxes it. A release that may suspend is held (spec 11.4).
+#[test]
+fn fork_boxes_and_suspending_releases_hold() {
+    let m = program(
+        "\
+import Std.Fiber.{Fiber, Scope}
+
+effect Wait {
+  suspend fn wait() -> ()
+}
+
+handler Later implements Wait {
+  init { Later }
+  release { (use Wait).wait() }
+  suspend fn wait(resume) { resume(()) }
+}
+
+fn main() -> Int use { Async, Wait } {
+  with Later { () }
+  Fiber.scope(fn() {
+    s = use Scope
+    a = s.fork(fn() { 1 })
+    Fiber.join(a)
+  })
+}
+",
+    );
+    insta::assert_snapshot!(parts(&m, &["main"]));
+}
+
 #[test]
 fn closures_with_captures() {
     let m = program(

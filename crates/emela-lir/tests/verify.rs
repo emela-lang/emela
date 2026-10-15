@@ -657,6 +657,7 @@ fn defects_and_the_stage() {
             on_fail: Some(OnFail::Propagate),
         },
         on_defect: Some(landing),
+        on_suspend: None,
     });
     b.term(Term::Defect(string("boom")));
     let mut f = b.finish();
@@ -698,11 +699,13 @@ fn defects_and_the_stage() {
             on_fail: None,
         },
         on_defect: Some(yields),
+        on_suspend: None,
     });
     b.stmt(Stmt::Let {
         dst: None,
         value: Value::Const(Const::Int(1)),
         on_defect: Some(unwinds),
+        on_suspend: None,
     });
     b.term(Term::Return(None));
     let mut f = b.finish();

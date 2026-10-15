@@ -5,7 +5,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 ## パイプライン
 
 - （補）`compile` が Core（lower 済み）から通しでかける．エントリ（main）を根に `emela_core::monomorphize_from` → `emela_lir::from_core` → 対応していない構成の検査（`check.rs`）→ `emela_lir::to_heap` → 出力．単相化の後のモジュールにはエントリからたどれる関数しか残らないので，検査は「たどれるものだけ」になる
-- （補）検査は Flow IR の段でかける．Heap IR は suspend する関数を変換せずに残すため，その前に止める
+- （補）検査は Flow IR の段でかける．出力がまだ suspend の状態機械を読まないので，Heap IR のパスの前に止める
 - （補）main がなければ，何もしない C の main を出す（JS で main のないエントリを読み込むだけなのと同じ）
 - （補）`Entry::Tests` はテスト関数を根に単相化し，C の main でそれらを順に呼ぶ．各テストの後に保留の defect と失敗を調べて，JS のテストランナーと同じ結果の行（`\x1eemela-test` と JSON．outcome は ok，defect，error）を標準出力に書く．テストの間で状態（const の値など）は持ち越す（JS も1つのプロセスで順に呼ぶ）
 

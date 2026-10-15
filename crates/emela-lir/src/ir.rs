@@ -36,9 +36,6 @@ pub struct Module {
 /// Heap IR forbids some constructs and allows new ones, and the verifier checks the invariants of
 /// the module's stage. Later stages include the earlier ones' invariants.
 ///
-/// Functions that may suspend (`Function::suspends`) are not handled by the Heap IR passes yet
-/// (the suspend state machine comes later): they are closure-converted, then left as they are, and
-/// the verifier checks them against [`Stage::ClosuresConverted`] at most.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Stage {
     /// Made by `from_core`: closures nested in their functions, `defect` and `protect` with
@@ -53,6 +50,11 @@ pub enum Stage {
     /// out of its body. No [`Stmt::Protect`], [`Term::Defect`], [`OnFail::Break`] or
     /// [`OnFail::Propagate`].
     DefectsExplicit,
+    /// Suspending functions made resumable state machines: every value of a suspending function
+    /// that may come back suspended has an `on_suspend` edge ([`Suspend`]) that saves the
+    /// variables still needed into a heap frame, and fairness yields ([`RuntimeOp::Yield`],
+    /// [`RuntimeOp::YieldPerform`]) come before suspending calls.
+    StateMachines,
     /// Reference counts explicit: [`Stmt::Dup`] and [`Stmt::Drop`] make every owned reference be
     /// consumed exactly once on every path (see `heap::rc` for who owns what).
     RefCounted,
@@ -221,11 +223,14 @@ pub enum Term {
 pub enum Stmt {
     /// `dst = value`．`on_defect` (Heap IR) is the landing run instead of the rest of the sequence
     /// when the value (a call, builtin or concurrency operation that may raise a defect) comes
-    /// back with a pending defect. It does not see `dst` and cannot yield.
+    /// back with a pending defect. It does not see `dst` and cannot yield. `on_suspend` (Heap IR,
+    /// from [`Stage::StateMachines`], in suspending functions) is what happens when the value
+    /// comes back suspended.
     Let {
         dst: Option<VarId>,
         value: Value,
         on_defect: Option<SeqId>,
+        on_suspend: Option<Suspend>,
     },
     /// Runs `then` if `cond` (an `i32`) is not zero, else `else_`.
     If {
@@ -286,6 +291,27 @@ impl Stmt {
             Stmt::Dup(_) | Stmt::Drop(_) => None,
         }
     }
+}
+
+/// The suspension edge of a value in a suspending function (Heap IR, from
+/// [`Stage::StateMachines`]): a resume point of the function's state machine.
+///
+/// The value (a suspending call, a waiting concurrency operation or a fairness yield) either comes
+/// back as usual (fast path: nothing is allocated, the variables stay in locals), or comes back
+/// suspended. Then a frame of the function is allocated with `state` and the `saved` variables
+/// (moved into it), pushed onto the continuation being captured, and the function returns
+/// (suspended) to its caller, which does the same up to the runtime's driver loop. When the
+/// runtime resumes the frame, the function is entered again with the frame: the saved variables
+/// are restored and control continues right after the value as if it had come back with the
+/// resumed input (its value in `dst`, or a pending failure or defect for the landings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suspend {
+    /// The resume point, unique in the function (numbered from 0).
+    pub state: u32,
+    /// The variables saved in the frame, in slot order: every variable live after the value (on
+    /// any way on, the landings included) and the references the value borrows, so that the
+    /// resumed function owns exactly what the uninterrupted one owns after the value.
+    pub saved: Vec<VarId>,
 }
 
 /// What a switch looks at.
@@ -540,6 +566,60 @@ impl Value {
     }
 }
 
+impl Value {
+    /// Applies `f` to every variable the value uses, in operand order, letting it replace them
+    /// (the same variables as [`Value::for_each_var`]).
+    pub fn for_each_var_mut(&mut self, mut f: impl FnMut(&mut VarId)) {
+        let ops = |os: &mut [Operand], f: &mut dyn FnMut(&mut VarId)| {
+            for o in os {
+                if let Operand::Var(v) = o {
+                    f(v);
+                }
+            }
+        };
+        match self {
+            Value::Const(_) | Value::FnRef(_) => {}
+            Value::Prim { args, .. }
+            | Value::Builtin { args, .. }
+            | Value::Make { args, .. }
+            | Value::Tuple(args)
+            | Value::Fiber { args, .. }
+            | Value::Runtime { args, .. } => ops(args, &mut f),
+            Value::Call { callee, args, .. } => {
+                match callee {
+                    Callee::Direct(_) => {}
+                    Callee::Indirect(v) | Callee::Op { handler: v, .. } => f(v),
+                }
+                ops(args, &mut f);
+            }
+            Value::Field { base: v, .. }
+            | Value::Tag(v)
+            | Value::TupleGet { base: v, .. }
+            | Value::ListIsEmpty(v)
+            | Value::ListHead(v)
+            | Value::ListTail(v)
+            | Value::EvLookup { ev: v, .. }
+            | Value::IsError { error: v, .. }
+            | Value::AsError { error: v, .. }
+            | Value::Coerce(v) => f(v),
+            Value::List { elems, tail } => {
+                ops(elems, &mut f);
+                if let Some(t) = tail {
+                    ops(std::slice::from_mut(t), &mut f);
+                }
+            }
+            Value::Closure(c) => c.captures.iter_mut().for_each(&mut f),
+            Value::MakeClosure { captures, .. } => captures.iter_mut().for_each(&mut f),
+            Value::EnvGet { env, .. } => f(env),
+            Value::EvExtend { base, bindings } => {
+                base.iter_mut().for_each(&mut f);
+                bindings.iter_mut().for_each(|(_, v)| f(v));
+            }
+            Value::Handler { ops: hs, .. } => hs.iter_mut().for_each(&mut f),
+        }
+    }
+}
+
 /// Runtime operations that Core has no builtin for, made by the conversion from Core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOp {
@@ -563,6 +643,19 @@ pub enum RuntimeOp {
     /// A defect raised meanwhile (by the cleanup) becomes a note of it (spec 14.4: the first
     /// defect is the result). Consumes the argument. Heap IR.
     DefectResume,
+    /// `() -> ()`: marks the start of a release that may suspend: the current fiber is not
+    /// interrupted until [`RuntimeOp::Unhold`] (spec 11.4).
+    Hold,
+    /// `() -> ()`: the end of a release started with [`RuntimeOp::Hold`].
+    Unhold,
+    /// `() -> ()`: a fairness yield before a suspending call (spec 11.1). Spends one unit of the
+    /// running fiber's budget; when it runs out, the fiber suspends and goes to the end of the
+    /// queue (and a pending interruption is delivered instead, as a defect). Heap IR, in
+    /// suspending functions only.
+    Yield,
+    /// `() -> ()`: [`RuntimeOp::Yield`] before a call of a `suspend fn` operation, which also
+    /// delivers a pending interruption (spec 11.4: the call is a suspension point). Heap IR.
+    YieldPerform,
 }
 
 impl RuntimeOp {
@@ -574,6 +667,10 @@ impl RuntimeOp {
             RuntimeOp::Defect => "defect",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
+            RuntimeOp::Hold => "hold",
+            RuntimeOp::Unhold => "unhold",
+            RuntimeOp::Yield => "yield",
+            RuntimeOp::YieldPerform => "yield_perform",
         }
     }
 
@@ -585,6 +682,9 @@ impl RuntimeOp {
             RuntimeOp::Retire => (&[Repr::Ref, Repr::Ref], Repr::Void),
             RuntimeOp::Defect | RuntimeOp::DefectResume => (&[Repr::Ref], Repr::Void),
             RuntimeOp::DefectTake => (&[], Repr::Ref),
+            RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {
+                (&[], Repr::Void)
+            }
         }
     }
 }

@@ -3,8 +3,8 @@
 use rustc_hash::FxHashMap;
 
 use crate::ir::{
-    Callee, Case, Closure, Function, LabelId, OnFail, Operand, Seq, SeqId, Stmt, StmtId, SwitchOn,
-    Term, Value, VarId,
+    Callee, Case, Closure, Function, LabelId, OnFail, Operand, Seq, SeqId, Stmt, StmtId, Suspend,
+    SwitchOn, Term, Value, VarId,
 };
 
 /// Copies sequences of `src` into another function. A variable or label is given a new ID the
@@ -94,13 +94,19 @@ impl<'a> Copier<'a> {
                 dst,
                 value,
                 on_defect,
+                on_suspend,
             } => {
                 let value = self.value(out, value);
                 let on_defect = on_defect.map(|l| self.seq(out, l));
+                let on_suspend = on_suspend.as_ref().map(|s| Suspend {
+                    state: s.state,
+                    saved: self.vars_of(out, &s.saved),
+                });
                 Stmt::Let {
                     dst: dst.map(|d| self.fresh(out, d)),
                     value,
                     on_defect,
+                    on_suspend,
                 }
             }
             Stmt::If {
@@ -341,4 +347,173 @@ pub(crate) fn compact(f: &Function) -> Function {
     out.params = f.params.iter().map(|&p| c.fresh(&mut out, p)).collect();
     out.body = f.body.map(|b| c.seq(&mut out, b));
     out
+}
+
+/// A deep copy of the sequence inside its own function: the variables and labels it defines get
+/// new IDs, and the ones defined outside it are kept (so the copy can stand where the original
+/// stands, as a second landing of the same code).
+pub(crate) fn clone_seq(f: &mut Function, id: SeqId) -> SeqId {
+    let mut c = Cloner {
+        vars: FxHashMap::default(),
+        labels: FxHashMap::default(),
+    };
+    c.seq(f, id)
+}
+
+struct Cloner {
+    vars: FxHashMap<VarId, VarId>,
+    labels: FxHashMap<LabelId, LabelId>,
+}
+
+impl Cloner {
+    fn use_(&self, v: VarId) -> VarId {
+        self.vars.get(&v).copied().unwrap_or(v)
+    }
+
+    fn def(&mut self, f: &mut Function, v: VarId) -> VarId {
+        let n = f.vars.alloc(f.vars[v].clone());
+        self.vars.insert(v, n);
+        n
+    }
+
+    fn operand(&self, o: &Operand) -> Operand {
+        match o {
+            Operand::Var(v) => Operand::Var(self.use_(*v)),
+            Operand::Const(c) => Operand::Const(c.clone()),
+        }
+    }
+
+    fn seq(&mut self, f: &mut Function, id: SeqId) -> SeqId {
+        let seq = f.seqs[id].clone();
+        let stmts = seq.stmts.iter().map(|&s| self.stmt(f, s)).collect();
+        let term = self.term(&seq.term);
+        f.seqs.alloc(Seq { stmts, term })
+    }
+
+    fn term(&self, t: &Term) -> Term {
+        let opt = |v: &Option<Operand>| v.as_ref().map(|v| self.operand(v));
+        match t {
+            Term::Yield(v) => Term::Yield(opt(v)),
+            Term::Return(v) => Term::Return(opt(v)),
+            Term::Fail(v) => Term::Fail(self.operand(v)),
+            Term::Break { label, value } => Term::Break {
+                label: self.labels.get(label).copied().unwrap_or(*label),
+                value: opt(value),
+            },
+            Term::Recur(args) => Term::Recur(args.iter().map(|a| self.operand(a)).collect()),
+            Term::Defect(msg) => Term::Defect(self.operand(msg)),
+            Term::Unwind => Term::Unwind,
+            Term::Unreachable => Term::Unreachable,
+        }
+    }
+
+    fn stmt(&mut self, f: &mut Function, id: StmtId) -> StmtId {
+        let stmt = match f.stmts[id].clone() {
+            Stmt::Let {
+                dst,
+                mut value,
+                on_defect,
+                on_suspend,
+            } => {
+                value.for_each_var_mut(|v| *v = self.use_(*v));
+                if let Value::Call { on_fail, .. } | Value::Fiber { on_fail, .. } = &mut value
+                    && let Some(OnFail::Handle { error, body }) = on_fail
+                {
+                    let e = self.def(f, *error);
+                    let b = self.seq(f, *body);
+                    *on_fail = Some(OnFail::Handle { error: e, body: b });
+                }
+                let on_suspend = on_suspend.map(|s| Suspend {
+                    state: s.state,
+                    saved: s.saved.iter().map(|&v| self.use_(v)).collect(),
+                });
+                let on_defect = on_defect.map(|l| self.seq(f, l));
+                Stmt::Let {
+                    dst: dst.map(|d| self.def(f, d)),
+                    value,
+                    on_defect,
+                    on_suspend,
+                }
+            }
+            Stmt::If {
+                dst,
+                cond,
+                then,
+                else_,
+            } => {
+                let cond = self.operand(&cond);
+                let then = self.seq(f, then);
+                let else_ = self.seq(f, else_);
+                Stmt::If {
+                    dst: dst.map(|d| self.def(f, d)),
+                    cond,
+                    then,
+                    else_,
+                }
+            }
+            Stmt::Switch {
+                dst,
+                on,
+                cases,
+                default,
+            } => {
+                let on = match on {
+                    SwitchOn::Tag(v) => SwitchOn::Tag(self.use_(v)),
+                    SwitchOn::Lit(v) => SwitchOn::Lit(self.use_(v)),
+                };
+                let cases = cases
+                    .into_iter()
+                    .map(|c| Case {
+                        key: c.key,
+                        body: self.seq(f, c.body),
+                    })
+                    .collect();
+                let default = default.map(|d| self.seq(f, d));
+                Stmt::Switch {
+                    dst: dst.map(|d| self.def(f, d)),
+                    on,
+                    cases,
+                    default,
+                }
+            }
+            Stmt::Loop {
+                dst,
+                vars,
+                inits,
+                body,
+            } => {
+                let inits = inits.iter().map(|o| self.operand(o)).collect();
+                let vars = vars.iter().map(|&v| self.def(f, v)).collect();
+                let body = self.seq(f, body);
+                Stmt::Loop {
+                    dst: dst.map(|d| self.def(f, d)),
+                    vars,
+                    inits,
+                    body,
+                }
+            }
+            Stmt::Block { dst, label, body } => {
+                let new = f.labels.alloc(f.labels[label].clone());
+                self.labels.insert(label, new);
+                let body = self.seq(f, body);
+                Stmt::Block {
+                    dst: dst.map(|d| self.def(f, d)),
+                    label: new,
+                    body,
+                }
+            }
+            Stmt::Protect { dst, body, cleanup } => {
+                let body = self.seq(f, body);
+                let cleanup = self.seq(f, cleanup);
+                Stmt::Protect {
+                    dst: dst.map(|d| self.def(f, d)),
+                    body,
+                    cleanup,
+                }
+            }
+            Stmt::Dup(v) => Stmt::Dup(self.use_(v)),
+            Stmt::Drop(v) => Stmt::Drop(self.use_(v)),
+        };
+        f.stmts.alloc(stmt)
+    }
 }

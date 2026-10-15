@@ -1,0 +1,116 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"nap\", \"count\", \"main$closure0\"])"
+---
+suspend fn nap(ms%0: i32 (Int), label%1: ref (String), ev%2: ref (evidence)) -> i32 (Int) defects {
+  dup ev%2
+  self%3: i32 (Napper) = call Napper$init(ev%2)
+  dup ev%2
+  h%4: ref (handler Clock) = call Napper(self%3, ev%2)
+  _%9: ref (String) = block 'protect%0 {
+    s%5: ref (String) = runtime show_string(label%1)
+    runtime debug_print(s%5)
+    drop s%5
+    block 'cleanup%1 {
+      runtime hold()
+      block 'protect%2 {
+        runtime yield() on_suspend #0 [ms%0, label%1, ev%2, self%3, h%4] on_defect {
+          drop label%1
+          drop ev%2
+          defect%6: ref (any) = runtime defect_take()
+          block 'cleanup%3 {
+            runtime retire(h%4, "Napper")
+            drop h%4
+            runtime unhold()
+          }
+          runtime defect_resume(defect%6)
+          unwind
+        }
+        dup ev%2
+        t%8: i32 (Int) = call Napper$release(self%3, ev%2)! on_suspend #1 [ms%0, label%1, ev%2, h%4] on_defect {
+          drop label%1
+          drop ev%2
+          defect%7: ref (any) = runtime defect_take()
+          block 'cleanup%4 {
+            runtime retire(h%4, "Napper")
+            drop h%4
+            runtime unhold()
+          }
+          runtime defect_resume(defect%7)
+          unwind
+        }
+        block 'cleanup%5 {
+          runtime retire(h%4, "Napper")
+          drop h%4
+          runtime unhold()
+        }
+      }
+    }
+    yield label%1
+  }
+  drop _%9
+  t%10: ref (handler Clock) = ev_lookup(ev%2, Clock)
+  dup t%10
+  drop ev%2
+  runtime yield_perform() on_suspend #2 [ms%0, t%10] on_defect {
+    drop t%10
+    unwind
+  }
+  t%11: i32 (Int) = call_op t%10.Clock#sleep(ms%0)! on_suspend #3 [t%10] on_defect {
+    drop t%10
+    unwind
+  }
+  drop t%10
+  t%12: i32 (Int) = t%11 +[i32] 1
+  return t%12
+}
+
+suspend fn count(i%0: i32 (Int), acc%1: i32 (Int), ev%2: ref (evidence)) -> i32 (Int) defects {
+  t%12: i32 (Int) = loop(i%3: i32 (Int) = i%0, acc%4: i32 (Int) = acc%1, ev%5: ref (evidence) = ev%2) {
+    t%6: i32 (Bool) = i%3 ==[i32] 0
+    t%11: i32 (Int) = if t%6 {
+      drop ev%5
+      yield acc%4
+    } else {
+      t%7: i32 (Int) = i%3 -[i32] 1
+      t%8: ref (handler Clock) = ev_lookup(ev%5, Clock)
+      dup t%8
+      runtime yield_perform() on_suspend #0 [i%3, acc%4, ev%5, t%7, t%8] on_defect {
+        drop ev%5
+        drop t%8
+        unwind
+      }
+      t%9: i32 (Int) = call_op t%8.Clock#sleep(i%3)! on_suspend #1 [acc%4, ev%5, t%7, t%8] on_defect {
+        drop ev%5
+        drop t%8
+        unwind
+      }
+      drop t%8
+      t%10: i32 (Int) = acc%4 +[i32] t%9
+      recur(t%7, t%10, ev%5)
+    }
+    yield t%11
+  }
+  return t%12
+}
+
+suspend fn main$closure0(env%0: ref (fn() -> Int suspends ev), ev%1: ref (evidence)) -> i32 (Int) defects env[handler Clock] {
+  h%2: ref (handler Clock) = env_get env%0#0
+  dup h%2
+  ev%3: ref (evidence) = ev_extend(ev%1, [Clock: h%2])
+  runtime yield() on_suspend #0 [ev%3] on_defect {
+    drop ev%3
+    unwind
+  }
+  dup ev%3
+  t%4: i32 (Int) = call count(2, 0, ev%3)! on_suspend #1 [ev%3] on_defect {
+    drop ev%3
+    unwind
+  }
+  runtime yield() on_suspend #2 [ev%3, t%4] on_defect {
+    drop ev%3
+    unwind
+  }
+  t%5: i32 (Int) = call nap(t%4, "a", ev%3)! on_suspend #3 [] on_defect { unwind }
+  return t%5
+}

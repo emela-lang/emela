@@ -167,6 +167,21 @@ fn showable(core: &emela_core::Module, ty: TypeId, seen: &mut Vec<TypeId>) -> bo
     }
 }
 
+/// Whether evaluating `e` may suspend: a suspending call or concurrency operation outside
+/// lambdas (the same test as the JS backend's for a release, spec 11.4).
+fn may_suspend(e: &Expr) -> bool {
+    match e {
+        Expr::Lambda { .. } => false,
+        Expr::Call { suspends: true, .. } => true,
+        Expr::Fiber { op, .. } if op.suspends() => true,
+        _ => {
+            let mut found = false;
+            e.for_each_child(&mut |c| found = found || may_suspend(c));
+            found
+        }
+    }
+}
+
 fn ix<T>(id: la_arena::Idx<T>) -> usize {
     u32::from(id.into_raw()) as usize
 }
@@ -434,8 +449,21 @@ impl<'s> Lower<'s> {
             dst,
             value,
             on_defect: None,
+            on_suspend: None,
         });
         dst
+    }
+
+    /// A runtime operation without arguments or value.
+    fn runtime(&mut self, op: RuntimeOp) {
+        self.let_(
+            TMP,
+            TypeId::UNIT,
+            Value::Runtime {
+                op,
+                args: Vec::new(),
+            },
+        );
     }
 
     /// Whether a value of type `from` needs [`Value::Coerce`] to be used at type `to`: the types
@@ -462,6 +490,7 @@ impl<'s> Lower<'s> {
             dst: Some(v),
             value,
             on_defect: None,
+            on_suspend: None,
         });
         v
     }
@@ -854,9 +883,25 @@ impl<'s> Lower<'s> {
                 )
             }
         };
+        // The operation's own type parameters (Scope's `fork[A]`) are boxed (`Any`): a child
+        // function whose value is not a reference is wrapped to box it.
+        let generic = match &callee {
+            Callee::Op { effect, op, .. } => {
+                let def = &self.sh.core.effects[*effect].ops[*op];
+                (def.type_params > 0).then(|| def.params.clone())
+            }
+            _ => None,
+        };
         let mut ops = Vec::with_capacity(args.len());
-        for a in args {
-            ops.extend(self.expr(a)?.op);
+        for (i, a) in args.iter().enumerate() {
+            let v = self.expr(a)?;
+            let boxed = generic.as_ref().and_then(|ps| ps.get(i).copied());
+            match (v.op, boxed) {
+                (Some(Operand::Var(x)), Some(param)) => {
+                    ops.push(Operand::Var(self.box_result(x, v.ty, param)));
+                }
+                (op, _) => ops.extend(op),
+            }
         }
         let on_fail = fails.then(|| self.on_fail());
         self.emit(
@@ -868,6 +913,69 @@ impl<'s> Lower<'s> {
                 on_fail,
             },
         )
+    }
+
+    /// The function value `f` (of type `ty`) passed where the parameter type `param` returns a
+    /// type parameter of the operation (`Any`, a box): `f` itself if it returns a reference,
+    /// otherwise a closure that calls it and boxes its value. A value without representation
+    /// becomes an empty string (any reference does: nothing reads it).
+    fn box_result(&mut self, f: VarId, ty: TypeId, param: TypeId) -> VarId {
+        let (Type::Fn(ft), Type::Fn(pt)) = (self.ty(ty).clone(), self.ty(param).clone()) else {
+            return f;
+        };
+        if !matches!(self.ty(pt.ret), Type::Param(_)) || self.repr(ft.ret) == Repr::Ref {
+            return f;
+        }
+        let fail = std::mem::take(&mut self.fail);
+        let fails = std::mem::replace(&mut self.fails, ft.fails);
+        let mut params = Vec::new();
+        for &p in &ft.params {
+            params.extend(self.new_var("x", p));
+        }
+        if ft.ev {
+            params.push(self.var("ev", TypeId::EVIDENCE));
+        }
+        self.open();
+        let on_fail = ft.fails.then(|| self.on_fail());
+        let r = self.let_(
+            "r",
+            ft.ret,
+            Value::Call {
+                callee: Callee::Indirect(f),
+                args: params.iter().map(|&p| Operand::Var(p)).collect(),
+                suspends: ft.suspends,
+                on_fail,
+            },
+        );
+        let value = match r {
+            Some(r) => Operand::Var(self.assign("a", TypeId::ANY, Value::Coerce(r))),
+            None => Operand::Const(Const::String(String::new())),
+        };
+        if self.ty(ft.ret) == &Type::Never {
+            self.term(Term::Unreachable);
+        } else {
+            self.term(Term::Return(Some(value)));
+        }
+        let body = self.close();
+        self.fail = fail;
+        self.fails = fails;
+        let boxed_ty = self.intern(Type::Fn(FnType {
+            ret: TypeId::ANY,
+            ..ft.clone()
+        }));
+        let dst = self.var("f", boxed_ty);
+        self.push(Stmt::Let {
+            dst: Some(dst),
+            value: Value::Closure(Box::new(Closure {
+                params,
+                captures: Vec::new(),
+                body,
+                suspends: ft.suspends,
+            })),
+            on_defect: None,
+            on_suspend: None,
+        });
+        dst
     }
 
     fn builtin(&mut self, op: Builtin, ty_args: &[TypeId], args: &[Expr]) -> R {
@@ -1058,6 +1166,7 @@ impl<'s> Lower<'s> {
                 suspends: ft.suspends,
             })),
             on_defect: None,
+            on_suspend: None,
         });
         Ok(Val {
             op: Some(Operand::Var(dst)),
@@ -1172,7 +1281,12 @@ impl<'s> Lower<'s> {
             let protected = self.close();
             // The release cannot fail (spec 8.4), so it has no failure target.
             let fail = std::mem::take(&mut self.fail);
+            // A release that may suspend is not interrupted until it ends (spec 11.4).
+            let hold = may_suspend(&release.body);
             self.open();
+            if hold {
+                self.runtime(RuntimeOp::Hold);
+            }
             self.open();
             let _ = self.expr(&release.body);
             let released = self.close();
@@ -1186,6 +1300,9 @@ impl<'s> Lower<'s> {
                         args: vec![h, Operand::Const(Const::String(release.handler.clone()))],
                     },
                 );
+            }
+            if hold {
+                self.runtime(RuntimeOp::Unhold);
             }
             let retire = self.close();
             self.push(Stmt::Protect {

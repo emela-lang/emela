@@ -147,6 +147,7 @@ impl<'a> FnBuilder<'a> {
             dst,
             value,
             on_defect: None,
+            on_suspend: None,
         });
     }
 

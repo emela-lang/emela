@@ -3,21 +3,24 @@
 //!
 //! 1. [`convert_closures`]: closures become lifted functions and closure records.
 //! 2. [`explicit_defects`]: defects and the cleanups of `protect` become explicit control.
-//! 3. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow.
-//!
-//! Functions that may suspend are only closure-converted; the suspend state machine that the other
-//! passes need comes later.
+//! 3. [`state_machines`]: suspending functions become resumable state machines, with their
+//!    suspension points and the frames they save explicit.
+//! 4. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
+//!    edges included).
 
 mod closures;
 mod copy;
 mod defects;
+pub(crate) mod live;
 mod rc;
 pub(crate) mod rc_check;
+pub(crate) mod suspend;
 
 pub use closures::convert_closures;
 pub(crate) use defects::may_defect;
 pub use defects::{builtin_may_defect, explicit_defects, fiber_may_defect};
 pub use rc::insert_rc;
+pub use suspend::state_machines;
 
 use crate::ir::Module;
 
@@ -25,5 +28,6 @@ use crate::ir::Module;
 pub fn to_heap(m: &mut Module) {
     convert_closures(m);
     explicit_defects(m);
+    state_machines(m);
     insert_rc(m);
 }
