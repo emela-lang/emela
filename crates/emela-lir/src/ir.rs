@@ -24,6 +24,25 @@ pub type LabelId = Idx<LabelData>;
 pub struct Module {
     pub core: emela_core::Module,
     pub functions: Arena<Function>,
+    /// Which passes have run, and so which constructs the functions may hold.
+    pub stage: Stage,
+}
+
+/// The stage of a LIR module. The Flow IR and the Heap IR share the data types; each pass of the
+/// Heap IR forbids some constructs and allows new ones, and the verifier checks the invariants of
+/// the module's stage. Later stages include the earlier ones' invariants.
+///
+/// Functions that may suspend (`Function::suspends`) are not handled by the Heap IR passes yet
+/// (the suspend state machine comes later): they are closure-converted, then left as they are, and
+/// the verifier checks them against [`Stage::ClosuresConverted`] at most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Stage {
+    /// Made by `from_core`: closures nested in their functions, `defect` and `protect` with
+    /// implicit unwinding, no reference counting.
+    Flow,
+    /// Closures lifted to functions taking their record as the environment
+    /// ([`Value::MakeClosure`], [`Value::EnvGet`]); no [`Value::Closure`] or [`Value::FnRef`].
+    ClosuresConverted,
 }
 
 impl Module {
@@ -31,6 +50,7 @@ impl Module {
         Module {
             core,
             functions: Arena::new(),
+            stage: Stage::Flow,
         }
     }
 
@@ -83,6 +103,11 @@ pub struct Function {
     pub constant: bool,
     /// For an external function, the host function; `body` is then `None`.
     pub external: Option<External>,
+    /// For a function lifted from a closure (Heap IR), the Core types of the captured values, in
+    /// the order of [`Value::MakeClosure::captures`]. Its first parameter is then the environment:
+    /// the closure record itself (`ref`, with the closure's function type as its Core type),
+    /// borrowed for the call. [`Value::EnvGet`] reads the captures from it.
+    pub env: Option<Vec<TypeId>>,
     /// The body. Every path ends in a terminator other than [`Term::Yield`].
     pub body: Option<SeqId>,
     pub vars: Arena<VarData>,
@@ -103,6 +128,7 @@ impl Function {
             suspends: false,
             constant: false,
             external: None,
+            env: None,
             body: None,
             vars: Arena::new(),
             stmts: Arena::new(),
@@ -353,10 +379,26 @@ pub enum Value {
     ListHead(VarId),
     /// The rest of a non-empty list.
     ListTail(VarId),
-    /// A top-level function used as a value.
+    /// A top-level function used as a value. Flow IR only (closure conversion makes it a
+    /// [`Value::MakeClosure`] of a wrapper).
     FnRef(FnId),
-    /// A closure. Its body is nested here (closure conversion comes in the Heap IR).
+    /// A closure. Its body is nested here. Flow IR only (closure conversion lifts it).
     Closure(Box<Closure>),
+    /// Heap IR: a closure record `{function, captures…}`. `function` is a lifted function (its
+    /// `env` lists the captures' Core types); calling the record (`call_indirect`, or `call_op`
+    /// through a handler) calls `function` with the record itself as the first argument (the
+    /// environment), then the call's arguments. The record is the environment: captures live in
+    /// it directly, so making a closure is one allocation.
+    MakeClosure {
+        function: FnId,
+        captures: Vec<VarId>,
+    },
+    /// Heap IR: capture `index` of the environment `env`, the first parameter of a lifted
+    /// function.
+    EnvGet {
+        env: VarId,
+        index: usize,
+    },
     /// The current handler of the effect in the evidence table (`emela_core::Expr::Use`).
     EvLookup {
         ev: VarId,
@@ -450,6 +492,8 @@ impl Value {
                 ops(tail.as_slice(), &mut f);
             }
             Value::Closure(c) => c.captures.iter().for_each(|&v| f(v)),
+            Value::MakeClosure { captures, .. } => captures.iter().for_each(|&v| f(v)),
+            Value::EnvGet { env, .. } => f(*env),
             Value::EvExtend { base, bindings } => {
                 base.iter().for_each(|&v| f(v));
                 bindings.iter().for_each(|&(_, v)| f(v));

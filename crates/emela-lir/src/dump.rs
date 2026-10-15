@@ -8,7 +8,8 @@
 //! written. The keywords are those of the LIR design (`call`, `call_indirect`, `call_op`,
 //! `builtin`, `make`, `field`, `tag`, `closure`, `ev_lookup`, `ev_extend`, `handler`, `fiber`,
 //! `block`, `break`, `loop`, `recur`, `protect`, `cleanup`), plus `is_error`, `as_error`,
-//! `runtime` and `coerce`; the placeholder of `()` in a container is `()`. Functions are printed
+//! `runtime` and `coerce`, and those of the Heap IR (`make_closure f[captures]`, `env_get e#i`,
+//! and `env[types]` after the signature of a lifted function); the placeholder of `()` in a container is `()`. Functions are printed
 //! in ID order.
 //! The output is deterministic and not meant to be parsed back.
 //!
@@ -97,6 +98,10 @@ impl Printer<'_> {
         .unwrap();
         if f.fails {
             self.out.push_str(" fails");
+        }
+        if let Some(env) = &f.env {
+            let tys: Vec<String> = env.iter().map(|&t| core_ty(&self.m.core, t)).collect();
+            write!(self.out, " env[{}]", tys.join(", ")).unwrap();
         }
         if let Some(ext) = &f.external {
             let bindings: Vec<String> = ext
@@ -388,6 +393,12 @@ impl Printer<'_> {
                 self.seq(c.body);
                 return;
             }
+            Value::MakeClosure { function, captures } => format!(
+                "make_closure {}[{}]",
+                self.m.functions[*function].name,
+                self.vars(captures)
+            ),
+            Value::EnvGet { env, index } => format!("env_get {}#{index}", self.var(*env)),
             Value::EvLookup { ev, effect } => {
                 format!(
                     "ev_lookup({}, {})",

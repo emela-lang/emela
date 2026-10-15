@@ -100,6 +100,7 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
     Ok(Module {
         core: sh.core,
         functions: sh.functions,
+        stage: crate::ir::Stage::Flow,
     })
 }
 

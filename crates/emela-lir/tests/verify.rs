@@ -5,8 +5,8 @@ mod common;
 use common::{Fixture, int, string};
 use emela_core::{TypeId, VariantDef};
 use emela_lir::{
-    Callee, CaseKey, Closure, ErrorKind, FnBuilder, Function, Module, OnFail, Operand, PrimOp,
-    PrimTy, Repr, Stmt, SwitchOn, Term, Value, VarData, verify, verify_function,
+    Callee, CaseKey, Closure, Const, ErrorKind, FnBuilder, Function, Module, OnFail, Operand,
+    PrimOp, PrimTy, Repr, Stage, Stmt, SwitchOn, Term, Value, VarData, verify, verify_function,
 };
 
 fn module() -> (Fixture, Module) {
@@ -590,4 +590,90 @@ fn all_errors_of_all_functions_are_reported() {
             "fn two: recur outside a loop of the same body, or across protect",
         ]
     );
+}
+
+#[test]
+fn closures_and_the_stage() {
+    let (fx, mut m) = module();
+    // A nested closure and a function reference after closure conversion.
+    let target = identity(&mut m, "id", |_| {});
+    let mut b = FnBuilder::new(&m.core, "nested");
+    let body = b.seq(|b| b.term(Term::Return(Some(int(1)))));
+    let c = b.var("c", fx.thunk);
+    b.let_(
+        Some(c),
+        Value::Closure(Box::new(Closure {
+            params: vec![],
+            captures: vec![],
+            body,
+            suspends: false,
+        })),
+    );
+    b.assign("r", fx.thunk, Value::FnRef(target));
+    b.term(Term::Return(None));
+    let nested = b.finish();
+    // A closure record of a function that is not lifted.
+    let mut b = FnBuilder::new(&m.core, "record");
+    b.assign(
+        "c",
+        fx.thunk,
+        Value::MakeClosure {
+            function: target,
+            captures: vec![],
+        },
+    );
+    b.term(Term::Return(None));
+    let record = b.finish();
+    assert_eq!(
+        kinds(&m, &record),
+        [ErrorKind::StageViolation, ErrorKind::BadEnvironment]
+    );
+    m.stage = Stage::ClosuresConverted;
+    assert_eq!(
+        kinds(&m, &nested),
+        [ErrorKind::StageViolation, ErrorKind::StageViolation]
+    );
+    assert_eq!(kinds(&m, &record), [ErrorKind::BadEnvironment]);
+}
+
+#[test]
+fn environments() {
+    let (fx, mut m) = module();
+    m.stage = Stage::ClosuresConverted;
+    // fn lifted(env: fn() -> Int) -> Int env[Int] { x = env_get env#0; return x }
+    let mut b = FnBuilder::new(&m.core, "lifted");
+    b.set_ret(TypeId::INT);
+    let env = b.param("env", fx.thunk);
+    let x = b.assign("x", TypeId::INT, Value::EnvGet { env, index: 0 });
+    b.term(Term::Return(Some(x.into())));
+    let mut f = b.finish();
+    f.env = Some(vec![TypeId::INT]);
+    let lifted = m.add(f);
+    assert_eq!(verify(&m), Ok(()));
+    // Captures of another type, and env_get outside a lifted function.
+    let mut b = FnBuilder::new(&m.core, "user");
+    let p = b.param("p", fx.thunk);
+    let s = b.assign("s", TypeId::STRING, Value::Const(Const::String("a".into())));
+    b.assign(
+        "c",
+        fx.thunk,
+        Value::MakeClosure {
+            function: lifted,
+            captures: vec![s],
+        },
+    );
+    b.assign("y", TypeId::INT, Value::EnvGet { env: p, index: 0 });
+    b.term(Term::Return(None));
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::BadEnvironment, ErrorKind::BadEnvironment]
+    );
+    // A capture out of range.
+    let mut b = FnBuilder::new(&m.core, "far");
+    let env = b.param("env", fx.thunk);
+    b.assign("y", TypeId::INT, Value::EnvGet { env, index: 1 });
+    b.term(Term::Return(None));
+    let mut f = b.finish();
+    f.env = Some(vec![TypeId::INT]);
+    assert_eq!(kinds(&m, &f), [ErrorKind::BadIndex]);
 }

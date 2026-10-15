@@ -1,0 +1,325 @@
+//! Copying statements from one function into another, renaming variables and labels.
+
+use rustc_hash::FxHashMap;
+
+use crate::ir::{
+    Callee, Case, Closure, Function, LabelId, OnFail, Operand, Seq, SeqId, Stmt, StmtId, SwitchOn,
+    Term, Value, VarId,
+};
+
+/// Copies sequences of `src` into another function. A variable or label is given a new ID the
+/// first time it is seen; pre-seed [`Copier::vars`] to substitute variables.
+pub(crate) struct Copier<'a> {
+    pub src: &'a Function,
+    pub vars: FxHashMap<VarId, VarId>,
+    pub labels: FxHashMap<LabelId, LabelId>,
+}
+
+impl<'a> Copier<'a> {
+    pub fn new(src: &'a Function) -> Self {
+        Copier {
+            src,
+            vars: FxHashMap::default(),
+            labels: FxHashMap::default(),
+        }
+    }
+
+    pub fn var(&mut self, out: &mut Function, v: VarId) -> VarId {
+        if let Some(&n) = self.vars.get(&v) {
+            return n;
+        }
+        self.fresh(out, v)
+    }
+
+    /// A new variable in `out` like `v`, recorded as its copy (for a definition).
+    pub fn fresh(&mut self, out: &mut Function, v: VarId) -> VarId {
+        let n = out.vars.alloc(self.src.vars[v].clone());
+        self.vars.insert(v, n);
+        n
+    }
+
+    pub fn label(&mut self, out: &mut Function, l: LabelId) -> LabelId {
+        if let Some(&n) = self.labels.get(&l) {
+            return n;
+        }
+        let n = out.labels.alloc(self.src.labels[l].clone());
+        self.labels.insert(l, n);
+        n
+    }
+
+    pub fn operand(&mut self, out: &mut Function, o: &Operand) -> Operand {
+        match o {
+            Operand::Var(v) => Operand::Var(self.var(out, *v)),
+            Operand::Const(c) => Operand::Const(c.clone()),
+        }
+    }
+
+    pub fn operands(&mut self, out: &mut Function, os: &[Operand]) -> Vec<Operand> {
+        os.iter().map(|o| self.operand(out, o)).collect()
+    }
+
+    pub fn vars_of(&mut self, out: &mut Function, vs: &[VarId]) -> Vec<VarId> {
+        vs.iter().map(|&v| self.var(out, v)).collect()
+    }
+
+    /// A deep copy of the sequence.
+    pub fn seq(&mut self, out: &mut Function, id: SeqId) -> SeqId {
+        let src = self.src;
+        let seq = &src.seqs[id];
+        let stmts = seq.stmts.iter().map(|&s| self.stmt(out, s)).collect();
+        let term = self.term(out, &seq.term);
+        out.seqs.alloc(Seq { stmts, term })
+    }
+
+    pub fn term(&mut self, out: &mut Function, t: &Term) -> Term {
+        match t {
+            Term::Yield(v) => Term::Yield(v.as_ref().map(|v| self.operand(out, v))),
+            Term::Return(v) => Term::Return(v.as_ref().map(|v| self.operand(out, v))),
+            Term::Fail(v) => Term::Fail(self.operand(out, v)),
+            Term::Break { label, value } => Term::Break {
+                label: self.label(out, *label),
+                value: value.as_ref().map(|v| self.operand(out, v)),
+            },
+            Term::Recur(args) => Term::Recur(self.operands(out, args)),
+            Term::Defect(msg) => Term::Defect(self.operand(out, msg)),
+            Term::Unreachable => Term::Unreachable,
+        }
+    }
+
+    pub fn stmt(&mut self, out: &mut Function, id: StmtId) -> StmtId {
+        let src = self.src;
+        let stmt = match &src.stmts[id] {
+            Stmt::Let { dst, value } => {
+                let value = self.value(out, value);
+                Stmt::Let {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    value,
+                }
+            }
+            Stmt::If {
+                dst,
+                cond,
+                then,
+                else_,
+            } => {
+                let cond = self.operand(out, cond);
+                let then = self.seq(out, *then);
+                let else_ = self.seq(out, *else_);
+                Stmt::If {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    cond,
+                    then,
+                    else_,
+                }
+            }
+            Stmt::Switch {
+                dst,
+                on,
+                cases,
+                default,
+            } => {
+                let on = match on {
+                    SwitchOn::Tag(v) => SwitchOn::Tag(self.var(out, *v)),
+                    SwitchOn::Lit(v) => SwitchOn::Lit(self.var(out, *v)),
+                };
+                let cases = cases
+                    .iter()
+                    .map(|c| Case {
+                        key: c.key.clone(),
+                        body: self.seq(out, c.body),
+                    })
+                    .collect();
+                let default = default.map(|d| self.seq(out, d));
+                Stmt::Switch {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    on,
+                    cases,
+                    default,
+                }
+            }
+            Stmt::Loop {
+                dst,
+                vars,
+                inits,
+                body,
+            } => {
+                let inits = self.operands(out, inits);
+                let vars = vars.iter().map(|&v| self.fresh(out, v)).collect();
+                let body = self.seq(out, *body);
+                Stmt::Loop {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    vars,
+                    inits,
+                    body,
+                }
+            }
+            Stmt::Block { dst, label, body } => {
+                let label = self.label(out, *label);
+                let body = self.seq(out, *body);
+                Stmt::Block {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    label,
+                    body,
+                }
+            }
+            Stmt::Protect { dst, body, cleanup } => {
+                let body = self.seq(out, *body);
+                let cleanup = self.seq(out, *cleanup);
+                Stmt::Protect {
+                    dst: dst.map(|d| self.fresh(out, d)),
+                    body,
+                    cleanup,
+                }
+            }
+        };
+        out.stmts.alloc(stmt)
+    }
+
+    pub fn on_fail(&mut self, out: &mut Function, on_fail: &Option<OnFail>) -> Option<OnFail> {
+        on_fail.map(|o| match o {
+            OnFail::Break(l) => OnFail::Break(self.label(out, l)),
+            OnFail::Propagate => OnFail::Propagate,
+        })
+    }
+
+    pub fn callee(&mut self, out: &mut Function, callee: &Callee) -> Callee {
+        match callee {
+            Callee::Direct(f) => Callee::Direct(*f),
+            Callee::Indirect(c) => Callee::Indirect(self.var(out, *c)),
+            Callee::Op {
+                handler,
+                effect,
+                op,
+            } => Callee::Op {
+                handler: self.var(out, *handler),
+                effect: *effect,
+                op: *op,
+            },
+        }
+    }
+
+    pub fn value(&mut self, out: &mut Function, v: &Value) -> Value {
+        match v {
+            Value::Const(c) => Value::Const(c.clone()),
+            Value::Prim { op, ty, args } => Value::Prim {
+                op: *op,
+                ty: *ty,
+                args: self.operands(out, args),
+            },
+            Value::Call {
+                callee,
+                args,
+                suspends,
+                on_fail,
+            } => Value::Call {
+                callee: self.callee(out, callee),
+                args: self.operands(out, args),
+                suspends: *suspends,
+                on_fail: self.on_fail(out, on_fail),
+            },
+            Value::Builtin { op, args } => Value::Builtin {
+                op: *op,
+                args: self.operands(out, args),
+            },
+            Value::Make { ctor, args } => Value::Make {
+                ctor: *ctor,
+                args: self.operands(out, args),
+            },
+            Value::Field { base, ctor, index } => Value::Field {
+                base: self.var(out, *base),
+                ctor: *ctor,
+                index: *index,
+            },
+            Value::Tag(v) => Value::Tag(self.var(out, *v)),
+            Value::Tuple(es) => Value::Tuple(self.operands(out, es)),
+            Value::TupleGet { base, index } => Value::TupleGet {
+                base: self.var(out, *base),
+                index: *index,
+            },
+            Value::List { elems, tail } => Value::List {
+                elems: self.operands(out, elems),
+                tail: tail.as_ref().map(|t| self.operand(out, t)),
+            },
+            Value::ListIsEmpty(v) => Value::ListIsEmpty(self.var(out, *v)),
+            Value::ListHead(v) => Value::ListHead(self.var(out, *v)),
+            Value::ListTail(v) => Value::ListTail(self.var(out, *v)),
+            Value::FnRef(f) => Value::FnRef(*f),
+            Value::Closure(c) => {
+                let captures = self.vars_of(out, &c.captures);
+                let params = c.params.iter().map(|&p| self.fresh(out, p)).collect();
+                let body = self.seq(out, c.body);
+                Value::Closure(Box::new(Closure {
+                    params,
+                    captures,
+                    body,
+                    suspends: c.suspends,
+                }))
+            }
+            Value::MakeClosure { function, captures } => Value::MakeClosure {
+                function: *function,
+                captures: self.vars_of(out, captures),
+            },
+            Value::EnvGet { env, index } => Value::EnvGet {
+                env: self.var(out, *env),
+                index: *index,
+            },
+            Value::EvLookup { ev, effect } => Value::EvLookup {
+                ev: self.var(out, *ev),
+                effect: *effect,
+            },
+            Value::EvExtend { base, bindings } => Value::EvExtend {
+                base: base.map(|b| self.var(out, b)),
+                bindings: bindings
+                    .iter()
+                    .map(|&(e, h)| (e, self.var(out, h)))
+                    .collect(),
+            },
+            Value::Handler { name, effect, ops } => Value::Handler {
+                name: name.clone(),
+                effect: *effect,
+                ops: self.vars_of(out, ops),
+            },
+            Value::Fiber { op, args, on_fail } => Value::Fiber {
+                op: *op,
+                args: self.operands(out, args),
+                on_fail: self.on_fail(out, on_fail),
+            },
+            Value::IsError { error, enum_id } => Value::IsError {
+                error: self.var(out, *error),
+                enum_id: *enum_id,
+            },
+            Value::AsError { error, enum_id } => Value::AsError {
+                error: self.var(out, *error),
+                enum_id: *enum_id,
+            },
+            Value::Runtime { op, args } => Value::Runtime {
+                op: *op,
+                args: self.operands(out, args),
+            },
+            Value::Coerce(v) => Value::Coerce(self.var(out, *v)),
+        }
+    }
+}
+
+/// A function like `f` without arenas, parameters or body.
+pub(crate) fn empty_like(f: &Function) -> Function {
+    let mut out = Function::new(&f.name);
+    out.exported = f.exported;
+    out.ret = f.ret;
+    out.fails = f.fails;
+    out.suspends = f.suspends;
+    out.constant = f.constant;
+    out.external = f.external.clone();
+    out.env = f.env.clone();
+    out
+}
+
+/// A copy of the function with only the variables, statements, sequences and labels its body
+/// reaches, numbered in the order they are met.
+pub(crate) fn compact(f: &Function) -> Function {
+    let mut out = empty_like(f);
+    let mut c = Copier::new(f);
+    out.params = f.params.iter().map(|&p| c.fresh(&mut out, p)).collect();
+    out.body = f.body.map(|b| c.seq(&mut out, b));
+    out
+}

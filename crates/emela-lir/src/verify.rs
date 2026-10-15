@@ -12,6 +12,9 @@
 //!   loop (not across `protect`), and nothing leaves a cleanup but its end
 //! - function and closure bodies end with a terminator other than `yield` on every path
 //! - failure edges are present exactly on fallible calls, and only fallible bodies fail
+//! - the constructs agree with the module's [`Stage`]: no nested closures or function references
+//!   after closure conversion, and closure records only refer to lifted functions whose
+//!   environment matches the captures
 //!
 //! ANF is enforced by the data types (arguments are [`Operand`]s), and so is the position of
 //! terminators (each sequence has one, at its end).
@@ -20,8 +23,8 @@ use emela_core::{FiberOp, Sig, Type, TypeId};
 use rustc_hash::FxHashSet;
 
 use crate::ir::{
-    Callee, CaseKey, Function, LabelId, Module, OnFail, Operand, SeqId, Stmt, SwitchOn, Term,
-    Value, VarId,
+    Callee, CaseKey, Function, LabelId, Module, OnFail, Operand, SeqId, Stage, Stmt, SwitchOn,
+    Term, Value, VarId,
 };
 use crate::repr::{Repr, enum_repr, repr_of, repr_of_subst};
 
@@ -96,6 +99,13 @@ pub enum ErrorKind {
     MissingBody,
     /// A sequence or statement that appears in two places.
     SharedNode,
+    /// A construct not allowed at the module's stage (a nested closure after closure conversion,
+    /// a closure record before it).
+    StageViolation,
+    /// A lifted function's environment that disagrees with its use: an `env_get` outside a lifted
+    /// function or not on its environment parameter, or a closure record of a function that is
+    /// not lifted or whose captures differ.
+    BadEnvironment,
 }
 
 /// Checks every function of the module.
@@ -115,10 +125,17 @@ pub fn verify(m: &Module) -> Result<(), Vec<VerifyError>> {
 /// Checks one function. `f` need not be in the module yet; direct calls refer to the module's
 /// functions.
 pub fn verify_function(m: &Module, f: &Function) -> Vec<VerifyError> {
+    // Suspending functions are left after closure conversion (see `Stage`).
+    let stage = if f.suspends {
+        m.stage.min(Stage::ClosuresConverted)
+    } else {
+        m.stage
+    };
     let mut c = Checker {
         m,
         core: &m.core,
         f,
+        stage,
         errors: Vec::new(),
         defined: vec![false; f.vars.len()],
         in_scope: vec![false; f.vars.len()],
@@ -179,6 +196,8 @@ struct Checker<'a> {
     m: &'a Module,
     core: &'a emela_core::Module,
     f: &'a Function,
+    /// The stage the function is checked against.
+    stage: Stage,
     errors: Vec<VerifyError>,
     defined: Vec<bool>,
     in_scope: Vec<bool>,
@@ -235,6 +254,16 @@ impl Checker<'_> {
                     format!("variable {} has a type parameter", self.name(v)),
                 );
             }
+        }
+        if f.env.is_some()
+            && f.params
+                .first()
+                .is_none_or(|&p| f.vars[p].repr != Repr::Ref)
+        {
+            self.error(
+                ErrorKind::BadEnvironment,
+                "a lifted function without an environment parameter".into(),
+            );
         }
         match (&f.external, f.body) {
             (Some(_), Some(_)) => self.error(
@@ -913,8 +942,44 @@ impl Checker<'_> {
                     _ => Repr::Ref,
                 })
             }
-            Value::FnRef(_) => Expect::Exactly(Repr::Ref),
+            Value::FnRef(_) => {
+                self.stage_at_most(Stage::Flow, "a function reference");
+                Expect::Exactly(Repr::Ref)
+            }
+            Value::MakeClosure { function, captures } => {
+                self.stage_at_least(Stage::ClosuresConverted, "a closure record");
+                self.make_closure(*function, captures, dst)
+            }
+            Value::EnvGet { env, index } => {
+                self.stage_at_least(Stage::ClosuresConverted, "env_get");
+                self.use_var(*env);
+                let f = self.f;
+                let Some(tys) = f.env.as_ref().filter(|_| f.params.first() == Some(env)) else {
+                    self.error(
+                        ErrorKind::BadEnvironment,
+                        format!(
+                            "env_get on {}, not the environment of a lifted function",
+                            self.name(*env)
+                        ),
+                    );
+                    return Expect::Unknown;
+                };
+                let Some(&ty) = tys.get(*index) else {
+                    self.error(
+                        ErrorKind::BadIndex,
+                        format!("capture {index} of an environment of {}", tys.len()),
+                    );
+                    return Expect::Unknown;
+                };
+                if dst_ty.is_some_and(|d| d != ty) {
+                    return self.wrong_type(format!(
+                        "capture {index} defines a variable of another type"
+                    ));
+                }
+                Expect::Exactly(repr_of(self.core, ty))
+            }
             Value::Closure(c) => {
+                self.stage_at_most(Stage::Flow, "a nested closure");
                 for &cap in &c.captures {
                     self.use_var(cap);
                 }
@@ -1087,6 +1152,101 @@ impl Checker<'_> {
                 Expect::Exactly(ret)
             }
         }
+    }
+
+    fn stage_at_most(&mut self, stage: Stage, what: &str) {
+        if self.stage > stage {
+            self.error(
+                ErrorKind::StageViolation,
+                format!("{what} at stage {:?}", self.stage),
+            );
+        }
+    }
+
+    fn stage_at_least(&mut self, stage: Stage, what: &str) {
+        if self.stage < stage {
+            self.error(
+                ErrorKind::StageViolation,
+                format!("{what} at stage {:?}", self.stage),
+            );
+        }
+    }
+
+    /// `make_closure function[captures]` defining `dst`.
+    fn make_closure(
+        &mut self,
+        function: crate::ir::FnId,
+        captures: &[VarId],
+        dst: Option<VarId>,
+    ) -> Expect {
+        for &c in captures {
+            self.use_var(c);
+        }
+        let target = &self.m.functions[function];
+        let what = format!("make_closure {}", target.name);
+        let Some(env) = &target.env else {
+            self.error(
+                ErrorKind::BadEnvironment,
+                format!("{what}: not a lifted function"),
+            );
+            return Expect::Exactly(Repr::Ref);
+        };
+        if env.len() != captures.len()
+            || env
+                .iter()
+                .zip(captures)
+                .any(|(&t, &c)| self.f.vars[c].ty != t)
+        {
+            self.error(
+                ErrorKind::BadEnvironment,
+                format!("{what}: the captures differ from the environment"),
+            );
+        }
+        let Some(dst) = dst else {
+            return Expect::Exactly(Repr::Ref);
+        };
+        let Type::Fn(ft) = self.core.ty(self.f.vars[dst].ty) else {
+            return self.wrong_type(format!(
+                "{what} defines {}, not of a function type",
+                self.name(dst)
+            ));
+        };
+        let expected: Vec<Repr> = self
+            .fn_params(&ft.params, ft.ev)
+            .into_iter()
+            .flatten()
+            .collect();
+        let found: Vec<Repr> = target
+            .params
+            .iter()
+            .skip(1)
+            .map(|&p| target.vars[p].repr)
+            .collect();
+        if expected != found {
+            self.error(
+                ErrorKind::ReprMismatch,
+                format!("{what}: the parameters disagree with the function type"),
+            );
+        }
+        if repr_of(self.core, target.ret) != repr_of(self.core, ft.ret) {
+            self.error(
+                ErrorKind::ReprMismatch,
+                format!("{what}: the result disagrees with the function type"),
+            );
+        }
+        if target.suspends != ft.suspends {
+            self.error(
+                ErrorKind::SuspendMismatch,
+                format!("{what}: suspends disagrees with the function type"),
+            );
+        }
+        if target.fails && !ft.fails {
+            self.error(
+                ErrorKind::FailEdge,
+                format!("{what}: may fail but its type cannot"),
+            );
+        }
+        Expect::Exactly(Repr::Ref)
     }
 
     /// The representations of a function type's arguments: its parameters that have one, then the
