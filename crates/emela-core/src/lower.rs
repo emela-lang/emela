@@ -20,8 +20,9 @@ use rustc_hash::FxHashMap;
 use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
-    External, ExternalBinding, FiberOp, FnId, FnType, HostModule, HostRef, Lit, Local, Module,
-    OpDef, OpTy, Pat, StrPart, Type, TypeId, UnOp, VariantDef, VariantFields, WithBind,
+    External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostModule, HostRef, Lit, Local,
+    Module, OpDef, OpTy, Pat, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef, VariantFields,
+    WithBind,
 };
 use crate::named;
 
@@ -587,9 +588,9 @@ impl<'a> Lowerer<'a> {
                 None => return TypeId::UNIT,
             },
             Ty::Error => return TypeId::UNIT,
-            // Set type arguments of named types (`Handler[E, R]`) have no run-time representation;
-            // `()` keeps the type argument positions aligned.
-            Ty::Set(..) => return TypeId::UNIT,
+            // Set type arguments of named types (`Handler[E, R]`) have no run-time representation,
+            // but what they decide about calling conventions is kept.
+            Ty::Set(_, row) => return self.set_ty(row),
             Ty::Cap(tag) => {
                 let key = self.key_here(tag);
                 Type::Handler(self.effect_id(&key))
@@ -604,6 +605,7 @@ impl<'a> Lowerer<'a> {
                     fails: !f.fails.is_empty(),
                     suspends: self.row_suspends(&f.uses),
                     ev: self.row_needs_ev(&f.uses),
+                    sets: self.fn_sets(&f.fails, &f.uses),
                 })
             }
             Ty::Tuple(ts) => Type::Tuple(ts.iter().map(|t| self.ty(t)).collect()),
@@ -618,6 +620,56 @@ impl<'a> Lowerer<'a> {
             }
         };
         self.module.intern(t)
+    }
+
+    /// The summary of a set inside the definition being lowered ([`SetSummary`]): set type
+    /// parameters (`RowElem::Bound`, and set variables generalized by inference) are listed as
+    /// `Type::Param`, and the flags come from the other elements by the same rules as the marks
+    /// (a non-empty E fails, `row_needs_ev`, `row_suspends`). Error tags only make it fail and
+    /// effect tags only set `ev` and `suspends`; a set variable left undetermined, whose kind is
+    /// not known here, fails and needs the evidence table.
+    fn set_ty(&mut self, row: &Row) -> TypeId {
+        let hir = self.hir;
+        let async_ = hir.prelude_def("Async");
+        let mut set = SetSummary::default();
+        for e in row.elems() {
+            match e {
+                RowElem::Bound(i) => set.params.push(self.module.type_param(*i as usize)),
+                RowElem::Var(v) => match self.generalized_row_param(*v) {
+                    Some(i) => set.params.push(self.module.type_param(i as usize)),
+                    None => {
+                        set.fails = true;
+                        set.ev = true;
+                    }
+                },
+                RowElem::Tag(t) if matches!(hir.item(t.def), Some(Item::Effect(_))) => {
+                    set.ev |= Some(t.def) != async_;
+                    set.suspends |= !self.is_immediate_effect(t.def);
+                }
+                RowElem::Tag(t) if Some(t.def) == async_ => set.suspends = true,
+                RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
+            }
+        }
+        set.params.sort();
+        set.params.dedup();
+        self.module.intern(Type::Set(set))
+    }
+
+    /// The type parameter that the set variable `v` was generalized to in the definition being
+    /// lowered, if any.
+    fn generalized_row_param(&self, v: emela_types::RowVar) -> Option<u32> {
+        self.current_def
+            .and_then(|def| self.types.generalized_rows.get(def))
+            .and_then(|rows| rows.iter().find(|(w, _)| *w == v))
+            .map(|&(_, i)| i)
+    }
+
+    /// The E and R of a function type, if they contain set type parameters (`FnType::sets`).
+    fn fn_sets(&mut self, fails: &Row, uses: &Row) -> Option<FnSets> {
+        let errors = self.set_ty(fails);
+        let effects = self.set_ty(uses);
+        let open = |t: TypeId| matches!(self.module.ty(t), Type::Set(s) if !s.params.is_empty());
+        (open(errors) || open(effects)).then_some(FnSets { errors, effects })
     }
 
     /// The IR ID of copy `spec` of a fn. If none exists yet, allocates one and pushes it on the
@@ -737,10 +789,18 @@ impl<'a> Lowerer<'a> {
         let (ret, type_params) = self.signature(def);
         self.module.define(id, params, ret, body);
         let fails = self.declared_fails(def);
+        let types = self.types;
+        let sets = match types.sigs.get(def).map(|s| &s.scheme.ty) {
+            Some(Ty::Fn(f)) => self.fn_sets(&f.fails, &f.uses),
+            _ => None,
+        };
         let func = &mut self.module.functions[id];
         func.type_params = type_params;
         // A const's value cannot fail (spec 5.6).
         func.fails = !func.constant && fails;
+        if !func.constant {
+            func.sets = sets;
+        }
     }
 
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
@@ -751,7 +811,8 @@ impl<'a> Lowerer<'a> {
 
     /// The IR type arguments of the reference `expr` to the generic definition `def`
     /// (`Callee::Direct::ty_args`): the type checker's instantiation (`ProgramTypes::type_args`),
-    /// with set type parameters as the placeholder `()`.
+    /// with set type parameters as summaries of the instantiated sets (`ProgramTypes::type_rows`,
+    /// [`Lowerer::set_ty`]).
     ///
     /// A reference within a group being inferred is not instantiated (a self reference, or a
     /// reference to a definition whose scheme was not known yet). There the two definitions share
@@ -764,9 +825,28 @@ impl<'a> Lowerer<'a> {
         if n == 0 {
             return Vec::new();
         }
+        let params = &types
+            .sigs
+            .get(def)
+            .expect("a generic definition has a signature")
+            .scheme
+            .params;
+        let is_set = |i: usize| matches!(params[i].kind, emela_types::ParamKind::Set);
         let recorded = types.type_args.get(expr).map_or(&[][..], Vec::as_slice);
         if recorded.is_empty() && self.current_def == Some(def) {
-            return (0..n).map(|i| self.module.type_param(i)).collect();
+            return (0..n)
+                .map(|i| {
+                    let p = self.module.type_param(i);
+                    if is_set(i) {
+                        self.module.intern(Type::Set(SetSummary {
+                            params: vec![p],
+                            ..SetSummary::default()
+                        }))
+                    } else {
+                        p
+                    }
+                })
+                .collect();
         }
         let mut out: Vec<TypeId> = recorded.iter().map(|t| self.ty(t)).collect();
         out.resize(n, TypeId::UNIT);
@@ -775,6 +855,37 @@ impl<'a> Lowerer<'a> {
             if i >= recorded.len() && i < n {
                 out[i] = self.ty(&Ty::Var(v));
             }
+        }
+        // Set type parameters get the summary of the instantiated set (`ProgramTypes::type_rows`),
+        // or, for a reference within a group being inferred, of the shared set variable.
+        let rows = types.type_rows.get(expr);
+        let generalized = types.generalized_rows.get(def);
+        for (i, slot) in out.iter_mut().enumerate() {
+            if !is_set(i) {
+                continue;
+            }
+            let row = match rows.and_then(|rows| rows.get(i)) {
+                Some(row) => row.clone(),
+                None => match generalized
+                    .into_iter()
+                    .flatten()
+                    .find(|&&(_, j)| j as usize == i)
+                {
+                    Some(&(v, _)) => Row::var(v),
+                    // Not known here: may fail and need the evidence table, and suspends as the
+                    // copy called does.
+                    None => {
+                        let spec = self.specialization_of(def, Some(expr));
+                        let suspends = spec.checked_shr(i as u32).is_some_and(|b| b & 1 != 0);
+                        *slot = self.module.intern(Type::Set(SetSummary {
+                            suspends,
+                            ..SetSummary::unknown()
+                        }));
+                        continue;
+                    }
+                },
+            };
+            *slot = self.set_ty(&row);
         }
         out
     }
@@ -826,7 +937,17 @@ impl<'a> Lowerer<'a> {
         };
         // The type arguments as seen from the definition the key was read in, as in `key_ty`.
         let outer = std::mem::replace(&mut self.current_def, key.ctx);
-        let args: Vec<TypeId> = key.tag.args.iter().map(|t| self.ty(t)).collect();
+        // Keys leave out E and R (`key_ty`), so the IR type arguments do too: set arguments are
+        // the placeholder `()`, and function types keep only their flags.
+        let args: Vec<TypeId> = key
+            .tag
+            .args
+            .iter()
+            .map(|t| {
+                let t = self.ty(t);
+                self.module.types.erase_sets(t)
+            })
+            .collect();
         self.current_def = outer;
         // Added before its operations, whose types might mention the effect itself.
         let id = self.module.add_effect(EffectDef {
@@ -1151,6 +1272,7 @@ impl<'a> Lowerer<'a> {
                 fails: self.types.errors.get(body).is_some_and(|r| !r.is_empty()),
                 suspends,
                 ev: false,
+                sets: None,
             });
             ops[index] = Some(Expr::Lambda {
                 params: ps,
@@ -2151,6 +2273,7 @@ impl<'a> Lowerer<'a> {
             fails: false,
             suspends: false,
             ev: false,
+            sets: None,
         });
         let cell_ty = self.module.cell(state);
         let handler_ty = self.module.handler(effect);

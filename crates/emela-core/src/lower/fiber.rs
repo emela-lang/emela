@@ -381,6 +381,7 @@ impl Lowerer<'_> {
             fails: call.fails,
             suspends: true,
             ev: false,
+            sets: None,
         });
         let handler_ty = self.module.handler(effect);
         let body_call = Call {
@@ -393,6 +394,7 @@ impl Lowerer<'_> {
             fails: call.fails,
             suspends: true,
             ev: false,
+            sets: None,
         });
         let fork_ty = self.module.fn_type(vec![g_ty], TypeId::ANY);
         let deferred_ty = self.module.fn_type(Vec::new(), TypeId::ANY);
@@ -403,6 +405,7 @@ impl Lowerer<'_> {
             fails: body_call.fails,
             suspends: true,
             ev: false,
+            sets: None,
         });
         Some(ScopeCall {
             effect,
@@ -482,6 +485,7 @@ impl Lowerer<'_> {
             fails: call.fails,
             suspends: call.suspends,
             ev: false,
+            sets: None,
         })
     }
 
@@ -493,6 +497,7 @@ impl Lowerer<'_> {
             Type::Fn(f) => self.module.func(FnType {
                 params: vec![TypeId::EVIDENCE],
                 ev: false,
+                sets: None,
                 ..f
             }),
             _ => f,

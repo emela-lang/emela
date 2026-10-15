@@ -23,15 +23,18 @@
 //!   does not use it, as the type checker has checked R);
 //! - both are function types whose parameters and return types are compatible (parameters the
 //!   other way round), whatever their `fails`, `suspends` and `ev`. These flags come from the E and
-//!   R sets, and a set type argument has no IR type (it is the `()` placeholder in `ty_args`), so a
-//!   generic signature's flags over-approximate those of an instantiation, and a value leaving a
-//!   generic function keeps the generic flags. The flags that decide a calling convention are
-//!   checked where they are used instead: `Expr::Call::fails` / `suspends` against the callee, and
-//!   a lambda's parameters against its type's `ev`;
-//! - both are lists, tuples or applications of the same enum with compatible components.
+//!   R sets; inside a generic function, set type parameters make them over-approximate those of an
+//!   instantiation (`FnType::sets`), a value leaving a generic function keeps the generic flags,
+//!   and the type checker lets a function with a smaller E or R be used as one with a larger one.
+//!   The flags that decide a calling convention are checked where they are used instead:
+//!   `Expr::Call::fails` / `suspends` against the callee, and a lambda's parameters against its
+//!   type's `ev`;
+//! - both are lists, tuples or applications of the same enum with compatible components; set type
+//!   arguments ([`Type::Set`], or the `()` placeholder) match each other.
 //!
 //! What is not checked: that locals are bound before use and bound once, and `Expr::Call::fails`
 //! of direct calls (a generic function's `Function::fails` over-approximates its instantiations).
+//! [`verify_monomorphic`] checks more for the output of monomorphization.
 
 use std::fmt;
 
@@ -63,8 +66,29 @@ impl fmt::Display for VerifyError {
 
 /// Checks that every function body in the module is well typed. Returns all errors found.
 pub fn verify(m: &Module) -> Result<(), Vec<VerifyError>> {
+    run(m, false)
+}
+
+/// [`verify`] for the output of monomorphization ([`crate::monomorphize`]), which must also be
+/// fully monomorphic and have exact calling conventions:
+///
+/// - no function has type parameters or [`Function::sets`]; no type of a local, a return value, a
+///   `ty_args`, a lambda, a list, an embedded value or an assert, and no type argument of a used
+///   effect, has a `Type::Param` or a set type parameter (`TypeTable::has_param`). `Type::Any`
+///   stays (Scope's handler). Exceptions: the field types of an [`EnumDef`] refer to the enum's
+///   own parameters, and an operation's types to its own (`OpDef::type_params`, `fork[A]`);
+/// - a function value flows only into a slot whose function type agrees on `ev`, so an indirect
+///   call passes the evidence table exactly when the value takes one;
+/// - `()` is never passed where an evidence table is expected;
+/// - a direct call to a function that may fail is marked `fails`.
+pub fn verify_monomorphic(m: &Module) -> Result<(), Vec<VerifyError>> {
+    run(m, true)
+}
+
+fn run(m: &Module, strict: bool) -> Result<(), Vec<VerifyError>> {
     let mut v = Verifier {
         t: Typer::new(m),
+        strict,
         function: String::new(),
         path: Vec::new(),
         loops: Vec::new(),
@@ -75,11 +99,31 @@ pub fn verify(m: &Module) -> Result<(), Vec<VerifyError>> {
         if f.constant && !f.params.is_empty() {
             v.error("a const takes no parameters".to_owned());
         }
+        if strict {
+            if f.type_params != 0 || f.sets.is_some() {
+                v.error("a generic function after monomorphization".to_owned());
+            }
+            for &p in &f.params {
+                v.mono(m.locals[p].ty, "parameter");
+            }
+            v.mono(f.ret, "return type");
+        }
         if f.external.is_some() {
             continue;
         }
         let t = v.expr(&f.body);
         v.expect(t, f.ret, "body");
+    }
+    if strict {
+        v.function.clear();
+        for (_, l) in m.locals.iter() {
+            v.mono(l.ty, "local");
+        }
+        for (_, e) in m.effects.iter() {
+            for &a in &e.args {
+                v.mono(a, "effect type argument");
+            }
+        }
     }
     if v.errors.is_empty() {
         Ok(())
@@ -98,6 +142,8 @@ enum Seg {
 
 struct Verifier<'a> {
     t: Typer<'a>,
+    /// For monomorphized modules ([`verify_monomorphic`]).
+    strict: bool,
     function: String,
     path: Vec<Seg>,
     /// The variables of the enclosing `loop`s, innermost last. Lambdas start afresh.
@@ -144,6 +190,20 @@ impl<'a> Verifier<'a> {
         }
     }
 
+    /// Reports a type that is not fully monomorphic ([`verify_monomorphic`]).
+    fn mono(&mut self, ty: TypeId, what: &str) {
+        if self.strict && self.t.types().has_param(ty) {
+            let message = format!("{what} of type {} after monomorphization", self.name(ty));
+            self.error(message);
+        }
+    }
+
+    fn mono_all(&mut self, tys: &[TypeId], what: &str) {
+        for &t in tys {
+            self.mono(t, what);
+        }
+    }
+
     /// Whether a value of type `a` may flow into a slot of type `b` (see the module
     /// documentation).
     fn compatible(&self, a: TypeId, b: TypeId) -> bool {
@@ -151,18 +211,23 @@ impl<'a> Verifier<'a> {
             return true;
         }
         if b == TypeId::EVIDENCE && a == TypeId::UNIT {
-            return true;
+            return !self.strict;
         }
         let all = |xs: &[TypeId], ys: &[TypeId]| {
             xs.len() == ys.len() && xs.iter().zip(ys).all(|(&x, &y)| self.compatible(x, y))
         };
         match (self.t.ty(a), self.t.ty(b)) {
             (Type::Fn(f), Type::Fn(g)) => {
-                all(&g.params, &f.params) && self.compatible(f.ret, g.ret)
+                all(&g.params, &f.params)
+                    && self.compatible(f.ret, g.ret)
+                    && (!self.strict || f.ev == g.ev)
             }
             (Type::List(x), Type::List(y)) => self.compatible(*x, *y),
             (Type::Tuple(xs), Type::Tuple(ys)) => all(xs, ys),
             (Type::Enum(i, xs), Type::Enum(j, ys)) => i == j && all(xs, ys),
+            // Set type arguments of enums carry no values. Some are still the `()` placeholder
+            // (`Exit[A, E]` from the concurrency operations).
+            (Type::Set(_), Type::Set(_) | Type::Unit) | (Type::Unit, Type::Set(_)) => true,
             _ => false,
         }
     }
@@ -242,6 +307,7 @@ impl<'a> Verifier<'a> {
             Expr::Var(l) => m.locals[*l].ty,
             Expr::Fn { f, ty_args } => {
                 self.check_ty_args(*f, ty_args);
+                self.mono_all(ty_args, "type argument");
                 self.t.fn_value(*f, ty_args)
             }
             Expr::Call {
@@ -252,6 +318,7 @@ impl<'a> Verifier<'a> {
             } => self.call(callee, args, *fails, *suspends),
             Expr::Builtin { op, ty_args, args } => {
                 let info = op.info();
+                self.mono_all(ty_args, "type argument");
                 if ty_args.len() != info.ty_params as usize {
                     self.error(format!(
                         "{} type arguments for @{} with {}",
@@ -270,6 +337,7 @@ impl<'a> Verifier<'a> {
                 args,
             } => {
                 let def = &m.enums[ctor.enum_id];
+                self.mono_all(ty_args, "type argument");
                 if ty_args.len() != def.params {
                     self.error(format!(
                         "{} type arguments for enum {} with {}",
@@ -317,6 +385,7 @@ impl<'a> Verifier<'a> {
                 self.t.intern(Type::Tuple(ts))
             }
             Expr::List { elem, elems, tail } => {
+                self.mono(*elem, "list element");
                 for (i, x) in elems.iter().enumerate() {
                     self.sub_expect(Seg::Index("elem", i), x, *elem);
                 }
@@ -414,11 +483,13 @@ impl<'a> Verifier<'a> {
                 suspends,
             } => {
                 self.lambda(params, *ty, body, *suspends);
+                self.mono(*ty, "lambda");
                 *ty
             }
             Expr::Concat(parts) => {
                 for (i, part) in parts.iter().enumerate() {
                     if let StrPart::Value(v, ty) = part {
+                        self.mono(*ty, "embedded value");
                         self.sub_expect(Seg::Index("part", i), v, *ty);
                     }
                 }
@@ -455,6 +526,7 @@ impl<'a> Verifier<'a> {
             Expr::Assert(a) => {
                 match &a.cond {
                     AssertCond::Compare { ty, lhs, rhs, .. } => {
+                        self.mono(*ty, "assert");
                         self.sub_expect(Seg::Name("lhs"), lhs, *ty);
                         self.sub_expect(Seg::Name("rhs"), rhs, *ty);
                     }
@@ -651,7 +723,11 @@ impl<'a> Verifier<'a> {
         match callee {
             Callee::Direct { f, ty_args } => {
                 self.check_ty_args(*f, ty_args);
+                self.mono_all(ty_args, "type argument");
                 let func = &m.functions[*f];
+                if self.strict && func.fails && !fails {
+                    self.error(format!("a call to fallible {} not marked fails", func.name));
+                }
                 if func.suspends != suspends {
                     self.error(format!(
                         "a call to {} marked suspends: {suspends}, but the function's is {}",
@@ -699,6 +775,7 @@ impl<'a> Verifier<'a> {
                 op,
                 ty_args,
             } => {
+                self.mono_all(ty_args, "type argument");
                 let h = self.sub(Seg::Name("handler"), handler);
                 let ty = self.t.intern(Type::Handler(*effect));
                 self.expect(h, ty, "handler");

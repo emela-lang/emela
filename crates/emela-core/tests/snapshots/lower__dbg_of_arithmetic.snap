@@ -105,7 +105,7 @@ enum Std.FileSystem.TestFiles {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(raise: fn() -> Never fails)
+  Cause(raise: fn() -> Never fails (E {A}, R {}))
 }
 
 enum Std.Cause.CauseKind {
@@ -122,7 +122,7 @@ external enum Std.Fiber.Fiber[A] {
 
 enum Std.Fiber.Exit[A, B] {
   Success(A)
-  Failure(Std.Cause.Cause[()])
+  Failure(Std.Cause.Cause[{B}])
 }
 
 export fn main() -> Bool {

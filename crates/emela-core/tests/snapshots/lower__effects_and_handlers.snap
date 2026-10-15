@@ -22,10 +22,10 @@ export fn main() -> Int {
     } escape {
       Late.Late -> "late"
     })
-    let _%7: Int = @dbg[Int](apply[(), ()](fn(ev%5: evidence) -> Int {
+    let _%7: Int = @dbg[Int](apply[{}, {ev}](fn(ev%5: evidence) -> Int {
       (clock%3.Clock#now() +[Int] h%0.Clock#now())
     }, ev%2))
-    let _%11: List[Int] = @dbg[List[Int]](List.map[Int, Int, (), ()]([1]: List[Int], fn(x%8: Int, ev%9: evidence) -> Int {
+    let _%11: List[Int] = @dbg[List[Int]](List.map[Int, Int, {}, {ev}]([1]: List[Int], fn(x%8: Int, ev%9: evidence) -> Int {
       (x%8 +[Int] h%0.Clock#now())
     }, ev%2))
     let f%14: fn() -> Int ev = {

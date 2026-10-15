@@ -1,0 +1,63 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn Std.Fiber.fork[\", \"effect \"])"
+---
+effect Std.Fiber.Scope[_, _] = Std.Fiber.Scope[(), ()] {
+  fn fork[A](fn(evidence) -> A fails suspends) -> Std.Fiber.Fiber[A]
+  fn deferred[A]() -> Std.Deferred.Deferred[A]
+}
+
+export suspend fn main() -> Int {
+  let body%0: fn() -> Int suspends ev = suspend fn(ev%1: evidence) -> Int {
+    let s%2: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%1)
+    let a%3: Std.Fiber.Fiber[List[Int]] = {
+      let scope%4: handler Std.Fiber.Scope[_, _] = s%2
+      let f%5: fn() -> List[Int] ev = {
+        let f%6: fn() -> List[Int] = fn() -> List[Int] {
+          [1]: List[Int]
+        }
+        fn(ev%7: evidence) -> List[Int] {
+          (f%6)()
+        }
+      }
+      scope%4.Std.Fiber.Scope[_, _]#fork[List[Int]](fn(ev%8: evidence) -> List[Int] {
+        (f%5)(provide(ev%8; Std.Fiber.Scope[_, _] = scope%4))
+      })
+    }
+    let b%9: Std.Fiber.Fiber[Int] = Std.Fiber.fork[Int, {}, {}]({
+      let f%12: fn() -> Int = fn() -> Int {
+        2
+      }
+      fn(ev%13: evidence) -> Int {
+        (f%12)()
+      }
+    }, ev%1)
+    let d%14: Std.Deferred.Deferred[String] = s%2.Std.Fiber.Scope[_, _]#deferred[String]()
+    let _%15: Bool = fiber#complete(d%14, "x")
+    let e%16: Std.Fiber.Exit[Int, {}] = fiber#attempt[Std.Fiber.Exit](fn() -> Int {
+      3
+    })
+    (List.length[Int](fiber#join(a%3)!) +[Int] fiber#join(b%9)!)
+  }
+  fiber#scope(suspend fn(s%18: fiber_scope) -> Int {
+    let scope%19: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
+      fork: fn(g%20: fn(evidence) -> any suspends) -> any {
+        fiber#fork(s%18, suspend fn() -> any {
+          (g%20)(provide(;))!
+        })
+      }
+      deferred: fn() -> any {
+        fiber#deferred(s%18)
+      }
+    }
+    (body%0)(provide(; Std.Fiber.Scope[_, _] = scope%19))!
+  })!
+}
+
+fn Std.Fiber.fork[Int, {}, {}](f%10: fn() -> Int ev, ev%11: evidence) -> Std.Fiber.Fiber[Int] {
+  let scope%21: handler Std.Fiber.Scope[_, _] = use[Std.Fiber.Scope[_, _]](ev%11)
+  let f%22: fn() -> Int ev = f%10
+  scope%21.Std.Fiber.Scope[_, _]#fork[Int](fn(ev%23: evidence) -> Int fails {
+    (f%22)(provide(ev%23; Std.Fiber.Scope[_, _] = scope%21))
+  })
+}

@@ -1,0 +1,65 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn List.map[\", \"fn List.fold[\"])"
+---
+export fn main() -> List[Int] {
+  let _%0: List[Int] = @dbg[List[Int]](List.map[Int, Int, {}, {}]([1, 2]: List[Int], fn(x%3: Int) -> Int {
+    (x%3 +[Int] 1)
+  }))
+  let _%4: List[Int] = @dbg[List[Int]](List.map[String, Int, {}, {}](["a"]: List[String], fn(x%7: String) -> Int {
+    @String.length(x%7)
+  }))
+  with {
+    let h%8: handler Clock = Fixed()
+    let ev%9: evidence = provide(; Clock = h%8)
+  } {
+    @dbg[List[Int]](List.map[Int, Int, {}, {ev}]([1]: List[Int], fn(x%13: Int, ev%14: evidence) -> Int {
+      (x%13 +[Int] h%8.Clock#now())
+    }, ev%9))
+  }
+}
+
+fn List.map[Int, Int, {}, {}](xs%1: List[Int], f%2: fn(Int) -> Int) -> List[Int] {
+  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%1, []: List[Int], fn(acc%19: List[Int], x%20: Int) -> List[Int] {
+    [(f%2)(x%20), ..acc%19]: List[Int]
+  }))
+}
+
+fn List.map[String, Int, {}, {}](xs%5: List[String], f%6: fn(String) -> Int) -> List[Int] {
+  List.reverse[Int](List.fold[String, List[Int], {}, {}](xs%5, []: List[Int], fn(acc%24: List[Int], x%25: String) -> List[Int] {
+    [(f%6)(x%25), ..acc%24]: List[Int]
+  }))
+}
+
+fn List.map[Int, Int, {}, {ev}](xs%10: List[Int], f%11: fn(Int) -> Int ev, ev%12: evidence) -> List[Int] {
+  List.reverse[Int](List.fold[Int, List[Int], {}, {ev}](xs%10, []: List[Int], fn(acc%30: List[Int], x%31: Int, ev%32: evidence) -> List[Int] {
+    [(f%11)(x%31, ev%32), ..acc%30]: List[Int]
+  }, ev%12))
+}
+
+fn List.fold[Int, List[Int], {}, {}](xs%16: List[Int], from%17: List[Int], f%18: fn(List[Int], Int) -> List[Int]) -> List[Int] {
+  loop(xs%35: List[Int] = xs%16, from%36: List[Int] = from%17, f%37: fn(List[Int], Int) -> List[Int] = f%18, ev%38: evidence = provide(;)) {
+    match xs%35 {
+      [] -> from%36
+      [x%39, ..rest%40] -> recur(rest%40, (f%37)(from%36, x%39), f%37, ev%38)
+    }
+  }
+}
+
+fn List.fold[String, List[Int], {}, {}](xs%21: List[String], from%22: List[Int], f%23: fn(List[Int], String) -> List[Int]) -> List[Int] {
+  loop(xs%41: List[String] = xs%21, from%42: List[Int] = from%22, f%43: fn(List[Int], String) -> List[Int] = f%23, ev%44: evidence = provide(;)) {
+    match xs%41 {
+      [] -> from%42
+      [x%45, ..rest%46] -> recur(rest%46, (f%43)(from%42, x%45), f%43, ev%44)
+    }
+  }
+}
+
+fn List.fold[Int, List[Int], {}, {ev}](xs%26: List[Int], from%27: List[Int], f%28: fn(List[Int], Int) -> List[Int] ev, ev%29: evidence) -> List[Int] {
+  loop(xs%47: List[Int] = xs%26, from%48: List[Int] = from%27, f%49: fn(List[Int], Int) -> List[Int] ev = f%28, ev%50: evidence = ev%29) {
+    match xs%47 {
+      [] -> from%48
+      [x%51, ..rest%52] -> recur(rest%52, (f%49)(from%48, x%51, ev%50), f%49, ev%50)
+    }
+  }
+}

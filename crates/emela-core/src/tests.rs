@@ -162,6 +162,7 @@ fn named_args_keep_written_evaluation_order() {
         fails: false,
         suspends: false,
         ev: false,
+        sets: None,
     });
     let h = m.local("h", h_ty);
     let e = named::in_written_order(
@@ -332,6 +333,7 @@ fn types_are_interned() {
         fails: false,
         suspends: false,
         ev: false,
+        sets: None,
     };
     let a = m.func(f.clone());
     let b = m.func(f.clone());

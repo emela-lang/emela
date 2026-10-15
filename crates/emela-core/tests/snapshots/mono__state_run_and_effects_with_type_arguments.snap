@@ -1,0 +1,99 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn modify[\", \"fn twice[\", \"fn both(\", \"effect \"])"
+---
+effect Std.State.State[Int] = Std.State.State[Int] {
+  fn get() -> Int
+  fn set(Int) -> ()
+  fn update(fn(Int) -> Int) -> ()
+}
+
+effect Std.State.State[String] = Std.State.State[String] {
+  fn get() -> String
+  fn set(String) -> ()
+  fn update(fn(String) -> String) -> ()
+}
+
+export fn main() -> (Int, Int) {
+  let _%0: ((String, String), Int) = @dbg[((String, String), Int)]({
+    let cell%1: cell Int = @$Cell.new[Int](10)
+    let state%2: handler Std.State.State[Int] = handler State: Std.State.State[Int] {
+      get: fn() -> Int {
+        @$Cell.get[Int](cell%1)
+      }
+      set: fn(value%3: Int) -> () {
+        @$Cell.set[Int](cell%1, value%3)
+      }
+      update: fn(f%4: fn(Int) -> Int) -> () {
+        @$Cell.set[Int](cell%1, (f%4)(@$Cell.get[Int](cell%1)))
+      }
+    }
+    let result%5: (String, String) = (fn(ev%6: evidence) -> (String, String) {
+      let cell%7: cell String = @$Cell.new[String]("")
+      let state%8: handler Std.State.State[String] = handler State: Std.State.State[String] {
+        get: fn() -> String {
+          @$Cell.get[String](cell%7)
+        }
+        set: fn(value%9: String) -> () {
+          @$Cell.set[String](cell%7, value%9)
+        }
+        update: fn(f%10: fn(String) -> String) -> () {
+          @$Cell.set[String](cell%7, (f%10)(@$Cell.get[String](cell%7)))
+        }
+      }
+      let result%11: String = (fn(ev%12: evidence) -> String {
+        both(ev%12)
+      })(provide(ev%6; Std.State.State[String] = state%8))
+      (result%11, @$Cell.get[String](cell%7))
+    })(provide(; Std.State.State[Int] = state%2))
+    (result%5, @$Cell.get[Int](cell%1))
+  })
+  let g%14: fn(fn(Int) -> Int) -> Int ev = fn(x%15: fn(Int) -> Int, ev%16: evidence) -> Int {
+    modify[Int](x%15, ev%16)
+  }
+  @dbg[(Int, Int)]({
+    let cell%19: cell Int = @$Cell.new[Int](1)
+    let state%20: handler Std.State.State[Int] = handler State: Std.State.State[Int] {
+      get: fn() -> Int {
+        @$Cell.get[Int](cell%19)
+      }
+      set: fn(value%21: Int) -> () {
+        @$Cell.set[Int](cell%19, value%21)
+      }
+      update: fn(f%22: fn(Int) -> Int) -> () {
+        @$Cell.set[Int](cell%19, (f%22)(@$Cell.get[Int](cell%19)))
+      }
+    }
+    let result%23: Int = (fn(ev%24: evidence) -> Int {
+      (g%14)(fn(x%25: Int) -> Int {
+        (x%25 *[Int] 2)
+      }, ev%24)
+    })(provide(; Std.State.State[Int] = state%20))
+    (result%23, @$Cell.get[Int](cell%19))
+  })
+}
+
+fn both(ev%13: evidence) -> String {
+  let n%26: Int = modify[Int](fn(n%27: Int) -> Int {
+    (n%27 +[Int] 1)
+  }, ev%13)
+  let _%28: () = (use[Std.State.State[String]](ev%13)).Std.State.State[String]#set(concat("n=", n%26 as Int))
+  twice[String](fn(s%31: String) -> String {
+    @String.append(s%31, "!")
+  }, ev%13)
+}
+
+fn modify[Int](f%17: fn(Int) -> Int, ev%18: evidence) -> Int {
+  let _%32: () = (use[Std.State.State[Int]](ev%18)).Std.State.State[Int]#update(f%17)
+  (use[Std.State.State[Int]](ev%18)).Std.State.State[Int]#get()
+}
+
+fn twice[String](f%29: fn(String) -> String, ev%30: evidence) -> String {
+  let _%33: String = modify[String](f%29, ev%30)
+  modify[String](f%29, ev%30)
+}
+
+fn modify[String](f%34: fn(String) -> String, ev%35: evidence) -> String {
+  let _%36: () = (use[Std.State.State[String]](ev%35)).Std.State.State[String]#update(f%34)
+  (use[Std.State.State[String]](ev%35)).Std.State.State[String]#get()
+}

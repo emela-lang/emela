@@ -210,6 +210,7 @@ fn failures_in_lambdas_return_from_the_lambda() {
         fails: true,
         suspends: false,
         ev: false,
+        sets: None,
     });
     let (f, x) = (m.local("f", f_ty), m.local("x", TypeId::INT));
     m.define(
@@ -316,6 +317,7 @@ fn unshowable_error_shows_its_name() {
         fails: false,
         suspends: false,
         ev: false,
+        sets: None,
     });
     let callback = error(&mut m, "Callback", vec![("f", f)]);
     main_fn(

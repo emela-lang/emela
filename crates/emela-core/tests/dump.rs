@@ -123,6 +123,7 @@ fn every_kind_of_expression() {
         fails: false,
         suspends: false,
         ev: false,
+        sets: None,
     });
     let area_ty = m.func(FnType {
         params: vec![shape_ty],
@@ -130,6 +131,7 @@ fn every_kind_of_expression() {
         fails: false,
         suspends: false,
         ev: false,
+        sets: None,
     });
     let p = m.local("p", pair_ty);
     let f = m.local("f", inc_ty);
