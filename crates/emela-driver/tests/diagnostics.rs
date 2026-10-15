@@ -857,6 +857,48 @@ fn only_called_operations_are_checked_for_the_target() {
     assert!(as_value.contains("`wasm_sleep`"), "{as_value}");
 }
 
+/// Handlers of one effect with different type arguments (spec 8.1). The check runs on the
+/// monomorphized IR, where `Store[Int]` and `Store[String]` are different effects, so calling
+/// `put` of `Store[String]` follows only `StringStore`'s implementation.
+const STORES: &str = r#"effect Store[T] {
+  fn put(x: T) -> ()
+}
+
+@external(js, "console.log")
+fn js_log(s: String) -> ()
+
+@external(wasm, "env", "log_int")
+fn wasm_log_int(n: Int) -> ()
+
+handler IntStore implements Store[Int] {
+  fn put(x) { wasm_log_int(x) }
+}
+
+handler StringStore implements Store[String] {
+  fn put(x) { js_log(x) }
+}
+
+fn main() {
+  with IntStore, StringStore { CALL }
+}
+"#;
+
+#[test]
+fn operations_are_checked_per_effect_instance() {
+    let render_main = |call: &str| {
+        let main = STORES.replace("CALL", call);
+        let files = [("home/main.emel", main.as_str())];
+        let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
+        render(&analysis.diagnostics, &analysis.sources, false)
+    };
+    assert_eq!(render_main("(use Store[String]).put(\"a\")"), "");
+    let int = render_main("(use Store[Int]).put(1)");
+    assert!(
+        int.contains("external function `wasm_log_int` has no `@external` for target `js`"),
+        "{int}"
+    );
+}
+
 #[test]
 fn internal_fns_are_core_only() {
     // `@internal` fns can be called from core modules but not from source modules (E0228), and

@@ -24,6 +24,7 @@ use crate::ir::{
     Module, OpDef, OpTy, Pat, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef, VariantFields,
     WithBind,
 };
+use crate::mono::Monomorphized;
 use crate::named;
 
 mod fiber;
@@ -90,12 +91,13 @@ pub struct LowerInput<'a> {
     /// specifiers of core modules are looked up here instead of next to the source, become
     /// `HostModule::Bundled`, and the files are put in `Module::bundled_files`.
     pub bundled_files: &'a [(&'a str, &'a str)],
-    /// The build target (`"js"`). With `Some`, checks that external functions reachable from the
-    /// entry (main for `Roots::Exported`, the test functions for `Roots::Tests`) have an
-    /// `@external` for that target (spec 12.1), and with those roots the result is monomorphized
-    /// ([`crate::monomorphize_traced`]) from the exported functions (a generic one instantiated
-    /// at `Any`) or the test functions (`Lowered::tests` then naming their copies). check and the
-    /// LSP do not lower; lowering tests pick no target, so `None` keeps the polymorphic IR.
+    /// The build target (`"js"`). With `Some` and `Roots::Exported` or `Roots::Tests`, the result
+    /// is monomorphized ([`crate::monomorphize_traced`]) from the roots (the exported functions, a
+    /// generic one instantiated at `Any`; or the test functions, `Lowered::tests` then naming
+    /// their copies), and then external functions reachable from the entry (main, or the test
+    /// functions) are checked for an `@external` for that target (spec 12.1), on the monomorphized
+    /// IR and only when lowering found no other error. check and the LSP do not lower; lowering
+    /// tests pick no target, so `None` keeps the polymorphic IR.
     pub target: Option<&'a str>,
 }
 
@@ -152,14 +154,6 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     while let Some((def, spec)) = cx.worklist.pop() {
         cx.define_fn(def, spec);
     }
-    if let Some(target) = input.target {
-        let entries: Vec<FnId> = match roots {
-            Roots::Exported => cx.entry_main().into_iter().collect(),
-            Roots::Tests => tests.clone(),
-            Roots::All => Vec::new(),
-        };
-        cx.check_target(&entries, target);
-    }
     if cx.uses_bundled {
         // If any bundled file is used, ship them all, so relative imports between them work.
         cx.module.bundled_files = input
@@ -176,7 +170,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
-    let (Some(_), Roots::Exported | Roots::Tests) = (input.target, roots) else {
+    let (Some(target), Roots::Exported | Roots::Tests) = (input.target, roots) else {
         return Ok(Lowered {
             module: cx.module,
             tests,
@@ -193,10 +187,24 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         );
     }
     let mono_roots = match roots {
-        Roots::Tests => tests,
+        Roots::Tests => tests.clone(),
         _ => crate::mono::exported(&cx.module),
     };
     let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
+    let entries: Vec<FnId> = match roots {
+        Roots::Tests => mono.roots.clone(),
+        // main is exported, so it is one of the roots.
+        _ => cx
+            .entry_main()
+            .and_then(|main| mono_roots.iter().position(|&f| f == main))
+            .map(|i| mono.roots[i])
+            .into_iter()
+            .collect(),
+    };
+    cx.check_target(&mono, &entries, target);
+    if !cx.errors.is_empty() {
+        return Err(cx.errors);
+    }
     let tests = match roots {
         Roots::Tests => mono.roots,
         _ => Vec::new(),
@@ -1737,14 +1745,14 @@ impl<'a> Lowerer<'a> {
         })
     }
 
-    /// Reports external functions reachable from `entries` that lack an `@external` for `target`
-    /// (spec 12.1). Functions called from operation bodies of handlers in `with`s are followed too
-    /// (since the function building the handler value is called).
-    fn check_target(&mut self, entries: &[FnId], target: &str) {
-        let missing = unannotated_reachable(&self.module, entries, target);
+    /// Reports external functions reachable from `entries` (functions of the monomorphized
+    /// module) that lack an `@external` for `target` (spec 12.1), at their HIR definitions.
+    fn check_target(&mut self, mono: &Monomorphized, entries: &[FnId], target: &str) {
+        let missing = unannotated_reachable(&mono.module, entries, target);
         let mut defs: Vec<DefId> = missing
             .into_iter()
             .map(|f| {
+                let f = mono.origins[f];
                 self.fns
                     .iter()
                     .find(|(_, id)| **id == f)
@@ -1752,6 +1760,9 @@ impl<'a> Lowerer<'a> {
                     .expect("IR functions are made from HIR definitions")
             })
             .collect();
+        // Copies of one external function for several type arguments are one definition.
+        defs.sort();
+        defs.dedup();
         // In order of declaration position.
         defs.sort_by_key(|&d| {
             self.hir.defs[d]
@@ -2800,25 +2811,25 @@ fn mentions(e: &Expr, l: Local) -> bool {
     found
 }
 
-/// Pushes the top-level functions the expression refers to (as values and direct calls) onto
-/// `out`.
 /// External functions without an `@external` for `target` that are reachable from `entries`
-/// (spec 12.1). A handler operation's implementation (a lambda in `Expr::Handler`) is followed only
-/// once the operation is called or used as a value somewhere reachable; operations of effects with
-/// different type arguments count as the same operation of the same declaration.
+/// (spec 12.1), in a monomorphized module. A handler operation's implementation (a lambda in
+/// `Expr::Handler`) is followed only once the operation is called or used as a value somewhere
+/// reachable. Effects with different type arguments are different effect instances after
+/// monomorphization, so calling `put` of `Store[String]` does not follow the implementation of
+/// `put` of `Store[Int]`.
 fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId> {
     #[derive(Default)]
     struct Walk<'m> {
         fns: Vec<FnId>,
-        /// (effect declaration, operation index) called or used as a value.
-        used: FxHashSet<(&'m str, usize)>,
-        /// Implementations not followed yet, by (effect declaration, operation index).
-        pending: FxHashMap<(&'m str, usize), Vec<&'m Expr>>,
+        /// (effect instance, operation index) called or used as a value.
+        used: FxHashSet<(EffectId, usize)>,
+        /// Implementations not followed yet, by (effect instance, operation index).
+        pending: FxHashMap<(EffectId, usize), Vec<&'m Expr>>,
         /// Bodies to walk: implementations whose operation became used.
         ready: Vec<&'m Expr>,
     }
     impl<'m> Walk<'m> {
-        fn expr(&mut self, m: &'m Module, e: &'m Expr) {
+        fn expr(&mut self, e: &'m Expr) {
             match e {
                 Expr::Fn { f, .. }
                 | Expr::Call {
@@ -2829,7 +2840,7 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
                     callee: Callee::Op { effect, op, .. },
                     ..
                 } => {
-                    let key = (m.effects[*effect].decl.as_str(), *op);
+                    let key = (*effect, *op);
                     if self.used.insert(key)
                         && let Some(bodies) = self.pending.remove(&key)
                     {
@@ -2837,19 +2848,19 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
                     }
                 }
                 Expr::Handler { effect, ops, .. } => {
-                    let decl = m.effects[*effect].decl.as_str();
                     for (i, op) in ops.iter().enumerate() {
-                        if self.used.contains(&(decl, i)) {
+                        let key = (*effect, i);
+                        if self.used.contains(&key) {
                             self.ready.push(op);
                         } else {
-                            self.pending.entry((decl, i)).or_default().push(op);
+                            self.pending.entry(key).or_default().push(op);
                         }
                     }
                     return;
                 }
                 _ => {}
             }
-            e.for_each_child(&mut |c| self.expr(m, c));
+            e.for_each_child(&mut |c| self.expr(c));
         }
     }
 
@@ -2861,7 +2872,7 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
     let mut missing = Vec::new();
     loop {
         if let Some(body) = walk.ready.pop() {
-            walk.expr(m, body);
+            walk.expr(body);
             continue;
         }
         let Some(f) = walk.fns.pop() else { break };
@@ -2876,7 +2887,7 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
             }
             continue;
         }
-        walk.expr(m, &func.body);
+        walk.expr(&func.body);
     }
     missing
 }
