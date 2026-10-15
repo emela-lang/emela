@@ -1,0 +1,49 @@
+---
+source: crates/emela-lir/tests/dump.rs
+expression: checked_dump(&m)
+---
+external fn parse(s%0: ref (String)) -> i32 (Int) fails = js[bundled "std/parse.mjs", "parse"]
+
+fn checked(n%0: i32 (Int)) -> i32 (Int) fails {
+  neg%1: i32 (Bool) = n%0 <[i32] 0
+  if neg%1 {
+    e%2: ref (ParseError) = make ParseError.ParseError("negative")
+    fail e%2
+  } else {}
+  return n%0
+}
+
+fn parse_or(s%0: ref (String), default%1: i32 (Int)) -> i32 (Int) fails {
+  err%2: ref (ParseError) = block 'catch%0 {
+    x%3: i32 (Int) = call parse(s%0) on_fail 'catch%0
+    y%4: i32 (Int) = call checked(x%3) on_fail fail
+    return y%4
+  }
+  input%5: ref (String) = field err%2 ParseError.ParseError.input#0
+  empty%6: i32 (Bool) = input%5 ==[string] ""
+  not_empty%7: i32 (Bool) = ![i32] empty%6
+  if not_empty%7 {
+    return default%1
+  } else {}
+  return 0
+}
+
+fn values() -> ref ((Int, String)) {
+  big%0: i64 (Int64) = 1099511627776i64 +[i64] -1i64
+  half%1: f64 (Float) = 0.5
+  neg%2: f64 (Float) = -[f64] half%1
+  yes%3: i32 (Bool) = true
+  some%4: ref (Option[Int]) = make Option.Some(3)
+  none%5: ref (Option[Int]) = make Option.None
+  tail%6: ref (List[Int]) = list[]
+  xs%7: ref (List[Int]) = list[1, 2, ..tail%6]
+  t%8: ref ((Int, String)) = tuple(7, "seven")
+  first%9: i32 (Int) = tuple_get t%8#0
+  joined%10: ref (String) = builtin String.append("n = ", "7")
+  u%11: ref ((Int, String)) = tuple(first%9, joined%10)
+  return u%11
+}
+
+const fn answer() -> i32 (Int) {
+  return 42
+}

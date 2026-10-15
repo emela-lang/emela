@@ -1,0 +1,50 @@
+---
+source: crates/emela-lir/tests/dump.rs
+expression: checked_dump(&m)
+---
+fn greet(name%0: ref (String), ev%1: ref (evidence)) -> void (()) {
+  console%2: ref (handler Console) = ev_lookup(ev%1, Console)
+  line%3: ref (String) = builtin String.append("hello, ", name%0)
+  call_op console%2.Console#print_line(line%3)
+  return
+}
+
+fn run(ev%0: ref (evidence), prefix%1: ref (String)) -> i32 (Int) {
+  print%2: ref (fn(String) -> ()) = closure(text%3: ref (String)) [prefix%1] {
+    s%4: ref (String) = builtin String.append(prefix%1, text%3)
+    builtin dbg(s%4)
+    return
+  }
+  print_error%5: ref (fn(String) -> ()) = closure(text%6: ref (String)) [] {
+    return
+  }
+  h%7: ref (handler Console) = handler Prefixed: Console { print_line: print%2, print_error_line: print_error%5 }
+  ev2%8: ref (evidence) = ev_extend(ev%0, [Console: h%7])
+  ev3%9: ref (evidence) = ev_extend([Console: h%7])
+  call greet("world", ev2%8)
+  g%10: ref (fn(String) -> ()) = fn_ref greet
+  add%11: ref (fn(Int, ()) -> Int ev) = closure(x%12: i32 (Int), ev%13: ref (evidence)) [] {
+    y%14: i32 (Int) = x%12 +[i32] 1
+    return y%14
+  }
+  r%15: i32 (Int) = call_indirect add%11(41, ev%0)
+  return r%15
+}
+
+suspend fn spawn(scope%0: ref (fiber_scope), f%1: ref (fn() -> Int)) -> i32 (Int) {
+  fiber%2: ref (any) = fiber fork(scope%0, f%1)
+  v%3: i32 (Int) = fiber join(fiber%2)!
+  again%4: ref (fn() -> Int suspends) = suspend closure() [scope%0, f%1] {
+    w%5: i32 (Int) = call spawn(scope%0, f%1)!
+    return w%5
+  }
+  block 'skip%0 {
+    break 'skip%0
+  }
+  return v%3
+}
+
+fn reraise(cause%0: ref (any)) -> void (Never) fails {
+  fiber cause_raise(cause%0) on_fail fail
+  unreachable
+}

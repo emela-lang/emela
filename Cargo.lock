@@ -300,6 +300,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emela-lir"
+version = "0.20.1"
+dependencies = [
+ "emela-core",
+ "insta",
+ "la-arena",
+ "rustc-hash 2.1.3",
+]
+
+[[package]]
 name = "emela-lsp"
 version = "0.20.1"
 dependencies = [

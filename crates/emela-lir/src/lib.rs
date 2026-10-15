@@ -1,0 +1,24 @@
+//! The low IR (LIR) below the Core IR, for the WASM (and later C) backends.
+//!
+//! This is its first stage, LIR-1: structured ANF. Values are variables or constants; control is
+//! explicit through `if`, `switch`, `loop` / `recur`, `block` / `break`, `protect` / `cleanup` and
+//! terminators, with failure edges on fallible calls. Each variable has a representation type
+//! ([`Repr`]) and its Core type (an `emela_core::TypeId` of the Core module the LIR module owns).
+//! Closures keep their bodies nested, with explicit capture lists. Functions store their
+//! variables, statements, sequences and labels in arenas, so analyses can keep results in side
+//! tables keyed by ID.
+//!
+//! The conversion from (monomorphised) Core IR and the passes of the second stage (closure
+//! conversion, the suspend state machine, reference counting) come later.
+
+mod build;
+mod dump;
+mod ir;
+mod repr;
+mod verify;
+
+pub use build::FnBuilder;
+pub use dump::{core_ty, dump, dump_function};
+pub use ir::*;
+pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};
+pub use verify::{ErrorKind, VerifyError, verify, verify_function};
