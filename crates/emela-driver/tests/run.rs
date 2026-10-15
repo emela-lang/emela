@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use emela_core::build::*;
-use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type, WithBind};
+use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
     Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
     INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
@@ -215,15 +215,15 @@ impl Frontend for HandBuiltIr {
 
 /// `fn fact(n, acc) = if n == 0 then acc else fact(n - 1, acc * n)` and a `main` whose body is
 /// `body`, of type `ret`.
-fn fact_module(ret: Type, body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
+fn fact_module(ret: TypeId, body: impl FnOnce(FnId) -> Expr) -> emela_core::Module {
     let mut m = emela_core::Module::new();
     let fact = m.declare("fact", false);
-    let n = m.local("n", Type::Int);
-    let acc = m.local("acc", Type::Int);
+    let n = m.local("n", TypeId::INT);
+    let acc = m.local("acc", TypeId::INT);
     m.define(
         fact,
         vec![n, acc],
-        Type::Int,
+        TypeId::INT,
         if_(
             bin(BinOp::Eq, OpTy::Int, var(n), int(0)),
             var(acc),
@@ -272,16 +272,16 @@ fn core_ir_runs_through_codegen_js() {
     // Run the tail recursion 100,000 times, then pass the result out through a panic message.
     let output = run_ir(
         "ir-panic",
-        fact_module(Type::Never, |fact| {
+        fact_module(TypeId::NEVER, |fact| {
             let big = call(fact, vec![int(100000), int(1)]);
             let small = call(fact, vec![int(5), int(1)]);
             builtin(
                 Builtin::Panic,
                 vec![Expr::Concat(vec![
                     lit_part("fact(5) = "),
-                    value_part(small, Type::Int),
+                    value_part(small, TypeId::INT),
                     lit_part(", fact(100000) = "),
-                    value_part(big, Type::Int),
+                    value_part(big, TypeId::INT),
                 ])],
             )
         }),
@@ -296,7 +296,7 @@ fn core_ir_runs_through_codegen_js() {
     // A runtime defect (division by zero) is handled the same way.
     let output = run_ir(
         "ir-div",
-        fact_module(Type::Int, |_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
+        fact_module(TypeId::INT, |_| bin(BinOp::Div, OpTy::Int, int(1), int(0))),
     );
     assert_eq!(text(&output.stderr), "defect: division by zero\n");
     assert_eq!(output.code, DEFECT_EXIT_CODE);
@@ -304,7 +304,7 @@ fn core_ir_runs_through_codegen_js() {
     // Without a defect, the exit code is 0.
     let output = run_ir(
         "ir-ok",
-        fact_module(Type::Int, |fact| call(fact, vec![int(10), int(1)])),
+        fact_module(TypeId::INT, |fact| call(fact, vec![int(10), int(1)])),
     );
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
@@ -322,7 +322,7 @@ fn bundled_files_are_written_next_to_the_output() {
     m.define_external(
         now,
         vec![],
-        Type::Int,
+        TypeId::INT,
         emela_core::External {
             bindings: vec![emela_core::ExternalBinding {
                 target: "js".into(),
@@ -337,12 +337,12 @@ fn bundled_files_are_written_next_to_the_output() {
     m.define(
         main,
         vec![],
-        Type::Never,
+        TypeId::NEVER,
         builtin(
             Builtin::Panic,
             vec![Expr::Concat(vec![
                 lit_part("now = "),
-                value_part(call(now, vec![]), Type::Int),
+                value_part(call(now, vec![]), TypeId::INT),
             ])],
         ),
     );
@@ -1012,10 +1012,10 @@ fn suspended_main_waits_for_promises() {
     let resolve = suspend::resolve(&mut m);
     suspend::main(
         &mut m,
-        Type::Int,
+        TypeId::INT,
         builtin_ty(
             Builtin::Dbg,
-            vec![Type::Int],
+            vec![TypeId::INT],
             vec![bin(
                 BinOp::Add,
                 OpTy::Int,
@@ -1039,7 +1039,7 @@ fn dropped_resume_interrupts_main() {
     let h = m.local("h", Type::Handler(wait));
     suspend::main(
         &mut m,
-        Type::Unit,
+        TypeId::UNIT,
         Expr::With {
             binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(suspend::forever(wait, h)),
@@ -1066,7 +1066,7 @@ fn dropped_main_releases_before_interrupted() {
     let pool = suspend::released(&mut m, log, r, "Pool", "released");
     suspend::main(
         &mut m,
-        Type::Unit,
+        TypeId::UNIT,
         Expr::With {
             binds: vec![pool, WithBind::new(h, call(never, vec![]))],
             body: Box::new(suspend::forever(wait, h)),
@@ -1085,10 +1085,10 @@ fn defects_after_resuming_and_in_callbacks() {
     // (spec 7.5).
     let mut m = emela_core::Module::new();
     let resolve = suspend::resolve(&mut m);
-    let x = m.local("_", Type::Int);
+    let x = m.local("_", TypeId::INT);
     suspend::main(
         &mut m,
-        Type::Never,
+        TypeId::NEVER,
         let_(
             x,
             call_suspends(resolve, vec![int(1)]),
@@ -1105,10 +1105,13 @@ fn defects_after_resuming_and_in_callbacks() {
     let mut m = emela_core::Module::new();
     let set_timeout = suspend::set_timeout(&mut m);
     let (never, wait) = suspend::never(&mut m);
-    let (h, x) = (m.local("h", Type::Handler(wait)), m.local("_", Type::Unit));
+    let (h, x) = (
+        m.local("h", Type::Handler(wait)),
+        m.local("_", TypeId::UNIT),
+    );
     suspend::main(
         &mut m,
-        Type::Unit,
+        TypeId::UNIT,
         Expr::With {
             binds: vec![WithBind::new(h, call(never, vec![]))],
             body: Box::new(let_(

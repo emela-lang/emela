@@ -28,7 +28,7 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
     let mut m = Module::new();
     let body = build(&mut m);
     let main = m.declare("main", true);
-    m.define(main, vec![], Type::String, body);
+    m.define(main, vec![], TypeId::STRING, body);
     let js = emit_module(
         &m,
         &Options {
@@ -56,28 +56,28 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
 
 /// A body that returns `"ok"` after the assert.
 fn then_ok(m: &mut Module, assert: Expr) -> Expr {
-    let unit = m.local("unit", Type::Unit);
+    let unit = m.local("unit", TypeId::UNIT);
     let_(unit, assert, string("ok"))
 }
 
-fn eq(ty: Type, op_ty: OpTy, lhs: Expr, rhs: Expr, text: &str) -> Expr {
+fn eq(ty: TypeId, op_ty: OpTy, lhs: Expr, rhs: Expr, text: &str) -> Expr {
     Assert::compare(BinOp::Eq, op_ty, ty, lhs, rhs, text)
 }
 
 #[test]
 fn passing_comparison_continues() {
     let r = run("pass", |m| {
-        let a = eq(Type::Int, OpTy::Int, int(3), int(3), "3 == 3");
+        let a = eq(TypeId::INT, OpTy::Int, int(3), int(3), "3 == 3");
         let b = Assert::compare(
             BinOp::Lt,
             OpTy::String,
-            Type::String,
+            TypeId::STRING,
             string("a"),
             string("b"),
             "",
         );
         let c = Assert::bool(bool(true), "True");
-        let (u, v) = (m.local("u", Type::Unit), m.local("v", Type::Unit));
+        let (u, v) = (m.local("u", TypeId::UNIT), m.local("v", TypeId::UNIT));
         let body = then_ok(m, c);
         let_(u, a, let_(v, b, body))
     });
@@ -89,7 +89,7 @@ fn passing_comparison_continues() {
 fn failing_comparison_shows_both_sides() {
     let r = run("strings", |m| {
         let a = eq(
-            Type::String,
+            TypeId::STRING,
             OpTy::String,
             string("bob"),
             string("alice"),
@@ -108,7 +108,9 @@ fn failing_comparison_shows_both_sides() {
 fn structural_values_are_shown_in_source_syntax() {
     let r = run("lists", |m| {
         let some = m.some_ctor();
-        let ty = Type::list(Type::Enum(m.option_enum(), vec![Type::Int]));
+        let opt = m.option_enum();
+        let opt_int = m.enum_type(opt, vec![TypeId::INT]);
+        let ty = m.list(opt_int);
         let a = eq(
             ty,
             OpTy::Structural,
@@ -129,8 +131,8 @@ fn operands_are_evaluated_once_from_left() {
     // dbg prints its value to stderr and returns it. Used twice (compare and show), it still
     // prints once per call.
     let r = run("once", |m| {
-        let dbg = |n| builtin_ty(Builtin::Dbg, vec![Type::Int], vec![int(n)]);
-        let a = Assert::compare(BinOp::Ge, OpTy::Int, Type::Int, dbg(1), dbg(2), "");
+        let dbg = |n| builtin_ty(Builtin::Dbg, vec![TypeId::INT], vec![int(n)]);
+        let a = Assert::compare(BinOp::Ge, OpTy::Int, TypeId::INT, dbg(1), dbg(2), "");
         then_ok(m, a)
     });
     assert_eq!(r.stderr, "1\n2\n");
@@ -165,12 +167,12 @@ fn non_comparison_looks_only_at_the_value() {
 fn assert_as_an_argument_keeps_evaluation_order() {
     // A tuple (dbg(1), assert dbg(2) == 2): the left element is evaluated before the assert.
     let r = run("order", |m| {
-        let dbg = |n| builtin_ty(Builtin::Dbg, vec![Type::Int], vec![int(n)]);
+        let dbg = |n| builtin_ty(Builtin::Dbg, vec![TypeId::INT], vec![int(n)]);
         let t = Expr::Tuple(vec![
             dbg(1),
-            eq(Type::Int, OpTy::Int, dbg(2), int(2), "dbg(2) == 2"),
+            eq(TypeId::INT, OpTy::Int, dbg(2), int(2), "dbg(2) == 2"),
         ]);
-        let pair = m.local("pair", Type::Tuple(vec![Type::Int, Type::Unit]));
+        let pair = m.local("pair", Type::Tuple(vec![TypeId::INT, TypeId::UNIT]));
         let_(pair, t, string("ok"))
     });
     assert_eq!(r.stderr, "1\n2\n");

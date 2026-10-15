@@ -419,8 +419,8 @@ impl Emitter<'_> {
                             // Interpolation embeds a String as is. Int and Int64 convert in the
                             // template to the same string as `Show`. Anything else goes through
                             // its show function.
-                            let shown = match ty {
-                                Type::Int | Type::Int64 | Type::String => v,
+                            let shown = match *ty {
+                                TypeId::INT | TypeId::INT64 | TypeId::STRING => v,
                                 _ => self.show_call(ty, &v),
                             };
                             let _ = write!(s, "${{{shown}}}");
@@ -490,8 +490,9 @@ impl Emitter<'_> {
     ///
     /// `Type::Param(i)` is only valid inside an enum show function, where it calls the show
     /// function received as `$a{i}`.
-    fn show_call(&mut self, ty: &Type, v: &str) -> String {
-        match ty {
+    fn show_call(&mut self, ty: &TypeId, v: &str) -> String {
+        let m = self.m;
+        match m.ty(*ty) {
             Type::List(elem) => {
                 let f = self.show_fn(elem);
                 format!("{}({v}, {f})", self.rt("$showList"))
@@ -513,8 +514,10 @@ impl Emitter<'_> {
         }
     }
 
-    fn show_fn(&mut self, ty: &Type) -> String {
-        match ty {
+    fn show_fn(&mut self, ty: &TypeId) -> String {
+        let m = self.m;
+        let t = m.ty(*ty);
+        match t {
             Type::Int => self.rt("$showInt").to_owned(),
             Type::Int64 => self.rt("$showInt64").to_owned(),
             Type::Float => self.rt("$showFloat").to_owned(),
@@ -538,7 +541,7 @@ impl Emitter<'_> {
             Type::Fn(_) => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
             Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
             Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any => {
-                panic!("invalid IR: {ty:?} values cannot be shown")
+                panic!("invalid IR: {t:?} values cannot be shown")
             }
         }
     }

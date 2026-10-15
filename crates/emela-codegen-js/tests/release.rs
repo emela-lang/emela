@@ -106,8 +106,8 @@ impl Kit {
             m,
             "log",
             "console.log",
-            vec![Type::String],
-            Type::Unit,
+            vec![TypeId::STRING],
+            TypeId::UNIT,
             false,
         );
         let res = m.add_effect(EffectDef {
@@ -137,7 +137,7 @@ impl Kit {
 
     /// `log(text); then`．
     fn log_then(&self, m: &mut Module, text: &str, then: Expr) -> Expr {
-        let x = m.local("_", Type::Unit);
+        let x = m.local("_", TypeId::UNIT);
         let_(x, self.log(text), then)
     }
 
@@ -178,8 +178,8 @@ fn external(
     m: &mut Module,
     name: &str,
     path: &str,
-    params: Vec<Type>,
-    ret: Type,
+    params: Vec<TypeId>,
+    ret: TypeId,
     suspends: bool,
 ) -> FnId {
     let f = m.declare(name, false);
@@ -206,15 +206,15 @@ fn with(binds: Vec<WithBind>, body: Expr) -> Expr {
     }
 }
 
-fn main_fn(m: &mut Module, suspends: bool, ret: Type, body: Expr) {
+fn main_fn(m: &mut Module, suspends: bool, ret: TypeId, body: Expr) {
     let main = m.declare("main", true);
     m.functions[main].suspends = suspends;
     m.define(main, vec![], ret, body);
 }
 
 /// A function type that neither fails nor takes an evidence table.
-fn fn_ty(params: Vec<Type>, ret: Type) -> Type {
-    Type::func(FnType {
+fn fn_ty(params: Vec<TypeId>, ret: TypeId) -> Type {
+    Type::Fn(FnType {
         params,
         ret,
         fails: false,
@@ -225,8 +225,8 @@ fn fn_ty(params: Vec<Type>, ret: Type) -> Type {
 
 /// The `ms` and `resume` parameters of Clock's `sleep`.
 fn sleep_params(m: &mut Module) -> (Local, Local) {
-    let resume = fn_ty(vec![Type::Unit], Type::Unit);
-    (m.local("ms", Type::Int), m.local("resume", resume))
+    let resume = fn_ty(vec![TypeId::UNIT], TypeId::UNIT);
+    (m.local("ms", TypeId::INT), m.local("resume", resume))
 }
 
 /// `effect Clock { suspend fn sleep(ms: Int) -> () }`．
@@ -239,12 +239,13 @@ fn clock(m: &mut Module) -> EffectId {
 
 /// A `JsClock` that resumes after `setTimeout`.
 fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
+    let callback = m.intern(fn_ty(vec![], TypeId::UNIT));
     let set_timeout = external(
         m,
         "set_timeout",
         "setTimeout",
-        vec![fn_ty(vec![], Type::Unit), Type::Int],
-        Type::Unit,
+        vec![callback, TypeId::INT],
+        TypeId::UNIT,
         false,
     );
     let f = m.declare("JsClock", false);
@@ -303,7 +304,7 @@ fn releases_run_in_reverse_order_after_a_value() {
     );
     let binds = vec![k.managed(&mut m, a, "A"), k.managed(&mut m, b, "B")];
     let body = k.log_then(&mut m, "body", int(42));
-    main_fn(&mut m, false, Type::Int, with(binds, body));
+    main_fn(&mut m, false, TypeId::INT, with(binds, body));
     assert_eq!(
         run("value", m),
         "init A\ninit B\nbody\nrelease B\nrelease A\n42\n"
@@ -325,12 +326,12 @@ fn releases_run_when_the_body_fails() {
         k.log_then(&mut m, "body", k.oops()),
     );
     let caught = escape(inner, vec![arm(p_ctor(k.oops, vec![]), int(7))]);
-    let x = m.local("x", Type::Int);
+    let x = m.local("x", TypeId::INT);
     let outer = with(
         vec![k.managed(&mut m, b, "B")],
         let_(x, caught, k.log_then(&mut m, "caught", k.oops())),
     );
-    main_fn(&mut m, false, Type::Never, outer);
+    main_fn(&mut m, false, TypeId::NEVER, outer);
     assert_eq!(
         run("fail", m),
         "init B\ninit A\nbody\nrelease A\ncaught\nrelease B\nerror: Oops\n"
@@ -349,7 +350,7 @@ fn releases_run_when_the_body_defects() {
     main_fn(
         &mut m,
         false,
-        Type::Never,
+        TypeId::NEVER,
         with(binds, builtin(Builtin::Panic, vec![string("boom")])),
     );
     assert_eq!(
@@ -378,7 +379,7 @@ fn failing_init_releases_only_the_initialized_handlers() {
         k.managed(&mut m, c, "C"),
     ];
     let body = k.log_then(&mut m, "body", int(1));
-    main_fn(&mut m, false, Type::Int, with(binds, body));
+    main_fn(&mut m, false, TypeId::INT, with(binds, body));
     assert_eq!(
         run("init_fails", m),
         "init A\ninit B\nrelease A\nerror: Oops\n"
@@ -399,7 +400,7 @@ fn a_release_defect_replaces_a_value_or_an_error() {
         k.managed(&mut m, a, "A"),
         k.breaking(&mut m, b, "B", "B broke"),
     ];
-    main_fn(&mut m, false, Type::Int, with(binds, int(1)));
+    main_fn(&mut m, false, TypeId::INT, with(binds, int(1)));
     assert_eq!(
         run("release_defect_value", m),
         "init A\nrelease B\nrelease A\ndefect: B broke\n"
@@ -410,7 +411,7 @@ fn a_release_defect_replaces_a_value_or_an_error() {
     let k = Kit::new(&mut m);
     let a = m.local("a", Type::Handler(k.res));
     let binds = vec![k.breaking(&mut m, a, "A", "A broke")];
-    main_fn(&mut m, false, Type::Never, with(binds, k.oops()));
+    main_fn(&mut m, false, TypeId::NEVER, with(binds, k.oops()));
     assert_eq!(
         run("release_defect_error", m),
         "release A\ndefect: A broke\n"
@@ -434,7 +435,7 @@ fn the_first_defect_wins_and_later_ones_are_noted() {
     main_fn(
         &mut m,
         false,
-        Type::Never,
+        TypeId::NEVER,
         with(binds, builtin(Builtin::Panic, vec![string("boom")])),
     );
     assert_eq!(
@@ -455,7 +456,7 @@ fn the_first_defect_wins_and_later_ones_are_noted() {
         k.breaking(&mut m, a, "A", "A broke"),
         k.breaking(&mut m, b, "B", "B broke"),
     ];
-    main_fn(&mut m, false, Type::Int, with(binds, int(1)));
+    main_fn(&mut m, false, TypeId::INT, with(binds, int(1)));
     assert_eq!(
         run("first_release_defect", m),
         "release B\nrelease A\ndefect: B broke\n\
@@ -470,7 +471,7 @@ fn released_handlers_are_defects_when_used() {
     let k = Kit::new(&mut m);
     let (a, f) = (
         m.local("a", Type::Handler(k.res)),
-        m.local("f", fn_ty(vec![], Type::String)),
+        m.local("f", fn_ty(vec![], TypeId::STRING)),
     );
     let leak = with(
         vec![k.managed(&mut m, a, "Pool")],
@@ -482,11 +483,11 @@ fn released_handlers_are_defects_when_used() {
         vec![k.managed(&mut m, i, "Inside")],
         call_op(var(i), k.res, 0, vec![], false, false),
     );
-    let x = m.local("x", Type::Unit);
+    let x = m.local("x", TypeId::UNIT);
     main_fn(
         &mut m,
         false,
-        Type::String,
+        TypeId::STRING,
         let_(
             x,
             call(k.log, vec![inside]),
@@ -516,9 +517,9 @@ fn releases_run_after_a_later_resume() {
         k.managed(&mut m, a, "A"),
     ];
     let after = k.log_then(&mut m, "resumed", int(42));
-    let x = m.local("_", Type::Unit);
+    let x = m.local("_", TypeId::UNIT);
     let body = let_(x, sleep(c, clock, 1), after);
-    main_fn(&mut m, true, Type::Int, with(binds, body));
+    main_fn(&mut m, true, TypeId::INT, with(binds, body));
     assert_eq!(
         run("later_resume", m),
         "init A\nresumed\nrelease A\nasync 42\n"
@@ -546,13 +547,13 @@ fn dropped_continuations_release_from_the_inside() {
         ],
         sleep(c, clock, 1),
     );
-    m.define(inner, vec![], Type::Unit, inner_body);
+    m.define(inner, vec![], TypeId::UNIT, inner_body);
     let a = m.local("a", Type::Handler(k.res));
     let body = with(
         vec![k.managed(&mut m, a, "A")],
         call_suspends(inner, vec![]),
     );
-    main_fn(&mut m, true, Type::Unit, body);
+    main_fn(&mut m, true, TypeId::UNIT, body);
     assert_eq!(
         run("dropped", m),
         "init A\ninit B\nrelease B\nrelease A\nasync interrupted\n"
@@ -582,13 +583,13 @@ fn immediate_contexts_release_when_dropped() {
         ],
         sleep(c, clock, 1),
     );
-    m.define(inner, vec![], Type::Unit, inner_body);
+    m.define(inner, vec![], TypeId::UNIT, inner_body);
     let a = m.local("a", Type::Handler(k.res));
     let body = with(
         vec![k.managed(&mut m, a, "A")],
         call_suspends(inner, vec![]),
     );
-    main_fn(&mut m, false, Type::Unit, body);
+    main_fn(&mut m, false, TypeId::UNIT, body);
     assert_eq!(
         run("sync_dropped", m),
         "init A\ninit B\nrelease B\nrelease A\ninterrupted\n"
@@ -621,7 +622,7 @@ fn releases_may_suspend() {
             m.local("n", Type::Handler(clock)),
             m.local("a", Type::Handler(k.res)),
         );
-        let x = m.local("_", Type::Unit);
+        let x = m.local("_", TypeId::UNIT);
         let release = k.log_then(
             &mut m,
             "release A",
@@ -629,9 +630,9 @@ fn releases_may_suspend() {
         );
         let init = k.log_then(&mut m, "init A", k.handler("A"));
         let (body, body_ty) = if dropped {
-            (sleep(n, clock, 1), Type::Unit)
+            (sleep(n, clock, 1), TypeId::UNIT)
         } else {
-            (int(1), Type::Int)
+            (int(1), TypeId::INT)
         };
         let binds = vec![
             WithBind::new(c, call(js_clock, vec![])),
@@ -661,7 +662,7 @@ fn a_release_defect_while_interrupted_is_the_result() {
         k.managed(&mut m, a, "A"),
         k.breaking(&mut m, b, "B", "B broke"),
     ];
-    main_fn(&mut m, true, Type::Unit, with(binds, sleep(c, clock, 1)));
+    main_fn(&mut m, true, TypeId::UNIT, with(binds, sleep(c, clock, 1)));
     assert_eq!(
         run("interrupted_release_defect", m),
         "init A\nrelease B\nrelease A\nasync defect: B broke\n"

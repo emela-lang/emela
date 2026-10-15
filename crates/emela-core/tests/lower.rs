@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use emela_core::{
-    EnumDef, Expr, LowerError, LowerInput, Module, Roots, Type, VariantFields, dump, lower,
+    EnumDef, Expr, LowerError, LowerInput, Module, Roots, Type, TypeId, VariantFields, dump, lower,
 };
 use emela_resolve::hir::Program;
 use emela_resolve::{
@@ -156,14 +156,14 @@ fn render_enum(m: &Module, def: &EnumDef) -> String {
     format!("{}[{}] {{ {} }}", def.name, def.params, variants.join(", "))
 }
 
-fn render_ty(m: &Module, ty: &Type) -> String {
-    let list = |ts: &[Type]| {
+fn render_ty(m: &Module, ty: &TypeId) -> String {
+    let list = |ts: &[TypeId]| {
         ts.iter()
             .map(|t| render_ty(m, t))
             .collect::<Vec<_>>()
             .join(", ")
     };
-    match ty {
+    match m.ty(*ty) {
         Type::Param(i) => char::from(b'A' + *i as u8).to_string(),
         Type::Tuple(ts) => format!("({})", list(ts)),
         Type::List(t) => format!("List[{}]", render_ty(m, t)),

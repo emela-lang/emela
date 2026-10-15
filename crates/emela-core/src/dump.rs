@@ -24,7 +24,7 @@ use std::fmt::Write;
 
 use crate::ir::{
     Arm, AssertCond, BinOp, Callee, CtorRef, EnumDef, Expr, FiberOp, HostModule, HostRef, Lit,
-    Local, Module, OpTy, Pat, StrPart, Type, UnOp, VariantFields,
+    Local, Module, OpTy, Pat, StrPart, Type, TypeId, UnOp, VariantFields,
 };
 
 /// Enums first, then functions, each in ID order.
@@ -137,9 +137,9 @@ impl Printer<'_> {
         self.out.push_str("\n}\n");
     }
 
-    fn ty(&self, ty: &Type) -> String {
-        let list = |ts: &[Type]| ts.iter().map(|t| self.ty(t)).collect::<Vec<_>>().join(", ");
-        match ty {
+    fn ty(&self, ty: &TypeId) -> String {
+        let list = |ts: &[TypeId]| ts.iter().map(|t| self.ty(t)).collect::<Vec<_>>().join(", ");
+        match self.m.ty(*ty) {
             Type::Int => "Int".into(),
             Type::Int64 => "Int64".into(),
             Type::Float => "Float".into(),

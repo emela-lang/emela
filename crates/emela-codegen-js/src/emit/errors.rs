@@ -22,7 +22,7 @@
 //! An error value carries a per-error descriptor (`$err$NotFound`) in `$tag`. The descriptor also
 //! has a show function, which the entry module and the test runner use to print unhandled errors.
 
-use emela_core::{Arm, EnumId, Expr, Pat, Type};
+use emela_core::{Arm, EnumId, Expr, Module, Pat, Type, TypeId};
 
 use super::{Dest, Emitter, sanitize, unparen};
 
@@ -55,7 +55,10 @@ impl Emitter<'_> {
             if !def.error {
                 continue;
             }
-            let showable = def.variants.iter().all(|v| !v.tys.iter().any(contains_fn));
+            let showable = def
+                .variants
+                .iter()
+                .all(|v| !v.tys.iter().any(|&t| contains_fn(m, t)));
             let show = if showable {
                 self.show_enum(id)
             } else {
@@ -197,11 +200,11 @@ fn descriptor_name(error: &str) -> String {
 
 /// Whether the type contains a function type or a capability value (not showable, spec 10.6,
 /// 8.2). Errors have no type parameters, so `Type::Param` never occurs.
-fn contains_fn(ty: &Type) -> bool {
-    match ty {
+fn contains_fn(m: &Module, ty: TypeId) -> bool {
+    match m.ty(ty) {
         Type::Fn(_) | Type::Handler(_) => true,
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(contains_fn),
-        Type::List(t) => contains_fn(t),
+        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| contains_fn(m, t)),
+        Type::List(t) => contains_fn(m, *t),
         _ => false,
     }
 }

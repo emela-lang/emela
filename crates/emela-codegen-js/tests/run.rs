@@ -63,7 +63,7 @@ fn run_stderr(name: &str, mut m: Module) -> (String, String) {
 }
 
 /// The message when `main` ends in a defect. The JS is not snapshotted.
-fn defect_of(name: &str, ret: Type, body: Expr) -> String {
+fn defect_of(name: &str, ret: TypeId, body: Expr) -> String {
     let mut m = Module::new();
     main_fn(&mut m, ret, body);
     let r = run_with(name, &m, RuntimeMode::Import(None));
@@ -72,7 +72,7 @@ fn defect_of(name: &str, ret: Type, body: Expr) -> String {
 }
 
 /// Joins string parts with newlines.
-fn lines(parts: Vec<(Expr, Type)>) -> Expr {
+fn lines(parts: Vec<(Expr, TypeId)>) -> Expr {
     let mut ps = Vec::new();
     for (i, (e, k)) in parts.into_iter().enumerate() {
         if i > 0 {
@@ -87,19 +87,19 @@ fn int_op(op: BinOp, a: Expr, b: Expr) -> Expr {
     bin(op, OpTy::Int, a, b)
 }
 
-fn main_fn(m: &mut Module, ret: Type, body: Expr) {
+fn main_fn(m: &mut Module, ret: TypeId, body: Expr) {
     let main = m.declare("main", true);
     m.define(main, vec![], ret, body);
 }
 
 /// `List[Int]`．
 fn int_list() -> Type {
-    Type::list(Type::Int)
+    Type::List(TypeId::INT)
 }
 
 /// A function type that neither fails, suspends nor takes an evidence table.
-fn fn_ty(params: Vec<Type>, ret: Type) -> Type {
-    Type::func(FnType {
+fn fn_ty(params: Vec<TypeId>, ret: TypeId) -> Type {
+    Type::Fn(FnType {
         params,
         ret,
         fails: false,
@@ -116,13 +116,13 @@ fn panic_(msg: &str) -> Expr {
 fn fact_module() -> (Module, FnId) {
     let mut m = Module::new();
     let fact = m.declare("fact", true);
-    let n = m.local("n", Type::Int);
-    let k = m.local("k", Type::Int64);
-    let acc = m.local("acc", Type::Int64);
+    let n = m.local("n", TypeId::INT);
+    let k = m.local("k", TypeId::INT64);
+    let acc = m.local("acc", TypeId::INT64);
     m.define(
         fact,
         vec![n, k, acc],
-        Type::Int64,
+        TypeId::INT64,
         if_(
             int_op(BinOp::Eq, var(n), int(0)),
             var(acc),
@@ -143,17 +143,23 @@ fn fact_module() -> (Module, FnId) {
 fn factorial_tail_recursive() {
     let (mut m, fact) = fact_module();
     let body = lines(vec![
-        (call(fact, vec![int(5), int64(5), int64(1)]), Type::Int64),
-        (call(fact, vec![int(20), int64(20), int64(1)]), Type::Int64),
+        (call(fact, vec![int(5), int64(5), int64(1)]), TypeId::INT64),
+        (
+            call(fact, vec![int(20), int64(20), int64(1)]),
+            TypeId::INT64,
+        ),
         // 21! overflows 64 bits and wraps.
-        (call(fact, vec![int(21), int64(21), int64(1)]), Type::Int64),
+        (
+            call(fact, vec![int(21), int64(21), int64(1)]),
+            TypeId::INT64,
+        ),
         // 100,000 iterations do not overflow the stack.
         (
             call(fact, vec![int(100000), int64(100000), int64(1)]),
-            Type::Int64,
+            TypeId::INT64,
         ),
     ]);
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("factorial_tail_recursive", m),
         "120\n2432902008176640000\n-4249290049419214848\n0\n"
@@ -166,7 +172,7 @@ fn factorial_without_loopify_overflows_the_stack() {
     let (mut m, fact) = fact_module();
     main_fn(
         &mut m,
-        Type::Int64,
+        TypeId::INT64,
         call(fact, vec![int(100000), int64(100000), int64(1)]),
     );
     let r = run_with("factorial_without_loopify", &m, RuntimeMode::Import(None));
@@ -186,8 +192,8 @@ fn enum_match() {
         name: "Shape".into(),
         params: 0,
         variants: vec![
-            VariantDef::positional("Circle", vec![Type::Float]),
-            VariantDef::named("Rect", vec![("w", Type::Float), ("h", Type::Float)]),
+            VariantDef::positional("Circle", vec![TypeId::FLOAT]),
+            VariantDef::named("Rect", vec![("w", TypeId::FLOAT), ("h", TypeId::FLOAT)]),
             VariantDef::unit("Empty"),
         ],
         error: false,
@@ -197,7 +203,7 @@ fn enum_match() {
         params: 0,
         variants: vec![VariantDef::named(
             "Point",
-            vec![("x", Type::Int), ("y", Type::Int)],
+            vec![("x", TypeId::INT), ("y", TypeId::INT)],
         )],
         error: false,
     });
@@ -227,16 +233,16 @@ fn enum_match() {
     // }
     let describe = m.declare("describe", false);
     let s = m.local("s", Type::Enum(shape, vec![]));
-    let r1 = m.local("r", Type::Float);
-    let r2 = m.local("r", Type::Float);
-    let w1 = m.local("w", Type::Float);
-    let h1 = m.local("h", Type::Float);
-    let w2 = m.local("w", Type::Float);
+    let r1 = m.local("r", TypeId::FLOAT);
+    let r2 = m.local("r", TypeId::FLOAT);
+    let w1 = m.local("w", TypeId::FLOAT);
+    let h1 = m.local("h", TypeId::FLOAT);
+    let w2 = m.local("w", TypeId::FLOAT);
     let float_op = |op, a, b| bin(op, OpTy::Float, a, b);
     m.define(
         describe,
         vec![s],
-        Type::String,
+        TypeId::STRING,
         match_(
             var(s),
             vec![
@@ -247,16 +253,22 @@ fn enum_match() {
                 ),
                 arm(
                     p_ctor(circle, vec![Pat::Bind(r2)]),
-                    Expr::Concat(vec![lit_part("circle "), value_part(var(r2), Type::Float)]),
+                    Expr::Concat(vec![
+                        lit_part("circle "),
+                        value_part(var(r2), TypeId::FLOAT),
+                    ]),
                 ),
                 arm_if(
                     p_ctor(rect, vec![Pat::Bind(w1), Pat::Bind(h1)]),
                     float_op(BinOp::Eq, var(w1), var(h1)),
-                    Expr::Concat(vec![lit_part("square "), value_part(var(w1), Type::Float)]),
+                    Expr::Concat(vec![
+                        lit_part("square "),
+                        value_part(var(w1), TypeId::FLOAT),
+                    ]),
                 ),
                 arm(
                     p_ctor(rect, vec![Pat::Bind(w2), Pat::Wild]),
-                    Expr::Concat(vec![lit_part("rect "), value_part(var(w2), Type::Float)]),
+                    Expr::Concat(vec![lit_part("rect "), value_part(var(w2), TypeId::FLOAT)]),
                 ),
                 arm(p_ctor(empty, vec![]), string("empty")),
             ],
@@ -269,11 +281,11 @@ fn enum_match() {
     m.define(
         norm1,
         vec![p],
-        Type::Int,
+        TypeId::INT,
         int_op(BinOp::Add, field(var(p), pt, 0), field(var(p), pt, 1)),
     );
 
-    let d = |e| (call(describe, vec![e]), Type::String);
+    let d = |e| (call(describe, vec![e]), TypeId::STRING);
     let body = lines(vec![
         d(ctor(circle, vec![float(12.0)])),
         d(ctor(circle, vec![float(1.5)])),
@@ -282,7 +294,7 @@ fn enum_match() {
         d(ctor(empty, vec![])),
         (
             call(norm1, vec![ctor(pt, vec![int(3), int(-4)])]),
-            Type::Int,
+            TypeId::INT,
         ),
         // Structural equality.
         (
@@ -292,7 +304,7 @@ fn enum_match() {
                 ctor(rect, vec![float(1.0), float(2.0)]),
                 ctor(rect, vec![float(1.0), float(2.0)]),
             ),
-            Type::Bool,
+            TypeId::BOOL,
         ),
         (
             bin(
@@ -301,10 +313,10 @@ fn enum_match() {
                 ctor(empty, vec![]),
                 ctor(circle, vec![float(0.0)]),
             ),
-            Type::Bool,
+            TypeId::BOOL,
         ),
     ]);
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("enum_match", m),
         "big circle\ncircle 1.5\nsquare 2.0\nrect 2.0\nempty\n-1\nTrue\nTrue\n"
@@ -317,12 +329,12 @@ fn list_recursion() {
     // fn sum(xs) = match xs { [] => 0, [x, ..rest] => x + sum(rest) }   (non-tail recursion)
     let sum = m.declare("sum", false);
     let xs = m.local("xs", int_list());
-    let x = m.local("x", Type::Int);
+    let x = m.local("x", TypeId::INT);
     let rest = m.local("rest", int_list());
     m.define(
         sum,
         vec![xs],
-        Type::Int,
+        TypeId::INT,
         match_(
             var(xs),
             vec![
@@ -339,8 +351,8 @@ fn list_recursion() {
     // Only used with Int here.
     let map = m.declare("map", false);
     let xs2 = m.local("xs", int_list());
-    let f = m.local("f", fn_ty(vec![Type::Int], Type::Int));
-    let x2 = m.local("x", Type::Int);
+    let f = m.local("f", fn_ty(vec![TypeId::INT], TypeId::INT));
+    let x2 = m.local("x", TypeId::INT);
     let rest2 = m.local("rest", int_list());
     m.define(
         map,
@@ -363,7 +375,7 @@ fn list_recursion() {
 
     // fn range(n, acc) = if n == 0 then acc else range(n - 1, [n, ..acc])   (tail recursion)
     let range = m.declare("range", false);
-    let n = m.local("n", Type::Int);
+    let n = m.local("n", TypeId::INT);
     let acc = m.local("acc", int_list());
     m.define(
         range,
@@ -385,12 +397,12 @@ fn list_recursion() {
     // fn len(xs, acc) = match xs { [] => acc, [_, ..rest] => len(rest, acc + 1) }
     let len = m.declare("len", false);
     let xs3 = m.local("xs", int_list());
-    let acc3 = m.local("acc", Type::Int);
+    let acc3 = m.local("acc", TypeId::INT);
     let rest3 = m.local("rest", int_list());
     m.define(
         len,
         vec![xs3, acc3],
-        Type::Int,
+        TypeId::INT,
         match_(
             var(xs3),
             vec![
@@ -406,41 +418,44 @@ fn list_recursion() {
     // fn shape(xs) = match xs { [] => "none", [a] => "one #{a}", [a, b] => "two #{a} #{b}", [a, ..] => "many from #{a}" }
     let shape = m.declare("shape", false);
     let xs4 = m.local("xs", int_list());
-    let a1 = m.local("a", Type::Int);
-    let a2 = m.local("a", Type::Int);
-    let b2 = m.local("b", Type::Int);
-    let a3 = m.local("a", Type::Int);
+    let a1 = m.local("a", TypeId::INT);
+    let a2 = m.local("a", TypeId::INT);
+    let b2 = m.local("b", TypeId::INT);
+    let a3 = m.local("a", TypeId::INT);
     m.define(
         shape,
         vec![xs4],
-        Type::String,
+        TypeId::STRING,
         match_(
             var(xs4),
             vec![
                 arm(p_list(vec![], None), string("none")),
                 arm(
                     p_list(vec![Pat::Bind(a1)], None),
-                    Expr::Concat(vec![lit_part("one "), value_part(var(a1), Type::Int)]),
+                    Expr::Concat(vec![lit_part("one "), value_part(var(a1), TypeId::INT)]),
                 ),
                 arm(
                     p_list(vec![Pat::Bind(a2), Pat::Bind(b2)], None),
                     Expr::Concat(vec![
                         lit_part("two "),
-                        value_part(var(a2), Type::Int),
+                        value_part(var(a2), TypeId::INT),
                         lit_part(" "),
-                        value_part(var(b2), Type::Int),
+                        value_part(var(b2), TypeId::INT),
                     ]),
                 ),
                 arm(
                     p_list(vec![Pat::Bind(a3)], Some(Pat::Wild)),
-                    Expr::Concat(vec![lit_part("many from "), value_part(var(a3), Type::Int)]),
+                    Expr::Concat(vec![
+                        lit_part("many from "),
+                        value_part(var(a3), TypeId::INT),
+                    ]),
                 ),
             ],
         ),
     );
 
-    let k = m.local("k", Type::Int);
-    let y = m.local("y", Type::Int);
+    let k = m.local("k", TypeId::INT);
+    let y = m.local("y", TypeId::INT);
     let xs_main = m.local("xs", int_list());
     // let k = 10; sum(map([1, 2, 3, 4], fn(y) => y * k))   the lambda captures k
     let body = let_(
@@ -450,7 +465,7 @@ fn list_recursion() {
             xs_main,
             list(vec![int(1), int(2), int(3), int(4)]),
             lines(vec![
-                (call(sum, vec![var(xs_main)]), Type::Int),
+                (call(sum, vec![var(xs_main)]), TypeId::INT),
                 (
                     call(
                         sum,
@@ -462,19 +477,22 @@ fn list_recursion() {
                             ],
                         )],
                     ),
-                    Type::Int,
+                    TypeId::INT,
                 ),
                 (
                     call(
                         len,
                         vec![call(range, vec![int(100000), list(vec![])]), int(0)],
                     ),
-                    Type::Int,
+                    TypeId::INT,
                 ),
-                (call(shape, vec![list(vec![])]), Type::String),
-                (call(shape, vec![list(vec![int(7)])]), Type::String),
-                (call(shape, vec![list(vec![int(7), int(8)])]), Type::String),
-                (call(shape, vec![var(xs_main)]), Type::String),
+                (call(shape, vec![list(vec![])]), TypeId::STRING),
+                (call(shape, vec![list(vec![int(7)])]), TypeId::STRING),
+                (
+                    call(shape, vec![list(vec![int(7), int(8)])]),
+                    TypeId::STRING,
+                ),
+                (call(shape, vec![var(xs_main)]), TypeId::STRING),
                 // Structural comparison of long lists does not use the stack either.
                 (
                     bin(
@@ -483,12 +501,12 @@ fn list_recursion() {
                         call(range, vec![int(100000), list(vec![])]),
                         call(range, vec![int(100000), list(vec![])]),
                     ),
-                    Type::Bool,
+                    TypeId::BOOL,
                 ),
             ]),
         ),
     );
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("list_recursion", m),
         "10\n100\n100000\nnone\none 7\ntwo 7 8\nmany from 1\nTrue\n"
@@ -500,13 +518,13 @@ fn tuples() {
     let mut m = Module::new();
     // fn swap(t) = match t { (a, b) => (b, a) }
     let swap = m.declare("swap", false);
-    let t = m.local("t", Type::Tuple(vec![Type::String, Type::Int]));
-    let a = m.local("a", Type::String);
-    let b = m.local("b", Type::Int);
+    let t = m.local("t", Type::Tuple(vec![TypeId::STRING, TypeId::INT]));
+    let a = m.local("a", TypeId::STRING);
+    let b = m.local("b", TypeId::INT);
     m.define(
         swap,
         vec![t],
-        Type::Tuple(vec![Type::Int, Type::String]),
+        Type::Tuple(vec![TypeId::INT, TypeId::STRING]),
         match_(
             var(t),
             vec![arm(
@@ -517,13 +535,13 @@ fn tuples() {
     );
     // fn classify(t) = match t { (0, _) => "zero first", (_, "x") => "x second", (n, s) => "#{n} #{s}" }
     let classify = m.declare("classify", false);
-    let t2 = m.local("t", Type::Tuple(vec![Type::Int, Type::String]));
-    let n = m.local("n", Type::Int);
-    let s = m.local("s", Type::String);
+    let t2 = m.local("t", Type::Tuple(vec![TypeId::INT, TypeId::STRING]));
+    let n = m.local("n", TypeId::INT);
+    let s = m.local("s", TypeId::STRING);
     m.define(
         classify,
         vec![t2],
-        Type::String,
+        TypeId::STRING,
         match_(
             var(t2),
             vec![
@@ -538,27 +556,27 @@ fn tuples() {
                 arm(
                     Pat::Tuple(vec![Pat::Bind(n), Pat::Bind(s)]),
                     Expr::Concat(vec![
-                        value_part(var(n), Type::Int),
+                        value_part(var(n), TypeId::INT),
                         lit_part(" "),
-                        value_part(var(s), Type::String),
+                        value_part(var(s), TypeId::STRING),
                     ]),
                 ),
             ],
         ),
     );
-    let p = m.local("p", Type::Tuple(vec![Type::Int, Type::String]));
+    let p = m.local("p", Type::Tuple(vec![TypeId::INT, TypeId::STRING]));
     let body = let_(
         p,
         call(swap, vec![Expr::Tuple(vec![string("y"), int(5)])]),
         lines(vec![
-            (call(classify, vec![var(p)]), Type::String),
+            (call(classify, vec![var(p)]), TypeId::STRING),
             (
                 call(classify, vec![Expr::Tuple(vec![int(0), string("q")])]),
-                Type::String,
+                TypeId::STRING,
             ),
             (
                 call(classify, vec![Expr::Tuple(vec![int(1), string("x")])]),
-                Type::String,
+                TypeId::STRING,
             ),
             (
                 bin(
@@ -567,53 +585,53 @@ fn tuples() {
                     var(p),
                     Expr::Tuple(vec![int(5), string("y")]),
                 ),
-                Type::Bool,
+                TypeId::BOOL,
             ),
         ]),
     );
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(run("tuples", m), "5 y\nzero first\nx second\nTrue\n");
 }
 
 #[test]
 fn string_interpolation() {
     let mut m = Module::new();
-    let name = m.local("name", Type::String);
+    let name = m.local("name", TypeId::STRING);
     let len = |s: &str| builtin(Builtin::StringLength, vec![string(s)]);
     let body = let_(
         name,
         string("Emela"),
         Expr::Concat(vec![
             lit_part("hello, "),
-            value_part(var(name), Type::String),
+            value_part(var(name), TypeId::STRING),
             lit_part("! `${not interpolated}` \\ \"q\"\n"),
-            value_part(int(-42), Type::Int),
+            value_part(int(-42), TypeId::INT),
             lit_part(" "),
-            value_part(int64(9_007_199_254_740_993), Type::Int64),
+            value_part(int64(9_007_199_254_740_993), TypeId::INT64),
             lit_part(" "),
-            value_part(float(1.0), Type::Float),
+            value_part(float(1.0), TypeId::FLOAT),
             lit_part(" "),
-            value_part(float(0.1), Type::Float),
+            value_part(float(0.1), TypeId::FLOAT),
             lit_part(" "),
-            value_part(float(-2.5e-8), Type::Float),
+            value_part(float(-2.5e-8), TypeId::FLOAT),
             lit_part(" "),
-            value_part(float(1e21), Type::Float),
+            value_part(float(1e21), TypeId::FLOAT),
             lit_part(" "),
-            value_part(bool(true), Type::Bool),
+            value_part(bool(true), TypeId::BOOL),
             lit_part(" "),
-            value_part(bool(false), Type::Bool),
+            value_part(bool(false), TypeId::BOOL),
             lit_part("\n"),
             // Grapheme cluster counts: a family emoji is one, and e plus a combining accent is one.
-            value_part(len("👨‍👩‍👧"), Type::Int),
+            value_part(len("👨‍👩‍👧"), TypeId::INT),
             lit_part(" "),
-            value_part(len("e\u{301}"), Type::Int),
+            value_part(len("e\u{301}"), TypeId::INT),
             lit_part(" "),
-            value_part(len("日本語"), Type::Int),
+            value_part(len("日本語"), TypeId::INT),
             lit_part(" "),
-            value_part(len(""), Type::Int),
+            value_part(len(""), TypeId::INT),
         ]),
     );
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("string_interpolation", m),
         "hello, Emela! `${not interpolated}` \\ \"q\"\n\
@@ -625,20 +643,20 @@ fn string_interpolation() {
 #[test]
 fn short_circuit() {
     let mut m = Module::new();
-    let x = m.local("x", Type::Int);
+    let x = m.local("x", TypeId::INT);
     let b = |op, l, r| bin(op, OpTy::Bool, l, r);
     // Short-circuits even when the right side needs statements (match).
     let complex_rhs = |m: &mut Module| {
-        let v = m.local("v", Type::Never);
+        let v = m.local("v", TypeId::NEVER);
         match_(panic_("must not run"), vec![arm(Pat::Bind(v), var(v))])
     };
     let c1 = complex_rhs(&mut m);
     let c2 = complex_rhs(&mut m);
     let body = lines(vec![
-        (b(BinOp::And, bool(false), panic_("and")), Type::Bool),
-        (b(BinOp::Or, bool(true), panic_("or")), Type::Bool),
-        (b(BinOp::And, bool(false), c1), Type::Bool),
-        (b(BinOp::Or, bool(true), c2), Type::Bool),
+        (b(BinOp::And, bool(false), panic_("and")), TypeId::BOOL),
+        (b(BinOp::Or, bool(true), panic_("or")), TypeId::BOOL),
+        (b(BinOp::And, bool(false), c1), TypeId::BOOL),
+        (b(BinOp::Or, bool(true), c2), TypeId::BOOL),
         (
             let_(
                 x,
@@ -655,7 +673,7 @@ fn short_circuit() {
                     ),
                 ),
             ),
-            Type::Bool,
+            TypeId::BOOL,
         ),
         (
             unary(
@@ -663,10 +681,10 @@ fn short_circuit() {
                 OpTy::Bool,
                 b(BinOp::Or, bool(false), bool(false)),
             ),
-            Type::Bool,
+            TypeId::BOOL,
         ),
     ]);
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("short_circuit", m),
         "False\nTrue\nFalse\nTrue\nTrue\nTrue\n"
@@ -676,16 +694,16 @@ fn short_circuit() {
 #[test]
 fn int_arithmetic() {
     let mut m = Module::new();
-    let i = |op, a, b| (int_op(op, int(a), int(b)), Type::Int);
-    let l = |op, a, b| (bin(op, OpTy::Int64, int64(a), int64(b)), Type::Int64);
-    let fl = |op, a, b| (bin(op, OpTy::Float, float(a), float(b)), Type::Float);
+    let i = |op, a, b| (int_op(op, int(a), int(b)), TypeId::INT);
+    let l = |op, a, b| (bin(op, OpTy::Int64, int64(a), int64(b)), TypeId::INT64);
+    let fl = |op, a, b| (bin(op, OpTy::Float, float(a), float(b)), TypeId::FLOAT);
     let body = lines(vec![
         // Int overflow wraps in two's complement.
         i(BinOp::Add, i32::MAX, 1),
         i(BinOp::Sub, i32::MIN, 1),
         i(BinOp::Mul, 65536, 65536),
         i(BinOp::Mul, 123456789, 987654321),
-        (unary(UnOp::Neg, OpTy::Int, int(i32::MIN)), Type::Int),
+        (unary(UnOp::Neg, OpTy::Int, int(i32::MIN)), TypeId::INT),
         i(BinOp::Div, i32::MIN, -1),
         // Division truncates toward zero; the remainder takes the dividend's sign.
         i(BinOp::Div, -7, 2),
@@ -695,7 +713,10 @@ fn int_arithmetic() {
         // Int64
         l(BinOp::Add, i64::MAX, 1),
         l(BinOp::Mul, i64::MAX, 2),
-        (unary(UnOp::Neg, OpTy::Int64, int64(i64::MIN)), Type::Int64),
+        (
+            unary(UnOp::Neg, OpTy::Int64, int64(i64::MIN)),
+            TypeId::INT64,
+        ),
         l(BinOp::Div, i64::MIN, -1),
         l(BinOp::Div, -7, 2),
         l(BinOp::Rem, -7, 2),
@@ -704,18 +725,18 @@ fn int_arithmetic() {
         fl(BinOp::Div, -1.0, 0.0),
         fl(BinOp::Div, 0.0, 0.0),
         fl(BinOp::Rem, 5.5, 2.0),
-        (bin(BinOp::Lt, OpTy::Int, int(-1), int(0)), Type::Bool),
+        (bin(BinOp::Lt, OpTy::Int, int(-1), int(0)), TypeId::BOOL),
         (
             bin(BinOp::Lt, OpTy::String, string("b"), string("ab")),
-            Type::Bool,
+            TypeId::BOOL,
         ),
         // Code point order. In UTF-16 order, U+FF61 would come after U+1F600.
         (
             bin(BinOp::Lt, OpTy::String, string("\u{FF61}"), string("😀")),
-            Type::Bool,
+            TypeId::BOOL,
         ),
     ]);
-    main_fn(&mut m, Type::String, body);
+    main_fn(&mut m, TypeId::STRING, body);
     assert_eq!(
         run("int_arithmetic", m),
         "-2147483648\n2147483647\n0\n-67153019\n-2147483648\n-2147483648\n\
@@ -740,8 +761,8 @@ fn division_by_zero_is_defect() {
             _ => (int64(1), int64(0)),
         };
         let ret = match ty {
-            OpTy::Int => Type::Int,
-            _ => Type::Int64,
+            OpTy::Int => TypeId::INT,
+            _ => TypeId::INT64,
         };
         main_fn(&mut m, ret, bin(op, ty, a, z));
         let r = run_with(name, &m, RuntimeMode::Import(None));
@@ -756,13 +777,13 @@ fn division_by_zero_is_defect() {
 #[test]
 fn panic_and_unmatched_are_defects() {
     let mut m = Module::new();
-    main_fn(&mut m, Type::Never, panic_("boom"));
+    main_fn(&mut m, TypeId::NEVER, panic_("boom"));
     assert_eq!(run("panic", m), "defect: boom\n");
 
     let mut m = Module::new();
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         match_(int(3), vec![arm(Pat::Lit(Lit::Int(1)), string("one"))]),
     );
     assert_eq!(
@@ -776,12 +797,12 @@ fn evaluation_order_is_left_to_right() {
     // f(panic("a"), match 1 { _ => panic("b") })   the left argument is evaluated first
     let mut m = Module::new();
     let f = m.declare("f", false);
-    let p = m.local("p", Type::Never);
-    let q = m.local("q", Type::Never);
-    m.define(f, vec![p, q], Type::String, string("unreachable"));
+    let p = m.local("p", TypeId::NEVER);
+    let q = m.local("q", TypeId::NEVER);
+    m.define(f, vec![p, q], TypeId::STRING, string("unreachable"));
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         call(
             f,
             vec![
@@ -795,19 +816,19 @@ fn evaluation_order_is_left_to_right() {
     // Named arguments f(q: panic("first"), p: panic("second")) are evaluated in written order.
     let mut m = Module::new();
     let f = m.declare("f", false);
-    let p = m.local("p", Type::Never);
-    let q = m.local("q", Type::Never);
-    m.define(f, vec![p, q], Type::String, string("unreachable"));
+    let p = m.local("p", TypeId::NEVER);
+    let q = m.local("q", TypeId::NEVER);
+    m.define(f, vec![p, q], TypeId::STRING, string("unreachable"));
     let main = m.declare("main", true);
     let body = named::in_written_order(
         &mut m,
         vec![
-            (1, panic_("first"), Type::Never),
-            (0, panic_("second"), Type::Never),
+            (1, panic_("first"), TypeId::NEVER),
+            (0, panic_("second"), TypeId::NEVER),
         ],
         |args| call(f, args),
     );
-    m.define(main, vec![], Type::String, body);
+    m.define(main, vec![], TypeId::STRING, body);
     assert_eq!(run("named_args_order", m), "defect: first\n");
 }
 
@@ -817,13 +838,14 @@ fn closures_in_loop_capture_each_iteration() {
     // fn total(fs, acc) = match fs { [] => acc, [f, ..rest] => total(rest, acc * 10 + f()) }
     let mut m = Module::new();
     let build = m.declare("build", false);
-    let thunks = Type::list(fn_ty(vec![], Type::Int));
-    let n = m.local("n", Type::Int);
-    let acc = m.local("acc", thunks.clone());
+    let thunk = m.intern(fn_ty(vec![], TypeId::INT));
+    let thunks = m.list(thunk);
+    let n = m.local("n", TypeId::INT);
+    let acc = m.local("acc", thunks);
     m.define(
         build,
         vec![n, acc],
-        thunks.clone(),
+        thunks,
         if_(
             int_op(BinOp::Eq, var(n), int(0)),
             var(acc),
@@ -837,14 +859,14 @@ fn closures_in_loop_capture_each_iteration() {
         ),
     );
     let total = m.declare("total", false);
-    let fs = m.local("fs", thunks.clone());
-    let acc2 = m.local("acc", Type::Int);
-    let f = m.local("f", fn_ty(vec![], Type::Int));
+    let fs = m.local("fs", thunks);
+    let acc2 = m.local("acc", TypeId::INT);
+    let f = m.local("f", fn_ty(vec![], TypeId::INT));
     let rest = m.local("rest", thunks);
     m.define(
         total,
         vec![fs, acc2],
-        Type::Int,
+        TypeId::INT,
         match_(
             var(fs),
             vec![
@@ -868,7 +890,7 @@ fn closures_in_loop_capture_each_iteration() {
     );
     main_fn(
         &mut m,
-        Type::Int,
+        TypeId::INT,
         call(total, vec![call(build, vec![int(4), list(vec![])]), int(0)]),
     );
     assert_eq!(run("closures_in_loop", m), "1234\n");
@@ -879,19 +901,19 @@ fn inline_runtime_runs_standalone() {
     // Even in the same scope as the runtime, user function names do not clash.
     let mut m = Module::new();
     let segmenter = m.declare("segmenter", false);
-    m.define(segmenter, vec![], Type::Int, int(7));
+    m.define(segmenter, vec![], TypeId::INT, int(7));
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         Expr::Concat(vec![
             value_part(
                 builtin(Builtin::StringLength, vec![string("ok")]),
-                Type::Int,
+                TypeId::INT,
             ),
             lit_part(" "),
             value_part(
                 int_op(BinOp::Div, call(segmenter, vec![]), int(2)),
-                Type::Int,
+                TypeId::INT,
             ),
         ]),
     );
@@ -907,12 +929,12 @@ fn short_circuit_tail_call_does_not_grow_stack() {
     let mut m = Module::new();
     let any_zero = m.declare("any_zero", false);
     let xs = m.local("xs", int_list());
-    let x = m.local("x", Type::Int);
+    let x = m.local("x", TypeId::INT);
     let rest = m.local("rest", int_list());
     m.define(
         any_zero,
         vec![xs],
-        Type::Bool,
+        TypeId::BOOL,
         match_(
             var(xs),
             vec![
@@ -930,7 +952,7 @@ fn short_circuit_tail_call_does_not_grow_stack() {
         ),
     );
     let range = m.declare("range", false);
-    let n = m.local("n", Type::Int);
+    let n = m.local("n", TypeId::INT);
     let acc = m.local("acc", int_list());
     m.define(
         range,
@@ -951,12 +973,12 @@ fn short_circuit_tail_call_does_not_grow_stack() {
     let big = || call(range, vec![int(100000), list(vec![])]);
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         lines(vec![
-            (call(any_zero, vec![big()]), Type::Bool),
+            (call(any_zero, vec![big()]), TypeId::BOOL),
             (
                 call(any_zero, vec![list_with_tail(vec![int(0)], big())]),
-                Type::Bool,
+                TypeId::BOOL,
             ),
         ]),
     );
@@ -994,17 +1016,15 @@ fn string_graphemes_and_bytes() {
         "日本語",
         "",
     ];
+    let strs = m.list(TypeId::STRING);
     let mut parts = Vec::new();
     for s in samples {
         // Length, byte size, and splitting into graphemes
-        parts.push((b(Builtin::StringLength, vec![string(s)]), Type::Int));
-        parts.push((b(Builtin::StringByteSize, vec![string(s)]), Type::Int));
-        parts.push((
-            b(Builtin::StringChars, vec![string(s)]),
-            Type::list(Type::String),
-        ));
+        parts.push((b(Builtin::StringLength, vec![string(s)]), TypeId::INT));
+        parts.push((b(Builtin::StringByteSize, vec![string(s)]), TypeId::INT));
+        parts.push((b(Builtin::StringChars, vec![string(s)]), strs));
     }
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     let shown = [
         "1\n4\n[\"👍\"]",
         "1\n3\n[\"e\u{301}\"]",
@@ -1023,14 +1043,14 @@ fn string_graphemes_and_bytes() {
 fn string_split_join_and_search() {
     let mut m = Module::new();
     let split = |s: &str, sep: &str| b(Builtin::StringSplit, vec![string(s), string(sep)]);
-    let strs = || Type::list(Type::String);
+    let strs = m.list(TypeId::STRING);
     let mut parts = vec![
-        (split("a,b,,c", ","), strs()),
-        (split("", ","), strs()),
-        (split("abc", ""), strs()),
-        (split("", ""), strs()),
-        (split("e\u{301}x", ""), strs()),
-        (split("a--b--", "--"), strs()),
+        (split("a,b,,c", ","), strs),
+        (split("", ","), strs),
+        (split("abc", ""), strs),
+        (split("", ""), strs),
+        (split("e\u{301}x", ""), strs),
+        (split("a--b--", "--"), strs),
     ];
     // join(split(s, sep), sep) == s
     for (s, sep) in [
@@ -1047,33 +1067,33 @@ fn string_split_join_and_search() {
                 b(Builtin::StringJoin, vec![split(s, sep), string(sep)]),
                 string(s),
             ),
-            Type::Bool,
+            TypeId::BOOL,
         ));
     }
     let two = |op, a: &str, x: &str| b(op, vec![string(a), string(x)]);
     parts.extend([
-        (two(Builtin::StringContains, "hello", "ell"), Type::Bool),
-        (two(Builtin::StringContains, "hello", ""), Type::Bool),
-        (two(Builtin::StringContains, "e\u{301}", "e"), Type::Bool),
-        (two(Builtin::StringStartsWith, "hello", "he"), Type::Bool),
-        (two(Builtin::StringStartsWith, "hello", "lo"), Type::Bool),
-        (two(Builtin::StringEndsWith, "hello", "lo"), Type::Bool),
-        (two(Builtin::StringAppend, "foo", "bar"), Type::String),
+        (two(Builtin::StringContains, "hello", "ell"), TypeId::BOOL),
+        (two(Builtin::StringContains, "hello", ""), TypeId::BOOL),
+        (two(Builtin::StringContains, "e\u{301}", "e"), TypeId::BOOL),
+        (two(Builtin::StringStartsWith, "hello", "he"), TypeId::BOOL),
+        (two(Builtin::StringStartsWith, "hello", "lo"), TypeId::BOOL),
+        (two(Builtin::StringEndsWith, "hello", "lo"), TypeId::BOOL),
+        (two(Builtin::StringAppend, "foo", "bar"), TypeId::STRING),
         (
             b(
                 Builtin::StringTrim,
                 vec![string(" \t\n\u{3000}\u{85}a b\u{a0}\r ")],
             ),
-            Type::String,
+            TypeId::STRING,
         ),
         // U+FEFF and U+200B are not White_Space, so they stay.
         (
             b(Builtin::StringTrim, vec![string("\u{feff}x\u{200b}")]),
-            Type::String,
+            TypeId::STRING,
         ),
-        (b(Builtin::IntToString, vec![int(-7)]), Type::String),
+        (b(Builtin::IntToString, vec![int(-7)]), TypeId::STRING),
     ]);
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     assert_eq!(
         run("string_split_join_and_search", m),
         [
@@ -1098,15 +1118,16 @@ fn string_split_join_and_search() {
 #[test]
 fn int_conversions_and_checked_add() {
     let mut m = Module::new();
-    let opt_int = Type::Enum(m.option_enum(), vec![Type::Int]);
+    let opt_id = m.option_enum();
+    let opt_int = m.enum_type(opt_id, vec![TypeId::INT]);
     let add = |a, c| b(Builtin::IntCheckedAdd, vec![int(a), int(c)]);
     let parts = vec![
-        (add(1, 2), opt_int.clone()),
-        (add(i32::MAX, 1), opt_int.clone()),
-        (add(i32::MIN, -1), opt_int.clone()),
-        (add(i32::MAX, i32::MIN), opt_int.clone()),
-        (b(Builtin::IntToString, vec![int(-42)]), Type::String),
-        (b(Builtin::FloatFromInt, vec![int(7)]), Type::Float),
+        (add(1, 2), opt_int),
+        (add(i32::MAX, 1), opt_int),
+        (add(i32::MIN, -1), opt_int),
+        (add(i32::MAX, i32::MIN), opt_int),
+        (b(Builtin::IntToString, vec![int(-42)]), TypeId::STRING),
+        (b(Builtin::FloatFromInt, vec![int(7)]), TypeId::FLOAT),
         // Converted to Int64 first, twice Int's maximum does not overflow.
         (
             bin(
@@ -1115,21 +1136,21 @@ fn int_conversions_and_checked_add() {
                 b(Builtin::Int64FromInt, vec![int(i32::MAX)]),
                 b(Builtin::Int64FromInt, vec![int(2)]),
             ),
-            Type::Int64,
+            TypeId::INT64,
         ),
         (
             b(Builtin::Int64ToString, vec![int64(i64::MIN)]),
-            Type::String,
+            TypeId::STRING,
         ),
         // Int64 to Int keeps the low 32 bits.
-        (b(Builtin::Int64ToInt, vec![int64(1 << 31)]), Type::Int),
+        (b(Builtin::Int64ToInt, vec![int64(1 << 31)]), TypeId::INT),
         (
             b(Builtin::Int64ToInt, vec![int64((1 << 32) + 5)]),
-            Type::Int,
+            TypeId::INT,
         ),
-        (b(Builtin::Int64ToInt, vec![int64(-1)]), Type::Int),
+        (b(Builtin::Int64ToInt, vec![int64(-1)]), TypeId::INT),
     ];
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     assert_eq!(
         run("int_conversions_and_checked_add", m),
         "Some(3)\nNone\nNone\nSome(-1)\n-42\n7.0\n4294967294\n-9223372036854775808\n\
@@ -1164,15 +1185,18 @@ fn float_conversions() {
             .enumerate()
             .flat_map(|(i, &op)| {
                 let sep = if i == 0 { "" } else { " " };
-                [lit_part(sep), value_part(b(op, vec![float(x)]), Type::Int)]
+                [
+                    lit_part(sep),
+                    value_part(b(op, vec![float(x)]), TypeId::INT),
+                ]
             })
             .collect();
-        parts.push((Expr::Concat(row), Type::String));
+        parts.push((Expr::Concat(row), TypeId::STRING));
     }
     for x in [1.0, -0.0, 0.1, 1e21, f64::NAN, f64::NEG_INFINITY] {
-        parts.push((b(Builtin::FloatToString, vec![float(x)]), Type::String));
+        parts.push((b(Builtin::FloatToString, vec![float(x)]), TypeId::STRING));
     }
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     assert_eq!(
         run("float_conversions", m),
         [
@@ -1207,7 +1231,7 @@ fn float_to_int_out_of_range_is_defect() {
         assert_eq!(
             defect_of(
                 &format!("float_to_int_defect_{i}"),
-                Type::Int,
+                TypeId::INT,
                 b(op, vec![float(x)])
             ),
             format!("defect: cannot convert {shown} to Int\n"),
@@ -1218,13 +1242,16 @@ fn float_to_int_out_of_range_is_defect() {
     let mut m = Module::new();
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         lines(vec![
             (
                 b(Builtin::FloatTruncate, vec![float(-2147483648.9)]),
-                Type::Int,
+                TypeId::INT,
             ),
-            (b(Builtin::FloatFloor, vec![float(2147483647.9)]), Type::Int),
+            (
+                b(Builtin::FloatFloor, vec![float(2147483647.9)]),
+                TypeId::INT,
+            ),
         ]),
     );
     assert_eq!(
@@ -1238,11 +1265,11 @@ fn int_bitwise_and_shifts() {
     let mut m = Module::new();
     let two = |op, a, c| b(op, vec![int(a), int(c)]);
     let mut parts = vec![
-        (two(Builtin::IntBitAnd, 0b1100, 0b1010), Type::Int),
-        (two(Builtin::IntBitOr, 0b1100, 0b1010), Type::Int),
-        (two(Builtin::IntBitXor, 0b1100, 0b1010), Type::Int),
-        (b(Builtin::IntBitNot, vec![int(0)]), Type::Int),
-        (two(Builtin::IntBitAnd, -1, i32::MIN), Type::Int),
+        (two(Builtin::IntBitAnd, 0b1100, 0b1010), TypeId::INT),
+        (two(Builtin::IntBitOr, 0b1100, 0b1010), TypeId::INT),
+        (two(Builtin::IntBitXor, 0b1100, 0b1010), TypeId::INT),
+        (b(Builtin::IntBitNot, vec![int(0)]), TypeId::INT),
+        (two(Builtin::IntBitAnd, -1, i32::MIN), TypeId::INT),
     ];
     // Shift amounts 0, 1, 31, 32 (exactly the width), and 100 (beyond the width).
     for op in [
@@ -1251,10 +1278,10 @@ fn int_bitwise_and_shifts() {
         Builtin::IntShiftRightUnsigned,
     ] {
         for (n, by) in [(1, 31), (-8, 1), (-1, 0), (-1, 31), (-1, 32), (5, 100)] {
-            parts.push((two(op, n, by), Type::Int));
+            parts.push((two(op, n, by), TypeId::INT));
         }
     }
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     let shifts = [
         // shift_left: 1 << 31 wraps to the minimum.
         "-2147483648\n-16\n-1\n-2147483648\n0\n0",
@@ -1275,10 +1302,13 @@ fn int64_bitwise_and_shifts() {
     let two = |op, a, c| b(op, vec![int64(a), int64(c)]);
     let shift = |op, a, by| b(op, vec![int64(a), int(by)]);
     let mut parts = vec![
-        (two(Builtin::Int64BitAnd, 0b1100, 0b1010), Type::Int64),
-        (two(Builtin::Int64BitOr, 0b1100, 0b1010), Type::Int64),
-        (two(Builtin::Int64BitXor, -1, i64::MAX), Type::Int64),
-        (b(Builtin::Int64BitNot, vec![int64(i64::MAX)]), Type::Int64),
+        (two(Builtin::Int64BitAnd, 0b1100, 0b1010), TypeId::INT64),
+        (two(Builtin::Int64BitOr, 0b1100, 0b1010), TypeId::INT64),
+        (two(Builtin::Int64BitXor, -1, i64::MAX), TypeId::INT64),
+        (
+            b(Builtin::Int64BitNot, vec![int64(i64::MAX)]),
+            TypeId::INT64,
+        ),
     ];
     for op in [
         Builtin::Int64ShiftLeft,
@@ -1286,12 +1316,12 @@ fn int64_bitwise_and_shifts() {
         Builtin::Int64ShiftRightUnsigned,
     ] {
         for (n, by) in [(1, 63), (-8, 1), (-1, 0), (-1, 63), (-1, 64), (5, 100)] {
-            parts.push((shift(op, n, by), Type::Int64));
+            parts.push((shift(op, n, by), TypeId::INT64));
         }
     }
     // Shifts beyond 32 are done correctly in 64 bits.
-    parts.push((shift(Builtin::Int64ShiftLeft, 3, 40), Type::Int64));
-    main_fn(&mut m, Type::String, lines(parts));
+    parts.push((shift(Builtin::Int64ShiftLeft, 3, 40), TypeId::INT64));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     let min = i64::MIN.to_string();
     let shifts = [
         format!("{min}\n-16\n-1\n{min}\n0\n0"),
@@ -1311,23 +1341,26 @@ fn int64_bitwise_and_shifts() {
 #[test]
 fn negative_shift_is_defect() {
     let cases = [
-        (b(Builtin::IntShiftLeft, vec![int(1), int(-1)]), Type::Int),
-        (b(Builtin::IntShiftRight, vec![int(1), int(-1)]), Type::Int),
+        (b(Builtin::IntShiftLeft, vec![int(1), int(-1)]), TypeId::INT),
+        (
+            b(Builtin::IntShiftRight, vec![int(1), int(-1)]),
+            TypeId::INT,
+        ),
         (
             b(Builtin::IntShiftRightUnsigned, vec![int(1), int(-1)]),
-            Type::Int,
+            TypeId::INT,
         ),
         (
             b(Builtin::Int64ShiftLeft, vec![int64(1), int(-1)]),
-            Type::Int64,
+            TypeId::INT64,
         ),
         (
             b(Builtin::Int64ShiftRight, vec![int64(1), int(-1)]),
-            Type::Int64,
+            TypeId::INT64,
         ),
         (
             b(Builtin::Int64ShiftRightUnsigned, vec![int64(1), int(-1)]),
-            Type::Int64,
+            TypeId::INT64,
         ),
     ];
     for (i, (e, ty)) in cases.into_iter().enumerate() {
@@ -1341,27 +1374,28 @@ fn negative_shift_is_defect() {
 #[test]
 fn string_code_points() {
     let mut m = Module::new();
-    let opt_str = Type::Enum(m.option_enum(), vec![Type::String]);
-    let ints = || Type::list(Type::Int);
+    let opt_id = m.option_enum();
+    let opt_str = m.enum_type(opt_id, vec![TypeId::STRING]);
+    let ints = m.list(TypeId::INT);
     let points = |s: &str| b(Builtin::StringCodePoints, vec![string(s)]);
     let from = |n| b(Builtin::StringFromCodePoint, vec![int(n)]);
     let parts = vec![
-        (points("aé"), ints()),
+        (points("aé"), ints),
         // A character written as a surrogate pair is still one code point.
-        (points("👍"), ints()),
+        (points("👍"), ints),
         // One grapheme cluster, but two code points.
-        (points("e\u{301}"), ints()),
-        (points(""), ints()),
-        (from(0x41), opt_str.clone()),
-        (from(0x1f44d), opt_str.clone()),
-        (from(0), opt_str.clone()),
-        (from(0x10ffff), opt_str.clone()),
-        (from(-1), opt_str.clone()),
-        (from(0xd800), opt_str.clone()),
-        (from(0xdfff), opt_str.clone()),
+        (points("e\u{301}"), ints),
+        (points(""), ints),
+        (from(0x41), opt_str),
+        (from(0x1f44d), opt_str),
+        (from(0), opt_str),
+        (from(0x10ffff), opt_str),
+        (from(-1), opt_str),
+        (from(0xd800), opt_str),
+        (from(0xdfff), opt_str),
         (from(0x110000), opt_str),
     ];
-    main_fn(&mut m, Type::String, lines(parts));
+    main_fn(&mut m, TypeId::STRING, lines(parts));
     assert_eq!(
         run("string_code_points", m),
         [
@@ -1383,7 +1417,7 @@ fn string_code_points() {
 #[test]
 fn todo_is_defect() {
     assert_eq!(
-        defect_of("todo", Type::Never, b(Builtin::Todo, vec![])),
+        defect_of("todo", TypeId::NEVER, b(Builtin::Todo, vec![])),
         "defect: not yet implemented\n"
     );
 }
@@ -1396,8 +1430,8 @@ fn show_module() -> (Module, EnumId, EnumId, EnumId) {
         name: "Shape".into(),
         params: 0,
         variants: vec![
-            VariantDef::named("Circle", vec![("radius", Type::Float)]),
-            VariantDef::positional("Rect", vec![Type::Float, Type::Float]),
+            VariantDef::named("Circle", vec![("radius", TypeId::FLOAT)]),
+            VariantDef::positional("Rect", vec![TypeId::FLOAT, TypeId::FLOAT]),
             VariantDef::unit("Empty"),
         ],
         error: false,
@@ -1408,15 +1442,15 @@ fn show_module() -> (Module, EnumId, EnumId, EnumId) {
         variants: vec![VariantDef::unit("Leaf"), VariantDef::unit("Node")],
         error: false,
     });
-    let tree_a = Type::Enum(tree, vec![Type::Param(0)]);
-    m.enums[tree].variants[1] =
-        VariantDef::positional("Node", vec![tree_a.clone(), Type::Param(0), tree_a]);
+    let a = m.type_param(0);
+    let tree_a = m.enum_type(tree, vec![a]);
+    m.enums[tree].variants[1] = VariantDef::positional("Node", vec![tree_a, a, tree_a]);
     let point = m.add_enum(EnumDef {
         name: "Point".into(),
         params: 0,
         variants: vec![VariantDef::named(
             "Point",
-            vec![("x", Type::Int), ("y", Type::Int)],
+            vec![("x", TypeId::INT), ("y", TypeId::INT)],
         )],
         error: false,
     });
@@ -1430,44 +1464,44 @@ fn dbg_shows_values_in_source_syntax() {
     let some = m.some_ctor();
     let none = m.none_ctor();
     let opt = m.option_enum();
-    let dbg = |ty: Type, e: Expr| builtin_ty(Builtin::Dbg, vec![ty], vec![e]);
-    let shape_ty = Type::Enum(shape, vec![]);
-    let tree_s = Type::Enum(tree, vec![Type::String]);
+    let dbg = |ty: TypeId, e: Expr| builtin_ty(Builtin::Dbg, vec![ty], vec![e]);
+    let shape_ty = m.enum_type(shape, vec![]);
+    let tree_s = m.enum_type(tree, vec![TypeId::STRING]);
     let leaf = || ctor(c(tree, 0), vec![]);
-    let x = m.local("x", Type::String);
-    let typed = |ty: Type, e: Expr| (dbg(ty.clone(), e), ty);
+    let x = m.local("x", TypeId::STRING);
+    let point_ty = m.enum_type(point, vec![]);
+    let ints = m.list(TypeId::INT);
+    let int_string = m.tuple(vec![TypeId::INT, TypeId::STRING]);
+    let strs = m.list(TypeId::STRING);
+    let opt_strs = m.enum_type(opt, vec![strs]);
+    let opt_strs_list = m.list(opt_strs);
+    let bools = m.list(TypeId::BOOL);
+    let shape_bools = m.tuple(vec![shape_ty, bools]);
+    let shape_bools_list = m.list(shape_bools);
+    let typed = |ty: TypeId, e: Expr| (dbg(ty, e), ty);
     let values = vec![
-        typed(shape_ty.clone(), ctor(c(shape, 0), vec![float(1.0)])),
+        typed(shape_ty, ctor(c(shape, 0), vec![float(1.0)])),
+        typed(shape_ty, ctor(c(shape, 1), vec![float(1.0), float(2.5)])),
+        typed(shape_ty, ctor(c(shape, 2), vec![])),
+        typed(point_ty, ctor(c(point, 0), vec![int(-1), int(2)])),
+        typed(ints, list(vec![int(1), int(2), int(3)])),
+        typed(ints, list(vec![])),
+        typed(int_string, Expr::Tuple(vec![int(1), string("a")])),
+        typed(TypeId::STRING, string("say \"hi\"\n\\ #{x} # \t")),
+        typed(TypeId::STRING, string("")),
+        typed(TypeId::BOOL, bool(true)),
+        typed(TypeId::FLOAT, float(3.0)),
+        typed(TypeId::INT64, int64(i64::MAX)),
+        typed(TypeId::UNIT, unit()),
         typed(
-            shape_ty.clone(),
-            ctor(c(shape, 1), vec![float(1.0), float(2.5)]),
-        ),
-        typed(shape_ty.clone(), ctor(c(shape, 2), vec![])),
-        typed(
-            Type::Enum(point, vec![]),
-            ctor(c(point, 0), vec![int(-1), int(2)]),
-        ),
-        typed(Type::list(Type::Int), list(vec![int(1), int(2), int(3)])),
-        typed(Type::list(Type::Int), list(vec![])),
-        typed(
-            Type::Tuple(vec![Type::Int, Type::String]),
-            Expr::Tuple(vec![int(1), string("a")]),
-        ),
-        typed(Type::String, string("say \"hi\"\n\\ #{x} # \t")),
-        typed(Type::String, string("")),
-        typed(Type::Bool, bool(true)),
-        typed(Type::Float, float(3.0)),
-        typed(Type::Int64, int64(i64::MAX)),
-        typed(Type::Unit, unit()),
-        typed(
-            Type::list(Type::Enum(opt, vec![Type::list(Type::String)])),
+            opt_strs_list,
             list(vec![
                 ctor(some, vec![list(vec![string("a"), string("b")])]),
                 ctor(none, vec![]),
             ]),
         ),
         typed(
-            tree_s.clone(),
+            tree_s,
             ctor(
                 c(tree, 1),
                 vec![
@@ -1478,7 +1512,7 @@ fn dbg_shows_values_in_source_syntax() {
             ),
         ),
         typed(
-            Type::list(Type::Tuple(vec![shape_ty.clone(), Type::list(Type::Bool)])),
+            shape_bools_list,
             list(vec![Expr::Tuple(vec![
                 ctor(c(shape, 2), vec![]),
                 list(vec![bool(false)]),
@@ -1488,14 +1522,14 @@ fn dbg_shows_values_in_source_syntax() {
     // dbg returns its value as is: let x = dbg("héllo") in String.length(x)
     let mut body = let_(
         x,
-        dbg(Type::String, string("héllo")),
+        dbg(TypeId::STRING, string("héllo")),
         b(Builtin::StringLength, vec![var(x)]),
     );
     for (v, ty) in values.into_iter().rev() {
         let l = m.local("_", ty);
         body = let_(l, v, body);
     }
-    main_fn(&mut m, Type::Int, body);
+    main_fn(&mut m, TypeId::INT, body);
     let (stdout, stderr) = run_stderr("dbg_shows_values_in_source_syntax", m);
     assert_eq!(stdout, "5\n");
     assert_eq!(
@@ -1530,12 +1564,15 @@ fn interpolation_shows_any_type() {
     let (mut m, shape, _, _) = show_module();
     let some = m.some_ctor();
     let opt = m.option_enum();
+    let shape_ty = m.enum_type(shape, vec![]);
+    let strs = m.list(TypeId::STRING);
+    let opt_string = m.enum_type(opt, vec![TypeId::STRING]);
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         Expr::Concat(vec![
             lit_part("s="),
-            value_part(string("a\"b"), Type::String),
+            value_part(string("a\"b"), TypeId::STRING),
             lit_part(" shape="),
             value_part(
                 ctor(
@@ -1545,20 +1582,14 @@ fn interpolation_shows_any_type() {
                     },
                     vec![float(2.0)],
                 ),
-                Type::Enum(shape, vec![]),
+                shape_ty,
             ),
             lit_part(" xs="),
-            value_part(
-                list(vec![string("x"), string("y")]),
-                Type::list(Type::String),
-            ),
+            value_part(list(vec![string("x"), string("y")]), strs),
             lit_part(" opt="),
-            value_part(
-                ctor(some, vec![string("z")]),
-                Type::Enum(opt, vec![Type::String]),
-            ),
+            value_part(ctor(some, vec![string("z")]), opt_string),
             lit_part(" unit="),
-            value_part(unit(), Type::Unit),
+            value_part(unit(), TypeId::UNIT),
         ]),
     );
     assert_eq!(
@@ -1575,12 +1606,12 @@ fn option_from_builtin_matches_user_patterns() {
     let some = m.some_ctor();
     let none = m.none_ctor();
     let f = m.declare("inc_or_zero", false);
-    let a = m.local("a", Type::Int);
-    let n = m.local("n", Type::Int);
+    let a = m.local("a", TypeId::INT);
+    let n = m.local("n", TypeId::INT);
     m.define(
         f,
         vec![a],
-        Type::Int,
+        TypeId::INT,
         match_(
             b(Builtin::IntCheckedAdd, vec![var(a), int(1)]),
             vec![
@@ -1589,13 +1620,14 @@ fn option_from_builtin_matches_user_patterns() {
             ],
         ),
     );
-    let opt_int = Type::Enum(m.option_enum(), vec![Type::Int]);
+    let opt_id = m.option_enum();
+    let opt_int = m.enum_type(opt_id, vec![TypeId::INT]);
     main_fn(
         &mut m,
-        Type::String,
+        TypeId::STRING,
         lines(vec![
-            (call(f, vec![int(41)]), Type::Int),
-            (call(f, vec![int(i32::MAX)]), Type::Int),
+            (call(f, vec![int(41)]), TypeId::INT),
+            (call(f, vec![int(i32::MAX)]), TypeId::INT),
             // None shares the runtime's value, so structural equality holds too.
             (
                 bin(
@@ -1604,7 +1636,7 @@ fn option_from_builtin_matches_user_patterns() {
                     b(Builtin::IntCheckedAdd, vec![int(i32::MAX), int(1)]),
                     ctor(none, vec![]),
                 ),
-                Type::Bool,
+                TypeId::BOOL,
             ),
             (ctor(some, vec![int(1)]), opt_int),
         ]),
@@ -1616,10 +1648,11 @@ fn option_from_builtin_matches_user_patterns() {
 #[should_panic(expected = "is only valid inside an enum show function")]
 fn showing_type_param_outside_enum_show_panics() {
     let mut m = Module::new();
+    let a = m.type_param(0);
     main_fn(
         &mut m,
-        Type::String,
-        Expr::Concat(vec![value_part(int(1), Type::Param(0))]),
+        TypeId::STRING,
+        Expr::Concat(vec![value_part(int(1), a)]),
     );
     emit_module(&m, &Options::default());
 }
@@ -1633,16 +1666,16 @@ fn constants_are_evaluated_once() {
     let mut m = Module::new();
     let answer = m.declare("ANSWER", false);
     m.functions[answer].constant = true;
-    let ignored = m.local("ignored", Type::String);
+    let ignored = m.local("ignored", TypeId::STRING);
     m.define(
         answer,
         vec![],
-        Type::Int,
+        TypeId::INT,
         let_(
             ignored,
             builtin_ty(
                 Builtin::Dbg,
-                vec![Type::String],
+                vec![TypeId::STRING],
                 vec![string("evaluating ANSWER")],
             ),
             int(21),
@@ -1650,7 +1683,7 @@ fn constants_are_evaluated_once() {
     );
     main_fn(
         &mut m,
-        Type::Int,
+        TypeId::INT,
         bin(
             BinOp::Add,
             OpTy::Int,
@@ -1671,16 +1704,16 @@ fn constants_are_evaluated_once() {
     m.define(
         inner,
         vec![],
-        Type::Int,
+        TypeId::INT,
         bin(BinOp::Div, OpTy::Int, int(1), int(0)),
     );
     m.define(
         outer,
         vec![],
-        Type::Int,
+        TypeId::INT,
         bin(BinOp::Add, OpTy::Int, call(inner, vec![]), int(1)),
     );
-    main_fn(&mut m, Type::Int, call(outer, vec![]));
+    main_fn(&mut m, TypeId::INT, call(outer, vec![]));
     let r = run_with("constant_defect", &m, RuntimeMode::Import(None));
     assert_eq!(
         r.stdout,
@@ -1694,9 +1727,9 @@ fn constants_are_evaluated_once() {
     let this = m.declare("SELF", false);
     let f = m.declare("f", false);
     m.functions[this].constant = true;
-    m.define(this, vec![], Type::Int, call(f, vec![]));
-    m.define(f, vec![], Type::Int, call(this, vec![]));
-    main_fn(&mut m, Type::Int, call(this, vec![]));
+    m.define(this, vec![], TypeId::INT, call(f, vec![]));
+    m.define(f, vec![], TypeId::INT, call(this, vec![]));
+    main_fn(&mut m, TypeId::INT, call(this, vec![]));
     let r = run_with("constant_self_reference", &m, RuntimeMode::Import(None));
     assert_eq!(
         r.stdout, "defect: const SELF refers to itself while being evaluated\n",

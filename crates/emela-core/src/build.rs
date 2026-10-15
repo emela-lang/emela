@@ -140,7 +140,7 @@ pub fn builtin(op: Builtin, args: Vec<Expr>) -> Expr {
 }
 
 /// A call to a builtin that takes type arguments (`dbg`).
-pub fn builtin_ty(op: Builtin, ty_args: Vec<Type>, args: Vec<Expr>) -> Expr {
+pub fn builtin_ty(op: Builtin, ty_args: Vec<TypeId>, args: Vec<Expr>) -> Expr {
     Expr::Builtin { op, ty_args, args }
 }
 
@@ -236,7 +236,7 @@ pub fn lit_part(s: &str) -> StrPart {
     StrPart::Lit(s.to_owned())
 }
 
-pub fn value_part(e: Expr, ty: Type) -> StrPart {
+pub fn value_part(e: Expr, ty: TypeId) -> StrPart {
     StrPart::Value(e, ty)
 }
 
