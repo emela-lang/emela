@@ -285,6 +285,7 @@ name = "emela-driver"
 version = "0.20.1"
 dependencies = [
  "ariadne",
+ "emela-codegen-c",
  "emela-codegen-js",
  "emela-codegen-wasm",
  "emela-core",

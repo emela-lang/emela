@@ -25,9 +25,16 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::check::display_name;
 use crate::names;
-use crate::{CError, CErrorKind, COutput, Entry, RUNTIME_H_FILE};
+use crate::{CError, CErrorKind, COutput, RUNTIME_H_FILE};
 
-pub(crate) fn emit(m: &Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
+/// What the generated `main` runs.
+pub(crate) enum Run {
+    Main,
+    /// Test functions, with their names.
+    Tests(Vec<(String, FnId)>),
+}
+
+pub(crate) fn emit(m: &Module, entry: &Run) -> Result<COutput, Vec<CError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
@@ -71,13 +78,17 @@ pub(crate) fn emit(m: &Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
         }
         bodies.push('\n');
     }
-    let main = m
-        .functions
-        .iter()
-        .find(|(_, f)| f.exported && f.name == "main")
-        .map(|(id, _)| id);
-    let Entry::Main = entry;
-    e.c_main(&mut bodies, main);
+    match entry {
+        Run::Main => {
+            let main = m
+                .functions
+                .iter()
+                .find(|(_, f)| f.exported && f.name == "main")
+                .map(|(id, _)| id);
+            e.c_main(&mut bodies, main);
+        }
+        Run::Tests(tests) => e.c_test_main(&mut bodies, tests),
+    }
     if !e.errors.is_empty() {
         return Err(e.errors);
     }
@@ -1259,35 +1270,65 @@ impl<'m> Emitter<'m> {
         self.errors.push(CError::new(kind, what));
     }
 
-    fn c_main(&mut self, out: &mut String, main: Option<FnId>) {
+    fn cleanup(&self, out: &mut String) {
         out.push_str("static void em_cleanup(void) {\n");
         for &c in &self.consts {
             let _ = writeln!(out, "  em_const_release(&em_c{});", ix(c));
         }
         out.push_str("}\n\n");
+    }
+
+    /// Calls the function `id`, which takes no arguments, and drops what it returns unless it
+    /// failed or raised a defect.
+    fn call_entry(&mut self, out: &mut String, id: FnId) {
+        let f = &self.m.functions[id];
+        let name = self.fn_names[ix(id)].clone();
+        if !f.params.is_empty() {
+            self.internal(format!("the entry `{}` takes parameters", f.name));
+        }
+        match self.repr(f.ret) {
+            Repr::Void => {
+                let _ = writeln!(out, "  {name}();");
+            }
+            Repr::Ref => {
+                let _ = writeln!(out, "  {{");
+                let _ = writeln!(out, "    em_ref r = {name}();");
+                let _ = writeln!(
+                    out,
+                    "    if (em_defect == NULL && em_failure == NULL) em_drop(r);"
+                );
+                let _ = writeln!(out, "  }}");
+            }
+            _ => {
+                let _ = writeln!(out, "  (void){name}();");
+            }
+        }
+    }
+
+    /// Runs the tests one by one and reports each result (the JS test runner's protocol).
+    fn c_test_main(&mut self, out: &mut String, tests: &[(String, FnId)]) {
+        self.cleanup(out);
+        out.push_str("int main(int argc, char **argv) {\n");
+        out.push_str("  em_start(argc, argv);\n");
+        for (name, id) in tests {
+            self.call_entry(out, *id);
+            let _ = writeln!(
+                out,
+                "  em_test_result({});",
+                names::string_literal(name.as_bytes())
+            );
+        }
+        out.push_str("  em_test_done();\n");
+        out.push_str("  return em_exit(em_cleanup);\n");
+        out.push_str("}\n");
+    }
+
+    fn c_main(&mut self, out: &mut String, main: Option<FnId>) {
+        self.cleanup(out);
         out.push_str("int main(int argc, char **argv) {\n");
         out.push_str("  em_start(argc, argv);\n");
         if let Some(id) = main {
-            let f = &self.m.functions[id];
-            let name = self.fn_names[ix(id)].clone();
-            if !f.params.is_empty() {
-                self.internal("main takes parameters");
-            }
-            match self.repr(f.ret) {
-                Repr::Void => {
-                    let _ = writeln!(out, "  {name}();");
-                }
-                Repr::Ref => {
-                    let _ = writeln!(out, "  em_ref r = {name}();");
-                    let _ = writeln!(
-                        out,
-                        "  if (em_defect == NULL && em_failure == NULL) em_drop(r);"
-                    );
-                }
-                _ => {
-                    let _ = writeln!(out, "  (void){name}();");
-                }
-            }
+            self.call_entry(out, id);
         }
         out.push_str("  return em_exit(em_cleanup);\n");
         out.push_str("}\n");

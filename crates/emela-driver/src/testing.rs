@@ -30,21 +30,32 @@ use crate::frontend::{Typecheck, lower_typed};
 use crate::js::{CoreJs, JS_ENTRY_FILE, bundled_outputs};
 use crate::output::{JsOutput, OutputFile, write_output};
 use crate::pipeline::{
-    Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, check,
+    Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, Runner, check,
 };
 use crate::run::{Output, exit_code, spawn_error};
 use crate::source::{FileId, FileSystem, SourceFile};
+use crate::target::Target;
 
 /// The default JS output directory for tests, relative to the project (or to the file's
 /// directory for a single file). Kept apart from the normal build (`target/emela/js`) because the
 /// output differs: it exports the test functions.
 pub const JS_TEST_OUT_DIR: &str = "target/emela/test";
+/// The default C output directory for tests (`--target c`), relative like [`JS_TEST_OUT_DIR`].
+pub const C_TEST_OUT_DIR: &str = "target/emela/test-c";
 
 /// The file name of the test entry module, which node runs.
 pub const JS_TEST_ENTRY_FILE: &str = "emela_test.mjs";
 
 pub fn default_test_out_dir(input: &Input) -> PathBuf {
     input.base.join(JS_TEST_OUT_DIR)
+}
+
+/// The default output directory of `emela test` for the target.
+pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
+    match target {
+        Target::Js => input.base.join(JS_TEST_OUT_DIR),
+        Target::C => input.base.join(C_TEST_OUT_DIR),
+    }
 }
 
 /// A `@test` function that passed type checking. `def` is its HIR definition.
@@ -108,13 +119,23 @@ pub(crate) fn resolve_tests(
 /// checking reported any error.
 pub struct LowerTests<B = NoBuiltins> {
     typecheck: Typecheck<B>,
+    target: Target,
 }
 
 impl Default for LowerTests<NoBuiltins> {
     fn default() -> Self {
         LowerTests {
             typecheck: Typecheck::default(),
+            target: Target::Js,
         }
+    }
+}
+
+impl<B> LowerTests<B> {
+    /// Checks external functions against `target` (spec 12.1) instead of JS.
+    pub fn with_target(mut self, target: Target) -> Self {
+        self.target = target;
+        self
     }
 }
 
@@ -133,7 +154,13 @@ impl<B: BuiltinModules> Frontend for LowerTests<B> {
         let checked = self.typecheck.check(analysis, order);
         let mut diagnostics = checked.diagnostics;
         let program = checked.program.and_then(|typed| {
-            let lowered = lower_typed(analysis, &typed, Roots::Tests, &mut diagnostics)?;
+            let lowered = lower_typed(
+                analysis,
+                &typed,
+                Roots::Tests,
+                self.target,
+                &mut diagnostics,
+            )?;
             let tests = typed
                 .tests
                 .iter()
@@ -186,6 +213,16 @@ pub trait TestBackend<P> {
         selected: &[usize],
         analysis: &Analysis,
     ) -> Result<JsOutput, Vec<Diagnostic>>;
+
+    /// Called after the output is written; returns what runs (see [`JsBackend::finish`]).
+    fn finish(&mut self, _out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        Ok(entry)
+    }
+
+    /// How what [`TestBackend::finish`] returned runs.
+    fn runner(&self) -> Runner {
+        Runner::Node
+    }
 }
 
 impl<P> TestBackend<P> for NoJsBackend {
@@ -285,7 +322,15 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     let Some((entry, selected, filtered_out)) = prepared else {
         return (analysis, None);
     };
-    match run_tests(&options.node, &entry, &selected, options.output, out) {
+    let (program, command) = match backend.runner() {
+        Runner::Node => {
+            let mut command = Command::new(&options.node);
+            command.arg(&entry);
+            (options.node.clone(), command)
+        }
+        Runner::Native => (entry.clone(), Command::new(&entry)),
+    };
+    match run_tests(&program, command, &selected, options.output, out) {
         Ok((results, stderr)) => {
             let report = TestReport {
                 results,
@@ -345,6 +390,13 @@ fn prepare<P, B: TestBackend<P>>(
             return None;
         }
     };
+    let entry = match backend.finish(&options.out_dir, entry) {
+        Ok(entry) => entry,
+        Err(diagnostics) => {
+            analysis.diagnostics.extend(diagnostics);
+            return None;
+        }
+    };
     let filtered_out = names.len() - selected.len();
     let selected = selected.into_iter().map(|i| names[i].clone()).collect();
     Some((entry, selected, filtered_out))
@@ -372,25 +424,24 @@ enum Outcome {
     Interrupted,
 }
 
-/// Runs the entry module on node, writing results to `out` as they are collected. Stdout lines
-/// that are not result lines pass through to `out`.
+/// Runs the tests with `command` (node on the entry module, or the test executable; `program`
+/// names it in diagnostics), writing results to `out` as they are collected. Stdout lines that are
+/// not result lines pass through to `out`.
 fn run_tests(
-    node: &Path,
-    entry: &Path,
+    program: &Path,
+    mut command: Command,
     selected: &[String],
     output: Output,
     out: &mut dyn Write,
 ) -> Result<(Vec<TestResult>, Vec<u8>), Diagnostic> {
-    let mut command = Command::new(node);
     command
-        .arg(entry)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(match output {
             Output::Inherit => Stdio::inherit(),
             Output::Capture => Stdio::piped(),
         });
-    let mut child = command.spawn().map_err(|err| spawn_error(node, &err))?;
+    let mut child = command.spawn().map_err(|err| spawn_error(program, &err))?;
     // Read stderr on another thread so a full pipe cannot stall node.
     let stderr = child.stderr.take().map(|mut pipe| {
         std::thread::spawn(move || {
@@ -436,7 +487,7 @@ fn run_tests(
             }
         }
     }
-    let status = child.wait().map_err(|err| spawn_error(node, &err))?;
+    let status = child.wait().map_err(|err| spawn_error(program, &err))?;
     let stderr = stderr
         .map(|thread| thread.join().unwrap_or_default())
         .unwrap_or_default();

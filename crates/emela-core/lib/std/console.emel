@@ -12,13 +12,15 @@ pub effect Console {
 }
 
 @external(js, "console.log")
+@external(c, "./console.c", "emela_console_print_line")
 fn console_log(text: String) -> ()
 
 @external(js, "console.error")
+@external(c, "./console.c", "emela_console_print_error_line")
 fn console_error(text: String) -> ()
 
-## Writes to the host's standard output and standard error (JS `console.log` and `console.error`).
-## Stateless.
+## Writes to the host's standard output and standard error (JS `console.log` and `console.error`,
+## C `stdout` and `stderr`). Stateless.
 pub handler SystemConsole implements Console {
   fn print_line(text) { console_log(text) }
   fn print_error_line(text) { console_error(text) }

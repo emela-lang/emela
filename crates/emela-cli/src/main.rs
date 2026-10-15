@@ -1,7 +1,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests, MemoryFiles, OsFs, Output,
-    RunOptions, SourceDb, TestOptions, Typecheck,
+    Analysis, CoreC, CoreJs, Diagnostic, FileSystem, Input, JsBackend, Lower, LowerTests,
+    MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule, TestOptions,
+    Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -23,21 +24,27 @@ enum Command {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
     },
-    /// Compile to JavaScript under `target/emela/js`
+    /// Compile to JavaScript under `target/emela/js` (or to a native executable with `--target c`)
     Build {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
-        /// Output directory [default: <project>/target/emela/js]
+        /// Output directory [default: <project>/target/emela/<target>]
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// The target [default: `[build].target` of Pome.toml, or js]
+        #[arg(long, value_enum)]
+        target: Option<TargetArg>,
     },
-    /// Compile to JavaScript and run it with Node.js
+    /// Compile and run: on Node.js, or as a native executable with `--target c`
     Run {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
-        /// Output directory [default: <project>/target/emela/js]
+        /// Output directory [default: <project>/target/emela/<target>]
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// The target [default: `[build].target` of Pome.toml, or js]
+        #[arg(long, value_enum)]
+        target: Option<TargetArg>,
         /// Arguments passed to the program (write them after `--`)
         #[arg(last = true)]
         args: Vec<OsString>,
@@ -48,9 +55,12 @@ enum Command {
         path: Option<PathBuf>,
         /// Run only the tests whose name contains this string
         filter: Option<String>,
-        /// Output directory [default: <project>/target/emela/test]
+        /// Output directory [default: <project>/target/emela/test, or test-c for `--target c`]
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// The target [default: `[build].target` of Pome.toml, or js]
+        #[arg(long, value_enum)]
+        target: Option<TargetArg>,
     },
     /// Format the sources in place
     Fmt {
@@ -79,6 +89,24 @@ enum Command {
     Lsp,
 }
 
+/// A build target (spec chapter 16).
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum TargetArg {
+    /// JavaScript run on Node.js
+    Js,
+    /// C compiled with cc (`EMELA_CC`) to a native executable
+    C,
+}
+
+impl From<TargetArg> for Target {
+    fn from(target: TargetArg) -> Self {
+        match target {
+            TargetArg::Js => Target::Js,
+            TargetArg::C => Target::C,
+        }
+    }
+}
+
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum DocFormat {
     /// Pages with a sidebar of modules, highlighted signatures and links between types
@@ -92,17 +120,23 @@ const DIAGNOSTIC_FAILURE: u8 = 1;
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check { path } => check(&path_or_current(path)),
-        Command::Build { path, out_dir } => build(&path_or_current(path), out_dir),
+        Command::Build {
+            path,
+            out_dir,
+            target,
+        } => build(&path_or_current(path), out_dir, target),
         Command::Run {
             path,
             out_dir,
+            target,
             args,
-        } => run(&path_or_current(path), out_dir, args),
+        } => run(&path_or_current(path), out_dir, target, args),
         Command::Test {
             path,
             filter,
             out_dir,
-        } => test(&path_or_current(path), filter, out_dir),
+            target,
+        } => test(&path_or_current(path), filter, out_dir, target),
         Command::Fmt { paths, check } => fmt(paths, check),
         Command::Doc {
             path,
@@ -126,46 +160,94 @@ fn check(path: &Path) -> ExitCode {
     report(&analysis)
 }
 
-fn build(path: &Path, out_dir: Option<PathBuf>) -> ExitCode {
+/// The target: `--target`, else `[build].target` of Pome.toml (spec 4.7), else js. `None` after
+/// printing E0232 for an unknown target in Pome.toml.
+fn resolve_target(input: &Input, flag: Option<TargetArg>) -> Option<Target> {
+    if let Some(flag) = flag {
+        return Some(flag.into());
+    }
+    match emela_driver::project_target(&OsFs, input) {
+        Ok(target) => Some(target.unwrap_or_default()),
+        Err(diagnostic) => {
+            print_diagnostics(&[diagnostic], &SourceDb::new());
+            None
+        }
+    }
+}
+
+fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
-    let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir());
-    let (analysis, _) =
-        emela_driver::build(&OsFs, &input, &mut Lower::default(), &mut CoreJs, &out_dir);
+    let Some(target) = resolve_target(&input, target) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
+    let out_dir = out_dir.unwrap_or_else(|| input.default_out_dir_for(target));
+    let mut frontend = Lower::default().with_target(target);
+    let (analysis, _) = match target {
+        Target::Js => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreJs, &out_dir),
+        Target::C => emela_driver::build(
+            &OsFs,
+            &input,
+            &mut frontend,
+            &mut CoreC::default(),
+            &out_dir,
+        ),
+    };
     report(&analysis)
 }
 
-fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
+fn run(
+    path: &Path,
+    out_dir: Option<PathBuf>,
+    target: Option<TargetArg>,
+    args: Vec<OsString>,
+) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
+    let Some(target) = resolve_target(&input, target) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
     let options = RunOptions {
-        out_dir: out_dir.unwrap_or_else(|| input.default_out_dir()),
+        out_dir: out_dir.unwrap_or_else(|| input.default_out_dir_for(target)),
         node: emela_driver::node_program(),
         args,
         output: Output::Inherit,
     };
-    // Diagnostics go out before node starts, so warnings show first even if the program never
+    match target {
+        Target::Js => run_with(&input, &options, target, &mut CoreJs),
+        Target::C => run_with(&input, &options, target, &mut CoreC::default()),
+    }
+}
+
+fn run_with<B: JsBackend<emela_driver::CoreModule>>(
+    input: &Input,
+    options: &RunOptions,
+    target: Target,
+    backend: &mut B,
+) -> ExitCode {
+    // Diagnostics go out before the program starts, so warnings show first even if it never
     // ends.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let (analysis, output) = emela_driver::run(
         &OsFs,
-        &input,
-        &mut Lower::default(),
-        &mut CoreJs,
-        &options,
+        input,
+        &mut Lower::default().with_target(target),
+        backend,
+        options,
         |analysis| {
             diagnostics_code = report(analysis);
             reported = analysis.diagnostics.len();
         },
     );
     match output {
-        // Pass node's exit code through, truncated to 8 bits like a shell does.
+        // Pass the program's exit code through, truncated to 8 bits like a shell does.
         Some(output) => ExitCode::from(output.code as u8),
         None => {
-            // Diagnostics about failing to start node were appended after those already printed.
+            // Diagnostics about failing to start the program were appended after those already
+            // printed.
             let rest = &analysis.diagnostics[reported..];
             if rest.is_empty() {
                 diagnostics_code
@@ -177,26 +259,46 @@ fn run(path: &Path, out_dir: Option<PathBuf>, args: Vec<OsString>) -> ExitCode {
     }
 }
 
-fn test(path: &Path, filter: Option<String>, out_dir: Option<PathBuf>) -> ExitCode {
+fn test(
+    path: &Path,
+    filter: Option<String>,
+    out_dir: Option<PathBuf>,
+    target: Option<TargetArg>,
+) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
+    let Some(target) = resolve_target(&input, target) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
     let options = TestOptions {
-        out_dir: out_dir.unwrap_or_else(|| emela_driver::default_test_out_dir(&input)),
+        out_dir: out_dir.unwrap_or_else(|| emela_driver::default_test_out_dir_for(&input, target)),
         node: emela_driver::node_program(),
         filter,
         output: Output::Inherit,
     };
-    // Results go to stdout, diagnostics to stderr. Diagnostics go out before node starts.
+    match target {
+        Target::Js => test_with(&input, &options, target, &mut CoreJs),
+        Target::C => test_with(&input, &options, target, &mut CoreC::default()),
+    }
+}
+
+fn test_with<B: TestBackend<TestModule>>(
+    input: &Input,
+    options: &TestOptions,
+    target: Target,
+    backend: &mut B,
+) -> ExitCode {
+    // Results go to stdout, diagnostics to stderr. Diagnostics go out before the tests start.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let stdout = std::io::stdout();
     let (analysis, report) = emela_driver::test(
         &OsFs,
-        &input,
-        &mut LowerTests::default(),
-        &mut CoreJs,
-        &options,
+        input,
+        &mut LowerTests::default().with_target(target),
+        backend,
+        options,
         |analysis| {
             diagnostics_code = report(analysis);
             reported = analysis.diagnostics.len();

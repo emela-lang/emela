@@ -8,7 +8,7 @@
 - 対象を第1引数に置くので，`xs |> List.map(f)` のようにパイプで書ける
 - 引数名は名前付き引数のラベルになる（6.2）．`List.fold(xs, from: 0, f: add)` のように書ける．名前は 15.3 の約束に従う（畳み込みの初期値は `from`，2つをつなぐのは `append`，平らにするのは `flatten` と `concat`）
 
-## 同梱のソースに JS のファイルを足す
+## 同梱のソースにホストのファイルを足す
 
 同梱の `.emel` から `@external(js, "./x.mjs", "name")` でホストの関数を呼ぶときは，`.mjs` をそのソースと同じディレクトリ（`lib/std/` など）に置いて埋め込む．
 
@@ -17,6 +17,8 @@
 3. `.emel` に `@external(js, "./x.mjs", "name")` を書く．パスはそのソースのディレクトリからの相対
 
 build，run，test では，lowering がその指定を `lib/` からのパス（`std/x.mjs`）にし，JS の出力はそれを `./emela_core/std/x.mjs` として import する．出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
+
+C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `HOST_FILES` に足し，`.emel` に `@external(c, "./x.c", "name")` を書く．C の出力は，使う外部関数が指す `.c` だけを出力先（`target/emela/c/`）の `emela_core/` の下に書き出し，`main.c` と一緒に cc でコンパイルする．関数のプロトタイプは 12.4 の表で決まる（String は `const char *` で受け，返すときは `malloc` した `char *`）．`-std=c11` でコンパイルするので，POSIX の関数を使うときは機能検査マクロに気をつける．
 
 # core
 
@@ -181,14 +183,14 @@ fn main() {
 }
 ```
 
-## Std.Console（`std/console.emel`）
+## Std.Console（`std/console.emel`，`std/console.c`）
 
 platform 層と test 層（15.2）．
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Console` | `effect Console { fn print_line(text: String) -> (); fn print_error_line(text: String) -> () }` | 標準出力と標準エラーに1行ずつ書く．失敗しない |
-| `SystemConsole` | `handler SystemConsole implements Console` | ホストの標準出力と標準エラー（JS の `console.log` と `console.error`）．状態を持たない |
+| `SystemConsole` | `handler SystemConsole implements Console` | ホストの標準出力と標準エラー（JS の `console.log` と `console.error`，C の `stdout` と `stderr`）．状態を持たない |
 | `TestConsole` | `handler TestConsole implements Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる．`State.run` の中で使う |
 
 ```emel
@@ -201,27 +203,27 @@ fn main() {
 }
 ```
 
-## Std.Clock（`std/clock.emel`，`std/clock.mjs`）
+## Std.Clock（`std/clock.emel`，`std/clock.mjs`，`std/clock.c`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | 待つ（負なら 0 と同じ）．現在の時点 |
-| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`．状態を持たない．Async に依存する（8.7） |
+| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`（C では `timespec_get`）．状態を持たない．Async に依存する（8.7）．C では `sleep` の外部関数がない（18.1 #37）ので，今は C で使えない |
 | `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する |
 
-## Std.Random（`std/random.emel`，`std/random.mjs`）
+## Std.Random（`std/random.emel`，`std/random.mjs`，`std/random.c`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Random` | `effect Random { fn int() -> Int; fn float() -> Float }` | Int の全域で一様な値．0 以上 1 未満で一様な値 |
-| `SystemRandom` | `handler SystemRandom implements Random` | JS の `crypto.getRandomValues` で引く．状態を持たない |
+| `SystemRandom` | `handler SystemRandom implements Random` | JS の `crypto.getRandomValues`，C の `arc4random_buf`（macOS）か `getrandom`（Linux）で引く．状態を持たない |
 
-## Std.Env（`std/env.emel`，`std/env.mjs`）
+## Std.Env（`std/env.emel`，`std/env.mjs`，`std/env.c`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
-| `SystemEnv` | `handler SystemEnv implements Env` | JS の `process.env` を読む．状態を持たない |
+| `SystemEnv` | `handler SystemEnv implements Env` | JS の `process.env`，C の `getenv` を読む．状態を持たない |
 
 ## Std.Fiber（`std/fiber.emel`）
 

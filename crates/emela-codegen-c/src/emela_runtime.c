@@ -878,6 +878,68 @@ void em_start(int argc, char **argv) {
   (void)argv;
 }
 
+/* ---- Tests (spec 13.4) ---- */
+
+#define EM_TEST_EVENT "\x1e" "emela-test "
+
+static void em_json_string(const char *s, size_t n) {
+  putchar('"');
+  for (size_t i = 0; i < n; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c == '"' || c == '\\') {
+      putchar('\\');
+      putchar(c);
+    } else if (c == '\n') {
+      fputs("\\n", stdout);
+    } else if (c < 0x20 || c == 0x7F) {
+      printf("\\u%04x", c);
+    } else {
+      putchar(c);
+    }
+  }
+  putchar('"');
+}
+
+void em_test_result(const char *name) {
+  const char *outcome = "ok";
+  em_ref message = NULL;
+  if (em_defect != NULL) {
+    outcome = "defect";
+    message = em_defect;
+    em_defect = NULL;
+  } else if (em_failure != NULL) {
+    outcome = "error";
+    em_ref e = em_failure;
+    em_failure = NULL;
+    em_ref (*show)(em_ref) = e->hdr.desc->show;
+    if (show != NULL) {
+      message = show(e);
+      if (em_defect != NULL) {
+        em_drop(message);
+        message = em_defect;
+        em_defect = NULL;
+      }
+    } else {
+      em_drop(e);
+    }
+  }
+  fputs(EM_TEST_EVENT "{\"event\":\"result\",\"name\":", stdout);
+  em_json_string(name, strlen(name));
+  printf(",\"outcome\":\"%s\"", outcome);
+  if (message != NULL) {
+    fputs(",\"message\":", stdout);
+    em_json_string(EM_STR_BYTES(message), EM_STR_LEN(message));
+    em_drop(message);
+  }
+  fputs("}\n", stdout);
+  fflush(stdout);
+}
+
+void em_test_done(void) {
+  fputs(EM_TEST_EVENT "{\"event\":\"done\"}\n", stdout);
+  fflush(stdout);
+}
+
 static void em_write_line(FILE *f, const char *prefix, em_ref s) {
   fputs(prefix, f);
   if (s != NULL) fwrite(EM_STR_BYTES(s), 1, EM_STR_LEN(s), f);

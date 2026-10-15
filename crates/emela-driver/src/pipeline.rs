@@ -12,6 +12,7 @@ use emela_resolve::{
 use la_arena::ArenaMap;
 
 use crate::actions::CodeAction;
+use crate::c::run_native;
 use crate::code;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
@@ -22,6 +23,7 @@ use crate::output::{JsOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
+use crate::target::Target;
 use crate::tokens::SemanticToken;
 
 /// The file marking a project (spec 4.1). In 0.20 only its presence matters.
@@ -33,6 +35,8 @@ pub const ENTRY_FILE: &str = "main.emel";
 /// The default JS output directory, relative to the project (or to the file's directory for a
 /// single file).
 pub const JS_OUT_DIR: &str = "target/emela/js";
+/// The default C output directory (`--target c`), relative like [`JS_OUT_DIR`].
+pub const C_OUT_DIR: &str = "target/emela/c";
 /// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
 pub const DOC_OUT_DIR: &str = "target/emela/doc";
 /// A virtual directory holding the bundled core sources. Diagnostics show paths like
@@ -180,6 +184,14 @@ impl Input {
 
     pub fn default_out_dir(&self) -> PathBuf {
         self.base.join(JS_OUT_DIR)
+    }
+
+    /// The default output directory of build and run for the target.
+    pub fn default_out_dir_for(&self, target: Target) -> PathBuf {
+        match target {
+            Target::Js => self.base.join(JS_OUT_DIR),
+            Target::C => self.base.join(C_OUT_DIR),
+        }
     }
 
     pub fn default_doc_out_dir(&self) -> PathBuf {
@@ -349,9 +361,30 @@ pub struct Checked<P> {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// The plug-in point for JS emission. Called only when there are no errors.
+/// The plug-in point for the output stage (JS, or C with [`crate::CoreC`]). Called only when
+/// there are no errors.
 pub trait JsBackend<P> {
     fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
+
+    /// Called after the output is written under `out_dir`, with the path of its entry. Returns the
+    /// path of what runs: the entry itself for JS, the executable cc made for C.
+    fn finish(&mut self, _out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        Ok(entry)
+    }
+
+    /// How what [`JsBackend::finish`] returned runs.
+    fn runner(&self) -> Runner {
+        Runner::Node
+    }
+}
+
+/// How the built program runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Runner {
+    /// A `.mjs` entry run on node.
+    Node,
+    /// A native executable.
+    Native,
 }
 
 /// A lexer-only frontend: returns only lexer diagnostics, no imports, and no type checking.
@@ -647,10 +680,17 @@ fn build_with<F: Frontend, B: JsBackend<F::Program>>(
             return (analysis, None);
         }
     };
-    match write_output(out_dir, &output) {
-        Ok(entry) => (analysis, Some(entry)),
+    let entry = match write_output(out_dir, &output) {
+        Ok(entry) => entry,
         Err(diagnostic) => {
             analysis.diagnostics.push(diagnostic);
+            return (analysis, None);
+        }
+    };
+    match backend.finish(out_dir, entry) {
+        Ok(entry) => (analysis, Some(entry)),
+        Err(diagnostics) => {
+            analysis.diagnostics.extend(diagnostics);
             (analysis, None)
         }
     }
@@ -667,7 +707,7 @@ pub struct RunOptions {
     pub output: Output,
 }
 
-/// The `emela run` stage: builds and runs the entry on node. Without main in the entry, reports
+/// The `emela run` stage: builds and runs the entry (on node for JS, the executable for C). Without main in the entry, reports
 /// E0230 and does not start node (spec 8.3).
 ///
 /// `before_node` is called once after the build and before node starts (even if the build
@@ -687,7 +727,11 @@ pub fn run<F: Frontend, B: JsBackend<F::Program>>(
     let Some(entry) = entry else {
         return (analysis, None);
     };
-    match run_node(&options.node, &entry, &options.args, options.output) {
+    let result = match backend.runner() {
+        Runner::Node => run_node(&options.node, &entry, &options.args, options.output),
+        Runner::Native => run_native(&entry, &options.args, options.output),
+    };
+    match result {
         Ok(output) => (analysis, Some(output)),
         Err(diagnostic) => {
             analysis.diagnostics.push(diagnostic);
