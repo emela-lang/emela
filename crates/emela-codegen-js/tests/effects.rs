@@ -9,6 +9,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main` and prints its return value, or `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
@@ -20,6 +28,7 @@ try {
 "#;
 
 fn run(name: &str, m: Module) -> String {
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {
@@ -99,12 +108,17 @@ fn handlers_are_passed_as_evidence() {
     // handler Doubler { add(n) = n * 2, boom() = fail Oops }
     let doubler = m.declare("Doubler", false);
     let n = m.local("n", TypeId::INT);
+    let add_ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+    let boom_ty = m.func(FnType {
+        fails: true,
+        ..FnType::pure(vec![], TypeId::INT)
+    });
     let handler = Expr::Handler {
         name: "Doubler".into(),
         effect: counter,
         ops: vec![
-            lambda(vec![n], int_op(BinOp::Mul, var(n), int(2))),
-            lambda(vec![], fail(ctor(oops, vec![]))),
+            lambda(vec![n], add_ty, int_op(BinOp::Mul, var(n), int(2))),
+            lambda(vec![], boom_ty, fail(ctor(oops, vec![]))),
         ],
     };
     m.define(doubler, vec![], Type::Handler(counter), handler);

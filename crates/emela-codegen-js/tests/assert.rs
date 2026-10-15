@@ -7,6 +7,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main` and prints `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
@@ -29,6 +37,7 @@ fn run(name: &str, build: impl FnOnce(&mut Module) -> Expr) -> Run {
     let body = build(&mut m);
     let main = m.declare("main", true);
     m.define(main, vec![], TypeId::STRING, body);
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {
@@ -114,8 +123,17 @@ fn structural_values_are_shown_in_source_syntax() {
         let a = eq(
             ty,
             OpTy::Structural,
-            list(vec![ctor(some, vec![int(1)]), ctor(some, vec![int(2)])]),
-            list(vec![ctor(some, vec![int(1)])]),
+            list(
+                opt_int,
+                vec![
+                    ctor_ty(some, vec![TypeId::INT], vec![int(1)]),
+                    ctor_ty(some, vec![TypeId::INT], vec![int(2)]),
+                ],
+            ),
+            list(
+                opt_int,
+                vec![ctor_ty(some, vec![TypeId::INT], vec![int(1)])],
+            ),
             "xs == [Some(1)]",
         );
         then_ok(m, a)

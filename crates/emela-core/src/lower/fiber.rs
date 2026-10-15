@@ -78,6 +78,12 @@ pub(super) struct ScopeCall {
     fails: bool,
     /// The mark of the body call.
     body_call: Call,
+    /// The types of the lambdas built: the child run by fork, fork's and deferred's
+    /// implementations, and the function `fiber#scope` runs.
+    child_ty: TypeId,
+    fork_ty: TypeId,
+    deferred_ty: TypeId,
+    inner_ty: TypeId,
     body: Local,
     scope: Local,
     handler: Local,
@@ -95,6 +101,7 @@ impl ScopeCall {
         // suspend).
         let child = Expr::Lambda {
             params: Vec::new(),
+            ty: self.child_ty,
             body: Box::new(Expr::Call {
                 callee: Callee::Indirect(Box::new(Expr::Var(self.g))),
                 args: vec![ev()],
@@ -105,6 +112,7 @@ impl ScopeCall {
         };
         let fork = Expr::Lambda {
             params: vec![self.g],
+            ty: self.fork_ty,
             body: Box::new(Expr::Fiber {
                 op: FiberOp::Fork,
                 args: vec![Expr::Var(self.scope), child],
@@ -113,6 +121,7 @@ impl ScopeCall {
         };
         let deferred = Expr::Lambda {
             params: Vec::new(),
+            ty: self.deferred_ty,
             body: Box::new(Expr::Fiber {
                 op: FiberOp::Deferred,
                 args: vec![Expr::Var(self.scope)],
@@ -133,6 +142,7 @@ impl ScopeCall {
         };
         let inner = Expr::Lambda {
             params: vec![self.scope],
+            ty: self.inner_ty,
             body: Box::new(Expr::Let {
                 var: self.handler,
                 value: Box::new(Expr::Handler {
@@ -175,6 +185,8 @@ pub(super) struct ForkCall {
     f_call: Call,
     /// Whether `f` takes an evidence table.
     f_takes_ev: bool,
+    /// The type of the wrapped child function (`fn(ev) -> A`).
+    g_ty: TypeId,
     cap: Local,
     f: Local,
     ev: Local,
@@ -193,6 +205,7 @@ impl ForkCall {
         };
         let g = Expr::Lambda {
             params: vec![self.ev],
+            ty: self.g_ty,
             body: Box::new(Expr::Call {
                 callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
                 args: child_args,
@@ -230,6 +243,8 @@ pub(super) struct AttemptCall {
     f_call: Call,
     /// The current evidence table to pass to `f`; `None` if it needs none.
     ev: Option<Expr>,
+    /// The type of `f` wrapped in a parameterless function.
+    wrapped_ty: TypeId,
     f: Local,
 }
 
@@ -245,6 +260,7 @@ impl AttemptCall {
         };
         let wrapped = Expr::Lambda {
             params: Vec::new(),
+            ty: self.wrapped_ty,
             body: Box::new(Expr::Call {
                 callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
                 args: vec![ev],
@@ -321,11 +337,13 @@ impl Lowerer<'_> {
                     suspends: self.ty_suspends(f_ty),
                 };
                 let ev = self.ty_takes_ev(f_ty).then(|| self.ev_arg());
+                let wrapped_ty = self.wrapped_ty(f_ty, Vec::new(), f_call);
                 let f_ty = self.ty(f_ty);
                 Some(Ok(Target::Attempt(Box::new(AttemptCall {
                     exit,
                     f_call,
                     ev,
+                    wrapped_ty,
                     f: self.module.local("f", f_ty),
                 }))))
             }
@@ -362,15 +380,37 @@ impl Lowerer<'_> {
             ev: false,
         });
         let handler_ty = self.module.handler(effect);
+        let body_call = Call {
+            fails: !body.fails.is_empty(),
+            suspends: self.row_suspends(&body.uses),
+        };
+        let child_ty = self.module.func(FnType {
+            params: Vec::new(),
+            ret: TypeId::ANY,
+            fails: call.fails,
+            suspends: true,
+            ev: false,
+        });
+        let fork_ty = self.module.fn_type(vec![g_ty], TypeId::ANY);
+        let deferred_ty = self.module.fn_type(Vec::new(), TypeId::ANY);
+        let ret = self.ty(&body.ret);
+        let inner_ty = self.module.func(FnType {
+            params: vec![TypeId::FIBER_SCOPE],
+            ret,
+            fails: body_call.fails,
+            suspends: true,
+            ev: false,
+        });
         Some(ScopeCall {
             effect,
             ops,
             ev: self.ev,
             fails: call.fails,
-            body_call: Call {
-                fails: !body.fails.is_empty(),
-                suspends: self.row_suspends(&body.uses),
-            },
+            body_call,
+            child_ty,
+            fork_ty,
+            deferred_ty,
+            inner_ty,
             body: self.module.local("body", body_ty),
             scope: self.module.local("s", TypeId::FIBER_SCOPE),
             handler: self.module.local("scope", handler_ty),
@@ -400,18 +440,37 @@ impl Lowerer<'_> {
         let f_ty = op_ty.params.first()?;
         let f_ir_ty = self.ty(f_ty);
         let cap_ty = self.module.handler(effect);
+        let f_call = Call {
+            fails: matches!(f_ty, Ty::Fn(f) if !f.fails.is_empty()),
+            suspends: self.ty_suspends(f_ty),
+        };
+        let g_ty = self.wrapped_ty(f_ty, vec![TypeId::EVIDENCE], f_call);
         Some(ForkCall {
             handler,
             effect,
             op: fork,
-            f_call: Call {
-                fails: matches!(f_ty, Ty::Fn(f) if !f.fails.is_empty()),
-                suspends: self.ty_suspends(f_ty),
-            },
+            f_call,
             f_takes_ev: self.ty_takes_ev(f_ty),
+            g_ty,
             cap: self.module.local("scope", cap_ty),
             f: self.module.local("f", f_ir_ty),
             ev: self.ev_local(),
+        })
+    }
+
+    /// The type of a lambda with parameters `params` that calls a value of type `f_ty` with the
+    /// mark `call` and returns its value.
+    fn wrapped_ty(&mut self, f_ty: &Ty, params: Vec<TypeId>, call: Call) -> TypeId {
+        let ret = match f_ty {
+            Ty::Fn(f) => self.ty(&f.ret),
+            _ => TypeId::ANY,
+        };
+        self.module.func(FnType {
+            params,
+            ret,
+            fails: call.fails,
+            suspends: call.suspends,
+            ev: false,
         })
     }
 

@@ -99,6 +99,12 @@ fn every_kind_of_expression() {
     };
     m.define(sum, vec![xs, acc], TypeId::INT, body);
 
+    // fn id[A](v: A) -> A { v }
+    let id = m.declare("id", false);
+    let v = m.local("v", a);
+    m.define(id, vec![v], a, var(v));
+    m.functions[id].type_params = 1;
+
     let main = m.declare("main", true);
     let pair_ty = m.enum_type(pair, vec![TypeId::INT, TypeId::STRING]);
     let inc_ty = m.func(FnType {
@@ -121,6 +127,7 @@ fn every_kind_of_expression() {
     let name = m.local("name", TypeId::STRING);
     let z = m.local("z", TypeId::UNIT);
     let option_int = m.enum_type(some.enum_id, vec![TypeId::INT]);
+    let id_ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
     let main_ret = m.tuple(vec![
         TypeId::INT,
         TypeId::INT64,
@@ -134,13 +141,23 @@ fn every_kind_of_expression() {
         option_int,
         TypeId::UNIT,
         TypeId::UNIT,
+        TypeId::STRING,
+        id_ty,
     ]);
     let body = let_(
         p,
-        ctor(pair_ctor, vec![int(1), string("a")]),
+        ctor_ty(
+            pair_ctor,
+            vec![TypeId::INT, TypeId::STRING],
+            vec![int(1), string("a")],
+        ),
         let_(
             f,
-            lambda(vec![y], bin(BinOp::Add, OpTy::Int64, var(y), int64(1))),
+            lambda(
+                vec![y],
+                inc_ty,
+                bin(BinOp::Add, OpTy::Int64, var(y), int64(1)),
+            ),
             let_(
                 name,
                 if_(
@@ -158,7 +175,14 @@ fn every_kind_of_expression() {
                     call_value(var(f), vec![int64(41)]),
                     call(
                         sum,
-                        vec![list_with_tail(vec![int(1), int(2)], list(vec![])), int(0)],
+                        vec![
+                            list_with_tail(
+                                TypeId::INT,
+                                vec![int(1), int(2)],
+                                list(TypeId::INT, vec![]),
+                            ),
+                            int(0),
+                        ],
                     ),
                     call(
                         area,
@@ -167,15 +191,15 @@ fn every_kind_of_expression() {
                             vec![unary(UnOp::Neg, OpTy::Float, float(1.5))],
                         )],
                     ),
-                    emela_core::Expr::Fn(area),
+                    fn_ref(area),
                     builtin_ty(dbg, vec![pair_ty], vec![var(p)]),
                     builtin(length, vec![var(name)]),
                     emela_core::Expr::Concat(vec![
                         lit_part("n = "),
                         value_part(var(name), TypeId::STRING),
                     ]),
-                    ctor(some, vec![int(1)]),
-                    ctor(none, vec![]),
+                    ctor_ty(some, vec![TypeId::INT], vec![int(1)]),
+                    ctor_ty(none, vec![TypeId::INT], vec![]),
                     Assert::compare(
                         BinOp::Eq,
                         OpTy::Structural,
@@ -185,11 +209,14 @@ fn every_kind_of_expression() {
                         "p == p",
                     ),
                     Assert::bool(bool(true), "True"),
+                    call_ty(id, vec![TypeId::STRING], vec![string("s")]),
+                    fn_ref_ty(id, vec![TypeId::INT]),
                 ]),
             ),
         ),
     );
     m.define(main, vec![], main_ret, body);
 
+    assert_eq!(emela_core::verify(&m), Ok(()));
     insta::assert_snapshot!(dump(&m));
 }

@@ -8,6 +8,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main` and prints its return value; `error: <shown>` for an unhandled error, and
 /// `defect: <message>` for a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
@@ -28,6 +36,7 @@ try {
 /// Loopifies, emits, runs on node and returns stdout. The JS is checked by snapshot.
 fn run_mode(name: &str, mut m: Module, runtime: RuntimeMode) -> String {
     tail::loopify(&mut m);
+    assert_well_typed(&m);
     let js = emit_module(&m, &Options { runtime });
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("codegen-js-errors")
@@ -211,6 +220,7 @@ fn failures_in_lambdas_return_from_the_lambda() {
     let y = m.local("y", TypeId::INT);
     let lam = lambda(
         vec![y],
+        f_ty,
         int_op(BinOp::Mul, call_fails(find, vec![var(y)]), int(10)),
     );
     let id = m.local("id", TypeId::INT);
@@ -310,7 +320,7 @@ fn unshowable_error_shows_its_name() {
     main_fn(
         &mut m,
         TypeId::NEVER,
-        fail(ctor(callback, vec![lambda(vec![], int(1))])),
+        fail(ctor(callback, vec![lambda(vec![], f, int(1))])),
     );
     assert_eq!(
         run_mode("unshowable_error", m, RuntimeMode::Inline),

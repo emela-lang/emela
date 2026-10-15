@@ -8,6 +8,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main` and prints its return value, or `defect: <message>` on a defect.
 const HARNESS: &str = r#"import { main } from "./main.mjs";
 try {
@@ -25,6 +33,7 @@ struct Run {
 }
 
 fn run_with(name: &str, m: &Module, runtime: RuntimeMode) -> Run {
+    assert_well_typed(m);
     let js = emit_module(m, &Options { runtime });
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("codegen-js")
@@ -361,10 +370,11 @@ fn list_recursion() {
         match_(
             var(xs2),
             vec![
-                arm(p_list(vec![], None), list(vec![])),
+                arm(p_list(vec![], None), list(TypeId::INT, vec![])),
                 arm(
                     p_list(vec![Pat::Bind(x2)], Some(Pat::Bind(rest2))),
                     list_with_tail(
+                        TypeId::INT,
                         vec![call_value(var(f), vec![var(x2)])],
                         call(map, vec![var(rest2), var(f)]),
                     ),
@@ -388,7 +398,7 @@ fn list_recursion() {
                 range,
                 vec![
                     int_op(BinOp::Sub, var(n), int(1)),
-                    list_with_tail(vec![var(n)], var(acc)),
+                    list_with_tail(TypeId::INT, vec![var(n)], var(acc)),
                 ],
             ),
         ),
@@ -457,13 +467,14 @@ fn list_recursion() {
     let k = m.local("k", TypeId::INT);
     let y = m.local("y", TypeId::INT);
     let xs_main = m.local("xs", int_list());
+    let int_fn = m.intern(fn_ty(vec![TypeId::INT], TypeId::INT));
     // let k = 10; sum(map([1, 2, 3, 4], fn(y) => y * k))   the lambda captures k
     let body = let_(
         k,
         int(10),
         let_(
             xs_main,
-            list(vec![int(1), int(2), int(3), int(4)]),
+            list(TypeId::INT, vec![int(1), int(2), int(3), int(4)]),
             lines(vec![
                 (call(sum, vec![var(xs_main)]), TypeId::INT),
                 (
@@ -473,7 +484,7 @@ fn list_recursion() {
                             map,
                             vec![
                                 var(xs_main),
-                                lambda(vec![y], int_op(BinOp::Mul, var(y), var(k))),
+                                lambda(vec![y], int_fn, int_op(BinOp::Mul, var(y), var(k))),
                             ],
                         )],
                     ),
@@ -482,14 +493,20 @@ fn list_recursion() {
                 (
                     call(
                         len,
-                        vec![call(range, vec![int(100000), list(vec![])]), int(0)],
+                        vec![
+                            call(range, vec![int(100000), list(TypeId::INT, vec![])]),
+                            int(0),
+                        ],
                     ),
                     TypeId::INT,
                 ),
-                (call(shape, vec![list(vec![])]), TypeId::STRING),
-                (call(shape, vec![list(vec![int(7)])]), TypeId::STRING),
+                (call(shape, vec![list(TypeId::INT, vec![])]), TypeId::STRING),
                 (
-                    call(shape, vec![list(vec![int(7), int(8)])]),
+                    call(shape, vec![list(TypeId::INT, vec![int(7)])]),
+                    TypeId::STRING,
+                ),
+                (
+                    call(shape, vec![list(TypeId::INT, vec![int(7), int(8)])]),
                     TypeId::STRING,
                 ),
                 (call(shape, vec![var(xs_main)]), TypeId::STRING),
@@ -498,8 +515,8 @@ fn list_recursion() {
                     bin(
                         BinOp::Eq,
                         OpTy::Structural,
-                        call(range, vec![int(100000), list(vec![])]),
-                        call(range, vec![int(100000), list(vec![])]),
+                        call(range, vec![int(100000), list(TypeId::INT, vec![])]),
+                        call(range, vec![int(100000), list(TypeId::INT, vec![])]),
                     ),
                     TypeId::BOOL,
                 ),
@@ -853,7 +870,7 @@ fn closures_in_loop_capture_each_iteration() {
                 build,
                 vec![
                     int_op(BinOp::Sub, var(n), int(1)),
-                    list_with_tail(vec![lambda(vec![], var(n))], var(acc)),
+                    list_with_tail(thunk, vec![lambda(vec![], thunk, var(n))], var(acc)),
                 ],
             ),
         ),
@@ -891,7 +908,10 @@ fn closures_in_loop_capture_each_iteration() {
     main_fn(
         &mut m,
         TypeId::INT,
-        call(total, vec![call(build, vec![int(4), list(vec![])]), int(0)]),
+        call(
+            total,
+            vec![call(build, vec![int(4), list(thunk, vec![])]), int(0)],
+        ),
     );
     assert_eq!(run("closures_in_loop", m), "1234\n");
 }
@@ -965,19 +985,22 @@ fn short_circuit_tail_call_does_not_grow_stack() {
                 range,
                 vec![
                     int_op(BinOp::Sub, var(n), int(1)),
-                    list_with_tail(vec![var(n)], var(acc)),
+                    list_with_tail(TypeId::INT, vec![var(n)], var(acc)),
                 ],
             ),
         ),
     );
-    let big = || call(range, vec![int(100000), list(vec![])]);
+    let big = || call(range, vec![int(100000), list(TypeId::INT, vec![])]);
     main_fn(
         &mut m,
         TypeId::STRING,
         lines(vec![
             (call(any_zero, vec![big()]), TypeId::BOOL),
             (
-                call(any_zero, vec![list_with_tail(vec![int(0)], big())]),
+                call(
+                    any_zero,
+                    vec![list_with_tail(TypeId::INT, vec![int(0)], big())],
+                ),
                 TypeId::BOOL,
             ),
         ]),
@@ -1467,7 +1490,7 @@ fn dbg_shows_values_in_source_syntax() {
     let dbg = |ty: TypeId, e: Expr| builtin_ty(Builtin::Dbg, vec![ty], vec![e]);
     let shape_ty = m.enum_type(shape, vec![]);
     let tree_s = m.enum_type(tree, vec![TypeId::STRING]);
-    let leaf = || ctor(c(tree, 0), vec![]);
+    let leaf = || ctor_ty(c(tree, 0), vec![TypeId::STRING], vec![]);
     let x = m.local("x", TypeId::STRING);
     let point_ty = m.enum_type(point, vec![]);
     let ints = m.list(TypeId::INT);
@@ -1484,8 +1507,8 @@ fn dbg_shows_values_in_source_syntax() {
         typed(shape_ty, ctor(c(shape, 1), vec![float(1.0), float(2.5)])),
         typed(shape_ty, ctor(c(shape, 2), vec![])),
         typed(point_ty, ctor(c(point, 0), vec![int(-1), int(2)])),
-        typed(ints, list(vec![int(1), int(2), int(3)])),
-        typed(ints, list(vec![])),
+        typed(ints, list(TypeId::INT, vec![int(1), int(2), int(3)])),
+        typed(ints, list(TypeId::INT, vec![])),
         typed(int_string, Expr::Tuple(vec![int(1), string("a")])),
         typed(TypeId::STRING, string("say \"hi\"\n\\ #{x} # \t")),
         typed(TypeId::STRING, string("")),
@@ -1495,17 +1518,29 @@ fn dbg_shows_values_in_source_syntax() {
         typed(TypeId::UNIT, unit()),
         typed(
             opt_strs_list,
-            list(vec![
-                ctor(some, vec![list(vec![string("a"), string("b")])]),
-                ctor(none, vec![]),
-            ]),
+            list(
+                opt_strs,
+                vec![
+                    ctor_ty(
+                        some,
+                        vec![strs],
+                        vec![list(TypeId::STRING, vec![string("a"), string("b")])],
+                    ),
+                    ctor_ty(none, vec![strs], vec![]),
+                ],
+            ),
         ),
         typed(
             tree_s,
-            ctor(
+            ctor_ty(
                 c(tree, 1),
+                vec![TypeId::STRING],
                 vec![
-                    ctor(c(tree, 1), vec![leaf(), string("l"), leaf()]),
+                    ctor_ty(
+                        c(tree, 1),
+                        vec![TypeId::STRING],
+                        vec![leaf(), string("l"), leaf()],
+                    ),
                     string("root"),
                     leaf(),
                 ],
@@ -1513,10 +1548,13 @@ fn dbg_shows_values_in_source_syntax() {
         ),
         typed(
             shape_bools_list,
-            list(vec![Expr::Tuple(vec![
-                ctor(c(shape, 2), vec![]),
-                list(vec![bool(false)]),
-            ])]),
+            list(
+                shape_bools,
+                vec![Expr::Tuple(vec![
+                    ctor(c(shape, 2), vec![]),
+                    list(TypeId::BOOL, vec![bool(false)]),
+                ])],
+            ),
         ),
     ];
     // dbg returns its value as is: let x = dbg("héllo") in String.length(x)
@@ -1585,9 +1623,12 @@ fn interpolation_shows_any_type() {
                 shape_ty,
             ),
             lit_part(" xs="),
-            value_part(list(vec![string("x"), string("y")]), strs),
+            value_part(list(TypeId::STRING, vec![string("x"), string("y")]), strs),
             lit_part(" opt="),
-            value_part(ctor(some, vec![string("z")]), opt_string),
+            value_part(
+                ctor_ty(some, vec![TypeId::STRING], vec![string("z")]),
+                opt_string,
+            ),
             lit_part(" unit="),
             value_part(unit(), TypeId::UNIT),
         ]),
@@ -1634,11 +1675,11 @@ fn option_from_builtin_matches_user_patterns() {
                     BinOp::Eq,
                     OpTy::Structural,
                     b(Builtin::IntCheckedAdd, vec![int(i32::MAX), int(1)]),
-                    ctor(none, vec![]),
+                    ctor_ty(none, vec![TypeId::INT], vec![]),
                 ),
                 TypeId::BOOL,
             ),
-            (ctor(some, vec![int(1)]), opt_int),
+            (ctor_ty(some, vec![TypeId::INT], vec![int(1)]), opt_int),
         ]),
     );
     assert_eq!(run("option_from_builtin", m), "42\n0\nTrue\nSome(1)\n");

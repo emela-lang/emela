@@ -84,6 +84,11 @@ impl Module {
         self.types.handler(effect)
     }
 
+    /// A function type that neither fails, suspends nor takes the evidence table.
+    pub fn fn_type(&mut self, params: Vec<TypeId>, ret: TypeId) -> TypeId {
+        self.types.func(FnType::pure(params, ret))
+    }
+
     /// `hint` is a naming hint for the output and need not be unique.
     pub fn local(&mut self, hint: &str, ty: impl IntoTypeId) -> Local {
         let ty = ty.into_type_id(&mut self.types);
@@ -107,6 +112,7 @@ impl Module {
             params: Vec::new(),
             ret: TypeId::UNIT,
             type_params: 0,
+            fails: false,
             body: Expr::Lit(Lit::Unit),
             external: None,
             suspends: false,
@@ -185,6 +191,14 @@ impl Module {
     pub fn variant(&self, ctor: CtorRef) -> &VariantDef {
         &self.enums[ctor.enum_id].variants[ctor.variant]
     }
+
+    /// Whether the function takes the evidence table as its last argument.
+    pub fn takes_ev(&self, f: FnId) -> bool {
+        self.functions[f]
+            .params
+            .last()
+            .is_some_and(|&p| self.locals[p].ty == TypeId::EVIDENCE)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -198,13 +212,18 @@ pub struct Function {
     /// Unique in the module; exported under this name.
     pub name: String,
     pub exported: bool,
-    /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last.
+    /// Their types are the locals' types (`LocalData::ty`). The evidence table, if taken, is last,
+    /// and it is the only parameter of type `Type::Evidence` ([`Module::takes_ev`]).
     pub params: Vec<Local>,
     pub ret: TypeId,
     /// The number of type parameters, referred to by `Type::Param(i)` in the types of the
     /// parameters, the return value and the locals of the body. Includes set parameters (`R(f)`),
     /// which no type refers to, so that indices match the type checker's.
     pub type_params: usize,
+    /// Whether a call may fail: the declared E is not empty (spec 7.2). A set type parameter
+    /// counts as not empty, so an instantiation may never fail. Always false for external
+    /// functions (spec 12.5) and consts (spec 5.6).
+    pub fails: bool,
     pub body: Expr,
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
     pub external: Option<External>,
@@ -440,9 +459,14 @@ pub enum Type {
     /// `FiberOp::Deferred` take (spec 11.2). Not Scope's capability value, which is a `Handler`.
     FiberScope,
     /// A value whose type differs per use and is not tracked: inside Scope's handler, the child
-    /// function that fork receives (the `A` of `fork[A]`, spec 11.2). Only built-in effects have
-    /// generic operations (spec 8.1), and lowering builds their handlers. Backends give it a
-    /// uniform representation.
+    /// function that fork receives (the `A` of `fork[A]`, spec 11.2) and the handles that
+    /// `FiberOp::Fork` and `FiberOp::Deferred` return. Only built-in effects have generic
+    /// operations (spec 8.1), and lowering builds their handlers. Backends give it a uniform
+    /// representation.
+    ///
+    /// Until `OpDef` carries types, the value of an operation call (`Callee::Op`) is `Any` too
+    /// (`Typer::type_of`). [`crate::verify`] accepts `Any` where any type is expected and the
+    /// other way round, at the top level of a type only.
     Any,
 }
 
@@ -460,6 +484,19 @@ pub struct FnType {
     /// Whether the function takes the evidence table as its last argument (the R has effects
     /// other than Async, spec 16.5).
     pub ev: bool,
+}
+
+impl FnType {
+    /// A function type that neither fails, suspends nor takes the evidence table.
+    pub fn pure(params: Vec<TypeId>, ret: TypeId) -> Self {
+        FnType {
+            params,
+            ret,
+            fails: false,
+            suspends: false,
+            ev: false,
+        }
+    }
 }
 
 /// The types of a module, each stored once ([`Module::types`]).
@@ -516,6 +553,11 @@ impl TypeTable {
         self.types.push(ty);
         self.has_param.push(has_param);
         id
+    }
+
+    /// The ID of the type if the table has it.
+    pub fn get(&self, ty: &Type) -> Option<TypeId> {
+        self.ids.get(ty).copied()
     }
 
     /// The number of distinct types.
@@ -660,8 +702,12 @@ pub enum Lit {
 pub enum Expr {
     Lit(Lit),
     Var(Local),
-    /// A top-level function used as a value.
-    Fn(FnId),
+    /// A top-level function used as a value. `ty_args` instantiate its type parameters, as in
+    /// `Callee::Direct`.
+    Fn {
+        f: FnId,
+        ty_args: Vec<TypeId>,
+    },
     /// `let var = value; body`．
     Let {
         var: Local,
@@ -689,17 +735,22 @@ pub enum Expr {
         fails: bool,
         suspends: bool,
     },
-    /// A builtin call (`intrinsics`). `ty_args` are the concrete type arguments, used only by
-    /// builtins whose behavior depends on the type, such as `dbg` (the count is
-    /// `Builtin::info().ty_params`).
+    /// A builtin call (`intrinsics`). `ty_args` instantiate the builtin's type parameters (the
+    /// count is `Builtin::info().ty_params`): `Sig::Param(i)` in its parameter and return types is
+    /// `ty_args[i]`, except for the cell builtins, whose cell types a `Sig` cannot write
+    /// (`Builtin::CellNew` and the others take the content type). Builtins whose behavior depends
+    /// on the type, such as `dbg`, use them too.
     Builtin {
         op: Builtin,
         ty_args: Vec<TypeId>,
         args: Vec<Expr>,
     },
-    /// Arguments are in field definition order.
+    /// Arguments are in field definition order. `ty_args` are the enum's type arguments (the count
+    /// is `EnumDef::params`), so the value's type is known without its arguments (`None` of
+    /// `Option[Int]`).
     Ctor {
         ctor: CtorRef,
+        ty_args: Vec<TypeId>,
         args: Vec<Expr>,
     },
     /// `base` must be a value of `ctor` (intended for `type` values).
@@ -710,8 +761,10 @@ pub enum Expr {
     },
     /// Two or more elements; `()` is `Lit::Unit`.
     Tuple(Vec<Expr>),
-    /// `[a, b]` or `[a, b, ..tail]`.
+    /// `[a, b]` or `[a, b, ..tail]`. `elem` is the element type (the value is a `List[elem]`, and
+    /// `tail` too).
     List {
+        elem: TypeId,
         elems: Vec<Expr>,
         tail: Option<Box<Expr>>,
     },
@@ -738,8 +791,14 @@ pub enum Expr {
     },
     /// Free variables are captured as is (capture sets are computed at the WASM stage).
     /// `suspends` means the same as `Function::suspends`.
+    ///
+    /// `ty` is the lambda's type, a `Type::Fn`: its `params` are the types of `params` without the
+    /// evidence table, which is the last parameter exactly when `ev` is set. If `suspends` is
+    /// true, so is the type's (the converse need not hold: a type may say a call may suspend when
+    /// this lambda does not, as for an fn-operation implementation).
     Lambda {
         params: Vec<Local>,
+        ty: TypeId,
         body: Box<Expr>,
         suspends: bool,
     },
@@ -828,14 +887,14 @@ impl Expr {
     /// order.
     pub fn for_each_child(&self, f: &mut impl FnMut(&Expr)) {
         match self {
-            Expr::Lit(_) | Expr::Var(_) | Expr::Fn(_) => {}
+            Expr::Lit(_) | Expr::Var(_) | Expr::Fn { .. } => {}
             Expr::Let { value, body, .. } => {
                 f(value);
                 f(body);
             }
             Expr::Call { callee, args, .. } => {
                 match callee {
-                    Callee::Direct(_) => {}
+                    Callee::Direct { .. } => {}
                     Callee::Indirect(c) | Callee::Op { handler: c, .. } => f(c),
                 }
                 args.iter().for_each(f);
@@ -846,7 +905,7 @@ impl Expr {
             | Expr::Recur(args)
             | Expr::Handler { ops: args, .. } => args.iter().for_each(f),
             Expr::Field { base, .. } | Expr::Use { ctx: base, .. } => f(base),
-            Expr::List { elems, tail } => {
+            Expr::List { elems, tail, .. } => {
                 elems.iter().for_each(&mut *f);
                 if let Some(t) = tail {
                     f(t);
@@ -1143,8 +1202,11 @@ impl Assert {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callee {
-    /// A direct call to a top-level function.
-    Direct(FnId),
+    /// A direct call to a top-level function. `ty_args` instantiate the function's type
+    /// parameters (`Type::Param(i)` in its parameter and return types becomes `ty_args[i]`); the
+    /// count is `Function::type_params`. A set type parameter (`R(f)`, spec 9.2) has no IR type, so
+    /// its position holds the placeholder `TypeId::UNIT`.
+    Direct { f: FnId, ty_args: Vec<TypeId> },
     /// A call to a closure value.
     Indirect(Box<Expr>),
     /// A call to an operation of the handler value `handler` (`log.info(...)`, spec 8.2). `op` is

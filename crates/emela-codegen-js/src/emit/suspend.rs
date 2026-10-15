@@ -44,7 +44,7 @@ impl Emitter<'_> {
     ) -> String {
         let call = format!("{f}({})", args.join(", "));
         match callee {
-            Callee::Direct(id) => {
+            Callee::Direct { f: id, .. } => {
                 let target = &self.m.functions[*id];
                 assert_eq!(
                     target.suspends, suspends,

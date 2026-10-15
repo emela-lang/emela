@@ -9,6 +9,14 @@ use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module}
 use emela_core::build::*;
 use emela_core::*;
 
+/// Checks that the hand-built IR is well typed (`emela_core::verify`).
+fn assert_well_typed(m: &Module) {
+    if let Err(errors) = verify(m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    }
+}
+
 /// Calls `main`, steps it with `$start` if it is a generator, and prints one result line. Like the
 /// entry module (emela-driver), when the event loop empties without a resume, it unwinds with the
 /// function `$start` returned.
@@ -66,6 +74,7 @@ sync = false;
 
 fn run(name: &str, mut m: Module) -> String {
     tail::loopify(&mut m);
+    assert_well_typed(&m);
     let js = emit_module(
         &m,
         &Options {
@@ -98,6 +107,8 @@ struct Kit {
     res: EffectId,
     /// `error Oops`．
     oops: CtorRef,
+    /// `fn() -> String`, the type of `name`'s implementation.
+    name_ty: TypeId,
 }
 
 impl Kit {
@@ -123,6 +134,7 @@ impl Kit {
         Kit {
             log,
             res,
+            name_ty: m.fn_type(vec![], TypeId::STRING),
             oops: CtorRef {
                 enum_id: oops,
                 variant: 0,
@@ -146,7 +158,7 @@ impl Kit {
         Expr::Handler {
             name: name.into(),
             effect: self.res,
-            ops: vec![lambda(vec![], string(name))],
+            ops: vec![lambda(vec![], self.name_ty, string(name))],
         }
     }
 
@@ -229,6 +241,12 @@ fn sleep_params(m: &mut Module) -> (Local, Local) {
     (m.local("ms", TypeId::INT), m.local("resume", resume))
 }
 
+/// The type of `sleep`'s implementation, which takes resume: `fn(Int, fn(()) -> ()) -> ()`.
+fn sleep_ty(m: &mut Module) -> TypeId {
+    let resume = m.intern(fn_ty(vec![TypeId::UNIT], TypeId::UNIT));
+    m.fn_type(vec![TypeId::INT, resume], TypeId::UNIT)
+}
+
 /// `effect Clock { suspend fn sleep(ms: Int) -> () }`．
 fn clock(m: &mut Module) -> EffectId {
     m.add_effect(EffectDef {
@@ -250,10 +268,11 @@ fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
     );
     let f = m.declare("JsClock", false);
     let (ms, resume) = sleep_params(m);
+    let op_ty = sleep_ty(m);
     let body = call(
         set_timeout,
         vec![
-            lambda(vec![], call_value(var(resume), vec![unit()])),
+            lambda(vec![], callback, call_value(var(resume), vec![unit()])),
             var(ms),
         ],
     );
@@ -264,7 +283,7 @@ fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
         Expr::Handler {
             name: "JsClock".into(),
             effect: clock,
-            ops: vec![lambda(vec![ms, resume], body)],
+            ops: vec![lambda(vec![ms, resume], op_ty, body)],
         },
     );
     f
@@ -274,6 +293,7 @@ fn js_clock(m: &mut Module, clock: EffectId) -> FnId {
 fn never_clock(m: &mut Module, clock: EffectId) -> FnId {
     let f = m.declare("NeverClock", false);
     let (ms, resume) = sleep_params(m);
+    let op_ty = sleep_ty(m);
     m.define(
         f,
         vec![],
@@ -281,7 +301,7 @@ fn never_clock(m: &mut Module, clock: EffectId) -> FnId {
         Expr::Handler {
             name: "NeverClock".into(),
             effect: clock,
-            ops: vec![lambda(vec![ms, resume], unit())],
+            ops: vec![lambda(vec![ms, resume], op_ty, unit())],
         },
     );
     f
@@ -475,7 +495,11 @@ fn released_handlers_are_defects_when_used() {
     );
     let leak = with(
         vec![k.managed(&mut m, a, "Pool")],
-        lambda(vec![], call_op(var(a), k.res, 0, vec![], false, false)),
+        lambda(
+            vec![],
+            k.name_ty,
+            call_op(var(a), k.res, 0, vec![], false, false),
+        ),
     );
     // Inside, it works.
     let i = m.local("i", Type::Handler(k.res));

@@ -38,7 +38,7 @@ export fn main() -> String {
 
 fn Env() -> handler Config {
   handler Env: Config {
-    url: fn() {
+    url: fn() -> String {
       "db"
     }
   }
@@ -46,13 +46,13 @@ fn Env() -> handler Config {
 
 fn Pool(self%18: Pool, ev%19: evidence) -> handler Users {
   handler Pool: Users {
-    find: fn(id%20: Int) {
+    find: fn(id%20: Int) -> String {
       self%18.url#0
     }
   }
 }
 
-fn Pool$init(ev%12: evidence) -> Pool {
+fn Pool$init(ev%12: evidence) -> Pool fails {
   let u%13: String = (use[Config](ev%12)).Config#url()
   let _%14: () = if (u%13 ==[String] "") {
     fail Down.Down
@@ -63,13 +63,13 @@ fn Pool$init(ev%12: evidence) -> Pool {
   Pool.Pool(url: base%15.url#0, n: 1)
 }
 
-fn Pool$release(self%16: Pool, ev%17: evidence) -> () {
+fn Pool$release(self%16: Pool, ev%17: evidence) -> String {
   @dbg[String](self%16.url#0)
 }
 
 fn Spare(self%10: Spare) -> handler Users {
   handler Spare: Users {
-    find: fn(id%11: Int) {
+    find: fn(id%11: Int) -> String {
       "spare"
     }
   }

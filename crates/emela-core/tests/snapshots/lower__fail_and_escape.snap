@@ -58,19 +58,19 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
-export fn main() -> Int {
+export fn main() -> Int fails {
   let a%1: Int = {
     find(1)?
   } escape {
     NotFound.NotFound(id: id%0) if (id%0 >[Int] 5) -> id%0
     Unauthorized.Unauthorized -> fail NotFound.NotFound(id: 0)
   }
-  let b%2: Int = Option.or_fail(Option.Some(1), Unauthorized.Unauthorized)?
+  let b%2: Int = Option.or_fail[Int, Unauthorized](Option.Some[Int](1), Unauthorized.Unauthorized)?
   let c%3: Int = (pure(a%1) +[Int] b%2)
   @dbg[Int](c%3)
 }
 
-fn find(id%8: Int) -> Int {
+fn find(id%8: Int) -> Int fails {
   if (id%8 >[Int] 0) {
     id%8
   } else {

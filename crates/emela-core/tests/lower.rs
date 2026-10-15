@@ -98,6 +98,9 @@ fn try_lower_with(
         target: None,
     };
     let lowered = lower(&input, roots).map(|l| l.module);
+    if let Ok(m) = &lowered {
+        assert_well_typed(m);
+    }
     lowered.map_err(|errors| {
         errors
             .iter()
@@ -127,6 +130,23 @@ fn try_lower_with(
             })
             .collect()
     })
+}
+
+/// Checks with the verifier that the lowered module is well typed, before and after self tail call
+/// loopification.
+fn assert_well_typed(m: &Module) {
+    let report = |errors: Vec<emela_core::VerifyError>| {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("ill-typed IR:\n{}", lines.join("\n"));
+    };
+    if let Err(errors) = emela_core::verify(m) {
+        report(errors);
+    }
+    let mut looped = m.clone();
+    emela_core::tail::loopify(&mut looped);
+    if let Err(errors) = emela_core::verify(&looped) {
+        report(errors);
+    }
 }
 
 /// Renders an enum definition as `Name[2] { Ctor(first: A, second: B), Unit }`, with type
