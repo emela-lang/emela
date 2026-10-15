@@ -972,8 +972,13 @@ int em_exit(void (*cleanup)(void)) {
   em_drop(em_last_retired);
   em_last_retired = NULL;
   fflush(stdout);
-  const char *check = getenv("EMELA_LEAK_CHECK");
-  if (check != NULL && *check != '\0' && em_live != 0) {
+#ifdef EMELA_LEAK_CHECK
+  bool check = true;
+#else
+  const char *env = getenv("EMELA_LEAK_CHECK");
+  bool check = env != NULL && *env != '\0';
+#endif
+  if (check && em_live != 0) {
     fprintf(stderr, "emela: leak check: %" PRId64 " allocations are still live\n", em_live);
     code = EM_EXIT_LEAK;
   }

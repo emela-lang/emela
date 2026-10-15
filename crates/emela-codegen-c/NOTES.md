@@ -66,7 +66,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 
 ## テスト
 
-- `tests/programs/*.emel` を C にして cc で作って動かし，終了コード，標準出力，標準エラーを JS の出力（`*.expected`．`emela run` で作ったもの）と比べる．実行では `EMELA_LEAK_CHECK` を立て，終了のときに生きている割り当てがあれば終了コード 99 で知らせる（調査の結論 10）．cc が `-fsanitize=address,undefined` を受け付ければ，それでも作って同じ結果になることを確かめる
+- `tests/programs/*.emel` を C にして cc で作って動かし，終了コード，標準出力，標準エラーを JS の出力（`*.expected`．`emela run` で作ったもの）と比べる．実行では `EMELA_LEAK_CHECK` を立て，終了のときに生きている割り当てがあれば終了コード 99 で知らせる（調査の結論 10）．環境変数を渡せない所（driver を通す実行）では，ランタイムを `-DEMELA_LEAK_CHECK` でコンパイルしても同じ検査になる．cc が `-fsanitize=address,undefined` を受け付ければ，それでも作って同じ結果になることを確かめる
 - cc は `EMELA_CC` か `cc`．起動できなければ理由を出して飛ばす
 - `tests/snapshots.rs` は小さなプログラムの C を insta で見る
 - cc に渡すフラグ：`-std=c11 -fno-strict-aliasing`（静的なオブジェクトを別の構造体の型で読むため）と `-lm`
