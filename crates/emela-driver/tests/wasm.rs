@@ -188,6 +188,35 @@ fn runs_the_test_protocol() {
 }
 
 #[test]
+fn the_test_protocol_escapes_messages() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The names, the errors and the defects cross the runner boundary as JSON, so `"`, `\`,
+    // control characters and non-ASCII must survive the round trip (spec 16.4).
+    let (analysis, results) = test_wasm(
+        "escaping",
+        "error Nope(why: String)\n\
+         fn boom() -> () fails Nope { fail Nope(why: \"a\\\"b\\\\c\\nd\u{20AC}\") }\n\
+         @test\n\
+         fn fails_with_a_quoted_message() { boom() }\n\
+         @test\n\
+         fn also_passes() { assert 1 + 1 == 2 }\n",
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    assert_eq!(
+        results,
+        [
+            (
+                "fails_with_a_quoted_message".to_owned(),
+                TestOutcome::Error("Nope(why: \"a\\\"b\\\\c\\nd\u{20AC}\")".to_owned())
+            ),
+            ("also_passes".to_owned(), TestOutcome::Passed),
+        ]
+    );
+}
+
+#[test]
 fn unsupported_features_are_diagnostics() {
     let (analysis, output) = run_wasm("unsupported", "fn main() { dbg(1.5) }\n");
     assert!(analysis.has_errors());

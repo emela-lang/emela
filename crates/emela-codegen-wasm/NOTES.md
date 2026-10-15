@@ -109,3 +109,6 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   `dbg` の出力まで見る
 - `tests/run.rs` は整数，enum と match，リストの再帰，クロージャの捕獲，文字列，エフェクトと
   ハンドラ，失敗と escape を `wasmtime` で動かして出力を比べる．`wasmtime` がなければ飛ばす
+- `crates/emela-driver/tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の
+  両方で動かし，終了コードと出力が一致することを見る．WASM がまだ扱えないもの（Float，書記素，
+  fiber）は診断のメッセージで見る．CI の test は `wasmtime` を入れるので実行テストは飛ばない

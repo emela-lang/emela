@@ -52,6 +52,7 @@ pub trait Backend<P> {
 - （補）既定の出力先は build と run が `target/emela/wasm`，test が `target/emela/test-wasm`
 - （補）emela-codegen-wasm の「WASM ではまだ使えない」のエラーは診断にする（コールバックは E0427，それ以外は番号なし．C が suspend fn の外部関数を扱えるようになったので E0428 は欠番）
 - （補）`emela test --target wasm` は `Entry::Tests` でモジュールを出し，`_start` が各テストを順に呼んで結果の行（JS と同じ）を標準出力に書く．読み取りと表示は JS・C と共通
+- （補）`tests/wasm.rs` は build・run・test の WASM 経路を `wasmtime` で動かし，`tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の両方で動かして終了コードと出力が一致することを見る．WASM がまだ扱えないものは診断のメッセージで見る．`wasmtime` がなければ飛ばす（JS と C の結果を比べる `parity.rs` と同じ形．16章）
 
 ## テスト（`emela test`，仕様 13章）
 
