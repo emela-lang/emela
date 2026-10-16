@@ -13,8 +13,8 @@ use emela_codegen_c::{
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::output::{JsOutput, OutputFile};
-use crate::pipeline::{Analysis, JsBackend, Runner};
+use crate::output::{BuildOutput, OutputFile};
+use crate::pipeline::{Analysis, Backend, Runner};
 use crate::run::{Output, RunOutput, exit_code};
 use crate::testing::{TestBackend, TestModule};
 
@@ -55,7 +55,7 @@ impl CoreC {
         build_executable(&cc, &flags, out_dir, &self.sources).map_err(|d| vec![d])
     }
 
-    fn output(&mut self, out: COutput) -> JsOutput {
+    fn output(&mut self, out: COutput) -> BuildOutput {
         let mut files = vec![
             OutputFile::new(C_ENTRY_FILE, out.main),
             OutputFile::new(RUNTIME_C_FILE, RUNTIME_C),
@@ -70,19 +70,19 @@ impl CoreC {
         }
         self.sources
             .extend(out.host_files.into_iter().map(PathBuf::from));
-        JsOutput {
+        BuildOutput {
             files,
             entry: C_ENTRY_FILE.into(),
         }
     }
 }
 
-impl JsBackend<emela_core::Module> for CoreC {
+impl Backend<emela_core::Module> for CoreC {
     fn emit(
         &mut self,
         module: &emela_core::Module,
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let out = compile(module, &Entry::Main).map_err(diagnostics)?;
         Ok(self.output(out))
     }
@@ -106,7 +106,7 @@ impl TestBackend<TestModule> for CoreC {
         program: &TestModule,
         selected: &[usize],
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let tests = selected
             .iter()
             .map(|&i| TestEntry {

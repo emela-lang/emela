@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{BinOp, Builtin, Expr, FnId, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
-    Analysis, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId, Frontend,
-    INTERRUPTED_EXIT_CODE, Input, JsBackend, JsOutput, LexOnly, Lower, MemoryFiles, Output,
-    OutputFile, Parsed, RunOptions, RunOutput, SourceFile, build, run,
+    Analysis, Backend, BuildOutput, Checked, CoreJs, DEFECT_EXIT_CODE, Diagnostic, FileId,
+    Frontend, INTERRUPTED_EXIT_CODE, Input, LexOnly, Lower, MemoryFiles, Output, OutputFile,
+    Parsed, RunOptions, RunOutput, SourceFile, build, run,
 };
 use emela_resolve::ModuleId;
 
@@ -31,10 +31,10 @@ impl HandWritten {
     }
 }
 
-impl JsBackend<()> for HandWritten {
-    fn emit(&mut self, _: &(), analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>> {
+impl Backend<()> for HandWritten {
+    fn emit(&mut self, _: &(), analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
         assert!(analysis.entry.is_some());
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files: self.files.clone(),
             entry: "main.mjs".into(),
         })

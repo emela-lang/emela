@@ -1,6 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, CoreC, CoreJs, Diagnostic, FileSystem, Input, JsBackend, Lower, LowerTests,
+    Analysis, Backend, CoreC, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests,
     MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule, TestOptions,
     Typecheck,
 };
@@ -221,7 +221,7 @@ fn run(
     }
 }
 
-fn run_with<B: JsBackend<emela_driver::CoreModule>>(
+fn run_with<B: Backend<emela_driver::CoreModule>>(
     input: &Input,
     options: &RunOptions,
     target: Target,

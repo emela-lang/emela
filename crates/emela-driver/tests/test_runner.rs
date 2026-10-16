@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use emela_core::build::*;
 use emela_core::{Assert, BinOp, Builtin, Expr, Module, OpTy, Type, TypeId, WithBind};
 use emela_driver::{
-    Analysis, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, JsOutput, LowerTests,
+    Analysis, BuildOutput, Checked, CoreJs, Diagnostic, FileId, Frontend, Input, LowerTests,
     MemoryFiles, Output, OutputFile, ParseOnly, Parsed, SourceFile, TestBackend, TestCase,
     TestModule, TestOptions, TestOutcome, TestReport, Typecheck, check, test,
 };
@@ -273,7 +273,7 @@ impl TestBackend<()> for HandWrittenTests {
         _: &(),
         selected: &[usize],
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let entries: Vec<_> = selected
             .iter()
             .map(|&i| emela_codegen_js::TestEntry {
@@ -281,7 +281,7 @@ impl TestBackend<()> for HandWrittenTests {
                 export: self.names[i],
             })
             .collect();
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files: vec![
                 OutputFile::new("main.mjs", self.js),
                 OutputFile::new(

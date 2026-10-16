@@ -1,7 +1,7 @@
 //! The pipeline: collects modules, lexes them, and checks the import graph.
 //!
-//! Parsing, type checking and JS emission are plugged in through [`Frontend`] and
-//! [`JsBackend`].
+//! Parsing, type checking and emission (JS or C) are plugged in through [`Frontend`] and
+//! [`Backend`].
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -19,7 +19,7 @@ use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
-use crate::output::{JsOutput, write_output};
+use crate::output::{BuildOutput, write_output};
 use crate::run::{Output, RunOutput, run_node};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
@@ -220,7 +220,7 @@ pub struct Parsed {
 
 /// The plug-in point for the parser and type checker.
 pub trait Frontend {
-    /// A type-checked program, passed to [`JsBackend`].
+    /// A type-checked program, passed to [`Backend`].
     type Program;
 
     /// Lexes and parses one module, returning both lexer and parser diagnostics (the pipeline
@@ -363,8 +363,8 @@ pub struct Checked<P> {
 
 /// The plug-in point for the output stage (JS, or C with [`crate::CoreC`]). Called only when
 /// there are no errors.
-pub trait JsBackend<P> {
-    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
+pub trait Backend<P> {
+    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>>;
 
     /// Called after the output is written under `out_dir`, with the path of its entry. Returns the
     /// path of what runs: the entry itself for JS, the executable cc made for C.
@@ -372,7 +372,7 @@ pub trait JsBackend<P> {
         Ok(entry)
     }
 
-    /// How what [`JsBackend::finish`] returned runs.
+    /// How what [`Backend::finish`] returned runs.
     fn runner(&self) -> Runner {
         Runner::Node
     }
@@ -418,8 +418,8 @@ impl Frontend for LexOnly {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoJsBackend;
 
-impl<P> JsBackend<P> for NoJsBackend {
-    fn emit(&mut self, _: &P, _: &Analysis) -> Result<JsOutput, Vec<Diagnostic>> {
+impl<P> Backend<P> for NoJsBackend {
+    fn emit(&mut self, _: &P, _: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
         Err(vec![
             Diagnostic::error("JS output is not implemented yet").with_code(code::NO_JS_BACKEND),
         ])
@@ -615,7 +615,7 @@ fn concerns_reached(
 
 /// The `emela build` stage: emits JS if checks pass and writes it to `out_dir`. Returns the path
 /// of the written entry. Output is produced even without main in the entry (spec 8.3).
-pub fn build<F: Frontend, B: JsBackend<F::Program>>(
+pub fn build<F: Frontend, B: Backend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
     frontend: &mut F,
@@ -627,7 +627,7 @@ pub fn build<F: Frontend, B: JsBackend<F::Program>>(
 
 /// With `require_main`, a missing main in the entry is E0230 and nothing is emitted
 /// (`emela run`, spec 8.3).
-fn build_with<F: Frontend, B: JsBackend<F::Program>>(
+fn build_with<F: Frontend, B: Backend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
     frontend: &mut F,
@@ -714,7 +714,7 @@ pub struct RunOptions {
 /// fails). The CLI prints diagnostics there, so warnings show first even for programs that never
 /// end (servers). The run result is `None` if diagnostics had errors or node could not start.
 /// A diagnostic about failing to start node is appended to `Analysis` after `before_node`.
-pub fn run<F: Frontend, B: JsBackend<F::Program>>(
+pub fn run<F: Frontend, B: Backend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
     frontend: &mut F,

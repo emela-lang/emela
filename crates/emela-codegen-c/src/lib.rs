@@ -17,6 +17,7 @@
 mod check;
 mod emit;
 mod names;
+mod writer;
 
 use emela_core::FnId;
 

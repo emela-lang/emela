@@ -6,6 +6,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 
 - （補）`compile` が Core（lower 済み）から通しでかける．エントリ（main）を根に `emela_core::monomorphize_from` → `emela_lir::from_core` → 対応していない構成の検査（`check.rs`）→ `emela_lir::to_heap` → 出力．単相化の後のモジュールにはエントリからたどれる関数しか残らないので，検査は「たどれるものだけ」になる
 - （補）検査は Flow IR の段でかける（Heap IR のパスの前に止める）
+- （補）出力の C は `writer.rs` の `Writer` を通して書く．エミッタは「宣言」「return」「if」「goto」のように構成を呼び，`Writer` がインデントと行を受け持つ．式は文字列のままで，`call`，`signature`，`init_list` などの小さな関数で組む．本体がエミッタに戻る複合文（Heap IR の seq を書く if や switch）は `*_begin` と `end` の組で，書くだけの本体（ラッパー，main）はクロージャで書く
 - （補）main がなければ，何もしない C の main を出す（JS で main のないエントリを読み込むだけなのと同じ）
 - （補）`Entry::Tests` はテスト関数を根に単相化し，C の main でそれらを順に起動（`em_run`）する．各テストの後に保留の defect と失敗を調べて，JS のテストランナーと同じ結果の行（`\x1eemela-test` と JSON．outcome は ok，defect，error，interrupted）を標準出力に書く．テストの間で状態（const の値など）は持ち越す（JS も1つのプロセスで順に呼ぶ）
 - （補）型引数のある根（推論した型に型引数が残るテストや main．子が panic するだけの `Fiber.join` など）も飛ばさない．単相化が既定の具体化（普通の型引数は `Never`，集合の型引数は空集合）で写す（`emela-core` の NOTES の単相化）．具体化できない根（引数を取る汎用の関数）は，黙って落とさずに内部エラーにする．main も名前で探さず，単相化が返した写しを使う（汎用の main の写しは公開されず，名前に型引数が付くため）

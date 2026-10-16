@@ -31,7 +31,7 @@ pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_comm
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_html, render_markdown};
-/// The lowered program the output stages read ([`JsBackend`]).
+/// The lowered program the output stages read ([`Backend`]).
 pub use emela_core::Module as CoreModule;
 pub use emela_resolve::OsFs;
 pub use fmt::{
@@ -43,11 +43,11 @@ pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};
-pub use output::{JsOutput, OutputFile, write_files, write_output};
+pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, ENTRY_FILE, Frontend, Input,
-    JS_OUT_DIR, JsBackend, LexOnly, NoJsBackend, Parsed, RunOptions, Runner, SOURCE_DIR, build,
-    check, run,
+    Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, ENTRY_FILE, Frontend,
+    Input, JS_OUT_DIR, LexOnly, NoJsBackend, Parsed, RunOptions, Runner, SOURCE_DIR, build, check,
+    run,
 };
 pub use render::{render, render_one, summary};
 pub use run::{
