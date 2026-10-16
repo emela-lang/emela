@@ -17,14 +17,21 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use emela_codegen_c::{
-    BUNDLED_DIR, CError, COutput, Entry, RUNTIME_C, RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE,
-    compile,
+    BUNDLED_DIR, CError, COutput, EMELA_H, EMELA_H_FILE, Entry, RUNTIME_C, RUNTIME_C_FILE,
+    RUNTIME_H, RUNTIME_H_FILE, compile,
 };
 use emela_core::Roots;
 
-/// The host side of `print`.
+/// The host side of `print`, and of `sleep` (`tests/programs/sleep.c`, a `suspend fn`).
 pub const HELPER: &str = r#"#include <stdio.h>
+#include <stdint.h>
+#include "emela.h"
 void emela_test_print(const char *s) { puts(s); }
+static void emela_test_wake(em_task *task, void *ctx) { em_complete_int(task, (int32_t)(intptr_t)ctx); }
+void emela_test_sleep(int32_t ms, em_task *task) {
+  em_after(ms, task, emela_test_wake, (void *)(intptr_t)ms);
+  em_on_cancel(task, emela_test_wake, (void *)(intptr_t)ms);
+}
 "#;
 
 /// Declares `print` for the test programs.
@@ -124,6 +131,7 @@ pub fn write(dir: &Path, out: &COutput) {
     std::fs::write(dir.join("main.c"), &out.main).unwrap();
     std::fs::write(dir.join(RUNTIME_C_FILE), RUNTIME_C).unwrap();
     std::fs::write(dir.join(RUNTIME_H_FILE), RUNTIME_H).unwrap();
+    std::fs::write(dir.join(EMELA_H_FILE), EMELA_H).unwrap();
     std::fs::write(dir.join("helper.c"), HELPER).unwrap();
     for (path, contents) in &out.bundled {
         let p = dir.join(BUNDLED_DIR).join(path);
@@ -146,7 +154,15 @@ pub fn build_and_run(dir: &Path, out: &COutput, flags: &[&str]) -> Run {
     }
     sources.extend(out.host_files.iter().cloned());
     let built = Command::new(cc)
-        .args(["-std=c11", "-fno-strict-aliasing", "-g", "-o", "main"])
+        .args([
+            "-std=c11",
+            "-fno-strict-aliasing",
+            "-pthread",
+            "-I.",
+            "-g",
+            "-o",
+            "main",
+        ])
         .args(flags)
         .args(&sources)
         .arg("-lm")

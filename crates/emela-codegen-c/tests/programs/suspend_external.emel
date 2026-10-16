@@ -1,0 +1,28 @@
+# A `suspend fn` external function that completes later (spec 12.6): a timer of the event loop on
+# C, a Promise on JS. Interrupting the sleeper (the loser of the race) clears its timer.
+import Std.Fiber.{Fiber}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+@external(js, "./sleep.mjs", "sleep")
+@external(c, "./sleep.c", "emela_test_sleep")
+suspend fn sleep(ms: Int) -> Int
+
+effect Nap {
+  suspend fn nap(ms: Int) -> Int
+}
+
+handler Naps implements Nap {
+  suspend fn nap(ms, resume) { resume(sleep(ms)) }
+}
+
+fn main() {
+  with Naps {
+    nap = use Nap
+    print("#{nap.nap(5)}")
+    print("#{Fiber.all([fn() { nap.nap(30) }, fn() { nap.nap(10) }])}")
+    print("#{Fiber.race([fn() { nap.nap(60000) }, fn() { nap.nap(1) }])}")
+  }
+}

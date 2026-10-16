@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use emela_codegen_c::{
-    BUNDLED_DIR, CError, CErrorKind, COutput, Entry, RUNTIME_C, RUNTIME_C_FILE, RUNTIME_H,
-    RUNTIME_H_FILE, TestEntry, compile,
+    BUNDLED_DIR, CError, CErrorKind, COutput, EMELA_H, EMELA_H_FILE, Entry, RUNTIME_C,
+    RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile,
 };
 
 use crate::code;
@@ -27,8 +27,9 @@ pub const C_EXECUTABLE: &str = "main";
 pub const CC_ENV: &str = "EMELA_CC";
 
 /// The flags every C build gets. `-fno-strict-aliasing`: the runtime reads static objects through
-/// the type of a heap object.
-const CC_FLAGS: [&str; 3] = ["-std=c11", "-O2", "-fno-strict-aliasing"];
+/// the type of a heap object. `-pthread`: completions may come from other threads (spec 12.6).
+/// `-I.`: host C files include `"emela.h"` from the output directory.
+const CC_FLAGS: [&str; 5] = ["-std=c11", "-O2", "-fno-strict-aliasing", "-pthread", "-I."];
 
 /// Turns the Core IR into C and builds it with cc (`emela build --target c`). Host C files that
 /// external functions point to are compiled with it.
@@ -59,6 +60,7 @@ impl CoreC {
             OutputFile::new(C_ENTRY_FILE, out.main),
             OutputFile::new(RUNTIME_C_FILE, RUNTIME_C),
             OutputFile::new(RUNTIME_H_FILE, RUNTIME_H),
+            OutputFile::new(EMELA_H_FILE, EMELA_H),
         ];
         self.sources = vec![PathBuf::from(C_ENTRY_FILE), PathBuf::from(RUNTIME_C_FILE)];
         for (path, contents) in out.bundled {
@@ -132,7 +134,6 @@ fn diagnostics(errors: Vec<CError>) -> Vec<Diagnostic> {
             let d = Diagnostic::error(e.message);
             match e.kind {
                 CErrorKind::Callback => d.with_code(code::CALLBACK_EXTERNAL),
-                CErrorKind::SuspendExternal => d.with_code(code::SUSPEND_EXTERNAL),
                 CErrorKind::Unsupported | CErrorKind::Internal => d,
             }
         })

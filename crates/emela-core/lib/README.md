@@ -18,7 +18,7 @@
 
 build，run，test では，lowering がその指定を `lib/` からのパス（`std/x.mjs`）にし，JS の出力はそれを `./emela_core/std/x.mjs` として import する．出力先（`target/emela/js/` など）の `emela_core/` の下に同梱の `.mjs` を全部並べて書き出す．どの外部関数も同梱のファイルを指さなければ何も書き出さない．表にないファイルを指すと内部の誤りになる．
 
-C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `HOST_FILES` に足し，`.emel` に `@external(c, "./x.c", "name")` を書く．C の出力は，使う外部関数が指す `.c` だけを出力先（`target/emela/c/`）の `emela_core/` の下に書き出し，`main.c` と一緒に cc でコンパイルする．関数のプロトタイプは 12.4 の表で決まる（String は `const char *` で受け，返すときは `malloc` した `char *`）．`-std=c11` でコンパイルするので，POSIX の関数を使うときは機能検査マクロに気をつける．
+C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `HOST_FILES` に足し，`.emel` に `@external(c, "./x.c", "name")` を書く．suspend fn の外部関数は 12.6 の形（最後に `em_task *` を受け取り，`em_complete_*` で完了を知らせる）で書き，出力先に書き出す `emela.h` を include する．C の出力は，使う外部関数が指す `.c` だけを出力先（`target/emela/c/`）の `emela_core/` の下に書き出し，`main.c` と一緒に cc でコンパイルする．関数のプロトタイプは 12.4 の表で決まる（String は `const char *` で受け，返すときは `malloc` した `char *`）．`-std=c11` でコンパイルするので，POSIX の関数を使うときは機能検査マクロに気をつける．
 
 # core
 
@@ -208,8 +208,8 @@ fn main() {
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | 待つ（負なら 0 と同じ）．現在の時点 |
-| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`（C では `timespec_get`）．状態を持たない．Async に依存する（8.7）．C では `sleep` の外部関数がない（18.1 #37）ので，今は C で使えない |
-| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する |
+| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`（C では `timespec_get`）．C の `sleep` はランタイムのイベントループのタイマー（`em_after`）で待ち，中断されたらすぐ完了してタイマーを消す（12.6）．状態を持たない．Async に依存する（8.7） |
+| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する．待つ外部関数 `when_stalled` は JS も C もランタイムが持つ（C は `em_when_stalled`） |
 
 ## Std.Random（`std/random.emel`，`std/random.mjs`，`std/random.c`）
 

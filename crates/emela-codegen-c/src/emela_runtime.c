@@ -2,14 +2,25 @@
  *
  * Builtins follow the JS runtime (crates/emela-codegen-js/src/runtime.mjs) exactly: the same
  * results, the same defect messages. */
+/* poll(2), pipe(2), clock_gettime and pthreads for the event loop (spec 12.6). */
+#define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
+
 #include "emela_runtime.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <math.h>
+#include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 /* The exit codes of spec appendix B. */
 #define EM_EXIT_ERROR 1
@@ -1319,7 +1330,7 @@ typedef struct em_perform em_perform;
 enum { EM_END_MAIN, EM_END_IMPL, EM_END_ORPHAN };
 
 /* What a wait waits for. */
-enum { EM_WAIT_PAUSE, EM_WAIT_PERFORM, EM_WAIT_FIBER };
+enum { EM_WAIT_PAUSE, EM_WAIT_PERFORM, EM_WAIT_FIBER, EM_WAIT_HOST };
 
 /* A continuation waiting to be continued (JS: the `wait` of `$advance`). Counted by hand. */
 typedef struct em_wait {
@@ -1338,8 +1349,13 @@ typedef struct em_wait {
   /* A caller waiting for a resume: the operation call whose implementation is unwound when the
    * caller is dropped (counted). */
   em_perform *on_drop;
+  /* EM_WAIT_HOST: the task of the `suspend fn` external function (not counted; the task counts
+   * the wait). Cancelled when the wait is dropped. */
+  em_task *task;
   struct em_wait *prev, *next;
 } em_wait;
+
+static void em_task_cancel(em_task *t);
 
 /* A fiber operation's waiter (join, await, interrupt) or a Deferred's. */
 enum { EM_VERB_JOIN, EM_VERB_AWAIT, EM_VERB_INTERRUPT, EM_VERB_DEFERRED };
@@ -1635,6 +1651,8 @@ static void em_drop_wait(em_root *r, em_wait *w) {
   w->live = false;
   em_root_unlist(r, w);
   if (w->fiber->wait == w) w->fiber->wait = NULL;
+  /* `wait.controller.abort()`: the host function is told (`em_on_cancel`). */
+  if (w->task != NULL) em_task_cancel(w->task);
   em_perform *p = w->on_drop;
   w->on_drop = NULL;
   if (p != NULL) {
@@ -2061,6 +2079,708 @@ static void em_fiber_begin(em_root *r, em_fiber *f, em_ref fn) {
   em_strand_end(r, f, EM_END_MAIN, NULL, em_input_taken(out, false));
 }
 
+static void em_root_finish(em_root *r, em_input in);
+
+/* ---- `suspend fn` external functions and the event loop (spec 12.6) ----
+ *
+ * A task (`em_task`) stands for a call of a `suspend fn` external function. The wrapper makes it,
+ * calls the host function and then `em_task_end`: a task completed in place gives its value at
+ * once (JS: an external function that returns a value that is not a Promise); otherwise the
+ * fiber suspends on a wait of its own (EM_WAIT_HOST), which the task counts, and the completion
+ * wakes the wait with `em_cont` (JS: the `$Await` request and the settled promise).
+ *
+ * The event loop runs where the JS host's event loop would: when no job is left (`em_run`). It
+ * waits with poll(2) for the file descriptors registered with `em_on_readable` and
+ * `em_on_writable`, for the earliest timer of `em_after` (a min-heap ordered by time, then by the
+ * order of registration, like Node's timers) and for completions from other threads, which go
+ * into a locked inbox and wake the loop through a self-pipe. Callbacks run on the runtime's
+ * thread. When nothing is registered and the inbox is empty, the run has stalled: TestClock's
+ * earliest sleeper wakes (`em_when_stalled`), and without one the run is unwound as interrupted
+ * (`em_root_interrupt`), which cancels the tasks still waiting (`em_on_cancel`; JS: the
+ * AbortSignal).
+ *
+ * A completed task is freed once the runtime is back in its event loop, so that a second
+ * completion inside the same external function call or callback is still seen (a defect). */
+
+enum { EM_HOST_DEFECT = -1 };
+
+typedef struct em_reg em_reg;
+
+struct em_task {
+  /* The external function's name (a static string), for messages. */
+  const char *function;
+  /* The kind of host value the external function returns (EM_HOST_*). */
+  int32_t kind;
+  /* Only on the runtime's thread: */
+  /* The host function is being called: a completion now is picked up by `em_task_end`. */
+  bool in_place;
+  bool cancelled;
+  /* The run's wait while the fiber waits (counted), else NULL. */
+  em_wait *wait;
+  em_callback on_cancel;
+  void *cancel_ctx;
+  /* The registrations with the event loop (`em_after`, ...). */
+  em_reg *regs;
+  /* Retired (delivered or discarded): freed when the runtime is back in its event loop. */
+  struct em_task *retired_next;
+  /* Guarded by `em_inbox_lock`: */
+  bool completed;
+  /* Completed by another thread: in the inbox until the runtime's thread takes it. */
+  bool queued;
+  /* Completed a second time while the host function was being called (in place). */
+  bool twice;
+  /* What the completion gave: EM_HOST_* or EM_HOST_DEFECT, and the value. */
+  int32_t got;
+  em_word value;
+  /* The string of em_complete_string or the message of em_complete_defect (malloc'ed). */
+  char *str;
+  struct em_task *inbox_next;
+};
+
+enum { EM_REG_TIMER, EM_REG_READ, EM_REG_WRITE };
+
+struct em_reg {
+  int kind;
+  int64_t at;
+  uint64_t seq;
+  int fd;
+  em_task *task;
+  em_callback callback;
+  void *ctx;
+  /* The position in the timer heap or in the list of file descriptors. */
+  size_t index;
+  em_reg *task_next;
+};
+
+/* A second completion that happened on another thread (the task may be freed by now). */
+typedef struct em_twice {
+  const char *function;
+  struct em_twice *next;
+} em_twice;
+
+/* A TestClock sleeper waiting for the run to stall (spec 8.8). */
+typedef struct em_sleeper {
+  int64_t at;
+  uint64_t seq;
+  em_task *task;
+} em_sleeper;
+
+typedef struct em_regs {
+  em_reg **items;
+  size_t len;
+  size_t cap;
+} em_regs;
+
+static em_regs em_timers = {NULL, 0, 0};
+static em_regs em_fds = {NULL, 0, 0};
+static uint64_t em_reg_seq = 0;
+/* The loop's time in milliseconds (a monotonic clock), updated once per turn like libuv's. */
+static int64_t em_loop_now = 0;
+static em_task *em_retired = NULL;
+static em_vec em_sleepers = {NULL, 0, 0};
+static uint64_t em_sleeper_seq = 0;
+
+static pthread_mutex_t em_inbox_lock = PTHREAD_MUTEX_INITIALIZER;
+static em_task *em_inbox_head = NULL, *em_inbox_tail = NULL;
+static em_twice *em_inbox_twice = NULL;
+/* The self-pipe: another thread's completion writes a byte to [1] to wake the poll. */
+static int em_wake_fds[2] = {-1, -1};
+static pthread_t em_runtime_thread;
+
+static int64_t em_now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
+static void em_regs_push(em_regs *v, em_reg *g) {
+  if (v->len == v->cap) {
+    v->cap = v->cap == 0 ? 8 : v->cap * 2;
+    v->items = realloc(v->items, v->cap * sizeof(em_reg *));
+    if (v->items == NULL) em_out_of_memory();
+  }
+  g->index = v->len;
+  v->items[v->len++] = g;
+}
+
+static bool em_timer_before(const em_reg *a, const em_reg *b) {
+  return a->at < b->at || (a->at == b->at && a->seq < b->seq);
+}
+
+static void em_heap_set(size_t i, em_reg *g) {
+  em_timers.items[i] = g;
+  g->index = i;
+}
+
+static void em_heap_up(size_t i) {
+  em_reg *g = em_timers.items[i];
+  while (i > 0) {
+    size_t parent = (i - 1) / 2;
+    if (!em_timer_before(g, em_timers.items[parent])) break;
+    em_heap_set(i, em_timers.items[parent]);
+    i = parent;
+  }
+  em_heap_set(i, g);
+}
+
+static void em_heap_down(size_t i) {
+  em_reg *g = em_timers.items[i];
+  for (;;) {
+    size_t l = 2 * i + 1;
+    if (l >= em_timers.len) break;
+    size_t c = l;
+    if (l + 1 < em_timers.len && em_timer_before(em_timers.items[l + 1], em_timers.items[l])) {
+      c = l + 1;
+    }
+    if (!em_timer_before(em_timers.items[c], g)) break;
+    em_heap_set(i, em_timers.items[c]);
+    i = c;
+  }
+  em_heap_set(i, g);
+}
+
+/* Takes the registration out of the timer heap or the list of file descriptors and frees it
+ * (the caller unlinks it from its task). */
+static void em_reg_remove(em_reg *g) {
+  if (g->kind == EM_REG_TIMER) {
+    size_t i = g->index;
+    em_reg *last = em_timers.items[--em_timers.len];
+    if (i < em_timers.len) {
+      em_heap_set(i, last);
+      em_heap_down(i);
+      em_heap_up(last->index);
+    }
+  } else {
+    /* Keeps the order of registration. */
+    for (size_t i = g->index + 1; i < em_fds.len; i++) {
+      em_fds.items[i - 1] = em_fds.items[i];
+      em_fds.items[i - 1]->index = i - 1;
+    }
+    em_fds.len--;
+  }
+  free(g);
+}
+
+static void em_reg_unlink(em_reg *g) {
+  em_reg **p = &g->task->regs;
+  while (*p != g) p = &(*p)->task_next;
+  *p = g->task_next;
+}
+
+/* Removes every registration of the task. */
+static void em_task_unregister(em_task *t) {
+  while (t->regs != NULL) {
+    em_reg *g = t->regs;
+    t->regs = g->task_next;
+    em_reg_remove(g);
+  }
+}
+
+static bool em_on_runtime_thread(void) {
+  return pthread_equal(pthread_self(), em_runtime_thread) != 0;
+}
+
+static void em_require_runtime_thread(const char *function) {
+  if (!em_on_runtime_thread()) {
+    fprintf(stderr, "emela: %s was called outside the runtime's thread\n", function);
+    abort();
+  }
+}
+
+static void em_loop_init(void) {
+  em_runtime_thread = pthread_self();
+  em_loop_now = em_now_ms();
+  if (pipe(em_wake_fds) != 0) {
+    perror("emela: pipe");
+    abort();
+  }
+  for (int i = 0; i < 2; i++) {
+    fcntl(em_wake_fds[i], F_SETFL, fcntl(em_wake_fds[i], F_GETFL) | O_NONBLOCK);
+    fcntl(em_wake_fds[i], F_SETFD, FD_CLOEXEC);
+  }
+}
+
+static void em_task_retire(em_task *t) {
+  t->retired_next = em_retired;
+  em_retired = t;
+}
+
+/* Frees the retired tasks (back in the event loop). */
+static void em_loop_collect(void) {
+  while (em_retired != NULL) {
+    em_task *t = em_retired;
+    em_retired = t->retired_next;
+    free(t);
+  }
+}
+
+static const char *em_complete_name(int32_t got) {
+  switch (got) {
+    case EM_HOST_INT:
+      return "em_complete_int";
+    case EM_HOST_INT64:
+      return "em_complete_int64";
+    case EM_HOST_FLOAT:
+      return "em_complete_float";
+    case EM_HOST_BOOL:
+      return "em_complete_bool";
+    case EM_HOST_STRING:
+      return "em_complete_string";
+    case EM_HOST_HANDLE:
+      return "em_complete_handle";
+    default:
+      return "em_complete_unit";
+  }
+}
+
+static em_ref em_twice_message(const char *function) {
+  em_buf b = {NULL, 0, 0};
+  em_buf_puts(&b, "the task of external function `");
+  em_buf_puts(&b, function);
+  em_buf_puts(&b, "` was completed twice");
+  return em_buf_finish(&b);
+}
+
+/* What the completion passes to the waiting continuation (on the runtime's thread). */
+static em_input em_task_input(em_task *t) {
+  em_word w = em_zero();
+  if (t->got == EM_HOST_DEFECT) {
+    em_ref msg = em_str_cstr(t->str);
+    free(t->str);
+    t->str = NULL;
+    return em_in_ref(EM_THROW, msg);
+  }
+  if (t->got != t->kind) {
+    free(t->str);
+    t->str = NULL;
+    em_buf b = {NULL, 0, 0};
+    em_buf_puts(&b, "external function `");
+    em_buf_puts(&b, t->function);
+    em_buf_puts(&b, "` was completed with `");
+    em_buf_puts(&b, em_complete_name(t->got));
+    em_buf_puts(&b, "`, which does not match its return type");
+    return em_in_ref(EM_THROW, em_buf_finish(&b));
+  }
+  switch (t->kind) {
+    case EM_HOST_STRING: {
+      char *s = t->str;
+      t->str = NULL;
+      em_ref v = em_from_host_string(s, t->function);
+      if (v == NULL) {
+        em_ref d = em_defect;
+        em_defect = NULL;
+        return em_in_ref(EM_THROW, d);
+      }
+      w.p = v;
+      return em_in_value(w, true);
+    }
+    case EM_HOST_HANDLE:
+      w.p = em_host_box(t->value.h);
+      return em_in_value(w, true);
+    case EM_HOST_UNIT:
+      return em_in_value(w, false);
+    default:
+      return em_in_value(t->value, false);
+  }
+}
+
+/* Ends the run with a defect: a second completion after the first one was delivered (JS throws
+ * `resume called twice` into the host's callback, and the run ends). */
+static void em_task_fail_run(em_ref msg) {
+  if (em_root_cur != NULL && !em_root_cur->over) {
+    em_root_finish(em_root_cur, em_in_ref(EM_THROW, msg));
+  } else {
+    em_drop(msg);
+  }
+}
+
+/* The completion reached the runtime's thread: wakes the waiting fiber, or leaves the value to
+ * `em_task_end`, or discards it (the fiber was interrupted). */
+static void em_task_deliver(em_task *t) {
+  em_task_unregister(t);
+  if (t->in_place) return;
+  em_wait *w = t->wait;
+  t->wait = NULL;
+  em_task_retire(t);
+  if (w == NULL) {
+    free(t->str);
+    t->str = NULL;
+    return;
+  }
+  w->task = NULL;
+  em_input in = em_task_input(t);
+  em_cont(w, in);
+  em_wait_unref(w);
+}
+
+static void em_wake(void) {
+  char byte = 1;
+  ssize_t n = write(em_wake_fds[1], &byte, 1);
+  (void)n;
+}
+
+static void em_complete(em_task *t, int32_t got, em_word value, char *str) {
+  bool here = em_on_runtime_thread();
+  pthread_mutex_lock(&em_inbox_lock);
+  if (t->completed) {
+    free(str);
+    if (here) {
+      bool in_place = t->in_place;
+      if (in_place) t->twice = true;
+      pthread_mutex_unlock(&em_inbox_lock);
+      if (!in_place) em_task_fail_run(em_twice_message(t->function));
+      return;
+    }
+    em_twice *tw = malloc(sizeof(em_twice));
+    if (tw == NULL) em_out_of_memory();
+    tw->function = t->function;
+    tw->next = em_inbox_twice;
+    em_inbox_twice = tw;
+    pthread_mutex_unlock(&em_inbox_lock);
+    em_wake();
+    return;
+  }
+  t->completed = true;
+  t->got = got;
+  t->value = value;
+  t->str = str;
+  if (!here) {
+    t->queued = true;
+    t->inbox_next = NULL;
+    if (em_inbox_tail == NULL) em_inbox_head = t;
+    else em_inbox_tail->inbox_next = t;
+    em_inbox_tail = t;
+    pthread_mutex_unlock(&em_inbox_lock);
+    em_wake();
+    return;
+  }
+  pthread_mutex_unlock(&em_inbox_lock);
+  em_task_deliver(t);
+}
+
+void em_complete_int(em_task *t, int32_t v) {
+  em_word w = em_zero();
+  w.i = v;
+  em_complete(t, EM_HOST_INT, w, NULL);
+}
+
+void em_complete_int64(em_task *t, int64_t v) {
+  em_word w;
+  w.l = v;
+  em_complete(t, EM_HOST_INT64, w, NULL);
+}
+
+void em_complete_float(em_task *t, double v) {
+  em_word w;
+  w.f = v;
+  em_complete(t, EM_HOST_FLOAT, w, NULL);
+}
+
+void em_complete_bool(em_task *t, bool v) {
+  em_word w = em_zero();
+  w.i = v ? 1 : 0;
+  em_complete(t, EM_HOST_BOOL, w, NULL);
+}
+
+void em_complete_string(em_task *t, char *v) { em_complete(t, EM_HOST_STRING, em_zero(), v); }
+
+void em_complete_unit(em_task *t) { em_complete(t, EM_HOST_UNIT, em_zero(), NULL); }
+
+void em_complete_handle(em_task *t, void *v) {
+  em_word w;
+  w.h = v;
+  em_complete(t, EM_HOST_HANDLE, w, NULL);
+}
+
+void em_complete_defect(em_task *t, const char *message) {
+  const char *m = message != NULL ? message : "";
+  size_t n = strlen(m);
+  char *copy = malloc(n + 1);
+  if (copy == NULL) em_out_of_memory();
+  memcpy(copy, m, n + 1);
+  em_complete(t, EM_HOST_DEFECT, em_zero(), copy);
+}
+
+static bool em_task_done(em_task *t) {
+  pthread_mutex_lock(&em_inbox_lock);
+  bool done = t->completed;
+  pthread_mutex_unlock(&em_inbox_lock);
+  return done;
+}
+
+static void em_register(int kind, int64_t at, int fd, em_task *t, em_callback cb, void *ctx) {
+  /* A completed task has nothing left to wait for. */
+  if (em_task_done(t)) return;
+  em_reg *g = malloc(sizeof(em_reg));
+  if (g == NULL) em_out_of_memory();
+  g->kind = kind;
+  g->at = at;
+  g->seq = em_reg_seq++;
+  g->fd = fd;
+  g->task = t;
+  g->callback = cb;
+  g->ctx = ctx;
+  g->task_next = t->regs;
+  t->regs = g;
+  if (kind == EM_REG_TIMER) {
+    em_regs_push(&em_timers, g);
+    em_heap_up(g->index);
+  } else {
+    em_regs_push(&em_fds, g);
+  }
+}
+
+void em_after(int64_t ms, em_task *t, em_callback cb, void *ctx) {
+  em_require_runtime_thread("em_after");
+  em_register(EM_REG_TIMER, em_loop_now + (ms < 0 ? 0 : ms), -1, t, cb, ctx);
+}
+
+void em_on_readable(int fd, em_task *t, em_callback cb, void *ctx) {
+  em_require_runtime_thread("em_on_readable");
+  em_register(EM_REG_READ, 0, fd, t, cb, ctx);
+}
+
+void em_on_writable(int fd, em_task *t, em_callback cb, void *ctx) {
+  em_require_runtime_thread("em_on_writable");
+  em_register(EM_REG_WRITE, 0, fd, t, cb, ctx);
+}
+
+void em_on_cancel(em_task *t, em_callback cb, void *ctx) {
+  em_require_runtime_thread("em_on_cancel");
+  if (t->cancelled) {
+    if (cb != NULL && !em_task_done(t)) cb(t, ctx);
+    return;
+  }
+  t->on_cancel = cb;
+  t->cancel_ctx = ctx;
+}
+
+/* The waiting fiber was interrupted, or the run ended (`AbortController#abort`). */
+static void em_task_cancel(em_task *t) {
+  if (t->cancelled) return;
+  t->cancelled = true;
+  em_wait *w = t->wait;
+  t->wait = NULL;
+  if (w != NULL) {
+    w->task = NULL;
+    em_wait_unref(w);
+  }
+  em_callback cb = t->on_cancel;
+  t->on_cancel = NULL;
+  if (cb != NULL) cb(t, t->cancel_ctx);
+}
+
+em_task *em_task_new(int32_t kind, const char *function) {
+  em_task *t = calloc(1, sizeof(em_task));
+  if (t == NULL) em_out_of_memory();
+  t->function = function;
+  t->kind = kind;
+  t->in_place = true;
+  return t;
+}
+
+em_word em_task_end(em_task *t) {
+  t->in_place = false;
+  pthread_mutex_lock(&em_inbox_lock);
+  /* Completed in place, on this thread (another thread's completion goes through the inbox). */
+  bool done = t->completed && !t->queued;
+  bool twice = t->twice;
+  pthread_mutex_unlock(&em_inbox_lock);
+  if (done) {
+    em_task_retire(t);
+    if (twice) {
+      free(t->str);
+      t->str = NULL;
+      em_raise_take(em_twice_message(t->function));
+      return em_zero();
+    }
+    em_input in = em_task_input(t);
+    if (in.mode == EM_THROW) {
+      em_defect = in.value.p;
+      return em_zero();
+    }
+    return in.value;
+  }
+  bool dead = em_sync_depth > 0 ? em_sync_defect != NULL
+                                : em_root_cur == NULL || em_root_cur->over;
+  if (dead) {
+    em_task_cancel(t);
+    em_suspend_on(NULL);
+    return em_zero();
+  }
+  em_wait *w = em_wait_new(EM_WAIT_HOST, false);
+  w->task = t;
+  em_wait_ref(w);
+  t->wait = w;
+  em_suspend_on(w);
+  return em_zero();
+}
+
+/* ---- TestClock (spec 8.8) ---- */
+
+static void em_sleeper_cancel(em_task *t, void *ctx) {
+  em_sleeper *s = ctx;
+  em_vec_remove(&em_sleepers, s);
+  free(s);
+  em_complete_unit(t);
+}
+
+/* The host function behind TestClock's `sleep` (std/clock.c): completes the task when the run
+ * stalls and `at` is the earliest time waited for (JS `$whenStalled`). */
+void em_when_stalled(int64_t at, em_task *t) {
+  if (em_root_cur == NULL) {
+    em_complete_defect(t, "TestClock was used outside a run");
+    return;
+  }
+  em_sleeper *s = malloc(sizeof(em_sleeper));
+  if (s == NULL) em_out_of_memory();
+  s->at = at;
+  s->seq = em_sleeper_seq++;
+  s->task = t;
+  em_vec_push(&em_sleepers, s);
+  em_on_cancel(t, em_sleeper_cancel, s);
+}
+
+/* The run stalled: wakes the sleeper with the earliest time (the earliest call among equal
+ * times). False without one. */
+static bool em_wake_sleeper(void) {
+  if (em_sleepers.len == 0) return false;
+  size_t first = 0;
+  for (size_t i = 1; i < em_sleepers.len; i++) {
+    em_sleeper *a = em_sleepers.items[i];
+    em_sleeper *b = em_sleepers.items[first];
+    if (a->at < b->at || (a->at == b->at && a->seq < b->seq)) first = i;
+  }
+  em_sleeper *s = em_sleepers.items[first];
+  em_vec_remove(&em_sleepers, s);
+  em_task *t = s->task;
+  free(s);
+  t->on_cancel = NULL;
+  em_complete_unit(t);
+  return true;
+}
+
+/* ---- The event loop ---- */
+
+/* Whether the loop has something to wait for: a registration, or a completion from another
+ * thread not taken yet. */
+static bool em_loop_busy(void) {
+  if (em_timers.len > 0 || em_fds.len > 0) return true;
+  pthread_mutex_lock(&em_inbox_lock);
+  bool any = em_inbox_head != NULL || em_inbox_twice != NULL;
+  pthread_mutex_unlock(&em_inbox_lock);
+  return any;
+}
+
+/* Delivers the completions from other threads, in the order they came. */
+static void em_loop_inbox(void) {
+  char buf[64];
+  while (read(em_wake_fds[0], buf, sizeof buf) > 0) {
+  }
+  pthread_mutex_lock(&em_inbox_lock);
+  em_task *head = em_inbox_head;
+  em_twice *tw = em_inbox_twice;
+  em_inbox_head = em_inbox_tail = NULL;
+  em_inbox_twice = NULL;
+  for (em_task *t = head; t != NULL; t = t->inbox_next) t->queued = false;
+  pthread_mutex_unlock(&em_inbox_lock);
+  while (tw != NULL) {
+    em_twice *next = tw->next;
+    em_task_fail_run(em_twice_message(tw->function));
+    free(tw);
+    tw = next;
+  }
+  while (head != NULL) {
+    em_task *t = head;
+    head = t->inbox_next;
+    t->inbox_next = NULL;
+    em_task_deliver(t);
+  }
+}
+
+/* Calls the registration's callback once: it is removed first. */
+static void em_reg_fire(em_reg *g) {
+  em_task *t = g->task;
+  em_callback cb = g->callback;
+  void *ctx = g->ctx;
+  em_reg_unlink(g);
+  em_reg_remove(g);
+  cb(t, ctx);
+}
+
+/* One turn of the event loop: waits (unless `block` is false) for the first timer, a file
+ * descriptor or a completion from another thread, and runs what is ready. */
+static void em_loop_turn(bool block) {
+  em_loop_collect();
+  size_t n = em_fds.len + 1;
+  struct pollfd *pfds = malloc(n * sizeof(struct pollfd));
+  uint64_t *seqs = malloc(n * sizeof(uint64_t));
+  if (pfds == NULL || seqs == NULL) em_out_of_memory();
+  pfds[0].fd = em_wake_fds[0];
+  pfds[0].events = POLLIN;
+  pfds[0].revents = 0;
+  for (size_t i = 0; i < em_fds.len; i++) {
+    em_reg *g = em_fds.items[i];
+    pfds[i + 1].fd = g->fd;
+    pfds[i + 1].events = g->kind == EM_REG_READ ? POLLIN : POLLOUT;
+    pfds[i + 1].revents = 0;
+    seqs[i + 1] = g->seq;
+  }
+  int timeout = 0;
+  if (block) {
+    timeout = -1;
+    if (em_timers.len > 0) {
+      int64_t d = em_timers.items[0]->at - em_now_ms();
+      timeout = d < 0 ? 0 : d > 1000000000 ? 1000000000 : (int)d;
+    }
+  }
+  int ready;
+  do {
+    ready = poll(pfds, (nfds_t)n, timeout);
+  } while (ready < 0 && errno == EINTR);
+  if (ready < 0) {
+    perror("emela: poll");
+    abort();
+  }
+  em_loop_now = em_now_ms();
+  em_loop_inbox();
+  for (size_t i = 1; ready > 0 && i < n; i++) {
+    if (pfds[i].revents == 0) continue;
+    /* Still registered? An earlier callback may have completed its task. */
+    for (size_t k = 0; k < em_fds.len; k++) {
+      if (em_fds.items[k]->seq == seqs[i]) {
+        em_reg_fire(em_fds.items[k]);
+        break;
+      }
+    }
+  }
+  free(pfds);
+  free(seqs);
+  /* Timers registered by these callbacks wait for the next turn. */
+  uint64_t limit = em_reg_seq;
+  while (em_timers.len > 0) {
+    em_reg *g = em_timers.items[0];
+    if (g->at > em_loop_now || g->seq >= limit) break;
+    em_reg_fire(g);
+  }
+}
+
+/* The run ended: what is still registered is dropped. Tasks left uncompleted are not freed (the
+ * host may still complete them from another thread; that completion is discarded). */
+static void em_loop_reset(void) {
+  while (em_timers.len > 0) {
+    em_reg *g = em_timers.items[--em_timers.len];
+    em_reg_unlink(g);
+    free(g);
+  }
+  while (em_fds.len > 0) {
+    em_reg *g = em_fds.items[--em_fds.len];
+    em_reg_unlink(g);
+    free(g);
+  }
+  em_loop_collect();
+}
+
 /* ---- The run ---- */
 
 static void em_root_finish(em_root *r, em_input in) {
@@ -2088,6 +2808,7 @@ static void em_root_finish(em_root *r, em_input in) {
       em_perform_unref(w->on_drop);
       w->on_drop = NULL;
     }
+    if (w->task != NULL) em_task_cancel(w->task);
     em_drop(chain);
     em_wait_unref(w);
   }
@@ -2151,19 +2872,23 @@ void em_run(em_word (*entry)(void), int32_t repr) {
   em_schedule(r, job);
   for (;;) {
     if (r->over) break;
-    if (r->later.len > 0) {
-      em_schedule(r, em_queue_pop(&r->later));
+    /* No job is left: the event loop runs (JS: the host's event loop). A job that goes through
+     * the host (`later`) runs after one turn that does not wait. */
+    bool later = r->later.len > 0;
+    if (later || em_loop_busy()) {
+      em_loop_turn(!later);
+      if (!r->over && later && r->later.len > 0) em_schedule(r, em_queue_pop(&r->later));
       continue;
     }
-    /* No job is left: in JS the host's event loop is empty. An event loop with timers, file
-     * descriptors and completions from other threads (spec 12.6) waits here and runs what
-     * becomes ready before the run counts as stalled. */
+    /* The event loop is empty: the run has stalled. TestClock's earliest sleeper wakes. */
+    if (em_wake_sleeper()) continue;
     em_root_interrupt(r);
     /* Like the JS host, which only reports the empty loop again after more work went through
-     * it, the run ends when unwinding did not queue such work. */
-    if (r->later.len == 0) break;
+     * it, the run ends when unwinding did not queue or register such work. */
+    if (r->later.len == 0 && !em_loop_busy()) break;
   }
   if (!r->over) em_root_finish(r, em_in_value(em_zero(), false));
+  em_loop_reset();
   em_input in = r->result;
   switch (in.mode) {
     case EM_FAIL:
@@ -2417,6 +3142,7 @@ void em_sync_enter(void) { em_sync_depth++; }
 
 /* Drops the request of a continuation unwound in place. */
 static void em_sync_forget(em_wait *w) {
+  if (w->task != NULL) em_task_cancel(w->task);
   em_perform *p = w->on_drop;
   if (p != NULL) {
     w->on_drop = NULL;
@@ -2821,6 +3547,7 @@ em_ref em_deferred_poll(em_ref o, int32_t repr) {
 void em_start(int argc, char **argv) {
   (void)argc;
   (void)argv;
+  em_loop_init();
 }
 
 /* ---- Tests (spec 13.4) ---- */

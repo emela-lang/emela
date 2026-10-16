@@ -23,7 +23,8 @@
  * not part of the string) from slot 1. Lists are cons cells (slot 0 the head, slot 1 the tail).
  * Closures are `{function pointer, captures...}`. Handlers are `{retired flag, operations...}`.
  *
- * Single-threaded: no atomics. Defects and failures are passed back through the pending slots
+ * Single-threaded (only the completions of `emela.h` may come from other threads, through a locked
+ * inbox): no atomics. Defects and failures are passed back through the pending slots
  * `em_defect` and `em_failure`, which callers test after each call that may set them. They hold a
  * value only while a call returns (never at a suspension point), so one pair serves every fiber.
  * An interruption is pending as a defect of its own kind (spec 11.4). */
@@ -33,6 +34,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "emela.h"
 
 typedef struct em_obj em_obj;
 typedef em_obj *em_ref;
@@ -258,6 +261,26 @@ const char *em_cstr(em_ref s);
 /* A String from a host string (`malloc`ed, freed here); invalid UTF-8 becomes U+FFFD. NULL is a
  * defect naming the external function. */
 em_ref em_from_host_string(char *s, const char *function);
+
+/* ---- `suspend fn` external functions (spec 12.6) ----
+ *
+ * The wrapper of such a function makes a task (`em_task_new`, with the kind of host value it
+ * returns and the function's name), calls the host function with it and then calls
+ * `em_task_end`: if the task was completed in place, that returns the value (or leaves a defect
+ * pending); otherwise it starts a suspension that waits for the completion. */
+
+enum {
+  EM_HOST_UNIT = 0,
+  EM_HOST_INT = 1,
+  EM_HOST_INT64 = 2,
+  EM_HOST_FLOAT = 3,
+  EM_HOST_BOOL = 4,
+  EM_HOST_STRING = 5,
+  EM_HOST_HANDLE = 6,
+};
+
+em_task *em_task_new(int32_t kind, const char *function);
+em_word em_task_end(em_task *task);
 
 /* ---- Suspension (spec 14.5; the Heap IR's state machines) ----
  *

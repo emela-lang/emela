@@ -111,9 +111,9 @@ pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
 // fiber（11.2，11.8）
 pub const ESCAPING_FROM_SCOPE: &str = "E0425";
 pub const OP_TYPE_PARAMS: &str = "E0426";
-// External functions the C target does not support yet (spec 12.2, 12.4)
+// External functions the C target does not support yet (spec 12.4). E0428 is retired: `suspend
+// fn` external functions on C complete their task later (spec 12.6).
 pub const CALLBACK_EXTERNAL: &str = "E0427";
-pub const SUSPEND_EXTERNAL: &str = "E0428";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

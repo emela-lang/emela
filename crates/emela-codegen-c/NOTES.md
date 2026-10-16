@@ -1,6 +1,6 @@
 # emela-codegen-c の補足
 
-C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`）を読んで C11 を書き出す．ランタイムは C で書き（`src/emela_runtime.c` と `.h`），`include_str!` で埋め込んで出力の隣に書き出す．設計にない判断を「（補）」として残す．
+C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`）を読んで C11 を書き出す．ランタイムは C で書き（`src/emela_runtime.c` と `.h`），`include_str!` で埋め込んで出力の隣に書き出す．ホストの C のファイル向けの公開のヘッダ `src/emela.h`（12.6）も同じく書き出す．設計にない判断を「（補）」として残す．
 
 ## パイプライン
 
@@ -57,6 +57,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 - （補）ホストの関数のプロトタイプは 12.4 の表から書く．生成した `main.c` はランタイムのヘッダしか include しないので，C の標準ヘッダの宣言とぶつからない
 - （補）`@external(c, "file", "name")` の file は，同梱のもの（`HostModule::Bundled`）を `COutput::bundled`，プロジェクトのもの（`HostModule::File`）を `COutput::host_files` で返し，呼ぶ側が一緒にコンパイルする
 - （補）c の注釈のない外部関数は，呼ばれたときに JS と同じ文言（`external function X is not available on this target`）の defect にする．たどれるものは lowering の E0412 で先に止まる
+- （補）suspend fn の外部関数の包みは，`em_task_new(戻り値の種類, 名前)` で task を作り，ホストの関数に最後の引数で渡して呼び，`em_task_end(task)` の値を返す．プロトタイプは `void host(…, em_task *)`．String の引数の写しは，ホストの関数が戻るまでだけ有効（完了までではない）
 
 ## suspend と fiber（仕様 11 章，14.5）
 
@@ -71,16 +72,30 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 - （補）main とテスト関数も起動（`em_run`）の根の fiber として走らせる．値を `em_word` にして返す包み（`e0_main_entry`）を渡す
 - （補）並行の操作には値の表現（`EM_REPR_*`）を渡す．子の値は `Any`（Flow IR が箱に入れる）なので，join と await はランタイムが表現に合わせて箱から出す．Exit，Some，Cause はランタイムの記述子で作る
 - （補）後の失敗の注記（11.2）は，JS では `$Fail` の包みに持つ．C には失敗の包みがないので，起動の間だけ error の値ごとの表（`em_note_errors`）に持つ．静的な error の値は写してから載せる
-- （補）イベントループはまだない．待ち行列と `later` が空になったら，JS でホストのイベントループが空になったときと同じく起動が止まったとみなし，すべての fiber を中断する（`em_root_interrupt`）．JS と同じく，その巻き戻しが `later` に仕事を足さなければそこで起動を終える
-- （補）12.6 のイベントループは `em_run` のこの地点（「No job is left」）に入る．待ち行列と `later` が空のとき，タイマー，ファイル記述子，別のスレッドからの完了（`em_complete_*`）を待って準備のできたコールバックを走らせ，待つものが何もなければ止まったとみなす．完了は待ち（`em_wait`）を `em_cont` で起こせばよい．別のスレッドからの完了はロックのある受け箱に積んでループを起こし，ランタイムのスレッドで `em_cont` する（`em_cont` も待ち行列もスレッドに安全ではない）．中断で待ちを捨てるとき（`em_drop_wait`）に `em_on_cancel` のコールバックを呼ぶ
+
+## ホストの非同期の関数とイベントループ（12.6）
+
+- （補）task（`em_task`）は suspend fn の外部関数の呼び出し1回．ホストの関数を呼んでいる間に完了したら（その場），`em_task_end` がその値を返して中断しない（JS で Promise でない値が返ったときと同じ）．そうでなければ fiber は自分の待ち（`EM_WAIT_HOST`）で中断し，task がその待ちを数えて持つ．完了は待ちを `em_cont` で起こす（JS の `$Await` と Promise の解決）
+- （補）イベントループは `em_run` の「No job is left」の地点で回る（JS でホストのイベントループが回る所）．`poll(2)` で，`em_on_readable` と `em_on_writable` のファイル記述子，`em_after` の一番早いタイマー，別のスレッドからの完了を待つ．macOS と Linux で同じに動くので epoll や kqueue は使わない
+- （補）タイマーは（時刻，登録の順）の二分ヒープ．時刻は単調な時計のミリ秒で，ループの1回ごとに更新した値（libuv の `uv_now` と同じ）から決める．コールバックの中で登録したタイマーは，時刻が来ていても次の回に回す（Node の `setTimeout(0)` と同じ）．ファイル記述子の登録は1回きりで，準備ができたら外してからコールバックを呼ぶ
+- （補）別のスレッドからの完了は，ロックのある受け箱に積み，自分宛てのパイプ（self-pipe）に1バイト書いて `poll` を起こす．ランタイムのスレッドが受け箱を取り出し，来た順に届ける（`em_cont` も待ち行列もスレッドに安全ではない）．値は task の中にホストの形のまま置き，Emela の値（String の写し，箱）にするのはランタイムのスレッドで行う（`em_alloc` もスレッドに安全ではない）
+- （補）task を完了すると，その task の登録（タイマー，ファイル記述子）を外す．別のスレッドに任せる関数は，`em_after` の長いタイマーでループを待たせておき，完了で外れる（仕様の「登録された待ち」だけがループを止まらせないので，別のスレッドが持つ task だけでは止まったとみなす）
+- （補）待ち行列，`later`，登録，受け箱が全部空なら起動が止まった（JS でイベントループが空になった）．TestClock の眠り手（`em_when_stalled`．JS の `$whenStalled`）がいれば一番早い時刻（同じなら呼んだ順）のものを完了し，いなければ `em_root_interrupt` で巻き戻す．巻き戻しが `later` にも登録にも仕事を足さなければ起動を終える．`later` に仕事があるときは，待たない1回（`poll` の timeout 0）を回してから1つ走らせる
+- （補）待ちを捨てるとき（`em_drop_wait`：fiber の中断，止まった起動の巻き戻し），起動が終わったとき（`em_root_finish`），8.7 のその場の巻き戻し（`em_sync_forget`）で task を取り消し，`em_on_cancel` のコールバックを呼ぶ（JS の `AbortController#abort`）．取り消した task への完了は値を捨てる．同梱の `sleep` は取り消しのコールバックですぐ完了し，それでタイマーが外れる
+- （補）2回目の完了の defect の文言は `` the task of external function `X` was completed twice ``．その場（ホストの関数の中）なら呼び出しの defect にし，後から（コールバック，別のスレッド）なら起動をその defect で終える（JS の `resume called twice` がホストのコールバックに投げられて起動が終わるのと同じ）．完了した task はランタイムがイベントループに戻るまで解放しないので，同じ呼び出しやコールバックの中の2回目は確実に見つかる．それより後の2回目は解放した記憶域に触る（未定義）
+- （補）完了の関数の種類が戻り値の型と合わなければ（`em_complete_int` で String を返す関数を完了した），`` external function `X` was completed with `em_complete_int`, which does not match its return type `` の defect にする．`em_complete_defect` の文言はそのまま defect にする（JS の拒否のように例外の名前を前に付けない）
+- （補）起動が終わったら残った登録は捨てる．完了していない task は解放しない（別のスレッドが後から完了するかもしれず，その完了は捨てる）．task と登録は malloc で取り，漏れの検査には数えない（task が数える待ちは取り消しで手放す）
+- （補）`em_` の関数のうち，完了の関数だけがどのスレッドからも呼べる．`em_after` などをほかのスレッドから呼ぶと，理由を出して abort する
+- （補）ランタイムは `_POSIX_C_SOURCE 200809L`（macOS は `_DARWIN_C_SOURCE` も）で `poll`，`pipe`，`clock_gettime`，pthread を使う．cc に `-pthread` を渡す
 
 ## 対応していないもの
 
-- コールバックを取る外部関数（E0427）と suspend fn の外部関数（E0428）．イベントループと一緒に入れる
+- コールバックを取る外部関数（E0427）
 
 ## テスト
 
 - `tests/programs/*.emel` を C にして cc で作って動かし，終了コード，標準出力，標準エラーを JS の出力（`*.expected`．`emela run` で作ったもの）と比べる．実行では `EMELA_LEAK_CHECK` を立て，終了のときに生きている割り当てがあれば終了コード 99 で知らせる（調査の結論 10）．環境変数を渡せない所（driver を通す実行）では，ランタイムを `-DEMELA_LEAK_CHECK` でコンパイルしても同じ検査になる．cc が `-fsanitize=address,undefined` を受け付ければ，それでも作って同じ結果になることを確かめる
 - cc は `EMELA_CC` か `cc`．起動できなければ理由を出して飛ばす
 - `tests/snapshots.rs` は小さなプログラムの C を insta で見る
-- cc に渡すフラグ：`-std=c11 -fno-strict-aliasing`（静的なオブジェクトを別の構造体の型で読むため）と `-lm`
+- cc に渡すフラグ：`-std=c11 -fno-strict-aliasing`（静的なオブジェクトを別の構造体の型で読むため），`-pthread`，`-I.`（ホストの `.c` が `emela.h` を include する）と `-lm`
+- `tests/programs/suspend_external.emel` は suspend fn の外部関数（`sleep.c`，JS は `sleep.mjs`）をタイマーで待つ．このクレートのテストでは `./sleep.c` を解決しないので，`common::HELPER` が同じ関数を持つ

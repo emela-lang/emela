@@ -20,11 +20,9 @@ use emela_driver::{
 /// Examples that do not build on C yet, and the code of the first diagnostic that stops them (no
 /// code: the C target's "not supported yet").
 const NOT_ON_C: &[(&str, Option<&str>)] = &[
-    // `with SystemClock` reaches the `sleep` external function, which has no `@external(c, ...)`
-    // until the C target can suspend (spec 18.1 #37).
-    ("clock", Some("E0412")),
-    ("fibers", Some("E0412")),
-    // `with Platform` reaches every System handler, including SystemClock and SystemHttp.
+    // `with Platform` reaches every System handler, including SystemHttp, which has no
+    // `@external(c, ...)` (spec 15.2). Checking only the operations called (spec 12.1) lets
+    // `notes` build once that lands.
     ("http", Some("E0412")),
     ("notes", Some("E0412")),
 ];

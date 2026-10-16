@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use emela_driver::{
-    Analysis, C_EXECUTABLE, CoreC, Input, Lower, LowerTests, MemoryFiles, Output, RunOptions,
+    Analysis, C_EXECUTABLE, CoreC, Input, Lower, LowerTests, MemoryFiles, OsFs, Output, RunOptions,
     RunOutput, Target, TestOptions, TestOutcome, build, cc_command, project_target, run, test,
 };
 
@@ -161,7 +161,7 @@ fn main() {
 }
 
 #[test]
-fn callbacks_and_suspend_externals_are_rejected() {
+fn callbacks_are_rejected() {
     let main = r##"@external(c, "take")
 fn take(f: fn(Int) -> Int) -> () use {}
 
@@ -289,5 +289,287 @@ fn build_target_from_pome_toml() {
             Some("E0232"),
             "unknown target `node` in `[build].target`".to_owned()
         ))
+    );
+}
+
+/// The host side of [`HOST_EMEL`]: `suspend fn` external functions written against `emela.h`
+/// (spec 12.6).
+const HOST_C: &str = r#"#define _POSIX_C_SOURCE 200809L
+#include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "emela.h"
+
+static void doubled(em_task *task, void *ctx) { em_complete_int(task, (int32_t)(intptr_t)ctx * 2); }
+
+static void cancelled(em_task *task, void *ctx) {
+  printf("cancelled %d\n", (int)(intptr_t)ctx);
+  em_complete_int(task, 0);
+}
+
+/* Completes with n * 2 after ms milliseconds; says so when the fiber is interrupted. */
+void host_double(int32_t n, int32_t ms, em_task *task) {
+  em_after(ms, task, doubled, (void *)(intptr_t)n);
+  em_on_cancel(task, cancelled, (void *)(intptr_t)n);
+}
+
+/* Completes in place. */
+void host_greet(const char *name, em_task *task) {
+  size_t n = strlen(name) + 8;
+  char *s = malloc(n);
+  snprintf(s, n, "hello, %s", name);
+  em_complete_string(task, s);
+}
+
+typedef struct job {
+  em_task *task;
+  int32_t n;
+} job;
+
+static void *work(void *arg) {
+  job *j = arg;
+  struct timespec ts = {0, 20 * 1000000};
+  nanosleep(&ts, NULL);
+  em_complete_int(j->task, j->n + 1);
+  free(j);
+  return NULL;
+}
+
+static void never(em_task *task, void *ctx) {
+  (void)task;
+  (void)ctx;
+}
+
+/* Completed from another thread. The long timer keeps the event loop waiting until then;
+ * completing the task removes it. */
+void host_threaded(int32_t n, em_task *task) {
+  em_after(60000, task, never, NULL);
+  job *j = malloc(sizeof *j);
+  j->task = task;
+  j->n = n;
+  pthread_t thread;
+  pthread_create(&thread, NULL, work, j);
+  pthread_detach(thread);
+}
+
+void host_twice(em_task *task) {
+  em_complete_int(task, 1);
+  em_complete_int(task, 2);
+}
+
+static void twice_later(em_task *task, void *ctx) {
+  (void)ctx;
+  em_complete_int(task, 1);
+  em_complete_int(task, 2);
+}
+
+void host_twice_later(em_task *task) { em_after(1, task, twice_later, NULL); }
+
+void host_broken(em_task *task) { em_complete_defect(task, "disk on fire"); }
+
+static void forgotten(em_task *task, void *ctx) {
+  (void)ctx;
+  printf("cancelled forgotten\n");
+  em_complete_unit(task);
+}
+
+/* Registers nothing with the event loop and does not complete: the run stalls. */
+void host_forgotten(em_task *task) { em_on_cancel(task, forgotten, NULL); }
+"#;
+
+const HOST_EMEL: &str = r##"import Std.Console.{Console, SystemConsole}
+import Std.Clock.{SystemClock}
+import Std.Fiber.{Fiber}
+
+@external(c, "./host.c", "host_double")
+suspend fn host_double(n: Int, ms: Int) -> Int
+
+@external(c, "./host.c", "host_greet")
+suspend fn host_greet(name: String) -> String
+
+@external(c, "./host.c", "host_threaded")
+suspend fn host_threaded(n: Int) -> Int
+
+@external(c, "./host.c", "host_twice")
+suspend fn host_twice() -> Int
+
+@external(c, "./host.c", "host_twice_later")
+suspend fn host_twice_later() -> Int
+
+@external(c, "./host.c", "host_broken")
+suspend fn host_broken() -> Int
+
+@external(c, "./host.c", "host_forgotten")
+suspend fn host_forgotten() -> ()
+
+effect Host {
+  suspend fn double(n: Int, ms: Int) -> Int
+  suspend fn greet(name: String) -> String
+  suspend fn threaded(n: Int) -> Int
+  suspend fn twice() -> Int
+  suspend fn twice_later() -> Int
+  suspend fn broken() -> Int
+  suspend fn forgotten() -> ()
+}
+
+handler CHost implements Host {
+  suspend fn double(n, ms, resume) { resume(host_double(n, ms)) }
+  suspend fn greet(name, resume) { resume(host_greet(name)) }
+  suspend fn threaded(n, resume) { resume(host_threaded(n)) }
+  suspend fn twice(resume) { resume(host_twice()) }
+  suspend fn twice_later(resume) { resume(host_twice_later()) }
+  suspend fn broken(resume) { resume(host_broken()) }
+  suspend fn forgotten(resume) { resume(host_forgotten()) }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, CHost {
+    console = use Console
+    host = use Host
+    console.print_line(host.greet("c"))
+    console.print_line("#{host.double(21, 10)}")
+    console.print_line("#{host.threaded(41)}")
+    console.print_line("#{Fiber.timeout(20, fn() { host.double(5, 60000) })}")
+    console.print_line("#{Fiber.all([fn() { host.double(1, 30) }, fn() { host.double(2, 10) }])}")
+    console.print_line("#{Fiber.race([fn() { host.double(3, 60000) }, fn() { host.double(4, 10) }])}")
+  }
+}
+
+@test
+fn completed_twice() {
+  with CHost { (use Host).twice() }
+}
+
+@test
+fn completed_twice_later() {
+  with CHost {
+    host = use Host
+    host.double(host.twice_later(), 60000)
+  }
+}
+
+@test
+fn host_defect() {
+  with CHost { (use Host).broken() }
+}
+
+@test
+fn abandoned() {
+  with CHost { (use Host).forgotten() }
+}
+
+@test
+fn after_the_others() {
+  with CHost { assert (use Host).double(2, 1) == 4 }
+}
+"##;
+
+/// A project on disk (`@external(c, "./host.c", ...)` points to a real file) with [`HOST_EMEL`]
+/// and [`HOST_C`].
+fn host_project(name: &str) -> (PathBuf, Input) {
+    let dir = out_dir(&format!("{name}-project"));
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("Pome.toml"), "").unwrap();
+    std::fs::write(dir.join("src/main.emel"), HOST_EMEL).unwrap();
+    std::fs::write(dir.join("src/host.c"), HOST_C).unwrap();
+    let input = Input::resolve(&OsFs, &dir).unwrap();
+    (dir, input)
+}
+
+/// The C backend with the runtime's leak check compiled in.
+fn leak_checked() -> CoreC {
+    let (cc, mut flags) = cc_command();
+    flags.push("-DEMELA_LEAK_CHECK".to_owned());
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    CoreC::with_cc(cc, &flags)
+}
+
+#[test]
+fn suspend_externals_complete_later() {
+    if !have_cc() {
+        return;
+    }
+    let (dir, input) = host_project("host-run");
+    let options = RunOptions {
+        out_dir: dir.join("out"),
+        node: PathBuf::from("node"),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let started = std::time::Instant::now();
+    let (analysis, output) = run(
+        &OsFs,
+        &input,
+        &mut Lower::default().with_target(Target::C),
+        &mut leak_checked(),
+        &options,
+        |_| {},
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(codes(&analysis), []);
+    let output = output.unwrap();
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        text(&output.stdout),
+        "hello, c\n42\n42\ncancelled 5\nNone\n[2, 4]\ncancelled 3\n8\n"
+    );
+    assert_eq!(output.code, 0);
+    // The one-minute timers were removed: by the completion from the thread, by interruption.
+    assert!(started.elapsed().as_secs() < 30, "{:?}", started.elapsed());
+}
+
+#[test]
+fn suspend_externals_misbehaving() {
+    if !have_cc() {
+        return;
+    }
+    let (dir, input) = host_project("host-test");
+    let options = TestOptions {
+        out_dir: dir.join("out"),
+        node: PathBuf::from("node"),
+        filter: None,
+        output: Output::Capture,
+    };
+    let mut out = Vec::new();
+    let (analysis, report) = test(
+        &OsFs,
+        &input,
+        &mut LowerTests::default().with_target(Target::C),
+        &mut leak_checked(),
+        &options,
+        |_| {},
+        &mut out,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(codes(&analysis), []);
+    let results: Vec<(String, TestOutcome)> = report
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|r| (r.name, r.outcome))
+        .collect();
+    let twice = |f: &str| format!("the task of external function `{f}` was completed twice");
+    assert_eq!(
+        results,
+        [
+            (
+                "completed_twice".to_owned(),
+                TestOutcome::Defect(twice("host_twice"))
+            ),
+            (
+                "completed_twice_later".to_owned(),
+                TestOutcome::Defect(twice("host_twice_later"))
+            ),
+            (
+                "host_defect".to_owned(),
+                TestOutcome::Defect("disk on fire".to_owned())
+            ),
+            ("abandoned".to_owned(), TestOutcome::Interrupted),
+            ("after_the_others".to_owned(), TestOutcome::Passed),
+        ]
     );
 }

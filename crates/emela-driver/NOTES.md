@@ -36,9 +36,10 @@ pub trait JsBackend<P> {
 
 - （補）ターゲットは `Target`（`js`，`c`）．コマンドの `--target`，なければ `Pome.toml` の `[build].target`（4.7），なければ js．`Pome.toml` は今もほかの項目を読まず，`[build].target` だけを `toml` で読む．TOML として読めないファイルや文字列でない `target` は「指定なし」とみなし，知らない名前だけを E0232 にする．依存の仕組みがまだないので，「依存されたときは無視する」は今は何もしなくてよい
 - （補）`Lower` と `LowerTests` は `with_target` で lowering の外部関数の検査（12.1，E0412）のターゲットを変える
-- （補）`CoreC` は `JsBackend` と `TestBackend` の C 版．出力（`main.c`，ランタイムの `.c` と `.h`，使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
-- （補）cc は `EMELA_CC`（空白で区切った後ろはフラグ），なければ `cc`．フラグは `-std=c11 -O2 -fno-strict-aliasing` と `-lm`．起動できなければ E0907，失敗すれば E0908 で，cc の出力（4000 字まで）を注記に付ける．成功したときの cc の出力は出さない
-- （補）emela-codegen-c の「C ではまだ使えない」のエラーは診断にする．コールバックは E0427，suspend fn の外部関数は E0428，それ以外（suspend，fiber，書記素）は番号なし（lowering の「not supported yet」と同じ扱い）．位置は持たない（Heap IR に位置がないため）
+- （補）`CoreC` は `JsBackend` と `TestBackend` の C 版．出力（`main.c`，ランタイムの `.c` と `.h`，ホストの `.c` 向けの公開のヘッダ `emela.h`（12.6），使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
+- （補）cc は `EMELA_CC`（空白で区切った後ろはフラグ），なければ `cc`．フラグは `-std=c11 -O2 -fno-strict-aliasing -pthread -I.` と `-lm`（`-pthread` は別のスレッドからの完了のため，`-I.` はホストの `.c` が出力先の `emela.h` を include するため）．起動できなければ E0907，失敗すれば E0908 で，cc の出力（4000 字まで）を注記に付ける．成功したときの cc の出力は出さない
+- （補）emela-codegen-c の「C ではまだ使えない」のエラーは診断にする．コールバックは E0427，それ以外（書記素）は番号なし（lowering の「not supported yet」と同じ扱い）．位置は持たない（Heap IR に位置がないため）．suspend fn の外部関数は 12.6 の形で使えるようになったので，E0428 は欠番
+- （補）parity のテスト（`tests/parity.rs`）は，`with Platform` が SystemHttp までたどって E0412 になる example（http，notes）を外す．`tests/fiber.rs` は，cc が起動できれば同じプログラムを C でも動かして結果を比べる．`fibers_in_tests` だけは JS だけで動かす（推論で型引数を持つテスト関数を C の単相化が飛ばすため）
 - （補）既定の出力先は build と run が `target/emela/c`，test が `target/emela/test-c`（JS の `target/emela/test` と分ける）
 - （補）`emela test --target c` は JS と同じ結果の行（`\x1eemela-test` と JSON）をテストの実行ファイルが標準出力に書くので，結果の読み取りと表示は JS と共通
 

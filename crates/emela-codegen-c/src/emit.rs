@@ -1500,13 +1500,18 @@ impl<'m> Emitter<'m> {
             }
         };
         if self.host_names.insert(host.clone()) {
-            let ps: Vec<&str> = params.iter().map(|(_, t)| t.param()).collect();
+            let mut ps: Vec<&str> = params.iter().map(|(_, t)| t.param()).collect();
+            // A `suspend fn` takes the task last and completes it later (spec 12.6).
+            if f.suspends {
+                ps.push("em_task *");
+            }
             let ps = if ps.is_empty() {
                 "void".to_owned()
             } else {
                 ps.join(", ")
             };
-            let _ = writeln!(self.host_protos, "extern {} {host}({ps});", ret_ty.ret());
+            let ret = if f.suspends { "void" } else { ret_ty.ret() };
+            let _ = writeln!(self.host_protos, "extern {ret} {host}({ps});");
         }
         let mut host_args = Vec::new();
         for (i, (p, t)) in params.iter().enumerate() {
@@ -1521,6 +1526,31 @@ impl<'m> Emitter<'m> {
                 HostTy::Handle => format!("em_host_get({v})"),
                 _ => v,
             });
+        }
+        if f.suspends {
+            let kind = match ret_ty {
+                HostTy::Unit => "EM_HOST_UNIT",
+                HostTy::Int => "EM_HOST_INT",
+                HostTy::Int64 => "EM_HOST_INT64",
+                HostTy::Float => "EM_HOST_FLOAT",
+                HostTy::Bool => "EM_HOST_BOOL",
+                HostTy::String => "EM_HOST_STRING",
+                HostTy::Handle => "EM_HOST_HANDLE",
+            };
+            let _ = writeln!(
+                out,
+                "  em_task *task = em_task_new({kind}, {});",
+                names::string_literal(display_name(&f.name).as_bytes())
+            );
+            host_args.push("task".to_owned());
+            let _ = writeln!(out, "  {host}({});", host_args.join(", "));
+            if ret == Repr::Void {
+                out.push_str("  em_task_end(task);\n");
+            } else {
+                let _ = writeln!(out, "  return em_task_end(task).{};", acc(ret));
+            }
+            out.push_str("}\n");
+            return;
         }
         let call = format!("{host}({})", host_args.join(", "));
         let _ = match ret_ty {

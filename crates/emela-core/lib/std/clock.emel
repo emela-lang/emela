@@ -17,14 +17,16 @@ pub effect Clock {
 fn now_milliseconds() -> Int64
 
 @external(js, "./clock.mjs", "sleep")
+@external(c, "./clock.c", "emela_clock_sleep")
 suspend fn sleep_milliseconds(ms: Int) -> ()
 
 @external(js, "./clock.mjs", "whenStalled")
+@external(c, "./clock.c", "emela_clock_when_stalled")
 suspend fn when_stalled(at: Int64) -> ()
 
-## The host's clock. `sleep` waits for a timer (JS `setTimeout`) as an `@external suspend fn`, so
-## SystemClock depends on Async (spec 8.7), and interrupting the sleeping fiber clears the timer
-## (spec 12.2). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
+## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop) as
+## an `@external suspend fn`, so SystemClock depends on Async (spec 8.7), and interrupting the
+## sleeping fiber clears the timer (spec 12.2, 12.6). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
 pub handler SystemClock implements Clock {
   suspend fn sleep(ms, resume) {
     sleep_milliseconds(ms)

@@ -1,15 +1,17 @@
 //! Concurrency (spec chapter 11) through the `emela run` and `emela test` paths. Runs source
 //! through lowering, codegen-js and node, checking the behavior of the chapter 11 examples
-//! (spec 11.2, 11.3, 11.5, 11.7, 11.8).
+//! (spec 11.2, 11.3, 11.5, 11.7, 11.8). When cc starts, every program also runs on the C target
+//! (the runtime with its leak check) and must give the same result (spec chapter 16).
 //!
 //! Time advances with SystemClock's real timers. Wait times differ widely, and only the order of
 //! events is checked.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use emela_driver::{
-    CoreJs, Input, Lower, LowerTests, MemoryFiles, Output, RunOptions, RunOutput, TestOptions,
-    TestOutcome, run, test,
+    CoreC, CoreJs, Input, Lower, LowerTests, MemoryFiles, Output, RunOptions, RunOutput, Target,
+    TestOptions, TestOutcome, cc_command, run, test,
 };
 
 /// A per-test output directory. Leftovers from earlier runs are removed.
@@ -20,29 +22,64 @@ fn out_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Runs main with `emela run`. Returns (exit code, stdout, stderr).
+/// The C backend with the runtime's leak check, or `None` (with a message) without cc.
+fn c_backend() -> Option<CoreC> {
+    let (cc, mut flags) = cc_command();
+    let ok = Command::new(&cc)
+        .args(&flags)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !ok {
+        eprintln!("skipping C: cannot start the C compiler `{}`", cc.display());
+        return None;
+    }
+    flags.push("-DEMELA_LEAK_CHECK".to_owned());
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    Some(CoreC::with_cc(cc, &flags))
+}
+
+/// Runs main with `emela run` on JS, and on C when cc starts (the results must agree). Returns
+/// (exit code, stdout, stderr).
 fn run_main(name: &str, main: &str) -> (i32, String, String) {
+    let js = run_main_on(name, main, Target::Js);
+    if c_backend().is_some() {
+        let c = run_main_on(name, main, Target::C);
+        if js != c {
+            // Written to stderr too, in case the panic message is lost.
+            eprintln!("{name}: JS and C differ\nJS: {js:?}\nC: {c:?}");
+        }
+        assert_eq!(js, c, "JS and C differ");
+    }
+    js
+}
+
+fn run_main_on(name: &str, main: &str, target: Target) -> (i32, String, String) {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = RunOptions {
-        out_dir: out_dir(name),
+        out_dir: out_dir(&format!("{name}-{target}")),
         node: PathBuf::from("node"),
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(
-        &fs,
-        &input,
-        &mut Lower::default(),
-        &mut CoreJs,
-        &options,
-        |_| {},
-    );
+    let mut frontend = Lower::default().with_target(target);
+    let (analysis, output) = match target {
+        Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
+        Target::C => run(
+            &fs,
+            &input,
+            &mut frontend,
+            &mut c_backend().expect("checked by the caller"),
+            &options,
+            |_| {},
+        ),
+    };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),
-        "{:?}",
+        "{target}: {:?}",
         analysis.diagnostics
     );
     let RunOutput {
@@ -57,29 +94,55 @@ fn run_main(name: &str, main: &str) -> (i32, String, String) {
     )
 }
 
-/// Runs with `emela test`. Returns (name, outcome) per test.
+/// Runs with `emela test` on JS, and on C when cc starts (the results must agree). Returns
+/// (name, outcome) per test.
 fn run_tests(name: &str, main: &str) -> Vec<(String, TestOutcome)> {
+    let js = run_tests_on(name, main, Target::Js);
+    if c_backend().is_some() {
+        let c = run_tests_on(name, main, Target::C);
+        if js != c {
+            // Written to stderr too, in case the panic message is lost.
+            eprintln!("{name}: JS and C differ\nJS: {js:?}\nC: {c:?}");
+        }
+        assert_eq!(js, c, "JS and C differ");
+    }
+    js
+}
+
+fn run_tests_on(name: &str, main: &str, target: Target) -> Vec<(String, TestOutcome)> {
     let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
     let fs = MemoryFiles::new(sources.iter().copied());
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let options = TestOptions {
-        out_dir: out_dir(name),
+        out_dir: out_dir(&format!("{name}-{target}")),
         node: PathBuf::from("node"),
         filter: None,
         output: Output::Capture,
     };
     let mut out = Vec::new();
-    let (analysis, report) = test(
-        &fs,
-        &input,
-        &mut LowerTests::default(),
-        &mut CoreJs,
-        &options,
-        |_| {},
-        &mut out,
-    );
+    let mut frontend = LowerTests::default().with_target(target);
+    let (analysis, report) = match target {
+        Target::Js => test(
+            &fs,
+            &input,
+            &mut frontend,
+            &mut CoreJs,
+            &options,
+            |_| {},
+            &mut out,
+        ),
+        Target::C => test(
+            &fs,
+            &input,
+            &mut frontend,
+            &mut c_backend().expect("checked by the caller"),
+            &options,
+            |_| {},
+            &mut out,
+        ),
+    };
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    assert_eq!(analysis.diagnostics, []);
+    assert_eq!(analysis.diagnostics, [], "{target}");
     report
         .unwrap()
         .results
@@ -510,8 +573,10 @@ fn main() {
 #[test]
 fn fibers_in_tests() {
     // spec chapter 13: fibers also run inside test functions. A child's failure becomes that
-    // test's error or defect.
-    let outcomes = run_tests(
+    // test's error or defect. JS only: `child_defect` infers a type parameter (the child returns
+    // Never), and the C target skips generic test functions (monomorphisation has no
+    // instantiation for them).
+    let outcomes = run_tests_on(
         "tests",
         &source(
             r##"
@@ -547,6 +612,7 @@ fn child_defect() {
 }
 "##,
         ),
+        Target::Js,
     );
     assert_eq!(
         outcomes,

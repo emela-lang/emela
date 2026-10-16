@@ -9,9 +9,10 @@
 //! both with cc (see `NOTES.md` for the flags).
 //!
 //! Suspending functions are emitted from the Heap IR's state machines, and the runtime schedules
-//! fibers the way the JS runtime does (spec chapter 11, 14.5). There are no callbacks to host
-//! functions, no `suspend fn` external functions (no event loop yet) and no builtins that need
-//! Unicode tables; reaching them is a [`CError`].
+//! fibers the way the JS runtime does (spec chapter 11, 14.5). `suspend fn` external functions
+//! complete a task later, through the runtime's event loop ([`EMELA_H`], spec 12.6). There are
+//! no callbacks to host functions and no builtins that need Unicode tables; reaching them is a
+//! [`CError`].
 
 mod check;
 mod emit;
@@ -25,6 +26,11 @@ pub const RUNTIME_C: &str = include_str!("emela_runtime.c");
 pub const RUNTIME_H: &str = include_str!("emela_runtime.h");
 pub const RUNTIME_C_FILE: &str = "emela_runtime.c";
 pub const RUNTIME_H_FILE: &str = "emela_runtime.h";
+/// The public header for host C files (spec 12.6: tasks, completions, the event loop), written
+/// next to the output as [`EMELA_H_FILE`]. The runtime header includes it, and host C files
+/// include it as `"emela.h"` (the caller compiles with `-I` the output directory).
+pub const EMELA_H: &str = include_str!("emela.h");
+pub const EMELA_H_FILE: &str = "emela.h";
 /// The directory, next to the output, where the caller writes the bundled host files that the
 /// program uses ([`COutput::bundled`]).
 pub const BUNDLED_DIR: &str = "emela_core";
@@ -81,8 +87,6 @@ pub enum CErrorKind {
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
-    /// A `suspend fn` external function with `@external(c, ...)` (E0428).
-    SuspendExternal,
     /// A bug in the compiler (the IR failed a verifier, ...).
     Internal,
 }

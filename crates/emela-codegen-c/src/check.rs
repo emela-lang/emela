@@ -38,17 +38,10 @@ impl Found {
     }
 }
 
-/// An external function with `@external(c, ...)`: E0428 for a `suspend fn`, E0427 for callbacks.
+/// An external function with `@external(c, ...)`: E0427 for callbacks. A `suspend fn` external
+/// function completes its task later (spec 12.6).
 fn external(m: &Module, f: &Function, found: &mut Found) {
     let name = display_name(&f.name);
-    if f.suspends {
-        found.report(
-            CErrorKind::SuspendExternal,
-            format!(
-                "external function `{name}` is a `suspend fn`, which target `c` does not support yet"
-            ),
-        );
-    }
     let params = f.params.iter().map(|&p| (f.vars[p].ty, "takes"));
     for (ty, verb) in params.chain([(f.ret, "returns")]) {
         if let Type::Fn(_) = m.core.ty(ty) {
