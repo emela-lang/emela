@@ -1,0 +1,80 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/effect_labels.emel
+---
+ROOT@0..105
+  EFFECT_DECL@0..18
+    EFFECT_KW@0..6 "effect"
+    WHITESPACE@6..7 " "
+    TYPE_NAME@7..15 "AuditLog"
+    WHITESPACE@15..16 " "
+    EFFECT_LABEL@16..18
+      LOWER_NAME@16..18 "of"
+  NEWLINE@18..19 "\n"
+  EFFECT_DECL@19..45
+    EFFECT_KW@19..25 "effect"
+    WHITESPACE@25..26 " "
+    TYPE_NAME@26..34 "DebugLog"
+    WHITESPACE@34..35 " "
+    EFFECT_LABEL@35..45
+      LOWER_NAME@35..37 "of"
+      WHITESPACE@37..38 " "
+      PATH@38..45
+        TYPE_NAME@38..45 "Console"
+  WHITESPACE@45..46 " "
+  ERROR@46..64
+    L_BRACE@46..47 "{"
+    WHITESPACE@47..48 " "
+    FN_KW@48..50 "fn"
+    WHITESPACE@50..51 " "
+    LOWER_NAME@51..52 "f"
+    L_PAREN@52..53 "("
+    R_PAREN@53..54 ")"
+    WHITESPACE@54..55 " "
+    THIN_ARROW@55..57 "->"
+    WHITESPACE@57..58 " "
+    L_PAREN@58..59 "("
+    R_PAREN@59..60 ")"
+    WHITESPACE@60..61 " "
+    R_BRACE@61..62 "}"
+    NEWLINE@62..63 "\n"
+    NEWLINE@63..64 "\n"
+  FN_DECL@64..104
+    FN_KW@64..66 "fn"
+    WHITESPACE@66..67 " "
+    LOWER_NAME@67..71 "main"
+    PARAM_LIST@71..73
+      L_PAREN@71..72 "("
+      R_PAREN@72..73 ")"
+    WHITESPACE@73..74 " "
+    BLOCK_EXPR@74..104
+      L_BRACE@74..75 "{"
+      NEWLINE@75..76 "\n"
+      WHITESPACE@76..78 "  "
+      WITH_EXPR@78..102
+        WITH_KW@78..82 "with"
+        WHITESPACE@82..83 " "
+        WITH_BY@83..94
+          PATH@83..91
+            TYPE_NAME@83..91 "AuditLog"
+          WHITESPACE@91..92 " "
+          LOWER_NAME@92..94 "by"
+        WHITESPACE@94..95 " "
+        BLOCK_EXPR@95..102
+          L_BRACE@95..96 "{"
+          WHITESPACE@96..97 " "
+          CALL_EXPR@97..100
+            NAME_REF@97..98
+              LOWER_NAME@97..98 "c"
+            ARG_LIST@98..100
+              L_PAREN@98..99 "("
+              R_PAREN@99..100 ")"
+          WHITESPACE@100..101 " "
+          R_BRACE@101..102 "}"
+      NEWLINE@102..103 "\n"
+      R_BRACE@103..104 "}"
+  NEWLINE@104..105 "\n"
+error[E0110]@18..19: expected type name
+error[E0122]@46..47: expected newline after declaration
+error[E0110]@95..96: expected type name

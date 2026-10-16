@@ -214,6 +214,8 @@ pub enum SyntaxKind {
     EFFECT_DECL,
     /// An effect operation. `suspend fn sleep(ms: Int) -> ()`
     OP_SIG,
+    /// The base of a label (an effect declared `of` another). `of Console default`
+    EFFECT_LABEL,
     /// `handler PostgresUsers(conn: Connection) implements Users { ... }`
     HANDLER_DECL,
     /// `implements Users`
@@ -358,6 +360,8 @@ pub enum SyntaxKind {
     MATCH_GUARD,
     /// `with ConsoleLogger, FixedClock { ... }`
     WITH_EXPR,
+    /// An item of `with` that plugs a provider into a label. `AuditLog by HandlerA`
+    WITH_BY,
     /// `find(id) escape { NotFound(_) -> guest() }`
     ESCAPE_EXPR,
     /// `fn(n) { n + 1 }`
