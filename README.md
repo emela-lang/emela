@@ -30,7 +30,8 @@ repository describes the 0.1x language, not 0.20.
 
 Prebuilt binaries are published for macOS (Apple Silicon) and Linux (x86_64).
 Running the generated JavaScript (`emela run`, `emela test`) needs Node.js 18
-or later.
+or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
+`EMELA_CC`).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
@@ -155,6 +156,10 @@ test result: ok. 1 passed; 0 failed; 0 filtered out
 ## Commands
 
 Each command takes a project directory or an entry file, and defaults to `.`.
+`run`, `build` and `test` take `--target js` (the default) or `--target c`, which
+compiles to C and builds a native executable with `cc`; `[build] target = "c"` in
+`Pome.toml` changes the default. The C target does not run suspending code,
+fibers or `String.length` yet.
 
 | Command       | Does                                                    |
 | ------------- | ------------------------------------------------------- |

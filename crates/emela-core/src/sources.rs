@@ -43,8 +43,8 @@ const SOURCES: &[(&str, &str)] = &[
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
-/// `@external(js, "./x.mjs", …)` in bundled sources points to, embedded with `include_str!` like
-/// the `.emel` files (see `lib/README.md` for the procedure). Only JS files so far.
+/// `@external(js, "./x.mjs", …)` and `@external(c, "./x.c", …)` in bundled sources point to,
+/// embedded with `include_str!` like the `.emel` files (see `lib/README.md` for the procedure).
 const HOST_FILES: &[(&str, &str)] = &[
     ("std/random.mjs", include_str!("../lib/std/random.mjs")),
     ("std/env.mjs", include_str!("../lib/std/env.mjs")),
@@ -54,6 +54,10 @@ const HOST_FILES: &[(&str, &str)] = &[
         "std/file_system.mjs",
         include_str!("../lib/std/file_system.mjs"),
     ),
+    ("std/console.c", include_str!("../lib/std/console.c")),
+    ("std/random.c", include_str!("../lib/std/random.c")),
+    ("std/env.c", include_str!("../lib/std/env.c")),
+    ("std/clock.c", include_str!("../lib/std/clock.c")),
 ];
 
 /// The directory under `lib/` holding a bundled source: `std` for std modules, `core` otherwise.
@@ -217,8 +221,8 @@ mod tests {
         }
     }
 
-    /// Every `.mjs` under `lib/` must be listed in `HOST_FILES`; otherwise an installed emela
-    /// cannot read it.
+    /// Every `.mjs` and `.c` under `lib/` must be listed in `HOST_FILES`; otherwise an installed
+    /// emela cannot read it.
     #[test]
     fn host_files_match_lib_dir() {
         let lib = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib");
@@ -229,7 +233,7 @@ mod tests {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
                     dirs.push(path);
-                } else if path.extension().is_some_and(|e| e == "mjs") {
+                } else if path.extension().is_some_and(|e| e == "mjs" || e == "c") {
                     let rel = path.strip_prefix(&lib).unwrap();
                     on_disk.push(rel.to_string_lossy().replace('\\', "/"));
                 }
@@ -238,7 +242,7 @@ mod tests {
         on_disk.sort();
         let mut listed: Vec<String> = bundled_files().iter().map(|(p, _)| p.to_string()).collect();
         listed.sort();
-        assert_eq!(listed, on_disk, "lib/ .mjs files and HOST_FILES disagree");
+        assert_eq!(listed, on_disk, "lib/ host files and HOST_FILES disagree");
     }
 
     #[test]

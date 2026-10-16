@@ -15,6 +15,9 @@ pub trait Frontend {
 
 pub trait JsBackend<P> {
     fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
+    // 既定は JS のまま．C は cc を呼んで実行ファイルを返す
+    fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>>;
+    fn runner(&self) -> Runner;
 }
 ```
 
@@ -28,6 +31,16 @@ pub trait JsBackend<P> {
 - `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．ターゲットを渡すので，返る IR は単相化済み（2026-10-15．汎用の `pub` の fn は型引数を `Any` にした写し）．debug ビルドでは `verify_monomorphic` にかける（多相な IR の `verify` は lowering の中で行う）．`LowerTests` も同じで，`TestCase::function` は単相化した写しを指す．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
 - `CoreJs` は `JsBackend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化と単相化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
+
+## C のターゲット（`--target c`，仕様 16章）
+
+- （補）ターゲットは `Target`（`js`，`c`）．コマンドの `--target`，なければ `Pome.toml` の `[build].target`（4.7），なければ js．`Pome.toml` は今もほかの項目を読まず，`[build].target` だけを `toml` で読む．TOML として読めないファイルや文字列でない `target` は「指定なし」とみなし，知らない名前だけを E0232 にする．依存の仕組みがまだないので，「依存されたときは無視する」は今は何もしなくてよい
+- （補）`Lower` と `LowerTests` は `with_target` で lowering の外部関数の検査（12.1，E0412）のターゲットを変える
+- （補）`CoreC` は `JsBackend` と `TestBackend` の C 版．出力（`main.c`，ランタイムの `.c` と `.h`，使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
+- （補）cc は `EMELA_CC`（空白で区切った後ろはフラグ），なければ `cc`．フラグは `-std=c11 -O2 -fno-strict-aliasing` と `-lm`．起動できなければ E0907，失敗すれば E0908 で，cc の出力（4000 字まで）を注記に付ける．成功したときの cc の出力は出さない
+- （補）emela-codegen-c の「C ではまだ使えない」のエラーは診断にする．コールバックは E0427，suspend fn の外部関数は E0428，それ以外（suspend，fiber，書記素）は番号なし（lowering の「not supported yet」と同じ扱い）．位置は持たない（Heap IR に位置がないため）
+- （補）既定の出力先は build と run が `target/emela/c`，test が `target/emela/test-c`（JS の `target/emela/test` と分ける）
+- （補）`emela test --target c` は JS と同じ結果の行（`\x1eemela-test` と JSON）をテストの実行ファイルが標準出力に書くので，結果の読み取りと表示は JS と共通
 
 ## テスト（`emela test`，仕様 13章）
 

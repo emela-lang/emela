@@ -36,14 +36,18 @@ impl JsBackend<emela_core::Module> for CoreJs {
     }
 }
 
-/// Maps the IR's bundled host files (`Module::bundled_files`) to files under [`BUNDLED_DIR`] in
-/// the output directory. The entry output (at the top of the output directory) imports them as
-/// `./emela_core/x.mjs`.
+/// Maps the IR's bundled JS host files (`Module::bundled_files`, without the C ones) to files
+/// under [`BUNDLED_DIR`] in the output directory. The entry output (at the top of the output
+/// directory) imports them as `./emela_core/x.mjs`.
 pub(crate) fn bundled_outputs(module: &emela_core::Module) -> impl Iterator<Item = OutputFile> {
-    module.bundled_files.iter().map(|file| {
-        OutputFile::new(
-            format!("{BUNDLED_DIR}/{}", file.path),
-            file.contents.clone(),
-        )
-    })
+    module
+        .bundled_files
+        .iter()
+        .filter(|file| file.path.ends_with(".mjs"))
+        .map(|file| {
+            OutputFile::new(
+                format!("{BUNDLED_DIR}/{}", file.path),
+                file.contents.clone(),
+            )
+        })
 }

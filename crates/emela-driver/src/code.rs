@@ -2,7 +2,7 @@
 //! reused once assigned.
 //!
 //! Ranges by stage: E01xx lexing and parsing, E02xx modules, imports and project layout, E03xx
-//! types, E04xx effects, E09xx tooling (I/O, node, ...). The table lives in appendix A of the
+//! types, E04xx effects, E09xx tooling (I/O, node, cc, ...). The table lives in appendix A of the
 //! spec; this is a copy. E01xx codes are owned by emela-syntax's `DiagnosticCode`.
 
 // E02xx: modules, imports and project layout
@@ -42,6 +42,8 @@ pub const MISPLACED_INTERNAL: &str = "E0229";
 pub const ENTRY_WITHOUT_MAIN: &str = "E0230";
 // Consts refer to each other by name only (spec 5.6)
 pub const CONST_CYCLE: &str = "E0231";
+// `[build].target` of Pome.toml (spec 4.7)
+pub const UNKNOWN_BUILD_TARGET: &str = "E0232";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 
@@ -109,6 +111,9 @@ pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
 // fiber（11.2，11.8）
 pub const ESCAPING_FROM_SCOPE: &str = "E0425";
 pub const OP_TYPE_PARAMS: &str = "E0426";
+// External functions the C target does not support yet (spec 12.2, 12.4)
+pub const CALLBACK_EXTERNAL: &str = "E0427";
+pub const SUSPEND_EXTERNAL: &str = "E0428";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
@@ -117,3 +122,6 @@ pub const CANNOT_WRITE_OUTPUT: &str = "E0903";
 pub const NODE_UNAVAILABLE: &str = "E0904";
 pub const NO_JS_BACKEND: &str = "E0905";
 pub const INVALID_JS_OUTPUT: &str = "E0906";
+// The C target's cc (spec appendix B)
+pub const CC_UNAVAILABLE: &str = "E0907";
+pub const CC_FAILED: &str = "E0908";

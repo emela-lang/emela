@@ -17,6 +17,7 @@ use crate::nav::{NavTarget, RenameError};
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
+use crate::target::Target;
 use crate::testing::{TestDef, collect_tests, resolve_tests};
 use crate::tokens::SemanticToken;
 
@@ -376,19 +377,30 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 /// an error-free program). Only fns reachable from the fns the entry module exports are lowered.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
+    target: Target,
 }
 
 impl Default for Lower<NoBuiltins> {
     fn default() -> Self {
         Lower {
             typecheck: Typecheck::default(),
+            target: Target::Js,
         }
     }
 }
 
 impl<B: BuiltinModules> Lower<B> {
     pub fn new(typecheck: Typecheck<B>) -> Self {
-        Lower { typecheck }
+        Lower {
+            typecheck,
+            target: Target::Js,
+        }
+    }
+
+    /// Checks external functions against `target` (spec 12.1) instead of JS.
+    pub fn with_target(mut self, target: Target) -> Self {
+        self.target = target;
+        self
     }
 }
 
@@ -415,6 +427,7 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
                 analysis,
                 &typed,
                 emela_core::Roots::Exported,
+                self.target,
                 &mut diagnostics,
             )
             .map(|lowered| lowered.module)
@@ -426,20 +439,17 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
     }
 }
 
-/// The target of build, run and test, used to check `@external` of external functions
-/// (spec 12.1).
-pub const JS_TARGET: &str = "js";
-
 /// Lowers type checking results to Core IR. Returns `None` without calling lowering if
 /// `diagnostics` has any error or there is no entry. Lowering errors are added to `diagnostics`,
 /// returning `None`.
 ///
-/// External functions are checked (spec 12.1) for the JS target ([`JS_TARGET`]). Only build, run
-/// and test call lowering (check and the LSP do not).
+/// External functions are checked (spec 12.1) for `target`. Only build, run and test call
+/// lowering (check and the LSP do not).
 pub(crate) fn lower_typed(
     analysis: &Analysis,
     typed: &TypedProgram,
     roots: emela_core::Roots,
+    target: Target,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<emela_core::Lowered> {
     let entry = analysis.entry?;
@@ -461,7 +471,7 @@ pub(crate) fn lower_typed(
         tests: typed.tests.iter().map(|t| t.def).collect(),
         paths,
         bundled_files: emela_core::bundled_files(),
-        target: Some(JS_TARGET),
+        target: Some(target.name()),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {

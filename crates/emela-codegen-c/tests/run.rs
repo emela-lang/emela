@@ -103,9 +103,9 @@ fn main() {
 "#,
     );
     assert_eq!(kind, CErrorKind::Unsupported);
-    assert!(
-        message.contains("does not support suspending code yet"),
-        "{message}"
+    assert_eq!(
+        message,
+        "the entry reaches suspending code, which target `c` does not support yet: `Wait.wait` (a `suspend fn` operation)"
     );
 }
 

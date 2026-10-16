@@ -33,7 +33,24 @@ pub enum Entry {
     /// The entry module's `main` (an exported fn named `main`). Without one, the program does
     /// nothing.
     Main,
+    /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
+    /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
+    /// "result", "name": …, "outcome": "ok" | "defect" | "error", "message": …}`, then `{"event":
+    /// "done"}`.
+    Tests(Vec<TestEntry>),
 }
+
+/// A test function of [`Entry::Tests`].
+#[derive(Debug, Clone)]
+pub struct TestEntry {
+    /// The name shown in the results.
+    pub name: String,
+    /// The test function in the Core module. It takes no arguments.
+    pub function: FnId,
+}
+
+/// The start of a test result line (the same as the JS test runner's).
+pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 
 /// The output of [`compile`].
 #[derive(Debug, Clone)]
@@ -92,8 +109,27 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
             .filter(|(_, f)| f.exported && f.name == "main")
             .map(|(id, _)| id)
             .collect(),
+        Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
-    let (mono, _) = emela_core::monomorphize_from(core, &roots);
+    let (mono, copies) = emela_core::monomorphize_from(core, &roots);
+    // The Flow IR functions are the Core functions in the same order, so a test keeps the index
+    // of its copy.
+    let entry = match entry {
+        Entry::Main => emit::Run::Main,
+        Entry::Tests(tests) => emit::Run::Tests(
+            tests
+                .iter()
+                .zip(copies)
+                .filter_map(|(t, copy)| {
+                    let index = u32::from(copy?.into_raw());
+                    Some((
+                        t.name.clone(),
+                        emela_lir::FnId::from_raw(la_arena::RawIdx::from(index)),
+                    ))
+                })
+                .collect(),
+        ),
+    };
     if let Err(errors) = emela_core::verify_monomorphic(&mono) {
         return Err(internal("monomorphisation", errors));
     }
@@ -108,7 +144,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, entry)
+    emit::emit(&lir, &entry)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<CError> {

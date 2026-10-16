@@ -257,6 +257,10 @@ em_ref em_from_host_string(char *s, const char *function);
 /* ---- The program ---- */
 
 void em_start(int argc, char **argv);
+/* Reports how the test function that just returned ended, as a line of the test runner protocol
+ * on stdout, and clears a pending defect or failure. */
+void em_test_result(const char *name);
+void em_test_done(void);
 /* Ends the run: reports a pending defect (`defect: ...`, 101) or failure (`error: ...`, 1),
  * releases what the runtime holds and, with EMELA_LEAK_CHECK set, reports live allocations.
  * Returns the exit code. `cleanup` releases the program's const values. */
