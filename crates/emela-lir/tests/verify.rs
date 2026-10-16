@@ -5,8 +5,8 @@ mod common;
 use common::{Fixture, int, string};
 use emela_core::{TypeId, VariantDef};
 use emela_lir::{
-    Callee, CaseKey, Closure, ErrorKind, FnBuilder, Function, Module, OnFail, Operand, PrimOp,
-    PrimTy, Repr, Stmt, SwitchOn, Term, Value, VarData, verify, verify_function,
+    Callee, CaseKey, Closure, Const, ErrorKind, FnBuilder, Function, Module, OnFail, Operand,
+    PrimOp, PrimTy, Repr, Stage, Stmt, SwitchOn, Term, Value, VarData, verify, verify_function,
 };
 
 fn module() -> (Fixture, Module) {
@@ -590,4 +590,246 @@ fn all_errors_of_all_functions_are_reported() {
             "fn two: recur outside a loop of the same body, or across protect",
         ]
     );
+}
+
+#[test]
+fn closures_and_the_stage() {
+    let (fx, mut m) = module();
+    // A nested closure and a function reference after closure conversion.
+    let target = identity(&mut m, "id", |_| {});
+    let mut b = FnBuilder::new(&m.core, "nested");
+    let body = b.seq(|b| b.term(Term::Return(Some(int(1)))));
+    let c = b.var("c", fx.thunk);
+    b.let_(
+        Some(c),
+        Value::Closure(Box::new(Closure {
+            params: vec![],
+            captures: vec![],
+            body,
+            suspends: false,
+        })),
+    );
+    b.assign("r", fx.thunk, Value::FnRef(target));
+    b.term(Term::Return(None));
+    let nested = b.finish();
+    // A closure record of a function that is not lifted.
+    let mut b = FnBuilder::new(&m.core, "record");
+    b.assign(
+        "c",
+        fx.thunk,
+        Value::MakeClosure {
+            function: target,
+            captures: vec![],
+        },
+    );
+    b.term(Term::Return(None));
+    let record = b.finish();
+    assert_eq!(
+        kinds(&m, &record),
+        [ErrorKind::StageViolation, ErrorKind::BadEnvironment]
+    );
+    m.stage = Stage::ClosuresConverted;
+    assert_eq!(
+        kinds(&m, &nested),
+        [ErrorKind::StageViolation, ErrorKind::StageViolation]
+    );
+    assert_eq!(kinds(&m, &record), [ErrorKind::BadEnvironment]);
+}
+
+#[test]
+fn defects_and_the_stage() {
+    let (fx, mut m) = module();
+    let id = identity(&mut m, "id", |_| {});
+    m.functions[id].defects = true;
+    m.stage = Stage::DefectsExplicit;
+    // Flow IR constructs: protect, a failure edge without landing, defect.
+    let mut b = FnBuilder::new(&m.core, "flow");
+    b.set_fails();
+    let g = b.param("g", fx.int_to_int_fails);
+    b.protect(None, |b| b.term(Term::Yield(None)), |_| {});
+    let landing = b.seq(|b| b.term(Term::Unwind));
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Call {
+            callee: Callee::Indirect(g),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: Some(OnFail::Propagate),
+        },
+        on_defect: Some(landing),
+    });
+    b.term(Term::Defect(string("boom")));
+    let mut f = b.finish();
+    f.defects = true;
+    assert_eq!(
+        kinds(&m, &f),
+        [
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation
+        ]
+    );
+    // A call that may raise a defect without landing; unwind in a function that does not.
+    let mut b = FnBuilder::new(&m.core, "edges");
+    b.let_(
+        None,
+        Value::Call {
+            callee: Callee::Direct(id),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: None,
+        },
+    );
+    b.term(Term::Unwind);
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::DefectEdge, ErrorKind::DefectEdge]
+    );
+    // A landing that yields, and one on a value that cannot raise a defect.
+    let mut b = FnBuilder::new(&m.core, "landings");
+    let yields = b.seq(|_| {});
+    let unwinds = b.seq(|b| b.term(Term::Unwind));
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Call {
+            callee: Callee::Direct(id),
+            args: vec![int(1)],
+            suspends: false,
+            on_fail: None,
+        },
+        on_defect: Some(yields),
+    });
+    b.stmt(Stmt::Let {
+        dst: None,
+        value: Value::Const(Const::Int(1)),
+        on_defect: Some(unwinds),
+    });
+    b.term(Term::Return(None));
+    let mut f = b.finish();
+    f.defects = true;
+    assert_eq!(
+        kinds(&m, &f),
+        [ErrorKind::MissingTerminator, ErrorKind::DefectEdge]
+    );
+    // Landings are not allowed in the Flow IR.
+    m.stage = Stage::Flow;
+    assert_eq!(
+        kinds(&m, &f),
+        [
+            ErrorKind::StageViolation,
+            ErrorKind::MissingTerminator,
+            ErrorKind::StageViolation,
+            ErrorKind::StageViolation,
+        ]
+    );
+}
+
+#[test]
+fn reference_counts() {
+    let (_, mut m) = module();
+    m.stage = Stage::RefCounted;
+    // fn keep(s: String) -> String { return s }
+    let mut b = FnBuilder::new(&m.core, "keep");
+    b.set_ret(TypeId::STRING);
+    let s = b.param("s", TypeId::STRING);
+    b.term(Term::Return(Some(s.into())));
+    let keep = b.finish();
+    let keep = m.add(keep);
+    assert_eq!(verify(&m), Ok(()));
+    let call_keep = |s: emela_lir::VarId| Value::Call {
+        callee: Callee::Direct(keep),
+        args: vec![s.into()],
+        suspends: false,
+        on_fail: None,
+    };
+    // A leak.
+    let mut b = FnBuilder::new(&m.core, "leak");
+    b.param("s", TypeId::STRING);
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    // A second consumption, and a borrowed use after the last reference.
+    let mut b = FnBuilder::new(&m.core, "twice");
+    b.set_ret(TypeId::STRING);
+    let s = b.param("s", TypeId::STRING);
+    let a = b.assign("a", TypeId::STRING, call_keep(s));
+    b.stmt(Stmt::Drop(a));
+    b.assign(
+        "n",
+        TypeId::INT,
+        Value::Builtin {
+            op: emela_core::Builtin::StringLength,
+            args: vec![s.into()],
+        },
+    );
+    b.term(Term::Return(Some(s.into())));
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::RcImbalance, ErrorKind::RcImbalance]
+    );
+    // Different references on the two edges into the end of an `if`.
+    let mut b = FnBuilder::new(&m.core, "join");
+    let c = b.param("c", TypeId::BOOL);
+    let s = b.param("s", TypeId::STRING);
+    b.if_(None, c, |b| b.stmt_drop(s), |_| {});
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::RcImbalance]);
+    // A dup and drop before the stage.
+    m.stage = Stage::DefectsExplicit;
+    let mut b = FnBuilder::new(&m.core, "early");
+    let s = b.param("s", TypeId::STRING);
+    b.stmt(Stmt::Drop(s));
+    b.term(Term::Return(None));
+    assert_eq!(kinds(&m, &b.finish()), [ErrorKind::StageViolation]);
+}
+
+trait DropStmt {
+    fn stmt_drop(&mut self, v: emela_lir::VarId);
+}
+
+impl DropStmt for FnBuilder<'_> {
+    fn stmt_drop(&mut self, v: emela_lir::VarId) {
+        self.stmt(Stmt::Drop(v));
+    }
+}
+
+#[test]
+fn environments() {
+    let (fx, mut m) = module();
+    m.stage = Stage::ClosuresConverted;
+    // fn lifted(env: fn() -> Int) -> Int env[Int] { x = env_get env#0; return x }
+    let mut b = FnBuilder::new(&m.core, "lifted");
+    b.set_ret(TypeId::INT);
+    let env = b.param("env", fx.thunk);
+    let x = b.assign("x", TypeId::INT, Value::EnvGet { env, index: 0 });
+    b.term(Term::Return(Some(x.into())));
+    let mut f = b.finish();
+    f.env = Some(vec![TypeId::INT]);
+    let lifted = m.add(f);
+    assert_eq!(verify(&m), Ok(()));
+    // Captures of another type, and env_get outside a lifted function.
+    let mut b = FnBuilder::new(&m.core, "user");
+    let p = b.param("p", fx.thunk);
+    let s = b.assign("s", TypeId::STRING, Value::Const(Const::String("a".into())));
+    b.assign(
+        "c",
+        fx.thunk,
+        Value::MakeClosure {
+            function: lifted,
+            captures: vec![s],
+        },
+    );
+    b.assign("y", TypeId::INT, Value::EnvGet { env: p, index: 0 });
+    b.term(Term::Return(None));
+    assert_eq!(
+        kinds(&m, &b.finish()),
+        [ErrorKind::BadEnvironment, ErrorKind::BadEnvironment]
+    );
+    // A capture out of range.
+    let mut b = FnBuilder::new(&m.core, "far");
+    let env = b.param("env", fx.thunk);
+    b.assign("y", TypeId::INT, Value::EnvGet { env, index: 1 });
+    b.term(Term::Return(None));
+    let mut f = b.finish();
+    f.env = Some(vec![TypeId::INT]);
+    assert_eq!(kinds(&m, &f), [ErrorKind::BadIndex]);
 }

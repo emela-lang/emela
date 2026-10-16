@@ -143,7 +143,11 @@ impl<'a> FnBuilder<'a> {
 
     /// `dst = value`．
     pub fn let_(&mut self, dst: Option<VarId>, value: Value) {
-        self.stmt(Stmt::Let { dst, value });
+        self.stmt(Stmt::Let {
+            dst,
+            value,
+            on_defect: None,
+        });
     }
 
     /// A new variable bound to `value`.
