@@ -1,7 +1,9 @@
 //! Compiles Emela sources to C, builds them with cc and runs them.
 //!
-//! Programs print with `print(s)`, a pure external function (`@external(c, "emela_test_print")`,
-//! declared by [`PRELUDE`]) that [`HELPER`] implements; `dbg` writes to stderr. Runs set `EMELA_LEAK_CHECK`, so a program
+//! Programs print with `print(s)`, a pure external function named `emela_test_print` (declared by
+//! [`PRELUDE`], or in `tests/programs` with `./print.c`, which the driver compiles) that [`HELPER`]
+//! implements here (lowering without source paths leaves the file unresolved); `dbg` writes to
+//! stderr. Runs set `EMELA_LEAK_CHECK`, so a program
 //! that leaves allocations live exits with 99 and says so on stderr.
 
 #![allow(dead_code)]

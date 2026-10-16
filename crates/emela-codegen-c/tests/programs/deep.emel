@@ -1,5 +1,5 @@
 @external(js, "console.log")
-@external(c, "emela_test_print")
+@external(c, "./print.c", "emela_test_print")
 fn print(s: String) -> () use {}
 
 enum Chain {
