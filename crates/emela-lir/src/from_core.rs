@@ -86,6 +86,28 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
         let target = sh.fn_map[i];
         sh.functions[target] = f;
     }
+    // Every error enum that the functions construct and that can be shown gets its show
+    // function, for a failure reaching the entry (spec 14.3): errors of different enums arrive
+    // there, so the backend picks the function by the value's enum at run time.
+    let mut error_shows = Vec::new();
+    let mut made = FxHashSet::default();
+    for body in &bodies {
+        constructed(body, &mut made);
+    }
+    let mut error_enums: Vec<emela_core::EnumId> = made
+        .into_iter()
+        .filter(|&id| {
+            let def = &sh.core.enums[id];
+            def.error && def.params == 0
+        })
+        .collect();
+    error_enums.sort_by_key(|&id| ix(id));
+    for id in error_enums {
+        let ty = sh.core.enum_type(id, Vec::new());
+        if showable(&sh.core, ty, &mut Vec::new()) {
+            error_shows.push((id, sh.derived(Derive::Show, ty)));
+        }
+    }
     while let Some((kind, ty, id)) = sh.pending.pop() {
         let name = sh.functions[id].name.clone();
         let f = derive::build(&mut sh, kind, ty, &name);
@@ -101,7 +123,48 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
         core: sh.core,
         functions: sh.functions,
         stage: crate::ir::Stage::Flow,
+        error_shows,
     })
+}
+
+/// The enums whose constructors `e` uses.
+fn constructed(e: &Expr, out: &mut FxHashSet<emela_core::EnumId>) {
+    if let Expr::Ctor { ctor, .. } = e {
+        out.insert(ctor.enum_id);
+    }
+    e.for_each_child(&mut |c| constructed(c, out));
+}
+
+/// Whether values of `ty` can be shown (spec 10.6): not functions, handlers and the other values
+/// the language cannot show. `seen` holds the enum types being looked at (recursive enums).
+fn showable(core: &emela_core::Module, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
+    match core.ty(ty) {
+        Type::Int
+        | Type::Int64
+        | Type::Float
+        | Type::Bool
+        | Type::String
+        | Type::Unit
+        | Type::Never => true,
+        Type::List(elem) => showable(core, *elem, seen),
+        Type::Tuple(elems) => elems.iter().all(|&t| showable(core, t, seen)),
+        Type::Enum(id, args) => {
+            if seen.contains(&ty) {
+                return true;
+            }
+            seen.push(ty);
+            let def = &core.enums[*id];
+            let ok = def.variants.iter().all(|v| {
+                v.tys.iter().all(|&t| match core.ty(t) {
+                    Type::Param(i) => args.get(*i).is_some_and(|&a| showable(core, a, seen)),
+                    _ => showable(core, t, seen),
+                })
+            });
+            seen.pop();
+            ok
+        }
+        _ => false,
+    }
 }
 
 fn ix<T>(id: la_arena::Idx<T>) -> usize {

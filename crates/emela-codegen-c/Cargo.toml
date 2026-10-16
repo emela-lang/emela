@@ -1,0 +1,18 @@
+[package]
+name = "emela-codegen-c"
+description = "Emits C11 from the Heap IR (Tier 2 native target), with the embedded C runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+emela-lir.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+emela-resolve.workspace = true
+emela-syntax.workspace = true
+emela-types.workspace = true
+insta.workspace = true

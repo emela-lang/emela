@@ -1,0 +1,45 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+error NotFound(id: Int)
+error Invalid(reason: String, codes: List[Int])
+error Empty
+
+fn find(id: Int) -> String fails NotFound | Empty {
+  if id == 0 { fail Empty }
+  if id > 2 { fail NotFound(id:) }
+  "user #{id}"
+}
+
+fn check(id: Int) -> String fails NotFound | Invalid | Empty {
+  if id < 0 { fail Invalid(reason: "negative", codes: [id, 0]) }
+  find(id)
+}
+
+fn describe(id: Int) -> String {
+  check(id) escape {
+    NotFound(id:) if id > 5 -> "far #{id}"
+    NotFound(id:) -> "missing #{id}"
+    Invalid(reason:, ..) -> "invalid: #{reason}"
+    Empty -> "empty"
+  }
+}
+
+fn partial(id: Int) -> String fails Invalid {
+  check(id) escape {
+    NotFound(_) -> "nf"
+    Empty -> "e"
+  }
+}
+
+fn main() {
+  print(describe(1))
+  print(describe(3))
+  print(describe(9))
+  print(describe(-1))
+  print(describe(0))
+  print(partial(4))
+  print(partial(-7))
+  print("unreachable")
+}

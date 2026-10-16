@@ -1,0 +1,15 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+const GREETING = "hello #{List.length(NAMES)}"
+const NAMES = ["a", "b", "c"]
+const LIMIT = 3 * 7
+const BROKEN = List.length(NAMES) / (LIMIT - 21)
+
+fn main() {
+  print(GREETING)
+  print("#{NAMES} #{LIMIT} #{GREETING}")
+  dbg(LIMIT + 1)
+  print("#{BROKEN}")
+}

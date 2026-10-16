@@ -1,0 +1,6 @@
+exit: 101
+--- stdout
+1000000000
+8
+--- stderr
+defect: cannot convert 30000000000.0 to Int

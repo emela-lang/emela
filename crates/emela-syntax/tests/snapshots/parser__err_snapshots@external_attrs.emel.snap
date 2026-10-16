@@ -593,6 +593,6 @@ error[E0138]@486..490: arguments after the target of `@external` must be strings
 error[E0138]@532..538: arguments after the target of `@external` must be strings
 error[E0138]@576..582: string interpolation is not allowed in `@external`
 error[E0139]@638..640: more than one `@external` for target `js`
-error[E0140]@679..682: unknown target `jvm` in `@external`: expected `js` or `wasm`
+error[E0140]@679..682: unknown target `jvm` in `@external`: expected `js`, `wasm` or `c`
 error[E0141]@807..819: `@external` on a type takes no arguments
 error[E0141]@844..846: `@external` on a type takes no arguments

@@ -217,7 +217,7 @@ fn fn_decl(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
 }
 
 /// Known `@external` targets (spec 12.1).
-const EXTERNAL_TARGETS: [&str; 2] = ["js", "wasm"];
+const EXTERNAL_TARGETS: [&str; 3] = ["js", "wasm", "c"];
 
 /// The shape of a fn's `@external(target, "a")` and `@external(target, "a", "b")` (spec 12.1):
 /// one or two strings after the target name, and one annotation per target.
@@ -259,7 +259,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 out,
                 first.text_range(),
                 DiagnosticCode::UnknownExternalTarget,
-                &format!("unknown target `{target}` in `@external`: expected `js` or `wasm`"),
+                &format!("unknown target `{target}` in `@external`: expected `js`, `wasm` or `c`"),
             );
         } else if seen.contains(&target) {
             error(

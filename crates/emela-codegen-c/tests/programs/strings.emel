@@ -1,0 +1,17 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+fn main() {
+  s = "héllo, wörld 👍"
+  print("#{String.byte_size(s)} #{String.contains(s, "wö")} #{String.starts_with(s, "hé")} #{String.ends_with(s, "👍")}")
+  print("#{String.split("a,b,,c,", ",")} #{String.split("", ",")} #{String.split("abc", "abc")} #{String.split("x--y--z", "--")}")
+  print("#{String.join(["a", "b", "c"], "-")}#{String.join([], "-")}|")
+  print("[#{String.trim("\u{3000} \t hi there \n\u{85}")}] [#{String.trim("  ")}] [#{String.trim("x")}]")
+  print("#{String.code_points("aé👍")} #{String.from_code_point(128077)} #{String.from_code_point(55296)} #{String.from_code_point(-1)}")
+  print("#{String.concat(["x", "y", "z"])} #{String.append("", "e")}")
+  dbg("quote \" backslash \\ hash #{"{"} newline \n tab \t cr \r bell \u{7} del \u{7f} #x")
+  dbg(["a", "b"])
+  dbg(("t", 1, 2.5, True, ()))
+  print("#{"abc" == "abc"} #{"abc" != "abd"} #{"ab" < "abc"} #{"b" > "abc"} #{"" < "a"}")
+}

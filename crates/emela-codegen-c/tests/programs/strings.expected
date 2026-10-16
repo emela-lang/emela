@@ -1,0 +1,14 @@
+exit: 0
+--- stdout
+19 True True True
+["a", "b", "", "c", ""] [""] ["", ""] ["x", "y", "z"]
+a-b-c|
+[\u{3000} \t hi there 
+\u{85}] [] [x]
+[97, 233, 128077] Some("👍") None None
+xyz e
+True True True True True
+--- stderr
+"quote \" backslash \\ hash { newline \n tab \\t cr \\r bell \\u{7} del \\u{7f} #x"
+["a", "b"]
+("t", 1, 2.5, True, ())

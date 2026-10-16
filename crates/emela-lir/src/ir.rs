@@ -26,6 +26,10 @@ pub struct Module {
     pub functions: Arena<Function>,
     /// Which passes have run, and so which constructs the functions may hold.
     pub stage: Stage,
+    /// The generated show function (`show$E`) of each error enum that can be shown, made by
+    /// `from_core` for every error enum without type parameters. Backends show a failure that
+    /// reaches the entry with it (`error: NotFound(id: 1)`, spec 14.3).
+    pub error_shows: Vec<(EnumId, FnId)>,
 }
 
 /// The stage of a LIR module. The Flow IR and the Heap IR share the data types; each pass of the
@@ -60,6 +64,7 @@ impl Module {
             core,
             functions: Arena::new(),
             stage: Stage::Flow,
+            error_shows: Vec::new(),
         }
     }
 

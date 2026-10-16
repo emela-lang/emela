@@ -1,0 +1,41 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+fn show_parse(s: String) -> String {
+  n = Int.parse(s) escape {
+    ParseError(input:) -> String.byte_size(input) * 1000
+  }
+  "parsed #{n}"
+}
+
+fn int_or(s: String) -> String {
+  n = Int.parse(s) escape { ParseError(_) -> -1 }
+  Int.to_string(n)
+}
+
+fn float_or(s: String) -> String {
+  x = Float.parse(s) escape { ParseError(_) -> -1.5 }
+  Float.to_string(x)
+}
+
+fn main() {
+  max = 2147483647
+  min = -2147483647 - 1
+  print("#{max + 1} #{min - 1} #{max * 2} #{-min} #{min / -1} #{min % -1}")
+  print("#{7 / 2} #{-7 / 2} #{7 % 3} #{-7 % 3} #{7 % -3}")
+  big = Int64.from_int(max)
+  print("#{big * big} #{Int64.to_int(big * big)} #{Int64.from_int(min) - Int64.from_int(1)}")
+  print("#{0.1 + 0.2} #{1.0 / 3.0} #{100.0} #{1.0e21} #{1.0e20} #{1.5e-7} #{0.000001} #{-0.0}")
+  print("#{123456789.125} #{2.0 / 0.0} #{-2.0 / 0.0} #{0.0 / 0.0} #{5.5 % 2.0} #{-5.5 % 2.0}")
+  print("#{Float.floor(-1.5)} #{Float.ceil(-1.5)} #{Float.round(2.5)} #{Float.round(-2.5)} #{Float.truncate(-2.7)}")
+  print("#{Float.from_int(min)} #{1.7976931348623157e308} #{5.0e-324} #{1.0e-7} #{123.0e-20}")
+  print("#{Int.bit_and(12, 10)} #{Int.bit_or(12, 10)} #{Int.bit_xor(12, 10)} #{Int.bit_not(0)}")
+  print("#{Int.shift_left(1, 31)} #{Int.shift_left(1, 32)} #{Int.shift_right(-8, 1)} #{Int.shift_right(-8, 40)} #{Int.shift_right_unsigned(-1, 28)}")
+  print("#{Int.checked_add(max, 1)} #{Int.checked_add(1, 2)}")
+  print("#{int_or("42")} #{int_or("-0")} #{int_or("+7")} #{int_or("2147483648")} #{int_or("-2147483648")} #{int_or("1x")} #{int_or("")}")
+  print("#{float_or("1.25")} #{float_or("1e3")} #{float_or("Infinity")} #{float_or("-Infinity")} #{float_or("NaN")} #{float_or("1.")} #{float_or(".5")}")
+  print(show_parse("12"))
+  print(show_parse("x"))
+  print("#{1 < 2} #{2.0 <= 1.0} #{0.0 / 0.0 == 0.0 / 0.0} #{"a" < "b"} #{"é" > "z"}")
+}

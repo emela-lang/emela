@@ -1,0 +1,7 @@
+exit: 101
+--- stdout
+hello 3
+["a", "b", "c"] 21 hello 3
+--- stderr
+22
+defect: while evaluating const BROKEN: division by zero

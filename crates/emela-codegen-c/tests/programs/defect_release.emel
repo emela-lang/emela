@@ -1,0 +1,38 @@
+@external(js, "console.log")
+@external(c, "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Pool {
+  fn get() -> Int
+}
+
+handler Outer(n: Int) implements Pool {
+  init { Outer(n: 0) }
+  release {
+    print("release outer")
+    panic("outer release failed")
+  }
+  fn get() { self.n }
+}
+
+handler Inner(n: Int) implements Pool {
+  init { Inner(n: 1) }
+  release { print("release inner") }
+  fn get() { self.n }
+}
+
+fn work(xs: List[Int]) -> Int {
+  zero = (use Pool).get()
+  total = List.fold(xs, from: 0, f: fn(a, x) { a + x })
+  print("total #{total}")
+  total / zero
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      print("inner #{(use Pool).get()}")
+    }
+    work([1, 2, 3])
+  }
+}
