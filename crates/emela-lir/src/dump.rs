@@ -9,7 +9,8 @@
 //! `builtin`, `make`, `field`, `tag`, `closure`, `ev_lookup`, `ev_extend`, `handler`, `fiber`,
 //! `block`, `break`, `loop`, `recur`, `protect`, `cleanup`), plus `is_error`, `as_error`,
 //! `runtime` and `coerce`, and those of the Heap IR (`make_closure f[captures]`, `env_get e#i`,
-//! and `env[types]` after the signature of a lifted function); the placeholder of `()` in a container is `()`. Functions are printed
+//! `env[types]` after the signature of a lifted function, and `on_suspend #state [saved]` after a
+//! value with a suspension edge); the placeholder of `()` in a container is `()`. Functions are printed
 //! in ID order.
 //! The output is deterministic and not meant to be parsed back.
 //!
@@ -231,9 +232,21 @@ impl Printer<'_> {
         }
         match s {
             Stmt::Let {
-                value, on_defect, ..
+                value,
+                on_defect,
+                on_suspend,
+                ..
             } => {
                 self.value(value);
+                if let Some(edge) = on_suspend {
+                    write!(
+                        self.out,
+                        " on_suspend #{} [{}]",
+                        edge.state,
+                        self.vars(&edge.saved)
+                    )
+                    .unwrap();
+                }
                 if let Value::Call {
                     on_fail: Some(OnFail::Handle { body, .. }),
                     ..

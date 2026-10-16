@@ -552,6 +552,7 @@ impl<'m> Emitter<'m> {
                 dst,
                 value,
                 on_defect,
+                ..
             } => {
                 self.value(cx, *dst, value);
                 if let Some(landing) = on_defect {
@@ -920,6 +921,13 @@ impl<'m> Emitter<'m> {
                     RuntimeOp::Defect => format!("em_raise({})", a[0]),
                     RuntimeOp::DefectTake => "em_defect_take()".to_owned(),
                     RuntimeOp::DefectResume => format!("em_defect_resume({})", a[0]),
+                    RuntimeOp::Hold
+                    | RuntimeOp::Unhold
+                    | RuntimeOp::Yield
+                    | RuntimeOp::YieldPerform => {
+                        self.internal(format!("suspending code left in {}", f.name));
+                        return;
+                    }
                 };
                 Self::assign(cx, dst, &e);
             }

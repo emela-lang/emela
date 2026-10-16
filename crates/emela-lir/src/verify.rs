@@ -27,8 +27,8 @@ use emela_core::{FiberOp, Sig, Type, TypeId};
 use rustc_hash::FxHashSet;
 
 use crate::ir::{
-    Callee, CaseKey, Function, LabelId, Module, OnFail, Operand, SeqId, Stage, Stmt, SwitchOn,
-    Term, Value, VarId,
+    Callee, CaseKey, Function, LabelId, Module, OnFail, Operand, RuntimeOp, SeqId, Stage, Stmt,
+    SwitchOn, Term, Value, VarId,
 };
 use crate::repr::{Repr, enum_repr, repr_of, repr_of_subst};
 
@@ -113,6 +113,12 @@ pub enum ErrorKind {
     /// A value that may raise a defect without a defect landing, a defect landing on one that
     /// cannot, or `unwind` in a function that does not raise defects (Heap IR).
     DefectEdge,
+    /// A suspension edge where it does not belong (Heap IR from `Stage::StateMachines`): a value
+    /// of a suspending function that may suspend without one, one on a value that cannot suspend
+    /// or in a function that does not suspend, two edges with the same state, a saved set that
+    /// misses a variable needed after the value, or a fairness yield outside a suspending
+    /// function.
+    SuspendEdge,
     /// References that do not balance (Heap IR at `Stage::RefCounted`): a reference consumed or
     /// dropped that is not owned, a borrowed use without a reference, references left at the end
     /// of a scope, or join points reached with different references.
@@ -136,12 +142,7 @@ pub fn verify(m: &Module) -> Result<(), Vec<VerifyError>> {
 /// Checks one function. `f` need not be in the module yet; direct calls refer to the module's
 /// functions.
 pub fn verify_function(m: &Module, f: &Function) -> Vec<VerifyError> {
-    // Suspending functions are left after closure conversion (see `Stage`).
-    let stage = if f.suspends {
-        m.stage.min(Stage::ClosuresConverted)
-    } else {
-        m.stage
-    };
+    let stage = m.stage;
     let mut c = Checker {
         m,
         core: &m.core,
@@ -157,9 +158,13 @@ pub fn verify_function(m: &Module, f: &Function) -> Vec<VerifyError> {
         label_used: vec![false; f.labels.len()],
         frames: Vec::new(),
         enclosing: Vec::new(),
+        states: FxHashSet::default(),
     };
     c.function();
     let mut errors = c.errors;
+    if stage >= Stage::StateMachines && f.suspends && errors.is_empty() {
+        errors.extend(saved_errors(m, f));
+    }
     if stage == Stage::RefCounted && errors.is_empty() {
         errors.extend(
             crate::heap::rc_check::check(m, f)
@@ -235,6 +240,42 @@ struct Checker<'a> {
     label_used: Vec<bool>,
     frames: Vec<Frame>,
     enclosing: Vec<Encl>,
+    /// The states of the suspension edges seen.
+    states: FxHashSet<u32>,
+}
+
+/// Suspension edges whose saved variables miss one that is needed after the value.
+fn saved_errors(m: &Module, f: &Function) -> Vec<VerifyError> {
+    let live = crate::heap::live::live_on_lets(f);
+    let mut errors = Vec::new();
+    for (s, stmt) in f.stmts.iter() {
+        let Stmt::Let {
+            value,
+            on_suspend: Some(edge),
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        let Some(live_on) = live.get(&s) else {
+            continue;
+        };
+        for v in crate::heap::suspend::saved_vars(m, f, value, live_on) {
+            if !edge.saved.contains(&v) {
+                errors.push(VerifyError {
+                    function: f.name.clone(),
+                    kind: ErrorKind::SuspendEdge,
+                    message: format!(
+                        "the suspension edge of state {} does not save {}%{}, which is needed after it",
+                        edge.state,
+                        f.vars[v].hint,
+                        ix(v)
+                    ),
+                });
+            }
+        }
+    }
+    errors
 }
 
 impl Checker<'_> {
@@ -447,9 +488,11 @@ impl Checker<'_> {
                 dst,
                 value,
                 on_defect,
+                on_suspend,
             } => {
                 let expect = self.value(value, *dst);
                 self.on_defect(value, *on_defect);
+                self.on_suspend(value, on_suspend.as_ref());
                 match (dst, expect) {
                     (Some(d), Expect::Exactly(Repr::Void)) => self.error(
                         ErrorKind::VoidDestination,
@@ -1244,6 +1287,64 @@ impl Checker<'_> {
         }
         if let Some(l) = on_defect {
             self.seq(l, YieldTo::Landing);
+        }
+    }
+
+    /// Checks the suspension edge of a let against its value and the function.
+    fn on_suspend(&mut self, value: &Value, edge: Option<&crate::ir::Suspend>) {
+        let may = crate::heap::suspend::may_suspend(value);
+        if let Value::Runtime {
+            op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
+            ..
+        } = value
+            && !self.f.suspends
+        {
+            self.error(
+                ErrorKind::SuspendEdge,
+                "a fairness yield in a function that does not suspend".into(),
+            );
+        }
+        if self.stage < Stage::StateMachines {
+            if let Value::Runtime {
+                op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
+                ..
+            } = value
+            {
+                self.stage_at_least(Stage::StateMachines, "a fairness yield");
+            }
+            if edge.is_some() {
+                self.error(
+                    ErrorKind::StageViolation,
+                    format!("a suspension edge at stage {:?}", self.stage),
+                );
+            }
+            return;
+        }
+        match (self.f.suspends, may, edge) {
+            (true, true, None) => self.error(
+                ErrorKind::SuspendEdge,
+                "a value that may suspend has no suspension edge".into(),
+            ),
+            (true, false, Some(_)) => self.error(
+                ErrorKind::SuspendEdge,
+                "a value that cannot suspend has a suspension edge".into(),
+            ),
+            (false, _, Some(_)) => self.error(
+                ErrorKind::SuspendEdge,
+                "a suspension edge in a function that does not suspend".into(),
+            ),
+            _ => {}
+        }
+        if let Some(edge) = edge {
+            if !self.states.insert(edge.state) {
+                self.error(
+                    ErrorKind::SuspendEdge,
+                    format!("two suspension edges have state {}", edge.state),
+                );
+            }
+            for &v in &edge.saved {
+                self.use_var(v);
+            }
         }
     }
 

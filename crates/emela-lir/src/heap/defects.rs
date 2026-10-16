@@ -7,7 +7,7 @@
 //! the rest of the sequence. C and WASM emit a call's landing as a test of the pending slot after
 //! the call (`if (pending) { …landing… }`), and `unwind` as a return of any value.
 //!
-//! What the pass changes, in each function that does not suspend:
+//! What the pass changes, in each function:
 //!
 //! - `defect(msg)` becomes `runtime defect(msg)` followed by `unwind`.
 //! - Integer division and remainder by a divisor that is not a nonzero constant are preceded by a
@@ -38,7 +38,7 @@ use crate::ir::{
 };
 use crate::repr::Repr;
 
-/// Makes defects and cleanups explicit in every function that does not suspend, and sets
+/// Makes defects and cleanups explicit in every function, and sets
 /// [`Function::defects`] on every function. The module must be at [`Stage::ClosuresConverted`];
 /// it is at [`Stage::DefectsExplicit`] afterwards.
 pub fn explicit_defects(m: &mut Module) {
@@ -54,7 +54,7 @@ pub fn explicit_defects(m: &mut Module) {
     let ids: Vec<FnId> = m.functions.iter().map(|(id, _)| id).collect();
     for id in ids {
         let f = &m.functions[id];
-        if f.suspends || f.body.is_none() {
+        if f.body.is_none() {
             continue;
         }
         let new = Explicit::run(m, f);
@@ -78,8 +78,15 @@ pub(crate) fn may_defect(m: &Module, v: &Value) -> bool {
         Value::Call { .. } => true,
         Value::Builtin { op, .. } => builtin_may_defect(*op),
         Value::Fiber { op, .. } => fiber_may_defect(*op),
+        Value::Runtime { op, .. } => runtime_may_defect(*op),
         _ => false,
     }
+}
+
+/// Whether the runtime operation may raise a defect: a fairness yield delivers a pending
+/// interruption as one (spec 11.4).
+fn runtime_may_defect(op: RuntimeOp) -> bool {
+    matches!(op, RuntimeOp::Yield | RuntimeOp::YieldPerform)
 }
 
 /// Whether the builtin may raise a defect.
@@ -138,21 +145,23 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
 /// Whether the concurrency operation may raise a defect in the current fiber.
 pub fn fiber_may_defect(op: FiberOp) -> bool {
     match op {
-        // A child's defect, an interrupted child, a raised cause, or a scope's body.
+        // A child's defect, an interrupted child, a raised cause, a scope's body, or an
+        // interruption delivered while waiting.
         FiberOp::Scope { .. }
         | FiberOp::Join
         | FiberOp::Await { .. }
         | FiberOp::Interrupt
         | FiberOp::DeferredAwait
-        | FiberOp::CauseRaise => true,
-        // `attempt` turns the function's defects into a `Failure`.
-        FiberOp::Attempt { .. }
+        | FiberOp::CauseRaise
+        // A scope, handle or Deferred used after its scope ended (spec 11.8).
         | FiberOp::Fork
         | FiberOp::Deferred
         | FiberOp::Complete
         | FiberOp::Poll
-        | FiberOp::CauseKind { .. }
-        | FiberOp::CauseToString => false,
+        // `attempt` turns the function's defects into a `Failure`, but not an interruption, nor a
+        // defect while the fiber unwinds by one (spec 11.5).
+        | FiberOp::Attempt { .. } => true,
+        FiberOp::CauseKind { .. } | FiberOp::CauseToString => false,
     }
 }
 
@@ -270,6 +279,7 @@ fn may_defect_without_flags(v: &Value) -> bool {
         Value::Call { .. } => true,
         Value::Builtin { op, .. } => builtin_may_defect(*op),
         Value::Fiber { op, .. } => fiber_may_defect(*op),
+        Value::Runtime { op, .. } => runtime_may_defect(*op),
         _ => false,
     }
 }
@@ -321,6 +331,7 @@ impl<'a> Explicit<'a> {
             dst,
             value,
             on_defect: None,
+            on_suspend: None,
         })
     }
 
@@ -477,6 +488,7 @@ impl<'a> Explicit<'a> {
                     dst: self.fresh_dst(*dst),
                     value,
                     on_defect,
+                    on_suspend: None,
                 }
             }
             Stmt::If {

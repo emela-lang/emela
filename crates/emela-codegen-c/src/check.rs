@@ -1,5 +1,4 @@
-//! What the C target does not support yet, found on the Flow IR before the Heap IR passes (which
-//! leave suspending functions unconverted).
+//! What the C target does not support yet, found on the Flow IR before the Heap IR passes.
 
 use emela_core::{Builtin, Type};
 use emela_lir::{Callee, Const, Function, Module, Operand, Stmt, Value};

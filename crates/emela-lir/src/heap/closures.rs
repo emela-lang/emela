@@ -77,6 +77,7 @@ pub fn convert_closures(m: &mut Module) {
                 dst,
                 value: new,
                 on_defect: None,
+                on_suspend: None,
             };
         }
         m.functions[id] = compact(&m.functions[id]);
@@ -179,6 +180,7 @@ fn lift(m: &Module, id: FnId, s: StmtId, name: &str) -> (Function, Vec<VarId>) {
                 dst: Some(v),
                 value: Value::EnvGet { env, index },
                 on_defect: None,
+                on_suspend: None,
             })
         })
         .collect();
@@ -230,6 +232,7 @@ fn wrapper(m: &Module, target: FnId, ty: TypeId) -> Function {
             on_fail: t.fails.then_some(OnFail::Propagate),
         },
         on_defect: None,
+        on_suspend: None,
     });
     let term = if m.core.ty(t.ret) == &Type::Never {
         Term::Unreachable

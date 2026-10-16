@@ -6,7 +6,9 @@
 mod support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
-use emela_lir::{Module, Stage, dump_function, from_core, to_heap, verify};
+use emela_lir::{
+    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, verify,
+};
 use support::try_lower;
 
 /// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
@@ -64,8 +66,8 @@ fn every_core_function_converts() {
     }
 }
 
-/// Every function of each example project (`examples/*/src`) goes through the passes. Suspending
-/// functions are only closure-converted (see `Stage`).
+/// Every function of each example project (`examples/*/src`) goes through the passes, the
+/// suspending ones (fibers, clocks) included.
 #[test]
 fn every_example_converts() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -288,10 +290,11 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["main", "report", "Prefixed"]));
 }
 
-/// Suspending functions are only closure-converted (the state machine comes later); the verifier
-/// checks them at `Stage::ClosuresConverted`.
+/// Suspending functions become state machines: a fairness yield before each suspending call, and
+/// a suspension edge on each value that may suspend, saving what is needed after it (in a loop,
+/// across a release that may suspend, and in a lifted closure, which owns its environment).
 #[test]
-fn suspending_functions_are_left() {
+fn suspending_functions_become_state_machines() {
     let m = program(
         "\
 effect Clock {
@@ -302,18 +305,33 @@ handler InstantClock implements Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
+handler Napper implements Clock {
+  init { Napper }
+  release { (use Clock).sleep(0) }
+  suspend fn sleep(ms, resume) { resume(ms) }
+}
+
 fn nap(ms: Int, label: String) -> Int use Clock {
-  with InstantClock { dbg(label) }
+  with Napper { dbg(label) }
   (use Clock).sleep(ms) + 1
 }
 
+fn count(i: Int, acc: Int) -> Int use Clock {
+  if i == 0 { acc } else { count(i - 1, acc + (use Clock).sleep(i)) }
+}
+
+fn twice(f: fn() -> Int use Clock) -> Int use Clock {
+  f() + f()
+}
+
 fn main() {
-  with InstantClock { dbg(nap(1, \"a\")) }
+  label = \"a\"
+  with InstantClock { dbg(twice(fn() { nap(count(2, 0), label) })) }
 }
 ",
     );
     assert!(m.functions.iter().any(|(_, f)| f.suspends));
-    insta::assert_snapshot!(parts(&m, &["nap", "InstantClock"]));
+    insta::assert_snapshot!(parts(&m, &["nap", "count", "main$closure0"]));
 }
 
 #[test]
@@ -335,4 +353,130 @@ fn main() {
 ",
     );
     insta::assert_snapshot!(parts(&m, &["label", "show$Shape", "show$List"]));
+}
+
+const NAPS: &str = "\
+effect Clock {
+  suspend fn sleep(ms: Int) -> Int
+}
+
+handler InstantClock implements Clock {
+  suspend fn sleep(ms, resume) { resume(ms) }
+}
+
+fn nap(ms: Int, label: String) -> String use Clock {
+  n = (use Clock).sleep(ms)
+  \"#{label} #{ms} #{n}\"
+}
+
+fn main() {
+  with InstantClock { dbg(nap(1, \"a\")) }
+}
+";
+
+/// The error kinds the verifier finds in `nap` of [`NAPS`] after `tamper` changes the suspension
+/// edge of its operation call.
+fn tampered(tamper: impl FnOnce(&mut emela_lir::Function, emela_lir::StmtId)) -> Vec<ErrorKind> {
+    let mut m = program(NAPS);
+    let (id, _) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "nap")
+        .expect("nap");
+    let f = &mut m.functions[id];
+    let (call, _) = f
+        .stmts
+        .iter()
+        .find(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    value: Value::Call {
+                        callee: Callee::Op { .. },
+                        ..
+                    },
+                    ..
+                }
+            )
+        })
+        .expect("the operation call");
+    tamper(f, call);
+    verify(&m)
+        .expect_err("the tampered module must fail")
+        .into_iter()
+        .map(|e| e.kind)
+        .collect()
+}
+
+fn edge(f: &mut emela_lir::Function, s: emela_lir::StmtId) -> &mut Option<emela_lir::Suspend> {
+    match &mut f.stmts[s] {
+        Stmt::Let { on_suspend, .. } => on_suspend,
+        _ => unreachable!(),
+    }
+}
+
+/// The verifier checks the suspension edges: present exactly on the values that may suspend in a
+/// suspending function, with distinct states, saving every variable needed after the value, and
+/// (with reference counting) exactly the references owned there.
+#[test]
+fn the_verifier_checks_suspension_edges() {
+    assert_eq!(
+        tampered(|f, s| *edge(f, s) = None),
+        [ErrorKind::SuspendEdge]
+    );
+    // The state of the fairness yield before the call.
+    assert_eq!(
+        tampered(|f, s| edge(f, s).as_mut().unwrap().state = 0),
+        [ErrorKind::SuspendEdge]
+    );
+    // `ms` (an `i32`) is needed after the call.
+    assert_eq!(
+        tampered(|f, s| {
+            let ms = f.params[0];
+            edge(f, s).as_mut().unwrap().saved.retain(|&v| v != ms);
+        }),
+        [ErrorKind::SuspendEdge]
+    );
+    // Saving a reference twice moves two references into the frame.
+    assert_eq!(
+        tampered(|f, s| {
+            let e = edge(f, s).as_mut().unwrap();
+            let label = e.saved[1];
+            e.saved.push(label);
+        }),
+        [ErrorKind::RcImbalance]
+    );
+    // A non-suspending function has no suspension edges.
+    let mut m = program(NAPS);
+    let (id, _) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "main")
+        .expect("main");
+    let f = &mut m.functions[id];
+    let (_, stmt) = f
+        .stmts
+        .iter_mut()
+        .find(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    value: Value::Call { suspends: true, .. },
+                    ..
+                }
+            )
+        })
+        .expect("the call of nap");
+    if let Stmt::Let { on_suspend, .. } = stmt {
+        *on_suspend = Some(emela_lir::Suspend {
+            state: 0,
+            saved: Vec::new(),
+        });
+    }
+    let kinds: Vec<ErrorKind> = verify(&m)
+        .unwrap_err()
+        .into_iter()
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(kinds, [ErrorKind::SuspendEdge]);
 }

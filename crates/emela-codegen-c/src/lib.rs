@@ -7,8 +7,8 @@
 //! ([`RUNTIME_C`], [`RUNTIME_H`]) is embedded and written next to the output; the caller compiles
 //! both with cc (see `NOTES.md` for the flags).
 //!
-//! The first version supports no programs that suspend (the Heap IR leaves suspending functions
-//! unconverted), no fibers, no callbacks to host functions and no builtins that need Unicode
+//! The first version supports no programs that suspend (the emitter does not read the state
+//! machines of the Heap IR yet), no fibers, no callbacks to host functions and no builtins that need Unicode
 //! tables; reaching them is a [`CError`].
 
 mod check;
