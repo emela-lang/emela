@@ -1,4 +1,4 @@
-//! The output of the JS stage, and writing it out.
+//! What a [`crate::Backend`] outputs (JS or C), and writing it out.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -21,16 +21,16 @@ impl OutputFile {
     }
 }
 
-/// `entry` is one of `files` (the `.mjs` run on node).
+/// `entry` is one of `files`: the `.mjs` run on node for JS, `main.c` for C (see [`crate::Backend::finish`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsOutput {
+pub struct BuildOutput {
     pub files: Vec<OutputFile>,
     pub entry: PathBuf,
 }
 
 /// Writes under `out_dir` and returns the entry's path. Earlier output is overwritten, not
 /// removed.
-pub fn write_output(out_dir: &Path, output: &JsOutput) -> Result<PathBuf, Diagnostic> {
+pub fn write_output(out_dir: &Path, output: &BuildOutput) -> Result<PathBuf, Diagnostic> {
     for file in &output.files {
         if !is_plain_relative(&file.path) {
             return Err(Diagnostic::error(format!(
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn entry_must_be_written() {
-        let output = JsOutput {
+        let output = BuildOutput {
             files: vec![OutputFile::new("lib.mjs", "")],
             entry: "main.mjs".into(),
         };

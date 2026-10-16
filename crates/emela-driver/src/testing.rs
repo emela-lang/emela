@@ -28,9 +28,9 @@ use crate::code;
 use crate::diagnostic::Diagnostic;
 use crate::frontend::{Typecheck, lower_typed};
 use crate::js::{CoreJs, JS_ENTRY_FILE, bundled_outputs};
-use crate::output::{JsOutput, OutputFile, write_output};
+use crate::output::{BuildOutput, OutputFile, write_output};
 use crate::pipeline::{
-    Analysis, Checked, CoreSource, Frontend, Input, JsBackend, NoJsBackend, Parsed, Runner, check,
+    Analysis, Backend, Checked, CoreSource, Frontend, Input, NoJsBackend, Parsed, Runner, check,
 };
 use crate::run::{Output, exit_code, spawn_error};
 use crate::source::{FileId, FileSystem, SourceFile};
@@ -199,22 +199,22 @@ pub struct TestCase {
     pub function: FnId,
 }
 
-/// The plug-in point for test JS emission. Called only when there are no errors.
+/// The plug-in point for test emission (JS, or C with [`crate::CoreC`]). Called only when there are no errors.
 pub trait TestBackend<P> {
     /// In declaration order.
     fn test_names(&self, program: &P) -> Vec<String>;
 
     /// Emits an entry module that calls the `selected` tests (indices into
     /// [`TestBackend::test_names`], ascending) in order, plus the files it reads. `entry` is the
-    /// entry module, which node runs directly.
+    /// entry module ([`TestBackend::finish`] turns it into what runs).
     fn emit_tests(
         &mut self,
         program: &P,
         selected: &[usize],
         analysis: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>>;
+    ) -> Result<BuildOutput, Vec<Diagnostic>>;
 
-    /// Called after the output is written; returns what runs (see [`JsBackend::finish`]).
+    /// Called after the output is written; returns what runs (see [`Backend::finish`]).
     fn finish(&mut self, _out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
         Ok(entry)
     }
@@ -235,8 +235,8 @@ impl<P> TestBackend<P> for NoJsBackend {
         program: &P,
         _: &[usize],
         analysis: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
-        JsBackend::emit(self, program, analysis)
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
+        Backend::emit(self, program, analysis)
     }
 }
 
@@ -250,7 +250,7 @@ impl TestBackend<TestModule> for CoreJs {
         program: &TestModule,
         selected: &[usize],
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let module = &program.module;
         // Export the selected test functions under their Emela names so the entry module can call
         // them.
@@ -281,7 +281,7 @@ impl TestBackend<TestModule> for CoreJs {
             OutputFile::new(JS_TEST_ENTRY_FILE, main),
         ];
         files.extend(bundled_outputs(module));
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files,
             entry: JS_TEST_ENTRY_FILE.into(),
         })

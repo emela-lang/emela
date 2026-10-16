@@ -13,8 +13,8 @@ pub trait Frontend {
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<Self::Program>;
 }
 
-pub trait JsBackend<P> {
-    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<JsOutput, Vec<Diagnostic>>;
+pub trait Backend<P> {
+    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>>;
     // 既定は JS のまま．C は cc を呼んで実行ファイルを返す
     fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>>;
     fn runner(&self) -> Runner;
@@ -24,19 +24,20 @@ pub trait JsBackend<P> {
 - 字句解析は `Frontend` に任せる．パイプラインは字句解析をしない．`emela_syntax::parse` が字句解析をやり直して字句の診断も返すので，パイプラインでも字句解析をすると同じ診断が2回出るため
 - `parse` は読んだモジュールごとに1回呼ぶ．返すのは import の一覧（`emela_resolve::Import`）と，字句と構文の診断．構文木は `Frontend` の側に持っておく
 - `check` は読んだ全モジュールの `parse` と import のグラフの検査の後に1回だけ呼ぶ．`order` は読んだモジュールだけの依存順（import 先が先）．`Analysis` からソースの表，モジュールの対応表，import のグラフ，エントリを引ける
-- `emit` はエラーが1件もないときだけ呼ぶ．返す `JsOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
+- `emit` はエラーが1件もないときだけ呼ぶ．返す `BuildOutput` は「出力先からの相対パスと中身の組の列」と，その中のエントリのパス
 - `ParseOnly` は emela-syntax のパーサを呼び，構文木（`Parse`）をモジュールごとに持つ（`parse_of`）．型検査はしないので `Program = ()`
 - `Resolve` は `ParseOnly` で構文解析し，`check` で名前解決をする（`Program = emela_resolve::hir::Program`）
 - `Typecheck` は `Resolve` の後に型検査（`emela_types::check_program`）をする（`Program = TypedProgram`．HIR と型検査の結果の組）．cli の `check` と LSP はこれを使う
 - `Lower` は `Typecheck` の後に lowering（`emela_core::lower`）をする（`Program = emela_core::Module`）．名前解決か型検査に誤りが1件でもあれば lowering は呼ばない．根はエントリのモジュールの export する fn．ターゲットを渡すので，返る IR は単相化済み（2026-10-15．汎用の `pub` の fn は型引数を `Any` にした写し）．debug ビルドでは `verify_monomorphic` にかける（多相な IR の `verify` は lowering の中で行う）．`LowerTests` も同じで，`TestCase::function` は単相化した写しを指す．lowering の誤り（まだ扱えない式）は `Diagnostic::from_lower` で診断にする．cli の `build` と `run` は `Lower` と `CoreJs` を使う
 - `LexOnly` は字句解析だけ（字句の診断だけを返し，import なし，型検査なし）．`NoJsBackend` は「JS の出力はまだ実装されていない」の診断を返す
-- `CoreJs` は `JsBackend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化と単相化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
+- `CoreJs` は `Backend<emela_core::Module>`．lowering の済んだ（自己末尾呼び出しのループ化と単相化も済んだ）IR をそのまま emela-codegen-js で出す．モジュールは複製しない．cli の `build` と `run` は `Lower` と組み合わせて使う
 
 ## C のターゲット（`--target c`，仕様 16章）
 
 - （補）ターゲットは `Target`（`js`，`c`）．コマンドの `--target`，なければ `Pome.toml` の `[build].target`（4.7），なければ js．`Pome.toml` は今もほかの項目を読まず，`[build].target` だけを `toml` で読む．TOML として読めないファイルや文字列でない `target` は「指定なし」とみなし，知らない名前だけを E0232 にする．依存の仕組みがまだないので，「依存されたときは無視する」は今は何もしなくてよい
 - （補）`Lower` と `LowerTests` は `with_target` で lowering の外部関数の検査（12.1，E0412）のターゲットを変える
-- （補）`CoreC` は `JsBackend` と `TestBackend` の C 版．出力（`main.c`，ランタイムの `.c` と `.h`，ホストの `.c` 向けの公開のヘッダ `emela.h`（12.6），使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
+- （補）出力段の trait と出力は JS と C で共通なので，target に依らない名前（`Backend`，`BuildOutput`）にしてある（旧 `JsBackend`，`JsOutput`）．JS 固有のもの（`CoreJs`，`JS_ENTRY_FILE`，`NoJsBackend`）は JS の名前のまま
+- （補）`CoreC` は C の `Backend` と `TestBackend`．出力（`main.c`，ランタイムの `.c` と `.h`，ホストの `.c` 向けの公開のヘッダ `emela.h`（12.6），使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
 - （補）cc は `EMELA_CC`（空白で区切った後ろはフラグ），なければ `cc`．フラグは `-std=c11 -O2 -fno-strict-aliasing -pthread -I.` と `-lm`（`-pthread` は別のスレッドからの完了のため，`-I.` はホストの `.c` が出力先の `emela.h` を include するため）．起動できなければ E0907，失敗すれば E0908 で，cc の出力（4000 字まで）を注記に付ける．成功したときの cc の出力は出さない
 - （補）emela-codegen-c の「C ではまだ使えない」のエラーは診断にする．コールバックは E0427，それ以外（書記素）は番号なし（lowering の「not supported yet」と同じ扱い）．位置は持たない（Heap IR に位置がないため）．suspend fn の外部関数は 12.6 の形で使えるようになったので，E0428 は欠番
 - （補）parity のテスト（`tests/parity.rs`）は，`with Platform` が SystemHttp までたどって E0412 になる example（http，notes）を外す．`tests/fiber.rs` と `tests/file_system.rs` は，cc が起動できれば同じプログラムを C でも動かして結果を比べる．`fibers_in_tests` だけは JS だけで動かす（推論で型引数を持つテスト関数を C の単相化が飛ばすため）
@@ -59,7 +60,7 @@ pub struct TestCase { pub name: String, pub function: FnId }
 pub trait TestBackend<P> {
     fn test_names(&self, program: &P) -> Vec<String>;
     fn emit_tests(&mut self, program: &P, selected: &[usize], analysis: &Analysis)
-        -> Result<JsOutput, Vec<Diagnostic>>;
+        -> Result<BuildOutput, Vec<Diagnostic>>;
 }
 ```
 

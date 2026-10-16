@@ -3,8 +3,8 @@
 use emela_codegen_js::{BUNDLED_DIR, Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module};
 
 use crate::diagnostic::Diagnostic;
-use crate::output::{JsOutput, OutputFile};
-use crate::pipeline::{Analysis, JsBackend};
+use crate::output::{BuildOutput, OutputFile};
+use crate::pipeline::{Analysis, Backend};
 
 pub const JS_ENTRY_FILE: &str = "main.mjs";
 
@@ -15,12 +15,12 @@ pub const JS_ENTRY_FILE: &str = "main.mjs";
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CoreJs;
 
-impl JsBackend<emela_core::Module> for CoreJs {
+impl Backend<emela_core::Module> for CoreJs {
     fn emit(
         &mut self,
         module: &emela_core::Module,
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let options = Options {
             runtime: RuntimeMode::Import(None),
         };
@@ -29,7 +29,7 @@ impl JsBackend<emela_core::Module> for CoreJs {
             OutputFile::new(RUNTIME_FILE, RUNTIME),
         ];
         files.extend(bundled_outputs(module));
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files,
             entry: JS_ENTRY_FILE.into(),
         })
