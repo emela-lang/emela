@@ -138,7 +138,6 @@ static inline bool em_handler_ok(em_ref h) {
 }
 
 _Noreturn void em_unreachable(void);
-_Noreturn void em_unsupported(const char *what);
 
 /* ---- Constants (spec 5.6) ---- */
 

@@ -105,14 +105,16 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::FloatRound
         | Builtin::FloatTruncate
         | Builtin::Panic
-        | Builtin::Todo => true,
+        | Builtin::Todo
+        // Target c splits by grapheme clusters only ASCII text so far, and an empty separator
+        // that turns up at run time on other text is a defect there.
+        | Builtin::StringSplit => true,
         Builtin::StringLength
         | Builtin::StringByteSize
         | Builtin::StringAppend
         | Builtin::StringContains
         | Builtin::StringStartsWith
         | Builtin::StringEndsWith
-        | Builtin::StringSplit
         | Builtin::StringChars
         | Builtin::StringJoin
         | Builtin::StringTrim

@@ -85,6 +85,53 @@ fn grapheme_builtins_are_rejected() {
     );
 }
 
+/// An empty separator that turns up at run time splits ASCII text by characters, and is a defect
+/// on other text (C has no grapheme cluster tables yet): releases run and `Fiber.attempt` catches
+/// it.
+#[test]
+fn split_by_graphemes_at_run_time_is_a_defect() {
+    if cc().is_none() {
+        return;
+    }
+    let src = r#"
+fn sep(n: Int) -> String { if n == 0 { "" } else { "," } }
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res implements Name {
+  init { Res }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn main() -> () use { Async } {
+  print(String.join(String.split("abc", sep(0)), "|"))
+  r = Fiber.attempt(fn() { String.split("aé", sep(0)) })
+  r match {
+    Success(_) -> print("split")
+    Failure(c) -> print(Cause.to_string(c))
+  }
+  with Res { print(String.join(String.split("é", sep(0)), "|")) }
+}
+"#;
+    let src = format!(
+        "import Std.Fiber.{{Fiber, Exit, Success, Failure}}\nimport Std.Cause.{{Cause}}\n{PRELUDE}{src}"
+    );
+    let got = run("split_defect", &src).expect("cc is available");
+    let message = "`String.split` with an empty separator on non-ASCII text needs the Unicode \
+                   grapheme cluster tables, which target `c` does not support yet";
+    assert_eq!(
+        (got.code, got.stdout.as_str(), got.stderr.as_str()),
+        (
+            101,
+            format!("a|b|c\ndefect: {message}\nrelease res\n").as_str(),
+            format!("defect: {message}\n").as_str()
+        )
+    );
+}
+
 #[test]
 fn callbacks_to_c_are_rejected() {
     let (kind, message) = error_of(
