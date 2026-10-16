@@ -30,7 +30,8 @@ use crate::{CError, CErrorKind, COutput, RUNTIME_H_FILE};
 
 /// What the generated `main` runs.
 pub(crate) enum Run {
-    Main,
+    /// The entry's `main` (its monomorphized copy), if any.
+    Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
 }
@@ -86,14 +87,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<COutput, Vec<CError>> {
         bodies.push('\n');
     }
     match entry {
-        Run::Main => {
-            let main = m
-                .functions
-                .iter()
-                .find(|(_, f)| f.exported && f.name == "main")
-                .map(|(id, _)| id);
-            e.c_main(&mut bodies, main);
-        }
+        Run::Main(main) => e.c_main(&mut bodies, *main),
         Run::Tests(tests) => e.c_test_main(&mut bodies, tests),
     }
     if !e.errors.is_empty() {

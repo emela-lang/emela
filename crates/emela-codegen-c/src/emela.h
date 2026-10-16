@@ -31,8 +31,17 @@
  * keeps the event loop waiting with a registration of its own (`em_after` with a long time),
  * which completing the task removes.
  *
- * After its completion a task must not be used: its memory is freed once the runtime is back in
- * its event loop. The shape of these types and functions may change between versions. */
+ * When a task pointer stays valid: an `em_task *` is a handle, not the address of memory the host
+ * may read (never dereference it). From the call of the external function until the task is
+ * completed, it may be passed to every function here. After the first completion, it may only be
+ * passed to a completion function again, and that call is the defect of a second completion: the
+ * runtime recognizes the handle even after it has freed the task (which it does once it is back
+ * in its event loop), so the second completion never touches freed memory, from the runtime's
+ * thread or from another one. `em_after`, `em_on_readable`, `em_on_writable` and `em_on_cancel`
+ * with a completed task do nothing. A slot is only given the same handle again after 2^32 later
+ * tasks have used it (2^12 where pointers have 32 bits), so a completion that late could hit
+ * another task. Passing a pointer that never came from the runtime is a bug of the host (the
+ * program usually aborts). The shape of these types and functions may change between versions. */
 #ifndef EMELA_H
 #define EMELA_H
 

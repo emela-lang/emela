@@ -748,17 +748,21 @@ impl<'a> Lowerer<'a> {
 
     /// The IR return type and type parameter count of a definition's declared (or generalized)
     /// type. Non-functions (consts) have no type parameters and return their own type.
-    fn signature(&mut self, def: DefId) -> (TypeId, usize) {
+    /// The return type, the number of type parameters and the indices of the set ones.
+    fn signature(&mut self, def: DefId) -> (TypeId, usize, Vec<usize>) {
         let types = self.types;
-        match types
-            .sigs
-            .get(def)
-            .map(|s| (&s.scheme.ty, s.scheme.params.len()))
-        {
-            Some((Ty::Fn(f), n)) => (self.ty(&f.ret), n),
-            Some((ty, n)) => (self.ty(ty), n),
-            None => (TypeId::UNIT, 0),
-        }
+        let Some(sig) = types.sigs.get(def) else {
+            return (TypeId::UNIT, 0, Vec::new());
+        };
+        let params = &sig.scheme.params;
+        let sets = (0..params.len())
+            .filter(|&i| matches!(params[i].kind, emela_types::ParamKind::Set))
+            .collect();
+        let ret = match &sig.scheme.ty {
+            Ty::Fn(f) => self.ty(&f.ret),
+            ty => self.ty(ty),
+        };
+        (ret, params.len(), sets)
     }
 
     fn define_fn(&mut self, def: DefId, spec: Specialization) {
@@ -786,9 +790,10 @@ impl<'a> Lowerer<'a> {
                     }
                 }
                 let external = self.external(def, f);
-                let (ret, type_params) = self.signature(def);
+                let (ret, type_params, set_params) = self.signature(def);
                 self.module.define_external(id, params, ret, external);
                 self.module.functions[id].type_params = type_params;
+                self.module.functions[id].set_params = set_params;
                 return;
             }
             Some(Item::Fn(f)) => (
@@ -813,7 +818,7 @@ impl<'a> Lowerer<'a> {
             self.ev = Some(ev);
         }
         let body = self.expr(body);
-        let (ret, type_params) = self.signature(def);
+        let (ret, type_params, set_params) = self.signature(def);
         self.module.define(id, params, ret, body);
         let fails = self.declared_fails(def);
         let types = self.types;
@@ -823,6 +828,7 @@ impl<'a> Lowerer<'a> {
         };
         let func = &mut self.module.functions[id];
         func.type_params = type_params;
+        func.set_params = set_params;
         // A const's value cannot fail (spec 5.6).
         func.fails = !func.constant && fails;
         if !func.constant {

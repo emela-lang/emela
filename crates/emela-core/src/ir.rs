@@ -112,6 +112,7 @@ impl Module {
             params: Vec::new(),
             ret: TypeId::UNIT,
             type_params: 0,
+            set_params: Vec::new(),
             fails: false,
             body: Expr::Lit(Lit::Unit),
             external: None,
@@ -221,6 +222,10 @@ pub struct Function {
     /// parameters, the return value and the locals of the body. Includes set parameters (`R(f)`),
     /// which no type refers to, so that indices match the type checker's.
     pub type_params: usize,
+    /// The indices of the set type parameters among `type_params` (sorted). The others are
+    /// ordinary types. Monomorphization uses them to instantiate a generic root
+    /// ([`crate::monomorphize_from`]).
+    pub set_params: Vec<usize>,
     /// Whether a call may fail: the declared E is not empty (spec 7.2). A set type parameter
     /// counts as not empty, so an instantiation may never fail. Always false for external
     /// functions (spec 12.5) and consts (spec 5.6).

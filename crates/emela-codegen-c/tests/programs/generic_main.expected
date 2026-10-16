@@ -1,0 +1,5 @@
+exit: 101
+--- stdout
+start
+--- stderr
+defect: child
