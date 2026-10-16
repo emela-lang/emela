@@ -20,11 +20,8 @@ use emela_driver::{
 /// Examples that do not build on C yet, and the code of the first diagnostic that stops them (no
 /// code: the C target's "not supported yet").
 const NOT_ON_C: &[(&str, Option<&str>)] = &[
-    // `with Platform` reaches every System handler, including SystemHttp, which has no
-    // `@external(c, ...)` (spec 15.2). Checking only the operations called (spec 12.1) lets
-    // `notes` build once that lands.
+    // SystemHttp has no `@external(c, ...)` yet (spec 15.2).
     ("http", Some("E0412")),
-    ("notes", Some("E0412")),
 ];
 
 fn root() -> PathBuf {
@@ -59,6 +56,27 @@ fn out_dir(name: &str) -> PathBuf {
 }
 
 type Outcome = (i32, String, String);
+
+/// Calls `f` and removes what it made in the current directory, so that an example that writes
+/// files (`notes`) starts from the same state on JS and on C.
+fn in_clean_cwd<T>(f: impl FnOnce() -> T) -> T {
+    fn entries() -> Vec<PathBuf> {
+        std::fs::read_dir(".")
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect()
+    }
+    let before = entries();
+    let result = f();
+    for path in entries().into_iter().filter(|p| !before.contains(p)) {
+        let _ = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+    }
+    result
+}
 
 /// Runs the program at `path` on `target`: its exit code, stdout and stderr, or the diagnostics
 /// that stopped it.
@@ -167,7 +185,7 @@ fn examples_run_the_same_on_js_and_c() {
     let Some(mut c) = c_backend() else { return };
     let mut failures = Vec::new();
     for (name, dir) in examples() {
-        let on_c = run_on(&dir, Target::C, &mut c, &name);
+        let on_c = in_clean_cwd(|| run_on(&dir, Target::C, &mut c, &name));
         // The examples that do not build on C are not run on JS either: some of them write files
         // in the current directory.
         if let Some((_, code)) = NOT_ON_C.iter().find(|(n, _)| *n == name) {
@@ -181,7 +199,7 @@ fn examples_run_the_same_on_js_and_c() {
             }
             continue;
         }
-        let js = run_on(&dir, Target::Js, &mut c, &name)
+        let js = in_clean_cwd(|| run_on(&dir, Target::Js, &mut c, &name))
             .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
         match on_c {
             Ok(on_c) if on_c == js => {}
