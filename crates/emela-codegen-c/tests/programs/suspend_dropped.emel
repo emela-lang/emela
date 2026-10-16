@@ -1,0 +1,44 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+## Never resumes, and does not need Async: in a function that does not suspend, the continuation
+## is dropped at once and unwinds as interrupted (spec 8.7, 14.5).
+handler Ignores implements Wait {
+  suspend fn wait(resume) { print("not resuming") }
+}
+
+handler Now implements Wait {
+  suspend fn wait(resume) { resume(7) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res(label: String) implements Name {
+  init { Res(label: "res") }
+  fn name() { self.label }
+  release { print("release #{self.label}") }
+}
+
+fn waits() -> Int use { Wait, Name } {
+  n = (use Wait).wait()
+  print("after wait #{n}")
+  n
+}
+
+fn main() {
+  with Now, Res {
+    print("now #{waits()}")
+  }
+  with Res {
+    with Ignores {
+      print("never #{waits()}")
+    }
+  }
+}

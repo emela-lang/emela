@@ -1,0 +1,73 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res(label: String) implements Name {
+  init {
+    print("init res")
+    Res(label: "res")
+  }
+  fn name() { self.label }
+  release { print("release #{self.label}") }
+}
+
+## A release that suspends: not interrupted while it runs (spec 11.4).
+handler SlowRes implements Name {
+  init {
+    print("init slow")
+    SlowRes
+  }
+  fn name() { "slow" }
+  release {
+    spin(3000)
+    print("release slow")
+  }
+}
+
+## Nothing resumes the continuations waiting for the Deferred: when the run stalls, every fiber
+## unwinds as interrupted and runs its releases from the inside (spec 14.5).
+fn main() -> () use { Async } {
+  with Ticks, Res {
+    Fiber.scope(fn() {
+      d = Fiber.deferred()
+      Fiber.fork(fn() {
+        with SlowRes {
+          Deferred.await(d)
+          print("never")
+        }
+      })
+      Fiber.fork(fn() {
+        with Res {
+          spin(2000)
+          print("child waits")
+          Deferred.await(d)
+        }
+      })
+      print("body waits")
+      Deferred.await(d)
+      print("never either")
+    })
+  }
+}

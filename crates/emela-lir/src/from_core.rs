@@ -1200,6 +1200,15 @@ impl<'s> Lower<'s> {
             ops.push(v.op.unwrap_or(Operand::Const(Const::Unit)));
         }
         let ty = self.fiber_result(op, first);
+        // A scope's `fails` over-approximates a set type argument that monomorphisation made
+        // empty. When its failure would leave a body that cannot fail, the types say it cannot
+        // fail.
+        let op = match op {
+            FiberOp::Scope { fails: true } if !self.fails && self.fail.is_empty() => {
+                FiberOp::Scope { fails: false }
+            }
+            op => op,
+        };
         let on_fail = op.fails().then(|| self.on_fail());
         self.emit(
             ty,

@@ -67,7 +67,7 @@ pub fn state_machines(m: &mut Module) {
 
 /// Whether the value may come back suspended: a suspending call, a concurrency operation that
 /// may wait, or a fairness yield.
-pub(crate) fn may_suspend(v: &Value) -> bool {
+pub fn may_suspend(v: &Value) -> bool {
     match v {
         Value::Call { suspends, .. } => *suspends,
         Value::Fiber { op, .. } => op.suspends(),

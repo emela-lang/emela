@@ -86,30 +86,6 @@ fn grapheme_builtins_are_rejected() {
 }
 
 #[test]
-fn suspending_code_is_rejected() {
-    let (kind, message) = error_of(
-        r#"
-effect Wait {
-  suspend fn wait() -> ()
-}
-
-handler Now implements Wait {
-  suspend fn wait(resume) { resume(()) }
-}
-
-fn main() {
-  with Now { (use Wait).wait() }
-}
-"#,
-    );
-    assert_eq!(kind, CErrorKind::Unsupported);
-    assert_eq!(
-        message,
-        "the entry reaches suspending code, which target `c` does not support yet: `Wait.wait` (a `suspend fn` operation)"
-    );
-}
-
-#[test]
 fn callbacks_to_c_are_rejected() {
     let (kind, message) = error_of(
         r#"

@@ -1,0 +1,127 @@
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.State.{State}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Nope
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+effect Slow {
+  suspend fn slow(n: Int) -> Int
+}
+
+## An implementation that suspends before it resumes: it runs as another continuation of the
+## caller's fiber, and the caller goes on inside its resume (spec 14.5).
+handler Slowly implements Slow {
+  suspend fn slow(n, resume) {
+    spin(n)
+    print("impl before resume #{n}")
+    resume(n * 2)
+    print("impl after resume #{n}")
+  }
+}
+
+effect Wait {
+  suspend fn wait(label: String) -> String
+}
+
+## Keeps the resume to call it later from another fiber.
+handler Parked implements Wait {
+  suspend fn wait(label, resume) {
+    print("parked #{label}")
+    (use State[List[fn(String) -> ()]]).update(fn(rs) { [resume, ..rs] })
+  }
+}
+
+effect Twice {
+  suspend fn twice() -> Int
+}
+
+handler TwiceResumer implements Twice {
+  suspend fn twice(resume) {
+    resume(1)
+    resume(2)
+  }
+}
+
+effect Late {
+  suspend fn late() -> Int fails Nope
+}
+
+handler FailsEarly implements Late {
+  suspend fn late(resume) { fail Nope }
+}
+
+fn wake_all(rs: List[fn(String) -> ()], text: String) -> () {
+  rs match {
+    [] -> ()
+    [r, ..rest] -> {
+      r(text)
+      wake_all(rest, text)
+    }
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks, Slowly {
+    Fiber.scope(fn() {
+      a = Fiber.fork(fn() {
+        v = (use Slow).slow(1500)
+        print("caller got #{v}")
+        v
+      })
+      b = Fiber.fork(fn() {
+        spin(500)
+        print("other fiber")
+        1
+      })
+      print("joined #{Fiber.join(a) + Fiber.join(b)}")
+    })
+  }
+  (_, left) = State.run([], fn() {
+    with Parked {
+      Fiber.scope(fn() {
+        x = Fiber.fork(fn() { print("x woke with #{(use Wait).wait("x")}") })
+        y = Fiber.fork(fn() { print("y woke with #{(use Wait).wait("y")}") })
+        Fiber.fork(fn() {
+          wake_all((use State[List[fn(String) -> ()]]).get(), "hello")
+          print("woke all")
+        })
+        Fiber.join(x)
+        Fiber.join(y)
+      })
+    }
+  })
+  print("parked left #{List.length(left)}")
+  with FailsEarly {
+    r = (use Late).late() escape { Nope -> -1 }
+    print("failed early #{r}")
+  }
+  with TwiceResumer {
+    print(show(Fiber.attempt(fn() { (use Twice).twice() })))
+  }
+}

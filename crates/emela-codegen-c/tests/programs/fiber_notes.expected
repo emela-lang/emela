@@ -1,0 +1,9 @@
+exit: 101
+--- stdout
+init res
+error: Boom
+note: another fiber also failed: defect: second
+init res
+--- stderr
+defect: first
+note: another fiber also failed: defect: second

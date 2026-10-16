@@ -16,10 +16,11 @@
 
 use std::fmt::Write as _;
 
-use emela_core::{Builtin, EnumId, HostModule, HostRef, Type, TypeId};
+use emela_core::{Builtin, EnumId, FiberOp, HostModule, HostRef, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
-    RuntimeOp, SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
+    RuntimeOp, SeqId, Stage, Stmt, StmtId, Suspend, SwitchOn, Term, Value, VarId, enum_repr,
+    repr_of,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -68,6 +69,12 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<COutput, Vec<CError>> {
         if f.constant {
             let sig = e.signature(id, f, "");
             let _ = writeln!(protos, "static {sig};");
+        }
+        if is_machine(f) {
+            let sig = e.machine_signature(id, f);
+            let name = &e.fn_names[ix(id)];
+            let _ = writeln!(protos, "static {sig};");
+            let _ = writeln!(protos, "static em_word {name}_resume(em_ref, em_word);");
         }
     }
     for (id, f) in m.functions.iter() {
@@ -194,6 +201,65 @@ struct Cx<'a> {
     /// The enclosing loops, innermost last: their variables and head label.
     loops: Vec<(Vec<VarId>, String)>,
     used_labels: FxHashSet<String>,
+    /// For a suspending function emitted as a state machine, its C name (its resume function
+    /// is `name_resume`).
+    machine: Option<String>,
+    /// The resume points met so far.
+    resumes: Vec<ResumePoint>,
+}
+
+/// A resume point of a state machine: what the frame of `state` restores, and where the input
+/// goes.
+struct ResumePoint {
+    state: u32,
+    saved: Vec<VarId>,
+    dst: Option<VarId>,
+}
+
+/// Whether the function is emitted as a state machine: a suspending function with suspension
+/// points.
+fn is_machine(f: &Function) -> bool {
+    f.suspends
+        && f.body.is_some()
+        && f.stmts.iter().any(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    on_suspend: Some(_),
+                    ..
+                }
+            )
+        })
+}
+
+/// The entry of a state machine with a frame: restores the saved variables of the frame's state,
+/// frees the frame, takes the input as the suspended value's result and jumps after it.
+fn resume_dispatch(f: &Function, resumes: &[ResumePoint]) -> String {
+    let mut out = String::new();
+    out.push_str("  if (em_fr != NULL) {\n");
+    out.push_str("    switch (em_fr->slots[1].i) {\n");
+    for r in resumes {
+        let _ = writeln!(out, "    case {}:", r.state);
+        for (i, &v) in r.saved.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "      {} = em_fr->slots[{}].{};",
+                var(v),
+                i + 3,
+                acc(f.vars[v].repr)
+            );
+        }
+        out.push_str("      em_frame_free(em_fr);\n");
+        if let Some(d) = r.dst {
+            let _ = writeln!(out, "      {} = em_in.{};", var(d), acc(f.vars[d].repr));
+        }
+        let _ = writeln!(out, "      goto em_r{};", r.state);
+    }
+    out.push_str("    default:\n");
+    out.push_str("      em_unreachable();\n");
+    out.push_str("    }\n");
+    out.push_str("  }\n");
+    out
 }
 
 impl Cx<'_> {
@@ -409,6 +475,7 @@ impl<'m> Emitter<'m> {
             return;
         };
         let ret = self.repr(f.ret);
+        let machine = is_machine(f).then(|| self.fn_names[ix(id)].clone());
         let mut cx = Cx {
             f,
             ret,
@@ -417,21 +484,78 @@ impl<'m> Emitter<'m> {
             labels: FxHashMap::default(),
             loops: Vec::new(),
             used_labels: FxHashSet::default(),
+            machine: machine.clone(),
+            resumes: Vec::new(),
         };
         for (v, data) in f.vars.iter() {
             if !f.params.contains(&v) {
                 cx.line(&format!("{} {} = 0;", cty(data.repr), var(v)));
             }
         }
+        let decls = std::mem::take(&mut cx.out);
         self.seq(&mut cx, body, None);
         let suffix = if f.constant { "_init" } else { "" };
         let _ = writeln!(out, "/* {} */", f.name.replace("*/", "* /"));
-        let _ = writeln!(out, "static {} {{", self.signature(id, f, suffix));
+        if machine.is_some() {
+            let _ = writeln!(out, "static {} {{", self.machine_signature(id, f));
+            out.push_str(&decls);
+            out.push_str(&resume_dispatch(f, &cx.resumes));
+        } else {
+            let _ = writeln!(out, "static {} {{", self.signature(id, f, suffix));
+            out.push_str(&decls);
+        }
         out.push_str(&cx.out);
         out.push_str("}\n");
+        if let Some(name) = &machine {
+            self.machine_wrappers(out, id, f, name, ret);
+        }
         if f.constant {
             self.const_wrapper(out, id, f, ret);
         }
+    }
+
+    /// `RET name_sm(em_ref em_fr, em_word em_in, PARAMS)`: the body of a suspending function,
+    /// entered without a frame by the function itself and with one by the driver loop.
+    fn machine_signature(&self, id: FnId, f: &Function) -> String {
+        let ret = cty(self.repr(f.ret));
+        let mut params = vec!["em_ref em_fr".to_owned(), "em_word em_in".to_owned()];
+        params.extend(
+            f.params
+                .iter()
+                .map(|&p| format!("{} {}", cty(f.vars[p].repr), var(p))),
+        );
+        format!("{ret} {}_sm({})", self.fn_names[ix(id)], params.join(", "))
+    }
+
+    /// The function itself (entering the state machine without a frame) and its resume function
+    /// for the driver loop (entering it with a frame and the input, returning the result as a
+    /// word).
+    fn machine_wrappers(&self, out: &mut String, id: FnId, f: &Function, name: &str, ret: Repr) {
+        let args: Vec<String> = f.params.iter().map(|&p| var(p)).collect();
+        let mut call_args = vec!["NULL".to_owned(), "(em_word){.l = 0}".to_owned()];
+        call_args.extend(args);
+        let _ = writeln!(out, "static {} {{", self.signature(id, f, ""));
+        let kw = if ret == Repr::Void { "" } else { "return " };
+        let _ = writeln!(out, "  {kw}{name}_sm({});", call_args.join(", "));
+        out.push_str("}\n");
+        let mut zeros = vec!["fr".to_owned(), "in".to_owned()];
+        zeros.extend(f.params.iter().map(|&p| match f.vars[p].repr {
+            Repr::Ref => "NULL".to_owned(),
+            _ => "0".to_owned(),
+        }));
+        let _ = writeln!(
+            out,
+            "static em_word {name}_resume(em_ref fr, em_word in) {{"
+        );
+        let _ = writeln!(out, "  em_word out;");
+        let _ = writeln!(out, "  out.l = 0;");
+        if ret == Repr::Void {
+            let _ = writeln!(out, "  {name}_sm({});", zeros.join(", "));
+        } else {
+            let _ = writeln!(out, "  out.{} = {name}_sm({});", acc(ret), zeros.join(", "));
+        }
+        let _ = writeln!(out, "  return out;");
+        out.push_str("}\n");
     }
 
     /// The function a const's callers call: evaluates the body once and remembers the value or
@@ -552,9 +676,20 @@ impl<'m> Emitter<'m> {
                 dst,
                 value,
                 on_defect,
-                ..
+                on_suspend,
             } => {
+                // Suspending code called where nothing may suspend runs in place (spec 8.7).
+                let sync = !f.suspends && emela_lir::may_suspend(value);
+                if sync {
+                    cx.line("em_sync_enter();");
+                }
                 self.value(cx, *dst, value);
+                if sync {
+                    cx.line("em_sync_leave();");
+                }
+                if let Some(edge) = on_suspend {
+                    self.suspend_edge(cx, edge, *dst);
+                }
                 if let Some(landing) = on_defect {
                     cx.line("if (em_defect != NULL) {");
                     cx.indent += 1;
@@ -676,6 +811,54 @@ impl<'m> Emitter<'m> {
             Stmt::Dup(v) => cx.line(&format!("em_dup({});", var(*v))),
             Stmt::Drop(v) => cx.line(&format!("em_drop({});", var(*v))),
         }
+    }
+
+    /// A suspension edge: when the value came back suspended, the function pushes a frame with
+    /// the state and the saved variables onto the continuation and returns. Its resume point,
+    /// where the frame's entry jumps with the input, is right after (before the landings).
+    fn suspend_edge(&mut self, cx: &mut Cx<'_>, edge: &Suspend, dst: Option<VarId>) {
+        let f = cx.f;
+        let Some(name) = cx.machine.clone() else {
+            self.internal(format!(
+                "a suspension edge outside a state machine in {}",
+                f.name
+            ));
+            return;
+        };
+        let mut refs = vec![false, false, true];
+        refs.extend(edge.saved.iter().map(|&v| f.vars[v].repr == Repr::Ref));
+        let desc = self.desc(DescKey {
+            tag: 0,
+            enum_id: -1,
+            name: display_name(&f.name).to_owned(),
+            show: None,
+            refs,
+        });
+        cx.line("if (em_suspending) {");
+        cx.indent += 1;
+        cx.line(&format!(
+            "em_ref fr = em_frame_new(&em_d{desc}, {name}_resume, {}, {});",
+            edge.state,
+            edge.saved.len()
+        ));
+        for (i, &v) in edge.saved.iter().enumerate() {
+            cx.line(&format!(
+                "fr->slots[{}] = (em_word){{.{} = {}}};",
+                i + 3,
+                acc(f.vars[v].repr),
+                var(v)
+            ));
+        }
+        cx.line("em_frame_push(fr);");
+        cx.dummy_return();
+        cx.indent -= 1;
+        cx.line("}");
+        cx.out.push_str(&format!("em_r{}:;\n", edge.state));
+        cx.resumes.push(ResumePoint {
+            state: edge.state,
+            saved: edge.saved.clone(),
+            dst,
+        });
     }
 
     /// `dst = <expression>;`, or the expression alone without a destination.
@@ -902,10 +1085,7 @@ impl<'m> Emitter<'m> {
                 let args: Vec<Operand> = ops.iter().map(|&o| Operand::Var(o)).collect();
                 self.alloc(cx, dst, desc, Some("(em_word){.i = 0}".into()), &args);
             }
-            Value::Fiber { .. } => self.errors.push(CError::new(
-                CErrorKind::Unsupported,
-                "fibers are not supported on target `c` yet",
-            )),
+            Value::Fiber { op, args, .. } => self.fiber(cx, dst, *op, args),
             Value::IsError { error, enum_id } => Self::assign(
                 cx,
                 dst,
@@ -921,13 +1101,10 @@ impl<'m> Emitter<'m> {
                     RuntimeOp::Defect => format!("em_raise({})", a[0]),
                     RuntimeOp::DefectTake => "em_defect_take()".to_owned(),
                     RuntimeOp::DefectResume => format!("em_defect_resume({})", a[0]),
-                    RuntimeOp::Hold
-                    | RuntimeOp::Unhold
-                    | RuntimeOp::Yield
-                    | RuntimeOp::YieldPerform => {
-                        self.internal(format!("suspending code left in {}", f.name));
-                        return;
-                    }
+                    RuntimeOp::Hold => "em_hold()".to_owned(),
+                    RuntimeOp::Unhold => "em_unhold()".to_owned(),
+                    RuntimeOp::Yield => "em_yield(false)".to_owned(),
+                    RuntimeOp::YieldPerform => "em_yield(true)".to_owned(),
                 };
                 Self::assign(cx, dst, &e);
             }
@@ -943,6 +1120,92 @@ impl<'m> Emitter<'m> {
                 };
                 cx.line(&format!("{} = {e};", var(d)));
             }
+        }
+    }
+
+    /// The representation of the first type argument of the enum type `ty` (`Exit[A, E]`,
+    /// `Option[A]`), or of the value of the function type `ty`.
+    fn inner_repr(&self, ty: TypeId) -> Repr {
+        match self.core().ty(ty) {
+            Type::Enum(_, args) => args.first().map_or(Repr::Void, |&a| self.repr(a)),
+            Type::Fn(ft) => self.repr(ft.ret),
+            _ => Repr::Ref,
+        }
+    }
+
+    /// A concurrency operation: a call of the runtime (spec chapter 11). The runtime moves values
+    /// of any type, so it is told their representation.
+    fn fiber(&mut self, cx: &mut Cx<'_>, dst: Option<VarId>, op: FiberOp, args: &[Operand]) {
+        let f = cx.f;
+        let a: Vec<String> = args.iter().map(|o| self.operand(o)).collect();
+        let arg_ty = |i: usize| match args.get(i) {
+            Some(Operand::Var(v)) => Some(f.vars[*v].ty),
+            _ => None,
+        };
+        let dst_repr = dst.map_or(Repr::Void, |d| f.vars[d].repr);
+        let dst_ty = dst.map(|d| f.vars[d].ty);
+        // The word an operation returns, unpacked into the destination.
+        let word = |cx: &mut Cx<'_>, call: String| match dst {
+            Some(d) => cx.line(&format!("{} = {call}.{};", var(d), acc(f.vars[d].repr))),
+            None => cx.line(&format!("(void){call};")),
+        };
+        match op {
+            FiberOp::Scope { .. } => {
+                let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
+                word(cx, format!("em_fiber_scope({}, {})", a[0], repr_code(repr)));
+            }
+            FiberOp::Fork => Self::assign(cx, dst, &format!("em_fiber_fork({}, {})", a[0], a[1])),
+            FiberOp::Deferred => Self::assign(cx, dst, &format!("em_fiber_deferred({})", a[0])),
+            FiberOp::Join => word(
+                cx,
+                format!("em_fiber_join({}, {})", a[0], repr_code(dst_repr)),
+            ),
+            FiberOp::Await { .. } => {
+                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
+                Self::assign(
+                    cx,
+                    dst,
+                    &format!("em_fiber_await({}, {})", a[0], repr_code(repr)),
+                );
+            }
+            FiberOp::Interrupt => cx.line(&format!("em_fiber_interrupt({});", a[0])),
+            FiberOp::Attempt { .. } => {
+                let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
+                Self::assign(
+                    cx,
+                    dst,
+                    &format!("em_fiber_attempt({}, {})", a[0], repr_code(repr)),
+                );
+            }
+            FiberOp::Complete => {
+                let repr = args.get(1).map_or(Repr::Void, |o| Self::operand_repr(f, o));
+                let w = match args.get(1) {
+                    Some(o) if repr != Repr::Void => self.word(f, o),
+                    _ => "(em_word){.l = 0}".to_owned(),
+                };
+                Self::assign(
+                    cx,
+                    dst,
+                    &format!("em_deferred_complete({}, {w}, {})", a[0], repr_code(repr)),
+                );
+            }
+            FiberOp::DeferredAwait => word(
+                cx,
+                format!("em_deferred_await({}, {})", a[0], repr_code(dst_repr)),
+            ),
+            FiberOp::Poll => {
+                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
+                Self::assign(
+                    cx,
+                    dst,
+                    &format!("em_deferred_poll({}, {})", a[0], repr_code(repr)),
+                );
+            }
+            FiberOp::CauseKind { .. } => Self::assign(cx, dst, &format!("em_cause_kind({})", a[0])),
+            FiberOp::CauseToString => {
+                Self::assign(cx, dst, &format!("em_cause_to_string({})", a[0]))
+            }
+            FiberOp::CauseRaise => cx.line(&format!("em_cause_raise({});", a[0])),
         }
     }
 
@@ -1011,15 +1274,54 @@ impl<'m> Emitter<'m> {
                 effect,
                 op,
             } => {
-                let ret = self.repr(self.core().effects[*effect].ops[*op].ret);
+                let def = &self.core().effects[*effect].ops[*op];
+                let ret = self.repr(def.ret);
                 let h = var(*handler);
                 let closure = format!("{h}->slots[{}].p", op + 1);
-                let e = closure_call(&closure, ret, f, args, &a);
                 cx.line(&format!("if (em_handler_ok({h})) {{"));
                 cx.indent += 1;
-                Self::assign(cx, dst, &e);
+                if def.suspend {
+                    // The implementation takes a resume function value last and returns
+                    // nothing; the value to continue with comes from `em_perform_end`.
+                    let name = names::string_literal(def.name.as_bytes());
+                    cx.line(&format!(
+                        "em_ref rs = em_resume_new({h}, {name}, {});",
+                        repr_code(ret)
+                    ));
+                    let mut a = a.clone();
+                    a.push("rs".to_owned());
+                    let mut args = args.to_vec();
+                    args.push(Operand::Const(Const::String(String::new())));
+                    let call = closure_call(&closure, Repr::Void, f, &args, &a);
+                    cx.line(&format!("{call};"));
+                    cx.line("em_word pw = em_perform_end(rs);");
+                    if let Some(d) = dst {
+                        cx.line(&format!("{} = pw.{};", var(d), acc(ret)));
+                    } else {
+                        cx.line("(void)pw;");
+                    }
+                } else {
+                    let e = closure_call(&closure, ret, f, args, &a);
+                    Self::assign(cx, dst, &e);
+                }
                 cx.indent -= 1;
-                cx.line("}");
+                // A released handler takes none of the arguments: they are given up here.
+                let given: Vec<String> = args
+                    .iter()
+                    .filter_map(|o| match o {
+                        Operand::Var(v) if f.vars[*v].repr == Repr::Ref => Some(var(*v)),
+                        _ => None,
+                    })
+                    .collect();
+                if given.is_empty() {
+                    cx.line("}");
+                } else {
+                    cx.line("} else {");
+                    for v in given {
+                        cx.line(&format!("  em_drop({v});"));
+                    }
+                    cx.line("}");
+                }
             }
         }
     }
@@ -1286,40 +1588,41 @@ impl<'m> Emitter<'m> {
         out.push_str("}\n\n");
     }
 
-    /// Calls the function `id`, which takes no arguments, and drops what it returns unless it
-    /// failed or raised a defect.
-    fn call_entry(&mut self, out: &mut String, id: FnId) {
+    /// The function the run calls for the entry `id` (main or a test function, which take no
+    /// arguments): it calls it and returns its value as a word. `em_run` runs it as the root
+    /// fiber (spec 14.5) and drops the value.
+    fn entry_thunk(&mut self, out: &mut String, id: FnId) -> (String, Repr) {
         let f = &self.m.functions[id];
         let name = self.fn_names[ix(id)].clone();
         if !f.params.is_empty() {
             self.internal(format!("the entry `{}` takes parameters", f.name));
         }
-        match self.repr(f.ret) {
-            Repr::Void => {
-                let _ = writeln!(out, "  {name}();");
-            }
-            Repr::Ref => {
-                let _ = writeln!(out, "  {{");
-                let _ = writeln!(out, "    em_ref r = {name}();");
-                let _ = writeln!(
-                    out,
-                    "    if (em_defect == NULL && em_failure == NULL) em_drop(r);"
-                );
-                let _ = writeln!(out, "  }}");
-            }
-            _ => {
-                let _ = writeln!(out, "  (void){name}();");
-            }
+        let ret = self.repr(f.ret);
+        let thunk = format!("{name}_entry");
+        let _ = writeln!(out, "static em_word {thunk}(void) {{");
+        let _ = writeln!(out, "  em_word w;");
+        let _ = writeln!(out, "  w.l = 0;");
+        if ret == Repr::Void {
+            let _ = writeln!(out, "  {name}();");
+        } else {
+            let _ = writeln!(out, "  w.{} = {name}();", acc(ret));
         }
+        let _ = writeln!(out, "  return w;");
+        out.push_str("}\n\n");
+        (thunk, ret)
     }
 
     /// Runs the tests one by one and reports each result (the JS test runner's protocol).
     fn c_test_main(&mut self, out: &mut String, tests: &[(String, FnId)]) {
         self.cleanup(out);
+        let thunks: Vec<(String, Repr)> = tests
+            .iter()
+            .map(|(_, id)| self.entry_thunk(out, *id))
+            .collect();
         out.push_str("int main(int argc, char **argv) {\n");
         out.push_str("  em_start(argc, argv);\n");
-        for (name, id) in tests {
-            self.call_entry(out, *id);
+        for ((name, _), (thunk, ret)) in tests.iter().zip(thunks) {
+            let _ = writeln!(out, "  em_run({thunk}, {});", repr_code(ret));
             let _ = writeln!(
                 out,
                 "  em_test_result({});",
@@ -1333,13 +1636,25 @@ impl<'m> Emitter<'m> {
 
     fn c_main(&mut self, out: &mut String, main: Option<FnId>) {
         self.cleanup(out);
+        let thunk = main.map(|id| self.entry_thunk(out, id));
         out.push_str("int main(int argc, char **argv) {\n");
         out.push_str("  em_start(argc, argv);\n");
-        if let Some(id) = main {
-            self.call_entry(out, id);
+        if let Some((thunk, ret)) = thunk {
+            let _ = writeln!(out, "  em_run({thunk}, {});", repr_code(ret));
         }
         out.push_str("  return em_exit(em_cleanup);\n");
         out.push_str("}\n");
+    }
+}
+
+/// The runtime's constant for a representation (`EM_REPR_I32`).
+fn repr_code(r: Repr) -> &'static str {
+    match r {
+        Repr::I32 => "EM_REPR_I32",
+        Repr::I64 => "EM_REPR_I64",
+        Repr::F64 => "EM_REPR_F64",
+        Repr::Ref => "EM_REPR_REF",
+        Repr::Void => "EM_REPR_VOID",
     }
 }
 

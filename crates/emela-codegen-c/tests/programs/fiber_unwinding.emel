@@ -1,0 +1,125 @@
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+## A release that suspends: an interruption waits until it ends (spec 11.4).
+handler SlowRes implements Name {
+  init {
+    print("init slow")
+    SlowRes
+  }
+  fn name() { "slow" }
+  release {
+    print("release slow starts")
+    spin(5000)
+    print("release slow ends")
+  }
+}
+
+## A release that fails while its fiber unwinds by an interruption.
+handler BadRes implements Name {
+  init { BadRes }
+  fn name() { "bad" }
+  release { panic("release failed") }
+}
+
+effect Slow {
+  suspend fn slow(n: Int) -> Int
+}
+
+## Suspends before it resumes. If the caller is interrupted meanwhile, the implementation is
+## unwound too (spec 12.2, the JS runtime's `onDrop`).
+handler Slowly implements Slow {
+  suspend fn slow(n, resume) {
+    with SlowRes {
+      spin(n)
+      print("impl resumes #{n}")
+      resume(n)
+    }
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+## Recursion that suspends at the bottom: the frames are resumed one by one by the driver loop.
+fn deep(n: Int) -> Int use { Tick } {
+  if n == 0 {
+    spin(2000)
+    0
+  } else {
+    deep(n - 1) + 1
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    Fiber.scope(fn() {
+      h = Fiber.fork(fn() {
+        with SlowRes {
+          spin(100000)
+        }
+      })
+      spin(1500)
+      print("interrupting")
+      Fiber.interrupt(h)
+      print("interrupted #{show(Fiber.await(h))}")
+    })
+    bad = Fiber.attempt(fn() {
+      Fiber.scope(fn() {
+        h = Fiber.fork(fn() {
+          Fiber.attempt(fn() {
+            with BadRes {
+              spin(100000)
+            }
+          }) match {
+            Success(_) -> print("attempt success")
+            Failure(c) -> print("attempt caught #{Cause.to_string(c)}")
+          }
+        })
+        spin(1500)
+        Fiber.interrupt(h)
+        print("not reached")
+      })
+    })
+    print("bad #{show(bad)}")
+    with Slowly {
+      Fiber.scope(fn() {
+        h = Fiber.fork(fn() { (use Slow).slow(100000) })
+        spin(1500)
+        Fiber.interrupt(h)
+        print("slow #{show(Fiber.await(h))}")
+        k = Fiber.fork(fn() { (use Slow).slow(1000) })
+        print("slow joined #{Fiber.join(k)}")
+      })
+    }
+    print("deep #{deep(300)}")
+  }
+}

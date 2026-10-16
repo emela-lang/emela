@@ -1,0 +1,98 @@
+import Std.Fiber.{Fiber, Scope}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+## Resumes in place: a suspending call that yields to other fibers only every so many calls (the
+## fairness budget, spec 11.1), the same on every target.
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Outer implements Name {
+  fn name() { "outer" }
+}
+
+handler Inner implements Name {
+  fn name() { "inner" }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+## Takes `ticks` hundred suspending calls, then prints and returns `n * 10`.
+fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() -> () use { Async } {
+  with Ticks, Outer {
+    total = Fiber.scope(fn() {
+      s = use Scope
+      a = s.fork(fn() { fetch(1, 60) })
+      b = Fiber.fork(fn() { fetch(2, 10) })
+      Fiber.join(a) + Fiber.join(b)
+    })
+    print("total #{total}")
+    Fiber.scope(fn() {
+      outside = fn() { print((use Name).name()) }
+      with Inner {
+        a = Fiber.fork(outside)
+        b = Fiber.fork(fn() { print((use Name).name()) })
+        print("body #{(use Name).name()}")
+        Fiber.join(a)
+        Fiber.join(b)
+      }
+    })
+    Fiber.scope(fn() {
+      a = Fiber.fork(fn() {
+        b = Fiber.fork(fn() { fetch(2, 10) })
+        print("child")
+        Fiber.join(b)
+      })
+      print("joined #{Fiber.join(a)}")
+    })
+    r = Fiber.scope(fn() {
+      outer = use Scope
+      late = outer.fork(fn() { fetch(9, 50) })
+      inner = Fiber.scope(fn() {
+        Fiber.fork(fn() {
+          h = Fiber.fork(fn() { boom() })
+          Fiber.join(h)
+        })
+        spin(100000)
+        0
+      }) escape { Boom -> -1 }
+      print("inner #{inner}")
+      Fiber.join(late)
+    })
+    print("outer #{r}")
+    floats = Fiber.scope(fn() {
+      x = Fiber.fork(fn() { 1.5 })
+      y = Fiber.fork(fn() { Int64.from_int(7) })
+      u = Fiber.fork(fn() { print("unit child") })
+      Fiber.join(u)
+      "#{Fiber.join(x)} #{Fiber.join(y)}"
+    })
+    print("values #{floats}")
+  }
+}

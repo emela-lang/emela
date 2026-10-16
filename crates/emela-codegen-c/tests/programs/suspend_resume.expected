@@ -1,0 +1,16 @@
+exit: 101
+--- stdout
+other fiber
+impl before resume 1500
+caller got 3000
+impl after resume 1500
+joined 3001
+parked x
+parked y
+woke all
+y woke with hello
+x woke with hello
+parked left 2
+failed early -1
+--- stderr
+defect: resume called twice in operation `twice` of handler `TwiceResumer`

@@ -1,0 +1,67 @@
+import Std.Fiber.{Fiber, Scope, Exit, Success, Failure}
+import Std.Cause.{Cause}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res implements Name {
+  init {
+    print("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { panic("second") }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn show[A, E](e: Exit[A, E]) -> String {
+  e match {
+    Success(_) -> "Success"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() -> () use { Async } {
+  with Ticks {
+    caught = Fiber.attempt(fn() {
+      Fiber.scope(fn() {
+        Fiber.fork(fn() {
+          spin(1000)
+          fail Boom
+        })
+        Fiber.fork(fn() { with Res { spin(100000) } })
+        spin(100000)
+      })
+    })
+    print(show(caught))
+    Fiber.scope(fn() {
+      Fiber.fork(fn() {
+        spin(1000)
+        panic("first")
+      })
+      Fiber.fork(fn() { with Res { spin(100000) } })
+      spin(100000)
+    })
+  }
+}

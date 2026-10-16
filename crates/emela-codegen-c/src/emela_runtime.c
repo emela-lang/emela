@@ -18,6 +18,8 @@
 #define EM_EXIT_LEAK 99
 /* A feature the C target does not support yet was reached at run time. */
 #define EM_EXIT_UNSUPPORTED 70
+/* The run was unwound as interrupted (spec 14.5). */
+#define EM_EXIT_INTERRUPTED 130
 
 em_ref em_defect = NULL;
 em_ref em_failure = NULL;
@@ -29,6 +31,11 @@ static int64_t em_live = 0;
 static em_ref em_last_retired = NULL;
 /* Whether the pending defect is a const referring to itself (not remembered by consts). */
 static bool em_self_reference = false;
+
+/* Defined with the fibers below. */
+static bool em_is_interrupted(em_ref x);
+static em_ref em_show_failure(em_ref e);
+static void em_notes_clear(void);
 
 /* ---- Allocation ---- */
 
@@ -76,6 +83,9 @@ void em_free(em_ref o) {
         for (int64_t k = 0; k < n; k++) EM_RELEASE_CHILD(x->slots[2 + 2 * k].p);
         break;
       }
+      case EM_KIND_RUNTIME:
+        if (d->fin != NULL) d->fin(x);
+        break;
       default:
         break;
     }
@@ -704,6 +714,12 @@ void em_raise_cstr(const char *msg) {
   em_drop(s);
 }
 
+/* em_raise, taking the reference to `d` (a String, or an interruption). */
+static void em_raise_take(em_ref d) {
+  em_raise(d);
+  em_drop(d);
+}
+
 em_ref em_defect_take(void) {
   em_ref d = em_defect;
   em_defect = NULL;
@@ -715,6 +731,18 @@ void em_defect_resume(em_ref d) {
   em_ref later = em_defect;
   em_defect = d;
   if (later == NULL) return;
+  /* Unwinding as interrupted: a defect of the cleanup replaces the interruption, and so does an
+   * interruption (a suspend operation of a release dropped). Unwinding a defect: an
+   * interruption of the cleanup is no note (spec 14.4). */
+  if (em_is_interrupted(d)) {
+    em_drop(d);
+    em_defect = later;
+    return;
+  }
+  if (em_is_interrupted(later)) {
+    em_drop(later);
+    return;
+  }
   em_buf b = {NULL, 0, 0};
   em_buf_put(&b, EM_STR_BYTES(d), EM_STR_LEN(d));
   em_buf_puts(&b, "\nnote: the release of handler ");
@@ -785,7 +813,7 @@ void em_const_leave(em_const *c, em_word value) {
     c->state = 2;
     return;
   }
-  if (em_self_reference) {
+  if (em_self_reference || em_is_interrupted(em_defect)) {
     c->state = 0;
     return;
   }
@@ -871,6 +899,1926 @@ em_ref em_from_host_string(char *s, const char *function) {
   return em_buf_finish(&b);
 }
 
+/* ---- Suspension and fibers (spec chapter 11, 14.5) ----
+ *
+ * This follows the JS runtime's scheduler (crates/emela-codegen-js/src/runtime.mjs: `$Root`,
+ * `$Fiber`, `$Scope`, `$performOp`) step by step, so that both targets switch fibers in the same
+ * order. Continuations are lists of frames (see the header) instead of generators:
+ *
+ * - A run (`em_root`: main or one test) is a scheduler of fibers on one thread. Jobs run in the
+ *   order they are queued. A fiber woken by another (a child that ended, a completed Deferred, a
+ *   resume from another fiber) is queued and runs after the running one suspends.
+ * - A suspension starts at a request: a fairness yield, a `suspend fn` operation not resumed in
+ *   place, or a fiber operation that waits. The request makes a wait (`em_wait`) and sets
+ *   `em_suspending`; the frames bubble up, and the driver loop (`em_advance`) attaches the
+ *   captured frames to the wait. Waking the wait continues them, on the spot within the same
+ *   fiber (spec 14.5, item 4) or as a queued job.
+ * - An interruption is delivered as the pending defect (an `em_desc_interrupted` object), so the
+ *   defect landings of the Heap IR unwind it and run the releases. A continuation abandoned while
+ *   suspended (the run stalls, the fiber is interrupted) is resumed with it.
+ * - Where the host's event loop would wait for timers and I/O (`em_run`), nothing waits yet: when
+ *   no job is left, the run has stalled (the JS event loop is empty). The C event loop of spec
+ *   12.6 plugs in there (see NOTES.md). */
+
+#define EM_BUDGET 1000
+#define EM_HOST_EVERY 16
+
+enum { EM_VALUE = 0, EM_FAIL = 1, EM_THROW = 2 };
+
+/* What a continuation goes on with: a value, a failure (the error) or a thrown defect or
+ * interruption. `ref`: the value is a reference the input owns. */
+typedef struct em_input {
+  int32_t mode;
+  bool ref;
+  em_word value;
+} em_input;
+
+static em_input em_in_value(em_word w, bool ref) {
+  em_input in = {EM_VALUE, ref, w};
+  return in;
+}
+
+static em_input em_in_ref(int32_t mode, em_ref p) {
+  em_input in = {mode, true, {.p = p}};
+  return in;
+}
+
+static em_word em_zero(void) {
+  em_word w;
+  w.l = 0;
+  return w;
+}
+
+static void em_input_drop(em_input in) {
+  if (in.ref) em_drop(in.value.p);
+}
+
+/* The input after a call returned `w`: the pending defect or failure, taken, or the value. */
+static em_input em_input_taken(em_word w, bool ref) {
+  if (em_defect != NULL) {
+    em_ref d = em_defect;
+    em_defect = NULL;
+    return em_in_ref(EM_THROW, d);
+  }
+  if (em_failure != NULL) {
+    em_ref e = em_failure;
+    em_failure = NULL;
+    return em_in_ref(EM_FAIL, e);
+  }
+  return em_in_value(w, ref);
+}
+
+/* Makes the input the result of the current call: the value returned, or a pending slot. */
+static em_word em_input_put(em_input in) {
+  switch (in.mode) {
+    case EM_FAIL:
+      em_failure = in.value.p;
+      return em_zero();
+    case EM_THROW:
+      em_defect = in.value.p;
+      return em_zero();
+    default:
+      return in.value;
+  }
+}
+
+/* Runtime structures not reachable as Emela values are counted as live allocations too. */
+static void *em_rt_alloc(size_t size) {
+  void *p = calloc(1, size);
+  if (p == NULL) em_out_of_memory();
+  em_live++;
+  return p;
+}
+
+static void em_rt_free(void *p) {
+  free(p);
+  em_live--;
+}
+
+typedef struct em_vec {
+  void **items;
+  size_t len;
+  size_t cap;
+} em_vec;
+
+static void em_vec_push(em_vec *v, void *x) {
+  if (v->len == v->cap) {
+    size_t cap = v->cap == 0 ? 4 : v->cap * 2;
+    void **items = realloc(v->items, cap * sizeof(void *));
+    if (items == NULL) em_out_of_memory();
+    v->items = items;
+    v->cap = cap;
+  }
+  v->items[v->len++] = x;
+}
+
+static bool em_vec_has(const em_vec *v, const void *x) {
+  for (size_t i = 0; i < v->len; i++) {
+    if (v->items[i] == x) return true;
+  }
+  return false;
+}
+
+/* Removes every occurrence, keeping the order. */
+static void em_vec_remove(em_vec *v, const void *x) {
+  size_t k = 0;
+  for (size_t i = 0; i < v->len; i++) {
+    if (v->items[i] != x) v->items[k++] = v->items[i];
+  }
+  v->len = k;
+}
+
+static void em_vec_free(em_vec *v) {
+  free(v->items);
+  v->items = NULL;
+  v->len = v->cap = 0;
+}
+
+/* Calls the closure `f` with no arguments, or with `a`, returning a value of `repr`. */
+static em_word em_call0(em_ref f, int32_t repr) {
+  em_fnptr fn = em_closure_fn(f);
+  em_word w = em_zero();
+  switch (repr) {
+    case EM_REPR_I32:
+      w.i = ((int32_t (*)(em_ref))fn)(f);
+      break;
+    case EM_REPR_I64:
+      w.l = ((int64_t (*)(em_ref))fn)(f);
+      break;
+    case EM_REPR_F64:
+      w.f = ((double (*)(em_ref))fn)(f);
+      break;
+    case EM_REPR_REF:
+      w.p = ((em_ref (*)(em_ref))fn)(f);
+      break;
+    default:
+      ((void (*)(em_ref))fn)(f);
+      break;
+  }
+  return w;
+}
+
+static em_word em_call1(em_ref f, em_ref a, int32_t repr) {
+  em_fnptr fn = em_closure_fn(f);
+  em_word w = em_zero();
+  switch (repr) {
+    case EM_REPR_I32:
+      w.i = ((int32_t (*)(em_ref, em_ref))fn)(f, a);
+      break;
+    case EM_REPR_I64:
+      w.l = ((int64_t (*)(em_ref, em_ref))fn)(f, a);
+      break;
+    case EM_REPR_F64:
+      w.f = ((double (*)(em_ref, em_ref))fn)(f, a);
+      break;
+    case EM_REPR_REF:
+      w.p = ((em_ref (*)(em_ref, em_ref))fn)(f, a);
+      break;
+    default:
+      ((void (*)(em_ref, em_ref))fn)(f, a);
+      break;
+  }
+  return w;
+}
+
+/* A value of `Any` (owned) as a value of `repr`: a reference is itself, anything else is boxed. */
+static em_word em_unbox(em_ref any, int32_t repr) {
+  if (repr == EM_REPR_REF) {
+    em_word w;
+    w.p = any;
+    return w;
+  }
+  em_word w = repr == EM_REPR_VOID ? em_zero() : any->slots[0];
+  em_drop(any);
+  return w;
+}
+
+/* ---- Interruptions, causes and Exit ---- */
+
+static const uint8_t em_refs_frame1[4] = {0, 0, 1, 0};
+static const uint8_t em_refs_cause[2] = {0, 1};
+
+/* An interruption (`$Interrupted`), pending as a defect: slot 0 the scope whose body it unwinds,
+ * or NULL for the whole fiber. */
+static const em_desc em_desc_interrupted = {EM_KIND_FIELDS, 1, 0, -1, "interrupted", NULL,
+                                            em_refs_one, NULL};
+/* A `Cause[E]`: slot 0 the kind (CauseKind's tag), slot 1 the error (Fail) or the defect
+ * message (Die). */
+static const em_desc em_desc_cause = {EM_KIND_FIELDS, 2, 0, -1, "Cause", NULL, em_refs_cause,
+                                      NULL};
+/* `Exit`: `Success(A)` is 0, `Failure(Cause[E])` is 1. */
+static const em_desc em_desc_success_val = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
+                                            em_refs_none, NULL};
+static const em_desc em_desc_success_ref = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
+                                            em_refs_one, NULL};
+static const em_desc em_desc_failure = {EM_KIND_FIELDS, 1, 1, -1, "Failure", NULL, em_refs_one,
+                                        NULL};
+
+enum { EM_CAUSE_FAIL = 0, EM_CAUSE_DIE = 1, EM_CAUSE_INTERRUPT = 2 };
+
+static bool em_is_interrupted(em_ref x) {
+  return x != NULL && x->hdr.desc == &em_desc_interrupted;
+}
+
+static em_ref em_interrupted_new(em_ref scope) {
+  em_ref o = em_alloc(&em_desc_interrupted, 1);
+  em_dup(scope);
+  o->slots[0].p = scope;
+  return o;
+}
+
+/* Takes `value` (the error or the defect, or NULL). */
+static em_ref em_cause_new(int32_t kind, em_ref value) {
+  em_ref c = em_alloc(&em_desc_cause, 2);
+  c->slots[0].l = 0;
+  c->slots[0].i = kind;
+  c->slots[1].p = value;
+  return c;
+}
+
+/* The cause of how a fiber ended, or NULL for a value. */
+static em_ref em_cause_of(em_input in) {
+  switch (in.mode) {
+    case EM_FAIL:
+      em_dup(in.value.p);
+      return em_cause_new(EM_CAUSE_FAIL, in.value.p);
+    case EM_THROW:
+      if (em_is_interrupted(in.value.p)) return em_cause_new(EM_CAUSE_INTERRUPT, NULL);
+      em_dup(in.value.p);
+      return em_cause_new(EM_CAUSE_DIE, in.value.p);
+    default:
+      return NULL;
+  }
+}
+
+static em_ref em_exit_new(int32_t tag, em_word value, bool ref) {
+  em_ref o = em_alloc(tag == 0 ? (ref ? &em_desc_success_ref : &em_desc_success_val)
+                               : &em_desc_failure,
+                      1);
+  o->slots[0] = value;
+  return o;
+}
+
+/* Notes of later failures shown after a failure (spec 11.2): the error values they belong to,
+ * and the lines, for the rest of the run. JS keeps them in the `$Fail` wrapper, which C does
+ * not have. */
+static em_vec em_note_errors;
+static em_vec em_note_lines;
+
+static em_ref em_notes_of(em_ref error) {
+  for (size_t i = 0; i < em_note_errors.len; i++) {
+    if (em_note_errors.items[i] == error) return em_note_lines.items[i];
+  }
+  return NULL;
+}
+
+/* Adds the note to the error in `*slot`. A static error (a constructor without fields) is
+ * copied first, so that the notes stay with this failure. */
+static void em_notes_add(em_ref *slot, em_ref note) {
+  em_ref e = *slot;
+  if (e->hdr.u.h.rc == 0) {
+    const em_desc *d = e->hdr.desc;
+    em_ref copy = em_alloc(d, d->nfields);
+    for (uint32_t i = 0; i < d->nfields; i++) {
+      copy->slots[i] = e->slots[i];
+      if (d->refs[i]) em_dup(copy->slots[i].p);
+    }
+    *slot = copy;
+    e = copy;
+  }
+  for (size_t i = 0; i < em_note_errors.len; i++) {
+    if (em_note_errors.items[i] == e) {
+      em_ref old = em_note_lines.items[i];
+      em_buf b = {NULL, 0, 0};
+      em_buf_put(&b, EM_STR_BYTES(old), EM_STR_LEN(old));
+      em_buf_puts(&b, "\n");
+      em_buf_put(&b, EM_STR_BYTES(note), EM_STR_LEN(note));
+      em_note_lines.items[i] = em_buf_finish(&b);
+      em_drop(old);
+      return;
+    }
+  }
+  em_dup(e);
+  em_dup(note);
+  em_vec_push(&em_note_errors, e);
+  em_vec_push(&em_note_lines, note);
+}
+
+static void em_notes_clear(void) {
+  for (size_t i = 0; i < em_note_errors.len; i++) {
+    em_drop(em_note_errors.items[i]);
+    em_drop(em_note_lines.items[i]);
+  }
+  em_vec_free(&em_note_errors);
+  em_vec_free(&em_note_lines);
+}
+
+/* `error: NotFound(id: 1)` without the prefix, with its notes; consumes `e`. NULL when it cannot
+ * be shown. */
+static em_ref em_show_failure(em_ref e) {
+  em_ref notes = em_notes_of(e);
+  if (notes != NULL) em_dup(notes);
+  em_ref (*show)(em_ref) = e->hdr.desc->show;
+  em_ref s = NULL;
+  if (show != NULL) {
+    s = show(e);
+    if (em_defect != NULL) {
+      em_drop(s);
+      s = NULL;
+    }
+  } else {
+    em_drop(e);
+  }
+  if (notes == NULL) return s;
+  em_buf b = {NULL, 0, 0};
+  if (s != NULL) em_buf_put(&b, EM_STR_BYTES(s), EM_STR_LEN(s));
+  em_buf_puts(&b, "\n");
+  em_buf_put(&b, EM_STR_BYTES(notes), EM_STR_LEN(notes));
+  em_drop(s);
+  em_drop(notes);
+  return em_buf_finish(&b);
+}
+
+em_ref em_cause_to_string(em_ref c) {
+  switch (c->slots[0].i) {
+    case EM_CAUSE_FAIL: {
+      em_dup(c->slots[1].p);
+      em_ref shown = em_show_failure(c->slots[1].p);
+      em_buf b = {NULL, 0, 0};
+      em_buf_puts(&b, "error: ");
+      if (shown != NULL) em_buf_put(&b, EM_STR_BYTES(shown), EM_STR_LEN(shown));
+      em_drop(shown);
+      return em_buf_finish(&b);
+    }
+    case EM_CAUSE_DIE: {
+      em_ref d = c->slots[1].p;
+      em_buf b = {NULL, 0, 0};
+      em_buf_puts(&b, "defect: ");
+      em_buf_put(&b, EM_STR_BYTES(d), EM_STR_LEN(d));
+      return em_buf_finish(&b);
+    }
+    default:
+      return em_str_cstr("interrupted");
+  }
+}
+
+int32_t em_cause_kind(em_ref c) { return c->slots[0].i; }
+
+void em_cause_raise(em_ref c) {
+  em_ref v = c->slots[1].p;
+  switch (c->slots[0].i) {
+    case EM_CAUSE_FAIL:
+      em_dup(v);
+      em_failure = v;
+      break;
+    case EM_CAUSE_DIE:
+      em_dup(v);
+      em_raise_take(v);
+      break;
+    default:
+      em_raise_take(em_interrupted_new(NULL));
+      break;
+  }
+}
+
+/* Adds the later failure `other` as a note to the display of `first` (spec 11.2). */
+static void em_cause_note(em_ref first, em_ref other) {
+  em_ref shown = em_cause_to_string(other);
+  em_buf b = {NULL, 0, 0};
+  em_buf_puts(&b, "note: another fiber also failed: ");
+  em_buf_put(&b, EM_STR_BYTES(shown), EM_STR_LEN(shown));
+  em_drop(shown);
+  em_ref note = em_buf_finish(&b);
+  switch (first->slots[0].i) {
+    case EM_CAUSE_FAIL:
+      em_notes_add(&first->slots[1].p, note);
+      break;
+    case EM_CAUSE_DIE: {
+      em_ref d = first->slots[1].p;
+      em_buf m = {NULL, 0, 0};
+      em_buf_put(&m, EM_STR_BYTES(d), EM_STR_LEN(d));
+      em_buf_puts(&m, "\n");
+      em_buf_put(&m, EM_STR_BYTES(note), EM_STR_LEN(note));
+      first->slots[1].p = em_buf_finish(&m);
+      em_drop(d);
+      break;
+    }
+    default:
+      break;
+  }
+  em_drop(note);
+}
+
+/* ---- The scheduler's structures ---- */
+
+typedef struct em_root em_root;
+typedef struct em_fiber em_fiber;
+typedef struct em_scope em_scope;
+typedef struct em_perform em_perform;
+
+/* Who receives a continuation's result: the fiber (its main continuation), the operation call
+ * whose implementation it runs, or nobody (an implementation unwound when the run stalls; its
+ * defect may become the run's result). */
+enum { EM_END_MAIN, EM_END_IMPL, EM_END_ORPHAN };
+
+/* What a wait waits for. */
+enum { EM_WAIT_PAUSE, EM_WAIT_PERFORM, EM_WAIT_FIBER };
+
+/* A continuation waiting to be continued (JS: the `wait` of `$advance`). Counted by hand. */
+typedef struct em_wait {
+  int refs;
+  int kind;
+  /* In the run's list of waits: suspended and not yet taken or dropped. */
+  bool live;
+  /* A scope waiting for its children: not cut short when the run is unwound. */
+  bool closing;
+  em_ref chain;
+  /* Counted through the fiber's handle. */
+  em_fiber *fiber;
+  int end;
+  /* EM_END_IMPL: the operation call (counted). */
+  em_perform *impl;
+  /* A caller waiting for a resume: the operation call whose implementation is unwound when the
+   * caller is dropped (counted). */
+  em_perform *on_drop;
+  struct em_wait *prev, *next;
+} em_wait;
+
+/* A fiber operation's waiter (join, await, interrupt) or a Deferred's. */
+enum { EM_VERB_JOIN, EM_VERB_AWAIT, EM_VERB_INTERRUPT, EM_VERB_DEFERRED };
+
+typedef struct em_watch {
+  em_wait *w;
+  int verb;
+  int32_t repr;
+} em_watch;
+
+struct em_fiber {
+  /* The handle (`Fiber[A]`), which owns this structure. */
+  em_ref self;
+  em_root *root;
+  /* The scope it was forked into (its object counted), or NULL for the root fiber. */
+  em_scope *scope;
+  /* The main continuation's wait while it is suspended (not counted). */
+  em_wait *wait;
+  /* Interruptions not yet delivered: NULL (the whole fiber) or a scope whose body runs on it. */
+  em_vec pending;
+  bool unwinding;
+  /* Scopes whose body unwinds by an interruption delivered to this fiber. */
+  em_vec unwinds;
+  /* Above 0 while it runs a release that may suspend or a scope waits for its children. */
+  int holds;
+  int scopes;
+  int budget;
+  bool ended;
+  /* In the run's list of fibers, which counts it. */
+  bool listed;
+  /* Once ended: how (a child's value is `Any`, a reference). */
+  em_input result;
+  em_ref cause;
+  em_vec watchers;
+};
+
+struct em_scope {
+  /* The capability value (`fiber_scope`), which owns this structure. */
+  em_ref self;
+  /* The fiber its body runs on (not counted). */
+  em_fiber *fiber;
+  int depth;
+  /* Children that have not ended (not counted: the run's list counts them). */
+  em_vec children;
+  bool closed;
+  bool body_done;
+  bool ended;
+  /* The first failure (a Fail or Die cause) of the body or a child. */
+  em_ref first;
+  /* The scope's wait for its last child (counted). */
+  em_wait *closer;
+};
+
+typedef struct em_deferred {
+  em_ref self;
+  /* The scope's object, counted. */
+  em_ref scope;
+  bool full;
+  bool ref;
+  em_word value;
+  em_vec waiters;
+} em_deferred;
+
+/* A call of a `suspend fn` operation (JS: the closures of `$performOp`). Counted by hand. */
+struct em_perform {
+  int refs;
+  /* The run it belongs to (`em_run_id`): a resume after the run is ignored. */
+  uint64_t run;
+  char *where;
+  /* Made inside a non-suspending function (spec 8.7). */
+  bool sync;
+  /* The implementation is still being called in place. */
+  bool sync_phase;
+  bool used;
+  bool prev_main;
+  /* What to continue with, passed during the call. */
+  bool has_now;
+  em_input now;
+  /* The caller's wait once it suspended (counted). */
+  em_wait *caller;
+  /* The implementation's wait while it is suspended (counted). */
+  em_wait *impl_wait;
+};
+
+enum {
+  EM_JOB_ENTRY,
+  EM_JOB_BEGIN,
+  EM_JOB_RESUME,
+  EM_JOB_GO,
+  EM_JOB_INTERRUPT,
+  EM_JOB_ROOT_THROW,
+  EM_JOB_DROP_IMPL,
+};
+
+typedef struct em_job {
+  int kind;
+  em_wait *w;
+  em_fiber *fiber;
+  em_ref fn;
+  em_input in;
+  int end;
+} em_job;
+
+typedef struct em_queue {
+  em_job *items;
+  size_t head;
+  size_t len;
+  size_t cap;
+} em_queue;
+
+struct em_root {
+  bool over;
+  bool running;
+  bool has_result;
+  em_input result;
+  int32_t result_repr;
+  em_word (*entry)(void);
+  em_queue queue;
+  /* Jobs that go through the host's event loop first (`setImmediate` in JS). */
+  em_queue later;
+  em_wait *first_wait, *last_wait;
+  /* Fibers that have not ended (counted). */
+  em_vec fibers;
+  /* The first defect of a continuation unwound when the run stalled that was not a fiber's. */
+  em_ref orphan;
+  int64_t pauses;
+};
+
+bool em_suspending = false;
+static em_ref em_susp_head = NULL, em_susp_tail = NULL;
+static em_wait *em_susp_wait = NULL;
+/* Calls of suspending code from non-suspending functions under way (spec 8.7). */
+static int em_sync_depth = 0;
+/* A defect that ended the run of such a call (a failure after resume): its result. */
+static em_ref em_sync_defect = NULL;
+/* The fiber being stepped, and whether its main continuation runs (not an operation's). */
+static em_fiber *em_cur = NULL;
+static bool em_cur_main = false;
+static em_root *em_root_cur = NULL;
+static uint64_t em_run_id = 0;
+
+static em_scope *em_scope_of(em_ref o) { return (em_scope *)o->slots[0].h; }
+static em_fiber *em_fiber_of(em_ref o) { return (em_fiber *)o->slots[0].h; }
+
+/* ---- Frames and the captured continuation ---- */
+
+em_ref em_frame_new(const em_desc *desc, em_resume_fn resume, int32_t state, size_t nsaved) {
+  em_ref fr = em_alloc(desc, 3 + nsaved);
+  fr->slots[0].fn = (em_fnptr)resume;
+  fr->slots[1].l = 0;
+  fr->slots[1].i = state;
+  fr->slots[2].p = NULL;
+  return fr;
+}
+
+void em_frame_push(em_ref fr) {
+  fr->slots[2].p = NULL;
+  if (em_susp_tail == NULL) {
+    em_susp_head = fr;
+  } else {
+    em_susp_tail->slots[2].p = fr;
+  }
+  em_susp_tail = fr;
+}
+
+void em_frame_free(em_ref fr) {
+  free(fr);
+  em_live--;
+}
+
+/* Starts a suspension at the request `w` (NULL: the run is over, and what bubbles up is dropped
+ * without being resumed). */
+static void em_suspend_on(em_wait *w) {
+  em_suspending = true;
+  em_susp_wait = w;
+  em_susp_head = em_susp_tail = NULL;
+}
+
+/* Takes the bubbled suspension: the captured frames (innermost first, the outermost's next is
+ * `rest`) and its request. */
+static em_wait *em_take_suspension(em_ref rest, em_ref *chain) {
+  em_wait *w = em_susp_wait;
+  if (em_susp_tail != NULL) {
+    em_susp_tail->slots[2].p = rest;
+    *chain = em_susp_head;
+  } else {
+    *chain = rest;
+  }
+  em_suspending = false;
+  em_susp_wait = NULL;
+  em_susp_head = em_susp_tail = NULL;
+  return w;
+}
+
+/* ---- Waits ---- */
+
+static void em_perform_unref(em_perform *p);
+
+static em_wait *em_wait_new(int kind, bool closing) {
+  em_wait *w = em_rt_alloc(sizeof(em_wait));
+  w->refs = 1;
+  w->kind = kind;
+  w->closing = closing;
+  return w;
+}
+
+static void em_wait_ref(em_wait *w) { w->refs++; }
+
+static void em_wait_unref(em_wait *w) {
+  if (w == NULL || --w->refs > 0) return;
+  em_drop(w->chain);
+  if (w->fiber != NULL) em_drop(w->fiber->self);
+  if (w->impl != NULL) em_perform_unref(w->impl);
+  if (w->on_drop != NULL) em_perform_unref(w->on_drop);
+  em_rt_free(w);
+}
+
+static void em_root_unlist(em_root *r, em_wait *w) {
+  if (w->prev != NULL) w->prev->next = w->next;
+  else r->first_wait = w->next;
+  if (w->next != NULL) w->next->prev = w->prev;
+  else r->last_wait = w->prev;
+  w->prev = w->next = NULL;
+}
+
+/* Takes the suspended continuation back to continue it, unless it was unwound meanwhile. The
+ * run's reference to the wait passes to the caller. */
+static bool em_take(em_root *r, em_wait *w) {
+  if (!w->live) return false;
+  w->live = false;
+  em_root_unlist(r, w);
+  if (w->fiber->wait == w) w->fiber->wait = NULL;
+  if (w->on_drop != NULL) {
+    em_perform_unref(w->on_drop);
+    w->on_drop = NULL;
+  }
+  return true;
+}
+
+static void em_queue_push(em_queue *q, em_job job) {
+  if (q->len == q->cap) {
+    size_t cap = q->cap == 0 ? 16 : q->cap * 2;
+    em_job *items = malloc(cap * sizeof(em_job));
+    if (items == NULL) em_out_of_memory();
+    for (size_t i = 0; i < q->len; i++) items[i] = q->items[(q->head + i) % q->cap];
+    free(q->items);
+    q->items = items;
+    q->head = 0;
+    q->cap = cap;
+  }
+  q->items[(q->head + q->len) % q->cap] = job;
+  q->len++;
+}
+
+static em_job em_queue_pop(em_queue *q) {
+  em_job job = q->items[q->head];
+  q->head = (q->head + 1) % q->cap;
+  q->len--;
+  return job;
+}
+
+static void em_job_drop(em_job job) {
+  em_wait_unref(job.w);
+  if (job.fiber != NULL) em_drop(job.fiber->self);
+  em_drop(job.fn);
+  em_input_drop(job.in);
+}
+
+static void em_run_job(em_root *r, em_job job);
+
+static void em_drain(em_root *r) {
+  r->running = true;
+  while (!r->over && r->queue.len > 0) em_run_job(r, em_queue_pop(&r->queue));
+  r->running = false;
+}
+
+static void em_schedule(em_root *r, em_job job) {
+  em_queue_push(&r->queue, job);
+  if (!r->running) em_drain(r);
+}
+
+static em_job em_job_of(int kind, em_wait *w) {
+  em_job job;
+  memset(&job, 0, sizeof job);
+  job.kind = kind;
+  job.w = w;
+  return job;
+}
+
+/* Drops a waiting continuation that is unwound or abandoned (`$drop`): it will not be continued,
+ * and the implementation it waits for is unwound. The run's reference passes to the caller. */
+static void em_drop_wait(em_root *r, em_wait *w) {
+  w->live = false;
+  em_root_unlist(r, w);
+  if (w->fiber->wait == w) w->fiber->wait = NULL;
+  em_perform *p = w->on_drop;
+  w->on_drop = NULL;
+  if (p != NULL) {
+    /* `wait.onDrop`: the implementation that has not resumed is unwound too. */
+    em_wait *iw = p->impl_wait;
+    if (!p->used && iw != NULL && iw->live) {
+      em_drop_wait(r, iw);
+      em_queue_push(&r->queue, em_job_of(EM_JOB_DROP_IMPL, iw));
+    }
+    em_perform_unref(p);
+  }
+}
+
+/* ---- Fibers ---- */
+
+static void em_fiber_fin(em_ref o);
+static void em_scope_fin(em_ref o);
+static void em_deferred_fin(em_ref o);
+static void em_resume_fin(em_ref o);
+
+static const em_desc em_desc_fiber = {EM_KIND_RUNTIME, 1, 0, -1, "Fiber", NULL, em_refs_none,
+                                      em_fiber_fin};
+static const em_desc em_desc_scope = {EM_KIND_RUNTIME, 1, 0, -1, "Scope", NULL, em_refs_none,
+                                      em_scope_fin};
+static const em_desc em_desc_deferred = {EM_KIND_RUNTIME, 1, 0, -1, "Deferred", NULL,
+                                         em_refs_none, em_deferred_fin};
+static const em_desc em_desc_resume = {EM_KIND_RUNTIME, 2, 0, -1, "resume", NULL, em_refs_none,
+                                       em_resume_fin};
+
+static em_fiber *em_fiber_new(em_root *r, em_scope *scope) {
+  em_fiber *f = em_rt_alloc(sizeof(em_fiber));
+  f->self = em_alloc(&em_desc_fiber, 1);
+  f->self->slots[0].h = f;
+  f->root = r;
+  f->scope = scope;
+  if (scope != NULL) em_dup(scope->self);
+  f->budget = EM_BUDGET;
+  f->listed = true;
+  em_vec_push(&r->fibers, f);
+  return f;
+}
+
+static void em_fiber_fin(em_ref o) {
+  em_fiber *f = em_fiber_of(o);
+  if (f->scope != NULL) {
+    if (!f->ended) em_vec_remove(&f->scope->children, f);
+    em_drop(f->scope->self);
+  }
+  if (f->ended) em_input_drop(f->result);
+  em_drop(f->cause);
+  for (size_t i = 0; i < f->watchers.len; i++) {
+    em_watch *watch = f->watchers.items[i];
+    em_wait_unref(watch->w);
+    free(watch);
+  }
+  em_vec_free(&f->watchers);
+  em_vec_free(&f->pending);
+  em_vec_free(&f->unwinds);
+  em_rt_free(f);
+}
+
+static bool em_interrupting(em_fiber *f) {
+  return f->holds == 0 && (f->pending.len > 0 || f->unwinding || f->unwinds.len > 0);
+}
+
+static bool em_is_unwinding(em_fiber *f) { return f->unwinding || f->unwinds.len > 0; }
+
+/* Takes the outermost interruption (pending or unwinding) and returns what unwinds it. */
+static em_ref em_deliver(em_fiber *f) {
+  em_scope *target = NULL;
+  if (!f->unwinding && !em_vec_has(&f->pending, NULL)) {
+    for (size_t i = 0; i < f->pending.len + f->unwinds.len; i++) {
+      em_scope *s = i < f->pending.len ? f->pending.items[i] : f->unwinds.items[i - f->pending.len];
+      if (target == NULL || s->depth < target->depth) target = s;
+    }
+  }
+  if (target == NULL) {
+    f->unwinding = true;
+    f->pending.len = 0;
+    f->unwinds.len = 0;
+    return em_interrupted_new(NULL);
+  }
+  em_vec_remove(&f->pending, target);
+  if (!em_vec_has(&f->unwinds, target)) em_vec_push(&f->unwinds, target);
+  return em_interrupted_new(target->self);
+}
+
+/* Delivers a pending interruption at a request of the current fiber's main continuation
+ * (spec 11.4): true if it did (the interruption is the pending defect). */
+static bool em_interrupt_here(void) {
+  if (em_cur == NULL || !em_cur_main || em_sync_depth > 0 || !em_interrupting(em_cur)) {
+    return false;
+  }
+  em_defect = em_deliver(em_cur);
+  return true;
+}
+
+static void em_step(em_root *r, em_fiber *f, em_ref chain, int end, em_perform *impl,
+                    em_input in);
+
+/* Asks the fiber to unwind as interrupted (11.4). `target` is NULL for the whole fiber, or a
+ * scope whose body runs on it. It takes effect at the next suspension point, not during a
+ * release. */
+static void em_interrupt_fiber(em_fiber *f, em_scope *target) {
+  if (f->ended || f->unwinding) return;
+  if (target == NULL ? em_vec_has(&f->pending, NULL)
+                     : em_vec_has(&f->pending, target) || em_vec_has(&f->unwinds, target)) {
+    return;
+  }
+  em_vec_push(&f->pending, target);
+  if (f->holds > 0) return;
+  em_wait *w = f->wait;
+  if (w == NULL || !w->live) return;
+  em_drop_wait(f->root, w);
+  em_schedule(f->root, em_job_of(EM_JOB_INTERRUPT, w));
+}
+
+static em_input em_watch_settle(em_fiber *c, int verb, int32_t repr) {
+  em_ref cause = c->cause;
+  switch (verb) {
+    case EM_VERB_JOIN:
+      if (cause == NULL) {
+        em_dup(c->result.value.p);
+        return em_in_value(em_unbox(c->result.value.p, repr), repr == EM_REPR_REF);
+      }
+      if (cause->slots[0].i == EM_CAUSE_INTERRUPT) {
+        return em_in_ref(EM_THROW, em_str_cstr("fiber was interrupted"));
+      }
+      return em_in_ref(EM_THROW, em_interrupted_new(NULL));
+    case EM_VERB_AWAIT: {
+      em_word w;
+      if (cause == NULL) {
+        em_dup(c->result.value.p);
+        em_word v = em_unbox(c->result.value.p, repr);
+        w.p = em_exit_new(0, v, repr == EM_REPR_REF);
+      } else {
+        em_dup(cause);
+        em_word v;
+        v.p = cause;
+        w.p = em_exit_new(1, v, true);
+      }
+      return em_in_value(w, true);
+    }
+    default:
+      return em_in_value(em_zero(), false);
+  }
+}
+
+static void em_cont(em_wait *w, em_input in);
+static void em_scope_child_ended(em_scope *s, em_fiber *child);
+static void em_root_ended(em_root *r, em_input in);
+
+static void em_fiber_finish(em_fiber *f, em_input in) {
+  if (f->ended) {
+    em_input_drop(in);
+    return;
+  }
+  f->ended = true;
+  f->cause = em_cause_of(in);
+  f->wait = NULL;
+  if (f->scope == NULL) {
+    f->result = em_in_value(em_zero(), false);
+    em_root_ended(f->root, in);
+  } else {
+    f->result = in;
+    em_scope_child_ended(f->scope, f);
+    em_vec watchers = f->watchers;
+    memset(&f->watchers, 0, sizeof f->watchers);
+    for (size_t i = 0; i < watchers.len; i++) {
+      em_watch *watch = watchers.items[i];
+      em_cont(watch->w, em_watch_settle(f, watch->verb, watch->repr));
+      em_wait_unref(watch->w);
+      free(watch);
+    }
+    em_vec_free(&watchers);
+  }
+  if (f->listed) {
+    f->listed = false;
+    em_vec_remove(&f->root->fibers, f);
+    em_drop(f->self);
+  }
+}
+
+static void em_watch_add(em_vec *v, em_wait *w, int verb, int32_t repr) {
+  em_watch *watch = malloc(sizeof(em_watch));
+  if (watch == NULL) em_out_of_memory();
+  watch->w = w;
+  watch->verb = verb;
+  watch->repr = repr;
+  em_wait_ref(w);
+  em_vec_push(v, watch);
+}
+
+/* ---- The driver loop ---- */
+
+static void em_settled(em_perform *p, em_input in);
+
+/* A continuation finished with `in`. */
+static void em_strand_end(em_root *r, em_fiber *f, int end, em_perform *impl, em_input in) {
+  switch (end) {
+    case EM_END_MAIN:
+      if (in.mode == EM_VALUE) {
+        in.ref = f->scope != NULL || r->result_repr == EM_REPR_REF;
+      }
+      em_fiber_finish(f, in);
+      break;
+    case EM_END_IMPL:
+      em_settled(impl, in);
+      em_perform_unref(impl);
+      break;
+    default:
+      if (in.mode == EM_THROW && !em_is_interrupted(in.value.p) && r->orphan == NULL) {
+        r->orphan = in.value.p;
+      } else {
+        em_input_drop(in);
+      }
+      break;
+  }
+}
+
+/* Attaches the captured continuation to the request it suspended at (`suspend()` of
+ * `$advance`); a fairness yield queues the fiber again. Takes the references to `w`, `chain` and
+ * `impl`. */
+static void em_suspended(em_root *r, em_fiber *f, em_wait *w, em_ref chain, int end,
+                         em_perform *impl) {
+  w->chain = chain;
+  em_dup(f->self);
+  w->fiber = f;
+  w->end = end;
+  w->impl = impl;
+  w->live = true;
+  w->prev = r->last_wait;
+  w->next = NULL;
+  if (r->last_wait != NULL) r->last_wait->next = w;
+  else r->first_wait = w;
+  r->last_wait = w;
+  if (end == EM_END_MAIN) {
+    f->wait = w;
+  } else if (end == EM_END_IMPL) {
+    em_wait_ref(w);
+    em_wait_unref(impl->impl_wait);
+    impl->impl_wait = w;
+  }
+  if (w->kind == EM_WAIT_PAUSE) {
+    em_wait_ref(w);
+    em_job go = em_job_of(EM_JOB_GO, w);
+    if (++r->pauses % EM_HOST_EVERY == 0) em_queue_push(&r->later, go);
+    else em_queue_push(&r->queue, go);
+  }
+}
+
+/* Advances the continuation with the input until it suspends again or finishes (`$advance`). */
+static void em_advance(em_root *r, em_fiber *f, em_ref chain, int end, em_perform *impl,
+                       em_input in) {
+  for (;;) {
+    if (r->over) {
+      em_drop(chain);
+      em_input_drop(in);
+      if (impl != NULL) em_perform_unref(impl);
+      return;
+    }
+    if (chain == NULL) {
+      em_strand_end(r, f, end, impl, in);
+      return;
+    }
+    em_ref fr = chain;
+    chain = fr->slots[2].p;
+    fr->slots[2].p = NULL;
+    em_resume_fn resume = (em_resume_fn)fr->slots[0].fn;
+    em_word out = resume(fr, em_input_put(in));
+    if (em_suspending) {
+      em_wait *w = em_take_suspension(chain, &chain);
+      if (w == NULL) {
+        em_drop(chain);
+        if (impl != NULL) em_perform_unref(impl);
+        return;
+      }
+      em_suspended(r, f, w, chain, end, impl);
+      return;
+    }
+    in = em_input_taken(out, false);
+  }
+}
+
+static void em_step(em_root *r, em_fiber *f, em_ref chain, int end, em_perform *impl,
+                    em_input in) {
+  em_fiber *prev = em_cur;
+  bool prev_main = em_cur_main;
+  em_dup(f->self);
+  em_cur = f;
+  em_cur_main = end == EM_END_MAIN;
+  em_advance(r, f, chain, end, impl, in);
+  em_cur = prev;
+  em_cur_main = prev_main;
+  em_drop(f->self);
+}
+
+/* Continues the fiber's continuation queued with `in`; an interruption that arrived meanwhile is
+ * delivered instead (`$Fiber#resume`). */
+static void em_fiber_resume(em_fiber *f, em_ref chain, int end, em_perform *impl, em_input in) {
+  if (end == EM_END_MAIN && in.mode != EM_THROW && em_interrupting(f)) {
+    em_input_drop(in);
+    in = em_in_ref(EM_THROW, em_deliver(f));
+  }
+  em_step(f->root, f, chain, end, impl, in);
+}
+
+/* Wakes the wait with `in` (`cont` of `$advance`): on the spot within the same fiber,
+ * otherwise as a queued job. */
+static void em_cont(em_wait *w, em_input in) {
+  em_root *r = w->fiber == NULL ? em_root_cur : w->fiber->root;
+  if (w->fiber == NULL || !em_take(r, w)) {
+    em_input_drop(in);
+    return;
+  }
+  if (em_cur == w->fiber) {
+    em_ref chain = w->chain;
+    em_perform *impl = w->impl;
+    w->chain = NULL;
+    w->impl = NULL;
+    em_fiber *f = w->fiber;
+    int end = w->end;
+    em_dup(f->self);
+    em_wait_unref(w);
+    em_step(r, f, chain, end, impl, in);
+    em_drop(f->self);
+    return;
+  }
+  em_job job = em_job_of(EM_JOB_RESUME, w);
+  job.in = in;
+  em_schedule(r, job);
+}
+
+static void em_fiber_begin(em_root *r, em_fiber *f, em_ref fn);
+
+static void em_run_job(em_root *r, em_job job) {
+  em_wait *w = job.w;
+  switch (job.kind) {
+    case EM_JOB_ENTRY:
+    case EM_JOB_BEGIN:
+      em_fiber_begin(r, job.fiber, job.fn);
+      job.fn = NULL;
+      break;
+    case EM_JOB_RESUME:
+    case EM_JOB_GO:
+    case EM_JOB_INTERRUPT:
+    case EM_JOB_ROOT_THROW:
+    case EM_JOB_DROP_IMPL: {
+      if (job.kind == EM_JOB_GO) {
+        if (!em_take(r, w)) break;
+        em_wait_unref(w);
+      }
+      em_fiber *f = w->fiber;
+      em_ref chain = w->chain;
+      em_perform *impl = w->impl;
+      w->chain = NULL;
+      w->impl = NULL;
+      int end = w->end;
+      em_input in = job.in;
+      job.in = em_in_value(em_zero(), false);
+      em_dup(f->self);
+      switch (job.kind) {
+        case EM_JOB_RESUME:
+          em_fiber_resume(f, chain, end, impl, in);
+          break;
+        case EM_JOB_GO:
+          em_fiber_resume(f, chain, end, impl, em_in_value(em_zero(), false));
+          break;
+        case EM_JOB_INTERRUPT:
+          em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_deliver(f)));
+          break;
+        case EM_JOB_ROOT_THROW:
+          if (job.end == EM_END_MAIN) {
+            em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_deliver(f)));
+          } else {
+            if (impl != NULL) em_perform_unref(impl);
+            em_step(r, f, chain, EM_END_ORPHAN, NULL,
+                    em_in_ref(EM_THROW, em_interrupted_new(NULL)));
+          }
+          break;
+        default:
+          em_step(r, f, chain, end, impl, em_in_ref(EM_THROW, em_interrupted_new(NULL)));
+          break;
+      }
+      em_drop(f->self);
+      break;
+    }
+    default:
+      break;
+  }
+  em_job_drop(job);
+}
+
+/* Calls the forked function (or the entry) and steps what comes back suspended. */
+static void em_fiber_begin(em_root *r, em_fiber *f, em_ref fn) {
+  if (f->pending.len > 0) {
+    em_drop(fn);
+    em_fiber_finish(f, em_in_ref(EM_THROW, em_interrupted_new(NULL)));
+    return;
+  }
+  em_fiber *prev = em_cur;
+  bool prev_main = em_cur_main;
+  em_cur = f;
+  em_cur_main = true;
+  em_word out;
+  if (fn == NULL) {
+    out = r->entry();
+  } else {
+    out.p = ((em_ref (*)(em_ref))em_closure_fn(fn))(fn);
+    em_drop(fn);
+  }
+  em_cur = prev;
+  em_cur_main = prev_main;
+  if (em_suspending) {
+    em_ref chain;
+    em_wait *w = em_take_suspension(NULL, &chain);
+    if (w == NULL) {
+      em_drop(chain);
+      return;
+    }
+    em_suspended(r, f, w, chain, EM_END_MAIN, NULL);
+    return;
+  }
+  em_strand_end(r, f, EM_END_MAIN, NULL, em_input_taken(out, false));
+}
+
+/* ---- The run ---- */
+
+static void em_root_finish(em_root *r, em_input in) {
+  if (r->over) {
+    em_input_drop(in);
+    return;
+  }
+  r->over = true;
+  while (r->queue.len > 0) em_job_drop(em_queue_pop(&r->queue));
+  while (r->later.len > 0) em_job_drop(em_queue_pop(&r->later));
+  /* What the continuations left behind is not resumed: the withs in them are not released
+   * (spec 14.5). */
+  while (r->first_wait != NULL) {
+    em_wait *w = r->first_wait;
+    w->live = false;
+    em_root_unlist(r, w);
+    if (w->fiber->wait == w) w->fiber->wait = NULL;
+    em_ref chain = w->chain;
+    w->chain = NULL;
+    if (w->impl != NULL) {
+      em_perform_unref(w->impl);
+      w->impl = NULL;
+    }
+    if (w->on_drop != NULL) {
+      em_perform_unref(w->on_drop);
+      w->on_drop = NULL;
+    }
+    em_drop(chain);
+    em_wait_unref(w);
+  }
+  r->result = in;
+  r->has_result = true;
+}
+
+/* The root fiber ended. */
+static void em_root_ended(em_root *r, em_input in) {
+  if (in.mode == EM_THROW && em_is_interrupted(in.value.p) && r->orphan != NULL) {
+    em_input_drop(in);
+    in = em_in_ref(EM_THROW, r->orphan);
+    r->orphan = NULL;
+  }
+  em_root_finish(r, in);
+}
+
+/* The run stalled (nothing can go on): unwinds it as interrupted (`$Root#interrupt`). Every fiber
+ * is interrupted, and every waiting continuation is resumed with an interruption, which runs the
+ * releases of its open withs. This also cuts short releases left suspended. Scopes waiting for
+ * their children keep waiting, since the children are unwound too. */
+static void em_root_interrupt(em_root *r) {
+  if (r->over) return;
+  for (size_t i = 0; i < r->fibers.len; i++) {
+    em_fiber *f = r->fibers.items[i];
+    if (!f->unwinding && !em_vec_has(&f->pending, NULL)) em_vec_push(&f->pending, NULL);
+  }
+  em_vec waits = {NULL, 0, 0};
+  for (em_wait *w = r->last_wait; w != NULL; w = w->prev) {
+    if (!w->closing) {
+      em_wait_ref(w);
+      em_vec_push(&waits, w);
+    }
+  }
+  for (size_t i = 0; i < waits.len; i++) {
+    em_wait *w = waits.items[i];
+    if (w->live) {
+      /* Dropping a caller also unwinds the implementation it waits for (`onDrop`). */
+      em_drop_wait(r, w);
+      em_job job = em_job_of(EM_JOB_ROOT_THROW, w);
+      job.end = w->end == EM_END_MAIN ? EM_END_MAIN : EM_END_ORPHAN;
+      em_queue_push(&r->queue, job);
+    }
+    em_wait_unref(w);
+  }
+  em_vec_free(&waits);
+  if (!r->running) em_drain(r);
+}
+
+void em_run(em_word (*entry)(void), int32_t repr) {
+  em_root *r = em_rt_alloc(sizeof(em_root));
+  r->entry = entry;
+  r->result_repr = repr;
+  em_root *prev = em_root_cur;
+  em_root_cur = r;
+  em_run_id++;
+  em_fiber *main = em_fiber_new(r, NULL);
+  em_dup(main->self);
+  em_job job = em_job_of(EM_JOB_ENTRY, NULL);
+  job.fiber = main;
+  em_schedule(r, job);
+  for (;;) {
+    if (r->over) break;
+    if (r->later.len > 0) {
+      em_schedule(r, em_queue_pop(&r->later));
+      continue;
+    }
+    /* No job is left: in JS the host's event loop is empty. An event loop with timers, file
+     * descriptors and completions from other threads (spec 12.6) waits here and runs what
+     * becomes ready before the run counts as stalled. */
+    em_root_interrupt(r);
+    /* Like the JS host, which only reports the empty loop again after more work went through
+     * it, the run ends when unwinding did not queue such work. */
+    if (r->later.len == 0) break;
+  }
+  if (!r->over) em_root_finish(r, em_in_value(em_zero(), false));
+  em_input in = r->result;
+  switch (in.mode) {
+    case EM_FAIL:
+      em_failure = in.value.p;
+      break;
+    case EM_THROW:
+      em_defect = in.value.p;
+      break;
+    default:
+      if (repr == EM_REPR_REF) em_drop(in.value.p);
+      break;
+  }
+  for (size_t i = 0; i < r->fibers.len; i++) {
+    em_fiber *f = r->fibers.items[i];
+    f->listed = false;
+    em_drop(f->self);
+  }
+  em_vec_free(&r->fibers);
+  em_drop(r->orphan);
+  free(r->queue.items);
+  free(r->later.items);
+  em_root_cur = prev;
+  em_rt_free(r);
+}
+
+/* ---- Fairness and holds (spec 11.1, 11.4) ---- */
+
+void em_yield(bool perform) {
+  em_fiber *f = em_cur;
+  if (f == NULL || em_sync_depth > 0) return;
+  if (--f->budget <= 0) {
+    if (em_cur_main && em_interrupting(f)) {
+      em_defect = em_deliver(f);
+      return;
+    }
+    f->budget = EM_BUDGET;
+    em_suspend_on(em_wait_new(EM_WAIT_PAUSE, false));
+    return;
+  }
+  if (perform) em_interrupt_here();
+}
+
+void em_hold(void) {
+  if (em_cur != NULL) em_cur->holds++;
+}
+
+void em_unhold(void) {
+  if (em_cur != NULL) em_cur->holds--;
+}
+
+/* ---- suspend fn operations (spec 8.4, 14.5) ---- */
+
+static void em_perform_unref(em_perform *p) {
+  if (p == NULL || --p->refs > 0) return;
+  if (p->has_now) em_input_drop(p->now);
+  em_wait_unref(p->caller);
+  em_wait_unref(p->impl_wait);
+  free(p->where);
+  em_rt_free(p);
+}
+
+static void em_resume_fin(em_ref o) { em_perform_unref((em_perform *)o->slots[1].h); }
+
+/* The run of the operation call ended with the defect `d`. */
+static void em_run_fails(em_perform *p, em_ref d) {
+  if (p->sync) {
+    if (em_sync_defect == NULL) em_sync_defect = d;
+    else em_drop(d);
+    return;
+  }
+  if (em_root_cur != NULL && p->run == em_run_id) em_root_finish(em_root_cur, em_in_ref(EM_THROW, d));
+  else em_drop(d);
+}
+
+/* Passes `in` to the caller: at once if the implementation is still being called, otherwise by
+ * waking the caller's wait. */
+static void em_pass(em_perform *p, em_input in) {
+  p->used = true;
+  if (p->sync_phase) {
+    p->has_now = true;
+    p->now = in;
+    return;
+  }
+  em_wait *w = p->caller;
+  p->caller = NULL;
+  if (w == NULL) {
+    em_input_drop(in);
+    return;
+  }
+  em_cont(w, in);
+  em_wait_unref(w);
+}
+
+/* How the implementation ended: a defect or failure before resume goes to the caller; after
+ * resume it ends the run (spec 14.5). */
+static void em_settled(em_perform *p, em_input in) {
+  switch (in.mode) {
+    case EM_THROW:
+      if (p->used) em_run_fails(p, in.value.p);
+      else em_pass(p, in);
+      break;
+    case EM_FAIL:
+      if (p->used) {
+        em_ref shown = em_show_failure(in.value.p);
+        em_buf b = {NULL, 0, 0};
+        em_buf_puts(&b, p->where);
+        em_buf_puts(&b, " failed after resume: ");
+        if (shown != NULL) em_buf_put(&b, EM_STR_BYTES(shown), EM_STR_LEN(shown));
+        em_drop(shown);
+        em_run_fails(p, em_buf_finish(&b));
+      } else {
+        em_pass(p, in);
+      }
+      break;
+    default:
+      em_input_drop(in);
+      break;
+  }
+}
+
+static void em_resume_with(em_ref env, em_input in) {
+  em_perform *p = (em_perform *)env->slots[1].h;
+  if (p->run != em_run_id || em_root_cur == NULL || em_root_cur->over) {
+    em_input_drop(in);
+    return;
+  }
+  if (p->used) {
+    em_input_drop(in);
+    em_buf b = {NULL, 0, 0};
+    em_buf_puts(&b, "resume called twice in ");
+    em_buf_puts(&b, p->where);
+    em_ref msg = em_buf_finish(&b);
+    em_raise(msg);
+    em_drop(msg);
+    return;
+  }
+  em_pass(p, in);
+}
+
+static void em_resume_void(em_ref env) { em_resume_with(env, em_in_value(em_zero(), false)); }
+
+static void em_resume_i32(em_ref env, int32_t v) {
+  em_word w = em_zero();
+  w.i = v;
+  em_resume_with(env, em_in_value(w, false));
+}
+
+static void em_resume_i64(em_ref env, int64_t v) {
+  em_word w;
+  w.l = v;
+  em_resume_with(env, em_in_value(w, false));
+}
+
+static void em_resume_f64(em_ref env, double v) {
+  em_word w;
+  w.f = v;
+  em_resume_with(env, em_in_value(w, false));
+}
+
+static void em_resume_ref(em_ref env, em_ref v) {
+  em_word w;
+  w.p = v;
+  em_resume_with(env, em_in_value(w, true));
+}
+
+em_ref em_resume_new(em_ref handler, const char *op, int32_t repr) {
+  em_perform *p = em_rt_alloc(sizeof(em_perform));
+  p->refs = 1;
+  p->run = em_run_id;
+  const char *name = handler->hdr.desc->name;
+  size_t n = strlen(op) + strlen(name) + 32;
+  p->where = malloc(n);
+  if (p->where == NULL) em_out_of_memory();
+  snprintf(p->where, n, "operation `%s` of handler `%s`", op, name);
+  p->sync = em_sync_depth > 0;
+  p->sync_phase = true;
+  p->prev_main = em_cur_main;
+  em_cur_main = false;
+  em_ref rs = em_alloc(&em_desc_resume, 2);
+  switch (repr) {
+    case EM_REPR_I32:
+      rs->slots[0].fn = (em_fnptr)em_resume_i32;
+      break;
+    case EM_REPR_I64:
+      rs->slots[0].fn = (em_fnptr)em_resume_i64;
+      break;
+    case EM_REPR_F64:
+      rs->slots[0].fn = (em_fnptr)em_resume_f64;
+      break;
+    case EM_REPR_REF:
+      rs->slots[0].fn = (em_fnptr)em_resume_ref;
+      break;
+    default:
+      rs->slots[0].fn = (em_fnptr)em_resume_void;
+      break;
+  }
+  rs->slots[1].h = p;
+  em_dup(rs);
+  return rs;
+}
+
+em_word em_perform_end(em_ref rs) {
+  em_perform *p = (em_perform *)rs->slots[1].h;
+  p->refs++;
+  em_cur_main = p->prev_main;
+  if (em_suspending) {
+    /* The implementation suspended: it goes on as another continuation of the same fiber. */
+    em_ref chain;
+    em_wait *w = em_take_suspension(NULL, &chain);
+    if (w == NULL) {
+      em_drop(chain);
+    } else {
+      p->refs++;
+      em_suspended(em_root_cur, em_cur, w, chain, EM_END_IMPL, p);
+    }
+  } else if (em_defect != NULL) {
+    em_ref d = em_defect;
+    em_defect = NULL;
+    em_settled(p, em_in_ref(EM_THROW, d));
+  } else if (em_failure != NULL) {
+    em_ref e = em_failure;
+    em_failure = NULL;
+    em_settled(p, em_in_ref(EM_FAIL, e));
+  }
+  p->sync_phase = false;
+  em_drop(rs);
+  em_word out = em_zero();
+  bool dead = p->sync ? em_sync_defect != NULL : em_root_cur == NULL || em_root_cur->over;
+  if (dead) {
+    if (p->has_now) em_input_drop(p->now);
+    p->has_now = false;
+    em_suspend_on(NULL);
+  } else if (p->has_now) {
+    p->has_now = false;
+    out = em_input_put(p->now);
+  } else {
+    em_wait *w = em_wait_new(EM_WAIT_PERFORM, false);
+    p->refs++;
+    w->on_drop = p;
+    em_wait_ref(w);
+    p->caller = w;
+    em_suspend_on(w);
+  }
+  em_perform_unref(p);
+  return out;
+}
+
+/* ---- Calls of suspending code from non-suspending functions (spec 8.7) ---- */
+
+void em_sync_enter(void) { em_sync_depth++; }
+
+/* Drops the request of a continuation unwound in place. */
+static void em_sync_forget(em_wait *w) {
+  em_perform *p = w->on_drop;
+  if (p != NULL) {
+    w->on_drop = NULL;
+    if (p->caller == w) {
+      p->caller = NULL;
+      em_wait_unref(w);
+    }
+    em_perform_unref(p);
+  }
+  em_wait_unref(w);
+}
+
+void em_sync_leave(void) {
+  em_sync_depth--;
+  if (!em_suspending) return;
+  em_ref chain;
+  em_wait *w = em_take_suspension(NULL, &chain);
+  em_input in;
+  if (w == NULL) {
+    em_drop(chain);
+    chain = NULL;
+    in = em_in_ref(EM_THROW, em_sync_defect != NULL ? em_sync_defect : em_interrupted_new(NULL));
+    em_sync_defect = NULL;
+  } else {
+    /* Not resumed in place, so never resumed: unwound as interrupted at once (spec 14.5). A
+     * release that suspends again is cut short the same way. */
+    em_sync_forget(w);
+    in = em_in_ref(EM_THROW, em_interrupted_new(NULL));
+  }
+  em_sync_depth++;
+  while (chain != NULL) {
+    em_ref fr = chain;
+    chain = fr->slots[2].p;
+    fr->slots[2].p = NULL;
+    em_word out = ((em_resume_fn)fr->slots[0].fn)(fr, em_input_put(in));
+    if (em_suspending) {
+      em_wait *w2 = em_take_suspension(chain, &chain);
+      if (w2 == NULL) {
+        em_drop(chain);
+        chain = NULL;
+        in = em_in_ref(EM_THROW,
+                       em_sync_defect != NULL ? em_sync_defect : em_interrupted_new(NULL));
+        em_sync_defect = NULL;
+        break;
+      }
+      em_sync_forget(w2);
+      in = em_in_ref(EM_THROW, em_interrupted_new(NULL));
+      continue;
+    }
+    in = em_input_taken(out, false);
+  }
+  em_sync_depth--;
+  if (in.mode == EM_THROW) {
+    em_defect = in.value.p;
+  } else {
+    em_input_drop(in);
+    em_defect = em_interrupted_new(NULL);
+  }
+}
+
+/* ---- Scopes (spec 11.2) ---- */
+
+static em_word em_scope_body_resume(em_ref fr, em_word in);
+static em_word em_scope_close_resume(em_ref fr, em_word in);
+static em_word em_attempt_resume(em_ref fr, em_word in);
+
+static const uint8_t em_refs_scope_body[5] = {0, 0, 1, 1, 0};
+static const uint8_t em_refs_scope_close_ref[7] = {0, 0, 1, 1, 0, 0, 1};
+static const uint8_t em_refs_scope_close_val[7] = {0, 0, 1, 1, 0, 0, 0};
+static const em_desc em_desc_scope_body = {EM_KIND_FIELDS, 5, 0, -1, "Fiber.scope", NULL,
+                                           em_refs_scope_body, NULL};
+static const em_desc em_desc_scope_close_ref = {EM_KIND_FIELDS, 7, 0, -1, "Fiber.scope", NULL,
+                                                em_refs_scope_close_ref, NULL};
+static const em_desc em_desc_scope_close_val = {EM_KIND_FIELDS, 7, 0, -1, "Fiber.scope", NULL,
+                                                em_refs_scope_close_val, NULL};
+static const em_desc em_desc_attempt = {EM_KIND_FIELDS, 4, 0, -1, "Fiber.attempt", NULL,
+                                        em_refs_frame1, NULL};
+
+static void em_scope_fin(em_ref o) {
+  em_scope *s = em_scope_of(o);
+  em_drop(s->first);
+  em_wait_unref(s->closer);
+  em_vec_free(&s->children);
+  em_rt_free(s);
+}
+
+/* A failure of the body or a child: the first becomes the result and interrupts the others;
+ * later ones are notes (spec 11.2). Takes the cause. */
+static void em_scope_failed(em_scope *s, em_ref cause) {
+  if (s->first != NULL) {
+    em_cause_note(s->first, cause);
+    em_drop(cause);
+    return;
+  }
+  s->first = cause;
+  s->closed = true;
+  for (size_t i = 0; i < s->children.len; i++) em_interrupt_fiber(s->children.items[i], NULL);
+  if (!s->body_done) em_interrupt_fiber(s->fiber, s);
+}
+
+static void em_scope_child_ended(em_scope *s, em_fiber *child) {
+  em_vec_remove(&s->children, child);
+  em_ref cause = child->cause;
+  if (cause != NULL && cause->slots[0].i != EM_CAUSE_INTERRUPT) {
+    em_dup(cause);
+    em_scope_failed(s, cause);
+  }
+  if (s->children.len == 0 && s->closer != NULL) {
+    em_wait *w = s->closer;
+    s->closer = NULL;
+    em_cont(w, em_in_value(em_zero(), false));
+    em_wait_unref(w);
+  }
+}
+
+/* After every child ended: the first failure, or how the body ended. Takes `so` and `in`. */
+static em_word em_scope_finish(em_ref so, em_input in) {
+  em_scope *s = em_scope_of(so);
+  s->ended = true;
+  em_ref first = s->first;
+  em_word out = em_zero();
+  if (first != NULL) {
+    em_input_drop(in);
+    em_ref v = first->slots[1].p;
+    em_dup(v);
+    if (first->slots[0].i == EM_CAUSE_FAIL) em_failure = v;
+    else em_defect = v;
+  } else {
+    out = em_input_put(in);
+  }
+  em_drop(so);
+  return out;
+}
+
+/* The body ended with `in`: the scope closes, interrupts the children left and waits for them
+ * (`$scope` after the body). Takes `so` and `in`. */
+static em_word em_scope_body_done(em_ref so, int32_t repr, em_input in) {
+  em_scope *s = em_scope_of(so);
+  em_fiber *f = s->fiber;
+  f->scopes--;
+  em_vec_remove(&f->pending, s);
+  em_vec_remove(&f->unwinds, s);
+  s->body_done = true;
+  s->closed = true;
+  if (in.mode == EM_FAIL) {
+    em_dup(in.value.p);
+    em_scope_failed(s, em_cause_new(EM_CAUSE_FAIL, in.value.p));
+  } else if (in.mode == EM_THROW && !em_is_interrupted(in.value.p)) {
+    em_dup(in.value.p);
+    em_scope_failed(s, em_cause_new(EM_CAUSE_DIE, in.value.p));
+  }
+  for (size_t i = 0; i < s->children.len; i++) em_interrupt_fiber(s->children.items[i], NULL);
+  if (s->children.len == 0) return em_scope_finish(so, in);
+  f->holds++;
+  em_wait *w = em_wait_new(EM_WAIT_FIBER, true);
+  em_wait_ref(w);
+  em_wait_unref(s->closer);
+  s->closer = w;
+  em_suspend_on(w);
+  em_ref fr = em_frame_new(in.ref ? &em_desc_scope_close_ref : &em_desc_scope_close_val,
+                           em_scope_close_resume, 0, 4);
+  fr->slots[3].p = so;
+  fr->slots[4].l = 0;
+  fr->slots[4].i = repr;
+  fr->slots[5].l = 0;
+  fr->slots[5].i = in.mode;
+  fr->slots[6] = in.value;
+  em_frame_push(fr);
+  return em_zero();
+}
+
+static em_word em_scope_body_resume(em_ref fr, em_word in) {
+  em_ref so = fr->slots[3].p;
+  int32_t repr = fr->slots[4].i;
+  em_frame_free(fr);
+  return em_scope_body_done(so, repr, em_input_taken(in, repr == EM_REPR_REF));
+}
+
+static em_word em_scope_close_resume(em_ref fr, em_word in) {
+  (void)in;
+  em_ref so = fr->slots[3].p;
+  em_input body = {fr->slots[5].i, fr->hdr.desc == &em_desc_scope_close_ref, fr->slots[6]};
+  em_frame_free(fr);
+  em_scope_of(so)->fiber->holds--;
+  return em_scope_finish(so, body);
+}
+
+em_word em_fiber_scope(em_ref body, int32_t repr) {
+  em_fiber *f = em_cur;
+  if (f == NULL) em_unreachable();
+  em_scope *s = em_rt_alloc(sizeof(em_scope));
+  em_ref so = em_alloc(&em_desc_scope, 1);
+  so->slots[0].h = s;
+  s->self = so;
+  s->fiber = f;
+  s->depth = f->scopes++;
+  em_dup(so);
+  em_word out = em_call1(body, so, repr);
+  if (em_suspending) {
+    em_ref fr = em_frame_new(&em_desc_scope_body, em_scope_body_resume, 0, 2);
+    fr->slots[3].p = so;
+    fr->slots[4].l = 0;
+    fr->slots[4].i = repr;
+    em_frame_push(fr);
+    return em_zero();
+  }
+  return em_scope_body_done(so, repr, em_input_taken(out, repr == EM_REPR_REF));
+}
+
+em_ref em_fiber_fork(em_ref so, em_ref fn) {
+  em_scope *s = em_scope_of(so);
+  if (s->closed) {
+    em_raise_cstr("fiber scope was used after it ended");
+    return NULL;
+  }
+  em_root *r = em_root_cur;
+  em_fiber *child = em_fiber_new(r, s);
+  em_vec_push(&s->children, child);
+  em_job job = em_job_of(EM_JOB_BEGIN, NULL);
+  em_dup(child->self);
+  job.fiber = child;
+  em_dup(fn);
+  job.fn = fn;
+  em_schedule(r, job);
+  em_dup(child->self);
+  return child->self;
+}
+
+em_word em_fiber_join(em_ref h, int32_t repr) {
+  if (em_interrupt_here()) return em_zero();
+  em_fiber *c = em_fiber_of(h);
+  if (c->scope->ended) {
+    em_raise_cstr("fiber was joined after its scope ended");
+    return em_zero();
+  }
+  if (c->ended) return em_input_put(em_watch_settle(c, EM_VERB_JOIN, repr));
+  em_wait *w = em_wait_new(EM_WAIT_FIBER, false);
+  em_watch_add(&c->watchers, w, EM_VERB_JOIN, repr);
+  em_suspend_on(w);
+  return em_zero();
+}
+
+em_ref em_fiber_await(em_ref h, int32_t repr) {
+  if (em_interrupt_here()) return NULL;
+  em_fiber *c = em_fiber_of(h);
+  if (c->scope->ended) {
+    em_raise_cstr("fiber was awaited after its scope ended");
+    return NULL;
+  }
+  if (c->ended) return em_input_put(em_watch_settle(c, EM_VERB_AWAIT, repr)).p;
+  em_wait *w = em_wait_new(EM_WAIT_FIBER, false);
+  em_watch_add(&c->watchers, w, EM_VERB_AWAIT, repr);
+  em_suspend_on(w);
+  return NULL;
+}
+
+void em_fiber_interrupt(em_ref h) {
+  if (em_interrupt_here()) return;
+  em_fiber *c = em_fiber_of(h);
+  if (c->scope->ended) {
+    em_raise_cstr("fiber was interrupted after its scope ended");
+    return;
+  }
+  em_interrupt_fiber(c, NULL);
+  if (c == em_cur) {
+    if (c->holds == 0) em_defect = em_deliver(c);
+    return;
+  }
+  if (c->ended) return;
+  em_wait *w = em_wait_new(EM_WAIT_FIBER, false);
+  em_watch_add(&c->watchers, w, EM_VERB_INTERRUPT, EM_REPR_VOID);
+  em_suspend_on(w);
+}
+
+/* ---- Fiber.attempt (spec 11.5) ---- */
+
+static em_ref em_attempt_finish(int32_t repr, em_input in) {
+  em_word v;
+  switch (in.mode) {
+    case EM_THROW:
+      if (em_is_interrupted(in.value.p) || (em_cur != NULL && em_is_unwinding(em_cur))) {
+        em_defect = in.value.p;
+        return NULL;
+      }
+      v.p = em_cause_new(EM_CAUSE_DIE, in.value.p);
+      return em_exit_new(1, v, true);
+    case EM_FAIL:
+      v.p = em_cause_new(EM_CAUSE_FAIL, in.value.p);
+      return em_exit_new(1, v, true);
+    default:
+      return em_exit_new(0, in.value, repr == EM_REPR_REF);
+  }
+}
+
+static em_word em_attempt_resume(em_ref fr, em_word in) {
+  int32_t repr = fr->slots[3].i;
+  em_frame_free(fr);
+  em_word out;
+  out.p = em_attempt_finish(repr, em_input_taken(in, repr == EM_REPR_REF));
+  return out;
+}
+
+em_ref em_fiber_attempt(em_ref fn, int32_t repr) {
+  em_word out = em_call0(fn, repr);
+  if (em_suspending) {
+    em_ref fr = em_frame_new(&em_desc_attempt, em_attempt_resume, 0, 1);
+    fr->slots[3].l = 0;
+    fr->slots[3].i = repr;
+    em_frame_push(fr);
+    return NULL;
+  }
+  return em_attempt_finish(repr, em_input_taken(out, repr == EM_REPR_REF));
+}
+
+/* ---- Deferred (spec 11.7) ---- */
+
+static void em_deferred_fin(em_ref o) {
+  em_deferred *d = (em_deferred *)o->slots[0].h;
+  if (d->full && d->ref) em_drop(d->value.p);
+  em_drop(d->scope);
+  for (size_t i = 0; i < d->waiters.len; i++) {
+    em_watch *watch = d->waiters.items[i];
+    em_wait_unref(watch->w);
+    free(watch);
+  }
+  em_vec_free(&d->waiters);
+  em_rt_free(d);
+}
+
+static em_deferred *em_deferred_of(em_ref o) { return (em_deferred *)o->slots[0].h; }
+
+static bool em_deferred_ended(em_deferred *d) { return em_scope_of(d->scope)->ended; }
+
+em_ref em_fiber_deferred(em_ref so) {
+  if (em_scope_of(so)->closed) {
+    em_raise_cstr("fiber scope was used after it ended");
+    return NULL;
+  }
+  em_deferred *d = em_rt_alloc(sizeof(em_deferred));
+  em_ref o = em_alloc(&em_desc_deferred, 1);
+  o->slots[0].h = d;
+  d->self = o;
+  em_dup(so);
+  d->scope = so;
+  return o;
+}
+
+int32_t em_deferred_complete(em_ref o, em_word value, int32_t repr) {
+  em_deferred *d = em_deferred_of(o);
+  if (em_deferred_ended(d)) {
+    em_raise_cstr("deferred was completed after its scope ended");
+    return 0;
+  }
+  if (d->full) return 0;
+  d->full = true;
+  d->ref = repr == EM_REPR_REF;
+  d->value = value;
+  if (d->ref) em_dup(value.p);
+  em_vec waiters = d->waiters;
+  memset(&d->waiters, 0, sizeof d->waiters);
+  for (size_t i = 0; i < waiters.len; i++) {
+    em_watch *watch = waiters.items[i];
+    if (d->ref) em_dup(value.p);
+    em_cont(watch->w, em_in_value(value, d->ref));
+    em_wait_unref(watch->w);
+    free(watch);
+  }
+  em_vec_free(&waiters);
+  return 1;
+}
+
+em_word em_deferred_await(em_ref o, int32_t repr) {
+  if (em_interrupt_here()) return em_zero();
+  em_deferred *d = em_deferred_of(o);
+  if (em_deferred_ended(d)) {
+    em_raise_cstr("deferred was awaited after its scope ended");
+    return em_zero();
+  }
+  if (d->full) {
+    if (d->ref) em_dup(d->value.p);
+    return d->value;
+  }
+  em_wait *w = em_wait_new(EM_WAIT_FIBER, false);
+  em_watch_add(&d->waiters, w, EM_VERB_DEFERRED, repr);
+  em_suspend_on(w);
+  return em_zero();
+}
+
+em_ref em_deferred_poll(em_ref o, int32_t repr) {
+  em_deferred *d = em_deferred_of(o);
+  if (em_deferred_ended(d)) {
+    em_raise_cstr("deferred was polled after its scope ended");
+    return NULL;
+  }
+  if (!d->full) return EM_NONE;
+  if (d->ref) em_dup(d->value.p);
+  return em_some(d->value, repr == EM_REPR_REF);
+}
+
 /* ---- The program ---- */
 
 void em_start(int argc, char **argv) {
@@ -903,7 +2851,11 @@ static void em_json_string(const char *s, size_t n) {
 void em_test_result(const char *name) {
   const char *outcome = "ok";
   em_ref message = NULL;
-  if (em_defect != NULL) {
+  if (em_is_interrupted(em_defect)) {
+    outcome = "interrupted";
+    em_drop(em_defect);
+    em_defect = NULL;
+  } else if (em_defect != NULL) {
     outcome = "defect";
     message = em_defect;
     em_defect = NULL;
@@ -911,18 +2863,14 @@ void em_test_result(const char *name) {
     outcome = "error";
     em_ref e = em_failure;
     em_failure = NULL;
-    em_ref (*show)(em_ref) = e->hdr.desc->show;
-    if (show != NULL) {
-      message = show(e);
-      if (em_defect != NULL) {
-        em_drop(message);
-        message = em_defect;
-        em_defect = NULL;
-      }
-    } else {
-      em_drop(e);
+    message = em_show_failure(e);
+    if (em_defect != NULL) {
+      em_drop(message);
+      message = em_defect;
+      em_defect = NULL;
     }
   }
+  em_notes_clear();
   fputs(EM_TEST_EVENT "{\"event\":\"result\",\"name\":", stdout);
   em_json_string(name, strlen(name));
   printf(",\"outcome\":\"%s\"", outcome);
@@ -949,25 +2897,23 @@ static void em_write_line(FILE *f, const char *prefix, em_ref s) {
 int em_exit(void (*cleanup)(void)) {
   int code = 0;
   fflush(stdout);
-  if (em_defect != NULL) {
+  if (em_is_interrupted(em_defect)) {
+    em_write_line(stderr, "interrupted", NULL);
+    code = EM_EXIT_INTERRUPTED;
+  } else if (em_defect != NULL) {
     em_write_line(stderr, "defect: ", em_defect);
     code = EM_EXIT_DEFECT;
   } else if (em_failure != NULL) {
     em_ref e = em_failure;
     em_failure = NULL;
-    em_ref (*show)(em_ref) = e->hdr.desc->show;
-    if (show != NULL) {
-      em_ref s = show(e);
-      em_write_line(stderr, "error: ", em_defect == NULL ? s : NULL);
-      if (em_defect == NULL) em_drop(s);
-    } else {
-      em_write_line(stderr, "error: ", NULL);
-      em_drop(e);
-    }
+    em_ref s = em_show_failure(e);
+    em_write_line(stderr, "error: ", s);
+    em_drop(s);
     code = EM_EXIT_ERROR;
   }
   em_drop(em_defect);
   em_defect = NULL;
+  em_notes_clear();
   if (cleanup != NULL) cleanup();
   em_drop(em_last_retired);
   em_last_retired = NULL;

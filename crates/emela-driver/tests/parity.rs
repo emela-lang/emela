@@ -247,6 +247,149 @@ fn codegen_programs_run_the_same_on_js_and_c() {
     report(&failures);
 }
 
+/// Test functions with fibers and suspension (spec chapters 11, 13, 14.5): the outcomes, an
+/// interrupted test included, are the same on both targets.
+#[test]
+fn suspending_tests_give_the_same_results_on_js_and_c() {
+    let Some(mut c) = c_backend() else { return };
+    let main = r##"import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks implements Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Ignores implements Wait {
+  suspend fn wait(resume) { () }
+}
+
+fn spin(n: Int) -> () use { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fetch(n: Int, ticks: Int) -> Int use { Tick } {
+  spin(ticks * 100)
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn explode() -> Int { panic("child") }
+
+@test
+fn joins() {
+  with Ticks {
+    xs = Fiber.all([fn() { fetch(1, 20) }, fn() { fetch(2, 10) }])
+    assert xs == [10, 20]
+  }
+}
+
+@test
+fn child_error() {
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() { boom() })
+    Fiber.join(h)
+  })
+}
+
+@test
+fn child_defect() {
+  Fiber.scope(fn() {
+    h = Fiber.fork(fn() { explode() })
+    Fiber.join(h)
+  })
+}
+
+@test
+fn waits_forever() {
+  Fiber.scope(fn() {
+    d = Fiber.deferred()
+    Deferred.await(d) + 1
+  })
+}
+
+@test
+fn dropped_in_place() {
+  with Ignores { assert (use Wait).wait() == 1 }
+}
+
+@test
+fn after_the_others() {
+  with Ticks { assert fetch(3, 1) == 30 }
+}
+"##;
+    let fs = emela_driver::MemoryFiles::new([("app/Pome.toml", ""), ("app/src/main.emel", main)]);
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let mut outcomes = Vec::new();
+    for target in [Target::Js, Target::C] {
+        let options = TestOptions {
+            out_dir: out_dir(&format!("suspending-tests-{target}")),
+            node: emela_driver::node_program(),
+            filter: None,
+            output: Output::Capture,
+        };
+        let mut frontend = LowerTests::default().with_target(target);
+        let mut out = Vec::new();
+        let (analysis, report) = match target {
+            Target::Js => test(
+                &fs,
+                &input,
+                &mut frontend,
+                &mut CoreJs,
+                &options,
+                |_| {},
+                &mut out,
+            ),
+            Target::C => test(
+                &fs,
+                &input,
+                &mut frontend,
+                &mut c,
+                &options,
+                |_| {},
+                &mut out,
+            ),
+        };
+        let _ = std::fs::remove_dir_all(&options.out_dir);
+        assert!(!analysis.has_errors(), "{:?}", messages(&analysis));
+        let results: Vec<(String, TestOutcome)> = report
+            .unwrap()
+            .results
+            .into_iter()
+            .map(|r| (r.name, r.outcome))
+            .collect();
+        outcomes.push(results);
+    }
+    assert_eq!(outcomes[0], outcomes[1]);
+    assert_eq!(
+        outcomes[1]
+            .iter()
+            .map(|(_, o)| o.clone())
+            .collect::<Vec<_>>(),
+        [
+            TestOutcome::Passed,
+            TestOutcome::Error("Boom".into()),
+            TestOutcome::Defect("child".into()),
+            TestOutcome::Interrupted,
+            TestOutcome::Interrupted,
+            TestOutcome::Passed,
+        ]
+    );
+}
+
 /// Fails with every difference found (written to stderr too, in case the panic message is lost).
 fn report(failures: &[String]) {
     if !failures.is_empty() {
