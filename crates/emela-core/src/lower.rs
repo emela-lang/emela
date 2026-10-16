@@ -92,7 +92,10 @@ pub struct LowerInput<'a> {
     pub bundled_files: &'a [(&'a str, &'a str)],
     /// The build target (`"js"`). With `Some`, checks that external functions reachable from the
     /// entry (main for `Roots::Exported`, the test functions for `Roots::Tests`) have an
-    /// `@external` for that target (spec 12.1). check and the LSP pick no target, so `None`.
+    /// `@external` for that target (spec 12.1), and with those roots the result is monomorphized
+    /// ([`crate::monomorphize_traced`]) from the exported functions (a generic one instantiated
+    /// at `Any`) or the test functions (`Lowered::tests` then naming their copies). check and the
+    /// LSP do not lower; lowering tests pick no target, so `None` keeps the polymorphic IR.
     pub target: Option<&'a str>,
 }
 
@@ -168,16 +171,40 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
             })
             .collect();
     }
-    if cx.errors.is_empty() {
-        // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
-        crate::tail::loopify(&mut cx.module);
-        Ok(Lowered {
+    if !cx.errors.is_empty() {
+        return Err(cx.errors);
+    }
+    // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
+    crate::tail::loopify(&mut cx.module);
+    let (Some(_), Roots::Exported | Roots::Tests) = (input.target, roots) else {
+        return Ok(Lowered {
             module: cx.module,
             tests,
-        })
-    } else {
-        Err(cx.errors)
+        });
+    };
+    // Ill-typed IR is a lowering bug, not an error in the program. Checked before
+    // monomorphization, which assumes well-typed IR.
+    #[cfg(debug_assertions)]
+    if let Err(errors) = crate::verify(&cx.module) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!(
+            "lowering produced ill-typed IR (a compiler bug):\n{}",
+            lines.join("\n")
+        );
     }
+    let mono_roots = match roots {
+        Roots::Tests => tests,
+        _ => crate::mono::exported(&cx.module),
+    };
+    let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
+    let tests = match roots {
+        Roots::Tests => mono.roots,
+        _ => Vec::new(),
+    };
+    Ok(Lowered {
+        module: mono.module,
+        tests,
+    })
 }
 
 struct Lowerer<'a> {

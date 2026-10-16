@@ -12,11 +12,13 @@
 //! Promise the host returns, passing an AbortSignal as the last argument (spec 12.2).
 
 use emela_core::{
-    EffectId, Expr, External, Function, HostModule, HostRef, Module, Release, Type, TypeId,
+    EffectId, Expr, External, FnId, Function, HostModule, HostRef, Module, Release, Type, TypeId,
     WithBind,
 };
 
-use super::{Dest, Emitter, fn_name, function_keyword, is_identifier_name, js_string, sanitize};
+use super::{
+    Dest, Emitter, function_keyword, is_identifier_name, js_string, sanitize, source_name,
+};
 
 /// Whether evaluating `e` may suspend (a suspending call or fiber operation outside lambdas).
 fn may_suspend(e: &Expr) -> bool {
@@ -236,13 +238,13 @@ impl Emitter<'_> {
     /// the host function's return value (a Promise) with `yield $await(…)` and converts the
     /// resolved value by the same rules as a return value. On rejection, the driver turns the
     /// reason into a defect with `$foreign` and throws it at the waiting point (spec 12.5).
-    pub(super) fn external_fn(&mut self, f: &Function, ext: &External) {
+    pub(super) fn external_fn(&mut self, id: FnId, f: &Function, ext: &External) {
         let params: Vec<String> = f.params.iter().map(|&p| self.local(p)).collect();
         let param_tys: Vec<TypeId> = f.params.iter().map(|&p| self.m.locals[p].ty).collect();
         self.line(&format!(
             "{} {}({}) {{",
             function_keyword(f.suspends),
-            fn_name(&f.name),
+            self.fn_js(id),
             params.join(", ")
         ));
         self.indent += 1;
@@ -290,7 +292,10 @@ impl Emitter<'_> {
             }
             None => {
                 let no = self.rt("$noExternal");
-                self.line(&format!("return {no}({});", js_string(&f.name)));
+                self.line(&format!(
+                    "return {no}({});",
+                    js_string(source_name(&f.name))
+                ));
             }
         }
         self.indent -= 1;

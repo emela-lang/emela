@@ -465,9 +465,10 @@ pub(crate) fn lower_typed(
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {
-            // Ill-typed IR is a lowering bug, not an error in the program.
+            // Ill-typed IR is a lowering bug, not an error in the program. Lowering monomorphizes
+            // (it is given a target) and checks the polymorphic IR first.
             #[cfg(debug_assertions)]
-            if let Err(errors) = emela_core::verify(&lowered.module) {
+            if let Err(errors) = emela_core::verify_monomorphic(&lowered.module) {
                 let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
                 panic!(
                     "lowering produced ill-typed IR (a compiler bug):\n{}",

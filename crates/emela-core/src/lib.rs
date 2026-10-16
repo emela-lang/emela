@@ -22,7 +22,7 @@ pub use dump::dump;
 pub use intrinsics::{Builtin, BuiltinInfo, Sig};
 pub use ir::*;
 pub use lower::{LowerError, LowerInput, Lowered, Roots, lower};
-pub use mono::{monomorphize, monomorphize_from};
+pub use mono::{Monomorphized, monomorphize, monomorphize_from, monomorphize_traced};
 pub use sources::{PRELUDE, STD, bundled_files, core_source, core_sources, lib_dir};
 pub use typing::Typer;
 pub use verify::{VerifyError, verify, verify_monomorphic};

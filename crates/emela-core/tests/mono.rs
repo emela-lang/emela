@@ -124,6 +124,62 @@ fn main() {
     ));
 }
 
+/// An exported generic function (a `pub` fn of the entry, exported to JS) is instantiated at `Any`
+/// under its own name, its set type parameters as sets that fail and need the evidence table.
+#[test]
+fn generic_exports_are_instantiated_at_any() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+pub fn apply[A, B](x: A, f: fn(A) -> B) -> B {
+  f(x)
+}
+
+pub fn firsts[A, B](xs: List[(A, B)]) -> List[A] {
+  List.map(xs, fn(p) {
+    (a, _) = p
+    a
+  })
+}
+
+fn main() {
+  dbg(apply(1, fn(n) { n + 1 }))
+}
+",
+    )]));
+    insta::assert_snapshot!(parts(
+        &m,
+        &["fn main(", "fn apply", "fn firsts", "fn List.map["]
+    ));
+}
+
+/// Build, run and test hand monomorphized IR to the C and WASM pipelines, which monomorphize it
+/// again; that changes nothing.
+#[test]
+fn monomorphizing_twice_changes_nothing() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+import Std.State.{State}
+
+fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S] {
+  (use State[S]).update(f)
+  (use State[S]).get()
+}
+
+pub fn keep[A](x: A) -> A {
+  x
+}
+
+fn main() {
+  dbg(State.run(10, fn() { modify(fn(n) { n + 1 }) }))
+  dbg(List.map([\"a\"], fn(s) { keep(s) }))
+}
+",
+    )]));
+    assert_eq!(dump(&mono(&m)), dump(&m));
+}
+
 /// Suspending copies (`List.map$suspend8`) are copied per instantiation too; the suspend bit of
 /// the summary agrees with the copy.
 #[test]
