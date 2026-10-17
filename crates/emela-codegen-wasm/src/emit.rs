@@ -161,7 +161,7 @@ impl<'m> Builder<'m> {
             str_desc: 0,
             cons_ref_desc: 0,
             cons_val_desc: 0,
-            data: vec![0; 64],
+            data: vec![0; runtime::SCRATCH_END as usize],
             descs: FxHashMap::default(),
             strs: FxHashMap::default(),
             nullary: FxHashMap::default(),
