@@ -138,6 +138,11 @@ impl Module {
     }
 
     /// `name` must be unique in the module.
+    /// The effect whose handler values a table key holds: the base for a label, else `effect`.
+    pub fn handler_effect(&self, effect: EffectId) -> EffectId {
+        self.effects[effect].label_of.unwrap_or(effect)
+    }
+
     pub fn add_effect(&mut self, def: EffectDef) -> EffectId {
         debug_assert!(
             self.effects.iter().all(|(_, e)| e.name != def.name),
@@ -312,6 +317,11 @@ pub struct EffectDef {
     pub args: Vec<TypeId>,
     /// In declaration order; indexed by `Callee::Op::op` and `Expr::Handler::ops`.
     pub ops: Vec<OpDef>,
+    /// For a label (`effect AuditLog of Console`, issue #255), the effect it stands for. The label
+    /// is its own key in evidence tables, but its handler values are the base's: `Use` of a label
+    /// has type `Type::Handler(base)`, and a table binding of the label holds a handler of the
+    /// base. `ops` are the base's.
+    pub label_of: Option<EffectId>,
 }
 
 impl EffectDef {
@@ -322,6 +332,7 @@ impl EffectDef {
             decl: name.to_owned(),
             args: Vec::new(),
             ops,
+            label_of: None,
         }
     }
 }

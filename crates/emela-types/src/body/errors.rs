@@ -295,7 +295,9 @@ impl BodyInfer<'_> {
             ExprKind::With { handlers, body } => {
                 let mut row = self.expr_row(*body);
                 for entry in crate::layer::with_entries(program, self.sigs, handlers) {
-                    row.extend(&self.handler_init_fails(entry.handler));
+                    if let Some(h) = entry.handler() {
+                        row.extend(&self.handler_init_fails(h));
+                    }
                 }
                 row
             }

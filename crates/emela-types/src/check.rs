@@ -83,7 +83,7 @@ pub struct ProgramTypes {
     /// `with` expressions → handlers in initialization order (spec 14.2). Layers are expanded, and
     /// for handlers of the same effect only the last one is kept (spec 8.3, 8.5). Release runs in
     /// reverse order.
-    pub with_handlers: ArenaMap<ExprId, Vec<DefId>>,
+    pub with_handlers: ArenaMap<ExprId, crate::layer::WithInfo>,
     /// Layer → its expansion (handlers in initialization order and the dependencies the layer
     /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
@@ -428,9 +428,11 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
             go(*base, out);
         }
         ExprKind::With { handlers, body } => {
-            for &(res, span) in handlers {
-                if let Res::Def(h) = res {
-                    out.push((h, span));
+            for item in handlers {
+                for (res, span) in std::iter::once((item.res, item.span)).chain(item.by) {
+                    if let Res::Def(h) = res {
+                        out.push((h, span));
+                    }
                 }
             }
             go(*body, out);

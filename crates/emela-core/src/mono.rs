@@ -290,11 +290,13 @@ impl<'a> Mono<'a> {
             name.push('\'');
         }
         // Added before its operations, whose types might mention the effect itself.
+        let label_of = def.label_of;
         let id = self.out.add_effect(EffectDef {
             name,
             decl: def.decl.clone(),
             args: new_args,
             ops: Vec::new(),
+            label_of: None,
         });
         self.effects.insert(key, id);
         if !generic {
@@ -322,6 +324,8 @@ impl<'a> Mono<'a> {
             })
             .collect();
         self.out.effects[id].ops = ops;
+        // The base of a label has no type parameters (E0429 and its restriction).
+        self.out.effects[id].label_of = label_of.map(|b| self.effect(b, &[]));
         id
     }
 

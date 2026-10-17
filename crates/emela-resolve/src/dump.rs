@@ -173,6 +173,11 @@ impl Dumper<'_> {
             }
             Item::Effect(e) => {
                 self.line(0, format!("effect {name}{flags}"));
+                if let Some(label) = &e.label {
+                    let default = if label.default { " default" } else { "" };
+                    let base = self.res(label.base);
+                    self.line(1, format!("of {base}{default}"));
+                }
                 self.type_params(1, &e.type_params);
                 for &op in &e.ops {
                     let op_name = self.def(op);
@@ -539,7 +544,14 @@ impl Dumper<'_> {
                 self.line(depth, format!("use {effect}{args}"));
             }
             ExprKind::With { handlers, body } => {
-                let handlers = self.res_list(handlers);
+                let handlers = handlers
+                    .iter()
+                    .map(|item| match item.by {
+                        Some((by, _)) => format!("{} by {}", self.res(item.res), self.res(by)),
+                        None => self.res(item.res),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 self.line(depth, format!("with {handlers}"));
                 self.expr(depth + 1, *body);
             }

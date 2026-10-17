@@ -91,6 +91,10 @@ pub enum DiagnosticKind {
     ErrorSetMismatch { expected: SmolStr, found: SmolStr },
     /// An `escape` arm catching an error the expression cannot raise (W0302, spec 7.3). A warning.
     UnraisedError { error: SmolStr },
+    /// A label item of `with` (`with L`, `L by P`) whose provided effect the body never uses
+    /// (W0401, issue #255). `label` is the label written. Only when the body's R is fully known
+    /// (no sets with unknown contents).
+    UnusedLabelProvider { label: SmolStr },
     /// The capability's effect has no operation of that name (E0401, spec 8.2).
     UnknownOperation { effect: SmolStr, op: SmolStr },
     /// The body's R not contained in the R allowed by the declaration or context (E0402, spec
@@ -152,6 +156,33 @@ pub enum DiagnosticKind {
     /// Layers include each other in a cycle (E0422, spec 8.5). `cycle` names the layers along the
     /// cycle, repeating the first one at the end.
     LayerCycle { cycle: Vec<SmolStr> },
+    /// The base of a label cannot be used (E0429, issue #255): another label, or a built-in
+    /// effect (Async, Scope).
+    LabelBase {
+        label: SmolStr,
+        base: SmolStr,
+        reason: LabelBaseReason,
+    },
+    /// An effect that is not a label written where one is needed (E0430, issue #255): listed in
+    /// `with` (`with Console`), or left of `by` (`Console by H`).
+    NotALabel { name: SmolStr, by: bool },
+    /// The provider plugged into a label provides another effect (E0431, issue #255).
+    /// `provided` is what `provider` provides.
+    LabelMismatch {
+        label: SmolStr,
+        base: SmolStr,
+        provider: SmolStr,
+        provided: SmolStr,
+    },
+    /// The same label is given a provider twice in one `with` (E0432, issue #255).
+    LabelProvidedTwice { label: SmolStr },
+    /// A handler written for a label (E0433, issue #255). A label takes a handler of its base
+    /// with `by`.
+    HandlerOfLabel {
+        handler: SmolStr,
+        label: SmolStr,
+        base: SmolStr,
+    },
     /// A handler written for the built-in Async effect (E0413, spec 8.7).
     AsyncHandler { handler: SmolStr },
     /// A handler written for a built-in effect such as Scope (E0413, spec 11.2). `provider` names
@@ -236,6 +267,16 @@ pub enum SuspendingCall {
     },
 }
 
+/// Why a label's base cannot be used (E0429).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelBaseReason {
+    /// The base is a label itself, of the effect named. A label's base is always an effect with
+    /// operations.
+    Label(SmolStr),
+    /// The base is a built-in effect that only the runtime or a scope function provides.
+    BuiltIn,
+}
+
 /// What required `Immediate` ([`DiagnosticKind::NotImmediate`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImmediateSource {
@@ -263,7 +304,9 @@ impl DiagnosticKind {
     pub fn is_warning(&self) -> bool {
         matches!(
             self,
-            DiagnosticKind::UnreachableArm | DiagnosticKind::UnraisedError { .. }
+            DiagnosticKind::UnreachableArm
+                | DiagnosticKind::UnraisedError { .. }
+                | DiagnosticKind::UnusedLabelProvider { .. }
         )
     }
 }

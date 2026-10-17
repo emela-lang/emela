@@ -1,0 +1,60 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Other {\n  fn other() -> ()\n}\n\neffect Audit of Log\neffect Nested of Audit\neffect Bad of Async\n\nhandler PrintLog implements Log {\n  fn log(msg) { () }\n}\n\nhandler OtherH implements Other {\n  fn other() { () }\n}\n\nhandler AuditH implements Audit {\n  fn log(msg) { () }\n}\n\nfn a() { (use Log).log(\"a\") }\n\nfn uses_audit() { (use Audit).log(\"x\") }\n\nfn main() {\n  with Log { a() }\n  with Log by PrintLog { a() }\n  with PrintLog, Audit by OtherH { uses_audit() }\n  with PrintLog, Audit by PrintLog, Audit by Log { uses_audit() }\n}\n\nfn undefault() {\n  with PrintLog { uses_audit() }\n}\n\nfn unused(f: fn() -> ()) {\n  with PrintLog, Audit by PrintLog { a() }\n  with PrintLog, Audit by PrintLog { f() }\n}\n\"#)"
+---
+a: fn() -> () use Log
+uses_audit: fn() -> () use Audit
+main: fn() -> () use { Log, Audit }
+undefault: fn() -> () use Audit
+unused: ∀ E(f), R(f). fn(fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
+handler PrintLog: use {}
+handler OtherH: use {}
+handler AuditH: use {}
+with Log: init []
+with Log by PrintLog: init []
+with PrintLog, Audit by OtherH: init [PrintLog]
+with PrintLog, Audit by PrintLog, Audit by Log: init [PrintLog, Audit <- Log]
+with PrintLog: init [PrintLog]
+with PrintLog, Audit by PrintLog: init [PrintLog, Audit by PrintLog]
+with PrintLog, Audit by PrintLog: init [PrintLog, Audit by PrintLog]
+`of Audit` LabelBase { label: "Nested", base: "Audit", reason: Label("Log") }
+`of Async` LabelBase { label: "Bad", base: "Async", reason: BuiltIn }
+`AuditH` HandlerOfLabel { handler: "AuditH", label: "Audit", base: "Log" }
+`Log` NotALabel { name: "Log", by: false }
+`a()` unhandled effects Log (Main)
+`Log by PrintLog` NotALabel { name: "Log", by: true }
+`OtherH` LabelMismatch { label: "Audit", base: "Log", provider: "OtherH", provided: "Other" }
+`uses_audit()` unhandled effects Audit (Main)
+`Audit by Log` LabelProvidedTwice { label: "Audit" }
+`Audit by PrintLog` UnusedLabelProvider { label: "Audit" }
+--- R
+{ (use Log).log("a") }: Log
+(use Log).log("a"): Log
+(use Log).log: Log
+use Log: Log
+{ (use Audit).log("x") }: Audit
+(use Audit).log("x"): Audit
+(use Audit).log: Audit
+use Audit: Audit
+{   with Log { a() }   with Log by PrintLog { a() }   with PrintLog, Audit by OtherH { uses_audit() }   with PrintLog, Audit by PrintLog, Audit by Log { uses_audit() } }: { Log, Audit }
+with Log { a() }: Log
+{ a() }: Log
+a(): Log
+with Log by PrintLog { a() }: Log
+{ a() }: Log
+a(): Log
+with PrintLog, Audit by OtherH { uses_audit() }: Audit
+{ uses_audit() }: Audit
+uses_audit(): Audit
+{ uses_audit() }: Audit
+uses_audit(): Audit
+{   with PrintLog { uses_audit() } }: Audit
+with PrintLog { uses_audit() }: Audit
+{ uses_audit() }: Audit
+uses_audit(): Audit
+{   with PrintLog, Audit by PrintLog { a() }   with PrintLog, Audit by PrintLog { f() } }: '1
+{ a() }: Log
+a(): Log
+with PrintLog, Audit by PrintLog { f() }: '1
+{ f() }: '1
+f(): '1

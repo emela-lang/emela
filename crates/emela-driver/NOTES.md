@@ -212,3 +212,5 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）E0423（型引数のあるエフェクトの型引数を書いていない）の文面は，`use State` と use 節では ``missing type arguments for effect `State[S]` ``（注記 ``= help: write the types, like `State[...]` ``），`implements State` では ``handler `Fixed` must implement `State[S]` with concrete types``（注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``）．E0424（エフェクトの型引数を集合として使った）は ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``．仕様の付録 A に E0423 と E0424 はまだない
 - （補）ホバーは handler の名前に `implements State[Int]`（型引数を代入したタグ），能力の値に `use State[Int]` を出す．能力の値の操作の補完と型は，操作の型のエフェクトの型引数を能力の値の型引数で置き換える
 - （補）同梱のソースの仮のパスは，モジュール名の区切りをディレクトリにする（`Std.Console` は `<core>/std/console.emel`，`List` は `<core>/list.emel`）
+- （補）エフェクトのラベル（issue #255）の hover．ラベルの名前と，`use` 節や `with` に書いたラベルへの参照の上では，宣言をそのまま出す（`effect DebugLog of Console default`）．型の表示はラベルのまま出し，元のエフェクトに落とした形には書き換えない
+- （補）ラベルの診断の文言．E0429〜E0433 と W0401（使われないラベルの項目）．W0401 は `with L` ならラベル L の名前を，`L by P` なら L の名前を出す

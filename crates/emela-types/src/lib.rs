@@ -26,7 +26,9 @@ mod ty;
 mod tests;
 
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
-pub use diagnostic::{Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, SuspendingCall};
+pub use diagnostic::{
+    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, SuspendingCall,
+};
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{
@@ -34,7 +36,7 @@ pub use exhaustiveness::{
     check_match,
 };
 pub use infer::{InferCtx, substitute_bound};
-pub use layer::LayerInfo;
+pub use layer::{LayerInfo, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;
 pub use scheme::Scheme;
 pub use signature::{Signature, Signatures};
