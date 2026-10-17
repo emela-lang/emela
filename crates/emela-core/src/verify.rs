@@ -551,7 +551,8 @@ impl<'a> Verifier<'a> {
             Expr::Use { ctx, effect } => {
                 let t = self.sub(Seg::Name("use"), ctx);
                 self.table(t);
-                self.t.intern(Type::Handler(*effect))
+                let h = m.handler_effect(*effect);
+                self.t.intern(Type::Handler(h))
             }
             Expr::Provide { base, bindings } => {
                 if let Some(b) = base {
@@ -623,6 +624,8 @@ impl<'a> Verifier<'a> {
     /// ([`instance_of`]).
     fn binding(&mut self, effect: EffectId, t: TypeId, i: usize) {
         let m = self.m();
+        // A label's key holds a handler of its base (`EffectDef::label_of`).
+        let effect = m.handler_effect(effect);
         let ok = match self.t.ty(t) {
             Type::Handler(h) => {
                 let (key, handler) = (&m.effects[effect], &m.effects[*h]);

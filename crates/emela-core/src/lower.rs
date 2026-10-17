@@ -10,10 +10,10 @@ use std::path::Path;
 use emela_resolve::hir::{
     Arg, Arm as HirArm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Fields, Item,
     Literal, LocalId, LocalKind, PatId, PatKind, Program, Res, Span, Stmt, StrPart as HirStrPart,
-    UnaryOp, int_literal_value,
+    UnaryOp, WithItem, int_literal_value,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{Prim, ProgramTypes, Row, RowElem, Tag, Ty};
+use emela_types::{Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -618,9 +618,11 @@ impl<'a> Lowerer<'a> {
             // Set type arguments of named types (`Handler[E, R]`) have no run-time representation,
             // but what they decide about calling conventions is kept.
             Ty::Set(_, row) => return self.set_ty(row),
+            // A label's capability is a handler of its base (`EffectDef::label_of`).
             Ty::Cap(tag) => {
                 let key = self.key_here(tag);
-                Type::Handler(self.effect_id(&key))
+                let id = self.effect_id(&key);
+                Type::Handler(self.module.handler_effect(id))
             }
             Ty::Bound(i) => Type::Param(*i as usize),
             Ty::Fn(f) => {
@@ -988,15 +990,28 @@ impl<'a> Lowerer<'a> {
             decl,
             args: args.clone(),
             ops: Vec::new(),
+            label_of: None,
         });
         self.effects.insert(key.clone(), id);
-        let op_defs = match self.hir.item(def) {
-            Some(Item::Effect(e)) => e.ops.clone(),
-            _ => Vec::new(),
-        };
-        let ops = op_defs
+        // A label has its base's operations, typed with the base's type arguments
+        // (`effect Hits of State[Int]`), and its handler values are the base's (issue #255). The
+        // base's arguments are concrete: a label has no type parameters.
+        let types = self.types;
+        let mut op_args = args;
+        let mut owner = def;
+        if let Some(base) = types.sigs.label_base(def) {
+            let base_key = self.tag_key(base, None);
+            let base_id = self.effect_id(&base_key);
+            self.module.effects[id].label_of = Some(base_id);
+            op_args = self.module.effects[base_id].args.clone();
+            owner = base.def;
+        }
+        let ops = self
+            .hir
+            .effect_ops(def)
+            .to_vec()
             .into_iter()
-            .map(|op| self.op_def(def, op, &args))
+            .map(|op| self.op_def(owner, op, &op_args))
             .collect();
         self.module.effects[id].ops = ops;
         id
@@ -1131,10 +1146,7 @@ impl<'a> Lowerer<'a> {
 
     /// The operation's index in `EffectDef::ops`.
     fn op_index(&self, effect: DefId, op: DefId) -> Option<usize> {
-        match self.hir.item(effect) {
-            Some(Item::Effect(e)) => e.ops.iter().position(|&o| o == op),
-            _ => None,
-        }
+        self.hir.effect_ops(effect).iter().position(|&o| o == op)
     }
 
     /// The external function's bindings. A module naming a file becomes the file next to the
@@ -1437,35 +1449,67 @@ impl<'a> Lowerer<'a> {
     /// For a stateful handler, init's value (the state) becomes a binding without release, and the
     /// handler value built from the state a binding with release (`WithBind::managed`). Without a
     /// release function, release is `()`.
-    fn with(&mut self, id: ExprId, handlers: &[(Res, Span)], body: ExprId, span: Span) -> Expr {
+    fn with(&mut self, id: ExprId, items: &[WithItem], body: ExprId, span: Span) -> Expr {
         let hir = self.hir;
-        let Some(order) = self.types.with_handlers.get(id) else {
+        let Some(info) = self.types.with_handlers.get(id) else {
             return self.unsupported("with without handlers", span);
         };
-        // (handler, key of the provided effect).
-        let mut hs: Vec<(DefId, EffectKey)> = Vec::new();
-        for &def in order {
-            // Errors go at the handler as written; for handlers expanded from a layer, at the
-            // `with`.
-            let span = handlers
-                .iter()
-                .find(|(res, _)| *res == Res::Def(def))
-                .map_or(span, |&(_, s)| s);
-            match hir.item(def) {
-                Some(Item::Handler(_)) => {
-                    let Some(tag) = self.types.sigs.handler_effect(def) else {
-                        return self.unsupported("handler of an unknown effect", span);
-                    };
-                    hs.push((def, self.tag_key(tag, None)));
+        // (supplier, key of the provided effect).
+        let mut hs: Vec<(Supplier, EffectKey)> = Vec::new();
+        for bind in &info.binds {
+            let own = self.tag_key(&bind.effect, None);
+            match &bind.supplier {
+                Supplier::Handler(def) => {
+                    // Errors go at the handler as written; for handlers expanded from a layer, at
+                    // the `with`.
+                    let span = items
+                        .iter()
+                        .find_map(|item| match item.by {
+                            Some((res, s)) if res == Res::Def(*def) => Some(s),
+                            None if item.res == Res::Def(*def) => Some(item.span),
+                            _ => None,
+                        })
+                        .unwrap_or(span);
+                    if !matches!(hir.item(*def), Some(Item::Handler(_))) {
+                        return self.unsupported("this kind of handler", span);
+                    }
                 }
-                _ => return self.unsupported("this kind of handler", span),
+                Supplier::Effect(_) => {}
             }
+            hs.push((bind.supplier.clone(), own));
         }
+        // Labels declared `default`, provided by the provider of their base (issue #255).
+        let defaults: Vec<(EffectKey, usize)> = info
+            .defaults
+            .iter()
+            .map(|(tag, i)| (self.tag_key(tag, None), *i))
+            .collect();
         let outer = self.ev;
         let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
         let mut binds = Vec::new();
-        for (i, (h, own)) in hs.iter().enumerate() {
-            let h = *h;
+        for (i, (supplier, own)) in hs.iter().enumerate() {
+            let own_id = self.effect_id(own);
+            let handler_ty = self.module.handler_effect(own_id);
+            let handler_ty = self.module.handler(handler_ty);
+            let h = match supplier {
+                Supplier::Handler(h) => *h,
+                // The provider of an effect already in scope: a handler in the same `with`
+                // initialized earlier, or the one the outer table holds (issue #255).
+                Supplier::Effect(tag) => {
+                    let key = self.tag_key(tag, None);
+                    let value = match hs[..i].iter().position(|(_, e)| *e == key) {
+                        Some(j) => Expr::Var(locals[j]),
+                        None => match self.lookup_effect(&key) {
+                            Some(e) => e,
+                            None => return self.unsupported("label without a provider", span),
+                        },
+                    };
+                    let l = self.module.local("h", handler_ty);
+                    locals.push(l);
+                    binds.push(WithBind::new(l, value));
+                    continue;
+                }
+            };
             let f = self.fn_id(h, 0);
             let ctx = if self
                 .types
@@ -1499,8 +1543,6 @@ impl<'a> Lowerer<'a> {
             } else {
                 None
             };
-            let handler_ty = self.effect_id(own);
-            let handler_ty = self.module.handler(handler_ty);
             let l = self.module.local("h", handler_ty);
             locals.push(l);
             let Some(Item::Handler(item)) = hir.item(h) else {
@@ -1560,6 +1602,9 @@ impl<'a> Lowerer<'a> {
         for ((_, effect), &l) in hs.iter().zip(&locals) {
             self.bound.push((effect.clone(), l));
         }
+        for (label, i) in &defaults {
+            self.bound.push((label.clone(), locals[*i]));
+        }
         self.ev = Some(ctx);
         let body = self.expr(body);
         self.ev = outer;
@@ -1570,7 +1615,9 @@ impl<'a> Lowerer<'a> {
             let bindings = hs
                 .iter()
                 .zip(&locals)
-                .map(|((_, effect), &l)| (self.effect_id(effect), Expr::Var(l)))
+                .map(|((_, effect), &l)| (effect, l))
+                .chain(defaults.iter().map(|(label, i)| (label, locals[*i])))
+                .map(|(effect, l)| (self.effect_id(effect), Expr::Var(l)))
                 .collect();
             binds.push(WithBind::new(
                 ctx,
@@ -1666,6 +1713,7 @@ impl<'a> Lowerer<'a> {
             return self.unsupported("effect operation", span);
         };
         let effect_id = self.effect_id(&self.key_here(&tag));
+        let effect_id = self.module.handler_effect(effect_id);
         let fails = self.callee_fails(id);
         let suspends = self.module.effects[effect_id].ops[index].suspend;
         let (param_tys, ev) = match self.expr_ty(id) {
@@ -2102,6 +2150,8 @@ impl<'a> Lowerer<'a> {
         {
             let tag = effect;
             let effect = self.effect_id(&self.key_here(&tag));
+            // Through a label, the operation is the base's (`EffectDef::label_of`).
+            let effect = self.module.handler_effect(effect);
             let handler = self.expr(*base);
             // Scope's fork wraps the child function (`fiber.rs`).
             if self.is_fork_op(tag.def, op) {

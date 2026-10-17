@@ -59,3 +59,5 @@
 - （補）後置の match（6.5）は escape と同じ位置（17.5 の expr の末尾の繰り返し）で読み，MATCH_EXPR の子は「対象の式，`match`，MATCH_ARM_LIST」の順になる．前置と子の並びが入れ替わるだけで，対象は最初の式の子のままなので，名前解決から先は変えていない
 - （補）前置の `match x { 腕 }` は，`match` の位置に E0142 を出し，前置の形のまま MATCH_EXPR として読んで先へ進む（腕の検査と型推論を続けるため）．`1 + match x {...}` のように演算子のオペランドの位置でも同じ
 - （補）2.5 の規則1の `match` は，`match` の次の意味のあるトークンが `{` のときだけ前の行に続ける．`match` の後ろが `{` でなければ前置の match なので，新しい文として読んで E0142 を出す（続けてしまうと「`{` がない」という分かりにくい誤りになる）．後置の match は必ず `match {` なので，正しいプログラムの読み方は仕様と変わらない
+- （補）エフェクトのラベル（issue #255）．`effect AuditLog of Console [default]` は EFFECT_DECL の名前の後ろに EFFECT_LABEL（`of`，PATH，型引数があれば TYPE_ARG_LIST，`default`）を置き，本体の ITEM_LIST を持たない．`of` と `default` は文脈依存の語で，LOWER_NAME のまま読む．ラベルの宣言の後ろに `{ ... }` を書けば，宣言の後ろの改行がないので E0122 になる
+- （補）`with` の項目の `AuditLog by HandlerA` は，2つの PATH と `by`（LOWER_NAME）を WITH_BY で包む．右の PATH の後ろには型引数（TYPE_ARG_LIST，`Hits by State[Int]`）を置ける．`by` のない項目は今までどおり PATH だけを並べる．`by` の右に置けるもの（handler，ラベル，エフェクト）は名前解決と型検査が見る

@@ -23,11 +23,12 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, Span};
+use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, WithItem};
 
 use super::BodyInfer;
+use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::layer;
+use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
 use crate::row::{Row, RowElem, Tag};
 use crate::ty::Ty;
 
@@ -190,17 +191,38 @@ impl BodyInfer<'_> {
     }
 
     /// The R of `with H1, ..., Hn { body }` (spec 8.3, 8.5, 9.4). Layers are expanded, and for
-    /// handlers of the same effect the later one is kept (`crate::layer::with_entries`).
-    fn with_effects(&mut self, expr: ExprId, handlers: &[(Res, Span)], body: ExprId) -> Row {
+    /// providers of the same effect the later one is kept (`crate::layer::with_entries`).
+    ///
+    /// A label `L` listed alone provides its base and depends on `L`; `L by P` provides `L` and
+    /// depends on what `P` depends on (a handler's dependencies, or the effect `P`). A provider of
+    /// an effect also provides the effect's labels declared `default`, unless the same `with`
+    /// gives them a provider; those are removed from the body's R only, not from the other
+    /// providers' dependencies (issue #255).
+    fn with_effects(&mut self, expr: ExprId, items: &[WithItem], body: ExprId) -> Row {
         let program = self.program;
         let body_row = self.expr_effects(body);
-        let entries = layer::with_entries(program, self.sigs, handlers);
+        layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
+        let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
         let deps: Vec<Row> = entries
             .iter()
-            .map(|e| self.handler_deps(e.handler))
+            .map(|e| match &e.supplier {
+                Supplier::Handler(h) => self.handler_deps(*h),
+                Supplier::Effect(t) => Row::of_tag(t.clone()),
+            })
             .collect();
         let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
-        let mut row = self.subtract(&body_row, &provided);
+        let mut defaults: Vec<(Tag, usize)> = Vec::new();
+        for (i, entry) in entries.iter().enumerate() {
+            for label in self.sigs.default_labels(&entry.effect) {
+                let tag = Tag::new(label);
+                if !provided.contains(&tag) && !defaults.iter().any(|(t, _)| *t == tag) {
+                    defaults.push((tag, i));
+                }
+            }
+        }
+        let mut for_body = provided.clone();
+        for_body.extend(defaults.iter().map(|(t, _)| t.clone()));
+        let mut row = self.subtract(&body_row, &for_body);
         // Handler dependencies may be met by handlers in the same `with` providing other effects
         // (spec 14.2). The handler's own effect is met from outside. Dependencies a layer leaves
         // unmet also remain (spec 8.5).
@@ -212,7 +234,13 @@ impl BodyInfer<'_> {
                 .collect();
             row.extend(&self.subtract(deps, &others));
         }
-        self.withs.push((expr, entries, deps));
+        self.withs.push(PendingWith {
+            expr,
+            body,
+            entries,
+            deps,
+            defaults,
+        });
         row
     }
 
@@ -241,7 +269,14 @@ impl BodyInfer<'_> {
     /// Cycles only inside a layer are reported at the layer declaration.
     pub(super) fn check_handler_cycles(&mut self) {
         let program = self.program;
-        for (expr, entries, deps) in std::mem::take(&mut self.withs) {
+        for w in std::mem::take(&mut self.withs) {
+            let PendingWith {
+                expr,
+                body,
+                entries,
+                deps,
+                defaults,
+            } = w;
             let deps: Vec<Row> = deps.iter().map(|d| self.ctx.resolve_row(d)).collect();
             let order = match layer::init_order(&entries, &deps) {
                 Ok(order) => order,
@@ -253,8 +288,67 @@ impl BodyInfer<'_> {
                     (0..entries.len()).collect()
                 }
             };
+            // Only labels in the body's solved R are bound. A label left in a set the body
+            // cannot see (`f()` with `f`'s R a set parameter) is provided from outside, as the
+            // type says (spec 8.3).
+            let body_row = self
+                .expr_effects
+                .get(body)
+                .map(|r| self.ctx.resolve_row(r))
+                .unwrap_or_default();
+            self.unused_label_providers(&entries, &deps, &body_row);
+            let defaults = defaults
+                .into_iter()
+                .filter(|(t, _)| body_row.contains(&RowElem::Tag(t.clone())))
+                .filter_map(|(t, i)| Some((t, order.iter().position(|&j| j == i)?)))
+                .collect();
+            let binds = order
+                .iter()
+                .map(|&i| WithBind {
+                    effect: entries[i].effect.clone(),
+                    supplier: entries[i].supplier.clone(),
+                })
+                .collect();
             self.with_handlers
-                .insert(expr, order.iter().map(|&i| entries[i].handler).collect());
+                .insert(expr, WithInfo { binds, defaults });
+        }
+    }
+
+    /// W0401 for label items of a `with` (`with L`, `L by P`, issue #255) whose effect neither
+    /// the body nor another provider of the same `with` uses. Only when the body's R is fully
+    /// known: a set with unknown contents (`f()` with `f`'s R a set parameter) may use it.
+    fn unused_label_providers(&mut self, entries: &[layer::Entry], deps: &[Row], body: &Row) {
+        if body.elems().iter().any(|e| !matches!(e, RowElem::Tag(_))) {
+            return;
+        }
+        let program = self.program;
+        for (i, entry) in entries.iter().enumerate() {
+            let is_label_item = matches!(entry.supplier, Supplier::Effect(_))
+                || self.sigs.label_base(entry.effect.def).is_some();
+            if !is_label_item || entry.from_layer {
+                continue;
+            }
+            let tag = RowElem::Tag(entry.effect.clone());
+            let used = body.contains(&tag)
+                || deps
+                    .iter()
+                    .enumerate()
+                    .any(|(j, d)| j != i && entries[j].effect != entry.effect && d.contains(&tag));
+            if !used {
+                // `with L` provides the base from `L`; `L by P` provides `L`.
+                let label = match &entry.supplier {
+                    Supplier::Effect(t) if self.sigs.label_base(entry.effect.def).is_none() => {
+                        t.def
+                    }
+                    _ => entry.effect.def,
+                };
+                self.diags.push(Diagnostic {
+                    span: Some(entry.span),
+                    kind: DiagnosticKind::UnusedLabelProvider {
+                        label: program.defs[label].name.clone(),
+                    },
+                });
+            }
         }
     }
 }

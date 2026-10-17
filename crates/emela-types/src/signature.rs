@@ -6,12 +6,13 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, Fields, FnItem, FnSig, Item, Param, Program, Res, TypeId, TypeKind,
+    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, Param, Program, Res, TypeId,
+    TypeKind,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
-use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
 use crate::lower::{
     Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
     effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
@@ -33,6 +34,12 @@ pub struct Signatures {
     /// Handler → the effect it implements and its type arguments (`implements State[Int]`, spec
     /// 8.1). Async handlers (E0413) and handlers whose effect is unknown are absent.
     handler_effects: ArenaMap<DefId, Tag>,
+    /// Label → the effect it stands for (`effect AuditLog of Console`, issue #255). Labels whose
+    /// base cannot be used (E0429) are absent.
+    label_bases: ArenaMap<DefId, Tag>,
+    /// Effect → its labels declared `default`, in definition order. A `with` providing the effect
+    /// also provides them (issue #255).
+    default_labels: ArenaMap<DefId, Vec<DefId>>,
 }
 
 impl Signatures {
@@ -40,11 +47,33 @@ impl Signatures {
         Signatures {
             by_def: ArenaMap::default(),
             handler_effects: ArenaMap::default(),
+            label_bases: ArenaMap::default(),
+            default_labels: ArenaMap::default(),
         }
     }
 
     pub fn handler_effect(&self, handler: DefId) -> Option<&Tag> {
         self.handler_effects.get(handler)
+    }
+
+    /// The effect a label stands for. `None` for effects that are not labels.
+    pub fn label_base(&self, label: DefId) -> Option<&Tag> {
+        self.label_bases.get(label)
+    }
+
+    /// The effect whose operations a capability of `tag` has: the base for a label, else `tag`.
+    pub fn base_of<'a>(&'a self, tag: &'a Tag) -> &'a Tag {
+        self.label_base(tag.def).unwrap_or(tag)
+    }
+
+    /// The labels of `effect` (with its type arguments) declared `default`.
+    pub fn default_labels<'a>(&'a self, effect: &'a Tag) -> impl Iterator<Item = DefId> + 'a {
+        self.default_labels
+            .get(effect.def)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(move |&l| self.label_base(l) == Some(effect))
     }
 
     pub fn insert(&mut self, def: DefId, signature: Signature) {
@@ -79,12 +108,46 @@ impl Signatures {
                     let effect = program.defs[def].parent;
                     Some(op_signature(program, ty_table, effect, &item.sig, diags))
                 }
-                Some(Item::Effect(_)) => {
+                Some(Item::Effect(item)) => {
                     check_effect_params(program, ty_table, def, diags);
+                    if let Some(label) = &item.label
+                        && let Some(base) = label_base(program, ty_table, def, label, diags)
+                    {
+                        if label.default {
+                            match sigs.default_labels.get_mut(base.def) {
+                                Some(labels) => labels.push(def),
+                                None => {
+                                    sigs.default_labels.insert(base.def, vec![def]);
+                                }
+                            }
+                        }
+                        sigs.label_bases.insert(def, base);
+                    }
                     None
                 }
                 Some(Item::Handler(item)) => {
                     if let Res::Def(effect) = item.effect
+                        && is_label(program, effect)
+                    {
+                        let base = match program.item(effect) {
+                            Some(Item::Effect(EffectItem {
+                                label:
+                                    Some(LabelOf {
+                                        base: Res::Def(b), ..
+                                    }),
+                                ..
+                            })) => program.defs[*b].name.clone(),
+                            _ => SmolStr::new("?"),
+                        };
+                        diags.push(Diagnostic {
+                            span: program.defs[def].span,
+                            kind: DiagnosticKind::HandlerOfLabel {
+                                handler: program.defs[def].name.clone(),
+                                label: program.defs[effect].name.clone(),
+                                base,
+                            },
+                        });
+                    } else if let Res::Def(effect) = item.effect
                         && program.prelude_def("Async") != Some(effect)
                         && !is_intrinsic_effect(program, effect)
                     {
@@ -122,6 +185,65 @@ impl Signatures {
 
         sigs
     }
+}
+
+/// Whether `effect` is declared as a label (`effect AuditLog of Console`).
+pub(crate) fn is_label(program: &Program, effect: DefId) -> bool {
+    matches!(program.item(effect), Some(Item::Effect(e)) if e.label.is_some())
+}
+
+/// The base of label `def` as a tag with its type arguments (`State[Int]`), or `None` with a
+/// diagnostic if it cannot be used (E0429). A label has no type parameters of its own, so the
+/// arguments are concrete; omitting them is E0423.
+fn label_base(
+    program: &Program,
+    ty_table: &TyTable,
+    def: DefId,
+    label: &LabelOf,
+    diags: &mut Vec<Diagnostic>,
+) -> Option<Tag> {
+    let Res::Def(base) = label.base else {
+        return None;
+    };
+    if program.defs[base].kind != DefKind::Effect {
+        return None;
+    }
+    let reason = if is_label(program, base) {
+        let inner = program
+            .label_base(base)
+            .map(|b| program.defs[b].name.clone());
+        Some(LabelBaseReason::Label(inner.unwrap_or_else(|| "?".into())))
+    } else if program.prelude_def("Async") == Some(base) || is_intrinsic_effect(program, base) {
+        Some(LabelBaseReason::BuiltIn)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        diags.push(Diagnostic {
+            span: Some(label.span),
+            kind: DiagnosticKind::LabelBase {
+                label: program.defs[def].name.clone(),
+                base: program.defs[base].name.clone(),
+                reason,
+            },
+        });
+        return None;
+    }
+    let scope = Scope {
+        params: &[],
+        kinds: &[],
+        omitted: Omitted::Empty,
+        sets: false,
+    };
+    ty_table.effect_tag(
+        program,
+        &scope,
+        base,
+        &label.args,
+        Some(label.span),
+        None,
+        diags,
+    )
 }
 
 impl Default for Signatures {

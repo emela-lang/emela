@@ -175,9 +175,11 @@ impl<'a> Typer<'a> {
             Expr::Loop { body, .. } => self.type_of(body),
             Expr::Recur(_) | Expr::Fail(_) => TypeId::NEVER,
             Expr::Assert(_) => TypeId::UNIT,
-            Expr::Use { effect, .. } | Expr::Handler { effect, .. } => {
-                self.intern(Type::Handler(*effect))
+            Expr::Use { effect, .. } => {
+                let h = self.m.handler_effect(*effect);
+                self.intern(Type::Handler(h))
             }
+            Expr::Handler { effect, .. } => self.intern(Type::Handler(*effect)),
             Expr::Provide { .. } => TypeId::EVIDENCE,
             Expr::Fiber { op, args } => {
                 let first = match op {

@@ -37,9 +37,9 @@ macro_rules! ast_node {
 mod items;
 
 pub use items::{
-    Annotation, ConstDecl, DeriveClause, EffectDecl, EnumDecl, ErrorDecl, Field, FieldList,
-    HandlerDecl, HasAttrs, ImplDecl, Import, Item, LayerDecl, OpSig, Path, TraitDecl, TypeDecl,
-    Variant,
+    Annotation, ConstDecl, DeriveClause, EffectDecl, EffectLabel, EnumDecl, ErrorDecl, Field,
+    FieldList, HandlerDecl, HasAttrs, ImplDecl, Import, Item, LayerDecl, OpSig, Path, TraitDecl,
+    TypeDecl, Variant,
 };
 
 fn child<N: AstNode>(node: &SyntaxNode) -> Option<N> {

@@ -8,7 +8,6 @@ error src/main.emel@212..218 `Logger`: effect `Logger` cannot be used as a type
 error src/main.emel@233..237 `User`: expected error, found type `User`
 error src/main.emel@242..249 `Console`: expected effect, found handler `Console`
 error src/main.emel@264..268 `User`: expected effect, found type `User`
-error src/main.emel@276..282 `Logger`: expected handler or layer, found effect `Logger`
 error src/main.emel@323..328 `Empty`: expected error, found constructor `Empty`
 error src/main.emel@340..346 `Logger`: expected module or trait, found effect `Logger`
 error src/main.emel@363..366 `Int`: expected constructor, found type `Int`

@@ -1,0 +1,234 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/effect_labels.emel
+---
+ROOT@0..351
+  EFFECT_DECL@0..26
+    EFFECT_KW@0..6 "effect"
+    WHITESPACE@6..7 " "
+    TYPE_NAME@7..15 "AuditLog"
+    WHITESPACE@15..16 " "
+    EFFECT_LABEL@16..26
+      LOWER_NAME@16..18 "of"
+      WHITESPACE@18..19 " "
+      PATH@19..26
+        TYPE_NAME@19..26 "Console"
+  NEWLINE@26..27 "\n"
+  EFFECT_DECL@27..65
+    PUB_KW@27..30 "pub"
+    WHITESPACE@30..31 " "
+    EFFECT_KW@31..37 "effect"
+    WHITESPACE@37..38 " "
+    TYPE_NAME@38..46 "DebugLog"
+    WHITESPACE@46..47 " "
+    EFFECT_LABEL@47..65
+      LOWER_NAME@47..49 "of"
+      WHITESPACE@49..50 " "
+      PATH@50..57
+        TYPE_NAME@50..57 "Console"
+      WHITESPACE@57..58 " "
+      LOWER_NAME@58..65 "default"
+  NEWLINE@65..66 "\n"
+  EFFECT_DECL@66..94
+    EFFECT_KW@66..72 "effect"
+    WHITESPACE@72..73 " "
+    TYPE_NAME@73..80 "Counter"
+    WHITESPACE@80..81 " "
+    EFFECT_LABEL@81..94
+      LOWER_NAME@81..83 "of"
+      WHITESPACE@83..84 " "
+      PATH@84..89
+        TYPE_NAME@84..89 "State"
+      TYPE_ARG_LIST@89..94
+        L_BRACK@89..90 "["
+        PATH_TYPE@90..93
+          PATH@90..93
+            TYPE_NAME@90..93 "Int"
+        R_BRACK@93..94 "]"
+  NEWLINE@94..95 "\n"
+  NEWLINE@95..96 "\n"
+  FN_DECL@96..187
+    FN_KW@96..98 "fn"
+    WHITESPACE@98..99 " "
+    LOWER_NAME@99..100 "c"
+    PARAM_LIST@100..102
+      L_PAREN@100..101 "("
+      R_PAREN@101..102 ")"
+    WHITESPACE@102..103 " "
+    RET_TYPE@103..108
+      THIN_ARROW@103..105 "->"
+      WHITESPACE@105..106 " "
+      UNIT_TYPE@106..108
+        L_PAREN@106..107 "("
+        R_PAREN@107..108 ")"
+    WHITESPACE@108..109 " "
+    USE_CLAUSE@109..135
+      USE_KW@109..112 "use"
+      WHITESPACE@112..113 " "
+      EFFECT_SET@113..135
+        L_BRACE@113..114 "{"
+        WHITESPACE@114..115 " "
+        PATH@115..123
+          TYPE_NAME@115..123 "AuditLog"
+        COMMA@123..124 ","
+        WHITESPACE@124..125 " "
+        PATH@125..133
+          TYPE_NAME@125..133 "DebugLog"
+        WHITESPACE@133..134 " "
+        R_BRACE@134..135 "}"
+    WHITESPACE@135..136 " "
+    BLOCK_EXPR@136..187
+      L_BRACE@136..137 "{"
+      NEWLINE@137..138 "\n"
+      WHITESPACE@138..140 "  "
+      WITH_EXPR@140..161
+        WITH_KW@140..144 "with"
+        WHITESPACE@144..145 " "
+        PATH@145..153
+          TYPE_NAME@145..153 "AuditLog"
+        WHITESPACE@153..154 " "
+        BLOCK_EXPR@154..161
+          L_BRACE@154..155 "{"
+          WHITESPACE@155..156 " "
+          CALL_EXPR@156..159
+            NAME_REF@156..157
+              LOWER_NAME@156..157 "a"
+            ARG_LIST@157..159
+              L_PAREN@157..158 "("
+              R_PAREN@158..159 ")"
+          WHITESPACE@159..160 " "
+          R_BRACE@160..161 "}"
+      NEWLINE@161..162 "\n"
+      WHITESPACE@162..164 "  "
+      WITH_EXPR@164..185
+        WITH_KW@164..168 "with"
+        WHITESPACE@168..169 " "
+        PATH@169..177
+          TYPE_NAME@169..177 "DebugLog"
+        WHITESPACE@177..178 " "
+        BLOCK_EXPR@178..185
+          L_BRACE@178..179 "{"
+          WHITESPACE@179..180 " "
+          CALL_EXPR@180..183
+            NAME_REF@180..181
+              LOWER_NAME@180..181 "b"
+            ARG_LIST@181..183
+              L_PAREN@181..182 "("
+              R_PAREN@182..183 ")"
+          WHITESPACE@183..184 " "
+          R_BRACE@184..185 "}"
+      NEWLINE@185..186 "\n"
+      R_BRACE@186..187 "}"
+  NEWLINE@187..188 "\n"
+  NEWLINE@188..189 "\n"
+  FN_DECL@189..350
+    FN_KW@189..191 "fn"
+    WHITESPACE@191..192 " "
+    LOWER_NAME@192..196 "main"
+    PARAM_LIST@196..198
+      L_PAREN@196..197 "("
+      R_PAREN@197..198 ")"
+    WHITESPACE@198..199 " "
+    BLOCK_EXPR@199..350
+      L_BRACE@199..200 "{"
+      NEWLINE@200..201 "\n"
+      WHITESPACE@201..203 "  "
+      WITH_EXPR@203..251
+        WITH_KW@203..207 "with"
+        WHITESPACE@207..208 " "
+        PATH@208..221
+          TYPE_NAME@208..221 "SystemConsole"
+        COMMA@221..222 ","
+        WHITESPACE@222..223 " "
+        WITH_BY@223..243
+          PATH@223..231
+            TYPE_NAME@223..231 "AuditLog"
+          WHITESPACE@231..232 " "
+          LOWER_NAME@232..234 "by"
+          WHITESPACE@234..235 " "
+          PATH@235..243
+            TYPE_NAME@235..243 "HandlerA"
+        WHITESPACE@243..244 " "
+        BLOCK_EXPR@244..251
+          L_BRACE@244..245 "{"
+          WHITESPACE@245..246 " "
+          CALL_EXPR@246..249
+            NAME_REF@246..247
+              LOWER_NAME@246..247 "c"
+            ARG_LIST@247..249
+              L_PAREN@247..248 "("
+              R_PAREN@248..249 ")"
+          WHITESPACE@249..250 " "
+          R_BRACE@250..251 "}"
+      NEWLINE@251..252 "\n"
+      WHITESPACE@252..254 "  "
+      WITH_EXPR@254..311
+        WITH_KW@254..258 "with"
+        WHITESPACE@258..259 " "
+        WITH_BY@259..278
+          PATH@259..267
+            TYPE_NAME@259..267 "AuditLog"
+          WHITESPACE@267..268 " "
+          LOWER_NAME@268..270 "by"
+          WHITESPACE@270..271 " "
+          PATH@271..278
+            TYPE_NAME@271..278 "Console"
+        COMMA@278..279 ","
+        WHITESPACE@279..280 " "
+        WITH_BY@280..303
+          PATH@280..288
+            TYPE_NAME@280..288 "DebugLog"
+          WHITESPACE@288..289 " "
+          LOWER_NAME@289..291 "by"
+          WHITESPACE@291..292 " "
+          PATH@292..303
+            TYPE_NAME@292..295 "Std"
+            DOT@295..296 "."
+            TYPE_NAME@296..303 "FileLog"
+        WHITESPACE@303..304 " "
+        BLOCK_EXPR@304..311
+          L_BRACE@304..305 "{"
+          WHITESPACE@305..306 " "
+          CALL_EXPR@306..309
+            NAME_REF@306..307
+              LOWER_NAME@306..307 "c"
+            ARG_LIST@307..309
+              L_PAREN@307..308 "("
+              R_PAREN@308..309 ")"
+          WHITESPACE@309..310 " "
+          R_BRACE@310..311 "}"
+      NEWLINE@311..312 "\n"
+      WHITESPACE@312..314 "  "
+      WITH_EXPR@314..348
+        WITH_KW@314..318 "with"
+        WHITESPACE@318..319 " "
+        WITH_BY@319..340
+          PATH@319..326
+            TYPE_NAME@319..326 "Counter"
+          WHITESPACE@326..327 " "
+          LOWER_NAME@327..329 "by"
+          WHITESPACE@329..330 " "
+          PATH@330..335
+            TYPE_NAME@330..335 "State"
+          TYPE_ARG_LIST@335..340
+            L_BRACK@335..336 "["
+            PATH_TYPE@336..339
+              PATH@336..339
+                TYPE_NAME@336..339 "Int"
+            R_BRACK@339..340 "]"
+        WHITESPACE@340..341 " "
+        BLOCK_EXPR@341..348
+          L_BRACE@341..342 "{"
+          WHITESPACE@342..343 " "
+          CALL_EXPR@343..346
+            NAME_REF@343..344
+              LOWER_NAME@343..344 "c"
+            ARG_LIST@344..346
+              L_PAREN@344..345 "("
+              R_PAREN@345..346 ")"
+          WHITESPACE@346..347 " "
+          R_BRACE@347..348 "}"
+      NEWLINE@348..349 "\n"
+      R_BRACE@349..350 "}"
+  NEWLINE@350..351 "\n"

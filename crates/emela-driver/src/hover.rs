@@ -4,7 +4,7 @@
 //! E (error sets) and R (effect sets) do not normally appear in source, so they are shown here
 //! (spec 9.3).
 
-use emela_resolve::hir::{DefId, ExprKind, Item, Res};
+use emela_resolve::hir::{DefId, ExprKind, Item, RefTarget, Res};
 use emela_types::{Row, TyParam};
 use line_index::{TextRange, TextSize};
 
@@ -29,6 +29,7 @@ pub struct HoverInfo {
 ///   remains).
 /// - A layer name: `layer L { handlers in initialization order }`, plus `use R` for dependencies
 ///   unmet inside the layer.
+/// - A label name, or a reference to one: its declaration, `effect Debug of Log default`.
 /// - A reference to a definition or local: likewise `name: type`.
 /// - Any other expression: its type, plus `fails E` if E is not empty and `use R` if R is not
 ///   empty.
@@ -83,6 +84,26 @@ pub(crate) fn hover(
     {
         return Some(HoverInfo {
             range: data.span?.range,
+            contents: code(&text),
+        });
+    }
+    // Label names, and references to labels (`use { Audit }`, `with Audit by H`, issue #255).
+    if let Some((def, data)) = def
+        && let Some(text) = label_text(program, def)
+    {
+        return Some(HoverInfo {
+            range: data.span?.range,
+            contents: code(&text),
+        });
+    }
+    if let Some((range, text)) = hir.refs.iter().find_map(|r| match r.target {
+        RefTarget::Def(def) if r.span.module == module && contains(r.span.range) => {
+            Some((r.span.range, label_text(program, def)?))
+        }
+        _ => None,
+    }) {
+        return Some(HoverInfo {
+            range,
             contents: code(&text),
         });
     }
@@ -238,6 +259,27 @@ pub(crate) fn layer_text(program: &TypedProgram, def: DefId) -> Option<String> {
         ));
     }
     Some(text)
+}
+
+/// The declaration of a label as written: `effect Debug of Log default` (issue #255). Whether
+/// it falls back to its base is read from the declaration; types keep showing the label itself.
+/// `None` if `def` is not a label.
+pub(crate) fn label_text(program: &TypedProgram, def: DefId) -> Option<String> {
+    let hir = &program.hir;
+    let Some(Item::Effect(effect)) = hir.item(def) else {
+        return None;
+    };
+    let label = effect.label.as_ref()?;
+    // With its type arguments (`State[Int]`).
+    let base = match (program.types.sigs.label_base(def), label.base) {
+        (Some(tag), _) => Row::of_tag(tag.clone())
+            .display_effects(&program.types.ty_table.cons, &[])
+            .to_string(),
+        (None, Res::Def(base)) => hir.defs[base].name.to_string(),
+        (None, _) => "?".to_owned(),
+    };
+    let default = if label.default { " default" } else { "" };
+    Some(format!("effect {} of {base}{default}", hir.defs[def].name))
 }
 
 /// The top-level definition (fn or const) whose body contains `offset`.

@@ -850,13 +850,11 @@ pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     if program.prelude_def("Async") == Some(effect) {
         return false;
     }
-    match program.item(effect) {
-        Some(Item::Effect(e)) => e
-            .ops
-            .iter()
-            .all(|&op| !matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend)),
-        _ => true,
-    }
+    // A label is Immediate when its base is (issue #255).
+    program
+        .effect_ops(effect)
+        .iter()
+        .all(|&op| !matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend))
 }
 
 /// The set kind of each type parameter of a named type declaration (`None` if not a set). Keyed

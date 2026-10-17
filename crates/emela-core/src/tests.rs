@@ -500,6 +500,7 @@ fn verify_checks_operations() {
             decl: decl.to_owned(),
             args,
             ops: vec![OpDef::new("get", vec![], ret)],
+            label_of: None,
         })
     };
     let g_int = generic(&mut m, "G[Int]", "G", vec![TypeId::INT]);

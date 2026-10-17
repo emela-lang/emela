@@ -13,20 +13,30 @@
 //!   E0411; mutual inclusion, E0422) are reported once, at the layer declaration
 //!   ([`check_layers`]), and not repeated at `with`.
 
-use emela_resolve::hir::{DefId, Item, Program, Res, Span};
+use emela_resolve::hir::{DefId, DefKind, ExprId, Item, Program, Res, Span, TypeId, WithItem};
 use la_arena::ArenaMap;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::lower::{Omitted, Scope, TyTable};
 use crate::row::{Row, RowElem, Tag};
-use crate::signature::Signatures;
+use crate::signature::{Signatures, is_label};
 use crate::ty::TyCons;
 
-/// One handler listed in a `with` (or layer).
+/// What provides an effect listed in `with`: a handler, or the provider of an effect already in
+/// scope (a label in `with AuditLog`, or the right of `by` in `with AuditLog by Console`, issue
+/// #255).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Supplier {
+    Handler(DefId),
+    Effect(Tag),
+}
+
+/// One provider listed in a `with` (or layer).
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
-    pub(crate) handler: DefId,
+    pub(crate) supplier: Supplier,
     /// The effect provided and its type arguments. Effects with different type arguments are
     /// different effects (spec 8.1).
     pub(crate) effect: Tag,
@@ -37,6 +47,51 @@ pub(crate) struct Entry {
     pub(crate) origin: usize,
     /// Whether that name is a layer.
     pub(crate) from_layer: bool,
+}
+
+/// A provider of a `with`, as lowering needs it (issue #255).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WithBind {
+    /// The effect provided.
+    pub effect: Tag,
+    pub supplier: Supplier,
+}
+
+/// The providers of a `with`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WithInfo {
+    /// In initialization order (spec 14.2). Layers are expanded, and providers overridden by
+    /// later ones in the same `with` are removed.
+    pub binds: Vec<WithBind>,
+    /// Labels declared `default` that the `with` provides, with the index in `binds` of the
+    /// provider of their base. Only labels in the body's R.
+    pub defaults: Vec<(Tag, usize)>,
+}
+
+/// A `with` whose initialization order and default labels are decided after sets are solved.
+pub(crate) struct PendingWith {
+    pub(crate) expr: ExprId,
+    pub(crate) body: ExprId,
+    pub(crate) entries: Vec<Entry>,
+    pub(crate) deps: Vec<Row>,
+    pub(crate) defaults: Vec<(Tag, usize)>,
+}
+
+impl Entry {
+    pub(crate) fn handler(&self) -> Option<DefId> {
+        match self.supplier {
+            Supplier::Handler(h) => Some(h),
+            Supplier::Effect(_) => None,
+        }
+    }
+
+    /// The supplier's name in diagnostics.
+    fn name(&self, program: &Program) -> SmolStr {
+        match &self.supplier {
+            Supplier::Handler(h) => program.defs[*h].name.clone(),
+            Supplier::Effect(t) => program.defs[t.def].name.clone(),
+        }
+    }
 }
 
 /// The handlers in a layer, flattened in source order, as (handler, index of the name in the
@@ -97,24 +152,57 @@ pub(crate) fn handler_effect(sigs: &Signatures, handler: DefId) -> Option<Tag> {
     sigs.handler_effect(handler).cloned()
 }
 
-/// Expands the names (handlers or layers) listed in `with` into handlers. For handlers of the
-/// same effect, the later one is kept (spec 8.3).
+/// Expands the items listed in `with` into providers. Layers are expanded into their handlers;
+/// a label `L` provides its base from `L`; `L by P` provides `L` from `P` (issue #255). Items
+/// that do not fit are skipped ([`check_with_items`] reports them). For providers of the same
+/// effect, the later one is kept (spec 8.3).
 pub(crate) fn with_entries(
     program: &Program,
     sigs: &Signatures,
-    handlers: &[(Res, Span)],
+    ty_table: &TyTable,
+    items: &[WithItem],
 ) -> Vec<Entry> {
     let mut all = Vec::new();
-    for (origin, &(res, span)) in handlers.iter().enumerate() {
-        let Res::Def(def) = res else {
+    for (origin, item) in items.iter().enumerate() {
+        let Res::Def(def) = item.res else {
             continue;
         };
+        let span = item.span;
+        if let Some((by, _)) = item.by {
+            let Some(base) = sigs.label_base(def) else {
+                continue;
+            };
+            let by = by_tag(program, sigs, ty_table, by, &item.by_args, &mut Vec::new());
+            let Some(supplier) = by.filter(|(_, provided)| provided == base).map(|(s, _)| s) else {
+                continue;
+            };
+            all.push(Entry {
+                supplier,
+                effect: Tag::new(def),
+                span,
+                origin,
+                from_layer: false,
+            });
+            continue;
+        }
         let (members, from_layer) = match program.item(def) {
             Some(Item::Handler(_)) => (vec![def], false),
             Some(Item::Layer(_)) => (
                 flatten(program, def).into_iter().map(|(h, _)| h).collect(),
                 true,
             ),
+            Some(Item::Effect(_)) => {
+                if let Some(base) = sigs.label_base(def) {
+                    all.push(Entry {
+                        supplier: Supplier::Effect(Tag::new(def)),
+                        effect: base.clone(),
+                        span,
+                        origin,
+                        from_layer: false,
+                    });
+                }
+                continue;
+            }
             _ => continue,
         };
         for handler in members {
@@ -122,7 +210,7 @@ pub(crate) fn with_entries(
                 continue;
             };
             all.push(Entry {
-                handler,
+                supplier: Supplier::Handler(handler),
                 effect,
                 span,
                 origin,
@@ -131,6 +219,110 @@ pub(crate) fn with_entries(
         }
     }
     keep_last(all)
+}
+
+/// The right of `by` as a supplier, with the effect it provides (with type arguments): a
+/// handler provides its effect; an effect `X` (or `X[Int]`) provides itself, or its base if it
+/// is a label. `None` for anything else.
+fn by_tag(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    by: Res,
+    args: &[TypeId],
+    diags: &mut Vec<Diagnostic>,
+) -> Option<(Supplier, Tag)> {
+    let Res::Def(by) = by else {
+        return None;
+    };
+    if let Some(effect) = sigs.handler_effect(by) {
+        return Some((Supplier::Handler(by), effect.clone()));
+    }
+    if program.defs[by].kind != DefKind::Effect {
+        return None;
+    }
+    let scope = Scope {
+        params: &[],
+        kinds: &[],
+        omitted: Omitted::Empty,
+        sets: false,
+    };
+    let tag = ty_table.effect_tag(program, &scope, by, args, None, None, diags)?;
+    let provided = sigs.base_of(&tag).clone();
+    Some((Supplier::Effect(tag), provided))
+}
+
+/// Reports the items in `with` that do not fit (issue #255): an effect that is not a label
+/// listed alone or left of `by` (E0430), a provider of another effect right of `by` (E0431), and
+/// the same label given a provider twice (E0432).
+pub(crate) fn check_with_items(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    items: &[WithItem],
+    diags: &mut Vec<Diagnostic>,
+) {
+    let name = |def: DefId| program.defs[def].name.clone();
+    let mut plugged: Vec<DefId> = Vec::new();
+    for item in items {
+        let Res::Def(def) = item.res else {
+            continue;
+        };
+        if program.defs[def].kind != DefKind::Effect {
+            continue;
+        }
+        // A label whose base cannot be used is reported at its declaration (E0429).
+        if !is_label(program, def) {
+            diags.push(Diagnostic {
+                span: Some(item.span),
+                kind: DiagnosticKind::NotALabel {
+                    name: name(def),
+                    by: item.by.is_some(),
+                },
+            });
+            continue;
+        }
+        let Some((by, by_span)) = item.by else {
+            continue;
+        };
+        if plugged.contains(&def) {
+            diags.push(Diagnostic {
+                span: Some(item.span),
+                kind: DiagnosticKind::LabelProvidedTwice { label: name(def) },
+            });
+        }
+        plugged.push(def);
+        let Some(base) = sigs.label_base(def) else {
+            continue;
+        };
+        let mut arg_diags = Vec::new();
+        let by_res = by;
+        let Some((_, provided)) =
+            by_tag(program, sigs, ty_table, by, &item.by_args, &mut arg_diags)
+        else {
+            continue;
+        };
+        // Missing or wrong type arguments are reported once (E0423, E0304).
+        if !arg_diags.is_empty() {
+            for mut d in arg_diags {
+                d.span = Some(by_span);
+                diags.push(d);
+            }
+            continue;
+        }
+        if provided != *base {
+            let Res::Def(by) = by_res else { continue };
+            diags.push(Diagnostic {
+                span: Some(by_span),
+                kind: DiagnosticKind::LabelMismatch {
+                    label: name(def),
+                    base: effect_name(&ty_table.cons, base),
+                    provider: name(by),
+                    provided: effect_name(&ty_table.cons, &provided),
+                },
+            });
+        }
+    }
 }
 
 /// For handlers of the same effect, only the later one is kept.
@@ -186,10 +378,7 @@ pub(crate) fn cycle_diagnostic(
     entries: &[Entry],
     cycle: &[usize],
 ) -> Diagnostic {
-    let mut names: Vec<SmolStr> = cycle
-        .iter()
-        .map(|&i| program.defs[entries[i].handler].name.clone())
-        .collect();
+    let mut names: Vec<SmolStr> = cycle.iter().map(|&i| entries[i].name(program)).collect();
     names.push(names[0].clone());
     Diagnostic {
         span: Some(entries[cycle[0]].span),
@@ -256,7 +445,7 @@ pub(crate) fn check_layers(
                         kind: DiagnosticKind::DuplicateLayerEffect {
                             layer: data.name.clone(),
                             effect: effect_name(cons, &effect),
-                            first: program.defs[first.handler].name.clone(),
+                            first: first.name(program),
                             second: program.defs[handler].name.clone(),
                         },
                     });
@@ -264,7 +453,7 @@ pub(crate) fn check_layers(
                 continue;
             }
             entries.push(Entry {
-                handler,
+                supplier: Supplier::Handler(handler),
                 effect,
                 span,
                 origin,
@@ -274,7 +463,11 @@ pub(crate) fn check_layers(
 
         let deps: Vec<Row> = entries
             .iter()
-            .map(|e| handler_uses.get(e.handler).cloned().unwrap_or_default())
+            .map(|e| {
+                e.handler()
+                    .and_then(|h| handler_uses.get(h).cloned())
+                    .unwrap_or_default()
+            })
             .collect();
         let order = match init_order(&entries, &deps) {
             Ok(order) => order,
@@ -300,7 +493,7 @@ pub(crate) fn check_layers(
         out.insert(
             layer,
             LayerInfo {
-                handlers: order.iter().map(|&i| entries[i].handler).collect(),
+                handlers: order.iter().filter_map(|&i| entries[i].handler()).collect(),
                 uses,
             },
         );

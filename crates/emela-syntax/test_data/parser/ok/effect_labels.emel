@@ -1,0 +1,14 @@
+effect AuditLog of Console
+pub effect DebugLog of Console default
+effect Counter of State[Int]
+
+fn c() -> () use { AuditLog, DebugLog } {
+  with AuditLog { a() }
+  with DebugLog { b() }
+}
+
+fn main() {
+  with SystemConsole, AuditLog by HandlerA { c() }
+  with AuditLog by Console, DebugLog by Std.FileLog { c() }
+  with Counter by State[Int] { c() }
+}

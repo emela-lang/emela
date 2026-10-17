@@ -829,6 +829,29 @@ fn hover_shows_types_and_errors() {
     client.shutdown();
 }
 
+/// A label shows its declaration, at the declaration and at references (issue #255). Types keep
+/// showing the label itself.
+#[test]
+fn hover_on_labels() {
+    let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () use { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    let decl = "```emela\neffect Debug of Log default\n```";
+    assert_eq!(text(client.hover("/app/src/main.emel", 4, 8)), decl);
+    // In the `use` clause, and in `with`.
+    assert_eq!(text(client.hover("/app/src/main.emel", 6, 20)), decl);
+    assert_eq!(text(client.hover("/app/src/main.emel", 7, 8)), decl);
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 3)),
+        "```emela\nb: fn() -> () use Debug\n```"
+    );
+    client.shutdown();
+}
+
 /// Hover over a negative number pattern (spec 6.5) and the arm around it.
 #[test]
 fn hover_on_negative_number_pattern() {

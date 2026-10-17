@@ -759,7 +759,7 @@ impl<'s> Lower<'s> {
             Expr::Use { ctx, effect } => {
                 let c = self.expr(ctx)?;
                 let ev = self.must_var(&c, "an evidence table");
-                let ty = self.intern(Type::Handler(*effect));
+                let ty = self.intern(Type::Handler(self.sh.core.handler_effect(*effect)));
                 self.emit(
                     ty,
                     Value::EvLookup {

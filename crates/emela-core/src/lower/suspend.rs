@@ -36,13 +36,10 @@ impl Lowerer<'_> {
         if hir.prelude_def("Async") == Some(effect) {
             return false;
         }
-        match hir.item(effect) {
-            Some(Item::Effect(e)) => e
-                .ops
-                .iter()
-                .all(|&op| !matches!(hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend)),
-            _ => true,
-        }
+        // A label is Immediate when its base is (issue #255).
+        hir.effect_ops(effect)
+            .iter()
+            .all(|&op| !matches!(hir.item(op), Some(Item::Op(o)) if o.sig.is_suspend))
     }
 
     /// Whether the set `row` inside the function being lowered may suspend. Set type parameters

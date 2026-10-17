@@ -320,6 +320,34 @@ impl EffectDecl {
     pub fn ops(&self) -> impl Iterator<Item = OpSig> {
         items(&self.0)
     }
+    /// `of Console default` of a label (an effect declared `of` another).
+    pub fn label(&self) -> Option<EffectLabel> {
+        child(&self.0)
+    }
+}
+
+ast_node!(
+    /// `of Console default`: the effect a label stands for, and whether it falls back to it.
+    EffectLabel,
+    EFFECT_LABEL
+);
+
+impl EffectLabel {
+    /// The effect after `of`.
+    pub fn base(&self) -> Option<Path> {
+        child(&self.0)
+    }
+    /// The type argument list of the base (`[Int]` in `of State[Int]`).
+    pub fn base_type_args(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == TYPE_ARG_LIST)
+    }
+    /// Whether `default` is written.
+    pub fn is_default(&self) -> bool {
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .any(|t| t.kind() == LOWER_NAME && t.text() == "default")
+    }
 }
 
 ast_node!(

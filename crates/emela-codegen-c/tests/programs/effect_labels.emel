@@ -1,0 +1,99 @@
+import Std.State.{State}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+# Labels of Log (issue #255).
+effect Audit of Log
+effect Debug of Log default
+effect AuditA of Log
+effect AuditB of Log
+
+handler PrintLog implements Log {
+  fn log(msg) { print("print: #{msg}") }
+}
+
+handler AuditLog implements Log {
+  fn log(msg) { print("audit: #{msg}") }
+}
+
+handler Tagged(tag: String) implements Log {
+  init {
+    print("open")
+    Tagged(tag: "t")
+  }
+
+  release {
+    print("close #{self.tag}")
+  }
+
+  fn log(msg) { print("#{self.tag}: #{msg}") }
+}
+
+fn a() { (use Log).log("from a") }
+
+fn b() { (use Log).log("from b") }
+
+fn c() {
+  with Audit { a() }
+  with Debug { b() }
+}
+
+fn d() {
+  with Audit { a() }
+}
+
+# Two calls that share Audit are separated by plugging other labels into it.
+fn f() {
+  with Audit by AuditA { c() }
+  with Audit by AuditB { d() }
+}
+
+fn direct() {
+  log = use Audit
+  _ = List.map(["x", "y"], log.log)
+  (use Debug).log("direct debug")
+}
+
+fn main() {
+  # Debug falls back to the Log provided by PrintLog.
+  with PrintLog, Audit by AuditLog { c() }
+  # Debug plugged explicitly; Audit merged back into Log.
+  with PrintLog, Audit by Log, Debug by Tagged { c() }
+  with PrintLog, AuditA by AuditLog, AuditB by Log { f() }
+  with PrintLog, Audit by AuditLog { direct() }
+  # The innermost Log is the fallback of Debug.
+  with PrintLog, Audit by AuditLog {
+    with Tagged { c() }
+  }
+  # Each State.run provides a State[Int]; plugging it into a label keeps the two apart.
+  (_, misses) = State.run(0, fn() {
+    with Misses by State[Int] {
+      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (h, m) = counts
+      print("tally #{h} #{m}, hits #{hits}")
+    }
+  })
+  print("misses #{misses}")
+}
+
+# Labels of an effect with type arguments: two counters kept apart.
+
+effect Hits of State[Int]
+effect Misses of State[Int]
+
+fn count(hit: Bool) {
+  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+}
+
+fn tally() -> (Int, Int) use { Hits, Misses } {
+  count(True)
+  count(False)
+  count(True)
+  ((use Hits).get(), (use Misses).get())
+}

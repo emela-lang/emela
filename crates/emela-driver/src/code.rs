@@ -77,6 +77,7 @@ pub const SET_ARG_MISMATCH: &str = "E0323";
 pub const SET_AS_TYPE: &str = "E0324";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
+pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
 
 // E04xx: effects and handlers (spec chapter 8)
 pub const UNKNOWN_OPERATION: &str = "E0401";
@@ -114,6 +115,12 @@ pub const OP_TYPE_PARAMS: &str = "E0426";
 // External functions the C target does not support yet (spec 12.4). E0428 is retired: `suspend
 // fn` external functions on C complete their task later (spec 12.6).
 pub const CALLBACK_EXTERNAL: &str = "E0427";
+// Labels (issue #255)
+pub const LABEL_BASE: &str = "E0429";
+pub const NOT_A_LABEL: &str = "E0430";
+pub const LABEL_MISMATCH: &str = "E0431";
+pub const LABEL_PROVIDED_TWICE: &str = "E0432";
+pub const HANDLER_OF_LABEL: &str = "E0433";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

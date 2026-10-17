@@ -112,8 +112,14 @@ pub enum Expected {
     ModuleOrTrait,
     /// `use X`, `implements X`, the `use` clause.
     Effect,
-    /// `with H`, and the contents of a layer.
+    /// The contents of a layer.
     HandlerOrLayer,
+    /// `with X`: a handler, a layer, or a label.
+    WithItem,
+    /// The left of `by` in `with L by P`.
+    Label,
+    /// The right of `by` in `with L by P`.
+    HandlerOrEffect,
     /// `fail e`, escape arms, the `fails` clause.
     Error,
     /// Constraints, derive, impl.
@@ -132,6 +138,9 @@ impl Expected {
             Expected::ModuleOrTrait => "module or trait",
             Expected::Effect => "effect",
             Expected::HandlerOrLayer => "handler or layer",
+            Expected::WithItem => "handler, layer or label",
+            Expected::Label => "label",
+            Expected::HandlerOrEffect => "handler or effect",
             Expected::Error => "error",
             Expected::Trait => "trait",
             Expected::Const => "constant",

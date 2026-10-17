@@ -119,3 +119,5 @@
 - （補）`@intrinsic` は本体のない fn に加えて effect にも付けられる（組み込みのエフェクト `Scope`，8.1，11.2）．同梱のソースの外では E0224 で，`EffectItem::is_intrinsic` は偽のまま（利用者のエフェクトとして型検査する）．それ以外の宣言に付ければ今までどおり E0225（文面は fn のまま）
 - （補）エフェクトの操作の型引数（`fn fork[A](...)`，17.3 の op_sig）は `OpItem::sig.type_params` に入れ，操作の引数と戻り値の型の中で見える．組み込みのエフェクトだけに許すかは型検査が見る（E0426）
 - （補）`Program::modules` の `ModuleItems` にモジュール名（`name`）を持たせた．型検査が診断に `Fiber.scope` のような名前を出すため
+- （補）エフェクトのラベル（issue #255）．`effect L of E [default]` は EffectItem の `label`（LabelOf）に元のエフェクトとその型引数，`default` を持つ．ラベル自身は操作を持たず，`Program::effect_ops` が元のエフェクトの操作を返す（1段だけ．ラベルのラベルは型検査の E0429）．ラベルの handler（`handler H implements L`）は型検査が E0433 にするので，名前解決は操作を引かず，E0212 を重ねない
+- （補）`with` の項目は WithItem（`res`，`span`，`by`）．`by` のない項目は handler，layer，エフェクトを受け（Expected::WithItem），`L by P` の左はエフェクト（Expected::Label），右は handler かエフェクト（Expected::HandlerOrEffect）．ラベルかどうか（`with Console` がラベルでない）は名前解決では見ず，型検査が E0430 にする．そのため，`with` にエフェクトを書いたときの「handler or layer が要る」の診断は出なくなった

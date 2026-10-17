@@ -1,0 +1,6 @@
+effect AuditLog of
+effect DebugLog of Console { fn f() -> () }
+
+fn main() {
+  with AuditLog by { c() }
+}

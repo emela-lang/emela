@@ -197,6 +197,7 @@ pub(crate) fn build_prelude(program: &mut Program) {
                 type_params: Vec::new(),
                 ops: Vec::new(),
                 is_intrinsic: false,
+                label: None,
             }),
         );
     }
