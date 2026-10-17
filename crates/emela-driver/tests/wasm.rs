@@ -150,6 +150,61 @@ fn errors_and_defects_reach_stderr() {
 }
 
 #[test]
+fn a_release_defect_keeps_the_first_defect() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The body defects and the `release` fails too: the first defect stays the result (spec 14.4).
+    // The note for the release is not implemented on WASM yet (NOTES.md), so only the first line
+    // is checked.
+    let (analysis, output) = run_wasm(
+        "release-defect",
+        "effect Pool {\n  fn get() -> Int\n}\n\
+         handler Outer(n: Int) implements Pool {\n\
+           init { Outer(n: 0) }\n\
+           release { panic(\"outer release failed\") }\n\
+           fn get() { self.n }\n\
+         }\n\
+         fn work() -> Int {\n\
+           zero = (use Pool).get()\n\
+           1 / zero\n\
+         }\n\
+         fn main() {\n\
+           with Outer { dbg(work()) }\n\
+         }\n",
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 101);
+    assert!(
+        text(&output.stderr).starts_with("defect: division by zero"),
+        "{}",
+        text(&output.stderr)
+    );
+    // A `release` that fails with no defect in the body is the result (spec 14.4).
+    let (analysis, output) = run_wasm(
+        "release-only-defect",
+        "effect Pool {\n  fn get() -> Int\n}\n\
+         handler Outer(n: Int) implements Pool {\n\
+           init { Outer(n: 0) }\n\
+           release { panic(\"outer release failed\") }\n\
+           fn get() { self.n }\n\
+         }\n\
+         fn main() {\n\
+           with Outer { dbg((use Pool).get()) }\n\
+         }\n",
+    );
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 101);
+    assert!(
+        text(&output.stderr).ends_with("defect: outer release failed\n"),
+        "{}",
+        text(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_the_test_protocol() {
     if !have_wasmtime() {
         return;

@@ -238,7 +238,7 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         "debug_print" => debug_print(b, ins),
         "write" => write(b, ins),
         "exit" => exit(b, ins),
-        "raise" => raise(ins),
+        "raise" => raise(b, ins),
         "defect_take" => defect_take(ins),
         "defect_resume" => defect_resume(b, ins),
         "retire" => retire(ins),
@@ -2108,12 +2108,17 @@ fn exit(b: &mut Builder, ins: &mut InstructionSink) {
 
 // ---- defects ----
 
-fn raise(ins: &mut InstructionSink) {
+fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.global_set(G_DEFECT);
+    ins.else_();
+    // A defect raised while one is already pending (spec 14.4): the first stays the result and
+    // the later one becomes a note. Notes are not implemented yet (NOTES.md), so release it.
+    ins.local_get(0);
+    ins.call(rt(b, "drop"));
     ins.end();
 }
 
@@ -2129,11 +2134,17 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
+    // Nothing was raised by the cleanup: put the taken defect back.
     ins.local_get(0);
     ins.global_set(G_DEFECT);
     ins.else_();
-    ins.local_get(0);
+    // A defect raised while the first unwound (spec 14.4): the first (`local 0`) stays the
+    // result. The later one becomes a note; notes are not implemented yet (NOTES.md), so
+    // release it and restore the first.
+    ins.global_get(G_DEFECT);
     ins.call(rt(b, "drop"));
+    ins.local_get(0);
+    ins.global_set(G_DEFECT);
     ins.end();
 }
 
