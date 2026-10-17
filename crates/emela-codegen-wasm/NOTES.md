@@ -103,6 +103,11 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428 は欠番なので番号なし）
 - notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない．2 つ目は捨て，結果は最初の
   defect のままにする（14.4）
+- 外部関数と WASM の境界を越えられるのは `Int` / `Bool` / `Int64` / `Float` だけ．`String` や
+  `@external type` は越えられず，診断で止める（ホストが線形メモリを読む約束がまだ無い）
+- std の platform（`Std.Console`，`Std.Clock`，`Std.Random`，`Std.Env`，`Std.FileSystem`，
+  `Std.Http`）は `@external(wasm, ...)` を持たないので，`with Platform` は E0412 で止まる
+  （ホスト側の WASI の口を用意するのが先）
 
 ## テスト
 
