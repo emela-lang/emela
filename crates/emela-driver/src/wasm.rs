@@ -7,8 +7,8 @@ use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmErrorKind, compile};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::output::{JsOutput, OutputFile};
-use crate::pipeline::{Analysis, JsBackend, Runner};
+use crate::output::{BuildOutput, OutputFile};
+use crate::pipeline::{Analysis, Backend, Runner};
 use crate::testing::{TestBackend, TestModule};
 
 /// The module written to the output directory.
@@ -19,14 +19,14 @@ pub const WASM_ENTRY_FILE: &str = "main.wasm";
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CoreWasm;
 
-impl JsBackend<emela_core::Module> for CoreWasm {
+impl Backend<emela_core::Module> for CoreWasm {
     fn emit(
         &mut self,
         module: &emela_core::Module,
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let out = compile(module, &Entry::Main).map_err(diagnostics)?;
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
             entry: PathBuf::from(WASM_ENTRY_FILE),
         })
@@ -47,7 +47,7 @@ impl TestBackend<TestModule> for CoreWasm {
         program: &TestModule,
         selected: &[usize],
         _: &Analysis,
-    ) -> Result<JsOutput, Vec<Diagnostic>> {
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let tests = selected
             .iter()
             .map(|&i| TestEntry {
@@ -56,7 +56,7 @@ impl TestBackend<TestModule> for CoreWasm {
             })
             .collect();
         let out = compile(&program.module, &Entry::Tests(tests)).map_err(diagnostics)?;
-        Ok(JsOutput {
+        Ok(BuildOutput {
             files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
             entry: PathBuf::from(WASM_ENTRY_FILE),
         })
