@@ -7,6 +7,47 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/emela-lang/emela/compare/v0.20.1...v0.21.0) - 2026-10-17
+
+### Added
+
+- WebAssembly ターゲット（16章）への出力と実行 ([#251](https://github.com/emela-lang/emela/pull/251))
+- build，run，test に --target c を足し，cc で native の実行ファイルを作る ([#240](https://github.com/emela-lang/emela/pull/240))
+- JS の経路でもジェネリクスを単相化する ([#246](https://github.com/emela-lang/emela/pull/246))
+- emela doc で pub な宣言の文書を HTML と Markdown に書き出す（2.2，9.2） ([#220](https://github.com/emela-lang/emela/pull/220))
+- エフェクトのラベル（effect L of E, with L by P）([#256](https://github.com/emela-lang/emela/pull/256))
+- Heap IR から C11 を出す emela-codegen-c と C のランタイムを足す ([#239](https://github.com/emela-lang/emela/pull/239))
+- E0412 の検査を単相化した IR で行い，操作をエフェクトの具体化ごとに見る ([#247](https://github.com/emela-lang/emela/pull/247))
+- C のターゲットで SystemFileSystem を動かす ([#249](https://github.com/emela-lang/emela/pull/249))
+- C のターゲットにイベントループを入れ，suspend fn の外部関数を使えるようにする ([#248](https://github.com/emela-lang/emela/pull/248))
+- E0412 の検査で，呼ばれる操作の本体だけをたどる ([#242](https://github.com/emela-lang/emela/pull/242))
+- WASM の経路のために Core IR を単相化するパスを足す ([#232](https://github.com/emela-lang/emela/pull/232))
+- C のターゲットで suspend と fiber を動かす ([#244](https://github.com/emela-lang/emela/pull/244))
+- Heap IR で suspend する関数を再開できる状態機械にする（emela_lir::state_machines） ([#243](https://github.com/emela-lang/emela/pull/243))
+- Heap IR に RC（Perceus）の dup と drop を入れ，検証器で釣り合いを確かめる（emela_lir::insert_rc） ([#237](https://github.com/emela-lang/emela/pull/237))
+- Heap IR で defect と protect の後始末を明示的な制御にする（emela_lir::explicit_defects） ([#236](https://github.com/emela-lang/emela/pull/236))
+- Heap IR の段とクロージャ変換を足す（emela_lir::to_heap の1つ目のパス） ([#235](https://github.com/emela-lang/emela/pull/235))
+- 単相化した Core IR を Flow IR に変換する（emela_lir::from_core） ([#233](https://github.com/emela-lang/emela/pull/233))
+- 低い IR の前の段（Flow IR）の骨組みを emela-lir に置く ([#229](https://github.com/emela-lang/emela/pull/229))
+
+### Fixed
+
+- C の経路で汎用のテストを落とさず，em_task の遅い2回目の完了を検出する ([#250](https://github.com/emela-lang/emela/pull/250))
+- C で実行時に空の区切りの String.split を ASCII でない文字列に使ったら defect にする ([#245](https://github.com/emela-lang/emela/pull/245))
+
+### Other
+
+- C のエミッタを Writer 経由にし，ドライバーの Backend を target に依らない名前にする ([#254](https://github.com/emela-lang/emela/pull/254))
+- 型検査のグループごとの表を疎な表にし，check を定義数に対して線形にする ([#227](https://github.com/emela-lang/emela/pull/227))
+- エフェクトの操作に型を持たせ，操作の呼び出しとハンドラを検証器で確かめる ([#231](https://github.com/emela-lang/emela/pull/231))
+- IR に型引数とラムダの型を持たせ，式の型と型の検証器を足す ([#230](https://github.com/emela-lang/emela/pull/230))
+- IR の型を表に登録して TypeId で持つ ([#228](https://github.com/emela-lang/emela/pull/228))
+- 自己末尾呼び出しのループ化を lowering の最後で1回だけかける ([#226](https://github.com/emela-lang/emela/pull/226))
+- IR の Type が関数型と能力の値と型引数を落とさないようにする ([#224](https://github.com/emela-lang/emela/pull/224))
+- @external の指す先を構造で持ち，同梱ファイルの出力先を JS 側で決める ([#223](https://github.com/emela-lang/emela/pull/223))
+- 組み込み関数の JS の実装名を IR の表から codegen-js へ移す ([#222](https://github.com/emela-lang/emela/pull/222))
+- examples と C の出力のテストのプログラムを JS と C の両方で動かして比べる ([#241](https://github.com/emela-lang/emela/pull/241))
+
 ## [0.20.1](https://github.com/emela-lang/emela/compare/v0.20.0...v0.20.1) - 2026-10-13
 
 ### Added

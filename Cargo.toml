@@ -16,7 +16,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.20.1"
+version = "0.21.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
@@ -59,17 +59,17 @@ proptest = "1"
 
 # The version lets `cargo package` (run by release-plz in git_only mode) verify
 # each crate; release-plz bumps it together with the workspace version.
-emela-syntax = { path = "crates/emela-syntax", version = "0.20.1" }
-emela-fmt = { path = "crates/emela-fmt", version = "0.20.1" }
-emela-resolve = { path = "crates/emela-resolve", version = "0.20.1" }
-emela-types = { path = "crates/emela-types", version = "0.20.1" }
-emela-core = { path = "crates/emela-core", version = "0.20.1" }
-emela-lir = { path = "crates/emela-lir", version = "0.20.1" }
-emela-codegen-js = { path = "crates/emela-codegen-js", version = "0.20.1" }
-emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.20.1" }
-emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.20.1" }
-emela-driver = { path = "crates/emela-driver", version = "0.20.1" }
-emela-lsp = { path = "crates/emela-lsp", version = "0.20.1" }
+emela-syntax = { path = "crates/emela-syntax", version = "0.21.0" }
+emela-fmt = { path = "crates/emela-fmt", version = "0.21.0" }
+emela-resolve = { path = "crates/emela-resolve", version = "0.21.0" }
+emela-types = { path = "crates/emela-types", version = "0.21.0" }
+emela-core = { path = "crates/emela-core", version = "0.21.0" }
+emela-lir = { path = "crates/emela-lir", version = "0.21.0" }
+emela-codegen-js = { path = "crates/emela-codegen-js", version = "0.21.0" }
+emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.21.0" }
+emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.21.0" }
+emela-driver = { path = "crates/emela-driver", version = "0.21.0" }
+emela-lsp = { path = "crates/emela-lsp", version = "0.21.0" }
 
 [profile.dev.package.insta]
 opt-level = 3
