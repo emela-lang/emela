@@ -25,6 +25,7 @@ mod source;
 mod target;
 mod testing;
 mod tokens;
+mod wasm;
 
 pub use actions::CodeAction;
 pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_command, run_native};
@@ -46,13 +47,13 @@ pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbo
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
     Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, ENTRY_FILE, Frontend,
-    Input, JS_OUT_DIR, LexOnly, NoJsBackend, Parsed, RunOptions, Runner, SOURCE_DIR, build, check,
-    run,
+    Input, JS_OUT_DIR, LexOnly, NoJsBackend, Parsed, RunOptions, Runner, SOURCE_DIR, WASM_OUT_DIR,
+    build, check, run,
 };
 pub use render::{render, render_one, summary};
 pub use run::{
     DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, NODE_ENV,
-    Output, RunOutput, node_program, run_node,
+    Output, RunOutput, WASMTIME_ENV, node_program, run_node, run_wasmtime, wasmtime_program,
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
@@ -64,3 +65,4 @@ pub use testing::{
     default_test_out_dir_for, is_test_fn, test,
 };
 pub use tokens::{SemanticToken, TokenKind};
+pub use wasm::{CoreWasm, WASM_ENTRY_FILE};

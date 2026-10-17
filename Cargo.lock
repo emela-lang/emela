@@ -228,7 +228,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "emela-cli"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "clap",
  "emela-driver",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-c"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-core",
  "emela-lir",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-js"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-core",
  "insta",
@@ -260,17 +260,23 @@ dependencies = [
 
 [[package]]
 name = "emela-codegen-wasm"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-core",
+ "emela-lir",
+ "emela-resolve",
+ "emela-syntax",
+ "emela-types",
  "insta",
+ "la-arena",
+ "rustc-hash 2.1.3",
  "wasm-encoder",
  "wasmparser",
 ]
 
 [[package]]
 name = "emela-core"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-resolve",
  "emela-syntax",
@@ -282,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "emela-driver"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "ariadne",
  "emela-codegen-c",
@@ -305,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "emela-fmt"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-syntax",
  "insta",
@@ -316,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "emela-lir"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-core",
  "emela-resolve",
@@ -329,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "emela-lsp"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-driver",
  "emela-resolve",
@@ -342,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "emela-resolve"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-syntax",
  "indexmap",
@@ -355,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "emela-syntax"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "insta",
  "logos",
@@ -365,7 +371,7 @@ dependencies = [
 
 [[package]]
 name = "emela-types"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "emela-core",
  "emela-resolve",
