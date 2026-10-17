@@ -20,7 +20,7 @@ use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::nav::{NavTarget, RenameError};
 use crate::output::{BuildOutput, write_output};
-use crate::run::{Output, RunOutput, run_node};
+use crate::run::{Output, RunOutput, run_node, run_wasmtime};
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceDb, SourceFile};
 use crate::target::Target;
@@ -37,6 +37,8 @@ pub const ENTRY_FILE: &str = "main.emel";
 pub const JS_OUT_DIR: &str = "target/emela/js";
 /// The default C output directory (`--target c`), relative like [`JS_OUT_DIR`].
 pub const C_OUT_DIR: &str = "target/emela/c";
+/// The default WASM output directory (`--target wasm`), relative like [`JS_OUT_DIR`].
+pub const WASM_OUT_DIR: &str = "target/emela/wasm";
 /// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
 pub const DOC_OUT_DIR: &str = "target/emela/doc";
 /// A virtual directory holding the bundled core sources. Diagnostics show paths like
@@ -191,6 +193,7 @@ impl Input {
         match target {
             Target::Js => self.base.join(JS_OUT_DIR),
             Target::C => self.base.join(C_OUT_DIR),
+            Target::Wasm => self.base.join(WASM_OUT_DIR),
         }
     }
 
@@ -385,6 +388,8 @@ pub enum Runner {
     Node,
     /// A native executable.
     Native,
+    /// A `.wasm` module run with `wasmtime` (WASI).
+    Wasmtime,
 }
 
 /// A lexer-only frontend: returns only lexer diagnostics, no imports, and no type checking.
@@ -730,6 +735,7 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     let result = match backend.runner() {
         Runner::Node => run_node(&options.node, &entry, &options.args, options.output),
         Runner::Native => run_native(&entry, &options.args, options.output),
+        Runner::Wasmtime => run_wasmtime(&entry, &options.args, options.output),
     };
     match result {
         Ok(output) => (analysis, Some(output)),

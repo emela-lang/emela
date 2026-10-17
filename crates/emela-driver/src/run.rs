@@ -119,6 +119,56 @@ pub fn node_program() -> PathBuf {
         .map_or_else(|| PathBuf::from("node"), PathBuf::from)
 }
 
+/// An environment variable overriding the `wasmtime` executable; `wasmtime` on PATH otherwise.
+pub const WASMTIME_ENV: &str = "EMELA_WASMTIME";
+
+/// `EMELA_WASMTIME` if set, otherwise `wasmtime`.
+pub fn wasmtime_program() -> PathBuf {
+    std::env::var_os(WASMTIME_ENV)
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| PathBuf::from("wasmtime"), PathBuf::from)
+}
+
+/// Runs the `.wasm` `entry` with `wasmtime` (WASI). `args` are passed to the program.
+pub fn run_wasmtime(
+    entry: &Path,
+    args: &[OsString],
+    output: Output,
+) -> Result<RunOutput, Diagnostic> {
+    let wasmtime = wasmtime_program();
+    let mut command = Command::new(&wasmtime);
+    command
+        .arg("run")
+        .arg(entry)
+        .args(args)
+        .stdin(Stdio::inherit());
+    let result = match output {
+        Output::Inherit => command.status().map(|status| RunOutput {
+            code: exit_code(status),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        }),
+        Output::Capture => command.output().map(|out| RunOutput {
+            code: exit_code(out.status),
+            stdout: out.stdout,
+            stderr: out.stderr,
+        }),
+    };
+    result.map_err(|err| wasmtime_spawn_error(&wasmtime, &err))
+}
+
+fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
+    match err.kind() {
+        io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", wasmtime.display()))
+            .with_code(code::WASMTIME_UNAVAILABLE)
+            .with_note(format!(
+                "install Wasmtime and add it to PATH, or set {WASMTIME_ENV} to the wasmtime executable"
+            )),
+        _ => Diagnostic::error(format!("cannot start `{}`: {err}", wasmtime.display()))
+            .with_code(code::WASMTIME_UNAVAILABLE),
+    }
+}
+
 /// Runs the `.mjs` `entry` on node. `args` are passed to the program.
 pub fn run_node(
     node: &Path,

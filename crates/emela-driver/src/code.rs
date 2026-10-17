@@ -132,3 +132,5 @@ pub const INVALID_JS_OUTPUT: &str = "E0906";
 // The C target's cc (spec appendix B)
 pub const CC_UNAVAILABLE: &str = "E0907";
 pub const CC_FAILED: &str = "E0908";
+/// The `wasmtime` executable could not be started (`--target wasm`).
+pub const WASMTIME_UNAVAILABLE: &str = "E0909";

@@ -9,15 +9,21 @@ use crate::diagnostic::{Diagnostic, Location};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputFile {
     pub path: PathBuf,
-    pub contents: String,
+    /// The contents, as bytes (text for JS and C, the encoded module for WASM).
+    pub contents: Vec<u8>,
 }
 
 impl OutputFile {
-    pub fn new(path: impl Into<PathBuf>, contents: impl Into<String>) -> Self {
+    pub fn new(path: impl Into<PathBuf>, contents: impl Into<Vec<u8>>) -> Self {
         OutputFile {
             path: path.into(),
             contents: contents.into(),
         }
+    }
+
+    /// The contents as text (JS and C output); empty if they are not valid UTF-8.
+    pub fn text(&self) -> &str {
+        std::str::from_utf8(&self.contents).unwrap_or("")
     }
 }
 

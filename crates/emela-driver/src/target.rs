@@ -16,16 +16,19 @@ pub enum Target {
     Js,
     /// C compiled with cc to a native executable (Tier 2).
     C,
+    /// WebAssembly (WASI) run with `wasmtime` (Tier 1).
+    Wasm,
 }
 
 impl Target {
     /// The names `--target` and `[build].target` accept.
-    pub const NAMES: [&'static str; 2] = ["js", "c"];
+    pub const NAMES: [&'static str; 3] = ["js", "c", "wasm"];
 
     pub fn parse(name: &str) -> Option<Target> {
         match name {
             "js" => Some(Target::Js),
             "c" => Some(Target::C),
+            "wasm" => Some(Target::Wasm),
             _ => None,
         }
     }
@@ -35,6 +38,7 @@ impl Target {
         match self {
             Target::Js => "js",
             Target::C => "c",
+            Target::Wasm => "wasm",
         }
     }
 }

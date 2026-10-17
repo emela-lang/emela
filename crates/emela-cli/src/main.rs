@@ -1,6 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, Backend, CoreC, CoreJs, Diagnostic, FileSystem, Input, Lower, LowerTests,
+    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, FileSystem, Input, Lower, LowerTests,
     MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule, TestOptions,
     Typecheck,
 };
@@ -24,7 +24,8 @@ enum Command {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
     },
-    /// Compile to JavaScript under `target/emela/js` (or to a native executable with `--target c`)
+    /// Compile to the output of `--target` (`target/emela/js` for JS; a native executable for C;
+    /// `main.wasm` for WASM)
     Build {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
@@ -35,7 +36,8 @@ enum Command {
         #[arg(long, value_enum)]
         target: Option<TargetArg>,
     },
-    /// Compile and run: on Node.js, or as a native executable with `--target c`
+    /// Compile and run: on Node.js, as a native executable (`--target c`), or with wasmtime
+    /// (`--target wasm`)
     Run {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
@@ -96,6 +98,8 @@ enum TargetArg {
     Js,
     /// C compiled with cc (`EMELA_CC`) to a native executable
     C,
+    /// WebAssembly (WASI) run with `wasmtime` (`EMELA_WASMTIME`)
+    Wasm,
 }
 
 impl From<TargetArg> for Target {
@@ -103,6 +107,7 @@ impl From<TargetArg> for Target {
         match target {
             TargetArg::Js => Target::Js,
             TargetArg::C => Target::C,
+            TargetArg::Wasm => Target::Wasm,
         }
     }
 }
@@ -193,6 +198,7 @@ fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> Ex
             &mut CoreC::default(),
             &out_dir,
         ),
+        Target::Wasm => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreWasm, &out_dir),
     };
     report(&analysis)
 }
@@ -218,6 +224,7 @@ fn run(
     match target {
         Target::Js => run_with(&input, &options, target, &mut CoreJs),
         Target::C => run_with(&input, &options, target, &mut CoreC::default()),
+        Target::Wasm => run_with(&input, &options, target, &mut CoreWasm),
     }
 }
 
@@ -280,6 +287,7 @@ fn test(
     match target {
         Target::Js => test_with(&input, &options, target, &mut CoreJs),
         Target::C => test_with(&input, &options, target, &mut CoreC::default()),
+        Target::Wasm => test_with(&input, &options, target, &mut CoreWasm),
     }
 }
 
