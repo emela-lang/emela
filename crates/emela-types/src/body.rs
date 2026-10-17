@@ -72,7 +72,7 @@ pub(crate) struct BodyTypes {
     pub(crate) handler_fails: Vec<(DefId, Row)>,
     /// `with` expressions → handlers in initialization order (layers expanded, later handlers
     /// overriding earlier ones).
-    pub(crate) with_handlers: SparseMap<ExprId, Vec<DefId>>,
+    pub(crate) with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
 }
 
 /// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
@@ -180,9 +180,9 @@ pub(crate) struct BodyInfer<'a> {
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
     /// initialization order and dependency cycles are decided after sets are solved
     /// (`body/effects.rs`).
-    withs: Vec<(ExprId, Vec<crate::layer::Entry>, Vec<Row>)>,
-    /// `with` expressions → handlers in initialization order.
-    with_handlers: SparseMap<ExprId, Vec<DefId>>,
+    withs: Vec<crate::layer::PendingWith>,
+    /// `with` expressions → providers in initialization order.
+    with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
     /// Set variables that get an `Immediate` bound when generalized.
@@ -1422,14 +1422,12 @@ impl<'a> BodyInfer<'a> {
     fn infer_op(&mut self, expr: ExprId, tag: &Tag, name: &Label) -> Ty {
         let program = self.program;
         let effect = tag.def;
-        let op = match program.item(effect) {
-            Some(Item::Effect(e)) => e
-                .ops
-                .iter()
-                .copied()
-                .find(|&op| program.defs[op].name == name.name),
-            _ => None,
-        };
+        // A label has the operations of its base (issue #255).
+        let op = program
+            .effect_ops(effect)
+            .iter()
+            .copied()
+            .find(|&op| program.defs[op].name == name.name);
         let Some(op) = op else {
             return self.field_error(
                 name,
@@ -1441,11 +1439,13 @@ impl<'a> BodyInfer<'a> {
         };
         self.ops.insert(expr, op);
         // The effect's type parameters come first in the operation's scheme, followed by the
-        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference.
+        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference. Through a
+        // label, they are the base's type arguments (`effect Hits of State[Int]`).
+        let args = self.sigs.base_of(tag).args.clone();
         let ty = self.sigs.get(op).map(|sig| {
-            let n = tag.args.len().min(sig.scheme.params.len());
+            let n = args.len().min(sig.scheme.params.len());
             let (fresh, fresh_rows) = self.ctx.fresh_args(&sig.scheme.params[n..]);
-            let mut tys = tag.args[..n].to_vec();
+            let mut tys = args[..n].to_vec();
             let mut rows: Vec<Row> = tys
                 .iter()
                 .enumerate()

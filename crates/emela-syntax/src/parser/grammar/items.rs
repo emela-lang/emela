@@ -497,10 +497,27 @@ fn const_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, CONST_DECL);
 }
 
-/// `"effect" type_name [ type_params ] "{" { op_sig NL } "}"`
+/// `"effect" type_name [ type_params ] "{" { op_sig NL } "}"`, or a label
+/// `"effect" type_name "of" type_ref [ "[" type { "," type } "]" ] [ "default" ]`.
 fn effect_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(EFFECT_KW);
     decl_name(p, TYPE_NAME);
+    if p.at_contextual_kw("of") {
+        let c = p.start();
+        p.bump();
+        if p.at(TYPE_NAME) {
+            path(p);
+            effect_type_args(p);
+        } else {
+            p.expect(TYPE_NAME);
+        }
+        if p.at_contextual_kw("default") {
+            p.bump();
+        }
+        c.complete(p, EFFECT_LABEL);
+        m.complete(p, EFFECT_DECL);
+        return;
+    }
     if p.at(L_BRACK) {
         type_param_list(p);
     }

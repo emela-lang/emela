@@ -1,0 +1,21 @@
+exit: 0
+--- stdout
+audit: from a
+print: from b
+open
+print: from a
+t: from b
+close t
+audit: from a
+print: from b
+print: from a
+audit: x
+audit: y
+print: direct debug
+open
+audit: from a
+t: from b
+close t
+tally 2 1, hits 2
+misses 1
+--- stderr

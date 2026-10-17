@@ -389,15 +389,27 @@ pub enum ExprKind {
         effect: Res,
         args: Vec<TypeId>,
     },
-    /// `with H1, H2 { body }`. `handlers` point to handlers or layers.
+    /// `with H1, H2 { body }`. `handlers` are the listed items: handlers, layers, labels, and
+    /// `L by P` (issue #255).
     With {
-        handlers: Vec<(Res, Span)>,
+        handlers: Vec<WithItem>,
         body: ExprId,
     },
     Lambda {
         params: Vec<Param>,
         body: ExprId,
     },
+}
+
+/// An item listed in `with`. `res` is a handler, a layer, or a label (an effect declared `of`
+/// another); with `by`, `res` is the label and `by` the handler or effect plugged into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WithItem {
+    pub res: Res,
+    pub span: Span,
+    pub by: Option<(Res, Span)>,
+    /// Type arguments of an effect right of `by` (`Counter by State[Int]`).
+    pub by_args: Vec<TypeId>,
 }
 
 /// A call argument. Named arguments (with `label`) are not resolved; only the name and position
@@ -544,6 +556,20 @@ pub struct EffectItem {
     /// Only built-in effects may have set type parameters and operation type parameters
     /// (spec 8.1).
     pub is_intrinsic: bool,
+    /// For a label (`effect AuditLog of Console [default]`), the effect it stands for. A label
+    /// has no operations of its own; it has those of `base`.
+    pub label: Option<LabelOf>,
+}
+
+/// The `of Console default` of a label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelOf {
+    pub base: Res,
+    pub span: Span,
+    /// Type arguments of the base (`of State[Int]`).
+    pub args: Vec<TypeId>,
+    /// `default`: a `with` providing the base also provides the label (issue #255).
+    pub default: bool,
 }
 
 /// No body.
@@ -674,5 +700,31 @@ impl Program {
 
     pub fn item(&self, def: DefId) -> Option<&Item> {
         self.items.get(def)
+    }
+
+    /// The effect a label stands for (`Console` for `effect AuditLog of Console`). `None` for
+    /// effects that are not labels, and for labels whose base did not resolve.
+    pub fn label_base(&self, effect: DefId) -> Option<DefId> {
+        match self.item(effect) {
+            Some(Item::Effect(EffectItem {
+                label:
+                    Some(LabelOf {
+                        base: Res::Def(base),
+                        ..
+                    }),
+                ..
+            })) => Some(*base),
+            _ => None,
+        }
+    }
+
+    /// The operations of an effect. A label has those of its base (one level: the base of a
+    /// label is not a label, E0429).
+    pub fn effect_ops(&self, effect: DefId) -> &[DefId] {
+        let effect = self.label_base(effect).unwrap_or(effect);
+        match self.item(effect) {
+            Some(Item::Effect(e)) if e.label.is_none() => &e.ops,
+            _ => &[],
+        }
     }
 }

@@ -1,0 +1,68 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_handlers(r#\"\neffect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\neffect Audit of Log\neffect Debug of Log default\neffect Other of Log\neffect Ticks of Clock\n\nhandler PrintLog implements Log {\n  fn log(msg) { () }\n}\n\nhandler Tagged implements Log {\n  fn log(msg) { (use Other).log(msg) }\n}\n\nfn a() { (use Log).log(\"a\") }\n\nfn c() {\n  with Audit { a() }\n  with Debug { a() }\n}\n\nfn direct() { (use Audit).log(\"x\") }\n\nfn run_hidden(f: fn() -> ()) { with PrintLog { f() } }\n\nfn main() {\n  with PrintLog, Audit by Log { c() }\n  with PrintLog, Audit by PrintLog, Debug by Tagged, Other by Log { c() }\n  with Audit by PrintLog { direct() }\n  with PrintLog, Audit by Log { with Other by Audit { run_hidden(fn() { (use Other).log(\"y\") }) } }\n}\n\nfn ticks[R: Immediate](f: fn() -> () use R) { f() }\n\nfn sleeps() { ticks(fn() { (use Ticks).sleep(1) }) }\n\"#)"
+---
+a: fn() -> () use Log
+c: fn() -> () use { Audit, Debug }
+direct: fn() -> () use Audit
+run_hidden: ∀ E(f), R(f). fn(fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
+main: fn() -> ()
+ticks: ∀ R: Immediate, E(f). fn(fn() -> () fails E(f) use R) -> () fails E(f) use R
+sleeps: fn() -> () use Ticks
+handler PrintLog: use {}
+handler Tagged: use Other
+with Audit: init [Log <- Audit]
+with Debug: init [Log <- Debug]
+with PrintLog: init [PrintLog]
+with PrintLog, Audit by Log: init [PrintLog, Audit <- Log] Debug from 0
+with PrintLog, Audit by PrintLog, Debug by Tagged, Other by Log: init [PrintLog, Audit by PrintLog, Other <- Log, Debug by Tagged]
+with Audit by PrintLog: init [Audit by PrintLog]
+with PrintLog, Audit by Log: init [PrintLog, Audit <- Log]
+with Other by Audit: init [Other <- Audit]
+`ticks` NotImmediate { effects: ["Ticks"], sets: [], required: Bound { param: "R", callee: "ticks" } }
+--- R
+{ (use Other).log(msg) }: Other
+(use Other).log(msg): Other
+(use Other).log: Other
+use Other: Other
+{ (use Log).log("a") }: Log
+(use Log).log("a"): Log
+(use Log).log: Log
+use Log: Log
+{   with Audit { a() }   with Debug { a() } }: { Audit, Debug }
+with Audit { a() }: Audit
+{ a() }: Log
+a(): Log
+with Debug { a() }: Debug
+{ a() }: Log
+a(): Log
+{ (use Audit).log("x") }: Audit
+(use Audit).log("x"): Audit
+(use Audit).log: Audit
+use Audit: Audit
+{ with PrintLog { f() } }: '1
+with PrintLog { f() }: '1
+{ f() }: '1
+f(): '1
+{ c() }: { Audit, Debug }
+c(): { Audit, Debug }
+{ c() }: { Audit, Debug }
+c(): { Audit, Debug }
+{ direct() }: Audit
+direct(): Audit
+{ with Other by Audit { run_hidden(fn() { (use Other).log("y") }) } }: Audit
+with Other by Audit { run_hidden(fn() { (use Other).log("y") }) }: Audit
+{ run_hidden(fn() { (use Other).log("y") }) }: Other
+run_hidden(fn() { (use Other).log("y") }): Other
+{ (use Other).log("y") }: Other
+(use Other).log("y"): Other
+(use Other).log: Other
+use Other: Other
+{ f() }: '0
+f(): '0
+{ ticks(fn() { (use Ticks).sleep(1) }) }: Ticks
+ticks(fn() { (use Ticks).sleep(1) }): Ticks
+{ (use Ticks).sleep(1) }: Ticks
+(use Ticks).sleep(1): Ticks
+(use Ticks).sleep: Ticks
+use Ticks: Ticks

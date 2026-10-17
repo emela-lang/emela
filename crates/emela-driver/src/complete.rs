@@ -318,10 +318,11 @@ impl Context<'_> {
         };
         let ty = self.expr_ty(expr);
         match ty.as_ref() {
-            Some(Ty::Cap(effect)) => match hir.item(effect.def) {
-                Some(Item::Effect(e)) => e.ops.iter().filter_map(|&op| self.def_item(op)).collect(),
-                _ => Vec::new(),
-            },
+            Some(Ty::Cap(effect)) => hir
+                .effect_ops(effect.def)
+                .iter()
+                .filter_map(|&op| self.def_item(op))
+                .collect(),
             Some(Ty::Named(con, _)) => {
                 let def = types.ty_table.def(*con);
                 let fields = match hir.item(def) {
@@ -366,10 +367,10 @@ impl Context<'_> {
             ExprKind::Path(Res::Def(def)) => types.sigs.get(*def).map(|sig| sig.scheme.ty.clone()),
             ExprKind::Field { base, name } => match self.expr_ty(*base)? {
                 Ty::Cap(effect) => {
-                    let Some(Item::Effect(e)) = hir.item(effect.def) else {
-                        return None;
-                    };
-                    let op = e.ops.iter().find(|&&op| hir.defs[op].name == name.name)?;
+                    let op = hir
+                        .effect_ops(effect.def)
+                        .iter()
+                        .find(|&&op| hir.defs[op].name == name.name)?;
                     // Effect type parameters are replaced by the capability value's type arguments
                     // (spec 8.1).
                     types

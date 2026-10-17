@@ -10,7 +10,7 @@ mod common;
 use std::fmt::Write;
 
 use emela_resolve::hir::{DefKind, DefModule};
-use emela_types::{CheckOptions, check_program_with};
+use emela_types::{CheckOptions, Supplier, check_program_with};
 
 use common::{describe, resolve_main};
 
@@ -100,8 +100,32 @@ fn render(src: &str, handlers: bool) -> String {
         for (range, hs) in withs {
             let text = &src[usize::from(range.start())..usize::from(range.end())];
             let head = text.split('{').next().unwrap_or(text).trim();
-            let names: Vec<&str> = hs.iter().map(|&h| program.defs[h].name.as_str()).collect();
-            writeln!(out, "{head}: init [{}]", names.join(", ")).unwrap();
+            let names: Vec<String> = hs
+                .binds
+                .iter()
+                .map(|b| {
+                    let name = |def: emela_resolve::hir::DefId| program.defs[def].name.to_string();
+                    match &b.supplier {
+                        Supplier::Handler(h) if program.label_base(b.effect.def).is_some() => {
+                            format!("{} by {}", name(b.effect.def), name(*h))
+                        }
+                        Supplier::Handler(h) => name(*h),
+                        Supplier::Effect(t) => format!("{} <- {}", name(b.effect.def), name(t.def)),
+                    }
+                })
+                .collect();
+            let defaults: Vec<String> = hs
+                .defaults
+                .iter()
+                .map(|(t, i)| format!(" {} from {i}", program.defs[t.def].name))
+                .collect();
+            writeln!(
+                out,
+                "{head}: init [{}]{}",
+                names.join(", "),
+                defaults.concat()
+            )
+            .unwrap();
         }
     }
     for d in &resolve_diagnostics {
@@ -1277,6 +1301,152 @@ fn ping_pong() {
 
 fn loops() {
   with LoopA { () }
+}
+"#
+    ));
+}
+
+/// Labels (issue #255). `with L` provides the base from `L`; `L by P` provides `L`; a provider
+/// of the base also provides the labels declared `default` that the body uses. A label's R holds
+/// the label until something provides it.
+#[test]
+fn labels() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Clock {
+  suspend fn sleep(ms: Int) -> ()
+}
+
+effect Audit of Log
+effect Debug of Log default
+effect Other of Log
+effect Ticks of Clock
+
+handler PrintLog implements Log {
+  fn log(msg) { () }
+}
+
+handler Tagged implements Log {
+  fn log(msg) { (use Other).log(msg) }
+}
+
+fn a() { (use Log).log("a") }
+
+fn c() {
+  with Audit { a() }
+  with Debug { a() }
+}
+
+fn direct() { (use Audit).log("x") }
+
+fn run_hidden(f: fn() -> ()) { with PrintLog { f() } }
+
+fn main() {
+  with PrintLog, Audit by Log { c() }
+  with PrintLog, Audit by PrintLog, Debug by Tagged, Other by Log { c() }
+  with Audit by PrintLog { direct() }
+  with PrintLog, Audit by Log { with Other by Audit { run_hidden(fn() { (use Other).log("y") }) } }
+}
+
+fn ticks[R: Immediate](f: fn() -> () use R) { f() }
+
+fn sleeps() { ticks(fn() { (use Ticks).sleep(1) }) }
+"#
+    ));
+}
+
+/// Misused labels (issue #255): bases that cannot be used (E0429), effects that are not labels
+/// (E0430), providers of another effect (E0431), two providers for a label (E0432), and handlers
+/// of labels (E0433).
+#[test]
+fn label_errors() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Other {
+  fn other() -> ()
+}
+
+effect Audit of Log
+effect Nested of Audit
+effect Bad of Async
+
+handler PrintLog implements Log {
+  fn log(msg) { () }
+}
+
+handler OtherH implements Other {
+  fn other() { () }
+}
+
+handler AuditH implements Audit {
+  fn log(msg) { () }
+}
+
+fn a() { (use Log).log("a") }
+
+fn uses_audit() { (use Audit).log("x") }
+
+fn main() {
+  with Log { a() }
+  with Log by PrintLog { a() }
+  with PrintLog, Audit by OtherH { uses_audit() }
+  with PrintLog, Audit by PrintLog, Audit by Log { uses_audit() }
+}
+
+fn undefault() {
+  with PrintLog { uses_audit() }
+}
+
+fn unused(f: fn() -> ()) {
+  with PrintLog, Audit by PrintLog { a() }
+  with PrintLog, Audit by PrintLog { f() }
+}
+"#
+    ));
+}
+
+/// Labels of an effect with type arguments (issue #255): the label's operations are typed with
+/// the base's arguments, and the right of `by` may carry arguments too.
+#[test]
+fn labels_of_generic_effects() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Box[T] {
+  fn get() -> T
+}
+
+effect Hits of Box[Int]
+effect Names of Box[String] default
+effect Bare of Box
+
+handler IntBox implements Box[Int] {
+  fn get() { 1 }
+}
+
+handler StrBox implements Box[String] {
+  fn get() { "s" }
+}
+
+fn hits() -> Int { (use Hits).get() + 1 }
+
+fn name() -> String { (use Names).get() }
+
+fn main() {
+  with Hits by IntBox { hits() }
+  with IntBox, Hits by Box[Int] { hits() }
+  with StrBox { name() }
+  with IntBox { name() }
+  with Hits by StrBox { hits() }
+  with IntBox, Hits by Box[String] { hits() }
+  with IntBox, Hits by Box { hits() }
 }
 "#
     ));

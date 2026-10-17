@@ -1,0 +1,14 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/effect_labels.emel
+---
+effect AuditLog of Console
+pub effect DebugLog of Console default
+effect Counter of State[Int]
+
+fn main() {
+  with SystemConsole, AuditLog by HandlerA { c() }
+  with AuditLog by Console, DebugLog by Std.FileLog { c() }
+  with Counter by State[Int] { c() }
+}

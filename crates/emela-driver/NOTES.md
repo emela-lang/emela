@@ -196,7 +196,7 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
   - 型注釈のない束縛（パターンが変数1つのもの），ラムダの引数，handler の操作と impl の関数の引数の型 `: T`．能力の値（`use X` の値）と，推論の変数や壊れた型を含む型は出さない
   - 文の位置（文，束縛の右辺，ブロックの末尾）の呼び出しとパイプの E と R（`fails E use R`）．どちらも空なら出さない．入れ子の呼び出しには出さない（行が埋まるため．入れ子の E はホバーで見る）
 - （補）semantic tokens（LSP）は `Frontend::semantic_tokens`（`tokens.rs`）．能力の値（8.2）だけを返す．型検査で型が能力（`Ty::Cap`）になった局所変数に加え，型検査が諦めた場合のために，右辺が `use X` の束縛（パターンが変数1つのもの）も能力の値とみなす（`use` の effect の名前が解決できなくても）．束縛した名前と，その局所変数を指す名前の式（クロージャの中も）に印を付ける．構文や型のエラーがあっても，HIR と型の分かる範囲で返す
-- （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
+- （補）`Lower` と `LowerTests`（build，run，test）は JS のターゲット（`JS_TARGET`）で外部関数の `@external` を検査する（12.1）．検査は lowering の中で単相化した IR に対して行う（操作はエフェクトの具体化ごとに見る．emela-core の NOTES の「外部関数」）．エントリからたどれる外部関数に JS の注釈がなければ E0412（``external function `wasm_now` has no `@external` for target `js` ``，注記 ``= help: add `@external(js, ...)`, or avoid calling it from the entry``）．`Typecheck`（check と LSP）は lowering しないので検査しない．E0412 を E04xx に置いたのは，外部関数が effect と同じく副作用の経路（12章の冒頭，E0407）で，E05xx〜E08xx が予約のため
 - （補）lowering には各モジュールのソースのファイルのパスも渡す（`LowerInput::paths`）．`@external` のファイルの指定をソースの隣のファイルに直すため
 - （補）同梱の core のソースは `Frontend::core_sources` で渡す（トレイトの既定は空）．パイプラインはモジュール名を `ModuleMap::add_core` で対応表に足し，仮のパス `<core>/list.emel`（`CORE_DIR`，`Int64` は `int64.emel`）でソースの表に載せる．単独ファイルでも core のモジュールは必ず読む
 - （補）`Resolve::default()` は `emela_core::core_sources()` の全部（`CoreSource::bundled()`）を読む．テストで別の core を使うときは `with_core` で差し替える
@@ -212,3 +212,5 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）E0423（型引数のあるエフェクトの型引数を書いていない）の文面は，`use State` と use 節では ``missing type arguments for effect `State[S]` ``（注記 ``= help: write the types, like `State[...]` ``），`implements State` では ``handler `Fixed` must implement `State[S]` with concrete types``（注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``）．E0424（エフェクトの型引数を集合として使った）は ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``．仕様の付録 A に E0423 と E0424 はまだない
 - （補）ホバーは handler の名前に `implements State[Int]`（型引数を代入したタグ），能力の値に `use State[Int]` を出す．能力の値の操作の補完と型は，操作の型のエフェクトの型引数を能力の値の型引数で置き換える
 - （補）同梱のソースの仮のパスは，モジュール名の区切りをディレクトリにする（`Std.Console` は `<core>/std/console.emel`，`List` は `<core>/list.emel`）
+- （補）エフェクトのラベル（issue #255）の hover．ラベルの名前と，`use` 節や `with` に書いたラベルへの参照の上では，宣言をそのまま出す（`effect DebugLog of Console default`）．型の表示はラベルのまま出し，元のエフェクトに落とした形には書き換えない
+- （補）ラベルの診断の文言．E0429〜E0433 と W0401（使われないラベルの項目）．W0401 は `with L` ならラベル L の名前を，`L by P` なら L の名前を出す

@@ -637,6 +637,11 @@ impl Diagnostic {
                 Some(code::UNRAISED_ERROR),
                 format!("error `{error}` is never raised here"),
             ),
+            TypeDiagnosticKind::UnusedLabelProvider { label } => (
+                Severity::Warning,
+                Some(code::UNUSED_LABEL_PROVIDER),
+                format!("label `{label}` is listed here but never used"),
+            ),
             TypeDiagnosticKind::UnknownOperation { effect, op } => (
                 Severity::Error,
                 Some(code::UNKNOWN_OPERATION),
@@ -853,6 +858,79 @@ impl Diagnostic {
                     "type parameter `{param}` of effect `{effect}` is used as a set, but effect type parameters must be ordinary types"
                 ),
             ),
+            TypeDiagnosticKind::LabelBase {
+                label,
+                base,
+                reason,
+            } => {
+                let why = match reason {
+                    emela_types::LabelBaseReason::Label(inner) => {
+                        help = Some(format!(
+                            "write `effect {label} of {inner}`; `{base}` can still be plugged into it with `with {label} by {base}`"
+                        ));
+                        format!("`{base}` is a label")
+                    }
+                    emela_types::LabelBaseReason::BuiltIn => {
+                        format!("`{base}` is a built-in effect")
+                    }
+                };
+                (
+                    Severity::Error,
+                    Some(code::LABEL_BASE),
+                    format!("label `{label}` cannot stand for `{base}`: {why}"),
+                )
+            }
+            TypeDiagnosticKind::NotALabel { name, by } => {
+                if *by {
+                    (
+                        Severity::Error,
+                        Some(code::NOT_A_LABEL),
+                        format!("only a label can take `by`, but `{name}` is not a label"),
+                    )
+                } else {
+                    help = Some(format!(
+                        "list a handler of `{name}`, or declare a label with `effect L of {name}`"
+                    ));
+                    (
+                        Severity::Error,
+                        Some(code::NOT_A_LABEL),
+                        format!(
+                            "effect `{name}` is not a label: `with` takes a handler, a layer or a label"
+                        ),
+                    )
+                }
+            }
+            TypeDiagnosticKind::LabelMismatch {
+                label,
+                base,
+                provider,
+                provided,
+            } => (
+                Severity::Error,
+                Some(code::LABEL_MISMATCH),
+                format!(
+                    "label `{label}` stands for `{base}`, but `{provider}` provides `{provided}`"
+                ),
+            ),
+            TypeDiagnosticKind::LabelProvidedTwice { label } => (
+                Severity::Error,
+                Some(code::LABEL_PROVIDED_TWICE),
+                format!("label `{label}` is given a provider more than once in this `with`"),
+            ),
+            TypeDiagnosticKind::HandlerOfLabel {
+                handler,
+                label,
+                base,
+            } => {
+                help = Some(format!(
+                    "implement `{base}` instead, and plug it in with `with {label} by {handler}`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::HANDLER_OF_LABEL),
+                    format!("handler `{handler}` cannot implement label `{label}`"),
+                )
+            }
             TypeDiagnosticKind::AsyncHandler { handler } => (
                 Severity::Error,
                 Some(code::ASYNC_HANDLER),

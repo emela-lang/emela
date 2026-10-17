@@ -460,9 +460,19 @@ impl Lower<'_, '_> {
             self.r.program.items.insert(def, Item::Op(OpItem { sig }));
         }
         self.pop_type_params();
+        let label = e.label().map(|l| LabelOf {
+            base: match l.base() {
+                Some(p) => self.resolve_type_ns(&p, Expected::Effect),
+                None => Res::Err,
+            },
+            span: self.span(l.syntax().text_range()),
+            args: self.type_arg_list(l.base_type_args()),
+            default: l.is_default(),
+        });
         Item::Effect(EffectItem {
             type_params,
             ops: ops.to_vec(),
+            label,
             // Outside the bundled sources, `@intrinsic` is E0224 and the effect stays a user
             // effect.
             is_intrinsic: e.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
@@ -505,7 +515,11 @@ impl Lower<'_, '_> {
             .filter_map(|f| {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
-                let op = self.member_of(effect, &name, range);
+                // A handler of a label is E0433; its operations are not looked up.
+                let op = match effect {
+                    Res::Def(e) if self.r.labels.contains(&e) => Res::Err,
+                    _ => self.member_of(effect, &name, range),
+                };
                 // `@intrinsic` is for top-level fns only. The parser does not allow annotations
                 // inside bodies today, but check anyway.
                 self.r.check_intrinsic(self.module, f.syntax(), false);
@@ -883,6 +897,11 @@ impl Lower<'_, '_> {
             Expected::Effect => matches!(kind, DefKind::Effect | DefKind::TypeParam),
             Expected::Error => matches!(kind, DefKind::Error | DefKind::TypeParam),
             Expected::HandlerOrLayer => matches!(kind, DefKind::Handler | DefKind::Layer),
+            Expected::WithItem => {
+                matches!(kind, DefKind::Handler | DefKind::Layer | DefKind::Effect)
+            }
+            Expected::Label => kind == DefKind::Effect,
+            Expected::HandlerOrEffect => matches!(kind, DefKind::Handler | DefKind::Effect),
             Expected::Trait => kind == DefKind::Trait,
             _ => true,
         };
@@ -1133,10 +1152,32 @@ impl Lower<'_, '_> {
             WITH_EXPR => {
                 let handlers = node
                     .children()
-                    .filter_map(ast::Path::cast)
-                    .map(|p| {
-                        let res = self.resolve_type_ns(&p, Expected::HandlerOrLayer);
-                        (res, self.span(p.syntax().text_range()))
+                    .filter_map(|c| {
+                        if c.kind() == WITH_BY {
+                            let mut paths = c.children().filter_map(ast::Path::cast);
+                            let label = paths.next()?;
+                            let res = self.resolve_type_ns(&label, Expected::Label);
+                            let by = paths.next().map(|p| {
+                                let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
+                                (res, self.span(p.syntax().text_range()))
+                            });
+                            let by_args = self
+                                .type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
+                            return Some(WithItem {
+                                res,
+                                span: self.span(c.text_range()),
+                                by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
+                                by_args,
+                            });
+                        }
+                        let p = ast::Path::cast(c)?;
+                        let res = self.resolve_type_ns(&p, Expected::WithItem);
+                        Some(WithItem {
+                            res,
+                            span: self.span(p.syntax().text_range()),
+                            by: None,
+                            by_args: Vec::new(),
+                        })
                     })
                     .collect();
                 let body = self.child_expr(node, 0);

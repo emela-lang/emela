@@ -294,8 +294,11 @@ impl BodyInfer<'_> {
             // The E of `with` is the body's E plus the init E of the listed handlers (spec 9.4).
             ExprKind::With { handlers, body } => {
                 let mut row = self.expr_row(*body);
-                for entry in crate::layer::with_entries(program, self.sigs, handlers) {
-                    row.extend(&self.handler_init_fails(entry.handler));
+                for entry in crate::layer::with_entries(program, self.sigs, self.ty_table, handlers)
+                {
+                    if let Some(h) = entry.handler() {
+                        row.extend(&self.handler_init_fails(h));
+                    }
                 }
                 row
             }

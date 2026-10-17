@@ -17,7 +17,7 @@ use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{SyntaxNode, SyntaxToken};
 use la_arena::ArenaMap;
 use rowan::TextRange;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::builtins::{BuiltinKind, BuiltinModules, build_prelude};
@@ -103,6 +103,8 @@ pub(crate) struct Resolver<'a> {
     prelude: [FxHashMap<SmolStr, DefId>; 3],
     /// Trait functions and effect operations, looked up by name.
     pub(crate) members: FxHashMap<DefId, Vec<DefId>>,
+    /// Effects declared as labels (`effect AuditLog of Console`, issue #255).
+    pub(crate) labels: FxHashSet<DefId>,
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
@@ -211,6 +213,7 @@ impl<'a> Resolver<'a> {
             scopes: ArenaMap::default(),
             prelude,
             members,
+            labels: FxHashSet::default(),
             diagnostics: Vec::new(),
         }
     }
@@ -358,6 +361,9 @@ impl<'a> Resolver<'a> {
                     }
                 }
                 ast::Item::Effect(it) => {
+                    if it.label().is_some() {
+                        self.labels.insert(def);
+                    }
                     let names = it.ops().filter_map(|op| op.name());
                     children = self.define_members(module, def, DefKind::Op, names);
                 }
