@@ -44,6 +44,15 @@ changelog_update = false
 # only touches emela-lsp would bump nothing for emela-cli, which owns the tag and
 # the changelog. One `version_group` makes a change in any crate bump all of them
 # to the same next version.
+#
+# A crate added after the last release does not exist at that release's `vX.Y.Z`
+# tag, and in git-only mode release-plz fails looking for it there ("Failed to find
+# package"). Until a release tag contains it, give the new crate a tag name that
+# never exists (`git_tag_name = "<crate>-v{{ version }}"`) so it counts as a first
+# release; the version group still moves it with the rest. Remove the override as
+# soon as that release is tagged: left in place, the crate keeps seeing every
+# `feat:` since its creation as unreleased and drags the whole group to the next
+# minor (this is how v0.21.0's changes showed up again as v0.22.0).
 [[package]]
 name = "emela-syntax"
 version_group = "emela"
@@ -63,12 +72,6 @@ version_group = "emela"
 [[package]]
 name = "emela-lir"
 version_group = "emela"
-# A crate added after the last release does not exist at that release's `vX.Y.Z`
-# tag, and in git-only mode release-plz fails looking for it there ("Failed to find
-# package"). A tag name that never exists makes it a first release instead; the
-# version group still moves it with the rest. Remove this once a release tag
-# contains emela-lir. Do the same for any new crate.
-git_tag_name = "emela-lir-v{{ version }}"
 
 [[package]]
 name = "emela-codegen-js"
@@ -81,8 +84,6 @@ version_group = "emela"
 [[package]]
 name = "emela-codegen-c"
 version_group = "emela"
-# Added after the last release; see emela-lir above.
-git_tag_name = "emela-codegen-c-v{{ version }}"
 
 [[package]]
 name = "emela-fmt"
