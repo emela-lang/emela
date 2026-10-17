@@ -223,6 +223,91 @@ fn split_with_an_empty_separator_is_a_defect() {
 }
 
 #[test]
+fn state_holds_references() {
+    // Regression: `State`'s `$Cell` builtins must take their own reference, like the C runtime
+    // (spec 8.8). Without the `dup` the state's value is freed too early and a second `update`
+    // reads a dangling cell (WASM would trap or hang, and even print garbage).
+    let Some(out) = stderr(
+        "state-list",
+        r#"
+import Std.State.{State}
+
+fn bump(lines: List[String]) -> List[String] {
+  List.append(lines, ["x"])
+}
+
+fn main() {
+  (_, final) = State.run([], fn() {
+    st = use State[List[String]]
+    st.update(bump)
+    st.update(bump)
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "[\"x\", \"x\"]\n");
+}
+
+#[test]
+fn state_through_a_handler() {
+    // The same, reached through a handler operation that calls `use State` each time (the shape
+    // of `TestConsole`, spec 15.2).
+    let Some(out) = stderr(
+        "state-handler",
+        r#"
+import Std.State.{State}
+
+effect Counter {
+  fn add() -> ()
+}
+
+handler CounterHandler implements Counter {
+  fn add() { (use State[List[String]]).update(fn(lines) { List.append(lines, ["a"]) }) }
+}
+
+fn main() {
+  (_, final) = State.run([], fn() {
+    with CounterHandler {
+      c = use Counter
+      c.add()
+      c.add()
+    }
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "[\"a\", \"a\"]\n");
+}
+
+#[test]
+fn state_of_a_string() {
+    let Some(out) = stderr(
+        "state-string",
+        r#"
+import Std.State.{State}
+
+fn main() {
+  (_, final) = State.run("a", fn() {
+    st = use State[String]
+    st.update(fn(s) { String.append(s, "b") })
+    st.update(fn(s) { String.append(s, "c") })
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"abc\"\n");
+}
+
+#[test]
 fn options_from_builtins() {
     let Some(out) = stderr(
         "options",

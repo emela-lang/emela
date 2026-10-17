@@ -150,6 +150,114 @@ fn main() {
 "#,
     ),
     (
+        "state",
+        r#"
+import Std.State.{State}
+
+fn bump(lines: List[String]) -> List[String] {
+  List.append(lines, ["x"])
+}
+
+fn main() {
+  (_, final) = State.run([], fn() {
+    st = use State[List[String]]
+    st.update(bump)
+    st.update(bump)
+  })
+  dbg(final)
+}
+"#,
+    ),
+    (
+        "effect_labels",
+        r##"
+import Std.State.{State}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Audit of Log
+effect Debug of Log default
+effect AuditA of Log
+effect AuditB of Log
+
+handler PrintLog implements Log {
+  fn log(msg) { _ = dbg("print: #{msg}") }
+}
+
+handler AuditLog implements Log {
+  fn log(msg) { _ = dbg("audit: #{msg}") }
+}
+
+handler Tagged(tag: String) implements Log {
+  init {
+    _ = dbg("open")
+    Tagged(tag: "t")
+  }
+  release {
+    _ = dbg("close #{self.tag}")
+  }
+  fn log(msg) { _ = dbg("#{self.tag}: #{msg}") }
+}
+
+fn a() { (use Log).log("from a") }
+fn b() { (use Log).log("from b") }
+
+fn c() {
+  with Audit { a() }
+  with Debug { b() }
+}
+
+fn d() {
+  with Audit { a() }
+}
+
+fn f() {
+  with Audit by AuditA { c() }
+  with Audit by AuditB { d() }
+}
+
+fn direct() {
+  log = use Audit
+  _ = List.map(["x", "y"], log.log)
+  (use Debug).log("direct debug")
+}
+
+effect Hits of State[Int]
+effect Misses of State[Int]
+
+fn count(hit: Bool) {
+  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+}
+
+fn tally() -> (Int, Int) use { Hits, Misses } {
+  count(True)
+  count(False)
+  count(True)
+  ((use Hits).get(), (use Misses).get())
+}
+
+fn main() {
+  with PrintLog, Audit by AuditLog { c() }
+  with PrintLog, Audit by Log, Debug by Tagged { c() }
+  with PrintLog, AuditA by AuditLog, AuditB by Log { f() }
+  with PrintLog, Audit by AuditLog { direct() }
+  with PrintLog, Audit by AuditLog {
+    with Tagged { c() }
+  }
+  (_, misses) = State.run(0, fn() {
+    with Misses by State[Int] {
+      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (h, m) = counts
+      _ = dbg("tally #{h} #{m}, hits #{hits}")
+    }
+  })
+  _ = dbg("misses #{misses}")
+}
+"##,
+    ),
+    (
         "options",
         "fn main() {\n  dbg(Int.checked_add(1, 2))\n  dbg(Int.checked_add(2147483647, 1))\n  dbg(Int.checked_add(-2147483647, -2))\n  dbg(String.from_code_point(65))\n  dbg(String.from_code_point(8364))\n  dbg(String.from_code_point(55296))\n  dbg(Int.parse(\"42\"))\n}\n",
     ),

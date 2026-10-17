@@ -1888,6 +1888,14 @@ impl<'m> Builder<'m> {
                 } else {
                     self.store_slot(cx, ins, d, 0, &Operand::Const(Const::Unit));
                 }
+                // The cell keeps a reference of its own, so the caller can still give up its own
+                // (the C runtime dups in `em_cell_new`).
+                if content == Repr::Ref {
+                    let a = args.first().expect("a reference has a value");
+                    self.operand(cx, ins, a);
+                    let dup = self.rt("dup");
+                    ins.call(dup);
+                }
             }
             CellGet => {
                 if let Some(d) = dst {
@@ -1912,6 +1920,13 @@ impl<'m> Builder<'m> {
                         Repr::Void => {}
                     }
                     ins.local_set(cx.local(d));
+                    // The reader gets a reference of its own (the C runtime dups in
+                    // `em_cell_get`), so the caller may give up what it reads.
+                    if cx.f.vars[d].repr == Repr::Ref {
+                        ins.local_get(cx.local(d));
+                        let dup = self.rt("dup");
+                        ins.call(dup);
+                    }
                 }
             }
             CellSet => {
@@ -1922,7 +1937,25 @@ impl<'m> Builder<'m> {
                         return;
                     }
                 };
-                self.store_slot(cx, ins, base, 0, &args[1]);
+                match Self::operand_repr(cx.f, &args[1]) {
+                    Repr::Ref => {
+                        // Take the cell's own reference before replacing the old value, then
+                        // release it (the C runtime dups and drops in `em_cell_set`).
+                        self.operand(cx, ins, &args[1]);
+                        let dup = self.rt("dup");
+                        ins.call(dup);
+                        let old = cx.scratch(Repr::Ref, 0);
+                        ins.local_get(cx.local(base));
+                        ins.i32_load(mem(HDR, 4));
+                        ins.local_set(old);
+                        self.store_slot(cx, ins, base, 0, &args[1]);
+                        ins.local_get(old);
+                        let drop = self.rt("drop");
+                        ins.call(drop);
+                    }
+                    Repr::Void => {}
+                    _ => self.store_slot(cx, ins, base, 0, &args[1]),
+                }
             }
             other => {
                 self.internal(format!("builtin {other:?} left in {}", cx.f.name));
