@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.21.1](https://github.com/emela-lang/emela/compare/v0.21.0...v0.21.1) - 2026-10-17
+
+### Fixed
+
+- CLI のテストが同じ名前の一時ディレクトリを共有しないようにする ([#252](https://github.com/emela-lang/emela/pull/252))
+
 ## [0.21.0](https://github.com/emela-lang/emela/compare/v0.20.1...v0.21.0) - 2026-10-17
 
 ### Added
