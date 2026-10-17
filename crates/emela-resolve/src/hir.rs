@@ -403,11 +403,13 @@ pub enum ExprKind {
 
 /// An item listed in `with`. `res` is a handler, a layer, or a label (an effect declared `of`
 /// another); with `by`, `res` is the label and `by` the handler or effect plugged into it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithItem {
     pub res: Res,
     pub span: Span,
     pub by: Option<(Res, Span)>,
+    /// Type arguments of an effect right of `by` (`Counter by State[Int]`).
+    pub by_args: Vec<TypeId>,
 }
 
 /// A call argument. Named arguments (with `label`) are not resolved; only the name and position

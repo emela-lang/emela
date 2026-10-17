@@ -98,7 +98,7 @@ impl Printer {
             IMPLEMENTS_CLAUSE | USE_EXPR | EFFECT_LABEL => {
                 self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
             }
-            WITH_BY => self.seq(node, |_, _| true),
+            WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
                 self.seq(node, |_, _| true)
             }

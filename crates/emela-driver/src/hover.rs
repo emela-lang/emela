@@ -270,9 +270,13 @@ pub(crate) fn label_text(program: &TypedProgram, def: DefId) -> Option<String> {
         return None;
     };
     let label = effect.label.as_ref()?;
-    let base = match label.base {
-        Res::Def(base) => hir.defs[base].name.as_str(),
-        _ => "?",
+    // With its type arguments (`State[Int]`).
+    let base = match (program.types.sigs.label_base(def), label.base) {
+        (Some(tag), _) => Row::of_tag(tag.clone())
+            .display_effects(&program.types.ty_table.cons, &[])
+            .to_string(),
+        (None, Res::Def(base)) => hir.defs[base].name.to_string(),
+        (None, _) => "?".to_owned(),
     };
     let default = if label.default { " default" } else { "" };
     Some(format!("effect {} of {base}{default}", hir.defs[def].name))

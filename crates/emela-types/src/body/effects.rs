@@ -201,8 +201,8 @@ impl BodyInfer<'_> {
     fn with_effects(&mut self, expr: ExprId, items: &[WithItem], body: ExprId) -> Row {
         let program = self.program;
         let body_row = self.expr_effects(body);
-        layer::check_with_items(program, self.sigs, items, &mut self.diags);
-        let entries = layer::with_entries(program, self.sigs, items);
+        layer::check_with_items(program, self.sigs, self.ty_table, items, &mut self.diags);
+        let entries = layer::with_entries(program, self.sigs, self.ty_table, items);
         let deps: Vec<Row> = entries
             .iter()
             .map(|e| match &e.supplier {
@@ -213,7 +213,7 @@ impl BodyInfer<'_> {
         let provided: Vec<Tag> = entries.iter().map(|e| e.effect.clone()).collect();
         let mut defaults: Vec<(Tag, usize)> = Vec::new();
         for (i, entry) in entries.iter().enumerate() {
-            for &label in self.sigs.default_labels(entry.effect.def) {
+            for label in self.sigs.default_labels(&entry.effect) {
                 let tag = Tag::new(label);
                 if !provided.contains(&tag) && !defaults.iter().any(|(t, _)| *t == tag) {
                     defaults.push((tag, i));

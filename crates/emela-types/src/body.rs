@@ -1439,11 +1439,13 @@ impl<'a> BodyInfer<'a> {
         };
         self.ops.insert(expr, op);
         // The effect's type parameters come first in the operation's scheme, followed by the
-        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference.
+        // operation's own (`fork[A]`, spec 8.1), which are instantiated per reference. Through a
+        // label, they are the base's type arguments (`effect Hits of State[Int]`).
+        let args = self.sigs.base_of(tag).args.clone();
         let ty = self.sigs.get(op).map(|sig| {
-            let n = tag.args.len().min(sig.scheme.params.len());
+            let n = args.len().min(sig.scheme.params.len());
             let (fresh, fresh_rows) = self.ctx.fresh_args(&sig.scheme.params[n..]);
-            let mut tys = tag.args[..n].to_vec();
+            let mut tys = args[..n].to_vec();
             let mut rows: Vec<Row> = tys
                 .iter()
                 .enumerate()

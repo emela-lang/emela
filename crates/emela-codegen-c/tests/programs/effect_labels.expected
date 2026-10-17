@@ -16,4 +16,6 @@ open
 audit: from a
 t: from b
 close t
+tally 2 1, hits 2
+misses 1
 --- stderr

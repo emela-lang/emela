@@ -66,9 +66,14 @@ impl Signatures {
         self.label_base(tag.def).unwrap_or(tag)
     }
 
-    /// The labels of `effect` declared `default`.
-    pub fn default_labels(&self, effect: DefId) -> &[DefId] {
-        self.default_labels.get(effect).map_or(&[], Vec::as_slice)
+    /// The labels of `effect` (with its type arguments) declared `default`.
+    pub fn default_labels<'a>(&'a self, effect: &'a Tag) -> impl Iterator<Item = DefId> + 'a {
+        self.default_labels
+            .get(effect.def)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(move |&l| self.label_base(l) == Some(effect))
     }
 
     pub fn insert(&mut self, def: DefId, signature: Signature) {
@@ -106,7 +111,7 @@ impl Signatures {
                 Some(Item::Effect(item)) => {
                     check_effect_params(program, ty_table, def, diags);
                     if let Some(label) = &item.label
-                        && let Some(base) = label_base(program, def, label, diags)
+                        && let Some(base) = label_base(program, ty_table, def, label, diags)
                     {
                         if label.default {
                             match sigs.default_labels.get_mut(base.def) {
@@ -187,10 +192,12 @@ pub(crate) fn is_label(program: &Program, effect: DefId) -> bool {
     matches!(program.item(effect), Some(Item::Effect(e)) if e.label.is_some())
 }
 
-/// The base of label `def` as a tag, or `None` with a diagnostic if it cannot be used (E0429).
-/// Bases with type parameters are not supported yet.
+/// The base of label `def` as a tag with its type arguments (`State[Int]`), or `None` with a
+/// diagnostic if it cannot be used (E0429). A label has no type parameters of its own, so the
+/// arguments are concrete; omitting them is E0423.
 fn label_base(
     program: &Program,
+    ty_table: &TyTable,
     def: DefId,
     label: &LabelOf,
     diags: &mut Vec<Diagnostic>,
@@ -222,16 +229,21 @@ fn label_base(
         });
         return None;
     }
-    if !effect_params(program, base).is_empty() || !label.args.is_empty() {
-        diags.push(Diagnostic {
-            span: Some(label.span),
-            kind: DiagnosticKind::Unsupported {
-                what: "labels of effects with type parameters",
-            },
-        });
-        return None;
-    }
-    Some(Tag::new(base))
+    let scope = Scope {
+        params: &[],
+        kinds: &[],
+        omitted: Omitted::Empty,
+        sets: false,
+    };
+    ty_table.effect_tag(
+        program,
+        &scope,
+        base,
+        &label.args,
+        Some(label.span),
+        None,
+        diags,
+    )
 }
 
 impl Default for Signatures {

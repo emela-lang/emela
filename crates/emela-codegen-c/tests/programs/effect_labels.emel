@@ -1,3 +1,5 @@
+import Std.State.{State}
+
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
 fn print(s: String) -> () use {}
@@ -69,4 +71,29 @@ fn main() {
   with PrintLog, Audit by AuditLog {
     with Tagged { c() }
   }
+  # Each State.run provides a State[Int]; plugging it into a label keeps the two apart.
+  (_, misses) = State.run(0, fn() {
+    with Misses by State[Int] {
+      (counts, hits) = State.run(0, fn() { with Hits by State[Int] { tally() } })
+      (h, m) = counts
+      print("tally #{h} #{m}, hits #{hits}")
+    }
+  })
+  print("misses #{misses}")
+}
+
+# Labels of an effect with type arguments: two counters kept apart.
+
+effect Hits of State[Int]
+effect Misses of State[Int]
+
+fn count(hit: Bool) {
+  if hit { (use Hits).update(fn(n) { n + 1 }) } else { (use Misses).update(fn(n) { n + 1 }) }
+}
+
+fn tally() -> (Int, Int) use { Hits, Misses } {
+  count(True)
+  count(False)
+  count(True)
+  ((use Hits).get(), (use Misses).get())
 }

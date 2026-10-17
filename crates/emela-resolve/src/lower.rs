@@ -1161,10 +1161,13 @@ impl Lower<'_, '_> {
                                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
                                 (res, self.span(p.syntax().text_range()))
                             });
+                            let by_args = self
+                                .type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
                             return Some(WithItem {
                                 res,
                                 span: self.span(c.text_range()),
                                 by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
+                                by_args,
                             });
                         }
                         let p = ast::Path::cast(c)?;
@@ -1173,6 +1176,7 @@ impl Lower<'_, '_> {
                             res,
                             span: self.span(p.syntax().text_range()),
                             by: None,
+                            by_args: Vec::new(),
                         })
                     })
                     .collect();

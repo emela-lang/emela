@@ -993,20 +993,25 @@ impl<'a> Lowerer<'a> {
             label_of: None,
         });
         self.effects.insert(key.clone(), id);
-        // A label has its base's operations, and its handler values are the base's (issue #255).
-        // The base has no type parameters (E0429 and its restriction).
-        let base = self.hir.label_base(def);
-        if let Some(b) = base {
-            let base_key = self.tag_key(&Tag::new(b), None);
-            self.module.effects[id].label_of = Some(self.effect_id(&base_key));
+        // A label has its base's operations, typed with the base's type arguments
+        // (`effect Hits of State[Int]`), and its handler values are the base's (issue #255). The
+        // base's arguments are concrete: a label has no type parameters.
+        let types = self.types;
+        let mut op_args = args;
+        let mut owner = def;
+        if let Some(base) = types.sigs.label_base(def) {
+            let base_key = self.tag_key(base, None);
+            let base_id = self.effect_id(&base_key);
+            self.module.effects[id].label_of = Some(base_id);
+            op_args = self.module.effects[base_id].args.clone();
+            owner = base.def;
         }
-        let owner = base.unwrap_or(def);
         let ops = self
             .hir
             .effect_ops(def)
             .to_vec()
             .into_iter()
-            .map(|op| self.op_def(owner, op, &args))
+            .map(|op| self.op_def(owner, op, &op_args))
             .collect();
         self.module.effects[id].ops = ops;
         id

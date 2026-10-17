@@ -188,7 +188,8 @@ fn arm(p: &mut Parser<'_>) {
     m.complete(p, MATCH_ARM);
 }
 
-/// `"with" with_item { "," with_item } block`, `with_item = type_ref [ "by" type_ref ]`
+/// `"with" with_item { "," with_item } block`,
+/// `with_item = type_ref [ "by" type_ref [ "[" type { "," type } "]" ] ]`
 fn with_expr(p: &mut Parser<'_>) {
     p.bump_kind(WITH_KW);
     loop {
@@ -200,6 +201,7 @@ fn with_expr(p: &mut Parser<'_>) {
                 p.bump();
                 if p.at(TYPE_NAME) {
                     path(p);
+                    effect_type_args(p);
                 } else {
                     p.expect(TYPE_NAME);
                 }

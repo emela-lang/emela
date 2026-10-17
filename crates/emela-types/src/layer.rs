@@ -13,12 +13,13 @@
 //!   E0411; mutual inclusion, E0422) are reported once, at the layer declaration
 //!   ([`check_layers`]), and not repeated at `with`.
 
-use emela_resolve::hir::{DefId, DefKind, ExprId, Item, Program, Res, Span, WithItem};
+use emela_resolve::hir::{DefId, DefKind, ExprId, Item, Program, Res, Span, TypeId, WithItem};
 use la_arena::ArenaMap;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::lower::{Omitted, Scope, TyTable};
 use crate::row::{Row, RowElem, Tag};
 use crate::signature::{Signatures, is_label};
 use crate::ty::TyCons;
@@ -155,7 +156,12 @@ pub(crate) fn handler_effect(sigs: &Signatures, handler: DefId) -> Option<Tag> {
 /// a label `L` provides its base from `L`; `L by P` provides `L` from `P` (issue #255). Items
 /// that do not fit are skipped ([`check_with_items`] reports them). For providers of the same
 /// effect, the later one is kept (spec 8.3).
-pub(crate) fn with_entries(program: &Program, sigs: &Signatures, items: &[WithItem]) -> Vec<Entry> {
+pub(crate) fn with_entries(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    items: &[WithItem],
+) -> Vec<Entry> {
     let mut all = Vec::new();
     for (origin, item) in items.iter().enumerate() {
         let Res::Def(def) = item.res else {
@@ -166,7 +172,8 @@ pub(crate) fn with_entries(program: &Program, sigs: &Signatures, items: &[WithIt
             let Some(base) = sigs.label_base(def) else {
                 continue;
             };
-            let Some(supplier) = by_supplier(sigs, by, base) else {
+            let by = by_tag(program, sigs, ty_table, by, &item.by_args, &mut Vec::new());
+            let Some(supplier) = by.filter(|(_, provided)| provided == base).map(|(s, _)| s) else {
                 continue;
             };
             all.push(Entry {
@@ -214,17 +221,35 @@ pub(crate) fn with_entries(program: &Program, sigs: &Signatures, items: &[WithIt
     keep_last(all)
 }
 
-/// The supplier for the right of `by` when it fits a label of `base`: a handler of `base`, or
-/// `base` itself or another label of it. `None` otherwise.
-fn by_supplier(sigs: &Signatures, by: Res, base: &Tag) -> Option<Supplier> {
+/// The right of `by` as a supplier, with the effect it provides (with type arguments): a
+/// handler provides its effect; an effect `X` (or `X[Int]`) provides itself, or its base if it
+/// is a label. `None` for anything else.
+fn by_tag(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    by: Res,
+    args: &[TypeId],
+    diags: &mut Vec<Diagnostic>,
+) -> Option<(Supplier, Tag)> {
     let Res::Def(by) = by else {
         return None;
     };
     if let Some(effect) = sigs.handler_effect(by) {
-        return (effect == base).then_some(Supplier::Handler(by));
+        return Some((Supplier::Handler(by), effect.clone()));
     }
-    let tag = Tag::new(by);
-    (sigs.base_of(&tag) == base).then_some(Supplier::Effect(tag))
+    if program.defs[by].kind != DefKind::Effect {
+        return None;
+    }
+    let scope = Scope {
+        params: &[],
+        kinds: &[],
+        omitted: Omitted::Empty,
+        sets: false,
+    };
+    let tag = ty_table.effect_tag(program, &scope, by, args, None, None, diags)?;
+    let provided = sigs.base_of(&tag).clone();
+    Some((Supplier::Effect(tag), provided))
 }
 
 /// Reports the items in `with` that do not fit (issue #255): an effect that is not a label
@@ -233,6 +258,7 @@ fn by_supplier(sigs: &Signatures, by: Res, base: &Tag) -> Option<Supplier> {
 pub(crate) fn check_with_items(
     program: &Program,
     sigs: &Signatures,
+    ty_table: &TyTable,
     items: &[WithItem],
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -256,7 +282,7 @@ pub(crate) fn check_with_items(
             });
             continue;
         }
-        let Some((Res::Def(by), by_span)) = item.by else {
+        let Some((by, by_span)) = item.by else {
             continue;
         };
         if plugged.contains(&def) {
@@ -269,19 +295,30 @@ pub(crate) fn check_with_items(
         let Some(base) = sigs.label_base(def) else {
             continue;
         };
-        let provided = match sigs.handler_effect(by) {
-            Some(effect) => effect.def,
-            None if program.defs[by].kind == DefKind::Effect => sigs.base_of(&Tag::new(by)).def,
-            None => continue,
+        let mut arg_diags = Vec::new();
+        let by_res = by;
+        let Some((_, provided)) =
+            by_tag(program, sigs, ty_table, by, &item.by_args, &mut arg_diags)
+        else {
+            continue;
         };
-        if provided != base.def {
+        // Missing or wrong type arguments are reported once (E0423, E0304).
+        if !arg_diags.is_empty() {
+            for mut d in arg_diags {
+                d.span = Some(by_span);
+                diags.push(d);
+            }
+            continue;
+        }
+        if provided != *base {
+            let Res::Def(by) = by_res else { continue };
             diags.push(Diagnostic {
                 span: Some(by_span),
                 kind: DiagnosticKind::LabelMismatch {
                     label: name(def),
-                    base: name(base.def),
+                    base: effect_name(&ty_table.cons, base),
                     provider: name(by),
-                    provided: name(provided),
+                    provided: effect_name(&ty_table.cons, &provided),
                 },
             });
         }

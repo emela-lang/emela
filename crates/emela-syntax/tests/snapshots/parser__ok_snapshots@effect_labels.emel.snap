@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/effect_labels.emel
 ---
-ROOT@0..314
+ROOT@0..351
   EFFECT_DECL@0..26
     EFFECT_KW@0..6 "effect"
     WHITESPACE@6..7 " "
@@ -122,7 +122,7 @@ ROOT@0..314
       R_BRACE@186..187 "}"
   NEWLINE@187..188 "\n"
   NEWLINE@188..189 "\n"
-  FN_DECL@189..313
+  FN_DECL@189..350
     FN_KW@189..191 "fn"
     WHITESPACE@191..192 " "
     LOWER_NAME@192..196 "main"
@@ -130,7 +130,7 @@ ROOT@0..314
       L_PAREN@196..197 "("
       R_PAREN@197..198 ")"
     WHITESPACE@198..199 " "
-    BLOCK_EXPR@199..313
+    BLOCK_EXPR@199..350
       L_BRACE@199..200 "{"
       NEWLINE@200..201 "\n"
       WHITESPACE@201..203 "  "
@@ -199,5 +199,36 @@ ROOT@0..314
           WHITESPACE@309..310 " "
           R_BRACE@310..311 "}"
       NEWLINE@311..312 "\n"
-      R_BRACE@312..313 "}"
-  NEWLINE@313..314 "\n"
+      WHITESPACE@312..314 "  "
+      WITH_EXPR@314..348
+        WITH_KW@314..318 "with"
+        WHITESPACE@318..319 " "
+        WITH_BY@319..340
+          PATH@319..326
+            TYPE_NAME@319..326 "Counter"
+          WHITESPACE@326..327 " "
+          LOWER_NAME@327..329 "by"
+          WHITESPACE@329..330 " "
+          PATH@330..335
+            TYPE_NAME@330..335 "State"
+          TYPE_ARG_LIST@335..340
+            L_BRACK@335..336 "["
+            PATH_TYPE@336..339
+              PATH@336..339
+                TYPE_NAME@336..339 "Int"
+            R_BRACK@339..340 "]"
+        WHITESPACE@340..341 " "
+        BLOCK_EXPR@341..348
+          L_BRACE@341..342 "{"
+          WHITESPACE@342..343 " "
+          CALL_EXPR@343..346
+            NAME_REF@343..344
+              LOWER_NAME@343..344 "c"
+            ARG_LIST@344..346
+              L_PAREN@344..345 "("
+              R_PAREN@345..346 ")"
+          WHITESPACE@346..347 " "
+          R_BRACE@347..348 "}"
+      NEWLINE@348..349 "\n"
+      R_BRACE@349..350 "}"
+  NEWLINE@350..351 "\n"

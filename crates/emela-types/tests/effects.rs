@@ -1412,3 +1412,42 @@ fn unused(f: fn() -> ()) {
 "#
     ));
 }
+
+/// Labels of an effect with type arguments (issue #255): the label's operations are typed with
+/// the base's arguments, and the right of `by` may carry arguments too.
+#[test]
+fn labels_of_generic_effects() {
+    insta::assert_snapshot!(render_handlers(
+        r#"
+effect Box[T] {
+  fn get() -> T
+}
+
+effect Hits of Box[Int]
+effect Names of Box[String] default
+effect Bare of Box
+
+handler IntBox implements Box[Int] {
+  fn get() { 1 }
+}
+
+handler StrBox implements Box[String] {
+  fn get() { "s" }
+}
+
+fn hits() -> Int { (use Hits).get() + 1 }
+
+fn name() -> String { (use Names).get() }
+
+fn main() {
+  with Hits by IntBox { hits() }
+  with IntBox, Hits by Box[Int] { hits() }
+  with StrBox { name() }
+  with IntBox { name() }
+  with Hits by StrBox { hits() }
+  with IntBox, Hits by Box[String] { hits() }
+  with IntBox, Hits by Box { hits() }
+}
+"#
+    ));
+}
