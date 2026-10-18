@@ -1,0 +1,33 @@
+# The values of string literals (spec 2.4): escapes, and multiline strings without the newlines
+# next to the `"""`s and without the closing line's indentation.
+fn main() {
+  dbg(String.byte_size("a\tb"))
+  dbg(String.code_points("\t\r\u{41}\u{1F44D}"))
+  q = """
+    SELECT *
+    FROM users
+    """
+  dbg(q)
+  id = 7
+  dbg("""
+    WHERE id = #{id}
+      AND deeper
+    an escape\n does not start a line
+
+    #{id} starts a line
+    """)
+  dbg("""
+    """)
+  dbg("""
+    one
+  
+    two
+    """)
+  r = """
+    hi
+    """ match {
+    "hi" -> True
+    _ -> False
+  }
+  dbg(r)
+}

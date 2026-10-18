@@ -1277,7 +1277,7 @@ impl Lower<'_, '_> {
         for element in node.children_with_tokens() {
             match element {
                 rowan::NodeOrToken::Token(t) if t.kind() == STRING_TEXT => {
-                    let text = unescape(t.text());
+                    let text = string_text(&t);
                     match parts.last_mut() {
                         Some(StrPart::Text(prev)) => prev.push_str(&text),
                         _ => parts.push(StrPart::Text(text)),
@@ -1923,7 +1923,7 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
         .descendants_with_tokens()
         .filter_map(|e| e.into_token())
         .filter(|t| t.kind() == STRING_TEXT)
-        .map(|t| unescape(t.text()))
+        .map(|t| string_text(&t))
         .collect();
     PatKind::Lit(Literal::String(text))
 }
@@ -1953,7 +1953,7 @@ fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
                         lit.descendants_with_tokens()
                             .filter_map(|e| e.into_token())
                             .filter(|t| t.kind() == STRING_TEXT)
-                            .map(|t| unescape(t.text()))
+                            .map(|t| string_text(&t))
                             .collect(),
                     )
                 })
@@ -1966,8 +1966,66 @@ fn external_attrs(f: &ast::FnDecl) -> Vec<ExternalAttr> {
         .collect()
 }
 
-/// Unescapes `\"` `\\` `\n` `\#`. Invalid escapes are already reported by the lexer, so they are
-/// kept as is.
+/// The value of a STRING_TEXT token. In a multiline string (spec 2.4), the newline after the
+/// opening `"""` and the one before the closing `"""` are dropped, and the closing line's
+/// indentation is removed from the start of each line (whitespace-only lines may be shallower;
+/// the lexer reports other shallower lines, E0109). This works on the text as written, before
+/// unescaping, so that a `\n` escape does not start a line.
+fn string_text(token: &SyntaxToken) -> String {
+    let Some(string) = token
+        .parent()
+        .filter(|s| s.first_token().is_some_and(|t| t.kind() == TRIPLE_QUOTE))
+    else {
+        return unescape(token.text());
+    };
+    let first = token
+        .prev_sibling_or_token()
+        .is_some_and(|e| e.kind() == TRIPLE_QUOTE);
+    let last = token
+        .next_sibling_or_token()
+        .is_some_and(|e| e.kind() == TRIPLE_QUOTE);
+    // The closing `"""` holds the whitespace before it on its line (`    """`).
+    let close = string.last_child_or_token().and_then(|e| e.into_token());
+    let indent = close
+        .as_ref()
+        .filter(|t| t.kind() == TRIPLE_QUOTE)
+        .and_then(|t| t.text().strip_suffix("\"\"\""))
+        .unwrap_or("");
+    let mut text = token.text();
+    if first {
+        text = text
+            .strip_prefix("\r\n")
+            .or_else(|| text.strip_prefix('\n'))
+            .unwrap_or(text);
+    }
+    if last {
+        text = text
+            .strip_suffix("\r\n")
+            .or_else(|| text.strip_suffix('\n'))
+            .unwrap_or(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        // A token after an interpolation starts in the middle of a line.
+        let line = if i == 0 && !first {
+            line
+        } else if let Some(rest) = line.strip_prefix(indent) {
+            rest
+        } else if line.trim().is_empty() {
+            line.trim_start_matches([' ', '\t'])
+        } else {
+            line
+        };
+        out.push_str(line);
+    }
+    unescape(&out)
+}
+
+/// Unescapes `\"` `\\` `\n` `\t` `\r` `\#` `\u{...}`. Invalid escapes are already reported by
+/// the lexer, so they are kept as is.
 fn unescape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars();
@@ -1978,6 +2036,24 @@ fn unescape(text: &str) -> String {
         }
         match chars.next() {
             Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('u') => {
+                let rest = chars.as_str();
+                let value = rest
+                    .strip_prefix('{')
+                    .and_then(|r| r.split_once('}'))
+                    .and_then(|(digits, _)| u32::from_str_radix(digits, 16).ok())
+                    .and_then(char::from_u32);
+                match value {
+                    Some(v) => {
+                        out.push(v);
+                        let skip = rest.find('}').unwrap_or(0) + 1;
+                        chars = rest[skip..].chars();
+                    }
+                    None => out.push_str("\\u"),
+                }
+            }
             Some(c @ ('"' | '\\' | '#')) => out.push(c),
             Some(c) => {
                 out.push('\\');
