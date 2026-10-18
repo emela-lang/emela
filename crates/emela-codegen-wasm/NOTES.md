@@ -104,6 +104,28 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   6.6 の NOTES）をランタイムの関数にする．シフト量が負なら `negative shift amount: <n>` の
   defect にする
 
+### 内部ホスト（ホスト境界の固定 ABI）
+
+- （補）`@external(wasm, "module", "name")` は通常は wasm の import になるが，`(module, name)`
+  が `emit::external::INTERNAL_HOSTS` にあるときは同じモジュールのランタイム関数に束縛する
+  （import は足さない）．その関数の型は LIR の representation を写したもので，`String` やリスト
+  などの参照は `i32`（線形メモリのポインタ）になり，`()` は無しになる．`repr_val` を通すので
+  参照を拒む `host_val` は使わない．最初の 1 つが `("test", "print") -> print_string`
+  （`(i32) -> ()`，標準出力に文字列と改行）
+- （補）内部ホストが指すランタイム関数は要求されたときだけ登録・出力する
+  （`runtime::is_on_demand`）．内部ホストを使わないプログラムのバイト列は，関数を足しても
+  変わらない．ランタイムの添字は IR 関数の後で確定するので，`external_import` で見た束縛は
+  `bind_internal_hosts` が `runtime::register` の後に埋める
+- （補）`std` の platform（`Std.Console`，`Std.Clock`，`Std.Env`，`Std.Random`，
+  `Std.FileSystem`）は後の波でこの表とランタイムの断片（`runtime::host`，`runtime::fs`）に足す
+
+### suspend の ABI（宣言のみ）
+
+- （補）`runtime/sched.rs` にフレームの配置（状態タグ，`i64` の resume 入力，payload），
+  resume 入力のグローバル（`G_RESUME`，`i64`，`G_STRDESC` の次で `GLOBALS` は 7 になる），
+  `G_FAILURE` / `G_DEFECT` の使い方，`loop $dispatch` と `br_table` の約束を宣言だけしてある．
+  `emit::suspend` は `Stmt::Let` の `on_suspend` の辺をまだ実装していない（値と定数だけ）
+
 ## 対応していないもの（最初の版）
 
 - 状態機械（`Stmt::Let` の `on_suspend`）と suspend するコード，`runtime yield` など
@@ -115,7 +137,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない．2 つ目は捨て，結果は最初の
   defect のままにする（14.4）
 - 外部関数と WASM の境界を越えられるのは `Int` / `Bool` / `Int64` / `Float` だけ．`String` や
-  `@external type` は越えられず，診断で止める（ホストが線形メモリを読む約束がまだ無い）
+  `@external type` は越えられず，診断で止める（ホストが線形メモリを読む約束がまだ無い）．
+  内部ホスト（上の ABI）は参照を `i32` のポインタとして渡す
 - std の platform（`Std.Console`，`Std.Clock`，`Std.Random`，`Std.Env`，`Std.FileSystem`，
   `Std.Http`）は `@external(wasm, ...)` を持たないので，`with Platform` は E0412 で止まる
   （ホスト側の WASI の口を用意するのが先）
@@ -126,6 +149,10 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   `dbg` の出力まで見る
 - `tests/run.rs` は整数，enum と match，リストの再帰，クロージャの捕獲，文字列，エフェクトと
   ハンドラ，失敗と escape を `wasmtime` で動かして出力を比べる．`wasmtime` がなければ飛ばす
+- `tests/programs.rs` は C の受け入れコーパス（`crates/emela-codegen-c/tests/programs`）を
+  WASM にして `wasmtime` で走らせ，終了コード・標準出力・標準エラーを `.expected` と比べる．
+  まだ動かないプログラムは `NOT_ON_WASM` に理由つきで並べる（後の波で空にする）．コーパスの
+  `print` には `@external(wasm, "test", "print")` を注入して内部ホストに束縛する
 - `crates/emela-driver/tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の
   両方で動かし，終了コードと出力が一致することを見る．WASM がまだ扱えないもの（Float，書記素，
   fiber）は診断のメッセージで見る．CI の test は `wasmtime` を入れるので実行テストは飛ばない

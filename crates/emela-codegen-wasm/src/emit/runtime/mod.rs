@@ -11,15 +11,52 @@
 
 use wasm_encoder::{BlockType, InstructionSink, ValType};
 
-use super::layout::{CPBUF, DIGITS, DIGITS64, IOVEC, JSONBUF, NEWLINE, NWRITTEN, PAGE};
+use super::layout::{CPBUF, DIGITS, DIGITS64, JSONBUF, PAGE};
 
 use super::*;
+
+mod fiber;
+mod float;
+mod fs;
+mod host;
+mod sched;
 
 /// A runtime function: its name and wasm signature.
 type Sig = (&'static str, &'static [ValType], &'static [ValType]);
 
+/// The runtime functions, as contiguous fragments in definition order.
+///
+/// This is the single ordered source of truth for the runtime function index space: each
+/// submodule owns the fragment whose function bodies it holds, and [`funcs`] walks the fragments
+/// in exactly this order. A function's position is its index, so a new function is added by
+/// extending the fragment it belongs to, and a whole new group by appending a fragment at the
+/// end (`float`, `sched`, `fiber` and `fs` are the seams for later waves).
+pub(crate) const FUNCS: &[&[Sig]] = &[
+    CORE_HEAD,
+    host::FUNCS,
+    CORE_TAIL,
+    float::FUNCS,
+    sched::FUNCS,
+    fiber::FUNCS,
+    fs::FUNCS,
+];
+
 /// Every runtime function, in definition order.
-pub(crate) const FUNCS: &[Sig] = &[
+pub(crate) fn funcs() -> impl Iterator<Item = &'static Sig> {
+    FUNCS.iter().flat_map(|fragment| fragment.iter())
+}
+
+/// The wasm signature of a runtime function, if it exists (the contract an internal host must
+/// match; see `emit::external`).
+pub(super) fn signature(name: &str) -> Option<(&'static [ValType], &'static [ValType])> {
+    funcs()
+        .find(|(runtime, ..)| *runtime == name)
+        .map(|(_, params, results)| (*params, *results))
+}
+
+/// The core fragment before the host calls: the allocator and reference counting, the strings,
+/// the numeric conversions and the values of the `Option`-returning builtins.
+const CORE_HEAD: &[Sig] = &[
     ("alloc", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("dup", &[ValType::I32], &[]),
     ("drop", &[ValType::I32], &[]),
@@ -97,9 +134,11 @@ pub(crate) const FUNCS: &[Sig] = &[
     ("show_string", &[ValType::I32], &[ValType::I32]),
     ("int_to_string", &[ValType::I32], &[ValType::I32]),
     ("int64_to_string", &[ValType::I64], &[ValType::I32]),
-    ("debug_print", &[ValType::I32], &[]),
-    ("write", &[ValType::I32, ValType::I32, ValType::I32], &[]),
-    ("exit", &[ValType::I32], &[]),
+];
+
+/// The core fragment after the host calls: the defects, the test protocol and the numeric
+/// helpers.
+const CORE_TAIL: &[Sig] = &[
     ("raise", &[ValType::I32], &[]),
     ("defect_take", &[], &[ValType::I32]),
     ("defect_resume", &[ValType::I32], &[]),
@@ -121,12 +160,24 @@ pub(crate) const FUNCS: &[Sig] = &[
     ("lshl", &[ValType::I64, ValType::I32], &[ValType::I64]),
     ("lshr", &[ValType::I64, ValType::I32], &[ValType::I64]),
     ("lushr", &[ValType::I64, ValType::I32], &[ValType::I64]),
-    ("fmod", &[ValType::F64, ValType::F64], &[ValType::F64]),
 ];
+
+/// Whether a runtime function is emitted only when a program references it. The internal host
+/// registry (`emit::external::INTERNAL_HOSTS`) is the single list: naming a runtime function
+/// there makes it on demand, so programs that do not use it keep the exact bytes they had before
+/// the function was added.
+fn is_on_demand(name: &str) -> bool {
+    super::external::INTERNAL_HOSTS
+        .iter()
+        .any(|(_, _, runtime)| *runtime == name)
+}
 
 /// Reserves the runtime functions in the function index space.
 pub(crate) fn register(b: &mut Builder) {
-    for (name, params, results) in FUNCS {
+    for &(name, params, results) in funcs() {
+        if is_on_demand(name) && !b.requested_hosts.contains(&name) {
+            continue;
+        }
         let ty = b.ty(params.to_vec(), results.to_vec());
         let index = b.imports.len() as u32 + b.defs.len() as u32;
         b.defs.push(ty);
@@ -143,9 +194,12 @@ fn i32s(first: u32, n: u32) -> Vec<(u32, ValType)> {
     vec![(n, ValType::I32)]
 }
 
-/// Emits every runtime function body, in `FUNCS` order.
+/// Emits every registered runtime function body, in `FUNCS` order.
 pub(crate) fn emit(b: &mut Builder) {
-    for (name, ..) in FUNCS {
+    for &(name, ..) in funcs() {
+        if !b.rt.contains_key(name) {
+            continue;
+        }
         let mut f = WasmFunction::new(locals(name));
         {
             let mut ins = f.instructions();
@@ -157,6 +211,14 @@ pub(crate) fn emit(b: &mut Builder) {
 }
 
 fn locals(name: &str) -> Vec<(u32, ValType)> {
+    if let Some(locals) = host::locals(name)
+        .or_else(|| float::locals(name))
+        .or_else(|| sched::locals(name))
+        .or_else(|| fiber::locals(name))
+        .or_else(|| fs::locals(name))
+    {
+        return locals;
+    }
     match name {
         "alloc" => i32s(2, 6),      // need, cur, prev, next, p, pages
         "dup" => i32s(1, 1),        // rc
@@ -193,6 +255,15 @@ fn locals(name: &str) -> Vec<(u32, ValType)> {
 }
 
 fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
+    // The submodules own the fragments they hold; ask each first.
+    if host::body(b, name, ins)
+        || float::body(b, name, ins)
+        || sched::body(b, name, ins)
+        || fiber::body(b, name, ins)
+        || fs::body(b, name, ins)
+    {
+        return;
+    }
     match name {
         "alloc" => alloc(b, ins),
         "dup" => dup(ins),
@@ -225,9 +296,6 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         "show_string" => show_string(b, ins),
         "int_to_string" => int_to_string(b, ins),
         "int64_to_string" => int64_to_string(b, ins),
-        "debug_print" => debug_print(b, ins),
-        "write" => write(b, ins),
-        "exit" => exit(b, ins),
         "raise" => raise(b, ins),
         "defect_take" => defect_take(ins),
         "defect_resume" => defect_resume(b, ins),
@@ -241,7 +309,6 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         "ishl" | "ishr" | "iushr" => ishift(b, ins, name),
         "ldiv" | "lrem" | "lneg" => l_int_binop(ins, name),
         "lshl" | "lshr" | "lushr" => lshift(b, ins, name),
-        "fmod" => fmod(ins),
         _ => {}
     }
 }
@@ -2055,47 +2122,6 @@ fn int64_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(P);
 }
 
-// ---- host calls ----
-
-fn write(b: &mut Builder, ins: &mut InstructionSink) {
-    ins.i32_const(IOVEC as i32);
-    ins.local_get(1);
-    ins.i32_store(mem(0, 4));
-    ins.i32_const((IOVEC + 4) as i32);
-    ins.local_get(2);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(0);
-    ins.i32_const(IOVEC as i32);
-    ins.i32_const(1);
-    ins.i32_const(NWRITTEN as i32);
-    ins.call(b.fd_write());
-    ins.drop();
-}
-
-fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
-    let write = rt(b, "write");
-    ins.i32_const(2);
-    ins.local_get(0);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
-    ins.local_get(0);
-    ins.i32_load(mem(HDR, 4));
-    ins.call(write);
-    ins.i32_const(NEWLINE as i32);
-    ins.i32_const(10);
-    ins.i32_store8(mem(0, 1));
-    ins.i32_const(2);
-    ins.i32_const(NEWLINE as i32);
-    ins.i32_const(1);
-    ins.call(write);
-}
-
-fn exit(b: &mut Builder, ins: &mut InstructionSink) {
-    ins.local_get(0);
-    ins.call(b.proc_exit());
-    ins.unreachable();
-}
-
 // ---- defects ----
 
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
@@ -2299,17 +2325,6 @@ fn negative_shift(b: &mut Builder, ins: &mut InstructionSink, ret: Repr) {
     ins.call(rt(b, "raise"));
     dummy_return(ins, ret);
     ins.end();
-}
-
-fn fmod(ins: &mut InstructionSink) {
-    ins.local_get(0);
-    ins.local_get(0);
-    ins.local_get(1);
-    ins.f64_div();
-    ins.f64_trunc();
-    ins.local_get(1);
-    ins.f64_mul();
-    ins.f64_sub();
 }
 
 // ---- failures and the test protocol (spec 13.4) ----
