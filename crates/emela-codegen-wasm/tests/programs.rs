@@ -20,50 +20,40 @@ use common::{out_dir, run_bytes, to_wasm, wasmtime};
 const NOT_ON_WASM: &[(&str, &str)] = &[
     // --- fibers and suspending code (check.rs) ---
     (
-        "fiber_deferred",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
-    ),
-    (
         "fiber_failures",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
+        "a fiber release that fails while unwinding loses its defect (needs the defect/\
+         interruption replacement in `raise`, spec 14.4)",
     ),
     (
         "fiber_fairness",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
+        "the driver loop stalls/traps during a long fairness interleaving",
     ),
     (
         "fiber_main_fails",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
+        "the `note: another fiber also failed` of a release defect needs the defect/\
+         interruption replacement in `raise`, spec 14.4",
     ),
     (
         "fiber_notes",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
-    ),
-    (
-        "fiber_scope",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
+        "the `note: another fiber also failed` needs the defect/interruption replacement in \
+         `raise`, spec 14.4",
     ),
     (
         "fiber_unwinding",
-        "fibers are not supported on wasm (the entry reaches suspending code)",
-    ),
-    (
-        "generic_main",
-        "`Fiber.scope` is not supported on wasm (the entry reaches suspending code)",
-    ),
-    (
-        "suspend_abandoned",
-        "suspending code is not supported on wasm",
+        "an interruption of a fiber whose release fails is not delivered correctly yet",
     ),
     (
         "suspend_after_resume",
-        "suspending code is not supported on wasm",
+        "a failure after resume ends the run as interrupted instead of with the defect",
     ),
     (
         "suspend_external",
-        "a `suspend fn` external function is not supported on wasm",
+        "a `suspend fn` external function needs the `sleep` host of T-Clock",
     ),
-    ("suspend_resume", "suspending code is not supported on wasm"),
+    (
+        "suspend_resume",
+        "a resume kept for another fiber (the `Parked` handler) is not delivered yet",
+    ),
 ];
 
 struct Expected {

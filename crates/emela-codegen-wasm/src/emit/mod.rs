@@ -44,7 +44,8 @@ use crate::{WasmError, WasmErrorKind, WasmOutput};
 /// What the generated `_start` runs.
 #[allow(dead_code)]
 pub(crate) enum Run {
-    Main,
+    /// main, as its monomorphic copy (when the program has one).
+    Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
 }
@@ -120,8 +121,21 @@ const G_SYNC_DEPTH: u32 = 10;
 const G_INTERRUPTED: u32 = 11;
 /// A defect that ended a `sync` call (a failure after resume, spec 8.7).
 const G_SYNC_DEFECT: u32 = 12;
+/// The run under way (the `em_root`), or 0 (spec 14.5).
+const G_ROOT: u32 = 13;
+/// The fiber being stepped (the `em_fiber`), or 0.
+const G_CUR: u32 = 14;
+/// Whether the stepped fiber runs its main continuation (not an operation implementation's).
+const G_CUR_MAIN: u32 = 15;
+/// The identity of the run under way (`em_run_id`): a resume after the run is ignored.
+const G_RUN_ID: u32 = 16;
+/// The first defect of a continuation unwound when the run stalled that was not a fiber's
+/// (kept in the root's `orphan` slot).
+/// The note tables of spec 11.2 (`em_note_errors`/`em_note_lines`), as vector pointers.
+const G_NOTE_ERRORS: u32 = 17;
+const G_NOTE_LINES: u32 = 18;
 /// The number of globals of a program that suspends.
-const SUSPEND_GLOBALS: u32 = 13;
+const SUSPEND_GLOBALS: u32 = 19;
 
 /// The object header (see [`HDR`]) fields a frame uses: state, next, and the first saved slot.
 const FRAME_STATE: u32 = HDR + 8;
@@ -194,6 +208,15 @@ pub(crate) struct Builder<'m> {
     machine: FxHashMap<usize, MachineInfo>,
     /// The table index of the resume closures, by [`repr_code`].
     resume_closure: [u32; 5],
+    /// The table indices of the fiber runtime's frame resume functions (`scope_body`,
+    /// `scope_close`, `attempt`), in that order.
+    pub(crate) fiber_resume: [u32; 3],
+    /// The table index of the root-entry thunk of the run (`_start`'s argument to `run`).
+    pub(crate) entry_thunk: u32,
+    /// The entry functions of the run (main, or the tests), each with a thunk in the table.
+    pub(crate) entry_ids: Vec<FnId>,
+    /// The table indices of the entry thunks, one per [`entry_ids`](Builder::entry_ids).
+    pub(crate) thunk_tables: Vec<u32>,
     /// The descriptor of the `interrupted` object (spec 14.5).
     pub(crate) interrupted_desc: u32,
     /// Whether the module has a const (`Function::constant`): the const helpers and the
@@ -259,6 +282,10 @@ impl<'m> Builder<'m> {
             globals: BASE_GLOBALS,
             machine: FxHashMap::default(),
             resume_closure: [0; 5],
+            fiber_resume: [0; 3],
+            entry_thunk: 0,
+            entry_ids: Vec::new(),
+            thunk_tables: Vec::new(),
             interrupted_desc: 0,
             uses_const: has_const(m),
             uses_notes: has_release(m),
@@ -493,9 +520,35 @@ impl<'m> Builder<'m> {
                 self.resume_closure[code] = self.table_funcs.len() as u32;
                 self.table_funcs.push(index);
             }
+            // The frames of the fiber runtime resume through these (`fiber_scope` and
+            // `fiber_attempt`).
+            for (slot, name) in [
+                (0, "scope_body_resume"),
+                (1, "scope_close_resume"),
+                (2, "attempt_resume"),
+            ] {
+                let index = self.rt(name);
+                self.fiber_resume[slot] = self.table_funcs.len() as u32;
+                self.table_funcs.push(index);
+            }
         }
         // The internal host bindings are runtime functions whose index is fixed now.
         self.bind_internal_hosts();
+        self.entry_ids = match entry {
+            Run::Main(main) => main.iter().copied().collect(),
+            Run::Tests(tests) => tests.iter().map(|(_, id)| *id).collect(),
+        };
+        // The entry thunks (the run calls one through the table; see `emit_entry`). They come
+        // before `_start` in the function index space.
+        if self.uses_suspend {
+            let thunk_ty = self.ty(vec![], vec![ValType::I64]);
+            for _ in &self.entry_ids {
+                let func = self.imports.len() as u32 + self.defs.len() as u32;
+                self.thunk_tables.push(self.table_funcs.len() as u32);
+                self.table_funcs.push(func);
+                self.defs.push(thunk_ty);
+            }
+        }
         // One entry (`_start`).
         let ty = self.ty(vec![], vec![]);
         self.entry_index = self.imports.len() as u32 + self.defs.len() as u32;
@@ -920,30 +973,51 @@ impl<'m> Builder<'m> {
     }
 
     fn emit_entry(&mut self, entry: &Run) {
+        // The entry thunks (one per entry function) come first, matching the definition order
+        // reserved in `build`.
+        if self.uses_suspend {
+            for (i, id) in self.entry_ids.clone().iter().enumerate() {
+                let id = *id;
+                let thunk = self.emit_thunk(id);
+                self.bodies.push(thunk);
+                self.entry_thunk = self.thunk_tables[i];
+            }
+        }
         let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
         {
             let ins = &mut func.instructions();
             match entry {
-                Run::Main => {
-                    let main = self
-                        .m
-                        .functions
-                        .iter()
-                        .find(|(_, f)| f.exported && f.name == "main")
-                        .map(|(id, _)| id);
-                    if let Some(id) = main {
-                        let index = self.fn_index(id);
-                        let ret = self.repr(self.m.functions[id].ret);
-                        ins.call(index);
-                        self.drop_result(ins, ret);
+                Run::Main(_) => {
+                    if self.uses_suspend {
+                        if !self.entry_ids.is_empty() {
+                            ins.i32_const(self.thunk_tables[0] as i32);
+                            let repr = self.repr(self.m.functions[self.entry_ids[0]].ret);
+                            ins.i32_const(repr_code(repr) as i32);
+                            ins.call(self.rt("run"));
+                        }
+                    } else {
+                        let main = self.entry_ids.first().copied();
+                        if let Some(id) = main {
+                            let index = self.fn_index(id);
+                            let ret = self.repr(self.m.functions[id].ret);
+                            ins.call(index);
+                            self.drop_result(ins, ret);
+                        }
                     }
                 }
                 Run::Tests(tests) => {
-                    for (name, id) in tests {
-                        let index = self.fn_index(*id);
-                        let ret = self.repr(self.m.functions[*id].ret);
-                        ins.call(index);
-                        self.drop_result(ins, ret);
+                    for (i, (name, id)) in tests.iter().enumerate() {
+                        if self.uses_suspend {
+                            ins.i32_const(self.thunk_tables[i] as i32);
+                            let repr = self.repr(self.m.functions[*id].ret);
+                            ins.i32_const(repr_code(repr) as i32);
+                            ins.call(self.rt("run"));
+                        } else {
+                            let index = self.fn_index(*id);
+                            let ret = self.repr(self.m.functions[*id].ret);
+                            ins.call(index);
+                            self.drop_result(ins, ret);
+                        }
                         let name = self.string_literal(name.as_bytes());
                         ins.i32_const(name as i32);
                         ins.call(self.rt("test_result"));
@@ -955,6 +1029,32 @@ impl<'m> Builder<'m> {
             ins.end();
         }
         self.bodies.push(func);
+    }
+
+    /// The root-entry thunk of an entry function: calls it and returns its value as a word (the
+    /// runtime `run` takes it through the table).
+    fn emit_thunk(&mut self, id: FnId) -> WasmFunction {
+        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        {
+            let mut ins = func.instructions();
+            let index = self.fn_index(id);
+            let ret = self.repr(self.m.functions[id].ret);
+            ins.call(index);
+            match ret {
+                Repr::Void => {
+                    ins.i64_const(0);
+                }
+                Repr::I32 | Repr::Ref => {
+                    ins.i64_extend_i32_u();
+                }
+                Repr::I64 => {}
+                Repr::F64 => {
+                    ins.i64_reinterpret_f64();
+                }
+            }
+            ins.end();
+        }
+        func
     }
 
     /// Gives up a call's result: `drop` for a reference, `drop` for a plain value, nothing for
@@ -1658,7 +1758,7 @@ impl<'m> Builder<'m> {
                     self.store_slot(cx, ins, d, i + 2, &Operand::Var(*o));
                 }
             }
-            Value::Fiber { .. } => self.fiber(cx, ins, dst),
+            Value::Fiber { op, args, .. } => self.fiber(cx, ins, dst, *op, args),
             Value::IsError { error, enum_id } => {
                 ins.local_get(cx.local(*error));
                 ins.i32_const(ix(*enum_id) as i32);
@@ -2042,7 +2142,7 @@ enum Scrutinee {
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
     match v {
-        Value::Call { on_fail, .. } => on_fail.as_ref(),
+        Value::Call { on_fail, .. } | Value::Fiber { on_fail, .. } => on_fail.as_ref(),
         _ => None,
     }
 }

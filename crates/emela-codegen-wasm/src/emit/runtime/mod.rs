@@ -177,7 +177,7 @@ fn is_on_demand(name: &str) -> bool {
 /// Reserves the runtime functions in the function index space.
 pub(crate) fn register(b: &mut Builder) {
     for &(name, params, results) in funcs() {
-        if sched::handles(name) && !b.uses_suspend {
+        if (sched::handles(name) || fiber::handles(name)) && !b.uses_suspend {
             continue;
         }
         if constant::handles(name) && !b.uses_const {
@@ -262,7 +262,7 @@ fn locals(b: &Builder, name: &str) -> Vec<(u32, ValType)> {
         "int_to_string" => i32s(1, 6), // neg, u, i, p, len, j
         "int64_to_string" => vec![(5, ValType::I32), (1, ValType::I64)], // neg,i,p,len,j / u
         "defect_take" => i32s(0, 1),
-        "show_failure" => i32s(1, 3), // desc, show, result
+        "show_failure" => i32s(1, 4), // desc, show, result, notes
         "json_string" => i32s(1, 3),  // i, byte, hex
         "test_result" => i32s(1, 3),  // kind, message, error
         "finish" => i32s(0, 1),       // shown
@@ -2476,6 +2476,7 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     const D: u32 = 1;
     const SHOW: u32 = 2;
     const RESULT: u32 = 3;
+    const NOTES: u32 = 4;
     ins.local_get(0);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
@@ -2496,6 +2497,13 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.return_();
     ins.end();
+    if b.uses_suspend {
+        // The notes of a failure (spec 11.2) are captured before the `show` function consumes the
+        // error.
+        ins.local_get(0);
+        ins.call(rt(b, "notes_of"));
+        ins.local_set(NOTES);
+    }
     let ty = b.call_ty(&[Repr::Ref], Repr::Ref);
     ins.local_get(0);
     ins.local_get(SHOW);
@@ -2508,6 +2516,23 @@ fn show_failure(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.return_();
     ins.end();
+    if b.uses_suspend {
+        let nl = b.string_literal(b"\n");
+        ins.local_get(NOTES);
+        ins.if_(BlockType::Empty);
+        ins.local_get(RESULT);
+        ins.if_(BlockType::Result(ValType::I32));
+        ins.local_get(RESULT);
+        ins.i32_const(nl as i32);
+        ins.call(rt(b, "str_append"));
+        ins.else_();
+        ins.i32_const(nl as i32);
+        ins.end();
+        ins.local_get(NOTES);
+        ins.call(rt(b, "str_append"));
+        ins.local_set(RESULT);
+        ins.end();
+    }
     ins.local_get(RESULT);
 }
 
