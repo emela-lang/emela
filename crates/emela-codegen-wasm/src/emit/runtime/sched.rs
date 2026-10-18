@@ -323,6 +323,10 @@ const HOST_EVERY: i32 = 16;
 pub(super) const MODE_VALUE: i32 = 0;
 pub(super) const MODE_THROW: i32 = 1;
 pub(super) const MODE_FAIL: i32 = 2;
+/// A value input that owns a reference (`mode` is otherwise `MODE_VALUE`). A thrown defect or a
+/// failure always owns one; this bit marks the value case so an undelivered input can be released
+/// like the C `em_input_drop`.
+const MODE_VALUE_REF: i32 = 4;
 
 pub(super) const REF_CODE: i32 = 3;
 pub(super) const VOID_CODE: i32 = 4;
@@ -546,13 +550,13 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         "cause_of" => vec![(1, ValType::I32)],
         "cause_to_string" => vec![(7, ValType::I32)],
         "cause_raise" => vec![(1, ValType::I32)],
-        "cause_note" => vec![(3, ValType::I32)],
+        "cause_note" => vec![(4, ValType::I32)],
         "notes_add" => vec![(9, ValType::I32)],
         "notes_of" => vec![(2, ValType::I32)],
         "notes_clear" => vec![(1, ValType::I32)],
         "is_unwinding" => vec![(1, ValType::I32)],
         "interrupting" => vec![(1, ValType::I32)],
-        "deliver" => vec![(6, ValType::I32)],
+        "deliver" => vec![(5, ValType::I32)],
         "interrupt_fiber" => vec![(2, ValType::I32)],
         "fiber_resume" => vec![(2, ValType::I32), (1, ValType::I64)],
         "step" => vec![(3, ValType::I32)],
@@ -1137,7 +1141,11 @@ fn perform_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i64_load(mem(P_NOW_BITS, 8));
     ins.local_set(BITS);
     set_input(ins, MODE, BITS);
+    // A value result is `MODE_VALUE` or `MODE_VALUE_REF` (the low bits are 0); anything else is a
+    // defect or a failure, which carries no value to continue with.
     ins.local_get(MODE);
+    ins.i32_const(3);
+    ins.i32_and();
     ins.i32_eqz();
     ins.if_(BlockType::Result(ValType::I64));
     ins.local_get(BITS);
@@ -1213,7 +1221,9 @@ fn settled(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(BITS);
     ins.i32_wrap_i64();
     ins.local_set(TMP);
-    dup_push(ins, b, TMP);
+    // `show_failure` consumes the failure (C's `em_show_failure(in.value.p)`); do not keep a second
+    // reference to it (W3-6).
+    ins.local_get(TMP);
     ins.call(rt(b, "show_failure"));
     ins.call(append);
     ins.local_set(MSG);
@@ -1295,8 +1305,31 @@ fn pass(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(MODE);
     ins.local_get(BITS);
     ins.call(rt(b, "cont"));
+    ins.else_();
+    // No caller will consume it (C's `em_input_drop`).
+    input_drop(ins, b, MODE, BITS);
     ins.end();
     ins.end();
+}
+
+/// Drops an input `(mode, bits)` nothing will consume (C's `em_input_drop`): a thrown defect, a
+/// failure, or a value carrying [`MODE_VALUE_REF`]. A plain value is not a reference to release.
+fn input_drop(ins: &mut InstructionSink, b: &Builder, mode: u32, bits: u32) {
+    ins.local_get(mode);
+    ins.if_(BlockType::Empty);
+    ins.local_get(bits);
+    ins.i32_wrap_i64();
+    ins.call(rt(b, "drop"));
+    ins.end();
+}
+
+/// Releases a resume value the call will not deliver: a reference the input owned (C's
+/// `em_input_drop` in `em_resume_with`).
+fn drop_resume_value(b: &mut Builder, ins: &mut InstructionSink, value: Repr, param: u32) {
+    if value == Repr::Ref {
+        ins.local_get(param);
+        ins.call(rt(b, "drop"));
+    }
 }
 
 /// `resume_with(env, value)`: the implementation resumed the operation.
@@ -1308,10 +1341,12 @@ fn resume_with(b: &mut Builder, ins: &mut InstructionSink, value: Repr, param: u
     ins.local_get(0);
     ins.i32_load(mem(RES_PERF, 4));
     ins.local_set(P);
-    // A resume after the run is over is ignored (spec 14.5).
+    // A resume after the run is over is ignored (spec 14.5), and the value it carried is released
+    // (C's `em_input_drop` in `em_resume_with`).
     ins.global_get(G_ROOT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
+    drop_resume_value(b, ins, value, param);
     ins.return_();
     ins.end();
     ins.local_get(P);
@@ -1319,6 +1354,13 @@ fn resume_with(b: &mut Builder, ins: &mut InstructionSink, value: Repr, param: u
     ins.global_get(G_RUN_ID);
     ins.i32_ne();
     ins.if_(BlockType::Empty);
+    drop_resume_value(b, ins, value, param);
+    ins.return_();
+    ins.end();
+    ins.global_get(G_ROOT);
+    ins.i32_load(mem(R_OVER, 4));
+    ins.if_(BlockType::Empty);
+    drop_resume_value(b, ins, value, param);
     ins.return_();
     ins.end();
     ins.local_get(P);
@@ -1331,10 +1373,7 @@ fn resume_with(b: &mut Builder, ins: &mut InstructionSink, value: Repr, param: u
     ins.local_set(MSG);
     ins.local_get(MSG);
     ins.call(raise);
-    if value == Repr::Ref {
-        ins.local_get(param);
-        ins.call(rt(b, "drop"));
-    }
+    drop_resume_value(b, ins, value, param);
     ins.return_();
     ins.end();
     match value {
@@ -1358,7 +1397,12 @@ fn resume_with(b: &mut Builder, ins: &mut InstructionSink, value: Repr, param: u
         }
     }
     ins.local_get(P);
-    ins.i32_const(MODE_VALUE);
+    // A reference value the input owns must be released if it is never delivered.
+    ins.i32_const(if value == Repr::Ref {
+        MODE_VALUE_REF
+    } else {
+        MODE_VALUE
+    });
     ins.local_get(BITS);
     ins.call(rt(b, "pass"));
 }
@@ -2093,6 +2137,9 @@ fn scope_failed(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(S_FIRST, 4));
     ins.local_get(1);
     ins.call(rt(b, "cause_note"));
+    // The cause is taken by the call and released after the note (C's `em_scope_failed`).
+    ins.local_get(1);
+    ins.call(rt(b, "drop"));
     ins.return_();
     ins.end();
     store32(ins, 0, S_FIRST, 1);
@@ -2177,7 +2224,15 @@ fn watch_deliver(b: &mut Builder, ins: &mut InstructionSink) {
     ins.call(rt(b, "unbox"));
     ins.local_set(V);
     ins.local_get(W);
+    // The unboxed value owns a reference exactly when its repr is a reference.
+    ins.local_get(REPR);
+    ins.i32_const(REF_CODE);
+    ins.i32_eq();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.i32_const(MODE_VALUE_REF);
+    ins.else_();
     ins.i32_const(MODE_VALUE);
+    ins.end();
     ins.local_get(V);
     ins.call(rt(b, "cont"));
     ins.else_();
@@ -2229,7 +2284,8 @@ fn watch_deliver(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(V);
     ins.i64_store(mem(HDR, 8));
     ins.local_get(W);
-    ins.i32_const(MODE_VALUE);
+    // The Exit object is a reference the input owns.
+    ins.i32_const(MODE_VALUE_REF);
     ins.local_get(TMP);
     ins.i64_extend_i32_u();
     ins.call(rt(b, "cont"));
@@ -2246,7 +2302,8 @@ fn watch_deliver(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(F_CAUSE, 4));
     ins.call(rt(b, "dup"));
     ins.local_get(W);
-    ins.i32_const(MODE_VALUE);
+    // The Failure(Exit) object is a reference the input owns.
+    ins.i32_const(MODE_VALUE_REF);
     ins.local_get(TMP);
     ins.i64_extend_i32_u();
     ins.call(rt(b, "cont"));
@@ -2427,6 +2484,8 @@ fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
 fn cause_note(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 2;
     const NOTE: u32 = 3;
+    const OLD: u32 = 4;
+    const TMP: u32 = 5;
     ins.local_get(1);
     ins.call(rt(b, "cause_to_string"));
     ins.local_set(SHOWN);
@@ -2435,6 +2494,9 @@ fn cause_note(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(SHOWN);
     ins.call(rt(b, "str_append"));
     ins.local_set(NOTE);
+    // The shown cause has been copied into the note (C's `em_drop(shown)`).
+    ins.local_get(SHOWN);
+    ins.call(rt(b, "drop"));
     ins.local_get(0);
     ins.i32_load(mem(CR_KIND, 4));
     ins.i32_const(CAUSE_FAIL);
@@ -2451,17 +2513,29 @@ fn cause_note(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(CAUSE_DIE);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    let nl = b.string_literal(b"\n");
+    // `d + "\n" + note`, releasing the old defect and the intermediate (C's `em_buf` copies).
     ins.local_get(0);
     ins.i32_load(mem(CR_VALUE, 4));
+    ins.local_set(OLD);
+    let nl = b.string_literal(b"\n");
+    ins.local_get(OLD);
     ins.i32_const(nl as i32);
     ins.call(rt(b, "str_append"));
+    ins.local_set(TMP);
+    ins.local_get(TMP);
     ins.local_get(NOTE);
     ins.call(rt(b, "str_append"));
     ins.local_set(SHOWN);
     store32(ins, 0, CR_VALUE, SHOWN);
+    ins.local_get(OLD);
+    ins.call(rt(b, "drop"));
+    ins.local_get(TMP);
+    ins.call(rt(b, "drop"));
     ins.end();
     ins.end();
+    // The note has been copied (or referenced) by `notes_add`/the defect (C's `em_drop(note)`).
+    ins.local_get(NOTE);
+    ins.call(rt(b, "drop"));
 }
 
 fn notes_add(b: &mut Builder, ins: &mut InstructionSink) {
@@ -2473,6 +2547,7 @@ fn notes_add(b: &mut Builder, ins: &mut InstructionSink) {
     const COPY: u32 = 7;
     const OLD: u32 = 8;
     const NEW: u32 = 9;
+    const X: u32 = 10;
     ins.local_get(0);
     ins.i32_load(mem(0, 4));
     ins.local_set(E);
@@ -2572,6 +2647,8 @@ fn notes_add(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(OLD);
     ins.i32_const(nl as i32);
     ins.call(rt(b, "str_append"));
+    ins.local_set(X);
+    ins.local_get(X);
     ins.local_get(1);
     ins.call(rt(b, "str_append"));
     ins.local_set(NEW);
@@ -2583,6 +2660,12 @@ fn notes_add(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_add();
     ins.local_get(NEW);
     ins.i32_store(mem(0, 4));
+    // The replaced line and the intermediate are released (C's `em_drop(old)`; C builds the line
+    // in a buffer).
+    ins.local_get(OLD);
+    ins.call(rt(b, "drop"));
+    ins.local_get(X);
+    ins.call(rt(b, "drop"));
     ins.return_();
     ins.end();
     ins.local_get(I);
@@ -3003,6 +3086,8 @@ fn advance(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.local_get(2);
     ins.call(drop);
+    // Nothing will consume the input (C's `em_input_drop`).
+    input_drop(ins, b, 5, 6);
     ins.return_();
     ins.end();
     ins.local_get(2);
@@ -3115,16 +3200,18 @@ fn strand_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.call(rt(b, "is_interrupted"));
     ins.i32_eqz();
     ins.i32_and();
-    ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.i32_load(mem(R_ORPHAN, 4));
     ins.i32_eqz();
+    ins.i32_and();
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.local_get(5);
     ins.i32_wrap_i64();
     ins.i32_store(mem(R_ORPHAN, 4));
-    ins.end();
+    ins.else_();
+    // The run keeps no orphan for it: release the input (C's `em_strand_end` default).
+    input_drop(ins, b, 4, 5);
     ins.end();
     ins.end();
     ins.end();
@@ -3533,6 +3620,21 @@ fn root_finish(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(R_OVER, 4));
     ins.if_(BlockType::Empty);
+    // The run is already over: release the input (C's `em_input_drop`). A value result is a
+    // reference exactly when the run's `repr` is one.
+    ins.local_get(1);
+    ins.i32_eqz();
+    ins.local_get(0);
+    ins.i32_load(mem(R_REPR, 4));
+    ins.i32_const(REF_CODE);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.call(rt(b, "drop"));
+    ins.end();
+    input_drop(ins, b, 1, 2);
     ins.return_();
     ins.end();
     setc(ins, 0, R_OVER, 1);
@@ -3594,6 +3696,9 @@ fn root_ended(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(R_ORPHAN, 4));
     ins.local_set(D);
     setc(ins, 0, R_ORPHAN, 0);
+    // The interruption the root ended with is replaced by the orphan and released (C's
+    // `em_root_ended`).
+    input_drop(ins, b, 1, 2);
     ins.local_get(0);
     ins.i32_const(MODE_THROW);
     ins.local_get(D);
