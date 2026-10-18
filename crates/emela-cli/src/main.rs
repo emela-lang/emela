@@ -165,7 +165,11 @@ fn check(path: &Path) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
-    let (analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
+    let Some(target) = resolve_target(&input, None) else {
+        return ExitCode::from(DIAGNOSTIC_FAILURE);
+    };
+    let (analysis, _) =
+        emela_driver::check(&OsFs, &input, &mut Typecheck::default().with_target(target));
     report(&analysis)
 }
 
@@ -511,7 +515,7 @@ fn fmt_stdin(check: bool) -> ExitCode {
 
 fn lsp() -> ExitCode {
     // Use the same frontend as `check` so the diagnostics are the same.
-    match emela_lsp::run_stdio(Typecheck::default) {
+    match emela_lsp::run_stdio(|target| Typecheck::default().with_target(target)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("emela lsp: {err}");

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use emela_driver::{Analysis, Diagnostic, FileId, FileSystem, Frontend, Input, NavTarget};
+use emela_driver::{Analysis, Diagnostic, FileId, FileSystem, Frontend, Input, NavTarget, Target};
 use lsp_server::{Connection, ErrorCode, Message, Notification, ProtocolError, Request, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
@@ -80,12 +80,12 @@ pub fn capabilities() -> lsp::ServerCapabilities {
 
 /// Performs the initialize handshake, then keeps publishing diagnostics until `exit`.
 ///
-/// `frontend` is called for every analysis to make a fresh frontend (pass the same one as
-/// `emela check`).
+/// `frontend` is called for every analysis to make a fresh frontend for the project's target
+/// (`[build].target`, spec 4.7; pass the same one as `emela check`).
 pub fn serve<Fs, F>(
     connection: &Connection,
     fs: Fs,
-    frontend: impl FnMut() -> F,
+    frontend: impl FnMut(Target) -> F,
 ) -> Result<(), Error>
 where
     Fs: FileSystem,
@@ -139,7 +139,7 @@ struct Server<'c, Fs, M> {
 impl<'c, Fs, M, F> Server<'c, Fs, M>
 where
     Fs: FileSystem,
-    M: FnMut() -> F,
+    M: FnMut(Target) -> F,
     F: Frontend,
 {
     fn new(connection: &'c Connection, fs: Overlay<Fs>, make_frontend: M) -> Self {
@@ -529,6 +529,16 @@ where
         })
     }
 
+    /// A frontend for the target of `input`'s project. An unknown `[build].target` is reported by
+    /// build and run; here the default target is used.
+    fn frontend_for(&mut self, input: &Input) -> F {
+        let target = emela_driver::project_target(&self.fs, input)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        (self.make_frontend)(target)
+    }
+
     /// Checks the project containing the file (or just the file if it is standalone).
     fn check_file(&mut self, uri: &Uri) -> Option<(Analysis, F::Program, FileId)> {
         let path = self.path_of(uri)?;
@@ -536,8 +546,8 @@ where
             input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
             input => input,
         };
-        let (analysis, program) =
-            emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
+        let mut frontend = self.frontend_for(&input);
+        let (analysis, program) = emela_driver::check(&self.fs, &input, &mut frontend);
         let program = program?;
         let file = analysis.sources.file_id(&path)?;
         Some((analysis, program, file))
@@ -659,7 +669,8 @@ where
         }
 
         for input in &inputs {
-            let (analysis, _) = emela_driver::check(&self.fs, input, &mut (self.make_frontend)());
+            let mut frontend = self.frontend_for(input);
+            let (analysis, _) = emela_driver::check(&self.fs, input, &mut frontend);
             // Diagnostics without a location attach to the entry, or to `Pome.toml` if none.
             let anchor = input
                 .entry

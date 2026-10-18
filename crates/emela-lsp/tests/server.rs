@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use emela_driver::{Frontend, MemoryFiles, ParseOnly, Typecheck};
+use emela_driver::{Frontend, MemoryFiles, ParseOnly, Target, Typecheck};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
@@ -54,7 +54,7 @@ impl Client {
         &mut self,
         connection: Connection,
         files: &[(&str, &str)],
-        make_frontend: fn() -> F,
+        make_frontend: fn(Target) -> F,
     ) {
         let fs = MemoryFiles::new(files.iter().copied());
         self.server = Some(std::thread::spawn(move || {
@@ -75,7 +75,7 @@ impl Client {
     fn initialize<F: Frontend + 'static>(
         files: &[(&str, &str)],
         root: Option<&str>,
-        make_frontend: fn() -> F,
+        make_frontend: fn(Target) -> F,
     ) -> Client {
         let (mut client, server) = Client::new();
         client.send_initialize(root);
@@ -507,7 +507,7 @@ fn lex_error_appears_and_clears() {
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", "const X = 1\n"),
     ];
-    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     // The contents on disk have no errors, so nothing arrives at first.
     client.open("/app/src/main.emel", 1, "const X = 1\nconst Y = \"\\q\"\n");
     let published = client.diagnostics();
@@ -532,7 +532,7 @@ fn lex_error_appears_and_clears() {
 fn columns_are_utf16() {
     // No `Pome.toml`, so this is a standalone file.
     let files = [("/tmp/x/main.emel", "")];
-    let client = Client::initialize(&files, None, ParseOnly::new);
+    let client = Client::initialize(&files, None, |_| ParseOnly::new());
     // `あ` and `日本` take one UTF-16 unit per character and `😀` two; in UTF-8, 3 and 4 bytes.
     client.open(
         "/tmp/x/main.emel",
@@ -558,7 +558,7 @@ fn import_errors_go_to_the_importing_file() {
         ("/app/src/util.emel", "const U = 1\n"),
     ];
     // Workspace projects get diagnostics before any file is opened.
-    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
     assert_eq!(published.version, None);
@@ -601,7 +601,7 @@ fn close_reverts_to_disk() {
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", "const X = \"\\q\"\n"),
     ];
-    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     let published = client.diagnostics();
     assert_eq!(codes(&published), ["E0107"]);
     assert_eq!(published.version, None);
@@ -630,7 +630,7 @@ fn uri_spelling_changes_clear_first() {
         ("/w/proj (1)/src/main.emel", "const X = \"\\q\"\n"),
     ];
     let main = "/w/proj%20(1)/src/main.emel";
-    let client = Client::initialize(&files, Some("/w/proj%20(1)"), ParseOnly::new);
+    let client = Client::initialize(&files, Some("/w/proj%20(1)"), |_| ParseOnly::new());
     let published = client.diagnostics();
     assert_eq!(
         published.uri.as_str(),
@@ -665,7 +665,7 @@ fn uri_spelling_changes_clear_first() {
 #[test]
 fn closing_a_single_file_clears_it() {
     let files = [("/tmp/x/main.emel", "")];
-    let client = Client::initialize(&files, None, ParseOnly::new);
+    let client = Client::initialize(&files, None, |_| ParseOnly::new());
     client.open("/tmp/x/main.emel", 1, "const X = \"\\q\"\n");
     assert_eq!(codes(&client.diagnostics()), ["E0107"]);
     client.close("/tmp/x/main.emel");
@@ -684,7 +684,7 @@ fn consecutive_changes_publish_only_the_latest() {
     client.open("/app/src/main.emel", 1, "const X = $\n");
     client.change("/app/src/main.emel", 2, "const A = 3px\n");
     client.change("/app/src/main.emel", 3, "const B = 1\nconst C = \"\n");
-    client.start(server, &files, ParseOnly::new);
+    client.start(server, &files, |_| ParseOnly::new());
     assert!(matches!(client.recv(), Message::Response(_)));
     let published = client.diagnostics();
     assert_eq!(published.version, Some(3));
@@ -701,7 +701,7 @@ fn file_outside_the_source_root() {
         ("/app/src/main.emel", "const X = 1\n"),
         ("/app/scripts/x.emel", ""),
     ];
-    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     client.open("/app/scripts/x.emel", 1, "const Y = 1\n");
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/scripts/x.emel"));
@@ -719,7 +719,7 @@ fn file_outside_the_source_root() {
 
 #[test]
 fn unsupported_requests_get_an_error() {
-    let mut client = Client::initialize(&[("/tmp/main.emel", "")], None, ParseOnly::new);
+    let mut client = Client::initialize(&[("/tmp/main.emel", "")], None, |_| ParseOnly::new());
     let id = client.request("textDocument/codeLens", json!({}));
     match client.recv() {
         Message::Response(response) => {
@@ -741,7 +741,7 @@ fn formatting_replaces_the_whole_document() {
         ("/app/src/main.emel", "fn main() { 1 }\n"),
         ("/app/src/util.emel", "fn f( ) {1}\n"),
     ];
-    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let mut client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     // Formatting is announced in the capabilities.
     assert_eq!(
         emela_lsp::capabilities().document_formatting_provider,
@@ -786,7 +786,7 @@ fn formatting_replaces_the_whole_document() {
 fn hover_shows_types_and_errors() {
     let src = "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  n = find(1)\n  List.map([n], fn(x) { x })\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     assert_eq!(
         emela_lsp::capabilities().hover_provider,
         Some(lsp::HoverProviderCapability::Simple(true))
@@ -824,7 +824,7 @@ fn hover_shows_types_and_errors() {
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
     // null for frontends without types.
     client.shutdown();
-    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let mut client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     assert_eq!(client.hover("/app/src/main.emel", 2, 4), None);
     client.shutdown();
 }
@@ -835,7 +835,7 @@ fn hover_shows_types_and_errors() {
 fn hover_on_labels() {
     let src = "effect Log {\n  fn log(msg: String) -> ()\n}\n\neffect Debug of Log default\n\nfn b() -> () use { Debug } {\n  with Debug { (use Log).log(\"b\") }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -857,7 +857,7 @@ fn hover_on_labels() {
 fn hover_on_negative_number_pattern() {
     let src = "fn sign(n: Int) -> Int {\n  n match {\n    -1 -> n\n    1 -> 1\n    _ -> 0\n  }\n}\n\nfn main() {\n  sign(-1)\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| {
         hover.map(|h| match h.contents {
             lsp::HoverContents::Markup(m) => (m.value, h.range),
@@ -887,7 +887,7 @@ fn hover_on_negative_number_pattern() {
 fn hover_shows_effects() {
     let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nfn greet() {\n  log = use Logger\n  log.info(\"hi\")\n}\n\nfn main() {\n  with Quiet { greet() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -929,7 +929,7 @@ fn hover_shows_effects() {
 fn hover_shows_suspend_and_async() {
     let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -966,7 +966,7 @@ fn hover_shows_suspend_and_async() {
 fn hover_shows_stateful_handlers_and_layers() {
     let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String) implements Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -992,7 +992,7 @@ fn hover_shows_stateful_handlers_and_layers() {
 fn hover_shows_effect_type_args() {
     let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero implements Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -1018,7 +1018,7 @@ fn hover_shows_effect_type_args() {
 fn hover_shows_mixed_effect_sets() {
     let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent implements Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
@@ -1089,7 +1089,7 @@ const LOG: &str = "/app/src/util/log.emel";
 
 #[test]
 fn definition_of_names() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     assert_eq!(
         emela_lsp::capabilities().definition_provider,
         Some(lsp::OneOf::Left(true))
@@ -1182,7 +1182,7 @@ fn definition_of_names() {
 fn definition_of_core_is_null() {
     let src = "fn main() {\n  List.map([1], fn(x) { x })\n}\n";
     let files = [("/tmp/main.emel", src)];
-    let mut client = Client::initialize(&files, None, Typecheck::default);
+    let mut client = Client::initialize(&files, None, |_| Typecheck::default());
     assert_eq!(client.definition("/tmp/main.emel", 1, 3), None);
     assert_eq!(client.definition("/tmp/main.emel", 1, 8), None);
     // A local variable in a standalone file can be navigated.
@@ -1192,14 +1192,14 @@ fn definition_of_core_is_null() {
     );
     // null for frontends that do not resolve names.
     client.shutdown();
-    let mut client = Client::initialize(&files, None, ParseOnly::new);
+    let mut client = Client::initialize(&files, None, |_| ParseOnly::new());
     assert_eq!(client.definition("/tmp/main.emel", 1, 24), None);
     client.shutdown();
 }
 
 #[test]
 fn references_in_the_project() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     assert_eq!(
         emela_lsp::capabilities().references_provider,
         Some(lsp::OneOf::Left(true))
@@ -1248,7 +1248,7 @@ fn references_in_the_project() {
 
 #[test]
 fn document_symbols_list_declarations() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), ParseOnly::new);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| ParseOnly::new());
     assert_eq!(
         emela_lsp::capabilities().document_symbol_provider,
         Some(lsp::OneOf::Left(true))
@@ -1317,7 +1317,7 @@ fn labels(items: &[(String, lsp::CompletionItemKind, Option<String>)]) -> Vec<&s
 
 #[test]
 fn completion_after_dot() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     assert_eq!(
         emela_lsp::capabilities()
             .completion_provider
@@ -1370,7 +1370,7 @@ fn completion_after_dot() {
 
 #[test]
 fn completion_in_imports() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     let src = format!("import \n{NAV_MAIN}");
     client.open(MAIN, 1, &src);
     // The first segment of a module path (the current module is excluded).
@@ -1401,7 +1401,7 @@ fn completion_in_imports() {
 
 #[test]
 fn completion_of_names_in_scope() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     // The body of greet: locals (innermost first), module definitions, imported names, modules,
     // keywords.
     let src = NAV_MAIN.replace(
@@ -1455,7 +1455,7 @@ fn drain(client: &Client) {
 
 #[test]
 fn signature_help_in_calls() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     let caps = emela_lsp::capabilities();
     assert_eq!(
         caps.signature_help_provider
@@ -1536,7 +1536,7 @@ fn main() {
 #[test]
 fn signature_help_on_the_right_of_a_pipe() {
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", PIPE_MAIN)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let s = |label: &str, params: &[&str], active: Option<u32>| {
         Some((
             label.to_owned(),
@@ -1600,7 +1600,7 @@ fn signature_help_on_the_right_of_a_pipe() {
 
 #[test]
 fn rename_across_files() {
-    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&nav_files(), Some("/app"), |_| Typecheck::default());
     assert!(matches!(
         emela_lsp::capabilities().rename_provider,
         Some(lsp::OneOf::Right(lsp::RenameOptions {
@@ -1666,7 +1666,7 @@ fn rename_across_files() {
 fn rename_keeps_punned_labels() {
     let src = "error NotFound(id: Int)\n\ntype User(name: String)\n\nfn find(id: Int) -> Int fails NotFound {\n  fail NotFound(id:)\n}\n\nfn greet(u: User) -> String {\n  u match {\n    User(name:) -> name\n  }\n}\n\nfn main() {\n  List.map([1], fn(x) { x })\n}\n";
     let path = "/tmp/main.emel";
-    let mut client = Client::initialize(&[(path, src)], None, Typecheck::default);
+    let mut client = Client::initialize(&[(path, src)], None, |_| Typecheck::default());
     let edit = |s, e, text: &str| (path.to_owned(), range(s, e), text.to_owned());
     assert_eq!(
         client.rename(path, 4, 8, "key"),
@@ -1725,7 +1725,7 @@ fn apply[A](f: fn() -> A) {
         ("/app/src/errs.emel", "pub error NotFound(id: Int)\n"),
         ("/app/src/other.emel", "pub error Hidden(n: Int)\n"),
     ];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     assert!(emela_lsp::capabilities().code_action_provider.is_some());
     let action = |title: &str, at: (u32, u32), text: &str| {
         Some(vec![(
@@ -1798,7 +1798,7 @@ fn main() {
 }
 ";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     assert_eq!(
         emela_lsp::capabilities().inlay_hint_provider,
         Some(lsp::OneOf::Left(true))
@@ -1825,7 +1825,7 @@ fn main() {
     );
     // Written annotations get no hints. Frontends without types give none.
     client.shutdown();
-    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let mut client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     assert_eq!(client.inlay_hints(MAIN), Some(vec![]));
     client.shutdown();
 }
@@ -1874,7 +1874,7 @@ fn semantic_tokens_mark_capability_values() {
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", CAPABILITY_MAIN),
     ];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let Some(lsp::SemanticTokensServerCapabilities::SemanticTokensOptions(options)) =
         emela_lsp::capabilities().semantic_tokens_provider
     else {
@@ -1911,7 +1911,7 @@ fn semantic_tokens_mark_capability_values() {
     );
     client.shutdown();
     // Frontends without types give none.
-    let mut client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let mut client = Client::initialize(&files, Some("/app"), |_| ParseOnly::new());
     assert_eq!(client.semantic_tokens(MAIN, None), Some(vec![]));
     client.shutdown();
 }
@@ -1934,7 +1934,7 @@ fn greet() {
 fn broken( {
 ";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     // Syntax, name and type errors.
     let published = codes(&client.diagnostics());
     for code in ["E0110", "E0211", "E0301"] {
@@ -1974,7 +1974,7 @@ fn main() {
 #[test]
 fn completion_after_dot_chains() {
     let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let with = |line: &str| CHAIN_MAIN.replace("  0\n", &format!("  {line}\n"));
     // A field of a field.
     client.open(MAIN, 1, &with("l.from."));
@@ -1998,7 +1998,7 @@ fn completion_after_dot_chains() {
 fn completion_of_handler_fields() {
     let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int) implements Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, src)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let items = client.complete(MAIN, 6, 21).unwrap();
     assert_eq!(labels(&items), ["url", "port"]);
     drain(&client);
@@ -2009,7 +2009,7 @@ fn completion_of_handler_fields() {
 #[test]
 fn completion_of_argument_labels() {
     let files = [("/app/Pome.toml", ""), (MAIN, CHAIN_MAIN)];
-    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let mut client = Client::initialize(&files, Some("/app"), |_| Typecheck::default());
     let with = |line: &str| CHAIN_MAIN.replace("  0\n", &format!("  {line}\n"));
     let raw = |client: &mut Client, line: u32, character: u32| -> Vec<lsp::CompletionItem> {
         let id = client.request(Completion::METHOD, Client::position(MAIN, line, character));
@@ -2069,4 +2069,25 @@ fn completion_of_argument_labels() {
     assert_eq!(labels(&items)[..2], ["x:", "y:"]);
     drain(&client);
     client.shutdown();
+}
+
+/// The project's target decides what the type checker knows: on `c-embedded`, `main` is given
+/// the board's effects.
+#[test]
+fn diagnostics_follow_the_project_target() {
+    let src = "import Std.Embedded.Gpio.{Gpio, GpioPin, High}\n\nfn main() {\n  (use Gpio).write(GpioPin(13), High)\n  x = \"\\q\"\n}\n";
+    for (toml, expected) in [
+        ("[build]\ntarget = \"c-embedded\"\n", vec!["E0107"]),
+        ("", vec!["E0107", "E0402"]),
+    ] {
+        let files = [("/app/Pome.toml", toml), ("/app/src/main.emel", "")];
+        let client = Client::initialize(&files, Some("/app"), |target| {
+            Typecheck::default().with_target(target)
+        });
+        client.open("/app/src/main.emel", 1, src);
+        let mut got = codes(&client.diagnostics());
+        got.sort();
+        assert_eq!(got, expected, "{toml}");
+        client.shutdown();
+    }
 }

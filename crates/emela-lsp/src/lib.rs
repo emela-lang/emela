@@ -12,11 +12,11 @@ pub use convert::{SOURCE, path_to_uri, position, uri_to_path};
 pub use overlay::Overlay;
 pub use server::{Error, capabilities, serve};
 
-use emela_driver::{Frontend, OsFs};
+use emela_driver::{Frontend, OsFs, Target};
 use lsp_server::Connection;
 
 /// Runs the server over stdio (`emela lsp`). Returns after receiving `exit`.
-pub fn run_stdio<F: Frontend>(frontend: impl FnMut() -> F) -> Result<(), Error> {
+pub fn run_stdio<F: Frontend>(frontend: impl FnMut(Target) -> F) -> Result<(), Error> {
     let (connection, io_threads) = Connection::stdio();
     serve(&connection, OsFs, frontend)?;
     drop(connection);
