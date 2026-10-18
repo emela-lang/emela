@@ -160,6 +160,9 @@ const BODY: &str = r#"
   dbg(outcome_code(raw_remove("d")))
   dbg(outcome_code(raw_remove("d/a.txt")))
   dbg(outcome_code(raw_remove("d")))
+  dbg(outcome_code(raw_create_directory("e/f/g")))
+  dbg(raw_is_directory("e"))
+  dbg(raw_is_directory("e/f/g"))
   dbg(raw_exists("d"))
   dbg(outcome_code(raw_read_text("missing.txt")))
 "#;
@@ -174,29 +177,32 @@ fn wasi_file_system_works() {
     let got = run_directed(&dir, &bytes);
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(got.code, 0, "stderr:\n{}", got.stderr);
-    assert!(
-        got.stderr.contains("FileNotFound"),
-        "the missing-file error is not reported:\n{}",
-        got.stderr
+    let expected = concat!(
+        "False\n",
+        "\"\"\n",
+        "True\n",
+        "\"\"\n",
+        "\"hello\"\n",
+        "\"\"\n",
+        "\"hello!\"\n",
+        "\"\"\n",
+        "[\"a.txt\", \"b.txt\"]\n",
+        "\"NotADirectory\"\n",
+        "\"FileNotFound\"\n",
+        "\"NotADirectory\"\n",
+        "\"\"\n",
+        "[\"a.txt\"]\n",
+        "\"IsADirectory\"\n",
+        "\"DirectoryNotEmpty\"\n",
+        "\"\"\n",
+        "\"\"\n",
+        "\"\"\n",
+        "True\n",
+        "True\n",
+        "False\n",
+        "\"FileNotFound\"\n",
     );
-    // The generated output is compared in full by the driver parity tests once the suspending
-    // host is wired; here the run must at least finish cleanly and produce the landmarks.
-    for line in [
-        "\"hello\"",
-        "\"hello!\"",
-        "[\"a.txt\", \"b.txt\"]",
-        "[\"a.txt\"]",
-        "\"IsADirectory\"",
-        "\"NotADirectory\"",
-        "\"DirectoryNotEmpty\"",
-        "\"FileNotFound\"",
-    ] {
-        assert!(
-            got.stderr.contains(line),
-            "missing {line:?} in:\n{}",
-            got.stderr
-        );
-    }
+    assert_eq!(got.stderr, expected, "stdout:\n{}", got.stdout);
 }
 
 #[test]
