@@ -109,6 +109,38 @@ fn falls_back_to_direct_when_the_proxy_does_not_have_it() {
 }
 
 #[test]
+fn takes_a_pome_in_a_directory_of_its_repository() {
+    let d = dirs();
+    let registry = Registry::new();
+    let pkg = pome("github.com/acme/mono/pkg", "v1.0.0", "");
+    let files: &[(&str, &str)] = &[
+        ("Pome.toml", &pkg),
+        ("src/lib.emel", "pub fn g() -> Int { 2 }\n"),
+    ];
+    // The repository has another Pome at its root, and the directory's tags are prefixed.
+    let root = pome("github.com/acme/mono", "v3.0.0", "");
+    git_repo(
+        &d.repos,
+        "github.com/acme/mono",
+        &[
+            ("v1.0.0", &[("Pome.toml", &root)]),
+            (
+                "pkg/v1.0.0",
+                &[("pkg/Pome.toml", &pkg), ("pkg/src/lib.emel", files[1].1)],
+            ),
+        ],
+    );
+    registry.add("github.com/acme/mono/pkg", "v1.0.0", files, false);
+
+    let fetcher = fetcher(&registry, &d.cache, &d.repos);
+    let path = p("github.com/acme/mono/pkg");
+    assert_eq!(fetcher.versions(&path).unwrap(), [v("v1.0.0")]);
+    fetcher.download(&path, &v("v1.0.0")).unwrap();
+    let dir = fetcher.cache().dir(&path, &v("v1.0.0"));
+    assert!(dir.join("src/lib.emel").is_file() && !dir.join("pkg").exists());
+}
+
+#[test]
 fn takes_private_pomes_directly_without_the_checksum_database() {
     let d = dirs();
     let registry = Registry::new();

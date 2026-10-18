@@ -1,6 +1,7 @@
 //! `direct`: the repository itself, with the machine's `git` (spec 4.7). Tags come from
 //! `git ls-remote --tags`; a version is a shallow fetch of its tag into a bare repository, and the
-//! files are read from the git tree, not a working tree.
+//! files are read from the git tree, not a working tree. A Pome in a directory of its repository
+//! has tags prefixed with the directory, and its files are those under the directory.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -45,8 +46,7 @@ impl Direct {
                     .strip_prefix("refs/tags/")
                     .map(str::to_string)
             })
-            .filter_map(|t| Version::parse(&t).ok())
-            .filter(|v| path.is_version_of(v))
+            .filter_map(|t| path.version_of_tag(&t))
             .collect();
         versions.sort();
         Ok(versions)
@@ -55,7 +55,7 @@ impl Direct {
     pub fn fetch(&self, path: &SourcePath, version: &Version) -> Result<Fetched, FetchError> {
         let dir = tempfile::tempdir().map_err(|e| FetchError::Cache(e.to_string()))?;
         let cwd = Some(dir.path());
-        let tag = format!("refs/tags/{version}");
+        let tag = format!("refs/tags/{}", path.tag(version));
         self.git(cwd, &["init", "--quiet", "--bare", "."], None)
             .map_err(FetchError::Network)?;
         let url = (self.url)(path.repository());
@@ -80,13 +80,19 @@ impl Direct {
             )
             .map_err(FetchError::Network)?;
         let commit = String::from_utf8_lossy(&commit).trim().to_string();
+        // A Pome in a directory is the tree of that directory, with paths relative to it.
+        let treeish = match path.directory() {
+            Some(dir) => format!("{commit}:{dir}"),
+            None => commit.clone(),
+        };
         let tree = self
-            .git(
-                cwd,
-                &["ls-tree", "-r", "-l", "-z", "--full-tree", &commit],
-                None,
-            )
-            .map_err(FetchError::Network)?;
+            .git(cwd, &["ls-tree", "-r", "-l", "-z", &treeish], None)
+            .map_err(|e| match path.directory() {
+                Some(dir) => FetchError::NotFound(format!(
+                    "{path}@{version}: no directory `{dir}` at the tag ({e})"
+                )),
+                None => FetchError::Network(e),
+            })?;
 
         let mut entries = Vec::new();
         let mut total = 0u64;
