@@ -164,6 +164,17 @@ writes a WASI `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 not run suspending code, fibers or `String.length` yet; the WASM target does not
 run those, `Float` operations or host callbacks either.
 
+`emela build --target c-embedded` writes freestanding C for microcontrollers
+(`target/emela/c-embedded`) without compiling it: the board's build compiles it
+together with the board's C, which implements the GPIO, UART, I2C and SPI effects
+of `Std.Embedded` (spec 16.6). A board definition (`[build] board`) lets it check
+the logical pins and generate STM32CubeF4 adapters. `emela test` in such a project
+runs the tests on the host C target; `emela test --device` runs them on a board or
+emulator through `[embedded.test] runner`. See
+[`examples/embedded-gpio`](examples/embedded-gpio) and
+[`docs/design/c-embedded-codegen.md`](docs/design/c-embedded-codegen.md) (in
+Japanese).
+
 | Command       | Does                                                    |
 | ------------- | ------------------------------------------------------- |
 | `emela check` | Reports diagnostics without compiling                   |
