@@ -65,6 +65,7 @@ pub trait Backend<P> {
 - （補）`emela check` と LSP も，プロジェクトのターゲット（`project_target`）で型検査する．E0412 の検査はしない
 - （補）`emela test --device` は，テストのファームウェアの C を書いて `[embedded.test] runner`（`embedded_test_runner`）に渡し，その標準出力から結果の行を読む（`testing/device.rs`）．runner が途中で終われば次のテストから呼び直す
 - （補）`tests/parity.rs` の例の比較は `c-embedded` の例を除く（ボードが要るため）．`tests/c_embedded.rs` は GPIO の例の出力をスナップショットで見る
+- （補）`tests/renode.rs` は `examples/embedded-*/renode-f446/run.sh` を動かす結合テストで，`STM32_RENODE_ROOT` がなければ飛ばす
 
 ## テスト（`emela test`，仕様 13章）
 
