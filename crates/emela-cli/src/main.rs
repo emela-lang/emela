@@ -63,6 +63,10 @@ enum Command {
         /// The target [default: `[build].target` of Pome.toml, or js]
         #[arg(long, value_enum)]
         target: Option<TargetArg>,
+        /// For `c-embedded`: run the tests on the board or an emulator with the runner of
+        /// `[embedded.test] runner` instead of on the host
+        #[arg(long)]
+        device: bool,
     },
     /// Format the sources in place
     Fmt {
@@ -145,7 +149,8 @@ fn main() -> ExitCode {
             filter,
             out_dir,
             target,
-        } => test(&path_or_current(path), filter, out_dir, target),
+            device,
+        } => test(&path_or_current(path), filter, out_dir, target, device),
         Command::Fmt { paths, check } => fmt(paths, check),
         Command::Doc {
             path,
@@ -304,6 +309,7 @@ fn test(
     filter: Option<String>,
     out_dir: Option<PathBuf>,
     target: Option<TargetArg>,
+    device: bool,
 ) -> ExitCode {
     let Some(input) = resolve_input(&OsFs, path) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
@@ -311,6 +317,9 @@ fn test(
     let Some(target) = resolve_target(&input, target) else {
         return ExitCode::from(DIAGNOSTIC_FAILURE);
     };
+    if device {
+        return test_on_device(&input, filter, out_dir, target);
+    }
     let options = TestOptions {
         out_dir: out_dir.unwrap_or_else(|| emela_driver::default_test_out_dir_for(&input, target)),
         node: emela_driver::node_program(),
@@ -339,6 +348,75 @@ fn test(
                     .for_embedded_project(),
                 &mut CoreC::default().with_string_capacity(capacity),
             )
+        }
+    }
+}
+
+/// `emela test --device`: the tests of a `c-embedded` project run on the board or an emulator.
+fn test_on_device(
+    input: &Input,
+    filter: Option<String>,
+    out_dir: Option<PathBuf>,
+    target: Target,
+) -> ExitCode {
+    let fail = |diagnostic: Diagnostic| {
+        print_diagnostics(&[diagnostic], &SourceDb::new());
+        ExitCode::from(DIAGNOSTIC_FAILURE)
+    };
+    if target != Target::CEmbedded {
+        return fail(Diagnostic::error(
+            "`--device` runs the tests of a `c-embedded` project; use `--target c-embedded`",
+        ));
+    }
+    let options = match emela_driver::embedded_options(&OsFs, input) {
+        Ok(options) => options,
+        Err(diagnostic) => return fail(diagnostic),
+    };
+    let runner = match emela_driver::embedded_test_runner(&OsFs, input) {
+        Ok(Some(runner)) => runner,
+        Ok(None) => {
+            return fail(
+                Diagnostic::error("`--device` needs `[embedded.test] runner` in Pome.toml")
+                    .with_note("the runner builds the firmware in the directory it is given, runs it on the board or an emulator, and writes its console output to stdout"),
+            );
+        }
+        Err(diagnostic) => return fail(diagnostic),
+    };
+    let options_out = out_dir.unwrap_or_else(|| input.base.join("target/emela/test-device"));
+    let test_options = TestOptions {
+        out_dir: options_out,
+        node: emela_driver::node_program(),
+        filter,
+        output: Output::Inherit,
+    };
+    let device = emela_driver::DeviceTests { options, runner };
+    let mut diagnostics_code = ExitCode::SUCCESS;
+    let mut reported = 0;
+    let stdout = std::io::stdout();
+    let (analysis, report) = emela_driver::test_on_device(
+        &OsFs,
+        input,
+        &mut LowerTests::default()
+            .with_target(Target::CEmbedded)
+            .for_embedded_project(),
+        &device,
+        &test_options,
+        |analysis| {
+            diagnostics_code = report(analysis);
+            reported = analysis.diagnostics.len();
+        },
+        &mut stdout.lock(),
+    );
+    match report {
+        Some(report) => ExitCode::from(report.exit_code()),
+        None => {
+            let rest = &analysis.diagnostics[reported..];
+            if rest.is_empty() {
+                diagnostics_code
+            } else {
+                print_diagnostics(rest, &analysis.sources);
+                ExitCode::from(DIAGNOSTIC_FAILURE)
+            }
         }
     }
 }

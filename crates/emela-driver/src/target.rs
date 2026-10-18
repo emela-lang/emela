@@ -193,6 +193,38 @@ pub fn embedded_options(
     Ok(options)
 }
 
+/// The program that runs the tests of a `c-embedded` project on the board or an emulator
+/// (`[embedded.test] runner` in `Pome.toml`, relative to the project), if set.
+pub fn embedded_test_runner(
+    fs: &dyn FileSystem,
+    input: &Input,
+) -> Result<Option<std::path::PathBuf>, Diagnostic> {
+    if input.single_file {
+        return Ok(None);
+    }
+    let path = input.base.join(PROJECT_FILE);
+    let Ok(text) = fs.read_to_string(&path) else {
+        return Ok(None);
+    };
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Ok(None);
+    };
+    let Some(runner) = table
+        .get("embedded")
+        .and_then(|e| e.get("test"))
+        .and_then(|t| t.get("runner"))
+    else {
+        return Ok(None);
+    };
+    match runner.as_str() {
+        Some(runner) => Ok(Some(input.base.join(runner))),
+        None => Err(Diagnostic::error(
+            "`[embedded.test] runner` must be the path of the program that runs the tests",
+        )
+        .at(Location::Path(path))),
+    }
+}
+
 /// A board definition (`docs/design/board-definition.md`): `[board]` and `[logical_pins."<id>"]`.
 fn board_def(text: &str) -> Result<emela_codegen_c_embedded::BoardDef, String> {
     let table = text

@@ -59,12 +59,12 @@ pub use run::{
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
-pub use target::{Target, embedded_options, project_target};
+pub use target::{Target, embedded_options, embedded_test_runner, project_target};
 pub use testing::{
-    C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,
+    C_TEST_OUT_DIR, DeviceTests, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,
     TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule, TestOptions,
     TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
-    default_test_out_dir_for, is_test_fn, test,
+    default_test_out_dir_for, is_test_fn, test, test_on_device,
 };
 pub use tokens::{SemanticToken, TokenKind};
 pub use wasm::{CoreWasm, WASM_ENTRY_FILE};

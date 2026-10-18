@@ -849,6 +849,129 @@ fn main() {
     );
 }
 
+/// `emela test --device`: the tests run as a firmware through the project's runner (here the host
+/// cc and the stub board), started again after a test that stops the board.
+#[test]
+fn tests_run_on_the_device_through_a_runner() {
+    if !have_cc() {
+        return;
+    }
+    let main = r##"import Std.Embedded.Gpio.{Gpio, GpioPin, PinState, High, Low}
+import Std.State.{State}
+
+fn light_if_pressed(button: GpioPin, led: GpioPin) use { Gpio } {
+  gpio = use Gpio
+  gpio.read(button) match {
+    Low -> gpio.write(led, High)
+    High -> gpio.write(led, Low)
+  }
+}
+
+fn label(n: Int) -> String { "count=#{n}" }
+
+handler TestGpio implements Gpio {
+  fn configure(pin, mode, pull) { () }
+  fn read(pin) { Low }
+  fn write(pin, state) {
+    (use State[List[PinState]]).update(fn(xs) { List.append(xs, [state]) })
+  }
+  fn toggle(pin) { () }
+  fn enable_interrupt(pin, edge) { () }
+  fn disable_interrupt(pin) { () }
+}
+
+@test
+fn lights_when_pressed() {
+  (_, writes) = State.run([], fn() {
+    with TestGpio { light_if_pressed(GpioPin(1), GpioPin(13)) }
+  })
+  assert writes == [High]
+}
+
+@test
+fn long_label_does_not_fit() {
+  assert String.byte_size("#{label(1234567890)}!") > 0
+}
+
+@test
+fn short_label_fits() {
+  assert label(7) == "count=7"
+}
+
+fn main() {
+  light_if_pressed(GpioPin(2), GpioPin(13))
+}
+"##;
+    let toml = "[build]\ntarget = \"c-embedded\"\n\n[embedded.memory]\nstring_capacity = 16\nheap_bytes = 4096\n\n[embedded.test]\nrunner = \"runner.sh\"\n";
+    let (cc, flags) = cc_command();
+    let runner = format!(
+        "#!/bin/sh\nset -e\ndir=\"$1\"\n'{}' {} -std=c11 -Wall -Wextra -Werror -O1 -I \"$dir\" \"$dir\"/*.c board.c -lm -o \"$dir/firmware\"\nexec \"$dir/firmware\"\n",
+        cc.display(),
+        flags.join(" ")
+    );
+    let dir = test_dir("device-tests");
+    std::fs::create_dir_all(dir.join("app/src")).unwrap();
+    std::fs::write(dir.join("app/Pome.toml"), toml).unwrap();
+    std::fs::write(dir.join("app/src/main.emel"), main).unwrap();
+    std::fs::write(dir.join("app/board.c"), STUB_BOARD).unwrap();
+    std::fs::write(dir.join("app/runner.sh"), runner).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            dir.join("app/runner.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    let input = Input::resolve(&OsFs, &dir.join("app")).unwrap();
+    let device = emela_driver::DeviceTests {
+        options: emela_driver::embedded_options(&OsFs, &input).unwrap(),
+        runner: emela_driver::embedded_test_runner(&OsFs, &input)
+            .unwrap()
+            .unwrap(),
+    };
+    let options = TestOptions {
+        out_dir: dir.join("out"),
+        node: PathBuf::from("node"),
+        filter: None,
+        output: Output::Capture,
+    };
+    let mut out = Vec::new();
+    let (analysis, report) = emela_driver::test_on_device(
+        &OsFs,
+        &input,
+        &mut LowerTests::default()
+            .with_target(Target::CEmbedded)
+            .for_embedded_project(),
+        &device,
+        &options,
+        |_| {},
+        &mut out,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!analysis.has_errors(), "{:#?}", analysis.diagnostics);
+    let out = String::from_utf8_lossy(&out);
+    let results: Vec<(String, TestOutcome)> = report
+        .expect("a report")
+        .results
+        .into_iter()
+        .map(|r| (r.name, r.outcome))
+        .collect();
+    assert_eq!(
+        results,
+        [
+            ("lights_when_pressed".to_owned(), TestOutcome::Passed),
+            (
+                "long_label_does_not_fit".to_owned(),
+                TestOutcome::Defect("string capacity exceeded".to_owned())
+            ),
+            ("short_label_fits".to_owned(), TestOutcome::Passed),
+        ],
+        "{out}"
+    );
+}
+
 #[test]
 fn failures_are_values() {
     let main = r##"import Std.Embedded.Gpio.{Gpio, GpioPin, High}

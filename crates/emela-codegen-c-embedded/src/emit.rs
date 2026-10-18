@@ -141,8 +141,12 @@ pub(crate) fn emit(
         embedded.blank();
     }
     let mut main_fn = None;
+    let mut tests: Vec<(&str, FnId)> = Vec::new();
     for entry in entries {
         match &entry.export {
+            None if entry.test.is_some() => {
+                tests.push((entry.test.as_deref().unwrap_or_default(), entry.function));
+            }
             None => main_fn = Some(entry.function),
             Some(export) => {
                 let f = &m.functions[entry.function];
@@ -246,6 +250,59 @@ pub(crate) fn emit(
             w.line_raw("}");
         });
     }
+    if !tests.is_empty() {
+        let names: Vec<String> = tests
+            .iter()
+            .map(|(name, _)| names::string_literal(name.as_bytes()))
+            .collect();
+        bodies.line_raw(&format!(
+            "static const char *const em_test_names[] = {{{}}};",
+            names.join(", ")
+        ));
+        bodies.func("int main(void)", |w| {
+            w.stmt("emela_board_init()");
+            w.line_raw(&format!(
+                "for (int i = EMELA_TEST_START; i < {}; i++) {{",
+                tests.len()
+            ));
+            w.line_raw("  em_test_current = em_test_names[i];");
+            w.line_raw("  bool failed = false;");
+            w.line_raw("  switch (i) {");
+            for (k, &(_, id)) in tests.iter().enumerate() {
+                let f = &m.functions[id];
+                let mut args: Vec<String> = Vec::new();
+                w.line_raw(&format!("  case {k}: {{"));
+                if e.is_string(f.ret) {
+                    w.line_raw("    static EmString result;");
+                    args.push("&result".into());
+                }
+                if f.fails {
+                    let err = e.types.define_failure();
+                    w.line_raw(&format!("    {err} em_f = {{0}};"));
+                    args.push("&em_f".into());
+                }
+                w.line_raw(&format!("    {};", call(&e.fn_names[ix(id)], args)));
+                if f.fails {
+                    w.line_raw("    failed = em_f.tag != 0;");
+                }
+                w.line_raw("    break;");
+                w.line_raw("  }");
+            }
+            w.line_raw("  default: break;");
+            w.line_raw("  }");
+            w.line_raw("  if (failed) {");
+            w.line_raw("    em_test_result(\"error\", \"unhandled error\", 15);");
+            w.line_raw("  } else {");
+            w.line_raw("    em_test_result(\"ok\", \"\", 0);");
+            w.line_raw("  }");
+            w.line_raw("}");
+            w.stmt("em_test_current = NULL");
+            w.stmt("em_test_write(\"\\x1e\" \"emela-test {\\\"event\\\":\\\"done\\\"}\\n\")");
+            w.line_raw("for (;;) {");
+            w.line_raw("  emela_board_idle();");
+            w.line_raw("}");
+        });
+    }
     if !e.errors.is_empty() {
         return Err(e.errors);
     }
@@ -334,6 +391,10 @@ pub(crate) fn emit(
     out.line_raw("#include <math.h>");
     out.include(EMBEDDED_H_FILE);
     out.blank();
+    if !tests.is_empty() {
+        out.include(crate::TEST_START_H_FILE);
+        out.line_raw(TEST_C);
+    }
     out.line_raw(PRELUDE);
     out.append(box_decls);
     if e.strings {
@@ -427,6 +488,57 @@ void emela_board_critical_enter(void);
 void emela_board_critical_exit(void);
 
 #endif
+"#;
+
+/// The result lines of a test build (the format of the host test runners), written through
+/// `emela_board_console_write`. A defect writes the running test's result before the board stops.
+const TEST_C: &str = r#"#include <string.h>
+
+#ifndef EMELA_TEST_START
+#define EMELA_TEST_START 0
+#endif
+
+/* The name of the running test, for the result of a defect. */
+static const char *em_test_current;
+
+static void em_test_write(const char *s) {
+  emela_board_console_write(s, (uint16_t)strlen(s));
+}
+
+/* `s` inside a JSON string. */
+static void em_test_json(const char *s, uint16_t n) {
+  static const char hex[] = "0123456789abcdef";
+  uint16_t start = 0;
+  for (uint16_t i = 0; i < n; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c != '"' && c != '\\' && c >= 0x20) continue;
+    if (i > start) emela_board_console_write(s + start, (uint16_t)(i - start));
+    char esc[6] = {'\\', (char)c, '0', '0', hex[c >> 4], hex[c & 15]};
+    if (c < 0x20) esc[1] = 'u';
+    emela_board_console_write(esc, c < 0x20 ? 6 : 2);
+    start = (uint16_t)(i + 1);
+  }
+  if (n > start) emela_board_console_write(s + start, (uint16_t)(n - start));
+}
+
+static void em_test_result(const char *outcome, const char *message, uint16_t length) {
+  em_test_write("\x1e" "emela-test {\"event\":\"result\",\"name\":\"");
+  em_test_json(em_test_current, (uint16_t)strlen(em_test_current));
+  em_test_write("\",\"outcome\":\"");
+  em_test_write(outcome);
+  em_test_write("\",\"message\":\"");
+  em_test_json(message, length);
+  em_test_write("\"}\n");
+}
+
+static _Noreturn void em_test_defect(EmelaDefectKind kind, const char *message, uint16_t length) {
+  if (em_test_current != NULL) {
+    em_test_result("defect", message, length);
+    em_test_current = NULL;
+  }
+  emela_board_defect(kind, message, length);
+}
+#define emela_board_defect em_test_defect
 "#;
 
 /// What an entry does when a failure reaches it.

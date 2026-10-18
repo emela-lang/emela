@@ -6,6 +6,7 @@
 //! them one by one on node ([`TestBackend`], [`test`]).
 
 mod collect;
+mod device;
 mod report;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -22,6 +23,7 @@ use emela_resolve::{BuiltinModules, ModuleId, NoBuiltins};
 use serde::Deserialize;
 
 pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
+pub use device::{DeviceTests, test_on_device};
 pub use report::{TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult};
 
 use crate::code;
@@ -478,9 +480,36 @@ fn run_tests(
     });
 
     let _ = report::write_header(out, selected.len());
+    let stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
+    let (mut results, finished) = read_results(stdout, out);
+    let status = child.wait().map_err(|err| spawn_error(program, &err))?;
+    let stderr = stderr
+        .map(|thread| thread.join().unwrap_or_default())
+        .unwrap_or_default();
+    if !finished || results.len() < selected.len() {
+        // node exited midway (`process.exit` from an external function, or an output error). The
+        // test that was running fails, and the rest are reported as not run.
+        let code = exit_code(status);
+        if let Some(name) = selected.get(results.len()) {
+            let result = TestResult {
+                name: name.clone(),
+                outcome: TestOutcome::Aborted {
+                    code,
+                    not_run: selected.len() - results.len() - 1,
+                },
+            };
+            let _ = report::write_result(out, &result);
+            results.push(result);
+        }
+    }
+    Ok((results, stderr))
+}
+
+/// Reads the result lines from a runner's stdout until it ends, writing each result to `out` and
+/// passing other lines through. Returns the results and whether the done line came.
+fn read_results(mut stdout: impl BufRead, out: &mut dyn Write) -> (Vec<TestResult>, bool) {
     let mut results = Vec::new();
     let mut finished = false;
-    let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -513,25 +542,5 @@ fn run_tests(
             }
         }
     }
-    let status = child.wait().map_err(|err| spawn_error(program, &err))?;
-    let stderr = stderr
-        .map(|thread| thread.join().unwrap_or_default())
-        .unwrap_or_default();
-    if !finished || results.len() < selected.len() {
-        // node exited midway (`process.exit` from an external function, or an output error). The
-        // test that was running fails, and the rest are reported as not run.
-        let code = exit_code(status);
-        if let Some(name) = selected.get(results.len()) {
-            let result = TestResult {
-                name: name.clone(),
-                outcome: TestOutcome::Aborted {
-                    code,
-                    not_run: selected.len() - results.len() - 1,
-                },
-            };
-            let _ = report::write_result(out, &result);
-            results.push(result);
-        }
-    }
-    Ok((results, stderr))
+    (results, finished)
 }

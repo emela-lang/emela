@@ -100,13 +100,45 @@ pub fn compile(module: &Module) -> Result<Output, Vec<Error>> {
 /// [`compile`] with the settings.
 pub fn compile_with(module: &Module, options: &Options) -> Result<Output, Vec<Error>> {
     let roots = roots(module)?;
-    compile_entries(module, roots, options)
+    compile_entries(module, roots, None, options)
 }
 
-/// The output for the entries `roots`: `main` and the public functions.
+/// A test function (`@test`) to run on the board.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestCase {
+    /// The name in the results.
+    pub name: String,
+    /// A function without parameters.
+    pub function: FnId,
+}
+
+/// The header that says which test the firmware starts from (`#define EMELA_TEST_START <n>`),
+/// rewritten by the test runner to resume after a test that stopped the board.
+pub const TEST_START_H_FILE: &str = "emela_test_start.h";
+
+/// A firmware that runs `tests` in order (from `EMELA_TEST_START`), writing a result line for each
+/// through `emela_board_console_write` in the format of the host test runners. A defect writes
+/// the result of the running test before `emela_board_defect` stops the board.
+pub fn compile_tests(
+    module: &Module,
+    tests: &[TestCase],
+    options: &Options,
+) -> Result<Output, Vec<Error>> {
+    let roots = tests.iter().map(|t| t.function).collect();
+    let names: Vec<String> = tests.iter().map(|t| t.name.clone()).collect();
+    // The tests are the entries: no interrupt entry is bound.
+    let options = Options {
+        gpio_interrupts: Vec::new(),
+        ..options.clone()
+    };
+    compile_entries(module, roots, Some(&names), &options)
+}
+
+/// The output for the entries `roots`: `main` and the public functions, or the tests `tests`.
 fn compile_entries(
     module: &Module,
     roots: Vec<FnId>,
+    tests: Option<&[String]>,
     options: &Options,
 ) -> Result<Output, Vec<Error>> {
     let entry_count = roots.len();
@@ -179,11 +211,14 @@ fn compile_entries(
     dump("heap", &lir);
     let entries: Vec<Entry> = roots
         .iter()
-        .map(|&id| {
+        .enumerate()
+        .map(|(k, &id)| {
             let f = &lir.functions[id];
-            let main = f.name == "main";
+            let test = tests.map(|names| names[k].clone());
+            let main = f.name == "main" || test.is_some();
             Entry {
                 function: id,
+                test,
                 export: (!main).then(|| format!("emela_export_{}", c_ident(&f.name))),
                 isr: !main
                     && f.params

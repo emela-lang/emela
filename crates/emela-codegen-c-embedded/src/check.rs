@@ -22,6 +22,8 @@ pub(crate) struct Entry {
     pub export: Option<String>,
     /// Whether the board calls it from an interrupt (it takes a `GpioEvent`).
     pub isr: bool,
+    /// The name of a test (`@test`) the firmware runs, in a test build.
+    pub test: Option<String>,
 }
 
 /// The functions the entries reach, in the order they are first reached.

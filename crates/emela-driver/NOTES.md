@@ -63,6 +63,7 @@ pub trait Backend<P> {
 - （補）`tests/c_embedded.rs` は生成 C を，ホストの cc でスタブのボードとリンクして動かした結果で確かめる
 - （補）ボードを選ぶと（`[build] board`．ボード定義の TOML でプロジェクトからの相対パス），`embedded_options` がボード定義と `[embedded.gpio_interrupts]` を読み，出力器が論理ピンを検査して `emela_board_hal.c` を生成する
 - （補）`emela check` と LSP も，プロジェクトのターゲット（`project_target`）で型検査する．E0412 の検査はしない
+- （補）`emela test --device` は，テストのファームウェアの C を書いて `[embedded.test] runner`（`embedded_test_runner`）に渡し，その標準出力から結果の行を読む（`testing/device.rs`）．runner が途中で終われば次のテストから呼び直す
 
 ## テスト（`emela test`，仕様 13章）
 
