@@ -7,12 +7,12 @@
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, DefModule, Program};
-use emela_syntax::ast::{self, AstNode};
+use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
 use crate::code;
-use crate::diagnostic::{Diagnostic, Span};
+use crate::diagnostic::{Diagnostic, HELP_PREFIX, Span};
 use crate::pipeline::Analysis;
 
 pub const INTERNAL_ANNOTATION: &str = "internal";
@@ -114,8 +114,9 @@ pub(crate) fn check_internal<'p>(
     diagnostics
 }
 
-/// `@external` in a module of a dependency (E0233). Only the project being built and the bundled
-/// core and std may reach the host directly (spec 4.7, chapter 12).
+/// `@external` in the modules of a dependency (spec 4.7): only in a Pome that `[external] allow`
+/// of the project allows (E0233), and never on a `pub` fn (E0237), so that the host is reached
+/// only through the Pome's handlers.
 pub(crate) fn check_external_in_dependencies<'p>(
     analysis: &Analysis,
     parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,
@@ -136,13 +137,34 @@ pub(crate) fn check_external_in_dependencies<'p>(
         {
             if annotation
                 .name()
-                .is_some_and(|name| name.text() == "external")
+                .is_none_or(|name| name.text() != "external")
             {
+                continue;
+            }
+            let span = Span::new(file, annotation.syntax().text_range());
+            if !package.external_allowed {
                 diagnostics.push(
-                    Diagnostic::error(format!("`@external` cannot be used in a dependency (`{}`)", package.name))
+                    Diagnostic::error(format!("`{}` uses `@external`, but it is not allowed", package.name))
                         .with_code(code::EXTERNAL_IN_DEPENDENCY)
-                        .with_span(Span::new(file, annotation.syntax().text_range()))
-                        .with_note("only the project being built reaches the host directly; a dependency goes through the effects of std"),
+                        .with_span(span)
+                        .with_note(format!(
+                            "{HELP_PREFIX}add it to `[external] allow` in Pome.toml, or run `emela pome add --allow-external {}`",
+                            package.name
+                        )),
+                );
+                // One error per module is enough to say the Pome needs allowing.
+                break;
+            }
+            let fn_decl = annotation.syntax().parent().and_then(ast::FnDecl::cast);
+            if fn_decl.is_some_and(|f| f.is_pub()) {
+                diagnostics.push(
+                    Diagnostic::error("an `@external` function cannot be `pub` in a dependency")
+                        .with_code(code::PUB_EXTERNAL_IN_DEPENDENCY)
+                        .with_span(span)
+                        .with_note(format!(
+                            "`{}` reaches the host through its handlers; expose an effect, or a function that calls this one",
+                            package.name
+                        )),
                 );
             }
         }

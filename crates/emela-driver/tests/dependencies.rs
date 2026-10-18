@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use emela_driver::{
-    Dependencies, DependencyPome, DependencyRef, Input, MemoryFiles, Typecheck, check,
+    Dependencies, DependencyPome, DependencyRef, Input, MemoryFiles, Target, Typecheck, check,
+    check_dependency_targets,
 };
 
 // The project depends on quince (github.com/acme/quince); quince depends on http-kit, which it
@@ -47,6 +48,7 @@ fn pome(
         last_element: name.rsplit('/').next().unwrap().into(),
         module: module.map(Into::into),
         emela: Some(emela.into()),
+        targets: None,
         dependencies,
     }
 }
@@ -77,6 +79,7 @@ fn dependencies(project_module: Option<&str>, quince_emela: &str) -> Dependencie
             module: project_module.map(Into::into),
         }],
         manifest: "/app/Pome.toml".into(),
+        allow_external: Vec::new(),
     }
 }
 
@@ -145,22 +148,50 @@ fn checks_root_names() {
 }
 
 #[test]
-fn rejects_external_in_a_dependency() {
-    let router =
-        "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int\n\npub fn route() -> Int { f() }\n";
-    let found = diagnostics(
-        &files(
-            "import Quince\n\nfn main() -> Int { Quince.answer() }\n",
-            router,
-        ),
-        dependencies(None, "0.21.0"),
-    );
+fn allows_external_only_when_the_project_says_so() {
+    let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
+    let found = diagnostics(&files(app, router), dependencies(None, "0.21.0"));
     assert!(
-        found.iter().any(|d| d.starts_with(
-            "E0233 `@external` cannot be used in a dependency (`github.com/acme/quince`)"
-        )),
+        found.iter().any(|d| d
+            .starts_with("E0233 `github.com/acme/quince` uses `@external`, but it is not allowed")),
         "{found:?}"
     );
+
+    let mut allowed = dependencies(None, "0.21.0");
+    allowed.allow_external = vec!["github.com/acme/quince".into()];
+    assert_eq!(
+        diagnostics(&files(app, router), allowed.clone()),
+        Vec::<String>::new()
+    );
+
+    // Allowed, but a `pub` external fn would let the host be reached without an effect.
+    let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
+    let found = diagnostics(&files(app, public), allowed.clone());
+    assert!(found.iter().any(|d| d.starts_with("E0237")), "{found:?}");
+
+    // An allowed Pome that is not depended on.
+    allowed.allow_external.push("github.com/acme/old".into());
+    let found = diagnostics(&files(app, router), allowed);
+    assert_eq!(
+        found,
+        ["W0204 `github.com/acme/old` is allowed in [external] but not depended on"]
+    );
+}
+
+#[test]
+fn checks_the_targets_of_dependencies() {
+    let mut deps = dependencies(None, "0.21.0");
+    deps.pomes[1].targets = Some(vec!["js".into()]);
+    assert!(check_dependency_targets(&deps, Target::Js).is_empty());
+    let found = check_dependency_targets(&deps, Target::Wasm);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].code, Some("E0238"));
+    assert_eq!(
+        found[0].message,
+        "`github.com/acme/http-kit` supports only js, not wasm"
+    );
+    assert_eq!(found[0].notes[0], "required by `github.com/acme/quince`");
 }
 
 #[test]

@@ -35,9 +35,21 @@ pub fn project_dependencies<T: Transport>(
             .and_then(toml::Value::as_table)
             .is_some_and(|t| !t.is_empty())
     };
+    // `[external] allow` is read even without dependencies, to warn about unused entries.
+    let allow_external: Vec<String> = table
+        .get("external")
+        .and_then(|e| e.get("allow"))
+        .and_then(toml::Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
     if !declares("dependencies") {
         return Ok(Dependencies {
             manifest: manifest_file,
+            allow_external,
             ..Dependencies::default()
         });
     }
@@ -80,6 +92,7 @@ pub fn project_dependencies<T: Transport>(
         pomes: builder.pomes,
         project,
         manifest: manifest_file,
+        allow_external,
     })
 }
 
@@ -132,6 +145,7 @@ impl<T: Transport> Builder<'_, T> {
             last_element: path.last_element().to_string(),
             module: manifest.module.clone(),
             emela: Some(manifest.emela.clone()),
+            targets: manifest.targets.clone(),
             dependencies: Vec::new(),
         });
         let mut refs = Vec::new();

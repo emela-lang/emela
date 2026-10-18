@@ -175,17 +175,24 @@ fn check(path: &Path) -> ExitCode {
 
 /// The target: `--target`, else `[build].target` of Pome.toml (spec 4.7), else js. `None` after
 /// printing E0232 for an unknown target in Pome.toml.
+/// Also `None` after printing E0238 when a dependency does not support the target (spec 4.7).
 fn resolve_target(input: &Input, flag: Option<TargetArg>) -> Option<Target> {
-    if let Some(flag) = flag {
-        return Some(flag.into());
+    let target = match flag {
+        Some(flag) => flag.into(),
+        None => match emela_driver::project_target(&OsFs, input) {
+            Ok(target) => target.unwrap_or_default(),
+            Err(diagnostic) => {
+                print_diagnostics(&[diagnostic], &SourceDb::new());
+                return None;
+            }
+        },
+    };
+    let unsupported = emela_driver::check_dependency_targets(&input.dependencies, target);
+    if !unsupported.is_empty() {
+        print_diagnostics(&unsupported, &SourceDb::new());
+        return None;
     }
-    match emela_driver::project_target(&OsFs, input) {
-        Ok(target) => Some(target.unwrap_or_default()),
-        Err(diagnostic) => {
-            print_diagnostics(&[diagnostic], &SourceDb::new());
-            None
-        }
-    }
+    Some(target)
 }
 
 fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> ExitCode {

@@ -135,6 +135,8 @@ pub struct Package {
     /// `src/lib.emel`: the module the root name itself names.
     lib: Option<ModuleId>,
     dependencies: FxHashMap<SmolStr, PackageId>,
+    /// Whether the project allows its `@external` (`[external] allow`, spec 4.7).
+    pub external_allowed: bool,
 }
 
 impl Package {
@@ -194,6 +196,11 @@ impl ModuleMap {
         &self.packages[id]
     }
 
+    /// Allows the `@external` of a dependency (`[external] allow`, spec 4.7).
+    pub fn allow_external(&mut self, id: PackageId) {
+        self.packages[id].external_allowed = true;
+    }
+
     /// Whether a module belongs to a dependency, not to the project or core.
     pub fn is_dependency(&self, id: ModuleId) -> bool {
         self.package_of.contains_key(&id)
@@ -224,6 +231,7 @@ impl ModuleMap {
             local: FxHashMap::default(),
             lib: None,
             dependencies: FxHashMap::default(),
+            external_allowed: false,
         };
         for (_, data) in collected.modules.iter() {
             let local = data.name.clone();

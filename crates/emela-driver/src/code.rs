@@ -44,7 +44,7 @@ pub const ENTRY_WITHOUT_MAIN: &str = "E0230";
 pub const CONST_CYCLE: &str = "E0231";
 // `[build].target` of Pome.toml (spec 4.7)
 pub const UNKNOWN_BUILD_TARGET: &str = "E0232";
-/// `@external` in a dependency (spec 4.7, chapter 12).
+/// `@external` in a dependency that `[external] allow` does not allow (spec 4.7, chapter 12).
 pub const EXTERNAL_IN_DEPENDENCY: &str = "E0233";
 /// A dependency needs a newer compiler (`[pome].emela`, spec 4.7).
 pub const NEWER_COMPILER_NEEDED: &str = "E0234";
@@ -53,10 +53,16 @@ pub const INVALID_ROOT_NAME: &str = "E0235";
 /// The dependencies of `Pome.toml` cannot be used: no lock, or not in the cache for the language
 /// server (spec 4.7).
 pub const DEPENDENCIES_NOT_READY: &str = "E0236";
+/// A `pub` `@external` fn in a dependency (spec 4.7).
+pub const PUB_EXTERNAL_IN_DEPENDENCY: &str = "E0237";
+/// A dependency whose `[pome].targets` does not include the build target (spec 4.7).
+pub const UNSUPPORTED_TARGET: &str = "E0238";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 /// A dependency written for an older minor version of the compiler (`[pome].emela`, spec 4.7).
 pub const OLDER_COMPILER_DEPENDENCY: &str = "W0203";
+/// A Pome in `[external] allow` that is not depended on (spec 4.7).
+pub const UNUSED_EXTERNAL_ALLOW: &str = "W0204";
 
 // E03xx: types
 pub const TYPE_MISMATCH: &str = "E0301";
