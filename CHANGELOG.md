@@ -7,6 +7,16 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/emela-lang/emela/compare/v0.22.0...v0.23.0) - 2026-10-18
+
+### Added
+
+- *(pome)* emela pome add --allow-external と，lock の @external の一覧 ([#306](https://github.com/emela-lang/emela/pull/306))
+- *(pome)* 依存の @external を [external] allow で許し，[pome].targets を検査する ([#301](https://github.com/emela-lang/emela/pull/301))
+- *(pome)* github.com のリポジトリの中のディレクトリの Pome を取る ([#288](https://github.com/emela-lang/emela/pull/288))
+- *(pome)* emela pome の add，remove，install，update，list，verify ([#287](https://github.com/emela-lang/emela/pull/287))
+- *(pome)* emela-pome crate（Pome の解決，取得，sumdb の検証） ([#284](https://github.com/emela-lang/emela/pull/284))
+
 ## [0.22.0](https://github.com/emela-lang/emela/compare/v0.21.0...v0.22.0) - 2026-10-18
 
 ### Added
