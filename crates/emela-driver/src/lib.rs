@@ -14,6 +14,7 @@ mod doc;
 mod fmt;
 mod frontend;
 mod hints;
+mod host_files;
 mod hover;
 mod internal;
 mod js;

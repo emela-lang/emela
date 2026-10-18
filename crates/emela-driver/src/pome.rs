@@ -112,15 +112,15 @@ impl<T: Transport> Builder<'_, T> {
         if let Some(&i) = self.index.get(path) {
             return Ok(i);
         }
-        let dir = match self.manifest.replace.get(path) {
-            Some(dir) => self.base.join(dir),
+        let (dir, version) = match self.manifest.replace.get(path) {
+            Some(dir) => (self.base.join(dir), "replace".to_string()),
             None => {
                 let locked = self.lock.get(path).ok_or_else(|| {
                     PomeError::Lock(format!(
                         "`{path}` is not in {LOCK_FILE}; run `emela pome install`"
                     ))
                 })?;
-                self.fetcher.ensure(locked)?
+                (self.fetcher.ensure(locked)?, locked.version.to_string())
             }
         };
         let file = dir.join(PROJECT_FILE);
@@ -146,6 +146,7 @@ impl<T: Transport> Builder<'_, T> {
             module: manifest.module.clone(),
             emela: Some(manifest.emela.clone()),
             targets: manifest.targets.clone(),
+            version,
             dependencies: Vec::new(),
         });
         let mut refs = Vec::new();
