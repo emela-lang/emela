@@ -888,6 +888,109 @@ fn main() -> () fails Empty {
     );
 }
 
+const F446: &str = include_str!("../../../boards/stm32f4/nucleo-f446re.toml");
+
+/// A program with an interrupt entry (`button_changed`), for the board tests.
+const BUTTON_PROGRAM: &str = "\
+import Std.Embedded.Gpio.{Gpio, GpioPin, GpioEvent, OutputPushPull, NoPull, Input, Up, Both}
+
+pub fn button_changed(event: GpioEvent) use { Gpio } {
+  (use Gpio).write(GpioPin(13), event.level)
+}
+
+fn main() use { Gpio } {
+  gpio = use Gpio
+  gpio.configure(GpioPin(13), OutputPushPull, NoPull)
+  gpio.configure(GpioPin(100), Input, Up)
+  gpio.enable_interrupt(GpioPin(100), Both)
+}
+";
+
+/// With a board definition, the program's pins are checked against it and the HAL adapter is
+/// generated with the bound interrupts.
+#[test]
+fn boards_check_pins_and_generate_the_adapter() {
+    let toml = "[build]\ntarget = \"c-embedded\"\nboard = \"board.toml\"\n\n\
+                [embedded.gpio_interrupts]\n100 = \"button_changed\"\n";
+    let dir = test_dir("board");
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    std::fs::write(dir.join("app/board.toml"), F446).unwrap();
+    let (analysis, entry) =
+        build_embedded(&dir, &[("Pome.toml", toml), ("main.emel", BUTTON_PROGRAM)]);
+    assert!(entry.is_some(), "{:#?}", analysis.diagnostics);
+    let adapter = std::fs::read_to_string(dir.join("out/emela_board_hal.c")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(adapter.contains("case 13: /* D13 PA5 */"), "{adapter}");
+    assert!(
+        adapter.contains("void EXTI15_10_IRQHandler(void)"),
+        "{adapter}"
+    );
+    assert!(
+        adapter.contains("emela_export_button_changed(event);"),
+        "{adapter}"
+    );
+
+    let wrong = |main: &str, toml: &str, name: &str| -> Vec<String> {
+        let dir = test_dir(name);
+        std::fs::create_dir_all(dir.join("app")).unwrap();
+        std::fs::write(dir.join("app/board.toml"), F446).unwrap();
+        let (analysis, entry) = build_embedded(&dir, &[("Pome.toml", toml), ("main.emel", main)]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(entry.is_none());
+        analysis
+            .diagnostics
+            .iter()
+            .map(|d| d.message.clone())
+            .collect()
+    };
+    let board_only = "[build]\ntarget = \"c-embedded\"\nboard = \"board.toml\"\n";
+    let unknown = wrong(
+        "import Std.Embedded.Gpio.{Gpio, GpioPin, High}\nfn main() { (use Gpio).write(GpioPin(42), High) }\n",
+        board_only,
+        "board-unknown-pin",
+    );
+    assert!(
+        unknown.iter().any(|m| m.contains("logical pin 42")),
+        "{unknown:#?}"
+    );
+    let computed = wrong(
+        "import Std.Embedded.Gpio.{Gpio, GpioPin, High}\nfn on(n: Int) use { Gpio } { (use Gpio).write(GpioPin(n + 1), High) }\nfn main() { on(3) }\n",
+        board_only,
+        "board-computed-pin",
+    );
+    assert!(
+        computed.iter().any(|m| m.contains("constants")),
+        "{computed:#?}"
+    );
+    let bad_handler = wrong(
+        BUTTON_PROGRAM,
+        "[build]\ntarget = \"c-embedded\"\nboard = \"board.toml\"\n\n[embedded.gpio_interrupts]\n100 = \"missing\"\n9 = \"button_changed\"\n11 = \"button_changed\"\n",
+        "board-bad-handler",
+    );
+    assert!(
+        bad_handler.iter().any(|m| m.contains("`missing`")),
+        "{bad_handler:#?}"
+    );
+    let conflict = wrong(
+        "import Std.Embedded.Gpio.{Gpio, GpioPin, High}\n\
+         import Std.Embedded.Spi.{Spi, Spi1}\n\
+         import Std.Embedded.Peripheral.{PeripheralError}\n\
+         fn main() {\n  (use Gpio).write(GpioPin(13), High)\n  \
+         (use Spi).transmit(Spi1, [1], Int64.from_int(1)) escape { PeripheralError(_) -> () }\n}\n",
+        "[build]\ntarget = \"c-embedded\"\nboard = \"board.toml\"\n\n[embedded.memory]\nheap_bytes = 512\n",
+        "board-conflict",
+    );
+    assert!(
+        conflict.iter().any(|m| m.contains("sck of Spi1")),
+        "{conflict:#?}"
+    );
+    // D9 (PC7) and D11 (PA7) share EXTI7.
+    assert!(
+        bad_handler.iter().any(|m| m.contains("EXTI7")),
+        "{bad_handler:#?}"
+    );
+}
+
 #[test]
 fn platform_handlers_use_the_board() {
     let main = r##"import Std.Embedded.Gpio.{Gpio, GpioPin}
@@ -1101,6 +1204,47 @@ int32_t emela_uart_receive(EmelaUartId id, int32_t size, int64_t timeout, uint16
         stdout,
         "configure 0 115200\ntransmit 72 105\ndbg [1, 2, 3]\ndbg -1\ndbg 5\nidle\n"
     );
+}
+
+/// The adapter covers the UART, I2C and SPI routes of the board for the peripherals the program
+/// uses.
+#[test]
+fn adapters_follow_the_peripheral_routes() {
+    let main = r##"import Std.Embedded.Uart.{Uart, Uart0}
+import Std.Embedded.I2c.{I2c, I2c1}
+import Std.Embedded.Spi.{Spi, Spi1}
+import Std.Embedded.Peripheral.{PeripheralError}
+
+fn run() -> Bool fails PeripheralError use { Uart, I2c, Spi } {
+  t = Int64.from_int(10)
+  (use Uart).transmit(Uart0, [1], t)
+  (use Spi).transmit(Spi1, [2], t)
+  (use I2c).is_device_ready(I2c1, 72, 1, t)
+}
+
+fn main() {
+  dbg(run() escape { PeripheralError(_) -> False })
+  ()
+}
+"##;
+    let toml = "[build]\ntarget = \"c-embedded\"\nboard = \"board.toml\"\n\n[embedded.memory]\nheap_bytes = 1024\n";
+    let dir = test_dir("adapters");
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    std::fs::write(dir.join("app/board.toml"), F446).unwrap();
+    let (analysis, entry) = build_embedded(&dir, &[("Pome.toml", toml), ("main.emel", main)]);
+    assert!(entry.is_some(), "{:#?}", analysis.diagnostics);
+    let adapter = std::fs::read_to_string(dir.join("out/emela_board_hal.c")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    for expected in [
+        "case EMELA_UART_ID_UART0: /* USART2 */",
+        "case EMELA_I2C_ID_I2C1: /* I2C1 */",
+        "case EMELA_SPI_ID_SPI1: /* SPI1 */",
+        "int32_t emela_i2c_is_device_ready(",
+        "int32_t emela_spi_transfer(",
+    ] {
+        assert!(adapter.contains(expected), "{expected}\n{adapter}");
+    }
+    assert!(!adapter.contains("emela_gpio_write"), "{adapter}");
 }
 
 /// With a heap, the String functions that take or give lists work too.

@@ -59,9 +59,19 @@ pub(crate) fn check(m: &Module, entries: &[Entry], heap: bool) -> Result<Vec<FnI
     }
 }
 
-/// The logical pins the program names (`GpioPin(n)`) must be constants.
-pub(crate) fn pins(m: &Module, reached: &[FnId]) -> Vec<Error> {
+/// The logical pins the program names (`GpioPin(n)`) must be constants, and exist on the board if
+/// one is selected (`docs/design/board-definition.md`, 静的バインドの方針).
+pub(crate) fn pins(m: &Module, reached: &[FnId], board: Option<&crate::BoardDef>) -> Vec<Error> {
     let mut errors: Vec<Error> = Vec::new();
+    let mut report = |message: String| {
+        if !errors.iter().any(|e| e.message == message) {
+            errors.push(Error::new(message));
+        }
+    };
+    // The GPIO pins the program names, and the peripheral routes it uses (by the IDs it names:
+    // `Uart0`, `I2c1`, `Spi1`).
+    let mut gpio: Vec<(i32, String)> = Vec::new();
+    let mut routes: Vec<(&'static str, String)> = Vec::new();
     for &id in reached {
         let f = &m.functions[id];
         for (_, s) in f.stmts.iter() {
@@ -72,21 +82,118 @@ pub(crate) fn pins(m: &Module, reached: &[FnId]) -> Vec<Error> {
             else {
                 continue;
             };
-            if m.core.enums[ctor.enum_id].name != "Std.Embedded.Gpio.GpioPin" {
+            let def = &m.core.enums[ctor.enum_id];
+            let kind = match def.name.as_str() {
+                "Std.Embedded.Uart.UartId" => Some("uart"),
+                "Std.Embedded.I2c.I2cId" => Some("i2c"),
+                "Std.Embedded.Spi.SpiId" => Some("spi"),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                let route = (kind, def.variants[ctor.variant].name.clone());
+                if !routes.contains(&route) {
+                    routes.push(route);
+                }
                 continue;
             }
-            let constant = matches!(
-                args.first(),
-                Some(emela_lir::Operand::Const(emela_lir::Const::Int(_)))
-            );
-            let message = format!(
-                "`{}` computes the ID of a GpioPin: on the embedded C target, pin IDs must be constants known at compile time",
-                display(&f.name)
-            );
-            if !constant && !errors.iter().any(|e| e.message == message) {
-                errors.push(Error::new(message));
+            if def.name != "Std.Embedded.Gpio.GpioPin" {
+                continue;
+            }
+            match args.first() {
+                Some(emela_lir::Operand::Const(emela_lir::Const::Int(n))) => {
+                    gpio.push((*n, display(&f.name).to_owned()));
+                    if let Some(board) = board
+                        && board.pin(*n).is_none()
+                    {
+                        report(format!(
+                            "the board `{}` has no logical pin {n} (GpioPin({n}) in `{}`)",
+                            board.name,
+                            display(&f.name)
+                        ));
+                    }
+                }
+                _ => report(format!(
+                    "`{}` computes the ID of a GpioPin: on the embedded C target, pin IDs must be constants known at compile time",
+                    display(&f.name)
+                )),
             }
         }
+    }
+    // A pin is either a GPIO or one peripheral's (board-definition.md: 静的バインドの方針).
+    if let Some(board) = board {
+        let mut taken: Vec<(i32, String)> = Vec::new();
+        for (kind, id) in &routes {
+            let list = match *kind {
+                "uart" => &board.uarts,
+                "i2c" => &board.i2cs,
+                _ => &board.spis,
+            };
+            let Some(route) = list.iter().find(|r| r.id == *id) else {
+                report(format!(
+                    "the board `{}` has no route for {id} (`[peripheral_routes]`)",
+                    board.name
+                ));
+                continue;
+            };
+            for (role, pin) in &route.pins {
+                let user = format!("{role} of {id}");
+                if let Some((_, other)) = taken.iter().find(|(p, _)| p == pin) {
+                    report(format!(
+                        "the logical pin {pin} is used as both {other} and {user}"
+                    ));
+                }
+                taken.push((*pin, user));
+            }
+        }
+        for (pin, f) in &gpio {
+            if let Some((_, user)) = taken.iter().find(|(p, _)| p == pin) {
+                report(format!(
+                    "the logical pin {pin} is the {user}, so `{f}` cannot use it as a GPIO"
+                ));
+            }
+        }
+    }
+    errors
+}
+
+/// The bound GPIO interrupts must name interrupt entries and pins of the board, one entry per pin
+/// and one pin per EXTI line (the pin number: `PA13` and `PC13` share a line on STM32).
+pub(crate) fn interrupts(m: &Module, entries: &[Entry], options: &crate::Options) -> Vec<Error> {
+    let mut errors = Vec::new();
+    if options.gpio_interrupts.is_empty() {
+        return errors;
+    }
+    let Some(board) = &options.board else {
+        errors.push(Error::new(
+            "`[embedded.gpio_interrupts]` needs a board definition (`[build] board`)",
+        ));
+        return errors;
+    };
+    let mut lines: Vec<(u8, i32)> = Vec::new();
+    for i in &options.gpio_interrupts {
+        let entry = entries
+            .iter()
+            .find(|e| e.isr && m.functions[e.function].name == i.handler);
+        if entry.is_none() {
+            errors.push(Error::new(format!(
+                "`{}` in `[embedded.gpio_interrupts]` is not a public function taking a GpioEvent",
+                i.handler
+            )));
+        }
+        let Some(pin) = board.pin(i.pin) else {
+            errors.push(Error::new(format!(
+                "the logical pin {} in `[embedded.gpio_interrupts]` is not on the board `{}`",
+                i.pin, board.name
+            )));
+            continue;
+        };
+        if let Some((_, other)) = lines.iter().find(|(line, _)| *line == pin.pin) {
+            errors.push(Error::new(format!(
+                "the logical pins {} and {other} share the interrupt line EXTI{}, so they cannot both be bound",
+                i.pin, pin.pin
+            )));
+        }
+        lines.push((pin.pin, i.pin));
     }
     errors
 }

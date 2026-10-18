@@ -151,7 +151,148 @@ pub fn embedded_options(
             }
         }
     }
+    if let Some(board) = table.get("build").and_then(|b| b.get("board")) {
+        let Some(file) = board.as_str() else {
+            return Err(setting_error(
+                "`[build] board` must be the path of a board definition file".into(),
+            ));
+        };
+        let board_path = input.base.join(file);
+        let text = fs.read_to_string(&board_path).map_err(|e| {
+            setting_error(format!(
+                "cannot read the board definition `{}`: {e}",
+                board_path.display()
+            ))
+        })?;
+        options.board = Some(board_def(&text).map_err(|message| {
+            Diagnostic::error(format!("invalid board definition: {message}"))
+                .at(Location::Path(board_path.clone()))
+        })?);
+    }
+    if let Some(interrupts) = table.get("embedded").and_then(|e| e.get("gpio_interrupts")) {
+        let Some(interrupts) = interrupts.as_table() else {
+            return Err(setting_error(
+                "`[embedded.gpio_interrupts]` must be a table of `logical pin = \"function name\"`"
+                    .into(),
+            ));
+        };
+        for (pin, handler) in interrupts {
+            let (Ok(pin), Some(handler)) = (pin.parse::<i32>(), handler.as_str()) else {
+                return Err(setting_error(format!(
+                    "`{pin}` in `[embedded.gpio_interrupts]` must be `logical pin = \"function name\"`"
+                )));
+            };
+            options
+                .gpio_interrupts
+                .push(emela_codegen_c_embedded::GpioInterrupt {
+                    pin,
+                    handler: handler.to_owned(),
+                });
+        }
+    }
     Ok(options)
+}
+
+/// A board definition (`docs/design/board-definition.md`): `[board]` and `[logical_pins."<id>"]`.
+fn board_def(text: &str) -> Result<emela_codegen_c_embedded::BoardDef, String> {
+    let table = text
+        .parse::<toml::Table>()
+        .map_err(|e| format!("not valid TOML: {e}"))?;
+    let board = table
+        .get("board")
+        .and_then(|b| b.as_table())
+        .ok_or("no `[board]`")?;
+    let text_of = |key: &str| board.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+    let mut pins = Vec::new();
+    if let Some(logical) = table.get("logical_pins").and_then(|p| p.as_table()) {
+        for (id, pin) in logical {
+            let id: i32 = id
+                .parse()
+                .map_err(|_| format!("the logical pin ID `{id}` must be an integer"))?;
+            let port = pin
+                .get("port")
+                .and_then(|p| p.as_str())
+                .and_then(|p| {
+                    let mut chars = p.chars();
+                    let c = chars.next()?;
+                    (chars.next().is_none() && c.is_ascii_uppercase()).then_some(c)
+                })
+                .ok_or(format!(
+                    "`port` of the logical pin {id} must be one letter like `\"A\"`"
+                ))?;
+            let number = pin
+                .get("pin")
+                .and_then(|p| p.as_integer())
+                .filter(|n| (0..16).contains(n))
+                .ok_or(format!(
+                    "`pin` of the logical pin {id} must be an integer from 0 to 15"
+                ))?;
+            pins.push(emela_codegen_c_embedded::LogicalPin {
+                id,
+                label: pin
+                    .get("label")
+                    .and_then(|l| l.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                port,
+                pin: number as u8,
+            });
+        }
+    }
+    pins.sort_by_key(|p| p.id);
+    let (mut uarts, mut i2cs, mut spis) = (Vec::new(), Vec::new(), Vec::new());
+    if let Some(routes) = table.get("peripheral_routes").and_then(|r| r.as_table()) {
+        for (key, route) in routes {
+            let Some(kind) = ["uart", "i2c", "spi"].into_iter().find(|k| {
+                key.strip_prefix(k)
+                    .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+            }) else {
+                continue;
+            };
+            let int = |field: &str| {
+                route.get(field).and_then(|v| v.as_integer()).ok_or(format!(
+                    "`{field}` of `[peripheral_routes.{key}]` must be an integer"
+                ))
+            };
+            let instance = route
+                .get("instance")
+                .and_then(|v| v.as_str())
+                .ok_or(format!("`[peripheral_routes.{key}]` has no `instance`"))?;
+            let mut route_pins = Vec::new();
+            for role in emela_codegen_c_embedded::route_roles(kind) {
+                let pin = int(&format!("{role}_pin"))?;
+                if !pins.iter().any(|p| i64::from(p.id) == pin) {
+                    return Err(format!(
+                        "the logical pin {pin} of `[peripheral_routes.{key}]` is not in `[logical_pins]`"
+                    ));
+                }
+                route_pins.push(((*role).to_owned(), pin as i32));
+            }
+            // `uart0` is the constructor `Uart0` of `UartId`.
+            let mut id = key.clone();
+            id[..1].make_ascii_uppercase();
+            let r = emela_codegen_c_embedded::Route {
+                id,
+                instance: instance.to_owned(),
+                pins: route_pins,
+                af: int("alternate_function")? as u8,
+            };
+            match kind {
+                "uart" => uarts.push(r),
+                "i2c" => i2cs.push(r),
+                _ => spis.push(r),
+            }
+        }
+    }
+    Ok(emela_codegen_c_embedded::BoardDef {
+        id: text_of("id").unwrap_or_default(),
+        name: text_of("name").unwrap_or_default(),
+        hal: text_of("hal"),
+        pins,
+        uarts,
+        i2cs,
+        spis,
+    })
 }
 
 fn quoted(names: &[&str]) -> String {

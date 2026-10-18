@@ -8,6 +8,7 @@
 - `check.rs`: 入口から届く関数の検査．ヒープの値（`heap_bytes` がなければ），特殊化で消えなかった関数値，fiber，未対応の組み込み関数，外部関数の型と名前を検査する．割り込み入口から届く関数では，ヒープの値，待つ外部関数，再帰も拒否する
 - `emit.rs`: Heap IR を C に写す．値型の構造体の形（newtype，レコード，タグ付き）と境界ヘッダーの生成もここにある
 - `board.rs`: `Std.Embedded.*` の宣言から境界の C の名前を決める
+- `board_def.rs`，`adapter.rs`，`check.rs` の `pins` と `gpio_interrupts`: ボード定義（driver が TOML から読む）との照合と，STM32CubeF4 の HAL アダプター（`emela_board_hal.c`．プログラムが使う GPIO，UART，I2C，SPI）の生成
 - `names.rs`，`writer.rs`: `emela-codegen-c` の写し
 
 ## 補足

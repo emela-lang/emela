@@ -1,0 +1,123 @@
+# The NUCLEO-F446RE board definition (docs/design/board-definition.md).
+# Logical pins 0-15 are the Arduino D0-D15 (common to NUCLEO-64 boards); 100 is the user button B1.
+format_version = 1
+
+[board]
+id = "stm32f4-nucleo-f446re"
+name = "NUCLEO-F446RE"
+mcu = "STM32F446RET6"
+hal = "STM32CubeF4"
+
+[logical_pins."0"]
+label = "D0"
+port = "A"
+pin = 3
+
+[logical_pins."1"]
+label = "D1"
+port = "A"
+pin = 2
+
+[logical_pins."2"]
+label = "D2"
+port = "A"
+pin = 10
+
+[logical_pins."3"]
+label = "D3"
+port = "B"
+pin = 3
+
+[logical_pins."4"]
+label = "D4"
+port = "B"
+pin = 5
+
+[logical_pins."5"]
+label = "D5"
+port = "B"
+pin = 4
+
+[logical_pins."6"]
+label = "D6"
+port = "B"
+pin = 10
+
+[logical_pins."7"]
+label = "D7"
+port = "A"
+pin = 8
+
+[logical_pins."8"]
+label = "D8"
+port = "A"
+pin = 9
+
+[logical_pins."9"]
+label = "D9"
+port = "C"
+pin = 7
+
+[logical_pins."10"]
+label = "D10"
+port = "B"
+pin = 6
+
+[logical_pins."11"]
+label = "D11"
+port = "A"
+pin = 7
+
+[logical_pins."12"]
+label = "D12"
+port = "A"
+pin = 6
+
+[logical_pins."13"]
+label = "D13"
+port = "A"
+pin = 5
+onboard_device = "LD2"
+
+[logical_pins."14"]
+label = "D14"
+port = "B"
+pin = 9
+
+[logical_pins."15"]
+label = "D15"
+port = "B"
+pin = 8
+
+# The user button B1 (Low while pressed), with an ID apart from the Arduino numbers.
+[logical_pins."100"]
+label = "B1"
+port = "C"
+pin = 13
+onboard_device = "B1"
+
+# USART2 is the ST-LINK virtual COM port (TX on D1 = PA2, RX on D0 = PA3).
+[peripheral_routes.uart0]
+instance = "USART2"
+tx_pin = 1
+rx_pin = 0
+alternate_function = 7
+
+# The Arduino I2C (SCL on D15 = PB8, SDA on D14 = PB9).
+[peripheral_routes.i2c1]
+instance = "I2C1"
+scl_pin = 15
+sda_pin = 14
+alternate_function = 4
+
+# The Arduino SPI (SCK on D13 = PA5, MISO on D12 = PA6, MOSI on D11 = PA7). D13 is also the LED LD2.
+[peripheral_routes.spi1]
+instance = "SPI1"
+sck_pin = 13
+miso_pin = 12
+mosi_pin = 11
+alternate_function = 5
+
+# The GPIO_SPEED_FREQ_* choice stays out of Emela's API; the HAL side decides it.
+[backend.stm32cube_f4.gpio]
+default_output_speed = "low"

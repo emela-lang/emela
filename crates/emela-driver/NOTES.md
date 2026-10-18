@@ -61,6 +61,7 @@ pub trait Backend<P> {
 - （補）設定は `embedded_options` が `Pome.toml` から読む（`[embedded.memory] string_capacity` と `heap_bytes`）．詳細は `docs/design/c-embedded-codegen.md`
 - （補）`emela test` はホスト向け C で動かす．`LowerTests::for_embedded_project` で `main` にボードのエフェクトを与えて型検査し，`CoreC::with_string_capacity` でランタイムが String の容量を検査する（`-DEM_STRING_CAPACITY`）
 - （補）`tests/c_embedded.rs` は生成 C を，ホストの cc でスタブのボードとリンクして動かした結果で確かめる
+- （補）ボードを選ぶと（`[build] board`．ボード定義の TOML でプロジェクトからの相対パス），`embedded_options` がボード定義と `[embedded.gpio_interrupts]` を読み，出力器が論理ピンを検査して `emela_board_hal.c` を生成する
 
 ## テスト（`emela test`，仕様 13章）
 

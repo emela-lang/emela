@@ -6,7 +6,9 @@
 //! generated per program, and the board's features come as the C functions and hooks of the board
 //! headers. The design is in `docs/design/c-embedded-architecture.md`.
 
+mod adapter;
 mod board;
+mod board_def;
 mod check;
 mod emit;
 mod heap;
@@ -20,6 +22,7 @@ use emela_core::{EnumId, FnId, Module, TypeId};
 use emela_lir::{Layout, Repr};
 use rustc_hash::FxHashMap;
 
+pub use crate::board_def::{BoardDef, GpioInterrupt, LogicalPin, Route, route_roles};
 use crate::check::Entry;
 
 /// The most steps the compile-time evaluation of one const takes.
@@ -41,11 +44,15 @@ pub struct Output {
     pub copies: Vec<(String, std::path::PathBuf)>,
 }
 
-/// The settings of the embedded C output (`[embedded.*]` of `Pome.toml`).
+/// The settings of the embedded C output (`[build] board` and `[embedded.*]` of `Pome.toml`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     /// The bytes (UTF-8) one String can hold; more is a defect. `[embedded.memory] string_capacity`.
     pub string_capacity: u16,
+    /// The selected board: with one, logical pins are checked and the HAL adapters generated.
+    pub board: Option<BoardDef>,
+    /// The GPIO interrupts bound to interrupt entries (`[embedded.gpio_interrupts]`).
+    pub gpio_interrupts: Vec<GpioInterrupt>,
     /// The bytes of Emela's heap (`[embedded.memory] heap_bytes`); 0 means no heap.
     pub heap_bytes: u32,
 }
@@ -59,6 +66,8 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             string_capacity: 256,
+            board: None,
+            gpio_interrupts: Vec::new(),
             heap_bytes: 0,
         }
     }
@@ -186,7 +195,8 @@ fn compile_entries(
     // The embedded constraints first: the verifier would also reject some of what they reject
     // (a function value left in a data structure), as an internal error.
     let reached = check::check(&lir, &entries, options.heap_bytes > 0)?;
-    let errors = check::pins(&lir, &reached);
+    let mut errors = check::pins(&lir, &reached, options.board.as_ref());
+    errors.extend(check::interrupts(&lir, &entries, options));
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -255,6 +265,30 @@ fn compile_entries(
     ];
     out.extend(files.peripherals);
     out.push((EMBEDDED_H_FILE.to_owned(), files.embedded));
+    // The HAL adapter of the selected board, with the bound interrupts.
+    if let Some(board) = &options.board
+        && adapter::supported(board)
+    {
+        let bound: Vec<adapter::Bound<'_>> = options
+            .gpio_interrupts
+            .iter()
+            .filter_map(|i| {
+                Some(adapter::Bound {
+                    pin: board.pin(i.pin)?,
+                    entry: format!("emela_export_{}", c_ident(&i.handler)),
+                })
+            })
+            .collect();
+        let uses = |header: &str| out.iter().any(|(n, _)| n == header);
+        let (gpio, uart) = (uses("emela_gpio.h"), uses("emela_uart.h"));
+        let (i2c, spi) = (uses("emela_i2c.h"), uses("emela_spi.h"));
+        if gpio || uart || i2c || spi {
+            out.push((
+                adapter::FILE.to_owned(),
+                adapter::generate(board, &bound, gpio, uart, i2c, spi),
+            ));
+        }
+    }
     out.extend(files.bundled);
     Ok(Output {
         files: out,
