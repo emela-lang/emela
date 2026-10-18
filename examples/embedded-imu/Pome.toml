@@ -1,0 +1,6 @@
+[build]
+target = "c-embedded"
+board = "../../boards/stm32f4/nucleo-f446re.toml"
+
+[embedded.memory]
+heap_bytes = 2048

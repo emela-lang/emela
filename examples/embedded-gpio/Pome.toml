@@ -1,0 +1,15 @@
+[build]
+target = "c-embedded"
+board = "../../boards/stm32f4/nucleo-f446re.toml"
+
+# Logical pin = public function to call on its interrupt (one that takes a GpioEvent).
+[embedded.gpio_interrupts]
+100 = "button_changed"
+
+# The tests' State uses a List, so provide a heap (main does not use it).
+[embedded.memory]
+heap_bytes = 1024
+
+# `emela test --device` runs the firmware with the tests built in on Renode's NUCLEO-F446RE.
+[embedded.test]
+runner = "renode-f446/test.sh"

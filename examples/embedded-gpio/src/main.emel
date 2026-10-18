@@ -1,0 +1,102 @@
+# The GPIO effect, and an interrupt function called from the board.
+# Pin numbers are logical IDs; the board definition maps them to MCU pins.
+
+import Std.Embedded.Gpio.{
+  Gpio,
+  GpioPin,
+  GpioEvent,
+  PinState,
+  OutputPushPull,
+  NoPull,
+  Low,
+  Input,
+  Up,
+  Both,
+  High,
+}
+import Std.State.{State}
+
+fn prepare_led(pin: GpioPin) use { Gpio } {
+  gpio = use Gpio
+  gpio.configure(pin, OutputPushPull, NoPull)
+  gpio.write(pin, Low)
+}
+
+fn prepare_button(pin: GpioPin) use { Gpio } {
+  gpio = use Gpio
+  gpio.configure(pin, Input, Up)
+  gpio.enable_interrupt(pin, Both)
+}
+
+fn button_level(event: GpioEvent) -> Option[PinState] {
+  if event.pin == GpioPin(100) {
+    Some(event.level)
+  } else {
+    None
+  }
+}
+
+fn is_pressed(level: PinState) -> Bool {
+  level == Low
+}
+
+fn led_state(pressed: Bool) -> PinState {
+  if pressed { High } else { Low }
+}
+
+# In embedded C, a public function that takes a GpioEvent is emitted as an interrupt entry point.
+# [embedded.gpio_interrupts] in Pome.toml binds it to a logical pin, and the generated HAL callback
+# calls it inside the ISR. Everything it reaches is subject to the ISR restrictions.
+pub fn button_changed(event: GpioEvent) use { Gpio } {
+  gpio = use Gpio
+  output = button_level(event)
+    |> Option.map(is_pressed)
+    |> Option.map(led_state)
+
+  output match {
+    Some(state) -> gpio.write(GpioPin(13), state)
+    None        -> ()
+  }
+}
+
+fn main() {
+  prepare_led(GpioPin(13))
+  prepare_button(GpioPin(100))
+}
+
+# Tests. GPIO is swapped for a test handler that records the written values in State.
+# `emela test` runs them on the host; `emela test --device` runs them on the board (Renode) via
+# the [embedded.test] runner.
+
+handler RecordGpio implements Gpio {
+  fn configure(pin, mode, pull) { () }
+  fn read(pin) { High }
+  fn write(pin, state) {
+    (use State[List[PinState]]).update(fn(xs) { List.append(xs, [state]) })
+  }
+  fn toggle(pin) { () }
+  fn enable_interrupt(pin, edge) { () }
+  fn disable_interrupt(pin) { () }
+}
+
+fn writes_for(event: GpioEvent) -> List[PinState] {
+  (_, writes) = State.run([], fn() {
+    with RecordGpio { button_changed(event) }
+  })
+  writes
+}
+
+@test
+fn pressing_lights_the_led() {
+  assert writes_for(GpioEvent(pin: GpioPin(100), level: Low)) == [High]
+}
+
+@test
+fn releasing_turns_the_led_off() {
+  assert writes_for(GpioEvent(pin: GpioPin(100), level: High)) == [Low]
+}
+
+@test
+fn other_pins_are_ignored() {
+  assert writes_for(GpioEvent(pin: GpioPin(5), level: Low)) == []
+}

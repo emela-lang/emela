@@ -1,0 +1,114 @@
+# Talks to I2C and SPI devices and writes the results to the UART, then echoes back a line received
+# over the UART. In Renode, a sensor with registers sits at address 118 on I2C1, and SPI1 has a
+# device that returns each received byte XORed with 165 (renode-f446/run.sh).
+
+import Std.Embedded.Uart.{Uart, Uart0, UartConfig, One, NoParity, Both, NoFlowControl, By16}
+import Std.Embedded.I2c.{I2c, I2c1, I2cConfig, SevenBit, Standard}
+import Std.Embedded.Spi.{
+  Spi,
+  Spi1,
+  SpiConfig,
+  Master,
+  TwoLine,
+  IdleLow,
+  FirstEdge,
+  Div16,
+  MostSignificantFirst,
+}
+import Std.Embedded.Gpio.{Gpio, GpioPin, OutputPushPull, NoPull, Low, High}
+import Std.Embedded.Peripheral.{PeripheralError}
+
+## 7-bit address of the sensor.
+const SENSOR = 118
+## Chip select of the SPI device (D10, active low).
+const CHIP_SELECT = GpioPin(10)
+
+fn timeout() -> Int64 { Int64.from_int(100) }
+
+## Writes one line to the UART.
+fn say(text: String) -> () fails PeripheralError use { Uart } {
+  (use Uart).transmit(Uart0, String.code_points("#{text}\n"), timeout())
+}
+
+fn show(values: List[Int]) -> String {
+  values |> List.map(Int.to_string) |> String.join(" ")
+}
+
+fn text(codes: List[Int]) -> String {
+  codes |> List.map(fn(c) { Option.or(String.from_code_point(c), "?") }) |> String.join("")
+}
+
+fn yes_no(b: Bool) -> String { if b { "yes" } else { "no" } }
+
+fn check_i2c() -> () fails PeripheralError use { Uart, I2c } {
+  i2c = use I2c
+  i2c.configure(I2c1, I2cConfig(clock_speed_hz: 100000, addressing: SevenBit, duty_cycle: Standard))
+  say("i2c ready #{yes_no(i2c.is_device_ready(I2c1, SENSOR, 2, timeout()))}")
+  say("i2c missing #{yes_no(i2c.is_device_ready(I2c1, 80, 2, timeout()))}")
+  # Registers 0-15 start out as 240-255.
+  say("i2c read #{show(i2c.memory_read(I2c1, SENSOR, 0, I2c.Bits8, 4, timeout()))}")
+  i2c.memory_write(I2c1, SENSOR, 2, I2c.Bits8, [18, 52], timeout())
+  say("i2c write #{show(i2c.memory_read(I2c1, SENSOR, 1, I2c.Bits8, 3, timeout()))}")
+  # Writing 0, 1, 2, ... to register 64 makes the sensor count them; register 65 then returns
+  # "mismatches/bytes received".
+  i2c.master_transmit(I2c1, SENSOR, [64, ..List.range(0, 32)], timeout())
+  i2c.master_transmit(I2c1, SENSOR, [65], timeout())
+  say("i2c score #{text(i2c.master_receive(I2c1, SENSOR, 7, timeout()))}")
+}
+
+## Pulls chip select low, transfers, and drives it high again.
+fn exchange(data: List[Int]) -> List[Int] fails PeripheralError use { Spi, Gpio } {
+  gpio = use Gpio
+  gpio.write(CHIP_SELECT, Low)
+  received = (use Spi).transfer(Spi1, data, timeout())
+  gpio.write(CHIP_SELECT, High)
+  received
+}
+
+fn check_spi() -> () fails PeripheralError use { Uart, Spi, Gpio } {
+  gpio = use Gpio
+  gpio.configure(CHIP_SELECT, OutputPushPull, NoPull)
+  gpio.write(CHIP_SELECT, High)
+  (use Spi).configure(
+    Spi1,
+    SpiConfig(
+      mode: Master,
+      direction: TwoLine,
+      data_size: Spi.Bits8,
+      polarity: IdleLow,
+      phase: FirstEdge,
+      prescaler: Div16,
+      bit_order: MostSignificantFirst,
+    ),
+  )
+  say("spi #{show(exchange([0, 1, 165, 255]))}")
+  say("spi #{show(exchange([90, 15]))}")
+}
+
+## Reads one line from the UART (up to a newline, at most 32 characters).
+fn read_line(acc: List[Int]) -> List[Int] fails PeripheralError use { Uart } {
+  (use Uart).receive(Uart0, 1, Int64.from_int(1000)) match {
+    [10] -> List.reverse(acc)
+    [c]  -> if List.length(acc) < 32 { read_line([c, ..acc]) } else { List.reverse(acc) }
+    _    -> List.reverse(acc)
+  }
+}
+
+fn main() -> () fails PeripheralError {
+  (use Uart).configure(
+    Uart0,
+    UartConfig(
+      baud_rate: 115200,
+      data_bits: Uart.Bits8,
+      stop_bits: One,
+      parity: NoParity,
+      direction: Both,
+      flow_control: NoFlowControl,
+      oversampling: By16,
+    ),
+  )
+  say("ready")
+  check_i2c()
+  check_spi()
+  say("echo #{text(read_line([]))}")
+}

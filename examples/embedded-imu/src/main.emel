@@ -1,0 +1,78 @@
+# Reads an ICM-42688-P over I2C and writes acceleration, angular rate and temperature to Console
+# every 100 ms. Console goes to USART2 (the ST-LINK virtual COM port, 115200 bps), see
+# renode-f446/board.c.
+
+import Std.Platform.{Platform}
+import Std.Console.{Console}
+import Std.Clock.{Clock}
+import Std.Embedded.I2c.{I2c, I2c1, I2cConfig, SevenBit, Standard, Bits8}
+import Std.Embedded.Peripheral.{PeripheralError}
+import Icm42688.{Registers, DEVICE_ID, Accel4g, Dps500, Sample}
+
+## 7-bit address of the IMU: 105 (0x69) for modules with AD0 high, 104 (0x68) with AD0 low.
+const ADDRESS = 105
+const ACCEL_RANGE = Accel4g
+const GYRO_RANGE = Dps500
+
+fn timeout() -> Int64 { Int64.from_int(10) }
+
+## Reads and writes the IMU's registers over I2C1.
+handler ImuOnI2c implements Registers {
+  fn read(register, size) {
+    (use I2c).memory_read(I2c1, ADDRESS, register, Bits8, size, timeout())
+  }
+  fn write(register, value) {
+    (use I2c).memory_write(I2c1, ADDRESS, register, Bits8, [value], timeout())
+  }
+}
+
+## Formats to two decimal places (rounded).
+fn hundredths(x: Float) -> String {
+  n = Float.round(x * 100.0)
+  sign = if n < 0 { "-" } else { "" }
+  a = if n < 0 { -n } else { n }
+  pad = if a % 100 < 10 { "0" } else { "" }
+  "#{sign}#{a / 100}.#{pad}#{a % 100}"
+}
+
+fn show(s: Sample) -> String {
+  ax = hundredths(Icm42688.accel_g(s.accel_x, ACCEL_RANGE))
+  ay = hundredths(Icm42688.accel_g(s.accel_y, ACCEL_RANGE))
+  az = hundredths(Icm42688.accel_g(s.accel_z, ACCEL_RANGE))
+  gx = hundredths(Icm42688.gyro_dps(s.gyro_x, GYRO_RANGE))
+  gy = hundredths(Icm42688.gyro_dps(s.gyro_y, GYRO_RANGE))
+  gz = hundredths(Icm42688.gyro_dps(s.gyro_z, GYRO_RANGE))
+  t = hundredths(Icm42688.celsius(s.temperature))
+  "accel #{ax} #{ay} #{az} g  gyro #{gx} #{gy} #{gz} dps  temp #{t} C"
+}
+
+fn report() -> () fails PeripheralError use { Registers, Console, Clock } {
+  (use Console).print_line(show(Icm42688.read()))
+  (use Clock).sleep(100)
+  report()
+}
+
+fn run() -> () fails PeripheralError use { Registers, I2c, Console, Clock } {
+  console = use Console
+  (use I2c).configure(
+    I2c1,
+    I2cConfig(clock_speed_hz: 400000, addressing: SevenBit, duty_cycle: Standard),
+  )
+  id = Icm42688.who_am_i()
+  console.print_line("who_am_i: #{id}")
+  if id == DEVICE_ID {
+    Icm42688.power_on()
+    Icm42688.configure(ACCEL_RANGE, GYRO_RANGE)
+    report()
+  } else {
+    console.print_line("ICM-42688-P not found (WHO_AM_I should be 71)")
+  }
+}
+
+fn main() {
+  with Platform, ImuOnI2c {
+    run() escape {
+      PeripheralError(code:) -> (use Console).print_line("I2C error #{code}")
+    }
+  }
+}

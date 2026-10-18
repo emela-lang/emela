@@ -172,11 +172,15 @@ fn messages(analysis: &Analysis) -> Vec<String> {
         .collect()
 }
 
+/// The example projects for the host targets (those for `c-embedded` need a board).
 fn examples() -> Vec<(String, PathBuf)> {
     let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(root().join("examples"))
         .unwrap()
         .map(|e| e.unwrap().path())
-        .filter(|p| p.join("Pome.toml").exists())
+        .filter(|p| {
+            std::fs::read_to_string(p.join("Pome.toml"))
+                .is_ok_and(|toml| !toml.contains("\"c-embedded\""))
+        })
         .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), p))
         .collect();
     dirs.sort();

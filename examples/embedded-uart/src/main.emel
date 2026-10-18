@@ -1,0 +1,38 @@
+# Sends text with the UART effect. The board definition maps Uart0 to USART2 (the ST-LINK virtual
+# COM port). The data sent is a List[Int], so Pome.toml's heap_bytes provides a heap.
+
+import Std.Embedded.Uart.{Uart, Uart0, UartConfig, Bits8, One, NoParity, Both, NoFlowControl, By16}
+import Std.Embedded.Peripheral.{PeripheralError}
+
+const CONFIG = UartConfig(
+  baud_rate: 115200,
+  data_bits: Bits8,
+  stop_bits: One,
+  parity: NoParity,
+  direction: Both,
+  flow_control: NoFlowControl,
+  oversampling: By16,
+)
+
+## ASCII code of a single digit 0-9.
+fn digit(n: Int) -> Int { 48 + n % 10 }
+
+## Sends "count N" and a newline.
+fn send_count(n: Int) -> () fails PeripheralError use { Uart } {
+  (use Uart).transmit(Uart0, [99, 111, 117, 110, 116, 32, digit(n), 10], Int64.from_int(100))
+}
+
+fn count(n: Int) -> () fails PeripheralError use { Uart } {
+  if n < 3 {
+    send_count(n)
+    count(n + 1)
+  }
+}
+
+fn main() -> () fails PeripheralError {
+  uart = use Uart
+  uart.configure(Uart0, CONFIG)
+  # "Hello" and a newline
+  uart.transmit(Uart0, [72, 101, 108, 108, 111, 10], Int64.from_int(100))
+  count(0)
+}

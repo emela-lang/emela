@@ -1,0 +1,147 @@
+# Driver for the ICM-42688-P (a 6-axis IMU from TDK InvenSense). It only knows which registers
+# hold what, how to wake the chip, and how to turn two register bytes into a signed value.
+# Which bus it is wired to, and how, is up to the program, so register access is the
+# Registers effect and the program provides an I2C (or SPI) handler.
+#
+#   0x1D-0x1E  TEMP_DATA          0x4E  PWR_MGMT0
+#   0x1F-0x24  ACCEL_DATA X/Y/Z   0x4F  GYRO_CONFIG0
+#   0x25-0x2A  GYRO_DATA X/Y/Z    0x50  ACCEL_CONFIG0
+#                                 0x75  WHO_AM_I (returns 0x47)
+
+import Std.Clock.{Clock}
+import Std.Embedded.Peripheral.{PeripheralError}
+
+const TEMP_DATA = 29
+const PWR_MGMT0 = 78
+const GYRO_CONFIG0 = 79
+const ACCEL_CONFIG0 = 80
+const WHO_AM_I = 117
+
+## The value WHO_AM_I returns (0x47).
+pub const DEVICE_ID = 71
+
+## Byte-wise read/write access to the chip's registers.
+pub effect Registers {
+  ## Reads `size` consecutive bytes starting at `register`.
+  fn read(register: Int, size: Int) -> List[Int] fails PeripheralError
+  fn write(register: Int, value: Int) -> () fails PeripheralError
+}
+
+## Accelerometer full-scale range (+/-g). Accel16g at power-on.
+pub enum AccelRange { Accel2g, Accel4g, Accel8g, Accel16g }
+## Gyro full-scale range (+/-dps). Dps2000 at power-on.
+pub enum GyroRange { Dps250, Dps500, Dps1000, Dps2000 }
+
+## One raw reading (signed 16-bit values).
+pub type Sample(
+  temperature: Int,
+  accel_x: Int,
+  accel_y: Int,
+  accel_z: Int,
+  gyro_x: Int,
+  gyro_y: Int,
+  gyro_z: Int,
+)
+
+pub fn who_am_i() -> Int fails PeripheralError use { Registers } {
+  read_byte(WHO_AM_I)
+}
+
+## Turns on the accel and gyro in low-noise mode (PWR_MGMT0 = 0x0F) and waits for the gyro to start.
+pub fn power_on() -> () fails PeripheralError use { Registers, Clock } {
+  (use Registers).write(PWR_MGMT0, 15)
+  (use Clock).sleep(50)
+}
+
+## Sets the full-scale ranges. The output data rate (low 5 bits) is left as is.
+pub fn configure(accel: AccelRange, gyro: GyroRange) -> () fails PeripheralError use { Registers } {
+  set_full_scale(ACCEL_CONFIG0, accel_select(accel))
+  set_full_scale(GYRO_CONFIG0, gyro_select(gyro))
+}
+
+## Reads the 14 bytes of temperature, acceleration and angular rate at once (one consistent sample).
+pub fn read() -> Sample fails PeripheralError use { Registers } {
+  (use Registers).read(TEMP_DATA, 14) match {
+    [t1, t0, ax1, ax0, ay1, ay0, az1, az0, gx1, gx0, gy1, gy0, gz1, gz0] -> Sample(
+      temperature: word(t1, t0),
+      accel_x: word(ax1, ax0),
+      accel_y: word(ay1, ay0),
+      accel_z: word(az1, az0),
+      gyro_x: word(gx1, gx0),
+      gyro_y: word(gy1, gy0),
+      gyro_z: word(gz1, gz0),
+    )
+    _ -> fail PeripheralError(code: -1)
+  }
+}
+
+## Converts a raw acceleration value to g.
+pub fn accel_g(raw: Int, range: AccelRange) -> Float {
+  Float.from_int(raw) * Float.from_int(accel_full_scale(range)) / 32768.0
+}
+
+## Converts a raw angular rate value to dps.
+pub fn gyro_dps(raw: Int, range: GyroRange) -> Float {
+  Float.from_int(raw) * Float.from_int(gyro_full_scale(range)) / 32768.0
+}
+
+## Converts a raw temperature value to °C (datasheet formula: raw / 132.48 + 25).
+pub fn celsius(raw: Int) -> Float {
+  Float.from_int(raw) / 132.48 + 25.0
+}
+
+fn read_byte(register: Int) -> Int fails PeripheralError use { Registers } {
+  (use Registers).read(register, 1) match {
+    [value] -> value
+    _       -> fail PeripheralError(code: -1)
+  }
+}
+
+## The top 3 bits select the full-scale range.
+fn set_full_scale(register: Int, select: Int) -> () fails PeripheralError use { Registers } {
+  held = read_byte(register)
+  value = held |> Int.bit_and(31) |> Int.bit_or(Int.shift_left(select, 5))
+  (use Registers).write(register, value)
+}
+
+fn accel_select(range: AccelRange) -> Int {
+  range match {
+    Accel16g -> 0
+    Accel8g  -> 1
+    Accel4g  -> 2
+    Accel2g  -> 3
+  }
+}
+
+fn gyro_select(range: GyroRange) -> Int {
+  range match {
+    Dps2000 -> 0
+    Dps1000 -> 1
+    Dps500  -> 2
+    Dps250  -> 3
+  }
+}
+
+fn accel_full_scale(range: AccelRange) -> Int {
+  range match {
+    Accel2g  -> 2
+    Accel4g  -> 4
+    Accel8g  -> 8
+    Accel16g -> 16
+  }
+}
+
+fn gyro_full_scale(range: GyroRange) -> Int {
+  range match {
+    Dps250  -> 250
+    Dps500  -> 500
+    Dps1000 -> 1000
+    Dps2000 -> 2000
+  }
+}
+
+## Turns the high and low bytes into a signed 16-bit value.
+fn word(high: Int, low: Int) -> Int {
+  value = high * 256 + low
+  if value > 32767 { value - 65536 } else { value }
+}

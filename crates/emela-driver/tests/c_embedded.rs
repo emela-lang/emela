@@ -197,6 +197,45 @@ fn run_project(
     ))
 }
 
+const GPIO_EXAMPLE: &str = include_str!("../../../examples/embedded-gpio/src/main.emel");
+
+/// The interrupt events the stub sends to the example: the button pressed, then released.
+const BUTTON_EVENTS: &str = "emela_export_button_changed((EmelaGpioEvent){.pin = 100, .level = \
+                             EMELA_GPIO_PIN_STATE_LOW}); emela_export_button_changed((\
+                             EmelaGpioEvent){.pin = 100, .level = EMELA_GPIO_PIN_STATE_HIGH}); \
+                             emela_export_button_changed((EmelaGpioEvent){.pin = 5, .level = \
+                             EMELA_GPIO_PIN_STATE_LOW});";
+
+#[test]
+fn gpio_example_output() {
+    let dir = test_dir("example-output");
+    let (analysis, entry) = build_embedded(&dir, &[("main.emel", GPIO_EXAMPLE)]);
+    assert!(entry.is_some(), "{:#?}", analysis.diagnostics);
+    let out = dir.join("out");
+    let read = |f: &str| std::fs::read_to_string(out.join(f)).unwrap();
+    let all = format!(
+        "// main.c\n{}\n// emela_gpio.h\n{}\n// emela_embedded.h\n{}",
+        read("main.c"),
+        read("emela_gpio.h"),
+        read("emela_embedded.h")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    insta::assert_snapshot!(all);
+}
+
+#[test]
+fn gpio_example_runs_on_a_stub_board() {
+    let Some((stdout, code)) = run(GPIO_EXAMPLE, "example-run", Some(BUTTON_EVENTS)) else {
+        return;
+    };
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "configure 13 1 0\nwrite 13 0\nconfigure 100 0 1\nenable_interrupt 100 2\n\
+         write 13 1\nwrite 13 0\nidle\n"
+    );
+}
+
 #[test]
 fn value_types_and_loops() {
     let main = r#"import Std.Embedded.Gpio.{Gpio, GpioPin, High, Low, PinState}
