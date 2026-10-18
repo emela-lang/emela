@@ -48,3 +48,41 @@ pub fn shift_right(n: Int, by: Int) -> Int
 ## negative.
 @intrinsic
 pub fn shift_right_unsigned(n: Int, by: Int) -> Int
+
+## Returns Less, Equal or Greater without subtracting (which could overflow).
+pub fn compare(a: Int, b: Int) -> Ordering {
+  if a < b {
+    Less
+  } else if a > b {
+    Greater
+  } else {
+    Equal
+  }
+}
+
+## Returns the larger value, or `a` when equal.
+pub fn max(a: Int, b: Int) -> Int {
+  compare(a, b) match {
+    Less    -> b
+    Greater -> a
+    Equal   -> a
+  }
+}
+
+## Returns the smaller value, or `a` when equal.
+pub fn min(a: Int, b: Int) -> Int {
+  compare(a, b) match {
+    Less    -> a
+    Greater -> b
+    Equal   -> a
+  }
+}
+
+## Absolute value. The minimum Int wraps back to itself, like integer negation.
+pub fn abs(n: Int) -> Int {
+  if n < 0 {
+    -n
+  } else {
+    n
+  }
+}

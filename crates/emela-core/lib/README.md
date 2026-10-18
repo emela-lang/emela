@@ -32,7 +32,7 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `panic` | `panic(message: String) -> Never` | intrinsic | defect を起こす |
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
 | `dbg` | `dbg[A: Show](value: A) -> A` | intrinsic | 表示を標準エラーに出して値を返す |
-| `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse` と `Float.parse` の形の誤り．`input` は入力の全体 |
+| `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse`，`Float.parse`，`Bool.parse` の形の誤り．`input` は入力の全体 |
 
 ## List（`core/list.emel`）
 
@@ -85,6 +85,13 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | コードポイントの値のリスト |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | スカラー値でなければ `None` |
 
+## Bool（`core/bool.emel`）
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `to_string` | `to_string(b: Bool) -> String` | Emela | Show と同じ `"True"` / `"False"` |
+| `parse` | `parse(s: String) -> Bool fails ParseError` | Emela | `"True"` / `"False"` だけを受理．大小文字の違い，空白，`0` / `1` は `ParseError` |
+
 ## Int（`core/int.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
@@ -99,6 +106,9 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `shift_left` | `shift_left(n: Int, by: Int) -> Int` | intrinsic | 左シフト．`by` が 32 以上で 0，負で defect |
 | `shift_right` | `shift_right(n: Int, by: Int) -> Int` | intrinsic | 算術右シフト．32 以上で 0 か -1 |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int, by: Int) -> Int` | intrinsic | 論理右シフト．32 以上で 0 |
+| `compare` | `compare(a: Int, b: Int) -> Ordering` | Emela | Less / Equal / Greater |
+| `min` / `max` | `(a: Int, b: Int) -> Int` | Emela | 小さい方 / 大きい方 |
+| `abs` | `abs(n: Int) -> Int` | Emela | 絶対値．最小値は巻き戻って同じ値 |
 
 ## Int64（`core/int64.emel`）
 
@@ -126,6 +136,10 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `ceil` | `ceil(x: Float) -> Int` | intrinsic | 正の無限大の方向へ丸める |
 | `round` | `round(x: Float) -> Int` | intrinsic | 最も近い整数．0.5 は 0 から遠い方へ |
 | `truncate` | `truncate(x: Float) -> Int` | intrinsic | 0 の方向へ丸める |
+| `is_nan` | `is_nan(x: Float) -> Bool` | Emela | NaN か |
+| `compare` | `compare(a: Float, b: Float) -> Ordering` | Emela | NaN はほかの値より大きく，NaN 同士と ±0.0 同士は Equal |
+| `min` / `max` | `(a: Float, b: Float) -> Float` | Emela | compare に従って選ぶ．Equal なら第1引数．片方が NaN なら min は他方，max は NaN |
+| `abs` | `abs(x: Float) -> Float` | Emela | 絶対値．-0.0 は +0.0 にし，NaN はそのまま |
 
 # std
 
@@ -477,7 +491,7 @@ and_then，自動 Arbitrary 導出，専用 @property，CLI の seed 指定は M
 - `List.tail([])` は `[]` を返す（仕様 17.5 の例 `[x, ..List.tail(xs)]` に合わせた）．`head` と `get` は Option
 - 高階関数の引数名はすべて `f`．`List.filter(xs, keep: …)` のような意味のある名前にする案もある
 - シフト量が負なら defect，幅以上は全部のビットを押し出した値．JS や WASM のように幅で剰余を取る方式は採らなかった
-- 数値の `min` / `max` / `abs` / `compare` はまだ入れていない
+- `Int` と `Float` に `min` / `max` / `abs` / `compare`，`Float` に `is_nan` を用意した
 - Console の操作は `print_line` と `print_error_line` の2つにした．改行なしの `print` や，入力の読み取りはまだ入れていない
 - Instant と Duration の単位はミリ秒にした（JS の `Date.now()` に合わせた）．ナノ秒にすると Int64 で ±292 年になる
 - `Instant.from_unix_milliseconds` は公開した．テストの固定の時刻や，利用者の書く Clock のハンドラが Instant を作れるように．現在の時点を取れるのは Clock だけ
