@@ -46,7 +46,11 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Const(c) => {
             let ty = c.ty().map(|t| lower.lower_type(&t));
             let value = lower.opt_expr(c.value(), c.syntax().text_range());
-            Item::Const(ConstItem { ty, value })
+            Item::Const(ConstItem {
+                ty,
+                value,
+                is_static: c.has_annotation("static"),
+            })
         }
         ast::Item::Effect(e) => lower.effect_item(pending.def, &pending.children, e),
         ast::Item::Handler(h) => lower.handler_item(pending.def, pending.ctor, h),

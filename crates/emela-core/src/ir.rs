@@ -118,6 +118,7 @@ impl Module {
             external: None,
             suspends: false,
             constant: false,
+            static_state: false,
             sets: None,
         })
     }
@@ -247,6 +248,9 @@ pub struct Function {
     /// first call, and the value is remembered. A defect while evaluating carries the const's name
     /// (`name`), and a reference to the const while it is being evaluated is a defect.
     pub constant: bool,
+    /// A `@static` const: the embedded C target provides a `State` of its type, starting with its
+    /// value. Other targets treat it as an ordinary const.
+    pub static_state: bool,
     /// The function's own E and R, when they contain set type parameters (`R(f)` of `List.map`);
     /// `None` otherwise. Then `fails`, `suspends` and whether it takes the evidence table
     /// over-approximate its instantiations, as for [`FnType::sets`], and [`crate::mono`] works out

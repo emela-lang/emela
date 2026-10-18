@@ -333,6 +333,7 @@ pub(crate) fn empty_like(f: &Function) -> Function {
     out.fails = f.fails;
     out.suspends = f.suspends;
     out.constant = f.constant;
+    out.static_state = f.static_state;
     out.external = f.external.clone();
     out.env = f.env.clone();
     out.defects = f.defects;

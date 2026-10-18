@@ -317,6 +317,7 @@ impl<'s> Lower<'s> {
         l.fails = cf.fails;
         l.f.suspends = cf.suspends;
         l.f.constant = cf.constant;
+        l.f.static_state = cf.static_state;
         for p in params {
             let v = l.local_var(p);
             l.f.params.extend(v);

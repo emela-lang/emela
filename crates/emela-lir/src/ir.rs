@@ -117,6 +117,8 @@ pub struct Function {
     pub suspends: bool,
     /// A const's value (`emela_core::Function::constant`).
     pub constant: bool,
+    /// A `@static` const (`emela_core::Function::static_state`).
+    pub static_state: bool,
     /// For an external function, the host function; `body` is then `None`.
     pub external: Option<External>,
     /// For a function lifted from a closure (Heap IR), the Core types of the captured values, in
@@ -147,6 +149,7 @@ impl Function {
             fails: false,
             suspends: false,
             constant: false,
+            static_state: false,
             external: None,
             env: None,
             defects: false,

@@ -138,6 +138,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
                 (Roots::Exported, Some(Item::Fn(_))) => cx.is_exported(def),
+                // Kept for the embedded C target, which provides a state starting with its value.
+                (Roots::Exported, Some(Item::Const(c))) => c.is_static,
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
                 (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
                 _ => false,
@@ -188,7 +190,17 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     let mono_roots = match roots {
         Roots::Tests => tests.clone(),
-        _ => crate::mono::exported(&cx.module),
+        // `@static` consts are kept for the embedded C target, which provides their states.
+        _ => crate::mono::exported(&cx.module)
+            .into_iter()
+            .chain(
+                cx.module
+                    .functions
+                    .iter()
+                    .filter(|(_, f)| f.static_state)
+                    .map(|(id, _)| id),
+            )
+            .collect(),
     };
     let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
     let entries: Vec<FnId> = match roots {
@@ -813,6 +825,7 @@ impl<'a> Lowerer<'a> {
             // A const's value is evaluated once, at the first reference (spec 5.6).
             Some(Item::Const(c)) => {
                 self.module.functions[id].constant = true;
+                self.module.functions[id].static_state = c.is_static;
                 (Vec::new(), c.value)
             }
             Some(Item::Handler(_)) => {

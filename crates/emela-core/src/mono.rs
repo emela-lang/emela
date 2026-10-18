@@ -501,6 +501,7 @@ impl<'a> Mono<'a> {
             external: old.external.clone(),
             suspends: old.suspends,
             constant: old.constant,
+            static_state: old.static_state,
             sets: None,
         });
         self.origins.insert(new, f);

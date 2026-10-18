@@ -545,6 +545,9 @@ pub struct ErrorItem {
 pub struct ConstItem {
     pub ty: Option<TypeId>,
     pub value: ExprId,
+    /// `@static`: the embedded C target provides a `State` of the const's type, which lives as
+    /// long as the program and starts with the const's value (other targets ignore it).
+    pub is_static: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
