@@ -1,0 +1,74 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"main\", \"twice\", \"apply\", \"report\", \"Offset\"])"
+---
+export fn main() -> void (()) {
+  t%0: agg (()) = tuple()
+  _%1: i32 (Int) = call twice[{}, {}]$inc(t%0, 1)
+  s%2: agg (String) = builtin Int.to_string(_%1)
+  runtime debug_print(s%2)
+  f%3: agg (()) = tuple()
+  _%4: i32 (Int) = call apply[{}, {}]$main(f%3, 3)
+  s%5: agg (String) = builtin Int.to_string(_%4)
+  runtime debug_print(s%5)
+  self%6: agg (Offset) = call Offset$init()
+  h%7: agg (((Offset))) = call Offset(self%6)
+  block 'protect%3 {
+    ev%8: agg ((((Offset)))) = tuple(h%7)
+    call report(1, ev%8)
+    block 'cleanup%0 {
+      block 'protect%2 {
+        block 'cleanup%1 {}
+      }
+    }
+  }
+  return
+}
+
+fn twice[{}, {}]$inc(f%0: agg (()), x%1: i32 (Int)) -> i32 (Int) {
+  t%2: i32 (Int) = call apply[{}, {}]$inc(f%0, x%1)
+  t%3: i32 (Int) = call apply[{}, {}]$inc(f%0, t%2)
+  return t%3
+}
+
+fn apply[{}, {}]$inc(f%0: agg (()), x%1: i32 (Int)) -> i32 (Int) {
+  t%2: i32 (Int) = call inc(x%1)
+  return t%2
+}
+
+fn apply[{}, {}]$main(f%0: agg (()), x%1: i32 (Int)) -> i32 (Int) {
+  t%2: i32 (Int) = call main$closure0(f%0, x%1)
+  return t%2
+}
+
+fn main$closure0(env%0: agg (()), x%1: i32 (Int)) -> i32 (Int) {
+  t%2: i32 (Int) = x%1 *[i32] 3
+  return t%2
+}
+
+fn Offset$init() -> agg (Offset) {
+  t%0: agg (Offset) = make Offset.Offset(10)
+  return t%0
+}
+
+fn Offset(self%0: agg (Offset)) -> agg (((Offset))) {
+  f%1: agg ((Offset)) = tuple(self%0)
+  t%2: agg (((Offset))) = tuple(f%1)
+  return t%2
+}
+
+fn report(n%0: i32 (Int), ev%1: agg ((((Offset))))) -> void (()) {
+  t%2: agg (((Offset))) = tuple_get ev%1#0
+  op%3: agg ((Offset)) = tuple_get t%2#0
+  call Offset$closure0(op%3, n%0)
+  return
+}
+
+fn Offset$closure0(env%0: agg ((Offset)), n%1: i32 (Int)) -> void (()) {
+  self%2: agg (Offset) = tuple_get env%0#0
+  t%3: i32 (Int) = field self%2 Offset.Offset.by#0
+  _%4: i32 (Int) = n%1 +[i32] t%3
+  s%5: agg (String) = builtin Int.to_string(_%4)
+  runtime debug_print(s%5)
+  return
+}

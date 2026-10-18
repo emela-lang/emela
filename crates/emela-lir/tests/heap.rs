@@ -7,7 +7,8 @@ mod support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{
-    Callee, ErrorKind, Module, Options, Repr, Stage, Stmt, Value, dump_function, from_core_with,
+    Callee, ErrorKind, Module, Options, Repr, Stage, StaticsOptions, Stmt, Value, convert_closures,
+    dump_function, explicit_defects, from_core_with, insert_rc, specialize_statics, state_machines,
     to_heap, verify,
 };
 use support::try_lower;
@@ -180,6 +181,87 @@ fn main() {
     );
     assert!(m.functions.iter().all(|(_, f)| !f.defects));
     insta::assert_snapshot!(parts(&m, &["div", "main"]));
+}
+
+/// Static specialization (embedded C): closure records, handlers and evidence tables become
+/// tuples of what they capture, and calls through them direct calls of copies. A function value
+/// stored in a data structure is reported.
+#[test]
+fn statics_are_specialized() {
+    let src = "\
+effect Log { fn log(n: Int) -> () }
+handler Offset(by: Int) implements Log {
+  init { Offset(by: 10) }
+  fn log(n) {
+    dbg(n + self.by)
+    ()
+  }
+}
+
+fn twice(f: fn(Int) -> Int, x: Int) -> Int { apply(f, apply(f, x)) }
+fn apply(f: fn(Int) -> Int, x: Int) -> Int { f(x) }
+fn inc(x: Int) -> Int { x + 1 }
+fn report(n: Int) use { Log } { (use Log).log(n) }
+
+fn main() {
+  k = 3
+  dbg(twice(inc, 1))
+  dbg(apply(fn(x) { x * k }, 3))
+  with Offset { report(1) }
+}
+";
+    let lir = |src: &str| {
+        let m =
+            try_lower(&[("main.emel", src)], Roots::Exported).unwrap_or_else(|e| panic!("{e:#?}"));
+        let roots: Vec<_> = m
+            .functions
+            .iter()
+            .filter(|(_, f)| f.exported)
+            .map(|(id, _)| id)
+            .collect();
+        let (mono, copies) = monomorphize_from(&m, &roots);
+        let mut lir = from_core_with(
+            mono,
+            Options {
+                value_types: true,
+                halt_on_defect: true,
+            },
+        )
+        .unwrap();
+        convert_closures(&mut lir);
+        let roots: Vec<emela_lir::FnId> = copies
+            .into_iter()
+            .map(|c| {
+                emela_lir::FnId::from_raw(la_arena::RawIdx::from(u32::from(c.unwrap().into_raw())))
+            })
+            .collect();
+        let none = |_: &emela_core::Module, _: emela_core::EffectId, _: usize| None;
+        let result = specialize_statics(
+            &mut lir,
+            &roots,
+            &StaticsOptions {
+                board_op: &none,
+                states: &[],
+            },
+        );
+        (lir, result)
+    };
+    let (mut m, result) = lir(src);
+    assert!(result.is_ok(), "{result:?}");
+    explicit_defects(&mut m);
+    state_machines(&mut m);
+    insert_rc(&mut m);
+    if let Err(errors) = verify(&m) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("Heap IR verifier errors:\n{}", lines.join("\n"));
+    }
+    insta::assert_snapshot!(parts(&m, &["main", "twice", "apply", "report", "Offset"]));
+    let (_, stored) = lir(
+        "fn keep(f: fn(Int) -> Int) -> (fn(Int) -> Int, Int) { (f, 1) }\n\
+         fn inc(x: Int) -> Int { x + 1 }\n\
+         fn main() {\n  (g, n) = keep(inc)\n  dbg(g(n))\n}\n",
+    );
+    assert!(stored.is_err_and(|e| e.iter().any(|m| m.contains("keep"))));
 }
 
 /// Every function of each example project (`examples/*/src`) goes through the passes, the

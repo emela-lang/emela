@@ -88,6 +88,19 @@
 - （補）トップレベルの関数を値として使う所（`fn_ref g`）は，`g` を呼ぶだけの包み `g$fn(env, …)` のレコードにする．関数の値の呼び方を1通りにするため．捕獲がないので，backend はこのレコードを静的なデータに置ける
 - （補）持ち上げた関数の名前は `親$closureN`（N は親の中での出現順で 0 から），包みは `g$fn`．入れ子のクロージャは持ち上げた関数からさらに持ち上げるので `f$closure0$closure0` のようになる
 
+### 静的特殊化（`heap/statics.rs`）
+
+- （補）組み込み C だけがクロージャー変換の直後にかける（`specialize_statics`）．入口から届く関数を，引数に来る静的な値（クロージャーのレコード，handler，証拠の表，ボードの handler）の組ごとに写し，モジュールの関数をその写しで置き換える．入口の写しを返す
+- （補）クロージャーのレコードは捕獲のタプル，handler は操作のレコードのタプル，証拠の表は束ねた handler のタプル（effect の番号の順）になる．`env_get` は `tuple_get` に，`call_indirect` と `call_op` は（写した）関数の直接呼び出しになり，レコードを最初の引数（環境）に渡す．`g$fn` のように引数をそのまま渡すだけのレコードは `g` を直接呼ぶ．何も捕獲しなければ空のタプル（C の値を持たない）
+- （補）ボードが提供する effect（`Options::board_op` が C の名前を返すもの）は handler の値を持たない．操作は，このパスが作る外部関数（`Std.Embedded.Gpio.Gpio.write`，C の名前は `emela_gpio_write`）の呼び出しになる．入口の証拠の表は空で，ボードの effect はいつでも引ける．利用者がボードの effect の handler を `with` で与えれば，そちらが使われる
+- （補）静的な handler の `runtime retire` は消す．handler は `with` の外へ出ない（8.6）ので，release の後に使われることがない
+- （補）静的な値をデータ構造に入れる，合流点で違う静的な値が出会う，ループの回ごとに違う静的な値が来る，のは特殊化できないので報告する（関数名つき）
+- （補）写しの名前は，最初の写しが元の名前，渡したクロージャーの関数名を後ろに付ける（`Option.map$is_pressed`），重なれば `$2`
+- （補）`suspend fn` の操作の実装は，最後に `resume(v)` を呼んで終わる形だけを扱う．`resume` の引数を静的な値 `Resume`（何も持たない）にし，末尾の `resume(v); return` を `return v` に書き換え，写しの戻り値の型を操作の戻り値の型にする．呼び出し側は空のタプルを `resume` として渡す．末尾以外の `resume` と，`resume` を呼ばずに終わる道は報告する
+- （補）`run_to_completion` は，外部関数以外の関数とその呼び出しの `suspends` を消す（組み込み C は fiber が1つなので，待つことと中断することに違いがない）．状態機械は作られず，`suspend fn` の外部関数は待つ普通の関数として呼ばれる．`suspend` の外部関数とその呼び出しの印は残すので，backend はどれが待つかを知れる
+- （補）`Options::states` の `State[S]`（静的な State）は，入口の証拠の表で handler を引けば `Sv::State` になる．`get` / `set` / `update` は，このパスが合成する関数（`State[S].get` など）の呼び出しになる．合成した関数は，状態ごとの `enter` / `exit` の外部関数（`StaticState`）で区間を開いて閉じ，その間で `load` / `store` の外部関数を呼ぶ（区間が要らない状態では backend が `enter` / `exit` を空にする）．`update` は渡した関数ごとに合成し，関数の適用まで区間に入れる
+- （補）組み込み C では `Cell`（`State.run` の状態）も値型で，C では `State.run` を展開した関数のローカル変数へのポインターになる（`Layout::Cell`）．handler が `with` の外へ出ないので，ポインターの先は使う間ずっと生きている
+
 ### defect の経路（`heap/defects.rs`）
 
 - （補）defect は例外にも巻き戻しの表にもせず，戻り値の側で明示的に伝える（調査の結論 1）．保留中の defect はランタイムが fiber ごとに1つの枠で持つ．defect を起こす関数と，defect を持ち帰った呼び出しの後の関数は `unwind`（`Term::Unwind`）で呼び出し元へ戻る．値は返さない（backend は何か返す）

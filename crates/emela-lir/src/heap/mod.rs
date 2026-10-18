@@ -7,6 +7,8 @@
 //!    suspension points and the frames they save explicit.
 //! 4. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
 //!    edges included).
+//!
+//! The embedded C target also runs [`specialize_statics`] right after closure conversion.
 
 mod closures;
 mod copy;
@@ -14,12 +16,14 @@ mod defects;
 pub(crate) mod live;
 mod rc;
 pub(crate) mod rc_check;
+mod statics;
 pub(crate) mod suspend;
 
 pub use closures::convert_closures;
 pub(crate) use defects::may_defect;
 pub use defects::{builtin_may_defect, explicit_defects, fiber_may_defect};
 pub use rc::insert_rc;
+pub use statics::{Options as StaticsOptions, StaticState, run_to_completion, specialize_statics};
 pub use suspend::{may_suspend, state_machines};
 
 use crate::ir::Module;
