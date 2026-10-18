@@ -130,6 +130,11 @@ pub fn wasmtime_program() -> PathBuf {
 }
 
 /// Runs the `.wasm` `entry` with `wasmtime` (WASI). `args` are passed to the program.
+///
+/// The current directory is preopened as `.` (`--dir=.`), the WASI stand-in for the process's
+/// working directory: a relative path in the program then resolves against the directory `emela`
+/// was started in, exactly as it does on the JS and C targets. Without it, WASI has no directory
+/// to resolve against and `Std.FileSystem` fails every operation.
 pub fn run_wasmtime(
     entry: &Path,
     args: &[OsString],
@@ -139,6 +144,7 @@ pub fn run_wasmtime(
     let mut command = Command::new(&wasmtime);
     command
         .arg("run")
+        .arg("--dir=.")
         .arg(entry)
         .args(args)
         .stdin(Stdio::inherit());

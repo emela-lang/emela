@@ -336,7 +336,9 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
         Runner::Wasmtime => {
             let wasmtime = crate::run::wasmtime_program();
             let mut command = Command::new(&wasmtime);
-            command.arg("run").arg(&entry);
+            // Preopen the working directory as `.` so a test's relative paths resolve as they do
+            // on node and the native runner (spec 15.2's SystemFileSystem).
+            command.arg("run").arg("--dir=.").arg(&entry);
             (wasmtime, command)
         }
     };
