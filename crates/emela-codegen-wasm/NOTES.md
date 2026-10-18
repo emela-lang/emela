@@ -134,8 +134,11 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - `Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`（`to_string` は
   最短の往復表現に big integer が要るので wasm では重い）
 - コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428 は欠番なので番号なし）
-- notes（14.4 の 2 つ目の defect 以降の記録）はまだ持たない．2 つ目は捨て，結果は最初の
-  defect のままにする（14.4）
+- const（5.6）は最初の参照で 1 回だけ評価して値か defect を記憶する（`emit::const_*` の静的
+  セルと `runtime/constant.rs`）．評価中の defect には const 名の接頭辞を付け，自己参照と
+  中断は記憶しない．ハンドラを作るモジュールだけが release の失敗の note（14.4）を持ち，
+  `retire` が最後に退役させた名前をグローバルに残す．どちらの仕組みも使わないプログラムの
+  生成 bytes は 1 つ前の版と同じまま
 - 外部関数と WASM の境界を越えられるのは `Int` / `Bool` / `Int64` / `Float` だけ．`String` や
   `@external type` は越えられず，診断で止める（ホストが線形メモリを読む約束がまだ無い）．
   内部ホスト（上の ABI）は参照を `i32` のポインタとして渡す

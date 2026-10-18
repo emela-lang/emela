@@ -2139,6 +2139,20 @@ fn int64_to_string(b: &mut Builder, ins: &mut InstructionSink) {
 // ---- defects ----
 
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
+    if !b.uses_const && !b.uses_notes {
+        // Neither consts nor release notes need the defect kept alive or cleared, so a program
+        // without one keeps the exact bytes it had: the pending defect is a plain reference.
+        ins.global_get(G_DEFECT);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+        ins.else_();
+        ins.local_get(0);
+        ins.call(rt(b, "drop"));
+        ins.end();
+        return;
+    }
     // This raise is not the self-reference defect: only the const that detects it sets the flag,
     // after calling `raise` (spec 5.6).
     if b.uses_const {
@@ -2148,20 +2162,13 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // No defect pending: this message becomes it. It borrows its argument, so count it (unless
-    // nothing keeps a reference to the message: a program with neither a const nor a release note
-    // leaves the pending defect as a plain reference, like the first version did).
-    if b.uses_const || b.uses_notes {
-        ins.local_get(0);
-        ins.call(rt(b, "dup"));
-        ins.local_get(0);
-        ins.global_set(G_DEFECT);
-    } else {
-        ins.local_get(0);
-        ins.global_set(G_DEFECT);
-    }
-    ins.return_();
-    ins.end();
+    // No defect pending: this message becomes it. It borrows its argument, so it is counted: a
+    // const remembers it and a note keeps a reference to the first defect.
+    ins.local_get(0);
+    ins.call(rt(b, "dup"));
+    ins.local_get(0);
+    ins.global_set(G_DEFECT);
+    ins.else_();
     if b.uses_notes {
         // A defect raised while one is already pending (spec 14.4): the first stays the result and
         // the later one becomes a note of it.
@@ -2178,6 +2185,7 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
         ins.local_get(0);
         ins.call(rt(b, "drop"));
     }
+    ins.end();
 }
 
 fn defect_take(ins: &mut InstructionSink) {
