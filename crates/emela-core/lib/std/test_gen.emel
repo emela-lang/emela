@@ -1,0 +1,167 @@
+# Deterministic integrated generators. No host randomness or mutable state.
+
+## A value and its delayed immediate shrinks. Custom trees must be finite per level.
+pub type Tree[A](value: A, children: fn() -> List[Tree[A]])
+
+## A pure generator. The returned seed is threaded through composed generators.
+pub type Gen[A](run: fn(Int, Int) -> (Tree[A], Int))
+
+## xorshift32, with a fixed nonzero replacement for seed zero.
+## Uses only specified 32-bit operations, identically on every target.
+pub fn next(seed: Int) -> Int {
+  s = if seed == 0 { 1831565813 } else { seed }
+  a = Int.bit_xor(s, Int.shift_left(s, 13))
+  b = Int.bit_xor(a, Int.shift_right_unsigned(a, 17))
+  Int.bit_xor(b, Int.shift_left(b, 5))
+}
+
+## Runs a generator. Size must be between 0 and 1000 (also checked by Property).
+pub fn sample[A](gen: Gen[A], seed: Int, size: Int) -> (Tree[A], Int) {
+  if size < 0 || size > 1000 { panic("Gen.sample: size must be in 0..1000") }
+  gen.run(seed, size)
+}
+
+pub fn constant[A](value: A) -> Gen[A] {
+  Gen(fn(seed, size) { (leaf(value), next(seed)) })
+}
+
+pub fn leaf[A](value: A) -> Tree[A] {
+  Tree(value, fn() { [] })
+}
+
+## Inclusive bounds, including the entire Int domain. Shrinks toward zero or the nearest bound.
+pub fn int_between(min: Int, max: Int) -> Gen[Int] {
+  if min > max { panic("Gen.int_between: min exceeds max") }
+  target = if min > 0 { min } else { if max < 0 { max } else { 0 } }
+  Gen(fn(seed, size) {
+    s = next(seed)
+    r = next(s)
+    width = Int64.from_int(max) - Int64.from_int(min) + Int64.from_int(1)
+    unsigned = Int64.bit_and(
+      Int64.from_int(r),
+      Int64.from_int(-1) |> Int64.shift_right_unsigned(32),
+    )
+    value = (Int.bit_and(s, 7)) match {
+      0 -> min
+      1 -> max
+      2 -> target
+      _ -> Int64.to_int(Int64.from_int(min) + unsigned % width)
+    }
+    (int_tree(value, target), r)
+  })
+}
+
+## Full Int domain, biased toward zero, +/-1 and both bounds; size does not restrict integers.
+pub fn int() -> Gen[Int] {
+  base = int_between(0 - 2147483647 - 1, 2147483647)
+  Gen(fn(seed, size) {
+    s = next(seed)
+    (tree, rest) = sample(base, s, size)
+    value = (Int.bit_and(s, 7)) match {
+      0 -> -1
+      1 -> 1
+      _ -> tree.value
+    }
+    (int_tree(value, 0), rest)
+  })
+}
+
+fn int_tree(value: Int, target: Int) -> Tree[Int] {
+  Tree(value, fn() {
+    if value == target {
+      []
+    } else {
+      distance = Int64.from_int(value) - Int64.from_int(target)
+      halves = int_halves(value, target, distance / Int64.from_int(2))
+      [leaf(target), ..halves]
+    }
+  })
+}
+
+fn int_halves(value: Int, target: Int, distance: Int64) -> List[Tree[Int]] {
+  if distance == Int64.from_int(0) {
+    []
+  } else {
+    candidate = Int64.to_int(Int64.from_int(value) - distance)
+    [int_tree(candidate, target), ..int_halves(value, target, distance / Int64.from_int(2))]
+  }
+}
+
+pub fn map[A, B](gen: Gen[A], f: fn(A) -> B fails {} use {}) -> Gen[B] {
+  Gen(fn(seed, size) {
+    (tree, rest) = sample(gen, seed, size)
+    (map_tree(tree, f), rest)
+  })
+}
+
+pub fn map_tree[A, B](tree: Tree[A], f: fn(A) -> B fails {} use {}) -> Tree[B] {
+  Tree(f(tree.value), fn() { List.map(tree.children(), fn(child) { map_tree(child, f) }) })
+}
+
+pub fn pair[A, B](a: Gen[A], b: Gen[B]) -> Gen[(A, B)] {
+  Gen(fn(seed, size) {
+    (x, s) = sample(a, seed, size)
+    (y, rest) = sample(b, s, size)
+    (pair_tree(x, y), rest)
+  })
+}
+
+fn pair_tree[A, B](a: Tree[A], b: Tree[B]) -> Tree[(A, B)] {
+  Tree((a.value, b.value), fn() {
+    List.append(
+      List.map(a.children(), fn(child) { pair_tree(child, b) }),
+      List.map(b.children(), fn(child) { pair_tree(a, child) }),
+    )
+  })
+}
+
+## Length 0..size, with extra weight on empty and singleton lists.
+pub fn list[A](gen: Gen[A]) -> Gen[List[A]] {
+  Gen(fn(seed, size) {
+    s = next(seed)
+    n = if size == 0 {
+      0
+    } else {
+      (Int.bit_and(s, 7)) match {
+        0 -> 0
+        1 -> 1
+        _ -> Int.shift_right_unsigned(s, 1) % (size + 1)
+      }
+    }
+    (trees, rest) = list_samples(gen, s, size, n, [])
+    (list_tree(List.reverse(trees)), rest)
+  })
+}
+
+fn list_samples[A](
+  gen: Gen[A],
+  seed: Int,
+  size: Int,
+  n: Int,
+  acc: List[Tree[A]],
+) -> (List[Tree[A]], Int) {
+  if n == 0 {
+    (acc, seed)
+  } else {
+    (tree, rest) = sample(gen, seed, size)
+    list_samples(gen, rest, size, n - 1, [tree, ..acc])
+  }
+}
+
+fn list_tree[A](trees: List[Tree[A]]) -> Tree[List[A]] {
+  Tree(List.map(trees, fn(tree) { tree.value }), fn() {
+    trees match {
+      [] -> []
+      [head, ..tail] -> {
+        combined = pair_tree(head, list_tree(tail))
+        children = List.map(combined.children(), fn(child) {
+          map_tree(child, fn(pair) {
+            (x, xs) = pair
+            [x, ..xs]
+          })
+        })
+        [leaf([]), list_tree(tail), ..children]
+      }
+    }
+  })
+}

@@ -1,0 +1,15 @@
+## Requires Some and returns its contents for subsequent ordinary assertions.
+pub fn some[A](value: Option[A]) -> A {
+  value match {
+    Some(x) -> x
+    None    -> panic("Assert.some: expected Some, got None")
+  }
+}
+
+## Requires None; displays the unexpected contents of Some.
+pub fn none[A](value: Option[A]) -> () {
+  value match {
+    None    -> ()
+    Some(x) -> panic("Assert.none: expected None, got Some(#{x})")
+  }
+}

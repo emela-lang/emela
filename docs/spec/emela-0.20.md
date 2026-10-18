@@ -1706,7 +1706,7 @@ std の中は、性質で4つの層に分ける。
 | 値 | 純粋で、ホストに依存しない | Instant、Duration。コレクション（Map、Set、Array）は 0.21 |
 | effect | 並行性と状態 | State、Fiber、Cause、Deferred（0.20）。Queue、Semaphore、Schedule、Stream（後の版。同時に走る数の上限は Http より前に入れる） |
 | platform | エフェクトの宣言と、ホストのハンドラ | Console、Clock、Random、Env、FileSystem、Http |
-| test | テスト用の差し替え | TestClock、TestConsole などのハンドラ。状態を State（8.8）に置くので、`State.run` の中で使う |
+| test | テスト用の差し替えとテスト支援 | TestClock、TestConsole などのハンドラ。状態を State（8.8）に置くので、`State.run` の中で使う。Std.Test の生成器・property 検査・アサーション補助 |
 
 - `Std` の下に置くのは、std にモジュールを足すたびに利用者のファイル名が予約名になるのを避けるためである（4.1）。利用者が `http.emel` を書いても、`Std.Http` とぶつからない。
 - platform のハンドラは、利用者のコードに Js や Wasm のようなターゲットの名前を出さない。1つのハンドラが、外部関数の `@external` をターゲットごとに並べて持ち（12.1）、ビルドするターゲットでどれを使うかが決まる。エントリからたどれる外部関数に、そのターゲットの注釈がなければ E0412 になる。
@@ -1805,6 +1805,8 @@ pub fn response(status: Int, body: String) -> Response                 # ヘッ�
 - `Std.Path` は、パスの文字列を組み立てる純粋な関数 `join(a, b)`、`parent(path)`、`file_name(path)`、`extension(path)` を持つ。区切りは `/` だけを扱う（Node は Windows でも `/` を受け付ける）。`parent`、`file_name`、`extension` は Option を返す（`Path.parent("a.txt")` は None）。
 - JSON の変換（Encode、Decode）は、導出規則を持つ Trait として標準ライブラリが提供する。
 - Prelude と core のモジュールは、コンパイラに同梱する `.emel` のソースである。std も、配る仕組み（18.1 #14）が決まるまでは同じく同梱する。Emela で書けない関数は、そのソースの中で `@intrinsic` を付けた本体のない fn として、シグネチャを Emela の文法で宣言する。`@external` を使わないのは、12.4 の境界の型の制約（List などを渡せない）を受けないためである。
+
+`Std.Test.Gen`、`Std.Test.Property`、`Std.Test.Assert` は、配布基盤が整うまでは同梱するテスト支援モジュールである。既存の `@test` 内で通常の assert を使って property を検査する。構文を追加せず、決定的な seed と予算つき縮小を Emela ソースで実装する。エラーと defect は property の失敗として報告するが、中断は捕捉しない。個々の API と例は `crates/emela-core/lib/README.md` に置く。
 
 ### 15.3 API の約束
 

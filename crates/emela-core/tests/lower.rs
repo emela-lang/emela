@@ -196,18 +196,15 @@ const LIMIT: Int = 3
 
 fn main() {
   assert LIMIT == 3
-  show_any(1)
-}
-
-fn show_any[A](x: A) -> String {
-  \"x = #{x}\"
+  x = fn() { 1 }
+  dbg(\"x = #{x}\")
 }
 ",
         )],
         Roots::Exported,
     )
     .unwrap_err();
-    assert_eq!(errors, ["`x` showing a value of a type parameter"]);
+    assert_eq!(errors, ["`x` showing a function"]);
 }
 
 /// With every fn as a root, checks that all core functions lower. Unreachable fns are not lowered

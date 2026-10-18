@@ -2453,7 +2453,7 @@ impl<'a> Lowerer<'a> {
                 (None, _) => None,
             };
             if let Some(op_ty) = op_ty
-                && unshowable(&self.module, ty).is_none()
+                && unshowable(&self.module, ty, false).is_none()
             {
                 let (lhs, rhs) = (self.expr(*lhs), self.expr(*rhs));
                 return Assert::compare(bin, op_ty, ty, lhs, rhs, text);
@@ -2581,7 +2581,7 @@ impl<'a> Lowerer<'a> {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty) {
+                    if let Some(what) = unshowable(&self.module, ty, true) {
                         self.report(what, self.hir.exprs[*e].span);
                     }
                     StrPart::Value(self.expr(*e), ty)
@@ -2980,16 +2980,18 @@ fn is_atomic(e: &Expr) -> bool {
     )
 }
 
-/// Why the type cannot be shown in interpolation, if it cannot. Type parameter values need Show
-/// dictionary passing or monomorphization (traits come in 0.21). Functions cannot be shown
-/// (spec 10.6), but the Show check comes with traits.
-fn unshowable(m: &Module, ty: TypeId) -> Option<&'static str> {
+/// Why the type cannot be shown in interpolation, if it cannot. Type parameters are resolved
+/// by monomorphization, which also substitutes the types carried by `StrPart::Value`.
+/// Functions cannot be shown (spec 10.6), but the Show check comes with traits.
+fn unshowable(m: &Module, ty: TypeId, allow_params: bool) -> Option<&'static str> {
     match m.ty(ty) {
-        Type::Param(_) => Some("showing a value of a type parameter"),
+        Type::Param(_) if !allow_params => Some("showing a value of a type parameter"),
         Type::Fn(_) => Some("showing a function"),
         Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t)),
-        Type::List(t) => unshowable(m, *t),
+        Type::Tuple(ts) | Type::Enum(_, ts) => {
+            ts.iter().find_map(|&t| unshowable(m, t, allow_params))
+        }
+        Type::List(t) => unshowable(m, *t, allow_params),
         _ => None,
     }
 }
