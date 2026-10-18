@@ -1,11 +1,12 @@
 //! The WASI host calls, the runtime side of the internal host ABI, and the `Std.Console` /
-//! `Std.Env` hosts.
+//! `Std.Env` / `Std.Random` hosts.
 //!
 //! `write` wraps `fd_write`; `debug_print` writes a string to stderr and `print_string` to stdout
 //! (both with a trailing newline); `console_log` / `console_error` do the same for `Std.Console`
-//! (fd 1 and fd 2); `exit` calls `proc_exit`. `Std.Env` reads `environ_sizes_get` / `environ_get`.
-//! The string layout is the one the emitter's `string_literal` uses and `str_byte_size` reads: the
-//! length is the `i32` at `ptr + HDR`, the UTF-8 bytes start at `ptr + HDR + 4`.
+//! (fd 1 and fd 2); `exit` calls `proc_exit`. `Std.Env` reads `environ_sizes_get` / `environ_get`
+//! and `Std.Random` fills a buffer with `random_get`. The string layout is the one the emitter's
+//! `string_literal` uses and `str_byte_size` reads: the length is the `i32` at `ptr + HDR`, the
+//! UTF-8 bytes start at `ptr + HDR + 4`.
 
 use super::super::layout::{IOVEC, NEWLINE, NWRITTEN};
 use super::*;
@@ -24,6 +25,8 @@ pub(super) const FUNCS: &[Sig] = &[
     ("console_error", &[ValType::I32], &[]),
     ("env_has", &[ValType::I32], &[ValType::I32]),
     ("env_get", &[ValType::I32], &[ValType::I32]),
+    ("random_int", &[], &[ValType::I32]),
+    ("random_float", &[], &[ValType::F64]),
 ];
 
 pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -36,6 +39,8 @@ pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "console_error" => write_line(b, ins, 2),
         "env_has" => env_has(b, ins),
         "env_get" => env_get(b, ins),
+        "random_int" => random_int(b, ins),
+        "random_float" => random_float(b, ins),
         _ => return false,
     }
     true
@@ -300,4 +305,43 @@ fn environ_find(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.local_get(ENV_OUT);
+}
+
+// ---- Std.Random ----
+
+/// `random_int()`: four bytes from WASI `random_get`, read as a signed 32-bit integer (the whole
+/// `Int` range). The scratch `IOVEC` slot is a byte buffer here.
+fn random_int(b: &mut Builder, ins: &mut InstructionSink) {
+    random_bytes(b, ins, 4);
+    ins.i32_const(IOVEC as i32);
+    ins.i32_load(mem(0, 4));
+}
+
+/// `random_float()`: uniform in `[0, 1)`. Eight bytes, the top 53 bits scaled by `2^-53`, exactly
+/// as the C (`random.c`) and JS (`random.mjs`) hosts do: `((hi >>> 5) * 2^26 + (lo >>> 6)) / 2^53`.
+fn random_float(b: &mut Builder, ins: &mut InstructionSink) {
+    random_bytes(b, ins, 8);
+    ins.i32_const(IOVEC as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(5);
+    ins.i32_shr_u();
+    ins.f64_convert_i32_u();
+    ins.f64_const(67108864.0.into());
+    ins.f64_mul();
+    ins.i32_const((IOVEC + 4) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(6);
+    ins.i32_shr_u();
+    ins.f64_convert_i32_u();
+    ins.f64_add();
+    ins.f64_const(9007199254740992.0.into());
+    ins.f64_div();
+}
+
+/// Fills `len` bytes at `IOVEC` with WASI `random_get`.
+fn random_bytes(b: &mut Builder, ins: &mut InstructionSink, len: u32) {
+    ins.i32_const(IOVEC as i32);
+    ins.i32_const(len as i32);
+    ins.call(b.random_get());
+    ins.drop();
 }
