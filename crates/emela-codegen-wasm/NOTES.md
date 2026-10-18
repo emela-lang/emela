@@ -40,6 +40,17 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）証拠の表は `{外側の表, 個数, (エフェクト, ハンドラ)…}`．`ev_lookup` は後ろから探し，
   見つからなければ外側の表へ進む（後の束縛が勝つ）
 
+### 線形メモリの配置
+
+    [ スクラッチ ][ 静的データ ][ ヒープ → grow ]
+    0            SCRATCH_END   heap_base
+
+- （補）スクラッチ（WASI の iovec，整数の桁，JSON escape，1 コードポイントの UTF-8）は線形メモリの
+  先頭に固定で置く．オフセットは wasm に定数として焼き込む
+- （補）静的データは SCRATCH_END から，ヒープはその上（8 バイト整列）から始まる
+- （補）定義は `src/emit/layout.rs` の 1 か所だけ．不変条件（重ならない・整列）はコンパイル時
+  assert と `tests/layout.rs` が保証する．スロットを足すときは `scratch!` に足すだけでよい
+
 ## 制御
 
 - （補）値を返す `if`，`switch`，`block`，`loop` は，結果の変数を IR が `dst` に持つので，

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use emela_codegen_wasm::{Entry, WasmError, compile};
+use emela_codegen_wasm::{Entry, WasmError, WasmOutput, compile};
 use emela_core::Roots;
 
 /// Lowers `src` and compiles it to WASM.
@@ -17,6 +17,14 @@ pub fn to_wasm(src: &str) -> Result<Vec<u8>, Vec<WasmError>> {
     let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
         .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
     compile(&m, &Entry::Main).map(|o| o.module)
+}
+
+/// Lowers `src` and compiles it to WASM, returning the module together with its
+/// `Layout` so tests can cross-check the emitted memory layout.
+pub fn to_output(src: &str) -> WasmOutput {
+    let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
+        .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
+    compile(&m, &Entry::Main).unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"))
 }
 
 /// Compiles `src`, validating the module with `wasmparser`.
