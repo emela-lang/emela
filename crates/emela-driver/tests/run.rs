@@ -394,6 +394,32 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) ->
 }
 
 #[test]
+fn const_self_reference_in_if_match_and_through_function_is_a_defect() {
+    let cases = [
+        (
+            "const-self-if",
+            "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+        ),
+        (
+            "const-self-match",
+            "const A: Int = True match {\n  True -> A\n  False -> 0\n}\nfn main() { dbg(A) }\n",
+        ),
+        (
+            "const-self-indirect",
+            "const A: Int = if True { value() } else { 0 }\nfn value() -> Int { A }\nfn main() { dbg(A) }\n",
+        ),
+    ];
+    for (name, source) in cases {
+        let output = run_source(name, source);
+        assert_eq!(
+            text(&output.stderr),
+            "defect: const A refers to itself while being evaluated\n"
+        );
+        assert_eq!(output.code, DEFECT_EXIT_CODE);
+    }
+}
+
+#[test]
 fn run_without_main_stops_before_node() {
     // Without main in the entry, run stops with E0230 and does not start node (spec 8.3). Starting
     // it would add a "node not found" diagnostic, so a missing node is passed to check that.

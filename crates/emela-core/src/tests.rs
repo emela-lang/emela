@@ -51,6 +51,17 @@ fn loopify_rewrites_tail_self_call() {
 }
 
 #[test]
+fn loopify_does_not_rewrite_const_initializers() {
+    let mut m = Module::new();
+    let constant = m.declare("A", false);
+    m.functions[constant].constant = true;
+    m.define(constant, vec![], TypeId::INT, call(constant, vec![]));
+
+    assert!(!tail::loopify_function(&mut m, constant));
+    assert_eq!(m.functions[constant].body, call(constant, vec![]));
+}
+
+#[test]
 fn loopify_leaves_non_tail_calls() {
     // fn sum(n) = if n == 0 then 0 else n + sum(n - 1)
     let mut m = Module::new();
