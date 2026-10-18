@@ -157,6 +157,36 @@ fn main() {
 "#,
     ),
     (
+        "floats",
+        "fn strike(s: String) -> String {\n  \
+         x = Float.parse(s) escape { ParseError(_) -> -1.5 }\n  \
+         Float.to_string(x)\n}\n\
+         fn main() {\n  \
+         dbg(1.5)\n  \
+         dbg(0.1 + 0.2)\n  \
+         dbg(1.0 / 3.0)\n  \
+         dbg(100.0)\n  \
+         dbg(1.0e21)\n  \
+         dbg(1.5e-7)\n  \
+         dbg(0.000001)\n  \
+         dbg(-0.0)\n  \
+         dbg(2.0 / 0.0)\n  \
+         dbg(-2.0 / 0.0)\n  \
+         dbg(0.0 / 0.0)\n  \
+         dbg(5.0e-324)\n  \
+         dbg(1.7976931348623157e308)\n  \
+         dbg(Float.floor(-1.5))\n  \
+         dbg(Float.ceil(-1.5))\n  \
+         dbg(Float.round(2.5))\n  \
+         dbg(Float.round(-2.5))\n  \
+         dbg(Float.truncate(-2.7))\n  \
+         dbg(strike(\"1.25\"))\n  \
+         dbg(strike(\"1e3\"))\n  \
+         dbg(strike(\"Infinity\"))\n  \
+         dbg(strike(\"NaN\"))\n  \
+         dbg(strike(\"1.\"))\n}\n",
+    ),
+    (
         "errors",
         r#"
 error NotFound(id: Int)
@@ -335,7 +365,6 @@ const NOT_ON_WASM: &[(&str, &str, &str)] = &[
         "import Std.Test.Gen\nimport Std.Test.Property\nfn main() { Property.check(Gen.int(), fn(n) { assert n == n }) }\n",
         "fibers are not supported on target `wasm`",
     ),
-    ("float", "fn main() { dbg(1.5) }\n", "`Float` operation"),
     (
         "string_length",
         "fn count(s: String) -> Int { String.length(s) }\nfn main() { dbg(count(\"abc\")) }\n",

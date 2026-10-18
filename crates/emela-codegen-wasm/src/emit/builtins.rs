@@ -89,6 +89,17 @@ impl<'m> Builder<'m> {
             IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
             IntCheckedAdd => self.option_call(cx, ins, dst, args, "int_checked_add"),
             StringFromCodePoint => self.option_call(cx, ins, dst, args, "from_code_point"),
+            FloatParse => self.option_call(cx, ins, dst, args, "float_parse"),
+            FloatToString => {
+                self.operand(cx, ins, &args[0]);
+                let f = self.rt("float_to_string");
+                ins.call(f);
+                self.assign(cx, ins, dst, Repr::Ref);
+            }
+            FloatFloor => self.float_to_int(cx, ins, dst, args, "float_floor"),
+            FloatCeil => self.float_to_int(cx, ins, dst, args, "float_ceil"),
+            FloatRound => self.float_to_int(cx, ins, dst, args, "float_round"),
+            FloatTruncate => self.float_to_int(cx, ins, dst, args, "float_truncate"),
             IntToString => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("int_to_string");
@@ -260,6 +271,22 @@ impl<'m> Builder<'m> {
         let f = self.rt(name);
         ins.call(f);
         self.assign(cx, ins, dst, Repr::Ref);
+    }
+
+    /// Calls a runtime `Float` to `Int` conversion (`floor` / `ceil` / `round` / `truncate`), which
+    /// raises a defect instead of trapping when the result is NaN or out of `Int` range.
+    pub(super) fn float_to_int(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        args: &[Operand],
+        name: &'static str,
+    ) {
+        self.operand(cx, ins, &args[0]);
+        let f = self.rt(name);
+        ins.call(f);
+        self.assign(cx, ins, dst, Repr::I32);
     }
 
     pub(super) fn bit(

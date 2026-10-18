@@ -144,14 +144,6 @@ fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found)
                 Builtin::StringSplit if matches!(args.get(1), Some(Operand::Const(Const::String(s))) if s.is_empty()) => {
                     graphemes("`String.split` with an empty separator")
                 }
-                Builtin::FloatToString
-                | Builtin::FloatParse
-                | Builtin::FloatFloor
-                | Builtin::FloatCeil
-                | Builtin::FloatRound
-                | Builtin::FloatTruncate => {
-                    "`Float` operation, which target `wasm` does not support yet".to_owned()
-                }
                 _ => return,
             };
             found.report(WasmErrorKind::Unsupported, message);

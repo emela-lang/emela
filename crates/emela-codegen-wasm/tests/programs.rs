@@ -18,27 +18,6 @@ use common::{out_dir, run_bytes, to_wasm, wasmtime};
 /// reasons come from `src/check.rs` (the Flow-IR check) and the runtime's unimplemented pieces.
 /// The list must be emptied by Wave 3.
 const NOT_ON_WASM: &[(&str, &str)] = &[
-    // --- Float operations (check.rs rejects `Float.to_string` / `parse` / `floor` / `ceil` /
-    //     `round` / `truncate`) ---
-    ("numbers", "Float operations are not supported on wasm"),
-    ("core_numeric", "Float operations are not supported on wasm"),
-    (
-        "defect_shift",
-        "Float.round / Float.floor are not supported on wasm",
-    ),
-    (
-        "data",
-        "shows Float values (`Float.to_string` is not supported on wasm)",
-    ),
-    (
-        "main_fails",
-        "an error's `show` includes a Float (`Float.to_string` is not supported on wasm)",
-    ),
-    (
-        "strings",
-        "a shown tuple includes a Float (`Float.to_string`); also `String.split` with an empty \
-         separator needs the grapheme tables",
-    ),
     // --- fibers and suspending code (check.rs) ---
     (
         "fiber_deferred",
