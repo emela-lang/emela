@@ -222,6 +222,10 @@ pub(crate) struct Builder<'m> {
     /// `scope_close`, `attempt`), in that order.
     pub(crate) fiber_resume: [u32; 3],
     /// The table index of the root-entry thunk of the run (`_start`'s argument to `run`).
+    ///
+    /// Set from [`thunk_tables`](Builder::thunk_tables) but not consumed yet: `_start` reads
+    /// the entry thunk from the table directly. Kept, like the C layout, until the run path
+    /// uses it (W5-7).
     pub(crate) entry_thunk: u32,
     /// The entry functions of the run (main, or the tests), each with a thunk in the table.
     pub(crate) entry_ids: Vec<FnId>,
