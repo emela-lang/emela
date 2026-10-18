@@ -320,3 +320,22 @@ fn options_from_builtins() {
         "Some(3)\nNone\nNone\nSome(\"A\")\nSome(\"\u{20AC}\")\nNone\n42\n"
     );
 }
+
+#[test]
+fn the_scratch_area_does_not_overlap_the_static_data() {
+    // Regression: the runtime's scratch buffers used to overlap the static data (the digits of
+    // `Int64.to_string` wrote over the list-cell descriptor `String.split` uses), so dropping the
+    // split result read a corrupted descriptor and trapped. Every runtime buffer that writes to
+    // the scratch area goes first, then the operations that read the descriptors back.
+    let Some(out) = stderr(
+        "scratch-overlap",
+        "fn main() {\n  big = Int64.from_int(2147483647)\n  dbg(Int64.to_string(big * big))\n  dbg(Int.to_string(0 - 2147483647 - 1))\n  dbg(String.from_code_point(65))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.code_points(\"AB\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"4611686014132420609\"\n\"-2147483648\"\nSome(\"A\")\n\
+         [\"a\", \"b\", \"c\"]\n[65, 66]\n"
+    );
+}
