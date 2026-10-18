@@ -9,10 +9,12 @@ pub effect Random {
 
 @external(js, "./random.mjs", "int")
 @external(c, "./random.c", "emela_random_int")
+@external(embedded, "emela_board_random_int")
 fn random_int() -> Int
 
 @external(js, "./random.mjs", "float")
 @external(c, "./random.c", "emela_random_float")
+@external(embedded, "emela_board_random_float")
 fn random_float() -> Float
 
 ## The host's random source (JS `crypto.getRandomValues`, C `arc4random_buf` or `getrandom`;

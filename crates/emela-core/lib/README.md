@@ -377,6 +377,20 @@ fn main() {
 }
 ```
 
+## Std.Embedded（`std/embedded/`）
+
+マイコンの周辺機器のエフェクトと，その引数の型（15.2）．ハンドラを与えるのは組み込み向け C のターゲットだけで，ボード側の C 関数がハンドラになる（16.6，`docs/design/c-embedded-codegen.md`）．ほかのターゲットでも import して型検査でき，テストではテスト用のハンドラを書いて与える．GPIO のピンは論理 ID で，物理ピンへの対応はボード定義に置く（`docs/design/board-definition.md`）
+
+| モジュール | 主な宣言 | 説明 |
+|---|---|---|
+| `Std.Embedded.Peripheral` | `PeripheralError` | 周辺機器の操作の失敗（エラーコード） |
+| `Std.Embedded.Gpio` | `Gpio`，`GpioPin`，`GpioEvent`，`PinState` など | 論理ピンの設定，読み書き，割り込みの有効化．`GpioEvent` を取る公開関数が割り込み入口になる |
+| `Std.Embedded.Uart` | `Uart`，`UartId`，`UartConfig` など | 論理 ID（`Uart0`）の同期の送受信．データ幅は 7 / 8 / 9 ビット |
+| `Std.Embedded.I2c` | `I2c`，`I2cId`，`I2cConfig` など | マスターの送受信とメモリーの読み書き |
+| `Std.Embedded.Spi` | `Spi`，`SpiId`，`SpiConfig` など | 同期の全二重の転送．チップセレクトは GPIO で操作する |
+
+送受信のデータは `List[Int]`（1要素が1語）で，組み込み向け C ではヒープ（`[embedded.memory] heap_bytes`）が要る．
+
 ## テスト用のハンドラの例
 
 ```emel

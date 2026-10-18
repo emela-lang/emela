@@ -14,10 +14,12 @@ pub effect Clock {
 
 @external(js, "./clock.mjs", "nowMilliseconds")
 @external(c, "./clock.c", "emela_clock_now_milliseconds")
+@external(embedded, "emela_board_now_milliseconds")
 fn now_milliseconds() -> Int64
 
 @external(js, "./clock.mjs", "sleep")
 @external(c, "./clock.c", "emela_clock_sleep")
+@external(embedded, "emela_board_sleep_milliseconds")
 suspend fn sleep_milliseconds(ms: Int) -> ()
 
 @external(js, "./clock.mjs", "whenStalled")

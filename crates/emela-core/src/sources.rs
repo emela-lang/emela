@@ -41,6 +41,26 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
+    (
+        "Std.Embedded.Peripheral",
+        include_str!("../lib/std/embedded/peripheral.emel"),
+    ),
+    (
+        "Std.Embedded.Gpio",
+        include_str!("../lib/std/embedded/gpio.emel"),
+    ),
+    (
+        "Std.Embedded.Uart",
+        include_str!("../lib/std/embedded/uart.emel"),
+    ),
+    (
+        "Std.Embedded.I2c",
+        include_str!("../lib/std/embedded/i2c.emel"),
+    ),
+    (
+        "Std.Embedded.Spi",
+        include_str!("../lib/std/embedded/spi.emel"),
+    ),
     ("Std.Test.Gen", include_str!("../lib/std/test_gen.emel")),
     (
         "Std.Test.Property",

@@ -1,0 +1,4 @@
+# 組み込み周辺機器で共通して使う型。
+
+## HAL の実行時エラー。code の意味はボード実装で定める。
+pub error PeripheralError(code: Int)

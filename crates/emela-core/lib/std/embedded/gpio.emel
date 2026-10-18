@@ -1,0 +1,30 @@
+# GPIO の Emela インターフェース。
+# ピン ID は選択したボード定義で物理ピンへ対応付ける。
+# 割り込みハンドラーはビルド時に論理ピンへ静的に結び付ける方針。
+
+# id はボード定義にある論理ピン番号。組み込みターゲットでは静的に解決する。
+pub type GpioPin(id: Int)
+pub enum PinState { Low, High }
+pub enum Pull { NoPull, Up, Down }
+pub enum GpioMode {
+  Input
+  OutputPushPull
+  OutputOpenDrain
+  Analog
+}
+pub enum Edge { Rising, Falling, Both }
+pub type GpioEvent(pin: GpioPin, level: PinState)
+
+pub effect Gpio {
+  fn configure(
+    pin: GpioPin,
+    mode: GpioMode,
+    pull: Pull
+  ) -> ()
+  fn read(pin: GpioPin) -> PinState
+  fn write(pin: GpioPin, state: PinState) -> ()
+  fn toggle(pin: GpioPin) -> ()
+  ## 割り込み元を有効にする。ハンドラーはビルド時バインドで指定する。
+  fn enable_interrupt(pin: GpioPin, edge: Edge) -> ()
+  fn disable_interrupt(pin: GpioPin) -> ()
+}
