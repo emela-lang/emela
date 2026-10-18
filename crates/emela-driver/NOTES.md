@@ -226,3 +226,27 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）同梱のソースの仮のパスは，モジュール名の区切りをディレクトリにする（`Std.Console` は `<core>/std/console.emel`，`List` は `<core>/list.emel`）
 - （補）エフェクトのラベル（issue #255）の hover．ラベルの名前と，`use` 節や `with` に書いたラベルへの参照の上では，宣言をそのまま出す（`effect DebugLog of Console default`）．型の表示はラベルのまま出し，元のエフェクトに落とした形には書き換えない
 - （補）ラベルの診断の文言．E0429〜E0433 と W0401（使われないラベルの項目）．W0401 は `with L` ならラベル L の名前を，`L by P` なら L の名前を出す
+
+## 依存（4.7）
+
+- 依存は `Input::dependencies` で受け取る．lock から組み立てるのは `project_dependencies`（CLI はネットワークに出てキャッシュにない依存を取り，言語サーバーは取得元を空にしてキャッシュだけを見る）
+- （補）依存のモジュールは，モジュールの対応表では「依存ごとに重ならない内部の名前」（`Quince.Router`．重なれば `Quince2`）で持つ．import は import する側の Pome から引く（`ModuleMap::lookup_from`）: 自分の Pome のモジュール，自分の `[dependencies]` のルート名，core の順．内部の名前は診断と defect の文面に出る
+- （補）依存の中では，`src/lib.emel` は `Lib`，ほかのモジュールは 4.1 の名前で引ける．依存する側からは `Quince`（lib）と `Quince.Router` で，`Quince.Lib` と `Quince.Main` は引けない．`src/main.emel` は読まない
+- （補）ルート名の誤りは `Pome.toml` に出す．予約名（`Std`，`Prelude`，core のモジュール）は E0203，自分のモジュールの最初の区切りやほかの依存とぶつかれば E0204，型名にならなければ E0235
+- （補）`[pome].emela` は major.minor.patch で比べる（足りない桁は 0）．新しければ E0234，minor が古ければ W0203 で，依存の中のエラーに対象の版を注記する部分はまだない
+- 依存の `@external` は，プロジェクトの `[external] allow` にある Pome だけで使える（E0233）．許されていても pub な `@external` の fn は E0237．`allow` にあって依存の木にない Pome は W0204
+- （補）E0233 は，許されていない Pome のモジュールごとに最初の `@external` にだけ出す（Pome を許せばまとめて消えるので，全部に出すと多すぎる）
+- `[pome].targets` の検査（E0238）は build，run，test の対象が決まった所（CLI の `resolve_target`）で行う．check と LSP は対象を決めないので行わない
+- （補）E0238 の注記の「required by」は，その Pome を `[dependencies]` に書いた最初の Pome（プロジェクトなら this Pome）
+- （補）依存の `@test` は集めない．`emela doc` も依存のモジュールを出さない
+- 依存のファイルの診断のパスは，キャッシュの中の絶対パスのまま出る（`SourceDb` の base はプロジェクトだけ）
+- import のパスの補完は，まだ推移的な依存の内部の名前も候補に出す（`complete.rs` は importer を見ていない）
+
+## @external のファイルの出力（12.1）
+
+- JS の出力（build，run，test）は，`@external` が指すファイルを出力先に写し，相対パスで import する．プロジェクトのものは `emela_project/`，依存のものは `emela_pomes/<source path>@<version>/`（`[replace]` なら `@replace`）の下に，ソースのルートからと同じ並びで置く
+- （補）写すのは，指されたファイルのある Pome のソースのルートの下の，`.emel` と隠しファイル以外の全部．ファイルの中から隣のファイルを相対 import してもよいようにするため．単独ファイルは，そのディレクトリが何でもありうるので，指されたファイルだけを写す
+- （補）ファイルがどのルートの下かは，両方を正規化（`..` とシンボリックリンクを解く）してから比べる．`[replace]` はプロジェクトからの相対パスで書くため
+- （補）import の指定は相対 URL の形で，英数字と `/-._~@` のほかはパーセントエンコードする
+- C は今のまま，絶対パスでコンパイルに渡す（実行ファイルに組み込まれるので写さない）．WASM はファイルを指す `@external` を実際には使っていないので，手を入れていない
+

@@ -6,11 +6,13 @@
 //! - [`fetch`]: getting versions from proxies and `direct`, checked against the checksum database
 //!   or the lock, and the cache.
 
+pub mod edit;
 pub mod fetch;
 pub mod hash;
 pub mod lock;
 pub mod manifest;
 pub mod mvs;
+pub mod project;
 pub mod source_path;
 pub mod sumdb;
 pub mod version;

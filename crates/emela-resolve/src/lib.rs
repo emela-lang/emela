@@ -24,7 +24,8 @@ pub use module_name::ModuleName;
 pub use naming::{NameError, is_type_name, to_type_name};
 pub use resolve::{imports, resolve};
 pub use source::{
-    DirEntry, EXTENSION, MemoryFs, ModuleData, ModuleId, ModuleMap, OsFs, SourceFs, collect_modules,
+    DirEntry, EXTENSION, MemoryFs, ModuleData, ModuleId, ModuleMap, OsFs, Package, PackageId,
+    SourceFs, collect_modules,
 };
 
 /// The implicitly visible module. It cannot be placed directly under the source root (spec 4.1).

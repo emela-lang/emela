@@ -595,6 +595,29 @@ fn import_errors_go_to_the_importing_file() {
     client.shutdown();
 }
 
+/// The server does not go to the network: dependencies it cannot use (here, no `Pome.lock`) are
+/// reported on `Pome.toml` (spec 4.7).
+#[test]
+fn reports_dependencies_that_cannot_be_used() {
+    let manifest = "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.21.0\"\n\n[dependencies]\n\"github.com/acme/x\" = \"v1.0.0\"\n";
+    let files = [
+        ("/app/Pome.toml", manifest),
+        ("/app/src/main.emel", "const X = 1\n"),
+    ];
+    let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
+    let published = client.diagnostics();
+    assert_eq!(published.uri, uri("/app/Pome.toml"));
+    assert_eq!(codes(&published), ["E0236"]);
+    assert!(
+        published.diagnostics[0]
+            .message
+            .contains("emela pome install"),
+        "{:?}",
+        published.diagnostics
+    );
+    client.shutdown();
+}
+
 #[test]
 fn close_reverts_to_disk() {
     let files = [

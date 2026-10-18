@@ -37,3 +37,29 @@
 - （補）`direct` でシンボリックリンクや submodule を含む版は「ない」（NotFound）として扱う．proxy が 410 を返すのと揃える
 - `EMELA_POMESUMDB` の既定（`config::DEFAULT_SUMDB`）は `sum.emela.ab2m.link` の公開鍵．鍵を替えると，古い鍵を埋め込んだコンパイラはすべて検証に落ちる
 - tile はディスクにキャッシュしない．1回の証明で読むのは数枚なので，まず足りる
+
+## emela pome のコマンド（`project`）
+
+- （補）どのコマンドも，新しい `Pome.toml` と lock を先に作り，依存を全部解決できてから2つを書く．`add` などが途中で失敗したときは，どちらのファイルも変わらない
+- （補）`Pome.toml` は toml_edit で書き換え，コメント，並び，表の形（`{ version, module }`）を残す
+- （補）`add <src>@<version>` は今の要求より小さい version も書く（下げられる）．`@latest` と version の省略は proxy の `@latest`
+- （補）`update` は要求を上げるだけで，下げない．`[replace]` した依存の要求も上げる（`[replace]` はそのまま）
+- （補）`remove` は `[dependencies]` からだけ除き，`[replace]` は残す
+- （補）`install` は，lock にある版を lock のハッシュで確かめて取り（sumdb に問い合わせない），lock にない版だけ sumdb と照らす．依存の木をたどるときの `Pome.toml` も同じ
+- （補）`[replace]` した Pome の依存は，置き換え先のディレクトリの `Pome.toml` から読む．その `[pome].name` が置き換えた source path と違えばエラー
+- （補）`list` の1行は「source path と要求」で，選ばれた版が大きければ `-> <版>`，置き換えなら `=> <ディレクトリ>` を足す．循環はたどらない
+- （補）`verify` はキャッシュにある依存だけを照らす．ない依存は問題にしない
+
+## リポジトリの中のディレクトリの Pome
+
+- github.com の source path は `github.com/<owner>/<repo>` までがリポジトリ，その後ろ（`/vN` を除く）がディレクトリ（4.7）．ほかの host は `/vN` を外した全体がリポジトリ
+- ディレクトリの Pome の tag は `<ディレクトリ>/<version>`．`version_of_tag` は，ディレクトリが合わない tag と major が合わない tag を除く
+- （補）`direct` はディレクトリの tree（`<commit>:<ディレクトリ>`）を読む．tag の commit にディレクトリがなければ「ない」（NotFound）
+- （補）ルート名の既定は，リポジトリでなく Pome の場所の最後の区切りから作る（`.../x/platform-cloudflare` は `PlatformCloudflare`）
+
+## @external（4.7，付録 B）
+
+- （補）`@external` を含むファイルは，`.emel` のうち，行の先頭（空白を除く）が `@external` の行を持つもの．構文木は作らずに行で調べる（`#` で始まる注釈の行は数えない）
+- （補）lock の `external` は，lock にある版を使い回すときも中身から数え直す．このフィールドを持たない古い lock から `install` しても正しい一覧になる
+- （補）`add --allow-external` が許すのは，足す Pome と，この `add` で新しく lock に入った Pome のうち `@external` を使うもの．前から lock にあって許されていない Pome は，許さずにエラーのまま（`[external] allow` に手で足す）
+- （補）許されていない Pome があれば，`add`，`install`，`update`，`remove` のどれも何も書かずに止まる．`update` で `@external` のファイルが増えても，許しは source path に出しているので止めずに出力で知らせる

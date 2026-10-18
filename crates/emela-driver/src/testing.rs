@@ -253,9 +253,11 @@ impl TestBackend<TestModule> for CoreJs {
         &mut self,
         program: &TestModule,
         selected: &[usize],
-        _: &Analysis,
+        analysis: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
-        let module = &program.module;
+        // Files `@external` points to are copied into the output and imported relatively.
+        let (module, host_files) = crate::host_files::place(&program.module, analysis, "js")?;
+        let module = &module;
         // Export the selected test functions under their Emela names so the entry module can call
         // them.
         let exports: Vec<_> = selected
@@ -285,6 +287,7 @@ impl TestBackend<TestModule> for CoreJs {
             OutputFile::new(JS_TEST_ENTRY_FILE, main),
         ];
         files.extend(bundled_outputs(module));
+        files.extend(host_files);
         Ok(BuildOutput {
             files,
             entry: JS_TEST_ENTRY_FILE.into(),
