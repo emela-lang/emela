@@ -230,6 +230,9 @@ pub(super) const F_SCOPES: u32 = 64;
 pub(super) const F_BUDGET: u32 = 72;
 pub(super) const F_ENDED: u32 = 80;
 pub(super) const F_LISTED: u32 = 88;
+// `F_RES_MODE`/`F_RES_REF` record how a fiber ended (C's `em_input` of the result), but only
+// `F_RES_VAL` is read back (by `fiber_join`/`fiber_await`/`watch_deliver`): the result's reference
+// ownership is not tracked yet (W5-7). Kept for the C `em_fiber` layout.
 pub(super) const F_RES_MODE: u32 = 96;
 pub(super) const F_RES_REF: u32 = 104;
 pub(super) const F_RES_VAL: u32 = 112;
@@ -268,6 +271,8 @@ const P_PREV_MAIN: u32 = 96;
 
 const R_OVER: u32 = 0;
 const R_RUNNING: u32 = 8;
+// `R_HAS_RESULT`/`R_RES_REF` mirror the C `em_root` (a result is present, and owns a reference),
+// but only `R_RES_MODE`/`R_RES_VAL` are read back in `run` (W5-7). Kept for the layout.
 const R_HAS_RESULT: u32 = 16;
 const R_RES_MODE: u32 = 24;
 const R_RES_REF: u32 = 32;
@@ -325,7 +330,9 @@ pub(super) const MODE_THROW: i32 = 1;
 pub(super) const MODE_FAIL: i32 = 2;
 /// A value input that owns a reference (`mode` is otherwise `MODE_VALUE`). A thrown defect or a
 /// failure always owns one; this bit marks the value case so an undelivered input can be released
-/// like the C `em_input_drop`.
+/// like the C `em_input_drop`. The producers here set it; `fiber::deferred_*` (a different
+/// fragment) still passes `MODE_VALUE` for a possibly-reference value, so a deferred resolution
+/// left pending when the run ends is not released yet (W5-3, needs that file).
 const MODE_VALUE_REF: i32 = 4;
 
 pub(super) const REF_CODE: i32 = 3;
@@ -519,7 +526,7 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         "yield" => vec![(2, ValType::I32)],
         "sync_leave" => vec![(6, ValType::I32), (2, ValType::I64)],
         "resume_new" => vec![(2, ValType::I32)],
-        "perform_end" => vec![(12, ValType::I32), (2, ValType::I64)],
+        "perform_end" => vec![(5, ValType::I32), (2, ValType::I64)],
         "interrupted_new" => vec![(1, ValType::I32)],
         "str_from_raw" => vec![(2, ValType::I32)],
         "resume_i32" | "resume_i64" | "resume_f64" | "resume_ref" => {
@@ -778,7 +785,7 @@ fn sync_leave(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(MODE);
     ins.br(1);
     ins.end();
-    input_taken(b, ins, OUT, MODE, BITS);
+    input_taken(ins, OUT, MODE, BITS);
     ins.br(0);
     ins.end();
     ins.end();
@@ -844,8 +851,7 @@ pub(super) fn set_input(ins: &mut InstructionSink, mode: u32, bits: u32) {
 
 /// The input after a call returned `out` (a word): takes a pending defect or failure into `BITS`
 /// and leaves the mode in `MODE` (0 value, 1 defect, 2 failure).
-fn input_taken(b: &mut Builder, ins: &mut InstructionSink, out: u32, mode: u32, bits: u32) {
-    let drop = rt(b, "drop");
+fn input_taken(ins: &mut InstructionSink, out: u32, mode: u32, bits: u32) {
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     ins.global_get(G_DEFECT);
@@ -872,7 +878,6 @@ fn input_taken(b: &mut Builder, ins: &mut InstructionSink, out: u32, mode: u32, 
     ins.local_set(mode);
     ins.end();
     ins.end();
-    let _ = drop;
 }
 
 // ---- the interruption ----
@@ -1044,9 +1049,8 @@ fn perform_end(b: &mut Builder, ins: &mut InstructionSink) {
     const CHAIN: u32 = 3;
     const DEAD: u32 = 4;
     const MODE: u32 = 5;
-    const VAL: u32 = 6;
-    const OUT: u32 = 13;
-    const BITS: u32 = 14;
+    const OUT: u32 = 6;
+    const BITS: u32 = 7;
     let drop = rt(b, "drop");
     ins.local_get(0);
     ins.i32_load(mem(RES_PERF, 4));
@@ -1166,7 +1170,6 @@ fn perform_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.local_get(OUT);
-    let _ = (VAL, drop);
 }
 
 fn clear_suspension(ins: &mut InstructionSink) {
@@ -1236,9 +1239,11 @@ fn settled(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(BITS);
     ins.call(rt(b, "pass"));
     ins.end();
+    ins.else_();
+    // A value the caller never consumes (C's `em_input_drop`).
+    input_drop(ins, b, MODE, BITS);
     ins.end();
     ins.end();
-    let _ = MSG;
 }
 
 /// `run_fails(p, defect)`: the implementation's run ended with `defect`.
@@ -2727,6 +2732,9 @@ fn notes_of(ins: &mut InstructionSink) {
     ins.i32_const(0);
 }
 
+/// Reserved: the C `em_notes_clear` resets the notes table, but the WASM `run` builds fresh
+/// `G_NOTE_ERRORS`/`G_NOTE_LINES` vectors each time it starts, so nothing calls this yet. The
+/// function is registered (its index is part of the fragment), so it is kept (W5-7).
 fn notes_clear(ins: &mut InstructionSink) {
     ins.global_get(G_NOTE_ERRORS);
     ins.if_(BlockType::Empty);
@@ -2782,7 +2790,6 @@ fn deliver(b: &mut Builder, ins: &mut InstructionSink) {
     const N: u32 = 3;
     const S: u32 = 4;
     const PLEN: u32 = 5;
-    const T: u32 = 6;
     ins.i32_const(0);
     ins.local_set(TARGET);
     ins.local_get(0);
@@ -2895,7 +2902,6 @@ fn deliver(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(TARGET);
     ins.i32_load(mem(S_SELF, 4));
     ins.call(rt(b, "interrupted_new"));
-    let _ = T;
 }
 
 fn interrupt_fiber(b: &mut Builder, ins: &mut InstructionSink) {
@@ -3149,7 +3155,7 @@ fn advance(b: &mut Builder, ins: &mut InstructionSink) {
     ins.call(rt(b, "suspended"));
     ins.return_();
     ins.end();
-    input_taken(b, ins, OUT, 5, 6);
+    input_taken(ins, OUT, 5, 6);
     ins.br(0);
     ins.end();
     ins.end();
@@ -3161,9 +3167,14 @@ fn strand_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(END_MAIN);
     ins.i32_eq();
     ins.if_(BlockType::Empty);
+    // Whether the main strand's value owns a reference (C's `in.ref`). `fiber_finish` stores it
+    // in `F_RES_REF`, which is not read back yet (W5-7).
     ins.i32_const(0);
     ins.local_set(REF);
+    // `mode` is `MODE_VALUE` or `MODE_VALUE_REF` for a value (the low bits are 0).
     ins.local_get(4);
+    ins.i32_const(3);
+    ins.i32_and();
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
     ins.local_get(1);
@@ -3603,7 +3614,7 @@ fn entry_begin(b: &mut Builder, ins: &mut InstructionSink) {
     ins.call(rt(b, "suspended"));
     ins.return_();
     ins.end();
-    input_taken(b, ins, OUT, W, BITS);
+    input_taken(ins, OUT, W, BITS);
     ins.local_get(0);
     ins.local_get(1);
     ins.i32_const(END_MAIN);
@@ -4079,13 +4090,12 @@ fn task_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i64_const(0);
 }
 
-fn task_complete_int(b: &mut Builder, ins: &mut InstructionSink) {
+fn task_complete_int(_b: &mut Builder, ins: &mut InstructionSink) {
     setc(ins, 0, T_GOT, 1);
     ins.local_get(0);
     ins.local_get(1);
     ins.i64_extend_i32_u();
     ins.i64_store(mem(T_VALUE, 8));
-    let _ = b;
 }
 
 fn task_complete_int64(_b: &mut Builder, ins: &mut InstructionSink) {
@@ -4243,7 +4253,11 @@ fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-    // Wait until it is due.
+    // Wait until it is due. WASM has no `poll(2)` to sleep on, so this spins on the WASI
+    // monotonic clock until the wall-clock deadline (`now_ms`). This is deliberate: T-Clock's
+    // timers are real-time (the driver has no virtual clock), so a long `sleep` really does
+    // occupy the host for its duration, and a host whose clock does not advance would spin here
+    // (W5-6).
     ins.call(rt(b, "now_ms"));
     ins.i64_extend_i32_u();
     ins.local_set(NOW);
@@ -4289,8 +4303,11 @@ fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(T);
     ins.i32_load(mem(TM_H, 4));
     ins.local_set(H);
-    // The value the waiting fiber resumes with: the task's value, 0 for a plain `after`
-    // (a unit timer) and `ms` for T-Clock's `clock_sleep` (which the task recorded).
+    // The value the waiting fiber resumes with. Every timer is fired as a completed task
+    // (`task_complete_int64`), so its recorded `T_VALUE` must hold the value the resume expects:
+    // `0` for T-Clock's unit `sleep`/a plain `after` (a unit timer), and `ms` for
+    // `clock_sleep`/`after(ms, task)`, which the task recorded (W6-5). `TIMERS` entries that
+    // never went through a `task_complete_*` therefore resume with `0`.
     ins.local_get(H);
     ins.i64_load(mem(T_VALUE, 8));
     ins.local_set(VAL);
