@@ -208,14 +208,5 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   両方で動かし，終了コードと出力が一致することを見る．まだ扱えないもの（`String.length` /
   `String.chars` の書記素）は `NOT_ON_WASM` に理由つきで並べ，診断のメッセージで見る（Wave 4）
 - `crates/emela-driver/tests/wasm_examples.rs` は `examples/*`（`http` を除く）を JS と WASM の
-  両方で実走し，終了コード・標準出力・標準エラーを比べる（`@test` の結果も比べる．`std-test`
-  だけは下の known issue のため除く）．CI の test は `wasmtime` を入れるので実行テストは飛ばない
-
-### 既知の不具合（Wave 3 で判明，未修正）
-
-- **fiber が捕まえた defect の，実行時に組み立てたメッセージが壊れる**: 例えば
-  `Fiber.attempt(fn() { panic(String.append("hello ", "world")) })` の
-  `Cause.to_string` が `defect: hello world` ではなく `defect: h`（または無関係なバイト列）を
-  返す．`main` で直接 `panic` した場合は正しい．`runtime/sched.rs` / `fiber.rs` の
-  cause 経路（emit の確定済み実装）にあり，このトラックでは触らない．`wasm_examples.rs` は
-  `std-test` の `@test` だけをこの理由で除いており，修正は emitter トラックに要求として送る
+  両方で実走し，終了コード・標準出力・標準エラーを比べる（`@test` の結果も比べる）．CI の
+  test は `wasmtime` を入れるので実行テストは飛ばない

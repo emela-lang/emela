@@ -26,7 +26,7 @@ const NOT_ON_WASM: &[(&str, Option<&str>)] = &[("http", Some("E0412"))];
 /// `main` is fine). That is a bug in the runtime the emitter writes (a heap string crossing the
 /// fiber/cause boundary), outside this track's reach; the W3 report asks the emitter track to fix
 /// it. The examples' *runs* are still compared for every example (including `std-test`).
-const TESTS_NOT_ON_WASM: &[&str] = &["std-test"];
+const TESTS_NOT_ON_WASM: &[&str] = &[];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
