@@ -135,6 +135,18 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[{B}])
 }
 
+enum Std.Test.Gen.Tree[A] {
+  Tree(value: A, children: fn() -> List[Std.Test.Gen.Tree[A]])
+}
+
+enum Std.Test.Gen.Gen[A] {
+  Gen(run: fn(Int, Int) -> (Std.Test.Gen.Tree[A], Int))
+}
+
+enum Std.Test.Property.Config {
+  Config(seed: Int, cases: Int, max_size: Int, shrink_limit: Int)
+}
+
 export fn main() -> String {
   let _%0: Float = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
   let _%1: String = @dbg[String](describe([1, 2, 3]: List[Int]))

@@ -159,11 +159,10 @@ fn build_reports_unsupported_expressions() {
         "unsupported",
         &[
             ("Pome.toml", ""),
-            // Showing a type parameter's value needs Show dictionary passing or monomorphization,
-            // which comes in 0.21.
+            // Function values cannot be shown (spec 10.6).
             (
                 "src/main.emel",
-                "fn main() {\n  show(1)\n}\n\nfn show[A](x: A) -> String {\n  \"#{x}\"\n}\n",
+                "fn main() {\n  x = fn() { 1 }\n  dbg(\"#{x}\")\n}\n",
             ),
         ],
     );
@@ -172,7 +171,7 @@ fn build_reports_unsupported_expressions() {
         assert_eq!(run.code, Some(1), "{command}");
         assert!(
             run.stderr
-                .starts_with("error: not supported yet: showing a value of a type parameter\n"),
+                .starts_with("error: not supported yet: showing a function\n"),
             "{command}: {}",
             run.stderr
         );

@@ -40,6 +40,15 @@ const SOURCES: &[(&str, &str)] = &[
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
     ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
+    ("Std.Test.Gen", include_str!("../lib/std/test_gen.emel")),
+    (
+        "Std.Test.Property",
+        include_str!("../lib/std/test_property.emel"),
+    ),
+    (
+        "Std.Test.Assert",
+        include_str!("../lib/std/test_assert.emel"),
+    ),
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that

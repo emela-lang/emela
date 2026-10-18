@@ -17,6 +17,31 @@ use emela_driver::{
 /// Programs that use only the pure language and `dbg`, so both targets must run them the same way.
 const PROGRAMS: &[(&str, &str)] = &[
     (
+        "std_test_generators",
+        r#"
+import Std.Test.Gen
+
+fn main() {
+  dbg([Gen.next(0), Gen.next(1), Gen.next(-1), Gen.next(20261013)])
+  seeds = [0, 1, -1, 8, 20261013]
+  List.map(seeds, fn(seed) {
+    (ints, rest) = Gen.sample(Gen.list(Gen.int()), seed, 8)
+    dbg((ints.value, rest))
+    dbg(List.map((ints.children)(), fn(child) { child.value }))
+    (bounded, next) = Gen.sample(Gen.int_between(0 - 2147483647 - 1, 2147483647), seed, 10)
+    dbg((bounded.value, next))
+    dbg(List.map((bounded.children)(), fn(child) { child.value }))
+    (mapped, _) = Gen.sample(Gen.map(Gen.int_between(0, 100), fn(n) { n * 2 + 1 }), seed, 10)
+    dbg(mapped.value)
+    dbg(List.map((mapped.children)(), fn(child) { child.value }))
+    (pair, _) = Gen.sample(Gen.pair(Gen.int_between(-7, 11), Gen.constant(9)), seed, 10)
+    dbg(pair.value)
+    dbg(List.map((pair.children)(), fn(child) { child.value }))
+  })
+}
+"#,
+    ),
+    (
         "integers",
         r#"
 fn fib(n: Int) -> Int {
@@ -305,6 +330,11 @@ fn main() {
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[
+    (
+        "std_test_property",
+        "import Std.Test.Gen\nimport Std.Test.Property\nfn main() { Property.check(Gen.int(), fn(n) { assert n == n }) }\n",
+        "fibers are not supported on target `wasm`",
+    ),
     ("float", "fn main() { dbg(1.5) }\n", "`Float` operation"),
     (
         "string_length",
