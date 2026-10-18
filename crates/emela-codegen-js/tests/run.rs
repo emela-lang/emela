@@ -3,6 +3,8 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use emela_codegen_js::{Options, RUNTIME, RUNTIME_FILE, RuntimeMode, emit_module};
 use emela_core::build::*;
@@ -42,11 +44,28 @@ fn run_with(name: &str, m: &Module, runtime: RuntimeMode) -> Run {
     std::fs::write(dir.join("main.mjs"), &js).unwrap();
     std::fs::write(dir.join(RUNTIME_FILE), RUNTIME).unwrap();
     std::fs::write(dir.join("harness.mjs"), HARNESS).unwrap();
-    let out = Command::new("node")
+    let mut child = Command::new("node")
         .arg("harness.mjs")
         .current_dir(&dir)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .expect("cannot start node");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().expect("cannot wait for node").is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("node timed out running {name}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let out = child
+        .wait_with_output()
+        .expect("cannot collect node output");
     Run {
         js,
         stdout: String::from_utf8(out.stdout).unwrap(),
@@ -1780,6 +1799,33 @@ fn constants_are_evaluated_once() {
     let r = run_with("constant_self_reference", &m, RuntimeMode::Import(None));
     assert_eq!(
         r.stdout, "defect: const SELF refers to itself while being evaluated\n",
+        "{}",
+        r.stderr
+    );
+
+    // A self-reference in a conditional arm is excluded from E0231, but must still pass through
+    // the runtime const guard rather than being loopified into an infinite loop.
+    let mut m = Module::new();
+    let this = m.declare("A", false);
+    m.functions[this].constant = true;
+    m.define(
+        this,
+        vec![],
+        TypeId::INT,
+        Expr::If {
+            cond: Box::new(Expr::Lit(Lit::Bool(true))),
+            then: Box::new(call(this, vec![])),
+            else_: Box::new(int(0)),
+        },
+    );
+    main_fn(&mut m, TypeId::INT, call(this, vec![]));
+    let r = run_with(
+        "constant_self_reference_in_if",
+        &m,
+        RuntimeMode::Import(None),
+    );
+    assert_eq!(
+        r.stdout, "defect: const A refers to itself while being evaluated\n",
         "{}",
         r.stderr
     );
