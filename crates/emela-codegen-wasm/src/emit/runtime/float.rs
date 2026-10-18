@@ -20,6 +20,13 @@
 use super::*;
 
 /// The float fragment, after `CORE_TAIL` (see `runtime::FUNCS`).
+///
+/// These functions are registered unconditionally, even for a program that never mentions
+/// `Float`. That is deliberate for now: `runtime::register` is the only gate, and teaching it to
+/// drop this fragment would change the byte layout of every existing module (the runtime function
+/// indices and the bodies before `float` are fixed by `FUNCS` order). The 15 functions stay in
+/// the fixed fragment order, so a program that does use `Float` sees the same indices it did
+/// before.
 pub(super) const FUNCS: &[Sig] = &[
     ("fmod", &[ValType::F64, ValType::F64], &[ValType::F64]),
     ("float_to_string", &[ValType::F64], &[ValType::I32]),
