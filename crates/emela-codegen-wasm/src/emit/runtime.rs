@@ -5,30 +5,15 @@
 //! `dbg` and the test output, `proc_exit`). It is written with `wasm-encoder` like the rest of
 //! the module, so the backend has no external toolchain.
 //!
-//! Memory layout (see `emit.rs`): a 16-byte object header (rc, aux, descriptor, padding) then
-//! 8-byte slots. Static data (descriptors, string literals, nullary constructors, capture-less
-//! closures) has `rc == 0` and is never counted.
+//! Memory layout (see `crate::emit::layout`): a 16-byte object header (rc, aux, descriptor,
+//! padding) then 8-byte slots. Static data (descriptors, string literals, nullary constructors,
+//! capture-less closures) has `rc == 0` and is never counted.
 
 use wasm_encoder::{BlockType, InstructionSink, ValType};
 
-use super::*;
+use super::layout::{CPBUF, DIGITS, DIGITS64, IOVEC, JSONBUF, NEWLINE, NWRITTEN, PAGE};
 
-/// The scratch area below the heap: the WASI iovec and `nwritten` at 0..16, the integer digit
-/// buffers at 64..120, the newline byte at 88, the JSON escape buffer at 128..134 and one code
-/// point's UTF-8 at 160..164. The static data in `emit.rs` starts at [`SCRATCH_END`]; the heap
-/// (`HEAP_BASE` in `emit.rs`) is above both.
-const IOVEC: u32 = 0;
-const NWRITTEN: u32 = 8;
-const DIGITS: u32 = 64;
-const NEWLINE: u32 = 88;
-const DIGITS64: u32 = 96;
-/// A short buffer for the bytes of a JSON escape (up to 6).
-const JSONBUF: u32 = 128;
-/// A buffer for encoding one code point as UTF-8 (up to 4 bytes).
-const CPBUF: u32 = 160;
-/// The first address after the scratch area, 8-byte aligned. The static data in `emit.rs` starts
-/// here, so the runtime's scratch writes cannot clobber descriptors or literals.
-pub(crate) const SCRATCH_END: u32 = CPBUF + 8;
+use super::*;
 
 /// A runtime function: its name and wasm signature.
 type Sig = (&'static str, &'static [ValType], &'static [ValType]);

@@ -32,7 +32,7 @@ pub enum SyntaxKind {
     /// whitespace from the start of its line, which is the indentation stripped from every line.
     /// `  """`
     TRIPLE_QUOTE,
-    /// The body of a string, escapes (`\" \\ \n \#`) included.
+    /// The body of a string as written, escapes (`\" \\ \n \t \r \# \u{...}`) included.
     STRING_TEXT,
     /// `#{` inside a string.
     INTERP_START,

@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+--- stderr
+3
+[9, 13, 65, 128077]
+"SELECT *\nFROM users"
+"WHERE id = 7\n  AND deeper\nan escape\n does not start a line\n\n7 starts a line"
+""
+"one\n\ntwo"
+True
