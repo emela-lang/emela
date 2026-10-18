@@ -1,0 +1,12 @@
+[package]
+name = "emela-codegen-c-embedded"
+description = "組み込み向け C コード生成器"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+emela-core.workspace = true
+emela-lir.workspace = true
+la-arena.workspace = true
+rustc-hash.workspace = true

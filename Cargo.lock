@@ -251,6 +251,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emela-codegen-c-embedded"
+version = "0.21.0"
+dependencies = [
+ "emela-core",
+ "emela-lir",
+ "la-arena",
+ "rustc-hash 2.1.3",
+]
+
+[[package]]
 name = "emela-codegen-js"
 version = "0.21.0"
 dependencies = [
