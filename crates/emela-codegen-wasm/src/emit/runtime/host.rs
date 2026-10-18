@@ -1,8 +1,10 @@
-//! The WASI host calls, the runtime side of the internal host ABI, and `print_string`.
+//! The WASI host calls, the runtime side of the internal host ABI, and the `Std.Console` /
+//! `Std.Env` hosts.
 //!
-//! `write` is the only syscall wrapper (`fd_write`); `debug_print` writes a string to stderr and
-//! `print_string` to stdout (both with a trailing newline), and `exit` calls `proc_exit`. The
-//! string layout is the one the emitter's `string_literal` uses and `str_byte_size` reads: the
+//! `write` wraps `fd_write`; `debug_print` writes a string to stderr and `print_string` to stdout
+//! (both with a trailing newline); `console_log` / `console_error` do the same for `Std.Console`
+//! (fd 1 and fd 2); `exit` calls `proc_exit`. `Std.Env` reads `environ_sizes_get` / `environ_get`.
+//! The string layout is the one the emitter's `string_literal` uses and `str_byte_size` reads: the
 //! length is the `i32` at `ptr + HDR`, the UTF-8 bytes start at `ptr + HDR + 4`.
 
 use super::super::layout::{IOVEC, NEWLINE, NWRITTEN};
@@ -20,6 +22,8 @@ pub(super) const FUNCS: &[Sig] = &[
     ("print_string", &[ValType::I32], &[]),
     ("console_log", &[ValType::I32], &[]),
     ("console_error", &[ValType::I32], &[]),
+    ("env_has", &[ValType::I32], &[ValType::I32]),
+    ("env_get", &[ValType::I32], &[ValType::I32]),
 ];
 
 pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -30,13 +34,18 @@ pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "print_string" => write_line(b, ins, 1),
         "console_log" => write_line(b, ins, 1),
         "console_error" => write_line(b, ins, 2),
+        "env_has" => env_has(b, ins),
+        "env_get" => env_get(b, ins),
         _ => return false,
     }
     true
 }
 
-pub(super) fn locals(_name: &str) -> Option<Vec<(u32, ValType)>> {
-    None
+pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
+    match name {
+        "env_has" | "env_get" => Some(vec![(12, ValType::I32)]),
+        _ => None,
+    }
 }
 
 fn write(b: &mut Builder, ins: &mut InstructionSink) {
@@ -79,4 +88,216 @@ fn exit(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.call(b.proc_exit());
     ins.unreachable();
+}
+
+// ---- Std.Env ----
+
+/// The locals shared by [`environ_find`] and the `Std.Env` hosts that inline it.
+const ENV_COUNT: u32 = 1;
+const ENV_ENTRIES: u32 = 3;
+const ENV_BUF: u32 = 4;
+const ENV_I: u32 = 5;
+const ENV_ENTRY: u32 = 6;
+const ENV_J: u32 = 7;
+const ENV_NAME_LEN: u32 = 8;
+const ENV_LEN: u32 = 9;
+const ENV_K: u32 = 10;
+const ENV_OUT: u32 = 11;
+const ENV_STRING: u32 = 12;
+
+/// `env_has(name)`: whether the environment variable `name` is set.
+fn env_has(b: &mut Builder, ins: &mut InstructionSink) {
+    environ_find(b, ins);
+    ins.i32_const(0);
+    ins.i32_ne();
+}
+
+/// `env_get(name)`: a copy of the value of the environment variable `name`, or the empty string.
+/// The handler only calls it after `env_has`, so the empty string is only the not-set fallback.
+fn env_get(b: &mut Builder, ins: &mut InstructionSink) {
+    let str_new = rt(b, "str_new");
+    environ_find(b, ins);
+    ins.local_set(ENV_OUT);
+    ins.local_get(ENV_OUT);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.call(str_new);
+    ins.return_();
+    ins.end();
+    // The value length, up to the NUL terminator of the `NAME=VALUE` entry.
+    ins.i32_const(0);
+    ins.local_set(ENV_LEN);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ENV_OUT);
+    ins.local_get(ENV_LEN);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_eqz();
+    ins.br_if(1);
+    ins.local_get(ENV_LEN);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(ENV_LEN);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    // Copy the value into a fresh string.
+    ins.local_get(ENV_LEN);
+    ins.call(str_new);
+    ins.local_set(ENV_STRING);
+    ins.i32_const(0);
+    ins.local_set(ENV_K);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ENV_K);
+    ins.local_get(ENV_LEN);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.local_get(ENV_STRING);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(ENV_K);
+    ins.i32_add();
+    ins.local_get(ENV_OUT);
+    ins.local_get(ENV_K);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_store8(mem(0, 1));
+    ins.local_get(ENV_K);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(ENV_K);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.local_get(ENV_STRING);
+}
+
+/// Leaves on the stack the pointer to the value (the character after `=`) of the environment
+/// variable named by the string in local 0, or 0 if it is not set.
+///
+/// WASI has no `getenv`, so it asks `environ_sizes_get` for the count and size, copies the entry
+/// pointers and the `NAME=VALUE\0` bytes into two fresh heap objects with `environ_get` and scans
+/// them. The two objects are never freed (the process exits) and reuse the scratch `IOVEC` slot
+/// for the `environ_sizes_get` results.
+fn environ_find(b: &mut Builder, ins: &mut InstructionSink) {
+    let alloc = rt(b, "alloc");
+    let sizes_get = b.environ_sizes_get();
+    let get = b.environ_get();
+    // The count and the total size, at IOVEC and IOVEC + 4.
+    ins.i32_const(IOVEC as i32);
+    ins.i32_const((IOVEC + 4) as i32);
+    ins.call(sizes_get);
+    ins.drop();
+    ins.i32_const(IOVEC as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(ENV_COUNT);
+    ins.i32_const(0);
+    ins.local_set(ENV_OUT);
+    ins.local_get(ENV_COUNT);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.else_();
+    // The pointer array (`count` pointers) and the byte buffer (`size` bytes) after a header.
+    ins.local_get(ENV_COUNT);
+    ins.global_get(G_STRDESC);
+    ins.call(alloc);
+    ins.i32_const(HDR as i32);
+    ins.i32_add();
+    ins.local_set(ENV_ENTRIES);
+    // The total byte size is at `IOVEC + 4`, after the count at `IOVEC`.
+    ins.i32_const((IOVEC + 4) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(7);
+    ins.i32_add();
+    ins.i32_const(3);
+    ins.i32_shr_u();
+    ins.global_get(G_STRDESC);
+    ins.call(alloc);
+    ins.i32_const(HDR as i32);
+    ins.i32_add();
+    ins.local_set(ENV_BUF);
+    ins.local_get(ENV_ENTRIES);
+    ins.local_get(ENV_BUF);
+    ins.call(get);
+    ins.drop();
+    // The name's byte length (the bytes start at `name + HDR + 4`).
+    ins.local_get(0);
+    ins.i32_load(mem(HDR, 4));
+    ins.local_set(ENV_NAME_LEN);
+    ins.i32_const(0);
+    ins.local_set(ENV_I);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ENV_I);
+    ins.local_get(ENV_COUNT);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    // The entry pointer.
+    ins.local_get(ENV_ENTRIES);
+    ins.local_get(ENV_I);
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.i32_add();
+    ins.i32_load(mem(0, 4));
+    ins.local_set(ENV_ENTRY);
+    // Compare the name, byte by byte, up to the name's length.
+    ins.i32_const(0);
+    ins.local_set(ENV_J);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(ENV_J);
+    ins.local_get(ENV_NAME_LEN);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.local_get(ENV_ENTRY);
+    ins.local_get(ENV_J);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.local_get(0);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(ENV_J);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_ne();
+    ins.br_if(1);
+    ins.local_get(ENV_J);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(ENV_J);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    // A prefix match is only a match when `=` follows.
+    ins.local_get(ENV_J);
+    ins.local_get(ENV_NAME_LEN);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(ENV_ENTRY);
+    ins.local_get(ENV_NAME_LEN);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_const(b'=' as i32);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(ENV_ENTRY);
+    ins.local_get(ENV_NAME_LEN);
+    ins.i32_add();
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(ENV_OUT);
+    ins.end();
+    ins.end();
+    ins.local_get(ENV_I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(ENV_I);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.end();
+    ins.local_get(ENV_OUT);
 }

@@ -31,6 +31,8 @@ pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[
     ("test", "print", "print_string"),
     ("emela:console", "log", "console_log"),
     ("emela:console", "error", "console_error"),
+    ("emela:env", "has", "env_has"),
+    ("emela:env", "get", "env_get"),
 ];
 
 /// If `(module, name)` is an internal host, the runtime function it binds to.

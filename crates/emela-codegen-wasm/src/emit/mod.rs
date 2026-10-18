@@ -237,6 +237,36 @@ impl<'m> Builder<'m> {
         self.wasi_import("proc_exit", vec![ValType::I32], vec![])
     }
 
+    /// `environ_sizes_get(count_ptr, buf_size_ptr)`: the number of environment variables and the
+    /// total byte size of their `NAME=VALUE\0` entries. Used by `Std.Env`'s internal hosts.
+    pub(crate) fn environ_sizes_get(&mut self) -> u32 {
+        self.wasi_import(
+            "environ_sizes_get",
+            vec![ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
+    /// `environ_get(env_ptr, buf_ptr)`: the pointers of the `NAME=VALUE\0` entries into the
+    /// buffer. Used by `Std.Env`'s internal hosts.
+    pub(crate) fn environ_get(&mut self) -> u32 {
+        self.wasi_import(
+            "environ_get",
+            vec![ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
+    /// `random_get(buf, buf_len)`: cryptographically secure random bytes. Used by `Std.Random`'s
+    /// internal hosts.
+    pub(crate) fn random_get(&mut self) -> u32 {
+        self.wasi_import(
+            "random_get",
+            vec![ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
     fn fn_ty(&mut self, f: &Function) -> u32 {
         let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
         let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
@@ -264,6 +294,18 @@ impl<'m> Builder<'m> {
         // function index space is assigned).
         self.fd_write();
         self.proc_exit();
+        // The WASI calls only some internal hosts need. They are added here, before the index
+        // space is fixed, but only when the host that uses them was requested, so programs
+        // without it keep their exact bytes (`emit::external::INTERNAL_HOSTS`).
+        if self.requested_hosts.contains(&"env_has") || self.requested_hosts.contains(&"env_get") {
+            self.environ_sizes_get();
+            self.environ_get();
+        }
+        if self.requested_hosts.contains(&"random_int")
+            || self.requested_hosts.contains(&"random_float")
+        {
+            self.random_get();
+        }
         // The IR definitions, in arena order (the entries of the table are the IR functions).
         for (id, f) in self.m.functions.iter() {
             if self.imported(id) {
