@@ -1,0 +1,26 @@
+[package]
+name = "emela-pome"
+description = "Pome (spec 4.7): source paths, versions, Pome.toml and Pome.lock, minimal version selection, h1 hashes and checksum database verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+sha2.workspace = true
+base64.workspace = true
+ed25519-dalek.workspace = true
+serde_json.workspace = true
+flate2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+ureq = { workspace = true, optional = true }
+
+[features]
+# HTTP で proxy と sumdb に出る．外すと Transport を自分で渡す（wasm など）．
+default = ["net"]
+net = ["dep:ureq"]
+
+[dev-dependencies]
+flate2.workspace = true

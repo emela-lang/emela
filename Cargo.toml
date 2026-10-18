@@ -8,6 +8,8 @@
 #                                                         ↓
 #                                           driver → lsp → cli
 #
+# pome（Pome.toml，Pome.lock，MVS，sumdb の検証）はほかの crate に依存しない．
+#
 # lir（低い IR）は codegen-c が使い，codegen-wasm も使う予定．
 
 [workspace]
@@ -56,6 +58,15 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 insta = { version = "1", features = ["glob"] }
 # 性質テスト（字句解析の無損失性などを任意の入力で検査する）．
 proptest = "1"
+# Pome（4.7）: 中身のハッシュ h1，sumdb の checkpoint の署名の検証．
+sha2 = "0.10"
+base64 = "0.22"
+ed25519-dalek = "2"
+# Pome の取得: proxy と sumdb への HTTP（rustls．tokio を持ち込まない同期型），アーカイブ（.tar.gz）の展開．
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
 
 # The version lets `cargo package` (run by release-plz in git_only mode) verify
 # each crate; release-plz bumps it together with the workspace version.
@@ -70,6 +81,11 @@ emela-codegen-wasm = { path = "crates/emela-codegen-wasm", version = "0.21.0" }
 emela-codegen-c = { path = "crates/emela-codegen-c", version = "0.21.0" }
 emela-driver = { path = "crates/emela-driver", version = "0.21.0" }
 emela-lsp = { path = "crates/emela-lsp", version = "0.21.0" }
+emela-pome = { path = "crates/emela-pome", version = "0.21.0" }
 
 [profile.dev.package.insta]
+opt-level = 3
+
+# sumdb の証明のテストは何万回も sha256 を計算する．
+[profile.dev.package.sha2]
 opt-level = 3

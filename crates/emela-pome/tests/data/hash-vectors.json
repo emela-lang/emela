@@ -1,0 +1,75 @@
+{
+  "comment": "h1 hash vectors. Expected values are computed independently of the TS implementation (python hashlib). The Rust client must pass the same vectors.",
+  "vectors": [
+    {
+      "name": "minimal pome",
+      "files": [
+        {
+          "path": "Pome.toml",
+          "base64": "W3BvbWVdCm5hbWUgPSAiZ2l0aHViLmNvbS9hY21lL2dyZWV0ZXIiCnZlcnNpb24gPSAiMC4xLjAiCmVtZWxhID0gIjAuMjAuMSIK"
+        },
+        {
+          "path": "src/lib.emel",
+          "base64": "cHViIGZuIGhlbGxvKG5hbWU6IFN0cmluZykgLT4gU3RyaW5nIHsKICAiSGVsbG8sICN7bmFtZX0hIgp9Cg=="
+        }
+      ],
+      "h1": "h1:+Thj6XlK+eABClH7yw779GrFFl/umwEs9PO0k3JjISY="
+    },
+    {
+      "name": "byte order of separators",
+      "files": [
+        {
+          "path": "a-b",
+          "base64": "MQ=="
+        },
+        {
+          "path": "a.b",
+          "base64": "Mg=="
+        },
+        {
+          "path": "a/b",
+          "base64": "Mw=="
+        }
+      ],
+      "h1": "h1:YpYcoWqYdez9JmB5332zHYSE59UBwIiLy427zkfy2DY="
+    },
+    {
+      "name": "utf-8 order differs from utf-16",
+      "files": [
+        {
+          "path": "😀.md",
+          "base64": "ZW1vamk="
+        },
+        {
+          "path": "～.md",
+          "base64": "dGlsZGU="
+        },
+        {
+          "path": "z~",
+          "base64": "YXNjaWk="
+        }
+      ],
+      "h1": "h1:qM7bWhonxJvEfpcuB0kq34gGCyb/91E7bdHRrfbKgXk="
+    },
+    {
+      "name": "empty file",
+      "files": [
+        {
+          "path": "empty",
+          "base64": ""
+        }
+      ],
+      "h1": "h1:qeRWy81PSQtvM1POcgo/T5uzgbJ/wGDTruTnDuezfz0="
+    },
+    {
+      "name": "manifest only",
+      "files": [
+        {
+          "path": "Pome.toml",
+          "base64": "W3BvbWVdCm5hbWUgPSAiZ2l0aHViLmNvbS9hY21lL2dyZWV0ZXIiCg=="
+        }
+      ],
+      "h1": "h1:S8VWVeRenriQdoLVVvjf4HbhKYDQ3fstzdHoxfB0isw="
+    }
+  ]
+}
