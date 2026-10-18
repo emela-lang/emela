@@ -62,6 +62,11 @@ proptest = "1"
 sha2 = "0.10"
 base64 = "0.22"
 ed25519-dalek = "2"
+# Pome の取得: proxy と sumdb への HTTP（rustls．tokio を持ち込まない同期型），アーカイブ（.tar.gz）の展開．
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
 
 # The version lets `cargo package` (run by release-plz in git_only mode) verify
 # each crate; release-plz bumps it together with the workspace version.

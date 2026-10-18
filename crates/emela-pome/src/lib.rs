@@ -1,9 +1,12 @@
 //! Pome (spec 4.7): the unit of distribution and dependency.
 //!
-//! This crate holds what does not touch the network: source paths and versions, `Pome.toml` and
-//! `Pome.lock`, minimal version selection, the content hash `h1:`, and verification of what the
-//! checksum database says.
+//! - Source paths and versions, `Pome.toml` and `Pome.lock`, minimal version selection, the content
+//!   hash `h1:`, and verification of what the checksum database says. None of these touch the
+//!   network.
+//! - [`fetch`]: getting versions from proxies and `direct`, checked against the checksum database
+//!   or the lock, and the cache.
 
+pub mod fetch;
 pub mod hash;
 pub mod lock;
 pub mod manifest;

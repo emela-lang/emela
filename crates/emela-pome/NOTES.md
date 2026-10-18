@@ -25,3 +25,15 @@
 ## テストの値
 
 - `tests/data/hash-vectors.json` と `tests/data/tlog-vectors.json` は pome-registry（`packages/protocol/testdata`）と同じもの．TypeScript の実装と同じ値を通す
+
+## 取得（`fetch`）
+
+- （補）キャッシュの並び: `<cache>/<エスケープした source path>@<version>/` に中身，`<cache>/download/<エスケープした source path>/@v/<version>.toml` に確かめた `Pome.toml`，`<cache>/sumdb/<鍵の名前>/latest` に見た最大の checkpoint（署名付き）．書くときは一時的な場所に書いてから rename する
+- （補）中身のディレクトリはファイルを 0444，ディレクトリを 0555 にする（4.7 の「読み取り専用」）
+- （補）`Pome.toml` だけを取るとき（MVS で依存の木をたどるとき）も sumdb に照らす．照らすのは記録の2行目（`Pome.toml` の `h1:`）
+- （補）`direct` は利用者の git の設定（資格情報，`url.<base>.insteadOf`）をそのまま使う．`EMELA_POMEPRIVATE` の非公開のリポジトリを取れるようにするため．ingester とは違い，プロトコルも絞らない
+- （補）`direct` の `@latest` は，prerelease でない最大の版（なければ prerelease を含めた最大）．proxy と違い，取り込めない版を飛ばさない（取り込みの検査を手元でしないため）
+- （補）proxy の URL の version はエスケープしない（pome-registry と同じ）
+- （補）`direct` でシンボリックリンクや submodule を含む版は「ない」（NotFound）として扱う．proxy が 410 を返すのと揃える
+- `EMELA_POMESUMDB` の既定（`config::DEFAULT_SUMDB`）は，本番の sumdb の公開鍵がまだ入っていない．入れるまでは `EMELA_POMESUMDB` を設定しないと読み込みで止まる
+- tile はディスクにキャッシュしない．1回の証明で読むのは数枚なので，まず足りる

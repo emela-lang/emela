@@ -221,3 +221,30 @@ fn opens_the_signed_checkpoint() {
         .is_err()
     );
 }
+
+/// An archive written by the proxy (pome-registry's `writeTar`): long and non-ASCII paths go in pax
+/// headers.
+#[test]
+fn reads_the_proxys_archive() {
+    let bytes = std::fs::read(format!(
+        "{}/tests/data/proxy-archive.tar.gz",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let files = emela_pome::fetch::archive::read_tar_gz(&bytes).unwrap();
+    let mut paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            "Pome.toml",
+            &format!("src/{}.emel", "long".repeat(40)),
+            "src/日本語.emel"
+        ]
+    );
+    let h = tree_hash(files.iter().map(|(p, c)| (p.as_str(), c.as_slice()))).unwrap();
+    assert_eq!(
+        h.as_str(),
+        "h1:Z+09YW3KZFvDa5RF8Kz9g2PZ2mbWmrwt3vZcVIzgjUo="
+    );
+}

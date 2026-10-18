@@ -11,6 +11,16 @@ toml.workspace = true
 sha2.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true
+serde_json.workspace = true
+flate2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+ureq = { workspace = true, optional = true }
+
+[features]
+# HTTP で proxy と sumdb に出る．外すと Transport を自分で渡す（wasm など）．
+default = ["net"]
+net = ["dep:ureq"]
 
 [dev-dependencies]
-serde_json.workspace = true
+flate2.workspace = true
