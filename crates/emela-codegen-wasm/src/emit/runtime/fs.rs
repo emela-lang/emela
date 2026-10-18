@@ -154,8 +154,8 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         "fs_failure_message" => i32s(4),
         "fs_outcome_error" | "fs_outcome_message" | "fs_outcome_text" => i32s(1),
         "fs_outcome_name_at" => i32s(3),
-        "fs_read_text" => i32s(11),
-        "fs_write_text" | "fs_append_text" => i32s(6),
+        "fs_read_text" => i32s(13),
+        "fs_write_text" | "fs_append_text" => i32s(10),
         "fs_exists" | "fs_is_directory" => i32s(3),
         "fs_remove" => i32s(6),
         "fs_create_directory" => i32s(9),
@@ -784,7 +784,7 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     const BASE: u32 = 1;
     const ST: u32 = 2;
     const ERR: u32 = 3;
-    const SIZE: u32 = 4;
+    const CAP: u32 = 4;
     const FD: u32 = 5;
     const TEXT: u32 = 6;
     const TOTAL: u32 = 7;
@@ -792,12 +792,14 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     const OUT: u32 = 9;
     const CODE: u32 = 10;
     const MSG: u32 = 11;
+    const NEWCAP: u32 = 12;
+    const NEW: u32 = 13;
     let bd = handle::buffer_desc(b);
     let open = lit(b, "open");
     let read = lit(b, "read");
     ins.call(rt(b, "fs_base_fd"));
     ins.local_set(BASE);
-    // The stat: the size up front, and IsADirectory before opening.
+    // The stat: IsADirectory before opening, plus the starting capacity.
     ins.i32_const(8);
     ins.i32_const(bd as i32);
     call(ins, rt(b, "alloc"));
@@ -817,7 +819,7 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.local_get(ST);
     ins.i32_load(mem(32, 4));
-    ins.local_set(SIZE);
+    ins.local_set(CAP);
     // Open read-only.
     path_open(b, ins, BASE, 0, 0, RIGHTS_READ, 0);
     ins.local_set(ERR);
@@ -828,19 +830,28 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(IOVEC as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(FD);
-    // A string of the file size, then read into it.
-    ins.local_get(SIZE);
+    // The buffer starts at the stat size — 4096 when the file is empty, so a file that grows is
+    // still read. Like the C host, the read goes on to EOF: whenever the buffer fills, it doubles
+    // and the read continues, so bytes appended after the stat are not cut off.
+    ins.local_get(CAP);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(4096);
+    ins.local_set(CAP);
+    ins.end();
+    ins.local_get(CAP);
     call(ins, rt(b, "str_new"));
     ins.local_set(TEXT);
     ins.i32_const(0);
     ins.local_set(TOTAL);
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
+    // Read into the room that is left.
     ins.local_get(TOTAL);
-    ins.local_get(SIZE);
-    ins.i32_ge_u();
-    ins.br_if(1);
-    // The iovec: the remaining bytes of the string.
+    ins.local_get(CAP);
+    ins.i32_lt_u();
+    ins.if_(BlockType::Empty);
+    // The iovec: the rest of the string.
     ins.i32_const(IOVEC as i32);
     ins.local_get(TEXT);
     ins.local_get(TOTAL);
@@ -849,7 +860,7 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_add();
     ins.i32_store(mem(0, 4));
     ins.i32_const((IOVEC + 4) as i32);
-    ins.local_get(SIZE);
+    ins.local_get(CAP);
     ins.local_get(TOTAL);
     ins.i32_sub();
     ins.i32_store(mem(0, 4));
@@ -869,13 +880,39 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(NWRITTEN as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(GOT);
+    // A short read (or none) is EOF: the text is complete.
     ins.local_get(GOT);
     ins.i32_eqz();
-    ins.br_if(1);
+    ins.br_if(2);
     ins.local_get(TOTAL);
     ins.local_get(GOT);
     ins.i32_add();
     ins.local_set(TOTAL);
+    ins.local_get(TOTAL);
+    ins.local_get(CAP);
+    ins.i32_lt_u();
+    ins.br_if(2);
+    ins.end();
+    // The buffer filled: the file may have grown, so double the string and keep reading.
+    ins.local_get(CAP);
+    ins.i32_const(2);
+    ins.i32_mul();
+    ins.local_set(NEWCAP);
+    ins.local_get(NEWCAP);
+    call(ins, rt(b, "str_new"));
+    ins.local_set(NEW);
+    ins.local_get(NEW);
+    ins.i32_const(0);
+    ins.local_get(TEXT);
+    ins.i32_const(0);
+    ins.local_get(TOTAL);
+    call(ins, rt(b, "copy_range"));
+    ins.local_get(TEXT);
+    call(ins, rt(b, "drop"));
+    ins.local_get(NEW);
+    ins.local_set(TEXT);
+    ins.local_get(NEWCAP);
+    ins.local_set(CAP);
     ins.br(0);
     ins.end();
     ins.end();
@@ -902,6 +939,12 @@ fn fs_read_text(b: &mut Builder, ins: &mut InstructionSink) {
 // ---- write_text / append_text ----
 
 /// The shared body of `write_text` (`oflags`/`fdflags` zero) and `append_text` (create, append).
+///
+/// Like the C host, the whole text is written: `fd_write` may accept fewer bytes than it is asked
+/// for, so the rest is written until none is left (a write of zero is treated as the end to avoid
+/// spinning). An existing directory is `IsADirectory` before the open: `path_filestat_get` decides
+/// it here rather than leaving it to the `path_open` errno, which some WASI hosts report as
+/// `ENOTCAPABLE` (`FileAccessDenied`) instead of `EISDIR`.
 fn fs_write(b: &mut Builder, ins: &mut InstructionSink, oflags: i32, fdflags: i32) {
     const BASE: u32 = 2;
     const ERR: u32 = 3;
@@ -909,10 +952,33 @@ fn fs_write(b: &mut Builder, ins: &mut InstructionSink, oflags: i32, fdflags: i3
     const OUT: u32 = 5;
     const CODE: u32 = 6;
     const MSG: u32 = 7;
+    const ST: u32 = 8;
+    const LEN: u32 = 9;
+    const DONE: u32 = 10;
+    const GOT: u32 = 11;
+    let bd = handle::buffer_desc(b);
     let open = lit(b, "open");
     let write = lit(b, "write");
     ins.call(rt(b, "fs_base_fd"));
     ins.local_set(BASE);
+    // An existing directory is IsADirectory, decided here rather than by the open's errno.
+    ins.i32_const(8);
+    ins.i32_const(bd as i32);
+    call(ins, rt(b, "alloc"));
+    ins.local_set(ST);
+    filestat(b, ins, BASE, LOOKUP_FOLLOW, ST, 0);
+    ins.local_set(ERR);
+    ins.local_get(ERR);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(ST);
+    ins.i32_load8_u(mem(16, 1));
+    ins.i32_const(3);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ret_code(b, ins, OUT, OUTCOME_IS_A_DIRECTORY);
+    ins.end();
+    ins.end();
     path_open(b, ins, BASE, oflags, fdflags, RIGHTS_WRITE, 0);
     ins.local_set(ERR);
     ins.local_get(ERR);
@@ -922,15 +988,30 @@ fn fs_write(b: &mut Builder, ins: &mut InstructionSink, oflags: i32, fdflags: i3
     ins.i32_const(IOVEC as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(FD);
-    // The iovec: the text's bytes.
+    ins.local_get(1);
+    ins.i32_load(mem(HDR, 4));
+    ins.local_set(LEN);
+    ins.i32_const(0);
+    ins.local_set(DONE);
+    // Write the text in as many calls as the host needs.
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(DONE);
+    ins.local_get(LEN);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    // The iovec: the bytes that are still to be written.
     ins.i32_const(IOVEC as i32);
     ins.local_get(1);
+    ins.local_get(DONE);
+    ins.i32_add();
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
     ins.i32_store(mem(0, 4));
     ins.i32_const((IOVEC + 4) as i32);
-    ins.local_get(1);
-    ins.i32_load(mem(HDR, 4));
+    ins.local_get(LEN);
+    ins.local_get(DONE);
+    ins.i32_sub();
     ins.i32_store(mem(0, 4));
     ins.local_get(FD);
     ins.i32_const(IOVEC as i32);
@@ -944,6 +1025,20 @@ fn fs_write(b: &mut Builder, ins: &mut InstructionSink, oflags: i32, fdflags: i3
     call(ins, b.wasi_fd_close());
     ins.drop();
     ret_err(b, ins, OUT, CODE, MSG, ERR, write, 0);
+    ins.end();
+    ins.i32_const(NWRITTEN as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(GOT);
+    // A write of zero bytes cannot make progress; stop rather than spin.
+    ins.local_get(GOT);
+    ins.i32_eqz();
+    ins.br_if(1);
+    ins.local_get(DONE);
+    ins.local_get(GOT);
+    ins.i32_add();
+    ins.local_set(DONE);
+    ins.br(0);
+    ins.end();
     ins.end();
     ins.local_get(FD);
     call(ins, b.wasi_fd_close());
@@ -1306,11 +1401,19 @@ fn fs_create_directory(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.local_set(N);
+    // An empty path has no component to create: C's `mkdir ""` fails with ENOENT, which
+    // `fs_classify` reports as FileNotFound.
+    ins.local_get(N);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ret_code(b, ins, OUT, OUTCOME_NOT_FOUND);
+    ins.end();
     ins.i32_const(1);
     ins.local_set(I);
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
-    // Create the prefix `path[0..i]` when `i` ends a component (a `/`, or the end of the path).
+    // Create the prefix `path[0..i]` when `i` ends a component (a `/`, or the end of the path) and
+    // `path[i-1]` is not itself a `/` — C skips repeated and trailing slashes the same way.
     ins.local_get(I);
     ins.local_get(N);
     ins.i32_eq();
@@ -1325,6 +1428,16 @@ fn fs_create_directory(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.end();
     ins.i32_or();
+    // path[i-1] != '/' (i >= 1 here, so path[i-1] is in bounds).
+    ins.local_get(0);
+    ins.local_get(I);
+    ins.i32_const((HDR + 4 - 1) as i32);
+    ins.i32_add();
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_const(b'/' as i32);
+    ins.i32_ne();
+    ins.i32_and();
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.i32_const(0);
