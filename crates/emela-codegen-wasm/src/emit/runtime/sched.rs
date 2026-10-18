@@ -438,7 +438,7 @@ pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "resume_ref" => resume_call(b, ins, Repr::Ref, 1),
         "rt_alloc" => rt_alloc(b, ins),
         "vec_new" => vec_new(b, ins),
-        "vec_push" => vec_push(ins),
+        "vec_push" => vec_push(b, ins),
         "vec_has" => vec_has(ins),
         "vec_remove" => vec_remove(ins),
         "vec_len" => vec_len(ins),
@@ -524,7 +524,7 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         "resume_void" => vec![(4, ValType::I32), (1, ValType::I64)],
         "rt_alloc" => vec![(1, ValType::I32)],
         "vec_new" => vec![(2, ValType::I32)],
-        "vec_push" => vec![(3, ValType::I32)],
+        "vec_push" => vec![(5, ValType::I32)],
         "vec_has" => vec![(2, ValType::I32)],
         "vec_remove" => vec![(4, ValType::I32)],
         "queue_new" => vec![(2, ValType::I32)],
@@ -1479,13 +1479,84 @@ fn vec_new(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(V);
 }
 
-fn vec_push(ins: &mut InstructionSink) {
+fn vec_push(b: &mut Builder, ins: &mut InstructionSink) {
+    const T: u32 = 2; // the grown items block
+    const CAP: u32 = 3; // the new capacity
+    const I: u32 = 4; // a scratch index / the old block's size
+    const OLD: u32 = 5; // the old items block
+    const SIZE: u32 = 6; // its allocation size
+    // Grow when full, doubling (from 4), like the C `em_vec_push`. Without this a vector at its
+    // initial capacity silently drops the element (spec 11.2: a scope must keep every child).
     ins.local_get(0);
     ins.i32_load(mem(V_LEN, 4));
     ins.local_get(0);
     ins.i32_load(mem(V_CAP, 4));
-    ins.i32_lt_u();
+    ins.i32_eq();
     ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.i32_load(mem(V_CAP, 4));
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(0);
+    ins.i32_load(mem(V_CAP, 4));
+    ins.i32_const(2);
+    ins.i32_mul();
+    ins.else_();
+    ins.i32_const(4);
+    ins.end();
+    ins.local_set(CAP);
+    ins.local_get(CAP);
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.call(rt(b, "rt_alloc"));
+    ins.local_set(T);
+    // Copy the live items over.
+    ins.i32_const(0);
+    ins.local_set(I);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(I);
+    ins.local_get(0);
+    ins.i32_load(mem(V_LEN, 4));
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.local_get(T);
+    ins.local_get(I);
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.i32_add();
+    vec_item(ins, 0, I);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    // Release the old block: `rt_alloc` sized it as ceil(bytes / 8) words plus the header, and its
+    // address `V_ITEMS` points just past that header.
+    ins.local_get(0);
+    ins.i32_load(mem(V_ITEMS, 4));
+    ins.i32_const(HDR as i32);
+    ins.i32_sub();
+    ins.local_set(OLD);
+    ins.local_get(0);
+    ins.i32_load(mem(V_CAP, 4));
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.i32_const(7);
+    ins.i32_add();
+    ins.i32_const(3);
+    ins.i32_shr_u();
+    ins.i32_const(8);
+    ins.i32_mul();
+    ins.i32_const(HDR as i32);
+    ins.i32_add();
+    ins.local_set(SIZE);
+    free_raw(ins, OLD, SIZE);
+    store32(ins, 0, V_ITEMS, T);
+    store32(ins, 0, V_CAP, CAP);
+    ins.end();
     ins.local_get(0);
     ins.i32_load(mem(V_ITEMS, 4));
     ins.local_get(0);
@@ -1501,7 +1572,6 @@ fn vec_push(ins: &mut InstructionSink) {
     ins.i32_const(1);
     ins.i32_add();
     ins.i32_store(mem(V_LEN, 4));
-    ins.end();
 }
 
 fn vec_has(ins: &mut InstructionSink) {
