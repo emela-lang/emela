@@ -1516,10 +1516,11 @@ fn put_digits(ins: &mut InstructionSink, p: u32, out: u32, pos: u32, from: TD, t
 // ---- Float.parse ----
 
 // `Float.parse` (spec 16.3): the forms `Float.to_string` writes. The syntax check mirrors the C
-// runtime and the JS target. The mantissa is accumulated exactly while it fits in 17 digits; the
-// scaling by a power of ten is done with f64 arithmetic, so a full 17-digit input can land a few
-// ulp away from a correctly rounded parse. Value fidelity across backends is out of scope for
-// this wave (see the plan); the forms with a short decimal exponent are exact.
+// runtime and the JS target. The mantissa is accumulated exactly while it is below `10^17` before
+// each digit, so up to 18 digits are kept exactly (the largest is `10^18 - 1`, still inside
+// `i64`); the scaling by a power of ten is done with f64 arithmetic, so a full 18-digit input can
+// land a few ulp away from a correctly rounded parse. Value fidelity across backends is out of
+// scope for this wave (see the plan); the forms with a short decimal exponent are exact.
 
 // The locals of `float_parse` (the three parameters are 0, 1, 2).
 const FS: u32 = 0; // The String parameter.
