@@ -210,6 +210,7 @@ foo
 | `@test` | fn | テスト関数である（13章） |
 | `@deprecated(...)` | 任意の宣言 | 使用箇所で警告する |
 | `@intrinsic` | 本体のない fn（同梱の core のソースのトップレベルだけ） | コンパイラが実装を持つ組み込み関数である。シグネチャは Emela の文法で書き、実装は名前でコンパイラの組み込み関数の表から引く。core のソースの外では使えない（E0224）。付いた fn は 17.3 の `@external` の制約を満たす |
+| `@static` | const | 組み込み向け C のターゲットで、その const の値で始まり、プログラムが動いている間ずっと生きている `State` をターゲットが与える（16.6）。ほかのターゲットでは普通の const として扱う |
 | `@internal` | トップレベルの fn（同梱の core のソースだけ） | core のモジュールの外から参照できない（E0228）。core の外や、トップレベルの fn 以外には付けられない（E0229） |
 | フィールド注釈 | type と enum のフィールド | 導出の細部を指定する。名前と引数は未定（18章） |
 
@@ -838,7 +839,7 @@ fn run[R](f: fn() -> () use { Logger, R }) -> () use R {
 - `use X` は、書いた位置から見て最も内側の with が供給するハンドラを指す。同じ関数に該当する with がなければ、呼び出し元から渡されたものを指す。
 - 無名関数の中の `use X` は、無名関数を囲む with（同じトップレベルの関数の中のもの）を先に見る。なければ、無名関数を呼んだ側から渡されたものを指す。無名関数の R は無名関数の型に閉じ込められ（9.4）、囲む関数の R には載らないためである。
 - 外側で取り出した能力の値は、内側の with で同じエフェクトが上書きされても、外側のハンドラを指し続ける。
-- main の R は、Async を除いて空でなければならない。main はエントリのモジュールの `main` という名前の fn である。エントリに main がなければ、`emela run` はエラーになる（E0230）。`main` という名前でも fn でないもの（const など）は main と数えない。`emela build` は main がなくても出力してよい。use 節を書いていても空を求める。const の値の R も空である。
+- main の R は、Async と、ターゲットが与えるエフェクト（16.6）を除いて空でなければならない。main はエントリのモジュールの `main` という名前の fn である。エントリに main がなければ、`emela run` はエラーになる（E0230）。`main` という名前でも fn でないもの（const など）は main と数えない。`emela build` は main がなくても出力してよい。use 節を書いていても空を求める。const の値の R も空である。
 
 ```emel
 with PrimaryDb {
@@ -1500,9 +1501,9 @@ suspend fn fetch_text(url: String) -> String
 
 - 引数と戻り値の型は必ず書く。コンパイラは中身を見られないので、推論しない。
 - ターゲットごとに `@external` を1つ書く。1つの fn に複数のターゲットの注釈を並べてよい。同じ fn に同じターゲットの注釈を2つ書くとエラーになる（E0139）。
-- fn の `@external` の引数は、`(ターゲット, "名前")` か `(ターゲット, "ファイル", "名前")` の形に限る（E0138）。ターゲットは `js` と `wasm` である（E0140）。文字列に補間は書けない。
+- fn の `@external` の引数は、`(ターゲット, "名前")` か `(ターゲット, "ファイル", "名前")` の形に限る（E0138）。ターゲットは `js`、`wasm`、`c`（ホスト向け C）、`embedded`（組み込み向け C、`--target c-embedded`）である（E0140）。文字列に補間は書けない。
 - ビルド対象のターゲットに対応する注釈がない fn は、エントリ（`emela build` と `emela run` では main、`emela test` ではテスト関数）からたどれるときだけエラーになる。ハンドラを with に書くと、その操作の本体から呼ぶ fn もたどれる側に入る。たどれない fn は検査しないので、同梱の `SystemConsole` が JS の `@external` しか持っていなくても、WASM のビルドで読んでも、使わなければエラーにならない。
-- この検査は build、run、test で行う。`emela check` と LSP はターゲットを決めないので、この検査をしない。
+- この検査は build、run、test で行う。`emela check` と LSP は、プロジェクトのターゲット（`Pome.toml` の `[build] target`、なければ js）で型検査するが、この検査はしない。ターゲットによって型検査が変わるのは、ターゲットがエフェクトを与える場合（16.6）だけである。
 - たどれないのに出力された外部関数（公開の fn から写されたもの）にターゲットの注釈がなければ、呼ばれたときに defect になる。
 - ファイルを指す場合（`"./http_ffi.mjs"`）、宣言を含むソースのディレクトリからの相対パス（`./` か `../` で始まる）で指す。出力はそのファイルを絶対パスで読むので、出力をソースと別の場所へ移すと動かない。同梱の core のソースから指すファイルも、core のソースと一緒にコンパイラに同梱し、ビルドの出力先に書き出す。
 - 呼び出しは普通の関数と同じ形で書く。
@@ -1705,7 +1706,7 @@ std の中は、性質で4つの層に分ける。
 |---|---|---|
 | 値 | 純粋で、ホストに依存しない | Instant、Duration。コレクション（Map、Set、Array）は 0.21 |
 | effect | 並行性と状態 | State、Fiber、Cause、Deferred（0.20）。Queue、Semaphore、Schedule、Stream（後の版。同時に走る数の上限は Http より前に入れる） |
-| platform | エフェクトの宣言と、ホストのハンドラ | Console、Clock、Random、Env、FileSystem、Http |
+| platform | エフェクトの宣言と、ホストのハンドラ | Console、Clock、Random、Env、FileSystem、Http。組み込み向けの Std.Embedded（Gpio、Uart、I2c、Spi） |
 | test | テスト用の差し替えとテスト支援 | TestClock、TestConsole などのハンドラ。状態を State（8.8）に置くので、`State.run` の中で使う。Std.Test の生成器・property 検査・アサーション補助 |
 
 - `Std` の下に置くのは、std にモジュールを足すたびに利用者のファイル名が予約名になるのを避けるためである（4.1）。利用者が `http.emel` を書いても、`Std.Http` とぶつからない。
@@ -1808,6 +1809,8 @@ pub fn response(status: Int, body: String) -> Response                 # ヘッ�
 
 `Std.Test.Gen`、`Std.Test.Property`、`Std.Test.Assert` は、配布基盤が整うまでは同梱するテスト支援モジュールである。既存の `@test` 内で通常の assert を使って property を検査する。構文を追加せず、決定的な seed と予算つき縮小を Emela ソースで実装する。エラーと defect は property の失敗として報告するが、中断は捕捉しない。個々の API と例は `crates/emela-core/lib/README.md` に置く。
 
+`Std.Embedded.Gpio`、`Std.Embedded.Uart`、`Std.Embedded.I2c`、`Std.Embedded.Spi` は、マイコンの周辺機器のエフェクトと、その引数の型を宣言する（共通のエラーは `Std.Embedded.Peripheral`）。ほかの std と同じく常に同梱し、どのターゲットでも import して型検査できる。ハンドラを与えるのは組み込み向け C のターゲットだけで、ボード側の C 関数がハンドラになる（16.6）。ほかのターゲットでは、テスト用のハンドラを利用者が書いて与える。
+
 ### 15.3 API の約束
 
 標準ライブラリ（core と std）の関数は、次の約束に従って名前を付ける。18.1 #34 で決めたものから足していく。
@@ -1889,6 +1892,24 @@ JS のターゲットは、サーバーで動くホスト（Node 18 以降と、
 | defect | 専用クラスの例外 | 専用タグの例外 |
 | メモリ管理 | ホストの GC | 線形メモリ上の参照カウント（Perceus 方式） |
 | ランタイム | コンパイラが出力先に書き出す | 出力するモジュールにリンクする |
+
+### 16.6 組み込み向け C のターゲット
+
+`c-embedded` のターゲット（`--target c-embedded`、または `Pome.toml` の `[build] target = "c-embedded"`）は、マイコンで動かすフリースタンディングの C を出力する。出力はボード側の C とリンクして使う。
+
+- ターゲットは、main と、ボードから呼ばれる公開関数（GPIO の割り込み入口を含む）に、次のエフェクトを与える。main の R を空とする規定（8.3）の例外である。
+  - `Std.Embedded.*` のエフェクト（`Gpio`、`Uart`、`I2c`、`Spi`）。ハンドラはボード側の C 関数である。
+  - `@static` を付けた const（3.5）の型 S ごとに、`State[S]`。状態はプログラムが動いている間ずっと生き、その const の値で始まる。const の値はコンパイル時に決まらなければならない。同じ型に `@static` の const が2つあればエラーになる。
+- 型検査は、これらのエフェクトを与えた上で行う。`emela check` と LSP も同じである（12.1）。
+- テスト関数には与えない。テスト関数の R は空のままで（13.3）、ボードのエフェクトはテスト用のハンドラで与える。
+- ほかのターゲットでも `Std.Embedded.*` を import して型検査できるが、エフェクトは与えられない。`@static` は普通の const として扱う。
+
+次の点は、このターゲットの制限である。
+
+- defect が起きると、その場でボードのフックを呼んで止まる。巻き戻し（14.4）は行わず、途中の with の release も実行しない。
+- fiber の操作（11章）と、resume を最後以外の位置で呼ぶハンドラの操作は、コンパイルエラーになる。suspend な外部関数は、完了まで待つ普通の関数として呼ぶ。
+- String は容量（`Pome.toml` の `[embedded.memory] string_capacity`）を持ち、超えると defect になる。
+- 割り込み入口から届く関数では、ヒープを使う値、再帰、suspend な呼び出しを書けない。
 
 ## 17. 文法
 
@@ -2295,7 +2316,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0137 | エフェクトの操作に `use` 節を書いた（8.1） | ``effect operations cannot have a `use` clause`` |
 | E0138 | `@external` の引数の形の誤り（ターゲットの名前がない、文字列でない引数、文字列が1つか2つでない、文字列の補間）（12.1） | ``expected `@external(target, "name")` `` |
 | E0139 | 1つの fn に同じターゲットの `@external` が2つ以上ある（12.1） | ``duplicate `@external` for target `js` `` |
-| E0140 | 知らないターゲットの名前（今は js と wasm）（12.1） | ``unknown target `node` `` |
+| E0140 | 知らないターゲットの名前（今は js、wasm、c、embedded）（12.1） | ``unknown target `node` `` |
 | E0141 | `@external type` の注釈に引数を付けた（12.3） | ``` `@external` on a type takes no arguments ``` |
 | E0142 | match を前置で書いた（6.5） | ``` `match` comes after the value: write `value match { ... }` ``` |
 | E0143〜 | 構文のエラー | パーサで割り当てて、この表に足す |
@@ -2420,6 +2441,10 @@ error[E0204]: duplicate module `Http.Client`
 - 引数を取らず、標準入出力で言語サーバーとして動く。
 
 ## 改訂履歴
+
+### 2026-10-18（組み込み向け C のターゲット）
+
+- 16.6、15.2、8.3、3.5、12.1: 組み込み向け C のターゲット（`c-embedded`）と、その周辺機器のエフェクトを宣言する `Std.Embedded` を足した。ターゲットは main とボードから呼ばれる公開関数に `Std.Embedded.*` のエフェクトと、`@static` の const の型の `State` を与えるので、main の R を空とする規定の例外にした。`@static` の注釈と、`@external` のターゲットの `embedded` を足した。ターゲットがエフェクトを与えると型検査の結果が変わるので、`emela check` と LSP もプロジェクトのターゲットで型検査するようにした（E0412 の検査はこれまでどおりしない）。
 
 ### 2026-10-13（パターンの負の数）
 
