@@ -106,8 +106,8 @@ pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
 pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
     let l = match name {
         "fmod" => Vec::new(),
-        "float_to_string" => vec![(24, ValType::I32), (2, ValType::I64), (2, ValType::F64)],
-        "float_parse" => vec![(12, ValType::I32), (1, ValType::I64), (2, ValType::F64)],
+        "float_to_string" => vec![(24, ValType::I32), (2, ValType::I64)],
+        "float_parse" => vec![(12, ValType::I32), (1, ValType::I64), (1, ValType::F64)],
         "float_floor" | "float_ceil" | "float_round" | "float_truncate" => {
             vec![(4, ValType::I32), (2, ValType::F64)]
         }
