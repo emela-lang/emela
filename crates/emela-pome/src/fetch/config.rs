@@ -10,7 +10,7 @@ pub const DEFAULT_PROXY: &str = "https://pomes.emela.ab2m.link,direct";
 
 /// The verifier key of the default checksum database, built into the compiler.
 pub const DEFAULT_SUMDB: &str =
-    "sum.emela.ab2m.link+REPLACE_WITH_THE_KEY_HASH+REPLACE_WITH_THE_PUBLIC_KEY";
+    "sum.emela.ab2m.link+ad5364f4+AUu8x/imsHpAJe8Ee9U5GwuaVqG9hijmecEfo53D/FnS";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -169,6 +169,23 @@ mod tests {
         assert!(
             c.sumdb_for(&p("github.com/acme/x")).is_none()
                 && c.sumdb_for(&p("github.com/other/x")).is_some()
+        );
+    }
+
+    #[test]
+    fn defaults_to_the_public_proxy_and_checksum_database() {
+        let c = config(&[]).unwrap();
+        assert_eq!(
+            c.sources,
+            [
+                Source::Proxy("https://pomes.emela.ab2m.link".into()),
+                Source::Direct
+            ]
+        );
+        let sumdb = c.sumdb.unwrap();
+        assert_eq!(
+            (sumdb.verifier.name.as_str(), sumdb.url.as_str()),
+            ("sum.emela.ab2m.link", "https://sum.emela.ab2m.link")
         );
     }
 
