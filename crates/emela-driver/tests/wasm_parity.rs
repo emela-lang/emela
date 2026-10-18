@@ -377,11 +377,6 @@ fn main() {
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[
     (
-        "std_test_property",
-        "import Std.Test.Gen\nimport Std.Test.Property\nfn main() { Property.check(Gen.int(), fn(n) { assert n == n }) }\n",
-        "fibers are not supported on target `wasm`",
-    ),
-    (
         "string_length",
         "fn count(s: String) -> Int { String.length(s) }\nfn main() { dbg(count(\"abc\")) }\n",
         "`String.length` needs the Unicode grapheme cluster tables",

@@ -2352,8 +2352,9 @@ fn max_recur(f: &Function) -> u32 {
     max
 }
 
-/// Whether the module reaches the suspend machinery at all: a suspending function, a suspending
-/// call or a `yield`/`hold`/`unhold`. Programs without it keep their exact bytes.
+/// Whether the module reaches the scheduler at all: a suspending function, a suspending call, a
+/// `yield`/`hold`/`unhold`, or a `Value::Fiber` (spec chapter 11, e.g. `Fiber.attempt` reached from
+/// a `main` that does not declare `Async`). Programs without any of these keep their exact bytes.
 fn uses_suspend(m: &Module) -> bool {
     m.functions.iter().any(|(_, f)| {
         f.suspends
@@ -2368,6 +2369,7 @@ fn uses_suspend(m: &Module) -> bool {
                     s,
                     Stmt::Let {
                         value: Value::Call { suspends: true, .. }
+                            | Value::Fiber { .. }
                             | Value::Runtime {
                                 op: RuntimeOp::Hold
                                     | RuntimeOp::Unhold
