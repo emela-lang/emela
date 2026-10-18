@@ -12,8 +12,27 @@
 //! file that is not valid UTF-8 is `InvalidText` (never read with replacement characters). The
 //! names of `list_directory` are sorted by name, which for UTF-8 is code point order.
 //!
+//! A path outside the preopen — an absolute path, or one that escapes it with `..` — is not
+//! `FileNotFound`: WASI's `path_*` calls reject it with `ENOTCAPABLE`, which `fs_classify` maps to
+//! `FileAccessDenied`, the same visible error the JS and C targets give a path that leaves the
+//! working directory (the preopen is the whole world WASI can resolve against).
+//!
+//! The names of `list_directory` are the raw bytes of the entry (`fs_str_from_raw`), like the C
+//! host's `strdup` of `d_name`: a name that is not valid UTF-8 is never turned into replacement
+//! characters (Node's `readdir` does). WASI's `fd_readdir` carries no UTF-8 invariant, but
+//! wasmtime refuses a host name that is not valid UTF-8 and fails the whole call as a
+//! `FileSystemFailure`, so on that host the difference shows as the failure rather than as a raw
+//! name.
+//!
+//! The message of a `FileSystemFailure` (`fs_failure_message`) is `"<CODE>: <syscall> '<path>'"`
+//! — `"ENOENT: open 'a.txt'"`. The C host inserts the C library's `strerror` description
+//! (`"ENOENT: No such file or directory, open 'a.txt'"`) and Node words it differently again, so
+//! the *text* of the message is target-specific even though the error name and the call and path
+//! it names are the same. Only the name is part of the cross-target contract (spec 12.4); a test
+//! that compares messages across targets must not.
+//!
 //! The whole fragment is emitted only when a program reaches a `Std.FileSystem` host, so the
-//! modules of programs that do not keep the exact bytes they had (`runtime::register`).
+//! modules of programs that do not use it keep the exact bytes they had (`runtime::register`).
 
 use super::super::handle::{
     self, OUTCOME_ACCESS_DENIED, OUTCOME_COUNT, OUTCOME_ERROR, OUTCOME_FAILURE,
@@ -106,12 +125,19 @@ pub(super) const FUNCS: &[Sig] = &[
 
 /// Whether `name` is one of this fragment's runtime functions (registered only when a program
 /// reaches a `Std.FileSystem` host).
+///
+/// The test is deliberately the coarse `fs_` prefix. The fragment is emitted as a unit, so the
+/// first `Std.FileSystem` host a program reaches registers every helper here (and every WASI
+/// import `fs_imports` fixes), whether or not that particular operation calls it. That is the
+/// smallest granularity that keeps the fixed fragment order (`runtime::FUNCS`), and it costs
+/// nothing for the byte-stability guarantee, which is only about programs that reach no
+/// `Std.FileSystem` host at all.
 pub(super) fn handles(name: &str) -> bool {
     name.starts_with("fs_")
 }
 
 /// Whether the module reaches any `Std.FileSystem` host, so the fragment (and its WASI imports)
-/// are needed.
+/// are needed. Any `fs_*` host request pulls in the whole fragment (see [`handles`]).
 pub(super) fn requested(b: &Builder) -> bool {
     b.requested_hosts.iter().any(|h| h.starts_with("fs_"))
 }
@@ -367,6 +393,11 @@ fn fs_str_copy(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// `fs_str_from_raw(ptr, len)`: a fresh Emela string of `len` raw bytes.
+///
+/// `list_directory` uses it for a dirent name: the bytes are copied as they are, without a UTF-8
+/// check (W4-5). That matches the C host, which `strdup`s `d_name`; Node's `readdir` decodes with
+/// replacement characters instead. wasmtime rejects a non-UTF-8 host name in `fd_readdir` itself,
+/// so there it surfaces as the call's failure (see the module doc) rather than here.
 fn fs_str_from_raw(b: &mut Builder, ins: &mut InstructionSink) {
     const DST: u32 = 2;
     const I: u32 = 3;
@@ -577,6 +608,10 @@ fn fs_is_utf8(ins: &mut InstructionSink) {
 
 /// `fs_classify(errno)`: the error code of an outcome. The codes the operation's `fails` does not
 /// list become `FileSystemFailure` (`Std.FileSystem`'s `check_*` maps the rest).
+///
+/// `ENOTCAPABLE` is `FileAccessDenied`: WASI answers a path outside the preopen — an absolute path,
+/// or one that escapes with `..` — with it, and the preopen is all it can resolve against, so the
+/// JS and C targets' "outside the working directory" error is the closest visible match (W4-6).
 fn fs_classify(ins: &mut InstructionSink) {
     let is = |ins: &mut InstructionSink, e: i32| {
         ins.local_get(0);
@@ -647,7 +682,9 @@ fn fs_code_name(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// `fs_failure_message(errno, syscall, path)`: `"<CODE>: <syscall> '<path>'"`, the WASM stand-in
-/// for the C host's `strerror` message (which the WASI surface does not expose).
+/// for the C host's `strerror` message (which the WASI surface does not expose). The C host's is
+/// `"<CODE>: <strerror>, <syscall> '<path>'"` and Node's is worded differently again, so this
+/// *text* is target-specific (see the module doc); the error name and the call and path are not.
 fn fs_failure_message(b: &mut Builder, ins: &mut InstructionSink) {
     const M1: u32 = 3;
     const M2: u32 = 4;

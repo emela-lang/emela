@@ -135,6 +135,12 @@ pub fn wasmtime_program() -> PathBuf {
 /// working directory: a relative path in the program then resolves against the directory `emela`
 /// was started in, exactly as it does on the JS and C targets. Without it, WASI has no directory
 /// to resolve against and `Std.FileSystem` fails every operation.
+///
+/// This is unconditional for every wasm run (W4-10): WASI imports are fixed before the program is
+/// linked/run, so the preopen cannot be decided from whether the module happens to use
+/// `Std.FileSystem`, and a program that never touches it simply never sees the preopen. If that
+/// cwd visibility is ever unwanted it wants to be an opt-in (a flag handed to `run_wasmtime`),
+/// not a change to this default.
 pub fn run_wasmtime(
     entry: &Path,
     args: &[OsString],

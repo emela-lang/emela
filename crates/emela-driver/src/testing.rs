@@ -337,7 +337,9 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             let wasmtime = crate::run::wasmtime_program();
             let mut command = Command::new(&wasmtime);
             // Preopen the working directory as `.` so a test's relative paths resolve as they do
-            // on node and the native runner (spec 15.2's SystemFileSystem).
+            // on node and the native runner (spec 15.2's SystemFileSystem). Like `run_wasmtime`,
+            // this is unconditional (W4-10): it cannot be decided from the emitted module, and a
+            // test that never touches `Std.FileSystem` never sees the preopen.
             command.arg("run").arg("--dir=.").arg(&entry);
             (wasmtime, command)
         }
