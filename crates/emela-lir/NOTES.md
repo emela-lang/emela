@@ -75,6 +75,11 @@
 - （補）構成子のない enum の表示と等しさの関数は，`@external type`（値がある）なら defect（`cannot show a value of …`），そうでなければ `unreachable`．JS は `undefined` を返す
 - （補）変換で意味の取れないもの（表示できない型の表示，束縛されていない局所変数）はエラーとして集め，その場所にはダミーを置いて変換を続ける．`from_core` はエラーがあれば `Err` を返す
 
+## const の静的評価（`const_eval.rs`）
+
+- （補）組み込み C が const をコンパイル時に評価する解釈器（`eval_consts`）．値はスカラーと値型の集成（`ConstValue`）．関数の呼び出し，基本の演算，構成子，フィールド，タプル，`if`，`switch`，`block`，`loop`，数値の組み込み関数を評価する．文字列，ヒープの値，外部関数に出会えば `NotStatic`（backend は実行時に評価する），defect なら `Defect`（参照したところで起きるよう，backend は関数を残す），手数の上限か呼び出しの深さの上限を超えれば `TooLong`
+- （補）Heap IR（RC の後でもよい．値型には `dup` / `drop` がない）の上で動く．整数の演算はラップし，0 での除算は IR がその前に検査している
+
 ## Heap IR（`heap`）
 
 - （補）Heap IR は Flow IR と同じデータ型の後の段で，パスごとに使える構成が変わる．モジュールがどのパスまでかかったかを `Module::stage`（`Stage`）に持ち，検証器は段に合わせて確かめる（前の段で禁じたものは後の段でも禁じる）．`to_heap` が全部のパスを順にかける

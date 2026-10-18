@@ -15,6 +15,7 @@
 //! conversion, explicit defect paths, the suspend state machines and reference counting.
 
 mod build;
+mod const_eval;
 mod dump;
 mod from_core;
 mod heap;
@@ -23,6 +24,7 @@ mod repr;
 mod verify;
 
 pub use build::FnBuilder;
+pub use const_eval::{ConstResult, ConstValue, eval_consts};
 pub use dump::{core_ty, dump, dump_function};
 pub use from_core::{FromCoreError, Options, from_core, from_core_with};
 pub use heap::{
