@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Subcommand;
+use emela_driver::Dependencies;
 use emela_pome::fetch::Fetcher;
 use emela_pome::fetch::config::Config;
 use emela_pome::fetch::transport::Http;
@@ -86,4 +87,14 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
+}
+
+/// The dependencies of the project at `base` for the build (`Pome.lock`, fetched if missing).
+pub fn dependencies(base: &Path) -> Result<Dependencies, PomeError> {
+    let config = Config::from_env(|k| std::env::var(k).ok(), home()).map_err(PomeError::Usage)?;
+    emela_driver::project_dependencies(
+        &emela_driver::OsFs,
+        base,
+        &Fetcher::new(config, Http::new()),
+    )
 }

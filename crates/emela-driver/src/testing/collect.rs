@@ -39,6 +39,10 @@ pub fn collect_tests<'p>(
     let mut tests = Vec::new();
     let mut diagnostics = Vec::new();
     for (module, data) in analysis.modules.iter() {
+        // The tests of dependencies are theirs to run, not the project's.
+        if analysis.modules.is_dependency(module) {
+            continue;
+        }
         let (Some(&file), Some(parse)) = (analysis.files.get(module), parse_of(module)) else {
             continue;
         };

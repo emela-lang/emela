@@ -446,6 +446,7 @@ dependencies = [
  "emela-codegen-wasm",
  "emela-core",
  "emela-fmt",
+ "emela-pome",
  "emela-resolve",
  "emela-syntax",
  "emela-types",
@@ -488,6 +489,7 @@ name = "emela-lsp"
 version = "0.21.0"
 dependencies = [
  "emela-driver",
+ "emela-pome",
  "emela-resolve",
  "line-index",
  "lsp-server",

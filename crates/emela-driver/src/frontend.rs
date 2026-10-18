@@ -12,7 +12,7 @@ use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
-use crate::internal::check_internal;
+use crate::internal::{check_external_in_dependencies, check_internal};
 use crate::nav::{NavTarget, RenameError};
 use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
 use crate::signature::SignatureInfo;
@@ -343,6 +343,9 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         test_diagnostics.extend(ref_diagnostics);
         // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
+        test_diagnostics.extend(check_external_in_dependencies(analysis, |m| {
+            self.parse_of(m)
+        }));
         // The R of main and test functions must be empty (spec 8.3, 13.3).
         // A library's fn named `main` is an ordinary function, not an executable boundary.
         let main = analysis
