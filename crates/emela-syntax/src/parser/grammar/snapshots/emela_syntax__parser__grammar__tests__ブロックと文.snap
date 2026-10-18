@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, fn(n) { log.info(n) })\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{}\",], block,)"
+expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, fn(n) { log.info(n) })\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{\\n  a = (10 -\\n    1)\\n  b = (10 +\\n    1)\\n}\", \"{}\",], block,)"
 ---
 === {
   count = 0
@@ -605,6 +605,57 @@ ROOT@0..78
           R_PAREN@75..76 ")"
     NEWLINE@76..77 "\n"
     R_BRACE@77..78 "}"
+=== {
+  a = (10 -
+    1)
+  b = (10 +
+    1)
+}
+ROOT@0..41
+  BLOCK_EXPR@0..41
+    L_BRACE@0..1 "{"
+    NEWLINE@1..2 "\n"
+    WHITESPACE@2..4 "  "
+    BINDING@4..20
+      NAME_REF@4..5
+        LOWER_NAME@4..5 "a"
+      WHITESPACE@5..6 " "
+      EQ@6..7 "="
+      WHITESPACE@7..8 " "
+      PAREN_EXPR@8..20
+        L_PAREN@8..9 "("
+        BIN_EXPR@9..19
+          LITERAL@9..11
+            INT@9..11 "10"
+          WHITESPACE@11..12 " "
+          MINUS@12..13 "-"
+          NEWLINE_CONT@13..14 "\n"
+          WHITESPACE@14..18 "    "
+          LITERAL@18..19
+            INT@18..19 "1"
+        R_PAREN@19..20 ")"
+    NEWLINE@20..21 "\n"
+    WHITESPACE@21..23 "  "
+    BINDING@23..39
+      NAME_REF@23..24
+        LOWER_NAME@23..24 "b"
+      WHITESPACE@24..25 " "
+      EQ@25..26 "="
+      WHITESPACE@26..27 " "
+      PAREN_EXPR@27..39
+        L_PAREN@27..28 "("
+        BIN_EXPR@28..38
+          LITERAL@28..30
+            INT@28..30 "10"
+          WHITESPACE@30..31 " "
+          PLUS@31..32 "+"
+          NEWLINE_CONT@32..33 "\n"
+          WHITESPACE@33..37 "    "
+          LITERAL@37..38
+            INT@37..38 "1"
+        R_PAREN@38..39 ")"
+    NEWLINE@39..40 "\n"
+    R_BRACE@40..41 "}"
 === {}
 ROOT@0..2
   BLOCK_EXPR@0..2
