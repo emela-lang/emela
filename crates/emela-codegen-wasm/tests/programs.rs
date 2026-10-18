@@ -60,10 +60,6 @@ const NOT_ON_WASM: &[(&str, &str)] = &[
         "suspending code is not supported on wasm",
     ),
     (
-        "suspend_dropped",
-        "suspending code is not supported on wasm",
-    ),
-    (
         "suspend_external",
         "a `suspend fn` external function is not supported on wasm",
     ),
@@ -161,8 +157,15 @@ fn programs_behave_as_on_js() {
         }
         let got = run_bytes(&out_dir(&name), &bytes);
         ran += 1;
-        if (got.code, &got.stdout, &got.stderr)
-            != (expected.code, &expected.stdout, &expected.stderr)
+        // `wasmtime` only reports an exit status of 0..=125 (POSIX reserves 126/127), so a run
+        // that ends as `interrupted` (the C target's 130, 128 + SIGINT) comes back as wasmtime's
+        // own failure: exit 1 with the wasmtime error after the program's `interrupted` line.
+        let interrupted = expected.code == 130
+            && got.code == 1
+            && got.stderr.starts_with(expected.stderr.as_str());
+        if !interrupted
+            && (got.code, &got.stdout, &got.stderr)
+                != (expected.code, &expected.stdout, &expected.stderr)
         {
             failures.push(format!(
                 "{name}: expected exit {}\n{}{}\ngot exit {}\n{}{}",

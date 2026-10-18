@@ -100,11 +100,32 @@ const G_HEAP: u32 = 0;
 const G_FREE: u32 = 1;
 const G_DEFECT: u32 = 2;
 const G_FAILURE: u32 = 3;
-/// Set while a suspending function unwinds (used by the state-machine passes; not yet).
-#[allow(dead_code)]
+/// Set while a suspending function unwinds (the state machines push their frames and return).
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
-const GLOBALS: u32 = 6;
+/// The globals every program has; the suspend runtime appends its own after these.
+const BASE_GLOBALS: u32 = 6;
+/// The `i64` resume input of a suspended frame (a `resume`/`yield` delivered it as raw bits).
+const G_RESUME: u32 = 6;
+/// The head and tail of the captured continuation (a list of frames, innermost first).
+const G_SUSP_HEAD: u32 = 7;
+const G_SUSP_TAIL: u32 = 8;
+/// The request the current suspension is waiting on (a `perform`, or 0), or 0.
+const G_SUSP_WAIT: u32 = 9;
+/// How many `sync` calls (a suspending call in a non-suspending function) are under way.
+const G_SYNC_DEPTH: u32 = 10;
+/// The address of the `interrupted` descriptor (spec 14.5): a pending defect that is it ends the
+/// run as interrupted (exit 130).
+const G_INTERRUPTED: u32 = 11;
+/// A defect that ended a `sync` call (a failure after resume, spec 8.7).
+const G_SYNC_DEFECT: u32 = 12;
+/// The number of globals of a program that suspends.
+const SUSPEND_GLOBALS: u32 = 13;
+
+/// The object header (see [`HDR`]) fields a frame uses: state, next, and the first saved slot.
+const FRAME_STATE: u32 = HDR + 8;
+const FRAME_NEXT: u32 = HDR + 16;
+const FRAME_SAVED: u32 = HDR + 24;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
@@ -152,6 +173,32 @@ pub(crate) struct Builder<'m> {
     static_closures: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// Whether the module reaches the suspend machinery (a suspending function, a suspending call
+    /// or a `yield`/`hold`/`unhold`): the scheduler/state-machine runtime is then linked, and the
+    /// suspend globals are emitted. A program without it keeps the exact bytes it had before.
+    pub(crate) uses_suspend: bool,
+    /// The number of globals the module emits (see [`BASE_GLOBALS`]).
+    globals: u32,
+    /// The state-machine functions: their body (`f_sm`), resume wrapper and table index.
+    machine: FxHashMap<usize, MachineInfo>,
+    /// The table index of the resume closures, by [`repr_code`].
+    resume_closure: [u32; 5],
+    /// The descriptor of the `interrupted` object (spec 14.5).
+    pub(crate) interrupted_desc: u32,
+}
+
+/// A suspending function lowered as a state machine: its body is `f_sm` (entered with a `frame`),
+/// its resume wrapper `f_resume` is called by the driver loop (via the table), and the wrapper `f`
+/// enters the body without a frame.
+#[derive(Clone, Copy)]
+pub(crate) struct MachineInfo {
+    /// The function index of the body (`f_sm`).
+    pub(crate) body: u32,
+    /// The function index of the resume wrapper (`f_resume`).
+    #[allow(dead_code)]
+    pub(crate) resume: u32,
+    /// The table index of the resume wrapper (stored in the frames).
+    pub(crate) table: u32,
 }
 
 impl<'m> Builder<'m> {
@@ -181,10 +228,26 @@ impl<'m> Builder<'m> {
             static_closures: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            uses_suspend: uses_suspend(m),
+            globals: BASE_GLOBALS,
+            machine: FxHashMap::default(),
+            resume_closure: [0; 5],
+            interrupted_desc: 0,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
         b.cons_val_desc = b.list_desc(false);
+        if b.uses_suspend {
+            b.globals = SUSPEND_GLOBALS;
+            b.interrupted_desc = b.desc(DescKey {
+                kind: 0,
+                tag: 0,
+                enum_id: -1,
+                name: "interrupted".to_owned(),
+                show: None,
+                refs: vec![true],
+            });
+        }
         b
     }
 
@@ -318,6 +381,35 @@ impl<'m> Builder<'m> {
             self.table_funcs.push(index);
             self.defs.push(ty);
         }
+        // The state machines: each suspending function with suspension points gets a body entered
+        // with a frame (`f_sm`) and a resume wrapper (`f_resume`, in the table for the driver).
+        if self.uses_suspend {
+            for (id, f) in self.m.functions.iter() {
+                if self.imported(id) || !is_machine(f) {
+                    continue;
+                }
+                let mut params: Vec<ValType> =
+                    f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
+                params.push(ValType::I32);
+                let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
+                let body_ty = self.ty(params, results);
+                let body = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(body_ty);
+                let resume_ty = self.ty(vec![ValType::I32], vec![ValType::I64]);
+                let resume = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(resume_ty);
+                let table = self.table_funcs.len() as u32;
+                self.table_funcs.push(resume);
+                self.machine.insert(
+                    ix(id),
+                    MachineInfo {
+                        body,
+                        resume,
+                        table,
+                    },
+                );
+            }
+        }
         // The error `show` functions, as table indices (their descriptors point at them).
         for (enum_id, function) in self.m.error_shows.iter().copied() {
             let slot = if self.imported(function) {
@@ -328,6 +420,20 @@ impl<'m> Builder<'m> {
             self.error_shows.insert(enum_id, slot);
         }
         runtime::register(self);
+        // The resume closures are runtime functions the resume values call through the table.
+        if self.uses_suspend {
+            for (code, name) in [
+                (0, "resume_i32"),
+                (1, "resume_i64"),
+                (2, "resume_f64"),
+                (3, "resume_ref"),
+                (4, "resume_void"),
+            ] {
+                let index = self.rt(name);
+                self.resume_closure[code] = self.table_funcs.len() as u32;
+                self.table_funcs.push(index);
+            }
+        }
         // The internal host bindings are runtime functions whose index is fixed now.
         self.bind_internal_hosts();
         // One entry (`_start`).
@@ -554,20 +660,30 @@ impl<'m> Builder<'m> {
         module.section(&memories);
 
         let mut globals = GlobalSection::new();
-        for i in 0..GLOBALS {
-            let init = match i {
-                G_HEAP => ConstExpr::i32_const(heap_base as i32),
-                G_STRDESC => ConstExpr::i32_const(self.str_desc as i32),
-                _ => ConstExpr::i32_const(0),
-            };
-            globals.global(
+        for i in 0..self.globals {
+            let ty = if i == G_RESUME && self.uses_suspend {
+                GlobalType {
+                    val_type: ValType::I64,
+                    mutable: true,
+                    shared: false,
+                }
+            } else {
                 GlobalType {
                     val_type: ValType::I32,
                     mutable: true,
                     shared: false,
-                },
-                &init,
-            );
+                }
+            };
+            let init = match i {
+                G_HEAP => ConstExpr::i32_const(heap_base as i32),
+                G_STRDESC => ConstExpr::i32_const(self.str_desc as i32),
+                G_INTERRUPTED if self.uses_suspend => {
+                    ConstExpr::i32_const(self.interrupted_desc as i32)
+                }
+                G_RESUME if self.uses_suspend => ConstExpr::i64_const(0),
+                _ => ConstExpr::i32_const(0),
+            };
+            globals.global(ty, &init);
         }
         module.section(&globals);
 
@@ -618,10 +734,26 @@ impl<'m> Builder<'m> {
             };
             bodies.push(body);
         }
+        // The state-machine bodies and resume wrappers come after every IR function (their slots
+        // were reserved in the same order in `build`).
+        if self.uses_suspend {
+            for (id, f) in m.functions.iter() {
+                if self.imported(id) || !is_machine(f) {
+                    continue;
+                }
+                let info = self.machine[&ix(id)];
+                bodies.push(self.emit_machine_body(id, f, info));
+                let ret = self.repr(f.ret);
+                bodies.push(emit_machine_resume(f, info, ret));
+            }
+        }
         self.bodies = bodies;
     }
 
     fn emit_fn(&mut self, id: FnId, f: &Function) -> WasmFunction {
+        if let Some(info) = self.machine.get(&ix(id)).copied() {
+            return emit_machine_wrapper(f, info);
+        }
         let mut cx = FnCtx::new(f, self);
         let Some(body) = f.body else {
             self.internal(format!("fn {} has no body", f.name));
@@ -892,6 +1024,14 @@ impl<'m> Builder<'m> {
 
     fn stmt(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, id: StmtId) {
         let stmt = cx.f.stmts[id].clone();
+        if cx.machine.is_some() {
+            self.machine_stmt(cx, ins, id, stmt);
+        } else {
+            self.plain_stmt(cx, ins, stmt);
+        }
+    }
+
+    fn plain_stmt(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, stmt: Stmt) {
         match stmt {
             Stmt::Let {
                 dst,
@@ -899,33 +1039,24 @@ impl<'m> Builder<'m> {
                 on_defect,
                 on_suspend,
             } => {
-                self.on_suspend(cx, on_suspend);
+                if on_suspend.is_some() {
+                    self.internal(format!(
+                        "suspension edge outside a state machine in {}",
+                        cx.f.name
+                    ));
+                }
+                // Suspending code called where nothing may suspend runs in place (spec 8.7).
+                let sync = !cx.f.suspends && emela_lir::may_suspend(&value);
+                if sync {
+                    let f = self.rt("sync_enter");
+                    ins.call(f);
+                }
                 self.value(cx, ins, dst, &value);
-                if let Some(landing) = on_defect {
-                    ins.global_get(G_DEFECT);
-                    ins.if_(BlockType::Empty);
-                    cx.push(Lbl::Other);
-                    self.seq(cx, ins, landing, None);
-                    cx.pop();
-                    ins.end();
+                if sync {
+                    let f = self.rt("sync_leave");
+                    ins.call(f);
                 }
-                if let Some(on_fail) = value_on_fail(&value) {
-                    match on_fail {
-                        OnFail::Handle { error, body } => {
-                            ins.global_get(G_FAILURE);
-                            ins.if_(BlockType::Empty);
-                            cx.push(Lbl::Other);
-                            ins.global_get(G_FAILURE);
-                            ins.local_set(cx.local(*error));
-                            ins.i32_const(0);
-                            ins.global_set(G_FAILURE);
-                            self.seq(cx, ins, *body, None);
-                            cx.pop();
-                            ins.end();
-                        }
-                        _ => self.internal(format!("Flow IR failure edge in {}", cx.f.name)),
-                    }
-                }
+                self.let_landings(cx, ins, &value, on_defect, None);
             }
             Stmt::If {
                 dst,
@@ -993,6 +1124,55 @@ impl<'m> Builder<'m> {
                 ins.local_get(cx.local(v));
                 let drop = self.rt("drop");
                 ins.call(drop);
+            }
+        }
+    }
+
+    /// The `on_defect` and `on_fail` landings of a `let`. In a state machine the landing may
+    /// itself contain suspension points, so `landing_range` widens the guard to enter it while a
+    /// resume is looking for a point inside it.
+    fn let_landings(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        value: &Value,
+        on_defect: Option<SeqId>,
+        landing_range: Option<(u32, u32)>,
+    ) {
+        if let Some(landing) = on_defect {
+            let resuming = landing_range.is_some() && cx.machine.is_some();
+            if resuming {
+                let (lo, hi) = landing_range.unwrap();
+                // `defect != 0 || state in [lo, hi]`
+                ins.global_get(G_DEFECT);
+                ins.i32_eqz();
+                ins.i32_eqz();
+                self.machine_in_range(cx, ins, lo, hi);
+                ins.i32_or();
+            } else {
+                ins.global_get(G_DEFECT);
+            }
+            ins.if_(BlockType::Empty);
+            cx.push(Lbl::Other);
+            self.seq(cx, ins, landing, None);
+            cx.pop();
+            ins.end();
+        }
+        if let Some(on_fail) = value_on_fail(value) {
+            match on_fail {
+                OnFail::Handle { error, body } => {
+                    ins.global_get(G_FAILURE);
+                    ins.if_(BlockType::Empty);
+                    cx.push(Lbl::Other);
+                    ins.global_get(G_FAILURE);
+                    ins.local_set(cx.local(*error));
+                    ins.i32_const(0);
+                    ins.global_set(G_FAILURE);
+                    self.seq(cx, ins, *body, None);
+                    cx.pop();
+                    ins.end();
+                }
+                _ => self.internal(format!("Flow IR failure edge in {}", cx.f.name)),
             }
         }
     }
@@ -1633,7 +1813,8 @@ impl<'m> Builder<'m> {
             } => {
                 let def = self.core().effects[*effect].ops[*op].clone();
                 if def.suspend {
-                    self.internal(format!("suspend fn operation in {}", cx.f.name));
+                    let ret = self.repr(def.ret);
+                    self.suspend_op_call(cx, ins, dst, *handler, *op, &def.name, args, ret);
                     return;
                 }
                 let ret = self.repr(def.ret);
@@ -1761,17 +1942,53 @@ struct FnCtx<'a> {
     scratch_base: [u32; 4],
     decls: Vec<(u32, ValType)>,
     labels: Vec<Lbl>,
+    /// The `state` local of a state machine: -1 while it runs normally, else the resume point the
+    /// function is skipping to. `None` for an ordinary function.
+    machine: Option<Machine>,
+    /// The `frame` parameter local of a state-machine body.
+    frame: u32,
+    /// The `state` local of a state-machine body.
+    state: u32,
+    /// A temporary i32 local.
+    take: u32,
+}
+
+/// A suspending function's state machine: the resume points and the variables they restore.
+pub(crate) struct Machine {
+    /// The state range `[lo, hi]` of every statement (and sequence) that contains a suspension
+    /// point, so a resume can tell whether to enter or skip it.
+    pub(crate) stmt_range: FxHashMap<StmtId, (u32, u32)>,
+    pub(crate) seq_range: FxHashMap<SeqId, (u32, u32)>,
+    /// The resume points, by state.
+    pub(crate) edges: FxHashMap<StmtId, emela_lir::Suspend>,
+    /// The states and the variables they restore, sorted by state.
+    pub(crate) resumes: Vec<(u32, Vec<VarId>)>,
+    /// The table index of the resume wrapper (stored in the frames).
+    pub(crate) table: u32,
 }
 
 impl<'a> FnCtx<'a> {
     fn new(f: &'a Function, b: &Builder<'_>) -> Self {
+        FnCtx::build(f, b, 0, None)
+    }
+
+    fn new_machine(f: &'a Function, b: &Builder<'_>, machine: Machine) -> Self {
+        FnCtx::build(f, b, 1, Some(machine))
+    }
+
+    fn build(
+        f: &'a Function,
+        b: &Builder<'_>,
+        extra_params: u32,
+        machine: Option<Machine>,
+    ) -> Self {
         let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
         let mut decls: Vec<(u32, ValType)> = Vec::new();
         for (i, &p) in f.params.iter().enumerate() {
             local[ix(p)] = i as u32;
         }
-        let mut next = nparams;
+        let mut next = nparams + extra_params;
         for (v, data) in f.vars.iter() {
             if !f.params.contains(&v) {
                 local[ix(v)] = next;
@@ -1791,6 +2008,16 @@ impl<'a> FnCtx<'a> {
         decls.push((count, ValType::I64));
         decls.push((count, ValType::F64));
         decls.push((count, ValType::I32));
+        let (frame, state, take) = if machine.is_some() {
+            let state = next;
+            next += 1;
+            let take = next;
+            decls.push((1, ValType::I32));
+            decls.push((1, ValType::I32));
+            (nparams, state, take)
+        } else {
+            (0, 0, 0)
+        };
         let ret = b.repr(f.ret);
         FnCtx {
             f,
@@ -1799,6 +2026,10 @@ impl<'a> FnCtx<'a> {
             scratch_base,
             decls,
             labels: Vec::new(),
+            machine,
+            frame,
+            state,
+            take,
         }
     }
 
@@ -1856,4 +2087,114 @@ fn max_recur(f: &Function) -> u32 {
         }
     }
     max
+}
+
+/// Whether the module reaches the suspend machinery at all: a suspending function, a suspending
+/// call or a `yield`/`hold`/`unhold`. Programs without it keep their exact bytes.
+fn uses_suspend(m: &Module) -> bool {
+    m.functions.iter().any(|(_, f)| {
+        f.suspends
+            || f.stmts.iter().any(|(_, s)| {
+                matches!(
+                    s,
+                    Stmt::Let {
+                        on_suspend: Some(_),
+                        ..
+                    }
+                ) || matches!(
+                    s,
+                    Stmt::Let {
+                        value: Value::Call { suspends: true, .. }
+                            | Value::Runtime {
+                                op: RuntimeOp::Hold
+                                    | RuntimeOp::Unhold
+                                    | RuntimeOp::Yield
+                                    | RuntimeOp::YieldPerform,
+                                ..
+                            },
+                        ..
+                    }
+                )
+            })
+    })
+}
+
+/// Whether a function is emitted as a state machine: it suspends and has suspension points.
+fn is_machine(f: &Function) -> bool {
+    f.suspends
+        && f.body.is_some()
+        && f.stmts.iter().any(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    on_suspend: Some(_),
+                    ..
+                }
+            )
+        })
+}
+
+/// The index of a representation's resume closure in [`Builder::resume_closure`].
+pub(crate) fn repr_code(r: Repr) -> usize {
+    match r {
+        Repr::I32 => 0,
+        Repr::I64 => 1,
+        Repr::F64 => 2,
+        Repr::Ref => 3,
+        Repr::Void => 4,
+    }
+}
+
+/// The function itself: enters the state machine without a frame.
+fn emit_machine_wrapper(f: &Function, info: MachineInfo) -> WasmFunction {
+    let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+    {
+        let mut ins = func.instructions();
+        for i in 0..f.params.len() as u32 {
+            ins.local_get(i);
+        }
+        ins.i32_const(0);
+        ins.call(info.body);
+        ins.end();
+    }
+    func
+}
+
+/// `f_resume(fr) -> i64`: the driver loop's entry into the state machine with a frame. The saved
+/// variables are restored from the frame by the body, so the parameters are dead and pass zeros.
+fn emit_machine_resume(f: &Function, info: MachineInfo, ret: Repr) -> WasmFunction {
+    let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+    {
+        let mut ins = func.instructions();
+        for &p in &f.params {
+            match f.vars[p].repr {
+                Repr::I64 => {
+                    ins.i64_const(0);
+                }
+                Repr::F64 => {
+                    ins.f64_const(0.0.into());
+                }
+                Repr::I32 | Repr::Ref => {
+                    ins.i32_const(0);
+                }
+                Repr::Void => {}
+            }
+        }
+        ins.local_get(0);
+        ins.call(info.body);
+        match ret {
+            Repr::Void => {
+                ins.i64_const(0);
+            }
+            Repr::I32 | Repr::Ref => {
+                ins.i64_extend_i32_u();
+            }
+            Repr::I64 => {}
+            Repr::F64 => {
+                ins.i64_reinterpret_f64();
+            }
+        }
+        ins.end();
+    }
+    func
 }

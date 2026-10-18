@@ -1,13 +1,14 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 
 use emela_core::{Builtin, Type};
-use emela_lir::{Callee, Const, Function, Module, Operand, Stmt, Value};
+use emela_lir::{Const, Function, Module, Operand, Stmt, Value};
 
 use crate::{WasmError, WasmErrorKind};
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
-/// monomorphisation) that the WASM target cannot compile yet. Suspending code and fibers are
-/// reported once each, naming where they are reached.
+/// monomorphisation) that the WASM target cannot compile yet. Fibers, the Unicode tables and
+/// `Float` operations are reported once each, naming where they are reached. Suspending code and
+/// the state machines are supported.
 pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
@@ -16,9 +17,6 @@ pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
                 external(m, f, &mut found);
             }
             continue;
-        }
-        if f.suspends {
-            found.suspending(format!("`{}`", display_name(&f.name)));
         }
         for (_, stmt) in f.stmts.iter() {
             if let Stmt::Let { value, .. } = stmt {
@@ -32,8 +30,6 @@ pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
 #[derive(Default)]
 struct Found {
     errors: Vec<WasmError>,
-    /// Where suspending code is reached.
-    suspending: Vec<String>,
     /// The fiber operations used.
     fibers: Vec<&'static str>,
 }
@@ -45,21 +41,7 @@ impl Found {
         }
     }
 
-    fn suspending(&mut self, what: String) {
-        if !self.suspending.contains(&what) {
-            self.suspending.push(what);
-        }
-    }
-
     fn finish(mut self) -> Vec<WasmError> {
-        if !self.suspending.is_empty() {
-            let message = format!(
-                "the entry reaches suspending code, which target `wasm` does not support yet: {}",
-                list(&self.suspending)
-            );
-            self.errors
-                .insert(0, WasmError::new(WasmErrorKind::Unsupported, message));
-        }
         if !self.fibers.is_empty() {
             let names: Vec<String> = self.fibers.iter().map(|f| format!("`{f}`")).collect();
             let message = format!(
@@ -109,6 +91,7 @@ fn external(m: &Module, f: &Function, found: &mut Found) {
 }
 
 fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found) {
+    let _ = (m, f);
     let graphemes = |what: &str| {
         format!(
             "{what} needs the Unicode grapheme cluster tables, which target `wasm` does not support yet"
@@ -120,22 +103,6 @@ fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found)
             if !found.fibers.contains(&name) {
                 found.fibers.push(name);
             }
-        }
-        // A `suspend fn` operation called where nothing may suspend: its implementation runs in
-        // place (spec 8.7), which needs the suspend machinery too.
-        Value::Call {
-            callee: Callee::Op { effect, op, .. },
-            ..
-        } if m.core.effects[*effect].ops[*op].suspend => {
-            let effect = &m.core.effects[*effect];
-            found.suspending(format!(
-                "`{}.{}` (a `suspend fn` operation)",
-                display_name(&effect.name),
-                effect.ops[*op].name
-            ));
-        }
-        Value::Closure(c) if c.suspends => {
-            found.suspending(format!("a closure in `{}`", display_name(&f.name)));
         }
         Value::Builtin { op, args } => {
             let message = match op {

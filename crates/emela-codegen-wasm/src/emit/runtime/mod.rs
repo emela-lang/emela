@@ -175,6 +175,9 @@ fn is_on_demand(name: &str) -> bool {
 /// Reserves the runtime functions in the function index space.
 pub(crate) fn register(b: &mut Builder) {
     for &(name, params, results) in funcs() {
+        if sched::handles(name) && !b.uses_suspend {
+            continue;
+        }
         if is_on_demand(name) && !b.requested_hosts.contains(&name) {
             continue;
         }
@@ -2616,6 +2619,17 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 /// runtime's `em_exit` (spec 14.3).
 fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
+    // A run unwound as interrupted (spec 14.5) reports `interrupted` and exits 130.
+    if b.uses_suspend {
+        ins.global_get(G_DEFECT);
+        ins.call(rt(b, "is_interrupted"));
+        ins.if_(BlockType::Empty);
+        write_static(b, ins, 2, b"interrupted");
+        write_static(b, ins, 2, b"\n");
+        ins.i32_const(130);
+        ins.call(rt(b, "exit"));
+        ins.end();
+    }
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     write_static(b, ins, 2, b"defect: ");
