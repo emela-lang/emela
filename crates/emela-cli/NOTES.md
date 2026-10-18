@@ -19,3 +19,9 @@
 - （補）`run` はエントリに `main` の fn がなければ E0230 で止まり，node を起動しない（終了コード 1）．`build` は main がなくても出力する（8.3）．ただしディレクトリ指定で `src/lib.emel` だけがあるライブラリ専用プロジェクトでは，`build` は検査だけで出力せず，`run` は lib の fn `main` の有無にかかわらず E0230 にする．明示的ファイル指定は従来どおりそのファイルを入口にする．判定は driver が持つ
 - （補）`lsp` は引数を取らない．フロントエンドは `check` と同じもの（今は `Typecheck`）を渡す．exit を受けたら 0，プロトコルの誤りで止まったら標準エラーに1行出して 1
 - （補）`--help` の文言（サブコマンドと引数の説明）は英語で書く．README の Commands の表と同じ言葉を使う．既定値は clap の `[default: …]` の形を説明の末尾に手で書く（`Option<PathBuf>` の既定は main.rs で決めるため）．テスト `help_is_english` が ASCII だけであることを確かめる
+
+## emela pome
+
+- （補）`emela pome` はカレントディレクトリから祖先へ `Pome.toml` を探す（`--path` は持たない）
+- （補）出力は `Pome.toml:` と `Pome.lock:` の見出しの下に変わった依存を1行ずつ（`+` 足した，`-` 除いた，`a -> b` 変えた）．lock が変わらなければ `Pome.lock is up to date`
+- （補）誤りは `error: ` に続けて標準エラーに出し，1 で終わる．`verify` で食い違いがあったときも 1

@@ -97,23 +97,29 @@ impl Direct {
                 .ok_or_else(|| bad("ls-tree"))?;
             let meta = String::from_utf8_lossy(&record[..tab]);
             let name = std::str::from_utf8(&record[tab + 1..])
-                .map_err(|_| refused("a path is not UTF-8"))?;
+                .map_err(|_| refused(&format!("{path}@{version}: a path is not UTF-8")))?;
             let fields: Vec<&str> = meta.split_whitespace().collect();
             let [mode, kind, object, size] = fields.as_slice() else {
                 return Err(bad("ls-tree"));
             };
             match (*mode, *kind) {
-                ("120000", _) => return Err(refused(&format!("{name} is a symbolic link"))),
-                (_, "commit") => return Err(refused(&format!("{name} is a submodule"))),
+                ("120000", _) => {
+                    return Err(refused(&format!(
+                        "{path}@{version}: {name} is a symbolic link"
+                    )));
+                }
+                (_, "commit") => {
+                    return Err(refused(&format!("{path}@{version}: {name} is a submodule")));
+                }
                 (_, "blob") => {}
-                _ => return Err(refused(&format!("{name} is a {kind}"))),
+                _ => return Err(refused(&format!("{path}@{version}: {name} is a {kind}"))),
             }
             total += size.parse::<u64>().map_err(|_| bad("ls-tree size"))?;
             entries.push((name.to_string(), object.to_string()));
         }
         if entries.len() > MAX_FILES || total > MAX_TREE_BYTES {
             return Err(refused(&format!(
-                "more than {MAX_FILES} files or {MAX_TREE_BYTES} bytes"
+                "{path}@{version}: more than {MAX_FILES} files or {MAX_TREE_BYTES} bytes"
             )));
         }
         let input: String = entries.iter().map(|(_, o)| format!("{o}\n")).collect();
