@@ -18,11 +18,7 @@ use common::{out_dir, run_bytes, to_wasm, wasmtime};
 /// reasons come from `src/check.rs` (the Flow-IR check) and the runtime's unimplemented pieces.
 /// The list must be emptied by Wave 3.
 const NOT_ON_WASM: &[(&str, &str)] = &[
-    // --- fibers and suspending code (check.rs) ---
-    (
-        "fiber_fairness",
-        "the driver loop stalls during a long fairness interleaving",
-    ),
+    // --- needs a host another track owns ---
     (
         "suspend_external",
         "a `suspend fn` external function needs the `sleep` host of T-Clock",

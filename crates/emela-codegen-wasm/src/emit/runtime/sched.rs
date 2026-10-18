@@ -3697,7 +3697,8 @@ fn run(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(R);
     ins.local_get(J);
     ins.call(rt(b, "schedule"));
-    ins.br(0);
+    // Continue the loop: depth 0 is the `if`, depth 1 is the loop.
+    ins.br(1);
     ins.end();
     ins.local_get(R);
     ins.call(rt(b, "root_interrupt"));
