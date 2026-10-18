@@ -180,3 +180,46 @@ impl<'m> Builder<'m> {
         }
     }
 }
+
+impl<'m> Builder<'m> {
+    /// A call of a `suspend fn` external bound to an internal host (spec 12.6): make a task, call
+    /// the host with the declared arguments and the task, then `task_end` gives the value (or
+    /// suspends the caller, which the driver resumes). The host's runtime function takes the task
+    /// (`i32`) last and returns nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn suspend_external_call(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        g: FnId,
+        module: &str,
+        name: &str,
+        args: &[Operand],
+    ) {
+        let ret = self.repr(self.m.functions[g].ret);
+        let display = check::display_name(&self.m.functions[g].name).to_owned();
+        let name_lit = self.string_literal(display.as_bytes());
+        let task = cx.scratch(Repr::I32, 0);
+        ins.i32_const(name_lit as i32);
+        let tn = self.rt("task_new");
+        ins.call(tn);
+        ins.local_set(task);
+        for a in args {
+            self.operand(cx, ins, a);
+        }
+        ins.local_get(task);
+        let host = match self.internal_host(module, name) {
+            Some(i) => i,
+            None => {
+                self.internal(format!("suspend external `{display}` has no runtime host"));
+                return;
+            }
+        };
+        ins.call(host);
+        ins.local_get(task);
+        let te = self.rt("task_end");
+        ins.call(te);
+        self.unpack_word(cx, ins, dst, ret);
+    }
+}

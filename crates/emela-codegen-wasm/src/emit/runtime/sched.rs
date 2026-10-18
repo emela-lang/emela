@@ -149,6 +149,22 @@ pub(super) const FUNCS: &[Sig] = &[
     ("settled", &[ValType::I32, ValType::I32, ValType::I64], &[]),
     ("pass", &[ValType::I32, ValType::I32, ValType::I64], &[]),
     ("run_fails", &[ValType::I32, ValType::I32], &[]),
+    // ---- the `suspend fn` external task primitives (spec 12.6) ----
+    ("task_new", &[ValType::I32], &[ValType::I32]),
+    ("task_end", &[ValType::I32], &[ValType::I64]),
+    ("task_complete_int", &[ValType::I32, ValType::I32], &[]),
+    ("task_complete_int64", &[ValType::I32, ValType::I64], &[]),
+    ("task_complete_float", &[ValType::I32, ValType::F64], &[]),
+    ("task_complete_unit", &[ValType::I32], &[]),
+    ("task_complete_string", &[ValType::I32, ValType::I32], &[]),
+    ("task_complete_defect", &[ValType::I32, ValType::I32], &[]),
+    // ---- the driver's timers (only when a timer host is requested) ----
+    ("now_ms", &[], &[ValType::I32]),
+    ("after", &[ValType::I32, ValType::I32], &[]),
+    ("timers_due", &[ValType::I32], &[ValType::I32]),
+    // ---- the test hosts (`emela:test`) ----
+    ("test_sleep_ms", &[ValType::I32, ValType::I32], &[]),
+    ("test_sleep_after", &[ValType::I32, ValType::I32], &[]),
 ];
 
 /// The slots of a `perform` (a `suspend fn` operation call, spec 8.4): counted by hand.
@@ -278,6 +294,7 @@ pub(super) const WAT_D1: u32 = 32;
 pub(super) const WAIT_PAUSE: i32 = 0;
 pub(super) const WAIT_PERFORM: i32 = 1;
 pub(super) const WAIT_FIBER: i32 = 2;
+pub(super) const WAIT_HOST: i32 = 3;
 
 pub(super) const END_MAIN: i32 = 0;
 pub(super) const END_IMPL: i32 = 1;
@@ -470,6 +487,19 @@ pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "root_ended" => root_ended(b, ins),
         "root_interrupt" => root_interrupt(b, ins),
         "run" => run(b, ins),
+        "task_new" => task_new(b, ins),
+        "task_end" => task_end(b, ins),
+        "task_complete_int" => task_complete_int(b, ins),
+        "task_complete_int64" => task_complete_int64(b, ins),
+        "task_complete_float" => task_complete_float(b, ins),
+        "task_complete_unit" => task_complete_unit(b, ins),
+        "task_complete_string" => task_complete_string(b, ins),
+        "task_complete_defect" => task_complete_defect(b, ins),
+        "now_ms" => now_ms(b, ins),
+        "after" => after(b, ins),
+        "timers_due" => timers_due(b, ins),
+        "test_sleep_ms" => test_sleep_ms(b, ins),
+        "test_sleep_after" => test_sleep_after(b, ins),
         "settled" => settled(b, ins),
         "pass" => pass(b, ins),
         "run_fails" => run_fails(b, ins),
@@ -538,6 +568,19 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         "root_ended" => vec![(1, ValType::I32)],
         "root_interrupt" => vec![(8, ValType::I32)],
         "run" => vec![(8, ValType::I32), (1, ValType::I64)],
+        "task_new" => vec![(1, ValType::I32)],
+        "task_end" => vec![(2, ValType::I32)],
+        "task_complete_int"
+        | "task_complete_int64"
+        | "task_complete_float"
+        | "task_complete_unit"
+        | "task_complete_string"
+        | "task_complete_defect" => vec![],
+        "now_ms" => vec![(1, ValType::I32)],
+        "after" => vec![(2, ValType::I32)],
+        "timers_due" => vec![(8, ValType::I32), (1, ValType::I64)],
+        "test_sleep_ms" => vec![],
+        "test_sleep_after" => vec![],
         "settled" => vec![(2, ValType::I32)],
         "pass" => vec![(1, ValType::I32)],
         "run_fails" => Vec::new(),
@@ -3655,6 +3698,13 @@ fn run(b: &mut Builder, ins: &mut InstructionSink) {
     ins.call(rt(b, "vec_new"));
     ins.local_set(T);
     store32(ins, R, R_FIBERS, T);
+    if b.uses_timers {
+        ins.i32_const(256);
+        ins.call(rt(b, "vec_new"));
+        ins.global_set(G_TIMERS);
+        ins.i32_const(0);
+        ins.global_set(G_TIMER_SEQ);
+    }
     ins.i32_const(256);
     ins.call(rt(b, "vec_new"));
     ins.global_set(G_NOTE_ERRORS);
@@ -3700,6 +3750,14 @@ fn run(b: &mut Builder, ins: &mut InstructionSink) {
     // Continue the loop: depth 0 is the `if`, depth 1 is the loop.
     ins.br(1);
     ins.end();
+    if b.uses_timers {
+        // The event loop is empty: run the earliest timer (T-Clock's `sleep`, spec 12.6).
+        ins.local_get(R);
+        ins.call(rt(b, "timers_due"));
+        ins.if_(BlockType::Empty);
+        ins.br(1);
+        ins.end();
+    }
     ins.local_get(R);
     ins.call(rt(b, "root_interrupt"));
     ins.local_get(R);
@@ -3753,4 +3811,347 @@ fn run(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.local_get(PREV);
     ins.global_set(G_ROOT);
+}
+
+// ---- the `suspend fn` external task primitives and the driver's timers (spec 12.6) ----
+
+/// Whether `name` is a driver timer function: it uses WASI's clock, so it is emitted only when a
+/// host that uses timers is requested (`emit::external::TIMER_HOSTS`).
+pub(super) fn is_timer(name: &str) -> bool {
+    matches!(name, "now_ms" | "after" | "timers_due")
+}
+
+const T_GOT: u32 = 0;
+const T_VALUE: u32 = 8;
+const T_STR: u32 = 16;
+const T_FUNC: u32 = 24;
+const T_WAIT: u32 = 32;
+const T_SIZE: u32 = 40;
+
+const TM_AT: u32 = 0;
+const TM_SEQ: u32 = 8;
+const TM_H: u32 = 16;
+const TM_SIZE: u32 = 24;
+
+/// `task_new(name) -> task`: the record of a `suspend fn` external call (spec 12.6). The wrapper
+/// makes one, calls the host with it, and `task_end` takes the completed value or suspends.
+fn task_new(b: &mut Builder, ins: &mut InstructionSink) {
+    const T: u32 = 1;
+    ins.i32_const(T_SIZE as i32);
+    ins.call(rt(b, "rt_alloc"));
+    ins.local_set(T);
+    setc(ins, T, T_GOT, 0);
+    setc(ins, T, T_STR, 0);
+    setc(ins, T, T_WAIT, 0);
+    ins.local_get(T);
+    ins.i64_const(0);
+    ins.i64_store(mem(T_VALUE, 8));
+    ins.local_get(T);
+    ins.local_get(0);
+    ins.i32_store(mem(T_FUNC, 4));
+    ins.local_get(0);
+    ins.call(rt(b, "dup"));
+    ins.local_get(T);
+}
+
+/// `task_end(task) -> word`: the host completed the task in place gives its value (or a pending
+/// defect); otherwise the caller suspends on a host wait the driver wakes.
+fn task_end(b: &mut Builder, ins: &mut InstructionSink) {
+    const GOT: u32 = 1;
+    const W: u32 = 2;
+    ins.local_get(0);
+    ins.i32_load(mem(T_GOT, 4));
+    ins.local_set(GOT);
+    ins.local_get(GOT);
+    ins.i32_const(2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.i32_load(mem(T_STR, 4));
+    ins.global_set(G_DEFECT);
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    ins.local_get(GOT);
+    ins.i32_const(1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.i64_load(mem(T_VALUE, 8));
+    ins.return_();
+    ins.end();
+    // Not completed in place: the run is over, or the fiber waits for the host.
+    ins.global_get(G_ROOT);
+    ins.i32_eqz();
+    ins.global_get(G_ROOT);
+    ins.i32_load(mem(R_OVER, 4));
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.call(rt(b, "susp_on"));
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    ins.i32_const(WAIT_HOST);
+    ins.i32_const(0);
+    ins.call(rt(b, "wait_new"));
+    ins.local_set(W);
+    ins.local_get(0);
+    ins.local_get(W);
+    ins.i32_store(mem(T_WAIT, 4));
+    ins.local_get(W);
+    ins.call(rt(b, "susp_on"));
+    ins.i64_const(0);
+}
+
+fn task_complete_int(b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 1);
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.i64_extend_i32_u();
+    ins.i64_store(mem(T_VALUE, 8));
+    let _ = b;
+}
+
+fn task_complete_int64(_b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 1);
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.i64_store(mem(T_VALUE, 8));
+}
+
+fn task_complete_float(_b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 1);
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.i64_reinterpret_f64();
+    ins.i64_store(mem(T_VALUE, 8));
+}
+
+fn task_complete_unit(_b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 1);
+    ins.local_get(0);
+    ins.i64_const(0);
+    ins.i64_store(mem(T_VALUE, 8));
+}
+
+fn task_complete_string(_b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 1);
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.i64_extend_i32_u();
+    ins.i64_store(mem(T_VALUE, 8));
+}
+
+fn task_complete_defect(_b: &mut Builder, ins: &mut InstructionSink) {
+    setc(ins, 0, T_GOT, 2);
+    store32(ins, 0, T_STR, 1);
+}
+
+/// `now_ms() -> i32`: the monotonic clock in milliseconds (WASI `clock_time_get`).
+fn now_ms(b: &mut Builder, ins: &mut InstructionSink) {
+    let buf = b.alloc_static(8);
+    let clock = b.clock_time_get_fn;
+    ins.i32_const(0); // CLOCK_MONOTONIC
+    ins.i64_const(1_000_000);
+    ins.i32_const(buf as i32);
+    ins.call(clock);
+    ins.drop();
+    ins.i32_const(buf as i32);
+    ins.i64_load(mem(0, 8));
+    ins.i64_const(1_000_000);
+    ins.i64_div_s();
+    ins.i32_wrap_i64();
+}
+
+/// `after(ms, task)`: completes `task` with `()` once the run has been idle for `ms`. T-Clock's
+/// `sleep` host calls this and returns; the driver fires the timer.
+fn after(b: &mut Builder, ins: &mut InstructionSink) {
+    const T: u32 = 2;
+    ins.i32_const(TM_SIZE as i32);
+    ins.call(rt(b, "rt_alloc"));
+    ins.local_set(T);
+    ins.local_get(T);
+    ins.call(rt(b, "now_ms"));
+    ins.i64_extend_i32_u();
+    ins.local_get(0);
+    ins.i64_extend_i32_u();
+    ins.i64_add();
+    ins.i64_store(mem(TM_AT, 8));
+    ins.local_get(T);
+    ins.global_get(G_TIMER_SEQ);
+    ins.i32_store(mem(TM_SEQ, 4));
+    ins.global_get(G_TIMER_SEQ);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.global_set(G_TIMER_SEQ);
+    ins.local_get(T);
+    ins.local_get(1);
+    ins.i32_store(mem(TM_H, 4));
+    ins.global_get(G_TIMERS);
+    ins.local_get(T);
+    ins.call(rt(b, "vec_push"));
+}
+
+/// `timers_due(root) -> bool`: waits until the earliest timer is due and fires every due timer
+/// (waking its waiting fiber). False when there is no timer.
+fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
+    const I: u32 = 1;
+    const LEN: u32 = 2;
+    const T: u32 = 3;
+    const BEST: u32 = 4;
+    const H: u32 = 5;
+    const W: u32 = 6;
+    const NOW: u32 = 9;
+    ins.global_get(G_TIMERS);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.return_();
+    ins.end();
+    ins.global_get(G_TIMERS);
+    ins.i32_load(mem(V_LEN, 4));
+    ins.local_set(LEN);
+    ins.local_get(LEN);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.return_();
+    ins.end();
+    // The earliest timer (by time, then sequence).
+    ins.global_get(G_TIMERS);
+    ins.i32_load(mem(V_ITEMS, 4));
+    ins.i32_load(mem(0, 4));
+    ins.local_set(BEST);
+    ins.i32_const(1);
+    ins.local_set(I);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(I);
+    ins.local_get(LEN);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.global_get(G_TIMERS);
+    ins.i32_load(mem(V_ITEMS, 4));
+    ins.local_get(I);
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.i32_add();
+    ins.i32_load(mem(0, 4));
+    ins.local_set(T);
+    ins.local_get(T);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.local_get(BEST);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.i64_lt_s();
+    ins.local_get(T);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.local_get(BEST);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.i64_eq();
+    ins.local_get(T);
+    ins.i32_load(mem(TM_SEQ, 4));
+    ins.local_get(BEST);
+    ins.i32_load(mem(TM_SEQ, 4));
+    ins.i32_lt_u();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.local_get(T);
+    ins.local_set(BEST);
+    ins.end();
+    ins.local_get(I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    // Wait until it is due.
+    ins.call(rt(b, "now_ms"));
+    ins.i64_extend_i32_u();
+    ins.local_set(NOW);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(NOW);
+    ins.local_get(BEST);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.i64_ge_s();
+    ins.br_if(1);
+    ins.call(rt(b, "now_ms"));
+    ins.i64_extend_i32_u();
+    ins.local_set(NOW);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    // Fire every due timer.
+    ins.i32_const(0);
+    ins.local_set(I);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(I);
+    ins.global_get(G_TIMERS);
+    ins.i32_load(mem(V_LEN, 4));
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.global_get(G_TIMERS);
+    ins.i32_load(mem(V_ITEMS, 4));
+    ins.local_get(I);
+    ins.i32_const(4);
+    ins.i32_mul();
+    ins.i32_add();
+    ins.i32_load(mem(0, 4));
+    ins.local_set(T);
+    ins.local_get(T);
+    ins.i64_load(mem(TM_AT, 8));
+    ins.local_get(NOW);
+    ins.i64_le_s();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_TIMERS);
+    ins.local_get(T);
+    ins.call(rt(b, "vec_remove"));
+    ins.local_get(T);
+    ins.i32_load(mem(TM_H, 4));
+    ins.local_set(H);
+    ins.local_get(H);
+    ins.call(rt(b, "task_complete_unit"));
+    ins.local_get(H);
+    ins.i32_load(mem(T_WAIT, 4));
+    ins.local_set(W);
+    ins.local_get(W);
+    ins.if_(BlockType::Empty);
+    ins.local_get(W);
+    ins.i32_load(mem(W_LIVE, 4));
+    ins.if_(BlockType::Empty);
+    ins.local_get(W);
+    ins.i32_const(MODE_VALUE);
+    ins.i64_const(0);
+    ins.call(rt(b, "cont"));
+    ins.end();
+    ins.end();
+    ins.else_();
+    ins.local_get(I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.end();
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.i32_const(1);
+}
+
+/// The `emela:test` hosts, for the WASM tests of the `suspend fn` external ABI.
+fn test_sleep_ms(b: &mut Builder, ins: &mut InstructionSink) {
+    ins.local_get(1);
+    ins.local_get(0);
+    ins.i32_const(2);
+    ins.i32_mul();
+    ins.call(rt(b, "task_complete_int"));
+}
+
+fn test_sleep_after(b: &mut Builder, ins: &mut InstructionSink) {
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.call(rt(b, "after"));
 }

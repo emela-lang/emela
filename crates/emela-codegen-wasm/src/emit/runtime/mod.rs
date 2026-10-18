@@ -180,6 +180,9 @@ pub(crate) fn register(b: &mut Builder) {
         if (sched::handles(name) || fiber::handles(name)) && !b.uses_suspend {
             continue;
         }
+        if sched::is_timer(name) && !b.uses_timers {
+            continue;
+        }
         if constant::handles(name) && !b.uses_const {
             continue;
         }

@@ -35,6 +35,10 @@ pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[
     ("emela:env", "get", "env_get"),
     ("emela:random", "int", "random_int"),
     ("emela:random", "float", "random_float"),
+    // The `suspend fn` external hosts of the WASM tests (`tests/suspend_external.rs`): one
+    // completes in place, one uses the driver's timers.
+    ("emela:test", "sleep_ms", "test_sleep_ms"),
+    ("emela:test", "sleep_after", "test_sleep_after"),
     // `Std.FileSystem` (spec 15.2). The `Outcome` an operation returns and the accessors that
     // take it apart are opaque handles; see `emit::handle`.
     ("emela:fs", "read_text", "fs_read_text"),
@@ -60,6 +64,19 @@ pub(crate) fn internal_host_name(module: &str, name: &str) -> Option<&'static st
         .find(|(m, n, _)| *m == module && *n == name)
         .map(|(_, _, runtime)| *runtime)
 }
+
+/// The runtime functions of internal hosts that use the scheduler's timers (`after`/`now_ms`,
+/// spec 12.6). When one is requested the WASI `clock_time_get` import is registered (see
+/// `Builder::build`). **T-Clock adds its `sleep` runtime function here** (the name in the third
+/// column of its [`INTERNAL_HOSTS`] row) so the module gets the clock.
+pub(crate) const TIMER_HOSTS: &[&str] = &[
+    "clock_sleep_milliseconds",
+    "sleep_milliseconds",
+    "sleep",
+    "sleep_ms",
+    "when_stalled",
+    "test_sleep_after",
+];
 
 impl<'m> Builder<'m> {
     /// The wasm function index of the runtime function an internal host binds to, recording the
@@ -97,8 +114,15 @@ impl<'m> Builder<'m> {
         let Some(host) = internal_host_name(module, name) else {
             return;
         };
-        let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
-        let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
+        let mut params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
+        // A `suspend fn` host takes the task (an `i32` handle) last and completes it instead of
+        // returning a value (the wrapper appends the task; spec 12.6).
+        let results: Vec<ValType> = if f.suspends {
+            params.push(ValType::I32);
+            Vec::new()
+        } else {
+            repr_val(self.repr(f.ret)).into_iter().collect()
+        };
         match super::runtime::signature(host) {
             Some((host_params, host_results))
                 if host_params == params.as_slice() && host_results == results.as_slice() => {}
@@ -106,6 +130,21 @@ impl<'m> Builder<'m> {
                 "internal host `{module}.{name}` takes {params:?} -> {results:?}, but the runtime \
                  function `{host}` is {other:?}"
             )),
+        }
+    }
+
+    /// The `(module, name)` of an external function's `@external(wasm, ...)` import, if any.
+    pub(super) fn wasm_host(&self, f: &Function) -> Option<(String, String)> {
+        let binding = f.external.as_ref()?.binding("wasm")?;
+        match &binding.host {
+            HostRef::Import { module, name } => {
+                let module = match module {
+                    HostModule::Named(n) => n.clone(),
+                    HostModule::File(p) | HostModule::Bundled(p) => p.clone(),
+                };
+                Some((module, name.clone()))
+            }
+            HostRef::Global(_) => None,
         }
     }
 

@@ -134,8 +134,12 @@ const G_RUN_ID: u32 = 16;
 /// The note tables of spec 11.2 (`em_note_errors`/`em_note_lines`), as vector pointers.
 const G_NOTE_ERRORS: u32 = 17;
 const G_NOTE_LINES: u32 = 18;
+/// The scheduler's timers (a vector of timer records; see `runtime::sched`) and the sequence
+/// number that orders equal firing times, for the driver loop (spec 12.6).
+const G_TIMERS: u32 = 19;
+const G_TIMER_SEQ: u32 = 20;
 /// The number of globals of a program that suspends.
-const SUSPEND_GLOBALS: u32 = 19;
+const SUSPEND_GLOBALS: u32 = 21;
 
 /// The object header (see [`HDR`]) fields a frame uses: state, next, and the first saved slot.
 const FRAME_STATE: u32 = HDR + 8;
@@ -202,6 +206,12 @@ pub(crate) struct Builder<'m> {
     /// or a `yield`/`hold`/`unhold`): the scheduler/state-machine runtime is then linked, and the
     /// suspend globals are emitted. A program without it keeps the exact bytes it had before.
     pub(crate) uses_suspend: bool,
+    /// Whether a host that uses the scheduler's timers is requested: the driver's timer functions
+    /// are linked and WASI's `clock_time_get` is imported. A program without one keeps its exact
+    /// bytes.
+    pub(crate) uses_timers: bool,
+    /// The function index of the WASI `clock_time_get` import (0 when `uses_timers` is false).
+    pub(crate) clock_time_get_fn: u32,
     /// The number of globals the module emits (see [`BASE_GLOBALS`]).
     globals: u32,
     /// The state-machine functions: their body (`f_sm`), resume wrapper and table index.
@@ -279,6 +289,8 @@ impl<'m> Builder<'m> {
             errors: Vec::new(),
             bodies: Vec::new(),
             uses_suspend: uses_suspend(m),
+            uses_timers: false,
+            clock_time_get_fn: 0,
             globals: BASE_GLOBALS,
             machine: FxHashMap::default(),
             resume_closure: [0; 5],
@@ -400,6 +412,17 @@ impl<'m> Builder<'m> {
         )
     }
 
+    /// `clock_time_get(clock_id, precision, time_ptr)`: the time of `clock_id` (0 = monotonic) in
+    /// nanoseconds, written to `time_ptr`. Used by the scheduler's timers (the `now_ms` runtime
+    /// function); registered on demand when a host that uses them is requested.
+    pub(crate) fn clock_time_get(&mut self) -> u32 {
+        self.wasi_import(
+            "clock_time_get",
+            vec![ValType::I32, ValType::I64, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
     fn fn_ty(&mut self, f: &Function) -> u32 {
         let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
         let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
@@ -438,6 +461,16 @@ impl<'m> Builder<'m> {
             || self.requested_hosts.contains(&"random_float")
         {
             self.random_get();
+        }
+        // The scheduler's timers (the `after`/`now_ms` runtime functions) need WASI's clock. Added
+        // before the index space is fixed, but only when a host that uses them is requested, so a
+        // program without one keeps its exact bytes (see `emit::external::TIMER_HOSTS`).
+        self.uses_timers = self
+            .requested_hosts
+            .iter()
+            .any(|h| external::TIMER_HOSTS.contains(h));
+        if self.uses_timers {
+            self.clock_time_get_fn = self.clock_time_get();
         }
         // The WASI calls the `Std.FileSystem` internal hosts need (only when one is requested).
         self.fs_imports();
@@ -2031,6 +2064,21 @@ impl<'m> Builder<'m> {
     ) {
         match callee {
             Callee::Direct(g) => {
+                // A `suspend fn` external bound to an internal host is called through the task
+                // wrapper (spec 12.6): the host completes the task instead of returning.
+                let suspend_host = {
+                    let f = &self.m.functions[*g];
+                    if f.suspends {
+                        self.wasm_host(f)
+                            .filter(|(m, n)| external::internal_host_name(m, n).is_some())
+                    } else {
+                        None
+                    }
+                };
+                if let Some((module, name)) = suspend_host {
+                    self.suspend_external_call(cx, ins, dst, *g, &module, &name, args);
+                    return;
+                }
                 for a in args {
                     self.operand(cx, ins, a);
                 }
