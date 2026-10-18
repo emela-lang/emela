@@ -35,6 +35,10 @@ fn files(app: &str, router: &str) -> MemoryFiles {
 
 const ROUTER: &str = "import Util\nimport Web\nimport Web.Client\n\npub fn route() -> Int { Util.two() + Web.get() + Client.send() }\n";
 
+/// The compiler's own version: a dependency written for it gets no W0203, whatever the
+/// workspace version is.
+const COMPILER: &str = env!("CARGO_PKG_VERSION");
+
 fn pome(
     name: &str,
     dir: &str,
@@ -71,7 +75,7 @@ fn dependencies(project_module: Option<&str>, quince_emela: &str) -> Dependencie
                 "github.com/acme/http-kit",
                 "/deps/http-kit",
                 None,
-                "0.21.0",
+                COMPILER,
                 vec![],
             ),
         ],
@@ -98,7 +102,7 @@ fn diagnostics(fs: &MemoryFiles, deps: Dependencies) -> Vec<String> {
 #[test]
 fn imports_dependencies_by_their_root_names() {
     assert_eq!(
-        diagnostics(&files(APP, ROUTER), dependencies(None, "0.21.0")),
+        diagnostics(&files(APP, ROUTER), dependencies(None, COMPILER)),
         Vec::<String>::new()
     );
 }
@@ -106,7 +110,7 @@ fn imports_dependencies_by_their_root_names() {
 #[test]
 fn hides_dependencies_of_dependencies() {
     let app = "import Web\nimport HttpKit\n\nfn main() -> Int { 1 }\n";
-    let found = diagnostics(&files(app, ROUTER), dependencies(None, "0.21.0"));
+    let found = diagnostics(&files(app, ROUTER), dependencies(None, COMPILER));
     assert_eq!(
         found,
         [
@@ -121,7 +125,7 @@ fn renames_a_dependency_on_the_depending_side() {
     let app =
         "import Quin\nimport Quin.Router\n\nfn main() -> Int { Quin.answer() + Router.route() }\n";
     assert_eq!(
-        diagnostics(&files(app, ROUTER), dependencies(Some("Quin"), "0.21.0")),
+        diagnostics(&files(app, ROUTER), dependencies(Some("Quin"), COMPILER)),
         Vec::<String>::new()
     );
 }
@@ -131,7 +135,7 @@ fn checks_root_names() {
     let check = |module: &str| {
         diagnostics(
             &files("fn main() -> Int { 1 }\n", ROUTER),
-            dependencies(Some(module), "0.21.0"),
+            dependencies(Some(module), COMPILER),
         )
     };
     assert!(
@@ -152,14 +156,14 @@ fn checks_root_names() {
 fn allows_external_only_when_the_project_says_so() {
     let router = "@external(js, \"./x.mjs\", \"f\")\nfn f() -> Int use {}\n\npub fn route() -> Int { f() }\n";
     let app = "import Quince\n\nfn main() -> Int { Quince.answer() }\n";
-    let found = diagnostics(&files(app, router), dependencies(None, "0.21.0"));
+    let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
             .starts_with("E0233 `github.com/acme/quince` uses `@external`, but it is not allowed")),
         "{found:?}"
     );
 
-    let mut allowed = dependencies(None, "0.21.0");
+    let mut allowed = dependencies(None, COMPILER);
     allowed.allow_external = vec!["github.com/acme/quince".into()];
     assert_eq!(
         diagnostics(&files(app, router), allowed.clone()),
@@ -182,7 +186,7 @@ fn allows_external_only_when_the_project_says_so() {
 
 #[test]
 fn checks_the_targets_of_dependencies() {
-    let mut deps = dependencies(None, "0.21.0");
+    let mut deps = dependencies(None, COMPILER);
     deps.pomes[1].targets = Some(vec!["js".into()]);
     assert!(check_dependency_targets(&deps, Target::Js).is_empty());
     let found = check_dependency_targets(&deps, Target::Wasm);
