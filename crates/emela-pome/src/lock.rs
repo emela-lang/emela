@@ -36,6 +36,27 @@ pub struct Locked {
     pub commit: String,
     pub hash: H1,
     pub manifest: H1,
+    /// The `.emel` files with `@external` (spec 4.7); empty for a Pome without them. Shown in
+    /// the lock so that a review sees when a new version reaches the host in more places.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external: Vec<String>,
+}
+
+/// The `.emel` files of a tree with an `@external` annotation, sorted. An annotation is a line
+/// starting with `@external` (comments start with `#`, so they do not count).
+pub fn external_files<'a>(files: impl IntoIterator<Item = (&'a str, &'a [u8])>) -> Vec<String> {
+    let mut found: Vec<String> = files
+        .into_iter()
+        .filter(|(path, _)| path.ends_with(".emel"))
+        .filter(|(_, content)| {
+            String::from_utf8_lossy(content)
+                .lines()
+                .any(|l| l.trim_start().starts_with("@external"))
+        })
+        .map(|(path, _)| path.to_string())
+        .collect();
+    found.sort();
+    found
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +136,7 @@ mod tests {
             commit: "0123456789abcdef0123456789abcdef01234567".to_string(),
             hash: h.clone(),
             manifest: h,
+            external: Vec::new(),
         }
     }
 
@@ -142,5 +164,32 @@ mod tests {
         bad.commit = "abc".to_string();
         assert!(Lock::parse(&Lock::new(vec![bad]).to_toml()).is_err());
         assert!(Lock::parse("version = 2\n").is_err());
+    }
+
+    #[test]
+    fn lists_files_with_external() {
+        let files: [(&str, &[u8]); 4] = [
+            (
+                "src/kv.emel",
+                b"pub effect Kv {}\n@external(js, \"./kv.mjs\", \"get\")\nfn get() -> Int\n",
+            ),
+            (
+                "src/a.emel",
+                b"# @external in a comment\nfn a() -> Int { 1 }\n",
+            ),
+            ("src/kv.mjs", b"@external\n"),
+            ("src/b.emel", b"  @external\n  type T\n"),
+        ];
+        assert_eq!(external_files(files), ["src/b.emel", "src/kv.emel"]);
+    }
+
+    #[test]
+    fn writes_external_only_when_present() {
+        let mut l = locked("github.com/a/x", "v0.2.0");
+        assert!(!Lock::new(vec![l.clone()]).to_toml().contains("external"));
+        l.external = vec!["src/kv.emel".into()];
+        let text = Lock::new(vec![l.clone()]).to_toml();
+        assert!(text.contains("external = [\"src/kv.emel\"]"), "{text}");
+        assert_eq!(Lock::parse(&text).unwrap().pomes[0], l);
     }
 }

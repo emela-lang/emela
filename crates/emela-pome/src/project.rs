@@ -13,7 +13,7 @@ use crate::edit;
 use crate::fetch::transport::Transport;
 use crate::fetch::{FetchError, Fetcher};
 use crate::hash::MANIFEST_FILE;
-use crate::lock::{LOCK_FILE, Lock};
+use crate::lock::{LOCK_FILE, Lock, Locked};
 use crate::manifest::Manifest;
 use crate::mvs::{self, Requirements};
 use crate::source_path::SourcePath;
@@ -28,6 +28,8 @@ pub enum PomeError {
     Fetch(FetchError),
     /// A wrong argument (`remove` of something not depended on, a malformed source path...).
     Usage(String),
+    /// Dependencies use `@external` without `[external] allow` (spec 4.7).
+    External(String),
     Io(String),
 }
 
@@ -44,6 +46,7 @@ impl fmt::Display for PomeError {
             PomeError::Manifest(m)
             | PomeError::Lock(m)
             | PomeError::Usage(m)
+            | PomeError::External(m)
             | PomeError::Io(m) => f.write_str(m),
             PomeError::Fetch(e) => e.fmt(f),
         }
@@ -89,6 +92,18 @@ impl fmt::Display for Change {
 pub struct Outcome {
     pub requirements: Vec<Change>,
     pub build_list: Vec<Change>,
+    /// Pomes added to `[external] allow` (`add --allow-external`).
+    pub allowed: Vec<SourcePath>,
+    /// Changes of the `@external` files of locked Pomes (spec appendix B).
+    pub external: Vec<ExternalChange>,
+}
+
+/// The `.emel` files with `@external` a Pome gained or lost between the old and the new lock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalChange {
+    pub path: SourcePath,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
 }
 
 impl Project {
@@ -125,14 +140,17 @@ impl Project {
     /// `emela pome install`: makes the lock match `Pome.toml` and gets every dependency.
     pub fn install<T: Transport>(&mut self, fetcher: &Fetcher<T>) -> Result<Outcome, PomeError> {
         let text = self.text.clone();
-        self.apply(fetcher, text, Vec::new())
+        self.apply(fetcher, text, Vec::new(), None)
     }
 
-    /// `emela pome add <src>[@<version>]`: the latest version when none is given.
+    /// `emela pome add [--allow-external] <src>[@<version>]`: the latest version when none is
+    /// given. With `allow_external`, the added Pome and the Pomes it newly brings in that use
+    /// `@external` are added to `[external] allow`.
     pub fn add<T: Transport>(
         &mut self,
         fetcher: &Fetcher<T>,
         src: &str,
+        allow_external: bool,
     ) -> Result<Outcome, PomeError> {
         let (path, version) = parse_src(src)?;
         if path == self.manifest.name {
@@ -157,12 +175,13 @@ impl Project {
             from,
             to: Some(version),
         };
+        let allow = allow_external.then(|| change.path.clone());
         let changes = if change.from == change.to {
             Vec::new()
         } else {
             vec![change]
         };
-        self.apply(fetcher, text, changes)
+        self.apply(fetcher, text, changes, allow)
     }
 
     /// `emela pome remove <src>`.
@@ -188,6 +207,7 @@ impl Project {
                 from,
                 to: None,
             }],
+            None,
         )
     }
 
@@ -226,7 +246,7 @@ impl Project {
                 });
             }
         }
-        self.apply(fetcher, text, changes)
+        self.apply(fetcher, text, changes, None)
     }
 
     /// `emela pome list`: the resolved dependency tree. Each line is the requirement, and the
@@ -275,16 +295,45 @@ impl Project {
         Ok(problems)
     }
 
-    // Resolves with the new `Pome.toml` text and writes both files.
+    // Resolves with the new `Pome.toml` text and writes both files. With `allow`, the Pomes using
+    // `@external` that this change brings in (and `allow` itself) are added to `[external] allow`;
+    // any other Pome using `@external` without being allowed stops the change.
     fn apply<T: Transport>(
         &mut self,
         fetcher: &Fetcher<T>,
         text: String,
         requirements: Vec<Change>,
+        allow: Option<SourcePath>,
     ) -> Result<Outcome, PomeError> {
-        let manifest = parse_manifest(&text, &self.root.join(MANIFEST_FILE))?;
+        let mut text = text;
+        let mut manifest = parse_manifest(&text, &self.root.join(MANIFEST_FILE))?;
         let lock = resolve(fetcher, &self.root, &manifest, self.lock.as_ref())?;
         let build_list = diff(self.lock.as_ref(), &lock);
+
+        let unallowed: Vec<&Locked> = lock
+            .pomes
+            .iter()
+            .filter(|p| !p.external.is_empty() && !manifest.external.contains(&p.path))
+            .collect();
+        let (allowed, refused): (Vec<&Locked>, Vec<&Locked>) =
+            unallowed.into_iter().partition(|p| {
+                allow.as_ref().is_some_and(|a| {
+                    &p.path == a
+                        || self
+                            .lock
+                            .as_ref()
+                            .is_none_or(|old| old.get(&p.path).is_none())
+                })
+            });
+        if !refused.is_empty() {
+            return Err(external_error(&refused));
+        }
+        let allowed: Vec<SourcePath> = allowed.into_iter().map(|p| p.path.clone()).collect();
+        if !allowed.is_empty() {
+            text = edit::allow_external(&text, &allowed).map_err(|e| PomeError::Manifest(e.0))?;
+            manifest = parse_manifest(&text, &self.root.join(MANIFEST_FILE))?;
+        }
+        let external = external_changes(self.lock.as_ref(), &lock);
         if text != self.text {
             write(&self.root.join(MANIFEST_FILE), &text)?;
         }
@@ -295,6 +344,8 @@ impl Project {
         Ok(Outcome {
             requirements,
             build_list,
+            allowed,
+            external,
         })
     }
 }
@@ -329,9 +380,18 @@ pub fn resolve<T: Transport>(
             .and_then(|l| l.get(&path))
             .filter(|l| l.version == version)
         {
+            // Kept as locked, with the `@external` files counted again from the content (a lock
+            // written before the field existed has none).
             Some(locked) => {
-                fetcher.ensure(locked)?;
-                locked.clone()
+                let dir = fetcher.ensure(locked)?;
+                let files = crate::fetch::cache::read_dir_files(&dir).map_err(PomeError::Io)?;
+                let external = crate::lock::external_files(
+                    files.iter().map(|(p, c)| (p.as_str(), c.as_slice())),
+                );
+                Locked {
+                    external,
+                    ..locked.clone()
+                }
             }
             None => fetcher.download(&path, &version)?,
         };
@@ -438,6 +498,54 @@ fn diff(old: Option<&Lock>, new: &Lock) -> Vec<Change> {
             path: p.clone(),
             from: before.get(p).map(|v| (*v).clone()),
             to: after.get(p).map(|v| (*v).clone()),
+        })
+        .collect()
+}
+
+// The Pomes that use `@external` without `[external] allow`, with their files and how to allow
+// them (spec appendix B).
+fn external_error(pomes: &[&Locked]) -> PomeError {
+    let mut message = String::new();
+    for p in pomes {
+        message.push_str(&format!("{} {} uses @external:\n", p.path, p.version));
+        for f in &p.external {
+            message.push_str(&format!("  {f}\n"));
+        }
+    }
+    let paths: Vec<&str> = pomes.iter().map(|p| p.path.as_str()).collect();
+    message.push_str(&format!(
+        "  = help: it runs host code; allow it with `emela pome add --allow-external {}`, or add it to `[external] allow` in Pome.toml",
+        paths[0]
+    ));
+    if paths.len() > 1 {
+        message.push_str(&format!(" (also {})", paths[1..].join(", ")));
+    }
+    PomeError::External(message)
+}
+
+fn external_changes(old: Option<&Lock>, new: &Lock) -> Vec<ExternalChange> {
+    new.pomes
+        .iter()
+        .filter_map(|p| {
+            let before: &[String] = old
+                .and_then(|l| l.get(&p.path))
+                .map_or(&[], |o| &o.external);
+            let added: Vec<String> = p
+                .external
+                .iter()
+                .filter(|f| !before.contains(f))
+                .cloned()
+                .collect();
+            let removed: Vec<String> = before
+                .iter()
+                .filter(|f| !p.external.contains(f))
+                .cloned()
+                .collect();
+            (!added.is_empty() || !removed.is_empty()).then(|| ExternalChange {
+                path: p.path.clone(),
+                added,
+                removed,
+            })
         })
         .collect()
 }
