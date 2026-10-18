@@ -1,0 +1,36 @@
+fn rejected(s: String) {
+  caught = {
+    Bool.parse(s)
+    False
+  } escape {
+    ParseError(input:) -> {
+      assert input == s
+      True
+    }
+  }
+  assert caught
+}
+
+fn main() {
+  assert Bool.to_string(True) == "True"
+  assert Bool.to_string(False) == "False"
+  t = Bool.parse("True")
+  f = Bool.parse("False")
+  assert t == True
+  assert f == False
+  round_t = Bool.parse(Bool.to_string(t))
+  round_f = Bool.parse(Bool.to_string(f))
+  assert round_t == t
+  assert round_f == f
+  rejected("")
+  rejected("true")
+  rejected("false")
+  rejected("TRUE")
+  rejected("FALSE")
+  rejected(" True")
+  rejected("False ")
+  rejected("True\n")
+  rejected("0")
+  rejected("1")
+  rejected("真")
+}

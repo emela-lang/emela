@@ -1,0 +1,19 @@
+# Functions on Bool. Text uses the same constructor names as Show.
+
+## Returns `"True"` or `"False"`.
+pub fn to_string(b: Bool) -> String {
+  b match {
+    True  -> "True"
+    False -> "False"
+  }
+}
+
+## Reads exactly `"True"` or `"False"`. Case differences, whitespace and numeric forms
+## fail with ParseError; `input` preserves the entire original string.
+pub fn parse(s: String) -> Bool fails ParseError {
+  s match {
+    "True"  -> True
+    "False" -> False
+    _       -> fail ParseError(input: s)
+  }
+}

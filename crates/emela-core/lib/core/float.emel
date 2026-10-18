@@ -39,3 +39,52 @@ pub fn round(x: Float) -> Int
 ## Rounds toward zero.
 @intrinsic
 pub fn truncate(x: Float) -> Int
+
+## True only for NaN, the only Float unequal to itself under IEEE comparison.
+pub fn is_nan(x: Float) -> Bool {
+  x != x
+}
+
+## Orders NaN after all other values, with all NaNs comparing Equal.
+## Positive and negative zero compare Equal. Unlike `==`, two NaNs compare Equal here.
+pub fn compare(a: Float, b: Float) -> Ordering {
+  (is_nan(a), is_nan(b)) match {
+    (True, True) -> Equal
+    (True, _)    -> Greater
+    (_, True)    -> Less
+    (False, False) -> {
+      if a < b {
+        Less
+      } else if a > b {
+        Greater
+      } else {
+        Equal
+      }
+    }
+  }
+}
+
+## Returns the larger value under `compare`; either NaN makes the result NaN.
+## Returns `a` on Equal, preserving its sign when the arguments are signed zeros.
+pub fn max(a: Float, b: Float) -> Float {
+  compare(a, b) match {
+    Less    -> b
+    Greater -> a
+    Equal   -> a
+  }
+}
+
+## Returns the smaller value under `compare`; a single NaN selects the other value.
+## Returns `a` on Equal, including two NaNs or signed zeros.
+pub fn min(a: Float, b: Float) -> Float {
+  compare(a, b) match {
+    Less    -> a
+    Greater -> b
+    Equal   -> a
+  }
+}
+
+## Absolute value, mapping either signed zero to positive zero and leaving NaN unchanged.
+pub fn abs(x: Float) -> Float {
+  if x == 0.0 { 0.0 } else if x < 0.0 { -x } else { x }
+}
