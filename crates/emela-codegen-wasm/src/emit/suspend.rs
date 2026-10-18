@@ -348,12 +348,12 @@ impl<'m> Builder<'m> {
                 cx.pop();
                 ins.end();
             }
-            Stmt::Switch { .. } => {
-                self.internal(format!(
-                    "a suspension point inside a switch in {} is not lowered yet",
-                    cx.f.name
-                ));
-            }
+            Stmt::Switch {
+                dst,
+                on,
+                cases,
+                default,
+            } => self.machine_switch(cx, ins, dst, on, cases, default),
             Stmt::Protect { .. } => self.internal(format!("protect left in {}", cx.f.name)),
             Stmt::Dup(v) => self.guard_default(cx, ins, |b, cx, ins| {
                 ins.local_get(cx.local(v));
@@ -442,6 +442,142 @@ impl<'m> Builder<'m> {
         cx.pop();
         ins.end();
         self.let_landings(cx, ins, &value, on_defect, landing);
+        cx.pop();
+        ins.end();
+    }
+
+    /// A switch of a state machine: the resume selects the case whose range holds the state (and
+    /// skips the whole switch if none does), the normal path evaluates the scrutinee as usual.
+    #[allow(clippy::too_many_arguments)]
+    fn machine_switch(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        on: SwitchOn,
+        cases: Vec<emela_lir::Case>,
+        default: Option<SeqId>,
+    ) {
+        let any = cases
+            .iter()
+            .any(|c| cx.machine.as_ref().unwrap().seq_range.contains_key(&c.body))
+            || default.is_some_and(|d| cx.machine.as_ref().unwrap().seq_range.contains_key(&d));
+        let scrutinee = match on {
+            SwitchOn::Tag(v) => {
+                if cx.f.vars[v].repr == Repr::Ref {
+                    Scrutinee::Tag(v)
+                } else {
+                    Scrutinee::Lit(v)
+                }
+            }
+            SwitchOn::Lit(v) => Scrutinee::Lit(v),
+        };
+        if !any {
+            self.guard_default(cx, ins, |b, cx, ins| {
+                b.switch_chain(cx, ins, &cases, 0, &default, dst, scrutinee);
+            });
+            return;
+        }
+        let ranges: Vec<(u32, u32)> = cases
+            .iter()
+            .map(|c| {
+                cx.machine
+                    .as_ref()
+                    .unwrap()
+                    .seq_range
+                    .get(&c.body)
+                    .copied()
+                    .unwrap_or((1, 0))
+            })
+            .collect();
+        let drange = default.and_then(|d| cx.machine.as_ref().unwrap().seq_range.get(&d).copied());
+        let n = cases.len();
+        ins.block(BlockType::Empty);
+        cx.push(Lbl::Other);
+        let skip = cx.labels.len() - 1;
+        ins.local_get(cx.state);
+        ins.i32_const(-1);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        cx.push(Lbl::Other);
+        // Normal: the default index, then the matching case.
+        ins.i32_const(n as i32);
+        ins.local_set(cx.take);
+        for (i, case) in cases.iter().enumerate() {
+            self.push_scrutinee(cx, ins, scrutinee);
+            match &case.key {
+                CaseKey::Variant(k) => {
+                    ins.i32_const(*k as i32);
+                }
+                CaseKey::Lit(c) => self.const_val(ins, c),
+            }
+            match scrutinee {
+                Scrutinee::Tag(_) => ins.i32_eq(),
+                Scrutinee::Lit(v) => match cx.f.vars[v].repr {
+                    Repr::I64 => ins.i64_eq(),
+                    _ => ins.i32_eq(),
+                },
+            };
+            ins.if_(BlockType::Empty);
+            cx.push(Lbl::Other);
+            ins.i32_const(i as i32);
+            ins.local_set(cx.take);
+            cx.pop();
+            ins.end();
+        }
+        ins.else_();
+        // Resuming: the case whose range holds the state.
+        ins.i32_const(-1);
+        ins.local_set(cx.take);
+        for (i, (lo, hi)) in ranges.iter().enumerate() {
+            self.machine_in_range(cx, ins, *lo, *hi);
+            ins.if_(BlockType::Empty);
+            cx.push(Lbl::Other);
+            ins.i32_const(i as i32);
+            ins.local_set(cx.take);
+            cx.pop();
+            ins.end();
+        }
+        if let Some((lo, hi)) = drange {
+            self.machine_in_range(cx, ins, lo, hi);
+            ins.if_(BlockType::Empty);
+            cx.push(Lbl::Other);
+            ins.i32_const(n as i32);
+            ins.local_set(cx.take);
+            cx.pop();
+            ins.end();
+        }
+        ins.local_get(cx.take);
+        ins.i32_const(0);
+        ins.i32_lt_s();
+        ins.if_(BlockType::Empty);
+        cx.push(Lbl::Other);
+        let depth = (cx.labels.len() - 1 - skip) as u32;
+        ins.br(depth);
+        cx.pop();
+        ins.end();
+        cx.pop();
+        ins.end();
+        // Run the selected body (the cases, then the default).
+        for (i, case) in cases.iter().enumerate() {
+            ins.local_get(cx.take);
+            ins.i32_const(i as i32);
+            ins.i32_eq();
+            ins.if_(BlockType::Empty);
+            cx.push(Lbl::Other);
+            self.seq(cx, ins, case.body, dst);
+            ins.else_();
+        }
+        match default {
+            Some(d) => self.seq(cx, ins, d, dst),
+            None => {
+                ins.unreachable();
+            }
+        }
+        for _ in 0..n {
+            cx.pop();
+            ins.end();
+        }
         cx.pop();
         ins.end();
     }
