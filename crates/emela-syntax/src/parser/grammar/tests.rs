@@ -207,6 +207,7 @@ fn ブロックと文() {
             "{\n  user = find_user(id) escape {\n    NotFound(_) -> guest_user()\n  }\n  data = load(id)\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\n}",
             "{\n  with AppTest, FixedClock { greet(1) }\n  List.map(names, fn(n) { log.info(n) })\n  if a { 1 } else if b { 2 } else { 3 }\n}",
             "{\n  [x, ..rest] = xs\n  User(name:, ..) = user\n  [first, ..] = xs\n  _ = run()\n}",
+            "{\n  a = (10 -\n    1)\n  b = (10 +\n    1)\n}",
             "{}",
         ],
         block,
@@ -224,6 +225,7 @@ fn ブロックと文のエラー() {
             "{\n  if x { 1 } else 2\n}",
             "{\n  x = (1\n  y = 2\n}",
             "{\n  a = 1",
+            "{\n  a = 10 -\n    1\n  b = 10 +\n    1\n}",
         ],
         block,
     ));
