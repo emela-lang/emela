@@ -298,7 +298,7 @@ fn taken(ins: &mut InstructionSink, out: u32, mode: u32, bits: u32) {
     ins.end();
 }
 
-fn success_desc(b: &mut Builder, ins: &mut InstructionSink, repr: u32) {
+pub(super) fn success_desc(b: &mut Builder, ins: &mut InstructionSink, repr: u32) {
     let val = b.desc(DescKey {
         kind: 0,
         tag: 0,
@@ -325,7 +325,7 @@ fn success_desc(b: &mut Builder, ins: &mut InstructionSink, repr: u32) {
     ins.end();
 }
 
-fn failure_desc(b: &mut Builder) -> u32 {
+pub(super) fn failure_desc(b: &mut Builder) -> u32 {
     b.desc(DescKey {
         kind: 0,
         tag: 1,

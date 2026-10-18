@@ -355,6 +355,22 @@ fn main() {
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),
+    (
+        "fibers",
+        r#"
+import Std.Fiber.{Fiber}
+import Std.Deferred.{Deferred}
+fn main() {
+  total = Fiber.scope(fn() {
+    d = Fiber.deferred()
+    a = Fiber.fork(fn() { Deferred.await(d) + 1 })
+    Fiber.fork(fn() { Deferred.complete(d, 40) })
+    Fiber.join(a)
+  })
+  dbg(total)
+}
+"#,
+    ),
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
@@ -374,11 +390,6 @@ const NOT_ON_WASM: &[(&str, &str, &str)] = &[
         "string_chars",
         "fn points(s: String) -> List[String] { String.chars(s) }\nfn main() { dbg(points(\"abc\")) }\n",
         "`String.chars` needs the Unicode grapheme cluster tables",
-    ),
-    (
-        "fibers",
-        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
-        "fibers are not supported on target `wasm`",
     ),
 ];
 

@@ -20,13 +20,8 @@ use common::{out_dir, run_bytes, to_wasm, wasmtime};
 const NOT_ON_WASM: &[(&str, &str)] = &[
     // --- fibers and suspending code (check.rs) ---
     (
-        "fiber_failures",
-        "a fiber release that fails while unwinding loses its defect (needs the defect/\
-         interruption replacement in `raise`, spec 14.4)",
-    ),
-    (
         "fiber_fairness",
-        "the driver loop stalls/traps during a long fairness interleaving",
+        "the driver loop stalls during a long fairness interleaving",
     ),
     (
         "fiber_main_fails",
@@ -49,10 +44,6 @@ const NOT_ON_WASM: &[(&str, &str)] = &[
     (
         "suspend_external",
         "a `suspend fn` external function needs the `sleep` host of T-Clock",
-    ),
-    (
-        "suspend_resume",
-        "a resume kept for another fiber (the `Parked` handler) is not delivered yet",
     ),
 ];
 
