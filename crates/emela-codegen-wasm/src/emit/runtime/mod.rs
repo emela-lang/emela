@@ -183,6 +183,9 @@ pub(crate) fn register(b: &mut Builder) {
         if constant::handles(name) && !b.uses_const {
             continue;
         }
+        if fs::handles(name) && !fs::requested(b) {
+            continue;
+        }
         if is_on_demand(name) && !b.requested_hosts.contains(&name) {
             continue;
         }

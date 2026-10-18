@@ -35,6 +35,22 @@ pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[
     ("emela:env", "get", "env_get"),
     ("emela:random", "int", "random_int"),
     ("emela:random", "float", "random_float"),
+    // `Std.FileSystem` (spec 15.2). The `Outcome` an operation returns and the accessors that
+    // take it apart are opaque handles; see `emit::handle`.
+    ("emela:fs", "read_text", "fs_read_text"),
+    ("emela:fs", "write_text", "fs_write_text"),
+    ("emela:fs", "append_text", "fs_append_text"),
+    ("emela:fs", "exists", "fs_exists"),
+    ("emela:fs", "is_directory", "fs_is_directory"),
+    ("emela:fs", "list_directory", "fs_list_directory"),
+    ("emela:fs", "create_directory", "fs_create_directory"),
+    ("emela:fs", "remove", "fs_remove"),
+    ("emela:fs", "outcome_error", "fs_outcome_error"),
+    ("emela:fs", "outcome_message", "fs_outcome_message"),
+    ("emela:fs", "outcome_text", "fs_outcome_text"),
+    ("emela:fs", "outcome_name_count", "fs_outcome_name_count"),
+    ("emela:fs", "outcome_name_at", "fs_outcome_name_at"),
+    ("emela:fs", "release_outcome", "fs_release_outcome"),
 ];
 
 /// If `(module, name)` is an internal host, the runtime function it binds to.

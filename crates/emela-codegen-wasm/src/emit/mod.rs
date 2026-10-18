@@ -19,6 +19,7 @@
 mod builtins;
 mod external;
 mod fiber;
+mod handle;
 pub mod layout;
 mod runtime;
 mod runtimeop;
@@ -411,6 +412,8 @@ impl<'m> Builder<'m> {
         {
             self.random_get();
         }
+        // The WASI calls the `Std.FileSystem` internal hosts need (only when one is requested).
+        self.fs_imports();
         // The IR definitions, in arena order (the entries of the table are the IR functions).
         for (id, f) in self.m.functions.iter() {
             if self.imported(id) {
