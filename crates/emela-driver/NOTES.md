@@ -34,7 +34,7 @@ pub trait Backend<P> {
 
 ## C のターゲット（`--target c`，仕様 16章）
 
-- （補）ターゲットは `Target`（`js`，`c`）．コマンドの `--target`，なければ `Pome.toml` の `[build].target`（4.7），なければ js．`Pome.toml` は今もほかの項目を読まず，`[build].target` だけを `toml` で読む．TOML として読めないファイルや文字列でない `target` は「指定なし」とみなし，知らない名前だけを E0232 にする．依存の仕組みがまだないので，「依存されたときは無視する」は今は何もしなくてよい
+- （補）ターゲットは `Target`（`js`，`c`，`wasm`，`c-embedded`）．コマンドの `--target`，なければ `Pome.toml` の `[build].target`（4.7），なければ js．`project_target` は `[build].target` だけを `toml` で読む（組み込みの設定は `embedded_options`）．TOML として読めないファイルや文字列でない `target` は「指定なし」とみなし，知らない名前だけを E0232 にする．依存の仕組みがまだないので，「依存されたときは無視する」は今は何もしなくてよい
 - （補）`Lower` と `LowerTests` は `with_target` で lowering の外部関数の検査（12.1，E0412）のターゲットを変える
 - （補）出力段の trait と出力は JS と C で共通なので，target に依らない名前（`Backend`，`BuildOutput`）にしてある（旧 `JsBackend`，`JsOutput`）．JS 固有のもの（`CoreJs`，`JS_ENTRY_FILE`，`NoJsBackend`）は JS の名前のまま
 - （補）`CoreC` は C の `Backend` と `TestBackend`．出力（`main.c`，ランタイムの `.c` と `.h`，ホストの `.c` 向けの公開のヘッダ `emela.h`（12.6），使う同梱の `.c` を `emela_core/` の下）を書いた後の `finish` で cc を呼び，実行ファイル `main` を作る．`runner` が `Runner::Native` なので，run と test は node でなくその実行ファイルを起動する．両方の trait の `finish` と `runner` は既定で JS のまま（エントリをそのまま node で動かす）
@@ -53,6 +53,14 @@ pub trait Backend<P> {
 - （補）emela-codegen-wasm の「WASM ではまだ使えない」のエラーは診断にする（コールバックは E0427，それ以外は番号なし．C が suspend fn の外部関数を扱えるようになったので E0428 は欠番）
 - （補）`emela test --target wasm` は `Entry::Tests` でモジュールを出し，`_start` が各テストを順に呼んで結果の行（JS と同じ）を標準出力に書く．読み取りと表示は JS・C と共通
 - （補）`tests/wasm.rs` は build・run・test の WASM 経路を `wasmtime` で動かし，`tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の両方で動かして終了コードと出力が一致することを見る．WASM がまだ扱えないものは診断のメッセージで見る．`wasmtime` がなければ飛ばす（JS と C の結果を比べる `parity.rs` と同じ形．16章）
+
+## 組み込み C のターゲット（`--target c-embedded`）
+
+- （補）`EmbeddedC` は `Backend` の出力先で，リンクはしない．`main.c`，`emela_board.h`，使っている周辺機器の境界ヘッダー（`emela_gpio.h` など），`emela_embedded.h` を出力し，`Runner::None` を返す（`emela run` はエラー）．既定の出力先は `target/emela/c-embedded`
+- （補）型検査は `Typecheck::with_target` で，ターゲットが `main` に与えるエフェクト（`Std.Embedded.*` のエフェクトと，`@static` の const の型の `State`．仕様 16.6）を `AutoEffect` として渡す．const の型は推論の後に分かるので，`@static` があれば2回検査する．ほかの関数とテスト関数には通常どおり宣言とハンドラが要る
+- （補）設定は `embedded_options` が `Pome.toml` から読む（`[embedded.memory] string_capacity` と `heap_bytes`）．詳細は `docs/design/c-embedded-codegen.md`
+- （補）`emela test` はホスト向け C で動かす．`LowerTests::for_embedded_project` で `main` にボードのエフェクトを与えて型検査し，`CoreC::with_string_capacity` でランタイムが String の容量を検査する（`-DEM_STRING_CAPACITY`）
+- （補）`tests/c_embedded.rs` は生成 C を，ホストの cc でスタブのボードとリンクして動かした結果で確かめる
 
 ## テスト（`emela test`，仕様 13章）
 

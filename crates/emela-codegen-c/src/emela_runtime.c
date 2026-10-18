@@ -149,6 +149,17 @@ em_ref em_host_box(void *h) {
 #define EM_STR_BYTES(s) ((char *)&(s)->slots[1])
 
 static em_ref em_str_alloc(size_t len) {
+#ifdef EM_STRING_CAPACITY
+  /* The embedded C target's limit, checked when its tests run here (`emela test` of a
+   * `c-embedded` project): building a longer string is a defect there. */
+  static bool raising;
+  if (len > EM_STRING_CAPACITY && em_defect == NULL && !raising) {
+    /* The message is a string too, maybe longer than the capacity. */
+    raising = true;
+    em_raise_cstr("string capacity exceeded");
+    raising = false;
+  }
+#endif
   em_ref s = em_alloc(&em_desc_string, 1 + (len + 1 + sizeof(em_word) - 1) / sizeof(em_word));
   s->slots[0].l = (int64_t)len;
   EM_STR_BYTES(s)[len] = '\0';

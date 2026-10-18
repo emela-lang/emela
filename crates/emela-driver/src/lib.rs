@@ -5,6 +5,7 @@
 
 mod actions;
 mod c;
+mod c_embedded;
 pub mod code;
 mod complete;
 mod diagnostic;
@@ -29,6 +30,7 @@ mod wasm;
 
 pub use actions::CodeAction;
 pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_command, run_native};
+pub use c_embedded::EmbeddedC;
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_html, render_markdown};
@@ -57,7 +59,7 @@ pub use run::{
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
-pub use target::{Target, project_target};
+pub use target::{Target, embedded_options, project_target};
 pub use testing::{
     C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,
     TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule, TestOptions,

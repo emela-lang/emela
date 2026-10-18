@@ -39,19 +39,33 @@ pub struct CoreC {
     sources: Vec<PathBuf>,
     /// The C compiler and its flags; [`cc_command`] if `None`.
     cc: Option<(PathBuf, Vec<String>)>,
+    /// The embedded C target's string capacity, checked by the runtime (`emela test` of a
+    /// `c-embedded` project runs on this target).
+    string_capacity: Option<u16>,
 }
 
 impl CoreC {
+    /// Checks that no string is longer than `capacity` bytes (a defect otherwise), as the
+    /// embedded C target does.
+    pub fn with_string_capacity(mut self, capacity: u16) -> Self {
+        self.string_capacity = Some(capacity);
+        self
+    }
+
     /// Builds with the C compiler `cc` instead of `EMELA_CC` or `cc` (tests).
     pub fn with_cc(cc: impl Into<PathBuf>, flags: &[&str]) -> Self {
         CoreC {
             sources: Vec::new(),
             cc: Some((cc.into(), flags.iter().map(|f| (*f).to_owned()).collect())),
+            string_capacity: None,
         }
     }
 
     fn build(&self, out_dir: &Path) -> Result<PathBuf, Vec<Diagnostic>> {
-        let (cc, flags) = self.cc.clone().unwrap_or_else(cc_command);
+        let (cc, mut flags) = self.cc.clone().unwrap_or_else(cc_command);
+        if let Some(capacity) = self.string_capacity {
+            flags.push(format!("-DEM_STRING_CAPACITY={capacity}"));
+        }
         build_executable(&cc, &flags, out_dir, &self.sources).map_err(|d| vec![d])
     }
 

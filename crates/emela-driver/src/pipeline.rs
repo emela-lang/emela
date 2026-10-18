@@ -210,6 +210,7 @@ impl Input {
             Target::Js => self.base.join(JS_OUT_DIR),
             Target::C => self.base.join(C_OUT_DIR),
             Target::Wasm => self.base.join(WASM_OUT_DIR),
+            Target::CEmbedded => self.base.join("target/emela/c-embedded"),
         }
     }
 
@@ -406,6 +407,8 @@ pub enum Runner {
     Native,
     /// A `.wasm` module run with `wasmtime` (WASI).
     Wasmtime,
+    /// Source only: the board's build compiles, links and runs it.
+    None,
 }
 
 /// A lexer-only frontend: returns only lexer diagnostics, no imports, and no type checking.
@@ -764,6 +767,9 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
         Runner::Node => run_node(&options.node, &entry, &options.args, options.output),
         Runner::Native => run_native(&entry, &options.args, options.output),
         Runner::Wasmtime => run_wasmtime(&entry, &options.args, options.output),
+        Runner::None => Err(Diagnostic::error(
+            "the selected target emits source code and cannot be run by `emela run`",
+        )),
     };
     match result {
         Ok(output) => (analysis, Some(output)),

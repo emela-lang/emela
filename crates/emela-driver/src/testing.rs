@@ -59,6 +59,7 @@ pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
         Target::Js => input.base.join(JS_TEST_OUT_DIR),
         Target::C => input.base.join(C_TEST_OUT_DIR),
         Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
+        Target::CEmbedded => input.base.join("target/emela/test-c-embedded"),
     }
 }
 
@@ -139,6 +140,15 @@ impl<B> LowerTests<B> {
     /// Checks external functions against `target` (spec 12.1) instead of JS.
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
+        self
+    }
+}
+
+impl<B: BuiltinModules> LowerTests<B> {
+    /// Type-checks as the embedded C target does (the board's effects and static states are
+    /// provided to `main`), for the tests of a `c-embedded` project, which run on the host.
+    pub fn for_embedded_project(mut self) -> Self {
+        self.typecheck = self.typecheck.with_target(Target::CEmbedded);
         self
     }
 }
@@ -338,6 +348,12 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
             let mut command = Command::new(&wasmtime);
             command.arg("run").arg(&entry);
             (wasmtime, command)
+        }
+        Runner::None => {
+            analysis.diagnostics.push(Diagnostic::error(
+                "the selected target emits source code and cannot run tests",
+            ));
+            return (analysis, None);
         }
     };
     match run_tests(&program, command, &selected, options.output, out) {

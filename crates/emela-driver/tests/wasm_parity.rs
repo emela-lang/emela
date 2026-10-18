@@ -400,6 +400,7 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Box<Analysis
         Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
         Target::Wasm => run(&fs, &input, &mut frontend, &mut CoreWasm, &options, |_| {}),
         Target::C => unreachable!("parity compares js and wasm"),
+        Target::CEmbedded => unreachable!("these tests do not run the embedded C target"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {

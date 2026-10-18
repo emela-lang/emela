@@ -4,7 +4,7 @@ use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
-use emela_types::{CheckOptions, ProgramTypes, check_program_with};
+use emela_types::{AutoEffect, CheckOptions, ProgramTypes, check_program_with_auto_main_effects};
 use la_arena::ArenaMap;
 
 use crate::actions::CodeAction;
@@ -182,6 +182,8 @@ fn is_broken(import: &ast::Import) -> bool {
 /// results.
 pub struct Typecheck<B = NoBuiltins> {
     resolve: Resolve<B>,
+    /// Whether the target is the embedded C one, which provides effects to `main` (spec 16.6).
+    embedded: bool,
     /// Whether the entry module had a `main` fn in the last `check`. `None` without an entry or
     /// HIR.
     entry_main: Option<bool>,
@@ -200,6 +202,7 @@ impl Default for Typecheck<NoBuiltins> {
     fn default() -> Self {
         Typecheck {
             resolve: Resolve::default(),
+            embedded: false,
             entry_main: None,
         }
     }
@@ -209,8 +212,15 @@ impl<B: BuiltinModules> Typecheck<B> {
     pub fn new(resolve: Resolve<B>) -> Self {
         Typecheck {
             resolve,
+            embedded: false,
             entry_main: None,
         }
+    }
+
+    /// Checks with the effects `target` provides to `main` (spec 16.6).
+    pub fn with_target(mut self, target: Target) -> Self {
+        self.embedded = target == Target::CEmbedded;
+        self
     }
 
     /// `None` for modules that were not read.
@@ -343,7 +353,9 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         test_diagnostics.extend(ref_diagnostics);
         // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
-        // The R of main and test functions must be empty (spec 8.3, 13.3).
+        // The R of main and test functions must be empty (spec 8.3, 13.3), except for the
+        // effects the target provides to main (the embedded C target's board effects and the
+        // states of `@static` consts, spec 16.6).
         // A library's fn named `main` is an ordinary function, not an executable boundary.
         let main = analysis
             .entry
@@ -354,7 +366,47 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             main,
             tests: tests.iter().map(|t| t.def).collect(),
         };
-        let types = check_program_with(&hir, &options);
+        let types = if self.embedded {
+            let mut auto: Vec<AutoEffect> = hir
+                .modules
+                .iter()
+                .filter(|(_, module)| module.name.to_string().starts_with("Std.Embedded."))
+                .flat_map(|(_, module)| module.items.iter().copied())
+                .filter(|&def| hir.defs[def].kind == emela_resolve::hir::DefKind::Effect)
+                .map(AutoEffect::new)
+                .collect();
+            let statics = static_consts(&hir);
+            let state = hir
+                .modules
+                .iter()
+                .find(|(_, module)| module.name.to_string() == "Std.State")
+                .into_iter()
+                .flat_map(|(_, module)| module.items.iter().copied())
+                .find(|&def| {
+                    hir.defs[def].name == "State"
+                        && hir.defs[def].kind == emela_resolve::hir::DefKind::Effect
+                });
+            match (statics.is_empty(), state) {
+                (false, Some(state)) => {
+                    // The consts' types are known after inference: a first check finds them.
+                    let first = check_program_with_auto_main_effects(&hir, &options, &auto);
+                    for def in statics {
+                        if let Some(sig) = first.sigs.get(def)
+                            && sig.scheme.params.is_empty()
+                        {
+                            auto.push(AutoEffect {
+                                effect: state,
+                                args: Some(vec![sig.scheme.ty.clone()]),
+                            });
+                        }
+                    }
+                    check_program_with_auto_main_effects(&hir, &options, &auto)
+                }
+                _ => check_program_with_auto_main_effects(&hir, &options, &auto),
+            }
+        } else {
+            check_program_with_auto_main_effects(&hir, &options, &[])
+        };
         // Inference proceeds in call order, so sort by file and position like name resolution.
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
@@ -405,6 +457,7 @@ impl<B: BuiltinModules> Lower<B> {
     /// Checks external functions against `target` (spec 12.1) instead of JS.
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
+        self.typecheck = self.typecheck.with_target(target);
         self
     }
 }
@@ -481,7 +534,7 @@ pub(crate) fn lower_typed(
         tests: typed.tests.iter().map(|t| t.def).collect(),
         paths,
         bundled_files: emela_core::bundled_files(),
-        target: Some(target.name()),
+        target: Some(target.external_name()),
     };
     match emela_core::lower(&input, roots) {
         Ok(lowered) => {
@@ -514,6 +567,17 @@ fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
         let data = &hir.defs[def];
         data.name == "main" && data.kind == DefKind::Fn
     })
+}
+
+/// The `@static` consts (the embedded C target's static states).
+fn static_consts(hir: &Program) -> Vec<emela_resolve::hir::DefId> {
+    hir.defs
+        .iter()
+        .filter(|&(def, _)| {
+            matches!(hir.item(def), Some(emela_resolve::hir::Item::Const(c)) if c.is_static)
+        })
+        .map(|(def, _)| def)
+        .collect()
 }
 
 #[cfg(test)]

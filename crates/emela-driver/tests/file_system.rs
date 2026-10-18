@@ -75,6 +75,7 @@ fn failures_on(name: &str, main: &str, target: Target) -> Vec<(Target, String, T
             &mut out,
         ),
         Target::Wasm => unreachable!("the file system tests run js and c"),
+        Target::CEmbedded => unreachable!("these tests do not run the embedded C target"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert_eq!(analysis.diagnostics, []);

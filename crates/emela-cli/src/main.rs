@@ -1,8 +1,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
-    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, FileSystem, Input, Lower, LowerTests,
-    MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule, TestOptions,
-    Typecheck,
+    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, EmbeddedC, FileSystem, Input, Lower,
+    LowerTests, MemoryFiles, OsFs, Output, RunOptions, SourceDb, Target, TestBackend, TestModule,
+    TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -25,7 +25,7 @@ enum Command {
         path: Option<PathBuf>,
     },
     /// Compile to the output of `--target` (`target/emela/js` for JS; a native executable for C;
-    /// `main.wasm` for WASM)
+    /// `main.wasm` for WASM; C source for the board's build for c-embedded)
     Build {
         /// Entry file or project directory [default: .]
         path: Option<PathBuf>,
@@ -100,6 +100,9 @@ enum TargetArg {
     C,
     /// WebAssembly (WASI) run with `wasmtime` (`EMELA_WASMTIME`)
     Wasm,
+    /// Embedded C source, linked by the board support package
+    #[value(name = "c-embedded")]
+    CEmbedded,
 }
 
 impl From<TargetArg> for Target {
@@ -108,6 +111,7 @@ impl From<TargetArg> for Target {
             TargetArg::Js => Target::Js,
             TargetArg::C => Target::C,
             TargetArg::Wasm => Target::Wasm,
+            TargetArg::CEmbedded => Target::CEmbedded,
         }
     }
 }
@@ -199,6 +203,22 @@ fn build(path: &Path, out_dir: Option<PathBuf>, target: Option<TargetArg>) -> Ex
             &out_dir,
         ),
         Target::Wasm => emela_driver::build(&OsFs, &input, &mut frontend, &mut CoreWasm, &out_dir),
+        Target::CEmbedded => {
+            let options = match emela_driver::embedded_options(&OsFs, &input) {
+                Ok(options) => options,
+                Err(diagnostic) => {
+                    print_diagnostics(&[diagnostic], &SourceDb::new());
+                    return ExitCode::from(DIAGNOSTIC_FAILURE);
+                }
+            };
+            emela_driver::build(
+                &OsFs,
+                &input,
+                &mut frontend,
+                &mut EmbeddedC { options },
+                &out_dir,
+            )
+        }
     };
     report(&analysis)
 }
@@ -225,6 +245,15 @@ fn run(
         Target::Js => run_with(&input, &options, target, &mut CoreJs),
         Target::C => run_with(&input, &options, target, &mut CoreC::default()),
         Target::Wasm => run_with(&input, &options, target, &mut CoreWasm),
+        Target::CEmbedded => {
+            print_diagnostics(
+                &[Diagnostic::error(
+                    "`run` is not available for the `c-embedded` target; use `build` to emit C source",
+                )],
+                &SourceDb::new(),
+            );
+            ExitCode::from(DIAGNOSTIC_FAILURE)
+        }
     }
 }
 
@@ -288,6 +317,25 @@ fn test(
         Target::Js => test_with(&input, &options, target, &mut CoreJs),
         Target::C => test_with(&input, &options, target, &mut CoreC::default()),
         Target::Wasm => test_with(&input, &options, target, &mut CoreWasm),
+        // The tests run on the host C target, which checks the strings' capacity as the board
+        // would (GPIO and the like are replaced by test handlers, spec 13).
+        Target::CEmbedded => {
+            let capacity = match emela_driver::embedded_options(&OsFs, &input) {
+                Ok(options) => options.string_capacity,
+                Err(diagnostic) => {
+                    print_diagnostics(&[diagnostic], &SourceDb::new());
+                    return ExitCode::from(DIAGNOSTIC_FAILURE);
+                }
+            };
+            test_with_frontend(
+                &input,
+                &options,
+                LowerTests::default()
+                    .with_target(Target::C)
+                    .for_embedded_project(),
+                &mut CoreC::default().with_string_capacity(capacity),
+            )
+        }
     }
 }
 
@@ -297,6 +345,20 @@ fn test_with<B: TestBackend<TestModule>>(
     target: Target,
     backend: &mut B,
 ) -> ExitCode {
+    test_with_frontend(
+        input,
+        options,
+        LowerTests::default().with_target(target),
+        backend,
+    )
+}
+
+fn test_with_frontend<B: TestBackend<TestModule>>(
+    input: &Input,
+    options: &TestOptions,
+    mut frontend: LowerTests,
+    backend: &mut B,
+) -> ExitCode {
     // Results go to stdout, diagnostics to stderr. Diagnostics go out before the tests start.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
@@ -304,7 +366,7 @@ fn test_with<B: TestBackend<TestModule>>(
     let (analysis, report) = emela_driver::test(
         &OsFs,
         input,
-        &mut LowerTests::default().with_target(target),
+        &mut frontend,
         backend,
         options,
         |analysis| {

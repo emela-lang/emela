@@ -18,27 +18,42 @@ pub enum Target {
     C,
     /// WebAssembly (WASI) run with `wasmtime` (Tier 1).
     Wasm,
+    /// Freestanding C source for microcontrollers, linked by the board's build (spec 16.6).
+    CEmbedded,
 }
 
 impl Target {
     /// The names `--target` and `[build].target` accept.
-    pub const NAMES: [&'static str; 3] = ["js", "c", "wasm"];
+    pub const NAMES: [&'static str; 4] = ["js", "c", "wasm", "c-embedded"];
 
     pub fn parse(name: &str) -> Option<Target> {
         match name {
             "js" => Some(Target::Js),
             "c" => Some(Target::C),
             "wasm" => Some(Target::Wasm),
+            "c-embedded" => Some(Target::CEmbedded),
             _ => None,
         }
     }
 
-    /// The name used in `@external(<name>, ...)`.
+    /// The name `--target` and `[build].target` use.
     pub fn name(self) -> &'static str {
         match self {
             Target::Js => "js",
             Target::C => "c",
             Target::Wasm => "wasm",
+            Target::CEmbedded => "c-embedded",
+        }
+    }
+}
+
+impl Target {
+    /// The name used in `@external(<name>, ...)` (spec 12.1): `embedded` for `c-embedded`, whose
+    /// external functions are not those of the host C target.
+    pub fn external_name(self) -> &'static str {
+        match self {
+            Target::CEmbedded => "embedded",
+            t => t.name(),
         }
     }
 }
@@ -84,6 +99,59 @@ fn target_in(text: &str, path: &Path) -> Result<Option<Target>, Diagnostic> {
                 .at(Location::Path(path.to_owned())),
         ),
     }
+}
+
+/// The embedded C target's settings in the project's `Pome.toml`:
+/// `[embedded.memory] string_capacity` (default 256, at most 512). A value out of range is an
+/// error in the settings.
+pub fn embedded_options(
+    fs: &dyn FileSystem,
+    input: &Input,
+) -> Result<emela_codegen_c_embedded::Options, Diagnostic> {
+    let mut options = emela_codegen_c_embedded::Options::default();
+    if input.single_file {
+        return Ok(options);
+    }
+    let path = input.base.join(PROJECT_FILE);
+    let Ok(text) = fs.read_to_string(&path) else {
+        return Ok(options);
+    };
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Ok(options);
+    };
+    let capacity = table
+        .get("embedded")
+        .and_then(|e| e.get("memory"))
+        .and_then(|m| m.get("string_capacity"));
+    if let Some(value) = capacity {
+        let max = emela_codegen_c_embedded::Options::MAX_STRING_CAPACITY;
+        match value.as_integer() {
+            Some(n) if (1..=i64::from(max)).contains(&n) => options.string_capacity = n as u16,
+            _ => {
+                return Err(Diagnostic::error(format!(
+                    "`[embedded.memory] string_capacity` must be an integer from 1 to {max}"
+                ))
+                .at(Location::Path(path)));
+            }
+        }
+    }
+    let setting_error =
+        |message: String| Diagnostic::error(message).at(Location::Path(path.clone()));
+    if let Some(value) = table
+        .get("embedded")
+        .and_then(|e| e.get("memory"))
+        .and_then(|m| m.get("heap_bytes"))
+    {
+        match value.as_integer() {
+            Some(n) if (0..=i64::from(u32::MAX)).contains(&n) => options.heap_bytes = n as u32,
+            _ => {
+                return Err(setting_error(
+                    "`[embedded.memory] heap_bytes` must be a non-negative integer".into(),
+                ));
+            }
+        }
+    }
+    Ok(options)
 }
 
 fn quoted(names: &[&str]) -> String {
