@@ -38,10 +38,6 @@ const NOT_ON_WASM: &[(&str, &str)] = &[
         "an interruption of a fiber whose release fails is not delivered correctly yet",
     ),
     (
-        "suspend_after_resume",
-        "a failure after resume ends the run as interrupted instead of with the defect",
-    ),
-    (
         "suspend_external",
         "a `suspend fn` external function needs the `sleep` host of T-Clock",
     ),

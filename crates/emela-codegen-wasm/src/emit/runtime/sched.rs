@@ -653,8 +653,21 @@ fn sync_leave(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.local_get(W);
     ins.call(rt(b, "wait_forget"));
-    ins.end();
     interrupted(b, ins, BITS);
+    ins.else_();
+    // No request: a defect that ended a `sync` call (a failure after resume, spec 8.7) is the
+    // result; otherwise the call is unwound as interrupted.
+    ins.global_get(G_SYNC_DEFECT);
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_SYNC_DEFECT);
+    ins.i64_extend_i32_u();
+    ins.local_set(BITS);
+    ins.i32_const(0);
+    ins.global_set(G_SYNC_DEFECT);
+    ins.else_();
+    interrupted(b, ins, BITS);
+    ins.end();
+    ins.end();
     ins.i32_const(1);
     ins.local_set(MODE);
     ins.global_get(G_SYNC_DEPTH);
@@ -704,7 +717,16 @@ fn sync_leave(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.local_get(FR);
     ins.call(drop);
+    ins.global_get(G_SYNC_DEFECT);
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_SYNC_DEFECT);
+    ins.i64_extend_i32_u();
+    ins.local_set(BITS);
+    ins.i32_const(0);
+    ins.global_set(G_SYNC_DEFECT);
+    ins.else_();
     interrupted(b, ins, BITS);
+    ins.end();
     ins.i32_const(1);
     ins.local_set(MODE);
     ins.br(1);
