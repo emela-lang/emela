@@ -2064,13 +2064,17 @@ impl<'m> Builder<'m> {
     ) {
         match callee {
             Callee::Direct(g) => {
-                // A `suspend fn` external bound to an internal host is called through the task
-                // wrapper (spec 12.6): the host completes the task instead of returning.
+                // A `suspend fn` external bound to an internal host that takes the task (`i32`)
+                // last is called through the task wrapper (spec 12.6). A host that returns its
+                // value directly is called like any other external.
                 let suspend_host = {
                     let f = &self.m.functions[*g];
                     if f.suspends {
-                        self.wasm_host(f)
-                            .filter(|(m, n)| external::internal_host_name(m, n).is_some())
+                        self.wasm_host(f).and_then(|(m, n)| {
+                            let host = external::internal_host_name(&m, &n)?;
+                            let (hp, hr) = runtime::signature(host)?;
+                            (hp.len() == f.params.len() + 1 && hr.is_empty()).then_some((m, n))
+                        })
                     } else {
                         None
                     }

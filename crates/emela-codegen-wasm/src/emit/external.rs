@@ -114,18 +114,24 @@ impl<'m> Builder<'m> {
         let Some(host) = internal_host_name(module, name) else {
             return;
         };
-        let mut params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
-        // A `suspend fn` host takes the task (an `i32` handle) last and completes it instead of
-        // returning a value (the wrapper appends the task; spec 12.6).
-        let results: Vec<ValType> = if f.suspends {
-            params.push(ValType::I32);
-            Vec::new()
-        } else {
-            repr_val(self.repr(f.ret)).into_iter().collect()
+        let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
+        let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
+        // A `suspend fn` host either returns its value directly (an in-place host, e.g. `Std.FileSystem`'s
+        // `host_*`) or takes the task (`i32`) last and completes it instead of returning (the wrapper
+        // appends the task; a host that suspends, e.g. T-Clock's `sleep`; spec 12.6).
+        let matches = |host_params: &[ValType], host_results: &[ValType]| {
+            if host_params == params.as_slice() && host_results == results.as_slice() {
+                return true;
+            }
+            if f.suspends {
+                let mut with_task = params.clone();
+                with_task.push(ValType::I32);
+                return host_params == with_task.as_slice() && host_results.is_empty();
+            }
+            false
         };
         match super::runtime::signature(host) {
-            Some((host_params, host_results))
-                if host_params == params.as_slice() && host_results == results.as_slice() => {}
+            Some((host_params, host_results)) if matches(host_params, host_results) => {}
             other => self.internal(format!(
                 "internal host `{module}.{name}` takes {params:?} -> {results:?}, but the runtime \
                  function `{host}` is {other:?}"
