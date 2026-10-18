@@ -108,9 +108,10 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）const（5.6）は最初の参照で 1 回だけ評価して値か defect を記憶する（`emit::const_*` の
   静的セルと `runtime/constant.rs`）．評価中の defect には const 名の接頭辞を付け，自己参照と
   中断は記憶しない．ハンドラを作るモジュールだけが release の失敗の note（14.4）を持ち，
-  `retire` が最後に退役させた名前をグローバルに残す．どちらの仕組みも使わないプログラムの
-  生成 bytes は使う前と同じ（`uses_const` / `uses_notes` のときだけ，グローバルを
-  `Builder::globals` で動的に確保して出力する）
+  `retire` が最後に退役させた名前をグローバルに残す．`raise` は常に引数を `dup` して保留の
+  defect に自分の参照を持たせる（呼び出し側は `runtime defect` の後で自分の参照を落とすので，
+  C の `em_raise` と同じ契約）．const / note のグローバルは `uses_const` / `uses_notes` のとき
+  だけ `Builder::globals` で動的に確保して出力する
 
 ### 内部ホスト（ホスト境界の固定 ABI）
 

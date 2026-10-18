@@ -2149,23 +2149,6 @@ fn int64_to_string(b: &mut Builder, ins: &mut InstructionSink) {
 // ---- defects ----
 
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
-    if !b.uses_const && !b.uses_notes && !b.uses_suspend {
-        // Neither consts, release notes nor the scheduler need the defect kept alive or cleared,
-        // so a program without one keeps the exact bytes it had: the pending defect is a plain
-        // reference. (A fiber program captures the defect through `G_DEFECT` — `Fiber.attempt`,
-        // `Fiber.join` of an interrupted fiber — after the caller has dropped its own reference
-        // (the `runtime defect` operand is borrowed), so it goes through the counted path below.)
-        ins.global_get(G_DEFECT);
-        ins.i32_eqz();
-        ins.if_(BlockType::Empty);
-        ins.local_get(0);
-        ins.global_set(G_DEFECT);
-        ins.else_();
-        ins.local_get(0);
-        ins.call(rt(b, "drop"));
-        ins.end();
-        return;
-    }
     // This raise is not the self-reference defect: only the const that detects it sets the flag,
     // after calling `raise` (spec 5.6).
     if b.uses_const {
@@ -2175,8 +2158,9 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // No defect pending: this message becomes it. It borrows its argument, so it is counted: a
-    // const remembers it and a note keeps a reference to the first defect.
+    // No defect pending: this message becomes it. Its argument is borrowed (the Heap IR drops the
+    // caller's reference right after the `runtime defect`), so the pending defect takes its own
+    // reference, like the C runtime's `em_raise`.
     ins.local_get(0);
     ins.call(rt(b, "dup"));
     ins.local_get(0);
