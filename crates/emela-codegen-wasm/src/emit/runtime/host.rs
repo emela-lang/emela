@@ -185,8 +185,15 @@ fn env_get(b: &mut Builder, ins: &mut InstructionSink) {
 ///
 /// WASI has no `getenv`, so it asks `environ_sizes_get` for the count and size, copies the entry
 /// pointers and the `NAME=VALUE\0` bytes into two fresh heap objects with `environ_get` and scans
-/// them. The two objects are never freed (the process exits) and reuse the scratch `IOVEC` slot
-/// for the `environ_sizes_get` results.
+/// them. It reuses the scratch `IOVEC` slot for the `environ_sizes_get` results.
+///
+/// **The two objects are intentionally leaked** (as the C host's `getenv` result is not owned):
+/// freeing them needs the byte size the WASI calls only report through the scratch slot, and they
+/// are read through the returned pointer until the caller copies the value. `Std.Env.get` calls
+/// `env_has` and then `env_get`, so one lookup allocates four blocks. That is bounded by the
+/// number of lookups and the process is a short-lived command, so it is not worth a `free_raw`
+/// runtime function and a size-carrying protocol; a long-running host (`Std.Http`, …) that looks
+/// the environment up in a loop should revisit this.
 fn environ_find(b: &mut Builder, ins: &mut InstructionSink) {
     let alloc = rt(b, "alloc");
     let sizes_get = b.environ_sizes_get();
@@ -195,7 +202,13 @@ fn environ_find(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(IOVEC as i32);
     ins.i32_const((IOVEC + 4) as i32);
     ins.call(sizes_get);
-    ins.drop();
+    // A failed call leaves the scratch slot untouched: report "not set" instead of reading stale
+    // bytes as a count. (An empty environment looks the same; there is no defect a host can
+    // usefully raise for a missing variable.)
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.return_();
+    ins.end();
     ins.i32_const(IOVEC as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(ENV_COUNT);
@@ -227,7 +240,12 @@ fn environ_find(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(ENV_ENTRIES);
     ins.local_get(ENV_BUF);
     ins.call(get);
-    ins.drop();
+    // A failed call leaves the two buffers without trustworthy entry pointers: treat the variable
+    // as not set rather than scanning garbage.
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.return_();
+    ins.end();
     // The name's byte length (the bytes start at `name + HDR + 4`).
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
@@ -338,10 +356,21 @@ fn random_float(b: &mut Builder, ins: &mut InstructionSink) {
     ins.f64_div();
 }
 
-/// Fills `len` bytes at `IOVEC` with WASI `random_get`.
+/// Fills `len` bytes at `IOVEC` with WASI `random_get`. A failed call leaves the scratch bytes
+/// stale, so they are cleared: never return old scratch (or another host's leftovers) as a random
+/// value.
 fn random_bytes(b: &mut Builder, ins: &mut InstructionSink, len: u32) {
     ins.i32_const(IOVEC as i32);
     ins.i32_const(len as i32);
     ins.call(b.random_get());
-    ins.drop();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(IOVEC as i32);
+    if len == 8 {
+        ins.i64_const(0);
+        ins.i64_store(mem(0, 8));
+    } else {
+        ins.i32_const(0);
+        ins.i32_store(mem(0, 4));
+    }
+    ins.end();
 }

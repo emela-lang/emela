@@ -47,3 +47,31 @@ fn main() {
     assert_eq!(lines[1], "float in range True");
     assert_eq!(lines[2], "float in range True");
 }
+
+#[test]
+fn repeated_random_values_are_not_stale_scratch() {
+    // If `random_get` failed and the runtime read the scratch slot anyway, every call would return
+    // the same bytes. Three consecutive draws agreeing has probability ~2^-64, so they must differ.
+    let Some(run) = run(
+        "random-distinct",
+        r#"
+import Std.Console.{Console, SystemConsole}
+import Std.Random.{Random, SystemRandom}
+
+fn main() {
+  with SystemConsole, SystemRandom {
+    random = use Random
+    console = use Console
+    a = random.int()
+    b = random.int()
+    c = random.int()
+    console.print_line("all equal #{a == b && b == c}")
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    assert_eq!(run.stdout, "all equal False\n");
+}

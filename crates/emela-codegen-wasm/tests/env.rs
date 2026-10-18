@@ -49,3 +49,37 @@ fn system_env_reads_the_environment() {
     );
     assert_eq!(String::from_utf8_lossy(&ran.stderr), "");
 }
+
+#[test]
+fn env_has_reports_presence_directly() {
+    // `Std.Env` only exposes `get`, so bind the internal host `has` directly: presence must be
+    // reported without the value, a name that is only a prefix of a set one is not a match, and a
+    // name that is absent is `False`.
+    let Some(wasmtime) = wasmtime() else {
+        return;
+    };
+    let src = r#"
+@external(wasm, "emela:env", "has")
+fn env_has(name: String) -> Bool use {}
+
+fn main() {
+  dbg(env_has("EMELA_TEST_SET"))
+  dbg(env_has("EMELA_TEST_SET_ABSENT"))
+  dbg(env_has("EMELA"))
+}
+"#;
+    let bytes = to_wasm(src).unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
+    wasmparser::validate(&bytes).unwrap();
+    let dir = out_dir("env-has");
+    std::fs::write(dir.join("main.wasm"), &bytes).unwrap();
+    let mut command = Command::new(wasmtime);
+    command
+        .arg("run")
+        .arg("--env")
+        .arg("EMELA_TEST_SET=hello")
+        .arg("main.wasm")
+        .current_dir(&dir);
+    let ran = run_with_timeout(command, Duration::from_secs(60)).expect("the program timed out");
+    assert_eq!(ran.status.code(), Some(0), "stderr: {:?}", ran.stderr);
+    assert_eq!(String::from_utf8_lossy(&ran.stderr), "True\nFalse\nFalse\n");
+}
