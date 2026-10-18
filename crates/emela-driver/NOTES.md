@@ -139,10 +139,12 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）`MemoryFiles` は `/` を起点にし，相対パスは `/` からとみなす．`.` と `..` は字面で畳む
 - （補）診断のパスは `SourceDb::display_path` で起点（プロジェクトか単独ファイルのディレクトリ）からの相対パスにする．名前解決の診断の文面に埋め込まれたパス（重複の「先に `…` がある」）も同じく相対にする
 - ディレクトリを渡せるのはプロジェクトのディレクトリかソースのルートの中のディレクトリだけで，プロジェクトの中でもソースのルートの外（`scripts/`）なら E0208（``directory `scripts` is outside the source root `src` ``．付録 B，18.1 #32）．判定は `Input::resolve` に置き，check，build，run，test，fmt，LSP で共有する．ソースのルートの中のディレクトリを渡しても，型の検査はモジュールをまたぐのでプロジェクト全体を検査する
-- （補）ディレクトリを渡してエントリ（`src/main.emel`）がなくても `check` は通す．エントリがないことは `build` と `run` で初めてエラーにする
+- （補）ディレクトリを渡して `src/main.emel` も `src/lib.emel` もなくても `check` は通す．両方がないことは `build` と `run` で初めて E0209 にする
 - （補）エントリのファイルが名前の誤りでモジュールにならないときは，名前解決の診断に加えて「エントリ `…` がモジュールにならない」を出す
+- （補）ディレクトリ指定のプロジェクトに `src/main.emel` がなく `src/lib.emel` があるときは，ライブラリ専用として `lib.emel` を検査・テストのエントリにする．`build` は型検査だけで，lowering・出力・バックエンドの実行をしない．`run` は lib に fn `main` があっても E0230 で止まる．`src/main.emel` があればそちらを優先する．ファイルを明示指定した場合は，lib を含め従来どおりそのファイルを入口に build/run する
 - （補）`emela run` は，エントリのモジュールに `main` という名前の fn がなければ E0230（``entry `src/main.emel` has no `main` function``，位置はエントリのファイル）で止まり，出力も node の起動もしない．`build` は main がなくても出力する（8.3）．`main` という名前でも fn でないもの（const など）は main と数えない
 - （補）E0230 はほかの誤り（構文，名前，型，lowering）が1件もないときだけ出す．構文の誤りで main を読めなかっただけのときに誤りを重ねないため
+- （補）ライブラリ専用の判定は `Input::library_only` を `Analysis::library_only` に渡す．`Lower` は検査後の lowering を省き，`LowerTests` は従来どおりテストの根から lowering する．lib の fn `main` は普通の関数であり，main の境界としての R 検査はしない
 - （補）main があるかは `Frontend::has_entry_main` で引く．`Typecheck`（と，それを包む `Lower`）が直前の `check` の HIR から答える．答えないフロントエンド（`None`，既定）では確かめずに node を起動する
 - （補）`emela run` も既定の出力先（仕様 4.1）に書いてから実行する．前の出力は消さずに上書きする
 - （補）`run` は，ビルドの後で node を起動する前に `before_node` を呼ぶ．CLI はここで診断を出す（終わらないプログラムでも警告が先に見える）．node を起動できなかった診断はその後に足す

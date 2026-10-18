@@ -95,8 +95,12 @@ impl CoreSource {
 pub struct Input {
     /// Module names are paths relative to this.
     pub root: PathBuf,
-    /// `None` when a directory is passed and it has no `src/main.emel`.
+    /// `None` when a directory is passed and it has neither `src/main.emel` nor `src/lib.emel`.
     pub entry: Option<PathBuf>,
+    /// A directory-selected project with `src/lib.emel` but no `src/main.emel`.
+    /// Build only checks it; run rejects it even if the library defines a fn named `main`.
+    /// Explicit file inputs are never library-only.
+    pub library_only: bool,
     /// The project directory, or the file's directory for a single file. `target/` goes here,
     /// and diagnostic paths are relative to it.
     pub base: PathBuf,
@@ -109,7 +113,8 @@ impl Input {
     /// Makes the given path absolute and walks up its ancestors; the first `Pome.toml` decides
     /// the project.
     ///
-    /// - A directory without `Pome.toml` is an error. The entry is `<project>/src/main.emel`.
+    /// - A directory without `Pome.toml` is an error. The entry is `<project>/src/main.emel`,
+    ///   falling back to `src/lib.emel` for a library-only project.
     /// - A file without `Pome.toml` is a single file, rooted at the file's directory.
     /// - With `Pome.toml`, a file outside `<project>/src`, or a directory that is neither the
     ///   project directory nor under `<project>/src`, is an error (E0208).
@@ -155,11 +160,21 @@ impl Input {
                     Some(absolute)
                 } else {
                     let entry = root.join(ENTRY_FILE);
-                    fs.is_file(&entry).then_some(entry)
+                    if fs.is_file(&entry) {
+                        Some(entry)
+                    } else {
+                        // A library-only project still has an entry module for checking and
+                        // test discovery. It is not an executable entry, even if it defines
+                        // a fn named `main`; `run` will report E0230.
+                        let library = root.join("lib.emel");
+                        fs.is_file(&library).then_some(library)
+                    }
                 };
+                let library_only = !is_file && entry.as_deref() == Some(&root.join("lib.emel"));
                 Ok(Input {
                     root,
                     entry,
+                    library_only,
                     base: project,
                     single_file: false,
                 })
@@ -169,6 +184,7 @@ impl Input {
                 Ok(Input {
                     root: dir.clone(),
                     entry: Some(absolute),
+                    library_only: false,
                     base: dir,
                     single_file: true,
                 })
@@ -442,6 +458,9 @@ pub struct Analysis {
     pub graph: ImportGraph,
     /// `None` if there is no entry or it is not a module.
     pub entry: Option<ModuleId>,
+    /// Whether the directory input selected a library-only project. Normal build lowering is
+    /// skipped; test lowering still uses `entry` to collect and run the library's tests.
+    pub library_only: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -469,7 +488,10 @@ pub fn check<F: Frontend>(
     input: &Input,
     frontend: &mut F,
 ) -> (Analysis, Option<F::Program>) {
-    let mut analysis = Analysis::default();
+    let mut analysis = Analysis {
+        library_only: input.library_only,
+        ..Analysis::default()
+    };
     analysis.sources.set_base(&input.base);
     let (modules, mut resolve_diagnostics) = if input.single_file {
         emela_resolve::collect_modules(&Shallow(fs), &input.root)
@@ -619,7 +641,8 @@ fn concerns_reached(
 }
 
 /// The `emela build` stage: emits JS if checks pass and writes it to `out_dir`. Returns the path
-/// of the written entry. Output is produced even without main in the entry (spec 8.3).
+/// of the written entry. Output is produced even without main in the entry (spec 8.3), except
+/// for library-only directory inputs: those are only checked, with no backend calls or output.
 pub fn build<F: Frontend, B: Backend<F::Program>>(
     fs: &dyn FileSystem,
     input: &Input,
@@ -658,7 +681,7 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
     }
     // Not reported if there are other errors: a syntax error may just have hidden main.
     if require_main
-        && frontend.has_entry_main() == Some(false)
+        && (input.library_only || frontend.has_entry_main() == Some(false))
         && let Some(entry) = &input.entry
     {
         analysis.diagnostics.push(
@@ -669,6 +692,11 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
             .with_code(code::ENTRY_WITHOUT_MAIN)
             .at(Location::Path(entry.clone())),
         );
+        return (analysis, None);
+    }
+    if input.library_only {
+        // A library-only build is a successful check, not an executable or a library artifact.
+        // In particular, do not emit output, invoke cc, or require a lowered program.
         return (analysis, None);
     }
     let Some(program) = program else {
@@ -768,6 +796,7 @@ mod tests {
         Ok(Input {
             root: root.into(),
             entry: entry.map(Into::into),
+            library_only: false,
             base: base.into(),
             single_file: false,
         })
@@ -872,6 +901,7 @@ mod tests {
             Ok(Input {
                 root: "/home/src/proj".into(),
                 entry: Some("/home/src/proj/main.emel".into()),
+                library_only: false,
                 base: "/home/src/proj".into(),
                 single_file: true,
             })
