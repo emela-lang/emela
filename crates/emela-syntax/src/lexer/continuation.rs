@@ -141,6 +141,9 @@ mod tests {
     #[test]
     fn マイナスと括弧で始まる行は新しい文() {
         assert_eq!(newlines("a\n-b"), [NEWLINE]);
+        // An operator at the end of a line does not continue the expression.
+        assert_eq!(newlines("a = 10 -\n  1"), [NEWLINE]);
+        assert_eq!(newlines("a = 10 +\n  1"), [NEWLINE]);
         assert_eq!(newlines("foo\n(bar)"), [NEWLINE]);
         assert_eq!(newlines("foo\n[bar]"), [NEWLINE]);
         assert_eq!(newlines("a\nb"), [NEWLINE]);

@@ -344,7 +344,11 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         // Placement of `@internal` (E0229) and references from outside core (E0228).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
         // The R of main and test functions must be empty (spec 8.3, 13.3).
-        let main = analysis.entry.and_then(|entry| entry_main(&hir, entry));
+        // A library's fn named `main` is an ordinary function, not an executable boundary.
+        let main = analysis
+            .entry
+            .filter(|_| !analysis.library_only)
+            .and_then(|entry| entry_main(&hir, entry));
         self.entry_main = analysis.entry.map(|_| main.is_some());
         let options = CheckOptions {
             main,
@@ -374,7 +378,8 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
 /// `emela build` and `run`.
 ///
 /// Lowering is skipped if name resolution or type checking reported any error (lowering assumes
-/// an error-free program). Only fns reachable from the fns the entry module exports are lowered.
+/// an error-free program), or for library-only directory inputs (build is only a check). Only
+/// fns reachable from the fns the entry module exports are lowered.
 pub struct Lower<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
@@ -423,6 +428,11 @@ impl<B: BuiltinModules> Frontend for Lower<B> {
         let checked = self.typecheck.check(analysis, order);
         let mut diagnostics = checked.diagnostics;
         let program = checked.program.and_then(|typed| {
+            // Library-only builds are checks, so do not lower exports or validate backend-
+            // specific external functions. `LowerTests` still lowers the selected test roots.
+            if analysis.library_only {
+                return None;
+            }
             lower_typed(
                 analysis,
                 &typed,
