@@ -151,6 +151,9 @@ const BODY: &str = r#"
   dbg(read("d/a.txt"))
   dbg(outcome_code(raw_write_text("d/b.txt", "b")))
   dbg(names("d"))
+  dbg(outcome_code(raw_list_directory("d/a.txt")))
+  dbg(outcome_code(raw_write_text("nodir/x.txt", "y")))
+  dbg(outcome_code(raw_create_directory("d/a.txt")))
   dbg(outcome_code(raw_remove("d/b.txt")))
   dbg(names("d"))
   dbg(outcome_code(raw_read_text("d")))
@@ -184,7 +187,9 @@ fn wasi_file_system_works() {
         "[\"a.txt\", \"b.txt\"]",
         "[\"a.txt\"]",
         "\"IsADirectory\"",
+        "\"NotADirectory\"",
         "\"DirectoryNotEmpty\"",
+        "\"FileNotFound\"",
     ] {
         assert!(
             got.stderr.contains(line),
