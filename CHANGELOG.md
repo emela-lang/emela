@@ -7,6 +7,35 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/emela-lang/emela/compare/v0.21.0...v0.22.0) - 2026-10-18
+
+### Added
+
+- @external が指すファイルを JS の出力先に写して相対パスで読む ([#307](https://github.com/emela-lang/emela/pull/307))
+- *(pome)* emela pome add --allow-external と，lock の @external の一覧 ([#306](https://github.com/emela-lang/emela/pull/306))
+- *(pome)* 依存の @external を [external] allow で許し，[pome].targets を検査する ([#301](https://github.com/emela-lang/emela/pull/301))
+- *(pome)* 依存の Pome のモジュールをルート名の下に見せて build に組み込む ([#297](https://github.com/emela-lang/emela/pull/297))
+- *(pome)* emela pome の add，remove，install，update，list，verify ([#287](https://github.com/emela-lang/emela/pull/287))
+- Std.Test に PBT とアサーション補助を同梱する ([#281](https://github.com/emela-lang/emela/pull/281))
+- *(core)* 数値ヘルパーと Bool の変換関数を追加 ([#278](https://github.com/emela-lang/emela/pull/278))
+- *(pome)* github.com のリポジトリの中のディレクトリの Pome を取る ([#288](https://github.com/emela-lang/emela/pull/288))
+- *(pome)* emela-pome crate（Pome の解決，取得，sumdb の検証） ([#284](https://github.com/emela-lang/emela/pull/284))
+
+### Fixed
+
+- ライブラリ専用プロジェクトの入口と build/run を修正 ([#266](https://github.com/emela-lang/emela/pull/266)) ([#275](https://github.com/emela-lang/emela/pull/275))
+- CLI のテストが同じ名前の一時ディレクトリを共有しないようにする ([#252](https://github.com/emela-lang/emela/pull/252))
+- 文字列リテラルの \t，\r，\u{...} と """ の複数行の文字列を仕様 2.4 のとおりの値にする ([#280](https://github.com/emela-lang/emela/pull/280))
+- const の自己参照が無限ループする問題を修正 ([#276](https://github.com/emela-lang/emela/pull/276))
+- WASM のスクラッチが静的なデータと重ならないようにする ([#257](https://github.com/emela-lang/emela/pull/257))
+
+### Other
+
+- clarify trailing operator line continuation ([#260](https://github.com/emela-lang/emela/pull/260)) ([#274](https://github.com/emela-lang/emela/pull/274))
+- WASM の線形メモリの配置を layout にまとめる ([#258](https://github.com/emela-lang/emela/pull/258))
+- reuse C runtime objects across integration tests ([#277](https://github.com/emela-lang/emela/pull/277))
+- 依存のテストの [pome].emela を今のコンパイラの版にする ([#308](https://github.com/emela-lang/emela/pull/308))
+
 ## [0.21.0](https://github.com/emela-lang/emela/compare/v0.20.1...v0.21.0) - 2026-10-17
 
 ### Added
