@@ -104,6 +104,33 @@ pub fn check_program(program: &Program) -> ProgramTypes {
 }
 
 pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramTypes {
+    check_program_with_auto_main_effects(program, options, &[])
+}
+
+/// An effect the target provides to `main` (the embedded C target's board effects and static
+/// states), which `main`'s R may then contain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoEffect {
+    pub effect: DefId,
+    /// For an effect with type parameters, its type arguments (`[Presses]` for
+    /// `State[Presses]`); `None` provides every instantiation.
+    pub args: Option<Vec<crate::ty::Ty>>,
+}
+
+impl AutoEffect {
+    /// Every instantiation of the effect.
+    pub fn new(effect: DefId) -> Self {
+        AutoEffect { effect, args: None }
+    }
+}
+
+/// [`check_program_with`], with the effects the target provides to `main` (spec 16.6). Other
+/// functions and test functions still need their effects declared and handled.
+pub fn check_program_with_auto_main_effects(
+    program: &Program,
+    options: &CheckOptions,
+    auto_main_effects: &[AutoEffect],
+) -> ProgramTypes {
     let mut closed: FxHashMap<DefId, EffectContext> = FxHashMap::default();
     if let Some(main) = options.main {
         closed.insert(main, EffectContext::Main);
@@ -152,6 +179,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
                 fails: &types.handler_fails,
             },
             &closed,
+            auto_main_effects,
             &fibers,
         );
         for &def in &group {

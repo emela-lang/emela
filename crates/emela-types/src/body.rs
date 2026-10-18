@@ -115,6 +115,8 @@ pub(crate) struct BodyInfer<'a> {
     handler_facts: HandlerFacts<'a>,
     /// Definitions whose R must be empty (`main` and test functions).
     closed: &'a FxHashMap<DefId, EffectContext>,
+    /// The effects the target provides to `main` (spec 16.6).
+    auto_main_effects: &'a [crate::check::AutoEffect],
     /// Built-in effects and scope functions (spec chapter 11).
     fibers: &'a Fibers,
     current: Option<DefId>,
@@ -196,6 +198,7 @@ impl<'a> BodyInfer<'a> {
         sigs: &'a Signatures,
         handler_facts: HandlerFacts<'a>,
         closed: &'a FxHashMap<DefId, EffectContext>,
+        auto_main_effects: &'a [crate::check::AutoEffect],
         fibers: &'a Fibers,
     ) -> Self {
         let mut ctx = InferCtx::new();
@@ -206,6 +209,7 @@ impl<'a> BodyInfer<'a> {
             sigs,
             handler_facts,
             closed,
+            auto_main_effects,
             fibers,
             current: None,
             module: DefModule::Prelude,

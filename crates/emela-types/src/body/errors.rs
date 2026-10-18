@@ -375,6 +375,25 @@ impl BodyInfer<'_> {
 
     /// Tags are matched including type arguments; if those are not determined yet, unification is
     /// tried (spec 8.1, `InferCtx::same_tag`).
+    /// Whether the target provides the effect to `main`.
+    fn auto_provided(&mut self, tag: &crate::row::Tag) -> bool {
+        let auto = self.auto_main_effects;
+        auto.iter().any(|a| {
+            a.effect == tag.def
+                && match &a.args {
+                    None => true,
+                    Some(tys) => {
+                        tag.args.len() == tys.len()
+                            && tag
+                                .args
+                                .iter()
+                                .zip(tys)
+                                .all(|(t, ty)| self.ctx.resolve(t) == *ty)
+                    }
+                }
+        })
+    }
+
     fn contains_elem(&mut self, row: &Row, e: &RowElem) -> bool {
         match e {
             RowElem::Tag(t) => self.ctx.row_has_tag(row, t),
@@ -508,7 +527,20 @@ impl BodyInfer<'_> {
                 }
                 (Origin::Closed(def), _) => {
                     if let Some(context) = self.closed.get(def).cloned() {
-                        self.report_unhandled_effects(*def, &missing, context);
+                        let missing = if matches!(&context, EffectContext::Main) {
+                            missing
+                                .into_iter()
+                                .filter(|e| match e {
+                                    RowElem::Tag(tag) => !self.auto_provided(tag),
+                                    _ => true,
+                                })
+                                .collect::<Vec<_>>()
+                        } else {
+                            missing
+                        };
+                        if !missing.is_empty() {
+                            self.report_unhandled_effects(*def, &missing, context);
+                        }
                     }
                 }
                 (Origin::Coerce { span, def }, kind) => {

@@ -25,7 +25,10 @@ mod ty;
 #[cfg(test)]
 mod tests;
 
-pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
+pub use check::{
+    AutoEffect, CheckOptions, ProgramTypes, body_refs, check_program, check_program_with,
+    check_program_with_auto_main_effects,
+};
 pub use diagnostic::{
     Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, SuspendingCall,
 };
