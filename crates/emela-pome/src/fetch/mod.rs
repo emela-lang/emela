@@ -245,12 +245,15 @@ impl<T: Transport> Fetcher<T> {
         self.cache
             .put_file(&self.cache.manifest_file(path, version), content)
             .map_err(FetchError::Cache)?;
+        let external =
+            crate::lock::external_files(files.iter().map(|(p, c)| (p.as_str(), c.as_slice())));
         Ok(Locked {
             path: path.clone(),
             version: version.clone(),
             commit,
             hash: tree,
             manifest,
+            external,
         })
     }
 

@@ -15,7 +15,12 @@ use emela_pome::project::{Outcome, PomeError, Project};
 pub enum PomeCommand {
     /// Add a dependency: `<source path>[@<version>]`, or `github:owner/repo`. Without a version,
     /// the latest one
-    Add { src: String },
+    Add {
+        src: String,
+        /// Allow it, and the Pomes it brings in, to use `@external` (`[external] allow`)
+        #[arg(long)]
+        allow_external: bool,
+    },
     /// Remove a dependency
     Remove { src: String },
     /// Make Pome.lock match Pome.toml and get the dependencies
@@ -43,7 +48,10 @@ fn run(command: PomeCommand) -> Result<ExitCode, PomeError> {
     let fetcher = Fetcher::new(config, Http::new());
     let mut project = Project::find(Path::new("."))?;
     match command {
-        PomeCommand::Add { src } => report(project.add(&fetcher, &src)?),
+        PomeCommand::Add {
+            src,
+            allow_external,
+        } => report(project.add(&fetcher, &src, allow_external)?),
         PomeCommand::Remove { src } => report(project.remove(&fetcher, &src)?),
         PomeCommand::Install => report(project.install(&fetcher)?),
         PomeCommand::Update { src } => report(project.update(&fetcher, src.as_deref())?),
@@ -67,10 +75,13 @@ fn run(command: PomeCommand) -> Result<ExitCode, PomeError> {
 }
 
 fn report(outcome: Outcome) {
-    if !outcome.requirements.is_empty() {
+    if !outcome.requirements.is_empty() || !outcome.allowed.is_empty() {
         println!("Pome.toml:");
         for c in &outcome.requirements {
             println!("{c}");
+        }
+        for path in &outcome.allowed {
+            println!("+ [external] {path}");
         }
     }
     if outcome.build_list.is_empty() {
@@ -79,6 +90,15 @@ fn report(outcome: Outcome) {
         println!("Pome.lock:");
         for c in &outcome.build_list {
             println!("{c}");
+        }
+    }
+    for e in &outcome.external {
+        println!("@external of {}:", e.path);
+        for f in &e.added {
+            println!("+ {f}");
+        }
+        for f in &e.removed {
+            println!("- {f}");
         }
     }
 }

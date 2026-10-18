@@ -76,7 +76,7 @@ fn add_writes_the_requirement_and_the_lock() {
     app(&dir, "");
 
     let mut project = Project::find(&dir.join("src")).unwrap();
-    let outcome = project.add(&f, "github:acme/router@v0.1.0").unwrap();
+    let outcome = project.add(&f, "github:acme/router@v0.1.0", false).unwrap();
     assert_eq!(
         outcome
             .requirements
@@ -96,7 +96,7 @@ fn add_writes_the_requirement_and_the_lock() {
     );
 
     // Without a version: the latest. The transitive d follows router's requirement.
-    project.add(&f, "github.com/acme/router").unwrap();
+    project.add(&f, "github.com/acme/router", false).unwrap();
     assert_eq!(
         lock(&dir),
         ["github.com/acme/d@v1.2.0", "github.com/acme/router@v0.2.0"]
@@ -155,9 +155,13 @@ fn a_failed_add_changes_nothing() {
     app(&dir, "");
     let before = fs::read_to_string(dir.join("Pome.toml")).unwrap();
     let mut project = Project::find(&dir).unwrap();
-    assert!(project.add(&f, "github.com/acme/none@v1.0.0").is_err());
     assert!(
-        matches!(project.add(&f, "github.com/acme/router@v2.0.0"), Err(PomeError::Usage(m)) if m.contains("/v2"))
+        project
+            .add(&f, "github.com/acme/none@v1.0.0", false)
+            .is_err()
+    );
+    assert!(
+        matches!(project.add(&f, "github.com/acme/router@v2.0.0", false), Err(PomeError::Usage(m)) if m.contains("/v2"))
     );
     assert_eq!(fs::read_to_string(dir.join("Pome.toml")).unwrap(), before);
     assert!(!dir.join("Pome.lock").exists());
@@ -259,4 +263,127 @@ fn needs_a_project() {
         Project::find(&d.repos),
         Err(PomeError::NoProject(_))
     ));
+}
+
+// cf uses `@external` (v0.2.0 in one more file); uses-cf depends on cf and has none itself.
+fn external_registry() -> Registry {
+    let r = registry();
+    let kv = "@external(js, \"./kv.mjs\", \"get\")\nfn get() -> Int\n";
+    let cf1 = pome("github.com/acme/cf", "v0.1.0", "");
+    r.add(
+        "github.com/acme/cf",
+        "v0.1.0",
+        &[
+            ("Pome.toml", &cf1),
+            ("src/kv.emel", kv),
+            ("src/kv.mjs", "export const get = () => 1;\n"),
+        ],
+        true,
+    );
+    let cf2 = pome("github.com/acme/cf", "v0.2.0", "");
+    r.add(
+        "github.com/acme/cf",
+        "v0.2.0",
+        &[
+            ("Pome.toml", &cf2),
+            ("src/kv.emel", kv),
+            ("src/d1.emel", kv),
+            ("src/kv.mjs", ""),
+        ],
+        true,
+    );
+    r.proxy.borrow_mut().insert(
+        format!("{PROXY}/github.com/acme/cf/@latest"),
+        br#"{"version":"v0.2.0","commit":"cccccccccccccccccccccccccccccccccccccccc"}"#.to_vec(),
+    );
+    let uses = pome(
+        "github.com/acme/uses-cf",
+        "v1.0.0",
+        "\"github.com/acme/cf\" = \"v0.1.0\"\n",
+    );
+    r.add(
+        "github.com/acme/uses-cf",
+        "v1.0.0",
+        &[
+            ("Pome.toml", &uses),
+            ("src/lib.emel", "pub fn f() -> Int { 1 }\n"),
+        ],
+        true,
+    );
+    r
+}
+
+#[test]
+fn add_stops_at_external_until_allowed() {
+    let d = dirs();
+    let r = external_registry();
+    let f = fetcher(&r, &d.cache, &d.repos);
+    let dir = d.repos.join("app");
+    app(&dir, "");
+    let before = fs::read_to_string(dir.join("Pome.toml")).unwrap();
+    let mut project = Project::find(&dir).unwrap();
+
+    let err = project
+        .add(&f, "github.com/acme/cf@v0.1.0", false)
+        .unwrap_err();
+    assert!(
+        matches!(&err, PomeError::External(m) if m.contains("github.com/acme/cf v0.1.0 uses @external:\n  src/kv.emel\n")),
+        "{err}"
+    );
+    assert_eq!(fs::read_to_string(dir.join("Pome.toml")).unwrap(), before);
+    assert!(!dir.join("Pome.lock").exists());
+
+    let outcome = project.add(&f, "github.com/acme/cf@v0.1.0", true).unwrap();
+    assert_eq!(outcome.allowed, [p("github.com/acme/cf")]);
+    let toml = fs::read_to_string(dir.join("Pome.toml")).unwrap();
+    assert!(
+        toml.contains("[external]\nallow = [\"github.com/acme/cf\"]"),
+        "{toml}"
+    );
+    let lock = fs::read_to_string(dir.join("Pome.lock")).unwrap();
+    assert!(lock.contains("external = [\"src/kv.emel\"]"), "{lock}");
+
+    // A new version reaching the host in one more file is reported, not refused.
+    let outcome = project.update(&f, None).unwrap();
+    assert_eq!(outcome.external.len(), 1);
+    assert_eq!(
+        (
+            outcome.external[0].added.clone(),
+            outcome.external[0].removed.len()
+        ),
+        (vec!["src/d1.emel".to_string()], 0)
+    );
+}
+
+#[test]
+fn allow_external_covers_the_pomes_an_add_brings_in() {
+    let d = dirs();
+    let r = external_registry();
+    let f = fetcher(&r, &d.cache, &d.repos);
+    let dir = d.repos.join("app");
+    app(&dir, "");
+    let mut project = Project::find(&dir).unwrap();
+    assert!(matches!(
+        project.add(&f, "github.com/acme/uses-cf@v1.0.0", false),
+        Err(PomeError::External(_))
+    ));
+    let outcome = project
+        .add(&f, "github.com/acme/uses-cf@v1.0.0", true)
+        .unwrap();
+    // uses-cf has no `@external` of its own; cf, which it brings in, is allowed.
+    assert_eq!(outcome.allowed, [p("github.com/acme/cf")]);
+}
+
+#[test]
+fn install_refuses_external_that_is_not_allowed() {
+    let d = dirs();
+    let r = external_registry();
+    let f = fetcher(&r, &d.cache, &d.repos);
+    let dir = d.repos.join("app");
+    app(&dir, "\"github.com/acme/cf\" = \"v0.1.0\"\n");
+    let err = Project::find(&dir).unwrap().install(&f).unwrap_err();
+    assert!(
+        matches!(&err, PomeError::External(m) if m.contains("--allow-external github.com/acme/cf")),
+        "{err}"
+    );
 }

@@ -43,6 +43,29 @@ pub fn remove_dependency(text: &str, path: &SourcePath) -> Result<Option<String>
     Ok(removed.then(|| doc.to_string()))
 }
 
+/// Adds source paths to `[external] allow`, creating the table and the array if needed.
+pub fn allow_external(text: &str, paths: &[SourcePath]) -> Result<String, ManifestError> {
+    let mut doc = parse(text)?;
+    let external = doc
+        .entry("external")
+        .or_insert_with(|| Item::Table(Table::new()));
+    let table = external
+        .as_table_like_mut()
+        .ok_or_else(|| ManifestError("`external` must be a table".into()))?;
+    let allow = table
+        .entry("allow")
+        .or_insert(value(toml_edit::Array::new()));
+    let array = allow
+        .as_array_mut()
+        .ok_or_else(|| ManifestError("`external.allow` must be an array".into()))?;
+    for path in paths {
+        if !array.iter().any(|v| v.as_str() == Some(path.as_str())) {
+            array.push(path.as_str());
+        }
+    }
+    Ok(doc.to_string())
+}
+
 fn parse(text: &str) -> Result<DocumentMut, ManifestError> {
     text.parse()
         .map_err(|e: toml_edit::TomlError| ManifestError(e.to_string()))
@@ -121,6 +144,21 @@ target = "c"
         assert_eq!(
             out,
             format!("{bare}\n[dependencies]\n\"github.com/acme/x\" = \"v1.0.0\"\n")
+        );
+    }
+
+    #[test]
+    fn allows_external() {
+        let out = allow_external(BASE, &[p("github.com/acme/cf")]).unwrap();
+        assert!(
+            out.ends_with("[external]\nallow = [\"github.com/acme/cf\"]\n"),
+            "{out}"
+        );
+        let again =
+            allow_external(&out, &[p("github.com/acme/cf"), p("github.com/acme/d1")]).unwrap();
+        assert!(
+            again.ends_with("allow = [\"github.com/acme/cf\", \"github.com/acme/d1\"]\n"),
+            "{again}"
         );
     }
 }

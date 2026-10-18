@@ -56,3 +56,10 @@
 - ディレクトリの Pome の tag は `<ディレクトリ>/<version>`．`version_of_tag` は，ディレクトリが合わない tag と major が合わない tag を除く
 - （補）`direct` はディレクトリの tree（`<commit>:<ディレクトリ>`）を読む．tag の commit にディレクトリがなければ「ない」（NotFound）
 - （補）ルート名の既定は，リポジトリでなく Pome の場所の最後の区切りから作る（`.../x/platform-cloudflare` は `PlatformCloudflare`）
+
+## @external（4.7，付録 B）
+
+- （補）`@external` を含むファイルは，`.emel` のうち，行の先頭（空白を除く）が `@external` の行を持つもの．構文木は作らずに行で調べる（`#` で始まる注釈の行は数えない）
+- （補）lock の `external` は，lock にある版を使い回すときも中身から数え直す．このフィールドを持たない古い lock から `install` しても正しい一覧になる
+- （補）`add --allow-external` が許すのは，足す Pome と，この `add` で新しく lock に入った Pome のうち `@external` を使うもの．前から lock にあって許されていない Pome は，許さずにエラーのまま（`[external] allow` に手で足す）
+- （補）許されていない Pome があれば，`add`，`install`，`update`，`remove` のどれも何も書かずに止まる．`update` で `@external` のファイルが増えても，許しは source path に出しているので止めずに出力で知らせる
