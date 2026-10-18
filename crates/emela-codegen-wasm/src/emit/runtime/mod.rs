@@ -240,8 +240,9 @@ fn locals(b: &Builder, name: &str) -> Vec<(u32, ValType)> {
     match name {
         // The first defect, when a second one becomes a note (spec 14.4).
         "raise" if b.uses_notes => i32s(1, 1),
-        // The later defect and the string a note is built into.
-        "defect_resume" if b.uses_notes => i32s(1, 2),
+        // The later defect, the string a note is built into, and the previous note while a piece
+        // is appended (`note_append`).
+        "defect_resume" if b.uses_notes => i32s(1, 3),
         "alloc" => i32s(2, 6),      // need, cur, prev, next, p, pages
         "dup" => i32s(1, 1),        // rc
         "drop" => i32s(1, 13),      // rc..size
@@ -2211,7 +2212,6 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
         return;
     }
     let drop = rt(b, "drop");
-    let append = rt(b, "str_append");
     let interrupted = b.uses_suspend.then(|| rt(b, "is_interrupted"));
     // later = G_DEFECT; G_DEFECT = the taken defect (`local 0`, consumed).
     ins.global_get(G_DEFECT);
@@ -2248,30 +2248,50 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     // `<first>\nnote: the release of handler <last_retired> also failed: <later>`.
     let head = b.string_literal(b"\nnote: the release of handler ");
     let tail = b.string_literal(b" also failed: ");
+    let last_retired = b.last_retired;
+    // The first piece: `str_append(local 0, head)`. `local 0` is still the result (dropped at the
+    // end), so `local 2` is fresh here and nothing is given up.
     ins.local_get(0);
     ins.i32_const(head as i32);
-    ins.call(append);
+    ins.call(rt(b, "str_append"));
     ins.local_set(2);
-    ins.global_get(b.last_retired);
+    ins.global_get(last_retired);
     ins.if_(BlockType::Empty);
-    ins.local_get(2);
-    ins.global_get(b.last_retired);
-    ins.call(append);
-    ins.local_set(2);
+    note_append(b, ins, |ins| {
+        ins.global_get(last_retired);
+    });
     ins.end();
-    ins.local_get(2);
-    ins.i32_const(tail as i32);
-    ins.call(append);
-    ins.local_set(2);
-    ins.local_get(2);
-    ins.local_get(1);
-    ins.call(append);
-    ins.local_set(2);
+    note_append(b, ins, |ins| {
+        ins.i32_const(tail as i32);
+    });
+    note_append(b, ins, |ins| {
+        ins.local_get(1);
+    });
     ins.local_get(2);
     ins.global_set(G_DEFECT);
     ins.local_get(0);
     ins.call(drop);
     ins.local_get(1);
+    ins.call(drop);
+}
+
+/// Appends the piece `push` puts on the stack to the note being built in `local 2`, giving up the
+/// previous `local 2` (kept in `local 3` first). `str_append` returns a fresh string and does not
+/// consume its arguments, so the intermediate would otherwise leak (up to three strings per note).
+fn note_append(
+    b: &mut Builder,
+    ins: &mut InstructionSink,
+    push: impl FnOnce(&mut InstructionSink),
+) {
+    let append = rt(b, "str_append");
+    let drop = rt(b, "drop");
+    ins.local_get(2);
+    ins.local_set(3);
+    ins.local_get(3);
+    push(ins);
+    ins.call(append);
+    ins.local_set(2);
+    ins.local_get(3);
     ins.call(drop);
 }
 

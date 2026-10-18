@@ -56,3 +56,33 @@ fn dbg_prints_integers() {
     assert_eq!(run.stderr, "3\n-5\n");
     assert_eq!(run.code, 0);
 }
+
+#[test]
+fn a_release_defect_becomes_a_note_of_the_first_defect() {
+    // The note is assembled in `defect_resume` by chaining `str_append`; the intermediate strings
+    // are given up there (`note_append`). This checks the wording and that the chain still builds.
+    let Some(run) = run(
+        "release-note",
+        "effect Pool {\n  fn get() -> Int\n}\n\
+         handler Outer(n: Int) implements Pool {\n\
+           init { Outer(n: 0) }\n\
+           release { panic(\"outer release failed\") }\n\
+           fn get() { self.n }\n\
+         }\n\
+         fn work() -> Int {\n\
+           zero = (use Pool).get()\n\
+           1 / zero\n\
+         }\n\
+         fn main() {\n\
+           with Outer { dbg(work()) }\n\
+         }\n",
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101, "stderr: {}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        "defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
+    );
+}
