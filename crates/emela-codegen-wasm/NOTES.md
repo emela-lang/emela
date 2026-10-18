@@ -127,7 +127,7 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   | `emela:console` | `log` / `error` | `console_log` / `console_error`（`Std.Console`，fd 1 / 2） |
   | `emela:env` | `has` / `get` | `env_has` / `env_get`（`Std.Env`，`environ_*`） |
   | `emela:random` | `int` / `float` | `random_int` / `random_float`（`Std.Random`，`random_get`） |
-  | `emela:fs` | `read_text` / `write_text` / `append_text` / `exists` / `is_directory` / `list_directory` / `create_directory` / `remove` / `outcome_*` | `Std.FileSystem`（WASI `path_*`/`fd_*`，§13.10） |
+  | `emela:fs` | `read_text` / `write_text` / `append_text` / `exists` / `is_directory` / `list_directory` / `create_directory` / `remove` / `outcome_*` / `release_outcome` | `Std.FileSystem`（WASI `path_*`/`fd_*`，§13.10） |
   | `emela:clock` | `now_milliseconds` / `sleep_milliseconds` / `when_stalled` / `sleep` | `Std.Clock`（REALTIME の `clock_time_get` とドライバのタイマ，§13.13） |
 
   `emela:test`（`sleep_ms` / `sleep_after`）は WASM のテスト専用（`tests/suspend_external.rs`）．
@@ -141,10 +141,17 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   ドライバが fiber を再開する（下の suspend ABI）
 - （補）内部ホストが指すランタイム関数は要求されたときだけ登録・出力する
   （`runtime::is_on_demand` が `INTERNAL_HOSTS` を唯一の一覧にする）．内部ホストを使わない
-  プログラムのバイト列は，関数を足しても変わらない．`runtime::register` はさらに，sched /
-  fiber を `uses_suspend` のときだけ，タイマ関数（`INTERNAL_HOSTS` の `TIMER_HOSTS`）を
-  `uses_timers` のときだけ，`fs` を要求されたときだけ，`const` と note を `uses_const` /
-  `uses_notes` のときだけ登録する．ランタイムの添字は IR 関数の後で確定するので，
+  プログラムのバイト列は，関数を足しても変わらない．`runtime::register` はそれに加えて，
+  sched / fiber の断片を `uses_suspend` のときだけ，タイマ関数（`INTERNAL_HOSTS` の
+  `TIMER_HOSTS`）を `uses_timers` のときだけ，`fs` の断片を要求されたときだけ，const の断片
+  （`const_enter` / `const_record`）を `uses_const` のときだけ登録する．note 専用の断片は無く，
+  `notes_add` / `notes_of` / `notes_clear` は sched の断片にあり，`raise` / `defect_resume` は
+  常に登録される core の関数で，本体とローカルだけが `uses_notes` で変わる
+- （補）const / note の**グローバル**は `runtime::register` ではなく `Builder::globals`
+  （`emit/mod.rs`）が確保する．const の自己参照フラグは `uses_const`，note の「最後に退役させた
+  名前」は `uses_notes` のときだけで，どちらも基底と suspend のグローバルの後ろに足す（後ろに
+  足すだけなので，使わないプログラムのグローバル index は変わらない）
+- （補）ランタイムの添字は IR 関数の後で確定するので，
   `external_import` で見た束縛は `bind_internal_hosts` が `runtime::register` の後に埋める
 - （補）host 用の使い捨て確保や WASI へ渡すバッファは `alloc`（16 バイトのヘッダ付き）で取り，
   WASI には `base + HDR` を渡す（`Std.Env` がそうしている）．スクラッチ（`emit/layout.rs`）の
@@ -176,6 +183,13 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   MONOTONIC クロック，`after(ms, task)` がタイマを登録し，`timers_due` が `G_TIMERS` /
   `G_TIMER_SEQ` を見て期限の来た task を完了する．`clock_time_get` は `TIMER_HOSTS` に載る
   タイマ関数が要求されたとき，**index 確定前に** import する（後から足すと全関数 index がずれる）
+- （補）**`Std.Clock`**（`runtime/clock.rs`，§8.8，Wave 3 で追加）: `now_milliseconds` は WASI の
+  REALTIME（`clock_time_get`）で JS の `Date.now()` と同じ Unix epoch のミリ秒．`sleep_milliseconds`
+  とテスト用の `sleep` はドライバのタイマで中断・再開する（負の値は 0）．ただし `when_stalled(at, task)`
+  は仕様 8.8 の「仮時刻を `at` まで進めて 1 つだけ起こす」ではなく，`at` を Unix epoch の絶対時刻と
+  みなして `at - realtime_now` を `after` の実時間遅延に変換している（基点 0 では差分が全て 0 に潰れて
+  `at` 順に起きず，未来の基点では実時間待ちになる）．「`at` を持つ sleeper を登録し，stall のたびに
+  最小の `at`（同値は登録順）を 1 つ起こす」実装に置き換えるまで，C / JS とは観測がずれ得る（既知の差）
 
 ## 対応していないもの
 
@@ -203,8 +217,10 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   コーパスはすべて WASM で一致するので `NOT_ON_WASM` は空（`not_on_wasm_entries_exist` が
   陳腐化した項目を防ぐ）．コーパスの `print` には `@external(wasm, "test", "print")` を，
   `suspend fn sleep` には `@external(wasm, "emela:clock", "sleep")` を注入して内部ホストに束縛する
-- `tests/{console,env,random,clock,file_system,consts,suspend_external}.rs` は内部ホストと
-  const / note / suspend 外部を `wasmtime` で実走して確かめる（`wasmtime` がなければ飛ばす）
+- `tests/{cause,console,env,random,clock,file_system,consts,suspend_external}.rs` は内部ホストと
+  const / note / suspend 外部を `wasmtime` で実走して確かめる（`wasmtime` がなければ飛ばす）．
+  `tests/cause.rs` は `Fiber.attempt` が捕まえた defect の文言を `Cause.to_string` で読み直し，
+  `raise` が自分の参照を持つこと（W3-1）を回帰で押さえる
 - `crates/emela-driver/tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の
   両方で動かし，終了コードと出力が一致することを見る．まだ扱えないもの（`String.length` /
   `String.chars` の書記素）は `NOT_ON_WASM` に理由つきで並べ，診断のメッセージで見る（Wave 4）
