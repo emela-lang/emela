@@ -19,16 +19,19 @@ impl Backend<emela_core::Module> for CoreJs {
     fn emit(
         &mut self,
         module: &emela_core::Module,
-        _: &Analysis,
+        analysis: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
         let options = Options {
             runtime: RuntimeMode::Import(None),
         };
+        // Files `@external` points to are copied into the output and imported relatively.
+        let (module, host_files) = crate::host_files::place(module, analysis, "js")?;
         let mut files = vec![
-            OutputFile::new(JS_ENTRY_FILE, emit_module(module, &options)),
+            OutputFile::new(JS_ENTRY_FILE, emit_module(&module, &options)),
             OutputFile::new(RUNTIME_FILE, RUNTIME),
         ];
-        files.extend(bundled_outputs(module));
+        files.extend(bundled_outputs(&module));
+        files.extend(host_files);
         Ok(BuildOutput {
             files,
             entry: JS_ENTRY_FILE.into(),

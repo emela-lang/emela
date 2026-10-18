@@ -139,6 +139,9 @@ pub struct DependencyPome {
     pub emela: Option<String>,
     /// `[pome].targets`: the targets it runs on; `None` for all of them.
     pub targets: Option<Vec<String>>,
+    /// The locked version (`v0.2.0`), or `replace` for a `[replace]` directory. Names its
+    /// directory in the output (spec 12.1).
+    pub version: String,
     /// Its `[dependencies]`.
     pub dependencies: Vec<DependencyRef>,
 }
@@ -507,6 +510,8 @@ pub struct Analysis {
     /// skipped; test lowering still uses `entry` to collect and run the library's tests.
     pub library_only: bool,
     pub diagnostics: Vec<Diagnostic>,
+    /// Where the files `@external` points to are written in the JS output (spec 12.1).
+    pub host_roots: Vec<crate::host_files::HostRoot>,
 }
 
 impl Analysis {
@@ -538,6 +543,7 @@ pub fn check<F: Frontend>(
         ..Analysis::default()
     };
     analysis.sources.set_base(&input.base);
+    analysis.host_roots = crate::host_files::roots(input);
     let (modules, mut resolve_diagnostics) = if input.single_file {
         emela_resolve::collect_modules(&Shallow(fs), &input.root)
     } else {

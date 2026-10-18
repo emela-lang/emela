@@ -49,6 +49,7 @@ fn pome(
         module: module.map(Into::into),
         emela: Some(emela.into()),
         targets: None,
+        version: "v1.0.0".into(),
         dependencies,
     }
 }
