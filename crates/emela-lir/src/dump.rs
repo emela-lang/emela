@@ -39,7 +39,6 @@ use crate::ir::{
     Callee, CaseKey, Const, Function, LabelId, Module, OnFail, Operand, SeqId, Stmt, SwitchOn,
     Term, Value, VarId,
 };
-use crate::repr::repr_of;
 
 /// Every function, in ID order.
 pub fn dump(m: &Module) -> String {
@@ -93,7 +92,7 @@ impl Printer<'_> {
             "fn {}({}) -> {} ({})",
             f.name,
             params.join(", "),
-            repr_of(&self.m.core, f.ret),
+            self.m.repr(f.ret),
             core_ty(&self.m.core, f.ret)
         )
         .unwrap();

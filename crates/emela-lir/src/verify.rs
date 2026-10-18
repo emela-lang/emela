@@ -30,7 +30,7 @@ use crate::ir::{
     Callee, CaseKey, Function, LabelId, Module, OnFail, Operand, RuntimeOp, SeqId, Stage, Stmt,
     SwitchOn, Term, Value, VarId,
 };
-use crate::repr::{Repr, enum_repr, repr_of, repr_of_subst};
+use crate::repr::{Repr, enum_repr, repr_subst_in};
 
 /// A violation found by [`verify`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,7 +298,7 @@ impl Checker<'_> {
     fn function(&mut self) {
         let f = self.f;
         for (v, data) in f.vars.iter() {
-            let of_type = repr_of(self.core, data.ty);
+            let of_type = self.m.repr(data.ty);
             if data.repr == Repr::Void {
                 self.error(
                     ErrorKind::VoidVariable,
@@ -341,7 +341,7 @@ impl Checker<'_> {
         }
         self.frames.push(Frame {
             captures: None,
-            ret: repr_of(self.core, f.ret),
+            ret: self.m.repr(f.ret),
             fails: f.fails,
         });
         self.enclosing.push(Encl::Frame);
@@ -405,10 +405,32 @@ impl Checker<'_> {
         self.f.vars[v].repr
     }
 
+    /// The representation of a String: a value in a module with value types.
+    fn string_repr(&self) -> Repr {
+        if self.m.value_types {
+            Repr::Agg
+        } else {
+            Repr::Ref
+        }
+    }
+
+    /// The representation of a failure (an error value or a caught one): a value in a module
+    /// with value types.
+    fn failure_repr(&self) -> Repr {
+        self.string_repr()
+    }
+
+    fn const_repr(&self, c: &crate::Const) -> Repr {
+        match c {
+            crate::Const::String(_) => self.string_repr(),
+            c => c.repr(),
+        }
+    }
+
     fn operand(&mut self, o: &Operand) -> Repr {
         match o {
             Operand::Var(v) => self.use_var(*v),
-            Operand::Const(c) => c.repr(),
+            Operand::Const(c) => self.const_repr(c),
         }
     }
 
@@ -697,7 +719,8 @@ impl Checker<'_> {
             }
             Term::Fail(v) => {
                 let r = self.operand(v);
-                self.expect(r, Repr::Ref, "fail");
+                let failures = self.failure_repr();
+                self.expect(r, failures, "fail");
                 if self.leaves_body("fail") && !self.frames.last().expect("no frame").fails {
                     self.error(
                         ErrorKind::FailInInfallible,
@@ -736,7 +759,8 @@ impl Checker<'_> {
             Term::Defect(msg) => {
                 self.stage_at_most(Stage::ClosuresConverted, "defect");
                 let r = self.operand(msg);
-                self.expect(r, Repr::Ref, "defect message");
+                let strings = self.string_repr();
+                self.expect(r, strings, "defect message");
             }
             Term::Unwind => {
                 self.stage_at_least(Stage::DefectsExplicit, "unwind");
@@ -814,10 +838,14 @@ impl Checker<'_> {
         match on_fail {
             Some(OnFail::Handle { error, body }) => {
                 self.stage_at_least(Stage::DefectsExplicit, "a failure landing");
-                if self.f.vars[*error].repr != Repr::Ref {
+                if self.f.vars[*error].repr != self.failure_repr() {
                     self.error(
                         ErrorKind::ReprMismatch,
-                        format!("failure landing: {} is not ref", self.name(*error)),
+                        format!(
+                            "failure landing: {} is not {}",
+                            self.name(*error),
+                            self.failure_repr()
+                        ),
                     );
                 }
                 self.scoped(|c| {
@@ -854,9 +882,12 @@ impl Checker<'_> {
     fn value(&mut self, v: &Value, dst: Option<VarId>) -> Expect {
         let dst_ty = dst.map(|d| self.f.vars[d].ty);
         match v {
-            Value::Const(c) => Expect::Exactly(c.repr()),
+            Value::Const(c) => Expect::Exactly(self.const_repr(c)),
             Value::Prim { op, ty, args } => {
-                let operand = ty.repr();
+                let operand = match ty {
+                    crate::PrimTy::String => self.string_repr(),
+                    _ => ty.repr(),
+                };
                 let expected = vec![Some(operand); op.arity()];
                 self.args(args, &expected, &format!("{}[{}]", op.symbol(), ty.name()));
                 let defined = match op {
@@ -884,7 +915,9 @@ impl Checker<'_> {
             } => self.call(callee, args, *suspends, on_fail),
             Value::Builtin { op, args } => {
                 let info = op.info();
-                let params: Vec<Option<Repr>> = info.params.iter().map(|&s| sig_repr(s)).collect();
+                let strings = self.string_repr();
+                let params: Vec<Option<Repr>> =
+                    info.params.iter().map(|&s| sig_repr(s, strings)).collect();
                 let generic = params.iter().filter(|p| p.is_none()).count();
                 let concrete: Vec<Option<Repr>> = params
                     .iter()
@@ -901,7 +934,11 @@ impl Checker<'_> {
                 } else {
                     self.args(args, &concrete, &what);
                 }
-                sig_repr(info.ret).map_or(Expect::Unknown, Expect::Exactly)
+                match info.ret {
+                    // With value types, an Option may be held by value.
+                    Sig::Option(_) if self.m.value_types => Expect::Unknown,
+                    ret => sig_repr(ret, strings).map_or(Expect::Unknown, Expect::Exactly),
+                }
             }
             Value::Make { ctor, args } => {
                 let def = &self.core.enums[ctor.enum_id];
@@ -937,7 +974,7 @@ impl Checker<'_> {
                         let expected: Vec<Option<Repr>> = variant
                             .tys
                             .iter()
-                            .map(|&t| Some(repr_of_subst(self.core, t, ts)))
+                            .map(|&t| Some(repr_subst_in(self.core, t, ts, self.m.value_types)))
                             .collect();
                         self.args(args, &expected, &format!("make {}", variant.name));
                     }
@@ -947,15 +984,15 @@ impl Checker<'_> {
                         }
                     }
                     None => {
-                        let expected: Vec<Option<Repr>> = variant
-                            .tys
-                            .iter()
-                            .map(|&t| Some(repr_of(self.core, t)))
-                            .collect();
+                        let expected: Vec<Option<Repr>> =
+                            variant.tys.iter().map(|&t| Some(self.m.repr(t))).collect();
                         self.args(args, &expected, &format!("make {}", variant.name));
                     }
                 }
-                Expect::Exactly(enum_repr(self.core, ctor.enum_id))
+                Expect::Exactly(match dst_ty {
+                    Some(t) => self.m.repr(t),
+                    None => enum_repr(self.core, ctor.enum_id),
+                })
             }
             Value::Field { base, ctor, index } => {
                 self.use_var(*base);
@@ -974,7 +1011,9 @@ impl Checker<'_> {
                     .get(ctor.variant)
                     .and_then(|v| v.tys.get(*index));
                 match ty {
-                    Some(&t) => Expect::Exactly(repr_of_subst(self.core, t, ts)),
+                    Some(&t) => {
+                        Expect::Exactly(repr_subst_in(self.core, t, ts, self.m.value_types))
+                    }
                     None => {
                         self.error(
                             ErrorKind::BadIndex,
@@ -995,7 +1034,7 @@ impl Checker<'_> {
                 match dst_ty.map(|t| self.core.ty(t)) {
                     Some(Type::Tuple(ts)) => {
                         let expected: Vec<Option<Repr>> =
-                            ts.iter().map(|&t| Some(repr_of(self.core, t))).collect();
+                            ts.iter().map(|&t| Some(self.m.repr(t))).collect();
                         self.args(es, &expected, "tuple");
                     }
                     _ => {
@@ -1004,7 +1043,7 @@ impl Checker<'_> {
                         }
                     }
                 }
-                Expect::Exactly(Repr::Ref)
+                Expect::Exactly(dst_ty.map_or(Repr::Ref, |t| self.m.repr(t)))
             }
             Value::TupleGet { base, index } => {
                 self.use_var(*base);
@@ -1013,7 +1052,7 @@ impl Checker<'_> {
                         .wrong_type(format!("element of {}, not a tuple", self.name(*base)));
                 };
                 match ts.get(*index) {
-                    Some(&t) => Expect::Exactly(repr_of(self.core, t)),
+                    Some(&t) => Expect::Exactly(self.m.repr(t)),
                     None => {
                         self.error(
                             ErrorKind::BadIndex,
@@ -1025,7 +1064,7 @@ impl Checker<'_> {
             }
             Value::List { elems, tail } => {
                 let elem = match dst_ty.map(|t| self.core.ty(t)) {
-                    Some(Type::List(e)) => Some(repr_of(self.core, *e)),
+                    Some(Type::List(e)) => Some(self.m.repr(*e)),
                     _ => None,
                 };
                 for e in elems {
@@ -1047,7 +1086,7 @@ impl Checker<'_> {
                 };
                 Expect::Exactly(match v {
                     Value::ListIsEmpty(_) => Repr::I32,
-                    Value::ListHead(_) => repr_of(self.core, *e),
+                    Value::ListHead(_) => self.m.repr(*e),
                     _ => Repr::Ref,
                 })
             }
@@ -1085,7 +1124,7 @@ impl Checker<'_> {
                         "capture {index} defines a variable of another type"
                     ));
                 }
-                Expect::Exactly(repr_of(self.core, ty))
+                Expect::Exactly(self.m.repr(ty))
             }
             Value::Closure(c) => {
                 self.stage_at_most(Stage::Flow, "a nested closure");
@@ -1137,7 +1176,7 @@ impl Checker<'_> {
                 }
                 self.frames.push(Frame {
                     captures: Some(c.captures.iter().copied().collect()),
-                    ret: repr_of(self.core, ft.ret),
+                    ret: self.m.repr(ft.ret),
                     fails: ft.fails,
                 });
                 self.enclosing.push(Encl::Frame);
@@ -1224,7 +1263,8 @@ impl Checker<'_> {
             }
             Value::IsError { error, enum_id } | Value::AsError { error, enum_id } => {
                 let r = self.use_var(*error);
-                self.expect(r, Repr::Ref, "caught failure");
+                let failures = self.failure_repr();
+                self.expect(r, failures, "caught failure");
                 let def = &self.core.enums[*enum_id];
                 if !def.error {
                     return self.wrong_type(format!("{} is not an error", def.name));
@@ -1242,7 +1282,7 @@ impl Checker<'_> {
                         ));
                     }
                 }
-                Expect::Exactly(Repr::Ref)
+                Expect::Exactly(dst_ty.map_or(Repr::Ref, |t| self.m.repr(t)))
             }
             Value::Coerce(x) => {
                 let r = self.use_var(*x);
@@ -1256,9 +1296,30 @@ impl Checker<'_> {
             }
             Value::Runtime { op, args } => {
                 let (params, ret) = op.sig();
-                let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
+                // The strings among them are values in a module with value types.
+                let strings = self.string_repr();
+                let string_slots: &[usize] = match op {
+                    RuntimeOp::ShowString | RuntimeOp::DebugPrint | RuntimeOp::Defect => &[0],
+                    RuntimeOp::Retire => &[1],
+                    _ => &[],
+                };
+                let expected: Vec<Option<Repr>> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &r)| {
+                        Some(if string_slots.contains(&i) {
+                            strings
+                        } else {
+                            r
+                        })
+                    })
+                    .collect();
                 self.args(args, &expected, &format!("runtime {}", op.name()));
-                Expect::Exactly(ret)
+                Expect::Exactly(if op == &RuntimeOp::ShowString {
+                    strings
+                } else {
+                    ret
+                })
             }
         }
     }
@@ -1422,7 +1483,7 @@ impl Checker<'_> {
                 format!("{what}: the parameters disagree with the function type"),
             );
         }
-        if repr_of(self.core, target.ret) != repr_of(self.core, ft.ret) {
+        if self.m.repr(target.ret) != self.m.repr(ft.ret) {
             self.error(
                 ErrorKind::ReprMismatch,
                 format!("{what}: the result disagrees with the function type"),
@@ -1448,7 +1509,7 @@ impl Checker<'_> {
     fn fn_params(&self, params: &[TypeId], ev: bool) -> Vec<Option<Repr>> {
         let mut reprs: Vec<Option<Repr>> = params
             .iter()
-            .map(|&t| repr_of(self.core, t))
+            .map(|&t| self.m.repr(t))
             .filter(|&r| r != Repr::Void)
             .map(Some)
             .collect();
@@ -1482,7 +1543,7 @@ impl Checker<'_> {
                     );
                 }
                 self.on_fail(on_fail, target.fails, &what);
-                Expect::Exactly(repr_of(self.core, target.ret))
+                Expect::Exactly(self.m.repr(target.ret))
             }
             Callee::Indirect(c) => {
                 let r = self.use_var(*c);
@@ -1503,7 +1564,7 @@ impl Checker<'_> {
                     );
                 }
                 self.on_fail(on_fail, ft.fails, &what);
-                Expect::Exactly(repr_of(self.core, ft.ret))
+                Expect::Exactly(self.m.repr(ft.ret))
             }
             Callee::Op {
                 handler,
@@ -1541,20 +1602,21 @@ impl Checker<'_> {
                     );
                 }
                 self.on_fail(on_fail, o.fails, &what);
-                Expect::Exactly(repr_of(self.core, o.ret))
+                Expect::Exactly(self.m.repr(o.ret))
             }
         }
     }
 }
 
 /// The representation of a builtin's parameter or result type (`None` for a type parameter).
-fn sig_repr(s: Sig) -> Option<Repr> {
+fn sig_repr(s: Sig, strings: Repr) -> Option<Repr> {
     Some(match s {
+        Sig::String => strings,
         Sig::Int | Sig::Bool => Repr::I32,
         Sig::Int64 => Repr::I64,
         Sig::Float => Repr::F64,
         // Option has a constructor with a field.
-        Sig::String | Sig::List(_) | Sig::Option(_) => Repr::Ref,
+        Sig::List(_) | Sig::Option(_) => Repr::Ref,
         Sig::Unit | Sig::Never => Repr::Void,
         Sig::Param(_) => return None,
     })

@@ -40,7 +40,7 @@ use crate::ir::{
     Callee, Closure, Const, FnId, Function, LabelData, LabelId, Module, OnFail, Operand, PrimOp,
     PrimTy, RuntimeOp, Seq, SeqId, Stmt, StmtId, Term, Value, VarData, VarId,
 };
-use crate::repr::{Repr, repr_of};
+use crate::repr::{Repr, repr_in};
 
 /// Something the conversion could not make sense of; a bug in the input.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +60,22 @@ impl std::fmt::Display for FromCoreError {
 /// Flow IR. The Flow IR module owns the Core module, with the types the conversion needed added
 /// to its table. The Core functions come first, in the same order and with the same names; the
 /// generated show and equality functions (`show$List[Int]`, `eq$Point`) follow.
-pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreError>> {
+pub fn from_core(core: emela_core::Module) -> Result<Module, Vec<FromCoreError>> {
+    from_core_with(core, Options::default())
+}
+
+/// Options of [`from_core_with`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Options {
+    /// Hold enums with fields and tuples by value where they can be ([`Module::value_types`]).
+    pub value_types: bool,
+}
+
+/// [`from_core`] with options.
+pub fn from_core_with(
+    mut core: emela_core::Module,
+    options: Options,
+) -> Result<Module, Vec<FromCoreError>> {
     // The bodies are read while the module's type table grows, so they are kept apart meanwhile.
     let bodies: Vec<Expr> = core
         .functions
@@ -75,6 +90,7 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
         derived: FxHashMap::default(),
         pending: Vec::new(),
         errors: Vec::new(),
+        value_types: options.value_types,
     };
     for (_, f) in sh.core.functions.iter() {
         sh.fn_map.push(sh.functions.alloc(Function::new(&f.name)));
@@ -124,6 +140,7 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
         functions: sh.functions,
         stage: crate::ir::Stage::Flow,
         error_shows,
+        value_types: options.value_types,
     })
 }
 
@@ -210,6 +227,8 @@ struct Shared {
     /// Generated functions declared but not built yet.
     pending: Vec<(Derive, TypeId, FnId)>,
     errors: Vec<FromCoreError>,
+    /// [`Options::value_types`].
+    value_types: bool,
 }
 
 impl Shared {
@@ -388,7 +407,7 @@ impl<'s> Lower<'s> {
     }
 
     fn repr(&self, ty: TypeId) -> Repr {
-        repr_of(&self.sh.core, ty)
+        repr_in(&self.sh.core, ty, self.sh.value_types)
     }
 
     fn intern(&mut self, ty: Type) -> TypeId {

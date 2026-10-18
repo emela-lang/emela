@@ -1,0 +1,82 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"shift\", \"pair\", \"size\", \"name\"])"
+---
+fn shift(s%0: agg (Shape), d%1: i32 (Int)) -> agg (Shape) {
+  t%16: agg (Shape) = block 'match%0 {
+    switch tag(s%0) {
+      case Shape.Dot {
+        x%2: agg (Point) = field s%0 Shape.Dot#0
+        t%3: i32 (Int) = field x%2 Point.Point.x#0
+        t%4: i32 (Int) = t%3 +[i32] d%1
+        t%5: i32 (Int) = field x%2 Point.Point.y#1
+        t%6: agg (Point) = make Point.Point(t%4, t%5)
+        t%7: agg (Shape) = make Shape.Dot(t%6)
+        break 'match%0(t%7)
+      }
+      case Shape.Line {
+        x%8: agg (Point) = field s%0 Shape.Line#0
+        x%9: agg (Point) = field s%0 Shape.Line#1
+        t%10: i32 (Int) = field x%9 Point.Point.x#0
+        t%11: i32 (Int) = t%10 +[i32] d%1
+        t%12: i32 (Int) = field x%9 Point.Point.y#1
+        t%13: agg (Point) = make Point.Point(t%11, t%12)
+        t%14: agg (Shape) = make Shape.Line(x%8, t%13)
+        break 'match%0(t%14)
+      }
+      case Shape.Empty {
+        t%15: agg (Shape) = make Shape.Empty
+        break 'match%0(t%15)
+      }
+    }
+    unreachable
+  }
+  return t%16
+}
+
+fn pair(a%0: i32 (Int)) -> agg ((Int, Option[Int])) {
+  t%1: agg (Option[Int]) = make Option.Some(a%0)
+  t%2: agg ((Int, Option[Int])) = tuple(a%0, t%1)
+  return t%2
+}
+
+fn size(t%0: ref (Tree)) -> i32 (Int) {
+  t%7: i32 (Int) = block 'match%0 {
+    switch tag(t%0) {
+      case Tree.Leaf {
+        drop t%0
+        break 'match%0(0)
+      }
+      case Tree.Node {
+        x%1: ref (Tree) = field t%0 Tree.Node#0
+        dup x%1
+        x%2: ref (Tree) = field t%0 Tree.Node#2
+        dup x%2
+        drop t%0
+        t%3: i32 (Int) = call size(x%1)
+        t%4: i32 (Int) = t%3 +[i32] 1
+        t%5: i32 (Int) = call size(x%2)
+        t%6: i32 (Int) = t%4 +[i32] t%5
+        break 'match%0(t%6)
+      }
+    }
+    unreachable
+  }
+  return t%7
+}
+
+fn name(o%0: agg (Option[String])) -> agg (String) {
+  t%2: agg (String) = block 'match%0 {
+    switch tag(o%0) {
+      case Option.Some {
+        x%1: agg (String) = field o%0 Option.Some#0
+        break 'match%0(x%1)
+      }
+      case Option.None {
+        break 'match%0("")
+      }
+    }
+    unreachable
+  }
+  return t%2
+}

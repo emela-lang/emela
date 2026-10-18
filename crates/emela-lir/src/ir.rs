@@ -30,6 +30,10 @@ pub struct Module {
     /// `from_core` for every error enum without type parameters. Backends show a failure that
     /// reaches the entry with it (`error: NotFound(id: 1)`, spec 14.3).
     pub error_shows: Vec<(EnumId, FnId)>,
+    /// Whether enums with fields and tuples that can be held by value are [`Repr::Agg`] rather
+    /// than `ref` (`crate::repr_in`). Set by `from_core_with` for the embedded C target; the host
+    /// C and WASM backends never see [`Repr::Agg`].
+    pub value_types: bool,
 }
 
 /// The stage of a LIR module. The Flow IR and the Heap IR share the data types; each pass of the
@@ -67,7 +71,13 @@ impl Module {
             functions: Arena::new(),
             stage: Stage::Flow,
             error_shows: Vec::new(),
+            value_types: false,
         }
+    }
+
+    /// The representation of a value of the Core type in this module.
+    pub fn repr(&self, ty: TypeId) -> Repr {
+        crate::repr::repr_in(&self.core, ty, self.value_types)
     }
 
     /// An empty function, defined later with [`Module::define`] (for mutual recursion). `name`

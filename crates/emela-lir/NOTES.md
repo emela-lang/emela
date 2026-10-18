@@ -40,6 +40,14 @@
 - （補）`Type::Param` は単相化の後には来ない．`repr_of` は `ref`（箱）を返すが，検証器は型引数を含む型の変数を `Polymorphic` として報告する
 - （補）型引数を置き換えた型の表現（`repr_of_subst`）は，置き換えた型を表に登録せずに求める．表現を決めるのは一番外の型だけなので，`Param(i)` なら型引数 `i` の表現，それ以外はその型の表現になる
 
+## 値型（`Repr::Agg`）
+
+- （補）組み込み C のために，引数を持つ enum とタプルを値として持つ表現 `agg` を足した（`docs/design/c-embedded-architecture.md` の「① 値型化」，案A）．`from_core_with` に `Options { value_types: true }` を渡したモジュール（`Module::value_types`）でだけ使う．ホスト C と WASM は `from_core` のまま `ref` なので，`agg` は届かない（両方の backend では `unreachable`）
+- （補）値として持てるのは，Int，Bool，Int64，Float，`()`，String（容量に上限のあるもの．組み込み C の `EmString`），引数のない構成子だけの enum と，フィールドがすべて値として持てる enum とタプル．`@external type`（ホストのハンドル．C ではポインターをそのまま持つ．`Layout::Opaque`）も値として持てる．error の enum，構成子のない enum，自分を（型引数が違っても）含む enum は `ref` のまま（`is_value_type`）．型引数は置き換えた型で判断するので，`Option[Int]` は `agg`，`Option[List[Int]]` は `ref`
+- （補）値型のモジュールでは error の enum も（フィールドが値として持てれば）`agg` で，`Any`（`escape` で受けた失敗）も `agg`（`Layout::Failure`．組み込み C の `EmError`．fiber を出さないので `Any` は失敗だけになる）．失敗の着地点の error の変数，`fail` の値，`is_error` / `as_error` の対象も `agg` になり，RC は何も入れない
+- （補）`Repr::Agg` は型を持たない．レイアウトは変数の Core の型から決める（`value_layout` が型引数を置き換えたフィールドの型を返す）．`agg` の中に参照はないので，RC のパスは何も入れない．構成子，フィールド，タグ，`switch`，タプルの組み立てと読み出しは `ref` のときと同じ文を使う
+- （補）値型のモジュールでは，`Option` を返す組み込み関数の結果の表現を検証しない（シグネチャは `ref` だが，型によっては `agg` になる）．組み込み C が組み込み関数を実装するときに合わせる
+
 ## dump と検証器
 
 - （補）dump は関数だけを出す（enum とエフェクトは Core の dump で見る）．Core の型の書き方は Core の dump と同じにしたが，Core の dump の関数は非公開なので `core_ty` として写した

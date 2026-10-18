@@ -625,7 +625,9 @@ impl<'a> Counter<'a> {
                 );
                 if let Some((e, body)) = fail {
                     let mut entry = owned.clone();
-                    entry.insert(e);
+                    if counted(f, e) {
+                        entry.insert(e);
+                    }
                     self.seq(f, body, entry, &Set::default(), loop_target);
                 }
                 if let Some(l) = defect {

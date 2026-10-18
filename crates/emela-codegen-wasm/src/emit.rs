@@ -82,6 +82,7 @@ pub(crate) fn val(r: Repr) -> ValType {
         Repr::I64 => ValType::I64,
         Repr::F64 => ValType::F64,
         Repr::Ref => ValType::I32,
+        Repr::Agg => unreachable!("value types are only for the embedded C target"),
         Repr::Void => unreachable!("no value of the void representation"),
     }
 }
@@ -810,6 +811,7 @@ impl<'m> Builder<'m> {
         let r = Self::operand_repr(cx.f, o);
         ins.local_get(cx.local(base));
         match r {
+            Repr::Agg => unreachable!("value types are only for the embedded C target"),
             Repr::Void => {
                 ins.i32_const(0);
                 ins.i32_store(mem(off, 4));
@@ -1411,6 +1413,7 @@ impl<'m> Builder<'m> {
                         Repr::I32 | Repr::Ref => ins.i32_load(mem(HDR, 4)),
                         Repr::I64 => ins.i64_load(mem(HDR, 8)),
                         Repr::F64 => ins.f64_load(mem(HDR, 8)),
+                        Repr::Agg => unreachable!("value types are only for the embedded C target"),
                         Repr::Void => unreachable!(),
                     };
                 }
@@ -1440,6 +1443,7 @@ impl<'m> Builder<'m> {
             Repr::F64 => {
                 ins.f64_load(mem(off, 8));
             }
+            Repr::Agg => unreachable!("value types are only for the embedded C target"),
             Repr::Void => {}
         }
     }
@@ -1922,6 +1926,7 @@ impl<'m> Builder<'m> {
                         Repr::F64 => {
                             ins.f64_load(mem(HDR, 8));
                         }
+                        Repr::Agg => unreachable!("value types are only for the embedded C target"),
                         Repr::Void => {}
                     }
                     ins.local_set(cx.local(d));
@@ -2120,6 +2125,7 @@ fn mem(offset: u32, align_bytes: u32) -> MemArg {
 
 fn dummy_return(ins: &mut InstructionSink, ret: Repr) {
     match ret {
+        Repr::Agg => unreachable!("value types are only for the embedded C target"),
         Repr::Void => {
             ins.return_();
         }
@@ -2203,6 +2209,7 @@ impl<'a> FnCtx<'a> {
             Repr::I64 => self.scratch_base[1],
             Repr::F64 => self.scratch_base[2],
             Repr::Ref => self.scratch_base[3],
+            Repr::Agg => unreachable!("value types are only for the embedded C target"),
             Repr::Void => self.scratch_base[0],
         };
         base + i as u32

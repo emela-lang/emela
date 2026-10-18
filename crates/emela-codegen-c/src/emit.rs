@@ -293,6 +293,7 @@ pub(crate) fn cty(r: Repr) -> &'static str {
         Repr::F64 => "double",
         Repr::Ref => "em_ref",
         Repr::Void => "void",
+        Repr::Agg => unreachable!("value types are only for the embedded C target"),
     }
 }
 
@@ -304,6 +305,7 @@ fn acc(r: Repr) -> &'static str {
         Repr::F64 => "f",
         Repr::Ref => "p",
         Repr::Void => "l",
+        Repr::Agg => unreachable!("value types are only for the embedded C target"),
     }
 }
 
@@ -1647,6 +1649,7 @@ fn repr_code(r: Repr) -> &'static str {
         Repr::F64 => "EM_REPR_F64",
         Repr::Ref => "EM_REPR_REF",
         Repr::Void => "EM_REPR_VOID",
+        Repr::Agg => unreachable!("value types are only for the embedded C target"),
     }
 }
 

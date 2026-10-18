@@ -24,11 +24,14 @@ mod verify;
 
 pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
-pub use from_core::{FromCoreError, from_core};
+pub use from_core::{FromCoreError, Options, from_core, from_core_with};
 pub use heap::{
     builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect, insert_rc,
     may_suspend, state_machines, to_heap,
 };
 pub use ir::*;
-pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};
+pub use repr::{
+    Layout, Repr, enum_repr, is_value_type, repr_in, repr_of, repr_of_subst, repr_subst_in,
+    value_layout,
+};
 pub use verify::{ErrorKind, VerifyError, verify, verify_function};

@@ -16,7 +16,7 @@ use crate::ir::{
     Callee, FnId, Function, Module, OnFail, Operand, Seq, SeqId, Stage, Stmt, StmtId, Term, Value,
     VarData, VarId,
 };
-use crate::repr::{Repr, repr_of};
+use crate::repr::Repr;
 
 /// Lifts every closure of the module and replaces function references by closure records. The
 /// module must be at [`Stage::Flow`]; it is at [`Stage::ClosuresConverted`] afterwards.
@@ -215,7 +215,7 @@ fn wrapper(m: &Module, target: FnId, ty: TypeId) -> Function {
             Operand::Var(v)
         })
         .collect();
-    let ret = repr_of(&m.core, t.ret);
+    let ret = m.repr(t.ret);
     let r = (ret != Repr::Void).then(|| {
         f.vars.alloc(VarData {
             hint: "r".into(),

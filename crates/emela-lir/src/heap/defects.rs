@@ -592,7 +592,7 @@ impl<'a> Explicit<'a> {
     fn landing(&mut self, edge: OnFail) -> OnFail {
         let error = self.out.vars.alloc(VarData {
             hint: "e".into(),
-            repr: Repr::Ref,
+            repr: self.m.repr(TypeId::ANY),
             ty: TypeId::ANY,
         });
         let body = match edge {

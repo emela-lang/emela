@@ -7,12 +7,18 @@ mod support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{
-    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, verify,
+    Callee, ErrorKind, Module, Options, Repr, Stage, Stmt, Value, dump_function, from_core_with,
+    to_heap, verify,
 };
 use support::try_lower;
 
 /// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
 fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
+    convert_with(files, roots, Options::default())
+}
+
+/// [`convert`] with conversion options.
+fn convert_with(files: &[(&str, &str)], roots: Roots, options: Options) -> Module {
     let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
@@ -28,7 +34,7 @@ fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("not monomorphic:\n{}", lines.join("\n"));
     }
-    let mut lir = from_core(mono).unwrap_or_else(|errors| {
+    let mut lir = from_core_with(mono, options).unwrap_or_else(|errors| {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("conversion errors:\n{}", lines.join("\n"));
     });
@@ -64,6 +70,75 @@ fn every_core_function_converts() {
     if let Some(path) = std::env::var_os("EMELA_HEAP_DUMP") {
         std::fs::write(path, emela_lir::dump(&m)).unwrap();
     }
+}
+
+/// With value types, every function of the bundled core and std goes through the passes too.
+#[test]
+fn every_core_function_converts_with_value_types() {
+    let m = convert_with(
+        &[("main.emel", "fn main() { 0 }\n")],
+        Roots::All,
+        Options { value_types: true },
+    );
+    let aggs = m
+        .functions
+        .iter()
+        .flat_map(|(_, f)| f.vars.iter())
+        .filter(|(_, v)| v.repr == Repr::Agg)
+        .count();
+    assert!(aggs > 0);
+}
+
+/// Enums with fields, tuples and Strings are held by value: no `dup` or `drop` for them, while a
+/// recursive enum stays a reference.
+#[test]
+fn value_types() {
+    let m = convert_with(
+        &[(
+            "main.emel",
+            "\
+type Point(x: Int, y: Int)
+enum Shape { Dot(Point), Line(Point, Point), Empty }
+enum Tree { Leaf, Node(Tree, Int, Tree) }
+
+fn shift(s: Shape, d: Int) -> Shape {
+  s match {
+    Dot(p) -> Dot(Point(x: p.x + d, y: p.y))
+    Line(a, b) -> Line(a, Point(x: b.x + d, y: b.y))
+    Empty -> Empty
+  }
+}
+
+fn pair(a: Int) -> (Int, Option[Int]) { (a, Some(a)) }
+
+fn size(t: Tree) -> Int {
+  t match {
+    Leaf -> 0
+    Node(l, _, r) -> size(l) + 1 + size(r)
+  }
+}
+
+fn name(o: Option[String]) -> String {
+  o match {
+    Some(s) -> s
+    None -> \"\"
+  }
+}
+
+fn main() {
+  dbg(shift(Line(Point(x: 1, y: 2), Point(x: 3, y: 4)), 1) == Empty)
+  (a, b) = pair(1)
+  dbg(a)
+  dbg(b == None)
+  dbg(size(Node(Leaf, 1, Leaf)))
+  dbg(name(Some(\"x\")))
+}
+",
+        )],
+        Roots::Exported,
+        Options { value_types: true },
+    );
+    insta::assert_snapshot!(parts(&m, &["shift", "pair", "size", "name"]));
 }
 
 /// Every function of each example project (`examples/*/src`) goes through the passes, the
