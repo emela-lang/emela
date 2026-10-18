@@ -341,6 +341,27 @@ fn the_scratch_area_does_not_overlap_the_static_data() {
 }
 
 #[test]
+fn float_to_string_reuses_the_scratch_block() {
+    // Regression: `float_to_string` formats through a raw scratch block taken from the runtime
+    // allocator, then returns it to the free list directly (not through `drop`). A wrong size or
+    // link there would hand a later allocation an overlapping block and corrupt it; this steps
+    // both a bignum-heavy conversion and the string/list code that reuses the block.
+    let Some(out) = stderr(
+        "float-scratch",
+        "fn main() {\n  dbg(Float.to_string(0.1 + 0.2))\n  dbg(Float.to_string(1.0 / 3.0))\n  \
+         dbg(Float.to_string(5.0e-324))\n  dbg(String.split(\"a,b,c\", \",\"))\n  \
+         dbg(Float.to_string(1.7976931348623157e308))\n  dbg(String.code_points(\"AB\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"0.30000000000000004\"\n\"0.3333333333333333\"\n\"5e-324\"\n\
+         [\"a\", \"b\", \"c\"]\n\"1.7976931348623157e+308\"\n[65, 66]\n"
+    );
+}
+
+#[test]
 fn all_scratch_buffers_are_stepped_in_one_program() {
     // 1 つのプログラムでスクラッチの全バッファ（WASI の iovec / 書き込みバイト数，
     // 整数の桁，改行，Int64 の桁，JSON escape，1 コードポイントの UTF-8）を触りつつ，

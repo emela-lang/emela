@@ -43,17 +43,43 @@ pub(super) const FUNCS: &[Sig] = &[
     ("bn_copy", &[ValType::I32, ValType::I32], &[]),
 ];
 
-/// The scratch block `float_to_string` allocates: a little-endian u32 limb bignum (length in
-/// limbs at offset 0, limbs at 4) at each of `BN_R`..`BN_T`, then the decimal digit buffer.
-const BN_STRIDE: u32 = 168; // 4 (length) + 40 limbs * 4, rounded up to 8.
+/// The number of `u32` limbs one scratch bignum can hold. The largest intermediate of the
+/// Dragon4 scaling below is bounded by `10^324 < 2^1080`, so 40 limbs (1280 bits) leave margin;
+/// the asserts after the strides pin that bound and the digit capacity at compile time.
+const BN_LIMBS: u32 = 40;
+/// One bignum: the length in limbs (4 bytes) then the limbs, rounded up to an 8-byte boundary.
+const BN_STRIDE: u32 = (4 + BN_LIMBS * 4 + 7) & !7;
 const BN_R: u32 = HDR;
 const BN_S: u32 = HDR + BN_STRIDE;
 const BN_MP: u32 = HDR + 2 * BN_STRIDE;
 const BN_MM: u32 = HDR + 3 * BN_STRIDE;
 const BN_T: u32 = HDR + 4 * BN_STRIDE;
 const BN_DIG: u32 = HDR + 5 * BN_STRIDE; // The digits start here; the stride leaves room.
-/// The whole block, in 8-byte slots (the runtime `alloc` unit): `16 + 6 * 168 = 1024` bytes.
-const SCRATCH_SLOTS: i32 = 126;
+/// The whole scratch block: the object header plus the six strides. This is what `alloc` takes,
+/// in bytes and in its 8-byte slots.
+const SCRATCH_BYTES: u32 = HDR + 6 * BN_STRIDE;
+const SCRATCH_SLOTS: i32 = (SCRATCH_BYTES / 8) as i32;
+/// `float_to_string` stops after 24 digits and may prepend one carry digit; the digit buffer and
+/// the reused exponent buffer each get a whole stride.
+const MAX_DIGITS: u32 = 25;
+const _: () = assert!(BN_LIMBS * 32 >= 1080);
+const _: () = assert!(BN_STRIDE >= MAX_DIGITS);
+
+/// Returns the raw scratch block `p` (allocated with [`SCRATCH_SLOTS`] slots) to the runtime's
+/// free list. The block is plain runtime memory, not a counted value, so it goes back exactly the
+/// way the allocator's own `free_raw` pushes a block a `drop` emptied: the size in the `rc` field
+/// (offset 0) and the old list head in `aux` (offset 4). This keeps the release independent of
+/// `alloc`/`drop` and of the block carrying a `kind == 1` descriptor.
+fn free_scratch(ins: &mut InstructionSink, p: u32) {
+    ins.local_get(p);
+    ins.i32_const(SCRATCH_BYTES as i32);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(p);
+    ins.global_get(G_FREE);
+    ins.i32_store(mem(4, 4));
+    ins.local_get(p);
+    ins.global_set(G_FREE);
+}
 
 pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
@@ -1440,12 +1466,9 @@ fn float_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
-    // Release the scratch block before returning the string.
-    ins.local_get(P);
-    ins.i32_const(SCRATCH_SLOTS * 8 - 4);
-    ins.i32_store(mem(HDR, 4));
-    ins.local_get(P);
-    ins.call(rt(b, "drop"));
+    // Release the scratch block before returning the string: it is raw runtime memory, not a
+    // counted value, so it goes straight back to the allocator's free list.
+    free_scratch(ins, P);
     ins.local_get(OUT);
 }
 
