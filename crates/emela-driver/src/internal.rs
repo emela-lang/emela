@@ -113,3 +113,39 @@ pub(crate) fn check_internal<'p>(
     }
     diagnostics
 }
+
+/// `@external` in a module of a dependency (E0233). Only the project being built and the bundled
+/// core and std may reach the host directly (spec 4.7, chapter 12).
+pub(crate) fn check_external_in_dependencies<'p>(
+    analysis: &Analysis,
+    parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for (module, _) in analysis.modules.iter() {
+        let Some(package) = analysis.modules.package_of(module) else {
+            continue;
+        };
+        let (Some(&file), Some(parse)) = (analysis.files.get(module), parse_of(module)) else {
+            continue;
+        };
+        for annotation in parse
+            .tree()
+            .syntax()
+            .descendants()
+            .filter_map(ast::Annotation::cast)
+        {
+            if annotation
+                .name()
+                .is_some_and(|name| name.text() == "external")
+            {
+                diagnostics.push(
+                    Diagnostic::error(format!("`@external` cannot be used in a dependency (`{}`)", package.name))
+                        .with_code(code::EXTERNAL_IN_DEPENDENCY)
+                        .with_span(Span::new(file, annotation.syntax().text_range()))
+                        .with_note("only the project being built reaches the host directly; a dependency goes through the effects of std"),
+                );
+            }
+        }
+    }
+    diagnostics
+}

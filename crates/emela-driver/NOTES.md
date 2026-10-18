@@ -226,3 +226,14 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）同梱のソースの仮のパスは，モジュール名の区切りをディレクトリにする（`Std.Console` は `<core>/std/console.emel`，`List` は `<core>/list.emel`）
 - （補）エフェクトのラベル（issue #255）の hover．ラベルの名前と，`use` 節や `with` に書いたラベルへの参照の上では，宣言をそのまま出す（`effect DebugLog of Console default`）．型の表示はラベルのまま出し，元のエフェクトに落とした形には書き換えない
 - （補）ラベルの診断の文言．E0429〜E0433 と W0401（使われないラベルの項目）．W0401 は `with L` ならラベル L の名前を，`L by P` なら L の名前を出す
+
+## 依存（4.7）
+
+- 依存は `Input::dependencies` で受け取る．lock から組み立てるのは `project_dependencies`（CLI はネットワークに出てキャッシュにない依存を取り，言語サーバーは取得元を空にしてキャッシュだけを見る）
+- （補）依存のモジュールは，モジュールの対応表では「依存ごとに重ならない内部の名前」（`Quince.Router`．重なれば `Quince2`）で持つ．import は import する側の Pome から引く（`ModuleMap::lookup_from`）: 自分の Pome のモジュール，自分の `[dependencies]` のルート名，core の順．内部の名前は診断と defect の文面に出る
+- （補）依存の中では，`src/lib.emel` は `Lib`，ほかのモジュールは 4.1 の名前で引ける．依存する側からは `Quince`（lib）と `Quince.Router` で，`Quince.Lib` と `Quince.Main` は引けない．`src/main.emel` は読まない
+- （補）ルート名の誤りは `Pome.toml` に出す．予約名（`Std`，`Prelude`，core のモジュール）は E0203，自分のモジュールの最初の区切りやほかの依存とぶつかれば E0204，型名にならなければ E0235
+- （補）`[pome].emela` は major.minor.patch で比べる（足りない桁は 0）．新しければ E0234，minor が古ければ W0203 で，依存の中のエラーに対象の版を注記する部分はまだない
+- （補）依存の `@test` は集めない．`emela doc` も依存のモジュールを出さない
+- 依存のファイルの診断のパスは，キャッシュの中の絶対パスのまま出る（`SourceDb` の base はプロジェクトだけ）
+- import のパスの補完は，まだ推移的な依存の内部の名前も候補に出す（`complete.rs` は importer を見ていない）

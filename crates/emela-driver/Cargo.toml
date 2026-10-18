@@ -20,6 +20,7 @@ line-index.workspace = true
 ariadne.workspace = true
 serde.workspace = true
 toml.workspace = true
+emela-pome.workspace = true
 serde_json.workspace = true
 pulldown-cmark.workspace = true
 

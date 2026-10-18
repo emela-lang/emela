@@ -466,14 +466,26 @@ fn lsp() -> ExitCode {
     }
 }
 
+/// The input of check, build, run, test and doc, with the project's dependencies from
+/// `Pome.lock` (fetched if missing from the cache, spec 4.7).
 fn resolve_input(fs: &dyn FileSystem, path: &Path) -> Option<Input> {
-    match Input::resolve(fs, path) {
-        Ok(input) => Some(input),
+    let mut input = match Input::resolve(fs, path) {
+        Ok(input) => input,
         Err(diagnostic) => {
             print_diagnostics(&[diagnostic], &SourceDb::new());
-            None
+            return None;
+        }
+    };
+    if !input.single_file {
+        match pome::dependencies(&input.base) {
+            Ok(dependencies) => input.dependencies = dependencies,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return None;
+            }
         }
     }
+    Some(input)
 }
 
 /// Returns 1 if there are errors.

@@ -536,6 +536,7 @@ where
             input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
             input => input,
         };
+        let (input, _) = with_dependencies(&self.fs, input);
         let (analysis, program) =
             emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
         let program = program?;
@@ -658,8 +659,12 @@ where
             }
         }
 
-        for input in &inputs {
-            let (analysis, _) = emela_driver::check(&self.fs, input, &mut (self.make_frontend)());
+        for input in inputs {
+            let (input, problem) = with_dependencies(&self.fs, input);
+            let input = &input;
+            let (mut analysis, _) =
+                emela_driver::check(&self.fs, input, &mut (self.make_frontend)());
+            analysis.diagnostics.extend(problem);
             // Diagnostics without a location attach to the entry, or to `Pome.toml` if none.
             let anchor = input
                 .entry
@@ -770,4 +775,37 @@ where
 
 fn parse<N: lsp::notification::Notification>(notification: Notification) -> Option<N::Params> {
     notification.extract(N::METHOD).ok()
+}
+
+/// Adds the project's dependencies from the cache. The language server does not go to the
+/// network (spec 4.7): a dependency missing from the cache, or a missing lock, is a diagnostic on
+/// `Pome.toml`, and the project is checked without dependencies.
+fn with_dependencies(fs: &dyn FileSystem, mut input: Input) -> (Input, Option<Diagnostic>) {
+    if input.single_file {
+        return (input, None);
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    let result = emela_pome::fetch::config::Config::from_env(|k| std::env::var(k).ok(), home)
+        .map_err(emela_pome::project::PomeError::Usage)
+        .and_then(|mut config| {
+            config.sources.clear();
+            let fetcher =
+                emela_pome::fetch::Fetcher::new(config, emela_pome::fetch::transport::Http::new());
+            emela_driver::project_dependencies(fs, &input.base, &fetcher)
+        });
+    match result {
+        Ok(dependencies) => {
+            input.dependencies = dependencies;
+            (input, None)
+        }
+        Err(e) => {
+            let diagnostic = Diagnostic::error(format!("the dependencies cannot be used: {e}"))
+                .with_code(emela_driver::code::DEPENDENCIES_NOT_READY)
+                .with_note("run `emela pome install` to get them")
+                .at(emela_driver::Location::Path(input.base.join(PROJECT_FILE)));
+            (input, Some(diagnostic))
+        }
+    }
 }

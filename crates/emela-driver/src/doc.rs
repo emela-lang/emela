@@ -79,7 +79,7 @@ pub fn collect_docs(program: &TypedProgram, analysis: &Analysis, core: bool) -> 
     let mut modules: Vec<DocModule> = analysis
         .files
         .iter()
-        .filter(|&(m, _)| analysis.modules.is_core(m) == core)
+        .filter(|&(m, _)| analysis.modules.is_core(m) == core && !analysis.modules.is_dependency(m))
         .map(|(m, &file)| collect_module(program, m, analysis.sources[file].text()))
         .collect();
     modules.sort_by(|a, b| a.name.cmp(&b.name));
