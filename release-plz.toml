@@ -98,6 +98,12 @@ name = "emela-lsp"
 version_group = "emela"
 
 [[package]]
+name = "emela-pome"
+version_group = "emela"
+# Added after v0.21.0: not in that tag. Remove once a release tag (v0.22.0) contains it.
+git_tag_name = "emela-pome-v{{ version }}"
+
+[[package]]
 name = "emela-cli"
 version_group = "emela"
 # The binary crate (it builds the `emela` binary) cuts the one release tag `release.yml` listens for.
@@ -122,5 +128,6 @@ changelog_include = [
   "emela-fmt",
   "emela-driver",
   "emela-lsp",
+  "emela-pome",
 ]
 
