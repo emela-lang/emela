@@ -8,6 +8,7 @@ mod c;
 pub mod code;
 mod complete;
 mod dependencies;
+pub use dependencies::check_dependency_targets;
 mod diagnostic;
 mod doc;
 mod fmt;

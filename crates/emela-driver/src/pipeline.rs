@@ -120,6 +120,9 @@ pub struct Dependencies {
     pub project: Vec<DependencyRef>,
     /// The project's `Pome.toml`, where root name errors of the project are reported.
     pub manifest: PathBuf,
+    /// `[external] allow` of the project: the source paths of the Pomes whose `@external` it
+    /// allows.
+    pub allow_external: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,6 +137,8 @@ pub struct DependencyPome {
     pub module: Option<String>,
     /// `[pome].emela`: the oldest compiler it needs.
     pub emela: Option<String>,
+    /// `[pome].targets`: the targets it runs on; `None` for all of them.
+    pub targets: Option<Vec<String>>,
     /// Its `[dependencies]`.
     pub dependencies: Vec<DependencyRef>,
 }

@@ -8,8 +8,9 @@ use emela_resolve::{ModuleMap, ModuleName, PRELUDE, STD, SourceFs, is_type_name,
 use smol_str::SmolStr;
 
 use crate::code;
-use crate::diagnostic::{Diagnostic, Location};
+use crate::diagnostic::{Diagnostic, HELP_PREFIX, Location};
 use crate::pipeline::{Dependencies, DependencyPome, DependencyRef, PROJECT_FILE, SOURCE_DIR};
+use crate::target::Target;
 
 /// The compiler version `[pome].emela` is compared with.
 const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -33,8 +34,23 @@ pub(crate) fn add(
         );
         resolve_diagnostics.extend(found);
         ids.push(id);
+        if dependencies.allow_external.contains(&pome.name) {
+            modules.allow_external(id);
+        }
         if let Some(emela) = &pome.emela {
             diagnostics.extend(check_compiler_version(pome, emela, &manifest));
+        }
+    }
+
+    for allowed in &dependencies.allow_external {
+        if !dependencies.pomes.iter().any(|p| &p.name == allowed) {
+            diagnostics.push(
+                Diagnostic::warning(format!(
+                    "`{allowed}` is allowed in [external] but not depended on"
+                ))
+                .with_code(code::UNUSED_EXTERNAL_ALLOW)
+                .at(Location::Path(dependencies.manifest.clone())),
+            );
         }
     }
 
@@ -216,4 +232,44 @@ fn check_compiler_version(
         )
         .at(Location::Path(manifest.to_path_buf()))
     })
+}
+
+/// Dependencies whose `[pome].targets` does not include `target` (E0238, spec 4.7). Only build,
+/// run and test have a target; check and the language server do not call this.
+pub fn check_dependency_targets(dependencies: &Dependencies, target: Target) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for (i, pome) in dependencies.pomes.iter().enumerate() {
+        let Some(targets) = &pome.targets else {
+            continue;
+        };
+        if targets.iter().any(|t| t == target.name()) {
+            continue;
+        }
+        let required_by = if dependencies.project.iter().any(|r| r.pome == i) {
+            "this Pome".to_string()
+        } else {
+            dependencies
+                .pomes
+                .iter()
+                .find(|p| p.dependencies.iter().any(|r| r.pome == i))
+                .map_or_else(|| "this Pome".to_string(), |p| format!("`{}`", p.name))
+        };
+        diagnostics.push(
+            Diagnostic::error(format!(
+                "`{}` supports only {}, not {}",
+                pome.name,
+                targets.join(", "),
+                target.name()
+            ))
+            .with_code(code::UNSUPPORTED_TARGET)
+            .with_note(format!("required by {required_by}"))
+            .with_note(format!(
+                "{HELP_PREFIX}build for {}, or move the {} entry to a Pome that does not depend on it",
+                targets.join(" or "),
+                target.name()
+            ))
+            .at(Location::Path(pome.dir.join(PROJECT_FILE))),
+        );
+    }
+    diagnostics
 }

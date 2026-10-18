@@ -234,6 +234,10 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）依存の中では，`src/lib.emel` は `Lib`，ほかのモジュールは 4.1 の名前で引ける．依存する側からは `Quince`（lib）と `Quince.Router` で，`Quince.Lib` と `Quince.Main` は引けない．`src/main.emel` は読まない
 - （補）ルート名の誤りは `Pome.toml` に出す．予約名（`Std`，`Prelude`，core のモジュール）は E0203，自分のモジュールの最初の区切りやほかの依存とぶつかれば E0204，型名にならなければ E0235
 - （補）`[pome].emela` は major.minor.patch で比べる（足りない桁は 0）．新しければ E0234，minor が古ければ W0203 で，依存の中のエラーに対象の版を注記する部分はまだない
+- 依存の `@external` は，プロジェクトの `[external] allow` にある Pome だけで使える（E0233）．許されていても pub な `@external` の fn は E0237．`allow` にあって依存の木にない Pome は W0204
+- （補）E0233 は，許されていない Pome のモジュールごとに最初の `@external` にだけ出す（Pome を許せばまとめて消えるので，全部に出すと多すぎる）
+- `[pome].targets` の検査（E0238）は build，run，test の対象が決まった所（CLI の `resolve_target`）で行う．check と LSP は対象を決めないので行わない
+- （補）E0238 の注記の「required by」は，その Pome を `[dependencies]` に書いた最初の Pome（プロジェクトなら this Pome）
 - （補）依存の `@test` は集めない．`emela doc` も依存のモジュールを出さない
 - 依存のファイルの診断のパスは，キャッシュの中の絶対パスのまま出る（`SourceDb` の base はプロジェクトだけ）
 - import のパスの補完は，まだ推移的な依存の内部の名前も候補に出す（`complete.rs` は importer を見ていない）

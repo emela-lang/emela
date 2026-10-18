@@ -18,9 +18,16 @@ pub struct Manifest {
     pub emela: String,
     /// `[pome].module`: the root name the author chose.
     pub module: Option<String>,
+    /// `[pome].targets`: the targets the Pome runs on; `None` for all of them.
+    pub targets: Option<Vec<String>>,
     pub dependencies: BTreeMap<SourcePath, Requirement>,
     pub replace: BTreeMap<SourcePath, PathBuf>,
+    /// `[external].allow`: the Pomes whose `@external` the Pome allows when it is built.
+    pub external: Vec<SourcePath>,
 }
+
+/// The targets `[pome].targets` may name (spec chapter 16).
+pub const TARGETS: [&str; 3] = ["js", "wasm", "c"];
 
 /// An entry of `[dependencies]`: "this version or above".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +56,14 @@ struct File {
     dependencies: BTreeMap<SourcePath, RequirementEntry>,
     #[serde(default)]
     replace: BTreeMap<SourcePath, ReplaceEntry>,
+    #[serde(default)]
+    external: ExternalSection,
+}
+
+#[derive(Deserialize, Default)]
+struct ExternalSection {
+    #[serde(default)]
+    allow: Vec<SourcePath>,
 }
 
 #[derive(Deserialize)]
@@ -57,6 +72,7 @@ struct PomeSection {
     version: String,
     emela: String,
     module: Option<String>,
+    targets: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -106,13 +122,27 @@ impl Manifest {
             }
             dependencies.insert(path, requirement);
         }
+        if let Some(unknown) = file
+            .pome
+            .targets
+            .iter()
+            .flatten()
+            .find(|t| !TARGETS.contains(&t.as_str()))
+        {
+            return Err(ManifestError(format!(
+                "`[pome].targets`: unknown target `{unknown}` (expected one of {})",
+                TARGETS.join(", ")
+            )));
+        }
         Ok(Manifest {
             name: file.pome.name,
             version,
             emela: file.pome.emela,
             module: file.pome.module,
+            targets: file.pome.targets,
             dependencies,
             replace: file.replace.into_iter().map(|(k, v)| (k, v.path)).collect(),
+            external: file.external.allow,
         })
     }
 }
@@ -187,5 +217,20 @@ target = "c"
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn reads_external_and_targets() {
+        let base =
+            "[pome]\nname = \"github.com/acme/x\"\nversion = \"0.1.0\"\nemela = \"0.21.0\"\n";
+        let m = Manifest::parse(&format!("{base}targets = [\"js\"]\n\n[external]\nallow = [\"github.com/emela-lang/x/platform-cloudflare\"]\n")).unwrap();
+        assert_eq!(m.targets, Some(vec!["js".to_string()]));
+        assert_eq!(
+            m.external,
+            [SourcePath::parse("github.com/emela-lang/x/platform-cloudflare").unwrap()]
+        );
+        let m = Manifest::parse(base).unwrap();
+        assert_eq!((m.targets, m.external.len()), (None, 0));
+        assert!(Manifest::parse(&format!("{base}targets = [\"node\"]\n")).is_err());
     }
 }
