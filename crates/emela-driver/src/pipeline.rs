@@ -155,7 +155,14 @@ impl Input {
                     Some(absolute)
                 } else {
                     let entry = root.join(ENTRY_FILE);
-                    fs.is_file(&entry).then_some(entry)
+                    if fs.is_file(&entry) {
+                        Some(entry)
+                    } else {
+                        // A library-only project still has an entry module for checking and
+                        // test discovery. `run` will report E0230 because it has no `main`.
+                        let library = root.join("lib.emel");
+                        fs.is_file(&library).then_some(library)
+                    }
                 };
                 Ok(Input {
                     root,

@@ -180,6 +180,39 @@ fn build_reports_unsupported_expressions() {
 }
 
 #[test]
+fn library_only_project_uses_lib_as_entry_for_check_and_test() {
+    let project = Project::new(
+        "library-only",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/lib.emel",
+                "pub fn f() -> Int { 1 }\n\n@test\nfn works() { assert f() == 1 }\n",
+            ),
+        ],
+    );
+
+    let check = project.emela(&["check"]);
+    assert_eq!((check.code, check.stderr.as_str()), (Some(0), ""));
+
+    let test = project.emela(&["test"]);
+    assert_eq!((test.code, test.stderr.as_str()), (Some(0), ""));
+    assert!(test.stdout.contains("test works ... ok"), "{}", test.stdout);
+
+    let build = project.emela(&["build"]);
+    assert_eq!((build.code, build.stderr.as_str()), (Some(0), ""));
+
+    let run = project.emela(&["run"]);
+    assert_eq!(run.code, Some(1));
+    assert!(
+        run.stderr
+            .starts_with("error[E0230]: entry `src/lib.emel` has no `main` function"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
 fn build_reports_missing_entry() {
     let project = Project::new("no-entry", &[("Pome.toml", ""), ("src/util.emel", "")]);
     let run = project.emela(&["build"]);

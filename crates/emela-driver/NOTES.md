@@ -141,6 +141,7 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - ディレクトリを渡せるのはプロジェクトのディレクトリかソースのルートの中のディレクトリだけで，プロジェクトの中でもソースのルートの外（`scripts/`）なら E0208（``directory `scripts` is outside the source root `src` ``．付録 B，18.1 #32）．判定は `Input::resolve` に置き，check，build，run，test，fmt，LSP で共有する．ソースのルートの中のディレクトリを渡しても，型の検査はモジュールをまたぐのでプロジェクト全体を検査する
 - （補）ディレクトリを渡してエントリ（`src/main.emel`）がなくても `check` は通す．エントリがないことは `build` と `run` で初めてエラーにする
 - （補）エントリのファイルが名前の誤りでモジュールにならないときは，名前解決の診断に加えて「エントリ `…` がモジュールにならない」を出す
+- （補）プロジェクトに `src/main.emel` がなく `src/lib.emel` があるときは，`lib.emel` を検査・テストのエントリにする．`run` はそのモジュールに `main` がないため E0230 で止まる．`src/main.emel` があれば従来どおり優先する
 - （補）`emela run` は，エントリのモジュールに `main` という名前の fn がなければ E0230（``entry `src/main.emel` has no `main` function``，位置はエントリのファイル）で止まり，出力も node の起動もしない．`build` は main がなくても出力する（8.3）．`main` という名前でも fn でないもの（const など）は main と数えない
 - （補）E0230 はほかの誤り（構文，名前，型，lowering）が1件もないときだけ出す．構文の誤りで main を読めなかっただけのときに誤りを重ねないため
 - （補）main があるかは `Frontend::has_entry_main` で引く．`Typecheck`（と，それを包む `Lower`）が直前の `check` の HIR から答える．答えないフロントエンド（`None`，既定）では確かめずに node を起動する
