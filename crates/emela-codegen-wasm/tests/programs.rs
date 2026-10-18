@@ -64,15 +64,6 @@ const NOT_ON_WASM: &[(&str, &str)] = &[
         "a `suspend fn` external function is not supported on wasm",
     ),
     ("suspend_resume", "suspending code is not supported on wasm"),
-    // --- runtime gaps (not check.rs) ---
-    (
-        "consts",
-        "the const-evaluation defect message lacks the `while evaluating const BROKEN: ` prefix",
-    ),
-    (
-        "defect_release",
-        "the wasm runtime drops a second defect instead of recording a note (spec 14.4)",
-    ),
 ];
 
 struct Expected {

@@ -127,6 +127,16 @@ const FRAME_STATE: u32 = HDR + 8;
 const FRAME_NEXT: u32 = HDR + 16;
 const FRAME_SAVED: u32 = HDR + 24;
 
+/// The static cell of a const (spec 5.6): 0 = the state (0 not evaluated, 1 being evaluated,
+/// 2 the value, 3 the defect), 8 = the remembered value (a word), 16 = the remembered defect,
+/// 24 = the message of a self-reference, 32 = the prefix of a defect raised while it is evaluated.
+const CELL_STATE: u32 = 0;
+const CELL_VALUE: u32 = 8;
+const CELL_DEFECT: u32 = 16;
+const CELL_SELF_MSG: u32 = 24;
+const CELL_PREFIX: u32 = 32;
+const CELL_SIZE: u32 = 40;
+
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
 const HDR: u32 = 16;
@@ -185,6 +195,22 @@ pub(crate) struct Builder<'m> {
     resume_closure: [u32; 5],
     /// The descriptor of the `interrupted` object (spec 14.5).
     pub(crate) interrupted_desc: u32,
+    /// Whether the module has a const (`Function::constant`): the const helpers and the
+    /// self-reference global (`self_reference`) are emitted only then, so other programs keep the
+    /// bytes they had before (see `runtime::constant`).
+    uses_const: bool,
+    /// Whether the module can record a release-failure note (a handler is retired, spec 14.4): the
+    /// name global (`last_retired`), the note strings and the note code are emitted only then.
+    uses_notes: bool,
+    /// The global of the const self-reference flag (spec 5.6), when [`Self::uses_const`].
+    self_reference: u32,
+    /// The global holding the name of the handler retired most recently (spec 14.4), when
+    /// [`Self::uses_notes`].
+    last_retired: u32,
+    /// The static cell of each const function, by its index (the state, value and defect).
+    const_cell: FxHashMap<usize, u32>,
+    /// The init body of each const function (the wrapper takes its [`Self::fn_index`] slot).
+    const_init: FxHashMap<usize, u32>,
 }
 
 /// A suspending function lowered as a state machine: its body is `f_sm` (entered with a `frame`),
@@ -233,6 +259,12 @@ impl<'m> Builder<'m> {
             machine: FxHashMap::default(),
             resume_closure: [0; 5],
             interrupted_desc: 0,
+            uses_const: has_const(m),
+            uses_notes: has_handler(m),
+            self_reference: 0,
+            last_retired: 0,
+            const_cell: FxHashMap::default(),
+            const_init: FxHashMap::default(),
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -247,6 +279,16 @@ impl<'m> Builder<'m> {
                 show: None,
                 refs: vec![true],
             });
+        }
+        // The globals the note and const machinery need, appended after the base and suspend ones
+        // so that programs without them keep the exact bytes they had.
+        if b.uses_const {
+            b.self_reference = b.globals;
+            b.globals += 1;
+        }
+        if b.uses_notes {
+            b.last_retired = b.globals;
+            b.globals += 1;
         }
         b
     }
@@ -380,6 +422,21 @@ impl<'m> Builder<'m> {
             self.fn_table[ix(id)] = self.table_funcs.len() as u32;
             self.table_funcs.push(index);
             self.defs.push(ty);
+            // A const gets a second slot for its body, which the wrapper (`fn_index`) evaluates
+            // once and remembers (spec 5.6). Callers and the table use the wrapper.
+            if f.constant && !is_machine(f) {
+                let init = self.imports.len() as u32 + self.defs.len() as u32;
+                self.defs.push(ty);
+                self.const_init.insert(ix(id), init);
+            }
+        }
+        // The static cells of the consts (their state, value and defect).
+        for (id, f) in self.m.functions.iter() {
+            if !f.constant || is_machine(f) {
+                continue;
+            }
+            let cell = self.const_cell_for(f);
+            self.const_cell.insert(ix(id), cell);
         }
         // The state machines: each suspending function with suspension points gets a body entered
         // with a frame (`f_sm`) and a resume wrapper (`f_resume`, in the table for the driver).
@@ -489,6 +546,20 @@ impl<'m> Builder<'m> {
             show: None,
             refs: Vec::new(),
         })
+    }
+
+    /// The static cell of a const (spec 5.6): the state, the remembered value and defect, and the
+    /// messages that name the const in a self-reference and in a defect raised while it evaluates.
+    fn const_cell_for(&mut self, f: &Function) -> u32 {
+        let name = check::display_name(&f.name);
+        let self_msg = self.string_literal(
+            format!("const {name} refers to itself while being evaluated").as_bytes(),
+        );
+        let prefix = self.string_literal(format!("while evaluating const {name}: ").as_bytes());
+        let cell = self.alloc_static(CELL_SIZE);
+        self.write_u32(cell + CELL_SELF_MSG, self_msg);
+        self.write_u32(cell + CELL_PREFIX, prefix);
+        cell
     }
 
     /// The descriptor of a list cell (`{head, tail}`), whose head is a reference or a word.
@@ -727,12 +798,20 @@ impl<'m> Builder<'m> {
             if self.imported(id) {
                 continue;
             }
-            let body = if f.external.is_some() {
-                self.external_stub(id, f)
-            } else {
-                self.emit_fn(id, f)
-            };
-            bodies.push(body);
+            if f.external.is_some() {
+                bodies.push(self.external_stub(id, f));
+                continue;
+            }
+            if f.constant && !is_machine(f) {
+                // The slots were reserved as [wrapper, init]: the wrapper evaluates and remembers,
+                // the init is the body the source declared (spec 5.6).
+                let init = self.emit_fn(id, f);
+                let wrapper = self.emit_const_wrapper(id, f);
+                bodies.push(wrapper);
+                bodies.push(init);
+                continue;
+            }
+            bodies.push(self.emit_fn(id, f));
         }
         // The state-machine bodies and resume wrappers come after every IR function (their slots
         // were reserved in the same order in `build`).
@@ -769,6 +848,71 @@ impl<'m> Builder<'m> {
             ins.end();
         }
         let _ = id;
+        func
+    }
+
+    /// The wrapper a const's callers call: it evaluates the body (the init function) on the first
+    /// reference and remembers the value or the defect (spec 5.6). The init is only reached when
+    /// `const_enter` says the const has not been evaluated yet; otherwise the remembered value (or
+    /// the pending defect it raised) comes from the cell.
+    fn emit_const_wrapper(&mut self, id: FnId, f: &Function) -> WasmFunction {
+        let cell = self.const_cell[&ix(id)];
+        let init = self.const_init[&ix(id)];
+        let ret = self.repr(f.ret);
+        let is_ref = i32::from(ret == Repr::Ref);
+        let enter = self.rt("const_enter");
+        let record = self.rt("const_record");
+        let locals = if ret == Repr::Void {
+            Vec::new()
+        } else {
+            vec![(1, val(ret))]
+        };
+        let mut func = WasmFunction::new(locals);
+        {
+            let mut ins = func.instructions();
+            ins.i32_const(cell as i32);
+            ins.i32_const(is_ref);
+            ins.call(enter);
+            ins.i32_eqz();
+            ins.if_(BlockType::Empty);
+            // Already evaluated (or a defect is pending): hand out the remembered value, which
+            // `const_enter` has already counted if it is a reference.
+            if ret != Repr::Void {
+                ins.i32_const(cell as i32);
+                load_cell_value(&mut ins, ret);
+            }
+            ins.return_();
+            ins.end();
+            // First reference: evaluate the body, then remember what it came back with.
+            ins.call(init);
+            if ret == Repr::Void {
+                ins.i32_const(cell as i32);
+                ins.i64_const(0);
+                ins.i32_const(0);
+                ins.call(record);
+            } else {
+                ins.local_set(0);
+                ins.i32_const(cell as i32);
+                match ret {
+                    Repr::I32 | Repr::Ref => {
+                        ins.local_get(0);
+                        ins.i64_extend_i32_u();
+                    }
+                    Repr::I64 => {
+                        ins.local_get(0);
+                    }
+                    Repr::F64 => {
+                        ins.local_get(0);
+                        ins.i64_reinterpret_f64();
+                    }
+                    Repr::Void => unreachable!(),
+                }
+                ins.i32_const(is_ref);
+                ins.call(record);
+                ins.local_get(0);
+            }
+            ins.end();
+        }
         func
     }
 
@@ -1908,6 +2052,22 @@ fn mem(offset: u32, align_bytes: u32) -> MemArg {
     }
 }
 
+/// Loads a const cell's remembered value (spec 5.6) with the representation's width.
+fn load_cell_value(ins: &mut InstructionSink, ret: Repr) {
+    match ret {
+        Repr::I32 | Repr::Ref => {
+            ins.i32_load(mem(CELL_VALUE, 4));
+        }
+        Repr::I64 => {
+            ins.i64_load(mem(CELL_VALUE, 8));
+        }
+        Repr::F64 => {
+            ins.f64_load(mem(CELL_VALUE, 8));
+        }
+        Repr::Void => {}
+    }
+}
+
 fn dummy_return(ins: &mut InstructionSink, ret: Repr) {
     match ret {
         Repr::Void => {
@@ -2132,6 +2292,31 @@ fn is_machine(f: &Function) -> bool {
                 }
             )
         })
+}
+
+/// Whether the module has a const (spec 5.6), so that the const helpers and the self-reference
+/// global are linked. A const that also suspends is not lifted (it stays an ordinary function), so
+/// it does not count.
+fn has_const(m: &Module) -> bool {
+    m.functions
+        .iter()
+        .any(|(_, f)| f.constant && !is_machine(f))
+}
+
+/// Whether the module can record a release-failure note (spec 14.4): it makes a handler value, so
+/// a release can run and fail while a defect unwinds. Programs without one keep the bytes they had.
+fn has_handler(m: &Module) -> bool {
+    m.functions.iter().any(|(_, f)| {
+        f.stmts.iter().any(|(_, s)| {
+            matches!(
+                s,
+                Stmt::Let {
+                    value: Value::Handler { .. },
+                    ..
+                }
+            )
+        })
+    })
 }
 
 /// The index of a representation's resume closure in [`Builder::resume_closure`].

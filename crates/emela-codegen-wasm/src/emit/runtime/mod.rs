@@ -15,6 +15,7 @@ use super::layout::{CPBUF, DIGITS, DIGITS64, JSONBUF, PAGE};
 
 use super::*;
 
+mod constant;
 mod fiber;
 mod float;
 mod fs;
@@ -39,6 +40,7 @@ pub(crate) const FUNCS: &[&[Sig]] = &[
     sched::FUNCS,
     fiber::FUNCS,
     fs::FUNCS,
+    constant::FUNCS,
 ];
 
 /// Every runtime function, in definition order.
@@ -178,6 +180,9 @@ pub(crate) fn register(b: &mut Builder) {
         if sched::handles(name) && !b.uses_suspend {
             continue;
         }
+        if constant::handles(name) && !b.uses_const {
+            continue;
+        }
         if is_on_demand(name) && !b.requested_hosts.contains(&name) {
             continue;
         }
@@ -203,7 +208,7 @@ pub(crate) fn emit(b: &mut Builder) {
         if !b.rt.contains_key(name) {
             continue;
         }
-        let mut f = WasmFunction::new(locals(name));
+        let mut f = WasmFunction::new(locals(b, name));
         {
             let mut ins = f.instructions();
             body(b, name, &mut ins);
@@ -213,16 +218,21 @@ pub(crate) fn emit(b: &mut Builder) {
     }
 }
 
-fn locals(name: &str) -> Vec<(u32, ValType)> {
+fn locals(b: &Builder, name: &str) -> Vec<(u32, ValType)> {
     if let Some(locals) = host::locals(name)
         .or_else(|| float::locals(name))
         .or_else(|| sched::locals(name))
         .or_else(|| fiber::locals(name))
         .or_else(|| fs::locals(name))
+        .or_else(|| constant::locals(name))
     {
         return locals;
     }
     match name {
+        // The first defect, when a second one becomes a note (spec 14.4).
+        "raise" if b.uses_notes => i32s(1, 1),
+        // The later defect and the string a note is built into.
+        "defect_resume" if b.uses_notes => i32s(1, 2),
         "alloc" => i32s(2, 6),      // need, cur, prev, next, p, pages
         "dup" => i32s(1, 1),        // rc
         "drop" => i32s(1, 13),      // rc..size
@@ -264,6 +274,7 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         || sched::body(b, name, ins)
         || fiber::body(b, name, ins)
         || fs::body(b, name, ins)
+        || constant::body(b, name, ins)
     {
         return;
     }
@@ -302,7 +313,7 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         "raise" => raise(b, ins),
         "defect_take" => defect_take(ins),
         "defect_resume" => defect_resume(b, ins),
-        "retire" => retire(ins),
+        "retire" => retire(b, ins),
         "show_failure" => show_failure(b, ins),
         "json_string" => json_string(b, ins),
         "test_result" => test_result(b, ins),
@@ -2128,17 +2139,45 @@ fn int64_to_string(b: &mut Builder, ins: &mut InstructionSink) {
 // ---- defects ----
 
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
+    // This raise is not the self-reference defect: only the const that detects it sets the flag,
+    // after calling `raise` (spec 5.6).
+    if b.uses_const {
+        ins.i32_const(0);
+        ins.global_set(b.self_reference);
+    }
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    ins.local_get(0);
-    ins.global_set(G_DEFECT);
-    ins.else_();
-    // A defect raised while one is already pending (spec 14.4): the first stays the result and
-    // the later one becomes a note. Notes are not implemented yet (NOTES.md), so release it.
-    ins.local_get(0);
-    ins.call(rt(b, "drop"));
+    // No defect pending: this message becomes it. It borrows its argument, so count it (unless
+    // nothing keeps a reference to the message: a program with neither a const nor a release note
+    // leaves the pending defect as a plain reference, like the first version did).
+    if b.uses_const || b.uses_notes {
+        ins.local_get(0);
+        ins.call(rt(b, "dup"));
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+    } else {
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+    }
+    ins.return_();
     ins.end();
+    if b.uses_notes {
+        // A defect raised while one is already pending (spec 14.4): the first stays the result and
+        // the later one becomes a note of it.
+        ins.global_get(G_DEFECT);
+        ins.local_set(1);
+        ins.local_get(0);
+        ins.call(rt(b, "dup"));
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+        ins.local_get(1);
+        ins.call(rt(b, "defect_resume"));
+    } else {
+        // No note machinery: keep the first defect and release the later one (spec 14.4).
+        ins.local_get(0);
+        ins.call(rt(b, "drop"));
+    }
 }
 
 fn defect_take(ins: &mut InstructionSink) {
@@ -2150,27 +2189,106 @@ fn defect_take(ins: &mut InstructionSink) {
 }
 
 fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
+    if !b.uses_notes {
+        // No note machinery: the first defect (`local 0`, already consumed) either goes back or,
+        // when the cleanup raised another one, the later one is released and the first restored.
+        ins.global_get(G_DEFECT);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+        ins.else_();
+        ins.global_get(G_DEFECT);
+        ins.call(rt(b, "drop"));
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+        ins.end();
+        return;
+    }
+    let drop = rt(b, "drop");
+    let append = rt(b, "str_append");
+    let interrupted = b.uses_suspend.then(|| rt(b, "is_interrupted"));
+    // later = G_DEFECT; G_DEFECT = the taken defect (`local 0`, consumed).
     ins.global_get(G_DEFECT);
+    ins.local_set(1);
+    ins.local_get(0);
+    ins.global_set(G_DEFECT);
+    ins.local_get(1);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // Nothing was raised by the cleanup: put the taken defect back.
-    ins.local_get(0);
-    ins.global_set(G_DEFECT);
-    ins.else_();
-    // A defect raised while the first unwound (spec 14.4): the first (`local 0`) stays the
-    // result. The later one becomes a note; notes are not implemented yet (NOTES.md), so
-    // release it and restore the first.
-    ins.global_get(G_DEFECT);
-    ins.call(rt(b, "drop"));
-    ins.local_get(0);
-    ins.global_set(G_DEFECT);
+    // Nothing was raised by the cleanup: the taken defect is back.
+    ins.return_();
     ins.end();
+    if let Some(is_interrupted) = interrupted {
+        // Unwinding as interrupted: a defect of the cleanup replaces the interruption.
+        ins.local_get(0);
+        ins.call(is_interrupted);
+        ins.if_(BlockType::Empty);
+        ins.local_get(0);
+        ins.call(drop);
+        ins.local_get(1);
+        ins.global_set(G_DEFECT);
+        ins.return_();
+        ins.end();
+        // Unwinding a defect: an interruption of the cleanup is no note (spec 14.4).
+        ins.local_get(1);
+        ins.call(is_interrupted);
+        ins.if_(BlockType::Empty);
+        ins.local_get(1);
+        ins.call(drop);
+        ins.return_();
+        ins.end();
+    }
+    // The first (`local 0`) stays the result, with the later one as a note:
+    // `<first>\nnote: the release of handler <last_retired> also failed: <later>`.
+    let head = b.string_literal(b"\nnote: the release of handler ");
+    let tail = b.string_literal(b" also failed: ");
+    ins.local_get(0);
+    ins.i32_const(head as i32);
+    ins.call(append);
+    ins.local_set(2);
+    ins.global_get(b.last_retired);
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.global_get(b.last_retired);
+    ins.call(append);
+    ins.local_set(2);
+    ins.end();
+    ins.local_get(2);
+    ins.i32_const(tail as i32);
+    ins.call(append);
+    ins.local_set(2);
+    ins.local_get(2);
+    ins.local_get(1);
+    ins.call(append);
+    ins.local_set(2);
+    ins.local_get(2);
+    ins.global_set(G_DEFECT);
+    ins.local_get(0);
+    ins.call(drop);
+    ins.local_get(1);
+    ins.call(drop);
 }
 
-fn retire(ins: &mut InstructionSink) {
+fn retire(b: &mut Builder, ins: &mut InstructionSink) {
+    if !b.uses_notes {
+        // No handler can be retired (the module makes none), so keep the first version's body.
+        ins.local_get(0);
+        ins.i32_const(1);
+        ins.i32_store(mem(0, 4));
+        return;
+    }
+    // Mark the handler released (its operations are a defect from now on, spec 8.6), and remember
+    // its name for the note of a release that fails while a defect unwinds (spec 14.4).
     ins.local_get(0);
     ins.i32_const(1);
-    ins.i32_store(mem(0, 4));
+    ins.i32_store(mem(HDR, 4));
+    ins.local_get(1);
+    ins.call(rt(b, "dup"));
+    ins.global_get(b.last_retired);
+    ins.call(rt(b, "drop"));
+    ins.local_get(1);
+    ins.global_set(b.last_retired);
 }
 
 // ---- numeric helpers ----
