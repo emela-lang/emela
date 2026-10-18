@@ -27,7 +27,11 @@ use super::*;
 /// The third element must be a runtime function whose wasm signature is the `repr_val` image of
 /// the `fn`'s LIR signature (references and `String` become `i32`). It is emitted only when a
 /// program references it.
-pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[("test", "print", "print_string")];
+pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[
+    ("test", "print", "print_string"),
+    ("emela:console", "log", "console_log"),
+    ("emela:console", "error", "console_error"),
+];
 
 /// If `(module, name)` is an internal host, the runtime function it binds to.
 pub(crate) fn internal_host_name(module: &str, name: &str) -> Option<&'static str> {

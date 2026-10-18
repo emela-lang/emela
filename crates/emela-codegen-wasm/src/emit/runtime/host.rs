@@ -18,14 +18,18 @@ pub(super) const FUNCS: &[Sig] = &[
     ("write", &[ValType::I32, ValType::I32, ValType::I32], &[]),
     ("exit", &[ValType::I32], &[]),
     ("print_string", &[ValType::I32], &[]),
+    ("console_log", &[ValType::I32], &[]),
+    ("console_error", &[ValType::I32], &[]),
 ];
 
 pub(super) fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
-        "debug_print" => debug_print(b, ins),
+        "debug_print" => write_line(b, ins, 2),
         "write" => write(b, ins),
         "exit" => exit(b, ins),
-        "print_string" => print_string(b, ins),
+        "print_string" => write_line(b, ins, 1),
+        "console_log" => write_line(b, ins, 1),
+        "console_error" => write_line(b, ins, 2),
         _ => return false,
     }
     true
@@ -50,9 +54,12 @@ fn write(b: &mut Builder, ins: &mut InstructionSink) {
     ins.drop();
 }
 
-fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
+/// Writes the bytes of the string in local 0 (length at `[ptr + HDR]`, bytes at `ptr + HDR + 4`)
+/// and a newline to the file descriptor `fd`. All of `debug_print`, `print_string` and the
+/// `Console` internal hosts are this with a different descriptor.
+fn write_line(b: &mut Builder, ins: &mut InstructionSink, fd: i32) {
     let write = rt(b, "write");
-    ins.i32_const(2);
+    ins.i32_const(fd);
     ins.local_get(0);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
@@ -62,28 +69,7 @@ fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(NEWLINE as i32);
     ins.i32_const(10);
     ins.i32_store8(mem(0, 1));
-    ins.i32_const(2);
-    ins.i32_const(NEWLINE as i32);
-    ins.i32_const(1);
-    ins.call(write);
-}
-
-/// `print(s)`, the internal host `("test", "print")` of the acceptance corpus: the bytes of the
-/// string argument at `ptr + HDR + 4`, its length at `[ptr + HDR]`, then a newline, on stdout
-/// (fd 1). It is `debug_print` with a different file descriptor.
-fn print_string(b: &mut Builder, ins: &mut InstructionSink) {
-    let write = rt(b, "write");
-    ins.i32_const(1);
-    ins.local_get(0);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
-    ins.local_get(0);
-    ins.i32_load(mem(HDR, 4));
-    ins.call(write);
-    ins.i32_const(NEWLINE as i32);
-    ins.i32_const(10);
-    ins.i32_store8(mem(0, 1));
-    ins.i32_const(1);
+    ins.i32_const(fd);
     ins.i32_const(NEWLINE as i32);
     ins.i32_const(1);
     ins.call(write);
