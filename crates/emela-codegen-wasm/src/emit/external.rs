@@ -55,6 +55,17 @@ pub(crate) const INTERNAL_HOSTS: &[(&str, &str, &str)] = &[
     ("emela:fs", "outcome_name_count", "fs_outcome_name_count"),
     ("emela:fs", "outcome_name_at", "fs_outcome_name_at"),
     ("emela:fs", "release_outcome", "fs_release_outcome"),
+    // `Std.Clock` (spec 8.1, 15.2). `now_milliseconds` reads the REALTIME clock; the suspending
+    // hosts (`sleep_milliseconds`, `when_stalled` and the corpus' `sleep`) register a driver timer
+    // and the driver resumes the fiber with its value.
+    ("emela:clock", "now_milliseconds", "clock_now_milliseconds"),
+    (
+        "emela:clock",
+        "sleep_milliseconds",
+        "clock_sleep_milliseconds",
+    ),
+    ("emela:clock", "when_stalled", "clock_when_stalled"),
+    ("emela:clock", "sleep", "clock_sleep"),
 ];
 
 /// If `(module, name)` is an internal host, the runtime function it binds to.
@@ -76,6 +87,12 @@ pub(crate) const TIMER_HOSTS: &[&str] = &[
     "sleep_ms",
     "when_stalled",
     "test_sleep_after",
+    // T-Clock's runtime function names (see `runtime::clock`). All of them read the WASI clock
+    // (`now_milliseconds` directly; the suspending hosts through the driver's timers), so a
+    // program using any of them imports `clock_time_get`.
+    "clock_now_milliseconds",
+    "clock_when_stalled",
+    "clock_sleep",
 ];
 
 impl<'m> Builder<'m> {

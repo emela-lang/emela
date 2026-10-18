@@ -14,14 +14,17 @@ pub effect Clock {
 
 @external(js, "./clock.mjs", "nowMilliseconds")
 @external(c, "./clock.c", "emela_clock_now_milliseconds")
+@external(wasm, "emela:clock", "now_milliseconds")
 fn now_milliseconds() -> Int64
 
 @external(js, "./clock.mjs", "sleep")
 @external(c, "./clock.c", "emela_clock_sleep")
+@external(wasm, "emela:clock", "sleep_milliseconds")
 suspend fn sleep_milliseconds(ms: Int) -> ()
 
 @external(js, "./clock.mjs", "whenStalled")
 @external(c, "./clock.c", "emela_clock_when_stalled")
+@external(wasm, "emela:clock", "when_stalled")
 suspend fn when_stalled(at: Int64) -> ()
 
 ## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop) as

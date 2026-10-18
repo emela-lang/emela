@@ -15,6 +15,7 @@ use super::layout::{CPBUF, DIGITS, DIGITS64, JSONBUF, PAGE};
 
 use super::*;
 
+mod clock;
 mod constant;
 mod fiber;
 mod float;
@@ -41,6 +42,7 @@ pub(crate) const FUNCS: &[&[Sig]] = &[
     fiber::FUNCS,
     fs::FUNCS,
     constant::FUNCS,
+    clock::FUNCS,
 ];
 
 /// Every runtime function, in definition order.
@@ -231,6 +233,7 @@ fn locals(b: &Builder, name: &str) -> Vec<(u32, ValType)> {
         .or_else(|| fiber::locals(name))
         .or_else(|| fs::locals(name))
         .or_else(|| constant::locals(name))
+        .or_else(|| clock::locals(name))
     {
         return locals;
     }
@@ -281,6 +284,7 @@ fn body(b: &mut Builder, name: &str, ins: &mut InstructionSink) {
         || fiber::body(b, name, ins)
         || fs::body(b, name, ins)
         || constant::body(b, name, ins)
+        || clock::body(b, name, ins)
     {
         return;
     }

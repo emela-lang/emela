@@ -578,7 +578,7 @@ pub(super) fn locals(name: &str) -> Option<Vec<(u32, ValType)>> {
         | "task_complete_defect" => vec![],
         "now_ms" => vec![(1, ValType::I32)],
         "after" => vec![(2, ValType::I32)],
-        "timers_due" => vec![(8, ValType::I32), (1, ValType::I64)],
+        "timers_due" => vec![(8, ValType::I32), (2, ValType::I64)],
         "test_sleep_ms" => vec![],
         "test_sleep_after" => vec![],
         "settled" => vec![(2, ValType::I32)],
@@ -3822,7 +3822,7 @@ pub(super) fn is_timer(name: &str) -> bool {
 }
 
 const T_GOT: u32 = 0;
-const T_VALUE: u32 = 8;
+pub(super) const T_VALUE: u32 = 8;
 const T_STR: u32 = 16;
 const T_FUNC: u32 = 24;
 const T_WAIT: u32 = 32;
@@ -4003,6 +4003,7 @@ fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
     const H: u32 = 5;
     const W: u32 = 6;
     const NOW: u32 = 9;
+    const VAL: u32 = 10;
     ins.global_get(G_TIMERS);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
@@ -4113,8 +4114,14 @@ fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(T);
     ins.i32_load(mem(TM_H, 4));
     ins.local_set(H);
+    // The value the waiting fiber resumes with: the task's value, 0 for a plain `after`
+    // (a unit timer) and `ms` for T-Clock's `clock_sleep` (which the task recorded).
     ins.local_get(H);
-    ins.call(rt(b, "task_complete_unit"));
+    ins.i64_load(mem(T_VALUE, 8));
+    ins.local_set(VAL);
+    ins.local_get(H);
+    ins.local_get(VAL);
+    ins.call(rt(b, "task_complete_int64"));
     ins.local_get(H);
     ins.i32_load(mem(T_WAIT, 4));
     ins.local_set(W);
@@ -4125,7 +4132,7 @@ fn timers_due(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.local_get(W);
     ins.i32_const(MODE_VALUE);
-    ins.i64_const(0);
+    ins.local_get(VAL);
     ins.call(rt(b, "cont"));
     ins.end();
     ins.end();

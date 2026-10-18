@@ -16,14 +16,8 @@ use common::{out_dir, run_bytes, to_wasm, wasmtime};
 
 /// Programs the WASM target cannot compile yet, with the reason (discovered empirically). The
 /// reasons come from `src/check.rs` (the Flow-IR check) and the runtime's unimplemented pieces.
-/// The list must be emptied by Wave 3.
-const NOT_ON_WASM: &[(&str, &str)] = &[
-    // --- needs a host another track owns ---
-    (
-        "suspend_external",
-        "a `suspend fn` external function needs the `sleep` host of T-Clock",
-    ),
-];
+/// The whole corpus runs on WASM now, so the list is empty.
+const NOT_ON_WASM: &[(&str, &str)] = &[];
 
 struct Expected {
     code: i32,
@@ -45,13 +39,18 @@ fn parse_expected(text: &str) -> Expected {
     }
 }
 
-/// Inserts `@external(wasm, "test", "print")` immediately before the corpus `fn print(...)` line.
-/// Programs without a `print` are returned unchanged.
+/// Inserts `@external(wasm, "test", "print")` immediately before the corpus `fn print(...)` line,
+/// and `@external(wasm, "emela:clock", "sleep")` before the top-level `suspend fn sleep(...)`
+/// declaration (the test corpus' suspending timer host). Programs without those lines are
+/// returned unchanged, so only the programs that declare them get the WASM bindings.
 fn inject_wasm_print(src: &str) -> String {
-    let mut out = String::with_capacity(src.len() + 40);
+    let mut out = String::with_capacity(src.len() + 80);
     for line in src.lines() {
         if line.trim_start().starts_with("fn print(") {
             out.push_str("@external(wasm, \"test\", \"print\")\n");
+        }
+        if line.starts_with("suspend fn sleep(") {
+            out.push_str("@external(wasm, \"emela:clock\", \"sleep\")\n");
         }
         out.push_str(line);
         out.push('\n');
