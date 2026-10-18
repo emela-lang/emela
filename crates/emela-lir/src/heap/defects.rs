@@ -27,6 +27,12 @@
 //!   becomes a note of the first one (spec 14.4) and the unwinding goes on. A defect raised by the
 //!   cleanup on another way out replaces that way out. The cleanup is copied once per way out;
 //!   cleanups are small (a call of the release and `retire`).
+//!
+//! In a module that halts on defects ([`Module::halt_on_defect`], the embedded C target), a defect
+//! stops the program where it is raised instead: `defect(msg)` and the division test become
+//! `runtime defect(msg)` followed by `unreachable` (the backend's defect hook does not return), no
+//! function raises defects back to its caller, no value gets a defect landing, and the cleanups of
+//! `protect` are copied only onto the other ways out.
 
 use emela_core::{Builtin, FiberOp, TypeId};
 use rustc_hash::FxHashMap;
@@ -47,7 +53,11 @@ pub fn explicit_defects(m: &mut Module) {
         Stage::ClosuresConverted,
         "explicit defects run after closure conversion"
     );
-    let flags = analyse(m);
+    let flags = if m.halt_on_defect {
+        vec![false; m.functions.len()]
+    } else {
+        analyse(m)
+    };
     for (id, f) in m.functions.iter_mut() {
         f.defects = flags[ix(id)];
     }
@@ -70,6 +80,9 @@ fn ix<T>(id: la_arena::Idx<T>) -> usize {
 /// Whether the value may come back with a pending defect (from [`Stage::DefectsExplicit`], when
 /// [`Function::defects`] is set).
 pub(crate) fn may_defect(m: &Module, v: &Value) -> bool {
+    if m.halt_on_defect {
+        return false;
+    }
     match v {
         Value::Call {
             callee: Callee::Direct(f),
@@ -448,6 +461,9 @@ impl<'a> Explicit<'a> {
             Term::Defect(msg) => {
                 let msg = self.c.operand(out, msg);
                 self.runtime(stmts, RuntimeOp::Defect, vec![msg]);
+                if self.m.halt_on_defect {
+                    return Term::Unreachable;
+                }
                 self.exit(0, true, stmts);
                 Term::Unwind
             }
@@ -614,7 +630,8 @@ impl<'a> Explicit<'a> {
         OnFail::Handle { error, body }
     }
 
-    /// `if divisor == 0 { runtime defect("division by zero"); unwind }`.
+    /// `if divisor == 0 { runtime defect("division by zero"); unwind }` (`unreachable` instead of
+    /// `unwind` when the module halts on defects).
     fn zero_test(&mut self, ty: PrimTy, divisor: &Operand, stmts: &mut Vec<StmtId>) {
         let divisor = self.c.operand(&mut self.out, divisor);
         let zero = match ty {
@@ -641,11 +658,13 @@ impl<'a> Explicit<'a> {
             RuntimeOp::Defect,
             vec![Const::String("division by zero".into()).into()],
         );
-        self.exit(0, true, &mut raise);
-        let then = self.out.seqs.alloc(Seq {
-            stmts: raise,
-            term: Term::Unwind,
-        });
+        let term = if self.m.halt_on_defect {
+            Term::Unreachable
+        } else {
+            self.exit(0, true, &mut raise);
+            Term::Unwind
+        };
+        let then = self.out.seqs.alloc(Seq { stmts: raise, term });
         let else_ = self.out.seqs.alloc(Seq {
             stmts: Vec::new(),
             term: Term::Yield(None),

@@ -69,6 +69,8 @@ pub fn from_core(core: emela_core::Module) -> Result<Module, Vec<FromCoreError>>
 pub struct Options {
     /// Hold enums with fields and tuples by value where they can be ([`Module::value_types`]).
     pub value_types: bool,
+    /// Stop the program where a defect is raised ([`Module::halt_on_defect`]).
+    pub halt_on_defect: bool,
 }
 
 /// [`from_core`] with options.
@@ -141,6 +143,7 @@ pub fn from_core_with(
         stage: crate::ir::Stage::Flow,
         error_shows,
         value_types: options.value_types,
+        halt_on_defect: options.halt_on_defect,
     })
 }
 

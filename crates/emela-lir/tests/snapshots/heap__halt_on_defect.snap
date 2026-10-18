@@ -1,0 +1,47 @@
+---
+source: crates/emela-lir/tests/heap.rs
+expression: "parts(&m, &[\"div\", \"main\"])"
+---
+export fn main() -> i32 (Int) {
+  call Quiet$init()
+  h%0: ref (handler Log) = call Quiet()
+  t%3: i32 (Int) = block 'protect%3 {
+    dup h%0
+    ev%1: ref (evidence) = ev_extend([Log: h%0])
+    t%2: i32 (Int) = call div(4, 2, ev%1)
+    block 'cleanup%0 {
+      block 'protect%2 {
+        call Quiet$release()
+        block 'cleanup%1 {
+          runtime retire(h%0, "Quiet")
+          drop h%0
+        }
+      }
+    }
+    yield t%2
+  }
+  s%4: ref (String) = builtin Int.to_string(t%3)
+  runtime debug_print(s%4)
+  drop s%4
+  return t%3
+}
+
+fn div(a%0: i32 (Int), b%1: i32 (Int), ev%2: ref (evidence)) -> i32 (Int) {
+  t%3: ref (handler Log) = ev_lookup(ev%2, Log)
+  dup t%3
+  drop ev%2
+  call_op t%3.Log#log(a%0)
+  drop t%3
+  t%4: i32 (Bool) = b%1 <[i32] 0
+  if t%4 {
+    runtime defect("negative")
+    unreachable
+  } else {}
+  zero%5: i32 (Bool) = b%1 ==[i32] 0
+  if zero%5 {
+    runtime defect("division by zero")
+    unreachable
+  } else {}
+  t%6: i32 (Int) = a%0 /[i32] b%1
+  return t%6
+}

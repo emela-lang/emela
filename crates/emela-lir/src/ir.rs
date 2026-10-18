@@ -34,6 +34,11 @@ pub struct Module {
     /// than `ref` (`crate::repr_in`). Set by `from_core_with` for the embedded C target; the host
     /// C and WASM backends never see [`Repr::Agg`].
     pub value_types: bool,
+    /// Whether a defect stops the program where it is raised (the embedded C target, see
+    /// `docs/design/c-embedded-architecture.md`) instead of unwinding to the entry. Read by
+    /// `explicit_defects`: `runtime defect(msg)` is then followed by `unreachable`, and no value
+    /// has a defect landing.
+    pub halt_on_defect: bool,
 }
 
 /// The stage of a LIR module. The Flow IR and the Heap IR share the data types; each pass of the
@@ -72,6 +77,7 @@ impl Module {
             stage: Stage::Flow,
             error_shows: Vec::new(),
             value_types: false,
+            halt_on_defect: false,
         }
     }
 
@@ -647,7 +653,9 @@ pub enum RuntimeOp {
     Retire,
     /// `(String) -> ()`: makes the message the pending defect. If a defect is already pending (a
     /// release failing while unwinding, spec 14.4), the message becomes a note of it instead.
-    /// Heap IR; a [`Term::Unwind`] (through the cleanups) follows.
+    /// Heap IR; a [`Term::Unwind`] (through the cleanups) follows, or [`Term::Unreachable`] in a
+    /// module that halts on defects ([`Module::halt_on_defect`]), where the backend stops the
+    /// program here.
     Defect,
     /// `() -> ref`: takes the pending defect out, so that a cleanup runs with no defect pending.
     /// Heap IR.

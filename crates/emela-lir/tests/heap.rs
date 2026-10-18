@@ -78,7 +78,10 @@ fn every_core_function_converts_with_value_types() {
     let m = convert_with(
         &[("main.emel", "fn main() { 0 }\n")],
         Roots::All,
-        Options { value_types: true },
+        Options {
+            value_types: true,
+            ..Options::default()
+        },
     );
     let aggs = m
         .functions
@@ -136,9 +139,47 @@ fn main() {
 ",
         )],
         Roots::Exported,
-        Options { value_types: true },
+        Options {
+            value_types: true,
+            ..Options::default()
+        },
     );
     insta::assert_snapshot!(parts(&m, &["shift", "pair", "size", "name"]));
+}
+
+/// Halting on defects: `runtime defect` is followed by `unreachable`, nothing has a defect
+/// landing, and the cleanup of `with` runs only on the ways out without a defect.
+#[test]
+fn halt_on_defect() {
+    let m = convert_with(
+        &[(
+            "main.emel",
+            "\
+effect Log { fn log(n: Int) -> () }
+handler Quiet implements Log {
+  release { () }
+  fn log(n) { () }
+}
+
+fn div(a: Int, b: Int) -> Int use { Log } {
+  (use Log).log(a)
+  if b < 0 { panic(\"negative\") }
+  a / b
+}
+
+fn main() {
+  dbg(with Quiet { div(4, 2) })
+}
+",
+        )],
+        Roots::Exported,
+        Options {
+            halt_on_defect: true,
+            ..Options::default()
+        },
+    );
+    assert!(m.functions.iter().all(|(_, f)| !f.defects));
+    insta::assert_snapshot!(parts(&m, &["div", "main"]));
 }
 
 /// Every function of each example project (`examples/*/src`) goes through the passes, the

@@ -100,6 +100,7 @@
 - （補）`protect { body } cleanup { c }` は `body` の block にし，`body` を抜けるすべての所（最後の `yield`，外の block への `break`，`return`，`fail`，失敗の着地点，`unwind`）の直前に `c` の写しを置く．抜け方を表す変数で1か所に集める形より，写すほうが単純で，RC の後の形も素直になる．cleanup は release の呼び出しと `retire` だけなので，大きさの増え方は小さい
 - （補）defect で抜けるときは，写しの前で保留の defect を取り出し（`runtime defect_take()`），後で戻す（`runtime defect_resume(d)`）．cleanup の中の呼び出しが自分の defect を見分けられるようにするため．cleanup の中で起きた defect は `defect_resume` が最初の defect の注記にし，そのまま外へ巻き戻る（14.4 の「最初の defect が結果」「残りの release はすべて実行」）．値や失敗で抜ける途中で cleanup が defect になったときは，その defect が抜け方を置き換える（14.4 の前半）．注記の文面と順はランタイムが決める
 - （補）`Function::defects` は dump の署名の後ろに ` defects` と出す（`Stage::DefectsExplicit` から）
+- （補）組み込み C は defect をその場で止める（`docs/design/c-embedded-architecture.md` の「決定: defect はその場で止める」）．`Options::halt_on_defect`（`Module::halt_on_defect`）を立てたモジュールでは，`defect(msg)` と 0 の検査を `runtime defect(msg)` と `unreachable` にし，どの関数の `defects` も立てず，どの値にも着地点を付けない．`protect` の cleanup は defect 以外の抜け方にだけ写す．`builtin_may_defect` の組み込み関数も，backend の実装がその場で止める
 
 ### suspend の状態機械（`heap/suspend.rs`）
 
