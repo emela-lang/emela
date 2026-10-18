@@ -24,20 +24,6 @@ const NOT_ON_WASM: &[(&str, &str)] = &[
         "the driver loop stalls during a long fairness interleaving",
     ),
     (
-        "fiber_main_fails",
-        "the `note: another fiber also failed` of a release defect needs the defect/\
-         interruption replacement in `raise`, spec 14.4",
-    ),
-    (
-        "fiber_notes",
-        "the `note: another fiber also failed` needs the defect/interruption replacement in \
-         `raise`, spec 14.4",
-    ),
-    (
-        "fiber_unwinding",
-        "an interruption of a fiber whose release fails is not delivered correctly yet",
-    ),
-    (
         "suspend_external",
         "a `suspend fn` external function needs the `sleep` host of T-Clock",
     ),
