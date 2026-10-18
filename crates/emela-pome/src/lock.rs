@@ -52,7 +52,7 @@ impl std::error::Error for LockError {}
 #[derive(Serialize, Deserialize)]
 struct File {
     version: u32,
-    #[serde(default, rename = "pome")]
+    #[serde(default, rename = "pome", skip_serializing_if = "Vec::is_empty")]
     pomes: Vec<Locked>,
 }
 

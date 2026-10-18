@@ -47,6 +47,8 @@ ariadne = "0.6"
 # emela.toml の読み込み．
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+# emela pome が Pome.toml を書き換える（コメントと並びを残す）．
+toml_edit = "0.25"
 # 言語サーバー（rust-analyzer と同じ同期型の骨組み．tokio を持ち込まない）．
 lsp-server = "0.10"
 lsp-types = "0.97"

@@ -9,6 +9,8 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod pome;
+
 /// Compile, run, test, and format Emela programs.
 #[derive(Parser)]
 #[command(name = "emela", version)]
@@ -87,6 +89,11 @@ enum Command {
         #[arg(long)]
         out_dir: Option<PathBuf>,
     },
+    /// Manage dependencies: Pome.toml and Pome.lock
+    Pome {
+        #[command(subcommand)]
+        command: pome::PomeCommand,
+    },
     /// Start the language server over standard input and output
     Lsp,
 }
@@ -149,6 +156,7 @@ fn main() -> ExitCode {
             format,
             out_dir,
         } => doc(path, std, format, out_dir),
+        Command::Pome { command } => pome::pome(command),
         Command::Lsp => lsp(),
     }
 }

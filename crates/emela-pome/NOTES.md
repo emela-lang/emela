@@ -37,3 +37,15 @@
 - （補）`direct` でシンボリックリンクや submodule を含む版は「ない」（NotFound）として扱う．proxy が 410 を返すのと揃える
 - `EMELA_POMESUMDB` の既定（`config::DEFAULT_SUMDB`）は `sum.emela.ab2m.link` の公開鍵．鍵を替えると，古い鍵を埋め込んだコンパイラはすべて検証に落ちる
 - tile はディスクにキャッシュしない．1回の証明で読むのは数枚なので，まず足りる
+
+## emela pome のコマンド（`project`）
+
+- （補）どのコマンドも，新しい `Pome.toml` と lock を先に作り，依存を全部解決できてから2つを書く．`add` などが途中で失敗したときは，どちらのファイルも変わらない
+- （補）`Pome.toml` は toml_edit で書き換え，コメント，並び，表の形（`{ version, module }`）を残す
+- （補）`add <src>@<version>` は今の要求より小さい version も書く（下げられる）．`@latest` と version の省略は proxy の `@latest`
+- （補）`update` は要求を上げるだけで，下げない．`[replace]` した依存の要求も上げる（`[replace]` はそのまま）
+- （補）`remove` は `[dependencies]` からだけ除き，`[replace]` は残す
+- （補）`install` は，lock にある版を lock のハッシュで確かめて取り（sumdb に問い合わせない），lock にない版だけ sumdb と照らす．依存の木をたどるときの `Pome.toml` も同じ
+- （補）`[replace]` した Pome の依存は，置き換え先のディレクトリの `Pome.toml` から読む．その `[pome].name` が置き換えた source path と違えばエラー
+- （補）`list` の1行は「source path と要求」で，選ばれた版が大きければ `-> <版>`，置き換えなら `=> <ディレクトリ>` を足す．循環はたどらない
+- （補）`verify` はキャッシュにある依存だけを照らす．ない依存は問題にしない

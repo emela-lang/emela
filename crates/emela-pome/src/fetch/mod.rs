@@ -127,38 +127,89 @@ impl<T: Transport> Fetcher<T> {
         })
     }
 
-    /// The `Pome.toml` of a version, checked against the checksum database.
-    pub fn manifest(&self, path: &SourcePath, version: &Version) -> Result<Vec<u8>, FetchError> {
+    /// The `Pome.toml` of a version: checked against `locked` (its hash in the lock) when given,
+    /// else against the checksum database. A cached one was checked when it was stored.
+    pub fn manifest(
+        &self,
+        path: &SourcePath,
+        version: &Version,
+        locked: Option<&H1>,
+    ) -> Result<Vec<u8>, FetchError> {
         let file = self.cache.manifest_file(path, version);
-        if let Some(cached) = self.cache.read_file(&file) {
-            return Ok(cached);
-        }
-        let content = self.first(path, |source| match source {
-            Source::Proxy(base) => {
-                self.proxy_get(base, &format!("{}/@v/{version}.toml", path.escaped()))
-            }
-            Source::Direct => {
-                let fetched = self.direct.fetch(path, version)?;
-                manifest_of(path, version, &fetched.files).map(<[u8]>::to_vec)
-            }
-        })?;
-        if let Some(record) = self.lookup(path, version)? {
-            let got = manifest_hash(&content);
-            if got != record.manifest {
+        let cached = self.cache.read_file(&file);
+        let content = match &cached {
+            Some(c) => c.clone(),
+            None => self.first(path, |source| match source {
+                Source::Proxy(base) => {
+                    self.proxy_get(base, &format!("{}/@v/{version}.toml", path.escaped()))
+                }
+                Source::Direct => {
+                    let fetched = self.direct.fetch(path, version)?;
+                    manifest_of(path, version, &fetched.files).map(<[u8]>::to_vec)
+                }
+            })?,
+        };
+        let got = manifest_hash(&content);
+        match locked {
+            Some(want) if got != *want => {
                 return Err(mismatch(
                     path,
                     version,
                     MANIFEST_FILE,
                     &got,
-                    &record.manifest,
-                    "the checksum database",
+                    want,
+                    crate::lock::LOCK_FILE,
                 ));
             }
+            Some(_) => {}
+            None if cached.is_none() => {
+                if let Some(record) = self.lookup(path, version)?
+                    && got != record.manifest
+                {
+                    return Err(mismatch(
+                        path,
+                        version,
+                        MANIFEST_FILE,
+                        &got,
+                        &record.manifest,
+                        "the checksum database",
+                    ));
+                }
+            }
+            None => {}
         }
-        self.cache
-            .put_file(&file, &content)
-            .map_err(FetchError::Cache)?;
+        if cached.is_none() {
+            self.cache
+                .put_file(&file, &content)
+                .map_err(FetchError::Cache)?;
+        }
         Ok(content)
+    }
+
+    /// The `[dependencies]` of a version, from its `Pome.toml` (see [`Fetcher::manifest`]).
+    pub fn requirements_of(
+        &self,
+        path: &SourcePath,
+        version: &Version,
+        locked: Option<&H1>,
+    ) -> Result<Vec<(SourcePath, Version)>, FetchError> {
+        let content = self.manifest(path, version, locked)?;
+        let text = String::from_utf8(content).map_err(|_| {
+            FetchError::Manifest(format!("{path}@{version}: Pome.toml is not UTF-8"))
+        })?;
+        let manifest = Manifest::parse(&text)
+            .map_err(|e| FetchError::Manifest(format!("{path}@{version}: {e}")))?;
+        if &manifest.name != path {
+            return Err(FetchError::Manifest(format!(
+                "{path}@{version}: Pome.toml names `{}`",
+                manifest.name
+            )));
+        }
+        Ok(manifest
+            .dependencies
+            .into_iter()
+            .map(|(p, r)| (p, r.version))
+            .collect())
     }
 
     /// Gets a version to write it into the lock, checking it against the checksum database.
@@ -327,23 +378,7 @@ impl<T: Transport> Requirements for &Fetcher<T> {
         path: &SourcePath,
         version: &Version,
     ) -> Result<Vec<(SourcePath, Version)>, FetchError> {
-        let content = self.manifest(path, version)?;
-        let text = String::from_utf8(content).map_err(|_| {
-            FetchError::Manifest(format!("{path}@{version}: Pome.toml is not UTF-8"))
-        })?;
-        let manifest = Manifest::parse(&text)
-            .map_err(|e| FetchError::Manifest(format!("{path}@{version}: {e}")))?;
-        if &manifest.name != path {
-            return Err(FetchError::Manifest(format!(
-                "{path}@{version}: Pome.toml names `{}`",
-                manifest.name
-            )));
-        }
-        Ok(manifest
-            .dependencies
-            .into_iter()
-            .map(|(p, r)| (p, r.version))
-            .collect())
+        self.requirements_of(path, version, None)
     }
 }
 
