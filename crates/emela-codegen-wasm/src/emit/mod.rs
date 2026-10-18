@@ -904,7 +904,9 @@ impl<'m> Builder<'m> {
             }
             if f.constant && !is_machine(f) {
                 // The slots were reserved as [wrapper, init]: the wrapper evaluates and remembers,
-                // the init is the body the source declared (spec 5.6).
+                // the init is the body the source declared (spec 5.6). Every const takes this path
+                // (`is_machine` is always false for a const), so the wrapper is unconditional, as
+                // the C target's.
                 let init = self.emit_fn(id, f);
                 let wrapper = self.emit_const_wrapper(id, f);
                 bodies.push(wrapper);
@@ -2448,7 +2450,16 @@ fn uses_suspend(m: &Module) -> bool {
 }
 
 /// Whether a function is emitted as a state machine: it suspends and has suspension points.
+///
+/// A const is never a machine: `emela_core::lower` sets `suspends` from the declared function
+/// type, and a const's type is a value, not a `fn` (`Lowerer::fn_suspends` returns false), so
+/// `f.constant && is_machine(f)` cannot happen. That is why the const wrapper (spec 5.6) is
+/// emitted for every const, as the C target does; the assertion records the assumption.
 fn is_machine(f: &Function) -> bool {
+    debug_assert!(
+        !(f.constant && f.suspends),
+        "a const cannot suspend (it would get no const wrapper)"
+    );
     f.suspends
         && f.body.is_some()
         && f.stmts.iter().any(|(_, s)| {
@@ -2463,8 +2474,8 @@ fn is_machine(f: &Function) -> bool {
 }
 
 /// Whether the module has a const (spec 5.6), so that the const helpers and the self-reference
-/// global are linked. A const that also suspends is not lifted (it stays an ordinary function), so
-/// it does not count.
+/// global are linked. The `!is_machine` guard can never matter (a const's `suspends` is always
+/// false, see [`is_machine`]); it is kept so the intent is explicit.
 fn has_const(m: &Module) -> bool {
     m.functions
         .iter()
