@@ -10,8 +10,10 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）`compile` が Core（lower 済み）から通しでかける．エントリ（main）を根に
   `emela_core::monomorphize_from` → `emela_lir::from_core` → 対応していない構成の検査
   （`check.rs`）→ `emela_lir::to_heap` → 出力．C のバックエンドと同じ流れ
-- （補）検査は Flow IR の段でかける．suspend するコード，fiber，書記素クラスタの表が要る
-  `String` の操作，`Float` の操作，`Int.parse` / `Int.checked_add` は，まだ診断にして止める
+- （補）検査は Flow IR の段でかける．いま診断にして止めるのは，**書記素クラスタ**の表が要る
+  `String` の操作（`length` / `chars` / 空区切りの `split`）と，**コールバックを取る外部関数**
+  （E0427，JS 専用）だけ．suspend するコード，state machine，fiber，`Float`，`const` と note，
+  `Std` の platform（Console / Clock / Env / Random / FileSystem）はすべて動く（Wave 3 時点）
 - （補）エントリは `_start` を export する WASI のコマンドにする．`fd_write`（`dbg` とテストの
   出力）と `proc_exit` は c の `cc` と同じく外部に任せる（`wasmtime` が WASI を供給する）．
   この 2 つは関数番号を固定するため，関数の番号を振る前に先に import する
@@ -103,6 +105,12 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）整数の `/` と `%` の `INT_MIN / -1` の巻き戻し，シフト量の負と幅以上の扱い（16.1，
   6.6 の NOTES）をランタイムの関数にする．シフト量が負なら `negative shift amount: <n>` の
   defect にする
+- （補）const（5.6）は最初の参照で 1 回だけ評価して値か defect を記憶する（`emit::const_*` の
+  静的セルと `runtime/constant.rs`）．評価中の defect には const 名の接頭辞を付け，自己参照と
+  中断は記憶しない．ハンドラを作るモジュールだけが release の失敗の note（14.4）を持ち，
+  `retire` が最後に退役させた名前をグローバルに残す．どちらの仕組みも使わないプログラムの
+  生成 bytes は使う前と同じ（`uses_const` / `uses_notes` のときだけ，グローバルを
+  `Builder::globals` で動的に確保して出力する）
 
 ### 内部ホスト（ホスト境界の固定 ABI）
 
@@ -110,41 +118,78 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   が `emit::external::INTERNAL_HOSTS` にあるときは同じモジュールのランタイム関数に束縛する
   （import は足さない）．その関数の型は LIR の representation を写したもので，`String` やリスト
   などの参照は `i32`（線形メモリのポインタ）になり，`()` は無しになる．`repr_val` を通すので
-  参照を拒む `host_val` は使わない．最初の 1 つが `("test", "print") -> print_string`
-  （`(i32) -> ()`，標準出力に文字列と改行）
+  参照を拒む `host_val` は使わない．登録済みのモジュールは次のとおり:
+
+  | module | name | 用途 |
+  |---|---|---|
+  | `test` | `print` | `print_string`（`(i32) -> ()`，標準出力に文字列と改行．コーパス用） |
+  | `emela:console` | `log` / `error` | `console_log` / `console_error`（`Std.Console`，fd 1 / 2） |
+  | `emela:env` | `has` / `get` | `env_has` / `env_get`（`Std.Env`，`environ_*`） |
+  | `emela:random` | `int` / `float` | `random_int` / `random_float`（`Std.Random`，`random_get`） |
+  | `emela:fs` | `read_text` / `write_text` / `append_text` / `exists` / `is_directory` / `list_directory` / `create_directory` / `remove` / `outcome_*` | `Std.FileSystem`（WASI `path_*`/`fd_*`，§13.10） |
+  | `emela:clock` | `now_milliseconds` / `sleep_milliseconds` / `when_stalled` / `sleep` | `Std.Clock`（REALTIME の `clock_time_get` とドライバのタイマ，§13.13） |
+
+  `emela:test`（`sleep_ms` / `sleep_after`）は WASM のテスト専用（`tests/suspend_external.rs`）．
+  `Std.FileSystem` の `Outcome` は opaque な handle（`emit::handle`）で，`outcome_*` がそれを通す．
+- （補）**`suspend fn` の外部関数は 2 形式**ある（`check_internal_host` が両方を受け付ける，
+  12.6）．1 つは**直接形（in-place）**で，ホストは宣言どおりの引数と戻り値の型を持ち，その場で
+  値を返す（`Std.FileSystem` の `host_*`）．もう 1 つは**task 形**で，ホストは最後に task（`i32`）
+  を取り何も返さず，`task_complete_{int,int64,float,unit,string,defect}` のいずれかで完了する
+  （`Std.Clock` の `sleep` / `when_stalled`）．呼び出し側（`emit::fiber::suspend_external_call`）は
+  `task_new` で task を作って引数と一緒に渡し，`task_end` が値か中断を受け取る．中断したら
+  ドライバが fiber を再開する（下の suspend ABI）
 - （補）内部ホストが指すランタイム関数は要求されたときだけ登録・出力する
-  （`runtime::is_on_demand`）．内部ホストを使わないプログラムのバイト列は，関数を足しても
-  変わらない．ランタイムの添字は IR 関数の後で確定するので，`external_import` で見た束縛は
-  `bind_internal_hosts` が `runtime::register` の後に埋める
-- （補）`std` の platform（`Std.Console`，`Std.Clock`，`Std.Env`，`Std.Random`，
-  `Std.FileSystem`）は後の波でこの表とランタイムの断片（`runtime::host`，`runtime::fs`）に足す
+  （`runtime::is_on_demand` が `INTERNAL_HOSTS` を唯一の一覧にする）．内部ホストを使わない
+  プログラムのバイト列は，関数を足しても変わらない．`runtime::register` はさらに，sched /
+  fiber を `uses_suspend` のときだけ，タイマ関数（`INTERNAL_HOSTS` の `TIMER_HOSTS`）を
+  `uses_timers` のときだけ，`fs` を要求されたときだけ，`const` と note を `uses_const` /
+  `uses_notes` のときだけ登録する．ランタイムの添字は IR 関数の後で確定するので，
+  `external_import` で見た束縛は `bind_internal_hosts` が `runtime::register` の後に埋める
+- （補）host 用の使い捨て確保や WASI へ渡すバッファは `alloc`（16 バイトのヘッダ付き）で取り，
+  WASI には `base + HDR` を渡す（`Std.Env` がそうしている）．スクラッチ（`emit/layout.rs`）の
+  スロットは足さず，`SCRATCH_END == 168` を `tests/layout.rs` が固定している
 
-### suspend の ABI（宣言のみ）
+### suspend の ABI（実装済み）
 
-- （補）`runtime/sched.rs` にフレームの配置（状態タグ，`i64` の resume 入力，payload），
-  resume 入力のグローバル（`G_RESUME`，`i64`，`G_STRDESC` の次で `GLOBALS` は 7 になる），
-  `G_FAILURE` / `G_DEFECT` の使い方，`loop $dispatch` と `br_table` の約束を宣言だけしてある．
-  `emit::suspend` は `Stmt::Let` の `on_suspend` の辺をまだ実装していない（値と定数だけ）
+- （補）**状態機械**（`emit::suspend`，§13.6）: suspending な関数 `f` は，wrapper `f`，本体
+  `f_sm(params, frame)`，再開 `f_resume(frame) -> i64` の 3 つになる．本体は `Stmt::Let` の
+  `on_suspend` ごとに state ガード（skip / enter / record）を持ち，中断したらフレームに生存変数を
+  詰めて `G_SUSPENDING` を立てて返す．`f_resume` は resume 入力（`G_RESUME` の生ビット）を
+  repr に応じて読み替える（`resume_i32` / `resume_i64` / `resume_f64` / `resume_ref` /
+  `resume_void` と `unbox`）．速い経路（中断しない）ではフレームも余分な制御も作らず，
+  suspend を使わないプログラムの bytes は `Builder::uses_suspend` で不変
+- （補）**frame**: slot0 = 再開関数のテーブル添字，slot1 = state，slot2 = next，slot3.. = 保存変数．
+  `frame_new` / `frame_push` / `frame_free`（不変条件はオブジェクトのヘッダに合わせてある）．
+  グローバルは **6..21**（`emit/mod.rs`）: `G_RESUME`=6（i64 の resume 入力），`G_SUSP_HEAD`=7 /
+  `G_SUSP_TAIL`=8（捕獲した継続の両端），`G_SUSP_WAIT`=9（待ちのポインタ），`G_SYNC_DEPTH`=10，
+  `G_INTERRUPTED`=11，`G_SYNC_DEFECT`=12，`G_ROOT`=13，`G_CUR`=14，`G_CUR_MAIN`=15，
+  `G_RUN_ID`=16，`G_NOTE_ERRORS`=17 / `G_NOTE_LINES`=18，`G_TIMERS`=19，`G_TIMER_SEQ`=20．
+  `SUSPEND_GLOBALS == 21`．失敗・defect は既存の `G_FAILURE` / `G_DEFECT` を使う
+- （補）**スケジューラ**（`runtime/sched.rs`，C の `em_schedule`/`em_step`/`em_frame_*` の移植）:
+  root / wait グラフ / driver ループ / scope / Deferred / Cause / note を持つ．`hold` / `unhold` /
+  `yield` は `RuntimeOp::{Hold,Unhold,Yield,YieldPerform}` と `Term::Yield` に配線し，
+  `sync_enter` / `sync_leave` が「誰も再開しない継続」を interruption に巻き戻す（8.7）．
+  `perform` は `resume_new` / `perform_end`，中断は `interrupted_new` / `is_interrupted`．
+  `_start` は root fiber を回し，driver が空になったら `interrupted` を `finish` して exit 130
+- （補）**ドライバのタイマ**（`runtime/clock.rs`，§13.13）: `now_ms` はドライバ自身の
+  MONOTONIC クロック，`after(ms, task)` がタイマを登録し，`timers_due` が `G_TIMERS` /
+  `G_TIMER_SEQ` を見て期限の来た task を完了する．`clock_time_get` は `TIMER_HOSTS` に載る
+  タイマ関数が要求されたとき，**index 確定前に** import する（後から足すと全関数 index がずれる）
 
-## 対応していないもの（最初の版）
+## 対応していないもの
 
-- 状態機械（`Stmt::Let` の `on_suspend`）と suspend するコード，`runtime yield` など
-- fiber（11 章の操作すべて）
-- 書記素クラスタの表が要る `String` の操作（`length`，`chars`，空の区切りの `split`）
-- `Float` の `to_string` / `parse` / `floor` / `ceil` / `round` / `truncate`（`to_string` は
-  最短の往復表現に big integer が要るので wasm では重い）
-- コールバックを取る外部関数（E0427），suspend fn の外部関数（E0428 は欠番なので番号なし）
-- const（5.6）は最初の参照で 1 回だけ評価して値か defect を記憶する（`emit::const_*` の静的
-  セルと `runtime/constant.rs`）．評価中の defect には const 名の接頭辞を付け，自己参照と
-  中断は記憶しない．ハンドラを作るモジュールだけが release の失敗の note（14.4）を持ち，
-  `retire` が最後に退役させた名前をグローバルに残す．どちらの仕組みも使わないプログラムの
-  生成 bytes は 1 つ前の版と同じまま
-- 外部関数と WASM の境界を越えられるのは `Int` / `Bool` / `Int64` / `Float` だけ．`String` や
-  `@external type` は越えられず，診断で止める（ホストが線形メモリを読む約束がまだ無い）．
-  内部ホスト（上の ABI）は参照を `i32` のポインタとして渡す
-- std の platform（`Std.Console`，`Std.Clock`，`Std.Random`，`Std.Env`，`Std.FileSystem`，
-  `Std.Http`）は `@external(wasm, ...)` を持たないので，`with Platform` は E0412 で止まる
-  （ホスト側の WASI の口を用意するのが先）
+- **書記素クラスタ**の表が要る `String` の操作: `length`，`chars`，空の区切りの `split`
+  （`check.rs` が `Value::Builtin` で止める．JS は `Intl.Segmenter`，C と WASM は共有の表を
+  持たない．Wave 4）
+- **`Std.Http`**: `SystemHttp` に `@external(wasm, ...)` が無く E0412 で止まる．WASI preview1 に
+  socket も無い（Wave 4）．WASM の突き合わせテストもこの example を除く
+  （`crates/emela-driver/tests/wasm_parity.rs` の `NOT_ON_WASM`，
+  `crates/emela-driver/tests/wasm_examples.rs` の `NOT_ON_WASM`，`check.rs` は関与しない）
+- **コールバックを取る外部関数**（E0427）: JS 専用（12.1）．`check.rs::external` が止める
+- 外部関数と WASM の import の境界を越えられるのは `Int` / `Bool` / `Int64` / `Float` だけ．
+  `String` や `@external type` を直接 import する外部関数は越えられず `host_val` が診断で
+  止める．`String` などを扱うホストは内部ホスト（上の ABI）として参照を `i32` のポインタで
+  渡す（ホストが線形メモリを読む）
 
 ## テスト
 
@@ -154,8 +199,23 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   ハンドラ，失敗と escape を `wasmtime` で動かして出力を比べる．`wasmtime` がなければ飛ばす
 - `tests/programs.rs` は C の受け入れコーパス（`crates/emela-codegen-c/tests/programs`）を
   WASM にして `wasmtime` で走らせ，終了コード・標準出力・標準エラーを `.expected` と比べる．
-  まだ動かないプログラムは `NOT_ON_WASM` に理由つきで並べる（後の波で空にする）．コーパスの
-  `print` には `@external(wasm, "test", "print")` を注入して内部ホストに束縛する
+  コーパスはすべて WASM で一致するので `NOT_ON_WASM` は空（`not_on_wasm_entries_exist` が
+  陳腐化した項目を防ぐ）．コーパスの `print` には `@external(wasm, "test", "print")` を，
+  `suspend fn sleep` には `@external(wasm, "emela:clock", "sleep")` を注入して内部ホストに束縛する
+- `tests/{console,env,random,clock,file_system,consts,suspend_external}.rs` は内部ホストと
+  const / note / suspend 外部を `wasmtime` で実走して確かめる（`wasmtime` がなければ飛ばす）
 - `crates/emela-driver/tests/wasm_parity.rs` は純粋なプログラム（`dbg` だけ）を JS と WASM の
-  両方で動かし，終了コードと出力が一致することを見る．WASM がまだ扱えないもの（Float，書記素，
-  fiber）は診断のメッセージで見る．CI の test は `wasmtime` を入れるので実行テストは飛ばない
+  両方で動かし，終了コードと出力が一致することを見る．まだ扱えないもの（`String.length` /
+  `String.chars` の書記素）は `NOT_ON_WASM` に理由つきで並べ，診断のメッセージで見る（Wave 4）
+- `crates/emela-driver/tests/wasm_examples.rs` は `examples/*`（`http` を除く）を JS と WASM の
+  両方で実走し，終了コード・標準出力・標準エラーを比べる（`@test` の結果も比べる．`std-test`
+  だけは下の known issue のため除く）．CI の test は `wasmtime` を入れるので実行テストは飛ばない
+
+### 既知の不具合（Wave 3 で判明，未修正）
+
+- **fiber が捕まえた defect の，実行時に組み立てたメッセージが壊れる**: 例えば
+  `Fiber.attempt(fn() { panic(String.append("hello ", "world")) })` の
+  `Cause.to_string` が `defect: hello world` ではなく `defect: h`（または無関係なバイト列）を
+  返す．`main` で直接 `panic` した場合は正しい．`runtime/sched.rs` / `fiber.rs` の
+  cause 経路（emit の確定済み実装）にあり，このトラックでは触らない．`wasm_examples.rs` は
+  `std-test` の `@test` だけをこの理由で除いており，修正は emitter トラックに要求として送る

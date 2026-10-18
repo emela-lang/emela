@@ -374,7 +374,9 @@ fn main() {
 ];
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
-/// them (the WASM target's "not supported yet", which has no diagnostic code any more).
+/// them (the WASM target's "not supported yet", which has no diagnostic code any more). Both are
+/// the Unicode grapheme-cluster operations, which stay beyond this wave: Wave 4 adds the tables
+/// (`String.length` / `String.chars`; `check.rs` reports them too).
 const NOT_ON_WASM: &[(&str, &str, &str)] = &[
     (
         "string_length",

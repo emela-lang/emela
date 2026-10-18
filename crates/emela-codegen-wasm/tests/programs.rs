@@ -5,8 +5,8 @@
 //! The corpus programs declare `print` with `@external(js, ...)` and `@external(c, ...)`; this
 //! test injects the WASM internal host `@external(wasm, "test", "print")` (which binds to the
 //! runtime's `print_string`) before the `fn print(...)` line, exactly like the C test's helper.
-//! Programs the WASM target cannot compile yet are listed in [`NOT_ON_WASM`]; the list must be
-//! emptied by Wave 3.
+//! Every program in the corpus compiles and matches its `.expected` on WASM, so [`NOT_ON_WASM`]
+//! is empty; `not_on_wasm_entries_exist` keeps a stale entry from hiding a regression.
 
 mod common;
 

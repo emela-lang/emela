@@ -6,9 +6,11 @@ use emela_lir::{Const, Function, Module, Operand, Stmt, Value};
 use crate::{WasmError, WasmErrorKind};
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
-/// monomorphisation) that the WASM target cannot compile yet. The Unicode tables are reported once
-/// each, naming where they are reached. Suspending code, the state machines and fibers are
-/// supported.
+/// monomorphisation) that the WASM target cannot compile yet. Only the Unicode grapheme-cluster
+/// operations (`String.length` / `String.chars` / an empty-separator `String.split`) and external
+/// functions that take or return a callback are left (Wave 4 / E0427); suspending code, the state
+/// machines, fibers, `Float` and the internal hosts are all supported. A grapheme operation is
+/// reported once, naming where it is reached (the same wording as the C target's check).
 pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {

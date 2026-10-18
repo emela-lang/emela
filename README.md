@@ -160,9 +160,12 @@ Each command takes a project directory or an entry file, and defaults to `.`.
 `run`, `build` and `test` take `--target js` (the default), `--target c`, which
 compiles to C and builds a native executable with `cc`, or `--target wasm`, which
 writes a WASI `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
-`[build] target = "..."` in `Pome.toml` changes the default. The C target does
-not run suspending code, fibers or `String.length` yet; the WASM target does not
-run those, `Float` operations or host callbacks either.
+`[build] target = "..."` in `Pome.toml` changes the default. All three targets
+run the same language, suspending code, fibers and `Float` operations included.
+The C and the WASM target still reject the Unicode grapheme-cluster operations
+(`String.length`, `String.chars` and an empty-separator `String.split`), external
+functions that take a callback, and `Std.Http` (`SystemHttp` has no binding yet,
+and WASI preview1 has no sockets).
 
 | Command       | Does                                                    |
 | ------------- | ------------------------------------------------------- |
