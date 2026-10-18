@@ -49,3 +49,10 @@
 - （補）`[replace]` した Pome の依存は，置き換え先のディレクトリの `Pome.toml` から読む．その `[pome].name` が置き換えた source path と違えばエラー
 - （補）`list` の1行は「source path と要求」で，選ばれた版が大きければ `-> <版>`，置き換えなら `=> <ディレクトリ>` を足す．循環はたどらない
 - （補）`verify` はキャッシュにある依存だけを照らす．ない依存は問題にしない
+
+## リポジトリの中のディレクトリの Pome
+
+- github.com の source path は `github.com/<owner>/<repo>` までがリポジトリ，その後ろ（`/vN` を除く）がディレクトリ（4.7）．ほかの host は `/vN` を外した全体がリポジトリ
+- ディレクトリの Pome の tag は `<ディレクトリ>/<version>`．`version_of_tag` は，ディレクトリが合わない tag と major が合わない tag を除く
+- （補）`direct` はディレクトリの tree（`<commit>:<ディレクトリ>`）を読む．tag の commit にディレクトリがなければ「ない」（NotFound）
+- （補）ルート名の既定は，リポジトリでなく Pome の場所の最後の区切りから作る（`.../x/platform-cloudflare` は `PlatformCloudflare`）

@@ -1,11 +1,16 @@
 //! Source paths (spec 4.7): `host/path`, the canonical name of a Pome. A Pome of major v2 or
-//! above ends in `/vN`, and the repository is the path without it.
+//! above ends in `/vN`; the path without it is where the Pome is. On github.com that is
+//! `github.com/<owner>/<repo>` and a directory in the repository after it; on other hosts the
+//! whole path is the repository.
 
 use std::fmt;
 
 use crate::version::Version;
 
 const MAX_LENGTH: usize = 255;
+
+/// The host whose repositories are `<host>/<owner>/<repo>`, with Pomes in their directories.
+const GITHUB: &str = "github.com";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourcePath(String);
@@ -61,6 +66,10 @@ impl SourcePath {
                 return Err(err("repository path is missing before the major suffix"));
             }
         }
+        let location = rest.len() - usize::from(major_digits(input).is_some());
+        if host == GITHUB && location < 2 {
+            return Err(err("a github.com path needs the owner and the repository"));
+        }
         Ok(SourcePath(input.to_string()))
     }
 
@@ -87,18 +96,57 @@ impl SourcePath {
         major_digits(&self.0).and_then(|d| d.parse().ok())
     }
 
-    /// The repository to fetch: the path without `/vN`.
-    pub fn repository(&self) -> &str {
+    /// Where the Pome is: the path without `/vN`.
+    pub fn location(&self) -> &str {
         match major_digits(&self.0) {
             Some(d) => &self.0[..self.0.len() - d.len() - 2],
             None => &self.0,
         }
     }
 
+    /// The repository to fetch: `github.com/<owner>/<repo>` on github.com, else the location.
+    pub fn repository(&self) -> &str {
+        let location = self.location();
+        if self.host() != GITHUB {
+            return location;
+        }
+        match location.match_indices('/').nth(2) {
+            Some((i, _)) => &location[..i],
+            None => location,
+        }
+    }
+
+    /// The directory of the Pome in its repository (`platform-cloudflare`); `None` at the root.
+    pub fn directory(&self) -> Option<&str> {
+        self.location()
+            .strip_prefix(self.repository())?
+            .strip_prefix('/')
+    }
+
+    /// The git tag of a version: the directory, then `/`, before the version for a Pome in a
+    /// directory (`platform-cloudflare/v0.1.0`).
+    pub fn tag(&self, version: &Version) -> String {
+        match self.directory() {
+            Some(dir) => format!("{dir}/{version}"),
+            None => version.to_string(),
+        }
+    }
+
+    /// The version a tag of the repository names for this Pome, if it is one of its tags.
+    pub fn version_of_tag(&self, tag: &str) -> Option<Version> {
+        let version = match self.directory() {
+            Some(dir) => tag.strip_prefix(dir)?.strip_prefix('/')?,
+            None => tag,
+        };
+        Version::parse(version)
+            .ok()
+            .filter(|v| self.is_version_of(v))
+    }
+
     /// The last element that names the Pome, ignoring `/vN`. The default root name comes from
     /// it (spec 4.7).
     pub fn last_element(&self) -> &str {
-        self.repository().rsplit('/').next().unwrap_or_default()
+        self.location().rsplit('/').next().unwrap_or_default()
     }
 
     /// Whether a tag is a version of this Pome: major N with `/vN`, else v0 or v1.
@@ -208,6 +256,8 @@ mod tests {
             "github.com/a/b/v1",
             "github.com/a/b/v02",
             "github.com/v2",
+            "github.com/acme",
+            "github.com/acme/v2",
         ] {
             assert!(SourcePath::parse(p).is_err(), "{p}");
         }
@@ -242,6 +292,52 @@ mod tests {
         assert_eq!(
             SourcePath::parse("github.com/acme/v2/x").unwrap().major(),
             None
+        );
+    }
+
+    #[test]
+    fn finds_a_pome_in_a_directory_of_a_github_repository() {
+        let p = SourcePath::parse("github.com/emela-lang/x/platform-cloudflare").unwrap();
+        assert_eq!(
+            (p.repository(), p.directory(), p.last_element()),
+            (
+                "github.com/emela-lang/x",
+                Some("platform-cloudflare"),
+                "platform-cloudflare"
+            )
+        );
+        assert_eq!(
+            p.tag(&Version::parse("v0.1.0").unwrap()),
+            "platform-cloudflare/v0.1.0"
+        );
+        assert_eq!(
+            p.version_of_tag("platform-cloudflare/v0.1.0")
+                .unwrap()
+                .as_str(),
+            "v0.1.0"
+        );
+        assert_eq!(p.version_of_tag("v0.1.0"), None);
+        assert_eq!(p.version_of_tag("other/v0.1.0"), None);
+
+        let v2 = SourcePath::parse("github.com/emela-lang/x/a/b/v2").unwrap();
+        assert_eq!(
+            (v2.repository(), v2.directory(), v2.last_element()),
+            ("github.com/emela-lang/x", Some("a/b"), "b")
+        );
+        assert_eq!(v2.version_of_tag("a/b/v2.1.0").unwrap().as_str(), "v2.1.0");
+        assert_eq!(v2.version_of_tag("a/b/v1.0.0"), None);
+
+        let root = SourcePath::parse("github.com/emela-lang/x").unwrap();
+        assert_eq!(
+            (root.repository(), root.directory()),
+            ("github.com/emela-lang/x", None)
+        );
+        assert_eq!(root.version_of_tag("platform-cloudflare/v0.1.0"), None);
+        // Other hosts: the whole path is the repository.
+        let other = SourcePath::parse("git.example.com/a/b/c").unwrap();
+        assert_eq!(
+            (other.repository(), other.directory()),
+            ("git.example.com/a/b/c", None)
         );
     }
 
