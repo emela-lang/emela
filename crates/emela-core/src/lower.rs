@@ -1073,6 +1073,15 @@ impl<'a> Lowerer<'a> {
         if self.is_fork_op(effect, op) {
             params = params.into_iter().map(|p| self.wrapped_child(p)).collect();
         }
+        let param_names = match self.hir.item(op) {
+            Some(Item::Op(o)) => o
+                .sig
+                .params
+                .iter()
+                .map(|p| self.hir.locals[p.local].name.to_string())
+                .collect(),
+            _ => Vec::new(),
+        };
         OpDef {
             name,
             suspend,
@@ -1080,6 +1089,7 @@ impl<'a> Lowerer<'a> {
             params,
             ret,
             fails: !f.fails.is_empty(),
+            param_names,
         }
     }
 

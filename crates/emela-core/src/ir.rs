@@ -365,6 +365,9 @@ pub struct OpDef {
     pub ret: TypeId,
     /// Whether a call may fail: the operation's E is not empty (spec 7.2).
     pub fails: bool,
+    /// The declared parameters' names (for backends that write the operations as functions of
+    /// another language: the embedded C target's board headers); may be empty.
+    pub param_names: Vec<String>,
 }
 
 impl OpDef {
@@ -377,6 +380,7 @@ impl OpDef {
             params,
             ret,
             fails: false,
+            param_names: Vec::new(),
         }
     }
 
