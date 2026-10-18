@@ -10,9 +10,11 @@
 //! strings, the numeric conversions and the runtime operations) and the host is WASI, so the
 //! module is a WASI command run with an external engine (`wasmtime`).
 //!
-//! The first version supports no programs that suspend (the emitter does not read the state
-//! machines of the Heap IR yet), no fibers, no callbacks to host functions and no builtins that
-//! need Unicode tables; reaching them is a [`WasmError`].
+//! Suspending code (the state machines and the fiber scheduler), fibers, `Float` and the internal
+//! hosts (`Std.Console`, `Std.Env`, `Std.Random`, `Std.Clock`, `Std.FileSystem`) are supported, as
+//! far as this crate's `check` says: what is left is the Unicode grapheme-cluster operations,
+//! callbacks to host functions and a `suspend fn` external bound to something other than an
+//! internal host; reaching one is a [`WasmError`].
 
 mod check;
 mod emit;
@@ -65,12 +67,16 @@ pub struct WasmError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmErrorKind {
-    /// A feature the WASM target does not support yet (suspending code, fibers, Unicode tables).
+    /// A feature the WASM target does not support yet: the Unicode grapheme-cluster operations
+    /// (`String.length` / `String.chars` / an empty-separator `String.split`) and an external
+    /// function whose type cannot cross to WASM (a reference other than `()`/`Int`/`Bool`/`Int64`/
+    /// `Float`).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,
-    /// A `suspend fn` external function with `@external(wasm, ...)`. (E0428 was retired once the
-    /// C target learned to run them; WASM reports it without a code.)
+    /// A `suspend fn` external function whose `@external(wasm, ...)` binding is not an internal
+    /// host: WASM can suspend only through a runtime function (spec 12.6), not a plain import.
+    /// (E0428 was retired once the C target learned to run them; WASM reports it without a code.)
     SuspendExternal,
     /// A bug in the compiler (the IR failed a verifier, ...).
     Internal,

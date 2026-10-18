@@ -17,7 +17,7 @@
 //!   WASI host calls) is emitted into the same module (see `runtime`).
 
 mod builtins;
-mod external;
+pub(crate) mod external;
 mod fiber;
 mod handle;
 pub mod layout;
@@ -462,13 +462,24 @@ impl<'m> Builder<'m> {
         {
             self.random_get();
         }
-        // The scheduler's timers (the `after`/`now_ms` runtime functions) need WASI's clock. Added
-        // before the index space is fixed, but only when a host that uses them is requested, so a
-        // program without one keeps its exact bytes (see `emit::external::TIMER_HOSTS`).
+        // The clock hosts need WASI's clock (the `clock_time_get` import): added before the index
+        // space is fixed, but only when a host that reads it is requested, so a program without
+        // one keeps its exact bytes (see `emit::external::CLOCK_HOSTS`). The separate
+        // `TIMER_HOSTS` list is the subset that also uses the scheduler's timers, whose globals
+        // exist only in a suspending module: requesting one therefore implies `uses_suspend`
+        // (a `suspend fn` host; `check` rejects every other binding), which `register` relies on.
         self.uses_timers = self
             .requested_hosts
             .iter()
-            .any(|h| external::TIMER_HOSTS.contains(h));
+            .any(|h| external::CLOCK_HOSTS.contains(h));
+        debug_assert!(
+            !self
+                .requested_hosts
+                .iter()
+                .any(|h| external::TIMER_HOSTS.contains(h))
+                || self.uses_suspend,
+            "a host that uses the scheduler's timers is requested without the suspend globals"
+        );
         if self.uses_timers {
             self.clock_time_get_fn = self.clock_time_get();
         }

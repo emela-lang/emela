@@ -76,24 +76,54 @@ pub(crate) fn internal_host_name(module: &str, name: &str) -> Option<&'static st
         .map(|(_, _, runtime)| *runtime)
 }
 
-/// The runtime functions of internal hosts that use the scheduler's timers (`after`/`now_ms`,
-/// spec 12.6). When one is requested the WASI `clock_time_get` import is registered (see
-/// `Builder::build`). **T-Clock adds its `sleep` runtime function here** (the name in the third
-/// column of its [`INTERNAL_HOSTS`] row) so the module gets the clock.
-pub(crate) const TIMER_HOSTS: &[&str] = &[
-    "clock_sleep_milliseconds",
-    "sleep_milliseconds",
-    "sleep",
-    "sleep_ms",
-    "when_stalled",
-    "test_sleep_after",
-    // T-Clock's runtime function names (see `runtime::clock`). All of them read the WASI clock
-    // (`now_milliseconds` directly; the suspending hosts through the driver's timers), so a
-    // program using any of them imports `clock_time_get`.
+/// The runtime functions of internal hosts that read WASI's clock (`clock_time_get`). When one is
+/// requested the import is registered (see `Builder::build`, `uses_timers`). This is the only list
+/// that decides whether the clock import is emitted, so **a new clock host adds its runtime
+/// function name here** (the third column of its [`INTERNAL_HOSTS`] row).
+///
+/// `clock_now_milliseconds` reads the REALTIME clock directly; the others go through the
+/// scheduler's `now_ms`/`after` and are also in [`TIMER_HOSTS`]. The two concepts stay separate:
+/// the clock import is what `uses_timers` gates, the scheduler globals are what `TIMER_HOSTS`
+/// names (see [`Builder::build`]).
+pub(crate) const CLOCK_HOSTS: &[&str] = &[
     "clock_now_milliseconds",
+    "clock_sleep_milliseconds",
     "clock_when_stalled",
     "clock_sleep",
+    "test_sleep_after",
 ];
+
+/// The runtime functions of internal hosts that use the scheduler's **timers** (`after`/
+/// `timers_due`, spec 12.6): they read and write the globals `G_TIMERS`/`G_TIMER_SEQ`, which only
+/// a suspending module has. A host here is a `suspend fn` host (the task argument ties it to the
+/// suspend ABI), so requesting one implies [`Builder::uses_suspend`]; `check` rejects a
+/// `suspend fn` external bound to anything but an internal host, and [`Builder::build`] asserts
+/// the invariant. The runtime names are all in [`CLOCK_HOSTS`] too, because `after` reads
+/// `now_ms`, which reads WASI's clock.
+pub(crate) const TIMER_HOSTS: &[&str] = &[
+    "clock_sleep_milliseconds",
+    "clock_when_stalled",
+    "clock_sleep",
+    "test_sleep_after",
+];
+
+/// The module name of a `HostModule` (`@external(wasm, "module", "name")`).
+pub(crate) fn module_name(module: &HostModule) -> &str {
+    match module {
+        HostModule::Named(n) => n,
+        HostModule::File(p) | HostModule::Bundled(p) => p,
+    }
+}
+
+/// The `(module, name)` of `f`'s `@external(wasm, ...)` binding when it names a module/name
+/// import (`None` for a global reference or no binding). Used by [`crate::check`] to reject a
+/// `suspend fn` external bound to something other than an internal host.
+pub(crate) fn wasm_import(f: &Function) -> Option<(String, String)> {
+    match &f.external.as_ref()?.binding("wasm")?.host {
+        HostRef::Import { module, name } => Some((module_name(module).to_owned(), name.clone())),
+        HostRef::Global(_) => None,
+    }
+}
 
 impl<'m> Builder<'m> {
     /// The wasm function index of the runtime function an internal host binds to, recording the
@@ -158,17 +188,7 @@ impl<'m> Builder<'m> {
 
     /// The `(module, name)` of an external function's `@external(wasm, ...)` import, if any.
     pub(super) fn wasm_host(&self, f: &Function) -> Option<(String, String)> {
-        let binding = f.external.as_ref()?.binding("wasm")?;
-        match &binding.host {
-            HostRef::Import { module, name } => {
-                let module = match module {
-                    HostModule::Named(n) => n.clone(),
-                    HostModule::File(p) | HostModule::Bundled(p) => p.clone(),
-                };
-                Some((module, name.clone()))
-            }
-            HostRef::Global(_) => None,
-        }
+        wasm_import(f)
     }
 
     pub(super) fn external_import(
@@ -178,13 +198,7 @@ impl<'m> Builder<'m> {
         binding: &emela_core::ExternalBinding,
     ) {
         let (module, name) = match &binding.host {
-            HostRef::Import { module, name } => {
-                let module = match module {
-                    HostModule::Named(n) => n.clone(),
-                    HostModule::File(p) | HostModule::Bundled(p) => p.clone(),
-                };
-                (module, name.clone())
-            }
+            HostRef::Import { module, name } => (module_name(module).to_owned(), name.clone()),
             HostRef::Global(_) => {
                 self.internal(format!(
                     "`@external(wasm, ...)` of `{}` is not a module/name import",
@@ -194,15 +208,32 @@ impl<'m> Builder<'m> {
             }
         };
         // The internal host registry comes first: such a binding is a runtime function, not a
-        // wasm import, and its (reference) parameters cross as `i32` pointers.
-        if let Some(index) = self.internal_host(&module, &name) {
-            self.fn_index[ix(id)] = index;
+        // wasm import, and its (reference) parameters cross as `i32` pointers. The contract check
+        // is on both paths: before the runtime index space is fixed (`internal_host` returns
+        // `None`) the binding is remembered and `bind_internal_hosts` resolves it afterwards, and
+        // the check must run just the same.
+        if internal_host_name(&module, &name).is_some() {
+            self.check_internal_host(f, &module, &name);
+            match self.internal_host(&module, &name) {
+                Some(index) => self.fn_index[ix(id)] = index,
+                None => self.deferred_hosts.push((ix(id), module, name)),
+            }
             return;
         }
-        if internal_host_name(&module, &name).is_some() {
-            // The runtime index space is fixed after the IR functions; remember the binding.
-            self.check_internal_host(f, &module, &name);
-            self.deferred_hosts.push((ix(id), module, name));
+        // A `suspend fn` external crosses only through an internal host: the runtime function
+        // takes the task last and completes it (spec 12.6). A plain wasm import would be called
+        // synchronously and drop the suspension. `check` reports this as `SuspendExternal`; this
+        // keeps the emitter from writing the synchronous call if it is reached anyway.
+        if f.suspends {
+            self.errors.push(WasmError::new(
+                WasmErrorKind::SuspendExternal,
+                format!(
+                    "`suspend fn` external function `{}` is bound to the WASM import \
+                     `{module}`.`{name}`, which is not an internal host; only an internal host can \
+                     suspend",
+                    f.name
+                ),
+            ));
             return;
         }
         let mut params = Vec::new();
@@ -215,9 +246,18 @@ impl<'m> Builder<'m> {
                 }
             }
         }
-        let results: Vec<ValType> = match self.host_val(f.ret) {
-            Some(v) => vec![v],
-            None => vec![],
+        // The result crosses too: `()` is nothing, a scalar its `host_val`, and anything else (a
+        // `String`, a list, …) is reported like an unsupported parameter.
+        let results: Vec<ValType> = if self.repr(f.ret) == Repr::Void {
+            Vec::new()
+        } else {
+            match self.host_val(f.ret) {
+                Some(v) => vec![v],
+                None => {
+                    self.host_type_error(f, f.ret);
+                    return;
+                }
+            }
         };
         let ty = self.ty(params, results);
         if let Some(&i) = self.import_map.get(&(module.clone(), name.clone())) {

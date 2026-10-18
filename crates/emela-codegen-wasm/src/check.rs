@@ -7,10 +7,14 @@ use crate::{WasmError, WasmErrorKind};
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
 /// monomorphisation) that the WASM target cannot compile yet. Only the Unicode grapheme-cluster
-/// operations (`String.length` / `String.chars` / an empty-separator `String.split`) and external
-/// functions that take or return a callback are left (Wave 4 / E0427); suspending code, the state
-/// machines, fibers, `Float` and the internal hosts are all supported. A grapheme operation is
-/// reported once, naming where it is reached (the same wording as the C target's check).
+/// operations (`String.length` / `String.chars` / an empty-separator `String.split`), external
+/// functions that take or return a callback (Wave 4 / E0427) and `suspend fn` externals bound to
+/// something other than an internal host are left; suspending code, the state machines, fibers,
+/// `Float` and the internal hosts are all supported.
+///
+/// A construct is reported once: the message is the key ([`Found::report`]), so two uses of the
+/// same operation give one diagnostic (the same wording as the C target's check). The diagnostic
+/// carries no source location or function name — the codegen only has the message.
 pub(crate) fn unsupported(m: &Module) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
@@ -46,10 +50,30 @@ impl Found {
     }
 }
 
-/// An external function with `@external(wasm, ...)`: E0427 for callbacks. (A `suspend fn` external
-/// function is supported.)
+/// An external function with `@external(wasm, ...)`: E0427 for callbacks, and a `suspend fn` that
+/// binds to anything but an internal host is rejected (the runtime function is what drives the
+/// task ABI of spec 12.6; a plain import cannot suspend).
 fn external(m: &Module, f: &Function, found: &mut Found) {
     let name = display_name(&f.name);
+    if f.suspends {
+        let binding = crate::emit::external::wasm_import(f);
+        let internal = binding.as_ref().is_some_and(|(module, import)| {
+            crate::emit::external::internal_host_name(module, import).is_some()
+        });
+        if !internal {
+            let at = binding
+                .map(|(module, import)| format!("the WASM import `{module}`.`{import}`"))
+                .unwrap_or_else(|| "a WASM binding".to_owned());
+            found.report(
+                WasmErrorKind::SuspendExternal,
+                format!(
+                    "`suspend fn` external function `{name}` is bound to {at}, which is not an \
+                     internal host; only an internal host can suspend (spec 12.6)"
+                ),
+            );
+            return;
+        }
+    }
     let params = f.params.iter().map(|&p| (f.vars[p].ty, "takes"));
     for (ty, verb) in params.chain([(f.ret, "returns")]) {
         if let Type::Fn(_) = m.core.ty(ty) {
