@@ -260,7 +260,7 @@ impl<'m> Builder<'m> {
             resume_closure: [0; 5],
             interrupted_desc: 0,
             uses_const: has_const(m),
-            uses_notes: has_handler(m),
+            uses_notes: has_release(m),
             self_reference: 0,
             last_retired: 0,
             const_cell: FxHashMap::default(),
@@ -2303,15 +2303,19 @@ fn has_const(m: &Module) -> bool {
         .any(|(_, f)| f.constant && !is_machine(f))
 }
 
-/// Whether the module can record a release-failure note (spec 14.4): it makes a handler value, so
-/// a release can run and fail while a defect unwinds. Programs without one keep the bytes they had.
-fn has_handler(m: &Module) -> bool {
+/// Whether the module can record a release-failure note (spec 14.4): it retires a handler (a
+/// `with` binding with a `release`), so the release can run and fail while a defect unwinds.
+/// Programs without one keep the bytes they had.
+fn has_release(m: &Module) -> bool {
     m.functions.iter().any(|(_, f)| {
         f.stmts.iter().any(|(_, s)| {
             matches!(
                 s,
                 Stmt::Let {
-                    value: Value::Handler { .. },
+                    value: Value::Runtime {
+                        op: RuntimeOp::Retire,
+                        ..
+                    },
                     ..
                 }
             )
