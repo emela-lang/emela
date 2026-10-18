@@ -16,6 +16,7 @@
 //! - The runtime (Perceus `dup`/`drop`, the allocator, strings, the numeric conversions and the
 //!   WASI host calls) is emitted into the same module (see `runtime.rs`).
 
+pub mod layout;
 mod runtime;
 
 use emela_core::{Builtin, EnumId, HostModule, HostRef, OPTION_NONE, OPTION_SOME, Type, TypeId};
@@ -42,9 +43,6 @@ pub(crate) enum Run {
     Tests(Vec<(String, FnId)>),
 }
 
-/// Where the bump allocator starts (below it is the WASI scratch area and the static data).
-const PAGE: u32 = 65536;
-
 pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
@@ -56,7 +54,8 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
-    Ok(WasmOutput { module: b.finish() })
+    let (module, layout) = b.finish();
+    Ok(WasmOutput { module, layout })
 }
 
 fn ix<T>(id: la_arena::Idx<T>) -> usize {
@@ -161,7 +160,7 @@ impl<'m> Builder<'m> {
             str_desc: 0,
             cons_ref_desc: 0,
             cons_val_desc: 0,
-            data: vec![0; runtime::SCRATCH_END as usize],
+            data: vec![0; layout::STATIC_START as usize],
             descs: FxHashMap::default(),
             strs: FxHashMap::default(),
             nullary: FxHashMap::default(),
@@ -361,7 +360,12 @@ impl<'m> Builder<'m> {
         let align = (8 - (self.data.len() as u32 % 8)) % 8;
         self.data
             .extend(std::iter::repeat_n(0u8, (align + size) as usize));
-        self.data.len() as u32 - size
+        let off = self.data.len() as u32 - size;
+        debug_assert!(
+            off >= layout::STATIC_START,
+            "static data below the scratch area"
+        );
+        off
     }
 
     fn write_u32(&mut self, off: u32, v: u32) {
@@ -517,7 +521,7 @@ impl<'m> Builder<'m> {
 
     // ---- assembly ----
 
-    fn finish(&mut self) -> Vec<u8> {
+    fn finish(&mut self) -> (Vec<u8>, layout::Layout) {
         let mut module = WasmModule::new();
 
         let mut types = TypeSection::new();
@@ -550,8 +554,9 @@ impl<'m> Builder<'m> {
         });
         module.section(&table);
 
-        let heap_base = (self.data.len() as u32).div_ceil(8) * 8 + 8;
-        let pages = (heap_base as u64).div_ceil(PAGE as u64).max(1);
+        let layout = layout::Layout::new(self.data.len() as u32);
+        let heap_base = layout.heap_base;
+        let pages = (heap_base as u64).div_ceil(layout::PAGE as u64).max(1);
         let mut memories = MemorySection::new();
         memories.memory(MemoryType {
             minimum: pages,
@@ -608,7 +613,7 @@ impl<'m> Builder<'m> {
         data.active(0, &ConstExpr::i32_const(0), self.data.iter().copied());
         module.section(&data);
 
-        module.finish()
+        (module.finish(), layout)
     }
 
     // ---- function bodies ----

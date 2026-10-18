@@ -17,6 +17,8 @@
 mod check;
 mod emit;
 
+pub use self::emit::layout;
+
 use emela_core::FnId;
 
 /// What the generated `_start` runs.
@@ -49,6 +51,9 @@ pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 pub struct WasmOutput {
     /// The encoded module (`main.wasm`).
     pub module: Vec<u8>,
+    /// 線形メモリの確定した配置（`emit/layout.rs`）．出力と同じモジュールから
+    /// `wasmparser` で読み取った値と突き合わせられる。
+    pub layout: layout::Layout,
 }
 
 /// Why a program cannot be compiled to WASM.

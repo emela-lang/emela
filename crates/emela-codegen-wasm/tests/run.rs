@@ -339,3 +339,21 @@ fn the_scratch_area_does_not_overlap_the_static_data() {
          [\"a\", \"b\", \"c\"]\n[65, 66]\n"
     );
 }
+
+#[test]
+fn all_scratch_buffers_are_stepped_in_one_program() {
+    // 1 つのプログラムでスクラッチの全バッファ（WASI の iovec / 書き込みバイト数，
+    // 整数の桁，改行，Int64 の桁，JSON escape，1 コードポイントの UTF-8）を触りつつ，
+    // 静的データ（記述子など）を読み戻す。重なりがあれば #257 のように trap する.
+    let Some(out) = stderr(
+        "scratch-all",
+        "fn main() {\n  dbg(42)\n  dbg(Int.to_string(-12345))\n  big = Int64.from_int(2147483647)\n  dbg(Int64.to_string(big * big))\n  dbg(String.from_code_point(65))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.code_points(\"AB\"))\n  dbg(String.trim(\"  hi  \"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "42\n\"-12345\"\n\"4611686014132420609\"\nSome(\"A\")\n\
+         [\"a\", \"b\", \"c\"]\n[65, 66]\n\"hi\"\n"
+    );
+}

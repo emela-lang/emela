@@ -1,0 +1,212 @@
+import Std.Test.Gen.{Gen, Tree}
+import Std.Test.Property
+import Std.Test.Assert
+import Std.Fiber.{Success, Failure}
+import Std.Cause
+import Std.State.{State}
+import Std.Duration
+
+fn main() {
+  # A cross-target reproducibility vector.
+  dbg([Gen.next(0), Gen.next(1), Gen.next(-1), Gen.next(20261013)])
+}
+
+fn defect(f: fn() -> () fails {} use {}) -> String {
+  Fiber.attempt(f) match {
+    Success(_)     -> panic("expected a defect")
+    Failure(cause) -> Cause.to_string(cause)
+  }
+}
+
+@test
+fn list_laws() {
+  Property.check(Gen.list(Gen.int()), fn(xs) {
+    assert List.reverse(List.reverse(xs)) == xs
+    assert List.map(xs, fn(x) { x }) == xs
+    assert List.length(List.reverse(xs)) == List.length(xs)
+    assert List.append(xs, []) == xs
+    assert List.append([], xs) == xs
+  })
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.list(Gen.int())), fn(pair) {
+    (xs, ys) = pair
+    assert List.length(List.append(xs, ys)) == List.length(xs) + List.length(ys)
+    assert List.reverse(List.append(xs, ys)) == List.append(List.reverse(ys), List.reverse(xs))
+  })
+}
+
+@test
+fn core_and_std_laws() {
+  Property.check(Gen.int(), fn(n) {
+    assert Int.parse(Int.to_string(n)) == n
+    assert Option.map(Some(n), fn(x) { x }) == Some(n)
+    assert Assert.some(Some(n)) == n
+    Assert.none(Option.map(None, fn(x: Int) { x + n }))
+  })
+  Property.check(Gen.int_between(-1000, 1000), fn(n) {
+    # The state is freshly installed for EVERY trial (including shrinking).
+    (value, last) = State.run(0, fn() {
+      (use State[Int]).set(n)
+      (use State[Int]).get()
+    })
+    assert value == n
+    assert last == n
+    d = Duration.milliseconds(Int64.from_int(n))
+    assert Duration.to_milliseconds(Duration.subtract(Duration.add(d, d), d)) == Int64.from_int(n)
+  })
+}
+
+@test
+fn fixed_foundation() {
+  assert Gen.next(1) == 270369
+  assert Gen.next(270369) == 67634689
+  assert Gen.next(-1) == 253983
+  assert Gen.next(0) != 0
+  assert List.reverse([1, 2, 3]) == [3, 2, 1]
+  assert List.append([1, 2], [3]) == [1, 2, 3]
+  assert List.map([1, 2], fn(n) { n + 1 }) == [2, 3]
+  (empty, _) = Gen.sample(Gen.list(Gen.int()), 1, 0)
+  assert empty.value == []
+  (only, _) = Gen.sample(Gen.int_between(7, 7), -1, 100)
+  assert only.value == 7
+  assert List.is_empty((only.children)())
+  full = Gen.int_between(0 - 2147483647 - 1, 2147483647)
+  (low, _) = Gen.sample(full, 8, 0)
+  (high, _) = Gen.sample(full, 1, 0)
+  (zero, _) = Gen.sample(full, 2, 0)
+  assert low.value == 0 - 2147483647 - 1
+  assert high.value == 2147483647
+  assert zero.value == 0
+}
+
+@test
+fn bounded_and_reproducible() {
+  gen = Gen.int_between(0 - 2147483647 - 1, 2147483647)
+  (a, sa) = Gen.sample(gen, -99, 10)
+  (b, sb) = Gen.sample(gen, -99, 10)
+  assert a.value == b.value
+  assert sa == sb
+  Property.check(Gen.int_between(-7, 11), fn(n) { assert n >= -7 && n <= 11 })
+  Property.check(Gen.int_between(0 - 2147483647 - 1, -1), fn(n) { assert n < 0 })
+  Property.check(Gen.int_between(1, 2147483647), fn(n) { assert n > 0 })
+  (mapped, _) = Gen.sample(Gen.map(Gen.constant(3), fn(x) { x + 1 }), 5, 0)
+  assert mapped.value == 4
+}
+
+@test
+fn shrinks_and_reports() {
+  cfg = Property.Config(seed: 1, cases: 1, max_size: 10, shrink_limit: 100)
+  msg = defect(fn() {
+    Property.check_with(Gen.int_between(10, 10), cfg, fn(n) { assert n < 5 })
+  })
+  assert String.contains(msg, "Property failed (seed=1 case=0 case_seed=1 size=0)")
+  assert String.contains(msg, "counterexample: 10")
+  assert String.contains(msg, "assertion failed: n < 5")
+
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(Gen.int_between(0, 100), cfg, fn(n) { assert n < 5 })
+    }),
+    "counterexample: 5",
+  )
+  gen = Gen.map(Gen.int_between(0, 100), fn(n) { n * 2 + 1 })
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(gen, cfg, fn(n) { assert n < 10 })
+    }),
+    "counterexample: 11",
+  )
+  lists = Gen(fn(seed, size) { Gen.sample(Gen.list(Gen.constant(10)), 2, 5) })
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(lists, cfg, fn(xs) { assert List.is_empty(xs) })
+    }),
+    "counterexample: [10]",
+  )
+  pairs = Gen.pair(Gen.int_between(0, 100), Gen.constant(9))
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(pairs, cfg, fn(pair) {
+        (x, y) = pair
+        assert x < 5
+      })
+    }),
+    "counterexample: (5, 9)",
+  )
+
+  custom = Gen(fn(seed, size) {
+    (Tree(100, fn() { [Gen.leaf(0), Gen.leaf(7), Gen.leaf(9)] }), seed)
+  })
+  msg2 = defect(fn() { Property.check_with(custom, cfg, fn(n) { assert n < 5 }) })
+  assert String.contains(msg2, "original: 100")
+  assert String.contains(msg2, "counterexample: 7")
+  assert String.contains(msg2, "shrink_attempts=2")
+  assert msg2 == defect(fn() { Property.check_with(custom, cfg, fn(n) { assert n < 5 }) })
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(custom, Property.Config(shrink_limit: 0, ..cfg), fn(n) { assert n < 5 })
+    }),
+    "counterexample: 100",
+  )
+}
+
+@test
+fn size_schedule_and_budget() {
+  sized = Gen(fn(seed, size) { (Gen.leaf(size), Gen.next(seed)) })
+  cfg = Property.Config(seed: 0, cases: 5, max_size: 2, shrink_limit: 1)
+  (_, sizes) = State.run([], fn() {
+    Property.check_with(sized, cfg, fn(n) {
+      (use State[List[Int]]).update(fn(xs) { List.append(xs, [n]) })
+    })
+  })
+  assert sizes == [0, 1, 2, 0, 1]
+  bounded = Gen(fn(seed, size) {
+    (Tree(2, fn() { [Tree(1, fn() { panic("must not expand after budget") })] }), seed)
+  })
+  msg = defect(fn() { Property.check_with(bounded, cfg, fn(n) { assert False }) })
+  assert String.contains(msg, "counterexample: 1")
+  assert String.contains(msg, "shrink_attempts=1 limit=1")
+}
+
+error BadInput
+
+@test
+fn distinguishes_errors_and_generator_bugs() {
+  msg = defect(fn() {
+    Property.check(Gen.constant(1), fn(n) { fail BadInput })
+  })
+  assert String.contains(msg, "Property failed")
+  assert String.contains(msg, "error: BadInput")
+  broken = Gen(fn(seed, size) { panic("broken generator") })
+  assert String.contains(
+    defect(fn() { Property.check(broken, fn(n: Int) { () }) }),
+    "Property generator failed",
+  )
+  broken_tree = Gen(fn(seed, size) { (Tree(1, fn() { panic("broken children") }), seed) })
+  msg2 = defect(fn() { Property.check(broken_tree, fn(n) { assert False }) })
+  assert String.contains(msg2, "generator failed during shrinking")
+  assert String.contains(msg2, "broken children")
+  mapped_bug = Gen.map(
+    Gen(fn(seed, size) {
+      (Tree(1, fn() { [Gen.leaf(0)] }), seed)
+    }),
+    fn(n) { if n == 0 { panic("broken map") } else { n } },
+  )
+  msg3 = defect(fn() { Property.check(mapped_bug, fn(n) { assert False }) })
+  assert String.contains(msg3, "generator failed during shrinking")
+  assert String.contains(msg3, "broken map")
+  assert String.contains(defect(fn() { Assert.none(Some(42)) }), "42")
+  assert String.contains(defect(fn() { Assert.some(None) }), "expected Some")
+  assert String.contains(
+    defect(fn() {
+      Gen.int_between(2, 1)
+      ()
+    }),
+    "min exceeds max",
+  )
+  assert String.contains(
+    defect(fn() {
+      Property.check_with(Gen.int(), Property.Config(cases: 0, ..Property.config()), fn(n) { () })
+    }),
+    "invalid config",
+  )
+}

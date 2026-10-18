@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
@@ -30,6 +33,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
       # `emela run` and the JS backend tests execute the generated code with node.
       - uses: actions/setup-node@v4
         with:
@@ -43,6 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: examples
       # `emela run` and `emela test` execute the generated JS with node.
       - uses: actions/setup-node@v4
         with:

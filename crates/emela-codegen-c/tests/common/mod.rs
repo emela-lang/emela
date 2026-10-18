@@ -13,7 +13,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use emela_codegen_c::{
@@ -140,15 +140,50 @@ pub fn write(dir: &Path, out: &COutput) {
     }
 }
 
+fn shared_objects(flags: &[&str]) -> (PathBuf, PathBuf) {
+    type ObjectCache = Mutex<std::collections::HashMap<Vec<String>, (PathBuf, PathBuf)>>;
+    static OBJECTS: OnceLock<ObjectCache> = OnceLock::new();
+    let key: Vec<_> = flags.iter().map(|flag| (*flag).to_owned()).collect();
+    let mut objects = OBJECTS.get_or_init(Default::default).lock().unwrap();
+    if let Some(paths) = objects.get(&key) {
+        return paths.clone();
+    }
+
+    let dir = out_dir(&format!("shared-{}", key.join("-")));
+    std::fs::write(dir.join(RUNTIME_C_FILE), RUNTIME_C).unwrap();
+    std::fs::write(dir.join(RUNTIME_H_FILE), RUNTIME_H).unwrap();
+    std::fs::write(dir.join(EMELA_H_FILE), EMELA_H).unwrap();
+    std::fs::write(dir.join("helper.c"), HELPER).unwrap();
+    let cc = cc().expect("checked by the caller");
+    let compile_object = |source: &str, name: &str| {
+        let output = Command::new(cc)
+            .args(["-std=c11", "-fno-strict-aliasing", "-pthread", "-I.", "-c"])
+            .args(flags)
+            .args([source, "-o", name])
+            .current_dir(&dir)
+            .output()
+            .expect("cannot start cc");
+        assert!(
+            output.status.success(),
+            "cc failed to compile shared {source}:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        dir.join(name)
+    };
+    let paths = (
+        compile_object(RUNTIME_C_FILE, "runtime.o"),
+        compile_object("helper.c", "helper.o"),
+    );
+    objects.insert(key, paths.clone());
+    paths
+}
+
 /// Builds `out` in `dir` with `flags` and runs it with the leak check on.
 pub fn build_and_run(dir: &Path, out: &COutput, flags: &[&str]) -> Run {
     let cc = cc().expect("checked by the caller");
     write(dir, out);
-    let mut sources = vec![
-        "main.c".to_owned(),
-        RUNTIME_C_FILE.to_owned(),
-        "helper.c".to_owned(),
-    ];
+    let (runtime_object, helper_object) = shared_objects(flags);
+    let mut sources = vec!["main.c".to_owned()];
     for (path, _) in &out.bundled {
         sources.push(format!("{BUNDLED_DIR}/{path}"));
     }
@@ -159,12 +194,13 @@ pub fn build_and_run(dir: &Path, out: &COutput, flags: &[&str]) -> Run {
             "-fno-strict-aliasing",
             "-pthread",
             "-I.",
-            "-g",
             "-o",
             "main",
         ])
         .args(flags)
         .args(&sources)
+        .arg(&runtime_object)
+        .arg(&helper_object)
         .arg("-lm")
         .current_dir(dir)
         .output()
