@@ -142,9 +142,11 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
 - （補）内部ホストが指すランタイム関数は要求されたときだけ登録・出力する
   （`runtime::is_on_demand` が `INTERNAL_HOSTS` を唯一の一覧にする）．内部ホストを使わない
   プログラムのバイト列は，関数を足しても変わらない．`runtime::register` はそれに加えて，
-  sched / fiber の断片を `uses_suspend` のときだけ，タイマ関数（`INTERNAL_HOSTS` の
-  `TIMER_HOSTS`）を `uses_timers` のときだけ，`fs` の断片を要求されたときだけ，const の断片
-  （`const_enter` / `const_record`）を `uses_const` のときだけ登録する．note 専用の断片は無く，
+  sched / fiber の断片を `uses_suspend` のときだけ，WASI の clock import（`INTERNAL_HOSTS` の
+  `CLOCK_HOSTS`）を `uses_timers` のときだけ，`fs` の断片を要求されたときだけ，const の断片
+  （`const_enter` / `const_record`）を `uses_const` のときだけ登録する．`TIMER_HOSTS`（スケジューラの
+  タイマ／`G_TIMERS`，`now_ms`/`after`）と `CLOCK_HOSTS`（WASI の `clock_time_get`）は別概念として
+  分けてある（`external.rs`，W6-3）．note 専用の断片は無く，
   `notes_add` / `notes_of` / `notes_clear` は sched の断片にあり，`raise` / `defect_resume` は
   常に登録される core の関数で，本体とローカルだけが `uses_notes` で変わる
 - （補）const / note の**グローバル**は `runtime::register` ではなく `Builder::globals`
@@ -181,8 +183,8 @@ WASM のターゲット（仕様 16 章，Tier 1）．Heap IR（`Stage::RefCount
   `_start` は root fiber を回し，driver が空になったら `interrupted` を `finish` して exit 130
 - （補）**ドライバのタイマ**（`runtime/clock.rs`，§13.13）: `now_ms` はドライバ自身の
   MONOTONIC クロック，`after(ms, task)` がタイマを登録し，`timers_due` が `G_TIMERS` /
-  `G_TIMER_SEQ` を見て期限の来た task を完了する．`clock_time_get` は `TIMER_HOSTS` に載る
-  タイマ関数が要求されたとき，**index 確定前に** import する（後から足すと全関数 index がずれる）
+  `G_TIMER_SEQ` を見て期限の来た task を完了する．`clock_time_get` は `CLOCK_HOSTS` に載る
+  WASI clock import が要求されたとき，**index 確定前に** import する（後から足すと全関数 index がずれる）
 - （補）**`Std.Clock`**（`runtime/clock.rs`，§8.8，Wave 3 で追加）: `now_milliseconds` は WASI の
   REALTIME（`clock_time_get`）で JS の `Date.now()` と同じ Unix epoch のミリ秒．`sleep_milliseconds`
   とテスト用の `sleep` はドライバのタイマで中断・再開する（負の値は 0）．ただし `when_stalled(at, task)`
