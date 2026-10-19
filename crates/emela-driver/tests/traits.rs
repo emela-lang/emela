@@ -184,3 +184,82 @@ fn self_in_trait_signatures_is_the_implementing_type() {
     let main = "type Box[A](value: A)\ntrait Swap {\n  fn swap(self, other: Self) -> (Self, Self)\n}\nimpl Box[A]: Swap {\n  fn swap(self, other) { (other, self) }\n}\nfn use_it(b: Box[Int]) -> (Box[Int], Box[Int]) { Swap.swap(b, b) }\n";
     assert_clean(&[("/app/src/main.emel", main)]);
 }
+
+const USER: &str = "type User(name: String)\nimpl User: Show {\n  fn show(self) { self.name }\n}\nimpl User: Eq {\n  fn eq(self, other) { True }\n}\nimpl User: Ord {\n  fn compare(self, other) { Equal }\n}\n";
+
+#[test]
+fn trait_functions_are_called_through_the_trait() {
+    let main = format!(
+        "{USER}fn main() -> () {{\n  u = User(name: \"a\")\n  s: String = Show.show(u)\n  o: Ordering = Ord.compare(u, u)\n  t = u |> Show.show\n  ()\n}}\n"
+    );
+    assert_clean(&[("/app/src/main.emel", &main)]);
+}
+
+#[test]
+fn calls_need_an_impl() {
+    let main = format!(
+        "{POINT}fn main() -> () {{\n  s = Show.show(Point(x: 1, y: 2))\n  e = Eq.eq(Point(x: 1, y: 2), Point(x: 1, y: 2))\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        [
+            "E0326 type `Point` does not implement `Show` @ Show.show",
+            "E0326 type `Point` does not implement `Eq` @ Eq.eq",
+        ]
+    );
+}
+
+#[test]
+fn constraints_are_checked_where_the_function_is_used() {
+    let main = format!(
+        "{USER}{POINT}type Tagged(id: Int) derive Show\nfn label[A: Show](x: A) -> String {{ Show.show(x) }}\nfn main() -> () {{\n  a = label(User(name: \"a\"))\n  b = label(Tagged(id: 1))\n  c = label(1)\n  d = label(Point(x: 1, y: 2))\n  f = label\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        ["E0326 type `Point` does not implement `Show` @ label"]
+    );
+}
+
+#[test]
+fn constraints_include_supertraits() {
+    let main = format!(
+        "{USER}fn same[A: Ord](a: A, b: A) -> Bool {{ Eq.eq(a, b) }}\nfn show_it[A: Ord](a: A) -> String {{ Show.show(a) }}\nfn main() -> () {{\n  b = same(User(name: \"a\"), User(name: \"b\"))\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        ["E0326 type `A` does not implement `Show` @ Show.show"]
+    );
+}
+
+#[test]
+fn impl_constraints_are_followed_into_type_arguments() {
+    let main = format!(
+        "{USER}{POINT}type Box[A](value: A)\nimpl Box[A: Show]: Show {{\n  fn show(self) {{ Show.show(self.value) }}\n}}\ntype Loose[A](value: A)\nimpl Loose[A]: Show {{\n  fn show(self) {{ Show.show(self.value) }}\n}}\nfn main() -> () {{\n  a = Show.show(Box(value: User(name: \"a\")))\n  b = Show.show(Box(value: Box(value: Point(x: 1, y: 2))))\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        [
+            "E0326 type `A` does not implement `Show` @ Show.show",
+            "E0326 type `Point` does not implement `Show` @ Show.show",
+        ]
+    );
+}
+
+#[test]
+fn functions_without_self_are_chosen_by_the_expected_type() {
+    let main = format!(
+        "{USER}trait Parse {{\n  fn parse(text: String) -> Self\n}}\nimpl User: Parse {{\n  fn parse(text) {{ User(name: text) }}\n}}\nfn read(text: String) -> User {{ Parse.parse(text) }}\nfn main() -> () {{\n  u: User = Parse.parse(\"a\")\n  n: Int = Parse.parse(\"1\")\n  ()\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        ["E0326 type `Int` does not implement `Parse` @ Parse.parse"]
+    );
+}
+
+#[test]
+fn default_implementations_use_the_trait_on_self() {
+    let main = format!(
+        "{USER}trait Pretty: Show {{\n  fn pretty(self) -> String {{ \"<#{{Show.show(self)}}>\" }}\n}}\nimpl User: Pretty {{}}\nfn main() -> () {{\n  p = Pretty.pretty(User(name: \"a\"))\n  ()\n}}\n"
+    );
+    assert_clean(&[("/app/src/main.emel", &main)]);
+}
