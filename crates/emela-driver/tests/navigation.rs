@@ -97,8 +97,8 @@ fn nominal_types_and_trait_implementations_survive_errors() {
         .file_id(Path::new("/app/src/data.emel"))
         .unwrap();
     let self_at = at(data, "self) { \"boxed\"");
-    // The checker does not yet record types inside trait impl bodies.
-    assert!(Typecheck::type_definition(&program, &analysis, data_file, self_at).is_none());
+    let target = Typecheck::type_definition(&program, &analysis, data_file, self_at).unwrap();
+    assert_eq!(spelling(&analysis, &target), "Boxed");
     let ranges = Typecheck::document_highlights(&program, &analysis, data_file, self_at);
     assert_eq!(ranges, [TextRange::at(self_at, TextSize::from(4))]);
     let body = at(data, "\"boxed\"");

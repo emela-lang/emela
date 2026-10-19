@@ -10,7 +10,7 @@
 
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
-    Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnItem, HandlerItem,
+    Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, HandlerItem,
     Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
     Stmt, StrPart, TypeId, UnaryOp, int_literal_value,
 };
@@ -29,6 +29,7 @@ use crate::lower::{
 };
 use crate::row::{Row, RowElem, RowVar, Tag};
 use crate::signature::{FnParams, Signature, Signatures, param_labels};
+use crate::traits::Traits;
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 
 mod capabilities;
@@ -125,6 +126,11 @@ pub(crate) struct BodyInfer<'a> {
     type_params: Vec<DefId>,
     /// Kinds of the fn's type parameters, in the same order as `type_params`.
     param_kinds: Vec<ParamKind>,
+    /// What `Self` stands for in the definition being inferred: the impl's type in an impl's
+    /// function, `Bound(0)` in a trait's default implementation.
+    self_ty: Option<Ty>,
+    /// Supertraits and impls.
+    traits: &'a Traits,
     ctx: InferCtx,
     /// Monomorphic types and type parameters (written and invisible set ones) of the group's
     /// definitions without declared types. Generalized once the group is inferred.
@@ -189,6 +195,42 @@ pub(crate) struct BodyInfer<'a> {
     immediate_vars: rustc_hash::FxHashSet<RowVar>,
 }
 
+/// The parameters and body of a function definition: a top-level fn, a trait's function or an
+/// impl's function.
+pub(crate) struct FnParts<'p> {
+    pub(crate) params: &'p [Param],
+    pub(crate) body: Option<ExprId>,
+    /// The declaration the type comes from: the trait function's for an impl function. `None`
+    /// for the Prelude's traits, which have no source.
+    pub(crate) sig: Option<&'p FnSig>,
+}
+
+pub(crate) fn fn_parts(program: &Program, def: DefId) -> Option<FnParts<'_>> {
+    match program.item(def) {
+        Some(Item::Fn(item) | Item::TraitFn(item)) => Some(FnParts {
+            params: &item.sig.params,
+            body: item.body,
+            sig: Some(&item.sig),
+        }),
+        Some(_) => None,
+        None => {
+            let (_, f) = program.impl_fn(def)?;
+            let sig = match f.trait_fn {
+                Res::Def(t) => match program.item(t) {
+                    Some(Item::TraitFn(item)) => Some(&item.sig),
+                    _ => None,
+                },
+                _ => None,
+            };
+            Some(FnParts {
+                params: &f.params,
+                body: f.body,
+                sig,
+            })
+        }
+    }
+}
+
 impl<'a> BodyInfer<'a> {
     pub(crate) fn new(
         program: &'a Program,
@@ -197,6 +239,7 @@ impl<'a> BodyInfer<'a> {
         handler_facts: HandlerFacts<'a>,
         closed: &'a FxHashMap<DefId, EffectContext>,
         fibers: &'a Fibers,
+        traits: &'a Traits,
     ) -> Self {
         let mut ctx = InferCtx::new();
         ctx.set_error_tags(ty_table.error_tags());
@@ -211,6 +254,8 @@ impl<'a> BodyInfer<'a> {
             module: DefModule::Prelude,
             type_params: Vec::new(),
             param_kinds: Vec::new(),
+            self_ty: None,
+            traits,
             ctx,
             pending: Vec::new(),
             defs: Vec::new(),
@@ -248,12 +293,32 @@ impl<'a> BodyInfer<'a> {
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
         self.module = self.program.defs[def].module.clone();
+        self.self_ty = None;
         (self.type_params, self.param_kinds) = match self.program.item(def) {
             Some(Item::Fn(item)) => {
                 let params = FnParams::new(self.program, self.ty_table, item);
                 (params.defs, params.kinds)
             }
-            _ => (Vec::new(), Vec::new()),
+            Some(Item::TraitFn(item)) => {
+                let trait_def = self.program.defs[def].parent;
+                let params = FnParams::with_self(self.program, self.ty_table, item, trait_def);
+                self.self_ty = params.self_ty.clone();
+                (params.defs, params.kinds)
+            }
+            // The impl's type parameters can be named in its functions; the trait function's own
+            // cannot.
+            _ => match self.program.impl_fn(def) {
+                Some((impl_def, _)) => {
+                    let defs: Vec<DefId> = match self.program.item(impl_def) {
+                        Some(Item::Impl(i)) => i.type_params.iter().map(|tp| tp.def).collect(),
+                        _ => Vec::new(),
+                    };
+                    self.self_ty = self.traits.head(impl_def).map(|h| h.self_ty.clone());
+                    let kinds = vec![ParamKind::Type; defs.len()];
+                    (defs, kinds)
+                }
+                None => (Vec::new(), Vec::new()),
+            },
         };
     }
 
@@ -345,21 +410,35 @@ impl<'a> BodyInfer<'a> {
             },
         };
         match program.item(def) {
-            Some(Item::Fn(item)) => self.infer_fn(item, &declared),
             Some(Item::Const(item)) => self.check_expr(item.value, &declared),
-            _ => {}
+            _ => {
+                if let Some(parts) = fn_parts(program, def) {
+                    let in_impl = program.defs[def].kind == DefKind::ImplFn;
+                    self.infer_fn(parts.params, parts.body, &declared, in_impl);
+                }
+            }
         }
     }
 
-    /// `declared` is the fn's type.
-    fn infer_fn(&mut self, item: &FnItem, declared: &Ty) {
+    /// `declared` is the fn's type. An impl's function (`in_impl`) may write parameter types; they
+    /// must be the trait's (spec 10.2). A parameter beyond the declared ones has a broken type
+    /// (E0332 is reported with the impl).
+    fn infer_fn(&mut self, params: &[Param], body: Option<ExprId>, declared: &Ty, in_impl: bool) {
         let Ty::Fn(f) = declared else {
             return;
         };
-        for (p, ty) in item.sig.params.iter().zip(&f.params) {
-            self.set_local(p.local, ty.clone());
+        for (i, p) in params.iter().enumerate() {
+            let ty = f.params.get(i).cloned().unwrap_or(Ty::Error);
+            if in_impl && let Some(written) = p.ty {
+                let written_ty = self.lower_type(written);
+                let span = self.program.types[written]
+                    .span
+                    .unwrap_or(self.program.locals[p.local].span);
+                self.coerce_at(span, &ty, &written_ty);
+            }
+            self.set_local(p.local, ty);
         }
-        if let Some(body) = item.body {
+        if let Some(body) = body {
             self.check_expr(body, &f.ret);
         }
     }
@@ -896,6 +975,7 @@ impl<'a> BodyInfer<'a> {
                     kinds: &self.param_kinds,
                     omitted: Omitted::Empty,
                     sets: true,
+                    self_ty: self.self_ty.as_ref(),
                 };
                 match self.ty_table.effect_tag(
                     program,
@@ -1729,6 +1809,7 @@ impl<'a> BodyInfer<'a> {
             kinds: &self.param_kinds,
             omitted: Omitted::Fresh(&mut self.ctx),
             sets: true,
+            self_ty: self.self_ty.as_ref(),
         };
         self.ty_table
             .lower_in(self.program, &mut scope, ty, true, &mut self.diags)

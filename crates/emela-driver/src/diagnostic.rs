@@ -356,6 +356,11 @@ impl Diagnostic {
                 code::SHADOWS_PRELUDE,
                 format!("`{name}` shadows the prelude's `{name}`"),
             ),
+            DiagnosticKind::ImplHead { head } => (
+                Severity::Error,
+                code::IMPL_HEAD,
+                format!("impl head must be a type with distinct type parameters: `{head}`"),
+            ),
             _ => unreachable!("module and import graph diagnostics are handled by from_resolve"),
         };
         let mut out = Diagnostic::new(severity, message)
@@ -1107,6 +1112,55 @@ impl Diagnostic {
                     format!("`{param}` of `{ty}` is {set}, found {found}"),
                 )
             }
+            TypeDiagnosticKind::NotImplemented { ty, trait_name } => (
+                Severity::Error,
+                Some(code::NOT_IMPLEMENTED),
+                format!("type `{ty}` does not implement `{trait_name}`"),
+            ),
+            TypeDiagnosticKind::SupertraitCycle { cycle } => (
+                Severity::Error,
+                Some(code::SUPERTRAIT_CYCLE),
+                format!(
+                    "trait `{}` is its own supertrait: {}",
+                    cycle[0],
+                    cycle
+                        .iter()
+                        .map(|t| format!("`{t}`"))
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                ),
+            ),
+            TypeDiagnosticKind::DuplicateImpl { ty, trait_name } => (
+                Severity::Error,
+                Some(code::DUPLICATE_IMPL),
+                format!("`{trait_name}` is already implemented for `{ty}`"),
+            ),
+            TypeDiagnosticKind::OrphanImpl { ty, trait_name } => {
+                help = Some(format!(
+                    "wrap `{ty}` in a type of this module and implement `{trait_name}` for it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::ORPHAN_IMPL),
+                    format!(
+                        "`{trait_name}` for `{ty}` can only be implemented in the module of \
+                         `{trait_name}` or of `{ty}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::ImplFnParamCount {
+                name,
+                trait_name,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::IMPL_FN_PARAM_COUNT),
+                format!(
+                    "wrong number of parameters: `{name}` of `{trait_name}` takes {expected}, \
+                     found {found}"
+                ),
+            ),
             TypeDiagnosticKind::ImmediateOnNonEffect { param } => (
                 Severity::Error,
                 Some(code::IMMEDIATE_ON_NON_EFFECT),

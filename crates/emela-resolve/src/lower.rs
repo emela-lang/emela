@@ -182,11 +182,25 @@ impl Lower<'_, '_> {
     /// `[A: Ord, Item]`. Pushes a type parameter scope; the caller pops it with
     /// `pop_type_params`.
     fn type_params(&mut self, owner: DefId, list: Option<SyntaxNode>) -> Vec<TypeParam> {
+        self.type_params_in(owner, list, false).0
+    }
+
+    /// Reads the type parameters like [`Self::type_params`]. In an impl head (`impl_head`), a
+    /// repeated name or the name of a type is not a type parameter but a malformed head (E0328,
+    /// spec 10.2), so neither E0213 nor W0201 is reported; the second value tells whether the head
+    /// is malformed. A repeated name still gets a type parameter, so the head keeps its arity.
+    fn type_params_in(
+        &mut self,
+        owner: DefId,
+        list: Option<SyntaxNode>,
+        impl_head: bool,
+    ) -> (Vec<TypeParam>, bool) {
         self.type_params.push(FxHashMap::default());
         let Some(list) = list else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         let mut params = Vec::new();
+        let mut malformed = false;
         let mut seen: FxHashMap<SmolStr, TextRange> = FxHashMap::default();
         for param in list.children().filter(|n| n.kind() == TYPE_PARAM) {
             let Some(token) = param
@@ -198,14 +212,17 @@ impl Lower<'_, '_> {
             };
             let (name, range) = token_name(&token);
             if let Some(&first) = seen.get(&name) {
-                self.error(
-                    range,
-                    DiagnosticKind::Duplicate {
-                        name,
-                        first: Some(first),
-                    },
-                );
-                continue;
+                if !impl_head {
+                    self.error(
+                        range,
+                        DiagnosticKind::Duplicate {
+                            name,
+                            first: Some(first),
+                        },
+                    );
+                    continue;
+                }
+                malformed = true;
             }
             seen.insert(name.clone(), range);
             // A type-name type parameter hides an outer type, effect or error of the same name
@@ -214,10 +231,14 @@ impl Lower<'_, '_> {
                 && (self.r.lookup(self.module, Ns::Type, &name).is_some()
                     || self.lookup_type_param(&name).is_some())
             {
-                self.error(
-                    range,
-                    DiagnosticKind::ShadowedByTypeParam { name: name.clone() },
-                );
+                if impl_head {
+                    malformed = true;
+                } else {
+                    self.error(
+                        range,
+                        DiagnosticKind::ShadowedByTypeParam { name: name.clone() },
+                    );
+                }
             }
             let def = self.r.alloc_def(
                 self.module,
@@ -233,7 +254,7 @@ impl Lower<'_, '_> {
             params.push((def, param));
         }
         // Constraints are looked up after every type parameter is in scope.
-        params
+        let params = params
             .into_iter()
             .map(|(def, param)| {
                 let bounds = param
@@ -246,7 +267,8 @@ impl Lower<'_, '_> {
                     .collect();
                 TypeParam { def, bounds }
             })
-            .collect()
+            .collect();
+        (params, malformed)
     }
 
     fn pop_type_params(&mut self) {
@@ -624,7 +646,19 @@ impl Lower<'_, '_> {
             None => Res::Err,
         };
         // `impl Map[K: Eq, V: Eq]: Eq` declares `K` and `V` for the impl (spec 10.2).
-        let type_params = self.type_params(def, i.type_params());
+        let (type_params, malformed) = self.type_params_in(def, i.type_params(), true);
+        if malformed && let Some(node) = i.self_ty() {
+            let head = node
+                .text()
+                .to_string()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.error(
+                node.text_range(),
+                DiagnosticKind::ImplHead { head: head.into() },
+            );
+        }
         // The type is the name applied to its own type parameters (`Map[K, V]`).
         let self_ty = i.self_ty().map(|node| {
             let res = match i.self_path() {
@@ -647,18 +681,36 @@ impl Lower<'_, '_> {
             self.alloc_type(TypeKind::Path { res, args }, node.text_range())
         });
         self.self_type = true;
+        let mut seen: FxHashMap<SmolStr, TextRange> = FxHashMap::default();
         let fns = i
             .fns()
             .filter_map(|f| {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
+                // Like the functions of a trait, an impl's functions cannot repeat a name
+                // (E0213, spec 2.3).
+                if let Some(&first) = seen.get(&name) {
+                    self.error(
+                        range,
+                        DiagnosticKind::Duplicate {
+                            name: name.clone(),
+                            first: Some(first),
+                        },
+                    );
+                } else {
+                    seen.insert(name.clone(), range);
+                }
                 let trait_fn = self.member_of(trait_ref, &name, range);
                 self.r.check_intrinsic(self.module, f.syntax(), false);
+                let fn_def =
+                    self.r
+                        .alloc_def(self.module, name.clone(), range, DefKind::ImplFn, Some(def));
                 self.push_scope();
                 let params = self.params(f.param_list(), LocalKind::Param);
                 let body = f.body().map(|b| self.block(&b));
                 self.pop_scope();
                 Some(ImplFn {
+                    def: fn_def,
                     name: Label {
                         name,
                         span: self.span(range),
@@ -675,6 +727,7 @@ impl Lower<'_, '_> {
             trait_ref,
             type_params,
             self_ty,
+            malformed_head: malformed,
             fns,
         })
     }

@@ -108,12 +108,14 @@ pub enum ParamKind {
 }
 
 /// A type parameter and its constraints (`A: Ord + Show`).
-///
-/// Traits come in 0.21 or later, so constraints are only recorded, not checked.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TyParam {
     pub name: SmolStr,
+    /// The names of the constraints, for display: the traits and `Immediate`.
     pub bounds: Vec<SmolStr>,
+    /// The trait constraints, checked where the parameter is instantiated (E0326, spec 10.3).
+    /// Supertraits are not added; they are followed when a constraint is looked up.
+    pub traits: Vec<DefId>,
     pub kind: ParamKind,
 }
 
@@ -122,6 +124,7 @@ impl TyParam {
         TyParam {
             name: name.into(),
             bounds: Vec::new(),
+            traits: Vec::new(),
             kind: ParamKind::Type,
         }
     }

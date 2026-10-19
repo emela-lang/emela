@@ -502,7 +502,7 @@ impl Context<'_> {
         items
     }
 
-    /// Definitions without a kind (impls, type parameters) are not offered. A constructor named
+    /// Definitions without a kind (impls and their functions, type parameters) are not offered. A constructor named
     /// like its type is offered as the type (they merge later since the names match).
     fn def_item(&self, def: DefId) -> Option<Completion> {
         let data = &self.hir().defs[def];
@@ -518,7 +518,7 @@ impl Context<'_> {
             DefKind::Layer => CompletionKind::Layer,
             DefKind::Trait => CompletionKind::Trait,
             DefKind::Op | DefKind::TraitFn => CompletionKind::Method,
-            DefKind::Impl | DefKind::TypeParam => return None,
+            DefKind::Impl | DefKind::ImplFn | DefKind::TypeParam => return None,
         };
         let types = &self.program.types;
         let detail = types

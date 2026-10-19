@@ -20,6 +20,7 @@ use crate::layer::{self, LayerInfo};
 use crate::lower::TyTable;
 use crate::row::{Row, RowVar};
 use crate::signature::Signatures;
+use crate::traits::Traits;
 use crate::ty::{Ty, TyVar};
 
 /// Tables keyed by HIR ids.
@@ -87,6 +88,8 @@ pub struct ProgramTypes {
     /// Layer → its expansion (handlers in initialization order and the dependencies the layer
     /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
+    /// Supertraits and impls (spec 10.1–10.2).
+    pub traits: Traits,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -115,6 +118,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
+    let traits = crate::traits::collect(program, &ty_table, &mut sigs, &mut diags);
     crate::const_cycle::check(program, &mut diags);
 
     let mut types = ProgramTypes {
@@ -138,11 +142,12 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         handler_fails: ArenaMap::default(),
         with_handlers: ArenaMap::default(),
         layers: ArenaMap::default(),
+        traits,
         diags,
     };
 
     let fibers = crate::fiber::Fibers::new(program);
-    for group in groups(program) {
+    for group in groups(program, &sigs) {
         let mut infer = BodyInfer::new(
             program,
             &types.ty_table,
@@ -153,6 +158,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             },
             &closed,
             &fibers,
+            &types.traits,
         );
         for &def in &group {
             if sigs.get(def).is_none() {
@@ -221,17 +227,23 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     types
 }
 
-/// Orders the definitions to infer (fns with bodies, consts, handlers) into groups that refer to
-/// each other, callees first.
-fn groups(program: &Program) -> Vec<Vec<DefId>> {
+/// Orders the definitions to infer (fns with bodies, consts, handlers, trait default
+/// implementations and impl functions with signatures) into groups that refer to each other,
+/// callees first.
+fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
     let nodes: Vec<DefId> = program
         .defs
         .iter()
         .map(|(def, _)| def)
         .filter(|&def| match program.item(def) {
             Some(Item::Fn(item)) => item.body.is_some(),
+            Some(Item::TraitFn(item)) => item.body.is_some() && sigs.get(def).is_some(),
             Some(Item::Const(_) | Item::Handler(_)) => true,
-            _ => false,
+            // An impl function without a signature (its impl or trait function has an error) is
+            // not inferred.
+            _ => program
+                .impl_fn(def)
+                .is_some_and(|(_, f)| f.body.is_some() && sigs.get(def).is_some()),
         })
         .collect();
     let is_node: FxHashMap<DefId, ()> = nodes.iter().map(|&def| (def, ())).collect();
@@ -336,7 +348,7 @@ impl Tarjan<'_> {
 pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     let mut out = Vec::new();
     match program.item(def) {
-        Some(Item::Fn(item)) => {
+        Some(Item::Fn(item) | Item::TraitFn(item)) => {
             if let Some(body) = item.body {
                 collect_expr_refs(program, body, &mut out);
             }
@@ -352,7 +364,13 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
                 collect_expr_refs(program, body, &mut out);
             }
         }
-        _ => {}
+        _ => {
+            if let Some((_, f)) = program.impl_fn(def)
+                && let Some(body) = f.body
+            {
+                collect_expr_refs(program, body, &mut out);
+            }
+        }
     }
     out
 }
