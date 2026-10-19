@@ -96,6 +96,9 @@ pub enum Builtin {
     CellGet,
     /// Replaces the cell's contents. The value is `()`.
     CellSet,
+    /// The String as written in source: quoted and escaped, as inside a shown value (spec 10.6).
+    /// For derived Show of a String field.
+    ShowString,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -318,6 +321,7 @@ impl Builtin {
                 ty_params: 1,
                 ..info(Some("$Cell"), "set", &[Param(0), Param(0)], Unit)
             },
+            Builtin::ShowString => info(Some("$Show"), "string", &[String], String),
         }
     }
 

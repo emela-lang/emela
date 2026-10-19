@@ -151,3 +151,87 @@ fn a_type_without_an_impl_is_not_supported_yet() {
         ["not supported yet: `Show.show` for `Int`, which has no impl"]
     );
 }
+
+/// Derived impls (spec 10.5): fields go through their own impls (Email's written Show and Eq),
+/// a String field is quoted, Ord orders constructors as declared and then fields from the first,
+/// and a generic type's impl follows its type argument.
+const DERIVED: &str = r##"
+type Email(value: String)
+
+impl Email: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Email: Eq {
+  fn eq(self, other) { True }
+}
+
+type User(id: Int, name: String, email: Email)
+  derive Eq, Show
+
+type Point(x: Int, y: Int)
+  derive Eq, Ord, Show
+
+enum Tree[A] {
+  Leaf
+  Node(Tree[A], A, Tree[A])
+}
+  derive Eq, Ord, Show
+
+enum Pair {
+  Both(Bool, (Int, String))
+}
+  derive Eq, Ord, Show
+
+fn largest[A: Ord](a: A, b: A) -> A {
+  Ord.compare(a, b) match {
+    Less -> b
+    _ -> a
+  }
+}
+
+fn main() {
+  u = User(id: 1, name: "a\"b", email: Email(value: "x@y"))
+  dbg(Show.show(u))
+  dbg(Eq.eq(u, User(id: 1, name: "a\"b", email: Email(value: "z@y"))))
+  dbg(Eq.eq(u, User(id: 2, name: "a\"b", email: Email(value: "x@y"))))
+  dbg(Ord.compare(Point(x: 1, y: 2), Point(x: 1, y: 3)))
+  dbg(Ord.compare(Point(x: 2, y: 0), Point(x: 1, y: 3)))
+  dbg(Ord.compare(Point(x: 1, y: 2), Point(x: 1, y: 2)))
+  t = Node(Leaf, 2, Node(Leaf, 3, Leaf))
+  dbg(Show.show(t))
+  dbg(Ord.compare(Leaf, t))
+  dbg(Ord.compare(t, Node(Leaf, 2, Leaf)))
+  dbg(Eq.eq(t, t))
+  dbg(Show.show(Node(Leaf, u, Leaf)))
+  dbg(Eq.eq(Node(Leaf, u, Leaf), Leaf))
+  dbg(Show.show(largest(Point(x: 1, y: 2), Point(x: 0, y: 5))))
+  dbg(Ord.compare(Both(False, (1, "b")), Both(True, (0, "a"))))
+  dbg(Ord.compare(Both(True, (1, "b")), Both(True, (1, "a"))))
+  dbg(Show.show(Both(True, (1, "b"))))
+}
+"##;
+
+#[test]
+fn derived_impls_follow_the_structure() {
+    assert_eq!(
+        stderr_of("derived", DERIVED),
+        r#""User(id: 1, name: \"a\\\"b\", email: <x@y>)"
+True
+False
+Less
+Greater
+Equal
+"Node(Leaf, 2, Node(Leaf, 3, Leaf))"
+Less
+Greater
+True
+"Node(Leaf, User(id: 1, name: \"a\\\"b\", email: <x@y>), Leaf)"
+False
+"Point(x: 1, y: 2)"
+Less
+Greater
+"Both(True, (1, \"b\"))"
+"#
+    );
+}

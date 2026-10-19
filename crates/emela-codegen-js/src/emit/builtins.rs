@@ -55,6 +55,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::CellNew => "$cellNew",
         Builtin::CellGet => "$cellGet",
         Builtin::CellSet => "$cellSet",
+        Builtin::ShowString => "$showString",
     }
 }
 
@@ -65,7 +66,12 @@ mod tests {
 
     #[test]
     fn runtime_implements_every_builtin() {
-        let internal = [Builtin::CellNew, Builtin::CellGet, Builtin::CellSet];
+        let internal = [
+            Builtin::CellNew,
+            Builtin::CellGet,
+            Builtin::CellSet,
+            Builtin::ShowString,
+        ];
         for &op in Builtin::ALL.iter().chain(&internal) {
             let name = runtime_name(op);
             let decl = format!("export function {name}(");
