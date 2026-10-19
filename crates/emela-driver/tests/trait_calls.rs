@@ -157,7 +157,7 @@ fn main() {
   dbg(cmp((1, "a"), (1, "a")))
   dbg(cmp(False, True))
   dbg(cmp("b", "a"))
-  dbg(cmp(Some(1), None))
+  dbg(cmp(None, Some(1)))
   dbg(cmp(Some(3), Some(3)))
 }
 "##;

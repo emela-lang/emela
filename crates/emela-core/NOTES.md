@@ -363,7 +363,7 @@ alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の I
 - （補）基本型の impl の中身: Eq は `==`（Float は IEEE 754），Ord は `==` と `<` から作る（Bool は `False < True`），Show は補間と同じ表示（String はそのまま）．タプルの Eq は要素ごとの `Eq.eq` の `&&`，Ord は前から `Ord.compare` して `Equal` なら次へ，Show は `(1, "a")`
 - （補）値の中の値の表示（10.6: String だけ `"` で囲む）は，`@internal` の組み込み関数 `String.show_nested[A: Show]` で書く．core の List と Option の Show の impl と，タプルの Show が使う．型で振る舞いが変わるので，単相化が置き換える: String なら内部の組み込み関数 `Builtin::ShowString`（JS の `$showString`，LIR の `RuntimeOp::ShowString`），それ以外は `Show.show` の impl の呼び出し．lowering は `show_nested` を下ろすときに `Show.show` も下ろし，`Module::show` に持つ．バックエンドに `ShowNested` は届かない
 - （補）List の Eq と Ord は，長いリストでスタックを使わないよう，自己末尾呼び出しの補助の fn（`eq_lists`，`compare_lists`）で書く．Trait の関数を通した再帰は自己末尾呼び出しにならない（ループ化は単相化の前）
-- （補）Option の Ord は，宣言の順（`Some`，`None`）にバリアントを比べる．前の `derive Ord` と同じ順で，`Some(_) < None`．仕様は Option の順を書いていない
+- （補）Option の Ord は `None < Some(_)`（Haskell の `Nothing < Just _` と同じ）．宣言の順（`Some`，`None`）で比べる導出した Ord とは逆になる．仕様は Option の順を書いていない
 - （補）enum は写さない．定義は汎用のまま，使う所が具体的な型引数を持つ（`Type::Enum(id, args)`）．低い IR の `repr_of` は外側の構成子だけで表現を決め，フィールドは `repr_of_subst` で型引数を置き換えて求めるので，定義を写す必要がない．フィールドの型の `Param` は enum の型引数を指すので，単相化の後も残る
 - （補）エフェクトは作り直す．出力には使ったエフェクトの具体化だけを，宣言の名前と（E と R を除いた）型引数ごとに 1 つずつ入れる．型引数に `Param` を含むエフェクト（`State[$modify.0]`）はその型引数の持ち主の関数の具体化で置き換え，同じ鍵の既存のもの（`State[Int]`）と同じエフェクトになる．汎用の関数を呼ぶときに足す鍵（`generic_ev`）は呼ばれる側のものなので，呼び出しの型引数で置き換える．置き換えた結果，足す鍵が足す値（同じ鍵で引いた値）と同じになったら足さない
 - （補）`Type::Any`（Scope のハンドラの中）と，組み込みのエフェクトの操作自身の型引数（`fork[A]`）は残す

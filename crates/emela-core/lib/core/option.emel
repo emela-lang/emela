@@ -47,7 +47,7 @@ pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
 }
 
 # The built-in impls (spec 10.6). The value inside is compared and shown through its own impl.
-# Ord keeps the order of the variants as declared, as the derived Ord would: `Some(_) < None`.
+# Ord puts `None` first: `None < Some(_)`, as in Haskell's `Nothing < Just _`.
 
 impl Option[A: Eq]: Eq {
   fn eq(self, other) {
@@ -63,8 +63,8 @@ impl Option[A: Ord]: Ord {
   fn compare(self, other) {
     (self, other) match {
       (Some(x), Some(y)) -> Ord.compare(x, y)
-      (Some(_), None)    -> Less
-      (None, Some(_))    -> Greater
+      (Some(_), None)    -> Greater
+      (None, Some(_))    -> Less
       (None, None)       -> Equal
     }
   }

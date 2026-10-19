@@ -70,7 +70,7 @@ impl（10.6）: `impl List[A: Eq]: Eq`，`impl List[A: Ord]: Ord`，`impl List[A
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
 | `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
 
-impl（10.6）: `impl Option[A: Eq]: Eq`，`impl Option[A: Ord]: Ord`，`impl Option[A: Show]: Show`．Ord はバリアントの宣言の順（`Some(_) < None`），Show は `Some(1)`，`None`．
+impl（10.6）: `impl Option[A: Eq]: Eq`，`impl Option[A: Ord]: Ord`，`impl Option[A: Show]: Show`．Ord は `None < Some(_)`，Show は `Some(1)`，`None`．
 
 ## String（`core/string.emel`）
 
