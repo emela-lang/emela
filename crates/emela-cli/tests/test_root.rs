@@ -115,3 +115,25 @@ fn the_source_root_cannot_import_a_dev_dependency() {
         "{err}"
     );
 }
+
+#[test]
+fn test_runs_without_main_or_lib() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/sort.emel",
+                "pub fn sort(xs: List[Int]) -> List[Int] { xs }\n",
+            ),
+            (
+                "test/sort_test.emel",
+                "import Sort\n\n@test\nfn keeps_the_list() {\n  assert Sort.sort([1]) == [1]\n}\n",
+            ),
+        ],
+    );
+    let (code, out, err) = emela(dir.path(), &["test"]);
+    assert_eq!(code, Some(0), "{out}{err}");
+    assert!(out.contains("test SortTest.keeps_the_list ... ok"), "{out}");
+}
