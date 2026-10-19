@@ -76,7 +76,9 @@ fn add_writes_the_requirement_and_the_lock() {
     app(&dir, "");
 
     let mut project = Project::find(&dir.join("src")).unwrap();
-    let outcome = project.add(&f, "github:acme/router@v0.1.0", false).unwrap();
+    let outcome = project
+        .add(&f, "github:acme/router@v0.1.0", false, false)
+        .unwrap();
     assert_eq!(
         outcome
             .requirements
@@ -96,7 +98,9 @@ fn add_writes_the_requirement_and_the_lock() {
     );
 
     // Without a version: the latest. The transitive d follows router's requirement.
-    project.add(&f, "github.com/acme/router", false).unwrap();
+    project
+        .add(&f, "github.com/acme/router", false, false)
+        .unwrap();
     assert_eq!(
         lock(&dir),
         ["github.com/acme/d@v1.2.0", "github.com/acme/router@v0.2.0"]
@@ -157,11 +161,11 @@ fn a_failed_add_changes_nothing() {
     let mut project = Project::find(&dir).unwrap();
     assert!(
         project
-            .add(&f, "github.com/acme/none@v1.0.0", false)
+            .add(&f, "github.com/acme/none@v1.0.0", false, false)
             .is_err()
     );
     assert!(
-        matches!(project.add(&f, "github.com/acme/router@v2.0.0", false), Err(PomeError::Usage(m)) if m.contains("/v2"))
+        matches!(project.add(&f, "github.com/acme/router@v2.0.0", false, false), Err(PomeError::Usage(m)) if m.contains("/v2"))
     );
     assert_eq!(fs::read_to_string(dir.join("Pome.toml")).unwrap(), before);
     assert!(!dir.join("Pome.lock").exists());
@@ -324,7 +328,7 @@ fn add_stops_at_external_until_allowed() {
     let mut project = Project::find(&dir).unwrap();
 
     let err = project
-        .add(&f, "github.com/acme/cf@v0.1.0", false)
+        .add(&f, "github.com/acme/cf@v0.1.0", false, false)
         .unwrap_err();
     assert!(
         matches!(&err, PomeError::External(m) if m.contains("github.com/acme/cf v0.1.0 uses @external:\n  src/kv.emel\n")),
@@ -333,7 +337,9 @@ fn add_stops_at_external_until_allowed() {
     assert_eq!(fs::read_to_string(dir.join("Pome.toml")).unwrap(), before);
     assert!(!dir.join("Pome.lock").exists());
 
-    let outcome = project.add(&f, "github.com/acme/cf@v0.1.0", true).unwrap();
+    let outcome = project
+        .add(&f, "github.com/acme/cf@v0.1.0", true, false)
+        .unwrap();
     assert_eq!(outcome.allowed, [p("github.com/acme/cf")]);
     let toml = fs::read_to_string(dir.join("Pome.toml")).unwrap();
     assert!(
@@ -364,11 +370,11 @@ fn allow_external_covers_the_pomes_an_add_brings_in() {
     app(&dir, "");
     let mut project = Project::find(&dir).unwrap();
     assert!(matches!(
-        project.add(&f, "github.com/acme/uses-cf@v1.0.0", false),
+        project.add(&f, "github.com/acme/uses-cf@v1.0.0", false, false),
         Err(PomeError::External(_))
     ));
     let outcome = project
-        .add(&f, "github.com/acme/uses-cf@v1.0.0", true)
+        .add(&f, "github.com/acme/uses-cf@v1.0.0", true, false)
         .unwrap();
     // uses-cf has no `@external` of its own; cf, which it brings in, is allowed.
     assert_eq!(outcome.allowed, [p("github.com/acme/cf")]);
@@ -385,5 +391,126 @@ fn install_refuses_external_that_is_not_allowed() {
     assert!(
         matches!(&err, PomeError::External(m) if m.contains("--allow-external github.com/acme/cf")),
         "{err}"
+    );
+}
+
+// brix v0.2.0 (only for tests) needs d v1.3.0 and has its own dev-dependency, which is never got.
+fn registry_with_brix() -> Registry {
+    let r = registry();
+    let m = format!(
+        "{}\n[dev-dependencies]\n\"github.com/acme/nowhere\" = \"v1.0.0\"\n",
+        pome(
+            "github.com/emela-lang/brix",
+            "v0.2.0",
+            "\"github.com/acme/d\" = \"v1.3.0\"\n\"github.com/acme/only-tests\" = \"v1.0.0\"\n"
+        )
+    );
+    r.add(
+        "github.com/emela-lang/brix",
+        "v0.2.0",
+        &[
+            ("Pome.toml", &m),
+            ("src/lib.emel", "pub fn f() -> Int { 1 }\n"),
+        ],
+        true,
+    );
+    let m = pome("github.com/acme/only-tests", "v1.0.0", "");
+    r.add(
+        "github.com/acme/only-tests",
+        "v1.0.0",
+        &[
+            ("Pome.toml", &m),
+            ("src/lib.emel", "pub fn f() -> Int { 1 }\n"),
+        ],
+        true,
+    );
+    r
+}
+
+fn dev_lock(dir: &Path) -> Vec<String> {
+    let lock = Lock::parse(&fs::read_to_string(dir.join("Pome.lock")).unwrap()).unwrap();
+    lock.pomes
+        .iter()
+        .map(|p| {
+            format!(
+                "{}@{}{}",
+                p.path,
+                p.version,
+                if p.dev { " dev" } else { "" }
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn dev_dependencies_share_the_selection_and_are_marked() {
+    let d = dirs();
+    let r = registry_with_brix();
+    let f = fetcher(&r, &d.cache, &d.repos);
+    let dir = d.repos.join("app");
+    app(&dir, "\"github.com/acme/router\" = \"v0.1.0\"\n");
+    let mut project = Project::find(&dir).unwrap();
+    let outcome = project
+        .add(&f, "github.com/emela-lang/brix@v0.2.0", false, true)
+        .unwrap();
+    assert_eq!(
+        outcome
+            .requirements
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["+ github.com/emela-lang/brix v0.2.0 (dev)"]
+    );
+    // brix raises d for the build too; only brix and what only it needs are marked.
+    assert_eq!(
+        dev_lock(&dir),
+        [
+            "github.com/acme/d@v1.3.0",
+            "github.com/acme/only-tests@v1.0.0 dev",
+            "github.com/acme/router@v0.1.0",
+            "github.com/emela-lang/brix@v0.2.0 dev",
+        ]
+    );
+    let toml = fs::read_to_string(dir.join("Pome.toml")).unwrap();
+    assert!(
+        toml.ends_with("[dev-dependencies]\n\"github.com/emela-lang/brix\" = \"v0.2.0\"\n"),
+        "{toml}"
+    );
+    assert!(
+        project
+            .list(&f)
+            .unwrap()
+            .contains("github.com/emela-lang/brix v0.2.0 (dev)")
+    );
+
+    assert!(matches!(
+        project.add(&f, "github.com/acme/router@v0.1.0", false, true),
+        Err(PomeError::Usage(m)) if m.contains("[dependencies]")
+    ));
+
+    // Without --dev, it moves to [dependencies].
+    project
+        .add(&f, "github.com/emela-lang/brix@v0.2.0", false, false)
+        .unwrap();
+    let toml = fs::read_to_string(dir.join("Pome.toml")).unwrap();
+    assert!(
+        toml.ends_with("\"github.com/emela-lang/brix\" = \"v0.2.0\"\n")
+            && !toml.contains("dev-dependencies"),
+        "{toml}"
+    );
+    assert_eq!(
+        dev_lock(&dir),
+        [
+            "github.com/acme/d@v1.3.0",
+            "github.com/acme/only-tests@v1.0.0",
+            "github.com/acme/router@v0.1.0",
+            "github.com/emela-lang/brix@v0.2.0",
+        ]
+    );
+
+    project.remove(&f, "github.com/emela-lang/brix").unwrap();
+    assert_eq!(
+        dev_lock(&dir),
+        ["github.com/acme/d@v1.1.0", "github.com/acme/router@v0.1.0"]
     );
 }
