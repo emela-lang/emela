@@ -125,18 +125,6 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[{B}])
 }
 
-enum Std.Test.Gen.Tree[A] {
-  Tree(value: A, children: fn() -> List[Std.Test.Gen.Tree[A]])
-}
-
-enum Std.Test.Gen.Gen[A] {
-  Gen(run: fn(Int, Int) -> (Std.Test.Gen.Tree[A], Int))
-}
-
-enum Std.Test.Property.Config {
-  Config(seed: Int, cases: Int, max_size: Int, shrink_limit: Int)
-}
-
 export fn main() -> Int {
   let _%0: Int = @dbg[Int](int((-[Int] 1)))
   let _%1: Int = @dbg[Int](long((-[Int64] 5i64)))

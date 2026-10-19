@@ -66,3 +66,28 @@ jobs:
             (cd "$dir" && "$emela" check && "$emela" test && "$emela" fmt --check)
             echo "::endgroup::"
           done
+
+  # The properties of core and std, checked with brix on the compiler just built.
+  # brix comes through the proxy and is checked against the hash in Pome.lock.
+  laws:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: examples
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: cargo build --bin emela --locked
+      # WASM is left out until the WASM target supports `Fiber.attempt`, which brix's
+      # `Property` uses.
+      - name: Test on JS and C
+        working-directory: tests/laws
+        run: |
+          emela="$GITHUB_WORKSPACE/target/debug/emela"
+          "$emela" pome install
+          "$emela" fmt --check
+          "$emela" test --target js
+          "$emela" test --target c

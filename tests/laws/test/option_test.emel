@@ -1,0 +1,12 @@
+import Brix.Pbt.Gen
+import Brix.Pbt.Property
+import Brix.Assert
+
+@test
+fn map() {
+  Property.check(Gen.int(), fn(n) {
+    assert Option.map(Some(n), fn(x) { x }) == Some(n)
+    assert Assert.some(Some(n)) == n
+    Assert.none(Option.map(None, fn(x: Int) { x + n }))
+  })
+}
