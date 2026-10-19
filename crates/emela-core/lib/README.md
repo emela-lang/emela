@@ -205,8 +205,8 @@ platform 層と test 層（15.2）．
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Console` | `effect Console { fn print_line(text: String) -> (); fn print_error_line(text: String) -> () }` | 標準出力と標準エラーに1行ずつ書く．失敗しない |
-| `SystemConsole` | `handler SystemConsole implements Console` | ホストの標準出力と標準エラー（JS の `console.log` と `console.error`，C の `stdout` と `stderr`）．状態を持たない |
-| `TestConsole` | `handler TestConsole implements Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる．`State.run` の中で使う |
+| `SystemConsole` | `handler SystemConsole: Console` | ホストの標準出力と標準エラー（JS の `console.log` と `console.error`，C の `stdout` と `stderr`）．状態を持たない |
+| `TestConsole` | `handler TestConsole: Console` | `print_line` の行を `State[List[String]]` に書いた順に足す．`print_error_line` は捨てる．`State.run` の中で使う |
 
 ```emel
 import Std.Console.{Console, SystemConsole}
@@ -223,22 +223,22 @@ fn main() {
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Clock` | `effect Clock { suspend fn sleep(ms: Int) -> (); fn now() -> Instant }` | 待つ（負なら 0 と同じ）．現在の時点 |
-| `SystemClock` | `handler SystemClock implements Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`（C では `timespec_get`）．C の `sleep` はランタイムのイベントループのタイマー（`em_after`）で待ち，中断されたらすぐ完了してタイマーを消す（12.6）．状態を持たない．Async に依存する（8.7） |
-| `TestClock` | `handler TestClock implements Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する．待つ外部関数 `when_stalled` は JS も C もランタイムが持つ（C は `em_when_stalled`） |
+| `SystemClock` | `handler SystemClock: Clock` | `sleep` は `setTimeout` を `@external suspend fn` で待つ（中断でタイマーを消す，12.2），`now` は `Date.now()`（C では `timespec_get`）．C の `sleep` はランタイムのイベントループのタイマー（`em_after`）で待ち，中断されたらすぐ完了してタイマーを消す（12.6）．状態を持たない．Async に依存する（8.7） |
+| `TestClock` | `handler TestClock: Clock` | 時刻は `State[Instant]` の仮の時刻（8.8）．`sleep(ms)` は本当に待ち，どの fiber も進めずホストの処理もないときに，一番早い予定の時刻まで進めて起こす（同じ時刻なら呼んだ順，負なら 0）．`now` はその時刻．Async に依存する．待つ外部関数 `when_stalled` は JS も C もランタイムが持つ（C は `em_when_stalled`） |
 
 ## Std.Random（`std/random.emel`，`std/random.mjs`，`std/random.c`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Random` | `effect Random { fn int() -> Int; fn float() -> Float }` | Int の全域で一様な値．0 以上 1 未満で一様な値 |
-| `SystemRandom` | `handler SystemRandom implements Random` | JS の `crypto.getRandomValues`，C の `arc4random_buf`（macOS）か `getrandom`（Linux）で引く．状態を持たない |
+| `SystemRandom` | `handler SystemRandom: Random` | JS の `crypto.getRandomValues`，C の `arc4random_buf`（macOS）か `getrandom`（Linux）で引く．状態を持たない |
 
 ## Std.Env（`std/env.emel`，`std/env.mjs`，`std/env.c`）
 
 | 宣言 | 内容 | 説明 |
 |---|---|---|
 | `Env` | `effect Env { fn get(name: String) -> Option[String] }` | 環境変数の値．設定されていなければ `None`．空の値は `Some("")` |
-| `SystemEnv` | `handler SystemEnv implements Env` | JS の `process.env`，C の `getenv` を読む．状態を持たない |
+| `SystemEnv` | `handler SystemEnv: Env` | JS の `process.env`，C の `getenv` を読む．状態を持たない |
 
 ## Std.Fiber（`std/fiber.emel`）
 
@@ -304,9 +304,9 @@ fn main() {
 | `encode_query` | `encode_query(pairs: List[(String, String)]) -> String` | `encodeURIComponent` でつないだクエリ（`q=%E6%9D%B1&page=2`） |
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | 2xx 以外を失敗にする |
 | `response` | `response(status: Int, body: String) -> Response` | ヘッダなしの応答 |
-| `SystemHttp` | `handler SystemHttp implements Http` | JS の `fetch`．リダイレクトを辿り，Cookie を覚えない．Async に依存する |
+| `SystemHttp` | `handler SystemHttp: Http` | JS の `fetch`．リダイレクトを辿り，Cookie を覚えない．Async に依存する |
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | TestHttp の相手．`respond` は要求と何回目か（0 から）を受ける |
-| `TestHttp` | `handler TestHttp implements Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
+| `TestHttp` | `handler TestHttp: Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
 
 ```emel
 import Std.Http.{Http, Request, Response, TestServer, TestHttp}
@@ -336,9 +336,9 @@ platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．�
 | `list_directory` | `suspend fn list_directory(path: String) -> List[String] fails FileNotFound \| FileAccessDenied \| NotADirectory \| FileSystemFailure` | 名前だけを名前の順（コードポイントの辞書順）に並べる |
 | `create_directory` | `suspend fn create_directory(path: String) -> () fails FileAccessDenied \| NotADirectory \| FileSystemFailure` | 親もまとめて作る．既にあれば何もしない．そのパスか途中にファイルがあれば NotADirectory |
 | `remove` | `suspend fn remove(path: String) -> () fails FileNotFound \| FileAccessDenied \| DirectoryNotEmpty \| FileSystemFailure` | ファイルか空のディレクトリを消す |
-| `SystemFileSystem` | `handler SystemFileSystem implements FileSystem` | JS の `node:fs/promises`．C は POSIX の関数を外部関数の中で同期に呼び，その場で完了する（読み書きの間はほかの fiber も止まる）．状態を持たない |
+| `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | JS の `node:fs/promises`．C は POSIX の関数を外部関数の中で同期に呼び，その場で完了する（読み書きの間はほかの fiber も止まる）．状態を持たない |
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
-| `TestFileSystem` | `handler TestFileSystem implements FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
+| `TestFileSystem` | `handler TestFileSystem: FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
 
 ```emel
 import Std.FileSystem.{FileSystem, FileNotFound}

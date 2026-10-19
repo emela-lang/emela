@@ -467,11 +467,11 @@ effect Stamp {
   fn stamp(s: String) -> String fails Late
 }
 
-handler Fixed implements Clock {
+handler Fixed: Clock {
   fn now() { 42 }
 }
 
-handler ClockStamp implements Stamp {
+handler ClockStamp: Stamp {
   fn stamp(s) {
     t = (use Clock).now()
     if t > 100 { fail Late }
@@ -538,11 +538,11 @@ effect Users {
   fn find(id: Int) -> String
 }
 
-handler Env implements Config {
+handler Env: Config {
   fn url() { \"db\" }
 }
 
-handler Pool(url: String, n: Int) implements Users {
+handler Pool(url: String, n: Int): Users {
   init {
     u = (use Config).url()
     if u == \"\" { fail Down }
@@ -552,7 +552,7 @@ handler Pool(url: String, n: Int) implements Users {
   fn find(id) { self.url }
 }
 
-handler Spare implements Users {
+handler Spare: Users {
   init { Spare }
   fn find(id) { \"spare\" }
 }
@@ -670,7 +670,7 @@ effect Host {
 @external(wasm, \"env\", \"get\")
 fn host_get() -> String
 
-handler JsHost implements Host {
+handler JsHost: Host {
   fn get() { host_get() }
 }
 
@@ -776,17 +776,17 @@ fn after(ms: Int, f: fn() -> ()) -> ()
 @external(js, \"./ffi.mjs\", \"fetchText\")
 suspend fn fetch_text(url: String) -> String
 
-handler SystemClock implements Clock {
+handler SystemClock: Clock {
   suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
   fn now() { 0 }
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
   fn now() { 0 }
 }
 
-handler FetchingClock implements Clock {
+handler FetchingClock: Clock {
   suspend fn sleep(ms, resume) { resume(String.length(fetch_text(\"x\"))) }
   fn now() { 0 }
 }
@@ -843,17 +843,17 @@ effect Clock {
 @external(js, \"setTimeout\")
 fn after(ms: Int, f: fn() -> ()) -> ()
 
-handler SystemClock implements Clock {
+handler SystemClock: Clock {
   suspend fn sleep(ms, resume) { after(ms, fn() { resume(ms) }) }
   fn now() { 42 }
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
   fn now() { (use Clock).now() + 1 }
 }
 
-handler CapturedClock implements Clock {
+handler CapturedClock: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
   fn now() {
     clock = use Clock
@@ -861,12 +861,12 @@ handler CapturedClock implements Clock {
   }
 }
 
-handler PureClock implements Clock {
+handler PureClock: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
   fn now() { 0 }
 }
 
-handler LocalSleep implements Clock {
+handler LocalSleep: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
   fn now() {
     with PureClock { (use Clock).sleep(1) }

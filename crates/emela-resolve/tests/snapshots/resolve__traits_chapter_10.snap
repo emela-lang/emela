@@ -1,6 +1,6 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run(&[(\"main.emel\",\nr##\"pub trait Decode {\n  fn decode(json: String) -> Self fails DecodeError\n}\n\npub error DecodeError(message: String)\n\npub trait Compare: Eq {\n  fn compare(self, other: Self) -> Ordering\n\n  fn max(self, other: Self) -> Self {\n    match Compare.compare(self, other) {\n      Less -> other\n      _    -> self\n    }\n  }\n}\n\ntype User(id: Int, name: String)\n  derive Eq, Show\n\nimpl Show for User {\n  fn show(self) { \"User(#{self.name})\" }\n}\n\nfn largest[A: Ord + Show](xs: List[A]) -> Option[A] {\n  todo()\n}\n\nfn describe(user: User) -> String {\n  user |> Show.show\n}\n\"##,)])"
+expression: "run(&[(\"main.emel\",\nr##\"pub trait Decode {\n  fn decode(json: String) -> Self fails DecodeError\n}\n\npub error DecodeError(message: String)\n\npub trait Compare: Eq {\n  fn compare(self, other: Self) -> Ordering\n\n  fn max(self, other: Self) -> Self {\n    Compare.compare(self, other) match {\n      Less -> other\n      _    -> self\n    }\n  }\n}\n\ntype User(id: Int, name: String)\n  derive Eq, Show\n\nimpl User: Show {\n  fn show(self) { \"User(#{self.name})\" }\n}\n\ntype Pair[A, B](first: A, second: B)\n\nimpl Pair[A: Eq, B: Eq]: Eq {\n  fn eq(self, other) { Eq.eq(self.first, other.first) }\n}\n\nfn largest[A: Ord + Show](xs: List[A]) -> Option[A] {\n  todo()\n}\n\nfn describe(user: User) -> String {\n  user |> Show.show\n}\n\"##,)])"
 ---
 == Main (src/main.emel)
 trait Main.Decode pub
@@ -34,7 +34,7 @@ type Main.User
   field name: String
   derive Eq, Show
   ctor Main.User.User
-impl Show for Main.User
+impl Main.User: Show
   fn show -> Show.show
     param self#5
     body
@@ -44,19 +44,39 @@ impl Show for Main.User
           field .name
             self#5
           ")"
+type Main.Pair
+  type-param Main.Pair.A
+  type-param Main.Pair.B
+  field first: Main.Pair.A
+  field second: Main.Pair.B
+  ctor Main.Pair.Pair
+impl Main.Pair[Main.impl#2.A, Main.impl#2.B]: Eq
+  type-param Main.impl#2.A: Eq
+  type-param Main.impl#2.B: Eq
+  fn eq -> Eq.eq
+    param self#6
+    param other#7
+    body
+      block
+        call
+          Eq.eq
+          field .first
+            self#6
+          field .first
+            other#7
 fn Main.largest
   type-param Main.largest.A: Ord, Show
-  param xs#6: List[Main.largest.A]
+  param xs#8: List[Main.largest.A]
   ret Option[Main.largest.A]
   body
     block
       call
         todo
 fn Main.describe
-  param user#7: Main.User
+  param user#9: Main.User
   ret String
   body
     block
       Pipe
-        user#7
+        user#9
         Show.show

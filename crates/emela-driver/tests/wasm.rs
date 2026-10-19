@@ -160,7 +160,7 @@ fn a_release_defect_keeps_the_first_defect() {
     let (analysis, output) = run_wasm(
         "release-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
-         handler Outer(n: Int) implements Pool {\n\
+         handler Outer(n: Int): Pool {\n\
            init { Outer(n: 0) }\n\
            release { panic(\"outer release failed\") }\n\
            fn get() { self.n }\n\
@@ -185,7 +185,7 @@ fn a_release_defect_keeps_the_first_defect() {
     let (analysis, output) = run_wasm(
         "release-only-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
-         handler Outer(n: Int) implements Pool {\n\
+         handler Outer(n: Int): Pool {\n\
            init { Outer(n: 0) }\n\
            release { panic(\"outer release failed\") }\n\
            fn get() { self.n }\n\

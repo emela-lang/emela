@@ -18,11 +18,11 @@ effect Users {
   fn find(id: Int) -> User fails NotFound
 }
 
-handler ConsoleLogger implements Logger {
+handler ConsoleLogger: Logger {
   fn info(msg) { console_log(msg) }
 }
 
-handler PostgresUsers(conn: Connection) implements Users {
+handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
     PostgresUsers(conn: pg_connect(config.db_url()))
@@ -33,7 +33,7 @@ handler PostgresUsers(conn: Connection) implements Users {
   fn find(id) { todo(self.conn) }
 }
 
-handler JsClock implements Clock {
+handler JsClock: Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }

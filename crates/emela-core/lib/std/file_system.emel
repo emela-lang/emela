@@ -177,7 +177,7 @@ fn names_onto(o: Outcome, i: Int, acc: List[String]) -> List[String] {
 }
 
 ## The host's file system (JS `node:fs/promises`). Stateless.
-pub handler SystemFileSystem implements FileSystem {
+pub handler SystemFileSystem: FileSystem {
   suspend fn read_text(path, resume) {
     o = host_read_text(path)
     code = outcome_error(o)
@@ -249,7 +249,7 @@ pub type TestFiles(files: List[(String, String)], directories: List[String])
 ##
 ## The errors follow the rules of SystemFileSystem. It never fails with FileAccessDenied,
 ## InvalidText or FileSystemFailure; to test those, write a small handler.
-pub handler TestFileSystem implements FileSystem {
+pub handler TestFileSystem: FileSystem {
   suspend fn read_text(path, resume) {
     files = (use State[TestFiles]).get()
     file_text(files, path) match {

@@ -11,7 +11,7 @@ effect Late {
 }
 
 ## Fails after it resumed: the caller already went on, so the run ends with a defect (spec 14.5).
-handler FailsLate implements Late {
+handler FailsLate: Late {
   suspend fn late(resume) {
     resume(1)
     print("after resume")
@@ -23,7 +23,7 @@ effect Name {
   fn name() -> String
 }
 
-handler Res implements Name {
+handler Res: Name {
   init { Res }
   fn name() { "res" }
   release { print("release res") }

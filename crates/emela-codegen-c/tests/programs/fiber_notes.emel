@@ -11,7 +11,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -19,7 +19,7 @@ effect Name {
   fn name() -> String
 }
 
-handler Res implements Name {
+handler Res: Name {
   init {
     print("init res")
     Res

@@ -17,7 +17,7 @@ fn random_float() -> Float
 
 ## The host's random source (JS `crypto.getRandomValues`, C `arc4random_buf` or `getrandom`;
 ## cryptographically secure). Stateless.
-pub handler SystemRandom implements Random {
+pub handler SystemRandom: Random {
   fn int() { random_int() }
   fn float() { random_float() }
 }

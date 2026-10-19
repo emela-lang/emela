@@ -9,7 +9,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 

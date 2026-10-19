@@ -301,7 +301,7 @@ effect Users {
   fn find(id: Int) -> User
 }
 
-handler PostgresUsers implements Users {
+handler PostgresUsers: Users {
   fn find(id) { User(name: "alice") }
 }
 
@@ -414,7 +414,7 @@ fn scope_handler() {
         r#"
 import Std.Fiber.{Fiber, Scope}
 
-handler MyScope implements Scope[{}, {}] {
+handler MyScope: Scope[{}, {}] {
   fn fork(f) { todo() }
   fn deferred() { todo() }
 }

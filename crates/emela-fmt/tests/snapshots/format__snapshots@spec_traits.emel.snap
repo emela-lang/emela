@@ -25,17 +25,23 @@ trait Decode {
 
 trait Both: Show + Ord {}
 
-impl Show for User {
+impl User: Show {
   fn show(self) { "User(#{self.name})" }
 }
 
 type MyDate(inner: ThirdParty.Date)
 
-impl Encode for MyDate { fn encode(self) { todo() } }
+impl MyDate: Encode { fn encode(self) { todo() } }
 
-impl Show for List[Int] {
+impl List[A]: Show {
   fn show(self) { "list" }
 }
+
+impl Pair[A: Eq, B: Eq]: Eq {
+  fn eq(self, other) { Eq.eq(self.first, other.first) && Eq.eq(self.second, other.second) }
+}
+
+impl Map[K: Eq + Ord, V: Eq]: Eq { fn eq(self, other) { True } }
 
 fn largest[A: Ord](xs: List[A]) -> Option[A] { todo() }
 

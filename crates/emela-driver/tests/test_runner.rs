@@ -539,11 +539,11 @@ effect Store {
   fn get(key: String) -> Int fails Down
 }
 
-handler FixedStore implements Store {
+handler FixedStore: Store {
   fn get(key) { String.length(key) }
 }
 
-handler DownStore implements Store {
+handler DownStore: Store {
   fn get(key) { fail Down(reason: key) }
 }
 
@@ -734,7 +734,7 @@ effect Wait {
   suspend fn forever() -> ()
 }
 
-handler Pool(name: String) implements Users {
+handler Pool(name: String): Users {
   init {
     (use Console).print_line("open")
     Pool(name: "pool")
@@ -743,12 +743,12 @@ handler Pool(name: String) implements Users {
   fn find(id) { "#{self.name} #{id}" }
 }
 
-handler Broken implements Wait {
+handler Broken: Wait {
   init { fail Down }
   suspend fn forever(resume) { resume(()) }
 }
 
-handler Stuck implements Wait {
+handler Stuck: Wait {
   suspend fn forever(resume) { () }
 }
 

@@ -580,9 +580,9 @@ pub struct OpItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
-    /// The effect after `implements`.
+    /// The effect after `:`.
     pub effect: Res,
-    /// Its type arguments (the `Int` of `implements State[Int]`, spec 8.1).
+    /// Its type arguments (the `Int` of `handler H: State[Int]`, spec 8.1).
     pub effect_args: Vec<TypeId>,
     pub fields: Vec<FieldDef>,
     /// The constructor when there are fields, used in `init`.
@@ -622,6 +622,9 @@ pub struct TraitItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplItem {
     pub trait_ref: Res,
+    /// The type parameters in the head (`K` and `V` of `impl Map[K: Eq, V: Eq]: Eq`, spec 10.2).
+    pub type_params: Vec<TypeParam>,
+    /// The type before `:`, applied to the type parameters (`Map[K, V]`).
     pub self_ty: Option<TypeId>,
     pub fns: Vec<ImplFn>,
 }

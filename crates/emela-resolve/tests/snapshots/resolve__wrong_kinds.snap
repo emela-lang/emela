@@ -1,17 +1,17 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nenum Shape {\n  Empty\n}\nerror NotFound(id: Int)\neffect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Console implements User {\n  fn info(msg) { self }\n}\nlayer App { Logger, Console }\n\nfn f(x: Logger) -> Int fails User use Console {\n  log = use User\n  with Logger { 1 }\n  fail Empty\n  y = 1 escape {\n    Empty -> 2\n  }\n  Logger.info(\"x\")\n  z = Int\n  s = self\n  1\n}\n\nfn g(self) -> Self { 1 }\n\nimpl Show for User {\n  fn display(self) { \"\" }\n}\n\"##,)])"
+expression: "diagnostics(&[(\"main.emel\",\nr##\"type User(id: Int)\nenum Shape {\n  Empty\n}\nerror NotFound(id: Int)\neffect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Console: User {\n  fn info(msg) { self }\n}\nlayer App { Logger, Console }\n\nfn f(x: Logger) -> Int fails User use Console {\n  log = use User\n  with Logger { 1 }\n  fail Empty\n  y = 1 escape {\n    Empty -> 2\n  }\n  Logger.info(\"x\")\n  z = Int\n  s = self\n  1\n}\n\nfn g(self) -> Self { 1 }\n\nimpl User: Show {\n  fn display(self) { \"\" }\n}\n\"##,)])"
 ---
-error src/main.emel@140..144 `User`: expected effect, found type `User`
-error src/main.emel@185..191 `Logger`: expected handler or layer, found effect `Logger`
-error src/main.emel@212..218 `Logger`: effect `Logger` cannot be used as a type
-error src/main.emel@233..237 `User`: expected error, found type `User`
-error src/main.emel@242..249 `Console`: expected effect, found handler `Console`
-error src/main.emel@264..268 `User`: expected effect, found type `User`
-error src/main.emel@323..328 `Empty`: expected error, found constructor `Empty`
-error src/main.emel@340..346 `Logger`: expected module or trait, found effect `Logger`
-error src/main.emel@363..366 `Int`: expected constructor, found type `Int`
-error src/main.emel@373..377 `self`: `self` can only be used in handlers, impls, and traits
-error src/main.emel@390..394 `self`: `self` can only be used in handlers, impls, and traits
-error src/main.emel@399..403 `Self`: `Self` can only be used in traits and impls
-error src/main.emel@437..444 `display`: `Show` has no `display`
+error src/main.emel@130..134 `User`: expected effect, found type `User`
+error src/main.emel@175..181 `Logger`: expected handler or layer, found effect `Logger`
+error src/main.emel@202..208 `Logger`: effect `Logger` cannot be used as a type
+error src/main.emel@223..227 `User`: expected error, found type `User`
+error src/main.emel@232..239 `Console`: expected effect, found handler `Console`
+error src/main.emel@254..258 `User`: expected effect, found type `User`
+error src/main.emel@313..318 `Empty`: expected error, found constructor `Empty`
+error src/main.emel@330..336 `Logger`: expected module or trait, found effect `Logger`
+error src/main.emel@353..356 `Int`: expected constructor, found type `Int`
+error src/main.emel@363..367 `self`: `self` can only be used in handlers, impls, and traits
+error src/main.emel@380..384 `self`: `self` can only be used in handlers, impls, and traits
+error src/main.emel@389..393 `Self`: `Self` can only be used in traits and impls
+error src/main.emel@424..431 `display`: `Show` has no `display`

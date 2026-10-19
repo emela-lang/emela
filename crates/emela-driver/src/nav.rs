@@ -611,13 +611,13 @@ fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {
         Item::Layer(l) => symbol(l.syntax(), l.name()?, SymbolKind::Layer, Vec::new()),
         Item::Trait(t) => symbol(t.syntax(), t.name()?, SymbolKind::Trait, methods(t.fns())),
         Item::Impl(i) => {
-            // There is no name token, so the heading `impl Show for User` is the name and the
+            // There is no name token, so the heading `impl User: Show` is the name and the
             // trait name is the selection.
             let trait_ref = i.trait_ref()?;
-            let mut name = format!("impl {}", trait_ref.syntax().text());
-            if let Some(ty) = i.self_ty() {
-                name.push_str(&format!(" for {}", ty.text()));
-            }
+            let name = match i.self_ty() {
+                Some(ty) => format!("impl {}: {}", ty.text(), trait_ref.syntax().text()),
+                None => format!("impl {}", trait_ref.syntax().text()),
+            };
             DocumentSymbol {
                 name,
                 kind: SymbolKind::Impl,

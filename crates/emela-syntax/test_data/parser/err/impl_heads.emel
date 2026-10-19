@@ -1,0 +1,15 @@
+# 前の形の impl と handler の頭（10.2，8.4）
+impl Show for User {
+  fn show(self) { "" }
+}
+impl[A: Eq] Box[A]: Eq {
+  fn eq(self, other) { True }
+}
+impl Show User { fn show(self) { "" } }
+handler ConsoleLogger implements Logger {
+  fn info(msg) { () }
+}
+handler Fixed(n: Int) implements State[Int] {
+  init { Fixed(n: 0) }
+}
+fn after() { 1 }

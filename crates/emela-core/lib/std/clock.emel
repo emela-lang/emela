@@ -27,7 +27,7 @@ suspend fn when_stalled(at: Int64) -> ()
 ## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop) as
 ## an `@external suspend fn`, so SystemClock depends on Async (spec 8.7), and interrupting the
 ## sleeping fiber clears the timer (spec 12.2, 12.6). `now` is milliseconds since the Unix epoch (JS `Date.now()`).
-pub handler SystemClock implements Clock {
+pub handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
     sleep_milliseconds(ms)
     resume(())
@@ -48,7 +48,7 @@ pub handler SystemClock implements Clock {
 ## sleeper wakes (sleepers with the same time wake in the order they called `sleep`). With one
 ## fiber this is the same as moving the time forward by `ms` at once. A negative `ms` is the same
 ## as 0. `now` returns the time in `State[Instant]`. TestClock depends on Async.
-pub handler TestClock implements Clock {
+pub handler TestClock: Clock {
   suspend fn sleep(ms, resume) {
     st = use State[Instant]
     at = Instant.add(st.get(), Duration.milliseconds(Int64.from_int(if ms < 0 { 0 } else { ms })))

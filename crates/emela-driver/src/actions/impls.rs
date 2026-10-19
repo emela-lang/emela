@@ -68,10 +68,12 @@ fn header_range(i: &ast::ImplDecl) -> Option<TextRange> {
         .syntax()
         .children_with_tokens()
         .find(|e| e.kind() == SyntaxKind::IMPL_KW)?;
-    Some(TextRange::new(
-        keyword.text_range().start(),
-        i.self_ty()?.text_range().end(),
-    ))
+    // `impl User: Show`, up to the trait.
+    let end = match i.trait_ref() {
+        Some(t) => t.syntax().text_range().end(),
+        None => i.self_ty()?.text_range().end(),
+    };
+    Some(TextRange::new(keyword.text_range().start(), end))
 }
 
 pub(crate) fn incomplete_impl_diagnostics<'p>(

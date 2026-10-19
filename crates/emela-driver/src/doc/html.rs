@@ -264,14 +264,7 @@ fn token_class(kind: SyntaxKind, text: &str) -> Option<&'static str> {
         | MATCH_KW | FAIL_KW | ESCAPE_KW | USE_KW | WITH_KW | ASSERT_KW | SELF_KW
         | SELF_TYPE_KW | AS_KW | RESERVED_KW => Some("kw"),
         // Words that are keywords only by position (spec 3.2).
-        LOWER_NAME
-            if matches!(
-                text,
-                "implements" | "for" | "fails" | "derive" | "init" | "release"
-            ) =>
-        {
-            Some("kw")
-        }
+        LOWER_NAME if matches!(text, "fails" | "derive" | "init" | "release") => Some("kw"),
         TYPE_NAME | UPPER_NAME => Some("ty"),
         INT | FLOAT => Some("num"),
         STRING_QUOTE | STRING_TEXT => Some("str"),

@@ -24,7 +24,7 @@ pub struct HoverInfo {
 /// - A definition name (fn, const, constructor): `name: type`, the declared type (generalized if
 ///   inferred). Suspend fns (effect operations and external functions) get `suspend` before the
 ///   type.
-/// - A handler name: `handler H(fields) implements E` (`E[Int]` with type arguments), plus
+/// - A handler name: `handler H(fields): E` (`E[Int]` with type arguments), plus
 ///   `init fails E` if init has an E, and `use R` if it has dependencies (shows whether Async
 ///   remains).
 /// - A layer name: `layer L { handlers in initialization order }`, plus `use R` for dependencies
@@ -332,7 +332,7 @@ fn hover_type(
     }
 }
 
-/// `handler H(fields) implements E` (`E[Int]` with type arguments), plus `init fails E` if init
+/// `handler H(fields): E` (`E[Int]` with type arguments), plus `init fails E` if init
 /// has an E (part of the with's E, spec 9.4) and `use R` if it has dependencies (shows whether
 /// Async remains, spec 8.7). `None` if `def` is not a handler.
 pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String> {
@@ -356,18 +356,15 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
             .collect();
         text.push_str(&format!("({})", fields.join(", ")));
     }
-    // An effect with type arguments is shown as `implements State[Int]` (spec 8.1).
+    // An effect with type arguments is shown as `handler H: State[Int]` (spec 8.1).
     match types.sigs.handler_effect(def) {
         Some(tag) => {
             let effect = Row::of_tag(tag.clone());
-            text.push_str(&format!(
-                " implements {}",
-                effect.display_effects(cons, &[])
-            ));
+            text.push_str(&format!(": {}", effect.display_effects(cons, &[])));
         }
         None => {
             if let Res::Def(effect) = item.effect {
-                text.push_str(&format!(" implements {}", hir.defs[effect].name));
+                text.push_str(&format!(": {}", hir.defs[effect].name));
             }
         }
     }

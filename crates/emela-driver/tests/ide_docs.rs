@@ -73,7 +73,7 @@ effect Log {
 }
 
 ## A private handler.
-handler Silent(prefix: Int) implements Log {
+handler Silent(prefix: Int): Log {
   ## Initializes logging.
   init { Silent(prefix: 0) }
   ## Releases logging.
@@ -92,7 +92,7 @@ trait Measure {
 }
 
 ## Measures points.
-impl Measure for Point {
+impl Point: Measure {
   ## A concrete measure.
   fn measure(self) { self.x }
 }
@@ -148,7 +148,7 @@ fn private_declarations_children_and_references() {
         ("fn write(value)", 3, "Implements logging."),
         ("init {", 0, "Initializes logging."),
         ("release {", 0, "Releases logging."),
-        ("impl Measure", 0, "Measures points."),
+        ("impl Point: Measure", 0, "Measures points."),
         ("layer Logging", 6, "A private layer."),
         ("trait Measure", 6, "A private trait."),
         ("fn measure(self) ->", 3, "Measures the value."),

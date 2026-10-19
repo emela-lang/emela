@@ -13,11 +13,11 @@ effect Store {
   fn get(key: String) -> String
 }
 
-handler EnvConfig implements Config {
+handler EnvConfig: Config {
   fn prefix() { "v1" }
 }
 
-handler MemoryStore(prefix: String) implements Store {
+handler MemoryStore(prefix: String): Store {
   init {
     prefix = (use Config).prefix()
     (use Console).print_line("open store #{prefix}")
@@ -45,7 +45,7 @@ fn main() {
 }
 
 # Handlers listed later replace the layer's handler for the same effect.
-handler TestConfig implements Config {
+handler TestConfig: Config {
   fn prefix() { "test" }
 }
 

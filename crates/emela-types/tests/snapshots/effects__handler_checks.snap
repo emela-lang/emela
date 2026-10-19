@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\nerror Boom\n\neffect Logger {\n  fn info(msg: String) -> ()\n  fn warn(msg: String) -> () fails Boom\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\nhandler Half implements Logger {\n  fn info(msg) { () }\n}\n\nhandler Twice implements Logger {\n  fn info(msg) { () }\n  fn info(msg) { () }\n  fn warn(a, b) { () }\n}\n\nhandler Fails implements Logger {\n  fn info(msg) { fail Boom }\n  fn warn(msg) { fail Boom }\n}\n\nhandler Typed implements Logger {\n  fn info(msg) { msg + 1 }\n  fn warn(msg) { self }\n}\n\nhandler Stateful(n: Int) implements Logger {\n  fn info(msg) { () }\n  fn warn(msg) { () }\n}\n\nhandler Sleepy implements Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n}\n\"#)"
+expression: "render_effects(r#\"\nerror Boom\n\neffect Logger {\n  fn info(msg: String) -> ()\n  fn warn(msg: String) -> () fails Boom\n}\n\neffect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\nhandler Half: Logger {\n  fn info(msg) { () }\n}\n\nhandler Twice: Logger {\n  fn info(msg) { () }\n  fn info(msg) { () }\n  fn warn(a, b) { () }\n}\n\nhandler Fails: Logger {\n  fn info(msg) { fail Boom }\n  fn warn(msg) { fail Boom }\n}\n\nhandler Typed: Logger {\n  fn info(msg) { msg + 1 }\n  fn warn(msg) { self }\n}\n\nhandler Stateful(n: Int): Logger {\n  fn info(msg) { () }\n  fn warn(msg) { () }\n}\n\nhandler Sleepy: Clock {\n  suspend fn sleep(ms, resume) { resume(()) }\n}\n\"#)"
 ---
 handler Half: use {}
 handler Twice: use {}

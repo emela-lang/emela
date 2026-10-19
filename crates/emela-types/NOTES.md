@@ -140,11 +140,11 @@
 - （補）R のタグは，エフェクトとその型引数の組（`Tag { def, args }`）．型引数の違うエフェクトは別のタグで，`State[Int]` と `State[String]` は R の中で区別される．E のタグ（error）と型引数のないエフェクトの `args` は空．能力の値の型も `Ty::Cap(Tag)` で，表示は `use State[Int]`．集合の中の表示も `State[Int]`
 - （補）タグの型引数には推論の型変数が残りうる（型引数のある fn の呼び出しを具体化した `State[?0]`）．置き換え，辿り方，汎化は関数型の E の中の型と同じに扱う（`Row::map_tys` と `Ty::for_each_child` は関数型の R のタグの型引数も辿る）．R に残った型変数は汎化する（`fn peek() { modify(fn(x) { x }) }` は `∀ A. fn() -> A use State[A]`）
 - （補）2つのタグが同じかは，型引数を辿って比べ，違えば単一化を試す（`InferCtx::same_tag`．全部の型引数を単一化できたときだけ束縛を残す）．with で消すエフェクト，包含の制約の下界から除くタグ，制約の検査（E0402，E0403）のどれもこれで比べる．そのため `State.run([], fn() { with TestConsole { greet(1) } })` の `S` は，初期値の `[]` からは `List[?]` までしか決まらなくても，body の R の `State[List[String]]`（TestConsole の依存）から決まる．同じエフェクトのタグが集合に2つ以上あるときは最初に単一化できたものを選ぶ（近似）．制約を解いている間の単一化で関数型の集合の制約が増えても，その回の解には入らない（型引数に関数型を書いたときだけ起きる）
-- （補）型引数は省略できない（8.1）．`use State`，`use State` の節，`implements State` は E0423 で，型引数を `Ty::Error` で埋めたタグにして続ける（`Ty::Error` はどの型とも単一化できるので誤りを重ねない）．数が違えば E0304（型引数のないエフェクトに書いた `Logger[Int]` も）
+- （補）型引数は省略できない（8.1）．`use State`，`use State` の節，`handler H: State` は E0423 で，型引数を `Ty::Error` で埋めたタグにして続ける（`Ty::Error` はどの型とも単一化できるので誤りを重ねない）．数が違えば E0304（型引数のないエフェクトに書いた `Logger[Int]` も）
 - （補）エフェクトの型引数の中の関数型の `fails` と `use` を省略すれば空（宣言の中と同じ，9.2）．`State[fn(Int) -> Int]` の状態は純粋な関数
 - （補）エフェクトの型引数はふつうの型だけ（8.1）．操作の引数と戻り値の関数型の `fails` か `use` にだけ書いた型引数は集合になるので E0424（型引数の宣言の位置）．操作自身の `fails S` は fn と同じく1つのエラーの型（7.2）で，ふつうの型として通す
-- （補）操作の型（`Signatures` の操作の定義）は，エフェクトの型引数を `Bound(i)` にしたスキーム（`get: ∀ S. fn() -> S`）．能力の値の操作は能力の値の型引数で，handler の操作の実装は implements に書いた型で置き換える
-- （補）handler は型引数を持たないので，implements の型引数は型引数のない文脈で読む（汎用のハンドラはない．8.1）．読んだタグは `Signatures::handler_effect` に持ち，with と layer の供給（`layer::Entry::effect`）に使う．with の「同じエフェクトは後ろが優先」と layer の重複（E0421）は型引数まで同じものだけを数える．E0421 の文面のエフェクトは `State[Int]` の形
+- （補）操作の型（`Signatures` の操作の定義）は，エフェクトの型引数を `Bound(i)` にしたスキーム（`get: ∀ S. fn() -> S`）．能力の値の操作は能力の値の型引数で，handler の操作の実装は handler の頭に書いた型で置き換える
+- （補）handler は型引数を持たないので，handler の頭のエフェクトの型引数は型引数のない文脈で読む（汎用のハンドラはない．8.1）．読んだタグは `Signatures::handler_effect` に持ち，with と layer の供給（`layer::Entry::effect`）に使う．with の「同じエフェクトは後ろが優先」と layer の重複（E0421）は型引数まで同じものだけを数える．E0421 の文面のエフェクトは `State[Int]` の形
 - （補）`use State[S]` は，囲む fn の型引数を型引数に書ける．型引数の種類を決めるとき，エフェクトの型引数の位置はふつうの型の位置として数える（`fn modify[S](f: fn(S) -> S fails {} use {}) -> S use State[S]`）
 - （補）Immediate はエフェクトの定義で決める（型引数に左右されない）．State は suspend fn を持たないので Immediate
 - （補）`State.run`（同梱の core の `State`）は型検査の上ではふつうの型引数のある fn で，body の R の `State[S]` は書き出したエフェクトなので消える（8.3 の `use { Logger, R }` と同じ）
@@ -159,13 +159,13 @@
 - （補）handler の suspend fn の実装の引数は，操作の引数と，最後の `resume`．`resume` の名前は問わない（最後の引数がそれ）．型は `fn(T) -> ()`（T は操作の戻り値の型，E と R は空）．本体の値は捨てるので `()` を求める（E0301）．本体の E は操作の `fails` に含まれる（普通の操作と同じ）．
 - （補）handler の操作の `suspend` の有無がエフェクトの宣言と違えば E0415．引数の数と本体の検査は実装の書き方に従う（誤りを重ねないため）．引数の数の誤り（E0406）の数には `resume` を含める．
 - （補）resume を後から呼びうるか（8.7）の判定: 操作の本体で，無名関数の外の `resume(v)` と `v |> resume` だけを直接の呼び出しとする．それ以外の参照（束縛の右辺，引数，無名関数の中の参照．無名関数の中の `resume(v)` も含む）が1つでもあれば，その操作の本体の R に Async を足す（ハンドラの依存に載る）．
-- （補）Async は Prelude のエフェクト（emela-resolve が定義する）．handler の `implements Async` は E0413 で，その handler は推論せず，with に書いても何も供給しない（Async を消さない）．`use Async` は E0414 で，R に足さず型は `{unknown}`．use 節には書ける（`fn f() use Async`）．
+- （補）Async は Prelude のエフェクト（emela-resolve が定義する）．`handler H: Async` は E0413 で，その handler は推論せず，with に書いても何も供給しない（Async を消さない）．`use Async` は E0414 で，R に足さず型は `{unknown}`．use 節には書ける（`fn f() use Async`）．
 - （補）`@external suspend fn` の型の R は，書いた use 節（と見えない集合）と Async の和．呼べる場所はハンドラの中だけ（E0407）．呼んだ側の R に Async が載るので，ハンドラの依存になる（8.7 の「Async を足す」を型で行う）．無名関数の中で呼んでも，その無名関数を呼ぶかコールバックに渡したところで R か Immediate の検査に現れる．
 - （補）型引数の制約は Immediate だけを型に持つ（`TyParam::bounds`）．Immediate は `use` 節に書いた型引数（効果の集合）にだけ付けられる．それ以外（ふつうの型，エラーの集合）に付けたら E0322．効果の集合に Trait の制約を付けたら「まだ扱えない」．ふつうの型の型引数の Trait の制約（`[A: Show]`）は今までどおり検査も表示もしない（Trait は 0.24）．
 - （補）`R: Immediate` の制約のある定義を参照したら，具体化した集合変数を覚え，集合を解いた後に要素を確かめる（E0416）．エフェクトは Immediate か，集合の型引数（参照した側の定義のもの）は Immediate の制約を持つか．中身の分からない見えない集合 `R(f)` は制約を持たないので通らない（`R: Immediate` の名前付きの型引数にする）．同じまとまりの中でまだ汎化していない集合変数は，汎化するときにその型引数に Immediate の制約を付ける（`fn inferred() { fn(g) { update(1, g) } }` は `∀ E, R: Immediate. ...`）．
 - （補）外部関数の引数の型の中で `use` を省略した見えない効果の集合（`R(f)`）は Immediate の制約を持つ（9.5 の「外部関数に渡すコールバック」）．渡したコールバックは上と同じ仕組みで確かめ，文面だけを変える．外部関数の宣言の引数の関数型に書いた `use` 節も，Immediate でないエフェクトか制約のない集合の型引数があれば宣言の位置に E0416．
 - （補）E0416 は参照の位置（呼ばれる側の名前）に出す．同じ呼び出しの中の要素はまとめて1つにする．
-- （補）型の表示: `R: Immediate` はスキームの表示に `∀ A, R: Immediate. ...` と出す．ホバーでは suspend fn（操作と `@external suspend fn`）の型の前に `suspend` を付け，handler の名前には `handler H implements E` と依存（`use Async` など）を出す．
+- （補）型の表示: `R: Immediate` はスキームの表示に `∀ A, R: Immediate. ...` と出す．ホバーでは suspend fn（操作と `@external suspend fn`）の型の前に `suspend` を付け，handler の名前には `handler H: E` と依存（`use Async` など）を出す．
 - （補）fn の操作（suspend fn でないもの）の実装の本体は，R が Immediate であるか，中断しうる呼び出しを含まないかのどちらかを満たす（E0417，8.1）．fn の操作は「ハンドラが値を返すと呼び出し元はすぐ続きを実行する」もので，呼ぶ側は中断しない前提で動く．どちらの判定もそれだけで本体が中断しないことを保証するので，OR にしても健全さは崩れない．R が Immediate なら呼び出しを見ずに通す（その場で resume するハンドラの with の中で suspend fn の操作を呼ぶ本体）．そうでなければ呼び出しごとに判定する: 操作の呼び出し（`clock.now()`，`(use Clock).now()`）は操作の宣言が `suspend fn` か，`@external suspend fn` の呼び出しはいつも，関数と関数の値の呼び出しは呼ばれる側の型の R が Immediate でないか．本体の R に suspend fn を持つ Clock が載っても，fn の操作しか呼ばなければ通る（R はそのままハンドラの依存になる）．どのハンドラの fn の操作の実装も同じ規則で縛られるので，fn の操作の呼び出しはどのハンドラに当たっても中断しない
 - （補）E0417 の呼び出しは，本体の部分式のうち無名関数の本体を除いたものから探す（R が合流するのと同じ範囲，`sub_exprs`）．無名関数の中の呼び出しは，その無名関数を呼んだところで関数の値の呼び出しとして数える．with の中の呼び出しも，with がそのエフェクトを供給していても数える．そのため外側の Clock の now と，内側の `with InstantClock` の sleep を同じ本体に混ぜると，R も呼び出しも満たさず E0417 になる（取りこぼし．拾うには呼び出しを最も内側で供給する with まで見る必要があり，規則が重くなるので見送った）．関数の本体から中断しないことは推論しない（`fn stamp() use { Clock }` を挟むと E0417）．値として取り出した操作（`g = clock.now; g()`）も関数の値の呼び出し
 - （補）E0417 は，本体の R が Immediate でないときに，中断しうる呼び出しの式の位置に呼び出しごとに出す．理由は `SuspendingCall` で持つ（suspend fn の操作，`@external suspend fn`，型の R が Immediate でない関数か関数の値．関数の値は局所変数の名前で呼んだらその名前）
@@ -189,7 +189,7 @@
 - （補）組み込みのエフェクトの型引数の種は，type の型引数と同じく操作の引数と戻り値の型から決める（`decl_sets` に effect も入れる）．`Scope[E, R]` の E はエラーの集合，R は効果の集合．タグの型引数の位置に `Ty::Set` を持つ．型引数の集合は名前付き型の集合の型引数と同じ書き方（`Scope[NotFound | Timeout, { Db, Log }]`）で，誤りも同じ E0323
 - （補）fn の use 節に書いた `Scope[E, R]` の E と R も集合として数える（`classify_fn_sets`）．`fn deferred[A, E, R]() -> Deferred[A] use Scope[E, R]` の E と R は引数と戻り値の型に現れないため
 - （補）操作の型引数（`fork[A]`）は，操作のスキームでエフェクトの型引数の後ろに並べる．能力の値の操作を参照するたびに新しい型変数で具体化し，`ProgramTypes::type_args` にその式の操作の型引数を残す（lowering 用）．利用者のエフェクトの操作に書けば E0426 で，スキームには残す（誤りを重ねない）
-- （補）`use Scope` は型引数を省いてよい（11.2）．組み込みのエフェクトの `use` で型引数を省けば，新しい集合変数（ふつうの型引数なら型変数）で埋める．use 節と `implements` では省けない（E0423．State と同じ）
+- （補）`use Scope` は型引数を省いてよい（11.2）．組み込みのエフェクトの `use` で型引数を省けば，新しい集合変数（ふつうの型引数なら型変数）で埋める．use 節と handler の頭では省けない（E0423．State と同じ）
 - （補）11.2 の「子の R は Scope の R と単一化」は包含で実装した．R の中の `Scope[E1, R1]` の要求は `Scope[E2, R2]` で満たされ，E1 ⊆ E2，R1 ⊆ R2 の制約になる（`InferCtx::same_tag` で，集合の型引数どうしだけ共変に単一化する．ふつうの型引数は今までどおり両方向）．等式にすると，fork する補助関数の型が `use Scope[{Boom}, {}]` のような具体的な集合に決まり，別の子が別のエラーを足すスコープで食い違う．進行役と合意し，仕様の 11.2 に反映済み
 - （補）子の R の中の Scope の要求は，そのスコープ自身の `Scope[E, R]` で満たす（11.2．兄弟を fork できるように）．組み込みのエフェクトの操作の引数の関数型の use 節がエフェクトの集合の型引数を含めば，そのエフェクト自身（`Scope[E, R]`）を書き出したタグとして足す（`signature.rs` の `with_own_tag`．`fork[A](f: fn() -> A fails E use { Scope[E, R], R })` と読む）．包含の検査では子の Scope の要求がこのタグに当たり，子の Scope の E と R がスコープの E と R に含まれることだけが残る．足さないと，子の `Scope[?e, ?r]` が ?r 自身の下界になり（外から Scope を求める E0402．型検査でスタックが溢れることもあった），入れ子のスコープでは子の Scope が外側のスコープで満たされて lowering（内側のスコープを指す）と食い違っていた．同梱の `Fiber.fork` のラッパーは引数の型に `use { Scope[E, R], R }` を書き出す（仕様の 11.2 の `use R` から変えた）
 - （補）タグの比較で増えた制約は，集合を解く途中で足される．`solve_errors` は新しい制約が出なくなるまで解き直す（毎回，前の解を捨てて集合変数から解く）．解いている間は同じ制約を二度足さない（`InferCtx::set_solving`）．前は解いている間の制約は捨てていた（「エフェクトの型引数と State」の近似）が，集合の型引数のタグではそれが本体なので拾う
@@ -262,7 +262,7 @@ driver の `Diagnostic::from_type`（emela-driver の `diagnostic.rs`）がこ�
 - E0420 `ReleaseFails`: ``` `release` of handler `Counter` cannot fail, but this may fail with error `Boom` ```．注記 ``= help: handle it with `escape`, or turn it into a defect with `panic` ``
 - E0421 `DuplicateLayerEffect`: ``effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud` ``．注記 ``= help: keep one of them, or override it with `with Loud, Quiet { ... }` ``．同じハンドラなら ``handler `Quiet` appears more than once in layer `Twice` ``（注記なし）
 - E0422 `LayerCycle`: ``layers include each other: `LoopA` -> `LoopB` -> `LoopA` ``
-- E0423 `MissingEffectTypeArgs`: ``missing type arguments for effect `State[S]` ``．注記 ``= help: write the types, like `State[...]` ``．implements なら ``handler `Fixed` must implement `State[S]` with concrete types``．注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``
+- E0423 `MissingEffectTypeArgs`: ``missing type arguments for effect `State[S]` ``．注記 ``= help: write the types, like `State[...]` ``．handler の頭なら ``handler `Fixed` must implement `State[S]` with concrete types``．注記 ``= help: write the types, like `handler Fixed: State[...]`; a handler cannot be generic``
 - E0424 `EffectParamNotType`: ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``
 - E0413 `AsyncHandler`: ``handler `MyAsync` cannot implement `Async`: only the runtime provides it``
 - E0413 `IntrinsicHandler`: ``handler `MyScope` cannot implement `Scope`: only `Fiber.scope` provides it``

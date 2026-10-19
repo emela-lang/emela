@@ -1,9 +1,9 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run(&[(\"app.emel\",\nr##\"import Effects.{Logger, Users, Clock, Config, User, NotFound}\n\npub handler ConsoleLogger implements Logger {\n  fn info(msg) { console_log(msg) }\n}\n\n@external(js, \"console.log\")\nfn console_log(msg: String) -> ()\n\n@external(js, \"pg.connect\")\nfn pg_connect(url: String) -> Connection\n\n@external(js, \"pg.close\")\nfn pg_close(conn: Connection) -> ()\n\n@external(js, \"Connection\")\ntype Connection\n\npub handler PostgresUsers(conn: Connection) implements Users {\n  init {\n    config = use Config\n    PostgresUsers(conn: pg_connect(config.db_url()))\n  }\n\n  release {\n    pg_close(self.conn)\n  }\n\n  fn find(id) { todo() }\n}\n\npub handler EnvConfig implements Config {\n  fn db_url() { \"postgres://\" }\n}\n\npub handler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    resume(())\n  }\n  fn now() { todo() }\n}\n\npub layer AppLive {\n  EnvConfig\n  ConsoleLogger\n  JsClock\n  PostgresUsers\n}\n\nfn greet(id: Int) {\n  log   = use Logger\n  users = use Users\n\n  user = users.find(id) |> Option.or_fail(NotFound(id:))\n  log.info(\"hello #{user.name}\")\n\n  (use Clock).sleep(1000)\n  user\n}\n\nfn main() {\n  with AppLive { greet(1) }\n  with AppLive, ConsoleLogger {\n    primary = use Logger\n    with ConsoleLogger {\n      primary.info(\"x\")\n    }\n  }\n}\n\"##,),\n(\"effects.emel\",\nr##\"pub type User(id: Int, name: String)\n\npub error NotFound(id: Int)\n\npub effect Logger {\n  fn info(msg: String) -> ()\n}\n\npub effect Users {\n  fn find(id: Int) -> Option[User]\n}\n\npub effect Config {\n  fn db_url() -> String\n}\n\npub effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n  fn now() -> Time.Instant\n}\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R {\n  f(x)\n}\n\"##,),])"
+expression: "run(&[(\"app.emel\",\nr##\"import Effects.{Logger, Users, Clock, Config, User, NotFound}\n\npub handler ConsoleLogger: Logger {\n  fn info(msg) { console_log(msg) }\n}\n\n@external(js, \"console.log\")\nfn console_log(msg: String) -> ()\n\n@external(js, \"pg.connect\")\nfn pg_connect(url: String) -> Connection\n\n@external(js, \"pg.close\")\nfn pg_close(conn: Connection) -> ()\n\n@external\ntype Connection\n\npub handler PostgresUsers(conn: Connection): Users {\n  init {\n    config = use Config\n    PostgresUsers(conn: pg_connect(config.db_url()))\n  }\n\n  release {\n    pg_close(self.conn)\n  }\n\n  fn find(id) { todo() }\n}\n\npub handler EnvConfig: Config {\n  fn db_url() { \"postgres://\" }\n}\n\npub handler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    resume(())\n  }\n  fn now() { todo() }\n}\n\npub layer AppLive {\n  EnvConfig\n  ConsoleLogger\n  JsClock\n  PostgresUsers\n}\n\nfn greet(id: Int) {\n  log   = use Logger\n  users = use Users\n\n  user = users.find(id) |> Option.or_fail(NotFound(id:))\n  log.info(\"hello #{user.name}\")\n\n  (use Clock).sleep(1000)\n  user\n}\n\nfn main() {\n  with AppLive { greet(1) }\n  with AppLive, ConsoleLogger {\n    primary = use Logger\n    with ConsoleLogger {\n      primary.info(\"x\")\n    }\n  }\n}\n\"##,),\n(\"effects.emel\",\nr##\"pub type User(id: Int, name: String)\n\npub error NotFound(id: Int)\n\npub effect Logger {\n  fn info(msg: String) -> ()\n}\n\npub effect Users {\n  fn find(id: Int) -> Option[User]\n}\n\npub effect Config {\n  fn db_url() -> String\n}\n\npub effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n  fn now() -> Time.Instant\n}\n\nfn update[A, R: Immediate](x: A, f: fn(A) -> A use R) -> A use R {\n  f(x)\n}\n\"##,),])"
 ---
 == App (src/app.emel)
-handler App.ConsoleLogger pub implements Effects.Logger
+handler App.ConsoleLogger pub: Effects.Logger
   fn info -> Effects.Logger.info self#0
     param msg#1
     body
@@ -21,7 +21,7 @@ fn App.pg_close external(js, "pg.close")
   param conn#4: App.Connection
   ret ()
 type App.Connection
-handler App.PostgresUsers pub implements Effects.Users
+handler App.PostgresUsers pub: Effects.Users
   field conn: App.Connection
   ctor App.PostgresUsers.PostgresUsers
   init
@@ -48,12 +48,12 @@ handler App.PostgresUsers pub implements Effects.Users
       block
         call
           todo
-handler App.EnvConfig pub implements Effects.Config
+handler App.EnvConfig pub: Effects.Config
   fn db_url -> Effects.Config.db_url self#9
     body
       block
         "postgres://"
-handler App.JsClock pub implements Effects.Clock
+handler App.JsClock pub: Effects.Clock
   fn sleep -> Effects.Clock.sleep suspend self#10
     param ms#11
     param resume#12

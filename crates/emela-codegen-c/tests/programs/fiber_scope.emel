@@ -12,7 +12,7 @@ effect Tick {
 
 ## Resumes in place: a suspending call that yields to other fibers only every so many calls (the
 ## fairness budget, spec 11.1), the same on every target.
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -20,11 +20,11 @@ effect Name {
   fn name() -> String
 }
 
-handler Outer implements Name {
+handler Outer: Name {
   fn name() { "outer" }
 }
 
-handler Inner implements Name {
+handler Inner: Name {
   fn name() { "inner" }
 }
 

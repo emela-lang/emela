@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\nhandler MyAsync implements Async {\n}\n\nfn grab() { use Async }\n\nfn declared() -> Int use Async { 1 }\n\nfn main() {\n  with MyAsync { declared() }\n}\n\"#)"
+expression: "render_effects(r#\"\nhandler MyAsync: Async {\n}\n\nfn grab() { use Async }\n\nfn declared() -> Int use Async { 1 }\n\nfn main() {\n  with MyAsync { declared() }\n}\n\"#)"
 ---
 grab: fn() -> {unknown}
 declared: fn() -> Int use Async

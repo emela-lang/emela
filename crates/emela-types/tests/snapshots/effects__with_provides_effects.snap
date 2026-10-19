@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  fn now() -> Int\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nhandler Stamped implements Logger {\n  fn info(msg) {\n    t = (use Clock).now()\n    ()\n  }\n}\n\nhandler Fixed implements Clock {\n  fn now() { 0 }\n}\n\nfn greet() {\n  (use Logger).info(\"hi\")\n  (use Clock).now()\n}\n\nfn partly() {\n  with Quiet { greet() }\n}\n\nfn needs_clock() {\n  with Stamped { (use Logger).info(\"x\") }\n}\n\nfn sibling() {\n  with Stamped, Fixed { greet() }\n}\n\nfn main() {\n  with Quiet, Fixed { greet() }\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect Clock {\n  fn now() -> Int\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nhandler Stamped: Logger {\n  fn info(msg) {\n    t = (use Clock).now()\n    ()\n  }\n}\n\nhandler Fixed: Clock {\n  fn now() { 0 }\n}\n\nfn greet() {\n  (use Logger).info(\"hi\")\n  (use Clock).now()\n}\n\nfn partly() {\n  with Quiet { greet() }\n}\n\nfn needs_clock() {\n  with Stamped { (use Logger).info(\"x\") }\n}\n\nfn sibling() {\n  with Stamped, Fixed { greet() }\n}\n\nfn main() {\n  with Quiet, Fixed { greet() }\n}\n\"#)"
 ---
 greet: fn() -> Int use { Logger, Clock }
 partly: fn() -> Int use Clock

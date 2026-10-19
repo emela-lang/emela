@@ -70,7 +70,7 @@ fn type_arg(p: &mut Parser<'_>) {
     }
 }
 
-/// Effect type arguments `[Int]` (`implements State[Int]` in spec 8.1, `use State[Int]` in 17.5).
+/// Effect type arguments `[Int]` (`handler H: State[Int]` in spec 8.1, `use State[Int]` in 17.5).
 /// Becomes a TYPE_ARG_LIST sibling of the preceding type_ref. Does nothing without `[`.
 pub(crate) fn effect_type_args(p: &mut Parser<'_>) {
     if p.at(L_BRACK) {

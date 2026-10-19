@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Ping {\n  fn ping() -> ()\n}\n\neffect Pong {\n  fn pong() -> ()\n}\n\nhandler HPing implements Ping {\n  fn ping() { (use Pong).pong() }\n}\n\nhandler HPong implements Pong {\n  fn pong() { (use Ping).ping() }\n}\n\nfn f() {\n  with HPing, HPong { (use Ping).ping() }\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Ping {\n  fn ping() -> ()\n}\n\neffect Pong {\n  fn pong() -> ()\n}\n\nhandler HPing: Ping {\n  fn ping() { (use Pong).pong() }\n}\n\nhandler HPong: Pong {\n  fn pong() { (use Ping).ping() }\n}\n\nfn f() {\n  with HPing, HPong { (use Ping).ping() }\n}\n\"#)"
 ---
 f: fn() -> ()
 handler HPing: use Pong

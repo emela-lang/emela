@@ -39,7 +39,7 @@ pub enum SyntaxKind {
     /// The `}` that closes an interpolation, kept apart from R_BRACE.
     INTERP_END,
 
-    // Names (spec 2.3). Contextual words (spec 3.2: implements for fails derive init release)
+    // Names (spec 2.3). Contextual words (spec 3.2: fails derive init release)
     // lex as LOWER_NAME; the parser treats them as keywords by position.
     /// Starts with a lowercase letter or `_`. `user_id` `find` `_tmp`
     LOWER_NAME,
@@ -216,10 +216,10 @@ pub enum SyntaxKind {
     OP_SIG,
     /// The base of a label (an effect declared `of` another). `of Console default`
     EFFECT_LABEL,
-    /// `handler PostgresUsers(conn: Connection) implements Users { ... }`
+    /// `handler PostgresUsers(conn: Connection): Users { ... }`
     HANDLER_DECL,
-    /// `implements Users`
-    IMPLEMENTS_CLAUSE,
+    /// The effect a handler implements, after `:`. `Users`, `State[Int]`
+    HANDLER_EFFECT,
     /// `init { ... }`
     HANDLER_INIT,
     /// `release { ... }`
@@ -228,8 +228,10 @@ pub enum SyntaxKind {
     LAYER_DECL,
     /// `trait Ord: Eq { ... }`
     TRAIT_DECL,
-    /// `impl Show for User { ... }`
+    /// `impl User: Show { ... }`
     IMPL_DECL,
+    /// The type of an impl with its type parameters, before `:`. `User`, `Map[K: Eq, V: Eq]`
+    IMPL_TYPE,
     /// The `{ ... }` body of an effect, handler, layer, trait or impl.
     ITEM_LIST,
     /// `[A, R: Immediate]`

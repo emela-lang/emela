@@ -14,7 +14,7 @@ fn checked(main: &str, extra: &[(&str, &str)]) -> Analysis {
 
 #[test]
 fn reports_every_required_method_in_declaration_order_in_the_impl_file() {
-    let main = "import Labels.{Label}\ntype User(id: Int)\nimpl Label for User {}\n";
+    let main = "import Labels.{Label}\ntype User(id: Int)\nimpl User: Label {}\n";
     let analysis = checked(
         main,
         &[(
@@ -36,24 +36,24 @@ fn reports_every_required_method_in_declaration_order_in_the_impl_file() {
         analysis.sources[span.file].path(),
         Path::new("/app/src/main.emel")
     );
-    assert_eq!(&main[span.range], "impl Label for User");
+    assert_eq!(&main[span.range], "impl User: Label");
 }
 
 #[test]
 fn diagnostic_excludes_the_body_and_trailing_header_whitespace() {
-    let main = "type Box[A](value: A)\ntrait Keep {\n  fn keep(self) -> Self\n  fn create() -> Int\n}\nimpl Keep for Box[Int] \t {\n  fn keep(self) { self }\n}\n";
+    let main = "type Box[A](value: A)\ntrait Keep {\n  fn keep(self) -> Self\n  fn create() -> Int\n}\nimpl Box[A]: Keep \t {\n  fn keep(self) { self }\n}\n";
     let analysis = checked(main, &[]);
     assert_eq!(analysis.error_count(), 1, "{analysis:?}");
     let Some(Location::Span(span)) = analysis.diagnostics[0].location else {
         panic!("impl diagnostic must have a source span")
     };
-    assert_eq!(&main[span.range], "impl Keep for Box[Int]");
+    assert_eq!(&main[span.range], "impl Box[A]: Keep");
 }
 
 #[test]
 fn complete_and_default_only_impls_are_valid() {
     let analysis = checked(
-        "type Box[A](value: A)\ntrait Keep {\n  fn keep(self) -> Self\n  fn create() -> Int\n  fn default(self) -> Int { 1 }\n}\nimpl Keep for Box[Int] {\n  fn keep(self) { self }\n  fn create() { 1 }\n}\ntrait DefaultOnly { fn value(self) -> Int { 1 } }\nimpl DefaultOnly for Int {}\n",
+        "type Box[A](value: A)\ntrait Keep {\n  fn keep(self) -> Self\n  fn create() -> Int\n  fn default(self) -> Int { 1 }\n}\nimpl Box[A]: Keep {\n  fn keep(self) { self }\n  fn create() { 1 }\n}\ntrait DefaultOnly { fn value(self) -> Int { 1 } }\nimpl Int: DefaultOnly {}\n",
         &[],
     );
     assert!(
@@ -78,7 +78,7 @@ fn derives_and_builtin_implementations_do_not_require_source_methods() {
 
 #[test]
 fn unresolved_traits_do_not_produce_incomplete_impl_cascades() {
-    let analysis = checked("type User(id: Int)\nimpl Missing for User {}\n", &[]);
+    let analysis = checked("type User(id: Int)\nimpl User: Missing {}\n", &[]);
     assert!(analysis.has_errors());
     assert!(
         analysis

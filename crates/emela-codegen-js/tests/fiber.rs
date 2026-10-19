@@ -377,7 +377,7 @@ impl Kit {
         )
     }
 
-    /// The value of `handler name implements Res { fn name() { "name" } }`.
+    /// The value of `handler Name: Res { fn name() { "name" } }`.
     fn handler(&self, name: &str) -> Expr {
         Expr::Handler {
             name: name.into(),

@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Console {\n  fn print_line(text: String) -> ()\n}\n\n@external(js, \"console.log\")\nfn console_log(text: String) -> ()\n\n@external(js, \"Math.abs\")\nfn abs(x: Int) -> Int use {}\n\nhandler SystemConsole implements Console {\n  fn print_line(text) {\n    f = fn() { console_log(text) }\n    f()\n  }\n}\n\nfn outside() {\n  console_log(\"x\")\n  g = console_log\n  abs(1)\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Console {\n  fn print_line(text: String) -> ()\n}\n\n@external(js, \"console.log\")\nfn console_log(text: String) -> ()\n\n@external(js, \"Math.abs\")\nfn abs(x: Int) -> Int use {}\n\nhandler SystemConsole: Console {\n  fn print_line(text) {\n    f = fn() { console_log(text) }\n    f()\n  }\n}\n\nfn outside() {\n  console_log(\"x\")\n  g = console_log\n  abs(1)\n}\n\"#)"
 ---
 console_log: fn(String) -> ()
 abs: fn(Int) -> Int

@@ -61,7 +61,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
             Item::Layer(LayerItem { members })
         }
         ast::Item::Trait(t) => lower.trait_item(&pending.children, t),
-        ast::Item::Impl(i) => lower.impl_item(i),
+        ast::Item::Impl(i) => lower.impl_item(pending.def, i),
     };
     lower.r.program.items.insert(pending.def, item);
 }
@@ -618,13 +618,35 @@ impl Lower<'_, '_> {
         })
     }
 
-    fn impl_item(&mut self, i: &ast::ImplDecl) -> Item {
+    fn impl_item(&mut self, def: DefId, i: &ast::ImplDecl) -> Item {
         let trait_ref = match i.trait_ref() {
             Some(p) => self.resolve_type_ns(&p, Expected::Trait),
             None => Res::Err,
         };
+        // `impl Map[K: Eq, V: Eq]: Eq` declares `K` and `V` for the impl (spec 10.2).
+        let type_params = self.type_params(def, i.type_params());
+        // The type is the name applied to its own type parameters (`Map[K, V]`).
+        let self_ty = i.self_ty().map(|node| {
+            let res = match i.self_path() {
+                Some(path) => self.resolve_type_ns(&path, Expected::Type),
+                None => Res::Err,
+            };
+            let args = type_params
+                .iter()
+                .map(|param| {
+                    let range = self.r.program.defs[param.def]
+                        .span
+                        .map_or(node.text_range(), |s| s.range);
+                    let kind = TypeKind::Path {
+                        res: Res::Def(param.def),
+                        args: Vec::new(),
+                    };
+                    self.alloc_type(kind, range)
+                })
+                .collect();
+            self.alloc_type(TypeKind::Path { res, args }, node.text_range())
+        });
         self.self_type = true;
-        let self_ty = i.self_ty().map(|t| self.lower_type(&t));
         let fns = i
             .fns()
             .filter_map(|f| {
@@ -648,8 +670,10 @@ impl Lower<'_, '_> {
             })
             .collect();
         self.self_type = false;
+        self.pop_type_params();
         Item::Impl(ImplItem {
             trait_ref,
+            type_params,
             self_ty,
             fns,
         })

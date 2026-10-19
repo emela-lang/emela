@@ -392,7 +392,7 @@ impl TyTable {
     /// declarations).
     ///
     /// Missing type arguments on an effect with type parameters are E0423 (`handler` names the
-    /// handler when written in `implements`); a wrong count is E0304. Both return a tag with the
+    /// handler when written in a handler head); a wrong count is E0304. Both return a tag with the
     /// arguments filled with `Ty::Error`, which unifies with anything so errors do not cascade.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn effect_tag(

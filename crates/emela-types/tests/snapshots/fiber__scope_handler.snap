@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/fiber.rs
-expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nhandler MyScope implements Scope[{}, {}] {\n  fn fork(f) { todo() }\n  fn deferred() { todo() }\n}\n\nfn provided() {\n  with MyScope {\n    Fiber.fork(fn() { 1 })\n  }\n}\n\"#)"
+expression: "render(r#\"\nimport Std.Fiber.{Fiber, Scope}\n\nhandler MyScope: Scope[{}, {}] {\n  fn fork(f) { todo() }\n  fn deferred() { todo() }\n}\n\nfn provided() {\n  with MyScope {\n    Fiber.fork(fn() { 1 })\n  }\n}\n\"#)"
 ---
 provided: fn() -> Fiber[Int] use Scope[{}, {}]
 `MyScope` IntrinsicHandler { handler: "MyScope", effect: "Scope", provider: "Fiber.scope" }

@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/effect_type_params.emel
 ---
-ROOT@0..98
+ROOT@0..88
   EFFECT_DECL@0..36
     EFFECT_KW@0..6 "effect"
     WHITESPACE@6..7 " "
@@ -34,53 +34,52 @@ ROOT@0..98
       R_BRACE@35..36 "}"
   NEWLINE@36..37 "\n"
   NEWLINE@37..38 "\n"
-  HANDLER_DECL@38..71
+  HANDLER_DECL@38..61
     HANDLER_KW@38..45 "handler"
     WHITESPACE@45..46 " "
     ERROR@46..47
       UPPER_NAME@46..47 "H"
-    WHITESPACE@47..48 " "
-    IMPLEMENTS_CLAUSE@48..69
-      LOWER_NAME@48..58 "implements"
-      WHITESPACE@58..59 " "
-      PATH@59..64
-        TYPE_NAME@59..64 "State"
-      TYPE_ARG_LIST@64..69
-        L_BRACK@64..65 "["
-        WHITESPACE@65..66 " "
-        EFFECT_SET@66..69
-          L_BRACE@66..67 "{"
-          NEWLINE@67..68 "\n"
-          R_BRACE@68..69 "}"
-    NEWLINE_CONT@69..70 "\n"
-    NEWLINE_CONT@70..71 "\n"
-    ITEM_LIST@71..71
-  FN_DECL@71..97
-    FN_KW@71..73 "fn"
-    WHITESPACE@73..74 " "
-    LOWER_NAME@74..75 "f"
-    PARAM_LIST@75..77
-      L_PAREN@75..76 "("
-      R_PAREN@76..77 ")"
-    WHITESPACE@77..78 " "
-    BLOCK_EXPR@78..97
-      L_BRACE@78..79 "{"
-      NEWLINE@79..80 "\n"
-      WHITESPACE@80..82 "  "
-      USE_EXPR@82..95
-        USE_KW@82..85 "use"
-        WHITESPACE@85..86 " "
-        PATH@86..91
-          TYPE_NAME@86..91 "State"
-        TYPE_ARG_LIST@91..95
-          L_BRACK@91..92 "["
-          PATH_TYPE@92..95
-            PATH@92..95
-              TYPE_NAME@92..95 "Int"
-      NEWLINE_CONT@95..96 "\n"
-      R_BRACE@96..97 "}"
-  NEWLINE@97..98 "\n"
+    COLON@47..48 ":"
+    WHITESPACE@48..49 " "
+    HANDLER_EFFECT@49..59
+      PATH@49..54
+        TYPE_NAME@49..54 "State"
+      TYPE_ARG_LIST@54..59
+        L_BRACK@54..55 "["
+        WHITESPACE@55..56 " "
+        EFFECT_SET@56..59
+          L_BRACE@56..57 "{"
+          NEWLINE@57..58 "\n"
+          R_BRACE@58..59 "}"
+    NEWLINE_CONT@59..60 "\n"
+    NEWLINE_CONT@60..61 "\n"
+    ITEM_LIST@61..61
+  FN_DECL@61..87
+    FN_KW@61..63 "fn"
+    WHITESPACE@63..64 " "
+    LOWER_NAME@64..65 "f"
+    PARAM_LIST@65..67
+      L_PAREN@65..66 "("
+      R_PAREN@66..67 ")"
+    WHITESPACE@67..68 " "
+    BLOCK_EXPR@68..87
+      L_BRACE@68..69 "{"
+      NEWLINE@69..70 "\n"
+      WHITESPACE@70..72 "  "
+      USE_EXPR@72..85
+        USE_KW@72..75 "use"
+        WHITESPACE@75..76 " "
+        PATH@76..81
+          TYPE_NAME@76..81 "State"
+        TYPE_ARG_LIST@81..85
+          L_BRACK@81..82 "["
+          PATH_TYPE@82..85
+            PATH@82..85
+              TYPE_NAME@82..85 "Int"
+      NEWLINE_CONT@85..86 "\n"
+      R_BRACE@86..87 "}"
+  NEWLINE@87..88 "\n"
 error[E0110]@46..47: expected type name
-error[E0110]@71..73: expected `]`
-error[E0110]@71..73: expected `{`
-error[E0110]@96..97: expected `]`
+error[E0110]@61..63: expected `]`
+error[E0110]@61..63: expected `{`
+error[E0110]@86..87: expected `]`

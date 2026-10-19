@@ -93,12 +93,14 @@ impl Printer {
             VARIANT => self.seq(node, |_, _| false),
             FIELD => self.seq(node, |_, cur| cur != COLON),
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
-            // Effect type arguments (`implements State[Int]`, `use State[Int]`, `of State[Int]`)
+            // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
             // attach to the name.
-            IMPLEMENTS_CLAUSE | USE_EXPR | EFFECT_LABEL => {
+            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL => {
                 self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
             }
             WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
+            // `Map[K: Eq, V: Eq]` in `impl Map[K: Eq, V: Eq]: Eq`.
+            IMPL_TYPE => self.seq(node, |_, cur| cur != TYPE_PARAM_LIST),
             RET_TYPE | FAILS_CLAUSE | USE_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD => {
                 self.seq(node, |_, _| true)
             }

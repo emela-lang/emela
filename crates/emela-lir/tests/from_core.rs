@@ -206,7 +206,7 @@ effect Pool {
   fn get() -> Int
 }
 
-handler Counted(n: Int) implements Pool {
+handler Counted(n: Int): Pool {
   init { Counted(n: 1) }
   release { dbg(self.n) }
   fn get() { self.n }
@@ -235,7 +235,7 @@ effect Log {
   fn count() -> Int
 }
 
-handler Quiet implements Log {
+handler Quiet: Log {
   fn info(msg) { () }
   fn count() { 0 }
 }
@@ -264,7 +264,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
@@ -314,7 +314,7 @@ effect Wait {
   suspend fn wait() -> ()
 }
 
-handler Later implements Wait {
+handler Later: Wait {
   init { Later }
   release { (use Wait).wait() }
   suspend fn wait(resume) { resume(()) }

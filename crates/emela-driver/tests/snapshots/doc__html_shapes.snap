@@ -90,7 +90,7 @@ expression: shapes
 </article>
 <article class="item" id="Prefixed">
 <div class="item-head"><h3><a href="#Prefixed">Prefixed</a></h3><span class="kind">handler</span></div>
-<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Prefixed">Prefixed</a>(prefix: <span class="ty">String</span>) <span class="kw">implements</span> <a class="ty" href="#Log">Log</a></code></pre>
+<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Prefixed">Prefixed</a>(prefix: <span class="ty">String</span>): <a class="ty" href="#Log">Log</a></code></pre>
 <div class="doc">
 <p>Prefixes each line.</p>
 </div>
@@ -101,7 +101,7 @@ expression: shapes
 </article>
 <article class="item" id="Quiet">
 <div class="item-head"><h3><a href="#Quiet">Quiet</a></h3><span class="kind">handler</span></div>
-<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Quiet">Quiet</a> <span class="kw">implements</span> <a class="ty" href="#Log">Log</a></code></pre>
+<pre class="signature"><code><span class="kw">handler</span> <a class="ty" href="#Quiet">Quiet</a>: <a class="ty" href="#Log">Log</a></code></pre>
 </article>
 <article class="item" id="Logging">
 <div class="item-head"><h3><a href="#Logging">Logging</a></h3><span class="kind">layer</span></div>

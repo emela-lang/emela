@@ -954,7 +954,7 @@ fn hover_on_negative_number_pattern() {
 
 #[test]
 fn hover_shows_effects() {
-    let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nfn greet() {\n  log = use Logger\n  log.info(\"hi\")\n}\n\nfn main() {\n  with Quiet { greet() }\n}\n";
+    let src = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn greet() {\n  log = use Logger\n  log.info(\"hi\")\n}\n\nfn main() {\n  with Quiet { greet() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -996,7 +996,7 @@ fn hover_shows_effects() {
 /// `suspend`, and handler names show their dependencies.
 #[test]
 fn hover_shows_suspend_and_async() {
-    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock implements Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
+    let src = "effect Clock {\n  suspend fn sleep(ms: Int) -> ()\n}\n\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\nhandler JsClock: Clock {\n  suspend fn sleep(ms, resume) {\n    set_timeout(ms, fn() { resume(()) })\n  }\n}\n\nfn main() {\n  with JsClock { (use Clock).sleep(1) }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1009,7 +1009,7 @@ fn hover_shows_suspend_and_async() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 7, 10)),
-        "```emela\nhandler JsClock implements Clock\nuse Async\n```"
+        "```emela\nhandler JsClock: Clock\nuse Async\n```"
     );
     // `resume` takes the operation's return type and returns `()`.
     assert_eq!(
@@ -1033,7 +1033,7 @@ fn hover_shows_suspend_and_async() {
 /// the unmet dependencies; `self` shows the handler value's type.
 #[test]
 fn hover_shows_stateful_handlers_and_layers() {
-    let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String) implements Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
+    let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String): Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1042,7 +1042,7 @@ fn hover_shows_stateful_handlers_and_layers() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 12, 10)),
-        "```emela\nhandler DbUsers(conn: String) implements Users\ninit fails Down\nuse Config\n```"
+        "```emela\nhandler DbUsers(conn: String): Users\ninit fails Down\nuse Config\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 14, 16)),
@@ -1055,11 +1055,11 @@ fn hover_shows_stateful_handlers_and_layers() {
     client.shutdown();
 }
 
-/// Effects with type arguments (spec 8.1). The handler name shows `implements Cell[Int]`, a
+/// Effects with type arguments (spec 8.1). The handler name shows `handler H: Cell[Int]`, a
 /// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
 #[test]
 fn hover_shows_effect_type_args() {
-    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero implements Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
+    let src = "effect Cell[S] {\n  fn get() -> S\n}\n\nhandler Zero: Cell[Int] {\n  fn get() { 0 }\n}\n\nfn read() -> Int use Cell[Int] {\n  cell = use Cell[Int]\n  cell.get()\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1068,7 +1068,7 @@ fn hover_shows_effect_type_args() {
     };
     assert_eq!(
         text(client.hover("/app/src/main.emel", 4, 9)),
-        "```emela\nhandler Zero implements Cell[Int]\n```"
+        "```emela\nhandler Zero: Cell[Int]\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
@@ -1085,7 +1085,7 @@ fn hover_shows_effect_type_args() {
 /// is visible; outside it only the set type parameter remains.
 #[test]
 fn hover_shows_mixed_effect_sets() {
-    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent implements Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
+    let src = "effect Quiet {\n  fn hush() -> ()\n}\n\nhandler Silent: Quiet {\n  fn hush() { () }\n}\n\nfn run[R](f: fn() -> () use { Quiet, R }) -> () use R {\n  with Silent { f() }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -1280,7 +1280,7 @@ fn syntax_navigation_works_with_parse_only_and_utf16() {
 
 #[test]
 fn type_and_implementation_navigation_with_type_errors() {
-    let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n}\nimpl Speak for Boxed {\n  fn speak(self) { \"boxed\" }\n}\nimpl Speak for Choice {\n  fn speak(self) { \"choice\" }\n}\n";
+    let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n}\nimpl Boxed: Speak {\n  fn speak(self) { \"boxed\" }\n}\nimpl Choice: Speak {\n  fn speak(self) { \"choice\" }\n}\n";
     let text = "import Data.{Boxed, Speak}\nfn call(item: Boxed) {\n  copy = item\n  Speak.speak(copy)\n}\nfn broken() -> Int { missing }\n";
     let mut client = Client::initialize(
         &[
@@ -1345,7 +1345,7 @@ effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
@@ -1440,7 +1440,7 @@ fn definition_of_names() {
         location(MAIN, (3, 7), (3, 13))
     );
     assert_eq!(
-        client.definition(MAIN, 7, 25),
+        client.definition(MAIN, 7, 17),
         location(MAIN, (3, 7), (3, 13))
     );
     assert_eq!(
@@ -1584,7 +1584,7 @@ fn document_symbols_list_declarations() {
     );
     // An open document uses unsaved contents. Declarations that parsed are listed despite syntax
     // errors.
-    let src = "enum Color { Red\n Green }\n\nconst MAX: Int = 3\n\ntrait Named {\n  fn name(self) -> String\n}\n\nimpl Named for Color {\n  fn name(self) { \"c\" }\n}\n\nfn broken( {\n";
+    let src = "enum Color { Red\n Green }\n\nconst MAX: Int = 3\n\ntrait Named {\n  fn name(self) -> String\n}\n\nimpl Color: Named {\n  fn name(self) { \"c\" }\n}\n\nfn broken( {\n";
     client.open("/app/src/other.emel", 1, src);
     assert_eq!(
         outline(&client.document_symbols("/app/src/other.emel").unwrap()),
@@ -1592,7 +1592,7 @@ fn document_symbols_list_declarations() {
             "Color Enum [Red EnumMember, Green EnumMember]",
             "MAX Constant",
             "Named Interface [name Method]",
-            "impl Named for Color Namespace [name Method]",
+            "impl Color: Named Namespace [name Method]",
             "broken Function",
         ]
     );
@@ -1808,7 +1808,7 @@ const PIPE_MAIN: &str = "effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
@@ -2068,7 +2068,7 @@ fn apply[A](f: fn() -> A) {
 
 #[test]
 fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
-    let main = "enum Color { Red, Blue }\nfn color(x: Color) -> Int { x match { Red -> 1 } }\nfn first(count: Int) -> Int { cout }\nfn second(total: Int) -> Int { tota }\ntrait Show { fn show(self) -> String }\nimpl Show for Color {}\n";
+    let main = "enum Color { Red, Blue }\nfn color(x: Color) -> Int { x match { Red -> 1 } }\nfn first(count: Int) -> Int { cout }\nfn second(total: Int) -> Int { tota }\ntrait Show { fn show(self) -> String }\nimpl Color: Show {}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     // Read the workspace's first diagnostics, or they can arrive after the last response and
@@ -2122,13 +2122,13 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
 
 #[test]
 fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
-    let main = "type User(id: Int)\ntrait Label {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Label for User {\n  fn show(self) { \"user\" }\n}\nimpl Label for Int {}\n";
+    let main = "type User(id: Int)\ntrait Label {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl User: Label {\n  fn show(self) { \"user\" }\n}\nimpl Int: Label {}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
     assert_eq!(codes(&published), ["E0325", "E0325"]);
-    assert_eq!(published.diagnostics[0].range, range((6, 0), (6, 19)));
-    assert_eq!(published.diagnostics[1].range, range((9, 0), (9, 18)));
+    assert_eq!(published.diagnostics[0].range, range((6, 0), (6, 16)));
+    assert_eq!(published.diagnostics[1].range, range((9, 0), (9, 15)));
     let id = client.request(
         CodeActionRequest::METHOD,
         json!({
@@ -2161,7 +2161,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
         published.diagnostics[1].message,
         "incomplete impl: missing methods `show`, `merge`"
     );
-    for at in [(6, 0), (6, 5), (6, 18)] {
+    for at in [(6, 0), (6, 5), (6, 15)] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].title, "Implement missing trait methods");
@@ -2246,7 +2246,7 @@ effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
@@ -2298,11 +2298,11 @@ const CAPABILITY_MAIN: &str = "effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
-handler Loud implements Logger {
+handler Loud: Logger {
   fn info(msg) { () }
 }
 
@@ -2460,7 +2460,7 @@ fn completion_after_dot_chains() {
 /// After a handler value (`self.`), its fields are offered (spec 8.4).
 #[test]
 fn completion_of_handler_fields() {
-    let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int) implements Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
+    let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int): Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let items = client.complete(MAIN, 6, 21).unwrap();
@@ -2700,7 +2700,7 @@ fn docs_use_definition_spans_across_modules_and_std() {
 
 #[test]
 fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
-    let text = "## Returns a count.\nfn count(value: Int) -> Int { value }\n## A record.\ntype Point(value: Int)\ntrait Read { fn read(self) -> Int }\n## Implements reading.\nimpl Read for Point {\n  ## Reads the field.\n  fn read(self) { self.value }\n}\nfn main() -> Int { count(1) }\nfn broken() -> Int { cont(2) }\n";
+    let text = "## Returns a count.\nfn count(value: Int) -> Int { value }\n## A record.\ntype Point(value: Int)\ntrait Read { fn read(self) -> Int }\n## Implements reading.\nimpl Point: Read {\n  ## Reads the field.\n  fn read(self) { self.value }\n}\nfn main() -> Int { count(1) }\nfn broken() -> Int { cont(2) }\n";
     let mut client = Client::initialize(
         &[("/app/Pome.toml", ""), (MAIN, text)],
         None,
@@ -2770,7 +2770,7 @@ fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
         &mut client,
         "textDocument/documentHighlight",
         text,
-        "impl Read for Point {",
+        "impl Point: Read {",
         20,
     );
     assert_eq!(empty, json!([]));
@@ -2779,7 +2779,7 @@ fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
             &mut client,
             HoverRequest::METHOD,
             text,
-            "impl Read for Point {",
+            "impl Point: Read {",
             20
         )
         .is_null()

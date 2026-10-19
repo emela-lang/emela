@@ -14,15 +14,15 @@ effect Debug of Log default
 effect AuditA of Log
 effect AuditB of Log
 
-handler PrintLog implements Log {
+handler PrintLog: Log {
   fn log(msg) { print("print: #{msg}") }
 }
 
-handler AuditLog implements Log {
+handler AuditLog: Log {
   fn log(msg) { print("audit: #{msg}") }
 }
 
-handler Tagged(tag: String) implements Log {
+handler Tagged(tag: String): Log {
   init {
     print("open")
     Tagged(tag: "t")

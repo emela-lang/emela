@@ -192,10 +192,7 @@ impl Dumper<'_> {
             Item::Handler(h) => {
                 let effect = self.res(h.effect);
                 let args = self.ty_args(&h.effect_args);
-                self.line(
-                    0,
-                    format!("handler {name}{flags} implements {effect}{args}"),
-                );
+                self.line(0, format!("handler {name}{flags}: {effect}{args}"));
                 for field in &h.fields {
                     let ty = self.ty(field.ty);
                     self.line(1, format!("field {}: {ty}", field.name));
@@ -250,7 +247,8 @@ impl Dumper<'_> {
             Item::Impl(i) => {
                 let trait_ref = self.res(i.trait_ref);
                 let self_ty = i.self_ty.map(|t| self.ty(t)).unwrap_or_default();
-                self.line(0, format!("impl {trait_ref} for {self_ty}"));
+                self.line(0, format!("impl {self_ty}: {trait_ref}"));
+                self.type_params(1, &i.type_params);
                 for f in &i.fns {
                     let target = self.res(f.trait_fn);
                     self.line(1, format!("fn {} -> {target}", f.name.name));

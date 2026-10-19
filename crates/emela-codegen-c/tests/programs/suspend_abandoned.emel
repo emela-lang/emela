@@ -9,7 +9,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -24,7 +24,7 @@ effect Name {
   fn name() -> String
 }
 
-handler Res(label: String) implements Name {
+handler Res(label: String): Name {
   init {
     print("init res")
     Res(label: "res")
@@ -34,7 +34,7 @@ handler Res(label: String) implements Name {
 }
 
 ## A release that suspends: not interrupted while it runs (spec 11.4).
-handler SlowRes implements Name {
+handler SlowRes: Name {
   init {
     print("init slow")
     SlowRes

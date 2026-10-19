@@ -5,13 +5,13 @@ pub effect State[S] {
   fn update(f: fn(S) -> S) -> ()
 }
 
-handler Fixed implements State[Int] {
+handler Fixed: State[Int] {
   fn get() { 0 }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler Lines implements Core.State[List[String]] {
+handler Lines: Core.State[List[String]] {
   fn get() { [] }
   fn set(value) { () }
   fn update(f) { () }

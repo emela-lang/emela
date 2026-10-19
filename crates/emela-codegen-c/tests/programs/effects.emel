@@ -12,11 +12,11 @@ effect Store {
   fn get(key: String) -> String
 }
 
-handler PrintLog implements Log {
+handler PrintLog: Log {
   fn log(msg) { print("log: #{msg}") }
 }
 
-handler Prefixed(prefix: String) implements Store {
+handler Prefixed(prefix: String): Store {
   init {
     (use Log).log("open")
     Prefixed(prefix: "p")
@@ -29,7 +29,7 @@ handler Prefixed(prefix: String) implements Store {
   fn get(key) { "#{self.prefix}/#{key}" }
 }
 
-handler Counter(start: Int) implements Store {
+handler Counter(start: Int): Store {
   init { Counter(start: 10) }
   fn get(key) { "#{key}=#{self.start}" }
 }

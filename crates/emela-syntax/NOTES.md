@@ -51,7 +51,7 @@
 - （補）1つの fn の同じターゲットの `@external` は，2つ目以降のターゲットの名前に E0139．知らないターゲットは E0140 だけを出し，重複は数えない
 - （補）`@external type` の注釈に引数の並びがあれば，空の `()` でも E0141（12.3）．同じ type に引数のない `@external` が2つあっても診断しない
 - （補）引数の読めなかった注釈（中に ERROR があるもの）は，構文の診断が出ているので `@external` の形を見ない
-- （補）エフェクトの型引数（8.1）．`effect State[S]` の型引数は type や enum と同じ TYPE_PARAM_LIST．`implements State[Int]` と `use State[Int]` の型引数は，PATH の後ろの兄弟の TYPE_ARG_LIST にする（IMPLEMENTS_CLAUSE と USE_EXPR の PATH の親は今までどおり）．効果の集合の要素の `State[Int]`（`use { State[Int], Log }`）は，PATH と TYPE_ARG_LIST を PATH_TYPE で包む．集合の中では要素ごとに型引数を対応させるため．型引数を書かなければ今までどおり PATH だけ
+- （補）エフェクトの型引数（8.1）．`effect State[S]` の型引数は type や enum と同じ TYPE_PARAM_LIST．`handler H: State[Int]` と `use State[Int]` の型引数は，PATH の後ろの兄弟の TYPE_ARG_LIST にする（HANDLER_EFFECT と USE_EXPR の PATH の親は今までどおり）．効果の集合の要素の `State[Int]`（`use { State[Int], Log }`）は，PATH と TYPE_ARG_LIST を PATH_TYPE で包む．集合の中では要素ごとに型引数を対応させるため．型引数を書かなければ今までどおり PATH だけ
 - （補）17.4 の `effect_item = type_ref | upper_name` を `type_ref [ "[" type { "," type } "]" ] | upper_name` に広げた（指示書の `use { State[Int], Log }`）．17.3 の handler_decl と 17.5 の `use` は仕様の文法どおり．並びの中身は名前付き型の型引数と同じ type_arg で読み，集合を書いたら型推論が E0324 にする．空の `[]` も読む（fn の型引数の `[]` と同じ）
 - （補）エフェクトの操作の型引数（17.3 の op_sig の `[ type_params ]`）は，fn の宣言と同じ TYPE_PARAM_LIST として名前の直後に読む．組み込みのエフェクトだけに許すことは型検査が見る（E0426）
 - （補）`await` を将来のための予約語（3.3）から外した．11.5 の `Fiber.await` と 11.7 の `Deferred.await` が関数名に使うため（進行役と合意．仕様の 3.3 の更新は進行役が持つ）
@@ -61,3 +61,6 @@
 - （補）2.5 の規則1の `match` は，`match` の次の意味のあるトークンが `{` のときだけ前の行に続ける．`match` の後ろが `{` でなければ前置の match なので，新しい文として読んで E0142 を出す（続けてしまうと「`{` がない」という分かりにくい誤りになる）．後置の match は必ず `match {` なので，正しいプログラムの読み方は仕様と変わらない
 - （補）エフェクトのラベル（issue #255）．`effect AuditLog of Console [default]` は EFFECT_DECL の名前の後ろに EFFECT_LABEL（`of`，PATH，型引数があれば TYPE_ARG_LIST，`default`）を置き，本体の ITEM_LIST を持たない．`of` と `default` は文脈依存の語で，LOWER_NAME のまま読む．ラベルの宣言の後ろに `{ ... }` を書けば，宣言の後ろの改行がないので E0122 になる
 - （補）`with` の項目の `AuditLog by HandlerA` は，2つの PATH と `by`（LOWER_NAME）を WITH_BY で包む．右の PATH の後ろには型引数（TYPE_ARG_LIST，`Hits by State[Int]`）を置ける．`by` のない項目は今までどおり PATH だけを並べる．`by` の右に置けるもの（handler，ラベル，エフェクト）は名前解決と型検査が見る
+- （補）impl の頭（10.2，17.3）．`impl Map[K: Eq, V: Eq]: Eq` の型と型引数（PATH と TYPE_PARAM_LIST）を IMPL_TYPE で包み，`:` の後ろの Trait は IMPL_DECL の直下の PATH にする．型引数の並びは fn の型引数と同じ TYPE_PARAM_LIST で読むので，`List[Int]` や `Pair[A, A]` も構文としては通る．頭の形の検査（E0328）は型検査に任せる
+- （補）handler の頭（8.4）の `:` は HANDLER_DECL の直下に置き，後ろのエフェクトと型引数を HANDLER_EFFECT で包む．`trait Ord: Eq` の `:` と同じ並びなので，fmt は `:` の前に空白を置かない
+- （補）前の形（`impl Show for User`，`impl[A: Eq] Box[A]: Eq`，`handler H implements E`）も木にしてから診断を出す．`for` の前の名前を Trait の PATH に，後ろを IMPL_TYPE にし，`implements` は HANDLER_DECL の直下に置いて読み飛ばす．名前解決と型検査が書き換えた後と同じ形で続けられるようにするため

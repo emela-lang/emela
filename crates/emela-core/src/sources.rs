@@ -277,7 +277,7 @@ mod tests {
                 assert!(
                     core_source(module)
                         .unwrap()
-                        .contains(&format!("pub handler {h} ")),
+                        .contains(&format!("pub handler {h}: ")),
                     "{module} has no {h}"
                 );
             }

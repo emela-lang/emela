@@ -129,7 +129,7 @@ fn greet(id: Int) -> () use { Console } {
   (use Console).print_line("Hello, alice!")
 }
 
-handler TestConsole implements Console {
+handler TestConsole: Console {
   fn print_line(text) {
     st = use State[List[String]]
     st.set([text, ..st.get()])
@@ -159,7 +159,7 @@ import Std.State.{State}
 import Std.Instant.{Instant}
 import Std.Duration.{Duration}
 
-handler TestClock implements Clock {
+handler TestClock: Clock {
   suspend fn sleep(ms, resume) {
     (use State[Instant]).update(fn(t) { Instant.add(t, Duration.milliseconds(Int64.from_int(ms))) })
     resume(())
@@ -191,13 +191,13 @@ fn distinct_by_type_args() {
         r#"
 import Std.State.{State}
 
-handler Zero implements State[Int] {
+handler Zero: State[Int] {
   fn get() { 0 }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler Empty implements State[String] {
+handler Empty: State[String] {
   fn get() { "" }
   fn set(value) { () }
   fn update(f) { () }
@@ -278,13 +278,13 @@ effect Raise[E] {
   fn guard(f: fn() -> () fails E) -> ()
 }
 
-handler Generic implements State {
+handler Generic: State {
   fn get() { 0 }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler TooMany implements State[Int, String] {
+handler TooMany: State[Int, String] {
   fn get() { 0 }
   fn set(value) { () }
   fn update(f) { () }
@@ -309,7 +309,7 @@ fn as_type(x: State[Int]) { () }
 
 /// State handlers with different type arguments in layers and `with`. Only those with the same
 /// type arguments are duplicates (E0421), and the later one wins. Handler operation
-/// implementations are checked against the `implements` types.
+/// implementations are checked against the types in the handler head.
 #[test]
 fn handlers_and_layers() {
     insta::assert_snapshot!(render(
@@ -317,31 +317,31 @@ fn handlers_and_layers() {
 import Std.Console.{Console}
 import Std.State.{State}
 
-handler Zero implements State[Int] {
+handler Zero: State[Int] {
   fn get() { 0 }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler One implements State[Int] {
+handler One: State[Int] {
   fn get() { 1 }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler Empty implements State[String] {
+handler Empty: State[String] {
   fn get() { "" }
   fn set(value) { () }
   fn update(f) { () }
 }
 
-handler Wrong implements State[Int] {
+handler Wrong: State[Int] {
   fn get() { "x" }
   fn set(value) { value + 1 }
   fn update(f) { () }
 }
 
-handler Reads implements Console {
+handler Reads: Console {
   fn print_line(text) {
     n = (use State[Int]).get()
     ()

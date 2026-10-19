@@ -163,7 +163,7 @@ fn method_name(method: Method) -> String {
 ## The host's HTTP client (JS `fetch`). It follows redirects, keeps no cookies and ignores the
 ## proxy environment variables. Interrupting the fiber waiting on `send` aborts the request
 ## (spec 12.2).
-pub handler SystemHttp implements Http {
+pub handler SystemHttp: Http {
   suspend fn send(request, resume) {
     start = host_request(method_name(request.method), request.url, request.body)
     req = List.fold(request.headers, from: start, f: fn(req, pair) {
@@ -199,7 +199,7 @@ pub type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Re
 ##
 ## `send` adds the request to `sent` and resumes at once. It never fails with InvalidUrl or
 ## ResponseNotText.
-pub handler TestHttp implements Http {
+pub handler TestHttp: Http {
   suspend fn send(request, resume) {
     st = use State[TestServer]
     server = st.get()

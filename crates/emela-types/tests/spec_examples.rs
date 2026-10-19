@@ -679,12 +679,12 @@ effect Db {  # 補
   fn execute(rows: Rows) -> ()
 }
 
-handler PrimaryDb implements Db {  # 補
+handler PrimaryDb: Db {  # 補
   fn query(q) { Rows(n: 0) }
   fn execute(rows) { () }
 }
 
-handler ReplicaDb implements Db {  # 補
+handler ReplicaDb: Db {  # 補
   fn query(q) { Rows(n: 1) }
   fn execute(rows) { () }
 }
@@ -723,11 +723,11 @@ effect Clock {  # 補
 @external(js, "console.log")  # 補
 fn console_log(msg: String) -> ()
 
-handler ConsoleLogger implements Logger {
+handler ConsoleLogger: Logger {
   fn info(msg) { console_log(msg) }
 }
 
-handler FixedClock implements Clock {  # 補
+handler FixedClock: Clock {  # 補
   fn now() { 0 }
 }
 
@@ -759,7 +759,7 @@ effect Clock {  # 補
   fn now() -> Int
 }
 
-handler ConsoleLogger implements Logger {  # 補
+handler ConsoleLogger: Logger {  # 補
   fn info(msg) { () }
 }
 
@@ -801,14 +801,14 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> ()
 @external(js, "Date.now")  # 補
 fn date_now() -> Instant
 
-handler SystemClock implements Clock {
+handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
   fn now() { date_now() }
 }
 
-handler InstantClock implements Clock {  # 補
+handler InstantClock: Clock {  # 補
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { Instant(ms: 0) }
 }

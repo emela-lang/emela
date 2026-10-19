@@ -138,7 +138,7 @@ fn missing_c_external_is_e0412() {
     let main = r##"@external(js, "Date.now")
 fn now() -> Float
 
-handler Clock implements Tick {
+handler Clock: Tick {
   fn tick() { now() }
 }
 
@@ -547,7 +547,7 @@ effect Host {
   suspend fn again_threaded() -> Int
 }
 
-handler CHost implements Host {
+handler CHost: Host {
   suspend fn double(n, ms, resume) { resume(host_double(n, ms)) }
   suspend fn greet(name, resume) { resume(host_greet(name)) }
   suspend fn threaded(n, resume) { resume(host_threaded(n)) }

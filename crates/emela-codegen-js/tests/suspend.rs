@@ -131,7 +131,7 @@ fn clock(m: &mut Module) -> EffectId {
     ))
 }
 
-/// The function of `handler name implements Clock { suspend fn sleep(ms, resume) { body(ms, resume) } }`.
+/// The function of `handler Name: Clock { suspend fn sleep(ms, resume) { body(ms, resume) } }`.
 fn clock_handler(
     m: &mut Module,
     clock: EffectId,

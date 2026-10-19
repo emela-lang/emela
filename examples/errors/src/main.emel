@@ -12,7 +12,7 @@ effect Users {
   fn find(id: Int) -> User fails NotFound
 }
 
-handler SampleUsers implements Users {
+handler SampleUsers: Users {
   fn find(id) {
     id match {
       1 -> User(id: 1, name: "alice")
@@ -46,7 +46,7 @@ fn main() {
 }
 
 # Tests swap the handler instead of mocking.
-handler NoUsers implements Users {
+handler NoUsers: Users {
   fn find(id) { fail NotFound(id:) }
 }
 

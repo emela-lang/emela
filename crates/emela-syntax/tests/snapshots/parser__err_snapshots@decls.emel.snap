@@ -166,7 +166,7 @@ ROOT@0..421
     ERROR@284..285
       UPPER_NAME@284..285 "H"
     WHITESPACE@285..286 " "
-    IMPLEMENTS_CLAUSE@286..292
+    HANDLER_EFFECT@286..292
       PATH@286..292
         TYPE_NAME@286..292 "Logger"
     WHITESPACE@292..293 " "
@@ -197,12 +197,12 @@ ROOT@0..421
   IMPL_DECL@318..357
     IMPL_KW@318..322 "impl"
     WHITESPACE@322..323 " "
-    PATH@323..327
-      TYPE_NAME@323..327 "Show"
+    IMPL_TYPE@323..327
+      PATH@323..327
+        TYPE_NAME@323..327 "Show"
     WHITESPACE@327..328 " "
-    PATH_TYPE@328..332
-      PATH@328..332
-        TYPE_NAME@328..332 "User"
+    PATH@328..332
+      TYPE_NAME@328..332 "User"
     WHITESPACE@332..333 " "
     ITEM_LIST@333..357
       L_BRACE@333..334 "{"
@@ -286,8 +286,8 @@ error[E0129]@43..49: derive rules in traits are not supported yet
 error[E0110]@249..250: expected `->`
 error[E0110]@252..255: expected operation (`fn`)
 error[E0110]@284..285: expected type name
-error[E0110]@286..292: expected `implements`
-error[E0110]@328..332: expected `for`
+error[E0110]@286..292: expected `:`
+error[E0110]@328..332: expected `:`
 error[E0110]@364..369: expected upper name
 error[E0110]@384..385: expected `=`
 error[E0110]@392..393: expected type name

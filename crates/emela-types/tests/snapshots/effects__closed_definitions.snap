@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet implements Logger {\n  fn info(msg) { () }\n}\n\nconst C: () = (use Logger).info(\"c\")\n\nfn main() {\n  (use Logger).info(\"main\")\n}\n\nfn test_inside() {\n  with Quiet { (use Logger).info(\"ok\") }\n}\n\nfn test_outside() -> () use Logger {\n  (use Logger).info(\"t\")\n}\n\"#)"
+expression: "render_effects(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nconst C: () = (use Logger).info(\"c\")\n\nfn main() {\n  (use Logger).info(\"main\")\n}\n\nfn test_inside() {\n  with Quiet { (use Logger).info(\"ok\") }\n}\n\nfn test_outside() -> () use Logger {\n  (use Logger).info(\"t\")\n}\n\"#)"
 ---
 main: fn() -> () use Logger
 test_inside: fn() -> ()

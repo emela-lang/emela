@@ -53,7 +53,7 @@ effect Ask {
   fn ask() -> Int
 }
 
-handler Fixed(n: Int) implements Ask {
+handler Fixed(n: Int): Ask {
   init { Fixed(n: 2) }
   release { print("bye") }
   fn ask() { self.n }
@@ -99,7 +99,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
 
-handler Instant implements Clock {
+handler Instant: Clock {
   suspend fn sleep(ms, resume) { resume(ms + 1) }
 }
 

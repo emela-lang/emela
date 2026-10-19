@@ -61,7 +61,7 @@ fn highlights_respect_binding_identity_and_file() {
 #[test]
 fn nominal_types_and_trait_implementations_survive_errors() {
     let text = "import Data.{Boxed, Choice, One, Speak}\nfn use_it(item: Boxed, choice: Choice) {\n  copy = item\n  copy\n  choice\n}\nfn broken() -> Int { missing }\nfn call(item: Boxed) { Speak.speak(item) }\n";
-    let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n  fn fallback(self) -> String { \"default\" }\n}\nimpl Speak for Boxed {\n  fn speak(self) { \"boxed\" }\n}\nimpl Speak for Choice {\n  fn speak(self) { \"choice\" }\n}\n";
+    let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n  fn fallback(self) -> String { \"default\" }\n}\nimpl Boxed: Speak {\n  fn speak(self) { \"boxed\" }\n}\nimpl Choice: Speak {\n  fn speak(self) { \"choice\" }\n}\n";
     let (analysis, program) = checked(&[
         ("/app/Pome.toml", ""),
         ("/app/src/main.emel", text),
@@ -87,7 +87,7 @@ fn nominal_types_and_trait_implementations_survive_errors() {
     assert!(
         targets
             .iter()
-            .all(|t| spelling(&analysis, t).starts_with("impl Speak for"))
+            .all(|t| spelling(&analysis, t).contains(": Speak"))
     );
     let targets = Typecheck::implementations(&program, &analysis, file, at(text, "speak(item)"));
     assert_eq!(targets.len(), 2);

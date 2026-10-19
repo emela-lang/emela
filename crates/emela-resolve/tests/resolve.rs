@@ -308,7 +308,7 @@ fn effects_chapter_8() {
             "app.emel",
             r##"import Effects.{Logger, Users, Clock, Config, User, NotFound}
 
-pub handler ConsoleLogger implements Logger {
+pub handler ConsoleLogger: Logger {
   fn info(msg) { console_log(msg) }
 }
 
@@ -324,7 +324,7 @@ fn pg_close(conn: Connection) -> ()
 @external
 type Connection
 
-pub handler PostgresUsers(conn: Connection) implements Users {
+pub handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
     PostgresUsers(conn: pg_connect(config.db_url()))
@@ -337,11 +337,11 @@ pub handler PostgresUsers(conn: Connection) implements Users {
   fn find(id) { todo() }
 }
 
-pub handler EnvConfig implements Config {
+pub handler EnvConfig: Config {
   fn db_url() { "postgres://" }
 }
 
-pub handler JsClock implements Clock {
+pub handler JsClock: Clock {
   suspend fn sleep(ms, resume) {
     resume(())
   }
@@ -432,8 +432,14 @@ pub trait Compare: Eq {
 type User(id: Int, name: String)
   derive Eq, Show
 
-impl Show for User {
+impl User: Show {
   fn show(self) { "User(#{self.name})" }
+}
+
+type Pair[A, B](first: A, second: B)
+
+impl Pair[A: Eq, B: Eq]: Eq {
+  fn eq(self, other) { Eq.eq(self.first, other.first) }
 }
 
 fn largest[A: Ord + Show](xs: List[A]) -> Option[A] {
@@ -575,7 +581,7 @@ error NotFound(id: Int)
 effect Logger {
   fn info(msg: String) -> ()
 }
-handler Console implements User {
+handler Console: User {
   fn info(msg) { self }
 }
 layer App { Logger, Console }
@@ -595,7 +601,7 @@ fn f(x: Logger) -> Int fails User use Console {
 
 fn g(self) -> Self { 1 }
 
-impl Show for User {
+impl User: Show {
   fn display(self) { "" }
 }
 "##,
@@ -650,7 +656,7 @@ enum Shape {
 effect Counter {
   fn get() -> Int
 }
-handler Fixed(value: Int) implements Counter {
+handler Fixed(value: Int): Counter {
   init { Fixed(value: 0) }
   fn get() {
     next = Fixed(value: 1, ..self)

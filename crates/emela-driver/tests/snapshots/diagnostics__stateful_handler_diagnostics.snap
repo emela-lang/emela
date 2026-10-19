@@ -14,7 +14,7 @@ error[E0420]: `release` of handler `Counter` cannot fail, but this may fail with
 error[E0419]: handler `NoInit` has fields but no `init`
     ╭─[ main.emel:23:9 ]
     │
- 23 │ handler NoInit(n: Int) implements Logger {
+ 23 │ handler NoInit(n: Int): Logger {
     │         ───┬──  
     │            ╰──── 
 ────╯
