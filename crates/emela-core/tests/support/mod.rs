@@ -91,7 +91,7 @@ pub fn try_lower_with(
         types: &types,
         modules: &modules,
         sources: texts.clone(),
-        entry,
+        entry: Some(entry),
         tests: Vec::new(),
         paths: Default::default(),
         bundled_files,

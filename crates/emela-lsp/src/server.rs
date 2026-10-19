@@ -4,6 +4,8 @@
 // so it is safe as a key.
 #![allow(clippy::mutable_key_type)]
 
+mod navigation;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -14,9 +16,11 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
+    CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
+    FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, GotoTypeDefinition,
+    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    SelectionRangeRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
+    SignatureHelpRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -45,6 +49,12 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
         definition_provider: Some(lsp::OneOf::Left(true)),
         references_provider: Some(lsp::OneOf::Left(true)),
+        document_highlight_provider: Some(lsp::OneOf::Left(true)),
+        workspace_symbol_provider: Some(lsp::OneOf::Left(true)),
+        folding_range_provider: Some(lsp::FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(lsp::SelectionRangeProviderCapability::Simple(true)),
+        type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
+        implementation_provider: Some(lsp::ImplementationProviderCapability::Simple(true)),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
         signature_help_provider: Some(lsp::SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
@@ -257,6 +267,18 @@ where
                     format!("invalid params: {err}"),
                 ),
             },
+            DocumentHighlightRequest::METHOD => {
+                respond(request, |params| self.document_highlights(&params))
+            }
+            WorkspaceSymbolRequest::METHOD => {
+                respond(request, |params| self.workspace_symbols(&params))
+            }
+            FoldingRangeRequest::METHOD => respond(request, |params| self.folding_ranges(&params)),
+            SelectionRangeRequest::METHOD => {
+                respond(request, |params| self.selection_ranges(&params))
+            }
+            GotoTypeDefinition::METHOD => respond(request, |params| self.type_definition(&params)),
+            GotoImplementation::METHOD => respond(request, |params| self.implementations(&params)),
             GotoDefinition::METHOD => respond(request, |params| self.definition(&params)),
             References::METHOD => respond(request, |params| self.references(&params)),
             DocumentSymbolRequest::METHOD => {
@@ -807,11 +829,13 @@ fn parse<N: lsp::notification::Notification>(notification: Notification) -> Opti
 
 /// Adds the project's dependencies from the cache. The language server does not go to the
 /// network (spec 4.7): a dependency missing from the cache, or a missing lock, is a diagnostic on
-/// `Pome.toml`, and the project is checked without dependencies.
-fn with_dependencies(fs: &dyn FileSystem, mut input: Input) -> (Input, Option<Diagnostic>) {
+/// `Pome.toml`, and the project is checked without dependencies. The test root and
+/// `[dev-dependencies]` are read too, like `emela check`.
+fn with_dependencies(fs: &dyn FileSystem, input: Input) -> (Input, Option<Diagnostic>) {
     if input.single_file {
         return (input, None);
     }
+    let mut input = input.with_tests(fs);
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);
@@ -821,7 +845,7 @@ fn with_dependencies(fs: &dyn FileSystem, mut input: Input) -> (Input, Option<Di
             config.sources.clear();
             let fetcher =
                 emela_pome::fetch::Fetcher::new(config, emela_pome::fetch::transport::Http::new());
-            emela_driver::project_dependencies(fs, &input.base, &fetcher)
+            emela_driver::project_dependencies(fs, &input.base, &fetcher, true)
         });
     match result {
         Ok(dependencies) => {

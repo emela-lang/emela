@@ -5,9 +5,10 @@
 //! symbols come from the syntax tree alone.
 
 use emela_resolve::ModuleId;
-use emela_resolve::hir::{DefId, DefKind, ExprKind, LocalId, PatKind, RefTarget, Span};
+use emela_resolve::hir::{DefId, DefKind, ExprKind, Item, LocalId, PatKind, RefTarget, Res, Span};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use emela_types::Ty;
 use line_index::{TextRange, TextSize};
 
 use crate::frontend::TypedProgram;
@@ -70,6 +71,122 @@ pub(crate) fn references(
     let mut targets: Vec<NavTarget> = spans
         .into_iter()
         .filter_map(|span| target(analysis, span))
+        .collect();
+    targets.sort_by_key(|t| (t.file, t.range.start(), t.range.end()));
+    targets.dedup();
+    targets
+}
+
+/// Same-file references, including declarations. Bindings are immutable (spec 6.3), so all
+/// occurrences are text highlights rather than reads and writes.
+pub(crate) fn document_highlights(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Vec<TextRange> {
+    references(program, analysis, file, offset, true)
+        .into_iter()
+        .filter(|t| t.file == file)
+        .map(|t| t.range)
+        .collect()
+}
+
+/// The outer nominal type of the name or smallest expression. No target for structural,
+/// primitive, unknown or function types, or definitions without source.
+pub(crate) fn type_definition(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Option<NavTarget> {
+    let module = module_of(analysis, file)?;
+    let types = &program.types;
+    let ty = match symbol_at(program, module, offset) {
+        Some(Symbol::Local(local)) => types.locals.get(local),
+        Some(Symbol::Def(def))
+            if matches!(
+                program.hir.defs[def].kind,
+                DefKind::Type
+                    | DefKind::Enum
+                    | DefKind::Trait
+                    | DefKind::Error
+                    | DefKind::Handler
+                    | DefKind::Effect
+            ) =>
+        {
+            return target(analysis, program.hir.defs[def].span?);
+        }
+        _ => None,
+    };
+    let ty = ty
+        .or_else(|| {
+            program
+                .hir
+                .exprs
+                .iter()
+                .filter(|(_, e)| e.span.module == module && e.span.range.contains(offset))
+                .min_by_key(|(_, e)| e.span.range.len())
+                .and_then(|(expr, _)| types.exprs.get(expr))
+        })
+        .or_else(|| match symbol_at(program, module, offset)? {
+            Symbol::Def(def) => Some(&types.sigs.get(def)?.scheme.ty),
+            _ => None,
+        })?;
+    let def = match ty {
+        Ty::Named(con, _) => types.ty_table.def(*con),
+        Ty::Cap(tag) => tag.def,
+        _ => return None,
+    };
+    target(analysis, program.hir.defs[def].span?)
+}
+
+/// Explicit impls of a trait, or the matching methods for a trait method. An omitted default
+/// method points at the impl block. Generated/builtin impls have no source target.
+pub(crate) fn implementations(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Vec<NavTarget> {
+    let Some(module) = module_of(analysis, file) else {
+        return Vec::new();
+    };
+    let Some(Symbol::Def(def)) = symbol_at(program, module, offset) else {
+        return Vec::new();
+    };
+    let data = &program.hir.defs[def];
+    let (trait_def, method) = match data.kind {
+        DefKind::Trait => (def, None),
+        DefKind::TraitFn => {
+            let Some(parent) = data.parent else {
+                return Vec::new();
+            };
+            (parent, Some(def))
+        }
+        _ => return Vec::new(),
+    };
+    let mut targets: Vec<_> = program
+        .hir
+        .items
+        .iter()
+        .filter_map(|(def, item)| {
+            let Item::Impl(item) = item else {
+                return None;
+            };
+            if item.trait_ref != Res::Def(trait_def) {
+                return None;
+            }
+            let span = method
+                .and_then(|method| {
+                    item.fns
+                        .iter()
+                        .find(|f| f.trait_fn == Res::Def(method))
+                        .map(|f| f.name.span)
+                })
+                .or(program.hir.defs[def].span)?;
+            target(analysis, span)
+        })
         .collect();
     targets.sort_by_key(|t| (t.file, t.range.start(), t.range.end()));
     targets.dedup();
@@ -295,7 +412,10 @@ fn symbol_at(program: &TypedProgram, module: ModuleId, offset: TextSize) -> Opti
         }
     }
     for (def, data) in hir.defs.iter() {
-        if let Some(span) = data.span {
+        // An impl's span covers the whole block, not a definition name.
+        if data.kind != DefKind::Impl
+            && let Some(span) = data.span
+        {
             add(span, Symbol::Def(def));
         }
     }
@@ -391,6 +511,57 @@ pub fn document_symbols(text: &str) -> Vec<DocumentSymbol> {
         .items()
         .filter_map(|item| item_symbol(&item))
         .collect()
+}
+
+/// A flat workspace symbol with its containing declaration or module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: SymbolKind,
+    pub target: NavTarget,
+    pub container: String,
+}
+
+/// All project modules, excluding dependencies and bundled core/std. Matching is a
+/// case-insensitive substring of the declaration's name.
+pub fn workspace_symbols(analysis: &Analysis, query: &str) -> Vec<WorkspaceSymbol> {
+    fn flatten(
+        symbols: Vec<DocumentSymbol>,
+        file: FileId,
+        container: &str,
+        query: &str,
+        out: &mut Vec<WorkspaceSymbol>,
+    ) {
+        for symbol in symbols {
+            if symbol.name.to_lowercase().contains(query) {
+                out.push(WorkspaceSymbol {
+                    name: symbol.name.clone(),
+                    kind: symbol.kind,
+                    target: NavTarget {
+                        file,
+                        range: symbol.selection,
+                    },
+                    container: container.to_owned(),
+                });
+            }
+            flatten(symbol.children, file, &symbol.name, query, out);
+        }
+    }
+    let query = query.to_lowercase();
+    let mut out = Vec::new();
+    for (module, &file) in analysis.files.iter() {
+        if analysis.modules.is_core(module) || analysis.modules.is_dependency(module) {
+            continue;
+        }
+        flatten(
+            document_symbols(analysis.sources[file].text()),
+            file,
+            &analysis.module(module).name.to_string(),
+            &query,
+            &mut out,
+        );
+    }
+    out
 }
 
 fn item_symbol(item: &ast::Item) -> Option<DocumentSymbol> {

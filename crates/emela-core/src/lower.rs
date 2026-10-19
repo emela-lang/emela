@@ -78,8 +78,9 @@ pub struct LowerInput<'a> {
     pub modules: &'a ModuleMap,
     /// Module sources, used to cut out the expression text shown when an assert fails (spec 13.2).
     pub sources: ArenaMap<ModuleId, &'a str>,
-    /// The entry module. Its definitions' IR names get no module prefix.
-    pub entry: ModuleId,
+    /// The entry module. Its definitions' IR names get no module prefix. `None` for the tests of
+    /// a project with neither `src/main.emel` nor `src/lib.emel`.
+    pub entry: Option<ModuleId>,
     /// `@test` fns (spec 13.1), not exported in a normal build. The caller has checked that normal
     /// code does not reference them (E0227), so a normal build never reaches them and drops them.
     pub tests: Vec<DefId>,
@@ -220,7 +221,7 @@ struct Lowerer<'a> {
     types: &'a ProgramTypes,
     modules: &'a ModuleMap,
     sources: &'a ArenaMap<ModuleId, &'a str>,
-    entry: ModuleId,
+    entry: Option<ModuleId>,
     tests: &'a [DefId],
     /// Comparisons collected from const patterns while lowering a pattern (`x == LIMIT()`),
     /// placed at the front of the arm's guard.
@@ -1790,7 +1791,7 @@ impl<'a> Lowerer<'a> {
 
     /// The IR function of the entry module's `main`.
     fn entry_main(&self) -> Option<FnId> {
-        let items = self.hir.modules.get(self.entry)?;
+        let items = self.hir.modules.get(self.entry?)?;
         items.items.iter().find_map(|&def| {
             let data = &self.hir.defs[def];
             (data.name == "main" && data.kind == DefKind::Fn)
@@ -2774,7 +2775,7 @@ impl<'a> Lowerer<'a> {
     fn ir_name(&self, def: DefId) -> String {
         let data = &self.hir.defs[def];
         match &data.module {
-            DefModule::Source(m) if *m == self.entry => data.name.to_string(),
+            DefModule::Source(m) if Some(*m) == self.entry => data.name.to_string(),
             DefModule::Source(m) => format!("{}.{}", self.modules[*m].name, data.name),
             DefModule::Prelude => data.name.to_string(),
             DefModule::Builtin(m) => format!("{m}.{}", data.name),
@@ -2786,7 +2787,9 @@ impl<'a> Lowerer<'a> {
     fn is_exported(&self, def: DefId) -> bool {
         let data = &self.hir.defs[def];
         data.kind == DefKind::Fn
-            && data.module == DefModule::Source(self.entry)
+            && self
+                .entry
+                .is_some_and(|entry| data.module == DefModule::Source(entry))
             && (data.is_pub || data.name == "main")
             && !self.tests.contains(&def)
     }

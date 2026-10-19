@@ -20,8 +20,11 @@ pub enum PomeCommand {
         /// Allow it, and the Pomes it brings in, to use `@external` (`[external] allow`)
         #[arg(long)]
         allow_external: bool,
+        /// Add it to `[dev-dependencies]`, for the tests under `test/` only
+        #[arg(long)]
+        dev: bool,
     },
-    /// Remove a dependency
+    /// Remove a dependency (from `[dependencies]` or `[dev-dependencies]`)
     Remove { src: String },
     /// Make Pome.lock match Pome.toml and get the dependencies
     Install,
@@ -51,7 +54,8 @@ fn run(command: PomeCommand) -> Result<ExitCode, PomeError> {
         PomeCommand::Add {
             src,
             allow_external,
-        } => report(project.add(&fetcher, &src, allow_external)?),
+            dev,
+        } => report(project.add(&fetcher, &src, allow_external, dev)?),
         PomeCommand::Remove { src } => report(project.remove(&fetcher, &src)?),
         PomeCommand::Install => report(project.install(&fetcher)?),
         PomeCommand::Update { src } => report(project.update(&fetcher, src.as_deref())?),
@@ -110,11 +114,13 @@ fn home() -> Option<PathBuf> {
 }
 
 /// The dependencies of the project at `base` for the build (`Pome.lock`, fetched if missing).
-pub fn dependencies(base: &Path) -> Result<Dependencies, PomeError> {
+/// With `tests`, `[dev-dependencies]` too.
+pub fn dependencies(base: &Path, tests: bool) -> Result<Dependencies, PomeError> {
     let config = Config::from_env(|k| std::env::var(k).ok(), home()).map_err(PomeError::Usage)?;
     emela_driver::project_dependencies(
         &emela_driver::OsFs,
         base,
         &Fetcher::new(config, Http::new()),
+        tests,
     )
 }

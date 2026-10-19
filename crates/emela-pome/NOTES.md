@@ -44,7 +44,7 @@
 - （補）`Pome.toml` は toml_edit で書き換え，コメント，並び，表の形（`{ version, module }`）を残す
 - （補）`add <src>@<version>` は今の要求より小さい version も書く（下げられる）．`@latest` と version の省略は proxy の `@latest`
 - （補）`update` は要求を上げるだけで，下げない．`[replace]` した依存の要求も上げる（`[replace]` はそのまま）
-- （補）`remove` は `[dependencies]` からだけ除き，`[replace]` は残す
+- （補）`remove` は `[dependencies]` か `[dev-dependencies]` から除き，`[replace]` は残す
 - （補）`install` は，lock にある版を lock のハッシュで確かめて取り（sumdb に問い合わせない），lock にない版だけ sumdb と照らす．依存の木をたどるときの `Pome.toml` も同じ
 - （補）`[replace]` した Pome の依存は，置き換え先のディレクトリの `Pome.toml` から読む．その `[pome].name` が置き換えた source path と違えばエラー
 - （補）`list` の1行は「source path と要求」で，選ばれた版が大きければ `-> <版>`，置き換えなら `=> <ディレクトリ>` を足す．循環はたどらない
@@ -59,7 +59,16 @@
 
 ## @external（4.7，付録 B）
 
-- （補）`@external` を含むファイルは，`.emel` のうち，行の先頭（空白を除く）が `@external` の行を持つもの．構文木は作らずに行で調べる（`#` で始まる注釈の行は数えない）
+- （補）`@external` を含むファイルは，`test/` の下を除く `.emel` のうち，行の先頭（空白を除く）が `@external` の行を持つもの．構文木は作らずに行で調べる（`#` で始まる注釈の行は数えない）
 - （補）lock の `external` は，lock にある版を使い回すときも中身から数え直す．このフィールドを持たない古い lock から `install` しても正しい一覧になる
 - （補）`add --allow-external` が許すのは，足す Pome と，この `add` で新しく lock に入った Pome のうち `@external` を使うもの．前から lock にあって許されていない Pome は，許さずにエラーのまま（`[external] allow` に手で足す）
 - （補）許されていない Pome があれば，`add`，`install`，`update`，`remove` のどれも何も書かずに止まる．`update` で `@external` のファイルが増えても，許しは source path に出しているので止めずに出力で知らせる
+
+## テストの依存（4.7）
+
+- `[dev-dependencies]` は依存されたときに読まない．依存の木をたどるとき（`requirements_of`）は `[dependencies]` だけを返す
+- MVS は `[dependencies]` と `[dev-dependencies]` を合わせて1回だけ解く．テストの依存が上げた版は通常のビルドも使う
+- （補）lock の `dev = true` は，「`[dependencies]` だけの build list にない」かつ「`[dependencies]` から，選ばれた版の要求をたどって届かない」Pome に付ける．テストの依存が共通の依存の版を上げ，その版が新しい Pome を要求したとき，その Pome は通常のビルドにも要るので `dev` にしない（`mvs::reached`）
+- （補）`add --dev` は `[dependencies]` にある Pome を指すとエラー．`--dev` のない `add` が `[dev-dependencies]` にある Pome を指すと，書いた形のまま `[dependencies]` へ移してから version を書く
+- （補）`[dev-dependencies]` が空になったら表ごと消す．`[dependencies]` は空でも残す
+- （補）`update` は両方の表の要求を上げる．`list` は `[dev-dependencies]` と lock の `dev` の Pome の行に `(dev)` を付ける
