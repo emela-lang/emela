@@ -362,3 +362,32 @@ fn multiple_errors_are_filtered_by_file_range_and_code() {
     }
     assert!(Typecheck::code_actions(&program, &analysis, file, TextRange::empty(first)).is_empty());
 }
+
+#[test]
+fn old_impl_and_handler_heads_are_rewritten() {
+    let text = "type User(id: Int)\ntrait Label {\n  fn label(self) -> String\n}\nimpl Label for User {\n  fn label(self) { \"user\" }\n}\n";
+    let actions = fixes(text, "for User", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Rewrite as `impl User: Label`");
+    assert_eq!(actions[0].diagnostics[0].code, Some("E0144"));
+    assert_clean(&apply(text, &actions[0]), &[]);
+
+    let text = "type Box[A](value: A)\ntrait Label {\n  fn label(self) -> String\n}\nimpl[A: Label] Box[A]: Label {\n  fn label(self) { \"box\" }\n}\n";
+    let actions = fixes(text, "impl[", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(text, &actions[0]);
+    assert!(edited.contains("impl Box[A: Label]: Label {"));
+    assert_clean(&edited, &[]);
+
+    let text = "effect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Quiet(level: Int) implements Logger {\n  init { Quiet(level: 0) }\n  fn info(msg) { () }\n}\n";
+    let actions = fixes(text, "implements", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].title,
+        "Rewrite as `handler Quiet(level: Int): Logger`"
+    );
+    assert_eq!(actions[0].diagnostics[0].code, Some("E0145"));
+    let edited = apply(text, &actions[0]);
+    assert!(edited.contains("handler Quiet(level: Int): Logger {"));
+    assert_clean(&edited, &[]);
+}

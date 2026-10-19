@@ -27,7 +27,7 @@ effect Users {
   suspend fn find(id: Int) -> User fails NotFound | DbError
 }
 
-handler PostgresUsers(conn: Connection) implements Users {
+handler PostgresUsers(conn: Connection): Users {
   init {
     PostgresUsers(conn: connect())
   }
@@ -39,7 +39,7 @@ handler PostgresUsers(conn: Connection) implements Users {
 
 layer AppLive { PostgresUsers, ConsoleLogger }
 
-impl Show for Shape {
+impl Shape: Show {
   fn show(self) { "shape" }
 }
 

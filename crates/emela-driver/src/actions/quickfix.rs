@@ -3,7 +3,7 @@
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefModule, ExprKind, Item};
 use emela_syntax::ast::{self, AstNode};
-use emela_syntax::{SyntaxKind, SyntaxNode};
+use emela_syntax::{DiagnosticCode, SyntaxKind, SyntaxNode, rewrite};
 use emela_types::{DiagnosticKind, EffectContext, Ty};
 use line_index::{TextRange, TextSize};
 
@@ -41,6 +41,12 @@ pub(super) fn quickfixes(
             Some(code::UNHANDLED_ERRORS | code::UNHANDLED_EFFECTS) => {
                 extend_annotation(program, analysis, module, diagnostic, &tree)
             }
+            Some(c) if c == DiagnosticCode::OldImplHead.as_str() => {
+                old_impl_head(tree.syntax(), span.range)
+            }
+            Some(c) if c == DiagnosticCode::OldHandlerHead.as_str() => {
+                old_handler_head(tree.syntax(), span.range)
+            }
             _ => None,
         };
         if let Some((title, edits)) = edits {
@@ -76,6 +82,24 @@ fn fix(title: String, diagnostic: &Diagnostic, edits: Vec<Edit>) -> CodeAction {
         diagnostics: vec![diagnostic.clone()],
         edits,
     }
+}
+
+/// `impl Show for User` -> `impl User: Show` (E0144, spec 10.2).
+fn old_impl_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let (range, head) = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::IMPL_DECL)
+        .find_map(|n| rewrite::old_impl_head(&n).filter(|(r, _)| *r == range))?;
+    Some((format!("Rewrite as `{head}`"), vec![(range, head)]))
+}
+
+/// `handler H implements E` -> `handler H: E` (E0145, spec 8.4).
+fn old_handler_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let (_, edit, head) = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::HANDLER_DECL)
+        .find_map(|n| rewrite::old_handler_head(&n).filter(|(t, _, _)| t.text_range() == range))?;
+    Some((format!("Rewrite as `{head}`"), vec![(edit, ":".to_owned())]))
 }
 
 fn nearby_name(

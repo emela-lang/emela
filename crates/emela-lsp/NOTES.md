@@ -18,7 +18,7 @@
 - `textDocument/signatureHelp` で呼び出しの型とラベルを見せる（`(` と `,` で起動する）
 - `textDocument/rename` と `textDocument/prepareRename` で名前をプロジェクト全体で変える
 - `textDocument/inlayHint` で，ソースに書かない型と E，R を行の中に出す（9.3）
-- `textDocument/codeAction` で，トップレベルの fn の省いた注釈に推論結果を挿入する（4.5）．診断に結び付く quickfix で，match の不足アーム，impl の不足メソッド，import と fails/use の不足，名前の綴り間違いを直す
+- `textDocument/codeAction` で，トップレベルの fn の省いた注釈に推論結果を挿入する（4.5）．診断に結び付く quickfix で，match の不足アーム，impl の不足メソッド，import と fails/use の不足，名前の綴り間違い，前の形の impl と handler の頭（E0144，E0145）を直す
 - `textDocument/semanticTokens/full` と `range` で，能力の値（`x = use X`．8.2）に印を付ける
 
 ## しくみ
@@ -58,10 +58,11 @@
 - （補）省いた注釈を挿入するコードアクションは `refactor.rewrite` のまま診断に結び付けない（省いた注釈の linter の警告はまだない）．診断を直すものは `quickfix` で，`diagnostics` に対象診断を載せる．編集は `WorkspaceEdit.changes` でそのファイルだけ
 - （補）quickfix は要求のたびに検査したスナップショットから作り，`context.diagnostics` には依存しない．診断の E 番号とファイル・主位置の範囲で選び，code のない診断は扱わない．空の要求範囲はカーソルを含む診断（終端を除く）を選び，`context.only` があれば種類を絞る
 - （補）E0303 の quickfix は網羅性検査が示した不足パターンの例（6.5）を末尾に挿入し，本体は Prelude の `todo()`（Never）にする．構成子は必要なら import 済みモジュールで修飾する．名前を一意に描画できない場合は `_ -> todo()`，例の件数が上限に達した場合は末尾に同じ wildcard を補う
-- （補）impl の default のない不足メソッドは，共通の型検査フロントエンドで E0325 として全件報告する（10.2）．主位置は `impl` キーワードから対象の型の末尾までのヘッダー（本体の `{` とその前の空白を除く）とし，quickfix の `diagnostics` に E0325 を載せ，宣言順に末尾へ一括挿入する．カーソルがヘッダー内にあるときだけ提示し，`{` や本体内では提示しない（要求範囲が空でなければ，診断範囲との重なりで選ぶ）．ヘッダーの `refactor.rewrite` は同じ編集と重複するので廃止し，quickfix に一本化する．引数名だけを trait から取り，型・fails・use は書かない．本体は既存の仮実装に倣い `todo()` にする
+- （補）impl の default のない不足メソッドは，共通の型検査フロントエンドで E0325 として全件報告する（10.2）．主位置は `impl` キーワードから Trait の名前の末尾までのヘッダー（`impl User: Show`．本体の `{` とその前の空白を除く）とし，quickfix の `diagnostics` に E0325 を載せ，宣言順に末尾へ一括挿入する．カーソルがヘッダー内にあるときだけ提示し，`{` や本体内では提示しない（要求範囲が空でなければ，診断範囲との重なりで選ぶ）．ヘッダーの `refactor.rewrite` は同じ編集と重複するので廃止し，quickfix に一本化する．引数名だけを trait から取り，型・fails・use は書かない．本体は既存の仮実装に倣い `todo()` にする
 - （補）E0211 の import 候補はモジュール表と検査済みの公開定義から選ぶ．`Io.print` などの修飾名には `import Io`，未 import の effect などには `import Std.Console.{Console}` を足す．effect の操作を `Effect.op` で呼べるようにはしない（4.6，8.2）．候補ごとに別のアクションを返す
 - （補）E0318/E0402 の quickfix は，関数本体の E/R と書いた節の和を既存の注釈挿入と同じ規則で描画する．既存の要素は消さず，見えない集合や修飾なしで書けない名前は省いた注釈の挿入と同じく扱う．E0402 の main・test・const・handler 操作には伝播する use を提案しない
 - （補）E0211/E0212 の名前置換は，その位置の補完候補から予約語とラベル，大文字小文字のクラスの違う名前を除き，resolver と同じ編集距離（名前の長さの3分の1以内，最低1）で最も近いものを選ぶ．同距離なら内側のスコープを優先する
+- （補）E0144 の quickfix は頭（`impl` から頭の終わりまで）を書き換えた頭で置き換え，E0145 の quickfix は名前（フィールドがあればその並び）の後ろから `implements` までを `:` に置き換える．書き換えは emela-syntax の `rewrite` モジュールが診断の文面と共通で作る
 - 未使用 import の診断はまだないので，削除する quickfix は出さない
 - （補）インレイヒントの種類は，型と省いた注釈を `Type`，呼び出しの E と R を `Parameter` にした．型（`: Int`）は名前に続けて出し，ほかは左に空白を入れる．範囲の終わりがファイルの外なら，ファイルの終わりまでとみなす
 - （補）semantic tokens は能力の値だけを返す．束縛した名前と，それを参照する名前（クロージャの中も）の両方．関数や型などほかのトークンは返さない（エディタの正規表現の色付けと二重にならないように）．判定は driver の `Frontend::semantic_tokens`

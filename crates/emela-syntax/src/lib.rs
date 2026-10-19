@@ -6,6 +6,7 @@ pub mod ast;
 mod diagnostic;
 mod lexer;
 mod parser;
+pub mod rewrite;
 mod syntax_kind;
 mod validation;
 

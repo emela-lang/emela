@@ -63,4 +63,5 @@
 - （補）`with` の項目の `AuditLog by HandlerA` は，2つの PATH と `by`（LOWER_NAME）を WITH_BY で包む．右の PATH の後ろには型引数（TYPE_ARG_LIST，`Hits by State[Int]`）を置ける．`by` のない項目は今までどおり PATH だけを並べる．`by` の右に置けるもの（handler，ラベル，エフェクト）は名前解決と型検査が見る
 - （補）impl の頭（10.2，17.3）．`impl Map[K: Eq, V: Eq]: Eq` の型と型引数（PATH と TYPE_PARAM_LIST）を IMPL_TYPE で包み，`:` の後ろの Trait は IMPL_DECL の直下の PATH にする．型引数の並びは fn の型引数と同じ TYPE_PARAM_LIST で読むので，`List[Int]` や `Pair[A, A]` も構文としては通る．頭の形の検査（E0328）は型検査に任せる
 - （補）handler の頭（8.4）の `:` は HANDLER_DECL の直下に置き，後ろのエフェクトと型引数を HANDLER_EFFECT で包む．`trait Ord: Eq` の `:` と同じ並びなので，fmt は `:` の前に空白を置かない
-- （補）前の形（`impl Show for User`，`impl[A: Eq] Box[A]: Eq`，`handler H implements E`）も木にしてから診断を出す．`for` の前の名前を Trait の PATH に，後ろを IMPL_TYPE にし，`implements` は HANDLER_DECL の直下に置いて読み飛ばす．名前解決と型検査が書き換えた後と同じ形で続けられるようにするため
+- （補）前の形（`impl Show for User`，`impl[A: Eq] Box[A]: Eq`，`handler H implements E`）もパーサは診断なしで木にし，validation が E0144 と E0145 を出す．`for` の前の名前を Trait の PATH に，後ろを IMPL_TYPE にし，前置きの型引数の並びは IMPL_DECL の直下の TYPE_PARAM_LIST にする．`implements` は HANDLER_DECL の直下に置いて読み飛ばす．名前解決と型検査が書き換えた後と同じ形で続けられるようにするため
+- （補）E0144 の範囲は `impl` から頭の終わり（本体の `{` の前）まで，E0145 の範囲は `implements` の字句．書き換えた頭は `rewrite` モジュールが作り，診断の文面と driver の quickfix の両方が使う．前置きの型引数の制約は，型の後ろの同じ名前の型引数（制約のないもの）に移す（`impl[A: Eq] Box[A]: Eq` は `impl Box[A: Eq]: Eq`）．型に型引数の並びがなければ前置きの並びをそのまま付ける
