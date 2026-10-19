@@ -6,7 +6,7 @@
 import Std.Duration.{Duration}
 
 pub opaque type Instant(milliseconds: Int64)
-  derive Eq
+  derive Eq, Ord
 
 ## Negative values are before the epoch.
 pub fn from_unix_milliseconds(ms: Int64) -> Instant {
@@ -86,6 +86,12 @@ fn pad(n: Int64, width: Int) -> String {
   pad_onto(Int64.to_string(n), width)
 }
 
+# Digits are ASCII, so bytes count them without the grapheme tables (which target c lacks).
 fn pad_onto(s: String, width: Int) -> String {
-  if String.length(s) >= width { s } else { pad_onto("0#{s}", width) }
+  if String.byte_size(s) >= width { s } else { pad_onto("0#{s}", width) }
+}
+
+## Shown as `to_string` writes it (`2025-10-12T03:04:05.678Z`).
+impl Instant: Show {
+  fn show(self) { to_string(self) }
 }

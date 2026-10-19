@@ -238,6 +238,7 @@ pub handler SystemFileSystem: FileSystem {
 ## order. A directory exists if it is in `directories`, or is an ancestor of a path in `files` or
 ## `directories`. Paths are compared as strings, so `a/b` and `./a/b` are different paths.
 pub type TestFiles(files: List[(String, String)], directories: List[String])
+  derive Eq, Show
 
 ## The test handler. It keeps the files in `State[TestFiles]` and resumes at once, so use it
 ## inside `State.run`:

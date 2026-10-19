@@ -166,6 +166,8 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `compare` | `compare(d: Duration, other: Duration) -> Ordering` | Emela | 比べる |
 | `to_string` | `to_string(d: Duration) -> String` | Emela | `1500ms` |
 
+impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同じ `1500ms`．
+
 ## Std.Instant（`std/instant.emel`）
 
 ある時点．中身は Unix エポックからのミリ秒の Int64 の opaque な型（15.2）．現在の時点は Clock のエフェクトが返す（このモジュールでは取れない）．
@@ -179,6 +181,8 @@ Int への変換は，結果が Int の範囲外か NaN，±Infinity なら defe
 | `since` | `since(t: Instant, earlier: Instant) -> Duration` | Emela | `earlier` から `t` までの長さ |
 | `compare` | `compare(t: Instant, other: Instant) -> Ordering` | Emela | 早い方が小さい |
 | `to_string` | `to_string(t: Instant) -> String` | Emela | UTC の ISO 8601（`2025-10-12T03:04:05.678Z`） |
+
+impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同じ．
 
 ## Std.State（`std/state.emel`）
 
@@ -277,6 +281,8 @@ fn main() {
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`，`defect: …`，`interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | 起こし直す．Fail は fail，Die は defect，Interrupt は中断の巻き戻し |
 
+impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので Eq，Ord，Show を満たさない（表示は `to_string` か inspect）．同じ理由で Std.Fiber の Exit も満たさない．
+
 ## Std.Deferred（`std/deferred.emel`）
 
 | 宣言 | シグネチャ | 実装 | 説明 |
@@ -313,6 +319,8 @@ fn main() {
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | TestHttp の相手．`respond` は要求と何回目か（0 から）を受ける |
 | `TestHttp` | `handler TestHttp: Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
 
+impl（10.5）: Method，Request，Response は `derive Eq, Show`．
+
 ```emel
 import Std.Http.{Http, Request, Response, TestServer, TestHttp}
 import Std.State.{State}
@@ -344,6 +352,8 @@ platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．�
 | `SystemFileSystem` | `handler SystemFileSystem: FileSystem` | JS の `node:fs/promises`．C は POSIX の関数を外部関数の中で同期に呼び，その場で完了する（読み書きの間はほかの fiber も止まる）．状態を持たない |
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
+
+impl（10.5）: TestFiles は `derive Eq, Show`．
 
 ```emel
 import Std.FileSystem.{FileSystem, FileNotFound}

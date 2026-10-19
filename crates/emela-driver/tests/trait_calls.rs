@@ -372,3 +372,27 @@ fn main() {
         );
     }
 }
+
+/// The derives and impls of std types (#337). Duration's Show is written in std, so
+/// interpolation goes through it instead of the structure.
+#[test]
+fn std_types_have_impls() {
+    let main = r##"
+import Std.Duration.{Duration}
+import Std.Instant
+import Std.Http.{Request, Get}
+import Std.Cause.{Fail}
+
+fn main() {
+  d = Duration.seconds(2)
+  dbg("#{d} #{d == Duration.milliseconds(2000)} #{d < Duration.seconds(3)}")
+  dbg("#{Instant.from_unix_milliseconds(0)} #{Instant.from_unix_milliseconds(10) < Instant.from_unix_milliseconds(20)}")
+  r = Request(method: Get, url: "u", headers: [], body: "")
+  dbg("#{r} #{r == r} #{Fail} #{Fail == Fail}")
+}
+"##;
+    assert_eq!(
+        stderr_of("std_types", main),
+        "\"2000ms True True\"\n\"1970-01-01T00:00:00.000Z True\"\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
+    );
+}

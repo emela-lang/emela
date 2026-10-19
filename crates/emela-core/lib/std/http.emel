@@ -9,13 +9,16 @@ import Std.State.{State}
 
 ## The request methods. A method not in this list cannot be sent.
 pub enum Method { Get, Head, Post, Put, Patch, Delete, Options }
+  derive Eq, Show
 
 ## A request. `headers` are sent in the written order. The body is text, sent as UTF-8.
 pub type Request(method: Method, url: String, headers: List[(String, String)], body: String)
+  derive Eq, Show
 
 ## A response. Header names are lower case and sorted by name; values of the same name are joined
 ## with `, `, except that each `set-cookie` is its own pair.
 pub type Response(status: Int, headers: List[(String, String)], body: String)
+  derive Eq, Show
 
 ## The URL cannot be read as a URL.
 pub error InvalidUrl(url: String)

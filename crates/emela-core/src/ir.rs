@@ -58,7 +58,8 @@ pub struct Dispatch {
     /// does not define the function.
     pub default: bool,
     /// Impl functions that give what the structural operation gives (`==` by `OpTy::Structural`,
-    /// interpolation's show): the impls of the compiler and of core (spec 10.6).
+    /// interpolation's show): the impls of the compiler, and those of core for `List` and `Option`
+    /// (spec 10.6). Other impls in core and std (Duration's Show) are written ones.
     pub structural: Vec<FnId>,
     /// For the functions of the derivable traits (`Eq.eq`, `Ord.compare`, `Show.show`), which
     /// one, and the enums that derive the trait (spec 10.5). [`crate::mono`] generates their

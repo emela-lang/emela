@@ -22,6 +22,7 @@ pub enum CauseKind {
   ## An interruption (spec 11.4). Does not show up in the type.
   Interrupt
 }
+  derive Eq, Show
 
 ## The kind of the cause.
 @intrinsic
