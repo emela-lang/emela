@@ -344,6 +344,36 @@ pub trait Frontend {
         None
     }
 
+    /// Same-file occurrences of the name, including its declaration (LSP documentHighlight).
+    fn document_highlights(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Vec<line_index::TextRange> {
+        Vec::new()
+    }
+
+    /// The outer nominal type's definition (LSP typeDefinition).
+    fn type_definition(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Option<NavTarget> {
+        None
+    }
+
+    /// Explicit implementations of a trait or trait method (LSP implementation).
+    fn implementations(
+        _program: &Self::Program,
+        _analysis: &Analysis,
+        _file: FileId,
+        _offset: line_index::TextSize,
+    ) -> Vec<NavTarget> {
+        Vec::new()
+    }
+
     /// The definition of the name at `offset` in `file` (LSP go to definition). Only frontends
     /// that resolve names return it.
     fn definition(

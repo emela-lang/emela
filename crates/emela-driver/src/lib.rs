@@ -26,6 +26,7 @@ mod render;
 mod run;
 mod signature;
 mod source;
+mod structure;
 mod target;
 mod testing;
 mod tokens;
@@ -47,7 +48,10 @@ pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
-pub use nav::{DocumentSymbol, NavTarget, RenameError, SymbolKind, document_symbols};
+pub use nav::{
+    DocumentSymbol, NavTarget, RenameError, SymbolKind, WorkspaceSymbol, document_symbols,
+    workspace_symbols,
+};
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
     Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies,
@@ -62,6 +66,7 @@ pub use run::{
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
+pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
 pub use target::{Target, project_target};
 pub use testing::{
     C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,

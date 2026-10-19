@@ -243,6 +243,33 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         self.entry_main
     }
 
+    fn document_highlights(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Vec<line_index::TextRange> {
+        crate::nav::document_highlights(program, analysis, file, offset)
+    }
+
+    fn type_definition(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Option<NavTarget> {
+        crate::nav::type_definition(program, analysis, file, offset)
+    }
+
+    fn implementations(
+        program: &TypedProgram,
+        analysis: &Analysis,
+        file: FileId,
+        offset: line_index::TextSize,
+    ) -> Vec<NavTarget> {
+        crate::nav::implementations(program, analysis, file, offset)
+    }
+
     fn definition(
         program: &TypedProgram,
         analysis: &Analysis,
