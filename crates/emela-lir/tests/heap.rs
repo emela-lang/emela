@@ -342,6 +342,7 @@ enum Shape {
   Circle(radius: Float),
   Named(String, List[Option[Int]]),
 }
+  derive Show
 
 fn label(s: Shape, n: Int) -> String {
   \"shape #{s} number #{n}\"

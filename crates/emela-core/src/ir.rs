@@ -34,8 +34,16 @@ pub struct Module {
     /// its first type argument; [`crate::mono`] replaces it with a direct call of the impl
     /// function for that type (no dictionary passing). Empty after monomorphization.
     pub dispatch: FxHashMap<FnId, Dispatch>,
-    /// The Prelude's `Show.show`, if lowered. [`crate::mono`] replaces `Builtin::ShowNested` of a
-    /// type other than String with a call of it.
+    /// The Prelude's trait functions, if lowered. [`crate::mono`] calls them where `==`,
+    /// interpolation and `Builtin::ShowNested` cannot use the structure (spec 10.6).
+    pub traits: PreludeTraits,
+}
+
+/// The IR functions of the Prelude's trait functions ([`Module::traits`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PreludeTraits {
+    pub eq: Option<FnId>,
+    pub compare: Option<FnId>,
     pub show: Option<FnId>,
 }
 
@@ -49,6 +57,9 @@ pub struct Dispatch {
     /// The trait function has a default implementation: its own body, used for types whose impl
     /// does not define the function.
     pub default: bool,
+    /// Impl functions that give what the structural operation gives (`==` by `OpTy::Structural`,
+    /// interpolation's show): the impls of the compiler and of core (spec 10.6).
+    pub structural: Vec<FnId>,
 }
 
 /// A host file bundled with the compiler (under `lib/`).

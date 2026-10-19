@@ -192,19 +192,23 @@ fn unsupported_expressions_are_all_reported() {
         &[(
             "main.emel",
             "\
+import Std.Console.{Console, SystemConsole}
+
 const LIMIT: Int = 3
 
 fn main() {
   assert LIMIT == 3
-  x = fn() { 1 }
-  dbg(\"x = #{x}\")
+  with SystemConsole {
+    x = use Console
+    dbg(\"x = #{x}\")
+  }
 }
 ",
         )],
         Roots::Exported,
     )
     .unwrap_err();
-    assert_eq!(errors, ["`x` showing a function"]);
+    assert_eq!(errors, ["`x` showing a capability value"]);
 }
 
 /// With every fn as a root, checks that all core functions lower. Unreachable fns are not lowered
@@ -339,6 +343,7 @@ fn fields_updates_and_interpolation() {
 type User(id: Int, name: String, tags: List[String])
 
 type Pair[A, B](first: A, second: B)
+  derive Show
 
 fn main() {
   u = User(id: 1, name: \"a\", tags: [])
@@ -381,7 +386,7 @@ fn classify(n: Int) -> String {
   }
 }
 
-fn same[A](a: A, b: A) -> Bool {
+fn same[A: Eq](a: A, b: A) -> Bool {
   assert a == b
   True
 }

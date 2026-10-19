@@ -6,6 +6,7 @@
 import Std.Duration.{Duration}
 
 pub opaque type Instant(milliseconds: Int64)
+  derive Eq
 
 ## Negative values are before the epoch.
 pub fn from_unix_milliseconds(ms: Int64) -> Instant {

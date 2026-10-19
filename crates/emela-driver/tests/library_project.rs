@@ -71,13 +71,13 @@ fn directory_library_selection_does_not_change_explicit_file_inputs() {
 fn library_build_only_typechecks_and_never_calls_backend_hooks() {
     let fs = MemoryFiles::new([
         ("app/Pome.toml", ""),
-        // Showing a function value is type-correct but not supported by lowering. A check-
+        // Showing a capability value is type-correct but not supported by lowering. A check-
         // only build must not lower exports or produce a backend-dependent error.
         // Generic interpolation is supported via monomorphization, so it cannot serve as
         // the unsupported expression here.
         (
             "app/src/lib.emel",
-            "pub fn show(x: fn() -> Int) -> String { \"#{x}\" }\n",
+            "import Std.Console.{Console, SystemConsole}\n\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    \"#{c}\"\n  }\n}\n",
         ),
     ]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -113,7 +113,7 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
         analysis
             .diagnostics
             .iter()
-            .any(|d| d.message.contains("showing a function"))
+            .any(|d| d.message.contains("showing a capability value"))
     );
 }
 

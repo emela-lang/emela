@@ -363,6 +363,7 @@ enum Shape {
   Named(String, List[Option[Int]]),
   Empty,
 }
+  derive Show
 
 fn main() {
   s = Named(\"a\\\"b\", [Some(1), None])
@@ -379,11 +380,13 @@ fn structural_equality() {
     let m = program(
         "\
 type Point(x: Int, y: Int)
+  derive Eq
 
 enum Tree {
   Leaf,
   Node(Tree, Point, Tree),
 }
+  derive Eq
 
 fn same(a: Tree, b: Tree) -> Bool {
   a == b

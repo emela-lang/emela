@@ -21,8 +21,8 @@ use crate::intrinsics::Builtin;
 use crate::ir::{
     Arm, Assert, BinOp, BundledFile, Callee, CtorRef, EffectDef, EffectId, EnumDef, EnumId, Expr,
     External, ExternalBinding, FiberOp, FnId, FnSets, FnType, HostModule, HostRef, Lit, Local,
-    Module, OpDef, OpTy, Pat, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef, VariantFields,
-    WithBind,
+    Module, OpDef, OpTy, Pat, PreludeTraits, SetSummary, StrPart, Type, TypeId, UnOp, VariantDef,
+    VariantFields, WithBind,
 };
 use crate::mono::Monomorphized;
 use crate::named;
@@ -133,6 +133,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         bundled_files: input.bundled_files,
         uses_bundled: false,
         errors: Vec::new(),
+        prelude_trait_fns: FxHashMap::default(),
     };
     cx.declare_enums();
     cx.define_ctors();
@@ -275,6 +276,8 @@ struct Lowerer<'a> {
     /// Whether a lowered external function pointed to a bundled host file.
     uses_bundled: bool,
     errors: Vec<LowerError>,
+    /// The Prelude's trait functions by trait and name, once looked up.
+    prelude_trait_fns: FxHashMap<(String, String), Option<DefId>>,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -909,13 +912,29 @@ impl<'a> Lowerer<'a> {
             cx.prelude_trait_fn(t, f)
                 .and_then(|def| cx.fns.get(&(def, 0)).copied())
         };
-        let fns = builtin_impls::TraitFns {
+        let fns = PreludeTraits {
             eq: lowered(self, "Eq", "eq"),
             compare: lowered(self, "Ord", "compare"),
             show: lowered(self, "Show", "show"),
         };
         builtin_impls::add(&mut self.module, &fns);
-        self.module.show = fns.show;
+        self.module.traits = fns;
+    }
+
+    /// The IR function of the Prelude's trait function `name` of `trait_name`, lowered if it is
+    /// not yet. Lowering it puts its impls in `Module::dispatch`, where monomorphization looks
+    /// for the impl of `==` and interpolation (spec 10.3).
+    fn prelude_trait_fn_id(&mut self, trait_name: &str, name: &str) -> Option<FnId> {
+        let key = (trait_name.to_owned(), name.to_owned());
+        let def = match self.prelude_trait_fns.get(&key) {
+            Some(&d) => d,
+            None => {
+                let d = self.prelude_trait_fn(trait_name, name);
+                self.prelude_trait_fns.insert(key, d);
+                d
+            }
+        }?;
+        Some(self.fn_id(def, 0))
     }
 
     /// Parameters with the types of the declared type, named after its labels. For a trait
@@ -950,6 +969,7 @@ impl<'a> Lowerer<'a> {
             return;
         };
         let mut impls = Vec::new();
+        let mut structural = Vec::new();
         for impl_def in types.traits.impls_of(trait_def) {
             let (Some(Item::Impl(item)), Some(head)) =
                 (hir.item(impl_def), types.traits.head(impl_def))
@@ -967,12 +987,24 @@ impl<'a> Lowerer<'a> {
             // of `Self`.
             let impl_spec = (spec >> 1) << head.params.len();
             let pattern = self.ty(&head.self_ty);
-            impls.push((pattern, self.fn_id(f.def, impl_spec)));
+            let impl_fn = self.fn_id(f.def, impl_spec);
+            impls.push((pattern, impl_fn));
+            // The impls of core (`List`, `Option`) give what the structure gives (spec 10.6).
+            if let DefModule::Source(m) = hir.defs[impl_def].module
+                && hir.modules.get(m).is_some_and(|m| m.is_core)
+            {
+                structural.push(impl_fn);
+            }
         }
         let id = self.fns[&(def, spec)];
-        self.module
-            .dispatch
-            .insert(id, crate::ir::Dispatch { impls, default });
+        self.module.dispatch.insert(
+            id,
+            crate::ir::Dispatch {
+                impls,
+                default,
+                structural,
+            },
+        );
     }
 
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
@@ -2354,11 +2386,9 @@ impl<'a> Lowerer<'a> {
                     Some(tys) => tys.iter().map(|t| self.ty(t)).collect(),
                     None => Vec::new(),
                 };
-                // Monomorphization turns it into a call of `Show.show` (`Module::show`).
-                if op == Builtin::ShowNested
-                    && let Some(show) = self.prelude_trait_fn("Show", "show")
-                {
-                    self.fn_id(show, 0);
+                // Monomorphization turns it into a call of `Show.show` (`Module::traits`).
+                if op == Builtin::ShowNested {
+                    self.prelude_trait_fn_id("Show", "show");
                 }
                 Ok(Target::Builtin { op, ty_args })
             }
@@ -2560,10 +2590,14 @@ impl<'a> Lowerer<'a> {
             BinaryOp::Mul => (BinOp::Mul, operand),
             BinaryOp::Div => (BinOp::Div, operand),
             BinaryOp::Rem => (BinOp::Rem, operand),
-            // Equality of non-primitive values compares structure.
-            BinaryOp::Eq => (BinOp::Eq, operand.or(Some(OpTy::Structural))),
-            BinaryOp::Ne => (BinOp::Ne, operand.or(Some(OpTy::Structural))),
-            // Ordering (Ord) of non-primitive values waits for traits.
+            // Equality of other values goes through Eq: monomorphization compares by structure
+            // where Eq gives the same, and calls `Eq.eq` otherwise (spec 10.3, 10.6).
+            BinaryOp::Eq => (BinOp::Eq, Some(self.eq_op_ty(operand))),
+            BinaryOp::Ne => (BinOp::Ne, Some(self.eq_op_ty(operand))),
+            // Ordering of other values is `Ord.compare` (spec 10.3).
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge if operand.is_none() => {
+                return self.compare(op, lhs, rhs, span);
+            }
             BinaryOp::Lt => (BinOp::Lt, operand),
             BinaryOp::Le => (BinOp::Le, operand),
             BinaryOp::Gt => (BinOp::Gt, operand),
@@ -2580,6 +2614,65 @@ impl<'a> Lowerer<'a> {
             ty,
             lhs: Box::new(self.expr(lhs)),
             rhs: Box::new(self.expr(rhs)),
+        }
+    }
+
+    /// The operand type of `==` on values whose primitive operand type is `operand`:
+    /// `OpTy::Structural` if not primitive, and then `Eq.eq` is lowered for monomorphization.
+    fn eq_op_ty(&mut self, operand: Option<OpTy>) -> OpTy {
+        operand.unwrap_or_else(|| {
+            self.prelude_trait_fn_id("Eq", "eq");
+            OpTy::Structural
+        })
+    }
+
+    /// `lhs < rhs` (and `<=`, `>`, `>=`) on values that are not primitive:
+    /// `Ord.compare(lhs, rhs) match { Less -> True, _ -> False }` and so on (spec 10.3).
+    fn compare(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) -> Expr {
+        let hir = self.hir;
+        let ty = self.ty(self.expr_ty(lhs));
+        let (Some(compare), Some(less), Some(greater)) = (
+            self.prelude_trait_fn_id("Ord", "compare"),
+            hir.prelude_def("Less")
+                .and_then(|d| self.ctors.get(d).copied()),
+            hir.prelude_def("Greater")
+                .and_then(|d| self.ctors.get(d).copied()),
+        ) else {
+            return self.unsupported("this operator on this type", span);
+        };
+        // The variant that decides, and the answer when it is the result.
+        let (ctor, when) = match op {
+            BinaryOp::Lt => (less, true),
+            BinaryOp::Le => (greater, false),
+            BinaryOp::Gt => (greater, true),
+            _ => (less, false),
+        };
+        let call = Expr::Call {
+            callee: Callee::Direct {
+                f: compare,
+                ty_args: vec![ty],
+            },
+            args: vec![self.expr(lhs), self.expr(rhs)],
+            fails: false,
+            suspends: false,
+        };
+        Expr::Match {
+            scrutinee: Box::new(call),
+            arms: vec![
+                Arm {
+                    pat: Pat::Ctor {
+                        ctor,
+                        fields: Vec::new(),
+                    },
+                    guard: None,
+                    body: Expr::Lit(Lit::Bool(when)),
+                },
+                Arm {
+                    pat: Pat::Wild,
+                    guard: None,
+                    body: Expr::Lit(Lit::Bool(!when)),
+                },
+            ],
         }
     }
 
@@ -2602,7 +2695,7 @@ impl<'a> Lowerer<'a> {
             let ty = self.ty(self.expr_ty(*lhs));
             let op_ty = match (self.op_ty(*lhs), bin) {
                 (Some(t), _) => Some(t),
-                (None, BinOp::Eq | BinOp::Ne) => Some(OpTy::Structural),
+                (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
             if let Some(op_ty) = op_ty
@@ -2737,6 +2830,11 @@ impl<'a> Lowerer<'a> {
                     if let Some(what) = unshowable(&self.module, ty, false) {
                         self.report(what, self.hir.exprs[*e].span);
                     }
+                    // Monomorphization shows by structure where Show gives the same, and calls
+                    // `Show.show` otherwise (spec 10.3, 10.6).
+                    if prim_op_ty(self.expr_ty(*e)).is_none() {
+                        self.prelude_trait_fn_id("Show", "show");
+                    }
                     StrPart::Value(self.expr(*e), ty)
                 }
             })
@@ -2870,7 +2968,7 @@ impl<'a> Lowerer<'a> {
                 let types = self.types;
                 let x_ty = self.ty(&types.pats[id]);
                 let x = self.module.local("c", x_ty);
-                let ty = prim_op_ty(&types.pats[id]).unwrap_or(OpTy::Structural);
+                let ty = self.eq_op_ty(prim_op_ty(&types.pats[id]));
                 let value = Expr::Call {
                     callee: Callee::Direct {
                         f: self.fn_id(*def, 0),

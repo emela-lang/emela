@@ -189,3 +189,59 @@ fn a_type_without_an_impl_is_not_supported_yet() {
         ["not supported yet: `Show.show` for `Pt`, which has no impl"]
     );
 }
+
+const OPERATORS: &str = r##"
+type User(name: String)
+type Pt(x: Int, y: Int)
+  derive Eq, Show
+type Ver(major: Int)
+
+impl User: Show {
+  fn show(self) { "<#{self.name}>" }
+}
+
+impl User: Eq {
+  fn eq(self, other) { True }
+}
+
+impl Ver: Eq {
+  fn eq(self, other) { self.major == other.major }
+}
+
+impl Ver: Ord {
+  fn compare(self, other) { Ord.compare(self.major, other.major) }
+}
+
+fn biggest[A: Ord](x: A, y: A) -> A { if x < y { y } else { x } }
+fn say[A: Show](x: A) -> String { "it is #{x}" }
+
+fn main() {
+  u = User(name: "ann")
+  dbg("#{u} #{[u]} #{(u, 1)} #{Some(u)}")
+  dbg("#{Pt(x: 1, y: 2)} #{[Pt(x: 1, y: 2)]}")
+  dbg(u == User(name: "bob"))
+  dbg([u] != [User(name: "bob")])
+  dbg(Pt(x: 1, y: 2) == Pt(x: 1, y: 2))
+  dbg(Ver(major: 1) < Ver(major: 2))
+  dbg(Ver(major: 3) >= Ver(major: 2))
+  dbg([1, 2] < [1, 3])
+  dbg((1, "b") > (1, "a"))
+  dbg(biggest(Ver(major: 1), Ver(major: 5)).major)
+  dbg(biggest("a", "b"))
+  dbg(say(u))
+  dbg(say("x"))
+  dbg(1.5 < 2.0)
+  assert u == User(name: "x")
+}
+"##;
+
+#[test]
+fn operators_and_interpolation_go_through_the_impls() {
+    // Values with impls written in source go through them; the rest keeps the structure
+    // (spec 10.3, 10.6).
+    assert_eq!(
+        stderr_of("operators", OPERATORS),
+        "\"<ann> [<ann>] (<ann>, 1) Some(<ann>)\"\n\"Pt(x: 1, y: 2) [Pt(x: 1, y: 2)]\"\n\
+         True\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\n5\n\"b\"\n\"it is <ann>\"\n\"it is x\"\nTrue\n"
+    );
+}
