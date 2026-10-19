@@ -99,6 +99,8 @@ pub const SET_AS_TYPE: &str = "E0324";
 pub const INCOMPLETE_IMPL: &str = "E0325";
 // Traits (spec 10.1–10.3)
 pub const NOT_IMPLEMENTED: &str = "E0326";
+/// Found by lowering for the JS target, which exports the entry's `pub` fns (appendix B).
+pub const CONSTRAINED_EXPORT: &str = "E0327";
 /// Found by name resolution, which sees the names in the head.
 pub const IMPL_HEAD: &str = "E0328";
 pub const SUPERTRAIT_CYCLE: &str = "E0329";

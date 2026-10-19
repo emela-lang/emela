@@ -1,0 +1,32 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0327]: cannot export `label`: its type parameter `A` has a trait bound
+   ╭─[ main.emel:7:8 ]
+   │
+ 7 │ pub fn label[A: Show](x: A) -> String { Show.show(x) }
+   │        ──┬──  
+   │          ╰──── 
+───╯
+   = help: make a `pub` fn that calls it with concrete types, and export that instead
+
+error[E0327]: cannot export `pair`: its type parameter `B` has a trait bound
+   ╭─[ main.emel:9:8 ]
+   │
+ 9 │ pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
+   │        ──┬─  
+   │          ╰─── 
+───╯
+   = help: make a `pub` fn that calls it with concrete types, and export that instead
+
+error[E0327]: cannot export `same`: its type parameter `A` has a trait bound
+    ╭─[ main.emel:11:8 ]
+    │
+ 11 │ pub fn same[A: Show](x: A) -> A { x }
+    │        ──┬─  
+    │          ╰─── 
+────╯
+   = help: make a `pub` fn that calls it with concrete types, and export that instead
+
+3 errors

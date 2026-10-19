@@ -49,6 +49,15 @@ pub enum LowerError {
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
+    /// An exported fn of the entry has a type parameter with a trait bound (E0327, appendix B):
+    /// JS could call it at any type, so no impl can be chosen for it. Reported only for the JS
+    /// target, the one that exports the entry's `pub` fns. `span` is the position of the function
+    /// name.
+    ConstrainedExport {
+        name: String,
+        param: String,
+        span: Option<Span>,
+    },
 }
 
 /// Which fns lowering starts from.
@@ -135,6 +144,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     };
     cx.declare_enums();
     cx.define_ctors();
+    if roots == Roots::Exported && input.target == Some("js") {
+        cx.check_constrained_exports();
+    }
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
@@ -2925,7 +2937,14 @@ impl<'a> Lowerer<'a> {
 
     /// Whether to export in JS: the entry module's `pub` fns and `main` (called by the entry
     /// module). Test functions are excluded (for `emela test`, the test runner exports them).
+    /// Whether `def` is a fn the entry exports: `pub` or `main`, but not a test function, and not
+    /// one with a trait-bounded type parameter (E0327 on JS; on C and WASM only main is used).
     fn is_exported(&self, def: DefId) -> bool {
+        self.exports(def) && self.bounded_param(def).is_none()
+    }
+
+    /// Whether `def` is a fn the entry would export, regardless of its type parameters.
+    fn exports(&self, def: DefId) -> bool {
         let data = &self.hir.defs[def];
         data.kind == DefKind::Fn
             && self
@@ -2933,6 +2952,36 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|entry| data.module == DefModule::Source(entry))
             && (data.is_pub || data.name == "main")
             && !self.tests.contains(&def)
+    }
+
+    /// The name of the first type parameter of `def` with a trait bound.
+    fn bounded_param(&self, def: DefId) -> Option<&str> {
+        let sig = self.types.sigs.get(def)?;
+        sig.scheme
+            .params
+            .iter()
+            .find(|p| !p.traits.is_empty())
+            .map(|p| p.name.as_str())
+    }
+
+    /// Reports the entry's exported fns with a trait-bounded type parameter (E0327, appendix B),
+    /// in declaration order.
+    fn check_constrained_exports(&mut self) {
+        let Some(items) = self.entry.and_then(|entry| self.hir.modules.get(entry)) else {
+            return;
+        };
+        for &def in &items.items {
+            if !matches!(self.hir.item(def), Some(Item::Fn(_))) || !self.exports(def) {
+                continue;
+            }
+            if let Some(param) = self.bounded_param(def) {
+                self.errors.push(LowerError::ConstrainedExport {
+                    name: self.hir.defs[def].name.to_string(),
+                    param: param.to_owned(),
+                    span: self.hir.defs[def].span,
+                });
+            }
+        }
     }
 }
 
