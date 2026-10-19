@@ -191,6 +191,9 @@ pub(crate) struct BodyInfer<'a> {
     with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
+    /// Types required to satisfy a trait by the constraints of instantiated type parameters,
+    /// checked once the group's types are settled ([`Self::check_traits`]).
+    trait_obligations: Vec<TraitObligation>,
     /// Set variables that get an `Immediate` bound when generalized.
     immediate_vars: rustc_hash::FxHashSet<RowVar>,
 }
@@ -285,6 +288,7 @@ impl<'a> BodyInfer<'a> {
             withs: Vec::new(),
             with_handlers: SparseMap::new(),
             immediates: Vec::new(),
+            trait_obligations: Vec::new(),
             immediate_vars: Default::default(),
         }
     }
@@ -766,6 +770,7 @@ impl<'a> BodyInfer<'a> {
             }
         }
         self.check_numbers();
+        self.check_traits();
         // Compute and solve the error and effect sets (`body/errors.rs`, `body/effects.rs`).
         self.infer_errors();
         self.infer_effects();
@@ -1116,6 +1121,7 @@ impl<'a> BodyInfer<'a> {
         if let Some(sig) = sigs.get(def) {
             let (tys, rows) = self.ctx.fresh_args(&sig.scheme.params);
             self.require_immediate(def, &sig.scheme.params, &rows, span);
+            self.require_traits(&sig.scheme.params, &tys, span);
             return (substitute(&sig.scheme.ty, &tys, &rows), tys, rows);
         }
         if let Some((ty, params)) = self.pending_ty(def) {
@@ -1130,6 +1136,7 @@ impl<'a> BodyInfer<'a> {
             let ty = self.ctx.resolve(&ty);
             let (args, rows) = self.ctx.fresh_args(&params);
             self.require_immediate(def, &params, &rows, span);
+            self.require_traits(&params, &args, span);
             let mut fresh = FxHashMap::default();
             let instance = self.freshen(&substitute(&ty, &args, &rows), &mut fresh);
             self.deferred.push(DeferredRef {
@@ -1141,7 +1148,7 @@ impl<'a> BodyInfer<'a> {
             });
             return (instance, args, rows);
         }
-        // Kinds of definitions not typed yet (trait functions, effect operations, ...).
+        // Kinds of definitions not typed yet (effect operations referred to by name, ...).
         self.diags.push(Diagnostic {
             span: Some(span),
             kind: DiagnosticKind::Unsupported {
@@ -1149,6 +1156,41 @@ impl<'a> BodyInfer<'a> {
             },
         });
         (Ty::Error, Vec::new(), Vec::new())
+    }
+
+    /// Remembers the trait constraints of the type parameters `params` instantiated with `tys`
+    /// at `span`, to check once types are settled.
+    fn require_traits(&mut self, params: &[TyParam], tys: &[Ty], span: Span) {
+        for (p, ty) in params.iter().zip(tys) {
+            for &trait_def in &p.traits {
+                self.trait_obligations.push(TraitObligation {
+                    ty: ty.clone(),
+                    trait_def,
+                    span,
+                    owner: self.current,
+                });
+            }
+        }
+    }
+
+    /// Checks the trait constraints remembered at references (E0326, spec 10.3). A type
+    /// parameter of the definition with the reference satisfies what its own constraints imply,
+    /// supertraits included.
+    fn check_traits(&mut self) {
+        let program = self.program;
+        for o in std::mem::take(&mut self.trait_obligations) {
+            let ty = self.ctx.resolve(&o.ty);
+            let env = o.owner.map(|d| self.def_params(d)).unwrap_or_default();
+            if let Err(e) = self
+                .traits
+                .satisfies(program, self.ty_table, &ty, o.trait_def, &env)
+            {
+                self.diags.push(Diagnostic {
+                    span: Some(o.span),
+                    kind: crate::traits::not_implemented(program, self.ty_table, &e, &env),
+                });
+            }
+        }
     }
 
     /// Reorders the arguments by parameter position, then checks types (spec 6.2). `expr` is
@@ -2198,6 +2240,18 @@ struct ImmediateObligation {
     /// The referenced definition (`RowElem::Bound` in `row` refers to its type parameters).
     owner: Option<DefId>,
     source: crate::diagnostic::ImmediateSource,
+}
+
+/// A type that must satisfy a trait: the instantiation of a constrained type parameter at a
+/// reference (`[A: Ord]`, spec 10.3).
+struct TraitObligation {
+    ty: Ty,
+    trait_def: DefId,
+    /// The span of the reference.
+    span: Span,
+    /// The definition whose body has the reference; `Ty::Bound(i)` in `ty` is its type
+    /// parameter.
+    owner: Option<DefId>,
 }
 
 /// A reference within the group to a definition without a declared type but with written type

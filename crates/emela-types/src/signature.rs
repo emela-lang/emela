@@ -366,7 +366,7 @@ fn prelude_trait_fn_signature(
 /// - Immediate can only be put on effect sets (type parameters written in a `use` clause)
 ///   (E0322).
 /// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
-///   on ordinary type parameters (`[A: Show]`) are not checked until 0.24.
+///   on ordinary type parameters are checked where the fn is referenced (spec 10.3).
 /// - A `use` clause written in a function-typed parameter of an external function must be
 ///   Immediate (E0416). An omitted `use` clause is an invisible set and gets the Immediate bound
 ///   ([`FnParams::new`]).
