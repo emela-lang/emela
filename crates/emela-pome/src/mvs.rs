@@ -44,6 +44,30 @@ pub fn build_list<R: Requirements>(
     Ok(selected)
 }
 
+/// The Pomes of `selected` that the requirements `roots` reach: those of their own build list,
+/// and those required by the selected version of a reached Pome. `selected` is a build list of a
+/// larger set of requirements (`[dependencies]` with `[dev-dependencies]`, spec 4.7), so a Pome it
+/// raises may require Pomes that `roots` alone would not.
+pub fn reached<R: Requirements>(
+    roots: &[(SourcePath, Version)],
+    selected: &BTreeMap<SourcePath, Version>,
+    graph: &mut R,
+) -> Result<BTreeSet<SourcePath>, R::Error> {
+    let mut seen: BTreeSet<SourcePath> = build_list(roots, graph)?.into_keys().collect();
+    let mut queue: Vec<SourcePath> = seen.iter().cloned().collect();
+    while let Some(path) = queue.pop() {
+        let Some(version) = selected.get(&path) else {
+            continue;
+        };
+        for (p, _) in graph.requirements(&path, version)? {
+            if seen.insert(p.clone()) {
+                queue.push(p);
+            }
+        }
+    }
+    Ok(seen)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -131,5 +155,36 @@ mod tests {
             ),
         ]));
         assert_eq!(build_list(&[req("a", "v1.0.0")], &mut g).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reaches_what_a_raised_version_requires() {
+        // The tests require C 1.3, which requires D 1.5 and so F; B alone reaches only D 1.3 and E.
+        let mut g = example();
+        g.0.insert(
+            ("example.com/c".into(), "v1.3.0".into()),
+            vec![req("d", "v1.5.0")],
+        );
+        g.0.insert(
+            ("example.com/d".into(), "v1.5.0".into()),
+            vec![req("f", "v1.0.0")],
+        );
+        g.0.insert(("example.com/f".into(), "v1.0.0".into()), vec![]);
+        g.0.insert(
+            ("example.com/t".into(), "v1.0.0".into()),
+            vec![req("c", "v1.3.0")],
+        );
+        let all = build_list(&[req("b", "v1.2.0"), req("t", "v1.0.0")], &mut g).unwrap();
+        let built = reached(&[req("b", "v1.2.0")], &all, &mut g).unwrap();
+        let got: Vec<&str> = built.iter().map(|p| p.as_str()).collect();
+        assert_eq!(
+            got,
+            [
+                "example.com/b",
+                "example.com/d",
+                "example.com/e",
+                "example.com/f"
+            ]
+        );
     }
 }

@@ -254,6 +254,7 @@ impl<T: Transport> Fetcher<T> {
             hash: tree,
             manifest,
             external,
+            dev: false,
         })
     }
 

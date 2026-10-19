@@ -21,6 +21,8 @@ pub struct Manifest {
     /// `[pome].targets`: the targets the Pome runs on; `None` for all of them.
     pub targets: Option<Vec<String>>,
     pub dependencies: BTreeMap<SourcePath, Requirement>,
+    /// `[dev-dependencies]`: used only by the tests under `test/`; ignored when depended on.
+    pub dev_dependencies: BTreeMap<SourcePath, Requirement>,
     pub replace: BTreeMap<SourcePath, PathBuf>,
     /// `[external].allow`: the Pomes whose `@external` the Pome allows when it is built.
     pub external: Vec<SourcePath>,
@@ -29,7 +31,7 @@ pub struct Manifest {
 /// The targets `[pome].targets` may name (spec chapter 16).
 pub const TARGETS: [&str; 3] = ["js", "wasm", "c"];
 
-/// An entry of `[dependencies]`: "this version or above".
+/// An entry of `[dependencies]` or `[dev-dependencies]`: "this version or above".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
     pub version: Version,
@@ -54,6 +56,8 @@ struct File {
     pome: PomeSection,
     #[serde(default)]
     dependencies: BTreeMap<SourcePath, RequirementEntry>,
+    #[serde(default, rename = "dev-dependencies")]
+    dev_dependencies: BTreeMap<SourcePath, RequirementEntry>,
     #[serde(default)]
     replace: BTreeMap<SourcePath, ReplaceEntry>,
     #[serde(default)]
@@ -105,22 +109,15 @@ impl Manifest {
                 file.pome.version, file.pome.name
             )));
         }
-        let mut dependencies = BTreeMap::new();
-        for (path, entry) in file.dependencies {
-            let requirement = match entry {
-                RequirementEntry::Version(version) => Requirement {
-                    version,
-                    module: None,
-                },
-                RequirementEntry::Table { version, module } => Requirement { version, module },
-            };
-            if !path.is_version_of(&requirement.version) {
-                return Err(ManifestError(format!(
-                    "`{path}` = \"{}\": the major does not match the path (v2 and above end in `/vN`)",
-                    requirement.version
-                )));
-            }
-            dependencies.insert(path, requirement);
+        let dependencies = requirements(file.dependencies)?;
+        let dev_dependencies = requirements(file.dev_dependencies)?;
+        if let Some(both) = dev_dependencies
+            .keys()
+            .find(|p| dependencies.contains_key(*p))
+        {
+            return Err(ManifestError(format!(
+                "`{both}` is in both [dependencies] and [dev-dependencies]"
+            )));
         }
         if let Some(unknown) = file
             .pome
@@ -141,10 +138,34 @@ impl Manifest {
             module: file.pome.module,
             targets: file.pome.targets,
             dependencies,
+            dev_dependencies,
             replace: file.replace.into_iter().map(|(k, v)| (k, v.path)).collect(),
             external: file.external.allow,
         })
     }
+}
+
+fn requirements(
+    entries: BTreeMap<SourcePath, RequirementEntry>,
+) -> Result<BTreeMap<SourcePath, Requirement>, ManifestError> {
+    let mut requirements = BTreeMap::new();
+    for (path, entry) in entries {
+        let requirement = match entry {
+            RequirementEntry::Version(version) => Requirement {
+                version,
+                module: None,
+            },
+            RequirementEntry::Table { version, module } => Requirement { version, module },
+        };
+        if !path.is_version_of(&requirement.version) {
+            return Err(ManifestError(format!(
+                "`{path}` = \"{}\": the major does not match the path (v2 and above end in `/vN`)",
+                requirement.version
+            )));
+        }
+        requirements.insert(path, requirement);
+    }
+    Ok(requirements)
 }
 
 #[cfg(test)]
@@ -232,5 +253,23 @@ target = "c"
         let m = Manifest::parse(base).unwrap();
         assert_eq!((m.targets, m.external.len()), (None, 0));
         assert!(Manifest::parse(&format!("{base}targets = [\"node\"]\n")).is_err());
+    }
+
+    #[test]
+    fn reads_dev_dependencies() {
+        let base =
+            "[pome]\nname = \"github.com/acme/x\"\nversion = \"0.1.0\"\nemela = \"0.22.0\"\n";
+        let m = Manifest::parse(&format!(
+            "{base}[dev-dependencies]\n\"github.com/emela-lang/brix\" = \"v0.2.0\"\n"
+        ))
+        .unwrap();
+        let brix = SourcePath::parse("github.com/emela-lang/brix").unwrap();
+        assert_eq!(m.dev_dependencies[&brix].version.as_str(), "v0.2.0");
+        assert!(m.dependencies.is_empty());
+        let both = Manifest::parse(&format!(
+            "{base}[dependencies]\n\"github.com/emela-lang/brix\" = \"v0.2.0\"\n\n[dev-dependencies]\n\"github.com/emela-lang/brix\" = \"v0.2.0\"\n"
+        ))
+        .unwrap_err();
+        assert!(both.0.contains("in both"), "{both}");
     }
 }

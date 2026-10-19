@@ -74,6 +74,8 @@ pub struct Change {
     pub path: SourcePath,
     pub from: Option<Version>,
     pub to: Option<Version>,
+    /// In `[dev-dependencies]`, or in the lock only for the tests (spec 4.7).
+    pub dev: bool,
 }
 
 impl fmt::Display for Change {
@@ -83,7 +85,11 @@ impl fmt::Display for Change {
             (Some(from), None) => write!(f, "- {} {from}", self.path),
             (Some(from), Some(to)) => write!(f, "  {} {from} -> {to}", self.path),
             (None, None) => write!(f, "  {}", self.path),
+        }?;
+        if self.dev {
+            f.write_str(" (dev)")?;
         }
+        Ok(())
     }
 }
 
@@ -143,14 +149,16 @@ impl Project {
         self.apply(fetcher, text, Vec::new(), None)
     }
 
-    /// `emela pome add [--allow-external] <src>[@<version>]`: the latest version when none is
-    /// given. With `allow_external`, the added Pome and the Pomes it newly brings in that use
-    /// `@external` are added to `[external] allow`.
+    /// `emela pome add [--allow-external] [--dev] <src>[@<version>]`: the latest version when none
+    /// is given. With `allow_external`, the added Pome and the Pomes it newly brings in that use
+    /// `@external` are added to `[external] allow`. With `dev`, it goes to `[dev-dependencies]`;
+    /// without, a Pome in `[dev-dependencies]` moves to `[dependencies]`.
     pub fn add<T: Transport>(
         &mut self,
         fetcher: &Fetcher<T>,
         src: &str,
         allow_external: bool,
+        dev: bool,
     ) -> Result<Outcome, PomeError> {
         let (path, version) = parse_src(src)?;
         if path == self.manifest.name {
@@ -160,23 +168,51 @@ impl Project {
             Some(v) => v,
             None => fetcher.latest(&path)?,
         };
+        if dev && self.manifest.dependencies.contains_key(&path) {
+            return Err(PomeError::Usage(format!(
+                "`{path}` is in [dependencies]; the tests can use it as it is"
+            )));
+        }
         if !path.is_version_of(&version) {
             return Err(PomeError::Usage(major_mismatch(&path, &version)));
         }
-        let text = edit::set_dependency(&self.text, &path, &version)
-            .map_err(|e| PomeError::Manifest(e.0))?;
+        let manifest_error = |e: crate::manifest::ManifestError| PomeError::Manifest(e.0);
+        let moved = match dev {
+            true => None,
+            false => edit::move_dependency(
+                &self.text,
+                &path,
+                edit::DEV_DEPENDENCIES,
+                edit::DEPENDENCIES,
+            )
+            .map_err(manifest_error)?,
+        };
+        let table = if dev {
+            edit::DEV_DEPENDENCIES
+        } else {
+            edit::DEPENDENCIES
+        };
+        let text = edit::set_dependency(
+            moved.as_deref().unwrap_or(&self.text),
+            table,
+            &path,
+            &version,
+        )
+        .map_err(manifest_error)?;
         let from = self
             .manifest
             .dependencies
             .get(&path)
+            .or_else(|| self.manifest.dev_dependencies.get(&path))
             .map(|r| r.version.clone());
         let change = Change {
             path,
             from,
             to: Some(version),
+            dev,
         };
         let allow = allow_external.then(|| change.path.clone());
-        let changes = if change.from == change.to {
+        let changes = if change.from == change.to && moved.is_none() {
             Vec::new()
         } else {
             vec![change]
@@ -191,14 +227,19 @@ impl Project {
         src: &str,
     ) -> Result<Outcome, PomeError> {
         let path = SourcePath::from_input(src).map_err(|e| PomeError::Usage(e.to_string()))?;
-        let text = edit::remove_dependency(&self.text, &path)
+        let dev = !self.manifest.dependencies.contains_key(&path);
+        let (table, requirements) = match dev {
+            false => (edit::DEPENDENCIES, &self.manifest.dependencies),
+            true => (edit::DEV_DEPENDENCIES, &self.manifest.dev_dependencies),
+        };
+        let from = requirements.get(&path).map(|r| r.version.clone());
+        let text = edit::remove_dependency(&self.text, table, &path)
             .map_err(|e| PomeError::Manifest(e.0))?
-            .ok_or_else(|| PomeError::Usage(format!("`{path}` is not in [dependencies]")))?;
-        let from = self
-            .manifest
-            .dependencies
-            .get(&path)
-            .map(|r| r.version.clone());
+            .ok_or_else(|| {
+                PomeError::Usage(format!(
+                    "`{path}` is not in [dependencies] or [dev-dependencies]"
+                ))
+            })?;
         self.apply(
             fetcher,
             text,
@@ -206,6 +247,7 @@ impl Project {
                 path,
                 from,
                 to: None,
+                dev,
             }],
             None,
         )
@@ -218,31 +260,49 @@ impl Project {
         fetcher: &Fetcher<T>,
         src: Option<&str>,
     ) -> Result<Outcome, PomeError> {
-        let targets: Vec<SourcePath> = match src {
+        let all: Vec<(&SourcePath, &Version, bool)> = self
+            .manifest
+            .dependencies
+            .iter()
+            .map(|(p, r)| (p, &r.version, false))
+            .chain(
+                self.manifest
+                    .dev_dependencies
+                    .iter()
+                    .map(|(p, r)| (p, &r.version, true)),
+            )
+            .collect();
+        let targets = match src {
             Some(src) => {
                 let path =
                     SourcePath::from_input(src).map_err(|e| PomeError::Usage(e.to_string()))?;
-                if !self.manifest.dependencies.contains_key(&path) {
+                let found: Vec<_> = all.into_iter().filter(|(p, ..)| **p == path).collect();
+                if found.is_empty() {
                     return Err(PomeError::Usage(format!(
-                        "`{path}` is not in [dependencies]"
+                        "`{path}` is not in [dependencies] or [dev-dependencies]"
                     )));
                 }
-                vec![path]
+                found
             }
-            None => self.manifest.dependencies.keys().cloned().collect(),
+            None => all,
         };
         let mut text = self.text.clone();
         let mut changes = Vec::new();
-        for path in targets {
-            let current = self.manifest.dependencies[&path].version.clone();
-            let latest = fetcher.latest(&path)?;
-            if latest > current {
-                text = edit::set_dependency(&text, &path, &latest)
+        for (path, current, dev) in targets {
+            let latest = fetcher.latest(path)?;
+            if latest > *current {
+                let table = if dev {
+                    edit::DEV_DEPENDENCIES
+                } else {
+                    edit::DEPENDENCIES
+                };
+                text = edit::set_dependency(&text, table, path, &latest)
                     .map_err(|e| PomeError::Manifest(e.0))?;
                 changes.push(Change {
-                    path,
-                    from: Some(current),
+                    path: path.clone(),
+                    from: Some(current.clone()),
                     to: Some(latest),
+                    dev,
                 });
             }
         }
@@ -266,13 +326,22 @@ impl Project {
             .manifest
             .dependencies
             .iter()
+            .chain(&self.manifest.dev_dependencies)
             .map(|(p, r)| (p.clone(), r.version.clone()))
+            .collect();
+        let dev: BTreeSet<&SourcePath> = lock
+            .pomes
+            .iter()
+            .filter(|p| p.dev)
+            .map(|p| &p.path)
+            .chain(self.manifest.dev_dependencies.keys())
             .collect();
         tree(
             &mut out,
             "",
             &root,
             &selected,
+            &dev,
             &mut graph,
             &mut BTreeSet::new(),
         )?;
@@ -350,9 +419,10 @@ impl Project {
     }
 }
 
-/// The lock of a project: the build list of minimal version selection, without the root and the
-/// `[replace]`d Pomes, each downloaded (or, if already locked at that version, fetched and checked
-/// against the old lock).
+/// The lock of a project: the build list of minimal version selection over `[dependencies]` and
+/// `[dev-dependencies]` together, without the root and the `[replace]`d Pomes, each downloaded
+/// (or, if already locked at that version, fetched and checked against the old lock). The Pomes
+/// that only `[dev-dependencies]` reach are marked `dev` (spec 4.7).
 pub fn resolve<T: Transport>(
     fetcher: &Fetcher<T>,
     root: &Path,
@@ -365,12 +435,19 @@ pub fn resolve<T: Transport>(
         replace: &manifest.replace,
         lock: old,
     };
-    let requirements: Vec<(SourcePath, Version)> = manifest
-        .dependencies
+    let pairs = |deps: &BTreeMap<SourcePath, crate::manifest::Requirement>| {
+        deps.iter()
+            .map(|(p, r)| (p.clone(), r.version.clone()))
+            .collect::<Vec<_>>()
+    };
+    let requirements = pairs(&manifest.dependencies);
+    let all: Vec<(SourcePath, Version)> = requirements
         .iter()
-        .map(|(p, r)| (p.clone(), r.version.clone()))
+        .cloned()
+        .chain(pairs(&manifest.dev_dependencies))
         .collect();
-    let list = mvs::build_list(&requirements, &mut graph)?;
+    let list = mvs::build_list(&all, &mut graph)?;
+    let built = mvs::reached(&requirements, &list, &mut graph)?;
     let mut pomes = Vec::new();
     for (path, version) in list {
         if path == manifest.name || manifest.replace.contains_key(&path) {
@@ -395,7 +472,10 @@ pub fn resolve<T: Transport>(
             }
             None => fetcher.download(&path, &version)?,
         };
-        pomes.push(locked);
+        pomes.push(Locked {
+            dev: !built.contains(&path),
+            ..locked
+        });
     }
     Ok(Lock::new(pomes))
 }
@@ -447,6 +527,7 @@ fn tree<T: Transport>(
     indent: &str,
     requirements: &[(SourcePath, Version)],
     selected: &BTreeMap<&SourcePath, &Version>,
+    dev: &BTreeSet<&SourcePath>,
     graph: &mut Graph<'_, T>,
     on_path: &mut BTreeSet<SourcePath>,
 ) -> Result<(), PomeError> {
@@ -466,6 +547,11 @@ fn tree<T: Transport>(
             Some(_) => String::new(),
             None => " (not in the lock)".to_string(),
         };
+        let note = if dev.contains(path) {
+            format!("{note} (dev)")
+        } else {
+            note
+        };
         out.push_str(&format!("{indent}{branch}{path} {required}{note}\n"));
         let version = chosen.cloned().unwrap_or_else(|| required.clone());
         if on_path.insert(path.clone()) {
@@ -475,6 +561,7 @@ fn tree<T: Transport>(
                 &format!("{indent}{next}"),
                 &children,
                 selected,
+                dev,
                 graph,
                 on_path,
             )?;
@@ -485,19 +572,21 @@ fn tree<T: Transport>(
 }
 
 fn diff(old: Option<&Lock>, new: &Lock) -> Vec<Change> {
-    let before: BTreeMap<&SourcePath, &Version> = old
-        .map(|l| l.pomes.iter().map(|p| (&p.path, &p.version)).collect())
+    let before: BTreeMap<&SourcePath, &Locked> = old
+        .map(|l| l.pomes.iter().map(|p| (&p.path, p)).collect())
         .unwrap_or_default();
-    let after: BTreeMap<&SourcePath, &Version> =
-        new.pomes.iter().map(|p| (&p.path, &p.version)).collect();
+    let after: BTreeMap<&SourcePath, &Locked> = new.pomes.iter().map(|p| (&p.path, p)).collect();
     let paths: BTreeSet<&SourcePath> = before.keys().chain(after.keys()).copied().collect();
     paths
         .into_iter()
-        .filter(|p| before.get(p) != after.get(p))
+        .filter(|p| {
+            before.get(p).map(|l| (&l.version, l.dev)) != after.get(p).map(|l| (&l.version, l.dev))
+        })
         .map(|p| Change {
             path: p.clone(),
-            from: before.get(p).map(|v| (*v).clone()),
-            to: after.get(p).map(|v| (*v).clone()),
+            from: before.get(p).map(|l| l.version.clone()),
+            to: after.get(p).map(|l| l.version.clone()),
+            dev: after.get(p).or(before.get(p)).is_some_and(|l| l.dev),
         })
         .collect()
 }

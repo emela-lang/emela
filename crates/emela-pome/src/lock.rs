@@ -1,4 +1,5 @@
-//! `Pome.lock` (spec 4.7): every Pome of the build list with its version, commit and hashes.
+//! `Pome.lock` (spec 4.7): every Pome of the build list with its version, commit and hashes,
+//! including those only `[dev-dependencies]` reach (marked `dev`).
 //! `emela pome` writes it; nothing edits it by hand.
 //!
 //! ```toml
@@ -40,14 +41,22 @@ pub struct Locked {
     /// the lock so that a review sees when a new version reaches the host in more places.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external: Vec<String>,
+    /// Reached only through `[dev-dependencies]` (spec 4.7): `build` and `run` do not get it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dev: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// The `.emel` files of a tree with an `@external` annotation, sorted. An annotation is a line
-/// starting with `@external` (comments start with `#`, so they do not count).
+/// starting with `@external` (comments start with `#`, so they do not count). Files under `test/`
+/// are left out: a dependency's tests are never read (spec 13.1).
 pub fn external_files<'a>(files: impl IntoIterator<Item = (&'a str, &'a [u8])>) -> Vec<String> {
     let mut found: Vec<String> = files
         .into_iter()
-        .filter(|(path, _)| path.ends_with(".emel"))
+        .filter(|(path, _)| path.ends_with(".emel") && !path.starts_with("test/"))
         .filter(|(_, content)| {
             String::from_utf8_lossy(content)
                 .lines()
@@ -137,6 +146,7 @@ mod tests {
             hash: h.clone(),
             manifest: h,
             external: Vec::new(),
+            dev: false,
         }
     }
 
@@ -168,7 +178,7 @@ mod tests {
 
     #[test]
     fn lists_files_with_external() {
-        let files: [(&str, &[u8]); 4] = [
+        let files: [(&str, &[u8]); 5] = [
             (
                 "src/kv.emel",
                 b"pub effect Kv {}\n@external(js, \"./kv.mjs\", \"get\")\nfn get() -> Int\n",
@@ -179,6 +189,10 @@ mod tests {
             ),
             ("src/kv.mjs", b"@external\n"),
             ("src/b.emel", b"  @external\n  type T\n"),
+            (
+                "test/fake.emel",
+                b"@external(js, \"./f.mjs\", \"f\")\nfn f() -> Int\n",
+            ),
         ];
         assert_eq!(external_files(files), ["src/b.emel", "src/kv.emel"]);
     }
@@ -190,6 +204,16 @@ mod tests {
         l.external = vec!["src/kv.emel".into()];
         let text = Lock::new(vec![l.clone()]).to_toml();
         assert!(text.contains("external = [\"src/kv.emel\"]"), "{text}");
+        assert_eq!(Lock::parse(&text).unwrap().pomes[0], l);
+    }
+
+    #[test]
+    fn writes_dev_only_when_set() {
+        let mut l = locked("github.com/a/x", "v0.2.0");
+        assert!(!Lock::new(vec![l.clone()]).to_toml().contains("dev"));
+        l.dev = true;
+        let text = Lock::new(vec![l.clone()]).to_toml();
+        assert!(text.contains("dev = true"), "{text}");
         assert_eq!(Lock::parse(&text).unwrap().pomes[0], l);
     }
 }
