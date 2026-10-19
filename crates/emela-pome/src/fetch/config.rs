@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use crate::source_path::SourcePath;
 use crate::sumdb::note::Verifier;
 
-pub const DEFAULT_PROXY: &str = "https://pomes.emela.ab2m.link,direct";
+pub const DEFAULT_PROXY: &str = "https://pomes.emela.dev,direct";
 
-/// The verifier key of the default checksum database, built into the compiler.
-pub const DEFAULT_SUMDB: &str =
-    "sum.emela.ab2m.link+ad5364f4+AUu8x/imsHpAJe8Ee9U5GwuaVqG9hijmecEfo53D/FnS";
+/// The verifier key of the default checksum database, built into the compiler, and its URL. The
+/// key keeps its old name: renaming it would fail every compiler that has the old key built in.
+pub const DEFAULT_SUMDB: &str = "sum.emela.ab2m.link+ad5364f4+AUu8x/imsHpAJe8Ee9U5GwuaVqG9hijmecEfo53D/FnS https://sum.emela.dev";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -178,14 +178,14 @@ mod tests {
         assert_eq!(
             c.sources,
             [
-                Source::Proxy("https://pomes.emela.ab2m.link".into()),
+                Source::Proxy("https://pomes.emela.dev".into()),
                 Source::Direct
             ]
         );
         let sumdb = c.sumdb.unwrap();
         assert_eq!(
             (sumdb.verifier.name.as_str(), sumdb.url.as_str()),
-            ("sum.emela.ab2m.link", "https://sum.emela.ab2m.link")
+            ("sum.emela.ab2m.link", "https://sum.emela.dev")
         );
     }
 
