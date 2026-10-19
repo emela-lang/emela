@@ -1352,29 +1352,21 @@ impl<'s> Lower<'s> {
                 let l = self.expr(lhs)?;
                 let r = self.expr(rhs)?;
                 let (test, _) = self.binop(*op, *op_ty, &l, &r);
-                let then = self.empty();
-                self.open();
-                let left = self.show(*ty, l.op.clone());
-                let right = self.show(*ty, r.op.clone());
-                let head = if a.text.is_empty() {
-                    format!("left {} right", op_text(*op))
-                } else {
-                    a.text.clone()
-                };
-                let msg = self.concat(vec![
-                    Piece::Text(format!("assertion failed: {head}\n  left: ")),
-                    Piece::Op(left),
-                    Piece::Text("\n right: ".into()),
-                    Piece::Op(right),
-                ]);
-                self.term(Term::Defect(msg));
-                let else_ = self.close();
-                self.push(Stmt::If {
-                    dst: None,
-                    cond: test,
-                    then,
-                    else_,
-                });
+                self.assert_compare(a, *op, *ty, test, l, r);
+            }
+            // The sides are variables bound before, so reading them after `cond` changes nothing.
+            AssertCond::Shown {
+                cond,
+                op,
+                ty,
+                lhs,
+                rhs,
+            } => {
+                let v = self.expr(cond)?;
+                let test = v.op.unwrap_or(Operand::Const(Const::Bool(false)));
+                let l = self.expr(lhs)?;
+                let r = self.expr(rhs)?;
+                self.assert_compare(a, *op, *ty, test, l, r);
             }
             AssertCond::Bool(c) => {
                 let v = self.expr(c)?;
@@ -1400,6 +1392,33 @@ impl<'s> Lower<'s> {
             op: None,
             ty: TypeId::UNIT,
         })
+    }
+
+    /// Unless `test`, a defect showing both sides `l` and `r` (spec 13.2).
+    fn assert_compare(&mut self, a: &Assert, op: BinOp, ty: TypeId, test: Operand, l: Val, r: Val) {
+        let then = self.empty();
+        self.open();
+        let left = self.show(ty, l.op);
+        let right = self.show(ty, r.op);
+        let head = if a.text.is_empty() {
+            format!("left {} right", op_text(op))
+        } else {
+            a.text.clone()
+        };
+        let msg = self.concat(vec![
+            Piece::Text(format!("assertion failed: {head}\n  left: ")),
+            Piece::Op(left),
+            Piece::Text("\n right: ".into()),
+            Piece::Op(right),
+        ]);
+        self.term(Term::Defect(msg));
+        let else_ = self.close();
+        self.push(Stmt::If {
+            dst: None,
+            cond: test,
+            then,
+            else_,
+        });
     }
 
     /// String interpolation: the values left to right, then the string. A String is embedded as

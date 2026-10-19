@@ -1249,6 +1249,11 @@ impl Expr {
                     f(lhs);
                     f(rhs);
                 }
+                AssertCond::Shown { cond, lhs, rhs, .. } => {
+                    f(cond);
+                    f(lhs);
+                    f(rhs);
+                }
                 AssertCond::Bool(e) => f(e),
             },
             Expr::Provide { base, bindings } => {
@@ -1460,6 +1465,17 @@ pub enum AssertCond {
         lhs: Expr,
         rhs: Expr,
     },
+    /// A comparison decided by `cond`, which calls an impl (`Eq.eq`, `Ord.compare`, spec 10.3).
+    /// `lhs` and `rhs` are the sides, already evaluated into variables (`Expr::Var`) before the
+    /// assert, so evaluating them again has no effect; if `cond` is false, both are shown as with
+    /// `Compare`. `op` is the comparison written in the source, for the message.
+    Shown {
+        cond: Expr,
+        op: BinOp,
+        ty: TypeId,
+        lhs: Expr,
+        rhs: Expr,
+    },
     /// Not a comparison; only the expression's value is checked.
     Bool(Expr),
 }
@@ -1487,10 +1503,46 @@ impl Assert {
         }))
     }
 
+    /// A comparison decided by `cond` ([`AssertCond::Shown`]): `let a = lhs; let b = rhs;
+    /// assert(cond)`, showing `a` and `b` if it fails. `cond` refers to `a` and `b`.
+    pub fn shown(
+        cond: Expr,
+        op: BinOp,
+        ty: TypeId,
+        (a, lhs): (Local, Expr),
+        (b, rhs): (Local, Expr),
+        text: &str,
+    ) -> Expr {
+        let assert = Expr::Assert(Box::new(Assert {
+            cond: AssertCond::Shown {
+                cond,
+                op,
+                ty,
+                lhs: Expr::Var(a),
+                rhs: Expr::Var(b),
+            },
+            text: text.to_owned(),
+        }));
+        Expr::Let {
+            var: a,
+            value: Box::new(lhs),
+            body: Box::new(Expr::Let {
+                var: b,
+                value: Box::new(rhs),
+                body: Box::new(assert),
+            }),
+        }
+    }
+
     /// Applies `f` to subexpressions in evaluation order.
     pub fn for_each_operand_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
         match &mut self.cond {
             AssertCond::Compare { lhs, rhs, .. } => {
+                f(lhs);
+                f(rhs);
+            }
+            AssertCond::Shown { cond, lhs, rhs, .. } => {
+                f(cond);
                 f(lhs);
                 f(rhs);
             }

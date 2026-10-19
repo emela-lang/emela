@@ -2596,7 +2596,9 @@ impl<'a> Lowerer<'a> {
             BinaryOp::Ne => (BinOp::Ne, Some(self.eq_op_ty(operand))),
             // Ordering of other values is `Ord.compare` (spec 10.3).
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge if operand.is_none() => {
-                return self.compare(op, lhs, rhs, span);
+                let ty = self.ty(self.expr_ty(lhs));
+                let (a, b) = (self.expr(lhs), self.expr(rhs));
+                return self.compare(op, ty, a, b, span);
             }
             BinaryOp::Lt => (BinOp::Lt, operand),
             BinaryOp::Le => (BinOp::Le, operand),
@@ -2628,9 +2630,8 @@ impl<'a> Lowerer<'a> {
 
     /// `lhs < rhs` (and `<=`, `>`, `>=`) on values that are not primitive:
     /// `Ord.compare(lhs, rhs) match { Less -> True, _ -> False }` and so on (spec 10.3).
-    fn compare(&mut self, op: BinaryOp, lhs: ExprId, rhs: ExprId, span: Span) -> Expr {
+    fn compare(&mut self, op: BinaryOp, ty: TypeId, lhs: Expr, rhs: Expr, span: Span) -> Expr {
         let hir = self.hir;
-        let ty = self.ty(self.expr_ty(lhs));
         let (Some(compare), Some(less), Some(greater)) = (
             self.prelude_trait_fn_id("Ord", "compare"),
             hir.prelude_def("Less")
@@ -2652,7 +2653,7 @@ impl<'a> Lowerer<'a> {
                 f: compare,
                 ty_args: vec![ty],
             },
-            args: vec![self.expr(lhs), self.expr(rhs)],
+            args: vec![lhs, rhs],
             fails: false,
             suspends: false,
         };
@@ -2698,11 +2699,19 @@ impl<'a> Lowerer<'a> {
                 (None, BinOp::Eq | BinOp::Ne) => Some(self.eq_op_ty(None)),
                 (None, _) => None,
             };
-            if let Some(op_ty) = op_ty
-                && unshowable(&self.module, ty, true).is_none()
-            {
-                let (lhs, rhs) = (self.expr(*lhs), self.expr(*rhs));
-                return Assert::compare(bin, op_ty, ty, lhs, rhs, text);
+            if unshowable(&self.module, ty, true).is_none() {
+                let (l, r) = (self.expr(*lhs), self.expr(*rhs));
+                if let Some(op_ty) = op_ty {
+                    return Assert::compare(bin, op_ty, ty, l, r, text);
+                }
+                // An ordering through `Ord.compare`: the sides are bound first and shown if it
+                // fails (spec 13.2).
+                let (a, b) = (
+                    self.module.local("left", ty),
+                    self.module.local("right", ty),
+                );
+                let decide = self.compare(*op, ty, Expr::Var(a), Expr::Var(b), c.span);
+                return Assert::shown(decide, bin, ty, (a, l), (b, r), text);
             }
         }
         let cond = self.expr(cond);

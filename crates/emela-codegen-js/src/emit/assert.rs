@@ -4,7 +4,7 @@
 //! false are both sides turned into strings with their show functions and a defect thrown with
 //! `$assertCmp`. Other forms only look at the value of the expression.
 
-use emela_core::{Assert, AssertCond, BinOp};
+use emela_core::{Assert, AssertCond, BinOp, TypeId};
 
 use super::{Emitter, js_string, unparen};
 
@@ -20,15 +20,6 @@ impl Emitter<'_> {
                 lhs,
                 rhs,
             } => {
-                let op_text = match op {
-                    BinOp::Eq => "==",
-                    BinOp::Ne => "!=",
-                    BinOp::Lt => "<",
-                    BinOp::Le => "<=",
-                    BinOp::Gt => ">",
-                    BinOp::Ge => ">=",
-                    _ => panic!("invalid IR: {op:?} cannot be used in an assert comparison"),
-                };
                 // Both sides are used twice (compare and show), so always bind them to temporaries.
                 let vs = self.values_in_order(&[lhs, rhs]);
                 let mut operands = Vec::with_capacity(2);
@@ -39,17 +30,20 @@ impl Emitter<'_> {
                 }
                 let (l, r) = (&operands[0], &operands[1]);
                 let test = self.binary_js(*op, *op_ty, l, r);
-                let left = self.show_call(ty, l);
-                let right = self.show_call(ty, r);
-                let fail = self.rt("$assertCmp");
-                self.line(&format!("if (!{test}) {{"));
-                self.indent += 1;
-                self.line(&format!(
-                    "{fail}({text}, {}, {left}, {right});",
-                    js_string(op_text)
-                ));
-                self.indent -= 1;
-                self.line("}");
+                self.assert_compare(&text, *op, *ty, &test, l, r);
+            }
+            // The sides are variables bound before the assert.
+            AssertCond::Shown {
+                cond,
+                op,
+                ty,
+                lhs,
+                rhs,
+            } => {
+                let c = self.value(cond);
+                let test = format!("({})", unparen(&c));
+                let (l, r) = (self.value(lhs), self.value(rhs));
+                self.assert_compare(&text, *op, *ty, &test, &l, &r);
             }
             AssertCond::Bool(cond) => {
                 let c = self.value(cond);
@@ -61,5 +55,29 @@ impl Emitter<'_> {
                 self.line("}");
             }
         }
+    }
+
+    /// Unless `test`, a defect showing both sides `l` and `r` with `$assertCmp`.
+    fn assert_compare(&mut self, text: &str, op: BinOp, ty: TypeId, test: &str, l: &str, r: &str) {
+        let op_text = match op {
+            BinOp::Eq => "==",
+            BinOp::Ne => "!=",
+            BinOp::Lt => "<",
+            BinOp::Le => "<=",
+            BinOp::Gt => ">",
+            BinOp::Ge => ">=",
+            _ => panic!("invalid IR: {op:?} cannot be used in an assert comparison"),
+        };
+        let left = self.show_call(&ty, l);
+        let right = self.show_call(&ty, r);
+        let fail = self.rt("$assertCmp");
+        self.line(&format!("if (!{test}) {{"));
+        self.indent += 1;
+        self.line(&format!(
+            "{fail}({text}, {}, {left}, {right});",
+            js_string(op_text)
+        ));
+        self.indent -= 1;
+        self.line("}");
     }
 }

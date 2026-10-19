@@ -286,7 +286,7 @@ fn assert_shows_both_sides_with_inspect() {
 
 fn twice(x: Int) -> Int { x * 2 }
 
-fn same[A](a: A, b: A) -> () { assert a == b }
+fn same[A: Eq](a: A, b: A) -> () { assert a == b }
 
 @test
 fn generic() {

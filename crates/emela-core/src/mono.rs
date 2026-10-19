@@ -1044,23 +1044,38 @@ impl<'a> Mono<'a> {
                     } => {
                         let ty = self.ty(*ty);
                         let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
-                        match self.structural_eq(*op, ty, lhs, rhs) {
-                            Expr::Binary {
-                                op,
-                                ty: _,
-                                lhs,
-                                rhs,
-                            } => AssertCond::Compare {
-                                op,
-                                op_ty: *op_ty,
-                                ty,
-                                lhs: *lhs,
-                                rhs: *rhs,
-                            },
-                            // Through an impl: the sides are not shown.
-                            cond => AssertCond::Bool(cond),
+                        if *op_ty == OpTy::Structural
+                            && let Some(eq) = self.m.traits.eq
+                            && !self.structural(eq, ty, &mut Vec::new())
+                        {
+                            // Through the impl: the sides are bound first and shown if it fails
+                            // (spec 13.2).
+                            let l = self.out.local("left", ty);
+                            let r = self.out.local("right", ty);
+                            let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
+                            return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
+                        }
+                        AssertCond::Compare {
+                            op: *op,
+                            op_ty: *op_ty,
+                            ty,
+                            lhs,
+                            rhs,
                         }
                     }
+                    AssertCond::Shown {
+                        cond,
+                        op,
+                        ty,
+                        lhs,
+                        rhs,
+                    } => AssertCond::Shown {
+                        cond: self.expr(cond),
+                        op: *op,
+                        ty: self.ty(*ty),
+                        lhs: self.expr(lhs),
+                        rhs: self.expr(rhs),
+                    },
                     AssertCond::Bool(c) => AssertCond::Bool(self.expr(c)),
                 };
                 Expr::Assert(Box::new(Assert {

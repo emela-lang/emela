@@ -245,3 +245,42 @@ fn operators_and_interpolation_go_through_the_impls() {
          True\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\n5\n\"b\"\n\"it is <ann>\"\n\"it is x\"\nTrue\n"
     );
 }
+
+#[test]
+fn an_assert_through_an_impl_shows_both_sides() {
+    // `==` and `<` through impls still show both sides with inspect (spec 13.2).
+    let main = r##"
+type Ver(major: Int, note: String)
+
+impl Ver: Eq {
+  fn eq(self, other) { self.major == other.major }
+}
+
+impl Ver: Ord {
+  fn compare(self, other) { Ord.compare(self.major, other.major) }
+}
+
+fn main() {
+  assert Ver(major: 1, note: "a") == Ver(major: 1, note: "b")
+  assert [Ver(major: 1, note: "a")] < [Ver(major: 2, note: "b")]
+  assert [Ver(major: 1, note: "a")] != [Ver(major: 1, note: "b")]
+}
+"##;
+    let expected = "defect: assertion failed: [Ver(major: 1, note: \"a\")] != [Ver(major: 1, note: \"b\")]\n  left: [Ver(major: 1, note: \"a\")]\n right: [Ver(major: 1, note: \"b\")]\n";
+    let targets: &[Target] = if c_backend().is_some() {
+        &[Target::Js, Target::C]
+    } else {
+        &[Target::Js]
+    };
+    for &target in targets {
+        let (analysis, output) = run_on("assert", main, target);
+        assert!(analysis.diagnostics.is_empty(), "{target}");
+        let output = output.expect("the program ran");
+        assert_ne!(output.code, 0, "{target}");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            expected,
+            "{target}"
+        );
+    }
+}
