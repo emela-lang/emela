@@ -18,7 +18,7 @@
 - `textDocument/signatureHelp` で呼び出しの型とラベルを見せる（`(` と `,` で起動する）
 - `textDocument/rename` と `textDocument/prepareRename` で名前をプロジェクト全体で変える
 - `textDocument/inlayHint` で，ソースに書かない型と E，R を行の中に出す（9.3）
-- `textDocument/codeAction` で，トップレベルの fn の省いた注釈に推論結果を挿入する（4.5）
+- `textDocument/codeAction` で，トップレベルの fn の省いた注釈に推論結果を挿入し（4.5），impl の不足メソッドのスタブを生成する．診断に結び付く quickfix で，match の不足アーム，import と fails/use の不足，名前の綴り間違いを直す
 - `textDocument/semanticTokens/full` と `range` で，能力の値（`x = use X`．8.2）に印を付ける
 
 ## しくみ
@@ -55,7 +55,14 @@
 - （補）パイプの右辺の呼び出し（`x |> f(a)`）では，シグネチャのヘルプも補完のラベルも左辺が入る第1引数を除く（6.7．判定は driver の `signature.rs`，名前付き引数との対応は driver の NOTES）
 - （補）シグネチャのヘルプは1つだけ返す（多重定義はない）．引数の範囲は `ParameterInformation` のラベルの中の UTF-16 の位置．カーソルの引数が引数の数を超えれば `activeParameter` を付けない
 - （補）名前の変更は `WorkspaceEdit` の `changes`（URI ごとの編集）で返す．開いていないファイルも同じく編集に入れる．変えられない名前と字句クラスの合わない新しい名前は `RequestFailed` の誤りの応答にし，文面（`this name cannot be renamed`，`` `figure` is not a valid type name ``）をエディタに出す．`prepareRename` は変えられなければ `null`
-- （補）コードアクションの種類は `refactor.rewrite`．診断に結び付けない（省いた注釈の linter の警告はまだない）．編集は `WorkspaceEdit` の `changes` で，そのファイルだけ
+- （補）省いた注釈を挿入するコードアクションは `refactor.rewrite` のまま診断に結び付けない（省いた注釈の linter の警告はまだない）．診断を直すものは `quickfix` で，`diagnostics` に対象診断を載せる．編集は `WorkspaceEdit.changes` でそのファイルだけ
+- （補）quickfix は要求のたびに検査したスナップショットから作り，`context.diagnostics` には依存しない．診断の E 番号とファイル・主位置の範囲で選び，code のない診断は扱わない．空の要求範囲はカーソルを含む診断（終端を除く）を選び，`context.only` があれば種類を絞る
+- （補）E0303 の quickfix は網羅性検査が示した不足パターンの例（6.5）を末尾に挿入し，本体は Prelude の `todo()`（Never）にする．構成子は必要なら import 済みモジュールで修飾する．名前を一意に描画できない場合は `_ -> todo()`，例の件数が上限に達した場合は末尾に同じ wildcard を補う
+- （補）impl の default のない不足メソッドは driver 内で判定するが診断にはしない．カーソルまたは要求範囲が impl のヘッダー（`impl` から開き `{` まで，`{` を含む）に触れるときだけ，診断に結び付かない `refactor.rewrite` で宣言順に末尾へ一括挿入する．不足がなければ提示しない．引数名だけを trait から取り，型・fails・use は書かない（10.2）．本体は既存の仮実装に倣い `todo()` にする
+- （補）E0211 の import 候補はモジュール表と検査済みの公開定義から選ぶ．`Io.print` などの修飾名には `import Io`，未 import の effect などには `import Std.Console.{Console}` を足す．effect の操作を `Effect.op` で呼べるようにはしない（4.6，8.2）．候補ごとに別のアクションを返す
+- （補）E0318/E0402 の quickfix は，関数本体の E/R と書いた節の和を既存の注釈挿入と同じ規則で描画する．既存の要素は消さず，見えない集合や修飾なしで書けない名前は省いた注釈の挿入と同じく扱う．E0402 の main・test・const・handler 操作には伝播する use を提案しない
+- （補）E0211/E0212 の名前置換は，その位置の補完候補から予約語とラベル，大文字小文字のクラスの違う名前を除き，resolver と同じ編集距離（名前の長さの3分の1以内，最低1）で最も近いものを選ぶ．同距離なら内側のスコープを優先する
+- 未使用 import の診断はまだないので，削除する quickfix は出さない
 - （補）インレイヒントの種類は，型と省いた注釈を `Type`，呼び出しの E と R を `Parameter` にした．型（`: Int`）は名前に続けて出し，ほかは左に空白を入れる．範囲の終わりがファイルの外なら，ファイルの終わりまでとみなす
 - （補）semantic tokens は能力の値だけを返す．束縛した名前と，それを参照する名前（クロージャの中も）の両方．関数や型などほかのトークンは返さない（エディタの正規表現の色付けと二重にならないように）．判定は driver の `Frontend::semantic_tokens`
 - （補）legend は型が `variable` の1つ，修飾子が独自の `capability` の1つ．Neovim では `@lsp.typemod.variable.capability.emela` で色を付けられる（`editors/nvim` は下線を既定にする）

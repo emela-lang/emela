@@ -375,6 +375,7 @@ impl Client {
                 .map(|a| match a {
                     lsp::CodeActionOrCommand::CodeAction(a) => {
                         assert_eq!(a.kind, Some(lsp::CodeActionKind::REFACTOR_REWRITE));
+                        assert!(a.diagnostics.is_none());
                         let edits = a
                             .edit
                             .unwrap()
@@ -393,6 +394,51 @@ impl Client {
                 })
                 .collect(),
         )
+    }
+
+    fn quickfixes(
+        &mut self,
+        path: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) -> Vec<lsp::CodeAction> {
+        let id = self.request(
+            CodeActionRequest::METHOD,
+            json!({
+                "textDocument": { "uri": uri(path) },
+                "range": range(start, end),
+                "context": { "diagnostics": [], "only": ["quickfix"] },
+            }),
+        );
+        let actions: Vec<lsp::CodeAction> =
+            serde_json::from_value(self.response(&id).response_result.unwrap()).unwrap();
+        for action in &actions {
+            assert_eq!(action.kind, Some(lsp::CodeActionKind::QUICKFIX));
+            assert_eq!(action.diagnostics.as_ref().unwrap().len(), 1);
+            assert!(action.diagnostics.as_ref().unwrap()[0].code.is_some());
+            assert_eq!(
+                action
+                    .edit
+                    .as_ref()
+                    .unwrap()
+                    .changes
+                    .as_ref()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert!(
+                action
+                    .edit
+                    .as_ref()
+                    .unwrap()
+                    .changes
+                    .as_ref()
+                    .unwrap()
+                    .contains_key(&uri(path))
+            );
+        }
+        actions
     }
 
     /// Returns semantic tokens in absolute positions. `range` asks for `semanticTokens/range`
@@ -2017,6 +2063,120 @@ fn apply[A](f: fn() -> A) {
     );
     // Not offered inside a body.
     assert_eq!(client.code_actions(MAIN, (8, 4), (8, 4)), Some(vec![]));
+    client.shutdown();
+}
+
+#[test]
+fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
+    let main = "enum Color { Red, Blue }\nfn color(x: Color) -> Int { x match { Red -> 1 } }\nfn first(count: Int) -> Int { cout }\nfn second(total: Int) -> Int { tota }\ntrait Show { fn show(self) -> String }\nimpl Show for Color {}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let capabilities = emela_lsp::capabilities();
+    let Some(lsp::CodeActionProviderCapability::Options(options)) =
+        capabilities.code_action_provider
+    else {
+        panic!("code action options")
+    };
+    assert!(
+        options
+            .code_action_kinds
+            .unwrap()
+            .contains(&lsp::CodeActionKind::QUICKFIX)
+    );
+
+    for (at, code, inserted) in [
+        ((1, 28), "E0303", "Blue -> todo()"),
+        ((2, 30), "E0211", "count"),
+        ((3, 31), "E0211", "total"),
+    ] {
+        let actions = client.quickfixes(MAIN, at, at);
+        assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
+        let action = &actions[0];
+        let diagnostic = &action.diagnostics.as_ref().unwrap()[0];
+        assert_eq!(
+            diagnostic.code,
+            Some(lsp::NumberOrString::String(code.to_owned()))
+        );
+        assert!(diagnostic.range.start <= lsp::Position::new(at.0, at.1));
+        assert!(diagnostic.range.end > lsp::Position::new(at.0, at.1));
+        let edits = &action.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].new_text.contains(inserted));
+    }
+    assert!(client.quickfixes(MAIN, (1, 0), (1, 0)).is_empty());
+    assert_eq!(client.quickfixes(MAIN, (1, 0), (6, 0)).len(), 3);
+    assert!(client.quickfixes(MAIN, (5, 1), (5, 1)).is_empty());
+    // The snapshot is rechecked even when the client echoes no diagnostics.
+    client.open(MAIN, 1, main);
+    client.change(MAIN, 2, &main.replace("cout", "count"));
+    assert!(client.quickfixes(MAIN, (2, 30), (2, 30)).is_empty());
+    client.shutdown();
+}
+
+#[test]
+fn impl_stubs_are_header_only_refactorings_without_diagnostics() {
+    let main = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Show for User {\n  fn show(self) { \"user\" }\n}\nimpl Show for Int {}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    for at in [(6, 0), (6, 5), (6, 19)] {
+        let actions = client.code_actions(MAIN, at, at).unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].0, "Implement missing trait methods");
+        assert_eq!(actions[0].1.len(), 1);
+        assert_eq!(actions[0].1[0].1, "\n  fn merge(self, other) { todo() }");
+    }
+    assert_eq!(client.code_actions(MAIN, (6, 5), (6, 18)).unwrap().len(), 1);
+    for at in [(6, 20), (7, 2), (7, 18), (8, 0)] {
+        assert_eq!(client.code_actions(MAIN, at, at), Some(vec![]));
+    }
+    assert_eq!(client.code_actions(MAIN, (7, 0), (8, 1)), Some(vec![]));
+    let actions = client.code_actions(MAIN, (9, 0), (9, 0)).unwrap();
+    assert_eq!(actions.len(), 1);
+    assert!(actions[0].1[0].1.contains("fn show(self) { todo() }"));
+    assert!(
+        actions[0].1[0]
+            .1
+            .contains("fn merge(self, other) { todo() }")
+    );
+    assert!(!actions[0].1[0].1.contains("fn default"));
+    assert!(client.quickfixes(MAIN, (6, 0), (10, 0)).is_empty());
+    client.open(MAIN, 1, main);
+    client.change(
+        MAIN,
+        2,
+        &main.replace(
+            "fn merge(self, other: Self) -> Self",
+            "fn merge(self, other: Self) -> Self { self }",
+        ),
+    );
+    assert_eq!(client.code_actions(MAIN, (6, 0), (6, 0)), Some(vec![]));
+    client.shutdown();
+}
+
+#[test]
+fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
+    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () use {} { fail Missing }\nfn effects() -> () use {} { (use Log).log() }\n";
+    let files = [
+        ("/app/Pome.toml", ""),
+        (MAIN, main),
+        ("/app/src/io.emel", "pub fn print(s: String) -> () {}\n"),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    for (at, code, inserted) in [
+        ((2, 16), "E0211", "import Io\n"),
+        ((3, 26), "E0318", " fails Missing"),
+        ((4, 29), "E0402", "use Log"),
+    ] {
+        let actions = client.quickfixes(MAIN, at, at);
+        assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
+        let action = &actions[0];
+        assert_eq!(
+            action.diagnostics.as_ref().unwrap()[0].code,
+            Some(lsp::NumberOrString::String(code.to_owned()))
+        );
+        let edits = &action.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+        assert_eq!(edits[0].new_text, inserted);
+    }
     client.shutdown();
 }
 

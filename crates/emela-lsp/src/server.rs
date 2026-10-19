@@ -76,7 +76,10 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         ),
         code_action_provider: Some(lsp::CodeActionProviderCapability::Options(
             lsp::CodeActionOptions {
-                code_action_kinds: Some(vec![lsp::CodeActionKind::REFACTOR_REWRITE]),
+                code_action_kinds: Some(vec![
+                    lsp::CodeActionKind::REFACTOR_REWRITE,
+                    lsp::CodeActionKind::QUICKFIX,
+                ]),
                 ..lsp::CodeActionOptions::default()
             },
         )),
@@ -386,8 +389,7 @@ where
         Some(convert::semantic_tokens(index, &tokens))
     }
 
-    /// Actions that insert inferred results into omitted annotations (spec 4.5). `null` for files
-    /// that cannot be checked.
+    /// Refactorings and diagnostic-linked quick fixes. `null` for files that cannot be checked.
     fn code_actions(
         &mut self,
         params: &lsp::CodeActionParams,
@@ -400,7 +402,32 @@ where
         let range = line_index::TextRange::new(start, end);
         let actions = F::code_actions(&program, &analysis, file, range)
             .into_iter()
+            .filter(|action| {
+                let kind = convert::code_action_kind(action.kind);
+                params.context.only.as_ref().is_none_or(|only| {
+                    only.iter().any(|requested| {
+                        requested.as_str().is_empty()
+                            || requested == &kind
+                            || kind
+                                .as_str()
+                                .starts_with(&format!("{}.", requested.as_str()))
+                    })
+                })
+            })
             .map(|action| {
+                let diagnostics = action
+                    .diagnostics
+                    .iter()
+                    .map(|d| {
+                        convert::diagnostic(
+                            d,
+                            &analysis.sources,
+                            analysis.sources[file].path(),
+                            &|p| self.uri_of(p),
+                        )
+                        .1
+                    })
+                    .collect::<Vec<_>>();
                 let edits = action
                     .edits
                     .iter()
@@ -411,7 +438,8 @@ where
                     .collect();
                 lsp::CodeActionOrCommand::CodeAction(lsp::CodeAction {
                     title: action.title,
-                    kind: Some(lsp::CodeActionKind::REFACTOR_REWRITE),
+                    kind: Some(convert::code_action_kind(action.kind)),
+                    diagnostics: (!diagnostics.is_empty()).then_some(diagnostics),
                     edit: Some(lsp::WorkspaceEdit {
                         changes: Some(HashMap::from([(uri.clone(), edits)])),
                         ..lsp::WorkspaceEdit::default()

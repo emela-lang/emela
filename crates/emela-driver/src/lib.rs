@@ -32,7 +32,7 @@ mod testing;
 mod tokens;
 mod wasm;
 
-pub use actions::CodeAction;
+pub use actions::{CodeAction, CodeActionKind};
 pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_command, run_native};
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
