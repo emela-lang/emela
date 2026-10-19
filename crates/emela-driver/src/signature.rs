@@ -7,7 +7,7 @@
 
 use std::ops::Range;
 
-use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Res};
+use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Res};
 use emela_types::{Ty, TyParam};
 use line_index::TextSize;
 
@@ -19,6 +19,8 @@ use crate::source::FileId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureInfo {
     pub label: String,
+    /// The callee's `##` comment, as Markdown.
+    pub documentation: Option<String>,
     /// The byte range of each parameter within `label` (`id: Int`).
     pub params: Vec<Range<usize>>,
     /// The argument under the cursor; `None` past the last parameter.
@@ -64,6 +66,9 @@ pub(crate) fn signature_help(
     Some(SignatureInfo {
         label,
         params: ranges,
+        documentation: callee_def(program, call.callee).and_then(|def| {
+            crate::documentation::Documentation::default().definition(program, analysis, def)
+        }),
         active,
     })
 }
@@ -147,11 +152,7 @@ pub(crate) type Callee = (String, Ty, Vec<TyParam>, Vec<Option<smol_str::SmolStr
 pub(crate) fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Callee> {
     let hir = &program.hir;
     let types = &program.types;
-    let def = match &hir.exprs[callee].kind {
-        ExprKind::Path(Res::Def(def)) => Some(*def),
-        ExprKind::Field { .. } => types.ops.get(callee).copied(),
-        _ => None,
-    };
+    let def = callee_def(program, callee);
     if let Some(def) = def
         && let Some(sig) = types.sigs.get(def)
     {
@@ -183,6 +184,15 @@ pub(crate) fn callee_type(program: &TypedProgram, callee: ExprId) -> Option<Call
     .map(|sig| sig.scheme.params.clone())
     .unwrap_or_default();
     Some((name, ty, params, Vec::new()))
+}
+
+/// The definition of a named callee, including capability operations.
+pub(crate) fn callee_def(program: &TypedProgram, callee: ExprId) -> Option<DefId> {
+    match &program.hir.exprs[callee].kind {
+        ExprKind::Path(Res::Def(def)) => Some(*def),
+        ExprKind::Field { .. } => program.types.ops.get(callee).copied(),
+        _ => None,
+    }
 }
 
 /// Splits the text inside the parentheses into arguments at commas outside nested brackets

@@ -80,6 +80,13 @@
 - （補）implementation は Trait の名前なら明示的な impl の全体，Trait のメソッドなら対応する impl のメソッド名を返す．既定のメソッドを省いた impl はブロック全体を指す．derive や組み込みの実装は返さず，該当なしは空配列
 - （補）documentHighlight・typeDefinition・implementation は hover と同じく要求ごとに検査し直し，誤りがあっても残った名前解決・型検査結果から答える
 
+- （補）`##`（2.2）は公開・非公開を問わず定義の名前の位置で引き，ホバーでは型のコードブロックの後に水平線で区切った Markdown として出す．型・trait と，型検査がまだ型を持たないメソッドには宣言の表示を補う．impl・handler の実装の名前では，宣言側ではなく実装自身の doc を出す
+- （補）名前のない impl と handler の init・release の doc は，ホバーでそのヘッダーにだけ出す．本体の式や束縛には引き継がない
+- （補）シグネチャのヘルプと補完の `documentation` は Markdown の `MarkupContent`．引数説明の規約はまだないので関数の doc を引数ごとに分割しない．構成子の名前付き引数の補完には，対応するフィールドの doc を出す
+- （補）doc は解析に使ったソース（未保存の内容・依存 Pome・同梱の core/std を含む）を再パースし，定義の名前の span と結び付ける．DefId のないフィールドと impl・handler のメソッドも名前の span で引く．`emela doc` と抽出を共用するが，そちらは従来どおり pub だけを出す
+- （補）補完の doc は最初の応答に含め，`completionItem/resolve` は増やさない．1つの要求の中では参照したモジュールを1回だけ再パースして使い回し，編集をまたぐキャッシュは持たない
+- （補）doc の行から `##` と直後の空白1つだけを取り除き，改行とそれ以上の字下げを残す．空か空白だけの doc は LSP に付けず，doc のない候補・局所変数・予約語に別の定義の doc を引き継がせない
+
 ## 手で確かめる
 
 まず `cargo build -p emela-cli` で `target/debug/emela` を作る．
