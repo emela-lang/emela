@@ -10,7 +10,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -26,7 +26,7 @@ effect Name {
 }
 
 ## A release that suspends: an interruption waits until it ends (spec 11.4).
-handler SlowRes implements Name {
+handler SlowRes: Name {
   init {
     print("init slow")
     SlowRes
@@ -40,7 +40,7 @@ handler SlowRes implements Name {
 }
 
 ## A release that fails while its fiber unwinds by an interruption.
-handler BadRes implements Name {
+handler BadRes: Name {
   init { BadRes }
   fn name() { "bad" }
   release { panic("release failed") }
@@ -52,7 +52,7 @@ effect Slow {
 
 ## Suspends before it resumes. If the caller is interrupted meanwhile, the implementation is
 ## unwound too (spec 12.2, the JS runtime's `onDrop`).
-handler Slowly implements Slow {
+handler Slowly: Slow {
   suspend fn slow(n, resume) {
     with SlowRes {
       spin(n)

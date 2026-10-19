@@ -203,7 +203,7 @@ effect Pool {
   fn get() -> Int
 }
 
-handler Counted(n: Int) implements Pool {
+handler Counted(n: Int): Pool {
   init { Counted(n: 1) }
   release { dbg(self.n) }
   fn get() { self.n }
@@ -234,7 +234,7 @@ effect Pool {
   fn get() -> Int
 }
 
-handler Strict implements Pool {
+handler Strict: Pool {
   release { panic(\"release failed\") }
   fn get() { 1 }
 }
@@ -265,7 +265,7 @@ effect Log {
   fn count() -> Int
 }
 
-handler Prefixed(prefix: String) implements Log {
+handler Prefixed(prefix: String): Log {
   init { Prefixed(prefix: \"> \") }
   fn info(msg) {
     dbg(\"#{self.prefix}#{msg}\")
@@ -301,11 +301,11 @@ effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
-handler Napper implements Clock {
+handler Napper: Clock {
   init { Napper }
   release { (use Clock).sleep(0) }
   suspend fn sleep(ms, resume) { resume(ms) }
@@ -360,7 +360,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 

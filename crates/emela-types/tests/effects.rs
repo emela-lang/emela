@@ -204,18 +204,18 @@ effect Clock {
   fn now() -> Int
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
-handler Stamped implements Logger {
+handler Stamped: Logger {
   fn info(msg) {
     t = (use Clock).now()
     ()
   }
 }
 
-handler Fixed implements Clock {
+handler Fixed: Clock {
   fn now() { 0 }
 }
 
@@ -256,11 +256,11 @@ effect Pong {
   fn pong() -> ()
 }
 
-handler HPing implements Ping {
+handler HPing: Ping {
   fn ping() { (use Pong).pong() }
 }
 
-handler HPong implements Pong {
+handler HPong: Pong {
   fn pong() { (use Ping).ping() }
 }
 
@@ -386,32 +386,32 @@ effect Clock {
   suspend fn sleep(ms: Int) -> ()
 }
 
-handler Half implements Logger {
+handler Half: Logger {
   fn info(msg) { () }
 }
 
-handler Twice implements Logger {
+handler Twice: Logger {
   fn info(msg) { () }
   fn info(msg) { () }
   fn warn(a, b) { () }
 }
 
-handler Fails implements Logger {
+handler Fails: Logger {
   fn info(msg) { fail Boom }
   fn warn(msg) { fail Boom }
 }
 
-handler Typed implements Logger {
+handler Typed: Logger {
   fn info(msg) { msg + 1 }
   fn warn(msg) { self }
 }
 
-handler Stateful(n: Int) implements Logger {
+handler Stateful(n: Int): Logger {
   fn info(msg) { () }
   fn warn(msg) { () }
 }
 
-handler Sleepy implements Clock {
+handler Sleepy: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
 }
 "#
@@ -434,7 +434,7 @@ fn console_log(text: String) -> ()
 @external(js, "Math.abs")
 fn abs(x: Int) -> Int use {}
 
-handler SystemConsole implements Console {
+handler SystemConsole: Console {
   fn print_line(text) {
     f = fn() { console_log(text) }
     f()
@@ -496,7 +496,7 @@ effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   fn info(msg) { () }
 }
 
@@ -532,7 +532,7 @@ effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler Silent implements Quiet {
+handler Silent: Quiet {
   fn hush() { () }
 }
 
@@ -604,19 +604,19 @@ fn set_timeout(ms: Int, f: fn() -> ()) -> ()
 
 fn later(f: fn(()) -> ()) { () }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { 0 }
 }
 
-handler SystemClock implements Clock {
+handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
   fn now() { 0 }
 }
 
-handler Stored implements Clock {
+handler Stored: Clock {
   suspend fn sleep(ms, resume) {
     r = resume
     r(())
@@ -624,28 +624,28 @@ handler Stored implements Clock {
   fn now() { 0 }
 }
 
-handler Passed implements Clock {
+handler Passed: Clock {
   suspend fn sleep(ms, resume) { later(resume) }
   fn now() { 0 }
 }
 
-handler Piped implements Ask {
+handler Piped: Ask {
   suspend fn ask(resume) { 42 |> resume }
 }
 
-handler WrongValue implements Ask {
+handler WrongValue: Ask {
   suspend fn ask(resume) { resume("x") }
 }
 
-handler ReturnsValue implements Ask {
+handler ReturnsValue: Ask {
   suspend fn ask(resume) { 42 }
 }
 
-handler NoResume implements Ask {
+handler NoResume: Ask {
   suspend fn ask() { () }
 }
 
-handler Mismatched implements Clock {
+handler Mismatched: Clock {
   fn sleep(ms) { () }
   suspend fn now(resume) { resume(0) }
 }
@@ -678,7 +678,7 @@ fn test_waits() {
 fn async_effect() {
     insta::assert_snapshot!(render_effects(
         r#"
-handler MyAsync implements Async {
+handler MyAsync: Async {
 }
 
 fn grab() { use Async }
@@ -705,7 +705,7 @@ effect Http {
 @external(js, "./ffi.mjs", "fetchText")
 suspend fn fetch_text(url: String) -> String
 
-handler JsHttp implements Http {
+handler JsHttp: Http {
   suspend fn get(url, resume) { resume(fetch_text(url)) }
 }
 
@@ -713,7 +713,7 @@ effect Blocking {
   fn get(url: String) -> String
 }
 
-handler AwaitingInFn implements Blocking {
+handler AwaitingInFn: Blocking {
   fn get(url) { fetch_text(url) }
 }
 
@@ -748,12 +748,12 @@ effect Logger {
   fn info(msg: String) -> ()
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { (use Clock).now() }
 }
 
-handler CapturedClock implements Clock {
+handler CapturedClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
@@ -762,7 +762,7 @@ handler CapturedClock implements Clock {
   }
 }
 
-handler LazyClock implements Clock {
+handler LazyClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
@@ -773,12 +773,12 @@ handler LazyClock implements Clock {
 
 fn stamp() -> Int use { Clock } { (use Clock).now() }
 
-handler ViaFn implements Clock {
+handler ViaFn: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { stamp() }
 }
 
-handler ViaClosure implements Clock {
+handler ViaClosure: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
@@ -787,7 +787,7 @@ handler ViaClosure implements Clock {
   }
 }
 
-handler ViaValue implements Clock {
+handler ViaValue: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     clock = use Clock
@@ -796,7 +796,7 @@ handler ViaValue implements Clock {
   }
 }
 
-handler Sleeping implements Clock {
+handler Sleeping: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     (use Clock).sleep(1)
@@ -804,12 +804,12 @@ handler Sleeping implements Clock {
   }
 }
 
-handler PureClock implements Clock {
+handler PureClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { 0 }
 }
 
-handler LocalSleep implements Clock {
+handler LocalSleep: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     with PureClock { (use Clock).sleep(1) }
@@ -817,7 +817,7 @@ handler LocalSleep implements Clock {
   }
 }
 
-handler MixedSleep implements Clock {
+handler MixedSleep: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() {
     t = (use Clock).now()
@@ -881,7 +881,7 @@ fn not_effect[A: Immediate](x: A) -> A { x }
 
 fn trait_bound[R: Show](f: fn() -> () use R) -> () use R { f() }
 
-handler Ticking implements Logger {
+handler Ticking: Logger {
   fn info(msg) {
     set_timeout(1, fn() { (use Logger).info(msg) })
     set_timeout(1, fn() { (use Clock).sleep(1) })
@@ -928,7 +928,7 @@ type Server[E](inner: Handler[E, Db])
 
 type Ticker[R: Immediate](tick: fn() -> () use R)
 
-handler MemDb implements Db {
+handler MemDb: Db {
   fn query(q) { q }
 }
 
@@ -1075,7 +1075,7 @@ fn connect(url: String) -> Connection fails DbDown {
   if url == "" { fail DbDown } else { Connection(url:) }
 }
 
-handler PostgresUsers(conn: Connection) implements Users {
+handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
     PostgresUsers(conn: connect(config.db_url()))
@@ -1089,17 +1089,17 @@ handler PostgresUsers(conn: Connection) implements Users {
   fn find(id) { self.conn.url }
 }
 
-handler EnvConfig implements Config {
+handler EnvConfig: Config {
   fn db_url() { "postgres://" }
 }
 
-handler Quiet implements Logger {
+handler Quiet: Logger {
   init { Quiet }
   release { () }
   fn info(msg) { () }
 }
 
-handler Unit() implements Logger {
+handler Unit(): Logger {
   init { Unit() }
   fn info(msg) { () }
 }
@@ -1133,7 +1133,7 @@ effect Logger {
 
 fn risky() -> () fails Boom { fail Boom }
 
-handler Counter(n: Int) implements Logger {
+handler Counter(n: Int): Logger {
   init { Counter(n: 0) }
   release { risky() }
   fn info(msg) {
@@ -1142,22 +1142,22 @@ handler Counter(n: Int) implements Logger {
   }
 }
 
-handler Careful(n: Int) implements Logger {
+handler Careful(n: Int): Logger {
   init { Careful(n: 1) }
   release { risky() escape { Boom -> () } }
   fn info(msg) { () }
 }
 
-handler NoInit(n: Int) implements Logger {
+handler NoInit(n: Int): Logger {
   fn info(msg) { () }
 }
 
-handler WrongInit(n: Int) implements Logger {
+handler WrongInit(n: Int): Logger {
   init { 1 }
   fn info(msg) { self.m }
 }
 
-handler Plain implements Logger {
+handler Plain: Logger {
   fn info(msg) {
     me = self
     ()
@@ -1203,30 +1203,30 @@ effect Pong {
   fn pong() -> ()
 }
 
-handler EnvConfig implements Config {
+handler EnvConfig: Config {
   fn db_url() { "x" }
 }
 
-handler ConsoleLogger implements Logger {
+handler ConsoleLogger: Logger {
   fn info(msg) { () }
 }
 
-handler SilentLogger implements Logger {
+handler SilentLogger: Logger {
   fn info(msg) { () }
 }
 
-handler FixedClock implements Clock {
+handler FixedClock: Clock {
   fn now() { 0 }
 }
 
-handler RealClock implements Clock {
+handler RealClock: Clock {
   fn now() {
     (use Logger).info("now")
     1
   }
 }
 
-handler DbUsers(url: String) implements Users {
+handler DbUsers(url: String): Users {
   init { DbUsers(url: (use Config).db_url()) }
   fn find(id) {
     (use Logger).info(self.url)
@@ -1234,11 +1234,11 @@ handler DbUsers(url: String) implements Users {
   }
 }
 
-handler HPing implements Ping {
+handler HPing: Ping {
   fn ping() { (use Pong).pong() }
 }
 
-handler HPong implements Pong {
+handler HPong: Pong {
   fn pong() { (use Ping).ping() }
 }
 
@@ -1326,11 +1326,11 @@ effect Debug of Log default
 effect Other of Log
 effect Ticks of Clock
 
-handler PrintLog implements Log {
+handler PrintLog: Log {
   fn log(msg) { () }
 }
 
-handler Tagged implements Log {
+handler Tagged: Log {
   fn log(msg) { (use Other).log(msg) }
 }
 
@@ -1378,15 +1378,15 @@ effect Audit of Log
 effect Nested of Audit
 effect Bad of Async
 
-handler PrintLog implements Log {
+handler PrintLog: Log {
   fn log(msg) { () }
 }
 
-handler OtherH implements Other {
+handler OtherH: Other {
   fn other() { () }
 }
 
-handler AuditH implements Audit {
+handler AuditH: Audit {
   fn log(msg) { () }
 }
 
@@ -1427,11 +1427,11 @@ effect Hits of Box[Int]
 effect Names of Box[String] default
 effect Bare of Box
 
-handler IntBox implements Box[Int] {
+handler IntBox: Box[Int] {
   fn get() { 1 }
 }
 
-handler StrBox implements Box[String] {
+handler StrBox: Box[String] {
   fn get() { "s" }
 }
 

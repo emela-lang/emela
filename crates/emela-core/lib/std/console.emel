@@ -21,7 +21,7 @@ fn console_error(text: String) -> ()
 
 ## Writes to the host's standard output and standard error (JS `console.log` and `console.error`,
 ## C `stdout` and `stderr`). Stateless.
-pub handler SystemConsole implements Console {
+pub handler SystemConsole: Console {
   fn print_line(text) { console_log(text) }
   fn print_error_line(text) { console_error(text) }
 }
@@ -35,7 +35,7 @@ pub handler SystemConsole implements Console {
 ## ```
 ##
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
-pub handler TestConsole implements Console {
+pub handler TestConsole: Console {
   fn print_line(text) {
     (use State[List[String]]).update(fn(lines) { List.append(lines, [text]) })
   }

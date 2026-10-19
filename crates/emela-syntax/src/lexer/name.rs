@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn 文脈依存の語と_3_4_の語は名前のまま() {
         check(&[
-            ("implements", Some(LOWER_NAME)),
+            ("derive", Some(LOWER_NAME)),
             ("fails", Some(LOWER_NAME)),
             ("release", Some(LOWER_NAME)),
             ("panic", Some(LOWER_NAME)),

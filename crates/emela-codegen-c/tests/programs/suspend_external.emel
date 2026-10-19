@@ -14,7 +14,7 @@ effect Nap {
   suspend fn nap(ms: Int) -> Int
 }
 
-handler Naps implements Nap {
+handler Naps: Nap {
   suspend fn nap(ms, resume) { resume(sleep(ms)) }
 }
 

@@ -13,11 +13,11 @@ error[E0424]: type parameter `E` of effect `Raise` is used as a set, but effect 
 error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
    ╭─[ main.emel:9:9 ]
    │
- 9 │ handler Generic implements Cell {
+ 9 │ handler Generic: Cell {
    │         ───┬───  
    │            ╰───── 
 ───╯
-   = help: write the types, like `implements Cell[...]`; a handler cannot be generic
+   = help: write the types, like `handler Generic: Cell[...]`; a handler cannot be generic
 
 error[E0423]: missing type arguments for effect `Cell[S]`
     ╭─[ main.emel:17:17 ]

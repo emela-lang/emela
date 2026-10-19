@@ -23,14 +23,14 @@ effect Clock {
   suspend fn sleep(ms: Int) -> ()
   fn now() -> Instant
 }
-handler FixedClock implements Clock {
+handler FixedClock: Clock {
   init { FixedClock() }
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { Instant(0) }
 }
 layer AppTest { FixedClock, ConsoleLogger }
 trait Show { fn show(self) -> String }
-impl Show for User { fn show(self) { "User(#{self.name})" } }
+impl User: Show { fn show(self) { "User(#{self.name})" } }
 
 type LongRecord(first_field_name: String, second_field_name: List[Int], third_field_name: Bool)
   derive Eq, Show

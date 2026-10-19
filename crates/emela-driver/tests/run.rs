@@ -813,15 +813,15 @@ effect Wait {
   suspend fn forever() -> ()
 }
 
-handler EnvConfig implements Config {
+handler EnvConfig: Config {
   fn db_url() { "db://app" }
 }
 
-handler EmptyConfig implements Config {
+handler EmptyConfig: Config {
   fn db_url() { "" }
 }
 
-handler Pool(url: String, opened: Int) implements Users {
+handler Pool(url: String, opened: Int): Users {
   init {
     url = (use Config).db_url()
     if url == "" { fail DbDown }
@@ -836,7 +836,7 @@ handler Pool(url: String, opened: Int) implements Users {
   fn find(id) { "user #{id} via #{self.url}" }
 }
 
-handler Spare implements Users {
+handler Spare: Users {
   init {
     (use Console).print_line("open spare")
     Spare
@@ -847,12 +847,12 @@ handler Spare implements Users {
   fn find(id) { "spare #{id}" }
 }
 
-handler Fragile implements Wait {
+handler Fragile: Wait {
   release { panic("close failed") }
   suspend fn forever(resume) { resume(()) }
 }
 
-handler Stuck implements Wait {
+handler Stuck: Wait {
   suspend fn forever(resume) { () }
 }
 
@@ -900,7 +900,7 @@ fn failing_init_releases_what_was_initialized() {
     // released (spec 14.2). The `with` ends with that init error.
     let output = run_stateful(
         "stateful-init-fails",
-        r#"handler SpareFirst implements Config {
+        r#"handler SpareFirst: Config {
   init {
     (use Console).print_line("open config")
     SpareFirst
@@ -1275,7 +1275,7 @@ fn show(name: String) -> String {
   }
 }
 
-handler FixedEnv implements Env {
+handler FixedEnv: Env {
   fn get(name) { Some("fixed") }
 }
 

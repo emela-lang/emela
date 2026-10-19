@@ -4,14 +4,14 @@ type Fieldless
 enum Empty {}
 opaque type NotPub(x: Int)
 pub opaque fn hidden() { 1 }
-pub impl Show for User { fn show(self) { "" } }
+pub impl User: Show { fn show(self) { "" } }
 @test
-impl Eq for User { fn eq(self, other) { True } }
-handler Second implements Logger {
+impl User: Eq { fn eq(self, other) { True } }
+handler Second: Logger {
   fn info(msg: String) { 1 }
   fn missing()
 }
-impl Show for Thing {
+impl Thing: Show {
   fn show(self) -> String fails E use Io { "" }
   fn nobody(self)
 }

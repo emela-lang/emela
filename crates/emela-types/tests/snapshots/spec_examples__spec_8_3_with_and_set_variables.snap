@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\neffect Clock {  # 補\n  fn now() -> Int\n}\n\nhandler ConsoleLogger implements Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn run_hidden(f: fn() -> ()) { with ConsoleLogger { f() } }  # 補．仕様の `run(f: fn() -> ())`\n\nfn run[R](f: fn() -> () use { Logger, R }) -> () use R {\n  with ConsoleLogger { f() }      # R は R だけ。Logger は消える\n}\n\nfn callers() {  # 補\n  a = run(fn() {\n    (use Logger).info(\"x\")\n    (use Clock).now()\n    ()\n  })\n  b = run_hidden(fn() { (use Logger).info(\"y\") })\n}\n\"#)"
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\neffect Clock {  # 補\n  fn now() -> Int\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn run_hidden(f: fn() -> ()) { with ConsoleLogger { f() } }  # 補．仕様の `run(f: fn() -> ())`\n\nfn run[R](f: fn() -> () use { Logger, R }) -> () use R {\n  with ConsoleLogger { f() }      # R は R だけ。Logger は消える\n}\n\nfn callers() {  # 補\n  a = run(fn() {\n    (use Logger).info(\"x\")\n    (use Clock).now()\n    ()\n  })\n  b = run_hidden(fn() { (use Logger).info(\"y\") })\n}\n\"#)"
 ---
 run_hidden: ∀ E(f), R(f). fn(fn() -> () fails E(f) use R(f)) -> () fails E(f) use R(f)
   f: fn() -> () fails '0 use '1

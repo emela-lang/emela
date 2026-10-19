@@ -22,7 +22,7 @@ fn main() {
 }
 
 # Resumes on the spot, so tests do not wait and need no `Async`.
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(()) }
   fn now() { Instant.from_unix_milliseconds(0) }
 }

@@ -6,7 +6,7 @@ effect Pool {
   fn get() -> Int
 }
 
-handler Outer(n: Int) implements Pool {
+handler Outer(n: Int): Pool {
   init { Outer(n: 0) }
   release {
     print("release outer")
@@ -15,7 +15,7 @@ handler Outer(n: Int) implements Pool {
   fn get() { self.n }
 }
 
-handler Inner(n: Int) implements Pool {
+handler Inner(n: Int): Pool {
   init { Inner(n: 1) }
   release { print("release inner") }
   fn get() { self.n }

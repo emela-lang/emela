@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\neffect Clock {  # 補\n  fn now() -> Int\n}\n\n@external(js, \"console.log\")  # 補\nfn console_log(msg: String) -> ()\n\nhandler ConsoleLogger implements Logger {\n  fn info(msg) { console_log(msg) }\n}\n\nhandler FixedClock implements Clock {  # 補\n  fn now() { 0 }\n}\n\nfn greet(id: Int) {  # 補\n  (use Logger).info(\"hello\")\n  (use Clock).now()\n}\n\nfn run() {  # 補．ConsoleLogger だけでは Clock が残る\n  with ConsoleLogger { greet(1) }\n  with ConsoleLogger, FixedClock { greet(1) }\n}\n\"#)"
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\neffect Clock {  # 補\n  fn now() -> Int\n}\n\n@external(js, \"console.log\")  # 補\nfn console_log(msg: String) -> ()\n\nhandler ConsoleLogger: Logger {\n  fn info(msg) { console_log(msg) }\n}\n\nhandler FixedClock: Clock {  # 補\n  fn now() { 0 }\n}\n\nfn greet(id: Int) {  # 補\n  (use Logger).info(\"hello\")\n  (use Clock).now()\n}\n\nfn run() {  # 補．ConsoleLogger だけでは Clock が残る\n  with ConsoleLogger { greet(1) }\n  with ConsoleLogger, FixedClock { greet(1) }\n}\n\"#)"
 ---
 console_log: fn(String) -> ()
 greet: fn(Int) -> Int use { Logger, Clock }

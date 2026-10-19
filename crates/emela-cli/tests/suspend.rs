@@ -63,13 +63,13 @@ const CLOCK: &str = r#"effect Clock {
 @external(js, "./clock.mjs", "after")
 fn after(ms: Int, f: fn() -> ()) -> ()
 
-handler JsClock implements Clock {
+handler JsClock: Clock {
   suspend fn sleep(ms, resume) {
     after(ms, fn() { resume(ms) })
   }
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(0) }
 }
 "#;
@@ -122,7 +122,7 @@ fn main() {
 fn resuming_twice_is_a_defect() {
     let project = Project::new(
         "twice",
-        r#"handler TwiceClock implements Clock {
+        r#"handler TwiceClock: Clock {
   suspend fn sleep(ms, resume) {
     resume(1)
     resume(2)
@@ -149,7 +149,7 @@ fn main() {
 fn dropped_resume_interrupts_main() {
     let project = Project::new(
         "dropped",
-        r#"handler NeverClock implements Clock {
+        r#"handler NeverClock: Clock {
   suspend fn sleep(ms, resume) { () }
 }
 
@@ -177,7 +177,7 @@ fn tests_wait_for_clocks() {
     // The test runner provides Async in a test's R (spec 13.3). A test that is never resumed fails.
     let project = Project::new(
         "test",
-        r#"handler NeverClock implements Clock {
+        r#"handler NeverClock: Clock {
   suspend fn sleep(ms, resume) { () }
 }
 
@@ -221,24 +221,24 @@ fn fn_op_calls_outer_fn_op() {
   fn now() -> Int
 }
 
-handler JsTimer implements Timer {
+handler JsTimer: Timer {
   suspend fn wait(ms, resume) {
     after(ms, fn() { resume(ms) })
   }
   fn now() { 42 }
 }
 
-handler InstantTimer implements Timer {
+handler InstantTimer: Timer {
   suspend fn wait(ms, resume) { resume(0) }
   fn now() { (use Timer).now() + 1 }
 }
 
-handler PureTimer implements Timer {
+handler PureTimer: Timer {
   suspend fn wait(ms, resume) { resume(ms * 2) }
   fn now() { 0 }
 }
 
-handler LocalWait implements Timer {
+handler LocalWait: Timer {
   suspend fn wait(ms, resume) { resume(0) }
   fn now() {
     with PureTimer { (use Timer).wait(7) }

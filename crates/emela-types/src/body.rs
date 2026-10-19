@@ -491,7 +491,7 @@ impl<'a> BodyInfer<'a> {
                 });
             }
             let suspend = hop.is_suspend;
-            // Effect type parameters are replaced with the types written in `implements`
+            // Effect type parameters are replaced with the types written in the handler head
             // (spec 8.1).
             let f = match op
                 .and_then(|op| self.sigs.get(op))

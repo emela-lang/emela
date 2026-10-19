@@ -3,7 +3,7 @@ pub effect State[S] {
   fn update(f: fn(S) -> S) -> ()
 }
 
-handler Fixed implements State[ Int ] {
+handler Fixed: State[ Int ] {
   fn get() { 0 }
   fn update(f) { () }
 }

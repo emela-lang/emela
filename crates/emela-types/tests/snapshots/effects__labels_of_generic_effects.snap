@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
-expression: "render_handlers(r#\"\neffect Box[T] {\n  fn get() -> T\n}\n\neffect Hits of Box[Int]\neffect Names of Box[String] default\neffect Bare of Box\n\nhandler IntBox implements Box[Int] {\n  fn get() { 1 }\n}\n\nhandler StrBox implements Box[String] {\n  fn get() { \"s\" }\n}\n\nfn hits() -> Int { (use Hits).get() + 1 }\n\nfn name() -> String { (use Names).get() }\n\nfn main() {\n  with Hits by IntBox { hits() }\n  with IntBox, Hits by Box[Int] { hits() }\n  with StrBox { name() }\n  with IntBox { name() }\n  with Hits by StrBox { hits() }\n  with IntBox, Hits by Box[String] { hits() }\n  with IntBox, Hits by Box { hits() }\n}\n\"#)"
+expression: "render_handlers(r#\"\neffect Box[T] {\n  fn get() -> T\n}\n\neffect Hits of Box[Int]\neffect Names of Box[String] default\neffect Bare of Box\n\nhandler IntBox: Box[Int] {\n  fn get() { 1 }\n}\n\nhandler StrBox: Box[String] {\n  fn get() { \"s\" }\n}\n\nfn hits() -> Int { (use Hits).get() + 1 }\n\nfn name() -> String { (use Names).get() }\n\nfn main() {\n  with Hits by IntBox { hits() }\n  with IntBox, Hits by Box[Int] { hits() }\n  with StrBox { name() }\n  with IntBox { name() }\n  with Hits by StrBox { hits() }\n  with IntBox, Hits by Box[String] { hits() }\n  with IntBox, Hits by Box { hits() }\n}\n\"#)"
 ---
 hits: fn() -> Int use Hits
 name: fn() -> String use Names

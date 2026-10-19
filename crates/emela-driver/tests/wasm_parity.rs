@@ -133,7 +133,7 @@ effect Greet {
   fn hello(name: String) -> String
 }
 
-handler Hi implements Greet {
+handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
@@ -199,15 +199,15 @@ effect Debug of Log default
 effect AuditA of Log
 effect AuditB of Log
 
-handler PrintLog implements Log {
+handler PrintLog: Log {
   fn log(msg) { _ = dbg("print: #{msg}") }
 }
 
-handler AuditLog implements Log {
+handler AuditLog: Log {
   fn log(msg) { _ = dbg("audit: #{msg}") }
 }
 
-handler Tagged(tag: String) implements Log {
+handler Tagged(tag: String): Log {
   init {
     _ = dbg("open")
     Tagged(tag: "t")

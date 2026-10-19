@@ -1,0 +1,245 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/impl_heads.emel
+---
+ROOT@0..352
+  COMMENT@0..54 "# 前の形の impl と handler の頭（10.2，8.4）"
+  NEWLINE@54..55 "\n"
+  IMPL_DECL@55..100
+    IMPL_KW@55..59 "impl"
+    WHITESPACE@59..60 " "
+    PATH@60..64
+      TYPE_NAME@60..64 "Show"
+    WHITESPACE@64..65 " "
+    LOWER_NAME@65..68 "for"
+    WHITESPACE@68..69 " "
+    IMPL_TYPE@69..73
+      PATH@69..73
+        TYPE_NAME@69..73 "User"
+    WHITESPACE@73..74 " "
+    ITEM_LIST@74..100
+      L_BRACE@74..75 "{"
+      NEWLINE@75..76 "\n"
+      WHITESPACE@76..78 "  "
+      FN_DECL@78..98
+        FN_KW@78..80 "fn"
+        WHITESPACE@80..81 " "
+        LOWER_NAME@81..85 "show"
+        PARAM_LIST@85..91
+          L_PAREN@85..86 "("
+          PARAM@86..90
+            SELF_KW@86..90 "self"
+          R_PAREN@90..91 ")"
+        WHITESPACE@91..92 " "
+        BLOCK_EXPR@92..98
+          L_BRACE@92..93 "{"
+          WHITESPACE@93..94 " "
+          STRING@94..96
+            STRING_QUOTE@94..95 "\""
+            STRING_QUOTE@95..96 "\""
+          WHITESPACE@96..97 " "
+          R_BRACE@97..98 "}"
+      NEWLINE@98..99 "\n"
+      R_BRACE@99..100 "}"
+  NEWLINE@100..101 "\n"
+  IMPL_DECL@101..157
+    IMPL_KW@101..105 "impl"
+    TYPE_PARAM_LIST@105..112
+      L_BRACK@105..106 "["
+      TYPE_PARAM@106..111
+        UPPER_NAME@106..107 "A"
+        COLON@107..108 ":"
+        WHITESPACE@108..109 " "
+        PATH@109..111
+          TYPE_NAME@109..111 "Eq"
+      R_BRACK@111..112 "]"
+    WHITESPACE@112..113 " "
+    IMPL_TYPE@113..119
+      PATH@113..116
+        TYPE_NAME@113..116 "Box"
+      TYPE_PARAM_LIST@116..119
+        L_BRACK@116..117 "["
+        TYPE_PARAM@117..118
+          UPPER_NAME@117..118 "A"
+        R_BRACK@118..119 "]"
+    COLON@119..120 ":"
+    WHITESPACE@120..121 " "
+    PATH@121..123
+      TYPE_NAME@121..123 "Eq"
+    WHITESPACE@123..124 " "
+    ITEM_LIST@124..157
+      L_BRACE@124..125 "{"
+      NEWLINE@125..126 "\n"
+      WHITESPACE@126..128 "  "
+      FN_DECL@128..155
+        FN_KW@128..130 "fn"
+        WHITESPACE@130..131 " "
+        LOWER_NAME@131..133 "eq"
+        PARAM_LIST@133..146
+          L_PAREN@133..134 "("
+          PARAM@134..138
+            SELF_KW@134..138 "self"
+          COMMA@138..139 ","
+          WHITESPACE@139..140 " "
+          PARAM@140..145
+            LOWER_NAME@140..145 "other"
+          R_PAREN@145..146 ")"
+        WHITESPACE@146..147 " "
+        BLOCK_EXPR@147..155
+          L_BRACE@147..148 "{"
+          WHITESPACE@148..149 " "
+          PATH_EXPR@149..153
+            PATH@149..153
+              TYPE_NAME@149..153 "True"
+          WHITESPACE@153..154 " "
+          R_BRACE@154..155 "}"
+      NEWLINE@155..156 "\n"
+      R_BRACE@156..157 "}"
+  NEWLINE@157..158 "\n"
+  IMPL_DECL@158..197
+    IMPL_KW@158..162 "impl"
+    WHITESPACE@162..163 " "
+    IMPL_TYPE@163..167
+      PATH@163..167
+        TYPE_NAME@163..167 "Show"
+    WHITESPACE@167..168 " "
+    PATH@168..172
+      TYPE_NAME@168..172 "User"
+    WHITESPACE@172..173 " "
+    ITEM_LIST@173..197
+      L_BRACE@173..174 "{"
+      WHITESPACE@174..175 " "
+      FN_DECL@175..195
+        FN_KW@175..177 "fn"
+        WHITESPACE@177..178 " "
+        LOWER_NAME@178..182 "show"
+        PARAM_LIST@182..188
+          L_PAREN@182..183 "("
+          PARAM@183..187
+            SELF_KW@183..187 "self"
+          R_PAREN@187..188 ")"
+        WHITESPACE@188..189 " "
+        BLOCK_EXPR@189..195
+          L_BRACE@189..190 "{"
+          WHITESPACE@190..191 " "
+          STRING@191..193
+            STRING_QUOTE@191..192 "\""
+            STRING_QUOTE@192..193 "\""
+          WHITESPACE@193..194 " "
+          R_BRACE@194..195 "}"
+      WHITESPACE@195..196 " "
+      R_BRACE@196..197 "}"
+  NEWLINE@197..198 "\n"
+  HANDLER_DECL@198..263
+    HANDLER_KW@198..205 "handler"
+    WHITESPACE@205..206 " "
+    TYPE_NAME@206..219 "ConsoleLogger"
+    WHITESPACE@219..220 " "
+    LOWER_NAME@220..230 "implements"
+    WHITESPACE@230..231 " "
+    HANDLER_EFFECT@231..237
+      PATH@231..237
+        TYPE_NAME@231..237 "Logger"
+    WHITESPACE@237..238 " "
+    ITEM_LIST@238..263
+      L_BRACE@238..239 "{"
+      NEWLINE@239..240 "\n"
+      WHITESPACE@240..242 "  "
+      FN_DECL@242..261
+        FN_KW@242..244 "fn"
+        WHITESPACE@244..245 " "
+        LOWER_NAME@245..249 "info"
+        PARAM_LIST@249..254
+          L_PAREN@249..250 "("
+          PARAM@250..253
+            LOWER_NAME@250..253 "msg"
+          R_PAREN@253..254 ")"
+        WHITESPACE@254..255 " "
+        BLOCK_EXPR@255..261
+          L_BRACE@255..256 "{"
+          WHITESPACE@256..257 " "
+          UNIT_EXPR@257..259
+            L_PAREN@257..258 "("
+            R_PAREN@258..259 ")"
+          WHITESPACE@259..260 " "
+          R_BRACE@260..261 "}"
+      NEWLINE@261..262 "\n"
+      R_BRACE@262..263 "}"
+  NEWLINE@263..264 "\n"
+  HANDLER_DECL@264..334
+    HANDLER_KW@264..271 "handler"
+    WHITESPACE@271..272 " "
+    TYPE_NAME@272..277 "Fixed"
+    FIELD_LIST@277..285
+      L_PAREN@277..278 "("
+      FIELD@278..284
+        LOWER_NAME@278..279 "n"
+        COLON@279..280 ":"
+        WHITESPACE@280..281 " "
+        PATH_TYPE@281..284
+          PATH@281..284
+            TYPE_NAME@281..284 "Int"
+      R_PAREN@284..285 ")"
+    WHITESPACE@285..286 " "
+    LOWER_NAME@286..296 "implements"
+    WHITESPACE@296..297 " "
+    HANDLER_EFFECT@297..307
+      PATH@297..302
+        TYPE_NAME@297..302 "State"
+      TYPE_ARG_LIST@302..307
+        L_BRACK@302..303 "["
+        PATH_TYPE@303..306
+          PATH@303..306
+            TYPE_NAME@303..306 "Int"
+        R_BRACK@306..307 "]"
+    WHITESPACE@307..308 " "
+    ITEM_LIST@308..334
+      L_BRACE@308..309 "{"
+      NEWLINE@309..310 "\n"
+      WHITESPACE@310..312 "  "
+      HANDLER_INIT@312..332
+        LOWER_NAME@312..316 "init"
+        WHITESPACE@316..317 " "
+        BLOCK_EXPR@317..332
+          L_BRACE@317..318 "{"
+          WHITESPACE@318..319 " "
+          CALL_EXPR@319..330
+            PATH_EXPR@319..324
+              PATH@319..324
+                TYPE_NAME@319..324 "Fixed"
+            ARG_LIST@324..330
+              L_PAREN@324..325 "("
+              NAMED_ARG@325..329
+                LOWER_NAME@325..326 "n"
+                COLON@326..327 ":"
+                WHITESPACE@327..328 " "
+                LITERAL@328..329
+                  INT@328..329 "0"
+              R_PAREN@329..330 ")"
+          WHITESPACE@330..331 " "
+          R_BRACE@331..332 "}"
+      NEWLINE@332..333 "\n"
+      R_BRACE@333..334 "}"
+  NEWLINE@334..335 "\n"
+  FN_DECL@335..351
+    FN_KW@335..337 "fn"
+    WHITESPACE@337..338 " "
+    LOWER_NAME@338..343 "after"
+    PARAM_LIST@343..345
+      L_PAREN@343..344 "("
+      R_PAREN@344..345 ")"
+    WHITESPACE@345..346 " "
+    BLOCK_EXPR@346..351
+      L_BRACE@346..347 "{"
+      WHITESPACE@347..348 " "
+      LITERAL@348..349
+        INT@348..349 "1"
+      WHITESPACE@349..350 " "
+      R_BRACE@350..351 "}"
+  NEWLINE@351..352 "\n"
+error[E0110]@65..68: expected `:`
+error[E0110]@105..106: expected type name
+error[E0110]@168..172: expected `:`
+error[E0110]@220..230: expected `:`
+error[E0110]@286..296: expected `:`

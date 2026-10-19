@@ -23,10 +23,10 @@ expression: dump(&modules)
   | Writes log lines.
   - fn info(msg: String) -> ()
     | One line at the info level.
-[Handler] handler Prefixed(prefix: String) implements Log
+[Handler] handler Prefixed(prefix: String): Log
   | Prefixes each line.
   - prefix: String
-[Handler] handler Quiet implements Log
+[Handler] handler Quiet: Log
 [Layer] layer Logging { Quiet }
 [Const] const LIMIT: Int
 [Fn] fn find(id: Int) -> Point fails NotFound | Timeout use Log

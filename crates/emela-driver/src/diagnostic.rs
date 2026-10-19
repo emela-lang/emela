@@ -840,7 +840,7 @@ impl Diagnostic {
                 let message = match handler {
                     Some(handler) => {
                         help = Some(format!(
-                            "write the types, like `implements {effect}[{holes}]`; a handler cannot be generic"
+                            "write the types, like `handler {handler}: {effect}[{holes}]`; a handler cannot be generic"
                         ));
                         format!(
                             "handler `{handler}` must implement `{effect}[{}]` with concrete types",

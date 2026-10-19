@@ -5,7 +5,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 error[E0404]: handler `Half` does not implement operation `warn`
     ╭─[ main.emel:10:9 ]
     │
- 10 │ handler Half implements Logger {
+ 10 │ handler Half: Logger {
     │         ──┬─  
     │           ╰─── 
 ────╯

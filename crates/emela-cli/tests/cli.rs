@@ -98,7 +98,7 @@ fn incomplete_impl_is_rejected_by_every_command_and_target() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "type User(id: Int)\ntrait Label {\n  fn label(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Label for User {}\nfn main() {}\n@test\nfn works() {}\n",
+                "type User(id: Int)\ntrait Label {\n  fn label(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl User: Label {}\nfn main() {}\n@test\nfn works() {}\n",
             ),
         ],
     );
@@ -902,7 +902,7 @@ fn run_calls_external_module_next_to_the_source() {
             ),
             (
                 "src/host/host.emel",
-                "pub effect Host {\n  fn lone() -> String\n  fn boom() -> ()\n}\n\n@external(js, \"./ffi.mjs\", \"lone\")\nfn js_lone() -> String\n\n@external(js, \"./ffi.mjs\", \"boom\")\nfn js_boom() -> ()\n\npub handler NodeHost implements Host {\n  fn lone() { js_lone() }\n  fn boom() { js_boom() }\n}\n",
+                "pub effect Host {\n  fn lone() -> String\n  fn boom() -> ()\n}\n\n@external(js, \"./ffi.mjs\", \"lone\")\nfn js_lone() -> String\n\n@external(js, \"./ffi.mjs\", \"boom\")\nfn js_boom() -> ()\n\npub handler NodeHost: Host {\n  fn lone() { js_lone() }\n  fn boom() { js_boom() }\n}\n",
             ),
             (
                 "src/main.emel",

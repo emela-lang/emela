@@ -137,7 +137,7 @@ fn empty_match_and_catch_all() {
 
 #[test]
 fn impl_stubs_omit_types_and_default_methods() {
-    let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Show for User {}\n";
+    let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl User: Show {}\n";
     let (analysis, _, _) = checked(text, &[]);
     assert_eq!(analysis.error_count(), 1);
     assert_eq!(
@@ -149,21 +149,21 @@ fn impl_stubs_omit_types_and_default_methods() {
             .message,
         "incomplete impl: missing methods `show`, `merge`"
     );
-    assert!(refactors(text, "impl Show").is_empty());
-    let actions = fixes(text, "impl Show", &[]);
+    assert!(refactors(text, "impl User: Show").is_empty());
+    let actions = fixes(text, "impl User: Show", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].diagnostics[0].code, Some(code::INCOMPLETE_IMPL));
     let edited = apply(text, &actions[0]);
     assert!(edited.contains("fn show(self) { todo() }"));
     assert!(edited.contains("fn merge(self, other) { todo() }"));
     assert_clean(&edited, &[]);
-    assert!(fixes(&edited, "impl Show", &[]).is_empty());
+    assert!(fixes(&edited, "impl User: Show", &[]).is_empty());
 
     let text = text.replace(
-        "impl Show for User {}",
-        "impl Show for User {\n  fn show(self) { \"user\" }\n}",
+        "impl User: Show {}",
+        "impl User: Show {\n  fn show(self) { \"user\" }\n}",
     );
-    let actions = fixes(&text, "impl Show", &[]);
+    let actions = fixes(&text, "impl User: Show", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(
         actions[0].edits[0].1,
@@ -174,10 +174,10 @@ fn impl_stubs_omit_types_and_default_methods() {
 
 #[test]
 fn impl_quickfixes_follow_diagnostic_ranges_and_missing_non_default_methods() {
-    let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n}\nimpl Show for User {\n  fn show(self) { \"user\" }\n}\nimpl Show for Int {}\n";
+    let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n}\nimpl User: Show {\n  fn show(self) { \"user\" }\n}\nimpl Int: Show {}\n";
     let (analysis, program, file) = checked(text, &[]);
     assert_eq!(analysis.error_count(), 2);
-    let start = text.find("impl Show for User").unwrap();
+    let start = text.find("impl User: Show").unwrap();
     let open = start + text[start..].find('{').unwrap();
     let close = open + text[open..].find("\n}\nimpl").unwrap() + 1;
     for at in [start, start + 5, open - 2] {
@@ -228,13 +228,13 @@ fn impl_quickfixes_follow_diagnostic_ranges_and_missing_non_default_methods() {
             .contains("fn merge(self, other) { todo() }")
     );
     assert_clean(
-        "trait Show { fn show(self) -> String { \"ok\" } }\nimpl Show for Int {}\n",
+        "trait Show { fn show(self) -> String { \"ok\" } }\nimpl Int: Show {}\n",
         &[],
     );
     assert!(
         refactors(
-            "trait Show { fn show(self) -> String { \"ok\" } }\nimpl Show for Int {}\n",
-            "impl Show"
+            "trait Show { fn show(self) -> String { \"ok\" } }\nimpl Int: Show {}\n",
+            "impl Int: Show"
         )
         .is_empty()
     );

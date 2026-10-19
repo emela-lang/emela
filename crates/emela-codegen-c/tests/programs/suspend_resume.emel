@@ -12,7 +12,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -29,7 +29,7 @@ effect Slow {
 
 ## An implementation that suspends before it resumes: it runs as another continuation of the
 ## caller's fiber, and the caller goes on inside its resume (spec 14.5).
-handler Slowly implements Slow {
+handler Slowly: Slow {
   suspend fn slow(n, resume) {
     spin(n)
     print("impl before resume #{n}")
@@ -43,7 +43,7 @@ effect Wait {
 }
 
 ## Keeps the resume to call it later from another fiber.
-handler Parked implements Wait {
+handler Parked: Wait {
   suspend fn wait(label, resume) {
     print("parked #{label}")
     (use State[List[fn(String) -> ()]]).update(fn(rs) { [resume, ..rs] })
@@ -54,7 +54,7 @@ effect Twice {
   suspend fn twice() -> Int
 }
 
-handler TwiceResumer implements Twice {
+handler TwiceResumer: Twice {
   suspend fn twice(resume) {
     resume(1)
     resume(2)
@@ -65,7 +65,7 @@ effect Late {
   suspend fn late() -> Int fails Nope
 }
 
-handler FailsEarly implements Late {
+handler FailsEarly: Late {
   suspend fn late(resume) { fail Nope }
 }
 

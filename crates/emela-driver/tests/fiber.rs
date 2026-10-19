@@ -167,15 +167,15 @@ effect Name {
   fn name() -> String
 }
 
-handler Outer implements Name {
+handler Outer: Name {
   fn name() { "outer" }
 }
 
-handler Inner implements Name {
+handler Inner: Name {
   fn name() { "inner" }
 }
 
-handler Res implements Name {
+handler Res: Name {
   init {
     (use Console).print_line("init res")
     Res

@@ -23,7 +23,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> ()
   fn now() -> Instant
 }
-handler FixedClock implements Clock {
+handler FixedClock: Clock {
   init { FixedClock() }
   suspend fn sleep(ms, resume) {
     resume(())
@@ -35,7 +35,7 @@ layer AppTest {
   ConsoleLogger
 }
 trait Show { fn show(self) -> String }
-impl Show for User {
+impl User: Show {
   fn show(self) { "User(#{self.name})" }
 }
 

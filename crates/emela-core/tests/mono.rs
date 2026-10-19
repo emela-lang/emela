@@ -43,7 +43,7 @@ effect Clock {
   fn now() -> Int
 }
 
-handler Fixed implements Clock {
+handler Fixed: Clock {
   fn now() { 42 }
 }
 
@@ -191,7 +191,7 @@ effect Clock {
   suspend fn sleep(ms: Int) -> Int
 }
 
-handler InstantClock implements Clock {
+handler InstantClock: Clock {
   suspend fn sleep(ms, resume) { resume(ms) }
 }
 
@@ -246,7 +246,7 @@ effect Log {
   fn info(msg: String) -> ()
 }
 
-handler Quiet implements Log {
+handler Quiet: Log {
   fn info(msg) { () }
 }
 

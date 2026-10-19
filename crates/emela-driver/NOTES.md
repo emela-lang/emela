@@ -185,12 +185,12 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）ariadne 0.6 は `ReportKind::Custom` の色を `with_color(false)` でも付けるので，色なしのときは出力から ANSI の色指定を取り除く
 - （補）ariadne は位置が戻るとソースの枠を分けるので，ラベルはファイルと位置の順に並べて渡す
 - （補）`TypeError` は位置を持たないので，変換関数（`Diagnostic::from_type_error`）は範囲と型名の表（`TyCons`）を受け取る．最上位の型と食い違った部分が違うときは，食い違った部分を注記にする
-- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．suspend fn（エフェクトの操作と `@external suspend fn`，能力の値の操作の参照）は型の前に `suspend` を付ける．handler の名前は `handler H(conn: Connection) implements E`（フィールドは構成子のシグネチャから．フィールドのない handler は括弧なし）と，init の E（`ProgramTypes::handler_fails`）が空でなければ `init fails E` の行，依存（`ProgramTypes::handler_uses`）が空でなければ `use R` の行（Async が残るかが分かる）．layer の名前は `layer L { H1, H2 }`（初期化の順，`ProgramTypes::layers`）と，layer の中で満たされない依存があれば `use R` の行．
+- （補）位置の情報（LSP のホバー）は `Frontend::hover` で引く（トレイトの既定は `None`）．`Typecheck` は `TypedProgram` の型の表と E の表（`ProgramTypes::errors`），R の表（`ProgramTypes::effects`）から作る（`hover.rs`）．式のホバーは型の後に，空でなければ `fails E` と `use R` の行を足す．suspend fn（エフェクトの操作と `@external suspend fn`，能力の値の操作の参照）は型の前に `suspend` を付ける．handler の名前は `handler H(conn: Connection): E`（フィールドは構成子のシグネチャから．フィールドのない handler は括弧なし）と，init の E（`ProgramTypes::handler_fails`）が空でなければ `init fails E` の行，依存（`ProgramTypes::handler_uses`）が空でなければ `use R` の行（Async が残るかが分かる）．layer の名前は `layer L { H1, H2 }`（初期化の順，`ProgramTypes::layers`）と，layer の中で満たされない依存があれば `use R` の行．
 - （補）定義へ移動と参照の検索（LSP）は `Frontend::definition` と `Frontend::references` で引く（トレイトの既定は `None` と空）．`Typecheck` は名前解決の参照の表（`Program::refs`），型推論の操作の表（`ProgramTypes::ops`），定義と局所変数の位置から作る（`nav.rs`）．返すのは `NavTarget`（ファイルと範囲）
 - （補）位置の名前は，参照，effect の操作の参照，定義の名前，局所変数を束縛した位置から探す．範囲の終わりの位置（名前の直後のカーソル）も含め，範囲の中にあるものを先に選ぶ
 - （補）モジュールの定義の位置はファイルの先頭（空の範囲）．同梱の core の定義と，ソースのない定義（組み込みのモジュールの関数と型，組み込みの Prelude）は移動先がないので `None`
 - （補）参照の検索では，名前の位置が同じ定義（type とその構成子，error のタグと構成子）を同じものとみなす．同梱の core の中の参照は含めない．順はファイル（`FileId`）と位置の順．モジュールの参照に定義の位置は含めない
-- （補）文書のシンボル（`document_symbols`）は検査せず構文木だけから作る．構文の誤りがあっても読めた宣言は返し，名前のない宣言は飛ばす．子は enum のバリアント，type・error・バリアント・handler のフィールド，effect の操作，trait・impl・handler の fn．impl は名前の字句がないので `impl Show for User` を名前にし，Trait の名前を選ぶ範囲にする
+- （補）文書のシンボル（`document_symbols`）は検査せず構文木だけから作る．構文の誤りがあっても読めた宣言は返し，名前のない宣言は飛ばす．子は enum のバリアント，type・error・バリアント・handler のフィールド，effect の操作，trait・impl・handler の fn．impl は名前の字句がないので `impl User: Show` を名前にし，Trait の名前を選ぶ範囲にする
 - （補）補完（LSP）は `Frontend::complete` で引く（トレイトの既定は空）．`Typecheck` は `complete.rs`．書きかけのソースは構文が崩れているので，文脈はカーソルの前のテキストで決め，候補は名前解決と型推論の結果から引く
   - `import` の行で `{` の前: モジュール名の次の区切り（`import Util.` なら `Log`）．関数や型の名前は出さない．自分のモジュールは出さない
   - `import A.{` の中: モジュール A の pub な定義（enum のバリアントも）
@@ -231,8 +231,8 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）型検査の診断（E0221，E0301〜E0324，W0301〜W0302，E0401〜E0411，E0413〜E0422）は `Diagnostic::from_type` で写す．文面は emela-types の NOTES.md の「driver に渡すときの文面」と同じ．まだ扱えない構文はコードなしのエラー `not supported yet: …` にする
 - （補）`Typecheck` は，エントリのモジュールの `main` という名前の fn と，`@test` のテスト関数を `CheckOptions` で型推論に渡す．型推論はそれらの R が空であることを確かめる（E0402，8.3，13.3）．そのためテスト関数の収集（`collect_tests`，`resolve_tests`）を型検査の前に行う．エントリのないとき（`check` にディレクトリを渡してエントリがないなど）は main を確かめない
 - （補）型検査の診断は，名前解決と同じくファイルと位置の順に並べ直す（型推論は呼び出しの順に進むため）．名前解決の診断の後に置く
-- （補）E0423（型引数のあるエフェクトの型引数を書いていない）の文面は，`use State` と use 節では ``missing type arguments for effect `State[S]` ``（注記 ``= help: write the types, like `State[...]` ``），`implements State` では ``handler `Fixed` must implement `State[S]` with concrete types``（注記 ``= help: write the types, like `implements State[...]`; a handler cannot be generic``）．E0424（エフェクトの型引数を集合として使った）は ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``．仕様の付録 A に E0423 と E0424 はまだない
-- （補）ホバーは handler の名前に `implements State[Int]`（型引数を代入したタグ），能力の値に `use State[Int]` を出す．能力の値の操作の補完と型は，操作の型のエフェクトの型引数を能力の値の型引数で置き換える
+- （補）E0423（型引数のあるエフェクトの型引数を書いていない）の文面は，`use State` と use 節では ``missing type arguments for effect `State[S]` ``（注記 ``= help: write the types, like `State[...]` ``），`handler Fixed: State` では ``handler `Fixed` must implement `State[S]` with concrete types``（注記 ``= help: write the types, like `handler Fixed: State[...]`; a handler cannot be generic``）．E0424（エフェクトの型引数を集合として使った）は ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types``．仕様の付録 A に E0423 と E0424 はまだない
+- （補）ホバーは handler の名前に `handler Fixed: State[Int]`（型引数を代入したタグ），能力の値に `use State[Int]` を出す．能力の値の操作の補完と型は，操作の型のエフェクトの型引数を能力の値の型引数で置き換える
 - （補）同梱のソースの仮のパスは，モジュール名の区切りをディレクトリにする（`Std.Console` は `<core>/std/console.emel`，`List` は `<core>/list.emel`）
 - （補）エフェクトのラベル（issue #255）の hover．ラベルの名前と，`use` 節や `with` に書いたラベルへの参照の上では，宣言をそのまま出す（`effect DebugLog of Console default`）．型の表示はラベルのまま出し，元のエフェクトに落とした形には書き換えない
 - （補）ラベルの診断の文言．E0429〜E0433 と W0401（使われないラベルの項目）．W0401 は `with L` ならラベル L の名前を，`L by P` なら L の名前を出す

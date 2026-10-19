@@ -279,7 +279,7 @@ effect Tick {
   suspend fn tick() -> ()
 }
 
-handler Ticks implements Tick {
+handler Ticks: Tick {
   suspend fn tick(resume) { resume(()) }
 }
 
@@ -287,7 +287,7 @@ effect Wait {
   suspend fn wait() -> Int
 }
 
-handler Ignores implements Wait {
+handler Ignores: Wait {
   suspend fn wait(resume) { () }
 }
 

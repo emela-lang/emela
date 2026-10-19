@@ -144,7 +144,7 @@ effect Greet {
   fn hello(name: String) -> String
 }
 
-handler Hi implements Greet {
+handler Hi: Greet {
   fn hello(name) { "hi #{name}" }
 }
 
@@ -264,7 +264,7 @@ effect Counter {
   fn add() -> ()
 }
 
-handler CounterHandler implements Counter {
+handler CounterHandler: Counter {
   fn add() { (use State[List[String]]).update(fn(lines) { List.append(lines, ["a"]) }) }
 }
 

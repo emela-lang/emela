@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\ntype Rows(n: Int)  # 補\n\neffect Db {  # 補\n  fn query(q: String) -> Rows\n  fn execute(rows: Rows) -> ()\n}\n\nhandler PrimaryDb implements Db {  # 補\n  fn query(q) { Rows(n: 0) }\n  fn execute(rows) { () }\n}\n\nhandler ReplicaDb implements Db {  # 補\n  fn query(q) { Rows(n: 1) }\n  fn execute(rows) { () }\n}\n\nfn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {\n  write(read())\n}\n\nfn main() {  # 補\n  with PrimaryDb {\n    primary = use Db\n    with ReplicaDb {\n      replica = use Db\n      copy(fn() { replica.query(\"...\") }, fn(rows) { primary.execute(rows) })\n    }\n  }\n}\n\"#)"
+expression: "render_bodies(r#\"\ntype Rows(n: Int)  # 補\n\neffect Db {  # 補\n  fn query(q: String) -> Rows\n  fn execute(rows: Rows) -> ()\n}\n\nhandler PrimaryDb: Db {  # 補\n  fn query(q) { Rows(n: 0) }\n  fn execute(rows) { () }\n}\n\nhandler ReplicaDb: Db {  # 補\n  fn query(q) { Rows(n: 1) }\n  fn execute(rows) { () }\n}\n\nfn copy(read: fn() -> Rows use { Db }, write: fn(Rows) -> () use { Db }) {\n  write(read())\n}\n\nfn main() {  # 補\n  with PrimaryDb {\n    primary = use Db\n    with ReplicaDb {\n      replica = use Db\n      copy(fn() { replica.query(\"...\") }, fn(rows) { primary.execute(rows) })\n    }\n  }\n}\n\"#)"
 ---
 copy: ∀ E(read), E(write). fn(fn() -> Rows fails E(read) use Db, fn(Rows) -> () fails E(write) use Db) -> () fails E(read) | E(write) use Db
   read: fn() -> Rows fails '0 use Db

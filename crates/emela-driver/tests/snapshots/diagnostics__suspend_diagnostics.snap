@@ -14,7 +14,7 @@ error[E0415]: operation `now` is not a `suspend fn` in effect `Clock`
 error[E0413]: handler `Runtime` cannot implement `Async`: only the runtime provides it
     ╭─[ main.emel:19:9 ]
     │
- 19 │ handler Runtime implements Async {
+ 19 │ handler Runtime: Async {
     │         ───┬───  
     │            ╰───── 
 ────╯

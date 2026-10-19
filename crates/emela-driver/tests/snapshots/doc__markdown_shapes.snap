@@ -68,7 +68,7 @@ Writes log lines.
 ### Prefixed
 
 ```emela
-handler Prefixed(prefix: String) implements Log
+handler Prefixed(prefix: String): Log
 ```
 
 Prefixes each line.
@@ -78,7 +78,7 @@ Prefixes each line.
 ### Quiet
 
 ```emela
-handler Quiet implements Log
+handler Quiet: Log
 ```
 
 ### Logging

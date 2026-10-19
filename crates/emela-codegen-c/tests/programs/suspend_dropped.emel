@@ -8,11 +8,11 @@ effect Wait {
 
 ## Never resumes, and does not need Async: in a function that does not suspend, the continuation
 ## is dropped at once and unwinds as interrupted (spec 8.7, 14.5).
-handler Ignores implements Wait {
+handler Ignores: Wait {
   suspend fn wait(resume) { print("not resuming") }
 }
 
-handler Now implements Wait {
+handler Now: Wait {
   suspend fn wait(resume) { resume(7) }
 }
 
@@ -20,7 +20,7 @@ effect Name {
   fn name() -> String
 }
 
-handler Res(label: String) implements Name {
+handler Res(label: String): Name {
   init { Res(label: "res") }
   fn name() { self.label }
   release { print("release #{self.label}") }

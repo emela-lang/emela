@@ -555,7 +555,7 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, OP_SIG);
 }
 
-/// `"handler" type_name [ "(" [ fields ] ")" ] "implements" type_ref [ "[" type { "," type } "]" ]
+/// `"handler" type_name [ "(" [ fields ] ")" ] ":" type_ref [ "[" type { "," type } "]" ]
 /// "{" { handler_item NL } "}"`
 ///
 /// `handler_item = "init" block | "release" block
@@ -566,23 +566,24 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_PAREN) {
         field_list(p);
     }
-    // Even without `implements`, a following type name is read as the target.
-    if p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
-        let c = p.start();
-        if !p.at_contextual_kw("implements") {
-            p.error(DiagnosticCode::ExpectedToken, "expected `implements`");
-        } else {
-            p.bump();
+    // Without `:`, the old `implements` or a following type name is still read as the effect.
+    if p.at(COLON) || p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
+        if !p.eat(COLON) {
+            p.error(DiagnosticCode::ExpectedToken, "expected `:`");
+            if p.at_contextual_kw("implements") {
+                p.bump();
+            }
         }
         if p.at(TYPE_NAME) {
+            let c = p.start();
             path(p);
             effect_type_args(p);
+            c.complete(p, HANDLER_EFFECT);
         } else {
             p.expect(TYPE_NAME);
         }
-        c.complete(p, IMPLEMENTS_CLAUSE);
     } else {
-        p.error(DiagnosticCode::ExpectedToken, "expected `implements`");
+        p.error(DiagnosticCode::ExpectedToken, "expected `:`");
     }
     item_list(p, |p, m| {
         let kind = if p.at_contextual_kw("init") && p.nth(1) == L_BRACE {
@@ -664,22 +665,42 @@ fn trait_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, TRAIT_DECL);
 }
 
-/// `"impl" type_ref "for" type "{" { impl_item NL } "}"`．`impl_item = "fn" lower_name "(" [ params ] ")" block`
+/// `"impl" type_ref [ type_params ] ":" type_ref "{" { impl_item NL } "}"`．
+/// `impl_item = "fn" lower_name "(" [ params ] ")" block`
+///
+/// The type and its type parameters (`Map[K: Eq, V: Eq]`) become an IMPL_TYPE; the trait is the
+/// PATH after `:`.
 fn impl_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(IMPL_KW);
+    // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first.
+    if p.at(L_BRACK) {
+        p.error(DiagnosticCode::ExpectedToken, "expected type name");
+        type_param_list(p);
+    }
+    let head = p.start();
     if p.at(TYPE_NAME) {
         path(p);
     } else {
         p.expect(TYPE_NAME);
     }
     if p.at_contextual_kw("for") {
+        // The old `impl Show for User`: the first name is the trait and the type follows `for`.
+        head.abandon(p);
+        p.error(DiagnosticCode::ExpectedToken, "expected `:`");
         p.bump();
-        type_(p);
+        impl_type(p);
     } else {
-        p.error(DiagnosticCode::ExpectedToken, "expected `for`");
-        // Read a type even without `for` if one follows.
-        if at_type_start(p) {
-            type_(p);
+        if p.at(L_BRACK) {
+            type_param_list(p);
+        }
+        head.complete(p, IMPL_TYPE);
+        // Even without `:`, a following type name is read as the trait.
+        if p.expect(COLON) || p.at(TYPE_NAME) {
+            if p.at(TYPE_NAME) {
+                path(p);
+            } else {
+                p.expect(TYPE_NAME);
+            }
         }
     }
     item_list(p, |p, m| {
@@ -690,6 +711,20 @@ fn impl_decl(p: &mut Parser<'_>, m: Marker) {
         }
     });
     m.complete(p, IMPL_DECL);
+}
+
+/// The type of an impl with its type parameters: `type_ref [ type_params ]`.
+fn impl_type(p: &mut Parser<'_>) {
+    let m = p.start();
+    if p.at(TYPE_NAME) {
+        path(p);
+    } else {
+        p.expect(TYPE_NAME);
+    }
+    if p.at(L_BRACK) {
+        type_param_list(p);
+    }
+    m.complete(p, IMPL_TYPE);
 }
 
 /// A declaration body `"{" { item NL } "}"`. `item` reads each item and completes it with the

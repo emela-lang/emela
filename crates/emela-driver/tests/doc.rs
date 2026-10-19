@@ -78,12 +78,12 @@ pub effect Log {
 }
 
 ## Prefixes each line.
-pub handler Prefixed(prefix: String) implements Log {
+pub handler Prefixed(prefix: String): Log {
   init { Prefixed(prefix: "> ") }
   fn info(msg) { () }
 }
 
-pub handler Quiet implements Log {
+pub handler Quiet: Log {
   fn info(msg) { () }
 }
 

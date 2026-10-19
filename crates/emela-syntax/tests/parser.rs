@@ -39,7 +39,7 @@ proptest! {
     /// Input rich in declaration keywords and separators, to exercise declarations and recovery.
     #[test]
     fn 宣言らしい文字列で無損失(
-        src in r##"(fn |pub |opaque |suspend |type |enum |error |const |effect |handler |layer |trait |impl |import |implements |for |derive |init |release |@external|@test|## d\n|[A-Z][a-z]+|[a-z]+|[A-Z]|[(){}\[\],.:=|+\->]| |\n){0,40}"##
+        src in r##"(fn |pub |opaque |suspend |type |enum |error |const |effect |handler |layer |trait |impl |import |derive |init |release |@external|@test|## d\n|[A-Z][a-z]+|[a-z]+|[A-Z]|[(){}\[\],.:=|+\->]| |\n){0,40}"##
     ) {
         let parse = parse(&src);
         prop_assert_eq!(parse.syntax().text().to_string(), src);

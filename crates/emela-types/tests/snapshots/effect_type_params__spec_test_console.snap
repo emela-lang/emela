@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/effect_type_params.rs
-expression: "render(r#\"\nfn greet(id: Int) -> () use { Console } {\n  (use Console).print_line(\"Hello, alice!\")\n}\n\nhandler TestConsole implements Console {\n  fn print_line(text) {\n    st = use State[List[String]]\n    st.set([text, ..st.get()])\n  }\n  fn print_error_line(text) { () }\n}\n\nfn test_greets() {\n  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })\n  assert lines == [\"Hello, alice!\"]\n}\n\nfn captured() {\n  State.run([], fn() { with TestConsole { greet(1) } })\n}\n\"#)"
+expression: "render(r#\"\nfn greet(id: Int) -> () use { Console } {\n  (use Console).print_line(\"Hello, alice!\")\n}\n\nhandler TestConsole: Console {\n  fn print_line(text) {\n    st = use State[List[String]]\n    st.set([text, ..st.get()])\n  }\n  fn print_error_line(text) { () }\n}\n\nfn test_greets() {\n  (_, lines) = State.run([], fn() { with TestConsole { greet(1) } })\n  assert lines == [\"Hello, alice!\"]\n}\n\nfn captured() {\n  State.run([], fn() { with TestConsole { greet(1) } })\n}\n\"#)"
 ---
 greet: fn(Int) -> () use Console
   id: Int

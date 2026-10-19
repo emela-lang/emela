@@ -229,7 +229,7 @@ pub enum DiagnosticKind {
     /// effect names through in type argument positions, so type inference checks this.
     EffectAsType { name: SmolStr },
     /// Missing type arguments of an effect with type parameters (E0423, spec 8.1): `use State`
-    /// and `implements State`. `handler` names the handler in the `implements` case; `params`
+    /// and `handler H: State`. `handler` names the handler in the handler case; `params`
     /// names the effect's type parameters.
     MissingEffectTypeArgs {
         effect: SmolStr,

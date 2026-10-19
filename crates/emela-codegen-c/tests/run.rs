@@ -100,7 +100,7 @@ effect Name {
   fn name() -> String
 }
 
-handler Res implements Name {
+handler Res: Name {
   init { Res }
   fn name() { "res" }
   release { print("release res") }

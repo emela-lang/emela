@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/spec_traits.emel
 ---
-ROOT@0..738
+ROOT@0..918
   TRAIT_DECL@0..40
     TRAIT_KW@0..5 "trait"
     WHITESPACE@5..6 " "
@@ -217,256 +217,417 @@ ROOT@0..738
       R_BRACE@392..393 "}"
   NEWLINE@393..394 "\n"
   NEWLINE@394..395 "\n"
-  IMPL_DECL@395..458
+  IMPL_DECL@395..455
     IMPL_KW@395..399 "impl"
     WHITESPACE@399..400 " "
-    PATH@400..404
-      TYPE_NAME@400..404 "Show"
-    WHITESPACE@404..405 " "
-    LOWER_NAME@405..408 "for"
-    WHITESPACE@408..409 " "
-    PATH_TYPE@409..413
-      PATH@409..413
-        TYPE_NAME@409..413 "User"
-    WHITESPACE@413..414 " "
-    ITEM_LIST@414..458
-      L_BRACE@414..415 "{"
-      NEWLINE@415..416 "\n"
-      WHITESPACE@416..418 "  "
-      FN_DECL@418..456
-        FN_KW@418..420 "fn"
-        WHITESPACE@420..421 " "
-        LOWER_NAME@421..425 "show"
-        PARAM_LIST@425..431
-          L_PAREN@425..426 "("
-          PARAM@426..430
-            SELF_KW@426..430 "self"
-          R_PAREN@430..431 ")"
-        WHITESPACE@431..432 " "
-        BLOCK_EXPR@432..456
-          L_BRACE@432..433 "{"
-          WHITESPACE@433..434 " "
-          STRING@434..454
-            STRING_QUOTE@434..435 "\""
-            STRING_TEXT@435..440 "User("
-            INTERP@440..452
-              INTERP_START@440..442 "#{"
-              FIELD_EXPR@442..451
-                NAME_REF@442..446
-                  SELF_KW@442..446 "self"
-                DOT@446..447 "."
-                LOWER_NAME@447..451 "name"
-              INTERP_END@451..452 "}"
-            STRING_TEXT@452..453 ")"
-            STRING_QUOTE@453..454 "\""
-          WHITESPACE@454..455 " "
-          R_BRACE@455..456 "}"
-      NEWLINE@456..457 "\n"
-      R_BRACE@457..458 "}"
-  NEWLINE@458..459 "\n"
-  NEWLINE@459..460 "\n"
-  TYPE_DECL@460..495
-    TYPE_KW@460..464 "type"
-    WHITESPACE@464..465 " "
-    TYPE_NAME@465..471 "MyDate"
-    FIELD_LIST@471..495
-      L_PAREN@471..472 "("
-      FIELD@472..494
-        LOWER_NAME@472..477 "inner"
-        COLON@477..478 ":"
-        WHITESPACE@478..479 " "
-        PATH_TYPE@479..494
-          PATH@479..494
-            TYPE_NAME@479..489 "ThirdParty"
-            DOT@489..490 "."
-            TYPE_NAME@490..494 "Date"
-      R_PAREN@494..495 ")"
-  NEWLINE@495..496 "\n"
-  NEWLINE@496..497 "\n"
-  IMPL_DECL@497..550
-    IMPL_KW@497..501 "impl"
-    WHITESPACE@501..502 " "
-    PATH@502..508
-      TYPE_NAME@502..508 "Encode"
-    WHITESPACE@508..509 " "
-    LOWER_NAME@509..512 "for"
-    WHITESPACE@512..513 " "
-    PATH_TYPE@513..519
-      PATH@513..519
-        TYPE_NAME@513..519 "MyDate"
-    WHITESPACE@519..520 " "
-    ITEM_LIST@520..550
-      L_BRACE@520..521 "{"
-      WHITESPACE@521..522 " "
-      FN_DECL@522..548
-        FN_KW@522..524 "fn"
-        WHITESPACE@524..525 " "
-        LOWER_NAME@525..531 "encode"
-        PARAM_LIST@531..537
-          L_PAREN@531..532 "("
-          PARAM@532..536
-            SELF_KW@532..536 "self"
-          R_PAREN@536..537 ")"
-        WHITESPACE@537..538 " "
-        BLOCK_EXPR@538..548
-          L_BRACE@538..539 "{"
-          WHITESPACE@539..540 " "
-          CALL_EXPR@540..546
-            NAME_REF@540..544
-              LOWER_NAME@540..544 "todo"
-            ARG_LIST@544..546
-              L_PAREN@544..545 "("
-              R_PAREN@545..546 ")"
-          WHITESPACE@546..547 " "
-          R_BRACE@547..548 "}"
-      WHITESPACE@548..549 " "
-      R_BRACE@549..550 "}"
-  NEWLINE@550..551 "\n"
-  NEWLINE@551..552 "\n"
-  IMPL_DECL@552..606
-    IMPL_KW@552..556 "impl"
-    WHITESPACE@556..557 " "
-    PATH@557..561
-      TYPE_NAME@557..561 "Show"
-    WHITESPACE@561..562 " "
-    LOWER_NAME@562..565 "for"
-    WHITESPACE@565..566 " "
-    PATH_TYPE@566..575
-      PATH@566..570
-        TYPE_NAME@566..570 "List"
-      TYPE_ARG_LIST@570..575
-        L_BRACK@570..571 "["
-        PATH_TYPE@571..574
-          PATH@571..574
-            TYPE_NAME@571..574 "Int"
-        R_BRACK@574..575 "]"
-    WHITESPACE@575..576 " "
-    ITEM_LIST@576..606
-      L_BRACE@576..577 "{"
-      NEWLINE@577..578 "\n"
-      WHITESPACE@578..580 "  "
-      FN_DECL@580..604
-        FN_KW@580..582 "fn"
+    IMPL_TYPE@400..404
+      PATH@400..404
+        TYPE_NAME@400..404 "User"
+    COLON@404..405 ":"
+    WHITESPACE@405..406 " "
+    PATH@406..410
+      TYPE_NAME@406..410 "Show"
+    WHITESPACE@410..411 " "
+    ITEM_LIST@411..455
+      L_BRACE@411..412 "{"
+      NEWLINE@412..413 "\n"
+      WHITESPACE@413..415 "  "
+      FN_DECL@415..453
+        FN_KW@415..417 "fn"
+        WHITESPACE@417..418 " "
+        LOWER_NAME@418..422 "show"
+        PARAM_LIST@422..428
+          L_PAREN@422..423 "("
+          PARAM@423..427
+            SELF_KW@423..427 "self"
+          R_PAREN@427..428 ")"
+        WHITESPACE@428..429 " "
+        BLOCK_EXPR@429..453
+          L_BRACE@429..430 "{"
+          WHITESPACE@430..431 " "
+          STRING@431..451
+            STRING_QUOTE@431..432 "\""
+            STRING_TEXT@432..437 "User("
+            INTERP@437..449
+              INTERP_START@437..439 "#{"
+              FIELD_EXPR@439..448
+                NAME_REF@439..443
+                  SELF_KW@439..443 "self"
+                DOT@443..444 "."
+                LOWER_NAME@444..448 "name"
+              INTERP_END@448..449 "}"
+            STRING_TEXT@449..450 ")"
+            STRING_QUOTE@450..451 "\""
+          WHITESPACE@451..452 " "
+          R_BRACE@452..453 "}"
+      NEWLINE@453..454 "\n"
+      R_BRACE@454..455 "}"
+  NEWLINE@455..456 "\n"
+  NEWLINE@456..457 "\n"
+  TYPE_DECL@457..492
+    TYPE_KW@457..461 "type"
+    WHITESPACE@461..462 " "
+    TYPE_NAME@462..468 "MyDate"
+    FIELD_LIST@468..492
+      L_PAREN@468..469 "("
+      FIELD@469..491
+        LOWER_NAME@469..474 "inner"
+        COLON@474..475 ":"
+        WHITESPACE@475..476 " "
+        PATH_TYPE@476..491
+          PATH@476..491
+            TYPE_NAME@476..486 "ThirdParty"
+            DOT@486..487 "."
+            TYPE_NAME@487..491 "Date"
+      R_PAREN@491..492 ")"
+  NEWLINE@492..493 "\n"
+  NEWLINE@493..494 "\n"
+  IMPL_DECL@494..544
+    IMPL_KW@494..498 "impl"
+    WHITESPACE@498..499 " "
+    IMPL_TYPE@499..505
+      PATH@499..505
+        TYPE_NAME@499..505 "MyDate"
+    COLON@505..506 ":"
+    WHITESPACE@506..507 " "
+    PATH@507..513
+      TYPE_NAME@507..513 "Encode"
+    WHITESPACE@513..514 " "
+    ITEM_LIST@514..544
+      L_BRACE@514..515 "{"
+      WHITESPACE@515..516 " "
+      FN_DECL@516..542
+        FN_KW@516..518 "fn"
+        WHITESPACE@518..519 " "
+        LOWER_NAME@519..525 "encode"
+        PARAM_LIST@525..531
+          L_PAREN@525..526 "("
+          PARAM@526..530
+            SELF_KW@526..530 "self"
+          R_PAREN@530..531 ")"
+        WHITESPACE@531..532 " "
+        BLOCK_EXPR@532..542
+          L_BRACE@532..533 "{"
+          WHITESPACE@533..534 " "
+          CALL_EXPR@534..540
+            NAME_REF@534..538
+              LOWER_NAME@534..538 "todo"
+            ARG_LIST@538..540
+              L_PAREN@538..539 "("
+              R_PAREN@539..540 ")"
+          WHITESPACE@540..541 " "
+          R_BRACE@541..542 "}"
+      WHITESPACE@542..543 " "
+      R_BRACE@543..544 "}"
+  NEWLINE@544..545 "\n"
+  NEWLINE@545..546 "\n"
+  IMPL_DECL@546..595
+    IMPL_KW@546..550 "impl"
+    WHITESPACE@550..551 " "
+    IMPL_TYPE@551..558
+      PATH@551..555
+        TYPE_NAME@551..555 "List"
+      TYPE_PARAM_LIST@555..558
+        L_BRACK@555..556 "["
+        TYPE_PARAM@556..557
+          UPPER_NAME@556..557 "A"
+        R_BRACK@557..558 "]"
+    COLON@558..559 ":"
+    WHITESPACE@559..560 " "
+    PATH@560..564
+      TYPE_NAME@560..564 "Show"
+    WHITESPACE@564..565 " "
+    ITEM_LIST@565..595
+      L_BRACE@565..566 "{"
+      NEWLINE@566..567 "\n"
+      WHITESPACE@567..569 "  "
+      FN_DECL@569..593
+        FN_KW@569..571 "fn"
+        WHITESPACE@571..572 " "
+        LOWER_NAME@572..576 "show"
+        PARAM_LIST@576..582
+          L_PAREN@576..577 "("
+          PARAM@577..581
+            SELF_KW@577..581 "self"
+          R_PAREN@581..582 ")"
         WHITESPACE@582..583 " "
-        LOWER_NAME@583..587 "show"
-        PARAM_LIST@587..593
-          L_PAREN@587..588 "("
-          PARAM@588..592
-            SELF_KW@588..592 "self"
-          R_PAREN@592..593 ")"
-        WHITESPACE@593..594 " "
-        BLOCK_EXPR@594..604
-          L_BRACE@594..595 "{"
-          WHITESPACE@595..596 " "
-          STRING@596..602
-            STRING_QUOTE@596..597 "\""
-            STRING_TEXT@597..601 "list"
-            STRING_QUOTE@601..602 "\""
-          WHITESPACE@602..603 " "
-          R_BRACE@603..604 "}"
-      NEWLINE@604..605 "\n"
-      R_BRACE@605..606 "}"
-  NEWLINE@606..607 "\n"
-  NEWLINE@607..608 "\n"
-  FN_DECL@608..663
-    FN_KW@608..610 "fn"
-    WHITESPACE@610..611 " "
-    LOWER_NAME@611..618 "largest"
-    TYPE_PARAM_LIST@618..626
-      L_BRACK@618..619 "["
-      TYPE_PARAM@619..625
-        UPPER_NAME@619..620 "A"
-        COLON@620..621 ":"
-        WHITESPACE@621..622 " "
-        PATH@622..625
-          TYPE_NAME@622..625 "Ord"
-      R_BRACK@625..626 "]"
-    PARAM_LIST@626..639
-      L_PAREN@626..627 "("
-      PARAM@627..638
-        LOWER_NAME@627..629 "xs"
-        COLON@629..630 ":"
-        WHITESPACE@630..631 " "
-        PATH_TYPE@631..638
-          PATH@631..635
-            TYPE_NAME@631..635 "List"
-          TYPE_ARG_LIST@635..638
-            L_BRACK@635..636 "["
-            TYPE_VAR@636..637
-              UPPER_NAME@636..637 "A"
-            R_BRACK@637..638 "]"
-      R_PAREN@638..639 ")"
-    WHITESPACE@639..640 " "
-    RET_TYPE@640..652
-      THIN_ARROW@640..642 "->"
-      WHITESPACE@642..643 " "
-      PATH_TYPE@643..652
-        PATH@643..649
-          TYPE_NAME@643..649 "Option"
-        TYPE_ARG_LIST@649..652
-          L_BRACK@649..650 "["
-          TYPE_VAR@650..651
-            UPPER_NAME@650..651 "A"
-          R_BRACK@651..652 "]"
-    WHITESPACE@652..653 " "
-    BLOCK_EXPR@653..663
-      L_BRACE@653..654 "{"
-      WHITESPACE@654..655 " "
-      CALL_EXPR@655..661
-        NAME_REF@655..659
-          LOWER_NAME@655..659 "todo"
-        ARG_LIST@659..661
-          L_PAREN@659..660 "("
-          R_PAREN@660..661 ")"
-      WHITESPACE@661..662 " "
-      R_BRACE@662..663 "}"
-  NEWLINE@663..664 "\n"
-  NEWLINE@664..665 "\n"
-  TYPE_DECL@665..737
-    TYPE_KW@665..669 "type"
-    WHITESPACE@669..670 " "
-    TYPE_NAME@670..674 "User"
-    FIELD_LIST@674..711
-      L_PAREN@674..675 "("
-      FIELD@675..682
-        LOWER_NAME@675..677 "id"
-        COLON@677..678 ":"
-        WHITESPACE@678..679 " "
-        PATH_TYPE@679..682
-          PATH@679..682
-            TYPE_NAME@679..682 "Int"
-      COMMA@682..683 ","
-      WHITESPACE@683..684 " "
-      FIELD@684..696
-        LOWER_NAME@684..688 "name"
-        COLON@688..689 ":"
-        WHITESPACE@689..690 " "
-        PATH_TYPE@690..696
-          PATH@690..696
-            TYPE_NAME@690..696 "String"
-      COMMA@696..697 ","
-      WHITESPACE@697..698 " "
-      FIELD@698..710
-        LOWER_NAME@698..703 "email"
-        COLON@703..704 ":"
-        WHITESPACE@704..705 " "
-        PATH_TYPE@705..710
-          PATH@705..710
-            TYPE_NAME@705..710 "Email"
-      R_PAREN@710..711 ")"
-    NEWLINE@711..712 "\n"
-    WHITESPACE@712..714 "  "
-    DERIVE_CLAUSE@714..737
-      LOWER_NAME@714..720 "derive"
-      WHITESPACE@720..721 " "
-      PATH@721..723
-        TYPE_NAME@721..723 "Eq"
-      COMMA@723..724 ","
-      WHITESPACE@724..725 " "
-      PATH@725..729
-        TYPE_NAME@725..729 "Show"
-      COMMA@729..730 ","
-      WHITESPACE@730..731 " "
-      PATH@731..737
-        TYPE_NAME@731..737 "Encode"
-  NEWLINE@737..738 "\n"
+        BLOCK_EXPR@583..593
+          L_BRACE@583..584 "{"
+          WHITESPACE@584..585 " "
+          STRING@585..591
+            STRING_QUOTE@585..586 "\""
+            STRING_TEXT@586..590 "list"
+            STRING_QUOTE@590..591 "\""
+          WHITESPACE@591..592 " "
+          R_BRACE@592..593 "}"
+      NEWLINE@593..594 "\n"
+      R_BRACE@594..595 "}"
+  NEWLINE@595..596 "\n"
+  NEWLINE@596..597 "\n"
+  IMPL_DECL@597..720
+    IMPL_KW@597..601 "impl"
+    WHITESPACE@601..602 " "
+    IMPL_TYPE@602..620
+      PATH@602..606
+        TYPE_NAME@602..606 "Pair"
+      TYPE_PARAM_LIST@606..620
+        L_BRACK@606..607 "["
+        TYPE_PARAM@607..612
+          UPPER_NAME@607..608 "A"
+          COLON@608..609 ":"
+          WHITESPACE@609..610 " "
+          PATH@610..612
+            TYPE_NAME@610..612 "Eq"
+        COMMA@612..613 ","
+        WHITESPACE@613..614 " "
+        TYPE_PARAM@614..619
+          UPPER_NAME@614..615 "B"
+          COLON@615..616 ":"
+          WHITESPACE@616..617 " "
+          PATH@617..619
+            TYPE_NAME@617..619 "Eq"
+        R_BRACK@619..620 "]"
+    COLON@620..621 ":"
+    WHITESPACE@621..622 " "
+    PATH@622..624
+      TYPE_NAME@622..624 "Eq"
+    WHITESPACE@624..625 " "
+    ITEM_LIST@625..720
+      L_BRACE@625..626 "{"
+      NEWLINE@626..627 "\n"
+      WHITESPACE@627..629 "  "
+      FN_DECL@629..718
+        FN_KW@629..631 "fn"
+        WHITESPACE@631..632 " "
+        LOWER_NAME@632..634 "eq"
+        PARAM_LIST@634..647
+          L_PAREN@634..635 "("
+          PARAM@635..639
+            SELF_KW@635..639 "self"
+          COMMA@639..640 ","
+          WHITESPACE@640..641 " "
+          PARAM@641..646
+            LOWER_NAME@641..646 "other"
+          R_PAREN@646..647 ")"
+        WHITESPACE@647..648 " "
+        BLOCK_EXPR@648..718
+          L_BRACE@648..649 "{"
+          WHITESPACE@649..650 " "
+          BIN_EXPR@650..716
+            CALL_EXPR@650..680
+              FIELD_EXPR@650..655
+                PATH_EXPR@650..652
+                  PATH@650..652
+                    TYPE_NAME@650..652 "Eq"
+                DOT@652..653 "."
+                LOWER_NAME@653..655 "eq"
+              ARG_LIST@655..680
+                L_PAREN@655..656 "("
+                FIELD_EXPR@656..666
+                  NAME_REF@656..660
+                    SELF_KW@656..660 "self"
+                  DOT@660..661 "."
+                  LOWER_NAME@661..666 "first"
+                COMMA@666..667 ","
+                WHITESPACE@667..668 " "
+                FIELD_EXPR@668..679
+                  NAME_REF@668..673
+                    LOWER_NAME@668..673 "other"
+                  DOT@673..674 "."
+                  LOWER_NAME@674..679 "first"
+                R_PAREN@679..680 ")"
+            WHITESPACE@680..681 " "
+            AMP2@681..683 "&&"
+            WHITESPACE@683..684 " "
+            CALL_EXPR@684..716
+              FIELD_EXPR@684..689
+                PATH_EXPR@684..686
+                  PATH@684..686
+                    TYPE_NAME@684..686 "Eq"
+                DOT@686..687 "."
+                LOWER_NAME@687..689 "eq"
+              ARG_LIST@689..716
+                L_PAREN@689..690 "("
+                FIELD_EXPR@690..701
+                  NAME_REF@690..694
+                    SELF_KW@690..694 "self"
+                  DOT@694..695 "."
+                  LOWER_NAME@695..701 "second"
+                COMMA@701..702 ","
+                WHITESPACE@702..703 " "
+                FIELD_EXPR@703..715
+                  NAME_REF@703..708
+                    LOWER_NAME@703..708 "other"
+                  DOT@708..709 "."
+                  LOWER_NAME@709..715 "second"
+                R_PAREN@715..716 ")"
+          WHITESPACE@716..717 " "
+          R_BRACE@717..718 "}"
+      NEWLINE@718..719 "\n"
+      R_BRACE@719..720 "}"
+  NEWLINE@720..721 "\n"
+  NEWLINE@721..722 "\n"
+  IMPL_DECL@722..786
+    IMPL_KW@722..726 "impl"
+    WHITESPACE@726..727 " "
+    IMPL_TYPE@727..750
+      PATH@727..730
+        TYPE_NAME@727..730 "Map"
+      TYPE_PARAM_LIST@730..750
+        L_BRACK@730..731 "["
+        TYPE_PARAM@731..742
+          UPPER_NAME@731..732 "K"
+          COLON@732..733 ":"
+          WHITESPACE@733..734 " "
+          PATH@734..736
+            TYPE_NAME@734..736 "Eq"
+          WHITESPACE@736..737 " "
+          PLUS@737..738 "+"
+          WHITESPACE@738..739 " "
+          PATH@739..742
+            TYPE_NAME@739..742 "Ord"
+        COMMA@742..743 ","
+        WHITESPACE@743..744 " "
+        TYPE_PARAM@744..749
+          UPPER_NAME@744..745 "V"
+          COLON@745..746 ":"
+          WHITESPACE@746..747 " "
+          PATH@747..749
+            TYPE_NAME@747..749 "Eq"
+        R_BRACK@749..750 "]"
+    COLON@750..751 ":"
+    WHITESPACE@751..752 " "
+    PATH@752..754
+      TYPE_NAME@752..754 "Eq"
+    WHITESPACE@754..755 " "
+    ITEM_LIST@755..786
+      L_BRACE@755..756 "{"
+      WHITESPACE@756..757 " "
+      FN_DECL@757..784
+        FN_KW@757..759 "fn"
+        WHITESPACE@759..760 " "
+        LOWER_NAME@760..762 "eq"
+        PARAM_LIST@762..775
+          L_PAREN@762..763 "("
+          PARAM@763..767
+            SELF_KW@763..767 "self"
+          COMMA@767..768 ","
+          WHITESPACE@768..769 " "
+          PARAM@769..774
+            LOWER_NAME@769..774 "other"
+          R_PAREN@774..775 ")"
+        WHITESPACE@775..776 " "
+        BLOCK_EXPR@776..784
+          L_BRACE@776..777 "{"
+          WHITESPACE@777..778 " "
+          PATH_EXPR@778..782
+            PATH@778..782
+              TYPE_NAME@778..782 "True"
+          WHITESPACE@782..783 " "
+          R_BRACE@783..784 "}"
+      WHITESPACE@784..785 " "
+      R_BRACE@785..786 "}"
+  NEWLINE@786..787 "\n"
+  NEWLINE@787..788 "\n"
+  FN_DECL@788..843
+    FN_KW@788..790 "fn"
+    WHITESPACE@790..791 " "
+    LOWER_NAME@791..798 "largest"
+    TYPE_PARAM_LIST@798..806
+      L_BRACK@798..799 "["
+      TYPE_PARAM@799..805
+        UPPER_NAME@799..800 "A"
+        COLON@800..801 ":"
+        WHITESPACE@801..802 " "
+        PATH@802..805
+          TYPE_NAME@802..805 "Ord"
+      R_BRACK@805..806 "]"
+    PARAM_LIST@806..819
+      L_PAREN@806..807 "("
+      PARAM@807..818
+        LOWER_NAME@807..809 "xs"
+        COLON@809..810 ":"
+        WHITESPACE@810..811 " "
+        PATH_TYPE@811..818
+          PATH@811..815
+            TYPE_NAME@811..815 "List"
+          TYPE_ARG_LIST@815..818
+            L_BRACK@815..816 "["
+            TYPE_VAR@816..817
+              UPPER_NAME@816..817 "A"
+            R_BRACK@817..818 "]"
+      R_PAREN@818..819 ")"
+    WHITESPACE@819..820 " "
+    RET_TYPE@820..832
+      THIN_ARROW@820..822 "->"
+      WHITESPACE@822..823 " "
+      PATH_TYPE@823..832
+        PATH@823..829
+          TYPE_NAME@823..829 "Option"
+        TYPE_ARG_LIST@829..832
+          L_BRACK@829..830 "["
+          TYPE_VAR@830..831
+            UPPER_NAME@830..831 "A"
+          R_BRACK@831..832 "]"
+    WHITESPACE@832..833 " "
+    BLOCK_EXPR@833..843
+      L_BRACE@833..834 "{"
+      WHITESPACE@834..835 " "
+      CALL_EXPR@835..841
+        NAME_REF@835..839
+          LOWER_NAME@835..839 "todo"
+        ARG_LIST@839..841
+          L_PAREN@839..840 "("
+          R_PAREN@840..841 ")"
+      WHITESPACE@841..842 " "
+      R_BRACE@842..843 "}"
+  NEWLINE@843..844 "\n"
+  NEWLINE@844..845 "\n"
+  TYPE_DECL@845..917
+    TYPE_KW@845..849 "type"
+    WHITESPACE@849..850 " "
+    TYPE_NAME@850..854 "User"
+    FIELD_LIST@854..891
+      L_PAREN@854..855 "("
+      FIELD@855..862
+        LOWER_NAME@855..857 "id"
+        COLON@857..858 ":"
+        WHITESPACE@858..859 " "
+        PATH_TYPE@859..862
+          PATH@859..862
+            TYPE_NAME@859..862 "Int"
+      COMMA@862..863 ","
+      WHITESPACE@863..864 " "
+      FIELD@864..876
+        LOWER_NAME@864..868 "name"
+        COLON@868..869 ":"
+        WHITESPACE@869..870 " "
+        PATH_TYPE@870..876
+          PATH@870..876
+            TYPE_NAME@870..876 "String"
+      COMMA@876..877 ","
+      WHITESPACE@877..878 " "
+      FIELD@878..890
+        LOWER_NAME@878..883 "email"
+        COLON@883..884 ":"
+        WHITESPACE@884..885 " "
+        PATH_TYPE@885..890
+          PATH@885..890
+            TYPE_NAME@885..890 "Email"
+      R_PAREN@890..891 ")"
+    NEWLINE@891..892 "\n"
+    WHITESPACE@892..894 "  "
+    DERIVE_CLAUSE@894..917
+      LOWER_NAME@894..900 "derive"
+      WHITESPACE@900..901 " "
+      PATH@901..903
+        TYPE_NAME@901..903 "Eq"
+      COMMA@903..904 ","
+      WHITESPACE@904..905 " "
+      PATH@905..909
+        TYPE_NAME@905..909 "Show"
+      COMMA@909..910 ","
+      WHITESPACE@910..911 " "
+      PATH@911..917
+        TYPE_NAME@911..917 "Encode"
+  NEWLINE@917..918 "\n"
