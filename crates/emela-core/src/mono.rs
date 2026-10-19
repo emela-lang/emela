@@ -16,8 +16,9 @@
 //!    and list types, and the effects of capability types and evidence table keys that mention
 //!    type parameters (`State[$modify.0]` becomes `State[Int]`).
 //! 2. Call targets are rewritten ([`Mono::target`]): a direct call or a function value with type
-//!    arguments becomes the copy for them. Trait method calls (0.21) are meant to be resolved here
-//!    too, after their types are known.
+//!    arguments becomes the copy for them. A trait function (`Module::dispatch`) becomes the copy
+//!    of the impl function for the type its `Self` is instantiated with, or of its own default
+//!    implementation, which is thus copied per type (spec 10.3).
 //!
 //! What changes besides types, because flags became exact:
 //!
@@ -86,6 +87,11 @@ pub struct Monomorphized {
     pub roots: Vec<FnId>,
     /// Per function of `module`, the function of the input it copies.
     pub origins: ArenaMap<FnId, FnId>,
+    /// Trait functions called for a type without an impl, as `Show.show` and the type's name.
+    /// The type checker lets the built-in types satisfy the Prelude's traits before their impls
+    /// exist, and a generic root is instantiated at `Any`. Such a call reaches the trait
+    /// function's body, which panics.
+    pub missing_impls: Vec<(String, String)>,
 }
 
 /// Monomorphizes the module from `roots` (the exported functions or the test functions; lowering
@@ -109,6 +115,7 @@ pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
         module: mono.out,
         roots: out_roots,
         origins: mono.origins,
+        missing_impls: mono.missing_impls,
     }
 }
 
@@ -198,6 +205,8 @@ struct Mono<'a> {
     memo: FxHashMap<TypeId, TypeId>,
     /// The variable types of the enclosing loops in the copy being defined, innermost last.
     loops: Vec<Vec<TypeId>>,
+    /// See [`Monomorphized::missing_impls`].
+    missing_impls: Vec<(String, String)>,
 }
 
 impl<'a> Mono<'a> {
@@ -225,6 +234,7 @@ impl<'a> Mono<'a> {
             locals: FxHashMap::default(),
             memo: FxHashMap::default(),
             loops: Vec::new(),
+            missing_impls: Vec::new(),
         }
     }
 
@@ -439,9 +449,26 @@ impl<'a> Mono<'a> {
     }
 
     /// The copy of `f` for the (already substituted) type arguments `args`, created on first use.
+    /// For a trait function, the copy of the impl function for `Self` (`args[0]`), or of the
+    /// default implementation when the impl does not define the function.
     fn target(&mut self, f: FnId, args: &[TypeId]) -> Target {
         if let Some(&t) = self.specs.get(&(f, args.into())) {
             return t;
+        }
+        if let Some(dispatch) = self.m.dispatch.get(&f) {
+            if let Some((impl_fn, mut impl_args)) = self.pick_impl(f, dispatch, args) {
+                impl_args.extend_from_slice(&args[1..]);
+                let t = self.target(impl_fn, &impl_args);
+                self.specs.insert((f, args.into()), t);
+                return t;
+            }
+            if !dispatch.default {
+                let ty = type_name(&self.out, &self.out.types, args[0]);
+                let missing = (self.m.functions[f].name.clone(), ty);
+                if !self.missing_impls.contains(&missing) {
+                    self.missing_impls.push(missing);
+                }
+            }
         }
         let old = &self.m.functions[f];
         let old_ev = self.m.takes_ev(f);
@@ -517,6 +544,63 @@ impl<'a> Mono<'a> {
             new,
         });
         t
+    }
+
+    /// The impl function of trait function `f` for `Self` = `args[0]`, and the impl's type
+    /// arguments: what its type parameters stand for in `Self` (`Int` and `String` in
+    /// `Pair[$0, $1]` for `Pair[Int, String]`).
+    fn pick_impl(
+        &self,
+        f: FnId,
+        dispatch: &Dispatch,
+        args: &[TypeId],
+    ) -> Option<(FnId, Vec<TypeId>)> {
+        let self_ty = *args.first()?;
+        // The trait function's type parameters are `Self` and its own; the impl function's are
+        // the impl's and the same own ones.
+        let own = self.m.functions[f].type_params.saturating_sub(1);
+        dispatch.impls.iter().find_map(|&(pattern, impl_fn)| {
+            let n = self.m.functions[impl_fn].type_params.saturating_sub(own);
+            let mut bound = vec![None; n];
+            self.bind_head(pattern, self_ty, &mut bound).then(|| {
+                let args = bound
+                    .into_iter()
+                    .map(|t| t.unwrap_or(TypeId::UNIT))
+                    .collect();
+                (impl_fn, args)
+            })
+        })
+    }
+
+    /// Matches the impl's type `pattern` (of the input, with the impl's type parameters) against
+    /// the type `actual` (of the output), binding the type parameters in `bound`.
+    fn bind_head(&self, pattern: TypeId, actual: TypeId, bound: &mut [Option<TypeId>]) -> bool {
+        match (self.m.ty(pattern), self.out.ty(actual)) {
+            (Type::Param(i), _) => {
+                if let Some(slot) = bound.get_mut(*i) {
+                    *slot = Some(actual);
+                }
+                true
+            }
+            (Type::Enum(a, ps), Type::Enum(b, xs)) => {
+                a == b
+                    && ps.len() == xs.len()
+                    && ps
+                        .iter()
+                        .zip(xs)
+                        .all(|(&p, &x)| self.bind_head(p, x, bound))
+            }
+            (Type::List(p), Type::List(x)) => self.bind_head(*p, *x, bound),
+            (Type::Tuple(ps), Type::Tuple(xs)) => {
+                ps.len() == xs.len()
+                    && ps
+                        .iter()
+                        .zip(xs)
+                        .all(|(&p, &x)| self.bind_head(p, x, bound))
+            }
+            // The output table extends the input's, so a type without parameters has one ID.
+            _ => pattern == actual,
+        }
     }
 
     /// Defines the body of a copy.

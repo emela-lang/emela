@@ -342,6 +342,40 @@ fn main() {
 "##,
     ),
     (
+        "traits",
+        r##"
+type Point(x: Int, y: Int)
+type Box[A](value: A)
+
+trait Size {
+  fn size(self) -> Int
+
+  fn double(self) -> Int { Size.size(self) * 2 }
+}
+
+impl Point: Size {
+  fn size(self) { self.x + self.y }
+}
+
+impl Box[A: Size]: Size {
+  fn size(self) { Size.size(self.value) + 1 }
+
+  fn double(self) { 0 }
+}
+
+fn total[A: Size](xs: List[A]) -> Int { List.fold(xs, 0, fn(acc, x) { acc + Size.size(x) }) }
+
+fn main() {
+  p = Point(x: 1, y: 2)
+  dbg(Size.size(p))
+  dbg(Size.double(p))
+  dbg(Size.size(Box(value: Box(value: p))))
+  dbg(Size.double(Box(value: p)))
+  dbg(total([p, Point(x: 3, y: 4)]))
+}
+"##,
+    ),
+    (
         "error_with_a_function_field",
         r#"
 error Retry(after: fn() -> Int)
