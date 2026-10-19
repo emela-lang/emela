@@ -8,7 +8,7 @@ enum Shape {
   Group(List[Shape])
   Empty
 }
-  derive Eq, Show
+  derive Show
 
 enum Color { Red, Green, Blue }
   derive Eq, Show
@@ -20,7 +20,7 @@ enum Tree {
   Leaf
   Node(Tree, Int, Tree)
 }
-  derive Eq, Show
+  derive Show
 
 fn area(s: Shape) -> Float {
   s match {
