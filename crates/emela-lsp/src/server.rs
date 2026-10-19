@@ -4,6 +4,8 @@
 // so it is safe as a key.
 #![allow(clippy::mutable_key_type)]
 
+mod navigation;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -14,9 +16,11 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SemanticTokensFullRequest, SemanticTokensRangeRequest, SignatureHelpRequest,
+    CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
+    FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, GotoTypeDefinition,
+    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    SelectionRangeRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
+    SignatureHelpRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{self as lsp, Uri};
 
@@ -45,6 +49,12 @@ pub fn capabilities() -> lsp::ServerCapabilities {
         hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
         definition_provider: Some(lsp::OneOf::Left(true)),
         references_provider: Some(lsp::OneOf::Left(true)),
+        document_highlight_provider: Some(lsp::OneOf::Left(true)),
+        workspace_symbol_provider: Some(lsp::OneOf::Left(true)),
+        folding_range_provider: Some(lsp::FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(lsp::SelectionRangeProviderCapability::Simple(true)),
+        type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
+        implementation_provider: Some(lsp::ImplementationProviderCapability::Simple(true)),
         document_symbol_provider: Some(lsp::OneOf::Left(true)),
         signature_help_provider: Some(lsp::SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
@@ -254,6 +264,18 @@ where
                     format!("invalid params: {err}"),
                 ),
             },
+            DocumentHighlightRequest::METHOD => {
+                respond(request, |params| self.document_highlights(&params))
+            }
+            WorkspaceSymbolRequest::METHOD => {
+                respond(request, |params| self.workspace_symbols(&params))
+            }
+            FoldingRangeRequest::METHOD => respond(request, |params| self.folding_ranges(&params)),
+            SelectionRangeRequest::METHOD => {
+                respond(request, |params| self.selection_ranges(&params))
+            }
+            GotoTypeDefinition::METHOD => respond(request, |params| self.type_definition(&params)),
+            GotoImplementation::METHOD => respond(request, |params| self.implementations(&params)),
             GotoDefinition::METHOD => respond(request, |params| self.definition(&params)),
             References::METHOD => respond(request, |params| self.references(&params)),
             DocumentSymbolRequest::METHOD => {

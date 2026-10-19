@@ -1063,6 +1063,234 @@ fn hover_shows_mixed_effect_sets() {
     client.shutdown();
 }
 
+fn navigation<T: serde::de::DeserializeOwned>(
+    client: &mut Client,
+    method: &str,
+    params: serde_json::Value,
+) -> T {
+    let id = client.request(method, params);
+    let response = client.response(&id);
+    serde_json::from_value(response.response_result.unwrap()).unwrap()
+}
+
+#[test]
+fn navigation_capabilities() {
+    let caps = emela_lsp::capabilities();
+    assert_eq!(
+        caps.document_highlight_provider,
+        Some(lsp::OneOf::Left(true))
+    );
+    assert_eq!(caps.workspace_symbol_provider, Some(lsp::OneOf::Left(true)));
+    assert_eq!(
+        caps.folding_range_provider,
+        Some(lsp::FoldingRangeProviderCapability::Simple(true))
+    );
+    assert_eq!(
+        caps.selection_range_provider,
+        Some(lsp::SelectionRangeProviderCapability::Simple(true))
+    );
+    assert_eq!(
+        caps.type_definition_provider,
+        Some(lsp::TypeDefinitionProviderCapability::Simple(true))
+    );
+    assert_eq!(
+        caps.implementation_provider,
+        Some(lsp::ImplementationProviderCapability::Simple(true))
+    );
+}
+
+#[test]
+fn highlights_are_same_file_and_include_the_binding() {
+    let mut client = Client::initialize(&nav_files(), Some("/app"), Typecheck::default);
+    let highlights: Vec<lsp::DocumentHighlight> = navigation(
+        &mut client,
+        "textDocument/documentHighlight",
+        Client::position(MAIN, 17, 7),
+    );
+    assert_eq!(
+        highlights.iter().map(|h| h.range).collect::<Vec<_>>(),
+        [range((1, 15), (1, 20)), range((17, 6), (17, 11))]
+    );
+    assert!(
+        highlights
+            .iter()
+            .all(|h| h.kind == Some(lsp::DocumentHighlightKind::TEXT))
+    );
+    let highlights: Vec<lsp::DocumentHighlight> = navigation(
+        &mut client,
+        "textDocument/documentHighlight",
+        Client::position(MAIN, 12, 3),
+    );
+    assert_eq!(
+        highlights.iter().map(|h| h.range).collect::<Vec<_>>(),
+        [range((12, 2), (12, 5)), range((13, 2), (13, 5))]
+    );
+    let empty: Vec<lsp::DocumentHighlight> = navigation(
+        &mut client,
+        "textDocument/documentHighlight",
+        Client::position(MAIN, 2, 0),
+    );
+    assert!(empty.is_empty());
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn workspace_symbols_search_unopened_modules_and_unsaved_contents() {
+    let mut files = nav_files().to_vec();
+    files.push(("/other/Pome.toml", ""));
+    files.push(("/other/src/lib.emel", "pub type OtherShape(id: Int)\n"));
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let symbols: Vec<lsp::SymbolInformation> =
+        navigation(&mut client, "workspace/symbol", json!({ "query": "sHaP" }));
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "Shape");
+    assert_eq!(
+        symbols[0].location,
+        location(SHAPES, (0, 9), (0, 14)).unwrap()
+    );
+    assert_eq!(symbols[0].container_name.as_deref(), Some("Shapes"));
+    client.open(
+        SHAPES,
+        1,
+        "pub type NewShape(id: Int)\nfn broken() { missing }\n",
+    );
+    let symbols: Vec<lsp::SymbolInformation> =
+        navigation(&mut client, "workspace/symbol", json!({ "query": "shape" }));
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "NewShape");
+    let all: Vec<lsp::SymbolInformation> =
+        navigation(&mut client, "workspace/symbol", json!({ "query": "" }));
+    assert!(
+        all.iter()
+            .all(|s| s.location.uri.as_str().starts_with("file:///app/"))
+    );
+    let empty: Vec<lsp::SymbolInformation> = navigation(
+        &mut client,
+        "workspace/symbol",
+        json!({ "query": "no_such_symbol" }),
+    );
+    assert!(empty.is_empty());
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn syntax_navigation_works_with_parse_only_and_utf16() {
+    let path = "/tmp/main.emel";
+    let text = "# 😀 one\r\n## two\r\nimport First\r\nimport Second\r\nfn broken() {\r\n  \"😀\"\r\n  unknown match {\r\n    _ -> 1\r\n  }\r\n}\r\nfn unfinished(\r\n";
+    let mut client = Client::initialize(&[(path, "")], None, ParseOnly::new);
+    client.open(path, 1, text);
+    let folds: Vec<lsp::FoldingRange> = navigation(
+        &mut client,
+        "textDocument/foldingRange",
+        json!({ "textDocument": { "uri": uri(path) } }),
+    );
+    assert_eq!(
+        folds
+            .iter()
+            .map(|f| (f.start_line, f.end_line, f.kind.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (0, 1, Some(lsp::FoldingRangeKind::Comment)),
+            (2, 3, Some(lsp::FoldingRangeKind::Imports)),
+            (4, 9, Some(lsp::FoldingRangeKind::Region)),
+            (6, 8, Some(lsp::FoldingRangeKind::Region)),
+        ]
+    );
+    let selections: Vec<lsp::SelectionRange> = navigation(
+        &mut client,
+        "textDocument/selectionRange",
+        json!({
+            "textDocument": { "uri": uri(path) }, "positions": [
+                { "line": 0, "character": 4 }, { "line": 5, "character": 3 }, { "line": 6, "character": 3 }
+            ]
+        }),
+    );
+    assert_eq!(selections.len(), 3);
+    assert_eq!(selections[0].range, range((0, 0), (0, 8)));
+    assert_eq!(selections[1].range, range((5, 3), (5, 5)));
+    assert_eq!(selections[2].range, range((6, 2), (6, 9)));
+    for selection in &selections {
+        let mut current = selection;
+        while let Some(parent) = current.parent.as_deref() {
+            assert!(
+                parent.range.start <= current.range.start && parent.range.end >= current.range.end
+            );
+            assert_ne!(parent.range, current.range);
+            current = parent;
+        }
+    }
+    client.change(path, 2, "fn empty() {}\n");
+    let folds: Vec<lsp::FoldingRange> = navigation(
+        &mut client,
+        "textDocument/foldingRange",
+        json!({ "textDocument": { "uri": uri(path) } }),
+    );
+    assert!(folds.is_empty());
+    drain(&client);
+    client.shutdown();
+}
+
+#[test]
+fn type_and_implementation_navigation_with_type_errors() {
+    let data = "pub type Boxed(value: Int)\npub enum Choice { One }\npub trait Speak {\n  fn speak(self) -> String\n}\nimpl Speak for Boxed {\n  fn speak(self) { \"boxed\" }\n}\nimpl Speak for Choice {\n  fn speak(self) { \"choice\" }\n}\n";
+    let text = "import Data.{Boxed, Speak}\nfn call(item: Boxed) {\n  copy = item\n  Speak.speak(copy)\n}\nfn broken() -> Int { missing }\n";
+    let mut client = Client::initialize(
+        &[
+            ("/app/Pome.toml", ""),
+            (MAIN, text),
+            ("/app/src/data.emel", data),
+        ],
+        Some("/app"),
+        Typecheck::default,
+    );
+    let found: Option<lsp::Location> = navigation(
+        &mut client,
+        "textDocument/typeDefinition",
+        Client::position(MAIN, 3, 15),
+    );
+    assert_eq!(found, location("/app/src/data.emel", (0, 9), (0, 14)));
+    let found: Option<lsp::Location> = navigation(
+        &mut client,
+        "textDocument/typeDefinition",
+        Client::position(MAIN, 5, 16),
+    );
+    assert_eq!(found, None);
+    let impls: Vec<lsp::Location> = navigation(
+        &mut client,
+        "textDocument/implementation",
+        Client::position(MAIN, 3, 4),
+    );
+    assert_eq!(
+        impls,
+        [
+            location("/app/src/data.emel", (5, 0), (7, 1)).unwrap(),
+            location("/app/src/data.emel", (8, 0), (10, 1)).unwrap()
+        ]
+    );
+    let methods: Vec<lsp::Location> = navigation(
+        &mut client,
+        "textDocument/implementation",
+        Client::position(MAIN, 3, 9),
+    );
+    assert_eq!(
+        methods,
+        [
+            location("/app/src/data.emel", (6, 5), (6, 10)).unwrap(),
+            location("/app/src/data.emel", (9, 5), (9, 10)).unwrap()
+        ]
+    );
+    let empty: Vec<lsp::Location> = navigation(
+        &mut client,
+        "textDocument/implementation",
+        Client::position(MAIN, 1, 9),
+    );
+    assert!(empty.is_empty());
+    drain(&client);
+    client.shutdown();
+}
+
 /// The project for go-to-definition, find-references and document symbols.
 const NAV_MAIN: &str = "import Util.Log
 import Shapes.{Shape, area}

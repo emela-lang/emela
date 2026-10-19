@@ -10,6 +10,10 @@
 - `textDocument/hover` でカーソルの下の名前や式の型と E（エラーの集合）を出す（仕様 9.3「E と R は LSP が表示する」）
 - `textDocument/definition` で名前の定義へ，`textDocument/references` で名前の参照へ移動する
 - `textDocument/documentSymbol` でファイルの中の宣言を入れ子で返す
+- `textDocument/documentHighlight` で同じ名前の同一ファイル内の出現を示す
+- `workspace/symbol` でワークスペースの宣言を名前の部分一致で探す
+- `textDocument/foldingRange` と `textDocument/selectionRange` で構文木から折り畳みと選択の拡大範囲を返す
+- `textDocument/typeDefinition` で型の定義へ，`textDocument/implementation` で Trait の明示的な impl とそのメソッドへ移動する
 - `textDocument/completion` で文脈に合う名前を出す（`.` で起動する）
 - `textDocument/signatureHelp` で呼び出しの型とラベルを見せる（`(` と `,` で起動する）
 - `textDocument/rename` と `textDocument/prepareRename` で名前をプロジェクト全体で変える
@@ -60,6 +64,14 @@
 - （補）`publishDiagnostics` の `version` は，開いているファイルなら最後に受けた版，開いていなければ付けない
 - （補）毎回の解析で，診断のあるファイルは全部送り直す（変わっていなくても）．前回に送って今回ないファイルには空の配列を送る
 - （補）前回に送ったかどうかはパスで比べる．同じファイルで URI の書き方が変わった（開いてエディタの URI になった，閉じてサーバーの URI に戻った）ときは，古い URI に空の配列を送る．空の配列は新しい診断より先に送る（エディタが2つの書き方を同じファイルとみなしても，新しい診断が残るように）
+- （補）documentHighlight は参照の検索を同一ファイルに絞り，定義の名前も含める．変数は不変（6.3）なので種類はすべて Text．名前がなければ空配列
+- （補）workspace/symbol は workspaceFolders（または rootUri）のプロジェクトと開いたファイルのプロジェクトを検査し，documentSymbol の入れ子を平らにして返す．未開封のモジュールも含め，依存 Pome と同梱の core/std は含めない．単独ファイルは import でたどれる範囲だけ．query は名前の大文字小文字を無視した部分一致（空なら全件），同じ位置は重複させず，containerName は親の宣言名かモジュール名
+- （補）foldingRange と selectionRange は検査せず，未保存の内容の構文木から作るので，構文・import・型の誤りがあっても動く．読めない文書は null
+- （補）foldingRange は複数行のブロック，match/escape の腕，enum のバリアント，type/error/handler のフィールド，trait/impl/effect/handler/layer の本体と，隣接行の import・コメント（# と ## を区別しない）の連続を返す．空行や間のコードで連続を切り，1行だけの範囲は返さない．種類は region/imports/comment，範囲の終わりは閉じ括弧の直後
+- （補）selectionRange は各位置についてトークンから親の構文ノード，ファイル全体までの鎖を返し，同じ範囲は重ねない．トークンの境界では右側を優先するが，片側だけが空白やコメントなら他方を選ぶ．文書の外の位置を含む要求は null
+- （補）typeDefinition は変数・式の最外の名前付き型（型引数はたどらない）と能力のエフェクトの定義へ移動する．型・Trait 自体の名前はその定義へ移動する．組み込み・構造型・未決定型・同梱 core/std など移動先がなければ null．既存の検査器が型を記録しない Trait の impl 本体も，型からは移動先を求めない
+- （補）implementation は Trait の名前なら明示的な impl の全体，Trait のメソッドなら対応する impl のメソッド名を返す．既定のメソッドを省いた impl はブロック全体を指す．derive や組み込みの実装は返さず，該当なしは空配列
+- （補）documentHighlight・typeDefinition・implementation は hover と同じく要求ごとに検査し直し，誤りがあっても残った名前解決・型検査結果から答える
 
 ## 手で確かめる
 

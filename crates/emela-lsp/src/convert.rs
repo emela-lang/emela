@@ -88,7 +88,7 @@ pub fn document_symbol(
     }
 }
 
-fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
+pub(crate) fn symbol_kind(kind: SymbolKind) -> lsp::SymbolKind {
     match kind {
         SymbolKind::Fn => lsp::SymbolKind::FUNCTION,
         SymbolKind::Type | SymbolKind::Error => lsp::SymbolKind::STRUCT,
