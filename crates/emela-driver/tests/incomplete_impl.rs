@@ -66,13 +66,28 @@ fn complete_and_default_only_impls_are_valid() {
 #[test]
 fn derives_and_builtin_implementations_do_not_require_source_methods() {
     let analysis = checked(
-        "type User(id: Int) derive Eq, Ord, Show, Hash\nenum Choice { First, Second(Int) } derive Eq, Ord, Show, Hash\ntrait Label { fn label(self) -> String }\ntype Tagged(id: Int) derive Label\nfn main() {\n  assert 1 == 1\n  assert 1 < 2\n  assert True == True\n  assert Some(1) == Some(1)\n  dbg(\"#{User(id: 1)} #{First}\")\n}\n",
+        "type User(id: Int) derive Eq, Ord, Show\nenum Choice { First, Second(Int) } derive Eq, Ord, Show\ntrait Label { fn label(self) -> String }\ntype Tagged(id: Int) derive Label\nfn main() {\n  assert 1 == 1\n  assert 1 < 2\n  assert True == True\n  assert Some(1) == Some(1)\n  dbg(\"#{User(id: 1)} #{First}\")\n}\n",
         &[],
     );
     assert!(
         !analysis.has_errors(),
         "{}",
         render(&analysis.diagnostics, &analysis.sources, false)
+    );
+}
+
+/// Hash is not a Prelude trait (spec 10.6, 15.1).
+#[test]
+fn hash_is_not_a_prelude_trait() {
+    let analysis = checked("type User(id: Int) derive Hash\n", &[]);
+    let found: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .map(|d| (d.code, d.message.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [(Some("E0211"), "cannot find trait `Hash` in this scope")]
     );
 }
 
