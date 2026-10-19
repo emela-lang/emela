@@ -74,13 +74,13 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        # The tests are bound by CPU, not by how they are scheduled on one runner:
+        # they are split over three runners, each building the tests itself.
+        shard: [1, 2, 3]
     runs-on: ${{ matrix.os }}
-    # The tests compile many Emela programs with the compiler under test, which
-    # is many times slower unoptimized: opt-level 1 costs some build time and
-    # saves more run time. Line tables are enough for the backtraces. Set on the
-    # job, not the step, so that rust-cache keys the cache on them.
+    # Line tables are enough for the backtraces, and build faster. Set on the
+    # job, not the step, so that rust-cache keys the cache on it.
     env:
-      CARGO_PROFILE_DEV_OPT_LEVEL: 1
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
@@ -93,14 +93,13 @@ jobs:
           node-version: 24
       # The WASM backend tests execute the generated modules with wasmtime.
       - uses: bytecodealliance/actions/wasmtime/setup@v1
-      # nextest runs the tests of all the test binaries side by side; `cargo test`
-      # runs one binary after another. nextest does not run doctests, and the
-      # workspace has none: add `cargo test --doc` when one appears.
+      # nextest splits the tests over the shards. It does not run doctests, and
+      # the workspace has none: add `cargo test --doc` when one appears.
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - name: Test
-        run: cargo nextest run --workspace --locked --profile ci
+        run: cargo nextest run --workspace --locked --profile ci --partition count:${{ matrix.shard }}/3
 
   examples:
     needs: changes
