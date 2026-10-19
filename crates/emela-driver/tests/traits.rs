@@ -256,6 +256,34 @@ fn functions_without_self_are_chosen_by_the_expected_type() {
     );
 }
 
+const PARSE: &str = "trait Parse {\n  fn parse(text: String) -> Self\n}\nimpl User: Parse {\n  fn parse(text) { User(name: text) }\n}\nimpl Int: Parse {\n  fn parse(text) { 1 }\n}\nfn greet(u: User) -> String { u.name }\n";
+
+#[test]
+fn self_can_be_inferred_from_later_use() {
+    // Spec 10.3: `Parse.parse(s) + 1` is Int; passing the result on decides it too.
+    let main = format!(
+        "{USER}{PARSE}fn main() -> () {{\n  n = Parse.parse(\"1\")\n  m = n + 1\n  g = greet(Parse.parse(\"a\"))\n  u = Parse.parse(\"b\")\n  h = greet(u)\n  ()\n}}\n"
+    );
+    assert_clean(&[("/app/src/main.emel", &main)]);
+}
+
+#[test]
+fn undetermined_self_is_an_error() {
+    // No type is chosen by default (spec 10.3), not even through the function's inferred type.
+    let main = format!(
+        "{USER}{PARSE}fn read(text: String) {{ Parse.parse(text) }}\nfn main() -> () {{\n  x = Parse.parse(\"1\")\n  f = Parse.parse\n  n: Int = Parse.parse(\"2\")\n  ()\n}}\n"
+    );
+    let message = "E0333 cannot infer which impl of `Parse` to use: add a type annotation";
+    assert_eq!(
+        diagnostics(&main),
+        [
+            format!("{message} @ Parse.parse"),
+            format!("{message} @ Parse.parse"),
+            format!("{message} @ Parse.parse"),
+        ]
+    );
+}
+
 #[test]
 fn default_implementations_use_the_trait_on_self() {
     let main = format!(

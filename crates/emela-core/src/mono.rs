@@ -89,9 +89,10 @@ pub struct Monomorphized {
     /// Per function of `module`, the function of the input it copies.
     pub origins: ArenaMap<FnId, FnId>,
     /// Trait functions called for a type without an impl, as `Show.show` and the type's name.
-    /// The type checker counts a `derive` as an impl before derive generates one, and a generic
-    /// root is instantiated at `Any`. Such a call reaches the trait
-    /// function's body, which panics.
+    /// The type checker counts a `derive` as an impl before derive generates one. Such a call
+    /// reaches the trait function's body, which panics. A generic root instantiated at `Any` has
+    /// no trait-bounded type parameter (lowering does not export one, E0327), so it reaches no
+    /// trait function through its type parameters.
     pub missing_impls: Vec<(String, String)>,
 }
 
@@ -105,7 +106,8 @@ pub struct Monomorphized {
 /// module's generic `pub` fns are exported): `Type::Any` for each type parameter, and for each set
 /// type parameter a set that fails and needs the evidence table but does not suspend, the flags
 /// polymorphic lowering gives such a function. The copy keeps the original name and whether it is
-/// exported.
+/// exported. A root with a trait-bounded type parameter would have no impl to call at `Any`;
+/// lowering reports it (E0327) instead of exporting it.
 pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     let mut mono = Mono::new(m);
     let out_roots = roots.iter().map(|&f| mono.root(f)).collect();

@@ -194,6 +194,9 @@ pub(crate) struct BodyInfer<'a> {
     /// Types required to satisfy a trait by the constraints of instantiated type parameters,
     /// checked once the group's types are settled ([`Self::check_traits`]).
     trait_obligations: Vec<TraitObligation>,
+    /// The `Self` of referenced trait functions that only the result type determines, checked
+    /// to be known once the group's types are settled ([`Self::check_known_selves`]).
+    self_obligations: Vec<SelfObligation>,
     /// Set variables that get an `Immediate` bound when generalized.
     immediate_vars: rustc_hash::FxHashSet<RowVar>,
 }
@@ -289,6 +292,7 @@ impl<'a> BodyInfer<'a> {
             with_handlers: SparseMap::new(),
             immediates: Vec::new(),
             trait_obligations: Vec::new(),
+            self_obligations: Vec::new(),
             immediate_vars: Default::default(),
         }
     }
@@ -770,6 +774,7 @@ impl<'a> BodyInfer<'a> {
             }
         }
         self.check_numbers();
+        self.check_known_selves();
         self.check_traits();
         // Compute and solve the error and effect sets (`body/errors.rs`, `body/effects.rs`).
         self.infer_errors();
@@ -1122,6 +1127,7 @@ impl<'a> BodyInfer<'a> {
             let (tys, rows) = self.ctx.fresh_args(&sig.scheme.params);
             self.require_immediate(def, &sig.scheme.params, &rows, span);
             self.require_traits(&sig.scheme.params, &tys, span);
+            self.require_known_self(def, &sig.scheme, &tys, span);
             return (substitute(&sig.scheme.ty, &tys, &rows), tys, rows);
         }
         if let Some((ty, params)) = self.pending_ty(def) {
@@ -1168,6 +1174,48 @@ impl<'a> BodyInfer<'a> {
                     trait_def,
                     span,
                     owner: self.current,
+                });
+            }
+        }
+    }
+
+    /// Remembers the `Self` of a trait function whose parameters do not mention `Self`
+    /// (`Parse.parse`): only the result type picks the impl, so it must be known once the group is
+    /// inferred (E0333, spec 10.3).
+    fn require_known_self(&mut self, def: DefId, scheme: &crate::Scheme, tys: &[Ty], span: Span) {
+        let program = self.program;
+        if program.defs[def].kind != DefKind::TraitFn {
+            return;
+        }
+        let (Some(self_ty), Some(param), Ty::Fn(f)) =
+            (tys.first(), scheme.params.first(), &scheme.ty)
+        else {
+            return;
+        };
+        let Some(&trait_def) = param.traits.first() else {
+            return;
+        };
+        if f.params.iter().any(|p| mentions_bound(p, 0)) {
+            return;
+        }
+        self.self_obligations.push(SelfObligation {
+            ty: self_ty.clone(),
+            trait_def,
+            span,
+        });
+    }
+
+    /// Reports the `Self` of trait functions left undetermined (E0333, spec 10.3). No type is
+    /// chosen by default.
+    fn check_known_selves(&mut self) {
+        let program = self.program;
+        for o in std::mem::take(&mut self.self_obligations) {
+            if let Ty::Var(_) = self.ctx.resolve(&o.ty) {
+                self.diags.push(Diagnostic {
+                    span: Some(o.span),
+                    kind: DiagnosticKind::AmbiguousSelf {
+                        trait_name: program.defs[o.trait_def].name.clone(),
+                    },
                 });
             }
         }
@@ -2252,6 +2300,24 @@ struct TraitObligation {
     /// The definition whose body has the reference; `Ty::Bound(i)` in `ty` is its type
     /// parameter.
     owner: Option<DefId>,
+}
+
+/// The `Self` of a trait function determined only by its result type (E0333).
+struct SelfObligation {
+    ty: Ty,
+    trait_def: DefId,
+    /// The span of the reference.
+    span: Span,
+}
+
+/// Whether `ty` mentions the type parameter `Ty::Bound(index)`.
+fn mentions_bound(ty: &Ty, index: u32) -> bool {
+    if let Ty::Bound(i) = ty {
+        return *i == index;
+    }
+    let mut found = false;
+    ty.for_each_child(|child| found |= mentions_bound(child, index));
+    found
 }
 
 /// A reference within the group to a definition without a declared type but with written type
