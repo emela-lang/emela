@@ -29,6 +29,9 @@ pub enum DiagnosticKind {
     DuplicateImpl { ty: SmolStr, trait_name: SmolStr },
     /// An impl outside the modules of its type and its trait (E0331, spec 10.2).
     OrphanImpl { ty: SmolStr, trait_name: SmolStr },
+    /// The `Self` of a trait function that only its result type determines (`Parse.parse(s)`)
+    /// is left undetermined in the function (E0333, spec 10.3).
+    AmbiguousSelf { trait_name: SmolStr },
     /// An impl function whose parameter count differs from the trait's declaration (E0332).
     ImplFnParamCount {
         name: SmolStr,

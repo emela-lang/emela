@@ -107,6 +107,7 @@ pub const SUPERTRAIT_CYCLE: &str = "E0329";
 pub const DUPLICATE_IMPL: &str = "E0330";
 pub const ORPHAN_IMPL: &str = "E0331";
 pub const IMPL_FN_PARAM_COUNT: &str = "E0332";
+pub const AMBIGUOUS_SELF: &str = "E0333";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";

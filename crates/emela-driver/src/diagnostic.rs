@@ -1158,6 +1158,11 @@ impl Diagnostic {
                     ),
                 )
             }
+            TypeDiagnosticKind::AmbiguousSelf { trait_name } => (
+                Severity::Error,
+                Some(code::AMBIGUOUS_SELF),
+                format!("cannot infer which impl of `{trait_name}` to use: add a type annotation"),
+            ),
             TypeDiagnosticKind::ImplFnParamCount {
                 name,
                 trait_name,
