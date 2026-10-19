@@ -438,6 +438,16 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::ConstrainedExport { name, param, span } => (
+                Diagnostic::error(format!(
+                    "cannot export `{name}`: its type parameter `{param}` has a trait bound"
+                ))
+                .with_code(code::CONSTRAINED_EXPORT)
+                .with_help(
+                    "make a `pub` fn that calls it with concrete types, and export that instead",
+                ),
+                span,
+            ),
             emela_core::LowerError::MissingCoreFile { path, span } => (
                 Diagnostic::error(format!(
                     "internal error: the bundled core has no file `{path}`"
