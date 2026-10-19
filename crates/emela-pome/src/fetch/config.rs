@@ -10,8 +10,7 @@ pub const DEFAULT_PROXY: &str = "https://pomes.emela.dev,direct";
 
 /// The verifier key of the default checksum database, built into the compiler, and its URL. The
 /// key keeps its old name: renaming it would fail every compiler that has the old key built in.
-pub const DEFAULT_SUMDB: &str =
-    "sum.emela.ab2m.link+ad5364f4+AUu8x/imsHpAJe8Ee9U5GwuaVqG9hijmecEfo53D/FnS https://sum.emela.dev";
+pub const DEFAULT_SUMDB: &str = "sum.emela.ab2m.link+ad5364f4+AUu8x/imsHpAJe8Ee9U5GwuaVqG9hijmecEfo53D/FnS https://sum.emela.dev";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
