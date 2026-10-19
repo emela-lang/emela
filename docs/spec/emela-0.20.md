@@ -1760,6 +1760,48 @@ fn main() {
 ```
 - コレクション（Map、Set、Array）は 0.24 で、Trait（Eq、Ord、Show）の上に `Std.Map`、`Std.Set`、`Std.Array` として置く。0.20 の Trait のない `==` と表示では、中身が同じでも作り方で比較や表示が変わりうるためである。実装の形と並びの順は 18.1 #36。
 - コレクションは不変である。
+- Map（`Std.Map`）はキーから値への対応、Set（`Std.Set`）は値の集まりである。どちらもキーの順（Ord の順）に並べ、キーに `K: Ord` を求める。中身は純粋な Emela で書いた平衡木で、型は opaque である。to_list、fold、keys、values、表示は、作った順や木の形によらずキーの小さい順になる。
+
+```emel
+pub opaque type Map[K, V]
+
+pub fn empty[K, V]() -> Map[K, V]
+pub fn from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V]   # 同じキーは後の値
+pub fn insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V]   # あれば置き換える
+pub fn remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V]   # なければそのまま
+pub fn update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) -> Map[K, V]
+pub fn get[K: Ord, V](m: Map[K, V], key: K) -> Option[V]
+pub fn contains[K: Ord, V](m: Map[K, V], key: K) -> Bool
+pub fn size[K, V](m: Map[K, V]) -> Int
+pub fn is_empty[K, V](m: Map[K, V]) -> Bool
+pub fn fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B
+pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)]
+pub fn keys[K, V](m: Map[K, V]) -> List[K]
+pub fn values[K, V](m: Map[K, V]) -> List[V]
+pub fn map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W]
+pub fn filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V]
+pub fn union[K: Ord, V](a: Map[K, V], b: Map[K, V]) -> Map[K, V]   # 両方にあるキーは a の値
+
+pub opaque type Set[A]
+
+pub fn empty[A]() -> Set[A]
+pub fn from_list[A: Ord](xs: List[A]) -> Set[A]
+pub fn insert[A: Ord](s: Set[A], x: A) -> Set[A]
+pub fn remove[A: Ord](s: Set[A], x: A) -> Set[A]
+pub fn contains[A: Ord](s: Set[A], x: A) -> Bool
+pub fn size[A](s: Set[A]) -> Int
+pub fn is_empty[A](s: Set[A]) -> Bool
+pub fn fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B
+pub fn to_list[A](s: Set[A]) -> List[A]
+pub fn filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A]
+pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]
+```
+
+  - update は、キーの今の値（なければ None）を f に渡し、Some なら置き換えるか足し、None なら除く。
+  - union は Haskell の `Data.Map.union` と同じく、両方にあるキーで最初の引数の値を採る。
+  - 中身で比べ、中身で表示する。木の形が違っても、キーと値の組の並びが同じなら等しい（`impl Map[K: Eq, V: Eq]: Eq`、`impl Set[A: Eq]: Eq`）。Ord は持たない。
+  - 表示（Show）は、作り直せるソースの形にそろえ、`Map.from_list([(1, "a"), (2, "b")])`、`Set.from_list([1, 2])` と書く（`impl Map[K: Show, V: Show]: Show`、`impl Set[A: Show]: Show`）。中の値は 10.6 のとおり String を `"` で囲む。inspect も 10.6 のとおりこの Show を使う。
+  - Map と Set の操作は、要素の数を n として、get、insert、remove、update、contains が O(log n)、from_list と union が O(n log n) 以下、ほかは O(n) である。木の深さは O(log n) に保つので、大きな Map でもスタックを深く使わない。
 - 時刻は Instant、時間の長さは Duration で表す。どちらも中身が Int64 の opaque な型である。Instant は Unix エポック（1970-01-01T00:00:00Z）からのミリ秒、Duration はミリ秒の長さで、負の値も表す。閏秒は数えない。Instant は `Instant.from_unix_milliseconds(ms: Int64)` で作れる（テストで時刻を固定するときや、利用者が Clock のハンドラを書くとき）。Instant に守る不変条件はなく、opaque にするのは Int64 や Duration との取り違えを防ぎ、単位を隠すためである。
 - Console の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つで、どちらも改行を付けて書き、失敗しない。本物のハンドラは `SystemConsole` である。
 - Random の操作は `int() -> Int`（Int の全域で一様）と `float() -> Float`（0 以上 1 未満で一様）の2つで、失敗しない。本物のハンドラ SystemRandom は、JS では暗号論的に安全な乱数源（`crypto.getRandomValues`）から引く。範囲つきの値は `int()` の上に書く普通の関数で、種を渡せる擬似乱数は純粋な値と関数で、それぞれ別に用意する。
@@ -2157,7 +2199,7 @@ pat_arg  = pattern | lower_name ":" [ pattern ]
 | 33 | ~~platform のハンドラの名前と束ね方~~ 決定（2026-10-12）: `SystemConsole` などの1つのハンドラがターゲットごとの `@external` を持つ。エフェクトと同じモジュールに置き、layer `Std.Platform.Platform` に束ねる | 12.1、15.2 |
 | 34 | ~~標準ライブラリの API の約束~~ 決定（2026-10-12）: 15.3 のとおり。関数の引数は `f`、初期値は `from`。`append`、`flatten`、`concat`、`join`。無いときは Option、形の誤りは fail。変換は依存する側に置く | 15.3 |
 | 35 | 1つの集合に、型引数だけが違う同じエフェクトが2つ以上あり、型引数がまだ決まっていないとき、どちらと比べるか。今は最初に単一化できたものを選ぶ近似。実行時にハンドラを引く鍵も、型引数の中の関数型の E と R を区別せず、決まらずに残った型変数を同じ鍵とみなす近似である | 8.1、9.3 |
-| 36 | コレクション（0.24）の実装の形と並びの順。純粋な Emela で書くか、ランタイムの intrinsic にするか（Array は添字で引ける配列が要るので intrinsic）。`to_list`、`fold`、表示の並びを入れた順、ハッシュの順、キーの順のどれにするか（2026-10-13 の検討では、等しい値が同じに見えることとテストの安定からキーの順を推した。その場合キーの制約は `K: Ord` になる）。2026-10-19 に Hash を Prelude から外したので、ハッシュの順は候補から外れた | 15.2 |
+| 36 | ~~コレクション（0.24）の実装の形と並びの順。純粋な Emela で書くか、ランタイムの intrinsic にするか（Array は添字で引ける配列が要るので intrinsic）。`to_list`、`fold`、表示の並びを入れた順、ハッシュの順、キーの順のどれにするか（2026-10-13 の検討では、等しい値が同じに見えることとテストの安定からキーの順を推した。その場合キーの制約は `K: Ord` になる）。2026-10-19 に Hash を Prelude から外したので、ハッシュの順は候補から外れた~~ 決定（2026-10-20）: Map と Set は純粋な Emela で書く平衡木で、キーの順に並べ、キーに `K: Ord` を求める。表示は `Map.from_list([...])` の形。Array は後の版 | 15.2 |
 
 ### 18.2 この草案で補った点
 
@@ -2468,6 +2510,10 @@ error[E0204]: duplicate module `Http.Client`
 - 引数を取らず、標準入出力で言語サーバーとして動く。
 
 ## 改訂履歴
+
+### 2026-10-20（Map と Set）
+
+- 15.2、18.1 #36: `Std.Map` と `Std.Set` の API を決めた。キーの順に並べ、キーに `K: Ord` を求める。中身は純粋な Emela の平衡木で、比較と表示は中身による。表示は作り直せるソースの形（`Map.from_list([(1, "a")])`）にした。
 
 ### 2026-10-19（impl と handler の構文、derive の範囲、Hash）
 
