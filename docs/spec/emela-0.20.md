@@ -181,8 +181,6 @@ foo
 
 | 語 | 位置 |
 |---|---|
-| `implements` | handler の宣言 |
-| `for` | `impl A for B` |
 | `fails` | 関数のシグネチャと関数型 |
 | `derive` | type と enum の宣言の末尾、trait の本体 |
 | `init` `release` | handler の本体 |
@@ -192,6 +190,8 @@ foo
 次の語は構文を持たないが、識別子にも使えない。
 
 `var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod`
+
+`let` と `var` で束縛を書くと E0146 になり、`x = 値` の書き方（6.3）を示す。
 
 ### 3.4 キーワードではないもの
 
@@ -763,7 +763,7 @@ effect Clock {
 - 操作が失敗しうる場合は、宣言に `fails` を書く。書かなければ、その操作は失敗しない。ハンドラは宣言された範囲を超えて失敗できない。これにより、ハンドラを差し替えても、呼び出し側の E は変わらない。
 - エフェクトは型引数を持てる（`effect State[S]`）。型引数はふつうの型に限る。型引数の違うエフェクトは別のエフェクトとして扱い、R の中で `State[Int]` と `State[String]` は区別される。`use State[Int]` のように、型引数は省略できない。 型引数を書かなければエラー（E0423）、数が違えばエラー（E0304）になる。操作の引数と戻り値の関数型の fails か use にだけ書いた型引数は集合になるのでエラー（E0424）だが、操作自身の `fails S` は fn と同じく1つのエラーの型（7.2）として通す。エフェクトの型引数の中の関数型で fails と use を省略すれば空である（9.2 の宣言の中と同じ）。ただし組み込みのエフェクト（同梱のソースで `@intrinsic` を付けた effect。Scope、11.2）は、集合の型引数と、操作自身の型引数（`fn fork[A](...)`）を持てる。利用者のエフェクトの操作に型引数を書くとエラーになる（E0426）。組み込みのエフェクトは利用者がハンドラを書けないので、多相な操作を実装するハンドラの検査は要らない。`use State[S]` の型引数には、囲む fn の型引数を書ける。Immediate はエフェクトの定義で決まり、型引数には左右されない。
 - R の中で同じエフェクトかどうかは、型引数まで比べる。型引数がまだ決まっていなければ単一化して比べるので、`State.run([], fn() { with TestConsole { greet(1) } })` の状態の型は、body の R の `State[List[String]]` から決まる。with の「同じエフェクトは後ろが優先」と layer の重複（E0421）も、型引数まで同じものだけを数える。R に残った型変数は汎化する（`fn peek() { modify(fn(x) { x }) }` は `∀ A. fn() -> A use State[A]`）。
-- 型引数のあるエフェクトを実装するハンドラは、具体的な型を書く（`handler Fixed implements State[Int]`）。どの型でも実装する汎用のハンドラは持たない。
+- 型引数のあるエフェクトを実装するハンドラは、具体的な型を書く（`handler Fixed: State[Int]`）。どの型でも実装する汎用のハンドラは持たない。
 - 操作には `use` 節を書けない（17.3 の op_sig）。操作の実装が別のエフェクトを使うときは、ハンドラの依存（9.4 の依存(H)）として with の場所で満たす。これにより、ハンドラを差し替えても、呼び出し側の R は変わらない。呼ぶたびに別の能力を使わせたいときは、その能力を使うクロージャを操作の引数で渡す（エフェクトに効果の型引数が要る。9.2）。
 - fn の操作（suspend fn でないもの）の実装の本体は、次のどちらかを満たさなければならない（E0417）。どちらもそれだけで本体が中断しないことを保証する。
   - 本体の R が Immediate である。その場で resume するハンドラの with の中で suspend fn の操作を呼ぶ本体（`fn now() { with InstantClock { (use Clock).sleep(1) } ... }`）はこちらで通る。
@@ -854,11 +854,11 @@ with PrimaryDb {
 ### 8.4 handler
 
 ```emel
-handler ConsoleLogger implements Logger {
+handler ConsoleLogger: Logger {
   fn info(msg) { console_log(msg) }
 }
 
-handler PostgresUsers(conn: Connection) implements Users {
+handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
     PostgresUsers(conn: pg_connect(config.db_url()))
@@ -871,7 +871,7 @@ handler PostgresUsers(conn: Connection) implements Users {
   fn find(id) { ... self.conn ... }
 }
 
-handler SystemClock implements Clock {
+handler SystemClock: Clock {
   suspend fn sleep(ms, resume) {
     set_timeout(ms, fn() { resume(()) })
   }
@@ -879,12 +879,13 @@ handler SystemClock implements Clock {
 }
 ```
 
+- `handler 名前: エフェクト` と書く。コロンは、左が右を満たすことを表す（`[A: Ord]`、`trait Ord: Eq`、`impl User: Show`（10.2）と同じ）。`handler H implements E` と書くと E0145 になり、`handler H: E` の書き方を示す。
 - ハンドラは宣言であり、1つのエフェクトのすべての操作を、それぞれちょうど1回実装する。操作の引数と戻り値の型は、エフェクトの宣言から決まるので書かない。引数の数は宣言と同じでなければならない。
 - 操作の本体の E は、操作の宣言の `fails` に含まれなければならない。依存(H)（9.4）は、操作の本体の R の和である。
 - 状態を持つハンドラは、名前の後ろにフィールドを宣言する。フィールドは `self.conn` のように `self` を通して参照する。
 - `init` は with に入るときに1回実行され、ハンドラの値を返す。フィールドがあるハンドラでは必須である（E0419）。フィールドのないハンドラにも init と release を書ける。フィールドのないハンドラの init は、括弧のないハンドラなら値 `ConsoleLogger` を、`handler H()` なら `H()` を返す。init の中では self は使えない（値を作る前なので）。状態を持たないハンドラの操作の中の self は値を持たず、型は `()` である。
 - ハンドラの値（`PostgresUsers(conn: ...)`）を作れるのは、そのハンドラの init の中だけである。外で作れると init と release を飛ばせてしまうためである。 外で作るとエラーになる（E0418）。init の中の無名関数の中は init の中とみなす。部分更新（`H(n: 1, ..self)`）も値を作るので、操作の本体の中では書けない。構成子のパターンは値を作らないので、どこに書いてもよい。
-- `init` の中の `use` が、そのハンドラの依存である。設定を外から渡すときは、Config のようなエフェクトを init で use する。ハンドラ自体は引数を取らない。
+- `init` の中の `use` が、そのハンドラの依存である。能力の値を束縛して使う（`config = use Config`）か、式の中に書く（`(use Config).db_url()`）。どちらも依存になる。ハンドラの頭に依存を書く構文はない。設定を外から渡すときは、Config のようなエフェクトを init で use する。ハンドラ自体は引数を取らない。
 - `release` は with を抜けるときに1回実行される。正常終了、エラー、defect、中断のどの場合でも実行される。
 - release の E は空でなければならない（E0420）。失敗しうる後始末は、release の中で escape するか panic で defect にする。release の値は捨てるので、型は問わない。release の中で suspend な操作を呼んでよい（中断はされない。11.4）。
 - suspend fn の実装は、最後の引数として `resume` を受け取る。`resume(v)` を呼ぶと、中断していた呼び出し元が再開し、操作の戻り値が `v` になる。
@@ -967,7 +968,7 @@ pub fn run[S, A, E, R](
 - 状態を使うハンドラは、State に依存するハンドラとして書く。テスト用のハンドラはこの形になる。
 
 ```emel
-handler TestConsole implements Console {
+handler TestConsole: Console {
   fn print_line(text) {
     st = use State[List[String]]
     st.set(List.append(st.get(), [text]))
@@ -1146,16 +1147,26 @@ trait Decode {
 - `self` は第1引数で、型は `Self`（実装する型）である。
 - `self` を取らない関数も書ける。どの型の実装を使うかは、期待される戻り値の型から決まる。
 - 本体を持つ関数は既定の実装で、impl で省略できる。
-- `trait A: B` は、A を実装する型が B も実装していることを要求する。
+- `trait A: B` は、A を実装する型が B も実装していることを要求する。B を A の上位の Trait という。
+- `impl 型: A` を書くと、その場で `型: B` の実装があるかを検査する（なければ E0326）。型引数のある impl では、B の impl が求める制約を、A の impl の制約から導けなければならない（10.3）。`impl Pair[A: Ord, B: Ord]: Ord` に対する `impl Pair[A: Eq, B: Eq]: Eq` は、`A: Ord` から `A: Eq` を導けるので通る。
+- 上位の Trait をたどって自分に戻る宣言（`trait A: B` と `trait B: A`）はエラーである（E0329）。
 
 ### 10.2 impl
 
 ```emel
-impl Show for User {
+impl User: Show {
   fn show(self) { "User(#{self.name})" }
+}
+
+impl Pair[A: Eq, B: Eq]: Eq {
+  fn eq(self, other) { Eq.eq(self.first, other.first) && Eq.eq(self.second, other.second) }
 }
 ```
 
+- `impl 型: Trait` と書く。コロンは、左の型が右の Trait を満たすことを表す（`[A: Ord]`、`trait Ord: Eq`、`handler H: E`（8.4）と同じ）。
+- 型引数のある型の impl は、頭の型引数に制約を書く（`impl Map[K: Eq, V: Eq]: Eq`）。制約を書いた型引数の値にだけ、impl の中でその Trait の関数を使える（書かなければ E0326）。
+- 頭に書けるのは、型の名前と、互いに異なる型引数の並びだけである。`impl List[Int]: Show` や `impl Pair[A, A]: Eq` は書けない（E0328）。したがって1つの型と1つの Trait の組の impl は型引数によらず1つで、impl どうしが重なることはない。
+- `impl Show for User` や `impl[A: Eq] Box[A]: Eq` と書くと E0144 になり、`impl User: Show`、`impl Box[A: Eq]: Eq` の書き方を示す。
 - 引数と戻り値の型は Trait の宣言から決まるので、書かない。
 - 既定の実装のない Trait のメソッドは、すべて実装しなければならない。足りなければ E0325 とし、足りないメソッドをすべて挙げる。
 - 1つの型と1つの Trait の組に対して、実装はプログラム全体で1つだけである。
@@ -1165,7 +1176,7 @@ impl Show for User {
 ```emel
 type MyDate(inner: ThirdParty.Date)
 
-impl Encode for MyDate { ... }
+impl MyDate: Encode { ... }
 ```
 
 ### 10.3 呼び出しと制約
@@ -1179,6 +1190,7 @@ fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 
 - Trait の関数は、`Trait名.関数名(値)` の形で呼ぶ。`user.show()` のようなメソッド呼び出しの構文はない。
 - 制約は `[A: Ord]` と書く。複数の制約は `[A: Ord + Show]` と書く。上位の Trait も `trait A: B + C` と書く。
+- 制約はその上位の Trait を含む。`[A: Ord]` の関数の中では `A` の値に `==` を使える。`[A: Ord + Eq]` と重ねて書かなくてよい。
 - `==` と `!=` は Eq、大小比較は Ord、文字列補間は Show の実装を使う。型がその Trait を満たさなければ E0326 である。dbg と assert の表示は Show を求めない（inspect、10.6）。
 
 ### 10.4 Trait の関数のエラーと効果
@@ -1191,23 +1203,26 @@ fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 
 ```emel
 type User(id: Int, name: String, email: Email)
-  derive Eq, Show, Encode
+  derive Eq, Show
 ```
 
 - derive に並べた Trait の実装を、コンパイラが型の構造から生成する。生成されるのは普通の impl である。
-- 各フィールドは、そのフィールドの型自身の実装を通る。Email に手書きの Encode があれば、それが使われる。
+- 各フィールドは、そのフィールドの型自身の実装を通る。Email に手書きの Show があれば、それが使われる。
 - 同じ型と Trait の組に、derive と手書きの impl の両方があればエラーになる。
 - 導出した Ord は、バリアントを宣言の順に小さいとし、同じバリアントならフィールドを前から順に比べる。
 - フィールドの型がその Trait を満たさなければ、導出できない（E0326）。Float のフィールドを持つ型の Ord は導出できないので、必要なら手書きの impl で順序を決める（10.6）。
 - 基本型、タプル、List、Option 以外の型は、derive か impl を書かなければ Eq、Ord、Show のどれも満たさない。暗黙に導出しない。
 - opaque な型にも derive を書ける。導出した Show は中身を出すので、見せたくなければ手書きの impl にする（inspect は derive の有無によらず中身を出す。10.6）。
-- 導出できるのは、導出規則を持つ Trait だけである。
+- 導出できるのは Eq、Ord、Show の3つで、導出の規則はコンパイラが持つ。それ以外の Trait を derive に書くとエラーになる（E0326）。
+- 型引数のある型を導出すると、すべての型引数に同じ制約を付けた impl を生成する（`enum Tree[A] { ... } derive Eq` は `impl Tree[A: Eq]: Eq`）。型引数がフィールドに現れなくても付ける。
+- 上位の Trait は暗黙に導出しない。`derive Ord` には、Eq の derive か impl が要る（E0326）。
+- `pub` でない型で導出した実装が、プログラムのどこからも要求されなければ W0303 を出す。要求とは、`==`、大小比較、補間、制約を持つ関数への受け渡し、ほかの型の導出でのフィールドの比較と表示である。inspect（10.6）は Show を要求しないので数えない。`pub` な型は外のモジュールが使いうるので出さない。
 
-導出規則は、Trait の作者が次の3種類の型のどれかで書く。
+導出規則を Trait の作者が書けるようにするのは後の版である（18.1 #3）。想定する規則は次の3種類の型である。
 
 | 導出の型 | 形 | 例 |
 |---|---|---|
-| 畳み込み | 値を1つ受け取り、フィールドごとの結果をまとめる | Show Encode Hash |
+| 畳み込み | 値を1つ受け取り、フィールドごとの結果をまとめる | Show Encode |
 | 突き合わせ | 値を2つ受け取り、フィールドごとに比べる | Eq Ord |
 | 組み立て | フィールドごとの生成結果から、値を作る | Decode Default |
 
@@ -1233,10 +1248,9 @@ trait Encode {
 | Eq | `==` `!=` | 書ける |
 | Ord | `<` `<=` `>` `>=` | 書ける |
 | Show | 文字列補間 | 書ける |
-| Hash | Map と Set のキー | 書ける |
 | Immediate | 効果が中断しないこと（9.5） | 書けない（自動判定） |
 
-関数型は Eq、Ord、Show、Hash を満たさない。
+関数型は Eq、Ord、Show を満たさない。
 
 Ord の `compare` は全順序であり、`Equal` を返すのは `==` が True のときに限る。この約束を守れない Float は Ord を満たさない。
 
@@ -1246,8 +1260,10 @@ Ord の `compare` は全順序であり、`Equal` を返すのは `==` が True 
 
 基本型、タプル、List、Option の Trait は次のとおりとする。
 
-- Int、Int64、String、Bool は Eq、Ord、Show、Hash を満たす。Float は Eq と Show を満たし、Ord を満たさない。
+- Int、Int64、String、Bool は Eq、Ord、Show を満たす。Float は Eq と Show を満たし、Ord を満たさない。
 - タプル、List、Option は、要素の型がその Trait を満たすときに満たす（`List[A]` の Eq は `A: Eq` を求める）。Ord は辞書式に比べる。
+- 基本型とタプルの実装はコンパイラが持つ。List と Option の実装は core のソースに impl として書く（`impl List[A: Eq]: Eq`）。
+- 導出した実装だけからなる型の比較と表示は、生成した impl を呼ぶ代わりに、値の構造をたどる処理で実行してよい。結果は同じである。
 - Bool の Show は `True` / `False`（構成子の名前）。
 - Float の Show は、最短で往復できる桁数で表す（JS の `Number.prototype.toString` と同じ規則）。整数値で有限のものには `.0` を付ける（`1.0`）。それ以外は `1e+21`、`-2.5e-8`、`Infinity`、`NaN` の形になる。WASM でも同じ文字列を出す。
 - Int64 の Show に接尾辞は付けない。
@@ -1701,14 +1717,14 @@ Prelude は、import なしですべてのモジュールから見える。純�
 |---|---|
 | 型 | Int Int64 Float Bool String Never List Option Ordering |
 | 構成子 | True False Some None Less Equal Greater |
-| Trait | Eq Ord Show Hash |
+| Trait | Eq Ord Show |
 | 関数 | panic todo dbg inspect |
 
 それ以外の関数は、`List.map` のようにモジュール名で修飾して呼ぶ。
 
 - `dbg[A](value: A) -> A` は `inspect(value)`（10.6）を標準エラーに1行出し、value をそのまま返す。Show を求めない。出力は副作用だが、デバッグ用の例外として R に載せず、純粋な関数として扱う。
 - `inspect[A](value: A) -> String` はデバッグ用の表示を返す（10.6）。
-- Bool（`False < True`）と Ordering は Eq、Ord、Show、Hash を満たす。Option は `A` が満たすものを満たす。
+- Bool（`False < True`）と Ordering は Eq、Ord、Show を満たす。Option は `A` が満たすものを満たす。
 
 ### 15.2 4つの層
 
@@ -1743,7 +1759,7 @@ fn main() {
   }
 }
 ```
-- コレクション（Map、Set、Array）は 0.21 で、Trait（Eq、Ord、Hash、Show）の上に `Std.Map`、`Std.Set`、`Std.Array` として置く。0.20 の Trait のない `==` と表示では、中身が同じでも作り方で比較や表示が変わりうるためである。実装の形と並びの順は 18.1 #36。
+- コレクション（Map、Set、Array）は 0.21 で、Trait（Eq、Ord、Show）の上に `Std.Map`、`Std.Set`、`Std.Array` として置く。0.20 の Trait のない `==` と表示では、中身が同じでも作り方で比較や表示が変わりうるためである。実装の形と並びの順は 18.1 #36。
 - コレクションは不変である。
 - 時刻は Instant、時間の長さは Duration で表す。どちらも中身が Int64 の opaque な型である。Instant は Unix エポック（1970-01-01T00:00:00Z）からのミリ秒、Duration はミリ秒の長さで、負の値も表す。閏秒は数えない。Instant は `Instant.from_unix_milliseconds(ms: Int64)` で作れる（テストで時刻を固定するときや、利用者が Clock のハンドラを書くとき）。Instant に守る不変条件はなく、opaque にするのは Int64 や Duration との取り違えを防ぎ、単位を隠すためである。
 - Console の操作は `print_line(text: String) -> ()`（標準出力）と `print_error_line(text: String) -> ()`（標準エラー）の2つで、どちらも改行を付けて書き、失敗しない。本物のハンドラは `SystemConsole` である。
@@ -1987,7 +2003,7 @@ op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
                "->" type [ "fails" error_set ]     (* type_params は組み込みのエフェクトだけ。8.1 *)
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
-               "implements" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
+               ":" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
 handler_item = "init" block
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
@@ -1998,7 +2014,7 @@ trait_decl   = "trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL
 trait_item   = "fn" lower_name "(" [ params ] ")" [ signature ] [ block ]
              | derive_rule                                    (* 構文は未確定 *)
 
-impl_decl    = "impl" type_ref "for" type "{" { impl_item NL } "}"
+impl_decl    = "impl" type_ref [ type_params ] ":" type_ref "{" { impl_item NL } "}"
 impl_item    = "fn" lower_name "(" [ params ] ")" block
 ```
 
@@ -2109,7 +2125,7 @@ pat_arg  = pattern | lower_name ":" [ pattern ]
 |---|---|---|
 | 1 | ~~resume が高々1回であることを、型で保証するか、実行時に検査して defect にするか~~ 決定（2026-10-10）: 実行時に検査して defect。linter で警告 | 8.4、14.5 |
 | 2 | ~~match を前置のままにするか。現在の前置は暫定である~~ 決定（2026-10-13）: 後置（`式 match { 腕 }`）だけにする。escape とそろえ、パイプの流れのまま書けるようにする | 6.5 |
-| 3 | 導出規則の構文と、フィールド注釈の名前と引数 | 3.5、10.5 |
+| 3 | 導出規則の構文と、フィールド注釈の名前と引数。0.21 では導出できるのを Eq、Ord、Show に限り、規則はコンパイラが持つ（2026-10-19） | 3.5、10.5 |
 | 4 | ~~fork に渡せるクロージャの制約。親の suspend な能力を捕まえたクロージャをどう扱うか~~ 決定（2026-10-13）: 制約を設けない。子が引き継ぐのは Fiber.scope を呼んだ時点のハンドラで、子の E と R はスコープの E と R に含まれなければならない（Scope は子が属すスコープ自身）。中断点を挟む共有状態の読み書きと、suspend な操作の同時の呼び出しは、書く側の責任とする | 11.2 |
 | 5 | ~~能力の値の型と、関数の引数として渡せるかどうか~~ 決定（2026-10-09）: 型は書けず、渡せない。渡したいときは能力を捕まえたクロージャを渡す | 8.2、8.6 |
 | 6 | ~~エラーの値を通常の値として渡すときの型付け。Option.or_fail のシグネチャをどう書くか~~ 決定（2026-10-09）: error 宣言は同名の型も定義する。`fail e` は e の型のタグを E に加える | 7.1、7.2 |
@@ -2130,7 +2146,7 @@ pat_arg  = pattern | lower_name ":" [ pattern ]
 | 21 | ~~可変な状態をどう定義するか~~ 決定（2026-10-12）: Ref は持たず、型引数のあるエフェクト State[S] と `State.run` で表す | 8.1、8.8、9.5、14.6、15.2 |
 | 22 | ~~Trait（0.21）までの暫定の範囲。0.20 は Trait の制約（補間の Show、比較の Eq と Ord、`[A: Show]`）を検査しない。`==` と補間は全部の型で構造のまま動き、関数型の値でも通る。基本型以外の大小比較と、汎用の fn の中の型引数の値の補間は「まだ扱えない」。0.21 で derive のない型の `==` と補間をエラーにするか~~ 決定（2026-10-19）: エラーにする（E0326）。基本型、タプル、List、Option 以外は derive か impl が要り、暗黙に導出しない。デバッグ用の表示は Trait を求めない inspect に分け、dbg と assert はそれを使う。Float は Ord を満たさず、`<` は IEEE 754 の組み込みの演算子のまま | 2.4、6.6、10.5、10.6、13.2、15.1 |
 | 23 | ~~opaque な型の Show と Eq。導出した Show が中身を出す（`Instant(milliseconds: ...)`）のを許すか、opaque な型には手書きの impl を求めるか~~ 決定（2026-10-19）: opaque な型にも derive を許し、中身を見せるかは作者が derive を書くかで選ぶ。inspect は opaque な型の中身も出す | 4.4、10.5、10.6 |
-| 24 | 型引数を持つ型の derive で、型引数に付く制約。`Option[A]` の Eq を `A: Eq` のときだけにするか、その制約を自動で付けるか書かせるか | 10.5 |
+| 24 | ~~型引数を持つ型の derive で、型引数に付く制約。`Option[A]` の Eq を `A: Eq` のときだけにするか、その制約を自動で付けるか書かせるか~~ 決定（2026-10-19）: すべての型引数に同じ制約を自動で付ける（`impl Tree[A: Eq]: Eq`） | 10.5 |
 | 25 | ~~const の右辺の評価の時点と範囲。コンパイル時に評価してエラーにするか、参照したときの defect にするか（今は参照のたびに計算し、`const X = 1 / 0` は参照したときの defect）。リテラル以外の const をパターンに書いたときの網羅と冗長の判定（今はその const だけに合う値として扱う）~~ 決定（2026-10-13）: 純粋な式なら何でも書け、最初に参照したときに1回だけ評価して覚える。パターンでは、リテラルと構成子だけの const はその値として網羅を判定し、それ以外はガード付きの腕と同じ扱い | 5.6、6.5 |
 | 26 | dbg の出力にソースの位置（ファイルと行）を含めるか。含めるなら形をどうするか | 15.1 |
 | 27 | 組み込みの表示（Show、dbg、補間）と構造の比較が、値の入れ子の深さに上限を持ってよいか。持つなら超えたときに defect とし、両ターゲットでそろえるか | 10.6、16.3 |
@@ -2142,7 +2158,7 @@ pat_arg  = pattern | lower_name ":" [ pattern ]
 | 33 | ~~platform のハンドラの名前と束ね方~~ 決定（2026-10-12）: `SystemConsole` などの1つのハンドラがターゲットごとの `@external` を持つ。エフェクトと同じモジュールに置き、layer `Std.Platform.Platform` に束ねる | 12.1、15.2 |
 | 34 | ~~標準ライブラリの API の約束~~ 決定（2026-10-12）: 15.3 のとおり。関数の引数は `f`、初期値は `from`。`append`、`flatten`、`concat`、`join`。無いときは Option、形の誤りは fail。変換は依存する側に置く | 15.3 |
 | 35 | 1つの集合に、型引数だけが違う同じエフェクトが2つ以上あり、型引数がまだ決まっていないとき、どちらと比べるか。今は最初に単一化できたものを選ぶ近似。実行時にハンドラを引く鍵も、型引数の中の関数型の E と R を区別せず、決まらずに残った型変数を同じ鍵とみなす近似である | 8.1、9.3 |
-| 36 | コレクション（0.21）の実装の形と並びの順。純粋な Emela で書くか、ランタイムの intrinsic にするか（Array は添字で引ける配列が要るので intrinsic）。`to_list`、`fold`、表示の並びを入れた順、ハッシュの順、キーの順のどれにするか（2026-10-13 の検討では、等しい値が同じに見えることとテストの安定からキーの順を推した。その場合キーの制約は `K: Ord` になる） | 15.2 |
+| 36 | コレクション（0.21）の実装の形と並びの順。純粋な Emela で書くか、ランタイムの intrinsic にするか（Array は添字で引ける配列が要るので intrinsic）。`to_list`、`fold`、表示の並びを入れた順、ハッシュの順、キーの順のどれにするか（2026-10-13 の検討では、等しい値が同じに見えることとテストの安定からキーの順を推した。その場合キーの制約は `K: Ord` になる）。2026-10-19 に Hash を Prelude から外したので、ハッシュの順は候補から外れた | 15.2 |
 
 ### 18.2 この草案で補った点
 
@@ -2319,6 +2335,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0140 | 知らないターゲットの名前（今は js と wasm）（12.1） | ``unknown target `node` `` |
 | E0141 | `@external type` の注釈に引数を付けた（12.3） | ``` `@external` on a type takes no arguments ``` |
 | E0142 | match を前置で書いた（6.5） | ``` `match` comes after the value: write `value match { ... }` ``` |
+| E0144 | impl を `impl Trait for 型` か `impl[...] 型: Trait` の形で書いた（10.2） | ``write `impl User: Show` instead of `impl Show for User` `` |
+| E0145 | handler を `implements` で書いた（8.4） | ``write `handler ConsoleLogger: Logger` instead of `implements` `` |
+| E0146 | `let` か `var` で束縛を書いた（3.3、6.3） | ``Emela has no `let`: write `x = value` `` |
 | E0143〜 | 構文のエラー | パーサで割り当てて、この表に足す |
 | E0201 | ファイル名がモジュール名にならない（4.1） | ``file name `Foo` cannot be a module name: not lower snake_case`` |
 | E0202 | ディレクトリ名がモジュール名にならない | ``directory name `My-Dir` cannot be a module name: not lower snake_case`` |
@@ -2378,9 +2397,13 @@ error[E0204]: duplicate module `Http.Client`
 | E0323 | 名前付き型の集合の型引数に、その種類のタグか集合の型引数でないものを書いた（9.2） | `` `E` of `Handler` is an error set, found type `Int` `` |
 | E0324 | 集合でない型引数の位置に集合を書いた（9.2） | `expected a type, found a set: sets can only be passed to set type parameters` |
 | E0325 | impl に既定の実装のない Trait のメソッドが足りない（10.2） | ``incomplete impl: missing methods `show`, `merge` `` |
-| E0326 | 型が Trait を満たさない（`==`、大小比較、補間、制約、derive のフィールド。10.3、10.5） | ``type `User` does not implement `Eq` `` |
+| E0326 | 型が Trait を満たさない（`==`、大小比較、補間、制約、derive のフィールドと上位の Trait、導出できない Trait。10.2、10.3、10.5） | ``type `User` does not implement `Eq` `` |
+| E0327 | 制約を持つ型引数のある fn をエントリから export しようとした（付録 B） | ``cannot export `largest`: its type parameter `A` has a trait bound `` |
+| E0328 | impl の頭が、型の名前と互いに異なる型引数の並びでない（10.2） | ``impl head must be a type with distinct type parameters: `List[Int]` `` |
+| E0329 | 上位の Trait が循環している（10.1） | ``trait `A` is its own supertrait: `A` -> `B` -> `A` `` |
 | W0301 | 冗長な腕（6.5） | `unreachable match arm` |
 | W0302 | escape の腕が受けるエラーが、元の式から起きない（7.3） | ``error `Timeout` is never raised here`` |
+| W0303 | `pub` でない型で導出した実装がどこからも要求されない（10.5） | ``derived `Ord` for `Point` is never used`` |
 | E0401 | 能力の値のエフェクトにその操作がない（8.2） | ``effect `Logger` has no operation `infoo` `` |
 | E0402 | 本体の R が、宣言や文脈の許す R に含まれない（use 節、const、main、テスト関数）（8.3、9.3、13.3） | ``effect `Logger` is not declared in `use` `` / ``effect `Clock` is not provided in `main` `` |
 | E0403 | 関数の値の R が、期待する関数型の R に含まれない | ``effect set mismatch: expected `use {}`, found `use Logger` `` |
@@ -2403,7 +2426,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0420 | release が失敗しうる（8.4） | ``` `release` of handler `Counter` cannot fail, but this may fail with error `Boom` ``` |
 | E0421 | layer の中で同じエフェクトを2つのハンドラが供給する（8.5） | ``effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud` `` |
 | E0422 | layer が互いを含む（8.5） | ``layers include each other: `LoopA` -> `LoopB` -> `LoopA` `` |
-| E0423 | 型引数のあるエフェクトの型引数を書いていない（`use State`、use 節、`implements State`）（8.1） | ``missing type arguments for effect `State[S]` `` |
+| E0423 | 型引数のあるエフェクトの型引数を書いていない（`use State`、use 節、handler の頭）（8.1） | ``missing type arguments for effect `State[S]` `` |
 | E0424 | エフェクトの型引数を集合として使った（8.1。組み込みのエフェクトは除く） | ``type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types`` |
 | E0425 | `Fiber.scope` の値の型に `Fiber` か `Deferred` が含まれる（11.8） | ``a `Fiber` cannot leave the `Fiber.scope` that started it`` |
 | E0426 | 利用者のエフェクトの操作に型引数を書いた（8.1） | ``operation `wrap` cannot have type parameters: only built-in effects may declare them`` |
@@ -2421,7 +2444,7 @@ error[E0204]: duplicate module `Http.Client`
 ### emela check、build、run
 
 - パスを1つ取り、省けば `.` とする。ディレクトリを渡すと、祖先の `Pome.toml` のプロジェクト全体を対象にする（4.1）。渡せるのはプロジェクトのディレクトリかソースのルートの中のディレクトリで、ソースのルートの外のディレクトリ（`scripts/`）はエラーになる（E0208。fmt と同じ）。ソースのルートの中のディレクトリを渡しても、型の検査はモジュールをまたぐので、プロジェクト全体を検査する。`emela test` も同じ。
-- 出力先には、エントリを写した `main.mjs` とランタイムを書き出す。`emela run` も既定の出力先（4.1）に書き出してから実行し、前の出力は消さずに上書きする。`--out-dir` で出力先を変えられる。
+- 出力先には、エントリを写した `main.mjs` とランタイムを書き出す。エントリの `pub` な fn は `main.mjs` から export する。制約を持つ型引数のある fn は、どの impl を使うか決まらないので export できない（E0327）。具体的な型で包んだ fn を `pub` にする。`emela run` も既定の出力先（4.1）に書き出してから実行し、前の出力は消さずに上書きする。`--out-dir` で出力先を変えられる。
 - プログラムへの引数は `--` の後に書く。診断はプログラムを起動する前に出す。
 - node は、環境変数 `EMELA_NODE` があればそれを、なければ PATH の `node` を使う。
 - 終了コードは次のとおりとする。
@@ -2443,6 +2466,18 @@ error[E0204]: duplicate module `Http.Client`
 - 引数を取らず、標準入出力で言語サーバーとして動く。
 
 ## 改訂履歴
+
+### 2026-10-19（impl と handler の構文、derive の範囲、Hash）
+
+- 3.2、8.1、8.4、10.2、17.3、付録 A: impl と handler の頭をコロンで書くようにした（`impl User: Show`、`handler ConsoleLogger: Logger`）。コロンは `[A: Ord]` と `trait Ord: Eq` と同じく、左が右を満たすことを表す。実装を表す語が `implements` と `impl ... for` の2つあり、語順も逆だったのをそろえた。文脈依存の語 `implements` と `for` は使わなくなった。前の形は E0144 と E0145 で書き換えを示す。
+- 10.2: 型引数のある型の impl は頭の型引数に制約を書く（`impl Map[K: Eq, V: Eq]: Eq`）。頭は型の名前と互いに異なる型引数の並びに限り（E0328）、1つの型と1つの Trait の組の impl を1つに保つ。
+- 10.5、18.1 #3、#24: 導出できるのを Eq、Ord、Show に限り、型引数にはすべて同じ制約を付ける。上位の Trait は暗黙に導出しない。`pub` でない型の使われない導出を W0303 で知らせる。
+- 10.6: 基本型とタプルの実装はコンパイラが持ち、List と Option は core のソースに impl で書く。導出だけからなる型の比較と表示は、構造をたどる処理で実行してよい。
+- 10.5、10.6、15.1、15.2、18.1 #36: Hash を外した。Map と Set をキーの順で作るなら使い道がないため。
+- 8.4: init の中の `use` の書き方を明記した。
+- 10.1、10.3、付録 A: 上位の Trait の規則を足した。impl の時点で上位の Trait の実装を検査し、制約は上位の Trait を含む（`[A: Ord]` で `==` が使える）。循環は E0329。
+- 3.3、付録 A: `let` と `var` の束縛を E0146 にして、`x = 値` の書き方を示す。
+- 付録 B、付録 A: 制約を持つ型引数のある fn をエントリから export できないことにした（E0327）。単相化で impl を選ぶので、JS から呼ばれる型が決まらないと実装が決まらないため。
 
 ### 2026-10-19（Eq、Show と Float の順序）
 
