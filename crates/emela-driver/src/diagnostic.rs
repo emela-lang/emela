@@ -618,6 +618,19 @@ impl Diagnostic {
                     ),
                 )
             }
+            TypeDiagnosticKind::UnusedDerive { trait_name, ty } => {
+                // dbg shows a value by its Show if it has one (inspect, spec 10.6).
+                help = Some(if trait_name == "Show" {
+                    format!("remove it from `derive`; `dbg` then shows `{ty}` without its Show")
+                } else {
+                    "remove it from `derive`".to_owned()
+                });
+                (
+                    Severity::Warning,
+                    Some(code::UNUSED_DERIVE),
+                    format!("derived `{trait_name}` for `{ty}` is never used"),
+                )
+            }
             TypeDiagnosticKind::UnreachableArm => (
                 Severity::Warning,
                 Some(code::UNREACHABLE_MATCH_ARM),

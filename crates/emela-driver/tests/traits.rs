@@ -28,6 +28,14 @@ fn diagnostics(main: &str) -> Vec<String> {
         .collect()
 }
 
+/// [`diagnostics`] without warnings (the unused derives of test programs, W0303).
+fn errors(main: &str) -> Vec<String> {
+    diagnostics(main)
+        .into_iter()
+        .filter(|d| !d.starts_with('W'))
+        .collect()
+}
+
 fn assert_clean(files: &[(&str, &str)]) {
     let analysis = checked(files);
     assert!(
@@ -296,7 +304,7 @@ fn default_implementations_use_the_trait_on_self() {
 fn only_eq_ord_and_show_can_be_derived() {
     let main = "trait Label { fn label(self) -> String }\ntype Point(x: Int) derive Eq, Label\n";
     assert_eq!(
-        diagnostics(main),
+        errors(main),
         ["E0326 cannot derive `Label`: only `Eq`, `Ord` and `Show` can be derived @ Label"]
     );
 }
@@ -307,7 +315,7 @@ fn derived_fields_need_the_trait() {
     // without the trait rules it out.
     let main = "type Plain(x: Int)\ntype Celsius(value: Float) derive Eq, Ord\ntype Callback(f: fn(Int) -> Int) derive Show\ntype Holder(p: Plain) derive Eq\n";
     assert_eq!(
-        diagnostics(main),
+        errors(main),
         [
             "E0326 type `Float` does not implement `Ord` @ Ord",
             "E0326 type `fn(Int) -> Int` does not implement `Show` @ Show",
@@ -324,7 +332,7 @@ fn deriving_ord_needs_eq() {
     // A derive does not derive the supertraits.
     let main = "type Point(x: Int) derive Ord\n";
     assert_eq!(
-        diagnostics(main),
+        errors(main),
         ["E0326 type `Point` does not implement `Eq` @ Ord"]
     );
     let main =
@@ -336,7 +344,7 @@ fn deriving_ord_needs_eq() {
 fn a_derive_and_an_impl_of_the_same_trait_conflict() {
     let main = "type Point(x: Int) derive Show, Eq, Eq\nimpl Point: Show {\n  fn show(self) { \"p\" }\n}\n";
     assert_eq!(
-        diagnostics(main),
+        errors(main),
         [
             "E0330 `Show` is already implemented for `Point` @ Show",
             "E0330 `Eq` is already implemented for `Point` @ Eq",
@@ -363,4 +371,28 @@ fn opaque_types_can_derive() {
     let types = "pub opaque type Secret(value: String) derive Eq, Show\n";
     let main = "import Types.{Secret}\nfn label(s: Secret) -> String { Show.show(s) }\n";
     assert_clean(&[("/app/src/types.emel", types), ("/app/src/main.emel", main)]);
+}
+
+#[test]
+fn unused_derives_of_private_types_are_reported() {
+    // Uses: `==`, `<`, interpolation, a constrained function, a field of another derive, and a
+    // supertrait (removing Eq would break Ord). dbg needs no Show, and a type's own field is no
+    // use of it. A `pub` type is left alone (spec 10.5).
+    let main = "type Unused(x: Int) derive Eq, Show\npub type Public(x: Int) derive Eq\ntype ByEq(x: Int) derive Eq\ntype ByLt(x: Int) derive Eq, Ord\ntype ByInterp(x: Int) derive Show\ntype ByCall(x: Int) derive Show\ntype Inner(x: Int) derive Eq\ntype Outer(i: Inner) derive Eq\nenum Tree {\n  Leaf\n  Node(Tree, Int)\n}\n  derive Eq\ntype ByDbg(x: Int) derive Show\nfn label[A: Show](x: A) -> String { Show.show(x) }\nfn main() -> () {\n  a = ByEq(x: 1) == ByEq(x: 2)\n  b = ByLt(x: 1) < ByLt(x: 2)\n  c = \"#{ByInterp(x: 1)}\"\n  d = label(ByCall(x: 1))\n  dbg(ByDbg(x: 1))\n  o = Outer(i: Inner(x: 1))\n  t = Leaf\n  ()\n}\n";
+    assert_eq!(
+        diagnostics(main),
+        [
+            "W0303 derived `Eq` for `Unused` is never used @ Eq",
+            "W0303 derived `Show` for `Unused` is never used @ Show",
+            "W0303 derived `Eq` for `Outer` is never used @ Eq",
+            "W0303 derived `Eq` for `Tree` is never used @ Eq",
+            "W0303 derived `Show` for `ByDbg` is never used @ Show",
+        ]
+    );
+}
+
+#[test]
+fn a_derive_used_through_a_generic_type_counts() {
+    let main = "type Point(x: Int) derive Eq\ntype Box[A](value: A) derive Eq\nfn main() -> Bool { Eq.eq(Box(value: Point(x: 1)), Box(value: Point(x: 2))) }\n";
+    assert_eq!(diagnostics(main), Vec::<String>::new());
 }

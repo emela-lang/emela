@@ -928,7 +928,9 @@ impl<'a> BodyInfer<'a> {
                 for part in parts {
                     if let StrPart::Interp(expr) = part {
                         // Whether it satisfies Show is checked in the trait stage.
-                        self.infer_expr(*expr);
+                        let ty = self.infer_expr(*expr);
+                        let span = self.program.exprs[*expr].span;
+                        self.note_trait_use(ty, "Show", span);
                     }
                 }
                 Ty::STRING
@@ -1174,8 +1176,24 @@ impl<'a> BodyInfer<'a> {
                     trait_def,
                     span,
                     owner: self.current,
+                    report: true,
                 });
             }
+        }
+    }
+
+    /// Remembers that an operator or an interpolation uses the Prelude's trait `name` for `ty`.
+    /// Only counts the derived impls it reaches as used (W0303): whether `ty` satisfies the
+    /// trait is not checked here yet.
+    fn note_trait_use(&mut self, ty: Ty, name: &str, span: Span) {
+        if let Some(trait_def) = self.program.prelude_def(name) {
+            self.trait_obligations.push(TraitObligation {
+                ty,
+                trait_def,
+                span,
+                owner: self.current,
+                report: false,
+            });
         }
     }
 
@@ -1232,6 +1250,7 @@ impl<'a> BodyInfer<'a> {
             if let Err(e) = self
                 .traits
                 .satisfies(program, self.ty_table, &ty, o.trait_def, &env)
+                && o.report
             {
                 self.diags.push(Diagnostic {
                     span: Some(o.span),
@@ -1380,6 +1399,11 @@ impl<'a> BodyInfer<'a> {
             | BinaryOp::Ge => {
                 let ty = self.infer_expr(lhs);
                 self.check_expr(rhs, &ty);
+                let name = match op {
+                    BinaryOp::Eq | BinaryOp::Ne => "Eq",
+                    _ => "Ord",
+                };
+                self.note_trait_use(ty, name, span);
                 Ty::BOOL
             }
             // Logical: both sides are Bool.
@@ -2300,6 +2324,9 @@ struct TraitObligation {
     /// The definition whose body has the reference; `Ty::Bound(i)` in `ty` is its type
     /// parameter.
     owner: Option<DefId>,
+    /// Whether to report E0326. Uses noted by [`BodyInfer::note_trait_use`] only count derived
+    /// impls as used.
+    report: bool,
 }
 
 /// The `Self` of a trait function determined only by its result type (E0333).

@@ -216,6 +216,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.diags.extend(body.diags);
     }
 
+    crate::traits::unused_derives(program, &types.traits, &mut types.diags);
     types.layers = layer::check_layers(
         program,
         &sigs,
