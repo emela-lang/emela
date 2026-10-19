@@ -7,6 +7,21 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/emela-lang/emela/compare/v0.22.0...v0.23.0) - 2026-10-19
+
+### Added
+
+- impl に足りない Trait のメソッドを E0325 にする ([#317](https://github.com/emela-lang/emela/pull/317)) (by @Allianaab2m)
+- テストのルート test/ と，そこからだけ使える [dev-dependencies] ([#312](https://github.com/emela-lang/emela/pull/312)) (by @Allianaab2m)
+- *(pome)* テストでだけ使う依存 [dev-dependencies] と emela pome add --dev ([#311](https://github.com/emela-lang/emela/pull/311)) (by @Allianaab2m)
+- *(lsp)* 診断を直す quickfix と impl のスタブ生成を足す ([#315](https://github.com/emela-lang/emela/pull/315)) (by @Allianaab2m)
+- *(lsp)* hover，signatureHelp，completion に ## の doc コメントを出す ([#314](https://github.com/emela-lang/emela/pull/314)) (by @Allianaab2m)
+- *(lsp)* documentHighlight，workspace/symbol，foldingRange，selectionRange，typeDefinition，implementation を足す ([#313](https://github.com/emela-lang/emela/pull/313)) (by @Allianaab2m)
+
+### Other
+
+- *(lsp)* quickfix のテストで初期の診断を先に読み，shutdown との競合をなくす ([#319](https://github.com/emela-lang/emela/pull/319)) (by @Allianaab2m)
+
 ## [0.22.0](https://github.com/emela-lang/emela/compare/v0.21.0...v0.22.0) - 2026-10-18
 
 ### Added
