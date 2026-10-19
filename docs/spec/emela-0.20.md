@@ -191,8 +191,6 @@ foo
 
 `var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod`
 
-`let` と `var` で束縛を書くと E0146 になり、`x = 値` の書き方（6.3）を示す。
-
 ### 3.4 キーワードではないもの
 
 - `True`、`False`、`Some`、`None` は、Prelude の enum の構成子である。
@@ -1192,6 +1190,7 @@ fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 - 制約は `[A: Ord]` と書く。複数の制約は `[A: Ord + Show]` と書く。上位の Trait も `trait A: B + C` と書く。
 - 制約はその上位の Trait を含む。`[A: Ord]` の関数の中では `A` の値に `==` を使える。`[A: Ord + Eq]` と重ねて書かなくてよい。
 - `==` と `!=` は Eq、大小比較は Ord、文字列補間は Show の実装を使う。型がその Trait を満たさなければ E0326 である。dbg と assert の表示は Show を求めない（inspect、10.6）。
+- 引数に Self がなく、戻り値にだけ Self がある関数（`Parse.parse(s)`）は、結果の型から impl を選ぶ。結果の型は関数の中の使い方から推論してよい（`Parse.parse(s) + 1` なら Int）。関数の中で決まらなければ E0333 とし、型注釈（`n: Int = Parse.parse(s)`）を求める。既定の型は選ばない。
 
 ### 10.4 Trait の関数のエラーと効果
 
@@ -2337,7 +2336,6 @@ error[E0204]: duplicate module `Http.Client`
 | E0142 | match を前置で書いた（6.5） | ``` `match` comes after the value: write `value match { ... }` ``` |
 | E0144 | impl を `impl Trait for 型` か `impl[...] 型: Trait` の形で書いた（10.2） | ``write `impl User: Show` instead of `impl Show for User` `` |
 | E0145 | handler を `implements` で書いた（8.4） | ``write `handler ConsoleLogger: Logger` instead of `implements` `` |
-| E0146 | `let` か `var` で束縛を書いた（3.3、6.3） | ``Emela has no `let`: write `x = value` `` |
 | E0143〜 | 構文のエラー | パーサで割り当てて、この表に足す |
 | E0201 | ファイル名がモジュール名にならない（4.1） | ``file name `Foo` cannot be a module name: not lower snake_case`` |
 | E0202 | ディレクトリ名がモジュール名にならない | ``directory name `My-Dir` cannot be a module name: not lower snake_case`` |
@@ -2404,6 +2402,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0330 | 同じ型と Trait の組の impl が2つある（derive と手書きの impl の重なりを含む。10.2、10.5） | `` `Show` is already implemented for `User` `` |
 | E0331 | 型の定義と Trait の定義のどちらのモジュールでもない場所の impl（10.2） | `` `Show` for `User` can only be implemented in the module of `Show` or of `User` `` |
 | E0332 | impl の fn の引数の数が Trait の宣言と違う（10.2） | ``wrong number of parameters: `show` of `Show` takes 1, found 2`` |
+| E0333 | Trait の関数の Self が、関数の中で決まらない（10.3） | ``cannot infer which impl of `Parse` to use: add a type annotation`` |
 | W0301 | 冗長な腕（6.5） | `unreachable match arm` |
 | W0302 | escape の腕が受けるエラーが、元の式から起きない（7.3） | ``error `Timeout` is never raised here`` |
 | W0303 | `pub` でない型で導出した実装がどこからも要求されない（10.5） | ``derived `Ord` for `Point` is never used`` |
@@ -2473,6 +2472,8 @@ error[E0204]: duplicate module `Http.Client`
 ### 2026-10-19（impl と handler の構文、derive の範囲、Hash）
 
 - 10.2、10.5、付録 A: impl の重複、持ち主でない場所の impl、impl の fn の引数の数に番号を付けた（E0330〜E0332）。
+- 10.3、付録 A: 戻り値にだけ Self がある Trait の関数で、関数の中で Self が決まらなければ E0333 にした。
+- 3.3、付録 A: `let` と `var` の束縛の専用の診断（E0146）を取り下げた。
 - 3.2、8.1、8.4、10.2、17.3、付録 A: impl と handler の頭をコロンで書くようにした（`impl User: Show`、`handler ConsoleLogger: Logger`）。コロンは `[A: Ord]` と `trait Ord: Eq` と同じく、左が右を満たすことを表す。実装を表す語が `implements` と `impl ... for` の2つあり、語順も逆だったのをそろえた。文脈依存の語 `implements` と `for` は使わなくなった。前の形は E0144 と E0145 で書き換えを示す。
 - 10.2: 型引数のある型の impl は頭の型引数に制約を書く（`impl Map[K: Eq, V: Eq]: Eq`）。頭は型の名前と互いに異なる型引数の並びに限り（E0328）、1つの型と1つの Trait の組の impl を1つに保つ。
 - 10.5、18.1 #3、#24: 導出できるのを Eq、Ord、Show に限り、型引数にはすべて同じ制約を付ける。上位の Trait は暗黙に導出しない。`pub` でない型の使われない導出を W0303 で知らせる。
@@ -2481,7 +2482,6 @@ error[E0204]: duplicate module `Http.Client`
 - 8.4: init の中の `use` の書き方を明記した。
 - 5.6、15.2、18.1 #3、#36、18.3: Trait とコレクションを入れる版を 0.21 から 0.24 に改めた。
 - 10.1、10.3、付録 A: 上位の Trait の規則を足した。impl の時点で上位の Trait の実装を検査し、制約は上位の Trait を含む（`[A: Ord]` で `==` が使える）。循環は E0329。
-- 3.3、付録 A: `let` と `var` の束縛を E0146 にして、`x = 値` の書き方を示す。
 - 付録 B、付録 A: 制約を持つ型引数のある fn をエントリから export できないことにした（E0327）。単相化で impl を選ぶので、JS から呼ばれる型が決まらないと実装が決まらないため。
 
 ### 2026-10-19（Eq、Show と Float の順序）
