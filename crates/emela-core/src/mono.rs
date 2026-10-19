@@ -18,7 +18,8 @@
 //! 2. Call targets are rewritten ([`Mono::target`]): a direct call or a function value with type
 //!    arguments becomes the copy for them. A trait function (`Module::dispatch`) becomes the copy
 //!    of the impl function for the type its `Self` is instantiated with, or of its own default
-//!    implementation, which is thus copied per type (spec 10.3).
+//!    implementation, which is thus copied per type (spec 10.3). The function of a derived impl
+//!    is generated for the type ([`derive`], spec 10.5).
 //!
 //! What changes besides types, because flags became exact:
 //!
@@ -32,6 +33,8 @@
 //! arguments (`Type::Enum(id, args)`), from which backends compute field representations. Effects
 //! are rebuilt: the output has each effect instance that is used once, keyed like lowering's
 //! evidence table keys (the declaration and the type arguments without E and R).
+
+mod derive;
 
 use std::collections::VecDeque;
 
@@ -75,9 +78,7 @@ pub fn monomorphize_from(m: &Module, roots: &[FnId]) -> (Module, Vec<Option<FnId
             Some(mono.target(f, &args).f)
         })
         .collect();
-    while let Some(spec) = mono.worklist.pop_front() {
-        mono.define(spec);
-    }
+    mono.run();
     (mono.out, out_roots)
 }
 
@@ -89,9 +90,10 @@ pub struct Monomorphized {
     /// Per function of `module`, the function of the input it copies.
     pub origins: ArenaMap<FnId, FnId>,
     /// Trait functions called for a type without an impl, as `Show.show` and the type's name.
-    /// The type checker counts a `derive` as an impl before derive generates one, and a generic
-    /// root is instantiated at `Any`. Such a call reaches the trait
-    /// function's body, which panics.
+    /// The type checker accepts only types with an impl, so this guards against the two
+    /// disagreeing: such a call reaches the trait function's body, which panics. A generic root
+    /// instantiated at `Any` has no trait-bounded type parameter (lowering does not export one,
+    /// E0327), so it reaches no trait function through its type parameters.
     pub missing_impls: Vec<(String, String)>,
 }
 
@@ -105,13 +107,12 @@ pub struct Monomorphized {
 /// module's generic `pub` fns are exported): `Type::Any` for each type parameter, and for each set
 /// type parameter a set that fails and needs the evidence table but does not suspend, the flags
 /// polymorphic lowering gives such a function. The copy keeps the original name and whether it is
-/// exported.
+/// exported. A root with a trait-bounded type parameter would have no impl to call at `Any`;
+/// lowering reports it (E0327) instead of exporting it.
 pub fn monomorphize_traced(m: &Module, roots: &[FnId]) -> Monomorphized {
     let mut mono = Mono::new(m);
     let out_roots = roots.iter().map(|&f| mono.root(f)).collect();
-    while let Some(spec) = mono.worklist.pop_front() {
-        mono.define(spec);
-    }
+    mono.run();
     Monomorphized {
         module: mono.out,
         roots: out_roots,
@@ -208,6 +209,8 @@ struct Mono<'a> {
     loops: Vec<Vec<TypeId>>,
     /// See [`Monomorphized::missing_impls`].
     missing_impls: Vec<(String, String)>,
+    /// Derived impl functions whose bodies are not generated yet ([`Mono::derived_target`]).
+    derived_work: Vec<derive::DerivedSpec>,
 }
 
 impl<'a> Mono<'a> {
@@ -236,6 +239,20 @@ impl<'a> Mono<'a> {
             memo: FxHashMap::default(),
             loops: Vec::new(),
             missing_impls: Vec::new(),
+            derived_work: Vec::new(),
+        }
+    }
+
+    /// Defines copies and derived impl functions until none is left.
+    fn run(&mut self) {
+        loop {
+            if let Some(spec) = self.worklist.pop_front() {
+                self.define(spec);
+            } else if let Some(d) = self.derived_work.pop() {
+                self.define_derived(d);
+            } else {
+                break;
+            }
         }
     }
 
@@ -460,6 +477,10 @@ impl<'a> Mono<'a> {
             if let Some((impl_fn, mut impl_args)) = self.pick_impl(f, dispatch, args) {
                 impl_args.extend_from_slice(&args[1..]);
                 let t = self.target(impl_fn, &impl_args);
+                self.specs.insert((f, args.into()), t);
+                return t;
+            }
+            if let Some(t) = self.derived_target(f, args) {
                 self.specs.insert((f, args.into()), t);
                 return t;
             }
@@ -1222,8 +1243,8 @@ impl<'a> Mono<'a> {
     /// Whether the trait function `f` (Eq.eq or Show.show) on `ty` gives what the structural
     /// operation gives (spec 10.6: types whose impls are all derived may be compared and shown by
     /// their structure). True for the impls the compiler and core provide
-    /// (`Dispatch::structural`) and for types without an impl (derived, until #333), when every
-    /// part is so too. A type with an impl written in source is not. `seen` breaks cycles of
+    /// (`Dispatch::structural`) and for derived impls (`mono/derive.rs`), when every part is so
+    /// too. A type with an impl written in source is not. `seen` breaks cycles of
     /// recursive types.
     fn structural(&mut self, f: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
         if seen.contains(&ty) {

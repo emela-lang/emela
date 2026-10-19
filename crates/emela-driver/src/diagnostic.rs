@@ -438,6 +438,16 @@ impl Diagnostic {
                 )),
                 span,
             ),
+            emela_core::LowerError::ConstrainedExport { name, param, span } => (
+                Diagnostic::error(format!(
+                    "cannot export `{name}`: its type parameter `{param}` has a trait bound"
+                ))
+                .with_code(code::CONSTRAINED_EXPORT)
+                .with_help(
+                    "make a `pub` fn that calls it with concrete types, and export that instead",
+                ),
+                span,
+            ),
             emela_core::LowerError::MissingCoreFile { path, span } => (
                 Diagnostic::error(format!(
                     "internal error: the bundled core has no file `{path}`"
@@ -1117,6 +1127,11 @@ impl Diagnostic {
                 Some(code::NOT_IMPLEMENTED),
                 format!("type `{ty}` does not implement `{trait_name}`"),
             ),
+            TypeDiagnosticKind::NotDerivable { trait_name } => (
+                Severity::Error,
+                Some(code::NOT_IMPLEMENTED),
+                format!("cannot derive `{trait_name}`: only `Eq`, `Ord` and `Show` can be derived"),
+            ),
             TypeDiagnosticKind::SupertraitCycle { cycle } => (
                 Severity::Error,
                 Some(code::SUPERTRAIT_CYCLE),
@@ -1148,6 +1163,11 @@ impl Diagnostic {
                     ),
                 )
             }
+            TypeDiagnosticKind::AmbiguousSelf { trait_name } => (
+                Severity::Error,
+                Some(code::AMBIGUOUS_SELF),
+                format!("cannot infer which impl of `{trait_name}` to use: add a type annotation"),
+            ),
             TypeDiagnosticKind::ImplFnParamCount {
                 name,
                 trait_name,

@@ -50,6 +50,15 @@ pub enum LowerError {
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
+    /// An exported fn of the entry has a type parameter with a trait bound (E0327, appendix B):
+    /// JS could call it at any type, so no impl can be chosen for it. Reported only for the JS
+    /// target, the one that exports the entry's `pub` fns. `span` is the position of the function
+    /// name.
+    ConstrainedExport {
+        name: String,
+        param: String,
+        span: Option<Span>,
+    },
 }
 
 /// Which fns lowering starts from.
@@ -137,6 +146,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     };
     cx.declare_enums();
     cx.define_ctors();
+    if roots == Roots::Exported && input.target == Some("js") {
+        cx.check_constrained_exports();
+    }
     for (_, items) in hir.modules.iter() {
         for &def in &items.items {
             let is_root = match (roots, hir.item(def)) {
@@ -987,24 +999,55 @@ impl<'a> Lowerer<'a> {
             // of `Self`.
             let impl_spec = (spec >> 1) << head.params.len();
             let pattern = self.ty(&head.self_ty);
-            let impl_fn = self.fn_id(f.def, impl_spec);
-            impls.push((pattern, impl_fn));
+            let f = self.fn_id(f.def, impl_spec);
+            impls.push((pattern, f));
             // The impls of core (`List`, `Option`) give what the structure gives (spec 10.6).
-            if let DefModule::Source(m) = hir.defs[impl_def].module
-                && hir.modules.get(m).is_some_and(|m| m.is_core)
-            {
-                structural.push(impl_fn);
+            let in_core = match hir.defs[impl_def].module {
+                DefModule::Source(m) => self.modules.is_core(m),
+                DefModule::Prelude | DefModule::Builtin(_) => true,
+            };
+            if in_core {
+                structural.push(f);
             }
         }
+        let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
         self.module.dispatch.insert(
             id,
             crate::ir::Dispatch {
                 impls,
-                default,
                 structural,
+                default,
+                derived,
             },
         );
+    }
+
+    /// For a function of a derivable trait of the Prelude (`Eq.eq`, `Ord.compare`, `Show.show`),
+    /// the enums whose `derive` lists the trait (spec 10.5). Bool is `TypeId::BOOL`, not an enum.
+    fn derived(&self, trait_def: DefId, def: DefId) -> Option<crate::ir::Derived> {
+        use crate::ir::DeriveOp;
+        let hir = self.hir;
+        if hir.prelude_def(&hir.defs[trait_def].name) != Some(trait_def) {
+            return None;
+        }
+        let op = match (
+            hir.defs[trait_def].name.as_str(),
+            hir.defs[def].name.as_str(),
+        ) {
+            ("Eq", "eq") => DeriveOp::Eq,
+            ("Ord", "compare") => DeriveOp::Compare,
+            ("Show", "show") => DeriveOp::Show,
+            _ => return None,
+        };
+        let enums = self
+            .types
+            .traits
+            .derived_of(trait_def)
+            .into_iter()
+            .filter_map(|ty| self.enums.get(ty).copied())
+            .collect();
+        Some(crate::ir::Derived { op, enums })
     }
 
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
@@ -3066,7 +3109,14 @@ impl<'a> Lowerer<'a> {
 
     /// Whether to export in JS: the entry module's `pub` fns and `main` (called by the entry
     /// module). Test functions are excluded (for `emela test`, the test runner exports them).
+    /// Whether `def` is a fn the entry exports: `pub` or `main`, but not a test function, and not
+    /// one with a trait-bounded type parameter (E0327 on JS; on C and WASM only main is used).
     fn is_exported(&self, def: DefId) -> bool {
+        self.exports(def) && self.bounded_param(def).is_none()
+    }
+
+    /// Whether `def` is a fn the entry would export, regardless of its type parameters.
+    fn exports(&self, def: DefId) -> bool {
         let data = &self.hir.defs[def];
         data.kind == DefKind::Fn
             && self
@@ -3074,6 +3124,36 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|entry| data.module == DefModule::Source(entry))
             && (data.is_pub || data.name == "main")
             && !self.tests.contains(&def)
+    }
+
+    /// The name of the first type parameter of `def` with a trait bound.
+    fn bounded_param(&self, def: DefId) -> Option<&str> {
+        let sig = self.types.sigs.get(def)?;
+        sig.scheme
+            .params
+            .iter()
+            .find(|p| !p.traits.is_empty())
+            .map(|p| p.name.as_str())
+    }
+
+    /// Reports the entry's exported fns with a trait-bounded type parameter (E0327, appendix B),
+    /// in declaration order.
+    fn check_constrained_exports(&mut self) {
+        let Some(items) = self.entry.and_then(|entry| self.hir.modules.get(entry)) else {
+            return;
+        };
+        for &def in &items.items {
+            if !matches!(self.hir.item(def), Some(Item::Fn(_))) || !self.exports(def) {
+                continue;
+            }
+            if let Some(param) = self.bounded_param(def) {
+                self.errors.push(LowerError::ConstrainedExport {
+                    name: self.hir.defs[def].name.to_string(),
+                    param: param.to_owned(),
+                    span: self.hir.defs[def].span,
+                });
+            }
+        }
     }
 }
 

@@ -210,11 +210,14 @@
 - （補）1つの型と1つの Trait の組の2つ目の impl は E0330，型の定義と Trait の定義のどちらのモジュールでもない impl は E0331．E0331 の impl は登録して誤りを重ねない．E0330 の2つ目は登録しない（その fn は型を持たず，推論しない）
 - （補）上位の Trait の検査（E0326）は全部の impl を集めてから行う．各 impl の直接の上位の Trait について，impl の型が上位の Trait を満たすかを，impl の頭の制約の下で見る．2つの impl の頭はどちらも同じ型に自分の型引数を並べたものなので，型引数は位置で対応する．`impl Pair[A: Ord, B]: Ord` に `impl Pair[A: Eq, B: Eq]: Eq` なら ``type `B` does not implement `Eq` `` を頭に出す
 - （補）上位の Trait の循環（E0329）は循環ごとに1回，循環の中で最初に定義された Trait の名前の位置に出し，その Trait から並べる．循環に入った Trait の上位の Trait は空にして，以降の検査が必ず止まるようにする
-- （補）型が Trait を満たすか（`Traits::satisfies`）．型引数は，制約に書いた Trait とその上位の Trait を満たす．impl のある型は，型引数が impl の頭の制約を満たせば満たす．derive に Trait を書いた型は，生成される impl（全部の型引数に同じ制約，10.5）があるとみなす（impl を生成するまでの代わり）．基本型（`()` を含む）とタプルは，要素が満たせば Prelude の Eq，Ord，Show を満たす．Float は Ord を満たさない（10.6）．これはコンパイラが持つ impl で，lowering が IR に作る（emela-core の NOTES）．List と Option は core のソースの impl（`impl List[A: Eq]: Eq`）で満たす．関数型は満たさない．型変数（決まらなかった型）と壊れた型は報告しない
+- （補）型が Trait を満たすか（`Traits::satisfies`）．型引数は，制約に書いた Trait とその上位の Trait を満たす．impl のある型は，型引数が impl の頭の制約を満たせば満たす．derive の impl（下の derive の項）も impl と同じに扱う．基本型（`()` を含む）とタプルは，要素が満たせば Prelude の Eq，Ord，Show を満たす．Float は Ord を満たさない（10.6）．これはコンパイラが持つ impl で，lowering が IR に作る（emela-core の NOTES）．List と Option は core のソースの impl（`impl List[A: Eq]: Eq`）で満たす．関数型は満たさない．型変数（決まらなかった型）と壊れた型は報告しない
+- （補）derive（10.5，#333）は `Traits::derived` に（Trait，型の定義）を鍵に持つ．頭は型の自分の型引数で，普通の型引数にはすべてその Trait の制約を付ける（`Tree[A: Eq]`）．集合の型引数は Trait の制約を持てないので付けない．手書きの impl を全部登録した後に登録するので，同じ組の手書きの impl があれば derive の側が2つ目になり E0330 を derive の Trait の名前に出す（10.5 の「エラー」に番号がないので E0330 に合わせた）．同じ Trait を2回並べても E0330
+- （補）導出できるのは Prelude の Eq，Ord，Show（`DERIVABLE`）．それ以外は E0326 で ``cannot derive `Label`: only `Eq`, `Ord` and `Show` can be derived``
+- （補）derive の検査は全部の impl と derive を登録してから，上位の Trait（`derive Ord` に Eq の derive か impl）と，各構成子のフィールドの型（構成子の型から取る）が Trait を満たすかを，derive の頭の制約の下で見る．満たさなければ derive の Trait の名前に E0326．同じ型の失敗は1つにまとめる
 - （補）制約の検査（10.3）．型引数に Trait の制約を持つ定義を参照したら，具体化した型と Trait を覚え，まとまりの型が決まってから（数の型を決めた後に）確かめる．満たさなければ参照の位置に E0326．参照した側の定義の型引数は，自分の制約が含意する Trait を満たす．Trait の関数（`Show.show`）は制約 `Self: Show` を持つ型引数 `Self` を持つので，同じ仕組みで impl があるかを見る．関数を値として参照しても同じく検査する
 - （補）演算子と補間の制約（10.3，#332）．`==` と `!=` の左辺の型に Eq，大小比較の左辺の型に Ord，補間の値の型に Show を，制約の検査と同じ仕組みで求める（E0326 は演算子の式，補間は値の位置）．Float の大小比較は組み込みの演算子なので Ord を求めない（型が決まってから Float なら飛ばす）．関数型は満たさないので，関数の値の `==` もエラーになる．表示では関数型の E と R の決まらなかった集合変数を省く
 - （補）const のパターン（`==` で照合する）には Eq を求めない．仕様は演算子の `==` だけを挙げていて，パターンを含むかが読み取れないため
-- （補）`self` を取らない Trait の関数（`Parse.parse`）の `Self` は，単一化で期待される型から決まる．決まらないまま残ったら検査しない（lowering で `()` になる）
+- （補）引数に `Self` のない Trait の関数（`Parse.parse`）の `Self` は，単一化で期待される型や後の使い方から決まる（10.3）．まとまりの型が決まった後（数の型を決めた後，汎化の前）に型変数のまま残っていれば，参照の位置に E0333（``cannot infer which impl of `Parse` to use: add a type annotation``）．既定の型は選ばない．`Parse.parse(s) + 1` は数の型の既定で Int に決まるので通る．戻り値の型を書かない fn の結果がそのまま `Parse.parse(text)` でも，汎化で型引数にせず E0333 にする（制約のない型引数になると impl を選べないため）．値として参照しただけ（`f = Parse.parse`）でも同じ．引数に `Self` がある関数は，引数の型が決まらなければ今までどおり検査しない（10.3 の E0333 は戻り値にだけ `Self` がある関数のため）
 
 ## 結果の形（lowering に渡すもの）
 

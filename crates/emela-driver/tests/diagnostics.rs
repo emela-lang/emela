@@ -4,7 +4,8 @@ use std::path::Path;
 
 use emela_driver::{
     Analysis, Checked, CoreSource, Diagnostic, FileId, Frontend, Input, LexOnly, Location, Lower,
-    MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Typecheck, check, render,
+    LowerTests, MemoryFiles, ParseOnly, Parsed, Resolve, SourceDb, SourceFile, Span, Target,
+    Typecheck, check, render,
 };
 use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
@@ -812,6 +813,48 @@ fn reachable_external_without_target() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
     // check and the LSP (up to type checking) choose no target, so they do not check.
     let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+}
+
+/// An entry exporting fns with trait-bounded type parameters (appendix B). `label` and `pair` are
+/// reported; `same` too although it calls no trait function; `plain` (no bound) and `user_label`
+/// (concrete types) are exported.
+const CONSTRAINED_EXPORTS: &str = r#"type User(name: String)
+
+impl User: Show {
+  fn show(self) { "User(#{self.name})" }
+}
+
+pub fn label[A: Show](x: A) -> String { Show.show(x) }
+
+pub fn pair[A, B: Show + Eq](a: A, b: B) -> B { b }
+
+pub fn same[A: Show](x: A) -> A { x }
+
+pub fn plain[A](x: A) -> A { x }
+
+pub fn user_label(u: User) -> String { label(u) }
+
+fn hidden[A: Show](x: A) -> String { Show.show(x) }
+
+fn main() { dbg(hidden(User(name: "ann"))) }
+"#;
+
+#[test]
+fn constrained_export() {
+    // The JS build exports the entry's `pub` fns from main.mjs, so a trait bound is E0327.
+    let files = [("home/main.emel", CONSTRAINED_EXPORTS)];
+    let analysis = check_files(&files, "home/main.emel", &mut Lower::default());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+    // check and the LSP (up to type checking) choose no target, so they do not check.
+    let analysis = check_files(&files, "home/main.emel", &mut Typecheck::default());
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    // C exports only main, so the bounded fns are not roots.
+    let mut c = Lower::default().with_target(Target::C);
+    let analysis = check_files(&files, "home/main.emel", &mut c);
+    assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
+    // `emela test` lowers from the test functions and exports nothing.
+    let analysis = check_files(&files, "home/main.emel", &mut LowerTests::default());
     assert_eq!(render(&analysis.diagnostics, &analysis.sources, false), "");
 }
 
