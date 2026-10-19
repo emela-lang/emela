@@ -104,7 +104,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
 - （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
-- （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` が使えるよう `derive Eq` を付けた（#332 で `==` が Eq を求めるようになったため．Ord と Show は #337 で決める）．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
+- （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
 - （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
 ## Random（`std/random.emel`，`std/random.mjs`）

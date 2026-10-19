@@ -386,13 +386,13 @@ import Std.Cause.{Fail}
 fn main() {
   d = Duration.seconds(2)
   dbg("#{d} #{d == Duration.milliseconds(2000)} #{d < Duration.seconds(3)}")
-  dbg(Instant.from_unix_milliseconds(10) < Instant.from_unix_milliseconds(20))
+  dbg("#{Instant.from_unix_milliseconds(0)} #{Instant.from_unix_milliseconds(10) < Instant.from_unix_milliseconds(20)}")
   r = Request(method: Get, url: "u", headers: [], body: "")
   dbg("#{r} #{r == r} #{Fail} #{Fail == Fail}")
 }
 "##;
     assert_eq!(
         stderr_of("std_types", main),
-        "\"2000ms True True\"\nTrue\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
+        "\"2000ms True True\"\n\"1970-01-01T00:00:00.000Z True\"\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
     );
 }
