@@ -1,0 +1,76 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/let_bindings.emel
+---
+ROOT@0..103
+  COMMENT@0..41 "# let と var の束縛は E0146（3.3）"
+  NEWLINE@41..42 "\n"
+  FN_DECL@42..102
+    FN_KW@42..44 "fn"
+    WHITESPACE@44..45 " "
+    LOWER_NAME@45..46 "f"
+    PARAM_LIST@46..48
+      L_PAREN@46..47 "("
+      R_PAREN@47..48 ")"
+    WHITESPACE@48..49 " "
+    RET_TYPE@49..55
+      THIN_ARROW@49..51 "->"
+      WHITESPACE@51..52 " "
+      PATH_TYPE@52..55
+        PATH@52..55
+          TYPE_NAME@52..55 "Int"
+    WHITESPACE@55..56 " "
+    BLOCK_EXPR@56..102
+      L_BRACE@56..57 "{"
+      NEWLINE@57..58 "\n"
+      WHITESPACE@58..60 "  "
+      ERROR@60..63
+        RESERVED_KW@60..63 "let"
+      WHITESPACE@63..64 " "
+      BINDING@64..69
+        NAME_REF@64..65
+          LOWER_NAME@64..65 "x"
+        WHITESPACE@65..66 " "
+        EQ@66..67 "="
+        WHITESPACE@67..68 " "
+        LITERAL@68..69
+          INT@68..69 "1"
+      NEWLINE@69..70 "\n"
+      WHITESPACE@70..72 "  "
+      ERROR@72..75
+        RESERVED_KW@72..75 "var"
+      WHITESPACE@75..76 " "
+      BINDING@76..90
+        NAME_REF@76..77
+          LOWER_NAME@76..77 "y"
+        COLON@77..78 ":"
+        WHITESPACE@78..79 " "
+        PATH_TYPE@79..82
+          PATH@79..82
+            TYPE_NAME@79..82 "Int"
+        WHITESPACE@82..83 " "
+        EQ@83..84 "="
+        WHITESPACE@84..85 " "
+        BIN_EXPR@85..90
+          NAME_REF@85..86
+            LOWER_NAME@85..86 "x"
+          WHITESPACE@86..87 " "
+          PLUS@87..88 "+"
+          WHITESPACE@88..89 " "
+          LITERAL@89..90
+            INT@89..90 "1"
+      NEWLINE@90..91 "\n"
+      WHITESPACE@91..93 "  "
+      ERROR@93..96
+        RESERVED_KW@93..96 "let"
+      NEWLINE@96..97 "\n"
+      WHITESPACE@97..99 "  "
+      NAME_REF@99..100
+        LOWER_NAME@99..100 "y"
+      NEWLINE@100..101 "\n"
+      R_BRACE@101..102 "}"
+  NEWLINE@102..103 "\n"
+error[E0146]@60..63: Emela has no `let`: write `x = value`
+error[E0146]@72..75: Emela has no `var`: write `x = value`
+error[E0146]@93..96: Emela has no `let`: write `x = value`

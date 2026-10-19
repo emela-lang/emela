@@ -90,6 +90,12 @@ pub enum DiagnosticCode {
     ExternalTypeWithArgs,
     /// `match` written before the value. `match x { ... }` (spec 6.5)
     PrefixMatch,
+    /// The old head of an impl. `impl Show for User`, `impl[A: Eq] Box[A]: Eq` (spec 10.2)
+    OldImplHead,
+    /// `implements` in a handler head. `handler H implements E` (spec 8.4)
+    OldHandlerHead,
+    /// A binding with `let` or `var`. `let x = 1` (spec 3.3)
+    LetBinding,
 }
 
 impl DiagnosticCode {
@@ -137,6 +143,9 @@ impl DiagnosticCode {
             Self::UnknownExternalTarget => "E0140",
             Self::ExternalTypeWithArgs => "E0141",
             Self::PrefixMatch => "E0142",
+            Self::OldImplHead => "E0144",
+            Self::OldHandlerHead => "E0145",
+            Self::LetBinding => "E0146",
         }
     }
 }

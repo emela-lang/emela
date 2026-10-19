@@ -566,13 +566,13 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_PAREN) {
         field_list(p);
     }
-    // Without `:`, the old `implements` or a following type name is still read as the effect.
+    // Without `:`, the old `implements` (E0145, reported by validation) or a following type name
+    // is still read as the effect.
     if p.at(COLON) || p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
-        if !p.eat(COLON) {
+        if p.at_contextual_kw("implements") {
+            p.bump();
+        } else if !p.eat(COLON) {
             p.error(DiagnosticCode::ExpectedToken, "expected `:`");
-            if p.at_contextual_kw("implements") {
-                p.bump();
-            }
         }
         if p.at(TYPE_NAME) {
             let c = p.start();
@@ -672,9 +672,9 @@ fn trait_decl(p: &mut Parser<'_>, m: Marker) {
 /// PATH after `:`.
 fn impl_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(IMPL_KW);
-    // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first.
+    // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first (E0144, reported by
+    // validation).
     if p.at(L_BRACK) {
-        p.error(DiagnosticCode::ExpectedToken, "expected type name");
         type_param_list(p);
     }
     let head = p.start();
@@ -684,9 +684,9 @@ fn impl_decl(p: &mut Parser<'_>, m: Marker) {
         p.expect(TYPE_NAME);
     }
     if p.at_contextual_kw("for") {
-        // The old `impl Show for User`: the first name is the trait and the type follows `for`.
+        // The old `impl Show for User` (E0144, reported by validation): the first name is the
+        // trait and the type follows `for`.
         head.abandon(p);
-        p.error(DiagnosticCode::ExpectedToken, "expected `:`");
         p.bump();
         impl_type(p);
     } else {

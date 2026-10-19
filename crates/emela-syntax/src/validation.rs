@@ -6,6 +6,7 @@
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
 //! - Check the arguments of `@external` (spec 12.1, 12.3).
+//! - Report the old impl and handler heads with the head to write instead (E0144, E0145).
 
 use rowan::TextRange;
 
@@ -74,6 +75,31 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                     name_or(node),
                     DiagnosticCode::EmptyEnum,
                     "an enum needs at least one variant",
+                );
+            }
+        }
+        IMPL_DECL => {
+            if let Some((range, head)) = crate::rewrite::old_impl_head(node) {
+                let text = node.text().to_string();
+                let start = node.text_range().start();
+                let old =
+                    &text[usize::from(range.start() - start)..usize::from(range.end() - start)];
+                let old = old.split_whitespace().collect::<Vec<_>>().join(" ");
+                error(
+                    out,
+                    range,
+                    DiagnosticCode::OldImplHead,
+                    &format!("write `{head}` instead of `{old}`"),
+                );
+            }
+        }
+        HANDLER_DECL => {
+            if let Some((implements, _, head)) = crate::rewrite::old_handler_head(node) {
+                error(
+                    out,
+                    implements.text_range(),
+                    DiagnosticCode::OldHandlerHead,
+                    &format!("write `{head}` instead of `implements`"),
                 );
             }
         }

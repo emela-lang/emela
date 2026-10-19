@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/impl_heads.emel
 ---
-ROOT@0..352
+ROOT@0..453
   COMMENT@0..54 "# 前の形の impl と handler の頭（10.2，8.4）"
   NEWLINE@54..55 "\n"
   IMPL_DECL@55..100
@@ -238,8 +238,93 @@ ROOT@0..352
       WHITESPACE@349..350 " "
       R_BRACE@350..351 "}"
   NEWLINE@351..352 "\n"
-error[E0110]@65..68: expected `:`
-error[E0110]@105..106: expected type name
+  IMPL_DECL@352..384
+    IMPL_KW@352..356 "impl"
+    TYPE_PARAM_LIST@356..366
+      L_BRACK@356..357 "["
+      TYPE_PARAM@357..362
+        UPPER_NAME@357..358 "A"
+        COLON@358..359 ":"
+        WHITESPACE@359..360 " "
+        PATH@360..362
+          TYPE_NAME@360..362 "Eq"
+      COMMA@362..363 ","
+      WHITESPACE@363..364 " "
+      TYPE_PARAM@364..365
+        UPPER_NAME@364..365 "B"
+      R_BRACK@365..366 "]"
+    WHITESPACE@366..367 " "
+    IMPL_TYPE@367..377
+      PATH@367..371
+        TYPE_NAME@367..371 "Pair"
+      TYPE_PARAM_LIST@371..377
+        L_BRACK@371..372 "["
+        TYPE_PARAM@372..373
+          UPPER_NAME@372..373 "A"
+        COMMA@373..374 ","
+        WHITESPACE@374..375 " "
+        TYPE_PARAM@375..376
+          UPPER_NAME@375..376 "B"
+        R_BRACK@376..377 "]"
+    COLON@377..378 ":"
+    WHITESPACE@378..379 " "
+    PATH@379..381
+      TYPE_NAME@379..381 "Eq"
+    WHITESPACE@381..382 " "
+    ITEM_LIST@382..384
+      L_BRACE@382..383 "{"
+      R_BRACE@383..384 "}"
+  NEWLINE@384..385 "\n"
+  IMPL_DECL@385..418
+    IMPL_KW@385..389 "impl"
+    TYPE_PARAM_LIST@389..398
+      L_BRACK@389..390 "["
+      TYPE_PARAM@390..397
+        UPPER_NAME@390..391 "A"
+        COLON@391..392 ":"
+        WHITESPACE@392..393 " "
+        PATH@393..397
+          TYPE_NAME@393..397 "Show"
+      R_BRACK@397..398 "]"
+    WHITESPACE@398..399 " "
+    PATH@399..403
+      TYPE_NAME@399..403 "Show"
+    WHITESPACE@403..404 " "
+    LOWER_NAME@404..407 "for"
+    WHITESPACE@407..408 " "
+    IMPL_TYPE@408..415
+      PATH@408..412
+        TYPE_NAME@408..412 "List"
+      TYPE_PARAM_LIST@412..415
+        L_BRACK@412..413 "["
+        TYPE_PARAM@413..414
+          UPPER_NAME@413..414 "A"
+        R_BRACK@414..415 "]"
+    WHITESPACE@415..416 " "
+    ITEM_LIST@416..418
+      L_BRACE@416..417 "{"
+      R_BRACE@417..418 "}"
+  NEWLINE@418..419 "\n"
+  HANDLER_DECL@419..452
+    HANDLER_KW@419..426 "handler"
+    WHITESPACE@426..427 " "
+    TYPE_NAME@427..431 "Bare"
+    WHITESPACE@431..432 " "
+    LOWER_NAME@432..442 "implements"
+    WHITESPACE@442..443 " "
+    HANDLER_EFFECT@443..449
+      PATH@443..449
+        TYPE_NAME@443..449 "Logger"
+    WHITESPACE@449..450 " "
+    ITEM_LIST@450..452
+      L_BRACE@450..451 "{"
+      R_BRACE@451..452 "}"
+  NEWLINE@452..453 "\n"
+error[E0144]@55..73: write `impl User: Show` instead of `impl Show for User`
+error[E0144]@101..123: write `impl Box[A: Eq]: Eq` instead of `impl[A: Eq] Box[A]: Eq`
 error[E0110]@168..172: expected `:`
-error[E0110]@220..230: expected `:`
-error[E0110]@286..296: expected `:`
+error[E0145]@220..230: write `handler ConsoleLogger: Logger` instead of `implements`
+error[E0145]@286..296: write `handler Fixed(n: Int): State[Int]` instead of `implements`
+error[E0144]@352..381: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
+error[E0144]@385..415: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
+error[E0145]@432..442: write `handler Bare: Logger` instead of `implements`

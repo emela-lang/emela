@@ -63,7 +63,7 @@ override any of them. The groups are split by meaning:
 | `emelaException` | `fail` `escape` | `Exception` |
 | `emelaStatement` | `assert` | `Statement` |
 | `emelaSelf` | `self` `Self` | `Special` |
-| `emelaContextual` | `implements` `for` `fails` `derive` `init` `release` in their positions | `Keyword` |
+| `emelaContextual` | `fails` `derive` `init` `release` in their positions | `Keyword` |
 | `emelaReserved` | `as` and the words reserved for the future (`let` `return` ...) | `Error` |
 | `emelaAnnotation` | `@external` `@test` `@intrinsic` `@internal` `@deprecated` | `PreProc` |
 | `emelaComment` / `emelaDocComment` | `#` / `##` | `Comment` / `SpecialComment` |

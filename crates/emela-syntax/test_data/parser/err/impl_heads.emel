@@ -13,3 +13,6 @@ handler Fixed(n: Int) implements State[Int] {
   init { Fixed(n: 0) }
 }
 fn after() { 1 }
+impl[A: Eq, B] Pair[A, B]: Eq {}
+impl[A: Show] Show for List[A] {}
+handler Bare implements Logger {}

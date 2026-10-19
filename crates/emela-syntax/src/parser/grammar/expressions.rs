@@ -45,6 +45,17 @@ pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// The left side is parsed as an expression first, and rewrapped in BINDING if `:` or `=`
 /// follows.
 pub(crate) fn stmt(p: &mut Parser<'_>) {
+    // `let x = 1` and `var x = 1` (spec 3.3): report, skip the word and read the binding.
+    if let Some(word) = ["let", "var"].into_iter().find(|w| p.at_reserved(w)) {
+        p.error(
+            DiagnosticCode::LetBinding,
+            format!("Emela has no `{word}`: write `x = value`"),
+        );
+        bump_error(p);
+        if at_stmt_end(p) {
+            return;
+        }
+    }
     let Some(lhs) = expr(p) else { return };
     if !p.at(COLON) && !p.at(EQ) {
         return;
