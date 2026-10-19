@@ -396,3 +396,28 @@ fn a_derive_used_through_a_generic_type_counts() {
     let main = "type Point(x: Int) derive Eq\ntype Box[A](value: A) derive Eq\nfn main() -> Bool { Eq.eq(Box(value: Point(x: 1)), Box(value: Point(x: 2))) }\n";
     assert_eq!(diagnostics(main), Vec::<String>::new());
 }
+
+#[test]
+fn operators_and_interpolation_need_the_traits() {
+    // `==` needs Eq, comparisons Ord (but Float's are built in), interpolation Show (spec 10.3,
+    // 10.6). A function is none of them.
+    let main = format!(
+        "{POINT}fn f(x: Int) -> Int {{ x }}\nfn main() {{\n  p = Point(x: 1, y: 2)\n  a = \"#{{p}}\"\n  b = p == p\n  c = f == f\n  d = [1.0] < [2.0]\n  e = 1.0 < 2.0\n  g = p < p\n}}\n"
+    );
+    assert_eq!(
+        diagnostics(&main),
+        [
+            "E0326 type `Point` does not implement `Show` @ p",
+            "E0326 type `Point` does not implement `Eq` @ p == p",
+            "E0326 type `fn(Int) -> Int` does not implement `Eq` @ f == f",
+            "E0326 type `Float` does not implement `Ord` @ [1.0] < [2.0]",
+            "E0326 type `Point` does not implement `Ord` @ p < p",
+        ]
+    );
+}
+
+#[test]
+fn constraints_and_derives_give_the_operators() {
+    let main = "type Pt(x: Int)\n  derive Eq, Ord, Show\nfn big[A: Ord](x: A, y: A) -> Bool { x < y && x == y }\nfn say[A: Show](x: A) -> String { \"#{x}\" }\nfn main() {\n  p = Pt(x: 1)\n  a = \"#{p} #{[p]} #{(1, Some(p))}\"\n  b = p == p && [p] < [p] && big(p, p)\n}\n";
+    assert_clean(&[("/app/src/main.emel", main)]);
+}

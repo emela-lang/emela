@@ -4,6 +4,7 @@
 
 ## Made with constructors like `Duration.seconds(5)`.
 pub opaque type Duration(milliseconds: Int64)
+  derive Eq
 
 pub fn milliseconds(n: Int64) -> Duration {
   Duration(milliseconds: n)

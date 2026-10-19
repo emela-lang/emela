@@ -16,16 +16,9 @@ use std::collections::BTreeSet;
 
 use crate::intrinsics::Builtin;
 use crate::ir::{
-    Arm, BinOp, Callee, CtorRef, Expr, FnId, Lit, Local, Module, OpTy, Pat, StrPart, Type, TypeId,
+    Arm, BinOp, Callee, CtorRef, Expr, FnId, Lit, Local, Module, OpTy, Pat, PreludeTraits, StrPart,
+    Type, TypeId,
 };
-
-/// The IR functions of the Prelude's trait functions that were lowered.
-#[derive(Default)]
-pub(super) struct TraitFns {
-    pub eq: Option<FnId>,
-    pub compare: Option<FnId>,
-    pub show: Option<FnId>,
-}
 
 /// The primitive types with their operand types and names. Float is not Ord.
 const PRIMS: &[(TypeId, OpTy, &str)] = &[
@@ -37,7 +30,7 @@ const PRIMS: &[(TypeId, OpTy, &str)] = &[
 ];
 
 /// Adds the built-in impls of the lowered trait functions to `Module::dispatch`.
-pub(super) fn add(m: &mut Module, fns: &TraitFns) {
+pub(super) fn add(m: &mut Module, fns: &PreludeTraits) {
     let lengths: BTreeSet<usize> = m
         .types
         .iter()
@@ -104,7 +97,7 @@ impl Builder<'_> {
     fn register(&mut self, trait_fn: FnId, ty: TypeId, f: FnId) {
         if let Some(d) = self.m.dispatch.get_mut(&trait_fn) {
             d.impls.push((ty, f));
-            d.core.push(f);
+            d.structural.push(f);
         }
     }
 

@@ -530,6 +530,18 @@ impl<'a> Verifier<'a> {
                         self.sub_expect(Seg::Name("lhs"), lhs, *ty);
                         self.sub_expect(Seg::Name("rhs"), rhs, *ty);
                     }
+                    AssertCond::Shown {
+                        cond, ty, lhs, rhs, ..
+                    } => {
+                        self.mono(*ty, "assert");
+                        self.sub_expect(Seg::Name("cond"), cond, TypeId::BOOL);
+                        for (name, side) in [("lhs", lhs), ("rhs", rhs)] {
+                            if !matches!(side, Expr::Var(_)) {
+                                self.error(format!("an assert's shown {name} is not a variable"));
+                            }
+                            self.sub_expect(Seg::Name(name), side, *ty);
+                        }
+                    }
                     AssertCond::Bool(c) => self.sub_expect(Seg::Name("cond"), c, TypeId::BOOL),
                 }
                 TypeId::UNIT

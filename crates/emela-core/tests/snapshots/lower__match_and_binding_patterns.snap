@@ -145,11 +145,11 @@ export fn main() -> String {
   }
 }
 
-fn area(s%7: Shape) -> Float {
-  match s%7 {
-    Shape.Circle(r%8) -> ((r%8 *[Float] r%8) *[Float] 3.0)
-    Shape.Rect(width: w%9, height: _) if (w%9 >[Float] 10.0) -> 0.0
-    Shape.Rect(width: w%10, height: h%11) -> (w%10 *[Float] h%11)
+fn area(s%21: Shape) -> Float {
+  match s%21 {
+    Shape.Circle(r%22) -> ((r%22 *[Float] r%22) *[Float] 3.0)
+    Shape.Rect(width: w%23, height: _) if (w%23 >[Float] 10.0) -> 0.0
+    Shape.Rect(width: w%24, height: h%25) -> (w%24 *[Float] h%25)
     Shape.Empty -> 0.0
   }
 }
@@ -162,6 +162,68 @@ fn describe(xs%5: List[Int]) -> String {
       "single"
     } else {
       "many"
+    }
+  }
+}
+
+fn Eq.eq[A](self%7: A, other%8: A) -> Bool {
+  @panic("no impl of `Eq.eq`")
+}
+
+fn List.List: Eq.eq[A](self%13: List[A], other%14: List[A]) -> Bool {
+  List.eq_lists[A](self%13, other%14)
+}
+
+fn Option.Option: Eq.eq[A](self%9: Option[A], other%10: Option[A]) -> Bool {
+  match (self%9, other%10) {
+    (Option.Some(x%11), Option.Some(y%12)) -> Eq.eq[A](x%11, y%12)
+    (Option.None, Option.None) -> true
+    _ -> false
+  }
+}
+
+fn List.eq_lists[A](xs%15: List[A], ys%16: List[A]) -> Bool {
+  loop(xs%44: List[A] = xs%15, ys%45: List[A] = ys%16) {
+    match (xs%44, ys%45) {
+      ([], []) -> true
+      ([x%17, ..xs_rest%18], [y%19, ..ys_rest%20]) -> if Eq.eq[A](x%17, y%19) {
+        recur(xs_rest%18, ys_rest%20)
+      } else {
+        false
+      }
+      _ -> false
+    }
+  }
+}
+
+fn Int: Eq.eq(self%26: Int, other%27: Int) -> Bool {
+  (self%26 ==[Int] other%27)
+}
+
+fn Int64: Eq.eq(self%28: Int64, other%29: Int64) -> Bool {
+  (self%28 ==[Int64] other%29)
+}
+
+fn Float: Eq.eq(self%30: Float, other%31: Float) -> Bool {
+  (self%30 ==[Float] other%31)
+}
+
+fn Bool: Eq.eq(self%32: Bool, other%33: Bool) -> Bool {
+  (self%32 ==[Bool] other%33)
+}
+
+fn String: Eq.eq(self%34: String, other%35: String) -> Bool {
+  (self%34 ==[String] other%35)
+}
+
+fn (): Eq.eq(self%36: (), other%37: ()) -> Bool {
+  true
+}
+
+fn (A, B): Eq.eq[A, B](self%38: (A, B), other%39: (A, B)) -> Bool {
+  match self%38 {
+    (a0%40, a1%41) -> match other%39 {
+      (b0%42, b1%43) -> (Eq.eq[A](a0%40, b0%42) &&[Bool] Eq.eq[B](a1%41, b1%43))
     }
   }
 }

@@ -636,15 +636,27 @@ fn main() {
 
 #[test]
 fn errors_are_values_and_escape_recovers() {
-    // Error values are ordinary values, shown by interpolation and dbg (spec 7.1, 10.6). An error
-    // caught by escape becomes a normal value, and an uncaught one propagates. Errors inside arms
-    // propagate too (spec 7.3, 14.3).
+    // Error values are ordinary values, shown by interpolation through Show and by dbg (spec 7.1,
+    // 10.6). An error caught by escape becomes a normal value, and an uncaught one propagates.
+    // Errors inside arms propagate too (spec 7.3, 14.3).
     let output = run_source(
         "lower-escape",
         "\
 error NotFound(id: Int)
 error DbError(message: String)
 error Unavailable(reason: String)
+
+impl NotFound: Show {
+  fn show(self) { \"NotFound(id: #{self.id})\" }
+}
+
+impl NotFound: Eq {
+  fn eq(self, other) { self.id == other.id }
+}
+
+impl DbError: Show {
+  fn show(self) { \"DbError(message: \\\"#{self.message}\\\")\" }
+}
 
 fn load(id: Int) -> String fails NotFound | DbError {
   if id < 0 { fail DbError(message: \"down\") } else if id == 0 { fail NotFound(id:) } else { \"user #{id}\" }

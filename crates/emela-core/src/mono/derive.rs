@@ -12,8 +12,6 @@
 //! - Derived Show writes the value as constructed in source (`Circle(radius: 1.0)`): a String
 //!   field is quoted (`Builtin::ShowString`).
 
-use rustc_hash::FxHashSet;
-
 use super::{Mono, Subst, Target};
 use crate::Builtin;
 use crate::dump::type_name;
@@ -102,14 +100,14 @@ impl Mono<'_> {
     pub(super) fn define_derived(&mut self, d: DerivedSpec) {
         let params = self.out.functions[d.new].params.clone();
         let body = match d.op {
-            DeriveOp::Eq if self.structural(d.trait_fn, d.ty) => Expr::Binary {
+            DeriveOp::Eq if self.structural(d.trait_fn, d.ty, &mut Vec::new()) => Expr::Binary {
                 op: BinOp::Eq,
                 ty: OpTy::Structural,
                 lhs: Box::new(Expr::Var(params[0])),
                 rhs: Box::new(Expr::Var(params[1])),
             },
             DeriveOp::Eq => self.eq_enum(d.trait_fn, d.ty, params[0], params[1]),
-            DeriveOp::Show if self.structural(d.trait_fn, d.ty) => {
+            DeriveOp::Show if self.structural(d.trait_fn, d.ty, &mut Vec::new()) => {
                 Expr::Concat(vec![StrPart::Value(Expr::Var(params[0]), d.ty)])
             }
             DeriveOp::Show => self.show_enum(d.trait_fn, d.ty, params[0]),
@@ -126,66 +124,6 @@ impl Mono<'_> {
             }
         };
         self.out.functions[d.new].body = body;
-    }
-
-    // ---- Whether the structure will do ----
-
-    /// Whether values of `ty` reach no written impl of the trait of `f`, so that comparing or
-    /// showing their structure gives what the impls would (spec 10.6).
-    fn structural(&mut self, f: FnId, ty: TypeId) -> bool {
-        self.structural_in(f, ty, &mut FxHashSet::default())
-    }
-
-    fn structural_in(&mut self, f: FnId, ty: TypeId, seen: &mut FxHashSet<TypeId>) -> bool {
-        if self.has_written_impl(f, ty) {
-            return false;
-        }
-        match self.out.ty(ty).clone() {
-            Type::Int
-            | Type::Int64
-            | Type::Float
-            | Type::Bool
-            | Type::String
-            | Type::Unit
-            | Type::Never => true,
-            Type::List(t) => self.structural_in(f, t, seen),
-            Type::Tuple(ts) => ts.into_iter().all(|t| self.structural_in(f, t, seen)),
-            Type::Enum(id, args) => {
-                // A recursive type is as structural as its other fields.
-                if !seen.insert(ty) {
-                    return true;
-                }
-                let fields: Vec<TypeId> = self.out.enums[id]
-                    .variants
-                    .iter()
-                    .flat_map(|v| v.tys.clone())
-                    .collect();
-                fields.into_iter().all(|t| {
-                    let t = self.field_ty(t, &args);
-                    self.structural_in(f, t, seen)
-                })
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether the dispatch of `f` has a written impl for `ty`'s head. The impls of core are not
-    /// counted: they agree with the structure.
-    fn has_written_impl(&self, f: FnId, ty: TypeId) -> bool {
-        let Some(dispatch) = self.m.dispatch.get(&f) else {
-            return false;
-        };
-        let actual = self.out.ty(ty);
-        dispatch
-            .impls
-            .iter()
-            .filter(|(_, impl_fn)| !dispatch.core.contains(impl_fn))
-            .any(|&(pattern, _)| match (self.m.ty(pattern), actual) {
-                (Type::Enum(a, _), Type::Enum(b, _)) => a == b,
-                (Type::List(_), Type::List(_)) => true,
-                (Type::Tuple(a), Type::Tuple(b)) => a.len() == b.len(),
-                (p, a) => p == a,
-            })
     }
 
     /// A field's type (of an enum definition, with its type parameters) for the type arguments
@@ -296,7 +234,7 @@ impl Mono<'_> {
         match self.out.ty(ty).clone() {
             Type::Unit | Type::Never => Expr::Lit(Lit::Bool(true)),
             t if prim_op(&t).is_some() => bin(prim_op(&t).expect("checked")),
-            _ if self.structural(f, ty) => bin(OpTy::Structural),
+            _ if self.structural(f, ty, &mut Vec::new()) => bin(OpTy::Structural),
             Type::Tuple(ts) => {
                 let xs = self.binds("x", &ts);
                 let ys = self.binds("y", &ts);
@@ -368,7 +306,7 @@ impl Mono<'_> {
                 },
                 TypeId::STRING,
             ),
-            _ if self.structural(f, ty) => StrPart::Value(Expr::Var(x), ty),
+            _ if self.structural(f, ty, &mut Vec::new()) => StrPart::Value(Expr::Var(x), ty),
             Type::Tuple(ts) => {
                 let xs = self.binds("x", &ts);
                 let mut parts = Parts::default();

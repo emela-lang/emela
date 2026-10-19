@@ -34,8 +34,16 @@ pub struct Module {
     /// its first type argument; [`crate::mono`] replaces it with a direct call of the impl
     /// function for that type (no dictionary passing). Empty after monomorphization.
     pub dispatch: FxHashMap<FnId, Dispatch>,
-    /// The Prelude's `Show.show`, if lowered. [`crate::mono`] replaces `Builtin::ShowNested` of a
-    /// type other than String with a call of it.
+    /// The Prelude's trait functions, if lowered. [`crate::mono`] calls them where `==`,
+    /// interpolation and `Builtin::ShowNested` cannot use the structure (spec 10.6).
+    pub traits: PreludeTraits,
+}
+
+/// The IR functions of the Prelude's trait functions ([`Module::traits`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PreludeTraits {
+    pub eq: Option<FnId>,
+    pub compare: Option<FnId>,
     pub show: Option<FnId>,
 }
 
@@ -46,13 +54,12 @@ pub struct Dispatch {
     /// impl function. The impl function's type parameters are the impl's, then the trait
     /// function's own (all but `Self`).
     pub impls: Vec<(TypeId, FnId)>,
-    /// The impl functions of `impls` that the compiler and the bundled core provide (the basic
-    /// types, tuples, `List`, `Option`). Their Eq and Show agree with the value's structure
-    /// (spec 10.6), so derived impls may compare and show the structure instead.
-    pub core: Vec<FnId>,
     /// The trait function has a default implementation: its own body, used for types whose impl
     /// does not define the function.
     pub default: bool,
+    /// Impl functions that give what the structural operation gives (`==` by `OpTy::Structural`,
+    /// interpolation's show): the impls of the compiler and of core (spec 10.6).
+    pub structural: Vec<FnId>,
     /// For the functions of the derivable traits (`Eq.eq`, `Ord.compare`, `Show.show`), which
     /// one, and the enums that derive the trait (spec 10.5). [`crate::mono`] generates their
     /// impl functions per type.
@@ -1264,6 +1271,11 @@ impl Expr {
                     f(lhs);
                     f(rhs);
                 }
+                AssertCond::Shown { cond, lhs, rhs, .. } => {
+                    f(cond);
+                    f(lhs);
+                    f(rhs);
+                }
                 AssertCond::Bool(e) => f(e),
             },
             Expr::Provide { base, bindings } => {
@@ -1475,6 +1487,17 @@ pub enum AssertCond {
         lhs: Expr,
         rhs: Expr,
     },
+    /// A comparison decided by `cond`, which calls an impl (`Eq.eq`, `Ord.compare`, spec 10.3).
+    /// `lhs` and `rhs` are the sides, already evaluated into variables (`Expr::Var`) before the
+    /// assert, so evaluating them again has no effect; if `cond` is false, both are shown as with
+    /// `Compare`. `op` is the comparison written in the source, for the message.
+    Shown {
+        cond: Expr,
+        op: BinOp,
+        ty: TypeId,
+        lhs: Expr,
+        rhs: Expr,
+    },
     /// Not a comparison; only the expression's value is checked.
     Bool(Expr),
 }
@@ -1502,10 +1525,46 @@ impl Assert {
         }))
     }
 
+    /// A comparison decided by `cond` ([`AssertCond::Shown`]): `let a = lhs; let b = rhs;
+    /// assert(cond)`, showing `a` and `b` if it fails. `cond` refers to `a` and `b`.
+    pub fn shown(
+        cond: Expr,
+        op: BinOp,
+        ty: TypeId,
+        (a, lhs): (Local, Expr),
+        (b, rhs): (Local, Expr),
+        text: &str,
+    ) -> Expr {
+        let assert = Expr::Assert(Box::new(Assert {
+            cond: AssertCond::Shown {
+                cond,
+                op,
+                ty,
+                lhs: Expr::Var(a),
+                rhs: Expr::Var(b),
+            },
+            text: text.to_owned(),
+        }));
+        Expr::Let {
+            var: a,
+            value: Box::new(lhs),
+            body: Box::new(Expr::Let {
+                var: b,
+                value: Box::new(rhs),
+                body: Box::new(assert),
+            }),
+        }
+    }
+
     /// Applies `f` to subexpressions in evaluation order.
     pub fn for_each_operand_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
         match &mut self.cond {
             AssertCond::Compare { lhs, rhs, .. } => {
+                f(lhs);
+                f(rhs);
+            }
+            AssertCond::Shown { cond, lhs, rhs, .. } => {
+                f(cond);
                 f(lhs);
                 f(rhs);
             }

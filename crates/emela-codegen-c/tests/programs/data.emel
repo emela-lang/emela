@@ -8,15 +8,19 @@ enum Shape {
   Group(List[Shape])
   Empty
 }
+  derive Show
 
 enum Color { Red, Green, Blue }
+  derive Eq, Show
 
 type Point(x: Int, y: Int)
+  derive Eq, Show
 
 enum Tree {
   Leaf
   Node(Tree, Int, Tree)
 }
+  derive Show
 
 fn area(s: Shape) -> Float {
   s match {

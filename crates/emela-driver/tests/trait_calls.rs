@@ -277,3 +277,98 @@ fn main() {
         "\"Bag(items: [1, 2], tag: Some(\\\"x\\\"))\"\nLess\nLess\nTrue\n"
     );
 }
+
+const OPERATORS: &str = r##"
+type User(name: String)
+type Pt(x: Int, y: Int)
+  derive Eq, Show
+type Ver(major: Int)
+
+impl User: Show {
+  fn show(self) { "<#{self.name}>" }
+}
+
+impl User: Eq {
+  fn eq(self, other) { True }
+}
+
+impl Ver: Eq {
+  fn eq(self, other) { self.major == other.major }
+}
+
+impl Ver: Ord {
+  fn compare(self, other) { Ord.compare(self.major, other.major) }
+}
+
+fn biggest[A: Ord](x: A, y: A) -> A { if x < y { y } else { x } }
+fn say[A: Show](x: A) -> String { "it is #{x}" }
+
+fn main() {
+  u = User(name: "ann")
+  dbg("#{u} #{[u]} #{(u, 1)} #{Some(u)}")
+  dbg("#{Pt(x: 1, y: 2)} #{[Pt(x: 1, y: 2)]}")
+  dbg(u == User(name: "bob"))
+  dbg([u] != [User(name: "bob")])
+  dbg(Pt(x: 1, y: 2) == Pt(x: 1, y: 2))
+  dbg(Ver(major: 1) < Ver(major: 2))
+  dbg(Ver(major: 3) >= Ver(major: 2))
+  dbg([1, 2] < [1, 3])
+  dbg((1, "b") > (1, "a"))
+  dbg(biggest(Ver(major: 1), Ver(major: 5)).major)
+  dbg(biggest("a", "b"))
+  dbg(say(u))
+  dbg(say("x"))
+  dbg(1.5 < 2.0)
+  assert u == User(name: "x")
+}
+"##;
+
+#[test]
+fn operators_and_interpolation_go_through_the_impls() {
+    // Values with impls written in source go through them; the rest keeps the structure
+    // (spec 10.3, 10.6).
+    assert_eq!(
+        stderr_of("operators", OPERATORS),
+        "\"<ann> [<ann>] (<ann>, 1) Some(<ann>)\"\n\"Pt(x: 1, y: 2) [Pt(x: 1, y: 2)]\"\n\
+         True\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\n5\n\"b\"\n\"it is <ann>\"\n\"it is x\"\nTrue\n"
+    );
+}
+
+#[test]
+fn an_assert_through_an_impl_shows_both_sides() {
+    // `==` and `<` through impls still show both sides with inspect (spec 13.2).
+    let main = r##"
+type Ver(major: Int, note: String)
+
+impl Ver: Eq {
+  fn eq(self, other) { self.major == other.major }
+}
+
+impl Ver: Ord {
+  fn compare(self, other) { Ord.compare(self.major, other.major) }
+}
+
+fn main() {
+  assert Ver(major: 1, note: "a") == Ver(major: 1, note: "b")
+  assert [Ver(major: 1, note: "a")] < [Ver(major: 2, note: "b")]
+  assert [Ver(major: 1, note: "a")] != [Ver(major: 1, note: "b")]
+}
+"##;
+    let expected = "defect: assertion failed: [Ver(major: 1, note: \"a\")] != [Ver(major: 1, note: \"b\")]\n  left: [Ver(major: 1, note: \"a\")]\n right: [Ver(major: 1, note: \"b\")]\n";
+    let targets: &[Target] = if c_backend().is_some() {
+        &[Target::Js, Target::C]
+    } else {
+        &[Target::Js]
+    };
+    for &target in targets {
+        let (analysis, output) = run_on("assert", main, target);
+        assert!(analysis.diagnostics.is_empty(), "{target}");
+        let output = output.expect("the program ran");
+        assert_ne!(output.code, 0, "{target}");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            expected,
+            "{target}"
+        );
+    }
+}

@@ -927,10 +927,9 @@ impl<'a> BodyInfer<'a> {
             ExprKind::Interpolated(parts) => {
                 for part in parts {
                     if let StrPart::Interp(expr) = part {
-                        // Whether it satisfies Show is checked in the trait stage.
                         let ty = self.infer_expr(*expr);
-                        let span = self.program.exprs[*expr].span;
-                        self.note_trait_use(ty, "Show", span);
+                        let span = program.exprs[*expr].span;
+                        self.require_prelude_trait(&ty, "Show", span);
                     }
                 }
                 Ty::STRING
@@ -1176,25 +1175,25 @@ impl<'a> BodyInfer<'a> {
                     trait_def,
                     span,
                     owner: self.current,
-                    report: true,
+                    float_ok: false,
                 });
             }
         }
     }
 
-    /// Remembers that an operator or an interpolation uses the Prelude's trait `name` for `ty`.
-    /// Only counts the derived impls it reaches as used (W0303): whether `ty` satisfies the
-    /// trait is not checked here yet.
-    fn note_trait_use(&mut self, ty: Ty, name: &str, span: Span) {
-        if let Some(trait_def) = self.program.prelude_def(name) {
-            self.trait_obligations.push(TraitObligation {
-                ty,
-                trait_def,
-                span,
-                owner: self.current,
-                report: false,
-            });
-        }
+    /// Remembers that `ty` must satisfy the Prelude's trait `name` at `span`: the operand of
+    /// `==` (Eq) or a comparison (Ord, Float aside), or an interpolated value (Show) (spec 10.3).
+    fn require_prelude_trait(&mut self, ty: &Ty, name: &str, span: Span) {
+        let Some(trait_def) = self.program.prelude_def(name) else {
+            return;
+        };
+        self.trait_obligations.push(TraitObligation {
+            ty: ty.clone(),
+            trait_def,
+            span,
+            owner: self.current,
+            float_ok: name == "Ord",
+        });
     }
 
     /// Remembers the `Self` of a trait function whose parameters do not mention `Self`
@@ -1246,12 +1245,19 @@ impl<'a> BodyInfer<'a> {
         let program = self.program;
         for o in std::mem::take(&mut self.trait_obligations) {
             let ty = self.ctx.resolve(&o.ty);
+            if o.float_ok && ty == Ty::FLOAT {
+                continue;
+            }
             let env = o.owner.map(|d| self.def_params(d)).unwrap_or_default();
             if let Err(e) = self
                 .traits
                 .satisfies(program, self.ty_table, &ty, o.trait_def, &env)
-                && o.report
             {
+                // Unsolved sets (`fails ?e1`) of a function type say nothing here.
+                let e = crate::traits::Unsatisfied {
+                    ty: without_set_vars(&e.ty),
+                    ..e
+                };
                 self.diags.push(Diagnostic {
                     span: Some(o.span),
                     kind: crate::traits::not_implemented(program, self.ty_table, &e, &env),
@@ -1389,8 +1395,8 @@ impl<'a> BodyInfer<'a> {
                 self.require_numeric(&ty, span);
                 ty
             }
-            // Comparison: both sides have the same type. Eq and Ord are checked in the trait
-            // stage.
+            // Comparison: both sides have the same type, which satisfies Eq (`==`, `!=`) or Ord
+            // (spec 10.3). Float's ordering operators are built in (spec 10.6).
             BinaryOp::Eq
             | BinaryOp::Ne
             | BinaryOp::Lt
@@ -1399,11 +1405,12 @@ impl<'a> BodyInfer<'a> {
             | BinaryOp::Ge => {
                 let ty = self.infer_expr(lhs);
                 self.check_expr(rhs, &ty);
-                let name = match op {
-                    BinaryOp::Eq | BinaryOp::Ne => "Eq",
-                    _ => "Ord",
+                let name = if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
+                    "Eq"
+                } else {
+                    "Ord"
                 };
-                self.note_trait_use(ty, name, span);
+                self.require_prelude_trait(&ty, name, span);
                 Ty::BOOL
             }
             // Logical: both sides are Bool.
@@ -2316,6 +2323,23 @@ struct ImmediateObligation {
 
 /// A type that must satisfy a trait: the instantiation of a constrained type parameter at a
 /// reference (`[A: Ord]`, spec 10.3).
+/// `ty` with the set variables left out of its function types' E and R, for messages.
+fn without_set_vars(ty: &Ty) -> Ty {
+    let ty = ty.map_children(without_set_vars);
+    match ty {
+        Ty::Fn(mut f) => {
+            let keep = |e: &RowElem| match e {
+                RowElem::Var(_) => Row::empty(),
+                e => Row::from_elems([e.clone()]),
+            };
+            f.fails = f.fails.flat_map(keep);
+            f.uses = f.uses.flat_map(keep);
+            Ty::Fn(f)
+        }
+        ty => ty,
+    }
+}
+
 struct TraitObligation {
     ty: Ty,
     trait_def: DefId,
@@ -2324,9 +2348,9 @@ struct TraitObligation {
     /// The definition whose body has the reference; `Ty::Bound(i)` in `ty` is its type
     /// parameter.
     owner: Option<DefId>,
-    /// Whether to report E0326. Uses noted by [`BodyInfer::note_trait_use`] only count derived
-    /// impls as used.
-    report: bool,
+    /// A Float passes: the operand of a comparison, which is the built-in IEEE 754 operator on
+    /// Float rather than Ord (spec 10.6).
+    float_ok: bool,
 }
 
 /// The `Self` of a trait function determined only by its result type (E0333).

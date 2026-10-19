@@ -190,10 +190,10 @@ fn build_reports_unsupported_expressions() {
         "unsupported",
         &[
             ("Pome.toml", ""),
-            // Function values cannot be shown (spec 10.6).
+            // Capability values cannot be shown.
             (
                 "src/main.emel",
-                "fn main() {\n  x = fn() { 1 }\n  dbg(\"#{x}\")\n}\n",
+                "import Std.Console.{Console, SystemConsole}\n\nfn main() {\n  with SystemConsole {\n    c = use Console\n    dbg(\"#{c}\")\n  }\n}\n",
             ),
         ],
     );
@@ -202,7 +202,7 @@ fn build_reports_unsupported_expressions() {
         assert_eq!(run.code, Some(1), "{command}");
         assert!(
             run.stderr
-                .starts_with("error: not supported yet: showing a function\n"),
+                .starts_with("error: not supported yet: showing a capability value\n"),
             "{command}: {}",
             run.stderr
         );

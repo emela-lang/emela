@@ -967,6 +967,18 @@ impl<'a> Mono<'a> {
                 scrutinee: Box::new(self.expr(scrutinee)),
                 arms: self.arms(arms),
             },
+            Expr::Binary {
+                op: op @ (BinOp::Eq | BinOp::Ne),
+                ty: OpTy::Structural,
+                lhs,
+                rhs,
+            } => {
+                let t = self.typer.type_of(lhs);
+                let t = self.import(t);
+                let t = self.ty(t);
+                let (a, b) = (self.expr(lhs), self.expr(rhs));
+                self.structural_eq(*op, t, a, b)
+            }
             Expr::Binary { op, ty, lhs, rhs } => Expr::Binary {
                 op: *op,
                 ty: *ty,
@@ -1017,7 +1029,11 @@ impl<'a> Mono<'a> {
                     .iter()
                     .map(|p| match p {
                         StrPart::Lit(s) => StrPart::Lit(s.clone()),
-                        StrPart::Value(v, ty) => StrPart::Value(self.expr(v), self.ty(*ty)),
+                        StrPart::Value(v, ty) => {
+                            let ty = self.ty(*ty);
+                            let v = self.expr(v);
+                            self.show_part(v, ty)
+                        }
                     })
                     .collect(),
             ),
@@ -1046,9 +1062,37 @@ impl<'a> Mono<'a> {
                         ty,
                         lhs,
                         rhs,
-                    } => AssertCond::Compare {
+                    } => {
+                        let ty = self.ty(*ty);
+                        let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
+                        if *op_ty == OpTy::Structural
+                            && let Some(eq) = self.m.traits.eq
+                            && !self.structural(eq, ty, &mut Vec::new())
+                        {
+                            // Through the impl: the sides are bound first and shown if it fails
+                            // (spec 13.2).
+                            let l = self.out.local("left", ty);
+                            let r = self.out.local("right", ty);
+                            let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
+                            return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
+                        }
+                        AssertCond::Compare {
+                            op: *op,
+                            op_ty: *op_ty,
+                            ty,
+                            lhs,
+                            rhs,
+                        }
+                    }
+                    AssertCond::Shown {
+                        cond,
+                        op,
+                        ty,
+                        lhs,
+                        rhs,
+                    } => AssertCond::Shown {
+                        cond: self.expr(cond),
                         op: *op,
-                        op_ty: *op_ty,
                         ty: self.ty(*ty),
                         lhs: self.expr(lhs),
                         rhs: self.expr(rhs),
@@ -1142,12 +1186,114 @@ impl<'a> Mono<'a> {
         }
     }
 
+    /// `a == b` (or `!=`) on values of type `ty`, compared by structure (`OpTy::Structural`) when
+    /// that gives what Eq gives, otherwise through `Eq.eq` (spec 10.3, 10.6). A non-structural
+    /// `op_ty` is kept as is.
+    fn structural_eq(&mut self, op: BinOp, ty: TypeId, a: Expr, b: Expr) -> Expr {
+        let binary = |a: Expr, b: Expr| Expr::Binary {
+            op,
+            ty: OpTy::Structural,
+            lhs: Box::new(a),
+            rhs: Box::new(b),
+        };
+        let Some(eq) = self.m.traits.eq else {
+            return binary(a, b);
+        };
+        if !matches!(op, BinOp::Eq | BinOp::Ne) || self.structural(eq, ty, &mut Vec::new()) {
+            return binary(a, b);
+        }
+        let call = self.trait_call(eq, ty, vec![a, b]);
+        if op == BinOp::Ne {
+            Expr::Unary {
+                op: UnOp::Not,
+                ty: OpTy::Bool,
+                operand: Box::new(call),
+            }
+        } else {
+            call
+        }
+    }
+
+    /// An interpolated value of type `ty`: shown by structure when that gives what Show gives,
+    /// otherwise through `Show.show` (spec 10.3, 10.6).
+    fn show_part(&mut self, v: Expr, ty: TypeId) -> StrPart {
+        if let Some(show) = self.m.traits.show
+            && !self.structural(show, ty, &mut Vec::new())
+        {
+            return StrPart::Value(self.trait_call(show, ty, vec![v]), TypeId::STRING);
+        }
+        StrPart::Value(v, ty)
+    }
+
+    /// A call of the Prelude's trait function `f` (pure, without the evidence table) for `Self` =
+    /// `ty`.
+    fn trait_call(&mut self, f: FnId, ty: TypeId, args: Vec<Expr>) -> Expr {
+        let t = self.target(f, &[ty]);
+        Expr::Call {
+            callee: Callee::Direct {
+                f: t.f,
+                ty_args: Vec::new(),
+            },
+            args,
+            fails: t.fails,
+            suspends: t.suspends,
+        }
+    }
+
+    /// Whether the trait function `f` (Eq.eq or Show.show) on `ty` gives what the structural
+    /// operation gives (spec 10.6: types whose impls are all derived may be compared and shown by
+    /// their structure). True for the impls the compiler and core provide
+    /// (`Dispatch::structural`) and for derived impls (`mono/derive.rs`), when every part is so
+    /// too. A type with an impl written in source is not. `seen` breaks cycles of
+    /// recursive types.
+    fn structural(&mut self, f: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
+        if seen.contains(&ty) {
+            return true;
+        }
+        let parts: Vec<TypeId> = match self.out.ty(ty).clone() {
+            Type::Int
+            | Type::Int64
+            | Type::Float
+            | Type::Bool
+            | Type::String
+            | Type::Unit
+            | Type::Never
+            | Type::Any => return true,
+            Type::List(t) => vec![t],
+            Type::Tuple(ts) => ts,
+            Type::Enum(id, args) => {
+                if self.out.enums[id].external {
+                    return false;
+                }
+                let mut parts = Vec::new();
+                for v in 0..self.out.enums[id].variants.len() {
+                    for t in self.out.enums[id].variants[v].tys.clone() {
+                        parts.push(self.out.types.subst(t, &args));
+                    }
+                }
+                parts
+            }
+            _ => return false,
+        };
+        if let Some(dispatch) = self.m.dispatch.get(&f)
+            && let Some((impl_fn, _)) = self.pick_impl(f, dispatch, &[ty])
+            && !dispatch.structural.contains(&impl_fn)
+        {
+            return false;
+        }
+        seen.push(ty);
+        let ok = parts.into_iter().all(|t| self.structural(f, t, seen));
+        seen.pop();
+        ok
+    }
+
     /// `String.show_nested(x)` (spec 10.6): `x` quoted for a String, otherwise `Show.show(x)`.
     fn show_nested(&mut self, ty_args: &'a [TypeId], args: &'a [Expr]) -> Expr {
         let ty = self.tys(ty_args)[0];
         let args = self.exprs(args);
         let show = self
             .m
+            .traits
             .show
             .expect("lowering lowers Show.show for show_nested");
         if ty == TypeId::STRING {

@@ -9,8 +9,8 @@
 - （補）`type` は構成子1つの enum として `EnumDef` に入れる．構成子とパターンのフィールドは定義順に並べ，パターンで省いた名前付きフィールドは `Pat::Wild` で埋める．フィールドの参照は名前でなく添字（`Expr::Field { index }`）で持つ．
 - （補）Bool は enum `True` / `False` だが，IR では `Lit::Bool` と `OpTy::Bool` の組み込みで持つ．パターンも `Pat::Lit(Lit::Bool(_))` で書く．
 - （補）`()` は `Lit::Unit`，`Expr::Tuple` は要素2つ以上だけに使う．
-- （補）二項演算と単項演算には対象の型（`OpTy`）を付ける．Int / Int64 / Float で意味が違うため．`==` / `!=` で基本型以外を比べるときは `OpTy::Structural`．順序比較の `Structural` は Trait（Ord）の段まで持たない．
-- （補）文字列の補間は `Expr::Concat` で，埋め込む値には IR の型 `Type` を付ける．バックエンドは型から表示関数を作る（Show の仮実装．Trait にするのは 0.21）．型は `Type::Param` を含まない具体的な型に限る．型引数の値を表示するには Show の辞書渡しか単相化が要るので，0.21 まで汎用の関数の中では表示できない．
+- （補）二項演算と単項演算には対象の型（`OpTy`）を付ける．Int / Int64 / Float で意味が違うため．`==` / `!=` で基本型以外を比べるときは `OpTy::Structural`（単相化が Eq の impl に替えることがある，下の「Trait の関数」）．順序比較は `Structural` を持たず，基本型以外は `Ord.compare` に脱糖する．
+- （補）文字列の補間は `Expr::Concat` で，埋め込む値には IR の型 `Type` を付ける．バックエンドは型から表示関数を作る（構造をたどる表示）．単相化の後の型は `Type::Param` を含まない．Show の impl を通すべき値は，単相化が `Show.show` の呼び出しに替えてから埋め込む（下の「Trait の関数」）．
 - （補）ラムダは捕捉する変数を IR に書かない．capture set は WASM の段で求める．
 - （補）名前付き引数は `named::in_written_order` で位置の順へ並べ替える．書かれた順と位置の順が食い違うときだけ，リテラル・変数・関数・ラムダ以外の引数を書かれた順に `let` で束縛する．呼び出し先が式のときに先に評価する責任は呼び出し側にある．
 - （補）自己末尾呼び出しのループ化は `Expr::Loop` / `Expr::Recur` を作る．ターゲットに依らないので `lower` の最後に1回かけ，どのバックエンドもループ化済みの IR を受け取る．ループの変数は引数とは別の新しい `Local` にして回ごとに束縛し，ラムダが捕捉した値が後の回に書き換わらないようにする．
@@ -104,7 +104,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
 - （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
-- （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` は構造の比較で使える．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．補間も今は同じ表示で，Show を Trait にする 0.24 で derive か impl を求める．
+- （補）大小比較の演算子は Ord の段（Trait）まで opaque な型に使えないので，`compare` を関数で持つ．`==` が使えるよう `derive Eq` を付けた（#332 で `==` が Eq を求めるようになったため．Ord と Show は #337 で決める）．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
 - （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
 ## Random（`std/random.emel`，`std/random.mjs`）
@@ -194,10 +194,10 @@ alpha.4 の第2段（#183）で宣言を置き，第3段の後半（2026-10-12�
 - （補）`@intrinsic` の fn の呼び出しは `Expr::Builtin` にする．型引数は `ProgramTypes::type_args` から引く．`@intrinsic` の fn とフィールドのある構成子を値として使うとき（`List.map(xs, String.length)`，`List.map(xs, Some)`）は，それを呼ぶだけのラムダで包む（`fn(x) { Some(x) }`）．引数の数は参照の式の型（関数型）から取る．
 - （補）ブロックの文は `let` の入れ子にする．値を使わない文と `_ = e` は，捨てる用の新しい局所変数（`_`）に束縛する．変数と `_` でないパターンの束縛（`(a, b) = pair`）は腕1つの match にして，残りの文を腕の本体に入れる．必ず成功することは型検査が確かめてある（E0317）．
 - （補）パターンの `True` / `False` は `Pat::Lit(Lit::Bool)`，`()` は `Pat::Lit(Lit::Unit)`．構成子のパターンのフィールドは `ProgramTypes::pat_fields`（位置の順，省いたものは `None`）から引き，`None` を `Pat::Wild` で埋める．括弧のない構成子のパターン（`Empty`）は表にないので，フィールドの数だけ `Wild` を並べる．const のパターンは腕のガードにする（下の項）．
-- （補）演算子の `OpTy` は左辺の型から決める．`==` / `!=` で基本型でなければ `Structural`．大小比較で基本型でなければ（Ord）`Unsupported`．
+- （補）演算子の `OpTy` は左辺の型から決める．`==` / `!=` で基本型でなければ `Structural`．大小比較で基本型（Int，Int64，Float，String，Bool）でなければ `Ord.compare(a, b) match { Less -> True, _ -> False }` の形にする（`<=` は `Greater -> False`，`>` は `Greater -> True`，`>=` は `Less -> False`）．
 - （補）フィールドの参照は，値の型（type か error．構成子は1つ）の構成子と，型検査が引いた添字（`ProgramTypes::fields`）で `Expr::Field` にする．表にないフィールドの参照は能力の操作（`log.info`，`ProgramTypes::ops`）で，下の「エフェクト」の節．
 - （補）部分更新 `C(f: e, ..base)` は，書いたフィールドを書かれた順に評価して（リテラル・変数・関数・ラムダ以外は `let` で束縛して），`..base` を最後に評価して束縛する（14.1）．書いていないフィールドは `base` の `Expr::Field` で埋めて `Expr::Ctor` を作る．
-- （補）補間は `Expr::Concat` にし，埋め込む値に IR の型を付ける．型引数は単相化が置き換える．型が関数を含むと `Unsupported`（関数は Show を満たさない（10.6）が，Show の検査は Trait の段まで型検査にない）．
+- （補）補間は `Expr::Concat` にし，埋め込む値に IR の型を付ける．関数を含む型は表示できないので `Unsupported`（型検査が Show を求めるので，ふつうは届かない）．型引数は単相化が置き換える．
 - （補）const は引数のない関数にして，参照のたびに呼ぶ（`LIMIT` → `LIMIT()`）．関数に `Function::constant` の印を付け，出力段が最初の呼び出しで1回だけ本体を評価して値を覚える（5.6）．使う場所に式を埋め込まないのは，const の式の中の局所変数を2回束縛することになるため．const は export しない．
 - （補）const のパターンは新しい変数で受け，`x == LIMIT()` を腕のガードにする．構成子の中など入れ子の const のパターンも同じで，比較は書いたガードより先に評価する（`&&` でつなぐ）．`OpTy` はパターンの型が基本型ならその型，そうでなければ `Structural`．
 - （補）`assert` は，式が比較なら `Assert::compare`（両辺の値を inspect の表示で出す．13.2），それ以外は `Assert::bool`．表示は Show を求めないので，型引数（単相化が置き換える）や関数（`<fn>`）を含んでも `Assert::compare` にする．能力の値を含むときだけ `Assert::bool` に落とす（基本型でない値の大小比較は，式の側で `Unsupported` になる）．`text` はソースから切り出した式の字面．
@@ -360,12 +360,15 @@ alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の I
 - （補）単相化の `Mono::target` は `dispatch` を引き，`Self`（最初の型引数）に impl の型を当てはめて impl の型引数を求め，impl の fn の写しにする．型引数は impl のもの，続いて Trait の関数自身のもの（`Self` を除く）．impl がその関数を定義しなければ既定の実装を `Self` ごとに写す（`Size.double[Point]`）．中の Trait の関数の呼び出しも同じく impl を選ぶ．impl の fn の中断用の写しのビットは，`Self` の1つ分を impl の型引数の数にずらす
 - （補）impl も既定の実装もない型は，Trait の関数の写しにして `Monomorphized::missing_impls` に足す．型検査が通した型には impl があるので，ここに来るのは型検査と食い違ったときだけ．lowering はそれを「まだ扱えない」（``not supported yet: `Show.show` for `P`, which has no impl``）にする．位置は持たない
 - （補）derive の impl（10.5，#333）．lowering は Eq.eq，Ord.compare，Show.show の `Dispatch::derived` に，その Trait を導出する enum を並べる（Bool は IR で `TypeId::BOOL` なので入らない）．単相化は手書きの impl がなく `Self` がそれらの enum なら，型ごとに impl の fn を作る（`mono/derive.rs`，名前は `Point: Eq.eq`）．本体は型が決まってから作る
-- （補）導出した Eq と Show は，値の型からたどれる型に手書きの impl が1つもなければ（core と組み込みの impl は構造と同じ結果なので数えない．`Dispatch::core`），値全体を構造で比べて表示する（`OpTy::Structural`，`StrPart::Value`．10.6 の「構造をたどる処理で実行してよい」）．手書きの impl がどこかにあれば構成子とフィールドごとに作る．基本型はその場で，タプルは分解して，ほかの型は Trait の関数を呼んで impl を選ぶ．Ord は構造の比較が backend にないので，いつもフィールドごとに作る（構成子の添字を先に比べ，同じならフィールドを前から辞書式に）．List と Option のフィールドは core の impl を呼ぶ
+- （補）導出した Eq と Show は，値の型からたどれる型に手書きの impl が1つもなければ（core と組み込みの impl は構造と同じ結果なので数えない．`Dispatch::structural`），値全体を構造で比べて表示する（`OpTy::Structural`，`StrPart::Value`．判定は `Mono::structural`．10.6 の「構造をたどる処理で実行してよい」）．手書きの impl がどこかにあれば構成子とフィールドごとに作る．基本型はその場で，タプルは分解して，ほかの型は Trait の関数を呼んで impl を選ぶ．Ord は構造の比較が backend にないので，いつもフィールドごとに作る（構成子の添字を先に比べ，同じならフィールドを前から辞書式に）．List と Option のフィールドは core の impl を呼ぶ
 - （補）導出した Show の中の String のフィールドは `Builtin::ShowString` で `"` で囲む（下の `show_nested` と同じ組み込み関数）
 - （補）基本型（`()` を含む）とタプルの Eq，Ord，Show の impl（10.6）は，lowering が全部の fn を下ろした後に IR の関数として作り，`Module::dispatch` に足す（`lower/builtin_impls.rs`）．ソースの impl と同じく単相化が選ぶ．タプルの impl は，モジュールの型の表にある長さごとに `($0, $1)` の形で作る．単相化は表の型を置き換えて型を作るだけなので，ほかの長さのタプルは Trait の関数に届かない．名前は `Int: Eq.eq`，`(A, B): Ord.compare`（利用者の型と重なれば `#2` を付ける）
 - （補）基本型の impl の中身: Eq は `==`（Float は IEEE 754），Ord は `==` と `<` から作る（Bool は `False < True`），Show は補間と同じ表示（String はそのまま）．タプルの Eq は要素ごとの `Eq.eq` の `&&`，Ord は前から `Ord.compare` して `Equal` なら次へ，Show は `(1, "a")`
 - （補）値の中の値の表示（10.6: String だけ `"` で囲む）は，`@internal` の組み込み関数 `String.show_nested[A: Show]` で書く．core の List と Option の Show の impl と，タプルの Show が使う．型で振る舞いが変わるので，単相化が置き換える: String なら内部の組み込み関数 `Builtin::ShowString`（JS の `$showString`，LIR の `RuntimeOp::ShowString`），それ以外は `Show.show` の impl の呼び出し．lowering は `show_nested` を下ろすときに `Show.show` も下ろし，`Module::show` に持つ．バックエンドに `ShowNested` は届かない
 - （補）List の Eq と Ord は，長いリストでスタックを使わないよう，自己末尾呼び出しの補助の fn（`eq_lists`，`compare_lists`）で書く．Trait の関数を通した再帰は自己末尾呼び出しにならない（ループ化は単相化の前）
+- （補）`==`，`!=`，補間と Trait（10.3，10.6，#332）．lowering は基本型以外の `==` を `OpTy::Structural` に，補間を今までどおり型付きの `StrPart::Value` にし，`Eq.eq` と `Show.show` を下ろしておく（`Module::traits`）．単相化は具体的な型を見て，構造をたどる処理で impl と同じ結果になる型ならそのまま残し，そうでなければ impl の呼び出しに替える（`!=` は `!Eq.eq(a, b)`）．同じ結果になるのは，基本型，`Any`，impl がコンパイラか core のもの（`Dispatch::structural`）か impl のない（derive だけの，#333 まで）型で，中の型がみな同じく満たすもの．ソースに書いた impl のある型は impl を通す．再帰する型は，たどっている途中の型を満たすとみなす
+- （補）`assert a == b` と大小比較の assert で impl を通すときは `AssertCond::Shown` にする．両辺を左から一時変数に束縛し，impl の呼び出し（`cond`）が False なら，構造の比較と同じく両辺を inspect の表示で出す（13.2）．単相化が `==` を impl に替えるときと，lowering が基本型以外の大小比較を `Ord.compare` にするときに作る．バックエンド（JS と LIR．C と WASM は LIR から）は `Compare` と同じ文面の defect にする
+- （補）大小比較の Float は組み込みの演算子のまま（IEEE 754，10.6）．型検査も Float の大小比較には Ord を求めない
 - （補）Option の Ord は `None < Some(_)`（Haskell の `Nothing < Just _` と同じ）．宣言の順（`Some`，`None`）で比べる導出した Ord とは逆になる．仕様は Option の順を書いていない
 - （補）enum は写さない．定義は汎用のまま，使う所が具体的な型引数を持つ（`Type::Enum(id, args)`）．低い IR の `repr_of` は外側の構成子だけで表現を決め，フィールドは `repr_of_subst` で型引数を置き換えて求めるので，定義を写す必要がない．フィールドの型の `Param` は enum の型引数を指すので，単相化の後も残る
 - （補）エフェクトは作り直す．出力には使ったエフェクトの具体化だけを，宣言の名前と（E と R を除いた）型引数ごとに 1 つずつ入れる．型引数に `Param` を含むエフェクト（`State[$modify.0]`）はその型引数の持ち主の関数の具体化で置き換え，同じ鍵の既存のもの（`State[Int]`）と同じエフェクトになる．汎用の関数を呼ぶときに足す鍵（`generic_ev`）は呼ばれる側のものなので，呼び出しの型引数で置き換える．置き換えた結果，足す鍵が足す値（同じ鍵で引いた値）と同じになったら足さない

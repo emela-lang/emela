@@ -463,6 +463,20 @@ impl Printer<'_> {
                         self.expr(rhs);
                         write!(self.out, ", ty: {}", self.ty(ty)).unwrap();
                     }
+                    AssertCond::Shown {
+                        cond,
+                        op,
+                        ty,
+                        lhs,
+                        rhs,
+                    } => {
+                        self.expr(cond);
+                        write!(self.out, ", shows ").unwrap();
+                        self.expr(lhs);
+                        write!(self.out, " {} ", bin_op(*op)).unwrap();
+                        self.expr(rhs);
+                        write!(self.out, ", ty: {}", self.ty(ty)).unwrap();
+                    }
                     AssertCond::Bool(e) => self.expr(e),
                 }
                 write!(self.out, ", text: {:?})", a.text).unwrap();
