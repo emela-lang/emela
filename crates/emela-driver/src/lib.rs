@@ -11,6 +11,7 @@ mod dependencies;
 pub use dependencies::check_dependency_targets;
 mod diagnostic;
 mod doc;
+mod documentation;
 mod fmt;
 mod frontend;
 mod hints;

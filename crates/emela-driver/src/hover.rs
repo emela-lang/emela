@@ -5,7 +5,7 @@
 //! (spec 9.3).
 
 use emela_resolve::hir::{DefId, ExprKind, Item, RefTarget, Res};
-use emela_types::{Row, TyParam};
+use emela_types::{Row, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
 use crate::frontend::TypedProgram;
@@ -36,6 +36,150 @@ pub struct HoverInfo {
 ///
 /// The innermost (shortest) one is chosen.
 pub(crate) fn hover(
+    program: &TypedProgram,
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Option<HoverInfo> {
+    let mut info = hover_type(program, analysis, file, offset);
+    let module = analysis.files.iter().find(|(_, f)| **f == file)?.0;
+    let hir = &program.hir;
+    let docs = crate::documentation::Documentation::default();
+    let target = hir
+        .refs
+        .iter()
+        .find_map(|r| match r.target {
+            RefTarget::Def(def) if r.span.module == module && r.span.range.contains(offset) => {
+                Some((def, r.span.range))
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            hir.defs.iter().find_map(|(def, data)| {
+                let span = data.span?;
+                (span.module == module && span.range.contains(offset)).then_some((def, span.range))
+            })
+        });
+    let mut doc = None;
+    if let Some((def, range)) = target {
+        // Types and traits do not have value signatures. Supply a declaration when there
+        // is no existing type display (for example, on a type annotation).
+        let kind = match hir.item(def) {
+            Some(Item::Type(_)) => Some("type"),
+            Some(Item::Enum(_)) => Some("enum"),
+            Some(Item::Trait(_)) => Some("trait"),
+            Some(Item::Effect(_)) if label_text(program, def).is_none() => Some("effect"),
+            _ => None,
+        };
+        if info.is_none()
+            && let Some(kind) = kind
+        {
+            info = Some(HoverInfo {
+                range,
+                contents: code(&format!("{kind} {}", hir.defs[def].name)),
+            });
+        }
+        if matches!(hir.item(def), Some(Item::Fn(_) | Item::TraitFn(_)))
+            && program.types.sigs.get(def).is_none()
+            && let Some(span) = hir.defs[def].span
+            && let Some(text) = crate::documentation::written_signature(analysis, span)
+        {
+            info = Some(HoverInfo {
+                range,
+                contents: code(&text),
+            });
+        }
+        doc = docs.definition(program, analysis, def);
+    }
+    // Handler and trait implementations have name spans but no definition IDs of their own.
+    for (def, _) in hir.defs.iter() {
+        let span = match hir.item(def) {
+            Some(Item::Handler(h)) => h
+                .ops
+                .iter()
+                .map(|op| op.name.span)
+                .find(|s| s.module == module && s.range.contains(offset)),
+            Some(Item::Impl(i)) => i
+                .fns
+                .iter()
+                .map(|f| f.name.span)
+                .find(|s| s.module == module && s.range.contains(offset)),
+            _ => None,
+        };
+        if let Some(span) = span {
+            if let Some(text) = crate::documentation::written_signature(analysis, span) {
+                info = Some(HoverInfo {
+                    range: span.range,
+                    contents: code(&text),
+                });
+            }
+            doc = docs.at(analysis, span);
+            break;
+        }
+    }
+    // Field declarations have no definition ID.
+    for (def, _) in hir.defs.iter() {
+        let Some(fields) = hir.item(def).and_then(crate::documentation::fields) else {
+            continue;
+        };
+        if let Some(field) = fields
+            .iter()
+            .find(|f| f.span.module == module && f.span.range.contains(offset))
+        {
+            if let Some(span) = hir.types[field.ty].span
+                && let Some(&source) = analysis.files.get(span.module)
+                && let Some(ty) = analysis.sources[source]
+                    .text()
+                    .get(usize::from(span.range.start())..usize::from(span.range.end()))
+            {
+                info = Some(HoverInfo {
+                    range: field.span.range,
+                    contents: code(&format!("{}: {ty}", field.name)),
+                });
+            }
+            doc = docs.at(analysis, field.span);
+            break;
+        }
+    }
+    // Capability operations and record projections are resolved by the type checker.
+    if let Some((expr, _, base, name)) = hir
+        .exprs
+        .iter()
+        .filter_map(|(id, e)| {
+            let ExprKind::Field { base, name } = &e.kind else {
+                return None;
+            };
+            (name.span.module == module && name.span.range.contains(offset))
+                .then_some((id, e, *base, name))
+        })
+        .min_by_key(|(_, e, _, _)| e.span.range.len())
+    {
+        if let Some(&op) = program.types.ops.get(expr) {
+            doc = docs.definition(program, analysis, op);
+        } else if let Some(Ty::Named(con, _)) = program.types.exprs.get(base) {
+            let owner = program.types.ty_table.def(*con);
+            doc = docs.field(program, analysis, owner, &name.name);
+        }
+    }
+    if info.is_none()
+        && let Some((range, text, comment)) =
+            crate::documentation::unnamed_doc(analysis, module, offset)
+    {
+        info = Some(HoverInfo {
+            range,
+            contents: code(&text),
+        });
+        doc = Some(comment);
+    }
+    let mut info = info?;
+    if let Some(doc) = doc {
+        info.contents.push_str("\n\n---\n\n");
+        info.contents.push_str(&doc);
+    }
+    Some(info)
+}
+
+fn hover_type(
     program: &TypedProgram,
     analysis: &Analysis,
     file: FileId,

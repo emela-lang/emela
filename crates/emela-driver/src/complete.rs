@@ -25,6 +25,8 @@ pub struct Completion {
     pub detail: Option<String>,
     /// Text inserted when chosen; `None` means `label`.
     pub insert_text: Option<String>,
+    /// The definition's `##` comment, as Markdown.
+    pub documentation: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,6 +80,7 @@ pub(crate) fn complete(
         analysis,
         module,
         text,
+        docs: crate::documentation::Documentation::default(),
     };
     // Before the partially typed name.
     let start = before.trim_end_matches(is_name_char).len();
@@ -98,11 +101,12 @@ pub(crate) fn complete(
             }),
             _ => {
                 // At the start of a call argument, offer labels not yet written first.
-                let mut items = labels(program, analysis, file, offset, start);
+                let mut items = labels(program, analysis, file, offset, start, &cx.docs);
                 items.extend(cx.in_scope(offset, |_| true));
                 items.extend(KEYWORDS.iter().map(|k| Completion {
                     label: (*k).to_owned(),
                     kind: CompletionKind::Keyword,
+                    documentation: None,
                     detail: None,
                     insert_text: None,
                 }));
@@ -125,6 +129,7 @@ fn labels(
     file: FileId,
     offset: TextSize,
     start: usize,
+    docs: &crate::documentation::Documentation,
 ) -> Vec<Completion> {
     let text = analysis.sources[file].text();
     let Some(call) = crate::signature::call_at(program, analysis, file, offset) else {
@@ -151,6 +156,7 @@ fn labels(
     // offered.
     let labels = crate::signature::without_piped(call.piped, &mut f.params, labels);
     let cons = &program.types.ty_table.cons;
+    let callee = crate::signature::callee_def(program, call.callee);
     labels
         .iter()
         .zip(&f.params)
@@ -159,6 +165,7 @@ fn labels(
             (!written.contains(&label)).then(|| Completion {
                 label: format!("{label}:"),
                 kind: CompletionKind::Label,
+                documentation: callee.and_then(|def| docs.field(program, analysis, def, label)),
                 detail: Some(ty.display_with(cons, &params).to_string()),
                 insert_text: Some(format!("{label}: ")),
             })
@@ -171,6 +178,7 @@ struct Context<'a> {
     analysis: &'a Analysis,
     module: ModuleId,
     text: &'a str,
+    docs: crate::documentation::Documentation,
 }
 
 impl Context<'_> {
@@ -205,6 +213,7 @@ impl Context<'_> {
                 Some(Completion {
                     label: segments[typed.len()].to_string(),
                     kind: CompletionKind::Module,
+                    documentation: None,
                     detail: Some(data.name.to_string()),
                     insert_text: None,
                 })
@@ -343,6 +352,7 @@ impl Context<'_> {
                     .map(|f| Completion {
                         label: f.name.to_string(),
                         kind: CompletionKind::Field,
+                        documentation: self.docs.field(self.program, self.analysis, def, &f.name),
                         detail: hir.types[f.ty].span.and_then(|s| self.source_text(s)),
                         insert_text: None,
                     })
@@ -425,6 +435,7 @@ impl Context<'_> {
                 items.push(Completion {
                     label: data.name.to_string(),
                     kind: CompletionKind::Local,
+                    documentation: None,
                     detail,
                     insert_text: None,
                 });
@@ -482,6 +493,7 @@ impl Context<'_> {
                 items.push(Completion {
                     label: name.last().to_string(),
                     kind: CompletionKind::Module,
+                    documentation: None,
                     detail: Some(name.to_string()),
                     insert_text: None,
                 });
@@ -517,6 +529,7 @@ impl Context<'_> {
             label: data.name.to_string(),
             kind,
             detail,
+            documentation: self.docs.definition(self.program, self.analysis, def),
             insert_text: None,
         })
     }

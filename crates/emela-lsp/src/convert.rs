@@ -132,10 +132,18 @@ pub fn completion_item(index: usize, item: &emela_driver::Completion) -> lsp::Co
         label: item.label.clone(),
         kind: Some(kind),
         detail: item.detail.clone(),
+        documentation: item.documentation.as_deref().map(documentation),
         sort_text: Some(format!("{index:05}")),
         insert_text: item.insert_text.clone(),
         ..lsp::CompletionItem::default()
     }
+}
+
+fn documentation(text: &str) -> lsp::Documentation {
+    lsp::Documentation::MarkupContent(lsp::MarkupContent {
+        kind: lsp::MarkupKind::Markdown,
+        value: text.to_owned(),
+    })
 }
 
 /// Parameter ranges are UTF-16 offsets into the label.
@@ -153,7 +161,7 @@ pub fn signature_help(info: &emela_driver::SignatureInfo) -> lsp::SignatureHelp 
     lsp::SignatureHelp {
         signatures: vec![lsp::SignatureInformation {
             label: info.label.clone(),
-            documentation: None,
+            documentation: info.documentation.as_deref().map(documentation),
             parameters: Some(parameters),
             active_parameter: active,
         }],
