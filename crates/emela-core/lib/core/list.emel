@@ -143,6 +143,131 @@ fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
   }
 }
 
+## The first `n` elements, or all of them if there are fewer. Empty if `n` is not positive.
+pub fn take[A](xs: List[A], n: Int) -> List[A] {
+  take_onto(xs, n, [])
+}
+
+fn take_onto[A](xs: List[A], n: Int, acc: List[A]) -> List[A] {
+  if n <= 0 {
+    reverse(acc)
+  } else {
+    xs match {
+      []          -> reverse(acc)
+      [x, ..rest] -> take_onto(rest, n - 1, [x, ..acc])
+    }
+  }
+}
+
+## The elements after the first `n`. All of them if `n` is not positive.
+pub fn drop[A](xs: List[A], n: Int) -> List[A] {
+  if n <= 0 {
+    xs
+  } else {
+    xs match {
+      []          -> []
+      [_, ..rest] -> drop(rest, n - 1)
+    }
+  }
+}
+
+## The last element.
+pub fn last[A](xs: List[A]) -> Option[A] {
+  xs match {
+    []          -> None
+    [x]         -> Some(x)
+    [_, ..rest] -> last(rest)
+  }
+}
+
+## `f` on each element, with the lists it returns joined in order.
+pub fn flat_map[A, B](xs: List[A], f: fn(A) -> List[B]) -> List[B] {
+  xs |> map(f) |> flatten()
+}
+
+## The values of `f` that are `Some`, in order.
+pub fn filter_map[A, B](xs: List[A], f: fn(A) -> Option[B]) -> List[B] {
+  filter_map_onto(xs, f, [])
+}
+
+fn filter_map_onto[A, B](xs: List[A], f: fn(A) -> Option[B], acc: List[B]) -> List[B] {
+  xs match {
+    [] -> reverse(acc)
+    [x, ..rest] -> f(x) match {
+      Some(y) -> filter_map_onto(rest, f, [y, ..acc])
+      None    -> filter_map_onto(rest, f, acc)
+    }
+  }
+}
+
+## The index of the first element for which `f` is True.
+pub fn find_index[A](xs: List[A], f: fn(A) -> Bool) -> Option[Int] {
+  find_index_from(xs, f, 0)
+}
+
+fn find_index_from[A](xs: List[A], f: fn(A) -> Bool, index: Int) -> Option[Int] {
+  xs match {
+    []          -> None
+    [x, ..rest] -> if f(x) { Some(index) } else { find_index_from(rest, f, index + 1) }
+  }
+}
+
+## Each element paired with its index, from 0.
+pub fn enumerate[A](xs: List[A]) -> List[(Int, A)] {
+  range(0, length(xs)) |> zip(xs)
+}
+
+## The first and second of each pair, as two lists.
+pub fn unzip[A, B](xys: List[(A, B)]) -> (List[A], List[B]) {
+  fold(reverse(xys), from: ([], []), f: fn(acc, xy) {
+    (xs, ys) = acc
+    (x, y) = xy
+    ([x, ..xs], [y, ..ys])
+  })
+}
+
+## Sorted by `f`, a merge sort. Stable: elements that `f` finds Equal keep their order.
+pub fn sort_by[A](xs: List[A], f: fn(A, A) -> Ordering) -> List[A] {
+  merge_all(map(xs, fn(x) { [x] }), f)
+}
+
+fn merge_all[A](runs: List[List[A]], f: fn(A, A) -> Ordering) -> List[A] {
+  runs match {
+    []    -> []
+    [run] -> run
+    _     -> merge_all(merge_pairs_onto(runs, f, []), f)
+  }
+}
+
+fn merge_pairs_onto[A](
+  runs: List[List[A]],
+  f: fn(A, A) -> Ordering,
+  acc: List[List[A]],
+) -> List[List[A]] {
+  runs match {
+    [a, b, ..rest] -> merge_pairs_onto(rest, f, [merge_onto(a, b, f, []), ..acc])
+    [a]            -> reverse([a, ..acc])
+    _              -> reverse(acc)
+  }
+}
+
+## Takes from `xs` unless its head is Greater, which keeps equal elements in order.
+fn merge_onto[A](xs: List[A], ys: List[A], f: fn(A, A) -> Ordering, acc: List[A]) -> List[A] {
+  (xs, ys) match {
+    ([], _) -> reverse_onto(acc, ys)
+    (_, []) -> reverse_onto(acc, xs)
+    ([x, ..xs_rest], [y, ..ys_rest]) -> f(x, y) match {
+      Greater -> merge_onto(xs, ys_rest, f, [y, ..acc])
+      _       -> merge_onto(xs_rest, ys, f, [x, ..acc])
+    }
+  }
+}
+
+## Sorted in the order of Ord (spec 10.6). Stable.
+pub fn sort[A: Ord](xs: List[A]) -> List[A] {
+  sort_by(xs, Ord.compare)
+}
+
 # The built-in impls (spec 10.6). Elements are compared and shown through their own impls. Ord
 # compares lexicographically: a list is less than any longer list that starts with it.
 

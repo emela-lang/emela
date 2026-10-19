@@ -57,3 +57,25 @@ pub fn from_code_point(n: Int) -> Option[String]
 @internal
 @intrinsic
 pub fn show_nested[A: Show](value: A) -> String
+
+## `s` with A to Z changed to a to z. Other characters, including non-ASCII letters, are left as
+## they are.
+pub fn to_ascii_lowercase(s: String) -> String {
+  lower = String.code_points(s) |> List.map(fn(c) {
+    String.from_code_point(if c >= 65 && c <= 90 { c + 32 } else { c })
+      |> Option.or("")
+  })
+
+  String.concat(lower)
+}
+
+## `s` with a to z changed to A to Z. Other characters, including non-ASCII letters, are left as
+## they are.
+pub fn to_ascii_uppercase(s: String) -> String {
+  upper = String.code_points(s) |> List.map(fn(c) {
+    String.from_code_point(if c >= 97 && c <= 122 { c - 32 } else { c })
+      |> Option.or("")
+  })
+
+  String.concat(upper)
+}

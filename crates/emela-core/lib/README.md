@@ -56,6 +56,16 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `find` | `find[A](xs: List[A], f: fn(A) -> Bool) -> Option[A]` | Emela | True になる最初の要素 |
 | `range` | `range(from: Int, to: Int) -> List[Int]` | Emela | `from` 以上 `to` 未満 |
 | `zip` | `zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)]` | Emela | 同じ位置の要素の組．短い方に合わせる |
+| `unzip` | `unzip[A, B](xys: List[(A, B)]) -> (List[A], List[B])` | Emela | 組の1つ目と2つ目の並び |
+| `enumerate` | `enumerate[A](xs: List[A]) -> List[(Int, A)]` | Emela | 0 からの添字との組 |
+| `take` | `take[A](xs: List[A], n: Int) -> List[A]` | Emela | 先頭の `n` 個．足りなければ全部，`n` が正でなければ空 |
+| `drop` | `drop[A](xs: List[A], n: Int) -> List[A]` | Emela | 先頭の `n` 個を除いた残り．`n` が正でなければ全部 |
+| `last` | `last[A](xs: List[A]) -> Option[A]` | Emela | 最後の要素 |
+| `find_index` | `find_index[A](xs: List[A], f: fn(A) -> Bool) -> Option[Int]` | Emela | True になる最初の要素の添字 |
+| `flat_map` | `flat_map[A, B](xs: List[A], f: fn(A) -> List[B]) -> List[B]` | Emela | 各要素の `f` の結果を順につなぐ |
+| `filter_map` | `filter_map[A, B](xs: List[A], f: fn(A) -> Option[B]) -> List[B]` | Emela | `f` が Some を返したものの値 |
+| `sort_by` | `sort_by[A](xs: List[A], f: fn(A, A) -> Ordering) -> List[A]` | Emela | `f` の順に並べる．マージソートで安定 |
+| `sort` | `sort[A: Ord](xs: List[A]) -> List[A]` | Emela | Ord の順に並べる（`sort_by(xs, Ord.compare)`）．安定 |
 
 impl（10.6）: `impl List[A: Eq]: Eq`，`impl List[A: Ord]: Ord`，`impl List[A: Show]: Show`．Ord は辞書式（前が同じなら短い方が小さい），Show は `[1, 2, 3]`．基本型とタプルの impl はコンパイラが持つ．
 
@@ -89,6 +99,8 @@ impl（10.6）: `impl Option[A: Eq]: Eq`，`impl Option[A: Ord]: Ord`，`impl Op
 | `trim` | `trim(s: String) -> String` | intrinsic | 前後の White_Space を取り除く |
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | コードポイントの値のリスト |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | スカラー値でなければ `None` |
+| `to_ascii_lowercase` | `to_ascii_lowercase(s: String) -> String` | Emela | A〜Z だけを a〜z にする |
+| `to_ascii_uppercase` | `to_ascii_uppercase(s: String) -> String` | Emela | a〜z だけを A〜Z にする |
 | `show_nested` | `show_nested[A: Show](value: A) -> String` | intrinsic | `@internal`．値の中に置いた値の表示（10.6）．String は `"` で囲み，それ以外は `Show.show`．core の Show の impl が使う |
 
 ## Bool（`core/bool.emel`）
@@ -128,6 +140,9 @@ impl（10.6）: `impl Option[A: Eq]: Eq`，`impl Option[A: Ord]: Ord`，`impl Op
 | `shift_left` | `shift_left(n: Int64, by: Int) -> Int64` | intrinsic | 左シフト．`by` が 64 以上で 0，負で defect |
 | `shift_right` | `shift_right(n: Int64, by: Int) -> Int64` | intrinsic | 算術右シフト．64 以上で 0 か -1 |
 | `shift_right_unsigned` | `shift_right_unsigned(n: Int64, by: Int) -> Int64` | intrinsic | 論理右シフト．64 以上で 0 |
+| `compare` | `compare(a: Int64, b: Int64) -> Ordering` | Emela | Less / Equal / Greater |
+| `min` / `max` | `(a: Int64, b: Int64) -> Int64` | Emela | Equal なら第1引数 |
+| `abs` | `abs(n: Int64) -> Int64` | Emela | 最小値は巻き戻って自分自身 |
 
 ## Float（`core/float.emel`）
 

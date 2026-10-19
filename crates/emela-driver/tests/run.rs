@@ -1029,6 +1029,56 @@ fn interrupted_main_releases_first() {
 }
 
 #[test]
+fn lists_strings_and_int64_run_through_core() {
+    // take, drop, sort_by (stable) and sort; ASCII case changes only A to Z and a to z; Int64's
+    // compare, min, max and abs.
+    let output = run_source(
+        "core_additions",
+        r##"fn main() {
+  xs = [3, 1, 2]
+  dbg((List.take(xs, 2), List.drop(xs, 2), List.take(xs, -1), List.drop(xs, 5)))
+  none: List[Int] = []
+  dbg((List.last(xs), List.last(none), List.find_index(xs, fn(x) { x == 2 })))
+  dbg(List.flat_map(xs, fn(x) { [x, x] }))
+  dbg(List.filter_map(xs, fn(x) { if x > 1 { Some(x * 10) } else { None } }))
+  dbg(List.enumerate(["a", "b"]))
+  dbg(List.unzip([(1, "a"), (2, "b")]))
+  pairs = [(2, "a"), (1, "b"), (2, "c"), (1, "d")]
+  dbg(List.sort_by(pairs, fn(a, b) {
+    (x, _) = a
+    (y, _) = b
+    Ord.compare(x, y)
+  }))
+  dbg(List.sort([3, 1, 2, 1]))
+  dbg(List.sort([Some(2), None, Some(1)]))
+  dbg(String.to_ascii_lowercase("Hello, ÄB 東 @[`{"))
+  dbg(String.to_ascii_uppercase("Hello, äb 東 @[`{"))
+  big = Int64.from_int(2147483647) * Int64.from_int(4)
+  one = Int64.from_int(1)
+  dbg((Int64.compare(big, one), Int64.min(big, one), Int64.max(big, one), Int64.abs(-big)))
+}
+"##,
+    );
+    assert_eq!(output.code, 0);
+    assert_eq!(
+        text(&output.stderr),
+        r#"([3, 1], [2], [], [])
+(Some(2), None, Some(2))
+[3, 3, 1, 1, 2, 2]
+[30, 20]
+[(0, "a"), (1, "b")]
+([1, 2], ["a", "b"])
+[(1, "b"), (1, "d"), (2, "a"), (2, "c")]
+[1, 1, 2, 3]
+[None, Some(1), Some(2)]
+"hello, Äb 東 @[`{"
+"HELLO, äB 東 @[`{"
+(Greater, 1, 8589934588, 8589934588)
+"#
+    );
+}
+
+#[test]
 fn time_values_run_through_core() {
     // An Instant can be made from milliseconds since the Unix epoch (spec 15.2).
     let output = run_source(
