@@ -9,6 +9,13 @@ use lsp_types as lsp;
 
 pub const SOURCE: &str = "emela";
 
+pub fn code_action_kind(kind: emela_driver::CodeActionKind) -> lsp::CodeActionKind {
+    match kind {
+        emela_driver::CodeActionKind::QuickFix => lsp::CodeActionKind::QUICKFIX,
+        emela_driver::CodeActionKind::RefactorRewrite => lsp::CodeActionKind::REFACTOR_REWRITE,
+    }
+}
+
 /// Pairs the LSP diagnostic with the file of its primary location. Diagnostics without a location
 /// attach to `anchor`.
 pub fn diagnostic(

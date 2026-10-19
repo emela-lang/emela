@@ -5,7 +5,9 @@
 
 use smol_str::SmolStr;
 
-pub(crate) fn best_match<'a>(
+/// The nearest name within a third of the input's length (at least one edit).
+/// Ties preserve candidate order, so callers can prefer inner scopes.
+pub fn best_match<'a>(
     name: &str,
     candidates: impl IntoIterator<Item = &'a SmolStr>,
 ) -> Option<SmolStr> {

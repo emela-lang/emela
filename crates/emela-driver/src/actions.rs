@@ -1,7 +1,9 @@
 //! Code actions (LSP `textDocument/codeAction`).
 //!
-//! The only one so far inserts inferred annotations omitted on top-level fns (return type,
-//! fails, use; spec 4.5).
+//! Inserts inferred annotations (spec 4.5), generates impl stubs, and offers quick fixes.
+
+mod impls;
+mod quickfix;
 
 use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program};
 use emela_resolve::{ModuleId, ModuleName};
@@ -18,7 +20,16 @@ use crate::source::FileId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeAction {
     pub title: String,
+    pub kind: CodeActionKind,
+    /// Snapshot diagnostics addressed by this action; empty for refactorings.
+    pub diagnostics: Vec<crate::Diagnostic>,
     pub edits: Vec<(TextRange, String)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeActionKind {
+    QuickFix,
+    RefactorRewrite,
 }
 
 pub(crate) fn code_actions(
@@ -39,6 +50,12 @@ pub(crate) fn code_actions(
     let parse = emela_syntax::parse(text);
     let mut actions = Vec::new();
     for item in parse.tree().items() {
+        if let ast::Item::Impl(i) = &item {
+            if let Some(action) = impls::insert_stubs(&program.hir, module, i, range, text) {
+                actions.push(action);
+            }
+            continue;
+        }
         let ast::Item::Fn(f) = item else { continue };
         // Only when the range touches the header (from `fn` up to the body's `{`).
         let Some(body) = f.body() else { continue };
@@ -53,6 +70,7 @@ pub(crate) fn code_actions(
             actions.push(action);
         }
     }
+    actions.extend(quickfix::quickfixes(program, analysis, module, file, range));
     actions
 }
 
@@ -138,9 +156,8 @@ fn insert_annotations(
         edits.push((after_params, head));
     }
     if let Some(text) = uses_text {
-        let at = end_of(SyntaxKind::FAILS_CLAUSE)
-            .or_else(|| end_of(SyntaxKind::RET_TYPE))
-            .unwrap_or(after_params);
+        let (range, _) = clause_edit(f, SyntaxKind::USE_CLAUSE, &text)?;
+        let at = range.start();
         match edits.iter_mut().find(|(p, _)| *p == at) {
             Some((_, head)) => head.push_str(&format!(" {text}")),
             None => edits.push((at, format!(" {text}"))),
@@ -148,11 +165,33 @@ fn insert_annotations(
     }
     Some(CodeAction {
         title: format!("Add inferred `{}`", parts.join(" ")),
+        kind: CodeActionKind::RefactorRewrite,
+        diagnostics: Vec::new(),
         edits: edits
             .into_iter()
             .map(|(at, text)| (TextRange::empty(at), text))
             .collect(),
     })
+}
+
+/// Replace a written clause, or insert it in header order after the preceding annotation.
+fn clause_edit(f: &ast::FnDecl, kind: SyntaxKind, text: &str) -> Option<(TextRange, String)> {
+    if let Some(node) = f.syntax().children().find(|n| n.kind() == kind) {
+        return Some((node.text_range(), text.to_owned()));
+    }
+    let after = f
+        .syntax()
+        .children()
+        .filter(|n| {
+            n.kind() == SyntaxKind::PARAM_LIST
+                || n.kind() == SyntaxKind::RET_TYPE
+                || (kind == SyntaxKind::USE_CLAUSE && n.kind() == SyntaxKind::FAILS_CLAUSE)
+        })
+        .last()?;
+    Some((
+        TextRange::empty(after.text_range().end()),
+        format!(" {text}"),
+    ))
 }
 
 /// The set without hidden set type parameters (`Bound`s after the declared type parameters).

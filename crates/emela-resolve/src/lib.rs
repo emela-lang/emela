@@ -27,6 +27,7 @@ pub use source::{
     DirEntry, EXTENSION, MemoryFs, ModuleData, ModuleId, ModuleMap, OsFs, Package, PackageId,
     SourceFs, collect_modules,
 };
+pub use suggest::best_match;
 
 /// The implicitly visible module. It cannot be placed directly under the source root (spec 4.1).
 /// Its contents are [`hir::Prelude`].
