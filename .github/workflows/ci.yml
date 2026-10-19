@@ -1,10 +1,16 @@
 name: CI
 
-# The merge gate: runs on every pull request and on pushes to the long-lived
-# branches. Branch protection on `dev` and `main` should require these checks.
+# The merge gate: runs on every pull request, on each group of the merge queue
+# and on pushes to the long-lived branches. Branch protection requires `ci-ok`
+# alone, which sums up the other jobs.
+#
+# A pull request runs the tests on Linux only; the merge queue runs them on
+# macOS too, so main is checked on both before a change lands. Changes that
+# touch only documentation skip everything but `ci-ok`.
 
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main, dev, next]
 
@@ -13,7 +19,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Look for changes beyond the documentation
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          case "$EVENT" in
+            # The checkout is the merge commit: its first parent is the base branch.
+            pull_request) base=HEAD^1 ;;
+            merge_group)
+              git fetch --depth=1 origin "$QUEUE_BASE"
+              base="$QUEUE_BASE"
+              ;;
+            *)
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          # No build or test reads these files.
+          docs='(\.md$|^docs/|^editors/|^LICENSE$|^\.github/ISSUE_TEMPLATE/)'
+          if git diff --name-only "$base" HEAD | grep -qvE "$docs"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +68,20 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        # The tests are bound by CPU, not by how they are scheduled on one runner:
+        # they are split over three runners, each building the tests itself.
+        shard: [1, 2, 3]
     runs-on: ${{ matrix.os }}
+    # Line tables are enough for the backtraces, and build faster. Set on the
+    # job, not the step, so that rust-cache keys the cache on it.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -42,10 +93,17 @@ jobs:
           node-version: 24
       # The WASM backend tests execute the generated modules with wasmtime.
       - uses: bytecodealliance/actions/wasmtime/setup@v1
+      # nextest splits the tests over the shards. It does not run doctests, and
+      # the workspace has none: add `cargo test --doc` when one appears.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo nextest run --workspace --locked --profile ci --partition count:${{ matrix.shard }}/3
 
   examples:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +128,8 @@ jobs:
   # The properties of core and std, checked with brix on the compiler just built.
   # brix comes through the proxy and is checked against the hash in Pome.lock.
   laws:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,3 +151,19 @@ jobs:
           "$emela" fmt --check
           "$emela" test --target js
           "$emela" test --target c
+
+  # The one check branch protection requires. A skipped job (documentation only)
+  # counts as passed; a failed or cancelled one does not.
+  ci-ok:
+    if: always()
+    needs: [changes, lint, test, examples, laws]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sum up the jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) exit 1 ;;
+          esac

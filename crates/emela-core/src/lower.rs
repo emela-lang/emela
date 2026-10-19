@@ -2437,9 +2437,10 @@ impl<'a> Lowerer<'a> {
         prim_op_ty(self.expr_ty(operand))
     }
 
-    /// `assert expr` (spec 13.2). A comparison becomes the form that shows both sides
-    /// (`Assert::compare`). If the sides' type cannot be shown (it contains type parameters or
-    /// functions), it falls back to the form that shows no values (`Assert::bool`).
+    /// `assert expr` (spec 13.2). A comparison becomes the form that shows both sides with the
+    /// debug display (`Assert::compare`, `inspect` in spec 10.6), which shows functions as `<fn>`
+    /// and needs no Show. Only a side holding a capability value falls back to the form that
+    /// shows no values (`Assert::bool`).
     fn assert(&mut self, cond: ExprId) -> Expr {
         let hir = self.hir;
         let c = &hir.exprs[cond];
@@ -2454,7 +2455,7 @@ impl<'a> Lowerer<'a> {
                 (None, _) => None,
             };
             if let Some(op_ty) = op_ty
-                && unshowable(&self.module, ty, false).is_none()
+                && unshowable(&self.module, ty, true).is_none()
             {
                 let (lhs, rhs) = (self.expr(*lhs), self.expr(*rhs));
                 return Assert::compare(bin, op_ty, ty, lhs, rhs, text);
@@ -2582,7 +2583,7 @@ impl<'a> Lowerer<'a> {
                 HirStrPart::Text(s) => StrPart::Lit(s.clone()),
                 HirStrPart::Interp(e) => {
                     let ty = self.ty(self.expr_ty(*e));
-                    if let Some(what) = unshowable(&self.module, ty, true) {
+                    if let Some(what) = unshowable(&self.module, ty, false) {
                         self.report(what, self.hir.exprs[*e].span);
                     }
                     StrPart::Value(self.expr(*e), ty)
@@ -2983,18 +2984,16 @@ fn is_atomic(e: &Expr) -> bool {
     )
 }
 
-/// Why the type cannot be shown in interpolation, if it cannot. Type parameters are resolved
-/// by monomorphization, which also substitutes the types carried by `StrPart::Value`.
-/// Functions cannot be shown (spec 10.6), but the Show check comes with traits.
-fn unshowable(m: &Module, ty: TypeId, allow_params: bool) -> Option<&'static str> {
+/// Why the type cannot be shown, if it cannot. Type parameters are resolved by
+/// monomorphization, which also substitutes the types carried by `StrPart::Value` and
+/// `AssertCond::Compare`. Functions cannot be shown in interpolation (spec 10.6), but the Show
+/// check comes with traits; the debug display (`inspect`) shows them as `<fn>`.
+fn unshowable(m: &Module, ty: TypeId, inspect: bool) -> Option<&'static str> {
     match m.ty(ty) {
-        Type::Param(_) if !allow_params => Some("showing a value of a type parameter"),
-        Type::Fn(_) => Some("showing a function"),
+        Type::Fn(_) if !inspect => Some("showing a function"),
         Type::Handler(_) => Some("showing a capability value"),
-        Type::Tuple(ts) | Type::Enum(_, ts) => {
-            ts.iter().find_map(|&t| unshowable(m, t, allow_params))
-        }
-        Type::List(t) => unshowable(m, *t, allow_params),
+        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().find_map(|&t| unshowable(m, t, inspect)),
+        Type::List(t) => unshowable(m, *t, inspect),
         _ => None,
     }
 }

@@ -273,6 +273,7 @@ fn builtin_names_are_unique_and_found_by_lookup() {
         Some(Builtin::StringLength)
     );
     assert_eq!(Builtin::lookup(None, "dbg"), Some(Builtin::Dbg));
+    assert_eq!(Builtin::lookup(None, "inspect"), Some(Builtin::Inspect));
     // Prelude functions are not qualified.
     assert_eq!(Builtin::lookup(Some("Prelude"), "panic"), None);
     assert_eq!(Builtin::lookup(Some("List"), "map"), None);
@@ -297,6 +298,7 @@ fn builtin_schemes() {
     assert_eq!(show(Builtin::Todo), "fn() -> Never");
     assert_eq!(show(Builtin::Dbg), "∀ A. fn(A) -> A");
     assert_eq!(Builtin::Dbg.info().path(), "dbg");
+    assert_eq!(show(Builtin::Inspect), "∀ A. fn(A) -> String");
     assert_eq!(Builtin::Int64FromInt.info().path(), "Int64.from_int");
 }
 

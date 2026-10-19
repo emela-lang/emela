@@ -38,7 +38,7 @@ C のターゲット（仕様 16 章，Tier 2）．Heap IR（`Stage::RefCounted`
 - （補）ハンドラの操作を呼ぶ前に使用済みの印を調べ，立っていれば `handler X was used after release` の defect にする（8.6）．`retire` が印を立てる
 - （補）release が defect を起こしながら別の defect が巻き戻っているときの注記（`note: the release of handler X also failed: …`）のハンドラの名前は，最後に `retire` したハンドラの名前を使う．Heap IR の cleanup は release の呼び出しの直後に必ず `retire` を置くので，注記を作る `defect_resume` の時点でその名前が分かる
 - （補）const はランタイムの `em_const` の状態（未評価，評価中，値，defect）で 1 回だけ評価する．文言は JS の `$constant` と同じ（`while evaluating const X: …`，`const X refers to itself while being evaluated`）．終了のときに値と defect を解放する（漏れの検査のため）
-- （補）エントリに届いた失敗の表示（`error: NotFound(id: 1)`）には，error の値の記述子の `show` を使う．`from_core` が，関数の中で作る error の enum のうち表示できるものに `show$E` を作る（`emela_lir::Module::error_shows`）
+- （補）エントリに届いた失敗の表示（`error: NotFound(id: 1)`）には，error の値の記述子の `show` を使う．`from_core` が，関数の中で作る error の enum に `show$E`（関数型のフィールドを持つものは名前だけを返す `name$E`）を作る（`emela_lir::Module::error_shows`）
 
 ## 整数と Float
 

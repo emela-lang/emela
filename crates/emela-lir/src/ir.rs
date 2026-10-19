@@ -26,9 +26,10 @@ pub struct Module {
     pub functions: Arena<Function>,
     /// Which passes have run, and so which constructs the functions may hold.
     pub stage: Stage,
-    /// The generated show function (`show$E`) of each error enum that can be shown, made by
-    /// `from_core` for every error enum without type parameters. Backends show a failure that
-    /// reaches the entry with it (`error: NotFound(id: 1)`, spec 14.3).
+    /// The generated show function of each error enum, made by `from_core` for every error enum
+    /// without type parameters: `show$E`, or `name$E` (the name only) for an error with a
+    /// function-typed field. Backends show a failure that reaches the entry with it
+    /// (`error: NotFound(id: 1)`, `error: Retry`, spec 14.3).
     pub error_shows: Vec<(EnumId, FnId)>,
 }
 
