@@ -46,8 +46,7 @@ impl Emitter<'_> {
     /// Emits the per-error descriptors at the top of the module. Each has a show function
     /// (`show`).
     ///
-    /// An error with a function-typed field cannot be shown (spec 10.6), so only its name is
-    /// printed.
+    /// An error with a function-typed field is shown by its name only (spec 14.3).
     pub(super) fn error_descriptors(&mut self) {
         let m = self.m;
         let mut any = false;
@@ -62,7 +61,8 @@ impl Emitter<'_> {
             let show = if showable {
                 self.show_enum(id)
             } else {
-                format!("() => {}", super::js_string(&def.name))
+                // The constructor's name, unqualified like the one the show function writes.
+                format!("() => {}", super::js_string(&def.variants[0].name))
             };
             self.line(&format!(
                 "const {} = Object.freeze({{ show: {show} }});",

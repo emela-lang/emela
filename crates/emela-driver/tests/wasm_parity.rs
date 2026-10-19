@@ -314,6 +314,50 @@ fn main() {
 "#,
     ),
     (
+        "inspect",
+        r##"
+enum Shape {
+  Square(side: Int)
+  Rect(Int, Int)
+  Empty
+}
+
+type Button(label: String, on_click: fn(Int) -> Int)
+
+fn twice(x: Int) -> Int { x * 2 }
+
+fn show_any[A](x: A) -> String { inspect(x) }
+
+fn main() {
+  dbg(inspect(42))
+  dbg(inspect("a\"b\\c\nd \#{e}"))
+  dbg(inspect([Square(side: 1), Rect(1, 2), Empty]))
+  dbg(inspect((1, "a", [Some("x"), None])))
+  dbg(inspect(twice))
+  dbg(inspect(Button(label: "ok", on_click: twice)))
+  dbg(show_any([(1, fn(x: Int) { x + 1 })]))
+  dbg(Button(label: "dbg", on_click: twice))
+  dbg("top")
+}
+"##,
+    ),
+    (
+        "error_with_a_function_field",
+        r#"
+error Retry(after: fn() -> Int)
+
+fn attempt(n: Int) -> Int fails Retry {
+  if n > 1 { fail Retry(after: fn() { n }) }
+  n
+}
+
+fn main() {
+  dbg(attempt(1))
+  dbg(attempt(2))
+}
+"#,
+    ),
+    (
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),

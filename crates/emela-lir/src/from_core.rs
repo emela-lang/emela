@@ -86,9 +86,10 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
         let target = sh.fn_map[i];
         sh.functions[target] = f;
     }
-    // Every error enum that the functions construct and that can be shown gets its show
-    // function, for a failure reaching the entry (spec 14.3): errors of different enums arrive
-    // there, so the backend picks the function by the value's enum at run time.
+    // Every error enum that the functions construct gets its show function, for a failure
+    // reaching the entry (spec 14.3): errors of different enums arrive there, so the backend
+    // picks the function by the value's enum at run time. An error with a function-typed field
+    // is shown by its name only.
     let mut error_shows = Vec::new();
     let mut made = FxHashSet::default();
     for body in &bodies {
@@ -104,9 +105,12 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
     error_enums.sort_by_key(|&id| ix(id));
     for id in error_enums {
         let ty = sh.core.enum_type(id, Vec::new());
-        if showable(&sh.core, ty, &mut Vec::new()) {
-            error_shows.push((id, sh.derived(Derive::Show, ty)));
-        }
+        let kind = if has_fn_field(&sh.core, id) {
+            Derive::ErrorName
+        } else {
+            Derive::Show
+        };
+        error_shows.push((id, sh.derived(kind, ty)));
     }
     while let Some((kind, ty, id)) = sh.pending.pop() {
         let name = sh.functions[id].name.clone();
@@ -135,36 +139,22 @@ fn constructed(e: &Expr, out: &mut FxHashSet<emela_core::EnumId>) {
     e.for_each_child(&mut |c| constructed(c, out));
 }
 
-/// Whether values of `ty` can be shown (spec 10.6): not functions, handlers and the other values
-/// the language cannot show. `seen` holds the enum types being looked at (recursive enums).
-fn showable(core: &emela_core::Module, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
-    match core.ty(ty) {
-        Type::Int
-        | Type::Int64
-        | Type::Float
-        | Type::Bool
-        | Type::String
-        | Type::Unit
-        | Type::Never => true,
-        Type::List(elem) => showable(core, *elem, seen),
-        Type::Tuple(elems) => elems.iter().all(|&t| showable(core, t, seen)),
-        Type::Enum(id, args) => {
-            if seen.contains(&ty) {
-                return true;
-            }
-            seen.push(ty);
-            let def = &core.enums[*id];
-            let ok = def.variants.iter().all(|v| {
-                v.tys.iter().all(|&t| match core.ty(t) {
-                    Type::Param(i) => args.get(*i).is_some_and(|&a| showable(core, a, seen)),
-                    _ => showable(core, t, seen),
-                })
-            });
-            seen.pop();
-            ok
+/// Whether a field of the error enum holds a function (spec 14.3: such an error is shown by its
+/// name only): a function type, or one inside a tuple, a list or a type argument. The same test
+/// as the JS backend's.
+fn has_fn_field(core: &emela_core::Module, id: emela_core::EnumId) -> bool {
+    fn contains_fn(core: &emela_core::Module, ty: TypeId) -> bool {
+        match core.ty(ty) {
+            Type::Fn(_) | Type::Handler(_) => true,
+            Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| contains_fn(core, t)),
+            Type::List(t) => contains_fn(core, *t),
+            _ => false,
         }
-        _ => false,
     }
+    core.enums[id]
+        .variants
+        .iter()
+        .any(|v| v.tys.iter().any(|&t| contains_fn(core, t)))
 }
 
 /// Whether evaluating `e` may suspend: a suspending call or concurrency operation outside
@@ -196,6 +186,9 @@ enum Derive {
     Show,
     /// `eq$T(a: T, b: T) -> Bool`: structural equality.
     Eq,
+    /// `name$E(x: E) -> String`: the name of an error that has a function-typed field, shown in
+    /// place of its value at the entry (spec 14.3).
+    ErrorName,
 }
 
 /// What all functions share while converting.
@@ -221,6 +214,7 @@ impl Shared {
         let prefix = match kind {
             Derive::Show => "show",
             Derive::Eq => "eq",
+            Derive::ErrorName => "name",
         };
         let base = format!("{prefix}${}", core_ty(&self.core, ty));
         let mut name = base.clone();
@@ -992,6 +986,14 @@ impl<'s> Lower<'s> {
                     },
                 );
                 Ok(v)
+            }
+            Builtin::Inspect => {
+                let v = self.expr(&args[0])?;
+                let shown = self.show(ty_args[0], v.op);
+                Ok(Val {
+                    op: Some(shown),
+                    ty: TypeId::STRING,
+                })
             }
             Builtin::Panic => {
                 let v = self.expr(&args[0])?;

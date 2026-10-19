@@ -1,0 +1,24 @@
+exit: 0
+--- stdout
+42
+-7
+1.0
+-2.5e-8
+True
+()
+"plain"
+"a\"b\\c\nd \#{e}"
+[Circle(radius: 1.5), Rect(1.0, 2.0), Empty]
+(1, "a", [Some("x"), None])
+[[1, 2], []]
+<fn>
+Button(label: "ok", on_click: <fn>)
+[(1, <fn>)]
+["generic"]
+<fn>
+interpolated: top ["inner"]
+dbg
+top
+--- stderr
+Button(label: "dbg", on_click: <fn>)
+"top"

@@ -1,0 +1,16 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+# An error with a function-typed field reaching main prints only its name (spec 14.3).
+error Retry(after: fn() -> Int)
+
+fn attempt(n: Int) -> Int fails Retry {
+  if n > 1 { fail Retry(after: fn() { n }) }
+  n
+}
+
+fn main() {
+  print("#{attempt(1)}")
+  print("#{attempt(2)}")
+}
