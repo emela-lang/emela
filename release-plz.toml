@@ -39,6 +39,39 @@ git_tag_name = "v{{ version }}"
 # Keep a single changelog at the repo root instead of one per library crate.
 changelog_update = false
 
+# release-plz's default body, plus `(by @user)` after every entry so the
+# changelog credits whoever made each change. The username comes from the
+# GitHub API (the PR of the commit), so it needs the token release-plz.yml
+# already passes. Only `body` is overridden: the default `commit_preprocessors`
+# still turn the `(#123)` at the end of a squash commit into a PR link.
+[changelog]
+body = """
+
+## [{{ version }}]\
+    {%- if release_link -%}\
+        ({{ release_link }})\
+    {% endif %} \
+    - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+
+    {% for commit in commits %}
+        {%- if commit.scope -%}
+            - *({{commit.scope}})* {% if commit.breaking %}[**breaking**] {% endif %}\
+                {{ commit.message }}{{ self::username(commit=commit) }}\
+                {%- if commit.links %} \
+                    ({% for link in commit.links %}[{{link.text}}]({{link.href}}) {% endfor -%})\
+                {% endif %}
+        {% else -%}
+            - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message }}{{ self::username(commit=commit) }}
+        {% endif -%}
+    {% endfor -%}
+{% endfor %}
+{%- macro username(commit) -%}
+    {% if commit.remote.username %} (by @{{ commit.remote.username }}){% endif -%}
+{% endmacro -%}
+"""
+
 # Every crate shares one version (`version.workspace = true`). release-plz only
 # sees a change in a crate whose directory a commit touched, so a commit that
 # only touches emela-lsp would bump nothing for emela-cli, which owns the tag and
