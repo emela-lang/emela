@@ -101,7 +101,7 @@ pub enum Builtin {
     /// Replaces the cell's contents. The value is `()`.
     CellSet,
     /// A String shown inside another value: quoted and escaped (spec 10.6). What
-    /// [`Builtin::ShowNested`] becomes for a String.
+    /// [`Builtin::ShowNested`] becomes for a String, and what derived Show uses for a String field.
     ShowString,
 }
 

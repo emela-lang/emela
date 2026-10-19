@@ -66,7 +66,7 @@ fn complete_and_default_only_impls_are_valid() {
 #[test]
 fn derives_and_builtin_implementations_do_not_require_source_methods() {
     let analysis = checked(
-        "type User(id: Int) derive Eq, Ord, Show\nenum Choice { First, Second(Int) } derive Eq, Ord, Show\ntrait Label { fn label(self) -> String }\ntype Tagged(id: Int) derive Label\nfn main() {\n  assert 1 == 1\n  assert 1 < 2\n  assert True == True\n  assert Some(1) == Some(1)\n  dbg(\"#{User(id: 1)} #{First}\")\n}\n",
+        "type User(id: Int) derive Eq, Ord, Show\nenum Choice { First, Second(Int) } derive Eq, Ord, Show\nfn main() {\n  assert 1 == 1\n  assert 1 < 2\n  assert True == True\n  assert Some(1) == Some(1)\n  dbg(\"#{User(id: 1)} #{First}\")\n}\n",
         &[],
     );
     assert!(

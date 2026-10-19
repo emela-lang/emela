@@ -35,7 +35,7 @@
 - （補）`direct` の `@latest` は，prerelease でない最大の版（なければ prerelease を含めた最大）．proxy と違い，取り込めない版を飛ばさない（取り込みの検査を手元でしないため）
 - （補）proxy の URL の version はエスケープしない（pome-registry と同じ）
 - （補）`direct` でシンボリックリンクや submodule を含む版は「ない」（NotFound）として扱う．proxy が 410 を返すのと揃える
-- `EMELA_POMESUMDB` の既定（`config::DEFAULT_SUMDB`）は `sum.emela.ab2m.link` の公開鍵．鍵を替えると，古い鍵を埋め込んだコンパイラはすべて検証に落ちる
+- `EMELA_POMESUMDB` の既定（`config::DEFAULT_SUMDB`）は `sum.emela.ab2m.link` の公開鍵と URL `https://sum.emela.dev`．ホストを `emela.dev` に移したときも鍵は替えなかったので，鍵の名前とホスト名が違う．鍵を替えると，古い鍵を埋め込んだコンパイラはすべて検証に落ちる
 - tile はディスクにキャッシュしない．1回の証明で読むのは数枚なので，まず足りる
 
 ## emela pome のコマンド（`project`）

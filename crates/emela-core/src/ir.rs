@@ -46,9 +46,35 @@ pub struct Dispatch {
     /// impl function. The impl function's type parameters are the impl's, then the trait
     /// function's own (all but `Self`).
     pub impls: Vec<(TypeId, FnId)>,
+    /// The impl functions of `impls` that the compiler and the bundled core provide (the basic
+    /// types, tuples, `List`, `Option`). Their Eq and Show agree with the value's structure
+    /// (spec 10.6), so derived impls may compare and show the structure instead.
+    pub core: Vec<FnId>,
     /// The trait function has a default implementation: its own body, used for types whose impl
     /// does not define the function.
     pub default: bool,
+    /// For the functions of the derivable traits (`Eq.eq`, `Ord.compare`, `Show.show`), which
+    /// one, and the enums that derive the trait (spec 10.5). [`crate::mono`] generates their
+    /// impl functions per type.
+    pub derived: Option<Derived>,
+}
+
+/// The enums deriving a trait, for one function of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Derived {
+    pub op: DeriveOp,
+    pub enums: Vec<EnumId>,
+}
+
+/// The function of a derivable trait (spec 10.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeriveOp {
+    /// `Eq.eq(self, other) -> Bool`.
+    Eq,
+    /// `Ord.compare(self, other) -> Ordering`.
+    Compare,
+    /// `Show.show(self) -> String`.
+    Show,
 }
 
 /// A host file bundled with the compiler (under `lib/`).

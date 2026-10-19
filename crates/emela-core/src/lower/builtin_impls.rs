@@ -104,6 +104,7 @@ impl Builder<'_> {
     fn register(&mut self, trait_fn: FnId, ty: TypeId, f: FnId) {
         if let Some(d) = self.m.dispatch.get_mut(&trait_fn) {
             d.impls.push((ty, f));
+            d.core.push(f);
         }
     }
 
