@@ -2071,6 +2071,13 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
     let main = "enum Color { Red, Blue }\nfn color(x: Color) -> Int { x match { Red -> 1 } }\nfn first(count: Int) -> Int { cout }\nfn second(total: Int) -> Int { tota }\ntrait Show { fn show(self) -> String }\nimpl Show for Color {}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    // Read the workspace's first diagnostics, or they can arrive after the last response and
+    // fail `shutdown`.
+    let published = client.diagnostics();
+    assert_eq!(
+        codes(&published),
+        ["E0211", "E0211", "W0202", "E0303", "E0325"]
+    );
     let capabilities = emela_lsp::capabilities();
     let Some(lsp::CodeActionProviderCapability::Options(options)) =
         capabilities.code_action_provider
@@ -2204,6 +2211,10 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
         ("/app/src/io.emel", "pub fn print(s: String) -> () {}\n"),
     ];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    // Read the workspace's first diagnostics, or they can arrive after the last response and
+    // fail `shutdown`.
+    let published = client.diagnostics();
+    assert_eq!(codes(&published), ["E0211", "E0318", "E0402"]);
     for (at, code, inserted) in [
         ((2, 16), "E0211", "import Io\n"),
         ((3, 26), "E0318", " fails Missing"),
