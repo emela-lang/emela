@@ -1,7 +1,0 @@
-# let と var の束縛は E0146（3.3）
-fn f() -> Int {
-  let x = 1
-  var y: Int = x + 1
-  let
-  y
-}

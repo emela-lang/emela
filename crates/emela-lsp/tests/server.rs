@@ -2788,17 +2788,15 @@ fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
     client.shutdown();
 }
 
-/// The old impl and handler heads and `let` come with quick fixes that rewrite them (E0144 to
-/// E0146).
+/// The old impl and handler heads come with quick fixes that rewrite them (E0144, E0145).
 #[test]
 fn old_forms_have_rewriting_quickfixes() {
-    let main = "trait Label { fn label(self) -> String }\nimpl Label for Int {\n  fn label(self) { \"n\" }\n}\neffect Log { fn log() -> () }\nhandler Quiet implements Log {\n  fn log() { () }\n}\nfn f() -> Int {\n  let x = 1\n  x\n}\n";
+    let main = "trait Label { fn label(self) -> String }\nimpl Label for Int {\n  fn label(self) { \"n\" }\n}\neffect Log { fn log() -> () }\nhandler Quiet implements Log {\n  fn log() { () }\n}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0144", "E0145", "E0146"]);
-    for ((line, character), expected) in [((1, 0), "impl Int: Label"), ((5, 14), ":"), ((9, 2), "")]
-    {
+    assert_eq!(codes(&published), ["E0144", "E0145"]);
+    for ((line, character), expected) in [((1, 0), "impl Int: Label"), ((5, 14), ":")] {
         let actions = client.quickfixes(MAIN, (line, character), (line, character));
         assert_eq!(actions.len(), 1, "at {line}:{character}");
         let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];

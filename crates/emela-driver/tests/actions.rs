@@ -391,17 +391,3 @@ fn old_impl_and_handler_heads_are_rewritten() {
     assert!(edited.contains("handler Quiet(level: Int): Logger {"));
     assert_clean(&edited, &[]);
 }
-
-#[test]
-fn let_and_var_are_removed() {
-    let text = "fn f() -> Int {\n  let x = 1\n  var y = x + 1\n  y\n}\n";
-    let (analysis, _, _) = checked(text, &[]);
-    assert_eq!(analysis.error_count(), 2);
-    let actions = fixes(text, "let", &[]);
-    assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].diagnostics[0].code, Some("E0146"));
-    let edited = apply(text, &actions[0]);
-    assert!(edited.contains("\n  x = 1\n"));
-    let edited = apply(&edited, &fixes(&edited, "var", &[])[0]);
-    assert_clean(&edited, &[]);
-}

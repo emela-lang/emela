@@ -1,0 +1,45 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/reserved_words.emel
+---
+ROOT@0..100
+  COMMENT@0..65 "# let と var は予約語（3.3）で，束縛には使えない"
+  NEWLINE@65..66 "\n"
+  FN_DECL@66..99
+    FN_KW@66..68 "fn"
+    WHITESPACE@68..69 " "
+    LOWER_NAME@69..70 "f"
+    PARAM_LIST@70..72
+      L_PAREN@70..71 "("
+      R_PAREN@71..72 ")"
+    WHITESPACE@72..73 " "
+    RET_TYPE@73..79
+      THIN_ARROW@73..75 "->"
+      WHITESPACE@75..76 " "
+      PATH_TYPE@76..79
+        PATH@76..79
+          TYPE_NAME@76..79 "Int"
+    WHITESPACE@79..80 " "
+    BLOCK_EXPR@80..99
+      L_BRACE@80..81 "{"
+      NEWLINE@81..82 "\n"
+      WHITESPACE@82..84 "  "
+      ERROR@84..87
+        RESERVED_KW@84..87 "let"
+      WHITESPACE@87..88 " "
+      ERROR@88..93
+        LOWER_NAME@88..89 "x"
+        WHITESPACE@89..90 " "
+        EQ@90..91 "="
+        WHITESPACE@91..92 " "
+        INT@92..93 "1"
+      NEWLINE@93..94 "\n"
+      WHITESPACE@94..96 "  "
+      NAME_REF@96..97
+        LOWER_NAME@96..97 "x"
+      NEWLINE@97..98 "\n"
+      R_BRACE@98..99 "}"
+  NEWLINE@99..100 "\n"
+error[E0118]@84..87: expected expression
+error[E0122]@88..89: expected newline or `}` after statement

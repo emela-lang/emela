@@ -47,14 +47,6 @@ pub(super) fn quickfixes(
             Some(c) if c == DiagnosticCode::OldHandlerHead.as_str() => {
                 old_handler_head(tree.syntax(), span.range)
             }
-            Some(c) if c == DiagnosticCode::LetBinding.as_str() => {
-                rewrite::let_keyword(tree.syntax(), span.range).map(|range| {
-                    (
-                        "Remove the keyword".to_owned(),
-                        vec![(range, String::new())],
-                    )
-                })
-            }
             _ => None,
         };
         if let Some((title, edits)) = edits {

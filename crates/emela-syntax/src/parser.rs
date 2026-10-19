@@ -130,11 +130,6 @@ impl<'t> Parser<'t> {
         line_start && DECL_START.contains(&kind) && !(kind == FN_KW && self.nth(1) == L_PAREN)
     }
 
-    /// A word reserved for the future (spec 3.3), told apart by text.
-    pub(crate) fn at_reserved(&self, word: &str) -> bool {
-        self.at(RESERVED_KW) && self.tokens[self.pos].text == word
-    }
-
     pub(crate) fn at_doc_comment(&self) -> bool {
         self.tokens.get(self.pos).is_some_and(|t| t.doc_before)
     }

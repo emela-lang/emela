@@ -1,4 +1,4 @@
-//! Rewrites of the old forms the parser still reads (E0144, E0145, E0146). Validation shows them
+//! Rewrites of the old forms the parser still reads (E0144, E0145). Validation shows them
 //! in the message, and the driver's quick fixes apply them, so both come from here.
 
 use rowan::{NodeOrToken, TextRange};
@@ -112,22 +112,6 @@ pub fn old_handler_head(node: &SyntaxNode) -> Option<(SyntaxToken, TextRange, St
     );
     let range = TextRange::new(before.text_range().end(), implements.text_range().end());
     Some((implements, range, head))
-}
-
-/// The range to delete for a `let` or `var` binding (E0146): the keyword at `range` and the
-/// whitespace after it.
-pub fn let_keyword(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
-    let token = root.token_at_offset(range.start()).right_biased()?;
-    if token.kind() != RESERVED_KW || !matches!(token.text(), "let" | "var") {
-        return None;
-    }
-    let mut end = token.text_range().end();
-    let mut next = token.next_token();
-    while let Some(t) = next.filter(|t| t.kind() == WHITESPACE) {
-        end = t.text_range().end();
-        next = t.next_token();
-    }
-    Some(TextRange::new(token.text_range().start(), end))
 }
 
 /// The text with each run of whitespace (newlines included) made one space, and none just

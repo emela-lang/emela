@@ -65,4 +65,3 @@
 - （補）handler の頭（8.4）の `:` は HANDLER_DECL の直下に置き，後ろのエフェクトと型引数を HANDLER_EFFECT で包む．`trait Ord: Eq` の `:` と同じ並びなので，fmt は `:` の前に空白を置かない
 - （補）前の形（`impl Show for User`，`impl[A: Eq] Box[A]: Eq`，`handler H implements E`）もパーサは診断なしで木にし，validation が E0144 と E0145 を出す．`for` の前の名前を Trait の PATH に，後ろを IMPL_TYPE にし，前置きの型引数の並びは IMPL_DECL の直下の TYPE_PARAM_LIST にする．`implements` は HANDLER_DECL の直下に置いて読み飛ばす．名前解決と型検査が書き換えた後と同じ形で続けられるようにするため
 - （補）E0144 の範囲は `impl` から頭の終わり（本体の `{` の前）まで，E0145 の範囲は `implements` の字句．書き換えた頭は `rewrite` モジュールが作り，診断の文面と driver の quickfix の両方が使う．前置きの型引数の制約は，型の後ろの同じ名前の型引数（制約のないもの）に移す（`impl[A: Eq] Box[A]: Eq` は `impl Box[A: Eq]: Eq`）．型に型引数の並びがなければ前置きの並びをそのまま付ける
-- （補）文の頭の `let` と `var`（3.3）は E0146 を出し，語を ERROR に包んで残りを束縛として読む．文面は付録 A の `` Emela has no `let`: write `x = value` `` で，`var` なら `let` の所を `var` にする

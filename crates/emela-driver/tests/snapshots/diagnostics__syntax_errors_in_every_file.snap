@@ -34,7 +34,7 @@ error[E0110]: expected `)`
    │                         ╰── 
 ───╯
 
-error[E0146]: Emela has no `let`: write `x = value`
+error[E0118]: expected expression
    ╭─[ src/main.emel:3:3 ]
    │
  3 │   let x = (1,)
@@ -42,12 +42,12 @@ error[E0146]: Emela has no `let`: write `x = value`
    │    ╰─── 
 ───╯
 
-error[E0112]: a tuple needs at least two elements
-   ╭─[ src/main.emel:3:14 ]
+error[E0122]: expected newline or `}` after statement
+   ╭─[ src/main.emel:3:7 ]
    │
  3 │   let x = (1,)
-   │              ┬  
-   │              ╰── 
+   │       ┬  
+   │       ╰── 
 ───╯
 
 6 errors
