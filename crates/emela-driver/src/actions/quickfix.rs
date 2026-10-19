@@ -35,6 +35,9 @@ pub(super) fn quickfixes(
             Some(code::NON_EXHAUSTIVE_MATCH) => {
                 missing_arms(program, analysis, module, span.range, &tree, text)
             }
+            Some(code::INCOMPLETE_IMPL) => {
+                super::impls::insert_stubs(&program.hir, module, span.range, &tree, text)
+            }
             Some(code::UNHANDLED_ERRORS | code::UNHANDLED_EFFECTS) => {
                 extend_annotation(program, analysis, module, diagnostic, &tree)
             }
@@ -64,7 +67,7 @@ pub(super) fn quickfixes(
 }
 
 type Edit = (TextRange, String);
-type Fix = (String, Vec<Edit>);
+pub(super) type Fix = (String, Vec<Edit>);
 
 fn fix(title: String, diagnostic: &Diagnostic, edits: Vec<Edit>) -> CodeAction {
     CodeAction {

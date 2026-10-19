@@ -391,6 +391,11 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             .iter()
             .map(|d| Diagnostic::from_type(d, &types.ty_table.cons, &analysis.files))
             .chain(test_diagnostics)
+            .chain(crate::actions::incomplete_impl_diagnostics(
+                &hir,
+                analysis,
+                |m| self.parse_of(m),
+            ))
             .collect();
         type_diagnostics.sort_by_key(|d| match &d.location {
             Some(Location::Span(span)) => (Some(span.file), span.range.start()),

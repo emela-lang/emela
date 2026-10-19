@@ -2088,6 +2088,7 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
         ((1, 28), "E0303", "Blue -> todo()"),
         ((2, 30), "E0211", "count"),
         ((3, 31), "E0211", "total"),
+        ((5, 1), "E0325", "fn show(self) { todo() }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -2104,8 +2105,7 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
         assert!(edits[0].new_text.contains(inserted));
     }
     assert!(client.quickfixes(MAIN, (1, 0), (1, 0)).is_empty());
-    assert_eq!(client.quickfixes(MAIN, (1, 0), (6, 0)).len(), 3);
-    assert!(client.quickfixes(MAIN, (5, 1), (5, 1)).is_empty());
+    assert_eq!(client.quickfixes(MAIN, (1, 0), (6, 0)).len(), 4);
     // The snapshot is rechecked even when the client echoes no diagnostics.
     client.open(MAIN, 1, main);
     client.change(MAIN, 2, &main.replace("cout", "count"));
@@ -2114,32 +2114,74 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
 }
 
 #[test]
-fn impl_stubs_are_header_only_refactorings_without_diagnostics() {
-    let main = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Show for User {\n  fn show(self) { \"user\" }\n}\nimpl Show for Int {}\n";
+fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
+    let main = "type User(id: Int)\ntrait Label {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Label for User {\n  fn show(self) { \"user\" }\n}\nimpl Label for Int {}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
-    for at in [(6, 0), (6, 5), (6, 19)] {
-        let actions = client.code_actions(MAIN, at, at).unwrap();
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].0, "Implement missing trait methods");
-        assert_eq!(actions[0].1.len(), 1);
-        assert_eq!(actions[0].1[0].1, "\n  fn merge(self, other) { todo() }");
-    }
-    assert_eq!(client.code_actions(MAIN, (6, 5), (6, 18)).unwrap().len(), 1);
-    for at in [(6, 20), (7, 2), (7, 18), (8, 0)] {
-        assert_eq!(client.code_actions(MAIN, at, at), Some(vec![]));
-    }
-    assert_eq!(client.code_actions(MAIN, (7, 0), (8, 1)), Some(vec![]));
-    let actions = client.code_actions(MAIN, (9, 0), (9, 0)).unwrap();
+    let published = client.diagnostics();
+    assert_eq!(codes(&published), ["E0325", "E0325"]);
+    assert_eq!(published.diagnostics[0].range, range((6, 0), (6, 19)));
+    assert_eq!(published.diagnostics[1].range, range((9, 0), (9, 18)));
+    let id = client.request(
+        CodeActionRequest::METHOD,
+        json!({
+            "textDocument": { "uri": uri(MAIN) },
+            "range": range((6, 0), (6, 0)),
+            "context": { "diagnostics": [] },
+        }),
+    );
+    let actions: Vec<lsp::CodeAction> =
+        serde_json::from_value(client.response(&id).response_result.unwrap()).unwrap();
     assert_eq!(actions.len(), 1);
-    assert!(actions[0].1[0].1.contains("fn show(self) { todo() }"));
+    assert_eq!(actions[0].kind, Some(lsp::CodeActionKind::QUICKFIX));
+    // The old header refactoring is not offered alongside the quickfix.
+    let id = client.request(
+        CodeActionRequest::METHOD,
+        json!({
+            "textDocument": { "uri": uri(MAIN) },
+            "range": range((6, 0), (6, 0)),
+            "context": { "diagnostics": [], "only": ["refactor.rewrite"] },
+        }),
+    );
+    let actions: Vec<lsp::CodeAction> =
+        serde_json::from_value(client.response(&id).response_result.unwrap()).unwrap();
+    assert!(actions.is_empty());
+    assert_eq!(
+        published.diagnostics[0].message,
+        "incomplete impl: missing methods `merge`"
+    );
+    assert_eq!(
+        published.diagnostics[1].message,
+        "incomplete impl: missing methods `show`, `merge`"
+    );
+    for at in [(6, 0), (6, 5), (6, 18)] {
+        let actions = client.quickfixes(MAIN, at, at);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Implement missing trait methods");
+        assert_eq!(
+            actions[0].diagnostics.as_ref().unwrap(),
+            &vec![published.diagnostics[0].clone()]
+        );
+        let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "\n  fn merge(self, other) { todo() }");
+    }
+    assert_eq!(client.quickfixes(MAIN, (6, 5), (6, 18)).len(), 1);
+    for at in [(6, 19), (6, 20), (6, 21), (7, 2), (7, 18), (8, 0), (8, 1)] {
+        assert!(client.quickfixes(MAIN, at, at).is_empty(), "at {at:?}");
+    }
+    assert!(client.quickfixes(MAIN, (6, 20), (8, 1)).is_empty());
+    let actions = client.quickfixes(MAIN, (9, 0), (9, 0));
+    assert_eq!(actions.len(), 1);
+    let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+    assert!(edits[0].new_text.contains("fn show(self) { todo() }"));
     assert!(
-        actions[0].1[0]
-            .1
+        edits[0]
+            .new_text
             .contains("fn merge(self, other) { todo() }")
     );
-    assert!(!actions[0].1[0].1.contains("fn default"));
-    assert!(client.quickfixes(MAIN, (6, 0), (10, 0)).is_empty());
+    assert!(!edits[0].new_text.contains("fn default"));
+    assert_eq!(client.quickfixes(MAIN, (6, 0), (10, 0)).len(), 2);
     client.open(MAIN, 1, main);
     client.change(
         MAIN,
@@ -2149,7 +2191,7 @@ fn impl_stubs_are_header_only_refactorings_without_diagnostics() {
             "fn merge(self, other: Self) -> Self { self }",
         ),
     );
-    assert_eq!(client.code_actions(MAIN, (6, 0), (6, 0)), Some(vec![]));
+    assert!(client.quickfixes(MAIN, (6, 0), (6, 0)).is_empty());
     client.shutdown();
 }
 

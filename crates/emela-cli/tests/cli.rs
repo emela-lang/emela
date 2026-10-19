@@ -91,6 +91,37 @@ fn check_reports_all_errors() {
 }
 
 #[test]
+fn incomplete_impl_is_rejected_by_every_command_and_target() {
+    let project = Project::new(
+        "incomplete-impl",
+        &[
+            ("Pome.toml", ""),
+            (
+                "src/main.emel",
+                "type User(id: Int)\ntrait Label {\n  fn label(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Label for User {}\nfn main() {}\n@test\nfn works() {}\n",
+            ),
+        ],
+    );
+    let check = project.emela(&["check"]);
+    assert_eq!(check.code, Some(1), "{check:?}");
+    assert!(
+        check
+            .stderr
+            .contains("error[E0325]: incomplete impl: missing methods `label`, `merge`")
+    );
+    assert!(!check.stderr.contains("`default`"));
+    for command in ["build", "run", "test"] {
+        for target in ["js", "c", "wasm"] {
+            let run = project.emela(&[command, "--target", target]);
+            assert_eq!(run.code, Some(1), "{command} {target}: {run:?}");
+            assert_eq!(run.stderr, check.stderr, "{command} {target}");
+            assert!(run.stdout.is_empty(), "{command} {target}: {run:?}");
+        }
+    }
+    assert!(!project.path().join("target").exists());
+}
+
+#[test]
 fn check_file_and_directory_agree() {
     let project = Project::new("agree", BROKEN);
     let by_dir = project.emela(&["check", "."]);

@@ -95,6 +95,8 @@ pub const IMMEDIATE_ON_NON_EFFECT: &str = "E0322";
 // Sets as declaration type arguments (spec 9.2)
 pub const SET_ARG_MISMATCH: &str = "E0323";
 pub const SET_AS_TYPE: &str = "E0324";
+// Required trait methods (spec 10.2)
+pub const INCOMPLETE_IMPL: &str = "E0325";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
