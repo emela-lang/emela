@@ -192,6 +192,14 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         _ => crate::mono::exported(&cx.module),
     };
     let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
+    // Until the built-in types have impls, the type checker lets them satisfy the Prelude's
+    // traits (`emela_types::Traits::satisfies`), so a call can reach a type without one.
+    for (f, ty) in &mono.missing_impls {
+        cx.errors.push(LowerError::Unsupported {
+            what: format!("`{f}` for `{ty}`, which has no impl"),
+            span: None,
+        });
+    }
     let entries: Vec<FnId> = match roots {
         Roots::Tests => mono.roots.clone(),
         // main is exported, so it is one of the roots.
@@ -809,26 +817,61 @@ impl<'a> Lowerer<'a> {
             }
             Some(Item::Fn(f)) => (
                 f.sig.params.iter().map(|p| self.local(p.local)).collect(),
-                f.body.expect("a fn with a body"),
+                Some(f.body.expect("a fn with a body")),
             ),
             // A const's value is evaluated once, at the first reference (spec 5.6).
             Some(Item::Const(c)) => {
                 self.module.functions[id].constant = true;
-                (Vec::new(), c.value)
+                (Vec::new(), Some(c.value))
             }
             Some(Item::Handler(_)) => {
                 let (params, ret, body) = self.handler(def);
                 self.module.define(id, params, ret, body);
                 return;
             }
-            _ => unreachable!("fn_id got a definition that is not a fn, const or handler"),
+            // A trait function is generic in `Self`; monomorphization replaces calls of it with
+            // calls of the impl functions ([`Lowerer::dispatch`]). With a default implementation,
+            // its body is used for impls that do not define it.
+            Some(Item::TraitFn(f)) if f.body.is_some() => {
+                self.dispatch(def, spec, true);
+                (
+                    f.sig.params.iter().map(|p| self.local(p.local)).collect(),
+                    f.body,
+                )
+            }
+            _ if hir.defs[def].kind == DefKind::TraitFn => {
+                self.dispatch(def, spec, false);
+                (self.declared_params(def), None)
+            }
+            _ => match hir.impl_fn(def) {
+                Some((_, f)) => (
+                    f.params.iter().map(|p| self.local(p.local)).collect(),
+                    Some(f.body.expect("an impl function has a body (E0135)")),
+                ),
+                None => unreachable!(
+                    "fn_id got a definition that is not a fn, const, handler, trait function or \
+                     impl function"
+                ),
+            },
         };
         if self.takes_ev(def) {
             let ev = self.ev_local();
             params.push(ev);
             self.ev = Some(ev);
         }
-        let body = self.expr(body);
+        let body = match body {
+            Some(body) => self.expr(body),
+            // Without a default implementation the body is never called: monomorphization calls
+            // an impl function instead, and reports a type without one.
+            None => Expr::Builtin {
+                op: Builtin::Panic,
+                ty_args: Vec::new(),
+                args: vec![Expr::Lit(Lit::String(format!(
+                    "no impl of `{}`",
+                    self.ir_name(def)
+                )))],
+            },
+        };
         let (ret, type_params, set_params) = self.signature(def);
         self.module.define(id, params, ret, body);
         let fails = self.declared_fails(def);
@@ -845,6 +888,63 @@ impl<'a> Lowerer<'a> {
         if !func.constant {
             func.sets = sets;
         }
+    }
+
+    /// Parameters with the types of the declared type, named after its labels. For a trait
+    /// function without a body, whose parameters were not inferred (or have no source, in the
+    /// Prelude).
+    fn declared_params(&mut self, def: DefId) -> Vec<Local> {
+        let types = self.types;
+        let Some(sig) = types.sigs.get(def) else {
+            return Vec::new();
+        };
+        let Ty::Fn(f) = &sig.scheme.ty else {
+            return Vec::new();
+        };
+        f.params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let ty = self.ty(t);
+                let hint = sig.labels.get(i).cloned().flatten().unwrap_or_default();
+                self.module.local(&hint, ty)
+            })
+            .collect()
+    }
+
+    /// Records the impls of trait function `def` (copy `spec`) in `Module::dispatch`, and puts
+    /// each impl function on the worklist: which one a call needs is known only once
+    /// monomorphization knows `Self`. `default` tells whether the trait function has a body.
+    fn dispatch(&mut self, def: DefId, spec: Specialization, default: bool) {
+        let hir = self.hir;
+        let types = self.types;
+        let Some(trait_def) = hir.defs[def].parent else {
+            return;
+        };
+        let mut impls = Vec::new();
+        for impl_def in types.traits.impls_of(trait_def) {
+            let (Some(Item::Impl(item)), Some(head)) =
+                (hir.item(impl_def), types.traits.head(impl_def))
+            else {
+                continue;
+            };
+            let Some(f) = item
+                .fns
+                .iter()
+                .find(|f| f.trait_fn == Res::Def(def) && types.sigs.get(f.def).is_some())
+            else {
+                continue;
+            };
+            // The impl function's set type parameters follow the impl's type parameters instead
+            // of `Self`.
+            let impl_spec = (spec >> 1) << head.params.len();
+            let pattern = self.ty(&head.self_ty);
+            impls.push((pattern, self.fn_id(f.def, impl_spec)));
+        }
+        let id = self.fns[&(def, spec)];
+        self.module
+            .dispatch
+            .insert(id, crate::ir::Dispatch { impls, default });
     }
 
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
@@ -2000,6 +2100,13 @@ impl<'a> Lowerer<'a> {
             // lambda.
             Some(Item::Fn(f)) if f.is_intrinsic => self.wrap_in_lambda(id, span),
             Some(Item::Fn(_)) => self.fn_value(def, id),
+            _ if self.hir.defs[def].kind == DefKind::TraitFn => {
+                if self.has_generic_tags(def) {
+                    self.wrap_in_lambda(id, span)
+                } else {
+                    self.fn_value(def, id)
+                }
+            }
             Some(Item::Ctor(_) | Item::Error(_)) => match self.ctors.get(def) {
                 Some(&ctor) if self.module.variant(ctor).fields.is_empty() => Expr::Ctor {
                     ctor,
@@ -2190,6 +2297,7 @@ impl<'a> Lowerer<'a> {
         let ExprKind::Path(Res::Def(def)) = hir.exprs[callee].kind else {
             return Ok(Target::Value(self.expr(callee), call, ev));
         };
+        let is_trait_fn = hir.defs[def].kind == DefKind::TraitFn;
         match hir.item(def) {
             Some(Item::Fn(f)) if f.body.is_some() => {
                 let ev = self
@@ -2235,6 +2343,15 @@ impl<'a> Lowerer<'a> {
                 Some(&ctor) => Ok(Target::Ctor(ctor, self.ty_args(def, callee))),
                 None => Err(self.unsupported("this constructor", span)),
             },
+            // A trait function, called directly; monomorphization picks the impl (spec 10.3).
+            _ if is_trait_fn => {
+                let ev = self
+                    .takes_ev(def)
+                    .then(|| self.generic_ev(def, callee, self.ev_arg()));
+                let f = self.fn_ref(def, callee);
+                let ty_args = self.ty_args(def, callee);
+                Ok(Target::Direct(f, ty_args, self.direct_call(f, call), ev))
+            }
             _ => Ok(Target::Value(self.expr(callee), call, ev)),
         }
     }
@@ -2773,13 +2890,36 @@ impl<'a> Lowerer<'a> {
 
     /// The name in the IR: definitions of the entry module keep their names; others get the
     /// module name (`List.map`).
+    ///
+    /// A trait function is named after its trait (`Show.show`), an impl function after its type
+    /// and trait (`User: Show.show`).
     fn ir_name(&self, def: DefId) -> String {
-        let data = &self.hir.defs[def];
+        let hir = self.hir;
+        let data = &hir.defs[def];
+        let name = match data.kind {
+            DefKind::TraitFn => match data.parent {
+                Some(t) => format!("{}.{}", hir.defs[t].name, data.name),
+                None => data.name.to_string(),
+            },
+            DefKind::ImplFn => {
+                let head = data
+                    .parent
+                    .and_then(|i| self.types.traits.head(i))
+                    .map(|h| (h.ty_def, h.trait_def));
+                match head {
+                    Some((ty, t)) => {
+                        format!("{}: {}.{}", hir.defs[ty].name, hir.defs[t].name, data.name)
+                    }
+                    None => data.name.to_string(),
+                }
+            }
+            _ => data.name.to_string(),
+        };
         match &data.module {
-            DefModule::Source(m) if Some(*m) == self.entry => data.name.to_string(),
-            DefModule::Source(m) => format!("{}.{}", self.modules[*m].name, data.name),
-            DefModule::Prelude => data.name.to_string(),
-            DefModule::Builtin(m) => format!("{m}.{}", data.name),
+            DefModule::Source(m) if Some(*m) == self.entry => name,
+            DefModule::Source(m) => format!("{}.{name}", self.modules[*m].name),
+            DefModule::Prelude => name,
+            DefModule::Builtin(m) => format!("{m}.{name}"),
         }
     }
 

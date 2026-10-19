@@ -59,6 +59,18 @@ impl Traits {
         self.impls.get(&(trait_def, ty_def)).copied()
     }
 
+    /// The registered impls of a trait, in definition order.
+    pub fn impls_of(&self, trait_def: DefId) -> Vec<DefId> {
+        let mut out: Vec<DefId> = self
+            .impls
+            .iter()
+            .filter(|((t, _), _)| *t == trait_def)
+            .map(|(_, &i)| i)
+            .collect();
+        out.sort_by_key(|d| d.into_raw());
+        out
+    }
+
     /// The head of a registered impl. Impls with errors in their heads are not registered.
     pub fn head(&self, impl_def: DefId) -> Option<&ImplHead> {
         self.heads.get(impl_def)

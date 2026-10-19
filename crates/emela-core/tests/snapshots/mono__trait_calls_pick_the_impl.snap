@@ -1,0 +1,20 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"Size.\"])"
+---
+export fn main() -> Int {
+  let _%0: Int = @dbg[Int](Box: Size.size[Point](Box.Box[Point](value: Point.Point(x: 1))))
+  @dbg[Int](Size.double[Point](Point.Point(x: 2)))
+}
+
+fn Box: Size.size[Point](self%1: Box[Point]) -> Int {
+  (Point: Size.size(self%1.value#0) +[Int] 1)
+}
+
+fn Size.double[Point](self%2: Point) -> Int {
+  (Point: Size.size(self%2) *[Int] 2)
+}
+
+fn Point: Size.size(self%3: Point) -> Int {
+  self%3.x#0
+}

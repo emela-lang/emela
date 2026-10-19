@@ -30,6 +30,22 @@ pub struct Module {
     pub bundled_files: Vec<BundledFile>,
     /// Every type the module mentions, each once.
     pub types: TypeTable,
+    /// Trait functions (spec 10.3) → their impls. A call of a trait function is generic in `Self`,
+    /// its first type argument; [`crate::mono`] replaces it with a direct call of the impl
+    /// function for that type (no dictionary passing). Empty after monomorphization.
+    pub dispatch: FxHashMap<FnId, Dispatch>,
+}
+
+/// The impls of one trait function.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Dispatch {
+    /// The impl's type, with the impl's type parameters as `Type::Param` (`Pair[$0, $1]`), and the
+    /// impl function. The impl function's type parameters are the impl's, then the trait
+    /// function's own (all but `Self`).
+    pub impls: Vec<(TypeId, FnId)>,
+    /// The trait function has a default implementation: its own body, used for types whose impl
+    /// does not define the function.
+    pub default: bool,
 }
 
 /// A host file bundled with the compiler (under `lib/`).

@@ -59,6 +59,40 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", "fn List.map[", "fn List.fold["]));
 }
 
+/// A trait function call becomes a call of the impl function for the type, with the impl's type
+/// parameters taken from the type (`Box[Point]` gives `A = Point`). A default implementation is
+/// copied per type, and calls inside it pick the impl too (spec 10.3).
+#[test]
+fn trait_calls_pick_the_impl() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+type Point(x: Int)
+type Box[A](value: A)
+
+trait Size {
+  fn size(self) -> Int
+
+  fn double(self) -> Int { Size.size(self) * 2 }
+}
+
+impl Point: Size {
+  fn size(self) { self.x }
+}
+
+impl Box[A: Size]: Size {
+  fn size(self) { Size.size(self.value) + 1 }
+}
+
+fn main() {
+  dbg(Size.size(Box(value: Point(x: 1))))
+  dbg(Size.double(Point(x: 2)))
+}
+",
+    )]));
+    insta::assert_snapshot!(parts(&m, &["fn main(", "Size."]));
+}
+
 /// Option, nested generic types and a generic function calling another with its own type
 /// parameters.
 #[test]
