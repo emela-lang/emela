@@ -60,15 +60,26 @@ pub(crate) fn add(
         .filter(|&(id, _)| !modules.is_core(id) && !modules.is_dependency(id))
         .map(|(_, m)| m.name.segments()[0].clone())
         .collect();
+    // `[dependencies]` and `[dev-dependencies]` share the root names of the project.
+    let refs: Vec<DependencyRef> = dependencies
+        .project
+        .iter()
+        .chain(&dependencies.dev)
+        .cloned()
+        .collect();
     let names = root_names(
-        &dependencies.project,
+        &refs,
         &dependencies.pomes,
         &own,
         modules,
         &dependencies.manifest,
         &mut diagnostics,
     );
+    let (dev, names): (Vec<_>, Vec<_>) = names
+        .into_iter()
+        .partition(|(_, p)| dependencies.dev.iter().any(|d| d.pome == *p));
     modules.set_dependencies(None, names.into_iter().map(|(n, p)| (n, ids[p])));
+    modules.set_dev_dependencies(dev.into_iter().map(|(n, p)| (n, ids[p])));
 
     for (i, pome) in dependencies.pomes.iter().enumerate() {
         let own: Vec<SmolStr> = modules
