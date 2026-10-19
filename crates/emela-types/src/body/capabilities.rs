@@ -11,7 +11,7 @@
 use emela_resolve::hir::{BinaryOp, DefKind, ExprId, ExprKind, Item, Res};
 use smol_str::SmolStr;
 
-use super::BodyInfer;
+use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::ty::Ty;
 
@@ -81,9 +81,11 @@ impl BodyInfer<'_> {
         // The values of fn bodies and handler operation bodies.
         for def in self.defs.clone() {
             let bodies: Vec<ExprId> = match program.item(def) {
-                Some(Item::Fn(item)) => item.body.into_iter().collect(),
                 Some(Item::Handler(item)) => item.ops.iter().filter_map(|op| op.body).collect(),
-                _ => Vec::new(),
+                _ => fn_parts(program, def)
+                    .and_then(|p| p.body)
+                    .into_iter()
+                    .collect(),
             };
             for body in bodies {
                 self.reject_cap(tail(program, body), DiagnosticKind::CapabilityReturned);

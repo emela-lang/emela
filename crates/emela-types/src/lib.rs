@@ -20,6 +20,7 @@ mod row;
 mod scheme;
 mod signature;
 mod sparse;
+mod traits;
 mod ty;
 
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub use layer::{LayerInfo, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;
 pub use scheme::Scheme;
 pub use signature::{Signature, Signatures};
+pub use traits::{ImplHead, Traits, Unsatisfied, head_def};
 pub use ty::{
     FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId, TyConKind,
     TyCons, TyParam, TyVar,

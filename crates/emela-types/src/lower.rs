@@ -109,6 +109,9 @@ pub(crate) struct Scope<'a> {
     /// `type` cannot be sets (not supported yet); the same holds inside effect operation
     /// declarations.
     pub(crate) sets: bool,
+    /// What `Self` stands for: `Bound(0)` in a trait's functions, the impl's type in an impl.
+    /// `None` elsewhere, where name resolution has reported `Self` (E0219).
+    pub(crate) self_ty: Option<&'a Ty>,
 }
 
 impl Scope<'_> {
@@ -225,6 +228,7 @@ impl TyTable {
             kinds: &kinds,
             omitted: Omitted::Empty,
             sets: false,
+            self_ty: None,
         };
         self.lower_in(program, &mut scope, ty, true, diags)
     }
@@ -252,13 +256,7 @@ impl TyTable {
                 Ty::Error
             }
             TypeKind::Unit => Ty::UNIT,
-            TypeKind::SelfType => {
-                diags.push(Diagnostic {
-                    span: type_ref.span,
-                    kind: DiagnosticKind::Unsupported { what: "Self" },
-                });
-                Ty::Error
-            }
+            TypeKind::SelfType => scope.self_ty.cloned().unwrap_or(Ty::Error),
             TypeKind::Tuple(elems) => Ty::tuple(
                 elems
                     .iter()
@@ -432,6 +430,7 @@ impl TyTable {
             kinds: scope.kinds,
             omitted: Omitted::Empty,
             sets: scope.sets,
+            self_ty: None,
         };
         // Set type parameters of built-in effects (the `E` and `R` of `Scope[E, R]`) take sets,
         // written like set type arguments of named types (spec 8.1, 9.2).

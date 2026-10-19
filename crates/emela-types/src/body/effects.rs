@@ -25,7 +25,7 @@
 
 use emela_resolve::hir::{BinaryOp, ExprId, ExprKind, Item, Res, WithItem};
 
-use super::BodyInfer;
+use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
 use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
@@ -40,8 +40,11 @@ impl BodyInfer<'_> {
         for def in self.defs.clone() {
             self.current = Some(def);
             match program.item(def) {
-                Some(Item::Fn(item)) => {
-                    let Some(body) = item.body else {
+                Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
+                    let Some(parts) = fn_parts(program, def) else {
+                        continue;
+                    };
+                    let Some(body) = parts.body else {
                         continue;
                     };
                     let declared = match self.def_ty(def).map(|ty| self.ctx.shallow_resolve(&ty)) {
@@ -64,7 +67,7 @@ impl BodyInfer<'_> {
                     }
                     // When `main` or a test function has a `use` clause, only report that it is
                     // not empty.
-                    if !closed || item.sig.uses.is_none() {
+                    if !closed || parts.sig.is_none_or(|sig| sig.uses.is_none()) {
                         self.ctx
                             .add_subset_of(SetKind::Effects, row, declared, Origin::Body(def));
                     }

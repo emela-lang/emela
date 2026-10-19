@@ -30,7 +30,7 @@ use emela_resolve::hir::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
-use super::BodyInfer;
+use super::{BodyInfer, FnParts, fn_parts};
 use crate::coverage::Shapes;
 use crate::diagnostic::EffectContext;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
@@ -52,8 +52,8 @@ impl BodyInfer<'_> {
         for def in self.defs.clone() {
             self.current = Some(def);
             let (body, declared) = match program.item(def) {
-                Some(Item::Fn(item)) => {
-                    let Some(body) = item.body else {
+                Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
+                    let Some(body) = fn_parts(program, def).and_then(|p| p.body) else {
                         continue;
                     };
                     let declared = match self.def_ty(def).map(|ty| self.ctx.shallow_resolve(&ty)) {
@@ -584,12 +584,15 @@ impl BodyInfer<'_> {
     fn report_unhandled(&mut self, def: DefId, missing: &[RowElem]) {
         let program = self.program;
         let (body, declared) = match program.item(def) {
-            Some(Item::Fn(item)) => match item.body {
-                Some(body) => (body, item.sig.fails.is_some()),
-                None => return,
-            },
             Some(Item::Const(item)) => (item.value, false),
-            _ => return,
+            _ => match fn_parts(program, def) {
+                Some(FnParts {
+                    body: Some(body),
+                    sig,
+                    ..
+                }) => (body, sig.is_some_and(|s| s.fails.is_some())),
+                _ => return,
+            },
         };
         self.push_unhandled(body, declared, missing);
     }
@@ -671,12 +674,11 @@ impl BodyInfer<'_> {
         context: EffectContext,
     ) {
         let body = match self.program.item(def) {
-            Some(Item::Fn(item)) => match item.body {
+            Some(Item::Const(item)) => item.value,
+            _ => match fn_parts(self.program, def).and_then(|p| p.body) {
                 Some(body) => body,
                 None => return,
             },
-            Some(Item::Const(item)) => item.value,
-            _ => return,
         };
         let params = self.def_params(def);
         let rows = self.resolved_rows(SetKind::Effects);
@@ -771,9 +773,8 @@ impl BodyInfer<'_> {
     fn current_params(&self, body: ExprId) -> Option<Vec<TyParam>> {
         let program = self.program;
         let def = self.defs.iter().copied().find(|&d| match program.item(d) {
-            Some(Item::Fn(item)) => item.body == Some(body),
             Some(Item::Const(item)) => item.value == body,
-            _ => false,
+            _ => fn_parts(program, d).is_some_and(|p| p.body == Some(body)),
         })?;
         Some(self.def_params(def))
     }

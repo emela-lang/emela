@@ -97,6 +97,14 @@ pub const SET_ARG_MISMATCH: &str = "E0323";
 pub const SET_AS_TYPE: &str = "E0324";
 // Required trait methods (spec 10.2)
 pub const INCOMPLETE_IMPL: &str = "E0325";
+// Traits (spec 10.1–10.3)
+pub const NOT_IMPLEMENTED: &str = "E0326";
+/// Found by name resolution, which sees the names in the head.
+pub const IMPL_HEAD: &str = "E0328";
+pub const SUPERTRAIT_CYCLE: &str = "E0329";
+pub const DUPLICATE_IMPL: &str = "E0330";
+pub const ORPHAN_IMPL: &str = "E0331";
+pub const IMPL_FN_PARAM_COUNT: &str = "E0332";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";

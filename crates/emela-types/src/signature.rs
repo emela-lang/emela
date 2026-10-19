@@ -6,8 +6,8 @@
 //! values.
 
 use emela_resolve::hir::{
-    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, Param, Program, Res, TypeId,
-    TypeKind,
+    DefId, DefKind, EffectItem, Fields, FnItem, FnSig, Item, LabelOf, LocalKind, Param, Program,
+    Res, TypeId, TypeKind, TypeParam,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
@@ -100,6 +100,12 @@ impl Signatures {
                 Some(Item::Error(item)) => {
                     ctor_signature(program, ty_table, def, &item.fields, diags)
                 }
+                Some(Item::TraitFn(item)) => program.defs[def]
+                    .parent
+                    .map(|t| trait_fn_signature(program, ty_table, t, item, diags)),
+                None if program.defs[def].kind == DefKind::TraitFn => {
+                    prelude_trait_fn_signature(program, ty_table, def)
+                }
                 Some(Item::Const(item)) => item.ty.map(|ty| Signature {
                     scheme: Scheme::mono(ty_table.lower(program, &[], ty, diags)),
                     labels: Vec::new(),
@@ -156,6 +162,7 @@ impl Signatures {
                             kinds: &[],
                             omitted: Omitted::Empty,
                             sets: false,
+                            self_ty: None,
                         };
                         // Generic handlers with type parameters left over are not kept
                         // (spec 8.1); omitting them is E0423.
@@ -234,6 +241,7 @@ fn label_base(
         kinds: &[],
         omitted: Omitted::Empty,
         sets: false,
+        self_ty: None,
     };
     ty_table.effect_tag(
         program,
@@ -287,6 +295,67 @@ fn fn_signature(
         scheme: Scheme::new(
             params.all_params(),
             Ty::func_sets(arg_tys, ret_ty, fails, uses),
+        ),
+        labels,
+    })
+}
+
+/// The type of a trait's function (spec 10.1): `Self` is the first type parameter, constrained by
+/// the trait, and `self` has its type. A function without a return type returns `()`. E and R are
+/// the written `fails` and `use` clauses, empty if omitted (spec 10.4).
+fn trait_fn_signature(
+    program: &Program,
+    ty_table: &TyTable,
+    trait_def: DefId,
+    item: &FnItem,
+    diags: &mut Vec<Diagnostic>,
+) -> Signature {
+    let mut params = FnParams::with_self(program, ty_table, item, Some(trait_def));
+    let arg_tys = params.lower_params(program, ty_table, &item.sig.params, diags);
+    let labels = param_labels(program, &item.sig.params);
+    let mut scope = params.scope(Omitted::Empty);
+    let ret_ty = match item.sig.ret {
+        Some(ret) => ty_table.lower_in(program, &mut scope, ret, true, diags),
+        None => Ty::UNIT,
+    };
+    let fails = params.declared_fails(program, ty_table, &item.sig, diags);
+    let uses = params.declared_uses(program, ty_table, &item.sig, diags);
+    Signature {
+        scheme: Scheme::new(
+            params.all_params(),
+            Ty::func_sets(arg_tys, ret_ty, fails, uses),
+        ),
+        labels,
+    }
+}
+
+/// The functions of the Prelude's traits, which have no source (`emela_resolve::builtins`):
+/// `Eq.eq(self, other: Self) -> Bool`, `Ord.compare(self, other: Self) -> Ordering` and
+/// `Show.show(self) -> String`.
+fn prelude_trait_fn_signature(
+    program: &Program,
+    ty_table: &TyTable,
+    def: DefId,
+) -> Option<Signature> {
+    let trait_def = program.defs[def].parent?;
+    let ordering = program
+        .prelude_def("Ordering")
+        .and_then(|d| ty_table.con(d))
+        .map_or(Ty::Error, |id| Ty::named(id, []));
+    let (params, ret) = match program.defs[def].name.as_str() {
+        "eq" => (2, Ty::BOOL),
+        "compare" => (2, ordering),
+        "show" => (1, Ty::STRING),
+        _ => return None,
+    };
+    let labels = ["self", "other"][..params]
+        .iter()
+        .map(|&l| Some(SmolStr::new(l)))
+        .collect();
+    Some(Signature {
+        scheme: Scheme::new(
+            vec![self_param(program, trait_def)],
+            Ty::func(vec![Ty::Bound(0); params], ret),
         ),
         labels,
     })
@@ -473,6 +542,7 @@ fn op_signature(
         kinds: &kinds,
         omitted: Omitted::Empty,
         sets: true,
+        self_ty: None,
     };
     let params: Vec<Ty> = sig
         .params
@@ -614,14 +684,28 @@ pub(crate) struct FnParams {
     pub(crate) kinds: Vec<ParamKind>,
     declared: Vec<TyParam>,
     pub(crate) hidden: Hidden,
+    /// `Bound(0)` for a trait's function, whose first type parameter is `Self`.
+    pub(crate) self_ty: Option<Ty>,
 }
 
 impl FnParams {
     /// For an external function, invisible effect sets in parameter types get an `Immediate`
     /// bound (callbacks must be Immediate, spec 9.5).
     pub(crate) fn new(program: &Program, ty_table: &TyTable, item: &FnItem) -> Self {
+        Self::with_self(program, ty_table, item, None)
+    }
+
+    /// For a trait's function (`trait_def`), `Self` comes first: `Bound(0)`, constrained by the
+    /// trait (spec 10.1). The trait's definition stands in for it in `defs`.
+    pub(crate) fn with_self(
+        program: &Program,
+        ty_table: &TyTable,
+        item: &FnItem,
+        trait_def: Option<DefId>,
+    ) -> Self {
         let sig = &item.sig;
-        let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
+        let own: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
+        let defs: Vec<DefId> = trait_def.into_iter().chain(own.iter().copied()).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
         let kinds = classify_fn_sets(
             program,
@@ -636,19 +720,36 @@ impl FnParams {
             None => ParamKind::Type,
         })
         .collect::<Vec<_>>();
-        // Only Immediate bounds are kept (traits come in 0.21; not even their names). Immediate
-        // on a non-effect-set type parameter is made E0322 by [`check_bounds`].
-        let declared = ty_params(program, &defs)
+        // `classify_fn_sets` sees `Self` as an ordinary type parameter.
+        let kinds: Vec<ParamKind> = match trait_def {
+            Some(_) => std::iter::once(ParamKind::Type)
+                .chain(kinds.into_iter().skip(1))
+                .collect(),
+            None => kinds,
+        };
+        let skip = defs.len() - own.len();
+        // Immediate is kept on effect sets and traits on ordinary type parameters. Immediate on a
+        // non-effect-set type parameter is made E0322 by [`check_bounds`], and a trait on an
+        // effect set is "not supported yet".
+        let own_params = ty_params(program, &own)
             .into_iter()
-            .zip(&kinds)
+            .zip(&kinds[skip..])
             .zip(&sig.type_params)
             .map(|((p, &kind), tp)| {
                 let mut p = TyParam { kind, ..p };
-                if kind == ParamKind::Set && !immediate_bounds(program, tp).is_empty() {
-                    p.bounds.push(SmolStr::new(IMMEDIATE));
+                match kind {
+                    ParamKind::Set if !immediate_bounds(program, tp).is_empty() => {
+                        p.bounds.push(SmolStr::new(IMMEDIATE));
+                    }
+                    ParamKind::Set => {}
+                    ParamKind::Type => with_traits(program, &mut p, tp),
                 }
                 p
-            })
+            });
+        let declared = trait_def
+            .map(|t| self_param(program, t))
+            .into_iter()
+            .chain(own_params)
             .collect();
         let mut hidden = Hidden::new(defs.len());
         hidden.immediate = item.is_external;
@@ -657,6 +758,7 @@ impl FnParams {
             kinds,
             declared,
             hidden,
+            self_ty: trait_def.map(|_| Ty::Bound(0)),
         }
     }
 
@@ -666,6 +768,7 @@ impl FnParams {
             kinds: &self.kinds,
             omitted,
             sets: true,
+            self_ty: self.self_ty.as_ref(),
         }
     }
 
@@ -681,6 +784,12 @@ impl FnParams {
         params
             .iter()
             .map(|p| {
+                // A trait's `self` has no written type.
+                if let (None, Some(self_ty)) = (p.ty, &self.self_ty)
+                    && program.locals[p.local].kind == LocalKind::SelfParam
+                {
+                    return self_ty.clone();
+                }
                 let Some(ty) = p.ty else {
                     return param_ty(program, ty_table, &self.defs, p, diags);
                 };
@@ -691,6 +800,7 @@ impl FnParams {
                     kinds: &self.kinds,
                     omitted: Omitted::Hidden(&mut self.hidden),
                     sets: true,
+                    self_ty: self.self_ty.as_ref(),
                 };
                 ty_table.lower_in(program, &mut scope, ty, true, diags)
             })
@@ -776,6 +886,7 @@ fn ctor_signature(
         kinds: &kinds,
         omitted: Omitted::Empty,
         sets: true,
+        self_ty: None,
     };
     let ty = match fields {
         Fields::None => ret_ty,
@@ -815,5 +926,29 @@ pub(crate) fn param_ty(
             });
             Ty::Error
         }
+    }
+}
+
+/// Adds the trait constraints written on an ordinary type parameter (`A: Ord + Show`). Immediate
+/// is not a trait here; on an ordinary type parameter it is E0322 ([`check_bounds`]).
+pub(crate) fn with_traits(program: &Program, param: &mut TyParam, tp: &TypeParam) {
+    for &(res, _) in &tp.bounds {
+        if let Res::Def(t) = res
+            && program.defs[t].kind == DefKind::Trait
+            && program.prelude_def(IMMEDIATE) != Some(t)
+            && !param.traits.contains(&t)
+        {
+            param.traits.push(t);
+            param.bounds.push(program.defs[t].name.clone());
+        }
+    }
+}
+
+/// `Self` of a trait's functions, constrained by the trait.
+pub(crate) fn self_param(program: &Program, trait_def: DefId) -> TyParam {
+    TyParam {
+        traits: vec![trait_def],
+        bounds: vec![program.defs[trait_def].name.clone()],
+        ..TyParam::new("Self")
     }
 }

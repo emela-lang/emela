@@ -57,6 +57,8 @@ pub enum DefKind {
     /// A trait function.
     TraitFn,
     Impl,
+    /// A function of an impl ([`ImplFn`]).
+    ImplFn,
     /// An uppercase name (`A`) or a type name (`Item`).
     TypeParam,
     /// `Int`, `String`, `List`, ...
@@ -80,6 +82,7 @@ impl DefKind {
             DefKind::Trait => "trait",
             DefKind::TraitFn => "trait function",
             DefKind::Impl => "impl",
+            DefKind::ImplFn => "impl function",
             DefKind::TypeParam => "type parameter",
             DefKind::BuiltinType => "type",
         }
@@ -626,12 +629,18 @@ pub struct ImplItem {
     pub type_params: Vec<TypeParam>,
     /// The type before `:`, applied to the type parameters (`Map[K, V]`).
     pub self_ty: Option<TypeId>,
+    /// The head is not a type name with distinct type parameters (E0328, reported by name
+    /// resolution). Type checking skips the impl's head.
+    pub malformed_head: bool,
     pub fns: Vec<ImplFn>,
 }
 
 /// The signature comes from the trait declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplFn {
+    /// A [`DefKind::ImplFn`] whose parent is the impl. Not in any namespace: it is called through
+    /// the trait function (`Show.show`), and monomorphization picks it (spec 10.3).
+    pub def: DefId,
     pub name: Label,
     /// The trait function implemented.
     pub trait_fn: Res,
@@ -703,6 +712,18 @@ impl Program {
 
     pub fn item(&self, def: DefId) -> Option<&Item> {
         self.items.get(def)
+    }
+
+    /// The impl of a [`DefKind::ImplFn`] and the function. `None` for other definitions.
+    pub fn impl_fn(&self, def: DefId) -> Option<(DefId, &ImplFn)> {
+        if self.defs[def].kind != DefKind::ImplFn {
+            return None;
+        }
+        let parent = self.defs[def].parent?;
+        let Some(Item::Impl(item)) = self.item(parent) else {
+            return None;
+        };
+        item.fns.iter().find(|f| f.def == def).map(|f| (parent, f))
     }
 
     /// The effect a label stands for (`Console` for `effect AuditLog of Console`). `None` for

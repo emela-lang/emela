@@ -114,20 +114,13 @@ fn main() -> Int {
 fn private_declarations_children_and_references() {
     let fs = MemoryFiles::new([("/app/Pome.toml", ""), (MAIN, PRIVATE)]);
     let (analysis, program) = checked(&fs, Dependencies::default());
-    // Trait calls are not type checked yet; docs still work in the partial program.
     assert_eq!(
         analysis
             .diagnostics
             .iter()
             .filter(|d| d.severity == emela_driver::Severity::Error)
             .count(),
-        1
-    );
-    assert!(
-        analysis
-            .diagnostics
-            .iter()
-            .any(|d| d.message == "not supported yet: reference to this kind of definition")
+        0
     );
     for (needle, within, expected) in [
         ("fn twice", 3, "A private function.\n\n    twice(2)"),

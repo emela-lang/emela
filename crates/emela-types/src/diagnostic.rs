@@ -18,6 +18,24 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
+    /// A type does not satisfy a trait (E0326, spec 10.1–10.3): a constraint at a call, or a
+    /// supertrait at an impl. `ty` is displayed.
+    NotImplemented { ty: SmolStr, trait_name: SmolStr },
+    /// A trait is its own supertrait (E0329, spec 10.1). `cycle` starts and ends with the same
+    /// trait.
+    SupertraitCycle { cycle: Vec<SmolStr> },
+    /// A second impl of the same trait for the same type (E0330, spec 10.2). `ty` is the second
+    /// impl's head.
+    DuplicateImpl { ty: SmolStr, trait_name: SmolStr },
+    /// An impl outside the modules of its type and its trait (E0331, spec 10.2).
+    OrphanImpl { ty: SmolStr, trait_name: SmolStr },
+    /// An impl function whose parameter count differs from the trait's declaration (E0332).
+    ImplFnParamCount {
+        name: SmolStr,
+        trait_name: SmolStr,
+        expected: usize,
+        found: usize,
+    },
     /// E0304. `List[Int, Int]`, or `Option` with no type arguments.
     WrongTypeArgCount {
         name: SmolStr,

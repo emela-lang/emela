@@ -83,6 +83,7 @@
 - （補）「もしかして」の候補は，同じ位置で引ける名前のうち編集距離が名前の長さの3分の1（最低1）以下で最も近いもの
 - （補）診断はモジュールの順，ファイルの中は位置の順に並べる
 - （補）名前のない impl の `DefId` には `impl#1` のような名前を付ける
+- （補）impl の fn は impl を親にした `DefKind::ImplFn` の定義を持つ（`ImplFn::def`）．どの名前空間にも入れない（呼び出しは Trait の関数を通り，単相化が impl の fn を選ぶ，10.3）．型検査と lowering が fn と同じく定義ごとに扱うため．impl の中で同じ名前の fn を2回書いたら，trait の関数と同じく E0213
 
 ### 部分更新（5.3）
 
@@ -121,4 +122,4 @@
 - （補）`Program::modules` の `ModuleItems` にモジュール名（`name`）を持たせた．型検査が診断に `Fiber.scope` のような名前を出すため
 - （補）エフェクトのラベル（issue #255）．`effect L of E [default]` は EffectItem の `label`（LabelOf）に元のエフェクトとその型引数，`default` を持つ．ラベル自身は操作を持たず，`Program::effect_ops` が元のエフェクトの操作を返す（1段だけ．ラベルのラベルは型検査の E0429）．ラベルの handler（`handler H: L`）は型検査が E0433 にするので，名前解決は操作を引かず，E0212 を重ねない
 - （補）`with` の項目は WithItem（`res`，`span`，`by`）．`by` のない項目は handler，layer，エフェクトを受け（Expected::WithItem），`L by P` の左はエフェクト（Expected::Label），右は handler かエフェクト（Expected::HandlerOrEffect）．ラベルかどうか（`with Console` がラベルでない）は名前解決では見ず，型検査が E0430 にする．そのため，`with` にエフェクトを書いたときの「handler or layer が要る」の診断は出なくなった
-- （補）impl の頭の型引数（`impl Map[K: Eq, V: Eq]: Eq`，10.2）は impl の定義を親にした `DefKind::TypeParam` で，`ImplItem::type_params` に持ち，impl の本体の中で引ける．`ImplItem::self_ty` は型の名前を自分の型引数に当てた型（`Map[K, V]`）にする．頭の型引数の重複は fn の型引数と同じ E0213，既存の型と同じ名前（`impl List[Int]: Show` の `Int`）は W0201 のままで，E0328 は型検査で出す（#328）
+- （補）impl の頭の型引数（`impl Map[K: Eq, V: Eq]: Eq`，10.2）は impl の定義を親にした `DefKind::TypeParam` で，`ImplItem::type_params` に持ち，impl の本体の中で引ける．`ImplItem::self_ty` は型の名前を自分の型引数に当てた型（`Map[K, V]`）にする．頭の型引数の重複（`impl Pair[A, A]: Eq`）と既存の型と同じ名前（`impl List[Int]: Show` の `Int`）は，E0213 と W0201 でなく E0328 にして頭の全体を指す．名前を見られるのは名前解決なので，E03xx だがここで出す．重複した名前にも型引数を作り，頭の型引数の数を保つ．`ImplItem::malformed_head` が立ち，型検査はその impl の頭を見ない

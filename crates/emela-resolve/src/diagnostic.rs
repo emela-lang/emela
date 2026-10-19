@@ -99,6 +99,9 @@ pub enum DiagnosticKind {
     ShadowedByTypeParam { name: SmolStr },
     /// A module definition or import hides a Prelude name of the same name (W0202).
     ShadowsPrelude { name: SmolStr },
+    /// An impl head that is not a type name with distinct type parameters (E0328, spec 10.2):
+    /// `impl List[Int]: Show`, `impl Pair[A, A]: Eq`. `head` is the head as written.
+    ImplHead { head: SmolStr },
 }
 
 /// Where a name was looked up. Used in the diagnostic message.
@@ -283,6 +286,10 @@ impl fmt::Display for DiagnosticKind {
             DiagnosticKind::ShadowsPrelude { name } => {
                 write!(f, "`{name}` shadows the prelude's `{name}`")
             }
+            DiagnosticKind::ImplHead { head } => write!(
+                f,
+                "impl head must be a type with distinct type parameters: `{head}`"
+            ),
         }
     }
 }
