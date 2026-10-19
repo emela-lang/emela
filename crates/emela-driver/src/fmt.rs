@@ -14,7 +14,7 @@ use emela_resolve::EXTENSION;
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
-use crate::pipeline::Input;
+use crate::pipeline::{Input, TEST_DIR};
 use crate::render::{render_one, summary};
 use crate::source::{FileSystem, SourceDb};
 
@@ -119,22 +119,28 @@ pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, V
             continue;
         }
         let dir = absolute;
-        // `Input::resolve` has rejected directories outside the source root, so `dir` is either
-        // under it or the project directory.
-        let walk_from = if dir.starts_with(&input.root) {
-            dir
+        // `Input::resolve` has rejected directories outside the source and test roots, so `dir`
+        // is under one of them or the project directory, which means both (the test root only
+        // if it exists).
+        let tests = input.base.join(TEST_DIR);
+        let walk_from = if dir.starts_with(&input.root) || dir.starts_with(&tests) {
+            vec![dir]
+        } else if fs.is_dir(&tests) {
+            vec![input.root.clone(), tests]
         } else {
-            input.root.clone()
+            vec![input.root.clone()]
         };
-        let mut files = Vec::new();
-        if let Err((dir, err)) = walk(fs, &walk_from, &mut files) {
-            failures.push(FmtFailure::new(
-                Diagnostic::error(format!("cannot read directory: {err}"))
-                    .with_code(code::CANNOT_READ)
-                    .at(Location::Path(display_path(&input.base, &dir))),
-            ));
+        for from in walk_from {
+            let mut files = Vec::new();
+            if let Err((dir, err)) = walk(fs, &from, &mut files) {
+                failures.push(FmtFailure::new(
+                    Diagnostic::error(format!("cannot read directory: {err}"))
+                        .with_code(code::CANNOT_READ)
+                        .at(Location::Path(display_path(&input.base, &dir))),
+                ));
+            }
+            targets.extend(files.into_iter().map(target));
         }
-        targets.extend(files.into_iter().map(target));
     }
     (targets.into_iter().collect(), failures)
 }
@@ -286,6 +292,18 @@ mod tests {
             "src/main.emel".to_owned(),
         ];
         assert_eq!(targets(&files, &["/app"]), (all.clone(), vec![]));
+        let with_tests: Vec<(&str, &str)> = files
+            .iter()
+            .copied()
+            .chain([("/app/test/sort_test.emel", "")])
+            .collect();
+        let mut both = all.clone();
+        both.push("test/sort_test.emel".to_owned());
+        assert_eq!(targets(&with_tests, &["/app"]), (both, vec![]));
+        assert_eq!(
+            targets(&with_tests, &["/app/test"]),
+            (vec!["test/sort_test.emel".to_owned()], vec![])
+        );
         assert_eq!(targets(&files, &["/app/src"]), (all, vec![]));
         assert_eq!(
             targets(&files, &["/app/src/http"]),

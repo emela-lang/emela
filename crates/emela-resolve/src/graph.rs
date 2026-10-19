@@ -62,8 +62,14 @@ pub fn build_import_graph(
                 None => diagnostics.push(Diagnostic {
                     file: module.file.clone(),
                     range: Some(import.range),
-                    kind: DiagnosticKind::UndefinedModule {
-                        name: import.path.clone(),
+                    kind: if modules.is_test_only(id, &import.path) {
+                        DiagnosticKind::TestOnlyModule {
+                            name: import.path.clone(),
+                        }
+                    } else {
+                        DiagnosticKind::UndefinedModule {
+                            name: import.path.clone(),
+                        }
                     },
                 }),
             }

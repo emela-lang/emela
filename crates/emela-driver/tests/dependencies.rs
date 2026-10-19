@@ -83,6 +83,7 @@ fn dependencies(project_module: Option<&str>, quince_emela: &str) -> Dependencie
             pome: 0,
             module: project_module.map(Into::into),
         }],
+        dev: Vec::new(),
         manifest: "/app/Pome.toml".into(),
         allow_external: Vec::new(),
     }
@@ -208,4 +209,107 @@ fn compares_the_compiler_version() {
     );
     let found = diagnostics(&files(APP, ROUTER), dependencies(None, "0.1.0"));
     assert!(found[0].starts_with("W0203"), "{found:?}");
+}
+
+// The project has a test root with a helper module; brix is a `[dev-dependencies]` Pome.
+fn with_test_root(main: &str, extra: &[(&str, &str)]) -> (MemoryFiles, Dependencies) {
+    let mut files = vec![
+        ("app/Pome.toml", ""),
+        ("app/src/main.emel", main),
+        (
+            "app/src/sort.emel",
+            "pub fn sort(xs: List[Int]) -> List[Int] { xs }\n",
+        ),
+        (
+            "app/test/support.emel",
+            "import Brix\n\npub fn sample() -> List[Int] { Brix.sample() }\n",
+        ),
+        (
+            "app/test/sort_test.emel",
+            "import Sort\nimport Support\n\n@test\nfn keeps_the_length() {\n  assert List.length(Sort.sort(Support.sample())) == 3\n}\n",
+        ),
+        ("deps/brix/Pome.toml", ""),
+        (
+            "deps/brix/src/lib.emel",
+            "pub fn sample() -> List[Int] { [3, 1, 2] }\n",
+        ),
+    ];
+    files.extend_from_slice(extra);
+    let fs = MemoryFiles::new(files);
+    let deps = Dependencies {
+        pomes: vec![pome(
+            "github.com/emela-lang/brix",
+            "/deps/brix",
+            None,
+            COMPILER,
+            vec![],
+        )],
+        dev: vec![DependencyRef {
+            pome: 0,
+            module: None,
+        }],
+        manifest: "/app/Pome.toml".into(),
+        ..Dependencies::default()
+    };
+    (fs, deps)
+}
+
+fn test_diagnostics(fs: &MemoryFiles, deps: Dependencies, tests: bool) -> Vec<String> {
+    let mut input = Input::resolve(fs, Path::new("app")).unwrap();
+    if tests {
+        input = input.with_tests(fs);
+    }
+    input.dependencies = deps;
+    let (analysis, _) = check(fs, &input, &mut Typecheck::default());
+    analysis
+        .diagnostics
+        .iter()
+        .map(|d| format!("{} {}", d.code.unwrap_or("-"), d.message))
+        .collect()
+}
+
+#[test]
+fn the_test_root_sees_the_dev_dependencies() {
+    let (fs, deps) = with_test_root(
+        "import Sort\n\nfn main() -> Int { List.length(Sort.sort([1])) }\n",
+        &[],
+    );
+    assert_eq!(
+        test_diagnostics(&fs, deps.clone(), true),
+        Vec::<String>::new()
+    );
+    // Without the tests (build and run), the test root is not read at all.
+    assert_eq!(test_diagnostics(&fs, deps, false), Vec::<String>::new());
+}
+
+#[test]
+fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
+    let main = "import Brix\nimport Support\n\nfn main() -> Int { 1 }\n";
+    let (fs, deps) = with_test_root(main, &[]);
+    assert_eq!(
+        test_diagnostics(&fs, deps, true),
+        [
+            "E0239 `Brix` can only be imported under `test/`",
+            "E0239 `Support` can only be imported under `test/`",
+        ]
+    );
+}
+
+#[test]
+fn a_test_module_shares_the_names_of_the_source_root() {
+    let (fs, deps) = with_test_root(
+        "fn main() -> Int { 1 }\n",
+        &[
+            ("app/test/sort.emel", "pub fn other() -> Int { 1 }\n"),
+            ("app/test/lib.emel", ""),
+        ],
+    );
+    let found = test_diagnostics(&fs, deps, true);
+    assert!(
+        found
+            .iter()
+            .any(|d| d.starts_with("E0204 duplicate module `Sort`"))
+            && found.contains(&"E0203 module name `Lib` is reserved".to_string()),
+        "{found:?}"
+    );
 }

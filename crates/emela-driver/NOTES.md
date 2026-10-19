@@ -87,6 +87,16 @@ pub trait TestBackend<P> {
 - （補）テスト関数を通常のコード（テスト関数でない fn と const の本体）から参照すると E0227（``test function `adds` can only be used from test functions``，注記 ``= note: test functions are removed from normal builds (13.1)``）．13.1 と付録 A に反映済み
 - （補）テストの表示名は，エントリのモジュールなら関数名だけ（`greet_returns_user`），ほかのモジュールならモジュール名を付ける（`Http.Client.gets`）．`cargo test` がクレートのルートだけ前置きを付けないのに合わせた．フィルタはこの表示名の部分一致（大文字小文字を区別する）
 - （補）単独ファイルでは，エントリから import でたどれるモジュールのテストだけを実行する（読むモジュールの規則と同じ）
+
+### テストのルートとテストの依存（4.1，4.7，13.1）
+
+- `Input::with_tests` がテストのルート（`<project>/test`，あるときだけ）を `Input::tests` に入れる．cli の `check` と `test`，LSP が呼び，`build`，`run`，`doc` は呼ばない．呼ばないときはテストのルートを読まないので，中のモジュールは通常のビルドに入らない
+- テストのルートのモジュールは `ModuleMap::add_test_root` でソースのルートと同じ対応表に入る．同じ名前は E0204，ルート直下の `main.emel` と `lib.emel` は E0203
+- `[dev-dependencies]` は `project_dependencies(.., tests)` が `tests` のときだけ読み，`Dependencies::dev` に入れる．ルート名は `[dependencies]` と合わせて検査する（同じ名前は E0204）
+- `ModuleMap::lookup_from` は，テストのルートのモジュールと `[dev-dependencies]` のルート名を，テストのルートのモジュールからだけ引く．ソースのルートから引こうとしたものは `is_test_only` で見分けて E0239 にする
+- （補）テストのルートの `.emel` 以外のファイルは，テストの出力の `emela_tests/` に写す（ソースのルートの `emela_project/` と同じ扱い）
+- （補）`build` と `run` にテストのルートの中のファイルを渡すと E0208（``... is under the test root, which only check and test read``）
+- （補）`fmt` は，プロジェクトのディレクトリを渡すとソースのルートとテストのルートの両方を整形する
 - （補）テストの JS の出力先は `target/emela/test`（`--out-dir` で変えられる）．テスト関数を export した別の出力なので，通常のビルドの `target/emela/js` を上書きしない
 - （補）`CoreJs` のテストの出力は `main.mjs`（選んだテスト関数を Emela の名前で export する．IR の `exported` は書き換えず，`emit_module_exporting` に渡す），ランタイム，起動用モジュール `emela_test.mjs` の3つ．node は起動用モジュールを直接実行する（`run` の起動用モジュールは使わない）
 - （補）テストランナーは結果を標準出力に1行ずつ `\x1eemela-test ` + JSON で書き，driver が読みながら表示する．結果の行でない標準出力はそのまま流す．node の標準エラーは `Output::Inherit` なら素通し，`Capture` なら `TestReport::stderr` に集める．標準入力は渡さない

@@ -16,10 +16,14 @@ use crate::source::FileSystem;
 /// `[replace]`) with its directory, fetched into the cache if missing and checked against the
 /// lock. The lock is not rewritten; a dependency of `Pome.toml` missing from it is an error.
 /// A fetcher without sources (the language server) only finds what is in the cache.
+///
+/// With `tests` (check, test and the language server), `[dev-dependencies]` and what they bring
+/// in are read too; otherwise the Pomes the lock marks `dev` are not got (spec 4.7).
 pub fn project_dependencies<T: Transport>(
     fs: &dyn FileSystem,
     base: &Path,
     fetcher: &Fetcher<T>,
+    tests: bool,
 ) -> Result<Dependencies, PomeError> {
     let manifest_file = base.join(PROJECT_FILE);
     let text = fs
@@ -46,7 +50,7 @@ pub fn project_dependencies<T: Transport>(
                 .collect()
         })
         .unwrap_or_default();
-    if !declares("dependencies") {
+    if !(declares("dependencies") || tests && declares("dev-dependencies")) {
         return Ok(Dependencies {
             manifest: manifest_file,
             allow_external,
@@ -71,7 +75,18 @@ pub fn project_dependencies<T: Transport>(
         pomes: Vec::new(),
     };
     let mut project = Vec::new();
-    for (path, requirement) in &manifest.dependencies {
+    let mut dev = Vec::new();
+    let dev_dependencies = manifest
+        .dev_dependencies
+        .iter()
+        .filter(|_| tests)
+        .map(|entry| (entry, true));
+    for ((path, requirement), is_dev) in manifest
+        .dependencies
+        .iter()
+        .map(|entry| (entry, false))
+        .chain(dev_dependencies)
+    {
         if !manifest.replace.contains_key(path) {
             match lock.get(path) {
                 Some(locked) if locked.version >= requirement.version => {}
@@ -83,14 +98,20 @@ pub fn project_dependencies<T: Transport>(
                 }
             }
         }
-        project.push(DependencyRef {
+        let reference = DependencyRef {
             pome: builder.pome(path)?,
             module: requirement.module.clone(),
-        });
+        };
+        if is_dev {
+            dev.push(reference);
+        } else {
+            project.push(reference);
+        }
     }
     Ok(Dependencies {
         pomes: builder.pomes,
         project,
+        dev,
         manifest: manifest_file,
         allow_external,
     })

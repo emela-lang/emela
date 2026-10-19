@@ -52,7 +52,7 @@ pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
     Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies,
     DependencyPome, DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly, NoJsBackend,
-    Parsed, RunOptions, Runner, SOURCE_DIR, WASM_OUT_DIR, build, check, run,
+    Parsed, RunOptions, Runner, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, build, check, run,
 };
 pub use pome::project_dependencies;
 pub use render::{render, render_one, summary};

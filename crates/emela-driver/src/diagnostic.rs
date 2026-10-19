@@ -170,6 +170,16 @@ impl Diagnostic {
             DiagnosticKind::UndefinedModule { name } => {
                 (code::UNDEFINED_MODULE, format!("undefined module `{name}`"))
             }
+            DiagnosticKind::TestOnlyModule { name } => {
+                return Diagnostic::error(format!(
+                    "`{name}` can only be imported under `test/`"
+                ))
+                .with_code(code::TEST_ONLY_MODULE)
+                .with_note(
+                    "the test root and [dev-dependencies] are only for the tests; move the tests that use it under test/ (13.1)",
+                )
+                .at(location);
+            }
             DiagnosticKind::ImportCycle { modules } => {
                 let message = match modules.as_slice() {
                     [only] => format!("module `{only}` imports itself"),

@@ -31,6 +31,9 @@ pub enum DiagnosticKind {
     DuplicateModule { name: ModuleName, first: PathBuf },
     /// The imported module does not exist.
     UndefinedModule { name: ModuleName },
+    /// E0239. A module of the source root imports a module of the test root or a
+    /// `[dev-dependencies]` Pome, which only the test root may import (spec 4.7, 13.1).
+    TestOnlyModule { name: ModuleName },
     /// `modules` goes around the cycle once (the edge back to the first module is omitted).
     ImportCycle { modules: Vec<ModuleName> },
     /// A directory could not be read.
@@ -193,6 +196,9 @@ impl fmt::Display for DiagnosticKind {
             ),
             DiagnosticKind::UndefinedModule { name } => {
                 write!(f, "undefined module `{name}`")
+            }
+            DiagnosticKind::TestOnlyModule { name } => {
+                write!(f, "module `{name}` can only be imported under `test/`")
             }
             DiagnosticKind::ImportCycle { modules } => {
                 if let [only] = modules.as_slice() {

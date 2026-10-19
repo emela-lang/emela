@@ -57,6 +57,9 @@ pub const DEPENDENCIES_NOT_READY: &str = "E0236";
 pub const PUB_EXTERNAL_IN_DEPENDENCY: &str = "E0237";
 /// A dependency whose `[pome].targets` does not include the build target (spec 4.7).
 pub const UNSUPPORTED_TARGET: &str = "E0238";
+/// A module of the source root imports a module of the test root or a `[dev-dependencies]` Pome
+/// (spec 4.7, 13.1).
+pub const TEST_ONLY_MODULE: &str = "E0239";
 pub const SHADOWED_BY_TYPE_PARAM: &str = "W0201";
 pub const SHADOWS_PRELUDE: &str = "W0202";
 /// A dependency written for an older minor version of the compiler (`[pome].emela`, spec 4.7).

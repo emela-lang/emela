@@ -779,11 +779,13 @@ fn parse<N: lsp::notification::Notification>(notification: Notification) -> Opti
 
 /// Adds the project's dependencies from the cache. The language server does not go to the
 /// network (spec 4.7): a dependency missing from the cache, or a missing lock, is a diagnostic on
-/// `Pome.toml`, and the project is checked without dependencies.
-fn with_dependencies(fs: &dyn FileSystem, mut input: Input) -> (Input, Option<Diagnostic>) {
+/// `Pome.toml`, and the project is checked without dependencies. The test root and
+/// `[dev-dependencies]` are read too, like `emela check`.
+fn with_dependencies(fs: &dyn FileSystem, input: Input) -> (Input, Option<Diagnostic>) {
     if input.single_file {
         return (input, None);
     }
+    let mut input = input.with_tests(fs);
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);
@@ -793,7 +795,7 @@ fn with_dependencies(fs: &dyn FileSystem, mut input: Input) -> (Input, Option<Di
             config.sources.clear();
             let fetcher =
                 emela_pome::fetch::Fetcher::new(config, emela_pome::fetch::transport::Http::new());
-            emela_driver::project_dependencies(fs, &input.base, &fetcher)
+            emela_driver::project_dependencies(fs, &input.base, &fetcher, true)
         });
     match result {
         Ok(dependencies) => {
