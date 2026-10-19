@@ -101,7 +101,6 @@ const PRELUDE_TRAITS: &[(&str, &[&str])] = &[
     ("Eq", &["eq"]),
     ("Ord", &["compare"]),
     ("Show", &["show"]),
-    ("Hash", &["hash"]),
     ("Immediate", &[]),
 ];
 /// The functions of spec 15.1.

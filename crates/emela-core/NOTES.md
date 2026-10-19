@@ -53,7 +53,7 @@
 - （補）`@intrinsic` の宣言は，引数と戻り値の型，型引数の数を表と一致させる．公開しない補助（`Int.parse` の中身の `parse_or_none`）は `pub` を付けない．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
 - （補）Prelude の `Bool` は `False`，`True` の順に宣言する．導出する Ord で `False < True` にするため．IR では Bool は `Lit::Bool` の組み込みのまま（上の Bool の項）．
-- （補）Prelude の enum（Bool，Option，Ordering）には `derive Eq, Ord, Show, Hash` を書く．Option の型引数の制約の扱いは導出の側で決める．
+- （補）Prelude の enum（Bool，Option，Ordering）には `derive Eq, Ord, Show` を書く．Option の型引数の制約の扱いは導出の側で決める．
 - （補）`dbg` は `dbg[A: Show](value: A) -> A` と書く．表の `ty_params` は制約を持たないので，制約は型推論の側でソースから読む．
 - （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
 - （補）高階関数の関数の引数名は `f`（位置で渡す）．15.3 の `with` と `where` のラベルは，`with` が予約語（3.1），`where` が将来のための予約（3.3）で仮引数の名前にできないため取りやめになった（2026-10-12 本人の決定．仕様 15.3 と 6.7 も改めた）．畳み込みの初期値の `from` は残す

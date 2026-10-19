@@ -73,7 +73,7 @@
 ### Prelude と組み込みのモジュール
 
 - （補）Prelude の定義は `Program` の最初に作る（`DefModule::Prelude`）．`Bool`，`Option`，`Ordering` は enum の中身を持ち，`Option` は型引数 `A` と位置引数1つの `Some(A)` を持つ．Prelude の中の型（`Some(A)` の `A`）だけは位置がない（`TypeRef::span` が `None`）
-- （補）Prelude の Trait の関数は `Eq.eq`，`Ord.compare`，`Show.show`，`Hash.hash` を名前だけ定義する．シグネチャは型推論の段が持つ
+- （補）Prelude の Trait の関数は `Eq.eq`，`Ord.compare`，`Show.show` を名前だけ定義する．Hash は持たない（2026-10-19 に仕様から外れた．10.6，15.1）．シグネチャは型推論の段が持つ
 - （補）組み込みの制約 `Immediate`（9.5）とエフェクト `Async`（8.7）も Prelude と同じく import なしで見せる
 - （補）組み込みのモジュール（`String`，`List` など）は `BuiltinModules` から引く．import なしで `.` の左に書ける（4.4 の `String.contains`）．項目の `DefId` は初めて引いたときに作る（`DefModule::Builtin`）
 - （補）型の位置で，型引数，モジュールの定義と import，Prelude のどれにも名前がないとき，組み込みのモジュール `X` が同じ名前の型 `X` を持てばそれを使う（5.7 の `Map[String, List[User]]`）．ソースのモジュールには適用しない

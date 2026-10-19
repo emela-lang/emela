@@ -235,7 +235,7 @@ ROOT@0..567
         PLUS@382..383 "+"
         WHITESPACE@383..384 " "
         PATH@384..388
-          TYPE_NAME@384..388 "Hash"
+          TYPE_NAME@384..388 "Show"
       COMMA@388..389 ","
       WHITESPACE@389..390 " "
       TYPE_PARAM@390..395

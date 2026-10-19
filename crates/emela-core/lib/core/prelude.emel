@@ -1,27 +1,27 @@
 # Prelude (spec 15.1). Visible from every module without an import. Only pure items go here.
 #
 # Int, Int64, Float, String, Never and List are built into the compiler, so they are not declared
-# here. So are the traits Eq, Ord, Show and Hash (spec 10.6).
+# here. So are the traits Eq, Ord and Show (spec 10.6).
 
 ## `False` comes first so that the derived Ord gives `False < True`.
 pub enum Bool {
   False
   True
 }
-  derive Eq, Ord, Show, Hash
+  derive Eq, Ord, Show
 
 pub enum Option[A] {
   Some(A)
   None
 }
-  derive Eq, Ord, Show, Hash
+  derive Eq, Ord, Show
 
 pub enum Ordering {
   Less
   Equal
   Greater
 }
-  derive Eq, Ord, Show, Hash
+  derive Eq, Ord, Show
 
 ## Raises a defect whose description is `message`.
 @intrinsic

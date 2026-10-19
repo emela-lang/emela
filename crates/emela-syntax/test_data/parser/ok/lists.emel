@@ -13,7 +13,7 @@ suspend fn tick() use { Io, Clock }
 fn self_param(self, other: Self) -> Bool { self == other }
 
 ## 型引数は型名でも書ける（2.3）
-fn lookup[Key: Eq + Hash, Value](map: Map[Key, Value], key: Key) -> Option[Value] { todo() }
+fn lookup[Key: Eq + Show, Value](map: Map[Key, Value], key: Key) -> Option[Value] { todo() }
 
 type Entry[Key, Value](key: Key, value: Value)
 
