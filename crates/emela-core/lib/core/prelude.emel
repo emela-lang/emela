@@ -1,7 +1,8 @@
 # Prelude (spec 15.1). Visible from every module without an import. Only pure items go here.
 #
 # Int, Int64, Float, String, Never and List are built into the compiler, so they are not declared
-# here. So are the traits Eq, Ord and Show (spec 10.6).
+# here. So are the traits Eq, Ord and Show (spec 10.6), and their impls for the primitive
+# types and tuples. List and Option have theirs in list.emel and option.emel.
 
 ## `False` comes first so that the derived Ord gives `False < True`.
 pub enum Bool {
@@ -10,11 +11,11 @@ pub enum Bool {
 }
   derive Eq, Ord, Show
 
+## Eq, Ord and Show are in option.emel (spec 10.6).
 pub enum Option[A] {
   Some(A)
   None
 }
-  derive Eq, Ord, Show
 
 pub enum Ordering {
   Less

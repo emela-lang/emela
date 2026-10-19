@@ -51,3 +51,9 @@ pub fn code_points(s: String) -> List[Int]
 ## `None` if `n` is not a Unicode scalar value (0 to 10FFFF, excluding surrogates).
 @intrinsic
 pub fn from_code_point(n: Int) -> Option[String]
+
+## The Show of a value shown inside another value (spec 10.6): a String is quoted and escaped
+## (`"a\"b"`), any other type is its `Show.show`. For the Show impls in core (`[1, 2]`, `["a"]`).
+@internal
+@intrinsic
+pub fn show_nested[A: Show](value: A) -> String

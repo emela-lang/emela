@@ -34,6 +34,9 @@ pub struct Module {
     /// its first type argument; [`crate::mono`] replaces it with a direct call of the impl
     /// function for that type (no dictionary passing). Empty after monomorphization.
     pub dispatch: FxHashMap<FnId, Dispatch>,
+    /// The Prelude's `Show.show`, if lowered. [`crate::mono`] replaces `Builtin::ShowNested` of a
+    /// type other than String with a call of it.
+    pub show: Option<FnId>,
 }
 
 /// The impls of one trait function.
@@ -715,6 +718,11 @@ impl TypeTable {
     /// The ID of the type if the table has it.
     pub fn get(&self, ty: &Type) -> Option<TypeId> {
         self.ids.get(ty).copied()
+    }
+
+    /// Every type, in the order of their IDs.
+    pub fn iter(&self) -> impl Iterator<Item = &Type> {
+        self.types.iter()
     }
 
     /// The number of distinct types.

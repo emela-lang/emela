@@ -18,8 +18,8 @@ use crate::scheme::Scheme;
 use crate::signature::{Signature, Signatures, param_labels, with_traits};
 use crate::ty::{Prim, Ty, TyParam};
 
-/// The traits of the Prelude (spec 10.6) whose implementations for the built-in types the
-/// compiler provides for now (see [`Traits::satisfies`]).
+/// The traits of the Prelude (spec 10.6) whose implementations for the primitive types and tuples
+/// the compiler provides (see [`Traits::satisfies`]).
 const BUILTIN_TRAITS: &[&str] = &["Eq", "Ord", "Show"];
 
 /// What the type checker knows about traits and impls.
@@ -105,9 +105,9 @@ impl Traits {
     /// - A type with an impl satisfies it if its type arguments satisfy the impl's constraints.
     ///   A `derive` counts as the impl it will generate, with the same constraint on every type
     ///   parameter (spec 10.5).
-    /// - The built-in types (primitives, tuples, `List`, and the Prelude's enums) satisfy Eq, Ord
-    ///   and Show when their elements do, except Float, which is not Ord (spec 10.6). This stands
-    ///   in for their impls until they are written.
+    /// - The primitive types and tuples satisfy the Prelude's Eq, Ord and Show when their
+    ///   elements do, except Float, which is not Ord (spec 10.6). The compiler provides these
+    ///   impls. `List` and `Option` have theirs in core (`impl List[A: Eq]: Eq`).
     /// - Undetermined types (type variables) and broken types are not reported.
     pub fn satisfies(
         &self,
@@ -160,12 +160,12 @@ impl Traits {
                 return all(&args, &|_| vec![trait_def]);
             }
         }
-        let builtin_trait = program.defs[trait_def].module == DefModule::Prelude
-            && BUILTIN_TRAITS.contains(&program.defs[trait_def].name.as_str());
+        let trait_data = &program.defs[trait_def];
+        let builtin_trait = trait_data.module == DefModule::Prelude
+            && BUILTIN_TRAITS.contains(&trait_data.name.as_str());
         let builtin_ty = match ty {
-            Ty::Prim(Prim::Float) => program.defs[trait_def].name != "Ord",
-            Ty::Prim(_) | Ty::Tuple(_) | Ty::List(_) => true,
-            Ty::Named(id, _) => program.defs[ty_table.def(*id)].module == DefModule::Prelude,
+            Ty::Prim(Prim::Float) => trait_data.name != "Ord",
+            Ty::Prim(_) | Ty::Tuple(_) => true,
             _ => false,
         };
         if builtin_trait && builtin_ty {
@@ -185,6 +185,15 @@ pub fn head_def(program: &Program, ty_table: &TyTable, ty: &Ty) -> Option<DefId>
         Ty::Prim(p) => program.prelude_def(p.name()),
         Ty::List(_) => program.prelude_def("List"),
         _ => None,
+    }
+}
+
+/// Whether a definition of `module` belongs to the bundled core (the Prelude, the built-in modules
+/// and the core sources).
+fn in_core(program: &Program, module: &DefModule) -> bool {
+    match module {
+        DefModule::Source(m) => program.modules.get(*m).is_some_and(|m| m.is_core),
+        DefModule::Prelude | DefModule::Builtin(_) => true,
     }
 }
 
@@ -394,8 +403,13 @@ fn register(
     let trait_name = program.defs[trait_def].name.clone();
 
     // An impl belongs with its type or its trait (spec 10.2).
+    // The bundled core counts as one module: `impl List[A: Eq]: Eq` in `List` (spec 10.6).
     let module = &program.defs[def].module;
-    if *module != program.defs[ty_def].module && *module != program.defs[trait_def].module {
+    let core = [def, ty_def, trait_def]
+        .iter()
+        .all(|&d| in_core(program, &program.defs[d].module));
+    if *module != program.defs[ty_def].module && *module != program.defs[trait_def].module && !core
+    {
         diags.push(Diagnostic {
             span,
             kind: DiagnosticKind::OrphanImpl {

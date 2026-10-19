@@ -135,10 +135,48 @@ fn calls_reach_the_impl_for_the_type() {
     );
 }
 
+const BUILT_IN: &str = r##"
+fn label[A: Show](x: A) -> String { Show.show(x) }
+fn same[A: Eq](x: A, y: A) -> Bool { Eq.eq(x, y) }
+fn cmp[A: Ord](x: A, y: A) -> Ordering { Ord.compare(x, y) }
+
+fn main() {
+  dbg(label(1))
+  dbg(label("a\"b"))
+  dbg(label(1.5))
+  dbg(label(True))
+  dbg(label(()))
+  dbg(label((1, "a", [Some("x"), None])))
+  dbg(label([[1, 2], []]))
+  dbg(same((1, "a"), (1, "a")))
+  dbg(same([1, 2], [1, 3]))
+  dbg(same(Some(0.0), Some(-0.0)))
+  dbg(same((), ()))
+  dbg(cmp([1, 2], [1, 2, 0]))
+  dbg(cmp((2, "a"), (1, "b")))
+  dbg(cmp((1, "a"), (1, "a")))
+  dbg(cmp(False, True))
+  dbg(cmp("b", "a"))
+  dbg(cmp(Some(1), None))
+  dbg(cmp(Some(3), Some(3)))
+}
+"##;
+
+#[test]
+fn built_in_types_have_impls() {
+    // Primitive types and tuples have the compiler's impls, List and Option those in core
+    // (spec 10.6). A String inside a value is quoted.
+    assert_eq!(
+        stderr_of("built_in", BUILT_IN),
+        "\"1\"\n\"a\\\"b\"\n\"1.5\"\n\"True\"\n\"()\"\n\"(1, \\\"a\\\", [Some(\\\"x\\\"), None])\"\n\"[[1, 2], []]\"\n\
+         True\nFalse\nTrue\nTrue\nLess\nGreater\nEqual\nLess\nGreater\nLess\nEqual\n"
+    );
+}
+
 #[test]
 fn a_type_without_an_impl_is_not_supported_yet() {
-    // The built-in types satisfy Show for the type checker before their impls exist.
-    let main = "fn label[A: Show](x: A) -> String { Show.show(x) }\nfn main() { dbg(label(1)) }\n";
+    // A derived type satisfies Show for the type checker before its impl is generated.
+    let main = "type Pt(x: Int)\n  derive Show\n\nfn label[A: Show](x: A) -> String { Show.show(x) }\nfn main() { dbg(label(Pt(x: 1))) }\n";
     let (analysis, output) = run_on("missing", main, Target::Js);
     assert!(output.is_none());
     let messages: Vec<&str> = analysis
@@ -148,6 +186,6 @@ fn a_type_without_an_impl_is_not_supported_yet() {
         .collect();
     assert_eq!(
         messages,
-        ["not supported yet: `Show.show` for `Int`, which has no impl"]
+        ["not supported yet: `Show.show` for `Pt`, which has no impl"]
     );
 }

@@ -206,10 +206,11 @@
 - （補）Trait の関数の型は，`Self` を最初の型引数（`Bound(0)`，制約はその Trait）にした型．`self` の型は `Self`．戻り値の型を書かなければ `()`．E と R は書いた `fails` と `use`，なければ空（10.4）．Prelude の Trait の関数（`Eq.eq`，`Ord.compare`，`Show.show`）はソースがないので，型検査がこの形の型を持つ．Prelude の Ord の上位の Trait（Eq）も型検査が足す
 - （補）impl の fn の型は，Trait の関数の型の `Self` を impl の型（`Pair[A, B]`）に置き換えたもの．型引数は impl の頭の型引数（制約つき）の後に Trait の関数自身の型引数を並べる．impl の fn に書いた引数の型は Trait の宣言の型と照合する（E0301）．引数の数が違えば E0332
 - （補）impl の fn の本体と Trait の既定の実装の本体は，宣言の型を持つ fn と同じく推論する．E と R が宣言を超えれば E0318 と E0402．impl の fn の中では impl の頭の型引数を書けるが，Trait の関数自身の型引数は書けない
+- （補）同梱の core は，impl を書ける場所（10.2）の判定では1つのモジュールとみなす．Prelude の型（`List`，`Option`）の Prelude の Trait の impl を core の `List` や `Option` のモジュールに書ける（10.6）．core のモジュールかは `ModuleItems::is_core` で見る
 - （補）1つの型と1つの Trait の組の2つ目の impl は E0330，型の定義と Trait の定義のどちらのモジュールでもない impl は E0331．E0331 の impl は登録して誤りを重ねない．E0330 の2つ目は登録しない（その fn は型を持たず，推論しない）
 - （補）上位の Trait の検査（E0326）は全部の impl を集めてから行う．各 impl の直接の上位の Trait について，impl の型が上位の Trait を満たすかを，impl の頭の制約の下で見る．2つの impl の頭はどちらも同じ型に自分の型引数を並べたものなので，型引数は位置で対応する．`impl Pair[A: Ord, B]: Ord` に `impl Pair[A: Eq, B: Eq]: Eq` なら ``type `B` does not implement `Eq` `` を頭に出す
 - （補）上位の Trait の循環（E0329）は循環ごとに1回，循環の中で最初に定義された Trait の名前の位置に出し，その Trait から並べる．循環に入った Trait の上位の Trait は空にして，以降の検査が必ず止まるようにする
-- （補）型が Trait を満たすか（`Traits::satisfies`）．型引数は，制約に書いた Trait とその上位の Trait を満たす．impl のある型は，型引数が impl の頭の制約を満たせば満たす．derive に Trait を書いた型は，生成される impl（全部の型引数に同じ制約，10.5）があるとみなす（impl を生成するまでの代わり）．組み込みの型（基本型，タプル，List，Prelude の enum）は，要素が満たせば Eq，Ord，Show を満たす．Float は Ord を満たさない（10.6）．組み込みの型の impl を書くまでの代わりで，関数型は満たさない．型変数（決まらなかった型）と壊れた型は報告しない
+- （補）型が Trait を満たすか（`Traits::satisfies`）．型引数は，制約に書いた Trait とその上位の Trait を満たす．impl のある型は，型引数が impl の頭の制約を満たせば満たす．derive に Trait を書いた型は，生成される impl（全部の型引数に同じ制約，10.5）があるとみなす（impl を生成するまでの代わり）．基本型（`()` を含む）とタプルは，要素が満たせば Prelude の Eq，Ord，Show を満たす．Float は Ord を満たさない（10.6）．これはコンパイラが持つ impl で，lowering が IR に作る（emela-core の NOTES）．List と Option は core のソースの impl（`impl List[A: Eq]: Eq`）で満たす．関数型は満たさない．型変数（決まらなかった型）と壊れた型は報告しない
 - （補）制約の検査（10.3）．型引数に Trait の制約を持つ定義を参照したら，具体化した型と Trait を覚え，まとまりの型が決まってから（数の型を決めた後に）確かめる．満たさなければ参照の位置に E0326．参照した側の定義の型引数は，自分の制約が含意する Trait を満たす．Trait の関数（`Show.show`）は制約 `Self: Show` を持つ型引数 `Self` を持つので，同じ仕組みで impl があるかを見る．関数を値として参照しても同じく検査する
 - （補）`self` を取らない Trait の関数（`Parse.parse`）の `Self` は，単一化で期待される型から決まる．決まらないまま残ったら検査しない（lowering で `()` になる）
 

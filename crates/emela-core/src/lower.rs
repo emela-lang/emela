@@ -27,6 +27,7 @@ use crate::ir::{
 use crate::mono::Monomorphized;
 use crate::named;
 
+mod builtin_impls;
 mod fiber;
 mod suspend;
 
@@ -155,6 +156,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     while let Some((def, spec)) = cx.worklist.pop() {
         cx.define_fn(def, spec);
     }
+    cx.builtin_impls();
     if cx.uses_bundled {
         // If any bundled file is used, ship them all, so relative imports between them work.
         cx.module.bundled_files = input
@@ -192,8 +194,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         _ => crate::mono::exported(&cx.module),
     };
     let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
-    // Until the built-in types have impls, the type checker lets them satisfy the Prelude's
-    // traits (`emela_types::Traits::satisfies`), so a call can reach a type without one.
+    // Until derive generates impls, the type checker counts a `derive` as an impl
+    // (`emela_types::Traits::satisfies`), so a call can reach a type without one.
     for (f, ty) in &mono.missing_impls {
         cx.errors.push(LowerError::Unsupported {
             what: format!("`{f}` for `{ty}`, which has no impl"),
@@ -888,6 +890,32 @@ impl<'a> Lowerer<'a> {
         if !func.constant {
             func.sets = sets;
         }
+    }
+
+    /// The function `name` of the Prelude's trait `trait_name`.
+    fn prelude_trait_fn(&self, trait_name: &str, name: &str) -> Option<DefId> {
+        let hir = self.hir;
+        let t = hir.prelude_def(trait_name)?;
+        hir.defs
+            .iter()
+            .find(|(_, d)| d.kind == DefKind::TraitFn && d.parent == Some(t) && d.name == name)
+            .map(|(def, _)| def)
+    }
+
+    /// Adds the compiler's impls of the Prelude's Eq, Ord and Show for the primitive types and
+    /// tuples (spec 10.6) to the lowered trait functions' dispatch ([`builtin_impls`]).
+    fn builtin_impls(&mut self) {
+        let lowered = |cx: &Self, t: &str, f: &str| {
+            cx.prelude_trait_fn(t, f)
+                .and_then(|def| cx.fns.get(&(def, 0)).copied())
+        };
+        let fns = builtin_impls::TraitFns {
+            eq: lowered(self, "Eq", "eq"),
+            compare: lowered(self, "Ord", "compare"),
+            show: lowered(self, "Show", "show"),
+        };
+        builtin_impls::add(&mut self.module, &fns);
+        self.module.show = fns.show;
     }
 
     /// Parameters with the types of the declared type, named after its labels. For a trait
@@ -2326,6 +2354,12 @@ impl<'a> Lowerer<'a> {
                     Some(tys) => tys.iter().map(|t| self.ty(t)).collect(),
                     None => Vec::new(),
                 };
+                // Monomorphization turns it into a call of `Show.show` (`Module::show`).
+                if op == Builtin::ShowNested
+                    && let Some(show) = self.prelude_trait_fn("Show", "show")
+                {
+                    self.fn_id(show, 0);
+                }
                 Ok(Target::Builtin { op, ty_args })
             }
             // External functions do not fail (spec 12.5), and their R is empty or only Async

@@ -53,7 +53,7 @@
 - （補）`@intrinsic` の宣言は，引数と戻り値の型，型引数の数を表と一致させる．公開しない補助（`Int.parse` の中身の `parse_or_none`）は `pub` を付けない．表の全行がちょうど1回ずつ宣言されていることもテストで確かめる．引数名（名前付き引数のラベル）はソースが正で，表は持たない．
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
 - （補）Prelude の `Bool` は `False`，`True` の順に宣言する．導出する Ord で `False < True` にするため．IR では Bool は `Lit::Bool` の組み込みのまま（上の Bool の項）．
-- （補）Prelude の enum（Bool，Option，Ordering）には `derive Eq, Ord, Show, Hash` を書く．Option の型引数の制約の扱いは導出の側で決める．
+- （補）Prelude の enum のうち Bool と Ordering には `derive Eq, Ord, Show` を書く．Option の Eq，Ord，Show は option.emel に手で書く（`None < Some(_)`）．
 - （補）`dbg` は `dbg[A](value: A) -> A`，`inspect` は `inspect[A](value: A) -> String` と書く．どちらも Trait を求めない（10.6，15.1）．`dbg` は `inspect(value)` を1行出す
 - （補）`inspect` は，型に Show の実装があればそれを使う（10.6）．Trait の解決（0.24）までは利用者の impl を引けないので，どの型も導出した Show と同じ構築の形（今の構造の表示）で出す．String は最上位でも `"` で囲み，関数は `<fn>`
 - （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
@@ -358,7 +358,12 @@ alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の I
 - （補）各式で 2 つの段を分けている．(1) 型の具体化（`Subst`）：局所変数，戻り値，`ty_args`，ラムダとリストの型，能力の型と証拠の表の鍵のエフェクト．(2) 呼び先の書き換え（`Mono::target`）：直接の呼び出しと関数の値を具体化の写しに替える．Trait は辞書渡しをせず，型を置き換えた後に (2) で `(trait, 型の頭) → impl の fn` の表（`Module::dispatch`）を引いて直接の呼び出しに替える（下の「Trait の関数」）．鍵と作業リストと型の置き換えは Core の木の形に依らないように書いた（後で Flow IR にかけたり，JS も単相化したりするときのため）
 - （補）Trait の関数（10.3，#330）．lowering は Trait の関数を `Self` を最初の型引数に持つ汎用の関数にし，`Module::dispatch` に impl ごとの（impl の型（impl の型引数は `Type::Param`），impl の fn）を記録する．Trait の関数を参照したら，その Trait の impl のうちその関数を定義するものの fn を全部作業リストに積む（どれが要るかは単相化まで分からない）．本体は既定の実装，なければ panic する本体（呼ばれない）．IR の名前は `Show.show`，impl の fn は `User: Show.show`
 - （補）単相化の `Mono::target` は `dispatch` を引き，`Self`（最初の型引数）に impl の型を当てはめて impl の型引数を求め，impl の fn の写しにする．型引数は impl のもの，続いて Trait の関数自身のもの（`Self` を除く）．impl がその関数を定義しなければ既定の実装を `Self` ごとに写す（`Size.double[Point]`）．中の Trait の関数の呼び出しも同じく impl を選ぶ．impl の fn の中断用の写しのビットは，`Self` の1つ分を impl の型引数の数にずらす
-- （補）impl も既定の実装もない型（型検査が組み込みの型に Prelude の Trait を満たさせている間（#331 まで）と，`Any` で写す汎用の根）は，Trait の関数の写しにして `Monomorphized::missing_impls` に足す．lowering はそれを「まだ扱えない」（``not supported yet: `Show.show` for `Int`, which has no impl``）にする．位置は持たない
+- （補）impl も既定の実装もない型（型検査が derive を impl とみなしている間（#333 まで）と，`Any` で写す汎用の根）は，Trait の関数の写しにして `Monomorphized::missing_impls` に足す．lowering はそれを「まだ扱えない」（``not supported yet: `Show.show` for `P`, which has no impl``）にする．位置は持たない
+- （補）基本型（`()` を含む）とタプルの Eq，Ord，Show の impl（10.6）は，lowering が全部の fn を下ろした後に IR の関数として作り，`Module::dispatch` に足す（`lower/builtin_impls.rs`）．ソースの impl と同じく単相化が選ぶ．タプルの impl は，モジュールの型の表にある長さごとに `($0, $1)` の形で作る．単相化は表の型を置き換えて型を作るだけなので，ほかの長さのタプルは Trait の関数に届かない．名前は `Int: Eq.eq`，`(A, B): Ord.compare`（利用者の型と重なれば `#2` を付ける）
+- （補）基本型の impl の中身: Eq は `==`（Float は IEEE 754），Ord は `==` と `<` から作る（Bool は `False < True`），Show は補間と同じ表示（String はそのまま）．タプルの Eq は要素ごとの `Eq.eq` の `&&`，Ord は前から `Ord.compare` して `Equal` なら次へ，Show は `(1, "a")`
+- （補）値の中の値の表示（10.6: String だけ `"` で囲む）は，`@internal` の組み込み関数 `String.show_nested[A: Show]` で書く．core の List と Option の Show の impl と，タプルの Show が使う．型で振る舞いが変わるので，単相化が置き換える: String なら内部の組み込み関数 `Builtin::ShowString`（JS の `$showString`，LIR の `RuntimeOp::ShowString`），それ以外は `Show.show` の impl の呼び出し．lowering は `show_nested` を下ろすときに `Show.show` も下ろし，`Module::show` に持つ．バックエンドに `ShowNested` は届かない
+- （補）List の Eq と Ord は，長いリストでスタックを使わないよう，自己末尾呼び出しの補助の fn（`eq_lists`，`compare_lists`）で書く．Trait の関数を通した再帰は自己末尾呼び出しにならない（ループ化は単相化の前）
+- （補）Option の Ord は，宣言の順（`Some`，`None`）にバリアントを比べる．前の `derive Ord` と同じ順で，`Some(_) < None`．仕様は Option の順を書いていない
 - （補）enum は写さない．定義は汎用のまま，使う所が具体的な型引数を持つ（`Type::Enum(id, args)`）．低い IR の `repr_of` は外側の構成子だけで表現を決め，フィールドは `repr_of_subst` で型引数を置き換えて求めるので，定義を写す必要がない．フィールドの型の `Param` は enum の型引数を指すので，単相化の後も残る
 - （補）エフェクトは作り直す．出力には使ったエフェクトの具体化だけを，宣言の名前と（E と R を除いた）型引数ごとに 1 つずつ入れる．型引数に `Param` を含むエフェクト（`State[$modify.0]`）はその型引数の持ち主の関数の具体化で置き換え，同じ鍵の既存のもの（`State[Int]`）と同じエフェクトになる．汎用の関数を呼ぶときに足す鍵（`generic_ev`）は呼ばれる側のものなので，呼び出しの型引数で置き換える．置き換えた結果，足す鍵が足す値（同じ鍵で引いた値）と同じになったら足さない
 - （補）`Type::Any`（Scope のハンドラの中）と，組み込みのエフェクトの操作自身の型引数（`fork[A]`）は残す

@@ -142,3 +142,41 @@ fn zip_onto[A, B](xs: List[A], ys: List[B], acc: List[(A, B)]) -> List[(A, B)] {
     _                                -> reverse(acc)
   }
 }
+
+# The built-in impls (spec 10.6). Elements are compared and shown through their own impls. Ord
+# compares lexicographically: a list is less than any longer list that starts with it.
+
+impl List[A: Eq]: Eq {
+  fn eq(self, other) { eq_lists(self, other) }
+}
+
+fn eq_lists[A: Eq](xs: List[A], ys: List[A]) -> Bool {
+  (xs, ys) match {
+    ([], [])                         -> True
+    ([x, ..xs_rest], [y, ..ys_rest]) -> Eq.eq(x, y) && eq_lists(xs_rest, ys_rest)
+    _                                -> False
+  }
+}
+
+impl List[A: Ord]: Ord {
+  fn compare(self, other) { compare_lists(self, other) }
+}
+
+fn compare_lists[A: Ord](xs: List[A], ys: List[A]) -> Ordering {
+  (xs, ys) match {
+    ([], [])                         -> Equal
+    ([], _)                          -> Less
+    (_, [])                          -> Greater
+    ([x, ..xs_rest], [y, ..ys_rest]) -> Ord.compare(x, y) match {
+      Equal -> compare_lists(xs_rest, ys_rest)
+      order -> order
+    }
+  }
+}
+
+## `[1, 2, 3]`. A String element is quoted (`["a"]`).
+impl List[A: Show]: Show {
+  fn show(self) {
+    "[#{String.join(map(self, fn(x) { String.show_nested(x) }), ", ")}]"
+  }
+}
