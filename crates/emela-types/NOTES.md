@@ -213,6 +213,8 @@
 - （補）derive（10.5，#333）は `Traits::derived` に（Trait，型の定義）を鍵に持つ．頭は型の自分の型引数で，普通の型引数にはすべてその Trait の制約を付ける（`Tree[A: Eq]`）．集合の型引数は Trait の制約を持てないので付けない．手書きの impl を全部登録した後に登録するので，同じ組の手書きの impl があれば derive の側が2つ目になり E0330 を derive の Trait の名前に出す（10.5 の「エラー」に番号がないので E0330 に合わせた）．同じ Trait を2回並べても E0330
 - （補）導出できるのは Prelude の Eq，Ord，Show（`DERIVABLE`）．それ以外は E0326 で ``cannot derive `Label`: only `Eq`, `Ord` and `Show` can be derived``
 - （補）derive の検査は全部の impl と derive を登録してから，上位の Trait（`derive Ord` に Eq の derive か impl）と，各構成子のフィールドの型（構成子の型から取る）が Trait を満たすかを，derive の頭の制約の下で見る．満たさなければ derive の Trait の名前に E0326．同じ型の失敗は1つにまとめる
+- （補）W0303（10.5，#335）．`Traits::satisfies` が derive の impl を通って満たしたら，その（Trait，型）を使われたとして覚える（`Traits::used`）．制約の検査，ほかの型の derive のフィールドと上位の Trait の検査，手書きの impl の上位の Trait の検査がこれを通る．`==` `!=`，大小比較，補間は #332 で Trait につながるまで検査せず，使われたことだけを数える（`BodyInfer::note_trait_use`，E0326 は出さない）．全部の本体を検査した後に，`pub` でないソースの型の使われなかった derive に，derive の Trait の名前の位置で W0303 を出す
+- （補）W0303 の数え方で仕様に書いていないもの: 自分の derive のフィールドの検査で自分自身を通るのは数えない（`Traits::exempt`．再帰する型の derive が自分を使ったことにならないように）．上位の Trait として要求されたものは数える（`derive Eq, Ord` の Eq は，消すと Ord が E0326 になるので，Ord が使われなくても警告しない）．dbg は Show を求めないので数えない．Show の警告の help で，消すと dbg が Show を使わずに表示することに触れる
 - （補）制約の検査（10.3）．型引数に Trait の制約を持つ定義を参照したら，具体化した型と Trait を覚え，まとまりの型が決まってから（数の型を決めた後に）確かめる．満たさなければ参照の位置に E0326．参照した側の定義の型引数は，自分の制約が含意する Trait を満たす．Trait の関数（`Show.show`）は制約 `Self: Show` を持つ型引数 `Self` を持つので，同じ仕組みで impl があるかを見る．関数を値として参照しても同じく検査する
 - （補）`self` を取らない Trait の関数（`Parse.parse`）の `Self` は，単一化で期待される型から決まる．決まらないまま残ったら検査しない（lowering で `()` になる）
 

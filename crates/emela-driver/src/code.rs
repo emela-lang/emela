@@ -109,6 +109,7 @@ pub const ORPHAN_IMPL: &str = "E0331";
 pub const IMPL_FN_PARAM_COUNT: &str = "E0332";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
+pub const UNUSED_DERIVE: &str = "W0303";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
 
 // E04xx: effects and handlers (spec chapter 8)
