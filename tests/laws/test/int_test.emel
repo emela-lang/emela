@@ -1,0 +1,7 @@
+import Brix.Pbt.Gen
+import Brix.Pbt.Property
+
+@test
+fn to_string_round_trips() {
+  Property.check(Gen.int(), fn(n) { assert Int.parse(Int.to_string(n)) == n })
+}

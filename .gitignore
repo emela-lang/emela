@@ -3,3 +3,4 @@
 /out.js
 .claude/*.local.json
 /examples/*/target
+/tests/laws/target

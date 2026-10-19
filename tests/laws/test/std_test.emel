@@ -1,0 +1,25 @@
+import Brix.Pbt.Gen
+import Brix.Pbt.Property
+import Std.State.{State}
+import Std.Duration
+
+# The state is installed afresh for every trial, shrinking included.
+@test
+fn state_keeps_the_last_set() {
+  Property.check(Gen.int_between(-1000, 1000), fn(n) {
+    (value, last) = State.run(0, fn() {
+      (use State[Int]).set(n)
+      (use State[Int]).get()
+    })
+    assert value == n
+    assert last == n
+  })
+}
+
+@test
+fn duration_add_and_subtract() {
+  Property.check(Gen.int_between(-1000, 1000), fn(n) {
+    d = Duration.milliseconds(Int64.from_int(n))
+    assert Duration.to_milliseconds(Duration.subtract(Duration.add(d, d), d)) == Int64.from_int(n)
+  })
+}
