@@ -57,6 +57,8 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `range` | `range(from: Int, to: Int) -> List[Int]` | Emela | `from` 以上 `to` 未満 |
 | `zip` | `zip[A, B](xs: List[A], ys: List[B]) -> List[(A, B)]` | Emela | 同じ位置の要素の組．短い方に合わせる |
 
+impl（10.6）: `impl List[A: Eq]: Eq`，`impl List[A: Ord]: Ord`，`impl List[A: Show]: Show`．Ord は辞書式（前が同じなら短い方が小さい），Show は `[1, 2, 3]`．基本型とタプルの impl はコンパイラが持つ．
+
 ## Option（`core/option.emel`）
 
 | 関数 | シグネチャ | 実装 | 説明 |
@@ -67,6 +69,8 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `is_some` | `is_some[A](opt: Option[A]) -> Bool` | Emela | `Some` か |
 | `is_none` | `is_none[A](opt: Option[A]) -> Bool` | Emela | `None` か |
 | `or_fail` | `or_fail[A, E](opt: Option[A], err: E) -> A fails E` | Emela | 中身か，`None` なら `err` で fail（7.2） |
+
+impl（10.6）: `impl Option[A: Eq]: Eq`，`impl Option[A: Ord]: Ord`，`impl Option[A: Show]: Show`．Ord は `None < Some(_)`，Show は `Some(1)`，`None`．
 
 ## String（`core/string.emel`）
 
@@ -85,6 +89,7 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `trim` | `trim(s: String) -> String` | intrinsic | 前後の White_Space を取り除く |
 | `code_points` | `code_points(s: String) -> List[Int]` | intrinsic | コードポイントの値のリスト |
 | `from_code_point` | `from_code_point(n: Int) -> Option[String]` | intrinsic | スカラー値でなければ `None` |
+| `show_nested` | `show_nested[A: Show](value: A) -> String` | intrinsic | `@internal`．値の中に置いた値の表示（10.6）．String は `"` で囲み，それ以外は `Show.show`．core の Show の impl が使う |
 
 ## Bool（`core/bool.emel`）
 

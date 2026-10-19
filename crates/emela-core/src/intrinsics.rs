@@ -35,6 +35,10 @@ pub enum Builtin {
     StringCodePoints,
     /// `String.from_code_point`. `None` if not a Unicode scalar value.
     StringFromCodePoint,
+    /// `String.show_nested` (`@internal`): the Show of a value inside another value (spec 10.6),
+    /// for the Show impls in core. Monomorphization replaces it with [`Builtin::ShowString`] for a
+    /// String and with a call of `Show.show` for any other type, so backends never see it.
+    ShowNested,
 
     // Int.
     IntToString,
@@ -96,8 +100,8 @@ pub enum Builtin {
     CellGet,
     /// Replaces the cell's contents. The value is `()`.
     CellSet,
-    /// The String as written in source: quoted and escaped, as inside a shown value (spec 10.6).
-    /// For derived Show of a String field.
+    /// A String shown inside another value: quoted and escaped (spec 10.6). What
+    /// [`Builtin::ShowNested`] becomes for a String, and what derived Show uses for a String field.
     ShowString,
 }
 
@@ -215,6 +219,7 @@ impl Builtin {
         Builtin::StringTrim,
         Builtin::StringCodePoints,
         Builtin::StringFromCodePoint,
+        Builtin::ShowNested,
         Builtin::IntToString,
         Builtin::IntParse,
         Builtin::IntCheckedAdd,
@@ -264,6 +269,10 @@ impl Builtin {
             Builtin::StringTrim => info(S, "trim", &[String], String),
             Builtin::StringCodePoints => info(S, "code_points", &[String], List(&Int)),
             Builtin::StringFromCodePoint => info(S, "from_code_point", &[Int], Option(&String)),
+            Builtin::ShowNested => BuiltinInfo {
+                ty_params: 1,
+                ..info(S, "show_nested", &[Param(0)], String)
+            },
             Builtin::IntToString => info(I, "to_string", &[Int], String),
             Builtin::IntParse => info(I, "parse_or_none", &[String], Option(&Int)),
             Builtin::IntCheckedAdd => info(I, "checked_add", &[Int, Int], Option(&Int)),

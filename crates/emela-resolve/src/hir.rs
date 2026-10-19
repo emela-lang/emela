@@ -673,6 +673,9 @@ pub struct ModuleItems {
     pub name: ModuleName,
     /// In source order.
     pub items: Vec<DefId>,
+    /// A core module bundled with the compiler (`ModuleMap::is_core`). Its impls of the Prelude's
+    /// traits for the Prelude's types are the built-in impls (spec 10.6).
+    pub is_core: bool,
 }
 
 #[derive(Debug, Default, Clone)]

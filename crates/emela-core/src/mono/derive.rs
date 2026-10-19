@@ -169,7 +169,8 @@ impl Mono<'_> {
         }
     }
 
-    /// Whether the dispatch of `f` has a written impl for `ty`'s head.
+    /// Whether the dispatch of `f` has a written impl for `ty`'s head. The impls of core are not
+    /// counted: they agree with the structure.
     fn has_written_impl(&self, f: FnId, ty: TypeId) -> bool {
         let Some(dispatch) = self.m.dispatch.get(&f) else {
             return false;
@@ -178,6 +179,7 @@ impl Mono<'_> {
         dispatch
             .impls
             .iter()
+            .filter(|(_, impl_fn)| !dispatch.core.contains(impl_fn))
             .any(|&(pattern, _)| match (self.m.ty(pattern), actual) {
                 (Type::Enum(a, _), Type::Enum(b, _)) => a == b,
                 (Type::List(_), Type::List(_)) => true,

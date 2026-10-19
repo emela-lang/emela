@@ -1009,12 +1009,10 @@ impl<'s> Lower<'s> {
             }
             Builtin::ShowString => {
                 let v = self.expr(&args[0])?;
-                let s = self.show(TypeId::STRING, v.op);
-                Ok(Val {
-                    op: Some(s),
-                    ty: TypeId::STRING,
-                })
+                let shown = self.show(TypeId::STRING, v.op);
+                self.val(Some(shown), TypeId::STRING)
             }
+            Builtin::ShowNested => unreachable!("monomorphization replaces String.show_nested"),
             Builtin::CellNew | Builtin::CellGet | Builtin::CellSet => {
                 // A cell is a container: its `()` contents keep a slot.
                 let args = self.slots(args)?;

@@ -45,3 +45,37 @@ pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
     None    -> fail err
   }
 }
+
+# The built-in impls (spec 10.6). The value inside is compared and shown through its own impl.
+# Ord puts `None` first: `None < Some(_)`, as in Haskell's `Nothing < Just _`.
+
+impl Option[A: Eq]: Eq {
+  fn eq(self, other) {
+    (self, other) match {
+      (Some(x), Some(y)) -> Eq.eq(x, y)
+      (None, None)       -> True
+      _                  -> False
+    }
+  }
+}
+
+impl Option[A: Ord]: Ord {
+  fn compare(self, other) {
+    (self, other) match {
+      (Some(x), Some(y)) -> Ord.compare(x, y)
+      (Some(_), None)    -> Greater
+      (None, Some(_))    -> Less
+      (None, None)       -> Equal
+    }
+  }
+}
+
+## `Some(1)`, `None`. A String inside is quoted (`Some("a")`).
+impl Option[A: Show]: Show {
+  fn show(self) {
+    self match {
+      Some(x) -> "Some(#{String.show_nested(x)})"
+      None    -> "None"
+    }
+  }
+}

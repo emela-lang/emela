@@ -42,6 +42,7 @@ use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::dump::type_name;
+use crate::intrinsics::Builtin;
 use crate::ir::*;
 use crate::typing::Typer;
 
@@ -89,8 +90,8 @@ pub struct Monomorphized {
     /// Per function of `module`, the function of the input it copies.
     pub origins: ArenaMap<FnId, FnId>,
     /// Trait functions called for a type without an impl, as `Show.show` and the type's name.
-    /// The type checker lets the built-in types satisfy the Prelude's traits before their impls
-    /// exist. Such a call reaches the trait function's body, which panics. A generic root
+    /// The type checker accepts only types with an impl, so this guards against the two
+    /// disagreeing: such a call reaches the trait function's body, which panics. A generic root
     /// instantiated at `Any` has no trait-bounded type parameter (lowering does not export one,
     /// E0327), so it reaches no trait function through its type parameters.
     pub missing_impls: Vec<(String, String)>,
@@ -915,6 +916,11 @@ impl<'a> Mono<'a> {
                 fails,
                 suspends,
             } => self.call(callee, args, *fails, *suspends),
+            Expr::Builtin {
+                op: Builtin::ShowNested,
+                ty_args,
+                args,
+            } => self.show_nested(ty_args, args),
             Expr::Builtin { op, ty_args, args } => Expr::Builtin {
                 op: *op,
                 ty_args: self.tys(ty_args),
@@ -1133,6 +1139,33 @@ impl<'a> Mono<'a> {
                 base: base.map(Box::new),
                 bindings,
             },
+        }
+    }
+
+    /// `String.show_nested(x)` (spec 10.6): `x` quoted for a String, otherwise `Show.show(x)`.
+    fn show_nested(&mut self, ty_args: &'a [TypeId], args: &'a [Expr]) -> Expr {
+        let ty = self.tys(ty_args)[0];
+        let args = self.exprs(args);
+        let show = self
+            .m
+            .show
+            .expect("lowering lowers Show.show for show_nested");
+        if ty == TypeId::STRING {
+            return Expr::Builtin {
+                op: Builtin::ShowString,
+                ty_args: Vec::new(),
+                args,
+            };
+        }
+        let t = self.target(show, &[ty]);
+        Expr::Call {
+            callee: Callee::Direct {
+                f: t.f,
+                ty_args: Vec::new(),
+            },
+            args,
+            fails: t.fails,
+            suspends: t.suspends,
         }
     }
 

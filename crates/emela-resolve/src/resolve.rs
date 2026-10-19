@@ -125,6 +125,7 @@ pub fn resolve(
             ModuleItems {
                 name: data.name.clone(),
                 items: Vec::new(),
+                is_core: modules.is_core(module),
             },
         );
         if let Some(file) = files.get(module) {

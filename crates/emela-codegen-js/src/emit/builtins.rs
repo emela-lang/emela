@@ -56,6 +56,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::CellGet => "$cellGet",
         Builtin::CellSet => "$cellSet",
         Builtin::ShowString => "$showString",
+        Builtin::ShowNested => unreachable!("monomorphization replaces String.show_nested"),
     }
 }
 
@@ -72,7 +73,12 @@ mod tests {
             Builtin::CellSet,
             Builtin::ShowString,
         ];
-        for &op in Builtin::ALL.iter().chain(&internal) {
+        let replaced = [Builtin::ShowNested];
+        for &op in Builtin::ALL
+            .iter()
+            .chain(&internal)
+            .filter(|op| !replaced.contains(op))
+        {
             let name = runtime_name(op);
             let decl = format!("export function {name}(");
             assert!(
