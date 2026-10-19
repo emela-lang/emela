@@ -1167,10 +1167,10 @@ impl Pair[A: Eq, B: Eq]: Eq {
 - 型引数のある型の impl は、頭の型引数に制約を書く（`impl Map[K: Eq, V: Eq]: Eq`）。制約を書いた型引数の値にだけ、impl の中でその Trait の関数を使える（書かなければ E0326）。
 - 頭に書けるのは、型の名前と、互いに異なる型引数の並びだけである。`impl List[Int]: Show` や `impl Pair[A, A]: Eq` は書けない（E0328）。したがって1つの型と1つの Trait の組の impl は型引数によらず1つで、impl どうしが重なることはない。
 - `impl Show for User` や `impl[A: Eq] Box[A]: Eq` と書くと E0144 になり、`impl User: Show`、`impl Box[A: Eq]: Eq` の書き方を示す。
-- 引数と戻り値の型は Trait の宣言から決まるので、書かない。
+- 引数と戻り値の型は Trait の宣言から決まるので、書かない。引数の数は宣言と同じにする（E0332）。
 - 既定の実装のない Trait のメソッドは、すべて実装しなければならない。足りなければ E0325 とし、足りないメソッドをすべて挙げる。
-- 1つの型と1つの Trait の組に対して、実装はプログラム全体で1つだけである。
-- impl を書けるのは、その型を定義したモジュールか、その Trait を定義したモジュールだけである。
+- 1つの型と1つの Trait の組に対して、実装はプログラム全体で1つだけである（2つ目は E0330）。
+- impl を書けるのは、その型を定義したモジュールか、その Trait を定義したモジュールだけである（E0331）。
 - どちらの持ち主でもない場合は、自分の型で包む。フィールドが1つの型は、実行時のコストを持たない。
 
 ```emel
@@ -1208,7 +1208,7 @@ type User(id: Int, name: String, email: Email)
 
 - derive に並べた Trait の実装を、コンパイラが型の構造から生成する。生成されるのは普通の impl である。
 - 各フィールドは、そのフィールドの型自身の実装を通る。Email に手書きの Show があれば、それが使われる。
-- 同じ型と Trait の組に、derive と手書きの impl の両方があればエラーになる。
+- 同じ型と Trait の組に、derive と手書きの impl の両方があればエラーになる（E0330）。
 - 導出した Ord は、バリアントを宣言の順に小さいとし、同じバリアントならフィールドを前から順に比べる。
 - フィールドの型がその Trait を満たさなければ、導出できない（E0326）。Float のフィールドを持つ型の Ord は導出できないので、必要なら手書きの impl で順序を決める（10.6）。
 - 基本型、タプル、List、Option 以外の型は、derive か impl を書かなければ Eq、Ord、Show のどれも満たさない。暗黙に導出しない。
@@ -2401,6 +2401,9 @@ error[E0204]: duplicate module `Http.Client`
 | E0327 | 制約を持つ型引数のある fn をエントリから export しようとした（付録 B） | ``cannot export `largest`: its type parameter `A` has a trait bound `` |
 | E0328 | impl の頭が、型の名前と互いに異なる型引数の並びでない（10.2） | ``impl head must be a type with distinct type parameters: `List[Int]` `` |
 | E0329 | 上位の Trait が循環している（10.1） | ``trait `A` is its own supertrait: `A` -> `B` -> `A` `` |
+| E0330 | 同じ型と Trait の組の impl が2つある（derive と手書きの impl の重なりを含む。10.2、10.5） | `` `Show` is already implemented for `User` `` |
+| E0331 | 型の定義と Trait の定義のどちらのモジュールでもない場所の impl（10.2） | `` `Show` for `User` can only be implemented in the module of `Show` or of `User` `` |
+| E0332 | impl の fn の引数の数が Trait の宣言と違う（10.2） | ``wrong number of parameters: `show` of `Show` takes 1, found 2`` |
 | W0301 | 冗長な腕（6.5） | `unreachable match arm` |
 | W0302 | escape の腕が受けるエラーが、元の式から起きない（7.3） | ``error `Timeout` is never raised here`` |
 | W0303 | `pub` でない型で導出した実装がどこからも要求されない（10.5） | ``derived `Ord` for `Point` is never used`` |
@@ -2469,6 +2472,7 @@ error[E0204]: duplicate module `Http.Client`
 
 ### 2026-10-19（impl と handler の構文、derive の範囲、Hash）
 
+- 10.2、10.5、付録 A: impl の重複、持ち主でない場所の impl、impl の fn の引数の数に番号を付けた（E0330〜E0332）。
 - 3.2、8.1、8.4、10.2、17.3、付録 A: impl と handler の頭をコロンで書くようにした（`impl User: Show`、`handler ConsoleLogger: Logger`）。コロンは `[A: Ord]` と `trait Ord: Eq` と同じく、左が右を満たすことを表す。実装を表す語が `implements` と `impl ... for` の2つあり、語順も逆だったのをそろえた。文脈依存の語 `implements` と `for` は使わなくなった。前の形は E0144 と E0145 で書き換えを示す。
 - 10.2: 型引数のある型の impl は頭の型引数に制約を書く（`impl Map[K: Eq, V: Eq]: Eq`）。頭は型の名前と互いに異なる型引数の並びに限り（E0328）、1つの型と1つの Trait の組の impl を1つに保つ。
 - 10.5、18.1 #3、#24: 導出できるのを Eq、Ord、Show に限り、型引数にはすべて同じ制約を付ける。上位の Trait は暗黙に導出しない。`pub` でない型の使われない導出を W0303 で知らせる。
