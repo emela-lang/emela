@@ -117,6 +117,11 @@ pub struct ModuleMap {
     package_of: FxHashMap<ModuleId, PackageId>,
     /// The root names the project's `[dependencies]` give their Pomes.
     project_dependencies: FxHashMap<SmolStr, PackageId>,
+    /// The root names the project's `[dev-dependencies]` give their Pomes. Only the test root
+    /// sees them (spec 4.7).
+    project_dev_dependencies: FxHashMap<SmolStr, PackageId>,
+    /// The project's modules under the test root ([`ModuleMap::add_test_root`]).
+    tests: Vec<ModuleId>,
 }
 
 /// Index of a dependency in [`ModuleMap`].
@@ -160,20 +165,32 @@ impl ModuleMap {
     /// Looks up the module an import path in `importer` names (spec 4.7): a module of the
     /// importer's own Pome, else a module of one of its dependencies under the root name it gave
     /// them, else a bundled core module. Dependencies of dependencies are not visible.
+    ///
+    /// The project's test root modules and `[dev-dependencies]` are visible only from the test
+    /// root (spec 13.1); [`ModuleMap::is_test_only`] tells such an import apart.
     pub fn lookup_from(&self, importer: ModuleId, name: &ModuleName) -> Option<ModuleId> {
         let package = self.package_of.get(&importer).map(|&p| &self.packages[p]);
+        let from_tests = self.is_test(importer);
         let own = match package {
             Some(p) => p.local.get(name).copied(),
             None => self
                 .lookup(name)
-                .filter(|id| !self.package_of.contains_key(id)),
+                .filter(|&id| !self.package_of.contains_key(&id))
+                .filter(|&id| from_tests || !self.is_test(id)),
         };
         if own.is_some() {
             return own;
         }
-        let dependencies = package.map_or(&self.project_dependencies, |p| &p.dependencies);
         let (first, rest) = name.segments().split_first()?;
-        if let Some(&dependency) = dependencies.get(first) {
+        let dependency = match package {
+            Some(p) => p.dependencies.get(first),
+            None => self.project_dependencies.get(first).or_else(|| {
+                from_tests
+                    .then(|| self.project_dev_dependencies.get(first))
+                    .flatten()
+            }),
+        };
+        if let Some(&dependency) = dependency {
             let dependency = &self.packages[dependency];
             return match rest {
                 [] => dependency.lib,
@@ -185,6 +202,42 @@ impl ModuleMap {
             };
         }
         self.lookup(name).filter(|&id| self.is_core(id))
+    }
+
+    /// Whether an import that [`ModuleMap::lookup_from`] does not find names a module only the
+    /// test root may import: a module of the test root, or a `[dev-dependencies]` Pome (E0239).
+    pub fn is_test_only(&self, importer: ModuleId, name: &ModuleName) -> bool {
+        if self.package_of.contains_key(&importer) || self.is_test(importer) {
+            return false;
+        }
+        self.lookup(name).is_some_and(|id| self.is_test(id))
+            || name
+                .segments()
+                .first()
+                .is_some_and(|first| self.project_dev_dependencies.contains_key(first))
+    }
+
+    /// Whether a module is one of the project's modules under the test root.
+    pub fn is_test(&self, id: ModuleId) -> bool {
+        self.tests.contains(&id)
+    }
+
+    /// Adds the project's modules under the test root `root` (spec 4.1). They share the module
+    /// names with the source root: a name in both is a duplicate, and `main.emel` and `lib.emel`
+    /// are reserved at the top.
+    pub fn add_test_root(&mut self, fs: &dyn SourceFs, root: &Path) -> Vec<Diagnostic> {
+        let mut collector = Collector {
+            fs,
+            map: std::mem::take(self),
+            diagnostics: Vec::new(),
+            by_lowercase: FxHashMap::default(),
+            test_root: true,
+            inserted: Vec::new(),
+        };
+        collector.walk(root, &mut Vec::new());
+        *self = collector.map;
+        self.tests.extend(collector.inserted);
+        collector.diagnostics
     }
 
     /// The dependency a module belongs to; `None` for the project's and core modules.
@@ -273,6 +326,14 @@ impl ModuleMap {
         table.extend(dependencies);
     }
 
+    /// The root names the project's `[dev-dependencies]` give their Pomes.
+    pub fn set_dev_dependencies(
+        &mut self,
+        dependencies: impl IntoIterator<Item = (SmolStr, PackageId)>,
+    ) {
+        self.project_dev_dependencies.extend(dependencies);
+    }
+
     pub fn len(&self) -> usize {
         self.modules.len()
     }
@@ -329,6 +390,8 @@ pub fn collect_modules(fs: &dyn SourceFs, root: &Path) -> (ModuleMap, Vec<Diagno
         map: ModuleMap::default(),
         diagnostics: Vec::new(),
         by_lowercase: FxHashMap::default(),
+        test_root: false,
+        inserted: Vec::new(),
     };
     collector.walk(root, &mut Vec::new());
     (collector.map, collector.diagnostics)
@@ -340,6 +403,9 @@ struct Collector<'a> {
     diagnostics: Vec<Diagnostic>,
     /// Lowercased path → the first file seen. Finds files that differ only in case.
     by_lowercase: FxHashMap<String, PathBuf>,
+    /// Walking the test root: `main.emel` and `lib.emel` are reserved at the top.
+    test_root: bool,
+    inserted: Vec<ModuleId>,
 }
 
 impl Collector<'_> {
@@ -428,7 +494,9 @@ impl Collector<'_> {
         };
         let name = ModuleName::new(prefix.iter().cloned().chain([segment]));
 
-        if prefix.is_empty() && (name.last() == PRELUDE || name.last() == STD) {
+        let reserved_in_tests = self.test_root && (name.last() == MAIN || name.last() == LIB);
+        if prefix.is_empty() && (name.last() == PRELUDE || name.last() == STD || reserved_in_tests)
+        {
             self.error(&path, DiagnosticKind::ReservedModuleName { name });
             return;
         }
@@ -446,7 +514,8 @@ impl Collector<'_> {
                 },
             );
         }
-        self.map.insert(ModuleData { name, file: path });
+        let id = self.map.insert(ModuleData { name, file: path });
+        self.inserted.push(id);
     }
 
     fn error(&mut self, file: &Path, kind: DiagnosticKind) {
@@ -679,5 +748,50 @@ mod tests {
         assert_eq!(from(client, "Lib").as_deref(), Some("h/src/lib.emel"));
         assert!(map.is_dependency(router) && !map.is_dependency(main));
         assert_eq!(map.package_of(client).unwrap().root, "Util2");
+    }
+
+    #[test]
+    fn the_test_root_and_dev_dependencies_are_seen_only_from_tests() {
+        let fs = MemoryFs::new([
+            "src/main.emel",
+            "src/sort.emel",
+            "test/support.emel",
+            "test/sort_test.emel",
+            "test/sort.emel",
+            "test/lib.emel",
+            "b/src/lib.emel",
+            "b/src/gen.emel",
+        ]);
+        let (mut map, _) = collect_modules(&fs, Path::new("src"));
+        let found = map.add_test_root(&fs, Path::new("test"));
+        let found: Vec<String> = found
+            .iter()
+            .map(|d| format!("{}: {d}", d.file.display()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "test/lib.emel: module name `Lib` is reserved",
+                "test/sort.emel: duplicate module `Sort` (already defined by `src/sort.emel`)",
+            ]
+        );
+        let (brix, _) = map.add_package(
+            &fs,
+            "github.com/emela-lang/brix".into(),
+            "Brix".into(),
+            Path::new("b/src"),
+        );
+        map.set_dev_dependencies([(SmolStr::new("Brix"), brix)]);
+        let id = |name: &str| map.lookup(&ModuleName::parse(name)).unwrap();
+        let (main, test) = (id("Main"), id("SortTest"));
+        let sees = |importer, name: &str| {
+            map.lookup_from(importer, &ModuleName::parse(name))
+                .is_some()
+        };
+        assert!(sees(test, "Sort") && sees(test, "Support") && sees(test, "Brix.Gen"));
+        assert!(sees(main, "Sort") && !sees(main, "Support") && !sees(main, "Brix.Gen"));
+        let test_only = |name: &str| map.is_test_only(main, &ModuleName::parse(name));
+        assert!(test_only("Support") && test_only("Brix") && test_only("Brix.Gen"));
+        assert!(!test_only("Nothing") && !map.is_test_only(test, &ModuleName::parse("Nothing")));
     }
 }

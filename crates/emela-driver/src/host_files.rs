@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! <out>/emela_project/<path under the source root>           the project's files
+//! <out>/emela_tests/<path under the test root>                the files of the test root
 //! <out>/emela_pomes/<source path>@<version>/<path under src>  a dependency's files
 //! ```
 //!
@@ -21,6 +22,7 @@ use crate::output::OutputFile;
 use crate::pipeline::{Analysis, Input, SOURCE_DIR};
 
 pub const PROJECT_DIR: &str = "emela_project";
+pub const TESTS_DIR: &str = "emela_tests";
 pub const POMES_DIR: &str = "emela_pomes";
 
 /// A directory whose host files go to `out` in the output.
@@ -39,6 +41,13 @@ pub(crate) fn roots(input: &Input) -> Vec<HostRoot> {
         out: PROJECT_DIR.into(),
         copy_all: !input.single_file,
     }];
+    if let Some(tests) = &input.tests {
+        roots.push(HostRoot {
+            src: tests.clone(),
+            out: TESTS_DIR.into(),
+            copy_all: true,
+        });
+    }
     for pome in &input.dependencies.pomes {
         roots.push(HostRoot {
             src: pome.dir.join(SOURCE_DIR),

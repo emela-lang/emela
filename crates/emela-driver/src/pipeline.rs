@@ -30,6 +30,8 @@ use crate::tokens::SemanticToken;
 pub const PROJECT_FILE: &str = "Pome.toml";
 /// The source root inside a project.
 pub const SOURCE_DIR: &str = "src";
+/// The test root inside a project: modules only the tests use (spec 4.1, 13.1).
+pub const TEST_DIR: &str = "test";
 /// The project entry, relative to the source root.
 pub const ENTRY_FILE: &str = "main.emel";
 /// The default JS output directory, relative to the project (or to the file's directory for a
@@ -109,6 +111,9 @@ pub struct Input {
     pub single_file: bool,
     /// The Pomes the project depends on, resolved from `Pome.lock` by the caller (spec 4.7).
     pub dependencies: Dependencies,
+    /// The test root to read (`<project>/test`), set by [`Input::with_tests`] for check, test and
+    /// the language server. build and run leave it out (spec 13.1).
+    pub tests: Option<PathBuf>,
 }
 
 /// The Pomes a project depends on, directly or not (spec 4.7). The caller (emela pome) resolves
@@ -118,6 +123,9 @@ pub struct Dependencies {
     pub pomes: Vec<DependencyPome>,
     /// The project's `[dependencies]`.
     pub project: Vec<DependencyRef>,
+    /// The project's `[dev-dependencies]`, for the test root only. Empty unless the tests are
+    /// read.
+    pub dev: Vec<DependencyRef>,
     /// The project's `Pome.toml`, where root name errors of the project are reported.
     pub manifest: PathBuf,
     /// `[external] allow` of the project: the source paths of the Pomes whose `@external` it
@@ -162,8 +170,8 @@ impl Input {
     /// - A directory without `Pome.toml` is an error. The entry is `<project>/src/main.emel`,
     ///   falling back to `src/lib.emel` for a library-only project.
     /// - A file without `Pome.toml` is a single file, rooted at the file's directory.
-    /// - With `Pome.toml`, a file outside `<project>/src`, or a directory that is neither the
-    ///   project directory nor under `<project>/src`, is an error (E0208).
+    /// - With `Pome.toml`, a file outside `<project>/src` and `<project>/test`, or a directory
+    ///   that is neither the project directory nor under one of them, is an error (E0208).
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
         let not_found = || {
             Diagnostic::error(format!("`{}` not found", path.display()))
@@ -188,9 +196,11 @@ impl Input {
             (Some(project), _) => {
                 let root = project.join(SOURCE_DIR);
                 // The project directory itself means the whole project. Any other directory
-                // outside the source root would be ignored, so it is rejected rather than
-                // silently checking `src` instead (spec appendix B).
-                let inside = absolute.starts_with(&root) || (!is_file && absolute == project);
+                // outside the source and test roots would be ignored, so it is rejected rather
+                // than silently checking `src` instead (spec appendix B).
+                let inside = absolute.starts_with(&root)
+                    || absolute.starts_with(project.join(TEST_DIR))
+                    || (!is_file && absolute == project);
                 if !inside {
                     let kind = if is_file { "file" } else { "directory" };
                     return Err(Diagnostic::error(format!(
@@ -199,7 +209,7 @@ impl Input {
                     ))
                     .with_code(code::OUTSIDE_SOURCE_ROOT)
                     .with_note(format!(
-                        "source files of a project (the directory with {PROJECT_FILE}) go under {SOURCE_DIR}/; pass the project directory, or a file or directory under {SOURCE_DIR}/"
+                        "source files of a project (the directory with {PROJECT_FILE}) go under {SOURCE_DIR}/, and those only the tests use under {TEST_DIR}/; pass the project directory, or a file or directory under one of them"
                     )));
                 }
                 let entry = if is_file {
@@ -224,6 +234,7 @@ impl Input {
                     base: project,
                     single_file: false,
                     dependencies: Dependencies::default(),
+                    tests: None,
                 })
             }
             (None, true) => {
@@ -235,6 +246,7 @@ impl Input {
                     base: dir,
                     single_file: true,
                     dependencies: Dependencies::default(),
+                    tests: None,
                 })
             }
             (None, false) => Err(Diagnostic::error(format!(
@@ -246,6 +258,15 @@ impl Input {
                 "put a {PROJECT_FILE} (it may be empty) in the project directory, or pass a single file"
             ))),
         }
+    }
+
+    /// Reads the test root too, if the project has one (check, test and the language server).
+    pub fn with_tests(mut self, fs: &dyn FileSystem) -> Input {
+        let dir = self.base.join(TEST_DIR);
+        if !self.single_file && fs.is_dir(&dir) {
+            self.tests = Some(dir);
+        }
+        self
     }
 
     pub fn default_out_dir(&self) -> PathBuf {
@@ -550,6 +571,9 @@ pub fn check<F: Frontend>(
         emela_resolve::collect_modules(fs, &input.root)
     };
     analysis.modules = modules;
+    if let Some(tests) = &input.tests {
+        resolve_diagnostics.extend(analysis.modules.add_test_root(fs, tests));
+    }
     // Bundled core sources. A source module with the same name is hidden, and a reserved name
     // diagnostic is reported.
     let mut core_texts: ArenaMap<ModuleId, String> = ArenaMap::default();
@@ -642,7 +666,19 @@ pub fn check<F: Frontend>(
         }
     }
 
-    if let (Some(entry), None) = (&input.entry, analysis.entry) {
+    if let (Some(entry), None) = (&input.entry, analysis.entry)
+        && input.tests.is_none()
+        && entry.starts_with(input.base.join(TEST_DIR))
+    {
+        analysis.diagnostics.push(
+            Diagnostic::error(format!(
+                "`{}` is under the test root, which only check and test read",
+                analysis.sources.display_path(entry).display()
+            ))
+            .with_code(code::OUTSIDE_SOURCE_ROOT)
+            .at(Location::Path(entry.clone())),
+        );
+    } else if let (Some(entry), None) = (&input.entry, analysis.entry) {
         // Not a module (a bad name, ...). The resolver has already reported why.
         analysis.diagnostics.push(
             Diagnostic::error(format!(
@@ -857,6 +893,7 @@ mod tests {
             base: base.into(),
             single_file: false,
             dependencies: Dependencies::default(),
+            tests: None,
         })
     }
 
@@ -963,6 +1000,7 @@ mod tests {
                 base: "/home/src/proj".into(),
                 single_file: true,
                 dependencies: Dependencies::default(),
+                tests: None,
             })
         );
         assert_eq!(

@@ -114,11 +114,13 @@ fn home() -> Option<PathBuf> {
 }
 
 /// The dependencies of the project at `base` for the build (`Pome.lock`, fetched if missing).
-pub fn dependencies(base: &Path) -> Result<Dependencies, PomeError> {
+/// With `tests`, `[dev-dependencies]` too.
+pub fn dependencies(base: &Path, tests: bool) -> Result<Dependencies, PomeError> {
     let config = Config::from_env(|k| std::env::var(k).ok(), home()).map_err(PomeError::Usage)?;
     emela_driver::project_dependencies(
         &emela_driver::OsFs,
         base,
         &Fetcher::new(config, Http::new()),
+        tests,
     )
 }
