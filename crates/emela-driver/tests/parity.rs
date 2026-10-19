@@ -239,7 +239,7 @@ fn example_tests_give_the_same_results_on_js_and_c() {
 
 #[test]
 fn codegen_programs_run_the_same_on_js_and_c() {
-    let Some(mut c) = c_backend() else { return };
+    let Some(c) = c_backend() else { return };
     let dir = root().join("crates/emela-codegen-c/tests/programs");
     let mut programs: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap()
@@ -248,21 +248,58 @@ fn codegen_programs_run_the_same_on_js_and_c() {
         .collect();
     programs.sort();
     assert!(!programs.is_empty());
-    let mut failures = Vec::new();
-    for path in programs {
+    // The programs do not touch the current directory, so they run in parallel: this test is the
+    // slowest of the suite otherwise.
+    let failures = in_parallel(&programs, &c, |path, c| {
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let js = run_on(&path, Target::Js, &mut c, &name)
+        // `program-` keeps the output directories apart from those of an example of the same
+        // name (`errors`), which another test builds at the same time.
+        let dir_name = format!("program-{name}");
+        let js = run_on(path, Target::Js, c, &dir_name)
             .unwrap_or_else(|a| panic!("{name} does not run on JS: {:?}", messages(&a)));
-        match run_on(&path, Target::C, &mut c, &name) {
-            Ok(on_c) if on_c == js => {}
-            Ok(on_c) => failures.push(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
-            Err(analysis) => failures.push(format!(
+        match run_on(path, Target::C, c, &dir_name) {
+            Ok(on_c) if on_c == js => None,
+            Ok(on_c) => Some(format!("{name}: JS gives {js:?}\nC gives {on_c:?}")),
+            Err(analysis) => Some(format!(
                 "{name} does not build on C: {:?}",
                 messages(&analysis)
             )),
         }
-    }
+    });
     report(&failures);
+}
+
+/// Calls `check` on every item from as many threads as there are CPUs, each with its own copy of
+/// the C backend, and returns the failures in the order of `items`.
+fn in_parallel<T: Sync>(
+    items: &[T],
+    c: &CoreC,
+    check: impl Fn(&T, &mut CoreC) -> Option<String> + Sync,
+) -> Vec<String> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut results: Vec<(usize, String)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads.min(items.len()))
+            .map(|_| {
+                s.spawn(|| {
+                    let mut c = c.clone();
+                    let mut failures = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(item) = items.get(i) else { break };
+                        failures.extend(check(item, &mut c).map(|f| (i, f)));
+                    }
+                    failures
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    results.sort_by_key(|(i, _)| *i);
+    results.into_iter().map(|(_, f)| f).collect()
 }
 
 /// Test functions with fibers and suspension (spec chapters 11, 13, 14.5): the outcomes, an

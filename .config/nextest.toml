@@ -1,0 +1,4 @@
+# cargo nextest の設定（CI は `--profile ci`）．
+[profile.ci]
+# 1 本落ちても残りを最後まで回し，落ちたテストをまとめて見られるようにする．
+fail-fast = false
