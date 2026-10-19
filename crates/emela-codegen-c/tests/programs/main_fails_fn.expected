@@ -1,0 +1,5 @@
+exit: 1
+--- stdout
+1
+--- stderr
+error: Retry

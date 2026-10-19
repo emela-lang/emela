@@ -307,9 +307,8 @@ fn errors_are_values_with_their_own_tag() {
 
 #[test]
 fn unshowable_error_shows_its_name() {
-    // An error with a function field cannot be shown (spec 10.6), so an unhandled one prints only
-    // its name. Even with the runtime inlined, the entry tells failures apart by the `Symbol.for`
-    // key.
+    // An unhandled error with a function field prints only its name (spec 14.3). Even with the
+    // runtime inlined, the entry tells failures apart by the `Symbol.for` key.
     let mut m = Module::new();
     let f = m.func(FnType {
         params: vec![],

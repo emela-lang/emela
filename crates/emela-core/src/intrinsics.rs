@@ -85,8 +85,10 @@ pub enum Builtin {
     Panic,
     /// `todo()`. Raises a `not yet implemented` defect.
     Todo,
-    /// `dbg(value)`. Prints the value's Show to stderr on one line and returns the value.
+    /// `dbg(value)`. Prints `inspect(value)` to stderr on one line and returns the value.
     Dbg,
+    /// `inspect(value)`: the debug display of any value (spec 10.6). Takes no trait.
+    Inspect,
 
     // Internal builtins used only by lowering. Not in `ALL`, so sources cannot call them.
     /// Makes a cell holding one value (the state of `State.run`, spec 8.8).
@@ -240,6 +242,7 @@ impl Builtin {
         Builtin::Panic,
         Builtin::Todo,
         Builtin::Dbg,
+        Builtin::Inspect,
     ];
 
     pub const fn info(self) -> BuiltinInfo {
@@ -292,6 +295,10 @@ impl Builtin {
             Builtin::Dbg => BuiltinInfo {
                 ty_params: 1,
                 ..info(None, "dbg", &[Param(0)], Param(0))
+            },
+            Builtin::Inspect => BuiltinInfo {
+                ty_params: 1,
+                ..info(None, "inspect", &[Param(0)], String)
             },
             // A cell's type cannot be written as a `Sig`, so the content type `A` stands in for
             // `Cell[A]` (it is never passed to type inference). The type argument is the content

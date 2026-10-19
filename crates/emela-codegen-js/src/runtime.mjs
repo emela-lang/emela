@@ -1086,6 +1086,12 @@ export function $dbg(value, show) {
   return value;
 }
 
+// The Prelude's `inspect(value)` (spec 10.6). `show` is the display function generated from the
+// value's type.
+export function $inspect(value, show) {
+  return show(value);
+}
+
 // The cell that holds the state of `State.run` (spec 8.8). Only the lowering creates and reads it.
 export function $cellNew(value) {
   return { value };
@@ -1336,6 +1342,11 @@ export function $showFloat(x) {
 
 export function $showUnit(_) {
   return "()";
+}
+
+// A function value in the debug display (`inspect`, spec 10.6).
+export function $showFn(_) {
+  return "<fn>";
 }
 
 // Strings are shown as written in source. Escapes are `\"`, `\\`, `\n`, and `\#` (only before `#{`).

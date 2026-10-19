@@ -336,7 +336,7 @@ impl Emitter<'_> {
                 );
                 let es: Vec<&Expr> = args.iter().collect();
                 let mut vs = self.values_in_order(&es);
-                if *op == Builtin::Dbg {
+                if let Builtin::Dbg | Builtin::Inspect = op {
                     vs.push(self.show_fn(&ty_args[0]));
                 }
                 let f = self.rt(builtins::runtime_name(*op));
@@ -549,7 +549,9 @@ impl Emitter<'_> {
                 let body = self.show_call(ty, "$x");
                 format!("(($x) => {body})")
             }
-            Type::Fn(_) => panic!("invalid IR: function values cannot be shown (spec 10.6)"),
+            // Debug display (`inspect`, spec 10.6). Interpolation of a function is rejected in
+            // lowering.
+            Type::Fn(_) => self.rt("$showFn").to_owned(),
             Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
             Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any => {
                 panic!("invalid IR: {t:?} values cannot be shown")

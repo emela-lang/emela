@@ -34,6 +34,17 @@ pub(super) fn build(sh: &mut Shared, kind: Derive, ty: TypeId, name: &str) -> Fu
             let b = l.param("b", ty);
             l.eq_body(ty, a, b);
         }
+        Derive::ErrorName => {
+            l.f.ret = TypeId::STRING;
+            l.param("x", ty);
+            let Type::Enum(id, _) = l.ty(ty) else {
+                unreachable!("name functions are made for error enums")
+            };
+            // The constructor's name, unqualified like the one `show$E` writes. An error has one
+            // constructor.
+            let name = l.sh.core.enums[*id].variants[0].name.clone();
+            l.term(Term::Return(Some(string(&name))));
+        }
     }
     l.finish()
 }
@@ -107,6 +118,9 @@ impl Lower<'_> {
                     },
                 ))
             }
+            // Debug display (`inspect`, spec 10.6). Interpolation of a function is rejected in
+            // lowering.
+            Type::Fn(_) => string("<fn>"),
             _ => {
                 let name = crate::core_ty(&self.sh.core, ty);
                 self.error(format!("a value of type {name} cannot be shown"));

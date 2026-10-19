@@ -138,6 +138,7 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::FloatFromInt
         | Builtin::FloatParse
         | Builtin::Dbg
+        | Builtin::Inspect
         | Builtin::CellNew
         | Builtin::CellGet
         | Builtin::CellSet => false,

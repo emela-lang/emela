@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use emela_driver::{
-    Analysis, C_EXECUTABLE, CoreC, Input, Lower, LowerTests, MemoryFiles, OsFs, Output, RunOptions,
-    RunOutput, Target, TestOptions, TestOutcome, build, cc_command, project_target, run, test,
+    Analysis, C_EXECUTABLE, CoreC, CoreJs, Input, Lower, LowerTests, MemoryFiles, OsFs, Output,
+    RunOptions, RunOutput, Target, TestOptions, TestOutcome, build, cc_command, project_target,
+    run, test,
 };
 
 /// Whether the C compiler starts; prints why a test is skipped otherwise.
@@ -272,6 +273,87 @@ fn raises_a_defect() {
             ),
         ]
     );
+}
+
+/// A failed comparison shows both sides with `inspect` (spec 13.2, 10.6), values of a type
+/// parameter too, the same on JS and C.
+#[test]
+fn assert_shows_both_sides_with_inspect() {
+    if !have_cc() {
+        return;
+    }
+    let main = r##"type Button(label: String, on_click: fn(Int) -> Int)
+
+fn twice(x: Int) -> Int { x * 2 }
+
+fn same[A](a: A, b: A) -> () { assert a == b }
+
+@test
+fn generic() {
+  same([Some("a")], [None])
+}
+
+@test
+fn field_of_a_record() {
+  assert Button(label: "a", on_click: twice).label == "b"
+}
+"##;
+    let (fs, input) = project(main);
+    let expected = [
+        (
+            "generic".to_owned(),
+            TestOutcome::Defect(
+                "assertion failed: a == b\n  left: [Some(\"a\")]\n right: [None]".to_owned(),
+            ),
+        ),
+        (
+            "field_of_a_record".to_owned(),
+            TestOutcome::Defect(
+                "assertion failed: Button(label: \"a\", on_click: twice).label == \"b\"\n  \
+                 left: \"a\"\n right: \"b\""
+                    .to_owned(),
+            ),
+        ),
+    ];
+    for target in [Target::Js, Target::C] {
+        let options = TestOptions {
+            out_dir: out_dir(&format!("assert-inspect-{target}")),
+            node: emela_driver::node_program(),
+            filter: None,
+            output: Output::Capture,
+        };
+        let mut frontend = LowerTests::default().with_target(target);
+        let mut out = Vec::new();
+        let (analysis, report) = match target {
+            Target::Js => test(
+                &fs,
+                &input,
+                &mut frontend,
+                &mut CoreJs,
+                &options,
+                |_| {},
+                &mut out,
+            ),
+            _ => test(
+                &fs,
+                &input,
+                &mut frontend,
+                &mut CoreC::default(),
+                &options,
+                |_| {},
+                &mut out,
+            ),
+        };
+        let _ = std::fs::remove_dir_all(&options.out_dir);
+        assert_eq!(codes(&analysis), [], "{target}");
+        let results: Vec<(String, TestOutcome)> = report
+            .unwrap()
+            .results
+            .into_iter()
+            .map(|r| (r.name, r.outcome))
+            .collect();
+        assert_eq!(results, expected, "{target}");
+    }
 }
 
 #[test]

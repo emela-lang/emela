@@ -1383,7 +1383,8 @@ impl<'m> Emitter<'m> {
             | Builtin::StringChars
             | Builtin::Panic
             | Builtin::Todo
-            | Builtin::Dbg => {
+            | Builtin::Dbg
+            | Builtin::Inspect => {
                 self.internal(format!("builtin {op:?} left in {}", f.name));
                 return;
             }

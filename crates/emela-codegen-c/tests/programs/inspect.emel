@@ -1,0 +1,42 @@
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+# `inspect` and `dbg` (spec 10.6, 15.1): the debug display of any value, with Strings quoted at
+# every level and functions as `<fn>`.
+
+enum Shape {
+  Circle(radius: Float)
+  Rect(Float, Float)
+  Empty
+}
+
+type Button(label: String, on_click: fn(Int) -> Int)
+
+fn twice(x: Int) -> Int { x * 2 }
+
+fn show_any[A](x: A) -> String { inspect(x) }
+
+fn main() {
+  print(inspect(42))
+  print(inspect(-7))
+  print(inspect(1.0))
+  print(inspect(-2.5e-8))
+  print(inspect(True))
+  print(inspect(()))
+  print(inspect("plain"))
+  print(inspect("a\"b\\c\nd \#{e}"))
+  print(inspect([Circle(radius: 1.5), Rect(1.0, 2.0), Empty]))
+  print(inspect((1, "a", [Some("x"), None])))
+  print(inspect([[1, 2], []]))
+  print(inspect(twice))
+  print(inspect(Button(label: "ok", on_click: twice)))
+  print(inspect([(1, fn(x: Int) { x + 1 })]))
+  print(show_any(["generic"]))
+  print(show_any(twice))
+  print("interpolated: #{"top"} #{["inner"]}")
+  n = dbg(Button(label: "dbg", on_click: twice))
+  print(n.label)
+  s = dbg("top")
+  print(s)
+}

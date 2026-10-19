@@ -31,7 +31,8 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `Ordering` | `enum Ordering { Less, Equal, Greater }` | Emela | 比較の結果 |
 | `panic` | `panic(message: String) -> Never` | intrinsic | defect を起こす |
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
-| `dbg` | `dbg[A: Show](value: A) -> A` | intrinsic | 表示を標準エラーに出して値を返す |
+| `dbg` | `dbg[A](value: A) -> A` | intrinsic | `inspect(value)` を標準エラーに出して値を返す |
+| `inspect` | `inspect[A](value: A) -> String` | intrinsic | デバッグ用の表示．Trait を求めない．String は最上位でも `"` で囲み，関数は `<fn>` |
 | `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse`，`Float.parse`，`Bool.parse` の形の誤り．`input` は入力の全体 |
 
 ## List（`core/list.emel`）

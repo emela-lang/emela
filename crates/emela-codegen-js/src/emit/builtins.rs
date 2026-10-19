@@ -51,6 +51,7 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::Panic => "$panic",
         Builtin::Todo => "$todo",
         Builtin::Dbg => "$dbg",
+        Builtin::Inspect => "$inspect",
         Builtin::CellNew => "$cellNew",
         Builtin::CellGet => "$cellGet",
         Builtin::CellSet => "$cellSet",
