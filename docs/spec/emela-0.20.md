@@ -1179,7 +1179,7 @@ fn largest[A: Ord](xs: List[A]) -> Option[A] { ... }
 
 - Trait の関数は、`Trait名.関数名(値)` の形で呼ぶ。`user.show()` のようなメソッド呼び出しの構文はない。
 - 制約は `[A: Ord]` と書く。複数の制約は `[A: Ord + Show]` と書く。上位の Trait も `trait A: B + C` と書く。
-- `==` と `!=` は Eq、大小比較は Ord、文字列補間は Show の実装を使う。
+- `==` と `!=` は Eq、大小比較は Ord、文字列補間は Show の実装を使う。型がその Trait を満たさなければ E0326 である。dbg と assert の表示は Show を求めない（inspect、10.6）。
 
 ### 10.4 Trait の関数のエラーと効果
 
@@ -1198,6 +1198,9 @@ type User(id: Int, name: String, email: Email)
 - 各フィールドは、そのフィールドの型自身の実装を通る。Email に手書きの Encode があれば、それが使われる。
 - 同じ型と Trait の組に、derive と手書きの impl の両方があればエラーになる。
 - 導出した Ord は、バリアントを宣言の順に小さいとし、同じバリアントならフィールドを前から順に比べる。
+- フィールドの型がその Trait を満たさなければ、導出できない（E0326）。Float のフィールドを持つ型の Ord は導出できないので、必要なら手書きの impl で順序を決める（10.6）。
+- 基本型、タプル、List、Option 以外の型は、derive か impl を書かなければ Eq、Ord、Show のどれも満たさない。暗黙に導出しない。
+- opaque な型にも derive を書ける。導出した Show は中身を出すので、見せたくなければ手書きの impl にする（inspect は derive の有無によらず中身を出す。10.6）。
 - 導出できるのは、導出規則を持つ Trait だけである。
 
 導出規則は、Trait の作者が次の3種類の型のどれかで書く。
@@ -1229,14 +1232,22 @@ trait Encode {
 |---|---|---|
 | Eq | `==` `!=` | 書ける |
 | Ord | `<` `<=` `>` `>=` | 書ける |
-| Show | 文字列補間、dbg | 書ける |
+| Show | 文字列補間 | 書ける |
 | Hash | Map と Set のキー | 書ける |
 | Immediate | 効果が中断しないこと（9.5） | 書けない（自動判定） |
 
 関数型は Eq、Ord、Show、Hash を満たさない。
 
-基本型の Show と Ord は次のとおりとする。
+Ord の `compare` は全順序であり、`Equal` を返すのは `==` が True のときに限る。この約束を守れない Float は Ord を満たさない。
 
+- Float の `<` `<=` `>` `>=` は Ord を通らない組み込みの演算子で、IEEE 754 の比較に従う（`NaN` との比較はどれも False）。Int、Int64、String、Bool の大小比較は Ord の実装と同じ結果になる。
+- 汎用の関数の中の大小比較は Ord を通る。Float は `[A: Ord]` の型引数に渡せないので、同じ `<` が汎用の関数の中と外とで違う答えを返すことはない。
+- Float の全順序が要るときは `Float.compare`（`NaN` を一番大きくし、`NaN` どうしと、`0.0` と `-0.0` は Equal）を関数として渡す（`List.sort_by(xs, Float.compare)`）。
+
+基本型、タプル、List、Option の Trait は次のとおりとする。
+
+- Int、Int64、String、Bool は Eq、Ord、Show、Hash を満たす。Float は Eq と Show を満たし、Ord を満たさない。
+- タプル、List、Option は、要素の型がその Trait を満たすときに満たす（`List[A]` の Eq は `A: Eq` を求める）。Ord は辞書式に比べる。
 - Bool の Show は `True` / `False`（構成子の名前）。
 - Float の Show は、最短で往復できる桁数で表す（JS の `Number.prototype.toString` と同じ規則）。整数値で有限のものには `.0` を付ける（`1.0`）。それ以外は `1e+21`、`-2.5e-8`、`Infinity`、`NaN` の形になる。WASM でも同じ文字列を出す。
 - Int64 の Show に接尾辞は付けない。
@@ -1246,8 +1257,15 @@ trait Encode {
 
 導出した Show は、値をソースの構築の形で表す（`Circle(radius: 1.0)`、`Rect(1.0, 2.0)`、`Empty`、`(1, "a")`、`[1, 2, 3]`、`()`）。
 
-- 文字列補間で引用符を付けずに埋め込むのは、最上位の String だけである。リストや構成子の中の String と、dbg の String は `"` で囲む。
+- 文字列補間で引用符を付けずに埋め込むのは、最上位の String だけである。リストや構成子の中の String と、inspect の String は `"` で囲む。
 - 囲むときは `\"`、`\\`、`\n`、`\t`、`\r` と、`#{` の前の `\#` でエスケープする。それ以外の制御文字（U+0000〜U+001F、U+007F）は `\u{...}` と出す。
+
+デバッグ用の表示 `inspect[A](value: A) -> String`（Prelude、15.1）は、Trait を求めずどの型の値にも使える。dbg、assert の失敗の表示（13.2）、main まで達したエラーの表示（14.3）はこれを使う。
+
+- Show を満たす型は、その実装の結果を使う。ただし String は最上位でも `"` で囲む。
+- Show を満たさない型は、導出した Show と同じ構築の形で表す。opaque な型も中身を出す（デバッグのための表示であり、ユーザーに見せる文字列には補間と Show を使う）。
+- 関数の値は `<fn>` と出す。
+- Show はユーザーに見せる表示、inspect は開発者に見せる表示である。Show を満たさない型の値も dbg で見られ、汎用のテスト支援（property 検査の反例など）は `[A: Show]` を求めずに値を出せる。
 
 ### 10.7 持たないもの
 
@@ -1584,7 +1602,7 @@ fn greet_fails_for_unknown_id() {
 ### 13.2 assert
 
 - `assert 式` の式の型は Bool である。False のとき defect になる。assert の式全体の型は `()` である。
-- 比較の assert は、両辺を左から1回ずつ評価する。失敗したときの defect のメッセージは `assertion failed: <式の字面>` で、比較のときは続けて両辺の値を dbg と同じ表示で出す。両辺の型が Show を満たさないときは値を出さない。
+- 比較の assert は、両辺を左から1回ずつ評価する。失敗したときの defect のメッセージは `assertion failed: <式の字面>` で、比較のときは続けて両辺の値を inspect（10.6）の表示で出す。両辺の型が Show を満たさなくても値を出す。
 - assert はキーワードであり、コンパイラが式の形を見る。比較が失敗したときは、両辺の実際の値を表示する。
 - assert はテスト関数の外でも使える。通常のビルドでも取り除かない。
 
@@ -1633,7 +1651,7 @@ fn greet_fails_for_unknown_id() {
 - `fail e` は、評価中の式を外側へ順に終わらせていく。e のタグに合う腕を持つ最も内側の escape に達すると、その腕を評価し、結果が escape 式の値になる。
 - 途中で with を抜けるときは、14.2 の手順3を実行する。
 - main が正常に終わったときは、戻り値を表示せずに捨て、終了コード 0 で終わる。値を見たいときは `dbg` を使う。
-- main まで達したエラーは、プログラムの異常終了になる。標準エラーに `error: <エラーの値の表示>` を1行出し、終了コード 1 で終わる。表示は dbg と同じ（`error: DbError(message: "down")`）。関数型のフィールドを持つ error は、エラーの名前だけを表示する（`error: Retry`）。defect（終了コード 101、7.5）と終了コードで見分けられる。main の E は空でなくてよい。
+- main まで達したエラーは、プログラムの異常終了になる。標準エラーに `error: <エラーの値の表示>` を1行出し、終了コード 1 で終わる。表示は inspect（10.6）と同じ（`error: DbError(message: "down")`）。関数型のフィールドを持つ error は、エラーの名前だけを表示する（`error: Retry`）。defect（終了コード 101、7.5）と終了コードで見分けられる。main の E は空でなくてよい。
 
 ### 14.4 defect の伝播
 
@@ -1684,12 +1702,13 @@ Prelude は、import なしですべてのモジュールから見える。純�
 | 型 | Int Int64 Float Bool String Never List Option Ordering |
 | 構成子 | True False Some None Less Equal Greater |
 | Trait | Eq Ord Show Hash |
-| 関数 | panic todo dbg |
+| 関数 | panic todo dbg inspect |
 
 それ以外の関数は、`List.map` のようにモジュール名で修飾して呼ぶ。
 
-- `dbg(value)` は value の表示（Show、10.6）を標準エラーに1行出し、value をそのまま返す。出力は副作用だが、デバッグ用の例外として R に載せず、純粋な関数として扱う。
-- Bool（`False < True`）、Option、Ordering は Eq、Ord、Show、Hash を満たす。
+- `dbg[A](value: A) -> A` は `inspect(value)`（10.6）を標準エラーに1行出し、value をそのまま返す。Show を求めない。出力は副作用だが、デバッグ用の例外として R に載せず、純粋な関数として扱う。
+- `inspect[A](value: A) -> String` はデバッグ用の表示を返す（10.6）。
+- Bool（`False < True`）と Ordering は Eq、Ord、Show、Hash を満たす。Option は `A` が満たすものを満たす。
 
 ### 15.2 4つの層
 
@@ -2109,8 +2128,8 @@ pat_arg  = pattern | lower_name ":" [ pattern ]
 | 19 | ~~escape の対象の E に中身の分からない集合変数があるときの差の扱い~~ 決定（2026-10-12）: 集合変数からは消さない。正確に消したいタグは `fails Timeout \| E` と書き出す | 7.3、7.4、9.4、17.4 |
 | 20 | ~~escape の腕がそのエラーの一部の値しか受けないとき（`NotFound(id: 1) -> ...` やガード付きの腕）、タグを E から消すか~~ 決定（2026-10-12）: 腕がそのエラーの値をすべて受けるときだけ消す。一部だけなら E に残り、合わなかった値はエラーとして伝わる | 7.3、9.4 |
 | 21 | ~~可変な状態をどう定義するか~~ 決定（2026-10-12）: Ref は持たず、型引数のあるエフェクト State[S] と `State.run` で表す | 8.1、8.8、9.5、14.6、15.2 |
-| 22 | Trait（0.21）までの暫定の範囲。0.20 は Trait の制約（補間の Show、比較の Eq と Ord、`[A: Show]`）を検査しない。`==` と補間は全部の型で構造のまま動き、関数型の値でも通る。基本型以外の大小比較と、汎用の fn の中の型引数の値の補間は「まだ扱えない」。0.21 で derive のない型の `==` と補間をエラーにするか | 2.4、6.6、10.6 |
-| 23 | opaque な型の Show と Eq。導出した Show が中身を出す（`Instant(milliseconds: ...)`）のを許すか、opaque な型には手書きの impl を求めるか | 4.4、10.5 |
+| 22 | ~~Trait（0.21）までの暫定の範囲。0.20 は Trait の制約（補間の Show、比較の Eq と Ord、`[A: Show]`）を検査しない。`==` と補間は全部の型で構造のまま動き、関数型の値でも通る。基本型以外の大小比較と、汎用の fn の中の型引数の値の補間は「まだ扱えない」。0.21 で derive のない型の `==` と補間をエラーにするか~~ 決定（2026-10-19）: エラーにする（E0326）。基本型、タプル、List、Option 以外は derive か impl が要り、暗黙に導出しない。デバッグ用の表示は Trait を求めない inspect に分け、dbg と assert はそれを使う。Float は Ord を満たさず、`<` は IEEE 754 の組み込みの演算子のまま | 2.4、6.6、10.5、10.6、13.2、15.1 |
+| 23 | ~~opaque な型の Show と Eq。導出した Show が中身を出す（`Instant(milliseconds: ...)`）のを許すか、opaque な型には手書きの impl を求めるか~~ 決定（2026-10-19）: opaque な型にも derive を許し、中身を見せるかは作者が derive を書くかで選ぶ。inspect は opaque な型の中身も出す | 4.4、10.5、10.6 |
 | 24 | 型引数を持つ型の derive で、型引数に付く制約。`Option[A]` の Eq を `A: Eq` のときだけにするか、その制約を自動で付けるか書かせるか | 10.5 |
 | 25 | ~~const の右辺の評価の時点と範囲。コンパイル時に評価してエラーにするか、参照したときの defect にするか（今は参照のたびに計算し、`const X = 1 / 0` は参照したときの defect）。リテラル以外の const をパターンに書いたときの網羅と冗長の判定（今はその const だけに合う値として扱う）~~ 決定（2026-10-13）: 純粋な式なら何でも書け、最初に参照したときに1回だけ評価して覚える。パターンでは、リテラルと構成子だけの const はその値として網羅を判定し、それ以外はガード付きの腕と同じ扱い | 5.6、6.5 |
 | 26 | dbg の出力にソースの位置（ファイルと行）を含めるか。含めるなら形をどうするか | 15.1 |
@@ -2359,6 +2378,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0323 | 名前付き型の集合の型引数に、その種類のタグか集合の型引数でないものを書いた（9.2） | `` `E` of `Handler` is an error set, found type `Int` `` |
 | E0324 | 集合でない型引数の位置に集合を書いた（9.2） | `expected a type, found a set: sets can only be passed to set type parameters` |
 | E0325 | impl に既定の実装のない Trait のメソッドが足りない（10.2） | ``incomplete impl: missing methods `show`, `merge` `` |
+| E0326 | 型が Trait を満たさない（`==`、大小比較、補間、制約、derive のフィールド。10.3、10.5） | ``type `User` does not implement `Eq` `` |
 | W0301 | 冗長な腕（6.5） | `unreachable match arm` |
 | W0302 | escape の腕が受けるエラーが、元の式から起きない（7.3） | ``error `Timeout` is never raised here`` |
 | E0401 | 能力の値のエフェクトにその操作がない（8.2） | ``effect `Logger` has no operation `infoo` `` |
@@ -2423,6 +2443,13 @@ error[E0204]: duplicate module `Http.Client`
 - 引数を取らず、標準入出力で言語サーバーとして動く。
 
 ## 改訂履歴
+
+### 2026-10-19（Eq、Show と Float の順序）
+
+- 10.3、10.5、18.1 #22、付録 A: Trait を満たさない型の `==`、大小比較、補間をエラーにした（E0326）。基本型、タプル、List、Option 以外は derive か impl が要り、暗黙に導出しない。関数の値の `==` も通らなくなる。
+- 10.6、13.2、14.3、15.1: ユーザーに見せる表示（Show、補間）とデバッグ用の表示（inspect）を分けた。Prelude に `inspect[A](value: A) -> String` を足し、`dbg` から Show の制約を外した。assert の失敗と main まで達したエラーは inspect で出す。汎用のテスト支援が `[A: Show]` を求めずに値を出せるようにするため。
+- 10.6: Ord の約束（全順序で、Equal は `==` と一致する）を明記し、それを守れない Float を Ord から外した。Float の大小比較は IEEE 754 の組み込みの演算子のまま。全順序は `Float.compare` を関数として渡す。汎用の中と外とで `<` の答えが変わるのを避けるため。
+- 10.5、18.1 #23: opaque な型にも derive を許した。inspect は opaque な型の中身も出す。
 
 ### 2026-10-19（impl の不足メソッド）
 
