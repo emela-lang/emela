@@ -15,9 +15,9 @@ use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, FnSig, Item, Res, TypeParam};
 use emela_syntax::ast::{self, HasAttrs};
 use emela_types::Ty;
-use line_index::TextRange;
 use smol_str::SmolStr;
 
+use crate::documentation::{def_at, doc_text, module_docs};
 use crate::frontend::TypedProgram;
 use crate::pipeline::Analysis;
 
@@ -88,17 +88,19 @@ pub fn collect_docs(program: &TypedProgram, analysis: &Analysis, core: bool) -> 
 
 fn collect_module(program: &TypedProgram, module: ModuleId, text: &str) -> DocModule {
     let mut items = Vec::new();
-    for item in emela_syntax::parse(text).tree().items() {
-        let (kind, is_pub, doc, name) = match &item {
-            ast::Item::Fn(it) => (DocKind::Fn, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Type(it) => (DocKind::Type, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Enum(it) => (DocKind::Enum, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Error(it) => (DocKind::Error, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Const(it) => (DocKind::Const, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Effect(it) => (DocKind::Effect, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Handler(it) => (DocKind::Handler, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Layer(it) => (DocKind::Layer, it.is_pub(), doc_text(it), it.name()),
-            ast::Item::Trait(it) => (DocKind::Trait, it.is_pub(), doc_text(it), it.name()),
+    let tree = emela_syntax::parse(text).tree();
+    let docs = module_docs(&tree);
+    for item in tree.items() {
+        let (kind, is_pub, name) = match &item {
+            ast::Item::Fn(it) => (DocKind::Fn, it.is_pub(), it.name()),
+            ast::Item::Type(it) => (DocKind::Type, it.is_pub(), it.name()),
+            ast::Item::Enum(it) => (DocKind::Enum, it.is_pub(), it.name()),
+            ast::Item::Error(it) => (DocKind::Error, it.is_pub(), it.name()),
+            ast::Item::Const(it) => (DocKind::Const, it.is_pub(), it.name()),
+            ast::Item::Effect(it) => (DocKind::Effect, it.is_pub(), it.name()),
+            ast::Item::Handler(it) => (DocKind::Handler, it.is_pub(), it.name()),
+            ast::Item::Layer(it) => (DocKind::Layer, it.is_pub(), it.name()),
+            ast::Item::Trait(it) => (DocKind::Trait, it.is_pub(), it.name()),
             ast::Item::Import(_) | ast::Item::Impl(_) => continue,
         };
         if !is_pub {
@@ -114,7 +116,7 @@ fn collect_module(program: &TypedProgram, module: ModuleId, text: &str) -> DocMo
             name: program.hir.defs[def].name.clone(),
             kind,
             signature,
-            doc,
+            doc: docs.get(&name.text_range()).cloned().unwrap_or_default(),
             children,
         });
     }
@@ -397,25 +399,4 @@ fn def_name<'a>(hir: &'a emela_resolve::hir::Program, res: &Res) -> Option<&'a s
         Res::Def(def) => Some(hir.defs[*def].name.as_str()),
         _ => None,
     }
-}
-
-/// The definition whose name is at `range` in `module`.
-fn def_at(program: &TypedProgram, module: ModuleId, range: TextRange) -> Option<DefId> {
-    program.hir.defs.iter().find_map(|(def, data)| {
-        data.span
-            .is_some_and(|s| s.module == module && s.range == range)
-            .then_some(def)
-    })
-}
-
-/// The `##` lines without the marker and one following space, joined by newlines. Further
-/// indentation is kept so that indented code stays code in Markdown.
-fn doc_text(node: &impl HasAttrs) -> String {
-    node.doc_comments()
-        .map(|t| {
-            let line = t.text().strip_prefix("##").unwrap_or(t.text());
-            line.strip_prefix(' ').unwrap_or(line).to_string()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
