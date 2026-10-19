@@ -1127,6 +1127,11 @@ impl Diagnostic {
                 Some(code::NOT_IMPLEMENTED),
                 format!("type `{ty}` does not implement `{trait_name}`"),
             ),
+            TypeDiagnosticKind::NotDerivable { trait_name } => (
+                Severity::Error,
+                Some(code::NOT_IMPLEMENTED),
+                format!("cannot derive `{trait_name}`: only `Eq`, `Ord` and `Show` can be derived"),
+            ),
             TypeDiagnosticKind::SupertraitCycle { cycle } => (
                 Severity::Error,
                 Some(code::SUPERTRAIT_CYCLE),

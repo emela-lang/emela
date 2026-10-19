@@ -21,6 +21,8 @@ pub enum DiagnosticKind {
     /// A type does not satisfy a trait (E0326, spec 10.1–10.3): a constraint at a call, or a
     /// supertrait at an impl. `ty` is displayed.
     NotImplemented { ty: SmolStr, trait_name: SmolStr },
+    /// A `derive` of a trait the compiler has no derivation for (E0326, spec 10.5).
+    NotDerivable { trait_name: SmolStr },
     /// A trait is its own supertrait (E0329, spec 10.1). `cycle` starts and ends with the same
     /// trait.
     SupertraitCycle { cycle: Vec<SmolStr> },

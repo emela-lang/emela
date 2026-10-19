@@ -93,6 +93,40 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", "Size."]));
 }
 
+/// A derived impl is generated per type (spec 10.5). Eq of a type that reaches no written impl
+/// compares the structure as a whole; Show of a type with a field that has a written impl goes
+/// field by field; Ord compares the constructors' indices, then the fields.
+#[test]
+fn derived_impls_are_generated_per_type() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { self.value }
+}
+
+type User(id: Int, name: Name, nick: String) derive Show
+
+type Point(x: Int, y: Int) derive Eq, Ord
+
+enum Shape {
+  Dot
+  Line(Point, Point)
+}
+  derive Eq, Ord
+
+fn main() {
+  dbg(Show.show(User(id: 1, name: Name(value: \"a\"), nick: \"b\")))
+  dbg(Eq.eq(Point(x: 1, y: 2), Point(x: 1, y: 2)))
+  dbg(Ord.compare(Dot, Line(Point(x: 1, y: 2), Point(x: 3, y: 4))))
+}
+",
+    )]));
+    insta::assert_snapshot!(parts(&m, &["fn main(", ": Eq.", ": Ord.", ": Show."]));
+}
+
 /// Option, nested generic types and a generic function calling another with its own type
 /// parameters.
 #[test]

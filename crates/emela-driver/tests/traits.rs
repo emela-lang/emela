@@ -291,3 +291,76 @@ fn default_implementations_use_the_trait_on_self() {
     );
     assert_clean(&[("/app/src/main.emel", &main)]);
 }
+
+#[test]
+fn only_eq_ord_and_show_can_be_derived() {
+    let main = "trait Label { fn label(self) -> String }\ntype Point(x: Int) derive Eq, Label\n";
+    assert_eq!(
+        diagnostics(main),
+        ["E0326 cannot derive `Label`: only `Eq`, `Ord` and `Show` can be derived @ Label"]
+    );
+}
+
+#[test]
+fn derived_fields_need_the_trait() {
+    // A Float field rules out Ord (spec 10.6), a function rules out everything, and a type
+    // without the trait rules it out.
+    let main = "type Plain(x: Int)\ntype Celsius(value: Float) derive Eq, Ord\ntype Callback(f: fn(Int) -> Int) derive Show\ntype Holder(p: Plain) derive Eq\n";
+    assert_eq!(
+        diagnostics(main),
+        [
+            "E0326 type `Float` does not implement `Ord` @ Ord",
+            "E0326 type `fn(Int) -> Int` does not implement `Show` @ Show",
+            "E0326 type `Plain` does not implement `Eq` @ Eq",
+        ]
+    );
+    // A field's own impl, written or derived, counts.
+    let main = "type Email(value: String)\nimpl Email: Show {\n  fn show(self) { self.value }\n}\ntype Id(n: Int) derive Show\ntype User(id: Id, email: Email, tags: List[String]) derive Show\n";
+    assert_clean(&[("/app/src/main.emel", main)]);
+}
+
+#[test]
+fn deriving_ord_needs_eq() {
+    // A derive does not derive the supertraits.
+    let main = "type Point(x: Int) derive Ord\n";
+    assert_eq!(
+        diagnostics(main),
+        ["E0326 type `Point` does not implement `Eq` @ Ord"]
+    );
+    let main =
+        "type Point(x: Int) derive Ord\nimpl Point: Eq {\n  fn eq(self, other) { True }\n}\n";
+    assert_clean(&[("/app/src/main.emel", main)]);
+}
+
+#[test]
+fn a_derive_and_an_impl_of_the_same_trait_conflict() {
+    let main = "type Point(x: Int) derive Show, Eq, Eq\nimpl Point: Show {\n  fn show(self) { \"p\" }\n}\n";
+    assert_eq!(
+        diagnostics(main),
+        [
+            "E0330 `Show` is already implemented for `Point` @ Show",
+            "E0330 `Eq` is already implemented for `Point` @ Eq",
+        ]
+    );
+}
+
+#[test]
+fn a_derive_constrains_every_type_parameter() {
+    // `enum Tree[A] { ... } derive Eq` is `impl Tree[A: Eq]: Eq`, even for a parameter that no
+    // field mentions (spec 10.5).
+    let main = "type Plain(x: Int)\nenum Tree[A] {\n  Leaf\n  Node(Tree[A], A, Tree[A])\n}\n  derive Eq\ntype Tag[A](name: String) derive Eq\nfn same[A: Eq](a: A, b: A) -> Bool { Eq.eq(a, b) }\nfn main() -> () {\n  a = same(Leaf, Node(Leaf, 1, Leaf))\n  b = same(Node(Leaf, Plain(x: 1), Leaf), Leaf)\n  t: Tag[Plain] = Tag(name: \"a\")\n  c = same(t, t)\n  ()\n}\n";
+    assert_eq!(
+        diagnostics(main),
+        [
+            "E0326 type `Plain` does not implement `Eq` @ same",
+            "E0326 type `Plain` does not implement `Eq` @ same",
+        ]
+    );
+}
+
+#[test]
+fn opaque_types_can_derive() {
+    let types = "pub opaque type Secret(value: String) derive Eq, Show\n";
+    let main = "import Types.{Secret}\nfn label(s: Secret) -> String { Show.show(s) }\n";
+    assert_clean(&[("/app/src/types.emel", types), ("/app/src/main.emel", main)]);
+}

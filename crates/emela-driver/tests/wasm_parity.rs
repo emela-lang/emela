@@ -392,6 +392,33 @@ fn main() {
 "#,
     ),
     (
+        "derived",
+        r##"
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+type User(id: Int, name: Name, nick: String) derive Show
+
+enum Tree[A] {
+  Leaf
+  Node(Tree[A], A, Tree[A])
+}
+  derive Eq, Ord, Show
+
+fn main() {
+  dbg(Show.show(User(id: 1, name: Name(value: "ann"), nick: "a\"n")))
+  t = Node(Leaf, 2, Node(Leaf, 3, Leaf))
+  dbg(Show.show(t))
+  dbg(Eq.eq(t, t))
+  dbg(Ord.compare(t, Node(Leaf, 2, Leaf)))
+  dbg(Ord.compare(Leaf, t))
+}
+"##,
+    ),
+    (
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),

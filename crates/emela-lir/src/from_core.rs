@@ -1007,6 +1007,14 @@ impl<'s> Lower<'s> {
                 ))));
                 Err(Div)
             }
+            Builtin::ShowString => {
+                let v = self.expr(&args[0])?;
+                let s = self.show(TypeId::STRING, v.op);
+                Ok(Val {
+                    op: Some(s),
+                    ty: TypeId::STRING,
+                })
+            }
             Builtin::CellNew | Builtin::CellGet | Builtin::CellSet => {
                 // A cell is a container: its `()` contents keep a slot.
                 let args = self.slots(args)?;

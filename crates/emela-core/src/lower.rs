@@ -953,10 +953,43 @@ impl<'a> Lowerer<'a> {
             let pattern = self.ty(&head.self_ty);
             impls.push((pattern, self.fn_id(f.def, impl_spec)));
         }
+        let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
-        self.module
-            .dispatch
-            .insert(id, crate::ir::Dispatch { impls, default });
+        self.module.dispatch.insert(
+            id,
+            crate::ir::Dispatch {
+                impls,
+                default,
+                derived,
+            },
+        );
+    }
+
+    /// For a function of a derivable trait of the Prelude (`Eq.eq`, `Ord.compare`, `Show.show`),
+    /// the enums whose `derive` lists the trait (spec 10.5). Bool is `TypeId::BOOL`, not an enum.
+    fn derived(&self, trait_def: DefId, def: DefId) -> Option<crate::ir::Derived> {
+        use crate::ir::DeriveOp;
+        let hir = self.hir;
+        if hir.prelude_def(&hir.defs[trait_def].name) != Some(trait_def) {
+            return None;
+        }
+        let op = match (
+            hir.defs[trait_def].name.as_str(),
+            hir.defs[def].name.as_str(),
+        ) {
+            ("Eq", "eq") => DeriveOp::Eq,
+            ("Ord", "compare") => DeriveOp::Compare,
+            ("Show", "show") => DeriveOp::Show,
+            _ => return None,
+        };
+        let enums = self
+            .types
+            .traits
+            .derived_of(trait_def)
+            .into_iter()
+            .filter_map(|ty| self.enums.get(ty).copied())
+            .collect();
+        Some(crate::ir::Derived { op, enums })
     }
 
     /// Whether the declared (or generalized) type's E is not empty. Opaque sets (set type
