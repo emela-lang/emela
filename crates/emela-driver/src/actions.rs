@@ -32,6 +32,8 @@ pub enum CodeActionKind {
     RefactorRewrite,
 }
 
+pub(crate) use impls::incomplete_impl_diagnostics;
+
 pub(crate) fn code_actions(
     program: &TypedProgram,
     analysis: &Analysis,
@@ -50,12 +52,6 @@ pub(crate) fn code_actions(
     let parse = emela_syntax::parse(text);
     let mut actions = Vec::new();
     for item in parse.tree().items() {
-        if let ast::Item::Impl(i) = &item {
-            if let Some(action) = impls::insert_stubs(&program.hir, module, i, range, text) {
-                actions.push(action);
-            }
-            continue;
-        }
         let ast::Item::Fn(f) = item else { continue };
         // Only when the range touches the header (from `fn` up to the body's `{`).
         let Some(body) = f.body() else { continue };

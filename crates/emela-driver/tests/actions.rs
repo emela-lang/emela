@@ -138,22 +138,32 @@ fn empty_match_and_catch_all() {
 #[test]
 fn impl_stubs_omit_types_and_default_methods() {
     let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n  fn default(self) -> Int { 1 }\n}\nimpl Show for User {}\n";
-    assert_clean(text, &[]);
-    assert!(fixes(text, "impl Show", &[]).is_empty());
-    let actions = refactors(text, "impl Show");
+    let (analysis, _, _) = checked(text, &[]);
+    assert_eq!(analysis.error_count(), 1);
+    assert_eq!(
+        analysis
+            .diagnostics
+            .iter()
+            .find(|d| d.code == Some(code::INCOMPLETE_IMPL))
+            .unwrap()
+            .message,
+        "incomplete impl: missing methods `show`, `merge`"
+    );
+    assert!(refactors(text, "impl Show").is_empty());
+    let actions = fixes(text, "impl Show", &[]);
     assert_eq!(actions.len(), 1);
-    assert!(actions[0].diagnostics.is_empty());
+    assert_eq!(actions[0].diagnostics[0].code, Some(code::INCOMPLETE_IMPL));
     let edited = apply(text, &actions[0]);
     assert!(edited.contains("fn show(self) { todo() }"));
     assert!(edited.contains("fn merge(self, other) { todo() }"));
     assert_clean(&edited, &[]);
-    assert!(refactors(&edited, "impl Show").is_empty());
+    assert!(fixes(&edited, "impl Show", &[]).is_empty());
 
     let text = text.replace(
         "impl Show for User {}",
         "impl Show for User {\n  fn show(self) { \"user\" }\n}",
     );
-    let actions = refactors(&text, "impl Show");
+    let actions = fixes(&text, "impl Show", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(
         actions[0].edits[0].1,
@@ -163,19 +173,19 @@ fn impl_stubs_omit_types_and_default_methods() {
 }
 
 #[test]
-fn impl_refactoring_is_limited_to_headers_and_missing_non_default_methods() {
+fn impl_quickfixes_follow_diagnostic_ranges_and_missing_non_default_methods() {
     let text = "type User(id: Int)\ntrait Show {\n  fn show(self) -> String\n  fn merge(self, other: Self) -> Self\n}\nimpl Show for User {\n  fn show(self) { \"user\" }\n}\nimpl Show for Int {}\n";
     let (analysis, program, file) = checked(text, &[]);
-    assert!(!analysis.has_errors());
+    assert_eq!(analysis.error_count(), 2);
     let start = text.find("impl Show for User").unwrap();
     let open = start + text[start..].find('{').unwrap();
     let close = open + text[open..].find("\n}\nimpl").unwrap() + 1;
-    for at in [start, start + 5, open] {
+    for at in [start, start + 5, open - 2] {
         let at = TextSize::try_from(at).unwrap();
         let actions = Typecheck::code_actions(&program, &analysis, file, TextRange::empty(at));
         assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].kind, CodeActionKind::RefactorRewrite);
-        assert!(actions[0].diagnostics.is_empty());
+        assert_eq!(actions[0].kind, CodeActionKind::QuickFix);
+        assert_eq!(actions[0].diagnostics[0].code, Some(code::INCOMPLETE_IMPL));
         assert_eq!(
             actions[0].edits[0].1,
             "\n  fn merge(self, other) { todo() }"
@@ -190,6 +200,8 @@ fn impl_refactoring_is_limited_to_headers_and_missing_non_default_methods() {
         1
     );
     for at in [
+        open - 1,
+        open,
         open + 1,
         text.find("fn show(self) { \"user\"").unwrap(),
         close,
@@ -200,10 +212,12 @@ fn impl_refactoring_is_limited_to_headers_and_missing_non_default_methods() {
         );
     }
     let body_range = TextRange::new(
-        TextSize::try_from(open + 1).unwrap(),
+        TextSize::try_from(open).unwrap(),
         TextSize::try_from(close + 1).unwrap(),
     );
     assert!(Typecheck::code_actions(&program, &analysis, file, body_range).is_empty());
+    let end = TextSize::try_from(close + 1).unwrap();
+    assert!(Typecheck::code_actions(&program, &analysis, file, TextRange::empty(end)).is_empty());
     let all = TextRange::up_to(TextSize::try_from(text.len()).unwrap());
     let actions = Typecheck::code_actions(&program, &analysis, file, all);
     assert_eq!(actions.len(), 2);
