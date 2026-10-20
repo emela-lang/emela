@@ -20,3 +20,22 @@ fn append() {
     assert List.reverse(List.append(xs, ys)) == List.append(List.reverse(ys), List.reverse(xs))
   })
 }
+
+@test
+fn take() {
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.int()), fn(pair) {
+    (xs, n) = pair
+
+    assert List.append(List.take(xs, n), List.drop(xs, n)) == xs
+  })
+}
+
+@test
+fn sort() {
+  Property.check(Gen.list(Gen.int()), fn(xs) {
+    sorted = List.sort(xs)
+    assert List.sort(sorted) == sorted
+    assert List.length(sorted) == List.length(xs)
+    assert List.sort(List.reverse(xs)) == sorted
+  })
+}
