@@ -921,6 +921,11 @@ impl<'a> Mono<'a> {
                 ty_args,
                 args,
             } => self.show_nested(ty_args, args),
+            Expr::Builtin {
+                op: op @ (Builtin::Dbg | Builtin::Inspect),
+                ty_args,
+                args,
+            } => self.inspect(*op, ty_args, args),
             Expr::Builtin { op, ty_args, args } => Expr::Builtin {
                 op: *op,
                 ty_args: self.tys(ty_args),
@@ -1074,7 +1079,23 @@ impl<'a> Mono<'a> {
                             let l = self.out.local("left", ty);
                             let r = self.out.local("right", ty);
                             let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
+                            if let Some(show) = self.shown_by_impl(ty) {
+                                let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
+                                return assert_bound(decide, failed, (l, lhs), (r, rhs));
+                            }
                             return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
+                        }
+                        if let Some(show) = self.shown_by_impl(ty) {
+                            let l = self.out.local("left", ty);
+                            let r = self.out.local("right", ty);
+                            let test = Expr::Binary {
+                                op: *op,
+                                ty: *op_ty,
+                                lhs: Box::new(Expr::Var(l)),
+                                rhs: Box::new(Expr::Var(r)),
+                            };
+                            let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
+                            return assert_bound(test, failed, (l, lhs), (r, rhs));
                         }
                         AssertCond::Compare {
                             op: *op,
@@ -1090,13 +1111,29 @@ impl<'a> Mono<'a> {
                         ty,
                         lhs,
                         rhs,
-                    } => AssertCond::Shown {
-                        cond: self.expr(cond),
-                        op: *op,
-                        ty: self.ty(*ty),
-                        lhs: self.expr(lhs),
-                        rhs: self.expr(rhs),
-                    },
+                    } => {
+                        let ty = self.ty(*ty);
+                        let cond = self.expr(cond);
+                        let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
+                        // The sides are variables bound before the assert (`Assert::shown`).
+                        if let Some(show) = self.shown_by_impl(ty)
+                            && let (Expr::Var(l), Expr::Var(r)) = (&lhs, &rhs)
+                        {
+                            let failed = self.assert_failed(show, &a.text, *op, ty, *l, *r);
+                            return Expr::If {
+                                cond: Box::new(cond),
+                                then: Box::new(Expr::Lit(Lit::Unit)),
+                                else_: Box::new(failed),
+                            };
+                        }
+                        AssertCond::Shown {
+                            cond,
+                            op: *op,
+                            ty,
+                            lhs,
+                            rhs,
+                        }
+                    }
                     AssertCond::Bool(c) => AssertCond::Bool(self.expr(c)),
                 };
                 Expr::Assert(Box::new(Assert {
@@ -1285,6 +1322,132 @@ impl<'a> Mono<'a> {
         let ok = parts.into_iter().all(|t| self.structural(f, t, seen));
         seen.pop();
         ok
+    }
+
+    /// `dbg(x)` and `inspect(x)` (spec 10.6). A type that reaches a written Show impl and
+    /// satisfies Show is shown through the impl ([`Mono::shown_by_impl`]); `dbg` then prints the
+    /// String as it is (`Builtin::DebugPrint`). Any other type keeps the builtin, which shows the
+    /// structure.
+    fn inspect(&mut self, op: Builtin, ty_args: &'a [TypeId], args: &'a [Expr]) -> Expr {
+        let ty_args = self.tys(ty_args);
+        let mut args = self.exprs(args);
+        let Some(show) = self.shown_by_impl(ty_args[0]) else {
+            return Expr::Builtin { op, ty_args, args };
+        };
+        let ty = ty_args[0];
+        let value = args.remove(0);
+        if op == Builtin::Inspect {
+            return self.trait_call(show, ty, vec![value]);
+        }
+        let v = self.out.local("value", ty);
+        let shown = self.out.local("shown", TypeId::UNIT);
+        let print = Expr::Builtin {
+            op: Builtin::DebugPrint,
+            ty_args: Vec::new(),
+            args: vec![self.trait_call(show, ty, vec![Expr::Var(v)])],
+        };
+        Expr::Let {
+            var: v,
+            value: Box::new(value),
+            body: Box::new(Expr::Let {
+                var: shown,
+                value: Box::new(print),
+                body: Box::new(Expr::Var(v)),
+            }),
+        }
+    }
+
+    /// `Show.show` if values of `ty` are to be shown through it by the debug display (spec 10.6):
+    /// the type reaches a written Show impl (else the structure gives the same) and satisfies
+    /// Show. A type that does not satisfy Show is shown by its structure, even where a part of it
+    /// has an impl. A String is never shown through it (it is quoted at the top level too).
+    fn shown_by_impl(&mut self, ty: TypeId) -> Option<FnId> {
+        let show = self.m.traits.show?;
+        (!self.structural(show, ty, &mut Vec::new())
+            && self.satisfies_show(show, ty, &mut Vec::new()))
+        .then_some(show)
+    }
+
+    /// Whether `ty` satisfies Show, as far as monomorphization knows: the compiler's impls, the
+    /// derived ones, and the impls whose type parameters need only Show
+    /// (`Dispatch::self_bounded`). Another impl with type parameters is taken not to.
+    fn satisfies_show(&mut self, show: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
+        if seen.contains(&ty) {
+            return true;
+        }
+        let parts = match self.out.ty(ty).clone() {
+            Type::Int
+            | Type::Int64
+            | Type::Float
+            | Type::Bool
+            | Type::String
+            | Type::Unit
+            | Type::Never
+            | Type::Set(_) => return true,
+            Type::Tuple(ts) => ts,
+            Type::List(t) => vec![t],
+            Type::Enum(id, args) => {
+                let Some(dispatch) = self.m.dispatch.get(&show) else {
+                    return false;
+                };
+                if let Some((impl_fn, impl_args)) = self.pick_impl(show, dispatch, &[ty]) {
+                    if !dispatch.self_bounded.contains(&impl_fn) {
+                        return impl_args.is_empty();
+                    }
+                    impl_args
+                } else if dispatch
+                    .derived
+                    .as_ref()
+                    .is_some_and(|d| d.enums.contains(&id))
+                {
+                    args
+                } else {
+                    return false;
+                }
+            }
+            _ => return false,
+        };
+        seen.push(ty);
+        let ok = parts
+            .into_iter()
+            .all(|t| self.satisfies_show(show, t, seen));
+        seen.pop();
+        ok
+    }
+
+    /// The defect of a failed comparison assert, showing the sides `l` and `r` through Show
+    /// (spec 13.2), in the backends' message.
+    fn assert_failed(
+        &mut self,
+        show: FnId,
+        text: &str,
+        op: BinOp,
+        ty: TypeId,
+        l: Local,
+        r: Local,
+    ) -> Expr {
+        let head = if text.is_empty() {
+            format!("left {} right", comparison_text(op))
+        } else {
+            text.to_owned()
+        };
+        let message = Expr::Concat(vec![
+            StrPart::Lit(format!("assertion failed: {head}\n  left: ")),
+            StrPart::Value(
+                self.trait_call(show, ty, vec![Expr::Var(l)]),
+                TypeId::STRING,
+            ),
+            StrPart::Lit("\n right: ".to_owned()),
+            StrPart::Value(
+                self.trait_call(show, ty, vec![Expr::Var(r)]),
+                TypeId::STRING,
+            ),
+        ]);
+        Expr::Builtin {
+            op: Builtin::Panic,
+            ty_args: Vec::new(),
+            args: vec![message],
+        }
     }
 
     /// `String.show_nested(x)` (spec 10.6): `x` quoted for a String, otherwise `Show.show(x)`.
@@ -1498,5 +1661,41 @@ fn set_params(types: &TypeTable, ty: TypeId, out: &mut FxHashSet<usize>) {
             }
         }
         _ => {}
+    }
+}
+
+/// `let l = lhs; let r = rhs; if test { () } else { failed }`: a comparison assert whose sides
+/// are shown through Show if it fails (spec 13.2). Each side is evaluated once, left first.
+fn assert_bound(
+    test: Expr,
+    failed: Expr,
+    (l, lhs): (Local, Expr),
+    (r, rhs): (Local, Expr),
+) -> Expr {
+    Expr::Let {
+        var: l,
+        value: Box::new(lhs),
+        body: Box::new(Expr::Let {
+            var: r,
+            value: Box::new(rhs),
+            body: Box::new(Expr::If {
+                cond: Box::new(test),
+                then: Box::new(Expr::Lit(Lit::Unit)),
+                else_: Box::new(failed),
+            }),
+        }),
+    }
+}
+
+/// The comparison as written in an assert's message (`left == right`).
+fn comparison_text(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Le => "<=",
+        BinOp::Gt => ">",
+        BinOp::Ge => ">=",
+        _ => unreachable!("{op:?} is not an assert comparison"),
     }
 }

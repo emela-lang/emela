@@ -108,8 +108,9 @@
 - （補）`String.code_points` は JS の文字列の反復（コードポイントごとに進む）で値を集める．`String.from_code_point` は `$None` か `{ $tag: 0, $0: … }` を返す（`checked_add` と同じ形）．
 - （補）`String.length` は `Intl.Segmenter`（ロケールは既定）で書記素クラスタを数える．Segmenter は最初の呼び出しで1つ作って使い回す．書記素の区切りの Unicode の版はホストの ICU に依存する．固定する版は仕様 18.1 #18 で未決．
 
-## 表示（Show の仮実装）
+## 表示（構造の表示）
 
+- （補）ここの表示関数は値の構造を出す（導出した Show と同じ構築の形）．補間，`dbg`，`inspect`，assert のうち手書きの Show の impl に届く型は，単相化が `Show.show` の呼び出しに書き換えてから来る（emela-core の NOTES）．`dbg` はそのとき `$debugPrint(text)` で文字列をそのまま出す
 - （補）表示関数は型から作る．基本型とリスト，タプルはランタイムの `$showInt`，`$showList(xs, f)`，`$showTuple(t, [f0, f1])` など．enum ごとに `function $show$Name(v, $a0, …)` を使った分だけモジュールの末尾に出し，型引数の表示関数を `$a0`，`$a1`，… で受ける（辞書渡しの形）．再帰する enum もそのまま自分を呼ぶ．
 - （補）表示はソースの書き方に合わせる: `Circle(radius: 1.0)`，`Rect(1.0, 2.0)`，`Empty`，`(1, "a")`，`[1, 2, 3]`，`()`，`Some("a")`．`type` も `Point(x: 1, y: 2)`．
 - （補）補間では最上位の String だけを引用符なしで埋め込む．リストや構成子の中の String は `inspect` と同じく引用符で囲んでエスケープする（`"#{["a"]}"` は `["a"]`）．

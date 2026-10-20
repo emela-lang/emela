@@ -55,7 +55,7 @@
 - （補）Prelude の `Bool` は `False`，`True` の順に宣言する．導出する Ord で `False < True` にするため．IR では Bool は `Lit::Bool` の組み込みのまま（上の Bool の項）．
 - （補）Prelude の enum のうち Bool と Ordering には `derive Eq, Ord, Show` を書く．Option の Eq，Ord，Show は option.emel に手で書く（`None < Some(_)`）．
 - （補）`dbg` は `dbg[A](value: A) -> A`，`inspect` は `inspect[A](value: A) -> String` と書く．どちらも Trait を求めない（10.6，15.1）．`dbg` は `inspect(value)` を1行出す
-- （補）`inspect` は，型に Show の実装があればそれを使う（10.6）．Trait の解決（0.24）までは利用者の impl を引けないので，どの型も導出した Show と同じ構築の形（今の構造の表示）で出す．String は最上位でも `"` で囲み，関数は `<fn>`
+- （補）`inspect` は，型に Show の実装があればそれを使う（10.6）．backend は型から作った表示関数で構造を出し（導出した Show と同じ構築の形），String は最上位でも `"` で囲み，関数は `<fn>`．手書きの impl に届く型だけ，単相化が Show の impl を通す形に書き換える（下の単相化の「デバッグ用の表示」の項，#362）
 - （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
 - （補）高階関数の関数の引数名は `f`（位置で渡す）．15.3 の `with` と `where` のラベルは，`with` が予約語（3.1），`where` が将来のための予約（3.3）で仮引数の名前にできないため取りやめになった（2026-10-12 本人の決定．仕様 15.3 と 6.7 も改めた）．畳み込みの初期値の `from` は残す
 - （補）繰り返しは自己末尾呼び出しで書き，先頭から結果を積むものは逆順に積んで `reverse` する．補助の関数は非公開の `*_onto`（`reverse_onto` など）．
@@ -104,7 +104,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
 - （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
-- （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
+- （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` も Show の impl を通る（#362）．
 - （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
 ## Random（`std/random.emel`，`std/random.mjs`）
@@ -368,6 +368,10 @@ alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の I
 - （補）List の Eq と Ord は，長いリストでスタックを使わないよう，自己末尾呼び出しの補助の fn（`eq_lists`，`compare_lists`）で書く．Trait の関数を通した再帰は自己末尾呼び出しにならない（ループ化は単相化の前）
 - （補）`==`，`!=`，補間と Trait（10.3，10.6，#332）．lowering は基本型以外の `==` を `OpTy::Structural` に，補間を今までどおり型付きの `StrPart::Value` にし，`Eq.eq` と `Show.show` を下ろしておく（`Module::traits`）．単相化は具体的な型を見て，構造をたどる処理で impl と同じ結果になる型ならそのまま残し，そうでなければ impl の呼び出しに替える（`!=` は `!Eq.eq(a, b)`）．同じ結果になるのは，基本型，`Any`，impl がコンパイラか core のもの（`Dispatch::structural`）か impl のない（derive だけの，#333 まで）型で，中の型がみな同じく満たすもの．ソースに書いた impl のある型は impl を通す．再帰する型は，たどっている途中の型を満たすとみなす
 - （補）`assert a == b` と大小比較の assert で impl を通すときは `AssertCond::Shown` にする．両辺を左から一時変数に束縛し，impl の呼び出し（`cond`）が False なら，構造の比較と同じく両辺を inspect の表示で出す（13.2）．単相化が `==` を impl に替えるときと，lowering が基本型以外の大小比較を `Ord.compare` にするときに作る．バックエンド（JS と LIR．C と WASM は LIR から）は `Compare` と同じ文面の defect にする
+- （補）デバッグ用の表示（10.6，#362）．単相化は，型が手書きの Show の impl に届き（`Mono::structural` が false）かつ Show を満たすとき（`Mono::shown_by_impl`），`inspect(x)` を `Show.show(x)` に，`dbg(x)` を「値を束縛し，`Show.show` の結果を `Builtin::DebugPrint` でそのまま出し，値を返す」形に，比較の assert（`Compare` と `Shown`）を「両辺を束縛し，偽なら両辺を `Show.show` で出す `panic`」に書き換える．文面は backend の assert の defect と同じ．ほかの型は今までどおり backend が構造で出す．lowering は dbg，inspect，assert の型が基本型でなければ `Show.show` を下ろしておく
+- （補）Show を満たすかは単相化で見る（`Mono::satisfies_show`）．基本型，タプル，List，derive の enum は要素が満たせば満たす．手書きの impl は，型引数の制約が Show だけのもの（`Dispatch::self_bounded`．`impl Box[A: Show]: Show`，コンパイラの impl，core の List と Option）なら型引数が満たせば満たす．ほかの制約を持つ汎用の impl（`impl Wrap[A: Eq]: Show`）は，単相化が制約を知らないので満たさないとみなし，構造で出す
+- （補）Show を満たさない型（関数のフィールドを持つ型など）は，中に Show を満たす値があっても全体を構造で出す（中の impl も使わない）．10.6 の「Show を満たさない型は，導出した Show と同じ構築の形で表す」を，中の値まで構造で出すと読んだ．型ごとに表示関数を作って中だけ impl を通すのは backend の表示関数の作り直しになるので，今はしない
+- （補）main まで届いたエラーの表示（14.3）はまだ Show の impl を使わない．エラーの値を作るときに表示関数を付ける形（JS の `Symbol.for("emela.fail")`，LIR の `error_shows`）で，単相化の書き換えでは届かないため（#362 に残す）
 - （補）大小比較の Float は組み込みの演算子のまま（IEEE 754，10.6）．型検査も Float の大小比較には Ord を求めない
 - （補）Option の Ord は `None < Some(_)`（Haskell の `Nothing < Just _` と同じ）．宣言の順（`Some`，`None`）で比べる導出した Ord とは逆になる．仕様は Option の順を書いていない
 - （補）enum は写さない．定義は汎用のまま，使う所が具体的な型引数を持つ（`Type::Enum(id, args)`）．低い IR の `repr_of` は外側の構成子だけで表現を決め，フィールドは `repr_of_subst` で型引数を置き換えて求めるので，定義を写す必要がない．フィールドの型の `Param` は enum の型引数を指すので，単相化の後も残る

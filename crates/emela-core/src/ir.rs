@@ -61,6 +61,10 @@ pub struct Dispatch {
     /// interpolation's show): the impls of the compiler, and those of core for `List` and `Option`
     /// (spec 10.6). Other impls in core and std (Duration's Show) are written ones.
     pub structural: Vec<FnId>,
+    /// Impl functions whose type parameters need no trait but this one (`impl List[A: Show]:
+    /// Show`, the compiler's impls). A type with such an impl satisfies the trait when its type
+    /// arguments do; monomorphization does not know the bounds of the others.
+    pub self_bounded: Vec<FnId>,
     /// For the functions of the derivable traits (`Eq.eq`, `Ord.compare`, `Show.show`), which
     /// one, and the enums that derive the trait (spec 10.5). [`crate::mono`] generates their
     /// impl functions per type.

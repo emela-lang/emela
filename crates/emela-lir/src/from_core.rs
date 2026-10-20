@@ -987,6 +987,22 @@ impl<'s> Lower<'s> {
                 );
                 Ok(v)
             }
+            Builtin::DebugPrint => {
+                let v = self.expr(&args[0])?;
+                let text = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
+                self.let_(
+                    TMP,
+                    TypeId::UNIT,
+                    Value::Runtime {
+                        op: RuntimeOp::DebugPrint,
+                        args: vec![text],
+                    },
+                );
+                Ok(Val {
+                    op: None,
+                    ty: TypeId::UNIT,
+                })
+            }
             Builtin::Inspect => {
                 let v = self.expr(&args[0])?;
                 let shown = self.show(ty_args[0], v.op);

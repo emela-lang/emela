@@ -396,3 +396,89 @@ fn main() {
         "\"2000ms True True\"\n\"1970-01-01T00:00:00.000Z True\"\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
     );
 }
+
+/// The debug display goes through a written Show impl (spec 10.6, #362): `dbg`, `inspect` and a
+/// failed comparison assert. A String stays quoted at the top level. A type that does not satisfy
+/// Show is shown by its structure, impls inside it included, and so is a type whose generic impl
+/// needs another trait (`Wrap[A: Eq]`), whose bounds monomorphization does not know.
+const INSPECT: &str = r##"
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+
+type Box[A](value: A)
+
+impl Box[A: Show]: Show {
+  fn show(self) { "Box #{Show.show(self.value)}" }
+}
+
+type Wrap[A](value: A)
+
+impl Wrap[A: Eq]: Show {
+  fn show(self) { "wrap" }
+}
+
+type Plain(n: Name, f: fn(Int) -> Int)
+
+fn main() {
+  dbg(Name(value: "a"))
+  dbg([Some(Name(value: "b"))])
+  dbg((1, Box(value: Name(value: "c"))))
+  dbg(Wrap(value: 1))
+  dbg(Plain(n: Name(value: "d"), f: fn(x) { x }))
+  dbg(inspect(Name(value: "e")))
+  dbg("s")
+}
+"##;
+
+#[test]
+fn the_debug_display_uses_show_impls() {
+    assert_eq!(
+        stderr_of("inspect", INSPECT),
+        "<a>\n[Some(<b>)]\n(1, Box <c>)\nWrap(value: 1)\nPlain(n: Name(value: \"d\"), f: <fn>)\n\"<e>\"\n\"s\"\n"
+    );
+}
+
+#[test]
+fn a_failed_assert_shows_the_sides_through_show() {
+    let main = r##"
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+
+fn main() {
+  assert [Name(value: "a")] == [Name(value: "b")]
+}
+"##;
+    let targets: &[Target] = if c_backend().is_some() {
+        &[Target::Js, Target::C]
+    } else {
+        &[Target::Js]
+    };
+    for &target in targets {
+        let (analysis, output) = run_on("assert_show", main, target);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{target}: {:?}",
+            analysis.diagnostics
+        );
+        let stderr = String::from_utf8(output.expect("the program ran").stderr).unwrap();
+        assert_eq!(
+            stderr,
+            "defect: assertion failed: [Name(value: \"a\")] == [Name(value: \"b\")]\n  left: [<a>]\n right: [<b>]\n",
+            "{target}"
+        );
+    }
+}

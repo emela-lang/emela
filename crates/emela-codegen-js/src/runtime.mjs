@@ -1086,6 +1086,11 @@ export function $dbg(value, show) {
   return value;
 }
 
+// `dbg(value)` for a value shown through its Show impl: the shown text, printed as it is.
+export function $debugPrint(text) {
+  console.error(text);
+}
+
 // The Prelude's `inspect(value)` (spec 10.6). `show` is the display function generated from the
 // value's type.
 export function $inspect(value, show) {

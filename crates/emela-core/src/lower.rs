@@ -982,6 +982,7 @@ impl<'a> Lowerer<'a> {
         };
         let mut impls = Vec::new();
         let mut structural = Vec::new();
+        let mut self_bounded = Vec::new();
         for impl_def in types.traits.impls_of(trait_def) {
             let (Some(Item::Impl(item)), Some(head)) =
                 (hir.item(impl_def), types.traits.head(impl_def))
@@ -1015,6 +1016,13 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
+            if head
+                .params
+                .iter()
+                .all(|p| p.traits.iter().all(|&t| t == trait_def))
+            {
+                self_bounded.push(f);
+            }
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
@@ -1023,6 +1031,7 @@ impl<'a> Lowerer<'a> {
             crate::ir::Dispatch {
                 impls,
                 structural,
+                self_bounded,
                 default,
                 derived,
             },
@@ -2435,8 +2444,22 @@ impl<'a> Lowerer<'a> {
                     Some(tys) => tys.iter().map(|t| self.ty(t)).collect(),
                     None => Vec::new(),
                 };
-                // Monomorphization turns it into a call of `Show.show` (`Module::traits`).
-                if op == Builtin::ShowNested {
+                // Monomorphization turns it into a call of `Show.show` (`Module::traits`), and
+                // `dbg` and `inspect` call it for a type with a written Show impl (spec 10.6).
+                let basic = ty_args.first().is_some_and(|&t| {
+                    matches!(
+                        self.module.ty(t),
+                        Type::Int
+                            | Type::Int64
+                            | Type::Float
+                            | Type::Bool
+                            | Type::String
+                            | Type::Unit
+                    )
+                });
+                if op == Builtin::ShowNested
+                    || matches!(op, Builtin::Dbg | Builtin::Inspect) && !basic
+                {
                     self.prelude_trait_fn_id("Show", "show");
                 }
                 Ok(Target::Builtin { op, ty_args })
@@ -2749,6 +2772,10 @@ impl<'a> Lowerer<'a> {
                 (None, _) => None,
             };
             if unshowable(&self.module, ty, true).is_none() {
+                // Monomorphization shows the sides through a written Show impl (spec 10.6).
+                if prim_op_ty(self.expr_ty(*lhs)).is_none() {
+                    self.prelude_trait_fn_id("Show", "show");
+                }
                 let (l, r) = (self.expr(*lhs), self.expr(*rhs));
                 if let Some(op_ty) = op_ty {
                     return Assert::compare(bin, op_ty, ty, l, r, text);

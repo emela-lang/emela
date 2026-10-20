@@ -103,6 +103,9 @@ pub enum Builtin {
     /// A String shown inside another value: quoted and escaped (spec 10.6). What
     /// [`Builtin::ShowNested`] becomes for a String, and what derived Show uses for a String field.
     ShowString,
+    /// Prints the String as it is on one line to stderr. What `dbg` becomes for a value shown
+    /// through its Show impl (spec 10.6). The value is `()`.
+    DebugPrint,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -331,6 +334,10 @@ impl Builtin {
                 ..info(Some("$Cell"), "set", &[Param(0), Param(0)], Unit)
             },
             Builtin::ShowString => info(Some("$Show"), "string", &[String], String),
+            Builtin::DebugPrint => BuiltinInfo {
+                pure: false,
+                ..info(Some("$Debug"), "print", &[String], Unit)
+            },
         }
     }
 
