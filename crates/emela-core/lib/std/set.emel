@@ -41,7 +41,7 @@ pub fn is_empty[A](s: Set[A]) -> Bool {
 
 ## Folds the values in order, starting from `from`.
 pub fn fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B {
-  Map.fold(s.inner, from: from, f: fn(acc, x, unit) { f(acc, x) })
+  Map.fold(s.inner, from: from, f: fn(acc, x, _) { f(acc, x) })
 }
 
 ## The values in order.
@@ -51,7 +51,7 @@ pub fn to_list[A](s: Set[A]) -> List[A] {
 
 ## The values for which `f` is True.
 pub fn filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A] {
-  Set(inner: Map.filter(s.inner, fn(x, unit) { f(x) }))
+  Set(inner: Map.filter(s.inner, fn(x, _) { f(x) }))
 }
 
 ## The values of both.

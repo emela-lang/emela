@@ -111,12 +111,14 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 
 0.24（#340）．仕様は 15.2 と 18.1 #36．
 
-- （補）木は重み平衡木（Adams．定数は Haskell の Data.Map と同じ `DELTA = 3`，`RATIO = 2`）．`enum Tree[K, V] { Tip, Bin(Int, K, V, Tree, Tree) }` を非公開にし，`pub opaque type Map[K, V](tree: Tree[K, V])` で包む．挿入と削除は1段ずつ `balance` で直す
+- （補）木は重み平衡木（Adams．定数は Haskell の Data.Map と同じ `DELTA = 3`，`RATIO = 2`）．`pub opaque enum Map[K, V] { Empty, Node(size: Int, key: K, value: V, left: Map[K, V], right: Map[K, V]) }` で，木そのものが Map（#369 で包みの type と二重の関数をやめた）．仕様 15.2 の `pub opaque type Map[K, V]` は外から見た宣言なので直していない（opaque なので type と enum の違いは外から見えない）．挿入と削除は1段ずつ `balance` で直す
+- （補）`balance` は重い側の子を `Node(...)` のパターンとガードで取り出して `rotate_left` / `rotate_right` に部品で渡し，そこで内側の孫の形を見て単回転か二重回転かを選ぶ．子の形はパターンで決まるので，回転に起こり得ない分岐（以前の `panic`）はない．単回転と二重回転を別の関数にしなかったのは，部品で渡すと引数が7〜10個になって読みにくいため
+- （補）`remove_min` / `remove_max` も Map でなく節の部品（key，value，left，right）を受け，取り出すキーが必ずある形にした．残る `panic` は `from_sorted` の `build` の1つだけ（渡す個数は並びの長さなので起こらない）
 - （補）from_list は insert を畳み込む（同じキーは後の値）．filter と union は，キーの順の並びを作ってから `from_sorted` で O(n) で平衡に組み直す（どちらもキーの順が保たれるので並べ直さない）
 - （補）再帰は木の深さ（O(log n)）までで，自己末尾呼び出しにしない．to_list と fold も同じ
 - （補）Set は `pub opaque type Set[A](inner: Map[A, ()])` で，関数は Map に任せる
-- （補）Eq と Show は手書きの impl（`Map.from_list([...])`）．補間はこの impl を使う（`Dispatch::structural` に入らない，#361）．inspect と dbg は #362 まで木の構造（`Map(tree: Bin(...))`）を出す
-- （補）ラムダの仮引数には `_` を書けないので，使わない引数にも名前を付ける（`fn(acc, x, unit)`）
+- （補）Eq と Show は手書きの impl（`Map.from_list([...])`）．補間はこの impl を使う（`Dispatch::structural` に入らない，#361）．inspect と dbg は #362 まで木の構造（`Node(size: 2, key: 1, ...)`）を出す
+- （補）使わない引数と組の引数は無名関数の引数のパターン（仕様 6.1）で書く（`fn(acc, x, _)`，`fn((key, _)) { key }`）
 
 ## Random（`std/random.emel`，`std/random.mjs`）
 
