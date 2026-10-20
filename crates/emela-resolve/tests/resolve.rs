@@ -478,6 +478,33 @@ fn g[A](a: B) -> A fails NotFonud use Loger { a }
     )]));
 }
 
+/// A pattern in place of a lambda parameter name becomes a hidden parameter and a binding at the
+/// head of the body (spec 6.1).
+#[test]
+fn lambda_param_patterns() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"fn f(xs: List[(Int, Int)]) -> Int {
+  List.fold(xs, from: 0, f: fn(acc, (a, _): (Int, Int)) { acc + a })
+}
+"##,
+    )]));
+}
+
+/// Names bound by different parameters of a lambda clash too (E0220, spec 6.1).
+#[test]
+fn lambda_param_duplicates() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"fn f() {
+  g = fn(x, x) { x }
+  h = fn(x, (x, y)) { y }
+  k = fn((a, b), [a, ..]) { b }
+}
+"##,
+    )]));
+}
+
 #[test]
 fn duplicates() {
     insta::assert_snapshot!(diagnostics(&[(

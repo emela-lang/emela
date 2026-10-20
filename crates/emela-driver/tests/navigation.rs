@@ -212,3 +212,54 @@ fn selections_are_strictly_nested_and_handle_empty_or_broken_files() {
         [vec![TextRange::empty(0.into())]]
     );
 }
+
+/// A pattern in place of a lambda parameter (spec 6.1): its names are hovered and completed like
+/// bound names, the hidden parameter is not completed, and the pattern gets one type hint.
+#[test]
+fn lambda_parameter_patterns_in_ide_queries() {
+    let text = "fn main() -> Int {\n  List.fold([(1, True)], from: 0, f: fn(acc, (count, _)) {\n    acc + count\n  })\n}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let file = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let hover = |needle: &str| {
+        Typecheck::hover(&program, &analysis, file, at(text, needle))
+            .unwrap()
+            .contents
+    };
+    assert!(
+        hover("count, _").contains("count: Int"),
+        "{}",
+        hover("count, _")
+    );
+    assert!(
+        hover("(count").contains("(count, _): (Int, Bool)"),
+        "{}",
+        hover("(count")
+    );
+
+    let labels: Vec<String> =
+        Typecheck::complete(&program, &analysis, file, at(text, "acc + count"))
+            .into_iter()
+            .map(|c| c.label)
+            .collect();
+    assert!(labels.iter().any(|l| l == "count"), "{labels:?}");
+    assert!(labels.iter().any(|l| l == "acc"), "{labels:?}");
+    assert!(!labels.iter().any(|l| l.starts_with('(')), "{labels:?}");
+
+    let range = TextRange::up_to(TextSize::of(text));
+    let hints: Vec<(TextSize, String)> = Typecheck::inlay_hints(&program, &analysis, file, range)
+        .into_iter()
+        .map(|h| (h.offset, h.label))
+        .collect();
+    let after_acc = at(text, ", (count");
+    let after_pattern = at(text, ")) {") + TextSize::from(1);
+    assert_eq!(
+        hints,
+        [
+            (after_acc, ": Int".to_owned()),
+            (after_pattern, ": (Int, Bool)".to_owned())
+        ]
+    );
+}

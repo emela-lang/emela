@@ -5,38 +5,53 @@
 # Values are compared and shown by their pairs in key order, never by the shape of the tree.
 
 ## A map from keys of type `K` to values of type `V`, ordered by the keys.
-pub opaque type Map[K, V](tree: Tree[K, V])
-
-enum Tree[K, V] {
-  Tip
-  ## The size of the subtree, the key and its value, and the smaller and larger keys.
-  Bin(Int, K, V, Tree[K, V], Tree[K, V])
+pub opaque enum Map[K, V] {
+  Empty
+  ## `size` counts the keys of the whole subtree. The keys in `left` are smaller than `key`, and
+  ## those in `right` are larger.
+  Node(size: Int, key: K, value: V, left: Map[K, V], right: Map[K, V])
 }
 
+# A child may weigh up to DELTA times its sibling. Past that, `balance` rotates: once when the
+# heavy child's inner grandchild weighs less than RATIO times its outer one, and twice otherwise.
 const DELTA = 3
 const RATIO = 2
 
 ## The empty map.
 pub fn empty[K, V]() -> Map[K, V] {
-  Map(tree: Tip)
+  Empty
 }
 
 ## The map of the pairs. A key given twice takes its later value.
 pub fn from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V] {
-  List.fold(pairs, from: empty(), f: fn(m, pair) {
-    (key, value) = pair
-    insert(m, key, value)
-  })
+  List.fold(pairs, from: empty(), f: fn(m, (key, value)) { insert(m, key, value) })
 }
 
 ## `m` with `key` mapped to `value`, replacing its value if it is there.
 pub fn insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V] {
-  Map(tree: insert_tree(m.tree, key, value))
+  m match {
+    Empty -> node(key, value, Empty, Empty)
+    Node(size:, key: node_key, value: node_value, left:, right:) -> Ord.compare(
+      key,
+      node_key,
+    ) match {
+      Less    -> balance(node_key, node_value, insert(left, key, value), right)
+      Greater -> balance(node_key, node_value, left, insert(right, key, value))
+      Equal   -> Node(size:, key:, value:, left:, right:)
+    }
+  }
 }
 
 ## `m` without `key`. The same map if `key` is not there.
 pub fn remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V] {
-  Map(tree: remove_tree(m.tree, key))
+  m match {
+    Empty -> Empty
+    Node(key: node_key, value: node_value, left:, right:, ..) -> Ord.compare(key, node_key) match {
+      Less    -> balance(node_key, node_value, remove(left, key), right)
+      Greater -> balance(node_key, node_value, left, remove(right, key))
+      Equal   -> glue(left, right)
+    }
+  }
 }
 
 ## `f` gets the value of `key` (`None` if it is not there). `Some` sets the value, and `None`
@@ -50,7 +65,14 @@ pub fn update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) ->
 
 ## The value of `key`.
 pub fn get[K: Ord, V](m: Map[K, V], key: K) -> Option[V] {
-  get_tree(m.tree, key)
+  m match {
+    Empty -> None
+    Node(key: node_key, value:, left:, right:, ..) -> Ord.compare(key, node_key) match {
+      Less    -> get(left, key)
+      Greater -> get(right, key)
+      Equal   -> Some(value)
+    }
+  }
 }
 
 ## Whether `key` is in `m`.
@@ -60,64 +82,71 @@ pub fn contains[K: Ord, V](m: Map[K, V], key: K) -> Bool {
 
 ## The number of keys.
 pub fn size[K, V](m: Map[K, V]) -> Int {
-  count(m.tree)
+  m match {
+    Empty             -> 0
+    Node(size: n, ..) -> n
+  }
 }
 
 pub fn is_empty[K, V](m: Map[K, V]) -> Bool {
-  count(m.tree) == 0
+  size(m) == 0
 }
 
 ## Folds the pairs in key order, starting from `from`.
 pub fn fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B {
-  fold_tree(m.tree, from, f)
+  m match {
+    Empty                                 -> from
+    Node(key:, value:, left:, right:, ..) -> fold(right, f(fold(left, from, f), key, value), f)
+  }
 }
 
 ## The pairs in key order.
 pub fn to_list[K, V](m: Map[K, V]) -> List[(K, V)] {
-  to_list_onto(m.tree, [])
+  to_list_onto(m, [])
 }
 
 ## The keys in order.
 pub fn keys[K, V](m: Map[K, V]) -> List[K] {
-  to_list(m)
-    |> List.map(fn(pair) {
-      (key, _) = pair
-      key
-    })
+  to_list(m) |> List.map(fn((key, _)) { key })
 }
 
 ## The values in key order.
 pub fn values[K, V](m: Map[K, V]) -> List[V] {
-  to_list(m)
-    |> List.map(fn(pair) {
-      (_, value) = pair
-      value
-    })
+  to_list(m) |> List.map(fn((_, value)) { value })
 }
 
 ## `f` on each value. The keys stay.
 pub fn map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W] {
-  Map(tree: map_tree(m.tree, f))
+  m match {
+    Empty -> Empty
+    Node(size:, key:, value:, left:, right:) -> Node(
+      size:,
+      key:,
+      value: f(value),
+      left: map_values(left, f),
+      right: map_values(right, f),
+    )
+  }
 }
+
+# `filter` and `union` go through the pairs in key order. Both keep that order, so `from_sorted`
+# builds a balanced tree from the result in linear time, without comparing the keys again.
+# Working on the trees directly would need joining two trees of any sizes, which nothing else
+# here needs.
 
 ## The pairs for which `f` is True.
 pub fn filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V] {
-  kept = to_list(m)
-    |> List.filter(fn(pair) {
-      (key, value) = pair
-      f(key, value)
-    })
-  from_sorted(kept)
+  to_list(m) |> List.filter(fn((key, value)) { f(key, value) }) |> from_sorted
 }
 
 ## The keys of both. A key in both takes its value in `a` (as in Haskell's `Data.Map.union`).
 pub fn union[K: Ord, V](a: Map[K, V], b: Map[K, V]) -> Map[K, V] {
-  from_sorted(union_onto(to_list(a), to_list(b), []))
+  union_onto(to_list(a), to_list(b), []) |> from_sorted
 }
 
 # Equal when the pairs in key order are equal, whatever the shapes of the trees.
 impl Map[K: Eq, V: Eq]: Eq {
-  fn eq(self, other) { count(self.tree) == count(other.tree) && to_list(self) == to_list(other) }
+  fn eq(self, other) { size(self) == size(other) && to_list(self) == to_list(other) }
 }
 
 ## `Map.from_list([(1, "a"), (2, "b")])`, which makes the map again.
@@ -125,186 +154,186 @@ impl Map[K: Show, V: Show]: Show {
   fn show(self) { "Map.from_list(#{Show.show(to_list(self))})" }
 }
 
-# ---- The tree ----
+# ---- Balancing ----
 
-fn count[K, V](t: Tree[K, V]) -> Int {
-  t match {
-    Tip                -> 0
-    Bin(n, _, _, _, _) -> n
-  }
+## The node of `key` over `left` and `right`, with its size.
+fn node[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> Map[K, V] {
+  Node(size: size(left) + size(right) + 1, key:, value:, left:, right:)
 }
 
-fn bin[K, V](key: K, value: V, l: Tree[K, V], r: Tree[K, V]) -> Tree[K, V] {
-  Bin(count(l) + count(r) + 1, key, value, l, r)
-}
-
-fn get_tree[K: Ord, V](t: Tree[K, V], key: K) -> Option[V] {
-  t match {
-    Tip -> None
-    Bin(_, k, v, l, r) -> Ord.compare(key, k) match {
-      Less    -> get_tree(l, key)
-      Greater -> get_tree(r, key)
-      Equal   -> Some(v)
+## The node of `key` over `left` and `right`, rotated if one side got too heavy. The two sides
+## were balanced before one key was inserted into or removed from one of them.
+fn balance[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> Map[K, V] {
+  right_heavy = too_heavy(right, left)
+  left_heavy = too_heavy(left, right)
+  right match {
+    Node(key: right_key, value: right_value, left: inner, right: outer, ..) if right_heavy -> {
+      rotate_left(key, value, left, right_key, right_value, inner, outer)
     }
-  }
-}
-
-fn insert_tree[K: Ord, V](t: Tree[K, V], key: K, value: V) -> Tree[K, V] {
-  t match {
-    Tip -> Bin(1, key, value, Tip, Tip)
-    Bin(n, k, v, l, r) -> Ord.compare(key, k) match {
-      Less    -> balance(k, v, insert_tree(l, key, value), r)
-      Greater -> balance(k, v, l, insert_tree(r, key, value))
-      Equal   -> Bin(n, key, value, l, r)
-    }
-  }
-}
-
-fn remove_tree[K: Ord, V](t: Tree[K, V], key: K) -> Tree[K, V] {
-  t match {
-    Tip -> Tip
-    Bin(_, k, v, l, r) -> Ord.compare(key, k) match {
-      Less    -> balance(k, v, remove_tree(l, key), r)
-      Greater -> balance(k, v, l, remove_tree(r, key))
-      Equal   -> glue(l, r)
-    }
-  }
-}
-
-## The children of a removed node joined: the larger side gives up its edge key.
-fn glue[K, V](l: Tree[K, V], r: Tree[K, V]) -> Tree[K, V] {
-  (l, r) match {
-    (Tip, _) -> r
-    (_, Tip) -> l
-    _ -> if count(l) > count(r) {
-      (k, v, rest) = remove_max(l)
-      balance(k, v, rest, r)
-    } else {
-      (k, v, rest) = remove_min(r)
-      balance(k, v, l, rest)
-    }
-  }
-}
-
-fn remove_min[K, V](t: Tree[K, V]) -> (K, V, Tree[K, V]) {
-  t match {
-    Bin(_, k, v, Tip, r) -> (k, v, r)
-    Bin(_, k, v, l, r) -> {
-      (km, vm, rest) = remove_min(l)
-      (km, vm, balance(k, v, rest, r))
-    }
-    Tip                  -> panic("Map: remove_min of an empty tree")
-  }
-}
-
-fn remove_max[K, V](t: Tree[K, V]) -> (K, V, Tree[K, V]) {
-  t match {
-    Bin(_, k, v, l, Tip) -> (k, v, l)
-    Bin(_, k, v, l, r) -> {
-      (km, vm, rest) = remove_max(r)
-      (km, vm, balance(k, v, l, rest))
-    }
-    Tip                  -> panic("Map: remove_max of an empty tree")
-  }
-}
-
-## A node whose children were balanced before one insertion or removal on one side.
-fn balance[K, V](key: K, value: V, l: Tree[K, V], r: Tree[K, V]) -> Tree[K, V] {
-  sl = count(l)
-  sr = count(r)
-  if sl + sr <= 1 {
-    bin(key, value, l, r)
-  } else if sr > DELTA * sl {
-    rotate_left(key, value, l, r)
-  } else if sl > DELTA * sr {
-    rotate_right(key, value, l, r)
-  } else {
-    bin(key, value, l, r)
-  }
-}
-
-fn rotate_left[K, V](key: K, value: V, l: Tree[K, V], r: Tree[K, V]) -> Tree[K, V] {
-  r match {
-    Bin(_, rk, rv, rl, rr) -> if count(rl) < RATIO * count(rr) {
-      bin(rk, rv, bin(key, value, l, rl), rr)
-    } else {
-      rl match {
-        Bin(_, mk, mv, ml, mr) -> bin(mk, mv, bin(key, value, l, ml), bin(rk, rv, mr, rr))
-        Tip                    -> panic("Map: rotate_left without a middle")
+    _ -> left match {
+      Node(key: left_key, value: left_value, left: outer, right: inner, ..) if left_heavy -> {
+        rotate_right(left_key, left_value, outer, inner, key, value, right)
       }
+      _ -> node(key, value, left, right)
     }
-    Tip -> panic("Map: rotate_left of an empty side")
   }
 }
 
-fn rotate_right[K, V](key: K, value: V, l: Tree[K, V], r: Tree[K, V]) -> Tree[K, V] {
-  l match {
-    Bin(_, lk, lv, ll, lr) -> if count(lr) < RATIO * count(ll) {
-      bin(lk, lv, ll, bin(key, value, lr, r))
-    } else {
-      lr match {
-        Bin(_, mk, mv, ml, mr) -> bin(mk, mv, bin(lk, lv, ll, ml), bin(key, value, mr, r))
-        Tip                    -> panic("Map: rotate_right without a middle")
-      }
+# A rotation lifts the heavy child of a node (`right_key` in `rotate_left`) above the node. The
+# child's inner grandchild (`inner`, between the two keys) moves under the node. When `inner` is
+# too heavy for that, a double rotation lifts `inner` itself to the top instead, and its two
+# children go to either side.
+
+## The node of `key` over `left` and a too heavy `right`, whose parts are `right_key`,
+## `right_value`, `inner` and `outer`, rotated to the left.
+fn rotate_left[K, V](
+  key: K,
+  value: V,
+  left: Map[K, V],
+  right_key: K,
+  right_value: V,
+  inner: Map[K, V],
+  outer: Map[K, V],
+) -> Map[K, V] {
+  twice = size(inner) >= RATIO * size(outer)
+  inner match {
+    Node(key: inner_key, value: inner_value, left: inner_left, right: inner_right, ..) if twice -> {
+      # Double rotation.
+      node(
+        inner_key,
+        inner_value,
+        node(key, value, left, inner_left),
+        node(right_key, right_value, inner_right, outer),
+      )
     }
-    Tip -> panic("Map: rotate_right of an empty side")
+    # Single rotation.
+    _ -> node(right_key, right_value, node(key, value, left, inner), outer)
   }
 }
 
-fn fold_tree[K, V, B](t: Tree[K, V], acc: B, f: fn(B, K, V) -> B) -> B {
-  t match {
-    Tip                -> acc
-    Bin(_, k, v, l, r) -> fold_tree(r, f(fold_tree(l, acc, f), k, v), f)
+## The node of `key` over a too heavy `left` and `right`, rotated to the right. The mirror image of
+## `rotate_left`: `left` comes in as its parts `left_key`, `left_value`, `outer` and `inner`.
+fn rotate_right[K, V](
+  left_key: K,
+  left_value: V,
+  outer: Map[K, V],
+  inner: Map[K, V],
+  key: K,
+  value: V,
+  right: Map[K, V],
+) -> Map[K, V] {
+  twice = size(inner) >= RATIO * size(outer)
+  inner match {
+    Node(key: inner_key, value: inner_value, left: inner_left, right: inner_right, ..) if twice -> {
+      # Double rotation.
+      node(
+        inner_key,
+        inner_value,
+        node(left_key, left_value, outer, inner_left),
+        node(key, value, inner_right, right),
+      )
+    }
+    # Single rotation.
+    _ -> node(left_key, left_value, outer, node(key, value, inner, right))
   }
 }
 
-## The pairs of `t` in key order, in front of `acc`.
-fn to_list_onto[K, V](t: Tree[K, V], acc: List[(K, V)]) -> List[(K, V)] {
-  t match {
-    Tip                -> acc
-    Bin(_, k, v, l, r) -> to_list_onto(l, [(k, v), ..to_list_onto(r, acc)])
+## Whether `heavy` weighs more than `DELTA` times its sibling `light`. A node over one key or none
+## is never rotated.
+fn too_heavy[K, V](heavy: Map[K, V], light: Map[K, V]) -> Bool {
+  size(heavy) + size(light) > 1 && size(heavy) > DELTA * size(light)
+}
+
+## The children of a removed node joined. The larger side gives up its key nearest the other.
+fn glue[K, V](left: Map[K, V], right: Map[K, V]) -> Map[K, V] {
+  (left, right) match {
+    (Empty, _) -> right
+    (_, Empty) -> left
+    (Node(key:, value:, left: left_left, right: left_right, ..), _) if size(left) > size(right) -> {
+      (max_key, max_value, rest) = remove_max(key, value, left_left, left_right)
+      balance(max_key, max_value, rest, right)
+    }
+    (_, Node(key:, value:, left: right_left, right: right_right, ..)) -> {
+      (min_key, min_value, rest) = remove_min(key, value, right_left, right_right)
+      balance(min_key, min_value, left, rest)
+    }
   }
 }
 
-fn map_tree[K, V, W](t: Tree[K, V], f: fn(V) -> W) -> Tree[K, W] {
-  t match {
-    Tip                -> Tip
-    Bin(n, k, v, l, r) -> Bin(n, k, f(v), map_tree(l, f), map_tree(r, f))
+# `remove_min` and `remove_max` take the parts of a node rather than a map, so that there is
+# always a key to remove.
+
+## The smallest key of the node of `key` over `left` and `right`, its value, and the node without
+## it.
+fn remove_min[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> (K, V, Map[K, V]) {
+  left match {
+    Empty -> (key, value, right)
+    Node(key: left_key, value: left_value, left: left_left, right: left_right, ..) -> {
+      (min_key, min_value, rest) = remove_min(left_key, left_value, left_left, left_right)
+      (min_key, min_value, balance(key, value, rest, right))
+    }
   }
 }
 
-## The map of pairs already in strictly increasing key order, balanced in O(n).
+## The largest key of the node of `key` over `left` and `right`, its value, and the node without
+## it.
+fn remove_max[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> (K, V, Map[K, V]) {
+  right match {
+    Empty -> (key, value, left)
+    Node(key: right_key, value: right_value, left: right_left, right: right_right, ..) -> {
+      (max_key, max_value, rest) = remove_max(right_key, right_value, right_left, right_right)
+      (max_key, max_value, balance(key, value, left, rest))
+    }
+  }
+}
+
+# ---- Lists of pairs ----
+
+## The pairs of `m` in key order, in front of `acc`.
+fn to_list_onto[K, V](m: Map[K, V], acc: List[(K, V)]) -> List[(K, V)] {
+  m match {
+    Empty -> acc
+    Node(key:, value:, left:, right:, ..) -> to_list_onto(
+      left,
+      [(key, value), ..to_list_onto(right, acc)],
+    )
+  }
+}
+
+## The map of pairs already in strictly increasing key order, balanced.
 fn from_sorted[K, V](pairs: List[(K, V)]) -> Map[K, V] {
-  (t, _) = build(pairs, List.length(pairs))
-  Map(tree: t)
+  (m, _) = build(pairs, List.length(pairs))
+  m
 }
 
-## A balanced tree of the first `n` pairs, and the pairs after them.
-fn build[K, V](pairs: List[(K, V)], n: Int) -> (Tree[K, V], List[(K, V)]) {
-  if n <= 0 {
-    (Tip, pairs)
+## A balanced tree of the first `count` pairs, and the pairs after them.
+fn build[K, V](pairs: List[(K, V)], count: Int) -> (Map[K, V], List[(K, V)]) {
+  if count <= 0 {
+    (Empty, pairs)
   } else {
-    left_size = (n - 1) / 2
-    (l, rest) = build(pairs, left_size)
+    left_count = (count - 1) / 2
+    (left, rest) = build(pairs, left_count)
     rest match {
-      [(k, v), ..after] -> {
-        (r, remaining) = build(after, n - 1 - left_size)
-        (bin(k, v, l, r), remaining)
+      [(key, value), ..after] -> {
+        (right, remaining) = build(after, count - 1 - left_count)
+        (node(key, value, left, right), remaining)
       }
+      # `from_sorted` asks for no more pairs than there are.
       [] -> panic("Map: build ran out of pairs")
     }
   }
 }
 
-## Two key-ordered lists merged, `xs` taken on equal keys, reversed onto `acc` and then put back.
+## Two key-ordered lists merged, `xs` taken on equal keys. The merged front is kept reversed in
+## `acc` and turned around at the end.
 fn union_onto[K: Ord, V](xs: List[(K, V)], ys: List[(K, V)], acc: List[(K, V)]) -> List[(K, V)] {
   (xs, ys) match {
     ([], _) -> List.append(List.reverse(acc), ys)
     (_, []) -> List.append(List.reverse(acc), xs)
     ([x, ..xs_rest], [y, ..ys_rest]) -> {
-      (xk, _) = x
-      (yk, _) = y
-      Ord.compare(xk, yk) match {
+      (x_key, _) = x
+      (y_key, _) = y
+      Ord.compare(x_key, y_key) match {
         Less    -> union_onto(xs_rest, ys, [x, ..acc])
         Greater -> union_onto(xs, ys_rest, [y, ..acc])
         Equal   -> union_onto(xs_rest, ys_rest, [x, ..acc])

@@ -1,0 +1,9 @@
+# 無名関数の引数のパターン（6.1）
+fn f(pairs: List[(String, Int)], reqs: List[Request]) {
+  total = List.fold(pairs, from: 0, f: fn(acc,(_,n)){ acc + n })
+  keys = List.map(pairs, fn( ( key , value ) ) { key })
+  urls = List.map(reqs, fn(Request(url:,..)) { url })
+  sum = fn((a, b):(Int,Int)) { a + b }
+  heads = fn([x, ..], Some(y), ( )) { x + y }
+  long = List.fold(pairs, from: 0, f: fn(accumulator, (some_long_key_name, some_long_value_name): (String, Int)) { accumulator + some_long_value_name })
+}

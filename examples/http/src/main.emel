@@ -73,7 +73,7 @@ fn the_query_is_encoded() {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(req, n) { Some(Http.response(404, "")) }, sent: [])
+  server = TestServer(respond: fn(_, _) { Some(Http.response(404, "")) }, sent: [])
   (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
   assert text == "status 404"
   assert List.length(after.sent) == 1
