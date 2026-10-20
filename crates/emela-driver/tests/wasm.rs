@@ -127,7 +127,7 @@ fn errors_and_defects_reach_stderr() {
     // An error that reaches main (spec 14.3).
     let (analysis, output) = run_wasm(
         "main-error",
-        "error Nope(why: String)\n\
+        "error Nope(why: String) derive Show\n\
          fn half(n: Int) -> Int fails Nope {\n\
            if n % 2 != 0 { fail Nope(why: \"odd\") }\n\
            n / 2\n\
@@ -211,7 +211,7 @@ fn runs_the_test_protocol() {
     }
     let (analysis, results) = test_wasm(
         "tests",
-        "error Nope(why: String)\n\
+        "error Nope(why: String) derive Show\n\
          fn half(n: Int) -> Int fails Nope {\n\
            if n % 2 != 0 { fail Nope(why: \"odd\") }\n\
            n / 2\n\
@@ -251,7 +251,7 @@ fn the_test_protocol_escapes_messages() {
     // control characters and non-ASCII must survive the round trip (spec 16.4).
     let (analysis, results) = test_wasm(
         "escaping",
-        "error Nope(why: String)\n\
+        "error Nope(why: String) derive Show\n\
          fn boom() -> () fails Nope { fail Nope(why: \"a\\\"b\\\\c\\nd\u{20AC}\") }\n\
          @test\n\
          fn fails_with_a_quoted_message() { boom() }\n\
