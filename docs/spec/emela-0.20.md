@@ -445,6 +445,10 @@ pub fn find(id: Int) -> User fails NotFound use Users { ... }
 - トップレベルの fn では、引数の型を書く。無名関数では省略できる。戻り値の型、`fails`、`use` は省略できる。省略時の意味は 7.4 と 9.3 に定める。
 - 本体はブロックで、最後の式の値が戻り値になる。`return` はない。
 - 無名関数は `fn(x) { x + 1 }` の1形式だけで、短縮記法はない。引数の型は省略できる。
+- 無名関数の引数には、名前の代わりにパターンを書ける（`fn((key, value)) { ... }`、`fn(acc, _) { acc }`、`fn(Request(url:, ..)) { url }`）。型を書くときはパターンの後に置く（`fn((a, b): (Int, Int)) { a + b }`）。
+  - 引数のパターンは、束縛と同じく必ず照合に成功するものに限る（6.3、E0317）。
+  - `fn(p) { 本体 }` は `fn(t) { p = t; 本体 }` と同じ意味である。引数は左から順に照合する。引数どうしで同じ名前を束縛すると E0220 になる。
+  - トップレベルの fn、impl と handler の fn、trait とエフェクトの操作の引数は名前に限る。引数名が名前付き引数のラベル（6.2）と宣言との対応を兼ねるためである。無名関数の値は引数名を持たず、位置でだけ呼ぶ（6.2）ので、パターンにしても失うものがない。
 
 - トップレベルの fn と、フィールドのある構成子は、呼ばずに名前を書くと関数の値になる（`List.map(xs, Some)`）。
 
@@ -477,7 +481,7 @@ pairs: List[(String, Int)] = List.zip(names, scores)
 
 - 束縛は `パターン = 式` と書く。宣言のキーワードはない。
 - 変数は不変で、再代入はない。同じ名前で束縛し直すと、以降は新しい束縛が見える。
-- 束縛のパターンは、必ず照合に成功するものに限る。失敗しうる照合は match で書く。検査は網羅性の判定（6.5）と同じで、エラーには足りないパターンの例を示す。
+- 束縛のパターンは、必ず照合に成功するものに限る。無名関数の引数のパターン（6.1）も同じである。失敗しうる照合は match で書く。検査は網羅性の判定（6.5）と同じで、エラーには足りないパターンの例を示す。
 - ブロック `{ ... }` の値は、最後の式の値である。
 - ブロックの中の束縛は汎化しない。多相になるのはトップレベルの関数と const だけである。
 
@@ -2131,7 +2135,8 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" type_ref { "," type_ref } block
-lambda     = "fn" "(" [ params ] ")" block
+lambda     = "fn" "(" [ lambda_param { "," lambda_param } ] ")" block
+lambda_param = pattern [ ":" type ]
 ```
 
 - ブロックの最後の文が式のとき、その値がブロックの値になる。最後が束縛のとき、ブロックの値は `()` である。
@@ -2432,7 +2437,7 @@ error[E0204]: duplicate module `Http.Client`
 | E0314 | 型が決まらない値のフィールドを参照した | ``the type of this value must be known to access field `name` `` |
 | E0315 | opaque な型のフィールドを定義モジュールの外で参照した（4.4） | ``cannot access field `value` of opaque type `Email` outside its module`` |
 | E0316 | トップレベルの fn の引数に型がない（6.1） | ``parameter `x` of a top-level function needs a type`` |
-| E0317 | 束縛のパターンが必ずは成功しない（6.3） | ``refutable pattern in binding: `None` not covered`` |
+| E0317 | 束縛のパターンか無名関数の引数のパターンが必ずは成功しない（6.1、6.3） | ``refutable pattern in binding: `None` not covered`` |
 | E0318 | 本体のエラーが宣言の E に含まれない（`-> T` の未処理のエラー、`fails` にないエラー、const の値の失敗）（7.4） | ``unhandled error `NotFound` `` / ``error `DbError` is not declared in `fails` `` |
 | E0319 | エラーの型でない値を `fail` に渡した。1つのエラーの型の型引数をエラーでない型で具体化した（7.2） | ``expected an error value, found `Int` `` |
 | E0320 | escape の腕のパターンがエラーの構成子でない（7.3） | `escape arms must match an error constructor` |
@@ -2514,6 +2519,10 @@ error[E0204]: duplicate module `Http.Client`
 - 引数を取らず、標準入出力で言語サーバーとして動く。
 
 ## 改訂履歴
+
+### 2026-10-20（無名関数の引数のパターン）
+
+- 6.1、6.3、17.5、付録 A: 無名関数の引数に、必ず照合に成功するパターンを書けるようにした（`fn((key, value)) { ... }`、`fn(acc, _) { acc }`）。組のリストを畳み込むときや `Gen.pair` の property で、引数を分解するためだけの束縛の行と、使わない引数の名前が要っていたため。トップレベルの fn などの引数は、名前付き引数のラベルを兼ねるので名前のままにした。短縮記法（`_ + 1` など）は入れない。
 
 ### 2026-10-20（inspect に Show を求める）
 
