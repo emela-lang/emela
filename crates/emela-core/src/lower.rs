@@ -1001,12 +1001,18 @@ impl<'a> Lowerer<'a> {
             let pattern = self.ty(&head.self_ty);
             let f = self.fn_id(f.def, impl_spec);
             impls.push((pattern, f));
-            // The impls of core (`List`, `Option`) give what the structure gives (spec 10.6).
+            // The impls of core for `List` and `Option` give what the structure gives (spec
+            // 10.6). Other impls in core and std, such as Duration's Show, do not.
             let in_core = match hir.defs[impl_def].module {
                 DefModule::Source(m) => self.modules.is_core(m),
                 DefModule::Prelude | DefModule::Builtin(_) => true,
             };
-            if in_core {
+            let list_or_option = match self.module.ty(pattern) {
+                Type::List(_) => true,
+                Type::Enum(id, _) => self.module.option == Some(*id),
+                _ => false,
+            };
+            if in_core && list_or_option {
                 structural.push(f);
             }
         }

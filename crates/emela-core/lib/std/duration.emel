@@ -4,7 +4,7 @@
 
 ## Made with constructors like `Duration.seconds(5)`.
 pub opaque type Duration(milliseconds: Int64)
-  derive Eq
+  derive Eq, Ord
 
 pub fn milliseconds(n: Int64) -> Duration {
   Duration(milliseconds: n)
@@ -53,4 +53,9 @@ pub fn compare(d: Duration, other: Duration) -> Ordering {
 ## Milliseconds with an `ms` suffix (`1500ms`).
 pub fn to_string(d: Duration) -> String {
   "#{Int64.to_string(d.milliseconds)}ms"
+}
+
+## Shown as `to_string` writes it (`1500ms`).
+impl Duration: Show {
+  fn show(self) { to_string(self) }
 }
