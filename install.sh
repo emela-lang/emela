@@ -111,12 +111,18 @@ curl -fsSL "$asset_url" -o "$tmp_dir/emela.tar.gz"
 tar -xzf "$tmp_dir/emela.tar.gz" -C "$tmp_dir"
 
 mkdir -p "$install_dir"
-find "$tmp_dir" -type f -name emela -perm -u+x -exec cp {} "$install_dir/emela" \; -quit
+# Copy next to the old binary, then rename over it. Overwriting the old file in place keeps its
+# inode, and macOS kills the new binary on launch (SIGKILL) because the kernel still holds the old
+# code signature for that inode.
+staged="$install_dir/.emela.$$"
+find "$tmp_dir" -type f -name emela -perm -u+x -exec cp {} "$staged" \; -quit
 
-if [ ! -x "$install_dir/emela" ]; then
+if [ ! -x "$staged" ]; then
+  rm -f "$staged"
   echo "failed to install emela into $install_dir" >&2
   exit 1
 fi
+mv -f "$staged" "$install_dir/emela"
 
 echo "installed $("$install_dir/emela" --version) to $install_dir/emela"
 
