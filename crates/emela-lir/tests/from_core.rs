@@ -379,8 +379,8 @@ fn main() {
 fn structural_equality() {
     let m = program(
         "\
-type Point(x: Int, y: Int)
-  derive Eq
+pub type Point(x: Int, y: Int)
+  derive Eq, Show
 
 enum Tree {
   Leaf,

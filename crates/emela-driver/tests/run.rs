@@ -602,7 +602,7 @@ fn unhandled_error_exits_with_1() {
     let output = run_source(
         "lower-fail",
         "\
-error NotFound(id: Int)
+error NotFound(id: Int) derive Show
 error Unauthorized
 
 fn find(id: Int) -> Int fails NotFound | Unauthorized {
@@ -711,8 +711,8 @@ error: NotFound(id: 0)
 #[test]
 fn partial_escape_arms_propagate_unmatched_errors() {
     // An error missing arms that catch only some values (field values, guards) propagates as an
-    // error, not a defect (spec 7.3). Reaching main gives `error: ...` and exit code 1
-    // (spec 14.3).
+    // error, not a defect (spec 7.3). Reaching main gives `error: ...` and exit code 1, with only
+    // the name of an error without Show (spec 14.3).
     let source = |last: &str| {
         format!(
             "\
@@ -742,12 +742,12 @@ fn main() {{
     let output = run_source("lower-partial-escape-value", &source("by_value(2)"));
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
-        (1, "", "10\n60\n102\nerror: NotFound(id: 2)\n")
+        (1, "", "10\n60\n102\nerror: NotFound\n")
     );
     let output = run_source("lower-partial-escape-guard", &source("by_guard(3)"));
     assert_eq!(
         (output.code, text(&output.stdout), text(&output.stderr)),
-        (1, "", "10\n60\n102\nerror: NotFound(id: 3)\n")
+        (1, "", "10\n60\n102\nerror: NotFound\n")
     );
 }
 

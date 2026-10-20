@@ -85,7 +85,7 @@ impl Mono<'_> {
     }
 
     /// `name`, or with `#2`, `#3`, ... if taken.
-    fn fresh_name(&mut self, name: String) -> String {
+    pub(super) fn fresh_name(&mut self, name: String) -> String {
         if self.names.insert(name.clone()) {
             return name;
         }
@@ -133,7 +133,7 @@ impl Mono<'_> {
     }
 
     /// The constructors of the enum `ty` with their field types for its type arguments.
-    fn variants(&mut self, ty: TypeId) -> (EnumId, Vec<Vec<TypeId>>) {
+    pub(super) fn variants(&mut self, ty: TypeId) -> (EnumId, Vec<Vec<TypeId>>) {
         let Type::Enum(id, args) = self.out.ty(ty).clone() else {
             unreachable!("derived impls are for enums");
         };
@@ -164,7 +164,7 @@ impl Mono<'_> {
     }
 
     /// New locals for the fields `tys`.
-    fn binds(&mut self, hint: &str, tys: &[TypeId]) -> Vec<Local> {
+    pub(super) fn binds(&mut self, hint: &str, tys: &[TypeId]) -> Vec<Local> {
         tys.iter().map(|&t| self.out.local(hint, t)).collect()
     }
 
@@ -548,10 +548,10 @@ impl Cmp {
 
 /// The parts of a string, adjacent texts merged.
 #[derive(Default)]
-struct Parts(Vec<StrPart>);
+pub(super) struct Parts(pub(super) Vec<StrPart>);
 
 impl Parts {
-    fn text(&mut self, s: &str) {
+    pub(super) fn text(&mut self, s: &str) {
         if let Some(StrPart::Lit(last)) = self.0.last_mut() {
             last.push_str(s);
         } else {
@@ -559,7 +559,7 @@ impl Parts {
         }
     }
 
-    fn push(&mut self, part: StrPart) {
+    pub(super) fn push(&mut self, part: StrPart) {
         match part {
             StrPart::Lit(s) => self.text(&s),
             v => self.0.push(v),
@@ -579,7 +579,7 @@ fn prim_op(ty: &Type) -> Option<OpTy> {
     }
 }
 
-fn ctor_pat(ctor: CtorRef, binds: &[Local]) -> Pat {
+pub(super) fn ctor_pat(ctor: CtorRef, binds: &[Local]) -> Pat {
     Pat::Ctor {
         ctor,
         fields: binds.iter().map(|&l| Pat::Bind(l)).collect(),
@@ -587,7 +587,7 @@ fn ctor_pat(ctor: CtorRef, binds: &[Local]) -> Pat {
 }
 
 /// `match tuple { (binds..) -> body }`.
-fn take_apart(tuple: Local, binds: &[Local], body: Expr) -> Expr {
+pub(super) fn take_apart(tuple: Local, binds: &[Local], body: Expr) -> Expr {
     Expr::Match {
         scrutinee: Box::new(Expr::Var(tuple)),
         arms: vec![Arm {

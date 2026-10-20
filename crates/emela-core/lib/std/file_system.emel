@@ -8,16 +8,16 @@
 import Std.Path
 import Std.State.{State}
 
-pub error FileNotFound(path: String)
-pub error FileAccessDenied(path: String)
-pub error NotADirectory(path: String)
-pub error IsADirectory(path: String)
-pub error DirectoryNotEmpty(path: String)
+pub error FileNotFound(path: String) derive Show
+pub error FileAccessDenied(path: String) derive Show
+pub error NotADirectory(path: String) derive Show
+pub error IsADirectory(path: String) derive Show
+pub error DirectoryNotEmpty(path: String) derive Show
 ## The file is not valid UTF-8. It is never read with replacement characters, so that writing
 ## the text back does not change the file.
-pub error InvalidText(path: String)
+pub error InvalidText(path: String) derive Show
 ## Any other error of the host. `message` is the host's description.
-pub error FileSystemFailure(path: String, message: String)
+pub error FileSystemFailure(path: String, message: String) derive Show
 
 pub effect FileSystem {
   suspend fn read_text(path: String) -> String

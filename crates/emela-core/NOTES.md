@@ -54,8 +54,9 @@
 - （補）今の構文の検査は本体のない fn に `@external` を求める（E0130）ので，同梱のソースの `@intrinsic` の宣言にも E0130 が出る．テストはこれだけを許している．`@intrinsic` を同梱のソースに限って通す検査は名前解決の側で入れる．
 - （補）Prelude の `Bool` は `False`，`True` の順に宣言する．導出する Ord で `False < True` にするため．IR では Bool は `Lit::Bool` の組み込みのまま（上の Bool の項）．
 - （補）Prelude の enum のうち Bool と Ordering には `derive Eq, Ord, Show` を書く．Option の Eq，Ord，Show は option.emel に手で書く（`None < Some(_)`）．
-- （補）`dbg` は `dbg[A](value: A) -> A`，`inspect` は `inspect[A](value: A) -> String` と書く．どちらも Trait を求めない（10.6，15.1）．`dbg` は `inspect(value)` を1行出す
-- （補）`inspect` は，型に Show の実装があればそれを使う（10.6）．Trait の解決（0.24）までは利用者の impl を引けないので，どの型も導出した Show と同じ構築の形（今の構造の表示）で出す．String は最上位でも `"` で囲み，関数は `<fn>`
+- （補）`dbg` は `dbg[A](value: A) -> A`，`inspect` は `inspect[A: Show](value: A) -> String` と書く（10.6，15.1）．Show のない型の `inspect` は型検査の E0326．`dbg` は Show を求めない
+- （補）`inspect` は Show の実装の結果で，String は最上位でも `"` で囲む．`dbg` は Show を満たす型を `inspect` と同じに，満たさない型を構築の形で出す（中の Show を満たす値は実装を使う．関数は `<fn>`）．backend は型から作った表示関数で構造を出す．手書きの impl に届く型だけ，単相化が Show の impl を通す形に書き換える（下の単相化の「デバッグ用の表示」の項，#362）
+- （補）core と std の `pub error`（ParseError，Http と FileSystem のエラー）は `derive Show` を付ける．main やテストまで達したときに中身を出すため（14.3）
 - （補）core の関数は対象を第1引数に置く（パイプの左辺が入る）．List は `xs`，Option は `opt`，畳み込みの初期値は `from`（15.3）．
 - （補）高階関数の関数の引数名は `f`（位置で渡す）．15.3 の `with` と `where` のラベルは，`with` が予約語（3.1），`where` が将来のための予約（3.3）で仮引数の名前にできないため取りやめになった（2026-10-12 本人の決定．仕様 15.3 と 6.7 も改めた）．畳み込みの初期値の `from` は残す
 - （補）繰り返しは自己末尾呼び出しで書き，先頭から結果を積むものは逆順に積んで `reverse` する．補助の関数は非公開の `*_onto`（`reverse_onto` など）．
@@ -104,7 +105,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）`Instant.to_string` は UTC の ISO 8601 で，JS の `Date.prototype.toISOString` と同じ形（`2025-10-12T03:04:05.678Z`．年が 0〜9999 の外なら `+010000` / `-000001` のように符号と6桁）．日付は proleptic Gregorian で，Emela で書いた（Hinnant の civil_from_days）．JS の Date の範囲（±8.64e15 ミリ秒）の外でも同じ式で書く．
 - （補）単位の換算（`Duration.seconds(n)` の `n * 1000`）と足し算，引き算のあふれは Int64 の規則（16.1）で巻き戻る．検出しない．
 - （補）現在の時点を取る関数は置かない（Clock のエフェクトの `now`）．`Instant.from_unix_milliseconds(ms: Int64) -> Instant` は公開する．Instant に守る不変条件はなく，作れる場所を Clock に絞っても `Instant.add` で任意の時点を作れるので保証にならない．テストで時刻を固定する，利用者が Clock のハンドラを書く（8.4），自前のホストの時刻を受ける，のいずれにも要る（2026-10-12 本人と決定．いったん `@internal`（core の中からだけ参照できる．emela-driver の NOTES）で絞ったが外した．仕組みは残す）．opaque は Int64 との取り違えを防ぎ，単位を隠す役を残す．
-- （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
+- （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` も Show の impl を通る（#362）．
 - （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
 ## Map と Set（`std/map.emel`，`std/set.emel`）
@@ -117,7 +118,7 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）from_list は insert を畳み込む（同じキーは後の値）．filter と union は，キーの順の並びを作ってから `from_sorted` で O(n) で平衡に組み直す（どちらもキーの順が保たれるので並べ直さない）
 - （補）再帰は木の深さ（O(log n)）までで，自己末尾呼び出しにしない．to_list と fold も同じ
 - （補）Set は `pub opaque type Set[A](inner: Map[A, ()])` で，関数は Map に任せる
-- （補）Eq と Show は手書きの impl（`Map.from_list([...])`）．補間はこの impl を使う（`Dispatch::structural` に入らない，#361）．inspect と dbg は #362 まで木の構造（`Node(size: 2, key: 1, ...)`）を出す
+- （補）Eq と Show は手書きの impl（`Map.from_list([...])`）．補間はこの impl を使う（`Dispatch::structural` に入らない，#361）．inspect と dbg もこの impl を通る（#362）
 - （補）使わない引数と組の引数は無名関数の引数のパターン（仕様 6.1）で書く（`fn(acc, x, _)`，`fn((key, _)) { key }`）
 
 ## Random（`std/random.emel`，`std/random.mjs`）
@@ -381,6 +382,13 @@ alpha.5 の第2段（2026-10-13）．型検査（`ProgramTypes`）から上の I
 - （補）List の Eq と Ord は，長いリストでスタックを使わないよう，自己末尾呼び出しの補助の fn（`eq_lists`，`compare_lists`）で書く．Trait の関数を通した再帰は自己末尾呼び出しにならない（ループ化は単相化の前）
 - （補）`==`，`!=`，補間と Trait（10.3，10.6，#332）．lowering は基本型以外の `==` を `OpTy::Structural` に，補間を今までどおり型付きの `StrPart::Value` にし，`Eq.eq` と `Show.show` を下ろしておく（`Module::traits`）．単相化は具体的な型を見て，構造をたどる処理で impl と同じ結果になる型ならそのまま残し，そうでなければ impl の呼び出しに替える（`!=` は `!Eq.eq(a, b)`）．同じ結果になるのは，基本型，`Any`，impl がコンパイラか core のもの（`Dispatch::structural`）か impl のない（derive だけの，#333 まで）型で，中の型がみな同じく満たすもの．ソースに書いた impl のある型は impl を通す．再帰する型は，たどっている途中の型を満たすとみなす
 - （補）`assert a == b` と大小比較の assert で impl を通すときは `AssertCond::Shown` にする．両辺を左から一時変数に束縛し，impl の呼び出し（`cond`）が False なら，構造の比較と同じく両辺を inspect の表示で出す（13.2）．単相化が `==` を impl に替えるときと，lowering が基本型以外の大小比較を `Ord.compare` にするときに作る．バックエンド（JS と LIR．C と WASM は LIR から）は `Compare` と同じ文面の defect にする
+- （補）デバッグ用の表示（10.6，#362）．単相化は，表示が手書きの Show の impl に届く型（`Mono::written_show`．型か，そのフィールドや要素の型に `Dispatch::structural` でない impl がある）だけ書き換える．届かない型は今までどおり backend が構造で出す（Show を満たせばそれが Show の結果で，満たさなければそれが dbg の構築の形）．lowering は dbg，inspect，assert の型が基本型でなければ `Show.show` を下ろしておく
+  - `inspect(x)` は `Show.show(x)` にする（型検査が Show を満たす型に限る）
+  - `dbg(x)` は「値を束縛し，表示を `Builtin::DebugPrint` でそのまま出し，値を返す」形にする．表示は，Show を満たせば `Show.show` の結果，満たさなければ構築の形（`mono/debug.rs`）
+  - 比較の assert（`Compare` と `Shown`）は，両辺の型が Show を満たし impl に届けば「両辺を束縛し，偽なら両辺を `Show.show` で出す `panic`」にする．文面は backend の assert の defect と同じ．Show を満たさなければ `AssertCond::Bool` にし，式の字面だけを出す（13.2）
+- （補）dbg の構築の形（`mono/debug.rs`）．Show を満たさない型の値を，導出した Show と同じ形で，中の Show を満たす値は Show の実装で出す（10.6）．impl に届かない部分は backend の構造の表示に任せ（String は `ShowString`），タプルはその場で分解し，enum と List は型ごとに関数を作る（`Plain: debug`）．List の関数は残りのリストと途中の文字列と区切りを受けて自分を末尾で呼び，その場で `tail::loopify_function` でループにする（単相化はループ化の後なので）．opaque な型も中身を出す
+- （補）Show を満たすかは単相化で見る（`Mono::satisfies`）．lowering が全部の Trait の impl（手書きと導出）を，impl の型と型引数ごとの制約の Trait で `Module::trait_impls` に並べる．単相化は値の型に頭の合う impl を探し，型引数がそれぞれの制約を満たすかを再帰で確かめる（`impl Wrap[A: Eq]: Show` は `A` の Eq を見る）．impl がなければ，Prelude の Eq，Ord，Show は基本型とタプルをコンパイラの impl で満たす（Float は Ord を満たさない）．関数とケイパビリティの型はどれも満たさない．再帰する型は，たどっている途中の型を満たすとみなす．C と WASM は単相化の出力をもう一度単相化するので，`trait_impls` は出力にも残す
+- （補）main とテストまで届いたエラーの表示（14.3）．単相化は `fail` の値の型を見て，error の enum ごとに `Module::error_display` を決める．Show を満たし impl に届かなければ `Structure`（backend の構造の表示），impl に届けば `Impl`（その型の `Show.show` の写し）．Show を満たさなければ入れず，backend は名前だけを出す．エラーは `fail` を通ってしか届かないので，`fail` の所で決めれば足りる．2度目の単相化は入力の `error_display` を引き継ぎ，`Impl` の関数を写しに置き換える．lowering は，`fail` の値の型に Show の impl か導出があるか，型引数なら `Show.show` を下ろしておく
 - （補）大小比較の Float は組み込みの演算子のまま（IEEE 754，10.6）．型検査も Float の大小比較には Ord を求めない
 - （補）Option の Ord は `None < Some(_)`（Haskell の `Nothing < Just _` と同じ）．宣言の順（`Some`，`None`）で比べる導出した Ord とは逆になる．仕様は Option の順を書いていない
 - （補）enum は写さない．定義は汎用のまま，使う所が具体的な型引数を持つ（`Type::Enum(id, args)`）．低い IR の `repr_of` は外側の構成子だけで表現を決め，フィールドは `repr_of_subst` で型引数を置き換えて求めるので，定義を写す必要がない．フィールドの型の `Param` は enum の型引数を指すので，単相化の後も残る

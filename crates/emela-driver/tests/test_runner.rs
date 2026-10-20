@@ -476,7 +476,7 @@ fn unhandled_errors_fail_only_that_test() {
         (
             "app/src/main.emel",
             "\
-error NotFound(id: Int)
+error NotFound(id: Int) derive Show
 
 fn find(id: Int) -> Int fails NotFound {
   if id > 0 { id } else { fail NotFound(id:) }

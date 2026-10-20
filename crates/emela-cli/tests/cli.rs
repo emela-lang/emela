@@ -641,7 +641,7 @@ fn run_reports_unhandled_error_with_exit_code_1() {
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                "error NotFound(id: Int)\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
+                "error NotFound(id: Int) derive Show\n\nfn find(id: Int) -> Int fails NotFound {\n  if id > 0 { id } else { fail NotFound(id:) }\n}\n\nfn main() {\n  dbg(find(0) escape { NotFound(_) -> 0 })\n  dbg(find(-1))\n}\n",
             ),
         ],
     );

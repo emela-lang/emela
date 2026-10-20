@@ -31,9 +31,11 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `Ordering` | `enum Ordering { Less, Equal, Greater }` | Emela | 比較の結果 |
 | `panic` | `panic(message: String) -> Never` | intrinsic | defect を起こす |
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
-| `dbg` | `dbg[A](value: A) -> A` | intrinsic | `inspect(value)` を標準エラーに出して値を返す |
-| `inspect` | `inspect[A](value: A) -> String` | intrinsic | デバッグ用の表示．Trait を求めない．String は最上位でも `"` で囲み，関数は `<fn>` |
+| `dbg` | `dbg[A](value: A) -> A` | intrinsic | デバッグ用の表示を標準エラーに出して値を返す．Show を求めない．Show を満たす型は `inspect` と同じ，満たさない型は構築の形（中の Show を満たす値は Show，関数は `<fn>`） |
+| `inspect` | `inspect[A: Show](value: A) -> String` | intrinsic | デバッグ用の表示．Show の実装の結果で，String は最上位でも `"` で囲む |
 | `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse`，`Float.parse`，`Bool.parse` の形の誤り．`input` は入力の全体 |
+
+impl（10.5）: ParseError は `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ## List（`core/list.emel`）
 
@@ -338,7 +340,7 @@ fn main() {
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`，`defect: …`，`interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | 起こし直す．Fail は fail，Die は defect，Interrupt は中断の巻き戻し |
 
-impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので Eq，Ord，Show を満たさない（表示は `to_string` か inspect）．同じ理由で Std.Fiber の Exit も満たさない．
+impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので Eq，Ord，Show を満たさない（表示は `to_string` か dbg）．同じ理由で Std.Fiber の Exit も満たさない．
 
 ## Std.Deferred（`std/deferred.emel`）
 
@@ -376,7 +378,7 @@ impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | TestHttp の相手．`respond` は要求と何回目か（0 から）を受ける |
 | `TestHttp` | `handler TestHttp: Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
 
-impl（10.5）: Method，Request，Response は `derive Eq, Show`．
+impl（10.5）: Method，Request，Response は `derive Eq, Show`．InvalidUrl，ConnectionFailed，ResponseNotText，UnexpectedStatus は `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ```emel
 import Std.Http.{Http, Request, Response, TestServer, TestHttp}
@@ -410,7 +412,7 @@ platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．�
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
 
-impl（10.5）: TestFiles は `derive Eq, Show`．
+impl（10.5）: TestFiles は `derive Eq, Show`．error はどれも `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ```emel
 import Std.FileSystem.{FileSystem, FileNotFound}

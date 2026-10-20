@@ -1386,7 +1386,8 @@ impl<'m> Emitter<'m> {
             | Builtin::Dbg
             | Builtin::Inspect
             | Builtin::ShowNested
-            | Builtin::ShowString => {
+            | Builtin::ShowString
+            | Builtin::DebugPrint => {
                 self.internal(format!("builtin {op:?} left in {}", f.name));
                 return;
             }

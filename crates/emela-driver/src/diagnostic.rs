@@ -619,9 +619,12 @@ impl Diagnostic {
                 )
             }
             TypeDiagnosticKind::UnusedDerive { trait_name, ty } => {
-                // dbg shows a value by its Show if it has one (inspect, spec 10.6).
+                // dbg and a failed assert show a value by its Show if it has one (spec 10.6,
+                // 13.2), and do not count as uses.
                 help = Some(if trait_name == "Show" {
-                    format!("remove it from `derive`; `dbg` then shows `{ty}` without its Show")
+                    format!(
+                        "remove it from `derive`; `dbg` then shows `{ty}` as constructed, and a failed `assert` no longer shows its values"
+                    )
                 } else {
                     "remove it from `derive`".to_owned()
                 });

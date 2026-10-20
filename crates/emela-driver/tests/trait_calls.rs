@@ -336,9 +336,10 @@ fn operators_and_interpolation_go_through_the_impls() {
 
 #[test]
 fn an_assert_through_an_impl_shows_both_sides() {
-    // `==` and `<` through impls still show both sides with inspect (spec 13.2).
+    // `==` and `<` through impls still show both sides with inspect (spec 13.2), here by the
+    // derived Show (`pub`, as the assert alone does not use it, W0303).
     let main = r##"
-type Ver(major: Int, note: String)
+pub type Ver(major: Int, note: String) derive Show
 
 impl Ver: Eq {
   fn eq(self, other) { self.major == other.major }
@@ -395,6 +396,182 @@ fn main() {
         stderr_of("std_types", main),
         "\"2000ms True True\"\n\"1970-01-01T00:00:00.000Z True\"\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
     );
+}
+
+/// The debug display (spec 10.6, #362). `inspect` and `dbg` of a type with Show go through its
+/// impl, a String quoted at the top level. `dbg` of a type without Show gives its constructed
+/// form, the parts with Show through Show, functions as `<fn>`, and the contents of an opaque
+/// type. Whether a type satisfies Show follows the impl's constraints: `impl Wrap[A: Eq]: Show`
+/// needs the argument's Eq.
+const INSPECT: &str = r##"
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+
+type Box[A](value: A)
+
+impl Box[A: Show]: Show {
+  fn show(self) { "Box #{Show.show(self.value)}" }
+}
+
+type Wrap[A](value: A)
+
+impl Wrap[A: Eq]: Show {
+  fn show(self) { "wrap" }
+}
+
+type Plain(n: Name, f: fn(Int) -> Int)
+
+pub opaque type Secret(name: Name, code: Int)
+
+fn debug[A](x: A) -> A { dbg(x) }
+
+fn main() {
+  dbg(Name(value: "a"))
+  dbg([Some(Name(value: "b"))])
+  dbg((1, Box(value: Name(value: "c"))))
+  dbg(Wrap(value: 1))
+  dbg(Wrap(value: Name(value: "w")))
+  dbg(Wrap(value: fn(x: Int) { x }))
+  dbg(Plain(n: Name(value: "d"), f: fn(x) { x }))
+  debug([Plain(n: Name(value: "e"), f: fn(x) { x })])
+  dbg(Wrap(value: Plain(n: Name(value: "f"), f: fn(x) { x })))
+  dbg(Secret(name: Name(value: "g"), code: 7))
+  dbg(inspect(Name(value: "h")))
+  dbg(inspect([Box(value: "i")]))
+  dbg("s")
+}
+"##;
+
+#[test]
+fn the_debug_display_uses_show_impls() {
+    assert_eq!(
+        stderr_of("inspect", INSPECT),
+        r#"<a>
+[Some(<b>)]
+(1, Box <c>)
+wrap
+wrap
+Wrap(value: <fn>)
+Plain(n: <d>, f: <fn>)
+[Plain(n: <e>, f: <fn>)]
+Wrap(value: Plain(n: <f>, f: <fn>))
+Secret(name: <g>, code: 7)
+"<h>"
+"[Box i]"
+"s"
+"#
+    );
+}
+
+/// The targets to run on: JS, and C if a C compiler is there.
+fn targets() -> &'static [Target] {
+    if c_backend().is_some() {
+        &[Target::Js, Target::C]
+    } else {
+        &[Target::Js]
+    }
+}
+
+/// The stderr of a program that ends with `code`, the same on every target.
+fn failure_of(name: &str, main: &str, code: i32) -> String {
+    let mut outputs = Vec::new();
+    for &target in targets() {
+        let (analysis, output) = run_on(name, main, target);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{target}: {:?}",
+            analysis.diagnostics
+        );
+        let output = output.expect("the program ran");
+        assert_eq!(output.code, code, "{target}");
+        outputs.push(String::from_utf8(output.stderr).unwrap());
+    }
+    if let [js, c] = outputs.as_slice() {
+        assert_eq!(js, c, "JS and C differ");
+    }
+    outputs.swap_remove(0)
+}
+
+const NAME: &str = r##"
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+impl Name: Eq {
+  fn eq(self, other) { self.value == other.value }
+}
+"##;
+
+#[test]
+fn a_failed_assert_shows_the_sides_through_show() {
+    let main = format!(
+        "{NAME}\nfn main() {{\n  assert [Name(value: \"a\")] == [Name(value: \"b\")]\n}}\n"
+    );
+    assert_eq!(
+        failure_of("assert_show", &main, 101),
+        "defect: assertion failed: [Name(value: \"a\")] == [Name(value: \"b\")]\n  left: [<a>]\n right: [<b>]\n"
+    );
+}
+
+/// The sides of a failed assert are shown only if their type satisfies Show (spec 13.2), here
+/// decided by the constraint of the impl (`Wrap[A: Ord]`). Otherwise only the text.
+#[test]
+fn a_failed_assert_without_show_gives_only_the_text() {
+    let decls = "type Hidden(n: Int) derive Eq\n\ntype Wrap[A](value: A) derive Eq\n\nimpl Wrap[A: Ord]: Show {\n  fn show(self) { \"w\" }\n}\n\nfn same[A: Eq](a: A, b: A) { assert a == b }\n\nfn same_wraps(a: Wrap[Int], b: Wrap[Int]) -> Bool { a == b }\n\nfn same_hidden(a: Hidden, b: Hidden) -> Bool { a == b }\n";
+    let cases = [
+        (
+            "assert [Wrap(value: Hidden(n: 1))] == [Wrap(value: Hidden(n: 2))]",
+            "defect: assertion failed: [Wrap(value: Hidden(n: 1))] == [Wrap(value: Hidden(n: 2))]\n",
+        ),
+        (
+            "same(Hidden(n: 1), Hidden(n: 2))",
+            "defect: assertion failed: a == b\n",
+        ),
+        (
+            "same(Wrap(value: 1), Wrap(value: 2))",
+            "defect: assertion failed: a == b\n  left: w\n right: w\n",
+        ),
+    ];
+    for (i, (body, expected)) in cases.into_iter().enumerate() {
+        let main = format!("{decls}\nfn main() {{\n  {body}\n}}\n");
+        assert_eq!(failure_of(&format!("assert_text{i}"), &main, 101), expected);
+    }
+}
+
+/// An error reaching `main` is shown by its Show, derived (`error ... derive Show`) or written,
+/// the parts through their impls; an error without Show by its name only (spec 7.1, 14.3).
+#[test]
+fn errors_reaching_main_are_shown_by_their_show() {
+    let decls = format!(
+        "{NAME}\nerror DbError(message: String) derive Show\n\nerror Retry(n: Int)\n\nerror Bad(name: Name)\n  derive Show\n\nerror Custom(n: Int)\n\nimpl Custom: Show {{\n  fn show(self) {{ \"custom #{{self.n}}\" }}\n}}\n\nfn raise[E](e: E) -> () fails E {{ fail e }}\n"
+    );
+    let cases = [
+        (
+            "fail DbError(message: \"down\")",
+            "error: DbError(message: \"down\")\n",
+        ),
+        ("fail Retry(n: 1)", "error: Retry\n"),
+        (
+            "fail Bad(name: Name(value: \"x\"))",
+            "error: Bad(name: <x>)\n",
+        ),
+        ("raise(Custom(n: 3))", "error: custom 3\n"),
+    ];
+    for (i, (body, expected)) in cases.into_iter().enumerate() {
+        let main = format!(
+            "{decls}\nfn main() -> () fails DbError | Retry | Bad | Custom {{\n  {body}\n}}\n"
+        );
+        assert_eq!(failure_of(&format!("error{i}"), &main, 1), expected);
+    }
 }
 
 /// Std.Map and Std.Set (spec 15.2, 18.1 #36): key order whatever the order of insertion, values

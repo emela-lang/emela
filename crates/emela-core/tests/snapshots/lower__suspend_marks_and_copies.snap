@@ -31,9 +31,9 @@ export suspend fn main() -> List[Int] {
 
 fn SystemClock() -> handler Clock {
   handler SystemClock: Clock {
-    sleep: fn(ms%49: Int, resume%50: fn(Int) -> ()) -> () {
-      after[{}, {}](ms%49, fn() -> () {
-        (resume%50)(ms%49)
+    sleep: fn(ms%94: Int, resume%95: fn(Int) -> ()) -> () {
+      after[{}, {}](ms%94, fn() -> () {
+        (resume%95)(ms%94)
       })
     }
     now: fn() -> Int {

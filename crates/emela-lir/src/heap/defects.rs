@@ -143,7 +143,8 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::CellGet
         | Builtin::CellSet
         | Builtin::ShowNested
-        | Builtin::ShowString => false,
+        | Builtin::ShowString
+        | Builtin::DebugPrint => false,
     }
 }
 

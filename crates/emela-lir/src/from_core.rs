@@ -88,8 +88,9 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
     }
     // Every error enum that the functions construct gets its show function, for a failure
     // reaching the entry (spec 14.3): errors of different enums arrive there, so the backend
-    // picks the function by the value's enum at run time. An error with a function-typed field
-    // is shown by its name only.
+    // picks the function by the value's enum at run time. An error whose type satisfies Show is
+    // shown by it (`Module::error_display`: the structure, or the impl's function); any other
+    // by its name only.
     let mut error_shows = Vec::new();
     let mut made = FxHashSet::default();
     for body in &bodies {
@@ -105,12 +106,12 @@ pub fn from_core(mut core: emela_core::Module) -> Result<Module, Vec<FromCoreErr
     error_enums.sort_by_key(|&id| ix(id));
     for id in error_enums {
         let ty = sh.core.enum_type(id, Vec::new());
-        let kind = if has_fn_field(&sh.core, id) {
-            Derive::ErrorName
-        } else {
-            Derive::Show
+        let f = match sh.core.error_display.get(&id) {
+            Some(emela_core::ErrorDisplay::Structure) => sh.derived(Derive::Show, ty),
+            Some(&emela_core::ErrorDisplay::Impl(f)) => sh.fn_map[ix(f)],
+            None => sh.derived(Derive::ErrorName, ty),
         };
-        error_shows.push((id, sh.derived(kind, ty)));
+        error_shows.push((id, f));
     }
     while let Some((kind, ty, id)) = sh.pending.pop() {
         let name = sh.functions[id].name.clone();
@@ -137,24 +138,6 @@ fn constructed(e: &Expr, out: &mut FxHashSet<emela_core::EnumId>) {
         out.insert(ctor.enum_id);
     }
     e.for_each_child(&mut |c| constructed(c, out));
-}
-
-/// Whether a field of the error enum holds a function (spec 14.3: such an error is shown by its
-/// name only): a function type, or one inside a tuple, a list or a type argument. The same test
-/// as the JS backend's.
-fn has_fn_field(core: &emela_core::Module, id: emela_core::EnumId) -> bool {
-    fn contains_fn(core: &emela_core::Module, ty: TypeId) -> bool {
-        match core.ty(ty) {
-            Type::Fn(_) | Type::Handler(_) => true,
-            Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| contains_fn(core, t)),
-            Type::List(t) => contains_fn(core, *t),
-            _ => false,
-        }
-    }
-    core.enums[id]
-        .variants
-        .iter()
-        .any(|v| v.tys.iter().any(|&t| contains_fn(core, t)))
 }
 
 /// Whether evaluating `e` may suspend: a suspending call or concurrency operation outside
@@ -986,6 +969,22 @@ impl<'s> Lower<'s> {
                     },
                 );
                 Ok(v)
+            }
+            Builtin::DebugPrint => {
+                let v = self.expr(&args[0])?;
+                let text = v.op.unwrap_or(Operand::Const(Const::String(String::new())));
+                self.let_(
+                    TMP,
+                    TypeId::UNIT,
+                    Value::Runtime {
+                        op: RuntimeOp::DebugPrint,
+                        args: vec![text],
+                    },
+                );
+                Ok(Val {
+                    op: None,
+                    ty: TypeId::UNIT,
+                })
             }
             Builtin::Inspect => {
                 let v = self.expr(&args[0])?;

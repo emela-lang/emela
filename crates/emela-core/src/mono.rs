@@ -34,6 +34,7 @@
 //! are rebuilt: the output has each effect instance that is used once, keyed like lowering's
 //! evidence table keys (the declaration and the type arguments without E and R).
 
+mod debug;
 mod derive;
 
 use std::collections::VecDeque;
@@ -211,6 +212,11 @@ struct Mono<'a> {
     missing_impls: Vec<(String, String)>,
     /// Derived impl functions whose bodies are not generated yet ([`Mono::derived_target`]).
     derived_work: Vec<derive::DerivedSpec>,
+    /// Error enums whose display ([`Mono::error_display`]) is decided.
+    error_seen: FxHashSet<EnumId>,
+    /// The functions showing values of a type that does not satisfy Show for `dbg`
+    /// ([`Mono::debug_val`]), by type.
+    debug_fns: FxHashMap<TypeId, FnId>,
 }
 
 impl<'a> Mono<'a> {
@@ -220,6 +226,9 @@ impl<'a> Mono<'a> {
             option: m.option,
             bundled_files: m.bundled_files.clone(),
             types: m.types.clone(),
+            // For a later pass on the output (the C and WASM backends monomorphize again).
+            trait_impls: m.trait_impls.clone(),
+            show_trait: m.show_trait,
             ..Module::default()
         };
         Mono {
@@ -240,6 +249,8 @@ impl<'a> Mono<'a> {
             loops: Vec::new(),
             missing_impls: Vec::new(),
             derived_work: Vec::new(),
+            error_seen: FxHashSet::default(),
+            debug_fns: FxHashMap::default(),
         }
     }
 
@@ -921,6 +932,11 @@ impl<'a> Mono<'a> {
                 ty_args,
                 args,
             } => self.show_nested(ty_args, args),
+            Expr::Builtin {
+                op: op @ (Builtin::Dbg | Builtin::Inspect),
+                ty_args,
+                args,
+            } => self.inspect(*op, ty_args, args),
             Expr::Builtin { op, ty_args, args } => Expr::Builtin {
                 op: *op,
                 ty_args: self.tys(ty_args),
@@ -1065,23 +1081,47 @@ impl<'a> Mono<'a> {
                     } => {
                         let ty = self.ty(*ty);
                         let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
-                        if *op_ty == OpTy::Structural
+                        let compare = |m: &mut Self, l: Expr, r: Expr| {
+                            if *op_ty == OpTy::Structural {
+                                m.structural_eq(*op, ty, l, r)
+                            } else {
+                                Expr::Binary {
+                                    op: *op,
+                                    ty: *op_ty,
+                                    lhs: Box::new(l),
+                                    rhs: Box::new(r),
+                                }
+                            }
+                        };
+                        // The sides are shown only if their type satisfies Show (spec 13.2).
+                        if !self.shows(ty) {
+                            AssertCond::Bool(compare(self, lhs, rhs))
+                        } else if let Some(show) =
+                            self.m.traits.show.filter(|_| self.written_show(ty))
+                        {
+                            // Through the impl: the sides are bound first and shown if it fails.
+                            let l = self.out.local("left", ty);
+                            let r = self.out.local("right", ty);
+                            let test = compare(self, Expr::Var(l), Expr::Var(r));
+                            let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
+                            return assert_bound(test, failed, (l, lhs), (r, rhs));
+                        } else if *op_ty == OpTy::Structural
                             && let Some(eq) = self.m.traits.eq
                             && !self.structural(eq, ty, &mut Vec::new())
                         {
-                            // Through the impl: the sides are bound first and shown if it fails
-                            // (spec 13.2).
+                            // Compared through Eq's impl and shown by the backend.
                             let l = self.out.local("left", ty);
                             let r = self.out.local("right", ty);
                             let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
                             return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
-                        }
-                        AssertCond::Compare {
-                            op: *op,
-                            op_ty: *op_ty,
-                            ty,
-                            lhs,
-                            rhs,
+                        } else {
+                            AssertCond::Compare {
+                                op: *op,
+                                op_ty: *op_ty,
+                                ty,
+                                lhs,
+                                rhs,
+                            }
                         }
                     }
                     AssertCond::Shown {
@@ -1090,13 +1130,33 @@ impl<'a> Mono<'a> {
                         ty,
                         lhs,
                         rhs,
-                    } => AssertCond::Shown {
-                        cond: self.expr(cond),
-                        op: *op,
-                        ty: self.ty(*ty),
-                        lhs: self.expr(lhs),
-                        rhs: self.expr(rhs),
-                    },
+                    } => {
+                        let ty = self.ty(*ty);
+                        let cond = self.expr(cond);
+                        let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
+                        if !self.shows(ty) {
+                            AssertCond::Bool(cond)
+                        } else if let Some(show) =
+                            self.m.traits.show.filter(|_| self.written_show(ty))
+                            // The sides are variables bound before the assert (`Assert::shown`).
+                            && let (Expr::Var(l), Expr::Var(r)) = (&lhs, &rhs)
+                        {
+                            let failed = self.assert_failed(show, &a.text, *op, ty, *l, *r);
+                            return Expr::If {
+                                cond: Box::new(cond),
+                                then: Box::new(Expr::Lit(Lit::Unit)),
+                                else_: Box::new(failed),
+                            };
+                        } else {
+                            AssertCond::Shown {
+                                cond,
+                                op: *op,
+                                ty,
+                                lhs,
+                                rhs,
+                            }
+                        }
+                    }
                     AssertCond::Bool(c) => AssertCond::Bool(self.expr(c)),
                 };
                 Expr::Assert(Box::new(Assert {
@@ -1104,7 +1164,13 @@ impl<'a> Mono<'a> {
                     text: a.text.clone(),
                 }))
             }
-            Expr::Fail(v) => Expr::Fail(Box::new(self.expr(v))),
+            Expr::Fail(v) => {
+                let ty = self.typer.type_of(v);
+                let ty = self.import(ty);
+                let ty = self.ty(ty);
+                self.error_display(ty);
+                Expr::Fail(Box::new(self.expr(v)))
+            }
             Expr::Escape { body, arms } => Expr::Escape {
                 body: Box::new(self.expr(body)),
                 arms: self.arms(arms),
@@ -1285,6 +1351,210 @@ impl<'a> Mono<'a> {
         let ok = parts.into_iter().all(|t| self.structural(f, t, seen));
         seen.pop();
         ok
+    }
+
+    /// `dbg(x)` and `inspect(x)` (spec 10.6). A type whose display reaches no written Show impl
+    /// ([`Mono::written_show`]) keeps the builtin, which shows the structure: what its Show gives,
+    /// and for `dbg` of a type without Show, its constructed form. Otherwise `inspect` (which the
+    /// type checker gives only types with Show) calls `Show.show`, and `dbg` prints with
+    /// `Builtin::DebugPrint` the text of `Show.show`, or for a type that does not satisfy Show its
+    /// constructed form with the parts that do shown through Show ([`Mono::debug_val`]).
+    fn inspect(&mut self, op: Builtin, ty_args: &'a [TypeId], args: &'a [Expr]) -> Expr {
+        let ty_args = self.tys(ty_args);
+        let mut args = self.exprs(args);
+        let ty = ty_args[0];
+        let Some(show) = self.m.traits.show.filter(|_| self.written_show(ty)) else {
+            return Expr::Builtin { op, ty_args, args };
+        };
+        let value = args.remove(0);
+        if op == Builtin::Inspect {
+            return self.trait_call(show, ty, vec![value]);
+        }
+        let v = self.out.local("value", ty);
+        let text = if self.shows(ty) {
+            self.trait_call(show, ty, vec![Expr::Var(v)])
+        } else {
+            let part = self.debug_val(ty, v);
+            Expr::Concat(vec![part])
+        };
+        let shown = self.out.local("shown", TypeId::UNIT);
+        let print = Expr::Builtin {
+            op: Builtin::DebugPrint,
+            ty_args: Vec::new(),
+            args: vec![text],
+        };
+        Expr::Let {
+            var: v,
+            value: Box::new(value),
+            body: Box::new(Expr::Let {
+                var: shown,
+                value: Box::new(print),
+                body: Box::new(Expr::Var(v)),
+            }),
+        }
+    }
+
+    /// Whether `ty` satisfies Show (spec 10.6), what the debug display of `dbg`, assert and errors
+    /// reaching the entry asks without the type checker.
+    fn shows(&self, ty: TypeId) -> bool {
+        self.m
+            .show_trait
+            .is_some_and(|show| self.satisfies(show, ty, &mut Vec::new()))
+    }
+
+    /// Whether `ty` satisfies the trait `tr`: a written or derived impl for its head whose type
+    /// parameters' constraints its type arguments satisfy (`impl Wrap[A: Eq]: Show` needs the
+    /// argument's Eq), or the compiler's impls of Eq, Ord and Show for the basic types and tuples
+    /// (spec 10.2, 10.5, 10.6). Function and capability types satisfy none. `seen` takes a
+    /// recursive type to satisfy the trait inside itself.
+    fn satisfies(&self, tr: TraitRef, ty: TypeId, seen: &mut Vec<(TraitRef, TypeId)>) -> bool {
+        if seen.contains(&(tr, ty)) {
+            return true;
+        }
+        let traits = &self.m.trait_impls[tr];
+        let t = self.out.ty(ty);
+        match t {
+            Type::Never | Type::Any | Type::Set(_) => return true,
+            Type::Fn(_)
+            | Type::Handler(_)
+            | Type::Evidence
+            | Type::Cell(_)
+            | Type::FiberScope
+            | Type::Param(_) => return false,
+            _ => {}
+        }
+        for (pattern, bounds) in &traits.impls {
+            let mut bound = vec![None; bounds.len()];
+            if !self.bind_head(*pattern, ty, &mut bound) {
+                continue;
+            }
+            seen.push((tr, ty));
+            let ok = bound.iter().zip(bounds).all(|(arg, traits)| {
+                arg.is_none_or(|arg| traits.iter().all(|&b| self.satisfies(b, arg, seen)))
+            });
+            seen.pop();
+            return ok;
+        }
+        let Some(op) = traits.builtin else {
+            return false;
+        };
+        match t {
+            Type::Float => op != DeriveOp::Compare,
+            Type::Int | Type::Int64 | Type::Bool | Type::String | Type::Unit => true,
+            Type::Tuple(ts) => {
+                seen.push((tr, ty));
+                let ok = ts.iter().all(|&t| self.satisfies(tr, t, seen));
+                seen.pop();
+                ok
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the debug display of `ty` reaches a written Show impl (one not in
+    /// `Dispatch::structural`): the type or a part of it (a field, an element) has one. Without
+    /// one, the backends' display of the structure is the debug display (spec 10.6).
+    fn written_show(&mut self, ty: TypeId) -> bool {
+        let Some(show) = self.m.traits.show else {
+            return false;
+        };
+        self.written_show_in(show, ty, &mut Vec::new())
+    }
+
+    fn written_show_in(&mut self, show: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
+        if seen.contains(&ty) {
+            return false;
+        }
+        let parts: Vec<TypeId> = match self.out.ty(ty).clone() {
+            Type::List(t) => vec![t],
+            Type::Tuple(ts) => ts,
+            Type::Enum(id, args) => {
+                if let Some(dispatch) = self.m.dispatch.get(&show)
+                    && let Some((impl_fn, _)) = self.pick_impl(show, dispatch, &[ty])
+                    && !dispatch.structural.contains(&impl_fn)
+                {
+                    return true;
+                }
+                let mut parts = Vec::new();
+                for v in 0..self.out.enums[id].variants.len() {
+                    for t in self.out.enums[id].variants[v].tys.clone() {
+                        parts.push(self.out.types.subst(t, &args));
+                    }
+                }
+                parts
+            }
+            _ => return false,
+        };
+        seen.push(ty);
+        let found = parts
+            .into_iter()
+            .any(|t| self.written_show_in(show, t, seen));
+        seen.pop();
+        found
+    }
+
+    /// Records how a failure with an error of type `ty` is shown if it reaches the entry or a
+    /// test (spec 14.3): by its Show, through the impl if written, or else by its name (not
+    /// recorded).
+    fn error_display(&mut self, ty: TypeId) {
+        let Type::Enum(id, _) = *self.out.ty(ty) else {
+            return;
+        };
+        if !self.out.enums[id].error || !self.error_seen.insert(id) {
+            return;
+        }
+        // Already decided by an earlier pass, whose module this is.
+        if let Some(&display) = self.m.error_display.get(&id) {
+            let display = match display {
+                ErrorDisplay::Impl(f) => ErrorDisplay::Impl(self.target(f, &[]).f),
+                ErrorDisplay::Structure => ErrorDisplay::Structure,
+            };
+            self.out.error_display.insert(id, display);
+            return;
+        }
+        if !self.shows(ty) {
+            return;
+        }
+        let display = match self.m.traits.show.filter(|_| self.written_show(ty)) {
+            Some(show) => ErrorDisplay::Impl(self.target(show, &[ty]).f),
+            None => ErrorDisplay::Structure,
+        };
+        self.out.error_display.insert(id, display);
+    }
+
+    /// The defect of a failed comparison assert, showing the sides `l` and `r` through Show
+    /// (spec 13.2), in the backends' message.
+    fn assert_failed(
+        &mut self,
+        show: FnId,
+        text: &str,
+        op: BinOp,
+        ty: TypeId,
+        l: Local,
+        r: Local,
+    ) -> Expr {
+        let head = if text.is_empty() {
+            format!("left {} right", comparison_text(op))
+        } else {
+            text.to_owned()
+        };
+        let message = Expr::Concat(vec![
+            StrPart::Lit(format!("assertion failed: {head}\n  left: ")),
+            StrPart::Value(
+                self.trait_call(show, ty, vec![Expr::Var(l)]),
+                TypeId::STRING,
+            ),
+            StrPart::Lit("\n right: ".to_owned()),
+            StrPart::Value(
+                self.trait_call(show, ty, vec![Expr::Var(r)]),
+                TypeId::STRING,
+            ),
+        ]);
+        Expr::Builtin {
+            op: Builtin::Panic,
+            ty_args: Vec::new(),
+            args: vec![message],
+        }
     }
 
     /// `String.show_nested(x)` (spec 10.6): `x` quoted for a String, otherwise `Show.show(x)`.
@@ -1498,5 +1768,41 @@ fn set_params(types: &TypeTable, ty: TypeId, out: &mut FxHashSet<usize>) {
             }
         }
         _ => {}
+    }
+}
+
+/// `let l = lhs; let r = rhs; if test { () } else { failed }`: a comparison assert whose sides
+/// are shown through Show if it fails (spec 13.2). Each side is evaluated once, left first.
+fn assert_bound(
+    test: Expr,
+    failed: Expr,
+    (l, lhs): (Local, Expr),
+    (r, rhs): (Local, Expr),
+) -> Expr {
+    Expr::Let {
+        var: l,
+        value: Box::new(lhs),
+        body: Box::new(Expr::Let {
+            var: r,
+            value: Box::new(rhs),
+            body: Box::new(Expr::If {
+                cond: Box::new(test),
+                then: Box::new(Expr::Lit(Lit::Unit)),
+                else_: Box::new(failed),
+            }),
+        }),
+    }
+}
+
+/// The comparison as written in an assert's message (`left == right`).
+fn comparison_text(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Le => "<=",
+        BinOp::Gt => ">",
+        BinOp::Ge => ">=",
+        _ => unreachable!("{op:?} is not an assert comparison"),
     }
 }

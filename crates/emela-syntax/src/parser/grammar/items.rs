@@ -275,13 +275,14 @@ fn type_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, TYPE_DECL);
 }
 
-/// `"error" type_name [ "(" [ fields ] ")" ]`
+/// `"error" type_name [ "(" [ fields ] ")" ] [ derive ]`
 fn error_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(ERROR_KW);
     decl_name(p, TYPE_NAME);
     if p.at(L_PAREN) {
         field_list(p);
     }
+    derive_clause(p);
     m.complete(p, ERROR_DECL);
 }
 

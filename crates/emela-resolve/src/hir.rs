@@ -546,6 +546,8 @@ pub struct CtorItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorItem {
     pub fields: Fields,
+    /// `error DbError(message: String) derive Show` (spec 7.1, 10.5).
+    pub derives: Vec<(Res, Span)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

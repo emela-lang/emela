@@ -37,6 +37,40 @@ pub struct Module {
     /// The Prelude's trait functions, if lowered. [`crate::mono`] calls them where `==`,
     /// interpolation and `Builtin::ShowNested` cannot use the structure (spec 10.6).
     pub traits: PreludeTraits,
+    /// Every trait's impls, written and derived, indexed by [`TraitRef`]: what [`crate::mono`]
+    /// needs to tell whether a type satisfies Show where the type checker does not ask (`dbg`,
+    /// assert, errors reaching the entry, spec 10.6, 13.2, 14.3). Kept by monomorphization, which
+    /// the C and WASM backends run again on its output.
+    pub trait_impls: Vec<TraitImpls>,
+    /// The Prelude's Show in [`Module::trait_impls`].
+    pub show_trait: Option<TraitRef>,
+    /// How a failure reaching the entry or a test shows an error enum (spec 13.3, 14.3). Filled by
+    /// [`crate::mono`] for the errors the functions construct. An error not here is shown by its
+    /// name (its type does not satisfy Show).
+    pub error_display: FxHashMap<EnumId, ErrorDisplay>,
+}
+
+/// A trait, by its index in [`Module::trait_impls`].
+pub type TraitRef = usize;
+
+/// The impls of one trait ([`Module::trait_impls`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TraitImpls {
+    /// Eq, Ord or Show of the Prelude, which the compiler implements for the basic types and
+    /// tuples (spec 10.6; Float has no Ord).
+    pub builtin: Option<DeriveOp>,
+    /// Per impl (written or derived), its type with the impl's type parameters as `Type::Param`
+    /// (`Wrap[$0]`), and per type parameter the traits it is constrained with (`[A: Eq]`).
+    pub impls: Vec<(TypeId, Vec<Vec<TraitRef>>)>,
+}
+
+/// How an error reaching the entry is shown ([`Module::error_display`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorDisplay {
+    /// By the backend's display of the structure, which is what its Show gives (derived only).
+    Structure,
+    /// By calling the function, its Show impl (`fn(E) -> String`).
+    Impl(FnId),
 }
 
 /// The IR functions of the Prelude's trait functions ([`Module::traits`]).
