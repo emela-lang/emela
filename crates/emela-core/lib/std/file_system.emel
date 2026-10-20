@@ -261,7 +261,7 @@ pub handler TestFileSystem: FileSystem {
   }
   suspend fn write_text(path, text, resume) {
     st = use State[TestFiles]
-    st.set(put_file(st.get(), path, fn(old) { text }))
+    st.set(put_file(st.get(), path, fn(_) { text }))
     resume(())
   }
   suspend fn append_text(path, text, resume) {
@@ -332,10 +332,7 @@ fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> 
 
 fn file_text(files: TestFiles, path: String) -> Option[String] {
   TestFiles(files: fs, ..) = files
-  List.find(fs, fn(e) { path_of(e) == path }) |> Option.map(fn(e) {
-    (_, text) = e
-    text
-  })
+  List.find(fs, fn(e) { path_of(e) == path }) |> Option.map(fn((_, text)) { text })
 }
 
 fn path_of(entry: (String, String)) -> String {

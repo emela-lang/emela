@@ -89,8 +89,7 @@ pub fn flatten[A](xss: List[List[A]]) -> List[A] {
 ## Splits into the elements where `f` is True and those where it is False, both in order.
 ## `(evens, odds) = List.partition(xs, is_even)`．
 pub fn partition[A](xs: List[A], f: fn(A) -> Bool) -> (List[A], List[A]) {
-  (yes, no) = fold(xs, from: ([], []), f: fn(acc, x) {
-    (ys, ns) = acc
+  (yes, no) = fold(xs, from: ([], []), f: fn((ys, ns), x) {
     if f(x) { ([x, ..ys], ns) } else { (ys, [x, ..ns]) }
   })
   (reverse(yes), reverse(no))
@@ -219,9 +218,7 @@ pub fn enumerate[A](xs: List[A]) -> List[(Int, A)] {
 
 ## The first and second of each pair, as two lists.
 pub fn unzip[A, B](xys: List[(A, B)]) -> (List[A], List[B]) {
-  fold(reverse(xys), from: ([], []), f: fn(acc, xy) {
-    (xs, ys) = acc
-    (x, y) = xy
+  fold(reverse(xys), from: ([], []), f: fn((xs, ys), (x, y)) {
     ([x, ..xs], [y, ..ys])
   })
 }

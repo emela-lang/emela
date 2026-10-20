@@ -1,0 +1,26 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype User(id: Int, name: String)\n\nfn f(us: List[User], ps: List[(Int, Bool)], os: List[Option[Int]]) -> List[Int] {\n  a = List.map(us, fn(User(id:, ..)) { id })\n  b = List.map(ps, fn((n, _)) { n })\n  c = List.map(os, fn(Some(x)) { x })\n  d = List.map(ps, fn((n, True)) { n })\n  e = List.fold(ps, from: 0, f: fn(acc, (n, _): (Int, Bool)) { acc + n })\n  List.flatten([a, b, c, d, [e]])\n}\n\"#)"
+---
+f: fn(List[User], List[(Int, Bool)], List[Option[Int]]) -> List[Int]
+  us: List[User]
+  ps: List[(Int, Bool)]
+  os: List[Option[Int]]
+  id: Int
+  User(id:, ..): User
+  a: List[Int]
+  n: Int
+  (n, _): (Int, Bool)
+  b: List[Int]
+  x: Int
+  Some(x): Option[Int]
+  c: List[Int]
+  n: Int
+  (n, True): (Int, Bool)
+  d: List[Int]
+  acc: Int
+  n: Int
+  (n, _): (Int, Bool)
+  e: Int
+`Some(x)` refutable pattern in binding: None not covered
+`(n, True)` refutable pattern in binding: (_, False) not covered

@@ -12,17 +12,13 @@ fn from_list_and_to_list() {
     assert Set.to_list(Set.from_list(keys)) == keys
     assert Map.size(m) == List.length(keys)
     assert Map.from_list(Map.to_list(m)) == m
-    assert List.all(pairs, fn(pair) {
-      (k, _) = pair
-      Map.contains(m, k)
-    })
+    assert List.all(pairs, fn((k, _)) { Map.contains(m, k) })
   })
 }
 
 @test
 fn insert_then_get() {
-  Property.check(Gen.pair(Gen.list(Gen.pair(Gen.int(), Gen.int())), Gen.int()), fn(input) {
-    (pairs, k) = input
+  Property.check(Gen.pair(Gen.list(Gen.pair(Gen.int(), Gen.int())), Gen.int()), fn((pairs, k)) {
     m = Map.from_list(pairs)
     assert Map.get(Map.insert(m, k, 1), k) == Some(1)
     assert Map.get(Map.remove(m, k), k) == None

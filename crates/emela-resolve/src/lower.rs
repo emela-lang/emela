@@ -355,6 +355,56 @@ impl Lower<'_, '_> {
         params
     }
 
+    /// Parameters of a lambda. A pattern in place of a name becomes a hidden parameter
+    /// ([`LocalKind::PatParam`]) and a binding `pattern = parameter` to put at the head of the
+    /// body (spec 6.1), so type inference checks it as a binding (E0317). Names bound by all
+    /// parameters share one binder (E0220).
+    fn lambda_params(&mut self, list: Option<ast::ParamList>) -> (Vec<Param>, Vec<Stmt>) {
+        let Some(list) = list else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut binder = Binder::default();
+        let mut params = Vec::new();
+        let mut lets = Vec::new();
+        for param in list.params() {
+            let ty = param.ty().map(|t| self.lower_type(&t));
+            if let Some(token) = param.name() {
+                let (name, range) = token_name(&token);
+                let local = self.bind(&mut binder, name, LocalKind::LambdaParam, range);
+                params.push(Param { local, ty });
+            } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
+                // As in [`Self::params`].
+                if !self.self_type {
+                    self.error(
+                        token.text_range(),
+                        DiagnosticKind::SelfOutside { self_type: false },
+                    );
+                }
+                let local = self.bind(
+                    &mut binder,
+                    "self".into(),
+                    LocalKind::SelfParam,
+                    token.text_range(),
+                );
+                params.push(Param { local, ty });
+            } else if let Some(node) = param.pattern() {
+                let range = node.text_range();
+                let pat = self.pat(&node, &mut binder);
+                let local =
+                    self.alloc_local(node.text().to_string().into(), LocalKind::PatParam, range);
+                let value = self.alloc_expr(ExprKind::Path(Res::Local(local)), range);
+                params.push(Param { local, ty });
+                lets.push(Stmt::Let {
+                    pat,
+                    ty: None,
+                    value,
+                });
+            }
+        }
+        self.bind_all(binder);
+        (params, lets)
+    }
+
     fn named_fields(&mut self, list: Option<ast::FieldList>) -> Option<Vec<FieldDef>> {
         let list = list?;
         let mut seen: FxHashMap<SmolStr, TextRange> = FxHashMap::default();
@@ -1262,12 +1312,16 @@ impl Lower<'_, '_> {
             }
             LAMBDA_EXPR => {
                 self.push_scope();
-                let params = self.params(
-                    node.children().find_map(ast::ParamList::cast),
-                    LocalKind::LambdaParam,
-                );
+                let (params, lets) =
+                    self.lambda_params(node.children().find_map(ast::ParamList::cast));
                 let body = self.child_expr(node, 0);
                 self.pop_scope();
+                // `fn(p) { body }` is `fn(t) { p = t; body }` (spec 6.1).
+                if !lets.is_empty()
+                    && let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind
+                {
+                    block.stmts.splice(0..0, lets);
+                }
                 ExprKind::Lambda { params, body }
             }
             _ => ExprKind::Missing,

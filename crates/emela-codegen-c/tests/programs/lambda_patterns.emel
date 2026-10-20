@@ -1,0 +1,26 @@
+# Patterns in place of lambda parameter names (spec 6.1).
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () use {}
+
+type Point(x: Int, y: Int)
+
+enum Wrap { Wrap(Int, String) }
+
+fn main() {
+  pairs = [("a", 1), ("b", 2), ("c", 3)]
+  total = List.fold(pairs, from: 0, f: fn(acc, (_, n)) { acc + n })
+  keys = List.map(pairs, fn((k, _): (String, Int)) { k })
+  print("#{total} #{keys}")
+  second = fn(_, b) { b }
+  print("#{second(1, "two")}")
+  xs = List.map([Point(x: 1, y: 2), Point(x: 3, y: 4)], fn(Point(x:, ..)) { x * 10 })
+  print("#{xs}")
+  nested = List.map([((1, 2), Wrap(3, "w"))], fn(((a, b), Wrap(c, s))) { "#{a + b + c}#{s}" })
+  print("#{nested}")
+  offset = 100
+  shifted = List.map(pairs, fn((name, n)) { "#{name}=#{n + offset}" })
+  print("#{shifted}")
+  print("#{List.map([()], fn(()) { 0 })}")
+}

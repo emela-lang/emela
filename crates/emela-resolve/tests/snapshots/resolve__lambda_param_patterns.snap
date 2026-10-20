@@ -1,0 +1,23 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"fn f(xs: List[(Int, Int)]) -> Int {\n  List.fold(xs, from: 0, f: fn(acc, (a, _): (Int, Int)) { acc + a })\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+fn Main.f
+  param xs#0: List[(Int, Int)]
+  ret Int
+  body
+    block
+      call
+        @List.fold
+        xs#0
+        from:
+          0
+        f:
+          lambda(acc#1, (a, _)#2)
+            block
+              let (a#3, _) =
+                (a, _)#2
+              Add
+                acc#1
+                a#3

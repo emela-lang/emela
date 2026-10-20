@@ -57,6 +57,33 @@ fn param_list(p: &mut Parser<'_>) {
     m.complete(p, PARAM_LIST);
 }
 
+/// `"(" [ lambda_param { "," lambda_param } ] ")"`．`lambda_param = pattern [ ":" type ]`
+/// (spec 6.1). A plain name keeps the shape of [`param_list`] (a `LOWER_NAME` token directly
+/// under `PARAM`); any other pattern becomes a pattern node under `PARAM`.
+fn lambda_param_list(p: &mut Parser<'_>) {
+    let m = p.start();
+    delimited(p, L_PAREN, R_PAREN, |p| {
+        let param = p.start();
+        let named = p.eat(LOWER_NAME) || p.eat(SELF_KW);
+        if named {
+            // The shape of `param_list`.
+        } else if patterns::at_pattern_start(p) {
+            patterns::pattern(p);
+        } else {
+            p.err_recover(
+                DiagnosticCode::ExpectedToken,
+                "expected parameter name or pattern",
+                &[COMMA, R_PAREN, L_BRACE, NEWLINE],
+            );
+        }
+        if p.eat(COLON) {
+            types::type_(p);
+        }
+        param.complete(p, PARAM);
+    });
+    m.complete(p, PARAM_LIST);
+}
+
 /// Interpolation contents are read with `interp`.
 fn literal(p: &mut Parser<'_>, interp: fn(&mut Parser<'_>)) -> CompletedMarker {
     if p.at(STRING_QUOTE) || p.at(TRIPLE_QUOTE) {

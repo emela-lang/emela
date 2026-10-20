@@ -66,21 +66,14 @@ pub fn header(res: Response, name: String) -> Option[String] {
 pub fn headers(res: Response, name: String) -> List[String] {
   key = String.to_ascii_lowercase(name)
   res.headers
-    |> List.filter(fn(pair) {
-      (n, _) = pair
-      String.to_ascii_lowercase(n) == key
-    })
-    |> List.map(fn(pair) {
-      (_, value) = pair
-      value
-    })
+    |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
+    |> List.map(fn((_, value)) { value })
 }
 
 ## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`).
 pub fn encode_query(pairs: List[(String, String)]) -> String {
   pairs
-    |> List.map(fn(pair) {
-      (name, value) = pair
+    |> List.map(fn((name, value)) {
       "#{encode_uri_component(name)}=#{encode_uri_component(value)}"
     })
     |> String.join("&")
@@ -161,8 +154,7 @@ fn method_name(method: Method) -> String {
 pub handler SystemHttp: Http {
   suspend fn send(request, resume) {
     start = host_request(method_name(request.method), request.url, request.body)
-    req = List.fold(request.headers, from: start, f: fn(req, pair) {
-      (name, value) = pair
+    req = List.fold(request.headers, from: start, f: fn(req, (name, value)) {
       host_with_header(req, name, value)
     })
     res = host_send(req)

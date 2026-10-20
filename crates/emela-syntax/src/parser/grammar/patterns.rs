@@ -12,6 +12,16 @@ const RECOVERY: &[SyntaxKind] = &[
     R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, IF_KW, NEWLINE,
 ];
 
+/// Whether [`pattern`] can read something here.
+pub(crate) fn at_pattern_start(p: &Parser<'_>) -> bool {
+    match p.current() {
+        UNDERSCORE | LOWER_NAME | UPPER_NAME | INT | FLOAT | STRING_QUOTE | TRIPLE_QUOTE
+        | TYPE_NAME | L_PAREN | L_BRACK => true,
+        MINUS => matches!(p.nth(1), INT | FLOAT),
+        _ => false,
+    }
+}
+
 pub(crate) fn pattern(p: &mut Parser<'_>) {
     match p.current() {
         UNDERSCORE => token_node(p, WILDCARD_PAT),

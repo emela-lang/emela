@@ -115,7 +115,7 @@ impl ParamList {
 }
 
 ast_node!(
-    /// `x: Int` `self`
+    /// `x: Int` `self` `(a, b): (Int, Int)`
     Param,
     PARAM
 );
@@ -127,9 +127,22 @@ impl Param {
     pub fn name(&self) -> Option<SyntaxToken> {
         token(&self.0, LOWER_NAME)
     }
+    /// A pattern written in place of the name (lambdas only, spec 6.1). An untyped node.
+    pub fn pattern(&self) -> Option<SyntaxNode> {
+        if self.name().is_some() || self.is_self() {
+            return None;
+        }
+        self.0
+            .children_with_tokens()
+            .take_while(|e| e.kind() != COLON)
+            .find_map(|e| e.into_node())
+    }
     /// An untyped node.
     pub fn ty(&self) -> Option<SyntaxNode> {
-        self.0.first_child()
+        self.0
+            .children_with_tokens()
+            .skip_while(|e| e.kind() != COLON)
+            .find_map(|e| e.into_node())
     }
 }
 
