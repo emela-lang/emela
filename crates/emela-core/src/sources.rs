@@ -26,6 +26,8 @@ const SOURCES: &[(&str, &str)] = &[
     ("Bool", include_str!("../lib/core/bool.emel")),
     ("Std.Duration", include_str!("../lib/std/duration.emel")),
     ("Std.Instant", include_str!("../lib/std/instant.emel")),
+    ("Std.Map", include_str!("../lib/std/map.emel")),
+    ("Std.Set", include_str!("../lib/std/set.emel")),
     ("Std.State", include_str!("../lib/std/state.emel")),
     ("Std.Console", include_str!("../lib/std/console.emel")),
     ("Std.Random", include_str!("../lib/std/random.emel")),

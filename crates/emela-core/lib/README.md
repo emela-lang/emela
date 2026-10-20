@@ -199,6 +199,48 @@ impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同�
 
 impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同じ．
 
+## Std.Map（`std/map.emel`）
+
+キーから値への対応．不変で，キーの順（Ord の順）に並ぶ（15.2，18.1 #36）．中身は重み平衡木の opaque な型．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `empty` | `empty[K, V]() -> Map[K, V]` | Emela | 空の Map |
+| `from_list` | `from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V]` | Emela | 同じキーは後の値 |
+| `insert` | `insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V]` | Emela | あれば置き換える |
+| `remove` | `remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V]` | Emela | なければそのまま |
+| `update` | `update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) -> Map[K, V]` | Emela | 今の値を `f` に渡す．None なら除く |
+| `get` | `get[K: Ord, V](m: Map[K, V], key: K) -> Option[V]` | Emela | キーの値 |
+| `contains` | `contains[K: Ord, V](m: Map[K, V], key: K) -> Bool` | Emela | キーがあるか |
+| `size` | `size[K, V](m: Map[K, V]) -> Int` | Emela | キーの数 |
+| `is_empty` | `is_empty[K, V](m: Map[K, V]) -> Bool` | Emela | 空か |
+| `fold` | `fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B` | Emela | キーの順に畳み込む |
+| `to_list` | `to_list[K, V](m: Map[K, V]) -> List[(K, V)]` | Emela | キーの順の組 |
+| `keys` / `values` | `(m: Map[K, V]) -> List[K]` / `List[V]` | Emela | キーの順 |
+| `map_values` | `map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W]` | Emela | 値に `f` を当てる |
+| `filter` | `filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V]` | Emela | `f` が True の組 |
+| `union` | `union[K: Ord, V](a: Map[K, V], b: Map[K, V]) -> Map[K, V]` | Emela | 両方にあるキーは `a` の値 |
+
+impl（10.6）: `impl Map[K: Eq, V: Eq]: Eq`（中身で比べる），`impl Map[K: Show, V: Show]: Show`（`Map.from_list([(1, "a")])`）．
+
+## Std.Set（`std/set.emel`）
+
+値の集まり．不変で，Ord の順に並ぶ．中身は `Map[A, ()]`．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `empty` | `empty[A]() -> Set[A]` | Emela | 空の Set |
+| `from_list` | `from_list[A: Ord](xs: List[A]) -> Set[A]` | Emela | 重なりは1つにする |
+| `insert` / `remove` | `(s: Set[A], x: A) -> Set[A]`（`A: Ord`） | Emela | 足す / 除く |
+| `contains` | `contains[A: Ord](s: Set[A], x: A) -> Bool` | Emela | 含むか |
+| `size` / `is_empty` | `(s: Set[A]) -> Int` / `Bool` | Emela | 数 / 空か |
+| `fold` | `fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B` | Emela | 順に畳み込む |
+| `to_list` | `to_list[A](s: Set[A]) -> List[A]` | Emela | 順に並べる |
+| `filter` | `filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A]` | Emela | `f` が True のもの |
+| `union` | `union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]` | Emela | 和 |
+
+impl（10.6）: `impl Set[A: Eq]: Eq`，`impl Set[A: Show]: Show`（`Set.from_list([1, 2])`）．
+
 ## Std.State（`std/state.emel`）
 
 仕様 8.8 の可変な状態．`run` はランタイムが供給するハンドラで，lowering がその場で写す（NOTES.md）．
