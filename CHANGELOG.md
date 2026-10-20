@@ -7,6 +7,36 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.24.0](https://github.com/emela-lang/emela/compare/v0.23.0...v0.24.0) - 2026-10-20
+
+### Added
+
+- inspect に Show を求め，error に derive を書けるようにする ([#362](https://github.com/emela-lang/emela/pull/362)) ([#365](https://github.com/emela-lang/emela/pull/365)) (by @Allianaab2m)
+- ==，大小比較，補間を Eq，Ord，Show につなぐ ([#332](https://github.com/emela-lang/emela/pull/332)) ([#359](https://github.com/emela-lang/emela/pull/359)) (by @Allianaab2m)
+- impl と handler の頭をコロンで書く ([#323](https://github.com/emela-lang/emela/pull/323)) ([#344](https://github.com/emela-lang/emela/pull/344)) (by @Allianaab2m)
+- 無名関数の引数にパターンを書けるようにする ([#370](https://github.com/emela-lang/emela/pull/370)) (by @Allianaab2m)
+- 前の impl と handler の頭に書き換えを示す ([#324](https://github.com/emela-lang/emela/pull/324)) ([#347](https://github.com/emela-lang/emela/pull/347)) (by @Allianaab2m)
+- Hash を Prelude の Trait から外す ([#334](https://github.com/emela-lang/emela/pull/334)) ([#346](https://github.com/emela-lang/emela/pull/346)) (by @Allianaab2m)
+- 基本型とタプル，List，Option に Eq，Ord，Show の impl を持たせる ([#331](https://github.com/emela-lang/emela/pull/331)) ([#355](https://github.com/emela-lang/emela/pull/355)) (by @Allianaab2m)
+- trait と impl を型検査する ([#328](https://github.com/emela-lang/emela/pull/328)) ([#348](https://github.com/emela-lang/emela/pull/348)) (by @Allianaab2m)
+- Prelude に inspect を足し，dbg から Show の制約を外す ([#343](https://github.com/emela-lang/emela/pull/343)) (by @Allianaab2m)
+- 使われない derive を W0303 で知らせる ([#335](https://github.com/emela-lang/emela/pull/335)) ([#358](https://github.com/emela-lang/emela/pull/358)) (by @Allianaab2m)
+- derive Eq，Ord，Show から impl を作る ([#333](https://github.com/emela-lang/emela/pull/333)) ([#356](https://github.com/emela-lang/emela/pull/356)) (by @Allianaab2m)
+- 戻り値にだけ Self がある Trait の関数で Self が決まらなければ E0333 にする ([#357](https://github.com/emela-lang/emela/pull/357)) (by @Allianaab2m)
+- 単相化で impl を選ぶ ([#330](https://github.com/emela-lang/emela/pull/330)) ([#350](https://github.com/emela-lang/emela/pull/350)) (by @Allianaab2m)
+- Trait.f(x) を解決し，型引数の制約を呼び出しの場所で検査する ([#329](https://github.com/emela-lang/emela/pull/329)) ([#349](https://github.com/emela-lang/emela/pull/349)) (by @Allianaab2m)
+- Std.Map と Std.Set を足す ([#340](https://github.com/emela-lang/emela/pull/340)) ([#366](https://github.com/emela-lang/emela/pull/366)) (by @Allianaab2m)
+- List，String，Int64 の関数を足し，List.sort を Ord で書く ([#339](https://github.com/emela-lang/emela/pull/339)) ([#363](https://github.com/emela-lang/emela/pull/363)) (by @Allianaab2m)
+- std の型に derive と Show の impl を付ける ([#337](https://github.com/emela-lang/emela/pull/337)) ([#361](https://github.com/emela-lang/emela/pull/361)) (by @Allianaab2m)
+- 制約を持つ型引数のある pub の fn を JS で export するとき E0327 にする ([#354](https://github.com/emela-lang/emela/pull/354)) (by @Allianaab2m)
+- core と std の性質を brix で確かめる tests/laws と，Std.Test を std から外す ([#320](https://github.com/emela-lang/emela/pull/320)) (by @Allianaab2m)
+
+### Other
+
+- Std.Map を opaque な enum にし，平衡の処理を読みやすく書き直す ([#369](https://github.com/emela-lang/emela/pull/369)) ([#371](https://github.com/emela-lang/emela/pull/371)) (by @Allianaab2m)
+- merge queue を入れ，テストを 3 台に分けて回し，docs だけの変更ではテストを飛ばす ([#345](https://github.com/emela-lang/emela/pull/345)) (by @Allianaab2m)
+- *(pome)* 既定の proxy と sumdb を emela.dev のサブドメインにする ([#360](https://github.com/emela-lang/emela/pull/360)) (by @Allianaab2m)
+
 ## [0.23.0](https://github.com/emela-lang/emela/compare/v0.22.0...v0.23.0) - 2026-10-19
 
 ### Added
