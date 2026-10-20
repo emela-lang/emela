@@ -3,7 +3,7 @@
 fn print(s: String) -> () use {}
 
 error NotFound(id: Int)
-error Invalid(reason: String, codes: List[Int])
+error Invalid(reason: String, codes: List[Int]) derive Show
 error Empty
 
 fn find(id: Int) -> String fails NotFound | Empty {

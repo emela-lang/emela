@@ -80,7 +80,7 @@ fn platform_handlers_run_natively() {
 import Std.Env.{Env, SystemEnv}
 import Std.Random.{Random, SystemRandom}
 
-error Bad(n: Int)
+error Bad(n: Int) derive Show
 
 fn check(n: Int) -> Int fails Bad {
   if n > 1 { fail Bad(n:) }
@@ -210,6 +210,7 @@ fn tests_run_natively() {
     if !have_cc() {
         return;
     }
+    // An error without Show is reported by its name (spec 13.3, 14.3).
     let main = r##"error Nope(why: String)
 
 fn half(n: Int) -> Int fails Nope {
@@ -263,7 +264,7 @@ fn raises_a_defect() {
             ("passes".to_owned(), TestOutcome::Passed),
             (
                 "fails_with_an_error".to_owned(),
-                TestOutcome::Error("Nope(why: \"odd\")".to_owned())
+                TestOutcome::Error("Nope".to_owned())
             ),
             (
                 "raises_a_defect".to_owned(),
@@ -276,13 +277,15 @@ fn raises_a_defect() {
 }
 
 /// A failed comparison shows both sides with `inspect` (spec 13.2, 10.6), values of a type
-/// parameter too, the same on JS and C.
+/// parameter too, the same on JS and C. Sides whose type does not satisfy Show are not shown.
 #[test]
 fn assert_shows_both_sides_with_inspect() {
     if !have_cc() {
         return;
     }
     let main = r##"type Button(label: String, on_click: fn(Int) -> Int)
+
+type Hidden(n: Int) derive Eq
 
 fn twice(x: Int) -> Int { x * 2 }
 
@@ -296,6 +299,11 @@ fn generic() {
 @test
 fn field_of_a_record() {
   assert Button(label: "a", on_click: twice).label == "b"
+}
+
+@test
+fn without_show() {
+  same(Hidden(n: 1), Hidden(n: 2))
 }
 "##;
     let (fs, input) = project(main);
@@ -313,6 +321,10 @@ fn field_of_a_record() {
                  left: \"a\"\n right: \"b\""
                     .to_owned(),
             ),
+        ),
+        (
+            "without_show".to_owned(),
+            TestOutcome::Defect("assertion failed: a == b".to_owned()),
         ),
     ];
     for target in [Target::Js, Target::C] {

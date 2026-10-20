@@ -35,6 +35,19 @@ enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 
+enum Std.Map.Map[A, B] {
+  Map(tree: Std.Map.Tree[A, B])
+}
+
+enum Std.Map.Tree[A, B] {
+  Tip
+  Bin(Int, A, B, Std.Map.Tree[A, B], Std.Map.Tree[A, B])
+}
+
+enum Std.Set.Set[A] {
+  Set(inner: Std.Map.Map[A, ()])
+}
+
 enum Std.Http.Method {
   Get
   Head
@@ -145,11 +158,11 @@ export fn main() -> String {
   }
 }
 
-fn area(s%21: Shape) -> Float {
-  match s%21 {
-    Shape.Circle(r%22) -> ((r%22 *[Float] r%22) *[Float] 3.0)
-    Shape.Rect(width: w%23, height: _) if (w%23 >[Float] 10.0) -> 0.0
-    Shape.Rect(width: w%24, height: h%25) -> (w%24 *[Float] h%25)
+fn area(s%55: Shape) -> Float {
+  match s%55 {
+    Shape.Circle(r%56) -> ((r%56 *[Float] r%56) *[Float] 3.0)
+    Shape.Rect(width: w%57, height: _) if (w%57 >[Float] 10.0) -> 0.0
+    Shape.Rect(width: w%58, height: h%59) -> (w%58 *[Float] h%59)
     Shape.Empty -> 0.0
   }
 }
@@ -170,24 +183,92 @@ fn Eq.eq[A](self%7: A, other%8: A) -> Bool {
   @panic("no impl of `Eq.eq`")
 }
 
-fn List.List: Eq.eq[A](self%13: List[A], other%14: List[A]) -> Bool {
-  List.eq_lists[A](self%13, other%14)
+fn List.List: Eq.eq[A](self%47: List[A], other%48: List[A]) -> Bool {
+  List.eq_lists[A](self%47, other%48)
 }
 
-fn Option.Option: Eq.eq[A](self%9: Option[A], other%10: Option[A]) -> Bool {
-  match (self%9, other%10) {
-    (Option.Some(x%11), Option.Some(y%12)) -> Eq.eq[A](x%11, y%12)
+fn Option.Option: Eq.eq[A](self%43: Option[A], other%44: Option[A]) -> Bool {
+  match (self%43, other%44) {
+    (Option.Some(x%45), Option.Some(y%46)) -> Eq.eq[A](x%45, y%46)
     (Option.None, Option.None) -> true
     _ -> false
   }
 }
 
-fn List.eq_lists[A](xs%15: List[A], ys%16: List[A]) -> Bool {
-  loop(xs%44: List[A] = xs%15, ys%45: List[A] = ys%16) {
-    match (xs%44, ys%45) {
+fn Std.Map.Map: Eq.eq[A, B](self%39: Std.Map.Map[A, B], other%40: Std.Map.Map[A, B]) -> Bool {
+  ((Std.Map.count[A, B](self%39.tree#0) ==[Int] Std.Map.count[A, B](other%40.tree#0)) &&[Bool] (Std.Map.to_list[A, B](self%39) ==[Structural] Std.Map.to_list[A, B](other%40)))
+}
+
+fn Std.Set.Set: Eq.eq[A](self%9: Std.Set.Set[A], other%10: Std.Set.Set[A]) -> Bool {
+  (Std.Set.to_list[A](self%9) ==[Structural] Std.Set.to_list[A](other%10))
+}
+
+fn Std.Set.to_list[A](s%11: Std.Set.Set[A]) -> List[A] {
+  Std.Map.keys[A, ()](s%11.inner#0)
+}
+
+fn Std.Map.keys[A, B](m%12: Std.Map.Map[A, B]) -> List[A] {
+  List.map[(A, B), A, {}, {}](Std.Map.to_list[A, B](m%12), fn(pair%13: (A, B)) -> A {
+    match pair%13 {
+      (key%14, _) -> key%14
+    }
+  }, ())
+}
+
+fn List.map[A, B, C, D](xs%22: List[A], f%23: fn(A) -> B fails ev (E {C}, R {D}), ev%24: evidence) -> List[B] fails {
+  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%22, []: List[B], fn(acc%25: List[B], x%26: A, ev%27: evidence) -> List[B] fails {
+    [(f%23)(x%26, ev%27)?, ..acc%25]: List[B]
+  }, ev%24)?)
+}
+
+fn Std.Map.to_list[A, B](m%15: Std.Map.Map[A, B]) -> List[(A, B)] {
+  Std.Map.to_list_onto[A, B](m%15.tree#0, []: List[(A, B)])
+}
+
+fn Std.Map.to_list_onto[A, B](t%16: Std.Map.Tree[A, B], acc%17: List[(A, B)]) -> List[(A, B)] {
+  loop(t%78: Std.Map.Tree[A, B] = t%16, acc%79: List[(A, B)] = acc%17) {
+    match t%78 {
+      Std.Map.Tree.Tip -> acc%79
+      Std.Map.Tree.Bin(_, k%18, v%19, l%20, r%21) -> recur(l%20, [(k%18, v%19), ..Std.Map.to_list_onto[A, B](r%21, acc%79)]: List[(A, B)])
+    }
+  }
+}
+
+fn List.reverse[A](xs%34: List[A]) -> List[A] {
+  List.reverse_onto[A](xs%34, []: List[A])
+}
+
+fn List.fold[A, B, C, D](xs%28: List[A], from%29: B, f%30: fn(B, A) -> B fails ev (E {C}, R {D}), ev%31: evidence) -> B fails {
+  loop(xs%80: List[A] = xs%28, from%81: B = from%29, f%82: fn(B, A) -> B fails ev (E {C}, R {D}) = f%30, ev%83: evidence = ev%31) {
+    match xs%80 {
+      [] -> from%81
+      [x%32, ..rest%33] -> recur(rest%33, (f%82)(from%81, x%32, ev%83)?, f%82, ev%83)
+    }
+  }
+}
+
+fn List.reverse_onto[A](xs%35: List[A], acc%36: List[A]) -> List[A] {
+  loop(xs%84: List[A] = xs%35, acc%85: List[A] = acc%36) {
+    match xs%84 {
+      [] -> acc%85
+      [x%37, ..rest%38] -> recur(rest%38, [x%37, ..acc%85]: List[A])
+    }
+  }
+}
+
+fn Std.Map.count[A, B](t%41: Std.Map.Tree[A, B]) -> Int {
+  match t%41 {
+    Std.Map.Tree.Tip -> 0
+    Std.Map.Tree.Bin(n%42, _, _, _, _) -> n%42
+  }
+}
+
+fn List.eq_lists[A](xs%49: List[A], ys%50: List[A]) -> Bool {
+  loop(xs%86: List[A] = xs%49, ys%87: List[A] = ys%50) {
+    match (xs%86, ys%87) {
       ([], []) -> true
-      ([x%17, ..xs_rest%18], [y%19, ..ys_rest%20]) -> if Eq.eq[A](x%17, y%19) {
-        recur(xs_rest%18, ys_rest%20)
+      ([x%51, ..xs_rest%52], [y%53, ..ys_rest%54]) -> if Eq.eq[A](x%51, y%53) {
+        recur(xs_rest%52, ys_rest%54)
       } else {
         false
       }
@@ -196,34 +277,34 @@ fn List.eq_lists[A](xs%15: List[A], ys%16: List[A]) -> Bool {
   }
 }
 
-fn Int: Eq.eq(self%26: Int, other%27: Int) -> Bool {
-  (self%26 ==[Int] other%27)
+fn Int: Eq.eq(self%60: Int, other%61: Int) -> Bool {
+  (self%60 ==[Int] other%61)
 }
 
-fn Int64: Eq.eq(self%28: Int64, other%29: Int64) -> Bool {
-  (self%28 ==[Int64] other%29)
+fn Int64: Eq.eq(self%62: Int64, other%63: Int64) -> Bool {
+  (self%62 ==[Int64] other%63)
 }
 
-fn Float: Eq.eq(self%30: Float, other%31: Float) -> Bool {
-  (self%30 ==[Float] other%31)
+fn Float: Eq.eq(self%64: Float, other%65: Float) -> Bool {
+  (self%64 ==[Float] other%65)
 }
 
-fn Bool: Eq.eq(self%32: Bool, other%33: Bool) -> Bool {
-  (self%32 ==[Bool] other%33)
+fn Bool: Eq.eq(self%66: Bool, other%67: Bool) -> Bool {
+  (self%66 ==[Bool] other%67)
 }
 
-fn String: Eq.eq(self%34: String, other%35: String) -> Bool {
-  (self%34 ==[String] other%35)
+fn String: Eq.eq(self%68: String, other%69: String) -> Bool {
+  (self%68 ==[String] other%69)
 }
 
-fn (): Eq.eq(self%36: (), other%37: ()) -> Bool {
+fn (): Eq.eq(self%70: (), other%71: ()) -> Bool {
   true
 }
 
-fn (A, B): Eq.eq[A, B](self%38: (A, B), other%39: (A, B)) -> Bool {
-  match self%38 {
-    (a0%40, a1%41) -> match other%39 {
-      (b0%42, b1%43) -> (Eq.eq[A](a0%40, b0%42) &&[Bool] Eq.eq[B](a1%41, b1%43))
+fn (A, B): Eq.eq[A, B](self%72: (A, B), other%73: (A, B)) -> Bool {
+  match self%72 {
+    (a0%74, a1%75) -> match other%73 {
+      (b0%76, b1%77) -> (Eq.eq[A](a0%74, b0%76) &&[Bool] Eq.eq[B](a1%75, b1%77))
     }
   }
 }

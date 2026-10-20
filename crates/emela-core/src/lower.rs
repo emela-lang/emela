@@ -170,6 +170,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         cx.define_fn(def, spec);
     }
     cx.builtin_impls();
+    cx.trait_impls();
     if cx.uses_bundled {
         // If any bundled file is used, ship them all, so relative imports between them work.
         cx.module.bundled_files = input
@@ -982,7 +983,6 @@ impl<'a> Lowerer<'a> {
         };
         let mut impls = Vec::new();
         let mut structural = Vec::new();
-        let mut self_bounded = Vec::new();
         for impl_def in types.traits.impls_of(trait_def) {
             let (Some(Item::Impl(item)), Some(head)) =
                 (hir.item(impl_def), types.traits.head(impl_def))
@@ -1016,13 +1016,6 @@ impl<'a> Lowerer<'a> {
             if in_core && list_or_option {
                 structural.push(f);
             }
-            if head
-                .params
-                .iter()
-                .all(|p| p.traits.iter().all(|&t| t == trait_def))
-            {
-                self_bounded.push(f);
-            }
         }
         let derived = self.derived(trait_def, def);
         let id = self.fns[&(def, spec)];
@@ -1031,11 +1024,75 @@ impl<'a> Lowerer<'a> {
             crate::ir::Dispatch {
                 impls,
                 structural,
-                self_bounded,
                 default,
                 derived,
             },
         );
+    }
+
+    /// Fills `Module::trait_impls` and `Module::show_trait`: every trait's impls, written and
+    /// derived, with the constraints of their type parameters (`impl Wrap[A: Eq]: Show`), so that
+    /// monomorphization can tell whether a type satisfies Show (spec 10.6).
+    fn trait_impls(&mut self) {
+        use crate::ir::{DeriveOp, TraitImpls};
+        let hir = self.hir;
+        let types = self.types;
+        let traits: Vec<DefId> = hir
+            .defs
+            .iter()
+            .filter(|(_, d)| d.kind == DefKind::Trait)
+            .map(|(def, _)| def)
+            .collect();
+        let index: FxHashMap<DefId, usize> =
+            traits.iter().enumerate().map(|(i, &d)| (d, i)).collect();
+        let mut table = Vec::with_capacity(traits.len());
+        for &trait_def in &traits {
+            let name = hir.defs[trait_def].name.as_str();
+            let builtin = if hir.prelude_def(name) == Some(trait_def) {
+                match name {
+                    "Eq" => Some(DeriveOp::Eq),
+                    "Ord" => Some(DeriveOp::Compare),
+                    "Show" => Some(DeriveOp::Show),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let heads: Vec<_> = types
+                .traits
+                .impls_of(trait_def)
+                .into_iter()
+                .filter_map(|i| types.traits.head(i).cloned())
+                .chain(
+                    types
+                        .traits
+                        .derived_of(trait_def)
+                        .into_iter()
+                        .filter_map(|ty| types.traits.derived(trait_def, ty))
+                        .map(|d| d.head.clone()),
+                )
+                .collect();
+            let impls = heads
+                .iter()
+                .map(|head| {
+                    let pattern = self.ty(&head.self_ty);
+                    let bounds = head
+                        .params
+                        .iter()
+                        .map(|p| {
+                            p.traits
+                                .iter()
+                                .filter_map(|t| index.get(t).copied())
+                                .collect()
+                        })
+                        .collect();
+                    (pattern, bounds)
+                })
+                .collect();
+            table.push(TraitImpls { builtin, impls });
+        }
+        self.module.show_trait = hir.prelude_def("Show").and_then(|d| index.get(&d).copied());
+        self.module.trait_impls = table;
     }
 
     /// For a function of a derivable trait of the Prelude (`Eq.eq`, `Ord.compare`, `Show.show`),
@@ -2158,7 +2215,25 @@ impl<'a> Lowerer<'a> {
                 body: Box::new(self.expr(*expr)),
                 arms: arms.iter().map(|arm| self.arm(arm)).collect(),
             },
-            ExprKind::Fail(inner) => Expr::Fail(Box::new(self.expr(*inner))),
+            ExprKind::Fail(inner) => {
+                // An error reaching the entry is shown by its Show, through the impls if any
+                // are written (monomorphization's `error_display`, spec 14.3).
+                let shown = match self.expr_ty(*inner) {
+                    Ty::Named(con, _) => {
+                        let def = self.types.ty_table.def(*con);
+                        let traits = &self.types.traits;
+                        hir.prelude_def("Show").is_some_and(|show| {
+                            traits.impl_of(show, def).is_some()
+                                || traits.derived(show, def).is_some()
+                        })
+                    }
+                    _ => true,
+                };
+                if shown {
+                    self.prelude_trait_fn_id("Show", "show");
+                }
+                Expr::Fail(Box::new(self.expr(*inner)))
+            }
             ExprKind::Use { .. } => self.use_(id, e.span),
             ExprKind::With { handlers, body } => self.with(id, handlers, *body, e.span),
         }

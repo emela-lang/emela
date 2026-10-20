@@ -376,9 +376,10 @@ fn opaque_types_can_derive() {
 #[test]
 fn unused_derives_of_private_types_are_reported() {
     // Uses: `==`, `<`, interpolation, a constrained function, a field of another derive, and a
-    // supertrait (removing Eq would break Ord). dbg needs no Show, and a type's own field is no
-    // use of it. A `pub` type is left alone (spec 10.5).
-    let main = "type Unused(x: Int) derive Eq, Show\npub type Public(x: Int) derive Eq\ntype ByEq(x: Int) derive Eq\ntype ByLt(x: Int) derive Eq, Ord\ntype ByInterp(x: Int) derive Show\ntype ByCall(x: Int) derive Show\ntype Inner(x: Int) derive Eq\ntype Outer(i: Inner) derive Eq\nenum Tree {\n  Leaf\n  Node(Tree, Int)\n}\n  derive Eq\ntype ByDbg(x: Int) derive Show\nfn label[A: Show](x: A) -> String { Show.show(x) }\nfn main() -> () {\n  a = ByEq(x: 1) == ByEq(x: 2)\n  b = ByLt(x: 1) < ByLt(x: 2)\n  c = \"#{ByInterp(x: 1)}\"\n  d = label(ByCall(x: 1))\n  dbg(ByDbg(x: 1))\n  o = Outer(i: Inner(x: 1))\n  t = Leaf\n  ()\n}\n";
+    // supertrait (removing Eq would break Ord), and inspect. dbg and the sides of an assert need
+    // no Show, and a type's own field is no use of it. A `pub` type is left alone, and so is an
+    // error's Show, its display when it reaches `main` (spec 10.5, 14.3).
+    let main = "type Unused(x: Int) derive Eq, Show\npub type Public(x: Int) derive Eq\ntype ByEq(x: Int) derive Eq\ntype ByLt(x: Int) derive Eq, Ord\ntype ByInterp(x: Int) derive Show\ntype ByCall(x: Int) derive Show\ntype Inner(x: Int) derive Eq\ntype Outer(i: Inner) derive Eq\nenum Tree {\n  Leaf\n  Node(Tree, Int)\n}\n  derive Eq\ntype ByDbg(x: Int) derive Show\ntype ByInspect(x: Int) derive Show\ntype ByAssert(x: Int) derive Eq, Show\nerror Down(x: Int) derive Eq, Show\nfn label[A: Show](x: A) -> String { Show.show(x) }\nfn main() -> () {\n  a = ByEq(x: 1) == ByEq(x: 2)\n  b = ByLt(x: 1) < ByLt(x: 2)\n  c = \"#{ByInterp(x: 1)}\"\n  d = label(ByCall(x: 1))\n  dbg(ByDbg(x: 1))\n  e = inspect(ByInspect(x: 1))\n  assert ByAssert(x: 1) == ByAssert(x: 1)\n  o = Outer(i: Inner(x: 1))\n  t = Leaf\n  ()\n}\n";
     assert_eq!(
         diagnostics(main),
         [
@@ -387,6 +388,8 @@ fn unused_derives_of_private_types_are_reported() {
             "W0303 derived `Eq` for `Outer` is never used @ Eq",
             "W0303 derived `Eq` for `Tree` is never used @ Eq",
             "W0303 derived `Show` for `ByDbg` is never used @ Show",
+            "W0303 derived `Show` for `ByAssert` is never used @ Show",
+            "W0303 derived `Eq` for `Down` is never used @ Eq",
         ]
     );
 }
@@ -399,10 +402,10 @@ fn a_derive_used_through_a_generic_type_counts() {
 
 #[test]
 fn operators_and_interpolation_need_the_traits() {
-    // `==` needs Eq, comparisons Ord (but Float's are built in), interpolation Show (spec 10.3,
-    // 10.6). A function is none of them.
+    // `==` needs Eq, comparisons Ord (but Float's are built in), interpolation and inspect Show
+    // (spec 10.3, 10.6). A function is none of them. dbg needs no Show.
     let main = format!(
-        "{POINT}fn f(x: Int) -> Int {{ x }}\nfn main() {{\n  p = Point(x: 1, y: 2)\n  a = \"#{{p}}\"\n  b = p == p\n  c = f == f\n  d = [1.0] < [2.0]\n  e = 1.0 < 2.0\n  g = p < p\n}}\n"
+        "{POINT}fn f(x: Int) -> Int {{ x }}\nfn main() {{\n  p = Point(x: 1, y: 2)\n  a = \"#{{p}}\"\n  b = p == p\n  c = f == f\n  d = [1.0] < [2.0]\n  e = 1.0 < 2.0\n  g = p < p\n  h = inspect([p])\n  i = inspect(f)\n  j = dbg((p, f))\n}}\n"
     );
     assert_eq!(
         diagnostics(&main),
@@ -412,6 +415,8 @@ fn operators_and_interpolation_need_the_traits() {
             "E0326 type `fn(Int) -> Int` does not implement `Eq` @ f == f",
             "E0326 type `Float` does not implement `Ord` @ [1.0] < [2.0]",
             "E0326 type `Point` does not implement `Ord` @ p < p",
+            "E0326 type `Point` does not implement `Show` @ inspect",
+            "E0326 type `fn(Int) -> Int` does not implement `Show` @ inspect",
         ]
     );
 }

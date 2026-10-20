@@ -32,14 +32,16 @@ pub fn panic(message: String) -> Never
 @intrinsic
 pub fn todo() -> Never
 
-## Prints `inspect(value)` to stderr on one line and returns the value. For debugging.
+## Prints the debug display of `value` to stderr on one line and returns the value. For
+## debugging. Any value: a type that satisfies Show is shown like `inspect`, any other as it is
+## constructed in source (`Plain(name: <a>, f: <fn>)`), its parts that satisfy Show through Show.
 @intrinsic
 pub fn dbg[A](value: A) -> A
 
-## The debug display of any value, as the value is written in source (`Circle(radius: 1.0)`,
-## `["a", "b"]`). A String is quoted even at the top level, and a function is `<fn>`.
+## The debug display of a value: its Show, with a String quoted even at the top level
+## (`inspect("a")` is `"a"` with the quotes).
 @intrinsic
-pub fn inspect[A](value: A) -> String
+pub fn inspect[A: Show](value: A) -> String
 
 ## The input of a `parse` was not in the expected form (spec 15.3). `input` is the whole input.
-pub error ParseError(input: String)
+pub error ParseError(input: String) derive Show

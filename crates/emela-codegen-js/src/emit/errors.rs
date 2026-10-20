@@ -22,7 +22,7 @@
 //! An error value carries a per-error descriptor (`$err$NotFound`) in `$tag`. The descriptor also
 //! has a show function, which the entry module and the test runner use to print unhandled errors.
 
-use emela_core::{Arm, EnumId, Expr, Module, Pat, Type, TypeId};
+use emela_core::{Arm, EnumId, ErrorDisplay, Expr, Pat};
 
 use super::{Dest, Emitter, sanitize, unparen};
 
@@ -46,7 +46,8 @@ impl Emitter<'_> {
     /// Emits the per-error descriptors at the top of the module. Each has a show function
     /// (`show`).
     ///
-    /// An error with a function-typed field is shown by its name only (spec 14.3).
+    /// An error whose type satisfies Show is shown by its Show: the display of the structure, or
+    /// its written impl. Any other error is shown by its name (spec 14.3, `Module::error_display`).
     pub(super) fn error_descriptors(&mut self) {
         let m = self.m;
         let mut any = false;
@@ -54,15 +55,11 @@ impl Emitter<'_> {
             if !def.error {
                 continue;
             }
-            let showable = def
-                .variants
-                .iter()
-                .all(|v| !v.tys.iter().any(|&t| contains_fn(m, t)));
-            let show = if showable {
-                self.show_enum(id)
-            } else {
+            let show = match m.error_display.get(&id) {
+                Some(ErrorDisplay::Structure) => self.show_enum(id),
+                Some(&ErrorDisplay::Impl(f)) => format!("(v) => {}(v)", self.fn_js(f)),
                 // The constructor's name, unqualified like the one the show function writes.
-                format!("() => {}", super::js_string(&def.variants[0].name))
+                None => format!("() => {}", super::js_string(&def.variants[0].name)),
             };
             self.line(&format!(
                 "const {} = Object.freeze({{ show: {show} }});",
@@ -196,15 +193,4 @@ impl Emitter<'_> {
 
 fn descriptor_name(error: &str) -> String {
     format!("$err${}", sanitize(error))
-}
-
-/// Whether the type contains a function type or a capability value (not showable, spec 10.6,
-/// 8.2). Errors have no type parameters, so `Type::Param` never occurs.
-fn contains_fn(m: &Module, ty: TypeId) -> bool {
-    match m.ty(ty) {
-        Type::Fn(_) | Type::Handler(_) => true,
-        Type::Tuple(ts) | Type::Enum(_, ts) => ts.iter().any(|&t| contains_fn(m, t)),
-        Type::List(t) => contains_fn(m, *t),
-        _ => false,
-    }
 }

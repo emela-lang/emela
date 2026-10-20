@@ -98,7 +98,6 @@ impl Builder<'_> {
         if let Some(d) = self.m.dispatch.get_mut(&trait_fn) {
             d.impls.push((ty, f));
             d.structural.push(f);
-            d.self_bounded.push(f);
         }
     }
 

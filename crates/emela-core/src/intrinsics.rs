@@ -89,9 +89,12 @@ pub enum Builtin {
     Panic,
     /// `todo()`. Raises a `not yet implemented` defect.
     Todo,
-    /// `dbg(value)`. Prints `inspect(value)` to stderr on one line and returns the value.
+    /// `dbg(value)`. Prints the debug display of the value to stderr on one line and returns the
+    /// value (spec 10.6). Takes no trait; what reaches a backend is shown by its structure
+    /// ([`crate::mono`] rewrites the rest).
     Dbg,
-    /// `inspect(value)`: the debug display of any value (spec 10.6). Takes no trait.
+    /// `inspect(value)`: the debug display of a value with Show (spec 10.6), a String quoted.
+    /// What reaches a backend is shown by its structure, which is its Show.
     Inspect,
 
     // Internal builtins used only by lowering. Not in `ALL`, so sources cannot call them.

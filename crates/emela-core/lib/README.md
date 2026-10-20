@@ -31,9 +31,11 @@ C のターゲット（12.1）も同じ手順で，`lib/std/x.c` を書いて `H
 | `Ordering` | `enum Ordering { Less, Equal, Greater }` | Emela | 比較の結果 |
 | `panic` | `panic(message: String) -> Never` | intrinsic | defect を起こす |
 | `todo` | `todo() -> Never` | intrinsic | `not yet implemented` の defect |
-| `dbg` | `dbg[A](value: A) -> A` | intrinsic | `inspect(value)` を標準エラーに出して値を返す |
-| `inspect` | `inspect[A](value: A) -> String` | intrinsic | デバッグ用の表示．Trait を求めない．String は最上位でも `"` で囲み，関数は `<fn>` |
+| `dbg` | `dbg[A](value: A) -> A` | intrinsic | デバッグ用の表示を標準エラーに出して値を返す．Show を求めない．Show を満たす型は `inspect` と同じ，満たさない型は構築の形（中の Show を満たす値は Show，関数は `<fn>`） |
+| `inspect` | `inspect[A: Show](value: A) -> String` | intrinsic | デバッグ用の表示．Show の実装の結果で，String は最上位でも `"` で囲む |
 | `ParseError` | `error ParseError(input: String)` | Emela | `Int.parse`，`Float.parse`，`Bool.parse` の形の誤り．`input` は入力の全体 |
+
+impl（10.5）: ParseError は `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ## List（`core/list.emel`）
 
@@ -199,6 +201,48 @@ impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同�
 
 impl（10.5，10.6）: `derive Eq, Ord`．Show の impl は `to_string` と同じ．
 
+## Std.Map（`std/map.emel`）
+
+キーから値への対応．不変で，キーの順（Ord の順）に並ぶ（15.2，18.1 #36）．中身は重み平衡木の opaque な型．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `empty` | `empty[K, V]() -> Map[K, V]` | Emela | 空の Map |
+| `from_list` | `from_list[K: Ord, V](pairs: List[(K, V)]) -> Map[K, V]` | Emela | 同じキーは後の値 |
+| `insert` | `insert[K: Ord, V](m: Map[K, V], key: K, value: V) -> Map[K, V]` | Emela | あれば置き換える |
+| `remove` | `remove[K: Ord, V](m: Map[K, V], key: K) -> Map[K, V]` | Emela | なければそのまま |
+| `update` | `update[K: Ord, V](m: Map[K, V], key: K, f: fn(Option[V]) -> Option[V]) -> Map[K, V]` | Emela | 今の値を `f` に渡す．None なら除く |
+| `get` | `get[K: Ord, V](m: Map[K, V], key: K) -> Option[V]` | Emela | キーの値 |
+| `contains` | `contains[K: Ord, V](m: Map[K, V], key: K) -> Bool` | Emela | キーがあるか |
+| `size` | `size[K, V](m: Map[K, V]) -> Int` | Emela | キーの数 |
+| `is_empty` | `is_empty[K, V](m: Map[K, V]) -> Bool` | Emela | 空か |
+| `fold` | `fold[K, V, B](m: Map[K, V], from: B, f: fn(B, K, V) -> B) -> B` | Emela | キーの順に畳み込む |
+| `to_list` | `to_list[K, V](m: Map[K, V]) -> List[(K, V)]` | Emela | キーの順の組 |
+| `keys` / `values` | `(m: Map[K, V]) -> List[K]` / `List[V]` | Emela | キーの順 |
+| `map_values` | `map_values[K, V, W](m: Map[K, V], f: fn(V) -> W) -> Map[K, W]` | Emela | 値に `f` を当てる |
+| `filter` | `filter[K, V](m: Map[K, V], f: fn(K, V) -> Bool) -> Map[K, V]` | Emela | `f` が True の組 |
+| `union` | `union[K: Ord, V](a: Map[K, V], b: Map[K, V]) -> Map[K, V]` | Emela | 両方にあるキーは `a` の値 |
+
+impl（10.6）: `impl Map[K: Eq, V: Eq]: Eq`（中身で比べる），`impl Map[K: Show, V: Show]: Show`（`Map.from_list([(1, "a")])`）．
+
+## Std.Set（`std/set.emel`）
+
+値の集まり．不変で，Ord の順に並ぶ．中身は `Map[A, ()]`．
+
+| 関数 | シグネチャ | 実装 | 説明 |
+|---|---|---|---|
+| `empty` | `empty[A]() -> Set[A]` | Emela | 空の Set |
+| `from_list` | `from_list[A: Ord](xs: List[A]) -> Set[A]` | Emela | 重なりは1つにする |
+| `insert` / `remove` | `(s: Set[A], x: A) -> Set[A]`（`A: Ord`） | Emela | 足す / 除く |
+| `contains` | `contains[A: Ord](s: Set[A], x: A) -> Bool` | Emela | 含むか |
+| `size` / `is_empty` | `(s: Set[A]) -> Int` / `Bool` | Emela | 数 / 空か |
+| `fold` | `fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B` | Emela | 順に畳み込む |
+| `to_list` | `to_list[A](s: Set[A]) -> List[A]` | Emela | 順に並べる |
+| `filter` | `filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A]` | Emela | `f` が True のもの |
+| `union` | `union[A: Ord](a: Set[A], b: Set[A]) -> Set[A]` | Emela | 和 |
+
+impl（10.6）: `impl Set[A: Eq]: Eq`，`impl Set[A: Show]: Show`（`Set.from_list([1, 2])`）．
+
 ## Std.State（`std/state.emel`）
 
 仕様 8.8 の可変な状態．`run` はランタイムが供給するハンドラで，lowering がその場で写す（NOTES.md）．
@@ -296,7 +340,7 @@ fn main() {
 | `to_string` | `to_string[E](c: Cause[E]) -> String` | intrinsic | `error: …`，`defect: …`，`interrupted` |
 | `raise` | `raise[A, E](c: Cause[E]) -> A fails E` | intrinsic | 起こし直す．Fail は fail，Die は defect，Interrupt は中断の巻き戻し |
 
-impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので Eq，Ord，Show を満たさない（表示は `to_string` か inspect）．同じ理由で Std.Fiber の Exit も満たさない．
+impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので Eq，Ord，Show を満たさない（表示は `to_string` か dbg）．同じ理由で Std.Fiber の Exit も満たさない．
 
 ## Std.Deferred（`std/deferred.emel`）
 
@@ -334,7 +378,7 @@ impl（10.5）: CauseKind は `derive Eq, Show`．Cause は関数を持つので
 | `TestServer` | `type TestServer(respond: fn(Request, Int) -> Option[Response], sent: List[Request])` | TestHttp の相手．`respond` は要求と何回目か（0 から）を受ける |
 | `TestHttp` | `handler TestHttp: Http` | 状態は `State[TestServer]`．`sent` に要求を足し，`respond` の応答でその場で再開する．`None` なら ConnectionFailed |
 
-impl（10.5）: Method，Request，Response は `derive Eq, Show`．
+impl（10.5）: Method，Request，Response は `derive Eq, Show`．InvalidUrl，ConnectionFailed，ResponseNotText，UnexpectedStatus は `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ```emel
 import Std.Http.{Http, Request, Response, TestServer, TestHttp}
@@ -368,7 +412,7 @@ platform 層と test 層（15.2）．テキスト（UTF-8）だけを扱う．�
 | `TestFiles` | `type TestFiles(files: List[(String, String)], directories: List[String])` | TestFileSystem の状態．files はパスの順．ファイルとディレクトリの祖先もディレクトリとみなす |
 | `TestFileSystem` | `handler TestFileSystem: FileSystem` | `State[TestFiles]` に置き，その場で再開する．エラーは SystemFileSystem と同じ規則．FileAccessDenied，InvalidText，FileSystemFailure は起こさない |
 
-impl（10.5）: TestFiles は `derive Eq, Show`．
+impl（10.5）: TestFiles は `derive Eq, Show`．error はどれも `derive Show`（main やテストまで達したときに中身を出す．14.3）．
 
 ```emel
 import Std.FileSystem.{FileSystem, FileNotFound}

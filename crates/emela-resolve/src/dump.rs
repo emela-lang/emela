@@ -163,6 +163,10 @@ impl Dumper<'_> {
             Item::Error(e) => {
                 let fields = self.fields_inline(&e.fields);
                 self.line(0, format!("error {name}{fields}{flags}"));
+                if !e.derives.is_empty() {
+                    let derives = self.res_list(&e.derives);
+                    self.line(1, format!("derive {derives}"));
+                }
             }
             Item::Const(c) => {
                 let ty =

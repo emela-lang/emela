@@ -34,6 +34,7 @@
 //! are rebuilt: the output has each effect instance that is used once, keyed like lowering's
 //! evidence table keys (the declaration and the type arguments without E and R).
 
+mod debug;
 mod derive;
 
 use std::collections::VecDeque;
@@ -211,6 +212,11 @@ struct Mono<'a> {
     missing_impls: Vec<(String, String)>,
     /// Derived impl functions whose bodies are not generated yet ([`Mono::derived_target`]).
     derived_work: Vec<derive::DerivedSpec>,
+    /// Error enums whose display ([`Mono::error_display`]) is decided.
+    error_seen: FxHashSet<EnumId>,
+    /// The functions showing values of a type that does not satisfy Show for `dbg`
+    /// ([`Mono::debug_val`]), by type.
+    debug_fns: FxHashMap<TypeId, FnId>,
 }
 
 impl<'a> Mono<'a> {
@@ -220,6 +226,9 @@ impl<'a> Mono<'a> {
             option: m.option,
             bundled_files: m.bundled_files.clone(),
             types: m.types.clone(),
+            // For a later pass on the output (the C and WASM backends monomorphize again).
+            trait_impls: m.trait_impls.clone(),
+            show_trait: m.show_trait,
             ..Module::default()
         };
         Mono {
@@ -240,6 +249,8 @@ impl<'a> Mono<'a> {
             loops: Vec::new(),
             missing_impls: Vec::new(),
             derived_work: Vec::new(),
+            error_seen: FxHashSet::default(),
+            debug_fns: FxHashMap::default(),
         }
     }
 
@@ -1070,39 +1081,47 @@ impl<'a> Mono<'a> {
                     } => {
                         let ty = self.ty(*ty);
                         let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
-                        if *op_ty == OpTy::Structural
+                        let compare = |m: &mut Self, l: Expr, r: Expr| {
+                            if *op_ty == OpTy::Structural {
+                                m.structural_eq(*op, ty, l, r)
+                            } else {
+                                Expr::Binary {
+                                    op: *op,
+                                    ty: *op_ty,
+                                    lhs: Box::new(l),
+                                    rhs: Box::new(r),
+                                }
+                            }
+                        };
+                        // The sides are shown only if their type satisfies Show (spec 13.2).
+                        if !self.shows(ty) {
+                            AssertCond::Bool(compare(self, lhs, rhs))
+                        } else if let Some(show) =
+                            self.m.traits.show.filter(|_| self.written_show(ty))
+                        {
+                            // Through the impl: the sides are bound first and shown if it fails.
+                            let l = self.out.local("left", ty);
+                            let r = self.out.local("right", ty);
+                            let test = compare(self, Expr::Var(l), Expr::Var(r));
+                            let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
+                            return assert_bound(test, failed, (l, lhs), (r, rhs));
+                        } else if *op_ty == OpTy::Structural
                             && let Some(eq) = self.m.traits.eq
                             && !self.structural(eq, ty, &mut Vec::new())
                         {
-                            // Through the impl: the sides are bound first and shown if it fails
-                            // (spec 13.2).
+                            // Compared through Eq's impl and shown by the backend.
                             let l = self.out.local("left", ty);
                             let r = self.out.local("right", ty);
                             let decide = self.structural_eq(*op, ty, Expr::Var(l), Expr::Var(r));
-                            if let Some(show) = self.shown_by_impl(ty) {
-                                let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
-                                return assert_bound(decide, failed, (l, lhs), (r, rhs));
-                            }
                             return Assert::shown(decide, *op, ty, (l, lhs), (r, rhs), &a.text);
-                        }
-                        if let Some(show) = self.shown_by_impl(ty) {
-                            let l = self.out.local("left", ty);
-                            let r = self.out.local("right", ty);
-                            let test = Expr::Binary {
+                        } else {
+                            AssertCond::Compare {
                                 op: *op,
-                                ty: *op_ty,
-                                lhs: Box::new(Expr::Var(l)),
-                                rhs: Box::new(Expr::Var(r)),
-                            };
-                            let failed = self.assert_failed(show, &a.text, *op, ty, l, r);
-                            return assert_bound(test, failed, (l, lhs), (r, rhs));
-                        }
-                        AssertCond::Compare {
-                            op: *op,
-                            op_ty: *op_ty,
-                            ty,
-                            lhs,
-                            rhs,
+                                op_ty: *op_ty,
+                                ty,
+                                lhs,
+                                rhs,
+                            }
                         }
                     }
                     AssertCond::Shown {
@@ -1115,8 +1134,11 @@ impl<'a> Mono<'a> {
                         let ty = self.ty(*ty);
                         let cond = self.expr(cond);
                         let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
-                        // The sides are variables bound before the assert (`Assert::shown`).
-                        if let Some(show) = self.shown_by_impl(ty)
+                        if !self.shows(ty) {
+                            AssertCond::Bool(cond)
+                        } else if let Some(show) =
+                            self.m.traits.show.filter(|_| self.written_show(ty))
+                            // The sides are variables bound before the assert (`Assert::shown`).
                             && let (Expr::Var(l), Expr::Var(r)) = (&lhs, &rhs)
                         {
                             let failed = self.assert_failed(show, &a.text, *op, ty, *l, *r);
@@ -1125,13 +1147,14 @@ impl<'a> Mono<'a> {
                                 then: Box::new(Expr::Lit(Lit::Unit)),
                                 else_: Box::new(failed),
                             };
-                        }
-                        AssertCond::Shown {
-                            cond,
-                            op: *op,
-                            ty,
-                            lhs,
-                            rhs,
+                        } else {
+                            AssertCond::Shown {
+                                cond,
+                                op: *op,
+                                ty,
+                                lhs,
+                                rhs,
+                            }
                         }
                     }
                     AssertCond::Bool(c) => AssertCond::Bool(self.expr(c)),
@@ -1141,7 +1164,13 @@ impl<'a> Mono<'a> {
                     text: a.text.clone(),
                 }))
             }
-            Expr::Fail(v) => Expr::Fail(Box::new(self.expr(v))),
+            Expr::Fail(v) => {
+                let ty = self.typer.type_of(v);
+                let ty = self.import(ty);
+                let ty = self.ty(ty);
+                self.error_display(ty);
+                Expr::Fail(Box::new(self.expr(v)))
+            }
             Expr::Escape { body, arms } => Expr::Escape {
                 body: Box::new(self.expr(body)),
                 arms: self.arms(arms),
@@ -1324,27 +1353,35 @@ impl<'a> Mono<'a> {
         ok
     }
 
-    /// `dbg(x)` and `inspect(x)` (spec 10.6). A type that reaches a written Show impl and
-    /// satisfies Show is shown through the impl ([`Mono::shown_by_impl`]); `dbg` then prints the
-    /// String as it is (`Builtin::DebugPrint`). Any other type keeps the builtin, which shows the
-    /// structure.
+    /// `dbg(x)` and `inspect(x)` (spec 10.6). A type whose display reaches no written Show impl
+    /// ([`Mono::written_show`]) keeps the builtin, which shows the structure: what its Show gives,
+    /// and for `dbg` of a type without Show, its constructed form. Otherwise `inspect` (which the
+    /// type checker gives only types with Show) calls `Show.show`, and `dbg` prints with
+    /// `Builtin::DebugPrint` the text of `Show.show`, or for a type that does not satisfy Show its
+    /// constructed form with the parts that do shown through Show ([`Mono::debug_val`]).
     fn inspect(&mut self, op: Builtin, ty_args: &'a [TypeId], args: &'a [Expr]) -> Expr {
         let ty_args = self.tys(ty_args);
         let mut args = self.exprs(args);
-        let Some(show) = self.shown_by_impl(ty_args[0]) else {
+        let ty = ty_args[0];
+        let Some(show) = self.m.traits.show.filter(|_| self.written_show(ty)) else {
             return Expr::Builtin { op, ty_args, args };
         };
-        let ty = ty_args[0];
         let value = args.remove(0);
         if op == Builtin::Inspect {
             return self.trait_call(show, ty, vec![value]);
         }
         let v = self.out.local("value", ty);
+        let text = if self.shows(ty) {
+            self.trait_call(show, ty, vec![Expr::Var(v)])
+        } else {
+            let part = self.debug_val(ty, v);
+            Expr::Concat(vec![part])
+        };
         let shown = self.out.local("shown", TypeId::UNIT);
         let print = Expr::Builtin {
             op: Builtin::DebugPrint,
             ty_args: Vec::new(),
-            args: vec![self.trait_call(show, ty, vec![Expr::Var(v)])],
+            args: vec![text],
         };
         Expr::Let {
             var: v,
@@ -1357,62 +1394,132 @@ impl<'a> Mono<'a> {
         }
     }
 
-    /// `Show.show` if values of `ty` are to be shown through it by the debug display (spec 10.6):
-    /// the type reaches a written Show impl (else the structure gives the same) and satisfies
-    /// Show. A type that does not satisfy Show is shown by its structure, even where a part of it
-    /// has an impl. A String is never shown through it (it is quoted at the top level too).
-    fn shown_by_impl(&mut self, ty: TypeId) -> Option<FnId> {
-        let show = self.m.traits.show?;
-        (!self.structural(show, ty, &mut Vec::new())
-            && self.satisfies_show(show, ty, &mut Vec::new()))
-        .then_some(show)
+    /// Whether `ty` satisfies Show (spec 10.6), what the debug display of `dbg`, assert and errors
+    /// reaching the entry asks without the type checker.
+    fn shows(&self, ty: TypeId) -> bool {
+        self.m
+            .show_trait
+            .is_some_and(|show| self.satisfies(show, ty, &mut Vec::new()))
     }
 
-    /// Whether `ty` satisfies Show, as far as monomorphization knows: the compiler's impls, the
-    /// derived ones, and the impls whose type parameters need only Show
-    /// (`Dispatch::self_bounded`). Another impl with type parameters is taken not to.
-    fn satisfies_show(&mut self, show: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
-        if seen.contains(&ty) {
+    /// Whether `ty` satisfies the trait `tr`: a written or derived impl for its head whose type
+    /// parameters' constraints its type arguments satisfy (`impl Wrap[A: Eq]: Show` needs the
+    /// argument's Eq), or the compiler's impls of Eq, Ord and Show for the basic types and tuples
+    /// (spec 10.2, 10.5, 10.6). Function and capability types satisfy none. `seen` takes a
+    /// recursive type to satisfy the trait inside itself.
+    fn satisfies(&self, tr: TraitRef, ty: TypeId, seen: &mut Vec<(TraitRef, TypeId)>) -> bool {
+        if seen.contains(&(tr, ty)) {
             return true;
         }
-        let parts = match self.out.ty(ty).clone() {
-            Type::Int
-            | Type::Int64
-            | Type::Float
-            | Type::Bool
-            | Type::String
-            | Type::Unit
-            | Type::Never
-            | Type::Set(_) => return true,
-            Type::Tuple(ts) => ts,
+        let traits = &self.m.trait_impls[tr];
+        let t = self.out.ty(ty);
+        match t {
+            Type::Never | Type::Any | Type::Set(_) => return true,
+            Type::Fn(_)
+            | Type::Handler(_)
+            | Type::Evidence
+            | Type::Cell(_)
+            | Type::FiberScope
+            | Type::Param(_) => return false,
+            _ => {}
+        }
+        for (pattern, bounds) in &traits.impls {
+            let mut bound = vec![None; bounds.len()];
+            if !self.bind_head(*pattern, ty, &mut bound) {
+                continue;
+            }
+            seen.push((tr, ty));
+            let ok = bound.iter().zip(bounds).all(|(arg, traits)| {
+                arg.is_none_or(|arg| traits.iter().all(|&b| self.satisfies(b, arg, seen)))
+            });
+            seen.pop();
+            return ok;
+        }
+        let Some(op) = traits.builtin else {
+            return false;
+        };
+        match t {
+            Type::Float => op != DeriveOp::Compare,
+            Type::Int | Type::Int64 | Type::Bool | Type::String | Type::Unit => true,
+            Type::Tuple(ts) => {
+                seen.push((tr, ty));
+                let ok = ts.iter().all(|&t| self.satisfies(tr, t, seen));
+                seen.pop();
+                ok
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the debug display of `ty` reaches a written Show impl (one not in
+    /// `Dispatch::structural`): the type or a part of it (a field, an element) has one. Without
+    /// one, the backends' display of the structure is the debug display (spec 10.6).
+    fn written_show(&mut self, ty: TypeId) -> bool {
+        let Some(show) = self.m.traits.show else {
+            return false;
+        };
+        self.written_show_in(show, ty, &mut Vec::new())
+    }
+
+    fn written_show_in(&mut self, show: FnId, ty: TypeId, seen: &mut Vec<TypeId>) -> bool {
+        if seen.contains(&ty) {
+            return false;
+        }
+        let parts: Vec<TypeId> = match self.out.ty(ty).clone() {
             Type::List(t) => vec![t],
+            Type::Tuple(ts) => ts,
             Type::Enum(id, args) => {
-                let Some(dispatch) = self.m.dispatch.get(&show) else {
-                    return false;
-                };
-                if let Some((impl_fn, impl_args)) = self.pick_impl(show, dispatch, &[ty]) {
-                    if !dispatch.self_bounded.contains(&impl_fn) {
-                        return impl_args.is_empty();
-                    }
-                    impl_args
-                } else if dispatch
-                    .derived
-                    .as_ref()
-                    .is_some_and(|d| d.enums.contains(&id))
+                if let Some(dispatch) = self.m.dispatch.get(&show)
+                    && let Some((impl_fn, _)) = self.pick_impl(show, dispatch, &[ty])
+                    && !dispatch.structural.contains(&impl_fn)
                 {
-                    args
-                } else {
-                    return false;
+                    return true;
                 }
+                let mut parts = Vec::new();
+                for v in 0..self.out.enums[id].variants.len() {
+                    for t in self.out.enums[id].variants[v].tys.clone() {
+                        parts.push(self.out.types.subst(t, &args));
+                    }
+                }
+                parts
             }
             _ => return false,
         };
         seen.push(ty);
-        let ok = parts
+        let found = parts
             .into_iter()
-            .all(|t| self.satisfies_show(show, t, seen));
+            .any(|t| self.written_show_in(show, t, seen));
         seen.pop();
-        ok
+        found
+    }
+
+    /// Records how a failure with an error of type `ty` is shown if it reaches the entry or a
+    /// test (spec 14.3): by its Show, through the impl if written, or else by its name (not
+    /// recorded).
+    fn error_display(&mut self, ty: TypeId) {
+        let Type::Enum(id, _) = *self.out.ty(ty) else {
+            return;
+        };
+        if !self.out.enums[id].error || !self.error_seen.insert(id) {
+            return;
+        }
+        // Already decided by an earlier pass, whose module this is.
+        if let Some(&display) = self.m.error_display.get(&id) {
+            let display = match display {
+                ErrorDisplay::Impl(f) => ErrorDisplay::Impl(self.target(f, &[]).f),
+                ErrorDisplay::Structure => ErrorDisplay::Structure,
+            };
+            self.out.error_display.insert(id, display);
+            return;
+        }
+        if !self.shows(ty) {
+            return;
+        }
+        let display = match self.m.traits.show.filter(|_| self.written_show(ty)) {
+            Some(show) => ErrorDisplay::Impl(self.target(show, &[ty]).f),
+            None => ErrorDisplay::Structure,
+        };
+        self.out.error_display.insert(id, display);
     }
 
     /// The defect of a failed comparison assert, showing the sides `l` and `r` through Show

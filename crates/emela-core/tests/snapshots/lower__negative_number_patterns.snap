@@ -25,6 +25,19 @@ enum Std.Instant.Instant {
   Instant(milliseconds: Int64)
 }
 
+enum Std.Map.Map[A, B] {
+  Map(tree: Std.Map.Tree[A, B])
+}
+
+enum Std.Map.Tree[A, B] {
+  Tip
+  Bin(Int, A, B, Std.Map.Tree[A, B], Std.Map.Tree[A, B])
+}
+
+enum Std.Set.Set[A] {
+  Set(inner: Std.Map.Map[A, ()])
+}
+
 enum Std.Http.Method {
   Get
   Head

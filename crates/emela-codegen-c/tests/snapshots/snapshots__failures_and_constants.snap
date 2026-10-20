@@ -13,16 +13,15 @@ static void e1_print(em_ref v0);
 static em_ref e2_find(em_ref v0);
 static em_ref e3_DEFAULT_init(void);
 static em_ref e3_DEFAULT(void);
-static em_ref e4_show_Missing(em_ref v0);
+static em_ref e4_name_Missing(em_ref v0);
 
 static struct { em_hdr hdr; int64_t len; char bytes[2]; } em_s0 = {EM_STATIC_HDR(&em_desc_string), 1, "a"};
 static struct { em_hdr hdr; int64_t len; char bytes[1]; } em_s1 = {EM_STATIC_HDR(&em_desc_string), 0, ""};
 static const uint8_t em_r0[] = {1};
-static const em_desc em_d0 = {EM_KIND_FIELDS, 1, 0, 0, "Missing", e4_show_Missing, em_r0};
+static const em_desc em_d0 = {EM_KIND_FIELDS, 1, 0, 0, "Missing", e4_name_Missing, em_r0};
 static struct { em_hdr hdr; int64_t len; char bytes[5]; } em_s2 = {EM_STATIC_HDR(&em_desc_string), 4, "none"};
 static em_const em_c3 = {0, {0}, true, NULL, "DEFAULT"};
-static struct { em_hdr hdr; int64_t len; char bytes[14]; } em_s3 = {EM_STATIC_HDR(&em_desc_string), 13, "Missing(key: "};
-static struct { em_hdr hdr; int64_t len; char bytes[2]; } em_s4 = {EM_STATIC_HDR(&em_desc_string), 1, ")"};
+static struct { em_hdr hdr; int64_t len; char bytes[8]; } em_s3 = {EM_STATIC_HDR(&em_desc_string), 7, "Missing"};
 
 /* main */
 static void e0_main(void) {
@@ -122,22 +121,10 @@ static em_ref e3_DEFAULT(void) {
   return v;
 }
 
-/* show$Missing */
-static em_ref e4_show_Missing(em_ref v0) {
-  em_ref v1 = 0;
-  em_ref v2 = 0;
-  em_ref v3 = 0;
-  em_ref v4 = 0;
-  v1 = v0->slots[0].p;
-  em_dup(v1);
+/* name$Missing */
+static em_ref e4_name_Missing(em_ref v0) {
   em_drop(v0);
-  v2 = em_show_string(v1);
-  em_drop(v1);
-  v3 = em_string_append(((em_ref)&em_s3), v2);
-  em_drop(v2);
-  v4 = em_string_append(v3, ((em_ref)&em_s4));
-  em_drop(v3);
-  return v4;
+  return ((em_ref)&em_s3);
 }
 
 static void em_cleanup(void) {

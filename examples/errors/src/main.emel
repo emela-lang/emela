@@ -2,8 +2,8 @@
 
 import Std.Console.{Console, SystemConsole}
 
-error NotFound(id: Int)
-error Invalid(reason: String)
+error NotFound(id: Int) derive Show
+error Invalid(reason: String) derive Show
 
 type User(id: Int, name: String)
 

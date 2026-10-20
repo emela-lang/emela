@@ -21,13 +21,13 @@ pub type Response(status: Int, headers: List[(String, String)], body: String)
   derive Eq, Show
 
 ## The URL cannot be read as a URL.
-pub error InvalidUrl(url: String)
+pub error InvalidUrl(url: String) derive Show
 ## No response was received (name resolution, connection, TLS, too many redirects). `message` says why.
-pub error ConnectionFailed(url: String, message: String)
+pub error ConnectionFailed(url: String, message: String) derive Show
 ## The response body is not valid UTF-8.
-pub error ResponseNotText(url: String)
+pub error ResponseNotText(url: String) derive Show
 ## The status is not 2xx (`require_ok`).
-pub error UnexpectedStatus(status: Int, body: String)
+pub error UnexpectedStatus(status: Int, body: String) derive Show
 
 ## Sends requests. 4xx and 5xx are responses, not failures; fail only when no response is received.
 pub effect Http {

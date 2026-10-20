@@ -8,7 +8,7 @@ fn print(s: String) -> () use {}
 
 error Boom
 
-error NotFound(id: Int)
+error NotFound(id: Int) derive Show
 
 effect Tick {
   suspend fn tick() -> ()

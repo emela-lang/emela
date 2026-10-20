@@ -323,6 +323,7 @@ fn register_derives(
         let derives = match program.item(ty_def) {
             Some(Item::Type(t)) => &t.derives,
             Some(Item::Enum(e)) => &e.derives,
+            Some(Item::Error(e)) => &e.derives,
             _ => continue,
         };
         if derives.is_empty() {
@@ -432,14 +433,23 @@ fn check_derives(
 
 /// W0303 (spec 10.5): a derived impl of a type that is not `pub`, which nothing required. Called
 /// once every body is checked.
+///
+/// An error's Show is not reported: it is the display of the error when it reaches `main` or a
+/// test (spec 14.3), which does not require Show but shows only the name without it.
 pub(crate) fn unused_derives(program: &Program, traits: &Traits, diags: &mut Vec<Diagnostic>) {
     let used = traits.used.borrow();
+    let show = program.prelude_def("Show");
     let mut unused: Vec<&Derived> = traits
         .derived
         .iter()
         .filter(|(key, d)| {
             let ty = &program.defs[d.head.ty_def];
-            !ty.is_pub && matches!(ty.module, DefModule::Source(_)) && !used.contains(*key)
+            let error_show = Some(d.head.trait_def) == show
+                && matches!(program.item(d.head.ty_def), Some(Item::Error(_)));
+            !ty.is_pub
+                && matches!(ty.module, DefModule::Source(_))
+                && !used.contains(*key)
+                && !error_show
         })
         .map(|(_, d)| d)
         .collect();
@@ -461,6 +471,8 @@ pub fn field_tys(program: &Program, sigs: &Signatures, ty_def: DefId) -> Vec<Ty>
     let ctors: Vec<DefId> = match program.item(ty_def) {
         Some(Item::Type(t)) => t.ctor.into_iter().collect(),
         Some(Item::Enum(e)) => e.variants.clone(),
+        // An error is its own constructor (spec 7.1).
+        Some(Item::Error(_)) => vec![ty_def],
         _ => Vec::new(),
     };
     ctors

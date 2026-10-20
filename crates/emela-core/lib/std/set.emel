@@ -1,0 +1,70 @@
+# Sets of values, in order (spec 15.2, 18.1 #36). Immutable. A Map with `()` values.
+
+import Std.Map.{Map}
+
+## A set of values of type `A`, ordered by Ord.
+pub opaque type Set[A](inner: Map[A, ()])
+
+## The empty set.
+pub fn empty[A]() -> Set[A] {
+  Set(inner: Map.empty())
+}
+
+## The set of the values of `xs`.
+pub fn from_list[A: Ord](xs: List[A]) -> Set[A] {
+  List.fold(xs, from: empty(), f: insert)
+}
+
+## `s` with `x`.
+pub fn insert[A: Ord](s: Set[A], x: A) -> Set[A] {
+  Set(inner: Map.insert(s.inner, x, ()))
+}
+
+## `s` without `x`.
+pub fn remove[A: Ord](s: Set[A], x: A) -> Set[A] {
+  Set(inner: Map.remove(s.inner, x))
+}
+
+## Whether `x` is in `s`.
+pub fn contains[A: Ord](s: Set[A], x: A) -> Bool {
+  Map.contains(s.inner, x)
+}
+
+## The number of values.
+pub fn size[A](s: Set[A]) -> Int {
+  Map.size(s.inner)
+}
+
+pub fn is_empty[A](s: Set[A]) -> Bool {
+  Map.is_empty(s.inner)
+}
+
+## Folds the values in order, starting from `from`.
+pub fn fold[A, B](s: Set[A], from: B, f: fn(B, A) -> B) -> B {
+  Map.fold(s.inner, from: from, f: fn(acc, x, unit) { f(acc, x) })
+}
+
+## The values in order.
+pub fn to_list[A](s: Set[A]) -> List[A] {
+  Map.keys(s.inner)
+}
+
+## The values for which `f` is True.
+pub fn filter[A](s: Set[A], f: fn(A) -> Bool) -> Set[A] {
+  Set(inner: Map.filter(s.inner, fn(x, unit) { f(x) }))
+}
+
+## The values of both.
+pub fn union[A: Ord](a: Set[A], b: Set[A]) -> Set[A] {
+  Set(inner: Map.union(a.inner, b.inner))
+}
+
+# Equal when the values in order are equal.
+impl Set[A: Eq]: Eq {
+  fn eq(self, other) { to_list(self) == to_list(other) }
+}
+
+## `Set.from_list([1, 2])`, which makes the set again.
+impl Set[A: Show]: Show {
+  fn show(self) { "Set.from_list(#{Show.show(to_list(self))})" }
+}

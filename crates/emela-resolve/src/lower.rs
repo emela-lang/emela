@@ -36,11 +36,13 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Enum(e) => lower.enum_item(pending.def, &pending.children, e),
         ast::Item::Error(e) => {
             let fields = lower.named_fields(e.field_list());
+            let derives = lower.derives(e.derive());
             Item::Error(ErrorItem {
                 fields: match fields {
                     Some(fields) => Fields::Named(fields),
                     None => Fields::None,
                 },
+                derives,
             })
         }
         ast::Item::Const(c) => {

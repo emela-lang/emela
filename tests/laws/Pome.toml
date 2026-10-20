@@ -4,4 +4,4 @@ version = "0.0.0"
 emela = "0.23.0"
 
 [dev-dependencies]
-"github.com/emela-lang/brix" = "v0.2.1"
+"github.com/emela-lang/brix" = "v0.2.2"

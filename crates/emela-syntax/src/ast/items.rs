@@ -198,6 +198,9 @@ impl ErrorDecl {
     pub fn field_list(&self) -> Option<FieldList> {
         child(&self.0)
     }
+    pub fn derive(&self) -> Option<DeriveClause> {
+        child(&self.0)
+    }
 }
 
 ast_node!(
@@ -539,7 +542,7 @@ mod tests {
     #[test]
     fn データの宣言() {
         let items = items(
-            "pub opaque type User(id: Int, name: String)\n  derive Eq, Show\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\nerror NotFound(id: Int)\nconst MAX: Int = 3",
+            "pub opaque type User(id: Int, name: String)\n  derive Eq, Show\nenum Shape {\n  Circle(radius: Float)\n  Rect(Float, Float)\n  Empty\n}\nerror NotFound(id: Int) derive Eq, Show\nconst MAX: Int = 3",
         );
         let Item::Type(user) = &items[0] else {
             panic!("expected `type`")
@@ -564,6 +567,7 @@ mod tests {
             panic!("expected `error`")
         };
         assert_eq!(text(not_found.name()), "NotFound");
+        assert_eq!(not_found.derive().unwrap().traits().count(), 2);
 
         let Item::Const(max) = &items[3] else {
             panic!("expected `const`")
@@ -576,7 +580,7 @@ mod tests {
     #[test]
     fn derive_の前のドキュメントコメントは型に付かない() {
         let items = items(
-            "## 利用者\ntype User(id: Int)\n  # 比較\n\n  ## 導出\n  derive Eq, Show\nenum Color {\n  Red\n}\n  # 表示\n  derive Show",
+            "## 利用者\ntype User(id: Int)\n  # 比較\n\n  ## 導出\n  derive Eq, Show\nenum Color {\n  Red\n}\n  # 表示\n  derive Show\nerror Down(message: String)\n  derive Show",
         );
         let Item::Type(user) = &items[0] else {
             panic!("expected `type`")
@@ -589,6 +593,11 @@ mod tests {
             panic!("expected `enum`")
         };
         assert_eq!(e.derive().unwrap().traits().count(), 1);
+
+        let Item::Error(down) = &items[2] else {
+            panic!("expected `error`")
+        };
+        assert_eq!(down.derive().unwrap().traits().count(), 1);
     }
 
     #[test]

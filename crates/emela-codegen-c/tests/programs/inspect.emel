@@ -2,20 +2,30 @@
 @external(c, "./print.c", "emela_test_print")
 fn print(s: String) -> () use {}
 
-# `inspect` and `dbg` (spec 10.6, 15.1): the debug display of any value, with Strings quoted at
-# every level and functions as `<fn>`.
+# `inspect` and `dbg` (spec 10.6, 15.1). inspect shows a value of a type with Show, a String
+# quoted at every level. dbg shows any value: a type without Show as it is constructed, its parts
+# with Show through Show, and functions as `<fn>`.
 
 enum Shape {
   Circle(radius: Float)
   Rect(Float, Float)
   Empty
 }
+  derive Show
 
-type Button(label: String, on_click: fn(Int) -> Int)
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+type Button(label: Name, on_click: fn(Int) -> Int)
 
 fn twice(x: Int) -> Int { x * 2 }
 
-fn show_any[A](x: A) -> String { inspect(x) }
+fn show_any[A: Show](x: A) -> String { inspect(x) }
+
+fn dbg_any[A](x: A) -> A { dbg(x) }
 
 fn main() {
   print(inspect(42))
@@ -29,14 +39,17 @@ fn main() {
   print(inspect([Circle(radius: 1.5), Rect(1.0, 2.0), Empty]))
   print(inspect((1, "a", [Some("x"), None])))
   print(inspect([[1, 2], []]))
-  print(inspect(twice))
-  print(inspect(Button(label: "ok", on_click: twice)))
-  print(inspect([(1, fn(x: Int) { x + 1 })]))
+  print(inspect(Name(value: "n")))
+  print(inspect([Some(Name(value: "m"))]))
   print(show_any(["generic"]))
-  print(show_any(twice))
   print("interpolated: #{"top"} #{["inner"]}")
-  n = dbg(Button(label: "dbg", on_click: twice))
-  print(n.label)
+  dbg(twice)
+  n = dbg(Button(label: Name(value: "dbg"), on_click: twice))
+  print(n.label.value)
+  dbg([(1, fn(x: Int) { x + 1 })])
+  dbg_any([Button(label: Name(value: "g"), on_click: twice)])
+  dbg((Name(value: "t"), "s", twice))
+  dbg(Name(value: "shown"))
   s = dbg("top")
   print(s)
 }

@@ -105,7 +105,7 @@ pub trait TestBackend<P> {
 - （補）テストの実行中にホストのコールバックの中で投げられた例外（`uncaughtException`）は，実行中のテストの defect にする．終わったテストの継続（後から呼ばれた resume など）は進めない
 - （補）終了コードは失敗が1つでもあれば 1，なければ 0（テストが0個でも 0）．診断でエラーなら 1
 - （補）テストの途中で node が終わったとき（外部関数の `process.exit` など）は，実行中だったテストを失敗にし，その後ろで実行されなかった数を詳細に添える
-- （補）処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` が返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分けて `outcome: "error"` で報告する．表示は `error: <エラーの値の表示>`（`inspect` と同じ表示．String は引用符付き）
+- （補）処理されなかったエラー（13.3）は，テストランナーの `$testUnhandledError` が返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分けて `outcome: "error"` で報告する．表示は `error: <エラーの値の表示>`（main と同じ．Show を満たせば `inspect` と同じ表示，満たさなければ名前だけ．14.3）
 - 積み残し: suspend するテスト（ジェネレータを返す関数）と Async の供給（13.3）はまだ扱わない
 
 ## core の中からだけ参照できる fn（`@internal`，`internal.rs`）
@@ -166,7 +166,7 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）defect は `name` が `"Defect"` の `Error`（emela-codegen-js のランタイムの `$Defect`）．`instanceof` でなく `name` で見るので，起動用モジュールはランタイムを import しない
 - （補）`main` がジェネレータ（suspend する関数，16.5）を返す場合はまだ扱わない
 - （補）defect で止まったときは，標準エラーに `defect: <message>` を1行出し，終了コード 101（Rust の panic と同じ）．defect でない例外は node に任せる（スタックを出して 1）（仕様 7.5 に反映済み）
-- （補）main まで達したエラーは，起動用モジュールが main の返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分け，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（`ERROR_EXIT_CODE`，14.3）．表示は `inspect` と同じ（`error: DbError(message: "down")`）．関数型のフィールドを持つ error は名前だけ（`error: Retry`）．defect は 101 のまま．起動用モジュールはランタイムを import しないので，`instanceof` でなく鍵で見る
+- （補）main まで達したエラーは，起動用モジュールが main の返り値の `$Fail` を `Symbol.for("emela.fail")` の鍵（`FAIL_KEY`）で見分け，標準エラーに `error: <エラーの値の表示>` を1行出して終了コード 1（`ERROR_EXIT_CODE`，14.3）．エラーの型が Show を満たせば表示は `inspect` と同じ（`error DbError(message: String) derive Show` なら `error: DbError(message: "down")`），満たさなければ名前だけ（`error: Retry`）．defect は 101 のまま．起動用モジュールはランタイムを import しないので，`instanceof` でなく鍵で見る
 - （補）中断しうる main（返り値がジェネレータ）は，エントリが公開するランタイムの `$start` で進め，イベントループで待つ．起動用モジュールはランタイムを import しないので，`$start` はエントリから引く（emela-codegen-js の NOTES の「中断と再開」）
 - （補）中断しない main（R が Immediate）の中で，その場で resume されずに捨てられた継続（ランタイムの `$Interrupted`．8.7 の InstantClock の形のハンドラで resume しなかったとき）も，`interrupted` と 130．イベントループが空になるのを待たずにその場で終わる．テストでは `interrupted` の失敗
 - （補）main の継続が resume されないまま「プログラムの最上位が終わる」（14.5）のは，node のイベントループが空になったとき（`beforeExit`）とした．標準エラーに `interrupted` を1行出して終了コード 130（`INTERRUPTED_EXIT_CODE`）

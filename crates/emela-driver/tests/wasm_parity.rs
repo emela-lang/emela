@@ -321,22 +321,32 @@ enum Shape {
   Rect(Int, Int)
   Empty
 }
+  derive Show
 
-type Button(label: String, on_click: fn(Int) -> Int)
+type Name(value: String)
+
+impl Name: Show {
+  fn show(self) { "<#{self.value}>" }
+}
+
+type Button(label: Name, on_click: fn(Int) -> Int)
 
 fn twice(x: Int) -> Int { x * 2 }
 
-fn show_any[A](x: A) -> String { inspect(x) }
+fn show_any[A: Show](x: A) -> String { inspect(x) }
+
+fn dbg_any[A](x: A) -> A { dbg(x) }
 
 fn main() {
   dbg(inspect(42))
   dbg(inspect("a\"b\\c\nd \#{e}"))
   dbg(inspect([Square(side: 1), Rect(1, 2), Empty]))
   dbg(inspect((1, "a", [Some("x"), None])))
-  dbg(inspect(twice))
-  dbg(inspect(Button(label: "ok", on_click: twice)))
-  dbg(show_any([(1, fn(x: Int) { x + 1 })]))
-  dbg(Button(label: "dbg", on_click: twice))
+  dbg(show_any([Some(Name(value: "n"))]))
+  dbg(twice)
+  dbg(Button(label: Name(value: "dbg"), on_click: twice))
+  dbg_any([(1, fn(x: Int) { x + 1 })])
+  dbg_any([Button(label: Name(value: "g"), on_click: twice)])
   dbg("top")
 }
 "##,
