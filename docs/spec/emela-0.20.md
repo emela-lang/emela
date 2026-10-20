@@ -182,7 +182,7 @@ foo
 | 語 | 位置 |
 |---|---|
 | `fails` | 関数のシグネチャと関数型 |
-| `derive` | type と enum の宣言の末尾、trait の本体 |
+| `derive` | type、enum、error の宣言の末尾、trait の本体 |
 | `init` `release` | handler の本体 |
 
 ### 3.3 将来のための予約
@@ -605,6 +605,7 @@ escape の対象と with の本体の中にある、末尾呼び出しに見え�
 ```emel
 error NotFound(id: Int)
 error Unauthorized
+error DbError(message: String) derive Show
 ```
 
 - エラーはタグ名で識別する。フィールドは値であり、識別には関わらない。`NotFound(id: 1)` と `NotFound(id: 2)` は同じエラーである。
@@ -612,6 +613,7 @@ error Unauthorized
 - エラーの集合は、言語の中で union が現れる唯一の場所である。
 - error 宣言は、type と同じく、同じ名前の型と構成子を定義する。`NotFound(id: 1)` は型 `NotFound` の普通の値で、変数に入れても、関数に渡しても、データ構造に入れてもよい。
 - 値として扱えるのは1つのエラーの型だけである。「NotFound か DbError のどちらか」という値の型は作れない。
+- error 宣言にも type と同じく derive を書ける（10.5）。main やテストまで達したエラーの表示は、その型の Show を使う（13.3、14.3）。
 
 ### 7.2 fail
 
@@ -1277,7 +1279,7 @@ Ord の `compare` は全順序であり、`Equal` を返すのは `==` が True 
 
 値を表示できるのは、型が Show を満たすときだけである。デバッグ用の表示 `inspect[A: Show](value: A) -> String`（Prelude、15.1）も Show を求め、その実装の結果を返す。ただし String は最上位でも `"` で囲む。汎用のテスト支援（property 検査の反例など）が値を出すときも `[A: Show]` を求める。
 
-dbg（15.1）だけは例外で、Show を求めずどの型の値も出す。main まで達したエラーとテストまで達したエラーの表示（13.3、14.3）も dbg と同じにする。error の宣言には derive を書けないためである。
+dbg（15.1）だけは例外で、Show を求めずどの型の値も出す。
 
 - Show を満たす型は、inspect と同じ表示にする。
 - Show を満たさない型は、導出した Show と同じ構築の形で表す。中の値の型が Show を満たせば、その部分は Show の実装を使う。opaque な型も中身を出す。
@@ -1626,7 +1628,7 @@ fn greet_fails_for_unknown_id() {
 ### 13.3 テスト関数の制約
 
 - テスト関数の R は、Async を除いて空でなければならない。Async はテストランナーが供給する。
-- 処理されなかったエラーは、そのテストの失敗として報告される。テスト関数の E は空でなくてよい。
+- 処理されなかったエラーは、そのテストの失敗として報告される。テスト関数の E は空でなくてよい。エラーの表示は 14.3 の main と同じ。
 - defect も、そのテストの失敗として報告される。他のテストの実行は続く。
 
 ### 13.4 emela test
@@ -1668,7 +1670,7 @@ fn greet_fails_for_unknown_id() {
 - `fail e` は、評価中の式を外側へ順に終わらせていく。e のタグに合う腕を持つ最も内側の escape に達すると、その腕を評価し、結果が escape 式の値になる。
 - 途中で with を抜けるときは、14.2 の手順3を実行する。
 - main が正常に終わったときは、戻り値を表示せずに捨て、終了コード 0 で終わる。値を見たいときは `dbg` を使う。
-- main まで達したエラーは、プログラムの異常終了になる。標準エラーに `error: <エラーの値の表示>` を1行出し、終了コード 1 で終わる。表示は dbg（10.6）と同じ（`error: DbError(message: "down")`）。関数型のフィールドは `<fn>` と出す（`error: Retry(run: <fn>)`）。defect（終了コード 101、7.5）と終了コードで見分けられる。main の E は空でなくてよい。
+- main まで達したエラーは、プログラムの異常終了になる。標準エラーに `error: <エラーの値の表示>` を1行出し、終了コード 1 で終わる。エラーの型が Show を満たせば、表示は inspect（10.6）と同じ（`error DbError(message: String) derive Show` なら `error: DbError(message: "down")`）。満たさなければエラーの名前だけを出す（`error: Retry`）。main の E は Show を求めない。defect（終了コード 101、7.5）と終了コードで見分けられる。main の E は空でなくてよい。
 
 ### 14.4 defect の伝播
 
@@ -2033,7 +2035,7 @@ bound        = type_ref
 type_decl    = "type" type_name [ type_params ] [ "(" [ fields ] ")" ] [ derive ]
 enum_decl    = "enum" type_name [ type_params ] "{" variant { sep variant } "}" [ derive ]
 variant      = type_name [ "(" ( fields | type { "," type } ) ")" ]
-error_decl   = "error" type_name [ "(" [ fields ] ")" ]
+error_decl   = "error" type_name [ "(" [ fields ] ")" ] [ derive ]
 fields       = field { "," field }
 field        = { annotation } lower_name ":" type
 derive       = "derive" type_ref { "," type_ref }
@@ -2067,7 +2069,7 @@ impl_item    = "fn" lower_name "(" [ params ] ")" block
 - `opaque` は type と enum にだけ付けられる。
 - フィールドのない type_decl は、`@external` が付いている場合にだけ許される。
 - enum_decl は1つ以上のバリアントを持つ。値を持たない型は Never だけである。
-- type_decl と enum_decl の直後の改行に `derive` が続くとき、その改行は区切りにならず、derive は宣言の続きになる（10.5 の例の書き方）。間の空行とコメントだけの行は飛ばす（2.5 の継続の判定と同じ）。`derive` は文脈依存の語なので、2.5 の字句の継続規則には入れず、宣言の位置でだけ扱う。
+- type_decl、enum_decl、error_decl の直後の改行に `derive` が続くとき、その改行は区切りにならず、derive は宣言の続きになる（10.5 の例の書き方）。間の空行とコメントだけの行は飛ばす（2.5 の継続の判定と同じ）。`derive` は文脈依存の語なので、2.5 の字句の継続規則には入れず、宣言の位置でだけ扱う。
 
 ### 17.4 型
 
@@ -2515,7 +2517,7 @@ error[E0204]: duplicate module `Http.Client`
 
 ### 2026-10-20（inspect に Show を求める）
 
-- 10.3、10.5、10.6、13.2、14.3、15.1、18.1 #22、#23: 値を表示できるのを Show を満たす型に限った。`inspect` は `[A: Show]` を求める。assert の失敗は、両辺の型が Show を満たすときだけ値を出し、満たさなければ式の字面だけを出す。dbg だけは Show を求めず、Show を満たさない型を構築の形で出す（中の Show を満たす値は実装を使う）。main とテストまで達したエラーの表示は dbg と同じ。Show のない型の表示を構造から推し量ると、作者が決めていない表示が inspect を通して文字列になり、プログラムに漏れるため。汎用のテスト支援は `[A: Show]` を求める。
+- 7.1、10.3、10.5、10.6、13.2、13.3、14.3、15.1、17.3、18.1 #22、#23: 値を表示できるのを Show を満たす型に限った。`inspect` は `[A: Show]` を求める。assert の失敗は、両辺の型が Show を満たすときだけ値を出し、満たさなければ式の字面だけを出す。dbg だけは Show を求めず、Show を満たさない型を構築の形で出す（中の Show を満たす値は実装を使う）。error の宣言にも derive を書けるようにし、main とテストまで達したエラーは Show を満たせばその表示、満たさなければ名前だけを出す。Show のない型の表示を構造から推し量ると、作者が決めていない表示が inspect を通して文字列になり、プログラムに漏れるため。汎用のテスト支援は `[A: Show]` を求める。
 
 ### 2026-10-20（Map と Set）
 
