@@ -122,7 +122,7 @@ alpha.3 で同梱した（2026-10-12）．
 alpha.5 で同梱した（2026-10-13）．宣言とシグネチャは仕様 15.2 のとおり．
 
 - （補）error 4つ（`InvalidUrl`，`ConnectionFailed`，`ResponseNotText`，`UnexpectedStatus`）は `pub error` にした．仕様 15.2 の宣言は `pub` を省いているが，利用者が escape で受けるには import できなければならない
-- （補）`header` と `headers` の名前の比べ方は ASCII の A〜Z だけを小文字にして比べる．HTTP のヘッダの名前は ASCII のトークンなので足りる．core の String に小文字にする関数がないので，非公開の `ascii_lower` を `String.code_points` の上に書いた
+- （補）`header` と `headers` の名前の比べ方は ASCII の A〜Z だけを小文字にして比べる．HTTP のヘッダの名前は ASCII のトークンなので足りる．core の `String.to_ascii_lowercase` を使う
 - （補）`SystemHttp` は `@external type` の `HostRequest` と `HostResponse` で境界を越える（12.4）．要求は `newRequest(method, url, body)` に `withHeader` を畳み込んで作り（ヘッダは足すたびに写しを返すので，`List.fold` で純粋な形に書ける），応答は種類（0 が応答，1〜3 が失敗の種類）と，status，本文，添字で引くヘッダの名前と値を関数で取り出す．`send` は Promise を拒否せず，失敗も値で返す（拒否は defect になる．12.5）
 - （補）`http.mjs` の `send(req, signal)` は最後の引数の `signal` を `fetch` に渡す．今のランタイムは signal を足さないので `undefined` が来て，そのまま動く（12.2 の規則は js-fiber-runtime の2本目が入れる）．中断で abort したときの結果は ConnectionFailed（`This operation was aborted`）の値になるが，中断した fiber はその結果を捨てる
 - （補）InvalidUrl は `new URL(url)` で読めないときと，scheme が `http:` と `https:` 以外のときにした．fetch は `ftp:` や `file:` を URL としては読めても送れず，ConnectionFailed にすると「送ってみて届かなかった」と区別できないため．利用者が書いた URL の誤りとして扱う

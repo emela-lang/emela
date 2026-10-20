@@ -64,24 +64,16 @@ pub fn header(res: Response, name: String) -> Option[String] {
 
 ## All values of the header `name` in order, compared without case.
 pub fn headers(res: Response, name: String) -> List[String] {
-  key = ascii_lower(name)
+  key = String.to_ascii_lowercase(name)
   res.headers
     |> List.filter(fn(pair) {
       (n, _) = pair
-      ascii_lower(n) == key
+      String.to_ascii_lowercase(n) == key
     })
     |> List.map(fn(pair) {
       (_, value) = pair
       value
     })
-}
-
-## `s` with A to Z changed to a to z. Header names are ASCII, so other letters are left as they are.
-fn ascii_lower(s: String) -> String {
-  lower = List.map(String.code_points(s), fn(c) {
-    Option.or(String.from_code_point(if c >= 65 && c <= 90 { c + 32 } else { c }), "")
-  })
-  String.concat(lower)
 }
 
 ## The query string of `pairs`, each part percent-encoded (`q=%E6%9D%B1&page=2`).
