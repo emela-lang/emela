@@ -396,3 +396,39 @@ fn main() {
         "\"2000ms True True\"\n\"1970-01-01T00:00:00.000Z True\"\n\"Request(method: Get, url: \\\"u\\\", headers: [], body: \\\"\\\") True Fail True\"\n"
     );
 }
+
+/// Std.Map and Std.Set (spec 15.2, 18.1 #36): key order whatever the order of insertion, values
+/// compared and shown by their contents, and a tree that stays balanced through many insertions
+/// and removals.
+#[test]
+fn maps_and_sets_follow_key_order() {
+    let main = r##"
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+fn main() {
+  m = Map.from_list([(3, "c"), (1, "a"), (2, "b"), (1, "z")])
+  dbg("#{m} #{Map.get(m, 1)} #{Map.get(m, 9)} #{Map.size(m)}")
+  dbg("#{Map.remove(m, 2)} #{Map.update(m, 4, fn(v) { Some("d") })} #{Map.update(m, 3, fn(v) { None })}")
+  dbg("#{Map.union(Map.from_list([(1, "x")]), m)} #{Map.filter(m, fn(k, v) { k != 2 })}")
+  dbg("#{Map.fold(m, from: 0, f: fn(acc, k, v) { acc + k })} #{Map.values(Map.map_values(m, fn(v) { "#{v}!" }))}")
+  dbg("#{m == Map.from_list([(2, "b"), (1, "z"), (3, "c")])} #{m == Map.remove(m, 3)}")
+  big = List.fold(List.range(0, 2000), from: Map.empty(), f: fn(acc, i) { Map.insert(acc, (i * 7919) % 2000, i) })
+  rest = List.fold(List.range(0, 1500), from: big, f: fn(acc, i) { Map.remove(acc, i) })
+  dbg("#{Map.size(big)} #{Map.size(rest)} #{Map.keys(rest) == List.range(1500, 2000)}")
+  s = Set.from_list([3, 1, 2, 3])
+  dbg("#{s} #{Set.contains(s, 2)} #{Set.remove(s, 2)} #{Set.union(s, Set.from_list([5]))}")
+}
+"##;
+    assert_eq!(
+        stderr_of("maps", main),
+        r#""Map.from_list([(1, \"z\"), (2, \"b\"), (3, \"c\")]) Some(\"z\") None 3"
+"Map.from_list([(1, \"z\"), (3, \"c\")]) Map.from_list([(1, \"z\"), (2, \"b\"), (3, \"c\"), (4, \"d\")]) Map.from_list([(1, \"z\"), (2, \"b\")])"
+"Map.from_list([(1, \"x\"), (2, \"b\"), (3, \"c\")]) Map.from_list([(1, \"z\"), (3, \"c\")])"
+"6 [\"z!\", \"b!\", \"c!\"]"
+"True False"
+"2000 500 True"
+"Set.from_list([1, 2, 3]) True Set.from_list([1, 3]) Set.from_list([1, 2, 3, 5])"
+"#
+    );
+}

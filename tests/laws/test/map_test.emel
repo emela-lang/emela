@@ -1,0 +1,38 @@
+import Brix.Pbt.Gen
+import Brix.Pbt.Property
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+@test
+fn from_list_and_to_list() {
+  Property.check(Gen.list(Gen.pair(Gen.int(), Gen.int())), fn(pairs) {
+    m = Map.from_list(pairs)
+    keys = Map.keys(m)
+    assert increasing(keys)
+    assert Set.to_list(Set.from_list(keys)) == keys
+    assert Map.size(m) == List.length(keys)
+    assert Map.from_list(Map.to_list(m)) == m
+    assert List.all(pairs, fn(pair) {
+      (k, _) = pair
+      Map.contains(m, k)
+    })
+  })
+}
+
+@test
+fn insert_then_get() {
+  Property.check(Gen.pair(Gen.list(Gen.pair(Gen.int(), Gen.int())), Gen.int()), fn(input) {
+    (pairs, k) = input
+    m = Map.from_list(pairs)
+    assert Map.get(Map.insert(m, k, 1), k) == Some(1)
+    assert Map.get(Map.remove(m, k), k) == None
+    assert Map.size(Map.insert(m, k, 1)) == Map.size(Map.remove(m, k)) + 1
+  })
+}
+
+fn increasing(xs: List[Int]) -> Bool {
+  xs match {
+    [a, b, ..rest] -> a < b && increasing([b, ..rest])
+    _              -> True
+  }
+}

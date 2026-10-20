@@ -107,6 +107,17 @@ alpha.3 で同梱した（2026-10-12）．仕様は「中身が Int64 の opaque
 - （補）Duration と Instant は `derive Eq, Ord` で，`==` と大小比較が使える（#332，#337）．`compare` の関数も残す（Ord の段より前からあり，パイプで書ける）．Show は `to_string` を使う手書きの impl で，補間は `1500ms` や ISO 8601 になる．`dbg` と `inspect` では中身がそのまま見える（`Instant(milliseconds: …)`．10.6 で opaque な型も中身を出すと決まった）．
 - （補）`Std.Instant` は `import Std.Duration.{Duration}` で Duration を取り込む．
 
+## Map と Set（`std/map.emel`，`std/set.emel`）
+
+0.24（#340）．仕様は 15.2 と 18.1 #36．
+
+- （補）木は重み平衡木（Adams．定数は Haskell の Data.Map と同じ `DELTA = 3`，`RATIO = 2`）．`enum Tree[K, V] { Tip, Bin(Int, K, V, Tree, Tree) }` を非公開にし，`pub opaque type Map[K, V](tree: Tree[K, V])` で包む．挿入と削除は1段ずつ `balance` で直す
+- （補）from_list は insert を畳み込む（同じキーは後の値）．filter と union は，キーの順の並びを作ってから `from_sorted` で O(n) で平衡に組み直す（どちらもキーの順が保たれるので並べ直さない）
+- （補）再帰は木の深さ（O(log n)）までで，自己末尾呼び出しにしない．to_list と fold も同じ
+- （補）Set は `pub opaque type Set[A](inner: Map[A, ()])` で，関数は Map に任せる
+- （補）Eq と Show は手書きの impl（`Map.from_list([...])`）．補間はこの impl を使う（`Dispatch::structural` に入らない，#361）．inspect と dbg は #362 まで木の構造（`Map(tree: Bin(...))`）を出す
+- （補）ラムダの仮引数には `_` を書けないので，使わない引数にも名前を付ける（`fn(acc, x, unit)`）
+
 ## Random（`std/random.emel`，`std/random.mjs`）
 
 alpha.3 で同梱した（2026-10-12）．
