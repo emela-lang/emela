@@ -5,8 +5,8 @@
 //! checker results.
 
 use emela_resolve::hir::{
-    DefId, DefKind, Expr, ExprId, ExprKind, Fields, Item, LocalId, PatId, PatKind, Program, Res,
-    Stmt,
+    DefId, DefKind, Expr, ExprId, ExprKind, Fields, Item, LocalId, LocalKind, PatId, PatKind,
+    Program, Res, Stmt,
 };
 use emela_resolve::{ModuleId, ModuleName};
 use emela_syntax::ast::AstNode;
@@ -648,7 +648,16 @@ fn visible_locals(
                 }
             }
             ExprKind::Lambda { params, body } => {
-                add(params.iter().map(|p| p.local).collect(), span_of(*body));
+                // A parameter in place of a pattern has no name in scope; the names of the
+                // pattern come from the binding at the head of the body.
+                add(
+                    params
+                        .iter()
+                        .map(|p| p.local)
+                        .filter(|&l| hir.locals[l].kind != LocalKind::PatParam)
+                        .collect(),
+                    span_of(*body),
+                );
             }
             ExprKind::Match { arms, .. } | ExprKind::Escape { arms, .. } => {
                 for arm in arms {

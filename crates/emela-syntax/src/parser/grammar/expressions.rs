@@ -2,7 +2,7 @@
 
 use super::patterns::pattern;
 use super::types::{effect_type_args, path, type_};
-use super::{literal, param_list};
+use super::{lambda_param_list, literal};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
@@ -362,7 +362,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         FN_KW => {
             p.bump();
             if p.at(L_PAREN) {
-                param_list(p);
+                lambda_param_list(p);
             } else {
                 p.expect(L_PAREN);
             }

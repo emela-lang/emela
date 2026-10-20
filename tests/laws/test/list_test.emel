@@ -14,8 +14,7 @@ fn reverse_and_map() {
 
 @test
 fn append() {
-  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.list(Gen.int())), fn(pair) {
-    (xs, ys) = pair
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.list(Gen.int())), fn((xs, ys)) {
     assert List.length(List.append(xs, ys)) == List.length(xs) + List.length(ys)
     assert List.reverse(List.append(xs, ys)) == List.append(List.reverse(ys), List.reverse(xs))
   })
@@ -23,9 +22,7 @@ fn append() {
 
 @test
 fn take() {
-  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.int()), fn(pair) {
-    (xs, n) = pair
-
+  Property.check(Gen.pair(Gen.list(Gen.int()), Gen.int()), fn((xs, n)) {
     assert List.append(List.take(xs, n), List.drop(xs, n)) == xs
   })
 }

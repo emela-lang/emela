@@ -112,6 +112,10 @@ pub enum LocalKind {
     /// `self`. Written as a parameter in impls and traits; implicit in handlers.
     SelfParam,
     LambdaParam,
+    /// The parameter in place of a pattern of a lambda (`fn((a, b)) { ... }`, spec 6.1). It has
+    /// no name in scope; the body starts with a binding of the pattern to it. The name is the
+    /// pattern's text, for display.
+    PatParam,
     /// A binding `x = ...` and the variables in its pattern.
     Binding,
     /// Variables in the patterns of match and escape arms.
