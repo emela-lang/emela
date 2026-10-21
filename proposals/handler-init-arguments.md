@@ -2,7 +2,7 @@
 title: handler の init に引数を取らせる
 authors: [Alliana]
 status: draft
-pr:
+pr: 389
 issue: 374
 decided:
 touches: [effect.handler, effect.with, effect.layer, effect.label, grammar.decl, grammar.expr]
