@@ -71,6 +71,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
+      - name: Unicode tables
+        run: python3 scripts/gen-unicode-tables.py --check
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy

@@ -790,7 +790,7 @@ mod tests {
                 failures.push(format!("line {}: {s:?}: want {want:?}, got {got:?}", n + 1));
             }
         }
-        assert!(cases > 700, "the test file looks truncated: {cases} cases");
+        assert_eq!(cases, 766, "the test file must have all 766 cases");
         assert!(
             failures.is_empty(),
             "{} of {cases} cases failed:\n{}",

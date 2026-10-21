@@ -162,7 +162,7 @@ compiles to C and builds a native executable with `cc`, or `--target wasm`, whic
 writes a WASI `main.wasm` (`target/emela/wasm`) and runs it with `wasmtime`;
 `[build] target = "..."` in `Pome.toml` changes the default. The C target does
 not run suspending code, fibers or `String.length` yet; the WASM target does not
-run those, `Float` operations or host callbacks either.
+run suspending code, fibers, `Float` operations or host callbacks either.
 
 | Command       | Does                                                    |
 | ------------- | ------------------------------------------------------- |

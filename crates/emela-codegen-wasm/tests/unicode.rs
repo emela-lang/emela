@@ -133,7 +133,7 @@ fn official_cases() -> Vec<(String, Vec<String>)> {
         let s: String = graphemes.concat();
         cases.push((s, graphemes));
     }
-    assert!(cases.len() > 700, "the test file looks truncated");
+    assert_eq!(cases.len(), 766, "the test file must have all 766 cases");
     cases
 }
 

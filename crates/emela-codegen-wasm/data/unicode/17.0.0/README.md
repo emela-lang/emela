@@ -3,7 +3,8 @@
 WASM の runtime が使う書記素クラスタの表（UAX #29）の出所．**Unicode 17.0.0**（2025 年）の
 公式データをそのまま置き，`python3 scripts/gen-unicode-tables.py` が
 `src/emit/runtime/unicode_tables.rs` を生成する．生成はネットワークを使わない（下のファイルだけを
-読む）．CI は生成をやり直さず，commit 済みの表とテストだけを使う．
+読む）．CI は `python3 scripts/gen-unicode-tables.py --check` で生成をやり直し，commit 済みの表と
+一致することを確かめる（テストは commit 済みの表を使う）．
 
 | ファイル | 出所 |
 | --- | --- |
