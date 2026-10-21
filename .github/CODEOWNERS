@@ -1,0 +1,7 @@
+# Changes to the specification, the proposals, and the skills for working on them request a
+# review from the language's author automatically, including pull requests from forks, whose
+# authors cannot request reviewers themselves. The review is not required to merge.
+/spec/ @Allianaab2m
+/proposals/ @Allianaab2m
+/.agents/skills/ @Allianaab2m
+/.claude/skills/ @Allianaab2m
