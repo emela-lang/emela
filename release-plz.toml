@@ -38,6 +38,11 @@ git_tag_enable = false
 git_tag_name = "v{{ version }}"
 # Keep a single changelog at the repo root instead of one per library crate.
 changelog_update = false
+# Prepare a release only when a commit adds a feature, fixes a bug or improves performance.
+# Without this, any change inside a crate directory bumps every crate: a pull request that
+# only rewrote comments and rustdoc (#388) opened the release v0.24.1 on its own. Commits
+# that do not match still appear in the changelog of the next release.
+release_commits = "^(feat|fix|perf)[(:!]"
 
 # release-plz's default body, plus `(by @user)` after every entry so the
 # changelog credits whoever made each change. The username comes from the
