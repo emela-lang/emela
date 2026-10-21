@@ -1,0 +1,63 @@
+import Std.State.{State}
+import Std.Fiber.{Fiber}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+
+pub fn escaped(n: Int) -> fn() -> Int {
+  (reader, _) = State.run(n, fn() {
+    state = use State[Int]
+    fn() {
+      state.update(fn(x) { x + 1 })
+      state.get()
+    }
+  })
+  reader
+}
+pub fn escaped_result(n: Int) -> Int {
+  reader = escaped(n)
+  reader() + reader()
+}
+pub fn shared(n: Int) -> String use Async {
+  with Waiting {
+  (result, final) = State.run(Int.to_string(n), fn() {
+    state = use State[String]
+    Fiber.scope(fn() {
+      child = Fiber.fork(fn() {
+        (use Wait).get(10)
+        state.set(String.append(state.get(), " child"))
+      })
+      (use Wait).get(20)
+      state.set(String.append(state.get(), " parent"))
+      Fiber.join(child)
+      state.get()
+    })
+  })
+  String.append(String.append(result, "/"), final)
+  }
+}
+error Boom(message: String) derive Show
+pub fn failed(n: Int, bad: Bool) -> String use Async {
+  with Waiting {
+    (value, _) = State.run(Int.to_string(n), fn() {
+        state = use State[String]
+        (use Wait).get(30)
+        state.set(String.append(state.get(), " failure"))
+        if bad { fail Boom(state.get()) }
+        state.get()
+      }) escape { Boom(message) -> (message, "") }
+    value
+  }
+}
+pub enum Payload { Data((String, List[String])) }
+pub fn composite(n: Int) -> String {
+  text = Int.to_string(n)
+  (value, _) = State.run(Data((text, [text])), fn() {
+    state = use State[Payload]
+    original = state.get()
+    state.set(original)
+    state.get() match { Data((head, rest)) -> String.append(head, String.join(rest, "/")) }
+  })
+  value
+}

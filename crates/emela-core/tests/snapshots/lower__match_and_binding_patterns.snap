@@ -144,6 +144,174 @@ enum Std.Fiber.Exit[A, B] {
   Failure(Std.Cause.Cause[{B}])
 }
 
+error enum Std.Embedded.Peripheral.PeripheralError {
+  PeripheralError(code: Int)
+}
+
+enum Std.Embedded.Gpio.GpioPin {
+  GpioPin(id: Int)
+}
+
+enum Std.Embedded.Gpio.PinState {
+  Low
+  High
+}
+
+enum Std.Embedded.Gpio.Pull {
+  NoPull
+  Up
+  Down
+}
+
+enum Std.Embedded.Gpio.GpioMode {
+  Input
+  OutputPushPull
+  OutputOpenDrain
+  Analog
+}
+
+enum Std.Embedded.Gpio.Edge {
+  Rising
+  Falling
+  Both
+}
+
+enum Std.Embedded.Gpio.GpioEvent {
+  GpioEvent(pin: Std.Embedded.Gpio.GpioPin, level: Std.Embedded.Gpio.PinState)
+}
+
+enum Std.Embedded.Uart.UartId {
+  Uart0
+  Uart1
+  Uart2
+  Uart3
+  Uart4
+  Uart5
+  Uart6
+  Uart7
+}
+
+enum Std.Embedded.Uart.UartDataBits {
+  Bits7
+  Bits8
+  Bits9
+}
+
+enum Std.Embedded.Uart.UartStopBits {
+  Half
+  One
+  OneAndHalf
+  Two
+}
+
+enum Std.Embedded.Uart.Parity {
+  NoParity
+  Even
+  Odd
+}
+
+enum Std.Embedded.Uart.UartDirection {
+  Receive
+  Transmit
+  Both
+}
+
+enum Std.Embedded.Uart.FlowControl {
+  NoFlowControl
+  Rts
+  Cts
+  RtsCts
+}
+
+enum Std.Embedded.Uart.Oversampling {
+  By8
+  By16
+}
+
+enum Std.Embedded.Uart.UartConfig {
+  UartConfig(baud_rate: Int, data_bits: Std.Embedded.Uart.UartDataBits, stop_bits: Std.Embedded.Uart.UartStopBits, parity: Std.Embedded.Uart.Parity, direction: Std.Embedded.Uart.UartDirection, flow_control: Std.Embedded.Uart.FlowControl, oversampling: Std.Embedded.Uart.Oversampling)
+}
+
+enum Std.Embedded.I2c.I2cId {
+  I2c1
+  I2c2
+  I2c3
+}
+
+enum Std.Embedded.I2c.I2cAddressing {
+  SevenBit
+  TenBit
+}
+
+enum Std.Embedded.I2c.I2cDutyCycle {
+  Standard
+  Fast16To9
+}
+
+enum Std.Embedded.I2c.MemoryAddressSize {
+  Bits8
+  Bits16
+}
+
+enum Std.Embedded.I2c.I2cConfig {
+  I2cConfig(clock_speed_hz: Int, addressing: Std.Embedded.I2c.I2cAddressing, duty_cycle: Std.Embedded.I2c.I2cDutyCycle)
+}
+
+enum Std.Embedded.Spi.SpiId {
+  Spi1
+  Spi2
+  Spi3
+  Spi4
+  Spi5
+  Spi6
+}
+
+enum Std.Embedded.Spi.SpiMode {
+  Master
+  Slave
+}
+
+enum Std.Embedded.Spi.SpiDirection {
+  TwoLine
+  TwoLineReceiveOnly
+  OneLine
+}
+
+enum Std.Embedded.Spi.SpiDataSize {
+  Bits8
+  Bits16
+}
+
+enum Std.Embedded.Spi.ClockPolarity {
+  IdleLow
+  IdleHigh
+}
+
+enum Std.Embedded.Spi.ClockPhase {
+  FirstEdge
+  SecondEdge
+}
+
+enum Std.Embedded.Spi.BitOrder {
+  MostSignificantFirst
+  LeastSignificantFirst
+}
+
+enum Std.Embedded.Spi.SpiPrescaler {
+  Div2
+  Div4
+  Div8
+  Div16
+  Div32
+  Div64
+  Div128
+  Div256
+}
+
+enum Std.Embedded.Spi.SpiConfig {
+  SpiConfig(mode: Std.Embedded.Spi.SpiMode, direction: Std.Embedded.Spi.SpiDirection, data_size: Std.Embedded.Spi.SpiDataSize, polarity: Std.Embedded.Spi.ClockPolarity, phase: Std.Embedded.Spi.ClockPhase, prescaler: Std.Embedded.Spi.SpiPrescaler, bit_order: Std.Embedded.Spi.BitOrder)
+}
+
 export fn main() -> String {
   let _%0: Float = @dbg[Float](area(Shape.Rect(width: 3.0, height: 2.0)))
   let _%1: String = @dbg[String](describe([1, 2, 3]: List[Int]))

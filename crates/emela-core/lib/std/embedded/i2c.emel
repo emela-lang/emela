@@ -1,0 +1,51 @@
+# The Emela interface for I2C. This version provides master operations only.
+# Transfers are synchronous and must not be called from interrupt context.
+import Std.Embedded.Peripheral.{PeripheralError}
+
+pub enum I2cId { I2c1, I2c2, I2c3 }
+pub enum I2cAddressing { SevenBit, TenBit }
+pub enum I2cDutyCycle { Standard, Fast16To9 }
+pub enum MemoryAddressSize { Bits8, Bits16 }
+pub type I2cConfig(
+  clock_speed_hz: Int,
+  addressing: I2cAddressing,
+  duty_cycle: I2cDutyCycle
+)
+
+pub effect I2c {
+  fn configure(id: I2cId, config: I2cConfig) -> () fails PeripheralError
+  fn master_transmit(
+    id: I2cId,
+    address: Int,
+    data: List[Int],
+    timeout_ms: Int64
+  ) -> () fails PeripheralError
+  fn master_receive(
+    id: I2cId,
+    address: Int,
+    size: Int,
+    timeout_ms: Int64
+  ) -> List[Int] fails PeripheralError
+  fn memory_write(
+    id: I2cId,
+    address: Int,
+    memory_address: Int,
+    address_size: MemoryAddressSize,
+    data: List[Int],
+    timeout_ms: Int64
+  ) -> () fails PeripheralError
+  fn memory_read(
+    id: I2cId,
+    address: Int,
+    memory_address: Int,
+    address_size: MemoryAddressSize,
+    size: Int,
+    timeout_ms: Int64
+  ) -> List[Int] fails PeripheralError
+  fn is_device_ready(
+    id: I2cId,
+    address: Int,
+    trials: Int,
+    timeout_ms: Int64
+  ) -> Bool fails PeripheralError
+}
