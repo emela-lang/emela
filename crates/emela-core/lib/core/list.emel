@@ -267,6 +267,9 @@ pub fn sort[A: Ord](xs: List[A]) -> List[A] {
 
 # The built-in impls (spec 10.6). Elements are compared and shown through their own impls. Ord
 # compares lexicographically: a list is less than any longer list that starts with it.
+# Eq and Ord recurse through `eq_lists` and `compare_lists`, not through `Eq.eq` and `Ord.compare`
+# on the rest: a call through a trait function is not a self tail call (loops are made before
+# monomorphization picks the impl), and long lists would use the stack.
 
 impl List[A: Eq]: Eq {
   fn eq(self, other) { eq_lists(self, other) }

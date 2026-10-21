@@ -4,6 +4,11 @@
 # `with SystemFileSystem { ... }`, or with `with Platform { ... }` from `Std.Platform`.
 # Relative paths are resolved from the current directory of the process. Paths are not
 # normalized (no `..` resolution, no `~` expansion).
+#
+# SystemFileSystem's host functions return an `Outcome` (below). The functions reading it are
+# pure (`use {}`): they only read an immutable object. On C, Emela does not free host values
+# (spec 12.3), so each operation takes everything out of the outcome, releases it, and only then
+# fails. The operations do not stop on interruption: reading and writing are short.
 
 import Std.Path
 import Std.State.{State}

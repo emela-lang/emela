@@ -497,6 +497,11 @@ impl Emitter<'_> {
 
     /// A JS expression for the string showing `v` (a JS expression) of type `ty`.
     ///
+    /// This shows the structure (the same constructor form as a derived Show). A type that reaches
+    /// a written Show impl never gets here: monomorphization has already turned its
+    /// interpolation, `dbg`, `inspect` and assert into calls of `Show.show`, and an assert on a type
+    /// without Show into `AssertCond::Bool`.
+    ///
     /// `Type::Param(i)` is only valid inside an enum show function, where it calls the show
     /// function received as `$a{i}`.
     fn show_call(&mut self, ty: &TypeId, v: &str) -> String {
@@ -549,8 +554,8 @@ impl Emitter<'_> {
                 let body = self.show_call(ty, "$x");
                 format!("(($x) => {body})")
             }
-            // Debug display (`inspect`, spec 10.6). Interpolation of a function is rejected in
-            // lowering.
+            // Only `dbg` shows a function (`[trait.builtin]`): a function type has no Show, so
+            // interpolation and `inspect` of one never get here.
             Type::Fn(_) => self.rt("$showFn").to_owned(),
             Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
             Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any => {

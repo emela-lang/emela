@@ -288,7 +288,8 @@ impl InferCtx {
         ok
     }
 
-    /// Whether `row` has a tag that is the same as `tag` ([`Self::same_tag`]).
+    /// Whether `row` has a tag that is the same as `tag` ([`Self::same_tag`]). If `row` has
+    /// several tags of the same effect, the first one that unifies is taken (an approximation).
     pub(crate) fn row_has_tag(&mut self, row: &Row, tag: &Tag) -> bool {
         let tags: Vec<Tag> = row.tags().cloned().collect();
         tags.iter().any(|t| t == tag) || tags.iter().any(|t| self.same_tag(t, tag))
@@ -394,7 +395,9 @@ impl InferCtx {
         self.unify(expected, actual)
     }
 
-    /// The common type of two branches. If one side is `Never`, the other's type.
+    /// The common type of two branches. If one side is `Never`, the other's type. An unbound type
+    /// variable joined with `Never` stays unbound rather than being bound to `Never`: `Never`
+    /// unifies only with `Never`, so binding it would reject the type a later branch gives it.
     ///
     /// On failure, reports `a` as the expected type and `b` as the actual type.
     ///
@@ -582,6 +585,10 @@ impl InferCtx {
 
     /// Quantifies the type variables of `ty` not in `env_vars` (those occurring in the
     /// environment).
+    ///
+    /// The caller passes the environment's variables instead of the context tracking levels:
+    /// only top-level definitions are generalized, so level-based generalization would buy
+    /// nothing.
     ///
     /// Type parameters are named `A`, `B`, ... in order of occurrence, without constraints.
     pub fn generalize(&mut self, ty: &Ty, env_vars: &[TyVar]) -> Scheme {

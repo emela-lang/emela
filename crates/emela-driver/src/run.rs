@@ -40,6 +40,13 @@ pub const FAIL_KEY: &str = "emela.fail";
 /// child's Interrupt and never gets here (spec 11.5). Unwinding when the loop empties includes
 /// child fibers. A defect, including one inside a host callback, prints `defect: <message>` and
 /// exits with 101 (spec 7.5).
+///
+/// The launcher does not import the runtime. So it tells a defect by its `name` ([`DEFECT_NAME`])
+/// rather than `instanceof`, a failure by the [`FAIL_KEY`] symbol, and takes `$start` from the
+/// entry, which exports it. Exceptions in host callbacks are caught with `uncaughtException`, and
+/// an unresumed end with `beforeExit`. The exit code is set through `process.exitCode`, or
+/// `process.exit` only in the callback of the last write, so that writes to a pipe are not cut
+/// off.
 const LAUNCHER: &str = r#"
 import { pathToFileURL } from "node:url";
 let over = false;

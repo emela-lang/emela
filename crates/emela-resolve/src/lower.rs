@@ -182,7 +182,8 @@ impl Lower<'_, '_> {
     }
 
     /// `[A: Ord, Item]`. Pushes a type parameter scope; the caller pops it with
-    /// `pop_type_params`.
+    /// `pop_type_params`. Parameters are not told apart by kind (a type, an error set or an
+    /// effect set): type inference infers the kind from their uses (`[type.fn]`).
     fn type_params(&mut self, owner: DefId, list: Option<SyntaxNode>) -> Vec<TypeParam> {
         self.type_params_in(owner, list, false).0
     }
@@ -984,6 +985,9 @@ impl Lower<'_, '_> {
     /// Looks up a path in the type namespace and checks its kind. A single segment is looked up
     /// as a type parameter, then a module definition, then the Prelude; `A.B` is the pub type of
     /// module `A`.
+    ///
+    /// In a type argument of a named type an effect also fits [`Expected::Type`]: which arguments
+    /// take a set is known only to type inference, which reports E0221 for the others.
     fn resolve_type_ns(&mut self, path: &ast::Path, expected: Expected) -> Res {
         let segments: Vec<SyntaxToken> = path.segments().collect();
         let Some((last, prefix)) = segments.split_last() else {

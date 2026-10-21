@@ -3,6 +3,18 @@
 # The tree is weight balanced (Adams; the same parameters as Haskell's Data.Map): neither child
 # of a node is more than `DELTA` times the size of the other, so the depth stays O(log n).
 # Values are compared and shown by their pairs in key order, never by the shape of the tree.
+#
+# The tree is the Map itself (an opaque enum). `[lib.layers]` declares `pub opaque type Map[K, V]`;
+# from outside, an opaque type and an opaque enum look the same. Recursion goes as deep as the
+# tree, O(log n), so it is not made a self tail call (nor are `to_list` and `fold`). Eq and Show
+# are written impls, so `==`, interpolation, `inspect` and `dbg` all go through them, never
+# through the structure.
+#
+# `balance` takes the heavy child apart with a pattern and a guard and hands its parts to
+# `rotate_left` / `rotate_right`, which choose a single or a double rotation. The shape of the
+# child is then fixed by the pattern, and no rotation has a branch that cannot happen. Single and
+# double rotations are not separate functions: passed as parts, they would take 7 to 10
+# arguments.
 
 ## A map from keys of type `K` to values of type `V`, ordered by the keys.
 pub opaque enum Map[K, V] {

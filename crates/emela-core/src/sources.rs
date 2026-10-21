@@ -136,9 +136,9 @@ mod tests {
                 .filter(|f| f.has_annotation("intrinsic"))
                 .map(|f| f.syntax().text_range())
                 .collect();
-            // The current check requires `@external` on bodiless fns (E0130). Only E0130 on
-            // `@intrinsic` declarations is allowed, on the assumption the check will exempt them;
-            // any other diagnostic is an error.
+            // E0130 on `@intrinsic` declarations is allowed, from when the syntax check required
+            // `@external` on every bodiless fn. It exempts `@intrinsic` now. Any other diagnostic
+            // is an error.
             let errors: Vec<_> = parse
                 .diagnostics()
                 .iter()
@@ -173,6 +173,9 @@ mod tests {
         ("Std.Deferred", "poll"),
     ];
 
+    /// Every row is declared exactly once, with the table's parameter and return types and number
+    /// of type parameters. Parameter names (the labels of named arguments) are not in the table:
+    /// the source is the authority for them.
     #[test]
     fn intrinsics_match_the_table() {
         let mut declared = Vec::new();

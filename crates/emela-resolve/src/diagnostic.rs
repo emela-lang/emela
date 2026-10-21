@@ -120,7 +120,8 @@ pub enum Expected {
     Effect,
     /// The contents of a layer.
     HandlerOrLayer,
-    /// `with X`: a handler, a layer, or a label.
+    /// `with X`: a handler, a layer, or a label. Any effect fits here: whether it is a label is
+    /// left to type checking (E0430).
     WithItem,
     /// The left of `by` in `with L by P`.
     Label,

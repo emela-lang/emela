@@ -11,8 +11,8 @@
 #   })
 #
 # `Scope`, `scope`, `join`, `await`, `interrupt` and `attempt` are built in (the runtime
-# schedules the fibers, NOTES.md). The combinators `all`, `race`, `both`, `map` and `timeout` are
-# written in Emela on top of them (spec 11.3).
+# schedules the fibers; `@intrinsic` on an effect marks a built-in effect). The combinators
+# `all`, `race`, `both`, `map` and `timeout` are written in Emela on top of them (spec 11.3).
 
 import Std.Cause.{Cause}
 import Std.Clock.{Clock}

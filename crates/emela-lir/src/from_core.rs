@@ -169,8 +169,8 @@ enum Derive {
     Show,
     /// `eq$T(a: T, b: T) -> Bool`: structural equality.
     Eq,
-    /// `name$E(x: E) -> String`: the name of an error that has a function-typed field, shown in
-    /// place of its value at the entry (spec 14.3).
+    /// `name$E(x: E) -> String`: the name of an error that does not satisfy Show, shown in place
+    /// of its value at the entry (`[dyn.error]`).
     ErrorName,
 }
 
@@ -781,6 +781,9 @@ impl<'s> Lower<'s> {
 
     /// The value of a compound statement just pushed: `dst` of type `ty`, or `unreachable` if no
     /// branch reaches its end.
+    ///
+    /// `dst` is made after the arms, since its type is that of the first arm that gives a value;
+    /// so in the dump its number is larger than those of the variables inside the arms.
     fn joined(&mut self, dst: Option<VarId>, ty: Option<TypeId>) -> R {
         match ty {
             Some(ty) => Ok(Val {

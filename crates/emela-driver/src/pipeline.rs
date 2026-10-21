@@ -1,4 +1,4 @@
-//! The pipeline: collects modules, lexes them, and checks the import graph.
+//! The pipeline: collects modules, has the [`Frontend`] parse them, and checks the import graph.
 //!
 //! Parsing, type checking and emission (JS or C) are plugged in through [`Frontend`] and
 //! [`Backend`].
@@ -288,7 +288,8 @@ impl Input {
 }
 
 /// The listing for a single file: shows only files directly under the root, never
-/// subdirectories.
+/// subdirectories. Filtering the listing keeps `emela_resolve::collect_modules` unchanged for
+/// single files.
 struct Shallow<'a>(&'a dyn FileSystem);
 
 impl SourceFs for Shallow<'_> {
@@ -313,6 +314,9 @@ pub trait Frontend {
 
     /// Lexes and parses one module, returning both lexer and parser diagnostics (the pipeline
     /// does no lexing itself). Keeps the tree in `self` for [`Frontend::check`].
+    ///
+    /// Lexing is left to the frontend because `emela_syntax::parse` lexes again and returns the
+    /// lexer diagnostics too; lexing in the pipeline as well would report them twice.
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed;
 
     /// Called once after all read modules are parsed and imports checked. `order` is the
@@ -481,6 +485,10 @@ pub struct Checked<P> {
 
 /// The plug-in point for the output stage (JS, or C with [`crate::CoreC`]). Called only when
 /// there are no errors.
+///
+/// The trait and its output ([`BuildOutput`]) are shared by every target, so their names do not
+/// say JS (they were `JsBackend` and `JsOutput`). What only JS uses keeps the JS name
+/// ([`crate::CoreJs`], [`crate::JS_ENTRY_FILE`], [`NoJsBackend`]).
 pub trait Backend<P> {
     fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>>;
 

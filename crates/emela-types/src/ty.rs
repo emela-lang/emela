@@ -2,6 +2,11 @@
 //!
 //! Types are nominal. Types declared with `type` and `enum` are registered in `TyCons` and
 //! referred to by `TyConId`. Primitive types, `List`, tuples and functions are structural.
+//!
+//! `List` could be a named type of the Prelude, but it is built in to keep display and
+//! unification simple. The Prelude's `Bool` enum (`True` / `False`) is `Prim::Bool`, and its
+//! constructors have type `Bool`; the spec's enum is the meaning users see, and the
+//! representation is left to the implementation (`[target.unspecified]`).
 
 use std::ops::Index;
 
@@ -86,10 +91,12 @@ pub enum TyConKind {
     /// A record.
     Type,
     Enum,
-    /// `error` (spec 7.1). Also defines a type of the same name.
+    /// `error` (spec 7.1). Registered here because it also defines a type of the same name
+    /// (`[error.decl]`). Error sets hold errors by `DefId`; the type table maps between the two.
     Error,
     /// A handler value (spec 8.4). Cannot be written in source; appears only as the value of a
-    /// handler's `init` and as the type of `self`.
+    /// handler's `init` and as the type of `self`. Takes no type arguments. A handler without
+    /// fields uses the same type for `self` (accessing a field is E0312).
     Handler,
 }
 
@@ -221,13 +228,20 @@ pub enum Ty {
     Named(TyConId, Vec<Ty>),
     /// A set passed as a set type argument of a named type (the `E` and `R` of `Handler[E, R]`,
     /// spec 9.2). Appears only in type argument positions of named types; not a value type.
+    /// `SetKind` decides how it is displayed (`A | B` or `{ A, B }`).
+    ///
+    /// Substitution, generalization and resolution after solving treat it like the E and R of a
+    /// function type. Generalization counts set variables here as negative positions, since a type
+    /// argument is used in both directions.
     Set(SetKind, Row),
     /// The type of an effect's capability value (spec 8.2), returned by `use X`. Holds the
     /// effect definition and its type arguments (`use State[Int]`, spec 8.1). Cannot be written in
     /// source, and cannot be passed as an argument, stored in a data structure or returned.
     Cap(Tag),
     /// A broken type, made from a type that could not be read or a name that could not be
-    /// resolved. Unification silently accepts it against any type so errors do not cascade.
+    /// resolved. Unification silently accepts it against any type so errors do not cascade, and
+    /// type variables unified with it are bound to it. Lowering never sees it: it is not called
+    /// when there is any error.
     Error,
 }
 

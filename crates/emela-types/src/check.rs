@@ -25,9 +25,15 @@ use crate::ty::{Ty, TyVar};
 
 /// Tables keyed by HIR ids.
 ///
-/// Lowering walks the HIR and looks up what it needs in these tables (see NOTES.md). Types have
-/// unification bindings followed. Type variables that were never determined (an unused `None`,
-/// say) remain type variables; lowering treats them as `()`.
+/// Lowering walks the HIR and looks up what it needs in these tables; the LSP hover reads the
+/// same tables. There is no typed tree (THIR): it would be a second tree of nearly the same shape
+/// as the HIR to maintain. Types have unification bindings followed. Type variables that were
+/// never determined (an unused `None`, say) remain type variables; lowering treats them as `()`,
+/// and no representation would behave differently. Inside a generic fn's body, its type
+/// parameters appear as `Ty::Bound(i)`.
+///
+/// Lowering runs only when there are no errors, so the tables may lack entries for erroneous
+/// expressions (the `calls` of a call with a type error, say).
 pub struct ProgramTypes {
     pub ty_table: TyTable,
     /// Declared types of fns, constructors and consts. Definitions without a declared type get
@@ -42,11 +48,14 @@ pub struct ProgramTypes {
     /// order).
     pub fields: ArenaMap<ExprId, usize>,
     /// Call (`Call`), pipe (`Binary { op: Pipe }`) and update (`Update`) expressions → the
-    /// arguments reordered by parameter (field) position. Pipes include the left operand first.
-    /// Updates have `Some` only for the fields written.
+    /// arguments reordered by parameter (field) position. Pipes include the left operand first;
+    /// their callee is the right side's callee if the right side is a call, else the right side
+    /// itself. Updates have `Some` only for the fields written. Whether to evaluate in written
+    /// order (`named::in_written_order`) is left to lowering.
     pub calls: ArenaMap<ExprId, Vec<Option<ExprId>>>,
     /// References to generic definitions (`Path`) → the instantiated type arguments, in the
-    /// declaration's type parameter order.
+    /// declaration's type parameter order. Also references to capability operations with their
+    /// own type parameters (the `Field` of `s.fork`): only the operation's own, not the effect's.
     pub type_args: ArenaMap<ExprId, Vec<Ty>>,
     /// References to generic definitions (`Path`) → the instantiated sets, in the declaration's
     /// type parameter order (empty at positions that are not set parameters). Unlike `type_args`,

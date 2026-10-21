@@ -1,4 +1,7 @@
 //! `Pome.toml` (spec 4.7).
+//!
+//! `[build]` is not read here: emela-driver reads `[build].target` on its own (spec
+//! `[module.pome]`, E0232), since only the build of the project itself uses it.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -14,7 +17,9 @@ pub struct Manifest {
     pub name: SourcePath,
     /// `[pome].version`, held as the tag (`v` + the written version).
     pub version: Version,
-    /// The minimum compiler version the Pome needs, as written (`0.20.1`).
+    /// The minimum compiler version the Pome needs, as written (`0.20.1`). Not compared here:
+    /// emela-driver compares it with the compiler's version when it reads the dependencies (spec
+    /// `[module.pome]`, E0234 and W0203).
     pub emela: String,
     /// `[pome].module`: the root name the author chose.
     pub module: Option<String>,

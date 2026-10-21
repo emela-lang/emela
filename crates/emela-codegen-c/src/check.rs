@@ -1,4 +1,7 @@
 //! What the C target does not support yet, found on the Flow IR before the Heap IR passes.
+//!
+//! The check runs after monomorphisation from the entry, so it only sees what the entry reaches
+//! (`[target.c.unsupported]`).
 
 use emela_core::{Builtin, Type};
 use emela_lir::{Const, Function, Module, Operand, Stmt, Value};

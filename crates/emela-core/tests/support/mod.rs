@@ -53,7 +53,8 @@ pub fn resolve_files<'s>(
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
-    // `@intrinsic` in bundled sources gets E0130 (see emela-core's NOTES), so only that is allowed.
+    // E0130 is still allowed: it used to be reported on the `@intrinsic` declarations of the
+    // bundled sources. The syntax check exempts them now (`emela_syntax` validation).
     let diagnostics: Vec<_> = diagnostics
         .iter()
         .filter(|d| !d.to_string().contains("E0130"))

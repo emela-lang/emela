@@ -3,7 +3,8 @@
 # Only the `deferred` operation of `Scope` (or `Fiber.deferred()`) makes one, so it belongs to a
 # scope and cannot leave it (spec 11.8).
 #
-# The functions are built in: the runtime holds the box (NOTES.md).
+# The functions are built in: the runtime holds the box. Lowering turns them into concurrency
+# operations of the Core IR, not rows of the builtin table.
 
 ## A box for one value of type `A`. Held by the runtime.
 @external

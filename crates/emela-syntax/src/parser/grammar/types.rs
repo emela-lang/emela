@@ -45,7 +45,8 @@ fn path_type(p: &mut Parser<'_>) {
 /// A set passed as a type argument to a set type parameter of a named type
 /// (`Handler[NotFound | Timeout, { Db, Log }]`, spec 9.2). Braces are the effect set notation
 /// (`{}` is the empty set and may also stand where an error set goes); `|` joins an error set.
-/// A single element is read as a type (`Handler[NotFound, Db]`).
+/// A single element is read as a type (`Handler[NotFound, Db]`). Which type arguments take a set
+/// is not checked here; type inference does (E0323, E0324).
 fn type_arg(p: &mut Parser<'_>) {
     if p.at(L_BRACE) {
         effect_set(p);

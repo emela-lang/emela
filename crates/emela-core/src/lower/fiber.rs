@@ -10,7 +10,20 @@
 //! the scope the child belongs to (spec 11.2). Scope's handler value captures the evidence table
 //! at the `Fiber.scope` call, and fork's implementation calls the child with that table. Scope is
 //! the capability value that forked the child (added when the call site wraps the child function).
-//! A `with` inside the scope body does not reach children.
+//! A `with` inside the scope body does not reach children; a closure made inside that `with` and
+//! then forked adds the `with`'s handlers itself, as `[fiber.scope]` allows.
+//!
+//! Why a handler value, rather than passing the run-time scope to `FiberOp::Fork` directly: the
+//! child's table must be tied to the capability value, since it is the table where `Fiber.scope`
+//! was called, not where `s.fork` is. The lambdas of a handler value just capture it.
+//!
+//! Whether the wrapped child is given a table follows the type of `f` at the fork call, not the
+//! scope's R: the scope's R also holds the effects of the scope's body.
+//!
+//! The Scope key is always `Std.Fiber.Scope[_, _]`: its type arguments are sets, which keys leave
+//! out. In nested scopes, `use Scope` finds the innermost handler, and a capability value taken
+//! out in an outer scope forks into that outer scope. Since a child's table holds the capability
+//! value that forked it, the children of an inner scope fork their siblings into it.
 
 use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};

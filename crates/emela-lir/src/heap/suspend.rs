@@ -24,7 +24,8 @@
 //! - Before each suspending call it puts a fairness yield ([`RuntimeOp::Yield`], or
 //!   [`RuntimeOp::YieldPerform`] before a `suspend fn` operation, which also delivers a pending
 //!   interruption; spec 11.1, 11.4). A yield is a suspension point with a copy of the call's
-//!   defect landing.
+//!   defect landing. They come as often and in the same places as the JS backend's
+//!   `$spend() && (yield $pause())`.
 //! - Each value that may suspend gets its `on_suspend` edge. The saved variables are those live
 //!   after the value on any way on (its landings included) and the references the value borrows:
 //!   after reference counting, the resumed function then owns exactly what the uninterrupted one

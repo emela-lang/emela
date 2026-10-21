@@ -37,6 +37,9 @@ fn may_suspend(e: &Expr) -> bool {
 /// The evidence table key. For an effect with type arguments (`State.State[Int]`, spec 8.1),
 /// turning the name into an identifier could collapse the type argument delimiters and collide,
 /// so the IR effect index is appended to keep keys distinct.
+///
+/// Keys start with an uppercase letter (effect names do), so they never shadow a name on
+/// `Object.prototype` that the table would otherwise inherit.
 pub(crate) fn effect_key(m: &Module, effect: EffectId) -> String {
     let name = &m.effects[effect].name;
     if name.contains('[') {
@@ -83,6 +86,10 @@ pub(crate) fn module_specifier(module: &str) -> String {
 
 impl Emitter<'_> {
     /// `{ __proto__: base, Console: h }`．
+    ///
+    /// Each `with` makes a new table chained to the outer one instead of writing into it. A
+    /// capability taken out of the outer table, or a closure that captured the outer table, keeps
+    /// seeing the outer handlers.
     pub(super) fn provide(&mut self, base: Option<&Expr>, bindings: &[(EffectId, Expr)]) -> String {
         let mut es: Vec<&Expr> = base.into_iter().collect();
         es.extend(bindings.iter().map(|(_, h)| h));
@@ -154,8 +161,10 @@ impl Emitter<'_> {
     /// For each binding with release, the later bindings and the body are wrapped in `try`, and
     /// release is evaluated in `finally`. A failure of a later binding (init) or of the body leaves
     /// the `try` by `return` or `break`, so releases run in reverse binding order. When unwinding
-    /// while suspended, the runtime closes the generator with `gen.return()`, which runs the same
-    /// `finally` (`$Interrupted` from `$sync` leaves as an exception).
+    /// while suspended, the runtime throws `$Interrupted` into the waiting continuation, which
+    /// runs the same `finally` from the inside out. Throwing replaced closing the generator with
+    /// `gen.return()` so that interruption works per fiber: a scope (`$scope`) can catch the
+    /// interruption aimed at its body on the way.
     ///
     /// ```js
     /// const h$1 = Pool();

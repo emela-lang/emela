@@ -507,7 +507,8 @@ impl Printer<'_> {
     }
 }
 
-/// A Core type, written as the Core dump writes it.
+/// A Core type, written as the Core dump writes it (a copy: the Core dump's own function is
+/// private).
 pub fn core_ty(core: &emela_core::Module, ty: TypeId) -> String {
     let list = |ts: &[TypeId]| {
         ts.iter()

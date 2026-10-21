@@ -127,6 +127,8 @@ impl TestBackend<TestModule> for CoreC {
     }
 }
 
+/// emela-codegen-c's errors as diagnostics (spec `[target.c.unsupported]`). They have no location:
+/// the Heap IR that codegen reads carries no source positions.
 fn diagnostics(errors: Vec<CError>) -> Vec<Diagnostic> {
     errors
         .into_iter()

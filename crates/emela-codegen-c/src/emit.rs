@@ -153,6 +153,8 @@ struct Emitter<'m> {
     host_files: Vec<String>,
     /// The const functions, for the cleanup at exit.
     consts: Vec<FnId>,
+    /// The `show` of each error enum's descriptor (`emela_lir::Module::error_shows`), which shows a
+    /// failure that reaches the entry.
     error_shows: FxHashMap<EnumId, FnId>,
     errors: Vec<CError>,
 }
@@ -898,6 +900,8 @@ impl<'m> Emitter<'m> {
         }
     }
 
+    /// Which slots of an object made from `args` hold references. Taken from the arguments'
+    /// representations: after monomorphisation they are fixed per type.
     fn refs_of(f: &Function, args: &[Operand]) -> Vec<bool> {
         args.iter()
             .map(|a| Self::operand_repr(f, a) == Repr::Ref)

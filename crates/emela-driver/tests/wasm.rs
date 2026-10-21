@@ -155,8 +155,8 @@ fn a_release_defect_keeps_the_first_defect() {
         return;
     }
     // The body defects and the `release` fails too: the first defect stays the result (spec 14.4).
-    // The note for the release is not implemented on WASM yet (NOTES.md), so only the first line
-    // is checked.
+    // The note for the release is not implemented on WASM yet (spec `[target.wasm.unsupported]`),
+    // so only the first line is checked.
     let (analysis, output) = run_wasm(
         "release-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\

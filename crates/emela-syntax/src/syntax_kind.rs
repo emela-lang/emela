@@ -217,6 +217,8 @@ pub enum SyntaxKind {
     /// The base of a label (an effect declared `of` another). `of Console default`
     EFFECT_LABEL,
     /// `handler PostgresUsers(conn: Connection): Users { ... }`
+    ///
+    /// The `:` is a direct child, as in `trait Ord: Eq`, so the formatter puts no space before it.
     HANDLER_DECL,
     /// The effect a handler implements, after `:`. `Users`, `State[Int]`
     HANDLER_EFFECT,
@@ -332,6 +334,9 @@ pub enum SyntaxKind {
     ///
     /// A bare `..` is also accepted so that it can be read as the left side of a binding.
     /// `User(name:, ..) = user`
+    ///
+    /// Kept apart from a list's REST_EXPR. Whether the callee is a constructor is not checked by
+    /// the parser.
     SPREAD_ARG,
     /// `user.name`
     FIELD_EXPR,
@@ -353,6 +358,9 @@ pub enum SyntaxKind {
     /// `if c { a } else { b }`
     IF_EXPR,
     /// `x match { ... }`
+    ///
+    /// Children: the scrutinee, `match`, MATCH_ARM_LIST. The scrutinee is still the first
+    /// expression child, as in the old prefix form, so nothing after the parser had to change.
     MATCH_EXPR,
     /// The arms of `match` and `escape`. `{ A -> 1⏎ B -> 2 }`
     MATCH_ARM_LIST,

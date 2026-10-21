@@ -306,8 +306,13 @@ impl Shapes<'_> {
     }
 }
 
-/// Out-of-range integers (reported by the type checker) become values that overlap nothing.
-/// `negative` is for a const's unary minus; a pattern's literal carries its own `-` (spec 6.5).
+/// Out-of-range integers (reported by the type checker) that still fit in i64 are compared as
+/// values, as a positive `0xFFFF_FFFF` written for an Int is, so two arms with the same such value
+/// are still redundant. Only those beyond i64 become values that overlap nothing.
+///
+/// `negative` is for a const's unary minus; a pattern's literal carries its own `-` in its text
+/// (spec 6.5). The value is read with `int_literal_value`, the same function the range check and
+/// lowering use, so the three agree.
 fn lit_value(lit: &Literal, negative: bool) -> Lit {
     match lit {
         Literal::Int(text) => {

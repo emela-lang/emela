@@ -1,7 +1,7 @@
 // The Emela JS runtime (the pure subset of 0.20).
 //
 // Generated code only uses names starting with `$`. Emela identifiers never contain `$`, so they cannot clash.
-// For the value representation, see crates/emela-codegen-js/NOTES.md.
+// For the value representation, see the crate docs (crates/emela-codegen-js/src/lib.rs).
 // When inlined, the leading `export ` of each line is stripped, so write `export` only at the start of a line.
 
 // A defect (spec 16.5). An unrecoverable error, thrown with its own class.
@@ -190,8 +190,7 @@ export function* $maybe(result) {
 // switches is the same on every run. A resume called from a host callback queues the continuation and drains the
 // queue inside that call, so the continuation runs inside the resume (14.5, item 4).
 //
-// Fairness (11.1) is not implemented yet. It can be added as a request that puts the fiber back at the end of the
-// queue, issued by `$step` every so many suspending calls.
+// Fairness (11.1) is the `$pause` request above: the fiber goes back to the end of the queue.
 
 // The fiber being stepped, or null outside the scheduler (in host callbacks).
 let $current = null;
@@ -1081,6 +1080,7 @@ export function $todo() {
 }
 
 // The Prelude's `dbg(value)`. `show` is the display function generated from the value's type.
+// `console.error` rather than `process.stderr`, so it also works in browsers.
 export function $dbg(value, show) {
   console.error(show(value));
   return value;
@@ -1349,7 +1349,7 @@ export function $showUnit(_) {
   return "()";
 }
 
-// A function value in the debug display (`inspect`, spec 10.6).
+// A function value in the debug display (`dbg`, spec 10.6).
 export function $showFn(_) {
   return "<fn>";
 }

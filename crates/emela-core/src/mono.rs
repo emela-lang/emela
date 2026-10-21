@@ -33,6 +33,31 @@
 //! arguments (`Type::Enum(id, args)`), from which backends compute field representations. Effects
 //! are rebuilt: the output has each effect instance that is used once, keyed like lowering's
 //! evidence table keys (the declaration and the type arguments without E and R).
+//!
+//! The keys, the worklist and the substitution do not depend on the shape of the Core tree, so
+//! that the pass can later run on another IR (a flow IR) as well.
+//!
+//! # Why JS is monomorphized too
+//!
+//! Traits are then resolved in one place, here, and JS needs no dictionary passing of its own.
+//! The C and WASM backends monomorphize the IR they receive again; on monomorphic IR that changes
+//! neither names nor shapes (it starts from roots without type parameters and follows only calls
+//! without type arguments).
+//!
+//! Suspending copies from lowering (`name$suspend<bits>`) overlap with what set summaries say, but
+//! stay: the bits that pick a copy and the `suspends` flag of a summary come from the same set, so
+//! they cannot disagree, and since the key includes the summaries each copy is its own
+//! instantiation.
+//!
+//! # Cost
+//!
+//! Measured on 2026-10-15 (release builds). On a generated program of 4000 functions, the part
+//! reachable from main (1005 functions) took 6 ms; with every function as a root (4139, 35
+//! generic, giving 4153) 23 ms, and `verify_monomorphic` 8 ms, against 1.3–1.5 s for type
+//! checking, lowering and verification. For `emela build` of generated generic-heavy programs, the
+//! JS output grew 4.6–5.1 times (shortening the names still leaves 4.3–4.8: it is the number of
+//! copies, as each instantiation of `List.map` also copies `fold`, `reverse` and `reverse_onto`)
+//! and the time 1.1–1.3 times; the programs in `examples/` changed by 0.97–1.14 times.
 
 mod debug;
 mod derive;
@@ -675,6 +700,17 @@ impl<'a> Mono<'a> {
     ///
     /// Branches (`if`, `match`, `escape`) and the bodies of `let`, `with` and `loop` are adapted
     /// separately, as each may produce a different value.
+    ///
+    /// JS ignores extra arguments, so it would run without this, but WASM's `call_indirect`
+    /// traps on a wrong argument count.
+    ///
+    /// A function inside an enum's type arguments or a list's element type cannot be adapted
+    /// (`List[fn() -> Int]` used as a `List[fn() -> Int ev]`). That does not happen today: the
+    /// type checker compares the type arguments of named types for equality, and list literals
+    /// adapt element by element. [`crate::verify_monomorphic`] would catch it. Function types that
+    /// lowering builds by hand (the fiber wrappers, `State.run`'s operations, handler operation
+    /// implementations) have no `sets`, so their flags stay approximate; none takes the evidence
+    /// table, so the argument count is right anyway.
     fn coerce(&mut self, old: &'a Expr, new: Expr, slot: TypeId) -> Expr {
         let slot_is_fn = matches!(self.out.ty(slot), Type::Fn(_));
         if !slot_is_fn && slot != TypeId::EVIDENCE {

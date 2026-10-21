@@ -1,7 +1,21 @@
 //! The test entry module (spec chapter 13).
 //!
 //! Imports the emitted module, calls test functions one by one, and writes the results to stdout.
-//! See the top of `test_runner.mjs` for the format of result lines.
+//!
+//! The result lines are a private protocol between the entry module and `emela test`, which runs
+//! the entry module on node and reads its stdout. They are not in the spec; what users see is
+//! `[cmd.test.output]` and `[cmd.test.outcome]`.
+//!
+//! - One event per line: U+001E, `emela-test`, one space, a JSON value, a newline. The leading
+//!   U+001E sets the line apart from whatever the test functions print.
+//! - `{"event":"result","name":…,"outcome":…,"message":…}` per test. `name` is the test name of
+//!   `[test.command]`. `outcome` is `"ok"` (no message), `"error"` (an unhandled error; the message
+//!   is the error's display, `NotFound(id: 0)`), `"defect"` (the defect's message) or
+//!   `"interrupted"` (unwound while suspended; no message).
+//! - `{"event":"done"}` last.
+//!
+//! Tests run one at a time; the next starts after the previous one ended, and an error, defect or
+//! interruption does not stop the others.
 
 use std::fmt::Write as _;
 

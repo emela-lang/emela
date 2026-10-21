@@ -1,3 +1,11 @@
+//! The `emela` command (spec `[cmd]`).
+//!
+//! The `--help` text uses the same words as the Commands table in the README. Defaults are written
+//! by hand at the end of each description in clap's `[default: …]` form, not with
+//! `default_value`, because the `Option<PathBuf>` defaults (`.`, the per-target output directory)
+//! are decided in this file after the project is found. The test `help_is_english` keeps the text
+//! ASCII.
+
 use clap::{CommandFactory, Parser, Subcommand};
 use emela_driver::{
     Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, FileSystem, Input, Lower, LowerTests,

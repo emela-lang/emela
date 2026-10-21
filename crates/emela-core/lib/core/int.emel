@@ -1,4 +1,7 @@
 # Functions on Int (32-bit signed). Overflow wraps in two's complement (spec 16.1).
+#
+# `parse` is written in Emela over the private builtin `parse_or_none`, since a builtin cannot
+# fail.
 
 ## Decimal digits, with `-` if negative.
 @intrinsic

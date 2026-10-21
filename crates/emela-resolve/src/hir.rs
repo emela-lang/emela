@@ -419,8 +419,8 @@ pub struct WithItem {
     pub by_args: Vec<TypeId>,
 }
 
-/// A call argument. Named arguments (with `label`) are not resolved; only the name and position
-/// are kept. The shorthand `NotFound(id:)` makes `value` a reference to the local `id` and sets
+/// A call argument. Named arguments (with `label`) are not resolved, since that needs the callee's
+/// signature; only the name and position are kept. The shorthand `NotFound(id:)` makes `value` a reference to the local `id` and sets
 /// `punned`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arg {
@@ -645,7 +645,8 @@ pub struct ImplItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplFn {
     /// A [`DefKind::ImplFn`] whose parent is the impl. Not in any namespace: it is called through
-    /// the trait function (`Show.show`), and monomorphization picks it (spec 10.3).
+    /// the trait function (`Show.show`), and monomorphization picks it (spec 10.3). It is still a
+    /// definition so that type checking and lowering handle it per definition, like an fn.
     pub def: DefId,
     pub name: Label,
     /// The trait function implemented.

@@ -108,6 +108,9 @@ impl Mono<'_> {
         };
         self.out.functions[f].body = body;
         if list {
+            // The list function calls itself in tail position on the rest of the list. Lowering
+            // loopified everything before monomorphization, so this one is loopified here, to
+            // keep long lists off the stack.
             crate::tail::loopify_function(&mut self.out, f);
         }
         f

@@ -580,6 +580,10 @@ where
     }
 
     /// Checks the project containing the file (or just the file if it is standalone).
+    ///
+    /// Every request checks again from scratch instead of reusing the analysis of the last
+    /// diagnostics run. Nothing is incremental or cached across edits, so an answer can never be
+    /// computed from contents older than the request (`[lsp.project]`).
     fn check_file(&mut self, uri: &Uri) -> Option<(Analysis, F::Program, FileId)> {
         let path = self.path_of(uri)?;
         let input = match Input::resolve(&self.fs, &path).ok()? {

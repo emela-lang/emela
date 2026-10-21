@@ -3,6 +3,9 @@
 //! The builtin table (`emela_core::intrinsics`) only knows names and types; the implementations
 //! live in `runtime.mjs`. The match is exhaustive, so adding a builtin fails to compile until the
 //! JS backend implements it.
+//!
+//! Identity conversions such as `Int.to_float` are also runtime calls, so every builtin is
+//! emitted the same way.
 
 use emela_core::Builtin;
 

@@ -2,6 +2,15 @@
 #
 # Use it as `(use Clock).now()` and provide it with `with SystemClock { ... }`, or with
 # `with Platform { ... }` from `Std.Platform`.
+#
+# Clock has a suspend fn, so every function that uses Clock may suspend, even one that only calls
+# `now` (the marks follow R).
+#
+# How TestClock knows that no fiber can go on and the host has nothing pending is up to the
+# runtime (`when_stalled`). It is reached as an `@external suspend fn`, not an `@intrinsic`: a
+# suspending `@intrinsic` would need new paths in lowering and the type checker, and an
+# `@external suspend fn` gets the AbortSignal, so interrupting a sleeper removes its wait, as for
+# any external call (spec 12.2).
 
 import Std.Duration.{Duration}
 import Std.Instant.{Instant}

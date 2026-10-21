@@ -5,7 +5,12 @@
 # out its error. Look at its kind, show it, or raise it again with `Cause.raise` and catch the
 # error with `escape`.
 #
-# The functions are built in: the runtime makes and reads causes (NOTES.md).
+# The functions are built in: the runtime makes and reads causes. Lowering turns them into
+# concurrency operations of the Core IR, not rows of the builtin table.
+#
+# `Cause[E]` has a field only to make `E` an error set. Without a field, nothing would decide the
+# kind of `E` (`[type.fn]` decides it where it is used), and as an ordinary type parameter `E` of
+# `Exit[A, E]` and of `attempt` would be a single error type (`[error.fail]`).
 
 ## The cause of a fiber's failure. `E` is the error set it can fail with.
 ##

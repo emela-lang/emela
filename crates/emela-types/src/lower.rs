@@ -26,7 +26,8 @@ pub(crate) enum Omitted<'a> {
     /// Inside a top-level fn's parameter types: adds an invisible set type parameter.
     Hidden(&'a mut Hidden),
     /// Return type and binding annotations, lambda parameters: inferred from the body, so a fresh
-    /// set variable.
+    /// set variable. Lambdas are not generalized, so their parameters get set variables rather
+    /// than invisible set type parameters.
     Fresh(&'a mut InferCtx),
 }
 
@@ -775,6 +776,9 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
 
 /// Returns true if the type argument count is `expected`; otherwise pushes E0304 and returns
 /// false.
+///
+/// Checked here rather than in name resolution, because the type checker is what knows the
+/// arity of built-in types (`List`).
 fn check_arity(
     name: &SmolStr,
     expected: usize,
@@ -844,7 +848,9 @@ pub(crate) fn is_intrinsic_effect(program: &Program, effect: DefId) -> bool {
     matches!(program.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
 }
 
-/// Whether an effect is Immediate (spec 9.5): it has no suspend fn and is not Async.
+/// Whether an effect is Immediate (spec 9.5): it has no suspend fn and is not Async. An effect
+/// whose declaration is unknown (name resolution has reported it) counts as Immediate, so no
+/// further error follows from it.
 pub(crate) fn is_immediate_effect(program: &Program, effect: DefId) -> bool {
     if program.prelude_def("Async") == Some(effect) {
         return false;

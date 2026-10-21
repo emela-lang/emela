@@ -572,6 +572,9 @@ fn cycle_through(traits: &Traits, start: DefId) -> Option<Vec<DefId>> {
 /// Registers an impl and gives its functions their signatures: the trait function's type with
 /// `Self` replaced by the impl's type. The impl's type parameters come first, then the trait
 /// function's own.
+///
+/// An orphan impl (E0331) is still registered, so its uses report nothing more. The second impl
+/// of a pair (E0330) is not: its functions get no type and are not inferred.
 fn register(
     program: &Program,
     ty_table: &TyTable,

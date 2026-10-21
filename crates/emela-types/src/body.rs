@@ -150,6 +150,11 @@ pub(crate) struct BodyInfer<'a> {
     /// References from other definitions in the group to `pending` definitions with written type
     /// parameters. Checked against the definitions' final types once the group is inferred
     /// ([`Self::finish`]).
+    ///
+    /// Such a reference replaces the written type parameters, and the parts not yet known, with
+    /// fresh type variables. Unifying with the definition's type directly would leak its type
+    /// parameters into the other definitions. The `R` of a referenced fn without a `use` clause
+    /// goes through the same check.
     deferred: Vec<DeferredRef>,
     locals: SparseMap<LocalId, Ty>,
     local_owner: SparseMap<LocalId, DefId>,
@@ -765,6 +770,10 @@ impl<'a> BodyInfer<'a> {
 
     /// Finishes inference: checks numeric types, generalizes definitions without declared types,
     /// and returns the types with bindings followed.
+    ///
+    /// Trait constraints and undetermined `Self` (E0326, E0333) are checked after numeric types,
+    /// so an integer literal left open counts as Int, and before generalization, so a `Self`
+    /// still open is reported rather than quantified.
     pub(crate) fn finish(mut self) -> BodyTypes {
         for r in std::mem::take(&mut self.deferred) {
             if let Some((ty, _)) = self.pending_ty(r.def) {
@@ -1937,6 +1946,10 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// Also records the types of the variables the pattern binds.
+    ///
+    /// `ty` is the type of the incoming value, so it is the expected side and the pattern's type
+    /// the actual side: a mismatch reads as the pattern not fitting the value. Patterns that
+    /// cannot be placed (an extra field) get `Ty::Error`.
     fn bind_pat(&mut self, pat: PatId, ty: &Ty) {
         self.pats.insert(pat, ty.clone());
 
