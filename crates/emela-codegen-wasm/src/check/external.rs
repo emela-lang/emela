@@ -9,6 +9,17 @@ use emela_lir::Function;
 /// (E0428 was retired when the C target learned to run them), E0427 for callbacks.
 pub(super) fn external(m: &Module, f: &Function, found: &mut Found) {
     let name = display_name(&f.name);
+    if f.external
+        .as_ref()
+        .is_some_and(|e| e.binding("wasm").is_some())
+    {
+        found.report(
+            WasmErrorKind::Unsupported,
+            format!(
+                "external function `{name}` has a `wasm` import, which the WASI 0.3 component target does not support yet"
+            ),
+        );
+    }
     if f.suspends {
         found.report(
             WasmErrorKind::SuspendExternal,

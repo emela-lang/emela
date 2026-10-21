@@ -102,8 +102,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # The WASM backend tests execute the generated modules with wasmtime.
+      # The WASM backend tests execute the generated WASI 0.3 components with
+      # wasmtime. p3 support needs 49 or newer.
       - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: 49.0.3
       # nextest splits the tests over the shards. It does not run doctests, and
       # the workspace has none: add `cargo test --doc` when one appears.
       - uses: taiki-e/install-action@v2

@@ -1,9 +1,9 @@
 //! The WASM runtime, emitted into the same module as the program.
 //!
 //! It holds the Perceus allocator (`alloc`, `dup`, `drop` with the iterative free list), the
-//! string and integer conversions, the evidence tables and the WASI host calls (`fd_write` for
-//! `dbg` and the test output, `proc_exit`). It is written with `wasm-encoder` like the rest of
-//! the module, so the backend has no external toolchain.
+//! string and integer conversions, the evidence tables and the WASI 0.3 host calls
+//! (`write-via-stream` for `dbg` and the test output, `exit-with-code`). It is written with
+//! `wasm-encoder` like the rest of the module, so the backend has no external toolchain.
 //!
 //! Memory layout (see `crate::emit::layout`): a 16-byte object header (rc, aux, descriptor,
 //! padding) then 8-byte slots. Static data (descriptors, string literals, nullary constructors,
@@ -12,7 +12,7 @@
 //! The runtime is split by feature. Each module owns its entries of `FUNCS`, its locals, its
 //! static data and its lowering; `MODULES` is the whole registration list, in definition order.
 
-use super::layout::{CPBUF, DIGITS, DIGITS64, IOVEC, JSONBUF, NEWLINE, NWRITTEN, PAGE};
+use super::layout::{CPBUF, DIGITS, DIGITS64, FUTUREBUF, JSONBUF, NEWLINE, PAGE, WAITBUF};
 use super::*;
 use wasm_encoder::{InstructionSink, ValType};
 

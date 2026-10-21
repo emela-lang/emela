@@ -7,8 +7,9 @@
 //! mechanically, like `emela-codegen-c` does for C.
 //!
 //! The WASM runtime is emitted into the same module (Perceus reference counting on linear memory,
-//! strings, the numeric conversions and the runtime operations) and the host is WASI, so the
-//! module is a WASI command run with an external engine (`wasmtime`).
+//! strings, the numeric conversions and the runtime operations) and the host is WASI 0.3, so the
+//! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
+//! (`wasmtime`).
 //!
 //! The first version supports no programs that suspend (the emitter does not read the state
 //! machines of the Heap IR yet), no fibers and no callbacks to host functions; reaching them is a
@@ -16,13 +17,14 @@
 //! the runtime.
 
 mod check;
+mod component;
 mod emit;
 
 pub use self::emit::layout;
 
 use emela_core::FnId;
 
-/// What the generated `_start` runs.
+/// What the generated `wasi:cli/run@0.3.0` export runs.
 #[derive(Debug, Clone)]
 pub enum Entry {
     /// The entry module's `main` (an exported fn named `main`). Without one, the program does
@@ -52,7 +54,7 @@ pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 /// The output of [`compile`].
 #[derive(Debug, Clone)]
 pub struct WasmOutput {
-    /// The encoded module (`main.wasm`).
+    /// The encoded component (`main.wasm`), exporting `wasi:cli/run@0.3.0`.
     pub module: Vec<u8>,
     /// 線形メモリの確定した配置（`emit/layout.rs`）．出力と同じモジュールから
     /// `wasmparser` で読み取った値と突き合わせられる。

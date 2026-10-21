@@ -1,0 +1,15 @@
+// The component world of a compiled program: a WASI 0.3 command.
+//
+// The vendored `wasi:cli` package is in `deps/` (taken from the p3 WIT of
+// wasmtime 50.0.0-rc.1, `wasi:cli@0.3.0`). A program only imports the pieces
+// the runtime uses today: stdout/stderr (through `write-via-stream`) and
+// `exit`. The exported `run` is async in p3; the generated core module
+// completes it synchronously.
+package emela:run@0.1.0;
+
+world emela {
+  import wasi:cli/exit@0.3.0;
+  import wasi:cli/stdout@0.3.0;
+  import wasi:cli/stderr@0.3.0;
+  export wasi:cli/run@0.3.0;
+}

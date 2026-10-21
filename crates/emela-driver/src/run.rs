@@ -136,7 +136,8 @@ pub fn wasmtime_program() -> PathBuf {
         .map_or_else(|| PathBuf::from("wasmtime"), PathBuf::from)
 }
 
-/// Runs the `.wasm` `entry` with `wasmtime` (WASI). `args` are passed to the program.
+/// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
+/// program.
 pub fn run_wasmtime(
     entry: &Path,
     args: &[OsString],
@@ -146,6 +147,9 @@ pub fn run_wasmtime(
     let mut command = Command::new(&wasmtime);
     command
         .arg("run")
+        // The output is a WASI 0.3 component exporting `wasi:cli/run@0.3.0`.
+        .arg("-S")
+        .arg("p3=y")
         .arg(entry)
         .args(args)
         .stdin(Stdio::inherit());

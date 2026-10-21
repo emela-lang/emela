@@ -3,10 +3,14 @@
 //! Splitting the emitter and the runtime into modules must not change the output. Every runtime
 //! function but the Float ones is emitted whether a program calls it or not, so any program pins
 //! their bodies; the programs here are chosen to also reach the emitter's lowerings: closures,
-//! strings, lists, enums, options, wasm externals, Int and Int64 arithmetic, shifts, the Float
-//! remainder and the test entry. The Float runtime is only registered for a program that uses a
-//! Float builtin, so `floats` pins it and the programs without one keep the bytes they had before
-//! it existed. A change in the length or the hash of the module means the lowering changed.
+//! strings, lists, enums, options, the bundled `State`, Int and Int64 arithmetic, shifts, the
+//! Float remainder and the test entry. The Float runtime is only registered for a program that
+//! uses a Float builtin, so `floats` pins it and the programs without one keep the bytes they had
+//! before it existed. A change in the length or the hash of a component means the lowering or the
+//! component wrapper changed.
+//!
+//! The output is a WASI 0.3 component, so the hash covers the component (including its metadata),
+//! not just the core module.
 //!
 //! The bytes depend on everything before the emitter too (the Prelude, the Core IR passes), so a
 //! change there can also fail this test. When the output changes on purpose, check that the
@@ -43,8 +47,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        7720,
-        0x106b_003b_73f2_9683,
+        12633,
+        0x09dc_d271_e24d_e787,
     ),
     (
         "lists_enums_strings",
@@ -78,8 +82,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        17893,
-        0x4caf_7d15_14f0_da96,
+        22807,
+        0x16ee_9797_92f0_410f,
     ),
     (
         "floats",
@@ -93,32 +97,28 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        16969,
-        0x7b9c_d735_03f7_f04d,
+        21883,
+        0x19ee_aeb7_9b9a_4251,
     ),
     (
-        "externals_and_options",
+        "state_and_options",
         r#"
-effect Clock {
-  fn now() -> Int
-}
-
-@external(wasm, "env", "now")
-fn host_now() -> Int
-
-handler WasmClock: Clock {
-  fn now() { host_now() }
-}
+import Std.State.{State}
 
 fn main() {
-  with WasmClock { dbg((use Clock).now()) }
+  (_, final) = State.run([], fn() {
+    st = use State[List[String]]
+    st.update(fn(xs) { List.append(xs, ["x"]) })
+    st.update(fn(xs) { List.append(xs, ["y"]) })
+  })
+  dbg(final)
   dbg(Int.parse("42"))
   dbg(Int.checked_add(1, 2))
   dbg(String.from_code_point(65))
 }
 "#,
-        8496,
-        0x8a04_0e73_0232_d213,
+        14856,
+        0x0c5d_683f_3520_67c5,
     ),
     (
         "numeric",
@@ -144,8 +144,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        8007,
-        0xec47_beb5_91b5_ce6d,
+        12920,
+        0x7666_9376_2e1d_1847,
     ),
 ];
 
@@ -164,8 +164,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    7804,
-    0xc110_83f4_3ae0_e80d,
+    12717,
+    0xe4c6_7093_ebfb_71ec,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new
@@ -184,7 +184,7 @@ fn check(results: impl IntoIterator<Item = (&'static str, Vec<u8>, usize, u64)>)
         .collect();
     assert!(
         changed.is_empty(),
-        "the emitted bytes changed (the modules are still valid); the new values are:\n{}",
+        "the emitted bytes changed (the components are still valid); the new values are:\n{}",
         changed.join("\n")
     );
 }

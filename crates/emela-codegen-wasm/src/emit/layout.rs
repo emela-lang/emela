@@ -44,8 +44,8 @@ macro_rules! scratch {
 }
 
 scratch! {
-    IOVEC:    0,   8;   // WASI の iovec
-    NWRITTEN: 8,   8;   // fd_write が書いたバイト数
+    WAITBUF:   0,   8;   // waitable-set.wait のイベント（2 ワード）
+    FUTUREBUF: 8,   8;   // write-via-stream が返す future の結果
     DIGITS:   64,  16;  // Int の桁（下位から）
     NEWLINE:  88,  1;   // debug_print の改行
     DIGITS64: 96,  24;  // Int64 の桁
