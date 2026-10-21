@@ -21,8 +21,8 @@ branch.
 | 0.20.0         | Postfix `match`, `const` evaluated once on first use, E0208 for a directory outside the source root, English diagnostics   |
 | 0.21 and later | `trait`, `impl`, `derive`, `Map` / `Set` / `Array`, JSON, `Semaphore`, `Queue`, an `Http` server, WebAssembly output       |
 
-The 0.20 language specification is
-[`docs/spec/emela-0.20.md`](docs/spec/emela-0.20.md) (in Japanese). The
+The 0.20 language specification is in [`spec/`](spec/README.md).
+Changes to it are proposed in [`proposals/`](proposals/README.md). The
 [`emela-lang/specification`](https://github.com/emela-lang/specification)
 repository describes the 0.1x language, not 0.20.
 
