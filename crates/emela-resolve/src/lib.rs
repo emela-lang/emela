@@ -3,6 +3,13 @@
 //! Covers spec 2.3 (lexical classes of names) and chapter 4 (modules and visibility). The result
 //! is a tree in which every name points to its definition ([`hir`]); type inference sees only
 //! this.
+//!
+//! What needs types or signatures is left to type inference, which has them: matching the labels
+//! of named arguments and field patterns, missing and extra fields, field access on opaque types
+//! (`email.value`), whether the field names of a partial update belong to its constructor and the
+//! base has its type, whether `fail e` gets an error value, whether handlers implement every
+//! operation, layer dependencies and duplicates, where impls may be written, and derive and impl
+//! duplicates.
 
 mod builtins;
 mod diagnostic;

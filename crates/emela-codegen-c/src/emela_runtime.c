@@ -279,6 +279,7 @@ int32_t em_str_eq(em_ref a, em_ref b) {
   return n == EM_STR_LEN(b) && memcmp(EM_STR_BYTES(a), EM_STR_BYTES(b), n) == 0;
 }
 
+/* By bytes: the order of UTF-8 bytes is the order of code points (spec 16.2). */
 int32_t em_str_cmp(em_ref a, em_ref b) {
   size_t na = EM_STR_LEN(a), nb = EM_STR_LEN(b);
   int c = memcmp(EM_STR_BYTES(a), EM_STR_BYTES(b), na < nb ? na : nb);
@@ -491,7 +492,8 @@ em_ref em_int_checked_add(int32_t a, int32_t b) {
 }
 
 /* JS `Number.prototype.toString` (the shortest digits that read back as the same number), with
- * `.0` added to a finite integral value (spec 10.6). */
+ * `.0` added to a finite integral value (spec 10.6). `%.Ne` rounds correctly, so the first
+ * precision that reads back gives the nearest of the shortest digits, as JS picks. */
 static void em_format_float(double x, char *out, size_t size) {
   if (isnan(x)) {
     snprintf(out, size, "NaN");
@@ -924,9 +926,12 @@ em_ref em_from_host_string(char *s, const char *function) {
  * - An interruption is delivered as the pending defect (an `em_desc_interrupted` object), so the
  *   defect landings of the Heap IR unwind it and run the releases. A continuation abandoned while
  *   suspended (the run stalls, the fiber is interrupted) is resumed with it.
- * - Where the host's event loop would wait for timers and I/O (`em_run`), nothing waits yet: when
- *   no job is left, the run has stalled (the JS event loop is empty). The C event loop of spec
- *   12.6 plugs in there (see NOTES.md). */
+ * - Where the host's event loop would wait for timers and I/O (`em_run`), the C event loop runs
+ *   (see "`suspend fn` external functions and the event loop" below).
+ * - The fairness budget and the passes through the host are the JS runtime's too: a fiber
+ *   yields after EM_BUDGET suspending calls, and every EM_HOST_EVERY-th yield goes to the
+ *   `later` queue, which runs after a turn of the event loop that does not wait (JS:
+ *   `setImmediate`). */
 
 #define EM_BUDGET 1000
 #define EM_HOST_EVERY 16
@@ -2099,7 +2104,7 @@ static void em_root_finish(em_root *r, em_input in);
  * thread. When nothing is registered and the inbox is empty, the run has stalled: TestClock's
  * earliest sleeper wakes (`em_when_stalled`), and without one the run is unwound as interrupted
  * (`em_root_interrupt`), which cancels the tasks still waiting (`em_on_cancel`; JS: the
- * AbortSignal).
+ * AbortSignal). poll(2) rather than epoll or kqueue: it behaves the same on macOS and Linux.
  *
  * The host never sees a task's record (`em_htask`): it gets a handle (`em_task *`, never
  * dereferenced) that names a slot of a table and the slot's generation. A completed task is freed
@@ -2109,7 +2114,8 @@ static void em_root_finish(em_root *r, em_input in);
  * empty or holds a later generation finds no record, so a late second completion is a defect too
  * and never touches freed memory. Free slots are reused oldest first, so a slot only comes back to
  * the same generation after 2^32 reuses (2^12 where pointers have 32 bits). The table only grows
- * to the most tasks alive at once. */
+ * to the most tasks alive at once. Handles were chosen over delaying the frees: the memory stays
+ * bounded and every late completion is caught. */
 
 enum { EM_HOST_DEFECT = -1 };
 

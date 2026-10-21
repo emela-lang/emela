@@ -7,6 +7,10 @@
 //!    suspension points and the frames they save explicit.
 //! 4. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
 //!    edges included).
+//!
+//! Each pass rebuilds the functions it changes (`copy::compact`), numbering the reachable
+//! variables, statements, sequences and labels in the order met, so the dump's numbers differ
+//! from those before the pass.
 
 mod closures;
 mod copy;

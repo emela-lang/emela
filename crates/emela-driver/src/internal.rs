@@ -3,7 +3,11 @@
 //! `@internal` may only be put on top-level fns in bundled core sources (E0229), and such fns
 //! cannot be referenced from outside core modules (E0228). It is for fns that only core should
 //! use, such as passing the contents of an opaque type to another core module. No fn in the
-//! current bundled core uses it.
+//! current bundled core uses it; the check is kept for when one does.
+//!
+//! The check runs in the type checking frontend, like E0227, after name resolution: it walks the
+//! references in HIR bodies (`emela_types::body_refs`). It is kept apart from `pub` visibility so
+//! that name resolution needs no change.
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, DefModule, Program};

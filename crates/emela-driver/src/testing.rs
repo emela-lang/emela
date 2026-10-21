@@ -415,7 +415,8 @@ fn prepare<P, B: TestBackend<P>>(
     Some((entry, selected, filtered_out))
 }
 
-/// A result line written by the test runner (`test_runner.mjs`).
+/// A result line written by the test runner (`test_runner.mjs`). The C and WASM test programs
+/// write the same lines to stdout, so reading and showing results is shared by every target.
 #[derive(Deserialize)]
 #[serde(tag = "event", rename_all = "lowercase")]
 enum Event {

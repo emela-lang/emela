@@ -108,6 +108,9 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
+To try a local build of the server, run `cargo build -p emela-cli` and put the absolute path of
+`target/debug/emela` in `cmd` instead of `"emela"`.
+
 The server sends semantic tokens of type `variable` with the modifier `capability`, and only
 those, so the rest of the highlighting stays with the syntax file. Neovim shows them through
 the group `@lsp.typemod.variable.capability.emela`, which `plugin/emela.vim` sets to underline

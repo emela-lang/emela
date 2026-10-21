@@ -24,9 +24,17 @@
 //! other fibers when it runs out (spec 11.1): `($spend() && (yield $pause()), (yield* f(x)))`.
 //! Functions that do not suspend (R is Immediate) get nothing, so they run in one go.
 //!
-//! Functions without suspending calls are emitted unchanged. A `$Fail` comes back as the
-//! generator's return value just the same, and self tail call loops (spec 16.3) need no `yield*`
-//! because `Recur` has replaced the call.
+//! The yield is inserted here, not by lowering: the `suspends` marks already decide where it
+//! goes, so the output alone is enough and the IR stays free of scheduling details. Fiber
+//! operations (join, ...) and the suspending operations of `Expr::Fiber` get no yield in front:
+//! they are suspension points themselves, and cheap when they return at once. Measured on an
+//! Apple M3 with node 22 (2026-10-13), the overhead was within the noise of the measurement (at
+//! most about 10%) both for a loop of 10 million suspending calls and for 2 million suspend fn
+//! operations resumed in place.
+//!
+//! Why generators and not CPS: functions without suspending calls are emitted unchanged. A
+//! `$Fail` comes back as the generator's return value just the same, and self tail call loops
+//! (spec 16.3) need no `yield*` because `Recur` has replaced the call.
 
 use emela_core::Callee;
 

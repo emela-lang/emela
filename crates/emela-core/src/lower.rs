@@ -4,6 +4,14 @@
 //! allocated first ([`Lowerer::declare_enums`]); only fns reachable from the roots are lowered.
 //! A fn gets an ID and is pushed on the worklist when first referenced ([`Lowerer::fn_id`]), and
 //! bodies are lowered until the worklist is empty.
+//!
+//! Lowering lives in emela-core rather than its own crate: emela-core already depends on
+//! emela-types for the builtin signatures, so a separate crate would make no dependency lighter.
+//!
+//! Since unreachable fns are not lowered, a construct lowering does not support yet
+//! ([`LowerError::Unsupported`]) is reported only once a reachable fn uses it. Type errors are not
+//! affected (the type checker checks every fn). The test `every_core_function_lowers`
+//! ([`Roots::All`]) makes sure all of core and std lowers, used or not.
 
 use std::path::Path;
 
@@ -69,7 +77,8 @@ pub enum Roots {
     Exported,
     /// The test functions (`LowerInput::tests`), for `emela test`.
     Tests,
-    /// Every fn and const with a body, including unused ones. For lowering tests.
+    /// Every fn and const with a body, every `@external` fn and every handler, including unused
+    /// ones. For lowering tests.
     All,
 }
 
@@ -255,7 +264,8 @@ struct Lowerer<'a> {
     false_def: Option<DefId>,
     module: Module,
     /// HIR fns and consts, with which suspending copy (`suspend.rs`) → IR functions. A const
-    /// becomes a parameterless function. Only [`Lowerer::fn_id`] adds to it.
+    /// becomes a parameterless function. Only [`Lowerer::fn_id`] adds to it, so that every
+    /// reference also puts the fn on the worklist.
     fns: FxHashMap<(DefId, Specialization), FnId>,
     /// Fns (and which suspending copy) that have an ID but whose bodies are not lowered yet.
     worklist: Vec<(DefId, Specialization)>,
@@ -375,7 +385,8 @@ enum Target {
 /// Creates a cell holding the initial value (`$cellNew`), adds a handler value that reads and
 /// writes it to the evidence table under the key `State[S]`, calls body, and returns the pair of
 /// body's value and the final state. If body fails, the failure propagates as the call's failure
-/// and the state is discarded.
+/// and the state is discarded. If body suspends, so does the call; the state stays in the cell, so
+/// it carries over when body resumes.
 struct StateRun {
     /// The IR effect of `State[S]`.
     effect: EffectId,
@@ -837,7 +848,8 @@ impl<'a> Lowerer<'a> {
                 f.sig.params.iter().map(|p| self.local(p.local)).collect(),
                 Some(f.body.expect("a fn with a body")),
             ),
-            // A const's value is evaluated once, at the first reference (spec 5.6).
+            // A const's value is evaluated once, at the first reference (spec 5.6). It is not
+            // inlined at its uses: that would bind the locals of its expression more than once.
             Some(Item::Const(c)) => {
                 self.module.functions[id].constant = true;
                 (Vec::new(), Some(c.value))
@@ -1401,7 +1413,8 @@ impl<'a> Lowerer<'a> {
                     format!("{name}[{}]", list(args))
                 }
             }
-            // E and R of function types are not in the key (an approximation; see NOTES.md).
+            // E and R of function types are not in the key. An approximation: two `State`s whose
+            // type arguments are function types differing only in E or R share a key.
             Ty::Fn(f) => format!("fn({}) -> {}", list(&f.params), self.key_ty(&f.ret, ctx)),
             Ty::Bound(i) => match ctx {
                 Some(def) => format!("${}.{i}", self.ir_name(def)),
@@ -1935,6 +1948,12 @@ impl<'a> Lowerer<'a> {
     /// A lambda. If its type's R is not empty, it takes the evidence table as its last argument.
     /// Bindings of enclosing `with`s are added to the received table for the body (`use X` looks
     /// at enclosing `with`s first, spec 8.3).
+    ///
+    /// `[effect.with]` says `use X` takes X from the caller when no `with` in the same function
+    /// provides it. For the enclosing `with`s, "the same function" is the top-level fn the lambda
+    /// is in; for the table, it is the lambda itself. The type checker keeps the R of a lambda's
+    /// body in the lambda's type instead of adding it to the enclosing function's R, so the
+    /// enclosing function's table need not hold X, and only the lambda's caller can supply it.
     fn lambda(&mut self, id: ExprId, params: &[emela_resolve::hir::Param], body: ExprId) -> Expr {
         let mut ps: Vec<Local> = params.iter().map(|p| self.local(p.local)).collect();
         let suspends = self.ty_suspends(self.expr_ty(id));
@@ -2724,7 +2743,7 @@ impl<'a> Lowerer<'a> {
     /// Whether the callee may fail: true if the E of the callee expression's function type (as
     /// solved by the type checker) is not empty. Opaque sets, such as set type parameters and
     /// generalized set variables, are not empty, so they count as true. Builtins and constructors
-    /// have an empty E.
+    /// have an empty E, and builtins take no function arguments whose failures they could pass on.
     fn callee_fails(&self, callee: ExprId) -> bool {
         matches!(self.expr_ty(callee), Ty::Fn(f) if !f.fails.is_empty())
     }
@@ -3185,6 +3204,11 @@ impl<'a> Lowerer<'a> {
     ///
     /// A trait function is named after its trait (`Show.show`), an impl function after its type
     /// and trait (`User: Show.show`).
+    ///
+    /// Enums get the prefix too, because backends derive names from them (show functions such as
+    /// `$show$User`, the JS names of constructors without fields). In JS `.` becomes `_`, which
+    /// cannot clash: module names contain no `_` (`[module.name]`) and function names start with a
+    /// lower-case letter (`[lex.name]`).
     fn ir_name(&self, def: DefId) -> String {
         let hir = self.hir;
         let data = &hir.defs[def];

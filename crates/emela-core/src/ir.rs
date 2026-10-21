@@ -3,6 +3,10 @@
 //! The typed tree after desugaring; backends (JS / WASM) see only this. Everything is referred to
 //! by ID: functions by `FnId`, locals by `Local`, enums by `EnumId`, types by `TypeId`. Display names (`name` /
 //! `hint`) exist only to make output readable.
+//!
+//! A `Local` is bound at most once in the whole module, so substitutions and rewrites never have
+//! to think about shadowing. Passes that copy code (loopification, suspending copies,
+//! monomorphization) allocate fresh locals instead of reusing old ones.
 
 use la_arena::{Arena, Idx};
 use rustc_hash::FxHashMap;
@@ -324,6 +328,10 @@ pub struct Function {
     pub fails: bool,
     pub body: Expr,
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
+    ///
+    /// Lowering checks the build target's binding only for external functions reachable from the
+    /// entry (E0412). One without a binding can still be lowered, through an exported `pub` fn of
+    /// the entry; backends then emit a function that is a defect when called.
     pub external: Option<External>,
     /// Whether it may suspend (spec 8.1, 16.5). If true, the body may contain suspending calls
     /// (`Expr::Call::suspends`). For an external function this is `@external suspend fn`
@@ -432,6 +440,11 @@ impl EffectDef {
 /// are sets (`Scope[E, R]`), so such an operation's types contain no other `Type::Param`. A
 /// handler implements a generic operation for every instantiation at once, so its implementation
 /// sees the operation's own type parameters as `Type::Any`.
+///
+/// Why type parameters rather than `Any` in the `OpDef` itself: so that the value of a call
+/// (`Fiber[Int]` from `s.fork[Int](..)`) has a type the IR alone determines. The type checker
+/// records the instantiation at the operation reference, so filling `Callee::Op::ty_args` costs
+/// no more than for a direct call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpDef {
     pub name: String,
@@ -560,6 +573,10 @@ impl VariantDef {
 /// with [`Module::ty`].
 ///
 /// The types without components have fixed IDs (`TypeId::INT`, ...), usable without the module.
+///
+/// Why IDs rather than trees: when types were held as `Box` / `Vec` trees and cloned into every
+/// local and expression, large programs used 5–10% more memory, and comparing types meant walking
+/// them.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeId(u32);
 
@@ -615,6 +632,11 @@ pub enum Type {
     Fn(FnType),
     /// A capability value (spec 8.2): the handler value of the effect, returned by `use X`
     /// (`Expr::Use`). Cannot be shown or compared.
+    ///
+    /// The capability value is the handler value itself, not a reference into a table. A
+    /// capability taken out earlier sits in a variable, so it keeps pointing at that handler even
+    /// when an inner `with` provides the effect again (`[effect.with]`), and a closure that
+    /// captures it (`[effect.use]`) only captures the variable.
     Handler(EffectId),
     /// An evidence table (`Expr::Provide`, spec 16.5).
     Evidence,
@@ -985,7 +1007,7 @@ pub fn fn_with_sets(
 }
 
 /// A type given by ID, or by structure and interned where it is used (`Module::local`,
-/// `Module::define`).
+/// `Module::define`). Taking a `Type` keeps tests that build IR by hand short.
 pub trait IntoTypeId {
     fn into_type_id(self, types: &mut TypeTable) -> TypeId;
 }
@@ -1049,6 +1071,8 @@ pub enum Lit {
     Int64(i64),
     /// binary64．
     Float(f64),
+    /// Bool is the Prelude enum `False | True` in source, but a builtin type in the IR
+    /// (`TypeId::BOOL`, `OpTy::Bool`): its values and patterns are literals, not constructors.
     Bool(bool),
     String(String),
     Unit,
@@ -1130,6 +1154,9 @@ pub enum Expr {
         else_: Box<Expr>,
     },
     /// Evaluates the scrutinee once and tries arms top to bottom. A defect if no arm matches.
+    ///
+    /// Kept as the list of arms, not compiled to a decision tree: that is an optimization a
+    /// backend can make, and every pass in between is simpler on the arms as written.
     Match {
         scrutinee: Box<Expr>,
         arms: Vec<Arm>,
@@ -1180,9 +1207,14 @@ pub enum Expr {
     ///
     /// Arm patterns are error constructors (`Pat::Ctor`). Arms for the failed error are tried top
     /// to bottom, and the body of the first arm whose pattern and guard match is the escape's
-    /// value. Errors named in no arm propagate outward. An error named in an arm that matches no
-    /// arm is a defect (as with match). Failures inside arms propagate outward. `body` is not in
-    /// tail position (spec 6.8).
+    /// value. A failure that no arm matches propagates outward, whether its error is named in no
+    /// arm or only in arms that do not match its value (`NotFound(id: 1)` against
+    /// `NotFound(id: 2)`, `[error.escape]`). Failures inside arms propagate outward. `body` is not
+    /// in tail position (spec 6.8).
+    ///
+    /// The IR does not record whether the arms cover an error: the type checker removes an error
+    /// from E only when they do, so an error some value of which may go unmatched is still in E,
+    /// and backends always emit the propagation.
     Escape {
         body: Box<Expr>,
         arms: Vec<Arm>,
@@ -1191,6 +1223,10 @@ pub enum Expr {
     ///
     /// The evidence table maps effects to handler values and is passed as the last argument of
     /// functions and lambdas whose R is not empty (evidence passing, spec 16.5).
+    ///
+    /// The table is one value, not one argument per effect: a caller of a function whose R is
+    /// opaque (`R(f)` of `List.map`) cannot tell which effects the callee needs, so it passes the
+    /// whole current table.
     Use {
         ctx: Box<Expr>,
         effect: EffectId,
@@ -1338,6 +1374,10 @@ impl Expr {
 /// Concurrency operations (spec chapter 11). The `args` of `Expr::Fiber` are in the order given
 /// for each variant.
 ///
+/// `Expr::Fiber` carries no `fails` / `suspends` marks of its own, unlike `Expr::Call`: for most
+/// operations they follow from the operation. The two that vary carry them in the variant
+/// (`Scope { fails }`, from the body's E, and `Attempt { suspends }`, from `f`'s R).
+///
 /// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds and causes
 /// (`Cause[E]`) are opaque values chosen by the backend. Capability values may be put in evidence
 /// tables with `Expr::Provide`. Exit (`Std.Fiber`) and CauseKind (`Std.Cause`) are represented like
@@ -1459,6 +1499,10 @@ pub struct WithBind {
     pub value: Expr,
     /// If the bound value is a handler value with init and release (spec 8.4), its cleanup. `None`
     /// means the same as `Let`.
+    ///
+    /// The init is the bound value itself, not a separate field. Then the rules of `[dyn.with]`
+    /// (a failed init runs no release of its own, only those bound before it, in reverse) reduce
+    /// to "each binding with release guards the bindings after it and the body".
     pub release: Option<Release>,
 }
 
@@ -1491,7 +1535,13 @@ impl WithBind {
 /// After evaluating `body` and discarding its value, the bound handler value is marked released.
 /// Calling its operations afterwards is a defect (`handler <name> was used after release`,
 /// spec 8.6). `body` may refer to the variables of the same `with` up to and including this
-/// binding. `body` cannot fail (release's E is empty, spec 8.4) but may suspend.
+/// binding. `body` cannot fail (release's E is empty, spec 8.4) but may suspend; the IR does not
+/// check that it cannot fail.
+///
+/// The use-after-release check is only on bindings with release. A stateless handler value has
+/// none, so it keeps working after it leaves its `with`. Lowering gives a release to every
+/// stateful handler (fields, init or release; `()` when release is not written), so that all of
+/// them are checked (`[effect.escape]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     /// The handler's name (as in source), used in the use-after-release defect message.
@@ -1661,8 +1711,10 @@ pub enum Pat {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StrPart {
     Lit(String),
-    /// Embeds the value as a string, using the show function determined by its type (the stand-in
-    /// for Show; traits come in 0.21). The type must be concrete, without `Type::Param`.
+    /// Embeds the value as a string, using the show function the backend builds from its type
+    /// (showing the structure). The type must be concrete, without `Type::Param`. Monomorphization
+    /// keeps this only where the structure gives what Show gives; a value whose Show is written in
+    /// source becomes a `Show.show` call first.
     Value(Expr, TypeId),
 }
 
@@ -1691,7 +1743,8 @@ pub enum UnOp {
     Not,
 }
 
-/// The operand type of an operation, used by backends to pick the meaning.
+/// The operand type of an operation, used by backends to pick the meaning: the same operator
+/// means different things on Int (32-bit, wrapping), Int64 and Float.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpTy {
     Int,
@@ -1699,6 +1752,8 @@ pub enum OpTy {
     Float,
     Bool,
     String,
-    /// Only for structural equality (`==` / `!=`).
+    /// Only for structural equality (`==` / `!=`), which monomorphization may replace with a call
+    /// of an Eq impl. Ordering has no structural form: on other types, lowering turns `<` and the
+    /// rest into `Ord.compare`.
     Structural,
 }

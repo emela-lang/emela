@@ -390,7 +390,8 @@ impl<'a> Resolver<'a> {
 
     /// `@intrinsic` is allowed only on fns without a body and on effects (built-in effects such
     /// as `Scope`, spec 8.1) in the bundled core sources. `allowed` tells whether `node` is one of
-    /// those.
+    /// those. Fns in traits, impls and handlers are checked too (never allowed), although the
+    /// parser does not put annotations inside those bodies yet.
     pub(crate) fn check_intrinsic(&mut self, module: ModuleId, node: &SyntaxNode, allowed: bool) {
         let Some(annotation) = node
             .children()
@@ -824,7 +825,8 @@ impl<'a> Resolver<'a> {
     }
 
     /// If the bundled core has a `Prelude`, its pub definitions override the Prelude names.
-    /// Names it does not define stay as in the built-in Prelude ([`build_prelude`]).
+    /// Names it does not define stay as in the built-in Prelude ([`build_prelude`]), so the
+    /// Prelude can move to the bundled `prelude.emel` a name at a time.
     fn use_core_prelude(&mut self) {
         let Some(prelude) = self.core_module(&SmolStr::new(crate::PRELUDE)) else {
             return;

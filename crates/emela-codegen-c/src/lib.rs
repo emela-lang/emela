@@ -6,7 +6,7 @@
 //! reference counting)
 //! and then this crate's emitter, which follows the Heap IR mechanically. The C runtime
 //! ([`RUNTIME_C`], [`RUNTIME_H`]) is embedded and written next to the output; the caller compiles
-//! both with cc (see `NOTES.md` for the flags).
+//! both with cc (the flags are in `[target.c.cc]`).
 //!
 //! Suspending functions are emitted from the Heap IR's state machines, and the runtime schedules
 //! fibers the way the JS runtime does (spec chapter 11, 14.5). `suspend fn` external functions
@@ -44,8 +44,8 @@ pub enum Entry {
     Main,
     /// Test functions (spec 13.4), called one by one in order. Each result is written to stdout
     /// as a line of [`TEST_EVENT_PREFIX`] and JSON, the protocol of the JS test runner: `{"event":
-    /// "result", "name": …, "outcome": "ok" | "defect" | "error", "message": …}`, then `{"event":
-    /// "done"}`.
+    /// "result", "name": …, "outcome": "ok" | "defect" | "error" | "interrupted", "message": …}`,
+    /// then `{"event": "done"}`.
     Tests(Vec<TestEntry>),
 }
 
@@ -119,7 +119,9 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
         Entry::Tests(tests) => tests.iter().map(|t| t.function).collect(),
     };
     // A generic root (a test whose inferred type has type parameters) is instantiated too. One
-    // that cannot be (it takes arguments) is reported rather than skipped.
+    // that cannot be (it takes arguments) is reported rather than skipped. `main` is taken from
+    // the copies, not looked up by name: the copy of a generic `main` is not exported and its name
+    // carries the type arguments.
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
     let mut copied = Vec::with_capacity(roots.len());
     for (&root, copy) in roots.iter().zip(copies) {

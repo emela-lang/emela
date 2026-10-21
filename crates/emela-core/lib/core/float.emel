@@ -1,6 +1,9 @@
 # Functions on Float (IEEE 754 binary64).
 # Converting to Int is a defect if the result is NaN, ±Infinity or outside the range of Int
 # (spec 16.1).
+#
+# `parse` is written in Emela over the private builtin `parse_or_none`, since a builtin cannot
+# fail.
 
 ## Every Int is exactly representable as a Float.
 @intrinsic

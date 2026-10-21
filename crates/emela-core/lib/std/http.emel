@@ -4,6 +4,9 @@
 # Use it as `Http.get(url)` and provide it with `with SystemHttp { ... }`, or with
 # `with Platform { ... }` from `Std.Platform`. Requests and responses are values, so building a
 # request is an ordinary function that tests can call without a handler.
+#
+# `header` and `headers` compare names with `String.to_ascii_lowercase`: header names are ASCII
+# tokens, so nothing more is needed.
 
 import Std.State.{State}
 

@@ -35,6 +35,11 @@ pub(super) enum FailTarget {
 impl Emitter<'_> {
     /// The JS expression for an enum value's `$tag`: the descriptor for an error, otherwise the
     /// variant index.
+    ///
+    /// An error gets a descriptor rather than an index because a generic function
+    /// (`fn raise[E](err: E) { fail err }`) does not know at emit time which error it holds; the
+    /// value has to say so itself. An error has one constructor, so its patterns and show function
+    /// never look at `$tag`, and `$eq` compares descriptors with `===`.
     pub(super) fn tag(&self, id: EnumId, variant: usize) -> String {
         if self.m.enums[id].error {
             descriptor_name(&self.m.enums[id].name)

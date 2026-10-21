@@ -15,6 +15,15 @@
 //! instantiated sets (`ProgramTypes::type_rows`). Inside a suspending copy, whether each set type
 //! parameter may suspend is fixed, so marks on lambdas and function value calls follow uniquely
 //! from the types.
+//!
+//! Why copies rather than making every function that might suspend a generator: a call
+//! instantiated with Immediate sets would then call a generator as an ordinary function (and the
+//! other way round). Inside a copy, a lambda that escapes has an instantiated R that may suspend,
+//! so its callers mark the call the same way.
+//!
+//! A set type parameter that appears only in parameter types also gets a bit, so copies are made
+//! that do not suspend themselves (a function that only builds lambdas). The output is right; the
+//! code is only larger.
 
 use emela_resolve::hir::{DefId, ExprId, Item};
 use emela_types::{Row, RowElem, Scheme, SetKind, Ty};

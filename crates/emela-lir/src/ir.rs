@@ -20,6 +20,9 @@ pub type LabelId = Idx<LabelData>;
 /// A LIR module. It owns the Core module it was made from: variables' Core types are IDs of its
 /// type table, and constructors, enums and effects are those of its definitions. The Core
 /// functions are not used (the LIR functions replace them).
+///
+/// Owned rather than borrowed: a reference would put a lifetime parameter on every type and pass
+/// of the crate.
 #[derive(Debug, Clone)]
 pub struct Module {
     pub core: emela_core::Module,
@@ -27,9 +30,11 @@ pub struct Module {
     /// Which passes have run, and so which constructs the functions may hold.
     pub stage: Stage,
     /// The generated show function of each error enum, made by `from_core` for every error enum
-    /// without type parameters: `show$E`, or `name$E` (the name only) for an error with a
-    /// function-typed field. Backends show a failure that reaches the entry with it
-    /// (`error: NotFound(id: 1)`, `error: Retry`, spec 14.3).
+    /// without type parameters that the functions construct, called or not: the error's display
+    /// (`emela_core::Module::error_display`) decides between the structural `show$E`, the function
+    /// of its Show impl, and `name$E` (the name only) for an error that does not satisfy Show.
+    /// Backends show a failure that reaches the entry with it (`error: NotFound(id: 1)`,
+    /// `error: Retry`, `[dyn.error]`); which enum arrives is only known at run time.
     pub error_shows: Vec<(EnumId, FnId)>,
 }
 
@@ -204,10 +209,11 @@ pub enum Term {
         value: Option<Operand>,
     },
     /// Starts the next iteration of the innermost enclosing loop with new values for its
-    /// variables.
+    /// variables. It cannot cross a `protect` or a closure: in Core the body of `with` is not in
+    /// tail position either, and a closure is another body.
     Recur(Vec<Operand>),
-    /// Raises a defect with the message (a string), unwinding through the cleanups to the
-    /// caller. Flow IR only: the Heap IR makes the unwinding explicit with
+    /// Raises a defect with the message (a string operand, since some messages, such as those of
+    /// `assert`, are built at run time), unwinding through the cleanups to the caller. Flow IR only: the Heap IR makes the unwinding explicit with
     /// [`RuntimeOp::Defect`] and [`Term::Unwind`].
     Defect(Operand),
     /// Heap IR: returns from the function with the pending defect (the caller's defect landing
@@ -220,6 +226,12 @@ pub enum Term {
 /// A statement. Each optional `dst` is the variable defined by the statement, visible to the
 /// statements after it in the same sequence (and the sequences nested in those). `None` when the
 /// value has no representation or is unused.
+///
+/// A compound statement that gives a value (`if`, `switch`, `block`, `loop`, `protect`) has its
+/// result variable as `dst`, and its arms end with `yield v`, rather than declaring the variable
+/// first and assigning it in each arm. So every variable is defined exactly once: the verifier
+/// checks definition before use by scope alone, and liveness and reference counting stay simple.
+/// WASM maps it to the result of `block` and `if`, C to an assignment of a declared variable.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     /// `dst = value`．`on_defect` (Heap IR) is the landing run instead of the rest of the sequence
@@ -510,8 +522,10 @@ pub enum Value {
     /// a function value used at a function type with other `fails` / `suspends` flags (a smaller
     /// E or R used where a larger one is expected, spec 9.2), or a value entering or leaving
     /// `Any`. The representations must agree unless one side is `Any` (then the value is boxed or
-    /// unboxed). Made where a `let` binds a value to a local of another type; backends whose
-    /// calling conventions depend on those flags adapt the value here.
+    /// unboxed). Made where a `let` binds a value to a local of another type: the failure edge
+    /// and `suspends` of a call through a function value follow the called variable's type, so
+    /// the local must have its own type or the verifier disagrees. Backends whose calling
+    /// conventions depend on those flags adapt the value here.
     Coerce(VarId),
 }
 
@@ -622,6 +636,9 @@ impl Value {
 }
 
 /// Runtime operations that Core has no builtin for, made by the conversion from Core.
+///
+/// They live here rather than as Core builtins because a Core builtin also needs an `@intrinsic`
+/// declaration in the bundled sources and an implementation in the JS backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOp {
     /// `(String) -> String`: a string shown inside a value or by `dbg` (spec 10.6), in `"` with
@@ -691,7 +708,8 @@ impl RuntimeOp {
 }
 
 /// A closure value. It shares the function's arenas. Its body may use the variables of the
-/// enclosing bodies only if they are listed in `captures`.
+/// enclosing bodies only if they are listed in `captures`. Its Core type is that of the
+/// statement's destination, which gives its parameters, `suspends` and `fails`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     /// With the evidence table last if it takes one (the closure's Core type says).
@@ -787,6 +805,9 @@ impl PrimOp {
 
 /// The operand type of a [`PrimOp`]: a representation, plus strings, which are compared by
 /// contents (only comparisons).
+///
+/// Structural equality is not a primitive: like showing, it becomes calls of functions generated
+/// per type (`eq$Point`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimTy {
     I32,

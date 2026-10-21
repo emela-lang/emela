@@ -1,5 +1,9 @@
 //! suspend, Async and Immediate (spec 8.4, 8.7, 9.5).
 //!
+//! Function types carry no suspend flag. That a call may suspend is expressed by the effects in
+//! its R (an effect with a suspend fn, or Async); whether an operation suspends is read from its
+//! declaration (`OpItem::sig.is_suspend` in the HIR).
+//!
 //! - If the body of a suspend fn implementation uses `resume` in any way other than calling it
 //!   directly (`resume(v)`), resume is assumed to be callable later (spec 8.7). This is decided
 //!   syntactically. References inside a lambda do not count as direct calls even if they look

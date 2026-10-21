@@ -7,7 +7,8 @@
 //!
 //! - Every IR variable is a wasm local. A compound statement's `dst` is its local; `yield` sets
 //!   it, `break` sets the block's and branches, `recur` sets the loop variables and branches to
-//!   the loop head.
+//!   the loop head. Compound statements do not use wasm block result types: assigning the `dst`
+//!   keeps the code in the same shape as the C emitter's.
 //! - A call's defect landing is `if (em_defect != 0) { … }` after the call, and its failure
 //!   landing `if (em_failure != 0) { … }`. `unwind` and `fail` return a dummy value.
 //! - Heap objects have descriptors (`em_d…`) per shape: the tag, whether it is an error value and
@@ -1032,6 +1033,9 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// A switch as a chain of comparing `if` / `else`, nested once per case. Not `br_table`: the
+    /// chain is simpler, and the depths of the branches out of it are counted the same way as
+    /// for any other `if`.
     #[allow(clippy::too_many_arguments)]
     fn switch_chain(
         &mut self,

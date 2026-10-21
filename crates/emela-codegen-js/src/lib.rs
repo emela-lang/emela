@@ -4,6 +4,35 @@
 //! embedded with `include_str!` and written out alongside the output.
 //!
 //! The output is an ES module. Public functions are exported under their Emela names.
+//!
+//! # Value representation
+//!
+//! ```text
+//! Emela                 JS
+//! Int                   number, wrapped to 32 bits after every operation
+//! Int64                 BigInt, wrapped with BigInt.asIntN(64, …)
+//! Float                 number
+//! Bool                  boolean
+//! String                string
+//! ()                    undefined
+//! tuple                 array [a, b]
+//! List                  cons cells { h, t }, the empty list is null
+//! enum / type value     { $tag: variant index, $0, $1, … or named fields }
+//! error value           { $tag: $err$Name, … }  ($tag is a per-error descriptor)
+//! failure               the runtime's $Fail (`error` holds the error value)
+//! handler value         an object of functions keyed by operation name
+//! evidence table        an object of handler values keyed by effect, chained by __proto__
+//! ```
+//!
+//! - List is cons cells rather than an array, so both the pattern `[x, ..rest]` and the
+//!   construction `[x, ..rest]` are O(1).
+//! - Bool is a JS boolean rather than an enum value, which would slow down `if` and `&&`.
+//! - A variant without fields is one frozen value shared by the module (`Enum$Variant`). Values
+//!   with fields are not frozen, for speed.
+//! - A field or operation named `__proto__` is written as the computed key `["__proto__"]`, since
+//!   in an object literal the plain key would set the prototype instead.
+//! - A value has the same representation whatever its type. This is what lets lowering export a
+//!   generic `pub fn` as a single copy with `Any` type arguments (`[target.js.module]`).
 
 mod emit;
 mod test_runner;

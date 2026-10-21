@@ -8,6 +8,13 @@
 //! Functions writable in Emela, such as `List.map`, do not belong here (core is written in
 //! Emela). Each row has exactly one `@intrinsic` declaration in the bundled sources (`lib/*.emel`),
 //! and `Builtin::lookup_intrinsic` finds the row from the declaration.
+//!
+//! No two rows do the same thing under different names: a conversion lives only in the module
+//! that depends on the other (`Int.to_string`, not also `String.from_int`; `Int64.from_int`, not
+//! also `Int.to_int64`), as `[lib.api-rules]` asks.
+//!
+//! Types are written as [`Sig`], not as `emela_types::Ty`, because the `TyConId` of `Option` is
+//! assigned by the type checker's tables; [`Sig::to_ty`] takes it as an argument.
 
 use emela_types::{Scheme, Ty, TyConId, TyParam};
 
@@ -51,7 +58,7 @@ pub enum Builtin {
     IntBitOr,
     IntBitXor,
     IntBitNot,
-    /// `Int.shift_left(n, by)`. See `NOTES.md` for how shift amounts are handled.
+    /// `Int.shift_left(n, by)`. Shift amounts as in `[api.int]`.
     IntShiftLeft,
     /// `Int.shift_right(n, by)`. Keeps the sign (arithmetic shift).
     IntShiftRight,
@@ -71,7 +78,8 @@ pub enum Builtin {
     Int64ShiftRight,
     Int64ShiftRightUnsigned,
 
-    // Float. Converting to Int is a defect if the result is NaN or outside the range of Int.
+    // Float. Converting to Int is a defect if the result is NaN or outside the range of Int. This
+    // follows the trap of WASM's `i32.trunc_f64_s`, and keeps NaN from silently becoming 0.
     FloatToString,
     /// `Float.from_int`. Every Int is exactly representable as a Float.
     FloatFromInt,

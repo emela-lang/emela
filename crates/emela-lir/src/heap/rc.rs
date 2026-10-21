@@ -26,7 +26,8 @@
 //! - Borrowed (the owner keeps it): the callee of `call_indirect` and the handler of `call_op`,
 //!   the arguments of external functions, builtins, `runtime` operations and concurrency
 //!   operations (the runtime dups what it keeps), primitive operations, the base of views, and
-//!   what `tag`, `list_is_empty`, `is_error` and `switch` look at.
+//!   what `tag`, `list_is_empty`, `is_error` and `switch` look at. Builtins borrow so that the
+//!   runtime written in C need not care about ownership.
 //!
 //! Where the pass puts `dup` and `drop`, from liveness (a backward analysis over the structured
 //! control, with a fixpoint at loops):

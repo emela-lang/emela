@@ -535,6 +535,8 @@ fn effect_decl(p: &mut Parser<'_>, m: Marker) {
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
 ///
 /// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E0426.
+/// A `use` clause is read too, and validation reports it over the clause (E0137, like E0136 for
+/// impl fns), so that the `{` or newline after it does not pile up syntax errors.
 fn op_sig(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
@@ -670,7 +672,13 @@ fn trait_decl(p: &mut Parser<'_>, m: Marker) {
 /// `impl_item = "fn" lower_name "(" [ params ] ")" block`
 ///
 /// The type and its type parameters (`Map[K: Eq, V: Eq]`) become an IMPL_TYPE; the trait is the
-/// PATH after `:`.
+/// PATH after `:`. The type parameters are read as those of an fn, so `List[Int]` and
+/// `Pair[A, A]` parse; name resolution checks the head (E0328).
+///
+/// The old forms (`impl Show for User`, `impl[A: Eq] Box[A]: Eq`) are read without a diagnostic
+/// into the tree the rewritten head would give (the leading type parameters as a TYPE_PARAM_LIST
+/// directly under IMPL_DECL), so name resolution and type checking go on as after the rewrite;
+/// validation reports E0144.
 fn impl_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(IMPL_KW);
     // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first (E0144, reported by

@@ -3,6 +3,9 @@
 // `send` never rejects: a failure becomes an outcome object that the handler turns into an error.
 // Lists cannot cross the boundary, so the request is built by `newRequest` and `withHeader`, and
 // the response headers are read one by one by index.
+//
+// The content-type is left to fetch, which sends `text/plain;charset=UTF-8` for a string body. The
+// body is decoded with the default `ignoreBOM: false`, so a leading BOM is dropped.
 
 const RESPONSE = 0;
 const INVALID_URL = 1;
@@ -17,7 +20,9 @@ export const withHeader = (req, name, value) => ({ ...req, headers: [...req.head
 
 /**
  * Sends `req` and reads the whole body as UTF-8. `signal` is the AbortSignal the runtime appends
- * to the arguments of a suspending external function (spec 12.2); it may be undefined.
+ * to the arguments of a suspending external function (spec 12.2); it may be undefined. Aborting
+ * gives a ConnectionFailed outcome ("This operation was aborted"), which the interrupted fiber
+ * drops.
  */
 export async function send(req, signal) {
   let url;

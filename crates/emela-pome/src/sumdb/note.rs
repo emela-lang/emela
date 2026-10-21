@@ -64,6 +64,9 @@ impl Verifier {
 }
 
 /// The text of a note signed by `verifier`. Signatures by other keys are ignored.
+///
+/// Uses `verify_strict`, which rejects non-canonical Ed25519 signatures and weak keys (spec
+/// `[pome.sumdb]`). The checksum database signs canonically, so its notes pass.
 pub fn open(signed: &str, verifier: &Verifier) -> Result<String, NoteError> {
     let split = signed
         .rfind("\n\n")

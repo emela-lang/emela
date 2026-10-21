@@ -7,6 +7,11 @@
 //! lifted from the new function in turn. A top-level function used as a value (`fn_ref g`)
 //! becomes `make_closure g$fn[]`, where `g$fn(env, params)` calls `g`, so that every function
 //! value has the calling convention of a closure record.
+//!
+//! The record is flat (`{function, captures…}`) and is itself the environment, rather than the
+//! `{function index, environment pointer}` pair of the backend survey (conclusion 5): that saves
+//! one allocation per closure, and calling stays the same (the record is the first argument). No
+//! lambda sets. A wrapper `g$fn` has no captures, so backends can put its record in static data.
 
 use emela_core::{Type, TypeId};
 use rustc_hash::FxHashMap;

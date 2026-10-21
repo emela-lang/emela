@@ -505,7 +505,8 @@ fn check_bounds(
 /// The type and labels of an effect operation (spec 8.1). Being inside a declaration, omitted
 /// `fails` and `use` in function-typed parameters mean empty (spec 9.2). The operation's `fails`
 /// clause is its E. The operation type's R is empty; calls through a capability value add the
-/// effect. Operations cannot have a `use` clause (E0137 in the syntax stage).
+/// effect. Operations cannot have a `use` clause (E0137 in the syntax stage). An omitted return
+/// type is E0110 in the parser; it is read as `()` here to go on.
 ///
 /// Effect type parameters (the `S` of `effect State[S]`) become scheme type parameters as
 /// `Bound(i)`. Capability values and handler implementations substitute the tag's type
@@ -604,6 +605,11 @@ fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
 
 /// Adds `own` to the `use` of a function type that names one of the effect's set type
 /// parameters (the first `n` scheme parameters).
+///
+/// Without it, the child's `Scope[?e, ?r]` would become a lower bound of `?r` itself: the scope
+/// would demand `Scope` from outside (E0402, and the checker could overflow its stack), and in
+/// nested scopes the child's `Scope` would be met by the outer scope while lowering points it at
+/// the inner one.
 fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
     let Ty::Fn(mut f) = ty else {
         return ty;

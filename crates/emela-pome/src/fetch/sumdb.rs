@@ -7,6 +7,9 @@
 //!
 //! The largest checkpoint seen is kept in the cache, so a database that shows different trees to
 //! different people, or drops records, is caught on a later lookup.
+//!
+//! Tiles are not cached on disk. One proof reads one or two tiles per level, so fetching them each
+//! time is cheap enough.
 
 use crate::fetch::FetchError;
 use crate::fetch::cache::Cache;

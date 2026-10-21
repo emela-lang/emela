@@ -38,7 +38,8 @@ impl ImportGraph {
     }
 
     /// Dependency order (imported modules first), or `None` if there is a cycle. Used to order
-    /// type checking.
+    /// type checking. Imports of undefined modules are not edges, so they do not withhold the
+    /// order.
     pub fn order(&self) -> Option<&[ModuleId]> {
         self.order.as_deref()
     }

@@ -52,7 +52,8 @@ fn is_false(b: &bool) -> bool {
 
 /// The `.emel` files of a tree with an `@external` annotation, sorted. An annotation is a line
 /// starting with `@external` (comments start with `#`, so they do not count). Files under `test/`
-/// are left out: a dependency's tests are never read (spec 13.1).
+/// are left out: a dependency's tests are never read (spec 13.1). Lines are scanned without
+/// parsing, so this crate does not depend on emela-syntax.
 pub fn external_files<'a>(files: impl IntoIterator<Item = (&'a str, &'a [u8])>) -> Vec<String> {
     let mut found: Vec<String> = files
         .into_iter()

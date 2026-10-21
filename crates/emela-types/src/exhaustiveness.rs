@@ -26,7 +26,8 @@ pub enum Pat {
     Lit(Lit),
     /// Enum constructors and `type`. `variant` is the constructor's index in [`TyShape::Enum`].
     /// `fields` pairs a field's position in declaration order with a pattern; fields not written
-    /// are wildcards (`User(name:, ..)`).
+    /// are wildcards (`User(name:, ..)`). Omitting a named field without `..` is an error
+    /// (`[fn.match]`), but the type checker reports it; here it is only a wildcard.
     Variant {
         variant: usize,
         fields: Vec<(usize, Pat)>,
@@ -126,6 +127,8 @@ pub struct Arm {
     pub guarded: bool,
 }
 
+/// Not a [`crate::TypeError`]: the checker knows no spans, so type inference turns this into
+/// diagnostics where it connects the check (`coverage.rs`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MatchCheck {
     /// Examples of missing values; empty if exhaustive. Truncated at [`WITNESS_LIMIT`].

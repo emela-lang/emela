@@ -1,5 +1,6 @@
 // Host functions for SystemClock and TestClock (clock.emel). Int64 is a BigInt in JS.
 
+// Not `Date.now` itself as the external function: it returns a Number, and Int64 needs a BigInt.
 export function nowMilliseconds() {
   return BigInt(Date.now());
 }

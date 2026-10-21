@@ -2106,7 +2106,8 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_DEFECT);
     ins.else_();
     // A defect raised while one is already pending (spec 14.4): the first stays the result and
-    // the later one becomes a note. Notes are not implemented yet (NOTES.md), so release it.
+    // the later one becomes a note. Notes are not recorded yet (`[target.wasm.unsupported]`), so
+    // release it.
     ins.local_get(0);
     ins.call(rt(b, "drop"));
     ins.end();
@@ -2129,8 +2130,8 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_DEFECT);
     ins.else_();
     // A defect raised while the first unwound (spec 14.4): the first (`local 0`) stays the
-    // result. The later one becomes a note; notes are not implemented yet (NOTES.md), so
-    // release it and restore the first.
+    // result. The later one becomes a note; notes are not recorded yet
+    // (`[target.wasm.unsupported]`), so release it and restore the first.
     ins.global_get(G_DEFECT);
     ins.call(rt(b, "drop"));
     ins.local_get(0);

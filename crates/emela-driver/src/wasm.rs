@@ -67,6 +67,9 @@ impl TestBackend<TestModule> for CoreWasm {
     }
 }
 
+/// emela-codegen-wasm's errors as diagnostics without a location (spec
+/// `[target.wasm.unsupported]`). Only external functions called back by the host get a code
+/// (E0427).
 fn diagnostics(errors: Vec<WasmError>) -> Vec<Diagnostic> {
     errors
         .into_iter()

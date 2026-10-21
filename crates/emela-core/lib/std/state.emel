@@ -6,7 +6,8 @@
 # To hold two states of the same type, wrap them in distinct types (`State[Hits]` and `State[Misses]`).
 #
 # `run` is a built-in handler provided by the runtime: the lowering writes it in place instead of
-# calling a function (NOTES.md).
+# calling a function. It is not in the builtin table, since it calls `body` with an extended
+# evidence table, which no single function implements.
 
 ## Reads and writes a state of type `S`.
 pub effect State[S] {

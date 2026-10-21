@@ -29,7 +29,8 @@ pub enum DiagnosticCode {
     /// `\u{...}` is malformed, or its value is a surrogate or above 10FFFF.
     InvalidUnicodeEscape,
     /// The opening `"""` is not followed by a newline, the closing `"""` is not alone on its
-    /// line, or a line is indented less than the closing line.
+    /// line, or a line is indented less than the closing line. These share one code because the
+    /// lexical band E0101–E0109 had no room left.
     MalformedMultilineString,
     ExpectedToken,
     ExpectedType,
