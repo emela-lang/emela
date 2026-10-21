@@ -41,6 +41,7 @@ use wasm_encoder::{
 };
 
 use crate::check;
+use crate::std_host::StdHost;
 use crate::{WasmError, WasmErrorKind, WasmOutput};
 
 /// What the generated `wasi:cli/run@0.3.0` export runs.
@@ -75,7 +76,12 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
         return Err(b.errors);
     }
     let (core, layout) = b.finish();
-    let module = crate::component::wrap(&core).map_err(|e| {
+    let optional = crate::component::OptionalImports {
+        environment: b.uses_env(),
+        random: b.uses_random(),
+        clock: b.uses_clock(),
+    };
+    let module = crate::component::wrap(&core, optional).map_err(|e| {
         vec![WasmError {
             kind: WasmErrorKind::Internal,
             message: format!("internal error in the WASM component: {e}"),
@@ -197,6 +203,8 @@ pub(crate) struct Builder<'m> {
     const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
+    std_hosts: Vec<(FnId, StdHost)>,
 }
 
 impl<'m> Builder<'m> {
@@ -230,6 +238,7 @@ impl<'m> Builder<'m> {
             const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            std_hosts: Vec::new(),
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -285,7 +294,57 @@ impl<'m> Builder<'m> {
         i
     }
 
+    /// Whether a supported WASI host is used (and so its runtime wrapper and import are needed).
+    pub(crate) fn uses_std_host(&self, which: fn(StdHost) -> bool) -> bool {
+        self.std_hosts.iter().any(|&(_, host)| which(host))
+    }
+
+    pub(crate) fn uses_console(&self) -> bool {
+        self.uses_std_host(StdHost::is_console)
+    }
+
+    pub(crate) fn uses_env(&self) -> bool {
+        self.uses_std_host(StdHost::is_env)
+    }
+
+    pub(crate) fn uses_random(&self) -> bool {
+        self.uses_std_host(StdHost::is_random)
+    }
+
+    pub(crate) fn uses_clock(&self) -> bool {
+        self.uses_std_host(StdHost::is_clock)
+    }
+
     // ---- WASI 0.3 imports ----
+
+    pub(crate) fn environment_get(&mut self) -> u32 {
+        self.host_import(
+            "wasi:cli/environment@0.3.0",
+            "get-environment",
+            // The result is a `list<tuple<string, string>>`, returned through a pointer.
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn random_u64(&mut self) -> u32 {
+        self.host_import(
+            "wasi:random/random@0.3.0",
+            "get-random-u64",
+            Vec::new(),
+            vec![ValType::I64],
+        )
+    }
+
+    pub(crate) fn system_clock_now(&mut self) -> u32 {
+        self.host_import(
+            "wasi:clocks/system-clock@0.3.0",
+            "now",
+            // The `instant` record is returned through a pointer.
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
 
     pub(crate) fn exit_with_code(&mut self) -> u32 {
         self.host_import(
@@ -399,16 +458,30 @@ impl<'m> Builder<'m> {
 
     fn build(&mut self, entry: &Run) {
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
-        // indices.
+        // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
+        // runtime functions have their indices.
         for (id, f) in self.m.functions.iter() {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
-                self.external_import(id, f, binding);
+                match crate::std_host::classify(self.m, f) {
+                    Some(host) => self.std_hosts.push((id, host)),
+                    None => self.external_import(id, f, binding),
+                }
             }
         }
         // The WASI 0.3 host calls the runtime always uses (their indices must be fixed before the
-        // function index space is assigned).
+        // function index space is assigned). The environment, random and clock imports are only
+        // added when the program uses them.
+        if self.uses_env() {
+            self.environment_get();
+        }
+        if self.uses_random() {
+            self.random_u64();
+        }
+        if self.uses_clock() {
+            self.system_clock_now();
+        }
         self.exit_with_code();
         self.output_imports("wasi:cli/stdout@0.3.0");
         self.output_imports("wasi:cli/stderr@0.3.0");
@@ -446,6 +519,20 @@ impl<'m> Builder<'m> {
             self.error_shows.insert(enum_id, slot);
         }
         runtime::register(self);
+        // A supported `Std` host calls its runtime wrapper directly.
+        for i in 0..self.std_hosts.len() {
+            let (id, host) = self.std_hosts[i];
+            self.fn_index[ix(id)] = *self.rt.get(host.runtime_name()).unwrap_or_else(|| {
+                self.errors.push(WasmError::new(
+                    WasmErrorKind::Internal,
+                    format!(
+                        "internal error: missing runtime function `{}`",
+                        host.runtime_name()
+                    ),
+                ));
+                &0
+            });
+        }
         // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
         // component-model status code.
         let ty = self.ty(vec![], vec![ValType::I32]);
@@ -741,6 +828,13 @@ impl<'m> Builder<'m> {
             ExportKind::Func,
             self.callback_index,
         );
+        // An imported function returning a list (`get-environment`) makes the host allocate the
+        // result in our linear memory through `cabi_realloc` (the canonical ABI's realloc).
+        if self.uses_env()
+            && let Some(&realloc) = self.rt.get("cabi_realloc")
+        {
+            exports.export("cabi_realloc", ExportKind::Func, realloc);
+        }
         module.section(&exports);
 
         if !self.table_funcs.is_empty() {
@@ -1192,9 +1286,11 @@ impl<'m> Builder<'m> {
                 on_defect,
                 on_suspend,
             } => {
-                if on_suspend.is_some() {
-                    self.internal(format!("suspension edge left in {}", cx.f.name));
-                }
+                // The target has no suspend machinery. A call that may suspend by type but does
+                // not actually suspend (a closure over `Clock.now`, say) takes the fast path and
+                // the edge is never reached; an actual suspending external is already a stub
+                // that raises a defect. Emit the value and ignore the edge.
+                let _ = on_suspend;
                 self.value(cx, ins, dst, &value);
                 if let Some(landing) = on_defect {
                     ins.global_get(G_DEFECT);

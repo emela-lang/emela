@@ -20,7 +20,14 @@ impl<'m> Builder<'m> {
             RuntimeOp::Defect => "raise",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
-            RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {
+            // The state-machine pass puts a fairness yield before a call that may suspend by
+            // type. The target has no scheduler; a call that does not actually suspend (the
+            // common case for a type that merely uses an effect with a suspend operation) runs
+            // straight through, and an actual suspending external is a defect stub.
+            RuntimeOp::Yield | RuntimeOp::YieldPerform => {
+                return;
+            }
+            RuntimeOp::Hold | RuntimeOp::Unhold => {
                 self.internal(format!("suspend runtime op {op:?} left in {}", cx.f.name));
                 return;
             }

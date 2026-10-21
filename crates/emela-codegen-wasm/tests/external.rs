@@ -7,6 +7,66 @@ use common::*;
 use emela_codegen_wasm::WasmErrorKind;
 
 #[test]
+fn a_known_wasi_host_is_allowed() {
+    // The allow list is the module/name pair plus the Emela shape. A program may name the same
+    // WASI function the bundled `Std` modules use.
+    compile_checked(
+        r#"
+effect Randomish {
+  fn next() -> Int
+}
+
+@external(wasm, "wasi:random/random@0.3.0", "get-random-u64")
+fn host_random() -> Int
+
+handler FromWasi: Randomish {
+  fn next() { host_random() }
+}
+
+fn main() {
+  with FromWasi {
+    dbg((use Randomish).next() >= -2147483647 - 1)
+  }
+}
+"#,
+    );
+}
+
+#[test]
+fn a_known_name_with_another_shape_is_diagnosed() {
+    let errors = to_wasm(
+        r#"
+effect Words {
+  fn text() -> String
+}
+
+@external(wasm, "wasi:random/random@0.3.0", "get-random-u64")
+fn host_random() -> String
+
+handler FromWasi: Words {
+  fn text() { host_random() }
+}
+
+fn main() {
+  with FromWasi {
+    dbg((use Words).text())
+  }
+}
+"#,
+    )
+    .expect_err("the shape does not match the WASI function");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind == WasmErrorKind::Unsupported
+                && error.message.contains("`host_random`")
+                && error.message.contains("`wasm` import")
+        }),
+        "expected an unsupported wasm import diagnostic, got {errors:#?}"
+    );
+}
+
+#[test]
 fn wasm_externals_are_diagnosed() {
     let errors = to_wasm(
         r#"

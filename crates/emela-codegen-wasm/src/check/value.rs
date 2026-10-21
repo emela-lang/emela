@@ -2,9 +2,9 @@
 
 use super::*;
 
-use emela_lir::{Callee, Function, Module, Value};
+use emela_lir::{Callee, Module, Value};
 
-pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found) {
+pub(super) fn value_unsupported(m: &Module, value: &Value, found: &mut Found) {
     match value {
         Value::Fiber { op, .. } => {
             let name = fiber_name(*op);
@@ -12,8 +12,9 @@ pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: 
                 found.fibers.push(name);
             }
         }
-        // A `suspend fn` operation called where nothing may suspend: its implementation runs in
-        // place (spec 8.7), which needs the suspend machinery too.
+        // A `suspend fn` operation called anywhere needs the suspend machinery. Its handler
+        // implementation calls the operation's external (`sleep_milliseconds`, say), not the
+        // operation again, so scanning nested closure bodies does not flag an unused handler.
         Value::Call {
             callee: Callee::Op { effect, op, .. },
             ..
@@ -24,9 +25,6 @@ pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: 
                 display_name(&effect.name),
                 effect.ops[*op].name
             ));
-        }
-        Value::Closure(c) if c.suspends => {
-            found.suspending(format!("a closure in `{}`", display_name(&f.name)));
         }
         _ => {}
     }

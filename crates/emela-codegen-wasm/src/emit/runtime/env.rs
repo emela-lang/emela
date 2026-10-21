@@ -1,0 +1,339 @@
+//! `Std.Env` on WASI 0.3: `wasi:cli/environment.get-environment`.
+//!
+//! The host returns a `list<tuple<string, string>>`, so the guest passes a return pointer
+//! (`HOSTBUF`) and the host allocates the list and its strings in linear memory through the
+//! exported `cabi_realloc`. `env_find` scans that list and returns the matching entry, or 0.
+//!
+//! The find is the first match in the host's list, like C's `getenv` and the WIT contract that
+//! `get-environment` holds one value per name. The environment is a value import: taking it
+//! again for `has` and then `get` is consistent. A name or value that is not UTF-8 cannot appear
+//! in the WIT `list<tuple<string, string>>`; the host decides what it exposes (wasmtime rejects
+//! an inherited environment with such a variable before the program starts), so only UTF-8 names
+//! can match.
+//!
+//! The buffers `cabi_realloc` hands the host are never reclaimed: a command is short-lived, and
+//! the runtime has no raw-byte free list. The bump allocator keeps them out of the object heap.
+
+use super::*;
+
+pub(super) const FUNCS: &[Sig] = &[
+    ("env_find", &[ValType::I32], &[ValType::I32]),
+    ("env_has", &[ValType::I32], &[ValType::I32]),
+    ("env_get", &[ValType::I32], &[ValType::I32]),
+    (
+        "str_from_raw",
+        &[ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+    (
+        "cabi_realloc",
+        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32],
+    ),
+];
+
+pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+    match name {
+        // LP, LN, I, E, KL, KP, NL, J, OK
+        "env_find" => i32s(9),
+        // entry, value pointer, value length
+        "env_get" => i32s(3),
+        // the new string
+        "str_from_raw" => i32s(1),
+        // align, pointer, end, remainder, memory bytes, pages, copy length
+        "cabi_realloc" => i32s(7),
+        _ => Vec::new(),
+    }
+}
+
+pub(super) fn used(b: &Builder) -> bool {
+    b.uses_env()
+}
+
+pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+    match name {
+        "env_find" => env_find(b, ins),
+        "env_has" => env_has(b, ins),
+        "env_get" => env_get(b, ins),
+        "str_from_raw" => str_from_raw(b, ins),
+        "cabi_realloc" => cabi_realloc(ins),
+        _ => return false,
+    }
+    true
+}
+
+/// `env_find(name)`: the host's entry for `name` (a pointer to `{key.ptr, key.len, value.ptr,
+/// value.len}`), or 0.
+fn env_find(b: &mut Builder, ins: &mut InstructionSink) {
+    const LP: u32 = 1;
+    const LN: u32 = 2;
+    const I: u32 = 3;
+    const E: u32 = 4;
+    const KL: u32 = 5;
+    const KP: u32 = 6;
+    const NL: u32 = 7;
+    const J: u32 = 8;
+    const OK: u32 = 9;
+
+    let get = b.environment_get();
+
+    ins.i32_const(HOSTBUF as i32);
+    ins.call(get);
+    ins.i32_const(HOSTBUF as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(LP);
+    ins.i32_const((HOSTBUF + 4) as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(LN);
+    ins.local_get(0);
+    ins.i32_load(mem(HDR, 4));
+    ins.local_set(NL);
+    ins.i32_const(0);
+    ins.local_set(I);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    // Past the last entry: not found.
+    ins.local_get(I);
+    ins.local_get(LN);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    // E = LP + I * 16
+    ins.local_get(LP);
+    ins.local_get(I);
+    ins.i32_const(16);
+    ins.i32_mul();
+    ins.i32_add();
+    ins.local_set(E);
+    ins.local_get(E);
+    ins.i32_load(mem(4, 4));
+    ins.local_set(KL);
+    ins.local_get(KL);
+    ins.local_get(NL);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    ins.else_();
+    ins.local_get(E);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(KP);
+    ins.i32_const(1);
+    ins.local_set(OK);
+    ins.i32_const(0);
+    ins.local_set(J);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    ins.local_get(J);
+    ins.local_get(NL);
+    ins.i32_ge_u();
+    ins.br_if(1);
+    ins.local_get(KP);
+    ins.local_get(J);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.local_get(0);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(J);
+    ins.i32_add();
+    ins.i32_load8_u(mem(0, 1));
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.local_set(OK);
+    ins.br(2);
+    ins.end();
+    ins.local_get(J);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(J);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.local_get(OK);
+    ins.if_(BlockType::Empty);
+    ins.local_get(E);
+    ins.return_();
+    ins.end();
+    ins.end();
+    // I += 1; continue.
+    ins.local_get(I);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(I);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.i32_const(0);
+}
+
+fn env_has(b: &mut Builder, ins: &mut InstructionSink) {
+    ins.local_get(0);
+    ins.call(rt(b, "env_find"));
+    ins.i32_const(0);
+    ins.i32_ne();
+}
+
+fn env_get(b: &mut Builder, ins: &mut InstructionSink) {
+    const ENTRY: u32 = 1;
+    const VALUE: u32 = 2;
+    const LEN: u32 = 3;
+    let empty = b.string_literal(b"");
+    ins.local_get(0);
+    ins.call(rt(b, "env_find"));
+    ins.local_set(ENTRY);
+    ins.local_get(ENTRY);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    // `Std.Env` only asks for the value after `has`, but an empty string is a safe answer if the
+    // environment changed in between.
+    ins.i32_const(empty as i32);
+    ins.return_();
+    ins.end();
+    ins.local_get(ENTRY);
+    ins.i32_load(mem(8, 4));
+    ins.local_set(VALUE);
+    ins.local_get(ENTRY);
+    ins.i32_load(mem(12, 4));
+    ins.local_set(LEN);
+    ins.local_get(VALUE);
+    ins.local_get(LEN);
+    ins.call(rt(b, "str_from_raw"));
+}
+
+/// `str_from_raw(ptr, len)`: a new string object holding the host's bytes.
+fn str_from_raw(b: &mut Builder, ins: &mut InstructionSink) {
+    const DST: u32 = 2;
+    ins.local_get(1);
+    ins.call(rt(b, "str_new"));
+    ins.local_set(DST);
+    ins.local_get(DST);
+    ins.i32_const((HDR + 4) as i32);
+    ins.i32_add();
+    ins.local_get(0);
+    ins.local_get(1);
+    ins.memory_copy(0, 0);
+    ins.local_get(DST);
+}
+
+/// The canonical ABI's `cabi_realloc(old_ptr, old_size, align, new_size)`.
+///
+/// The bump allocator hands out 8-byte-aligned runs; a requested alignment below 8 is raised to 8
+/// so later objects stay aligned. Reallocation with a live `old_ptr` copies the common bytes.
+fn cabi_realloc(ins: &mut InstructionSink) {
+    const A: u32 = 4;
+    const P: u32 = 5;
+    const END: u32 = 6;
+    const REM: u32 = 7;
+    const BYTES: u32 = 8;
+    const PAGES: u32 = 9;
+    const COPY: u32 = 10;
+
+    // `realloc(_, _, _, 0)` frees.
+    ins.local_get(3);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.return_();
+    ins.end();
+    // Shrinking in place.
+    ins.local_get(0);
+    ins.i32_eqz();
+    ins.i32_eqz();
+    ins.local_get(1);
+    ins.local_get(3);
+    ins.i32_ge_u();
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.local_get(0);
+    ins.return_();
+    ins.end();
+    // A = max(align, 8).
+    ins.local_get(2);
+    ins.i32_const(8);
+    ins.i32_lt_u();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(8);
+    ins.local_set(A);
+    ins.else_();
+    ins.local_get(2);
+    ins.local_set(A);
+    ins.end();
+    // P = align_up(G_HEAP, A).
+    ins.global_get(G_HEAP);
+    ins.local_set(P);
+    ins.local_get(P);
+    ins.local_get(A);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.i32_and();
+    ins.local_set(REM);
+    ins.local_get(REM);
+    ins.if_(BlockType::Empty);
+    ins.local_get(P);
+    ins.local_get(A);
+    ins.local_get(REM);
+    ins.i32_sub();
+    ins.i32_add();
+    ins.local_set(P);
+    ins.end();
+    // END = align_up(P + new_size, A).
+    ins.local_get(P);
+    ins.local_get(3);
+    ins.i32_add();
+    ins.local_set(END);
+    ins.local_get(END);
+    ins.local_get(A);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.i32_and();
+    ins.local_set(REM);
+    ins.local_get(REM);
+    ins.if_(BlockType::Empty);
+    ins.local_get(END);
+    ins.local_get(A);
+    ins.local_get(REM);
+    ins.i32_sub();
+    ins.i32_add();
+    ins.local_set(END);
+    ins.end();
+    // Grow the memory if the run does not fit.
+    ins.memory_size(0);
+    ins.i32_const(PAGE as i32);
+    ins.i32_mul();
+    ins.local_set(BYTES);
+    ins.local_get(END);
+    ins.local_get(BYTES);
+    ins.i32_gt_u();
+    ins.if_(BlockType::Empty);
+    ins.local_get(END);
+    ins.local_get(BYTES);
+    ins.i32_sub();
+    ins.i32_const((PAGE - 1) as i32);
+    ins.i32_add();
+    ins.i32_const(PAGE as i32);
+    ins.i32_div_u();
+    ins.local_set(PAGES);
+    ins.local_get(PAGES);
+    ins.memory_grow(0);
+    ins.drop();
+    ins.end();
+    ins.local_get(END);
+    ins.global_set(G_HEAP);
+    // Copy the old contents when growing in place was not possible.
+    ins.local_get(0);
+    ins.i32_eqz();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(1);
+    ins.local_get(3);
+    ins.local_get(1);
+    ins.local_get(3);
+    ins.i32_lt_u();
+    ins.select();
+    ins.local_set(COPY);
+    ins.local_get(P);
+    ins.local_get(0);
+    ins.local_get(COPY);
+    ins.memory_copy(0, 0);
+    ins.end();
+    ins.local_get(P);
+}

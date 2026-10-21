@@ -51,6 +51,7 @@ scratch! {
     DIGITS64: 96,  24;  // the digits of an Int64
     JSONBUF:  128, 6;   // a short buffer for JSON escapes
     CPBUF:    160, 4;   // the UTF-8 of one code point
+    HOSTBUF:  168, 16;  // a list or record returned by a WASI host
 }
 
 /// The start of the static data (right after the scratch region).

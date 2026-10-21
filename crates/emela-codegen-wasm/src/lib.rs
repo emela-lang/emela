@@ -11,14 +11,16 @@
 //! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
 //! (`wasmtime`).
 //!
-//! The first version supports no programs that suspend (the emitter does not read the state
-//! machines of the Heap IR yet), no fibers and no callbacks to host functions; reaching them is a
-//! [`WasmError`]. The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of
-//! the runtime.
+//! The target supports the synchronous WASI hosts the bundled `Std` handlers use (Console, Env,
+//! Random and Clock.now). It does not support actual suspension (`sleep`), fibers or callbacks to
+//! host functions; reaching them is a [`WasmError`] (or, for an unused suspending operation, it
+//! is simply never called). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0)
+//! are part of the runtime.
 
 mod check;
 mod component;
 mod emit;
+mod std_host;
 
 pub use self::emit::layout;
 
