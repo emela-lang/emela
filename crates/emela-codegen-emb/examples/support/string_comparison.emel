@@ -1,0 +1,9 @@
+pub fn eq(a: String, b: String) -> Bool { a == b }
+pub fn ne(a: String, b: String) -> Bool { a != b }
+pub fn lt(a: String, b: String) -> Bool { a < b }
+pub fn le(a: String, b: String) -> Bool { a <= b }
+pub fn gt(a: String, b: String) -> Bool { a > b }
+pub fn ge(a: String, b: String) -> Bool { a >= b }
+pub fn repeated(a: String, b: String, n: Int) -> Bool {
+  if n == 0 { a == b } else { repeated(b, a, n - 1) }
+}

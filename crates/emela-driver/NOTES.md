@@ -261,3 +261,11 @@ alpha.3 で足した（2026-10-12）．最初は Instant を作る関数（`Inst
 - （補）import の指定は相対 URL の形で，英数字と `/-._~@` のほかはパーセントエンコードする
 - C は今のまま，絶対パスでコンパイルに渡す（実行ファイルに組み込まれるので写さない）．WASM はファイルを指す `@external` を実際には使っていないので，手を入れていない
 
+## 組み込みCのターゲット
+
+- （補）`Target::CEmbedded`は多相Coreを`CoreEmbedded`へ渡す．`LowerInput::target`は未指定とし，単相化・const originの保持・C bindingの検査は組み込みbackendが行う．debug時のCore検証には`verify`を使い，通常targetの`verify_monomorphic`とは分ける．Core／LIRの定義やlowering自体は変更しない
+- （補）`EmbeddedConfig`は固定heap・String・pool容量，ISR指定，外部adapter，公開aliasをTOMLから読み，`Options`と`emela_embedded_exports.h`へ反映する．`@external`のbinding名は`c`を使う
+- （補）`EmbeddedProject`は`[embedded]`のboard・entry・追加source・module置換を扱う．board packageはcompile時に同梱し，firmware生成に開発checkoutを必要としない．外部Python・cross compiler・書き込みtoolは利用者が用意する
+- （補）build前の入力記録と成功時のsealを分け，flashでは現在のdriverに同梱した照合scriptを出力directoryのscriptより先に実行する．失敗した再buildは以前の成功記録を無効にする
+- （補）library専用projectのbuildは既存どおり検査だけを行い，boardを選んでもfirmware生成や外部toolの起動へ進めない．Core便宜APIの制約・設定・出力・照合の詳細は[組み込みCLI](../emela-codegen-emb/docs/cli-embedded.md)を参照する
+

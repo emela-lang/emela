@@ -29,7 +29,7 @@ pub struct Manifest {
 }
 
 /// The targets `[pome].targets` may name (spec chapter 16).
-pub const TARGETS: [&str; 3] = ["js", "wasm", "c"];
+pub const TARGETS: [&str; 4] = ["js", "wasm", "c", "c-embedded"];
 
 /// An entry of `[dependencies]` or `[dev-dependencies]`: "this version or above".
 #[derive(Debug, Clone, PartialEq, Eq)]

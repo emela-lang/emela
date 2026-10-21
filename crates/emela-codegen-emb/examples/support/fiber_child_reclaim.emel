@@ -1,0 +1,48 @@
+import Std.Fiber.{Fiber, Scope, Success, Failure}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+
+fn rounds(n: Int, total: Int) -> Int use {Scope[{}, {}], Async} {
+  if n == 0 { total } else {
+    child = Fiber.fork(fn() { [Int.to_string(n)] })
+    copied = child
+    first = Fiber.join(child)
+    second = Fiber.join(copied)
+    third = Fiber.await(child) match {
+      Success(xs) -> xs
+      Failure(_) -> []
+    }
+    count = List.length(first) + List.length(second) + List.length(third)
+    rounds(n - 1, total + count)
+  }
+}
+pub fn work(n: Int) -> Int use Async {
+  Fiber.scope(fn() { rounds(n, 0) })
+}
+pub fn abandoned(n: Int) -> Int use Async {
+  with Waiting {
+    Fiber.scope(fn() {
+      Fiber.fork(fn() { [Int.to_string(n)] })
+      (use Wait).get(1)
+      (use Wait).get(2)
+      n
+    })
+  }
+}
+pub fn kept(n: Int) -> List[String] use Async {
+  with Waiting {
+    Fiber.scope(fn() {
+      child = Fiber.fork(fn() { [Int.to_string(n)] })
+      a = Fiber.join(child)
+      (use Wait).get(1)
+      b = Fiber.join(child)
+      Fiber.await(child) match { Success(c) -> List.append(List.append(a, b), c)
+        Failure(_) -> [] }
+    })
+  }
+}
+pub fn head(xs: List[String]) -> String { xs match { [s, ..] -> s
+  [] -> "" } }
+pub fn tail(xs: List[String]) -> List[String] { List.tail(xs) }

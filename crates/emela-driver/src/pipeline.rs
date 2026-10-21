@@ -39,6 +39,8 @@ pub const ENTRY_FILE: &str = "main.emel";
 pub const JS_OUT_DIR: &str = "target/emela/js";
 /// The default C output directory (`--target c`), relative like [`JS_OUT_DIR`].
 pub const C_OUT_DIR: &str = "target/emela/c";
+/// The embedded C output directory (`--target c-embedded`), relative like [`JS_OUT_DIR`].
+pub const C_EMBEDDED_OUT_DIR: &str = "target/emela/c-embedded";
 /// The default WASM output directory (`--target wasm`), relative like [`JS_OUT_DIR`].
 pub const WASM_OUT_DIR: &str = "target/emela/wasm";
 /// The default output directory of `emela doc`, relative like [`JS_OUT_DIR`].
@@ -278,6 +280,7 @@ impl Input {
         match target {
             Target::Js => self.base.join(JS_OUT_DIR),
             Target::C => self.base.join(C_OUT_DIR),
+            Target::CEmbedded => self.base.join(C_EMBEDDED_OUT_DIR),
             Target::Wasm => self.base.join(WASM_OUT_DIR),
         }
     }
@@ -499,6 +502,8 @@ pub trait Backend<P> {
 /// How the built program runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runner {
+    /// Generated sources that require a separate board toolchain and runner.
+    BuildOnly,
     /// A `.mjs` entry run on node.
     Node,
     /// A native executable.
@@ -878,12 +883,19 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
     options: &RunOptions,
     before_node: impl FnOnce(&Analysis),
 ) -> (Analysis, Option<RunOutput>) {
+    if backend.runner() == Runner::BuildOnly {
+        let (mut analysis, _) = check(fs, input, frontend);
+        analysis.diagnostics.push(build_only_diagnostic("run"));
+        before_node(&analysis);
+        return (analysis, None);
+    }
     let (mut analysis, entry) = build_with(fs, input, frontend, backend, &options.out_dir, true);
     before_node(&analysis);
     let Some(entry) = entry else {
         return (analysis, None);
     };
     let result = match backend.runner() {
+        Runner::BuildOnly => Err(build_only_diagnostic("run")),
         Runner::Node => run_node(&options.node, &entry, &options.args, options.output),
         Runner::Native => run_native(&entry, &options.args, options.output),
         Runner::Wasmtime => run_wasmtime(&entry, &options.args, options.output),
@@ -895,6 +907,13 @@ pub fn run<F: Frontend, B: Backend<F::Program>>(
             (analysis, None)
         }
     }
+}
+
+pub(crate) fn build_only_diagnostic(command: &str) -> Diagnostic {
+    Diagnostic::error(format!(
+        "`{command}` is not available for a backend that only generates embedded C sources"
+    ))
+    .with_note("help: use `emela build --target c-embedded`, then build and run the generated C with the board's toolchain and runner")
 }
 
 /// Treats `./src/main.emel` and `src/main.emel` as the same.

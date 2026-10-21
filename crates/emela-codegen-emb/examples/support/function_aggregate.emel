@@ -1,0 +1,21 @@
+pub enum Packet {
+  Data((String, Option[String]), List[String])
+  Empty
+}
+fn apply(f: fn((String, Option[String])) -> Packet, pair: (String, Option[String])) -> Packet {
+  f(pair)
+}
+pub fn maker(n: Int) -> (fn((String, Option[String])) -> Packet) {
+  suffix = Int.to_string(n)
+  fn(pair) {
+    (text, note) = pair
+    Data((String.append(text, suffix), note), [text, suffix])
+  }
+}
+pub fn native(n: Int) -> Packet {
+  callback = maker(n)
+  text = Int.to_string(n + 1)
+  pair = (text, Some(text))
+  apply(callback, pair)
+  apply(callback, pair)
+}

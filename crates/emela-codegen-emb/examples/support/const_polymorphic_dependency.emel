@@ -1,0 +1,16 @@
+const BASE = { dbg("BASE")
+  []
+}
+const PAIR = { dbg("PAIR")
+  (BASE, fn(value) { value })
+}
+fn integers(value: (List[Int], fn(Int) -> Int)) -> Int {
+  (items, apply) = value
+  apply(42)
+}
+fn texts(value: (List[Int], fn(String) -> String)) -> Int {
+  (items, apply) = value
+  String.byte_size(apply("42")) + 40
+}
+pub fn integer() -> Int { integers(PAIR) }
+pub fn text() -> Int { texts(PAIR) }

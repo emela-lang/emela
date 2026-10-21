@@ -97,7 +97,7 @@ fn run_on(
     let (analysis, output) = match target {
         Target::Js => run(&OsFs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
         Target::C => run(&OsFs, &input, &mut frontend, c, &options, |_| {}),
-        Target::Wasm => unreachable!("parity compares js and c"),
+        Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
@@ -141,7 +141,7 @@ fn test_on(
             &mut out,
         ),
         Target::C => test(&OsFs, &input, &mut frontend, c, &options, |_| {}, &mut out),
-        Target::Wasm => unreachable!("parity compares js and c"),
+        Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {
@@ -417,7 +417,7 @@ fn after_the_others() {
                 |_| {},
                 &mut out,
             ),
-            Target::Wasm => unreachable!("parity compares js and c"),
+            Target::Wasm | Target::CEmbedded => unreachable!("parity compares js and c"),
         };
         let _ = std::fs::remove_dir_all(&options.out_dir);
         assert!(!analysis.has_errors(), "{:?}", messages(&analysis));

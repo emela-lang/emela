@@ -25,3 +25,12 @@
 - （補）`emela pome` はカレントディレクトリから祖先へ `Pome.toml` を探す（`--path` は持たない）
 - （補）出力は `Pome.toml:` と `Pome.lock:` の見出しの下に変わった依存を1行ずつ（`+` 足した，`-` 除いた，`a -> b` 変えた）．lock が変わらなければ `Pome.lock is up to date`
 - （補）誤りは `error: ` に続けて標準エラーに出し，1 で終わる．`verify` で食い違いがあったときも 1
+
+## 組み込みC
+
+- （補）`build --target c-embedded`はdriverの`CoreEmbedded`へ接続し，board未選択ならCとheaderだけを出力する．`run`と`test`はこのtargetを診断して停止する．既存の`c`とは別targetである
+- （補）`--board`は`[embedded].board`に優先する．boardを選びtargetが未設定なら`c-embedded`を使い，明示またはproject設定の別targetとは併用できない
+- （補）`--embedded-config`は`[embedded].config`に優先し，前者の相対pathは実行directory，後者はproject directoryを基準にする．設定ファイルの自動探索はしない
+- （補）`check --board`と組み込みbuildは`[embedded.modules]`の読取り専用置換を共有する．LSP・doc・host実行には適用しない
+- （補）board buildは`generated/`・`bsp/`・`firmware/`を出力し，成功時の入力と成果物を記録する．`flash`は同じproject・board・設定とhashを照合し，再buildせず書き込みtoolへ渡す．`--dry-run`も照合するがデバイスは開かない
+- （補）`flash --port`はESP32-C3のserial port，STM32F4ではST-Link adapter serialを表す．実装範囲・設定・toolの準備と確認範囲は[組み込みCLI](../emela-codegen-emb/docs/cli-embedded.md)へまとめる

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "cpu": "cortex-m4",
+  "float_abi": "hard",
+  "fpu": "fpv4-sp-d16",
+  "flash_origin": 134217728,
+  "ram_origin": 536870912,
+  "stack_bytes": 16384,
+  "guard_bytes": 256,
+  "openocd_target": "stm32f4x.cfg",
+  "board": "stm32f446re",
+  "chip": "stm32f446re",
+  "physical_board": null,
+  "pins": {},
+  "console_uart": {
+    "id": 2,
+    "base": 1073759232,
+    "apb": 1,
+    "rcc_bit": 17,
+    "tx_pin": 2,
+    "rx_pin": 3,
+    "af": 7
+  }
+}

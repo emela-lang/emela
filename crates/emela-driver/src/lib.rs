@@ -12,6 +12,8 @@ pub use dependencies::check_dependency_targets;
 mod diagnostic;
 mod doc;
 mod documentation;
+mod embedded;
+mod embedded_board;
 mod fmt;
 mod frontend;
 mod hints;
@@ -38,6 +40,8 @@ pub use c::{C_ENTRY_FILE, C_EXECUTABLE, CC_ENV, CoreC, build_executable, cc_comm
 pub use complete::{Completion, CompletionKind};
 pub use diagnostic::{Diagnostic, HELP_PREFIX, Label, Location, Severity, Span, error_count};
 pub use doc::{DocChild, DocItem, DocKind, DocModule, collect_docs, render_html, render_markdown};
+pub use embedded::{CoreEmbedded, EMBEDDED_ENTRY_FILE, EMBEDDED_EXPORTS_FILE, EmbeddedConfig};
+pub use embedded_board::{EmbeddedProject, EmbeddedSources};
 /// The lowered program the output stages read ([`Backend`]).
 pub use emela_core::Module as CoreModule;
 pub use emela_resolve::OsFs;
@@ -55,9 +59,9 @@ pub use nav::{
 };
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies,
-    DependencyPome, DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly, NoJsBackend,
-    Parsed, RunOptions, Runner, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, build, check, run,
+    Analysis, Backend, C_EMBEDDED_OUT_DIR, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR,
+    Dependencies, DependencyPome, DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly,
+    NoJsBackend, Parsed, RunOptions, Runner, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, build, check, run,
 };
 pub use pome::project_dependencies;
 pub use render::{render, render_one, summary};
@@ -70,9 +74,9 @@ pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
 pub use target::{Target, project_target};
 pub use testing::{
-    C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, TEST_ANNOTATION,
-    TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule, TestOptions,
-    TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
+    C_EMBEDDED_TEST_OUT_DIR, C_TEST_OUT_DIR, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests,
+    TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,
+    TestOptions, TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
     default_test_out_dir_for, is_test_fn, test,
 };
 pub use tokens::{SemanticToken, TokenKind};

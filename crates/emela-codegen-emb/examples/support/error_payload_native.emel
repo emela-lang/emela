@@ -1,0 +1,46 @@
+@external(c, "mutate")
+fn mutate() -> () use {}
+effect Resource { fn read() -> Int }
+handler Res: Resource {
+  fn read() { 0 }
+  release { mutate() }
+}
+error Batch(items: List[String]) derive Show
+
+fn invalid(n: Int) -> Int fails ParseError {
+  Int.parse(String.append(Int.to_string(n), "x"))
+}
+fn fail_batch(n: Int) -> Int fails Batch {
+  fail Batch(items: [Int.to_string(n), "tail"])
+}
+fn raise_input(s: String) -> String fails ParseError {
+  with Res { fail ParseError(input: s) }
+}
+pub fn caught(n: Int) -> Int {
+  invalid(n) escape { ParseError(input) -> String.byte_size(input) }
+}
+pub fn batch(n: Int) -> Int {
+  fail_batch(n) escape { Batch(items) -> items match {
+    [text, ..rest] -> String.byte_size(text) + List.length(rest)
+    [] -> -1
+  } }
+}
+pub fn snapshot(s: String) -> String {
+  raise_input(s) escape { ParseError(input) -> input }
+}
+pub fn captured(s: String) -> Int {
+  err = ParseError(input: s)
+  read = fn() { err match {
+    ParseError(input) -> if String.contains(input, "a") { 42 } else { -1 }
+  } }
+  mutate()
+  read()
+}
+pub fn local(n: Int) -> Int {
+  { fail Batch(items: [Int.to_string(n)]) } escape {
+    Batch(items) -> items match {
+      [text, ..rest] -> String.byte_size(text) + List.length(rest)
+      [] -> -1
+    }
+  }
+}
