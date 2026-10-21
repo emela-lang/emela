@@ -2,7 +2,6 @@
 
 use super::*;
 
-use emela_core::Builtin;
 use emela_lir::{Callee, Function, Module, Value};
 
 pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: &mut Found) {
@@ -28,20 +27,6 @@ pub(super) fn value_unsupported(m: &Module, f: &Function, value: &Value, found: 
         }
         Value::Closure(c) if c.suspends => {
             found.suspending(format!("a closure in `{}`", display_name(&f.name)));
-        }
-        Value::Builtin { op, .. } => {
-            let message = match op {
-                Builtin::FloatToString
-                | Builtin::FloatParse
-                | Builtin::FloatFloor
-                | Builtin::FloatCeil
-                | Builtin::FloatRound
-                | Builtin::FloatTruncate => {
-                    "`Float` operation, which target `wasm` does not support yet".to_owned()
-                }
-                _ => return,
-            };
-            found.report(WasmErrorKind::Unsupported, message);
         }
         _ => {}
     }

@@ -27,10 +27,19 @@ pub(super) struct RuntimeModule {
     /// offsets in `Builder::rt_data` for the lowering to read.
     setup: fn(&mut Builder),
     emit: fn(&mut Builder, &str, &mut InstructionSink) -> bool,
+    /// Whether the module is part of the output at all. The Float runtime is heavy (the exact
+    /// decimal of `to_string`), so it is only added when the program uses a Float builtin; a
+    /// module without Float keeps the same bytes.
+    used: fn(&Builder) -> bool,
+}
+
+fn always(_: &Builder) -> bool {
+    true
 }
 
 mod alloc;
 mod defect;
+mod float;
 mod host;
 mod numeric;
 mod option;
@@ -51,60 +60,82 @@ const MODULES: &[RuntimeModule] = &[
         locals: alloc::locals,
         setup: no_setup,
         emit: alloc::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: string::FUNCS,
         locals: string::locals,
         setup: no_setup,
         emit: string::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: option::FUNCS,
         locals: option::locals,
         setup: no_setup,
         emit: option::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: show::FUNCS,
         locals: show::locals,
         setup: no_setup,
         emit: show::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: host::FUNCS,
         locals: host::locals,
         setup: no_setup,
         emit: host::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: defect::FUNCS,
         locals: defect::locals,
         setup: no_setup,
         emit: defect::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: protocol::FUNCS,
         locals: protocol::locals,
         setup: no_setup,
         emit: protocol::emit,
+        used: always,
     },
     RuntimeModule {
         funcs: numeric::FUNCS,
         locals: numeric::locals,
         setup: no_setup,
         emit: numeric::emit,
+        used: always,
+    },
+    RuntimeModule {
+        funcs: float::FUNCS,
+        locals: float::locals,
+        setup: no_setup,
+        emit: float::emit,
+        used: float::used,
     },
     RuntimeModule {
         funcs: unicode::FUNCS,
         locals: unicode::locals,
         setup: unicode::setup,
         emit: unicode::emit,
+        used: always,
     },
 ];
 
 /// Reserves the runtime functions in the function index space.
 pub(crate) fn register(b: &mut Builder) {
+    if float::used(b) {
+        float::prepare(b);
+    }
     for module in MODULES {
+        if !(module.used)(b) {
+            continue;
+        }
         for (name, params, results) in module.funcs {
             let ty = b.ty(params.to_vec(), results.to_vec());
             let index = b.imports.len() as u32 + b.defs.len() as u32;
@@ -134,6 +165,9 @@ pub(crate) fn emit(b: &mut Builder) {
         (module.setup)(b);
     }
     for module in MODULES {
+        if !(module.used)(b) {
+            continue;
+        }
         for (name, ..) in module.funcs {
             let mut f = WasmFunction::new((module.locals)(name));
             {

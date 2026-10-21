@@ -273,7 +273,10 @@ fn the_test_protocol_escapes_messages() {
 
 #[test]
 fn unsupported_features_are_diagnostics() {
-    let (analysis, output) = run_wasm("unsupported", "fn main() { dbg(1.5) }\n");
+    let (analysis, output) = run_wasm(
+        "unsupported",
+        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+    );
     assert!(analysis.has_errors());
     assert!(output.is_none());
     let messages: Vec<&str> = analysis
@@ -281,5 +284,10 @@ fn unsupported_features_are_diagnostics() {
         .iter()
         .map(|d| d.message.as_str())
         .collect();
-    assert!(messages.iter().any(|m| m.contains("Float")), "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("fibers are not supported on target `wasm`")),
+        "{messages:?}"
+    );
 }

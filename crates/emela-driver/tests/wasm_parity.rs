@@ -421,6 +421,59 @@ fn main() {
 "#,
     ),
     (
+        "floats",
+        r#"
+fn parse(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  dbg(1.5)
+  dbg(1.0)
+  dbg(-0.0)
+  dbg(0.1)
+  dbg(0.1 + 0.2)
+  dbg(1.0 / 3.0)
+  dbg(1.0e21)
+  dbg(1.0e20)
+  dbg(1.5e-7)
+  dbg(0.000001)
+  dbg(123456789.125)
+  dbg(1.7976931348623157e308)
+  dbg(5.0e-324)
+  dbg(2.0 / 0.0)
+  dbg(-2.0 / 0.0)
+  dbg(0.0 / 0.0)
+  dbg(5.5 % 2.0)
+  dbg(-5.5 % 2.0)
+  dbg(Float.floor(-1.5))
+  dbg(Float.ceil(-1.5))
+  dbg(Float.round(2.5))
+  dbg(Float.round(-2.5))
+  dbg(Float.truncate(-2.7))
+  dbg(Float.floor(2147483647.9))
+  dbg(Float.truncate(-2147483648.9))
+  dbg(Float.from_int(-2147483647 - 1))
+  dbg(1.0 < 2.0)
+  dbg(2.0 <= 1.0)
+  dbg(0.0 / 0.0 == 0.0 / 0.0)
+  dbg(parse("1.25"))
+  dbg(parse("1e3"))
+  dbg(parse("-0.0"))
+  dbg(parse("Infinity"))
+  dbg(parse("-Infinity"))
+  dbg(parse("NaN"))
+  dbg(parse("2.2250738585072011e-308"))
+  dbg(parse("1."))
+  dbg(parse(" 1"))
+}
+"#,
+    ),
+    (
+        "float_defect",
+        "fn main() {\n  dbg(Float.floor(0.0 / 0.0))\n}\n",
+    ),
+    (
         "derived",
         r##"
 type Name(value: String)
@@ -455,14 +508,11 @@ fn main() {
 
 /// Programs that build on JS but stop on WASM, with a part of the diagnostic message that stops
 /// them (the WASM target's "not supported yet", which has no diagnostic code any more).
-const NOT_ON_WASM: &[(&str, &str, &str)] = &[
-    ("float", "fn main() { dbg(1.5) }\n", "`Float` operation"),
-    (
-        "fibers",
-        "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
-        "fibers are not supported on target `wasm`",
-    ),
-];
+const NOT_ON_WASM: &[(&str, &str, &str)] = &[(
+    "fibers",
+    "import Std.Fiber.{Fiber}\nfn main() -> () use { Async } {\n  Fiber.scope(fn() { () })\n}\n",
+    "fibers are not supported on target `wasm`",
+)];
 
 /// The Unicode version of the Node used for the JS target (`process.versions.unicode`).
 fn node_unicode() -> Option<&'static str> {

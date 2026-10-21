@@ -144,6 +144,8 @@ pub(crate) struct Builder<'m> {
     /// (the runtime's `String.split` / `String.code_points` build lists).
     pub(crate) cons_ref_desc: u32,
     pub(crate) cons_val_desc: u32,
+    /// The static buffers of the Float runtime (allocated only when the program uses Float).
+    pub(crate) float_area: u32,
     pub(crate) data: Vec<u8>,
     /// The static data of the runtime modules, by name (written by their `setup`).
     pub(crate) rt_data: FxHashMap<&'static str, u32>,
@@ -174,6 +176,7 @@ impl<'m> Builder<'m> {
             str_desc: 0,
             cons_ref_desc: 0,
             cons_val_desc: 0,
+            float_area: 0,
             data: vec![0; layout::STATIC_START as usize],
             rt_data: FxHashMap::default(),
             descs: FxHashMap::default(),
