@@ -7,7 +7,7 @@ issue: 374
 decided:
 touches: [effect.handler, effect.with, effect.layer, effect.label, grammar.decl, grammar.expr]
 requires: []
-related: [context-and-given]
+related: []
 ---
 
 # handler の init に引数を取らせる
