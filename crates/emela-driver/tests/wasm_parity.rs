@@ -466,6 +466,18 @@ fn main() {
   dbg(parse("2.2250738585072011e-308"))
   dbg(parse("1."))
   dbg(parse(" 1"))
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
+  dbg(Float.parse(Float.to_string(5.641232424577593e-278)) == 5.641232424577593e-278)
+  dbg(Float.parse(Float.to_string(5.641232424577592e-278)) == 5.641232424577592e-278)
+  dbg(Float.parse(Float.to_string(3.6893488147419103e+19)) == 3.6893488147419103e+19)
+  dbg(Float.parse(Float.to_string(3.68934881474191e+19)) == 3.68934881474191e+19)
+  dbg(Float.parse(Float.to_string(4.3039187809582457e-283)) == 4.3039187809582457e-283)
+  dbg(Float.parse(Float.to_string(4.303918780958246e-283)) == 4.303918780958246e-283)
 }
 "#,
     ),
@@ -647,6 +659,41 @@ fn programs_agree_on_js_and_wasm() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Long decimal inputs whose kept prefix is exactly a rounding midpoint. They exercise the
+/// sticky bit of `Float.parse`: `1e-1000` (and `1e-400`) must move the result above the midpoint.
+#[test]
+fn float_binade_boundaries_agree() {
+    if !have_wasmtime() {
+        return;
+    }
+    // The lower midpoint of `2.0` (i.e. `1 + 2^-53`) with `1e-1000` appended.
+    let midpoint_of_two = "1.00000000000000011102230246251565404236316680908203125";
+    let long = format!("{midpoint_of_two}{}1", "0".repeat(946));
+    // The upper midpoint of `nextafter(2^-940, 0)` plus/minus `1e-400`.
+    const MID940_PLUS: &str = r"0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001075979695239561483777072477772896074635094516691117125448020546603240539387726582021595911969458952933221273331410415223859788488456668170033636639775606559493555975440516565180825997389970088147382452531623758360409886551424296132080794234440609781551703426704888919440901549501484952854207838836112069648714903885585980785165990775218294313779769805151898192120053077589252739633927572002277949120432807835019821447557965909832461958333493648264294970458816923955734617685882095528156293361305439246899064220934909907703441303124831591674683726509538299025575645771392094967790955333135406408333968888240519732039940574591070524969407112047698885885932798007197708548519921034625212996616028249263763427734375";
+    let mid940_minus = MID940_PLUS.replacen("1410415223859788", "1410413223859788", 1);
+    let src = format!(
+        r#"
+fn main() {{
+  dbg(Float.to_string(Float.parse("{long}")))
+  dbg(Float.to_string(Float.parse("{MID940_PLUS}")))
+  dbg(Float.to_string(Float.parse("{mid940_minus}")))
+  dbg(Float.parse(Float.to_string(5.641232424577593e-278)) == 5.641232424577593e-278)
+  dbg(Float.parse(Float.to_string(3.6893488147419103e+19)) == 3.6893488147419103e+19)
+}}
+"#
+    );
+    let js = match run_on("float-boundaries", &src, Target::Js) {
+        Ok(out) => out,
+        Err(analysis) => panic!("JS did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    let wasm = match run_on("float-boundaries", &src, Target::Wasm) {
+        Ok(out) => out,
+        Err(analysis) => panic!("WASM did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    assert_eq!(js, wasm);
 }
 
 #[test]

@@ -74,11 +74,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "dec_build" => vec![(2, ValType::I64), (8, ValType::I32)],
         "dec_cmp" => i32s(6),
         "float_pow10" => vec![(1, ValType::I32), (2, ValType::F64)],
-        "float_bounds" => vec![(3, ValType::I64), (5, ValType::I32)],
+        "float_bounds" => vec![(3, ValType::I64), (7, ValType::I32)],
         "float_some" => i32s(1),
         "float_round" => vec![(2, ValType::F64)],
-        "float_to_string" => vec![(3, ValType::I64), (21, ValType::I32)],
-        "float_parse" => vec![(6, ValType::I64), (18, ValType::I32), (1, ValType::F64)],
+        "float_to_string" => vec![(3, ValType::I64), (25, ValType::I32)],
+        "float_parse" => vec![(6, ValType::I64), (19, ValType::I32), (1, ValType::F64)],
         _ => Vec::new(),
     }
 }
@@ -667,6 +667,8 @@ fn bounds(b: &mut Builder, ins: &mut InstructionSink) {
     const DLO: u32 = 6;
     const SCALE: u32 = 7;
     const DHI: u32 = 8;
+    const POW: u32 = 9;
+    const SHIFT: u32 = 10;
     let meta = area(b, AREA_META);
     ins.local_get(0);
     ins.i64_reinterpret_f64();
@@ -702,7 +704,76 @@ fn bounds(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_sub();
     ins.end();
     ins.local_set(E);
-    // `scale = max(0, 1 - e)`: the decimal scale of a `2^(e-1)` factor.
+    // A normal power of two has half the spacing below it, so its lower midpoint is
+    // `(4f - 1) * 2^(e - 2)`; every other value uses `(2f - 1) * 2^(e - 1)`.
+    ins.local_get(EBITS);
+    ins.i32_const(2);
+    ins.i32_ge_s();
+    ins.local_get(BITS);
+    ins.i64_const(I64_MASK);
+    ins.i64_and();
+    ins.i64_eqz();
+    ins.i32_and();
+    ins.local_set(POW);
+    // `shift` is 2 for a power of two, 1 otherwise.
+    ins.i32_const(2);
+    ins.i32_const(1);
+    ins.local_get(POW);
+    ins.select();
+    ins.local_set(SHIFT);
+    // Lower midpoint: `((f << shift) - 1) * 2^(e - shift)`.
+    ins.local_get(F);
+    ins.local_get(SHIFT);
+    ins.i64_extend_i32_u();
+    ins.i64_shl();
+    ins.i64_const(1);
+    ins.i64_sub();
+    ins.local_set(M);
+    ins.local_get(M);
+    ins.local_get(E);
+    ins.local_get(SHIFT);
+    ins.i32_sub();
+    ins.i32_const(area(b, AREA_LO));
+    call(ins, b, "dec_build");
+    ins.local_set(DLO);
+    // The decimal scale of the lower bound: `max(0, shift - e)`.
+    ins.local_get(SHIFT);
+    ins.local_get(E);
+    ins.i32_sub();
+    ins.i32_const(0);
+    ins.i32_gt_s();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(SHIFT);
+    ins.local_get(E);
+    ins.i32_sub();
+    ins.else_();
+    ins.i32_const(0);
+    ins.end();
+    ins.local_set(SCALE);
+    ins.i32_const(meta);
+    ins.local_get(DLO);
+    ins.i32_store(mem(0, 4));
+    ins.i32_const(meta + 4);
+    ins.i32_const(0);
+    ins.local_get(SCALE);
+    ins.i32_sub();
+    ins.i32_store(mem(0, 4));
+    // Upper midpoint: `(2f + 1) * 2^(e - 1)`. The spacing above the next binade does not move
+    // this midpoint: it is still halfway to the next representable value.
+    ins.local_get(F);
+    ins.i64_const(2);
+    ins.i64_mul();
+    ins.i64_const(1);
+    ins.i64_add();
+    ins.local_set(M);
+    ins.local_get(M);
+    ins.local_get(E);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.i32_const(area(b, AREA_HI));
+    call(ins, b, "dec_build");
+    ins.local_set(DHI);
+    // The decimal scale of the upper bound: `max(0, 1 - e)`.
     ins.local_get(E);
     ins.i32_const(1);
     ins.i32_sub();
@@ -716,62 +787,6 @@ fn bounds(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.end();
     ins.local_set(SCALE);
-    // Lower midpoint: (2f - 1) * 2^(e - 1).
-    ins.local_get(F);
-    ins.i64_const(2);
-    ins.i64_mul();
-    ins.i64_const(1);
-    ins.i64_sub();
-    ins.local_set(M);
-    ins.local_get(M);
-    ins.local_get(E);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.i32_const(area(b, AREA_LO));
-    call(ins, b, "dec_build");
-    ins.local_set(DLO);
-    ins.i32_const(meta);
-    ins.local_get(DLO);
-    ins.i32_store(mem(0, 4));
-    ins.i32_const(meta + 4);
-    ins.i32_const(0);
-    ins.local_get(SCALE);
-    ins.i32_sub();
-    ins.i32_store(mem(0, 4));
-    // Upper midpoint: (2f + 1) * 2^(e - 1), one more when the mantissa is all ones and the next
-    // value is in the next binade (the spacing doubles there).
-    ins.local_get(F);
-    ins.i64_const(2);
-    ins.i64_mul();
-    ins.i64_const(1);
-    ins.i64_add();
-    ins.local_set(M);
-    ins.local_get(BITS);
-    ins.i64_const(I64_MASK);
-    ins.i64_and();
-    ins.i64_const(I64_MASK);
-    ins.i64_eq();
-    ins.local_get(EBITS);
-    ins.i32_const(0);
-    ins.i32_ne();
-    ins.i32_and();
-    ins.local_get(EBITS);
-    ins.i32_const(0x7fe);
-    ins.i32_ne();
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    ins.local_get(M);
-    ins.i64_const(1);
-    ins.i64_add();
-    ins.local_set(M);
-    ins.end();
-    ins.local_get(M);
-    ins.local_get(E);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.i32_const(area(b, AREA_HI));
-    call(ins, b, "dec_build");
-    ins.local_set(DHI);
     ins.i32_const(meta + 8);
     ins.local_get(DHI);
     ins.i32_store(mem(0, 4));
@@ -938,6 +953,125 @@ fn put_digit(ins: &mut InstructionSink, dst: i32, j: u32, value: u32) {
     bump(ins, j);
 }
 
+/// Adds one to the `len`-digit decimal at `base`, adjusting `len` and `exp` on a carry out.
+fn carry_one(ins: &mut InstructionSink, base: i32, len: u32, exp: u32, dexp: u32, i: u32) {
+    ins.local_get(len);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(i);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    load_u8(ins, base, i);
+    ins.i32_const(b'9' as i32);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    elem(ins, base, i, 1);
+    load_u8(ins, base, i);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.i32_store8(mem(0, 1));
+    ins.br(2);
+    ins.end();
+    store_u8(ins, base, i, b'0');
+    ins.local_get(i);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(len);
+    ins.i32_const(0);
+    ins.local_set(i);
+    store_u8(ins, base, i, b'1');
+    ins.local_get(dexp);
+    ins.i32_const(1);
+    ins.i32_add();
+    ins.local_set(exp);
+    ins.br(2);
+    ins.end();
+    ins.local_get(i);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(i);
+    ins.br(0);
+    ins.end();
+    ins.end();
+}
+
+/// A p-digit candidate: `base[0..len] * 10^exp`, with the local that receives the interval test.
+#[derive(Clone, Copy)]
+struct Candidate {
+    base: i32,
+    len: u32,
+    exp: u32,
+    out: u32,
+}
+
+/// Whether `q` is in the rounding interval in the meta area. `cmp` and `tmp` are scratch locals.
+fn inside(b: &Builder, ins: &mut InstructionSink, q: Candidate, parity: u32, cmp: u32, tmp: u32) {
+    let meta = area(b, AREA_META);
+    ins.i32_const(q.base);
+    ins.local_get(q.len);
+    ins.local_get(q.exp);
+    ins.i32_const(area(b, AREA_LO));
+    ins.i32_const(meta);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(meta + 4);
+    ins.i32_load(mem(0, 4));
+    call(ins, b, "dec_cmp");
+    ins.local_set(cmp);
+    ins.i32_const(0);
+    ins.local_set(q.out);
+    ins.local_get(cmp);
+    ins.i32_const(0);
+    ins.i32_gt_s();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(q.base);
+    ins.local_get(q.len);
+    ins.local_get(q.exp);
+    ins.i32_const(area(b, AREA_HI));
+    ins.i32_const(meta + 8);
+    ins.i32_load(mem(0, 4));
+    ins.i32_const(meta + 12);
+    ins.i32_load(mem(0, 4));
+    call(ins, b, "dec_cmp");
+    ins.local_set(tmp);
+    ins.local_get(tmp);
+    ins.i32_const(0);
+    ins.i32_lt_s();
+    ins.local_get(tmp);
+    ins.i32_eqz();
+    ins.local_get(parity);
+    ins.i32_eqz();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(q.out);
+    ins.end();
+    ins.else_();
+    ins.local_get(cmp);
+    ins.i32_eqz();
+    ins.local_get(parity);
+    ins.i32_eqz();
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(q.out);
+    ins.end();
+    ins.end();
+}
+
+/// Turns an equality with the kept prefix into "greater" when a nonzero digit was dropped.
+fn apply_sticky(ins: &mut InstructionSink, cmp: u32, trunc: u32) {
+    ins.local_get(cmp);
+    ins.i32_eqz();
+    ins.local_get(trunc);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(cmp);
+    ins.end();
+}
+
 fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     const BITS: u32 = 1;
     const F: u32 = 2;
@@ -958,10 +1092,15 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     const SIGN: u32 = 21;
     const UP: u32 = 23;
     const PARITY: u32 = 24;
+    const CLEN: u32 = 25;
+    const CEXP: u32 = 26;
+    const INSF: u32 = 27;
+    const INSC: u32 = 28;
     let out = area(b, AREA_OUT);
     let dq = area(b, AREA_Q);
+    // The second candidate (`dq + 1`) uses the output buffer until the format step starts.
+    let dqc = out;
     let dx = area(b, AREA_X);
-    let meta = area(b, AREA_META);
     let nan = b.string_literal(b"NaN");
     let inf = b.string_literal(b"Infinity");
     let ninf = b.string_literal(b"-Infinity");
@@ -1060,7 +1199,8 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     call(ins, b, "float_bounds");
     ins.local_set(PARITY);
-    // The shortest prefix of the digits that stays in the interval.
+    // The shortest prefix of the digits that stays in the interval. At each length try the
+    // nearest p-digit decimal first, then the other side when the interval is asymmetric.
     ins.i32_const(1);
     ins.local_set(P);
     ins.block(BlockType::Empty);
@@ -1069,21 +1209,32 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(17);
     ins.i32_gt_s();
     ins.br_if(1);
-    ins.local_get(P);
-    ins.local_set(QLEN);
-    // The first `p` digits.
+    // The floor candidate: the first `p` digits.
     ins.i32_const(0);
     ins.local_set(I);
     ins.i32_const(0);
     ins.local_set(J);
     copy_digits(ins, dx, dq, I, J, P);
+    ins.local_get(P);
+    ins.local_set(QLEN);
     ins.local_get(DEXP);
     ins.i32_const(1);
     ins.i32_add();
     ins.local_get(P);
     ins.i32_sub();
     ins.local_set(QEXP);
-    // Round the prefix (half to even).
+    // The ceiling candidate: the same digits plus one.
+    ins.i32_const(0);
+    ins.local_set(I);
+    ins.i32_const(0);
+    ins.local_set(J);
+    copy_digits(ins, dx, dqc, I, J, P);
+    ins.local_get(P);
+    ins.local_set(CLEN);
+    ins.local_get(QEXP);
+    ins.local_set(CEXP);
+    carry_one(ins, dqc, CLEN, CEXP, DEXP, I);
+    // `UP` when the nearest p-digit decimal is the ceiling; ties go to the even last digit.
     ins.i32_const(0);
     ins.local_set(UP);
     ins.local_get(P);
@@ -1149,98 +1300,79 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.end();
-    // Add one when the prefix rounds up.
+    // Which candidate is inside? The nearest one wins when both are.
+    inside(
+        b,
+        ins,
+        Candidate {
+            base: dq,
+            len: QLEN,
+            exp: QEXP,
+            out: INSF,
+        },
+        PARITY,
+        CMP,
+        DIG,
+    );
+    inside(
+        b,
+        ins,
+        Candidate {
+            base: dqc,
+            len: CLEN,
+            exp: CEXP,
+            out: INSC,
+        },
+        PARITY,
+        CMP,
+        DIG,
+    );
+    ins.i32_const(0);
+    ins.local_set(K);
     ins.local_get(UP);
     ins.if_(BlockType::Empty);
-    ins.local_get(P);
-    ins.i32_const(1);
-    ins.i32_sub();
+    // The nearest is the ceiling.
+    ins.local_get(INSC);
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
     ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    load_u8(ins, dq, I);
-    ins.i32_const(b'9' as i32);
-    ins.i32_ne();
-    ins.if_(BlockType::Empty);
-    elem(ins, dq, I, 1);
-    load_u8(ins, dq, I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.i32_store8(mem(0, 1));
-    ins.br(2);
-    ins.end();
-    store_u8(ins, dq, I, b'0');
-    ins.local_get(I);
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(1);
+    ins.i32_const(0);
+    ins.local_set(J);
+    copy_digits(ins, dqc, dq, I, J, CLEN);
+    ins.local_get(CLEN);
     ins.local_set(QLEN);
-    ins.i32_const(0);
-    ins.local_set(I);
-    store_u8(ins, dq, I, b'1');
-    ins.local_get(DEXP);
-    ins.i32_const(1);
-    ins.i32_add();
+    ins.local_get(CEXP);
     ins.local_set(QEXP);
-    ins.br(2);
-    ins.end();
-    ins.local_get(I);
     ins.i32_const(1);
-    ins.i32_sub();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.end();
-    // Inside the interval? (`K` becomes the answer.)
-    ins.i32_const(0);
     ins.local_set(K);
-    ins.i32_const(dq);
-    ins.local_get(QLEN);
-    ins.local_get(QEXP);
-    ins.i32_const(area(b, AREA_LO));
-    ins.i32_const(meta);
-    ins.i32_load(mem(0, 4));
-    ins.i32_const(meta + 4);
-    ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
-    ins.local_set(CMP);
-    ins.local_get(CMP);
-    ins.i32_const(0);
-    ins.i32_gt_s();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(dq);
-    ins.local_get(QLEN);
-    ins.local_get(QEXP);
-    ins.i32_const(area(b, AREA_HI));
-    ins.i32_const(meta + 8);
-    ins.i32_load(mem(0, 4));
-    ins.i32_const(meta + 12);
-    ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
-    ins.local_set(DIG);
-    ins.local_get(DIG);
-    ins.i32_const(0);
-    ins.i32_lt_s();
-    ins.local_get(DIG);
-    ins.i32_eqz();
-    ins.local_get(PARITY);
-    ins.i32_eqz();
-    ins.i32_and();
-    ins.i32_or();
+    ins.else_();
+    ins.local_get(INSF);
     ins.if_(BlockType::Empty);
     ins.i32_const(1);
     ins.local_set(K);
+    ins.end();
     ins.end();
     ins.else_();
-    ins.local_get(CMP);
-    ins.i32_eqz();
-    ins.local_get(PARITY);
-    ins.i32_eqz();
-    ins.i32_and();
+    // The nearest is the floor.
+    ins.local_get(INSF);
     ins.if_(BlockType::Empty);
     ins.i32_const(1);
     ins.local_set(K);
+    ins.else_();
+    ins.local_get(INSC);
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.local_set(I);
+    ins.i32_const(0);
+    ins.local_set(J);
+    copy_digits(ins, dqc, dq, I, J, CLEN);
+    ins.local_get(CLEN);
+    ins.local_set(QLEN);
+    ins.local_get(CEXP);
+    ins.local_set(QEXP);
+    ins.i32_const(1);
+    ins.local_set(K);
+    ins.end();
     ins.end();
     ins.end();
     ins.local_get(K);
@@ -1450,7 +1582,8 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     const FLAG: u32 = 24;
     const J: u32 = 25;
     const IDIG: u32 = 26;
-    const Y: u32 = 27;
+    const TRUNC: u32 = 27;
+    const Y: u32 = 28;
     let din = area(b, AREA_IN);
     let meta = area(b, AREA_META);
     // The length, and `NaN` (which takes no sign).
@@ -1532,8 +1665,9 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     // Integer digits.
     //
     // Only the first 800 significant digits are kept. A rounding midpoint is a dyadic rational
-    // whose exact decimal has at most 768 significant digits, so an input longer than that cannot
-    // lie exactly on a boundary, and truncating the rest cannot change which side it is on.
+    // whose exact decimal has at most 768 significant digits, so a dropped digit can only matter
+    // when the kept prefix already equals the midpoint. `TRUNC` remembers that a nonzero digit was
+    // dropped, and the comparisons treat the input as strictly greater than the kept prefix.
     ins.i32_const(0);
     ins.local_set(SIG);
     ins.i32_const(0);
@@ -1542,6 +1676,8 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(KEPT);
     ins.i32_const(0);
     ins.local_set(IDIG);
+    ins.i32_const(0);
+    ins.local_set(TRUNC);
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
     ins.local_get(I);
@@ -1578,6 +1714,14 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(BYTE);
     ins.i32_store8(mem(0, 1));
     bump(ins, KEPT);
+    ins.else_();
+    ins.local_get(DIG);
+    ins.i32_const(0);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(TRUNC);
+    ins.end();
     ins.end();
     bump(ins, SIG);
     ins.end();
@@ -1639,6 +1783,14 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(BYTE);
     ins.i32_store8(mem(0, 1));
     bump(ins, KEPT);
+    ins.else_();
+    ins.local_get(DIG);
+    ins.i32_const(0);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(1);
+    ins.local_set(TRUNC);
+    ins.end();
     ins.end();
     bump(ins, SIG);
     ins.end();
@@ -1935,6 +2087,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     call(ins, b, "dec_cmp");
     ins.local_set(CMP);
+    apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
     ins.i32_const(0);
     ins.i32_ge_s();
@@ -1964,6 +2117,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     call(ins, b, "dec_cmp");
     ins.local_set(CMP);
+    apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
     ins.i32_const(0);
     ins.i32_le_s();
@@ -1990,6 +2144,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     call(ins, b, "dec_cmp");
     ins.local_set(CMP);
+    apply_sticky(ins, CMP, TRUNC);
     // Below the lower midpoint.
     ins.local_get(CMP);
     ins.i32_const(0);
@@ -2032,6 +2187,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     call(ins, b, "dec_cmp");
     ins.local_set(CMP);
+    apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
     ins.i32_const(0);
     ins.i32_gt_s();

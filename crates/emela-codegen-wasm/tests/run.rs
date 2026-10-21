@@ -376,6 +376,12 @@ fn main() {
   dbg(5.0e-324)
   dbg(1.0e-7)
   dbg(123.0e-20)
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
   dbg(2.0 / 0.0)
   dbg(-2.0 / 0.0)
   dbg(0.0 / 0.0)
@@ -395,7 +401,11 @@ fn main() {
         out,
         "1.5\n1.0\n0.0\n0.1\n0.30000000000000004\n0.3333333333333333\n1e+21\n\
          100000000000000000000.0\n1.5e-7\n0.000001\n123456789.125\n\
-         1.7976931348623157e+308\n5e-324\n1e-7\n1.23e-18\nInfinity\n-Infinity\nNaN\n\
+         1.7976931348623157e+308\n5e-324\n1e-7\n1.23e-18\n\
+         5.641232424577593e-278\n5.641232424577592e-278\n\
+         36893488147419103000.0\n36893488147419100000.0\n\
+         4.3039187809582457e-283\n4.303918780958246e-283\n\
+         Infinity\n-Infinity\nNaN\n\
          1.5\n-1.5\n\"v=1.5 2.0 0.0\"\n\"1.5\"\n"
     );
 }
@@ -487,6 +497,19 @@ fn main() {
          \"bad .5\"\n\"bad 1e\"\n\"bad inf\"\n\"bad  1\"\n\"bad 0x10\"\n\"bad +NaN\"\n\
          1.5\n"
     );
+}
+
+#[test]
+fn float_parse_keeps_the_dropped_digits() {
+    // `1 + 2^-53` is a midpoint; with `1e-1000` appended the input is above it, even though the
+    // first 800 significant digits are the midpoint itself (the sticky bit decides the tie).
+    let midpoint = "1.00000000000000011102230246251565404236316680908203125";
+    let input = format!("{midpoint}{}1", "0".repeat(946));
+    let src = format!("fn main() {{\n  dbg(Float.to_string(Float.parse(\"{input}\")))\n}}\n");
+    let Some(out) = stderr("float-long-midpoint", &src) else {
+        return;
+    };
+    assert_eq!(out, "\"1.0000000000000002\"\n");
 }
 
 #[test]
