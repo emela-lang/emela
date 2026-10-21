@@ -1,5 +1,6 @@
 //! Runs the emitted JS on node.
 
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -7,6 +8,49 @@ use std::process::{Command, ExitStatus, Stdio};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
+
+thread_local! {
+    /// The working directory for the child runner in this thread (see [`with_program_cwd`]).
+    static PROGRAM_CWD: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+/// Runs `f` with `dir` as the working directory of the node/wasmtime child it starts on this
+/// thread. The test harnesses use it to give each example a directory of its own, so examples
+/// that write files run in parallel and leave the source tree alone.
+///
+/// Only the child process changes directory; the driver's own filesystem stays where it was, so
+/// a relative `entry` is made absolute before the child starts.
+pub fn with_program_cwd<T>(dir: &Path, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<PathBuf>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PROGRAM_CWD.with(|cwd| *cwd.borrow_mut() = self.0.take());
+        }
+    }
+
+    let previous = PROGRAM_CWD.with(|cwd| cwd.replace(Some(dir.to_path_buf())));
+    let _restore = Restore(previous);
+    f()
+}
+
+pub(crate) fn apply_program_cwd(command: &mut Command) {
+    PROGRAM_CWD.with(|cwd| {
+        if let Some(dir) = cwd.borrow().as_ref() {
+            command.current_dir(dir);
+        }
+    });
+}
+
+pub(crate) fn entry_for_child(entry: &Path) -> PathBuf {
+    let has_cwd = PROGRAM_CWD.with(|cwd| cwd.borrow().is_some());
+    if has_cwd && entry.is_relative() {
+        std::env::current_dir()
+            .map(|dir| dir.join(entry))
+            .unwrap_or_else(|_| entry.to_path_buf())
+    } else {
+        entry.to_path_buf()
+    }
+}
 
 /// An environment variable overriding the node executable; `node` on PATH otherwise.
 pub const NODE_ENV: &str = "EMELA_NODE";
@@ -142,7 +186,12 @@ pub fn wasmtime_program() -> PathBuf {
 /// wasmtime version, so the flag is explicit even where it is currently the default.
 pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
     let mut command = Command::new(wasmtime);
-    command.arg("run").arg("-S").arg("p3=y").arg(entry);
+    command
+        .arg("run")
+        .arg("-S")
+        .arg("p3=y")
+        .arg(entry_for_child(entry));
+    apply_program_cwd(&mut command);
     command
 }
 
@@ -229,9 +278,10 @@ pub fn run_node(
         .arg("-e")
         .arg(LAUNCHER)
         .arg("--")
-        .arg(entry)
+        .arg(entry_for_child(entry))
         .args(args)
         .stdin(Stdio::inherit());
+    apply_program_cwd(&mut command);
     let result = match output {
         Output::Inherit => command.status().map(|status| RunOutput {
             code: exit_code(status),

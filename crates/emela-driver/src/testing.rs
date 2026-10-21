@@ -332,10 +332,15 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     let (program, command) = match backend.runner() {
         Runner::Node => {
             let mut command = Command::new(&options.node);
-            command.arg(&entry);
+            command.arg(crate::run::entry_for_child(&entry));
+            crate::run::apply_program_cwd(&mut command);
             (options.node.clone(), command)
         }
-        Runner::Native => (entry.clone(), Command::new(&entry)),
+        Runner::Native => {
+            let mut command = Command::new(crate::run::entry_for_child(&entry));
+            crate::run::apply_program_cwd(&mut command);
+            (entry.clone(), command)
+        }
         Runner::Wasmtime => {
             let wasmtime = crate::run::wasmtime_program();
             if let Err(diagnostic) = crate::run::check_wasmtime_version(&wasmtime) {
