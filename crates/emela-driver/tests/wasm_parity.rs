@@ -294,6 +294,67 @@ fn main() {
 "##,
     ),
     (
+        "constants",
+        r#"
+const NAMES = ["a", "b", "c"]
+const GREETING = "hello #{List.length(NAMES)}"
+const LIMIT = 3 * 7
+const NEXT = LIMIT + 1
+
+fn main() {
+  dbg(GREETING)
+  dbg(NAMES)
+  dbg(NEXT)
+  dbg(GREETING)
+}
+"#,
+    ),
+    (
+        "const_defect",
+        r#"
+const OUTER = INNER + 1
+const INNER = 1 / zero()
+
+fn zero() -> Int { 0 }
+
+fn main() {
+  dbg(OUTER)
+}
+"#,
+    ),
+    (
+        "const_self_reference",
+        "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+    ),
+    (
+        "release_notes",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler ResA: Pool {
+  init { ResA }
+  release { panic("a failed") }
+  fn get() { 0 }
+}
+
+handler ResB: Pool {
+  init { ResB }
+  release { panic("b failed") }
+  fn get() { 1 }
+}
+
+fn main() {
+  with ResA {
+    with ResB {
+      panic("body")
+    }
+  }
+}
+"#,
+    ),
+    (
         "options",
         "fn main() {\n  dbg(Int.checked_add(1, 2))\n  dbg(Int.checked_add(2147483647, 1))\n  dbg(Int.checked_add(-2147483647, -2))\n  dbg(String.from_code_point(65))\n  dbg(String.from_code_point(8364))\n  dbg(String.from_code_point(55296))\n  dbg(Int.parse(\"42\"))\n}\n",
     ),
