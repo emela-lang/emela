@@ -25,7 +25,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "int_parse" => vec![(5, ValType::I32), (1, ValType::I64)],
         "int_checked_add" => vec![(1, ValType::I64), (1, ValType::I32)],
-        "from_code_point" => i32s(3, 4),
+        "from_code_point" => i32s(4),
         _ => Vec::new(),
     }
 }

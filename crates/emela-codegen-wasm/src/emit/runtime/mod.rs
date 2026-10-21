@@ -95,8 +95,7 @@ pub(crate) fn register(b: &mut Builder) {
     }
 }
 
-pub(super) fn i32s(first: u32, n: u32) -> Vec<(u32, ValType)> {
-    let _ = first;
+pub(super) fn i32s(n: u32) -> Vec<(u32, ValType)> {
     vec![(n, ValType::I32)]
 }
 

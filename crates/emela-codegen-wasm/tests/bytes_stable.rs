@@ -1,8 +1,9 @@
-//! Pins the emitted bytes of two fixed programs.
+//! Pins the emitted bytes of three fixed programs.
 //!
 //! Splitting the emitter and the runtime into modules must not change the output. These programs
-//! use only the features that are already supported (Int, String and closures; no Float), so a
-//! change in the length or the hash of the module means the lowering changed.
+//! use only the features that are already supported (Int, String, closures, lists, enums, options
+//! and wasm externals; no Float), so a change in the length or the hash of the module means the
+//! lowering changed.
 
 mod common;
 
@@ -71,6 +72,30 @@ fn main() {
 "#,
         7304,
         0xe6db_0e6a_d5a9_5794,
+    ),
+    (
+        "externals_and_options",
+        r#"
+effect Clock {
+  fn now() -> Int
+}
+
+@external(wasm, "env", "now")
+fn host_now() -> Int
+
+handler WasmClock: Clock {
+  fn now() { host_now() }
+}
+
+fn main() {
+  with WasmClock { dbg((use Clock).now()) }
+  dbg(Int.parse("42"))
+  dbg(Int.checked_add(1, 2))
+  dbg(String.from_code_point(65))
+}
+"#,
+        7664,
+        0xae57_5f46_4529_1fdc,
     ),
 ];
 

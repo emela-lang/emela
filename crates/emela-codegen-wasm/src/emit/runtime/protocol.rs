@@ -12,10 +12,10 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "show_failure" => i32s(1, 3),
-        "json_string" => i32s(1, 3),
-        "test_result" => i32s(1, 3),
-        "finish" => i32s(0, 1),
+        "show_failure" => i32s(3),
+        "json_string" => i32s(3),
+        "test_result" => i32s(3),
+        "finish" => i32s(1),
         _ => Vec::new(),
     }
 }

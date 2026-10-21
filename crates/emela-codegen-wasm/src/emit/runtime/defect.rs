@@ -11,7 +11,7 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "defect_take" => i32s(0, 1),
+        "defect_take" => i32s(1),
         _ => Vec::new(),
     }
 }
