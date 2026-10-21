@@ -10,7 +10,8 @@
 //! capture-less closures) has `rc == 0` and is never counted.
 //!
 //! The runtime is split by feature. Each module owns its entries of `FUNCS`, its locals and its
-//! lowering; `MODULES` is the whole registration list, in definition order.
+//! lowering; `MODULES` is the whole registration list, in definition order. `unicode` holds the
+//! UAX #29 grapheme cluster tables (static data) and the classification over them.
 
 use super::layout::{CPBUF, DIGITS, DIGITS64, IOVEC, JSONBUF, NEWLINE, NWRITTEN, PAGE};
 use super::*;
@@ -34,11 +35,13 @@ mod option;
 mod protocol;
 mod show;
 mod string;
+mod unicode;
+mod unicode_tables;
 
 /// Every runtime module, in definition order.
 ///
-/// A new feature (Float, the file system, scheduling, Unicode tables, ...) adds its own module
-/// with `FUNCS`, `locals` and `emit`, and appends one entry here. The order of the existing
+/// A new feature (Float, the file system, scheduling, ...) adds its own module with `FUNCS`,
+/// `locals` and `emit`, and appends one entry here. The order of the existing
 /// entries must not change, so function indices and the emitted bytes stay stable.
 const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
@@ -81,6 +84,11 @@ const MODULES: &[RuntimeModule] = &[
         locals: numeric::locals,
         emit: numeric::emit,
     },
+    RuntimeModule {
+        funcs: unicode::FUNCS,
+        locals: unicode::locals,
+        emit: unicode::emit,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -107,6 +115,7 @@ fn rt(b: &Builder, name: &'static str) -> u32 {
 
 /// Emits every runtime function body, in `MODULES` order.
 pub(crate) fn emit(b: &mut Builder) {
+    unicode::setup(b);
     for module in MODULES {
         for (name, ..) in module.funcs {
             let mut f = WasmFunction::new((module.locals)(name));

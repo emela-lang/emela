@@ -568,8 +568,8 @@ fn cons(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(P);
 }
 
-/// `String.split(s, sep)`, with a non-empty separator. An empty one needs the grapheme tables,
-/// so it raises a defect instead (16.2).
+/// `String.split(s, sep)`. An empty separator splits per grapheme cluster, like `String.chars`
+/// (16.2).
 fn str_split(b: &mut Builder, ins: &mut InstructionSink) {
     const HEAD: u32 = 2;
     const LAST: u32 = 3;
@@ -589,14 +589,8 @@ fn str_split(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(M);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    let msg = b.string_literal(
-        "`String.split` with an empty separator needs the Unicode grapheme cluster tables, which \
-         target `wasm` does not support yet"
-            .as_bytes(),
-    );
-    ins.i32_const(msg as i32);
-    ins.call(rt(b, "raise"));
-    ins.i32_const(0);
+    ins.local_get(0);
+    ins.call(rt(b, "str_grapheme_chars"));
     ins.return_();
     ins.end();
     ins.i32_const(0);
@@ -656,7 +650,7 @@ fn str_split(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// Appends the cell in `cell` to the list whose head and last cells are `head` and `last`.
-fn append_cell(ins: &mut InstructionSink, head: u32, last: u32, cell: u32) {
+pub(super) fn append_cell(ins: &mut InstructionSink, head: u32, last: u32, cell: u32) {
     ins.local_get(last);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);

@@ -41,8 +41,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        6888,
-        0xa877_d7bb_4404_91f4,
+        17377,
+        0xed48_8313_f8c4_b06c,
     ),
     (
         "lists_enums_strings",
@@ -76,8 +76,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        7304,
-        0xe6db_0e6a_d5a9_5794,
+        17793,
+        0x4de6_f477_c14e_1cf6,
     ),
     (
         "externals_and_options",
@@ -100,8 +100,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        7664,
-        0xae57_5f46_4529_1fdc,
+        18153,
+        0xf583_d64c_1dc8_d3f3,
     ),
     (
         "numeric",
@@ -127,8 +127,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        7175,
-        0x5dc0_2e86_5969_fdc3,
+        17664,
+        0x385c_cbbd_6011_5238,
     ),
 ];
 
@@ -147,8 +147,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    6972,
-    0xc614_e22c_4f1b_5897,
+    17464,
+    0x996f_790e_b0fc_6c37,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new
