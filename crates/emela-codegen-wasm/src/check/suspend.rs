@@ -1,9 +1,10 @@
-//! The suspension points the entry can reach.
+//! The calls to `suspend fn` external functions the entry can reach.
 //!
-//! The target has no suspend machinery, so a reachable suspension point is unsupported: a call to a
-//! `suspend fn` operation, or a direct call to a `suspend fn` external without a `wasm` binding. A
-//! function or closure whose type merely says it may suspend (because it uses an effect with a
-//! suspend operation) is not one; only what its body calls counts.
+//! Suspending functions and `suspend fn` operations are compiled as state machines, but a
+//! `suspend fn` external needs a host callback that the target does not have yet (spec 12.6), so a
+//! reachable direct call to one without a `wasm` binding is unsupported. A function or closure
+//! whose type merely says it may suspend (because it uses an effect with a suspend operation) does
+//! not count; only what its body calls does.
 //!
 //! Reachability starts at the roots and follows direct calls and function references. A closure
 //! built in reachable code is reachable wherever it is called from (passed to another function,
@@ -139,17 +140,7 @@ impl Walk<'_, '_> {
                     }
                     self.reach_fn(*callee);
                 }
-                Callee::Op { effect, op, .. } => {
-                    let def = &m.core.effects[*effect];
-                    if def.ops[*op].suspend {
-                        self.found.suspending(format!(
-                            "`{}.{}` (a `suspend fn` operation)",
-                            display_name(&def.name),
-                            def.ops[*op].name
-                        ));
-                    }
-                    self.perform((*effect, *op));
-                }
+                Callee::Op { effect, op, .. } => self.perform((*effect, *op)),
                 Callee::Indirect(_) => {}
             },
             _ => {}

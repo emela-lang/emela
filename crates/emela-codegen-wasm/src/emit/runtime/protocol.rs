@@ -39,6 +39,7 @@ const TEST_PREFIX: &[u8] = b"\x1eemela-test {\"event\":\"result\",\"name\":";
 const TEST_OK: &[u8] = b",\"outcome\":\"ok\"}\n";
 const TEST_DEFECT: &[u8] = b",\"outcome\":\"defect\"";
 const TEST_ERROR: &[u8] = b",\"outcome\":\"error\"";
+const TEST_INTERRUPTED: &[u8] = b",\"outcome\":\"interrupted\"";
 const TEST_MESSAGE: &[u8] = b",\"message\":";
 const TEST_TAIL: &[u8] = b"}\n";
 const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
@@ -263,6 +264,20 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(KIND);
     ins.i32_const(0);
     ins.local_set(MESSAGE);
+    // A run unwound as interrupted has its own outcome (spec 14.5); without suspending code the
+    // value cannot occur, so the other programs keep the same bytes.
+    if let Some(plan) = &b.sus {
+        let interrupted = plan.interrupted;
+        ins.global_get(G_DEFECT);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(0);
+        ins.global_set(G_DEFECT);
+        ins.i32_const(3);
+        ins.local_set(KIND);
+        ins.end();
+    }
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     ins.i32_const(1);
@@ -296,7 +311,18 @@ fn test_result(b: &mut Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     write_static(b, ins, 1, TEST_DEFECT);
     ins.else_();
-    write_static(b, ins, 1, TEST_ERROR);
+    if b.sus.is_some() {
+        ins.local_get(KIND);
+        ins.i32_const(3);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        write_static(b, ins, 1, TEST_INTERRUPTED);
+        ins.else_();
+        write_static(b, ins, 1, TEST_ERROR);
+        ins.end();
+    } else {
+        write_static(b, ins, 1, TEST_ERROR);
+    }
     ins.end();
     ins.local_get(MESSAGE);
     ins.i32_eqz();
@@ -321,6 +347,18 @@ fn test_done(b: &mut Builder, ins: &mut InstructionSink) {
 /// runtime's `em_exit` (spec 14.3).
 fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 0;
+    // A run unwound as interrupted exits with 130 and the single line `interrupted` (spec 14.5).
+    if let Some(plan) = &b.sus {
+        let interrupted = plan.interrupted;
+        ins.global_get(G_DEFECT);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        write_static(b, ins, 2, b"interrupted\n");
+        ins.i32_const(130);
+        ins.call(rt(b, "exit"));
+        ins.end();
+    }
     ins.global_get(G_DEFECT);
     ins.if_(BlockType::Empty);
     write_static(b, ins, 2, b"defect: ");
