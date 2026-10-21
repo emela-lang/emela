@@ -19,7 +19,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "write_stdout" | "write_stderr" => vec![
             (1, ValType::I64), // local 2: the packed stream ends
-            (7, ValType::I32), // locals 3..9: reader, writer, future, set, code, ptr, remaining
+            (8, ValType::I32), // locals 3..10: reader, writer, future, set, code, ptr, remaining, count
         ],
         _ => Vec::new(),
     }
@@ -72,6 +72,11 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     const CODE: u32 = 7;
     const PTR: u32 = 8;
     const REM: u32 = 9;
+    const N: u32 = 10;
+    /// The largest item count one `stream.write` may carry. The canonical ABI packs the status
+    /// into the low four bits and the count into the upper 28, so a copy of `>= 1 << 28` items
+    /// traps.
+    const MAX_COUNT: i32 = (1 << 28) - 1;
 
     let set_new = b.waitable_set_new();
     let set_wait = b.waitable_set_wait();
@@ -102,9 +107,17 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     // Write every byte, waiting whenever the host has not accepted the whole buffer yet.
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
+    // One copy is limited to `(1 << 28) - 1` items. Larger buffers are written in chunks.
+    ins.local_get(REM);
+    ins.i32_const(MAX_COUNT);
+    ins.local_get(REM);
+    ins.i32_const(MAX_COUNT);
+    ins.i32_lt_u();
+    ins.select();
+    ins.local_set(N);
     ins.local_get(W);
     ins.local_get(PTR);
-    ins.local_get(REM);
+    ins.local_get(N);
     ins.call(imports.stream_write);
     ins.local_set(CODE);
     // `-1` (BLOCKED): wait for the stream's event and use its payload as the status.
@@ -143,6 +156,12 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.local_get(W);
     ins.i32_const(0);
     ins.call(join);
+    // `DROPPED` (1) and `CANCELLED` (2) are terminal: the host will reject a further write.
+    // Only `COMPLETED` (0) may continue with the remaining bytes.
+    ins.local_get(CODE);
+    ins.i32_const(0xF);
+    ins.i32_and();
+    ins.br_if(1);
     // Done when everything was written, or when the other end hung up (no progress).
     ins.local_get(REM);
     ins.i32_eqz();

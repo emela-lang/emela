@@ -5,6 +5,8 @@
 //! lets `wit-component` build the component. The WIT files are compiled into
 //! the binary, so an installed compiler does not need them on disk.
 
+use std::sync::OnceLock;
+
 use wit_component::{ComponentEncoder, StringEncoding, embed_component_metadata};
 use wit_parser::Resolve;
 
@@ -40,14 +42,21 @@ fn resolve() -> Result<(Resolve, wit_parser::WorldId), String> {
     Ok((resolve, world))
 }
 
+/// The vendored WIT is the same for every compilation, so it is parsed once. The resolved
+/// `Resolve` is borrowed; `wrap` does not need a mutable copy.
+fn resolved() -> Result<&'static (Resolve, wit_parser::WorldId), String> {
+    static RESOLVED: OnceLock<Result<(Resolve, wit_parser::WorldId), String>> = OnceLock::new();
+    RESOLVED.get_or_init(resolve).as_ref().map_err(Clone::clone)
+}
+
 /// Wraps `core` (the encoded core module) into a component.
 pub(crate) fn wrap(core: &[u8]) -> Result<Vec<u8>, String> {
-    let (resolve, world) = resolve()?;
+    let (resolve, world) = resolved()?;
     let mut core = core.to_vec();
     embed_component_metadata(
         &mut core,
-        &resolve,
-        world,
+        resolve,
+        *world,
         StringEncoding::UTF8,
         // Use the canonical `@0.3.0` names so the component matches the p3 WIT
         // the host implements.

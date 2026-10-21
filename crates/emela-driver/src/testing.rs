@@ -338,8 +338,7 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
         Runner::Native => (entry.clone(), Command::new(&entry)),
         Runner::Wasmtime => {
             let wasmtime = crate::run::wasmtime_program();
-            let mut command = Command::new(&wasmtime);
-            command.arg("run").arg(&entry);
+            let command = crate::run::wasmtime_run_command(&wasmtime, &entry);
             (wasmtime, command)
         }
     };

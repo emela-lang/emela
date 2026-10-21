@@ -1,6 +1,6 @@
-//! 出力モジュールを `wasmparser` で読み，`WasmOutput.layout` と突き合わせて
+//! 出力 component を `wasmparser` で読み，`WasmOutput.layout` と突き合わせて
 //! 線形メモリ配置の不変条件を検証する。`wasmtime` は不要（コンパイルと
-//! モジュール解析だけで走る）.
+//! component 解析だけで走る）.
 //!
 //! 出力は WASI 0.3 の component なので，メモリ・データ・グローバルの各節は
 //! component に埋め込まれた core module の中にある。

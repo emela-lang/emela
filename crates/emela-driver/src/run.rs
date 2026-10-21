@@ -136,6 +136,16 @@ pub fn wasmtime_program() -> PathBuf {
         .map_or_else(|| PathBuf::from("wasmtime"), PathBuf::from)
 }
 
+/// The `wasmtime run` command for a WASI 0.3 component. Callers add stdin/args/output as needed.
+///
+/// The output is a component exporting `wasi:cli/run@0.3.0`; p3 is not enabled by every
+/// wasmtime version, so the flag is explicit even where it is currently the default.
+pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
+    let mut command = Command::new(wasmtime);
+    command.arg("run").arg("-S").arg("p3=y").arg(entry);
+    command
+}
+
 /// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
 /// program.
 pub fn run_wasmtime(
@@ -144,15 +154,8 @@ pub fn run_wasmtime(
     output: Output,
 ) -> Result<RunOutput, Diagnostic> {
     let wasmtime = wasmtime_program();
-    let mut command = Command::new(&wasmtime);
-    command
-        .arg("run")
-        // The output is a WASI 0.3 component exporting `wasi:cli/run@0.3.0`.
-        .arg("-S")
-        .arg("p3=y")
-        .arg(entry)
-        .args(args)
-        .stdin(Stdio::inherit());
+    let mut command = wasmtime_run_command(&wasmtime, entry);
+    command.args(args).stdin(Stdio::inherit());
     let result = match output {
         Output::Inherit => command.status().map(|status| RunOutput {
             code: exit_code(status),

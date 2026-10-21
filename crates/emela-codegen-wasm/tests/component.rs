@@ -4,18 +4,29 @@
 mod common;
 
 use common::*;
-use wasmparser::{Encoding, Parser, Payload};
+use wasmparser::{ComponentExternalKind, Encoding, Parser, Payload};
 
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 #[test]
 fn output_is_a_wasm_component() {
     let bytes = compile_checked("fn main() { dbg(1) }\n");
     let mut encoding = None;
+    let mut exports_run = false;
     for payload in Parser::new(0).parse_all(&bytes) {
-        if let Payload::Version { encoding: e, .. } = payload.unwrap() {
-            encoding = Some(e);
-            break;
+        match payload.unwrap() {
+            Payload::Version { encoding: e, .. } if encoding.is_none() => encoding = Some(e),
+            Payload::ComponentExportSection(section) => {
+                for export in section {
+                    let export = export.expect("the export section parses");
+                    if export.name.full_name() == "wasi:cli/run@0.3.0" {
+                        assert_eq!(export.kind, ComponentExternalKind::Instance);
+                        exports_run = true;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     assert_eq!(
@@ -23,10 +34,29 @@ fn output_is_a_wasm_component() {
         Some(Encoding::Component),
         "main.wasm must be a component, not a core module"
     );
+    assert!(exports_run, "the component must export wasi:cli/run@0.3.0");
     let mut validator = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all());
     validator
         .validate_all(&bytes)
         .expect("the component is valid");
+}
+
+/// Waits for `child`, killing it after `limit`. The caller must keep draining its pipes.
+fn wait_with_timeout(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(status) => return Some(status),
+            None if start.elapsed() < limit => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
 }
 
 #[test]
@@ -82,10 +112,17 @@ fn large_output_waits_for_the_stream() {
         .spawn()
         .unwrap();
     let mut stderr = child.stderr.take().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let mut written = Vec::new();
-    std::io::Read::read_to_end(&mut stderr, &mut written).unwrap();
-    let status = child.wait().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    // Drain the pipe on another thread while the parent waits with a timeout: a deadlock in the
+    // stream wait must fail the test rather than hang the whole CI job.
+    let reader = std::thread::spawn(move || {
+        let mut written = Vec::new();
+        std::io::Read::read_to_end(&mut stderr, &mut written).expect("read stderr");
+        written
+    });
+    let status =
+        wait_with_timeout(&mut child, Duration::from_secs(60)).expect("the large output timed out");
+    let written = reader.join().expect("the stderr reader panicked");
     assert!(status.success(), "wasmtime exited with {status}");
     assert_eq!(written.len(), text.len() + 3);
     assert_eq!(written[0], b'"');
