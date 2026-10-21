@@ -1,0 +1,28 @@
+# The Emela interface for SPI. Chip select is controlled through GPIO.
+# Transfers are synchronous and must not be called from interrupt context.
+import Std.Embedded.Peripheral.{PeripheralError}
+
+pub enum SpiId { Spi1, Spi2, Spi3, Spi4, Spi5, Spi6 }
+pub enum SpiMode { Master, Slave }
+pub enum SpiDirection { TwoLine, TwoLineReceiveOnly, OneLine }
+pub enum SpiDataSize { Bits8, Bits16 }
+pub enum ClockPolarity { IdleLow, IdleHigh }
+pub enum ClockPhase { FirstEdge, SecondEdge }
+pub enum BitOrder { MostSignificantFirst, LeastSignificantFirst }
+pub enum SpiPrescaler { Div2, Div4, Div8, Div16, Div32, Div64, Div128, Div256 }
+pub type SpiConfig(
+  mode: SpiMode,
+  direction: SpiDirection,
+  data_size: SpiDataSize,
+  polarity: ClockPolarity,
+  phase: ClockPhase,
+  prescaler: SpiPrescaler,
+  bit_order: BitOrder
+)
+
+pub effect Spi {
+  fn configure(id: SpiId, config: SpiConfig) -> () fails PeripheralError
+  fn transmit(id: SpiId, data: List[Int], timeout_ms: Int64) -> () fails PeripheralError
+  fn receive(id: SpiId, size: Int, timeout_ms: Int64) -> List[Int] fails PeripheralError
+  fn transfer(id: SpiId, data: List[Int], timeout_ms: Int64) -> List[Int] fails PeripheralError
+}

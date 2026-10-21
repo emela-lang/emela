@@ -1,0 +1,53 @@
+import Std.Map.{Map}
+import Std.Set.{Set}
+
+type Key(value: Int)
+impl Key: Eq { fn eq(self, other) { self.value % 10 == other.value % 10 } }
+impl Key: Ord { fn compare(self, other) { Int.compare(self.value % 10, other.value % 10) } }
+
+pub fn collections(n: Int) -> Int {
+  old = Map.from_list([(3, n + 3), (1, n + 1), (2, n + 2)])
+  changed = Map.insert(old, 2, n + 20) |> Map.insert(4, n + 4)
+  assert(Map.size(old) == 3)
+  assert(Map.get(old, 2) == Some(n + 2))
+  assert(Map.get(changed, 2) == Some(n + 20))
+  assert(Map.keys(changed) == [1, 2, 3, 4])
+  updated = Map.update(changed, 3, fn(value) { Option.map(value, fn(x) { x + 10 }) })
+  removed = Map.remove(updated, 1)
+  assert(!Map.contains(removed, 1))
+  assert(Map.size(removed) == 3)
+  filtered = Map.filter(removed, fn(key, _) { key % 2 == 0 })
+  mapped = Map.map_values(filtered, fn(x) { x + 1 })
+  assert(Map.to_list(mapped) == [(2, n + 21), (4, n + 5)])
+  merged = Map.union(mapped, Map.from_list([(5, n + 5)]))
+  assert(Map.keys(merged) == [2, 4, 5])
+  assert(merged == Map.from_list([(5, n + 5), (4, n + 5), (2, n + 21)]))
+
+  original = Set.from_list([3, 1, 2, 1])
+  adjusted = Set.remove(original, 1) |> Set.insert(4)
+  assert(Set.to_list(original) == [1, 2, 3])
+  assert(Set.to_list(adjusted) == [2, 3, 4])
+  united = Set.union(adjusted, Set.from_list([1, 4]))
+  assert(united == Set.from_list([1, 2, 3, 4]))
+  assert(Set.to_list(Set.filter(united, fn(x) { x % 2 == 0 })) == [2, 4])
+  custom = Map.empty() |> Map.insert(Key(value: 11), n) |> Map.insert(Key(value: 21), n + 1)
+  assert(Map.size(custom) == 1)
+  assert(Map.get(custom, Key(value: 1)) == Some(n + 1))
+  sorted = List.sort([Key(value: 3), Key(value: 12), Key(value: 1)])
+  assert(List.map(sorted, fn(Key(value:)) { value }) == [1, 12, 3])
+  Map.fold(merged, from: 0, f: fn(acc, _, value) { acc + value })
+    + Set.fold(united, from: 0, f: fn(acc, value) { acc + value })
+}
+
+pub fn rotations(n: Int) -> Int {
+  ascending = List.range(0, 24)
+  descending = List.reverse(ascending)
+  tree = List.fold(ascending, from: Map.empty(), f: fn(m, key) { Map.insert(m, key, n + key) })
+  reverse_tree = List.fold(descending, from: Map.empty(), f: fn(m, key) { Map.insert(m, key, n + key) })
+  assert(tree == reverse_tree)
+  trimmed = List.fold(List.range(0, 12), from: tree, f: fn(m, key) { Map.remove(m, key) })
+  assert(Map.keys(trimmed) == List.range(12, 24))
+  assert(Map.size(tree) == 24)
+  assert(Map.size(trimmed) == 12)
+  Map.fold(trimmed, from: 0, f: fn(acc, key, value) { acc + value - key })
+}

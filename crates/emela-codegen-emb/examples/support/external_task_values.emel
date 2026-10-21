@@ -1,0 +1,39 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
+pub enum Packet { Data((String, Option[String]), List[String])
+  Empty }
+@external(c, "host_packet")
+suspend fn packet(value: Packet) -> Packet
+@external(c, "host_text")
+suspend fn text(value: String) -> String
+effect Device {
+  suspend fn packet(value: Packet) -> Packet
+  suspend fn text(value: String) -> String
+}
+handler Board: Device {
+  suspend fn packet(value,resume) { resume(packet(value)) }
+  suspend fn text(value,resume) { resume(text(value)) }
+}
+pub fn exchange(value: Packet) -> Packet use Async {
+  with Board { (use Device).packet(value) }
+}
+pub fn echoed(value: String) -> String use Async {
+  with Board { (use Device).text(value) }
+}
+pub fn scoped(value: Packet) -> Packet use Async {
+  with Board { Fiber.scope(fn() {
+    child = Fiber.fork(fn() { (use Device).packet(value) })
+    Fiber.join(child)
+  }) }
+}
+pub fn deferred(value: Packet) -> Packet use Async {
+  with Board { Fiber.scope(fn() {
+    completion: Deferred[Packet] = (use Scope).deferred()
+    Fiber.fork(fn() { Deferred.complete(completion,(use Device).packet(value)) })
+    Deferred.await(completion)
+  }) }
+}
+pub fn seed(n: Int) -> Packet {
+  value = Int.to_string(n)
+  Data((value,Some(value)),[value])
+}

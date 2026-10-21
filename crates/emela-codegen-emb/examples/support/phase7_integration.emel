@@ -1,0 +1,40 @@
+import Std.Fiber.{Fiber, Scope}
+import Std.State.{State}
+import Std.Deferred.{Deferred}
+@external(c, "host_wait")
+suspend fn wait(n: Int) -> Int
+error Boom(message: String, parts: List[String]) derive Show
+effect Wait { suspend fn get(n: Int) -> Int }
+handler Waiting: Wait { suspend fn get(n, resume) { resume(wait(n)) } }
+fn request(n: Int) -> Int fails Boom use Async {
+  with Waiting { (use Wait).get(n) }
+  fail Boom(message: "", parts: [])
+}
+fn rounds(n: Int, total: Int) -> Int fails Boom use {Scope[Boom, {State[String], Async}], State[String], Async} {
+  if n == 0 { total } else {
+    state = use State[String]
+    Fiber.fork(fn() { state.get()
+      () })
+    child = Fiber.fork(fn() {
+      value = request(n)
+      state.set(Int.to_string(value))
+      value
+    })
+    Fiber.join(child)
+    done = Fiber.deferred()
+    Deferred.complete(done, state.get())
+    text = Deferred.await(done)
+    if text == "42" { rounds(n - 1, total + String.byte_size(text)) } else { -1000 }
+  }
+}
+pub fn work(n: Int) -> Int use Async {
+  (answer, final) = State.run("initial", fn() {
+    Fiber.scope(fn() { rounds(n, 0) }) escape {
+      Boom(message, parts) -> if String.starts_with(message, "a") {
+        String.byte_size(message) + List.length(parts)
+      } else { -1000 }
+    }
+  })
+  answer + String.byte_size(final)
+}
+pub fn parts(n: Int) -> List[String] { [Int.to_string(n)] }

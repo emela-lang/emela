@@ -1,0 +1,27 @@
+# The Emela interface for UART.
+# Transfers are synchronous and must not be called from interrupt context.
+import Std.Embedded.Peripheral.{PeripheralError}
+
+pub enum UartId { Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7 }
+## The data width excludes the parity bit.
+pub enum UartDataBits { Bits7, Bits8, Bits9 }
+pub enum UartStopBits { Half, One, OneAndHalf, Two }
+pub enum Parity { NoParity, Even, Odd }
+pub enum UartDirection { Receive, Transmit, Both }
+pub enum FlowControl { NoFlowControl, Rts, Cts, RtsCts }
+pub enum Oversampling { By8, By16 }
+pub type UartConfig(
+  baud_rate: Int,
+  data_bits: UartDataBits,
+  stop_bits: UartStopBits,
+  parity: Parity,
+  direction: UartDirection,
+  flow_control: FlowControl,
+  oversampling: Oversampling
+)
+
+pub effect Uart {
+  fn configure(id: UartId, config: UartConfig) -> () fails PeripheralError
+  fn transmit(id: UartId, data: List[Int], timeout_ms: Int64) -> () fails PeripheralError
+  fn receive(id: UartId, size: Int, timeout_ms: Int64) -> List[Int] fails PeripheralError
+}
