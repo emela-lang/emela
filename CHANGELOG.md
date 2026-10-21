@@ -7,6 +7,12 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.24.1](https://github.com/emela-lang/emela/compare/v0.24.0...v0.24.1) - 2026-10-21
+
+### Other
+
+- 仕様を spec/ に整理し，英語にして，proposal の手順と skills を足す ([#388](https://github.com/emela-lang/emela/pull/388)) (by @Allianaab2m)
+
 ## [0.24.0](https://github.com/emela-lang/emela/compare/v0.23.0...v0.24.0) - 2026-10-20
 
 ### Added
