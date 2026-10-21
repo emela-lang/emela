@@ -39,7 +39,15 @@ impl OptionalImports {
 /// The marker in `wit/emela.wit` where the used optional imports are inserted.
 const OPTIONAL_MARKER: &str = "  // @optional-imports";
 
-fn world_source(optional: OptionalImports) -> String {
+fn world_source(optional: OptionalImports) -> Result<String, String> {
+    let (before, after) = WORLD
+        .split_once(OPTIONAL_MARKER)
+        .ok_or_else(|| format!("the command world has no `{OPTIONAL_MARKER}` marker"))?;
+    if after.contains(OPTIONAL_MARKER) {
+        return Err(format!(
+            "the command world has more than one `{OPTIONAL_MARKER}` marker"
+        ));
+    }
     let mut imports = String::new();
     if optional.environment {
         imports.push_str("  import wasi:cli/environment@0.3.0;\n");
@@ -50,7 +58,7 @@ fn world_source(optional: OptionalImports) -> String {
     if optional.clock {
         imports.push_str("  import wasi:clocks/system-clock@0.3.0;\n");
     }
-    WORLD.replace(OPTIONAL_MARKER, imports.trim_end())
+    Ok(format!("{before}{}{after}", imports.trim_end()))
 }
 
 /// The world a compiled program is wrapped in.
@@ -69,8 +77,9 @@ fn resolve(optional: OptionalImports) -> Result<(Resolve, wit_parser::WorldId), 
             .push_str(path, source)
             .map_err(|e| format!("cannot load the vendored WIT `{path}`: {e}"))?;
     }
+    let world = world_source(optional)?;
     let pkg = resolve
-        .push_str("emela.wit", &world_source(optional))
+        .push_str("emela.wit", &world)
         .map_err(|e| format!("cannot load the command world: {e}"))?;
     let world = resolve
         .select_world(&[pkg], Some("emela"))

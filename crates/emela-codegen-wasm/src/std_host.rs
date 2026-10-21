@@ -3,9 +3,10 @@
 //! A program's own `@external(wasm, ...)` is not a component import: a component can only import
 //! interfaces its WIT world declares, and custom host WIT is not implemented. The bundled `Std`
 //! modules do name a few WASI 0.3 functions, though (`Std.Console` stdout/stderr, `Std.Env`,
-//! `Std.Random` and `Std.Clock.now`), and those are the only `wasm` bindings the target accepts.
-//! [`classify`] is the allow list: a named module/name pair plus the shape of the Emela function.
-//! Everything else stays an unsupported external in `check/external.rs`.
+//! `Std.Random` and `Std.Clock.now`). A program may declare the same module/name itself; the
+//! binding is accepted when its Emela shape matches the host call. [`classify`] is the allow
+//! list: a named module/name pair plus the shape of the Emela function. Everything else stays an
+//! unsupported external in `check/external.rs`.
 
 use emela_core::{HostModule, HostRef, Type};
 use emela_lir::{Function, Module};

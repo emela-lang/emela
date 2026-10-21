@@ -5,14 +5,15 @@
 //! exported `cabi_realloc`. `env_find` scans that list and returns the matching entry, or 0.
 //!
 //! The find is the first match in the host's list, like C's `getenv` and the WIT contract that
-//! `get-environment` holds one value per name. The environment is a value import: taking it
-//! again for `has` and then `get` is consistent. A name or value that is not UTF-8 cannot appear
-//! in the WIT `list<tuple<string, string>>`; the host decides what it exposes (wasmtime rejects
-//! an inherited environment with such a variable before the program starts), so only UTF-8 names
-//! can match.
+//! `get-environment` holds one value per name. The environment is a value import, so the list is
+//! fetched once and cached in the `G_ENV_*` globals; `has` and `get` then see the same list. A
+//! name or value that is not UTF-8 cannot appear in the WIT `list<tuple<string, string>>`; the
+//! host decides what it exposes (wasmtime rejects an inherited environment with such a variable
+//! before the program starts), so only UTF-8 names can match.
 //!
-//! The buffers `cabi_realloc` hands the host are never reclaimed: a command is short-lived, and
-//! the runtime has no raw-byte free list. The bump allocator keeps them out of the object heap.
+//! The list and its strings are allocated by the host through `cabi_realloc` and are kept for the
+//! rest of the command: the runtime has no raw-byte free list, and the bump allocator keeps them
+//! out of the object heap. Fetching the environment once bounds that memory to one copy.
 
 use super::*;
 
@@ -77,13 +78,25 @@ fn env_find(b: &mut Builder, ins: &mut InstructionSink) {
 
     let get = b.environment_get();
 
+    // Fetch the environment list once. The WIT contract says `get-environment` returns the same
+    // values each time it is called (it is morally a value import).
+    ins.global_get(G_ENV_LOADED);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
     ins.i32_const(HOSTBUF as i32);
     ins.call(get);
     ins.i32_const(HOSTBUF as i32);
     ins.i32_load(mem(0, 4));
-    ins.local_set(LP);
+    ins.global_set(G_ENV_PTR);
     ins.i32_const((HOSTBUF + 4) as i32);
     ins.i32_load(mem(0, 4));
+    ins.global_set(G_ENV_LEN);
+    ins.i32_const(1);
+    ins.global_set(G_ENV_LOADED);
+    ins.end();
+    ins.global_get(G_ENV_PTR);
+    ins.local_set(LP);
+    ins.global_get(G_ENV_LEN);
     ins.local_set(LN);
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));

@@ -139,7 +139,12 @@ const G_STDERR_FUTURE: u32 = 9;
 const G_WAITSET: u32 = 10;
 /// The name of the handler retired last (spec 14.4: the release note names it).
 pub(crate) const G_LAST_RETIRED: u32 = 11;
-const GLOBALS: u32 = 12;
+/// Whether `Std.Env` has fetched the environment list, and the list's pointer and length. The
+/// WIT contract makes `get-environment` a value import, so the list is fetched once per command.
+const G_ENV_LOADED: u32 = 12;
+const G_ENV_PTR: u32 = 13;
+const G_ENV_LEN: u32 = 14;
+const GLOBALS: u32 = 15;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).

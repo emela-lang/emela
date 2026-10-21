@@ -114,11 +114,7 @@ pub fn run_bytes_with_command(dir: &Path, bytes: &[u8], adjust: impl FnOnce(&mut
     let mut command = Command::new(wt);
     command.arg("run").arg("-S").arg("p3=y");
     adjust(&mut command);
-    command
-        .arg("-S")
-        .arg("inherit-env=y")
-        .arg("main.wasm")
-        .current_dir(dir);
+    command.arg("main.wasm").current_dir(dir);
     let ran = run_with_timeout(command, Duration::from_secs(60)).expect("the program timed out");
     Run {
         stdout: String::from_utf8_lossy(&ran.stdout).into_owned(),

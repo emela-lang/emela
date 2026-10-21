@@ -12,10 +12,11 @@
 //! (`wasmtime`).
 //!
 //! The target supports the synchronous WASI hosts the bundled `Std` handlers use (Console, Env,
-//! Random and Clock.now). It does not support actual suspension (`sleep`), fibers or callbacks to
-//! host functions; reaching them is a [`WasmError`] (or, for an unused suspending operation, it
-//! is simply never called). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0)
-//! are part of the runtime.
+//! Random and Clock.now). A function whose type merely *may* suspend (because it uses an effect
+//! with a suspend operation) but does not actually suspend is emitted inline; actual suspension
+//! (`sleep`), fibers and callbacks to host functions are not supported, and reaching them is a
+//! [`WasmError`] (or, for an unused suspending operation, it is simply never called). The
+//! Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of the runtime.
 
 mod check;
 mod component;
@@ -72,7 +73,7 @@ pub struct WasmError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmErrorKind {
-    /// A feature the WASM target does not support yet (suspending code, fibers).
+    /// A feature the WASM target does not support yet (actual suspension, fibers).
     Unsupported,
     /// An external function reachable from the entry takes or returns a callback (E0427).
     Callback,

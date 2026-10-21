@@ -73,6 +73,8 @@ fn main() {
     let dir = out_dir("env");
     let run = run_bytes_with_command(&dir, &bytes, |command| {
         command
+            .arg("-S")
+            .arg("inherit-env=y")
             .env("EMELA_TEST_SET", "hello")
             .env("EMELA_TEST_EMPTY", "");
     });
@@ -106,6 +108,8 @@ fn main() {
     let dir = out_dir("env-duplicate");
     let run = run_bytes_with_command(&dir, &bytes, |command| {
         command
+            .arg("-S")
+            .arg("inherit-env=y")
             .arg("--env")
             .arg("EMELA_TEST_DUP=first")
             .arg("--env")
@@ -143,9 +147,11 @@ fn main() {
 "#,
         );
         let dir = out_dir("env-non-utf8");
-        let bad = OsStr::from_bytes(b"EMELA_TEST_BAD=\xff");
+        let bad = OsStr::from_bytes(b"\xff");
         let run = run_bytes_with_command(&dir, &bytes, |command| {
             command
+                .arg("-S")
+                .arg("inherit-env=y")
                 .env("EMELA_TEST_SET", "ok")
                 .env("EMELA_TEST_UNICODE", "東京")
                 .env("EMELA_TEST_BAD", bad);
@@ -204,17 +210,16 @@ import Std.Instant.{Instant}
 fn main() {
   with SystemClock {
     before = Instant.to_unix_milliseconds((use Clock).now())
-    after = Instant.to_unix_milliseconds((use Clock).now())
     dbg(before > 1577836800000)
     dbg(before < 4102444800000)
-    dbg(after >= before)
   }
 }
 "#,
     ) else {
         return;
     };
-    assert_eq!(out, "True\nTrue\nTrue\n");
+    // `system-clock.now` is not monotonic, so two calls need not be non-decreasing.
+    assert_eq!(out, "True\nTrue\n");
 }
 
 #[test]
@@ -268,6 +273,19 @@ fn main() {
             .any(|i| i.contains("http") || i.contains("filesystem")),
         "{imports:?}"
     );
+    // `Std.Platform` bundles the synchronous handlers, so their external functions are
+    // reachable even when only `Console` is used: the environment, random and system-clock
+    // interfaces are imported. This is a known limitation (see NOTES.md).
+    for bundled in [
+        "wasi:cli/environment@0.3.0",
+        "wasi:random/random@0.3.0",
+        "wasi:clocks/system-clock@0.3.0",
+    ] {
+        assert!(
+            imports.iter().any(|i| i == bundled),
+            "`Std.Platform` should import `{bundled}`: {imports:?}"
+        );
+    }
     let dir = out_dir("platform-console");
     let run = run_bytes(&dir, &platform);
     assert_eq!(run.code, 0, "{}", run.stderr);
