@@ -144,11 +144,16 @@ def cmd_check():
             open_part = re.search(r"\n## Open questions\n(.*?)(\n## |\Z)", text, re.S)
             if open_part and re.search(r"^- \S", open_part.group(1), re.M):
                 problems.append(f"{f}: {status} with open questions left")
-    for f, meta, _, _ in proposals():
+    committed = {os.path.basename(f)[:-3] for f, _, _, is_local in proposals() if not is_local}
+    for f, meta, _, is_local in proposals():
         for key in ("requires", "related"):
             for r in meta.get(key, []) or []:
-                if r not in slugs:
-                    problems.append(f"{f}: {key} {r!r} is not the slug of a proposal")
+                # A proposal in the repository can refer only to proposals in the repository: local
+                # drafts are not committed, so CI would not see them.
+                known = slugs if is_local else committed
+                if r not in known:
+                    where = "a proposal" if is_local else "a proposal in proposals/ (local drafts are not committed)"
+                    problems.append(f"{f}: {key} {r!r} is not the slug of {where}")
     # The specification is in English; only the glossary carries the Japanese terms used in discussions.
     japanese = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
     for path in spec_files():
