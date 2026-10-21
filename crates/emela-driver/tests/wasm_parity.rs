@@ -327,6 +327,27 @@ fn main() {
         "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
     ),
     (
+        // The self-reference defect loses no name when a release adds a note while it unwinds.
+        "const_self_reference_release",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+const SELF: Int = with PoolH { if True { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}
+"#,
+    ),
+    (
         "release_notes",
         r#"
 effect Pool {

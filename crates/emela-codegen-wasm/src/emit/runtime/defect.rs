@@ -37,9 +37,6 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     let dup = rt(b, "dup");
     let drop = rt(b, "drop");
     let note = rt(b, "note_release");
-    // A new defect ends a const's self-reference.
-    ins.i32_const(0);
-    ins.global_set(G_SELF_REF);
     ins.global_get(G_DEFECT);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
@@ -49,17 +46,18 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_set(G_DEFECT);
     ins.else_();
     // A defect raised while one is already pending (spec 14.4): the first stays the result and
-    // the later one becomes a note of it. `local 0` stays the caller's.
+    // the later one becomes a note of it. `local 0` stays the caller's. The note keeps the
+    // first's self-reference marker (`aux`), so replacing the slot cannot lose it.
     ins.global_get(G_DEFECT);
     ins.local_set(FIRST);
     ins.local_get(FIRST);
     ins.local_get(0);
     ins.call(note);
     ins.local_set(NOTE);
-    ins.local_get(FIRST);
-    ins.call(drop);
     ins.local_get(NOTE);
     ins.global_set(G_DEFECT);
+    ins.local_get(FIRST);
+    ins.call(drop);
     ins.end();
 }
 
@@ -87,17 +85,18 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     // A defect raised while the first unwound (spec 14.4): the first (`local 0`) stays the
-    // result, and the later one is appended to its message as a note.
+    // result, and the later one is appended to its message as a note. The note keeps the first's
+    // self-reference marker (`aux`).
     ins.local_get(0);
     ins.local_get(LATER);
     ins.call(note);
     ins.local_set(NOTE);
+    ins.local_get(NOTE);
+    ins.global_set(G_DEFECT);
     ins.local_get(0);
     ins.call(drop);
     ins.local_get(LATER);
     ins.call(drop);
-    ins.local_get(NOTE);
-    ins.global_set(G_DEFECT);
 }
 
 fn retire(b: &mut Builder, ins: &mut InstructionSink) {

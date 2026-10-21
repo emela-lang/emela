@@ -425,6 +425,41 @@ fn main() {
     );
 }
 
+#[test]
+fn a_failing_release_does_not_wrap_a_self_reference() {
+    // The self-reference defect is the first one, and the release fails while it unwinds. It must
+    // keep no name and must not be remembered (spec 5.6), even though the release appends a note
+    // to it.
+    let Some(run) = run(
+        "const-self-release",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+const SELF: Int = with PoolH { if True { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const SELF refers to itself while being evaluated\n\
+         note: the release of handler PoolH also failed: release failed\n"
+    );
+}
+
 // Notes added by fiber failures (`note: another fiber also failed: …`, 11.2) are not tested here:
 // fibers are not supported on target `wasm` yet (see `check::unsupported`), so only the defect
 // notes of 14.4 are reachable.

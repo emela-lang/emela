@@ -154,9 +154,8 @@ fn a_release_defect_keeps_the_first_defect() {
     if !have_wasmtime() {
         return;
     }
-    // The body defects and the `release` fails too: the first defect stays the result (spec 14.4).
-    // The note for the release is not implemented on WASM yet (spec `[target.wasm.unsupported]`),
-    // so only the first line is checked.
+    // The body defects and the `release` fails too: the first defect stays the result, and the
+    // release's defect becomes a note (spec 14.4).
     let (analysis, output) = run_wasm(
         "release-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
@@ -176,10 +175,10 @@ fn a_release_defect_keeps_the_first_defect() {
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
     let output = output.unwrap();
     assert_eq!(output.code, 101);
-    assert!(
-        text(&output.stderr).starts_with("defect: division by zero"),
-        "{}",
-        text(&output.stderr)
+    assert_eq!(
+        text(&output.stderr),
+        "defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
     );
     // A `release` that fails with no defect in the body is the result (spec 14.4).
     let (analysis, output) = run_wasm(

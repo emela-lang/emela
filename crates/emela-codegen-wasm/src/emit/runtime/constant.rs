@@ -10,6 +10,11 @@
 //! and wrapped-defect messages. Its state is 0 (not evaluated), 1 (being evaluated), 2 (the value)
 //! or 3 (the defect). References keep their own count: the cell owns one and each use gets a
 //! duplicate.
+//!
+//! The self-reference message has 1 in its `aux` word. The marker travels with the defect
+//! (`defect_take`, a release note and `defect_resume` all keep the string), unlike a global flag:
+//! nested cleanups can take and restore several defects, and the JS runtime keeps the marker on
+//! the defect object too.
 
 use super::*;
 
@@ -64,12 +69,11 @@ fn const_enter(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(1);
     ins.i32_eq();
     ins.if_(BlockType::Result(ValType::I32));
-    // Self-reference: a new defect that no const remembers (`raise` clears the flag).
+    // Self-reference: the message's `aux` marker keeps every const from wrapping or remembering
+    // it, even when a release adds a note during the unwind.
     ins.local_get(0);
     ins.i32_load(mem(CONST_SELF, 4));
     ins.call(raise);
-    ins.i32_const(1);
-    ins.global_set(G_SELF_REF);
     ins.i32_const(2);
     ins.else_();
     // Not evaluated yet: mark it and evaluate.
@@ -94,9 +98,10 @@ fn const_leave(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_store(mem(CONST_STATE, 4));
     ins.return_();
     ins.end();
-    // A self-reference (or an interruption) is not remembered: it would be raised again on every
-    // reference anyway.
-    ins.global_get(G_SELF_REF);
+    // A self-reference is not remembered: it would be raised again on every reference anyway.
+    // The marker is the defect string's `aux` word (see the module comment).
+    ins.global_get(G_DEFECT);
+    ins.i32_load(mem(4, 4));
     ins.if_(BlockType::Empty);
     ins.local_get(0);
     ins.i32_const(0);

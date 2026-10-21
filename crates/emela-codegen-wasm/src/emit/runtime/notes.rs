@@ -72,5 +72,11 @@ fn note_release(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(NEXT);
     ins.local_get(TMP);
     ins.call(drop);
+    // Keep the first defect's self-reference marker (spec 5.6): a note does not change what the
+    // first defect is. `str_new` gave `next` a zero `aux`.
+    ins.local_get(NEXT);
+    ins.local_get(0);
+    ins.i32_load(mem(4, 4));
+    ins.i32_store(mem(4, 4));
     ins.local_get(NEXT);
 }

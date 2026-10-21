@@ -133,10 +133,7 @@ const G_STDERR_FUTURE: u32 = 9;
 const G_WAITSET: u32 = 10;
 /// The name of the handler retired last (spec 14.4: the release note names it).
 pub(crate) const G_LAST_RETIRED: u32 = 11;
-/// Set while a const evaluates itself (spec 5.6): that defect is not remembered by the consts it
-/// passes through.
-pub(crate) const G_SELF_REF: u32 = 12;
-const GLOBALS: u32 = 13;
+const GLOBALS: u32 = 12;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
@@ -492,7 +489,17 @@ impl<'m> Builder<'m> {
     /// The offset of a static string object: rc == 0, no slots, the length in the first word and
     /// the utf-8 bytes after it.
     pub(crate) fn string_literal(&mut self, bytes: &[u8]) -> u32 {
-        if let Some(&o) = self.strs.get(bytes) {
+        self.string_object(bytes, true)
+    }
+
+    /// A string literal that no other use shares, so that the runtime can mark its `aux` word
+    /// (the self-reference message of a const, spec 5.6).
+    fn unique_string_literal(&mut self, bytes: &[u8]) -> u32 {
+        self.string_object(bytes, false)
+    }
+
+    fn string_object(&mut self, bytes: &[u8], shared: bool) -> u32 {
+        if shared && let Some(&o) = self.strs.get(bytes) {
             return o;
         }
         let o = self.alloc_static(HDR + 4 + bytes.len() as u32 + 1);
@@ -501,7 +508,9 @@ impl<'m> Builder<'m> {
         self.write_u32(o + HDR, bytes.len() as u32);
         self.data[(o + HDR + 4) as usize..(o + HDR + 4) as usize + bytes.len()]
             .copy_from_slice(bytes);
-        self.strs.insert(bytes.to_vec(), o);
+        if shared {
+            self.strs.insert(bytes.to_vec(), o);
+        }
         o
     }
 
@@ -513,9 +522,13 @@ impl<'m> Builder<'m> {
         }
         let name = check::display_name(&f.name);
         let prefix = self.string_literal(format!("while evaluating const {name}: ").as_bytes());
-        let self_ref = self.string_literal(
+        // The marker in `aux` travels with the defect (through `defect_take`, notes and
+        // `defect_resume`), like `$selfReference` in the JS runtime. The string is unique to this
+        // const, so marking it cannot affect a user string with the same bytes.
+        let self_ref = self.unique_string_literal(
             format!("const {name} refers to itself while being evaluated").as_bytes(),
         );
+        self.write_u32(self_ref + 4, 1);
         let cell = self.alloc_static(CONST_CELL_SIZE);
         self.write_u32(cell + CONST_SELF, self_ref);
         self.write_u32(cell + CONST_PREFIX, prefix);
