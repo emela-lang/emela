@@ -1123,34 +1123,13 @@ impl<'a> BodyInfer<'a> {
                 }
                 Vec::new()
             }
-            (Some((h, params)), Some(args)) => {
-                let name = &program.defs[h].name;
-                let assigned = self.assign_args(
-                    Some(name),
-                    Some(&params.labels),
-                    params.tys.len(),
-                    args.args.iter().map(|arg| (arg.label.as_ref(), arg.value)),
-                );
-                if !assigned.reported && (assigned.too_many || assigned.has_missing()) {
-                    self.diags.push(Diagnostic {
-                        span: Some(args.span),
-                        kind: DiagnosticKind::WrongArgCount {
-                            callee: Some(name.clone()),
-                            expected: params.tys.len(),
-                            found: args.args.len(),
-                        },
-                    });
-                }
-                for (slot, ty) in assigned.slots.iter().zip(&params.tys) {
-                    if let Some(arg) = slot {
-                        self.check_expr(*arg, ty);
-                    }
-                }
-                for extra in assigned.extra {
-                    self.infer_expr(extra);
-                }
-                assigned.slots
-            }
+            (Some((h, params)), Some(args)) => self.check_args(
+                Some(&program.defs[h].name),
+                Some(&params.labels),
+                &params.tys,
+                &args.args,
+                args.span,
+            ),
         }
     }
 
@@ -1458,10 +1437,28 @@ impl<'a> BodyInfer<'a> {
             }
         };
 
+        let slots = self.check_args(callee_name, labels, &f.params, args, span);
+        self.calls.insert(expr, slots);
+
+        f.ret
+    }
+
+    /// Assigns `args` to the parameters `params` ([`Self::assign_args`]), reports a wrong number
+    /// of them at `span` (E0305), checks each argument against its parameter's type and infers
+    /// the extra ones (spec 6.2). Returns the arguments in parameter order. Shared by calls and
+    /// the arguments of init (`[effect.handler]`).
+    fn check_args(
+        &mut self,
+        callee_name: Option<&SmolStr>,
+        labels: Option<&[Option<SmolStr>]>,
+        params: &[Ty],
+        args: &[Arg],
+        span: Span,
+    ) -> Vec<Option<ExprId>> {
         let assigned = self.assign_args(
             callee_name,
             labels,
-            f.params.len(),
+            params.len(),
             args.iter().map(|arg| (arg.label.as_ref(), arg.value)),
         );
         if !assigned.reported && (assigned.too_many || assigned.has_missing()) {
@@ -1469,24 +1466,20 @@ impl<'a> BodyInfer<'a> {
                 span: Some(span),
                 kind: DiagnosticKind::WrongArgCount {
                     callee: callee_name.cloned(),
-                    expected: f.params.len(),
+                    expected: params.len(),
                     found: args.len(),
                 },
             });
         }
-
-        for (slot, param_ty) in assigned.slots.iter().zip(&f.params) {
+        for (slot, param_ty) in assigned.slots.iter().zip(params) {
             if let Some(arg) = slot {
                 self.check_expr(*arg, param_ty);
             }
         }
-
         for extra in assigned.extra {
             self.infer_expr(extra);
         }
-        self.calls.insert(expr, assigned.slots);
-
-        f.ret
+        assigned.slots
     }
 
     /// Without else, the body is `()` or `Never` and the whole is `()` (spec 6.4). With an
