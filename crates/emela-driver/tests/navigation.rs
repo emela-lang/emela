@@ -263,3 +263,25 @@ fn lambda_parameter_patterns_in_ide_queries() {
         ]
     );
 }
+
+/// `[effect.handler]`: the parameters of init are completed in the body of init, and only there.
+#[test]
+fn init_parameters_are_completed_in_init() {
+    let text = "effect Kv {\n  fn get(key: String) -> String\n}\n\nhandler WorkerKv(name: String): Kv {\n  init(binding: String) { WorkerKv(name: binding) }\n  fn get(key) { key }\n}\n\nfn main() {}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let file = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    let labels = |needle: &str| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, at(text, needle))
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let in_init = labels("binding) }");
+    assert!(in_init.iter().any(|l| l == "binding"), "{in_init:?}");
+    let in_op = labels("key }");
+    assert!(!in_op.iter().any(|l| l == "binding"), "{in_op:?}");
+    assert!(in_op.iter().any(|l| l == "key"), "{in_op:?}");
+}

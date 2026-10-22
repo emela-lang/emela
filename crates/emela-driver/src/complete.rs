@@ -614,6 +614,12 @@ fn visible_locals(
                         add(locals, span_of(body));
                     }
                 }
+                if let Some(body) = h.init {
+                    add(
+                        h.init_params.iter().map(|p| p.local).collect(),
+                        span_of(body),
+                    );
+                }
                 if let Some((local, body)) = h.release {
                     add(vec![local], span_of(body));
                 }
