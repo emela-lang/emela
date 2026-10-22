@@ -54,25 +54,18 @@ const SKIPPED: &[Skipped] = &[
             "fiber_scope",
             "fiber_unwinding",
             "generic_main",
-        ],
-    },
-    Skipped {
-        feature: "suspend",
-        reason: "the entry reaches suspending code, which target `wasm` does not support yet",
-        expected_failures: &["the entry reaches suspending code"],
-        programs: &[
+            // The suspend state machine works, but these three reach it through `Fiber.fork` /
+            // `Deferred`, so the fiber check still stops them first.
             "suspend_abandoned",
             "suspend_after_resume",
-            "suspend_dropped",
             "suspend_resume",
         ],
     },
-    // Suspending code alone is not enough for this program: its `sleep` is another external and
-    // needs a wasm host (a test host, like `print`) before the program can run. The build stops
-    // at the missing host first.
+    // This program's `sleep` is a `suspend fn` external and needs a wasm host (a test host, like
+    // `print`) before the program can run. The build stops at the missing host first.
     Skipped {
         feature: "sleep host",
-        reason: "the program's `sleep` has no WASM host yet (it also reaches suspending code)",
+        reason: "the program's `sleep` has no WASM host yet (it calls a `suspend fn` external)",
         expected_failures: &["external function `sleep` has no `@external` for target `wasm`"],
         programs: &["suspend_external"],
     },
