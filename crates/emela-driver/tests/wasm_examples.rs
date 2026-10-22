@@ -37,17 +37,9 @@ struct Skipped {
 
 /// The examples whose feature the WASM target does not support yet.
 ///
-/// `fibers`, `http` and `notes` also use Console, which is available now; they stay skipped for
-/// their own feature below.
+/// `fibers` and `http` also use Console, which is available now; they stay skipped for their own
+/// feature below.
 const SKIPPED: &[Skipped] = &[
-    Skipped {
-        feature: "file system",
-        reason: "Std.FileSystem has no WASM host yet",
-        expected_failures: &[
-            "external function `host_read_text` has no `@external` for target `wasm`",
-        ],
-        examples: &["notes"],
-    },
     Skipped {
         feature: "fiber",
         reason: "fibers are not supported on target `wasm` yet",
