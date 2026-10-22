@@ -95,7 +95,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. 7.3) | Re ∪ Rei |
 | `use X` | The capability of X | {} | { X } |
-| `with H { e }` | The type of e | Ee ∪ (E of init) | (Re ∖ provides(H)) ∪ requires(H) |
+| `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
 | `fn(x) { e }` | `fn(..) -> T fails Ee use Re` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |

@@ -77,11 +77,12 @@ op_sig       = [ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")"
 
 handler_decl = "handler" type_name [ "(" [ fields ] ")" ]
                ":" type_ref [ "[" type { "," type } "]" ] "{" { handler_item NL } "}"
-handler_item = "init" block
+handler_item = "init" [ "(" [ params ] ")" ] block
              | "release" block
              | [ "suspend" ] "fn" lower_name "(" [ lower_name { "," lower_name } ] ")" block
 
-layer_decl   = "layer" type_name "{" type_ref { sep type_ref } "}"
+layer_decl   = "layer" type_name "{" supply { sep supply } "}"
+supply       = type_ref [ "(" [ args ] ")" ]
 
 trait_decl   = "trait" type_name [ ":" bound { "+" bound } ] "{" { trait_item NL } "}"
 trait_item   = "fn" lower_name "(" [ params ] ")" [ signature ] [ block ]
@@ -95,6 +96,7 @@ The following restrictions apply outside the grammar.
 
 - An fn_decl without a body, and a top-level suspend fn, are allowed only when they have `@external`. A trait_item fn does not need a default implementation, and this restriction does not apply to it.
 - `opaque` can be applied only to type and enum.
+- Each parameter of init is a lower_name with a type (8.4).
 - A type_decl without fields is allowed only when it has `@external`.
 - An enum_decl has at least one variant. Never is the only type with no values.
 - When `derive` follows the newline right after a type_decl, enum_decl, or error_decl, that newline is not a terminator, and the derive continues the declaration (as written in the examples in 10.5). Blank lines and comment-only lines in between are skipped (as in the line continuation check in 2.5). Because `derive` is a contextual keyword, it is not part of the lexical line continuation rules in 2.5, and it is handled only at the position of a declaration.
@@ -159,7 +161,8 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
-with_item  = type_ref [ "by" type_ref [ "[" type { "," type } "]" ] ]   (* by is in 8.9 *)
+with_item  = supply [ "by" by_right ]                                   (* by is in 8.9 *)
+by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
 lambda     = "fn" "(" [ lambda_param { "," lambda_param } ] ")" block
 lambda_param = pattern [ ":" type ]
 ```
@@ -168,6 +171,7 @@ lambda_param = pattern [ ":" type ]
 - Whether a statement is a binding or an expression is decided by whether a sequence that reads as a pattern is immediately followed by `=` or `:`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E0121).
 - In an argument list, a positional argument cannot follow a named argument.
+- The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E0222). Writing an argument after `..` is a compile error (E0114).
 - A `..expr` in a list literal can appear only once, at the end. `[x, y, ..rest]` is the list `rest` with `x` and `y` added in front. What follows `..` is not limited to a name and can be any expression (`[x, ..List.tail(xs)]`). `[..rest]` with no elements, and `..` in the middle or more than once (`[..a, ..b]`), cannot be written.
 
