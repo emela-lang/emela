@@ -264,8 +264,11 @@ impl BodyInfer<'_> {
                 .collect();
             row.extend(&self.subtract(deps, &others));
         }
-        for (i, rows) in arg_rows.iter().enumerate() {
-            if layer::item_initialized(&entries, i) {
+        let initialized: Vec<bool> = (0..items.len())
+            .map(|i| layer::item_initialized(&entries, i))
+            .collect();
+        for (rows, &init) in arg_rows.iter().zip(&initialized) {
+            if init {
                 for r in rows {
                     row.extend(r);
                 }
@@ -277,6 +280,7 @@ impl BodyInfer<'_> {
             entries,
             deps,
             defaults,
+            initialized,
         });
         row
     }
@@ -313,6 +317,7 @@ impl BodyInfer<'_> {
                 entries,
                 deps,
                 defaults,
+                initialized,
             } = w;
             let deps: Vec<Row> = deps.iter().map(|d| self.ctx.resolve_row(d)).collect();
             let order = match layer::init_order(&entries, &deps) {
@@ -347,8 +352,14 @@ impl BodyInfer<'_> {
                     args: entries[i].args,
                 })
                 .collect();
-            self.with_handlers
-                .insert(expr, WithInfo { binds, defaults });
+            self.with_handlers.insert(
+                expr,
+                WithInfo {
+                    binds,
+                    defaults,
+                    initialized,
+                },
+            );
         }
     }
 

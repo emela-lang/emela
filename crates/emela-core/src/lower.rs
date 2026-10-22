@@ -1806,10 +1806,7 @@ impl<'a> Lowerer<'a> {
         let mut binds = Vec::new();
         let mut written_args: FxHashMap<ExprId, Local> = FxHashMap::default();
         for (i, item) in items.iter().enumerate() {
-            let initialized = info.binds.iter().any(|b| {
-                matches!(b.supplier, Supplier::Handler(_)) && b.args == ArgsSource::Item(i)
-            });
-            if !initialized {
+            if !info.initialized.get(i).copied().unwrap_or(false) {
                 continue;
             }
             let (_, args) = item.supplier();

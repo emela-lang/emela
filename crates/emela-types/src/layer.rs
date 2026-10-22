@@ -79,6 +79,10 @@ pub struct WithInfo {
     /// Labels declared `default` that the `with` provides, with the index in `binds` of the
     /// provider of their base. Only labels in the body's R.
     pub defaults: Vec<(Tag, usize)>,
+    /// Whether each item of the `with`, in source order, initializes a handler
+    /// ([`item_initialized`]). Only the arguments of those items are evaluated
+    /// (`[effect.with]`).
+    pub initialized: Vec<bool>,
 }
 
 /// A `with` whose initialization order and default labels are decided after sets are solved.
@@ -88,6 +92,7 @@ pub(crate) struct PendingWith {
     pub(crate) entries: Vec<Entry>,
     pub(crate) deps: Vec<Row>,
     pub(crate) defaults: Vec<(Tag, usize)>,
+    pub(crate) initialized: Vec<bool>,
 }
 
 impl Entry {
