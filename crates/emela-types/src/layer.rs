@@ -380,6 +380,23 @@ pub(crate) fn item_args(item: &WithItem) -> impl Iterator<Item = ExprId> + '_ {
         .flat_map(|a| a.args.iter().map(|arg| arg.value))
 }
 
+/// The arguments written on the items of a `with` that are evaluated: those of the items that
+/// initialize a handler ([`item_initialized`]), in source order.
+pub(crate) fn evaluated_args(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    items: &[WithItem],
+) -> Vec<ExprId> {
+    let entries = with_entries(program, sigs, ty_table, items);
+    items
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| item_initialized(&entries, i))
+        .flat_map(|(_, item)| item_args(item))
+        .collect()
+}
+
 /// For handlers of the same effect, only the later one is kept.
 fn keep_last(entries: Vec<Entry>) -> Vec<Entry> {
     let mut out: Vec<Entry> = Vec::new();

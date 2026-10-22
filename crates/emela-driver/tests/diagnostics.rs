@@ -1045,6 +1045,10 @@ layer Reading {
   WorkerKv(binding: (use Config).url(), retries: 1)
 }
 
+layer Unconfigured {
+  WorkerKv
+}
+
 fn main() {
   with WorkerKv { (use Kv).get("a") }
   with FakeKv() { (use Kv).get("a") }

@@ -29,29 +29,38 @@ error[E0402]: arguments in layer `Reading` cannot use effect `Config`
    = help: the arguments in a layer must be pure; to pass this value, list `WorkerKv` after the layer: `with Reading, WorkerKv(...) { ... }`
 
 error[E0434]: handler `WorkerKv` needs arguments for its `init`
-    ╭─[ main.emel:36:8 ]
+    ╭─[ main.emel:36:3 ]
     │
- 36 │   with WorkerKv { (use Kv).get("a") }
+ 36 │   WorkerKv
+    │   ────┬───  
+    │       ╰───── 
+────╯
+   = help: write `WorkerKv(binding: ..., retries: ...)`
+
+error[E0434]: handler `WorkerKv` needs arguments for its `init`
+    ╭─[ main.emel:40:8 ]
+    │
+ 40 │   with WorkerKv { (use Kv).get("a") }
     │        ────┬───  
     │            ╰───── 
 ────╯
    = help: write `WorkerKv(binding: ..., retries: ...)`
 
 error[E0435]: handler `FakeKv` takes no arguments
-    ╭─[ main.emel:37:14 ]
+    ╭─[ main.emel:41:14 ]
     │
- 37 │   with FakeKv() { (use Kv).get("a") }
+ 41 │   with FakeKv() { (use Kv).get("a") }
     │              ─┬  
     │               ╰── 
 ────╯
    = help: write `FakeKv` without parentheses
 
 error[E0305]: wrong number of arguments: `WorkerKv` takes 2, found 1
-    ╭─[ main.emel:38:16 ]
+    ╭─[ main.emel:42:16 ]
     │
- 38 │   with WorkerKv(binding: "a") { (use Kv).get("a") }
+ 42 │   with WorkerKv(binding: "a") { (use Kv).get("a") }
     │                ───────┬──────  
     │                       ╰──────── 
 ────╯
 
-6 errors
+7 errors

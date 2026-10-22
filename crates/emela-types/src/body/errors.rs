@@ -944,10 +944,15 @@ impl BodyInfer<'_> {
                 out.extend(fields.iter().map(|f| f.value));
                 out.push(*base);
             }
+            // The arguments of a handler a later item overrides are not evaluated
+            // (`[effect.with]`), so no error or call in them is reported.
             ExprKind::With { handlers, body } => {
-                for item in handlers {
-                    out.extend(crate::layer::item_args(item));
-                }
+                out.extend(crate::layer::evaluated_args(
+                    self.program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                ));
                 out.push(*body);
             }
         }

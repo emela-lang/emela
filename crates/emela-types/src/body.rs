@@ -666,7 +666,7 @@ impl<'a> BodyInfer<'a> {
                 && hop
                     .params
                     .last()
-                    .is_some_and(|resume| suspend::resume_escapes(program, body, resume.local));
+                    .is_some_and(|resume| suspend::resume_escapes(self, body, resume.local));
             self.handler_bodies.push(HandlerBody {
                 handler: def,
                 index,

@@ -9,6 +9,7 @@ handler Untyped: use {}
 `url` MissingInitParamType { handler: "Untyped", param: "url" }
 `RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
 `RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url", "retries"] }
 `()` UnexpectedInitArgs { name: "FakeKv", kind: "handler" }
 `(1)` UnexpectedInitArgs { name: "FakeKv", kind: "handler" }
 `(1)` UnexpectedInitArgs { name: "AppLive", kind: "layer" }

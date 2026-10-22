@@ -1259,8 +1259,6 @@ impl Diagnostic {
     }
 }
 
-/// Lists names as `` `a` `` or `` fields `a`, `b` ``. Four or more show the first three and
-/// `and N more`.
 /// The help of E0318 and E0402 in the arguments of a layer item (`[effect.layer]`).
 fn layer_arg_help(arg: &emela_types::LayerArg) -> String {
     format!(
@@ -1269,6 +1267,8 @@ fn layer_arg_help(arg: &emela_types::LayerArg) -> String {
     )
 }
 
+/// Lists names as `` `a` `` or `` fields `a`, `b` ``. Four or more show the first three and
+/// `and N more`.
 fn quoted_list(one: &str, many: &str, names: &[SmolStr]) -> String {
     match names {
         [only] => format!("{one} `{only}`"),

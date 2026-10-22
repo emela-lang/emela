@@ -1658,3 +1658,87 @@ fn value() {
 "#
     ));
 }
+
+/// `[effect.handler]`, `[effect.layer]`: a handler listed in a layer without arguments needs them
+/// when its init takes parameters (E0434), also in a layer no `with` names and in a layer where
+/// no other item has arguments.
+#[test]
+fn layer_items_need_init_arguments() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Kv {
+  fn get(key: String) -> String
+}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler RemoteKv(url: String): Kv {
+  init(url: String) { RemoteKv(url:) }
+  fn get(key) { self.url }
+}
+
+handler QuietLog: Log {
+  fn info(msg) { () }
+}
+
+layer Unused {
+  RemoteKv
+}
+
+layer Missing {
+  QuietLog
+  RemoteKv
+}
+
+fn main() {
+  with Missing { (use Kv).get("a") }
+}
+"#
+    ));
+}
+
+/// `[effect.with]`, spec 8.1, 8.7: the arguments of a handler a later item overrides are not
+/// evaluated, so a call in them that may suspend is not reported in an fn operation (E0417), and
+/// `resume` written in them does not make the operation resume later.
+#[test]
+fn overridden_init_arguments_do_not_run() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Clock {
+  suspend fn wait() -> Int
+  fn now() -> Int
+}
+
+effect Kv {
+  fn get(key: String) -> String
+}
+
+handler Slow(ms: Int): Kv {
+  init(ms: Int) { Slow(ms:) }
+  fn get(key) { "" }
+}
+
+handler Kept(k: fn(Int) -> ()): Kv {
+  init(k: fn(Int) -> ()) { Kept(k:) }
+  fn get(key) { "" }
+}
+
+handler Fast: Kv {
+  fn get(key) { "" }
+}
+
+handler Ticking: Clock {
+  suspend fn wait(resume) {
+    with Kept(k: resume), Fast { resume(1) }
+  }
+  fn now() {
+    (use Clock).wait()
+    with Slow(ms: (use Clock).wait()), Fast { (use Kv).get("a") }
+    1
+  }
+}
+"#
+    ));
+}

@@ -249,8 +249,8 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     types
 }
 
-/// Orders the definitions to infer (fns with bodies, consts, handlers, layers with arguments,
-/// trait default implementations and impl functions with signatures) into groups that refer to each other,
+/// Orders the definitions to infer (fns with bodies, consts, handlers, layers, trait default
+/// implementations and impl functions with signatures) into groups that refer to each other,
 /// callees first.
 fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
     let nodes: Vec<DefId> = program
@@ -261,8 +261,9 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
             Some(Item::Fn(item)) => item.body.is_some(),
             Some(Item::TraitFn(item)) => item.body.is_some() && sigs.get(def).is_some(),
             Some(Item::Const(_) | Item::Handler(_)) => true,
-            // The arguments of a layer's items are inferred, as the value of a const.
-            Some(Item::Layer(item)) => item.members.iter().any(|m| m.args.is_some()),
+            // The arguments of a layer's items are inferred, as the value of a const. Every
+            // layer is, since an item without arguments may need them (E0434).
+            Some(Item::Layer(_)) => true,
             // An impl function without a signature (its impl or trait function has an error) is
             // not inferred.
             _ => program
