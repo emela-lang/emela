@@ -1,13 +1,12 @@
 //! Pins the emitted bytes of fixed programs.
 //!
-//! Splitting the emitter and the runtime into modules must not change the output. Every runtime
-//! function but the Float ones is emitted whether a program calls it or not, so any program pins
-//! their bodies; the programs here are chosen to also reach the emitter's lowerings: closures,
-//! strings, lists, enums, options, the bundled `State`, Int and Int64 arithmetic, shifts, the
-//! Float remainder and the test entry. The Float runtime is only registered for a program that
-//! uses a Float builtin, so `floats` pins it and the programs without one keep the bytes they had
-//! before it existed. A change in the length or the hash of a component means the lowering or the
-//! component wrapper changed.
+//! A change in the length or the hash of a component means the lowering, the runtime or the
+//! component wrapper changed. A refactoring must keep them. Every runtime function but the Float
+//! ones is emitted whether a program calls it or not, so any program pins their bodies; the
+//! programs here are chosen to also reach the emitter's lowerings: closures, strings, lists,
+//! enums, options, the bundled `State`, Int and Int64 arithmetic, shifts, the Float remainder and
+//! the test entry. The Float runtime is only registered for a program that uses a Float builtin,
+//! so a change to it moves only `floats`, not the programs without one.
 //!
 //! The output is a WASI 0.3 component, so the hash covers the component (including its metadata),
 //! not just the core module.
