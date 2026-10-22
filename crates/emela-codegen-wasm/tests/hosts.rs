@@ -248,6 +248,8 @@ fn main() {
         "wasi:cli/environment@0.3.0",
         "wasi:random/random@0.3.0",
         "wasi:clocks/system-clock@0.3.0",
+        "wasi:filesystem/types@0.3.0",
+        "wasi:filesystem/preopens@0.3.0",
     ] {
         assert!(!imports.iter().any(|i| i == unused), "{imports:?}");
     }

@@ -5,25 +5,77 @@
 
 mod common;
 
+use std::path::{Path, PathBuf};
+
 use common::*;
 
 /// Runs `src` in a fresh directory (prepopulated with `files`), with `--dir` pointing at it.
 fn run_fs(name: &str, files: &[(&str, &[u8])], src: &str) -> Option<Run> {
+    run_fs_prepared(
+        name,
+        |dir| {
+            for (path, contents) in files {
+                let path = dir.join(path);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).unwrap();
+                }
+                std::fs::write(path, contents).unwrap();
+            }
+        },
+        src,
+    )
+    .map(|(run, _)| run)
+}
+
+/// Like [`run_fs`], but `setup` prepares the directory (symbolic links, an absolute path) and
+/// the test gets the directory back for host-side checks. The directory is absolute, so a
+/// guest string built from it is an absolute path.
+fn run_fs_prepared(name: &str, setup: impl FnOnce(&Path), src: &str) -> Option<(Run, PathBuf)> {
     wasmtime()?;
     let bytes = compile_checked(src);
-    let dir = out_dir(name);
+    let dir = std::path::absolute(out_dir(name)).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    for (path, contents) in files {
-        let path = dir.join(path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, contents).unwrap();
-    }
-    Some(run_bytes_with_command(&dir, &bytes, |command| {
+    setup(&dir);
+    let run = run_bytes_with_command(&dir, &bytes, |command| {
         command.arg("--dir").arg(&dir);
-    }))
+    });
+    Some((run, dir))
+}
+
+/// The imports every test program in this file starts with.
+const FS_IMPORTS: &str = "import Std.FileSystem.{FileSystem, SystemFileSystem, FileNotFound, FileAccessDenied, IsADirectory, InvalidText, NotADirectory, DirectoryNotEmpty, FileSystemFailure}";
+
+/// An Emela helper: the name of the error `body` failed with, or `"ok"`.
+const ERROR_NAME: &str = r#"fn error_name[E](body: fn() -> () fails E use { FileSystem }) -> String fails E use { FileSystem } {
+  {
+    body()
+    "ok"
+  } escape {
+    FileNotFound(..)      -> "FileNotFound"
+    FileAccessDenied(..)  -> "FileAccessDenied"
+    IsADirectory(..)      -> "IsADirectory"
+    InvalidText(..)       -> "InvalidText"
+    NotADirectory(..)     -> "NotADirectory"
+    DirectoryNotEmpty(..) -> "DirectoryNotEmpty"
+    FileSystemFailure(..) -> "FileSystemFailure"
+  }
+}"#;
+
+/// `path` as an Emela string literal.
+fn emela_path(path: &Path) -> String {
+    let text = path.to_str().expect("the path is UTF-8");
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '#' => out.push_str("\\#"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[test]
@@ -102,11 +154,151 @@ fn invalid_text_and_bom() {
     assert_eq!(run.stderr, "\"InvalidText\"\n[65279, 120]\n");
 }
 
+/// The accepted WASM sandbox rejects absolute paths even when they name a file inside the
+/// preopen. `exists` and `is_directory` return false. This pins the target difference
+/// documented in NOTES.md.
+#[cfg(unix)]
+#[test]
+fn absolute_paths_are_denied() {
+    let name = "fs-absolute";
+    let dir = std::path::absolute(out_dir(name)).unwrap();
+    let src = format!(
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text({abs_secret}) }}))\n    dbg((use FileSystem).exists({abs_secret}))\n    dbg((use FileSystem).is_directory({abs_dir}))\n  }}\n}}\n",
+        abs_secret = emela_path(&dir.join("secret.txt")),
+        abs_dir = emela_path(&dir),
+    );
+    let Some((run, _)) = run_fs_prepared(
+        name,
+        |dir| std::fs::write(dir.join("secret.txt"), "secret").unwrap(),
+        &src,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "\"FileAccessDenied\"\nFalse\nFalse\n");
+}
+
+/// The accepted WASM sandbox: a `..` step that leaves the preopen reaches nothing, and a write
+/// through it creates no file. `remove("..")` is denied too.
+#[test]
+fn dot_dot_cannot_leave_the_preopen() {
+    let name = "fs-escape";
+    let dir = std::path::absolute(out_dir(name)).unwrap();
+    let parent = dir.parent().unwrap();
+    let escape_read = parent.join(format!("{name}-outside.txt"));
+    let escape_write = parent.join(format!("{name}-written.txt"));
+    let _ = std::fs::remove_file(&escape_read);
+    let _ = std::fs::remove_file(&escape_write);
+
+    let src = format!(
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text(\"../{name}-outside.txt\") }}))\n    dbg(error_name(fn() {{ fs.write_text(\"../{name}-written.txt\", \"x\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"..\") }}))\n  }}\n}}\n"
+    );
+    let Some((run, _)) = run_fs_prepared(
+        name,
+        |_| std::fs::write(&escape_read, "outside").unwrap(),
+        &src,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        "\"FileAccessDenied\"\n\"FileAccessDenied\"\n\"FileAccessDenied\"\n"
+    );
+    assert!(
+        !escape_write.exists(),
+        "the guest wrote outside the preopen"
+    );
+    let _ = std::fs::remove_file(&escape_read);
+    let _ = std::fs::remove_file(&escape_write);
+}
+
+/// A symbolic link whose target is outside the preopen cannot be read, written or listed, and
+/// nothing is created on the other side. This is the accepted sandbox, not the deferred
+/// `remove` limitation.
+#[cfg(unix)]
+#[test]
+fn a_symlink_out_of_the_preopen_is_denied() {
+    use std::os::unix::fs::symlink;
+
+    let name = "fs-symlink-escape";
+    let dir = std::path::absolute(out_dir(name)).unwrap();
+    let outside = dir.with_file_name(format!("{name}-outside"));
+    let _ = std::fs::remove_dir_all(&outside);
+    let src = format!(
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text(\"escape/secret.txt\") }}))\n    dbg(error_name(fn() {{ fs.write_text(\"escape/pwn.txt\", \"x\") }}))\n    dbg(error_name(fn() {{ _ = fs.list_directory(\"escape\") }}))\n    dbg((use FileSystem).exists(\"escape/secret.txt\"))\n    dbg(error_name(fn() {{ fs.remove(\"escape\") }}))\n  }}\n}}\n"
+    );
+    let Some((run, _)) = run_fs_prepared(
+        name,
+        |dir| {
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::write(outside.join("secret.txt"), "outside").unwrap();
+            symlink(&outside, dir.join("escape")).unwrap();
+        },
+        &src,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        "\"FileAccessDenied\"\n\"FileAccessDenied\"\n\"FileAccessDenied\"\nFalse\n\
+         \"FileAccessDenied\"\n"
+    );
+    assert!(
+        !outside.join("pwn.txt").exists(),
+        "the guest wrote through a symbolic link out of the preopen"
+    );
+    assert!(outside.join("secret.txt").exists());
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// The deferred limitation: `remove` follows the final symbolic link. A link to a directory
+/// and a dangling link fail with `FileNotFound` and stay; a link to a file is unlinked itself,
+/// as on JS and C. Update this test when the behaviour changes.
+#[cfg(unix)]
+#[test]
+fn removing_a_symlink_is_a_known_limitation() {
+    use std::os::unix::fs::symlink;
+
+    let src = format!(
+        "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ fs.remove(\"linkdir\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"dangling\") }}))\n    dbg(error_name(fn() {{ fs.remove(\"linkfile\") }}))\n  }}\n}}\n"
+    );
+    let Some((run, dir)) = run_fs_prepared(
+        "fs-symlink-remove",
+        |dir| {
+            std::fs::create_dir_all(dir.join("sub")).unwrap();
+            std::fs::write(dir.join("sub/file.txt"), "x").unwrap();
+            symlink("sub", dir.join("linkdir")).unwrap();
+            symlink("missing", dir.join("dangling")).unwrap();
+            symlink("sub/file.txt", dir.join("linkfile")).unwrap();
+        },
+        &src,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "\"FileNotFound\"\n\"FileNotFound\"\n\"ok\"\n");
+    assert!(
+        dir.join("linkdir").symlink_metadata().is_ok(),
+        "a symbolic link to a directory was removed"
+    );
+    assert!(
+        dir.join("dangling").symlink_metadata().is_ok(),
+        "a dangling symbolic link was removed"
+    );
+    assert!(
+        dir.join("linkfile").symlink_metadata().is_err(),
+        "a symbolic link to a file was not removed"
+    );
+    assert!(
+        dir.join("sub/file.txt").exists(),
+        "removing a symbolic link to a file removed its target"
+    );
+}
+
 #[test]
 fn file_system_is_only_imported_when_used() {
-    if wasmtime().is_none() {
-        return;
-    }
     let imports = component_imports(&compile_checked(
         "import Std.FileSystem.{FileSystem, SystemFileSystem}\n\nfn main() {\n  with SystemFileSystem {\n    (use FileSystem).exists(\"x\")\n  }\n}\n",
     ));
