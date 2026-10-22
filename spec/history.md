@@ -4,7 +4,7 @@ This is the record of changes to the specification. New entries are added at the
 
 ## 2026-10-22 (Arguments for handler init)
 
-- `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[grammar.decl]`, `[grammar.expr]`: The `init` of a handler can take parameters, and a value is passed to it by writing `H(x: ...)` as an item of a with or a layer, or on the right side of `by` for a label. This revises "The handler itself takes no arguments." in `[effect.handler]`. Adopted in the proposal `handler-init-arguments` (#389).
+- `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`, `[grammar.decl]`, `[grammar.expr]`, `[type.rules]`, `[dyn.with]`: The `init` of a handler can take parameters, and a value is passed to it by writing `H(x: ...)` as an item of a with or a layer, or on the right side of `by` for a label. This revises "The handler itself takes no arguments." in `[effect.handler]`. Adopted in the proposal `handler-init-arguments` (#389).
 
 ## 2026-10-22 (Float.max with NaN)
 

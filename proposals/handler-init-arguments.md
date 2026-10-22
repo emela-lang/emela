@@ -5,7 +5,7 @@ status: accepted
 pr: 389
 issue: 374
 decided: 2026-10-22
-touches: [effect.handler, effect.with, effect.layer, effect.label, grammar.decl, grammar.expr]
+touches: [effect.handler, effect.with, effect.layer, effect.label, grammar.decl, grammar.expr, type.rules, dyn.with]
 requires: []
 related: []
 ---
@@ -87,7 +87,7 @@ with SystemConsole, AuditLog by FileLog(path: "audit.log") { ... }
 
 ### `[effect.handler]`
 
-Replace "The handler itself takes no arguments." with:
+Replace "To pass configuration from outside, use an effect such as Config in init. The handler itself takes no arguments." with:
 
 > `init` MAY take parameters (`init(url: String) { ... }`). Their types MUST be written. Arguments are passed by writing `H(url: ...)` as an item of a with or a layer, or on the right side of `by` (`[effect.with]`, `[effect.layer]`, `[effect.label]`). A handler whose init takes no parameters cannot be given arguments, and `H()` cannot be written for it.
 >
@@ -126,6 +126,22 @@ by_right   = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]
 ```
 
 The type arguments on the right of `by` (`Hits by State[Int]`) can be written only when it names an effect, and arguments only when it names a handler.
+
+### `[type.rules]`
+
+In the row of `with H { e }`, add the E of the arguments of init to E, and the R of the arguments of init to R:
+
+> | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H)) ∪ requires(H) ∪ (R of the arguments of init) |
+
+### `[dyn.with]`
+
+Replace step 1 with:
+
+> 1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order.
+
+Add before the item about an init that fails:
+
+> - If evaluating an argument fails, no init has run yet, so nothing is released, and the with ends with that error.
 
 ## Diagnostics
 
