@@ -305,9 +305,19 @@ pub fn wasmtime_program() -> PathBuf {
 /// the same directory the JS and C runs use. The path is the child's work directory (see
 /// [`with_program_cwd`]) or `.` when the driver did not set one; the guest resolves relative
 /// paths against the preopen, which is what the JS and C handlers do against the process cwd.
+///
+/// The preopen is the sandbox root, not a view of the host's `/`: the guest can name only
+/// paths below it, and an absolute path or a `..` step that leaves it fails with WASI's
+/// `not-permitted` (reported by `Std.FileSystem` as `FileAccessDenied`). The directory is
+/// preopened for every wasm run because `Std.Platform` constructs `SystemFileSystem` even when
+/// the program uses only `Console`; a component that does not import the file system cannot
+/// reach it.
 pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
     let mut command = Command::new(wasmtime);
     command.arg("run").arg("-S").arg("p3=y");
+    // The child's work directory is the root `Std.FileSystem` resolves relative paths
+    // against. It is passed as an absolute path (see `preopen_dir`) so changing the child's
+    // directory cannot resolve it a second time.
     command.arg("--dir").arg(preopen_dir());
     command.arg(entry_for_child(entry));
     apply_program_cwd(&mut command);

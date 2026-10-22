@@ -9,6 +9,12 @@
 # pure (`use {}`): they only read an immutable object. On C, Emela does not free host values
 # (spec 12.3), so each operation takes everything out of the outcome, releases it, and only then
 # fails. The operations do not stop on interruption: reading and writing are short.
+#
+# On the WASM target the process working directory is the preopened work directory. An
+# absolute path, a `..` step that leaves it, and a symbolic link whose target is outside it
+# fail with `FileAccessDenied`; `exists` and `is_directory` return `false` for them. The WASM
+# host also waits in place during an operation, so other continuations do not run until it
+# returns, and a `FileSystemFailure` has an empty `message`.
 
 import Std.Path
 import Std.State.{State}
@@ -21,7 +27,8 @@ pub error DirectoryNotEmpty(path: String) derive Show
 ## The file is not valid UTF-8. It is never read with replacement characters, so that writing
 ## the text back does not change the file.
 pub error InvalidText(path: String) derive Show
-## Any other error of the host. `message` is the host's description.
+## Any other error of the host. `message` is the host's description; on the WASM target it is
+## empty because the host provides no message.
 pub error FileSystemFailure(path: String, message: String) derive Show
 
 pub effect FileSystem {
