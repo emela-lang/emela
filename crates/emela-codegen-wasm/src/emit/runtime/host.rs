@@ -190,6 +190,9 @@ struct Waits {
 
 /// Blocks until the waitable `handle` has an event and leaves the event's payload on the stack.
 /// `handle` is joined to the waitable set `set` only for the wait.
+///
+/// `waitable-set.wait` returns the event code and stores the waitable's handle at `WAITBUF` and
+/// the payload (for a stream or future copy, `amount << 4 | status`) at `WAITBUF + 4`.
 fn wait_event(ins: &mut InstructionSink, waits: &Waits, handle: u32, set: u32) {
     ins.local_get(handle);
     ins.local_get(set);
@@ -202,7 +205,7 @@ fn wait_event(ins: &mut InstructionSink, waits: &Waits, handle: u32, set: u32) {
     ins.i32_const(0);
     ins.call(waits.join);
     ins.i32_const(WAITBUF as i32);
-    ins.i32_load(mem(0, 4));
+    ins.i32_load(mem(4, 4));
 }
 
 fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
