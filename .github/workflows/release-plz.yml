@@ -106,7 +106,7 @@ jobs:
     # No GITHUB_TOKEN scopes needed: the cross-repo call uses the App token.
     permissions: {}
     steps:
-      - name: "Mint token for emela.nix (GitHub App: emela-release)"
+      - name: "Mint token for emela.nix (GitHub App: emela-bot)"
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -141,7 +141,7 @@ jobs:
       # before CI runs on it, so the merge queue never sees `ci-ok`. The App
       # token makes the release PR an ordinary one; the checkout uses it too,
       # because release-plz pushes the branch with the checkout's credentials.
-      - name: "Mint token for the release PR (GitHub App: emela-release)"
+      - name: "Mint token for the release PR (GitHub App: emela-bot)"
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
