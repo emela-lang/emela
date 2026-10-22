@@ -214,4 +214,4 @@ error[E0204]: duplicate module `Http.Client`
 | E0906 | The JS output stage returned invalid output (an internal error of the implementation) | `invalid output from the JS backend` |
 | E0907 | cc is not found or cannot be started (Appendix B) | ``cannot start `cc` `` |
 | E0908 | Compiling the output C failed (an error in the implementation or in the C of the host) | `` `cc` failed to compile `target/emela/c/main.c` `` |
-| E0909 | wasmtime is not found or cannot be started with `--target wasm` (`[target.wasm.run]`) | ``` `wasmtime` not found ``` |
+| E0909 | wasmtime is not found, cannot be started, or is older than 49 with `--target wasm` (`[target.wasm.run]`) | ``` `wasmtime` not found ``` |

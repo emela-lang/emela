@@ -338,6 +338,10 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
         Runner::Native => (entry.clone(), Command::new(&entry)),
         Runner::Wasmtime => {
             let wasmtime = crate::run::wasmtime_program();
+            if let Err(diagnostic) = crate::run::check_wasmtime_version(&wasmtime) {
+                analysis.diagnostics.push(diagnostic);
+                return (analysis, None);
+            }
             let command = crate::run::wasmtime_run_command(&wasmtime, &entry);
             (wasmtime, command)
         }
