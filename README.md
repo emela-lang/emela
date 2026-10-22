@@ -35,7 +35,7 @@ or later. The C target (`--target c`) needs a C11 compiler as `cc` (or set
 command with `wasmtime` (or set `EMELA_WASMTIME`).
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/emela-lang/emela/main/install.sh | sh
+curl -fsSL https://emela.dev/install.sh | sh
 emela --version
 ```
 
