@@ -67,24 +67,38 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-/// Writes the three property tables into static data and remembers their offsets.
+/// The `(first, last, class)` ranges of a property table.
+type Ranges = &'static [(u32, u32, u8)];
+
+/// The names of the property tables in `Builder::rt_data`, with their ranges.
+const TABLES: [(&str, Ranges); 3] = [
+    ("unicode.gcb", t::GCB),
+    ("unicode.extended_pictographic", t::EXTENDED_PICTOGRAPHIC),
+    ("unicode.incb", t::INCB),
+];
+
+/// Writes the three property tables into static data and records their offsets.
 ///
 /// The entries are `(first, last | class << 24)`; `last` is at most `0x10FFFF`, so the class
 /// fits in the high byte of the second word.
 pub(super) fn setup(b: &mut Builder) {
-    b.unicode.gcb = table(b, t::GCB);
-    b.unicode.extended_pictographic = table(b, t::EXTENDED_PICTOGRAPHIC);
-    b.unicode.incb = table(b, t::INCB);
+    for (name, ranges) in TABLES {
+        let off = b.alloc_static(ranges.len() as u32 * 8);
+        for (i, &(first, last, class)) in ranges.iter().enumerate() {
+            let at = off + i as u32 * 8;
+            b.write_u32(at, first);
+            b.write_u32(at + 4, last | (u32::from(class) << 24));
+        }
+        b.rt_data.insert(name, off);
+    }
 }
 
-fn table(b: &mut Builder, ranges: &[(u32, u32, u8)]) -> u32 {
-    let off = b.alloc_static(ranges.len() as u32 * 8);
-    for (i, &(first, last, class)) in ranges.iter().enumerate() {
-        let at = off + i as u32 * 8;
-        b.write_u32(at, first);
-        b.write_u32(at + 4, last | (u32::from(class) << 24));
-    }
-    off
+/// Pushes the arguments of `unicode_class` for the table `name` and `cp` (local 0), and calls it.
+fn lookup(b: &Builder, ins: &mut InstructionSink, name: &str, ranges: Ranges) {
+    ins.i32_const(b.rt_data[name] as i32);
+    ins.i32_const(ranges.len() as i32);
+    ins.local_get(0);
+    ins.call(rt(b, "unicode_class"));
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -210,7 +224,6 @@ fn unicode_class(ins: &mut InstructionSink) {
 
 /// The `Grapheme_Cluster_Break` class of `cp` (UAX #29).
 fn gcb_of(b: &mut Builder, ins: &mut InstructionSink) {
-    let call = rt(b, "unicode_class");
     ins.local_get(0);
     ins.i32_const(0xAC00);
     ins.i32_ge_u();
@@ -233,28 +246,22 @@ fn gcb_of(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.return_();
     ins.end();
-    ins.i32_const(b.unicode.gcb as i32);
-    ins.i32_const(t::GCB.len() as i32);
-    ins.local_get(0);
-    ins.call(call);
+    lookup(b, ins, "unicode.gcb", t::GCB);
 }
 
 /// The `Extended_Pictographic` property of `cp`: 1 or 0.
 fn ext_pict_of(b: &mut Builder, ins: &mut InstructionSink) {
-    let call = rt(b, "unicode_class");
-    ins.i32_const(b.unicode.extended_pictographic as i32);
-    ins.i32_const(t::EXTENDED_PICTOGRAPHIC.len() as i32);
-    ins.local_get(0);
-    ins.call(call);
+    lookup(
+        b,
+        ins,
+        "unicode.extended_pictographic",
+        t::EXTENDED_PICTOGRAPHIC,
+    );
 }
 
 /// The `Indic_Conjunct_Break` class of `cp`: `INCB_CONSONANT`, `INCB_LINKER`, `INCB_EXTEND` or 0.
 fn incb_of(b: &mut Builder, ins: &mut InstructionSink) {
-    let call = rt(b, "unicode_class");
-    ins.i32_const(b.unicode.incb as i32);
-    ins.i32_const(t::INCB.len() as i32);
-    ins.local_get(0);
-    ins.call(call);
+    lookup(b, ins, "unicode.incb", t::INCB);
 }
 
 /// `grapheme_end(s, start)`: the byte offset where the cluster that starts at `start` ends.

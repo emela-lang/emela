@@ -122,14 +122,6 @@ const DESC_NAME: u32 = 24;
 const DESC_NAMELEN: u32 = 28;
 const DESC_SIZE: u32 = 32;
 
-/// The offsets of the Unicode property tables in static data (filled by `runtime::unicode`).
-#[derive(Clone, Copy, Default)]
-pub(crate) struct UnicodeTables {
-    pub(crate) gcb: u32,
-    pub(crate) extended_pictographic: u32,
-    pub(crate) incb: u32,
-}
-
 pub(crate) struct Builder<'m> {
     pub(crate) m: &'m Module,
     types: Vec<(Vec<ValType>, Vec<ValType>)>,
@@ -150,8 +142,8 @@ pub(crate) struct Builder<'m> {
     pub(crate) cons_ref_desc: u32,
     pub(crate) cons_val_desc: u32,
     pub(crate) data: Vec<u8>,
-    /// The offsets of the Unicode tables (see `runtime::unicode`).
-    pub(crate) unicode: UnicodeTables,
+    /// The static data of the runtime modules, by name (written by their `setup`).
+    pub(crate) rt_data: FxHashMap<&'static str, u32>,
     descs: FxHashMap<DescKey, u32>,
     strs: FxHashMap<Vec<u8>, u32>,
     nullary: FxHashMap<u32, u32>,
@@ -179,7 +171,7 @@ impl<'m> Builder<'m> {
             cons_ref_desc: 0,
             cons_val_desc: 0,
             data: vec![0; layout::STATIC_START as usize],
-            unicode: UnicodeTables::default(),
+            rt_data: FxHashMap::default(),
             descs: FxHashMap::default(),
             strs: FxHashMap::default(),
             nullary: FxHashMap::default(),
