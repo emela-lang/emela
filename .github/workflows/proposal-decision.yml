@@ -84,8 +84,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.issue.number }}
         run: |
-          # The App can push only to branches of this repository, and running the pull request's
-          # own scripts/spec.py is safe only when the branch comes from someone with write access.
+          # The App can push only to branches of this repository.
           if [ "$(gh pr view "$PR" --repo "$REPO" --json isCrossRepository --jq .isCrossRepository)" = true ]; then
             echo "::error::the pull request comes from a fork; finish the adoption by hand (the emela-proposal skill)"
             exit 1
@@ -108,11 +107,24 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
 
+      # scripts/spec.py comes from the default branch, not from the pull request: a branch made
+      # before `accept` was added lacks it, and a pull request must not choose the code the bot runs.
+      - name: Checkout scripts/spec.py of the default branch
+        if: steps.command.outputs.verb == 'accept'
+        uses: actions/checkout@v6
+        with:
+          path: base
+          sparse-checkout: scripts/spec.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Record the adoption
         if: steps.command.outputs.verb == 'accept'
         env:
           SLUG: ${{ steps.pr.outputs.slug }}
         run: |
+          cp base/scripts/spec.py scripts/spec.py
+          rm -rf base
           python3 scripts/spec.py accept "$SLUG" "$RUNNER_TEMP/reasons.md" "$(TZ=Asia/Tokyo date +%F)"
           python3 scripts/spec.py check
 
