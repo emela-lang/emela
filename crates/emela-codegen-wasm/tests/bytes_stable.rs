@@ -1,9 +1,10 @@
-//! Pins the emitted bytes of three fixed programs.
+//! Pins the emitted bytes of fixed programs.
 //!
-//! Splitting the emitter and the runtime into modules must not change the output. These programs
-//! use only the features that are already supported (Int, String, closures, lists, enums, options
-//! and wasm externals; no Float), so a change in the length or the hash of the module means the
-//! lowering changed.
+//! Splitting the emitter and the runtime into modules must not change the output. Every runtime
+//! function is emitted whether a program calls it or not, so any program pins their bodies; the
+//! programs here are chosen to also reach the emitter's lowerings: closures, strings, lists, enums,
+//! options, wasm externals, Int and Int64 arithmetic, shifts and the Float remainder. A change in
+//! the length or the hash of the module means the lowering changed.
 
 mod common;
 
@@ -96,6 +97,33 @@ fn main() {
 "#,
         7664,
         0xae57_5f46_4529_1fdc,
+    ),
+    (
+        "numeric",
+        r#"
+fn main() {
+  a = 0 - 17
+  dbg(a / 5)
+  dbg(a % 5)
+  dbg(-a)
+  dbg(Int.shift_left(1, 33))
+  dbg(Int.shift_right(a, 2))
+  dbg(Int.shift_right_unsigned(a, 28))
+  dbg(Int.bit_xor(Int.bit_and(12, 10), Int.bit_not(0)))
+  big = Int64.from_int(2147483647) * Int64.from_int(3)
+  seven = Int64.from_int(7)
+  dbg(Int64.to_string(big / seven))
+  dbg(Int64.to_string(big % seven))
+  dbg(Int64.to_string(-big))
+  dbg(Int64.to_string(Int64.shift_left(big, 2)))
+  dbg(Int64.to_string(Int64.shift_right(-big, 3)))
+  dbg(Int64.to_string(Int64.shift_right_unsigned(-big, 60)))
+  dbg(Int64.to_int(big))
+  dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
+}
+"#,
+        7175,
+        0x5dc0_2e86_5969_fdc3,
     ),
 ];
 
