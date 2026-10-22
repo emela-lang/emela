@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use emela_codegen_wasm::{Entry, WasmError, WasmOutput, compile};
+use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmOutput, compile};
 use emela_core::Roots;
 
 /// Lowers `src` and compiles it to WASM.
@@ -30,6 +30,30 @@ pub fn to_output(src: &str) -> WasmOutput {
 /// Compiles `src`, validating the module with `wasmparser`.
 pub fn compile_checked(src: &str) -> Vec<u8> {
     let bytes = to_wasm(src).unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
+    wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
+    bytes
+}
+
+/// Compiles the exported functions `tests` of `src` as test functions ([`Entry::Tests`]),
+/// validating the module with `wasmparser`.
+pub fn compile_tests_checked(src: &str, tests: &[&str]) -> Vec<u8> {
+    let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
+        .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
+    let tests = tests
+        .iter()
+        .map(|&name| TestEntry {
+            name: name.to_owned(),
+            function: m
+                .functions
+                .iter()
+                .find(|(_, f)| f.exported && f.name == name)
+                .map(|(id, _)| id)
+                .unwrap_or_else(|| panic!("no exported function `{name}`")),
+        })
+        .collect();
+    let bytes = compile(&m, &Entry::Tests(tests))
+        .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"))
+        .module;
     wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
     bytes
 }

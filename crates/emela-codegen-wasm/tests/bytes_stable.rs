@@ -3,8 +3,8 @@
 //! Splitting the emitter and the runtime into modules must not change the output. Every runtime
 //! function is emitted whether a program calls it or not, so any program pins their bodies; the
 //! programs here are chosen to also reach the emitter's lowerings: closures, strings, lists, enums,
-//! options, wasm externals, Int and Int64 arithmetic, shifts and the Float remainder. A change in
-//! the length or the hash of the module means the lowering changed.
+//! options, wasm externals, Int and Int64 arithmetic, shifts, the Float remainder and the test
+//! entry. A change in the length or the hash of the module means the lowering changed.
 
 mod common;
 
@@ -127,10 +127,42 @@ fn main() {
     ),
 ];
 
+/// `(name, source, test functions, expected length, expected FNV-1a)`, compiled with
+/// `Entry::Tests`.
+const TEST_PROGRAMS: &[(&str, &str, &[&str], usize, u64)] = &[(
+    "tests",
+    r#"
+error Nope(why: String) derive Show
+fn half(n: Int) -> Int fails Nope {
+  if n % 2 != 0 { fail Nope(why: "odd \"quoted\"") }
+  n / 2
+}
+pub fn passes() -> Int fails Nope { half(4) }
+pub fn fails_with_an_error() -> Int fails Nope { half(3) }
+pub fn raises_a_defect() { panic("boom") }
+"#,
+    &["passes", "fails_with_an_error", "raises_a_defect"],
+    6972,
+    0xc614_e22c_4f1b_5897,
+)];
+
 #[test]
 fn emitted_bytes_do_not_change() {
     for &(name, src, expected_len, expected_hash) in PROGRAMS {
         let bytes = compile_checked(src);
+        assert_eq!(bytes.len(), expected_len, "{name}: module length changed");
+        assert_eq!(
+            fnv1a(&bytes),
+            expected_hash,
+            "{name}: emitted bytes changed (the module is still valid)"
+        );
+    }
+}
+
+#[test]
+fn emitted_test_bytes_do_not_change() {
+    for &(name, src, tests, expected_len, expected_hash) in TEST_PROGRAMS {
+        let bytes = compile_tests_checked(src, tests);
         assert_eq!(bytes.len(), expected_len, "{name}: module length changed");
         assert_eq!(
             fnv1a(&bytes),
