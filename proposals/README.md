@@ -58,7 +58,7 @@ local draft ──> draft pull request (review) ──> merged (adopted)
 
 ### 4. Implementation
 
-- When the implementation is merged, set the proposal's `status` to `implemented`.
+- An adopted proposal is implemented following `spec/` (the `emela-implement` skill). The pull request that completes the implementation starts its description with `Implements: proposals/<slug>.md` and sets the proposal's `status` to `implemented` itself.
 
 ## Status
 
