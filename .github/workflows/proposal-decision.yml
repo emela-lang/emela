@@ -1,0 +1,151 @@
+name: Proposal decision
+
+# The language's author decides a proposal with a comment on its pull request (label `proposal`):
+#
+#   /accept               /reject
+#   <the reasons>         <the reasons>
+#
+# `/accept` records the adoption with `scripts/spec.py accept` (front matter, "Decision",
+# `spec/history.md`), pushes it to the pull request and marks it ready for review. Applying
+# "Specification changes" to `spec/` and merging stay with the author. `/reject` closes the pull
+# request with the reasons. Comments from anyone else are ignored (proposals/README.md, "Decision").
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: proposal-decision-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'proposal') &&
+      github.event.comment.user.login == 'Allianaab2m' &&
+      (startsWith(github.event.comment.body, '/accept') || startsWith(github.event.comment.body, '/reject'))
+    runs-on: ubuntu-latest
+    # Everything goes through the App token: a push made with GITHUB_TOKEN does not run CI, so the
+    # merge queue would never see `ci-ok`.
+    permissions: {}
+    steps:
+      - name: "Mint token (GitHub App: emela-release)"
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: emela-lang
+          repositories: emela
+
+      - name: Read the command
+        id: command
+        env:
+          BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          first="$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r' | xargs)"
+          case "$first" in
+            /accept|/reject) ;;
+            *) echo "not a command: $first"; echo "verb=" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          echo "verb=${first#/}" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$BODY" | tail -n +2 | tr -d '\r' > "$RUNNER_TEMP/reasons.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/reasons.md"; then
+            gh api "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused > /dev/null
+            echo "::error::write the reasons on the lines after $first"
+            exit 1
+          fi
+          gh api "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes > /dev/null
+
+      - name: Reject
+        if: steps.command.outputs.verb == 'reject'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          {
+            echo "Rejected by the language's author."
+            echo
+            cat "$RUNNER_TEMP/reasons.md"
+          } > "$RUNNER_TEMP/comment.md"
+          gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
+          gh pr close "$PR" --repo "$REPO"
+
+      - name: Find the pull request's branch and proposal
+        id: pr
+        if: steps.command.outputs.verb == 'accept'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          # The App can push only to branches of this repository, and running the pull request's
+          # own scripts/spec.py is safe only when the branch comes from someone with write access.
+          if [ "$(gh pr view "$PR" --repo "$REPO" --json isCrossRepository --jq .isCrossRepository)" = true ]; then
+            echo "::error::the pull request comes from a fork; finish the adoption by hand (the emela-proposal skill)"
+            exit 1
+          fi
+          echo "branch=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName)" >> "$GITHUB_OUTPUT"
+          files="$(gh pr diff "$PR" --repo "$REPO" --name-only \
+            | grep -E '^proposals/[^/]+\.md$' | grep -vE '^proposals/(README|TEMPLATE)\.md$' || true)"
+          if [ "$(printf '%s' "$files" | grep -c .)" != 1 ]; then
+            echo "::error::expected exactly one proposal in the pull request, found: ${files:-none}"
+            exit 1
+          fi
+          slug="$(basename "$files" .md)"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the pull request
+        if: steps.command.outputs.verb == 'accept'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Record the adoption
+        if: steps.command.outputs.verb == 'accept'
+        env:
+          SLUG: ${{ steps.pr.outputs.slug }}
+        run: |
+          python3 scripts/spec.py accept "$SLUG" "$RUNNER_TEMP/reasons.md" "$(TZ=Asia/Tokyo date +%F)"
+          python3 scripts/spec.py check
+
+      - name: Push and mark ready for review
+        if: steps.command.outputs.verb == 'accept'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          SLUG: ${{ steps.pr.outputs.slug }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          id="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git add "proposals/$SLUG.md" spec/history.md
+          git commit -m "docs(proposal): $SLUG を採択する"
+          git push origin "HEAD:$BRANCH"
+          gh pr ready "$PR" --repo "$REPO"
+          {
+            echo "Recorded the adoption of \`proposals/$SLUG.md\` and an entry in \`spec/history.md\`."
+            echo
+            echo "Left to do before merging: apply \"Specification changes\" to \`spec/\` (in this pull request or a following one), and mark any decided row of \`[open.list]\`."
+          } > "$RUNNER_TEMP/comment.md"
+          gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
+
+      - name: Report a failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR" --repo "$REPO" --body "The command failed. See $RUN"
