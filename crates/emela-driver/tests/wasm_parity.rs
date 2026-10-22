@@ -696,6 +696,35 @@ fn main() {{
     assert_eq!(js, wasm);
 }
 
+/// Inputs whose exponent has more than six digits and is offset by as many digits in the
+/// significand. The exponent must not stop accumulating before it outgrows any digit count.
+#[test]
+fn float_long_exponents_agree() {
+    if !have_wasmtime() {
+        return;
+    }
+    let zeros = "0".repeat(1_000_000);
+    let src = format!(
+        r#"
+fn main() {{
+  dbg(Float.to_string(Float.parse("1{zeros}e-1000000")))
+  dbg(Float.to_string(Float.parse("0.{zeros}1e1000001")))
+  dbg(Float.to_string(Float.parse("1e99999999999999999999")))
+  dbg(Float.to_string(Float.parse("1e-99999999999999999999")))
+}}
+"#
+    );
+    let js = match run_on("float-long-exponents", &src, Target::Js) {
+        Ok(out) => out,
+        Err(analysis) => panic!("JS did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    let wasm = match run_on("float-long-exponents", &src, Target::Wasm) {
+        Ok(out) => out,
+        Err(analysis) => panic!("WASM did not build:\n{}", messages(&analysis).join("\n")),
+    };
+    assert_eq!(js, wasm);
+}
+
 #[test]
 fn unsupported_programs_stop_on_wasm() {
     if !have_wasmtime() {

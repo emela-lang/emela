@@ -1879,8 +1879,10 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_gt_u();
     ins.i32_or();
     ins.br_if(1);
+    // Saturate once the exponent is far beyond any digit count (a string is under 2^32
+    // bytes), so `k` below stays exact without overflowing.
     ins.local_get(V);
-    ins.i64_const(100_000);
+    ins.i64_const(100_000_000_000_000_000);
     ins.i64_lt_s();
     ins.if_(BlockType::Empty);
     ins.local_get(V);

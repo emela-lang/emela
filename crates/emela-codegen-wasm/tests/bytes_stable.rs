@@ -93,8 +93,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        16965,
-        0x016f_4200_8497_a488,
+        16971,
+        0xe888_c818_3a65_e79e,
     ),
     (
         "externals_and_options",
