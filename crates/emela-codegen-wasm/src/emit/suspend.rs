@@ -19,7 +19,9 @@
 
 use super::*;
 
-use emela_lir::{CaseKey, LabelId, Operand, SeqId, Stmt, Suspend, SwitchOn, VarId};
+use emela_lir::{
+    CaseKey, LabelId, Operand, RuntimeOp, SeqId, Stmt, Suspend, SwitchOn, Value, VarId,
+};
 use wasm_encoder::Function as WasmFunction;
 
 /// The extra definitions of one state machine.
@@ -77,7 +79,12 @@ impl Plan {
     }
 
     pub(crate) fn machine(&self, id: FnId) -> Option<&MachinePlan> {
-        self.machines.iter().find(|m| m.id == id)
+        // `machines` is filled in function-arena order.
+        let key = id.into_raw();
+        self.machines
+            .binary_search_by_key(&key, |m| m.id.into_raw())
+            .ok()
+            .map(|i| &self.machines[i])
     }
 }
 
@@ -176,7 +183,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.alloc_static(4), // output mode
         b.alloc_static(8), // output word
         b.alloc_static(4), // pending perform
-        b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE as u32),
+        b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE),
         b.alloc_static(4), // queue head
         b.alloc_static(4), // queue length
         b.alloc_static(4), // sync depth
@@ -248,9 +255,17 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
 }
 
 /// The number of jobs the continuation queue holds. Without fibers or a host callback at most
-/// one continuation waits at a time; the queue is the FIFO any future wakeups go through.
-const QUEUE_ENTRIES: u32 = 64;
-const QUEUE_STRIDE: usize = 16;
+/// one continuation waits at a time; the queue is the FIFO any future wakeups go through. The
+/// scheduler indexes the same static (`runtime::sched`), so both use these constants.
+pub(crate) const QUEUE_ENTRIES: u32 = 64;
+/// The bytes of one job (`{chain: i32, mode: i32, word: i64}`).
+pub(crate) const QUEUE_STRIDE: u32 = 16;
+
+/// The most states one function's dispatch may have. A state is a nested block in the emitted
+/// dispatch, and WebAssembly engines take quadratic time and memory to compile very deep nesting
+/// (about 1 s at 500 states and 13 s at 1000 in `wasmtime` 49), so the target refuses machines
+/// beyond this instead of letting one function exhaust the compiler.
+const MAX_STATES: u32 = 1024;
 
 // ---- frames ----
 
@@ -400,6 +415,24 @@ fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunc
     );
     terminate(&mut mcx, &mut buf);
     let n = mcx.chunks.len() as u32 - 1;
+    if n + 1 > MAX_STATES {
+        // One block per state makes the dispatch quadratic to compile in a WebAssembly engine,
+        // so a function with a pathological number of suspension points is refused instead of
+        // taking minutes and gigabytes.
+        let name = check::display_name(&f.name);
+        mcx.b.errors.push(WasmError::new(
+            WasmErrorKind::Unsupported,
+            format!(
+                "the function `{name}` needs {} states for its suspension points, which target \
+                 `wasm` cannot compile (the limit is {MAX_STATES})",
+                n + 1
+            ),
+        ));
+        return (
+            WasmFunction::new(Vec::<(u32, ValType)>::new()),
+            WasmFunction::new(Vec::<(u32, ValType)>::new()),
+        );
+    }
     debug_assert!(mcx.chunks.iter().all(Option::is_some));
     let resumes = std::mem::take(&mut mcx.resumes);
     let decls = mcx.cx.decls.clone();
@@ -456,6 +489,11 @@ fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[Res
         for (i, &v) in r.saved.iter().enumerate() {
             let off = HDR + (3 + i as u32) * 8;
             let repr = mcx.f.vars[v].repr;
+            // A variable without representation is never live, so it is never saved.
+            debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
+            if repr == Repr::Void {
+                continue;
+            }
             ins.local_get(fr);
             match repr {
                 Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
@@ -515,6 +553,8 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
     let mut func = WasmFunction::new(locals);
     {
         let mut ins = func.instructions();
+        // The zero arguments only fill the signature: the resume point restores every parameter
+        // the edge saved from the frame (the ones it did not save are not live after it).
         for &p in &f.params {
             match f.vars[p].repr {
                 Repr::I32 | Repr::Ref => {
@@ -721,6 +761,18 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
             on_defect,
             on_suspend,
         } => {
+            // A fairness yield has nobody to hand a turn to here (no fibers), so neither its
+            // suspension edge nor its defect landing can be taken: no state, no landing copy.
+            if matches!(
+                &value,
+                Value::Runtime {
+                    op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
+                    ..
+                }
+            ) {
+                debug_assert!(dst.is_none(), "a fairness yield has no destination");
+                return;
+            }
             let fail = match &value {
                 Value::Call {
                     on_fail: Some(OnFail::Handle { error, body }),
@@ -746,7 +798,8 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
                 }
             }
             if let Some(edge) = on_suspend {
-                compile_edge(mcx, buf, dst, &edge);
+                let repr = value_repr(mcx.b, &mcx.cx, &value);
+                compile_edge(mcx, buf, dst, repr, &edge);
             }
             compile_landings(mcx, buf, on_defect, fail);
         }
@@ -924,8 +977,16 @@ fn emit_switch(
 }
 
 /// A suspension point: when the value came back suspended, push a frame and return; the resume
-/// point runs the input into `dst` and then the landings.
-fn compile_edge(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, dst: Option<VarId>, edge: &Suspend) {
+/// point runs the input into `dst` and then the landings. `repr` is the value's representation,
+/// which is needed when the value is unused (`dst` is `None`) and the resumed reference must be
+/// released.
+fn compile_edge(
+    mcx: &mut Mcx<'_, '_>,
+    buf: &mut Chunk,
+    dst: Option<VarId>,
+    repr: Repr,
+    edge: &Suspend,
+) {
     let resume = reserve_state(mcx);
     let mut refs = vec![false, false, true];
     refs.extend(edge.saved.iter().map(|&v| mcx.f.vars[v].repr == Repr::Ref));
@@ -959,6 +1020,8 @@ fn compile_edge(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, dst: Option<VarId>, edge
         for (i, &v) in edge.saved.iter().enumerate() {
             let off = HDR + (3 + i as u32) * 8;
             let repr = mcx.f.vars[v].repr;
+            // A variable without representation is never live, so it is never saved.
+            debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
             ins.local_get(mcx.cx.scratch(Repr::Ref, 0));
             ins.local_get(mcx.local(v));
             match repr {
@@ -1008,21 +1071,32 @@ fn compile_edge(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, dst: Option<VarId>, edge
         ins.i32_load(mem(0, 4));
         ins.global_set(G_FAILURE);
         ins.else_();
-        if let Some(d) = dst {
-            ins.i32_const(in_word as i32);
-            match mcx.f.vars[d].repr {
-                Repr::I32 | Repr::Ref => {
-                    ins.i32_load(mem(0, 4));
+        match dst {
+            Some(d) => {
+                ins.i32_const(in_word as i32);
+                match mcx.f.vars[d].repr {
+                    Repr::I32 | Repr::Ref => {
+                        ins.i32_load(mem(0, 4));
+                    }
+                    Repr::I64 => {
+                        ins.i64_load(mem(0, 8));
+                    }
+                    Repr::F64 => {
+                        ins.f64_load(mem(0, 8));
+                    }
+                    Repr::Void => {}
                 }
-                Repr::I64 => {
-                    ins.i64_load(mem(0, 8));
-                }
-                Repr::F64 => {
-                    ins.f64_load(mem(0, 8));
-                }
-                Repr::Void => {}
+                ins.local_set(mcx.local(d));
             }
-            ins.local_set(mcx.local(d));
+            None if repr == Repr::Ref => {
+                // The value is unused: the resumed reference is released, like the fast path
+                // (`assign` with no destination) does.
+                ins.i32_const(in_word as i32);
+                ins.i32_load(mem(0, 4));
+                let drop = mcx.b.rt("drop");
+                ins.call(drop);
+            }
+            None => {}
         }
         ins.end();
         ins.end();
@@ -1036,8 +1110,101 @@ fn compile_edge(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, dst: Option<VarId>, edge
     });
 }
 
-/// The defect and failure landings of a value, if any. They are separate chunks; the sequence
-/// continues in a new chunk.
+/// Whether a landing can be emitted in place: it is straight-line (no control flow of its own, so
+/// it needs no state) and leaves the function. The defect landings that the Heap IR builds are
+/// cleanups of this shape.
+fn landing_inline(f: &Function, seq: SeqId) -> bool {
+    inline_stmts(f, seq)
+        && matches!(
+            f.seqs[seq].term,
+            Term::Unwind | Term::Unreachable | Term::Return(_) | Term::Fail(_)
+        )
+}
+
+/// The statements of an in-place landing: no landing, no edge, no structured statement that would
+/// need a state. A block is allowed when it simply ends (the cleanup blocks of a `with` do).
+fn inline_stmts(f: &Function, seq: SeqId) -> bool {
+    let s = &f.seqs[seq];
+    s.stmts.iter().all(|&id| match &f.stmts[id] {
+        Stmt::Let {
+            value,
+            on_defect: None,
+            on_suspend: None,
+            ..
+        } => value_on_fail(value).is_none(),
+        Stmt::Dup(_) | Stmt::Drop(_) => true,
+        Stmt::Block { body, .. } => {
+            inline_stmts(f, *body)
+                && matches!(
+                    f.seqs[*body].term,
+                    Term::Yield(None)
+                        | Term::Unwind
+                        | Term::Unreachable
+                        | Term::Return(_)
+                        | Term::Fail(_)
+                )
+        }
+        _ => false,
+    })
+}
+
+/// Emits a landing that [`landing_inline`] accepted, without starting or ending a state.
+fn compile_landing_inline(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, seq: SeqId) {
+    let stmts = mcx.f.seqs[seq].stmts.clone();
+    for id in stmts {
+        match mcx.f.stmts[id].clone() {
+            Stmt::Let { dst, value, .. } => {
+                let mut ins = InstructionSink::new(&mut buf.bytes);
+                mcx.b.value(&mut mcx.cx, &mut ins, dst, &value);
+            }
+            Stmt::Dup(v) => {
+                let mut ins = InstructionSink::new(&mut buf.bytes);
+                ins.local_get(mcx.local(v));
+                let dup = mcx.b.rt("dup");
+                ins.call(dup);
+            }
+            Stmt::Drop(v) => {
+                let mut ins = InstructionSink::new(&mut buf.bytes);
+                ins.local_get(mcx.local(v));
+                let drop = mcx.b.rt("drop");
+                ins.call(drop);
+            }
+            Stmt::Block { body, .. } => compile_landing_inline(mcx, buf, body),
+            _ => {
+                let name = mcx.f.name.clone();
+                mcx.b
+                    .internal(format!("a landing with control flow in {name}"));
+                return;
+            }
+        }
+    }
+    let term = mcx.f.seqs[seq].term.clone();
+    let mut ins = InstructionSink::new(&mut buf.bytes);
+    match term {
+        // A block that simply ends: the statements after it run next.
+        Term::Yield(None) => {}
+        Term::Unwind => dummy_return(&mut ins, mcx.cx.ret),
+        Term::Unreachable => {
+            ins.unreachable();
+        }
+        Term::Return(v) => {
+            if let Some(v) = v {
+                mcx.operand(&mut ins, &v);
+            }
+            ins.return_();
+        }
+        Term::Fail(v) => {
+            mcx.operand(&mut ins, &v);
+            ins.global_set(G_FAILURE);
+            dummy_return(&mut ins, mcx.cx.ret);
+        }
+        _ => mcx.b.internal("a landing that does not return"),
+    }
+}
+
+/// The defect and failure landings of a value, if any. A straight-line landing runs in place after
+/// the test (no state); the others are separate chunks, and the sequence then continues in a new
+/// chunk.
 fn compile_landings(
     mcx: &mut Mcx<'_, '_>,
     buf: &mut Chunk,
@@ -1047,9 +1214,25 @@ fn compile_landings(
     if on_defect.is_none() && fail.is_none() {
         return;
     }
-    let defect_state = on_defect.map(|_| reserve_state(mcx));
+    let inline = on_defect.filter(|&seq| landing_inline(mcx.f, seq));
+    let defect_state = on_defect
+        .filter(|_| inline.is_none())
+        .map(|_| reserve_state(mcx));
     let fail_state = fail.map(|_| reserve_state(mcx));
-    let cont = reserve_state(mcx);
+    let cont = if defect_state.is_some() || fail_state.is_some() {
+        Some(reserve_state(mcx))
+    } else {
+        None
+    };
+    if let Some(seq) = inline {
+        let mut ins = InstructionSink::new(&mut buf.bytes);
+        ins.global_get(G_DEFECT);
+        ins.if_(BlockType::Empty);
+        compile_landing_inline(mcx, buf, seq);
+        let mut ins = InstructionSink::new(&mut buf.bytes);
+        ins.end();
+    }
+    let Some(cont) = cont else { return };
     {
         let mut ins = InstructionSink::new(&mut buf.bytes);
         if let Some(defect_state) = defect_state {

@@ -379,3 +379,33 @@ fn unsupported_features_are_diagnostics() {
         "{messages:?}"
     );
 }
+
+#[test]
+fn the_system_clock_has_no_wasm_sleep() {
+    // `Std.Clock.SystemClock.sleep` waits on `sleep_milliseconds`, a `suspend fn` external with
+    // no WASI 0.3 host: the program is refused at the boundary instead of compiling a defect
+    // stub that fails at run time (spec 12.6).
+    let (analysis, output) = run_wasm(
+        "system-clock",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() -> () use { Async } {
+  with SystemClock {
+    (use Clock).sleep(10)
+    ()
+  }
+}
+"#,
+    );
+    assert!(analysis.has_errors());
+    assert!(output.is_none());
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0412") && d.message.contains("sleep_milliseconds")),
+        "{:?}",
+        analysis.diagnostics
+    );
+}

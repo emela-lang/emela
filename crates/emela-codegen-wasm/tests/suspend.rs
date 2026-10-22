@@ -8,6 +8,7 @@
 mod common;
 
 use common::*;
+use emela_codegen_wasm::WasmErrorKind;
 
 /// Runs `src`, expecting exit code `code`.
 fn run_code(name: &str, src: &str, code: i32) -> Option<Run> {
@@ -339,5 +340,96 @@ fn passes_after() {
         run.stdout.contains("\x1eemela-test {\"event\":\"done\"}"),
         "{}",
         run.stdout
+    );
+}
+
+/// A suspending function with `points` suspension points, optionally inside a `with` whose release
+/// prints (the shape that copies a cleanup into every defect landing). Returns the source and the
+/// value it prints.
+fn many_points(points: usize, with_release: bool) -> (String, i32) {
+    assert!(points > 0);
+    let body: String = (0..points)
+        .map(|i| format!("  v{i} = (use Tick).tick() + {i}\n"))
+        .collect();
+    let last = points - 1;
+    let name = if with_release {
+        r#"
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init { Res }
+  fn name() { "res" }
+  release { dbg("release res") }
+}
+"#
+    } else {
+        ""
+    };
+    let work = if with_release {
+        format!("  with Res {{\n{body}    v{last}\n  }}")
+    } else {
+        format!("{body}  v{last}")
+    };
+    // The last binding is `tick() + (points - 1)`, and every `tick` resumes with 1.
+    let total = points as i32;
+    let src = format!(
+        r#"effect Tick {{
+  suspend fn tick() -> Int
+}}
+
+handler Ticks: Tick {{
+  suspend fn tick(resume) {{ resume(1) }}
+}}
+{name}
+fn work() -> Int use {{ Tick }} {{
+{work}
+}}
+
+fn main() {{
+  with Ticks {{
+    dbg(work())
+  }}
+}}
+"#
+    );
+    (src, total)
+}
+
+#[test]
+fn many_suspension_points_run() {
+    // A defect landing runs in place and a fairness yield needs no state, so 300 points do not
+    // make a deeply nested dispatch that an engine takes seconds to compile.
+    let (src, total) = many_points(300, true);
+    let Some(run) = run("suspend-many", &src) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert!(run.stderr.contains(&format!("{total}\n")), "{}", run.stderr);
+    assert!(run.stderr.contains("\"release res\""), "{}", run.stderr);
+}
+
+#[test]
+fn a_thousand_suspension_points_compile() {
+    // Compilation only: running it would spend the test budget in the engine's compiler.
+    let (src, _) = many_points(1000, false);
+    let bytes = to_wasm(&src).unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"));
+    wasmparser::validate(&bytes).unwrap_or_else(|e| panic!("the module is not valid: {e}"));
+}
+
+#[test]
+fn a_huge_state_machine_is_diagnosed() {
+    // One block per state makes the engine's compile time and memory grow sharply, so a machine
+    // past the limit is refused with a diagnostic instead of exhausting the compiler.
+    let (src, _) = many_points(1100, false);
+    let errors = to_wasm(&src).expect_err("a machine past the state limit must be refused");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.kind == WasmErrorKind::Unsupported
+                && error.message.contains("states")
+                && error.message.contains("limit")),
+        "{errors:#?}"
     );
 }

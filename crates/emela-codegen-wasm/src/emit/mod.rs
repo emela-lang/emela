@@ -1025,7 +1025,6 @@ impl<'m> Builder<'m> {
         func
     }
 
-
     /// Loads a const's remembered value. A reference is duplicated: the cell keeps its own.
     fn load_const_value(&mut self, ins: &mut InstructionSink, cell: u32, ret: Repr) {
         match ret {
@@ -2259,6 +2258,22 @@ impl<'m> Builder<'m> {
 enum Scrutinee {
     Tag(VarId),
     Lit(VarId),
+}
+
+/// The representation of a value that may suspend. The suspension edge needs it when the value is
+/// unused (`dst` is `None`) and the resumed reference must be released.
+fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
+    let Value::Call { callee, .. } = value else {
+        return Repr::Void;
+    };
+    match callee {
+        Callee::Direct(g) => b.repr(b.m.functions[*g].ret),
+        Callee::Op { effect, op, .. } => b.repr(b.core().effects[*effect].ops[*op].ret),
+        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
+            Type::Fn(fty) => b.repr(fty.ret),
+            _ => Repr::Void,
+        },
+    }
 }
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {

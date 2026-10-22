@@ -23,6 +23,8 @@
 
 use super::*;
 
+use super::super::suspend::{QUEUE_ENTRIES, QUEUE_STRIDE};
+
 pub(super) const FUNCS: &[Sig] = &[
     (
         "frame_new",
@@ -99,6 +101,9 @@ const P_NOW_MODE: u32 = HDR + 24;
 const P_NOW_WORD: u32 = HDR + 32;
 const P_CALLER: u32 = HDR + 40;
 const P_HAS_CALLER: u32 = HDR + 48;
+/// Whether the call was made under `sync_enter` (a non-suspending function, spec 8.7). A resume
+/// that arrives after such a call returned must drop the continuation at once instead of queueing
+/// it; nothing can resume later yet, so the flag is recorded and not read.
 const P_SYNC: u32 = HDR + 56;
 const P_IMPL: u32 = HDR + 64;
 const P_SLOTS: i32 = 9;
@@ -107,10 +112,6 @@ const P_SLOTS: i32 = 9;
 const F_RESUME: u32 = HDR;
 const F_STATE: u32 = HDR + 8;
 const F_NEXT: u32 = HDR + 16;
-
-/// A queued continuation: `{chain: i32, mode: i32, word: i64}`.
-const JOB_STRIDE: u32 = 16;
-const QUEUE_ENTRIES: u32 = 64;
 
 pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
@@ -737,23 +738,24 @@ fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.local_set(IMPL);
     ins.end();
-    // The continuation is never resumed: unwind it as interrupted at once (spec 14.5).
+    // The continuation is never resumed: unwind it as interrupted at once (spec 14.5). A
+    // suspended operation implementation is inside the caller's continuation, so it is unwound
+    // first and its releases run first (spec 14.2: from the inside).
     let push = b.rt("queue_push");
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
     let interrupted = b.rt("interrupted");
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
     ins.local_get(IMPL);
     ins.if_(BlockType::Empty);
     ins.local_get(IMPL);
     ins.i32_const(2);
-    let interrupted = b.rt("interrupted");
     ins.call(interrupted);
     ins.i64_extend_i32_u();
     ins.call(push);
     ins.end();
+    ins.local_get(CHAIN);
+    ins.i32_const(2);
+    ins.call(interrupted);
+    ins.i64_extend_i32_u();
+    ins.call(push);
     let drain = b.rt("sched_drain");
     ins.call(drain);
     // A failure while unwinding is cut short by the interruption; a defect stays the result.
@@ -790,6 +792,11 @@ fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(QUEUE_ENTRIES as i32);
     ins.i32_ge_u();
     ins.if_(BlockType::Empty);
+    // The job cannot be kept: release the continuation it was given, then end the run with the
+    // internal error as its defect.
+    let drop = b.rt("drop");
+    ins.local_get(0);
+    ins.call(drop);
     ins.i32_const(full as i32);
     let raise = b.rt("raise");
     ins.call(raise);
@@ -803,7 +810,7 @@ fn queue_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_and();
     ins.local_set(IDX);
     ins.local_get(IDX);
-    ins.i32_const(JOB_STRIDE as i32);
+    ins.i32_const(QUEUE_STRIDE as i32);
     ins.i32_mul();
     ins.i32_const(queue as i32);
     ins.i32_add();
@@ -843,7 +850,7 @@ fn sched_drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.local_set(IDX);
     ins.local_get(IDX);
-    ins.i32_const(JOB_STRIDE as i32);
+    ins.i32_const(QUEUE_STRIDE as i32);
     ins.i32_mul();
     ins.i32_const(queue as i32);
     ins.i32_add();
@@ -978,27 +985,14 @@ fn stall_chain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
     ins.local_get(P);
     ins.if_(BlockType::Empty);
-    ins.local_get(P);
-    ins.local_get(CHAIN);
-    ins.i32_store(mem(P_CALLER, 4));
-    ins.local_get(P);
-    ins.i32_const(1);
-    ins.i32_store(mem(P_HAS_CALLER, 4));
+    // Take the implementation's own continuation out before the record is released: it is
+    // unwound as a chain of its own below.
     ins.local_get(P);
     ins.i32_load(mem(P_IMPL, 4));
     ins.local_set(IMPL);
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
-    ins.local_get(P);
-    ins.i32_load(mem(P_CALLER, 4));
-    ins.local_set(CHAIN);
-    ins.local_get(P);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_CALLER, 4));
-    ins.local_get(P);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_HAS_CALLER, 4));
     let drop = b.rt("drop");
     ins.local_get(P);
     ins.call(drop);
@@ -1006,22 +1000,23 @@ fn stall_chain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.local_set(IMPL);
     ins.end();
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    let interrupted = b.rt("interrupted");
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
+    // The implementation is inside the caller's continuation, so its releases run first (spec
+    // 14.2: from the inside).
     let push = b.rt("queue_push");
-    ins.call(push);
+    let interrupted = b.rt("interrupted");
     ins.local_get(IMPL);
     ins.if_(BlockType::Empty);
     ins.local_get(IMPL);
     ins.i32_const(2);
-    let interrupted = b.rt("interrupted");
     ins.call(interrupted);
     ins.i64_extend_i32_u();
     ins.call(push);
     ins.end();
+    ins.local_get(CHAIN);
+    ins.i32_const(2);
+    ins.call(interrupted);
+    ins.i64_extend_i32_u();
+    ins.call(push);
 }
 
 fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
