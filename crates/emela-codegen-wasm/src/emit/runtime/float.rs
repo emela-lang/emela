@@ -2173,7 +2173,6 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br(1);
     ins.end();
     // Above the upper midpoint.
-    ins.local_get(YBITS);
     ins.i32_const(din);
     ins.local_get(L);
     ins.local_get(K);
