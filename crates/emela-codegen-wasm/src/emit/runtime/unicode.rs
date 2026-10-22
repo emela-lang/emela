@@ -104,7 +104,20 @@ pub(super) fn setup(b: &mut Builder) {
 }
 
 /// Pushes the arguments of `unicode_class` for the table `name` and `cp` (local 0), and calls it.
+///
+/// A code point below the first range has class 0 without a search; for the
+/// `Extended_Pictographic` and `InCB` tables that covers ASCII.
 fn lookup(b: &Builder, ins: &mut InstructionSink, name: &str, ranges: Ranges) {
+    let first = ranges.first().map_or(0, |&(first, ..)| first);
+    if first > 0 {
+        ins.local_get(0);
+        ins.i32_const(first as i32);
+        ins.i32_lt_u();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+    }
     ins.i32_const(b.rt_data.get(name).copied().unwrap_or(0) as i32);
     ins.i32_const(ranges.len() as i32);
     ins.local_get(0);
@@ -224,7 +237,30 @@ fn unicode_class(ins: &mut InstructionSink) {
 }
 
 /// The `Grapheme_Cluster_Break` class of `cp` (UAX #29).
+///
+/// ASCII is computed without a search: CR, LF, `Control` below 0x20 and at 0x7F, `Other`
+/// elsewhere.
 fn gcb_of(b: &mut Builder, ins: &mut InstructionSink) {
+    ins.local_get(0);
+    ins.i32_const(0x80);
+    ins.i32_lt_u();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(CR);
+    ins.i32_const(LF);
+    ins.i32_const(CONTROL);
+    ins.i32_const(0);
+    ins.local_get(0);
+    ins.i32_const(0x20);
+    ins.i32_lt_u();
+    local_eq(ins, 0, 0x7F);
+    ins.i32_or();
+    ins.select();
+    local_eq(ins, 0, 0x0A);
+    ins.select();
+    local_eq(ins, 0, 0x0D);
+    ins.select();
+    ins.return_();
+    ins.end();
     ins.local_get(0);
     ins.i32_const(0xAC00);
     ins.i32_ge_u();
@@ -336,12 +372,10 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(CP);
     ins.call(gcb_of);
     ins.local_set(CLS);
-    ins.local_get(CP);
-    ins.call(incb_of);
-    ins.local_set(CUR);
-    ins.local_get(CP);
-    ins.call(ext_pict_of);
-    ins.local_set(EP_CHAR);
+    // The rules read `InCB` only after a consonant and a linker (GB9c), and
+    // `Extended_Pictographic` only after an emoji's ZWJ (GB11); look them up here only then.
+    lookup_when(ins, CHAIN, 2, true, CP, incb_of, CUR);
+    lookup_when(ins, EP, 2, true, CP, ext_pict_of, EP_CHAR);
     // GB999 breaks; the rules below say when not to.
     ins.i32_const(1);
     ins.local_set(BRK);
@@ -373,7 +407,10 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(I);
     ins.return_();
     ins.end();
-    // No break: the current code point joins the cluster, so fold it into the state.
+    // No break: the current code point joins the cluster, so fold it into the state, with the
+    // properties the rules did not look up.
+    lookup_when(ins, CHAIN, 2, false, CP, incb_of, CUR);
+    lookup_when(ins, EP, 2, false, CP, ext_pict_of, EP_CHAR);
     // GB11: remember `Extended_Pictographic Extend*` and then the ZWJ.
     ins.local_get(EP_CHAR);
     ins.local_set(NEXT_EP);
@@ -433,6 +470,34 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.local_get(N);
+}
+
+/// `dst = f(cp)` when `local == value` is `when`; otherwise, with `when` true, `dst = 0`.
+///
+/// The pair of calls with `when` true and then false looks the property up exactly once.
+fn lookup_when(
+    ins: &mut InstructionSink,
+    local: u32,
+    value: i32,
+    when: bool,
+    cp: u32,
+    f: u32,
+    dst: u32,
+) {
+    local_eq(ins, local, value);
+    if !when {
+        ins.i32_eqz();
+    }
+    ins.if_(BlockType::Empty);
+    ins.local_get(cp);
+    ins.call(f);
+    ins.local_set(dst);
+    if when {
+        ins.else_();
+        ins.i32_const(0);
+        ins.local_set(dst);
+    }
+    ins.end();
 }
 
 /// The locals of `grapheme_end` that the rules read.
@@ -808,6 +873,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn ascii_shortcuts_agree_with_the_tables() {
+        // `gcb_of` computes ASCII without the table.
+        for cp in 0..0x80 {
+            let want = match cp {
+                0x0D => t::GCB_CR,
+                0x0A => t::GCB_LF,
+                0..0x20 | 0x7F => t::GCB_CONTROL,
+                _ => 0,
+            };
+            assert_eq!(class(t::GCB, cp), want, "GCB of {cp:#x}");
+        }
+        // `lookup` answers 0 below the first range without a search; that must cover ASCII.
+        assert!(t::EXTENDED_PICTOGRAPHIC[0].0 >= 0x80);
+        assert!(t::INCB[0].0 >= 0x80);
     }
 
     #[test]
