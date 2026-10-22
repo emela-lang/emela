@@ -1,0 +1,24 @@
+exit: 0
+--- stdout
+arg one
+arg two
+open two 2
+two: counter from 3
+two: next 4
+close two
+open app 41
+app: counter from 40
+app: next 41
+close app
+arg local
+open local 3
+local: counter from 40
+local: next 41
+close local
+open audit 5
+audit: audited
+close audit
+arg first
+arg second fails
+failed with Bad
+--- stderr

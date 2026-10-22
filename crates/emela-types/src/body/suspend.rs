@@ -382,7 +382,14 @@ impl Walker<'_> {
                 }
                 self.expr(*base, in_lambda);
             }
-            ExprKind::With { body, .. } => self.expr(*body, in_lambda),
+            ExprKind::With { handlers, body } => {
+                for item in handlers {
+                    for arg in crate::layer::item_args(item) {
+                        self.expr(arg, in_lambda);
+                    }
+                }
+                self.expr(*body, in_lambda);
+            }
             ExprKind::Lambda { body, .. } => self.expr(*body, true),
         }
     }

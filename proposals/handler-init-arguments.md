@@ -1,7 +1,7 @@
 ---
 title: Arguments for handler init
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 389
 issue: 374
 decided: 2026-10-22
@@ -145,10 +145,10 @@ Add before the item about an init that fails:
 
 ## Diagnostics
 
-- [ ] A handler whose init takes parameters is written without arguments (code to be assigned)
-- [ ] Arguments are written for a handler whose init takes no parameters, including `with H()` (code to be assigned)
-- [ ] The arguments of a layer item have E or R: E0318 (failure) and E0402 (R), as for the right-hand side of a const. The help shows how to list the handler after the layer to override it
-- [ ] Errors in the number, labels and types of the arguments use the diagnostics of a call, such as E0306 and E0307
+- [x] A handler whose init takes parameters is written without arguments: E0434
+- [x] Arguments are written for a handler whose init takes no parameters, including `with H()`: E0435
+- [x] The arguments of a layer item have E or R: E0318 (failure) and E0402 (R), as for the right-hand side of a const. The help shows how to list the handler after the layer to override it
+- [x] Errors in the number, labels and types of the arguments use the diagnostics of a call, such as E0306 and E0307
 
 ## Compatibility
 

@@ -5,7 +5,7 @@
 //! only needs its E and R to be contained in the expected E and R (spec 7.4, 9.2). The
 //! constraints are solved after the body is inferred (`body/errors.rs`).
 
-use emela_resolve::hir::{DefId, Span};
+use emela_resolve::hir::{DefId, ExprId, Span};
 use ena::unify::InPlaceUnificationTable;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
@@ -50,6 +50,13 @@ pub(crate) enum Origin {
     Closed(DefId),
     /// The E (R) of a lambda's body is contained in the lambda type's E (R). Always holds.
     Lambda,
+    /// The E (R) of an argument `arg` of the `member`-th item of a layer is empty
+    /// (`[effect.layer]`).
+    LayerArg {
+        layer: DefId,
+        member: usize,
+        arg: ExprId,
+    },
 }
 
 /// Decides the direction of inclusion for the E of function types.

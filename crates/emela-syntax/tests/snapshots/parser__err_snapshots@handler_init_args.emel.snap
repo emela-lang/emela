@@ -1,0 +1,131 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/handler_init_args.emel
+---
+ROOT@0..170
+  HANDLER_DECL@0..70
+    HANDLER_KW@0..7 "handler"
+    WHITESPACE@7..8 " "
+    TYPE_NAME@8..14 "Broken"
+    COLON@14..15 ":"
+    WHITESPACE@15..16 " "
+    HANDLER_EFFECT@16..18
+      PATH@16..18
+        TYPE_NAME@16..18 "Kv"
+    WHITESPACE@18..19 " "
+    ITEM_LIST@19..70
+      L_BRACE@19..20 "{"
+      NEWLINE@20..21 "\n"
+      WHITESPACE@21..23 "  "
+      HANDLER_INIT@23..46
+        LOWER_NAME@23..27 "init"
+        PARAM_LIST@27..43
+          L_PAREN@27..28 "("
+          PARAM@28..43
+            LOWER_NAME@28..35 "binding"
+            COLON@35..36 ":"
+            WHITESPACE@36..37 " "
+            PATH_TYPE@37..43
+              PATH@37..43
+                TYPE_NAME@37..43 "String"
+        WHITESPACE@43..44 " "
+        BLOCK_EXPR@44..46
+          L_BRACE@44..45 "{"
+          NEWLINE@45..46 "\n"
+      WHITESPACE@46..48 "  "
+      FN_DECL@48..68
+        FN_KW@48..50 "fn"
+        WHITESPACE@50..51 " "
+        LOWER_NAME@51..54 "get"
+        PARAM_LIST@54..59
+          L_PAREN@54..55 "("
+          PARAM@55..58
+            LOWER_NAME@55..58 "key"
+          R_PAREN@58..59 ")"
+        WHITESPACE@59..60 " "
+        BLOCK_EXPR@60..68
+          L_BRACE@60..61 "{"
+          WHITESPACE@61..62 " "
+          PATH_EXPR@62..66
+            PATH@62..66
+              TYPE_NAME@62..66 "None"
+          WHITESPACE@66..67 " "
+          R_BRACE@67..68 "}"
+      NEWLINE@68..69 "\n"
+      R_BRACE@69..70 "}"
+  NEWLINE_CONT@70..71 "\n"
+  NEWLINE_CONT@71..72 "\n"
+  LAYER_DECL@72..114
+    LAYER_KW@72..77 "layer"
+    WHITESPACE@77..78 " "
+    TYPE_NAME@78..85 "AppLive"
+    WHITESPACE@85..86 " "
+    ITEM_LIST@86..114
+      L_BRACE@86..87 "{"
+      NEWLINE@87..88 "\n"
+      WHITESPACE@88..90 "  "
+      SUPPLY@90..112
+        PATH@90..98
+          TYPE_NAME@90..98 "WorkerKv"
+        ARG_LIST@98..112
+          L_PAREN@98..99 "("
+          NAMED_ARG@99..112
+            LOWER_NAME@99..106 "binding"
+            COLON@106..107 ":"
+            WHITESPACE@107..108 " "
+            STRING@108..112
+              STRING_QUOTE@108..109 "\""
+              STRING_TEXT@109..111 "KV"
+              STRING_QUOTE@111..112 "\""
+      NEWLINE_CONT@112..113 "\n"
+      R_BRACE@113..114 "}"
+  NEWLINE@114..115 "\n"
+  NEWLINE@115..116 "\n"
+  FN_DECL@116..169
+    FN_KW@116..118 "fn"
+    WHITESPACE@118..119 " "
+    LOWER_NAME@119..123 "main"
+    PARAM_LIST@123..125
+      L_PAREN@123..124 "("
+      R_PAREN@124..125 ")"
+    WHITESPACE@125..126 " "
+    BLOCK_EXPR@126..169
+      L_BRACE@126..127 "{"
+      NEWLINE@127..128 "\n"
+      WHITESPACE@128..130 "  "
+      WITH_EXPR@130..167
+        WITH_KW@130..134 "with"
+        WHITESPACE@134..135 " "
+        SUPPLY@135..157
+          PATH@135..143
+            TYPE_NAME@135..143 "WorkerKv"
+          ARG_LIST@143..157
+            L_PAREN@143..144 "("
+            NAMED_ARG@144..157
+              LOWER_NAME@144..151 "binding"
+              COLON@151..152 ":"
+              WHITESPACE@152..153 " "
+              STRING@153..157
+                STRING_QUOTE@153..154 "\""
+                STRING_TEXT@154..156 "KV"
+                STRING_QUOTE@156..157 "\""
+        WHITESPACE@157..158 " "
+        BLOCK_EXPR@158..167
+          L_BRACE@158..159 "{"
+          WHITESPACE@159..160 " "
+          CALL_EXPR@160..165
+            NAME_REF@160..163
+              LOWER_NAME@160..163 "run"
+            ARG_LIST@163..165
+              L_PAREN@163..164 "("
+              R_PAREN@164..165 ")"
+          WHITESPACE@165..166 " "
+          R_BRACE@166..167 "}"
+      NEWLINE_CONT@167..168 "\n"
+      R_BRACE@168..169 "}"
+  NEWLINE@169..170 "\n"
+error[E0110]@44..45: expected `)`
+error[E0110]@48..50: expected `}`
+error[E0110]@113..114: expected `)`
+error[E0110]@158..159: expected `)`

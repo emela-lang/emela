@@ -12,7 +12,7 @@ use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, HandlerItem,
     Item, Label, ListRest, Literal, LocalId, Param, PatArg, PatId, PatKind, Program, Res, Span,
-    Stmt, StrPart, TypeId, UnaryOp, int_literal_value,
+    Stmt, StrPart, SupplyArgs, TypeId, UnaryOp, WithItem, int_literal_value,
 };
 use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -74,6 +74,10 @@ pub(crate) struct BodyTypes {
     /// `with` expressions → handlers in initialization order (layers expanded, later handlers
     /// overriding earlier ones).
     pub(crate) with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter.
+    pub(crate) with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per member, the arguments of init reordered by parameter.
+    pub(crate) layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
 }
 
 /// A handler operation body ([`BodyInfer::infer_handler`]), used when computing E and R.
@@ -194,6 +198,11 @@ pub(crate) struct BodyInfer<'a> {
     withs: Vec<crate::layer::PendingWith>,
     /// `with` expressions → providers in initialization order.
     with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter
+    /// ([`Self::infer_supply_args`]). Empty for an item without them.
+    with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per member, the arguments of init reordered by parameter.
+    layer_args: Vec<(DefId, Vec<Vec<Option<ExprId>>>)>,
     /// Effect sets required to be `Immediate` (`body/suspend.rs`).
     immediates: Vec<ImmediateObligation>,
     /// Types required to satisfy a trait by the constraints of instantiated type parameters,
@@ -295,6 +304,8 @@ impl<'a> BodyInfer<'a> {
             ops: SparseMap::new(),
             withs: Vec::new(),
             with_handlers: SparseMap::new(),
+            with_args: SparseMap::new(),
+            layer_args: Vec::new(),
             immediates: Vec::new(),
             trait_obligations: Vec::new(),
             self_obligations: Vec::new(),
@@ -342,6 +353,10 @@ impl<'a> BodyInfer<'a> {
     pub(crate) fn declare(&mut self, def: DefId) {
         self.enter(def);
         let program = self.program;
+        // A layer has no type; only the arguments of its members are inferred.
+        if let Some(Item::Layer(_)) = program.item(def) {
+            return;
+        }
         if let Some(Item::Handler(_)) = program.item(def) {
             let uses = self.ctx.new_row_var();
             let fails = self.ctx.new_row_var();
@@ -413,6 +428,15 @@ impl<'a> BodyInfer<'a> {
         let program = self.program;
         if let Some(Item::Handler(item)) = program.item(def) {
             self.infer_handler(def, item);
+            return;
+        }
+        if let Some(Item::Layer(item)) = program.item(def) {
+            let args = item
+                .members
+                .iter()
+                .map(|m| self.infer_supply_args(m.res, m.args.as_ref(), m.span))
+                .collect();
+            self.layer_args.push((def, args));
             return;
         }
         let declared = match self.sigs.get(def) {
@@ -504,6 +528,14 @@ impl<'a> BodyInfer<'a> {
             .unwrap_or_default();
         match item.init {
             Some(init) => {
+                let params = self.sigs.init_params(def).map(|p| p.tys.clone());
+                for (i, p) in item.init_params.iter().enumerate() {
+                    let ty = params
+                        .as_ref()
+                        .and_then(|tys| tys.get(i).cloned())
+                        .unwrap_or(Ty::Error);
+                    self.set_local(p.local, ty);
+                }
                 self.in_init = Some(def);
                 self.check_expr(init, &handler_ty);
                 self.in_init = None;
@@ -864,6 +896,8 @@ impl<'a> BodyInfer<'a> {
             handler_uses,
             handler_fails,
             with_handlers: self.with_handlers,
+            with_args: self.with_args,
+            layer_args: self.layer_args,
         }
     }
 
@@ -1011,13 +1045,112 @@ impl<'a> BodyInfer<'a> {
                 }
             }
             ExprKind::Use { .. } => Ty::Error,
-            ExprKind::With { body, .. } => match expected {
-                Some(expected) => {
-                    self.check_expr(*body, expected);
-                    expected.clone()
+            ExprKind::With { handlers, body } => {
+                self.infer_with_args(expr, handlers);
+                match expected {
+                    Some(expected) => {
+                        self.check_expr(*body, expected);
+                        expected.clone()
+                    }
+                    None => self.infer_expr(*body),
                 }
-                None => self.infer_expr(*body),
-            },
+            }
+        }
+    }
+
+    /// The arguments of init written on the items of a `with` (`[effect.with]`). Every item's
+    /// arguments are checked, including those of a handler a later item overrides.
+    fn infer_with_args(&mut self, expr: ExprId, items: &[WithItem]) {
+        let args = items
+            .iter()
+            .map(|item| match item.by {
+                // The label left of `by` takes no arguments.
+                Some((by, by_span)) => {
+                    self.infer_supply_args(item.res, item.args.as_ref(), item.span);
+                    self.infer_supply_args(by, item.by_init_args.as_ref(), by_span)
+                }
+                None => self.infer_supply_args(item.res, item.args.as_ref(), item.span),
+            })
+            .collect();
+        self.with_args.insert(expr, args);
+    }
+
+    /// Checks the arguments written after `target` (`WorkerKv(binding: "KV")`) against the
+    /// parameters of its init, as the arguments of a call (`[effect.handler]`, spec 6.2), and
+    /// returns them reordered by parameter. A handler whose init takes parameters needs them
+    /// (E0434); anything else takes none (E0435). `span` is where `target` is written.
+    fn infer_supply_args(
+        &mut self,
+        target: Res,
+        args: Option<&SupplyArgs>,
+        span: Span,
+    ) -> Vec<Option<ExprId>> {
+        let program = self.program;
+        let sigs = self.sigs;
+        let handler = match target {
+            Res::Def(def) if matches!(program.item(def), Some(Item::Handler(_))) => Some(def),
+            _ => None,
+        };
+        let params = handler.and_then(|h| sigs.init_params(h).map(|p| (h, p)));
+        match (params, args) {
+            (None, None) => Vec::new(),
+            (Some((h, params)), None) => {
+                self.diags.push(Diagnostic {
+                    span: Some(span),
+                    kind: DiagnosticKind::MissingInitArgs {
+                        handler: program.defs[h].name.clone(),
+                        params: params.labels.iter().flatten().cloned().collect(),
+                    },
+                });
+                Vec::new()
+            }
+            (None, Some(args)) => {
+                if let Res::Def(def) = target {
+                    let kind = match program.defs[def].kind {
+                        DefKind::Effect if crate::signature::is_label(program, def) => "label",
+                        kind => kind.describe(),
+                    };
+                    self.diags.push(Diagnostic {
+                        span: Some(args.span),
+                        kind: DiagnosticKind::UnexpectedInitArgs {
+                            name: program.defs[def].name.clone(),
+                            kind,
+                        },
+                    });
+                }
+                for arg in &args.args {
+                    self.infer_expr(arg.value);
+                }
+                Vec::new()
+            }
+            (Some((h, params)), Some(args)) => {
+                let name = &program.defs[h].name;
+                let assigned = self.assign_args(
+                    Some(name),
+                    Some(&params.labels),
+                    params.tys.len(),
+                    args.args.iter().map(|arg| (arg.label.as_ref(), arg.value)),
+                );
+                if !assigned.reported && (assigned.too_many || assigned.has_missing()) {
+                    self.diags.push(Diagnostic {
+                        span: Some(args.span),
+                        kind: DiagnosticKind::WrongArgCount {
+                            callee: Some(name.clone()),
+                            expected: params.tys.len(),
+                            found: args.args.len(),
+                        },
+                    });
+                }
+                for (slot, ty) in assigned.slots.iter().zip(&params.tys) {
+                    if let Some(arg) = slot {
+                        self.check_expr(*arg, ty);
+                    }
+                }
+                for extra in assigned.extra {
+                    self.infer_expr(extra);
+                }
+                assigned.slots
+            }
         }
     }
 

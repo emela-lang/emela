@@ -1,0 +1,7 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"pub effect Kv {\n  fn get(key: String) -> String\n}\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String) { WorkerKv(binding:) }\n  fn get(key) { binding }\n}\n\nfn main(base: Int) {\n  with WorkerKv(binding: \"a\", ..base) { (use Kv).get(\"a\") }\n  with WorkerKv(binding: missing) { (use Kv).get(\"a\") }\n}\n\"##,)])"
+---
+error src/main.emel@154..161 `binding`: undefined value `binding`
+error src/main.emel@220..224 `base`: handler `WorkerKv` cannot be updated
+error src/main.emel@273..280 `missing`: undefined value `missing`

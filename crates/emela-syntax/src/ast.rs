@@ -38,8 +38,8 @@ mod items;
 
 pub use items::{
     Annotation, ConstDecl, DeriveClause, EffectDecl, EffectLabel, EnumDecl, ErrorDecl, Field,
-    FieldList, HandlerDecl, HasAttrs, ImplDecl, Import, Item, LayerDecl, OpSig, Path, TraitDecl,
-    TypeDecl, Variant,
+    FieldList, HandlerDecl, HasAttrs, ImplDecl, Import, Item, LayerDecl, OpSig, Path, Supply,
+    TraitDecl, TypeDecl, Variant,
 };
 
 fn child<N: AstNode>(node: &SyntaxNode) -> Option<N> {
