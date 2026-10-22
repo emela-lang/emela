@@ -60,21 +60,21 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "str_new" => i32s(1),
-        "str_eq" => i32s(3),
-        "str_cmp" => i32s(6),
-        "str_append" => i32s(5),
-        "str_starts_with" | "str_ends_with" => i32s(3),
-        "str_find" => i32s(4),
-        "copy_range" => i32s(1),
-        "str_slice" => i32s(1),
-        "str_split" => i32s(8),
-        "str_join" => i32s(7),
-        "str_trim" => i32s(6),
-        "str_code_points" => i32s(6),
-        "cons" => i32s(1),
-        "utf8_cp" => i32s(4),
-        "is_white_space" => i32s(1),
+        "str_new" => i32s(1),                           // p
+        "str_eq" => i32s(3),                            // la, lb, i
+        "str_cmp" => i32s(6),                           // la, lb, n, i, x, y
+        "str_append" => i32s(5),                        // la, lb, p, off, i
+        "str_starts_with" | "str_ends_with" => i32s(3), // n, m, i
+        "str_find" => i32s(4),                          // n, m, i, j
+        "copy_range" => i32s(1),                        // i
+        "str_slice" => i32s(1),                         // p
+        "str_split" => i32s(8),                         // head..cell
+        "str_join" => i32s(7),                          // total, p, first, out, pos, len
+        "str_trim" => i32s(6),                          // n, start, end, at, cp, len
+        "str_code_points" => i32s(6),                   // head, last, i, n, cp, cell
+        "cons" => i32s(1),                              // p
+        "utf8_cp" => i32s(4),                           // b0, b1, b2, b3
+        "is_white_space" => i32s(1),                    // acc
         _ => Vec::new(),
     }
 }

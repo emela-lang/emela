@@ -13,10 +13,10 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "alloc" => i32s(6),
-        "dup" => i32s(1),
-        "drop" => i32s(13),
-        "ev_lookup" => i32s(3),
+        "alloc" => i32s(6),     // need, cur, prev, next, p, pages
+        "dup" => i32s(1),       // rc
+        "drop" => i32s(13),     // rc..size
+        "ev_lookup" => i32s(3), // count, i, e
         _ => Vec::new(),
     }
 }

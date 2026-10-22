@@ -23,9 +23,9 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "int_parse" => vec![(5, ValType::I32), (1, ValType::I64)],
-        "int_checked_add" => vec![(1, ValType::I64), (1, ValType::I32)],
-        "from_code_point" => i32s(4),
+        "int_parse" => vec![(5, ValType::I32), (1, ValType::I64)], // p, n, i, neg, b / v
+        "int_checked_add" => vec![(1, ValType::I64), (1, ValType::I32)], // r / p
+        "from_code_point" => i32s(4),                              // p, len, i, cell
         _ => Vec::new(),
     }
 }

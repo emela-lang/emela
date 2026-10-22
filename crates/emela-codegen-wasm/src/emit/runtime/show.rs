@@ -10,9 +10,9 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        "show_string" => i32s(7),
-        "int_to_string" => i32s(6),
-        "int64_to_string" => vec![(5, ValType::I32), (1, ValType::I64)],
+        "show_string" => i32s(7),   // n, i, j, p, b, esc, dig
+        "int_to_string" => i32s(6), // neg, u, i, p, len, j
+        "int64_to_string" => vec![(5, ValType::I32), (1, ValType::I64)], // neg,i,p,len,j / u
         _ => Vec::new(),
     }
 }

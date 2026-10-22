@@ -95,6 +95,8 @@ pub(crate) fn register(b: &mut Builder) {
     }
 }
 
+/// `n` i32 locals. Their indices start after the parameters; each `locals` arm names them in a
+/// comment, in index order.
 pub(super) fn i32s(n: u32) -> Vec<(u32, ValType)> {
     vec![(n, ValType::I32)]
 }
