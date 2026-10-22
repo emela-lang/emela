@@ -38,13 +38,12 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-/// The statics of the bridge. The scheduler cells (`pending`, `sleep_op`) belong to
-/// `emit::suspend`; the rest are only allocated when a `Std.Clock.sleep` handler is used.
+/// The statics of the bridge. The scheduler cell (`pending`) belongs to `emit::suspend`; the rest
+/// are only allocated when a `Std.Clock.sleep` handler is used.
 pub(crate) struct Plan {
     pub(crate) host_subtask: u32,
     pub(crate) wait_set: u32,
     pub(crate) wait_chain: u32,
-    pub(crate) sleeper_at: u32,
     pub(crate) sleeper_on: u32,
 }
 
@@ -59,13 +58,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     let host_subtask = b.alloc_static(4);
     let wait_set = b.alloc_static(4);
     let wait_chain = b.alloc_static(4);
-    let sleeper_at = b.alloc_static(8);
     let sleeper_on = b.alloc_static(4);
     b.async_plan = Some(Plan {
         host_subtask,
         wait_set,
         wait_chain,
-        sleeper_at,
         sleeper_on,
     });
 }
@@ -170,17 +167,20 @@ fn sleep_start(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
     ins.i32_const(1);
     ins.global_set(G_SUSPENDING);
+    ins.else_();
+    // START_CANCELLED (3) or RETURN_CANCELLED (4): the subtask will not be waited for, so its
+    // handle is dropped instead of leaked.
+    let drop_subtask = b.subtask_drop();
+    ins.local_get(HANDLE);
+    ins.call(drop_subtask);
     ins.end();
 }
 
 /// `clock_when_stalled(at)`: register the TestClock sleeper. The run wakes it only when it has
-/// nothing else to do.
+/// nothing else to do. The wake time itself stays in TestClock's `State[Instant]`, so the
+/// scheduler only needs to know that a sleeper waits; with one fiber there is at most one.
 fn clock_when_stalled(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    let sleeper_at = plan(b).sleeper_at;
     let sleeper_on = plan(b).sleeper_on;
-    ins.i32_const(sleeper_at as i32);
-    ins.local_get(0);
-    ins.i64_store(mem(0, 8));
     ins.i32_const(sleeper_on as i32);
     ins.i32_const(1);
     ins.i32_store(mem(0, 4));
@@ -188,9 +188,11 @@ fn clock_when_stalled(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.global_set(G_SUSPENDING);
 }
 
-/// `wait_park(chain)`: remember the caller continuation of the pending operation. The innermost
-/// operation's implementation is resumed when the host event (or the TestClock sleeper) wakes it,
-/// and the caller chains follow through the perform records' caller links.
+/// `wait_park(chain)`: remember the caller continuation of the suspension cascade. `pending` is
+/// the cascade's outermost operation, so the continuation is its caller; parking ends the
+/// cascade, so the next suspension starts a new one. The innermost operation's implementation is
+/// resumed when the host event (or the TestClock sleeper) wakes it, and the caller chains follow
+/// through the perform records' caller links.
 fn wait_park(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 1;
     let pending = sus_cell(b, |p| p.pending);
@@ -205,6 +207,11 @@ fn wait_park(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.i32_const(1);
     ins.i32_store(mem(super::sched::P_HAS_CALLER, 4));
+    // The cascade is parked; the next suspension is a new cascade. The record's reference is
+    // released when it completes (`resume_with`), not here.
+    ins.i32_const(pending as i32);
+    ins.i32_const(0);
+    ins.i32_store(mem(0, 4));
     ins.else_();
     ins.i32_const(wait_chain as i32);
     ins.local_get(0);
@@ -291,64 +298,77 @@ fn wait_idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let host_subtask = plan(b).host_subtask;
     let wait_set = plan(b).wait_set;
     let sleeper_on = plan(b).sleeper_on;
-    let set_wait = b.waitable_set_wait();
-    let join = b.waitable_join();
-    let drop_subtask = b.subtask_drop();
     let wake = b.rt("wait_wake");
-    let cancel = b.rt("wait_cancel");
-    ins.i32_const(host_subtask as i32);
-    ins.i32_load(mem(0, 4));
-    ins.if_(BlockType::Empty);
-    ins.i32_const(wait_set as i32);
-    ins.i32_load(mem(0, 4));
-    ins.i32_const(WAITBUF as i32);
-    ins.call(set_wait);
-    ins.local_set(EVENT);
-    ins.local_get(EVENT);
-    ins.i32_const(EVENT_SUBTASK);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(WAITBUF as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(HANDLE);
-    ins.i32_const((WAITBUF + 4) as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(STATUS);
-    ins.i32_const(host_subtask as i32);
+    // The host subtask path is only reachable when the program imports the monotonic clock; a
+    // TestClock-only program has the sleeper path alone and no `subtask.drop` import.
+    if b.uses_std_host(StdHost::is_monotonic) {
+        let set_wait = b.waitable_set_wait();
+        let join = b.waitable_join();
+        let drop_subtask = b.subtask_drop();
+        let cancel = b.rt("wait_cancel");
+        ins.i32_const(host_subtask as i32);
+        ins.i32_load(mem(0, 4));
+        ins.if_(BlockType::Empty);
+        ins.i32_const(wait_set as i32);
+        ins.i32_load(mem(0, 4));
+        ins.i32_const(WAITBUF as i32);
+        ins.call(set_wait);
+        ins.local_set(EVENT);
+        ins.local_get(EVENT);
+        ins.i32_const(EVENT_SUBTASK);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.i32_const(WAITBUF as i32);
+        ins.i32_load(mem(0, 4));
+        ins.local_set(HANDLE);
+        ins.i32_const((WAITBUF + 4) as i32);
+        ins.i32_load(mem(0, 4));
+        ins.local_set(STATUS);
+        ins.i32_const(host_subtask as i32);
+        ins.i32_const(0);
+        ins.i32_store(mem(0, 4));
+        ins.local_get(STATUS);
+        ins.i32_const(STATUS_RETURNED);
+        ins.i32_eq();
+        ins.local_get(STATUS);
+        ins.i32_const(STATUS_RETURNED_CANCELLED);
+        ins.i32_eq();
+        ins.i32_or();
+        ins.if_(BlockType::Empty);
+        ins.local_get(HANDLE);
+        ins.call(drop_subtask);
+        ins.call(wake);
+        ins.i32_const(1);
+        ins.return_();
+        ins.end();
+        // A still-pending status is not an event we can use; join it again and leave the run to
+        // stall rather than spinning.
+        ins.local_get(HANDLE);
+        ins.i32_const(wait_set as i32);
+        ins.i32_load(mem(0, 4));
+        ins.call(join);
+        ins.i32_const(host_subtask as i32);
+        ins.local_get(HANDLE);
+        ins.i32_store(mem(0, 4));
+        ins.i32_const(0);
+        ins.return_();
+        ins.else_();
+        // A cancellation event: the task is going away, so let the interruption path unwind.
+        ins.call(cancel);
+        ins.i32_const(0);
+        ins.return_();
+        ins.end();
+        ins.else_();
+        wake_sleeper(sleeper_on, wake, ins);
+        ins.end();
+    } else {
+        wake_sleeper(sleeper_on, wake, ins);
+    }
     ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(STATUS);
-    ins.i32_const(STATUS_RETURNED);
-    ins.i32_eq();
-    ins.local_get(STATUS);
-    ins.i32_const(STATUS_RETURNED_CANCELLED);
-    ins.i32_eq();
-    ins.i32_or();
-    ins.if_(BlockType::Empty);
-    ins.local_get(HANDLE);
-    ins.call(drop_subtask);
-    ins.call(wake);
-    ins.i32_const(1);
-    ins.return_();
-    ins.end();
-    // A still-pending status is not an event we can use; join it again and leave the run to
-    // stall rather than spinning.
-    ins.local_get(HANDLE);
-    ins.i32_const(wait_set as i32);
-    ins.i32_load(mem(0, 4));
-    ins.call(join);
-    ins.i32_const(host_subtask as i32);
-    ins.local_get(HANDLE);
-    ins.i32_store(mem(0, 4));
-    ins.i32_const(0);
-    ins.return_();
-    ins.else_();
-    // A cancellation event: the task is going away, so let the interruption path unwind.
-    ins.call(cancel);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
-    ins.else_();
+}
+
+/// Wake the TestClock sleeper if one waits: clear it and queue its wake.
+fn wake_sleeper(sleeper_on: u32, wake: u32, ins: &mut InstructionSink) {
     ins.i32_const(sleeper_on as i32);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
@@ -359,8 +379,6 @@ fn wait_idle(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(1);
     ins.return_();
     ins.end();
-    ins.end();
-    ins.i32_const(0);
 }
 
 /// Wake the continuation that waits for the event: the innermost operation's implementation
@@ -390,9 +408,6 @@ fn wait_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.i32_store(mem(0, 4));
     ins.end();
-    ins.i32_const(sleep_op as i32);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
     ins.local_get(CHAIN);
     ins.if_(BlockType::Empty);
     ins.local_get(CHAIN);
@@ -407,22 +422,22 @@ fn wait_cancel(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const HANDLE: u32 = 0;
     let host_subtask = plan(b).host_subtask;
     let sleeper_on = plan(b).sleeper_on;
-    let join = b.waitable_join();
-    let drop_subtask = b.subtask_drop();
     ins.i32_const(sleeper_on as i32);
     ins.i32_const(0);
     ins.i32_store(mem(0, 4));
-    ins.i32_const(host_subtask as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_tee(HANDLE);
-    ins.if_(BlockType::Empty);
-    ins.i32_const(host_subtask as i32);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(HANDLE);
-    ins.i32_const(0);
-    ins.call(join);
-    ins.local_get(HANDLE);
-    ins.call(drop_subtask);
-    ins.end();
+    if b.uses_std_host(StdHost::is_monotonic) {
+        let drop_subtask = b.subtask_drop();
+        ins.i32_const(host_subtask as i32);
+        ins.i32_load(mem(0, 4));
+        ins.local_tee(HANDLE);
+        ins.if_(BlockType::Empty);
+        ins.i32_const(host_subtask as i32);
+        ins.i32_const(0);
+        ins.i32_store(mem(0, 4));
+        // `subtask.drop` also removes the subtask from its waitable set (and so cancels the
+        // timer).
+        ins.local_get(HANDLE);
+        ins.call(drop_subtask);
+        ins.end();
+    }
 }

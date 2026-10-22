@@ -525,10 +525,8 @@ impl<'m> Builder<'m> {
         }
         if self.uses_std_host(StdHost::is_monotonic) {
             self.monotonic_wait_for();
-        }
-        if self.uses_std_host(StdHost::is_sleep) {
             // A `$root` intrinsic, not a WIT import: used to drop a completed or cancelled
-            // subtask.
+            // subtask. Only the real monotonic clock starts one.
             self.subtask_drop();
         }
         self.exit_with_code();

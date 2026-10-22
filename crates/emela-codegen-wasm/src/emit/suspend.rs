@@ -43,8 +43,10 @@ pub(crate) struct Plan {
     pub(crate) in_word: u32,
     pub(crate) out_mode: u32,
     pub(crate) out_word: u32,
+    /// The outermost operation of the current suspension cascade (see `runtime::async_bridge`).
     pub(crate) pending: u32,
-    /// The innermost operation waiting for an asynchronous event (see `runtime::async_bridge`).
+    /// The innermost active operation, whose implementation the event resumes (see
+    /// `runtime::async_bridge`).
     pub(crate) sleep_op: u32,
     pub(crate) queue: u32,
     pub(crate) qhead: u32,
@@ -185,8 +187,8 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.alloc_static(8), // input word
         b.alloc_static(4), // output mode
         b.alloc_static(8), // output word
-        b.alloc_static(4), // pending perform
-        b.alloc_static(4), // the innermost perform waiting for an event
+        b.alloc_static(4), // the outermost perform of the current suspension cascade
+        b.alloc_static(4), // the innermost active perform record
         b.alloc_static(QUEUE_ENTRIES * QUEUE_STRIDE),
         b.alloc_static(4), // queue head
         b.alloc_static(4), // queue length

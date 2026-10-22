@@ -13,6 +13,11 @@
 //! - A resume of an implementation that is still running continues the caller after the
 //!   implementation finishes (in place, spec 14.5 item 3). A resume after it returned queues the
 //!   caller's continuation; the queue is FIFO.
+//! - A suspension cascade pushes one `perform` record per operation whose implementation suspends,
+//!   innermost first, and `P_NEXT` links them outward. `pending` is the cascade's outermost (the
+//!   one whose caller is the parked continuation) and `sleep_op` is the innermost (the one the
+//!   host event resumes); parking a cascade resets `pending`, so an implementation that suspends
+//!   again after a resume starts a new cascade instead of overwriting an outer caller.
 //! - When nothing can resume a continuation (there is no fiber and no host yet), the run stalls:
 //!   the continuation is resumed with `interrupted`, which runs the `with` releases, and the
 //!   entry ends with exit code 130 (spec 14.5). A suspension in a non-suspending function is
@@ -108,7 +113,8 @@ pub(super) const P_HAS_CALLER: u32 = HDR + 48;
 /// it; nothing can resume later yet, so the flag is recorded and not read.
 pub(super) const P_SYNC: u32 = HDR + 56;
 pub(super) const P_IMPL: u32 = HDR + 64;
-/// The next outer operation waiting on this one (only set while operations nest).
+/// The next outer active operation. The chain starts at the innermost operation (`pending`) and
+/// links outward (spec 14.5).
 pub(super) const P_NEXT: u32 = HDR + 72;
 const P_SLOTS: i32 = 10;
 
@@ -380,7 +386,7 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 4;
     const CHAIN: u32 = 5;
     const MSG: u32 = 6;
-    let pending = cell(b, |p| p.pending);
+    let sleep_op = cell(b, |p| p.sleep_op);
     // p = resume.slot[1]
     ins.local_get(0);
     ins.i32_load(mem(HDR + 8, 4));
@@ -450,14 +456,16 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(2);
     let push = b.rt("queue_push");
     ins.call(push);
-    // The outermost pending operation is done once its caller has been queued.
+    // The innermost active operation is done once its caller has been queued; the next outer
+    // operation (if any) becomes the innermost (spec 14.5 item 3).
     ins.local_get(P);
-    ins.i32_const(pending as i32);
+    ins.i32_const(sleep_op as i32);
     ins.i32_load(mem(0, 4));
     ins.i32_eq();
     ins.if_(BlockType::Empty);
-    ins.i32_const(pending as i32);
-    ins.i32_const(0);
+    ins.i32_const(sleep_op as i32);
+    ins.local_get(P);
+    ins.i32_load(mem(P_NEXT, 4));
     ins.i32_store(mem(0, 4));
     let drop = b.rt("drop");
     ins.local_get(P);
@@ -716,13 +724,18 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_store(mem(P_IMPL, 4));
     ins.end();
     ins.else_();
-    // Nobody resumed: the caller waits. The implementation's continuation is the input the
-    // event will resume; with nested operations each outer implementation's continuation
-    // becomes the previous record's caller.
+    // Nobody resumed: the caller waits. `pending` is the outermost operation of the current
+    // suspension cascade (0 when none is under way) and `sleep_op` is the innermost active
+    // operation. A record created inside the cascade is the current outermost's outer; the
+    // first record of a cascade is the new innermost, whose outer is the operation whose
+    // implementation is running again after an earlier resume (spec 14.5 item 3).
+    let dup = b.rt("dup");
+    let drop = b.rt("drop");
     ins.i32_const(pending as i32);
     ins.i32_load(mem(0, 4));
     ins.local_tee(OLD);
     ins.if_(BlockType::Empty);
+    // The current cascade's outermost: this record is its outer.
     ins.local_get(OLD);
     ins.local_get(CHAIN);
     ins.i32_store(mem(P_CALLER, 4));
@@ -732,20 +745,24 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(OLD);
     ins.local_get(P);
     ins.i32_store(mem(P_NEXT, 4));
-    // The chain now belongs to the previous record's caller link. The previous record stays
-    // alive through its caller link (its implementation may have already returned without
-    // resuming, so its resume closure is gone); the pending reference is not released here.
+    // Its implementation continuation is now the outermost's caller link, which keeps this
+    // record alive (through the resume closure that link holds); the outer link is not counted.
+    // The previous outermost's reference is not released here: it is still in the chain and is
+    // released when it completes (`resume_with`) or when the run unwinds (`unwind_ops`).
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
     ins.else_();
-    // The innermost operation: its own implementation is what the event resumes.
+    // The first record of a new cascade: the new innermost operation.
+    ins.local_get(P);
+    ins.i32_const(sleep_op as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_store(mem(P_NEXT, 4));
     ins.i32_const(sleep_op as i32);
     ins.local_get(P);
     ins.i32_store(mem(0, 4));
     ins.end();
-    // The pending record keeps the operation alive.
-    let dup = b.rt("dup");
+    // This record is the cascade's new outermost; keep it alive and remember it.
     ins.local_get(P);
     ins.call(dup);
     ins.i32_const(pending as i32);
@@ -757,7 +774,6 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(3);
     ins.i32_store(mem(0, 4));
     ins.end();
-    let drop = b.rt("drop");
     ins.local_get(0);
     ins.call(drop);
 }
@@ -1065,8 +1081,7 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 
 /// `unwind_ops(extra)`: queues every waiting continuation for interruption, from the innermost
 /// implementation outwards (spec 14.2, 14.5). `extra` is the caller chain a non-suspending
-/// function was unwinding; when there is a pending operation it becomes the outermost record's
-/// caller instead.
+/// function was unwinding; it is unwound after the operations (the outermost caller).
 fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 1;
     const NEXT: u32 = 2;
@@ -1077,27 +1092,16 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let push = b.rt("queue_push");
     let interrupted = b.rt("interrupted");
     let drop = b.rt("drop");
-    // A caller chain to unwind is the outermost waiting operation's caller.
-    ins.local_get(0);
-    ins.if_(BlockType::Empty);
-    ins.i32_const(pending as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_tee(TOP);
-    ins.if_(BlockType::Empty);
-    ins.local_get(TOP);
-    ins.local_get(0);
-    ins.i32_store(mem(P_CALLER, 4));
-    ins.local_get(TOP);
-    ins.i32_const(1);
-    ins.i32_store(mem(P_HAS_CALLER, 4));
-    ins.end();
-    ins.end();
-    // The innermost implementation first; then every caller link outwards.
+    // `sleep_op` is the innermost active operation; `P_NEXT` links outward. The innermost
+    // implementation's continuation is unwound first, then every caller link outward.
     ins.i32_const(sleep_op as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(P);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
     ins.local_get(P);
-    ins.if_(BlockType::Empty);
+    ins.i32_eqz();
+    ins.br_if(1);
     ins.local_get(P);
     ins.i32_load(mem(P_IMPL, 4));
     ins.local_set(CHAIN);
@@ -1112,11 +1116,6 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_extend_i32_u();
     ins.call(push);
     ins.end();
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(P);
-    ins.i32_eqz();
-    ins.br_if(1);
     ins.local_get(P);
     ins.i32_load(mem(P_NEXT, 4));
     ins.local_set(NEXT);
@@ -1142,42 +1141,7 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-    ins.else_();
-    // No innermost operation left: either a directly suspended continuation, or an operation
-    // whose implementation was already resumed and did not resume its own caller.
-    ins.i32_const(pending as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_tee(TOP);
-    ins.if_(BlockType::Empty);
-    ins.local_get(TOP);
-    ins.i32_load(mem(P_IMPL, 4));
-    ins.local_set(CHAIN);
-    ins.local_get(TOP);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_IMPL, 4));
-    ins.local_get(CHAIN);
-    ins.if_(BlockType::Empty);
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
-    ins.local_get(TOP);
-    ins.i32_load(mem(P_CALLER, 4));
-    ins.local_set(CHAIN);
-    ins.local_get(TOP);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_CALLER, 4));
-    ins.local_get(CHAIN);
-    ins.if_(BlockType::Empty);
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
-    ins.else_();
+    // The caller chain of a non-suspending function is the outermost continuation.
     ins.local_get(0);
     ins.if_(BlockType::Empty);
     ins.local_get(0);
@@ -1185,8 +1149,6 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(interrupted);
     ins.i64_extend_i32_u();
     ins.call(push);
-    ins.end();
-    ins.end();
     ins.end();
     // One reference is held by the pending slot; the resume closure keeps the record until the
     // interrupted implementation has run.
