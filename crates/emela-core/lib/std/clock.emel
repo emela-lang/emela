@@ -28,10 +28,12 @@ fn now_milliseconds() -> Int64
 
 @external(js, "./clock.mjs", "sleep")
 @external(c, "./clock.c", "emela_clock_sleep")
+@external(wasm, "wasi:clocks/monotonic-clock@0.3.0", "wait-for")
 suspend fn sleep_milliseconds(ms: Int) -> ()
 
 @external(js, "./clock.mjs", "whenStalled")
 @external(c, "./clock.c", "emela_clock_when_stalled")
+@external(wasm, "emela:runtime/scheduler@0.1.0", "when-stalled")
 suspend fn when_stalled(at: Int64) -> ()
 
 ## The host's clock. `sleep` waits for a timer (JS `setTimeout`, C the runtime's event loop) as

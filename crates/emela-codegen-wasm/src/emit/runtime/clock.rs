@@ -2,7 +2,7 @@
 //!
 //! The host returns `instant { seconds: s64, nanoseconds: u32 }` through a pointer. The result is
 //! Unix epoch milliseconds, `seconds * 1000 + nanoseconds / 1_000_000` (the division truncates).
-//! `sleep` is not implemented for this target.
+//! `Std.Clock.sleep` and the TestClock's idle hook are in `runtime::async_bridge`.
 
 use super::*;
 

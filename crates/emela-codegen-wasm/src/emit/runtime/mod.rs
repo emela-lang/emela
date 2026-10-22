@@ -39,6 +39,7 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
+pub(super) mod async_bridge;
 mod clock;
 mod console;
 mod constant;
@@ -183,6 +184,13 @@ const MODULES: &[RuntimeModule] = &[
         emit: sched::emit,
         used: super::suspend::used,
     },
+    RuntimeModule {
+        funcs: async_bridge::FUNCS,
+        locals: async_bridge::locals,
+        setup: no_setup,
+        emit: async_bridge::emit,
+        used: async_bridge::used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -190,6 +198,7 @@ pub(crate) fn register(b: &mut Builder) {
     if float::used(b) {
         float::prepare(b);
     }
+    async_bridge::prepare(b);
     for module in MODULES {
         if !(module.used)(b) {
             continue;

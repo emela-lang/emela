@@ -3,8 +3,9 @@
 //! A program's own `@external(wasm, ...)` is not a component import: a component can only import
 //! interfaces its WIT world declares, and custom host WIT is not implemented. The bundled `Std`
 //! modules do name a few WASI 0.3 functions (`Std.Console` stdout/stderr, `Std.Env`,
-//! `Std.Random` and `Std.Clock.now`); each of those externals is a runtime wrapper with its own
-//! encoding of the host's result. [`classify`] recognizes them by their IR name, never by the
+//! `Std.Random`, `Std.Clock.now` and `Std.Clock.sleep`); each of those externals is a runtime
+//! wrapper with its own encoding of the host's result. The TestClock's `when-stalled` is a
+//! scheduler hook of the runtime rather than a WIT import, and is recognized the same way. [`classify`] recognizes them by their IR name, never by the
 //! module/name pair, so a program that names the same WASI function stays an unsupported
 //! external in `check/external.rs`.
 
@@ -27,6 +28,10 @@ pub(crate) enum StdHost {
     RandomFloat,
     /// `Std.Clock.now`: Unix epoch milliseconds.
     ClockNow,
+    /// `Std.Clock.sleep` on `SystemClock`: waits through the host's monotonic clock.
+    ClockSleep,
+    /// `Std.Clock.sleep` on `TestClock`: waits until the run stalls, without a host timer.
+    ClockWhenStalled,
 }
 
 impl StdHost {
@@ -39,6 +44,8 @@ impl StdHost {
             StdHost::RandomInt => "random_int",
             StdHost::RandomFloat => "random_float",
             StdHost::ClockNow => "clock_now",
+            StdHost::ClockSleep => "sleep_start",
+            StdHost::ClockWhenStalled => "clock_when_stalled",
         }
     }
 
@@ -57,6 +64,15 @@ impl StdHost {
     pub(crate) fn is_clock(self) -> bool {
         matches!(self, StdHost::ClockNow)
     }
+
+    pub(crate) fn is_sleep(self) -> bool {
+        matches!(self, StdHost::ClockSleep | StdHost::ClockWhenStalled)
+    }
+
+    /// Whether the host needs the real monotonic clock import (not the TestClock hook).
+    pub(crate) fn is_monotonic(self) -> bool {
+        matches!(self, StdHost::ClockSleep)
+    }
 }
 
 /// The bundled externals that are runtime wrappers, by IR name. `Std` cannot be the root name of
@@ -69,6 +85,8 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Random.random_int", StdHost::RandomInt),
     ("Std.Random.random_float", StdHost::RandomFloat),
     ("Std.Clock.now_milliseconds", StdHost::ClockNow),
+    ("Std.Clock.sleep_milliseconds", StdHost::ClockSleep),
+    ("Std.Clock.when_stalled", StdHost::ClockWhenStalled),
 ];
 
 /// If `f` is a bundled `Std` external with a `wasm` binding that the runtime implements, which

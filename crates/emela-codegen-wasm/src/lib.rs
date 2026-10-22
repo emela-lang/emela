@@ -11,12 +11,15 @@
 //! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
 //! (`wasmtime`).
 //!
-//! The target supports the synchronous WASI hosts the bundled `Std` handlers use (Console, Env,
-//! Random and Clock.now), and suspending functions are compiled as state machines with heap frames
-//! (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::sched`). Fibers, a host
-//! callback for `suspend fn` external functions and `Async` wakeups are not implemented yet;
-//! reaching them is a [`WasmError`] or a stall unwound as interrupted (spec 14.5). The Unicode
-//! tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of the runtime.
+//! The target supports the WASI hosts the bundled `Std` handlers use (Console, Env, Random,
+//! Clock.now and Clock.sleep), and suspending functions are compiled as state machines with heap
+//! frames (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::sched`). A sleep
+//! starts `wasi:clocks/monotonic-clock.wait-for` as an asynchronous subtask and the scheduler waits
+//! on its waitable set only when it has no continuation left (`emit::runtime::async_bridge`);
+//! TestClock uses the same suspension without a host timer. Fibers, other `Async` wakeups and
+//! custom host WIT are not implemented yet; reaching them is a [`WasmError`] or a stall unwound as
+//! interrupted (spec 14.5). The Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are
+//! part of the runtime.
 
 mod check;
 mod component;

@@ -2,8 +2,8 @@
 //!
 //! The core module is written by `emit`; this module embeds the WIT world
 //! (exporting `wasi:cli/run@0.3.0` and declaring stdout/stderr/exit plus the
-//! environment, random and system clock) into it and lets `wit-component`
-//! build the component. The wrapper only carries the interfaces the core
+//! environment, random, system clock and monotonic clock) into it and lets
+//! `wit-component` build the component. The wrapper only carries the interfaces the core
 //! module actually references, so an unused one is not an output import. The
 //! WIT files are compiled into the binary, so an installed compiler does not
 //! need them on disk.
@@ -21,18 +21,23 @@ const CLI: &str = include_str!("../wit/deps/cli.wit");
 const WORLD: &str = include_str!("../wit/emela.wit");
 
 /// The optional interfaces to add to the command world. The runtime always uses stdout, stderr
-/// and exit; the environment, random and system clock are only imported by a program whose `Std`
-/// handlers use them, so a hello-style program does not carry them.
+/// and exit; the environment, random, system clock and monotonic clock are only imported by a
+/// program whose `Std` handlers use them, so a hello-style program does not carry them. The
+/// monotonic clock is the sleep host alone; `TestClock` needs no host timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OptionalImports {
     pub(crate) environment: bool,
     pub(crate) random: bool,
     pub(crate) clock: bool,
+    pub(crate) monotonic_clock: bool,
 }
 
 impl OptionalImports {
     fn bits(self) -> usize {
-        usize::from(self.environment) | usize::from(self.random) << 1 | usize::from(self.clock) << 2
+        usize::from(self.environment)
+            | usize::from(self.random) << 1
+            | usize::from(self.clock) << 2
+            | usize::from(self.monotonic_clock) << 3
     }
 }
 
@@ -57,6 +62,9 @@ fn world_source(optional: OptionalImports) -> Result<String, String> {
     }
     if optional.clock {
         imports.push_str("  import wasi:clocks/system-clock@0.3.0;\n");
+    }
+    if optional.monotonic_clock {
+        imports.push_str("  import wasi:clocks/monotonic-clock@0.3.0;\n");
     }
     Ok(format!("{before}{}{after}", imports.trim_end()))
 }
@@ -92,8 +100,8 @@ type ResolvedWorld = Result<(Resolve, wit_parser::WorldId), String>;
 /// The vendored WIT is the same for every combination of optional imports, so each is parsed
 /// once. The resolved `Resolve` is borrowed; `wrap` does not need a mutable copy.
 fn resolved(optional: OptionalImports) -> Result<&'static (Resolve, wit_parser::WorldId), String> {
-    static RESOLVED: OnceLock<[OnceLock<ResolvedWorld>; 8]> = OnceLock::new();
-    let slots = RESOLVED.get_or_init(|| [const { OnceLock::new() }; 8]);
+    static RESOLVED: OnceLock<[OnceLock<ResolvedWorld>; 16]> = OnceLock::new();
+    let slots = RESOLVED.get_or_init(|| [const { OnceLock::new() }; 16]);
     slots[optional.bits()]
         .get_or_init(|| resolve(optional))
         .as_ref()

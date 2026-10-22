@@ -92,6 +92,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
         environment: b.uses_env(),
         random: b.uses_random(),
         clock: b.uses_clock(),
+        monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
     };
     let module = crate::component::wrap(&core, optional).map_err(|e| {
         vec![WasmError {
@@ -224,6 +225,8 @@ pub(crate) struct Builder<'m> {
     std_hosts: Vec<(FnId, StdHost)>,
     /// The suspend runtime's cells and per-function entries, when the program suspends.
     pub(crate) sus: Option<suspend::Plan>,
+    /// The asynchronous host bridge's cells, when the program sleeps.
+    pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -259,6 +262,7 @@ impl<'m> Builder<'m> {
             bodies: Vec::new(),
             std_hosts: Vec::new(),
             sus: None,
+            async_plan: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -335,6 +339,10 @@ impl<'m> Builder<'m> {
         self.uses_std_host(StdHost::is_clock)
     }
 
+    pub(crate) fn uses_sleep(&self) -> bool {
+        self.uses_std_host(StdHost::is_sleep)
+    }
+
     // ---- WASI 0.3 imports ----
 
     pub(crate) fn environment_get(&mut self) -> u32 {
@@ -364,6 +372,19 @@ impl<'m> Builder<'m> {
             vec![ValType::I32],
             Vec::new(),
         )
+    }
+
+    pub(crate) fn monotonic_wait_for(&mut self) -> u32 {
+        self.host_import(
+            "wasi:clocks/monotonic-clock@0.3.0",
+            "[async-lower]wait-for",
+            vec![ValType::I64],
+            vec![ValType::I32],
+        )
+    }
+
+    pub(crate) fn subtask_drop(&mut self) -> u32 {
+        self.host_import("$root", "[subtask-drop]", vec![ValType::I32], Vec::new())
     }
 
     pub(crate) fn exit_with_code(&mut self) -> u32 {
@@ -501,6 +522,14 @@ impl<'m> Builder<'m> {
         }
         if self.uses_clock() {
             self.system_clock_now();
+        }
+        if self.uses_std_host(StdHost::is_monotonic) {
+            self.monotonic_wait_for();
+        }
+        if self.uses_std_host(StdHost::is_sleep) {
+            // A `$root` intrinsic, not a WIT import: used to drop a completed or cancelled
+            // subtask.
+            self.subtask_drop();
         }
         self.exit_with_code();
         self.output_imports("wasi:cli/stdout@0.3.0");
