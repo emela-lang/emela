@@ -1,10 +1,10 @@
 ---
 title: Arguments for handler init
 authors: [Alliana]
-status: draft
+status: accepted
 pr: 389
 issue: 374
-decided:
+decided: 2026-10-22
 touches: [effect.handler, effect.with, effect.layer, effect.label, grammar.decl, grammar.expr]
 requires: []
 related: []
@@ -163,3 +163,9 @@ The change only adds. Programs that compile now compile with the same meaning.
 ## Open questions
 
 ## Decision
+
+A handler can receive a value from outside only through `use` in its init, so passing one value costs a dedicated effect: `WorkerKv` hard-codes its KV binding name, and the Router prototype had to route path parameters through `State.run` and init. Parameters on init give a direct way to build a handler from a value and supply it only to the body of a with.
+
+The change is additive. Existing programs compile with the same meaning, and `with H` is unchanged for handlers whose init takes no parameters.
+
+It keeps the existing invariants. `H(...)` at a with is a call of init, so the handler value is still constructed only inside init (E0418). Capability values cannot be passed, so capabilities still do not escape. Handlers stay non-generic, and supply and dependency of handlers do not change. Arguments of a layer item are pure, as the right-hand side of a const, so a layer gives the same value wherever it is expanded.
