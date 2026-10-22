@@ -2,8 +2,8 @@
 //!
 //! `Float.to_string` has to give the same text as the JS target's `$showFloat`: the shortest
 //! digits that read back as the same binary64, with `.0` on a finite integral value, `Infinity`,
-//! `-Infinity`, `NaN`, and `-0.0` shown as `0.0` (spec 10.6). wasm has no `printf`, so the
-//! runtime does the work itself: it writes the *exact* decimal expansion of the value (every
+//! `-Infinity`, `NaN`, and `-0.0` shown as `0.0` (`[trait.builtin]`). wasm has no `printf`, so
+//! the runtime does the work itself: it writes the *exact* decimal expansion of the value (every
 //! binary64 is a finite decimal) with a base-10^9 big integer, then takes the shortest prefix of
 //! those digits that still rounds back to the value.
 //!
@@ -818,7 +818,8 @@ fn some(b: &mut Builder, ins: &mut InstructionSink) {
 
 // ---- Float -> Int ----
 
-/// The range check and the conversion (spec 16.1): NaN and anything outside Int is a defect.
+/// The range check and the conversion (`[target.number]`): NaN and anything outside Int is a
+/// defect.
 fn to_int(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(1);
     ins.f64_const(f64::from(i32::MIN).into());
@@ -856,7 +857,7 @@ fn round_to_int(b: &mut Builder, ins: &mut InstructionSink, how: &str) {
     ins.call(rt(b, "float_to_int"));
 }
 
-/// Ties away from zero (spec 16.1), unlike `f64.nearest` (ties to even).
+/// Ties away from zero (`[target.number]`), unlike `f64.nearest` (ties to even).
 fn round_half_away(b: &mut Builder, ins: &mut InstructionSink) {
     const A: u32 = 1;
     const F: u32 = 2;
