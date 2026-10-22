@@ -208,10 +208,6 @@ fn src_byte_at(ins: &mut InstructionSink, str: u32, i: u32, k: u32) {
     ins.i32_load8_u(mem(0, 1));
 }
 
-fn call(ins: &mut InstructionSink, b: &Builder, name: &'static str) {
-    ins.call(b.rt[name]);
-}
-
 fn bump(ins: &mut InstructionSink, index: u32) {
     ins.local_get(index);
     ins.i32_const(1);
@@ -349,7 +345,7 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br_if(1);
     ins.i64_const(32768);
     ins.local_get(N);
-    call(ins, b, "limbs_mul");
+    ins.call(rt(b, "limbs_mul"));
     ins.local_set(N);
     ins.local_get(T);
     ins.i32_const(15);
@@ -365,7 +361,7 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br_if(1);
     ins.i64_const(2);
     ins.local_get(N);
-    call(ins, b, "limbs_mul");
+    ins.call(rt(b, "limbs_mul"));
     ins.local_set(N);
     ins.local_get(T);
     ins.i32_const(1);
@@ -391,7 +387,7 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br_if(1);
     ins.i64_const(1_220_703_125);
     ins.local_get(N);
-    call(ins, b, "limbs_mul");
+    ins.call(rt(b, "limbs_mul"));
     ins.local_set(N);
     ins.local_get(T);
     ins.i32_const(13);
@@ -407,7 +403,7 @@ fn dec_build(b: &mut Builder, ins: &mut InstructionSink) {
     ins.br_if(1);
     ins.i64_const(5);
     ins.local_get(N);
-    call(ins, b, "limbs_mul");
+    ins.call(rt(b, "limbs_mul"));
     ins.local_set(N);
     ins.local_get(T);
     ins.i32_const(1);
@@ -734,7 +730,7 @@ fn bounds(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(SHIFT);
     ins.i32_sub();
     ins.i32_const(area(b, AREA_LO));
-    call(ins, b, "dec_build");
+    ins.call(rt(b, "dec_build"));
     ins.local_set(DLO);
     // The decimal scale of the lower bound: `max(0, shift - e)`.
     ins.local_get(SHIFT);
@@ -771,7 +767,7 @@ fn bounds(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(1);
     ins.i32_sub();
     ins.i32_const(area(b, AREA_HI));
-    call(ins, b, "dec_build");
+    ins.call(rt(b, "dec_build"));
     ins.local_set(DHI);
     // The decimal scale of the upper bound: `max(0, 1 - e)`.
     ins.local_get(E);
@@ -812,7 +808,7 @@ fn some(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.i32_const(1);
     ins.local_get(2);
-    call(ins, b, "alloc");
+    ins.call(rt(b, "alloc"));
     ins.local_set(P);
     ins.local_get(P);
     ins.local_get(0);
@@ -837,11 +833,11 @@ fn to_int(b: &mut Builder, ins: &mut InstructionSink) {
     let suffix = b.string_literal(b" to Int");
     ins.i32_const(prefix as i32);
     ins.local_get(0);
-    call(ins, b, "float_to_string");
-    call(ins, b, "str_append");
+    ins.call(rt(b, "float_to_string"));
+    ins.call(rt(b, "str_append"));
     ins.i32_const(suffix as i32);
-    call(ins, b, "str_append");
-    call(ins, b, "raise");
+    ins.call(rt(b, "str_append"));
+    ins.call(rt(b, "raise"));
     ins.i32_const(0);
     ins.return_();
     ins.end();
@@ -857,7 +853,7 @@ fn round_to_int(b: &mut Builder, ins: &mut InstructionSink, how: &str) {
         "ceil" => ins.f64_ceil(),
         _ => ins.f64_trunc(),
     };
-    call(ins, b, "float_to_int");
+    ins.call(rt(b, "float_to_int"));
 }
 
 /// Ties away from zero (spec 16.1), unlike `f64.nearest` (ties to even).
@@ -895,7 +891,7 @@ fn round_half_away(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.local_get(0);
     ins.local_get(F);
-    call(ins, b, "float_to_int");
+    ins.call(rt(b, "float_to_int"));
 }
 
 // ---- to_string ----
@@ -1016,7 +1012,7 @@ fn inside(b: &Builder, ins: &mut InstructionSink, q: Candidate, parity: u32, cmp
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 4);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(cmp);
     ins.i32_const(0);
     ins.local_set(q.out);
@@ -1032,7 +1028,7 @@ fn inside(b: &Builder, ins: &mut InstructionSink, q: Candidate, parity: u32, cmp
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 12);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(tmp);
     ins.local_get(tmp);
     ins.i32_const(0);
@@ -1175,7 +1171,7 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(F);
     ins.local_get(E);
     ins.i32_const(dx);
-    call(ins, b, "dec_build");
+    ins.call(rt(b, "dec_build"));
     ins.local_set(D);
     // `scale = max(0, -e)`; `dexp = digits - 1 - scale`.
     ins.local_get(E);
@@ -1197,7 +1193,7 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(DEXP);
     // The rounding interval.
     ins.local_get(0);
-    call(ins, b, "float_bounds");
+    ins.call(rt(b, "float_bounds"));
     ins.local_set(PARITY);
     // The shortest prefix of the digits that stays in the interval. At each length try the
     // nearest p-digit decimal first, then the other side when the interval is asymmetric.
@@ -1533,7 +1529,7 @@ fn to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     // ---- the string ----
     ins.local_get(J);
-    call(ins, b, "str_new");
+    ins.call(rt(b, "str_new"));
     ins.local_set(UP);
     ins.i32_const(0);
     ins.local_set(I);
@@ -2015,7 +2011,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(Y);
     ins.local_get(YBITS);
     ins.i32_wrap_i64();
-    call(ins, b, "float_pow10");
+    ins.call(rt(b, "float_pow10"));
     ins.f64_mul();
     ins.local_set(Y);
     ins.else_();
@@ -2041,7 +2037,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(J);
     ins.local_get(Y);
     ins.local_get(J);
-    call(ins, b, "float_pow10");
+    ins.call(rt(b, "float_pow10"));
     ins.f64_div();
     ins.local_set(Y);
     ins.local_get(FLAG);
@@ -2076,7 +2072,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i64_eq();
     ins.if_(BlockType::Empty);
     ins.f64_const(f64::MAX.into());
-    call(ins, b, "float_bounds");
+    ins.call(rt(b, "float_bounds"));
     ins.local_set(PARITY);
     ins.i32_const(din);
     ins.local_get(L);
@@ -2087,7 +2083,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 12);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(CMP);
     apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
@@ -2106,7 +2102,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i64_eqz();
     ins.if_(BlockType::Empty);
     ins.f64_const(f64::from_bits(1).into());
-    call(ins, b, "float_bounds");
+    ins.call(rt(b, "float_bounds"));
     ins.local_set(PARITY);
     ins.i32_const(din);
     ins.local_get(L);
@@ -2117,7 +2113,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 4);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(CMP);
     apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
@@ -2133,7 +2129,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     // The interval of the candidate.
     ins.local_get(Y);
-    call(ins, b, "float_bounds");
+    ins.call(rt(b, "float_bounds"));
     ins.local_set(PARITY);
     ins.i32_const(din);
     ins.local_get(L);
@@ -2144,7 +2140,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 4);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(CMP);
     apply_sticky(ins, CMP, TRUNC);
     // Below the lower midpoint.
@@ -2187,7 +2183,7 @@ fn parse(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.i32_const(meta + 12);
     ins.i32_load(mem(0, 4));
-    call(ins, b, "dec_cmp");
+    ins.call(rt(b, "dec_cmp"));
     ins.local_set(CMP);
     apply_sticky(ins, CMP, TRUNC);
     ins.local_get(CMP);
@@ -2244,6 +2240,6 @@ fn finish(b: &mut Builder, ins: &mut InstructionSink, neg: Option<u32>) {
         }
     };
     ins.local_get(1);
-    call(ins, b, "float_some");
+    ins.call(rt(b, "float_some"));
     ins.return_();
 }
