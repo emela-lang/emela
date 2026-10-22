@@ -586,9 +586,9 @@ fn str_grapheme_count(b: &mut Builder, ins: &mut InstructionSink) {
     const N: u32 = 1;
     const I: u32 = 2;
     const COUNT: u32 = 3;
-    let (grapheme_end, byte_size) = (rt(b, "grapheme_end"), rt(b, "str_byte_size"));
+    let grapheme_end = rt(b, "grapheme_end");
     ins.local_get(0);
-    ins.call(byte_size);
+    ins.i32_load(mem(HDR, 4));
     ins.local_set(N);
     ins.i32_const(0);
     ins.local_set(I);
@@ -623,15 +623,11 @@ fn str_grapheme_chars(b: &mut Builder, ins: &mut InstructionSink) {
     const LAST: u32 = 5;
     const SEGMENT: u32 = 6;
     const CELL: u32 = 7;
-    let (grapheme_end, byte_size, str_slice, cons) = (
-        rt(b, "grapheme_end"),
-        rt(b, "str_byte_size"),
-        rt(b, "str_slice"),
-        rt(b, "cons"),
-    );
+    let (grapheme_end, str_slice, cons) =
+        (rt(b, "grapheme_end"), rt(b, "str_slice"), rt(b, "cons"));
     let cons_desc = b.cons_ref_desc;
     ins.local_get(0);
-    ins.call(byte_size);
+    ins.i32_load(mem(HDR, 4));
     ins.local_set(N);
     ins.i32_const(0);
     ins.local_set(START);
