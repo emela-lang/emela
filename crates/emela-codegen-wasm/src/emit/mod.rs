@@ -124,7 +124,13 @@ const G_FAILURE: u32 = 3;
 #[allow(dead_code)]
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
-const GLOBALS: u32 = 6;
+/// The output streams and the waitable set of the WASI 0.3 host calls (`runtime/host.rs`).
+const G_STDOUT: u32 = 6;
+const G_STDOUT_FUTURE: u32 = 7;
+const G_STDERR: u32 = 8;
+const G_STDERR_FUTURE: u32 = 9;
+const G_WAITSET: u32 = 10;
+const GLOBALS: u32 = 11;
 
 /// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
 /// marks static data (never counted).
@@ -777,6 +783,7 @@ impl<'m> Builder<'m> {
                 }
             }
             ins.call(self.rt("finish"));
+            ins.call(self.rt("close_output"));
             ins.i32_const(0);
             ins.call(self.task_return());
             // `0` is the component model's EXIT status: the async-lifted run finished

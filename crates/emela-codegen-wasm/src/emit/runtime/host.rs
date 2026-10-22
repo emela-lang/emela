@@ -1,9 +1,15 @@
 //! WASI 0.3 host calls: `write-via-stream` on stdout/stderr and `exit-with-code`.
 //!
 //! p3 has no `fd_write`: a guest creates a `stream<u8>`, hands the readable end to
-//! `wasi:cli/stdout|stderr.write-via-stream`, writes the bytes into the writable end, drops
-//! it, and waits for the returned `future<result<_, error-code>>`. The waits are synchronous
+//! `wasi:cli/stdout|stderr.write-via-stream` and writes the bytes into the writable end. Each of
+//! stdout and stderr gets one stream, opened by its first write and kept for the rest of the
+//! program; `close_output` drops the writable ends and waits for the returned
+//! `future<result<_, error-code>>` before the program ends. The waits are synchronous
 //! (`waitable-set.wait`); this stage does not yield to the component-model scheduler.
+//!
+//! The globals `G_STDOUT` and `G_STDERR` hold the writable end: 0 before the first write, -1 once
+//! the stream is closed (later output is dropped). `G_STDOUT_FUTURE` and `G_STDERR_FUTURE` hold
+//! the futures, and `G_WAITSET` the one waitable set the waits use (0 until the first write).
 
 use super::*;
 
@@ -13,15 +19,47 @@ pub(super) const FUNCS: &[Sig] = &[
     ("write_stdout", &[ValType::I32, ValType::I32], &[]),
     ("write_stderr", &[ValType::I32, ValType::I32], &[]),
     ("exit", &[ValType::I32], &[]),
+    ("close_stdout", &[], &[]),
+    ("close_stderr", &[], &[]),
+    ("close_output", &[], &[]),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "write_stdout" | "write_stderr" => vec![
             (1, ValType::I64), // local 2: the packed stream ends
-            (8, ValType::I32), // locals 3..10: reader, writer, future, set, code, ptr, remaining, count
+            (7, ValType::I32), // locals 3..9: reader, writer, set, code, ptr, remaining, count
+        ],
+        "close_stdout" | "close_stderr" => vec![
+            (3, ValType::I32), // locals 0..2: writer, future, set
         ],
         _ => Vec::new(),
+    }
+}
+
+/// The globals of one output stream.
+#[derive(Clone, Copy)]
+struct Output {
+    imports: OutputImports,
+    writer: u32,
+    future: u32,
+    close: &'static str,
+}
+
+fn output(b: &mut Builder, name: &str) -> Output {
+    match name {
+        "stdout" => Output {
+            imports: b.output_imports("wasi:cli/stdout@0.3.0"),
+            writer: G_STDOUT,
+            future: G_STDOUT_FUTURE,
+            close: "close_stdout",
+        },
+        _ => Output {
+            imports: b.output_imports("wasi:cli/stderr@0.3.0"),
+            writer: G_STDERR,
+            future: G_STDERR_FUTURE,
+            close: "close_stderr",
+        },
     }
 }
 
@@ -30,13 +68,22 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "debug_print" => debug_print(b, ins),
         "write" => write(b, ins),
         "write_stdout" => {
-            let imports = b.output_imports("wasi:cli/stdout@0.3.0");
-            write_stream(b, ins, imports)
+            let out = output(b, "stdout");
+            write_stream(b, ins, out)
         }
         "write_stderr" => {
-            let imports = b.output_imports("wasi:cli/stderr@0.3.0");
-            write_stream(b, ins, imports)
+            let out = output(b, "stderr");
+            write_stream(b, ins, out)
         }
+        "close_stdout" => {
+            let out = output(b, "stdout");
+            close_stream(b, ins, out)
+        }
+        "close_stderr" => {
+            let out = output(b, "stderr");
+            close_stream(b, ins, out)
+        }
+        "close_output" => close_output(b, ins),
         "exit" => exit(b, ins),
         _ => return false,
     }
@@ -61,31 +108,41 @@ fn write(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
 }
 
-/// `write_stdout(ptr, len)` / `write_stderr(ptr, len)`: write the bytes through a p3 stream and
-/// wait until the host has consumed them and the result future is ready.
-fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImports) {
+/// `write_stdout(ptr, len)` / `write_stderr(ptr, len)`: write the bytes into the output's stream,
+/// opening it on the first write, and wait until the host has consumed them.
+fn write_stream(b: &mut Builder, ins: &mut InstructionSink, out: Output) {
     const H: u32 = 2;
     const R: u32 = 3;
     const W: u32 = 4;
-    const F: u32 = 5;
-    const SET: u32 = 6;
-    const CODE: u32 = 7;
-    const PTR: u32 = 8;
-    const REM: u32 = 9;
-    const N: u32 = 10;
+    const SET: u32 = 5;
+    const CODE: u32 = 6;
+    const PTR: u32 = 7;
+    const REM: u32 = 8;
+    const N: u32 = 9;
     /// The largest item count one `stream.write` may carry. The canonical ABI packs the status
     /// into the low four bits and the count into the upper 28, so a copy of `>= 1 << 28` items
     /// traps.
     const MAX_COUNT: i32 = (1 << 28) - 1;
 
     let set_new = b.waitable_set_new();
-    let set_drop = b.waitable_set_drop();
     let waits = Waits {
         join: b.waitable_join(),
         wait: b.waitable_set_wait(),
     };
+    let imports = out.imports;
 
-    // Split the new stream into its reader (to the host) and writer (our bytes).
+    // A closed stream drops the output.
+    ins.global_get(out.writer);
+    ins.local_tee(W);
+    ins.i32_const(-1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    // The first write opens the stream: the reader goes to the host, the writer takes our bytes.
+    ins.local_get(W);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
     ins.call(imports.stream_new);
     ins.local_set(H);
     ins.local_get(H);
@@ -95,12 +152,20 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.i64_const(32);
     ins.i64_shr_u();
     ins.i32_wrap_i64();
-    ins.local_set(W);
+    ins.local_tee(W);
+    ins.global_set(out.writer);
     ins.local_get(R);
     ins.call(imports.write);
-    ins.local_set(F);
+    ins.global_set(out.future);
+    ins.end();
+    ins.global_get(G_WAITSET);
+    ins.local_tee(SET);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
     ins.call(set_new);
-    ins.local_set(SET);
+    ins.local_tee(SET);
+    ins.global_set(G_WAITSET);
+    ins.end();
     ins.local_get(0);
     ins.local_set(PTR);
     ins.local_get(1);
@@ -143,12 +208,16 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.local_get(R);
     ins.i32_add();
     ins.local_set(PTR);
-    // `DROPPED` (1) and `CANCELLED` (2) are terminal: the host will reject a further write.
-    // Only `COMPLETED` (0) may continue with the remaining bytes.
+    // `DROPPED` (1) and `CANCELLED` (2) are terminal: the host will reject a further write, so
+    // the stream is closed and later output is dropped. Only `COMPLETED` (0) may continue with
+    // the remaining bytes.
     ins.local_get(CODE);
     ins.i32_const(0xF);
     ins.i32_and();
-    ins.br_if(1);
+    ins.if_(BlockType::Empty);
+    ins.call(rt(b, out.close));
+    ins.br(2);
+    ins.end();
     // Done when everything was written. A `COMPLETED` copy of zero items is not the end: the
     // reader went away only when the status is `DROPPED`, so write the rest again.
     ins.local_get(REM);
@@ -157,13 +226,38 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.br(0);
     ins.end();
     ins.end();
+}
 
-    // Close the writable end so the host sees the end of the stream.
+/// `close_stdout()` / `close_stderr()`: drop the writable end so the host sees the end of the
+/// stream, and wait for its `future<result<_, error-code>>`. The value itself is not used
+/// (writing to stdout/stderr is best effort). Does nothing for a stream never opened or already
+/// closed.
+fn close_stream(b: &mut Builder, ins: &mut InstructionSink, out: Output) {
+    const W: u32 = 0;
+    const F: u32 = 1;
+    const SET: u32 = 2;
+    let waits = Waits {
+        join: b.waitable_join(),
+        wait: b.waitable_set_wait(),
+    };
+    let imports = out.imports;
+
+    ins.global_get(out.writer);
+    ins.local_tee(W);
+    ins.i32_const(0);
+    ins.i32_le_s();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    ins.i32_const(-1);
+    ins.global_set(out.writer);
     ins.local_get(W);
     ins.call(imports.stream_drop_writable);
 
-    // Wait for `future<result<_, error-code>>`; the value itself is not used (writing to
-    // stdout/stderr is best effort, like `fd_write` before).
+    ins.global_get(out.future);
+    ins.local_set(F);
+    ins.global_get(G_WAITSET);
+    ins.local_set(SET);
     ins.local_get(F);
     ins.i32_const(FUTUREBUF as i32);
     ins.call(imports.future_read);
@@ -173,11 +267,23 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     wait_event(ins, &waits, F, SET);
     ins.drop();
     ins.end();
-
     ins.local_get(F);
     ins.call(imports.future_drop_readable);
-    ins.local_get(SET);
+}
+
+/// `close_output()`: close both streams and drop the waitable set. Called once the program has
+/// written everything, before it returns or exits.
+fn close_output(b: &mut Builder, ins: &mut InstructionSink) {
+    let set_drop = b.waitable_set_drop();
+    ins.call(rt(b, "close_stdout"));
+    ins.call(rt(b, "close_stderr"));
+    ins.global_get(G_WAITSET);
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_WAITSET);
     ins.call(set_drop);
+    ins.i32_const(0);
+    ins.global_set(G_WAITSET);
+    ins.end();
 }
 
 /// The canonical built-ins `wait_event` calls.
@@ -225,6 +331,7 @@ fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 fn exit(b: &mut Builder, ins: &mut InstructionSink) {
+    ins.call(rt(b, "close_output"));
     ins.local_get(0);
     ins.call(b.exit_with_code());
     ins.unreachable();
