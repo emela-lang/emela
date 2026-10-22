@@ -78,6 +78,6 @@ The author usually adopts a proposal by commenting `/accept` and the reasons on 
 
 When the author rejects the proposal, the author comments `/reject` and the reasons (the workflow closes the pull request), or closes it with the reason by hand. Nothing else is needed.
 
-## 4. After the implementation is merged
+## 4. Implementation
 
-Set the proposal's `status` to `implemented`.
+Implementing an adopted proposal is the `emela-implement` skill. The pull request that completes the implementation sets the proposal's `status` to `implemented`.

@@ -30,5 +30,6 @@ Skills are in `.agents/skills/` in the [Agent Skills](https://agentskills.io/spe
 |---|---|
 | `emela-spec` | To check what the specification says, before designing, implementing or proposing |
 | `emela-proposal` | To refine a proposal draft with the author, open its draft pull request, and finish an adopted proposal |
+| `emela-implement` | To implement an adopted proposal in the compiler and tools, tests first, and open its pull request |
 
 For an agent that does not read `.agents/skills/`, link its skills directory to `.agents/skills/<name>`.
