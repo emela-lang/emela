@@ -142,15 +142,6 @@ fn local_in(ins: &mut InstructionSink, local: u32, values: &[i32]) {
     }
 }
 
-/// Pushes `if condition { 1 } else { 0 }` from an i32 condition on the stack.
-fn bool_to_i32(ins: &mut InstructionSink) {
-    ins.if_(BlockType::Result(ValType::I32));
-    ins.i32_const(1);
-    ins.else_();
-    ins.i32_const(0);
-    ins.end();
-}
-
 /// Pushes the class of `cp` in the table at `base` with `count` entries, or 0 if no range has it.
 ///
 /// The entries are `(first, last | class << 24)`, sorted by `first`. The search finds the last
@@ -259,7 +250,7 @@ fn gcb_of(b: &mut Builder, ins: &mut InstructionSink) {
     lookup(b, ins, "unicode.gcb", t::GCB);
 }
 
-/// The `Extended_Pictographic` property of `cp`: 1 or 0.
+/// The `Extended_Pictographic` property of `cp`: 1 or 0 (the class in the table is always 1).
 fn ext_pict_of(b: &mut Builder, ins: &mut InstructionSink) {
     lookup(
         b,
@@ -324,16 +315,13 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_set(PREV);
     ins.local_get(CP);
     ins.call(ext_pict_of);
-    bool_to_i32(ins);
     ins.local_set(EP);
     local_eq(ins, CLS, REGIONAL_INDICATOR);
-    bool_to_i32(ins);
     ins.local_set(RI);
     ins.local_get(CP);
     ins.call(incb_of);
     ins.i32_const(INCB_CONSONANT);
     ins.i32_eq();
-    bool_to_i32(ins);
     ins.local_set(CHAIN);
     advance(ins, utf8_len, I, BYTE);
     ins.block(BlockType::Empty);
@@ -388,15 +376,8 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     // No break: the current code point joins the cluster, so fold it into the state.
     // GB11: remember `Extended_Pictographic Extend*` and then the ZWJ.
-    ins.i32_const(0);
-    ins.local_set(NEXT_EP);
     ins.local_get(EP_CHAR);
-    ins.i32_const(0);
-    ins.i32_ne();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(1);
     ins.local_set(NEXT_EP);
-    ins.end();
     local_eq(ins, CLS, EXTEND);
     local_eq(ins, EP, 1);
     ins.i32_and();
@@ -466,6 +447,7 @@ struct BreakState {
     /// GB9c: 0 none, 1 after a consonant, 2 after a consonant and a linker.
     chain: u32,
     cur: u32,
+    /// `Extended_Pictographic` of the current code point: 1 or 0.
     ep_char: u32,
 }
 
@@ -507,8 +489,6 @@ fn no_break_rules(ins: &mut InstructionSink, state: &BreakState) {
     // GB11: Extended_Pictographic Extend* ZWJ x Extended_Pictographic.
     local_eq(ins, ep, 2);
     ins.local_get(ep_char);
-    ins.i32_const(0);
-    ins.i32_ne();
     ins.i32_and();
     ins.i32_or();
     // GB12/GB13: an even number of regional indicators before this one.
@@ -830,5 +810,15 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn extended_pictographic_class_is_one() {
+        // `grapheme_end` uses the class as the 0/1 property without comparing it.
+        assert!(
+            t::EXTENDED_PICTOGRAPHIC
+                .iter()
+                .all(|&(.., class)| class == 1)
+        );
     }
 }
