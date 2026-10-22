@@ -149,6 +149,64 @@ fn main() {
 }
 
 #[test]
+fn an_implementation_that_suspends_twice_resumes() {
+    // An operation implementation may suspend again after a resume (spec 14.5 item 3): the same
+    // handler sleeps twice, sleeps in a `List.map` repetition and sleeps before calling another
+    // `suspend fn` operation. Each resume must find its caller, so the run ends normally rather
+    // than unwinding as `interrupted`. The virtual time is 100 + 50 + 3 * 10 + 5 = 185.
+    let Some(_) = wasmtime() else { return };
+    let Some(run) = run(
+        "clock-resuspend",
+        r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry {
+  suspend fn go() -> Int
+}
+effect Ping {
+  suspend fn ping() -> Int
+}
+
+handler Pinging: Ping {
+  suspend fn ping(resume) {
+    (use Clock).sleep(5)
+    resume(1)
+  }
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    clock = use Clock
+    clock.sleep(100)
+    clock.sleep(50)
+    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    n = (use Ping).ping()
+    resume(n)
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, fn() {
+    with TestClock {
+      with Pinging, Retrying {
+        dbg("go #{(use Retry).go()}")
+      }
+    }
+  })
+  dbg("end #{Instant.to_unix_milliseconds(end)}")
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "\"go 1\"\n\"end 185\"\n");
+}
+
+#[test]
 fn an_interrupted_sleeper_reports_interrupted() {
     // The handler sleeps, then returns without resuming. Nothing can wake the caller, so the run
     // stalls and unwinds as interrupted (spec 14.5), which is exit code 130 on every target.

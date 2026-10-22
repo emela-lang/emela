@@ -339,3 +339,100 @@ fn clocks_agree_on_virtual_and_real_time() {
         )
     );
 }
+
+/// An operation implementation that suspends more than once (spec 14.5 item 3): the same handler
+/// implementation sleeps twice, sleeps in a `List.map` repetition, and sleeps before calling
+/// another `suspend fn` operation. Each resume runs the implementation again, so the caller links
+/// must not be overwritten. The virtual time is 100 + 50 + 3 * 10 + 5 = 185.
+const REPEATED_SUSPENSION: &str = r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Retry { suspend fn go() -> Int }
+effect Ping { suspend fn ping() -> Int }
+
+handler Pinging: Ping {
+  suspend fn ping(resume) {
+    (use Clock).sleep(5)
+    resume(1)
+  }
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    clock = use Clock
+    clock.sleep(100)
+    clock.sleep(50)
+    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    n = (use Ping).ping()
+    resume(n)
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, fn() {
+    with TestClock {
+      with Pinging, Retrying {
+        dbg("go #{(use Retry).go()}")
+      }
+    }
+  })
+  dbg("end #{end |> Instant.to_unix_milliseconds}")
+}
+"#;
+
+#[test]
+fn an_implementation_resumes_more_than_once() {
+    let Some(outcome) = compare("repeated-suspension", REPEATED_SUSPENSION) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (0, String::new(), "\"go 1\"\n\"end 185\"\n".to_owned())
+    );
+}
+
+/// The same repeated suspension on the real clock (spec 8.7). The virtual time is not asserted;
+/// only that every resume runs and the implementation's result reaches the caller.
+const REPEATED_SUSPENSION_REAL: &str = r#"
+import Std.Clock.{Clock, SystemClock}
+
+effect Retry { suspend fn go() -> Int }
+effect Ping { suspend fn ping() -> Int }
+
+handler Pinging: Ping {
+  suspend fn ping(resume) {
+    (use Clock).sleep(10)
+    resume(1)
+  }
+}
+
+handler Retrying: Retry {
+  suspend fn go(resume) {
+    clock = use Clock
+    clock.sleep(10)
+    clock.sleep(10)
+    List.map(List.range(0, 3), fn(i) { clock.sleep(10) })
+    n = (use Ping).ping()
+    resume(n)
+  }
+}
+
+fn main() {
+  with SystemClock {
+    with Pinging, Retrying {
+      dbg("go #{(use Retry).go()}")
+    }
+  }
+}
+"#;
+
+#[test]
+fn an_implementation_resumes_more_than_once_on_the_real_clock() {
+    let Some(outcome) = compare("repeated-suspension-real", REPEATED_SUSPENSION_REAL) else {
+        return;
+    };
+    assert_eq!(outcome, (0, String::new(), "\"go 1\"\n".to_owned()));
+}
