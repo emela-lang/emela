@@ -149,11 +149,9 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.i32_const(0xF);
     ins.i32_and();
     ins.br_if(1);
-    // Done when everything was written, or when the other end hung up (no progress).
+    // Done when everything was written. A `COMPLETED` copy of zero items is not the end: the
+    // reader went away only when the status is `DROPPED`, so write the rest again.
     ins.local_get(REM);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ins.local_get(R);
     ins.i32_eqz();
     ins.br_if(1);
     ins.br(0);
