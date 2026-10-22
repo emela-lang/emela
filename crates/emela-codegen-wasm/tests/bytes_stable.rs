@@ -5,6 +5,11 @@
 //! programs here are chosen to also reach the emitter's lowerings: closures, strings, lists, enums,
 //! options, wasm externals, Int and Int64 arithmetic, shifts, the Float remainder and the test
 //! entry. A change in the length or the hash of the module means the lowering changed.
+//!
+//! The bytes depend on everything before the emitter too (the Prelude, the Core IR passes), so a
+//! change there can also fail this test. When the output changes on purpose, check that the
+//! change comes from what you changed, then paste the values from the failure message, which
+//! lists every program whose output changed, in place of the old ones.
 
 mod common;
 
@@ -146,28 +151,39 @@ pub fn raises_a_defect() { panic("boom") }
     0xc614_e22c_4f1b_5897,
 )];
 
+/// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new
+/// values of every program whose output changed in the form the tables use.
+fn check(results: impl IntoIterator<Item = (&'static str, Vec<u8>, usize, u64)>) {
+    let changed: Vec<String> = results
+        .into_iter()
+        .filter_map(|(name, bytes, expected_len, expected_hash)| {
+            let (len, hash) = (bytes.len(), fnv1a(&bytes));
+            (len != expected_len || hash != expected_hash).then(|| {
+                let hex = format!("{hash:016x}");
+                let groups: Vec<&str> = (0..16).step_by(4).map(|i| &hex[i..i + 4]).collect();
+                format!("{name}: {len}, 0x{},", groups.join("_"))
+            })
+        })
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "the emitted bytes changed (the modules are still valid); the new values are:\n{}",
+        changed.join("\n")
+    );
+}
+
 #[test]
 fn emitted_bytes_do_not_change() {
-    for &(name, src, expected_len, expected_hash) in PROGRAMS {
-        let bytes = compile_checked(src);
-        assert_eq!(bytes.len(), expected_len, "{name}: module length changed");
-        assert_eq!(
-            fnv1a(&bytes),
-            expected_hash,
-            "{name}: emitted bytes changed (the module is still valid)"
-        );
-    }
+    check(
+        PROGRAMS
+            .iter()
+            .map(|&(name, src, len, hash)| (name, compile_checked(src), len, hash)),
+    );
 }
 
 #[test]
 fn emitted_test_bytes_do_not_change() {
-    for &(name, src, tests, expected_len, expected_hash) in TEST_PROGRAMS {
-        let bytes = compile_tests_checked(src, tests);
-        assert_eq!(bytes.len(), expected_len, "{name}: module length changed");
-        assert_eq!(
-            fnv1a(&bytes),
-            expected_hash,
-            "{name}: emitted bytes changed (the module is still valid)"
-        );
-    }
+    check(TEST_PROGRAMS.iter().map(|&(name, src, tests, len, hash)| {
+        (name, compile_tests_checked(src, tests), len, hash)
+    }));
 }
