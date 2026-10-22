@@ -57,8 +57,8 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         // lo, hi, mid, start, packed
         "unicode_class" => i32s(5),
-        // n, i, cp, cls, prev, ep, ri, chain, cur, brk, next_ep, byte, ep_char
-        "grapheme_end" => i32s(13),
+        // n, i, cp, cls, prev, ep, ri, chain, cur, brk, next_ep, ep_char
+        "grapheme_end" => i32s(12),
         // n, i, count
         "str_grapheme_count" => i32s(3),
         // n, start, end, head, last, segment, cell
@@ -278,9 +278,8 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     const CUR: u32 = 10;
     const BRK: u32 = 11;
     const NEXT_EP: u32 = 12;
-    const BYTE: u32 = 13;
-    const EP_CHAR: u32 = 14;
-    let (utf8_cp, utf8_len) = (rt(b, "utf8_cp"), rt(b, "utf8_len"));
+    const EP_CHAR: u32 = 13;
+    let utf8_cp = rt(b, "utf8_cp");
     let (gcb_of, incb_of, ext_pict_of) = (rt(b, "gcb_of"), rt(b, "incb_of"), rt(b, "ext_pict_of"));
     let state = BreakState {
         prev: PREV,
@@ -323,7 +322,7 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_const(INCB_CONSONANT);
     ins.i32_eq();
     ins.local_set(CHAIN);
-    advance(ins, utf8_len, I, BYTE);
+    advance(ins, I, CP);
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
     ins.local_get(I);
@@ -429,7 +428,7 @@ fn grapheme_end(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
     ins.local_get(CLS);
     ins.local_set(PREV);
-    advance(ins, utf8_len, I, BYTE);
+    advance(ins, I, CP);
     ins.br(0);
     ins.end();
     ins.end();
@@ -502,19 +501,18 @@ fn no_break_rules(ins: &mut InstructionSink, state: &BreakState) {
     ins.i32_or();
 }
 
-/// `i += utf8_len(byte at s + 20 + i)`; `byte` is a scratch local.
-fn advance(ins: &mut InstructionSink, utf8_len: u32, i: u32, byte: u32) {
-    ins.local_get(0);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
+/// `i += ` the UTF-8 length of `cp`, the code point already decoded at `i`:
+/// `1 + (cp >= 0x80) + (cp >= 0x800) + (cp >= 0x10000)`.
+fn advance(ins: &mut InstructionSink, i: u32, cp: u32) {
     ins.local_get(i);
+    ins.i32_const(1);
     ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.local_set(byte);
-    ins.local_get(i);
-    ins.local_get(byte);
-    ins.call(utf8_len);
-    ins.i32_add();
+    for bound in [0x80, 0x800, 0x1_0000] {
+        ins.local_get(cp);
+        ins.i32_const(bound);
+        ins.i32_ge_u();
+        ins.i32_add();
+    }
     ins.local_set(i);
 }
 
