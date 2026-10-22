@@ -79,9 +79,11 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     const MAX_COUNT: i32 = (1 << 28) - 1;
 
     let set_new = b.waitable_set_new();
-    let set_wait = b.waitable_set_wait();
     let set_drop = b.waitable_set_drop();
-    let join = b.waitable_join();
+    let waits = Waits {
+        join: b.waitable_join(),
+        wait: b.waitable_set_wait(),
+    };
 
     // Split the new stream into its reader (to the host) and writer (our bytes).
     ins.call(imports.stream_new);
@@ -121,24 +123,12 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.call(imports.stream_write);
     ins.local_set(CODE);
     // `-1` (BLOCKED): wait for the stream's event and use its payload as the status.
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
     ins.local_get(CODE);
     ins.i32_const(-1);
-    ins.i32_ne();
-    ins.br_if(1);
-    ins.local_get(W);
-    ins.local_get(SET);
-    ins.call(join);
-    ins.local_get(SET);
-    ins.i32_const(WAITBUF as i32);
-    ins.call(set_wait);
-    ins.drop();
-    ins.i32_const(WAITBUF as i32);
-    ins.i32_load(mem(0, 4));
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    wait_event(ins, &waits, W, SET);
     ins.local_set(CODE);
-    ins.br(0);
-    ins.end();
     ins.end();
     // The status is `amount << 4 | code`; advance by the amount.
     ins.local_get(CODE);
@@ -153,9 +143,6 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
     ins.local_get(R);
     ins.i32_add();
     ins.local_set(PTR);
-    ins.local_get(W);
-    ins.i32_const(0);
-    ins.call(join);
     // `DROPPED` (1) and `CANCELLED` (2) are terminal: the host will reject a further write.
     // Only `COMPLETED` (0) may continue with the remaining bytes.
     ins.local_get(CODE);
@@ -179,46 +166,43 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, imports: OutputImpor
 
     // Wait for `future<result<_, error-code>>`; the value itself is not used (writing to
     // stdout/stderr is best effort, like `fd_write` before).
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
     ins.local_get(F);
     ins.i32_const(FUTUREBUF as i32);
     ins.call(imports.future_read);
-    ins.local_set(CODE);
-    ins.local_get(CODE);
     ins.i32_const(-1);
-    ins.i32_ne();
-    ins.br_if(1);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(F);
-    ins.local_get(SET);
-    ins.call(join);
-    ins.local_get(SET);
-    ins.i32_const(WAITBUF as i32);
-    ins.call(set_wait);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    wait_event(ins, &waits, F, SET);
     ins.drop();
-    ins.i32_const(WAITBUF as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(CODE);
-    ins.local_get(CODE);
-    ins.i32_const(-1);
-    ins.i32_ne();
-    ins.br_if(1);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.br(1);
-    ins.end();
     ins.end();
 
-    ins.local_get(F);
-    ins.i32_const(0);
-    ins.call(join);
     ins.local_get(F);
     ins.call(imports.future_drop_readable);
     ins.local_get(SET);
     ins.call(set_drop);
+}
+
+/// The canonical built-ins `wait_event` calls.
+struct Waits {
+    join: u32,
+    wait: u32,
+}
+
+/// Blocks until the waitable `handle` has an event and leaves the event's payload on the stack.
+/// `handle` is joined to the waitable set `set` only for the wait.
+fn wait_event(ins: &mut InstructionSink, waits: &Waits, handle: u32, set: u32) {
+    ins.local_get(handle);
+    ins.local_get(set);
+    ins.call(waits.join);
+    ins.local_get(set);
+    ins.i32_const(WAITBUF as i32);
+    ins.call(waits.wait);
+    ins.drop();
+    ins.local_get(handle);
+    ins.i32_const(0);
+    ins.call(waits.join);
+    ins.i32_const(WAITBUF as i32);
+    ins.i32_load(mem(0, 4));
 }
 
 fn debug_print(b: &mut Builder, ins: &mut InstructionSink) {
