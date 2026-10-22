@@ -294,3 +294,48 @@ fn releases_run_from_the_inside() {
     );
     assert!(!stderr.contains("impl after wait"), "{stderr}");
 }
+
+/// The TestClock is virtual on every target (spec 8.8): it advances only when the run stalls, a
+/// negative sleep is zero, and `now` observes the advanced time. A zero-length SystemClock sleep
+/// crosses the host boundary without waiting.
+const CLOCKS: &str = r#"
+import Std.Clock.{Clock, TestClock, SystemClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  (_, end) = State.run(start, fn() {
+    with TestClock {
+      clock = use Clock
+      dbg(Instant.to_unix_milliseconds(clock.now()))
+      clock.sleep(250)
+      dbg(Instant.to_unix_milliseconds(clock.now()))
+      clock.sleep(-1)
+      dbg(Instant.to_unix_milliseconds(clock.now()))
+      clock.sleep(5)
+      dbg(Instant.to_unix_milliseconds(clock.now()))
+    }
+  })
+  dbg(Instant.to_unix_milliseconds(end))
+  with SystemClock {
+    (use Clock).sleep(0)
+    dbg("real zero")
+  }
+}
+"#;
+
+#[test]
+fn clocks_agree_on_virtual_and_real_time() {
+    let Some(outcome) = compare("clocks", CLOCKS) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            0,
+            String::new(),
+            "0\n250\n250\n255\n255\n\"real zero\"\n".to_owned()
+        )
+    );
+}

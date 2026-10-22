@@ -37,8 +37,8 @@ struct Skipped {
 
 /// The examples whose feature the WASM target does not support yet.
 ///
-/// `clock`, `fibers`, `http` and `notes` also use Console, which is available now; they stay
-/// skipped for their own feature below.
+/// `fibers`, `http` and `notes` also use Console, which is available now; they stay skipped for
+/// their own feature below.
 const SKIPPED: &[Skipped] = &[
     Skipped {
         feature: "file system",
@@ -49,22 +49,9 @@ const SKIPPED: &[Skipped] = &[
         examples: &["notes"],
     },
     Skipped {
-        feature: "clock",
-        reason: "Std.Clock.sleep has no WASM host yet",
-        expected_failures: &[
-            "external function `sleep_milliseconds` has no `@external` for target `wasm`",
-        ],
-        examples: &["clock"],
-    },
-    // The build stops at the missing `Std.Clock.sleep` host before it reaches the fibers, so both
-    // failures belong to this skip: the first now, the second once Std.Clock.sleep has a host.
-    Skipped {
         feature: "fiber",
-        reason: "fibers are not supported on target `wasm` yet (and Std.Clock.sleep has no WASM host)",
-        expected_failures: &[
-            "external function `sleep_milliseconds` has no `@external` for target `wasm`",
-            "fibers are not supported on target `wasm` yet",
-        ],
+        reason: "fibers are not supported on target `wasm` yet",
+        expected_failures: &["fibers are not supported on target `wasm` yet"],
         examples: &["fibers"],
     },
     Skipped {

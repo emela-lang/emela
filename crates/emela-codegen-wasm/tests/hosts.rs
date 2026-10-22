@@ -1,5 +1,5 @@
-//! The synchronous WASI 0.3 hosts the bundled `Std` handlers use: Console, Env, Random and
-//! Clock.now. Sleep, the test clock's virtual sleep, the file system and HTTP are not part of
+//! The WASI 0.3 hosts the bundled `Std` handlers use: Console, Env, Random and Clock.now. The
+//! Clock sleeps have their own tests in `tests/clock.rs`; the file system and HTTP are not part of
 //! this target yet.
 
 mod common;
