@@ -77,11 +77,21 @@ const TABLES: [(&str, Ranges); 3] = [
     ("unicode.incb", t::INCB),
 ];
 
+/// The runtime functions the IR calls that reach `grapheme_end` (`str_split` does for an empty
+/// separator). A new runtime function that calls into this module from outside is added here.
+const ENTRIES: [&str; 3] = ["str_grapheme_count", "str_grapheme_chars", "str_split"];
+
 /// Writes the three property tables into static data and records their offsets.
 ///
 /// The entries are `(first, last | class << 24)`; `last` is at most `0x10FFFF`, so the class
 /// fits in the high byte of the second word.
+///
+/// The tables are about 10 KB, so they are written only when the program calls a function in
+/// [`ENTRIES`]. Otherwise the grapheme functions are unreachable and read base 0.
 pub(super) fn setup(b: &mut Builder) {
+    if !ENTRIES.iter().any(|name| b.rt_used.contains(name)) {
+        return;
+    }
     for (name, ranges) in TABLES {
         let off = b.alloc_static(ranges.len() as u32 * 8);
         for (i, &(first, last, class)) in ranges.iter().enumerate() {
@@ -95,7 +105,7 @@ pub(super) fn setup(b: &mut Builder) {
 
 /// Pushes the arguments of `unicode_class` for the table `name` and `cp` (local 0), and calls it.
 fn lookup(b: &Builder, ins: &mut InstructionSink, name: &str, ranges: Ranges) {
-    ins.i32_const(b.rt_data[name] as i32);
+    ins.i32_const(b.rt_data.get(name).copied().unwrap_or(0) as i32);
     ins.i32_const(ranges.len() as i32);
     ins.local_get(0);
     ins.call(rt(b, "unicode_class"));

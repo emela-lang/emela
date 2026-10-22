@@ -32,7 +32,7 @@ use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
     ExportKind, ExportSection, Function as WasmFunction, FunctionSection, GlobalSection,
@@ -133,6 +133,9 @@ pub(crate) struct Builder<'m> {
     fn_table: Vec<u32>,
     table_funcs: Vec<u32>,
     pub(crate) rt: FxHashMap<&'static str, u32>,
+    /// The runtime functions the IR bodies call. A runtime module's `setup` reads it to leave
+    /// out static data the program never reaches.
+    pub(crate) rt_used: FxHashSet<&'static str>,
     /// The `show` function of each error enum (spec 10.6), as a table index for the descriptor.
     pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
@@ -165,6 +168,7 @@ impl<'m> Builder<'m> {
             fn_table: vec![0; m.functions.len()],
             table_funcs: Vec::new(),
             rt: FxHashMap::default(),
+            rt_used: FxHashSet::default(),
             error_shows: FxHashMap::default(),
             entry_index: 0,
             str_desc: 0,
@@ -655,6 +659,7 @@ impl<'m> Builder<'m> {
     }
 
     fn rt(&mut self, name: &'static str) -> u32 {
+        self.rt_used.insert(name);
         *self.rt.get(name).unwrap_or_else(|| {
             self.errors.push(WasmError::new(
                 WasmErrorKind::Internal,
