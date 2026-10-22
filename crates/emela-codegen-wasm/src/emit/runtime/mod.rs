@@ -113,7 +113,9 @@ pub(crate) fn emit(b: &mut Builder) {
             {
                 let mut ins = f.instructions();
                 let handled = (module.emit)(b, name, &mut ins);
-                debug_assert!(handled, "no lowering for runtime function `{name}`");
+                if !handled {
+                    b.internal(format!("no lowering for runtime function `{name}`"));
+                }
                 ins.end();
             }
             b.bodies.push(f);
