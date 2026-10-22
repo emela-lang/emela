@@ -1,11 +1,11 @@
 //! Floats: the shortest round-trip display, `parse`, and the conversions to Int.
 //!
-//! `Float.to_string` has to give the same text as the JS target's `$showFloat`: the shortest
-//! digits that read back as the same binary64, with `.0` on a finite integral value, `Infinity`,
-//! `-Infinity`, `NaN`, and `-0.0` shown as `0.0` (`[trait.builtin]`). wasm has no `printf`, so
-//! the runtime does the work itself: it writes the *exact* decimal expansion of the value (every
-//! binary64 is a finite decimal) with a base-10^9 big integer, then takes the shortest prefix of
-//! those digits that still rounds back to the value.
+//! `Float.to_string` gives the text of Float's Show: the shortest digits that read back as the
+//! same binary64, with `.0` on a finite integral value, `Infinity`, `-Infinity`, `NaN`, and
+//! `-0.0` shown as `0.0` (`[trait.builtin]`). wasm has no `printf`, so the runtime does the work
+//! itself: it writes the *exact* decimal expansion of the value (every binary64 is a finite
+//! decimal) with a base-10^9 big integer, then takes the shortest prefix of those digits that
+//! still rounds back to the value.
 //!
 //! The rounding interval of a value is the range between the midpoints to its neighbours. Its
 //! bounds are dyadic, so they get the same exact decimal treatment. A prefix round-trips exactly
@@ -14,7 +14,7 @@
 //! `Float.parse` is the other direction: it first reads the digits into the naive value
 //! (`(the first 19 digits as u64) * 10^exponent`), then moves that value by single neighbours
 //! until the input decimal lies in its rounding interval. That check is exact, so the result is
-//! the correctly rounded binary64, as `Number(s)` and `strtod` give.
+//! the binary64 nearest to the input, and a tie goes to the value with the even mantissa.
 //!
 //! The buffers live in one static block (`prepare`), allocated only when the program uses a
 //! Float builtin, so modules without Float keep their bytes.
