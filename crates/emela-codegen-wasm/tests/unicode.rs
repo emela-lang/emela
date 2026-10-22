@@ -6,6 +6,7 @@
 //! `String.split(s, "")`. Wasmtime and node are optional, like in the other run tests.
 
 mod common;
+mod grapheme_break_test;
 
 use std::process::{Command, Stdio};
 
@@ -93,53 +94,13 @@ fn check(cases: &[(String, Vec<String>)]) -> Result<(), String> {
     Err(detail)
 }
 
-/// The cases of the official `GraphemeBreakTest.txt`: `(string, its graphemes)`.
-fn official_cases() -> Vec<(String, Vec<String>)> {
-    let text = include_str!("../data/unicode/17.0.0/GraphemeBreakTest.txt");
-    assert!(
-        text.contains("GraphemeBreakTest-17.0.0.txt"),
-        "the vendored test file is not Unicode 17.0.0"
-    );
-    let mut cases = Vec::new();
-    for line in text.lines() {
-        let line = line.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-        let mut graphemes = Vec::new();
-        let mut current = String::new();
-        let mut break_before = false;
-        for token in line.split_whitespace() {
-            match token {
-                "÷" => break_before = true,
-                "×" => break_before = false,
-                hex => {
-                    if break_before {
-                        // The first marker starts the first cluster, so `current` may be empty
-                        // only at the very beginning.
-                        if !current.is_empty() {
-                            graphemes.push(std::mem::take(&mut current));
-                        }
-                        break_before = false;
-                    }
-                    let cp = u32::from_str_radix(hex, 16).expect("a code point");
-                    current.push(char::from_u32(cp).expect("a scalar value"));
-                }
-            }
-        }
-        if !current.is_empty() {
-            graphemes.push(current);
-        }
-        let s: String = graphemes.concat();
-        cases.push((s, graphemes));
-    }
-    assert_eq!(cases.len(), 766, "the test file must have all 766 cases");
-    cases
-}
-
 #[test]
 fn official_grapheme_break_test_on_wasm() {
-    if let Err(e) = check(&official_cases()) {
+    let cases: Vec<(String, Vec<String>)> = grapheme_break_test::cases()
+        .into_iter()
+        .map(|graphemes| (graphemes.concat(), graphemes))
+        .collect();
+    if let Err(e) = check(&cases) {
         panic!("{e}");
     }
 }

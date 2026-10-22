@@ -669,6 +669,10 @@ fn str_grapheme_chars(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/grapheme_break_test/mod.rs"]
+mod grapheme_break_test;
+
+#[cfg(test)]
 mod tests {
     //! A reference implementation of the rules, over the same tables, checked against every case
     //! of the official `GraphemeBreakTest.txt`.
@@ -800,57 +804,28 @@ mod tests {
         out
     }
 
-    /// `(the string, the byte offsets of its cluster starts including its end)` of one test line.
-    fn one_case(line: &str) -> (String, Vec<usize>) {
-        let mut s = String::new();
-        let mut want = Vec::new();
-        let mut break_before = false;
-        for token in line.split_whitespace() {
-            match token {
-                "÷" => break_before = true,
-                "×" => break_before = false,
-                hex => {
-                    if break_before {
-                        want.push(s.len());
-                        break_before = false;
-                    }
-                    let cp = u32::from_str_radix(hex, 16).expect("a code point");
-                    s.push(char::from_u32(cp).expect("a scalar value"));
-                }
-            }
-        }
-        if break_before {
-            want.push(s.len());
-        }
-        (s, want)
-    }
-
     #[test]
     fn grapheme_break_test_17_0_0() {
-        let text = include_str!("../../../data/unicode/17.0.0/GraphemeBreakTest.txt");
-        assert!(
-            text.contains("GraphemeBreakTest-17.0.0.txt"),
-            "the vendored test file is not Unicode 17.0.0"
-        );
-        let mut cases = 0;
         let mut failures = Vec::new();
-        for (n, line) in text.lines().enumerate() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            if line.is_empty() {
-                continue;
-            }
-            let (s, want) = one_case(line);
-            cases += 1;
+        let cases = grapheme_break_test::cases();
+        for (n, graphemes) in cases.iter().enumerate() {
+            let s = graphemes.concat();
+            let want: Vec<usize> = std::iter::once(0)
+                .chain(graphemes.iter().scan(0, |end, g| {
+                    *end += g.len();
+                    Some(*end)
+                }))
+                .collect();
             let got = boundaries(&s);
             if got != want {
-                failures.push(format!("line {}: {s:?}: want {want:?}, got {got:?}", n + 1));
+                failures.push(format!("case {n}: {s:?}: want {want:?}, got {got:?}"));
             }
         }
-        assert_eq!(cases, 766, "the test file must have all 766 cases");
         assert!(
             failures.is_empty(),
-            "{} of {cases} cases failed:\n{}",
+            "{} of {} cases failed:\n{}",
             failures.len(),
+            cases.len(),
             failures.join("\n")
         );
     }
