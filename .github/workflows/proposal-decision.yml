@@ -30,7 +30,7 @@ jobs:
     # merge queue would never see `ci-ok`.
     permissions: {}
     steps:
-      - name: "Mint token (GitHub App: emela-release)"
+      - name: "Mint token (GitHub App: emela-bot)"
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
