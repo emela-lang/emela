@@ -8,6 +8,8 @@ Sections are found by their stable names, the `` `[effect.handler]` `` at the en
     scripts/spec.py refs NAME          where a name is referred to (spec, proposals, NOTES.md, code)
     scripts/spec.py proposals [NAME]   list decided proposals and local drafts, or those touching NAME
     scripts/spec.py check              check stable names and proposals for consistency
+    scripts/spec.py accept SLUG FILE [DATE]
+                                       record the adoption of a proposal, with the decision in FILE
 """
 
 import os
@@ -177,12 +179,71 @@ def cmd_check():
     sys.exit(1 if problems else 0)
 
 
+def section_body(text, heading):
+    """The span of the text under `## heading`, up to the next `## ` heading or the end."""
+    m = re.search(r"^## " + re.escape(heading) + r"\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    return (m.start(1), m.end(1)) if m else None
+
+
+def cmd_accept(slug, decision_file, date=None):
+    """Record the author's adoption of a proposal: the front matter, "Decision" and `spec/history.md`.
+
+    Applying "Specification changes" to `spec/` is left to a person or an LLM, because it needs judgment."""
+    import datetime
+
+    path = os.path.join(PROPOSALS, slug + ".md")
+    if not os.path.isfile(path):
+        sys.exit(f"no proposal proposals/{slug}.md")
+    meta, text = read_proposal(path)
+    if meta.get("status") != "draft":
+        sys.exit(f"proposals/{slug}.md is {meta.get('status')!r}, not draft")
+    if not re.fullmatch(r"\d+", str(meta.get("pr", ""))):
+        sys.exit(f"proposals/{slug}.md has no pull request number in `pr`")
+    decision = open(decision_file, encoding="utf-8").read().strip()
+    if not decision:
+        sys.exit("the decision is empty: write the reasons for adopting the proposal")
+    span = section_body(text, "Open questions")
+    if span and re.search(r"^- \S", text[span[0]:span[1]], re.M):
+        sys.exit(f"proposals/{slug}.md still has open questions; settle them before adopting it")
+    date = date or datetime.date.today().isoformat()
+
+    text = re.sub(r"^status:.*$", "status: accepted", text, count=1, flags=re.M)
+    text = re.sub(r"^decided:.*$", f"decided: {date}", text, count=1, flags=re.M)
+    span = section_body(text, "Open questions")
+    if span:
+        text = text[:span[0]] + "\n" + text[span[1]:]
+    span = section_body(text, "Decision")
+    if span:
+        text = text[:span[0]] + "\n" + decision + "\n" + ("\n" if span[1] < len(text) else "") + text[span[1]:]
+    else:
+        text = text.rstrip("\n") + "\n\n## Decision\n\n" + decision + "\n"
+    # A merged proposal is in English (proposals/README.md, "Language").
+    japanese = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
+    lines = [i for i, line in enumerate(text.split("\n"), 1) if japanese.search(line)]
+    if lines:
+        sys.exit(f"proposals/{slug}.md has Japanese text on lines {', '.join(map(str, lines))}; "
+                 "an adopted proposal is in English")
+    open(path, "w", encoding="utf-8").write(text)
+
+    span = section_body(text, "Summary")
+    summary = " ".join(text[span[0]:span[1]].split()) if span else ""
+    names = ", ".join(f"`[{t}]`" for t in touched(meta))
+    entry = (f"## {date} ({meta.get('title', slug)})\n\n"
+             f"- {names}: {summary} Adopted in the proposal `{slug}` (#{meta['pr']}).\n\n")
+    history = os.path.join(SPEC, "history.md")
+    old = open(history, encoding="utf-8").read()
+    first = re.search(r"^## ", old, re.M)
+    at = first.start() if first else len(old)
+    open(history, "w", encoding="utf-8").write(old[:at] + entry + old[at:])
+    print(f"accepted proposals/{slug}.md on {date}; apply its \"Specification changes\" to spec/")
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     cmd, args = sys.argv[1], sys.argv[2:]
     {"index": cmd_index, "show": cmd_show, "refs": cmd_refs, "proposals": cmd_proposals,
-     "check": cmd_check}.get(cmd, lambda *_: sys.exit(__doc__))(*args)
+     "check": cmd_check, "accept": cmd_accept}.get(cmd, lambda *_: sys.exit(__doc__))(*args)
 
 
 if __name__ == "__main__":

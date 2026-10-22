@@ -52,7 +52,9 @@ local draft ──> draft pull request (review) ──> merged (adopted)
   - apply "Specification changes" to `spec/`, in the same pull request or in a following one
   - add an entry to `spec/history.md` (the date, the proposal's slug and title, and the names of the sections it changed)
   - mark the pull request ready for review and merge it
-- When the author rejects the proposal, close the pull request with the reason in a comment. Nothing is merged. Rejected proposals are listed by `is:pr label:proposal is:closed is:unmerged`.
+- When the author rejects the proposal, close the pull request with the reason in a comment.
+- The author decides with a comment on the pull request whose first line is `/accept` or `/reject`, followed by the reasons. The `Proposal decision` workflow (`.github/workflows/proposal-decision.yml`) acts only on comments from the author. On `/accept` it sets `status` and `decided`, writes the reasons into "Decision", adds the entry to `spec/history.md` (`scripts/spec.py accept`), and marks the pull request ready for review; applying "Specification changes" and merging stay with the author. On `/reject` it closes the pull request with the reasons. It refuses a proposal that still has open questions or Japanese text, and a pull request from a fork, which is finished by hand.
+- CI (`proposal-adopted`, part of the required `ci-ok`) fails on a pull request that adds a proposal, or changes one from `draft`, until the proposal is `status: accepted` and the author has commented `/accept` on the pull request. A proposal cannot be merged without the author's decision, including one finished by hand. Nothing is merged. Rejected proposals are listed by `is:pr label:proposal is:closed is:unmerged`.
 
 ### 4. Implementation
 

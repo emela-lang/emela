@@ -175,9 +175,57 @@ jobs:
           if [ ! -f scripts/spec.py ]; then exit 0; fi
           python3 scripts/spec.py check
 
+  # Merging a pull request that adds a proposal adopts it, and only the language's author adopts a
+  # proposal (proposals/README.md, "Decision"). A pull request cannot be approved by its own author,
+  # so instead this job fails until the author has commented `/accept`. The `Proposal decision`
+  # workflow then pushes `status: accepted`, which runs this job again. The merge queue skips the
+  # job: a pull request enters the queue only after it passed here.
+  proposal-adopted:
+    needs: changes
+    if: needs.changes.outputs.spec == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Require the author's /accept for a proposal being adopted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: Allianaab2m
+        run: |
+          status() { sed -n 's/^status:[[:space:]]*\([a-z]*\).*/\1/p' | head -n1; }
+          # The checkout is the merge commit: its first parent is the base branch.
+          adopting=""
+          for f in $(git diff --name-only --diff-filter=AM HEAD^1 HEAD -- 'proposals/*.md'); do
+            case "$f" in proposals/README.md | proposals/TEMPLATE.md | proposals/*/*) continue ;; esac
+            before="$(git show "HEAD^1:$f" 2>/dev/null | status)"
+            # A proposal that was already adopted is only being edited (a typo, `implemented`).
+            case "$before" in accepted | implemented) continue ;; esac
+            after="$(status < "$f")"
+            if [ "$after" != accepted ]; then
+              echo "::error file=$f::not adopted yet (status: $after); the author adopts it by commenting /accept"
+              exit 1
+            fi
+            adopting="$adopting $f"
+          done
+          if [ -z "$adopting" ]; then exit 0; fi
+          # `status: accepted` can be written by anyone; the comment can be written only by the author.
+          accepted="$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"$AUTHOR\") | .body | split(\"\n\")[0] | gsub(\"^\\\\s+|\\\\s+$\"; \"\")" \
+            | grep -cx '/accept' || true)"
+          if [ "$accepted" = 0 ]; then
+            echo "::error::$adopting is accepted, but $AUTHOR has not commented /accept on this pull request"
+            exit 1
+          fi
+
   ci-ok:
     if: always()
-    needs: [changes, lint, test, examples, laws, spec]
+    needs: [changes, lint, test, examples, laws, spec, proposal-adopted]
     runs-on: ubuntu-latest
     steps:
       - name: Sum up the jobs

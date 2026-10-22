@@ -67,6 +67,8 @@ Only when the author asks.
 
 Only when the author has adopted the proposal and asks you to finish it.
 
+The author usually adopts a proposal by commenting `/accept` and the reasons on its pull request. The `Proposal decision` workflow then does steps 1 and 3 with `scripts/spec.py accept` and step 6, and leaves steps 2 and 4. Check the pull request for the bot's commit before doing those steps again. Without the bot (a pull request from a fork, or when the author asks), do every step; `scripts/spec.py accept <slug> <file with the reasons>` does steps 1 and 3.
+
 1. In `proposals/<slug>.md`: set `status: accepted` and `decided: <date>`, empty "Open questions", and write the author's reasons in "Decision" (in the author's words). Make sure the whole file is in English.
 2. Apply "Specification changes" to `spec/`, section by section (in the same pull request, or in a following one if the author prefers). Give new sections a name in the heading. Keep names even if numbers shift.
 3. Add an entry at the top of `spec/history.md`: the date, the proposal's slug and title, and the names of the sections changed.
@@ -74,7 +76,7 @@ Only when the author has adopted the proposal and asks you to finish it.
 5. Make `scripts/spec.py check` pass.
 6. Mark the pull request ready for review (`gh pr ready <N>`). The author merges it.
 
-When the author rejects the proposal, the author closes the pull request with the reason. Nothing else is needed.
+When the author rejects the proposal, the author comments `/reject` and the reasons (the workflow closes the pull request), or closes it with the reason by hand. Nothing else is needed.
 
 ## 4. After the implementation is merged
 
