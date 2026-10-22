@@ -46,6 +46,7 @@ mod constant;
 mod defect;
 mod env;
 mod float;
+pub(super) mod fs;
 mod host;
 mod notes;
 mod numeric;
@@ -191,6 +192,14 @@ const MODULES: &[RuntimeModule] = &[
         emit: async_bridge::emit,
         used: async_bridge::used,
     },
+    RuntimeModule {
+        funcs: fs::FUNCS,
+        locals: fs::locals,
+        // The plan's cells are allocated by `fs::prepare`, before the index space is assigned.
+        setup: no_setup,
+        emit: fs::emit,
+        used: fs::used,
+    },
 ];
 
 /// Reserves the runtime functions in the function index space.
@@ -199,6 +208,7 @@ pub(crate) fn register(b: &mut Builder) {
         float::prepare(b);
     }
     async_bridge::prepare(b);
+    fs::prepare(b);
     for module in MODULES {
         if !(module.used)(b) {
             continue;

@@ -232,7 +232,10 @@ fn str_from_raw(b: &mut Builder, ins: &mut InstructionSink) {
 /// The run is bumped from the heap end rounded up to `align` only, so short host strings stay
 /// packed; `alloc` rounds the heap end back up to 8 before the next object. Reallocation with a
 /// live `old_ptr` copies the common bytes.
-fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
+///
+/// The file system runtime registers the same body under `fs_cabi_realloc` when `Std.Env` is
+/// unused but `Std.FileSystem` is (a returned `list` needs the export either way).
+pub(super) fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     const P: u32 = 4;
     const COPY: u32 = 5;
 

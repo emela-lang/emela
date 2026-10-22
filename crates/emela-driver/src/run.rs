@@ -300,13 +300,16 @@ pub fn wasmtime_program() -> PathBuf {
 ///
 /// The output is a component exporting `wasi:cli/run@0.3.0`; p3 is not enabled by every
 /// wasmtime version, so the flag is explicit even where it is currently the default.
+///
+/// The program's work directory is preopened (the `--dir` equivalent), so `Std.FileSystem` sees
+/// the same directory the JS and C runs use. The path is the child's work directory (see
+/// [`with_program_cwd`]) or `.` when the driver did not set one; the guest resolves relative
+/// paths against the preopen, which is what the JS and C handlers do against the process cwd.
 pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
     let mut command = Command::new(wasmtime);
-    command
-        .arg("run")
-        .arg("-S")
-        .arg("p3=y")
-        .arg(entry_for_child(entry));
+    command.arg("run").arg("-S").arg("p3=y");
+    command.arg("--dir").arg(preopen_dir());
+    command.arg(entry_for_child(entry));
     apply_program_cwd(&mut command);
     command
 }
@@ -341,6 +344,24 @@ pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> 
 fn wasmtime_major(version: &str) -> Option<u32> {
     let number = version.split_whitespace().nth(1)?;
     number.split('.').next()?.parse().ok()
+}
+
+/// The work directory to preopen. It is made absolute before the child changes directory, so a
+/// relative [`with_program_cwd`] directory is not resolved a second time inside it.
+fn preopen_dir() -> PathBuf {
+    let dir = program_cwd().unwrap_or_else(|| PathBuf::from("."));
+    if dir.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&dir))
+            .unwrap_or(dir)
+    } else {
+        dir
+    }
+}
+
+/// The work directory [`with_program_cwd`] set for this thread, if any.
+fn program_cwd() -> Option<PathBuf> {
+    PROGRAM_CWD.with(|cwd| cwd.borrow().clone())
 }
 
 /// Runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are passed to the
