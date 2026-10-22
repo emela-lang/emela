@@ -59,6 +59,10 @@ pub fn compile_tests_checked(src: &str, tests: &[&str]) -> Vec<u8> {
 }
 
 /// The `wasmtime` binary (`EMELA_WASMTIME` or `wasmtime`), or `None` if it cannot be started.
+///
+/// Locally the run tests are skipped without it. Under CI (`CI` is set) a missing wasmtime is a
+/// failure, so the checks of the emitted code, such as the whole `GraphemeBreakTest.txt` in
+/// `tests/unicode.rs`, cannot pass without running.
 pub fn wasmtime() -> Option<&'static str> {
     static WT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     WT.get_or_init(|| {
@@ -71,6 +75,10 @@ pub fn wasmtime() -> Option<&'static str> {
             .output()
             .is_ok_and(|o| o.status.success());
         if !ok {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "cannot start `{wt}` under CI (set EMELA_WASMTIME)"
+            );
             eprintln!("skipping: cannot start `{wt}` (set EMELA_WASMTIME)");
         }
         ok.then_some(wt)

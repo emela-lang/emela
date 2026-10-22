@@ -676,6 +676,10 @@ mod grapheme_break_test;
 mod tests {
     //! A reference implementation of the rules, over the same tables, checked against every case
     //! of the official `GraphemeBreakTest.txt`.
+    //!
+    //! It checks the tables and the reading of the rules without wasmtime. The emitted
+    //! `grapheme_end` is checked against the same cases by `tests/unicode.rs`, which CI always
+    //! runs (see `wasmtime()` in `tests/common`).
 
     use super::*;
 
