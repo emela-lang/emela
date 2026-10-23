@@ -19,12 +19,12 @@
 mod wasm_common;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use emela_driver::{
     Analysis, CoreWasm, Input, Lower, MemoryFiles, Output, RunOptions, Target, run,
+    with_program_timeout,
 };
-use wasm_common::{have_wasmtime, matches_any, messages, out_dir, with_timeout};
+use wasm_common::{PROGRAM_TIMEOUT, have_wasmtime, matches_any, messages, out_dir};
 
 /// One feature the WASM target does not have yet, and the corpus programs that use it.
 struct Skipped {
@@ -32,7 +32,9 @@ struct Skipped {
     feature: &'static str,
     /// Why the WASM target cannot run them yet.
     reason: &'static str,
-    /// A diagnostic or runtime message that must still appear while the feature is missing.
+    /// A diagnostic or runtime message that must still appear while the feature is missing. Each
+    /// names this feature (its own diagnostic, or its missing host function), so a failure from
+    /// another missing feature does not keep the skip.
     expected_failures: &'static [&'static str],
     programs: &'static [&'static str],
 }
@@ -42,7 +44,7 @@ const SKIPPED: &[Skipped] = &[
     Skipped {
         feature: "fiber",
         reason: "fibers are not supported on target `wasm` yet",
-        expected_failures: &["fibers are not supported"],
+        expected_failures: &["fibers are not supported on target `wasm` yet"],
         programs: &[
             "fiber_deferred",
             "fiber_failures",
@@ -57,7 +59,7 @@ const SKIPPED: &[Skipped] = &[
     Skipped {
         feature: "suspend",
         reason: "the entry reaches suspending code, which target `wasm` does not support yet",
-        expected_failures: &["suspending code"],
+        expected_failures: &["the entry reaches suspending code"],
         programs: &[
             "suspend_abandoned",
             "suspend_after_resume",
@@ -66,15 +68,12 @@ const SKIPPED: &[Skipped] = &[
         ],
     },
     // Suspending code alone is not enough for this program: its `sleep` is another external and
-    // needs a wasm host (a test host, like `print`) before the program can run.
+    // needs a wasm host (a test host, like `print`) before the program can run. The build stops
+    // at the missing host first.
     Skipped {
         feature: "sleep host",
         reason: "the program's `sleep` has no WASM host yet (it also reaches suspending code)",
-        expected_failures: &[
-            "suspending code",
-            "has no `@external` for target `wasm`",
-            "not available on this target",
-        ],
+        expected_failures: &["external function `sleep` has no `@external` for target `wasm`"],
         programs: &["suspend_external"],
     },
 ];
@@ -150,14 +149,16 @@ fn run_wasm(name: &str, src: &str) -> Result<Outcome, Box<Analysis>> {
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(
-        &fs,
-        &input,
-        &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
-        &options,
-        |_| {},
-    );
+    let (analysis, output) = with_program_timeout(PROGRAM_TIMEOUT, || {
+        run(
+            &fs,
+            &input,
+            &mut Lower::default().with_target(Target::Wasm),
+            &mut CoreWasm,
+            &options,
+            |_| {},
+        )
+    });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
         Some(output) if !analysis.has_errors() => Ok((
@@ -233,15 +234,8 @@ fn skipped_programs_still_fail() {
                 &std::fs::read_to_string(path.with_extension("expected"))
                     .unwrap_or_else(|_| panic!("{name}.expected is missing")),
             );
-            let result = with_timeout(Duration::from_secs(60), move || {
-                run_wasm(name, &src).map_err(|analysis| messages(&analysis))
-            });
-            match result {
-                Err(timeout) => failures.push(format!(
-                    "{name} ({}): {timeout} while checking the skip",
-                    skip.feature
-                )),
-                Ok(Ok(got))
+            match run_wasm(name, &src) {
+                Ok(got)
                     if (got.0, got.1.as_str(), got.2.as_str())
                         == (
                             expected.code,
@@ -254,7 +248,7 @@ fn skipped_programs_still_fail() {
                         skip.feature
                     ));
                 }
-                Ok(Ok(got)) => {
+                Ok(got) => {
                     let text = format!("{}{}", got.1, got.2);
                     if !matches_any(&text, skip.expected_failures) {
                         failures.push(format!(
@@ -263,7 +257,8 @@ fn skipped_programs_still_fail() {
                         ));
                     }
                 }
-                Ok(Err(diagnostics)) => {
+                Err(analysis) => {
+                    let diagnostics = messages(&analysis);
                     if !matches_any(&diagnostics, skip.expected_failures) {
                         failures.push(format!(
                             "{name} ({}) still fails, but not with the expected message:\n{diagnostics}",

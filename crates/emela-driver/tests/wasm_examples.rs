@@ -16,19 +16,21 @@ mod wasm_common;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use emela_driver::{
     Analysis, CoreJs, CoreWasm, Input, Lower, LowerTests, OsFs, Output, RunOptions, RunOutput,
     Target, TestOptions, TestOutcome, node_program, run, test, wasmtime_program, with_program_cwd,
+    with_program_timeout,
 };
-use wasm_common::{have_wasmtime, matches_any, messages, out_dir, with_timeout};
+use wasm_common::{PROGRAM_TIMEOUT, have_wasmtime, matches_any, messages, out_dir};
 
 /// One feature the WASM target does not have yet, and the examples that use it.
 struct Skipped {
     feature: &'static str,
     reason: &'static str,
-    /// A diagnostic or runtime message that must still appear while the feature is missing.
+    /// A diagnostic or runtime message that must still appear while the feature is missing. Each
+    /// names this feature (its missing host function, or its own diagnostic), so a failure from
+    /// another missing feature does not keep the skip.
     expected_failures: &'static [&'static str],
     examples: &'static [&'static str],
 }
@@ -42,9 +44,7 @@ const SKIPPED: &[Skipped] = &[
         feature: "file system",
         reason: "Std.FileSystem has no WASM host yet",
         expected_failures: &[
-            "suspending code",
-            "has no `@external` for target `wasm`",
-            "not available on this target",
+            "external function `host_read_text` has no `@external` for target `wasm`",
         ],
         examples: &["notes"],
     },
@@ -52,19 +52,18 @@ const SKIPPED: &[Skipped] = &[
         feature: "clock",
         reason: "Std.Clock.sleep has no WASM host yet",
         expected_failures: &[
-            "suspending code",
-            "has no `@external` for target `wasm`",
-            "not available on this target",
+            "external function `sleep_milliseconds` has no `@external` for target `wasm`",
         ],
         examples: &["clock"],
     },
+    // The build stops at the missing `Std.Clock.sleep` host before it reaches the fibers, so both
+    // failures belong to this skip: the first now, the second once Std.Clock.sleep has a host.
     Skipped {
         feature: "fiber",
-        reason: "fibers are not supported on target `wasm` yet",
+        reason: "fibers are not supported on target `wasm` yet (and Std.Clock.sleep has no WASM host)",
         expected_failures: &[
-            "fibers are not supported",
-            "suspending code",
-            "has no `@external` for target `wasm`",
+            "external function `sleep_milliseconds` has no `@external` for target `wasm`",
+            "fibers are not supported on target `wasm` yet",
         ],
         examples: &["fibers"],
     },
@@ -72,9 +71,7 @@ const SKIPPED: &[Skipped] = &[
         feature: "http",
         reason: "Std.Http has no WASM host yet",
         expected_failures: &[
-            "suspending code",
-            "has no `@external` for target `wasm`",
-            "not available on this target",
+            "external function `host_request` has no `@external` for target `wasm`",
         ],
         examples: &["http"],
     },
@@ -120,7 +117,7 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
         output: Output::Capture,
     };
     let mut frontend = Lower::default().with_target(target);
-    let (analysis, output) = match target {
+    let (analysis, output) = with_program_timeout(PROGRAM_TIMEOUT, || match target {
         Target::Js => run(&OsFs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
         Target::Wasm => run(
             &OsFs,
@@ -131,7 +128,7 @@ fn run_on(path: &Path, target: Target, name: &str) -> Result<Outcome, Box<Analys
             |_| {},
         ),
         Target::C => unreachable!("this test compares js and wasm"),
-    };
+    });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match output {
         Some(RunOutput {
@@ -165,7 +162,7 @@ fn test_on(
     };
     let mut frontend = LowerTests::default().with_target(target);
     let mut out = Vec::new();
-    let (analysis, report) = match target {
+    let (analysis, report) = with_program_timeout(PROGRAM_TIMEOUT, || match target {
         Target::Js => test(
             &OsFs,
             &input,
@@ -185,7 +182,7 @@ fn test_on(
             &mut out,
         ),
         Target::C => unreachable!("this test compares js and wasm"),
-    };
+    });
     let _ = std::fs::remove_dir_all(&options.out_dir);
     match report {
         Some(report) if !analysis.has_errors() => Ok(report
@@ -195,24 +192,6 @@ fn test_on(
             .collect()),
         _ => Err(Box::new(analysis)),
     }
-}
-
-fn run_timeout(dir: PathBuf, target: Target, name: String) -> Result<Outcome, String> {
-    with_timeout(Duration::from_secs(60), move || {
-        in_temp_cwd(&name, || run_on(&dir, target, &name)).map_err(|analysis| messages(&analysis))
-    })
-    .and_then(|result| result)
-}
-
-fn tests_timeout(
-    dir: PathBuf,
-    target: Target,
-    name: String,
-) -> Result<Vec<(String, TestOutcome)>, String> {
-    with_timeout(Duration::from_secs(60), move || {
-        in_temp_cwd(&name, || test_on(&dir, target, &name)).map_err(|analysis| messages(&analysis))
-    })
-    .and_then(|result| result)
 }
 
 fn examples() -> Vec<(String, PathBuf)> {
@@ -292,6 +271,16 @@ fn example_tests_give_the_same_results_on_js_and_wasm() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
 }
 
+/// The `@test` results on WASM that differ from JS, one `name: outcome` per line, so a skip can
+/// check the failure is its own.
+fn differing_tests(js: &[(String, TestOutcome)], wasm: &[(String, TestOutcome)]) -> String {
+    wasm.iter()
+        .filter(|result| !js.contains(result))
+        .map(|(name, outcome)| format!("{name}: {outcome:?}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Every skip names an example, and one that now runs (and whose tests run) on WASM makes this
 /// fail: once the run and the `@test` results agree with JS, the feature landed and the entry
 /// must be removed from [`SKIPPED`]. A different failure also fails, so the skip stays tied to
@@ -312,9 +301,12 @@ fn skipped_examples_still_fail() {
                 ));
                 continue;
             }
-            let on_wasm = run_timeout(dir.clone(), Target::Wasm, format!("stale-run-wasm-{name}"));
+            let on_wasm = in_temp_cwd(&format!("stale-run-wasm-{name}"), || {
+                run_on(&dir, Target::Wasm, name)
+            });
             let on_wasm = match on_wasm {
-                Err(message) => {
+                Err(analysis) => {
+                    let message = messages(&analysis);
                     if !matches_any(&message, skip.expected_failures) {
                         failures.push(format!(
                             "{name} ({}) fails for another reason:\n{message}",
@@ -325,8 +317,10 @@ fn skipped_examples_still_fail() {
                 }
                 Ok(on_wasm) => on_wasm,
             };
-            let js = run_timeout(dir.clone(), Target::Js, format!("stale-run-js-{name}"))
-                .unwrap_or_else(|a| panic!("{name} does not run on JS:\n{a}"));
+            let js = in_temp_cwd(&format!("stale-run-js-{name}"), || {
+                run_on(&dir, Target::Js, name)
+            })
+            .unwrap_or_else(|a| panic!("{name} does not run on JS:\n{}", messages(&a)));
             if on_wasm != js {
                 let text = format!("{}{}", on_wasm.1, on_wasm.2);
                 if !matches_any(&text, skip.expected_failures) {
@@ -339,28 +333,29 @@ fn skipped_examples_still_fail() {
             }
 
             // The run matches JS; the tests must match too for the skip to be stale.
-            let wasm_tests =
-                tests_timeout(dir.clone(), Target::Wasm, format!("stale-test-wasm-{name}"));
-            let js_tests = tests_timeout(dir.clone(), Target::Js, format!("stale-test-js-{name}"));
-            match (wasm_tests, js_tests) {
-                (Ok(wasm_tests), Ok(js_tests)) if wasm_tests == js_tests => {
+            let wasm_tests = in_temp_cwd(&format!("stale-test-wasm-{name}"), || {
+                test_on(&dir, Target::Wasm, name)
+            });
+            let js_tests = in_temp_cwd(&format!("stale-test-js-{name}"), || {
+                test_on(&dir, Target::Js, name)
+            })
+            .unwrap_or_else(|a| panic!("the tests of {name} do not run on JS:\n{}", messages(&a)));
+            let text = match wasm_tests {
+                Ok(wasm_tests) if wasm_tests == js_tests => {
                     failures.push(format!(
                         "{name} now matches JS on WASM (run and @test): the {} skip is stale",
                         skip.feature
                     ));
+                    continue;
                 }
-                (Ok(_), Ok(_)) => {}
-                (Err(message), Ok(_)) => {
-                    if !matches_any(&message, skip.expected_failures) {
-                        failures.push(format!(
-                            "{name} ({}) tests fail for another reason:\n{message}",
-                            skip.feature
-                        ));
-                    }
-                }
-                (_, Err(message)) => {
-                    panic!("the tests of {name} do not run on JS:\n{message}")
-                }
+                Ok(wasm_tests) => differing_tests(&js_tests, &wasm_tests),
+                Err(analysis) => messages(&analysis),
+            };
+            if !matches_any(&text, skip.expected_failures) {
+                failures.push(format!(
+                    "{name} ({}) tests fail for another reason:\n{text}",
+                    skip.feature
+                ));
             }
         }
     }
