@@ -40,6 +40,7 @@ fn always(_: &Builder) -> bool {
 
 mod alloc;
 pub(super) mod async_bridge;
+mod canon;
 mod clock;
 mod console;
 mod constant;
@@ -162,6 +163,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: env::emit,
         used: env::used,
+    },
+    RuntimeModule {
+        funcs: canon::FUNCS,
+        locals: canon::locals,
+        setup: no_setup,
+        emit: canon::emit,
+        used: canon::used,
     },
     RuntimeModule {
         funcs: random::FUNCS,

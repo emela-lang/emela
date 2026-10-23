@@ -896,12 +896,7 @@ impl<'m> Builder<'m> {
         // An imported function returning a list (`get-environment`, `get-directories`) makes the
         // host allocate the result in our linear memory through `cabi_realloc` (the canonical
         // ABI's realloc).
-        if (self.uses_env() || self.uses_std_host(StdHost::is_fs))
-            && let Some(&realloc) = self
-                .rt
-                .get("cabi_realloc")
-                .or_else(|| self.rt.get("fs_cabi_realloc"))
-        {
+        if let Some(&realloc) = self.rt.get("cabi_realloc") {
             exports.export("cabi_realloc", ExportKind::Func, realloc);
         }
         module.section(&exports);

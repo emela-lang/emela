@@ -26,11 +26,8 @@
 use super::*;
 
 pub(super) const FUNCS: &[Sig] = &[
-    ("fs_cabi_realloc", &[ValType::I32; 4], &[ValType::I32]),
     ("fs_alloc_raw", &[ValType::I32], &[ValType::I32]),
-    ("fs_copy", &[ValType::I32; 3], &[]),
     ("fs_utf8", &[ValType::I32; 2], &[ValType::I32]),
-    ("fs_bytes_cmp", &[ValType::I32; 4], &[ValType::I32]),
     ("fs_root", &[], &[ValType::I32]),
     ("fs_await", &[ValType::I32], &[ValType::I32]),
     ("fs_wait_code", &[ValType::I32], &[ValType::I32]),
@@ -62,14 +59,9 @@ pub(super) const FUNCS: &[Sig] = &[
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
-        // pointer, copy length (the env runtime's body)
-        "fs_cabi_realloc" => i32s(2),
         "fs_alloc_raw" => i32s(1),
-        "fs_copy" => i32s(1),
         // i, continuation bytes, first byte, low bound, high bound, j
         "fs_utf8" => i32s(6),
-        // i, a byte, b byte
-        "fs_bytes_cmp" => i32s(3),
         // list pointer, list length, descriptor
         "fs_root" => i32s(3),
         // status, handle, set, event status, event code
@@ -96,8 +88,8 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         // root, descriptor
         "fs_write_text" | "fs_append_text" => i32s(2),
         "fs_exists" | "fs_is_directory" => i32s(1),
-        // root, descriptor, stream, future, code, amount, status, i, name, pointer, length
-        "fs_list_directory" => i32s(11),
+        // root, descriptor, stream, future, code, amount, status, i, pointer, length
+        "fs_list_directory" => i32s(10),
         // root, pointer, length, i
         "fs_create_directory" => i32s(4),
         // root, packed, status
@@ -432,11 +424,8 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
 
 pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
-        "fs_cabi_realloc" => super::env::cabi_realloc(b, ins),
         "fs_alloc_raw" => alloc_raw(b, ins),
-        "fs_copy" => copy(ins),
         "fs_utf8" => utf8(ins),
-        "fs_bytes_cmp" => bytes_cmp(ins),
         "fs_root" => root(b, ins),
         "fs_await" => await_(b, ins),
         "fs_wait_code" => wait_code(b, ins),
@@ -488,34 +477,6 @@ fn alloc_raw(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(SLOTS);
     ins.i32_const(p.raw_desc as i32);
     ins.call(alloc);
-}
-
-/// `fs_copy(dst, src, n)`.
-fn copy(ins: &mut InstructionSink) {
-    const I: u32 = 3;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(2);
-    ins.i32_ge_u();
-    ins.br_if(1);
-    ins.local_get(0);
-    ins.local_get(I);
-    ins.i32_add();
-    ins.local_get(1);
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.i32_store8(mem(0, 1));
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
 }
 
 /// `fs_utf8(ptr, len) -> i32`: whether the bytes are valid UTF-8 (the fatal WHATWG decoder's
@@ -692,54 +653,6 @@ fn utf8(ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     ins.i32_const(1);
-}
-
-/// `fs_bytes_cmp(a_ptr, a_len, b_ptr, b_len)`: UTF-8 byte order, which is code point order.
-fn bytes_cmp(ins: &mut InstructionSink) {
-    const I: u32 = 4;
-    const A: u32 = 5;
-    const B: u32 = 6;
-    ins.i32_const(0);
-    ins.local_set(I);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    ins.local_get(I);
-    ins.local_get(1);
-    ins.i32_ge_u();
-    ins.local_get(I);
-    ins.local_get(3);
-    ins.i32_ge_u();
-    ins.i32_or();
-    ins.br_if(1);
-    ins.local_get(0);
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.local_set(A);
-    ins.local_get(2);
-    ins.local_get(I);
-    ins.i32_add();
-    ins.i32_load8_u(mem(0, 1));
-    ins.local_set(B);
-    ins.local_get(A);
-    ins.local_get(B);
-    ins.i32_ne();
-    ins.if_(BlockType::Empty);
-    ins.local_get(A);
-    ins.local_get(B);
-    ins.i32_sub();
-    ins.return_();
-    ins.end();
-    ins.local_get(I);
-    ins.i32_const(1);
-    ins.i32_add();
-    ins.local_set(I);
-    ins.br(0);
-    ins.end();
-    ins.end();
-    ins.local_get(1);
-    ins.local_get(3);
-    ins.i32_sub();
 }
 
 /// `fs_reset()`: the operation's outcome cells back to their initial values.
@@ -1216,8 +1129,7 @@ fn read_all(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     );
     let wait_code = b.rt("fs_wait_code");
     let alloc_raw = b.rt("fs_alloc_raw");
-    let copy = b.rt("fs_copy");
-    let str_new = b.rt("str_new");
+    let str_from_raw = b.rt("str_from_raw");
     let classify = b.rt("fs_classify");
     let utf8 = b.rt("fs_utf8");
     // read-via-stream(fd, 0, buf) -> [stream, future]
@@ -1253,7 +1165,7 @@ fn read_all(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(S);
     ins.local_get(BUF);
     ins.local_get(LEN);
-    ins.call(copy);
+    ins.memory_copy(0, 0);
     ins.local_get(S);
     ins.local_set(BUF);
     ins.local_get(CAP);
@@ -1347,16 +1259,9 @@ fn read_all(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.return_();
     ins.end();
-    ins.local_get(LEN);
-    ins.call(str_new);
-    ins.local_set(S);
-    ins.local_get(S);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
     ins.local_get(BUF);
     ins.local_get(LEN);
-    ins.call(copy);
-    ins.local_get(S);
+    ins.call(str_from_raw);
 }
 
 /// `fs_write_all(fd, text, append)`: writes or appends `text`, setting `err` on failure.
@@ -1638,7 +1543,6 @@ fn names_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const CAP: u32 = 2;
     let p = plan(b);
     let alloc = b.rt("alloc");
-    let copy = b.rt("fs_copy");
     // Grow when full. The first push starts with room for four names.
     ins.i32_const(p.count as i32);
     ins.i32_load(mem(0, 4));
@@ -1671,7 +1575,7 @@ fn names_push(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.i32_const(3);
     ins.i32_shl();
-    ins.call(copy);
+    ins.memory_copy(0, 0);
     ins.end();
     ins.i32_const(p.names as i32);
     ins.local_get(NEW);
@@ -1706,7 +1610,7 @@ fn names_sort(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const A: u32 = 2;
     const B: u32 = 3;
     let p = plan(b);
-    let cmp = b.rt("fs_bytes_cmp");
+    let cmp = b.rt("str_cmp");
     ins.i32_const(1);
     ins.local_set(I);
     ins.block(BlockType::Empty);
@@ -1747,15 +1651,7 @@ fn names_sort(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
     ins.local_set(B);
     ins.local_get(A);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
-    ins.local_get(A);
-    ins.i32_load(mem(HDR, 4));
     ins.local_get(B);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
-    ins.local_get(B);
-    ins.i32_load(mem(HDR, 4));
     ins.call(cmp);
     ins.i32_const(0);
     ins.i32_le_s();
@@ -1977,9 +1873,8 @@ fn list_directory(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const AMOUNT: u32 = 6;
     const STATUS: u32 = 7;
     const I: u32 = 8;
-    const S: u32 = 9;
-    const NAME_PTR: u32 = 10;
-    const NAME_LEN: u32 = 11;
+    const NAME_PTR: u32 = 9;
+    const NAME_LEN: u32 = 10;
     let p = plan(b);
     let reset = b.rt("fs_reset");
     let root = b.rt("fs_root");
@@ -1988,8 +1883,7 @@ fn list_directory(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let wait_code = b.rt("fs_wait_code");
     let push = b.rt("fs_names_push");
     let sort = b.rt("fs_names_sort");
-    let copy = b.rt("fs_copy");
-    let str_new = b.rt("str_new");
+    let str_from_raw = b.rt("str_from_raw");
     let classify = b.rt("fs_classify");
     let drop_ = descriptor_drop(b);
     let read_directory = import(
@@ -2099,16 +1993,9 @@ fn list_directory(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_add();
     ins.i32_load(mem(0, 4));
     ins.local_set(NAME_LEN);
-    ins.local_get(NAME_LEN);
-    ins.call(str_new);
-    ins.local_set(S);
-    ins.local_get(S);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
     ins.local_get(NAME_PTR);
     ins.local_get(NAME_LEN);
-    ins.call(copy);
-    ins.local_get(S);
+    ins.call(str_from_raw);
     ins.call(push);
     ins.local_get(I);
     ins.i32_const(1);
