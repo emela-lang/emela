@@ -289,6 +289,141 @@ fn main() {
 }
 
 #[test]
+fn a_waiting_operation_inside_a_waiting_implementation_is_unwound() {
+    // Each implementation waits on the next operation and the innermost never resumes. Every
+    // implementation's continuation is unwound as interrupted, from the inside (spec 14.2, 14.5).
+    let Some(run) = run_code(
+        "suspend-nested-waits",
+        r#"
+effect Inner {
+  suspend fn inner() -> Int
+}
+
+handler Stuck: Inner {
+  suspend fn inner(resume) {
+    dbg("inner never resumes")
+    ()
+  }
+}
+
+effect Middle {
+  suspend fn middle() -> Int
+}
+
+handler Middles: Middle {
+  suspend fn middle(resume) {
+    with ResMiddle {
+      resume((use Inner).inner())
+    }
+  }
+}
+
+effect Outer {
+  suspend fn outer() -> Int
+}
+
+handler Outers: Outer {
+  suspend fn outer(resume) {
+    with ResOuter {
+      resume((use Middle).middle())
+    }
+  }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler ResMiddle: Name {
+  init { ResMiddle }
+  fn name() { "middle" }
+  release { dbg("release middle") }
+}
+
+handler ResOuter: Name {
+  init { ResOuter }
+  fn name() { "outer" }
+  release { dbg("release outer") }
+}
+
+fn main() -> () use { Async } {
+  with Stuck, Middles, Outers {
+    dbg((use Outer).outer())
+    ()
+  }
+}
+"#,
+        130,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        run.stderr,
+        "\"inner never resumes\"\n\"release middle\"\n\"release outer\"\ninterrupted\n"
+    );
+}
+
+#[test]
+fn a_defect_in_an_unwound_implementation_replaces_the_interruption() {
+    // The implementation's continuation is unwound before the caller's, and its release's defect
+    // stays the result when the caller is unwound as interrupted afterwards (spec 14.4).
+    let Some(run) = run_code(
+        "suspend-impl-release-defect",
+        r#"
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+handler Stuck: Wait {
+  suspend fn wait(resume) {
+    dbg("never resumes")
+    ()
+  }
+}
+
+effect Outer {
+  suspend fn outer() -> Int
+}
+
+handler Outers: Outer {
+  suspend fn outer(resume) {
+    with Boom {
+      resume((use Wait).wait())
+    }
+  }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Boom: Name {
+  init { Boom }
+  fn name() { "boom" }
+  release {
+    dbg("release boom")
+    panic("release boom")
+  }
+}
+
+fn main() -> () use { Async } {
+  with Stuck, Outers {
+    dbg((use Outer).outer())
+    ()
+  }
+}
+"#,
+        101,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        run.stderr,
+        "\"never resumes\"\n\"release boom\"\ndefect: release boom\n"
+    );
+}
+
+#[test]
 fn an_interrupted_test_is_reported() {
     // A test whose continuation is unwound as interrupted: the runner's protocol reports the
     // `interrupted` outcome (spec 13.4, 14.5).

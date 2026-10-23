@@ -63,6 +63,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[],
     ),
     ("stall_chain", &[ValType::I32], &[]),
+    ("stall_pending", &[ValType::I32], &[]),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
@@ -74,13 +75,13 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         // 1: the perform record, 2: the input word (i64), 3: a chain, 4-6: temporaries.
         "perform_end" => vec![(1, ValType::I32), (1, ValType::I64), (4, ValType::I32)],
         "resume_with" => i32s(3),
-        "sync_leave" => i32s(4),
         "root_run" => i32s(1),
         "queue_push" => i32s(3),
-        "stall_chain" => i32s(3),
+        "stall_pending" => i32s(2),
         "sched_drain" => {
             let mut l = i32s(4);
             l.push((1, ValType::I64));
+            l.extend(i32s(2));
             l
         }
         "advance" => {
@@ -89,6 +90,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
             l
         }
         "handler_name" => i32s(5),
+        "where_new" => i32s(2),
         _ => Vec::new(),
     }
 }
@@ -106,7 +108,11 @@ const P_HAS_CALLER: u32 = HDR + 48;
 /// it; nothing can resume later yet, so the flag is recorded and not read.
 const P_SYNC: u32 = HDR + 56;
 const P_IMPL: u32 = HDR + 64;
-const P_SLOTS: i32 = 9;
+/// The record of an operation called inside this one's implementation that was waiting when the
+/// implementation suspended. It is part of the implementation's continuation, so it moves here out
+/// of the pending cell and is unwound with it.
+const P_INNER: u32 = HDR + 72;
+const P_SLOTS: i32 = 10;
 
 /// A frame's slots.
 const F_RESUME: u32 = HDR;
@@ -136,6 +142,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "handler_name" => handler_name(b, ins),
         "queue_push" => queue_push(b, ins),
         "stall_chain" => stall_chain(b, ins),
+        "stall_pending" => stall_pending(b, ins),
         _ => return false,
     }
     true
@@ -280,13 +287,24 @@ fn handler_name(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(S);
 }
 
+/// `where_new(prefix, handler)`: a new string of `prefix` and the handler's name. `str_append`
+/// borrows its arguments, so the name it was built from is released here.
 fn where_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    ins.local_get(0);
-    ins.local_get(1);
+    const NAME: u32 = 2;
+    const WHERE: u32 = 3;
     let name = b.rt("handler_name");
+    ins.local_get(1);
     ins.call(name);
+    ins.local_set(NAME);
+    ins.local_get(0);
+    ins.local_get(NAME);
     let append = b.rt("str_append");
     ins.call(append);
+    ins.local_set(WHERE);
+    let drop = b.rt("drop");
+    ins.local_get(NAME);
+    ins.call(drop);
+    ins.local_get(WHERE);
 }
 
 // ---- `suspend fn` operations ----
@@ -309,7 +327,7 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(alloc);
     ins.local_set(P);
     // used = 0, phase = 1, where, now mode = -1, now word = 0, caller = 0, has caller = 0,
-    // sync, impl = 0.
+    // sync, impl = 0, inner = 0.
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_USED, 4));
@@ -340,6 +358,9 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
+    ins.local_get(P);
+    ins.i32_const(0);
+    ins.i32_store(mem(P_INNER, 4));
     ins.i32_const(2);
     ins.i32_const(resume_desc as i32);
     let alloc = b.rt("alloc");
@@ -387,6 +408,10 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let raise = b.rt("raise");
     ins.local_get(MSG);
     ins.call(raise);
+    // `raise` borrows the message.
+    let drop = b.rt("drop");
+    ins.local_get(MSG);
+    ins.call(drop);
     ins.return_();
     ins.end();
     ins.local_get(P);
@@ -491,6 +516,8 @@ fn resume_ref(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 fn settled(b: &mut Builder<'_>, ins: &mut InstructionSink, p: u32, mode: u32, word: u32) {
     const SHOWN: u32 = 4;
     const MSG: u32 = 5;
+    // Free in this branch: `pass` (which uses it) is only called in the other one.
+    const TMP: u32 = 6;
     ins.local_get(p);
     ins.i32_load(mem(P_USED, 4));
     ins.if_(BlockType::Empty);
@@ -510,9 +537,17 @@ fn settled(b: &mut Builder<'_>, ins: &mut InstructionSink, p: u32, mode: u32, wo
     ins.i32_const(after as i32);
     let append = b.rt("str_append");
     ins.call(append);
+    ins.local_set(TMP);
+    ins.local_get(TMP);
     ins.local_get(SHOWN);
     ins.call(append);
     ins.local_set(MSG);
+    // `str_append` borrows its arguments.
+    let drop = b.rt("drop");
+    ins.local_get(TMP);
+    ins.call(drop);
+    ins.local_get(SHOWN);
+    ins.call(drop);
     ins.local_get(p);
     ins.i32_const(2);
     ins.i32_store(mem(P_NOW_MODE, 4));
@@ -593,6 +628,14 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.local_get(CHAIN);
     ins.i32_store(mem(P_IMPL, 4));
+    // An operation it called and is waiting on goes with that continuation.
+    ins.local_get(P);
+    ins.i32_const(pending as i32);
+    ins.i32_load(mem(0, 4));
+    ins.i32_store(mem(P_INNER, 4));
+    ins.i32_const(pending as i32);
+    ins.i32_const(0);
+    ins.i32_store(mem(0, 4));
     ins.end();
     // A failure or defect from the implementation.
     ins.global_get(G_DEFECT);
@@ -667,6 +710,12 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
     ins.end();
+    ins.local_get(P);
+    ins.i32_load(mem(P_INNER, 4));
+    ins.call(drop);
+    ins.local_get(P);
+    ins.i32_const(0);
+    ins.i32_store(mem(P_INNER, 4));
     ins.else_();
     // Nobody resumed: the caller waits. The pending record keeps the operation alive.
     let dup = b.rt("dup");
@@ -697,11 +746,7 @@ fn sync_enter(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 }
 
 fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const CHAIN: u32 = 1;
-    const P: u32 = 2;
-    const IMPL: u32 = 3;
     let depth = cell(b, |p| p.sync_depth);
-    let pending = cell(b, |p| p.pending);
     ins.i32_const(depth as i32);
     ins.i32_const(depth as i32);
     ins.i32_load(mem(0, 4));
@@ -713,49 +758,12 @@ fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.return_();
     ins.end();
+    // The continuation is never resumed: unwind it as interrupted at once (spec 14.5).
     ins.i32_const(0);
     let take = b.rt("frame_take");
     ins.call(take);
-    ins.local_set(CHAIN);
-    ins.i32_const(pending as i32);
-    ins.i32_load(mem(0, 4));
-    ins.local_set(P);
-    ins.i32_const(pending as i32);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(P);
-    ins.if_(BlockType::Empty);
-    ins.local_get(P);
-    ins.i32_load(mem(P_IMPL, 4));
-    ins.local_set(IMPL);
-    ins.local_get(P);
-    ins.i32_const(0);
-    ins.i32_store(mem(P_IMPL, 4));
-    let drop = b.rt("drop");
-    ins.local_get(P);
-    ins.call(drop);
-    ins.else_();
-    ins.i32_const(0);
-    ins.local_set(IMPL);
-    ins.end();
-    // The continuation is never resumed: unwind it as interrupted at once (spec 14.5). A
-    // suspended operation implementation is inside the caller's continuation, so it is unwound
-    // first and its releases run first (spec 14.2: from the inside).
-    let push = b.rt("queue_push");
-    let interrupted = b.rt("interrupted");
-    ins.local_get(IMPL);
-    ins.if_(BlockType::Empty);
-    ins.local_get(IMPL);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
+    let stall = b.rt("stall_chain");
+    ins.call(stall);
     let drain = b.rt("sched_drain");
     ins.call(drain);
     // A failure while unwinding is cut short by the interruption; a defect stays the result.
@@ -837,6 +845,8 @@ fn sched_drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const CHAIN: u32 = 2;
     const MODE: u32 = 3;
     const WORD: u32 = 4;
+    const EARLIER: u32 = 5;
+    const LATER: u32 = 6;
     let queue = cell(b, |p| p.queue);
     let qhead = cell(b, |p| p.qhead);
     let qlen = cell(b, |p| p.qlen);
@@ -877,12 +887,52 @@ fn sched_drain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(1);
     ins.i32_sub();
     ins.i32_store(mem(0, 4));
+    // The job runs with no defect pending: its frames take theirs from the input. A defect an
+    // earlier job ended with is set aside and combined with this job's afterwards.
+    ins.global_get(G_DEFECT);
+    ins.local_set(EARLIER);
+    ins.i32_const(0);
+    ins.global_set(G_DEFECT);
     ins.local_get(CHAIN);
     ins.local_get(MODE);
     ins.local_get(WORD);
     let advance = b.rt("advance");
     ins.call(advance);
+    ins.global_get(G_DEFECT);
+    ins.local_set(LATER);
+    ins.local_get(EARLIER);
+    ins.global_set(G_DEFECT);
+    combine_defect(b, ins, LATER);
     ins.br(0);
+    ins.end();
+    ins.end();
+}
+
+/// Combines the defect in local `later` (owned, may be 0) with the pending one (spec 14.4): an
+/// interruption gives way to a defect, and of two defects the first stays the result and the
+/// later one becomes its note.
+fn combine_defect(b: &mut Builder<'_>, ins: &mut InstructionSink, later: u32) {
+    let interrupted = b.rt("interrupted");
+    ins.local_get(later);
+    ins.if_(BlockType::Empty);
+    ins.local_get(later);
+    ins.call(interrupted);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_DEFECT);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.local_get(later);
+    ins.global_set(G_DEFECT);
+    ins.end();
+    ins.else_();
+    // `raise` borrows its argument.
+    let raise = b.rt("raise");
+    ins.local_get(later);
+    ins.call(raise);
+    let drop = b.rt("drop");
+    ins.local_get(later);
+    ins.call(drop);
     ins.end();
     ins.end();
 }
@@ -968,55 +1018,66 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
 }
 
-/// Queues a continuation for interruption. The pending operation (if any) owns it until the
-/// stall, and its implementation's own continuation is unwound after the caller's.
+/// Queues a continuation for interruption, after the implementations of the pending operation
+/// it waits on (spec 14.2: from the inside).
 fn stall_chain(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const CHAIN: u32 = 1;
-    const P: u32 = 2;
-    const IMPL: u32 = 3;
     let pending = cell(b, |p| p.pending);
-    ins.local_get(0);
-    ins.local_set(CHAIN);
     ins.i32_const(pending as i32);
     ins.i32_load(mem(0, 4));
-    ins.local_set(P);
     ins.i32_const(pending as i32);
     ins.i32_const(0);
     ins.i32_store(mem(0, 4));
-    ins.local_get(P);
+    let stall = b.rt("stall_pending");
+    ins.call(stall);
+    let push = b.rt("queue_push");
+    let interrupted = b.rt("interrupted");
+    ins.local_get(0);
+    ins.i32_const(2);
+    ins.call(interrupted);
+    ins.i64_extend_i32_u();
+    ins.call(push);
+}
+
+/// `stall_pending(p)`: releases the waiting operation record `p` (owned, may be 0) and queues
+/// its implementation's suspended continuation for interruption. An operation the implementation
+/// was itself waiting on is inside that continuation, so it is queued first.
+fn stall_pending(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const INNER: u32 = 1;
+    const IMPL: u32 = 2;
+    ins.local_get(0);
+    ins.i32_eqz();
     ins.if_(BlockType::Empty);
-    // Take the implementation's own continuation out before the record is released: it is
-    // unwound as a chain of its own below.
-    ins.local_get(P);
+    ins.return_();
+    ins.end();
+    // Take both out before the record is released.
+    ins.local_get(0);
+    ins.i32_load(mem(P_INNER, 4));
+    ins.local_set(INNER);
+    ins.local_get(0);
+    ins.i32_const(0);
+    ins.i32_store(mem(P_INNER, 4));
+    ins.local_get(0);
     ins.i32_load(mem(P_IMPL, 4));
     ins.local_set(IMPL);
-    ins.local_get(P);
+    ins.local_get(0);
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
     let drop = b.rt("drop");
-    ins.local_get(P);
+    ins.local_get(0);
     ins.call(drop);
-    ins.else_();
-    ins.i32_const(0);
-    ins.local_set(IMPL);
-    ins.end();
-    // The implementation is inside the caller's continuation, so its releases run first (spec
-    // 14.2: from the inside).
+    ins.local_get(INNER);
+    let stall = b.rt("stall_pending");
+    ins.call(stall);
+    ins.local_get(IMPL);
+    ins.if_(BlockType::Empty);
     let push = b.rt("queue_push");
     let interrupted = b.rt("interrupted");
     ins.local_get(IMPL);
-    ins.if_(BlockType::Empty);
-    ins.local_get(IMPL);
     ins.i32_const(2);
     ins.call(interrupted);
     ins.i64_extend_i32_u();
     ins.call(push);
     ins.end();
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
 }
 
 fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {

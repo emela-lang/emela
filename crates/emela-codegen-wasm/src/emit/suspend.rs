@@ -194,8 +194,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "perform".to_owned(),
         show: None,
-        // used, phase, where, now mode, now word, caller chain, has caller, sync, impl chain
-        refs: vec![false, false, true, false, false, true, false, false, true],
+        // used, phase, where, now mode, now word, caller chain, has caller, sync, impl chain,
+        // inner record
+        refs: vec![
+            false, false, true, false, false, true, false, false, true, true,
+        ],
     });
     let resume_desc = b.desc(DescKey {
         kind: 0,
