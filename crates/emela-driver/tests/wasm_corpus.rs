@@ -3,9 +3,9 @@
 //!
 //! Each `NAME.emel` has `NAME.expected`, the exit code, stdout and stderr of the JS target. The
 //! WASM run must give the same result. The corpus declares `print` with `@external(js, ...)` and
-//! `@external(c, ...)`; this harness adds the WASI 0.3 stdout host
-//! `@external(wasm, "wasi:cli/stdout@0.3.0", "write-via-stream")` before the `fn print(...)`
-//! line, just as the C test's helper provides the C implementation.
+//! `@external(c, ...)`. The WASM target supports only the externals of `Std`, so this harness
+//! replaces the declaration with a function that prints through `Std.Console` and
+//! `SystemConsole`, just as the C test's helper provides the C implementation.
 //!
 //! The target does not support every feature of the corpus yet. The skips are grouped by feature
 //! below, so a program is skipped for one known reason rather than by one growable blocklist.
@@ -123,16 +123,33 @@ fn skip_of(name: &str) -> Option<&'static Skipped> {
     SKIPPED.iter().find(|skip| skip.programs.contains(&name))
 }
 
-/// Adds the WASI 0.3 stdout host before the corpus `fn print(...)` line. Programs without one
-/// (for example `core_bool`) are returned unchanged.
+/// Replaces the corpus `print` external with a function that writes the line through
+/// `Std.Console` (whose WASI 0.3 stdout host the WASM target provides) and imports `Std.Console`.
+/// Programs without `print` (for example `core_bool`) are returned unchanged.
 fn with_wasm_print(src: &str) -> String {
-    let mut out = String::with_capacity(src.len() + 72);
+    if !src.lines().any(|line| line.starts_with("fn print(")) {
+        return src.to_owned();
+    }
+    let mut out = String::from("import Std.Console.{Console, SystemConsole}\n");
+    let mut attributes = Vec::new();
     for line in src.lines() {
-        if line.trim_start().starts_with("fn print(") {
-            out.push_str("@external(wasm, \"wasi:cli/stdout@0.3.0\", \"write-via-stream\")\n");
+        if line.starts_with("@external(") {
+            attributes.push(line);
+            continue;
         }
-        out.push_str(line);
-        out.push('\n');
+        if line.starts_with("fn print(") {
+            out.push_str(
+                "fn print(s: String) -> () use {} {\n  with SystemConsole { (use Console).print_line(s) }\n}\n",
+            );
+        } else {
+            for attribute in attributes.iter() {
+                out.push_str(attribute);
+                out.push('\n');
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        attributes.clear();
     }
     out
 }
