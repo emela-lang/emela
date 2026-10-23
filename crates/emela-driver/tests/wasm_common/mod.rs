@@ -4,7 +4,6 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::mpsc;
 use std::time::Duration;
 
 use emela_driver::{Analysis, wasmtime_program};
@@ -74,20 +73,6 @@ pub fn matches_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
 
-/// Runs `f` on a helper thread and gives up after `limit`. A skipped program that starts to hang
-/// must not hang CI; the helper thread is detached, but its program uses a temporary directory of
-/// its own, so the rest of the tests are unaffected.
-pub fn with_timeout<T: Send + 'static>(
-    limit: Duration,
-    f: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, String> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(f());
-    });
-    match rx.recv_timeout(limit) {
-        Ok(value) => Ok(value),
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(format!("timed out after {limit:?}")),
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err("the helper thread panicked".to_owned()),
-    }
-}
+/// The longest one node/wasmtime run may take (see [`emela_driver::with_program_timeout`]). A
+/// program that hangs is killed and fails its own test instead of hanging CI.
+pub const PROGRAM_TIMEOUT: Duration = Duration::from_secs(60);
