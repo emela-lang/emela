@@ -214,8 +214,8 @@ fn dot_dot_cannot_leave_the_preopen() {
 }
 
 /// A symbolic link whose target is outside the preopen cannot be read, written or listed, and
-/// nothing is created on the other side. This is the accepted sandbox, not the deferred
-/// `remove` limitation.
+/// nothing is created on the other side. `remove` deletes the link inside the preopen and
+/// leaves its target alone.
 #[cfg(unix)]
 #[test]
 fn a_symlink_out_of_the_preopen_is_denied() {
@@ -228,7 +228,7 @@ fn a_symlink_out_of_the_preopen_is_denied() {
     let src = format!(
         "{FS_IMPORTS}\n\n{ERROR_NAME}\n\nfn main() {{\n  with SystemFileSystem {{\n    fs = use FileSystem\n    dbg(error_name(fn() {{ _ = fs.read_text(\"escape/secret.txt\") }}))\n    dbg(error_name(fn() {{ fs.write_text(\"escape/pwn.txt\", \"x\") }}))\n    dbg(error_name(fn() {{ _ = fs.list_directory(\"escape\") }}))\n    dbg((use FileSystem).exists(\"escape/secret.txt\"))\n    dbg(error_name(fn() {{ fs.remove(\"escape\") }}))\n  }}\n}}\n"
     );
-    let Some((run, _)) = run_fs_prepared(
+    let Some((run, dir)) = run_fs_prepared(
         name,
         |dir| {
             std::fs::create_dir_all(&outside).unwrap();
@@ -242,23 +242,25 @@ fn a_symlink_out_of_the_preopen_is_denied() {
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(
         run.stderr,
-        "\"FileAccessDenied\"\n\"FileAccessDenied\"\n\"FileAccessDenied\"\nFalse\n\
-         \"FileAccessDenied\"\n"
+        "\"FileAccessDenied\"\n\"FileAccessDenied\"\n\"FileAccessDenied\"\nFalse\n\"ok\"\n"
     );
     assert!(
         !outside.join("pwn.txt").exists(),
         "the guest wrote through a symbolic link out of the preopen"
     );
     assert!(outside.join("secret.txt").exists());
+    assert!(
+        dir.join("escape").symlink_metadata().is_err(),
+        "the symbolic link was not removed"
+    );
     let _ = std::fs::remove_dir_all(&outside);
 }
 
-/// The deferred limitation: `remove` follows the final symbolic link. A link to a directory
-/// and a dangling link fail with `FileNotFound` and stay; a link to a file is unlinked itself,
-/// as on JS and C. Update this test when the behaviour changes.
+/// `remove` removes a final symbolic link itself, as on JS and C: a link to a directory, a
+/// dangling link and a link to a file are all unlinked, and their targets stay.
 #[cfg(unix)]
 #[test]
-fn removing_a_symlink_is_a_known_limitation() {
+fn removing_a_symlink_removes_the_link() {
     use std::os::unix::fs::symlink;
 
     let src = format!(
@@ -278,22 +280,16 @@ fn removing_a_symlink_is_a_known_limitation() {
         return;
     };
     assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(run.stderr, "\"FileNotFound\"\n\"FileNotFound\"\n\"ok\"\n");
-    assert!(
-        dir.join("linkdir").symlink_metadata().is_ok(),
-        "a symbolic link to a directory was removed"
-    );
-    assert!(
-        dir.join("dangling").symlink_metadata().is_ok(),
-        "a dangling symbolic link was removed"
-    );
-    assert!(
-        dir.join("linkfile").symlink_metadata().is_err(),
-        "a symbolic link to a file was not removed"
-    );
+    assert_eq!(run.stderr, "\"ok\"\n\"ok\"\n\"ok\"\n");
+    for link in ["linkdir", "dangling", "linkfile"] {
+        assert!(
+            dir.join(link).symlink_metadata().is_err(),
+            "the symbolic link {link} was not removed"
+        );
+    }
     assert!(
         dir.join("sub/file.txt").exists(),
-        "removing a symbolic link to a file removed its target"
+        "removing a symbolic link removed its target"
     );
 }
 

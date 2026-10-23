@@ -37,7 +37,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fs_reset", &[], &[]),
     ("fs_classify", &[ValType::I32; 2], &[ValType::I32]),
     ("fs_open", &[ValType::I32; 5], &[ValType::I32]),
-    ("fs_stat", &[ValType::I32; 2], &[ValType::I32]),
+    ("fs_stat", &[ValType::I32; 3], &[ValType::I32]),
     ("fs_read_all", &[ValType::I32], &[ValType::I32]),
     ("fs_write_all", &[ValType::I32; 3], &[]),
     ("fs_mkdir", &[ValType::I32; 3], &[ValType::I32]),
@@ -72,10 +72,10 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fs_bytes_cmp" => i32s(3),
         // list pointer, list length, descriptor
         "fs_root" => i32s(3),
-        // status, handle, set, event handle, event status, event code
-        "fs_await" => i32s(6),
-        // set, code
-        "fs_wait_code" => i32s(2),
+        // status, handle, set, event status, event code
+        "fs_await" => i32s(5),
+        // set, code, event code
+        "fs_wait_code" => i32s(3),
         // discriminant
         "fs_classify" => i32s(1),
         // status
@@ -813,9 +813,8 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const STATUS: u32 = 1;
     const HANDLE: u32 = 2;
     const SET: u32 = 3;
-    const H: u32 = 4;
-    const ST: u32 = 5;
-    const EVENT: u32 = 6;
+    const ST: u32 = 4;
+    const EVENT: u32 = 5;
     let set_new = b.waitable_set_new();
     let join = b.waitable_join();
     let wait = b.waitable_set_wait();
@@ -852,6 +851,8 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(HANDLE);
     ins.local_get(SET);
     ins.call(join);
+    // Wait until the subtask itself reports a terminal state; an event for any other waitable
+    // or of another kind is skipped, so the subtask always leaves the set before it is dropped.
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
     ins.local_get(SET);
@@ -859,12 +860,14 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(wait);
     ins.local_set(EVENT);
     ins.local_get(EVENT);
-    ins.i32_const(1);
+    ins.i32_const(1); // EVENT_SUBTASK
     ins.i32_ne();
-    ins.br_if(1);
+    ins.br_if(0);
     ins.i32_const(WAITBUF as i32);
     ins.i32_load(mem(0, 4));
-    ins.local_set(H);
+    ins.local_get(HANDLE);
+    ins.i32_ne();
+    ins.br_if(0);
     ins.i32_const((WAITBUF + 4) as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(ST);
@@ -876,28 +879,16 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_eq();
     ins.i32_or();
     ins.br_if(1);
-    ins.local_get(H);
-    ins.local_get(SET);
-    ins.call(join);
     ins.br(0);
     ins.end();
     ins.end();
-    // A waitable the event did not consume must leave the set before it is dropped. `H` is 0
-    // only when the wait reported a non-subtask event, which does not happen with a set holding
-    // just this subtask.
-    ins.local_get(H);
-    ins.if_(BlockType::Empty);
-    ins.local_get(H);
+    ins.local_get(HANDLE);
     ins.i32_const(0);
     ins.call(join);
-    ins.end();
     ins.local_get(SET);
     ins.call(set_drop);
-    ins.local_get(H);
-    ins.if_(BlockType::Empty);
-    ins.local_get(H);
+    ins.local_get(HANDLE);
     ins.call(subtask_drop);
-    ins.end();
     ins.local_get(ST);
 }
 
@@ -905,6 +896,7 @@ fn await_(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 fn wait_code(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SET: u32 = 1;
     const CODE: u32 = 2;
+    const EVENT: u32 = 3;
     let set_new = b.waitable_set_new();
     let join = b.waitable_join();
     let wait = b.waitable_set_wait();
@@ -919,7 +911,19 @@ fn wait_code(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(SET);
     ins.i32_const(WAITBUF as i32);
     ins.call(wait);
-    ins.drop();
+    ins.local_set(EVENT);
+    // Only a stream or future event (2 to 5) for this waitable carries the operation's code.
+    ins.local_get(EVENT);
+    ins.i32_const(2);
+    ins.i32_sub();
+    ins.i32_const(3);
+    ins.i32_gt_u();
+    ins.br_if(0);
+    ins.i32_const(WAITBUF as i32);
+    ins.i32_load(mem(0, 4));
+    ins.local_get(0);
+    ins.i32_ne();
+    ins.br_if(0);
     // `waitable-set.wait` writes `[the waitable that fired, its code]`; the code is the
     // operation's return code.
     ins.i32_const((WAITBUF + 4) as i32);
@@ -1090,9 +1094,11 @@ fn open(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load(mem(0, 4));
 }
 
-/// `fs_stat(root, path) -> i32`: 0 on success (the type is in `ty`), -1 with `err` set.
+/// `fs_stat(root, path, path_flags) -> i32`: 0 on success (the type is in `ty`), -1 with `err`
+/// set. `path_flags` is 1 (`symlink-follow`) to describe a final symbolic link's target, 0 to
+/// describe the link itself.
 fn stat(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const ST: u32 = 2;
+    const ST: u32 = 3;
     let p = plan(b);
     let stat_at = import(
         b,
@@ -1102,7 +1108,7 @@ fn stat(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     );
     let await_ = b.rt("fs_await");
     ins.local_get(0);
-    ins.i32_const(1); // path-flags::symlink-follow
+    ins.local_get(2);
     ins.local_get(1);
     ins.i32_const((HDR + 4) as i32);
     ins.i32_add();
@@ -1139,6 +1145,30 @@ fn stat(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_load8_u(mem(0, 1));
     ins.i32_store(mem(0, 4));
     ins.i32_const(0);
+}
+
+/// Sets `err` from the `result<_, error-code>` a future read left in `buf`. A read whose code
+/// is not `COMPLETED` delivered no value, so `buf` still holds earlier bytes and the operation
+/// is a `FileSystemFailure`.
+fn future_result(ins: &mut InstructionSink, p: Plan, code: u32, op: i32, classify: u32) {
+    ins.local_get(code);
+    ins.i32_const(0xF);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(p.err as i32);
+    ins.i32_const(E_FAILURE);
+    ins.i32_store(mem(0, 4));
+    ins.else_();
+    ins.i32_const(p.buf as i32);
+    ins.i32_load8_u(mem(0, 1));
+    ins.if_(BlockType::Empty);
+    ins.i32_const(p.err as i32);
+    ins.i32_const((p.buf + 4) as i32);
+    ins.i32_const(op);
+    ins.call(classify);
+    ins.i32_store(mem(0, 4));
+    ins.end();
+    ins.end();
 }
 
 /// `fs_read_all(fd)`: the file's text, or 0 with `err` set.
@@ -1290,15 +1320,7 @@ fn read_all(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(wait_code);
     ins.local_set(CODE);
     ins.end();
-    ins.i32_const(p.buf as i32);
-    ins.i32_load8_u(mem(0, 1));
-    ins.if_(BlockType::Empty);
-    ins.i32_const(p.err as i32);
-    ins.i32_const((p.buf + 4) as i32);
-    ins.i32_const(OP_READ);
-    ins.call(classify);
-    ins.i32_store(mem(0, 4));
-    ins.end();
+    future_result(ins, p, CODE, OP_READ, classify);
     ins.local_get(STREAM);
     ins.call(drop_stream);
     ins.local_get(FUTURE);
@@ -1547,15 +1569,7 @@ fn write_all(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(wait_code);
     ins.local_set(CODE);
     ins.end();
-    ins.i32_const(p.buf as i32);
-    ins.i32_load8_u(mem(0, 1));
-    ins.if_(BlockType::Empty);
-    ins.i32_const(p.err as i32);
-    ins.i32_const((p.buf + 4) as i32);
-    ins.i32_const(OP_WRITE);
-    ins.call(classify);
-    ins.i32_store(mem(0, 4));
-    ins.end();
+    future_result(ins, p, CODE, OP_WRITE, classify);
     ins.local_get(2);
     ins.if_(BlockType::Empty);
     ins.local_get(FUTURE);
@@ -1935,6 +1949,7 @@ fn exists(b: &mut Builder<'_>, ins: &mut InstructionSink, directory: bool) {
     ins.end();
     ins.local_get(ROOT);
     ins.local_get(0);
+    ins.i32_const(1); // path-flags::symlink-follow
     ins.call(stat);
     ins.drop();
     ins.i32_const(p.err as i32);
@@ -2125,15 +2140,7 @@ fn list_directory(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(wait_code);
     ins.local_set(CODE);
     ins.end();
-    ins.i32_const(p.buf as i32);
-    ins.i32_load8_u(mem(0, 1));
-    ins.if_(BlockType::Empty);
-    ins.i32_const(p.err as i32);
-    ins.i32_const((p.buf + 4) as i32);
-    ins.i32_const(OP_LIST);
-    ins.call(classify);
-    ins.i32_store(mem(0, 4));
-    ins.end();
+    future_result(ins, p, CODE, OP_LIST, classify);
     ins.local_get(STREAM);
     ins.call(drop_stream);
     ins.local_get(FUTURE);
@@ -2244,6 +2251,7 @@ fn create_directory(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     // A file at the path (or in the middle of it) is NotADirectory.
     ins.local_get(ROOT);
     ins.local_get(0);
+    ins.i32_const(1); // path-flags::symlink-follow
     ins.call(stat);
     ins.drop();
     ins.i32_const(p.err as i32);
@@ -2296,8 +2304,11 @@ fn remove(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(outcome);
     ins.return_();
     ins.end();
+    // The final symbolic link is removed itself, not its target: stat it without following,
+    // so a link (to a directory, or dangling) is unlinked like a file.
     ins.local_get(ROOT);
     ins.local_get(0);
+    ins.i32_const(0);
     ins.call(stat);
     ins.drop();
     ins.i32_const(p.err as i32);
