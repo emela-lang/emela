@@ -2,7 +2,7 @@
 title: テストの失敗に，失敗した場所を出す
 authors: [Alliana]
 status: draft
-pr:
+pr: 413
 issue:
 decided:
 touches: [cmd.test.output, cmd.test.outcome, test.assert]
