@@ -516,15 +516,12 @@ impl<'m> Builder<'m> {
 
     /// The static cell of a const: its state, its value and defect, and the two messages the
     /// runtime wraps with (spec 5.6).
-    fn const_cell(&mut self, id: FnId, f: &Function) -> u32 {
-        if let Some(&cell) = self.const_cells.get(&id) {
-            return cell;
-        }
+    fn const_cell(&mut self, id: FnId, f: &Function) {
         let name = check::display_name(&f.name);
         let prefix = self.string_literal(format!("while evaluating const {name}: ").as_bytes());
         // The marker in `aux` travels with the defect (through `defect_take`, notes and
-        // `defect_resume`), like `$selfReference` in the JS runtime. The string is unique to this
-        // const, so marking it cannot affect a user string with the same bytes.
+        // `defect_resume`). The string is unique to this const, so marking it cannot affect a
+        // user string with the same bytes.
         let self_ref = self.unique_string_literal(
             format!("const {name} refers to itself while being evaluated").as_bytes(),
         );
@@ -533,7 +530,6 @@ impl<'m> Builder<'m> {
         self.write_u32(cell + CONST_SELF, self_ref);
         self.write_u32(cell + CONST_PREFIX, prefix);
         self.const_cells.insert(id, cell);
-        cell
     }
 
     fn string_desc(&mut self) -> u32 {
@@ -803,30 +799,26 @@ impl<'m> Builder<'m> {
         let ret = self.repr(f.ret);
         let cell = self.const_cells[&id];
         let init = self.const_inits[&id];
-        let mut locals = vec![(1, ValType::I32)];
+        let mut locals = Vec::new();
         if ret != Repr::Void {
             locals.push((1, val(ret)));
         }
         let mut func = WasmFunction::new(locals);
-        const CODE: u32 = 0;
-        const TEMP: u32 = 1;
+        const TEMP: u32 = 0;
         {
             let mut ins = func.instructions();
+            // The cell holds the value: return it without calling the runtime.
             ins.i32_const(cell as i32);
-            ins.call(self.rt("const_enter"));
-            ins.local_set(CODE);
-            // 1: the cell holds the value.
-            ins.local_get(CODE);
-            ins.i32_const(1);
+            ins.i32_load(mem(CONST_STATE, 4));
+            ins.i32_const(2);
             ins.i32_eq();
             ins.if_(BlockType::Empty);
             self.load_const_value(&mut ins, cell, ret);
             ins.return_();
             ins.end();
-            // 2: the cell holds the defect, which `const_enter` raised.
-            ins.local_get(CODE);
-            ins.i32_const(2);
-            ins.i32_eq();
+            // 1: the cell holds the defect, which `const_enter` raised.
+            ins.i32_const(cell as i32);
+            ins.call(self.rt("const_enter"));
             ins.if_(BlockType::Empty);
             dummy_return(&mut ins, ret);
             ins.end();
@@ -849,22 +841,19 @@ impl<'m> Builder<'m> {
             dummy_return(&mut ins, ret);
             ins.end();
             // The value is now in the cell; the caller gets its own reference.
-            ins.i32_const(cell as i32);
+            if ret != Repr::Void {
+                ins.i32_const(cell as i32);
+                ins.local_get(TEMP);
+            }
             match ret {
-                Repr::Void => {
-                    ins.i32_const(0);
-                    ins.i32_store(mem(CONST_VALUE, 4));
-                }
+                Repr::Void => {}
                 Repr::I32 | Repr::Ref => {
-                    ins.local_get(TEMP);
                     ins.i32_store(mem(CONST_VALUE, 4));
                 }
                 Repr::I64 => {
-                    ins.local_get(TEMP);
                     ins.i64_store(mem(CONST_VALUE, 8));
                 }
                 Repr::F64 => {
-                    ins.local_get(TEMP);
                     ins.f64_store(mem(CONST_VALUE, 8));
                 }
             }

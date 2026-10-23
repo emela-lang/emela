@@ -21,7 +21,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
     match name {
         "raise" => raise(b, ins),
-        "defect_take" => defect_take(ins),
+        "defect_take" => defect_take(b, ins),
         "defect_resume" => defect_resume(b, ins),
         "retire" => retire(b, ins),
         _ => return false,
@@ -61,11 +61,20 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.end();
 }
 
-fn defect_take(ins: &mut InstructionSink) {
+fn defect_take(b: &mut Builder, ins: &mut InstructionSink) {
     ins.global_get(G_DEFECT);
     ins.local_set(0);
     ins.i32_const(0);
     ins.global_set(G_DEFECT);
+    // With nothing pending the result is an empty string, so `defect_resume` always gets a
+    // defect to put back or to add a note to.
+    ins.local_get(0);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.i32_const(0);
+    ins.call(rt(b, "str_new"));
+    ins.local_set(0);
+    ins.end();
     ins.local_get(0);
 }
 

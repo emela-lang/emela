@@ -1,7 +1,7 @@
 //! The memoisation of a const (spec 5.6).
 //!
-//! A const's wrapper (`emit::Builder::const_wrapper`) asks `const_enter` whether to evaluate the
-//! body. The first reference evaluates it and the wrapper stores the value in the cell, then calls
+//! A const's wrapper (`emit::Builder::const_wrapper`) returns the remembered value itself and
+//! otherwise asks `const_enter` whether to evaluate the body. The first reference evaluates it and the wrapper stores the value in the cell, then calls
 //! `const_leave`; a failure is wrapped as `while evaluating const NAME: …` and remembered, so that
 //! later references raise the same defect without evaluating again. A reference to the const
 //! while it is being evaluated is a self-reference: it raises a defect that no const remembers.
@@ -13,8 +13,7 @@
 //!
 //! The self-reference message has 1 in its `aux` word. The marker travels with the defect
 //! (`defect_take`, a release note and `defect_resume` all keep the string), unlike a global flag:
-//! nested cleanups can take and restore several defects, and the JS runtime keeps the marker on
-//! the defect object too.
+//! nested cleanups can take and restore several defects.
 
 use super::*;
 
@@ -40,7 +39,7 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// `(cell) -> i32`: 0 to evaluate the body, 1 for the remembered value, 2 for the remembered (or
+/// `(cell) -> i32` for a cell without a value: 0 to evaluate the body, 1 for the remembered (or
 /// self-reference) defect, which is raised here.
 fn const_enter(b: &mut Builder, ins: &mut InstructionSink) {
     const STATE: u32 = 1;
@@ -48,12 +47,6 @@ fn const_enter(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(CONST_STATE, 4));
     ins.local_set(STATE);
-    ins.local_get(STATE);
-    ins.i32_const(2);
-    ins.i32_eq();
-    ins.if_(BlockType::Result(ValType::I32));
-    ins.i32_const(1);
-    ins.else_();
     ins.local_get(STATE);
     ins.i32_const(3);
     ins.i32_eq();
@@ -63,7 +56,7 @@ fn const_enter(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_load(mem(CONST_DEFECT, 4));
     let raise = rt(b, "raise");
     ins.call(raise);
-    ins.i32_const(2);
+    ins.i32_const(1);
     ins.else_();
     ins.local_get(STATE);
     ins.i32_const(1);
@@ -74,14 +67,13 @@ fn const_enter(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(CONST_SELF, 4));
     ins.call(raise);
-    ins.i32_const(2);
+    ins.i32_const(1);
     ins.else_();
     // Not evaluated yet: mark it and evaluate.
     ins.local_get(0);
     ins.i32_const(1);
     ins.i32_store(mem(CONST_STATE, 4));
     ins.i32_const(0);
-    ins.end();
     ins.end();
     ins.end();
 }

@@ -18,8 +18,11 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fmod", &[ValType::F64, ValType::F64], &[ValType::F64]),
 ];
 
-pub(super) fn locals(_name: &str) -> Vec<(u32, ValType)> {
-    Vec::new()
+pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+    match name {
+        "ishl" | "ishr" | "iushr" | "lshl" | "lshr" | "lushr" => i32s(2),
+        _ => Vec::new(),
+    }
 }
 
 pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
@@ -181,12 +184,23 @@ fn negative_shift(b: &mut Builder, ins: &mut InstructionSink, ret: Repr) {
     ins.i32_const(0);
     ins.i32_lt_s();
     ins.if_(BlockType::Empty);
+    const SHOWN: u32 = 2;
+    const MSG: u32 = 3;
     let prefix = b.string_literal(b"negative shift amount: ");
-    ins.i32_const(prefix as i32);
     ins.local_get(1);
     ins.call(rt(b, "int_to_string"));
+    ins.local_set(SHOWN);
+    ins.i32_const(prefix as i32);
+    ins.local_get(SHOWN);
     ins.call(rt(b, "str_append"));
+    ins.local_set(MSG);
+    // `raise` and `str_append` borrow their arguments.
+    ins.local_get(MSG);
     ins.call(rt(b, "raise"));
+    for l in [SHOWN, MSG] {
+        ins.local_get(l);
+        ins.call(rt(b, "drop"));
+    }
     dummy_return(ins, ret);
     ins.end();
 }
