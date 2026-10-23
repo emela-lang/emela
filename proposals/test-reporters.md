@@ -2,7 +2,7 @@
 title: emela test の出力を，人が読む端末とエージェントで分ける
 authors: [Alliana]
 status: draft
-pr:
+pr: 412
 issue:
 decided:
 touches: [cmd.test.output, cmd.test.reporter (new), test.command]
@@ -60,7 +60,7 @@ test result: FAILED. 1 passed; 2 failed; 0 filtered out
 
 `emela test` を呼ぶのは人とエージェントの両方で，求めるものが逆向きである．人には情報を足し，エージェントには削る．1つの形式でこれを両立できない．
 
-失敗の場所（パスと行と桁）が出ない問題は，どの reporter にも共通なので別の提案（`test-failure-location`）で扱う．
+失敗の場所（パスと行と桁）が出ない問題は，どの reporter にも共通なので別の提案（`test-failure-location`，#413）で扱う．
 
 ## Proposal
 
