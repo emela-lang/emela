@@ -2,24 +2,13 @@
 //!
 //! A program's own `@external(wasm, ...)` is not a component import: a component can only import
 //! interfaces its WIT world declares, and custom host WIT is not implemented. The bundled `Std`
-//! modules do name a few WASI 0.3 functions, though (`Std.Console` stdout/stderr, `Std.Env`,
-//! `Std.Random` and `Std.Clock.now`). A program may declare the same module/name itself; the
-//! binding is accepted when its Emela shape matches the host call. [`classify`] is the allow
-//! list: a named module/name pair plus the shape of the Emela function. Everything else stays an
-//! unsupported external in `check/external.rs`.
+//! modules do name a few WASI 0.3 functions (`Std.Console` stdout/stderr, `Std.Env`,
+//! `Std.Random` and `Std.Clock.now`); each of those externals is a runtime wrapper with its own
+//! encoding of the host's result. [`classify`] recognizes them by their IR name, never by the
+//! module/name pair, so a program that names the same WASI function stays an unsupported
+//! external in `check/external.rs`.
 
-use emela_core::{HostModule, HostRef, Type};
-use emela_lir::{Function, Module};
-
-/// The imported interfaces a `wasm` binding may name. The function signatures are checked by
-/// [`classify`], so a matching pair with another shape is still rejected.
-pub(crate) const ALLOWED: &[(&str, &str)] = &[
-    ("wasi:cli/stdout@0.3.0", "write-via-stream"),
-    ("wasi:cli/stderr@0.3.0", "write-via-stream"),
-    ("wasi:cli/environment@0.3.0", "get-environment"),
-    ("wasi:random/random@0.3.0", "get-random-u64"),
-    ("wasi:clocks/system-clock@0.3.0", "now"),
-];
+use emela_lir::Function;
 
 /// A supported WASI 0.3 host call, and the runtime wrapper that implements it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,55 +59,24 @@ impl StdHost {
     }
 }
 
-/// If `f` is an external with a supported WASI 0.3 `wasm` binding, which host call it is.
-pub(crate) fn classify(m: &Module, f: &Function) -> Option<StdHost> {
-    if f.suspends {
-        return None;
-    }
-    let binding = f.external.as_ref()?.binding("wasm")?;
-    let HostRef::Import { module, name } = &binding.host else {
-        return None;
-    };
-    let HostModule::Named(module) = module else {
-        return None;
-    };
-    if !ALLOWED.contains(&(module.as_str(), name.as_str())) {
-        return None;
-    }
-    let host = match (module.as_str(), name.as_str()) {
-        ("wasi:cli/stdout@0.3.0", "write-via-stream") => StdHost::ConsoleOut,
-        ("wasi:cli/stderr@0.3.0", "write-via-stream") => StdHost::ConsoleErr,
-        ("wasi:cli/environment@0.3.0", "get-environment") => match m.core.ty(f.ret) {
-            Type::Bool => StdHost::EnvHas,
-            Type::String => StdHost::EnvGet,
-            _ => return None,
-        },
-        ("wasi:random/random@0.3.0", "get-random-u64") => match m.core.ty(f.ret) {
-            Type::Int => StdHost::RandomInt,
-            Type::Float => StdHost::RandomFloat,
-            _ => return None,
-        },
-        ("wasi:clocks/system-clock@0.3.0", "now") => StdHost::ClockNow,
-        _ => return None,
-    };
-    if signature_matches(m, f, host) {
-        Some(host)
-    } else {
-        None
-    }
-}
+/// The bundled externals that are runtime wrappers, by IR name. `Std` cannot be the root name of
+/// a project or a dependency (spec 4.1), so these names only come from the bundled sources.
+const STD_HOSTS: &[(&str, StdHost)] = &[
+    ("Std.Console.console_log", StdHost::ConsoleOut),
+    ("Std.Console.console_error", StdHost::ConsoleErr),
+    ("Std.Env.env_has", StdHost::EnvHas),
+    ("Std.Env.env_get", StdHost::EnvGet),
+    ("Std.Random.random_int", StdHost::RandomInt),
+    ("Std.Random.random_float", StdHost::RandomFloat),
+    ("Std.Clock.now_milliseconds", StdHost::ClockNow),
+];
 
-/// Whether `f` has exactly the Emela-side shape of `host`.
-fn signature_matches(m: &Module, f: &Function, host: StdHost) -> bool {
-    let takes = |ty: Type| f.params.len() == 1 && *m.core.ty(f.vars[f.params[0]].ty) == ty;
-    let takes_string = || takes(Type::String);
-    let ret = |ty: Type| *m.core.ty(f.ret) == ty;
-    match host {
-        StdHost::ConsoleOut | StdHost::ConsoleErr => takes_string() && ret(Type::Unit),
-        StdHost::EnvHas => takes_string() && ret(Type::Bool),
-        StdHost::EnvGet => takes_string() && ret(Type::String),
-        StdHost::RandomInt => f.params.is_empty() && ret(Type::Int),
-        StdHost::RandomFloat => f.params.is_empty() && ret(Type::Float),
-        StdHost::ClockNow => f.params.is_empty() && ret(Type::Int64),
-    }
+/// If `f` is a bundled `Std` external with a `wasm` binding that the runtime implements, which
+/// host call it is.
+pub(crate) fn classify(f: &Function) -> Option<StdHost> {
+    f.external.as_ref()?.binding("wasm")?;
+    STD_HOSTS
+        .iter()
+        .find(|(name, _)| *name == f.name)
+        .map(|&(_, host)| host)
 }

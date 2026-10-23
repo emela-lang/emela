@@ -1,32 +1,15 @@
-//! Values that reach an unsupported feature.
+//! Values that reach an unsupported feature (fibers).
 
 use super::*;
 
-use emela_lir::{Callee, Module, Value};
+use emela_lir::Value;
 
-pub(super) fn value_unsupported(m: &Module, value: &Value, found: &mut Found) {
-    match value {
-        Value::Fiber { op, .. } => {
-            let name = fiber_name(*op);
-            if !found.fibers.contains(&name) {
-                found.fibers.push(name);
-            }
+pub(super) fn value_unsupported(value: &Value, found: &mut Found) {
+    if let Value::Fiber { op, .. } = value {
+        let name = fiber_name(*op);
+        if !found.fibers.contains(&name) {
+            found.fibers.push(name);
         }
-        // A `suspend fn` operation called anywhere needs the suspend machinery. Its handler
-        // implementation calls the operation's external (`sleep_milliseconds`, say), not the
-        // operation again, so scanning nested closure bodies does not flag an unused handler.
-        Value::Call {
-            callee: Callee::Op { effect, op, .. },
-            ..
-        } if m.core.effects[*effect].ops[*op].suspend => {
-            let effect = &m.core.effects[*effect];
-            found.suspending(format!(
-                "`{}.{}` (a `suspend fn` operation)",
-                display_name(&effect.name),
-                effect.ops[*op].name
-            ));
-        }
-        _ => {}
     }
 }
 

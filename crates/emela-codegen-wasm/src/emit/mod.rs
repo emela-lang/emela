@@ -53,6 +53,16 @@ pub(crate) enum Run {
     Tests(Vec<(String, FnId)>),
 }
 
+impl Run {
+    /// The functions the output calls first.
+    pub(crate) fn roots(&self) -> Vec<FnId> {
+        match self {
+            Run::Main(main) => main.iter().copied().collect(),
+            Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
+        }
+    }
+}
+
 /// The WASI 0.3 imports shared by the two output interfaces.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OutputImports {
@@ -469,7 +479,7 @@ impl<'m> Builder<'m> {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
-                match crate::std_host::classify(self.m, f) {
+                match crate::std_host::classify(f) {
                     Some(host) => self.std_hosts.push((id, host)),
                     None => self.external_import(id, f, binding),
                 }
@@ -1291,10 +1301,9 @@ impl<'m> Builder<'m> {
                 on_defect,
                 on_suspend,
             } => {
-                // The target has no suspend machinery. A call that may suspend by type but does
-                // not actually suspend (a closure over `Clock.now`, say) takes the fast path and
-                // the edge is never reached; an actual suspending external is already a stub
-                // that raises a defect. Emit the value and ignore the edge.
+                // The target has no suspend machinery. The check rejects every reachable
+                // suspension point, so a call that may suspend by type (a closure over
+                // `Clock.now`, say) never takes this edge: emit the value and ignore it.
                 let _ = on_suspend;
                 self.value(cx, ins, dst, &value);
                 if let Some(landing) = on_defect {
@@ -2033,11 +2042,15 @@ impl<'m> Builder<'m> {
                 op,
             } => {
                 let def = self.core().effects[*effect].ops[*op].clone();
+                let ret = self.repr(def.ret);
                 if def.suspend {
-                    self.internal(format!("suspend fn operation in {}", cx.f.name));
+                    // The check rejects every reachable call to a `suspend fn` operation, so this
+                    // one is in a handler operation nothing performs (a `sleep` that delegates to
+                    // an outer `Clock`, say).
+                    ins.unreachable();
+                    self.assign(cx, ins, dst, ret);
                     return;
                 }
-                let ret = self.repr(def.ret);
                 self.op_call(cx, ins, dst, *handler, *op, args, ret);
             }
         }

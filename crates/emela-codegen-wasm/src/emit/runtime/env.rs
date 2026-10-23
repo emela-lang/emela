@@ -4,8 +4,8 @@
 //! (`HOSTBUF`) and the host allocates the list and its strings in linear memory through the
 //! exported `cabi_realloc`. `env_find` scans that list and returns the matching entry, or 0.
 //!
-//! The find is the first match in the host's list, like C's `getenv` and the WIT contract that
-//! `get-environment` holds one value per name. The environment is a value import, so the list is
+//! The find returns the first match in the host's list; the WIT contract of `get-environment`
+//! holds one value per name. The environment is a value import, so the list is
 //! fetched once and cached in the `G_ENV_*` globals; `has` and `get` then see the same list. A
 //! name or value that is not UTF-8 cannot appear in the WIT `list<tuple<string, string>>`; the
 //! host decides what it exposes (wasmtime rejects an inherited environment with such a variable
@@ -41,8 +41,8 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "env_get" => i32s(3),
         // the new string
         "str_from_raw" => i32s(1),
-        // align, pointer, end, remainder, memory bytes, pages, copy length
-        "cabi_realloc" => i32s(7),
+        // pointer, copy length
+        "cabi_realloc" => i32s(2),
         _ => Vec::new(),
     }
 }
@@ -57,7 +57,7 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "env_has" => env_has(b, ins),
         "env_get" => env_get(b, ins),
         "str_from_raw" => str_from_raw(b, ins),
-        "cabi_realloc" => cabi_realloc(ins),
+        "cabi_realloc" => cabi_realloc(b, ins),
         _ => return false,
     }
     true
@@ -229,16 +229,12 @@ fn str_from_raw(b: &mut Builder, ins: &mut InstructionSink) {
 
 /// The canonical ABI's `cabi_realloc(old_ptr, old_size, align, new_size)`.
 ///
-/// The bump allocator hands out 8-byte-aligned runs; a requested alignment below 8 is raised to 8
-/// so later objects stay aligned. Reallocation with a live `old_ptr` copies the common bytes.
-fn cabi_realloc(ins: &mut InstructionSink) {
-    const A: u32 = 4;
-    const P: u32 = 5;
-    const END: u32 = 6;
-    const REM: u32 = 7;
-    const BYTES: u32 = 8;
-    const PAGES: u32 = 9;
-    const COPY: u32 = 10;
+/// The run is bumped from the heap end rounded up to `align` only, so short host strings stay
+/// packed; `alloc` rounds the heap end back up to 8 before the next object. Reallocation with a
+/// live `old_ptr` copies the common bytes.
+fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
+    const P: u32 = 4;
+    const COPY: u32 = 5;
 
     // `realloc(_, _, _, 0)` frees.
     ins.local_get(3);
@@ -259,78 +255,21 @@ fn cabi_realloc(ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.return_();
     ins.end();
-    // A = max(align, 8).
-    ins.local_get(2);
-    ins.i32_const(8);
-    ins.i32_lt_u();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(8);
-    ins.local_set(A);
-    ins.else_();
-    ins.local_get(2);
-    ins.local_set(A);
-    ins.end();
-    // P = align_up(G_HEAP, A).
+    // P = align_up(G_HEAP, align); `align` is a power of two.
     ins.global_get(G_HEAP);
-    ins.local_set(P);
-    ins.local_get(P);
-    ins.local_get(A);
+    ins.local_get(2);
+    ins.i32_add();
     ins.i32_const(1);
     ins.i32_sub();
-    ins.i32_and();
-    ins.local_set(REM);
-    ins.local_get(REM);
-    ins.if_(BlockType::Empty);
-    ins.local_get(P);
-    ins.local_get(A);
-    ins.local_get(REM);
+    ins.i32_const(0);
+    ins.local_get(2);
     ins.i32_sub();
-    ins.i32_add();
+    ins.i32_and();
     ins.local_set(P);
-    ins.end();
-    // END = align_up(P + new_size, A).
     ins.local_get(P);
     ins.local_get(3);
     ins.i32_add();
-    ins.local_set(END);
-    ins.local_get(END);
-    ins.local_get(A);
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.i32_and();
-    ins.local_set(REM);
-    ins.local_get(REM);
-    ins.if_(BlockType::Empty);
-    ins.local_get(END);
-    ins.local_get(A);
-    ins.local_get(REM);
-    ins.i32_sub();
-    ins.i32_add();
-    ins.local_set(END);
-    ins.end();
-    // Grow the memory if the run does not fit.
-    ins.memory_size(0);
-    ins.i32_const(PAGE as i32);
-    ins.i32_mul();
-    ins.local_set(BYTES);
-    ins.local_get(END);
-    ins.local_get(BYTES);
-    ins.i32_gt_u();
-    ins.if_(BlockType::Empty);
-    ins.local_get(END);
-    ins.local_get(BYTES);
-    ins.i32_sub();
-    ins.i32_const((PAGE - 1) as i32);
-    ins.i32_add();
-    ins.i32_const(PAGE as i32);
-    ins.i32_div_u();
-    ins.local_set(PAGES);
-    ins.local_get(PAGES);
-    ins.memory_grow(0);
-    ins.drop();
-    ins.end();
-    ins.local_get(END);
-    ins.global_set(G_HEAP);
+    ins.call(rt(b, "heap_reserve"));
     // Copy the old contents when growing in place was not possible.
     ins.local_get(0);
     ins.i32_eqz();

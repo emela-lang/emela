@@ -1,8 +1,8 @@
 //! `Std.Random` on WASI 0.3: `wasi:random/random.get-random-u64`.
 //!
-//! `Int` takes the low 32 bits, so it is uniform over the whole signed 32-bit range like C's
-//! `int32_t` from 32 random bits. `Float` takes the top 53 bits and multiplies by 2^-53, the
-//! same construction as `random.mjs` and `random.c`; it is uniform in `[0, 1)` and never 1.0.
+//! `Int` takes the low 32 bits as a signed 32-bit integer, so it is uniform over the whole
+//! signed 32-bit range. `Float` takes the top 53 bits and multiplies by 2^-53, so it is uniform
+//! in `[0, 1)` and never 1.0.
 
 use super::*;
 

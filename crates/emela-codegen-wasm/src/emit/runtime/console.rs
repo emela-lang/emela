@@ -1,9 +1,8 @@
 //! `Std.Console` on WASI 0.3: a line to stdout/stderr.
 //!
-//! `print_line` and `print_error_line` are the same as C's `fputs` + `fputc('\n')`: the text,
-//! then a newline. The p3 writes are synchronous (the runtime waits for the stream's future), so
+//! `print_line` and `print_error_line` write the text, then a newline. The p3 writes are synchronous (the runtime waits for the stream's future), so
 //! stdout written before a `print_error_line` has already been consumed and the order is kept
-//! without an explicit flush. Errors are ignored, as with `fd_write` and `console.log`.
+//! without an explicit flush. A write error is ignored.
 
 use super::*;
 

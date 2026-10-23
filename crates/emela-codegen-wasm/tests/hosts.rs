@@ -377,3 +377,121 @@ fn main() {
         "{errors:#?}"
     );
 }
+
+/// Asserts that `src` is rejected because it reaches `sleep`.
+fn assert_sleep_is_diagnosed(src: &str) {
+    let errors = to_wasm(src).expect_err("a reachable sleep must not compile");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("sleep") && error.message.contains("suspend")),
+        "{errors:#?}"
+    );
+}
+
+#[test]
+fn sleep_in_a_closure_passed_to_a_function_is_diagnosed() {
+    assert_sleep_is_diagnosed(
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn twice(f: fn() -> ()) {
+  f()
+  f()
+}
+
+fn main() {
+  with SystemClock {
+    twice(fn() { (use Clock).sleep(1) })
+  }
+}
+"#,
+    );
+}
+
+#[test]
+fn sleep_in_a_captured_closure_is_diagnosed() {
+    assert_sleep_is_diagnosed(
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() {
+  with SystemClock {
+    nap = fn() { (use Clock).sleep(1) }
+    outer = fn() { nap() }
+    outer()
+  }
+}
+"#,
+    );
+}
+
+#[test]
+fn an_unused_delegating_sleep_does_not_report() {
+    // `Logged.sleep` performs the outer `Clock.sleep`, but nothing performs `Logged.sleep`, so
+    // only `now` is reachable.
+    let Some(out) = stderr(
+        "unused-delegating-sleep",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+
+handler Logged: Clock {
+  fn now() { (use Clock).now() }
+  suspend fn sleep(ms, resume) {
+    (use Clock).sleep(ms)
+    resume(())
+  }
+}
+
+fn main() {
+  with SystemClock {
+    with Logged {
+      t = (use Clock).now()
+      dbg(Instant.to_unix_milliseconds(t) > Int64.from_int(0))
+    }
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "True\n");
+}
+
+#[test]
+fn a_release_that_reads_the_clock_runs() {
+    // The release may suspend by type (Clock has `sleep`), so it is held; without fibers the
+    // hold has nothing to protect and the release runs straight through.
+    let Some(out) = stderr(
+        "release-reads-clock",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+import Std.Instant.{Instant}
+
+effect Res {
+  fn id() -> Int
+}
+
+handler Timed(id: Int): Res {
+  init { Timed(id: 7) }
+
+  release {
+    t = (use Clock).now()
+    dbg(Instant.to_unix_milliseconds(t) > Int64.from_int(0))
+  }
+
+  fn id() { self.id }
+}
+
+fn main() {
+  with SystemClock, Timed {
+    dbg((use Res).id())
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "7\nTrue\n");
+}

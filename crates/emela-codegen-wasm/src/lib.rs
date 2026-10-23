@@ -14,8 +14,8 @@
 //! The target supports the synchronous WASI hosts the bundled `Std` handlers use (Console, Env,
 //! Random and Clock.now). A function whose type merely *may* suspend (because it uses an effect
 //! with a suspend operation) but does not actually suspend is emitted inline; actual suspension
-//! (`sleep`), fibers and callbacks to host functions are not supported, and reaching them is a
-//! [`WasmError`] (or, for an unused suspending operation, it is simply never called). The
+//! (`sleep`), fibers and callbacks to host functions are not supported, and reaching them from
+//! the entry is a [`WasmError`]; a handler operation that nothing performs is not reached. The
 //! Unicode tables for grapheme clusters (UAX #29, Unicode 17.0.0) are part of the runtime.
 
 mod check;
@@ -137,7 +137,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    let errors = check::unsupported(&lir);
+    let errors = check::unsupported(&lir, &entry.roots());
     if !errors.is_empty() {
         return Err(errors);
     }
