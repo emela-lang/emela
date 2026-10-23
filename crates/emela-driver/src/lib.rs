@@ -20,6 +20,7 @@ mod hover;
 mod internal;
 mod js;
 mod nav;
+mod new;
 mod output;
 mod pipeline;
 mod pome;
@@ -49,10 +50,12 @@ pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
 pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
+
 pub use nav::{
     DocumentSymbol, NavTarget, RenameError, SymbolKind, WorkspaceSymbol, document_symbols,
     workspace_symbols,
 };
+pub use new::{NewFile, NewPome, new};
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
     Analysis, Backend, C_OUT_DIR, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies,

@@ -166,6 +166,7 @@ run those, `Float` operations or host callbacks either.
 
 | Command       | Does                                                    |
 | ------------- | ------------------------------------------------------- |
+| `emela new`   | Creates a new Pome in a new directory; `--lib` creates a library |
 | `emela check` | Reports diagnostics without compiling                   |
 | `emela run`   | Compiles and runs: JavaScript on Node.js, a native executable, or WASM with `wasmtime` |
 | `emela build` | Compiles under `target/emela/js` (JS), a native executable (C), or `main.wasm` (WASM) |
