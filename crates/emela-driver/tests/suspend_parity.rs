@@ -436,3 +436,95 @@ fn an_implementation_resumes_more_than_once_on_the_real_clock() {
     };
     assert_eq!(outcome, (0, String::new(), "\"go 1\"\n".to_owned()));
 }
+
+/// A non-suspending function that suspends inside an operation implementation that already
+/// resumed from a sleep: the function's continuation is unwound as interrupted at once (spec
+/// 14.5), and the implementation is inside the caller's continuation, so `inner`'s release runs
+/// before `main`'s (spec 14.2). The parked cascade of the sleep must not be unwound ahead of it.
+const SYNC_AFTER_PARK: &str = r#"
+import Std.Clock.{Clock, TestClock}
+import Std.Instant.{Instant}
+import Std.State.{State}
+
+effect Outer {
+  suspend fn go() -> Int
+}
+
+effect Wait {
+  suspend fn wait() -> Int
+}
+
+effect Name {
+  fn name() -> String
+}
+
+effect Tag {
+  fn tag() -> String
+}
+
+handler Ignores: Wait {
+  suspend fn wait(resume) {
+    dbg("not resuming")
+    ()
+  }
+}
+
+handler MainRes: Name {
+  init { MainRes }
+  fn name() { "main" }
+  release { dbg("release main") }
+}
+
+handler InnerRes: Tag {
+  init { InnerRes }
+  fn tag() { "inner" }
+  release { dbg("release inner") }
+}
+
+fn inner() -> Int {
+  with InnerRes {
+    with Ignores {
+      (use Wait).wait()
+    }
+  }
+}
+
+handler Going: Outer {
+  suspend fn go(resume) {
+    (use Clock).sleep(100)
+    dbg("woke")
+    n = inner()
+    resume(n)
+  }
+}
+
+fn main() {
+  start = Instant.from_unix_milliseconds(Int64.from_int(0))
+  State.run(start, fn() {
+    with TestClock {
+      with MainRes {
+        with Going {
+          dbg("go #{(use Outer).go()}")
+        }
+      }
+    }
+  })
+  dbg("not reached")
+}
+"#;
+
+#[test]
+fn a_sync_suspension_after_a_park_unwinds_from_the_inside() {
+    let Some(outcome) = compare("sync-after-park", SYNC_AFTER_PARK) else {
+        return;
+    };
+    assert_eq!(
+        outcome,
+        (
+            130,
+            String::new(),
+            "\"woke\"\n\"not resuming\"\n\"release inner\"\n\"release main\"\ninterrupted\n"
+                .to_owned()
+        )
+    );
+}

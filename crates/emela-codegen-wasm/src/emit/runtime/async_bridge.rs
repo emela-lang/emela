@@ -268,8 +268,7 @@ fn wait_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let unwind = b.rt("unwind_ops");
     ins.call(cancel);
     ins.local_get(0);
-    ins.local_set(EXTRA);
-    ins.local_get(EXTRA);
+    ins.i32_const(-1);
     ins.call(unwind);
     ins.i32_const(wait_chain as i32);
     ins.i32_load(mem(0, 4));

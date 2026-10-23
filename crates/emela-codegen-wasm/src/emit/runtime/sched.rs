@@ -67,7 +67,7 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32, ValType::I64],
         &[],
     ),
-    ("unwind_ops", &[ValType::I32], &[]),
+    ("unwind_ops", &[ValType::I32, ValType::I32], &[]),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
@@ -108,9 +108,9 @@ pub(super) const P_NOW_MODE: u32 = HDR + 24;
 pub(super) const P_NOW_WORD: u32 = HDR + 32;
 pub(super) const P_CALLER: u32 = HDR + 40;
 pub(super) const P_HAS_CALLER: u32 = HDR + 48;
-/// Whether the call was made under `sync_enter` (a non-suspending function, spec 8.7). A resume
-/// that arrives after such a call returned must drop the continuation at once instead of queueing
-/// it; nothing can resume later yet, so the flag is recorded and not read.
+/// The `sync_enter` depth the call was made at: 0 outside every non-suspending function (spec
+/// 8.7). `sync_leave` unwinds only the operations made inside its own region (`unwind_ops`), not a
+/// cascade parked before the region began.
 pub(super) const P_SYNC: u32 = HDR + 56;
 pub(super) const P_IMPL: u32 = HDR + 64;
 /// The next outer active operation. The chain starts at the innermost operation (`pending`) and
@@ -355,8 +355,6 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.i32_const(sync_depth as i32);
     ins.i32_load(mem(0, 4));
-    ins.i32_const(0);
-    ins.i32_ne();
     ins.i32_store(mem(P_SYNC, 4));
     ins.local_get(P);
     ins.i32_const(0);
@@ -808,17 +806,16 @@ fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(CHAIN);
     // The continuation is never resumed: unwind it as interrupted at once (spec 14.5). A
     // suspended operation implementation is inside the caller's continuation, so it is unwound
-    // first and its releases run first (spec 14.2: from the inside). The bridge also cancels a
-    // host timer started by the suspended call.
-    if b.async_plan.is_some() {
-        let interrupt = b.rt("wait_interrupt");
-        ins.local_get(CHAIN);
-        ins.call(interrupt);
-    } else {
-        let unwind = b.rt("unwind_ops");
-        ins.local_get(CHAIN);
-        ins.call(unwind);
-    }
+    // first and its releases run first (spec 14.2: from the inside). Only the operations made in
+    // this region are unwound: a cascade parked before it (an implementation that resumed from a
+    // sleep and then called this function) is outside, and the interruption reaches it as this
+    // call's defect. Nothing in the region waits on the host: a handler that can resume later
+    // requires Async, which a non-suspending function cannot have (spec 8.7).
+    let unwind = b.rt("unwind_ops");
+    ins.local_get(CHAIN);
+    ins.i32_const(depth as i32);
+    ins.i32_load(mem(0, 4));
+    ins.call(unwind);
     let drain = b.rt("sched_drain");
     ins.call(drain);
     // A failure while unwinding is cut short by the interruption; a defect stays the result.
@@ -1064,6 +1061,7 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
         ins.call(park);
     } else {
         let unwind = b.rt("unwind_ops");
+        ins.i32_const(-1);
         ins.call(unwind);
     }
     ins.return_();
@@ -1079,21 +1077,36 @@ fn advance(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
 }
 
-/// `unwind_ops(extra)`: queues every waiting continuation for interruption, from the innermost
-/// implementation outwards (spec 14.2, 14.5). `extra` is the caller chain a non-suspending
-/// function was unwinding; it is unwound after the operations (the outermost caller).
+/// `unwind_ops(extra, depth)`: queues every waiting continuation for interruption, from the
+/// innermost implementation outwards (spec 14.2, 14.5). `extra` is the caller chain a
+/// non-suspending function was unwinding; it is unwound after the operations (the outermost
+/// caller). Only the operations made deeper than `depth` (`P_SYNC`) are unwound: `sync_leave`
+/// passes its own depth, and the stalled run passes -1 to unwind them all.
 fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const P: u32 = 1;
-    const NEXT: u32 = 2;
-    const CHAIN: u32 = 3;
-    const TOP: u32 = 4;
+    const EXTRA: u32 = 0;
+    const DEPTH: u32 = 1;
+    const P: u32 = 2;
+    const NEXT: u32 = 3;
+    const CHAIN: u32 = 4;
+    const TOP: u32 = 5;
     let pending = cell(b, |p| p.pending);
     let sleep_op = cell(b, |p| p.sleep_op);
     let push = b.rt("queue_push");
     let interrupted = b.rt("interrupted");
     let drop = b.rt("drop");
+    let push_interrupted = |ins: &mut InstructionSink, chain: u32| {
+        ins.local_get(chain);
+        ins.if_(BlockType::Empty);
+        ins.local_get(chain);
+        ins.i32_const(2);
+        ins.call(interrupted);
+        ins.i64_extend_i32_u();
+        ins.call(push);
+        ins.end();
+    };
     // `sleep_op` is the innermost active operation; `P_NEXT` links outward. The innermost
-    // implementation's continuation is unwound first, then every caller link outward.
+    // implementation's continuation is unwound first, then every caller link outward, down to the
+    // first operation made at `depth` or shallower.
     ins.i32_const(sleep_op as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(P);
@@ -1103,19 +1116,17 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_eqz();
     ins.br_if(1);
     ins.local_get(P);
+    ins.i32_load(mem(P_SYNC, 4));
+    ins.local_get(DEPTH);
+    ins.i32_le_s();
+    ins.br_if(1);
+    ins.local_get(P);
     ins.i32_load(mem(P_IMPL, 4));
     ins.local_set(CHAIN);
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_IMPL, 4));
-    ins.local_get(CHAIN);
-    ins.if_(BlockType::Empty);
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
+    push_interrupted(ins, CHAIN);
     ins.local_get(P);
     ins.i32_load(mem(P_NEXT, 4));
     ins.local_set(NEXT);
@@ -1128,43 +1139,35 @@ fn unwind_ops(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(P);
     ins.i32_const(0);
     ins.i32_store(mem(P_HAS_CALLER, 4));
-    ins.local_get(CHAIN);
-    ins.if_(BlockType::Empty);
-    ins.local_get(CHAIN);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
+    push_interrupted(ins, CHAIN);
     ins.local_get(NEXT);
     ins.local_set(P);
     ins.br(0);
     ins.end();
     ins.end();
     // The caller chain of a non-suspending function is the outermost continuation.
-    ins.local_get(0);
-    ins.if_(BlockType::Empty);
-    ins.local_get(0);
-    ins.i32_const(2);
-    ins.call(interrupted);
-    ins.i64_extend_i32_u();
-    ins.call(push);
-    ins.end();
-    // One reference is held by the pending slot; the resume closure keeps the record until the
-    // interrupted implementation has run.
+    push_interrupted(ins, EXTRA);
+    // The operations left are outside the unwound region and stay active.
+    ins.i32_const(sleep_op as i32);
+    ins.local_get(P);
+    ins.i32_store(mem(0, 4));
+    // One reference is held by the pending slot when its operation was unwound; the resume
+    // closure keeps the record until the interrupted implementation has run.
     ins.i32_const(pending as i32);
     ins.i32_load(mem(0, 4));
-    ins.local_set(TOP);
+    ins.local_tee(TOP);
+    ins.if_(BlockType::Empty);
+    ins.local_get(TOP);
+    ins.i32_load(mem(P_SYNC, 4));
+    ins.local_get(DEPTH);
+    ins.i32_gt_s();
+    ins.if_(BlockType::Empty);
     ins.i32_const(pending as i32);
     ins.i32_const(0);
     ins.i32_store(mem(0, 4));
-    ins.i32_const(sleep_op as i32);
-    ins.i32_const(0);
-    ins.i32_store(mem(0, 4));
-    ins.local_get(TOP);
-    ins.if_(BlockType::Empty);
     ins.local_get(TOP);
     ins.call(drop);
+    ins.end();
     ins.end();
 }
 
@@ -1191,6 +1194,7 @@ fn root_run(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     } else {
         ins.local_get(CHAIN);
         let unwind = b.rt("unwind_ops");
+        ins.i32_const(-1);
         ins.call(unwind);
         ins.call(drain);
     }
