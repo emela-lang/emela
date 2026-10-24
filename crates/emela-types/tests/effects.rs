@@ -91,9 +91,11 @@ fn render(src: &str, handlers: bool) -> String {
                 .unwrap();
             }
         }
+        // The bundled std has withs of its own (`Std.Http.serve`); only main's are shown.
         let mut withs: Vec<_> = types
             .with_handlers
             .iter()
+            .filter(|(expr, _)| program.exprs[*expr].span.module == module)
             .map(|(expr, hs)| (program.exprs[expr].span.range, hs))
             .collect();
         withs.sort_by_key(|(range, _)| range.start());
