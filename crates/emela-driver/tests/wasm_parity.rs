@@ -711,6 +711,11 @@ fn main() {
 "##,
     ),
     (
+        "http_values",
+        // Shared with the C programs, so the three targets run the same requests and responses.
+        include_str!("../../emela-codegen-c/tests/programs/http_values.emel"),
+    ),
+    (
         "deep_recursion",
         "fn count(n: Int, acc: Int) -> Int {\n  if n == 0 { acc } else { count(n - 1, acc + 1) }\n}\nfn main() {\n  dbg(count(100000, 0))\n}\n",
     ),

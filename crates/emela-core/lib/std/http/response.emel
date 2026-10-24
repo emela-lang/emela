@@ -1,0 +1,46 @@
+# HTTP responses as values (spec `[api.std.http.response]`): the response a client receives from
+# `Http.send`, and the response an HTTP service returns (`[lib.http-service]`).
+#
+# `header` and `headers` compare names with `String.to_ascii_lowercase`: header names are ASCII
+# tokens, so nothing more is needed.
+
+## A response. The headers of a response received by `send` have lower-case names sorted by name;
+## values of the same name are joined with `, `, except that each `set-cookie` is its own pair. An
+## HTTP service sends the headers in the written order.
+pub type Response(status: Int, headers: List[(String, String)], body: String)
+  derive Eq, Show
+
+## The status is not 2xx (`require_ok`).
+pub error UnexpectedStatus(status: Int, body: String) derive Show
+
+## A response with no headers.
+pub fn new(status: Int, body: String) -> Response {
+  Response(status:, headers: [], body:)
+}
+
+## Adds a header after the ones already in `res`.
+pub fn add_header(res: Response, name: String, value: String) -> Response {
+  Response(headers: List.append(res.headers, [(name, value)]), ..res)
+}
+
+## The first value of the header `name`, compared without case.
+pub fn header(res: Response, name: String) -> Option[String] {
+  List.head(headers(res, name))
+}
+
+## All values of the header `name` in order, compared without case.
+pub fn headers(res: Response, name: String) -> List[String] {
+  key = String.to_ascii_lowercase(name)
+  res.headers
+    |> List.filter(fn((n, _)) { String.to_ascii_lowercase(n) == key })
+    |> List.map(fn((_, value)) { value })
+}
+
+## `res` if its status is 2xx, otherwise fails with UnexpectedStatus.
+pub fn require_ok(res: Response) -> Response fails UnexpectedStatus {
+  if res.status >= 200 && res.status < 300 {
+    res
+  } else {
+    fail UnexpectedStatus(status: res.status, body: res.body)
+  }
+}

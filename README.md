@@ -457,8 +457,8 @@ answers with a function, so tests need no network. From
 
 ```emela
 fn search_request(query: String, page: Int) -> Request {
-  query_string = Http.encode_query([("q", query), ("page", Int.to_string(page))])
-  Http.request(Get, "#{BASE}/search?#{query_string}") |> Http.add_header("accept", "text/plain")
+  query_string = Request.encode_query([("q", query), ("page", Int.to_string(page))])
+  Request.new(Get, "#{BASE}/search?#{query_string}") |> Request.add_header("accept", "text/plain")
 }
 
 fn first_result(query: String) {
@@ -470,7 +470,7 @@ fn first_result(query: String) {
 
 @test
 fn a_404_is_not_a_failure() {
-  server = TestServer(respond: fn(req, n) { Some(Http.response(404, "")) }, sent: [])
+  server = TestServer(respond: fn(req, n) { Some(Response.new(404, "")) }, sent: [])
   (text, after) = State.run(server, fn() { with TestHttp { first_result("x") } })
   assert text == "status 404"
   assert List.length(after.sent) == 1

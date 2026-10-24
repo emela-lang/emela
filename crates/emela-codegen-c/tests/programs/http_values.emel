@@ -1,0 +1,102 @@
+# Requests and responses as values (`[api.std.http.request]`, `[api.std.http.response]`): pure
+# Emela, so every target gives the same result. The names that moved stay in `Std.Http`
+# (`[api.std.http]`).
+
+import Std.Http
+import Std.Http.Request.{Request, Get, Post}
+import Std.Http.Response.{Response, UnexpectedStatus}
+
+fn target(url: String) -> Request {
+  Request.new(Get, url)
+}
+
+fn main() {
+  req = Request.new(Post, "https://example.com/a")
+  dbg(req)
+  dbg(
+    req
+      |> Request.add_header("A", "1")
+      |> Request.add_header("b", "2")
+      |> Request.add_header("a", "3"),
+  )
+  with_headers = req |> Request.add_header("X-Key", "1") |> Request.add_header("x-key", "2")
+  dbg(
+    (
+      Request.header(with_headers, "x-KEY"),
+      Request.headers(with_headers, "X-Key"),
+      Request.header(with_headers, "none"),
+    ),
+  )
+
+  # path: without the query, not decoded, "/" when empty
+  dbg(Request.path(target("https://example.com/api/a%20b?x=1")))
+  dbg(Request.path(target("https://example.com")))
+  dbg(Request.path(target("https://example.com?x=1")))
+  dbg(Request.path(target("http://user@host:8080/p/q/")))
+  dbg(Request.path(target("/relative/path?x")))
+
+  # segments: no empty segments, decoded; a malformed one is kept as written
+  dbg(Request.segments(target("https://example.com/api//versions/a%20b/%E6%9D%B1/")))
+  dbg(Request.segments(target("https://example.com/%zz/%E6/%2/%C0%80/%ED%A0%80/ok%2Fslash")))
+  dbg(Request.segments(target("https://example.com/")))
+  dbg(Request.segments(target("https://example.com/a+b")))
+
+  # query: as decode_query, a malformed pair kept as written
+  dbg(Request.query(target("https://example.com/s?q=%E6%9D%B1+x&page=2&flag&a=b=c")))
+  dbg(Request.query(target("https://example.com/s?bad=%E6&ok=1&%zz=v")))
+  dbg(Request.query(target("https://example.com/s")))
+  dbg(Request.query(target("https://example.com/s?")))
+  dbg(Request.query(target("https://example.com/s?a=1?b=2")))
+
+  # encode_query and decode_query are inverses
+  pairs = [("q", "東京 a+b"), ("a&b", "c=d"), ("", ""), ("emoji", "👍"), ("keep", "-_.!~*'()")]
+  encoded = Request.encode_query(pairs)
+  dbg(encoded)
+  dbg(Request.decode_query(encoded) == pairs)
+  dbg(Request.decode_query(""))
+  dbg(Request.decode_query("a+b=c+d&e&=f"))
+  dbg(Request.decode_query("%41%62=%c3%A9"))
+  dbg(
+    [Request.decode_query("a=%E6")] escape {
+      ParseError(input:) -> [[("error", input)]]
+    },
+  )
+  dbg(
+    [Request.decode_query("a=%G0")] escape {
+      ParseError(input:) -> [[("error", input)]]
+    },
+  )
+  dbg(
+    [Request.decode_query("a=1%")] escape {
+      ParseError(input:) -> [[("error", input)]]
+    },
+  )
+
+  res = Response.new(404, "nf")
+  dbg(res)
+  with_set = res
+    |> Response.add_header("Set-Cookie", "a=1")
+    |> Response.add_header("set-cookie", "b=2")
+  dbg((Response.header(with_set, "SET-COOKIE"), Response.headers(with_set, "set-cookie")))
+  dbg(Response.require_ok(Response.new(204, "")).status)
+  dbg(Response.require_ok(Response.new(299, "")).status)
+  dbg(
+    "#{Response.require_ok(res).status}" escape {
+      UnexpectedStatus(status:, body:) -> "unexpected #{status} #{body}"
+    },
+  )
+  dbg(
+    "#{Response.require_ok(Response.new(199, "x")).status}" escape {
+      UnexpectedStatus(status:, body:) -> "unexpected #{status} #{body}"
+    },
+  )
+
+  # the moved names, still in Std.Http
+  old = Http.request(Get, "u") |> Http.add_header("a", "1")
+  dbg(old == (Request.new(Get, "u") |> Request.add_header("a", "1")))
+  dbg(Http.response(200, "ok") == Response.new(200, "ok"))
+  dbg(Http.header(with_set, "set-cookie"))
+  dbg(Http.headers(with_set, "set-cookie"))
+  dbg(Http.encode_query(pairs) == encoded)
+  dbg(Http.require_ok(Response.new(200, "")).status)
+}
