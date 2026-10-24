@@ -599,6 +599,11 @@ impl Diagnostic {
                 Some(code::MISSING_PARAM_TYPE),
                 format!("parameter `{param}` of a top-level function needs a type"),
             ),
+            TypeDiagnosticKind::MissingInitParamType { handler, param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of the `init` of `{handler}` needs a type"),
+            ),
             TypeDiagnosticKind::NonExhaustiveMatch { missing } => (
                 Severity::Error,
                 Some(code::NON_EXHAUSTIVE_MATCH),
@@ -639,9 +644,20 @@ impl Diagnostic {
                 Some(code::UNREACHABLE_MATCH_ARM),
                 "unreachable match arm".to_owned(),
             ),
-            TypeDiagnosticKind::UnhandledErrors { errors, declared } => {
+            TypeDiagnosticKind::UnhandledErrors {
+                errors,
+                declared,
+                layer_arg,
+            } => {
                 let list = quoted_list("error", "errors", errors);
-                if *declared {
+                if let Some(arg) = layer_arg {
+                    help = Some(layer_arg_help(arg));
+                    (
+                        Severity::Error,
+                        Some(code::UNHANDLED_ERRORS),
+                        format!("unhandled {list}"),
+                    )
+                } else if *declared {
                     help = Some("add it to `fails` or handle it with `escape`".to_owned());
                     let verb = if errors.len() == 1 { "is" } else { "are" };
                     (
@@ -711,6 +727,10 @@ impl Diagnostic {
                         format!("{list} {verb} not declared in `use`")
                     }
                     EffectContext::Const => format!("constant values cannot use {list}"),
+                    EffectContext::LayerArg(arg) => {
+                        help = Some(layer_arg_help(arg));
+                        format!("arguments in layer `{}` cannot use {list}", arg.layer)
+                    }
                     EffectContext::Main => {
                         help = Some(match scope {
                             Some(scope) => format!("provide it with `with` outside `{scope}`"),
@@ -819,6 +839,23 @@ impl Diagnostic {
                     Severity::Error,
                     Some(code::MISSING_INIT),
                     format!("handler `{handler}` has fields but no `init`"),
+                )
+            }
+            TypeDiagnosticKind::MissingInitArgs { handler, params } => {
+                let args: Vec<String> = params.iter().map(|p| format!("{p}: ...")).collect();
+                help = Some(format!("write `{handler}({})`", args.join(", ")));
+                (
+                    Severity::Error,
+                    Some(code::MISSING_INIT_ARGS),
+                    format!("handler `{handler}` needs arguments for its `init`"),
+                )
+            }
+            TypeDiagnosticKind::UnexpectedInitArgs { name, kind } => {
+                help = Some(format!("write `{name}` without parentheses"));
+                (
+                    Severity::Error,
+                    Some(code::UNEXPECTED_INIT_ARGS),
+                    format!("{kind} `{name}` takes no arguments"),
                 )
             }
             TypeDiagnosticKind::ReleaseFails { handler, errors } => {
@@ -1220,6 +1257,14 @@ impl Diagnostic {
         }
         out
     }
+}
+
+/// The help of E0318 and E0402 in the arguments of a layer item (`[effect.layer]`).
+fn layer_arg_help(arg: &emela_types::LayerArg) -> String {
+    format!(
+        "the arguments in a layer must be pure; to pass this value, list `{}` after the layer: `with {}, {}(...) {{ ... }}`",
+        arg.handler, arg.layer, arg.handler
+    )
 }
 
 /// Lists names as `` `a` `` or `` fields `a`, `b` ``. Four or more show the first three and

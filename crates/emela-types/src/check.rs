@@ -97,6 +97,12 @@ pub struct ProgramTypes {
     /// Layer → its expansion (handlers in initialization order and the dependencies the layer
     /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
+    /// `with` expressions → per item, the arguments of init reordered by parameter
+    /// (`[effect.handler]`). Empty for an item without them. `WithBind::args` refers to these.
+    pub with_args: ArenaMap<ExprId, Vec<Vec<Option<ExprId>>>>,
+    /// Layers → per item, the arguments of init reordered by parameter. Only for layers with
+    /// arguments.
+    pub layer_args: ArenaMap<DefId, Vec<Vec<Option<ExprId>>>>,
     /// Supertraits and impls (spec 10.1–10.2).
     pub traits: Traits,
     pub diags: Vec<Diagnostic>,
@@ -151,6 +157,8 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         handler_fails: ArenaMap::default(),
         with_handlers: ArenaMap::default(),
         layers: ArenaMap::default(),
+        with_args: ArenaMap::default(),
+        layer_args: ArenaMap::default(),
         traits,
         diags,
     };
@@ -222,6 +230,10 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .with_handlers
             .extend(body.with_handlers.iter().map(|(id, hs)| (id, hs.clone())));
+        types
+            .with_args
+            .extend(body.with_args.iter().map(|(id, args)| (id, args.clone())));
+        types.layer_args.extend(body.layer_args);
         types.diags.extend(body.diags);
     }
 
@@ -237,7 +249,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
     types
 }
 
-/// Orders the definitions to infer (fns with bodies, consts, handlers, trait default
+/// Orders the definitions to infer (fns with bodies, consts, handlers, layers, trait default
 /// implementations and impl functions with signatures) into groups that refer to each other,
 /// callees first.
 fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
@@ -249,6 +261,9 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
             Some(Item::Fn(item)) => item.body.is_some(),
             Some(Item::TraitFn(item)) => item.body.is_some() && sigs.get(def).is_some(),
             Some(Item::Const(_) | Item::Handler(_)) => true,
+            // The arguments of a layer's items are inferred, as the value of a const. Every
+            // layer is, since an item without arguments may need them (E0434).
+            Some(Item::Layer(_)) => true,
             // An impl function without a signature (its impl or trait function has an error) is
             // not inferred.
             _ => program
@@ -266,7 +281,7 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
             .flat_map(|(r, _)| match program.item(r) {
                 Some(Item::Layer(_)) => layer::flatten(program, r)
                     .into_iter()
-                    .map(|(h, _)| h)
+                    .map(|f| f.handler)
                     .collect(),
                 _ => vec![r],
             })
@@ -354,7 +369,7 @@ impl Tarjan<'_> {
 /// The definitions referred to in a definition's body (fns with bodies, consts, handlers), with
 /// their spans, in source order. Empty for definitions without a body. Includes consts in
 /// patterns and handlers written in `with`. For handlers, looks at init, release and the
-/// operation bodies.
+/// operation bodies; for layers, at the arguments of their items.
 pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
     let mut out = Vec::new();
     match program.item(def) {
@@ -364,6 +379,15 @@ pub fn body_refs(program: &Program, def: DefId) -> Vec<(DefId, Span)> {
             }
         }
         Some(Item::Const(item)) => collect_expr_refs(program, item.value, &mut out),
+        Some(Item::Layer(item)) => {
+            for arg in item
+                .members
+                .iter()
+                .flat_map(|m| m.args.iter().flat_map(|a| &a.args))
+            {
+                collect_expr_refs(program, arg.value, &mut out);
+            }
+        }
         Some(Item::Handler(item)) => {
             let bodies = item
                 .init
@@ -461,6 +485,9 @@ fn collect_expr_refs(program: &Program, expr: ExprId, out: &mut Vec<(DefId, Span
                     if let Res::Def(h) = res {
                         out.push((h, span));
                     }
+                }
+                for arg in layer::item_args(item) {
+                    go(arg, out);
                 }
             }
             go(*body, out);

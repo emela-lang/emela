@@ -15,17 +15,26 @@
 //!   which slots hold references (for `drop`). Constructors without fields, string literals and
 //!   closures without captures are static objects (rc == 0), which reference counting skips.
 //! - The runtime (Perceus `dup`/`drop`, the allocator, strings, the numeric conversions and the
-//!   WASI host calls) is emitted into the same module (see `runtime.rs`).
+//!   WASI host calls) is emitted into the same module (see `runtime/`).
+//!
+//! The lowering is split by feature: this module has the entry point, the `Builder` skeleton and
+//! the IR statements and values; `builtins` lowers `Builtin`; `external` handles the host
+//! imports and their stubs; `runtimeop` lowers `RuntimeOp`; `suspend` emits the state machines
+//! of suspending functions and begins a `suspend fn` operation call.
 
+mod builtins;
+mod external;
 pub mod layout;
 mod runtime;
+mod runtimeop;
+mod suspend;
 
-use emela_core::{Builtin, EnumId, HostModule, HostRef, OPTION_NONE, OPTION_SOME, Type, TypeId};
+use emela_core::{EnumId, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
-    RuntimeOp, SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
+    SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
     ExportKind, ExportSection, Function as WasmFunction, FunctionSection, GlobalSection,
@@ -34,14 +43,37 @@ use wasm_encoder::{
 };
 
 use crate::check;
+use crate::std_host::StdHost;
 use crate::{WasmError, WasmErrorKind, WasmOutput};
 
-/// What the generated `_start` runs.
+/// What the generated `wasi:cli/run@0.3.0` export runs.
 #[allow(dead_code)]
 pub(crate) enum Run {
-    Main,
+    /// The entry's `main` (its monomorphized copy).
+    Main(Option<FnId>),
     /// Test functions, with their names.
     Tests(Vec<(String, FnId)>),
+}
+
+impl Run {
+    /// The functions the output calls first.
+    pub(crate) fn roots(&self) -> Vec<FnId> {
+        match self {
+            Run::Main(main) => main.iter().copied().collect(),
+            Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
+        }
+    }
+}
+
+/// The WASI 0.3 imports shared by the two output interfaces.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OutputImports {
+    pub(crate) write: u32,
+    pub(crate) stream_new: u32,
+    pub(crate) stream_write: u32,
+    pub(crate) stream_drop_writable: u32,
+    pub(crate) future_read: u32,
+    pub(crate) future_drop_readable: u32,
 }
 
 pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>> {
@@ -55,7 +87,20 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
-    let (module, layout) = b.finish();
+    let (core, layout) = b.finish();
+    let optional = crate::component::OptionalImports {
+        environment: b.uses_env(),
+        random: b.uses_random(),
+        clock: b.uses_clock(),
+        monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
+        filesystem: b.uses_std_host(StdHost::is_fs),
+    };
+    let module = crate::component::wrap(&core, optional).map_err(|e| {
+        vec![WasmError {
+            kind: WasmErrorKind::Internal,
+            message: format!("internal error in the WASM component: {e}"),
+        }]
+    })?;
     Ok(WasmOutput { module, layout })
 }
 
@@ -100,11 +145,35 @@ const G_FAILURE: u32 = 3;
 #[allow(dead_code)]
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
-const GLOBALS: u32 = 6;
+/// The output streams and the waitable set of the WASI 0.3 host calls (`runtime/host.rs`).
+const G_STDOUT: u32 = 6;
+const G_STDOUT_FUTURE: u32 = 7;
+const G_STDERR: u32 = 8;
+const G_STDERR_FUTURE: u32 = 9;
+const G_WAITSET: u32 = 10;
+/// The name of the handler retired last (spec 14.4: the release note names it).
+pub(crate) const G_LAST_RETIRED: u32 = 11;
+/// Whether `Std.Env` has fetched the environment list, and the list's pointer and length. The
+/// WIT contract makes `get-environment` a value import, so the list is fetched once per command.
+const G_ENV_LOADED: u32 = 12;
+const G_ENV_PTR: u32 = 13;
+const G_ENV_LEN: u32 = 14;
+const GLOBALS: u32 = 15;
 
-/// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
-/// marks static data (never counted).
+/// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, the size of a heap object's
+/// block at 12, slots at 16. A `rc` of 0 marks static data (never counted).
 const HDR: u32 = 16;
+
+// A const's cell (spec 5.6; see `runtime/constant.rs`). The state is 0 (not evaluated), 1 (being
+// evaluated), 2 (the value is in the cell) or 3 (the defect is in the cell). The last two words
+// hold the static strings the runtime needs: the self-reference message and the prefix of the
+// wrapped defect.
+pub(crate) const CONST_STATE: u32 = 0;
+pub(crate) const CONST_VALUE: u32 = 8;
+pub(crate) const CONST_DEFECT: u32 = 16;
+pub(crate) const CONST_SELF: u32 = 20;
+pub(crate) const CONST_PREFIX: u32 = 24;
+pub(crate) const CONST_CELL_SIZE: u32 = 32;
 const DESC_KIND: u32 = 0;
 const DESC_NSLOTS: u32 = 4;
 const DESC_TAG: u32 = 8;
@@ -126,21 +195,41 @@ pub(crate) struct Builder<'m> {
     fn_table: Vec<u32>,
     table_funcs: Vec<u32>,
     pub(crate) rt: FxHashMap<&'static str, u32>,
+    /// The runtime functions the IR bodies call. A runtime module's `setup` reads it to leave
+    /// out static data the program never reaches.
+    pub(crate) rt_used: FxHashSet<&'static str>,
     /// The `show` function of each error enum (spec 10.6), as a table index for the descriptor.
     pub(crate) error_shows: FxHashMap<EnumId, u32>,
     pub(crate) entry_index: u32,
+    pub(crate) callback_index: u32,
     pub(crate) str_desc: u32,
     /// The descriptors of a list cell whose head is a reference, and one whose head is a word
     /// (the runtime's `String.split` / `String.code_points` build lists).
     pub(crate) cons_ref_desc: u32,
     pub(crate) cons_val_desc: u32,
+    /// The static buffers of the Float runtime (allocated only when the program uses Float).
+    pub(crate) float_area: u32,
     pub(crate) data: Vec<u8>,
+    /// The static data of the runtime modules, by name (written by their `setup`).
+    pub(crate) rt_data: FxHashMap<&'static str, u32>,
     descs: FxHashMap<DescKey, u32>,
     strs: FxHashMap<Vec<u8>, u32>,
     nullary: FxHashMap<u32, u32>,
     static_closures: FxHashMap<FnId, u32>,
+    /// The function index of a const's body (the wrapper has `fn_index`).
+    const_inits: FxHashMap<FnId, u32>,
+    /// The static cell of a const.
+    const_cells: FxHashMap<FnId, u32>,
     pub(crate) errors: Vec<WasmError>,
     pub(crate) bodies: Vec<WasmFunction>,
+    /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
+    std_hosts: Vec<(FnId, StdHost)>,
+    /// The suspend runtime's cells and per-function entries, when the program suspends.
+    pub(crate) sus: Option<suspend::Plan>,
+    /// The asynchronous host bridge's cells, when the program sleeps.
+    pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
+    /// The file system runtime's cells, when the program uses `Std.FileSystem`.
+    pub(crate) fs_plan: Option<runtime::fs::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -156,18 +245,28 @@ impl<'m> Builder<'m> {
             fn_table: vec![0; m.functions.len()],
             table_funcs: Vec::new(),
             rt: FxHashMap::default(),
+            rt_used: FxHashSet::default(),
             error_shows: FxHashMap::default(),
             entry_index: 0,
+            callback_index: 0,
             str_desc: 0,
             cons_ref_desc: 0,
             cons_val_desc: 0,
+            float_area: 0,
             data: vec![0; layout::STATIC_START as usize],
+            rt_data: FxHashMap::default(),
             descs: FxHashMap::default(),
             strs: FxHashMap::default(),
             nullary: FxHashMap::default(),
             static_closures: FxHashMap::default(),
+            const_inits: FxHashMap::default(),
+            const_cells: FxHashMap::default(),
             errors: Vec::new(),
             bodies: Vec::new(),
+            std_hosts: Vec::new(),
+            sus: None,
+            async_plan: None,
+            fs_plan: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -200,28 +299,193 @@ impl<'m> Builder<'m> {
         i
     }
 
-    fn wasi_import(&mut self, name: &str, params: Vec<ValType>, results: Vec<ValType>) -> u32 {
-        let module = "wasi_snapshot_preview1".to_owned();
-        if let Some(&i) = self.import_map.get(&(module.clone(), name.to_owned())) {
+    /// Appends a WASI 0.3 import, or returns the index of the one already there.
+    ///
+    /// Imports are assigned before the IR functions get their indices. A new host import is
+    /// added by calling this in the same early phase (`build`), never in the middle of the
+    /// function index space.
+    fn host_import(
+        &mut self,
+        module: &str,
+        name: &str,
+        params: Vec<ValType>,
+        results: Vec<ValType>,
+    ) -> u32 {
+        let key = (module.to_owned(), name.to_owned());
+        if let Some(&i) = self.import_map.get(&key) {
             return i;
         }
         let ty = self.ty(params, results);
         let i = self.imports.len() as u32;
-        self.imports.push((module.clone(), name.to_owned(), ty));
-        self.import_map.insert((module, name.to_owned()), i);
+        self.imports.push((key.0.clone(), key.1.clone(), ty));
+        self.import_map.insert(key, i);
         i
     }
 
-    pub(crate) fn fd_write(&mut self) -> u32 {
-        self.wasi_import(
-            "fd_write",
-            vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+    /// Whether a supported WASI host is used (and so its runtime wrapper and import are needed).
+    pub(crate) fn uses_std_host(&self, which: fn(StdHost) -> bool) -> bool {
+        self.std_hosts.iter().any(|&(_, host)| which(host))
+    }
+
+    pub(crate) fn uses_console(&self) -> bool {
+        self.uses_std_host(StdHost::is_console)
+    }
+
+    pub(crate) fn uses_env(&self) -> bool {
+        self.uses_std_host(StdHost::is_env)
+    }
+
+    pub(crate) fn uses_random(&self) -> bool {
+        self.uses_std_host(StdHost::is_random)
+    }
+
+    pub(crate) fn uses_clock(&self) -> bool {
+        self.uses_std_host(StdHost::is_clock)
+    }
+
+    pub(crate) fn uses_sleep(&self) -> bool {
+        self.uses_std_host(StdHost::is_sleep)
+    }
+
+    // ---- WASI 0.3 imports ----
+
+    pub(crate) fn environment_get(&mut self) -> u32 {
+        self.host_import(
+            "wasi:cli/environment@0.3.0",
+            "get-environment",
+            // The result is a `list<tuple<string, string>>`, returned through a pointer.
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn random_u64(&mut self) -> u32 {
+        self.host_import(
+            "wasi:random/random@0.3.0",
+            "get-random-u64",
+            Vec::new(),
+            vec![ValType::I64],
+        )
+    }
+
+    pub(crate) fn system_clock_now(&mut self) -> u32 {
+        self.host_import(
+            "wasi:clocks/system-clock@0.3.0",
+            "now",
+            // The `instant` record is returned through a pointer.
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn monotonic_wait_for(&mut self) -> u32 {
+        self.host_import(
+            "wasi:clocks/monotonic-clock@0.3.0",
+            "[async-lower]wait-for",
+            vec![ValType::I64],
             vec![ValType::I32],
         )
     }
 
-    pub(crate) fn proc_exit(&mut self) -> u32 {
-        self.wasi_import("proc_exit", vec![ValType::I32], vec![])
+    pub(crate) fn subtask_drop(&mut self) -> u32 {
+        self.host_import("$root", "[subtask-drop]", vec![ValType::I32], Vec::new())
+    }
+
+    pub(crate) fn exit_with_code(&mut self) -> u32 {
+        self.host_import(
+            "wasi:cli/exit@0.3.0",
+            "exit-with-code",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn task_return(&mut self) -> u32 {
+        self.host_import(
+            "[export]wasi:cli/run@0.3.0",
+            "[task-return]run",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn waitable_set_new(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-new]",
+            Vec::new(),
+            vec![ValType::I32],
+        )
+    }
+
+    pub(crate) fn waitable_set_wait(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-wait]",
+            vec![ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        )
+    }
+
+    pub(crate) fn waitable_set_drop(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-set-drop]",
+            vec![ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn waitable_join(&mut self) -> u32 {
+        self.host_import(
+            "$root",
+            "[waitable-join]",
+            vec![ValType::I32, ValType::I32],
+            Vec::new(),
+        )
+    }
+
+    /// `write-via-stream` and the stream/future intrinsics it introduces, for one of the two
+    /// output interfaces (`wasi:cli/stdout@0.3.0` or `wasi:cli/stderr@0.3.0`).
+    pub(crate) fn output_imports(&mut self, interface: &'static str) -> OutputImports {
+        OutputImports {
+            write: self.host_import(
+                interface,
+                "write-via-stream",
+                vec![ValType::I32],
+                vec![ValType::I32],
+            ),
+            stream_new: self.host_import(
+                interface,
+                "[stream-new-0]write-via-stream",
+                Vec::new(),
+                vec![ValType::I64],
+            ),
+            stream_write: self.host_import(
+                interface,
+                "[async-lower][stream-write-0]write-via-stream",
+                vec![ValType::I32, ValType::I32, ValType::I32],
+                vec![ValType::I32],
+            ),
+            stream_drop_writable: self.host_import(
+                interface,
+                "[stream-drop-writable-0]write-via-stream",
+                vec![ValType::I32],
+                Vec::new(),
+            ),
+            future_read: self.host_import(
+                interface,
+                "[async-lower][future-read-1]write-via-stream",
+                vec![ValType::I32, ValType::I32],
+                vec![ValType::I32],
+            ),
+            future_drop_readable: self.host_import(
+                interface,
+                "[future-drop-readable-1]write-via-stream",
+                vec![ValType::I32],
+                Vec::new(),
+            ),
+        }
     }
 
     fn fn_ty(&mut self, f: &Function) -> u32 {
@@ -239,19 +503,51 @@ impl<'m> Builder<'m> {
 
     fn build(&mut self, entry: &Run) {
         // The imports (the WASI host and the externals with a wasm binding) take the lowest
-        // indices.
+        // indices. A supported `Std` host is a runtime wrapper instead; it is resolved after the
+        // runtime functions have their indices.
         for (id, f) in self.m.functions.iter() {
             if let Some(ext) = &f.external
                 && let Some(binding) = ext.binding("wasm")
             {
-                self.external_import(id, f, binding);
+                match crate::std_host::classify(f) {
+                    Some(host) => self.std_hosts.push((id, host)),
+                    None => self.external_import(id, f, binding),
+                }
             }
         }
-        // The WASI host calls the runtime always uses (their indices must be fixed before the
-        // function index space is assigned).
-        self.fd_write();
-        self.proc_exit();
-        // The IR definitions, in arena order (the entries of the table are the IR functions).
+        // The WASI 0.3 host calls the runtime always uses (their indices must be fixed before the
+        // function index space is assigned). The environment, random and clock imports are only
+        // added when the program uses them.
+        if self.uses_env() {
+            self.environment_get();
+        }
+        if self.uses_random() {
+            self.random_u64();
+        }
+        if self.uses_clock() {
+            self.system_clock_now();
+        }
+        if self.uses_std_host(StdHost::is_monotonic) {
+            self.monotonic_wait_for();
+            // A `$root` intrinsic, not a WIT import: used to drop a completed or cancelled
+            // subtask. Only the real monotonic clock starts one.
+            self.subtask_drop();
+        }
+        if self.uses_std_host(StdHost::is_fs) {
+            // The file system runtime waits on its own subtasks and stream operations.
+            self.subtask_drop();
+            runtime::fs::imports(self);
+        }
+        self.exit_with_code();
+        self.output_imports("wasi:cli/stdout@0.3.0");
+        self.output_imports("wasi:cli/stderr@0.3.0");
+        self.waitable_set_new();
+        self.waitable_set_wait();
+        self.waitable_set_drop();
+        self.waitable_join();
+        self.task_return();
+        // The IR definitions, in arena order (the entries of the table are the IR functions). A
+        // const gets two: the wrapper callers see, then its body (`_init`).
         for (id, f) in self.m.functions.iter() {
             if self.imported(id) {
                 continue;
@@ -262,6 +558,12 @@ impl<'m> Builder<'m> {
             self.fn_table[ix(id)] = self.table_funcs.len() as u32;
             self.table_funcs.push(index);
             self.defs.push(ty);
+            if f.constant {
+                self.const_cell(id, f);
+                let init = self.imports.len() as u32 + self.defs.len() as u32;
+                self.const_inits.insert(id, init);
+                self.defs.push(ty);
+            }
         }
         // The error `show` functions, as table indices (their descriptors point at them).
         for (enum_id, function) in self.m.error_shows.iter().copied() {
@@ -272,90 +574,53 @@ impl<'m> Builder<'m> {
             };
             self.error_shows.insert(enum_id, slot);
         }
+        // The state machines of suspending functions: their extra definitions come right after
+        // the IR functions, before the runtime (so the runtime indices do not move).
+        if suspend::used(self) {
+            suspend::reserve(self);
+        }
         runtime::register(self);
-        // One entry (`_start`).
-        let ty = self.ty(vec![], vec![]);
+        // A supported `Std` host calls its runtime wrapper directly.
+        for i in 0..self.std_hosts.len() {
+            let (id, host) = self.std_hosts[i];
+            self.fn_index[ix(id)] = *self.rt.get(host.runtime_name()).unwrap_or_else(|| {
+                self.errors.push(WasmError::new(
+                    WasmErrorKind::Internal,
+                    format!(
+                        "internal error: missing runtime function `{}`",
+                        host.runtime_name()
+                    ),
+                ));
+                &0
+            });
+        }
+        if suspend::used(self) {
+            suspend::prepare(self);
+        }
+        // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
+        // component-model status code.
+        let ty = self.ty(vec![], vec![ValType::I32]);
         self.entry_index = self.imports.len() as u32 + self.defs.len() as u32;
+        self.defs.push(ty);
+        let ty = self.ty(
+            vec![ValType::I32, ValType::I32, ValType::I32],
+            vec![ValType::I32],
+        );
+        self.callback_index = self.imports.len() as u32 + self.defs.len() as u32;
         self.defs.push(ty);
 
         self.emit_ir_bodies();
+        suspend::emit_machines(self);
         runtime::emit(self);
         self.emit_entry(entry);
-    }
-
-    fn external_import(&mut self, id: FnId, f: &Function, binding: &emela_core::ExternalBinding) {
-        let (module, name) = match &binding.host {
-            HostRef::Import { module, name } => {
-                let module = match module {
-                    HostModule::Named(n) => n.clone(),
-                    HostModule::File(p) | HostModule::Bundled(p) => p.clone(),
-                };
-                (module, name.clone())
-            }
-            HostRef::Global(_) => {
-                self.internal(format!(
-                    "`@external(wasm, ...)` of `{}` is not a module/name import",
-                    f.name
-                ));
-                return;
-            }
-        };
-        let mut params = Vec::new();
-        for &p in &f.params {
-            match self.host_val(f.vars[p].ty) {
-                Some(v) => params.push(v),
-                None => {
-                    self.host_type_error(f, f.vars[p].ty);
-                    return;
-                }
-            }
-        }
-        let results: Vec<ValType> = match self.host_val(f.ret) {
-            Some(v) => vec![v],
-            None => vec![],
-        };
-        let ty = self.ty(params, results);
-        if let Some(&i) = self.import_map.get(&(module.clone(), name.clone())) {
-            self.fn_index[ix(id)] = i;
-            return;
-        }
-        let index = self.imports.len() as u32;
-        self.imports.push((module.clone(), name.clone(), ty));
-        self.import_map.insert((module, name), index);
-        self.fn_index[ix(id)] = index;
-    }
-
-    fn host_val(&self, ty: TypeId) -> Option<ValType> {
-        Some(match self.core().ty(ty) {
-            Type::Int | Type::Bool => ValType::I32,
-            Type::Int64 => ValType::I64,
-            Type::Float => ValType::F64,
-            _ => return None,
-        })
-    }
-
-    fn host_type_error(&mut self, f: &Function, ty: TypeId) {
-        let name = emela_lir::core_ty(self.core(), ty);
-        let kind = if matches!(self.core().ty(ty), Type::Fn(_)) {
-            WasmErrorKind::Callback
-        } else {
-            WasmErrorKind::Unsupported
-        };
-        let message = if kind == WasmErrorKind::Callback {
-            format!(
-                "external function `{}` takes a callback, which target `wasm` does not support yet",
-                f.name
-            )
-        } else {
-            format!(
-                "external function `{}` uses the type {name}, which cannot cross to WASM",
-                f.name
-            )
-        };
-        self.errors.push(WasmError::new(kind, message));
+        self.emit_callback();
     }
 
     // ---- statics ----
+    //
+    // Descriptors are created on demand by shape (`DescKey`). A new lowering builds the
+    // descriptor it needs with `desc` (and a static value with `nullary` or `string_literal`);
+    // there is no central table to extend.
 
     fn alloc_static(&mut self, size: u32) -> u32 {
         let align = (8 - (self.data.len() as u32 % 8)) % 8;
@@ -376,7 +641,17 @@ impl<'m> Builder<'m> {
     /// The offset of a static string object: rc == 0, no slots, the length in the first word and
     /// the utf-8 bytes after it.
     pub(crate) fn string_literal(&mut self, bytes: &[u8]) -> u32 {
-        if let Some(&o) = self.strs.get(bytes) {
+        self.string_object(bytes, true)
+    }
+
+    /// A string literal that no other use shares, so that the runtime can mark its `aux` word
+    /// (the self-reference message of a const, spec 5.6).
+    fn unique_string_literal(&mut self, bytes: &[u8]) -> u32 {
+        self.string_object(bytes, false)
+    }
+
+    fn string_object(&mut self, bytes: &[u8], shared: bool) -> u32 {
+        if shared && let Some(&o) = self.strs.get(bytes) {
             return o;
         }
         let o = self.alloc_static(HDR + 4 + bytes.len() as u32 + 1);
@@ -385,8 +660,28 @@ impl<'m> Builder<'m> {
         self.write_u32(o + HDR, bytes.len() as u32);
         self.data[(o + HDR + 4) as usize..(o + HDR + 4) as usize + bytes.len()]
             .copy_from_slice(bytes);
-        self.strs.insert(bytes.to_vec(), o);
+        if shared {
+            self.strs.insert(bytes.to_vec(), o);
+        }
         o
+    }
+
+    /// The static cell of a const: its state, its value and defect, and the two messages the
+    /// runtime wraps with (spec 5.6).
+    fn const_cell(&mut self, id: FnId, f: &Function) {
+        let name = check::display_name(&f.name);
+        let prefix = self.string_literal(format!("while evaluating const {name}: ").as_bytes());
+        // The marker in `aux` travels with the defect (through `defect_take`, notes and
+        // `defect_resume`). The string is unique to this const, so marking it cannot affect a
+        // user string with the same bytes.
+        let self_ref = self.unique_string_literal(
+            format!("const {name} refers to itself while being evaluated").as_bytes(),
+        );
+        self.write_u32(self_ref + 4, 1);
+        let cell = self.alloc_static(CONST_CELL_SIZE);
+        self.write_u32(cell + CONST_SELF, self_ref);
+        self.write_u32(cell + CONST_PREFIX, prefix);
+        self.const_cells.insert(id, cell);
     }
 
     fn string_desc(&mut self) -> u32 {
@@ -588,7 +883,22 @@ impl<'m> Builder<'m> {
 
         let mut exports = ExportSection::new();
         exports.export("memory", ExportKind::Memory, 0);
-        exports.export("_start", ExportKind::Func, self.entry_index);
+        exports.export(
+            "[async-lift]wasi:cli/run@0.3.0#run",
+            ExportKind::Func,
+            self.entry_index,
+        );
+        exports.export(
+            "[callback][async-lift]wasi:cli/run@0.3.0#run",
+            ExportKind::Func,
+            self.callback_index,
+        );
+        // An imported function returning a list (`get-environment`, `get-directories`) makes the
+        // host allocate the result in our linear memory through `cabi_realloc` (the canonical
+        // ABI's realloc).
+        if let Some(&realloc) = self.rt.get("cabi_realloc") {
+            exports.export("cabi_realloc", ExportKind::Func, realloc);
+        }
         module.section(&exports);
 
         if !self.table_funcs.is_empty() {
@@ -626,7 +936,15 @@ impl<'m> Builder<'m> {
             if self.imported(id) {
                 continue;
             }
-            let body = if f.external.is_some() {
+            if f.constant {
+                // A const's body is evaluated eagerly, so it never suspends (spec 5.6).
+                bodies.push(self.const_wrapper(id, f));
+                bodies.push(self.emit_fn(id, f));
+                continue;
+            }
+            let body = if suspend::is_machine(f) {
+                self.machine_wrapper(id, f)
+            } else if f.external.is_some() {
                 self.external_stub(id, f)
             } else {
                 self.emit_fn(id, f)
@@ -636,25 +954,139 @@ impl<'m> Builder<'m> {
         self.bodies = bodies;
     }
 
-    fn external_stub(&mut self, _id: FnId, f: &Function) -> WasmFunction {
-        let msg = format!(
-            "external function `{}` is not available on this target",
-            check::display_name(&f.name)
-        );
-        let s = self.string_literal(msg.as_bytes());
+    /// The function callers of a const call: returns the remembered value or defect, and runs the
+    /// body (`_init`) on the first reference only (spec 5.6).
+    fn const_wrapper(&mut self, id: FnId, f: &Function) -> WasmFunction {
         let ret = self.repr(f.ret);
-        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        let cell = self.const_cells[&id];
+        let init = self.const_inits[&id];
+        let mut locals = Vec::new();
+        if ret != Repr::Void {
+            locals.push((1, val(ret)));
+        }
+        let mut func = WasmFunction::new(locals);
+        const TEMP: u32 = 0;
         {
             let mut ins = func.instructions();
-            ins.i32_const(s as i32);
-            let raise = self.rt("raise");
-            ins.call(raise);
+            // The cell holds the value: return it without calling the runtime.
+            ins.i32_const(cell as i32);
+            ins.i32_load(mem(CONST_STATE, 4));
+            ins.i32_const(2);
+            ins.i32_eq();
+            ins.if_(BlockType::Empty);
+            self.load_const_value(&mut ins, cell, ret);
+            ins.return_();
+            ins.end();
+            // 1: the cell holds the defect, which `const_enter` raised.
+            ins.i32_const(cell as i32);
+            ins.call(self.rt("const_enter"));
+            ins.if_(BlockType::Empty);
             dummy_return(&mut ins, ret);
+            ins.end();
+            // 0: evaluate the body once.
+            ins.call(init);
+            if ret != Repr::Void {
+                ins.local_set(TEMP);
+            }
+            ins.global_get(G_DEFECT);
+            ins.if_(BlockType::Empty);
+            // A failing evaluation owns nothing to keep: the IR returns a dummy value.
+            if ret == Repr::Ref {
+                ins.local_get(TEMP);
+                let drop = self.rt("drop");
+                ins.call(drop);
+            }
+            ins.i32_const(cell as i32);
+            let leave = self.rt("const_leave");
+            ins.call(leave);
+            dummy_return(&mut ins, ret);
+            ins.end();
+            // The value is now in the cell; the caller gets its own reference.
+            if ret != Repr::Void {
+                ins.i32_const(cell as i32);
+                ins.local_get(TEMP);
+            }
+            match ret {
+                Repr::Void => {}
+                Repr::I32 | Repr::Ref => {
+                    ins.i32_store(mem(CONST_VALUE, 4));
+                }
+                Repr::I64 => {
+                    ins.i64_store(mem(CONST_VALUE, 8));
+                }
+                Repr::F64 => {
+                    ins.f64_store(mem(CONST_VALUE, 8));
+                }
+            }
+            if ret == Repr::Ref {
+                ins.local_get(TEMP);
+                let dup = self.rt("dup");
+                ins.call(dup);
+            }
+            ins.i32_const(cell as i32);
+            let leave = self.rt("const_leave");
+            ins.call(leave);
+            if ret != Repr::Void {
+                ins.local_get(TEMP);
+            }
+            ins.return_();
             ins.end();
         }
         func
     }
 
+    /// The ordinary entry of a state machine: the IR, closures and direct calls see this
+    /// signature; it enters the body without a frame.
+    fn machine_wrapper(&mut self, id: FnId, f: &Function) -> WasmFunction {
+        let Some(body) = self
+            .sus
+            .as_ref()
+            .and_then(|p| p.machine(id))
+            .map(|m| m.body)
+        else {
+            self.internal(format!("no state machine for {}", f.name));
+            return WasmFunction::new(Vec::<(u32, ValType)>::new());
+        };
+        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        {
+            let mut ins = func.instructions();
+            for i in 0..f.params.len() as u32 {
+                ins.local_get(i);
+            }
+            ins.i32_const(0);
+            ins.call(body);
+            ins.end();
+        }
+        func
+    }
+
+    /// Loads a const's remembered value. A reference is duplicated: the cell keeps its own.
+    fn load_const_value(&mut self, ins: &mut InstructionSink, cell: u32, ret: Repr) {
+        match ret {
+            Repr::Void => {}
+            Repr::I32 => {
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+            }
+            Repr::Ref => {
+                // `dup` takes the pointer by value and counts it; load it again for the caller.
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+                let dup = self.rt("dup");
+                ins.call(dup);
+                ins.i32_const(cell as i32);
+                ins.i32_load(mem(CONST_VALUE, 4));
+            }
+            Repr::I64 => {
+                ins.i32_const(cell as i32);
+                ins.i64_load(mem(CONST_VALUE, 8));
+            }
+            Repr::F64 => {
+                ins.i32_const(cell as i32);
+                ins.f64_load(mem(CONST_VALUE, 8));
+            }
+        }
+    }
     fn emit_fn(&mut self, id: FnId, f: &Function) -> WasmFunction {
         let mut cx = FnCtx::new(f, self);
         let Some(body) = f.body else {
@@ -679,26 +1111,27 @@ impl<'m> Builder<'m> {
         {
             let ins = &mut func.instructions();
             match entry {
-                Run::Main => {
-                    let main = self
-                        .m
-                        .functions
-                        .iter()
-                        .find(|(_, f)| f.exported && f.name == "main")
-                        .map(|(id, _)| id);
-                    if let Some(id) = main {
-                        let index = self.fn_index(id);
-                        let ret = self.repr(self.m.functions[id].ret);
-                        ins.call(index);
-                        self.drop_result(ins, ret);
+                Run::Main(Some(id)) => {
+                    let index = self.fn_index(*id);
+                    let ret = self.repr(self.m.functions[*id].ret);
+                    ins.call(index);
+                    self.drop_result(ins, ret);
+                    if self.sus.is_some() {
+                        let root = self.rt("root_run");
+                        ins.call(root);
                     }
                 }
+                Run::Main(None) => {}
                 Run::Tests(tests) => {
                     for (name, id) in tests {
                         let index = self.fn_index(*id);
                         let ret = self.repr(self.m.functions[*id].ret);
                         ins.call(index);
                         self.drop_result(ins, ret);
+                        if self.sus.is_some() {
+                            let root = self.rt("root_run");
+                            ins.call(root);
+                        }
                         let name = self.string_literal(name.as_bytes());
                         ins.i32_const(name as i32);
                         ins.call(self.rt("test_result"));
@@ -707,6 +1140,24 @@ impl<'m> Builder<'m> {
                 }
             }
             ins.call(self.rt("finish"));
+            ins.call(self.rt("close_output"));
+            ins.i32_const(0);
+            ins.call(self.task_return());
+            // `0` is the component model's EXIT status: the async-lifted run finished
+            // synchronously.
+            ins.i32_const(0);
+            ins.end();
+        }
+        self.bodies.push(func);
+    }
+
+    /// The callback of the async-lifted `run`. The generated run never yields (its waits are
+    /// synchronous), so the host never calls this; it must exist for the async ABI.
+    fn emit_callback(&mut self) {
+        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        {
+            let ins = &mut func.instructions();
+            ins.i32_const(0);
             ins.end();
         }
         self.bodies.push(func);
@@ -727,6 +1178,7 @@ impl<'m> Builder<'m> {
     }
 
     fn rt(&mut self, name: &'static str) -> u32 {
+        self.rt_used.insert(name);
         *self.rt.get(name).unwrap_or_else(|| {
             self.errors.push(WasmError::new(
                 WasmErrorKind::Internal,
@@ -934,9 +1386,19 @@ impl<'m> Builder<'m> {
                 on_suspend,
             } => {
                 if on_suspend.is_some() {
+                    // State machines have their own emitter (see `suspend`).
                     self.internal(format!("suspension edge left in {}", cx.f.name));
                 }
+                // Suspending code called where nothing may suspend runs in place (spec 8.7);
+                // what comes back suspended is unwound as interrupted (spec 14.5).
+                let sync = !cx.f.suspends && emela_lir::may_suspend(&value);
+                if sync {
+                    ins.call(self.rt("sync_enter"));
+                }
                 self.value(cx, ins, dst, &value);
+                if sync {
+                    ins.call(self.rt("sync_leave"));
+                }
                 if let Some(landing) = on_defect {
                     ins.global_get(G_DEFECT);
                     ins.if_(BlockType::Empty);
@@ -1673,12 +2135,8 @@ impl<'m> Builder<'m> {
                 op,
             } => {
                 let def = self.core().effects[*effect].ops[*op].clone();
-                if def.suspend {
-                    self.internal(format!("suspend fn operation in {}", cx.f.name));
-                    return;
-                }
                 let ret = self.repr(def.ret);
-                self.op_call(cx, ins, dst, *handler, *op, args, ret);
+                self.op_call(cx, ins, dst, *handler, *op, args, ret, &def);
             }
         }
     }
@@ -1717,10 +2175,18 @@ impl<'m> Builder<'m> {
         op: usize,
         args: &[Operand],
         ret: Repr,
+        def: &emela_core::OpDef,
     ) {
+        let suspend = def.suspend;
+        // A `suspend fn` implementation takes the resume function last and returns nothing; the
+        // value to continue with comes from `perform_end` (spec 8.4, 14.5).
         let mut params = vec![Repr::Ref];
         params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
-        let ty = self.call_ty(&params, ret);
+        if suspend {
+            params.push(Repr::Ref);
+        }
+        let call_ret = if suspend { Repr::Void } else { ret };
+        let ty = self.call_ty(&params, call_ret);
         let op_off = HDR + 8 * (op as u32 + 2);
         // If the handler was released, its operations are a defect (spec 8.6).
         ins.local_get(cx.local(handler));
@@ -1732,371 +2198,93 @@ impl<'m> Builder<'m> {
         ins.call(raise);
         dummy_return(ins, cx.ret);
         ins.else_();
+        let rs = if suspend {
+            let rs = cx.scratch(Repr::Ref, 0);
+            let prefix =
+                self.string_literal(format!("operation `{}` of handler `", def.name).as_bytes());
+            let resume = self.resume_table(ret);
+            ins.i32_const(prefix as i32);
+            ins.local_get(cx.local(handler));
+            ins.i32_const(resume as i32);
+            let f = self.rt("perform_new");
+            ins.call(f);
+            ins.local_set(rs);
+            Some(rs)
+        } else {
+            None
+        };
         ins.local_get(cx.local(handler));
         ins.i32_load(mem(op_off, 4));
         for a in args {
             self.operand(cx, ins, a);
+        }
+        if let Some(rs) = rs {
+            ins.local_get(rs);
         }
         ins.local_get(cx.local(handler));
         ins.i32_load(mem(op_off, 4));
         ins.i32_load(mem(HDR, 4));
         ins.call_indirect(0, ty);
+        if let Some(rs) = rs {
+            let end = self.rt("perform_end");
+            ins.local_get(rs);
+            ins.call(end);
+            self.perform_result(ins, ret);
+        }
         self.assign(cx, ins, dst, ret);
         ins.end();
     }
 
-    fn builtin(
-        &mut self,
-        cx: &mut FnCtx,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        op: Builtin,
-        args: &[Operand],
-    ) {
-        use Builtin::*;
-        match op {
-            StringByteSize => {
-                self.operand(cx, ins, &args[0]);
-                let f = self.rt("str_byte_size");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            StringAppend => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_append");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            StringContains => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_contains");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            StringStartsWith => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_starts_with");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            StringEndsWith => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_ends_with");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            StringSplit => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_split");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            StringJoin => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_join");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            StringTrim => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_trim");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            StringCodePoints => {
-                for a in args {
-                    self.operand(cx, ins, a);
-                }
-                let f = self.rt("str_code_points");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            // The builtins that return `Option[A]`: the runtime builds the `Some` from the
-            // descriptor and gives back the static `None`.
-            IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
-            IntCheckedAdd => self.option_call(cx, ins, dst, args, "int_checked_add"),
-            StringFromCodePoint => self.option_call(cx, ins, dst, args, "from_code_point"),
-            IntToString => {
-                self.operand(cx, ins, &args[0]);
-                let f = self.rt("int_to_string");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            Int64ToString => {
-                self.operand(cx, ins, &args[0]);
-                let f = self.rt("int64_to_string");
-                ins.call(f);
-                self.assign(cx, ins, dst, Repr::Ref);
-            }
-            IntBitAnd | Int64BitAnd => self.bit(ins, dst, args, cx, "and"),
-            IntBitOr | Int64BitOr => self.bit(ins, dst, args, cx, "or"),
-            IntBitXor | Int64BitXor => self.bit(ins, dst, args, cx, "xor"),
-            IntBitNot => {
-                self.operand(cx, ins, &args[0]);
-                ins.i32_const(-1);
-                ins.i32_xor();
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            Int64BitNot => {
-                self.operand(cx, ins, &args[0]);
-                ins.i64_const(-1);
-                ins.i64_xor();
-                self.assign(cx, ins, dst, Repr::I64);
-            }
-            IntShiftLeft => self.shift(cx, ins, dst, args, "ishl"),
-            IntShiftRight => self.shift(cx, ins, dst, args, "ishr"),
-            IntShiftRightUnsigned => self.shift(cx, ins, dst, args, "iushr"),
-            Int64ShiftLeft => self.shift64(cx, ins, dst, args, "lshl"),
-            Int64ShiftRight => self.shift64(cx, ins, dst, args, "lshr"),
-            Int64ShiftRightUnsigned => self.shift64(cx, ins, dst, args, "lushr"),
-            Int64FromInt => {
-                self.operand(cx, ins, &args[0]);
-                ins.i64_extend_i32_s();
-                self.assign(cx, ins, dst, Repr::I64);
-            }
-            Int64ToInt => {
-                self.operand(cx, ins, &args[0]);
-                ins.i32_wrap_i64();
-                self.assign(cx, ins, dst, Repr::I32);
-            }
-            FloatFromInt => {
-                self.operand(cx, ins, &args[0]);
-                ins.f64_convert_i32_s();
-                self.assign(cx, ins, dst, Repr::F64);
-            }
-            CellNew => {
-                let Some(d) = dst else { return };
-                let content = args
-                    .first()
-                    .map_or(Repr::Void, |o| Self::operand_repr(cx.f, o));
-                let desc = self.desc(DescKey {
-                    kind: 0,
-                    tag: 0,
-                    enum_id: -1,
-                    name: "$Cell".to_owned(),
-                    show: None,
-                    refs: vec![content == Repr::Ref],
-                });
-                self.alloc(cx, ins, d, desc, 1);
-                if let Some(a) = args.first() {
-                    self.store_slot(cx, ins, d, 0, a);
-                } else {
-                    self.store_slot(cx, ins, d, 0, &Operand::Const(Const::Unit));
-                }
-                // The cell keeps a reference of its own, so the caller can still give up its own
-                // (the C runtime dups in `em_cell_new`).
-                if content == Repr::Ref {
-                    let a = args.first().expect("a reference has a value");
-                    self.operand(cx, ins, a);
-                    let dup = self.rt("dup");
-                    ins.call(dup);
-                }
-            }
-            CellGet => {
-                if let Some(d) = dst {
-                    let base = match &args[0] {
-                        Operand::Var(v) => *v,
-                        _ => {
-                            self.internal("cell base is not a variable");
-                            return;
-                        }
-                    };
-                    ins.local_get(cx.local(base));
-                    match cx.f.vars[d].repr {
-                        Repr::I32 | Repr::Ref => {
-                            ins.i32_load(mem(HDR, 4));
-                        }
-                        Repr::I64 => {
-                            ins.i64_load(mem(HDR, 8));
-                        }
-                        Repr::F64 => {
-                            ins.f64_load(mem(HDR, 8));
-                        }
-                        Repr::Void => {}
-                    }
-                    ins.local_set(cx.local(d));
-                    // The reader gets a reference of its own (the C runtime dups in
-                    // `em_cell_get`), so the caller may give up what it reads.
-                    if cx.f.vars[d].repr == Repr::Ref {
-                        ins.local_get(cx.local(d));
-                        let dup = self.rt("dup");
-                        ins.call(dup);
-                    }
-                }
-            }
-            CellSet => {
-                let base = match &args[0] {
-                    Operand::Var(v) => *v,
-                    _ => {
-                        self.internal("cell base is not a variable");
-                        return;
-                    }
-                };
-                match Self::operand_repr(cx.f, &args[1]) {
-                    Repr::Ref => {
-                        // Take the cell's own reference before replacing the old value, then
-                        // release it (the C runtime dups and drops in `em_cell_set`).
-                        self.operand(cx, ins, &args[1]);
-                        let dup = self.rt("dup");
-                        ins.call(dup);
-                        let old = cx.scratch(Repr::Ref, 0);
-                        ins.local_get(cx.local(base));
-                        ins.i32_load(mem(HDR, 4));
-                        ins.local_set(old);
-                        self.store_slot(cx, ins, base, 0, &args[1]);
-                        ins.local_get(old);
-                        let drop = self.rt("drop");
-                        ins.call(drop);
-                    }
-                    Repr::Void => {}
-                    _ => self.store_slot(cx, ins, base, 0, &args[1]),
-                }
-            }
-            other => {
-                self.internal(format!("builtin {other:?} left in {}", cx.f.name));
+    /// The resume function table index for an operation returning `ret`.
+    fn resume_table(&mut self, ret: Repr) -> u32 {
+        match &self.sus {
+            Some(plan) => plan.resume_table(ret),
+            None => {
+                self.internal("a `suspend fn` operation without the suspend runtime");
+                0
             }
         }
     }
 
-    /// Calls a runtime builtin that returns `Option[A]`: it takes the arguments, then the `Some`
-    /// descriptor and the static `None` object.
-    fn option_call(
-        &mut self,
-        cx: &mut FnCtx,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        args: &[Operand],
-        name: &'static str,
-    ) {
-        let Some(ty) = dst.map(|d| cx.f.vars[d].ty) else {
-            self.internal(format!("`{name}` without a destination in {}", cx.f.name));
+    /// Leaves the value `perform_end` produced (or a dummy when it suspended or a pending
+    /// failure or defect is set).
+    fn perform_result(&mut self, ins: &mut InstructionSink, ret: Repr) {
+        if ret == Repr::Void {
             return;
-        };
-        let Some((some, none, _)) = self.option_parts(ty) else {
-            self.internal(format!(
-                "`{name}` does not return an Option in {}",
-                cx.f.name
-            ));
-            return;
-        };
-        for a in args {
-            self.operand(cx, ins, a);
         }
-        ins.i32_const(some as i32);
-        ins.i32_const(none as i32);
-        let f = self.rt(name);
-        ins.call(f);
-        self.assign(cx, ins, dst, Repr::Ref);
-    }
-
-    fn bit(
-        &mut self,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        args: &[Operand],
-        cx: &mut FnCtx,
-        which: &str,
-    ) {
-        self.operand(cx, ins, &args[0]);
-        self.operand(cx, ins, &args[1]);
-        let r = Self::operand_repr(cx.f, &args[0]);
-        match (which, r) {
-            ("and", Repr::I64) => {
-                ins.i64_and();
+        let Some(plan) = &self.sus else { return };
+        let out_mode = plan.out_mode;
+        ins.i32_const(out_mode as i32);
+        ins.i32_load8_u(mem(0, 1));
+        ins.i32_eqz();
+        ins.if_(BlockType::Result(val(ret)));
+        ins.i32_const(plan.out_word as i32);
+        match ret {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_load(mem(0, 4));
             }
-            ("or", Repr::I64) => {
-                ins.i64_or();
+            Repr::I64 => {
+                ins.i64_load(mem(0, 8));
             }
-            ("xor", Repr::I64) => {
-                ins.i64_xor();
+            Repr::F64 => {
+                ins.f64_load(mem(0, 8));
             }
-            ("and", _) => {
-                ins.i32_and();
-            }
-            ("or", _) => {
-                ins.i32_or();
-            }
-            _ => {
-                ins.i32_xor();
-            }
+            Repr::Void => unreachable!(),
         }
-        self.assign(cx, ins, dst, r);
-    }
-
-    fn shift(
-        &mut self,
-        cx: &mut FnCtx,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        args: &[Operand],
-        name: &'static str,
-    ) {
-        self.operand(cx, ins, &args[0]);
-        self.operand(cx, ins, &args[1]);
-        let f = self.rt(name);
-        ins.call(f);
-        self.assign(cx, ins, dst, Repr::I32);
-    }
-
-    fn shift64(
-        &mut self,
-        cx: &mut FnCtx,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        args: &[Operand],
-        name: &'static str,
-    ) {
-        self.operand(cx, ins, &args[0]);
-        self.operand(cx, ins, &args[1]);
-        let f = self.rt(name);
-        ins.call(f);
-        self.assign(cx, ins, dst, Repr::I64);
-    }
-
-    fn runtime_op(
-        &mut self,
-        cx: &mut FnCtx,
-        ins: &mut InstructionSink,
-        dst: Option<VarId>,
-        op: RuntimeOp,
-        args: &[Operand],
-    ) {
-        let name = match op {
-            RuntimeOp::ShowString => "show_string",
-            RuntimeOp::DebugPrint => "debug_print",
-            RuntimeOp::Retire => "retire",
-            RuntimeOp::Defect => "raise",
-            RuntimeOp::DefectTake => "defect_take",
-            RuntimeOp::DefectResume => "defect_resume",
-            RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {
-                self.internal(format!("suspend runtime op {op:?} left in {}", cx.f.name));
-                return;
+        ins.else_();
+        match ret {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_const(0);
             }
-        };
-        for a in args {
-            self.operand(cx, ins, a);
+            Repr::I64 => {
+                ins.i64_const(0);
+            }
+            Repr::F64 => {
+                ins.f64_const(0.0.into());
+            }
+            Repr::Void => unreachable!(),
         }
-        let f = self.rt(name);
-        ins.call(f);
-        let ret = match op {
-            RuntimeOp::ShowString | RuntimeOp::DefectTake => Repr::Ref,
-            _ => Repr::Void,
-        };
-        self.assign(cx, ins, dst, ret);
+        ins.end();
     }
 }
 
@@ -2105,6 +2293,22 @@ impl<'m> Builder<'m> {
 enum Scrutinee {
     Tag(VarId),
     Lit(VarId),
+}
+
+/// The representation of a value that may suspend. The suspension edge needs it when the value is
+/// unused (`dst` is `None`) and the resumed reference must be released.
+fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
+    let Value::Call { callee, .. } = value else {
+        return Repr::Void;
+    };
+    match callee {
+        Callee::Direct(g) => b.repr(b.m.functions[*g].ret),
+        Callee::Op { effect, op, .. } => b.repr(b.core().effects[*effect].ops[*op].ret),
+        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
+            Type::Fn(fty) => b.repr(fty.ret),
+            _ => Repr::Void,
+        },
+    }
 }
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
@@ -2160,13 +2364,19 @@ struct FnCtx<'a> {
 
 impl<'a> FnCtx<'a> {
     fn new(f: &'a Function, b: &Builder<'_>) -> Self {
+        Self::with_extra_params(f, b, 0)
+    }
+
+    /// The context of a function whose wasm signature has `extra` parameters after the IR ones
+    /// (a state machine's frame pointer). They occupy the locals right after the parameters.
+    fn with_extra_params(f: &'a Function, b: &Builder<'_>, extra: u32) -> Self {
         let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
         let mut decls: Vec<(u32, ValType)> = Vec::new();
         for (i, &p) in f.params.iter().enumerate() {
             local[ix(p)] = i as u32;
         }
-        let mut next = nparams;
+        let mut next = nparams + extra;
         for (v, data) in f.vars.iter() {
             if !f.params.contains(&v) {
                 local[ix(v)] = next;

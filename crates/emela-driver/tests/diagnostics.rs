@@ -1002,3 +1002,62 @@ fn std_and_core_module_files_are_reserved() {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// The messages of the diagnostics on the arguments of handler init (E0434, E0435, E0316, and
+/// E0318 and E0402 in a layer; `[effect.handler]`, `[effect.layer]`).
+#[test]
+fn handler_init_argument_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Down
+
+effect Config {
+  fn url() -> String
+}
+
+effect Kv {
+  fn get(key: String) -> String
+}
+
+handler WorkerKv(binding: String): Kv {
+  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  fn get(key) { self.binding }
+}
+
+handler FakeKv: Kv {
+  fn get(key) { "" }
+}
+
+handler Untyped(binding: String): Kv {
+  init(binding) { Untyped(binding:) }
+  fn get(key) { self.binding }
+}
+
+fn name() -> String fails Down { fail Down }
+
+layer Failing {
+  WorkerKv(binding: name(), retries: 1)
+}
+
+layer Reading {
+  WorkerKv(binding: (use Config).url(), retries: 1)
+}
+
+layer Unconfigured {
+  WorkerKv
+}
+
+fn main() {
+  with WorkerKv { (use Kv).get("a") }
+  with FakeKv() { (use Kv).get("a") }
+  with WorkerKv(binding: "a") { (use Kv).get("a") }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

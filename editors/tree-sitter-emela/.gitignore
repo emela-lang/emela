@@ -1,0 +1,4 @@
+# Built by tree-sitter build and nvim-treesitter.
+*.so
+*.dylib
+*.wasm

@@ -1,0 +1,27 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Config {\n  fn url() -> String\n}\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\nhandler LazyKv(url: fn() -> String use { Config }): Kv {\n  init(url: fn() -> String use { Config }) { LazyKv(url:) }\n  fn get(key) { (self.url)() }\n}\n\nhandler TakesString(url: String): Kv {\n  init(url: String) { TakesString(url:) }\n  fn get(key) { self.url }\n}\n\nfn closure() {\n  c = use Config\n  with LazyKv(url: fn() { c.url() }) { (use Kv).get(\"a\") }\n}\n\nfn value() {\n  c = use Config\n  with TakesString(url: c) { (use Kv).get(\"a\") }\n}\n\"#)"
+---
+closure: fn() -> String use Config
+value: fn() -> String use Config
+handler LazyKv: use Config
+handler TakesString: use {}
+`c` mismatch: expected `String`, found `use Config`
+--- R
+{ (self.url)() }: Config
+(self.url)(): Config
+{   c = use Config   with LazyKv(url: fn() { c.url() }) { (use Kv).get("a") } }: Config
+use Config: Config
+with LazyKv(url: fn() { c.url() }) { (use Kv).get("a") }: Config
+{ c.url() }: Config
+c.url(): Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv
+{   c = use Config   with TakesString(url: c) { (use Kv).get("a") } }: Config
+use Config: Config
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

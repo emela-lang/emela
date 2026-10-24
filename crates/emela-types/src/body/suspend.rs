@@ -30,8 +30,9 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, ImmediateObligation};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
-use crate::lower::{IMMEDIATE, is_immediate_effect};
+use crate::lower::{IMMEDIATE, TyTable, is_immediate_effect};
 use crate::row::{Row, RowElem};
+use crate::signature::Signatures;
 use crate::ty::{Ty, TyParam};
 
 impl BodyInfer<'_> {
@@ -244,10 +245,13 @@ impl BodyInfer<'_> {
 
 /// Whether the body `body` of a suspend fn implementation uses `resume` (the local `resume`) in
 /// any way other than calling it directly (spec 8.7). Calling directly means writing `resume(v)`
-/// or `v |> resume` outside any lambda.
-pub(super) fn resume_escapes(program: &Program, body: ExprId, resume: LocalId) -> bool {
+/// or `v |> resume` outside any lambda. The arguments of a handler a later item of a `with`
+/// overrides are not evaluated (`[effect.with]`), so `resume` in them does not count.
+pub(super) fn resume_escapes(infer: &BodyInfer<'_>, body: ExprId, resume: LocalId) -> bool {
     Walker {
-        program,
+        program: infer.program,
+        sigs: infer.sigs,
+        ty_table: infer.ty_table,
         resume,
         escapes: false,
     }
@@ -256,6 +260,8 @@ pub(super) fn resume_escapes(program: &Program, body: ExprId, resume: LocalId) -
 
 struct Walker<'a> {
     program: &'a Program,
+    sigs: &'a Signatures,
+    ty_table: &'a TyTable,
     resume: LocalId,
     escapes: bool,
 }
@@ -382,7 +388,14 @@ impl Walker<'_> {
                 }
                 self.expr(*base, in_lambda);
             }
-            ExprKind::With { body, .. } => self.expr(*body, in_lambda),
+            ExprKind::With { handlers, body } => {
+                let args =
+                    crate::layer::evaluated_args(program, self.sigs, self.ty_table, handlers);
+                for arg in args {
+                    self.expr(arg, in_lambda);
+                }
+                self.expr(*body, in_lambda);
+            }
             ExprKind::Lambda { body, .. } => self.expr(*body, true),
         }
     }

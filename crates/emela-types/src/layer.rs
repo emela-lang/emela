@@ -33,10 +33,21 @@ pub enum Supplier {
     Effect(Tag),
 }
 
+/// Where the arguments of a handler's init are written (`[effect.handler]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArgsSource {
+    /// The item of the `with` with this index (`ProgramTypes::with_args`).
+    Item(usize),
+    /// The `member`-th item of `layer` (`ProgramTypes::layer_args`).
+    Layer { layer: DefId, member: usize },
+}
+
 /// One provider listed in a `with` (or layer).
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
     pub(crate) supplier: Supplier,
+    /// Where the arguments of the handler's init are written.
+    pub(crate) args: ArgsSource,
     /// The effect provided and its type arguments. Effects with different type arguments are
     /// different effects (spec 8.1).
     pub(crate) effect: Tag,
@@ -55,6 +66,8 @@ pub struct WithBind {
     /// The effect provided.
     pub effect: Tag,
     pub supplier: Supplier,
+    /// Where the arguments of the handler's init are written.
+    pub args: ArgsSource,
 }
 
 /// The providers of a `with`.
@@ -66,6 +79,10 @@ pub struct WithInfo {
     /// Labels declared `default` that the `with` provides, with the index in `binds` of the
     /// provider of their base. Only labels in the body's R.
     pub defaults: Vec<(Tag, usize)>,
+    /// Whether each item of the `with`, in source order, initializes a handler
+    /// ([`item_initialized`]). Only the arguments of those items are evaluated
+    /// (`[effect.with]`).
+    pub initialized: Vec<bool>,
 }
 
 /// A `with` whose initialization order and default labels are decided after sets are solved.
@@ -75,6 +92,7 @@ pub(crate) struct PendingWith {
     pub(crate) entries: Vec<Entry>,
     pub(crate) deps: Vec<Row>,
     pub(crate) defaults: Vec<(Tag, usize)>,
+    pub(crate) initialized: Vec<bool>,
 }
 
 impl Entry {
@@ -94,14 +112,24 @@ impl Entry {
     }
 }
 
-/// The handlers in a layer, flattened in source order, as (handler, index of the name in the
-/// layer it came from). Stops at the second encounter of layers that include each other.
-pub(crate) fn flatten(program: &Program, layer: DefId) -> Vec<(DefId, usize)> {
+/// A handler in a layer, flattened ([`flatten`]).
+pub(crate) struct Flat {
+    pub(crate) handler: DefId,
+    /// The index of the name in the layer it came from.
+    pub(crate) origin: usize,
+    /// The layer item that names the handler, which holds the arguments of its init: an item of
+    /// a nested layer for a handler that one brings in.
+    pub(crate) args: ArgsSource,
+}
+
+/// The handlers in a layer, flattened in source order. Stops at the second encounter of layers
+/// that include each other.
+pub(crate) fn flatten(program: &Program, layer: DefId) -> Vec<Flat> {
     fn go(
         program: &Program,
         layer: DefId,
         visiting: &mut Vec<DefId>,
-        out: &mut Vec<DefId>,
+        out: &mut Vec<(DefId, ArgsSource)>,
     ) -> bool {
         if visiting.contains(&layer) {
             return false;
@@ -110,14 +138,14 @@ pub(crate) fn flatten(program: &Program, layer: DefId) -> Vec<(DefId, usize)> {
             return true;
         };
         visiting.push(layer);
-        for &(res, _) in &item.members {
-            let Res::Def(m) = res else {
+        for (member, m) in item.members.iter().enumerate() {
+            let Res::Def(d) = m.res else {
                 continue;
             };
-            match program.item(m) {
-                Some(Item::Handler(_)) => out.push(m),
+            match program.item(d) {
+                Some(Item::Handler(_)) => out.push((d, ArgsSource::Layer { layer, member })),
                 Some(Item::Layer(_)) => {
-                    go(program, m, visiting, out);
+                    go(program, d, visiting, out);
                 }
                 _ => {}
             }
@@ -129,16 +157,24 @@ pub(crate) fn flatten(program: &Program, layer: DefId) -> Vec<(DefId, usize)> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for (i, &(res, _)) in item.members.iter().enumerate() {
-        let Res::Def(m) = res else {
+    for (i, m) in item.members.iter().enumerate() {
+        let Res::Def(d) = m.res else {
             continue;
         };
-        match program.item(m) {
-            Some(Item::Handler(_)) => out.push((m, i)),
+        match program.item(d) {
+            Some(Item::Handler(_)) => out.push(Flat {
+                handler: d,
+                origin: i,
+                args: ArgsSource::Layer { layer, member: i },
+            }),
             Some(Item::Layer(_)) => {
                 let mut inner = Vec::new();
-                go(program, m, &mut vec![layer], &mut inner);
-                out.extend(inner.into_iter().map(|h| (h, i)));
+                go(program, d, &mut vec![layer], &mut inner);
+                out.extend(inner.into_iter().map(|(handler, args)| Flat {
+                    handler,
+                    origin: i,
+                    args,
+                }));
             }
             _ => {}
         }
@@ -178,6 +214,7 @@ pub(crate) fn with_entries(
             };
             all.push(Entry {
                 supplier,
+                args: ArgsSource::Item(origin),
                 effect: Tag::new(def),
                 span,
                 origin,
@@ -186,15 +223,19 @@ pub(crate) fn with_entries(
             continue;
         }
         let (members, from_layer) = match program.item(def) {
-            Some(Item::Handler(_)) => (vec![def], false),
+            Some(Item::Handler(_)) => (vec![(def, ArgsSource::Item(origin))], false),
             Some(Item::Layer(_)) => (
-                flatten(program, def).into_iter().map(|(h, _)| h).collect(),
+                flatten(program, def)
+                    .into_iter()
+                    .map(|f| (f.handler, f.args))
+                    .collect(),
                 true,
             ),
             Some(Item::Effect(_)) => {
                 if let Some(base) = sigs.label_base(def) {
                     all.push(Entry {
                         supplier: Supplier::Effect(Tag::new(def)),
+                        args: ArgsSource::Item(origin),
                         effect: base.clone(),
                         span,
                         origin,
@@ -205,12 +246,13 @@ pub(crate) fn with_entries(
             }
             _ => continue,
         };
-        for handler in members {
+        for (handler, args) in members {
             let Some(effect) = handler_effect(sigs, handler) else {
                 continue;
             };
             all.push(Entry {
                 supplier: Supplier::Handler(handler),
+                args,
                 effect,
                 span,
                 origin,
@@ -326,6 +368,40 @@ pub(crate) fn check_with_items(
     }
 }
 
+/// Whether the `origin`-th item of a `with` initializes a handler: it names one, and no later
+/// item overrides it. The arguments of other items are not evaluated, and their E and R are not
+/// those of the `with` (`[effect.with]`).
+pub(crate) fn item_initialized(entries: &[Entry], origin: usize) -> bool {
+    entries
+        .iter()
+        .any(|e| e.origin == origin && !e.from_layer && e.handler().is_some())
+}
+
+/// The arguments written on an item of a `with`, after the item and after the right of `by`.
+pub(crate) fn item_args(item: &WithItem) -> impl Iterator<Item = ExprId> + '_ {
+    [&item.args, &item.by_init_args]
+        .into_iter()
+        .flatten()
+        .flat_map(|a| a.args.iter().map(|arg| arg.value))
+}
+
+/// The arguments written on the items of a `with` that are evaluated: those of the items that
+/// initialize a handler ([`item_initialized`]), in source order.
+pub(crate) fn evaluated_args(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    items: &[WithItem],
+) -> Vec<ExprId> {
+    let entries = with_entries(program, sigs, ty_table, items);
+    items
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| item_initialized(&entries, i))
+        .flat_map(|(_, item)| item_args(item))
+        .collect()
+}
+
 /// For handlers of the same effect, only the later one is kept.
 fn keep_last(entries: Vec<Entry>) -> Vec<Entry> {
     let mut out: Vec<Entry> = Vec::new();
@@ -430,11 +506,17 @@ pub(crate) fn check_layers(
 
         let flat = flatten(program, layer);
         let mut entries: Vec<Entry> = Vec::new();
-        for (handler, origin) in flat {
+        for Flat {
+            handler,
+            origin,
+            args,
+        } in flat
+        {
             let Some(effect) = handler_effect(sigs, handler) else {
                 continue;
             };
-            let (member, span) = item.members[origin];
+            let member = item.members[origin].res;
+            let span = item.members[origin].span;
             let from_layer =
                 matches!(member, Res::Def(m) if matches!(program.item(m), Some(Item::Layer(_))));
             // Two handlers for the same effect (E0421). A duplicate only inside a nested layer is
@@ -455,6 +537,7 @@ pub(crate) fn check_layers(
             }
             entries.push(Entry {
                 supplier: Supplier::Handler(handler),
+                args,
                 effect,
                 span,
                 origin,
@@ -523,8 +606,8 @@ fn layer_cycle(program: &Program, layer: DefId) -> Option<Vec<DefId>> {
         let Some(Item::Layer(item)) = program.item(at) else {
             return false;
         };
-        for &(res, _) in &item.members {
-            let Res::Def(m) = res else {
+        for member in &item.members {
+            let Res::Def(m) = member.res else {
                 continue;
             };
             if !matches!(program.item(m), Some(Item::Layer(_))) {

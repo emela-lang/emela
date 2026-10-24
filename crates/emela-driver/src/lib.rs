@@ -67,6 +67,7 @@ pub use render::{render, render_one, summary};
 pub use run::{
     DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, NODE_ENV,
     Output, RunOutput, WASMTIME_ENV, node_program, run_node, run_wasmtime, wasmtime_program,
+    with_program_cwd, with_program_timeout,
 };
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};

@@ -1,0 +1,453 @@
+==================
+Imports
+==================
+import Http.Client
+import Std.Console.{Console, SystemConsole, print, MAX}
+
+---
+
+(source_file
+  (import
+    (module_path
+      (type_identifier)
+      (type_identifier)))
+  (import
+    (module_path
+      (type_identifier)
+      (type_identifier))
+    (import_list
+      (type_identifier)
+      (type_identifier)
+      (identifier)
+      (constant_identifier))))
+
+==================
+Annotated and public declarations
+==================
+## Doc.
+@test
+fn works() {
+  assert 1 + 1 == 2
+}
+
+@external(wasm, "wasi:http/client", "fetch")
+pub suspend fn fetch(url: String) -> String
+
+pub const MAX_SIZE: Int = 1_000
+
+---
+
+(source_file
+  (comment)
+  (function_declaration
+    (annotation
+      (identifier))
+    (identifier)
+    (parameters)
+    (block
+      (assert_expression
+        (binary_expression
+          (binary_expression
+            (integer)
+            (integer))
+          (integer)))))
+  (function_declaration
+    (annotation
+      (identifier)
+      (annotation_argument
+        (identifier))
+      (annotation_argument
+        (string
+          (string_content)))
+      (annotation_argument
+        (string
+          (string_content))))
+    (visibility)
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier)))
+  (const_declaration
+    (visibility)
+    (constant_identifier)
+    (type_reference
+      (type_identifier))
+    (integer)))
+
+==================
+Types with parameters and fields
+==================
+type Pair[A, B: Eq + Show](first: A, second: B)
+  derive Eq
+
+enum Option[A] {
+  Some(A)
+  None
+}
+
+enum Shape { Circle(radius: Float), Rect(width: Float, height: Float) }
+
+error NotFound(id: Int)
+
+---
+
+(source_file
+  (type_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier))
+      (type_parameter
+        (constant_identifier)
+        (type_reference
+          (type_identifier))
+        (type_reference
+          (type_identifier))))
+    (field_list
+      (field
+        (identifier)
+        (type_variable
+          (constant_identifier)))
+      (field
+        (identifier)
+        (type_variable
+          (constant_identifier))))
+    (derive_clause
+      (type_reference
+        (type_identifier))))
+  (enum_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier)))
+    (variant_list
+      (variant
+        (type_identifier)
+        (tuple_field_list
+          (type_variable
+            (constant_identifier))))
+      (variant
+        (type_identifier))))
+  (enum_declaration
+    (type_identifier)
+    (variant_list
+      (variant
+        (type_identifier)
+        (field_list
+          (field
+            (identifier)
+            (type_reference
+              (type_identifier)))))
+      (variant
+        (type_identifier)
+        (field_list
+          (field
+            (identifier)
+            (type_reference
+              (type_identifier)))
+          (field
+            (identifier)
+            (type_reference
+              (type_identifier)))))))
+  (error_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))))
+
+==================
+Effects, handlers, layers and labels
+==================
+effect Users {
+  suspend fn find(id: Int) -> User fails NotFound | DbError
+}
+
+effect AuditLog of Logger default
+
+handler PostgresUsers(conn: Connection): Users {
+  init {
+    PostgresUsers(conn: connect())
+  }
+  release {
+    close(self.conn)
+  }
+  fn find(id) { todo(self.conn) }
+}
+
+handler Counter: State[Int] {
+  fn get() { 0 }
+}
+
+layer AppLive { PostgresUsers, ConsoleLogger(level: 1) }
+
+---
+
+(source_file
+  (effect_declaration
+    (type_identifier)
+    (declaration_list
+      (operation
+        (identifier)
+        (parameters
+          (parameter
+            (identifier)
+            (type_reference
+              (type_identifier))))
+        (type_reference
+          (type_identifier))
+        (fails_clause
+          (error_set
+            (type_reference
+              (type_identifier))
+            (type_reference
+              (type_identifier)))))))
+  (effect_declaration
+    (type_identifier)
+    (effect_label
+      (type_reference
+        (type_identifier))))
+  (handler_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (handler_init
+        (block
+          (call_expression
+            (type_identifier)
+            (arguments
+              (named_argument
+                (identifier)
+                (call_expression
+                  (identifier)
+                  (arguments)))))))
+      (handler_release
+        (block
+          (call_expression
+            (identifier)
+            (arguments
+              (field_expression
+                (self)
+                (identifier))))))
+      (function_declaration
+        (identifier)
+        (parameters
+          (parameter
+            (identifier)))
+        (block
+          (call_expression
+            (identifier)
+            (arguments
+              (field_expression
+                (self)
+                (identifier))))))))
+  (handler_declaration
+    (type_identifier)
+    (type_reference
+      (type_identifier))
+    (type_arguments
+      (type_reference
+        (type_identifier)))
+    (declaration_list
+      (function_declaration
+        (identifier)
+        (parameters)
+        (block
+          (integer)))))
+  (layer_declaration
+    (type_identifier)
+    (supply_list
+      (supply
+        (type_reference
+          (type_identifier)))
+      (supply
+        (type_reference
+          (type_identifier))
+        (arguments
+          (named_argument
+            (identifier)
+            (integer)))))))
+
+==================
+Traits and impls
+==================
+trait Ord: Eq {
+  fn compare(self, other: Self) -> Ordering
+  fn max(self, other: Self) -> Self { self }
+}
+
+impl Map[K: Eq, V]: Show {
+  fn show(self) { "map" }
+}
+
+---
+
+(source_file
+  (trait_declaration
+    (type_identifier)
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (function_declaration
+        (identifier)
+        (parameters
+          (parameter
+            (self))
+          (parameter
+            (identifier)
+            (self_type)))
+        (type_reference
+          (type_identifier)))
+      (function_declaration
+        (identifier)
+        (parameters
+          (parameter
+            (self))
+          (parameter
+            (identifier)
+            (self_type)))
+        (self_type)
+        (block
+          (self)))))
+  (impl_declaration
+    (type_reference
+      (type_identifier))
+    (type_parameters
+      (type_parameter
+        (constant_identifier)
+        (type_reference
+          (type_identifier)))
+      (type_parameter
+        (constant_identifier)))
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (function_declaration
+        (identifier)
+        (parameters
+          (parameter
+            (self)))
+        (block
+          (string
+            (string_content)))))))
+
+==================
+Function types and effect sets
+==================
+fn run[A, R](f: fn() -> A fails E | B use { Log, R }) -> A use R {
+  with AppLive, Audit by FileLog, Hits by State[Int] {
+    f()
+  }
+}
+
+fn h(x: Handler[NotFound | Timeout, { Db, Log }], y: (Int, String), z: ()) -> fn(Int) -> Int {
+  x
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier))
+      (type_parameter
+        (constant_identifier)))
+    (parameters
+      (parameter
+        (identifier)
+        (function_type
+          (parameter_types)
+          (type_variable
+            (constant_identifier))
+          (fails_clause
+            (error_set
+              (type_variable
+                (constant_identifier))
+              (type_variable
+                (constant_identifier))))
+          (use_clause
+            (effect_set
+              (type_reference
+                (type_identifier))
+              (type_variable
+                (constant_identifier)))))))
+    (type_variable
+      (constant_identifier))
+    (use_clause
+      (type_variable
+        (constant_identifier)))
+    (block
+      (with_expression
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier))))
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier)))
+          (type_reference
+            (type_identifier)))
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier)))
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier))))
+        (block
+          (call_expression
+            (identifier)
+            (arguments))))))
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (error_set
+              (type_reference
+                (type_identifier))
+              (type_reference
+                (type_identifier)))
+            (effect_set
+              (type_reference
+                (type_identifier))
+              (type_reference
+                (type_identifier))))))
+      (parameter
+        (identifier)
+        (tuple_type
+          (type_reference
+            (type_identifier))
+          (type_reference
+            (type_identifier))))
+      (parameter
+        (identifier)
+        (unit_type)))
+    (function_type
+      (parameter_types
+        (type_reference
+          (type_identifier)))
+      (type_reference
+        (type_identifier)))
+    (block
+      (identifier))))
