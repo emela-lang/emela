@@ -2,7 +2,7 @@
 title: Exported functions and entries
 authors: [Alliana]
 status: draft
-pr:
+pr: 427
 issue:
 decided:
 touches: [glossary.terms, kw.annotation, grammar.decl, ext, target.js.module, target.js.start, target.wasm.external, target.c, effect.with, module.pome, cmd.build, diag.list]
