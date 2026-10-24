@@ -159,8 +159,8 @@ const G_ENV_PTR: u32 = 13;
 const G_ENV_LEN: u32 = 14;
 const GLOBALS: u32 = 15;
 
-/// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, slots at 16. A `rc` of 0
-/// marks static data (never counted).
+/// Object header: rc at 0, `aux` at 4, the descriptor pointer at 8, the size of a heap object's
+/// block at 12, slots at 16. A `rc` of 0 marks static data (never counted).
 const HDR: u32 = 16;
 
 // A const's cell (spec 5.6; see `runtime/constant.rs`). The state is 0 (not evaluated), 1 (being
