@@ -66,6 +66,7 @@ fn sort_keeps_length() {
 - When an assert that is not a comparison fails, the message is `assertion failed: <source text of the expression>`, and no values are shown.
 - A comparison assert shows both sides only when the comparison is False. When it is True, the functions that show the values are not called.
 - assert can also be used outside test functions. It is not removed in a normal build either.
+- A defect from a failed assert has the location of the assert expression: the path of the file, the line and the column. The location is shown by the test runner (`[cmd.test.outcome]`). It is not part of the defect message.
 
 ## 13.3 Constraints on test functions `[test.constraints]`
 
