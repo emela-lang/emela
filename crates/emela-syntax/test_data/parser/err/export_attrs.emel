@@ -44,3 +44,6 @@ fn type_only() -> () {}
 
 @entry(Http.)
 fn trailing_dot() -> () {}
+
+@export(js, "default")
+fn default_name() -> () {}
