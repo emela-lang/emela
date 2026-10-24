@@ -2,7 +2,7 @@
 title: 名前で定義を指すコマンド（emela symbol）
 authors: [Alliana]
 status: draft
-pr:
+pr: 421
 issue:
 decided:
 touches: [cmd, cmd.symbol (new), cmd.symbol.path (new), cmd.symbol.json (new), cmd.symbol.show (new), cmd.symbol.refs (new), cmd.symbol.rename (new), lsp.rename, diag.list]
