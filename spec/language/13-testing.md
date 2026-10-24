@@ -78,7 +78,7 @@ fn sort_keeps_length() {
 - `emela test [path] [filter]` runs the test functions of a program that passed checking, one at a time.
 - The name of a test in the entry module is just the function name. A test in another module has the module name in front (`Http.Client.gets`). Tests in modules of the test root also run, and are named the same way.
 - When a filter is given, only the tests whose names contain it as a substring (case-sensitive) run. In single-file mode, only the tests in modules reachable by import from the entry point run.
-- Results go to standard output: a line `test name ... ok` or `FAILED` for each test, and a summary line at the end (`test result: ok. 3 passed; 0 failed; 0 filtered out`).
+- Results go to standard output, in the form of the selected reporter (`[cmd.test.reporter]`).
 - The exit code is 1 if at least one test fails, and 0 otherwise (also 0 when there are no tests). When the program exits in the middle of a test, the running test is a failure.
 - A test that ends while suspended without being resumed is reported as an `interrupted` failure, and the remaining tests continue (14.5).
 - The output is written to `target/emela/test` and does not overwrite the output of a normal build.

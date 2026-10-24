@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-10-24 (Separate the output of emela test for people at a terminal and for coding agents)
+
+- `[cmd.test.output]`, `[cmd.test.reporter]`, `[test.command]`: `emela test` displays its results with one of three reporters: `pretty` for a person reading a terminal, `plain` that keeps the current line format, and `agent` for a coding agent. `--reporter` selects one; when it is omitted, the environment decides. The layout of `pretty` is left to the implementation, not the specification. Adopted in the proposal `test-reporters` (#412).
+
 ## 2026-10-24 (Show where a test failed)
 
 - `[cmd.test.output]`, `[cmd.test.outcome]`, `[test.assert]`: A defect from a failed assert carries the source location of the assert expression (the path, the line and the column). `emela test` shows that location in the details of the failure. Adopted in the proposal `test-failure-location` (#413).
