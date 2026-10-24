@@ -248,12 +248,16 @@ fn main() {
         "wasi:cli/environment@0.3.0",
         "wasi:random/random@0.3.0",
         "wasi:clocks/system-clock@0.3.0",
+        "wasi:filesystem/types@0.3.0",
+        "wasi:filesystem/preopens@0.3.0",
     ] {
         assert!(!imports.iter().any(|i| i == unused), "{imports:?}");
     }
 
-    // `Std.Platform` bundles FileSystem and Http, but an unused operation is not reachable and
-    // those interfaces are not part of the command world, so they are not imports either.
+    // `Std.Platform` bundles the system handlers, so their external functions are reachable even
+    // when only `Console` is used. The environment, random, system-clock and file-system
+    // interfaces are therefore imported; `Std.Http` has no WASM host at all, so it is not. This
+    // is a known limitation (see NOTES.md).
     let platform = compile_checked(
         r#"
 import Std.Console.{Console}
@@ -267,19 +271,13 @@ fn main() {
 "#,
     );
     let imports = component_imports(&platform);
-    assert!(
-        !imports
-            .iter()
-            .any(|i| i.contains("http") || i.contains("filesystem")),
-        "{imports:?}"
-    );
-    // `Std.Platform` bundles the synchronous handlers, so their external functions are
-    // reachable even when only `Console` is used: the environment, random and system-clock
-    // interfaces are imported. This is a known limitation (see NOTES.md).
+    assert!(!imports.iter().any(|i| i.contains("http")), "{imports:?}");
     for bundled in [
         "wasi:cli/environment@0.3.0",
         "wasi:random/random@0.3.0",
         "wasi:clocks/system-clock@0.3.0",
+        "wasi:filesystem/types@0.3.0",
+        "wasi:filesystem/preopens@0.3.0",
     ] {
         assert!(
             imports.iter().any(|i| i == bundled),
@@ -329,18 +327,22 @@ fn main() {
 }
 
 #[test]
-fn a_file_system_call_through_a_function_value_is_diagnosed() {
+fn an_http_call_through_a_function_value_is_diagnosed() {
     // A closure that really calls a `suspend fn` external without a `wasm` host is followed when
     // the program calls it, so it is a diagnostic rather than an internal error or a silent
     // success.
     assert_host_call_is_diagnosed(
         r#"
-import Std.FileSystem.{FileSystem, SystemFileSystem}
+import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
 
 fn main() {
-  with SystemFileSystem {
-    look = fn() { (use FileSystem).exists("notes.txt") }
-    dbg(look())
+  with SystemHttp {
+    look = fn() { (use Http).send(Http.request(Get, "https://example.com")).status }
+    dbg(look() escape {
+      InvalidUrl(url: _) -> 0
+      ConnectionFailed(url: _, message: _) -> 0
+      ResponseNotText(url: _) -> 0
+    })
   }
 }
 "#,
@@ -348,47 +350,59 @@ fn main() {
 }
 
 #[test]
-fn a_file_system_call_is_an_unsupported_external() {
-    // The file system has no WASI 0.3 host on this target yet, so reaching it is a diagnostic
-    // rather than a component that traps at run time.
+fn an_http_call_is_an_unsupported_external() {
+    // Http has no WASI 0.3 host on this target yet, so reaching it is a diagnostic rather than a
+    // component that traps at run time.
     assert_host_call_is_diagnosed(
         r#"
-import Std.FileSystem.{FileSystem, SystemFileSystem}
+import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
 
 fn main() {
-  with SystemFileSystem {
-    dbg((use FileSystem).exists("notes.txt"))
+  with SystemHttp {
+    dbg((use Http).send(Http.request(Get, "https://example.com")).status escape {
+      InvalidUrl(url: _) -> 0
+      ConnectionFailed(url: _, message: _) -> 0
+      ResponseNotText(url: _) -> 0
+    })
   }
 }
 "#,
     );
 }
 
-/// Asserts that `src` is rejected because it reaches `Std.FileSystem`'s `exists` host.
+/// Asserts that `src` is rejected because it reaches `Std.Http`'s `send` host.
 fn assert_host_call_is_diagnosed(src: &str) {
-    let errors = to_wasm(src).expect_err("a reachable file system call must not compile");
+    let errors = to_wasm(src).expect_err("a reachable Http call must not compile");
     assert!(
         errors.iter().any(|error| {
-            error.message.contains("host_exists") && error.message.contains("`suspend fn` external")
+            error.message.contains("host_send") && error.message.contains("`suspend fn` external")
         }),
         "{errors:#?}"
     );
 }
 
 #[test]
-fn a_file_system_call_in_a_closure_passed_to_a_function_is_diagnosed() {
+fn an_http_call_in_a_closure_passed_to_a_function_is_diagnosed() {
     assert_host_call_is_diagnosed(
         r#"
-import Std.FileSystem.{FileSystem, SystemFileSystem}
+import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
 
-fn twice(f: fn() -> Bool) {
-  dbg(f())
-  dbg(f())
+fn twice(f: fn() -> Int fails InvalidUrl | ConnectionFailed | ResponseNotText) {
+  dbg(f() escape {
+    InvalidUrl(url: _) -> 0
+    ConnectionFailed(url: _, message: _) -> 0
+    ResponseNotText(url: _) -> 0
+  })
+  dbg(f() escape {
+    InvalidUrl(url: _) -> 0
+    ConnectionFailed(url: _, message: _) -> 0
+    ResponseNotText(url: _) -> 0
+  })
 }
 
 fn main() {
-  with SystemFileSystem {
-    twice(fn() { (use FileSystem).exists("notes.txt") })
+  with SystemHttp {
+    twice(fn() { (use Http).send(Http.request(Get, "https://example.com")).status })
   }
 }
 "#,
@@ -396,16 +410,20 @@ fn main() {
 }
 
 #[test]
-fn a_file_system_call_in_a_captured_closure_is_diagnosed() {
+fn an_http_call_in_a_captured_closure_is_diagnosed() {
     assert_host_call_is_diagnosed(
         r#"
-import Std.FileSystem.{FileSystem, SystemFileSystem}
+import Std.Http.{Http, Get, InvalidUrl, ConnectionFailed, ResponseNotText, SystemHttp}
 
 fn main() {
-  with SystemFileSystem {
-    look = fn() { (use FileSystem).exists("notes.txt") }
+  with SystemHttp {
+    look = fn() { (use Http).send(Http.request(Get, "https://example.com")).status }
     outer = fn() { look() }
-    dbg(outer())
+    dbg(outer() escape {
+      InvalidUrl(url: _) -> 0
+      ConnectionFailed(url: _, message: _) -> 0
+      ResponseNotText(url: _) -> 0
+    })
   }
 }
 "#,

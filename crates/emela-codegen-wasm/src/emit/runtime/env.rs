@@ -2,7 +2,7 @@
 //!
 //! The host returns a `list<tuple<string, string>>`, so the guest passes a return pointer
 //! (`HOSTBUF`) and the host allocates the list and its strings in linear memory through the
-//! exported `cabi_realloc`. `env_find` scans that list and returns the matching entry, or 0.
+//! exported `cabi_realloc` (in `canon`). `env_find` scans that list and returns the matching entry, or 0.
 //!
 //! The find returns the first match in the host's list; the WIT contract of `get-environment`
 //! holds one value per name. The environment is a value import, so the list is
@@ -21,16 +21,6 @@ pub(super) const FUNCS: &[Sig] = &[
     ("env_find", &[ValType::I32], &[ValType::I32]),
     ("env_has", &[ValType::I32], &[ValType::I32]),
     ("env_get", &[ValType::I32], &[ValType::I32]),
-    (
-        "str_from_raw",
-        &[ValType::I32, ValType::I32],
-        &[ValType::I32],
-    ),
-    (
-        "cabi_realloc",
-        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
-        &[ValType::I32],
-    ),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
@@ -39,10 +29,6 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "env_find" => i32s(9),
         // entry, value pointer, value length
         "env_get" => i32s(3),
-        // the new string
-        "str_from_raw" => i32s(1),
-        // pointer, copy length
-        "cabi_realloc" => i32s(2),
         _ => Vec::new(),
     }
 }
@@ -56,8 +42,6 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "env_find" => env_find(b, ins),
         "env_has" => env_has(b, ins),
         "env_get" => env_get(b, ins),
-        "str_from_raw" => str_from_raw(b, ins),
-        "cabi_realloc" => cabi_realloc(b, ins),
         _ => return false,
     }
     true
@@ -210,82 +194,4 @@ fn env_get(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(VALUE);
     ins.local_get(LEN);
     ins.call(rt(b, "str_from_raw"));
-}
-
-/// `str_from_raw(ptr, len)`: a new string object holding the host's bytes.
-fn str_from_raw(b: &mut Builder, ins: &mut InstructionSink) {
-    const DST: u32 = 2;
-    ins.local_get(1);
-    ins.call(rt(b, "str_new"));
-    ins.local_set(DST);
-    ins.local_get(DST);
-    ins.i32_const((HDR + 4) as i32);
-    ins.i32_add();
-    ins.local_get(0);
-    ins.local_get(1);
-    ins.memory_copy(0, 0);
-    ins.local_get(DST);
-}
-
-/// The canonical ABI's `cabi_realloc(old_ptr, old_size, align, new_size)`.
-///
-/// The run is bumped from the heap end rounded up to `align` only, so short host strings stay
-/// packed; `alloc` rounds the heap end back up to 8 before the next object. Reallocation with a
-/// live `old_ptr` copies the common bytes.
-fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
-    const P: u32 = 4;
-    const COPY: u32 = 5;
-
-    // `realloc(_, _, _, 0)` frees.
-    ins.local_get(3);
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
-    // Shrinking in place.
-    ins.local_get(0);
-    ins.i32_eqz();
-    ins.i32_eqz();
-    ins.local_get(1);
-    ins.local_get(3);
-    ins.i32_ge_u();
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    ins.local_get(0);
-    ins.return_();
-    ins.end();
-    // P = align_up(G_HEAP, align); `align` is a power of two.
-    ins.global_get(G_HEAP);
-    ins.local_get(2);
-    ins.i32_add();
-    ins.i32_const(1);
-    ins.i32_sub();
-    ins.i32_const(0);
-    ins.local_get(2);
-    ins.i32_sub();
-    ins.i32_and();
-    ins.local_set(P);
-    ins.local_get(P);
-    ins.local_get(3);
-    ins.i32_add();
-    ins.call(rt(b, "heap_reserve"));
-    // Copy the old contents when growing in place was not possible.
-    ins.local_get(0);
-    ins.i32_eqz();
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    ins.local_get(1);
-    ins.local_get(3);
-    ins.local_get(1);
-    ins.local_get(3);
-    ins.i32_lt_u();
-    ins.select();
-    ins.local_set(COPY);
-    ins.local_get(P);
-    ins.local_get(0);
-    ins.local_get(COPY);
-    ins.memory_copy(0, 0);
-    ins.end();
-    ins.local_get(P);
 }

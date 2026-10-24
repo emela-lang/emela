@@ -9,6 +9,12 @@
 # pure (`use {}`): they only read an immutable object. On C, Emela does not free host values
 # (spec 12.3), so each operation takes everything out of the outcome, releases it, and only then
 # fails. The operations do not stop on interruption: reading and writing are short.
+#
+# On the WASM target the process working directory is the preopened work directory. An
+# absolute path, a `..` step that leaves it, and a symbolic link whose target is outside it
+# fail with `FileAccessDenied`; `exists` and `is_directory` return `false` for them. The WASM
+# host also waits in place during an operation, so other continuations do not run until it
+# returns, and a `FileSystemFailure` has an empty `message`.
 
 import Std.Path
 import Std.State.{State}
@@ -21,7 +27,8 @@ pub error DirectoryNotEmpty(path: String) derive Show
 ## The file is not valid UTF-8. It is never read with replacement characters, so that writing
 ## the text back does not change the file.
 pub error InvalidText(path: String) derive Show
-## Any other error of the host. `message` is the host's description.
+## Any other error of the host. `message` is the host's description; on the WASM target it is
+## empty because the host provides no message.
 pub error FileSystemFailure(path: String, message: String) derive Show
 
 pub effect FileSystem {
@@ -56,66 +63,85 @@ pub effect FileSystem {
 @external
 type Outcome
 
+# The `wasm` markers name the runtime's `wasi:filesystem` host calls, not WIT functions of their
+# own: one Emela operation may take several WASI calls. `src/std_host.rs` of the WASM backend
+# accepts only these module/name pairs and checks the shapes below.
+
 @external(js, "./file_system.mjs", "readText")
 @external(c, "./file_system.c", "emela_fs_read_text")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "read-text")
 suspend fn host_read_text(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "writeText")
 @external(c, "./file_system.c", "emela_fs_write_text")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "write-text")
 suspend fn host_write_text(path: String, text: String) -> Outcome
 
 @external(js, "./file_system.mjs", "appendText")
 @external(c, "./file_system.c", "emela_fs_append_text")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "append-text")
 suspend fn host_append_text(path: String, text: String) -> Outcome
 
 @external(js, "./file_system.mjs", "exists")
 @external(c, "./file_system.c", "emela_fs_exists")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "exists")
 suspend fn host_exists(path: String) -> Bool
 
 @external(js, "./file_system.mjs", "isDirectory")
 @external(c, "./file_system.c", "emela_fs_is_directory")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "is-directory")
 suspend fn host_is_directory(path: String) -> Bool
 
 @external(js, "./file_system.mjs", "listDirectory")
 @external(c, "./file_system.c", "emela_fs_list_directory")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "list-directory")
 suspend fn host_list_directory(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "createDirectory")
 @external(c, "./file_system.c", "emela_fs_create_directory")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "create-directory")
 suspend fn host_create_directory(path: String) -> Outcome
 
 @external(js, "./file_system.mjs", "remove")
 @external(c, "./file_system.c", "emela_fs_remove")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "remove")
 suspend fn host_remove(path: String) -> Outcome
 
 ## The name of the error to fail with, or `""` on success.
 @external(js, "./file_system.mjs", "error")
 @external(c, "./file_system.c", "emela_fs_outcome_error")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-error")
 fn outcome_error(o: Outcome) -> String use {}
 
 ## The host's message for FileSystemFailure.
 @external(js, "./file_system.mjs", "message")
 @external(c, "./file_system.c", "emela_fs_outcome_message")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-message")
 fn outcome_message(o: Outcome) -> String use {}
 
 ## The text read by `host_read_text`.
 @external(js, "./file_system.mjs", "text")
 @external(c, "./file_system.c", "emela_fs_outcome_text")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-text")
 fn outcome_text(o: Outcome) -> String use {}
 
 ## The number of names listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameCount")
 @external(c, "./file_system.c", "emela_fs_outcome_name_count")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-name-count")
 fn outcome_name_count(o: Outcome) -> Int use {}
 
 ## The `i`-th name listed by `host_list_directory`.
 @external(js, "./file_system.mjs", "nameAt")
 @external(c, "./file_system.c", "emela_fs_outcome_name_at")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "outcome-name-at")
 fn outcome_name_at(o: Outcome, i: Int) -> String use {}
 
-# Frees the outcome on C, where Emela does not free host values (spec 12.3). Does nothing on JS.
+# Frees the outcome on C, where Emela does not free host values (spec 12.3). Does nothing on JS
+# or WASM, where the outcome and its strings are left to the end of the command.
 @external(js, "./file_system.mjs", "release")
 @external(c, "./file_system.c", "emela_fs_outcome_release")
+@external(wasm, "emela:runtime/filesystem@0.1.0", "release-outcome")
 fn release_outcome(o: Outcome) -> ()
 
 # Each `check_*` fails with the error named in the outcome. The host only names the errors that

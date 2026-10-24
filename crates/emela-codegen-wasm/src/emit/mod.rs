@@ -93,6 +93,7 @@ pub(crate) fn emit(m: &Module, entry: &Run) -> Result<WasmOutput, Vec<WasmError>
         random: b.uses_random(),
         clock: b.uses_clock(),
         monotonic_clock: b.uses_std_host(StdHost::is_monotonic),
+        filesystem: b.uses_std_host(StdHost::is_fs),
     };
     let module = crate::component::wrap(&core, optional).map_err(|e| {
         vec![WasmError {
@@ -227,6 +228,8 @@ pub(crate) struct Builder<'m> {
     pub(crate) sus: Option<suspend::Plan>,
     /// The asynchronous host bridge's cells, when the program sleeps.
     pub(crate) async_plan: Option<runtime::async_bridge::Plan>,
+    /// The file system runtime's cells, when the program uses `Std.FileSystem`.
+    pub(crate) fs_plan: Option<runtime::fs::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -263,6 +266,7 @@ impl<'m> Builder<'m> {
             std_hosts: Vec::new(),
             sus: None,
             async_plan: None,
+            fs_plan: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -528,6 +532,11 @@ impl<'m> Builder<'m> {
             // A `$root` intrinsic, not a WIT import: used to drop a completed or cancelled
             // subtask. Only the real monotonic clock starts one.
             self.subtask_drop();
+        }
+        if self.uses_std_host(StdHost::is_fs) {
+            // The file system runtime waits on its own subtasks and stream operations.
+            self.subtask_drop();
+            runtime::fs::imports(self);
         }
         self.exit_with_code();
         self.output_imports("wasi:cli/stdout@0.3.0");
@@ -884,11 +893,10 @@ impl<'m> Builder<'m> {
             ExportKind::Func,
             self.callback_index,
         );
-        // An imported function returning a list (`get-environment`) makes the host allocate the
-        // result in our linear memory through `cabi_realloc` (the canonical ABI's realloc).
-        if self.uses_env()
-            && let Some(&realloc) = self.rt.get("cabi_realloc")
-        {
+        // An imported function returning a list (`get-environment`, `get-directories`) makes the
+        // host allocate the result in our linear memory through `cabi_realloc` (the canonical
+        // ABI's realloc).
+        if let Some(&realloc) = self.rt.get("cabi_realloc") {
             exports.export("cabi_realloc", ExportKind::Func, realloc);
         }
         module.section(&exports);
