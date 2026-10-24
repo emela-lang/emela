@@ -3,8 +3,8 @@ version = 1
 
 [[pome]]
 path = "github.com/emela-lang/brix"
-version = "v0.2.2"
-commit = "7f1811fa6e51d1178959fa7fbfc27f33e805bb8b"
-hash = "h1:vaWKGWEyfjoyXKEFL91gganjoqenGNmy8RjJFNpJhE8="
-manifest = "h1:iyy1bKouRdpVPfOf9KeWudceQlsHz4Go/NRX9NpFam8="
+version = "v0.3.0"
+commit = "54932ed2d540563e796f4fde4dc3d80073685479"
+hash = "h1:LdJB5IF/NDfDLNIq0iGsK6EStPZZ/KRv82We5nzpsuU="
+manifest = "h1:gbyBpPc8Kk0dugtrun3103plAD7XPXyc0Awf+Arynsk="
 dev = true
