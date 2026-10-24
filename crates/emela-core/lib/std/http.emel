@@ -7,6 +7,9 @@
 # tests can call without a handler.
 
 import Std.State.{State}
+import Std.Console.{Console, SystemConsole}
+import Std.Cause
+import Std.Fiber.{Fiber, Success, Failure}
 import Std.Http.Request.{Request, Method, Get, Head, Post, Put, Patch, Delete, Options}
 import Std.Http.Response.{Response, UnexpectedStatus}
 
@@ -179,3 +182,210 @@ pub handler TestHttp: Http {
     }
   }
 }
+
+## The request as the host handed it over (JS: a Fetch API Request). Used only when writing an
+## export by hand.
+@external
+pub type Incoming
+
+## The response for the host to send (JS: a Fetch API Response).
+@external
+pub type Outgoing
+
+## The entry of an HTTP service (`[lib.http-service]`): `@entry(Http.serve)` on `app` makes the
+## host call `app` once for each request, and each call is one launch. The request is read whole
+## before `app` runs. A method not in `Method` is answered with 405, and a body that is not UTF-8
+## or a path or query with a malformed `%` with 400, without calling `app`. When `app` fails, has
+## a defect or returns a response the host cannot send, the cause is written to standard error as
+## one line and the response is 500; the cause is never in the response.
+@export(js, "default", "fetch")
+@export(wasm, "wasi:http/handler@0.3.0", "handle")
+pub fn serve[E](app: fn(Request) -> Response fails E use { Async }, incoming: Incoming) -> Outgoing
+  use { Async } {
+  received = with SystemHostHttp { (use HostHttp).read(incoming) }
+  response = received_request(received) match {
+    None          -> status_only(405) |> Response.add_header("allow", ALLOW)
+    Some(_) if !host_received_text(received) -> status_only(400)
+    Some(request) if !well_formed(request) -> status_only(400)
+    Some(request) -> launch(app, request)
+  }
+  to_outgoing(response)
+}
+
+const ALLOW: String = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+
+## Runs `app` and turns how it ends into the response to send.
+fn launch[E](app: fn(Request) -> Response fails E use { Async }, request: Request) -> Response
+  use { Async } {
+  Fiber.attempt(fn() { app(request) }) match {
+    Success(res) -> invalid_reason(res) match {
+      None         -> with_content_type(res)
+      Some(reason) -> failed("invalid response: #{reason}")
+    }
+    Failure(cause) -> failed(Cause.to_string(cause))
+  }
+}
+
+## Writes `line` to standard error and answers with 500.
+fn failed(line: String) -> Response {
+  with SystemConsole { (use Console).print_error_line(line) }
+  status_only(500)
+}
+
+## A response of the entry itself: the name of the status as the body.
+fn status_only(status: Int) -> Response {
+  name = status match {
+    400 -> "Bad Request"
+    405 -> "Method Not Allowed"
+    _   -> "Internal Server Error"
+  }
+  Response.new(status, name) |> Response.add_header("content-type", TEXT)
+}
+
+const TEXT: String = "text/plain;charset=UTF-8"
+
+## `res` with `content-type: text/plain;charset=UTF-8` added when it has a body and no
+## content-type.
+fn with_content_type(res: Response) -> Response {
+  if res.body == "" || Response.header(res, "content-type") != None {
+    res
+  } else {
+    res |> Response.add_header("content-type", TEXT)
+  }
+}
+
+## Why the host cannot send `res`, in the order `[lib.http-service]` checks it, or `None`.
+fn invalid_reason(res: Response) -> Option[String] {
+  if res.status < 200 || res.status > 599 {
+    Some("status #{res.status}")
+  } else if (res.status == 204 || res.status == 205 || res.status == 304) && res.body != "" {
+    Some("status #{res.status} cannot have a body")
+  } else {
+    List.find(res.headers, fn((name, _)) { !is_token(name) }) match {
+      Some((name, _)) -> Some("header name `#{name}`")
+      None -> List.find(res.headers, fn((_, value)) { !is_field_value(value) }) match {
+        Some((name, _)) -> Some("header value of `#{name}`")
+        None            -> None
+      }
+    }
+  }
+}
+
+## A header name: ASCII letters, digits and ``!#$%&'*+-.^_`|~``, at least one.
+fn is_token(name: String) -> Bool {
+  name != ""
+    && List.all(String.code_points(name), fn(c) {
+      (c >= 0x30 && c <= 0x39)
+        || (c >= 0x41 && c <= 0x5A)
+        || (c >= 0x61 && c <= 0x7A)
+        || List.any(String.code_points("!#$%&'*+-.^_`|~"), fn(t) { t == c })
+    })
+}
+
+## A header value: a tab and the printable ASCII characters.
+fn is_field_value(value: String) -> Bool {
+  List.all(String.code_points(value), fn(c) { c == 0x09 || (c >= 0x20 && c <= 0x7E) })
+}
+
+## Whether the path and the query of `request` percent-decode. `decode_query` fails exactly when
+## a `%` is malformed or the decoded bytes are not UTF-8; splitting at `&`, `=` and `/` (all
+## ASCII) cannot break a valid sequence or make an invalid one valid, so it checks the path too.
+## The query is the text after the first `?` of `url`: neither the scheme nor the authority can
+## hold a `?`.
+fn well_formed(request: Request) -> Bool {
+  query = String.split(request.url, "?") |> List.drop(1) |> String.join("?")
+  decodes(Request.path(request)) && decodes(query)
+}
+
+fn decodes(s: String) -> Bool {
+  {
+    Request.decode_query(s)
+    True
+  } escape {
+    ParseError(input: _) -> False
+  }
+}
+
+## The request the host read, or `None` if its method is not one of `Method`.
+fn received_request(received: Received) -> Option[Request] {
+  method = host_received_method(received) match {
+    "GET"     -> Some(Get)
+    "HEAD"    -> Some(Head)
+    "POST"    -> Some(Post)
+    "PUT"     -> Some(Put)
+    "PATCH"   -> Some(Patch)
+    "DELETE"  -> Some(Delete)
+    "OPTIONS" -> Some(Options)
+    _         -> None
+  }
+  method |> Option.map(fn(method) {
+    headers = List.map(List.range(0, host_received_header_count(received)), fn(i) {
+      (host_received_header_name(received, i), host_received_header_value(received, i))
+    })
+    Request(method:, url: host_received_url(received), headers:, body: host_received_body(received))
+  })
+}
+
+## The host's response for `res`, its headers in the written order.
+fn to_outgoing(res: Response) -> Outgoing {
+  draft = List.fold(res.headers, from: host_draft(res.status, res.body), f: fn(d, (name, value)) {
+    host_draft_header(d, name, value)
+  })
+  host_finish(draft)
+}
+
+## Reads an incoming request on the host. Reading the body suspends, and an external function that
+## suspends is called only inside a handler (`[ext.call]`), so it is an operation of this private
+## effect.
+effect HostHttp {
+  suspend fn read(incoming: Incoming) -> Received
+}
+
+handler SystemHostHttp: HostHttp {
+  suspend fn read(incoming, resume) {
+    resume(host_read(incoming))
+  }
+}
+
+## A request read on the host: its method, URL, headers and whole body. `List` cannot cross the
+## external function boundary (spec 12.4), so the headers are read one by one by index.
+@external
+type Received
+
+@external(js, "./http.mjs", "readRequest")
+suspend fn host_read(incoming: Incoming) -> Received
+
+## Whether the body is UTF-8. When it is not, the body is empty.
+@external(js, "./http.mjs", "receivedText")
+fn host_received_text(received: Received) -> Bool use {}
+
+@external(js, "./http.mjs", "receivedMethod")
+fn host_received_method(received: Received) -> String use {}
+
+@external(js, "./http.mjs", "receivedUrl")
+fn host_received_url(received: Received) -> String use {}
+
+@external(js, "./http.mjs", "body")
+fn host_received_body(received: Received) -> String use {}
+
+@external(js, "./http.mjs", "headerCount")
+fn host_received_header_count(received: Received) -> Int use {}
+
+@external(js, "./http.mjs", "headerName")
+fn host_received_header_name(received: Received, index: Int) -> String use {}
+
+@external(js, "./http.mjs", "headerValue")
+fn host_received_header_value(received: Received, index: Int) -> String use {}
+
+## The response being built on the host.
+@external
+type Draft
+
+@external(js, "./http.mjs", "newDraft")
+fn host_draft(status: Int, body: String) -> Draft use {}
+
+@external(js, "./http.mjs", "withHeader")
+fn host_draft_header(draft: Draft, name: String, value: String) -> Draft use {}
+
+@external(js, "./http.mjs", "finishDraft")
+fn host_finish(draft: Draft) -> Outgoing use {}

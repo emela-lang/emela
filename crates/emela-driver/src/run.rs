@@ -482,6 +482,19 @@ pub(crate) fn node_command(node: &Path, entry: &Path, args: &[OsString]) -> Prog
     ProgramCommand::new(command, move |err| spawn_error(&node, err))
 }
 
+/// The command that runs the script `script` on node as it is (`node serve.mjs <args...>`), for
+/// the server of an HTTP service (`[cmd.build]`).
+pub(crate) fn node_script_command(node: &Path, script: &Path, args: &[OsString]) -> ProgramCommand {
+    let mut command = Command::new(node);
+    command
+        .arg(entry_for_child(script))
+        .args(args)
+        .stdin(Stdio::inherit());
+    apply_program_cwd(&mut command);
+    let node = node.to_path_buf();
+    ProgramCommand::new(command, move |err| spawn_error(&node, err))
+}
+
 /// Runs the `.mjs` `entry` on node. `args` are passed to the program.
 pub fn run_node(
     node: &Path,
