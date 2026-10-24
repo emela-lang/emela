@@ -99,12 +99,22 @@ impl Reporter {
 }
 
 /// Environment variables that mean the command runs inside a coding agent when set and not empty.
-/// `AI_AGENT` is the one `[cmd.test.reporter]` names; the others are set by particular agents.
+/// `AI_AGENT` is the one `[cmd.test.reporter]` names; the others are set by particular agents in
+/// the processes they start. Variables that a person's shell may also have (`REPL_ID`,
+/// `GOOSE_PROVIDER`) and guesses from the values of `PATH`, `EDITOR` or `TERM_PROGRAM` are left
+/// out, so that a person at a terminal is not taken for an agent.
 pub const AGENT_ENV_VARS: &[&str] = &[
     "AI_AGENT",
     "CLAUDECODE",
+    "CLAUDE_CODE",
     "GEMINI_CLI",
     "CODEX_SANDBOX",
+    "CODEX_THREAD_ID",
+    "OPENCODE",
+    "AUGMENT_AGENT",
+    "JUNIE_DATA",
+    "COPILOT_AGENT",
+    "COPILOT_CLI",
     "CURSOR_AGENT",
 ];
 

@@ -553,6 +553,17 @@ fn ai_agent_means_a_coding_agent() {
     assert!(!runs_in_agent(env(&[("AI_AGENT", "")])));
     assert!(!runs_in_agent(env(&[])));
     assert!(!runs_in_agent(env(&[("PATH", "/bin")])));
+    // Each of the other variables means the same.
+    for var in AGENT_ENV_VARS {
+        assert!(
+            runs_in_agent(|name| (name == *var).then(|| "1".into())),
+            "{var}"
+        );
+        assert!(
+            !runs_in_agent(|name| (name == *var).then(OsString::new)),
+            "{var}"
+        );
+    }
 }
 
 #[test]
