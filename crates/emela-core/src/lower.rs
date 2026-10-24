@@ -21,7 +21,7 @@ use emela_resolve::hir::{
     UnaryOp, WithItem, int_literal_value,
 };
 use emela_resolve::{ModuleId, ModuleMap};
-use emela_types::{Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
+use emela_types::{ArgsSource, Prim, ProgramTypes, Row, RowElem, Supplier, Tag, Ty};
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -138,6 +138,8 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         module: Module::new(),
         fns: FxHashMap::default(),
         worklist: Vec::new(),
+        layer_args: FxHashMap::default(),
+        layer_arg_work: Vec::new(),
         current_def: None,
         spec: 0,
         enums: ArenaMap::default(),
@@ -175,8 +177,14 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         Roots::Tests => input.tests.iter().map(|&def| cx.fn_id(def, 0)).collect(),
         _ => Vec::new(),
     };
-    while let Some((def, spec)) = cx.worklist.pop() {
-        cx.define_fn(def, spec);
+    loop {
+        if let Some((def, spec)) = cx.worklist.pop() {
+            cx.define_fn(def, spec);
+        } else if let Some((layer, arg)) = cx.layer_arg_work.pop() {
+            cx.define_layer_arg(layer, arg);
+        } else {
+            break;
+        }
     }
     cx.builtin_impls();
     cx.trait_impls();
@@ -269,6 +277,11 @@ struct Lowerer<'a> {
     fns: FxHashMap<(DefId, Specialization), FnId>,
     /// Fns (and which suspending copy) that have an ID but whose bodies are not lowered yet.
     worklist: Vec<(DefId, Specialization)>,
+    /// The arguments of init written in layers → IR functions computing them
+    /// ([`Lowerer::layer_arg`]). Only that function adds to it.
+    layer_args: FxHashMap<ExprId, FnId>,
+    /// Arguments in `layer_args` (with their layer) whose bodies are not lowered yet.
+    layer_arg_work: Vec<(DefId, ExprId)>,
     /// The definition whose body is being lowered, and which suspending copy. Used to decide the
     /// "may suspend" marks of lambdas and calls.
     current_def: Option<DefId>,
@@ -1657,8 +1670,10 @@ impl<'a> Lowerer<'a> {
         let state_ty = self.handler_state_ty(def, h);
 
         // init's value is the handler's state. For a handler without init (no fields), the state
-        // is its constructor's value if it has one (`ConsoleLogger`), otherwise `()`.
-        let params: Vec<Local> = ev_param(self).into_iter().collect();
+        // is its constructor's value if it has one (`ConsoleLogger`), otherwise `()`. init takes
+        // its own parameters (`[effect.handler]`) before the table.
+        let mut params: Vec<Local> = h.init_params.iter().map(|p| self.local(p.local)).collect();
+        params.extend(ev_param(self));
         let body = match (h.init, h.ctor.and_then(|c| self.ctors.get(c).copied())) {
             (Some(body), _) => self.expr(body),
             (None, Some(ctor)) => Expr::Ctor {
@@ -1746,6 +1761,11 @@ impl<'a> Lowerer<'a> {
     /// For a stateful handler, init's value (the state) becomes a binding without release, and the
     /// handler value built from the state a binding with release (`WithBind::managed`). Without a
     /// release function, release is `()`.
+    ///
+    /// The arguments of init (`H(url: ...)`) come first, as bindings without release, in the
+    /// order the items are written and with the outer table (`[dyn.with]`). A failure there ends
+    /// the `with` before any init runs, so nothing is released. The arguments of a handler a
+    /// later item overrides are not evaluated.
     fn with(&mut self, id: ExprId, items: &[WithItem], body: ExprId, span: Span) -> Expr {
         let hir = self.hir;
         let Some(info) = self.types.with_handlers.get(id) else {
@@ -1784,6 +1804,20 @@ impl<'a> Lowerer<'a> {
         let outer = self.ev;
         let mut locals: Vec<Local> = Vec::with_capacity(hs.len());
         let mut binds = Vec::new();
+        let mut written_args: FxHashMap<ExprId, Local> = FxHashMap::default();
+        for (i, item) in items.iter().enumerate() {
+            if !info.initialized.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let (_, args) = item.supplier();
+            for arg in args.iter().flat_map(|a| &a.args) {
+                let ty = self.ty(self.expr_ty(arg.value));
+                let l = self.module.local("arg", ty);
+                let value = self.expr(arg.value);
+                binds.push(WithBind::new(l, value));
+                written_args.insert(arg.value, l);
+            }
+        }
         for (i, (supplier, own)) in hs.iter().enumerate() {
             let own_id = self.effect_id(own);
             let handler_ty = self.module.handler_effect(own_id);
@@ -1869,14 +1903,11 @@ impl<'a> Lowerer<'a> {
                 .handler_fails
                 .get(h)
                 .is_some_and(|r| !r.is_empty());
+            let mut init_args = self.init_args(id, info.binds[i].args, &written_args);
+            init_args.extend(ctx.clone());
             binds.push(WithBind::new(
                 state,
-                direct_marked(
-                    &self.module,
-                    init,
-                    ctx.clone().into_iter().collect(),
-                    init_fails,
-                ),
+                direct_marked(&self.module, init, init_args, init_fails),
             ));
             let with_state = |ctx: &Option<Expr>| {
                 std::iter::once(Expr::Var(state))
@@ -1928,6 +1959,69 @@ impl<'a> Lowerer<'a> {
             binds,
             body: Box::new(body),
         }
+    }
+
+    /// The arguments of a handler's init at the `with` `id`, in parameter order. Those written in
+    /// the `with` are the locals they were bound to; those written in a layer are computed by
+    /// their own functions ([`Self::layer_arg`]).
+    fn init_args(
+        &mut self,
+        id: ExprId,
+        source: ArgsSource,
+        written: &FxHashMap<ExprId, Local>,
+    ) -> Vec<Expr> {
+        let types = self.types;
+        // Lowering runs only without type errors, so every parameter has its argument.
+        match source {
+            ArgsSource::Item(i) => types
+                .with_args
+                .get(id)
+                .and_then(|items| items.get(i))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|arg| Expr::Var(written[arg]))
+                .collect(),
+            ArgsSource::Layer { layer, member } => types
+                .layer_args
+                .get(layer)
+                .and_then(|members| members.get(member))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|&arg| direct(self.layer_arg(layer, arg), Vec::new(), false))
+                .collect(),
+        }
+    }
+
+    /// The IR function computing the argument `arg` of an item of `layer`. The arguments in a
+    /// layer are pure (`[effect.layer]`), so each one becomes a const (spec 5.6): evaluated once,
+    /// at the first `with` that needs it. Lowering the expression at each `with` instead would
+    /// bind the locals in it (those of a lambda, say) more than once.
+    fn layer_arg(&mut self, layer: DefId, arg: ExprId) -> FnId {
+        if let Some(&f) = self.layer_args.get(&arg) {
+            return f;
+        }
+        let name = format!("{}$arg{}", self.ir_name(layer), self.layer_args.len());
+        let f = self.module.declare(&name, false);
+        self.module.functions[f].constant = true;
+        self.layer_args.insert(arg, f);
+        self.layer_arg_work.push((layer, arg));
+        f
+    }
+
+    /// Lowers the body of a function made by [`Self::layer_arg`], with fresh state as in
+    /// `define_fn`.
+    fn define_layer_arg(&mut self, layer: DefId, arg: ExprId) {
+        let f = self.layer_args[&arg];
+        self.ev = None;
+        self.bound.clear();
+        self.locals = ArenaMap::default();
+        self.current_def = Some(layer);
+        self.spec = 0;
+        let ret = self.ty(self.expr_ty(arg));
+        let body = self.expr(arg);
+        self.module.define(f, Vec::new(), ret, body);
     }
 
     /// `use X` (spec 8.2, 8.3). The handler of the innermost `with` providing X in the same

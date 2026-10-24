@@ -138,7 +138,12 @@ fn eager_refs(program: &Program, expr: ExprId, out: &mut Vec<DefId>) {
             }
             go(*base, out);
         }
-        ExprKind::With { body, .. } => go(*body, out),
+        ExprKind::With { handlers, body } => {
+            for item in handlers {
+                crate::layer::item_args(item).for_each(|e| go(e, out));
+            }
+            go(*body, out);
+        }
     }
 }
 

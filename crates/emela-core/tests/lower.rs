@@ -585,6 +585,63 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
+/// The arguments of handler init (`[effect.handler]`, `[dyn.with]`). init takes its parameters
+/// before the table. A `with` binds the arguments first, in the order the items are written and
+/// without release, then runs the inits in the order of the dependencies. The arguments of a
+/// handler a later item overrides are not bound. An argument written in a layer becomes a const
+/// (`AppLive$arg0`), called where the layer is expanded.
+#[test]
+fn handler_init_arguments() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+effect Config {
+  fn url() -> String
+}
+
+effect Users {
+  fn find(id: Int) -> String
+}
+
+handler Env(url: String): Config {
+  init(url: String) { Env(url:) }
+  fn url() { self.url }
+}
+
+handler Pool(url: String): Users {
+  init(n: Int) { Pool(url: (use Config).url()) }
+  fn find(id) { self.url }
+}
+
+handler Spare: Users {
+  fn find(id) { \"spare\" }
+}
+
+fn port() -> Int { 5432 }
+
+layer AppLive {
+  Env(url: \"db\")
+}
+
+fn main() {
+  with Pool(n: port()), Env(url: \"a\") { dbg((use Users).find(1)) }
+  with AppLive, Pool(n: 2) { dbg((use Users).find(2)) }
+  with Pool(n: port()), Spare { dbg((use Users).find(3)) }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| {
+            ["fn main(", "Pool$init", "Env$init", "AppLive"]
+                .iter()
+                .any(|k| f.contains(k))
+        })
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
 /// State.run (spec 8.8) and effects with type arguments (spec 8.1). State.run creates a cell and a
 /// handler value that reads and writes it, adds it to the table under the key `State[S]`, and calls
 /// body. A generic fn body looks it up by its own type parameter's key (`State[$modify.0]`), and

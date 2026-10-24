@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/effects.rs
+expression: "render_effects(r#\"\neffect Kv {\n  fn get(key: String) -> String\n}\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nhandler QuietLog: Log {\n  fn info(msg) { () }\n}\n\nlayer Unused {\n  RemoteKv\n}\n\nlayer Missing {\n  QuietLog\n  RemoteKv\n}\n\nfn main() {\n  with Missing { (use Kv).get(\"a\") }\n}\n\"#)"
+---
+main: fn() -> String
+handler RemoteKv: use {}
+handler QuietLog: use {}
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url"] }
+`RemoteKv` MissingInitArgs { handler: "RemoteKv", params: ["url"] }
+--- R
+{ (use Kv).get("a") }: Kv
+(use Kv).get("a"): Kv
+(use Kv).get: Kv
+use Kv: Kv

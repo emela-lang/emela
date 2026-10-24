@@ -1,0 +1,16 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror Bad\n\neffect Kv {\n  fn get(key: String) -> String\n}\n\nhandler RemoteKv(url: String): Kv {\n  init(url: String) { RemoteKv(url:) }\n  fn get(key) { self.url }\n}\n\nhandler FakeKv: Kv {\n  fn get(key) { \"\" }\n}\n\nfn url() -> String fails Bad { fail Bad }\n\nfn live() -> String fails Bad {\n  with RemoteKv(url: url()) { (use Kv).get(\"a\") }\n}\n\nfn overridden() -> String {\n  with RemoteKv(url: url()), FakeKv { (use Kv).get(\"a\") }\n}\n\nlayer Failing {\n  RemoteKv(url: url())\n}\n\"#)"
+---
+url: fn() -> String fails Bad
+live: fn() -> String fails Bad
+overridden: fn() -> String
+`url()` unhandled errors Bad (in the arguments of `RemoteKv` in layer `Failing`)
+--- E
+{ fail Bad }: Bad
+fail Bad: Bad
+{   with RemoteKv(url: url()) { (use Kv).get("a") } }: Bad
+with RemoteKv(url: url()) { (use Kv).get("a") }: Bad
+url(): Bad
+url(): Bad
+url(): Bad

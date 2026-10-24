@@ -294,6 +294,92 @@ fn main() {
 "##,
     ),
     (
+        "handler_init_args",
+        r##"
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+effect Count {
+  fn next() -> Int
+}
+
+effect Audit of Log
+
+error Bad
+
+handler Tagged(tag: String): Log {
+  init(tag: String, times: Int) {
+    _ = dbg("open #{tag} #{times}")
+    Tagged(tag:)
+  }
+  release {
+    _ = dbg("close #{self.tag}")
+  }
+  fn log(msg) { _ = dbg("#{self.tag}: #{msg}") }
+}
+
+handler Counter(start: Int): Count {
+  init(start: Int) {
+    (use Log).log("counter from #{start}")
+    Counter(start:)
+  }
+  fn next() { self.start + 1 }
+}
+
+handler Quiet: Log {
+  fn log(msg) { () }
+}
+
+fn note(s: String) -> String {
+  _ = dbg("arg #{s}")
+  s
+}
+
+fn number(s: String, n: Int) -> Int {
+  _ = dbg("arg #{s}")
+  n
+}
+
+fn bad(s: String) -> Int fails Bad {
+  _ = dbg("arg #{s} fails")
+  fail Bad
+}
+
+fn base() -> Int { 40 }
+
+fn say(s: String) { _ = dbg(s) }
+
+layer AppLive {
+  Tagged(tag: "app", times: base() + 1)
+  Counter(start: base())
+}
+
+fn main() {
+  with Counter(start: number("one", 3)), Tagged(times: 2, tag: note("two")) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with AppLive {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with AppLive, Tagged(tag: note("local"), times: 3) {
+    (use Log).log("next #{(use Count).next()}")
+  }
+  with Tagged(tag: note("skipped"), times: 4), Quiet {
+    (use Log).log("quiet")
+  }
+  with Audit by Tagged(tag: "audit", times: 5) {
+    (use Audit).log("audited")
+  }
+  with Tagged(tag: note("first"), times: 6), Counter(start: bad("second")) {
+    (use Log).log("unreachable")
+  } escape {
+    Bad -> say("failed with Bad")
+  }
+}
+"##,
+    ),
+    (
         "constants",
         r#"
 const NAMES = ["a", "b", "c"]

@@ -25,8 +25,8 @@ pub struct HoverInfo {
 ///   inferred). Suspend fns (effect operations and external functions) get `suspend` before the
 ///   type.
 /// - A handler name: `handler H(fields): E` (`E[Int]` with type arguments), plus
-///   `init fails E` if init has an E, and `use R` if it has dependencies (shows whether Async
-///   remains).
+///   `init(params) fails E` if init has parameters or an E, and `use R` if it has dependencies
+///   (shows whether Async remains).
 /// - A layer name: `layer L { handlers in initialization order }`, plus `use R` for dependencies
 ///   unmet inside the layer.
 /// - A label name, or a reference to one: its declaration, `effect Debug of Log default`.
@@ -332,9 +332,10 @@ fn hover_type(
     }
 }
 
-/// `handler H(fields): E` (`E[Int]` with type arguments), plus `init fails E` if init
-/// has an E (part of the with's E, spec 9.4) and `use R` if it has dependencies (shows whether
-/// Async remains, spec 8.7). `None` if `def` is not a handler.
+/// `handler H(fields): E` (`E[Int]` with type arguments), plus `init(params) fails E` if init
+/// has parameters (`[effect.handler]`) or an E (part of the with's E, spec 9.4), and `use R` if
+/// it has dependencies (shows whether Async remains, spec 8.7). `None` if `def` is not a
+/// handler.
 pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String> {
     let hir = &program.hir;
     let types = &program.types;
@@ -368,10 +369,27 @@ pub(crate) fn handler_text(program: &TypedProgram, def: DefId) -> Option<String>
             }
         }
     }
-    if let Some(fails) = types.handler_fails.get(def)
-        && !fails.is_empty()
-    {
-        text.push_str(&format!("\ninit fails {}", fails.display(cons)));
+    // The parameters of init, which a `with` passes arguments to (`[effect.handler]`).
+    let params = types.sigs.init_params(def).map(|p| {
+        let params: Vec<String> = p
+            .labels
+            .iter()
+            .zip(&p.tys)
+            .map(|(l, ty)| format!("{}: {}", l.as_deref().unwrap_or("_"), ty.display(cons)))
+            .collect();
+        format!("({})", params.join(", "))
+    });
+    let fails = types
+        .handler_fails
+        .get(def)
+        .filter(|f| !f.is_empty())
+        .map(|f| format!(" fails {}", f.display(cons)));
+    if params.is_some() || fails.is_some() {
+        text.push_str(&format!(
+            "\ninit{}{}",
+            params.unwrap_or_default(),
+            fails.unwrap_or_default()
+        ));
     }
     if let Some(deps) = types.handler_uses.get(def)
         && !deps.is_empty()

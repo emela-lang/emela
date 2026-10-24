@@ -410,6 +410,11 @@ impl HandlerDecl {
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)
     }
+    /// The parameters of init (`init(binding: String) { ... }`). `None` without parentheses.
+    pub fn init_params(&self) -> Option<ParamList> {
+        let list = self.0.children().find(|n| n.kind() == ITEM_LIST)?;
+        child(&list.children().find(|n| n.kind() == HANDLER_INIT)?)
+    }
     pub fn release(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_RELEASE)
     }
@@ -429,8 +434,39 @@ impl LayerDecl {
     pub fn name(&self) -> Option<SyntaxToken> {
         name(&self.0)
     }
-    pub fn handlers(&self) -> impl Iterator<Item = Path> {
+    /// The handlers and layers listed, with the arguments of init.
+    pub fn members(&self) -> impl Iterator<Item = Supply> {
         items(&self.0)
+    }
+}
+
+/// A handler, a layer or a label named as an item of `with` or `layer`, or on the right of
+/// `by`: a PATH, or a SUPPLY when the arguments of init are written (`WorkerKv(binding: "KV")`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Supply(SyntaxNode);
+
+impl AstNode for Supply {
+    fn can_cast(kind: crate::SyntaxKind) -> bool {
+        matches!(kind, PATH | SUPPLY)
+    }
+    fn cast(node: SyntaxNode) -> Option<Self> {
+        Self::can_cast(node.kind()).then(|| Self(node))
+    }
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl Supply {
+    pub fn path(&self) -> Option<Path> {
+        match self.0.kind() {
+            PATH => Path::cast(self.0.clone()),
+            _ => child(&self.0),
+        }
+    }
+    /// The ARG_LIST of the arguments of init. `None` without parentheses.
+    pub fn arg_list(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| n.kind() == ARG_LIST)
     }
 }
 
@@ -622,7 +658,7 @@ mod tests {
         let Item::Layer(app) = &items[2] else {
             panic!("expected `layer`")
         };
-        assert_eq!(app.handlers().count(), 2);
+        assert_eq!(app.members().count(), 2);
     }
 
     #[test]

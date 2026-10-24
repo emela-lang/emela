@@ -1055,6 +1055,33 @@ fn hover_shows_stateful_handlers_and_layers() {
     client.shutdown();
 }
 
+/// `[effect.handler]`: the hover on a handler shows the parameters of its init, a parameter of
+/// init has its type, and a name in
+/// the arguments of a `with` item goes to its definition.
+#[test]
+fn handler_init_arguments() {
+    let src = "effect Kv {\n  fn get(key: String) -> String\n}\n\nconst NAME: String = \"KV\"\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String, retries: Int) { WorkerKv(binding:) }\n  fn get(key) { self.binding }\n}\n\nfn main() {\n  with WorkerKv(binding: NAME, retries: 1) { (use Kv).get(\"a\") }\n}\n";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 10)),
+        "```emela\nhandler WorkerKv(binding: String): Kv\ninit(binding: String, retries: Int)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 7, 8)),
+        "```emela\nbinding: String\n```"
+    );
+    let def = client
+        .definition("/app/src/main.emel", 12, 26)
+        .expect("a definition");
+    assert_eq!(def.range, range((4, 6), (4, 10)));
+    client.shutdown();
+}
+
 /// Effects with type arguments (spec 8.1). The handler name shows `handler H: Cell[Int]`, a
 /// capability shows `use Cell[Int]`, and an operation shows its type with the arguments substituted.
 #[test]

@@ -1,0 +1,61 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"pub effect Kv {\n  fn get(key: String) -> String\n}\n\neffect AuditKv of Kv\n\nconst NAME: String = \"KV\"\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String, retries: Int) { WorkerKv(binding:) }\n  fn get(key) { self.binding }\n}\n\nlayer AppLive {\n  WorkerKv(binding: NAME, retries: 3)\n}\n\nfn main() {\n  name = \"KV\"\n  with WorkerKv(binding: name, retries: 1) { (use Kv).get(\"a\") }\n  with AppLive, AuditKv by WorkerKv(name, 2) { (use AuditKv).get(\"a\") }\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.Kv pub
+  op Main.Kv.get
+    param key#0: String
+    ret String
+effect Main.AuditKv
+  of Main.Kv
+const Main.NAME: String
+  "KV"
+handler Main.WorkerKv: Main.Kv
+  field binding: String
+  ctor Main.WorkerKv.WorkerKv
+  init
+    param binding#1: String
+    param retries#2: Int
+    block
+      call
+        Main.WorkerKv.WorkerKv
+        binding: (punned)
+          binding#1
+  fn get -> Main.Kv.get self#3
+    param key#4
+    body
+      block
+        field .binding
+          self#3
+layer Main.AppLive { Main.WorkerKv(..) }
+  args Main.WorkerKv
+    binding:
+      Main.NAME
+    retries:
+      3
+fn Main.main
+  body
+    block
+      let name#5 =
+        "KV"
+      with Main.WorkerKv(..)
+        args
+          binding:
+            name#5
+          retries:
+            1
+        block
+          call
+            field .get
+              use Main.Kv
+            "a"
+      with Main.AppLive, Main.AuditKv by Main.WorkerKv(..)
+        args
+          name#5
+          2
+        block
+          call
+            field .get
+              use Main.AuditKv
+            "a"

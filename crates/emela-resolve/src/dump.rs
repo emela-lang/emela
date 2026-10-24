@@ -207,6 +207,7 @@ impl Dumper<'_> {
                 }
                 if let Some(init) = h.init {
                     self.line(1, "init");
+                    self.params(2, &h.init_params);
                     self.expr(2, init);
                 }
                 if let Some((local, body)) = h.release {
@@ -230,8 +231,23 @@ impl Dumper<'_> {
                 }
             }
             Item::Layer(l) => {
-                let members = self.res_list(&l.members);
+                let members = l
+                    .members
+                    .iter()
+                    .map(|m| {
+                        let parens = if m.args.is_some() { "(..)" } else { "" };
+                        format!("{}{parens}", self.res(m.res))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 self.line(0, format!("layer {name}{flags} {{ {members} }}"));
+                for m in &l.members {
+                    if let Some(args) = &m.args {
+                        let target = self.res(m.res);
+                        self.line(1, format!("args {target}"));
+                        self.args(2, &args.args);
+                    }
+                }
             }
             Item::Trait(t) => {
                 let supertraits = if t.supertraits.is_empty() {
@@ -546,15 +562,28 @@ impl Dumper<'_> {
                 self.line(depth, format!("use {effect}{args}"));
             }
             ExprKind::With { handlers, body } => {
-                let handlers = handlers
+                let parens = |args: &Option<SupplyArgs>| if args.is_some() { "(..)" } else { "" };
+                let names = handlers
                     .iter()
-                    .map(|item| match item.by {
-                        Some((by, _)) => format!("{} by {}", self.res(item.res), self.res(by)),
-                        None => self.res(item.res),
+                    .map(|item| {
+                        let label = format!("{}{}", self.res(item.res), parens(&item.args));
+                        match item.by {
+                            Some((by, _)) => {
+                                let by = self.res(by);
+                                format!("{label} by {by}{}", parens(&item.by_init_args))
+                            }
+                            None => label,
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                self.line(depth, format!("with {handlers}"));
+                self.line(depth, format!("with {names}"));
+                for item in handlers {
+                    for args in [&item.args, &item.by_init_args].into_iter().flatten() {
+                        self.line(depth + 1, "args");
+                        self.args(depth + 2, &args.args);
+                    }
+                }
                 self.expr(depth + 1, *body);
             }
             ExprKind::Lambda { params, body } => {

@@ -189,18 +189,19 @@ fn arm(p: &mut Parser<'_>) {
 }
 
 /// `"with" with_item { "," with_item } block`,
-/// `with_item = type_ref [ "by" type_ref [ "[" type { "," type } "]" ] ]`
+/// `with_item = supply [ "by" by_right ]`,
+/// `by_right = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]`
 fn with_expr(p: &mut Parser<'_>) {
     p.bump_kind(WITH_KW);
     loop {
         if p.at(TYPE_NAME) {
-            let target = path(p);
+            let target = supply(p);
             // `AuditLog by HandlerA` plugs a provider into a label.
             if p.at_contextual_kw("by") {
                 let m = target.precede(p);
                 p.bump();
                 if p.at(TYPE_NAME) {
-                    path(p);
+                    supply(p);
                     effect_type_args(p);
                 } else {
                     p.expect(TYPE_NAME);
@@ -215,6 +216,19 @@ fn with_expr(p: &mut Parser<'_>) {
         }
     }
     block_or_error(p);
+}
+
+/// `supply = type_ref [ "(" [ args ] ")" ]`: a handler, a layer or a label, with the arguments
+/// of a handler's init (`WorkerKv(binding: "KV")`). With arguments, the PATH and the ARG_LIST are
+/// wrapped in a SUPPLY; without, the item is the PATH itself.
+pub(super) fn supply(p: &mut Parser<'_>) -> CompletedMarker {
+    let target = path(p);
+    if !p.at(L_PAREN) {
+        return target;
+    }
+    let m = target.precede(p);
+    arg_list(p);
+    m.complete(p, SUPPLY)
 }
 
 /// Higher binds tighter. Comparisons do not associate.

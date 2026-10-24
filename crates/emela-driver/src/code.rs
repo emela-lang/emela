@@ -155,6 +155,9 @@ pub const NOT_A_LABEL: &str = "E0430";
 pub const LABEL_MISMATCH: &str = "E0431";
 pub const LABEL_PROVIDED_TWICE: &str = "E0432";
 pub const HANDLER_OF_LABEL: &str = "E0433";
+// Arguments of handler init (spec 8.4)
+pub const MISSING_INIT_ARGS: &str = "E0434";
+pub const UNEXPECTED_INIT_ARGS: &str = "E0435";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";

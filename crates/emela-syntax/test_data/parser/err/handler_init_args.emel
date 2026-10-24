@@ -1,0 +1,12 @@
+handler Broken: Kv {
+  init(binding: String {
+  fn get(key) { None }
+}
+
+layer AppLive {
+  WorkerKv(binding: "KV"
+}
+
+fn main() {
+  with WorkerKv(binding: "KV" { run() }
+}

@@ -1,0 +1,66 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0316]: parameter `binding` of the `init` of `Untyped` needs a type
+    ╭─[ main.emel:21:8 ]
+    │
+ 21 │   init(binding) { Untyped(binding:) }
+    │        ───┬───  
+    │           ╰───── 
+────╯
+
+error[E0318]: unhandled error `Down`
+    ╭─[ main.emel:28:21 ]
+    │
+ 28 │   WorkerKv(binding: name(), retries: 1)
+    │                     ───┬──  
+    │                        ╰──── 
+────╯
+   = help: the arguments in a layer must be pure; to pass this value, list `WorkerKv` after the layer: `with Failing, WorkerKv(...) { ... }`
+
+error[E0402]: arguments in layer `Reading` cannot use effect `Config`
+    ╭─[ main.emel:32:22 ]
+    │
+ 32 │   WorkerKv(binding: (use Config).url(), retries: 1)
+    │                      ─────┬────  
+    │                           ╰────── 
+────╯
+   = help: the arguments in a layer must be pure; to pass this value, list `WorkerKv` after the layer: `with Reading, WorkerKv(...) { ... }`
+
+error[E0434]: handler `WorkerKv` needs arguments for its `init`
+    ╭─[ main.emel:36:3 ]
+    │
+ 36 │   WorkerKv
+    │   ────┬───  
+    │       ╰───── 
+────╯
+   = help: write `WorkerKv(binding: ..., retries: ...)`
+
+error[E0434]: handler `WorkerKv` needs arguments for its `init`
+    ╭─[ main.emel:40:8 ]
+    │
+ 40 │   with WorkerKv { (use Kv).get("a") }
+    │        ────┬───  
+    │            ╰───── 
+────╯
+   = help: write `WorkerKv(binding: ..., retries: ...)`
+
+error[E0435]: handler `FakeKv` takes no arguments
+    ╭─[ main.emel:41:14 ]
+    │
+ 41 │   with FakeKv() { (use Kv).get("a") }
+    │              ─┬  
+    │               ╰── 
+────╯
+   = help: write `FakeKv` without parentheses
+
+error[E0305]: wrong number of arguments: `WorkerKv` takes 2, found 1
+    ╭─[ main.emel:42:16 ]
+    │
+ 42 │   with WorkerKv(binding: "a") { (use Kv).get("a") }
+    │                ───────┬──────  
+    │                       ╰──────── 
+────╯
+
+7 errors

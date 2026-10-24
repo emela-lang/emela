@@ -114,7 +114,8 @@ impl Printer {
             EFFECT_SET => self.seq(node, |_, _| true),
             STRING => self.string(node),
             INTERP => self.interp(node),
-            CALL_EXPR => self.call(node),
+            // `WorkerKv(binding: "KV")` in `with` and `layer` reads as a call.
+            CALL_EXPR | SUPPLY => self.call(node),
             BIN_EXPR => self.bin_chain(node),
             BLOCK_EXPR => self.block(node).assemble(false).group(),
             IF_EXPR => self.if_chain(node).group(),

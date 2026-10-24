@@ -295,3 +295,42 @@ fn use_raise() {
 "#
     ));
 }
+
+/// `[effect.with]`, `[type.rules]`: the E of the arguments of init goes into the E of the `with`,
+/// except for a handler a later item overrides. In a layer, the arguments cannot fail (E0318,
+/// `[effect.layer]`).
+#[test]
+fn init_argument_errors_join_the_with() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Bad
+
+effect Kv {
+  fn get(key: String) -> String
+}
+
+handler RemoteKv(url: String): Kv {
+  init(url: String) { RemoteKv(url:) }
+  fn get(key) { self.url }
+}
+
+handler FakeKv: Kv {
+  fn get(key) { "" }
+}
+
+fn url() -> String fails Bad { fail Bad }
+
+fn live() -> String fails Bad {
+  with RemoteKv(url: url()) { (use Kv).get("a") }
+}
+
+fn overridden() -> String {
+  with RemoteKv(url: url()), FakeKv { (use Kv).get("a") }
+}
+
+layer Failing {
+  RemoteKv(url: url())
+}
+"#
+    ));
+}

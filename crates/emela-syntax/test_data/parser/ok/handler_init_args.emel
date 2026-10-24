@@ -1,0 +1,23 @@
+pub handler WorkerKv(ns: Namespace): Kv {
+  init(binding: String, retries: Int) { WorkerKv(ns: kv_namespace(binding)) }
+  fn get(key) { get(self.ns, key) }
+}
+
+handler Empty: Kv {
+  init() { Empty }
+  fn get(key) { None }
+}
+
+layer AppLive {
+  SystemConsole
+  WorkerKv(binding: "KV", retries: 3)
+  Other("x", 1)
+}
+
+effect AuditLog of Logger
+
+fn main() {
+  with WorkerKv(binding: "KV", retries: 3) { run() }
+  with AppLive, WorkerKv(binding: name, retries:) { run() }
+  with SystemConsole, AuditLog by FileLog(path: "audit.log") { run() }
+}

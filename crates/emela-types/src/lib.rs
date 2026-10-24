@@ -28,7 +28,8 @@ mod tests;
 
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, SuspendingCall,
+    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, LabelBaseReason, LayerArg,
+    SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use error::{TypeError, TypeErrorKind};
@@ -37,10 +38,10 @@ pub use exhaustiveness::{
     check_match,
 };
 pub use infer::{InferCtx, substitute_bound};
-pub use layer::{LayerInfo, Supplier, WithBind, WithInfo};
+pub use layer::{ArgsSource, LayerInfo, Supplier, WithBind, WithInfo};
 pub use lower::TyTable;
 pub use scheme::Scheme;
-pub use signature::{Signature, Signatures};
+pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, head_def};
 pub use ty::{
     FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId, TyConKind,
