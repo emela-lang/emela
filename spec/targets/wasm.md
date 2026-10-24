@@ -7,13 +7,16 @@ This section defines what can be observed about the component emitted with `--ta
 - The name of the target is `wasm`. It is selected with `--target wasm` on the command, or with `[build].target = "wasm"` in `Pome.toml`.
 - `emela build` and `emela run` write exactly one file, `main.wasm`, to the output directory. The runtime is included in the same component, and no other files are written. No external toolchain is used.
 - The default output directory is `target/emela/wasm` for `emela build` and `emela run`, and `target/emela/test-wasm` for `emela test`.
-- `main.wasm` is a WASI 0.3 component. It exports the interface `wasi:cli/run@0.3.0`, whose `run` calls `pub fn main` of the entry module. If the entry module has no `main`, `run` does nothing and returns.
-- The component always imports `wasi:cli/stdout@0.3.0`, `wasi:cli/stderr@0.3.0` and `wasi:cli/exit@0.3.0`. It also imports `wasi:cli/environment@0.3.0`, `wasi:random/random@0.3.0` and `wasi:clocks/system-clock@0.3.0`, each only when the entry reaches a host function of `Std.Env`, `Std.Random` or `Std.Clock` that uses it (`[target.wasm.external]`). It imports nothing else. Standard output and standard error are each written through one stream passed to `write-via-stream`, and an exit code other than 0 is passed with `exit-with-code`. The output of `dbg` is written to standard error.
+- `main.wasm` is a WASI 0.3 component.
+  - When the program is an HTTP service (`[lib.http-service]`), `main.wasm` is a component of the world `wasi:http/service@0.3.0`. It exports `wasi:http/handler@0.3.0` and does not export `wasi:cli/run@0.3.0`. A request without a scheme has the scheme `http`.
+  - Otherwise it exports the interface `wasi:cli/run@0.3.0`, whose `run` calls `pub fn main` of the entry module. If the entry module has no `main`, `run` does nothing and returns.
+- The component always imports `wasi:cli/stdout@0.3.0`, `wasi:cli/stderr@0.3.0` and `wasi:cli/exit@0.3.0`. It also imports `wasi:cli/environment@0.3.0`, `wasi:random/random@0.3.0` and `wasi:clocks/system-clock@0.3.0`, each only when the entry reaches a host function of `Std.Env`, `Std.Random` or `Std.Clock` that uses it (`[target.wasm.external]`). An HTTP service also imports `wasi:http/types@0.3.0`. It imports nothing else. Standard output and standard error are each written through one stream passed to `write-via-stream`, and an exit code other than 0 is passed with `exit-with-code`. The output of `dbg` is written to standard error.
 - The bytes of a write are handed to the host before the write returns. If the host stops reading a stream, later writes to it are dropped without an error.
 
 ## 16.8.2 Running `[target.wasm.run]`
 
 - `emela run` writes `main.wasm` and then runs it with `wasmtime run -S p3=y main.wasm <args...>`. The arguments written after `--` are passed as they are, after `main.wasm`. Standard input is inherited. wasmtime provides the WASI 0.3 features, which need wasmtime 49 or later.
+- When the program is an HTTP service, `emela run` runs `wasmtime serve -S p3=y,cli=y main.wasm`. The arguments written after `--` are passed to wasmtime before `main.wasm`.
 - The wasmtime used is the executable in the environment variable `EMELA_WASMTIME` if it is not empty, and otherwise `wasmtime` on PATH.
 - If wasmtime cannot be started, it is E0909. When it is not found, the message is ``` `<executable>` not found ```, with the note `install Wasmtime 49 or later and add it to PATH, or set EMELA_WASMTIME to the wasmtime executable`. When it cannot be started for any other reason, the message is ``` cannot start `<executable>`: <reason> ```. `<executable>` is the value of `EMELA_WASMTIME` or `wasmtime`.
 - Before running, the command reads the version from `<executable> --version`. If its major version is older than 49, it is E0909 and the program is not run: the message is ``` `<executable>` is <version>, but target `wasm` needs wasmtime 49 or later ```, with the note `install Wasmtime 49 or later, or set EMELA_WASMTIME to a newer wasmtime executable`. `<version>` is the output of `--version` without the surrounding whitespace. If the version cannot be read, the program is run. The same check is made by `emela test` (`[cmd.test]`).
@@ -33,7 +36,7 @@ This section defines what can be observed about the component emitted with `--ta
   | `SystemClock` (`now`) | `now` of `wasi:clocks/system-clock@0.3.0`. Unix epoch milliseconds, `seconds * 1000 + nanoseconds / 1_000_000` with the division truncated |
 
 - An `@export(wasm, ...)` written by a user is a compile error with no code: `` exported function `f` has a `wasm` export, which the WASI 0.3 component target does not support yet ``. The entry adapters of the bundled `Std` are exposed by the runtime.
-- `SystemClock.sleep`, `Std.FileSystem` and `Std.Http` are not available on WASM yet.
+- `SystemClock.sleep`, `Std.FileSystem` and the client of `Std.Http` (`SystemHttp`) are not available on WASM yet. The entry adapter `Http.serve` is (`[lib.http-service]`).
 
 ## 16.8.4 Constructs not supported yet `[target.wasm.unsupported]`
 

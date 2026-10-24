@@ -55,6 +55,7 @@ Only the functions reachable from the entry point are checked. Unreachable ones 
 - These errors have no location.
 - A `String.split` whose separator turns out to be the empty string at run time splits correctly at each grapheme cluster if the string is ASCII only (in ASCII, the sequence CR LF is one grapheme cluster, and every other character is one each). If the string contains a non-ASCII character, it is a defect (`` `String.split` with an empty separator on non-ASCII text needs the Unicode grapheme cluster tables, which target `c` does not support yet ``). This defect can be caught with `Fiber.attempt`, and the releases of the withs on the way also run.
 - An external function without `@external(c, ...)` is E0412 if it is reachable from the entry point. One that is emitted without being reachable is a defect (``external function `f` is not available on this target``) when called (`[ext.decl]`).
+- HTTP services (`[lib.http-service]`). `@entry(Http.serve)` is a compile error when the target is `c` (E0442).
 
 ## 16.7.5 Event loop `[target.c.event-loop]`
 

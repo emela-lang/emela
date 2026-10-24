@@ -24,7 +24,7 @@ Entry and main:
 
 - When a directory is given and neither `src/main.emel` nor `src/lib.emel` exists, `check` passes, and `build` and `run` report a compile error (E0209).
 - When a directory is given and `src/main.emel` does not exist but `src/lib.emel` does, the project is a library-only project, and `lib.emel` is the entry for checking and testing. `build` only checks and outputs nothing. `run` is a compile error (E0230), whether or not `lib.emel` has a fn `main`. If `src/main.emel` exists, it is the entry. When a file is given, that file is the entry, including `lib.emel`.
-- If the entry module has no fn named `main`, `run` reports a compile error (E0230, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
+- If the entry module has no fn named `main` and the program is not an HTTP service (`[lib.http-service]`), `run` reports a compile error (E0230, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
 
 JS output:
 
@@ -42,6 +42,7 @@ Starting the program:
 
 Running the program (JS):
 
+- For an HTTP service, `run` runs `node serve.mjs` (`[target.js.module]`) with the arguments after `--`, instead of what follows.
 - `run` loads the entry module and calls the exported `main` with no arguments. The return value of `main` is discarded. Arguments to the program are passed after `--` as node arguments.
 - A `main` that can suspend is awaited on the event loop until it finishes.
 - The standard error output and exit code when execution stops are as follows. The exit code is determined after writing to standard error finishes (writes to a pipe are not cut off midway).

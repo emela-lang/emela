@@ -4,7 +4,7 @@ This is the record of changes to the specification. New entries are added at the
 
 ## 2026-10-25 (HTTP services)
 
-- `[lib.layers]`, `[api.std.http]`, `[target.js.module]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.c.unsupported]`, `[cmd.build]`, `[diag.list]`: Add `serve`, an entry adapter for HTTP services, to `Std.Http`. When an fn of the entry module has `@entry(Http.serve)`, the host calls that fn for every request it receives. On JS this is the `fetch` of the default export of `main.mjs`; on WASM it is `handle` of `wasi:http/handler@0.3.0`. `emela run` starts a server as it is. Adopted in the proposal `http-service` (#428).
+- `[lib.layers]`, `[lib.http-service]`, `[api.std.http]`, `[api.std.http.request]`, `[api.std.http.response]`, `[target.js.module]`, `[target.wasm.output]`, `[target.wasm.run]`, `[target.c.unsupported]`, `[target.wasm.external]`, `[cmd.build]`, `[diag.list]`: Add `serve`, an entry adapter for HTTP services, to `Std.Http`. When an fn of the entry module has `@entry(Http.serve)`, the host calls that fn for every request it receives. On JS this is the `fetch` of the default export of `main.mjs`; on WASM it is `handle` of `wasi:http/handler@0.3.0`. `emela run` starts a server as it is. Adopted in the proposal `http-service` (#428).
 
 ## 2026-10-24 (Exported functions and entries)
 
