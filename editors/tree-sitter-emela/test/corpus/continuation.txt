@@ -1,0 +1,397 @@
+==================
+Binary operator at the start of a line continues
+==================
+fn f() {
+  a
+    |> g
+    + b
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binary_expression
+        (identifier)
+        (binary_expression
+          (identifier)
+          (identifier))))))
+
+==================
+An operator at the end of a line reads the next line as its operand
+==================
+fn f() {
+  a = 10 +
+  1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (binary_expression
+          (integer)
+          (integer))))))
+
+==================
+Minus at the start of a line starts a statement
+==================
+fn f() {
+  a
+  -b
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (identifier)
+      (unary_expression
+        (identifier)))))
+
+==================
+Bracket at the start of a line starts a statement
+==================
+fn f() {
+  foo
+  (bar)
+  [baz]
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (identifier)
+      (parenthesized_expression
+        (identifier))
+      (list_expression
+        (identifier)))))
+
+==================
+Newlines inside parentheses continue
+==================
+fn f() {
+  g(
+    a,
+    b
+    - c,
+  )
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (call_expression
+        (identifier)
+        (arguments
+          (identifier)
+          (binary_expression
+            (identifier)
+            (identifier)))))))
+
+==================
+Braces inside parentheses separate statements
+==================
+fn f() {
+  g(fn(x) {
+    a
+    b
+  })
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (call_expression
+        (identifier)
+        (arguments
+          (lambda
+            (lambda_parameters
+              (lambda_parameter
+                (identifier)))
+            (block
+              (identifier)
+              (identifier))))))))
+
+==================
+Comments and blank lines are skipped before a continuation
+==================
+fn f() {
+  a # c
+
+  # d
+  |> g
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binary_expression
+        (identifier)
+        (comment)
+        (comment)
+        (identifier)))))
+
+==================
+Postfix match on the next line
+==================
+fn f() {
+  xs
+    |> g
+    match {
+      [] -> 0
+      [x, ..rest] if x > 0
+        -> x
+      _ -> 1
+    }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (match_expression
+        (binary_expression
+          (identifier)
+          (identifier))
+        (match_arms
+          (match_arm
+            (list_pattern)
+            (integer))
+          (match_arm
+            (list_pattern
+              (identifier)
+              (rest_pattern
+                (identifier)))
+            (binary_expression
+              (identifier)
+              (integer))
+            (identifier))
+          (match_arm
+            (wildcard)
+            (integer)))))))
+
+==================
+Else on the next line
+==================
+fn f() {
+  if ok {
+    a
+  }
+  else if b {
+    c
+  } else {
+    d
+  }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (if_expression
+        (identifier)
+        (block
+          (identifier))
+        (if_expression
+          (identifier)
+          (block
+            (identifier))
+          (block
+            (identifier)))))))
+
+==================
+Escape on the next line
+==================
+fn f() {
+  load(id)
+    escape {
+      NotFound(_) -> fail Other
+    }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (escape_expression
+        (call_expression
+          (identifier)
+          (arguments
+            (identifier)))
+        (match_arms
+          (match_arm
+            (variant_pattern
+              (type_reference
+                (type_identifier))
+              (wildcard))
+            (fail_expression
+              (type_identifier))))))))
+
+==================
+Fails and use on the following lines of a signature
+==================
+pub fn get(url: String) -> Response
+  fails InvalidUrl | ConnectionFailed
+  use Http {
+  fails = 1
+  use Log
+}
+
+---
+
+(source_file
+  (function_declaration
+    (visibility)
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (fails_clause
+      (error_set
+        (type_reference
+          (type_identifier))
+        (type_reference
+          (type_identifier))))
+    (use_clause
+      (type_reference
+        (type_identifier)))
+    (block
+      (binding
+        (identifier)
+        (integer))
+      (use_expression
+        (type_reference
+          (type_identifier))))))
+
+==================
+A declaration without a body ends at its newline
+==================
+effect Store {
+  fn get() -> Int
+    fails Boom
+  fn put() -> ()
+}
+
+@external(js, "f")
+fn f() -> Int
+  use {}
+fn g() { 1 }
+
+---
+
+(source_file
+  (effect_declaration
+    (type_identifier)
+    (declaration_list
+      (operation
+        (identifier)
+        (parameters)
+        (type_reference
+          (type_identifier))
+        (fails_clause
+          (type_reference
+            (type_identifier))))
+      (operation
+        (identifier)
+        (parameters)
+        (unit_type))))
+  (function_declaration
+    (annotation
+      (identifier)
+      (annotation_argument
+        (identifier))
+      (annotation_argument
+        (string
+          (string_content))))
+    (identifier)
+    (parameters)
+    (type_reference
+      (type_identifier))
+    (use_clause
+      (effect_set)))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (integer))))
+
+==================
+Derive on the next line
+==================
+pub opaque type Email(value: String)
+  ## Not attached.
+  derive Eq, Show
+
+enum Color { Red, Green, Blue }
+derive Eq
+
+---
+
+(source_file
+  (type_declaration
+    (visibility)
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (comment)
+    (derive_clause
+      (type_reference
+        (type_identifier))
+      (type_reference
+        (type_identifier))))
+  (enum_declaration
+    (type_identifier)
+    (variant_list
+      (variant
+        (type_identifier))
+      (variant
+        (type_identifier))
+      (variant
+        (type_identifier)))
+    (derive_clause
+      (type_reference
+        (type_identifier)))))

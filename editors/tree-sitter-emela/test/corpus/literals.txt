@@ -1,0 +1,114 @@
+==================
+Strings, escapes and interpolation
+==================
+fn f() {
+  a = "tab\t uni\u{1F600} hash\#{not} # alone"
+  b = "a #{ g({ x }) } b #{ "in #{ y } ner" } c"
+  c = "#{x}"
+  d = ""
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (string
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (string_content)))
+      (binding
+        (identifier)
+        (string
+          (string_content)
+          (interpolation
+            (call_expression
+              (identifier)
+              (arguments
+                (block
+                  (identifier)))))
+          (string_content)
+          (interpolation
+            (string
+              (string_content)
+              (interpolation
+                (identifier))
+              (string_content)))
+          (string_content)))
+      (binding
+        (identifier)
+        (string
+          (interpolation
+            (identifier))))
+      (binding
+        (identifier)
+        (string)))))
+
+==================
+Multi-line strings
+==================
+fn f() {
+  query = """
+    SELECT *
+    WHERE id = #{id} and "quoted" ""twice""
+    """
+  empty = """
+"""
+  next = 1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (string
+          (string_content)
+          (interpolation
+            (identifier))
+          (string_content)))
+      (binding
+        (identifier)
+        (string
+          (string_content)))
+      (binding
+        (identifier)
+        (integer)))))
+
+==================
+Numbers
+==================
+fn f() {
+  a = 1_000 + 0xFF_ff + 0b1010 + 3.14 + 1.0e9
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (binding
+        (identifier)
+        (binary_expression
+          (binary_expression
+            (binary_expression
+              (binary_expression
+                (integer)
+                (integer))
+              (integer))
+            (float))
+          (float))))))
