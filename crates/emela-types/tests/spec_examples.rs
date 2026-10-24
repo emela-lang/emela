@@ -452,6 +452,20 @@ fn main() {
     ));
 }
 
+/// 12.7 Exported functions: parameters and return values of boundary types, E empty.
+#[test]
+fn spec_12_7_exports() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () {}  # 補: the body
+
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+"#
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Code the text declares to be errors
 

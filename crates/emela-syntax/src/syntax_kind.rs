@@ -188,6 +188,8 @@ pub enum SyntaxKind {
     ANNOT_ARG_LIST,
     /// `js` `"Math.sin"` `name: "x"`
     ANNOT_ARG,
+    /// `Http.serve`, the argument of `@entry` (spec 17.3 `qualified`)
+    ANNOT_PATH,
     /// `pub fn find(id: Int) -> User fails NotFound use Users { ... }`
     FN_DECL,
     /// `type User(id: Int, name: String) derive Eq`

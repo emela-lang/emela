@@ -47,7 +47,8 @@ item         = fn_decl | type_decl | enum_decl | error_decl | const_decl
              | effect_decl | handler_decl | layer_decl | trait_decl
 
 annotation   = "@" lower_name [ "(" annot_arg { "," annot_arg } ")" ]
-annot_arg    = lower_name | literal | lower_name ":" literal
+annot_arg    = lower_name | literal | lower_name ":" literal | qualified
+qualified    = type_name { "." type_name } "." lower_name
 
 fn_decl      = [ "suspend" ] "fn" lower_name [ type_params ]
                "(" [ params ] ")" [ signature ] [ block ]
@@ -95,6 +96,7 @@ impl_item    = "fn" lower_name "(" [ params ] ")" block
 The following restrictions apply outside the grammar.
 
 - An fn_decl without a body, and a top-level suspend fn, are allowed only when they have `@external`. A trait_item fn does not need a default implementation, and this restriction does not apply to it.
+- A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
 - A type_decl without fields is allowed only when it has `@external`.

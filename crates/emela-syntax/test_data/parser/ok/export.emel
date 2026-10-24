@@ -1,0 +1,16 @@
+# @export と @entry（12.7，12.8）．
+@export(c, "TIM2_IRQHandler")
+pub fn on_tick() -> () {}
+
+@export(js, "add")
+@export(js, "default", "add")
+pub fn add(a: Int, b: Int) -> Int { a + b }
+
+@entry(serve)
+fn local(x: Int) -> Int { x }
+
+@entry(Http.serve)
+pub fn app(x: Int) -> Int { x }
+
+@entry(Cloudflare.Worker.scheduled)
+fn tick() -> () {}
