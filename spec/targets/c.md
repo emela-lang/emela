@@ -71,8 +71,11 @@ The completions of external functions declared as `suspend fn` (`[ext.c-host]`) 
 
 ## 16.7.6 Exported functions `[target.c.export]`
 
-- An `@export(c, "name")` is emitted in `main.c` as a function with external linkage named `name`, with the prototype given by the table of 12.4.
+- An `@export(c, "name")` is emitted in `main.c` as a function with external linkage named `name`, with the prototype given by the table of 12.4. The three-argument form is E0146 on the `c` target.
+- A parameter or return value of a function type is not supported yet on the `c` target. It is a compile error with no code: ``exported function `f` takes a callback, which target `c` does not support yet`` (the form of callbacks is open, 18.1 #38).
+- A String argument is copied into an Emela string, and sequences that are not valid UTF-8 are replaced as for the return value of an external function (12.4). A NULL argument is a defect of the launch, with the message ``exported function `f` was given NULL``. A String return value is passed to the host as NUL-terminated UTF-8 allocated with `malloc`, which the host frees. A return value that contains U+0000 is a defect of the launch, with the message `a string passed to C contains U+0000`.
+- When the launch of an exported fn ends with a defect or an interruption, the process ends as it does when main ends with one (`defect: <message>` and exit code 101, or `interrupted` and exit code 130, 14.5). The exported function does not return to the host.
 - An exported fn with Async in its R is a compile error on the `c` target (E0441).
-- Calling an exported fn while a launch is running on the same thread is a defect, with the message ``exported function `f` was called while Emela code is running``. This covers a call back from a host function that Emela called, and a call from an interrupt or signal handler. The runtime checks it on entry to the export.
+- Calling an exported fn while a launch is running on the same thread is a defect, with the message ``exported function `f` was called while Emela code is running``. The process ends as for a defect of an exported fn above. This covers a call back from a host function that Emela called, and a call from an interrupt or signal handler. The runtime checks it on entry to the export.
 - Calling an exported fn from another thread is unspecified.
 - When an exported fn is called while no launch has started, the runtime is initialized by that call. The host does not call an initialization function.
