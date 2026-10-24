@@ -1,12 +1,172 @@
 //! Runs the emitted JS on node.
 
+use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
+
+thread_local! {
+    /// The working directory for the child runner in this thread (see [`with_program_cwd`]).
+    static PROGRAM_CWD: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// The longest the child runner in this thread may run (see [`with_program_timeout`]).
+    static PROGRAM_TIMEOUT: Cell<Option<Duration>> = const { Cell::new(None) };
+}
+
+/// Runs `f` with `dir` as the working directory of the node/wasmtime child it starts on this
+/// thread. The test harnesses use it to give each example a directory of its own, so examples
+/// that write files run in parallel and leave the source tree alone.
+///
+/// Only the child process changes directory; the driver's own filesystem stays where it was, so
+/// a relative `entry` is made absolute before the child starts.
+pub fn with_program_cwd<T>(dir: &Path, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<PathBuf>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PROGRAM_CWD.with(|cwd| *cwd.borrow_mut() = self.0.take());
+        }
+    }
+
+    let previous = PROGRAM_CWD.with(|cwd| cwd.replace(Some(dir.to_path_buf())));
+    let _restore = Restore(previous);
+    f()
+}
+
+pub(crate) fn apply_program_cwd(command: &mut Command) {
+    PROGRAM_CWD.with(|cwd| {
+        if let Some(dir) = cwd.borrow().as_ref() {
+            command.current_dir(dir);
+        }
+    });
+}
+
+/// Runs `f` with `limit` as the longest time a node/wasmtime child started on this thread may
+/// run. A child still running after `limit` is killed, and the run or test that started it fails
+/// with a diagnostic saying so. The test harnesses use it so a program that hangs fails its own
+/// test instead of hanging CI or leaving the child running.
+pub fn with_program_timeout<T>(limit: Duration, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Duration>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PROGRAM_TIMEOUT.with(|timeout| timeout.set(self.0));
+        }
+    }
+
+    let previous = PROGRAM_TIMEOUT.with(|timeout| timeout.replace(Some(limit)));
+    let _restore = Restore(previous);
+    f()
+}
+
+/// When a child started now must have finished (see [`with_program_timeout`]).
+#[derive(Clone, Copy)]
+pub(crate) struct Deadline {
+    at: Instant,
+    limit: Duration,
+}
+
+impl Deadline {
+    /// The deadline of a child starting now, if this thread has a program timeout.
+    pub(crate) fn start() -> Option<Deadline> {
+        PROGRAM_TIMEOUT.with(Cell::get).map(|limit| Deadline {
+            at: Instant::now() + limit,
+            limit,
+        })
+    }
+
+    pub(crate) fn remaining(self) -> Duration {
+        self.at.saturating_duration_since(Instant::now())
+    }
+
+    /// Kills `child` for running past the deadline. The error is what the run reports.
+    pub(crate) fn stop(self, child: &mut Child) -> io::Error {
+        let _ = child.kill();
+        let _ = child.wait();
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("did not finish within {:?} and was stopped", self.limit),
+        )
+    }
+}
+
+/// Waits for `child`, killing it at `deadline`.
+pub(crate) fn wait_child(child: &mut Child, deadline: Option<Deadline>) -> io::Result<ExitStatus> {
+    let Some(deadline) = deadline else {
+        return child.wait();
+    };
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if deadline.remaining().is_zero() {
+            return Err(deadline.stop(child));
+        }
+        std::thread::sleep(Duration::from_millis(10).min(deadline.remaining()));
+    }
+}
+
+/// Runs `command` to the end, through emela's stdio with [`Output::Inherit`] or capturing stdout
+/// and stderr with [`Output::Capture`], within the program timeout if there is one.
+fn run_child(command: &mut Command, output: Output) -> io::Result<RunOutput> {
+    let Some(deadline) = Deadline::start() else {
+        return match output {
+            Output::Inherit => command.status().map(|status| RunOutput {
+                code: exit_code(status),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }),
+            Output::Capture => command.output().map(|out| RunOutput {
+                code: exit_code(out.status),
+                stdout: out.stdout,
+                stderr: out.stderr,
+            }),
+        };
+    };
+    if let Output::Capture = output {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    }
+    let mut child = command.spawn()?;
+    // Read both pipes on other threads so a full pipe cannot stall the child.
+    let stdout = child.stdout.take().map(read_to_end_on_thread);
+    let stderr = child.stderr.take().map(read_to_end_on_thread);
+    let status = wait_child(&mut child, Some(deadline))?;
+    Ok(RunOutput {
+        code: exit_code(status),
+        stdout: join_reader(stdout),
+        stderr: join_reader(stderr),
+    })
+}
+
+/// Reads `pipe` to its end on another thread.
+pub(crate) fn read_to_end_on_thread(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = pipe.read_to_end(&mut buf);
+        buf
+    })
+}
+
+/// What [`read_to_end_on_thread`] read, or nothing if there was no pipe.
+pub(crate) fn join_reader(reader: Option<JoinHandle<Vec<u8>>>) -> Vec<u8> {
+    reader
+        .map(|reader| reader.join().unwrap_or_default())
+        .unwrap_or_default()
+}
+
+pub(crate) fn entry_for_child(entry: &Path) -> PathBuf {
+    let has_cwd = PROGRAM_CWD.with(|cwd| cwd.borrow().is_some());
+    if has_cwd && entry.is_relative() {
+        std::env::current_dir()
+            .map(|dir| dir.join(entry))
+            .unwrap_or_else(|_| entry.to_path_buf())
+    } else {
+        entry.to_path_buf()
+    }
+}
 
 /// An environment variable overriding the node executable; `node` on PATH otherwise.
 pub const NODE_ENV: &str = "EMELA_NODE";
@@ -142,7 +302,12 @@ pub fn wasmtime_program() -> PathBuf {
 /// wasmtime version, so the flag is explicit even where it is currently the default.
 pub(crate) fn wasmtime_run_command(wasmtime: &Path, entry: &Path) -> Command {
     let mut command = Command::new(wasmtime);
-    command.arg("run").arg("-S").arg("p3=y").arg(entry);
+    command
+        .arg("run")
+        .arg("-S")
+        .arg("p3=y")
+        .arg(entry_for_child(entry));
+    apply_program_cwd(&mut command);
     command
 }
 
@@ -189,23 +354,12 @@ pub fn run_wasmtime(
     check_wasmtime_version(&wasmtime)?;
     let mut command = wasmtime_run_command(&wasmtime, entry);
     command.args(args).stdin(Stdio::inherit());
-    let result = match output {
-        Output::Inherit => command.status().map(|status| RunOutput {
-            code: exit_code(status),
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-        }),
-        Output::Capture => command.output().map(|out| RunOutput {
-            code: exit_code(out.status),
-            stdout: out.stdout,
-            stderr: out.stderr,
-        }),
-    };
-    result.map_err(|err| wasmtime_spawn_error(&wasmtime, &err))
+    run_child(&mut command, output).map_err(|err| wasmtime_spawn_error(&wasmtime, &err))
 }
 
 fn wasmtime_spawn_error(wasmtime: &Path, err: &io::Error) -> Diagnostic {
     match err.kind() {
+        io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", wasmtime.display())),
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", wasmtime.display()))
             .with_code(code::WASMTIME_UNAVAILABLE)
             .with_note(format!(
@@ -229,27 +383,17 @@ pub fn run_node(
         .arg("-e")
         .arg(LAUNCHER)
         .arg("--")
-        .arg(entry)
+        .arg(entry_for_child(entry))
         .args(args)
         .stdin(Stdio::inherit());
-    let result = match output {
-        Output::Inherit => command.status().map(|status| RunOutput {
-            code: exit_code(status),
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-        }),
-        Output::Capture => command.output().map(|out| RunOutput {
-            code: exit_code(out.status),
-            stdout: out.stdout,
-            stderr: out.stderr,
-        }),
-    };
-    result.map_err(|err| spawn_error(node, &err))
+    apply_program_cwd(&mut command);
+    run_child(&mut command, output).map_err(|err| spawn_error(node, &err))
 }
 
 /// A diagnostic about failing to start node.
 pub(crate) fn spawn_error(node: &Path, err: &io::Error) -> Diagnostic {
     match err.kind() {
+        io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", node.display())),
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", node.display()))
             .with_code(code::NODE_UNAVAILABLE)
             .with_note(format!(
@@ -313,5 +457,32 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.message, "`/nonexistent/emela-test-node` not found");
         assert_eq!(err.notes.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn program_timeout_kills_the_child() {
+        let started = Instant::now();
+        let err = with_program_timeout(Duration::from_millis(100), || {
+            run_child(Command::new("sleep").arg("30"), Output::Capture)
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn program_timeout_keeps_the_output_of_a_child_that_finishes() {
+        let out = with_program_timeout(Duration::from_secs(30), || {
+            run_child(
+                Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]),
+                Output::Capture,
+            )
+        })
+        .unwrap();
+        assert_eq!(out.code, 3);
+        assert_eq!(out.stdout, b"out\n");
+        assert_eq!(out.stderr, b"err\n");
     }
 }

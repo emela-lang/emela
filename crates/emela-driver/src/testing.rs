@@ -8,9 +8,10 @@
 mod collect;
 mod report;
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 
 use emela_codegen_js::{
     Options, RUNTIME, RUNTIME_FILE, RuntimeMode, TEST_EVENT_PREFIX, TestEntry,
@@ -32,7 +33,9 @@ use crate::output::{BuildOutput, OutputFile, write_output};
 use crate::pipeline::{
     Analysis, Backend, Checked, CoreSource, Frontend, Input, NoJsBackend, Parsed, Runner, check,
 };
-use crate::run::{Output, exit_code, spawn_error};
+use crate::run::{
+    Deadline, Output, exit_code, join_reader, read_to_end_on_thread, spawn_error, wait_child,
+};
 use crate::source::{FileId, FileSystem, SourceFile};
 use crate::target::Target;
 
@@ -332,10 +335,15 @@ pub fn test<F: Frontend, B: TestBackend<F::Program>>(
     let (program, command) = match backend.runner() {
         Runner::Node => {
             let mut command = Command::new(&options.node);
-            command.arg(&entry);
+            command.arg(crate::run::entry_for_child(&entry));
+            crate::run::apply_program_cwd(&mut command);
             (options.node.clone(), command)
         }
-        Runner::Native => (entry.clone(), Command::new(&entry)),
+        Runner::Native => {
+            let mut command = Command::new(crate::run::entry_for_child(&entry));
+            crate::run::apply_program_cwd(&mut command);
+            (entry.clone(), command)
+        }
         Runner::Wasmtime => {
             let wasmtime = crate::run::wasmtime_program();
             if let Err(diagnostic) = crate::run::check_wasmtime_version(&wasmtime) {
@@ -458,27 +466,41 @@ fn run_tests(
             Output::Inherit => Stdio::inherit(),
             Output::Capture => Stdio::piped(),
         });
+    let deadline = Deadline::start();
     let mut child = command.spawn().map_err(|err| spawn_error(program, &err))?;
     // Read stderr on another thread so a full pipe cannot stall node.
-    let stderr = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf);
-            buf
-        })
+    let stderr = child.stderr.take().map(read_to_end_on_thread);
+    // Read stdout on another thread too, so a deadline can stop a child that writes nothing.
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
+    let (send_line, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            let mut line = Vec::new();
+            match stdout.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) if send_line.send(line).is_err() => break,
+                Ok(_) => {}
+            }
+        }
     });
 
     let _ = report::write_header(out, selected.len());
     let mut results = Vec::new();
     let mut finished = false;
-    let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
-    let mut line = Vec::new();
     loop {
-        line.clear();
-        match stdout.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
+        let line = match deadline {
+            None => match lines.recv() {
+                Ok(line) => line,
+                Err(_) => break,
+            },
+            Some(deadline) => match lines.recv_timeout(deadline.remaining()) {
+                Ok(line) => line,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(spawn_error(program, &deadline.stop(&mut child)));
+                }
+            },
+        };
         let event = line
             .strip_prefix(TEST_EVENT_PREFIX.as_bytes())
             .and_then(|json| serde_json::from_slice::<Event>(json).ok());
@@ -504,10 +526,8 @@ fn run_tests(
             }
         }
     }
-    let status = child.wait().map_err(|err| spawn_error(program, &err))?;
-    let stderr = stderr
-        .map(|thread| thread.join().unwrap_or_default())
-        .unwrap_or_default();
+    let status = wait_child(&mut child, deadline).map_err(|err| spawn_error(program, &err))?;
+    let stderr = join_reader(stderr);
     if !finished || results.len() < selected.len() {
         // node exited midway (`process.exit` from an external function, or an output error). The
         // test that was running fails, and the rest are reported as not run.
