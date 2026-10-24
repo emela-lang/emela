@@ -51,6 +51,7 @@ mod numeric;
 mod option;
 mod protocol;
 mod random;
+mod sched;
 mod show;
 mod string;
 mod unicode;
@@ -173,6 +174,14 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: clock::emit,
         used: clock::used,
+    },
+    RuntimeModule {
+        funcs: sched::FUNCS,
+        locals: sched::locals,
+        // The scheduler's cells are allocated by `emit::suspend::prepare`.
+        setup: no_setup,
+        emit: sched::emit,
+        used: super::suspend::used,
     },
 ];
 

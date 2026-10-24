@@ -372,7 +372,8 @@ fn main() {
     assert!(
         errors.iter().any(|error| {
             error.message.contains("sleep")
-                && (error.message.contains("suspending") || error.message.contains("`wasm` import"))
+                && (error.message.contains("`suspend fn` external")
+                    || error.message.contains("`wasm` import"))
         }),
         "{errors:#?}"
     );

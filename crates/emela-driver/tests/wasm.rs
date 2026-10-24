@@ -93,6 +93,42 @@ fn builds_the_module() {
 }
 
 #[test]
+fn sleep_through_a_function_value_is_e0412() {
+    // A closure that really calls `Std.Clock.SystemClock.sleep` is followed through the call,
+    // so the missing `wasm` host stops the build with E0412 (not a defect stub at run time).
+    let (fs, input) = project(
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() {
+  with SystemClock {
+    nap = fn() { (use Clock).sleep(1) }
+    nap()
+  }
+}
+"#,
+    );
+    let dir = out_dir("sleep-closure");
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default().with_target(Target::Wasm),
+        &mut CoreWasm,
+        &dir,
+    );
+    assert!(entry.is_none(), "the program must not build");
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0412") && d.message.contains("sleep_milliseconds")),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn runs_under_wasmtime() {
     if !have_wasmtime() {
         return;
@@ -377,5 +413,35 @@ fn unsupported_features_are_diagnostics() {
             .iter()
             .any(|m| m.contains("fibers are not supported on target `wasm`")),
         "{messages:?}"
+    );
+}
+
+#[test]
+fn the_system_clock_has_no_wasm_sleep() {
+    // `Std.Clock.SystemClock.sleep` waits on `sleep_milliseconds`, a `suspend fn` external with
+    // no WASI 0.3 host: the program is refused at the boundary instead of compiling a defect
+    // stub that fails at run time (spec 12.6).
+    let (analysis, output) = run_wasm(
+        "system-clock",
+        r#"
+import Std.Clock.{Clock, SystemClock}
+
+fn main() -> () use { Async } {
+  with SystemClock {
+    (use Clock).sleep(10)
+    ()
+  }
+}
+"#,
+    );
+    assert!(analysis.has_errors());
+    assert!(output.is_none());
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0412") && d.message.contains("sleep_milliseconds")),
+        "{:?}",
+        analysis.diagnostics
     );
 }

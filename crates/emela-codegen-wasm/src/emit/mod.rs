@@ -19,13 +19,15 @@
 //!
 //! The lowering is split by feature: this module has the entry point, the `Builder` skeleton and
 //! the IR statements and values; `builtins` lowers `Builtin`; `external` handles the host
-//! imports and their stubs; `runtimeop` lowers `RuntimeOp`.
+//! imports and their stubs; `runtimeop` lowers `RuntimeOp`; `suspend` emits the state machines
+//! of suspending functions and begins a `suspend fn` operation call.
 
 mod builtins;
 mod external;
 pub mod layout;
 mod runtime;
 mod runtimeop;
+mod suspend;
 
 use emela_core::{EnumId, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
@@ -220,6 +222,8 @@ pub(crate) struct Builder<'m> {
     pub(crate) bodies: Vec<WasmFunction>,
     /// The external functions resolved to a supported WASI 0.3 host, with their runtime wrapper.
     std_hosts: Vec<(FnId, StdHost)>,
+    /// The suspend runtime's cells and per-function entries, when the program suspends.
+    pub(crate) sus: Option<suspend::Plan>,
 }
 
 impl<'m> Builder<'m> {
@@ -254,6 +258,7 @@ impl<'m> Builder<'m> {
             errors: Vec::new(),
             bodies: Vec::new(),
             std_hosts: Vec::new(),
+            sus: None,
         };
         b.str_desc = b.string_desc();
         b.cons_ref_desc = b.list_desc(true);
@@ -533,6 +538,11 @@ impl<'m> Builder<'m> {
             };
             self.error_shows.insert(enum_id, slot);
         }
+        // The state machines of suspending functions: their extra definitions come right after
+        // the IR functions, before the runtime (so the runtime indices do not move).
+        if suspend::used(self) {
+            suspend::reserve(self);
+        }
         runtime::register(self);
         // A supported `Std` host calls its runtime wrapper directly.
         for i in 0..self.std_hosts.len() {
@@ -548,6 +558,9 @@ impl<'m> Builder<'m> {
                 &0
             });
         }
+        if suspend::used(self) {
+            suspend::prepare(self);
+        }
         // The async-lifted `wasi:cli/run@0.3.0#run` export and its callback. Both return the
         // component-model status code.
         let ty = self.ty(vec![], vec![ValType::I32]);
@@ -561,6 +574,7 @@ impl<'m> Builder<'m> {
         self.defs.push(ty);
 
         self.emit_ir_bodies();
+        suspend::emit_machines(self);
         runtime::emit(self);
         self.emit_entry(entry);
         self.emit_callback();
@@ -888,11 +902,14 @@ impl<'m> Builder<'m> {
                 continue;
             }
             if f.constant {
+                // A const's body is evaluated eagerly, so it never suspends (spec 5.6).
                 bodies.push(self.const_wrapper(id, f));
                 bodies.push(self.emit_fn(id, f));
                 continue;
             }
-            let body = if f.external.is_some() {
+            let body = if suspend::is_machine(f) {
+                self.machine_wrapper(id, f)
+            } else if f.external.is_some() {
                 self.external_stub(id, f)
             } else {
                 self.emit_fn(id, f)
@@ -983,6 +1000,31 @@ impl<'m> Builder<'m> {
         func
     }
 
+    /// The ordinary entry of a state machine: the IR, closures and direct calls see this
+    /// signature; it enters the body without a frame.
+    fn machine_wrapper(&mut self, id: FnId, f: &Function) -> WasmFunction {
+        let Some(body) = self
+            .sus
+            .as_ref()
+            .and_then(|p| p.machine(id))
+            .map(|m| m.body)
+        else {
+            self.internal(format!("no state machine for {}", f.name));
+            return WasmFunction::new(Vec::<(u32, ValType)>::new());
+        };
+        let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
+        {
+            let mut ins = func.instructions();
+            for i in 0..f.params.len() as u32 {
+                ins.local_get(i);
+            }
+            ins.i32_const(0);
+            ins.call(body);
+            ins.end();
+        }
+        func
+    }
+
     /// Loads a const's remembered value. A reference is duplicated: the cell keeps its own.
     fn load_const_value(&mut self, ins: &mut InstructionSink, cell: u32, ret: Repr) {
         match ret {
@@ -1010,7 +1052,6 @@ impl<'m> Builder<'m> {
             }
         }
     }
-
     fn emit_fn(&mut self, id: FnId, f: &Function) -> WasmFunction {
         let mut cx = FnCtx::new(f, self);
         let Some(body) = f.body else {
@@ -1040,6 +1081,10 @@ impl<'m> Builder<'m> {
                     let ret = self.repr(self.m.functions[*id].ret);
                     ins.call(index);
                     self.drop_result(ins, ret);
+                    if self.sus.is_some() {
+                        let root = self.rt("root_run");
+                        ins.call(root);
+                    }
                 }
                 Run::Main(None) => {}
                 Run::Tests(tests) => {
@@ -1048,6 +1093,10 @@ impl<'m> Builder<'m> {
                         let ret = self.repr(self.m.functions[*id].ret);
                         ins.call(index);
                         self.drop_result(ins, ret);
+                        if self.sus.is_some() {
+                            let root = self.rt("root_run");
+                            ins.call(root);
+                        }
                         let name = self.string_literal(name.as_bytes());
                         ins.i32_const(name as i32);
                         ins.call(self.rt("test_result"));
@@ -1301,11 +1350,20 @@ impl<'m> Builder<'m> {
                 on_defect,
                 on_suspend,
             } => {
-                // The target has no suspend machinery. The check rejects every reachable
-                // suspension point, so a call that may suspend by type (a closure over
-                // `Clock.now`, say) never takes this edge: emit the value and ignore it.
-                let _ = on_suspend;
+                if on_suspend.is_some() {
+                    // State machines have their own emitter (see `suspend`).
+                    self.internal(format!("suspension edge left in {}", cx.f.name));
+                }
+                // Suspending code called where nothing may suspend runs in place (spec 8.7);
+                // what comes back suspended is unwound as interrupted (spec 14.5).
+                let sync = !cx.f.suspends && emela_lir::may_suspend(&value);
+                if sync {
+                    ins.call(self.rt("sync_enter"));
+                }
                 self.value(cx, ins, dst, &value);
+                if sync {
+                    ins.call(self.rt("sync_leave"));
+                }
                 if let Some(landing) = on_defect {
                     ins.global_get(G_DEFECT);
                     ins.if_(BlockType::Empty);
@@ -2043,15 +2101,7 @@ impl<'m> Builder<'m> {
             } => {
                 let def = self.core().effects[*effect].ops[*op].clone();
                 let ret = self.repr(def.ret);
-                if def.suspend {
-                    // The check rejects every reachable call to a `suspend fn` operation, so this
-                    // one is in a handler operation nothing performs (a `sleep` that delegates to
-                    // an outer `Clock`, say).
-                    ins.unreachable();
-                    self.assign(cx, ins, dst, ret);
-                    return;
-                }
-                self.op_call(cx, ins, dst, *handler, *op, args, ret);
+                self.op_call(cx, ins, dst, *handler, *op, args, ret, &def);
             }
         }
     }
@@ -2090,10 +2140,18 @@ impl<'m> Builder<'m> {
         op: usize,
         args: &[Operand],
         ret: Repr,
+        def: &emela_core::OpDef,
     ) {
+        let suspend = def.suspend;
+        // A `suspend fn` implementation takes the resume function last and returns nothing; the
+        // value to continue with comes from `perform_end` (spec 8.4, 14.5).
         let mut params = vec![Repr::Ref];
         params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
-        let ty = self.call_ty(&params, ret);
+        if suspend {
+            params.push(Repr::Ref);
+        }
+        let call_ret = if suspend { Repr::Void } else { ret };
+        let ty = self.call_ty(&params, call_ret);
         let op_off = HDR + 8 * (op as u32 + 2);
         // If the handler was released, its operations are a defect (spec 8.6).
         ins.local_get(cx.local(handler));
@@ -2105,16 +2163,92 @@ impl<'m> Builder<'m> {
         ins.call(raise);
         dummy_return(ins, cx.ret);
         ins.else_();
+        let rs = if suspend {
+            let rs = cx.scratch(Repr::Ref, 0);
+            let prefix =
+                self.string_literal(format!("operation `{}` of handler `", def.name).as_bytes());
+            let resume = self.resume_table(ret);
+            ins.i32_const(prefix as i32);
+            ins.local_get(cx.local(handler));
+            ins.i32_const(resume as i32);
+            let f = self.rt("perform_new");
+            ins.call(f);
+            ins.local_set(rs);
+            Some(rs)
+        } else {
+            None
+        };
         ins.local_get(cx.local(handler));
         ins.i32_load(mem(op_off, 4));
         for a in args {
             self.operand(cx, ins, a);
         }
+        if let Some(rs) = rs {
+            ins.local_get(rs);
+        }
         ins.local_get(cx.local(handler));
         ins.i32_load(mem(op_off, 4));
         ins.i32_load(mem(HDR, 4));
         ins.call_indirect(0, ty);
+        if let Some(rs) = rs {
+            let end = self.rt("perform_end");
+            ins.local_get(rs);
+            ins.call(end);
+            self.perform_result(ins, ret);
+        }
         self.assign(cx, ins, dst, ret);
+        ins.end();
+    }
+
+    /// The resume function table index for an operation returning `ret`.
+    fn resume_table(&mut self, ret: Repr) -> u32 {
+        match &self.sus {
+            Some(plan) => plan.resume_table(ret),
+            None => {
+                self.internal("a `suspend fn` operation without the suspend runtime");
+                0
+            }
+        }
+    }
+
+    /// Leaves the value `perform_end` produced (or a dummy when it suspended or a pending
+    /// failure or defect is set).
+    fn perform_result(&mut self, ins: &mut InstructionSink, ret: Repr) {
+        if ret == Repr::Void {
+            return;
+        }
+        let Some(plan) = &self.sus else { return };
+        let out_mode = plan.out_mode;
+        ins.i32_const(out_mode as i32);
+        ins.i32_load8_u(mem(0, 1));
+        ins.i32_eqz();
+        ins.if_(BlockType::Result(val(ret)));
+        ins.i32_const(plan.out_word as i32);
+        match ret {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_load(mem(0, 4));
+            }
+            Repr::I64 => {
+                ins.i64_load(mem(0, 8));
+            }
+            Repr::F64 => {
+                ins.f64_load(mem(0, 8));
+            }
+            Repr::Void => unreachable!(),
+        }
+        ins.else_();
+        match ret {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_const(0);
+            }
+            Repr::I64 => {
+                ins.i64_const(0);
+            }
+            Repr::F64 => {
+                ins.f64_const(0.0.into());
+            }
+            Repr::Void => unreachable!(),
+        }
         ins.end();
     }
 }
@@ -2124,6 +2258,22 @@ impl<'m> Builder<'m> {
 enum Scrutinee {
     Tag(VarId),
     Lit(VarId),
+}
+
+/// The representation of a value that may suspend. The suspension edge needs it when the value is
+/// unused (`dst` is `None`) and the resumed reference must be released.
+fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
+    let Value::Call { callee, .. } = value else {
+        return Repr::Void;
+    };
+    match callee {
+        Callee::Direct(g) => b.repr(b.m.functions[*g].ret),
+        Callee::Op { effect, op, .. } => b.repr(b.core().effects[*effect].ops[*op].ret),
+        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
+            Type::Fn(fty) => b.repr(fty.ret),
+            _ => Repr::Void,
+        },
+    }
 }
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
@@ -2179,13 +2329,19 @@ struct FnCtx<'a> {
 
 impl<'a> FnCtx<'a> {
     fn new(f: &'a Function, b: &Builder<'_>) -> Self {
+        Self::with_extra_params(f, b, 0)
+    }
+
+    /// The context of a function whose wasm signature has `extra` parameters after the IR ones
+    /// (a state machine's frame pointer). They occupy the locals right after the parameters.
+    fn with_extra_params(f: &'a Function, b: &Builder<'_>, extra: u32) -> Self {
         let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
         let mut decls: Vec<(u32, ValType)> = Vec::new();
         for (i, &p) in f.params.iter().enumerate() {
             local[ix(p)] = i as u32;
         }
-        let mut next = nparams;
+        let mut next = nparams + extra;
         for (v, data) in f.vars.iter() {
             if !f.params.contains(&v) {
                 local[ix(v)] = next;

@@ -201,6 +201,12 @@ fn drop_(ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.return_();
     ins.end();
+    // The worklist of objects to free is linked through `aux`. The first object's `aux` may hold
+    // anything (a stale free-list link from a reused block, a string's self-reference marker), so
+    // it ends the list here; the others get theirs when they are pushed.
+    ins.local_get(0);
+    ins.i32_const(0);
+    ins.i32_store(mem(4, 4));
     ins.local_get(0);
     ins.local_set(PUSH);
     ins.block(BlockType::Empty);
@@ -303,7 +309,8 @@ fn drop_(ins: &mut InstructionSink) {
     ins.local_set(SIZE);
     free_raw(ins, Q, SIZE);
     ins.end();
-    ins.br(1);
+    // Next object on the worklist (its children were pushed above).
+    ins.br(0);
     ins.end();
     ins.end();
 }

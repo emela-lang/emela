@@ -20,12 +20,18 @@ impl<'m> Builder<'m> {
             RuntimeOp::Defect => "raise",
             RuntimeOp::DefectTake => "defect_take",
             RuntimeOp::DefectResume => "defect_resume",
-            // The state-machine pass puts these around code that may suspend by type: fairness
-            // yields before a call, and the hold of a release that must not be interrupted. The
-            // check rejects every reachable suspension point and the target has no scheduler or
-            // fibers, so the code runs straight through and there is nothing to yield to or
-            // interrupt.
-            RuntimeOp::Yield | RuntimeOp::YieldPerform | RuntimeOp::Hold | RuntimeOp::Unhold => {
+            // A fairness yield hands the scheduler a turn. The WASM backend has no fibers yet,
+            // so there is nobody to hand it to (and the state-machine pass still gives the value
+            // its suspension edge).
+            RuntimeOp::Yield | RuntimeOp::YieldPerform => {
+                self.assign(cx, ins, dst, Repr::Void);
+                return;
+            }
+            // `hold` / `unhold` keep a release that may suspend from being interrupted until it
+            // ends (spec 11.4). Interruption is only delivered at the end of a run here, and no
+            // fiber can interrupt another, so the release is never cut short and both are no-ops.
+            RuntimeOp::Hold | RuntimeOp::Unhold => {
+                self.assign(cx, ins, dst, Repr::Void);
                 return;
             }
         };

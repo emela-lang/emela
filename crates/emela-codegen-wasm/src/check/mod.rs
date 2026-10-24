@@ -1,8 +1,10 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The checks are split by what they inspect: the whole module and the collected diagnostics
-//! here, external functions in `external`, the suspension points reachable from the entry in
-//! `suspend`, and values (fibers) in `value`.
+//! here, external functions in `external`, the calls to `suspend fn` external functions reachable
+//! from the entry in `suspend`, and values (fibers) in `value`. Suspending functions and `suspend
+//! fn` operations are supported; `suspend fn` external functions are not (they need a host
+//! callback).
 
 mod external;
 mod suspend;
@@ -17,8 +19,8 @@ use self::suspend::suspension_points;
 use self::value::value_unsupported;
 
 /// Every construct reachable from the entry (the module holds only reachable functions after
-/// monomorphisation) that the WASM target cannot compile yet. Suspending code and fibers are
-/// reported once each, naming where they are reached.
+/// monomorphisation) that the WASM target cannot compile yet. Calls to `suspend fn` external
+/// functions and fibers are reported once each, naming where they are reached.
 pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
@@ -41,7 +43,7 @@ pub(crate) fn unsupported(m: &Module, roots: &[FnId]) -> Vec<WasmError> {
 #[derive(Default)]
 struct Found {
     errors: Vec<WasmError>,
-    /// Where suspending code is reached.
+    /// Where a `suspend fn` external function is called.
     suspending: Vec<String>,
     /// The fiber operations used.
     fibers: Vec<&'static str>,
@@ -63,7 +65,8 @@ impl Found {
     fn finish(mut self) -> Vec<WasmError> {
         if !self.suspending.is_empty() {
             let message = format!(
-                "the entry reaches suspending code, which target `wasm` does not support yet: {}",
+                "the entry calls a `suspend fn` external function, which target `wasm` does not \
+                 support yet: {}",
                 list(&self.suspending)
             );
             self.errors

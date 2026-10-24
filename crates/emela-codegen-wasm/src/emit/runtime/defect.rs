@@ -31,6 +31,15 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
 
 // ---- defects ----
 
+/// The static `interrupted` value of the suspend runtime, when the program has one.
+///
+/// The value is compared by pointer, like the C runtime's `em_is_interrupted`: the interruption
+/// is not a string, so it must never take part in a defect note. A release that ends in a defect
+/// while the run unwinds as interrupted replaces it (spec 14.4).
+fn interrupted(b: &Builder<'_>) -> Option<u32> {
+    b.sus.as_ref().map(|plan| plan.interrupted)
+}
+
 fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     const FIRST: u32 = 1;
     const NOTE: u32 = 2;
@@ -45,6 +54,20 @@ fn raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.global_set(G_DEFECT);
     ins.else_();
+    if let Some(interrupted) = interrupted(b) {
+        // Unwinding as interrupted: the new defect replaces the interruption (spec 14.4). The
+        // interruption is a static value, so nothing is released.
+        ins.global_get(G_DEFECT);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.local_get(0);
+        ins.call(dup);
+        ins.local_get(0);
+        ins.global_set(G_DEFECT);
+        ins.return_();
+        ins.end();
+    }
     // A defect raised while one is already pending (spec 14.4): the first stays the result and
     // the later one becomes a note of it. `local 0` stays the caller's. The note keeps the
     // first's self-reference marker (`aux`), so replacing the slot cannot lose it.
@@ -93,6 +116,27 @@ fn defect_resume(b: &mut Builder, ins: &mut InstructionSink) {
     // Nothing was raised by the cleanup.
     ins.return_();
     ins.end();
+    if let Some(interrupted) = interrupted(b) {
+        // The pending defect was the interruption: whatever the cleanup raised replaces it
+        // (spec 14.4). The interruption is a static value, so nothing is released.
+        ins.local_get(0);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.local_get(LATER);
+        ins.global_set(G_DEFECT);
+        ins.return_();
+        ins.end();
+        // An interruption raised by the cleanup is no note of the first (spec 14.4): the first
+        // stays in the pending slot and the interruption is just left behind (a static value,
+        // nothing to release).
+        ins.local_get(LATER);
+        ins.i32_const(interrupted as i32);
+        ins.i32_eq();
+        ins.if_(BlockType::Empty);
+        ins.return_();
+        ins.end();
+    }
     // A defect raised while the first unwound (spec 14.4): the first (`local 0`) stays the
     // result, and the later one is appended to its message as a note. The note keeps the first's
     // self-reference marker (`aux`).
