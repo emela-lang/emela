@@ -53,7 +53,7 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
         &mut Lower::default().with_target(Target::C),
         backend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     result
@@ -699,7 +699,7 @@ fn suspend_externals_complete_later() {
         &mut Lower::default().with_target(Target::C),
         &mut leak_checked(),
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(codes(&analysis), []);

@@ -339,7 +339,7 @@ fn run_with<B: Backend<emela_driver::CoreModule>>(
     backend: &mut B,
 ) -> ExitCode {
     // Diagnostics go out before the program starts, so warnings show first even if it never
-    // ends.
+    // ends. The command follows them, so it is the last line before the program's own output.
     let mut diagnostics_code = ExitCode::SUCCESS;
     let mut reported = 0;
     let (analysis, output) = emela_driver::run(
@@ -348,9 +348,12 @@ fn run_with<B: Backend<emela_driver::CoreModule>>(
         &mut Lower::default().with_target(target),
         backend,
         options,
-        |analysis| {
+        |analysis, command| {
             diagnostics_code = report(analysis);
             reported = analysis.diagnostics.len();
+            if let Some(command) = command {
+                eprintln!("running `{}`", command.command_line());
+            }
         },
     );
     match output {

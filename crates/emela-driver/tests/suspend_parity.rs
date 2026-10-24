@@ -54,13 +54,27 @@ fn run_on(name: &str, src: &str, target: Target) -> Result<Outcome, Vec<String>>
     };
     let mut frontend = Lower::default().with_target(target);
     let (analysis, output) = match target {
-        Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_| {}),
-        Target::Wasm => run(&fs, &input, &mut frontend, &mut CoreWasm, &options, |_| {}),
+        Target::Js => run(&fs, &input, &mut frontend, &mut CoreJs, &options, |_, _| {}),
+        Target::Wasm => run(
+            &fs,
+            &input,
+            &mut frontend,
+            &mut CoreWasm,
+            &options,
+            |_, _| {},
+        ),
         Target::C => {
             let (cc, flags) = cc_command();
             let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
             let mut backend = CoreC::with_cc(cc, &flags);
-            run(&fs, &input, &mut frontend, &mut backend, &options, |_| {})
+            run(
+                &fs,
+                &input,
+                &mut frontend,
+                &mut backend,
+                &options,
+                |_, _| {},
+            )
         }
     };
     let _ = std::fs::remove_dir_all(&options.out_dir);

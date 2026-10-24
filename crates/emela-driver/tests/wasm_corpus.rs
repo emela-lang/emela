@@ -169,7 +169,7 @@ fn run_wasm(name: &str, src: &str) -> Result<Outcome, Box<Analysis>> {
             &mut Lower::default().with_target(Target::Wasm),
             &mut CoreWasm,
             &options,
-            |_| {},
+            |_, _| {},
         )
     });
     let _ = std::fs::remove_dir_all(&options.out_dir);

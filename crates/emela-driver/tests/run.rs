@@ -79,7 +79,7 @@ fn run_with(
         &mut LexOnly,
         &mut HandWritten::main(js),
         &options,
-        |analysis| reported = Some(analysis.diagnostics.len()),
+        |analysis, _| reported = Some(analysis.diagnostics.len()),
     );
     // Called once before node. A diagnostic about failing to start node is added after it.
     assert!(reported.unwrap() <= result.0.diagnostics.len());
@@ -256,7 +256,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         &mut HandBuiltIr(module),
         &mut CoreJs,
         &options,
-        |_| {},
+        |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
@@ -383,7 +383,7 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, node: PathBuf) ->
         args: Vec::new(),
         output: Output::Capture,
     };
-    let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_| {});
+    let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
     assert!(
         analysis.diagnostics.is_empty(),
@@ -441,7 +441,7 @@ fn run_without_main_stops_before_node() {
         &mut Lower::default(),
         &mut CoreJs,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(output.is_none());
     assert!(!options.out_dir.exists());

@@ -138,7 +138,7 @@ fn library_run_is_e0230_even_if_lib_defines_main() {
                 &mut Lower::default().with_target(target),
                 &mut NoBackend,
                 &options,
-                |_| called += 1,
+                |_, _| called += 1,
             );
             assert_eq!(called, 1);
             assert!(output.is_none());
@@ -175,7 +175,7 @@ fn library_build_and_run_do_not_hide_type_errors() {
         &mut Lower::default(),
         &mut NoBackend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(entry.is_none());
     assert!(output.is_none());
@@ -206,7 +206,7 @@ fn projects_with_neither_entry_still_report_e0209() {
         &mut Lower::default(),
         &mut NoBackend,
         &options,
-        |_| {},
+        |_, _| {},
     );
     assert!(entry.is_none());
     assert!(output.is_none());

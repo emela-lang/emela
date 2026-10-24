@@ -27,6 +27,8 @@ impl Project {
         Project { dir }
     }
 
+    /// Runs emela. For `run`, the line naming the command that started the program is taken out
+    /// of `stderr` into `command`, so `stderr` holds the diagnostics and the program's own output.
     fn emela(&self, args: &[&str]) -> Run {
         // `emela test` prints in the `plain` format outside a coding agent ([cmd.test.reporter]).
         let mut command = Command::new(env!("CARGO_BIN_EXE_emela"));
@@ -39,10 +41,27 @@ impl Project {
             .env("NO_COLOR", "1")
             .output()
             .unwrap();
+        let mut stderr = String::from_utf8(output.stderr).unwrap();
+        let mut command = None;
+        if args.first() == Some(&"run") {
+            let start = stderr
+                .split_inclusive('\n')
+                .scan(0, |at, line| {
+                    let start = *at;
+                    *at += line.len();
+                    Some((start, line))
+                })
+                .find(|(_, line)| line.starts_with("running `"));
+            if let Some((start, line)) = start {
+                command = Some(line.trim_end().to_string());
+                stderr.replace_range(start..start + line.len(), "");
+            }
+        }
         Run {
             code: output.status.code(),
             stdout: String::from_utf8(output.stdout).unwrap(),
-            stderr: String::from_utf8(output.stderr).unwrap(),
+            stderr,
+            command,
         }
     }
 
@@ -62,6 +81,8 @@ struct Run {
     code: Option<i32>,
     stdout: String,
     stderr: String,
+    /// The `running ...` line of `emela run`.
+    command: Option<String>,
 }
 
 const BROKEN: &[(&str, &str)] = &[
@@ -105,6 +126,12 @@ fn new_application_runs() {
     assert_eq!(
         (run.code, run.stdout.as_str()),
         (Some(0), "Hello, world!\n")
+    );
+    let command = run.command.unwrap_or_default();
+    assert!(
+        command.starts_with("running `node --input-type=module -e <launcher> -- ")
+            && command.ends_with("main.mjs`"),
+        "{command}"
     );
 }
 
